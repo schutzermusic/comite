@@ -1,0 +1,62 @@
+{
+  "name": "AtividadeMembro",
+  "type": "object",
+  "properties": {
+    "usuario_email": {
+      "type": "string",
+      "description": "Email do usuário"
+    },
+    "usuario_nome": {
+      "type": "string",
+      "description": "Nome do usuário"
+    },
+    "tipo_atividade": {
+      "type": "string",
+      "enum": [
+        "voto",
+        "pauta_criada",
+        "reuniao_participada",
+        "comentario",
+        "role_alterada",
+        "adicionado_comite",
+        "removido_comite"
+      ],
+      "description": "Tipo da atividade realizada"
+    },
+    "descricao": {
+      "type": "string",
+      "description": "Descrição da atividade"
+    },
+    "comite_id": {
+      "type": "string",
+      "description": "ID do comitê relacionado"
+    },
+    "comite_nome": {
+      "type": "string",
+      "description": "Nome do comitê relacionado"
+    },
+    "referencia_id": {
+      "type": "string",
+      "description": "ID da referência (pauta_id, reuniao_id, etc)"
+    },
+    "referencia_tipo": {
+      "type": "string",
+      "enum": [
+        "pauta",
+        "reuniao",
+        "voto",
+        "comite"
+      ],
+      "description": "Tipo da referência"
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Dados adicionais sobre a atividade"
+    }
+  },
+  "required": [
+    "usuario_email",
+    "tipo_atividade",
+    "descricao"
+  ]
+}

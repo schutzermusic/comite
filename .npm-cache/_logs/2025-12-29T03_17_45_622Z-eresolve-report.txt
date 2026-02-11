@@ -1,0 +1,36 @@
+'Log files:
+/Users/schutzer/Desktop/PROJETOS DEV /INSIGHT GOVERNANÇA CORPORATIVA/.npm-cache/_logs/2025-12-29T03_17_45_622Z-debug-0.log
+
+# npm resolution error report
+
+While resolving: @genkit-ai/next@1.20.0
+Found: zod@4.1.13
+node_modules/zod
+  zod@"^3.25.0 || ^4.0.0" from eslint-plugin-react-hooks@7.0.1
+  node_modules/eslint-plugin-react-hooks
+    eslint-plugin-react-hooks@"^7.0.0" from eslint-config-next@16.0.7
+    node_modules/eslint-config-next
+      dev eslint-config-next@"^16.0.7" from the root project
+  peer zod@"^3.25.0 || ^4.0.0" from zod-validation-error@4.0.2
+  node_modules/zod-validation-error
+    zod-validation-error@"^3.5.0 || ^4.0.0" from eslint-plugin-react-hooks@7.0.1
+    node_modules/eslint-plugin-react-hooks
+      eslint-plugin-react-hooks@"^7.0.0" from eslint-config-next@16.0.7
+      node_modules/eslint-config-next
+        dev eslint-config-next@"^16.0.7" from the root project
+  zod@"^4.1.13" from the root project
+
+Could not resolve dependency:
+peer zod@"^3.24.1" from @genkit-ai/next@1.20.0
+node_modules/@genkit-ai/next
+  @genkit-ai/next@"^1.20.0" from the root project
+
+Conflicting peer dependency: zod@3.25.76
+node_modules/zod
+  peer zod@"^3.24.1" from @genkit-ai/next@1.20.0
+  node_modules/@genkit-ai/next
+    @genkit-ai/next@"^1.20.0" from the root project
+
+Fix the upstream dependency conflict, or retry
+this command with --force or --legacy-peer-deps
+to accept an incorrect (and potentially broken) dependency resolution.

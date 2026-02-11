@@ -1,0 +1,123 @@
+{
+  "name": "LogNotificacao",
+  "type": "object",
+  "properties": {
+    "usuario_email": {
+      "type": "string",
+      "description": "Email do destinatário"
+    },
+    "usuario_nome": {
+      "type": "string",
+      "description": "Nome do destinatário"
+    },
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "nova_pauta",
+        "votacao_aberta",
+        "lembrete_votacao",
+        "votacao_encerrada",
+        "resultado_publicado",
+        "comentario_mencao",
+        "decisao_atualizada",
+        "reuniao_proxima",
+        "reuniao_hoje",
+        "ata_publicada",
+        "membro_adicionado",
+        "role_atualizada"
+      ],
+      "description": "Tipo do evento"
+    },
+    "canais": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "email",
+          "whatsapp"
+        ]
+      },
+      "description": "Canais utilizados"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "queued",
+        "sent",
+        "failed",
+        "skipped"
+      ],
+      "default": "queued",
+      "description": "Status do envio"
+    },
+    "canal_email_status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "sent",
+        "failed",
+        "skipped"
+      ],
+      "description": "Status do envio por email"
+    },
+    "canal_whatsapp_status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "sent",
+        "failed",
+        "skipped"
+      ],
+      "description": "Status do envio por WhatsApp"
+    },
+    "error_message": {
+      "type": "string",
+      "description": "Mensagem de erro se houver"
+    },
+    "retry_count": {
+      "type": "number",
+      "default": 0,
+      "description": "Número de tentativas"
+    },
+    "sent_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Data/hora do envio bem-sucedido"
+    },
+    "scheduled_for": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Agendado para envio (quiet hours)"
+    },
+    "payload": {
+      "type": "object",
+      "description": "Dados do evento"
+    },
+    "template_id": {
+      "type": "string",
+      "description": "ID do template usado"
+    },
+    "dedupe_key": {
+      "type": "string",
+      "description": "Chave de deduplicação"
+    },
+    "referencia_id": {
+      "type": "string",
+      "description": "ID da entidade relacionada"
+    },
+    "referencia_tipo": {
+      "type": "string",
+      "description": "Tipo da entidade relacionada"
+    },
+    "override_quiet_hours": {
+      "type": "boolean",
+      "default": false,
+      "description": "Se deve ignorar quiet hours"
+    }
+  },
+  "required": [
+    "usuario_email",
+    "event_type",
+    "canais"
+  ]
+}

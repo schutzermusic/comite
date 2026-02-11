@@ -1,0 +1,139 @@
+{
+  "name": "ConfigNotificacao",
+  "type": "object",
+  "properties": {
+    "workspace_id": {
+      "type": "string",
+      "default": "default",
+      "description": "ID do workspace"
+    },
+    "quiet_hours_default_inicio": {
+      "type": "string",
+      "default": "22:00",
+      "description": "Horário padrão de início do silêncio"
+    },
+    "quiet_hours_default_fim": {
+      "type": "string",
+      "default": "07:00",
+      "description": "Horário padrão de fim do silêncio"
+    },
+    "email_provider": {
+      "type": "string",
+      "enum": [
+        "base44",
+        "sendgrid",
+        "smtp",
+        "twilio"
+      ],
+      "default": "twilio",
+      "description": "Provedor de email"
+    },
+    "whatsapp_provider": {
+      "type": "string",
+      "enum": [
+        "twilio",
+        "360dialog",
+        "gupshup",
+        "sendgrid"
+      ],
+      "default": "sendgrid",
+      "description": "Provedor de WhatsApp"
+    },
+    "sendgrid_api_key": {
+      "type": "string",
+      "description": "API Key do SendGrid"
+    },
+    "email_from": {
+      "type": "string",
+      "default": "noreply@comiteinsight.com.br",
+      "description": "Email remetente"
+    },
+    "email_from_name": {
+      "type": "string",
+      "default": "Comitê Insight",
+      "description": "Nome do remetente"
+    },
+    "smtp_host": {
+      "type": "string",
+      "description": "Host SMTP"
+    },
+    "smtp_port": {
+      "type": "number",
+      "description": "Porta SMTP"
+    },
+    "smtp_user": {
+      "type": "string",
+      "description": "Usuário SMTP"
+    },
+    "smtp_password": {
+      "type": "string",
+      "description": "Senha SMTP"
+    },
+    "smtp_secure": {
+      "type": "boolean",
+      "default": true,
+      "description": "Usar SSL/TLS"
+    },
+    "twilio_account_sid": {
+      "type": "string",
+      "description": "Twilio Account SID"
+    },
+    "twilio_auth_token": {
+      "type": "string",
+      "description": "Twilio Auth Token"
+    },
+    "twilio_whatsapp_from": {
+      "type": "string",
+      "description": "Número WhatsApp Twilio"
+    },
+    "wa_360d_api_key": {
+      "type": "string",
+      "description": "360dialog API Key"
+    },
+    "wa_360d_phone_number_id": {
+      "type": "string",
+      "description": "360dialog Phone Number ID"
+    },
+    "gupshup_api_key": {
+      "type": "string",
+      "description": "Gupshup API Key"
+    },
+    "gupshup_app_name": {
+      "type": "string",
+      "description": "Gupshup App Name"
+    },
+    "gupshup_base_url": {
+      "type": "string",
+      "default": "https://api.gupshup.io",
+      "description": "Gupshup Base URL"
+    },
+    "app_base_url": {
+      "type": "string",
+      "default": "https://app.comiteinsight.com.br",
+      "description": "URL base da aplicação"
+    },
+    "max_retry_attempts": {
+      "type": "number",
+      "default": 3,
+      "description": "Máximo de tentativas de reenvio"
+    },
+    "retry_delay_minutes": {
+      "type": "number",
+      "default": 5,
+      "description": "Delay entre tentativas em minutos"
+    },
+    "default_locale": {
+      "type": "string",
+      "default": "pt-BR",
+      "description": "Locale padrão"
+    },
+    "notificacoes_ativas": {
+      "type": "boolean",
+      "default": true,
+      "description": "Sistema de notificações ativo"
+    }
+  },
+  "required": [
+    "workspace_id"
+  ]
+}

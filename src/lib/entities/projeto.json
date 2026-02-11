@@ -1,0 +1,198 @@
+{
+  "name": "Projeto",
+  "type": "object",
+  "properties": {
+    "nome": {
+      "type": "string",
+      "description": "Nome do projeto"
+    },
+    "descricao": {
+      "type": "string",
+      "description": "Descri\u00e7\u00e3o do projeto"
+    },
+    "codigo": {
+      "type": "string",
+      "description": "C\u00f3digo \u00fanico do projeto"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "planejamento",
+        "em_andamento",
+        "pausado",
+        "concluido",
+        "cancelado"
+      ],
+      "default": "planejamento",
+      "description": "Status atual do projeto"
+    },
+    "tipo": {
+      "type": "string",
+      "enum": [
+        "energia_solar",
+        "eolica",
+        "hidreletrica",
+        "biomassa",
+        "armazenamento",
+        "consultoria",
+        "outro"
+      ],
+      "default": "energia_solar",
+      "description": "Tipo do projeto"
+    },
+    "cliente": {
+      "type": "string",
+      "description": "Nome do cliente"
+    },
+    "cliente_contato": {
+      "type": "string",
+      "description": "Contato do cliente"
+    },
+    "responsavel_email": {
+      "type": "string",
+      "description": "Email do respons\u00e1vel pelo projeto"
+    },
+    "responsavel_nome": {
+      "type": "string",
+      "description": "Nome do respons\u00e1vel"
+    },
+    "data_inicio": {
+      "type": "string",
+      "format": "date",
+      "description": "Data de in\u00edcio do projeto"
+    },
+    "data_fim_prevista": {
+      "type": "string",
+      "format": "date",
+      "description": "Data prevista de t\u00e9rmino"
+    },
+    "data_fim_real": {
+      "type": "string",
+      "format": "date",
+      "description": "Data real de t\u00e9rmino"
+    },
+    "progresso_percentual": {
+      "type": "number",
+      "default": 0,
+      "description": "Percentual de conclus\u00e3o (0-100)"
+    },
+    "comite_id": {
+      "type": "string",
+      "description": "ID do comit\u00ea respons\u00e1vel"
+    },
+    "comite_nome": {
+      "type": "string",
+      "description": "Nome do comit\u00ea respons\u00e1vel"
+    },
+    "comite_status": {
+      "type": "string",
+      "enum": [
+        "sem_supervisao",
+        "ativo",
+        "atencao_necessaria",
+        "revisao_pendente"
+      ],
+      "default": "sem_supervisao",
+      "description": "Status da supervis\u00e3o do comit\u00ea"
+    },
+    "sankhya_integrado": {
+      "type": "boolean",
+      "default": false,
+      "description": "Integrado com Sankhya"
+    },
+    "sankhya_op": {
+      "type": "string",
+      "description": "N\u00famero da OP no Sankhya"
+    },
+    "sankhya_projeto_id": {
+      "type": "string",
+      "description": "ID do projeto no Sankhya"
+    },
+    "valor_total": {
+      "type": "number",
+      "description": "Valor total do projeto (R$)"
+    },
+    "valor_executado": {
+      "type": "number",
+      "default": 0,
+      "description": "Valor j\u00e1 executado (R$)"
+    },
+    "orcamento_disponivel": {
+      "type": "number",
+      "description": "Or\u00e7amento dispon\u00edvel (R$)"
+    },
+    "roi_estimado": {
+      "type": "number",
+      "description": "ROI estimado (%)"
+    },
+    "roi_real": {
+      "type": "number",
+      "description": "ROI real (%)"
+    },
+    "impacto_financeiro": {
+      "type": "string",
+      "enum": [
+        "baixo",
+        "medio",
+        "alto",
+        "critico"
+      ],
+      "default": "medio",
+      "description": "Impacto financeiro do projeto"
+    },
+    "risco_geral": {
+      "type": "string",
+      "enum": [
+        "baixo",
+        "medio",
+        "alto",
+        "critico"
+      ],
+      "default": "medio",
+      "description": "N\u00edvel de risco geral"
+    },
+    "equipe_membros": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Lista de emails dos membros da equipe"
+    },
+    "localiza\u00e7\u00e3o": {
+      "type": "string",
+      "description": "Localiza\u00e7\u00e3o do projeto"
+    },
+    "capacidade_mw": {
+      "type": "number",
+      "description": "Capacidade em MW (para projetos de energia)"
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Tags para categoriza\u00e7\u00e3o"
+    },
+    "observacoes": {
+      "type": "string",
+      "description": "Observa\u00e7\u00f5es gerais"
+    },
+    "ultima_atualizacao_sankhya": {
+      "type": "string",
+      "format": "date-time",
+      "description": "\u00daltima sincroniza\u00e7\u00e3o com Sankhya"
+    },
+    "sankhya_dados_completos": {
+      "type": "object",
+      "description": "Dados completos do Sankhya"
+    },
+    "metricas_customizadas": {
+      "type": "object",
+      "description": "M\u00e9tricas espec\u00edficas do projeto"
+    }
+  },
+  "required": [
+    "nome",
+    "codigo"
+  ]
+}

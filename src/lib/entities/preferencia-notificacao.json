@@ -1,0 +1,167 @@
+{
+  "name": "PreferenciaNotificacao",
+  "type": "object",
+  "properties": {
+    "usuario_email": {
+      "type": "string",
+      "description": "Email do usuário"
+    },
+    "canal_email_ativo": {
+      "type": "boolean",
+      "default": true,
+      "description": "Canal de email está ativo"
+    },
+    "canal_whatsapp_ativo": {
+      "type": "boolean",
+      "default": false,
+      "description": "Canal de WhatsApp está ativo"
+    },
+    "telefone_whatsapp": {
+      "type": "string",
+      "description": "Telefone no formato E.164 (ex: +5511999999999)"
+    },
+    "quiet_hours_ativo": {
+      "type": "boolean",
+      "default": false,
+      "description": "Horário de silêncio ativo"
+    },
+    "quiet_hours_inicio": {
+      "type": "string",
+      "default": "22:00",
+      "description": "Horário de início do silêncio (HH:mm)"
+    },
+    "quiet_hours_fim": {
+      "type": "string",
+      "default": "07:00",
+      "description": "Horário de fim do silêncio (HH:mm)"
+    },
+    "event_nova_pauta_email": {
+      "type": "boolean",
+      "default": true,
+      "description": "Receber email para nova pauta"
+    },
+    "event_nova_pauta_whatsapp": {
+      "type": "boolean",
+      "default": false,
+      "description": "Receber WhatsApp para nova pauta"
+    },
+    "event_votacao_aberta_email": {
+      "type": "boolean",
+      "default": true,
+      "description": "Receber email quando votação abrir"
+    },
+    "event_votacao_aberta_whatsapp": {
+      "type": "boolean",
+      "default": false,
+      "description": "Receber WhatsApp quando votação abrir"
+    },
+    "event_lembrete_votacao_email": {
+      "type": "boolean",
+      "default": true,
+      "description": "Receber email de lembrete de votação"
+    },
+    "event_lembrete_votacao_whatsapp": {
+      "type": "boolean",
+      "default": true,
+      "description": "Receber WhatsApp de lembrete de votação"
+    },
+    "event_votacao_encerrada_email": {
+      "type": "boolean",
+      "default": true,
+      "description": "Receber email quando votação encerrar"
+    },
+    "event_votacao_encerrada_whatsapp": {
+      "type": "boolean",
+      "default": false,
+      "description": "Receber WhatsApp quando votação encerrar"
+    },
+    "event_resultado_publicado_email": {
+      "type": "boolean",
+      "default": true,
+      "description": "Receber email de resultado publicado"
+    },
+    "event_resultado_publicado_whatsapp": {
+      "type": "boolean",
+      "default": false,
+      "description": "Receber WhatsApp de resultado publicado"
+    },
+    "event_comentario_mencao_email": {
+      "type": "boolean",
+      "default": true,
+      "description": "Receber email de menções"
+    },
+    "event_comentario_mencao_whatsapp": {
+      "type": "boolean",
+      "default": true,
+      "description": "Receber WhatsApp de menções"
+    },
+    "event_decisao_atualizada_email": {
+      "type": "boolean",
+      "default": true,
+      "description": "Receber email de decisão atualizada"
+    },
+    "event_decisao_atualizada_whatsapp": {
+      "type": "boolean",
+      "default": false,
+      "description": "Receber WhatsApp de decisão atualizada"
+    },
+    "event_reuniao_proxima_email": {
+      "type": "boolean",
+      "default": true,
+      "description": "Receber email sobre reuniões próximas"
+    },
+    "event_reuniao_proxima_whatsapp": {
+      "type": "boolean",
+      "default": false,
+      "description": "Receber WhatsApp sobre reuniões próximas"
+    },
+    "event_reuniao_hoje_email": {
+      "type": "boolean",
+      "default": true,
+      "description": "Receber email sobre reuniões do dia"
+    },
+    "event_reuniao_hoje_whatsapp": {
+      "type": "boolean",
+      "default": true,
+      "description": "Receber WhatsApp sobre reuniões do dia"
+    },
+    "event_ata_publicada_email": {
+      "type": "boolean",
+      "default": true,
+      "description": "Receber email quando ata for publicada"
+    },
+    "event_ata_publicada_whatsapp": {
+      "type": "boolean",
+      "default": false,
+      "description": "Receber WhatsApp quando ata for publicada"
+    },
+    "event_membro_adicionado_email": {
+      "type": "boolean",
+      "default": true,
+      "description": "Receber email ao ser adicionado a comitê"
+    },
+    "event_membro_adicionado_whatsapp": {
+      "type": "boolean",
+      "default": false,
+      "description": "Receber WhatsApp ao ser adicionado a comitê"
+    },
+    "event_role_atualizada_email": {
+      "type": "boolean",
+      "default": true,
+      "description": "Receber email quando role for atualizada"
+    },
+    "event_role_atualizada_whatsapp": {
+      "type": "boolean",
+      "default": false,
+      "description": "Receber WhatsApp quando role for atualizada"
+    },
+    "locale": {
+      "type": "string",
+      "default": "pt-BR",
+      "description": "Locale do usuário"
+    }
+  },
+  "required": [
+    "usuario_email"
+  ]
+}

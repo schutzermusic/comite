@@ -1,0 +1,133 @@
+{
+  "name": "Comite",
+  "type": "object",
+  "properties": {
+    "nome": {
+      "type": "string",
+      "description": "Nome do comitê"
+    },
+    "descricao": {
+      "type": "string",
+      "description": "Descrição detalhada do comitê"
+    },
+    "tipo": {
+      "type": "string",
+      "enum": [
+        "executivo",
+        "consultivo",
+        "fiscal",
+        "estrategico",
+        "operacional",
+        "especial"
+      ],
+      "default": "consultivo",
+      "description": "Tipo do comitê"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "ativo",
+        "inativo",
+        "suspenso"
+      ],
+      "default": "ativo",
+      "description": "Status do comitê"
+    },
+    "quorum_minimo": {
+      "type": "number",
+      "default": 50,
+      "description": "Percentual mínimo de presença para validar votação"
+    },
+    "percentual_aprovacao": {
+      "type": "number",
+      "default": 50,
+      "description": "Percentual mínimo de votos favoráveis para aprovação"
+    },
+    "permite_abstencao": {
+      "type": "boolean",
+      "default": true,
+      "description": "Permite votos de abstenção"
+    },
+    "votacao_anonima": {
+      "type": "boolean",
+      "default": false,
+      "description": "Votações são anônimas"
+    },
+    "presidente_email": {
+      "type": "string",
+      "description": "Email do presidente do comitê"
+    },
+    "presidente_nome": {
+      "type": "string",
+      "description": "Nome do presidente do comitê"
+    },
+    "total_membros": {
+      "type": "number",
+      "default": 0,
+      "description": "Total de membros no comitê"
+    },
+    "total_pautas": {
+      "type": "number",
+      "default": 0,
+      "description": "Total de pautas do comitê"
+    },
+    "cor": {
+      "type": "string",
+      "default": "#FF7A3D",
+      "description": "Cor de identificação do comitê"
+    },
+    "sankhya_integrado": {
+      "type": "boolean",
+      "default": false,
+      "description": "Indica se o comitê está integrado com Sankhya"
+    },
+    "sankhya_op": {
+      "type": "string",
+      "description": "Número da OP (Ordem de Produção) no Sankhya"
+    },
+    "sankhya_projeto_id": {
+      "type": "string",
+      "description": "ID do projeto no Sankhya"
+    },
+    "sankhya_projeto_nome": {
+      "type": "string",
+      "description": "Nome do projeto no Sankhya"
+    },
+    "sankhya_cliente": {
+      "type": "string",
+      "description": "Nome do cliente no Sankhya"
+    },
+    "sankhya_data_inicio": {
+      "type": "string",
+      "format": "date",
+      "description": "Data de início do projeto no Sankhya"
+    },
+    "sankhya_data_fim": {
+      "type": "string",
+      "format": "date",
+      "description": "Data prevista de término no Sankhya"
+    },
+    "sankhya_responsavel": {
+      "type": "string",
+      "description": "Responsável pelo projeto no Sankhya"
+    },
+    "sankhya_sync_ativo": {
+      "type": "boolean",
+      "default": false,
+      "description": "Sincronização automática ativa"
+    },
+    "sankhya_ultima_sync": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Data da última sincronização com Sankhya"
+    },
+    "sankhya_dados_completos": {
+      "type": "object",
+      "description": "Dados completos do projeto Sankhya em JSON"
+    }
+  },
+  "required": [
+    "nome",
+    "descricao"
+  ]
+}

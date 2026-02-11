@@ -1,0 +1,18 @@
+0 verbose cli /usr/local/bin/node /usr/local/lib/node_modules/npm/bin/npm-cli.js
+1 info using npm@11.6.2
+2 info using node@v24.11.1
+3 silly config load:file:/usr/local/lib/node_modules/npm/npmrc
+4 silly config load:file:/Users/schutzer/Desktop/PROJETOS DEV /INSIGHT GOVERNANÇA CORPORATIVA/.npmrc
+5 silly config load:file:/Users/schutzer/.npmrc
+6 silly config load:file:/usr/local/etc/npmrc
+7 verbose title npm exec playwright init --yes
+8 verbose argv "exec" "--" "playwright" "init" "--yes"
+9 verbose logfile logs-max:10 dir:/Users/schutzer/Desktop/PROJETOS DEV /INSIGHT GOVERNANÇA CORPORATIVA/.npm-cache/_logs/2025-12-29T03_18_08_439Z-
+10 verbose logfile /Users/schutzer/Desktop/PROJETOS DEV /INSIGHT GOVERNANÇA CORPORATIVA/.npm-cache/_logs/2025-12-29T03_18_08_439Z-debug-0.log
+11 silly logfile done cleaning log files
+12 verbose cwd /Users/schutzer/Desktop/PROJETOS DEV /INSIGHT GOVERNANÇA CORPORATIVA
+13 verbose os Darwin 23.1.0
+14 verbose node v24.11.1
+15 verbose npm  v11.6.2
+16 verbose exit 1
+17 verbose code 1

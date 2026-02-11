@@ -1,0 +1,71 @@
+{
+  "name": "Notificacao",
+  "type": "object",
+  "properties": {
+    "usuario_email": {
+      "type": "string",
+      "description": "Email do usu\u00e1rio que receber\u00e1 a notifica\u00e7\u00e3o"
+    },
+    "tipo": {
+      "type": "string",
+      "enum": [
+        "reuniao_proxima",
+        "nova_pauta",
+        "votacao_iniciada",
+        "votacao_encerrando",
+        "votacao_encerrada",
+        "reuniao_hoje",
+        "ata_publicada",
+        "membro_adicionado",
+        "role_atualizada"
+      ],
+      "description": "Tipo da notifica\u00e7\u00e3o"
+    },
+    "titulo": {
+      "type": "string",
+      "description": "T\u00edtulo da notifica\u00e7\u00e3o"
+    },
+    "mensagem": {
+      "type": "string",
+      "description": "Mensagem detalhada da notifica\u00e7\u00e3o"
+    },
+    "lida": {
+      "type": "boolean",
+      "default": false,
+      "description": "Indica se a notifica\u00e7\u00e3o foi lida"
+    },
+    "link": {
+      "type": "string",
+      "description": "Link relacionado \u00e0 notifica\u00e7\u00e3o"
+    },
+    "referencia_id": {
+      "type": "string",
+      "description": "ID do objeto relacionado (pauta_id, reuniao_id, etc)"
+    },
+    "referencia_tipo": {
+      "type": "string",
+      "enum": [
+        "pauta",
+        "reuniao",
+        "comite",
+        "voto"
+      ],
+      "description": "Tipo da refer\u00eancia"
+    },
+    "icone": {
+      "type": "string",
+      "description": "Nome do \u00edcone a ser exibido"
+    },
+    "cor": {
+      "type": "string",
+      "default": "#FF7A3D",
+      "description": "Cor de destaque da notifica\u00e7\u00e3o"
+    }
+  },
+  "required": [
+    "usuario_email",
+    "tipo",
+    "titulo",
+    "mensagem"
+  ]
+}

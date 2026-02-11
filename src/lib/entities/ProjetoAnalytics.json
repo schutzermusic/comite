@@ -1,0 +1,253 @@
+{
+  "name": "ProjetoAnalytics",
+  "type": "object",
+  "properties": {
+    "projeto_id": {
+      "type": "string",
+      "description": "ID do projeto analisado"
+    },
+    "projeto_nome": {
+      "type": "string",
+      "description": "Nome do projeto"
+    },
+    "data_analise": {
+      "type": "string",
+      "format": "date",
+      "description": "Data da an\u00e1lise"
+    },
+    "avaliacao_risco": {
+      "type": "object",
+      "properties": {
+        "nivel_risco": {
+          "type": "string",
+          "enum": [
+            "baixo",
+            "medio",
+            "alto",
+            "critico"
+          ],
+          "description": "N\u00edvel geral de risco"
+        },
+        "score_risco": {
+          "type": "number",
+          "description": "Score de risco (0-100)"
+        },
+        "fatores_risco": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "fator": {
+                "type": "string"
+              },
+              "impacto": {
+                "type": "string",
+                "enum": [
+                  "baixo",
+                  "medio",
+                  "alto"
+                ]
+              },
+              "descricao": {
+                "type": "string"
+              },
+              "mitigacao_sugerida": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "riscos_identificados": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "description": "Avalia\u00e7\u00e3o de riscos do projeto"
+    },
+    "previsao_roi": {
+      "type": "object",
+      "properties": {
+        "roi_estimado_percentual": {
+          "type": "number",
+          "description": "ROI estimado em %"
+        },
+        "roi_pessimista": {
+          "type": "number"
+        },
+        "roi_realista": {
+          "type": "number"
+        },
+        "roi_otimista": {
+          "type": "number"
+        },
+        "payback_meses": {
+          "type": "number",
+          "description": "Per\u00edodo de retorno em meses"
+        },
+        "valor_presente_liquido": {
+          "type": "number",
+          "description": "VPL do projeto"
+        },
+        "taxa_retorno_interna": {
+          "type": "number",
+          "description": "TIR em %"
+        },
+        "analise_sensibilidade": {
+          "type": "object",
+          "description": "An\u00e1lise de sensibilidade de vari\u00e1veis"
+        }
+      },
+      "description": "Previs\u00e3o de ROI e an\u00e1lise financeira"
+    },
+    "alocacao_recursos": {
+      "type": "object",
+      "properties": {
+        "recursos_humanos": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "role": {
+                "type": "string"
+              },
+              "horas_alocadas": {
+                "type": "number"
+              },
+              "custo_estimado": {
+                "type": "number"
+              },
+              "utilizacao_percentual": {
+                "type": "number"
+              }
+            }
+          }
+        },
+        "recursos_materiais": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "item": {
+                "type": "string"
+              },
+              "quantidade": {
+                "type": "number"
+              },
+              "custo": {
+                "type": "number"
+              }
+            }
+          }
+        },
+        "custo_total_recursos": {
+          "type": "number"
+        },
+        "eficiencia_alocacao": {
+          "type": "number",
+          "description": "Score de efici\u00eancia (0-100)"
+        },
+        "recursos_subutilizados": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "recursos_sobreutilizados": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "description": "An\u00e1lise de aloca\u00e7\u00e3o de recursos"
+    },
+    "previsao_conclusao": {
+      "type": "object",
+      "properties": {
+        "data_prevista": {
+          "type": "string",
+          "format": "date"
+        },
+        "confianca_previsao": {
+          "type": "number",
+          "description": "Confian\u00e7a da previs\u00e3o (0-100)"
+        },
+        "atraso_provavel_dias": {
+          "type": "number"
+        },
+        "fatores_impacto": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "description": "Previs\u00e3o de conclus\u00e3o do projeto"
+    },
+    "kpis_projeto": {
+      "type": "object",
+      "properties": {
+        "spi": {
+          "type": "number",
+          "description": "Schedule Performance Index"
+        },
+        "cpi": {
+          "type": "number",
+          "description": "Cost Performance Index"
+        },
+        "evm": {
+          "type": "object",
+          "description": "Earned Value Management metrics"
+        }
+      },
+      "description": "KPIs do projeto"
+    },
+    "recomendacoes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "tipo": {
+            "type": "string",
+            "enum": [
+              "acao_imediata",
+              "melhoria",
+              "alerta",
+              "otimizacao"
+            ]
+          },
+          "prioridade": {
+            "type": "string",
+            "enum": [
+              "baixa",
+              "media",
+              "alta",
+              "urgente"
+            ]
+          },
+          "descricao": {
+            "type": "string"
+          },
+          "impacto_esperado": {
+            "type": "string"
+          }
+        }
+      },
+      "description": "Recomenda\u00e7\u00f5es baseadas na an\u00e1lise"
+    },
+    "ia_insights": {
+      "type": "string",
+      "description": "Insights gerados por IA sobre o projeto"
+    },
+    "score_saude_projeto": {
+      "type": "number",
+      "description": "Score geral de sa\u00fade do projeto (0-100)"
+    }
+  },
+  "required": [
+    "projeto_id",
+    "data_analise"
+  ]
+}

@@ -1,0 +1,168 @@
+{
+  "name": "WorkflowAutomation",
+  "type": "object",
+  "properties": {
+    "nome": {
+      "type": "string",
+      "description": "Nome da automação"
+    },
+    "descricao": {
+      "type": "string",
+      "description": "Descrição do que a automação faz"
+    },
+    "tipo": {
+      "type": "string",
+      "enum": [
+        "notificacao_prazo",
+        "atribuicao_tarefa",
+        "aprovacao_orcamento",
+        "mudanca_status",
+        "lembrete_votacao",
+        "alerta_risco",
+        "custom"
+      ],
+      "description": "Tipo de automação"
+    },
+    "trigger": {
+      "type": "object",
+      "properties": {
+        "evento": {
+          "type": "string",
+          "enum": [
+            "data_proxima",
+            "status_mudou",
+            "valor_excedido",
+            "prazo_vencendo",
+            "votacao_aberta",
+            "reuniao_agendada",
+            "projeto_criado"
+          ],
+          "description": "Evento que dispara a automação"
+        },
+        "condicoes": {
+          "type": "object",
+          "description": "Condições específicas para o trigger"
+        },
+        "dias_antecedencia": {
+          "type": "number",
+          "description": "Dias de antecedência para alertas de prazo"
+        }
+      },
+      "description": "Configuração do gatilho"
+    },
+    "acoes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "tipo": {
+            "type": "string",
+            "enum": [
+              "enviar_notificacao",
+              "enviar_email",
+              "atribuir_tarefa",
+              "criar_pauta",
+              "mudar_status",
+              "executar_funcao"
+            ]
+          },
+          "destinatarios": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Emails ou roles dos destinatários"
+          },
+          "template_mensagem": {
+            "type": "string",
+            "description": "Template da mensagem com variáveis"
+          },
+          "parametros": {
+            "type": "object",
+            "description": "Parâmetros adicionais para a ação"
+          }
+        }
+      },
+      "description": "Ações a serem executadas"
+    },
+    "filtros": {
+      "type": "object",
+      "properties": {
+        "comites_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "tipos_projeto": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "categorias_pauta": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "roles_aplicaveis": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Roles que devem receber as ações"
+        },
+        "valor_minimo": {
+          "type": "number",
+          "description": "Valor mínimo de projeto para aplicar"
+        }
+      },
+      "description": "Filtros para aplicar a automação"
+    },
+    "ativa": {
+      "type": "boolean",
+      "default": true,
+      "description": "Se a automação está ativa"
+    },
+    "prioridade": {
+      "type": "number",
+      "default": 5,
+      "description": "Prioridade de execução (1-10)"
+    },
+    "frequencia_execucao": {
+      "type": "string",
+      "enum": [
+        "imediata",
+        "diaria",
+        "semanal",
+        "mensal"
+      ],
+      "default": "imediata",
+      "description": "Frequência de verificação"
+    },
+    "horario_execucao": {
+      "type": "string",
+      "description": "Horário para execuções agendadas (HH:mm)"
+    },
+    "ultima_execucao": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Última vez que foi executada"
+    },
+    "proxima_execucao": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Próxima execução agendada"
+    },
+    "total_execucoes": {
+      "type": "number",
+      "default": 0,
+      "description": "Total de vezes que foi executada"
+    }
+  },
+  "required": [
+    "nome",
+    "tipo"
+  ]
+}

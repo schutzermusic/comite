@@ -1,0 +1,72 @@
+{
+  "name": "ExportLog",
+  "type": "object",
+  "properties": {
+    "usuario_email": {
+      "type": "string",
+      "description": "Email do usuário que exportou"
+    },
+    "usuario_nome": {
+      "type": "string",
+      "description": "Nome do usuário"
+    },
+    "tipo_relatorio": {
+      "type": "string",
+      "enum": [
+        "dashboard",
+        "projetos",
+        "comites",
+        "pautas",
+        "reunioes",
+        "financeiro",
+        "custom"
+      ],
+      "description": "Tipo de relatório exportado"
+    },
+    "formato": {
+      "type": "string",
+      "enum": [
+        "pdf",
+        "csv",
+        "xlsx",
+        "json"
+      ],
+      "description": "Formato de exportação"
+    },
+    "filtros_aplicados": {
+      "type": "object",
+      "description": "Filtros que foram aplicados no relatório"
+    },
+    "arquivo_url": {
+      "type": "string",
+      "description": "URL do arquivo exportado (se armazenado)"
+    },
+    "tamanho_bytes": {
+      "type": "number",
+      "description": "Tamanho do arquivo em bytes"
+    },
+    "registros_exportados": {
+      "type": "number",
+      "description": "Número de registros incluídos"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "processing",
+        "completed",
+        "failed"
+      ],
+      "default": "processing",
+      "description": "Status da exportação"
+    },
+    "erro_mensagem": {
+      "type": "string",
+      "description": "Mensagem de erro se falhou"
+    }
+  },
+  "required": [
+    "usuario_email",
+    "tipo_relatorio",
+    "formato"
+  ]
+}

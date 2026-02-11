@@ -1,0 +1,41 @@
+{
+  "name": "Voto",
+  "type": "object",
+  "properties": {
+    "pauta_id": {
+      "type": "string",
+      "description": "ID da pauta relacionada"
+    },
+    "usuario_email": {
+      "type": "string",
+      "description": "Email do usu\u00e1rio que votou"
+    },
+    "usuario_nome": {
+      "type": "string",
+      "description": "Nome do usu\u00e1rio que votou"
+    },
+    "voto": {
+      "type": "string",
+      "enum": [
+        "favor",
+        "contra",
+        "abstencao"
+      ],
+      "description": "Voto do membro"
+    },
+    "comentario": {
+      "type": "string",
+      "description": "Coment\u00e1rio opcional sobre o voto"
+    },
+    "data_voto": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Data e hora do voto"
+    }
+  },
+  "required": [
+    "pauta_id",
+    "usuario_email",
+    "voto"
+  ]
+}

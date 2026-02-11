@@ -1,0 +1,163 @@
+{
+  "name": "DashboardConfig",
+  "type": "object",
+  "properties": {
+    "usuario_email": {
+      "type": "string",
+      "description": "Email do usu\u00e1rio dono do dashboard"
+    },
+    "nome": {
+      "type": "string",
+      "description": "Nome do dashboard personalizado"
+    },
+    "descricao": {
+      "type": "string",
+      "description": "Descri\u00e7\u00e3o do dashboard"
+    },
+    "is_publico": {
+      "type": "boolean",
+      "default": false,
+      "description": "Se o dashboard \u00e9 p\u00fablico para outros usu\u00e1rios"
+    },
+    "is_default": {
+      "type": "boolean",
+      "default": false,
+      "description": "Se \u00e9 o dashboard padr\u00e3o do usu\u00e1rio"
+    },
+    "layout": {
+      "type": "object",
+      "properties": {
+        "widgets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "tipo": {
+                "type": "string",
+                "enum": [
+                  "chart",
+                  "kpi",
+                  "table",
+                  "map",
+                  "timeline"
+                ]
+              },
+              "titulo": {
+                "type": "string"
+              },
+              "data_source": {
+                "type": "string",
+                "enum": [
+                  "projetos",
+                  "comites",
+                  "pautas",
+                  "reunioes",
+                  "votos",
+                  "membros"
+                ]
+              },
+              "chart_type": {
+                "type": "string",
+                "enum": [
+                  "line",
+                  "bar",
+                  "pie",
+                  "area",
+                  "donut",
+                  "radar"
+                ]
+              },
+              "metricas": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "filtros": {
+                "type": "object"
+              },
+              "posicao": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "type": "number"
+                  },
+                  "y": {
+                    "type": "number"
+                  },
+                  "width": {
+                    "type": "number"
+                  },
+                  "height": {
+                    "type": "number"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "description": "Configura\u00e7\u00e3o do layout do dashboard"
+    },
+    "filtros_globais": {
+      "type": "object",
+      "properties": {
+        "data_inicio": {
+          "type": "string",
+          "format": "date"
+        },
+        "data_fim": {
+          "type": "string",
+          "format": "date"
+        },
+        "comite_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "tipo_projeto": {
+          "type": "string"
+        },
+        "categoria_pauta": {
+          "type": "string"
+        },
+        "tipo_reuniao": {
+          "type": "string"
+        }
+      },
+      "description": "Filtros aplicados globalmente ao dashboard"
+    },
+    "configuracao_exportacao": {
+      "type": "object",
+      "properties": {
+        "formato_padrao": {
+          "type": "string",
+          "enum": [
+            "pdf",
+            "csv",
+            "xlsx",
+            "json"
+          ],
+          "default": "pdf"
+        },
+        "incluir_graficos": {
+          "type": "boolean",
+          "default": true
+        },
+        "incluir_dados_brutos": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "description": "Configura\u00e7\u00f5es de exporta\u00e7\u00e3o"
+    }
+  },
+  "required": [
+    "usuario_email",
+    "nome"
+  ]
+}

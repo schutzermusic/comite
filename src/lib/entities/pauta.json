@@ -1,0 +1,164 @@
+{
+  "name": "Pauta",
+  "type": "object",
+  "properties": {
+    "comite_id": {
+      "type": "string",
+      "description": "ID do comitê relacionado"
+    },
+    "comite_nome": {
+      "type": "string",
+      "description": "Nome do comitê relacionado"
+    },
+    "titulo": {
+      "type": "string",
+      "description": "Título da pauta"
+    },
+    "descricao": {
+      "type": "string",
+      "description": "Descrição detalhada da pauta"
+    },
+    "justificativa": {
+      "type": "string",
+      "description": "Justificativa para a pauta"
+    },
+    "data_votacao_inicio": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Data e hora de início da votação"
+    },
+    "data_votacao_fim": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Data e hora de fim da votação"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "rascunho",
+        "aberta",
+        "em_votacao",
+        "encerrada",
+        "cancelada"
+      ],
+      "default": "rascunho",
+      "description": "Status atual da pauta"
+    },
+    "resultado": {
+      "type": "string",
+      "enum": [
+        "pendente",
+        "aprovado",
+        "reprovado",
+        "empate",
+        "sem_quorum"
+      ],
+      "default": "pendente",
+      "description": "Resultado da votação"
+    },
+    "arquivo_anexo_url": {
+      "type": "string",
+      "description": "URL do arquivo anexo"
+    },
+    "arquivo_anexo_nome": {
+      "type": "string",
+      "description": "Nome do arquivo anexo"
+    },
+    "votos_favor": {
+      "type": "number",
+      "default": 0,
+      "description": "Total de votos a favor"
+    },
+    "votos_contra": {
+      "type": "number",
+      "default": 0,
+      "description": "Total de votos contra"
+    },
+    "abstencoes": {
+      "type": "number",
+      "default": 0,
+      "description": "Total de abstenções"
+    },
+    "total_votos": {
+      "type": "number",
+      "default": 0,
+      "description": "Total de votos registrados"
+    },
+    "quorum_atingido": {
+      "type": "boolean",
+      "default": false,
+      "description": "Indica se o quórum foi atingido"
+    },
+    "categoria": {
+      "type": "string",
+      "enum": [
+        "estrategica",
+        "financeira",
+        "operacional",
+        "rh",
+        "juridica",
+        "ti",
+        "outra"
+      ],
+      "default": "outra",
+      "description": "Categoria da pauta"
+    },
+    "prioridade": {
+      "type": "string",
+      "enum": [
+        "baixa",
+        "media",
+        "alta",
+        "urgente"
+      ],
+      "default": "media",
+      "description": "Prioridade da pauta"
+    },
+    "votos_sigilosos": {
+      "type": "boolean",
+      "default": false,
+      "description": "Define se os votos individuais são sigilosos"
+    },
+    "sankhya_integrado": {
+      "type": "boolean",
+      "default": false,
+      "description": "Indica se a pauta está vinculada ao Sankhya"
+    },
+    "sankhya_op": {
+      "type": "string",
+      "description": "Número da OP (Ordem de Produção) no Sankhya"
+    },
+    "sankhya_projeto_id": {
+      "type": "string",
+      "description": "ID do projeto no Sankhya"
+    },
+    "sankhya_projeto_nome": {
+      "type": "string",
+      "description": "Nome do projeto no Sankhya"
+    },
+    "sankhya_cliente": {
+      "type": "string",
+      "description": "Nome do cliente no Sankhya"
+    },
+    "sankhya_responsavel": {
+      "type": "string",
+      "description": "Responsável pelo projeto no Sankhya"
+    },
+    "sankhya_valor_projeto": {
+      "type": "number",
+      "description": "Valor do projeto no Sankhya"
+    },
+    "sankhya_status": {
+      "type": "string",
+      "description": "Status do projeto no Sankhya"
+    },
+    "sankhya_dados_completos": {
+      "type": "object",
+      "description": "Dados completos do projeto Sankhya em JSON"
+    }
+  },
+  "required": [
+    "titulo",
+    "descricao"
+  ]
+}

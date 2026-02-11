@@ -1,0 +1,168 @@
+{
+  "name": "Role",
+  "type": "object",
+  "properties": {
+    "nome": {
+      "type": "string",
+      "description": "Nome da função (Admin, Project Manager, Committee Member, Viewer)"
+    },
+    "descricao": {
+      "type": "string",
+      "description": "Descrição da função e suas responsabilidades"
+    },
+    "tipo": {
+      "type": "string",
+      "enum": [
+        "admin",
+        "project_manager",
+        "committee_member",
+        "viewer",
+        "custom"
+      ],
+      "default": "viewer",
+      "description": "Tipo de função no sistema"
+    },
+    "is_system_role": {
+      "type": "boolean",
+      "default": false,
+      "description": "Se é uma função do sistema (não pode ser deletada)"
+    },
+    "permissoes": {
+      "type": "object",
+      "properties": {
+        "projetos_visualizar": {
+          "type": "boolean",
+          "default": true
+        },
+        "projetos_criar": {
+          "type": "boolean",
+          "default": false
+        },
+        "projetos_editar": {
+          "type": "boolean",
+          "default": false
+        },
+        "projetos_deletar": {
+          "type": "boolean",
+          "default": false
+        },
+        "comites_visualizar": {
+          "type": "boolean",
+          "default": true
+        },
+        "comites_criar": {
+          "type": "boolean",
+          "default": false
+        },
+        "comites_editar": {
+          "type": "boolean",
+          "default": false
+        },
+        "comites_deletar": {
+          "type": "boolean",
+          "default": false
+        },
+        "pautas_visualizar": {
+          "type": "boolean",
+          "default": true
+        },
+        "pautas_criar": {
+          "type": "boolean",
+          "default": false
+        },
+        "pautas_editar": {
+          "type": "boolean",
+          "default": false
+        },
+        "pautas_deletar": {
+          "type": "boolean",
+          "default": false
+        },
+        "pautas_votar": {
+          "type": "boolean",
+          "default": true
+        },
+        "pautas_iniciar_votacao": {
+          "type": "boolean",
+          "default": false
+        },
+        "reunioes_visualizar": {
+          "type": "boolean",
+          "default": true
+        },
+        "reunioes_criar": {
+          "type": "boolean",
+          "default": false
+        },
+        "reunioes_editar": {
+          "type": "boolean",
+          "default": false
+        },
+        "reunioes_deletar": {
+          "type": "boolean",
+          "default": false
+        },
+        "reunioes_ata": {
+          "type": "boolean",
+          "default": false
+        },
+        "membros_visualizar": {
+          "type": "boolean",
+          "default": true
+        },
+        "membros_gerenciar": {
+          "type": "boolean",
+          "default": false
+        },
+        "relatorios_visualizar": {
+          "type": "boolean",
+          "default": true
+        },
+        "relatorios_exportar": {
+          "type": "boolean",
+          "default": false
+        },
+        "relatorios_avancados": {
+          "type": "boolean",
+          "default": false
+        },
+        "financeiro_visualizar": {
+          "type": "boolean",
+          "default": false,
+          "description": "Acesso a dados financeiros do Sankhya"
+        },
+        "financeiro_editar": {
+          "type": "boolean",
+          "default": false
+        },
+        "sistema_configuracoes": {
+          "type": "boolean",
+          "default": false
+        },
+        "sistema_usuarios": {
+          "type": "boolean",
+          "default": false
+        },
+        "sistema_roles": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "description": "Permissões granulares da função"
+    },
+    "nivel_acesso": {
+      "type": "number",
+      "default": 1,
+      "description": "Nível de acesso hierárquico (1-10)"
+    },
+    "cor": {
+      "type": "string",
+      "default": "#64748B",
+      "description": "Cor de identificação da função"
+    }
+  },
+  "required": [
+    "nome",
+    "tipo"
+  ]
+}

@@ -1,0 +1,133 @@
+{
+  "name": "ComiteRole",
+  "type": "object",
+  "properties": {
+    "comite_id": {
+      "type": "string",
+      "description": "ID do comitê ao qual esta role pertence"
+    },
+    "nome": {
+      "type": "string",
+      "description": "Nome da role (ex: Presidente, Secretário, Membro Votante)"
+    },
+    "descricao": {
+      "type": "string",
+      "description": "Descrição da role e suas responsabilidades"
+    },
+    "is_default": {
+      "type": "boolean",
+      "default": false,
+      "description": "Define se é a role padrão para novos membros"
+    },
+    "permissoes": {
+      "type": "object",
+      "properties": {
+        "view_committee_details": {
+          "type": "boolean",
+          "default": true,
+          "description": "Visualizar detalhes do comitê"
+        },
+        "edit_committee_details": {
+          "type": "boolean",
+          "default": false,
+          "description": "Editar informações do comitê"
+        },
+        "manage_members": {
+          "type": "boolean",
+          "default": false,
+          "description": "Adicionar, remover e gerenciar membros"
+        },
+        "manage_roles": {
+          "type": "boolean",
+          "default": false,
+          "description": "Criar e gerenciar roles personalizadas"
+        },
+        "create_pautas": {
+          "type": "boolean",
+          "default": true,
+          "description": "Criar novas pautas"
+        },
+        "edit_own_pautas": {
+          "type": "boolean",
+          "default": true,
+          "description": "Editar pautas criadas por si mesmo"
+        },
+        "edit_all_pautas": {
+          "type": "boolean",
+          "default": false,
+          "description": "Editar qualquer pauta do comitê"
+        },
+        "delete_own_pautas": {
+          "type": "boolean",
+          "default": true,
+          "description": "Excluir pautas criadas por si mesmo"
+        },
+        "delete_all_pautas": {
+          "type": "boolean",
+          "default": false,
+          "description": "Excluir qualquer pauta do comitê"
+        },
+        "start_voting": {
+          "type": "boolean",
+          "default": false,
+          "description": "Iniciar votação em pautas"
+        },
+        "close_voting": {
+          "type": "boolean",
+          "default": false,
+          "description": "Encerrar votação em pautas"
+        },
+        "vote_on_pautas": {
+          "type": "boolean",
+          "default": true,
+          "description": "Votar em pautas"
+        },
+        "schedule_meetings": {
+          "type": "boolean",
+          "default": false,
+          "description": "Agendar reuniões"
+        },
+        "edit_meetings": {
+          "type": "boolean",
+          "default": false,
+          "description": "Editar reuniões agendadas"
+        },
+        "cancel_meetings": {
+          "type": "boolean",
+          "default": false,
+          "description": "Cancelar reuniões"
+        },
+        "create_meeting_minutes": {
+          "type": "boolean",
+          "default": false,
+          "description": "Criar e editar atas de reunião"
+        },
+        "view_reports": {
+          "type": "boolean",
+          "default": true,
+          "description": "Visualizar relatórios"
+        },
+        "create_reports": {
+          "type": "boolean",
+          "default": false,
+          "description": "Criar relatórios"
+        },
+        "approve_reports": {
+          "type": "boolean",
+          "default": false,
+          "description": "Aprovar relatórios"
+        }
+      },
+      "description": "Permissões específicas da role"
+    },
+    "cor": {
+      "type": "string",
+      "default": "#64748B",
+      "description": "Cor de identificação da role"
+    }
+  },
+  "required": [
+    "comite_id",
+    "nome"
+  ]
+}

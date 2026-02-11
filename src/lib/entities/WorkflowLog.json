@@ -1,0 +1,82 @@
+{
+  "name": "WorkflowLog",
+  "type": "object",
+  "properties": {
+    "workflow_id": {
+      "type": "string",
+      "description": "ID da automação executada"
+    },
+    "workflow_nome": {
+      "type": "string",
+      "description": "Nome da automação"
+    },
+    "trigger_evento": {
+      "type": "string",
+      "description": "Evento que disparou a execução"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "success",
+        "failed",
+        "partial"
+      ],
+      "description": "Status da execução"
+    },
+    "acoes_executadas": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "tipo": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "detalhes": {
+            "type": "string"
+          },
+          "destinatarios": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "description": "Ações que foram executadas"
+    },
+    "entidade_referencia": {
+      "type": "object",
+      "properties": {
+        "tipo": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "nome": {
+          "type": "string"
+        }
+      },
+      "description": "Entidade que disparou o workflow"
+    },
+    "erro_mensagem": {
+      "type": "string",
+      "description": "Mensagem de erro se houver"
+    },
+    "duracao_ms": {
+      "type": "number",
+      "description": "Duração da execução em milissegundos"
+    },
+    "metadados": {
+      "type": "object",
+      "description": "Dados adicionais da execução"
+    }
+  },
+  "required": [
+    "workflow_id",
+    "status"
+  ]
+}

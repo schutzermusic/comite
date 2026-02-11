@@ -1,0 +1,71 @@
+{
+  "name": "MembroComite",
+  "type": "object",
+  "properties": {
+    "comite_id": {
+      "type": "string",
+      "description": "ID do comitê"
+    },
+    "comite_nome": {
+      "type": "string",
+      "description": "Nome do comitê"
+    },
+    "usuario_email": {
+      "type": "string",
+      "description": "Email do membro"
+    },
+    "usuario_nome": {
+      "type": "string",
+      "description": "Nome do membro"
+    },
+    "role_id": {
+      "type": "string",
+      "description": "ID da role atribuída ao membro"
+    },
+    "role_nome": {
+      "type": "string",
+      "description": "Nome da role atribuída"
+    },
+    "cargo_comite": {
+      "type": "string",
+      "enum": [
+        "presidente",
+        "vice_presidente",
+        "secretario",
+        "membro",
+        "suplente"
+      ],
+      "default": "membro",
+      "description": "Cargo do membro no comitê (legado, use role_id)"
+    },
+    "pode_criar_pautas": {
+      "type": "boolean",
+      "default": true,
+      "description": "Permissão para criar pautas (legado, use role permissions)"
+    },
+    "pode_votar": {
+      "type": "boolean",
+      "default": true,
+      "description": "Permissão para votar (legado, use role permissions)"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "ativo",
+        "inativo"
+      ],
+      "default": "ativo",
+      "description": "Status do membro no comitê"
+    },
+    "data_entrada": {
+      "type": "string",
+      "format": "date",
+      "description": "Data de entrada no comitê"
+    }
+  },
+  "required": [
+    "comite_id",
+    "usuario_email",
+    "usuario_nome"
+  ]
+}

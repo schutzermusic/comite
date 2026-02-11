@@ -1,0 +1,133 @@
+{
+  "name": "Reuniao",
+  "type": "object",
+  "properties": {
+    "titulo": {
+      "type": "string",
+      "description": "Título da reunião"
+    },
+    "descricao": {
+      "type": "string",
+      "description": "Descrição e objetivos da reunião"
+    },
+    "comite_id": {
+      "type": "string",
+      "description": "ID do comitê relacionado"
+    },
+    "comite_nome": {
+      "type": "string",
+      "description": "Nome do comitê relacionado"
+    },
+    "data_hora": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Data e hora da reunião"
+    },
+    "duracao_minutos": {
+      "type": "number",
+      "default": 60,
+      "description": "Duração estimada em minutos"
+    },
+    "local": {
+      "type": "string",
+      "description": "Local da reunião (presencial ou link de videoconferência)"
+    },
+    "tipo_reuniao": {
+      "type": "string",
+      "enum": [
+        "presencial",
+        "virtual",
+        "hibrida"
+      ],
+      "default": "virtual",
+      "description": "Tipo da reunião"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "agendada",
+        "em_andamento",
+        "concluida",
+        "cancelada"
+      ],
+      "default": "agendada",
+      "description": "Status da reunião"
+    },
+    "pautas_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "IDs das pautas a serem discutidas"
+    },
+    "participantes_emails": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Emails dos participantes convidados"
+    },
+    "participantes_nomes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Nomes dos participantes convidados"
+    },
+    "convites_enviados": {
+      "type": "boolean",
+      "default": false,
+      "description": "Indica se os convites foram enviados"
+    },
+    "lembrete_enviado": {
+      "type": "boolean",
+      "default": false,
+      "description": "Indica se o lembrete foi enviado"
+    },
+    "ata_reuniao": {
+      "type": "string",
+      "description": "Ata da reunião após conclusão"
+    },
+    "transcricao": {
+      "type": "string",
+      "description": "Transcrição ou resumo da discussão da reunião"
+    },
+    "ata_ia_gerada": {
+      "type": "string",
+      "description": "Ata gerada automaticamente pela IA"
+    },
+    "acoes_sugeridas": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "descricao": {
+            "type": "string"
+          },
+          "responsavel": {
+            "type": "string"
+          },
+          "prazo": {
+            "type": "string"
+          },
+          "prioridade": {
+            "type": "string"
+          }
+        }
+      },
+      "description": "Ações sugeridas pela IA com base na reunião"
+    },
+    "resumo_ia": {
+      "type": "string",
+      "description": "Resumo executivo gerado pela IA"
+    },
+    "link_gravacao": {
+      "type": "string",
+      "description": "Link para gravação da reunião (se aplicável)"
+    }
+  },
+  "required": [
+    "titulo",
+    "data_hora"
+  ]
+}
