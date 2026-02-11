@@ -1,10 +1,10 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { 
-  Download, 
-  Share2, 
+import {
+  Download,
+  Share2,
   Calendar,
   AlertTriangle,
   CheckCircle,
@@ -15,7 +15,7 @@ import {
 import { OrionGreenBackground } from '@/components/system/OrionGreenBackground';
 
 // Workforce components
-import { 
+import {
   WorkforceOverviewCards,
   CostConcentrationPanel,
   WorkforceAlertCenter,
@@ -60,7 +60,7 @@ const statusConfig: Record<RiskStatus, {
   },
 };
 
-export default function WorkforceCostPage() {
+function WorkforceCostPageInner() {
   const searchParams = useSearchParams();
   const costCenterId = searchParams.get('costCenterId');
 
@@ -115,7 +115,7 @@ export default function WorkforceCostPage() {
                 Sala de Controle de Custos de Pessoal • Análise Completa para Decisão
               </p>
             </div>
-            
+
             <div className="flex items-center gap-4">
               {/* Period Selector */}
               <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-glass-light">
@@ -211,3 +211,19 @@ export default function WorkforceCostPage() {
   );
 }
 
+export default function WorkforceCostPage() {
+  return (
+    <Suspense fallback={
+      <OrionGreenBackground className="orion-page">
+        <div className="orion-page-content max-w-[1800px] mx-auto flex items-center justify-center min-h-[60vh]">
+          <div className="text-center">
+            <AlertTriangle className="w-12 h-12 text-[rgba(255,255,255,0.30)] mx-auto mb-3 animate-pulse" />
+            <p className="text-sm text-[rgba(255,255,255,0.50)]">Carregando dados...</p>
+          </div>
+        </div>
+      </OrionGreenBackground>
+    }>
+      <WorkforceCostPageInner />
+    </Suspense>
+  );
+}
