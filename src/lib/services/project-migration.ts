@@ -8,7 +8,7 @@ import { v2Overlays, V2_ENRICHED_IDS } from '@/data/mock-projects-v2';
 import { makeMoney, computeHealthScore } from '@/lib/utils/project-utils';
 
 const STORAGE_KEY_V1 = 'insight_projects';
-const STORAGE_KEY_V2 = 'insight_projects_v2';
+const STORAGE_KEY_V2 = 'insight_projects_v2_b'; // bumped to include billing_eventogram
 
 /**
  * Check if v2 migration has already been performed

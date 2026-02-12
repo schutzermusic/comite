@@ -34,7 +34,7 @@ import { TimelineGanttView } from '@/components/projects/timeline-gantt-view';
 import { TeamAllocationView } from '@/components/projects/team-allocation-view';
 import { ActionCenter } from '@/components/projects/ActionCenter';
 import { RiskCardV2 } from '@/components/projects/RiskCardV2';
-import { ContractRevenueCard } from '@/components/projects/ContractRevenueCard';
+import { ContractBillingEventogramCard } from '@/components/projects/ContractBillingEventogramCard';
 import { FinanceView } from '@/components/projects/FinanceView';
 import { ProjectTask, ProjectAllocation } from '@/lib/types';
 import type { ProjectV2 } from '@/lib/types/project-v2';
@@ -342,9 +342,9 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
               </div>
             </HUDCard>
 
-            {/* ── Contract Revenue Chart Card ── */}
+            {/* ── Billing Eventogram Card ── */}
             {projetoV2 && (
-              <ContractRevenueCard
+              <ContractBillingEventogramCard
                 project={projetoV2}
                 onTabChange={setActiveTab}
               />

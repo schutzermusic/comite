@@ -117,6 +117,25 @@ export type RevenueCurvePoint = {
     receivedCumulative: number;    // cents
 };
 
+// ─── Billing Eventogram ──────────────────────────────────────────
+export type BillingEvent = {
+    id: string;
+    projectId: string;
+    contractId?: string;
+    datePlanned: string;           // ISO date
+    dateActual?: string;           // ISO date
+    title: string;
+    amountPlannedCents: number;
+    amountActualCents?: number;
+    status: 'planned' | 'billed' | 'partial' | 'delayed' | 'cancelled';
+    linked: {
+        milestoneId?: string;
+        taskId?: string;
+        documentIds?: string[];
+        deliberationIds?: string[];
+    };
+};
+
 // ─── Cost Breakdown ──────────────────────────────────────────────
 export type CostBreakdownItem = {
     category: string;
@@ -163,6 +182,7 @@ export type ProjectV2 = Project & {
     costCurve?: CostCurvePoint[];
     revenueCurve?: RevenueCurvePoint[];
     costBreakdown?: CostBreakdownItem[];
+    billing_eventogram?: BillingEvent[];    // billing events (previsto × realizado)
     cutoffPeriod?: string;              // "YYYY-MM" — actual data stops here
     governance: GovernanceLinks;
     audit_log: ProjectAuditEvent[];

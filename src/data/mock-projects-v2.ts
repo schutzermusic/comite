@@ -5,6 +5,7 @@
 
 import type { ProjectV2, ProjectTaskV2, ProjectMilestone, ProjectRiskItem, ProjectDocument, ProjectFinance, ProjectAuditEvent, ProjectAllocationV2, ProjectRevenue, CostCurvePoint, RevenueCurvePoint, CostBreakdownItem } from '@/lib/types/project-v2';
 import { makeMoney, centsFromReais } from '@/lib/utils/project-utils';
+import { generateMockBillingEvents } from '@/lib/utils/billing-utils';
 
 // ─── S-Curve Generator ───────────────────────────────────────────
 // Generates a realistic S-curve (sigmoid distribution) for cumulative spend/billing
@@ -428,6 +429,7 @@ export const v2Overlays: Record<string, Omit<ProjectV2, keyof import('@/lib/type
         revenue: makeRevenue(198827691.78, 0.45, 0.85),
         ...(() => { const c = makeCostCurve(198827691.78, 89972461.30, 212500000, '2025-06', 12, 5); return { costCurve: c.points, cutoffPeriod: c.cutoffPeriod }; })(),
         revenueCurve: makeRevenueCurve(198827691.78, 198827691.78 * 0.45, 198827691.78 * 0.45 * 0.85, '2025-06', 12, 5),
+        billing_eventogram: generateMockBillingEvents('proj-001', 'contract-cemig-001', centsFromReais(198827691.78), '2025-06', 12, 5, makeMilestones('proj-001'), makeTasks('proj-001')),
         costBreakdown: makeBreakdown(198827691.78),
         governance: { deliberation_ids: ['delib-001', 'delib-005'], meeting_ids: ['meet-002'] },
         audit_log: makeAudit('proj-001'),
@@ -454,6 +456,7 @@ export const v2Overlays: Record<string, Omit<ProjectV2, keyof import('@/lib/type
         revenue: makeRevenue(75569079, 0.40, 0.75),
         ...(() => { const c = makeCostCurve(45200000, 22100000, 52800000, '2025-03', 14, 7); return { costCurve: c.points, cutoffPeriod: c.cutoffPeriod }; })(),
         revenueCurve: makeRevenueCurve(75569079, 75569079 * 0.40, 75569079 * 0.40 * 0.75, '2025-03', 14, 7),
+        billing_eventogram: generateMockBillingEvents('proj-007', 'contract-enel-001', centsFromReais(75569079), '2025-03', 14, 7, makeMilestones2('proj-007'), makeTasks2('proj-007')),
         costBreakdown: makeBreakdown(45200000),
         governance: { deliberation_ids: ['delib-003'], meeting_ids: ['meet-001', 'meet-003'] },
         audit_log: makeAudit('proj-007'),
@@ -487,6 +490,9 @@ export const v2Overlays: Record<string, Omit<ProjectV2, keyof import('@/lib/type
         revenue: makeRevenue(12500000, 0.90, 0.80),
         ...(() => { const c = makeCostCurve(12500000, 11800000, 12200000, '2024-03', 12, 10); return { costCurve: c.points, cutoffPeriod: c.cutoffPeriod }; })(),
         revenueCurve: makeRevenueCurve(12500000, 12500000 * 0.90, 12500000 * 0.90 * 0.80, '2024-03', 12, 10),
+        billing_eventogram: generateMockBillingEvents('proj-002', 'contract-petrobras-p80', centsFromReais(12500000), '2024-03', 12, 10,
+            [{ id: 'proj-002-ms1', name: 'Chegada ao FPSO', date: '2024-06-01', status: 'completed' as const }, { id: 'proj-002-ms2', name: 'Energização P-80', date: '2025-03-31', status: 'pending' as const }],
+            [{ id: 'proj-002-t1', projectId: 'proj-002', name: 'Mobilização Offshore', startDate: '2024-03-01', endDate: '2024-05-31', baselineStart: '2024-03-01', baselineEnd: '2024-05-31', status: 'completed' as const, responsibleName: 'Pedro Mendes', progress: 100 }]),
         costBreakdown: makeBreakdown(12500000),
         governance: { deliberation_ids: [], meeting_ids: [] },
         audit_log: [],
