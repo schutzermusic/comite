@@ -36,7 +36,7 @@ const BRAZIL_STATES_URL = 'https://raw.githubusercontent.com/codeforamerica/clic
 
 // Camera positions for each view state
 const CAMERA_POSITIONS = {
-    GLOBAL_VIEW: { lat: -10, lng: -55, altitude: 2.5 },
+    GLOBAL_VIEW: { lat: -15, lng: -55, altitude: 1.6 },
     BRAZIL_FOCUS: { lat: -14.2, lng: -51.9, altitude: 0.8 },
     STATE_SELECTED: { lat: -14.2, lng: -51.9, altitude: 0.6 },
 };

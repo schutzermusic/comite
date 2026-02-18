@@ -27,20 +27,20 @@ export default function MainLayout({
   return (
     <GlobeControlProvider>
       <ContractAIProvider>
-        <SidebarProvider>
-          {/* Background layer - fixed, decorative only */}
-          <ImmersiveSpatialBackground className="fixed inset-0 z-0 pointer-events-none" />
+        {/* Background layer - fixed, decorative only */}
+        <ImmersiveSpatialBackground className="fixed inset-0 z-0 pointer-events-none" />
 
-          {/* UI Shell */}
-          <div className="relative min-h-screen flex w-full z-10">
+        <SidebarProvider>
+          {/* UI Shell - Fixed Height (100dvh) for Control Room stability */}
+          <div className="relative flex h-[100dvh] w-full overflow-hidden z-10">
             {/* Sidebar */}
             <AppSidebar />
 
-            {/* Main Content Area */}
-            <SidebarInset className="flex flex-col w-full bg-transparent">
+            {/* Main Content Area - Independent Scroll */}
+            <SidebarInset className="flex flex-col flex-1 h-full w-full bg-transparent overflow-hidden">
               <Header />
               {/* Scrollable content - Globe is in GlobeSlot beside Saúde Financeira */}
-              <main className="flex-1 overflow-auto">
+              <main className="flex-1 overflow-auto w-full relative">
                 {children}
               </main>
             </SidebarInset>
