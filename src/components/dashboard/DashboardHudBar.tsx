@@ -1,9 +1,9 @@
 'use client';
 
 import React from 'react';
-import { Search, Radio } from 'lucide-react';
 import type { HudMode, PeriodFilter } from '@/hooks/useHudLayout';
 import { HudChip } from './hud';
+import NotificationCenter from '@/components/layout/notification-center';
 
 interface AlertCounts {
     critical: number;
@@ -36,21 +36,21 @@ export function DashboardHudBar({
     alertCounts = { critical: 2, votesIn72h: 3, docsPending: 2 },
 }: DashboardHudBarProps) {
     return (
-        <div className="hud-bar flex items-center justify-between gap-4">
-            {/* Left: Title */}
-            <div className="flex-shrink-0 min-w-0">
-                <h1 className="text-sm font-semibold text-white tracking-[0.02em] leading-tight truncate">
+        <div className="hud-bar flex items-center justify-between gap-[0.75em] min-h-[3.5em] py-[0.65em] px-[0.75em] w-full max-w-[100vw] overflow-x-auto overflow-y-hidden scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+            {/* Left: Title — only this shrinks; scales with .hud-bar font-size */}
+            <div className="min-w-0 flex flex-col justify-center shrink">
+                <h1 className="text-[1.05em] font-semibold text-white tracking-[0.02em] leading-tight truncate m-0">
                     Sala de Controle Executivo
                 </h1>
-                <p className="text-[10px] text-white/45 tracking-[0.12em] uppercase mt-0.5 truncate">
+                <p className="text-[0.75em] text-white/45 tracking-[0.12em] uppercase mt-[0.25em] truncate leading-none m-0">
                     Visão diária de governança e desempenho
                 </p>
             </div>
 
-            {/* Center: Filters */}
-            <div className="flex items-center gap-3 flex-shrink-0">
+            {/* Center: Filters — scale with bar */}
+            <div className="flex items-center gap-[0.5em] flex-shrink-0 hidden xl:flex">
                 {/* Period filter */}
-                <div className="flex items-center gap-0.5 bg-white/[0.03] rounded-md p-0.5 border border-white/[0.05]">
+                <div className="flex items-center gap-0.5 bg-white/[0.03] rounded-[0.35em] p-0.5 border border-white/[0.05]">
                     {PERIODS.map(({ key, label }) => (
                         <button
                             key={key}
@@ -63,7 +63,7 @@ export function DashboardHudBar({
                 </div>
 
                 {/* Divider */}
-                <div className="w-px h-5 bg-white/[0.08]" />
+                <div className="w-px min-h-[1.2em] self-stretch bg-white/[0.08]" />
 
                 {/* Mode toggle */}
                 <div className="hud-mode-toggle">
@@ -82,10 +82,10 @@ export function DashboardHudBar({
                 </div>
             </div>
 
-            {/* Right: Alert Chips + Live + Search */}
-            <div className="flex items-center gap-3 flex-shrink-0">
+            {/* Right: Alert Chips + Live + Search — never shrink so items stay visible at any zoom */}
+            <div className="flex items-center gap-[0.5em] shrink-0 flex-nowrap ml-auto">
                 {/* Alert chips */}
-                <div className="hidden lg:flex items-center gap-2">
+                <div className="hidden 2xl:flex items-center gap-[0.5em]">
                     <HudChip
                         label="Críticos"
                         count={alertCounts.critical}
@@ -109,28 +109,8 @@ export function DashboardHudBar({
                 {/* Ao Vivo indicator */}
                 <HudChip label="AO VIVO" variant="live" pulseDot />
 
-                {/* Last update */}
-                <div className="text-right hidden md:block">
-                    <p className="text-[9px] text-white/25 uppercase tracking-wider">
-                        Última atualização
-                    </p>
-                    <p className="text-[11px] text-white/60 font-medium tabular-nums">
-                        {new Date().toLocaleTimeString('pt-BR', {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                        })}
-                    </p>
-                </div>
-
-                {/* Command palette */}
-                <button
-                    onClick={onCommandPalette}
-                    className="flex items-center gap-1.5 px-2 py-1.5 rounded-md bg-white/[0.03] border border-white/[0.06] hover:border-white/[0.12] transition-all duration-150"
-                    title="Busca rápida (⌘K)"
-                >
-                    <Search className="w-3.5 h-3.5 text-white/30" />
-                    <span className="text-[10px] text-white/25 hidden lg:inline">⌘K</span>
-                </button>
+                {/* Notifications (relocated) */}
+                <NotificationCenter />
             </div>
         </div>
     );

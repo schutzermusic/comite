@@ -49,7 +49,7 @@ export function HudChip({
     const styles = VARIANT_STYLES[variant];
     const inner = (
         <>
-            <span className={cn('w-1.5 h-1.5 rounded-full inline-block flex-shrink-0', styles.dot, pulseDot && 'animate-pulse')} />
+            <span className={cn('w-[0.35em] h-[0.35em] min-w-[0.35em] min-h-[0.35em] rounded-full inline-block flex-shrink-0', styles.dot, pulseDot && 'animate-pulse')} />
             <span className="truncate">{label}</span>
             {count !== undefined && (
                 <span className="font-bold tabular-nums">{count}</span>
@@ -58,7 +58,7 @@ export function HudChip({
     );
 
     const chipClass = cn(
-        'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold tracking-wide border transition-all duration-150 cursor-pointer',
+        'inline-flex items-center gap-[0.4em] px-[0.7em] py-[0.35em] rounded-full text-[0.85em] font-semibold tracking-wide border transition-all duration-150 cursor-pointer shrink-0',
         styles.chip,
         className
     );

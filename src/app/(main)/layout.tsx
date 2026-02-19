@@ -36,18 +36,17 @@ export default function MainLayout({
             {/* Sidebar */}
             <AppSidebar />
 
-            {/* Main Content Area - Independent Scroll */}
-            <SidebarInset className="flex flex-col flex-1 h-full w-full bg-transparent overflow-hidden">
+            {/* Main Content Area - full height for dashboard canvas */}
+            <SidebarInset className="flex flex-col flex-1 min-h-0 w-full bg-transparent overflow-hidden">
               <Header />
-              {/* Scrollable content - Globe is in GlobeSlot beside Saúde Financeira */}
-              <main className="flex-1 overflow-auto w-full relative">
+              <main className="flex-1 min-h-0 w-full relative overflow-auto">
                 {children}
               </main>
             </SidebarInset>
 
             {/* Fixed Notification Center */}
             <div className="fixed top-3 md:top-4 right-3 md:right-4 z-[9999]">
-              <NotificationCenter />
+              <NotificationCenter hiddenOnDashboard={true} />
             </div>
           </div>
         </SidebarProvider>

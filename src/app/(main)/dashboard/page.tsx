@@ -48,11 +48,11 @@ export default function DashboardPage() {
     return (
         <div
             ref={viewportRef}
-            className="cr-viewport relative w-full overflow-hidden bg-[#020915] text-white"
+            className="cr-viewport bg-[#020915] text-white"
             onMouseMove={handleMouseMove}
         >
-            {/* ═══ Layer 0: Globe Canvas (3D background) ═══ */}
-            <div className="absolute inset-0 z-0" style={{ opacity: 1 }}>
+            {/* ═══ Layer 0: Globe Canvas (3D background) — fill entire viewport ═══ */}
+            <div className="absolute inset-0 z-0 min-w-0 min-h-0" style={{ opacity: 1 }}>
                 <ControlCanvas
                     activeOverlay={layout.activeOverlay}
                     onOverlayChange={setActiveOverlay}
@@ -81,7 +81,7 @@ export default function DashboardPage() {
             {/* ═══ Layer 10: HUD Interface ═══ */}
             <div className="relative z-10 w-full h-full pointer-events-none flex flex-col">
                 {/* Top HUD Bar */}
-                <div className="pointer-events-auto px-3 pt-2 pb-1 z-50 flex-shrink-0">
+                <div className="pointer-events-auto z-50 flex-shrink-0 w-full">
                     <DashboardHudBar
                         mode={mode}
                         period={period}
@@ -96,7 +96,7 @@ export default function DashboardPage() {
                 </div>
 
                 {/* Main content: overlapping panel stacks */}
-                <div className="flex-1 relative min-h-0 px-2 pb-2">
+                <div className="flex-1 relative min-h-0 px-2 pb-2 h-full">
                     {/* ── Left Stack (parallax layer, z40) ── */}
                     <div
                         className="absolute top-0 left-2 bottom-2 pointer-events-auto z-40 overflow-y-auto scrollbar-hide"

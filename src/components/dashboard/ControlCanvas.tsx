@@ -75,14 +75,14 @@ export function ControlCanvas({
     }, [activeOverlay, onOpenDrawer]);
 
     return (
-        <div className={cn('relative overflow-hidden', className)}>
+        <div className={cn('relative overflow-hidden w-full h-full min-h-0', className)}>
             {/* Globe as background canvas — fill parent */}
             <div
-                className="relative w-full h-full"
+                className="absolute inset-0 w-full h-full min-w-0 min-h-0"
                 onClick={handleCanvasClick}
                 style={{ cursor: activeOverlay ? 'pointer' : 'default' }}
             >
-                <GlobeSlot minHeight={600} hideOverlays className="w-full h-full [&>div]:h-full" />
+                <GlobeSlot minHeight={0} hideOverlays className="w-full h-full min-h-0 [&>div]:h-full [&>div]:min-h-0" />
 
                 {/* Overlay intensity hint - show when overlay is active */}
                 {activeOverlay && (

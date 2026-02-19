@@ -584,7 +584,6 @@
       rgba(255, 255, 255, 0.03) 100%);
   backdrop-filter: blur(30px) saturate(150%);
   -webkit-backdrop-filter: blur(30px) saturate(150%);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow:
     0 4px 20px rgba(0, 0, 0, 0.3);
 }
@@ -892,18 +891,19 @@
    Deep glassmorphism · Palantir/Diligent vibe
    ============================================ */
 
-/* Sticky top bar */
+/* Sticky top bar — scalable with zoom/viewport via font-size + em */
 .hud-bar {
   position: sticky;
   top: 0;
   z-index: 50;
+  /* Scale bar content with available width so it fits at any zoom (50%–150%) */
+  font-size: clamp(0.625rem, 0.5rem + 0.35vw, 1rem);
   background: linear-gradient(180deg,
       rgba(6, 10, 8, 0.92) 0%,
       rgba(8, 14, 12, 0.85) 100%);
   backdrop-filter: blur(40px) saturate(180%);
   -webkit-backdrop-filter: blur(40px) saturate(180%);
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  padding: 0.625rem 1.5rem;
 }
 
 .hud-bar::after {
@@ -919,6 +919,24 @@
       rgba(6, 182, 212, 0.3) 50%,
       rgba(16, 185, 129, 0.25) 75%,
       transparent 100%);
+}
+
+/* HUD bar: horizontal scroll when zoom makes content overflow (keep items visible) */
+.hud-bar {
+  -webkit-overflow-scrolling: touch;
+}
+.hud-bar::-webkit-scrollbar {
+  height: 4px;
+}
+.hud-bar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.hud-bar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 2px;
+}
+.hud-bar::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
 }
 
 /* HUD widget - floating translucent panel */
@@ -1124,11 +1142,11 @@
   box-shadow: 0 0 15px rgba(6, 182, 212, 0.2);
 }
 
-/* Period toggle buttons */
+/* Period toggle buttons — use em so they scale with .hud-bar font-size */
 .hud-period-btn {
-  padding: 0.25rem 0.5rem;
-  border-radius: 4px;
-  font-size: 0.6875rem;
+  padding: 0.35em 0.65em;
+  border-radius: 0.25em;
+  font-size: 0.9em;
   font-weight: 500;
   color: rgba(255, 255, 255, 0.4);
   background: transparent;
@@ -1148,18 +1166,18 @@
   border-color: rgba(255, 255, 255, 0.12);
 }
 
-/* Mode toggle */
+/* Mode toggle — scale with .hud-bar */
 .hud-mode-toggle {
   display: inline-flex;
-  border-radius: 6px;
+  border-radius: 0.35em;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.06);
   overflow: hidden;
 }
 
 .hud-mode-btn {
-  padding: 0.3rem 0.75rem;
-  font-size: 0.6875rem;
+  padding: 0.35em 0.75em;
+  font-size: 0.9em;
   font-weight: 500;
   color: rgba(255, 255, 255, 0.4);
   background: transparent;
@@ -1185,9 +1203,11 @@
 
 /* Full-height viewport (no scroll) */
 .cr-viewport {
-  position: relative;
+  position: absolute;
+  inset: 0;
   width: 100%;
-  height: calc(100dvh - 52px);
+  height: 100%;
+  min-height: 0;
   overflow: hidden;
 }
 
