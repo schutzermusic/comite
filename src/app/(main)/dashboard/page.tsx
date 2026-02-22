@@ -2,8 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { DashboardHudBar } from '@/components/dashboard/DashboardHudBar';
-import { ControlCanvas } from '@/components/dashboard/ControlCanvas';
-import { BrazilHeatmap } from '@/components/dashboard/BrazilHeatmap';
+import { ControlCanvas, type ScopeMode } from '@/components/dashboard/ControlCanvas';
 import { LeftHudStack } from '@/components/dashboard/LeftHudStack';
 import { RightHudStack } from '@/components/dashboard/RightHudStack';
 import { ContextDrawer, type DrawerContext } from '@/components/dashboard/ContextDrawer';
@@ -11,6 +10,8 @@ import { QuickActionToast } from '@/components/dashboard/QuickActionToast';
 import { useHudLayout } from '@/hooks/useHudLayout';
 import { getMockDashboardData } from '@/lib/dashboard-data';
 import type { DashboardPayload } from '@/lib/dashboard-data';
+import type { StateAggregate } from '@/data/geo/globe-kpi-data';
+import { cn } from '@/lib/utils';
 
 export default function DashboardPage() {
     const { layout, setMode, setPeriod, setActiveOverlay } = useHudLayout();
@@ -18,8 +19,27 @@ export default function DashboardPage() {
     const [period, setLocalPeriod] = useState<'mtd' | 'qtd' | 'ytd' | 'custom'>('mtd');
     const [data, setData] = useState<DashboardPayload | null>(null);
     const [drawerContext, setDrawerContext] = useState<DrawerContext>(null);
+    const [scopeMode, setScopeMode] = useState<ScopeMode>('global');
+    const [selectedState, setSelectedState] = useState<StateAggregate | null>(null);
+    const [uiMode, setUiMode] = useState<'default' | 'projectFocus'>('default');
+    const [isSidebarVisible, setIsSidebarVisible] = useState(true);
+    const [sidebarStateBeforeFocus, setSidebarStateBeforeFocus] = useState(true);
     const viewportRef = useRef<HTMLDivElement>(null);
     const [parallax, setParallax] = useState({ x: 0, y: 0 });
+
+    const isRightSidebarActive = isSidebarVisible && selectedState === null;
+    const isFocusMode = uiMode === 'projectFocus' || selectedState !== null;
+
+    const handleProjectFocusChange = useCallback((active: boolean) => {
+        if (active) {
+            setSidebarStateBeforeFocus(isSidebarVisible);
+            setUiMode('projectFocus');
+            setIsSidebarVisible(false);
+        } else {
+            setUiMode('default');
+            setIsSidebarVisible(sidebarStateBeforeFocus);
+        }
+    }, [isSidebarVisible, sidebarStateBeforeFocus]);
 
     useEffect(() => {
         setData(getMockDashboardData());
@@ -54,9 +74,14 @@ export default function DashboardPage() {
             {/* ═══ Layer 0: Globe Canvas (3D background) — fill entire viewport ═══ */}
             <div className="absolute inset-0 z-0 min-w-0 min-h-0" style={{ opacity: 1 }}>
                 <ControlCanvas
+                    mode={mode}
                     activeOverlay={layout.activeOverlay}
                     onOverlayChange={setActiveOverlay}
                     onOpenDrawer={setDrawerContext}
+                    scopeMode={scopeMode}
+                    onScopeModeChange={setScopeMode}
+                    onStateContextChange={setSelectedState}
+                    onProjectFocusChange={handleProjectFocusChange}
                     className="w-full h-full"
                 />
             </div>
@@ -99,26 +124,38 @@ export default function DashboardPage() {
                 <div className="flex-1 relative min-h-0 px-2 pb-2 h-full">
                     {/* ── Left Stack (parallax layer, z40) ── */}
                     <div
-                        className="absolute top-0 left-2 bottom-2 pointer-events-auto z-40 overflow-y-auto scrollbar-hide"
+                        className={cn(
+                            "absolute top-0 left-2 bottom-2 pointer-events-auto z-40 overflow-y-auto scrollbar-hide transition-all duration-300 ease-out",
+                            isFocusMode
+                                ? "-translate-x-[120%] opacity-0 pointer-events-none"
+                                : "translate-x-0 opacity-100",
+                        )}
                         style={{
                             width: '360px',
-                            transform: `translate(${parallax.x * -1}px, ${parallax.y * -0.5}px)`,
-                            transition: 'transform 0.35s ease-out',
+                            ...(isFocusMode ? {} : {
+                                transform: `translate(${parallax.x * -1}px, ${parallax.y * -0.5}px)`,
+                                transition: 'transform 0.35s ease-out',
+                            }),
                         }}
                     >
-                        <LeftHudStack data={data} />
+                        <LeftHudStack data={data} scopeMode={scopeMode} stateScope={selectedState} />
                     </div>
 
                     {/* ── Right Stack (parallax layer, z40, opposite direction) ── */}
                     <div
-                        className="absolute top-0 right-2 bottom-2 pointer-events-auto z-40 overflow-y-auto scrollbar-hide"
+                        className={cn(
+                            "absolute top-0 right-2 bottom-2 pointer-events-auto z-40 overflow-y-auto scrollbar-hide transition-all duration-300 ease-out",
+                            isRightSidebarActive
+                                ? "translate-x-0 opacity-100"
+                                : "translate-x-[120%] opacity-0 pointer-events-none"
+                        )}
                         style={{
                             width: '330px',
-                            transform: `translate(${parallax.x}px, ${parallax.y * -0.5}px)`,
-                            transition: 'transform 0.35s ease-out',
+                            // Only apply parallax when visible so we don't mess up the slide-out transform
+                            ...(isRightSidebarActive ? { transform: `translate(${parallax.x}px, ${parallax.y * -0.5}px)` } : {}),
                         }}
                     >
-                        <RightHudStack data={data} />
+                        <RightHudStack data={data} scopeMode={scopeMode} stateScope={selectedState} />
                     </div>
                 </div>
             </div>

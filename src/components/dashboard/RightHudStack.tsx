@@ -16,9 +16,12 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { HudPanel, HudRingGauge } from './hud';
 import type { DashboardPayload } from '@/lib/dashboard-data';
 import { cn } from '@/lib/utils';
+import type { StateAggregate } from '@/data/geo/globe-kpi-data';
 
 interface RightHudStackProps {
     data: DashboardPayload;
+    scopeMode?: 'global' | 'state';
+    stateScope?: StateAggregate | null;
 }
 
 // ─── Event Stream types ─────────────────────────────────────
@@ -109,9 +112,17 @@ const MOCK_EVENTS: EventItem[] = [
     },
 ];
 
-export function RightHudStack({ data }: RightHudStackProps) {
+export function RightHudStack({ data, scopeMode = 'global', stateScope = null }: RightHudStackProps) {
     const [eventFilter, setEventFilter] = useState<'all' | EventCategory>('all');
     const [streamExpanded, setStreamExpanded] = useState(true);
+    const scopeSuffix = scopeMode === 'state' && stateScope ? `&state=${stateScope.uf}&uf=${stateScope.uf}` : '';
+    const scopedRiskSummary = scopeMode === 'state' && stateScope
+        ? {
+            critical: Math.min(stateScope.riskCount, Math.max(1, Math.floor(stateScope.riskCount * 0.45))),
+            high: Math.max(0, stateScope.riskCount - Math.min(stateScope.riskCount, Math.max(1, Math.floor(stateScope.riskCount * 0.45)))),
+            total: stateScope.riskCount,
+        }
+        : data.riskSummary;
 
     const filteredEvents = MOCK_EVENTS.filter(
         (e) => eventFilter === 'all' || e.type === eventFilter
@@ -131,7 +142,7 @@ export function RightHudStack({ data }: RightHudStackProps) {
                 <HudPanel
                     title="Decision SLA / Votos"
                     accentColor="bg-amber-400"
-                    deepLinkHref="/deliberacoes?due=72h"
+                    deepLinkHref={`/deliberacoes?due=72h${scopeSuffix}`}
                     deepLinkLabel="Deliberações"
                     icon={<Vote className="w-3 h-3" />}
                     delay={0.15}
@@ -140,8 +151,8 @@ export function RightHudStack({ data }: RightHudStackProps) {
                         value={data.votingStatus.pending}
                         max={data.votingStatus.pending + data.votingStatus.approved}
                         label="pendentes"
-                        size={88}
-                        strokeWidth={6}
+                        size={74}
+                        strokeWidth={5}
                         color="#f59e0b"
                         trackColor="rgba(245, 158, 11, 0.08)"
                         sideMetrics={[
@@ -163,9 +174,9 @@ export function RightHudStack({ data }: RightHudStackProps) {
             {/* ─── Panel E: Risk Exposure ─── */}
             <div className="cr-panel-overlap" style={{ zIndex: 20, marginTop: '-6px' }}>
                 <HudPanel
-                    title="Risk Exposure"
+                    title={scopeMode === 'state' && stateScope ? `Risk Exposure · ${stateScope.uf}` : 'Risk Exposure'}
                     accentColor="bg-red-500"
-                    deepLinkHref="/riscos?severity=critico"
+                    deepLinkHref={`/riscos?severity=critico${scopeSuffix}`}
                     deepLinkLabel="Riscos"
                     icon={<AlertTriangle className="w-3 h-3" />}
                     delay={0.25}
@@ -175,7 +186,7 @@ export function RightHudStack({ data }: RightHudStackProps) {
                         <div className="grid grid-cols-3 gap-2">
                             <div className="text-center">
                                 <p className="text-xl font-bold text-red-400 tabular-nums leading-none" style={{ textShadow: '0 0 12px rgba(239, 68, 68, 0.25)' }}>
-                                    {data.riskSummary.critical}
+                                    {scopedRiskSummary.critical}
                                 </p>
                                 <p className="cr-label mt-1">
                                     Críticos
@@ -183,7 +194,7 @@ export function RightHudStack({ data }: RightHudStackProps) {
                             </div>
                             <div className="text-center">
                                 <p className="text-xl font-bold text-amber-400 tabular-nums leading-none" style={{ textShadow: '0 0 12px rgba(245, 158, 11, 0.2)' }}>
-                                    {data.riskSummary.high}
+                                    {scopedRiskSummary.high}
                                 </p>
                                 <p className="cr-label mt-1">
                                     Sem mitigação
@@ -191,7 +202,7 @@ export function RightHudStack({ data }: RightHudStackProps) {
                             </div>
                             <div className="text-center">
                                 <p className="text-2xl font-bold text-white tabular-nums leading-none" style={{ textShadow: '0 0 14px rgba(124, 232, 253, 0.18)' }}>
-                                    {data.riskSummary.total}
+                                    {scopedRiskSummary.total}
                                 </p>
                                 <p className="cr-label mt-1">
                                     Exposição total
@@ -228,7 +239,7 @@ export function RightHudStack({ data }: RightHudStackProps) {
                     delay={0.35}
                     badge={filteredEvents.length}
                 >
-                    <div className="space-y-2">
+                    <div className="space-y-1.5">
                         {/* Header controls */}
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-1.5">
@@ -250,7 +261,7 @@ export function RightHudStack({ data }: RightHudStackProps) {
                         </div>
 
                         {/* Category filters */}
-                        <div className="flex flex-wrap gap-1">
+                        <div className="flex flex-wrap gap-0.5">
                             {CATEGORY_FILTERS.map(({ key, label }) => (
                                 <button
                                     key={key}
@@ -277,19 +288,19 @@ export function RightHudStack({ data }: RightHudStackProps) {
                                 >
                                     <div className="cr-event-stream space-y-0.5">
                                         {filteredEvents.map((event) => {
-                                            const CatIcon = CATEGORY_ICON[event.type];
+                                            const CatIcon = CATEGORY_ICON[event.type] as any;
                                             return (
                                                 <div
                                                     key={event.id}
-                                                    className="group flex items-start gap-2 p-2 rounded-md hover:bg-white/[0.03] transition-colors"
+                                                    className="group flex items-start gap-1.5 px-1.5 py-1 rounded-md hover:bg-white/[0.03] transition-colors"
                                                 >
                                                     <div
                                                         className={SEVERITY_DOT[event.severity]}
-                                                        style={{ marginTop: 4 }}
+                                                        style={{ marginTop: 3 }}
                                                     />
                                                     <div className="flex-1 min-w-0">
-                                                        <div className="flex items-center gap-1.5">
-                                                            <CatIcon className="w-3 h-3 text-white/30 flex-shrink-0" />
+                                                        <div className="flex items-center gap-1">
+                                                            <CatIcon className="w-[11px] h-[11px] text-white/30 flex-shrink-0" />
                                                             <span className="text-[8px] font-semibold text-white/58 uppercase tracking-[0.1em]">
                                                                 {CATEGORY_LABEL[event.type]}
                                                             </span>
@@ -297,13 +308,13 @@ export function RightHudStack({ data }: RightHudStackProps) {
                                                                 {event.timestamp}
                                                             </span>
                                                         </div>
-                                                        <p className="text-[10px] text-white/78 leading-snug mt-0.5">
+                                                        <p className="text-[9px] text-white/78 leading-snug mt-0.5">
                                                             {event.label}
                                                         </p>
                                                     </div>
                                                     <Link
                                                         href={event.href}
-                                                        className="text-[8px] font-medium px-1.5 py-0.5 rounded bg-emerald-500/[0.06] border border-emerald-500/15 text-emerald-400/55 hover:text-emerald-400 hover:border-emerald-400/30 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0 mt-1"
+                                                        className="text-[8px] font-medium px-1 py-0.5 rounded bg-emerald-500/[0.06] border border-emerald-500/15 text-emerald-400/55 hover:text-emerald-400 hover:border-emerald-400/30 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0 mt-0.5"
                                                     >
                                                         Abrir
                                                     </Link>

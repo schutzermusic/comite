@@ -38,11 +38,11 @@ export function DashboardHudBar({
     return (
         <div className="hud-bar flex items-center justify-between gap-[0.75em] min-h-[3.5em] py-[0.65em] px-[0.75em] w-full max-w-[100vw] overflow-x-auto overflow-y-hidden scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
             {/* Left: Title — only this shrinks; scales with .hud-bar font-size */}
-            <div className="min-w-0 flex flex-col justify-center shrink">
-                <h1 className="text-[1.05em] font-semibold text-white tracking-[0.02em] leading-tight truncate m-0">
+            <div className="hud-bar-heading min-w-0 flex flex-col justify-center shrink gap-[0.2em]">
+                <h1 className="hud-bar-title truncate m-0">
                     Sala de Controle Executivo
                 </h1>
-                <p className="text-[0.75em] text-white/45 tracking-[0.12em] uppercase mt-[0.25em] truncate leading-none m-0">
+                <p className="hud-bar-subtitle truncate m-0">
                     Visão diária de governança e desempenho
                 </p>
             </div>

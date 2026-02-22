@@ -70,7 +70,9 @@ function PortfolioProjetosInner() {
   const highlightedRowRef = useRef<HTMLTableRowElement>(null);
 
   // Read deep-link params from URL
+  const stateParam = searchParams.get('state');
   const ufParam = searchParams.get('uf');
+  const projectIdParam = searchParams.get('projectId');
   const contractIdParam = searchParams.get('contractId');
   const viewParam = searchParams.get('view');
   const statusParam = searchParams.get('status');
@@ -85,7 +87,7 @@ function PortfolioProjetosInner() {
   const [healthFilter, setHealthFilter] = useState(healthParam || "all");
   const [contractFilter, setContractFilter] = useState("all"); // yes / no / all
   const [ufFilter, setUfFilter] = useState<string | null>(null);
-  const [highlightedContractId, setHighlightedContractId] = useState<string | null>(null);
+  const [highlightedProjectId, setHighlightedProjectId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState(viewParam || "cards");
   const [projects, setProjects] = useState(() => getProjects());
   const [projectsV2, setProjectsV2] = useState<ProjectV2[]>([]);
@@ -96,29 +98,36 @@ function PortfolioProjetosInner() {
 
   // Apply deep-link filters from URL params
   useEffect(() => {
-    if (ufParam) {
-      setUfFilter(ufParam);
+    const stateFromParam = stateParam || ufParam;
+    if (stateFromParam) {
+      setUfFilter(stateFromParam);
       // Show notification about filter
       toast({
-        title: `Filtrado por ${ufParam}`,
-        description: contractIdParam
-          ? `Mostrando contrato ${contractIdParam}`
-          : `Mostrando projetos do estado ${ufParam}`,
+        title: `Filtrado por ${stateFromParam}`,
+        description: projectIdParam
+          ? `Projeto ${projectIdParam} selecionado`
+          : contractIdParam
+            ? `Mostrando contrato ${contractIdParam}`
+            : `Mostrando projetos do estado ${stateFromParam}`,
       });
     }
+    if (projectIdParam) {
+      setHighlightedProjectId(projectIdParam);
+      setViewMode('table');
+    }
     if (contractIdParam) {
-      setHighlightedContractId(contractIdParam);
+      setHighlightedProjectId(contractIdParam);
       // Switch to table view for better visibility
       setViewMode('table');
     }
-  }, [ufParam, contractIdParam, toast]);
+  }, [contractIdParam, projectIdParam, stateParam, toast, ufParam]);
 
   // Scroll to highlighted row
   useEffect(() => {
-    if (highlightedRowRef.current && highlightedContractId) {
+    if (highlightedRowRef.current && highlightedProjectId) {
       highlightedRowRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
-  }, [highlightedContractId, viewMode]);
+  }, [highlightedProjectId, viewMode]);
 
   // Recarregar projetos quando a página for montada ou quando voltar de criar
   useEffect(() => {
@@ -127,6 +136,14 @@ function PortfolioProjetosInner() {
       setProjectsV2(getProjectsV2());
     } catch { /* v2 not available yet */ }
   }, []);
+
+  useEffect(() => {
+    if (!highlightedProjectId || projects.length === 0) return;
+    const target = projects.find((project) => project.id === highlightedProjectId);
+    if (!target) return;
+    setSelectedProject(target);
+    setProjectDrawerOpen(true);
+  }, [highlightedProjectId, projects]);
 
   // Persist filters in URL (shareable)
   const updateURL = useCallback((overrides: Record<string, string>) => {
@@ -224,7 +241,9 @@ function PortfolioProjetosInner() {
       else if (contractFilter === 'no') contractMatch = !v2?.contract_id;
     }
 
-    return searchMatch && statusMatch && comiteMatch && impactoMatch && clientMatch && healthMatch && contractMatch;
+    const stateMatch = !ufFilter || v2Map.get(projeto.id)?.uf === ufFilter;
+
+    return searchMatch && statusMatch && comiteMatch && impactoMatch && clientMatch && healthMatch && contractMatch && stateMatch;
   });
 
   // Calculate statistics
@@ -426,6 +445,14 @@ function PortfolioProjetosInner() {
             />
           </div>
           <div className="flex items-center gap-2 flex-wrap">
+            {ufFilter && (
+              <button
+                onClick={() => setUfFilter(null)}
+                className="h-9 px-3 rounded-md border border-[rgba(0,255,180,0.30)] bg-[rgba(0,255,180,0.10)] text-[11px] uppercase tracking-[0.08em] text-[#8FFFE2] hover:bg-[rgba(0,255,180,0.16)] transition-colors"
+              >
+                Estado: {ufFilter} · Limpar
+              </button>
+            )}
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="w-[130px] h-9 bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.08)] text-white text-sm hover:border-[rgba(0,255,180,0.25)]">
                 <SelectValue placeholder="Status" />
@@ -520,7 +547,12 @@ function PortfolioProjetosInner() {
               return (
                 <div
                   key={projeto.id}
-                  className="rounded-lg border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)] p-4 hover:border-[rgba(0,255,180,0.20)] transition-all flex flex-col"
+                  className={cn(
+                    'rounded-lg border bg-[rgba(255,255,255,0.02)] p-4 transition-all flex flex-col',
+                    highlightedProjectId === projeto.id
+                      ? 'border-[rgba(0,255,180,0.55)] shadow-[0_0_0_1px_rgba(0,255,180,0.30),0_0_24px_rgba(0,255,180,0.20)]'
+                      : 'border-[rgba(255,255,255,0.06)] hover:border-[rgba(0,255,180,0.20)]',
+                  )}
                 >
                   {/* Tags Row */}
                   <div className="flex items-center gap-2 mb-3">
@@ -643,7 +675,14 @@ function PortfolioProjetosInner() {
                     const pHealth = pV2?.health_score ?? 100;
                     const pHealthColor = getHealthScoreColor(pHealth);
                     return (
-                      <TableRow key={projeto.id} className="hover:bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.05)]">
+                      <TableRow
+                        ref={highlightedProjectId === projeto.id ? highlightedRowRef : undefined}
+                        key={projeto.id}
+                        className={cn(
+                          'hover:bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.05)]',
+                          highlightedProjectId === projeto.id && 'bg-[rgba(0,255,180,0.10)] ring-1 ring-[rgba(0,255,180,0.35)]',
+                        )}
+                      >
                         <TableCell className="text-[rgba(255,255,255,0.92)]">
                           <Badge variant="outline" className="bg-[rgba(255,255,255,0.05)] text-[rgba(255,255,255,0.65)] border-[rgba(255,255,255,0.12)]">{projeto.codigo}</Badge>
                         </TableCell>
