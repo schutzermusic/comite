@@ -3,7 +3,7 @@
 import { useState, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Contract } from '@/lib/types';
+import { excelContracts } from '@/data/contractsFromExcel.generated';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { HUDCard } from '@/components/ui/hud-card';
@@ -47,60 +47,8 @@ import {
   Receipt,
   ClipboardCheck,
 } from 'lucide-react';
-import { format, addDays, differenceInDays } from 'date-fns';
+import { format, differenceInDays } from 'date-fns';
 import { pt } from 'date-fns/locale';
-
-// ============================================
-// MOCK DATA - Replace with real data later
-// ============================================
-
-const mockContracts: Contract[] = [
-  {
-    id: 'contract-1',
-    name: 'Contrato de Fornecimento de Energia',
-    vendorOrParty: 'Energia Verde LTDA',
-    value: 850000,
-    currency: 'BRL',
-    signingDate: new Date('2023-06-15'),
-    expirationDate: addDays(new Date(), 15),
-    fileUrl: '/contracts/mock-1.pdf',
-    riskClassification: 'high',
-    status: 'expiring_soon',
-    uploadedAt: new Date('2023-06-15'),
-    responsibleName: 'Carlos Silva',
-    linkedRisks: ['risk-1', 'risk-2', 'risk-3'],
-    notes: 'Contrato crítico para operação. Renovação em negociação.',
-  },
-  {
-    id: 'contract-2',
-    name: 'Contrato de Serviços de TI',
-    vendorOrParty: 'Tech Solutions Inc',
-    value: 320000,
-    currency: 'BRL',
-    signingDate: new Date('2024-01-10'),
-    expirationDate: addDays(new Date(), 200),
-    fileUrl: '/contracts/mock-2.pdf',
-    riskClassification: 'medium',
-    status: 'active',
-    uploadedAt: new Date('2024-01-10'),
-    responsibleName: 'Ana Oliveira',
-    linkedRisks: ['risk-4'],
-  },
-  {
-    id: 'contract-3',
-    name: 'Contrato de Manutenção Predial',
-    vendorOrParty: 'Manutenções Brasil SA',
-    value: 125000,
-    currency: 'BRL',
-    signingDate: new Date('2023-11-01'),
-    expirationDate: addDays(new Date(), 90),
-    fileUrl: '/contracts/mock-3.pdf',
-    riskClassification: 'low',
-    status: 'active',
-    uploadedAt: new Date('2023-11-01'),
-    responsibleName: 'Roberto Santos',
-  },
-];
 
 // MOCK: Risk categories for Risk Map
 const mockRiskCategories = [
@@ -296,7 +244,7 @@ export default function ContractIntelligencePage() {
 
   // Find contract by ID (in real app, fetch from API)
   const contract = useMemo(() => {
-    return mockContracts.find(c => c.id === contractId) || mockContracts[0];
+    return excelContracts.find(c => c.id === contractId) || excelContracts[0];
   }, [contractId]);
 
   const daysUntilExpiration = contract.expirationDate 

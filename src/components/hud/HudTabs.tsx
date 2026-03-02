@@ -1,0 +1,110 @@
+'use client';
+
+import React, { useState } from 'react';
+import { cn } from '@/lib/utils';
+
+export interface HudTab {
+  id: string;
+  label: string;
+  icon?: React.ReactNode;
+  badge?: number;
+  content: React.ReactNode;
+  disabled?: boolean;
+}
+
+export interface HudTabsProps {
+  tabs: HudTab[];
+  defaultTab?: string;
+  activeTab?: string;
+  onTabChange?: (tabId: string) => void;
+  variant?: 'default' | 'pills' | 'underline';
+  size?: 'sm' | 'md';
+  className?: string;
+  contentClassName?: string;
+}
+
+export function HudTabs({
+  tabs,
+  defaultTab,
+  activeTab: controlledActiveTab,
+  onTabChange,
+  variant = 'default',
+  size = 'md',
+  className,
+  contentClassName,
+}: HudTabsProps) {
+  const [internalActiveTab, setInternalActiveTab] = useState(defaultTab || tabs[0]?.id);
+  const activeTab = controlledActiveTab ?? internalActiveTab;
+
+  const handleTabChange = (tabId: string) => {
+    if (controlledActiveTab === undefined) {
+      setInternalActiveTab(tabId);
+    }
+    onTabChange?.(tabId);
+  };
+
+  const activeTabData = tabs.find((t) => t.id === activeTab);
+
+  const variantStyles = {
+    default: {
+      list: 'bg-white/[0.03] border border-white/[0.06] p-1 rounded-lg',
+      tab: 'px-4 py-2 rounded-md text-sm font-medium transition-all duration-200',
+      active: 'bg-[#00FFB4] text-[#050D0A]',
+      inactive: 'text-white/60 hover:text-white hover:bg-white/[0.05]',
+    },
+    pills: {
+      list: 'gap-1',
+      tab: 'px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 border',
+      active: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30',
+      inactive: 'bg-white/[0.03] text-white/60 border-white/[0.08] hover:bg-white/[0.06] hover:text-white',
+    },
+    underline: {
+      list: 'border-b border-white/[0.08]',
+      tab: 'px-4 py-3 text-sm font-medium transition-all duration-200 relative',
+      active: 'text-cyan-300',
+      inactive: 'text-white/50 hover:text-white/80',
+    },
+  };
+
+  const styles = variantStyles[variant];
+  const sizeStyles = size === 'sm' ? 'text-xs px-3 py-1.5' : '';
+
+  return (
+    <div className={className}>
+      {/* Tab List */}
+      <div className={cn('flex items-center', styles.list)}>
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => !tab.disabled && handleTabChange(tab.id)}
+            disabled={tab.disabled}
+            className={cn(
+              styles.tab,
+              sizeStyles,
+              activeTab === tab.id ? styles.active : styles.inactive,
+              tab.disabled && 'opacity-50 cursor-not-allowed',
+              'flex items-center gap-2'
+            )}
+          >
+            {tab.icon}
+            <span>{tab.label}</span>
+            {tab.badge !== undefined && tab.badge > 0 && (
+              <span className="ml-1 px-1.5 py-0.5 text-[10px] font-semibold rounded-full bg-white/20">
+                {tab.badge}
+              </span>
+            )}
+            {/* Underline indicator */}
+            {variant === 'underline' && activeTab === tab.id && (
+              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-cyan-500 to-emerald-500" />
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab Content */}
+      <div className={cn('mt-4', contentClassName)}>
+        {activeTabData?.content}
+      </div>
+    </div>
+  );
+}

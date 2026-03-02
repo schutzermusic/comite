@@ -2,8 +2,6 @@
 
 import { Menu } from "lucide-react";
 import { SidebarTrigger } from "../ui/sidebar";
-import { InsightLogo } from "./insight-logo";
-
 import { usePathname } from "next/navigation";
 
 export function Header() {
@@ -19,18 +17,6 @@ export function Header() {
             <Menu className="w-5 h-5 md:w-6 md:h-6 text-[rgba(255,255,255,0.85)]" />
           </SidebarTrigger>
         </div>
-
-        {/* Logo Centralizada - Mobile e Tablet */}
-        <div className="lg:hidden absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2">
-          <InsightLogo
-            variant="compact"
-            className="h-12 sm:h-14 md:h-16 w-auto"
-            priority
-          />
-        </div>
-
-        {/* Espaço vazio para balancear o layout (mesmo tamanho do botão menu) */}
-        <div className="lg:hidden w-10 sm:w-12 flex-shrink-0"></div>
 
         {/* Desktop (lg+) - Espaço vazio */}
         <div className="hidden lg:block flex-1"></div>

@@ -30,9 +30,20 @@ const BRL_COMPACT = new Intl.NumberFormat('pt-BR', {
     maximumFractionDigits: 0,
 });
 
-export function formatMoney(amount: MoneyAmount | undefined | null, compact = false): string {
-    if (!amount) return 'R$ 0,00';
-    const value = amount.amountCents / 100;
+/**
+ * Formata valor em R$. Aceita:
+ * - MoneyAmount (objeto com amountCents) — usado em ProjectV2/contratos
+ * - number (valor em reais) — usado em Project V1 (valor_total, valorTotal, etc.)
+ */
+export function formatMoney(amount: MoneyAmount | number | undefined | null, compact = false): string {
+    if (amount == null) return 'R$ 0,00';
+    let value: number;
+    if (typeof amount === 'number') {
+        value = Number.isFinite(amount) ? amount : 0;
+    } else {
+        const cents = amount?.amountCents;
+        value = typeof cents === 'number' && Number.isFinite(cents) ? cents / 100 : 0;
+    }
     return compact ? BRL_COMPACT.format(value) : BRL_FORMATTER.format(value);
 }
 

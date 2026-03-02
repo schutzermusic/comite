@@ -30,7 +30,11 @@ const Globe = dynamic(() => import('react-globe.gl'), {
 });
 
 const BRAZIL_STATES_URL = 'https://raw.githubusercontent.com/codeforamerica/click_that_hood/master/public/data/brazil-states.geojson';
-const BRAZIL_CAMERA = { lat: -14.235, lng: -48.925, altitude: 1.35 };
+const BRAZIL_CAMERA = { lat: -14.235, lng: -54.5, altitude: 1.35 };
+const INTRO_CAMERA = { lat: 5, lng: -30, altitude: 3.8 };
+const INTRO_SPIN_SPEED = 0.9;
+const INTRO_SPIN_MS = 1200;
+const INTRO_FLY_MS = 2400;
 
 interface GlobeCanvasProps {
   className?: string;
@@ -53,12 +57,6 @@ export interface GlobeScopeSummary {
 
 type HeatMetric = 'revenue' | 'hh' | 'risk';
 
-const HEAT_METRIC_OPTIONS: Array<{ key: HeatMetric; label: string }> = [
-  { key: 'revenue', label: 'Revenue' },
-  { key: 'hh', label: 'HH' },
-  { key: 'risk', label: 'Risk' },
-];
-
 export function GlobeCanvas({
   className,
   mode = 'executivo',
@@ -80,6 +78,8 @@ export function GlobeCanvas({
   const [hoveredProjectId, setHoveredProjectId] = useState<string | null>(null);
   const [focusedProject, setFocusedProject] = useState<{ project: GlobeProjectRecord; uf: string } | null>(null);
   const [brazilGeojson, setBrazilGeojson] = useState<FeatureCollection>({ type: 'FeatureCollection', features: [] });
+  const [introPhase, setIntroPhase] = useState<'waiting' | 'spinning' | 'flying' | 'done'>('waiting');
+  const introRef = useRef({ cancelled: false });
 
   const { isSupported, isLoading } = useWebGLSupport();
   const lowPerfMode = !isSupported;
@@ -184,7 +184,6 @@ export function GlobeCanvas({
     const globe = globeRef.current;
     if (!globe) return;
 
-    globe.pointOfView(BRAZIL_CAMERA, 0);
     const renderer = globe.renderer?.();
     if (renderer) {
       renderer.setPixelRatio(renderDpr);
@@ -193,13 +192,70 @@ export function GlobeCanvas({
 
     const controls = globe.controls?.();
     if (controls) {
-      controls.autoRotate = true;
-      controls.autoRotateSpeed = 0.24;
       controls.enablePan = false;
       controls.minDistance = 140;
       controls.maxDistance = 320;
     }
   }, [renderDpr, size.height, size.width]);
+
+  const handleGlobeReady = useCallback(() => {
+    const globe = globeRef.current;
+    if (!globe || introPhase !== 'waiting') return;
+
+    globe.pointOfView(INTRO_CAMERA, 0);
+
+    const controls = globe.controls?.();
+    if (controls) {
+      controls.autoRotate = true;
+      controls.autoRotateSpeed = INTRO_SPIN_SPEED;
+      controls.enableRotate = false;
+      controls.enableZoom = false;
+    }
+
+    setIntroPhase('spinning');
+  }, [introPhase]);
+
+  useEffect(() => {
+    if (introPhase !== 'spinning') return;
+    const globe = globeRef.current;
+    if (!globe) return;
+    const ctx = introRef.current;
+    ctx.cancelled = false;
+
+    const spinTimer = window.setTimeout(() => {
+      if (ctx.cancelled) return;
+
+      const controls = globe.controls?.();
+      if (controls) controls.autoRotate = false;
+
+      globe.pointOfView(BRAZIL_CAMERA, INTRO_FLY_MS);
+      setIntroPhase('flying');
+    }, INTRO_SPIN_MS);
+
+    return () => {
+      ctx.cancelled = true;
+      window.clearTimeout(spinTimer);
+    };
+  }, [introPhase]);
+
+  useEffect(() => {
+    if (introPhase !== 'flying') return;
+    const globe = globeRef.current;
+    if (!globe) return;
+
+    const arriveTimer = window.setTimeout(() => {
+      const controls = globe.controls?.();
+      if (controls) {
+        controls.autoRotate = false;
+        controls.autoRotateSpeed = 0;
+        controls.enableRotate = true;
+        controls.enableZoom = true;
+      }
+      setIntroPhase('done');
+    }, INTRO_FLY_MS);
+
+    return () => window.clearTimeout(arriveTimer);
+  }, [introPhase]);
 
   useEffect(() => {
     const controls = globeRef.current?.controls?.();
@@ -312,7 +368,7 @@ export function GlobeCanvas({
     globeRef.current.pointOfView(BRAZIL_CAMERA, 900);
     const controls = globeRef.current.controls?.();
     if (controls) {
-      controls.autoRotate = true;
+      controls.autoRotate = false;
     }
     window.setTimeout(() => {
       setTransitioning(false);
@@ -405,30 +461,6 @@ export function GlobeCanvas({
       )}>
         <div className="globe-scan-sweep" />
       </div>
-      <div className="absolute top-4 left-4 z-[30] pointer-events-auto">
-        <div className="cr-glass-panel rounded-xl px-2 py-1.5">
-          <div className="mb-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-white/58">
-            KPI Heat Metric
-          </div>
-          <div className="flex items-center gap-1">
-            {HEAT_METRIC_OPTIONS.map((option) => (
-              <button
-                key={option.key}
-                type="button"
-                onClick={() => setHeatMetric(option.key)}
-                className={cn(
-                  'rounded-md border px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.08em] transition-colors',
-                  heatMetric === option.key
-                    ? 'border-cyan-200/40 bg-cyan-300/15 text-cyan-100'
-                    : 'border-white/12 bg-white/[0.03] text-white/62 hover:bg-white/[0.08]',
-                )}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
       <StateOverlay
         geojson={brazilGeojson}
         selectedUF={selectedUF}
@@ -472,6 +504,7 @@ export function GlobeCanvas({
                     {(flowArcLayer) => (
                       <Globe
                         ref={globeRef}
+                        onGlobeReady={handleGlobeReady}
                         width={size.width}
                         height={size.height}
                         backgroundColor="rgba(0,0,0,0)"
@@ -480,8 +513,8 @@ export function GlobeCanvas({
                         atmosphereColor="#1a8b96"
                         atmosphereAltitude={0.04}
                         showAtmosphere
-                        polygonsTransitionDuration={320}
-                        polygonsData={stateOverlay.polygonsData}
+                        polygonsTransitionDuration={0}
+                        polygonsData={introPhase === 'flying' || introPhase === 'done' ? stateOverlay.polygonsData : []}
                         polygonCapColor={stateOverlay.polygonCapColor as any}
                         polygonSideColor={stateOverlay.polygonSideColor as any}
                         polygonStrokeColor={stateOverlay.polygonStrokeColor as any}
@@ -489,7 +522,7 @@ export function GlobeCanvas({
                         polygonLabel={stateOverlay.polygonLabel as any}
                         onPolygonHover={stateOverlay.onPolygonHover as any}
                         onPolygonClick={stateOverlay.onPolygonClick as any}
-                        pathsData={stateOverlay.pathsData as any}
+                        pathsData={introPhase === 'flying' || introPhase === 'done' ? stateOverlay.pathsData as any : []}
                         pathPoints={stateOverlay.pathPoints as any}
                         pathPointLat={stateOverlay.pathPointLat as any}
                         pathPointLng={stateOverlay.pathPointLng as any}
@@ -498,7 +531,7 @@ export function GlobeCanvas({
                         pathDashLength={stateOverlay.pathDashLength as any}
                         pathDashGap={stateOverlay.pathDashGap as any}
                         pathDashAnimateTime={stateOverlay.pathDashAnimateTime as any}
-                        labelsData={stateOverlay.labelsData as any}
+                        labelsData={introPhase === 'flying' || introPhase === 'done' ? stateOverlay.labelsData as any : []}
                         labelLat={stateOverlay.labelLat as any}
                         labelLng={stateOverlay.labelLng as any}
                         labelText={stateOverlay.labelText as any}
@@ -507,7 +540,7 @@ export function GlobeCanvas({
                         labelDotRadius={stateOverlay.labelDotRadius as any}
                         labelAltitude={() => 0.015}
                         labelResolution={6}
-                        pointsData={projectAnchorLayer.pointsData as any}
+                        pointsData={introPhase === 'done' ? projectAnchorLayer.pointsData as any : []}
                         pointLat={projectAnchorLayer.pointLat as any}
                         pointLng={projectAnchorLayer.pointLng as any}
                         pointColor={projectAnchorLayer.pointColor as any}
@@ -516,14 +549,14 @@ export function GlobeCanvas({
                         pointLabel={projectAnchorLayer.pointLabel as any}
                         onPointHover={projectAnchorLayer.onPointHover as any}
                         onPointClick={projectAnchorLayer.onPointClick as any}
-                        ringsData={hotspotLayer.ringsData as any}
+                        ringsData={introPhase === 'done' ? hotspotLayer.ringsData as any : []}
                         ringLat={hotspotLayer.ringLat as any}
                         ringLng={hotspotLayer.ringLng as any}
                         ringColor={hotspotLayer.ringColor as any}
                         ringMaxRadius={hotspotLayer.ringMaxRadius as any}
                         ringPropagationSpeed={hotspotLayer.ringPropagationSpeed as any}
                         ringRepeatPeriod={hotspotLayer.ringRepeatPeriod as any}
-                        arcsData={flowArcLayer.arcsData as any}
+                        arcsData={introPhase === 'done' ? flowArcLayer.arcsData as any : []}
                         arcStartLat={flowArcLayer.arcStartLat as any}
                         arcStartLng={flowArcLayer.arcStartLng as any}
                         arcEndLat={flowArcLayer.arcEndLat as any}

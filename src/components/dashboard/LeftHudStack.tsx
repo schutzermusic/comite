@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { Briefcase, TrendingUp, Zap, Users } from 'lucide-react';
 import { HudPanel, HudMetric, HudSparkline } from './hud';
@@ -21,7 +22,8 @@ const PORTFOLIO_FORECAST = [88, 92, 97, 103, 108, 115, 123, 132];
 const PORTFOLIO_BAND_LOW = [86, 90, 95, 101, 106, 111, 116, 121];
 const PORTFOLIO_BAND_HIGH = [91, 96, 102, 108, 114, 121, 129, 138];
 
-export function LeftHudStack({ data, scopeMode = 'global', stateScope = null }: LeftHudStackProps) {
+export const LeftHudStack = React.memo(function LeftHudStack({ data, scopeMode = 'global', stateScope = null }: LeftHudStackProps) {
+    const t = useTranslations('dashboard');
     const scopedActiveValue = scopeMode === 'state' && stateScope
         ? stateScope.contractTotal
         : data.portfolioMetrics?.activeValue;
@@ -46,17 +48,17 @@ export function LeftHudStack({ data, scopeMode = 'global', stateScope = null }: 
             {/* ─── Panel A: Portfolio Overview ─── */}
             <div className="cr-panel-overlap" style={{ zIndex: 30 }}>
                 <HudPanel
-                    title={scopeMode === 'state' && stateScope ? `Portfolio Overview · ${stateScope.uf}` : 'Portfolio Overview'}
+                    title={scopeMode === 'state' && stateScope ? t('portfolioOverviewState', { uf: stateScope.uf }) : t('portfolioOverview')}
                     accentColor="bg-cyan-400"
                     deepLinkHref={projetosHref}
-                    deepLinkLabel="Projetos"
+                    deepLinkLabel={t('scopeProjects')}
                     icon={<Briefcase className="w-3 h-3" />}
                     delay={0.1}
                 >
                     <div className="space-y-2.5">
                         <div>
                             <p className="cr-label mb-1">
-                                Valor do Portfólio
+                                {t('portfolioValue')}
                             </p>
                             <div className="flex items-baseline gap-3">
                                 <HudMetric
@@ -73,21 +75,21 @@ export function LeftHudStack({ data, scopeMode = 'global', stateScope = null }: 
                                 <p className="text-xl font-bold text-white tabular-nums leading-none" style={{ textShadow: '0 0 14px rgba(106, 223, 255, 0.18)' }}>
                                     {scopedProjects ?? 12}
                                 </p>
-                                <p className="cr-label mt-0.5">Projetos ativos</p>
+                                <p className="cr-label mt-0.5">{t('activeProjects')}</p>
                             </div>
                             <div>
                                 <p className="text-xl font-bold text-white tabular-nums leading-none" style={{ textShadow: '0 0 14px rgba(106, 223, 255, 0.18)' }}>
                                     {scopedContracts ?? 46}
                                 </p>
-                                <p className="cr-label mt-0.5">Contratos ativos</p>
+                                <p className="cr-label mt-0.5">{t('activeContracts')}</p>
                             </div>
                         </div>
 
                         {/* Portfolio trend band */}
                         <div>
                             <div className="flex items-baseline justify-between mb-1">
-                                <p className="cr-label">Portfolio trend + forecast cone</p>
-                                <span className="text-[10px] font-semibold text-cyan-200/80 tabular-nums">8m horizon</span>
+                                <p className="cr-label">{t('portfolioTrendForecast')}</p>
+                                <span className="text-[10px] font-semibold text-cyan-200/80 tabular-nums">{t('horizon8m')}</span>
                             </div>
                             <HudSparkline
                                 values={PORTFOLIO_TREND}
@@ -103,7 +105,7 @@ export function LeftHudStack({ data, scopeMode = 'global', stateScope = null }: 
                         {/* Health sparkline */}
                         <div>
                             <div className="flex items-baseline justify-between mb-1">
-                                <p className="cr-label">Saúde média</p>
+                                <p className="cr-label">{t('averageHealth')}</p>
                                 <span className="text-base font-bold text-white tabular-nums" style={{ textShadow: '0 0 14px rgba(16, 185, 129, 0.22)' }}>
                                     {scopedHealth}%
                                 </span>
@@ -122,17 +124,17 @@ export function LeftHudStack({ data, scopeMode = 'global', stateScope = null }: 
             {/* ─── Panel B: Finance Snapshot (with mini-charts) ─── */}
             <div className="cr-panel-overlap" style={{ zIndex: 20, marginTop: '-6px' }}>
                 <HudPanel
-                    title="Finance Snapshot"
+                    title={t('financeSnapshot')}
                     accentColor="bg-emerald-400"
                     deepLinkHref="/contratos"
-                    deepLinkLabel="Contratos"
+                    deepLinkLabel={t('scopeContracts')}
                     icon={<TrendingUp className="w-3 h-3" />}
                     delay={0.2}
                 >
                     {data.financialPulse ? (
                         <FinanceSnapshotCharts financialPulse={data.financialPulse} />
                     ) : (
-                        <p className="text-[10px] text-white/30">Sem dados financeiros</p>
+                        <p className="text-[10px] text-white/30">{t('noFinancialData')}</p>
                     )}
                 </HudPanel>
             </div>
@@ -140,10 +142,10 @@ export function LeftHudStack({ data, scopeMode = 'global', stateScope = null }: 
             {/* ─── Panel C: Fila Executiva ─── */}
             <div className="cr-panel-overlap" style={{ zIndex: 10, marginTop: '-6px' }}>
                 <HudPanel
-                    title="Fila Executiva"
+                    title={t('executiveQueue')}
                     accentColor="bg-amber-400"
                     deepLinkHref="/deliberacoes"
-                    deepLinkLabel="Ver tudo"
+                    deepLinkLabel={t('seeAll')}
                     icon={<Zap className="w-3 h-3" />}
                     delay={0.3}
                     badge={data.decisionQueue.length}
@@ -200,4 +202,4 @@ export function LeftHudStack({ data, scopeMode = 'global', stateScope = null }: 
             </div>
         </div>
     );
-}
+});

@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
+import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import {
     Vote,
@@ -37,13 +38,13 @@ interface EventItem {
     href: string;
 }
 
-const CATEGORY_FILTERS: { key: 'all' | EventCategory; label: string }[] = [
-    { key: 'all', label: 'All' },
-    { key: 'riscos', label: 'Riscos' },
-    { key: 'decisoes', label: 'Decisões' },
-    { key: 'docs', label: 'Docs' },
-    { key: 'projetos', label: 'Projetos' },
-    { key: 'contratos', label: 'Contratos' },
+const CATEGORY_FILTER_KEYS: { key: 'all' | EventCategory; labelKey: string }[] = [
+    { key: 'all', labelKey: 'categoryAll' },
+    { key: 'riscos', labelKey: 'categoryRisks' },
+    { key: 'decisoes', labelKey: 'categoryDecisions' },
+    { key: 'docs', labelKey: 'categoryDocs' },
+    { key: 'projetos', labelKey: 'categoryProjects' },
+    { key: 'contratos', labelKey: 'categoryContracts' },
 ];
 
 const SEVERITY_DOT: Record<string, string> = {
@@ -61,61 +62,32 @@ const CATEGORY_ICON: Record<EventCategory, React.ElementType> = {
     contratos: Shield,
 };
 
-const CATEGORY_LABEL: Record<EventCategory, string> = {
-    riscos: 'Risco',
-    decisoes: 'Decisão',
-    docs: 'Doc',
-    projetos: 'Projeto',
-    contratos: 'Contrato',
+const CATEGORY_LABEL_KEYS: Record<EventCategory, string> = {
+    riscos: 'labelRisk',
+    decisoes: 'labelDecision',
+    docs: 'labelDoc',
+    projetos: 'labelProject',
+    contratos: 'labelContract',
 };
 
-const MOCK_EVENTS: EventItem[] = [
-    {
-        id: 'e1',
-        type: 'riscos',
-        severity: 'critical',
-        label: 'Risco operacional crítico escalado em SP',
-        timestamp: '17:15',
-        href: '/riscos?severity=critico',
-    },
-    {
-        id: 'e2',
-        type: 'decisoes',
-        severity: 'warning',
-        label: 'Voto do Conselho: Novo Projeto Solar',
-        timestamp: '17:10',
-        href: '/deliberacoes',
-    },
-    {
-        id: 'e3',
-        type: 'docs',
-        severity: 'info',
-        label: 'Ata de Reunião do Comitê pendente',
-        timestamp: '17:05',
-        href: '/atas',
-    },
-    {
-        id: 'e4',
-        type: 'projetos',
-        severity: 'success',
-        label: 'Milestone entregue: Energisa Grid',
-        timestamp: '16:45',
-        href: '/projetos',
-    },
-    {
-        id: 'e5',
-        type: 'contratos',
-        severity: 'warning',
-        label: 'Contrato CESP expira em 30 dias',
-        timestamp: '16:30',
-        href: '/contratos',
-    },
+const MOCK_EVENT_KEYS: { id: string; type: EventCategory; severity: EventItem['severity']; labelKey: string; timestamp: string; href: string }[] = [
+    { id: 'e1', type: 'riscos', severity: 'critical', labelKey: 'eventCriticalRiskSp', timestamp: '17:15', href: '/riscos?severity=critico' },
+    { id: 'e2', type: 'decisoes', severity: 'warning', labelKey: 'eventVoteSolar', timestamp: '17:10', href: '/deliberacoes' },
+    { id: 'e3', type: 'docs', severity: 'info', labelKey: 'eventMinutesPending', timestamp: '17:05', href: '/atas' },
+    { id: 'e4', type: 'projetos', severity: 'success', labelKey: 'eventMilestoneEnergisa', timestamp: '16:45', href: '/projetos' },
+    { id: 'e5', type: 'contratos', severity: 'warning', labelKey: 'eventContractCesp', timestamp: '16:30', href: '/contratos' },
 ];
 
-export function RightHudStack({ data, scopeMode = 'global', stateScope = null }: RightHudStackProps) {
+export const RightHudStack = React.memo(function RightHudStack({ data, scopeMode = 'global', stateScope = null }: RightHudStackProps) {
+    const t = useTranslations('dashboard');
+    const tCommon = useTranslations('common');
     const [eventFilter, setEventFilter] = useState<'all' | EventCategory>('all');
     const [streamExpanded, setStreamExpanded] = useState(true);
     const scopeSuffix = scopeMode === 'state' && stateScope ? `&state=${stateScope.uf}&uf=${stateScope.uf}` : '';
+    const mockEvents: EventItem[] = useMemo(
+        () => MOCK_EVENT_KEYS.map(({ labelKey, ...rest }) => ({ ...rest, label: t(labelKey) })),
+        [t]
+    );
     const scopedRiskSummary = scopeMode === 'state' && stateScope
         ? {
             critical: Math.min(stateScope.riskCount, Math.max(1, Math.floor(stateScope.riskCount * 0.45))),
@@ -124,33 +96,34 @@ export function RightHudStack({ data, scopeMode = 'global', stateScope = null }:
         }
         : data.riskSummary;
 
-    const filteredEvents = MOCK_EVENTS.filter(
-        (e) => eventFilter === 'all' || e.type === eventFilter
+    const filteredEvents = useMemo(
+        () => mockEvents.filter((e) => eventFilter === 'all' || e.type === eventFilter),
+        [mockEvents, eventFilter]
     );
 
-    const topRisks = [
-        { label: 'Top risk contributors', href: '/riscos' },
-        { label: 'Processo de bancarização/ações', href: '/riscos' },
-        { label: 'Exposição dólar/euro', href: '/riscos' },
-        { label: 'Projetos estornados', href: '/riscos' },
-    ];
+    const topRiskKeys = [
+        'topRiskContributors',
+        'linkBankingProcess',
+        'linkFxExposure',
+        'linkReversedProjects',
+    ] as const;
 
     return (
         <div className="cr-panel-stack-right">
             {/* ─── Panel D: Decision SLA / Votos ─── */}
             <div className="cr-panel-overlap" style={{ zIndex: 30 }}>
                 <HudPanel
-                    title="Decision SLA / Votos"
+                    title={t('decisionSlaVotes')}
                     accentColor="bg-amber-400"
                     deepLinkHref={`/deliberacoes?due=72h${scopeSuffix}`}
-                    deepLinkLabel="Deliberações"
+                    deepLinkLabel={tCommon('deliberations')}
                     icon={<Vote className="w-3 h-3" />}
                     delay={0.15}
                 >
                     <HudRingGauge
                         value={data.votingStatus.pending}
                         max={data.votingStatus.pending + data.votingStatus.approved}
-                        label="pendentes"
+                        label={t('pending')}
                         size={74}
                         strokeWidth={5}
                         color="#f59e0b"
@@ -163,7 +136,7 @@ export function RightHudStack({ data, scopeMode = 'global', stateScope = null }:
                             },
                             {
                                 value: `${data.performanceMetrics.avgDecisionTime}d`,
-                                label: 'avg tempo médio',
+                                label: t('avgTimeMedium'),
                                 color: '#94a3b8',
                             },
                         ]}
@@ -174,22 +147,21 @@ export function RightHudStack({ data, scopeMode = 'global', stateScope = null }:
             {/* ─── Panel E: Risk Exposure ─── */}
             <div className="cr-panel-overlap" style={{ zIndex: 20, marginTop: '-6px' }}>
                 <HudPanel
-                    title={scopeMode === 'state' && stateScope ? `Risk Exposure · ${stateScope.uf}` : 'Risk Exposure'}
+                    title={scopeMode === 'state' && stateScope ? t('riskExposureState', { uf: stateScope.uf }) : t('riskExposure')}
                     accentColor="bg-red-500"
                     deepLinkHref={`/riscos?severity=critico${scopeSuffix}`}
-                    deepLinkLabel="Riscos"
+                    deepLinkLabel={tCommon('risks')}
                     icon={<AlertTriangle className="w-3 h-3" />}
                     delay={0.25}
                 >
                     <div className="space-y-3">
-                        {/* KPI row */}
                         <div className="grid grid-cols-3 gap-2">
                             <div className="text-center">
                                 <p className="text-xl font-bold text-red-400 tabular-nums leading-none" style={{ textShadow: '0 0 12px rgba(239, 68, 68, 0.25)' }}>
                                     {scopedRiskSummary.critical}
                                 </p>
                                 <p className="cr-label mt-1">
-                                    Críticos
+                                    {t('critical')}
                                 </p>
                             </div>
                             <div className="text-center">
@@ -197,7 +169,7 @@ export function RightHudStack({ data, scopeMode = 'global', stateScope = null }:
                                     {scopedRiskSummary.high}
                                 </p>
                                 <p className="cr-label mt-1">
-                                    Sem mitigação
+                                    {t('withoutMitigation')}
                                 </p>
                             </div>
                             <div className="text-center">
@@ -205,24 +177,23 @@ export function RightHudStack({ data, scopeMode = 'global', stateScope = null }:
                                     {scopedRiskSummary.total}
                                 </p>
                                 <p className="cr-label mt-1">
-                                    Exposição total
+                                    {t('totalExposure')}
                                 </p>
                             </div>
                         </div>
 
-                        {/* Top risk contributors — scrollable chips */}
                         <div>
                             <p className="cr-label mb-1.5">
-                                Top risk contributors:
+                                {t('topRiskContributors')}:
                             </p>
                             <div className="flex gap-1 overflow-x-auto scrollbar-hide pb-0.5">
-                                {topRisks.slice(1).map((risk) => (
+                                {topRiskKeys.slice(1).map((key) => (
                                     <Link
-                                        key={risk.label}
-                                        href={risk.href}
+                                        key={key}
+                                        href="/riscos"
                                         className="text-[8px] px-2 py-0.5 rounded-full bg-red-500/[0.07] border border-red-400/20 text-red-200/80 hover:border-red-300/40 hover:text-red-100 hover:bg-red-500/[0.14] transition-all duration-150 whitespace-nowrap flex-shrink-0"
                                     >
-                                        {risk.label}
+                                        {t(key)}
                                     </Link>
                                 ))}
                             </div>
@@ -234,7 +205,7 @@ export function RightHudStack({ data, scopeMode = 'global', stateScope = null }:
             {/* ─── Panel F: Event Stream (SOC-style) ─── */}
             <div className="cr-panel-overlap" style={{ zIndex: 10, marginTop: '-6px' }}>
                 <HudPanel
-                    title="Event Stream (SOC-style)"
+                    title={t('eventStream')}
                     accentColor="bg-cyan-400"
                     delay={0.35}
                     badge={filteredEvents.length}
@@ -262,7 +233,7 @@ export function RightHudStack({ data, scopeMode = 'global', stateScope = null }:
 
                         {/* Category filters */}
                         <div className="flex flex-wrap gap-0.5">
-                            {CATEGORY_FILTERS.map(({ key, label }) => (
+                            {CATEGORY_FILTER_KEYS.map(({ key, labelKey }) => (
                                 <button
                                     key={key}
                                     onClick={() => setEventFilter(key)}
@@ -271,7 +242,7 @@ export function RightHudStack({ data, scopeMode = 'global', stateScope = null }:
                                         eventFilter === key && 'hud-filter-pill-active'
                                     )}
                                 >
-                                    {label}
+                                    {t(labelKey)}
                                 </button>
                             ))}
                         </div>
@@ -302,7 +273,7 @@ export function RightHudStack({ data, scopeMode = 'global', stateScope = null }:
                                                         <div className="flex items-center gap-1">
                                                             <CatIcon className="w-[11px] h-[11px] text-white/30 flex-shrink-0" />
                                                             <span className="text-[8px] font-semibold text-white/58 uppercase tracking-[0.1em]">
-                                                                {CATEGORY_LABEL[event.type]}
+                                                                {t(CATEGORY_LABEL_KEYS[event.type])}
                                                             </span>
                                                             <span className="text-[8px] text-white/25 tabular-nums ml-auto flex-shrink-0">
                                                                 {event.timestamp}
@@ -316,7 +287,7 @@ export function RightHudStack({ data, scopeMode = 'global', stateScope = null }:
                                                         href={event.href}
                                                         className="text-[8px] font-medium px-1 py-0.5 rounded bg-emerald-500/[0.06] border border-emerald-500/15 text-emerald-400/55 hover:text-emerald-400 hover:border-emerald-400/30 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0 mt-0.5"
                                                     >
-                                                        Abrir
+                                                        {tCommon('open')}
                                                     </Link>
                                                 </div>
                                             );
@@ -324,7 +295,7 @@ export function RightHudStack({ data, scopeMode = 'global', stateScope = null }:
                                         {filteredEvents.length === 0 && (
                                             <div className="text-center py-4">
                                                 <p className="text-[10px] text-white/30">
-                                                    Nenhum evento
+                                                    {t('noEvents')}
                                                 </p>
                                             </div>
                                         )}
@@ -337,4 +308,4 @@ export function RightHudStack({ data, scopeMode = 'global', stateScope = null }:
             </div>
         </div>
     );
-}
+});

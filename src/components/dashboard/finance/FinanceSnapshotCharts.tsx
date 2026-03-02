@@ -119,7 +119,7 @@ export function FinanceSnapshotCharts({ financialPulse }: FinanceSnapshotChartsP
     <div className="space-y-3">
       <div className="flex items-end justify-between">
         <div>
-          <p className="cr-label">Revenue MTD</p>
+          <p className="cr-label">Receita MTD</p>
           <p className="text-lg font-bold text-white tabular-nums">
             {formatCurrency(financialPulse.revenue.value, 'BRL')}
           </p>
@@ -131,7 +131,7 @@ export function FinanceSnapshotCharts({ financialPulse }: FinanceSnapshotChartsP
 
       <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] px-2 py-2">
         <div className="mb-1 flex items-center justify-between">
-          <p className="cr-label">Monthly Revenue: Actual vs Forecast</p>
+          <p className="cr-label">Receita Mensal: Real vs Previsto</p>
           <span className={`
             text-[9px] tabular-nums font-semibold
             ${lastRevenue.variance >= 0 ? 'text-emerald-300' : 'text-red-300'}
@@ -153,7 +153,7 @@ export function FinanceSnapshotCharts({ financialPulse }: FinanceSnapshotChartsP
                   borderRadius: 8,
                   fontSize: 11,
                 }}
-                formatter={(value: number, key) => [compactCurrency(value), key === 'actual' ? 'Actual' : key === 'forecast' ? 'Forecast' : 'Variance']}
+                formatter={(value: number, key) => [compactCurrency(value), key === 'actual' ? 'Real' : key === 'forecast' ? 'Previsto' : 'Variação']}
               />
               <Bar dataKey="actual" fill="rgba(16,185,129,0.55)" radius={[3, 3, 0, 0]} />
               <Line dataKey="forecast" type="monotone" stroke="rgba(103,232,249,0.92)" strokeWidth={1.8} dot={false} />
@@ -173,7 +173,7 @@ export function FinanceSnapshotCharts({ financialPulse }: FinanceSnapshotChartsP
 
       <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] px-2 py-2">
         <div className="mb-1 flex items-center justify-between">
-          <p className="cr-label">Monthly Burn + Run-rate</p>
+          <p className="cr-label">Queima Mensal + Run-rate</p>
           <span className="text-[9px] text-amber-300 tabular-nums">Run-rate {compactCurrency(runRate)}</span>
         </div>
         <div className="h-20">
@@ -197,7 +197,7 @@ export function FinanceSnapshotCharts({ financialPulse }: FinanceSnapshotChartsP
 
       <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] px-2 py-2">
         <div className="mb-1 flex items-center justify-between">
-          <p className="cr-label">S-Curve Cumulative</p>
+          <p className="cr-label">Curva S Acumulada</p>
           <span className={`text-[9px] tabular-nums font-semibold ${lastSCurve.gap >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
             Gap {compactCurrency(lastSCurve.gap)}
           </span>
@@ -224,7 +224,7 @@ export function FinanceSnapshotCharts({ financialPulse }: FinanceSnapshotChartsP
 
       <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] px-2 py-2">
         <div className="flex items-center justify-between">
-          <p className="cr-label">Waterfall Drilldown</p>
+          <p className="cr-label">Análise Waterfall</p>
           <button
             type="button"
             onClick={() => setShowWaterfall((prev) => !prev)}
@@ -238,15 +238,15 @@ export function FinanceSnapshotCharts({ financialPulse }: FinanceSnapshotChartsP
           <div className="mt-2 space-y-2">
             <div className="grid grid-cols-3 gap-2">
               <div className="rounded-md border border-white/[0.08] bg-white/[0.03] px-2 py-1.5">
-                <p className="text-[8px] uppercase tracking-[0.1em] text-white/45">Revenue</p>
+                <p className="text-[8px] uppercase tracking-[0.1em] text-white/45">Receita</p>
                 <p className="text-[11px] tabular-nums font-semibold text-emerald-300">{compactCurrency(waterfallData.revenue)}</p>
               </div>
               <div className="rounded-md border border-white/[0.08] bg-white/[0.03] px-2 py-1.5">
-                <p className="text-[8px] uppercase tracking-[0.1em] text-white/45">Costs</p>
+                <p className="text-[8px] uppercase tracking-[0.1em] text-white/45">Custos</p>
                 <p className="text-[11px] tabular-nums font-semibold text-red-300">-{compactCurrency(waterfallData.costs)}</p>
               </div>
               <div className="rounded-md border border-white/[0.08] bg-white/[0.03] px-2 py-1.5">
-                <p className="text-[8px] uppercase tracking-[0.1em] text-white/45">Margin</p>
+                <p className="text-[8px] uppercase tracking-[0.1em] text-white/45">Margem</p>
                 <p className="text-[11px] tabular-nums font-semibold text-cyan-300">{compactCurrency(waterfallData.margin)}</p>
               </div>
             </div>

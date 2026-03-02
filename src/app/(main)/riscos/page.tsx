@@ -1,36 +1,40 @@
 'use client';
 
-import { useState } from "react";
-import { Risk } from "@/lib/types";
-import { Button } from "@/components/ui/button";
-import { PrimaryCTA } from "@/components/ui/primary-cta";
-import { SecondaryButton } from "@/components/ui/secondary-button";
-import { HudInput, hudInputBase } from "@/components/ui/hud-input";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Textarea } from "@/components/ui/textarea";
-import { KpiCard } from "@/components/orion";
-import { HUDCard } from "@/components/ui/hud-card";
-import { OrionGreenBackground } from "@/components/system/OrionGreenBackground";
+import { useState, useMemo } from "react";
+import type { Risk } from "@/lib/types";
+import { useTranslations } from "next-intl";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { RiskMatrix } from "@/components/risks/risk-matrix";
-import { RiskList } from "@/components/risks/risk-list";
-import { 
-  ShieldAlert, 
-  Plus, 
-  Search, 
-  Filter,
+  ShieldAlert,
+  Plus,
+  Search,
   TrendingUp,
   AlertCircle,
   CheckCircle,
-  BarChart3
+  BarChart3,
+  LayoutGrid,
+  List,
 } from "lucide-react";
+
+// Components
+import { RiskMatrix } from "@/components/risks/risk-matrix";
+import { RiskList } from "@/components/risks/risk-list";
+
+// New Glass HUD Components
+import {
+  HudPageLayout,
+  HudHeader,
+  HudKpiStrip,
+  HudFilterBar,
+  HudPanel,
+  HudButton,
+  HudModal,
+  HudInput,
+  HudSelect,
+  HudTabs,
+  type KpiItem,
+  type FilterGroup,
+  type HudTab,
+} from "@/components/hud";
 
 // Mock data
 const mockRisks: Risk[] = [
@@ -47,7 +51,7 @@ const mockRisks: Risk[] = [
     referenceId: 'proj-123',
     status: 'open',
     createdAt: new Date('2024-01-10'),
-    updatedAt: new Date('2024-01-10')
+    updatedAt: new Date('2024-01-10'),
   },
   {
     id: '2',
@@ -62,7 +66,7 @@ const mockRisks: Risk[] = [
     referenceId: 'contract-456',
     status: 'mitigating',
     createdAt: new Date('2024-01-15'),
-    updatedAt: new Date('2024-01-25')
+    updatedAt: new Date('2024-01-25'),
   },
   {
     id: '3',
@@ -76,7 +80,7 @@ const mockRisks: Risk[] = [
     origin: 'manual',
     status: 'open',
     createdAt: new Date('2024-01-20'),
-    updatedAt: new Date('2024-01-20')
+    updatedAt: new Date('2024-01-20'),
   },
   {
     id: '4',
@@ -91,7 +95,7 @@ const mockRisks: Risk[] = [
     referenceId: 'contract-789',
     status: 'open',
     createdAt: new Date('2024-01-22'),
-    updatedAt: new Date('2024-01-22')
+    updatedAt: new Date('2024-01-22'),
   },
   {
     id: '5',
@@ -105,11 +109,14 @@ const mockRisks: Risk[] = [
     origin: 'manual',
     status: 'resolved',
     createdAt: new Date('2024-01-05'),
-    updatedAt: new Date('2024-01-28')
-  }
+    updatedAt: new Date('2024-01-28'),
+  },
 ];
 
 export default function RiscosPage() {
+  const t = useTranslations('risks');
+  const tCommon = useTranslations('common');
+
   const [risks, setRisks] = useState<Risk[]>(mockRisks);
   const [view, setView] = useState<'list' | 'matrix'>('list');
   const [searchTerm, setSearchTerm] = useState('');
@@ -128,38 +135,41 @@ export default function RiscosPage() {
   });
 
   // Calculate KPIs
-  const stats = {
-    total: risks.length,
-    open: risks.filter(r => r.status === 'open').length,
-    critical: risks.filter(r => r.severity === 'critical').length,
-    resolved: risks.filter(r => r.status === 'resolved').length,
-  };
+  const stats = useMemo(() => {
+    const total = risks.length;
+    const open = risks.filter((r) => r.status === 'open').length;
+    const critical = risks.filter((r) => r.severity === 'critical').length;
+    const high = risks.filter((r) => r.severity === 'high').length;
+    const resolved = risks.filter((r) => r.status === 'resolved').length;
+    const mitigating = risks.filter((r) => r.status === 'mitigating').length;
+    return { total, open, critical, high, resolved, mitigating };
+  }, [risks]);
 
   // Filter risks
-  const filteredRisks = risks.filter((risk) => {
-    const matchesSearch =
-      risk.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      risk.description.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesSeverity = severityFilter === 'all' || risk.severity === severityFilter;
-    const matchesStatus = statusFilter === 'all' || risk.status === statusFilter;
-    const matchesCategory = categoryFilter === 'all' || risk.category === categoryFilter;
-    
-    return matchesSearch && matchesSeverity && matchesStatus && matchesCategory;
-  });
+  const filteredRisks = useMemo(() => {
+    return risks.filter((risk) => {
+      const matchesSearch =
+        risk.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        risk.description.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesSeverity = severityFilter === 'all' || risk.severity === severityFilter;
+      const matchesStatus = statusFilter === 'all' || risk.status === statusFilter;
+      const matchesCategory = categoryFilter === 'all' || risk.category === categoryFilter;
+
+      return matchesSearch && matchesSeverity && matchesStatus && matchesCategory;
+    });
+  }, [risks, searchTerm, severityFilter, statusFilter, categoryFilter]);
 
   // Handlers
   const handleResolveRisk = (riskId: string) => {
-    setRisks(prev => prev.map(risk =>
-      risk.id === riskId 
-        ? { ...risk, status: 'resolved' as const, updatedAt: new Date() }
-        : risk
-    ));
+    setRisks((prev) =>
+      prev.map((risk) =>
+        risk.id === riskId ? { ...risk, status: 'resolved' as const, updatedAt: new Date() } : risk
+      )
+    );
   };
 
   const handleCreateRisk = () => {
-    if (!newRisk.title || !newRisk.description) {
-      return;
-    }
+    if (!newRisk.title || !newRisk.description) return;
 
     const probability = Number(newRisk.probability) || 0;
     const impact = Number(newRisk.impact) || 0;
@@ -180,7 +190,7 @@ export default function RiscosPage() {
       updatedAt: new Date(),
     };
 
-    setRisks(prev => [payload, ...prev]);
+    setRisks((prev) => [payload, ...prev]);
     setCreateOpen(false);
     setNewRisk({
       title: '',
@@ -193,286 +203,304 @@ export default function RiscosPage() {
     });
   };
 
-  return (
-    <OrionGreenBackground className="orion-page">
-      <div className="orion-page-content max-w-[1800px] mx-auto space-y-6">
-        <header className="mb-8">
-          <div className="flex items-start justify-between">
-            <div>
-              <h1 className="text-2xl font-semibold text-white mb-1 tracking-wide flex items-center gap-3">
-                <ShieldAlert className="w-6 h-6 text-[#FF5860]" />
-                Riscos
-              </h1>
-              <p className="text-sm text-[rgba(255,255,255,0.65)]">
-                Monitor e controle riscos operacionais, financeiros e contratuais
-              </p>
-            </div>
-            <PrimaryCTA onClick={() => setCreateOpen(true)}>
-              <Plus className="w-4 h-4 mr-2" />
-              Novo Risco
-            </PrimaryCTA>
-          </div>
-        </header>
+  // KPI items
+  const kpiItems: KpiItem[] = useMemo(
+    () => [
+      {
+        id: 'total',
+        value: stats.total,
+        label: t('totalRisks'),
+        variant: 'default',
+        icon: <ShieldAlert className="w-5 h-5" />,
+      },
+      {
+        id: 'open',
+        value: stats.open,
+        label: t('openRisks'),
+        variant: stats.open > 0 ? 'warning' : 'default',
+        icon: <AlertCircle className="w-5 h-5" />,
+      },
+      {
+        id: 'critical',
+        value: stats.critical,
+        label: t('criticalRisks'),
+        variant: stats.critical > 0 ? 'danger' : 'default',
+        icon: <TrendingUp className="w-5 h-5" />,
+      },
+      {
+        id: 'high',
+        value: stats.high,
+        label: t('highRisks'),
+        variant: stats.high > 0 ? 'warning' : 'default',
+        icon: <BarChart3 className="w-5 h-5" />,
+      },
+      {
+        id: 'mitigating',
+        value: stats.mitigating,
+        label: t('mitigating'),
+        variant: 'info',
+        icon: <ShieldAlert className="w-5 h-5" />,
+      },
+      {
+        id: 'resolved',
+        value: stats.resolved,
+        label: t('resolved'),
+        variant: 'success',
+        icon: <CheckCircle className="w-5 h-5" />,
+      },
+    ],
+    [stats, t]
+  );
 
-        {/* KPI Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          <KpiCard
-            label="Total de Riscos"
-            value={stats.total}
-            icon={ShieldAlert}
-            subtitle="registrados no sistema"
-            status="neutral"
-            size="sm"
-          />
-          <KpiCard
-            label="Riscos Abertos"
-            value={stats.open}
-            icon={AlertCircle}
-            subtitle="requerem atenção"
-            status="warning"
-            size="sm"
-          />
-          <KpiCard
-            label="Críticos"
-            value={stats.critical}
-            icon={TrendingUp}
-            subtitle="nível de severidade máximo"
-            status="error"
-            size="sm"
-          />
-          <KpiCard
-            label="Resolvidos"
-            value={stats.resolved}
-            icon={CheckCircle}
-            subtitle="riscos mitigados"
-            status="success"
-            size="sm"
+  // Filter groups
+  const filterGroups: FilterGroup[] = useMemo(
+    () => [
+      {
+        id: 'severity',
+        label: t('severity'),
+        value: severityFilter,
+        options: [
+          { value: 'all', label: t('allSeverities') },
+          { value: 'low', label: t('low') },
+          { value: 'medium', label: t('medium') },
+          { value: 'high', label: t('high') },
+          { value: 'critical', label: t('critical') },
+        ],
+        onChange: setSeverityFilter,
+      },
+      {
+        id: 'status',
+        label: tCommon('status'),
+        value: statusFilter,
+        options: [
+          { value: 'all', label: t('allStatuses') },
+          { value: 'open', label: t('open') },
+          { value: 'mitigating', label: t('mitigating') },
+          { value: 'resolved', label: t('resolved') },
+        ],
+        onChange: setStatusFilter,
+      },
+      {
+        id: 'category',
+        label: t('category'),
+        value: categoryFilter,
+        options: [
+          { value: 'all', label: t('allCategories') },
+          { value: 'Operational', label: t('operational') },
+          { value: 'Financial', label: t('financial') },
+          { value: 'Legal', label: t('legal') },
+          { value: 'Contractual', label: t('contractual') },
+          { value: 'Compliance', label: t('compliance') },
+        ],
+        onChange: setCategoryFilter,
+      },
+    ],
+    [severityFilter, statusFilter, categoryFilter, t, tCommon]
+  );
+
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (severityFilter !== 'all') count++;
+    if (statusFilter !== 'all') count++;
+    if (categoryFilter !== 'all') count++;
+    return count;
+  }, [severityFilter, statusFilter, categoryFilter]);
+
+  const handleClearFilters = () => {
+    setSeverityFilter('all');
+    setStatusFilter('all');
+    setCategoryFilter('all');
+    setSearchTerm('');
+  };
+
+  // Tabs
+  const tabs: HudTab[] = useMemo(
+    () => [
+      {
+        id: 'list',
+        label: t('listView'),
+        icon: <List className="w-4 h-4" />,
+        content: (
+          <HudPanel noPadding>
+            <RiskList
+              risks={filteredRisks}
+              onViewRisk={(risk) => console.log('View:', risk)}
+              onEditRisk={(risk) => console.log('Edit:', risk)}
+              onResolveRisk={handleResolveRisk}
+            />
+          </HudPanel>
+        ),
+      },
+      {
+        id: 'matrix',
+        label: t('matrixView'),
+        icon: <LayoutGrid className="w-4 h-4" />,
+        content: (
+          <HudPanel>
+            <RiskMatrix risks={filteredRisks} onRiskClick={(risk) => console.log('Click:', risk)} />
+          </HudPanel>
+        ),
+      },
+    ],
+    [filteredRisks, t]
+  );
+
+  // Category and origin options for the modal
+  const categoryOptions = useMemo(
+    () => [
+      { value: 'Operational', label: t('operational') },
+      { value: 'Financial', label: t('financial') },
+      { value: 'Legal', label: t('legal') },
+      { value: 'Contractual', label: t('contractual') },
+      { value: 'Compliance', label: t('compliance') },
+    ],
+    [t]
+  );
+
+  const severityOptions = useMemo(
+    () => [
+      { value: 'low', label: t('low') },
+      { value: 'medium', label: t('medium') },
+      { value: 'high', label: t('high') },
+      { value: 'critical', label: t('critical') },
+    ],
+    [t]
+  );
+
+  const originOptions = useMemo(
+    () => [
+      { value: 'manual', label: t('manual') },
+      { value: 'project', label: t('project') },
+      { value: 'contract', label: t('contract') },
+    ],
+    [t]
+  );
+
+  return (
+    <HudPageLayout>
+      {/* Header */}
+      <HudHeader
+        title={t('title')}
+        subtitle={t('subtitle')}
+        icon={<ShieldAlert className="w-5 h-5" />}
+        breadcrumbs={[{ label: t('title') }]}
+        actions={
+          <HudButton
+            variant="primary"
+            size="md"
+            leftIcon={<Plus className="w-4 h-4" />}
+            onClick={() => setCreateOpen(true)}
+          >
+            {t('newRisk')}
+          </HudButton>
+        }
+      />
+
+      {/* KPI Strip */}
+      <HudKpiStrip kpis={kpiItems} columns={6} className="mb-6" />
+
+      {/* Filters */}
+      <HudFilterBar
+        searchPlaceholder={t('searchPlaceholder')}
+        searchValue={searchTerm}
+        onSearchChange={setSearchTerm}
+        filterGroups={filterGroups}
+        activeFiltersCount={activeFiltersCount}
+        onClearFilters={handleClearFilters}
+        className="mb-6"
+      />
+
+      {/* Tabs */}
+      <HudTabs
+        tabs={tabs}
+        activeTab={view}
+        onTabChange={(v) => setView(v as typeof view)}
+        variant="default"
+      />
+
+      {/* Create Modal */}
+      <HudModal
+        isOpen={createOpen}
+        onClose={() => setCreateOpen(false)}
+        title={t('newRisk')}
+        size="lg"
+        footer={
+          <>
+            <HudButton variant="ghost" onClick={() => setCreateOpen(false)}>
+              {tCommon('cancel')}
+            </HudButton>
+            <HudButton
+              variant="primary"
+              onClick={handleCreateRisk}
+              disabled={!newRisk.title || !newRisk.description}
+            >
+              {tCommon('save')}
+            </HudButton>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="grid md:grid-cols-2 gap-4">
+            <HudInput
+              label={t('title')}
+              value={newRisk.title}
+              onChange={(e) => setNewRisk((prev) => ({ ...prev, title: e.target.value }))}
+              placeholder={t('titlePlaceholder')}
+            />
+            <HudSelect
+              label={t('category')}
+              value={newRisk.category}
+              options={categoryOptions}
+              onChange={(value) => setNewRisk((prev) => ({ ...prev, category: value as Risk['category'] }))}
+            />
+          </div>
+
+          <div>
+            <label className="text-[11px] font-medium text-white/60 uppercase tracking-wider mb-1.5 block">
+              {t('description')}
+            </label>
+            <textarea
+              value={newRisk.description}
+              onChange={(e) => setNewRisk((prev) => ({ ...prev, description: e.target.value }))}
+              placeholder={t('descriptionPlaceholder')}
+              rows={4}
+              className="w-full px-4 py-3 rounded-lg bg-white/[0.03] border border-white/[0.08] text-white text-sm placeholder:text-white/30 focus:outline-none focus:border-cyan-500/30 focus:bg-white/[0.05] transition-all resize-none"
+            />
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-3">
+            <HudInput
+              label={t('probability')}
+              type="number"
+              min={1}
+              max={5}
+              value={newRisk.probability}
+              onChange={(e) => setNewRisk((prev) => ({ ...prev, probability: Number(e.target.value) }))}
+            />
+            <HudInput
+              label={t('impact')}
+              type="number"
+              min={1}
+              max={5}
+              value={newRisk.impact}
+              onChange={(e) => setNewRisk((prev) => ({ ...prev, impact: Number(e.target.value) }))}
+            />
+            <HudSelect
+              label={t('severity')}
+              value={newRisk.severity}
+              options={severityOptions}
+              onChange={(value) => setNewRisk((prev) => ({ ...prev, severity: value as Risk['severity'] }))}
+            />
+          </div>
+
+          <HudSelect
+            label={t('origin')}
+            value={newRisk.origin}
+            options={originOptions}
+            onChange={(value) => setNewRisk((prev) => ({ ...prev, origin: value as Risk['origin'] }))}
           />
         </div>
-
-        {/* Filters */}
-        <HUDCard>
-          <div className="space-y-4">
-            <div className="flex items-center gap-2 text-xs font-medium text-[rgba(255,255,255,0.65)] uppercase tracking-wide">
-              <Filter className="w-4 h-4" />
-              Filtros
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-              {/* Search */}
-              <div className="relative md:col-span-2">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[rgba(255,255,255,0.40)]" />
-                <HudInput
-                  placeholder="Buscar riscos..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-9"
-                />
-              </div>
-
-              {/* Severity Filter */}
-              <Select value={severityFilter} onValueChange={setSeverityFilter}>
-                <SelectTrigger className="bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.08)] text-white hover:border-[rgba(0,255,180,0.25)] focus:border-[rgba(0,255,180,0.25)]">
-                  <SelectValue placeholder="Severidade" />
-                </SelectTrigger>
-                <SelectContent className="bg-gradient-to-br from-[#07130F] to-[#030B09] border-[rgba(255,255,255,0.08)]">
-                  <SelectItem value="all" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Todas Severidades</SelectItem>
-                  <SelectItem value="low" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Baixa</SelectItem>
-                  <SelectItem value="medium" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Média</SelectItem>
-                  <SelectItem value="high" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Alta</SelectItem>
-                  <SelectItem value="critical" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Crítica</SelectItem>
-                </SelectContent>
-              </Select>
-
-              {/* Status Filter */}
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.08)] text-white hover:border-[rgba(0,255,180,0.25)] focus:border-[rgba(0,255,180,0.25)]">
-                  <SelectValue placeholder="Status" />
-                </SelectTrigger>
-                <SelectContent className="bg-gradient-to-br from-[#07130F] to-[#030B09] border-[rgba(255,255,255,0.08)]">
-                  <SelectItem value="all" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Todos Status</SelectItem>
-                  <SelectItem value="open" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Aberto</SelectItem>
-                  <SelectItem value="mitigating" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Mitigando</SelectItem>
-                  <SelectItem value="resolved" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Resolvido</SelectItem>
-                </SelectContent>
-              </Select>
-
-              {/* Category Filter */}
-              <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-                <SelectTrigger className="bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.08)] text-white hover:border-[rgba(0,255,180,0.25)] focus:border-[rgba(0,255,180,0.25)]">
-                  <SelectValue placeholder="Categoria" />
-                </SelectTrigger>
-                <SelectContent className="bg-gradient-to-br from-[#07130F] to-[#030B09] border-[rgba(255,255,255,0.08)]">
-                  <SelectItem value="all" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Todas Categorias</SelectItem>
-                  <SelectItem value="Operational" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Operacional</SelectItem>
-                  <SelectItem value="Financial" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Financeiro</SelectItem>
-                  <SelectItem value="Legal" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Legal</SelectItem>
-                  <SelectItem value="Contractual" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Contratual</SelectItem>
-                  <SelectItem value="Compliance" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Conformidade</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-        </HUDCard>
-
-        {/* View Toggle */}
-        <Tabs value={view} onValueChange={(v) => setView(v as 'list' | 'matrix')}>
-          <div className="flex justify-end mb-4">
-            <div className="inline-flex rounded-lg border border-[rgba(255,255,255,0.08)] p-1 bg-[rgba(255,255,255,0.03)]">
-              <TabsList className="bg-transparent border-0">
-                <TabsTrigger 
-                  value="list"
-                  className="data-[state=active]:bg-[#00FFB4] data-[state=active]:text-[#050D0A] text-[rgba(255,255,255,0.65)] hover:text-white"
-                >
-                  <BarChart3 className="w-4 h-4 mr-2" />
-                  Lista
-                </TabsTrigger>
-                <TabsTrigger 
-                  value="matrix"
-                  className="data-[state=active]:bg-[#00FFB4] data-[state=active]:text-[#050D0A] text-[rgba(255,255,255,0.65)] hover:text-white"
-                >
-                  <ShieldAlert className="w-4 h-4 mr-2" />
-                  Matriz 5×5
-                </TabsTrigger>
-              </TabsList>
-            </div>
-          </div>
-
-          <TabsContent value="list" className="mt-0">
-            <HUDCard className="p-0">
-              <RiskList
-                risks={filteredRisks}
-                onViewRisk={(risk) => console.log('View:', risk)}
-                onEditRisk={(risk) => console.log('Edit:', risk)}
-                onResolveRisk={handleResolveRisk}
-              />
-            </HUDCard>
-          </TabsContent>
-
-          <TabsContent value="matrix" className="mt-0">
-            <HUDCard>
-              <RiskMatrix
-                risks={filteredRisks}
-                onRiskClick={(risk) => console.log('Click:', risk)}
-              />
-            </HUDCard>
-          </TabsContent>
-        </Tabs>
-
-        <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-          <DialogContent className="max-w-2xl bg-gradient-to-br from-[#0A1612] to-[#07130F] border-[rgba(255,255,255,0.12)]">
-            <DialogHeader>
-              <DialogTitle className="text-white">Novo Risco</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4">
-              <div className="grid md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-[rgba(255,255,255,0.85)] text-sm">Título</label>
-                  <HudInput
-                    value={newRisk.title}
-                    onChange={(e) => setNewRisk(prev => ({ ...prev, title: e.target.value }))}
-                    placeholder="Risco identificado..."
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[rgba(255,255,255,0.85)] text-sm">Categoria</label>
-                  <Select
-                    value={newRisk.category}
-                    onValueChange={(value) => setNewRisk(prev => ({ ...prev, category: value as Risk['category'] }))}
-                  >
-                    <SelectTrigger className="bg-[rgba(255,255,255,0.04)] border-[rgba(255,255,255,0.10)] text-white">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent className="bg-gradient-to-br from-[#0A1612] to-[#07130F] border-[rgba(255,255,255,0.08)] text-white">
-                      <SelectItem value="Operational">Operacional</SelectItem>
-                      <SelectItem value="Financial">Financeiro</SelectItem>
-                      <SelectItem value="Legal">Legal</SelectItem>
-                      <SelectItem value="Contractual">Contratual</SelectItem>
-                      <SelectItem value="Compliance">Conformidade</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-[rgba(255,255,255,0.85)] text-sm">Descrição</label>
-                <Textarea
-                  value={newRisk.description}
-                  onChange={(e) => setNewRisk(prev => ({ ...prev, description: e.target.value }))}
-                  placeholder="Contextualize o risco, impacto e origem..."
-                  rows={4}
-                  className={`${hudInputBase} min-h-[120px]`}
-                />
-              </div>
-
-              <div className="grid md:grid-cols-3 gap-3">
-                <div className="space-y-2">
-                  <label className="text-[rgba(255,255,255,0.85)] text-sm">Probabilidade</label>
-                  <HudInput
-                    type="number"
-                    min={1}
-                    max={5}
-                    value={newRisk.probability}
-                    onChange={(e) => setNewRisk(prev => ({ ...prev, probability: Number(e.target.value) }))}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[rgba(255,255,255,0.85)] text-sm">Impacto</label>
-                  <HudInput
-                    type="number"
-                    min={1}
-                    max={5}
-                    value={newRisk.impact}
-                    onChange={(e) => setNewRisk(prev => ({ ...prev, impact: Number(e.target.value) }))}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[rgba(255,255,255,0.85)] text-sm">Severidade</label>
-                  <Select
-                    value={newRisk.severity}
-                    onValueChange={(value) => setNewRisk(prev => ({ ...prev, severity: value as Risk['severity'] }))}
-                  >
-                    <SelectTrigger className="bg-[rgba(255,255,255,0.04)] border-[rgba(255,255,255,0.10)] text-white">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent className="bg-gradient-to-br from-[#0A1612] to-[#07130F] border-[rgba(255,255,255,0.08)] text-white">
-                      <SelectItem value="low">Baixa</SelectItem>
-                      <SelectItem value="medium">Média</SelectItem>
-                      <SelectItem value="high">Alta</SelectItem>
-                      <SelectItem value="critical">Crítica</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-[rgba(255,255,255,0.85)] text-sm">Origem</label>
-                <Select
-                  value={newRisk.origin}
-                  onValueChange={(value) => setNewRisk(prev => ({ ...prev, origin: value as Risk['origin'] }))}
-                >
-                  <SelectTrigger className="bg-[rgba(255,255,255,0.04)] border-[rgba(255,255,255,0.10)] text-white">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="bg-gradient-to-br from-[#0A1612] to-[#07130F] border-[rgba(255,255,255,0.08)] text-white">
-                    <SelectItem value="manual">Manual</SelectItem>
-                    <SelectItem value="project">Projeto</SelectItem>
-                    <SelectItem value="contract">Contrato</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <DialogFooter className="flex justify-end gap-3 pt-2">
-              <SecondaryButton type="button" onClick={() => setCreateOpen(false)}>
-                Cancelar
-              </SecondaryButton>
-              <PrimaryCTA type="button" onClick={handleCreateRisk} disabled={!newRisk.title || !newRisk.description}>
-                Salvar
-              </PrimaryCTA>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      </div>
-    </OrionGreenBackground>
+      </HudModal>
+    </HudPageLayout>
   );
 }

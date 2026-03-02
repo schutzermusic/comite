@@ -1,0 +1,23 @@
+{
+  "title": "Deliberações",
+  "subtitle": "Pautas e decisões em fluxo",
+  "newDeliberation": "Nova Deliberação",
+  "underReview": "Em revisão",
+  "inVoting": "Em votação",
+  "approved": "Aprovado",
+  "rejected": "Rejeitado",
+  "draft": "Rascunho",
+  "agenda": "Pautas",
+  "decisions": "Decisões",
+  "queue": "Fila",
+  "seeAll": "Ver tudo",
+  "noItems": "Nenhum item",
+  "vote": "Votar",
+  "abstain": "Abster-se",
+  "comments": "Comentários",
+  "evidence": "Evidências",
+  "dueIn": "Prazo em {time}",
+  "quorum": "Quórum",
+  "required": "Requerido",
+  "present": "Presente"
+}

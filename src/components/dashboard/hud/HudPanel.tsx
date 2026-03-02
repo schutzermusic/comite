@@ -19,7 +19,7 @@ export interface HudPanelProps {
     badge?: number;
 }
 
-export function HudPanel({
+export const HudPanel = React.memo(function HudPanel({
     title,
     accentColor = 'bg-emerald-400',
     deepLinkHref,
@@ -34,7 +34,7 @@ export function HudPanel({
         <motion.div
             initial={{ opacity: 0, y: 20, scale: 0.96 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            transition={{ duration: 0.7, delay, ease: [0.22, 1, 0.36, 1] }}
+            transition={{ duration: 0.5, delay, ease: [0.22, 1, 0.36, 1] }}
             className={cn('group', className)}
         >
             <GlassPanel>
@@ -73,4 +73,4 @@ export function HudPanel({
             </GlassPanel>
         </motion.div>
     );
-}
+});

@@ -46,6 +46,12 @@ const STATUS_BADGE = {
   critical: 'text-red-300 border-red-400/30 bg-red-400/10',
 } as const;
 
+const STATUS_LABEL: Record<string, string> = {
+  healthy: 'Saudável',
+  attention: 'Atenção',
+  critical: 'Crítico',
+};
+
 export function StateHudPanel({ stateData, onBackToBrazil, onProjectSelect, onProjectOpen, className }: StateHudPanelProps) {
   useEffect(() => {
     if (!stateData) return;
@@ -96,7 +102,7 @@ export function StateHudPanel({ stateData, onBackToBrazil, onProjectSelect, onPr
           <div className="px-5 py-4 border-b border-white/10">
             <div className="flex items-center justify-between gap-3">
               <div className="space-y-1">
-                <div className="text-[10px] uppercase tracking-[0.14em] text-white/55">Brazil &gt; {stateData.uf}</div>
+                <div className="text-[10px] uppercase tracking-[0.14em] text-white/55">Brasil &gt; {stateData.uf}</div>
                 <h3 className="text-lg font-semibold text-white">{stateData.stateName}</h3>
               </div>
               <button
@@ -104,7 +110,7 @@ export function StateHudPanel({ stateData, onBackToBrazil, onProjectSelect, onPr
                 className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-white/15 bg-white/5 text-[11px] font-medium text-white/80 hover:text-white hover:bg-white/10 transition-colors"
               >
                 <ArrowLeft className="w-3.5 h-3.5" />
-                Back to Brazil
+                Voltar ao Brasil
               </button>
             </div>
 
@@ -116,7 +122,7 @@ export function StateHudPanel({ stateData, onBackToBrazil, onProjectSelect, onPr
                 )}
               >
                 <CircleDot className="w-3 h-3" />
-                {stateData.status}
+                {STATUS_LABEL[stateData.status] ?? stateData.status}
               </span>
               <span className="text-[11px] text-white/60">Última atualização: {new Date(stateData.lastUpdate).toLocaleString('pt-BR')}</span>
             </div>
@@ -125,59 +131,59 @@ export function StateHudPanel({ stateData, onBackToBrazil, onProjectSelect, onPr
           <div className="p-5 space-y-4 overflow-y-auto h-[calc(100%-98px)]">
             <div className="grid grid-cols-2 gap-3">
               <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-                <div className="text-[10px] uppercase tracking-[0.12em] text-white/50">Contract Total</div>
+                <div className="text-[10px] uppercase tracking-[0.12em] text-white/50">Total do Contrato</div>
                 <div className="text-lg font-semibold text-white mt-1">{formatCompactMoney(stateData.contractTotal)}</div>
               </div>
               <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-                <div className="text-[10px] uppercase tracking-[0.12em] text-white/50">Invoiced</div>
+                <div className="text-[10px] uppercase tracking-[0.12em] text-white/50">Faturado</div>
                 <div className="text-lg font-semibold text-emerald-300 mt-1">{formatCompactMoney(stateData.invoiced)}</div>
               </div>
               <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-                <div className="text-[10px] uppercase tracking-[0.12em] text-white/50">To Invoice</div>
+                <div className="text-[10px] uppercase tracking-[0.12em] text-white/50">A Faturar</div>
                 <div className="text-lg font-semibold text-cyan-300 mt-1">{formatCompactMoney(stateData.toInvoice)}</div>
               </div>
               <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-                <div className="text-[10px] uppercase tracking-[0.12em] text-white/50">Open Risks</div>
+                <div className="text-[10px] uppercase tracking-[0.12em] text-white/50">Riscos Abertos</div>
                 <div className="text-lg font-semibold text-amber-300 mt-1 inline-flex items-center gap-1.5">
                   <AlertTriangle className="w-4 h-4" />
                   {stateData.riskCount}
                 </div>
               </div>
               <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-                <div className="text-[10px] uppercase tracking-[0.12em] text-white/50">Open Decisions</div>
+                <div className="text-[10px] uppercase tracking-[0.12em] text-white/50">Decisões Abertas</div>
                 <div className="text-lg font-semibold text-indigo-200 mt-1 inline-flex items-center gap-1.5">
                   <Landmark className="w-4 h-4" />
                   {stateData.decisionCount}
                 </div>
               </div>
               <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-                <div className="text-[10px] uppercase tracking-[0.12em] text-white/50">Headcount (HH)</div>
+                <div className="text-[10px] uppercase tracking-[0.12em] text-white/50">Equipe (HH)</div>
                 <div className="text-lg font-semibold text-cyan-100 mt-1">{stateData.headcount}</div>
               </div>
             </div>
 
             <div className="grid grid-cols-1 gap-3">
               <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-                <div className="text-[10px] uppercase tracking-[0.1em] text-white/55 mb-2">Monthly Invoicing (planned vs actual)</div>
+                <div className="text-[10px] uppercase tracking-[0.1em] text-white/55 mb-2">Faturamento Mensal (planejado vs real)</div>
                 <svg viewBox="0 0 220 56" className="w-full h-16">
                   <path d={trendPath(monthlyPlanned, 220, 56)} fill="none" stroke="rgba(123, 212, 255, 0.7)" strokeWidth="2" />
                   <path d={trendPath(monthlyActual, 220, 56)} fill="none" stroke="rgba(23, 230, 170, 0.9)" strokeWidth="2.2" />
                 </svg>
                 <div className="mt-2 flex items-center gap-4 text-[10px] text-white/55">
-                  <span className="inline-flex items-center gap-1"><span className="w-2.5 h-0.5 bg-cyan-300 inline-block" />Planned</span>
-                  <span className="inline-flex items-center gap-1"><span className="w-2.5 h-0.5 bg-emerald-300 inline-block" />Actual</span>
+                  <span className="inline-flex items-center gap-1"><span className="w-2.5 h-0.5 bg-cyan-300 inline-block" />Planejado</span>
+                  <span className="inline-flex items-center gap-1"><span className="w-2.5 h-0.5 bg-emerald-300 inline-block" />Real</span>
                 </div>
               </div>
 
               <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-                <div className="text-[10px] uppercase tracking-[0.1em] text-white/55 mb-2">Risk Trend (7/30 days)</div>
+                <div className="text-[10px] uppercase tracking-[0.1em] text-white/55 mb-2">Tendência de Riscos (7/30 dias)</div>
                 <svg viewBox="0 0 220 56" className="w-full h-16">
                   <path d={trendPath(stateData.riskTrend.thirtyDays, 220, 56)} fill="none" stroke="rgba(255, 176, 77, 0.7)" strokeWidth="2" />
                   <path d={trendPath(stateData.riskTrend.sevenDays, 220, 56)} fill="none" stroke="rgba(255, 88, 96, 0.92)" strokeWidth="2.2" />
                 </svg>
                 <div className="mt-2 flex items-center gap-4 text-[10px] text-white/55">
-                  <span className="inline-flex items-center gap-1"><span className="w-2.5 h-0.5 bg-amber-300 inline-block" />30 days</span>
-                  <span className="inline-flex items-center gap-1"><span className="w-2.5 h-0.5 bg-red-300 inline-block" />7 days</span>
+                  <span className="inline-flex items-center gap-1"><span className="w-2.5 h-0.5 bg-amber-300 inline-block" />30 dias</span>
+                  <span className="inline-flex items-center gap-1"><span className="w-2.5 h-0.5 bg-red-300 inline-block" />7 dias</span>
                 </div>
               </div>
             </div>

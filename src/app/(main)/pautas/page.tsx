@@ -2,11 +2,8 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { FileText, Filter, Plus, Search } from 'lucide-react';
-import { OrionGreenBackground } from '@/components/system/OrionGreenBackground';
-import { HUDCard } from '@/components/ui/hud-card';
-import { PrimaryCTA } from '@/components/ui/primary-cta';
-import { Button } from '@/components/ui/button';
 import { BoardHealthKPI, DecisionInspector, DecisionList, NewDeliberationModal, QueueTabs } from '@/components/deliberacoes';
+import { HudPanel, HudButton } from '@/components/hud';
 import { AuditTrailEntry, DeliberationItem, DeliberationStatus, VoteOption, VoteRecord } from '@/lib/types';
 import { COMMITTEES, buildStagePlan, resolveTemplate } from '@/lib/deliberations-policy';
 import { formatDistanceToNowStrict } from 'date-fns';
@@ -473,23 +470,26 @@ export default function DeliberationsPage() {
   }, []);
 
   return (
-    <OrionGreenBackground className="orion-page h-screen overflow-hidden">
-      <div className="orion-page-content max-w-[1920px] mx-auto h-full flex flex-col">
+    <div className="min-h-full h-screen overflow-hidden p-4 md:p-6">
+      <div className="max-w-[1920px] mx-auto h-full flex flex-col">
         <header className="shrink-0 mb-4">
           <div className="flex items-start justify-between">
             <div>
-              <h1 className="text-2xl font-semibold text-white mb-1 tracking-wide flex items-center gap-3">
-                <FileText className="w-6 h-6 text-[#00C8FF]" />
-                Deliberações
-              </h1>
-              <p className="text-sm text-[rgba(255,255,255,0.65)]">
-                Encaminhe solicitações para comitês, conduza votações auditáveis, emita resoluções e execute ações.
-              </p>
+              <div className="flex items-center gap-3 mb-1">
+                <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-gradient-to-br from-cyan-500/10 to-emerald-500/10 border border-cyan-500/20 text-cyan-300">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <h1 className="text-xl font-semibold text-white tracking-wide">Deliberações</h1>
+                  <p className="text-sm text-white/50 mt-0.5">
+                    Encaminhe solicitações para comitês, conduza votações auditáveis, emita resoluções e execute ações.
+                  </p>
+                </div>
+              </div>
             </div>
-            <PrimaryCTA onClick={() => setNewDeliberationOpen(true)}>
-              <Plus className="w-4 h-4 mr-2" />
+            <HudButton variant="primary" size="md" leftIcon={<Plus className="w-4 h-4" />} onClick={() => setNewDeliberationOpen(true)}>
               Nova Deliberação
-            </PrimaryCTA>
+            </HudButton>
           </div>
         </header>
 
@@ -517,27 +517,25 @@ export default function DeliberationsPage() {
                 className="w-64 pl-9 pr-3 py-2 text-sm rounded-lg bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.08)] text-white placeholder-[rgba(255,255,255,0.35)]"
               />
             </div>
-            <Button variant="outline" size="sm" className="border-[rgba(255,255,255,0.15)]" onClick={() => setShowFilters((value) => !value)}>
-              <Filter className="w-4 h-4 mr-1.5" />
+            <HudButton variant="secondary" size="sm" leftIcon={<Filter className="w-4 h-4" />} onClick={() => setShowFilters((value) => !value)}>
               Filtros
-            </Button>
+            </HudButton>
           </div>
 
-          <HUDCard className="p-3">
-            <p className="text-xs uppercase tracking-wide text-[rgba(255,255,255,0.5)] mb-2">Próxima Sessão</p>
+          <HudPanel title="Próxima Sessão" accentColor="amber" noPadding={false}>
             {nextSessionItems.length === 0 ? (
-              <p className="text-sm text-[rgba(255,255,255,0.6)]">Sem deliberações para a próxima sessão.</p>
+              <p className="text-sm text-white/50">Sem deliberações para a próxima sessão.</p>
             ) : (
               <div className="space-y-2">
                 {nextSessionItems.map((item) => (
                   <div key={item.id} className="text-xs">
                     <p className="text-white line-clamp-1">{item.title}</p>
-                    <p className="text-[rgba(255,255,255,0.55)]">{item.dueDate ? `${formatDistanceToNowStrict(item.dueDate)} restantes` : 'Sem SLA'} - {item.ownerCommitteeName}</p>
+                    <p className="text-white/50">{item.dueDate ? `${formatDistanceToNowStrict(item.dueDate)} restantes` : 'Sem SLA'} - {item.ownerCommitteeName}</p>
                   </div>
                 ))}
               </div>
             )}
-          </HUDCard>
+          </HudPanel>
         </div>
 
         {showFilters && (
@@ -559,16 +557,16 @@ export default function DeliberationsPage() {
         )}
 
         <div className="flex-1 min-h-0 grid grid-cols-[minmax(420px,1fr)_minmax(520px,1.4fr)] gap-4">
-          <HUDCard className="h-full overflow-hidden flex flex-col p-0">
-            <div className="p-3 border-b border-[rgba(255,255,255,0.06)] text-xs text-[rgba(255,255,255,0.55)]">
+          <HudPanel noPadding className="h-full overflow-hidden flex flex-col">
+            <div className="p-3 border-b border-white/[0.06] text-xs text-white/50 relative z-[2]">
               {filteredItems.length} resultados
             </div>
-            <div className="flex-1 overflow-y-auto">
+            <div className="flex-1 overflow-y-auto relative z-[2]">
               <DecisionList items={filteredItems} selectedId={selectedId || undefined} onSelectItem={(item) => setSelectedId(item.id)} />
             </div>
-          </HUDCard>
+          </HudPanel>
 
-          <HUDCard className="h-full overflow-hidden p-4">
+          <HudPanel className="h-full overflow-hidden">
             <DecisionInspector
               item={selectedItem}
               currentUserId={CURRENT_USER_ID}
@@ -580,7 +578,7 @@ export default function DeliberationsPage() {
               onPublishMinutes={handlePublishMinutes}
               onCreateExecutionTask={handleCreateExecutionTask}
             />
-          </HUDCard>
+          </HudPanel>
         </div>
 
         <NewDeliberationModal
@@ -589,6 +587,6 @@ export default function DeliberationsPage() {
           onCreateDeliberation={handleCreateDeliberation}
         />
       </div>
-    </OrionGreenBackground>
+    </div>
   );
 }

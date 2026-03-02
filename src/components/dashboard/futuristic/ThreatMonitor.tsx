@@ -82,10 +82,11 @@ const ROTATION_SPEED = 0.6;
 
 export function ThreatMonitor({ risks = defaultRisks, className }: ThreatMonitorProps) {
     const [hoveredRisk, setHoveredRisk] = useState<RiskItem | null>(null);
-    const [scanAngle, setScanAngle] = useState(0);
     const [scannedRisks, setScannedRisks] = useState<Map<string, ScannedRisk>>(new Map());
     const containerRef = useRef<HTMLDivElement>(null);
     const lastScanRef = useRef<Set<string>>(new Set());
+    const scanAngleRef = useRef(0);
+    const scanGroupRef = useRef<SVGGElement>(null);
 
     // Group risks by level for counting (3 levels only - no critical)
     // Critical risks are merged into "high" for display
@@ -117,14 +118,14 @@ export function ThreatMonitor({ risks = defaultRisks, className }: ThreatMonitor
         const tooltipRadius = config.ring * RADAR_RADIUS + 20;
         const x = RADAR_CENTER + tooltipRadius * Math.cos(angleRad);
         const y = RADAR_CENTER + tooltipRadius * Math.sin(angleRad);
-        
+
         // Convert to percentage of viewBox (400x400)
         const xPercent = (x / 400) * 100;
         const yPercent = (y / 400) * 100;
-        
+
         const isRight = x > RADAR_CENTER;
         const isBottom = y > RADAR_CENTER;
-        
+
         return {
             x: xPercent,
             y: yPercent,
@@ -138,61 +139,63 @@ export function ThreatMonitor({ risks = defaultRisks, className }: ThreatMonitor
     const checkCollision = useCallback((currentAngle: number, riskAngle: number) => {
         const normalizedScan = ((currentAngle % 360) + 360) % 360;
         const normalizedRisk = ((riskAngle % 360) + 360) % 360;
-        
+
         let diff = Math.abs(normalizedScan - normalizedRisk);
         if (diff > 180) diff = 360 - diff;
-        
+
         return diff < SCAN_THRESHOLD;
     }, []);
 
-    // Animation frame for smooth rotation and collision detection
+    // Animation frame: update DOM directly via ref (no React state for angle)
     useAnimationFrame(() => {
-        setScanAngle(prev => {
-            const newAngle = (prev + ROTATION_SPEED) % 360;
-            
-            risks.forEach(risk => {
-                const isColliding = checkCollision(newAngle, risk.angle);
-                const wasColliding = lastScanRef.current.has(risk.id);
-                
-                if (isColliding && !wasColliding) {
-                    lastScanRef.current.add(risk.id);
-                    setScannedRisks(prev => {
-                        const next = new Map(prev);
-                        next.set(risk.id, { risk, timestamp: Date.now() });
-                        return next;
-                    });
-                }
-                
-                if (!isColliding && wasColliding) {
-                    lastScanRef.current.delete(risk.id);
-                }
-            });
-            
-            return newAngle;
+        const newAngle = (scanAngleRef.current + ROTATION_SPEED) % 360;
+        scanAngleRef.current = newAngle;
+
+        // Update SVG transform directly — bypasses React render cycle
+        if (scanGroupRef.current) {
+            scanGroupRef.current.style.transform = `rotate(${newAngle}deg)`;
+        }
+
+        risks.forEach(risk => {
+            const isColliding = checkCollision(newAngle, risk.angle);
+            const wasColliding = lastScanRef.current.has(risk.id);
+
+            if (isColliding && !wasColliding) {
+                lastScanRef.current.add(risk.id);
+                setScannedRisks(prev => {
+                    const next = new Map(prev);
+                    next.set(risk.id, { risk, timestamp: Date.now() });
+                    return next;
+                });
+            }
+
+            if (!isColliding && wasColliding) {
+                lastScanRef.current.delete(risk.id);
+            }
         });
     });
 
-    // Cleanup expired tooltips
+    // Cleanup expired tooltips — reduced frequency
     useEffect(() => {
         const interval = setInterval(() => {
             const now = Date.now();
             setScannedRisks(prev => {
                 const next = new Map(prev);
                 let changed = false;
-                
+
                 prev.forEach((scanned, id) => {
                     if (hoveredRisk?.id === id) return;
-                    
+
                     if (now - scanned.timestamp > TOOLTIP_DURATION) {
                         next.delete(id);
                         changed = true;
                     }
                 });
-                
+
                 return changed ? next : prev;
             });
-        }, 100);
-        
+        }, 500);
+
         return () => clearInterval(interval);
     }, [hoveredRisk]);
 
@@ -322,8 +325,8 @@ export function ThreatMonitor({ risks = defaultRisks, className }: ThreatMonitor
                     strokeWidth="1" 
                 />
 
-                {/* Rotating Scanner Beam */}
-                <g style={{ transform: `rotate(${scanAngle}deg)`, transformOrigin: `${RADAR_CENTER}px ${RADAR_CENTER}px` }}>
+                {/* Rotating Scanner Beam — driven by ref, not React state */}
+                <g ref={scanGroupRef} style={{ transformOrigin: `${RADAR_CENTER}px ${RADAR_CENTER}px`, willChange: 'transform' }}>
                     {/* Scan cone trail */}
                     <path
                         d={`M ${RADAR_CENTER} ${RADAR_CENTER} L ${RADAR_CENTER} ${RADAR_CENTER - RADAR_RADIUS} A ${RADAR_RADIUS} ${RADAR_RADIUS} 0 0 1 ${RADAR_CENTER + RADAR_RADIUS * Math.sin(0.15)} ${RADAR_CENTER - RADAR_RADIUS * Math.cos(0.15)} Z`}

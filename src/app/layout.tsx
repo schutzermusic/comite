@@ -2,19 +2,24 @@ import type { Metadata } from 'next';
 import './globals.css';
 import { cn } from '@/lib/utils';
 import { Toaster } from '@/components/ui/toaster';
+import { getLocale, getMessages } from 'next-intl/server';
+import { NextIntlClientProvider } from 'next-intl';
 
 export const metadata: Metadata = {
   title: 'Insight Energy Governance Hub',
-  description: 'Corporate governance platform for Insight Energy.',
+  description: 'Plataforma de governança corporativa Insight Energy.',
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const locale = await getLocale();
+  const messages = await getMessages();
+
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang={locale} suppressHydrationWarning>
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
@@ -31,8 +36,10 @@ export default function RootLayout({
         `}</style>
       </head>
       <body className={cn('font-body antialiased')}>
-        {children}
-        <Toaster />
+        <NextIntlClientProvider locale={locale} messages={messages}>
+          {children}
+          <Toaster />
+        </NextIntlClientProvider>
       </body>
     </html>
   );
