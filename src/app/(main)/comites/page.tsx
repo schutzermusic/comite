@@ -7,42 +7,41 @@ import {
   Plus,
   Users,
   FileText,
-  Search,
-  Settings,
   Shield,
   Eye,
+  Settings,
 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { PrimaryCTA } from '@/components/ui/primary-cta';
-import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
-import { HUDCard } from '@/components/ui/hud-card';
-import { StatusPill } from '@/components/ui/status-pill';
-import { OrionGreenBackground } from '@/components/system/OrionGreenBackground';
-import { projects } from '@/lib/mock-data'; // Using projects as mock comites for now
+import { projects } from '@/lib/mock-data';
 
-// Mocking comites data structure based on the provided component logic
+import {
+  HudPageLayout,
+  HudHeader,
+  HudKpiStrip,
+  HudFilterBar,
+  HudPanel,
+  HudButton,
+  HudStatusPill,
+  HudEmptyState,
+  type KpiItem,
+} from '@/components/hud';
+
 const comites = projects.map((p, index) => ({
   id: p.id,
   nome: p.comiteResponsavel,
   descricao: `Comitê responsável por projetos ${p.comiteResponsavel.split(' ')[1].toLowerCase()}.`,
   status: index % 3 === 0 ? 'inativo' : 'ativo',
-  tipo: ['executivo', 'consultivo', 'fiscal', 'estrategico', 'operacional', 'especial'][index % 6] as any,
+  tipo: ['executivo', 'consultivo', 'fiscal', 'estrategico', 'operacional', 'especial'][index % 6] as string,
   cor: ['#FF7A3D', '#008751', '#4CAF7B', '#FFB347', '#3F51B5', '#9C27B0'][index % 6],
   total_membros: Math.floor(Math.random() * 10) + 5,
   total_pautas: Math.floor(Math.random() * 20) + 1,
   quorum_minimo: 50,
   percentual_aprovacao: 51,
   votacao_anonima: index % 2 === 0,
-  presidente_nome: 'Alice Johnson'
+  presidente_nome: 'Alice Johnson',
 }));
-
 
 export default function ComitesPage() {
   const [searchTerm, setSearchTerm] = useState('');
-
-  // Mocking isAdmin for now
   const isAdmin = true;
 
   const filteredComites = comites.filter(
@@ -51,14 +50,14 @@ export default function ComitesPage() {
       comite.descricao?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const getStatusVariant = (status: string): "active" | "neutral" | "warning" => {
-    if (status === 'ativo') return 'active';
-    if (status === 'suspenso') return 'warning';
-    return 'neutral';
+  const getStatusVariant = (status: string) => {
+    if (status === 'ativo') return 'active' as const;
+    if (status === 'suspenso') return 'warning' as const;
+    return 'neutral' as const;
   };
 
   const getTipoIcon = (tipo: string) => {
-    const icons: { [key: string]: React.ElementType } = {
+    const icons: Record<string, React.ElementType> = {
       executivo: Shield,
       consultivo: Users,
       fiscal: Eye,
@@ -76,179 +75,116 @@ export default function ComitesPage() {
     totalPautas: comites.reduce((sum, c) => sum + (c.total_pautas || 0), 0),
   };
 
+  const kpiItems: KpiItem[] = [
+    { id: 'total', value: stats.total, label: 'Total de Comitês', variant: 'info', icon: <Building2 className="w-5 h-5" /> },
+    { id: 'ativos', value: stats.ativos, label: 'Comitês Ativos', variant: 'success', icon: <Shield className="w-5 h-5" /> },
+    { id: 'membros', value: stats.totalMembros, label: 'Total de Membros', variant: 'info', icon: <Users className="w-5 h-5" /> },
+    { id: 'pautas', value: stats.totalPautas, label: 'Total de Pautas', variant: 'warning', icon: <FileText className="w-5 h-5" /> },
+  ];
+
   return (
-    <OrionGreenBackground className="orion-page">
-      <div className="orion-page-content max-w-[1800px] mx-auto space-y-6">
-        <header className="mb-8">
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-            <div>
-              <h1 className="text-2xl font-semibold text-white mb-1 tracking-wide">
-                Gerenciamento de Comitês
-              </h1>
-              <p className="text-sm text-[rgba(255,255,255,0.65)]">
-                Administre os comitês e suas configurações
-              </p>
-            </div>
-            {isAdmin && (
-              <Link href="/comites/novo">
-                <PrimaryCTA>
-                  <Plus className="w-4 h-4 mr-2" />
-                  Novo Comitê
-                </PrimaryCTA>
-              </Link>
-            )}
-          </div>
-        </header>
+    <HudPageLayout>
+      <HudHeader
+        title="Gerenciamento de Comitês"
+        subtitle="Administre os comitês e suas configurações"
+        icon={<Building2 className="w-5 h-5" />}
+        breadcrumbs={[{ label: 'Comitês' }]}
+        actions={
+          isAdmin ? (
+            <Link href="/comites/novo">
+              <HudButton variant="primary" size="md" leftIcon={<Plus className="w-4 h-4" />}>
+                Novo Comitê
+              </HudButton>
+            </Link>
+          ) : undefined
+        }
+      />
 
-        <section className="grid md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-          <HUDCard glow glowColor="cyan">
-            <div className="flex items-center justify-between mb-2">
-              <Building2 className="w-6 h-6 text-[#00C8FF]" />
-            </div>
-            <p className="text-xs text-[rgba(255,255,255,0.65)] mb-1 uppercase tracking-wide">Total de Comitês</p>
-            <p className="text-3xl font-semibold text-white">{stats.total}</p>
-          </HUDCard>
+      <HudKpiStrip kpis={kpiItems} columns={4} />
 
-          <HUDCard glow glowColor="green">
-            <div className="flex items-center justify-between mb-2">
-              <Shield className="w-6 h-6 text-[#00FFB4]" />
-            </div>
-            <p className="text-xs text-[rgba(255,255,255,0.65)] mb-1 uppercase tracking-wide">Comitês Ativos</p>
-            <p className="text-3xl font-semibold text-white">{stats.ativos}</p>
-          </HUDCard>
+      <HudFilterBar
+        searchPlaceholder="Buscar comitês..."
+        searchValue={searchTerm}
+        onSearchChange={setSearchTerm}
+      />
 
-          <HUDCard glow glowColor="cyan">
-            <div className="flex items-center justify-between mb-2">
-              <Users className="w-6 h-6 text-[#00C8FF]" />
-            </div>
-            <p className="text-xs text-[rgba(255,255,255,0.65)] mb-1 uppercase tracking-wide">Total de Membros</p>
-            <p className="text-3xl font-semibold text-white">{stats.totalMembros}</p>
-          </HUDCard>
-
-          <HUDCard glow glowColor="amber">
-            <div className="flex items-center justify-between mb-2">
-              <FileText className="w-6 h-6 text-[#FFB04D]" />
-            </div>
-            <p className="text-xs text-[rgba(255,255,255,0.65)] mb-1 uppercase tracking-wide">Total de Pautas</p>
-            <p className="text-3xl font-semibold text-white">{stats.totalPautas}</p>
-          </HUDCard>
-        </section>
-
-        <HUDCard>
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-[rgba(255,255,255,0.40)]" />
-            <Input
-              placeholder="Buscar comitês..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10 bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.08)] text-white placeholder:text-[rgba(255,255,255,0.40)] focus:border-[rgba(0,255,180,0.25)]"
-            />
-          </div>
-        </HUDCard>
-
-      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {filteredComites.map((comite) => {
+      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {filteredComites.map((comite, idx) => {
           const TipoIcon = getTipoIcon(comite.tipo);
           return (
             <Link key={comite.id} href={`/comites/${comite.id}`}>
-              <HUDCard className="h-full hover:border-[rgba(0,255,180,0.12)] transition-all cursor-pointer">
+              <HudPanel delay={idx * 0.04} className="h-full cursor-pointer">
                 <div className="space-y-4">
                   <div className="flex justify-between items-start">
                     <div className="flex items-center gap-3">
-                      <div className="p-3 rounded-xl bg-[rgba(0,255,180,0.12)] border border-[rgba(0,255,180,0.25)]">
-                        <TipoIcon className="w-6 h-6 text-[#00FFB4]" />
+                      <div className="p-2.5 rounded-xl bg-gradient-to-br from-cyan-500/10 to-emerald-500/10 border border-cyan-500/20">
+                        {React.createElement(TipoIcon, { className: "w-5 h-5 text-cyan-300" })}
                       </div>
                       <div>
                         <h3 className="text-base font-semibold text-white">{comite.nome}</h3>
-                        <StatusPill variant="info" className="mt-1 text-xs">
-                          {comite.tipo}
-                        </StatusPill>
+                        <HudStatusPill variant="info" size="sm">{comite.tipo}</HudStatusPill>
                       </div>
                     </div>
-                    <StatusPill variant={getStatusVariant(comite.status)}>
+                    <HudStatusPill variant={getStatusVariant(comite.status)}>
                       {comite.status}
-                    </StatusPill>
+                    </HudStatusPill>
                   </div>
 
-                  <p className="text-sm text-[rgba(255,255,255,0.65)] line-clamp-3">
-                    {comite.descricao}
-                  </p>
+                  <p className="text-sm text-white/50 line-clamp-3">{comite.descricao}</p>
 
-                  <div className="grid grid-cols-2 gap-4 pt-4 border-t border-[rgba(255,255,255,0.05)]">
+                  <div className="grid grid-cols-2 gap-4 pt-3 border-t border-white/[0.06]">
                     <div>
-                      <p className="text-xs text-[rgba(255,255,255,0.40)] mb-1">Membros</p>
-                      <p className="text-2xl font-semibold text-white">
-                        {comite.total_membros || 0}
-                      </p>
+                      <p className="text-xs text-white/40 mb-1 uppercase tracking-wider">Membros</p>
+                      <p className="text-xl font-semibold text-white tabular-nums">{comite.total_membros || 0}</p>
                     </div>
                     <div>
-                      <p className="text-xs text-[rgba(255,255,255,0.40)] mb-1">Pautas</p>
-                      <p className="text-2xl font-semibold text-white">
-                        {comite.total_pautas || 0}
-                      </p>
+                      <p className="text-xs text-white/40 mb-1 uppercase tracking-wider">Pautas</p>
+                      <p className="text-xl font-semibold text-white tabular-nums">{comite.total_pautas || 0}</p>
                     </div>
                   </div>
 
-                  <div className="space-y-2 pt-4 border-t border-[rgba(255,255,255,0.05)] text-xs text-[rgba(255,255,255,0.65)]">
+                  <div className="space-y-2 pt-3 border-t border-white/[0.06] text-xs text-white/50">
                     <div className="flex justify-between">
                       <span>Quórum mínimo:</span>
-                      <span className="font-semibold text-white">
-                        {comite.quorum_minimo}%
-                      </span>
+                      <span className="font-semibold text-white tabular-nums">{comite.quorum_minimo}%</span>
                     </div>
                     <div className="flex justify-between">
                       <span>Aprovação:</span>
-                      <span className="font-semibold text-white">
-                        {comite.percentual_aprovacao}%
-                      </span>
+                      <span className="font-semibold text-white tabular-nums">{comite.percentual_aprovacao}%</span>
                     </div>
                     <div className="flex justify-between">
                       <span>Votação anônima:</span>
-                      <span className="font-semibold text-white">
-                        {comite.votacao_anonima ? 'Sim' : 'Não'}
-                      </span>
+                      <span className="font-semibold text-white">{comite.votacao_anonima ? 'Sim' : 'Não'}</span>
                     </div>
                   </div>
 
                   {comite.presidente_nome && (
-                    <div className="pt-4 border-t border-[rgba(255,255,255,0.05)]">
-                      <p className="text-xs text-[rgba(255,255,255,0.40)] mb-1">Presidente</p>
-                      <p className="font-medium text-sm text-white">
-                        {comite.presidente_nome}
-                      </p>
+                    <div className="pt-3 border-t border-white/[0.06]">
+                      <p className="text-xs text-white/40 mb-1 uppercase tracking-wider">Presidente</p>
+                      <p className="font-medium text-sm text-white">{comite.presidente_nome}</p>
                     </div>
                   )}
                 </div>
-              </HUDCard>
+              </HudPanel>
             </Link>
           );
         })}
       </div>
 
-        {filteredComites.length === 0 && (
-          <HUDCard>
-            <div className="p-12 text-center">
-              <Building2 className="w-16 h-16 text-[rgba(255,255,255,0.20)] mx-auto mb-4" />
-              <h3 className="text-lg font-semibold text-white mb-2">
-                Nenhum comitê encontrado
-              </h3>
-              <p className="text-[rgba(255,255,255,0.65)] mb-6">
-                {searchTerm
-                  ? 'Tente ajustar sua busca'
-                  : 'Comece criando seu primeiro comitê'}
-              </p>
-              {!searchTerm && isAdmin && (
-                <Link href="/comites/novo">
-                  <Button className="bg-[#00FFB4] text-[#050D0A] hover:bg-[#00E6A0] font-medium shadow-[0_0_18px_rgba(0,255,180,0.18)]">
-                    <Plus className="w-4 h-4 mr-2" />
-                    Criar Primeiro Comitê
-                  </Button>
-                </Link>
-              )}
-            </div>
-          </HUDCard>
-        )}
-      </div>
-    </OrionGreenBackground>
+      {filteredComites.length === 0 && (
+        <HudPanel>
+          <HudEmptyState
+            icon="package"
+            title="Nenhum comitê encontrado"
+            description={searchTerm ? 'Tente ajustar sua busca' : 'Comece criando seu primeiro comitê'}
+            action={
+              !searchTerm && isAdmin
+                ? { label: 'Criar Primeiro Comitê', onClick: () => {}, variant: 'primary' }
+                : undefined
+            }
+          />
+        </HudPanel>
+      )}
+    </HudPageLayout>
   );
 }

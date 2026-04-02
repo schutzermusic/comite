@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
-import { 
+import {
   Bell,
   Check,
   CheckCheck,
@@ -31,13 +31,22 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { notifications as mockNotifications } from "@/lib/mock-data";
 import { Notification } from "@/lib/types";
 
-export default function NotificationCenter() {
+import { usePathname } from "next/navigation";
+
+interface NotificationCenterProps {
+  hiddenOnDashboard?: boolean;
+}
+
+export default function NotificationCenter({ hiddenOnDashboard }: NotificationCenterProps) {
+  const pathname = usePathname();
   const { toast } = useToast();
   const [filter, setFilter] = useState('todas');
   const [notificacoes, setNotificacoes] = useState<Notification[]>(mockNotifications);
 
+  if (hiddenOnDashboard && pathname === "/dashboard") return null;
+
   const marcarComoLidaMutation = (notificacaoId: string) => {
-    setNotificacoes(prev => 
+    setNotificacoes(prev =>
       prev.map(n => n.id === notificacaoId ? { ...n, lida: true } : n)
     );
   };
@@ -88,11 +97,11 @@ export default function NotificationCenter() {
         <Button
           variant="ghost"
           size="icon"
-          className="relative h-11 w-11 rounded-full border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] hover:border-[rgba(0,200,255,0.45)] hover:shadow-[0_0_12px_rgba(0,200,255,0.35)]"
+          className="relative h-8 w-8 rounded-lg border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] hover:border-[rgba(0,200,255,0.45)] hover:shadow-[0_0_12px_rgba(0,200,255,0.35)]"
         >
-          <Bell className="w-5 h-5 transition-all" style={{ color: hasUnread ? '#00C8FF' : 'rgba(255,255,255,0.65)' }} />
+          <Bell className="w-4 h-4 transition-all" style={{ color: hasUnread ? '#00C8FF' : 'rgba(255,255,255,0.65)' }} />
           {hasUnread && (
-            <Badge 
+            <Badge
               className="absolute -top-1 -right-1 h-4 w-4 rounded-full flex items-center justify-center p-0 bg-[#FF5860] text-white text-[10px] font-bold leading-none shadow-[0_0_10px_rgba(255,88,96,0.7)]"
             >
               {naoLidasCount > 9 ? '9+' : naoLidasCount}
@@ -124,9 +133,9 @@ export default function NotificationCenter() {
               </Button>
             )}
             <Link href="/notificacoes">
-              <Button 
-                variant="ghost" 
-                size="icon" 
+              <Button
+                variant="ghost"
+                size="icon"
                 title="Ver todas"
                 className="h-8 w-8 rounded-full text-[rgba(255,255,255,0.70)] hover:text-white hover:bg-[rgba(0,255,180,0.10)]"
               >
@@ -138,14 +147,14 @@ export default function NotificationCenter() {
 
         <Tabs value={filter} onValueChange={setFilter} className="px-4 pt-3">
           <TabsList className="w-full bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.06)]">
-            <TabsTrigger 
-              value="todas" 
+            <TabsTrigger
+              value="todas"
               className="flex-1 data-[state=active]:bg-[rgba(0,255,180,0.12)] data-[state=active]:text-white text-[rgba(255,255,255,0.70)]"
             >
               Todas ({notificacoes.length})
             </TabsTrigger>
-            <TabsTrigger 
-              value="nao_lidas" 
+            <TabsTrigger
+              value="nao_lidas"
               className="flex-1 data-[state=active]:bg-[rgba(0,255,180,0.12)] data-[state=active]:text-white text-[rgba(255,255,255,0.70)]"
             >
               Não lidas ({naoLidasCount})
@@ -161,54 +170,53 @@ export default function NotificationCenter() {
                   const Icon = getIconByType(notificacao.tipo);
                   return (
                     <Link href={notificacao.link} key={notificacao.id} passHref>
-                        <div
-                        className={`p-3 rounded-xl cursor-pointer transition-all ${
-                            !notificacao.lida 
-                            ? 'bg-[rgba(0,255,180,0.08)] border border-[rgba(0,255,180,0.22)] shadow-[0_0_14px_rgba(0,255,180,0.12)]' 
-                            : 'bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)] hover:border-[rgba(0,200,255,0.22)]'
-                        }`}
+                      <div
+                        className={`p-3 rounded-xl cursor-pointer transition-all ${!notificacao.lida
+                          ? 'bg-[rgba(0,255,180,0.08)] border border-[rgba(0,255,180,0.22)] shadow-[0_0_14px_rgba(0,255,180,0.12)]'
+                          : 'bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)] hover:border-[rgba(0,200,255,0.22)]'
+                          }`}
                         onClick={() => handleNotificationClick(notificacao)}
-                        >
+                      >
                         <div className="flex gap-3">
-                            <div 
+                          <div
                             className="p-2 rounded-xl flex-shrink-0 h-fit shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
                             style={{ backgroundColor: `${notificacao.cor}1a` }}
-                            >
+                          >
                             <Icon className="w-4 h-4" style={{ color: notificacao.cor }} />
-                            </div>
+                          </div>
 
-                            <div className="flex-1 min-w-0">
+                          <div className="flex-1 min-w-0">
                             <div className="flex items-start justify-between gap-2 mb-1">
-                                <p className={`font-semibold text-sm ${!notificacao.lida ? 'text-white' : 'text-[rgba(255,255,255,0.85)]'}`}>
+                              <p className={`font-semibold text-sm ${!notificacao.lida ? 'text-white' : 'text-[rgba(255,255,255,0.85)]'}`}>
                                 {notificacao.titulo}
-                                </p>
-                                {!notificacao.lida && (
+                              </p>
+                              {!notificacao.lida && (
                                 <div className="w-2 h-2 bg-[#FFB04D] rounded-full flex-shrink-0 mt-1 shadow-[0_0_8px_rgba(255,176,77,0.6)]"></div>
-                                )}
+                              )}
                             </div>
                             <p className="text-xs text-[rgba(255,255,255,0.70)] line-clamp-2 mb-2">
-                                {notificacao.mensagem}
+                              {notificacao.mensagem}
                             </p>
                             <div className="flex items-center justify-between">
-                                <span className="text-[11px] text-[rgba(255,255,255,0.55)]">
+                              <span className="text-[11px] text-[rgba(255,255,255,0.55)]">
                                 {format(new Date(notificacao.created_date), "dd/MM 'às' HH:mm")}
-                                </span>
-                                <Button
+                              </span>
+                              <Button
                                 variant="ghost"
                                 size="icon"
                                 onClick={(e) => {
-                                e.stopPropagation();
-                                    e.preventDefault();
-                                    excluirNotificacaoMutation(notificacao.id);
+                                  e.stopPropagation();
+                                  e.preventDefault();
+                                  excluirNotificacaoMutation(notificacao.id);
                                 }}
                                 className="h-7 w-7 text-[rgba(255,255,255,0.60)] hover:text-[#FF5860] hover:bg-[rgba(255,88,96,0.12)] rounded-full"
-                                >
+                              >
                                 <Trash2 className="w-3.5 h-3.5" />
-                                </Button>
+                              </Button>
                             </div>
-                            </div>
+                          </div>
                         </div>
-                        </div>
+                      </div>
                     </Link>
                   );
                 })}
@@ -217,8 +225,8 @@ export default function NotificationCenter() {
               <div className="text-center py-12">
                 <Bell className="w-12 h-12 text-[rgba(255,255,255,0.25)] mx-auto mb-3" />
                 <p className="text-sm text-[rgba(255,255,255,0.65)]">
-                  {filter === 'nao_lidas' 
-                    ? 'Você está em dia! 🎉' 
+                  {filter === 'nao_lidas'
+                    ? 'Você está em dia! 🎉'
                     : 'Nenhuma notificação'}
                 </p>
               </div>
@@ -228,8 +236,8 @@ export default function NotificationCenter() {
 
         <div className="border-t border-[rgba(255,255,255,0.06)] p-3">
           <Link href="/notificacoes">
-            <Button 
-              variant="ghost" 
+            <Button
+              variant="ghost"
               className="w-full text-sm h-10 rounded-xl border border-[rgba(255,255,255,0.10)] bg-[rgba(255,255,255,0.03)] text-[rgba(255,255,255,0.85)] hover:border-[rgba(0,200,255,0.35)] hover:bg-[rgba(0,200,255,0.08)]"
               size="sm"
             >

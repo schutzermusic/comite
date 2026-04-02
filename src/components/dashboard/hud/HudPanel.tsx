@@ -19,7 +19,7 @@ export interface HudPanelProps {
     badge?: number;
 }
 
-export function HudPanel({
+export const HudPanel = React.memo(function HudPanel({
     title,
     accentColor = 'bg-emerald-400',
     deepLinkHref,
@@ -34,11 +34,11 @@ export function HudPanel({
         <motion.div
             initial={{ opacity: 0, y: 20, scale: 0.96 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            transition={{ duration: 0.7, delay, ease: [0.22, 1, 0.36, 1] }}
+            transition={{ duration: 0.5, delay, ease: [0.22, 1, 0.36, 1] }}
             className={cn('group', className)}
         >
             <GlassPanel>
-                <div className="flex items-center justify-between px-4 pt-3.5 pb-2">
+                <div className="flex items-center justify-between px-3.5 pt-2.5 pb-1.5">
                     <div className="flex items-center gap-2 min-w-0">
                         <div
                             className={cn(
@@ -48,7 +48,7 @@ export function HudPanel({
                             style={{ boxShadow: '0 0 10px currentColor' }}
                         />
                         {icon && (
-                            <span className="text-white/70 flex-shrink-0">{icon}</span>
+                            <span className="text-white/70 flex-shrink-0 [&_svg]:stroke-[1.8]">{icon}</span>
                         )}
                         <span className="cr-panel-title truncate">{title}</span>
                         {badge !== undefined && (
@@ -68,9 +68,9 @@ export function HudPanel({
                     )}
                 </div>
 
-                <div className="mx-4 h-px bg-gradient-to-r from-transparent via-cyan-300/25 to-transparent" />
-                <div className="px-4 py-3">{children}</div>
+                <div className="mx-3.5 h-px bg-gradient-to-r from-transparent via-cyan-300/25 to-transparent" />
+                <div className="px-3.5 py-2.5">{children}</div>
             </GlassPanel>
         </motion.div>
     );
-}
+});

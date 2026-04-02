@@ -10,7 +10,7 @@ export interface SecondaryButtonProps
 }
 
 const baseClasses =
-  "inline-flex items-center justify-center gap-2 rounded-full text-[13px] md:text-[14px] font-medium transition-all duration-200 border border-[rgba(255,255,255,0.18)] text-[rgba(255,255,255,0.80)] bg-transparent hover:text-white hover:border-[rgba(0,200,255,0.45)] hover:shadow-[0_0_14px_rgba(0,200,255,0.25)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(0,200,255,0.35)] focus-visible:ring-offset-0";
+  "inline-flex items-center justify-center gap-2 rounded-full text-[13px] md:text-[14px] font-medium transition-all duration-200 border border-border text-muted-foreground bg-transparent hover:text-foreground hover:border-primary/45 hover:shadow-[0_0_14px_hsl(var(--primary)/0.15)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 focus-visible:ring-offset-0";
 
 export const SecondaryButton = React.forwardRef<
   HTMLButtonElement,
@@ -30,4 +30,3 @@ export const SecondaryButton = React.forwardRef<
 });
 
 SecondaryButton.displayName = "SecondaryButton";
-

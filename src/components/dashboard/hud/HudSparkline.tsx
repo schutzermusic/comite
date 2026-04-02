@@ -5,6 +5,9 @@ import { cn } from '@/lib/utils';
 
 export interface HudSparklineProps {
     values: number[];
+    forecastValues?: number[];
+    bandLower?: number[];
+    bandUpper?: number[];
     color?: string;
     height?: number;
     width?: number;
@@ -15,6 +18,9 @@ export interface HudSparklineProps {
 
 export function HudSparkline({
     values,
+    forecastValues,
+    bandLower,
+    bandUpper,
     color = '#10b981',
     height = 28,
     width,
@@ -24,13 +30,29 @@ export function HudSparkline({
     if (!values || values.length === 0) return null;
 
     if (variant === 'line') {
-        const max = Math.max(...values);
-        const min = Math.min(...values);
+        const domainValues = [...values, ...(forecastValues || []), ...(bandLower || []), ...(bandUpper || [])];
+        const max = Math.max(...domainValues);
+        const min = Math.min(...domainValues);
         const range = max - min || 1;
         const w = width || values.length * 8;
         const padding = 2;
 
         const points = values.map((v, i) => {
+            const x = padding + (i / (values.length - 1)) * (w - padding * 2);
+            const y = padding + (1 - (v - min) / range) * (height - padding * 2);
+            return `${x},${y}`;
+        });
+        const forecastPoints = forecastValues?.map((v, i) => {
+            const x = padding + (i / (values.length - 1)) * (w - padding * 2);
+            const y = padding + (1 - (v - min) / range) * (height - padding * 2);
+            return `${x},${y}`;
+        });
+        const bandTopPoints = bandUpper?.map((v, i) => {
+            const x = padding + (i / (values.length - 1)) * (w - padding * 2);
+            const y = padding + (1 - (v - min) / range) * (height - padding * 2);
+            return `${x},${y}`;
+        });
+        const bandBottomPoints = bandLower?.map((v, i) => {
             const x = padding + (i / (values.length - 1)) * (w - padding * 2);
             const y = padding + (1 - (v - min) / range) * (height - padding * 2);
             return `${x},${y}`;
@@ -41,6 +63,9 @@ export function HudSparkline({
             ...points,
             `${w - padding},${height}`,
         ].join(' ');
+        const bandAreaPoints = bandTopPoints && bandBottomPoints
+            ? [...bandTopPoints, ...[...bandBottomPoints].reverse()].join(' ')
+            : null;
 
         const gradientId = `spark-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -71,6 +96,14 @@ export function HudSparkline({
                     points={areaPoints}
                     fill={`url(#${gradientId})`}
                 />
+                {bandAreaPoints && (
+                    <polygon
+                        points={bandAreaPoints}
+                        fill="rgba(132, 218, 236, 0.12)"
+                        stroke="rgba(132, 218, 236, 0.2)"
+                        strokeWidth="0.6"
+                    />
+                )}
                 <polyline
                     points={points.join(' ')}
                     fill="none"
@@ -81,6 +114,17 @@ export function HudSparkline({
                     filter={`url(#${glowId})`}
                     style={{ filter: `drop-shadow(0 0 4px ${color})` }}
                 />
+                {forecastPoints && (
+                    <polyline
+                        points={forecastPoints.join(' ')}
+                        fill="none"
+                        stroke="rgba(170, 226, 241, 0.82)"
+                        strokeDasharray="2.4 2.2"
+                        strokeWidth="1.2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                    />
+                )}
             </svg>
         );
     }

@@ -40,7 +40,7 @@ export function HudGlassPanel({
             transition={{ duration: 0.4, delay, ease: [0.25, 0.46, 0.45, 0.94] }}
             className={cn('group', className)}
         >
-            <GlassPanel animatedBorder={scanLine}>
+            <GlassPanel>
                 <div className="flex items-center justify-between px-3.5 pt-3 pb-1.5">
                     <div className="flex items-center gap-2 min-w-0">
                         <div className={cn('w-2 h-2 rounded-full flex-shrink-0 shadow-lg', accentColor)}

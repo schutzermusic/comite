@@ -1,9 +1,23 @@
 'use client';
 
-import React from 'react';
-import { Search, Radio } from 'lucide-react';
-import type { HudMode, PeriodFilter } from '@/hooks/useHudLayout';
+import React, { useState, useRef, useEffect } from 'react';
+import { useTranslations } from 'next-intl';
+import { ChevronDown } from 'lucide-react';
+import type { HudMode, PeriodFilter, ViewPreset } from '@/hooks/useHudLayout';
 import { HudChip } from './hud';
+import NotificationCenter from '@/components/layout/notification-center';
+import { ThemeToggle } from '@/components/layout/ThemeToggle';
+
+interface DashboardHudBarProps {
+    mode: HudMode;
+    period: PeriodFilter;
+    preset: ViewPreset;
+    onModeChange: (mode: HudMode) => void;
+    onPeriodChange: (period: PeriodFilter) => void;
+    onPresetChange: (preset: ViewPreset) => void;
+    onCommandPalette?: () => void;
+    alertCounts?: AlertCounts;
+}
 
 interface AlertCounts {
     critical: number;
@@ -11,126 +25,125 @@ interface AlertCounts {
     docsPending: number;
 }
 
-interface DashboardHudBarProps {
-    mode: HudMode;
-    period: PeriodFilter;
-    onModeChange: (mode: HudMode) => void;
-    onPeriodChange: (period: PeriodFilter) => void;
-    onCommandPalette?: () => void;
-    alertCounts?: AlertCounts;
-}
-
-const PERIODS: { key: PeriodFilter; label: string }[] = [
-    { key: 'mtd', label: 'MTD' },
-    { key: 'qtd', label: 'QTD' },
-    { key: 'ytd', label: 'YTD' },
-    { key: 'custom', label: 'Custom' },
+const PERIOD_KEYS: PeriodFilter[] = ['mtd', 'qtd', 'ytd', 'custom'];
+const PRESET_OPTIONS: { key: ViewPreset; labelKey: string }[] = [
+    { key: 'diretor', labelKey: 'presetDirector' },
+    { key: 'financeiro', labelKey: 'presetFinance' },
+    { key: 'rh', labelKey: 'presetHR' },
+    { key: 'comercial', labelKey: 'presetCommercial' },
 ];
 
 export function DashboardHudBar({
     mode,
     period,
+    preset,
     onModeChange,
     onPeriodChange,
+    onPresetChange,
     onCommandPalette,
     alertCounts = { critical: 2, votesIn72h: 3, docsPending: 2 },
 }: DashboardHudBarProps) {
+    const t = useTranslations('dashboard');
+    const [presetOpen, setPresetOpen] = useState(false);
+    const presetRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        function handleClickOutside(e: MouseEvent) {
+            if (presetRef.current && !presetRef.current.contains(e.target as Node)) {
+                setPresetOpen(false);
+            }
+        }
+        if (presetOpen) {
+            document.addEventListener('mousedown', handleClickOutside);
+            return () => document.removeEventListener('mousedown', handleClickOutside);
+        }
+    }, [presetOpen]);
+
+    const currentPresetLabel = PRESET_OPTIONS.find(p => p.key === preset)?.labelKey || 'presetDirector';
+
     return (
-        <div className="hud-bar flex items-center justify-between gap-4">
-            {/* Left: Title */}
-            <div className="flex-shrink-0 min-w-0">
-                <h1 className="text-sm font-semibold text-white tracking-[0.02em] leading-tight truncate">
-                    Sala de Controle Executivo
+        <div className="hud-bar flex items-center justify-between gap-[0.75em] min-h-[3.5em] py-[0.65em] px-[0.75em] w-full max-w-[100vw] overflow-x-auto overflow-y-hidden scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+            <div className="hud-bar-heading min-w-0 flex flex-col justify-center shrink gap-[0.2em]">
+                <h1 className="hud-bar-title truncate m-0">
+                    {t('controlRoomTitle')}
                 </h1>
-                <p className="text-[10px] text-white/45 tracking-[0.12em] uppercase mt-0.5 truncate">
-                    Visão diária de governança e desempenho
+                <p className="hud-bar-subtitle truncate m-0">
+                    {t('controlRoomSubtitle')}
                 </p>
             </div>
 
-            {/* Center: Filters */}
-            <div className="flex items-center gap-3 flex-shrink-0">
-                {/* Period filter */}
-                <div className="flex items-center gap-0.5 bg-white/[0.03] rounded-md p-0.5 border border-white/[0.05]">
-                    {PERIODS.map(({ key, label }) => (
+            <div className="flex items-center gap-[0.5em] flex-shrink-0 hidden xl:flex">
+                <div className="flex items-center gap-0.5 bg-white/[0.03] rounded-[0.35em] p-0.5 border border-white/[0.05]">
+                    {PERIOD_KEYS.map((key) => (
                         <button
                             key={key}
                             onClick={() => onPeriodChange(key)}
                             className={`hud-period-btn ${period === key ? 'hud-period-btn-active' : ''}`}
                         >
-                            {label}
+                            {t(key === 'mtd' ? 'periodMtd' : key === 'qtd' ? 'periodQtd' : key === 'ytd' ? 'periodYtd' : 'periodCustom')}
                         </button>
                     ))}
                 </div>
 
-                {/* Divider */}
-                <div className="w-px h-5 bg-white/[0.08]" />
+                <div className="w-px min-h-[1.2em] self-stretch bg-white/[0.08]" />
 
-                {/* Mode toggle */}
-                <div className="hud-mode-toggle">
+                {/* View Preset Selector */}
+                <div ref={presetRef} className="relative">
                     <button
-                        onClick={() => onModeChange('executivo')}
-                        className={`hud-mode-btn ${mode === 'executivo' ? 'hud-mode-btn-active' : ''}`}
+                        onClick={() => setPresetOpen(!presetOpen)}
+                        className="hud-period-btn hud-period-btn-active flex items-center gap-1"
                     >
-                        Executivo
+                        {t(currentPresetLabel)}
+                        <ChevronDown className={`w-3 h-3 transition-transform ${presetOpen ? 'rotate-180' : ''}`} />
                     </button>
-                    <button
-                        onClick={() => onModeChange('operacional')}
-                        className={`hud-mode-btn ${mode === 'operacional' ? 'hud-mode-btn-active' : ''}`}
-                    >
-                        Operacional
-                    </button>
+                    {presetOpen && (
+                        <div className="absolute top-full left-0 mt-1 z-[60] min-w-[140px] py-1 rounded-lg bg-[rgba(6,20,16,0.92)] backdrop-blur-xl border border-white/10 shadow-xl">
+                            {PRESET_OPTIONS.map(({ key, labelKey }) => (
+                                <button
+                                    key={key}
+                                    onClick={() => {
+                                        onPresetChange(key);
+                                        setPresetOpen(false);
+                                    }}
+                                    className={`w-full text-left px-3 py-1.5 text-[11px] font-medium transition-colors ${
+                                        preset === key
+                                            ? 'text-emerald-300 bg-emerald-500/10'
+                                            : 'text-white/70 hover:text-white hover:bg-white/[0.04]'
+                                    }`}
+                                >
+                                    {t(labelKey)}
+                                </button>
+                            ))}
+                        </div>
+                    )}
                 </div>
             </div>
 
-            {/* Right: Alert Chips + Live + Search */}
-            <div className="flex items-center gap-3 flex-shrink-0">
-                {/* Alert chips */}
-                <div className="hidden lg:flex items-center gap-2">
+            <div className="flex items-center gap-[0.5em] shrink-0 flex-nowrap ml-auto">
+                <div className="hidden 2xl:flex items-center gap-[0.5em]">
                     <HudChip
-                        label="Críticos"
+                        label={t('critical')}
                         count={alertCounts.critical}
                         variant="critical"
                         href="/riscos?severity=critico"
                     />
                     <HudChip
-                        label="Votos 72h"
+                        label={t('votes72h')}
                         count={alertCounts.votesIn72h}
                         variant="warning"
                         href="/deliberacoes?due=72h"
                     />
                     <HudChip
-                        label="Docs pendentes"
+                        label={t('docsPending')}
                         count={alertCounts.docsPending}
                         variant="info"
                         href="/atas"
                     />
                 </div>
 
-                {/* Ao Vivo indicator */}
-                <HudChip label="AO VIVO" variant="live" pulseDot />
-
-                {/* Last update */}
-                <div className="text-right hidden md:block">
-                    <p className="text-[9px] text-white/25 uppercase tracking-wider">
-                        Última atualização
-                    </p>
-                    <p className="text-[11px] text-white/60 font-medium tabular-nums">
-                        {new Date().toLocaleTimeString('pt-BR', {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                        })}
-                    </p>
-                </div>
-
-                {/* Command palette */}
-                <button
-                    onClick={onCommandPalette}
-                    className="flex items-center gap-1.5 px-2 py-1.5 rounded-md bg-white/[0.03] border border-white/[0.06] hover:border-white/[0.12] transition-all duration-150"
-                    title="Busca rápida (⌘K)"
-                >
-                    <Search className="w-3.5 h-3.5 text-white/30" />
-                    <span className="text-[10px] text-white/25 hidden lg:inline">⌘K</span>
-                </button>
+                <HudChip label={t('live')} variant="live" pulseDot />
+                <ThemeToggle />
+                <NotificationCenter />
             </div>
         </div>
     );

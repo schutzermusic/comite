@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTheme } from '@/contexts/ThemeContext';
 import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -83,6 +84,22 @@ export function EnterpriseGlobe({
     const [brazilStates, setBrazilStates] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isTransitioning, setIsTransitioning] = useState(false);
+
+    // Theme
+    const { theme } = useTheme();
+    const isLight = theme === 'light';
+
+    // Light-mode globe palette
+    const globe_poly_fill = isLight ? 'rgba(5, 150, 105, 0.12)' : 'rgba(16, 185, 129, 0.08)';
+    const globe_poly_hover = isLight ? 'rgba(5, 150, 105, 0.30)' : 'rgba(16, 185, 129, 0.35)';
+    const globe_poly_empty = isLight ? 'rgba(180, 200, 190, 0.35)' : 'rgba(30, 45, 40, 0.4)';
+    const globe_stroke_default = isLight ? 'rgba(5, 150, 105, 0.4)' : 'rgba(16, 185, 129, 0.3)';
+    const globe_stroke_focus = isLight ? 'rgba(5, 150, 105, 0.6)' : 'rgba(16, 185, 129, 0.5)';
+    const globe_stroke_dim = isLight ? 'rgba(5, 150, 105, 0.2)' : 'rgba(16, 185, 129, 0.15)';
+    const globe_atmosphere = isLight ? '#22d3ee' : '#06b6d4';
+    const globe_image = isLight
+        ? '//unpkg.com/three-globe/example/img/earth-blue-marble.jpg'
+        : '//unpkg.com/three-globe/example/img/earth-night.jpg';
 
     const maxValue = useMemo(() => getMaxContractValue(), []);
 
@@ -215,30 +232,34 @@ export function EnterpriseGlobe({
                 // Global view - subtle Brazil highlight
                 if (stateData) {
                     const intensity = Math.pow(stateData.totalContracted / maxValue, 0.5);
-                    return `rgba(16, 185, 129, ${0.15 + intensity * 0.2})`;
+                    const alpha = isLight ? (0.10 + intensity * 0.15) : (0.15 + intensity * 0.2);
+                    const rgb = isLight ? '5, 150, 105' : '16, 185, 129';
+                    return `rgba(${rgb}, ${alpha})`;
                 }
-                return 'rgba(16, 185, 129, 0.08)';
+                return globe_poly_fill;
             }
 
             // Brazil focus or state selected
             if (!stateData) {
-                return 'rgba(30, 45, 40, 0.4)';
+                return globe_poly_empty;
             }
 
             if (selectedState?.uf === sigla) {
                 return `${RISK_COLORS[stateData.riskLevel]}50`;
             }
             if (hoveredState?.uf === sigla) {
-                return `rgba(16, 185, 129, 0.35)`;
+                return globe_poly_hover;
             }
 
             const intensity = Math.pow(stateData.totalContracted / maxValue, 0.5);
-            return `rgba(16, 185, 129, ${0.12 + intensity * 0.18})`;
+            const alphaI = isLight ? (0.08 + intensity * 0.14) : (0.12 + intensity * 0.18);
+            const rgbI = isLight ? '5, 150, 105' : '16, 185, 129';
+            return `rgba(${rgbI}, ${alphaI})`;
         },
-        [viewState, selectedState, hoveredState, maxValue, getStateSigla]
+        [viewState, selectedState, hoveredState, maxValue, getStateSigla, isLight, globe_poly_fill, globe_poly_empty, globe_poly_hover]
     );
 
-    const polygonSideColor = useCallback(() => 'rgba(16, 185, 129, 0.02)', []);
+    const polygonSideColor = useCallback(() => isLight ? 'rgba(5, 150, 105, 0.01)' : 'rgba(16, 185, 129, 0.02)', [isLight]);
 
     const polygonStrokeColor = useCallback(
         (feature: any) => {
@@ -250,12 +271,12 @@ export function EnterpriseGlobe({
             }
 
             if (stateData) {
-                return viewState !== 'GLOBAL_VIEW' ? 'rgba(16, 185, 129, 0.5)' : 'rgba(16, 185, 129, 0.3)';
+                return viewState !== 'GLOBAL_VIEW' ? globe_stroke_focus : globe_stroke_default;
             }
 
-            return 'rgba(16, 185, 129, 0.15)';
+            return globe_stroke_dim;
         },
-        [viewState, selectedState, hoveredState, getStateSigla]
+        [viewState, selectedState, hoveredState, getStateSigla, isLight, globe_stroke_default, globe_stroke_focus, globe_stroke_dim]
     );
 
     const polygonAltitude = useCallback(
@@ -483,9 +504,9 @@ export function EnterpriseGlobe({
                 width={dimensions.width}
                 height={dimensions.height}
                 backgroundColor="rgba(0,0,0,0)"
-                atmosphereColor="#06b6d4"
+                atmosphereColor={globe_atmosphere}
                 atmosphereAltitude={0.12}
-                globeImageUrl="//unpkg.com/three-globe/example/img/earth-night.jpg"
+                globeImageUrl={globe_image}
                 // Brazil states polygons
                 polygonsData={brazilStates}
                 polygonCapColor={polygonCapColor}

@@ -59,11 +59,11 @@ export function GlobeSlot({ className, minHeight = 420, hideOverlays = false }: 
             ref={containerRef}
             className={cn(
                 // Container: relative, overflow hidden to clip globe
-                'relative overflow-hidden rounded-2xl',
+                'relative overflow-hidden',
+                // Only use rounding and border if NOT in full-screen/background mode (hideOverlays=false)
+                !hideOverlays && 'rounded-2xl border border-white/[0.06]',
                 // Background that matches dashboard theme
                 'bg-gradient-to-br from-[#0a0f0d]/80 via-[#0c1311]/70 to-[#0a0f0d]/80',
-                // Subtle border
-                'border border-white/[0.06]',
                 className
             )}
             style={{
@@ -132,7 +132,7 @@ export function GlobeSlot({ className, minHeight = 420, hideOverlays = false }: 
                 }}
             >
                 <EnterpriseGlobe
-                    className="w-full h-full"
+                    className={cn('w-full h-full', hideOverlays && 'rounded-none')}
                     contextMode={false}
                     interactive={true}
                 />

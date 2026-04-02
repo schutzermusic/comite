@@ -180,17 +180,18 @@ export const orionGreenTypography = {
   },
   
   fontSize: {
-    'kpi-xl': '3rem',        // 48px - Hero KPIs
-    'kpi-lg': '2.25rem',     // 36px - Large numbers
-    'kpi-md': '1.75rem',     // 28px - Medium numbers
-    'kpi-sm': '1.25rem',     // 20px - Small numbers
-    'heading-lg': '1.5rem',  // 24px
-    'heading-md': '1.25rem', // 20px
-    'heading-sm': '1rem',    // 16px
+    'kpi-xl': '2.5rem',      // 40px - Hero KPIs (single use: portfolio value)
+    'kpi-lg': '2rem',        // 32px - Large numbers
+    'kpi-md': '1.5rem',      // 24px - Medium numbers
+    'kpi-sm': '1.125rem',    // 18px - Small numbers / counts
+    'heading-lg': '1.25rem', // 20px
+    'heading-md': '1rem',    // 16px
+    'heading-sm': '0.875rem',// 14px
     'body-md': '0.875rem',   // 14px
     'body-sm': '0.75rem',    // 12px
     'label': '0.6875rem',    // 11px
     'micro': '0.625rem',     // 10px
+    'panel-title': '0.8125rem', // 13px - panel titles (uppercase)
   },
   
   fontWeight: {
@@ -202,11 +203,12 @@ export const orionGreenTypography = {
   },
   
   letterSpacing: {
+    tighter: '-0.03em', // KPI hero
     tight: '-0.02em',
     normal: '0',
     wide: '0.05em',
-    wider: '0.1em',    // For micro labels (increased)
-    widest: '0.14em',  // For uppercase labels (increased)
+    wider: '0.08em',    // Panel titles (uppercase)
+    widest: '0.14em',   // Micro uppercase labels
   },
 
   // Premium text effects
@@ -240,7 +242,7 @@ export const orionGreenRadii = {
   none: '0',
   sm: '0.25rem',    // 4px
   md: '0.5rem',     // 8px
-  lg: '0.75rem',    // 12px
+  lg: '0.875rem',   // 14px - glass panels
   xl: '1rem',       // 16px
   '2xl': '1.5rem',  // 24px
   full: '9999px',
@@ -253,13 +255,14 @@ export const orionGreenRadii = {
 export const orionGreenMotion = {
   duration: {
     fast: '150ms',
-    normal: '300ms',
-    slow: '500ms',
-    slower: '800ms',
+    normal: '200ms',
+    slow: '350ms',
+    slower: '500ms',
   },
   easing: {
     default: 'cubic-bezier(0.4, 0, 0.2, 1)',
     smooth: 'cubic-bezier(0.25, 0.1, 0.25, 1)',
+    spring: 'cubic-bezier(0.32, 0.72, 0, 1)',
     bounce: 'cubic-bezier(0.34, 1.56, 0.64, 1)',
   },
 } as const;

@@ -1,0 +1,19 @@
+{
+  "title": "Reuniões do Comitê",
+  "subtitle": "Agende e gerencie reuniões do comitê",
+  "newMeeting": "Nova Reunião",
+  "upcoming": "Próximas",
+  "past": "Passadas",
+  "today": "Hoje",
+  "completed": "Concluídas",
+  "inPerson": "Presencial",
+  "virtual": "Virtual",
+  "hybrid": "Híbrida",
+  "inProgress": "Em andamento",
+  "ended": "Encerrada",
+  "cancelled": "Cancelada",
+  "noUpcomingMeetings": "Nenhuma reunião próxima",
+  "noPastMeetings": "Nenhuma reunião passada",
+  "viewDetails": "Ver detalhes",
+  "viewMinutes": "Ver ata"
+}
