@@ -141,15 +141,15 @@
     --chart-4: 187 72% 40%;
     --chart-5: 258 60% 55%;
 
-    /* Sidebar — premium dark sidebar in light mode for contrast */
-    --sidebar-background: 160 18% 8%;
-    --sidebar-foreground: 150 20% 90%;
-    --sidebar-primary: 84 80% 38%;
-    --sidebar-primary-foreground: 160 20% 8%;
-    --sidebar-accent: 160 15% 14%;
-    --sidebar-accent-foreground: 150 20% 90%;
-    --sidebar-border: 160 12% 16%;
-    --sidebar-ring: 74 90% 52%;
+    /* Sidebar — premium light sidebar, soft neutral with green accent */
+    --sidebar-background: 120 4% 97%;
+    --sidebar-foreground: 160 12% 20%;
+    --sidebar-primary: 160 84% 35%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 150 6% 94%;
+    --sidebar-accent-foreground: 160 12% 20%;
+    --sidebar-border: 150 6% 90%;
+    --sidebar-ring: 160 84% 35%;
 
     /* Orion overrides for light — premium analytical palette */
     --orion-bg-primary: #f4f5f3;
@@ -165,9 +165,9 @@
     --orion-text-muted: #728c80;
 
     /* Glow — drastically reduced in light mode */
-    --orion-glow-primary: rgba(186, 249, 26, 0.08);
-    --orion-glow-secondary: rgba(135, 109, 255, 0.06);
-    --orion-glow-intense: rgba(186, 249, 26, 0.12);
+    --orion-glow-primary: rgba(16, 185, 129, 0.06);
+    --orion-glow-secondary: rgba(16, 185, 129, 0.04);
+    --orion-glow-intense: rgba(16, 185, 129, 0.08);
   }
 }
 
@@ -2606,9 +2606,9 @@
 
 /* Light mode toggle track */
 .light .theme-toggle-track {
-  background: rgba(0, 0, 0, 0.06);
-  border-color: rgba(0, 0, 0, 0.10);
-  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.06);
+  background: rgba(0, 0, 0, 0.05);
+  border-color: rgba(0, 0, 0, 0.08);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04);
 }
 
 /* ════════════════════════════════════════════════════════════════
@@ -2627,7 +2627,7 @@
 
 /* ── Selection — light ── */
 .light ::selection {
-  background: rgba(186, 249, 26, 0.25);
+  background: rgba(16, 185, 129, 0.20);
   color: inherit;
 }
 
@@ -2637,7 +2637,7 @@
 }
 
 .light .orion-page::before {
-  background: radial-gradient(ellipse at top, rgba(186, 249, 26, 0.04) 0%, transparent 50%);
+  background: radial-gradient(ellipse at top, rgba(16, 185, 129, 0.02) 0%, transparent 50%);
 }
 
 /* ── Orion Typography — light ── */
@@ -2690,12 +2690,11 @@
 }
 
 .light .orion-card-premium:hover {
-  border-color: rgba(186, 249, 26, 0.3);
-  transform: translateY(-2px);
+  border-color: rgba(16, 185, 129, 0.18);
+  transform: translateY(-1px);
   box-shadow:
-    0 8px 30px rgba(0, 0, 0, 0.06),
-    0 2px 6px rgba(0, 0, 0, 0.04),
-    0 0 0 1px rgba(186, 249, 26, 0.15);
+    0 4px 16px rgba(0, 0, 0, 0.05),
+    0 1px 4px rgba(0, 0, 0, 0.03);
 }
 
 /* ── Light Sweep — light ── */
@@ -2703,7 +2702,7 @@
   background: linear-gradient(90deg,
       transparent,
       rgba(255, 255, 255, 0.4),
-      rgba(186, 249, 26, 0.06),
+      rgba(16, 185, 129, 0.04),
       transparent);
 }
 
@@ -2814,8 +2813,8 @@
 
 .light .intel-void-bg::before {
   background-image:
-    radial-gradient(ellipse at 30% 20%, rgba(186, 249, 26, 0.04) 0%, transparent 50%),
-    radial-gradient(ellipse at 70% 80%, rgba(186, 249, 26, 0.03) 0%, transparent 40%);
+    radial-gradient(ellipse at 30% 20%, rgba(16, 185, 129, 0.03) 0%, transparent 50%),
+    radial-gradient(ellipse at 70% 80%, rgba(16, 185, 129, 0.02) 0%, transparent 40%);
 }
 
 .light .intel-starfield::after {
@@ -2856,9 +2855,9 @@
 .light .intel-beam-line::after {
   background: linear-gradient(90deg,
       transparent 0%,
-      rgba(186, 249, 26, 0.25) 20%,
-      rgba(186, 249, 26, 0.4) 50%,
-      rgba(186, 249, 26, 0.25) 80%,
+      rgba(16, 185, 129, 0.15) 20%,
+      rgba(16, 185, 129, 0.20) 50%,
+      rgba(16, 185, 129, 0.15) 80%,
       transparent 100%);
   box-shadow: none;
 }
@@ -2904,7 +2903,7 @@
 }
 
 .light .intel-glow-active {
-  box-shadow: 0 0 8px rgba(186, 249, 26, 0.08);
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.06);
 }
 
 .light .intel-hover-subtle:hover {
@@ -2943,25 +2942,26 @@
    Premium analytical dashboard aesthetic
    ════════════════════════════════════════════════════ */
 
-/* ── HUD Bar — light ── */
+/* ── HUD Bar — light (clean, premium) ── */
 .light .hud-bar {
   background: linear-gradient(180deg,
-      rgba(255, 255, 255, 0.95) 0%,
-      rgba(250, 252, 248, 0.92) 100%);
+      rgba(255, 255, 255, 0.97) 0%,
+      rgba(252, 253, 251, 0.95) 100%);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.03);
 }
 
 .light .hud-bar::after {
   background: linear-gradient(90deg,
       transparent 0%,
-      rgba(186, 249, 26, 0.3) 25%,
-      rgba(186, 249, 26, 0.45) 50%,
-      rgba(186, 249, 26, 0.3) 75%,
+      rgba(16, 185, 129, 0.15) 25%,
+      rgba(16, 185, 129, 0.20) 50%,
+      rgba(16, 185, 129, 0.15) 75%,
       transparent 100%);
   box-shadow: none;
+  opacity: 0.6;
 }
 
 .light .hud-bar::-webkit-scrollbar-thumb {
@@ -2973,7 +2973,7 @@
 }
 
 .light .hud-bar-heading::before {
-  background: linear-gradient(180deg, rgba(186, 249, 26, 0.8), rgba(135, 109, 255, 0.5));
+  background: linear-gradient(180deg, #10b981 0%, #059669 100%);
   box-shadow: none;
 }
 
@@ -2983,7 +2983,7 @@
 }
 
 .light .hud-bar-subtitle {
-  color: rgba(30, 45, 40, 0.5);
+  color: #728c80;
 }
 
 /* ── HUD Widget — light ── */
@@ -3029,15 +3029,15 @@
 }
 
 .light .hud-canvas-chip:hover {
-  background: rgba(186, 249, 26, 0.08);
-  border-color: rgba(186, 249, 26, 0.3);
+  background: rgba(16, 185, 129, 0.06);
+  border-color: rgba(16, 185, 129, 0.20);
   color: rgba(30, 45, 40, 0.85);
 }
 
 .light .hud-canvas-chip-active {
-  background: rgba(186, 249, 26, 0.12);
-  border-color: rgba(186, 249, 26, 0.4);
-  color: #4d7c0f;
+  background: rgba(16, 185, 129, 0.08);
+  border-color: rgba(16, 185, 129, 0.25);
+  color: #047857;
   box-shadow: none;
 }
 
@@ -3075,9 +3075,9 @@
 }
 
 .light .hud-filter-pill-active {
-  background: rgba(186, 249, 26, 0.12);
-  border-color: rgba(186, 249, 26, 0.4);
-  color: #4d7c0f;
+  background: rgba(16, 185, 129, 0.08);
+  border-color: rgba(16, 185, 129, 0.22);
+  color: #047857;
   box-shadow: none;
 }
 
@@ -3093,8 +3093,8 @@
 
 .light .hud-period-btn-active {
   color: #1a2520;
-  background: rgba(186, 249, 26, 0.15);
-  border-color: rgba(186, 249, 26, 0.35);
+  background: rgba(16, 185, 129, 0.10);
+  border-color: rgba(16, 185, 129, 0.20);
   box-shadow: none;
 }
 
@@ -3114,7 +3114,7 @@
 
 .light .hud-mode-btn-active {
   color: #1a2520;
-  background: rgba(186, 249, 26, 0.15);
+  background: rgba(16, 185, 129, 0.10);
   box-shadow: none;
   text-shadow: none;
 }
@@ -3160,74 +3160,64 @@
 }
 
 .light .cr-hud-frame::before {
-  border-top-color: rgba(186, 249, 26, 0.2);
-  border-left-color: rgba(186, 249, 26, 0.2);
+  border-top-color: rgba(16, 185, 129, 0.10);
+  border-left-color: rgba(16, 185, 129, 0.10);
 }
 
 .light .cr-hud-frame::after {
-  border-bottom-color: rgba(186, 249, 26, 0.15);
-  border-right-color: rgba(186, 249, 26, 0.15);
+  border-bottom-color: rgba(16, 185, 129, 0.08);
+  border-right-color: rgba(16, 185, 129, 0.08);
 }
 
-/* ── CR Glass Panel — light ── */
+/* ── CR Glass Panel — light (premium editorial) ── */
 .light .cr-glass-panel {
   background: linear-gradient(160deg,
-      rgba(255, 255, 255, 0.92) 0%,
-      rgba(255, 255, 255, 0.88) 55%,
-      rgba(250, 252, 248, 0.90) 100%);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(0, 0, 0, 0.08);
+      rgba(255, 255, 255, 0.96) 0%,
+      rgba(255, 255, 255, 0.94) 50%,
+      rgba(252, 253, 251, 0.95) 100%);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  border-radius: 16px;
   box-shadow:
-    0 4px 20px rgba(0, 0, 0, 0.04),
-    0 1px 3px rgba(0, 0, 0, 0.04);
+    0 1px 2px rgba(0, 0, 0, 0.03),
+    0 4px 16px rgba(0, 0, 0, 0.03),
+    0 12px 40px rgba(0, 0, 0, 0.02);
 }
 
 .light .cr-glass-panel::before {
-  background: linear-gradient(90deg,
-      transparent 10%,
-      rgba(0, 0, 0, 0.02) 40%,
-      rgba(0, 0, 0, 0.015) 60%,
-      transparent 90%);
+  background: none;
 }
 
 .light .cr-glass-panel::after {
-  opacity: 0.06;
+  opacity: 0;
 }
 
 .light .cr-glass-panel-border {
-  background: linear-gradient(130deg,
-      rgba(0, 0, 0, 0.06) 0%,
-      rgba(0, 0, 0, 0.03) 34%,
-      transparent 58%);
-  opacity: 0.5;
+  background: none;
+  opacity: 0;
 }
 
 .light .cr-glass-panel-specular {
-  background: linear-gradient(90deg,
-      transparent 0%,
-      rgba(0, 0, 0, 0.015) 30%,
-      rgba(0, 0, 0, 0.02) 50%,
-      rgba(0, 0, 0, 0.015) 70%,
-      transparent 100%);
+  background: none;
 }
 
 .light .cr-glass-panel-hover:hover,
 .light .cr-glass-panel-hover:focus-within {
-  border-color: rgba(186, 249, 26, 0.25);
-  transform: scale(1.003);
+  border-color: rgba(16, 185, 129, 0.18);
+  transform: translateY(-1px);
   box-shadow:
-    0 8px 30px rgba(0, 0, 0, 0.06),
-    0 2px 8px rgba(0, 0, 0, 0.03),
-    0 0 0 1px rgba(186, 249, 26, 0.1);
+    0 2px 4px rgba(0, 0, 0, 0.03),
+    0 8px 24px rgba(0, 0, 0, 0.04),
+    0 16px 48px rgba(0, 0, 0, 0.02);
 }
 
 .light .cr-panel-overlap:hover .cr-glass-panel {
-  border-color: rgba(186, 249, 26, 0.3);
+  border-color: rgba(16, 185, 129, 0.20);
   box-shadow:
-    0 8px 32px rgba(0, 0, 0, 0.06),
-    0 2px 8px rgba(0, 0, 0, 0.03),
-    0 0 0 1px rgba(186, 249, 26, 0.12);
+    0 2px 4px rgba(0, 0, 0, 0.03),
+    0 8px 24px rgba(0, 0, 0, 0.04),
+    0 16px 48px rgba(0, 0, 0, 0.02);
 }
 
 /* ── CR Typography — light ── */
@@ -3286,7 +3276,7 @@
 }
 
 .light .cr-toast::before {
-  background: linear-gradient(90deg, transparent, rgba(186, 249, 26, 0.2), transparent);
+  background: linear-gradient(90deg, transparent, rgba(16, 185, 129, 0.12), transparent);
 }
 
 /* ── CR Sparkline — light ── */
@@ -3319,10 +3309,10 @@
 .light .cr-atmospheric-glow {
   background:
     radial-gradient(ellipse 65% 60% at 45% 42%,
-      rgba(186, 249, 26, 0.03) 0%,
+      rgba(16, 185, 129, 0.02) 0%,
       transparent 65%);
   animation: none;
-  opacity: 0.5;
+  opacity: 0.3;
 }
 
 /* ── CR Vignette — light ── */
@@ -3355,145 +3345,117 @@
 
 /* ── Neon Edges — light ── */
 .light .cr-neon-edge-top::after {
-  background: linear-gradient(90deg, transparent, rgba(186, 249, 26, 0.2), transparent);
+  background: linear-gradient(90deg, transparent, rgba(16, 185, 129, 0.10), transparent);
 }
 
 .light .cr-neon-edge-left::after {
-  background: linear-gradient(180deg, transparent, rgba(186, 249, 26, 0.15), transparent);
+  background: linear-gradient(180deg, transparent, rgba(16, 185, 129, 0.08), transparent);
 }
 
 /* ══════════════════════════════════════════════════════
    HUD SIDEBAR — LIGHT MODE
-   Keep dark sidebar for premium contrast,
-   but with lime accent instead of cyan
+   Soft neutral base · Clean architectural feel
+   Green as accent only, not dominant
    ══════════════════════════════════════════════════════ */
 
 .light .hud-sidebar {
   background: linear-gradient(180deg,
-      rgba(14, 24, 20, 0.96) 0%,
-      rgba(12, 20, 16, 0.95) 30%,
-      rgba(10, 18, 14, 0.96) 60%,
-      rgba(8, 14, 10, 0.98) 100%) !important;
-  border-right: 1px solid rgba(186, 249, 26, 0.08) !important;
+      #fafbf9 0%,
+      #f6f7f5 50%,
+      #f3f4f2 100%) !important;
+  border-right: 1px solid rgba(0, 0, 0, 0.07) !important;
   box-shadow:
-    4px 0 40px rgba(0, 0, 0, 0.12),
-    2px 0 16px rgba(0, 0, 0, 0.08);
+    1px 0 12px rgba(0, 0, 0, 0.03),
+    1px 0 3px rgba(0, 0, 0, 0.02);
 }
 
 .light .hud-sidebar::after {
-  background: linear-gradient(180deg,
-      transparent 0%,
-      rgba(186, 249, 26, 0.15) 15%,
-      rgba(186, 249, 26, 0.12) 40%,
-      rgba(186, 249, 26, 0.10) 65%,
-      rgba(186, 249, 26, 0.06) 85%,
-      transparent 100%);
-  box-shadow: 0 0 8px rgba(186, 249, 26, 0.06);
+  background: none;
+  box-shadow: none;
 }
 
 .light .hud-sidebar-header {
-  border-bottom: 1px solid rgba(186, 249, 26, 0.06) !important;
-  background: linear-gradient(180deg,
-      rgba(14, 24, 20, 0.5) 0%,
-      rgba(12, 20, 16, 0.3) 100%) !important;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06) !important;
+  background: transparent !important;
 }
 
 .light .hud-sidebar-header::before {
-  background: linear-gradient(90deg,
-      transparent 5%,
-      rgba(255, 255, 255, 0.04) 20%,
-      rgba(255, 255, 255, 0.08) 50%,
-      rgba(255, 255, 255, 0.04) 80%,
-      transparent 95%);
+  display: none;
 }
 
 .light .hud-sidebar-header::after {
   background: linear-gradient(90deg,
       transparent 0%,
-      rgba(186, 249, 26, 0.2) 20%,
-      rgba(186, 249, 26, 0.3) 50%,
-      rgba(186, 249, 26, 0.2) 80%,
+      rgba(16, 185, 129, 0.12) 30%,
+      rgba(16, 185, 129, 0.15) 50%,
+      rgba(16, 185, 129, 0.12) 70%,
       transparent 100%);
   box-shadow: none;
 }
 
 .light .hud-sidebar-footer {
-  border-top: 1px solid rgba(186, 249, 26, 0.06) !important;
-  background: linear-gradient(180deg,
-      rgba(12, 20, 16, 0.3) 0%,
-      rgba(10, 16, 12, 0.5) 100%) !important;
+  border-top: 1px solid rgba(0, 0, 0, 0.06) !important;
+  background: transparent !important;
 }
 
 .light .hud-sidebar-footer::before {
   background: linear-gradient(90deg,
       transparent 0%,
-      rgba(186, 249, 26, 0.12) 25%,
-      rgba(186, 249, 26, 0.08) 75%,
+      rgba(0, 0, 0, 0.03) 25%,
+      rgba(0, 0, 0, 0.02) 75%,
       transparent 100%);
 }
 
 .light .hud-sidebar-section-label {
-  color: rgba(186, 249, 26, 0.4);
+  color: #8a9a92;
 }
 
 .light .hud-sidebar-section-label::after {
   background: linear-gradient(90deg,
-      rgba(186, 249, 26, 0.1) 0%,
+      rgba(0, 0, 0, 0.04) 0%,
       transparent 100%);
 }
 
-/* ── Sidebar items — light (lime accent) ── */
+/* ── Sidebar items — light (neutral with green accent) ── */
 .light .hud-sidebar-item {
-  color: rgba(224, 238, 232, 0.55) !important;
+  color: #5a6e66 !important;
 }
 
 .light .hud-sidebar-item:hover {
-  color: rgba(224, 238, 232, 0.90) !important;
-  background: linear-gradient(160deg,
-      rgba(255, 255, 255, 0.04) 0%,
-      rgba(255, 255, 255, 0.02) 100%) !important;
-  border-color: rgba(186, 249, 26, 0.06) !important;
+  color: #2d3f38 !important;
+  background: rgba(0, 0, 0, 0.03) !important;
+  border-color: rgba(0, 0, 0, 0.04) !important;
 }
 
 .light .hud-sidebar-item-active {
-  color: rgba(224, 238, 232, 0.96) !important;
-  background: linear-gradient(160deg,
-      rgba(186, 249, 26, 0.10) 0%,
-      rgba(186, 249, 26, 0.06) 50%,
-      rgba(186, 249, 26, 0.04) 100%) !important;
-  border-color: rgba(186, 249, 26, 0.18) !important;
+  color: #1a2b24 !important;
+  background: linear-gradient(135deg,
+      rgba(16, 185, 129, 0.08) 0%,
+      rgba(16, 185, 129, 0.04) 100%) !important;
+  border-color: rgba(16, 185, 129, 0.15) !important;
   box-shadow:
-    0 0 1px rgba(186, 249, 26, 0.35),
-    0 4px 20px rgba(0, 0, 0, 0.25),
-    inset 0 0 20px rgba(186, 249, 26, 0.04),
-    inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
-  text-shadow: 0 0 12px rgba(186, 249, 26, 0.12);
+    0 1px 3px rgba(0, 0, 0, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6) !important;
+  text-shadow: none;
 }
 
 .light .hud-sidebar-item-active:hover {
-  background: linear-gradient(160deg,
-      rgba(186, 249, 26, 0.14) 0%,
-      rgba(186, 249, 26, 0.09) 50%,
-      rgba(186, 249, 26, 0.06) 100%) !important;
-  border-color: rgba(186, 249, 26, 0.25) !important;
+  background: linear-gradient(135deg,
+      rgba(16, 185, 129, 0.12) 0%,
+      rgba(16, 185, 129, 0.06) 100%) !important;
+  border-color: rgba(16, 185, 129, 0.22) !important;
 }
 
 .light .hud-sidebar-active-bar {
   background: linear-gradient(180deg,
-      rgba(186, 249, 26, 0.9) 0%,
-      rgba(186, 249, 26, 0.7) 100%);
+      #10b981 0%,
+      #059669 100%);
   box-shadow:
-    0 0 8px rgba(186, 249, 26, 0.4),
-    0 0 20px rgba(186, 249, 26, 0.15);
+    0 0 6px rgba(16, 185, 129, 0.3);
 }
 
 .light .hud-sidebar-inner-vignette {
-  background:
-    linear-gradient(180deg,
-      rgba(0, 0, 0, 0.08) 0%,
-      transparent 8%,
-      transparent 92%,
-      rgba(0, 0, 0, 0.10) 100%);
+  display: none;
 }
 
 .light .hud-sidebar-scanline {
@@ -3501,9 +3463,7 @@
 }
 
 .light .hud-sidebar-content::before {
-  background: linear-gradient(180deg,
-      rgba(186, 249, 26, 0.015) 0%,
-      transparent 100%);
+  display: none;
 }
 
 /* ── HUD tokens — light override ── */
@@ -3517,13 +3477,13 @@
   --hud-shadow-soft: 0 4px 12px rgba(0, 0, 0, 0.03);
 
   --cr-glass-border: rgba(0, 0, 0, 0.08);
-  --cr-glass-border-hover: rgba(186, 249, 26, 0.25);
+  --cr-glass-border-hover: rgba(16, 185, 129, 0.18);
   --cr-glass-inner-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
   --cr-glass-specular: rgba(0, 0, 0, 0.02);
-  --cr-neon-emerald: rgba(186, 249, 26, 0.15);
-  --cr-neon-cyan: rgba(135, 109, 255, 0.12);
-  --cr-neon-emerald-dim: rgba(186, 249, 26, 0.04);
-  --cr-neon-cyan-dim: rgba(135, 109, 255, 0.04);
+  --cr-neon-emerald: rgba(16, 185, 129, 0.10);
+  --cr-neon-cyan: rgba(16, 185, 129, 0.08);
+  --cr-neon-emerald-dim: rgba(16, 185, 129, 0.03);
+  --cr-neon-cyan-dim: rgba(16, 185, 129, 0.03);
 }
 
 /* ── HUD Glass — light ── */
@@ -3542,8 +3502,8 @@
 }
 
 .light .hud-glow::before {
-  background: linear-gradient(135deg, rgba(186, 249, 26, 0.08), rgba(135, 109, 255, 0.04), transparent);
-  opacity: 0.3;
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.04), transparent);
+  opacity: 0.2;
 }
 
 /* ── Nivo tooltips — light ── */
@@ -3725,6 +3685,57 @@
 .light .globe-scan-sweep {
   display: none;
 }
+
+/* ── Dashboard viewport — light mode ── */
+.light .cr-viewport {
+  background: #f4f5f3 !important;
+  color: #1a2520 !important;
+}
+
+/* ── HudPanel deep-link — light ── */
+.light .cr-glass-panel .hover\:text-cyan-200:hover {
+  color: #059669;
+}
+
+/* Badge inside panels — light */
+.light .cr-glass-panel .bg-amber-500\/15 {
+  background: rgba(245, 158, 11, 0.08);
+}
+.light .cr-glass-panel .text-amber-300 {
+  color: #b45309;
+}
+.light .cr-glass-panel .border-amber-400\/25 {
+  border-color: rgba(245, 158, 11, 0.15);
+}
+
+/* Red risk chip hover — light */
+.light .cr-glass-panel .hover\:border-red-300\/40:hover {
+  border-color: rgba(220, 38, 38, 0.25);
+}
+.light .cr-glass-panel .hover\:bg-red-500\/\[0\.12\]:hover {
+  background: rgba(220, 38, 38, 0.08);
+}
+
+/* Group hover accents inside panels — light */
+.light .cr-glass-panel .group:hover .group-hover\:text-emerald-400 {
+  color: #059669;
+}
+.light .cr-glass-panel .group:hover .group-hover\:border-emerald-400\/30 {
+  border-color: rgba(5, 150, 105, 0.2);
+}
+.light .cr-glass-panel .group:hover .group-hover\:text-red-300 {
+  color: #dc2626;
+}
+.light .cr-glass-panel .group:hover .group-hover\:text-amber-300 {
+  color: #d97706;
+}
+.light .cr-glass-panel .group:hover .group-hover\:text-cyan-100 {
+  color: #1a2520;
+}
+.light .cr-glass-panel .group:hover .group-hover\:text-white\/90 {
+  color: rgba(26, 37, 32, 0.9);
+}
+
 /* ════════════════════════════════════════════════════════
    SEMANTIC HUD CLASSES — Theme-Aware Replacements
    Replace hardcoded text-white/* patterns with these
@@ -3914,7 +3925,7 @@
   color: var(--orion-text-primary);
 }
 .light .globe-no-webgl {
-  background: radial-gradient(circle at center, rgba(101, 163, 13, 0.06), transparent 55%);
+  background: radial-gradient(circle at center, rgba(16, 185, 129, 0.04), transparent 55%);
 }
 .light .globe-no-webgl > div {
   background: rgba(255, 255, 255, 0.8);

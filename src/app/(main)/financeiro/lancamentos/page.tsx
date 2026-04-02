@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, Suspense } from 'react';
 import { useTranslations } from 'next-intl';
 import { useSearchParams } from 'next/navigation';
 import {
@@ -39,6 +39,14 @@ const TAB_OPTIONS = [
 ];
 
 export default function LancamentosPage() {
+  return (
+    <Suspense>
+      <LancamentosContent />
+    </Suspense>
+  );
+}
+
+function LancamentosContent() {
   const t = useTranslations('finance');
   const searchParams = useSearchParams();
   const initialTab = searchParams.get('tab') || 'all';

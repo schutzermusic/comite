@@ -127,17 +127,17 @@ export function AppSidebar() {
   const { theme } = useTheme();
   const isLight = theme === 'light';
   const activeIconClass = isLight
-    ? 'text-lime-300/90 drop-shadow-[0_0_6px_rgba(186,249,26,0.4)]'
+    ? 'text-emerald-600 drop-shadow-none'
     : 'text-cyan-300/90 drop-shadow-[0_0_6px_rgba(6,182,212,0.4)]';
-  const activeChevronClass = isLight ? 'text-lime-300/50' : 'text-cyan-300/50';
+  const activeChevronClass = isLight ? 'text-emerald-600/50' : 'text-cyan-300/50';
   const sectionDotGov = isLight
-    ? 'bg-lime-400/70 shadow-[0_0_8px_rgba(186,249,26,0.5),0_0_16px_rgba(186,249,26,0.2)]'
+    ? 'bg-emerald-500 shadow-[0_0_4px_rgba(16,185,129,0.3)]'
     : 'bg-cyan-400/70 shadow-[0_0_8px_rgba(6,182,212,0.5),0_0_16px_rgba(6,182,212,0.2)]';
   const sectionDividerColor = isLight
-    ? 'via-lime-400/15'
+    ? 'via-black/[0.06]'
     : 'via-cyan-400/15';
   const sectionDividerBlur = isLight
-    ? 'via-lime-400/10'
+    ? 'via-black/[0.03]'
     : 'via-cyan-400/10';
 
   const mainItems = navigationItems.filter(item => item.section === 'main');
@@ -165,11 +165,11 @@ export function AppSidebar() {
                     <item.icon className={`w-4 h-4 stroke-[1.8] transition-colors ${isParentActive ? activeIconClass : 'opacity-50'}`} />
                     <span className="text-[11px] font-medium tracking-[0.1em] uppercase">{t(item.labelKey)}</span>
                   </div>
-                  <ChevronDown className="w-3 h-3 text-white/20 transition-transform duration-200 group-data-[state=open]:rotate-180 relative z-[1]" />
+                  <ChevronDown className={`w-3 h-3 transition-transform duration-200 group-data-[state=open]:rotate-180 relative z-[1] ${isLight ? 'text-black/25' : 'text-white/20'}`} />
                 </SidebarMenuButton>
               </CollapsibleTrigger>
               <CollapsibleContent>
-                <SidebarMenuSub className={`ml-5 mt-1 border-l ${isLight ? 'border-lime-500/[0.08]' : 'border-cyan-500/[0.08]'} pl-3`}>
+                <SidebarMenuSub className={`ml-5 mt-1 border-l ${isLight ? 'border-black/[0.06]' : 'border-cyan-500/[0.08]'} pl-3`}>
                   {item.subItems.map(subItem => {
                     const isSubActive = pathname === subItem.href;
                     return (
@@ -183,7 +183,7 @@ export function AppSidebar() {
                             `}
                           >
                             {isSubActive && <div className="hud-sidebar-active-bar" />}
-                            <subItem.icon className={`w-3.5 h-3.5 stroke-[1.8] transition-colors ${isSubActive ? (isLight ? 'text-lime-300/80' : 'text-cyan-300/80') : 'opacity-40'}`} />
+                            <subItem.icon className={`w-3.5 h-3.5 stroke-[1.8] transition-colors ${isSubActive ? (isLight ? 'text-emerald-600' : 'text-cyan-300/80') : 'opacity-40'}`} />
                             <span className="text-[10px] font-medium tracking-[0.1em] uppercase relative z-[1]">{subItem.label}</span>
                           </SidebarMenuSubButton>
                         </Link>
@@ -224,7 +224,7 @@ export function AppSidebar() {
                 w-3 h-3 transition-all duration-200 relative z-[1]
                 ${isParentActive
                   ? `${activeChevronClass} opacity-100`
-                  : 'text-white/15 opacity-0 group-hover:opacity-100 translate-x-0 group-hover:translate-x-0.5'
+                  : `${isLight ? 'text-black/15' : 'text-white/15'} opacity-0 group-hover:opacity-100 translate-x-0 group-hover:translate-x-0.5`
                 }
               `} />
             </SidebarMenuButton>
@@ -251,7 +251,7 @@ export function AppSidebar() {
                 priority
               />
             </div>
-            <div className={`absolute -inset-4 bg-gradient-to-r ${isLight ? 'from-lime-500/0 via-lime-500/8 to-emerald-500/6' : 'from-cyan-500/0 via-cyan-500/8 to-emerald-500/6'} rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500 blur-xl -z-10`} />
+            <div className={`absolute -inset-4 bg-gradient-to-r ${isLight ? 'from-emerald-500/0 via-emerald-500/[0.04] to-emerald-500/[0.03]' : 'from-cyan-500/0 via-cyan-500/8 to-emerald-500/6'} rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500 blur-xl -z-10`} />
           </div>
         </div>
       </SidebarHeader>
@@ -284,7 +284,7 @@ export function AppSidebar() {
 
             <SidebarGroupLabel className="px-2 py-1.5 mb-1.5">
               <div className="hud-sidebar-section-label">
-                <div className="w-1.5 h-1.5 rounded-full bg-purple-400/70 shadow-[0_0_8px_rgba(168,85,247,0.4),0_0_16px_rgba(168,85,247,0.15)]" />
+                <div className={`w-1.5 h-1.5 rounded-full ${isLight ? 'bg-purple-500 shadow-[0_0_4px_rgba(168,85,247,0.3)]' : 'bg-purple-400/70 shadow-[0_0_8px_rgba(168,85,247,0.4),0_0_16px_rgba(168,85,247,0.15)]'}`} />
                 {t('administration')}
               </div>
             </SidebarGroupLabel>
@@ -302,16 +302,16 @@ export function AppSidebar() {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button className="flex items-center gap-3 w-full hud-sidebar-item rounded-[10px] p-2.5 group !border-transparent">
-                <Avatar className={`w-8 h-8 ring-1 ${isLight ? 'ring-lime-500/20 shadow-[0_0_12px_rgba(186,249,26,0.15),0_2px_8px_rgba(0,0,0,0.15)]' : 'ring-cyan-500/20 shadow-[0_0_12px_rgba(6,182,212,0.15),0_2px_8px_rgba(0,0,0,0.3)]'}`}>
-                  <AvatarFallback className={`font-semibold text-white text-[10px] ${isLight ? 'bg-gradient-to-br from-lime-600 to-emerald-600' : 'bg-gradient-to-br from-cyan-600 to-emerald-600'}`}>
+                <Avatar className={`w-8 h-8 ring-1 ${isLight ? 'ring-emerald-500/20 shadow-[0_1px_4px_rgba(0,0,0,0.08)]' : 'ring-cyan-500/20 shadow-[0_0_12px_rgba(6,182,212,0.15),0_2px_8px_rgba(0,0,0,0.3)]'}`}>
+                  <AvatarFallback className={`font-semibold text-white text-[10px] ${isLight ? 'bg-gradient-to-br from-emerald-600 to-teal-600' : 'bg-gradient-to-br from-cyan-600 to-emerald-600'}`}>
                     {getUserInitials(user.fullName)}
                   </AvatarFallback>
                 </Avatar>
                 <div className="flex-1 text-left min-w-0 relative z-[1]">
-                  <p className="font-medium text-white/80 text-[12px] tracking-wide truncate">{user.fullName}</p>
-                  <p className="text-[10px] truncate text-white/30 font-medium tracking-wider">{user.cargo || user.role}</p>
+                  <p className={`font-medium text-[12px] tracking-wide truncate ${isLight ? 'text-[#2d3f38]' : 'text-white/80'}`}>{user.fullName}</p>
+                  <p className={`text-[10px] truncate font-medium tracking-wider ${isLight ? 'text-[#8a9a92]' : 'text-white/30'}`}>{user.cargo || user.role}</p>
                 </div>
-                <div className={`w-1.5 h-1.5 rounded-full ${isLight ? 'bg-lime-400/80 shadow-[0_0_6px_rgba(186,249,26,0.6),0_0_14px_rgba(186,249,26,0.3)]' : 'bg-emerald-400/80 shadow-[0_0_6px_rgba(16,185,129,0.6),0_0_14px_rgba(16,185,129,0.3)]'} relative z-[1]`} />
+                <div className={`w-1.5 h-1.5 rounded-full ${isLight ? 'bg-emerald-500 shadow-[0_0_4px_rgba(16,185,129,0.3)]' : 'bg-emerald-400/80 shadow-[0_0_6px_rgba(16,185,129,0.6),0_0_14px_rgba(16,185,129,0.3)]'} relative z-[1]`} />
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent
@@ -320,26 +320,26 @@ export function AppSidebar() {
               className="w-56 rounded-xl border p-1"
               style={{
                 background: isLight
-                  ? 'linear-gradient(160deg, rgba(14, 24, 20, 0.97) 0%, rgba(10, 18, 14, 0.98) 100%)'
+                  ? 'linear-gradient(160deg, rgba(255, 255, 255, 0.98) 0%, rgba(250, 251, 249, 0.99) 100%)'
                   : 'linear-gradient(160deg, rgba(6, 24, 18, 0.97) 0%, rgba(4, 16, 12, 0.98) 100%)',
-                borderColor: isLight ? 'rgba(186, 249, 26, 0.14)' : 'rgba(6, 182, 212, 0.14)',
+                borderColor: isLight ? 'rgba(0, 0, 0, 0.08)' : 'rgba(6, 182, 212, 0.14)',
                 backdropFilter: 'blur(32px) saturate(160%)',
                 WebkitBackdropFilter: 'blur(32px) saturate(160%)',
                 boxShadow: isLight
-                  ? '0 24px 80px rgba(0, 0, 0, 0.30), 0 8px 32px rgba(0, 0, 0, 0.15), 0 0 1px rgba(186, 249, 26, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.06)'
+                  ? '0 12px 40px rgba(0, 0, 0, 0.08), 0 4px 16px rgba(0, 0, 0, 0.04), inset 0 1px 0 rgba(255, 255, 255, 0.8)'
                   : '0 24px 80px rgba(0, 0, 0, 0.60), 0 8px 32px rgba(0, 0, 0, 0.30), 0 0 1px rgba(6, 182, 212, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.06)',
               }}
             >
-              <DropdownMenuItem asChild className={`cursor-pointer text-white/50 hover:text-white ${isLight ? 'hover:bg-lime-500/[0.06] focus:bg-lime-500/[0.06]' : 'hover:bg-cyan-500/[0.06] focus:bg-cyan-500/[0.06]'} rounded-lg transition-all duration-150`}>
+              <DropdownMenuItem asChild className={`cursor-pointer rounded-lg transition-all duration-150 ${isLight ? 'text-[#5a6e66] hover:text-[#1a2b24] hover:bg-black/[0.04] focus:bg-black/[0.04]' : 'text-white/50 hover:text-white hover:bg-cyan-500/[0.06] focus:bg-cyan-500/[0.06]'}`}>
                 <Link href="/configuracoes" className="flex items-center">
                   <Settings className="w-3.5 h-3.5 mr-2.5 stroke-[1.8]" />
                   <span className="text-[12px] font-medium tracking-wide">{t('settings')}</span>
                 </Link>
               </DropdownMenuItem>
-              <div className="mx-2 my-1 h-px bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />
+              <div className={`mx-2 my-1 h-px bg-gradient-to-r from-transparent ${isLight ? 'via-black/[0.06]' : 'via-white/[0.06]'} to-transparent`} />
               <DropdownMenuItem
                 onClick={() => { /* handleLogout */ }}
-                className="text-red-400 cursor-pointer hover:bg-red-500/10 focus:bg-red-500/10 rounded-lg transition-all duration-150"
+                className={`cursor-pointer rounded-lg transition-all duration-150 ${isLight ? 'text-red-600 hover:bg-red-500/[0.06] focus:bg-red-500/[0.06]' : 'text-red-400 hover:bg-red-500/10 focus:bg-red-500/10'}`}
               >
                 <LogOut className="w-3.5 h-3.5 mr-2.5 stroke-[1.8]" />
                 <span className="text-[12px] font-medium tracking-wide">{t('logout')}</span>
