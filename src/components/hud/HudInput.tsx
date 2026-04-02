@@ -32,37 +32,33 @@ export function HudInput({
 
   const variantStyles = {
     default: [
-      'bg-white/[0.05]',
-      'border-white/[0.08]',
-      'focus:border-cyan-500/30',
-      'focus:ring-1 focus:ring-cyan-500/20',
+      'hud-surface-elevated',
+      'focus:border-cyan-500/30 light:focus:border-lime-600/40',
+      'focus:ring-1 focus:ring-cyan-500/20 light:focus:ring-lime-600/20',
     ],
     glass: [
-      'bg-white/[0.03]',
+      'hud-input-bg',
       'backdrop-blur-sm',
-      'border-white/[0.08]',
-      'focus:border-cyan-500/30',
-      'focus:bg-white/[0.05]',
     ],
   };
 
   return (
     <div className={cn('flex flex-col gap-1.5', fullWidth && 'w-full')}>
       {label && (
-        <label className="text-[11px] font-medium text-white/60 uppercase tracking-wider">
+        <label className="text-[11px] font-medium hud-label uppercase tracking-wider">
           {label}
         </label>
       )}
       <div className="relative">
         {leftIcon && (
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 hud-icon">
             {leftIcon}
           </span>
         )}
         <input
           className={cn(
             'rounded-lg',
-            'text-white placeholder:text-white/30',
+            'hud-text',
             'border',
             'focus:outline-none',
             'transition-all duration-200',
@@ -78,13 +74,13 @@ export function HudInput({
           {...props}
         />
         {rightIcon && (
-          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40">
+          <span className="absolute right-3 top-1/2 -translate-y-1/2 hud-icon">
             {rightIcon}
           </span>
         )}
       </div>
       {error && (
-        <p className="text-xs text-red-400">{error}</p>
+        <p className="text-xs text-red-400 light:text-red-600">{error}</p>
       )}
     </div>
   );

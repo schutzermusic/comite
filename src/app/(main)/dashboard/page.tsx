@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { DashboardHudBar } from '@/components/dashboard/DashboardHudBar';
 import { ControlCanvas, type ScopeMode } from '@/components/dashboard/ControlCanvas';
@@ -12,7 +12,6 @@ import type { DashboardPayload } from '@/lib/dashboard-data';
 import type { StateAggregate } from '@/data/geo/globe-kpi-data';
 import { cn } from '@/lib/utils';
 
-// Lazy load heavy sidebar components
 const LeftHudStack = dynamic(
     () => import('@/components/dashboard/LeftHudStack').then(m => ({ default: m.LeftHudStack })),
     { ssr: false }
@@ -21,9 +20,16 @@ const RightHudStack = dynamic(
     () => import('@/components/dashboard/RightHudStack').then(m => ({ default: m.RightHudStack })),
     { ssr: false }
 );
+const TopDriversOverlay = dynamic(
+    () => import('@/components/dashboard/TopDriversOverlay').then(m => ({ default: m.TopDriversOverlay })),
+    { ssr: false }
+);
 
 export default function DashboardPage() {
-    const { layout, setMode, setPeriod, setActiveOverlay } = useHudLayout();
+    const {
+        layout, setMode, setPeriod, setPreset, setSelectedUF,
+        setActiveOverlay,
+    } = useHudLayout();
     const [mode, setLocalMode] = useState<'executivo' | 'operacional'>('executivo');
     const [period, setLocalPeriod] = useState<'mtd' | 'qtd' | 'ytd' | 'custom'>('mtd');
     const [data, setData] = useState<DashboardPayload | null>(null);
@@ -33,11 +39,6 @@ export default function DashboardPage() {
     const [uiMode, setUiMode] = useState<'default' | 'projectFocus'>('default');
     const [isSidebarVisible, setIsSidebarVisible] = useState(true);
     const [sidebarStateBeforeFocus, setSidebarStateBeforeFocus] = useState(true);
-    const viewportRef = useRef<HTMLDivElement>(null);
-    const parallaxRef = useRef({ x: 0, y: 0 });
-    const rafRef = useRef<number>(0);
-    const leftStackRef = useRef<HTMLDivElement>(null);
-    const rightStackRef = useRef<HTMLDivElement>(null);
 
     const isRightSidebarActive = isSidebarVisible && selectedState === null;
     const isFocusMode = uiMode === 'projectFocus' || selectedState !== null;
@@ -67,42 +68,28 @@ export default function DashboardPage() {
         setPeriod(p);
     }, [setPeriod]);
 
-    // Memoize alert counts to avoid object re-creation on every render
+    const handleStateSelect = useCallback((state: StateAggregate | null) => {
+        setSelectedState(state);
+        if (state) {
+            setScopeMode('state');
+            setSelectedUF(state.uf);
+        } else {
+            setScopeMode('global');
+            setSelectedUF(null);
+        }
+    }, [setSelectedUF]);
+
     const alertCounts = useMemo(() => data ? ({
         critical: data.riskSummary.critical,
         votesIn72h: data.votingStatus.endingIn72h,
         docsPending: 2,
     }) : undefined, [data?.riskSummary.critical, data?.votingStatus.endingIn72h]);
 
-    // Throttled parallax via rAF — updates DOM directly, no React state
-    const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-        const rect = e.currentTarget.getBoundingClientRect();
-        const nx = (e.clientX - rect.left) / rect.width - 0.5;
-        const ny = (e.clientY - rect.top) / rect.height - 0.5;
-        parallaxRef.current = { x: nx * 6, y: ny * 4 };
-
-        if (rafRef.current) return; // already scheduled
-        rafRef.current = requestAnimationFrame(() => {
-            const { x, y } = parallaxRef.current;
-            if (leftStackRef.current) {
-                leftStackRef.current.style.transform = `translate(${x * -1}px, ${y * -0.5}px)`;
-            }
-            if (rightStackRef.current) {
-                rightStackRef.current.style.transform = `translate(${x}px, ${y * -0.5}px)`;
-            }
-            rafRef.current = 0;
-        });
-    }, []);
-
     if (!data) return null;
 
     return (
-        <div
-            ref={viewportRef}
-            className="cr-viewport bg-[#020915] text-white"
-            onMouseMove={handleMouseMove}
-        >
-            {/* ═══ Layer 0: Globe Canvas (3D background) — fill entire viewport ═══ */}
+        <div className="cr-viewport bg-[#020915] text-white">
+            {/* ═══ Layer 0: Globe Canvas (3D background) ═══ */}
             <div className="absolute inset-0 z-0 min-w-0 min-h-0" style={{ transform: 'translateX(40px)' }}>
                 <ControlCanvas
                     mode={mode}
@@ -111,27 +98,16 @@ export default function DashboardPage() {
                     onOpenDrawer={setDrawerContext}
                     scopeMode={scopeMode}
                     onScopeModeChange={setScopeMode}
-                    onStateContextChange={setSelectedState}
+                    onStateContextChange={handleStateSelect}
                     onProjectFocusChange={handleProjectFocusChange}
                     className="w-full h-full"
                 />
             </div>
 
-            {/* ═══ Layer 1: Atmospheric Center Glow ═══ */}
+            {/* ═══ Atmospheric layers ═══ */}
             <div className="cr-atmospheric-glow" />
-
-            {/* ═══ Layer 1b: Heatmap hotspots over the globe (REMOVED) ═══ */}
-            {/* <div className="absolute inset-0 z-[2] pointer-events-none">
-                <BrazilHeatmap />
-            </div> */}
-
-            {/* ═══ Layer 2: Background scanline only ═══ */}
             <div className="cr-bg-scanline" />
-
-            {/* ═══ Layer 3: Vignette ═══ */}
             <div className="cr-vignette z-[4]" />
-
-            {/* ═══ Layer 4: HUD Frame (corner brackets + tick marks) ═══ */}
             <div className="cr-hud-frame" />
 
             {/* ═══ Layer 10: HUD Interface ═══ */}
@@ -141,47 +117,44 @@ export default function DashboardPage() {
                     <DashboardHudBar
                         mode={mode}
                         period={period}
+                        preset={layout.preset}
                         onModeChange={handleModeChange}
                         onPeriodChange={handlePeriodChange}
+                        onPresetChange={setPreset}
                         alertCounts={alertCounts!}
                     />
                 </div>
 
                 {/* Main content: overlapping panel stacks */}
-                <div className="flex-1 relative min-h-0 px-2 pb-2 h-full">
-                    {/* ── Left Stack (parallax layer, z40) ── */}
+                <div className="flex-1 relative min-h-0 px-3 pb-3 h-full">
+                    {/* ── Left Stack ── */}
                     <div
-                        ref={leftStackRef}
                         className={cn(
-                            "absolute top-0 left-2 bottom-2 pointer-events-auto z-40 overflow-y-auto scrollbar-hide will-change-transform",
+                            "absolute top-0 left-3 bottom-3 pointer-events-auto z-40 overflow-y-auto scrollbar-hide",
                             isFocusMode
                                 ? "-translate-x-[120%] opacity-0 pointer-events-none transition-all duration-300 ease-out"
-                                : "translate-x-0 opacity-100",
+                                : "translate-x-0 opacity-100 transition-all duration-300 ease-out",
                         )}
-                        style={{
-                            width: '360px',
-                            transition: 'transform 0.35s ease-out',
-                        }}
+                        style={{ width: '340px' }}
                     >
                         <LeftHudStack data={data} scopeMode={scopeMode} stateScope={selectedState} />
                     </div>
 
-                    {/* ── Right Stack (parallax layer, z40, opposite direction) ── */}
+                    {/* ── Right Stack ── */}
                     <div
-                        ref={rightStackRef}
                         className={cn(
-                            "absolute top-0 right-2 bottom-2 pointer-events-auto z-40 overflow-y-auto scrollbar-hide will-change-transform",
+                            "absolute top-0 right-3 bottom-3 pointer-events-auto z-40 overflow-y-auto scrollbar-hide",
                             isRightSidebarActive
-                                ? "translate-x-0 opacity-100"
+                                ? "translate-x-0 opacity-100 transition-all duration-300 ease-out"
                                 : "translate-x-[120%] opacity-0 pointer-events-none transition-all duration-300 ease-out"
                         )}
-                        style={{
-                            width: '330px',
-                            transition: 'transform 0.35s ease-out',
-                        }}
+                        style={{ width: '320px' }}
                     >
                         <RightHudStack data={data} scopeMode={scopeMode} stateScope={selectedState} />
                     </div>
+
+                    {/* ── Top Drivers Overlay (bottom of map) ── */}
+                    <TopDriversOverlay data={data} visible={!isFocusMode} />
                 </div>
             </div>
 

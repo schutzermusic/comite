@@ -7,27 +7,27 @@ export interface GlassPanelProps {
   children: React.ReactNode;
   className?: string;
   hoverGlow?: boolean;
-  animatedBorder?: boolean;
+  onClick?: () => void;
 }
 
 export function GlassPanel({
   children,
   className,
   hoverGlow = true,
-  animatedBorder = true,
+  onClick,
 }: GlassPanelProps) {
   return (
     <div
       className={cn(
-        'cr-glass-panel relative overflow-hidden rounded-2xl',
+        'cr-glass-panel relative overflow-hidden rounded-[14px]',
         hoverGlow && 'cr-glass-panel-hover',
-        animatedBorder && 'cr-glass-panel-breathe',
+        onClick && 'cursor-pointer',
         className
       )}
+      onClick={onClick}
     >
       <div className="cr-glass-panel-border" />
       <div className="cr-glass-panel-specular" />
-      <div className="cr-glass-panel-inner-stroke" />
       <div className="relative z-[2]">{children}</div>
     </div>
   );

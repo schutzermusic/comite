@@ -1,15 +1,16 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 
 // ============================================
 // HUD Layout Persistence Hook
 // ============================================
 
-const STORAGE_KEY = 'insight_dashboard_hud_layout_v1';
+const STORAGE_KEY = 'insight_dashboard_hud_layout_v2';
 
 export type HudMode = 'executivo' | 'operacional';
 export type PeriodFilter = 'mtd' | 'qtd' | 'ytd' | 'custom';
+export type ViewPreset = 'diretor' | 'financeiro' | 'rh' | 'comercial';
 
 export interface WidgetState {
     pinned: boolean;
@@ -19,9 +20,17 @@ export interface WidgetState {
     y: number;
 }
 
+export interface AppliedFilter {
+    key: string;
+    label: string;
+    removable: boolean;
+}
+
 export interface HudLayoutState {
     mode: HudMode;
     period: PeriodFilter;
+    preset: ViewPreset;
+    selectedUF: string | null;
     eventStreamCollapsed: boolean;
     activeOverlay: string | null;
     widgets: Record<string, WidgetState>;
@@ -38,9 +47,25 @@ const DEFAULT_WIDGET: WidgetState = {
 const DEFAULT_LAYOUT: HudLayoutState = {
     mode: 'executivo',
     period: 'mtd',
-    eventStreamCollapsed: true, // collapsed by default in executivo
+    preset: 'diretor',
+    selectedUF: null,
+    eventStreamCollapsed: true,
     activeOverlay: null,
     widgets: {},
+};
+
+const PERIOD_LABELS: Record<PeriodFilter, string> = {
+    mtd: 'MTD',
+    qtd: 'QTD',
+    ytd: 'YTD',
+    custom: 'Personalizado',
+};
+
+const PRESET_LABELS: Record<ViewPreset, string> = {
+    diretor: 'Diretor',
+    financeiro: 'Financeiro',
+    rh: 'RH',
+    comercial: 'Comercial',
 };
 
 function loadLayout(): HudLayoutState {
@@ -67,7 +92,6 @@ export function useHudLayout() {
     const [layout, setLayoutRaw] = useState<HudLayoutState>(DEFAULT_LAYOUT);
     const [hydrated, setHydrated] = useState(false);
 
-    // Hydrate from localStorage on mount
     useEffect(() => {
         setLayoutRaw(loadLayout());
         setHydrated(true);
@@ -85,13 +109,20 @@ export function useHudLayout() {
         setLayout((prev) => ({
             ...prev,
             mode,
-            // When switching to executivo, collapse event stream
-            eventStreamCollapsed: mode === 'executivo' ? true : false,
+            eventStreamCollapsed: mode === 'executivo',
         }));
     }, [setLayout]);
 
     const setPeriod = useCallback((period: PeriodFilter) => {
         setLayout((prev) => ({ ...prev, period }));
+    }, [setLayout]);
+
+    const setPreset = useCallback((preset: ViewPreset) => {
+        setLayout((prev) => ({ ...prev, preset }));
+    }, [setLayout]);
+
+    const setSelectedUF = useCallback((uf: string | null) => {
+        setLayout((prev) => ({ ...prev, selectedUF: uf }));
     }, [setLayout]);
 
     const toggleEventStream = useCallback(() => {
@@ -116,14 +147,37 @@ export function useHudLayout() {
         }));
     }, [setLayout]);
 
+    const appliedFilters: AppliedFilter[] = useMemo(() => {
+        const filters: AppliedFilter[] = [
+            { key: 'period', label: PERIOD_LABELS[layout.period], removable: false },
+            { key: 'preset', label: PRESET_LABELS[layout.preset], removable: false },
+        ];
+        if (layout.selectedUF) {
+            filters.push({ key: 'uf', label: `UF: ${layout.selectedUF}`, removable: true });
+        } else {
+            filters.push({ key: 'scope', label: 'Brasil', removable: false });
+        }
+        return filters;
+    }, [layout.period, layout.preset, layout.selectedUF]);
+
+    const removeFilter = useCallback((key: string) => {
+        if (key === 'uf') {
+            setSelectedUF(null);
+        }
+    }, [setSelectedUF]);
+
     return {
         layout,
         hydrated,
         setMode,
         setPeriod,
+        setPreset,
+        setSelectedUF,
         toggleEventStream,
         setActiveOverlay,
         getWidgetState,
         updateWidget,
+        appliedFilters,
+        removeFilter,
     };
 }

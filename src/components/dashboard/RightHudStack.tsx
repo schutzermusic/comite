@@ -156,30 +156,30 @@ export const RightHudStack = React.memo(function RightHudStack({ data, scopeMode
                 >
                     <div className="space-y-3">
                         <div className="grid grid-cols-3 gap-2">
-                            <div className="text-center">
-                                <p className="text-xl font-bold text-red-400 tabular-nums leading-none" style={{ textShadow: '0 0 12px rgba(239, 68, 68, 0.25)' }}>
+                            <Link href={`/riscos?severity=critico${scopeSuffix}`} className="text-center group cursor-pointer">
+                                <p className="text-xl font-semibold text-red-400 tabular-nums leading-none group-hover:text-red-300 transition-colors">
                                     {scopedRiskSummary.critical}
                                 </p>
                                 <p className="cr-label mt-1">
                                     {t('critical')}
                                 </p>
-                            </div>
-                            <div className="text-center">
-                                <p className="text-xl font-bold text-amber-400 tabular-nums leading-none" style={{ textShadow: '0 0 12px rgba(245, 158, 11, 0.2)' }}>
+                            </Link>
+                            <Link href={`/riscos${scopeSuffix}`} className="text-center group cursor-pointer">
+                                <p className="text-xl font-semibold text-amber-400 tabular-nums leading-none group-hover:text-amber-300 transition-colors">
                                     {scopedRiskSummary.high}
                                 </p>
                                 <p className="cr-label mt-1">
                                     {t('withoutMitigation')}
                                 </p>
-                            </div>
-                            <div className="text-center">
-                                <p className="text-2xl font-bold text-white tabular-nums leading-none" style={{ textShadow: '0 0 14px rgba(124, 232, 253, 0.18)' }}>
+                            </Link>
+                            <Link href={`/riscos${scopeSuffix}`} className="text-center group cursor-pointer">
+                                <p className="text-xl font-semibold text-white tabular-nums leading-none group-hover:text-cyan-100 transition-colors">
                                     {scopedRiskSummary.total}
                                 </p>
                                 <p className="cr-label mt-1">
                                     {t('totalExposure')}
                                 </p>
-                            </div>
+                            </Link>
                         </div>
 
                         <div>
@@ -191,7 +191,7 @@ export const RightHudStack = React.memo(function RightHudStack({ data, scopeMode
                                     <Link
                                         key={key}
                                         href="/riscos"
-                                        className="text-[8px] px-2 py-0.5 rounded-full bg-red-500/[0.07] border border-red-400/20 text-red-200/80 hover:border-red-300/40 hover:text-red-100 hover:bg-red-500/[0.14] transition-all duration-150 whitespace-nowrap flex-shrink-0"
+                                        className="text-[9px] px-2 py-0.5 rounded-full bg-red-500/[0.07] border border-red-400/20 text-red-200/70 hover:border-red-300/40 hover:text-red-100 hover:bg-red-500/[0.12] transition-all duration-150 whitespace-nowrap flex-shrink-0"
                                     >
                                         {t(key)}
                                     </Link>
@@ -261,9 +261,10 @@ export const RightHudStack = React.memo(function RightHudStack({ data, scopeMode
                                         {filteredEvents.map((event) => {
                                             const CatIcon = CATEGORY_ICON[event.type] as any;
                                             return (
-                                                <div
+                                                <Link
                                                     key={event.id}
-                                                    className="group flex items-start gap-1.5 px-1.5 py-1 rounded-md hover:bg-white/[0.03] transition-colors"
+                                                    href={event.href}
+                                                    className="group flex items-start gap-1.5 px-1.5 py-1.5 rounded-lg hover:bg-white/[0.03] transition-colors cursor-pointer"
                                                 >
                                                     <div
                                                         className={SEVERITY_DOT[event.severity]}
@@ -272,24 +273,18 @@ export const RightHudStack = React.memo(function RightHudStack({ data, scopeMode
                                                     <div className="flex-1 min-w-0">
                                                         <div className="flex items-center gap-1">
                                                             <CatIcon className="w-[11px] h-[11px] text-white/30 flex-shrink-0" />
-                                                            <span className="text-[8px] font-semibold text-white/58 uppercase tracking-[0.1em]">
+                                                            <span className="text-[9px] font-medium text-white/50 uppercase tracking-[0.08em]">
                                                                 {t(CATEGORY_LABEL_KEYS[event.type])}
                                                             </span>
-                                                            <span className="text-[8px] text-white/25 tabular-nums ml-auto flex-shrink-0">
+                                                            <span className="text-[9px] text-white/25 tabular-nums ml-auto flex-shrink-0">
                                                                 {event.timestamp}
                                                             </span>
                                                         </div>
-                                                        <p className="text-[9px] text-white/78 leading-snug mt-0.5">
+                                                        <p className="text-[10px] text-white/75 leading-snug mt-0.5 group-hover:text-white/90 transition-colors">
                                                             {event.label}
                                                         </p>
                                                     </div>
-                                                    <Link
-                                                        href={event.href}
-                                                        className="text-[8px] font-medium px-1 py-0.5 rounded bg-emerald-500/[0.06] border border-emerald-500/15 text-emerald-400/55 hover:text-emerald-400 hover:border-emerald-400/30 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0 mt-0.5"
-                                                    >
-                                                        {tCommon('open')}
-                                                    </Link>
-                                                </div>
+                                                </Link>
                                             );
                                         })}
                                         {filteredEvents.length === 0 && (

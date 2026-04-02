@@ -23,16 +23,17 @@ export interface HudBadgeProps {
   dotColor?: string;
 }
 
+/* Dark-mode default styles + semantic class hooks for light mode overrides */
 const VARIANT_STYLES: Record<HudBadgeVariant, string> = {
-  default: 'bg-white/[0.08] text-white/80 border-white/[0.10]',
-  primary: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/25',
-  success: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/25',
-  warning: 'bg-amber-500/15 text-amber-300 border-amber-500/25',
-  danger: 'bg-red-500/15 text-red-300 border-red-500/25',
-  info: 'bg-blue-500/15 text-blue-300 border-blue-500/25',
-  neutral: 'bg-white/[0.05] text-white/60 border-white/[0.08]',
-  outline: 'bg-transparent text-white/70 border-white/[0.15]',
-  subtle: 'bg-transparent text-white/50 border-transparent',
+  default: 'bg-white/[0.08] text-white/80 border-white/[0.10] hud-badge-default',
+  primary: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/25 hud-badge-primary',
+  success: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/25 hud-badge-success',
+  warning: 'bg-amber-500/15 text-amber-300 border-amber-500/25 hud-badge-warning',
+  danger: 'bg-red-500/15 text-red-300 border-red-500/25 hud-badge-danger',
+  info: 'bg-blue-500/15 text-blue-300 border-blue-500/25 hud-badge-info',
+  neutral: 'bg-white/[0.05] text-white/60 border-white/[0.08] hud-badge-neutral',
+  outline: 'bg-transparent text-white/70 border-white/[0.15] hud-badge-outline',
+  subtle: 'bg-transparent text-white/50 border-transparent hud-badge-subtle',
 };
 
 const SIZE_STYLES = {
@@ -51,12 +52,12 @@ export function HudBadge({
   const getDotColor = () => {
     if (dotColor) return dotColor;
     switch (variant) {
-      case 'success': return 'bg-emerald-400';
-      case 'warning': return 'bg-amber-400';
-      case 'danger': return 'bg-red-400';
-      case 'info': return 'bg-blue-400';
-      case 'primary': return 'bg-cyan-400';
-      default: return 'bg-white/50';
+      case 'success': return 'bg-emerald-400 light:bg-emerald-600';
+      case 'warning': return 'bg-amber-400 light:bg-amber-600';
+      case 'danger': return 'bg-red-400 light:bg-red-600';
+      case 'info': return 'bg-blue-400 light:bg-blue-600';
+      case 'primary': return 'bg-cyan-400 light:bg-cyan-600';
+      default: return 'bg-white/50 light:bg-black/30';
     }
   };
 

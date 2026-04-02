@@ -18,6 +18,7 @@ import { ProjectAnchorLayer } from './ProjectAnchorLayer';
 import { FlowArcLayer } from './FlowArcLayer';
 import { StateHudPanel } from './StateHudPanel';
 import { cn } from '@/lib/utils';
+import { useTheme } from '@/contexts/ThemeContext';
 import { brStates } from '@/data/geo/br-states';
 
 const Globe = dynamic(() => import('react-globe.gl'), {
@@ -82,6 +83,8 @@ export function GlobeCanvas({
   const introRef = useRef({ cancelled: false });
 
   const { isSupported, isLoading } = useWebGLSupport();
+  const { theme } = useTheme();
+  const isLight = theme === 'light';
   const lowPerfMode = !isSupported;
 
   const renderDpr = useMemo(() => {
@@ -330,8 +333,8 @@ export function GlobeCanvas({
         material.specular = new THREE.Color(0x1e2d3f);
         material.shininess = 8;
         material.emissiveMap = night;
-        material.emissive = new THREE.Color(0x1b7f90);
-        material.emissiveIntensity = 0.1;
+        material.emissive = new THREE.Color(isLight ? 0x4a8f7a : 0x1b7f90);
+        material.emissiveIntensity = isLight ? 0.02 : 0.1;
         material.needsUpdate = true;
       })
       .catch(() => {
@@ -342,7 +345,7 @@ export function GlobeCanvas({
       cancelled = true;
       loadedTextures.forEach((texture) => texture.dispose());
     };
-  }, [renderDpr]);
+  }, [renderDpr, isLight]);
 
   const selectedState = selectedUF ? stateAggregates[selectedUF] || null : null;
 
@@ -440,8 +443,8 @@ export function GlobeCanvas({
   if (!isLoading && !isSupported) {
     return (
       <div className={cn('relative w-full h-full', className)} ref={containerRef}>
-        <div className="absolute inset-0 grid place-items-center bg-[radial-gradient(circle_at_center,rgba(0,255,180,0.09),transparent_55%)]">
-          <div className="rounded-xl border border-white/10 bg-black/55 px-4 py-3 text-sm text-white/70">
+        <div className="absolute inset-0 grid place-items-center globe-no-webgl bg-[radial-gradient(circle_at_center,rgba(0,255,180,0.09),transparent_55%)]">
+          <div className="rounded-xl border border-border bg-background/80 backdrop-blur-sm px-4 py-3 text-sm text-muted-foreground">
             WebGL indisponível neste dispositivo. A visualização 3D foi reduzida.
           </div>
         </div>
@@ -509,8 +512,8 @@ export function GlobeCanvas({
                         height={size.height}
                         backgroundColor="rgba(0,0,0,0)"
                         rendererConfig={{ antialias: true, alpha: true, powerPreference: 'high-performance', precision: 'highp' } as any}
-                        globeImageUrl="/textures/earth-night-2k.jpg"
-                        atmosphereColor="#1a8b96"
+                        globeImageUrl={isLight ? "/textures/earth-blue-marble-4k.jpg" : "/textures/earth-night-2k.jpg"}
+                        atmosphereColor={isLight ? "#4dd0e1" : "#1a8b96"}
                         atmosphereAltitude={0.04}
                         showAtmosphere
                         polygonsTransitionDuration={0}
@@ -591,44 +594,44 @@ export function GlobeCanvas({
           <div className="pointer-events-auto absolute inset-0 bg-[#020915]/50 backdrop-blur-[2px] transition-opacity duration-300 z-[-1]" />
 
           <div className="pointer-events-auto w-[min(560px,calc(100vw-2rem))]">
-            <div className="cr-glass-panel rounded-2xl p-4">
+            <div className="cr-glass-panel globe-focus-panel rounded-2xl p-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <div className="text-[10px] uppercase tracking-[0.14em] text-cyan-100/70">
+                  <div className="text-[10px] uppercase tracking-[0.14em] text-cyan-100/70 light:text-cyan-800/70">
                     Projeto em foco · {focusedProject.uf}
                   </div>
-                  <h4 className="mt-1 truncate text-lg font-semibold text-white">
+                  <h4 className="mt-1 truncate text-lg font-semibold hud-text">
                     {focusedProject.project.name}
                   </h4>
                 </div>
                 <button
                   onClick={handleBackToBrazil}
-                  className="rounded-md border border-white/15 bg-white/5 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-white/75 hover:bg-white/10 hover:text-white"
+                  className="rounded-md border border-border bg-muted/30 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground hover:bg-muted/50 hover:text-foreground"
                 >
                   Close focus
                 </button>
               </div>
               <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                <div className="rounded-lg border border-white/10 bg-white/[0.03] p-2">
-                  <div className="text-[9px] uppercase tracking-[0.1em] text-white/50">Contrato</div>
-                  <div className="mt-1 text-sm font-semibold text-white">{formatCompactMoney(focusedProject.project.contractTotal)}</div>
+                <div className="rounded-lg border globe-kpi-card hud-surface p-2">
+                  <div className="text-[9px] uppercase tracking-[0.1em] globe-kpi-label hud-text-muted">Contrato</div>
+                  <div className="mt-1 text-sm font-semibold globe-kpi-value hud-text">{formatCompactMoney(focusedProject.project.contractTotal)}</div>
                 </div>
-                <div className="rounded-lg border border-white/10 bg-white/[0.03] p-2">
-                  <div className="text-[9px] uppercase tracking-[0.1em] text-white/50">Faturado</div>
+                <div className="rounded-lg border globe-kpi-card hud-surface p-2">
+                  <div className="text-[9px] uppercase tracking-[0.1em] globe-kpi-label hud-text-muted">Faturado</div>
                   <div className="mt-1 text-sm font-semibold text-emerald-300">{formatCompactMoney(focusedProject.project.invoiced)}</div>
                 </div>
-                <div className="rounded-lg border border-white/10 bg-white/[0.03] p-2">
-                  <div className="text-[9px] uppercase tracking-[0.1em] text-white/50">Riscos</div>
+                <div className="rounded-lg border globe-kpi-card hud-surface p-2">
+                  <div className="text-[9px] uppercase tracking-[0.1em] globe-kpi-label hud-text-muted">Riscos</div>
                   <div className="mt-1 text-sm font-semibold text-amber-300">{focusedProject.project.riskCount}</div>
                 </div>
-                <div className="rounded-lg border border-white/10 bg-white/[0.03] p-2">
-                  <div className="text-[9px] uppercase tracking-[0.1em] text-white/50">HH</div>
+                <div className="rounded-lg border globe-kpi-card hud-surface p-2">
+                  <div className="text-[9px] uppercase tracking-[0.1em] globe-kpi-label hud-text-muted">HH</div>
                   <div className="mt-1 text-sm font-semibold text-cyan-200">{focusedProject.project.estimatedHeadcount}</div>
                 </div>
               </div>
               <div className="mt-3 flex items-center justify-between gap-2">
-                <div className="text-[11px] text-white/65">
-                  Status: <span className="font-medium text-white/85">{focusedProject.project.status.replace(/_/g, ' ')}</span>
+                <div className="text-[11px] hud-text-tertiary">
+                  Status: <span className="font-medium hud-text-secondary">{focusedProject.project.status.replace(/_/g, ' ')}</span>
                 </div>
                 <button
                   onClick={() => handleProjectOpen(focusedProject.project.id, focusedProject.uf)}

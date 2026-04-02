@@ -362,3 +362,301 @@ export function getMiniChartConfig() {
 }
 
 
+
+// =============================================================================
+// LIGHT THEME VARIANT
+// =============================================================================
+
+/** Light-mode color tokens for ECharts */
+const lightColors = {
+  text: {
+    primary: '#1a2520',
+    secondary: '#3a4f46',
+    tertiary: '#567066',
+    muted: '#728c80',
+  },
+  bg: {
+    primary: '#f4f5f3',
+    secondary: '#edeee9',
+    tertiary: '#e6e8e2',
+    elevated: '#ffffff',
+    overlay: 'rgba(255, 255, 255, 0.92)',
+  },
+  border: {
+    subtle: 'rgba(0, 0, 0, 0.06)',
+    default: 'rgba(0, 0, 0, 0.10)',
+  },
+  accent: {
+    primary: '#4d7c0f',       // Lime-700 WCAG AA compliant
+    primaryGlow: 'rgba(101, 163, 13, 0.15)',
+  },
+  chart: {
+    primary: '#059669',       // Emerald-600 (darker for contrast)
+    secondary: '#0891b2',     // Cyan-600
+    tertiary: '#16a34a',      // Green-600
+    quaternary: '#0d9488',    // Teal-600
+    quinary: '#0284c7',      // Sky-600
+    senary: '#7c3aed',       // Violet-600
+  },
+} as const;
+
+/**
+ * ECharts Light Theme — Executive Boardroom Mode
+ * Muted palette, high contrast text, subtle shadows
+ */
+export const echartsOrionGreenLightTheme = {
+  color: [
+    lightColors.chart.primary,
+    lightColors.chart.secondary,
+    lightColors.chart.tertiary,
+    lightColors.chart.quaternary,
+    lightColors.chart.quinary,
+    lightColors.chart.senary,
+  ],
+
+  backgroundColor: 'transparent',
+
+  textStyle: {
+    fontFamily: orionGreenTypography.fontFamily.body,
+    color: lightColors.text.secondary,
+    fontSize: 12,
+  },
+
+  title: {
+    textStyle: {
+      color: lightColors.text.primary,
+      fontSize: 16,
+      fontWeight: 600,
+    },
+    subtextStyle: {
+      color: lightColors.text.tertiary,
+      fontSize: 12,
+    },
+  },
+
+  legend: {
+    textStyle: {
+      color: lightColors.text.secondary,
+      fontSize: 11,
+    },
+    pageTextStyle: {
+      color: lightColors.text.tertiary,
+    },
+    pageIconColor: lightColors.accent.primary,
+    pageIconInactiveColor: lightColors.text.muted,
+  },
+
+  tooltip: {
+    backgroundColor: lightColors.bg.overlay,
+    borderColor: lightColors.border.default,
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: [12, 16],
+    textStyle: {
+      color: lightColors.text.primary,
+      fontSize: 12,
+    },
+    extraCssText: `
+      backdrop-filter: blur(12px);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08), 0 0 1px rgba(0, 0, 0, 0.12);
+    `,
+  },
+
+  grid: {
+    left: '3%',
+    right: '4%',
+    bottom: '3%',
+    top: '10%',
+    containLabel: true,
+  },
+
+  categoryAxis: {
+    axisLine: {
+      show: true,
+      lineStyle: {
+        color: lightColors.border.subtle,
+      },
+    },
+    axisTick: { show: false },
+    axisLabel: {
+      color: lightColors.text.tertiary,
+      fontSize: 11,
+    },
+    splitLine: { show: false },
+  },
+
+  valueAxis: {
+    axisLine: { show: false },
+    axisTick: { show: false },
+    axisLabel: {
+      color: lightColors.text.muted,
+      fontSize: 11,
+    },
+    splitLine: {
+      show: true,
+      lineStyle: {
+        color: lightColors.border.subtle,
+        type: 'dashed',
+      },
+    },
+  },
+
+  timeAxis: {
+    axisLine: {
+      show: true,
+      lineStyle: { color: lightColors.border.subtle },
+    },
+    axisTick: { show: false },
+    axisLabel: {
+      color: lightColors.text.tertiary,
+      fontSize: 11,
+    },
+    splitLine: { show: false },
+  },
+
+  line: {
+    smooth: true,
+    symbol: 'circle',
+    symbolSize: 6,
+    lineStyle: { width: 2.5 },
+    emphasis: {
+      focus: 'series',
+      lineStyle: { width: 3 },
+    },
+    itemStyle: {
+      borderWidth: 2,
+      borderColor: lightColors.bg.elevated,
+    },
+  },
+
+  bar: {
+    barMaxWidth: 40,
+    itemStyle: { borderRadius: [4, 4, 0, 0] },
+    emphasis: { focus: 'series' },
+  },
+
+  pie: {
+    itemStyle: {
+      borderWidth: 2,
+      borderColor: lightColors.bg.elevated,
+    },
+    label: {
+      color: lightColors.text.secondary,
+      fontSize: 11,
+    },
+    emphasis: {
+      scale: true,
+      scaleSize: 5,
+      itemStyle: {
+        shadowBlur: 12,
+        shadowColor: 'rgba(0, 0, 0, 0.15)',
+      },
+    },
+  },
+
+  gauge: {
+    axisLine: {
+      lineStyle: {
+        width: 12,
+        color: [
+          [0.3, '#dc2626'],   // Red-600
+          [0.7, '#d97706'],   // Amber-600
+          [1, '#059669'],     // Emerald-600
+        ],
+      },
+    },
+    axisTick: { show: false },
+    axisLabel: { show: false },
+    splitLine: { show: false },
+    pointer: {
+      show: true,
+      length: '70%',
+      width: 4,
+      itemStyle: { color: lightColors.text.primary },
+    },
+    detail: {
+      fontSize: 24,
+      fontWeight: 700,
+      color: lightColors.text.primary,
+      offsetCenter: [0, '40%'],
+    },
+    title: {
+      offsetCenter: [0, '70%'],
+      fontSize: 12,
+      color: lightColors.text.tertiary,
+    },
+  },
+
+  radar: {
+    axisLine: {
+      lineStyle: { color: lightColors.border.subtle },
+    },
+    splitLine: {
+      lineStyle: { color: lightColors.border.subtle },
+    },
+    splitArea: { show: false },
+    axisName: {
+      color: lightColors.text.tertiary,
+      fontSize: 11,
+    },
+  },
+
+  dataZoom: [
+    { type: 'inside', throttle: 50 },
+    {
+      type: 'slider',
+      height: 20,
+      bottom: 0,
+      borderColor: 'transparent',
+      backgroundColor: lightColors.bg.tertiary,
+      fillerColor: lightColors.accent.primaryGlow,
+      handleStyle: {
+        color: lightColors.accent.primary,
+        borderColor: lightColors.accent.primary,
+      },
+      textStyle: { color: lightColors.text.tertiary },
+    },
+  ],
+
+  visualMap: {
+    textStyle: { color: lightColors.text.secondary },
+    inRange: {
+      color: [
+        lightColors.bg.tertiary,
+        lightColors.chart.quaternary,
+        lightColors.chart.primary,
+      ],
+    },
+  },
+} as const;
+
+export type EChartsOrionGreenLightTheme = typeof echartsOrionGreenLightTheme;
+
+/**
+ * Returns the correct ECharts theme object based on the current theme.
+ * Use with: echarts.registerTheme('orion', getEchartsTheme(theme))
+ */
+export function getEchartsTheme(theme: 'light' | 'dark') {
+  return theme === 'light' ? echartsOrionGreenLightTheme : echartsOrionGreenTheme;
+}
+
+/**
+ * Get area gradient for line charts — light mode variant
+ */
+export function getAreaGradientLight(
+  colorStart: string = 'rgba(5, 150, 105, 0.25)',
+  colorEnd: string = 'rgba(5, 150, 105, 0.02)'
+) {
+  return getAreaGradient(colorStart, colorEnd);
+}
+
+/**
+ * Get glow effect for series — light mode (softer shadow)
+ */
+export function getGlowEffectLight(color: string = lightColors.accent.primary) {
+  return {
+    shadowBlur: 8,
+    shadowColor: `${color}20`,
+    shadowOffsetY: 2,
+  };
+}
