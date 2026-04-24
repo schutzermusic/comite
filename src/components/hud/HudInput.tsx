@@ -33,12 +33,14 @@ export function HudInput({
   const variantStyles = {
     default: [
       'hud-surface-elevated',
-      'focus:border-cyan-500/30 light:focus:border-lime-600/40',
-      'focus:ring-1 focus:ring-cyan-500/20 light:focus:ring-lime-600/20',
+      'focus:border-ig-border-focus',
+      'focus-visible:shadow-[var(--ig-focus-ring-outer)]',
     ],
     glass: [
       'hud-input-bg',
       'backdrop-blur-sm',
+      'focus:border-ig-border-focus',
+      'focus-visible:shadow-[var(--ig-focus-ring-outer)]',
     ],
   };
 
@@ -67,7 +69,7 @@ export function HudInput({
             variantStyles[variant],
             leftIcon && 'pl-10',
             rightIcon && 'pr-10',
-            error && 'border-red-500/50 focus:border-red-500/50',
+            error && 'border-[color-mix(in_oklab,var(--ig-danger)_50%,transparent)] focus:border-[color-mix(in_oklab,var(--ig-danger)_60%,transparent)]',
             fullWidth && 'w-full',
             className
           )}
@@ -80,7 +82,7 @@ export function HudInput({
         )}
       </div>
       {error && (
-        <p className="text-xs text-red-400 light:text-red-600">{error}</p>
+        <p className="text-xs text-ig-danger">{error}</p>
       )}
     </div>
   );

@@ -17,11 +17,11 @@ export interface HudProgressBarProps {
 }
 
 const VARIANT_STYLES: Record<ProgressVariant, string> = {
-  default: 'bg-gradient-to-r from-cyan-500 to-emerald-500',
-  success: 'bg-gradient-to-r from-emerald-500 to-green-400',
-  warning: 'bg-gradient-to-r from-amber-500 to-orange-400',
-  danger: 'bg-gradient-to-r from-red-500 to-rose-400',
-  info: 'bg-gradient-to-r from-blue-500 to-cyan-400',
+  default: 'bg-ig-accent',
+  success: 'bg-ig-success',
+  warning: 'bg-ig-warning',
+  danger: 'bg-ig-danger',
+  info: 'bg-ig-info',
 };
 
 const SIZE_STYLES = {
@@ -60,7 +60,7 @@ export function HudProgressBar({
       <div
         className={cn(
           'flex-1 rounded-full overflow-hidden',
-          'bg-white/[0.08]',
+          'bg-ig-panel-hover',
           SIZE_STYLES[size]
         )}
       >
@@ -77,7 +77,7 @@ export function HudProgressBar({
 
       {/* Label */}
       {showLabel && labelPosition === 'right' && (
-        <span className="text-xs font-medium text-white/70 tabular-nums w-10 text-right">
+        <span className="text-xs font-medium text-ig-fg tabular-nums w-10 text-right">
           {Math.round(percentage)}%
         </span>
       )}

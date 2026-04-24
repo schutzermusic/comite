@@ -16,31 +16,31 @@ export interface HudChipProps {
   size?: 'sm' | 'md';
 }
 
-/* Dark default + semantic class hooks for .light CSS overrides */
+/* Semantic tokens — os valores --ig-* trocam entre dark/light automaticamente */
 const VARIANT_STYLES: Record<HudChipVariant, { dot: string; chip: string }> = {
   critical: {
-    dot: 'bg-red-400',
-    chip: 'bg-red-500/[0.08] border-red-500/20 text-red-300 hover:border-red-500/35 hover:bg-red-500/[0.14] hud-chip-critical',
+    dot: 'bg-ig-danger',
+    chip: 'bg-[color-mix(in_oklab,var(--ig-danger)_10%,transparent)] border-[color-mix(in_oklab,var(--ig-danger)_32%,transparent)] text-ig-danger hover:border-[color-mix(in_oklab,var(--ig-danger)_44%,transparent)] hover:bg-[color-mix(in_oklab,var(--ig-danger)_16%,transparent)] hud-chip-critical',
   },
   warning: {
-    dot: 'bg-amber-400',
-    chip: 'bg-amber-500/[0.06] border-amber-500/18 text-amber-300 hover:border-amber-500/30 hover:bg-amber-500/[0.12] hud-chip-warning',
+    dot: 'bg-ig-warning',
+    chip: 'bg-[color-mix(in_oklab,var(--ig-warning)_10%,transparent)] border-[color-mix(in_oklab,var(--ig-warning)_28%,transparent)] text-ig-warning hover:border-[color-mix(in_oklab,var(--ig-warning)_40%,transparent)] hover:bg-[color-mix(in_oklab,var(--ig-warning)_16%,transparent)] hud-chip-warning',
   },
   info: {
-    dot: 'bg-cyan-400',
-    chip: 'bg-cyan-500/[0.06] border-cyan-500/18 text-cyan-300 hover:border-cyan-500/30 hover:bg-cyan-500/[0.12] hud-chip-info',
+    dot: 'bg-ig-accent',
+    chip: 'bg-ig-accent-weak border-ig-border-focus text-ig-accent hover:brightness-110 hud-chip-info',
   },
   success: {
-    dot: 'bg-emerald-400',
-    chip: 'bg-emerald-500/[0.06] border-emerald-500/18 text-emerald-300 hover:border-emerald-500/30 hover:bg-emerald-500/[0.12] hud-chip-success',
+    dot: 'bg-ig-success',
+    chip: 'bg-[color-mix(in_oklab,var(--ig-success)_10%,transparent)] border-[color-mix(in_oklab,var(--ig-success)_28%,transparent)] text-ig-success hover:border-[color-mix(in_oklab,var(--ig-success)_40%,transparent)] hover:bg-[color-mix(in_oklab,var(--ig-success)_16%,transparent)] hud-chip-success',
   },
   neutral: {
-    dot: 'bg-white/40 light:bg-black/30',
-    chip: 'bg-white/[0.04] border-white/10 text-white/60 hover:border-white/20 hover:bg-white/[0.08] hud-chip-neutral',
+    dot: 'bg-ig-fg-muted',
+    chip: 'bg-ig-panel border-ig-border text-ig-fg-muted hover:border-ig-border-strong hover:bg-ig-panel-hover hud-chip-neutral',
   },
   live: {
-    dot: 'bg-emerald-400 animate-pulse',
-    chip: 'bg-emerald-500/[0.06] border-emerald-500/[0.15] text-emerald-400 hud-chip-success',
+    dot: 'bg-ig-success animate-pulse',
+    chip: 'bg-[color-mix(in_oklab,var(--ig-success)_10%,transparent)] border-[color-mix(in_oklab,var(--ig-success)_22%,transparent)] text-ig-success hud-chip-success',
   },
 };
 

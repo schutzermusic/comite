@@ -49,19 +49,19 @@ const SIZE_STYLES = {
 };
 
 const VARIANT_COLORS = {
-  default: 'text-white hud-kpi-value-default',
-  success: 'text-emerald-400 hud-kpi-value-success',
-  warning: 'text-amber-400 hud-kpi-value-warning',
-  danger: 'text-red-400 hud-kpi-value-danger',
-  info: 'text-cyan-400 hud-kpi-value-info',
+  default: 'text-ig-fg-strong hud-kpi-value-default',
+  success: 'text-ig-success hud-kpi-value-success',
+  warning: 'text-ig-warning hud-kpi-value-warning',
+  danger: 'text-ig-danger hud-kpi-value-danger',
+  info: 'text-ig-accent hud-kpi-value-info',
 };
 
 const ICON_VARIANT_BG = {
-  default: 'from-cyan-500/10 to-emerald-500/10 border-cyan-500/20 text-cyan-300',
-  success: 'from-emerald-500/10 to-green-500/10 border-emerald-500/20 text-emerald-300',
-  warning: 'from-amber-500/10 to-orange-500/10 border-amber-500/20 text-amber-300',
-  danger: 'from-red-500/10 to-rose-500/10 border-red-500/20 text-red-300',
-  info: 'from-cyan-500/10 to-blue-500/10 border-cyan-500/20 text-cyan-300',
+  default: 'bg-ig-accent-weak border-ig-border-focus text-ig-accent',
+  success: 'bg-[color-mix(in_oklab,var(--ig-success)_12%,transparent)] border-[color-mix(in_oklab,var(--ig-success)_28%,transparent)] text-ig-success',
+  warning: 'bg-[color-mix(in_oklab,var(--ig-warning)_12%,transparent)] border-[color-mix(in_oklab,var(--ig-warning)_28%,transparent)] text-ig-warning',
+  danger: 'bg-[color-mix(in_oklab,var(--ig-danger)_12%,transparent)] border-[color-mix(in_oklab,var(--ig-danger)_28%,transparent)] text-ig-danger',
+  info: 'bg-[color-mix(in_oklab,var(--ig-info)_12%,transparent)] border-[color-mix(in_oklab,var(--ig-info)_28%,transparent)] text-ig-info',
 };
 
 export function HudKpi({
@@ -87,7 +87,7 @@ export function HudKpi({
       {icon && (
         <div
           className={cn(
-            'flex items-center justify-center rounded-xl bg-gradient-to-br border shrink-0',
+            'flex items-center justify-center rounded-xl border shrink-0',
             s.iconBox,
             ICON_VARIANT_BG[variant]
           )}
@@ -98,7 +98,7 @@ export function HudKpi({
 
       {/* Content */}
       <div className="flex-1 min-w-0">
-        <p className={cn(s.label, 'hud-kpi-label text-white/50 uppercase tracking-wider font-medium mb-0.5')}>
+        <p className={cn(s.label, 'hud-kpi-label text-ig-fg-muted uppercase tracking-wider font-medium mb-0.5')}>
           {label}
         </p>
 
@@ -109,11 +109,10 @@ export function HudKpi({
               'font-bold tabular-nums tracking-tight leading-none',
               VARIANT_COLORS[variant]
             )}
-            style={{ textShadow: variant === 'default' ? '0 0 20px rgba(125,235,255,0.15)' : undefined }}
           >
-            {prefix && <span className="hud-kpi-prefix text-white/50 font-semibold mr-1">{prefix}</span>}
+            {prefix && <span className="hud-kpi-prefix text-ig-fg-muted font-semibold mr-1">{prefix}</span>}
             {value}
-            {suffix && <span className="hud-kpi-suffix text-white/50 font-semibold ml-1">{suffix}</span>}
+            {suffix && <span className="hud-kpi-suffix text-ig-fg-muted font-semibold ml-1">{suffix}</span>}
           </span>
 
           {/* Delta indicator */}
@@ -122,9 +121,9 @@ export function HudKpi({
               className={cn(
                 s.delta,
                 'font-semibold flex items-center gap-0.5 px-1.5 py-0.5 rounded-full',
-                isPositive && 'text-emerald-400 bg-emerald-500/10',
-                isNegative && 'text-red-400 bg-red-500/10',
-                isNeutral && 'hud-kpi-delta-neutral text-white/50 bg-white/5'
+                isPositive && 'text-ig-success bg-[color-mix(in_oklab,var(--ig-success)_14%,transparent)]',
+                isNegative && 'text-ig-danger bg-[color-mix(in_oklab,var(--ig-danger)_14%,transparent)]',
+                isNeutral && 'hud-kpi-delta-neutral text-ig-fg-muted bg-ig-panel'
               )}
             >
               {isPositive && <TrendingUp className="w-3 h-3" />}

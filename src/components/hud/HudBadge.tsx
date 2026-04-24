@@ -23,17 +23,17 @@ export interface HudBadgeProps {
   dotColor?: string;
 }
 
-/* Dark-mode default styles + semantic class hooks for light mode overrides */
+/* Semantic tokens — trocam valor entre dark/light via --ig-* CSS vars */
 const VARIANT_STYLES: Record<HudBadgeVariant, string> = {
-  default: 'bg-white/[0.08] text-white/80 border-white/[0.10] hud-badge-default',
-  primary: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/25 hud-badge-primary',
-  success: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/25 hud-badge-success',
-  warning: 'bg-amber-500/15 text-amber-300 border-amber-500/25 hud-badge-warning',
-  danger: 'bg-red-500/15 text-red-300 border-red-500/25 hud-badge-danger',
-  info: 'bg-blue-500/15 text-blue-300 border-blue-500/25 hud-badge-info',
-  neutral: 'bg-white/[0.05] text-white/60 border-white/[0.08] hud-badge-neutral',
-  outline: 'bg-transparent text-white/70 border-white/[0.15] hud-badge-outline',
-  subtle: 'bg-transparent text-white/50 border-transparent hud-badge-subtle',
+  default: 'bg-ig-panel-hover text-ig-fg border-ig-border-strong hud-badge-default',
+  primary: 'bg-ig-accent-weak text-ig-accent border-ig-border-focus hud-badge-primary',
+  success: 'bg-[color-mix(in_oklab,var(--ig-success)_14%,transparent)] text-ig-success border-[color-mix(in_oklab,var(--ig-success)_32%,transparent)] hud-badge-success',
+  warning: 'bg-[color-mix(in_oklab,var(--ig-warning)_14%,transparent)] text-ig-warning border-[color-mix(in_oklab,var(--ig-warning)_32%,transparent)] hud-badge-warning',
+  danger: 'bg-[color-mix(in_oklab,var(--ig-danger)_14%,transparent)] text-ig-danger border-[color-mix(in_oklab,var(--ig-danger)_32%,transparent)] hud-badge-danger',
+  info: 'bg-[color-mix(in_oklab,var(--ig-info)_14%,transparent)] text-ig-info border-[color-mix(in_oklab,var(--ig-info)_32%,transparent)] hud-badge-info',
+  neutral: 'bg-ig-panel text-ig-fg-muted border-ig-border hud-badge-neutral',
+  outline: 'bg-transparent text-ig-fg border-ig-border-strong hud-badge-outline',
+  subtle: 'bg-transparent text-ig-fg-muted border-transparent hud-badge-subtle',
 };
 
 const SIZE_STYLES = {
@@ -52,12 +52,12 @@ export function HudBadge({
   const getDotColor = () => {
     if (dotColor) return dotColor;
     switch (variant) {
-      case 'success': return 'bg-emerald-400 light:bg-emerald-600';
-      case 'warning': return 'bg-amber-400 light:bg-amber-600';
-      case 'danger': return 'bg-red-400 light:bg-red-600';
-      case 'info': return 'bg-blue-400 light:bg-blue-600';
-      case 'primary': return 'bg-cyan-400 light:bg-cyan-600';
-      default: return 'bg-white/50 light:bg-black/30';
+      case 'success': return 'bg-ig-success';
+      case 'warning': return 'bg-ig-warning';
+      case 'danger': return 'bg-ig-danger';
+      case 'info': return 'bg-ig-info';
+      case 'primary': return 'bg-ig-accent';
+      default: return 'bg-ig-fg-muted';
     }
   };
 

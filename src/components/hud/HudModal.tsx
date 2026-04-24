@@ -70,7 +70,7 @@ export function HudModal({
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
             onClick={onClose}
-            className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+            className="absolute inset-0 ig-backdrop"
           />
 
           {/* Modal */}
@@ -79,57 +79,53 @@ export function HudModal({
             animate={{ scale: 1, opacity: 1, y: 0 }}
             exit={{ scale: 0.95, opacity: 0, y: 20 }}
             transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+            data-elev="4"
             className={cn(
-              'relative w-full',
+              'relative w-full overflow-hidden',
               SIZE_WIDTHS[size],
-              // Glass panel styling
-              'hud-modal-surface rounded-xl',
-              'bg-gradient-to-br from-[rgba(8,28,22,0.95)] via-[rgba(6,22,18,0.92)] to-[rgba(4,18,14,0.95)]',
-              'backdrop-blur-[32px]',
-              'border border-white/[0.10]',
-              'shadow-[0_25px_80px_rgba(0,0,0,0.6)]',
-              'overflow-hidden',
+              'hud-modal-surface ig-glass',
               className
             )}
           >
-            {/* Top highlight */}
-            <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/[0.15] to-transparent" />
-
-            {/* Header */}
-            {(title || showCloseButton) && (
-              <div className="flex items-start justify-between p-5 border-b border-white/[0.08]">
-                <div className="flex-1 min-w-0">
-                  {title && (
-                    <h2 className="text-lg font-semibold text-white tracking-wide">
-                      {title}
-                    </h2>
-                  )}
-                  {subtitle && (
-                    <p className="text-sm text-white/50 mt-0.5">{subtitle}</p>
+            <span data-ig-noise="" />
+            <span data-ig-specular="" />
+            <div data-ig-content="">
+              {/* Header */}
+              {(title || showCloseButton) && (
+                <div className="flex items-start justify-between p-5 border-b border-ig-border">
+                  <div className="flex-1 min-w-0">
+                    {title && (
+                      <h2 className="text-lg font-semibold text-ig-fg-strong tracking-wide">
+                        {title}
+                      </h2>
+                    )}
+                    {subtitle && (
+                      <p className="text-sm text-ig-fg-muted mt-0.5">{subtitle}</p>
+                    )}
+                  </div>
+                  {showCloseButton && (
+                    <button
+                      onClick={onClose}
+                      className="flex items-center justify-center w-8 h-8 rounded-lg bg-ig-panel border border-ig-border text-ig-fg-muted hover:text-ig-fg-strong hover:bg-ig-panel-hover transition-colors ml-3 flex-shrink-0"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
                   )}
                 </div>
-                {showCloseButton && (
-                  <button
-                    onClick={onClose}
-                    className="flex items-center justify-center w-8 h-8 rounded-lg bg-white/[0.05] border border-white/[0.08] text-white/60 hover:text-white hover:bg-white/[0.08] transition-colors ml-3 flex-shrink-0"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                )}
-              </div>
-            )}
+              )}
 
-            {/* Content */}
-            <div className={cn('p-5', !title && !showCloseButton && 'pt-6')}>
-              {children}
+              {/* Content */}
+              <div className={cn('p-5', !title && !showCloseButton && 'pt-6')}>
+                {children}
+              </div>
+
+              {/* Footer */}
+              {footer && (
+                <div className="flex items-center justify-end gap-2 p-5 border-t border-ig-border bg-ig-raised">
+                  {footer}
+                </div>
+              )}
             </div>
-
-            {/* Footer */}
-            {footer && (
-              <div className="flex items-center justify-end gap-2 p-5 border-t border-white/[0.08] bg-white/[0.02]">
-                {footer}
-              </div>
-            )}
           </motion.div>
         </div>
       )}

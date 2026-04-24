@@ -61,11 +61,11 @@ export function HudEmptyState({
       {/* Icon */}
       <div className={cn(
         'hud-empty-icon-box flex items-center justify-center rounded-2xl mb-4',
-        'bg-gradient-to-br from-cyan-500/10 to-emerald-500/10',
-        'border border-cyan-500/20',
+        'bg-ig-accent-weak',
+        'border border-ig-border-focus',
         compact ? 'w-16 h-16' : 'w-20 h-20'
       )}>
-        <span className="hud-empty-icon text-cyan-300/60">
+        <span className="hud-empty-icon text-ig-accent">
           {Icon}
         </span>
       </div>

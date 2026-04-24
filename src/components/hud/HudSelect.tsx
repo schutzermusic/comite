@@ -59,7 +59,7 @@ export function HudSelect({
             'disabled:opacity-50 disabled:cursor-not-allowed',
             sizeStyles[size],
             fullWidth && 'w-full',
-            error && 'border-red-500/50 focus:border-red-500/50'
+            error && 'border-[color-mix(in_oklab,var(--ig-danger)_50%,transparent)] focus:border-[color-mix(in_oklab,var(--ig-danger)_60%,transparent)]'
           )}
         >
           <option value="" disabled className="hud-option-bg hud-text-muted">
@@ -79,7 +79,7 @@ export function HudSelect({
         <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 hud-icon pointer-events-none" />
       </div>
       {error && (
-        <p className="text-xs text-red-400 light:text-red-600">{error}</p>
+        <p className="text-xs text-ig-danger">{error}</p>
       )}
     </div>
   );

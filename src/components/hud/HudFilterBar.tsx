@@ -108,9 +108,9 @@ export function HudFilterBar({
               onClick={onClearFilters}
               className={cn(
                 'hud-filter-clear flex items-center gap-1.5 px-3 rounded-lg self-end',
-                'border border-amber-500/30 bg-amber-500/15',
-                'text-amber-200 text-sm font-medium',
-                'hover:bg-amber-500/20 hover:border-amber-500/40',
+                'border border-[color-mix(in_oklab,var(--ig-warning)_32%,transparent)] bg-[color-mix(in_oklab,var(--ig-warning)_14%,transparent)]',
+                'text-ig-warning text-sm font-medium',
+                'hover:brightness-110',
                 'transition-colors',
                 compact ? 'h-9' : 'h-10'
               )}

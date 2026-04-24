@@ -82,16 +82,16 @@ export function HudHeader({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-3 mb-1">
             {icon && (
-              <div className="hud-header-icon-box flex items-center justify-center w-10 h-10 rounded-lg bg-gradient-to-br from-cyan-500/10 to-emerald-500/10 border border-cyan-500/20 text-cyan-300">
+              <div className="hud-header-icon-box flex items-center justify-center w-10 h-10 rounded-lg bg-ig-accent-weak border border-ig-border-focus text-ig-accent">
                 {icon}
               </div>
             )}
             <div>
-              <h1 className="hud-header-title text-xl font-semibold text-white tracking-wide flex items-center gap-2">
+              <h1 className="hud-header-title text-xl font-semibold text-ig-fg-strong tracking-wide flex items-center gap-2">
                 {title}
               </h1>
               {subtitle && (
-                <p className="hud-header-subtitle text-sm text-white/50 mt-0.5">{subtitle}</p>
+                <p className="hud-header-subtitle text-sm text-ig-fg-muted mt-0.5">{subtitle}</p>
               )}
             </div>
           </div>

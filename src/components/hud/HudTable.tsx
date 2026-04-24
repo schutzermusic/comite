@@ -41,7 +41,7 @@ export function HudTable<T>({
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <div className="w-8 h-8 border-2 border-cyan-500/20 border-t-cyan-400 rounded-full animate-spin" />
+        <div className="w-8 h-8 border-2 border-ig-border border-t-ig-accent rounded-full animate-spin" />
       </div>
     );
   }
@@ -54,17 +54,17 @@ export function HudTable<T>({
     <div className={cn('overflow-x-auto', className)}>
       <table className="w-full">
         <thead className={cn(stickyHeader && 'sticky top-0 z-10')}>
-          <tr className="border-b border-white/[0.08]">
+          <tr className="border-b border-ig-border">
             {columns.map((column) => (
               <th
                 key={column.key}
                 className={cn(
-                  'text-left text-xs font-medium text-white/60 uppercase tracking-wider',
+                  'text-left text-xs font-medium text-ig-fg-muted uppercase tracking-wider',
                   'py-3 px-4',
                   compact && 'py-2 px-3',
                   column.align === 'center' && 'text-center',
                   column.align === 'right' && 'text-right',
-                  column.sortable && 'cursor-pointer hover:text-white/80'
+                  column.sortable && 'cursor-pointer hover:text-ig-fg-strong'
                 )}
                 style={{ width: column.width }}
               >
@@ -86,11 +86,11 @@ export function HudTable<T>({
                 transition={{ duration: 0.2, delay: index * 0.03 }}
                 onClick={() => onRowClick?.(item)}
                 className={cn(
-                  'border-b border-white/[0.05] transition-colors',
+                  'border-b border-ig-border-subtle transition-colors',
                   onRowClick && 'cursor-pointer',
                   isSelected
-                    ? 'bg-cyan-500/10 ring-1 ring-cyan-500/30'
-                    : 'hover:bg-white/[0.03]'
+                    ? 'bg-ig-accent-weak ring-1 ring-ig-border-focus'
+                    : 'hover:bg-ig-raised'
                 )}
               >
                 {columns.map((column) => (

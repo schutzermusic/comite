@@ -186,6 +186,16 @@ html.light {
   --ig-focus-ring-inner: inset 0 0 0 1px rgba(15,118,110,0.20);
 }
 
+/* ── Primary button text + gradient override per theme (TASK-006a) ── */
+.hud-btn-primary,
+button[data-variant="primary"] {
+  color: #FFFFFF;
+}
+html.light .hud-btn-primary,
+html.light button[data-variant="primary"] {
+  background: linear-gradient(180deg, #0F766E 0%, #115E59 100%);
+}
+
 /* ── Metallic text ── */
 html.dark .ig-text-metal {
   color: transparent;

@@ -55,14 +55,14 @@ export function HudTabs({
     pills: {
       list: 'gap-1',
       tab: 'px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 border',
-      active: 'hud-tab-pill-active bg-cyan-500/15 text-cyan-300 border-cyan-500/30',
-      inactive: 'hud-tab-pill-inactive text-white/60 border-white/[0.08]',
+      active: 'hud-tab-pill-active bg-ig-accent-weak text-ig-accent border-ig-border-focus',
+      inactive: 'hud-tab-pill-inactive text-ig-fg-muted border-ig-border',
     },
     underline: {
       list: 'hud-tabs-list-underline border-b',
       tab: 'px-4 py-3 text-sm font-medium transition-all duration-200 relative',
-      active: 'hud-tab-underline-active text-cyan-300',
-      inactive: 'hud-tab-underline-inactive text-white/50 hover:text-white/80',
+      active: 'hud-tab-underline-active text-ig-accent',
+      inactive: 'hud-tab-underline-inactive text-ig-fg-muted hover:text-ig-fg',
     },
   };
 
@@ -95,7 +95,7 @@ export function HudTabs({
             )}
             {/* Underline indicator */}
             {variant === 'underline' && activeTab === tab.id && (
-              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-cyan-500 to-emerald-500" />
+              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-ig-accent" />
             )}
           </button>
         ))}
