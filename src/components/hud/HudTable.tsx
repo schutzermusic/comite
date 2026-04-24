@@ -114,7 +114,7 @@ export function HudTable<T>({
 
       {data.length === 0 && !emptyState && (
         <div className="text-center py-12">
-          <p className="text-sm text-white/40">Nenhum registro encontrado</p>
+          <p className="text-sm hud-text-muted">Nenhum registro encontrado</p>
         </div>
       )}
     </div>

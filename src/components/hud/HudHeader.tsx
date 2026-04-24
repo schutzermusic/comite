@@ -50,27 +50,27 @@ export function HudHeader({
         <nav className="flex items-center gap-1.5 mb-3 text-[11px]">
           <Link
             href="/dashboard"
-            className="flex items-center gap-1 text-white/40 hover:text-cyan-300/80 transition-colors"
+            className="flex items-center gap-1 hud-breadcrumb-link transition-colors"
           >
             <Home className="w-3 h-3" />
           </Link>
           {breadcrumbs.map((item, index) => (
             <React.Fragment key={item.label}>
-              <ChevronRight className="w-3 h-3 text-white/20" />
+              <ChevronRight className="w-3 h-3 hud-breadcrumb-chevron" />
               {item.href ? (
                 <Link
                   href={item.href}
                   className={cn(
                     'transition-colors',
                     index === breadcrumbs.length - 1
-                      ? 'text-cyan-300/80 font-medium'
-                      : 'text-white/40 hover:text-cyan-300/80'
+                      ? 'hud-breadcrumb-active font-medium'
+                      : 'hud-breadcrumb-link'
                   )}
                 >
                   {item.label}
                 </Link>
               ) : (
-                <span className="text-cyan-300/80 font-medium">{item.label}</span>
+                <span className="hud-breadcrumb-active font-medium">{item.label}</span>
               )}
             </React.Fragment>
           ))}
@@ -82,16 +82,16 @@ export function HudHeader({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-3 mb-1">
             {icon && (
-              <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-gradient-to-br from-cyan-500/10 to-emerald-500/10 border border-cyan-500/20 text-cyan-300">
+              <div className="hud-header-icon-box flex items-center justify-center w-10 h-10 rounded-lg bg-gradient-to-br from-cyan-500/10 to-emerald-500/10 border border-cyan-500/20 text-cyan-300">
                 {icon}
               </div>
             )}
             <div>
-              <h1 className="text-xl font-semibold text-white tracking-wide flex items-center gap-2">
+              <h1 className="hud-header-title text-xl font-semibold text-white tracking-wide flex items-center gap-2">
                 {title}
               </h1>
               {subtitle && (
-                <p className="text-sm text-white/50 mt-0.5">{subtitle}</p>
+                <p className="hud-header-subtitle text-sm text-white/50 mt-0.5">{subtitle}</p>
               )}
             </div>
           </div>

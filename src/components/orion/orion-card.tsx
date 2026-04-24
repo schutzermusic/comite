@@ -77,7 +77,7 @@ const OrionCard = forwardRef<HTMLDivElement, OrionCardProps>(
       <div
         ref={ref}
         className={cn(
-          'relative overflow-hidden rounded-xl border backdrop-blur-xl',
+          'orion-card relative overflow-hidden rounded-xl border backdrop-blur-xl',
           'transition-all duration-300 ease-[cubic-bezier(0.25,0.1,0.25,1)]',
           variantClasses[variant],
           glowColor && glowClasses[glowColor],

@@ -49,11 +49,11 @@ const SIZE_STYLES = {
 };
 
 const VARIANT_COLORS = {
-  default: 'text-white',
-  success: 'text-emerald-400',
-  warning: 'text-amber-400',
-  danger: 'text-red-400',
-  info: 'text-cyan-400',
+  default: 'text-white hud-kpi-value-default',
+  success: 'text-emerald-400 hud-kpi-value-success',
+  warning: 'text-amber-400 hud-kpi-value-warning',
+  danger: 'text-red-400 hud-kpi-value-danger',
+  info: 'text-cyan-400 hud-kpi-value-info',
 };
 
 const ICON_VARIANT_BG = {
@@ -98,7 +98,7 @@ export function HudKpi({
 
       {/* Content */}
       <div className="flex-1 min-w-0">
-        <p className={cn(s.label, 'text-white/50 uppercase tracking-wider font-medium mb-0.5')}>
+        <p className={cn(s.label, 'hud-kpi-label text-white/50 uppercase tracking-wider font-medium mb-0.5')}>
           {label}
         </p>
 
@@ -111,9 +111,9 @@ export function HudKpi({
             )}
             style={{ textShadow: variant === 'default' ? '0 0 20px rgba(125,235,255,0.15)' : undefined }}
           >
-            {prefix && <span className="text-white/50 font-semibold mr-1">{prefix}</span>}
+            {prefix && <span className="hud-kpi-prefix text-white/50 font-semibold mr-1">{prefix}</span>}
             {value}
-            {suffix && <span className="text-white/50 font-semibold ml-1">{suffix}</span>}
+            {suffix && <span className="hud-kpi-suffix text-white/50 font-semibold ml-1">{suffix}</span>}
           </span>
 
           {/* Delta indicator */}
@@ -124,7 +124,7 @@ export function HudKpi({
                 'font-semibold flex items-center gap-0.5 px-1.5 py-0.5 rounded-full',
                 isPositive && 'text-emerald-400 bg-emerald-500/10',
                 isNegative && 'text-red-400 bg-red-500/10',
-                isNeutral && 'text-white/50 bg-white/5'
+                isNeutral && 'hud-kpi-delta-neutral text-white/50 bg-white/5'
               )}
             >
               {isPositive && <TrendingUp className="w-3 h-3" />}
@@ -138,7 +138,7 @@ export function HudKpi({
 
         {/* Delta label */}
         {deltaLabel && (
-          <p className="text-[10px] text-white/40 mt-0.5">{deltaLabel}</p>
+          <p className="text-[10px] hud-text-muted mt-0.5">{deltaLabel}</p>
         )}
       </div>
     </div>

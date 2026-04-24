@@ -2,7 +2,7 @@ import { AppSidebar } from '@/components/layout/app-sidebar';
 import { Header } from '@/components/layout/header';
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
 import NotificationCenter from '@/components/layout/notification-center';
-import { ImmersiveSpatialBackground } from '@/components/system/ImmersiveSpatialBackground';
+import { AtmosphericBackground } from '@/components/system/AtmosphericBackground';
 import { GlobeControlProvider } from '@/contexts/GlobeControlContext';
 import { ContractAIProvider } from '@/lib/stores/contract-ai-store';
 
@@ -28,7 +28,7 @@ export default function MainLayout({
     <GlobeControlProvider>
       <ContractAIProvider>
         {/* Background layer - fixed, decorative only */}
-        <ImmersiveSpatialBackground className="fixed inset-0 z-0 pointer-events-none" />
+        <AtmosphericBackground />
 
         <SidebarProvider>
           {/* UI Shell - Fixed Height (100dvh) for Control Room stability */}

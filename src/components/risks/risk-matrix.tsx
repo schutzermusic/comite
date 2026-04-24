@@ -61,8 +61,8 @@ export function RiskMatrix({ risks, onRiskClick }: RiskMatrixProps) {
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
-        <AlertTriangle className="w-5 h-5 text-[#FFB04D]" />
-        <h3 className="text-lg font-semibold text-white">Matriz de Risco 5×5</h3>
+        <AlertTriangle className="w-5 h-5 hud-accent-warning" />
+        <h3 className="text-lg font-semibold hud-text">Matriz de Risco 5×5</h3>
       </div>
 
       <div className="overflow-x-auto">
@@ -72,7 +72,7 @@ export function RiskMatrix({ risks, onRiskClick }: RiskMatrixProps) {
             <div className="font-semibold text-sm text-[rgba(255,255,255,0.75)] flex items-center justify-center" />
             {impacts.map(impact => (
               <div key={`impact-${impact}`} className="text-center">
-                <div className="font-semibold text-sm text-white">{impact}</div>
+                <div className="font-semibold text-sm hud-text">{impact}</div>
                 <div className="text-xs text-[rgba(255,255,255,0.60)]">{impactLabels[impact]}</div>
               </div>
             ))}
@@ -82,7 +82,7 @@ export function RiskMatrix({ risks, onRiskClick }: RiskMatrixProps) {
               <>
                 {/* Row Header */}
                 <div key={`prob-${probability}`} className="flex flex-col items-center justify-center">
-                  <div className="font-semibold text-sm text-white">{probability}</div>
+                  <div className="font-semibold text-sm hud-text">{probability}</div>
                   <div className="text-xs text-[rgba(255,255,255,0.60)] text-center w-20">
                     {probabilityLabels[probability]}
                   </div>
@@ -112,7 +112,7 @@ export function RiskMatrix({ risks, onRiskClick }: RiskMatrixProps) {
                             </div>
 
                             {/* Level Score */}
-                            <div className="text-2xl font-bold text-white mb-1">
+                            <div className="text-2xl font-bold hud-text mb-1">
                               {level}
                             </div>
 
@@ -124,7 +124,7 @@ export function RiskMatrix({ risks, onRiskClick }: RiskMatrixProps) {
                             )}
                           </div>
                         </TooltipTrigger>
-                        <TooltipContent side="top" className="max-w-xs bg-[#0A1612] border-[rgba(255,255,255,0.08)] text-white">
+                        <TooltipContent side="top" className="max-w-xs hud-dropdown-surface">
                           <div className="space-y-2">
                             <div className="font-semibold">
                               Probabilidade: {probability} | Impacto: {impact}
@@ -163,10 +163,10 @@ export function RiskMatrix({ risks, onRiskClick }: RiskMatrixProps) {
       <div className="flex justify-between items-center text-sm text-[rgba(255,255,255,0.70)] pt-4 border-t border-[rgba(255,255,255,0.05)]">
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 rotate-45 bg-[rgba(0,200,255,0.6)]" />
-          <span className="font-medium text-white">Eixo Y:</span> Probabilidade
+          <span className="font-medium hud-text">Eixo Y:</span> Probabilidade
         </div>
         <div className="flex items-center gap-2">
-          <span className="font-medium text-white">Eixo X:</span> Impacto
+          <span className="font-medium hud-text">Eixo X:</span> Impacto
           <div className="w-2 h-2 rotate-45 bg-[rgba(0,255,180,0.6)]" />
         </div>
       </div>

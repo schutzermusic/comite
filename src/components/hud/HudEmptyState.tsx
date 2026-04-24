@@ -60,19 +60,19 @@ export function HudEmptyState({
     >
       {/* Icon */}
       <div className={cn(
-        'flex items-center justify-center rounded-2xl mb-4',
+        'hud-empty-icon-box flex items-center justify-center rounded-2xl mb-4',
         'bg-gradient-to-br from-cyan-500/10 to-emerald-500/10',
         'border border-cyan-500/20',
         compact ? 'w-16 h-16' : 'w-20 h-20'
       )}>
-        <span className="text-cyan-300/60">
+        <span className="hud-empty-icon text-cyan-300/60">
           {Icon}
         </span>
       </div>
 
       {/* Title */}
       <h3 className={cn(
-        'font-semibold text-white tracking-wide mb-2',
+        'hud-text font-semibold tracking-wide mb-2',
         compact ? 'text-base' : 'text-lg'
       )}>
         {title}
@@ -80,7 +80,7 @@ export function HudEmptyState({
 
       {/* Description */}
       <p className={cn(
-        'text-white/50 max-w-sm mb-6',
+        'hud-text-muted max-w-sm mb-6',
         compact ? 'text-sm' : 'text-base'
       )}>
         {description}

@@ -47,22 +47,22 @@ export function HudTabs({
 
   const variantStyles = {
     default: {
-      list: 'bg-white/[0.03] border border-white/[0.06] p-1 rounded-lg',
+      list: 'hud-tabs-list-default p-1 rounded-lg',
       tab: 'px-4 py-2 rounded-md text-sm font-medium transition-all duration-200',
-      active: 'bg-[#00FFB4] text-[#050D0A]',
-      inactive: 'text-white/60 hover:text-white hover:bg-white/[0.05]',
+      active: 'hud-tab-active',
+      inactive: 'hud-tab-inactive',
     },
     pills: {
       list: 'gap-1',
       tab: 'px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 border',
-      active: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30',
-      inactive: 'bg-white/[0.03] text-white/60 border-white/[0.08] hover:bg-white/[0.06] hover:text-white',
+      active: 'hud-tab-pill-active bg-cyan-500/15 text-cyan-300 border-cyan-500/30',
+      inactive: 'hud-tab-pill-inactive text-white/60 border-white/[0.08]',
     },
     underline: {
-      list: 'border-b border-white/[0.08]',
+      list: 'hud-tabs-list-underline border-b',
       tab: 'px-4 py-3 text-sm font-medium transition-all duration-200 relative',
-      active: 'text-cyan-300',
-      inactive: 'text-white/50 hover:text-white/80',
+      active: 'hud-tab-underline-active text-cyan-300',
+      inactive: 'hud-tab-underline-inactive text-white/50 hover:text-white/80',
     },
   };
 
@@ -89,7 +89,7 @@ export function HudTabs({
             {tab.icon}
             <span>{tab.label}</span>
             {tab.badge !== undefined && tab.badge > 0 && (
-              <span className="ml-1 px-1.5 py-0.5 text-[10px] font-semibold rounded-full bg-white/20">
+              <span className="hud-tab-badge ml-1 px-1.5 py-0.5 text-[10px] font-semibold rounded-full">
                 {tab.badge}
               </span>
             )}

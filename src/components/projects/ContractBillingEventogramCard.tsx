@@ -21,7 +21,7 @@ import {
     ExternalLink,
     TrendingUp,
 } from 'lucide-react';
-import { HUDCard } from '@/components/ui/hud-card';
+import { HudPanel } from '@/components/hud';
 import { Button } from '@/components/ui/button';
 import type { ProjectV2, BillingEvent } from '@/lib/types/project-v2';
 import { formatMoney, compactBRL } from '@/lib/utils/project-utils';
@@ -217,21 +217,21 @@ export function ContractBillingEventogramCard({ project, onTabChange }: Contract
 
     return (
         <>
-            <HUDCard>
+            <HudPanel noPadding>
+              <div className="p-6">
                 {/* ── Header ────────────────────────── */}
                 <div className="flex items-center justify-between mb-5">
                     <div className="flex items-center gap-2.5">
                         <div
-                            className="p-1.5 rounded-lg"
-                            style={{ background: 'rgba(0,200,255,0.12)' }}
+                            className="p-1.5 rounded-lg bg-[rgba(6,182,212,0.08)] text-[#06B6D4] dark:bg-[rgba(0,200,255,0.12)] dark:text-[#00C8FF]"
                         >
-                            <Receipt className="w-4 h-4 text-[#00C8FF]" />
+                            <Receipt className="w-4 h-4" />
                         </div>
                         <div>
-                            <h3 className="text-sm font-semibold text-white orion-text-heading leading-tight">
+                            <h3 className="text-sm font-semibold orion-text-primary leading-tight">
                                 Eventograma de Faturamento
                             </h3>
-                            <p className="text-[10px] text-[rgba(255,255,255,0.40)] leading-tight">
+                            <p className="text-[10px] hud-text-tertiary leading-tight">
                                 Previsto x Realizado (até o fim do projeto)
                             </p>
                         </div>
@@ -427,41 +427,41 @@ export function ContractBillingEventogramCard({ project, onTabChange }: Contract
                 )}
 
                 {/* ── Bottom KPI Summary ────────────────────────── */}
-                <div className="pt-3 border-t border-[rgba(255,255,255,0.06)] grid grid-cols-3 gap-3 text-center">
+                <div className="mt-2 pt-3 border-t hud-panel-divider grid grid-cols-3 gap-3 text-center">
                     <div>
-                        <p className="text-[10px] text-[rgba(255,255,255,0.40)] mb-0.5">
+                        <p className="text-[10px] hud-text-muted mb-0.5">
                             Contrato Total
                         </p>
-                        <p className="text-sm font-bold text-white tabular-nums">
+                        <p className="text-sm font-bold orion-text-primary tabular-nums">
                             {rev ? formatMoney(rev.totalContracted, true) : '—'}
                         </p>
                     </div>
                     <div>
-                        <p className="text-[10px] text-[rgba(255,255,255,0.40)] mb-0.5">
+                        <p className="text-[10px] hud-text-muted mb-0.5">
                             Faturado
                         </p>
-                        <p className="text-sm font-bold text-[#00FFB4] tabular-nums">
+                        <p className="text-sm font-bold hud-kpi-value-success tabular-nums">
                             {rev ? formatMoney(rev.billed, true) : '—'}
                         </p>
                     </div>
                     <div>
-                        <p className="text-[10px] text-[rgba(255,255,255,0.40)] mb-0.5">
+                        <p className="text-[10px] hud-text-muted mb-0.5">
                             A Faturar
                         </p>
-                        <p className="text-sm font-bold text-[#FFB84D] tabular-nums">
+                        <p className="text-sm font-bold hud-kpi-value-warning tabular-nums">
                             {rev ? formatMoney(rev.toBill, true) : '—'}
                         </p>
                     </div>
                 </div>
 
                 {/* ── Microtext ─────────────────────────────────── */}
-                <p className="text-[9px] text-[rgba(255,255,255,0.20)] mt-2 text-center">
+                <p className="text-[9px] hud-text-tertiary mt-2 text-center opacity-70">
                     Fonte: Contrato/Financeiro • Atualizado em {updatedDate}
                 </p>
 
                 {/* ── Footer CTAs ────────────────────────── */}
-                <div className="mt-4 pt-3 border-t border-[rgba(255,255,255,0.06)] flex items-center justify-between">
-                    <p className="text-[9px] text-[rgba(255,255,255,0.25)]">
+                <div className="mt-4 pt-3 border-t hud-panel-divider flex items-center justify-between">
+                    <p className="text-[9px] hud-text-tertiary">
                         Clique em um período para ver eventos
                     </p>
                     <div className="flex items-center gap-2">
@@ -492,7 +492,8 @@ export function ContractBillingEventogramCard({ project, onTabChange }: Contract
                         </Button>
                     </div>
                 </div>
-            </HUDCard>
+              </div>
+            </HudPanel>
 
             {/* ── Period Events Drawer ────────────────────────── */}
             <BillingPeriodDrawer

@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react';
 import { useTranslations } from 'next-intl';
 import { Lock, CheckCircle, XCircle, ShieldCheck, AlertTriangle, TrendingUp } from 'lucide-react';
 import ReactECharts from 'echarts-for-react';
+import { useTheme } from '@/contexts/ThemeContext';
 import {
   HudPageLayout, HudHeader, HudPanel, HudButton, HudStatusPill,
   HudSelect, HudTable, HudModal, HudInput,
@@ -195,6 +196,9 @@ export default function FechamentoPage() {
 }
 
 function WaterfallChart({ snapshot }: { snapshot: PnLSnapshot }) {
+  const { theme } = useTheme();
+  const isLight = theme === 'light';
+
   const steps = [
     { name: 'Receita',     value: snapshot.revenue,          type: 'start' },
     { name: 'COGS',        value: snapshot.cogs,             type: 'step' },
@@ -236,9 +240,9 @@ function WaterfallChart({ snapshot }: { snapshot: PnLSnapshot }) {
     tooltip: {
       trigger: 'axis' as const,
       axisPointer: { type: 'shadow' as const },
-      backgroundColor: 'rgba(10,20,18,0.95)',
-      borderColor: 'rgba(6,182,212,0.25)',
-      textStyle: { color: '#e2e8f0', fontSize: 12 },
+      backgroundColor: isLight ? 'rgba(255,255,255,0.96)' : 'rgba(10,20,18,0.95)',
+      borderColor: isLight ? 'rgba(0,0,0,0.08)' : 'rgba(6,182,212,0.25)',
+      textStyle: { color: isLight ? '#1C1F24' : '#e2e8f0', fontSize: 12 },
       formatter: (params: any[]) => {
         const idx = params[0]?.dataIndex ?? 0;
         const step = steps[idx];
@@ -251,14 +255,14 @@ function WaterfallChart({ snapshot }: { snapshot: PnLSnapshot }) {
     xAxis: {
       type: 'category' as const,
       data: steps.map(s => s.name),
-      axisLabel: { color: '#94a3b8', fontSize: 10, rotate: 0, interval: 0 },
-      axisLine: { lineStyle: { color: '#1e293b' } },
+      axisLabel: { color: isLight ? '#4B5563' : '#94a3b8', fontSize: 10, rotate: 0, interval: 0 },
+      axisLine: { lineStyle: { color: isLight ? 'rgba(0,0,0,0.08)' : '#1e293b' } },
       axisTick: { show: false },
     },
     yAxis: {
       type: 'value' as const,
-      axisLabel: { color: '#64748b', fontSize: 10, formatter: (v: number) => formatCompactBRL(v) },
-      splitLine: { lineStyle: { color: 'rgba(255,255,255,0.04)', type: 'dashed' as const } },
+      axisLabel: { color: isLight ? '#6B7280' : '#64748b', fontSize: 10, formatter: (v: number) => formatCompactBRL(v) },
+      splitLine: { lineStyle: { color: isLight ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.04)', type: 'dashed' as const } },
       axisLine: { show: false },
     },
     series: [
