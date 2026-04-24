@@ -1,97 +1,109 @@
 "use client";
 
+import React, { useEffect, useState } from "react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { useTranslations } from "next-intl";
+import {
+  BarChart3,
+  Banknote,
+  Bell,
+  Briefcase,
+  Building2,
+  Calculator,
+  Calendar,
+  ChevronDown,
+  ChevronRight,
+  CreditCard,
+  FileBadge,
+  FileCheck,
+  FileSpreadsheet,
+  FileText,
+  History,
+  Landmark,
+  LayoutDashboard,
+  Lock,
+  LogOut,
+  Network,
+  Receipt,
+  Settings,
+  Shield,
+  ShieldAlert,
+  Users,
+  Wallet,
+  Zap,
+  type LucideIcon,
+} from "lucide-react";
 import {
   Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuItem,
   SidebarMenuButton,
-  SidebarFooter,
-  SidebarGroupLabel,
-  SidebarGroup,
-  SidebarContent,
-  SidebarMenuSub,
-  SidebarMenuSubButton
 } from "@/components/ui/sidebar";
 import {
-  Collapsible,
-  CollapsibleTrigger,
-  CollapsibleContent,
-} from "@/components/ui/collapsible";
-import {
-  LayoutDashboard,
-  Briefcase,
-  Calendar,
-  FileText,
-  Users,
-  Bell,
-  History,
-  Settings,
-  LogOut,
-  Building2,
-  BarChart3,
-  ChevronDown,
-  Zap,
-  Shield,
-  FileBadge,
-  ShieldAlert,
-  FileCheck,
-  Network,
-  ChevronRight,
-  Banknote,
-  Receipt,
-  Calculator,
-  Landmark,
-  FileSpreadsheet,
-  Lock,
-  Wallet,
-  CreditCard,
-} from "lucide-react";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
-import React from "react";
-import { useTranslations } from "next-intl";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "../ui/avatar";
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "../ui/dropdown-menu";
 import { InsightLogo } from "./insight-logo";
-import { useTheme } from "@/contexts/ThemeContext";
+import { cn } from "@/lib/utils";
 
-// Mock user data
+const ADMIN_STORAGE_KEY = "ig-sidebar-admin-open";
+
+type User = {
+  fullName: string;
+  role: "admin";
+  cargo: string;
+};
+
 const useUser = () => {
-  const [user] = React.useState({
-    fullName: 'Admin User',
-    role: 'admin',
-    cargo: 'Administrator'
+  const [user] = useState<User>({
+    fullName: "Admin User",
+    role: "admin",
+    cargo: "Administrator",
   });
+
   return { user };
 };
 
 const getUserInitials = (name?: string) => {
   if (!name) return "U";
-  return name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
+  return name
+    .split(" ")
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
 };
 
 type SubMenuItem = {
   href: string;
   label: string;
-  icon: React.ElementType;
+  icon: LucideIcon;
 };
 
 type MenuItem = {
   href: string;
   labelKey: string;
-  icon: React.ElementType;
-  section: 'main' | 'admin';
+  icon: LucideIcon;
+  section: "main" | "admin";
   subItems?: SubMenuItem[];
 };
 
 const navigationItems: MenuItem[] = [
-  { href: "/dashboard", labelKey: "dashboard", icon: LayoutDashboard, section: 'main' },
+  { href: "/dashboard", labelKey: "dashboard", icon: LayoutDashboard, section: "main" },
   {
     href: "/financeiro",
     labelKey: "finance",
     icon: Banknote,
-    section: 'main',
+    section: "main",
     subItems: [
       { href: "/financeiro", label: "Visão Geral", icon: LayoutDashboard },
       { href: "/financeiro/lancamentos", label: "Lançamentos", icon: Receipt },
@@ -103,132 +115,107 @@ const navigationItems: MenuItem[] = [
       { href: "/financeiro/fechamento", label: "Fechamento", icon: Lock },
     ],
   },
-  { href: "/projetos", labelKey: "projects", icon: Briefcase, section: 'main' },
-  { href: "/reunioes", labelKey: "meetings", icon: Calendar, section: 'main' },
-  { href: "/pautas", labelKey: "deliberations", icon: FileText, section: 'main' },
-  { href: "/riscos", labelKey: "risks", icon: ShieldAlert, section: 'main' },
-  { href: "/contratos", labelKey: "contracts", icon: FileCheck, section: 'main' },
-  { href: "/workforce-cost", labelKey: "peopleAndCosts", icon: Users, section: 'main' },
-  { href: "/organograma", labelKey: "organogram", icon: Network, section: 'main' },
-  { href: "/comites", labelKey: "committeeManagement", icon: Building2, section: 'admin' },
-  { href: "/membros", labelKey: "manageMembers", icon: Users, section: 'admin' },
-  { href: "/roles", labelKey: "globalRoles", icon: Shield, section: 'admin' },
-  { href: "/workflows", labelKey: "automations", icon: Zap, section: 'admin' },
-  { href: "/atas", labelKey: "minutes", icon: FileBadge, section: 'admin' },
-  { href: "/notificacoes", labelKey: "adminNotifications", icon: Bell, section: 'admin' },
-  { href: "/relatorios", labelKey: "reports", icon: BarChart3, section: 'admin' },
-  { href: "/historico", labelKey: "history", icon: History, section: 'admin' },
+  { href: "/projetos", labelKey: "projects", icon: Briefcase, section: "main" },
+  { href: "/reunioes", labelKey: "meetings", icon: Calendar, section: "main" },
+  { href: "/pautas", labelKey: "deliberations", icon: FileText, section: "main" },
+  { href: "/riscos", labelKey: "risks", icon: ShieldAlert, section: "main" },
+  { href: "/contratos", labelKey: "contracts", icon: FileCheck, section: "main" },
+  { href: "/workforce-cost", labelKey: "peopleAndCosts", icon: Users, section: "main" },
+  { href: "/organograma", labelKey: "organogram", icon: Network, section: "main" },
+  { href: "/comites", labelKey: "committeeManagement", icon: Building2, section: "admin" },
+  { href: "/membros", labelKey: "manageMembers", icon: Users, section: "admin" },
+  { href: "/roles", labelKey: "globalRoles", icon: Shield, section: "admin" },
+  { href: "/workflows", labelKey: "automations", icon: Zap, section: "admin" },
+  { href: "/atas", labelKey: "minutes", icon: FileBadge, section: "admin" },
+  { href: "/notificacoes", labelKey: "adminNotifications", icon: Bell, section: "admin" },
+  { href: "/relatorios", labelKey: "reports", icon: BarChart3, section: "admin" },
+  { href: "/historico", labelKey: "history", icon: History, section: "admin" },
 ];
+
+const isRouteActive = (pathname: string, href: string) => {
+  if (href === "/financeiro") {
+    return pathname === href || pathname.startsWith(`${href}/`);
+  }
+
+  return pathname === href || pathname.startsWith(`${href}/`);
+};
 
 export function AppSidebar() {
   const pathname = usePathname();
   const { user } = useUser();
-  const t = useTranslations('common');
-  const { theme } = useTheme();
-  const isLight = theme === 'light';
-  const activeIconClass = isLight
-    ? 'text-lime-700 drop-shadow-none'
-    : 'text-cyan-300/90 drop-shadow-[0_0_6px_rgba(6,182,212,0.4)]';
-  const activeChevronClass = isLight ? 'text-lime-700/50' : 'text-cyan-300/50';
-  const sectionDotGov = isLight
-    ? 'bg-lime-500 shadow-[0_0_4px_rgba(132,204,22,0.3)]'
-    : 'bg-cyan-400/70 shadow-[0_0_8px_rgba(6,182,212,0.5),0_0_16px_rgba(6,182,212,0.2)]';
-  const sectionDividerColor = isLight
-    ? 'via-black/[0.06]'
-    : 'via-cyan-400/15';
-  const sectionDividerBlur = isLight
-    ? 'via-black/[0.03]'
-    : 'via-cyan-400/10';
+  const t = useTranslations("common");
+  const [adminOpen, setAdminOpen] = useState(false);
 
-  const mainItems = navigationItems.filter(item => item.section === 'main');
-  const adminItems = navigationItems.filter(item => item.section === 'admin');
+  useEffect(() => {
+    const stored = localStorage.getItem(ADMIN_STORAGE_KEY);
+    if (stored !== null) setAdminOpen(stored === "true");
+  }, []);
+
+  const toggleAdmin = () => {
+    setAdminOpen((previous) => {
+      const next = !previous;
+      localStorage.setItem(ADMIN_STORAGE_KEY, String(next));
+      return next;
+    });
+  };
+
+  const mainItems = navigationItems.filter((item) => item.section === "main");
+  const adminItems = navigationItems.filter((item) => item.section === "admin");
 
   const renderMenuItems = (items: MenuItem[]) => {
     return items.map((item) => {
-      const isParentActive = pathname.startsWith(item.href);
+      const Icon = item.icon;
+      const isParentActive = isRouteActive(pathname, item.href);
 
       if (item.subItems) {
         return (
-          <Collapsible key={item.href} defaultOpen={isParentActive}>
-            <SidebarMenuItem>
-              <CollapsibleTrigger asChild>
-                <SidebarMenuButton
-                  className={`
-                    transition-all duration-200 ease-out rounded-[10px] mb-0.5 w-full justify-between
-                    hud-sidebar-item group
-                    ${isParentActive ? 'hud-sidebar-item-active' : ''}
-                  `}
-                  isActive={isParentActive}
-                >
-                  {isParentActive && <div className="hud-sidebar-active-bar" />}
-                  <div className="flex items-center gap-3 relative z-[1]">
-                    <item.icon className={`w-4 h-4 stroke-[1.8] transition-colors ${isParentActive ? activeIconClass : 'opacity-50'}`} />
-                    <span className="text-[11px] font-medium tracking-[0.1em] uppercase">{t(item.labelKey)}</span>
-                  </div>
-                  <ChevronDown className={`w-3 h-3 transition-transform duration-200 group-data-[state=open]:rotate-180 relative z-[1] ${isLight ? 'text-black/25' : 'text-white/20'}`} />
-                </SidebarMenuButton>
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                <SidebarMenuSub className={`ml-5 mt-1 border-l ${isLight ? 'border-black/[0.06]' : 'border-cyan-500/[0.08]'} pl-3`}>
-                  {item.subItems.map(subItem => {
-                    const isSubActive = pathname === subItem.href;
-                    return (
-                      <SidebarMenuItem key={subItem.href}>
-                        <Link href={subItem.href} passHref>
-                          <SidebarMenuSubButton
-                            isActive={isSubActive}
-                            className={`
-                              mt-0.5 hud-sidebar-item rounded-lg
-                              ${isSubActive ? 'hud-sidebar-item-active' : ''}
-                            `}
-                          >
-                            {isSubActive && <div className="hud-sidebar-active-bar" />}
-                            <subItem.icon className={`w-3.5 h-3.5 stroke-[1.8] transition-colors ${isSubActive ? (isLight ? 'text-lime-700' : 'text-cyan-300/80') : 'opacity-40'}`} />
-                            <span className="text-[10px] font-medium tracking-[0.1em] uppercase relative z-[1]">{subItem.label}</span>
-                          </SidebarMenuSubButton>
-                        </Link>
-                      </SidebarMenuItem>
-                    )
-                  })}
-                </SidebarMenuSub>
-              </CollapsibleContent>
-            </SidebarMenuItem>
-          </Collapsible>
-        )
+          <SidebarMenuItem key={item.href}>
+            <SidebarMenuButton
+              className="hud-sidebar-item"
+              data-active={isParentActive}
+              isActive={isParentActive}
+            >
+              <Icon className="sidebar-icon h-4 w-4 stroke-[1.8]" />
+              <span>{t(item.labelKey)}</span>
+              <ChevronDown className="ml-auto h-3.5 w-3.5 text-ig-fg-subtle transition-transform duration-150 group-data-[state=open]/collapsible:rotate-180" />
+            </SidebarMenuButton>
+            <SidebarMenu className="hud-sidebar-submenu">
+              {item.subItems.map((subItem) => {
+                const SubIcon = subItem.icon;
+                const isSubActive = pathname === subItem.href;
+
+                return (
+                  <SidebarMenuItem key={subItem.href}>
+                    <Link
+                      href={subItem.href}
+                      className="hud-sidebar-item hud-sidebar-subitem"
+                      data-active={isSubActive}
+                    >
+                      <SubIcon className="sidebar-icon h-3.5 w-3.5 stroke-[1.8]" />
+                      <span>{subItem.label}</span>
+                    </Link>
+                  </SidebarMenuItem>
+                );
+              })}
+            </SidebarMenu>
+          </SidebarMenuItem>
+        );
       }
 
       return (
         <SidebarMenuItem key={item.href}>
-          <Link href={item.href}>
-            <SidebarMenuButton
-              className={`
-                transition-all duration-200 ease-out rounded-[10px] mb-0.5 w-full relative group
-                hud-sidebar-item
-                ${isParentActive ? 'hud-sidebar-item-active' : ''}
-              `}
-              isActive={isParentActive}
-            >
-              {isParentActive && <div className="hud-sidebar-active-bar" />}
-
-              <div className="flex items-center gap-3 w-full pl-1 relative z-[1]">
-                <item.icon
-                  className={`w-4 h-4 stroke-[1.8] transition-colors ${isParentActive
-                    ? activeIconClass
-                    : 'opacity-50'
-                  }`}
-                />
-                <span className="text-[11px] font-medium tracking-[0.1em] uppercase">{t(item.labelKey)}</span>
-              </div>
-
-              <ChevronRight className={`
-                w-3 h-3 transition-all duration-200 relative z-[1]
-                ${isParentActive
-                  ? `${activeChevronClass} opacity-100`
-                  : `${isLight ? 'text-black/15' : 'text-white/15'} opacity-0 group-hover:opacity-100 translate-x-0 group-hover:translate-x-0.5`
-                }
-              `} />
-            </SidebarMenuButton>
-          </Link>
+          <SidebarMenuButton
+            asChild
+            className="hud-sidebar-item"
+            data-active={isParentActive}
+            isActive={isParentActive}
+          >
+            <Link href={item.href}>
+              <Icon className="sidebar-icon h-4 w-4 stroke-[1.8]" />
+              <span>{t(item.labelKey)}</span>
+              <ChevronRight className="ml-auto h-3.5 w-3.5 text-ig-fg-subtle opacity-0 transition-all duration-150 group-hover/menu-item:translate-x-0.5 group-hover/menu-item:opacity-100" />
+            </Link>
+          </SidebarMenuButton>
         </SidebarMenuItem>
       );
     });
@@ -236,117 +223,90 @@ export function AppSidebar() {
 
   return (
     <Sidebar className="hud-sidebar border-r-0">
-      {/* Inner vignette shadow for depth */}
-      <div className="hud-sidebar-inner-vignette" />
-
-      {/* Brand Area */}
       <SidebarHeader className="hud-sidebar-header shrink-0">
         <div className="flex items-center justify-center py-2">
-          <div className="relative group">
-            <div className="relative z-10">
-              <InsightLogo
-                width={150}
-                height={40}
-                className="h-auto w-auto opacity-85 group-hover:opacity-100 transition-opacity duration-300"
-                priority
-              />
-            </div>
-            <div className={`absolute -inset-4 bg-gradient-to-r ${isLight ? 'from-lime-500/0 via-lime-500/[0.04] to-lime-500/[0.03]' : 'from-cyan-500/0 via-cyan-500/8 to-emerald-500/6'} rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500 blur-xl -z-10`} />
-          </div>
+          <InsightLogo
+            width={150}
+            height={40}
+            className="h-auto w-auto opacity-90 transition-opacity duration-150 hover:opacity-100"
+            priority
+          />
         </div>
       </SidebarHeader>
 
-      {/* Navigation */}
       <SidebarContent className="hud-sidebar-content flex-1 overflow-y-auto overflow-x-hidden">
-        {/* Scanline overlay for depth texture */}
-        <div className="hud-sidebar-scanline" />
-
         <SidebarGroup>
-          <SidebarGroupLabel className="px-2 py-1.5 mb-1.5">
+          <SidebarGroupLabel className="p-0">
             <div className="hud-sidebar-section-label">
-              <div className={`w-1.5 h-1.5 rounded-full ${sectionDotGov}`} />
-              {t('governance')}
+              <span className="hud-sidebar-section-dot" />
+              {t("governance")}
             </div>
           </SidebarGroupLabel>
 
-          <SidebarMenu className="space-y-[3px]">
-            {renderMenuItems(mainItems)}
-          </SidebarMenu>
+          <SidebarMenu className="gap-1">{renderMenuItems(mainItems)}</SidebarMenu>
         </SidebarGroup>
 
-        {user?.role === 'admin' && (
-          <SidebarGroup className="mt-4">
-            {/* Section divider — neon gradient line */}
-            <div className="mx-3 mb-3 relative">
-              <div className={`h-px bg-gradient-to-r from-transparent ${sectionDividerColor} to-transparent`} />
-              <div className={`absolute inset-0 h-px bg-gradient-to-r from-transparent ${sectionDividerBlur} to-transparent blur-sm`} />
-            </div>
+        {user.role === "admin" && (
+          <SidebarGroup className="mt-3">
+            <button
+              type="button"
+              className="hud-sidebar-section-label hud-sidebar-admin-trigger"
+              onClick={toggleAdmin}
+              aria-expanded={adminOpen}
+              aria-controls="hud-sidebar-admin-menu"
+            >
+              <span className="hud-sidebar-section-dot" />
+              <span>
+                {t("administration")}
+                {!adminOpen && <span className="ml-1"> ({adminItems.length})</span>}
+              </span>
+              <ChevronDown
+                className={cn(
+                  "ml-auto h-3.5 w-3.5 transition-transform duration-150",
+                  adminOpen && "rotate-180",
+                )}
+              />
+            </button>
 
-            <SidebarGroupLabel className="px-2 py-1.5 mb-1.5">
-              <div className="hud-sidebar-section-label">
-                <div className={`w-1.5 h-1.5 rounded-full ${isLight ? 'bg-purple-500 shadow-[0_0_4px_rgba(168,85,247,0.3)]' : 'bg-purple-400/70 shadow-[0_0_8px_rgba(168,85,247,0.4),0_0_16px_rgba(168,85,247,0.15)]'}`} />
-                {t('administration')}
-              </div>
-            </SidebarGroupLabel>
-
-            <SidebarMenu className="space-y-[3px]">
-              {renderMenuItems(adminItems)}
-            </SidebarMenu>
+            {adminOpen && (
+              <SidebarMenu id="hud-sidebar-admin-menu" className="mt-1 gap-1">
+                {renderMenuItems(adminItems)}
+              </SidebarMenu>
+            )}
           </SidebarGroup>
         )}
       </SidebarContent>
 
-      {/* Footer */}
       <SidebarFooter className="hud-sidebar-footer mt-auto shrink-0">
-        {user && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button className="flex items-center gap-3 w-full hud-sidebar-item rounded-[10px] p-2.5 group !border-transparent">
-                <Avatar className={`w-8 h-8 ring-1 ${isLight ? 'ring-lime-500/20 shadow-[0_1px_4px_rgba(0,0,0,0.08)]' : 'ring-cyan-500/20 shadow-[0_0_12px_rgba(6,182,212,0.15),0_2px_8px_rgba(0,0,0,0.3)]'}`}>
-                  <AvatarFallback className={`font-semibold text-white text-[10px] ${isLight ? 'bg-gradient-to-br from-lime-600 to-lime-700' : 'bg-gradient-to-br from-cyan-600 to-emerald-600'}`}>
-                    {getUserInitials(user.fullName)}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="flex-1 text-left min-w-0 relative z-[1]">
-                  <p className={`font-medium text-[12px] tracking-wide truncate ${isLight ? 'text-[#2d3f38]' : 'text-white/80'}`}>{user.fullName}</p>
-                  <p className={`text-[10px] truncate font-medium tracking-wider ${isLight ? 'text-[#8a9a92]' : 'text-white/30'}`}>{user.cargo || user.role}</p>
-                </div>
-                <div className={`w-1.5 h-1.5 rounded-full ${isLight ? 'bg-lime-500 shadow-[0_0_4px_rgba(132,204,22,0.3)]' : 'bg-emerald-400/80 shadow-[0_0_6px_rgba(16,185,129,0.6),0_0_14px_rgba(16,185,129,0.3)]'} relative z-[1]`} />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="end"
-              sideOffset={8}
-              className="w-56 rounded-xl border p-1"
-              style={{
-                background: isLight
-                  ? 'linear-gradient(160deg, rgba(255, 255, 255, 0.98) 0%, rgba(250, 251, 249, 0.99) 100%)'
-                  : 'linear-gradient(160deg, rgba(6, 24, 18, 0.97) 0%, rgba(4, 16, 12, 0.98) 100%)',
-                borderColor: isLight ? 'rgba(0, 0, 0, 0.08)' : 'rgba(6, 182, 212, 0.14)',
-                backdropFilter: 'blur(32px) saturate(160%)',
-                WebkitBackdropFilter: 'blur(32px) saturate(160%)',
-                boxShadow: isLight
-                  ? '0 12px 40px rgba(0, 0, 0, 0.08), 0 4px 16px rgba(0, 0, 0, 0.04), inset 0 1px 0 rgba(255, 255, 255, 0.8)'
-                  : '0 24px 80px rgba(0, 0, 0, 0.60), 0 8px 32px rgba(0, 0, 0, 0.30), 0 0 1px rgba(6, 182, 212, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.06)',
-              }}
-            >
-              <DropdownMenuItem asChild className={`cursor-pointer rounded-lg transition-all duration-150 ${isLight ? 'text-[#5a6e66] hover:text-[#1a2b24] hover:bg-black/[0.04] focus:bg-black/[0.04]' : 'text-white/50 hover:text-white hover:bg-cyan-500/[0.06] focus:bg-cyan-500/[0.06]'}`}>
-                <Link href="/configuracoes" className="flex items-center">
-                  <Settings className="w-3.5 h-3.5 mr-2.5 stroke-[1.8]" />
-                  <span className="text-[12px] font-medium tracking-wide">{t('settings')}</span>
-                </Link>
-              </DropdownMenuItem>
-              <div className={`mx-2 my-1 h-px bg-gradient-to-r from-transparent ${isLight ? 'via-black/[0.06]' : 'via-white/[0.06]'} to-transparent`} />
-              <DropdownMenuItem
-                onClick={() => { /* handleLogout */ }}
-                className={`cursor-pointer rounded-lg transition-all duration-150 ${isLight ? 'text-red-600 hover:bg-red-500/[0.06] focus:bg-red-500/[0.06]' : 'text-red-400 hover:bg-red-500/10 focus:bg-red-500/10'}`}
-              >
-                <LogOut className="w-3.5 h-3.5 mr-2.5 stroke-[1.8]" />
-                <span className="text-[12px] font-medium tracking-wide">{t('logout')}</span>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="hud-sidebar-item w-full">
+              <Avatar className="h-8 w-8 ring-1 ring-ig-border-focus">
+                <AvatarFallback className="bg-ig-accent-weak text-[10px] font-semibold text-ig-accent">
+                  {getUserInitials(user.fullName)}
+                </AvatarFallback>
+              </Avatar>
+              <div className="min-w-0 flex-1 text-left">
+                <p className="truncate text-[13px] font-medium text-ig-fg-strong">{user.fullName}</p>
+                <p className="truncate text-xs text-ig-fg-muted">{user.cargo || user.role}</p>
+              </div>
+              <span className="h-1.5 w-1.5 rounded-full bg-ig-accent" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" sideOffset={8} className="hud-sidebar-dropdown w-56 p-1">
+            <DropdownMenuItem asChild className="hud-sidebar-dropdown-item">
+              <Link href="/configuracoes" className="flex items-center">
+                <Settings className="mr-2.5 h-3.5 w-3.5 stroke-[1.8]" />
+                <span>{t("settings")}</span>
+              </Link>
+            </DropdownMenuItem>
+            <div className="mx-2 my-1 h-px bg-ig-border-subtle" />
+            <DropdownMenuItem className="hud-sidebar-dropdown-item text-ig-danger">
+              <LogOut className="mr-2.5 h-3.5 w-3.5 stroke-[1.8]" />
+              <span>{t("logout")}</span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </SidebarFooter>
     </Sidebar>
   );

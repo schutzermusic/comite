@@ -1450,376 +1450,156 @@
 }
 
 /* ════════════════════════════════════════════════════════
-   HUD GLASS SIDEBAR — Deep Glass Control Room System
-   Same recipe as cr-glass-panel + hud-bar from Dashboard
-   Multi-layer depth · Neon edges · Deep shadows
+   HUD SIDEBAR v2 — tokenized shell
    ════════════════════════════════════════════════════════ */
-
-/* ── Base sidebar shell ── deep glass + heavy shadow ── */
 .hud-sidebar {
-  background: linear-gradient(180deg,
-      rgba(4, 18, 14, 0.92) 0%,
-      rgba(6, 22, 18, 0.88) 30%,
-      rgba(5, 20, 16, 0.90) 60%,
-      rgba(3, 14, 10, 0.95) 100%) !important;
+  background: var(--ig-bg-base);
+  border-right: 1px solid var(--ig-border-default);
+  box-shadow: var(--ig-shadow-e3);
+}
+html.dark .hud-sidebar {
+  background: linear-gradient(
+    180deg,
+    rgba(4, 18, 14, 0.92) 0%,
+    rgba(3, 14, 10, 0.95) 100%
+  );
   backdrop-filter: blur(48px) saturate(160%);
   -webkit-backdrop-filter: blur(48px) saturate(160%);
-  border-right: 1px solid rgba(200, 220, 235, 0.10) !important;
-  font-family: var(--cr-hud-font);
-  position: relative;
-  box-shadow:
-    6px 0 80px rgba(0, 0, 0, 0.60),
-    3px 0 40px rgba(0, 0, 0, 0.35),
-    1px 0 12px rgba(0, 0, 0, 0.20),
-    inset -1px 0 0 rgba(255, 255, 255, 0.04),
-    inset 0 0 60px rgba(0, 0, 0, 0.15);
 }
-
-/* Neon right-edge glow line — matches hud-bar::after gradient */
-.hud-sidebar::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  right: -1px;
-  bottom: 0;
-  width: 2px;
-  background: linear-gradient(180deg,
-      transparent 0%,
-      rgba(6, 182, 212, 0.25) 15%,
-      rgba(16, 185, 129, 0.20) 40%,
-      rgba(6, 182, 212, 0.18) 65%,
-      rgba(16, 185, 129, 0.12) 85%,
-      transparent 100%);
-  box-shadow:
-    0 0 12px rgba(6, 182, 212, 0.12),
-    0 0 30px rgba(6, 182, 212, 0.05);
-  pointer-events: none;
-  z-index: 10;
-}
-
-/* No base ::before — keep clean */
-.hud-sidebar::before {
-  display: none;
-}
-
-/* ── Header — command bar feel with specular + neon ── */
 .hud-sidebar-header {
-  border-bottom: 1px solid rgba(200, 220, 235, 0.09) !important;
-  padding: 1rem 1rem 1.25rem !important;
-  background: linear-gradient(180deg,
-      rgba(4, 18, 14, 0.65) 0%,
-      rgba(6, 22, 16, 0.40) 100%) !important;
-  position: relative;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.20);
+  border-bottom: 1px solid var(--ig-border-default);
+  padding: 1rem 1rem 1.25rem;
 }
-
-/* Specular top-edge highlight — cr-glass-panel recipe */
-.hud-sidebar-header::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 1px;
-  background: linear-gradient(90deg,
-      transparent 5%,
-      rgba(255, 255, 255, 0.06) 20%,
-      rgba(255, 255, 255, 0.14) 50%,
-      rgba(255, 255, 255, 0.06) 80%,
-      transparent 95%);
-  pointer-events: none;
-  z-index: 1;
-}
-
-/* Neon bottom glow line — exactly hud-bar::after style */
-.hud-sidebar-header::after {
-  content: '';
-  position: absolute;
-  bottom: 0;
-  left: 8%;
-  right: 8%;
-  height: 1px;
-  background: linear-gradient(90deg,
-      transparent 0%,
-      rgba(16, 185, 129, 0.35) 20%,
-      rgba(6, 182, 212, 0.45) 50%,
-      rgba(16, 185, 129, 0.35) 80%,
-      transparent 100%);
-  box-shadow: 0 0 12px rgba(6, 182, 212, 0.20), 0 0 4px rgba(16, 185, 129, 0.15);
-  pointer-events: none;
-  z-index: 1;
-}
-
-/* ── Content area — atmospheric depth ── */
 .hud-sidebar-content {
   position: relative;
 }
-
-.hud-sidebar-content::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 100px;
-  background: linear-gradient(180deg,
-      rgba(6, 182, 212, 0.025) 0%,
-      transparent 100%);
-  pointer-events: none;
-  z-index: 0;
-}
-
-/* ── Footer — elevated glass shelf with shadow ── */
 .hud-sidebar-footer {
-  border-top: 1px solid rgba(200, 220, 235, 0.09) !important;
-  padding: 0.5rem !important;
-  background: linear-gradient(180deg,
-      rgba(4, 18, 12, 0.40) 0%,
-      rgba(3, 14, 10, 0.65) 100%) !important;
-  position: relative;
-  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.15);
+  border-top: 1px solid var(--ig-border-default);
+  padding: 0.5rem;
 }
-
-.hud-sidebar-footer::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 8%;
-  right: 8%;
-  height: 1px;
-  background: linear-gradient(90deg,
-      transparent 0%,
-      rgba(16, 185, 129, 0.20) 25%,
-      rgba(6, 182, 212, 0.15) 75%,
-      transparent 100%);
-  pointer-events: none;
-}
-
-/* ── Section label — HUD typography ── */
-.hud-sidebar-section-label {
-  font-family: var(--cr-hud-font);
-  font-size: 0.5625rem;
-  font-weight: 600;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: rgba(200, 230, 240, 0.38);
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0 0.5rem;
-  position: relative;
-}
-
-.hud-sidebar-section-label::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: linear-gradient(90deg,
-      rgba(200, 220, 235, 0.10) 0%,
-      transparent 100%);
-}
-
-/* ══════════════════════════════════════
-   Menu Items — Deep Glass Micro-Panels
-   ══════════════════════════════════════ */
-
-/* Base state — invisible glass surface */
-.hud-sidebar-item {
-  color: rgba(224, 238, 252, 0.50) !important;
-  background: transparent !important;
-  border: 1px solid transparent !important;
-  border-radius: 10px !important;
-  transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1) !important;
-  position: relative !important;
-  overflow: hidden !important;
-  box-shadow: none !important;
-}
-
-/* Specular sweep pseudo on hover */
-.hud-sidebar-item::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(140deg,
-      rgba(255, 255, 255, 0.06) 0%,
-      rgba(255, 255, 255, 0.02) 30%,
-      transparent 55%);
-  opacity: 0;
-  transition: opacity 0.25s ease;
-  pointer-events: none;
-  border-radius: inherit;
-  z-index: 0;
-}
-
-.hud-sidebar-item:hover::before {
-  opacity: 1;
-}
-
-/* Hover — glass materializes with shadow */
-.hud-sidebar-item:hover {
-  color: rgba(224, 238, 252, 0.90) !important;
-  background: linear-gradient(160deg,
-      rgba(255, 255, 255, 0.04) 0%,
-      rgba(255, 255, 255, 0.02) 100%) !important;
-  border-color: rgba(200, 220, 235, 0.08) !important;
-  box-shadow:
-    0 2px 12px rgba(0, 0, 0, 0.20),
-    0 0 1px rgba(255, 255, 255, 0.06),
-    inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
-}
-
-/* ── Active — deep glass panel with full neon treatment ── */
-.hud-sidebar-item-active {
-  color: rgba(224, 238, 252, 0.96) !important;
-  background: linear-gradient(160deg,
-      rgba(6, 182, 212, 0.10) 0%,
-      rgba(16, 185, 129, 0.06) 50%,
-      rgba(6, 182, 212, 0.04) 100%) !important;
-  border-color: rgba(6, 182, 212, 0.18) !important;
-  box-shadow:
-    0 0 1px rgba(6, 182, 212, 0.40),
-    0 4px 20px rgba(0, 0, 0, 0.25),
-    0 1px 4px rgba(0, 0, 0, 0.12),
-    inset 0 0 20px rgba(6, 182, 212, 0.05),
-    inset 0 1px 0 rgba(255, 255, 255, 0.07),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.10) !important;
-  text-shadow: 0 0 16px rgba(6, 182, 212, 0.18);
-}
-
-.hud-sidebar-item-active::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(140deg,
-      rgba(255, 255, 255, 0.04) 0%,
-      rgba(6, 182, 212, 0.02) 40%,
-      transparent 70%);
-  opacity: 1;
-  pointer-events: none;
-  border-radius: inherit;
-  z-index: 0;
-}
-
-.hud-sidebar-item-active:hover {
-  background: linear-gradient(160deg,
-      rgba(6, 182, 212, 0.14) 0%,
-      rgba(16, 185, 129, 0.09) 50%,
-      rgba(6, 182, 212, 0.06) 100%) !important;
-  border-color: rgba(6, 182, 212, 0.25) !important;
-  box-shadow:
-    0 0 1px rgba(6, 182, 212, 0.50),
-    0 6px 28px rgba(0, 0, 0, 0.30),
-    0 2px 8px rgba(0, 0, 0, 0.15),
-    inset 0 0 24px rgba(6, 182, 212, 0.07),
-    inset 0 1px 0 rgba(255, 255, 255, 0.10),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.12) !important;
-}
-
-/* ── Active indicator bar — neon left edge ── */
-.hud-sidebar-active-bar {
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 2.5px;
-  height: 55%;
-  border-radius: 0 3px 3px 0;
-  background: linear-gradient(180deg,
-      rgba(6, 182, 212, 0.95) 0%,
-      rgba(16, 185, 129, 0.85) 100%);
-  box-shadow:
-    0 0 10px rgba(6, 182, 212, 0.55),
-    0 0 25px rgba(6, 182, 212, 0.25),
-    0 0 50px rgba(6, 182, 212, 0.10);
-  z-index: 2;
-}
-
-/* ══════════════════════════════════════
-   Override shadcn/radix base styles
-   Complete neutralization for glass look
-   ══════════════════════════════════════ */
-
-.hud-sidebar [data-sidebar="sidebar"] {
-  background: transparent !important;
-}
-
-.hud-sidebar [data-sidebar="menu-button"] {
-  font-family: var(--cr-hud-font);
-  font-size: 0.6875rem;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  font-weight: 500;
-  background: transparent !important;
-}
-
-.hud-sidebar [data-sidebar="menu-button"]:hover,
-.hud-sidebar [data-sidebar="menu-button"]:active,
-.hud-sidebar [data-sidebar="menu-button"][data-state="open"]:hover {
-  background: transparent !important;
-  color: inherit !important;
-}
-
-.hud-sidebar [data-sidebar="menu-button"][data-active="true"] {
-  background: transparent !important;
-  font-weight: 500;
-}
-
-.hud-sidebar [data-sidebar="menu-sub-button"] {
-  background: transparent !important;
-}
-
-.hud-sidebar [data-sidebar="menu-sub-button"]:hover,
-.hud-sidebar [data-sidebar="menu-sub-button"]:active {
-  background: transparent !important;
-}
-
-.hud-sidebar [data-sidebar="menu-sub-button"][data-active="true"] {
-  background: transparent !important;
-}
-
-.hud-sidebar [data-sidebar="group-label"] {
-  color: rgba(200, 230, 240, 0.25) !important;
-}
-
-.hud-sidebar [data-sidebar="content"] {
-  background: transparent !important;
-}
-
+.hud-sidebar [data-sidebar="sidebar"],
+.hud-sidebar [data-sidebar="content"],
 .hud-sidebar [data-sidebar="header"],
 .hud-sidebar [data-sidebar="footer"] {
   background: transparent;
 }
-
-/* ── Scanline overlay — subtle screen-door for depth ── */
-.hud-sidebar-scanline {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 5;
-  background: repeating-linear-gradient(0deg,
-      transparent 0px,
-      transparent 3px,
-      rgba(186, 233, 255, 0.015) 3px,
-      rgba(186, 233, 255, 0.015) 4px);
-  opacity: 0.3;
-  mix-blend-mode: screen;
+.hud-sidebar [data-sidebar="group"] {
+  padding: 0.5rem;
 }
-
-/* ── Inner vignette shadow for sidebar depth ── */
-.hud-sidebar-inner-vignette {
+.hud-sidebar-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  width: 100%;
+  padding: 7px 12px;
+  border-radius: var(--ig-radius-md);
+  border: 1px solid transparent;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--ig-fg-muted);
+  background: transparent;
+  transition: color 150ms ease, background 150ms ease, border-color 150ms ease;
+  cursor: pointer;
+}
+.hud-sidebar-item:hover {
+  color: var(--ig-fg-strong);
+  background: var(--ig-bg-panel-hover);
+}
+.hud-sidebar-item[data-active="true"] {
+  color: var(--ig-fg-strong);
+  background: var(--ig-accent-weak);
+  border-color: var(--ig-border-focus);
+  font-weight: 500;
+}
+.hud-sidebar-item[data-active="true"]::before {
+  content: '';
   position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 0;
-  background:
-    linear-gradient(180deg,
-      rgba(0, 0, 0, 0.12) 0%,
-      transparent 8%,
-      transparent 92%,
-      rgba(0, 0, 0, 0.15) 100%),
-    radial-gradient(ellipse 100% 100% at 100% 50%,
-      rgba(6, 182, 212, 0.02) 0%,
-      transparent 60%);
+  left: 0;
+  top: 20%;
+  bottom: 20%;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--ig-accent);
+}
+.hud-sidebar-item[data-active="true"] .sidebar-icon {
+  color: var(--ig-accent);
+}
+.hud-sidebar-item .sidebar-icon {
+  color: var(--ig-fg-subtle);
+  flex: 0 0 auto;
+}
+.hud-sidebar-item span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hud-sidebar-submenu {
+  margin: 4px 0 2px 18px;
+  padding-left: 10px;
+  border-left: 1px solid var(--ig-border-subtle);
+}
+.hud-sidebar-subitem {
+  min-height: 30px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+.hud-sidebar-section-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ig-fg-subtle);
+  padding: 16px 14px 6px;
+}
+.hud-sidebar-section-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--ig-accent);
+  box-shadow: 0 0 10px var(--ig-accent-weak);
+}
+.hud-sidebar-admin-trigger {
+  cursor: pointer;
+  transition: color 150ms ease;
+}
+.hud-sidebar-admin-trigger:hover {
+  color: var(--ig-fg-muted);
+}
+.hud-sidebar-dropdown {
+  border: 1px solid var(--ig-border-default);
+  border-radius: var(--ig-radius-lg);
+  background: var(--ig-bg-overlay);
+  color: var(--ig-fg-default);
+  box-shadow: var(--ig-shadow-e4);
+  backdrop-filter: var(--ig-blur-e3);
+  -webkit-backdrop-filter: var(--ig-blur-e3);
+}
+.hud-sidebar-dropdown-item {
+  border-radius: var(--ig-radius-sm);
+  color: var(--ig-fg-default);
+  font-size: 13px;
+  transition: color 150ms ease, background 150ms ease;
+}
+.hud-sidebar-dropdown-item:hover,
+.hud-sidebar-dropdown-item:focus {
+  color: var(--ig-fg-strong);
+  background: var(--ig-bg-panel-hover);
+}
+@media (prefers-reduced-motion: reduce) {
+  .hud-sidebar-item,
+  .hud-sidebar-admin-trigger,
+  .hud-sidebar-dropdown-item {
+    transition: none;
+  }
 }
 
 /* Full-screen globe canvas container */
@@ -3340,100 +3120,6 @@
 
 .light .cr-neon-edge-left::after {
   background: linear-gradient(180deg, transparent, rgba(132, 204, 22, 0.08), transparent);
-}
-
-/* ══════════════════════════════════════════════════════
-   HUD SIDEBAR — LIGHT MODE
-   Soft neutral base · Clean architectural feel
-   Green as accent only, not dominant
-   ══════════════════════════════════════════════════════ */
-
-.light .hud-sidebar {
-  background: #ffffff !important;
-  border-right: 1px solid #E2E8F0 !important;
-  box-shadow: none;
-}
-
-.light .hud-sidebar::after {
-  background: none;
-  box-shadow: none;
-}
-
-.light .hud-sidebar-header {
-  border-bottom: 1px solid #E2E8F0 !important;
-  background: transparent !important;
-}
-
-.light .hud-sidebar-header::before {
-  display: none;
-}
-
-.light .hud-sidebar-header::after {
-  display: none;
-}
-
-.light .hud-sidebar-footer {
-  border-top: 1px solid #E2E8F0 !important;
-  background: transparent !important;
-}
-
-.light .hud-sidebar-footer::before {
-  background: linear-gradient(90deg,
-      transparent 0%,
-      rgba(0, 0, 0, 0.03) 25%,
-      rgba(0, 0, 0, 0.02) 75%,
-      transparent 100%);
-}
-
-.light .hud-sidebar-section-label {
-  color: #94A3B8;
-}
-
-.light .hud-sidebar-section-label::after {
-  background: linear-gradient(90deg,
-      rgba(0, 0, 0, 0.05) 0%,
-      transparent 100%);
-}
-
-/* ── Sidebar items — light (slate neutral + forest-green accent) ── */
-.light .hud-sidebar-item {
-  color: #64748B !important;
-}
-
-.light .hud-sidebar-item:hover {
-  color: #0F172A !important;
-  background: #F1F5F9 !important;
-  border-color: transparent !important;
-}
-
-.light .hud-sidebar-item-active {
-  color: #15803D !important;
-  background: #F0FDF4 !important;
-  border-color: rgba(22, 163, 74, 0.18) !important;
-  box-shadow: none !important;
-  text-shadow: none;
-}
-
-.light .hud-sidebar-item-active:hover {
-  background: #DCFCE7 !important;
-  border-color: rgba(22, 163, 74, 0.25) !important;
-}
-
-.light .hud-sidebar-active-bar {
-  background: #16A34A;
-  box-shadow: none;
-}
-
-.light .hud-sidebar-inner-vignette {
-  display: none;
-}
-
-.light .hud-sidebar-scanline {
-  display: none;
-}
-
-.light .hud-sidebar-content::before {
-  display: none;
 }
 
 /* ── HUD tokens — light override (modern enterprise) ── */
@@ -5895,9 +5581,6 @@
 .light .cr-metric { color: #0F172A; text-shadow: none; }
 .light .hud-bar-title { color: #0F172A; text-shadow: none; }
 .light .hud-bar-subtitle { color: #94A3B8; }
-
-/* ── Sidebar group label ── */
-.light .hud-sidebar [data-sidebar="group-label"] { color: #94A3B8 !important; }
 
 /* ── Action button hover ── */
 .light .hud-action-btn:hover { color: #0F172A; background: rgba(22, 163, 74, 0.07); }
