@@ -283,6 +283,18 @@ export default {
         '3xl': '2rem',
       },
       fontSize: {
+        // INSIGHT Governança — Escala tipográfica executiva
+        'ig-display': ['32px', { lineHeight: '1.1',  fontWeight: '700', letterSpacing: '-0.025em' }],
+        'ig-h1':      ['22px', { lineHeight: '1.25', fontWeight: '600', letterSpacing: '-0.01em' }],
+        'ig-h2':      ['18px', { lineHeight: '1.3',  fontWeight: '600', letterSpacing: '-0.005em' }],
+        'ig-h3':      ['15px', { lineHeight: '1.35', fontWeight: '600' }],
+        'ig-body':    ['14px', { lineHeight: '1.55', fontWeight: '400' }],
+        'ig-body-sm': ['13px', { lineHeight: '1.5',  fontWeight: '400' }],
+        'ig-caption': ['12px', { lineHeight: '1.45', fontWeight: '400' }],
+        'ig-label':   ['11px', { lineHeight: '1.4',  fontWeight: '500', letterSpacing: '0.08em' }],
+        'ig-kpi-xl':  ['44px', { lineHeight: '1.05', fontWeight: '700', letterSpacing: '-0.025em' }],
+        'ig-kpi-lg':  ['32px', { lineHeight: '1.1',  fontWeight: '700', letterSpacing: '-0.02em' }],
+        'ig-kpi-md':  ['22px', { lineHeight: '1.2',  fontWeight: '600', letterSpacing: '-0.01em' }],
         // Sentinel KPI Typography
         'sentinel-kpi-hero': ['48px', { lineHeight: '1.1', fontWeight: '700', letterSpacing: '-0.02em' }],
         'sentinel-kpi-lg': ['36px', { lineHeight: '1.1', fontWeight: '700', letterSpacing: '-0.02em' }],

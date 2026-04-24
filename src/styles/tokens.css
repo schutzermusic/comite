@@ -185,3 +185,32 @@ html.light {
   --ig-focus-ring-outer: 0 0 0 1px rgba(15,118,110,0.35), 0 0 0 5px rgba(15,118,110,0.14), 0 0 24px rgba(15,118,110,0.18);
   --ig-focus-ring-inner: inset 0 0 0 1px rgba(15,118,110,0.20);
 }
+
+/* ── Metallic text ── */
+html.dark .ig-text-metal {
+  color: transparent;
+  background: linear-gradient(180deg, #FFFFFF 0%, #C7D2D9 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  text-shadow: 0 0 24px rgba(255,255,255,0.04);
+}
+html.dark .ig-text-metal-accent {
+  color: transparent;
+  background: linear-gradient(180deg, #FFFFFF 0%, #93DCD4 90%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  text-shadow: 0 0 40px rgba(20,184,166,0.12);
+}
+html.light .ig-text-metal,
+html.light .ig-text-metal-accent {
+  color: var(--ig-fg-strong);
+}
+
+/* ── Utilitários tipográficos ── */
+.ig-tabular {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum", "cv11";
+}
+.ig-label-upper {
+  text-transform: uppercase;
+}
