@@ -185,3 +185,25 @@ html.light {
   --ig-focus-ring-outer: 0 0 0 1px rgba(15,118,110,0.35), 0 0 0 5px rgba(15,118,110,0.14), 0 0 24px rgba(15,118,110,0.18);
   --ig-focus-ring-inner: inset 0 0 0 1px rgba(15,118,110,0.20);
 }
+
+/* ── Aurora atmosférica ── */
+.ig-aurora {
+  background:
+    radial-gradient(ellipse 40% 30% at 20% 30%, rgba(20,184,166,0.06), transparent 60%),
+    radial-gradient(ellipse 35% 25% at 80% 70%, rgba(59,130,246,0.05), transparent 60%);
+  animation: ig-aurora-drift 48s ease-in-out infinite alternate;
+  filter: blur(40px);
+}
+html.light .ig-aurora {
+  background:
+    radial-gradient(ellipse 40% 30% at 20% 30%, rgba(15,118,110,0.05), transparent 60%),
+    radial-gradient(ellipse 35% 25% at 80% 70%, rgba(29,78,216,0.04), transparent 60%);
+}
+@keyframes ig-aurora-drift {
+  0%   { transform: translate3d(0, 0, 0) scale(1);       opacity: 0.9; }
+  50%  { transform: translate3d(3%, -2%, 0) scale(1.05); opacity: 1;   }
+  100% { transform: translate3d(-2%, 2%, 0) scale(1.02); opacity: 0.85; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ig-aurora { animation: none; }
+}
