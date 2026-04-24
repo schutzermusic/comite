@@ -202,6 +202,34 @@ export default {
           'brushed-light': '#F3F4F6',
           'brushed-dark': '#D1D5DB',
         },
+        ig: {
+          canvas:        'var(--ig-bg-canvas)',
+          base:          'var(--ig-bg-base)',
+          raised:        'var(--ig-bg-raised)',
+          overlay:       'var(--ig-bg-overlay)',
+          panel:         'var(--ig-bg-panel)',
+          'panel-hover': 'var(--ig-bg-panel-hover)',
+          fg: {
+            strong:   'var(--ig-fg-strong)',
+            DEFAULT:  'var(--ig-fg-default)',
+            muted:    'var(--ig-fg-muted)',
+            subtle:   'var(--ig-fg-subtle)',
+            disabled: 'var(--ig-fg-disabled)',
+          },
+          border: {
+            subtle:  'var(--ig-border-subtle)',
+            DEFAULT: 'var(--ig-border-default)',
+            strong:  'var(--ig-border-strong)',
+            focus:   'var(--ig-border-focus)',
+          },
+          accent:          'var(--ig-accent)',
+          'accent-weak':   'var(--ig-accent-weak)',
+          'accent-strong': 'var(--ig-accent-strong)',
+          success: 'var(--ig-success)',
+          warning: 'var(--ig-warning)',
+          danger:  'var(--ig-danger)',
+          info:    'var(--ig-info)',
+        },
         background: 'hsl(var(--background))',
         foreground: 'hsl(var(--foreground))',
         card: {
@@ -325,6 +353,11 @@ export default {
         'neon-electric': '0 0 20px rgba(59, 130, 246, 0.5), 0 0 40px rgba(59, 130, 246, 0.3)',
         'neon-orange': '0 0 20px rgba(249, 115, 22, 0.5), 0 0 40px rgba(249, 115, 22, 0.3)',
         'executive': '0 20px 60px -15px rgba(0, 0, 0, 0.4)',
+        // Light theme shadows — premium soft
+        'light-card': '0 1px 3px rgba(0,0,0,0.05), 0 1px 2px rgba(0,0,0,0.03)',
+        'light-elevated': '0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -2px rgba(0,0,0,0.03)',
+        'light-panel': '0 1px 2px rgba(0,0,0,0.03), 0 4px 12px rgba(0,0,0,0.02)',
+        'light-hover': '0 4px 12px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.04)',
       },
       backgroundImage: {
         // =====================================================================
