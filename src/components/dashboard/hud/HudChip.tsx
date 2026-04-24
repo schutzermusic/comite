@@ -3,6 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
+import { useTheme } from '@/contexts/ThemeContext';
 
 export type HudChipVariant = 'critical' | 'warning' | 'info' | 'success' | 'live';
 
@@ -15,7 +16,7 @@ export interface HudChipProps {
     pulseDot?: boolean;
 }
 
-const VARIANT_STYLES: Record<HudChipVariant, { dot: string; chip: string }> = {
+const DARK_STYLES: Record<HudChipVariant, { dot: string; chip: string }> = {
     critical: {
         dot: 'bg-red-400',
         chip: 'bg-red-500/[0.08] border-red-500/20 text-red-300 hover:border-red-500/35 hover:bg-red-500/[0.14]',
@@ -38,6 +39,29 @@ const VARIANT_STYLES: Record<HudChipVariant, { dot: string; chip: string }> = {
     },
 };
 
+const LIGHT_STYLES: Record<HudChipVariant, { dot: string; chip: string }> = {
+    critical: {
+        dot: 'bg-red-500',
+        chip: 'bg-red-500/[0.06] border-red-500/15 text-red-700 hover:border-red-500/25 hover:bg-red-500/[0.10]',
+    },
+    warning: {
+        dot: 'bg-amber-500',
+        chip: 'bg-amber-500/[0.06] border-amber-500/15 text-amber-700 hover:border-amber-500/25 hover:bg-amber-500/[0.10]',
+    },
+    info: {
+        dot: 'bg-lime-500',
+        chip: 'bg-lime-500/[0.06] border-lime-500/15 text-lime-700 hover:border-lime-500/25 hover:bg-lime-500/[0.10]',
+    },
+    success: {
+        dot: 'bg-lime-500',
+        chip: 'bg-lime-500/[0.06] border-lime-500/15 text-lime-700 hover:border-lime-500/25 hover:bg-lime-500/[0.10]',
+    },
+    live: {
+        dot: 'bg-lime-500 animate-pulse',
+        chip: 'bg-lime-500/[0.06] border-lime-500/15 text-lime-700',
+    },
+};
+
 export function HudChip({
     label,
     count,
@@ -46,7 +70,8 @@ export function HudChip({
     className,
     pulseDot = false,
 }: HudChipProps) {
-    const styles = VARIANT_STYLES[variant];
+    const { theme } = useTheme();
+    const styles = theme === 'light' ? LIGHT_STYLES[variant] : DARK_STYLES[variant];
     const inner = (
         <>
             <span className={cn('w-[0.35em] h-[0.35em] min-w-[0.35em] min-h-[0.35em] rounded-full inline-block flex-shrink-0', styles.dot, pulseDot && 'animate-pulse')} />

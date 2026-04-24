@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useState } from 'react';
+import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, ExternalLink, ChevronRight, AlertTriangle, CheckCircle, FileText, Briefcase, Shield } from 'lucide-react';
 import Link from 'next/link';
+import { useTheme } from '@/contexts/ThemeContext';
 
 export type DrawerContext = {
     uf?: string;
@@ -41,6 +42,9 @@ const SEVERITY_DOT: Record<string, string> = {
 };
 
 export function ContextDrawer({ context, onClose }: ContextDrawerProps) {
+    const { theme } = useTheme();
+    const isLight = theme === 'light';
+
     if (!context) return null;
 
     const Icon = MODULE_ICONS[context.overlay] || Briefcase;
@@ -68,27 +72,27 @@ export function ContextDrawer({ context, onClose }: ContextDrawerProps) {
                         className="hud-drawer"
                     >
                         {/* Header */}
-                        <div className="sticky top-0 z-10 p-4 border-b border-orion-border-subtle bg-orion-bg-primary/80 backdrop-blur-xl">
+                        <div className={`sticky top-0 z-10 p-4 border-b backdrop-blur-xl ${isLight ? 'border-black/[0.06] bg-white/80' : 'border-orion-border-subtle bg-orion-bg-primary/80'}`}>
                             <div className="flex items-center justify-between mb-2">
                                 <div className="flex items-center gap-2">
-                                    <Icon className="w-4 h-4 text-emerald-400" />
-                                    <h2 className="text-sm font-semibold text-white capitalize">
+                                    <Icon className={`w-4 h-4 ${isLight ? 'text-lime-700' : 'text-emerald-400'}`} />
+                                    <h2 className={`text-sm font-semibold capitalize ${isLight ? 'text-[#1C1F24]' : 'text-white'}`}>
                                         {context.overlay}
                                     </h2>
                                 </div>
                                 <button
                                     onClick={onClose}
-                                    className="p-1 rounded-md hover:bg-glass-light transition-colors"
+                                    className={`p-1 rounded-md transition-colors ${isLight ? 'hover:bg-black/[0.04]' : 'hover:bg-glass-light'}`}
                                 >
-                                    <X className="w-4 h-4 text-orion-text-muted" />
+                                    <X className={`w-4 h-4 ${isLight ? 'text-[#9CA3AF]' : 'text-orion-text-muted'}`} />
                                 </button>
                             </div>
                             {context.uf && (
-                                <p className="text-xs text-orion-text-tertiary">
-                                    Filtrado por: <span className="text-white font-medium">{context.uf}</span>
+                                <p className={`text-xs ${isLight ? 'text-[#9CA3AF]' : 'text-orion-text-tertiary'}`}>
+                                    Filtrado por: <span className={`font-medium ${isLight ? 'text-[#1C1F24]' : 'text-white'}`}>{context.uf}</span>
                                 </p>
                             )}
-                            <p className="text-[10px] text-orion-text-muted mt-1">
+                            <p className={`text-[10px] mt-1 ${isLight ? 'text-[#9CA3AF]' : 'text-orion-text-muted'}`}>
                                 {context.items.length} {context.items.length === 1 ? 'item' : 'itens'}
                             </p>
                         </div>
@@ -99,24 +103,28 @@ export function ContextDrawer({ context, onClose }: ContextDrawerProps) {
                                 <Link
                                     key={item.id}
                                     href={item.href}
-                                    className="flex items-center gap-3 p-3 rounded-lg bg-orion-bg-elevated/30 hover:bg-orion-bg-elevated/60 border border-transparent hover:border-orion-border-subtle transition-all duration-150 group"
+                                    className={`flex items-center gap-3 p-3 rounded-lg border border-transparent transition-all duration-150 group ${
+                                        isLight
+                                            ? 'bg-black/[0.02] hover:bg-black/[0.04] hover:border-black/[0.06]'
+                                            : 'bg-orion-bg-elevated/30 hover:bg-orion-bg-elevated/60 hover:border-orion-border-subtle'
+                                    }`}
                                 >
                                     {item.severity && (
                                         <div className={SEVERITY_DOT[item.severity] || 'hud-dot hud-dot-info'} />
                                     )}
                                     <div className="flex-1 min-w-0">
-                                        <p className="text-[13px] font-medium text-white truncate">{item.title}</p>
+                                        <p className={`text-[13px] font-medium truncate ${isLight ? 'text-[#1C1F24]' : 'text-white'}`}>{item.title}</p>
                                         {item.subtitle && (
-                                            <p className="text-[11px] text-orion-text-muted truncate mt-0.5">{item.subtitle}</p>
+                                            <p className={`text-[11px] truncate mt-0.5 ${isLight ? 'text-[#9CA3AF]' : 'text-orion-text-muted'}`}>{item.subtitle}</p>
                                         )}
                                     </div>
-                                    <ChevronRight className="w-3.5 h-3.5 text-orion-text-muted opacity-0 group-hover:opacity-100 transition-opacity" />
+                                    <ChevronRight className={`w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity ${isLight ? 'text-[#9CA3AF]' : 'text-orion-text-muted'}`} />
                                 </Link>
                             ))}
 
                             {context.items.length === 0 && (
                                 <div className="text-center py-10">
-                                    <p className="text-sm text-orion-text-muted">Nenhum item encontrado</p>
+                                    <p className={`text-sm ${isLight ? 'text-[#9CA3AF]' : 'text-orion-text-muted'}`}>Nenhum item encontrado</p>
                                 </div>
                             )}
                         </div>

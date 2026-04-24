@@ -417,8 +417,8 @@ function PortfolioProjetosInner() {
       header: t('project'),
       cell: (project) => (
         <div>
-          <p className="font-medium text-white">{project.nome}</p>
-          <p className="text-xs text-white/50">{project.cliente}</p>
+          <p className="font-medium hud-text">{project.nome}</p>
+          <p className="text-xs hud-text-muted">{project.cliente}</p>
         </div>
       ),
     },
@@ -472,7 +472,7 @@ function PortfolioProjetosInner() {
       align: 'right',
       cell: (project) => (
         <div className="text-right">
-          <p className="font-medium text-white">{formatMoney(project.valor_total)}</p>
+          <p className="font-medium hud-text">{formatMoney(project.valor_total)}</p>
         </div>
       ),
     },
@@ -549,13 +549,13 @@ function PortfolioProjetosInner() {
         rightContent={
           <div className="flex items-center gap-2">
             {/* View toggle */}
-            <div className="flex items-center rounded-lg bg-white/[0.03] border border-white/[0.06] p-1">
+            <div className="flex items-center rounded-lg hud-surface border hud-divider p-1">
               <button
                 onClick={() => setViewMode('cards')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors view-toggle-btn ${
                   viewMode === 'cards'
-                    ? 'bg-cyan-500/20 text-cyan-300'
-                    : 'text-white/60 hover:text-white hover:bg-white/[0.05]'
+                    ? 'view-toggle-active'
+                    : 'view-toggle-inactive'
                 }`}
               >
                 <LayoutGrid className="w-4 h-4" />
@@ -563,10 +563,10 @@ function PortfolioProjetosInner() {
               </button>
               <button
                 onClick={() => setViewMode('table')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors view-toggle-btn ${
                   viewMode === 'table'
-                    ? 'bg-cyan-500/20 text-cyan-300'
-                    : 'text-white/60 hover:text-white hover:bg-white/[0.05]'
+                    ? 'view-toggle-active'
+                    : 'view-toggle-inactive'
                 }`}
               >
                 <Table2 className="w-4 h-4" />
@@ -613,30 +613,30 @@ function PortfolioProjetosInner() {
                 <div className="space-y-4">
                   {/* Client */}
                   <div>
-                    <p className="text-xs text-white/50 uppercase tracking-wider mb-1">{tCommon('client')}</p>
-                    <p className="text-sm text-white/80">{project.cliente || '—'}</p>
+                    <p className="text-xs hud-text-muted uppercase tracking-wider mb-1">{tCommon('client')}</p>
+                    <p className="text-sm hud-text-secondary">{project.cliente || '—'}</p>
                   </div>
 
                   {/* Health & Progress */}
                   <div className="flex items-center gap-4">
                     <div>
-                      <p className="text-xs text-white/50 uppercase tracking-wider mb-1">{tCommon('health')}</p>
+                      <p className="text-xs hud-text-muted uppercase tracking-wider mb-1">{tCommon('health')}</p>
                       <div className="flex items-center gap-2">
                         <div className="w-2 h-2 rounded-full" style={{ background: healthColor }} />
                         <span className="text-sm font-medium" style={{ color: healthColor }}>{health}</span>
                       </div>
                     </div>
                     <div className="flex-1">
-                      <p className="text-xs text-white/50 uppercase tracking-wider mb-1">{tCommon('progress')}</p>
+                      <p className="text-xs hud-text-muted uppercase tracking-wider mb-1">{tCommon('progress')}</p>
                       <HudProgressBar value={project.progresso_percentual || 0} size="sm" />
                     </div>
                   </div>
 
                   {/* Value */}
-                  <div className="flex items-center justify-between pt-3 border-t border-white/[0.06]">
+                  <div className="flex items-center justify-between pt-3 border-t hud-divider">
                     <div>
-                      <p className="text-xs text-white/50 uppercase tracking-wider">{t('totalValue')}</p>
-                      <p className="text-lg font-semibold text-white">{formatMoney(project.valor_total)}</p>
+                      <p className="text-xs hud-text-muted uppercase tracking-wider">{t('totalValue')}</p>
+                      <p className="text-lg font-semibold hud-text">{formatMoney(project.valor_total)}</p>
                     </div>
                     <div className="flex items-center gap-2">
                       <HudButton
@@ -708,8 +708,8 @@ function PortfolioProjetosFallback() {
     <HudPageLayout>
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="text-center">
-          <Briefcase className="w-12 h-12 text-white/30 mx-auto mb-3 animate-pulse" />
-          <p className="text-sm text-white/50">{t('loadingPortfolio')}</p>
+          <Briefcase className="w-12 h-12 hud-text-muted mx-auto mb-3 animate-pulse" />
+          <p className="text-sm hud-text-muted">{t('loadingPortfolio')}</p>
         </div>
       </div>
     </HudPageLayout>

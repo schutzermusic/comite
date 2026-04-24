@@ -127,11 +127,11 @@ export function AppSidebar() {
   const { theme } = useTheme();
   const isLight = theme === 'light';
   const activeIconClass = isLight
-    ? 'text-emerald-600 drop-shadow-none'
+    ? 'text-lime-700 drop-shadow-none'
     : 'text-cyan-300/90 drop-shadow-[0_0_6px_rgba(6,182,212,0.4)]';
-  const activeChevronClass = isLight ? 'text-emerald-600/50' : 'text-cyan-300/50';
+  const activeChevronClass = isLight ? 'text-lime-700/50' : 'text-cyan-300/50';
   const sectionDotGov = isLight
-    ? 'bg-emerald-500 shadow-[0_0_4px_rgba(16,185,129,0.3)]'
+    ? 'bg-lime-500 shadow-[0_0_4px_rgba(132,204,22,0.3)]'
     : 'bg-cyan-400/70 shadow-[0_0_8px_rgba(6,182,212,0.5),0_0_16px_rgba(6,182,212,0.2)]';
   const sectionDividerColor = isLight
     ? 'via-black/[0.06]'
@@ -183,7 +183,7 @@ export function AppSidebar() {
                             `}
                           >
                             {isSubActive && <div className="hud-sidebar-active-bar" />}
-                            <subItem.icon className={`w-3.5 h-3.5 stroke-[1.8] transition-colors ${isSubActive ? (isLight ? 'text-emerald-600' : 'text-cyan-300/80') : 'opacity-40'}`} />
+                            <subItem.icon className={`w-3.5 h-3.5 stroke-[1.8] transition-colors ${isSubActive ? (isLight ? 'text-lime-700' : 'text-cyan-300/80') : 'opacity-40'}`} />
                             <span className="text-[10px] font-medium tracking-[0.1em] uppercase relative z-[1]">{subItem.label}</span>
                           </SidebarMenuSubButton>
                         </Link>
@@ -251,7 +251,7 @@ export function AppSidebar() {
                 priority
               />
             </div>
-            <div className={`absolute -inset-4 bg-gradient-to-r ${isLight ? 'from-emerald-500/0 via-emerald-500/[0.04] to-emerald-500/[0.03]' : 'from-cyan-500/0 via-cyan-500/8 to-emerald-500/6'} rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500 blur-xl -z-10`} />
+            <div className={`absolute -inset-4 bg-gradient-to-r ${isLight ? 'from-lime-500/0 via-lime-500/[0.04] to-lime-500/[0.03]' : 'from-cyan-500/0 via-cyan-500/8 to-emerald-500/6'} rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500 blur-xl -z-10`} />
           </div>
         </div>
       </SidebarHeader>
@@ -302,8 +302,8 @@ export function AppSidebar() {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button className="flex items-center gap-3 w-full hud-sidebar-item rounded-[10px] p-2.5 group !border-transparent">
-                <Avatar className={`w-8 h-8 ring-1 ${isLight ? 'ring-emerald-500/20 shadow-[0_1px_4px_rgba(0,0,0,0.08)]' : 'ring-cyan-500/20 shadow-[0_0_12px_rgba(6,182,212,0.15),0_2px_8px_rgba(0,0,0,0.3)]'}`}>
-                  <AvatarFallback className={`font-semibold text-white text-[10px] ${isLight ? 'bg-gradient-to-br from-emerald-600 to-teal-600' : 'bg-gradient-to-br from-cyan-600 to-emerald-600'}`}>
+                <Avatar className={`w-8 h-8 ring-1 ${isLight ? 'ring-lime-500/20 shadow-[0_1px_4px_rgba(0,0,0,0.08)]' : 'ring-cyan-500/20 shadow-[0_0_12px_rgba(6,182,212,0.15),0_2px_8px_rgba(0,0,0,0.3)]'}`}>
+                  <AvatarFallback className={`font-semibold text-white text-[10px] ${isLight ? 'bg-gradient-to-br from-lime-600 to-lime-700' : 'bg-gradient-to-br from-cyan-600 to-emerald-600'}`}>
                     {getUserInitials(user.fullName)}
                   </AvatarFallback>
                 </Avatar>
@@ -311,7 +311,7 @@ export function AppSidebar() {
                   <p className={`font-medium text-[12px] tracking-wide truncate ${isLight ? 'text-[#2d3f38]' : 'text-white/80'}`}>{user.fullName}</p>
                   <p className={`text-[10px] truncate font-medium tracking-wider ${isLight ? 'text-[#8a9a92]' : 'text-white/30'}`}>{user.cargo || user.role}</p>
                 </div>
-                <div className={`w-1.5 h-1.5 rounded-full ${isLight ? 'bg-emerald-500 shadow-[0_0_4px_rgba(16,185,129,0.3)]' : 'bg-emerald-400/80 shadow-[0_0_6px_rgba(16,185,129,0.6),0_0_14px_rgba(16,185,129,0.3)]'} relative z-[1]`} />
+                <div className={`w-1.5 h-1.5 rounded-full ${isLight ? 'bg-lime-500 shadow-[0_0_4px_rgba(132,204,22,0.3)]' : 'bg-emerald-400/80 shadow-[0_0_6px_rgba(16,185,129,0.6),0_0_14px_rgba(16,185,129,0.3)]'} relative z-[1]`} />
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent

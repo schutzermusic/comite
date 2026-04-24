@@ -16,7 +16,7 @@ const themeInitScript = `
 (function(){
   try {
     var t = localStorage.getItem('insight-theme-preference');
-    if (!t) t = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+    if (!t) t = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
     var d = document.documentElement;
     d.setAttribute('data-theme', t);
     if (t === 'light') { d.classList.add('light'); d.classList.remove('dark'); }

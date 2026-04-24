@@ -207,7 +207,7 @@ export function ContractsByCompanyModule({
       <HUDCard className={className}>
         {/* Header */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
-          <h2 className="text-lg font-semibold text-white">Contratos por Empresa</h2>
+          <h2 className="text-lg font-semibold hud-text">Contratos por Empresa</h2>
           <div className="flex items-center gap-3">
             {/* View Toggle */}
             <div className="inline-flex rounded-lg border border-[rgba(255,255,255,0.08)] p-1 bg-[rgba(255,255,255,0.03)]">
@@ -218,7 +218,7 @@ export function ContractsByCompanyModule({
                 className={
                   contractsViewMode === 'cards'
                     ? 'bg-[#00FFB4] text-[#050D0A] hover:bg-[#00E6A0]'
-                    : 'text-[rgba(255,255,255,0.65)] hover:text-white'
+                    : 'text-[rgba(255,255,255,0.65)] hover:hud-text'
                 }
               >
                 Cards
@@ -230,7 +230,7 @@ export function ContractsByCompanyModule({
                 className={
                   contractsViewMode === 'table'
                     ? 'bg-[#00FFB4] text-[#050D0A] hover:bg-[#00E6A0]'
-                    : 'text-[rgba(255,255,255,0.65)] hover:text-white'
+                    : 'text-[rgba(255,255,255,0.65)] hover:hud-text'
                 }
               >
                 Tabela
@@ -243,7 +243,7 @@ export function ContractsByCompanyModule({
                 placeholder="Buscar empresa..."
                 value={contractsSearch}
                 onChange={(e) => setContractsSearch(e.target.value)}
-                className="pl-10 bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.08)] text-white placeholder:text-[rgba(255,255,255,0.40)] focus:border-[rgba(0,255,180,0.25)]"
+                className="pl-10 bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.08)] hud-text placeholder:text-[rgba(255,255,255,0.40)] focus:border-[rgba(0,255,180,0.25)]"
               />
             </div>
           </div>
@@ -312,7 +312,7 @@ export function ContractsByCompanyModule({
                   </div>
 
                   {/* Title + Subtitle */}
-                  <h3 className="text-sm font-semibold text-white mb-1 line-clamp-1">
+                  <h3 className="text-sm font-semibold hud-text mb-1 line-clamp-1">
                     {company.company}
                   </h3>
                   <p className="text-xs text-[rgba(255,255,255,0.55)] mb-3">Visão Consolidada</p>
@@ -364,7 +364,7 @@ export function ContractsByCompanyModule({
                   <div className="grid grid-cols-2 gap-3 py-3 border-t border-b border-[rgba(255,255,255,0.05)] mb-3">
                     <div>
                       <p className="text-xs text-[rgba(255,255,255,0.40)] mb-0.5">Contratado</p>
-                      <p className="font-medium text-sm text-white tabular-nums">
+                      <p className="font-medium text-sm hud-text tabular-nums">
                         {new Intl.NumberFormat('pt-BR', {
                           style: 'currency',
                           currency: 'BRL',
@@ -374,7 +374,7 @@ export function ContractsByCompanyModule({
                     </div>
                     <div>
                       <p className="text-xs text-[rgba(255,255,255,0.40)] mb-0.5">Backlog</p>
-                      <p className="font-medium text-sm text-white tabular-nums">
+                      <p className="font-medium text-sm hud-text tabular-nums">
                         {new Intl.NumberFormat('pt-BR', {
                           style: 'currency',
                           currency: 'BRL',
@@ -421,7 +421,7 @@ export function ContractsByCompanyModule({
                 <TableRow className="border-[rgba(255,255,255,0.05)]">
                   <TableHead className="text-[rgba(255,255,255,0.65)] font-medium">Empresa</TableHead>
                   <TableHead
-                    className="text-[rgba(255,255,255,0.65)] font-medium text-right cursor-pointer select-none hover:text-white"
+                    className="text-[rgba(255,255,255,0.65)] font-medium text-right cursor-pointer select-none hover:hud-text"
                     onClick={() => handleSortClick('contracted')}
                   >
                     <span className="inline-flex items-center gap-1 justify-end">
@@ -438,7 +438,7 @@ export function ContractsByCompanyModule({
                     </span>
                   </TableHead>
                   <TableHead
-                    className="text-[rgba(255,255,255,0.65)] font-medium text-right cursor-pointer select-none hover:text-white"
+                    className="text-[rgba(255,255,255,0.65)] font-medium text-right cursor-pointer select-none hover:hud-text"
                     onClick={() => handleSortClick('backlog')}
                   >
                     <span className="inline-flex items-center gap-1 justify-end">
@@ -517,7 +517,7 @@ export function ContractsByCompanyModule({
                     <Building2 className="w-5 h-5 text-[#00C8FF]" />
                   </div>
                   <div>
-                    <SheetTitle className="text-xl font-semibold text-white">
+                    <SheetTitle className="text-xl font-semibold hud-text">
                       {selectedCompany.company}
                     </SheetTitle>
                     <p className="text-xs text-[rgba(255,255,255,0.50)]">
@@ -534,7 +534,7 @@ export function ContractsByCompanyModule({
                     <DollarSign className="w-3 h-3 text-[#00C8FF]" />
                     <p className="text-[10px] text-[rgba(255,255,255,0.50)] uppercase tracking-wide">Contratado</p>
                   </div>
-                  <p className="text-sm font-semibold text-white tabular-nums">
+                  <p className="text-sm font-semibold hud-text tabular-nums">
                     {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', notation: 'compact' }).format(selectedCompany.totalContracted)}
                   </p>
                 </div>
@@ -561,7 +561,7 @@ export function ContractsByCompanyModule({
                     <FileText className="w-3 h-3 text-[rgba(255,255,255,0.50)]" />
                     <p className="text-[10px] text-[rgba(255,255,255,0.50)] uppercase tracking-wide">Contratos</p>
                   </div>
-                  <p className="text-sm font-semibold text-white tabular-nums">
+                  <p className="text-sm font-semibold hud-text tabular-nums">
                     {selectedCompany.contractsCount}
                   </p>
                 </div>
@@ -570,7 +570,7 @@ export function ContractsByCompanyModule({
                     <Building2 className="w-3 h-3 text-[rgba(255,255,255,0.50)]" />
                     <p className="text-[10px] text-[rgba(255,255,255,0.50)] uppercase tracking-wide">% Total</p>
                   </div>
-                  <p className="text-sm font-semibold text-white tabular-nums">
+                  <p className="text-sm font-semibold hud-text tabular-nums">
                     {((selectedCompany.totalContracted / portfolioTotals.totalContracted) * 100).toFixed(1)}%
                   </p>
                 </div>
@@ -612,7 +612,7 @@ export function ContractsByCompanyModule({
                                    hover:bg-[rgba(0,200,255,0.12)] hover:border-[rgba(0,200,255,0.25)] 
                                    transition-all cursor-pointer group"
                       >
-                        <span className="text-xs font-medium text-[#00C8FF] group-hover:text-white">
+                        <span className="text-xs font-medium text-[#00C8FF] group-hover:hud-text">
                           {project.codigo}
                         </span>
                         <span className={cn(
@@ -653,7 +653,7 @@ export function ContractsByCompanyModule({
                             key={contract.id} 
                             className="border-[rgba(255,255,255,0.03)] hover:bg-[rgba(255,255,255,0.02)]"
                           >
-                            <TableCell className="text-xs text-white py-2 px-3 font-medium">{contract.id}</TableCell>
+                            <TableCell className="text-xs hud-text py-2 px-3 font-medium">{contract.id}</TableCell>
                             <TableCell className="text-xs text-[rgba(255,255,255,0.65)] py-2 px-3">{contract.state}</TableCell>
                             <TableCell className="text-xs text-[rgba(255,255,255,0.85)] py-2 px-3 text-right tabular-nums">
                               {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', notation: 'compact' }).format(contract.value)}

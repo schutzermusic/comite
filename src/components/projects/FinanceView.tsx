@@ -21,6 +21,7 @@ import {
     Layers,
     Zap,
 } from 'lucide-react';
+import { HudPanel } from '@/components/hud';
 import { Badge } from '@/components/ui/badge';
 import type {
     ProjectV2,
@@ -369,10 +370,11 @@ export function FinanceView({ project }: FinanceViewProps) {
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     {/* Chart A — COST */}
                     {costData.length > 0 && (
-                        <div className="p-5 rounded-2xl border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)]">
+                        <HudPanel noPadding>
+                          <div className="p-5">
                             <div className="flex items-center gap-2 mb-4">
                                 <DollarSign className="w-4 h-4 text-[#00C8FF]" />
-                                <h4 className="text-sm font-semibold text-white uppercase tracking-wide">
+                                <h4 className="text-sm font-semibold orion-text-primary uppercase tracking-wide">
                                     Custo Acumulado
                                 </h4>
                                 <Badge
@@ -464,15 +466,17 @@ export function FinanceView({ project }: FinanceViewProps) {
                                     <Legend content={renderCostLegend} />
                                 </AreaChart>
                             </ResponsiveContainer>
-                        </div>
+                          </div>
+                        </HudPanel>
                     )}
 
                     {/* Chart B — REVENUE */}
                     {revenueData.length > 0 && (
-                        <div className="p-5 rounded-2xl border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)]">
+                        <HudPanel noPadding>
+                          <div className="p-5">
                             <div className="flex items-center gap-2 mb-4">
                                 <TrendingUp className="w-4 h-4 text-[#00FFB4]" />
-                                <h4 className="text-sm font-semibold text-white uppercase tracking-wide">
+                                <h4 className="text-sm font-semibold orion-text-primary uppercase tracking-wide">
                                     Receita Acumulada
                                 </h4>
                                 <Badge
@@ -599,7 +603,8 @@ export function FinanceView({ project }: FinanceViewProps) {
                                     <Legend content={renderRevLegend} />
                                 </AreaChart>
                             </ResponsiveContainer>
-                        </div>
+                          </div>
+                        </HudPanel>
                     )}
                 </div>
             )}
@@ -607,10 +612,11 @@ export function FinanceView({ project }: FinanceViewProps) {
             {/* ── Bottom Row: Breakdown + Forecast ───────── */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Cost Breakdown Table */}
-                <div className="lg:col-span-2 p-5 rounded-2xl border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)]">
+                <HudPanel noPadding className="lg:col-span-2">
+                  <div className="p-5">
                     <div className="flex items-center gap-2 mb-4">
                         <BarChart3 className="w-4 h-4 text-[#00C8FF]" />
-                        <h4 className="text-sm font-semibold text-white">Detalhamento Financeiro</h4>
+                        <h4 className="text-sm font-semibold orion-text-primary">Detalhamento Financeiro</h4>
                         <Badge
                             variant="outline"
                             className="text-[10px] ml-auto border-[rgba(255,255,255,0.12)] text-[rgba(255,255,255,0.40)]"
@@ -717,13 +723,15 @@ export function FinanceView({ project }: FinanceViewProps) {
                             </tbody>
                         </table>
                     </div>
-                </div>
+                  </div>
+                </HudPanel>
 
                 {/* Forecast Panel */}
-                <div className="p-5 rounded-2xl border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)]">
+                <HudPanel noPadding>
+                  <div className="p-5">
                     <div className="flex items-center gap-2 mb-4">
                         <TrendingDown className="w-4 h-4 text-[#FFB84D]" />
-                        <h4 className="text-sm font-semibold text-white">Previsão (Custo)</h4>
+                        <h4 className="text-sm font-semibold orion-text-primary">Previsão (Custo)</h4>
                     </div>
 
                     <div className="space-y-4">
@@ -799,7 +807,8 @@ export function FinanceView({ project }: FinanceViewProps) {
                             </div>
                         )}
                     </div>
-                </div>
+                  </div>
+                </HudPanel>
             </div>
         </div>
     );

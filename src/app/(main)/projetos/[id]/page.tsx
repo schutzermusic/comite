@@ -21,13 +21,17 @@ import {
   Activity,
   Heart,
 } from 'lucide-react';
-import { HUDCard } from '@/components/ui/hud-card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { OrionGreenBackground } from '@/components/system/OrionGreenBackground';
+import {
+  HudPageLayout,
+  HudHeader,
+  HudPanel,
+  HudButton,
+} from '@/components/hud';
 import { votes, meetings, users as mockUsers } from '@/lib/mock-data';
 import { getProjectById, getProjectV2ById } from '@/lib/services/projects';
 import { TimelineGanttView } from '@/components/projects/timeline-gantt-view';
@@ -70,30 +74,30 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
 
   if (loading) {
     return (
-      <OrionGreenBackground className="orion-page">
-        <div className="orion-page-content flex items-center justify-center min-h-screen">
+      <HudPageLayout>
+        <div className="flex items-center justify-center min-h-[50vh]">
           <div className="text-center">
-            <Briefcase className="w-16 h-16 text-[rgba(255,255,255,0.40)] mx-auto mb-4 animate-pulse" />
-            <p className="text-sm text-[rgba(255,255,255,0.65)]">Carregando projeto...</p>
+            <Briefcase className="w-16 h-16 hud-text-muted mx-auto mb-4 animate-pulse" />
+            <p className="text-sm hud-text-tertiary">Carregando projeto...</p>
           </div>
         </div>
-      </OrionGreenBackground>
+      </HudPageLayout>
     );
   }
 
   if (!projeto) {
     return (
-      <OrionGreenBackground className="orion-page">
-        <div className="orion-page-content flex items-center justify-center min-h-screen">
+      <HudPageLayout>
+        <div className="flex items-center justify-center min-h-[50vh]">
           <div className="text-center">
-            <Briefcase className="w-16 h-16 text-[rgba(255,255,255,0.40)] mx-auto mb-4" />
-            <h2 className="text-xl font-semibold text-white">Projeto não encontrado</h2>
-            <Button onClick={() => router.push('/projetos')} className="mt-4 bg-[#00FFB4] text-[#050D0A] hover:bg-[#00E6A0]">
+            <Briefcase className="w-16 h-16 hud-text-muted mx-auto mb-4" />
+            <h2 className="text-xl font-semibold orion-text-heading mb-4">Projeto não encontrado</h2>
+            <HudButton variant="primary" onClick={() => router.push('/projetos')}>
               Voltar para o Portfólio
-            </Button>
+            </HudButton>
           </div>
         </div>
-      </OrionGreenBackground>
+      </HudPageLayout>
     );
   }
 
@@ -206,54 +210,47 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
     : null;
 
   return (
-    <OrionGreenBackground className="orion-page">
-      <div className="orion-page-content max-w-7xl mx-auto space-y-6">
-        <header className="mb-8">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <Button
-                variant="outline"
-                size="icon"
+    <HudPageLayout maxWidth="100%">
+      <div className="max-w-7xl mx-auto space-y-6">
+        <HudHeader
+          title={projeto.nome}
+          subtitle={`Código: ${projeto.codigo} ${lastActivity ? ` · Última atividade: ${lastActivity}` : ''}`}
+          icon={<Briefcase className="w-5 h-5" />}
+          breadcrumbs={[
+            { label: 'Projetos', href: '/projetos' },
+            { label: projeto.codigo },
+          ]}
+          actions={
+            <div className="flex items-center gap-3">
+              <HudButton
+                variant="ghost"
+                size="md"
+                leftIcon={<ArrowLeft className="w-4 h-4" />}
                 onClick={() => router.push('/projetos')}
-                className="border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.05)] hover:bg-[rgba(255,255,255,0.08)] text-white"
               >
-                <ArrowLeft className="w-4 h-4" />
-              </Button>
-              <div>
-                <div className="flex items-center gap-3">
-                  <h1 className="text-2xl font-semibold text-white mb-1 tracking-wide">{projeto.nome}</h1>
-                  {/* Health Score Badge */}
-                  <div
-                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold"
-                    style={{
-                      background: `${healthColor}15`,
-                      color: healthColor,
-                      border: `1px solid ${healthColor}30`,
-                    }}
-                  >
-                    <Heart className="w-3.5 h-3.5" />
-                    {healthScore} — {healthLabel}
-                  </div>
+                Voltar
+              </HudButton>
+              {healthScore != null && (
+                <div
+                  className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold"
+                  style={{
+                    background: `${healthColor}15`,
+                    color: healthColor,
+                    border: `1px solid ${healthColor}30`,
+                  }}
+                >
+                  <Heart className="w-3.5 h-3.5" />
+                  {healthScore} — {healthLabel}
                 </div>
-                <div className="flex items-center gap-3">
-                  <p className="text-sm text-[rgba(255,255,255,0.65)]">Código: {projeto.codigo}</p>
-                  {lastActivity && (
-                    <span className="text-xs text-[rgba(255,255,255,0.40)] flex items-center gap-1">
-                      <Activity className="w-3 h-3" />
-                      Última atividade: {lastActivity}
-                    </span>
-                  )}
-                </div>
-              </div>
+              )}
+              <Link href={`/projetos/${projeto.id}/analytics`}>
+                <HudButton variant="primary" leftIcon={<Brain className="w-4 h-4" />}>
+                  Análise Avançada
+                </HudButton>
+              </Link>
             </div>
-            <Link href={`/projetos/${projeto.id}/analytics`}>
-              <Button className="bg-[#00FFB4] text-[#050D0A] hover:bg-[#00E6A0] font-medium shadow-[0_0_18px_rgba(0,255,180,0.18)]">
-                <Brain className="w-4 h-4 mr-2" />
-                Análise Avançada
-              </Button>
-            </Link>
-          </div>
-        </header>
+          }
+        />
 
         {/* ── Action Center (top alerts block) ────────────────── */}
         {projetoV2 && (
@@ -266,29 +263,26 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
 
         <div className="grid lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
-            <HUDCard>
-              <div className="mb-6">
-                <h2 className="text-lg font-semibold text-white orion-text-heading">Resumo do Projeto</h2>
-              </div>
+            <HudPanel title="Resumo do Projeto" accentColor="emerald">
               <div>
-                <p className="text-[rgba(255,255,255,0.65)] mb-6">{projeto.descricao || 'Sem descrição'}</p>
+                <p className="hud-text-tertiary mb-6 font-medium">{projeto.descricao || 'Sem descrição'}</p>
 
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
                   <div>
-                    <p className="text-sm text-[rgba(255,255,255,0.50)] mb-1">Status</p>
+                    <p className="text-sm hud-text-muted mb-1">Status</p>
                     <Badge className={getStatusColor(projeto.status)}>{projeto.status}</Badge>
                   </div>
                   <div>
-                    <p className="text-sm text-[rgba(255,255,255,0.50)] mb-1">Cliente</p>
-                    <p className="font-medium text-white">{projeto.cliente || 'N/A'}</p>
+                    <p className="text-sm hud-text-muted mb-1">Cliente</p>
+                    <p className="font-medium orion-text-primary">{projeto.cliente || 'N/A'}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-[rgba(255,255,255,0.50)] mb-1">Responsável</p>
-                    <p className="font-medium text-white">{projeto.responsavel?.nome || projeto.responsavel?.full_name || 'Não definido'}</p>
+                    <p className="text-sm hud-text-muted mb-1">Responsável</p>
+                    <p className="font-medium orion-text-primary">{projeto.responsavel?.nome || projeto.responsavel?.full_name || 'Não definido'}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-[rgba(255,255,255,0.50)] mb-1">Início</p>
-                    <p className="font-medium text-white">
+                    <p className="text-sm hud-text-muted mb-1">Início</p>
+                    <p className="font-medium orion-text-primary">
                       {projeto.data_inicio ? format(new Date(projeto.data_inicio), 'dd/MM/yyyy', { locale: ptBR }) : 'N/A'}
                     </p>
                   </div>
@@ -298,39 +292,39 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
                 <div className="mt-6 pt-6 border-t border-[rgba(255,255,255,0.08)]">
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-center">
                     <div>
-                      <DollarSign className="w-8 h-8 mx-auto text-[#00C8FF] mb-2" />
-                      <p className="text-sm text-[rgba(255,255,255,0.50)]">Contrato Total (Receita)</p>
-                      <p className="text-xl font-bold text-white tabular-nums">
+                      <DollarSign className="w-8 h-8 mx-auto hud-accent-icon mb-2" />
+                      <p className="text-sm hud-text-muted">Contrato Total (Receita)</p>
+                      <p className="text-xl font-bold orion-text-primary tabular-nums">
                         {projetoV2?.revenue
                           ? formatMoney(projetoV2.revenue.totalContracted, true)
                           : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(projeto.valor_total || 0)
                         }
                       </p>
-                      <p className="text-[10px] text-[rgba(255,255,255,0.30)] mt-1">
+                      <p className="text-[10px] hud-text-muted mt-1">
                         Fonte: Contrato · {projetoV2?.revenue?.updatedAt
                           ? new Date(projetoV2.revenue.updatedAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' })
                           : '—'}
                       </p>
                     </div>
                     <div>
-                      <TrendingUp className="w-8 h-8 mx-auto text-[#00FFB4] mb-2" />
-                      <p className="text-sm text-[rgba(255,255,255,0.50)]">Faturado (Receita)</p>
-                      <p className="text-xl font-bold text-white tabular-nums">
+                      <TrendingUp className="w-8 h-8 mx-auto hud-accent-success mb-2" />
+                      <p className="text-sm hud-text-muted">Faturado (Receita)</p>
+                      <p className="text-xl font-bold hud-kpi-value-success tabular-nums">
                         {projetoV2?.revenue
                           ? formatMoney(projetoV2.revenue.billed, true)
                           : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(projeto.valor_executado || 0)
                         }
                       </p>
-                      <p className="text-[10px] text-[rgba(255,255,255,0.30)] mt-1">
+                      <p className="text-[10px] hud-text-muted mt-1">
                         Fonte: Financeiro · {projetoV2?.revenue?.updatedAt
                           ? new Date(projetoV2.revenue.updatedAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' })
                           : '—'}
                       </p>
                     </div>
                     <div>
-                      <ArrowUpRight className="w-8 h-8 mx-auto text-[#FFB84D] mb-2" />
-                      <p className="text-sm text-[rgba(255,255,255,0.50)]">A Faturar (Receita)</p>
-                      <p className="text-xl font-bold text-white tabular-nums">
+                      <ArrowUpRight className="w-8 h-8 mx-auto hud-kpi-value-warning mb-2" />
+                      <p className="text-sm hud-text-muted">A Faturar (Receita)</p>
+                      <p className="text-xl font-bold hud-kpi-value-warning tabular-nums">
                         {projetoV2?.revenue
                           ? formatMoney(projetoV2.revenue.toBill, true)
                           : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format((projeto.valor_total || 0) - (projeto.valor_executado || 0))
@@ -340,7 +334,7 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
                   </div>
                 </div>
               </div>
-            </HUDCard>
+            </HudPanel>
 
             {/* ── Billing Eventogram Card ── */}
             {projetoV2 && (
@@ -353,19 +347,16 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
 
           <div className="space-y-6">
             {projeto.comite_id && (
-              <HUDCard>
-                <div className="mb-6">
-                  <h2 className="text-lg font-semibold text-white orion-text-heading">Supervisão do Comitê</h2>
-                </div>
+              <HudPanel title="Supervisão do Comitê" accentColor="cyan">
                 <div className="space-y-4">
                   <div className="flex items-center gap-3">
-                    <Building2 className="w-6 h-6 text-[#00FFB4]" />
-                    <p className="font-semibold text-lg text-white">{projeto.comite_nome}</p>
+                    <Building2 className="w-6 h-6 hud-accent-success" />
+                    <p className="font-semibold text-lg orion-text-primary">{projeto.comite_nome}</p>
                   </div>
-                  <Badge variant="outline" className="bg-[rgba(255,255,255,0.05)] text-[rgba(255,255,255,0.65)] border-[rgba(255,255,255,0.12)]">{projeto.comite_status?.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) || 'Ativo'}</Badge>
-                  <p className="text-sm text-[rgba(255,255,255,0.65)]">Este projeto está sob a supervisão do {projeto.comite_nome || 'Comitê'}.</p>
+                  <Badge variant="outline" className="hud-panel-badge">{projeto.comite_status?.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) || 'Ativo'}</Badge>
+                  <p className="text-sm hud-text-tertiary">Este projeto está sob a supervisão do {projeto.comite_nome || 'Comitê'}.</p>
                 </div>
-              </HUDCard>
+              </HudPanel>
             )}
 
             {/* Risk Card v2 — P/I/Score explicit */}
@@ -375,76 +366,73 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
               />
             )}
 
-            <HUDCard>
-              <div className="mb-6">
-                <h2 className="text-lg font-semibold text-white orion-text-heading">Atividades Recentes</h2>
-              </div>
+            <HudPanel title="Atividades Recentes">
               <div>
                 <ul className="space-y-3">
                   {pautasRelacionadas.slice(0, 2).map(pauta => (
                     <li key={pauta.id} className="flex items-start gap-3">
-                      <div className="p-2 bg-[rgba(0,255,180,0.12)] rounded-full"><FileText className="w-4 h-4 text-[#00FFB4]" /></div>
+                      <div className="p-2 hud-panel-icon rounded-full bg-[rgba(101,163,13,0.08)] text-[#65A30D] dark:bg-[rgba(0,255,180,0.12)] dark:text-[#00FFB4]"><FileText className="w-4 h-4" /></div>
                       <div>
-                        <p className="text-sm font-medium text-white">Nova pauta de votação</p>
-                        <p className="text-xs text-[rgba(255,255,255,0.50)] line-clamp-1">{pauta.titulo}</p>
+                        <p className="text-sm font-medium orion-text-primary">Nova pauta de votação</p>
+                        <p className="text-xs hud-text-muted line-clamp-1">{pauta.titulo}</p>
                       </div>
                     </li>
                   ))}
                   {reunioesRelacionadas.slice(0, 1).map(reuniao => (
                     <li key={reuniao.id} className="flex items-start gap-3">
-                      <div className="p-2 bg-[rgba(0,200,255,0.12)] rounded-full"><Calendar className="w-4 h-4 text-[#00C8FF]" /></div>
+                      <div className="p-2 hud-panel-icon rounded-full bg-[rgba(6,182,212,0.08)] text-[#06B6D4] dark:bg-[rgba(0,200,255,0.12)] dark:text-[#00C8FF]"><Calendar className="w-4 h-4" /></div>
                       <div>
-                        <p className="text-sm font-medium text-white">Reunião Agendada</p>
-                        <p className="text-xs text-[rgba(255,255,255,0.50)] line-clamp-1">{reuniao.titulo}</p>
+                        <p className="text-sm font-medium orion-text-primary">Reunião Agendada</p>
+                        <p className="text-xs hud-text-muted line-clamp-1">{reuniao.titulo}</p>
                       </div>
                     </li>
                   ))}
                 </ul>
               </div>
-            </HUDCard>
+            </HudPanel>
           </div>
         </div>
 
         {/* Tabs: Overview, Timeline, Team, Financeiro */}
-        <HUDCard>
+        <HudPanel noPadding>
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <div className="mb-6" id="project-tabs">
-              <TabsList className="grid w-full grid-cols-4 lg:w-[800px] bg-[rgba(255,255,255,0.05)] border border-[rgba(255,255,255,0.08)]">
-                <TabsTrigger value="overview" className="data-[state=active]:bg-[#00FFB4] data-[state=active]:text-[#050D0A] text-[rgba(255,255,255,0.65)]">Visão Geral</TabsTrigger>
-                <TabsTrigger value="timeline" className="data-[state=active]:bg-[#00FFB4] data-[state=active]:text-[#050D0A] text-[rgba(255,255,255,0.65)]">
+            <div className="p-6 border-b hud-panel-divider" id="project-tabs">
+              <TabsList className="grid w-full grid-cols-4 lg:w-[800px] hud-tabs-container">
+                <TabsTrigger value="overview" className="hud-tab-trigger">Visão Geral</TabsTrigger>
+                <TabsTrigger value="timeline" className="hud-tab-trigger">
                   <GanttChart className="w-4 h-4 mr-2" />
                   Timeline
                 </TabsTrigger>
-                <TabsTrigger value="team" className="data-[state=active]:bg-[#00FFB4] data-[state=active]:text-[#050D0A] text-[rgba(255,255,255,0.65)]">
+                <TabsTrigger value="team" className="hud-tab-trigger">
                   <UserCog className="w-4 h-4 mr-2" />
                   Equipe
                 </TabsTrigger>
-                <TabsTrigger value="finance" className="data-[state=active]:bg-[#00FFB4] data-[state=active]:text-[#050D0A] text-[rgba(255,255,255,0.65)]">
+                <TabsTrigger value="finance" className="hud-tab-trigger">
                   <DollarSign className="w-4 h-4 mr-2" />
                   Financeiro
                 </TabsTrigger>
               </TabsList>
             </div>
 
-            <div>
+            <div className="p-6 pt-2">
               <TabsContent value="overview" className="mt-0">
                 <div className="space-y-4">
-                  <h3 className="text-lg font-semibold text-white">Informações do Projeto</h3>
+                  <h3 className="text-lg font-semibold orion-text-primary mb-4">Informações do Projeto</h3>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div>
-                      <p className="text-sm text-[rgba(255,255,255,0.50)]">Código Interno</p>
-                      <p className="font-medium text-white">{projeto.codigoInterno || projeto.codigo || 'N/A'}</p>
+                      <p className="text-sm hud-text-muted">Código Interno</p>
+                      <p className="font-medium orion-text-primary">{projeto.codigoInterno || projeto.codigo || 'N/A'}</p>
                     </div>
                     <div>
-                      <p className="text-sm text-[rgba(255,255,255,0.50)]">Tipo</p>
-                      <p className="font-medium text-white">{projeto.tipo || 'Não especificado'}</p>
+                      <p className="text-sm hud-text-muted">Tipo</p>
+                      <p className="font-medium orion-text-primary">{projeto.tipo || 'Não especificado'}</p>
                     </div>
                     <div>
-                      <p className="text-sm text-[rgba(255,255,255,0.50)]">ROI Estimado</p>
-                      <p className="font-medium text-white">{projeto.roi_estimado ? `${projeto.roi_estimado}%` : 'N/A'}</p>
+                      <p className="text-sm hud-text-muted">ROI Estimado</p>
+                      <p className="font-medium orion-text-primary">{projeto.roi_estimado ? `${projeto.roi_estimado}%` : 'N/A'}</p>
                     </div>
                     <div>
-                      <p className="text-sm text-[rgba(255,255,255,0.50)]">Risco Geral</p>
+                      <p className="text-sm hud-text-muted">Risco Geral</p>
                       {(() => {
                         const openRisks = projetoV2?.risks?.filter(r => r.status !== 'resolved') || [];
                         const topScore = openRisks.length > 0
@@ -468,26 +456,26 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                         {projetoV2.uf && (
                           <div>
-                            <p className="text-sm text-[rgba(255,255,255,0.50)]">UF</p>
-                            <p className="font-medium text-white">{projetoV2.uf}</p>
+                            <p className="text-sm hud-text-muted">UF</p>
+                            <p className="font-medium orion-text-primary">{projetoV2.uf}</p>
                           </div>
                         )}
                         {projetoV2.location?.city && (
                           <div>
-                            <p className="text-sm text-[rgba(255,255,255,0.50)]">Cidade</p>
-                            <p className="font-medium text-white">{projetoV2.location.city}</p>
+                            <p className="text-sm hud-text-muted">Cidade</p>
+                            <p className="font-medium orion-text-primary">{projetoV2.location.city}</p>
                           </div>
                         )}
                         {projetoV2.contract_id && (
                           <div>
-                            <p className="text-sm text-[rgba(255,255,255,0.50)]">Contrato</p>
-                            <p className="font-medium text-[#00C8FF] text-sm">{projetoV2.contract_id}</p>
+                            <p className="text-sm hud-text-muted">Contrato</p>
+                            <p className="font-medium hud-accent-icon text-sm">{projetoV2.contract_id}</p>
                           </div>
                         )}
                         {projetoV2.templateType && (
                           <div>
-                            <p className="text-sm text-[rgba(255,255,255,0.50)]">Template</p>
-                            <Badge variant="outline" className="text-xs border-[rgba(255,255,255,0.12)] text-[rgba(255,255,255,0.65)]">
+                            <p className="text-sm hud-text-muted">Template</p>
+                            <Badge variant="outline" className="text-xs border-[rgba(255,255,255,0.12)] hud-text-tertiary">
                               {projetoV2.templateType}
                             </Badge>
                           </div>
@@ -527,16 +515,16 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
                   <FinanceView project={projetoV2} />
                 ) : (
                   <div className="text-center py-12">
-                    <DollarSign className="w-12 h-12 text-[rgba(255,255,255,0.20)] mx-auto mb-3" />
-                    <p className="text-[rgba(255,255,255,0.50)]">Dados financeiros detalhados não disponíveis para este projeto</p>
-                    <p className="text-xs text-[rgba(255,255,255,0.30)] mt-1">Projetos migrados para v2 exibem Curvas S, detalhamento e previsão</p>
+                    <DollarSign className="w-12 h-12 hud-text-muted mx-auto mb-3" />
+                    <p className="hud-text-muted">Dados financeiros detalhados não disponíveis para este projeto</p>
+                    <p className="text-xs hud-text-muted mt-1">Projetos migrados para v2 exibem Curvas S, detalhamento e previsão</p>
                   </div>
                 )}
               </TabsContent>
             </div>
           </Tabs>
-        </HUDCard>
+        </HudPanel>
       </div>
-    </OrionGreenBackground>
+    </HudPageLayout>
   );
 }

@@ -23,15 +23,15 @@ export interface HudStatusPillProps {
 }
 
 const VARIANT_STYLES: Record<HudStatusPillVariant, string> = {
-  active: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/25',
-  completed: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/25',
-  pending: 'bg-amber-500/15 text-amber-300 border-amber-500/25',
-  warning: 'bg-amber-500/15 text-amber-300 border-amber-500/25',
-  error: 'bg-red-500/15 text-red-300 border-red-500/25',
-  neutral: 'bg-white/[0.06] text-white/70 border-white/[0.10]',
-  info: 'bg-blue-500/15 text-blue-300 border-blue-500/25',
-  critical: 'bg-red-500/20 text-red-300 border-red-500/30',
-  at_risk: 'bg-orange-500/15 text-orange-300 border-orange-500/25',
+  active: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/25 hud-status-pill-active',
+  completed: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/25 hud-status-pill-completed',
+  pending: 'bg-amber-500/15 text-amber-300 border-amber-500/25 hud-status-pill-pending',
+  warning: 'bg-amber-500/15 text-amber-300 border-amber-500/25 hud-status-pill-warning',
+  error: 'bg-red-500/15 text-red-300 border-red-500/25 hud-status-pill-error',
+  neutral: 'bg-white/[0.06] text-white/70 border-white/[0.10] hud-status-pill-neutral',
+  info: 'bg-blue-500/15 text-blue-300 border-blue-500/25 hud-status-pill-info',
+  critical: 'bg-red-500/20 text-red-300 border-red-500/30 hud-status-pill-critical',
+  at_risk: 'bg-orange-500/15 text-orange-300 border-orange-500/25 hud-status-pill-at_risk',
 };
 
 const SIZE_STYLES = {

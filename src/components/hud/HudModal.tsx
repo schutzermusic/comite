@@ -83,7 +83,7 @@ export function HudModal({
               'relative w-full',
               SIZE_WIDTHS[size],
               // Glass panel styling
-              'rounded-xl',
+              'hud-modal-surface rounded-xl',
               'bg-gradient-to-br from-[rgba(8,28,22,0.95)] via-[rgba(6,22,18,0.92)] to-[rgba(4,18,14,0.95)]',
               'backdrop-blur-[32px]',
               'border border-white/[0.10]',

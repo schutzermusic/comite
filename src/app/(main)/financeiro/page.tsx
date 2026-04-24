@@ -4,6 +4,7 @@ import { useState, useMemo, useCallback } from 'react';
 import { useTranslations } from 'next-intl';
 import { DollarSign, CheckCircle2 } from 'lucide-react';
 import ReactECharts from 'echarts-for-react';
+import { useTheme } from '@/contexts/ThemeContext';
 import {
   HudPageLayout, HudHeader, HudPanel, HudSelect, HudStatusPill,
   HudDrawer, HudTable, HudButton, HudEmptyState,
@@ -80,6 +81,8 @@ type DrawerState =
 
 export default function FinanceOverviewPage() {
   const t = useTranslations('finance');
+  const { theme } = useTheme();
+  const isLight = theme === 'light';
   const [periodFrom, setPeriodFrom] = useState('2026-01');
   const [periodTo, setPeriodTo] = useState('2026-03');
   const [drawer, setDrawer] = useState<DrawerState>({ type: 'closed' });
@@ -253,9 +256,9 @@ export default function FinanceOverviewPage() {
       tooltip: {
         trigger: 'axis' as const,
         axisPointer: { type: 'shadow' as const },
-        backgroundColor: '#162522',
-        borderColor: 'rgba(200,220,235,0.12)',
-        textStyle: { color: '#f0fdf8', fontSize: 11 },
+        backgroundColor: isLight ? 'rgba(255,255,255,0.96)' : '#162522',
+        borderColor: isLight ? 'rgba(0,0,0,0.08)' : 'rgba(200,220,235,0.12)',
+        textStyle: { color: isLight ? '#1C1F24' : '#f0fdf8', fontSize: 11 },
         formatter: (params: any) => {
           const idx = params[0]?.dataIndex ?? 0;
           const item = waterfallData[idx];
@@ -268,14 +271,14 @@ export default function FinanceOverviewPage() {
       xAxis: {
         type: 'category' as const,
         data: waterfallData.map(d => d.name),
-        axisLabel: { color: '#9abfaf', fontSize: 10, interval: 0, rotate: 0 },
-        axisLine: { lineStyle: { color: 'rgba(200,220,235,0.06)' } },
+        axisLabel: { color: isLight ? '#4B5563' : '#9abfaf', fontSize: 10, interval: 0, rotate: 0 },
+        axisLine: { lineStyle: { color: isLight ? 'rgba(0,0,0,0.08)' : 'rgba(200,220,235,0.06)' } },
         axisTick: { show: false },
       },
       yAxis: {
         type: 'value' as const,
-        axisLabel: { color: '#6a8b7c', fontSize: 10, formatter: (v: number) => formatCompactBRL(v) },
-        splitLine: { lineStyle: { color: 'rgba(255,255,255,0.04)' } },
+        axisLabel: { color: isLight ? '#6B7280' : '#6a8b7c', fontSize: 10, formatter: (v: number) => formatCompactBRL(v) },
+        splitLine: { lineStyle: { color: isLight ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.04)' } },
         axisLine: { show: false },
       },
       series: [
@@ -297,7 +300,7 @@ export default function FinanceOverviewPage() {
           label: {
             show: true,
             position: 'top' as const,
-            color: '#d8f0e4',
+            color: isLight ? '#374151' : '#d8f0e4',
             fontSize: 10,
             fontFamily: 'monospace',
             formatter: (p: any) => {
@@ -308,7 +311,7 @@ export default function FinanceOverviewPage() {
         },
       ],
     };
-  }, [waterfallData, revenue, t]);
+  }, [waterfallData, revenue, t, isLight]);
 
   // ── Cost Composition chart (NO revenue) ──────────────────
   const costCompOption = useMemo(() => {
@@ -322,13 +325,13 @@ export default function FinanceOverviewPage() {
       tooltip: {
         trigger: 'axis' as const,
         axisPointer: { type: 'shadow' as const },
-        backgroundColor: '#162522',
-        borderColor: 'rgba(200,220,235,0.12)',
-        textStyle: { color: '#f0fdf8', fontSize: 11 },
+        backgroundColor: isLight ? 'rgba(255,255,255,0.96)' : '#162522',
+        borderColor: isLight ? 'rgba(0,0,0,0.08)' : 'rgba(200,220,235,0.12)',
+        textStyle: { color: isLight ? '#1C1F24' : '#f0fdf8', fontSize: 11 },
       },
       legend: {
         data: ['COGS', 'OPEX', 'Financeiro', 'Impostos'],
-        textStyle: { color: '#9abfaf', fontSize: 10 },
+        textStyle: { color: isLight ? '#4B5563' : '#9abfaf', fontSize: 10 },
         bottom: 0,
         icon: 'rect',
         itemWidth: 10,
@@ -338,14 +341,14 @@ export default function FinanceOverviewPage() {
       xAxis: {
         type: 'category' as const,
         data: months,
-        axisLabel: { color: '#9abfaf', fontSize: 10 },
-        axisLine: { lineStyle: { color: 'rgba(200,220,235,0.06)' } },
+        axisLabel: { color: isLight ? '#4B5563' : '#9abfaf', fontSize: 10 },
+        axisLine: { lineStyle: { color: isLight ? 'rgba(0,0,0,0.08)' : 'rgba(200,220,235,0.06)' } },
         axisTick: { show: false },
       },
       yAxis: {
         type: 'value' as const,
-        axisLabel: { color: '#6a8b7c', fontSize: 10, formatter: (v: number) => formatCompactBRL(v) },
-        splitLine: { lineStyle: { color: 'rgba(255,255,255,0.04)' } },
+        axisLabel: { color: isLight ? '#6B7280' : '#6a8b7c', fontSize: 10, formatter: (v: number) => formatCompactBRL(v) },
+        splitLine: { lineStyle: { color: isLight ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.04)' } },
         axisLine: { show: false },
       },
       series: [
@@ -355,7 +358,7 @@ export default function FinanceOverviewPage() {
         { name: 'Impostos', type: 'bar', stack: 'costs', data: costStack.map(m => Math.abs(m.taxes)), itemStyle: { color: '#ef4444' }, barWidth: 28 },
       ],
     };
-  }, [costStack]);
+  }, [costStack, isLight]);
 
   // ── Margin by project chart ──────────────────────────────
   const top10Margins = useMemo(() => margins.filter(m => m.revenue > 0 && m.cogs !== 0).slice(0, 10), [margins]);
@@ -363,9 +366,9 @@ export default function FinanceOverviewPage() {
   const marginOption = useMemo(() => ({
     tooltip: {
       trigger: 'axis' as const,
-      backgroundColor: '#162522',
-      borderColor: 'rgba(200,220,235,0.12)',
-      textStyle: { color: '#f0fdf8', fontSize: 11 },
+      backgroundColor: isLight ? 'rgba(255,255,255,0.96)' : '#162522',
+      borderColor: isLight ? 'rgba(0,0,0,0.08)' : 'rgba(200,220,235,0.12)',
+      textStyle: { color: isLight ? '#1C1F24' : '#f0fdf8', fontSize: 11 },
       formatter: (params: any) => {
         const idx = params[0]?.dataIndex ?? 0;
         const proj = top10Margins[top10Margins.length - 1 - idx];
@@ -376,14 +379,14 @@ export default function FinanceOverviewPage() {
     grid: { left: 130, right: 50, top: 8, bottom: 8 },
     xAxis: {
       type: 'value' as const,
-      axisLabel: { formatter: '{value}%', color: '#6a8b7c', fontSize: 10 },
-      splitLine: { lineStyle: { color: 'rgba(255,255,255,0.04)' } },
+      axisLabel: { formatter: '{value}%', color: isLight ? '#6B7280' : '#6a8b7c', fontSize: 10 },
+      splitLine: { lineStyle: { color: isLight ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.04)' } },
       axisLine: { show: false },
     },
     yAxis: {
       type: 'category' as const,
       data: [...top10Margins].reverse().map(m => m.project_name.slice(0, 22)),
-      axisLabel: { color: '#9abfaf', fontSize: 10 },
+      axisLabel: { color: isLight ? '#4B5563' : '#9abfaf', fontSize: 10 },
       axisLine: { show: false },
       axisTick: { show: false },
     },
@@ -397,13 +400,13 @@ export default function FinanceOverviewPage() {
       label: {
         show: true,
         position: 'right' as const,
-        color: '#d8f0e4',
+        color: isLight ? '#374151' : '#d8f0e4',
         fontSize: 10,
         fontFamily: 'monospace',
         formatter: (p: any) => `${p.value}%`,
       },
     }],
-  }), [top10Margins]);
+  }), [top10Margins, isLight]);
 
   // ── Drawer content ───────────────────────────────────────
   const drawerTitle = useMemo(() => {
@@ -439,7 +442,7 @@ export default function FinanceOverviewPage() {
         actions={
           <div className="flex items-center gap-2">
             <HudSelect label="" value={periodFrom} onChange={setPeriodFrom} options={periodOptions} size="sm" />
-            <span className="text-white/30 text-xs">a</span>
+            <span className="hud-text-muted text-xs">a</span>
             <HudSelect label="" value={periodTo} onChange={setPeriodTo} options={periodOptions} size="sm" />
           </div>
         }
@@ -724,7 +727,7 @@ export default function FinanceOverviewPage() {
       </div>
 
       {/* ── ROW 5: Data Quality Bar (inline, no panel chrome) ── */}
-      <div className="mt-4 px-4 py-2.5 rounded-lg bg-black/20 flex items-center gap-4 flex-wrap">
+      <div className="mt-4 px-4 py-2.5 rounded-lg bg-black/20 finance-quality-bar flex items-center gap-4 flex-wrap">
         {quality.every(q => q.status === 'green') ? (
           <span className="text-emerald-400 text-[11px] flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
