@@ -4354,16 +4354,7 @@
   color: var(--orion-text-secondary) !important;
 }
 
-/* ── HudButton primary — light mode ── */
-.light .hud-btn-primary {
-  background: linear-gradient(135deg, #65A30D, #4D7C0F) !important;
-  color: #ffffff !important;
-  box-shadow: 0 2px 8px rgba(101, 163, 13, 0.25) !important;
-}
-.light .hud-btn-primary:hover {
-  background: linear-gradient(135deg, #4D7C0F, #065f46) !important;
-  box-shadow: 0 4px 14px rgba(101, 163, 13, 0.35) !important;
-}
+/* HudButton primary — light mode override moved to styles/tokens.css (TASK-006a) */
 
 /* ── HudEmptyState — light mode ── */
 .light .hud-empty-icon-box {
@@ -5663,18 +5654,7 @@
 }
 .light .hud-tab-underline-active { color: #16A34A !important; }
 
-/* ── Buttons primary ── */
-.light .hud-btn-primary {
-  background: #16A34A !important;
-  color: #ffffff !important;
-  box-shadow: 0 1px 3px rgba(22, 163, 74, 0.3) !important;
-}
-.light .hud-btn-primary:hover {
-  background: #15803D !important;
-  box-shadow: 0 2px 6px rgba(22, 163, 74, 0.35) !important;
-}
-.light .bg-\[\#00FFB4\] { background: #16A34A !important; }
-.light .hover\:bg-\[\#00E6A0\]:hover { background: #15803D !important; }
+/* Buttons primary — light mode override moved to styles/tokens.css (TASK-006a) */
 
 /* ── Focus ring ── */
 .light .ring-cyan-500\/20,
