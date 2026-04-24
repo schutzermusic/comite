@@ -2,25 +2,19 @@
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Save, Briefcase, DollarSign, Calendar, AlertTriangle } from 'lucide-react';
-import { HUDCard } from '@/components/ui/hud-card';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { ArrowLeft, Save, Briefcase, FolderPlus } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { OrionGreenBackground } from '@/components/system/OrionGreenBackground';
 import { projects, users } from '@/lib/mock-data';
 import { createProject } from '@/lib/services/projects';
 import { Project } from '@/lib/types';
-import Link from 'next/link';
+
+// HUD-based components — theme-aware
+import {
+  HudPageLayout,
+  HudHeader,
+  HudPanel,
+  HudButton,
+} from '@/components/hud';
 
 const comites = projects
   .map((p) => ({ id: p.comite_id, nome: p.comite_nome }))
@@ -144,346 +138,321 @@ export default function NovoProjetoPage() {
   };
 
   return (
-    <OrionGreenBackground className="orion-page">
-      <div className="orion-page-content max-w-5xl mx-auto space-y-6">
-        <header className="mb-8">
-          <div className="flex items-center gap-4">
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() => router.push('/projetos')}
-              className="border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.05)] hover:bg-[rgba(255,255,255,0.08)] text-white"
-            >
-              <ArrowLeft className="w-4 h-4" />
-            </Button>
-            <div>
-              <h1 className="text-2xl font-semibold text-white mb-1 tracking-wide">Novo Projeto</h1>
-              <p className="text-sm text-[rgba(255,255,255,0.65)]">
-                Crie um novo projeto no portfólio
-              </p>
-            </div>
-          </div>
-        </header>
+    <HudPageLayout maxWidth="xl">
+      {/* Header */}
+      <HudHeader
+        title="Novo Projeto"
+        subtitle="Crie um novo projeto no portfólio de governança"
+        icon={<FolderPlus className="w-5 h-5" />}
+        breadcrumbs={[
+          { label: 'Projetos', href: '/projetos' },
+          { label: 'Novo Projeto' },
+        ]}
+        actions={
+          <HudButton
+            variant="ghost"
+            size="md"
+            leftIcon={<ArrowLeft className="w-4 h-4" />}
+            onClick={() => router.push('/projetos')}
+          >
+            Voltar
+          </HudButton>
+        }
+      />
 
       <div className="grid lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
-          {/* Informações Básicas */}
-          <HUDCard>
-            <div className="mb-6">
-              <h2 className="text-lg font-semibold text-white orion-text-heading">Informações Básicas</h2>
-            </div>
-            <div className="space-y-6">
-              <div className="grid md:grid-cols-2 gap-6">
-                <div className="space-y-2">
-                  <Label htmlFor="nome" className="text-[rgba(255,255,255,0.65)]">
-                    Nome do Projeto <span className="text-red-500">*</span>
-                  </Label>
-                  <Input
+          {/* ── Informações Básicas ── */}
+          <HudPanel title="Informações Básicas" accentColor="emerald">
+            <div className="space-y-5">
+              <div className="grid md:grid-cols-2 gap-5">
+                <div className="novo-projeto-field">
+                  <label htmlFor="nome" className="novo-projeto-label">
+                    Nome do Projeto <span className="novo-projeto-required">*</span>
+                  </label>
+                  <input
                     id="nome"
+                    type="text"
                     placeholder="Ex: Expansão da Planta Solar"
                     value={formData.nome}
                     onChange={(e) => handleInputChange('nome', e.target.value)}
-                    className="bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.08)] text-white placeholder:text-[rgba(255,255,255,0.40)] focus:border-[rgba(0,255,180,0.25)]"
+                    className="novo-projeto-input"
                   />
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="codigo" className="text-[rgba(255,255,255,0.65)]">
-                    OP do Projeto <span className="text-red-500">*</span>
-                  </Label>
-                  <Input
+                <div className="novo-projeto-field">
+                  <label htmlFor="codigo" className="novo-projeto-label">
+                    OP do Projeto <span className="novo-projeto-required">*</span>
+                  </label>
+                  <input
                     id="codigo"
+                    type="text"
                     placeholder="Ex: OP-12345"
                     value={formData.codigo}
                     onChange={(e) => handleInputChange('codigo', e.target.value)}
-                    className="bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.08)] text-white placeholder:text-[rgba(255,255,255,0.40)] focus:border-[rgba(0,255,180,0.25)]"
+                    className="novo-projeto-input"
                   />
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="cliente" className="text-[rgba(255,255,255,0.65)]">Cliente</Label>
-                <Input
+              <div className="novo-projeto-field">
+                <label htmlFor="cliente" className="novo-projeto-label">Cliente</label>
+                <input
                   id="cliente"
+                  type="text"
                   placeholder="Nome do cliente ou 'Interno'"
                   value={formData.cliente}
                   onChange={(e) => handleInputChange('cliente', e.target.value)}
-                  className="bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.08)] text-white placeholder:text-[rgba(255,255,255,0.40)] focus:border-[rgba(0,255,180,0.25)]"
+                  className="novo-projeto-input"
                 />
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="descricao" className="text-[rgba(255,255,255,0.65)]">Descrição</Label>
-                <Textarea
+              <div className="novo-projeto-field">
+                <label htmlFor="descricao" className="novo-projeto-label">Descrição</label>
+                <textarea
                   id="descricao"
                   placeholder="Descreva o projeto em detalhes..."
                   rows={4}
                   value={formData.descricao}
                   onChange={(e) => handleInputChange('descricao', e.target.value)}
-                  className="bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.08)] text-white placeholder:text-[rgba(255,255,255,0.40)] focus:border-[rgba(0,255,180,0.25)]"
+                  className="novo-projeto-input novo-projeto-textarea"
                 />
               </div>
 
-              <div className="grid md:grid-cols-2 gap-6">
-                <div className="space-y-2">
-                  <Label htmlFor="tipo" className="text-[rgba(255,255,255,0.65)]">Tipo de Projeto</Label>
-                  <Select
+              <div className="grid md:grid-cols-2 gap-5">
+                <div className="novo-projeto-field">
+                  <label htmlFor="tipo" className="novo-projeto-label">Tipo de Projeto</label>
+                  <select
+                    id="tipo"
                     value={formData.tipo}
-                    onValueChange={(value) => handleInputChange('tipo', value)}
+                    onChange={(e) => handleInputChange('tipo', e.target.value)}
+                    className="novo-projeto-input novo-projeto-select"
                   >
-                    <SelectTrigger className="bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.08)] text-white hover:border-[rgba(0,255,180,0.25)] focus:border-[rgba(0,255,180,0.25)]">
-                      <SelectValue placeholder="Selecione o tipo" />
-                    </SelectTrigger>
-                    <SelectContent className="bg-gradient-to-br from-[#07130F] to-[#030B09] border-[rgba(255,255,255,0.08)]">
-                      <SelectItem value="energia_solar" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Energia Solar</SelectItem>
-                      <SelectItem value="eolica" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Eólica</SelectItem>
-                      <SelectItem value="hidreletrica" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Hidrelétrica</SelectItem>
-                      <SelectItem value="biomassa" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Biomassa</SelectItem>
-                      <SelectItem value="outro" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Outro</SelectItem>
-                    </SelectContent>
-                  </Select>
+                    <option value="">Selecione o tipo</option>
+                    <option value="energia_solar">Energia Solar</option>
+                    <option value="eolica">Eólica</option>
+                    <option value="hidreletrica">Hidrelétrica</option>
+                    <option value="biomassa">Biomassa</option>
+                    <option value="outro">Outro</option>
+                  </select>
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="data_inicio" className="text-[rgba(255,255,255,0.65)]">Data de Início</Label>
-                  <Input
+                <div className="novo-projeto-field">
+                  <label htmlFor="data_inicio" className="novo-projeto-label">Data de Início</label>
+                  <input
                     id="data_inicio"
                     type="date"
                     value={formData.data_inicio}
                     onChange={(e) => handleInputChange('data_inicio', e.target.value)}
-                    className="bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.08)] text-white focus:border-[rgba(0,255,180,0.25)]"
+                    className="novo-projeto-input"
                   />
                 </div>
               </div>
             </div>
-          </HUDCard>
+          </HudPanel>
 
-          {/* Status e Supervisão */}
-          <HUDCard>
-            <div className="mb-6">
-              <h2 className="text-lg font-semibold text-white orion-text-heading">Status e Supervisão</h2>
-            </div>
-            <div className="space-y-6">
-              <div className="grid md:grid-cols-2 gap-6">
-                <div className="space-y-2">
-                  <Label htmlFor="status" className="text-[rgba(255,255,255,0.65)]">Status</Label>
-                  <Select
+          {/* ── Status e Supervisão ── */}
+          <HudPanel title="Status e Supervisão" accentColor="cyan">
+            <div className="space-y-5">
+              <div className="grid md:grid-cols-2 gap-5">
+                <div className="novo-projeto-field">
+                  <label htmlFor="status" className="novo-projeto-label">Status</label>
+                  <select
+                    id="status"
                     value={formData.status}
-                    onValueChange={(value: any) => handleInputChange('status', value)}
+                    onChange={(e) => handleInputChange('status', e.target.value)}
+                    className="novo-projeto-input novo-projeto-select"
                   >
-                    <SelectTrigger className="bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.08)] text-white hover:border-[rgba(0,255,180,0.25)] focus:border-[rgba(0,255,180,0.25)]">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent className="bg-gradient-to-br from-[#07130F] to-[#030B09] border-[rgba(255,255,255,0.08)]">
-                      <SelectItem value="planejamento" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Planejamento</SelectItem>
-                      <SelectItem value="em_andamento" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Em Andamento</SelectItem>
-                      <SelectItem value="pausado" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Pausado</SelectItem>
-                      <SelectItem value="concluido" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Concluído</SelectItem>
-                      <SelectItem value="cancelado" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Cancelado</SelectItem>
-                    </SelectContent>
-                  </Select>
+                    <option value="planejamento">Planejamento</option>
+                    <option value="em_andamento">Em Andamento</option>
+                    <option value="pausado">Pausado</option>
+                    <option value="concluido">Concluído</option>
+                    <option value="cancelado">Cancelado</option>
+                  </select>
                 </div>
 
                 {comites.length > 0 && (
-                  <div className="space-y-2">
-                    <Label htmlFor="comite" className="text-[rgba(255,255,255,0.65)]">Comitê Supervisor (Opcional)</Label>
-                    <Select
+                  <div className="novo-projeto-field">
+                    <label htmlFor="comite" className="novo-projeto-label">Comitê Supervisor (Opcional)</label>
+                    <select
+                      id="comite"
                       value={formData.comite_id || 'none'}
-                      onValueChange={handleComiteChange}
+                      onChange={(e) => handleComiteChange(e.target.value)}
+                      className="novo-projeto-input novo-projeto-select"
                     >
-                      <SelectTrigger className="bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.08)] text-white hover:border-[rgba(0,255,180,0.25)] focus:border-[rgba(0,255,180,0.25)]">
-                        <SelectValue placeholder="Selecione um comitê" />
-                      </SelectTrigger>
-                      <SelectContent className="bg-gradient-to-br from-[#07130F] to-[#030B09] border-[rgba(255,255,255,0.08)]">
-                        <SelectItem value="none" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Sem supervisão</SelectItem>
-                        {comites && Array.isArray(comites) && comites.map((comite) => (
-                          <SelectItem key={comite.id} value={comite.id} className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">
-                            {comite.nome}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                      <option value="none">Sem supervisão</option>
+                      {comites && Array.isArray(comites) && comites.map((comite) => (
+                        <option key={comite.id} value={comite.id}>
+                          {comite.nome}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 )}
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="responsavel" className="text-[rgba(255,255,255,0.65)]">Responsável</Label>
-                <Select
+              <div className="novo-projeto-field">
+                <label htmlFor="responsavel" className="novo-projeto-label">Responsável</label>
+                <select
+                  id="responsavel"
                   value={formData.responsavel_id}
-                  onValueChange={(value) => handleInputChange('responsavel_id', value)}
+                  onChange={(e) => handleInputChange('responsavel_id', e.target.value)}
+                  className="novo-projeto-input novo-projeto-select"
                 >
-                  <SelectTrigger className="bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.08)] text-white hover:border-[rgba(0,255,180,0.25)] focus:border-[rgba(0,255,180,0.25)]">
-                    <SelectValue placeholder="Selecione o responsável" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-gradient-to-br from-[#07130F] to-[#030B09] border-[rgba(255,255,255,0.08)]">
-                    {users && Array.isArray(users) && users.map((user) => (
-                      <SelectItem key={user.id} value={user.id} className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">
-                        {user.nome} ({user.email})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  <option value="">Selecione o responsável</option>
+                  {users && Array.isArray(users) && users.map((user) => (
+                    <option key={user.id} value={user.id}>
+                      {user.nome} ({user.email})
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
-          </HUDCard>
+          </HudPanel>
 
-          {/* Informações Financeiras */}
-          <HUDCard>
-            <div className="mb-6">
-              <h2 className="text-lg font-semibold text-white orion-text-heading">Informações Financeiras</h2>
-            </div>
-            <div className="space-y-6">
-              <div className="grid md:grid-cols-2 gap-6">
-                <div className="space-y-2">
-                  <Label htmlFor="valor_total" className="text-[rgba(255,255,255,0.65)]">Valor Total (R$)</Label>
-                  <Input
+          {/* ── Informações Financeiras ── */}
+          <HudPanel title="Informações Financeiras" accentColor="amber">
+            <div className="space-y-5">
+              <div className="grid md:grid-cols-2 gap-5">
+                <div className="novo-projeto-field">
+                  <label htmlFor="valor_total" className="novo-projeto-label">Valor Total (R$)</label>
+                  <input
                     id="valor_total"
                     type="number"
                     placeholder="0"
                     value={formData.valor_total}
                     onChange={(e) => handleInputChange('valor_total', e.target.value)}
-                    className="bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.08)] text-white hover:border-[rgba(0,255,180,0.25)] focus:border-[rgba(0,255,180,0.25)]"
+                    className="novo-projeto-input"
                   />
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="valor_executado" className="text-[rgba(255,255,255,0.65)]">Valor Executado (R$)</Label>
-                  <Input
+                <div className="novo-projeto-field">
+                  <label htmlFor="valor_executado" className="novo-projeto-label">Valor Executado (R$)</label>
+                  <input
                     id="valor_executado"
                     type="number"
                     placeholder="0"
                     value={formData.valor_executado}
                     onChange={(e) => handleInputChange('valor_executado', e.target.value)}
-                    className="bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.08)] text-white hover:border-[rgba(0,255,180,0.25)] focus:border-[rgba(0,255,180,0.25)]"
+                    className="novo-projeto-input"
                   />
                 </div>
               </div>
 
-              <div className="grid md:grid-cols-2 gap-6">
-                <div className="space-y-2">
-                  <Label htmlFor="impacto_financeiro" className="text-[rgba(255,255,255,0.65)]">Impacto Financeiro</Label>
-                  <Select
+              <div className="grid md:grid-cols-2 gap-5">
+                <div className="novo-projeto-field">
+                  <label htmlFor="impacto_financeiro" className="novo-projeto-label">Impacto Financeiro</label>
+                  <select
+                    id="impacto_financeiro"
                     value={formData.impacto_financeiro}
-                    onValueChange={(value: any) => handleInputChange('impacto_financeiro', value)}
+                    onChange={(e) => handleInputChange('impacto_financeiro', e.target.value)}
+                    className="novo-projeto-input novo-projeto-select"
                   >
-                    <SelectTrigger className="bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.08)] text-white hover:border-[rgba(0,255,180,0.25)] focus:border-[rgba(0,255,180,0.25)]">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent className="bg-gradient-to-br from-[#07130F] to-[#030B09] border-[rgba(255,255,255,0.08)]">
-                      <SelectItem value="baixo" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Baixo</SelectItem>
-                      <SelectItem value="medio" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Médio</SelectItem>
-                      <SelectItem value="alto" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Alto</SelectItem>
-                      <SelectItem value="critico" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Crítico</SelectItem>
-                    </SelectContent>
-                  </Select>
+                    <option value="baixo">Baixo</option>
+                    <option value="medio">Médio</option>
+                    <option value="alto">Alto</option>
+                    <option value="critico">Crítico</option>
+                  </select>
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="roi_estimado" className="text-[rgba(255,255,255,0.65)]">ROI Estimado (%)</Label>
-                  <Input
+                <div className="novo-projeto-field">
+                  <label htmlFor="roi_estimado" className="novo-projeto-label">ROI Estimado (%)</label>
+                  <input
                     id="roi_estimado"
                     type="number"
                     placeholder="0"
                     value={formData.roi_estimado}
                     onChange={(e) => handleInputChange('roi_estimado', e.target.value)}
-                    className="bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.08)] text-white hover:border-[rgba(0,255,180,0.25)] focus:border-[rgba(0,255,180,0.25)]"
+                    className="novo-projeto-input"
                   />
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="risco_geral" className="text-[rgba(255,255,255,0.65)]">Risco Geral</Label>
-                <Select
+              <div className="novo-projeto-field">
+                <label htmlFor="risco_geral" className="novo-projeto-label">Risco Geral</label>
+                <select
+                  id="risco_geral"
                   value={formData.risco_geral}
-                  onValueChange={(value: any) => handleInputChange('risco_geral', value)}
+                  onChange={(e) => handleInputChange('risco_geral', e.target.value)}
+                  className="novo-projeto-input novo-projeto-select"
                 >
-                  <SelectTrigger className="bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.08)] text-white hover:border-[rgba(0,255,180,0.25)] focus:border-[rgba(0,255,180,0.25)]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="baixo">Baixo</SelectItem>
-                    <SelectItem value="medio">Médio</SelectItem>
-                    <SelectItem value="alto">Alto</SelectItem>
-                    <SelectItem value="critico">Crítico</SelectItem>
-                  </SelectContent>
-                </Select>
+                  <option value="baixo">Baixo</option>
+                  <option value="medio">Médio</option>
+                  <option value="alto">Alto</option>
+                  <option value="critico">Crítico</option>
+                </select>
               </div>
             </div>
-          </HUDCard>
+          </HudPanel>
         </div>
 
-        {/* Sidebar - Resumo */}
+        {/* ── Sidebar — Resumo ── */}
         <div className="space-y-6">
-          <HUDCard>
-            <div className="mb-6">
-              <h2 className="text-lg font-semibold text-white orion-text-heading">Resumo</h2>
-            </div>
-            <div>
-              <div className="space-y-4">
-                <div>
-                  <p className="text-sm text-[rgba(255,255,255,0.65)] mb-1">Nome</p>
-                  <p className="font-medium text-white">{formData.nome || 'Não informado'}</p>
+          <HudPanel title="Resumo" accentColor="emerald">
+            <div className="space-y-4">
+              <div className="novo-projeto-summary-item">
+                <span className="novo-projeto-summary-label">Nome</span>
+                <span className="novo-projeto-summary-value">{formData.nome || 'Não informado'}</span>
+              </div>
+
+              <div className="novo-projeto-summary-item">
+                <span className="novo-projeto-summary-label">OP</span>
+                <span className="novo-projeto-summary-value">{formData.codigo || 'Não informado'}</span>
+              </div>
+
+              <div className="novo-projeto-summary-item">
+                <span className="novo-projeto-summary-label">Status</span>
+                <span className="novo-projeto-summary-value capitalize">{formData.status.replace(/_/g, ' ')}</span>
+              </div>
+
+              {formData.comite_nome && (
+                <div className="novo-projeto-summary-item">
+                  <span className="novo-projeto-summary-label">Comitê Supervisor</span>
+                  <span className="novo-projeto-summary-value">{formData.comite_nome}</span>
                 </div>
+              )}
 
-                <div>
-                  <p className="text-sm text-[rgba(255,255,255,0.65)] mb-1">OP</p>
-                  <p className="font-medium text-white">{formData.codigo || 'Não informado'}</p>
+              {formData.valor_total && (
+                <div className="novo-projeto-summary-item">
+                  <span className="novo-projeto-summary-label">Valor Total</span>
+                  <span className="novo-projeto-summary-value">
+                    {new Intl.NumberFormat('pt-BR', {
+                      style: 'currency',
+                      currency: 'BRL',
+                    }).format(Number(formData.valor_total))}
+                  </span>
                 </div>
+              )}
 
-                <div>
-                  <p className="text-sm text-[rgba(255,255,255,0.65)] mb-1">Status</p>
-                  <p className="font-medium text-white capitalize">{formData.status}</p>
-                </div>
-
-                {formData.comite_nome && (
-                  <div>
-                    <p className="text-sm text-[rgba(255,255,255,0.65)] mb-1">Comitê Supervisor</p>
-                    <p className="font-medium text-white">{formData.comite_nome}</p>
-                  </div>
-                )}
-
-                {formData.valor_total && (
-                  <div>
-                    <p className="text-sm text-[rgba(255,255,255,0.65)] mb-1">Valor Total</p>
-                    <p className="font-medium text-white">
-                      {new Intl.NumberFormat('pt-BR', {
-                        style: 'currency',
-                        currency: 'BRL',
-                      }).format(Number(formData.valor_total))}
-                    </p>
-                  </div>
-                )}
-
-                <div>
-                  <p className="text-sm text-[rgba(255,255,255,0.65)] mb-1">Impacto</p>
-                  <p className="font-medium text-white capitalize">{formData.impacto_financeiro}</p>
-                </div>
+              <div className="novo-projeto-summary-item">
+                <span className="novo-projeto-summary-label">Impacto</span>
+                <span className="novo-projeto-summary-value capitalize">{formData.impacto_financeiro}</span>
               </div>
             </div>
-          </HUDCard>
+          </HudPanel>
 
           <div className="space-y-3">
-            <Button
+            <HudButton
+              variant="primary"
+              size="lg"
+              fullWidth
+              leftIcon={<Save className="w-4 h-4" />}
               onClick={handleSubmit}
-              className="w-full bg-[#00FFB4] text-[#050D0A] hover:bg-[#00E6A0] font-medium shadow-[0_0_18px_rgba(0,255,180,0.18)]"
             >
-              <Save className="w-4 h-4 mr-2" />
               Criar Projeto
-            </Button>
+            </HudButton>
 
-            <Button
-              variant="outline"
+            <HudButton
+              variant="secondary"
+              size="lg"
+              fullWidth
               onClick={() => router.push('/projetos')}
-              className="w-full border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.05)] text-white hover:bg-[rgba(255,255,255,0.08)]"
             >
               Cancelar
-            </Button>
+            </HudButton>
           </div>
         </div>
-        </div>
       </div>
-    </OrionGreenBackground>
+    </HudPageLayout>
   );
 }
-

@@ -46,10 +46,10 @@ const getStatusVariant = (status: string): string => {
   return map[status] ?? 'neutral';
 };
 
-const getRiskColor = (level?: string): string => {
-  if (level === 'critical' || level === 'high') return '#FF5860';
-  if (level === 'medium') return '#FFB04D';
-  return '#00FFB4';
+const getRiskClass = (level?: string): string => {
+  if (level === 'critical' || level === 'high') return 'hud-accent-danger';
+  if (level === 'medium') return 'hud-accent-warning';
+  return 'hud-accent-success';
 };
 
 const getMyVoteLabel = (item: DeliberationItem): string => {
@@ -87,16 +87,16 @@ export function DecisionList({ items, selectedId, onSelectItem }: DecisionListPr
   if (items.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
-        <div className="w-12 h-12 rounded-full bg-[rgba(255,255,255,0.05)] flex items-center justify-center mb-3">
-          <FileX className="w-6 h-6 text-[rgba(255,255,255,0.25)]" />
+        <div className="w-12 h-12 rounded-full hud-surface-elevated flex items-center justify-center mb-3">
+          <FileX className="w-6 h-6 hud-text-muted" />
         </div>
-        <p className="text-sm text-[rgba(255,255,255,0.45)]">Nenhuma deliberação encontrada para este filtro.</p>
+        <p className="text-sm hud-text-muted">Nenhuma deliberação encontrada para este filtro.</p>
       </div>
     );
   }
 
   return (
-    <div className="divide-y divide-[rgba(255,255,255,0.06)]">
+    <div className="divide-y hud-divider">
       {items.map((item) => {
         const isSelected = item.id === selectedId;
         const sla = formatSLA(item.dueDate);
@@ -109,12 +109,12 @@ export function DecisionList({ items, selectedId, onSelectItem }: DecisionListPr
             onClick={() => onSelectItem(item)}
             className={cn(
               'w-full text-left p-3 transition-all',
-              'hover:bg-[rgba(255,255,255,0.03)]',
-              isSelected && 'bg-[rgba(0,255,180,0.06)] border-l-2 border-[#00FFB4]'
+              'hud-table-row-hover',
+              isSelected && 'hud-table-row-selected'
             )}
           >
             <div className="flex items-start justify-between gap-2 mb-2">
-              <h4 className={cn('text-sm font-medium line-clamp-1', isSelected ? 'text-white' : 'text-[rgba(255,255,255,0.92)]')}>
+              <h4 className={cn('text-sm font-medium line-clamp-1 hud-text')}>
                 {item.title}
               </h4>
               <StatusPill variant={getStatusVariant(item.deliberationStatus)} className="shrink-0">
@@ -123,25 +123,25 @@ export function DecisionList({ items, selectedId, onSelectItem }: DecisionListPr
             </div>
 
             <div className="flex items-center gap-2 mb-2 text-[10px]">
-              <span className="text-[rgba(255,255,255,0.55)] uppercase tracking-wide">
+              <span className="hud-text-muted uppercase tracking-wide">
                 {item.ownerCommitteeName || item.committeeName}
               </span>
-              <span className="px-1.5 py-0.5 rounded uppercase tracking-wide font-medium text-[#00C8FF] bg-[rgba(0,200,255,0.12)] border border-[rgba(0,200,255,0.3)]">
+              <span className="px-1.5 py-0.5 rounded uppercase tracking-wide font-medium hud-accent-icon bg-[rgba(0,200,255,0.12)] border border-[rgba(0,200,255,0.3)]">
                 {item.templateName || item.type}
               </span>
             </div>
 
-            <div className="flex items-center gap-3 text-[10px] text-[rgba(255,255,255,0.55)] flex-wrap">
+            <div className="flex items-center gap-3 text-[10px] hud-text-muted flex-wrap">
               <span className="flex items-center gap-1">
                 {item.evidenceComplete ? (
                   <>
-                    <FileCheck className="w-3 h-3 text-[#00FFB4]" />
-                    <span className="text-[#00FFB4]">Evidências Completas</span>
+                    <FileCheck className="w-3 h-3 hud-accent-success" />
+                    <span className="hud-accent-success">Evidências Completas</span>
                   </>
                 ) : (
                   <>
-                    <FileX className="w-3 h-3 text-[#FFB04D]" />
-                    <span className="text-[#FFB04D]">Evidências Pendentes</span>
+                    <FileX className="w-3 h-3 hud-accent-warning" />
+                    <span className="hud-accent-warning">Evidências Pendentes</span>
                   </>
                 )}
               </span>
@@ -154,25 +154,25 @@ export function DecisionList({ items, selectedId, onSelectItem }: DecisionListPr
               )}
 
               {item.riskLevel && (
-                <span className="flex items-center gap-1" style={{ color: getRiskColor(item.riskLevel) }}>
+                <span className={cn('flex items-center gap-1', getRiskClass(item.riskLevel))}>
                   <AlertTriangle className="w-3 h-3" />
                   {item.riskLevel.toUpperCase()}
                 </span>
               )}
 
               {sla && (
-                <span className={cn('flex items-center gap-1', sla.variant === 'error' && 'text-[#FF5860]', sla.variant === 'warning' && 'text-[#FFB04D]')}>
+                <span className={cn('flex items-center gap-1', sla.variant === 'error' && 'hud-accent-danger', sla.variant === 'warning' && 'hud-accent-warning')}>
                   <Clock className="w-3 h-3" />
                   {sla.text}
                 </span>
               )}
 
-              <span className="flex items-center gap-1 text-[#00C8FF]">
+              <span className="flex items-center gap-1 hud-accent-icon">
                 <CheckCircle2 className="w-3 h-3" />
                 Meu Voto: {getMyVoteLabel(item)}
               </span>
 
-              <span className="text-[rgba(255,255,255,0.48)]">{dependentCount} revisões obrigatórias</span>
+              <span className="hud-text-muted">{dependentCount} revisões obrigatórias</span>
             </div>
           </button>
         );

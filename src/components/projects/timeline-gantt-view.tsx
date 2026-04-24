@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { ProjectTask } from "@/lib/types";
-import { HUDCard } from "@/components/ui/hud-card";
+import { HudPanel } from "@/components/hud";
 import { Button } from "@/components/ui/button";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Badge } from "@/components/ui/badge";
@@ -103,16 +103,17 @@ export function TimelineGanttView({ projectId, tasks, onAddTask, onTaskClick }: 
   return (
     <div className="space-y-6">
       {/* Filters & Actions */}
-      <HUDCard>
-        <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div className="flex items-center gap-3 flex-wrap">
-            <Filter className="w-4 h-4 text-[rgba(255,255,255,0.65)]" />
-            
-            <Select value={dateRange} onValueChange={(v) => setDateRange(v as any)}>
-              <SelectTrigger className="w-[140px] bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.08)] text-white hover:border-[rgba(0,200,255,0.35)]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent className="bg-gradient-to-br from-[#0A1612] to-[#07130F] border-[rgba(255,255,255,0.08)] text-white">
+      <HudPanel noPadding>
+        <div className="p-6">
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div className="flex items-center gap-3 flex-wrap">
+              <Filter className="w-4 h-4 hud-text-tertiary" />
+              
+              <Select value={dateRange} onValueChange={(v) => setDateRange(v as any)}>
+                <SelectTrigger className="w-[140px] novo-projeto-input bg-transparent text-foreground placeholder:text-muted-foreground border-border">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-popover text-popover-foreground border-border">
                 <SelectItem value="30">30 dias</SelectItem>
                 <SelectItem value="60">60 dias</SelectItem>
                 <SelectItem value="90">90 dias</SelectItem>
@@ -120,10 +121,10 @@ export function TimelineGanttView({ projectId, tasks, onAddTask, onTaskClick }: 
             </Select>
 
             <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-[160px] bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.08)] text-white hover:border-[rgba(0,200,255,0.35)]">
+              <SelectTrigger className="w-[160px] novo-projeto-input bg-transparent text-foreground placeholder:text-muted-foreground border-border">
                 <SelectValue placeholder="Status" />
               </SelectTrigger>
-              <SelectContent className="bg-gradient-to-br from-[#0A1612] to-[#07130F] border-[rgba(255,255,255,0.08)] text-white">
+              <SelectContent className="bg-popover text-popover-foreground border-border">
                 <SelectItem value="all">Todos Status</SelectItem>
                 <SelectItem value="not_started">Não Iniciado</SelectItem>
                 <SelectItem value="in_progress">Em Andamento</SelectItem>
@@ -133,10 +134,10 @@ export function TimelineGanttView({ projectId, tasks, onAddTask, onTaskClick }: 
             </Select>
 
             <Select value={responsibleFilter} onValueChange={setResponsibleFilter}>
-              <SelectTrigger className="w-[160px] bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.08)] text-white hover:border-[rgba(0,200,255,0.35)]">
+              <SelectTrigger className="w-[160px] novo-projeto-input bg-transparent text-foreground placeholder:text-muted-foreground border-border">
                 <SelectValue placeholder="Responsável" />
               </SelectTrigger>
-              <SelectContent className="bg-gradient-to-br from-[#0A1612] to-[#07130F] border-[rgba(255,255,255,0.08)] text-white">
+              <SelectContent className="bg-popover text-popover-foreground border-border">
                 <SelectItem value="all">Todos</SelectItem>
                 {responsibleUsers.map(userId => {
                   const task = tasks.find(t => t.responsibleId === userId);
@@ -155,10 +156,11 @@ export function TimelineGanttView({ projectId, tasks, onAddTask, onTaskClick }: 
             Nova Tarefa
           </PrimaryCTA>
         </div>
-      </HUDCard>
+        </div>
+      </HudPanel>
 
       {/* Gantt Chart */}
-      <HUDCard className="p-6 overflow-hidden relative">
+      <HudPanel className="p-6 overflow-hidden relative">
         <div className="space-y-4">
           {/* Timeline Header */}
           <div className="flex items-center border-b border-[rgba(255,255,255,0.08)] pb-4">
@@ -264,15 +266,15 @@ export function TimelineGanttView({ projectId, tasks, onAddTask, onTaskClick }: 
             )}
           </div>
         </div>
-      </HUDCard>
+      </HudPanel>
 
       {/* Task Detail Drawer */}
       <Sheet open={!!selectedTask} onOpenChange={() => setSelectedTask(null)}>
-        <SheetContent className="w-[400px] bg-gradient-to-br from-[#0A1612] to-[#07130F] border-[rgba(255,255,255,0.10)]">
+        <SheetContent className="w-[400px] hud-drawer-surface">
           {selectedTask && (
             <>
               <SheetHeader>
-                <SheetTitle className="flex items-center gap-2 text-white">
+                <SheetTitle className="flex items-center gap-2 orion-text-primary">
                   {selectedTask.milestone && (
                     <Diamond className="w-4 h-4 text-[#FF7A3D] fill-[#FF7A3D]" />
                   )}

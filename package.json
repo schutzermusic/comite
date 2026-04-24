@@ -58,6 +58,7 @@
     "@react-three/postprocessing": "^3.0.4",
     "@supabase/ssr": "^0.5.2",
     "@supabase/supabase-js": "^2.47.10",
+    "@vercel/analytics": "^2.0.1",
     "cesium": "^1.138.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

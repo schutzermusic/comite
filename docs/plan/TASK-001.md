@@ -1,0 +1,277 @@
+# TASK-001 · Criar sistema de tokens `--ig-*`
+
+**Fase:** F0 — Foundation
+**PR:** PR-01
+**Dependências:** nenhuma
+**Pode rodar em paralelo com:** —
+**Owner-profile:** Design System Engineer
+**Estimativa:** 4–6h
+
+---
+
+## Contexto
+
+O projeto tem 7 namespaces de cor concorrentes (`sentinel`, `orion`, `intel`, `insight`, `neon`, `executive`, `glass`) em `tailwind.config.ts`, causando fragmentação visual. Esta tarefa cria o único namespace oficial `--ig-*` (INSIGHT Governança) com tokens completos para superfície, texto, borda, semântica, chart, elevação, blur, edge lighting, inner highlights, sombras, halo, specular, noise e focus ring — para dark e light mode.
+
+---
+
+## Escopo de arquivos
+
+| Ação | Arquivo |
+|---|---|
+| **Criar** | `src/styles/tokens.css` |
+| **Modificar** | `src/app/globals.css` (adicionar `@import` no topo) |
+| **Modificar** | `tailwind.config.ts` (adicionar namespace `ig`) |
+
+---
+
+## Instruções passo a passo
+
+### Passo 1 — Criar `src/styles/tokens.css`
+
+Criar o arquivo com o seguinte conteúdo completo:
+
+```css
+/* ═════════════════════════════════════════════════════════
+   INSIGHT GOVERNANÇA — DESIGN TOKENS v2
+   Prefixo único: --ig-*
+   ═════════════════════════════════════════════════════════ */
+
+:root, html.dark {
+  /* ── Surface hierarchy ── */
+  --ig-bg-canvas:      #07090C;
+  --ig-bg-base:        #0B0F14;
+  --ig-bg-raised:      #10161D;
+  --ig-bg-overlay:     #141B24;
+  --ig-bg-panel:       rgba(18, 26, 34, 0.72);
+  --ig-bg-panel-hover: rgba(26, 36, 46, 0.78);
+
+  /* ── Text hierarchy ── */
+  --ig-fg-strong:   #F2F5F7;
+  --ig-fg-default:  rgba(242, 245, 247, 0.82);
+  --ig-fg-muted:    rgba(242, 245, 247, 0.60);
+  --ig-fg-subtle:   rgba(242, 245, 247, 0.38);
+  --ig-fg-disabled: rgba(242, 245, 247, 0.22);
+
+  /* ── Borders ── */
+  --ig-border-subtle:  rgba(170, 200, 190, 0.06);
+  --ig-border-default: rgba(170, 200, 190, 0.10);
+  --ig-border-strong:  rgba(170, 200, 190, 0.18);
+  --ig-border-focus:   rgba(20, 184, 166, 0.50);
+
+  /* ── Brand + semantic ── */
+  --ig-accent:        #14B8A6;
+  --ig-accent-weak:   rgba(20, 184, 166, 0.14);
+  --ig-accent-strong: #0EA394;
+  --ig-success: #10B981;
+  --ig-warning: #F5A524;
+  --ig-danger:  #EF4B55;
+  --ig-info:    #3B82F6;
+
+  /* ── Chart palette (ordem fixa) ── */
+  --ig-chart-1: #14B8A6;
+  --ig-chart-2: #3B82F6;
+  --ig-chart-3: #A855F7;
+  --ig-chart-4: #F5A524;
+  --ig-chart-5: #EF4B55;
+  --ig-chart-6: #64748B;
+
+  /* ── Radius scale ── */
+  --ig-radius-sm: 6px;
+  --ig-radius-md: 10px;
+  --ig-radius-lg: 14px;
+  --ig-radius-xl: 20px;
+
+  /* ── Glass tints por elevação ── */
+  --ig-glass-e1: linear-gradient(160deg, rgba(14,24,30,0.62), rgba(10,18,24,0.54) 55%, rgba(8,14,20,0.58));
+  --ig-glass-e2: linear-gradient(160deg, rgba(20,32,40,0.72), rgba(14,24,32,0.62) 55%, rgba(12,20,28,0.66));
+  --ig-glass-e3: linear-gradient(165deg, rgba(26,40,50,0.82), rgba(18,30,40,0.74) 55%, rgba(14,24,32,0.78));
+  --ig-glass-e4: linear-gradient(170deg, rgba(32,48,60,0.90), rgba(22,36,48,0.86) 55%, rgba(16,28,38,0.88));
+  --ig-glass-e5: linear-gradient(175deg, rgba(18,38,42,0.92), rgba(10,28,32,0.88) 55%, rgba(8,22,28,0.92));
+
+  /* ── Blur / saturation por elevação ── */
+  --ig-blur-e1: blur(20px) saturate(140%);
+  --ig-blur-e2: blur(28px) saturate(150%);
+  --ig-blur-e3: blur(36px) saturate(160%);
+  --ig-blur-e4: blur(48px) saturate(170%);
+  --ig-blur-e5: blur(56px) saturate(180%);
+
+  /* ── Edge lighting ── */
+  --ig-edge-e1: linear-gradient(130deg, rgba(200,230,240,0.26), rgba(150,200,215,0.14) 30%, rgba(255,255,255,0.04) 60%, rgba(20,184,166,0.10));
+  --ig-edge-e2: linear-gradient(130deg, rgba(200,230,240,0.38), rgba(150,200,215,0.22) 30%, rgba(255,255,255,0.06) 60%, rgba(20,184,166,0.18));
+  --ig-edge-e3: linear-gradient(130deg, rgba(210,235,245,0.52), rgba(160,210,220,0.32) 30%, rgba(255,255,255,0.08) 60%, rgba(20,184,166,0.26));
+  --ig-edge-e4: linear-gradient(130deg, rgba(220,240,250,0.64), rgba(170,220,230,0.42) 30%, rgba(255,255,255,0.12) 60%, rgba(20,184,166,0.34));
+  --ig-edge-e5: linear-gradient(130deg, rgba(140,255,230,0.72), rgba(80,220,200,0.48) 30%, rgba(255,255,255,0.16) 60%, rgba(20,184,166,0.48));
+
+  /* ── Inner highlights ── */
+  --ig-inner-e1: inset 0 1px 0 rgba(255,255,255,0.06), inset 0 0 0 1px rgba(255,255,255,0.015);
+  --ig-inner-e2: inset 0 1px 0 rgba(255,255,255,0.09), inset 0 -1px 0 rgba(0,0,0,0.20), inset 0 0 0 1px rgba(255,255,255,0.02);
+  --ig-inner-e3: inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.26), inset 0 0 0 1px rgba(255,255,255,0.03);
+  --ig-inner-e4: inset 0 1px 0 rgba(255,255,255,0.16), inset 0 -1px 0 rgba(0,0,0,0.32), inset 0 0 30px rgba(255,255,255,0.02);
+  --ig-inner-e5: inset 0 1px 0 rgba(140,255,230,0.20), inset 0 -1px 0 rgba(0,0,0,0.35), inset 0 0 40px rgba(20,184,166,0.06);
+
+  /* ── Drop shadows multi-layer ── */
+  --ig-shadow-e1: 0 1px 2px rgba(0,0,0,0.28), 0 8px 24px rgba(0,0,0,0.32), 0 24px 56px rgba(0,0,0,0.28);
+  --ig-shadow-e2: 0 1px 2px rgba(0,0,0,0.32), 0 12px 32px rgba(0,0,0,0.40), 0 32px 64px rgba(0,0,0,0.36);
+  --ig-shadow-e3: 0 2px 4px rgba(0,0,0,0.35), 0 18px 44px rgba(0,0,0,0.45), 0 44px 88px rgba(0,0,0,0.40);
+  --ig-shadow-e4: 0 4px 8px rgba(0,0,0,0.40), 0 24px 56px rgba(0,0,0,0.50), 0 60px 120px rgba(0,0,0,0.50);
+  --ig-shadow-e5: 0 4px 8px rgba(0,0,0,0.42), 0 28px 64px rgba(0,0,0,0.55), 0 72px 140px rgba(0,0,0,0.55), 0 0 60px rgba(20,184,166,0.10);
+
+  /* ── Halo atmosférico ── */
+  --ig-halo-e2: radial-gradient(ellipse 60% 80% at 50% 0%, rgba(20,184,166,0.08), transparent 60%);
+  --ig-halo-e3: radial-gradient(ellipse 70% 100% at 50% 0%, rgba(20,184,166,0.12), transparent 60%);
+  --ig-halo-e4: radial-gradient(ellipse 80% 120% at 50% 0%, rgba(20,184,166,0.16), transparent 60%);
+  --ig-halo-e5: radial-gradient(ellipse 90% 140% at 50% 0%, rgba(20,184,166,0.24), rgba(80,220,200,0.08) 40%, transparent 70%);
+
+  /* ── Specular ── */
+  --ig-specular-static: linear-gradient(90deg, transparent, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.10) 50%, rgba(255,255,255,0.04) 75%, transparent);
+  --ig-specular-sweep:  linear-gradient(110deg, transparent 30%, rgba(255,255,255,0.14) 48%, rgba(255,255,255,0.22) 50%, rgba(255,255,255,0.14) 52%, transparent 70%);
+
+  /* ── Noise ── */
+  --ig-noise-url: url('/textures/noise-16.png');
+  --ig-noise-opacity-e1: 0.025;
+  --ig-noise-opacity-e2: 0.035;
+  --ig-noise-opacity-e3: 0.045;
+  --ig-noise-opacity-e4: 0.055;
+
+  /* ── Focus ring cinemático ── */
+  --ig-focus-ring-outer: 0 0 0 1px rgba(20,184,166,0.30), 0 0 0 5px rgba(20,184,166,0.12), 0 0 28px rgba(20,184,166,0.25);
+  --ig-focus-ring-inner: inset 0 0 0 1px rgba(140,255,230,0.24);
+}
+
+html.light {
+  --ig-bg-canvas:      #F7F8FA;
+  --ig-bg-base:        #FFFFFF;
+  --ig-bg-raised:      #FFFFFF;
+  --ig-bg-overlay:     #FFFFFF;
+  --ig-bg-panel:       #FFFFFF;
+  --ig-bg-panel-hover: #F2F4F7;
+
+  --ig-fg-strong:   #0F172A;
+  --ig-fg-default:  #1E293B;
+  --ig-fg-muted:    #475569;
+  --ig-fg-subtle:   #64748B;
+  --ig-fg-disabled: #94A3B8;
+
+  --ig-border-subtle:  rgba(15,23,42,0.04);
+  --ig-border-default: rgba(15,23,42,0.08);
+  --ig-border-strong:  rgba(15,23,42,0.14);
+  --ig-border-focus:   rgba(15,118,110,0.40);
+
+  --ig-accent:        #0F766E;
+  --ig-accent-weak:   rgba(15,118,110,0.10);
+  --ig-accent-strong: #115E59;
+  --ig-success: #047857;
+  --ig-warning: #B45309;
+  --ig-danger:  #B91C1C;
+  --ig-info:    #1D4ED8;
+
+  --ig-chart-1: #0F766E;
+  --ig-chart-2: #1D4ED8;
+  --ig-chart-3: #7C3AED;
+  --ig-chart-4: #B45309;
+  --ig-chart-5: #B91C1C;
+  --ig-chart-6: #475569;
+
+  --ig-glass-e1: linear-gradient(160deg, rgba(255,255,255,0.82), rgba(248,250,252,0.74) 55%, rgba(244,247,250,0.78));
+  --ig-glass-e2: linear-gradient(160deg, rgba(255,255,255,0.92), rgba(249,251,253,0.88) 55%, rgba(246,249,252,0.90));
+  --ig-glass-e3: linear-gradient(165deg, rgba(255,255,255,0.96), rgba(252,253,255,0.94));
+  --ig-glass-e4: #FFFFFF;
+  --ig-glass-e5: linear-gradient(175deg, rgba(240,253,250,0.98), rgba(236,253,245,0.96));
+
+  --ig-blur-e1: blur(14px) saturate(160%);
+  --ig-blur-e2: blur(20px) saturate(170%);
+  --ig-blur-e3: blur(28px) saturate(180%);
+  --ig-blur-e4: blur(40px) saturate(190%);
+  --ig-blur-e5: blur(48px) saturate(200%);
+
+  --ig-edge-e1: linear-gradient(130deg, rgba(15,118,110,0.16), rgba(15,118,110,0.06) 40%, rgba(15,23,42,0.04));
+  --ig-edge-e2: linear-gradient(130deg, rgba(15,118,110,0.22), rgba(15,118,110,0.10) 40%, rgba(15,23,42,0.06));
+  --ig-edge-e3: linear-gradient(130deg, rgba(15,118,110,0.32), rgba(15,118,110,0.16) 40%, rgba(15,23,42,0.08));
+  --ig-edge-e4: linear-gradient(130deg, rgba(15,118,110,0.44), rgba(15,118,110,0.22) 40%, rgba(15,23,42,0.10));
+  --ig-edge-e5: linear-gradient(130deg, rgba(15,118,110,0.60), rgba(15,118,110,0.34) 40%, rgba(15,23,42,0.14));
+
+  --ig-inner-e1: inset 0 1px 0 rgba(255,255,255,0.90), inset 0 0 0 1px rgba(15,23,42,0.025);
+  --ig-inner-e2: inset 0 1px 0 rgba(255,255,255,1.00), inset 0 -1px 0 rgba(15,23,42,0.04), inset 0 0 0 1px rgba(15,23,42,0.03);
+  --ig-inner-e3: inset 0 1px 0 rgba(255,255,255,1.00), inset 0 -1px 0 rgba(15,23,42,0.06), inset 0 0 0 1px rgba(15,23,42,0.04);
+  --ig-inner-e4: inset 0 1px 0 rgba(255,255,255,1.00), inset 0 -1px 0 rgba(15,23,42,0.08), inset 0 0 30px rgba(240,253,250,0.50);
+  --ig-inner-e5: inset 0 1px 0 rgba(220,252,231,1.00), inset 0 -1px 0 rgba(15,23,42,0.10), inset 0 0 40px rgba(15,118,110,0.04);
+
+  --ig-shadow-e1: 0 1px 2px rgba(15,23,42,0.04), 0 2px 6px rgba(15,23,42,0.05), 0 12px 28px rgba(15,23,42,0.04);
+  --ig-shadow-e2: 0 1px 2px rgba(15,23,42,0.05), 0 4px 10px rgba(15,23,42,0.06), 0 20px 40px rgba(15,23,42,0.05);
+  --ig-shadow-e3: 0 2px 4px rgba(15,23,42,0.06), 0 10px 24px rgba(15,23,42,0.08), 0 32px 64px rgba(15,23,42,0.07);
+  --ig-shadow-e4: 0 4px 8px rgba(15,23,42,0.08), 0 16px 40px rgba(15,23,42,0.10), 0 40px 88px rgba(15,23,42,0.10);
+  --ig-shadow-e5: 0 4px 8px rgba(15,23,42,0.08), 0 20px 48px rgba(15,23,42,0.12), 0 56px 112px rgba(15,23,42,0.12), 0 0 40px rgba(15,118,110,0.06);
+
+  --ig-halo-e2: radial-gradient(ellipse 60% 80% at 50% 0%, rgba(15,118,110,0.04), transparent 60%);
+  --ig-halo-e3: radial-gradient(ellipse 70% 100% at 50% 0%, rgba(15,118,110,0.06), transparent 60%);
+  --ig-halo-e4: radial-gradient(ellipse 80% 120% at 50% 0%, rgba(15,118,110,0.08), transparent 60%);
+  --ig-halo-e5: radial-gradient(ellipse 90% 140% at 50% 0%, rgba(15,118,110,0.12), rgba(16,185,129,0.04) 40%, transparent 70%);
+
+  --ig-specular-static: linear-gradient(90deg, transparent, rgba(255,255,255,0.35) 25%, rgba(255,255,255,0.70) 50%, rgba(255,255,255,0.35) 75%, transparent);
+  --ig-specular-sweep:  linear-gradient(110deg, transparent 30%, rgba(255,255,255,0.40) 48%, rgba(255,255,255,0.85) 50%, rgba(255,255,255,0.40) 52%, transparent 70%);
+
+  --ig-noise-opacity-e1: 0;
+  --ig-noise-opacity-e2: 0;
+  --ig-noise-opacity-e3: 0.015;
+  --ig-noise-opacity-e4: 0.020;
+
+  --ig-focus-ring-outer: 0 0 0 1px rgba(15,118,110,0.35), 0 0 0 5px rgba(15,118,110,0.14), 0 0 24px rgba(15,118,110,0.18);
+  --ig-focus-ring-inner: inset 0 0 0 1px rgba(15,118,110,0.20);
+}
+```
+
+### Passo 2 — Modificar `src/app/globals.css`
+
+Adicionar na **primeira linha** do arquivo (antes de `@tailwind base;`):
+```css
+@import "../styles/tokens.css";
+```
+
+### Passo 3 — Modificar `tailwind.config.ts`
+
+Dentro de `theme.extend.colors`, adicionar o namespace `ig`:
+
+```ts
+ig: {
+  canvas:        'var(--ig-bg-canvas)',
+  base:          'var(--ig-bg-base)',
+  raised:        'var(--ig-bg-raised)',
+  overlay:       'var(--ig-bg-overlay)',
+  panel:         'var(--ig-bg-panel)',
+  'panel-hover': 'var(--ig-bg-panel-hover)',
+  fg: {
+    strong:   'var(--ig-fg-strong)',
+    DEFAULT:  'var(--ig-fg-default)',
+    muted:    'var(--ig-fg-muted)',
+    subtle:   'var(--ig-fg-subtle)',
+    disabled: 'var(--ig-fg-disabled)',
+  },
+  border: {
+    subtle:  'var(--ig-border-subtle)',
+    DEFAULT: 'var(--ig-border-default)',
+    strong:  'var(--ig-border-strong)',
+    focus:   'var(--ig-border-focus)',
+  },
+  accent:          'var(--ig-accent)',
+  'accent-weak':   'var(--ig-accent-weak)',
+  'accent-strong': 'var(--ig-accent-strong)',
+  success: 'var(--ig-success)',
+  warning: 'var(--ig-warning)',
+  danger:  'var(--ig-danger)',
+  info:    'var(--ig-info)',
+},
+```
+
+> **Atenção:** Não remover os namespaces legados (`sentinel`, `orion`, etc.) nesta tarefa. Isso é feito em TASK-021.
+
+---
+
+## Acceptance criteria
+
+- [ ] Arquivo `src/styles/tokens.css` existe com os dois blocos (`:root/html.dark` + `html.light`).
+- [ ] Linha `@import "../styles/tokens.css";` é a primeira linha de `globals.css`.
+- [ ] Classe `className="bg-ig-canvas text-ig-fg-strong border-ig-border"` aplica estilos corretamente em qualquer elemento de teste.
+- [ ] Alternar tema via `ThemeContext` (`html.dark` ↔ `html.light`) faz as variáveis `--ig-*` mudarem sem reload.
+- [ ] `npm run typecheck` passa.
+- [ ] `npm run build` passa sem warnings novos.

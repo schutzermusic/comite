@@ -77,6 +77,7 @@ export function HudDrawer({
               'fixed top-0 bottom-0 z-50',
               position === 'right' ? 'right-0' : 'left-0',
               // Glass panel styling
+              'hud-drawer-surface',
               'bg-gradient-to-b from-[rgba(8,28,22,0.95)] to-[rgba(4,18,14,0.98)]',
               'backdrop-blur-[32px]',
               'border-l border-white/[0.08]',

@@ -12,7 +12,7 @@ import {
     CheckCircle2,
     XCircle,
 } from 'lucide-react';
-import { HUDCard } from '@/components/ui/hud-card';
+import { HudPanel } from '@/components/hud';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import type { ProjectV2, ProjectRiskItem, RiskLevel } from '@/lib/types/project-v2';
@@ -93,17 +93,17 @@ export function RiskCardV2({ project }: RiskCardV2Props) {
     // No risks state
     if (!computed) {
         return (
-            <HUDCard>
+            <HudPanel>
                 <div className="flex items-center gap-3 py-2">
-                    <div className="p-2 rounded-lg" style={{ background: 'rgba(0,255,180,0.12)' }}>
-                        <ShieldCheck className="w-5 h-5 text-[#00FFB4]" />
+                    <div className="p-2 rounded-lg bg-[rgba(101,163,13,0.08)] text-[#65A30D] dark:bg-[rgba(0,255,180,0.12)] dark:text-[#00FFB4]">
+                        <ShieldCheck className="w-5 h-5" />
                     </div>
                     <div>
-                        <h3 className="text-sm font-semibold text-white orion-text-heading">Risco Geral</h3>
-                        <p className="text-xs text-[rgba(255,255,255,0.50)]">Sem riscos abertos ✓</p>
+                        <h3 className="text-sm font-semibold orion-text-primary">Risco Geral</h3>
+                        <p className="text-xs hud-text-muted">Sem riscos abertos ✓</p>
                     </div>
                 </div>
-            </HUDCard>
+            </HudPanel>
         );
     }
 
@@ -112,10 +112,11 @@ export function RiskCardV2({ project }: RiskCardV2Props) {
     const exposureInfo = getFinancialExposureLevel(computed.totalExposureCents);
 
     return (
-        <HUDCard>
+        <HudPanel noPadding>
+          <div className="p-6">
             {/* ── Header ────────────────────────── */}
             <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-semibold text-white orion-text-heading">Risco Geral</h3>
+                <h3 className="text-sm font-semibold orion-text-primary">Risco Geral</h3>
                 <Button
                     size="sm"
                     variant="outline"
@@ -131,30 +132,22 @@ export function RiskCardV2({ project }: RiskCardV2Props) {
             <div className="flex items-center gap-3 mb-4">
                 {/* Probability chip */}
                 <div
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border"
-                    style={{
-                        background: 'rgba(255,255,255,0.04)',
-                        borderColor: 'rgba(255,255,255,0.08)',
-                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[rgba(0,0,0,0.06)] dark:border-[rgba(255,255,255,0.08)] bg-[rgba(0,0,0,0.02)] dark:bg-[rgba(255,255,255,0.04)]"
                 >
-                    <Target className="w-3.5 h-3.5 text-[rgba(255,255,255,0.50)]" />
-                    <span className="text-[11px] text-[rgba(255,255,255,0.50)] font-medium">P</span>
-                    <span className="text-sm font-bold text-white">{computed.overallP}</span>
-                    <span className="text-[10px] text-[rgba(255,255,255,0.30)]">/5</span>
+                    <Target className="w-3.5 h-3.5 hud-text-tertiary" />
+                    <span className="text-[11px] hud-text-tertiary font-medium">P</span>
+                    <span className="text-sm font-bold orion-text-primary">{computed.overallP}</span>
+                    <span className="text-[10px] hud-text-muted">/5</span>
                 </div>
 
                 {/* Impact chip */}
                 <div
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border"
-                    style={{
-                        background: 'rgba(255,255,255,0.04)',
-                        borderColor: 'rgba(255,255,255,0.08)',
-                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[rgba(0,0,0,0.06)] dark:border-[rgba(255,255,255,0.08)] bg-[rgba(0,0,0,0.02)] dark:bg-[rgba(255,255,255,0.04)]"
                 >
-                    <AlertTriangle className="w-3.5 h-3.5 text-[rgba(255,255,255,0.50)]" />
-                    <span className="text-[11px] text-[rgba(255,255,255,0.50)] font-medium">I</span>
-                    <span className="text-sm font-bold text-white">{computed.overallI}</span>
-                    <span className="text-[10px] text-[rgba(255,255,255,0.30)]">/5</span>
+                    <AlertTriangle className="w-3.5 h-3.5 hud-text-tertiary" />
+                    <span className="text-[11px] hud-text-tertiary font-medium">I</span>
+                    <span className="text-sm font-bold orion-text-primary">{computed.overallI}</span>
+                    <span className="text-[10px] hud-text-muted">/5</span>
                 </div>
 
                 {/* Score chip — color-coded */}
@@ -185,18 +178,18 @@ export function RiskCardV2({ project }: RiskCardV2Props) {
             <div className="flex items-center gap-4 mb-4">
                 <div className="flex items-center gap-1.5">
                     <div className="w-2 h-2 rounded-full bg-[#FF4040]" />
-                    <span className="text-[11px] text-[rgba(255,255,255,0.60)]">
+                    <span className="text-[11px] hud-text-tertiary">
                         {computed.highCriticalCount} alto/crítico
                     </span>
                 </div>
                 <div className="flex items-center gap-1.5">
-                    <XCircle className="w-3 h-3 text-[#FF8C42]" />
-                    <span className="text-[11px] text-[rgba(255,255,255,0.60)]">
+                    <XCircle className="w-3 h-3 text-[var(--hud-warning)] dark:text-[#FF8C42]" />
+                    <span className="text-[11px] hud-text-tertiary">
                         {computed.noMitigationCount} sem mitigação
                     </span>
                 </div>
                 <div className="flex items-center gap-1.5">
-                    <span className="text-[11px] text-[rgba(255,255,255,0.40)]">
+                    <span className="text-[11px] hud-text-muted">
                         {computed.totalOpen} aberto{computed.totalOpen !== 1 ? 's' : ''}
                     </span>
                 </div>
@@ -204,7 +197,7 @@ export function RiskCardV2({ project }: RiskCardV2Props) {
 
             {/* ── Top Contributing Risks ──────── */}
             <div className="space-y-2 mb-4">
-                <p className="text-[10px] text-[rgba(255,255,255,0.35)] uppercase tracking-wider font-medium">
+                <p className="text-[10px] hud-text-muted uppercase tracking-wider font-medium">
                     Top Riscos Contribuintes
                 </p>
                 {computed.topContributing.map(risk => {
@@ -233,13 +226,13 @@ export function RiskCardV2({ project }: RiskCardV2Props) {
 
                             {/* Title */}
                             <div className="flex-1 min-w-0">
-                                <p className="text-sm text-[rgba(255,255,255,0.85)] truncate">{risk.title}</p>
+                                <p className="text-sm orion-text-primary truncate">{risk.title}</p>
                                 <div className="flex items-center gap-2 mt-0.5">
-                                    <span className="text-[10px] text-[rgba(255,255,255,0.40)]">
+                                    <span className="text-[10px] hud-text-muted">
                                         P{risk.probability}×I{risk.impact}
                                     </span>
                                     {risk.ownerName && (
-                                        <span className="text-[10px] text-[rgba(255,255,255,0.35)]">
+                                        <span className="text-[10px] hud-text-muted">
                                             → {risk.ownerName}
                                         </span>
                                     )}
@@ -261,16 +254,12 @@ export function RiskCardV2({ project }: RiskCardV2Props) {
             {/* ── Impacto Financeiro (separate section) ── */}
             {computed.totalExposureCents > 0 && (
                 <div
-                    className="p-3 rounded-lg border"
-                    style={{
-                        background: 'rgba(255,255,255,0.02)',
-                        borderColor: 'rgba(255,255,255,0.06)',
-                    }}
+                    className="p-3 rounded-lg border bg-[rgba(0,0,0,0.02)] border-[rgba(0,0,0,0.06)] dark:bg-[rgba(255,255,255,0.02)] dark:border-[rgba(255,255,255,0.06)]"
                 >
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                            <DollarSign className="w-4 h-4 text-[rgba(255,255,255,0.50)]" />
-                            <span className="text-[11px] text-[rgba(255,255,255,0.50)] font-medium uppercase tracking-wider">
+                            <DollarSign className="w-4 h-4 hud-text-muted" />
+                            <span className="text-[11px] hud-text-muted font-medium uppercase tracking-wider">
                                 Impacto Financeiro
                             </span>
                         </div>
@@ -281,15 +270,16 @@ export function RiskCardV2({ project }: RiskCardV2Props) {
                             {exposureInfo.level}
                         </Badge>
                     </div>
-                    <p className="text-lg font-bold text-white mt-1">
+                    <p className="text-lg font-bold orion-text-primary mt-1">
                         {formatMoney({ amountCents: computed.totalExposureCents, currency: 'BRL' })}
                     </p>
-                    <p className="text-[10px] text-[rgba(255,255,255,0.35)] mt-0.5">
+                    <p className="text-[10px] hud-text-muted mt-0.5">
                         Exposição acumulada de {risks.filter(r => r.exposure && r.status !== 'resolved').length} risco(s) em aberto
                     </p>
                 </div>
             )}
-        </HUDCard>
+            </div>
+        </HudPanel>
     );
 }
 

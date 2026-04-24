@@ -37,7 +37,7 @@ export function ImmersiveSpatialBackground({
                 className="fixed inset-0 pointer-events-none"
                 style={{
                     background: isLight
-                        ? `linear-gradient(180deg, #f4f5f3 0%, #edeee9 40%, #f0f1ed 100%)`
+                        ? `linear-gradient(180deg, #F8F7F4 0%, #edeee9 40%, #f0f1ed 100%)`
                         : `radial-gradient(ellipse 150% 100% at 70% 50%,
                             #050a08 0%,
                             #030605 30%,

@@ -23,7 +23,7 @@ import {
     ShieldX,
     FileX,
 } from 'lucide-react';
-import { HUDCard } from '@/components/ui/hud-card';
+import { HudPanel } from '@/components/hud';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import type {
@@ -215,22 +215,23 @@ export function ActionCenter({ project, maxAlerts = 4, onTabChange }: ActionCent
     // Empty state
     if (totalCount === 0) {
         return (
-            <HUDCard>
+            <HudPanel>
                 <div className="flex items-center gap-3 py-2">
-                    <div className="p-2 rounded-lg" style={{ background: 'rgba(0,255,180,0.12)' }}>
-                        <Bell className="w-5 h-5 text-[#00FFB4]" />
+                    <div className="p-2 rounded-lg bg-[rgba(101,163,13,0.08)] text-[#65A30D] dark:bg-[rgba(0,255,180,0.12)] dark:text-[#00FFB4]">
+                        <Bell className="w-5 h-5" />
                     </div>
                     <div>
-                        <h3 className="text-sm font-semibold text-white">Central de Ações</h3>
-                        <p className="text-xs text-[rgba(255,255,255,0.50)]">Nenhuma pendência identificada ✓</p>
+                        <h3 className="text-sm font-semibold orion-text-primary">Central de Ações</h3>
+                        <p className="text-xs hud-text-muted">Nenhuma pendência identificada ✓</p>
                     </div>
                 </div>
-            </HUDCard>
+            </HudPanel>
         );
     }
 
     return (
-        <HUDCard>
+        <HudPanel noPadding>
+          <div className="p-6">
             {/* ── Header Row 1: Title + Severity Badges ── */}
             <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-3">
@@ -256,8 +257,8 @@ export function ActionCenter({ project, maxAlerts = 4, onTabChange }: ActionCent
                         />
                     </div>
                     <div>
-                        <h3 className="text-sm font-semibold text-white">Central de Ações</h3>
-                        <p className="text-xs text-[rgba(255,255,255,0.40)] uppercase tracking-wider">
+                        <h3 className="text-sm font-semibold orion-text-primary">Central de Ações</h3>
+                        <p className="text-xs hud-text-tertiary uppercase tracking-wider">
                             Pendências & Alertas
                         </p>
                     </div>
@@ -412,12 +413,10 @@ export function ActionCenter({ project, maxAlerts = 4, onTabChange }: ActionCent
                     </div>
 
                     {/* Filtered count */}
-                    <p className="text-[10px] text-[rgba(255,255,255,0.30)] mt-2">
-                        {filteredItems.length} de {totalCount} item(ns) exibido(s)
-                    </p>
                 </div>
             )}
-        </HUDCard>
+            </div>
+        </HudPanel>
     );
 }
 

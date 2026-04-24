@@ -31,7 +31,7 @@ export function HUDCard({
   return (
     <div
       className={cn(
-        "relative rounded-2xl p-5 md:p-6 transition-all duration-300",
+        "hud-card relative rounded-2xl p-5 md:p-6 transition-all duration-300",
         variant === "default"
           ? "bg-gradient-to-br from-[#07130F] to-[#030B09]"
           : "bg-gradient-to-br from-[#0A1612] to-[#07130F]",

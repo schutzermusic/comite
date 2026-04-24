@@ -17,6 +17,7 @@ export interface HudButtonProps extends React.ButtonHTMLAttributes<HTMLButtonEle
 
 const VARIANT_STYLES: Record<HudButtonVariant, string> = {
   primary: [
+    'hud-btn-primary',
     'bg-gradient-to-r from-cyan-500 to-emerald-500',
     'text-black font-semibold',
     'border-0',
@@ -25,24 +26,28 @@ const VARIANT_STYLES: Record<HudButtonVariant, string> = {
     'hover:shadow-[0_0_30px_rgba(6,182,212,0.4)]',
   ].join(' '),
   secondary: [
+    'hud-btn-secondary',
     'bg-white/[0.08]',
     'text-white font-medium',
     'border border-white/[0.12]',
     'hover:bg-white/[0.12] hover:border-white/[0.18]',
   ].join(' '),
   ghost: [
+    'hud-btn-ghost',
     'bg-transparent',
     'text-white/70 font-medium',
     'border border-transparent',
     'hover:bg-white/[0.05] hover:text-white',
   ].join(' '),
   danger: [
+    'hud-btn-danger',
     'bg-red-500/10',
     'text-red-400 font-medium',
     'border border-red-500/20',
     'hover:bg-red-500/15 hover:border-red-500/30',
   ].join(' '),
   glass: [
+    'hud-btn-glass',
     'bg-white/[0.05]',
     'text-white font-medium',
     'border border-white/[0.10]',

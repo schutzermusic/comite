@@ -108,8 +108,8 @@ export default function AlocacaoPage() {
           <button key={tab.value} onClick={() => setActiveTab(tab.value)}
             className={`px-3 py-1.5 rounded-lg text-[11px] font-medium uppercase tracking-wider transition-all ${
               activeTab === tab.value
-                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
-                : 'bg-white/[0.04] text-white/40 border border-white/[0.06] hover:bg-white/[0.06]'
+                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 finance-tab-active'
+                : 'bg-white/[0.04] text-white/40 border border-white/[0.06] hover:bg-white/[0.06] finance-tab-inactive'
             }`}>
             {tab.label}
           </button>

@@ -15,7 +15,7 @@ const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 const STORAGE_KEY = 'insight-theme-preference';
 
 function getInitialTheme(): Theme {
-  if (typeof window === 'undefined') return 'dark';
+  if (typeof window === 'undefined') return 'light';
 
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
@@ -26,7 +26,7 @@ function getInitialTheme(): Theme {
     return 'light';
   }
 
-  return 'dark';
+  return 'light';
 }
 
 function applyTheme(theme: Theme) {
@@ -42,7 +42,7 @@ function applyTheme(theme: Theme) {
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>('dark');
+  const [theme, setThemeState] = useState<Theme>('light');
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -80,7 +80,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   }, [setTheme]);
 
   return (
-    <ThemeContext.Provider value={{ theme: mounted ? theme : 'dark', toggleTheme, setTheme }}>
+    <ThemeContext.Provider value={{ theme: mounted ? theme : 'light', toggleTheme, setTheme }}>
       {children}
     </ThemeContext.Provider>
   );

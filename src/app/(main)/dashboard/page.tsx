@@ -20,10 +20,6 @@ const RightHudStack = dynamic(
     () => import('@/components/dashboard/RightHudStack').then(m => ({ default: m.RightHudStack })),
     { ssr: false }
 );
-const TopDriversOverlay = dynamic(
-    () => import('@/components/dashboard/TopDriversOverlay').then(m => ({ default: m.TopDriversOverlay })),
-    { ssr: false }
-);
 
 export default function DashboardPage() {
     const {
@@ -153,8 +149,6 @@ export default function DashboardPage() {
                         <RightHudStack data={data} scopeMode={scopeMode} stateScope={selectedState} />
                     </div>
 
-                    {/* ── Top Drivers Overlay (bottom of map) ── */}
-                    <TopDriversOverlay data={data} visible={!isFocusMode} />
                 </div>
             </div>
 

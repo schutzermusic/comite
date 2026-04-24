@@ -77,7 +77,7 @@ export function HudPanel({
               <div className="flex items-center gap-2.5 min-w-0">
                 <div className={cn('w-1.5 h-1.5 rounded-full flex-shrink-0', ACCENT_DOTS[accentColor])} />
                 {icon && (
-                  <span className="text-white/70 flex-shrink-0 [&_svg]:stroke-[1.8] [&_svg]:w-3.5 [&_svg]:h-3.5">
+                  <span className="hud-panel-icon text-white/70 flex-shrink-0 [&_svg]:stroke-[1.8] [&_svg]:w-3.5 [&_svg]:h-3.5">
                     {icon}
                   </span>
                 )}
@@ -86,11 +86,11 @@ export function HudPanel({
                     <span className="cr-panel-title truncate">{title}</span>
                   )}
                   {subtitle && (
-                    <span className="text-[0.5625rem] text-white/40 tracking-wide">{subtitle}</span>
+                    <span className="hud-panel-subtitle text-[0.5625rem] text-white/40 tracking-wide">{subtitle}</span>
                   )}
                 </div>
                 {badge !== undefined && badge > 0 && (
-                  <span className="ml-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1.5 rounded-full bg-amber-500/15 text-amber-300 text-[9px] font-semibold tabular-nums border border-amber-400/25">
+                  <span className="hud-panel-badge ml-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1.5 rounded-full bg-amber-500/15 text-amber-300 text-[9px] font-semibold tabular-nums border border-amber-400/25">
                     {badge}
                   </span>
                 )}
@@ -100,7 +100,7 @@ export function HudPanel({
                 {deepLink && (
                   <a
                     href={deepLink.href}
-                    className="text-[9px] font-semibold text-white/50 hover:text-cyan-200 transition-colors flex items-center gap-1 flex-shrink-0 uppercase tracking-[0.12em]"
+                    className="hud-panel-deeplink text-[9px] font-semibold text-white/50 hover:text-cyan-200 transition-colors flex items-center gap-1 flex-shrink-0 uppercase tracking-[0.12em]"
                   >
                     {deepLink.label}
                     <span className="text-[7px] opacity-70">→</span>
@@ -112,7 +112,7 @@ export function HudPanel({
 
           {/* Divider — same gradient line as dashboard panels */}
           {title && (
-            <div className="mx-4 h-px bg-gradient-to-r from-transparent via-cyan-300/25 to-transparent" />
+            <div className="hud-panel-divider mx-4 h-px bg-gradient-to-r from-transparent via-cyan-300/25 to-transparent" />
           )}
 
           {/* Content */}

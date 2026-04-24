@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react';
 import { useTranslations } from 'next-intl';
 import { CreditCard, Plus, ArrowDownLeft, ArrowUpRight, CalendarRange, X } from 'lucide-react';
 import ReactECharts from 'echarts-for-react';
+import { useTheme } from '@/contexts/ThemeContext';
 import {
   HudPageLayout, HudHeader, HudKpiStrip, HudTable, HudButton,
   HudStatusPill, HudDrawer, HudInput, HudSelect,
@@ -19,6 +20,8 @@ const STATUS_VARIANTS: Record<string, string> = { open: 'info', partial: 'warnin
 
 export default function ContasPage() {
   const t = useTranslations('finance');
+  const { theme } = useTheme();
+  const isLight = theme === 'light';
   const [activeTab, setActiveTab] = useState('receivable');
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -92,11 +95,16 @@ export default function ContasPage() {
   ];
 
   const agingOption = {
-    tooltip: { trigger: 'axis' as const },
-    legend: { data: [t('receivable'), t('payable')], textStyle: { color: '#94a3b8', fontSize: 10 }, bottom: 0 },
+    tooltip: {
+      trigger: 'axis' as const,
+      backgroundColor: isLight ? 'rgba(255,255,255,0.96)' : '#162522',
+      borderColor: isLight ? 'rgba(0,0,0,0.08)' : 'rgba(200,220,235,0.12)',
+      textStyle: { color: isLight ? '#1C1F24' : '#f0fdf8' },
+    },
+    legend: { data: [t('receivable'), t('payable')], textStyle: { color: isLight ? '#4B5563' : '#94a3b8', fontSize: 10 }, bottom: 0 },
     grid: { left: 60, right: 16, top: 16, bottom: 40 },
-    xAxis: { type: 'category' as const, data: agingBuckets.map(b => b.label), axisLabel: { color: '#64748b', fontSize: 10 }, axisLine: { lineStyle: { color: '#1e293b' } } },
-    yAxis: { type: 'value' as const, axisLabel: { color: '#64748b', fontSize: 10, formatter: (v: number) => formatCompactBRL(v) }, splitLine: { lineStyle: { color: '#1e293b' } } },
+    xAxis: { type: 'category' as const, data: agingBuckets.map(b => b.label), axisLabel: { color: isLight ? '#4B5563' : '#64748b', fontSize: 10 }, axisLine: { lineStyle: { color: isLight ? 'rgba(0,0,0,0.08)' : '#1e293b' } } },
+    yAxis: { type: 'value' as const, axisLabel: { color: isLight ? '#6B7280' : '#64748b', fontSize: 10, formatter: (v: number) => formatCompactBRL(v) }, splitLine: { lineStyle: { color: isLight ? 'rgba(0,0,0,0.05)' : '#1e293b' } } },
     series: [
       { name: t('receivable'), type: 'bar', data: agingBuckets.map(b => b.receivable), itemStyle: { color: '#10b981' } },
       { name: t('payable'), type: 'bar', data: agingBuckets.map(b => -b.payable), itemStyle: { color: '#ef4444' } },
@@ -129,7 +137,7 @@ export default function ContasPage() {
       <HudKpiStrip kpis={kpis} columns={3} />
 
       {/* Period & Status Filters */}
-      <div className="mt-4 flex flex-col md:flex-row items-stretch md:items-end gap-3 p-3 rounded-xl border border-white/[0.12] bg-[#0e1614] backdrop-blur-sm">
+      <div className="mt-4 flex flex-col md:flex-row items-stretch md:items-end gap-3 p-3 rounded-xl border border-white/[0.12] bg-[#0e1614] backdrop-blur-sm finance-filter-bar">
         <div className="flex flex-col gap-1">
           <span className="text-[11px] font-medium text-white/50 uppercase tracking-wider px-0.5">Filtrar por</span>
           <select
@@ -211,8 +219,8 @@ export default function ContasPage() {
           <button key={tab.value} onClick={() => setActiveTab(tab.value)}
             className={`px-3 py-1.5 rounded-lg text-[11px] font-medium uppercase tracking-wider transition-all ${
               activeTab === tab.value
-                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
-                : 'bg-white/[0.04] text-white/40 border border-white/[0.06] hover:bg-white/[0.06]'
+                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 finance-tab-active'
+                : 'bg-white/[0.04] text-white/40 border border-white/[0.06] hover:bg-white/[0.06] finance-tab-inactive'
             }`}>
             {tab.label}
           </button>

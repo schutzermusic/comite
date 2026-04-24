@@ -370,33 +370,33 @@ export function getMiniChartConfig() {
 /** Light-mode color tokens for ECharts */
 const lightColors = {
   text: {
-    primary: '#1a2520',
-    secondary: '#3a4f46',
-    tertiary: '#567066',
-    muted: '#728c80',
+    primary: '#1C1F24',
+    secondary: '#4B5563',
+    tertiary: '#6B7280',
+    muted: '#9CA3AF',
   },
   bg: {
-    primary: '#f4f5f3',
-    secondary: '#edeee9',
-    tertiary: '#e6e8e2',
+    primary: '#F8F7F4',
+    secondary: '#F0EFEC',
+    tertiary: '#E8E7E4',
     elevated: '#ffffff',
-    overlay: 'rgba(255, 255, 255, 0.92)',
+    overlay: 'rgba(255, 255, 255, 0.95)',
   },
   border: {
-    subtle: 'rgba(0, 0, 0, 0.06)',
-    default: 'rgba(0, 0, 0, 0.10)',
+    subtle: 'rgba(0, 0, 0, 0.05)',
+    default: 'rgba(0, 0, 0, 0.08)',
   },
   accent: {
-    primary: '#4d7c0f',       // Lime-700 WCAG AA compliant
-    primaryGlow: 'rgba(101, 163, 13, 0.15)',
+    primary: '#65A30D',       // Lime-700 WCAG AA compliant
+    primaryGlow: 'rgba(132, 204, 22, 0.15)',
   },
   chart: {
-    primary: '#059669',       // Emerald-600 (darker for contrast)
-    secondary: '#0891b2',     // Cyan-600
-    tertiary: '#16a34a',      // Green-600
-    quaternary: '#0d9488',    // Teal-600
-    quinary: '#0284c7',      // Sky-600
-    senary: '#7c3aed',       // Violet-600
+    primary: '#65A30D',       // Lime-700 (primary accent)
+    secondary: '#2563EB',     // Blue-600 (contrast)
+    tertiary: '#0D9488',      // Teal-600
+    quaternary: '#7C3AED',    // Violet-600
+    quinary: '#DB2777',       // Pink-600
+    senary: '#EA580C',        // Orange-600
   },
 } as const;
 
@@ -561,7 +561,7 @@ export const echartsOrionGreenLightTheme = {
         color: [
           [0.3, '#dc2626'],   // Red-600
           [0.7, '#d97706'],   // Amber-600
-          [1, '#059669'],     // Emerald-600
+          [1, '#65A30D'],     // Lime-700
         ],
       },
     },
@@ -644,8 +644,8 @@ export function getEchartsTheme(theme: 'light' | 'dark') {
  * Get area gradient for line charts — light mode variant
  */
 export function getAreaGradientLight(
-  colorStart: string = 'rgba(5, 150, 105, 0.25)',
-  colorEnd: string = 'rgba(5, 150, 105, 0.02)'
+  colorStart: string = 'rgba(132, 204, 22, 0.25)',
+  colorEnd: string = 'rgba(132, 204, 22, 0.02)'
 ) {
   return getAreaGradient(colorStart, colorEnd);
 }
