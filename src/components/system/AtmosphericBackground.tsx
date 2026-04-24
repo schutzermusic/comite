@@ -8,7 +8,7 @@ export function AtmosphericBackground() {
 
       {/* Plano 1: halo teal no topo */}
       <div
-        className="fixed inset-0 -z-29 pointer-events-none"
+        className="fixed inset-0 -z-[29] pointer-events-none"
         style={{
           background:
             'radial-gradient(ellipse 90% 60% at 50% 0%, rgba(20,184,166,0.07), transparent 60%)',
@@ -17,7 +17,7 @@ export function AtmosphericBackground() {
 
       {/* Plano 2: grid isométrico com máscara */}
       <div
-        className="fixed inset-0 -z-28 pointer-events-none opacity-[0.35]"
+        className="fixed inset-0 -z-[28] pointer-events-none opacity-[0.35]"
         style={{
           backgroundImage: `
             linear-gradient(to right,  rgba(255,255,255,0.025) 1px, transparent 1px),
@@ -32,11 +32,11 @@ export function AtmosphericBackground() {
       />
 
       {/* Plano 3: aurora em drift */}
-      <div className="fixed inset-0 -z-27 pointer-events-none ig-aurora" />
+      <div className="fixed inset-0 -z-[27] pointer-events-none ig-aurora" />
 
       {/* Plano 4: vinheta inferior */}
       <div
-        className="fixed inset-0 -z-26 pointer-events-none"
+        className="fixed inset-0 -z-[26] pointer-events-none"
         style={{
           background:
             'radial-gradient(ellipse 120% 80% at 50% 100%, rgba(0,0,0,0.55), transparent 70%)',
