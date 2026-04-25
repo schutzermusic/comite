@@ -156,6 +156,8 @@ export const LeftHudStack = React.memo(function LeftHudStack({ data, scopeMode =
                     deepLinkLabel={t('scopeContracts')}
                     icon={<TrendingUp className="w-3 h-3" />}
                     delay={0.2}
+                    serial="HUD-2026"
+                    watermark="CONTROL ROOM · V2.6"
                 >
                     {data.financialPulse ? (
                         <FinanceSnapshotCharts financialPulse={data.financialPulse} />
@@ -163,15 +165,6 @@ export const LeftHudStack = React.memo(function LeftHudStack({ data, scopeMode =
                         <p className="text-[10px] text-white/30">{t('noFinancialData')}</p>
                     )}
                 </HudPanel>
-            </div>
-
-            <div className="mt-2 flex items-center justify-between px-2">
-                <span className="font-mono text-[10px] tracking-[0.2em] text-ig-fg-subtle">
-                    HUD-2026
-                </span>
-                <span className="text-[9px] uppercase tracking-[0.32em] text-ig-fg-subtle">
-                    CONTROL ROOM · V2.6
-                </span>
             </div>
         </div>
     );

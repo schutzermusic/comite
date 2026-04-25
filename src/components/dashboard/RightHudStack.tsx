@@ -209,6 +209,7 @@ export const RightHudStack = React.memo(function RightHudStack({ data, scopeMode
                     accentColor="bg-cyan-400"
                     delay={0.35}
                     badge={filteredEvents.length}
+                    watermark="EXECUTIVE · VIEW"
                 >
                     <div className="space-y-1.5">
                         {/* Header controls */}
@@ -300,12 +301,6 @@ export const RightHudStack = React.memo(function RightHudStack({ data, scopeMode
                         </AnimatePresence>
                     </div>
                 </HudPanel>
-            </div>
-
-            <div className="mt-2 flex items-center justify-end px-2">
-                <span className="text-[9px] uppercase tracking-[0.32em] text-ig-fg-subtle">
-                    EXECUTIVE · VIEW
-                </span>
             </div>
         </div>
     );

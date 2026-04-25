@@ -17,6 +17,10 @@ export interface HudPanelProps {
     delay?: number;
     /** Optional badge count shown next to toggle/expand */
     badge?: number;
+    /** Serial number rendered in the footer (font-mono tracking-[0.2em]). */
+    serial?: string;
+    /** Watermark rendered in the footer (uppercase tracking-[0.32em]). */
+    watermark?: string;
 }
 
 export const HudPanel = React.memo(function HudPanel({
@@ -29,6 +33,8 @@ export const HudPanel = React.memo(function HudPanel({
     className,
     delay = 0,
     badge,
+    serial,
+    watermark,
 }: HudPanelProps) {
     return (
         <motion.div
@@ -70,6 +76,21 @@ export const HudPanel = React.memo(function HudPanel({
 
                 <div className="mx-3.5 h-px bg-gradient-to-r from-transparent via-cyan-300/25 to-transparent" />
                 <div className="px-3.5 py-2.5">{children}</div>
+
+                {(watermark || serial) && (
+                    <footer className="flex items-center justify-between border-t border-ig-border-subtle px-3.5 pb-2 pt-2">
+                        {serial && (
+                            <span className="font-mono text-[10px] tracking-[0.2em] text-ig-fg-subtle">
+                                {serial}
+                            </span>
+                        )}
+                        {watermark && (
+                            <span className="ml-auto text-[9px] uppercase tracking-[0.32em] text-ig-fg-subtle">
+                                {watermark}
+                            </span>
+                        )}
+                    </footer>
+                )}
             </GlassPanel>
         </motion.div>
     );
