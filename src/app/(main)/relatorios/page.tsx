@@ -1,426 +1,352 @@
 'use client';
 
-import React, { useState } from "react";
-import { 
-  BarChart3, 
-  TrendingUp, 
-  PieChart as PieChartIcon, 
+import { useMemo, useState } from "react";
+import {
+  BarChart3,
   Calendar,
-  Filter,
+  Download,
+  FileText,
+  PieChart as PieChartIcon,
   Settings,
+  TrendingUp,
 } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { HUDCard } from "@/components/ui/hud-card";
-import { StatusPill } from "@/components/ui/status-pill";
-import { OrionGreenBackground } from "@/components/system/OrionGreenBackground";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  AreaChart,
-  Area,
-  BarChart,
-  Bar,
-  PieChart as RechartsPie,
-  Pie,
-  Cell,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-  LineChart,
-  Line
-} from "recharts";
 import { format, startOfMonth, endOfMonth, subMonths } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { projects, meetings, votes as pautas } from '@/lib/mock-data';
-import ExportMenu from "@/components/reports/ExportMenu";
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Legend,
+  Line,
+  LineChart,
+  Pie,
+  PieChart as RechartsPie,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import { HudBadge } from "@/components/hud/HudBadge";
+import { HudButton } from "@/components/hud/HudButton";
+import { HudHeader } from "@/components/hud/HudHeader";
+import { HudInput } from "@/components/hud/HudInput";
+import { HudPageLayout } from "@/components/hud/HudPageLayout";
+import { HudPanel } from "@/components/hud/HudPanel";
+import { HudSelect } from "@/components/hud/HudSelect";
+import { HudTable } from "@/components/hud/HudTable";
+import type { HudTableColumn } from "@/components/hud/HudTable";
+import { meetings, projects, votes as pautas } from "@/lib/mock-data";
 
-const comites = projects.map(p => ({id: p.id, nome: p.comiteResponsavel})).filter((v,i,a) => a.findIndex(t => (t.id === v.id)) === i) as {id: string, nome: string}[];
+const comites = projects
+  .map((project) => ({ id: project.id, nome: project.comiteResponsavel }))
+  .filter((item, index, array) => array.findIndex((candidate) => candidate.nome === item.nome) === index);
 
-export default function RelatoriosAvancados() {
-  const [dataInicio, setDataInicio] = useState(
-    format(startOfMonth(subMonths(new Date(), 5)), 'yyyy-MM-dd')
-  );
-  const [dataFim, setDataFim] = useState(
-    format(endOfMonth(new Date()), 'yyyy-MM-dd')
-  );
+const chartColors = [
+  "var(--ig-accent)",
+  "var(--ig-info)",
+  "var(--ig-warning)",
+  "var(--ig-success)",
+  "var(--ig-danger)",
+  "var(--ig-fg-muted)",
+];
+
+const chartText = "var(--ig-fg-muted)";
+const chartGrid = "var(--ig-border-subtle)";
+
+type ReportTab = "projetos" | "pautas" | "reunioes" | "financeiro";
+
+interface SummaryRow {
+  id: string;
+  indicador: string;
+  valor: string;
+  contexto: string;
+}
+
+export default function RelatoriosPage() {
+  const [dataInicio, setDataInicio] = useState(format(startOfMonth(subMonths(new Date(), 5)), "yyyy-MM-dd"));
+  const [dataFim, setDataFim] = useState(format(endOfMonth(new Date()), "yyyy-MM-dd"));
   const [comiteFiltro, setComiteFiltro] = useState("all");
   const [tipoProjetoFiltro, setTipoProjetoFiltro] = useState("all");
   const [tipoReuniaoFiltro, setTipoReuniaoFiltro] = useState("all");
+  const [activeTab, setActiveTab] = useState<ReportTab>("projetos");
 
-  // Filtrar dados por período
-  const filteredProjetos = projects.filter(p => {
-    const dataInicioProjeto = new Date(p.created_date || '2024-01-01');
-    const matchData = dataInicioProjeto >= new Date(dataInicio) && dataInicioProjeto <= new Date(dataFim);
-    const matchComite = comiteFiltro === "all" || p.comite_id === comiteFiltro;
-    const matchTipo = tipoProjetoFiltro === "all" || p.tipo === tipoProjetoFiltro;
-    return matchData && matchComite && matchTipo;
-  });
+  const filteredProjetos = useMemo(
+    () =>
+      projects.filter((project) => {
+        const dataInicioProjeto = new Date(project.created_date || "2024-01-01");
+        const matchData = dataInicioProjeto >= new Date(dataInicio) && dataInicioProjeto <= new Date(dataFim);
+        const matchComite = comiteFiltro === "all" || project.comite_id === comiteFiltro;
+        const matchTipo = tipoProjetoFiltro === "all" || project.tipo === tipoProjetoFiltro;
+        return matchData && matchComite && matchTipo;
+      }),
+    [comiteFiltro, dataFim, dataInicio, tipoProjetoFiltro],
+  );
 
-  const filteredReunioes = meetings.filter(r => {
-    const dataReuniao = new Date(r.dataHoraInicio);
-    const matchData = dataReuniao >= new Date(dataInicio) && dataReuniao <= new Date(dataFim);
-    const comite = comites.find(c => c.nome === r.comite);
-    const matchComite = comiteFiltro === "all" || (comite && comite.id === comiteFiltro);
-    const matchTipo = tipoReuniaoFiltro === "all" || r.tipoReuniao === tipoReuniaoFiltro;
-    return matchData && matchComite && matchTipo;
-  });
+  const filteredReunioes = useMemo(
+    () =>
+      meetings.filter((meeting) => {
+        const dataReuniao = new Date(meeting.dataHoraInicio);
+        const comite = comites.find((item) => item.nome === meeting.comite);
+        const matchData = dataReuniao >= new Date(dataInicio) && dataReuniao <= new Date(dataFim);
+        const matchComite = comiteFiltro === "all" || comite?.id === comiteFiltro;
+        const matchTipo = tipoReuniaoFiltro === "all" || meeting.tipoReuniao === tipoReuniaoFiltro;
+        return matchData && matchComite && matchTipo;
+      }),
+    [comiteFiltro, dataFim, dataInicio, tipoReuniaoFiltro],
+  );
 
-  const filteredPautas = pautas.filter(p => {
-    const dataPauta = new Date(p.prazoFim);
-    const matchData = dataPauta >= new Date(dataInicio) && dataPauta <= new Date(dataFim);
-    const comite = comites.find(c => c.nome === p.comite);
-    const matchComite = comiteFiltro === "all" || (comite && comite.id === comiteFiltro);
-    return matchData && matchComite;
-  });
+  const filteredPautas = useMemo(
+    () =>
+      pautas.filter((pauta) => {
+        const dataPauta = new Date(pauta.prazoFim);
+        const comite = comites.find((item) => item.nome === pauta.comite);
+        const matchData = dataPauta >= new Date(dataInicio) && dataPauta <= new Date(dataFim);
+        const matchComite = comiteFiltro === "all" || comite?.id === comiteFiltro;
+        return matchData && matchComite;
+      }),
+    [comiteFiltro, dataFim, dataInicio],
+  );
 
-  // Calcular KPIs
   const kpis = {
     totalProjetos: filteredProjetos.length,
-    projetosAtivos: filteredProjetos.filter(p => p.status === 'em_andamento').length,
-    valorTotal: filteredProjetos.reduce((sum, p) => sum + (p.valor_total || 0), 0),
+    projetosAtivos: filteredProjetos.filter((project) => project.status === "em_andamento").length,
+    valorTotal: filteredProjetos.reduce((sum, project) => sum + (project.valor_total || 0), 0),
     totalReunioes: filteredReunioes.length,
-    reunioesConcluidas: filteredReunioes.filter(r => r.status === 'encerrada').length,
+    reunioesConcluidas: filteredReunioes.filter((meeting) => meeting.status === "encerrada").length,
     totalPautas: filteredPautas.length,
-    pautasAprovadas: filteredPautas.filter(p => p.resultado === 'aprovado').length,
-    taxaAprovacao: filteredPautas.length > 0 
-      ? ((filteredPautas.filter(p => p.resultado === 'aprovado').length / filteredPautas.length) * 100).toFixed(1)
-      : "0",
+    pautasAprovadas: filteredPautas.filter((pauta) => pauta.resultado === "aprovado").length,
+    taxaAprovacao:
+      filteredPautas.length > 0
+        ? ((filteredPautas.filter((pauta) => pauta.resultado === "aprovado").length / filteredPautas.length) * 100).toFixed(1)
+        : "0",
   };
 
-  // Dados para gráfico de evolução de projetos
-  const projetosPorMes: {[key: string]: number} = {};
-  filteredProjetos.forEach(p => {
-    const mes = format(new Date(p.created_date || '2024-01-01'), 'MMM/yyyy', { locale: ptBR });
-    projetosPorMes[mes] = (projetosPorMes[mes] || 0) + 1;
-  });
+  const dadosEvolucaoProjetos = Object.entries(
+    filteredProjetos.reduce<Record<string, number>>((accumulator, project) => {
+      const mes = format(new Date(project.created_date || "2024-01-01"), "MMM/yyyy", { locale: ptBR });
+      accumulator[mes] = (accumulator[mes] || 0) + 1;
+      return accumulator;
+    }, {}),
+  ).map(([mes, projetos]) => ({ mes, projetos }));
 
-  const dadosEvolucaoProjetos = Object.keys(projetosPorMes).map(mes => ({
-    mes,
-    projetos: projetosPorMes[mes]
-  }));
-
-  // Dados para gráfico de status de projetos
   const projetosPorStatus = [
-    { name: 'Planejamento', value: filteredProjetos.filter(p => p.status === 'planejamento').length },
-    { name: 'Em Andamento', value: filteredProjetos.filter(p => p.status === 'em_andamento').length },
-    { name: 'Pausado', value: filteredProjetos.filter(p => p.status === 'pausado').length },
-    { name: 'Concluído', value: filteredProjetos.filter(p => p.status === 'concluido').length },
-    { name: 'Cancelado', value: filteredProjetos.filter(p => p.status === 'cancelado').length },
-  ].filter(item => item.value > 0);
+    { name: "Planejamento", value: filteredProjetos.filter((project) => project.status === "planejamento").length },
+    { name: "Em Andamento", value: filteredProjetos.filter((project) => project.status === "em_andamento").length },
+    { name: "Pausado", value: filteredProjetos.filter((project) => project.status === "pausado").length },
+    { name: "Concluído", value: filteredProjetos.filter((project) => project.status === "concluido").length },
+    { name: "Cancelado", value: filteredProjetos.filter((project) => project.status === "cancelado").length },
+  ].filter((item) => item.value > 0);
 
-  // Dados para gráfico de pautas por categoria
-  const pautasPorCategoria: {[key: string]: number} = {};
-  filteredPautas.forEach((p) => {
-    const cat = p.categoria || 'outra';
-    pautasPorCategoria[cat] = (pautasPorCategoria[cat] || 0) + 1;
-  });
-
-  const dadosPautasCategoria = Object.keys(pautasPorCategoria).map(cat => ({
-    categoria: cat.charAt(0).toUpperCase() + cat.slice(1),
-    pautas: pautasPorCategoria[cat]
+  const dadosPautasCategoria = Object.entries(
+    filteredPautas.reduce<Record<string, number>>((accumulator, pauta) => {
+      const categoria = pauta.categoria || "outra";
+      accumulator[categoria] = (accumulator[categoria] || 0) + 1;
+      return accumulator;
+    }, {}),
+  ).map(([categoria, quantidade]) => ({
+    categoria: categoria.charAt(0).toUpperCase() + categoria.slice(1),
+    pautas: quantidade,
   }));
 
-  // Dados para gráfico de reuniões
-  const reunioesPorMes: {[key: string]: number} = {};
-  filteredReunioes.forEach(r => {
-    const mes = format(new Date(r.dataHoraInicio), 'MMM/yyyy', { locale: ptBR });
-    reunioesPorMes[mes] = (reunioesPorMes[mes] || 0) + 1;
-  });
+  const dadosReunioesMes = Object.entries(
+    filteredReunioes.reduce<Record<string, number>>((accumulator, meeting) => {
+      const mes = format(new Date(meeting.dataHoraInicio), "MMM/yyyy", { locale: ptBR });
+      accumulator[mes] = (accumulator[mes] || 0) + 1;
+      return accumulator;
+    }, {}),
+  ).map(([mes, reunioes]) => ({ mes, reunioes }));
 
-  const dadosReunioesMes = Object.keys(reunioesPorMes).map(mes => ({
-    mes,
-    reunioes: reunioesPorMes[mes]
-  }));
+  const summaryRows: SummaryRow[] = [
+    { id: "projetos", indicador: "Projetos ativos", valor: String(kpis.projetosAtivos), contexto: `${kpis.totalProjetos} projetos no filtro` },
+    { id: "valor", indicador: "Valor total", valor: `R$ ${(kpis.valorTotal / 1000000).toFixed(1)}M`, contexto: "Portfólio filtrado" },
+    { id: "aprovacao", indicador: "Taxa de aprovação", valor: `${kpis.taxaAprovacao}%`, contexto: `${kpis.pautasAprovadas} de ${kpis.totalPautas} pautas` },
+    { id: "reunioes", indicador: "Reuniões concluídas", valor: String(kpis.reunioesConcluidas), contexto: `${kpis.totalReunioes} agendadas` },
+  ];
 
-  const COLORS = ['#FF7A3D', '#008751', '#FFB347', '#4CAF7B', '#E6662A', '#006B40'];
+  const summaryColumns: HudTableColumn<SummaryRow>[] = [
+    { key: "indicador", header: "Indicador", cell: (row) => <span className="font-medium text-ig-fg-strong">{row.indicador}</span> },
+    { key: "valor", header: "Valor", align: "right", cell: (row) => <span className="font-semibold text-ig-accent">{row.valor}</span> },
+    { key: "contexto", header: "Contexto", cell: (row) => <span className="text-ig-fg-muted">{row.contexto}</span> },
+  ];
 
-  const filtros = {
-    dataInicio,
-    dataFim,
-    comite: comiteFiltro,
-    tipoProjeto: tipoProjetoFiltro,
-    tipoReuniao: tipoReuniaoFiltro
+  const tooltipStyle = {
+    backgroundColor: "var(--ig-bg-elevated)",
+    border: "1px solid var(--ig-border)",
+    borderRadius: "8px",
+    color: "var(--ig-fg)",
   };
+
+  const tabs: { id: ReportTab; label: string }[] = [
+    { id: "projetos", label: "Projetos" },
+    { id: "pautas", label: "Pautas" },
+    { id: "reunioes", label: "Reuniões" },
+    { id: "financeiro", label: "Financeiro" },
+  ];
 
   return (
-    <OrionGreenBackground className="orion-page">
-      <div className="orion-page-content max-w-[1800px] mx-auto space-y-6">
-        <header className="mb-8">
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-            <div>
-              <h1 className="text-2xl font-semibold text-white mb-1 tracking-wide">Relatórios Avançados</h1>
-              <p className="text-sm text-[rgba(255,255,255,0.65)]">Dashboards personalizáveis e análises detalhadas</p>
-            </div>
-            <div className="flex gap-2">
-              <ExportMenu 
-                data={filteredProjetos}
-                fileName="relatorio-avancado"
-              />
-              <Button variant="outline" className="border-[rgba(0,255,180,0.25)] text-[rgba(255,255,255,0.92)] hover:bg-[rgba(0,255,180,0.12)]">
-                <Settings className="w-4 h-4 mr-2" />
-                Configurar Dashboard
-              </Button>
-            </div>
+    <HudPageLayout>
+      <HudHeader
+        title="Relatórios"
+        subtitle="Dashboards personalizáveis e análises detalhadas"
+        icon={<BarChart3 size={18} />}
+        iconTint="#3B82F6"
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <HudButton variant="secondary" leftIcon={<Download className="h-4 w-4" />}>
+              Exportar
+            </HudButton>
+            <HudButton variant="secondary" leftIcon={<Settings className="h-4 w-4" />}>
+              Configurar Dashboard
+            </HudButton>
           </div>
-        </header>
+        }
+      />
 
-        {/* Filtros */}
-        <HUDCard>
-          <div className="grid md:grid-cols-5 gap-4">
-            <div className="space-y-2">
-              <Label className="text-white text-xs">Data Início</Label>
-              <Input
-                type="date"
-                value={dataInicio}
-                onChange={(e) => setDataInicio(e.target.value)}
-                className="bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.08)] text-white focus:border-[rgba(0,255,180,0.25)]"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-white text-xs">Data Fim</Label>
-              <Input
-                type="date"
-                value={dataFim}
-                onChange={(e) => setDataFim(e.target.value)}
-                className="bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.08)] text-white focus:border-[rgba(0,255,180,0.25)]"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-white text-xs">Comitê</Label>
-              <Select value={comiteFiltro} onValueChange={setComiteFiltro}>
-                <SelectTrigger className="bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.08)] text-white hover:border-[rgba(0,255,180,0.25)] focus:border-[rgba(0,255,180,0.25)]">
-                  <SelectValue placeholder="Todos" />
-                </SelectTrigger>
-                <SelectContent className="bg-gradient-to-br from-[#07130F] to-[#030B09] border-[rgba(255,255,255,0.08)]">
-                  <SelectItem value="all" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Todos</SelectItem>
-                  {comites.map(c => (
-                    <SelectItem key={c.id} value={c.id} className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">{c.nome}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label className="text-white text-xs">Tipo de Projeto</Label>
-              <Select value={tipoProjetoFiltro} onValueChange={setTipoProjetoFiltro}>
-                <SelectTrigger className="bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.08)] text-white hover:border-[rgba(0,255,180,0.25)] focus:border-[rgba(0,255,180,0.25)]">
-                  <SelectValue placeholder="Todos" />
-                </SelectTrigger>
-                <SelectContent className="bg-gradient-to-br from-[#07130F] to-[#030B09] border-[rgba(255,255,255,0.08)]">
-                  <SelectItem value="all" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Todos</SelectItem>
-                  <SelectItem value="energia_solar" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Energia Solar</SelectItem>
-                  <SelectItem value="eolica" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Eólica</SelectItem>
-                  <SelectItem value="hidreletrica" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Hidrelétrica</SelectItem>
-                  <SelectItem value="biomassa" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Biomassa</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label className="text-white text-xs">Tipo de Reunião</Label>
-              <Select value={tipoReuniaoFiltro} onValueChange={setTipoReuniaoFiltro}>
-                <SelectTrigger className="bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.08)] text-white hover:border-[rgba(0,255,180,0.25)] focus:border-[rgba(0,255,180,0.25)]">
-                  <SelectValue placeholder="Todas" />
-                </SelectTrigger>
-                <SelectContent className="bg-gradient-to-br from-[#07130F] to-[#030B09] border-[rgba(255,255,255,0.08)]">
-                  <SelectItem value="all" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Todas</SelectItem>
-                  <SelectItem value="presencial" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Presencial</SelectItem>
-                  <SelectItem value="virtual" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Virtual</SelectItem>
-                  <SelectItem value="hibrida" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Híbrida</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-        </HUDCard>
-
-        {/* KPIs */}
-        <section className="grid md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-          <HUDCard glow glowColor="amber">
-            <div className="flex items-center justify-between mb-2">
-              <TrendingUp className="w-6 h-6 text-[#FFB04D]" />
-            </div>
-            <p className="text-xs text-[rgba(255,255,255,0.65)] mb-1 uppercase tracking-wide">Projetos Ativos</p>
-            <p className="text-3xl font-semibold text-white">{kpis.projetosAtivos}</p>
-            <p className="text-xs text-[rgba(255,255,255,0.40)] mt-1">de {kpis.totalProjetos} total</p>
-          </HUDCard>
-
-          <HUDCard glow glowColor="green">
-            <div className="flex items-center justify-between mb-2">
-              <BarChart3 className="w-6 h-6 text-[#00FFB4]" />
-            </div>
-            <p className="text-xs text-[rgba(255,255,255,0.65)] mb-1 uppercase tracking-wide">Valor Total</p>
-            <p className="text-2xl font-semibold text-white">
-              R$ {(kpis.valorTotal / 1000000).toFixed(1)}M
-            </p>
-            <p className="text-xs text-[rgba(255,255,255,0.40)] mt-1">em projetos</p>
-          </HUDCard>
-
-          <HUDCard glow glowColor="amber">
-            <div className="flex items-center justify-between mb-2">
-              <PieChartIcon className="w-6 h-6 text-[#FFB04D]" />
-            </div>
-            <p className="text-xs text-[rgba(255,255,255,0.65)] mb-1 uppercase tracking-wide">Taxa de Aprovação</p>
-            <p className="text-3xl font-semibold text-white">{kpis.taxaAprovacao}%</p>
-            <p className="text-xs text-[rgba(255,255,255,0.40)] mt-1">{kpis.pautasAprovadas} de {kpis.totalPautas} pautas</p>
-          </HUDCard>
-
-          <HUDCard glow glowColor="cyan">
-            <div className="flex items-center justify-between mb-2">
-              <Calendar className="w-6 h-6 text-[#00C8FF]" />
-            </div>
-            <p className="text-xs text-[rgba(255,255,255,0.65)] mb-1 uppercase tracking-wide">Reuniões Realizadas</p>
-            <p className="text-3xl font-semibold text-white">{kpis.reunioesConcluidas}</p>
-            <p className="text-xs text-[rgba(255,255,255,0.40)] mt-1">de {kpis.totalReunioes} agendadas</p>
-          </HUDCard>
-        </section>
-
-        {/* Gráficos */}
-        <div className="flex justify-end mb-4">
-          <div className="inline-flex rounded-lg border border-[rgba(255,255,255,0.08)] p-1 bg-[rgba(255,255,255,0.03)]">
-            <Tabs defaultValue="projetos" className="w-full">
-              <TabsList className="bg-transparent border-0">
-                <TabsTrigger value="projetos" className="data-[state=active]:bg-[#00FFB4] data-[state=active]:text-[#050D0A] text-[rgba(255,255,255,0.65)] hover:text-white">Projetos</TabsTrigger>
-                <TabsTrigger value="pautas" className="data-[state=active]:bg-[#00FFB4] data-[state=active]:text-[#050D0A] text-[rgba(255,255,255,0.65)] hover:text-white">Pautas</TabsTrigger>
-                <TabsTrigger value="reunioes" className="data-[state=active]:bg-[#00FFB4] data-[state=active]:text-[#050D0A] text-[rgba(255,255,255,0.65)] hover:text-white">Reuniões</TabsTrigger>
-                <TabsTrigger value="financeiro" className="data-[state=active]:bg-[#00FFB4] data-[state=active]:text-[#050D0A] text-[rgba(255,255,255,0.65)] hover:text-white">Financeiro</TabsTrigger>
-              </TabsList>
-            </Tabs>
-          </div>
+      <HudPanel elevation={2} title="Filtros" subtitle="Recorte por período, comitê e tipo">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+          <HudInput label="Data Início" type="date" value={dataInicio} onChange={(event) => setDataInicio(event.target.value)} />
+          <HudInput label="Data Fim" type="date" value={dataFim} onChange={(event) => setDataFim(event.target.value)} />
+          <HudSelect
+            label="Comitê"
+            value={comiteFiltro}
+            onChange={setComiteFiltro}
+            options={[{ value: "all", label: "Todos" }, ...comites.map((comite) => ({ value: comite.id, label: comite.nome }))]}
+          />
+          <HudSelect
+            label="Tipo de Projeto"
+            value={tipoProjetoFiltro}
+            onChange={setTipoProjetoFiltro}
+            options={[
+              { value: "all", label: "Todos" },
+              { value: "energia_solar", label: "Energia Solar" },
+              { value: "eolica", label: "Eólica" },
+              { value: "hidreletrica", label: "Hidrelétrica" },
+              { value: "biomassa", label: "Biomassa" },
+            ]}
+          />
+          <HudSelect
+            label="Tipo de Reunião"
+            value={tipoReuniaoFiltro}
+            onChange={setTipoReuniaoFiltro}
+            options={[
+              { value: "all", label: "Todas" },
+              { value: "presencial", label: "Presencial" },
+              { value: "virtual", label: "Virtual" },
+              { value: "hibrida", label: "Híbrida" },
+            ]}
+          />
         </div>
+      </HudPanel>
 
-        <Tabs defaultValue="projetos" className="space-y-6">
-          <TabsContent value="projetos" className="space-y-6 mt-0">
-            <div className="grid md:grid-cols-2 gap-6">
-              <HUDCard>
-                <div className="mb-4">
-                  <h3 className="text-base font-semibold text-white mb-1">Evolução de Projetos</h3>
-                  <p className="text-xs text-[rgba(255,255,255,0.65)]">Criação de projetos ao longo do tempo</p>
-                </div>
-                <ResponsiveContainer width="100%" height={300}>
-                  <AreaChart data={dadosEvolucaoProjetos}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                    <XAxis dataKey="mes" stroke="rgba(255,255,255,0.40)" />
-                    <YAxis stroke="rgba(255,255,255,0.40)" />
-                    <Tooltip 
-                      contentStyle={{ 
-                        backgroundColor: 'rgba(7,19,15,0.95)', 
-                        border: '1px solid rgba(255,255,255,0.08)',
-                        borderRadius: '8px',
-                        color: 'white'
-                      }} 
-                    />
-                    <Area type="monotone" dataKey="projetos" stroke="#00FFB4" fill="rgba(0,255,180,0.15)" />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </HUDCard>
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <HudPanel elevation={2} title="Projetos Ativos" icon={<TrendingUp className="h-5 w-5" />} iconTint="#F59E0B">
+          <p className="text-3xl font-semibold text-ig-fg-strong">{kpis.projetosAtivos}</p>
+          <p className="mt-1 text-xs text-ig-fg-muted">de {kpis.totalProjetos} total</p>
+        </HudPanel>
+        <HudPanel elevation={2} title="Valor Total" icon={<BarChart3 className="h-5 w-5" />} iconTint="#14B8A6">
+          <p className="text-3xl font-semibold text-ig-fg-strong">R$ {(kpis.valorTotal / 1000000).toFixed(1)}M</p>
+          <p className="mt-1 text-xs text-ig-fg-muted">em projetos</p>
+        </HudPanel>
+        <HudPanel elevation={2} title="Taxa de Aprovação" icon={<PieChartIcon className="h-5 w-5" />} iconTint="#F59E0B">
+          <p className="text-3xl font-semibold text-ig-fg-strong">{kpis.taxaAprovacao}%</p>
+          <p className="mt-1 text-xs text-ig-fg-muted">{kpis.pautasAprovadas} de {kpis.totalPautas} pautas</p>
+        </HudPanel>
+        <HudPanel elevation={2} title="Reuniões Realizadas" icon={<Calendar className="h-5 w-5" />} iconTint="#3B82F6">
+          <p className="text-3xl font-semibold text-ig-fg-strong">{kpis.reunioesConcluidas}</p>
+          <p className="mt-1 text-xs text-ig-fg-muted">de {kpis.totalReunioes} agendadas</p>
+        </HudPanel>
+      </section>
 
-              <HUDCard>
-                <div className="mb-4">
-                  <h3 className="text-base font-semibold text-white mb-1">Status dos Projetos</h3>
-                  <p className="text-xs text-[rgba(255,255,255,0.65)]">Distribuição por status</p>
-                </div>
-                <ResponsiveContainer width="100%" height={300}>
-                  <RechartsPie>
-                    <Pie
-                      data={projetosPorStatus}
-                      cx="50%"
-                      cy="50%"
-                      labelLine={false}
-                      label={({ name, value }) => `${name}: ${value}`}
-                      outerRadius={80}
-                      fill="#8884d8"
-                      dataKey="value"
-                    >
-                      {projetosPorStatus.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip 
-                      contentStyle={{ 
-                        backgroundColor: 'rgba(7,19,15,0.95)', 
-                        border: '1px solid rgba(255,255,255,0.08)',
-                        borderRadius: '8px',
-                        color: 'white'
-                      }} 
-                    />
-                  </RechartsPie>
-                </ResponsiveContainer>
-              </HUDCard>
-            </div>
-          </TabsContent>
-
-          <TabsContent value="pautas" className="space-y-6 mt-0">
-            <HUDCard>
-              <div className="mb-4">
-                <h3 className="text-base font-semibold text-white mb-1">Pautas por Categoria</h3>
-                <p className="text-xs text-[rgba(255,255,255,0.65)]">Distribuição de pautas por categoria</p>
-              </div>
-              <ResponsiveContainer width="100%" height={400}>
-                <BarChart data={dadosPautasCategoria}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                  <XAxis dataKey="categoria" stroke="rgba(255,255,255,0.40)" />
-                  <YAxis stroke="rgba(255,255,255,0.40)" />
-                  <Tooltip 
-                    contentStyle={{ 
-                      backgroundColor: 'rgba(7,19,15,0.95)', 
-                      border: '1px solid rgba(255,255,255,0.08)',
-                      borderRadius: '8px',
-                      color: 'white'
-                    }} 
-                  />
-                  <Legend wrapperStyle={{ color: 'rgba(255,255,255,0.92)' }} />
-                  <Bar dataKey="pautas" fill="#00FFB4" />
-                </BarChart>
-              </ResponsiveContainer>
-            </HUDCard>
-          </TabsContent>
-
-          <TabsContent value="reunioes" className="space-y-6 mt-0">
-            <HUDCard>
-              <div className="mb-4">
-                <h3 className="text-base font-semibold text-white mb-1">Frequência de Reuniões</h3>
-                <p className="text-xs text-[rgba(255,255,255,0.65)]">Reuniões realizadas por mês</p>
-              </div>
-              <ResponsiveContainer width="100%" height={400}>
-                <LineChart data={dadosReunioesMes}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                  <XAxis dataKey="mes" stroke="rgba(255,255,255,0.40)" />
-                  <YAxis stroke="rgba(255,255,255,0.40)" />
-                  <Tooltip 
-                    contentStyle={{ 
-                      backgroundColor: 'rgba(7,19,15,0.95)', 
-                      border: '1px solid rgba(255,255,255,0.08)',
-                      borderRadius: '8px',
-                      color: 'white'
-                    }} 
-                  />
-                  <Legend wrapperStyle={{ color: 'rgba(255,255,255,0.92)' }} />
-                  <Line type="monotone" dataKey="reunioes" stroke="#00FFB4" strokeWidth={3} />
-                </LineChart>
-              </ResponsiveContainer>
-            </HUDCard>
-          </TabsContent>
-
-          <TabsContent value="financeiro" className="space-y-6 mt-0">
-            <HUDCard>
-              <div className="p-12 text-center">
-                <BarChart3 className="w-16 h-16 text-[rgba(255,255,255,0.20)] mx-auto mb-4" />
-                <p className="text-[rgba(255,255,255,0.65)]">Dados financeiros disponíveis apenas para usuários autorizados</p>
-              </div>
-            </HUDCard>
-          </TabsContent>
-        </Tabs>
+      <div className="flex flex-wrap gap-2">
+        {tabs.map((tab) => (
+          <HudButton key={tab.id} variant={activeTab === tab.id ? "primary" : "secondary"} size="sm" onClick={() => setActiveTab(tab.id)}>
+            {tab.label}
+          </HudButton>
+        ))}
       </div>
-    </OrionGreenBackground>
+
+      {activeTab === "projetos" && (
+        <div className="grid gap-6 xl:grid-cols-2">
+          <HudPanel elevation={2} title="Evolução de Projetos" subtitle="Criação de projetos ao longo do tempo">
+            <ResponsiveContainer width="100%" height={300}>
+              <AreaChart data={dadosEvolucaoProjetos}>
+                <CartesianGrid strokeDasharray="3 3" stroke={chartGrid} />
+                <XAxis dataKey="mes" stroke={chartText} />
+                <YAxis stroke={chartText} />
+                <Tooltip contentStyle={tooltipStyle} />
+                <Area type="monotone" dataKey="projetos" stroke="var(--ig-accent)" fill="var(--ig-accent-weak)" />
+              </AreaChart>
+            </ResponsiveContainer>
+          </HudPanel>
+
+          <HudPanel elevation={2} title="Status dos Projetos" subtitle="Distribuição por status">
+            <ResponsiveContainer width="100%" height={300}>
+              <RechartsPie>
+                <Pie data={projetosPorStatus} cx="50%" cy="50%" outerRadius={82} dataKey="value" label={({ name, value }) => `${name}: ${value}`}>
+                  {projetosPorStatus.map((entry, index) => (
+                    <Cell key={entry.name} fill={chartColors[index % chartColors.length]} />
+                  ))}
+                </Pie>
+                <Tooltip contentStyle={tooltipStyle} />
+              </RechartsPie>
+            </ResponsiveContainer>
+          </HudPanel>
+        </div>
+      )}
+
+      {activeTab === "pautas" && (
+        <HudPanel elevation={2} title="Pautas por Categoria" subtitle="Distribuição de pautas por categoria">
+          <ResponsiveContainer width="100%" height={400}>
+            <BarChart data={dadosPautasCategoria}>
+              <CartesianGrid strokeDasharray="3 3" stroke={chartGrid} />
+              <XAxis dataKey="categoria" stroke={chartText} />
+              <YAxis stroke={chartText} />
+              <Tooltip contentStyle={tooltipStyle} />
+              <Legend wrapperStyle={{ color: "var(--ig-fg-muted)" }} />
+              <Bar dataKey="pautas" fill="var(--ig-accent)" />
+            </BarChart>
+          </ResponsiveContainer>
+        </HudPanel>
+      )}
+
+      {activeTab === "reunioes" && (
+        <HudPanel elevation={2} title="Frequência de Reuniões" subtitle="Reuniões realizadas por mês">
+          <ResponsiveContainer width="100%" height={400}>
+            <LineChart data={dadosReunioesMes}>
+              <CartesianGrid strokeDasharray="3 3" stroke={chartGrid} />
+              <XAxis dataKey="mes" stroke={chartText} />
+              <YAxis stroke={chartText} />
+              <Tooltip contentStyle={tooltipStyle} />
+              <Legend wrapperStyle={{ color: "var(--ig-fg-muted)" }} />
+              <Line type="monotone" dataKey="reunioes" stroke="var(--ig-accent)" strokeWidth={3} />
+            </LineChart>
+          </ResponsiveContainer>
+        </HudPanel>
+      )}
+
+      {activeTab === "financeiro" && (
+        <HudPanel elevation={2}>
+          <div className="flex min-h-64 items-center justify-center">
+            <div className="text-center">
+              <FileText className="mx-auto mb-4 h-12 w-12 text-ig-fg-subtle" />
+              <p className="text-sm text-ig-fg-muted">Dados financeiros disponíveis apenas para usuários autorizados.</p>
+            </div>
+          </div>
+        </HudPanel>
+      )}
+
+      <HudPanel elevation={2} title="Resumo Executivo" subtitle="Indicadores principais do recorte atual">
+        <HudTable columns={summaryColumns} data={summaryRows} keyExtractor={(row) => row.id} />
+      </HudPanel>
+
+      <div className="flex flex-wrap gap-2">
+        <HudBadge variant="neutral">Período: {dataInicio} até {dataFim}</HudBadge>
+        <HudBadge variant="info">Projetos: {filteredProjetos.length}</HudBadge>
+        <HudBadge variant="info">Reuniões: {filteredReunioes.length}</HudBadge>
+      </div>
+    </HudPageLayout>
   );
 }

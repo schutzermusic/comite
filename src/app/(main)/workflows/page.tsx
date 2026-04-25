@@ -1,534 +1,381 @@
 'use client';
 
-import React, { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useMemo, useState } from "react";
 import {
-  Zap,
-  Plus,
-  Edit,
-  Trash2,
-  Play,
-  ArrowLeft,
+  Activity,
+  AlertTriangle,
   Bell,
   CheckCircle2,
-  AlertTriangle,
   Clock,
-  Activity,
-  Filter
+  Edit,
+  GitBranch,
+  Play,
+  Plus,
+  Trash2,
+  Zap,
 } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { HUDCard } from "@/components/ui/hud-card";
-import { StatusPill } from "@/components/ui/status-pill";
-import { OrionGreenBackground } from "@/components/system/OrionGreenBackground";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Switch } from "@/components/ui/switch";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { useHudToast } from "@/hooks/useHudToast";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { HudBadge } from "@/components/hud/HudBadge";
+import { HudButton } from "@/components/hud/HudButton";
+import { HudHeader } from "@/components/hud/HudHeader";
+import { HudInput } from "@/components/hud/HudInput";
+import { HudPageLayout } from "@/components/hud/HudPageLayout";
+import { HudPanel } from "@/components/hud/HudPanel";
+import { HudSelect } from "@/components/hud/HudSelect";
+import { HudTable } from "@/components/hud/HudTable";
+import type { HudTableColumn } from "@/components/hud/HudTable";
 import { workflows as mockWorkflows, workflowLogs as mockWorkflowLogs } from "@/lib/mock-data";
-import { Workflow, WorkflowLog } from "@/lib/types";
+import type { Workflow, WorkflowLog } from "@/lib/types";
 
-export default function GerenciarWorkflows() {
-  const router = useRouter();
-  const { toast } = useHudToast();
+const workflowTypeLabels: Record<Workflow["tipo"], string> = {
+  notificacao_prazo: "Notificação de prazo",
+  atribuicao_tarefa: "Atribuição de tarefa",
+  aprovacao_orcamento: "Aprovação de orçamento",
+  mudanca_status: "Mudança de status",
+  lembrete_votacao: "Lembrete de votação",
+  alerta_risco: "Alerta de risco",
+  custom: "Personalizada",
+};
 
+const frequencyLabels: Record<Workflow["frequencia_execucao"], string> = {
+  imediata: "Imediata",
+  diaria: "Diária",
+  semanal: "Semanal",
+  mensal: "Mensal",
+};
+
+const typeOptions = Object.entries(workflowTypeLabels).map(([value, label]) => ({ value, label }));
+const frequencyOptions = Object.entries(frequencyLabels).map(([value, label]) => ({ value, label }));
+
+type WorkflowFormData = Pick<Workflow, "nome" | "descricao" | "tipo" | "ativa" | "prioridade" | "frequencia_execucao">;
+
+const emptyForm: WorkflowFormData = {
+  nome: "",
+  descricao: "",
+  tipo: "notificacao_prazo",
+  ativa: true,
+  prioridade: 5,
+  frequencia_execucao: "imediata",
+};
+
+function statusVariant(status: WorkflowLog["status"]): "success" | "danger" | "warning" {
+  if (status === "success") return "success";
+  if (status === "failed") return "danger";
+  return "warning";
+}
+
+function typeIcon(tipo: Workflow["tipo"]) {
+  const icons = {
+    notificacao_prazo: Bell,
+    atribuicao_tarefa: CheckCircle2,
+    aprovacao_orcamento: GitBranch,
+    mudanca_status: Activity,
+    lembrete_votacao: Bell,
+    alerta_risco: AlertTriangle,
+    custom: Zap,
+  };
+  return icons[tipo];
+}
+
+export default function WorkflowsPage() {
   const [workflows, setWorkflows] = useState<Workflow[]>(mockWorkflows);
-  const [logs, setLogs] = useState<WorkflowLog[]>(mockWorkflowLogs);
-
-  const [showDialog, setShowDialog] = useState(false);
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const [showLogsDialog, setShowLogsDialog] = useState(false);
+  const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(mockWorkflows[0]?.id ?? null);
   const [editingWorkflow, setEditingWorkflow] = useState<Workflow | null>(null);
-  const [deletingWorkflow, setDeletingWorkflow] = useState<Workflow | null>(null);
-  const [selectedWorkflowLogs, setSelectedWorkflowLogs] = useState<WorkflowLog[]>([]);
+  const [formData, setFormData] = useState<WorkflowFormData>(emptyForm);
 
-  const [formData, setFormData] = useState({
-    nome: "",
-    descricao: "",
-    tipo: "notificacao_prazo" as Workflow['tipo'],
-    ativa: true,
-    prioridade: 5,
-    frequencia_execucao: "imediata" as Workflow['frequencia_execucao']
-  });
+  const selectedWorkflow = workflows.find((workflow) => workflow.id === selectedWorkflowId) ?? null;
+  const selectedLogs = useMemo(
+    () => mockWorkflowLogs.filter((log) => log.workflow_id === selectedWorkflowId),
+    [selectedWorkflowId],
+  );
+
+  const stats = useMemo(
+    () => ({
+      total: workflows.length,
+      ativas: workflows.filter((workflow) => workflow.ativa).length,
+      execucoesHoje: mockWorkflowLogs.filter((log) => {
+        const today = new Date().toDateString();
+        return new Date(log.created_date).toDateString() === today;
+      }).length,
+      taxaSucesso:
+        mockWorkflowLogs.length > 0
+          ? Math.round((mockWorkflowLogs.filter((log) => log.status === "success").length / mockWorkflowLogs.length) * 100)
+          : 0,
+    }),
+    [workflows],
+  );
 
   const resetForm = () => {
-    setFormData({
-      nome: "",
-      descricao: "",
-      tipo: "notificacao_prazo",
-      ativa: true,
-      prioridade: 5,
-      frequencia_execucao: "imediata"
-    });
+    setFormData(emptyForm);
     setEditingWorkflow(null);
   };
 
-  const handleEdit = (workflow: Workflow) => {
+  const startCreate = () => {
+    resetForm();
+    setSelectedWorkflowId(null);
+  };
+
+  const startEdit = (workflow: Workflow) => {
     setEditingWorkflow(workflow);
     setFormData({
       nome: workflow.nome,
-      descricao: workflow.descricao || "",
+      descricao: workflow.descricao ?? "",
       tipo: workflow.tipo,
       ativa: workflow.ativa,
-      prioridade: workflow.prioridade || 5,
-      frequencia_execucao: workflow.frequencia_execucao || "imediata"
+      prioridade: workflow.prioridade,
+      frequencia_execucao: workflow.frequencia_execucao,
     });
-    setShowDialog(true);
   };
 
-  const handleSubmit = () => {
-    if (!formData.nome) {
-      toast({ title: 'Erro', description: 'Preencha o nome da automação', variant: 'destructive' });
-      return;
-    }
+  const saveWorkflow = () => {
+    if (!formData.nome.trim()) return;
 
     if (editingWorkflow) {
-      setWorkflows(workflows.map(w => w.id === editingWorkflow.id ? { ...w, ...formData } : w));
-      toast({ title: 'Automação atualizada com sucesso!' });
+      setWorkflows((current) =>
+        current.map((workflow) =>
+          workflow.id === editingWorkflow.id ? { ...workflow, ...formData, nome: formData.nome.trim() } : workflow,
+        ),
+      );
+      setSelectedWorkflowId(editingWorkflow.id);
     } else {
-      const newWorkflow: Workflow = {
+      const workflow: Workflow = {
         id: `wf-${Date.now()}`,
         total_execucoes: 0,
         created_date: new Date().toISOString(),
-        ...formData
+        ...formData,
+        nome: formData.nome.trim(),
       };
-      setWorkflows([newWorkflow, ...workflows]);
-      toast({ title: 'Automação criada com sucesso!' });
+      setWorkflows((current) => [workflow, ...current]);
+      setSelectedWorkflowId(workflow.id);
     }
-    setShowDialog(false);
+
     resetForm();
   };
 
-  const handleDelete = () => {
-    if (deletingWorkflow) {
-      setWorkflows(workflows.filter(w => w.id !== deletingWorkflow.id));
-      setShowDeleteDialog(false);
-      setDeletingWorkflow(null);
-      toast({ title: 'Automação excluída com sucesso!' });
+  const toggleWorkflow = (workflow: Workflow) => {
+    setWorkflows((current) =>
+      current.map((item) => (item.id === workflow.id ? { ...item, ativa: !item.ativa } : item)),
+    );
+  };
+
+  const deleteWorkflow = (workflow: Workflow) => {
+    setWorkflows((current) => current.filter((item) => item.id !== workflow.id));
+    if (selectedWorkflowId === workflow.id) {
+      setSelectedWorkflowId(null);
+    }
+    if (editingWorkflow?.id === workflow.id) {
+      resetForm();
     }
   };
 
-  const toggleWorkflow = (id: string, ativa: boolean) => {
-    setWorkflows(workflows.map(w => w.id === id ? { ...w, ativa } : w));
-    toast({ title: 'Status atualizado!' });
-  };
-
-  const handleViewLogs = (workflow: Workflow) => {
-    const workflowLogs = logs.filter(log => log.workflow_id === workflow.id);
-    setSelectedWorkflowLogs(workflowLogs);
-    setShowLogsDialog(true);
-  };
-
-  const getTipoIcon = (tipo: Workflow['tipo']) => {
-    const icons = {
-      notificacao_prazo: Bell,
-      atribuicao_tarefa: CheckCircle2,
-      aprovacao_orcamento: Filter,
-      mudanca_status: Activity,
-      lembrete_votacao: Bell,
-      alerta_risco: AlertTriangle,
-      custom: Zap
-    };
-    return icons[tipo] || Zap;
-  };
-
-  const getStatusVariant = (status: WorkflowLog['status']): "success" | "error" | "warning" => {
-    if (status === 'success') return 'success';
-    if (status === 'failed') return 'error';
-    return 'warning';
-  };
-
-  const stats = {
-    total: workflows.length,
-    ativas: workflows.filter(w => w.ativa).length,
-    execucoes_hoje: logs.filter(l => {
-      const today = new Date().toDateString();
-      return new Date(l.created_date).toDateString() === today;
-    }).length,
-    taxa_sucesso: logs.length > 0 
-      ? ((logs.filter(l => l.status === 'success').length / logs.length) * 100).toFixed(0)
-      : 0
-  };
+  const logColumns: HudTableColumn<WorkflowLog>[] = [
+    {
+      key: "status",
+      header: "Status",
+      cell: (log) => <HudBadge variant={statusVariant(log.status)}>{log.status}</HudBadge>,
+    },
+    {
+      key: "trigger_evento",
+      header: "Evento",
+      cell: (log) => <span className="text-ig-fg">{log.trigger_evento}</span>,
+    },
+    {
+      key: "duracao_ms",
+      header: "Duração",
+      align: "right",
+      cell: (log) => <span className="text-ig-fg-muted">{log.duracao_ms}ms</span>,
+    },
+    {
+      key: "created_date",
+      header: "Data",
+      align: "right",
+      cell: (log) => (
+        <span className="text-ig-fg-muted">
+          {format(new Date(log.created_date), "dd/MM/yyyy HH:mm", { locale: ptBR })}
+        </span>
+      ),
+    },
+  ];
 
   return (
-    <OrionGreenBackground className="orion-page">
-      <div className="orion-page-content max-w-[1800px] mx-auto space-y-6">
-        <header className="mb-8">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={() => router.push("/dashboard")}
-                className="border-[rgba(0,255,180,0.25)] text-[rgba(255,255,255,0.92)] hover:bg-[rgba(0,255,180,0.12)]"
-              >
-                <ArrowLeft className="w-4 h-4" />
-              </Button>
-              <div>
-                <h1 className="text-2xl font-semibold text-white tracking-wide">Automações de Workflow</h1>
-                <p className="text-sm text-[rgba(255,255,255,0.65)]">Automatize processos e notificações do sistema</p>
-              </div>
-            </div>
-            <Button
-              onClick={() => {
-                resetForm();
-                setShowDialog(true);
-              }}
-              className="bg-[#00FFB4] text-[#050D0A] hover:bg-[#00E6A0] font-medium shadow-[0_0_18px_rgba(0,255,180,0.18)]"
-            >
-              <Plus className="w-4 h-4 mr-2" />
-              Nova Automação
-            </Button>
-          </div>
-        </header>
+    <HudPageLayout>
+      <HudHeader
+        title="Workflows"
+        subtitle="Automatize processos e notificações do sistema"
+        icon={<GitBranch size={18} />}
+        iconTint="#A855F7"
+        actions={
+          <HudButton variant="primary" leftIcon={<Plus className="h-4 w-4" />} onClick={startCreate}>
+            Nova Automação
+          </HudButton>
+        }
+      />
 
-        <section className="grid md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-          <HUDCard glow glowColor="cyan">
-            <div className="flex items-center justify-between mb-2">
-              <Zap className="w-6 h-6 text-[#00C8FF]" />
-            </div>
-            <p className="text-xs text-[rgba(255,255,255,0.65)] mb-1 uppercase tracking-wide">Total de Automações</p>
-            <p className="text-3xl font-semibold text-white">{stats.total}</p>
-          </HUDCard>
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <HudPanel elevation={2} icon={<Zap className="h-5 w-5" />} title="Total de Automações" iconTint="#A855F7">
+          <p className="text-3xl font-semibold text-ig-fg-strong">{stats.total}</p>
+        </HudPanel>
+        <HudPanel elevation={2} icon={<Play className="h-5 w-5" />} title="Automações Ativas" iconTint="#14B8A6">
+          <p className="text-3xl font-semibold text-ig-fg-strong">{stats.ativas}</p>
+        </HudPanel>
+        <HudPanel elevation={2} icon={<Activity className="h-5 w-5" />} title="Execuções Hoje" iconTint="#F59E0B">
+          <p className="text-3xl font-semibold text-ig-fg-strong">{stats.execucoesHoje}</p>
+        </HudPanel>
+        <HudPanel elevation={2} icon={<CheckCircle2 className="h-5 w-5" />} title="Taxa de Sucesso" iconTint="#14B8A6">
+          <p className="text-3xl font-semibold text-ig-fg-strong">{stats.taxaSucesso}%</p>
+        </HudPanel>
+      </section>
 
-          <HUDCard glow glowColor="green">
-            <div className="flex items-center justify-between mb-2">
-              <Play className="w-6 h-6 text-[#00FFB4]" />
-            </div>
-            <p className="text-xs text-[rgba(255,255,255,0.65)] mb-1 uppercase tracking-wide">Automações Ativas</p>
-            <p className="text-3xl font-semibold text-white">{stats.ativas}</p>
-          </HUDCard>
+      <div className="grid gap-6 xl:grid-cols-[1fr_420px]">
+        <section className="grid gap-4 lg:grid-cols-2">
+          {workflows.map((workflow) => {
+            const Icon = typeIcon(workflow.tipo);
+            const lastLog = mockWorkflowLogs.find((log) => log.workflow_id === workflow.id);
 
-          <HUDCard glow glowColor="amber">
-            <div className="flex items-center justify-between mb-2">
-              <Activity className="w-6 h-6 text-[#FFB04D]" />
-            </div>
-            <p className="text-xs text-[rgba(255,255,255,0.65)] mb-1 uppercase tracking-wide">Execuções Hoje</p>
-            <p className="text-3xl font-semibold text-white">{stats.execucoes_hoje}</p>
-          </HUDCard>
+            return (
+              <HudPanel key={workflow.id} elevation={2} interactive>
+                <div className="flex h-full flex-col gap-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-ig-border-focus bg-ig-accent-weak text-ig-accent">
+                        <Icon className="h-5 w-5" />
+                      </span>
+                      <div className="min-w-0">
+                        <h2 className="truncate text-ig-h3 text-ig-fg-strong">{workflow.nome}</h2>
+                        <div className="mt-2">
+                          <HudBadge variant="info">{workflowTypeLabels[workflow.tipo]}</HudBadge>
+                        </div>
+                      </div>
+                    </div>
+                    <HudBadge variant={workflow.ativa ? "success" : "neutral"} dot>
+                      {workflow.ativa ? "Ativa" : "Pausada"}
+                    </HudBadge>
+                  </div>
 
-          <HUDCard glow glowColor="green">
-            <div className="flex items-center justify-between mb-2">
-              <CheckCircle2 className="w-6 h-6 text-[#00FFB4]" />
-            </div>
-            <p className="text-xs text-[rgba(255,255,255,0.65)] mb-1 uppercase tracking-wide">Taxa de Sucesso</p>
-            <p className="text-3xl font-semibold text-white">{stats.taxa_sucesso}%</p>
-          </HUDCard>
+                  {workflow.descricao && <p className="text-sm text-ig-fg-muted">{workflow.descricao}</p>}
+
+                  <div className="grid gap-2 text-sm">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-ig-fg-muted">Frequência</span>
+                      <HudBadge variant="neutral">{frequencyLabels[workflow.frequencia_execucao]}</HudBadge>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-ig-fg-muted">Prioridade</span>
+                      <span className="font-semibold text-ig-fg-strong">{workflow.prioridade}/10</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-ig-fg-muted">Total execuções</span>
+                      <span className="font-semibold text-ig-fg-strong">{workflow.total_execucoes}</span>
+                    </div>
+                  </div>
+
+                  {lastLog && (
+                    <div className="flex items-center gap-2 border-t border-ig-border-subtle pt-3 text-xs text-ig-fg-muted">
+                      <Clock className="h-3.5 w-3.5 text-ig-accent" />
+                      <span>Última execução</span>
+                      <HudBadge variant={statusVariant(lastLog.status)} size="sm">
+                        {lastLog.status}
+                      </HudBadge>
+                    </div>
+                  )}
+
+                  <div className="mt-auto flex flex-wrap gap-2 border-t border-ig-border-subtle pt-3">
+                    <HudButton variant="secondary" size="sm" leftIcon={<Edit className="h-3.5 w-3.5" />} onClick={() => startEdit(workflow)}>
+                      Editar
+                    </HudButton>
+                    <HudButton variant="ghost" size="sm" leftIcon={<Activity className="h-3.5 w-3.5" />} onClick={() => setSelectedWorkflowId(workflow.id)}>
+                      Logs
+                    </HudButton>
+                    <HudButton variant="ghost" size="sm" onClick={() => toggleWorkflow(workflow)}>
+                      {workflow.ativa ? "Pausar" : "Ativar"}
+                    </HudButton>
+                    <HudButton variant="danger" size="sm" leftIcon={<Trash2 className="h-3.5 w-3.5" />} onClick={() => deleteWorkflow(workflow)}>
+                      Excluir
+                    </HudButton>
+                  </div>
+                </div>
+              </HudPanel>
+            );
+          })}
         </section>
 
-      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {workflows.map((workflow) => {
-          const TipoIcon = getTipoIcon(workflow.tipo);
-          const workflowLogs = logs.filter(l => l.workflow_id === workflow.id);
-          const ultimaExecucao = workflowLogs[0];
-
-          return (
-            <HUDCard key={workflow.id} className="hover:border-[rgba(0,255,180,0.12)] transition-all">
-              <div className="space-y-4">
-                <div className="flex justify-between items-start">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 rounded-lg bg-[rgba(0,255,180,0.12)] border border-[rgba(0,255,180,0.25)]">
-                      <TipoIcon className="w-5 h-5 text-[#00FFB4]" />
-                    </div>
-                    <div>
-                      <h3 className="text-base font-semibold text-white">{workflow.nome}</h3>
-                      <StatusPill variant="info" className="mt-1 text-xs">
-                        {workflow.tipo.replace(/_/g, ' ')}
-                      </StatusPill>
-                    </div>
-                  </div>
-                  <Switch
-                    checked={workflow.ativa}
-                    onCheckedChange={(checked) => toggleWorkflow(workflow.id, checked)}
-                  />
-                </div>
-
-                {workflow.descricao && (
-                  <p className="text-sm text-[rgba(255,255,255,0.65)]">{workflow.descricao}</p>
-                )}
-
-                <div className="space-y-2 text-sm">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[rgba(255,255,255,0.65)]">Frequência</span>
-                    <StatusPill variant="neutral">{workflow.frequencia_execucao}</StatusPill>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-[rgba(255,255,255,0.65)]">Prioridade</span>
-                    <StatusPill variant="neutral">{workflow.prioridade}/10</StatusPill>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-[rgba(255,255,255,0.65)]">Total execuções</span>
-                    <span className="font-semibold text-white">{workflow.total_execucoes || 0}</span>
-                  </div>
-                </div>
-
-                {ultimaExecucao && (
-                  <div className="pt-3 border-t border-[rgba(255,255,255,0.05)]">
-                    <div className="flex items-center gap-2 text-xs text-[rgba(255,255,255,0.65)]">
-                      <Clock className="w-3 h-3 text-[#00FFB4]" />
-                      <span>Última execução:</span>
-                      <StatusPill variant={ultimaExecucao.status === 'success' ? 'success' : ultimaExecucao.status === 'failed' ? 'error' : 'warning'}>
-                        {ultimaExecucao.status}
-                      </StatusPill>
-                    </div>
-                  </div>
-                )}
-
-                <div className="flex gap-2 pt-3 border-t border-[rgba(255,255,255,0.05)]">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleEdit(workflow)}
-                    className="flex-1 border-[rgba(0,255,180,0.25)] text-[rgba(255,255,255,0.92)] hover:bg-[rgba(0,255,180,0.12)]"
-                  >
-                    <Edit className="w-3 h-3 mr-1" />
-                    Editar
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleViewLogs(workflow)}
-                    className="flex-1 border-[rgba(0,200,255,0.25)] text-[rgba(255,255,255,0.92)] hover:bg-[rgba(0,200,255,0.12)]"
-                  >
-                    <Activity className="w-3 h-3 mr-1" />
-                    Logs
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setDeletingWorkflow(workflow);
-                      setShowDeleteDialog(true);
-                    }}
-                    className="border-[rgba(255,88,96,0.25)] text-[#FF5860] hover:bg-[rgba(255,88,96,0.12)]"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </Button>
-                </div>
-              </div>
-            </HUDCard>
-          );
-        })}
-      </div>
-
-        {workflows.length === 0 && (
-          <HUDCard>
-            <div className="p-12 text-center">
-              <Zap className="w-16 h-16 text-[rgba(255,255,255,0.20)] mx-auto mb-4" />
-              <h3 className="text-lg font-semibold text-white mb-2">
-                Nenhuma automação criada
-              </h3>
-              <p className="text-[rgba(255,255,255,0.65)] mb-6">
-                Crie automações para otimizar seus processos
-              </p>
-              <Button
-                onClick={() => {
-                  resetForm();
-                  setShowDialog(true);
-                }}
-                className="bg-[#00FFB4] text-[#050D0A] hover:bg-[#00E6A0] font-medium shadow-[0_0_18px_rgba(0,255,180,0.18)]"
-              >
-                <Plus className="w-4 h-4 mr-2" />
-                Criar Primeira Automação
-              </Button>
-            </div>
-          </HUDCard>
-        )}
-
-      <Dialog open={showDialog} onOpenChange={setShowDialog}>
-        <DialogContent className="max-w-2xl bg-gradient-to-br from-[#07130F] to-[#030B09] border-[rgba(255,255,255,0.08)]">
-          <DialogHeader>
-            <DialogTitle className="text-white font-semibold">
-              {editingWorkflow ? 'Editar Automação' : 'Nova Automação'}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label className="text-white">Nome</Label>
-              <Input
+        <aside className="space-y-6">
+          <HudPanel elevation={2} title={editingWorkflow ? "Editar Automação" : "Nova Automação"} subtitle="Defina gatilhos, prioridade e frequência">
+            <div className="space-y-4">
+              <HudInput
+                label="Nome"
                 value={formData.nome}
-                onChange={(e) => setFormData(prev => ({ ...prev, nome: e.target.value }))}
+                onChange={(event) => setFormData((current) => ({ ...current, nome: event.target.value }))}
                 placeholder="Ex: Notificar prazos próximos"
-                className="bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.08)] text-white placeholder:text-[rgba(255,255,255,0.40)] focus:border-[rgba(0,255,180,0.25)]"
               />
-            </div>
-
-            <div className="space-y-2">
-              <Label className="text-white">Descrição</Label>
-              <Textarea
-                value={formData.descricao}
-                onChange={(e) => setFormData(prev => ({ ...prev, descricao: e.target.value }))}
-                placeholder="Descreva o que esta automação faz..."
-                rows={3}
-                className="bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.08)] text-white placeholder:text-[rgba(255,255,255,0.40)] focus:border-[rgba(0,255,180,0.25)]"
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[11px] font-medium uppercase tracking-wider text-ig-fg-muted">Descrição</label>
+                <textarea
+                  value={formData.descricao}
+                  onChange={(event) => setFormData((current) => ({ ...current, descricao: event.target.value }))}
+                  placeholder="Descreva o que esta automação faz"
+                  rows={3}
+                  className="min-h-24 rounded-lg border border-ig-border bg-ig-panel px-4 py-3 text-sm text-ig-fg outline-none transition-colors placeholder:text-ig-fg-subtle focus:border-ig-border-focus focus-visible:shadow-[var(--ig-focus-ring-outer)]"
+                />
+              </div>
+              <HudSelect
+                label="Tipo"
+                value={formData.tipo}
+                onChange={(value) => setFormData((current) => ({ ...current, tipo: value as Workflow["tipo"] }))}
+                options={typeOptions}
               />
-            </div>
-
-            <div className="grid md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label className="text-white">Tipo</Label>
-                <Select
-                  value={formData.tipo}
-                  onValueChange={(value) => setFormData(prev => ({ ...prev, tipo: value as Workflow['tipo'] }))}
-                >
-                  <SelectTrigger className="bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.08)] text-white hover:border-[rgba(0,255,180,0.25)] focus:border-[rgba(0,255,180,0.25)]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="bg-gradient-to-br from-[#07130F] to-[#030B09] border-[rgba(255,255,255,0.08)]">
-                    <SelectItem value="notificacao_prazo" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Notificação de Prazo</SelectItem>
-                    <SelectItem value="atribuicao_tarefa" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Atribuição de Tarefa</SelectItem>
-                    <SelectItem value="aprovacao_orcamento" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Aprovação de Orçamento</SelectItem>
-                    <SelectItem value="mudanca_status" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Mudança de Status</SelectItem>
-                    <SelectItem value="lembrete_votacao" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Lembrete de Votação</SelectItem>
-                    <SelectItem value="alerta_risco" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Alerta de Risco</SelectItem>
-                    <SelectItem value="custom" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Personalizada</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label className="text-white">Frequência</Label>
-                <Select
-                  value={formData.frequencia_execucao}
-                  onValueChange={(value) => setFormData(prev => ({ ...prev, frequencia_execucao: value as Workflow['frequencia_execucao'] }))}
-                >
-                  <SelectTrigger className="bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.08)] text-white hover:border-[rgba(0,255,180,0.25)] focus:border-[rgba(0,255,180,0.25)]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="bg-gradient-to-br from-[#07130F] to-[#030B09] border-[rgba(255,255,255,0.08)]">
-                    <SelectItem value="imediata" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Imediata</SelectItem>
-                    <SelectItem value="diaria" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Diária</SelectItem>
-                    <SelectItem value="semanal" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Semanal</SelectItem>
-                    <SelectItem value="mensal" className="text-white focus:bg-[rgba(0,255,180,0.12)] focus:text-[#00FFB4]">Mensal</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label className="text-white">Prioridade (1-10)</Label>
-              <Input
+              <HudSelect
+                label="Frequência"
+                value={formData.frequencia_execucao}
+                onChange={(value) => setFormData((current) => ({ ...current, frequencia_execucao: value as Workflow["frequencia_execucao"] }))}
+                options={frequencyOptions}
+              />
+              <HudInput
+                label="Prioridade"
                 type="number"
-                min="1"
-                max="10"
+                min={1}
+                max={10}
                 value={formData.prioridade}
-                onChange={(e) => setFormData(prev => ({ ...prev, prioridade: parseInt(e.target.value) }))}
-                className="bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.08)] text-white placeholder:text-[rgba(255,255,255,0.40)] focus:border-[rgba(0,255,180,0.25)]"
+                onChange={(event) => setFormData((current) => ({ ...current, prioridade: Number(event.target.value) }))}
               />
+              <button
+                type="button"
+                onClick={() => setFormData((current) => ({ ...current, ativa: !current.ativa }))}
+                className="flex w-full items-center justify-between rounded-lg border border-ig-border bg-ig-panel px-4 py-3 text-left transition-colors hover:border-ig-border-focus"
+              >
+                <span>
+                  <span className="block text-sm font-medium text-ig-fg-strong">Automação ativa</span>
+                  <span className="block text-xs text-ig-fg-muted">Controla se a regra será executada.</span>
+                </span>
+                <HudBadge variant={formData.ativa ? "success" : "neutral"}>{formData.ativa ? "Sim" : "Não"}</HudBadge>
+              </button>
+              <div className="flex gap-2">
+                <HudButton variant="primary" fullWidth onClick={saveWorkflow}>
+                  {editingWorkflow ? "Atualizar" : "Criar"}
+                </HudButton>
+                <HudButton variant="secondary" onClick={resetForm}>
+                  Limpar
+                </HudButton>
+              </div>
             </div>
+          </HudPanel>
 
-            <div className="flex items-center justify-between p-3 border border-[rgba(255,255,255,0.08)] rounded-lg bg-[rgba(255,255,255,0.03)]">
-              <Label className="text-white">Automação ativa</Label>
-              <Switch
-                checked={formData.ativa}
-                onCheckedChange={(checked) => setFormData(prev => ({ ...prev, ativa: checked }))}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowDialog(false)} className="border-[rgba(255,255,255,0.12)] text-[rgba(255,255,255,0.65)] hover:bg-[rgba(255,255,255,0.05)]">
-              Cancelar
-            </Button>
-            <Button
-              onClick={handleSubmit}
-              className="bg-[#00FFB4] text-[#050D0A] hover:bg-[#00E6A0] font-medium shadow-[0_0_18px_rgba(0,255,180,0.18)]"
-            >
-              {editingWorkflow ? 'Atualizar' : 'Criar'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={showLogsDialog} onOpenChange={setShowLogsDialog}>
-        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto bg-gradient-to-br from-[#07130F] to-[#030B09] border-[rgba(255,255,255,0.08)]">
-          <DialogHeader>
-            <DialogTitle className="text-white font-semibold">Histórico de Execuções</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3 py-4">
-            {selectedWorkflowLogs.length > 0 ? (
-              selectedWorkflowLogs.map((log) => (
-                <HUDCard key={log.id}>
-                  <div className="flex justify-between items-start mb-2">
-                    <StatusPill variant={log.status === 'success' ? 'success' : log.status === 'failed' ? 'error' : 'warning'}>
-                      {log.status}
-                    </StatusPill>
-                    <span className="text-xs text-[rgba(255,255,255,0.40)]">
-                      {format(new Date(log.created_date), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}
-                    </span>
-                  </div>
-                  <p className="text-sm text-[rgba(255,255,255,0.92)] mb-2">
-                    <strong>Evento:</strong> {log.trigger_evento}
-                  </p>
-                  {log.erro_mensagem && (
-                    <p className="text-sm text-[#FF5860]">
-                      <strong>Erro:</strong> {log.erro_mensagem}
-                    </p>
-                  )}
-                  {log.duracao_ms && (
-                    <p className="text-xs text-[rgba(255,255,255,0.40)] mt-2">
-                      Duração: {log.duracao_ms}ms
-                    </p>
-                  )}
-                </HUDCard>
-              ))
-            ) : (
-              <p className="text-center text-[rgba(255,255,255,0.65)] py-8">
-                Nenhuma execução registrada
-              </p>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
-        <AlertDialogContent className="bg-gradient-to-br from-[#07130F] to-[#030B09] border-[rgba(255,255,255,0.08)]">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="text-white font-semibold">Excluir Automação</AlertDialogTitle>
-            <AlertDialogDescription className="text-[rgba(255,255,255,0.65)]">
-              Tem certeza que deseja excluir a automação "{deletingWorkflow?.nome}"?
-              Esta ação não pode ser desfeita.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel className="border-[rgba(255,255,255,0.12)] text-[rgba(255,255,255,0.65)] hover:bg-[rgba(255,255,255,0.05)]">Cancelar</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDelete}
-              className="bg-[#FF5860] hover:bg-[#FF4040] text-white"
-            >
-              Excluir
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+          <HudPanel
+            elevation={2}
+            title="Histórico de Execuções"
+            subtitle={selectedWorkflow ? selectedWorkflow.nome : "Selecione uma automação"}
+          >
+            <HudTable
+              columns={logColumns}
+              data={selectedLogs}
+              keyExtractor={(log) => log.id}
+              compact
+              emptyState={<p className="py-8 text-center text-sm text-ig-fg-muted">Nenhuma execução registrada</p>}
+            />
+          </HudPanel>
+        </aside>
       </div>
-    </OrionGreenBackground>
+    </HudPageLayout>
   );
 }
