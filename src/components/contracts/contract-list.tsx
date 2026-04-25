@@ -2,8 +2,10 @@
 
 import type { Contract } from "@/lib/types";
 import { Button } from "@/components/ui/button";
+import { HudPanel } from "@/components/hud/HudPanel";
 import { HudStatusPill, type HudStatusPillVariant } from "@/components/hud/HudStatusPill";
 import { HudTable, type HudTableColumn } from "@/components/hud/HudTable";
+import { contractSerial } from "@/lib/utils/serial";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -200,21 +202,34 @@ export function ContractList({
     },
   ];
 
+  const selectedContract = contracts.find((c) => c.id === selectedContractId);
+  const serial = selectedContract
+    ? contractSerial(selectedContract.id)
+    : contractSerial(`L${contracts.length}`);
+
   return (
-    <HudTable
-      columns={columns}
-      data={contracts}
-      keyExtractor={(contract) => contract.id}
-      onRowClick={onSelectContract}
-      selectedRowId={selectedContractId ?? null}
-      className="p-4"
-      emptyState={
-        <div className="py-12 text-center">
-          <FileText className="mx-auto mb-3 h-12 w-12 text-ig-fg-muted" />
-          <p className="text-ig-body-sm text-ig-fg-strong">Nenhum contrato registrado</p>
-          <p className="text-ig-body-sm text-ig-fg-muted">Faça upload de contratos para começar</p>
-        </div>
-      }
-    />
+    <HudPanel
+      elevation={2}
+      noPadding
+      interactive={false}
+      serial={serial}
+      watermark="CONTRATO · ATIVO"
+    >
+      <HudTable
+        columns={columns}
+        data={contracts}
+        keyExtractor={(contract) => contract.id}
+        onRowClick={onSelectContract}
+        selectedRowId={selectedContractId ?? null}
+        className="p-4"
+        emptyState={
+          <div className="py-12 text-center">
+            <FileText className="mx-auto mb-3 h-12 w-12 text-ig-fg-muted" />
+            <p className="text-ig-body-sm text-ig-fg-strong">Nenhum contrato registrado</p>
+            <p className="text-ig-body-sm text-ig-fg-muted">Faça upload de contratos para começar</p>
+          </div>
+        }
+      />
+    </HudPanel>
   );
 }

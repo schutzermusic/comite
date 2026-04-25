@@ -164,6 +164,15 @@ export const LeftHudStack = React.memo(function LeftHudStack({ data, scopeMode =
                     )}
                 </HudPanel>
             </div>
+
+            <div className="mt-2 flex items-center justify-between px-2">
+                <span className="font-mono text-[10px] tracking-[0.2em] text-ig-fg-subtle">
+                    HUD-2026
+                </span>
+                <span className="text-[9px] uppercase tracking-[0.32em] text-ig-fg-subtle">
+                    CONTROL ROOM · V2.6
+                </span>
+            </div>
         </div>
     );
 });

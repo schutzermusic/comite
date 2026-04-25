@@ -301,6 +301,12 @@ export const RightHudStack = React.memo(function RightHudStack({ data, scopeMode
                     </div>
                 </HudPanel>
             </div>
+
+            <div className="mt-2 flex items-center justify-end px-2">
+                <span className="text-[9px] uppercase tracking-[0.32em] text-ig-fg-subtle">
+                    EXECUTIVE · VIEW
+                </span>
+            </div>
         </div>
     );
 });

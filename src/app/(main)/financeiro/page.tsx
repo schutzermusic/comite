@@ -496,7 +496,12 @@ export default function FinanceOverviewPage() {
       {/* ── ROW 2: P&L Waterfall (8 cols) + Approval Queue (4 cols) ── */}
       <div className="grid grid-cols-12 gap-5 mt-5">
         <div className="col-span-12 lg:col-span-8">
-          <HudPanel title={t('pnlWaterfall')} hoverGlow={false}>
+          <HudPanel
+            title={t('pnlWaterfall')}
+            hoverGlow={false}
+            serial={`FIN-${new Date().getFullYear()}-PNL`}
+            watermark="FIN · OVERVIEW · V2.6"
+          >
             {waterfallData.every(d => d.value === 0) ? (
               <HudEmptyState
                 title={t('emptyWaterfall')}

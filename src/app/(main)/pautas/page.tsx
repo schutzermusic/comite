@@ -6,6 +6,7 @@ import { BoardHealthKPI, DecisionInspector, DecisionList, NewDeliberationModal, 
 import { HudPanel, HudButton } from '@/components/hud';
 import { AuditTrailEntry, DeliberationItem, DeliberationStatus, VoteOption, VoteRecord } from '@/lib/types';
 import { COMMITTEES, buildStagePlan, resolveTemplate } from '@/lib/deliberations-policy';
+import { deliberationSerial } from '@/lib/utils/serial';
 import { formatDistanceToNowStrict } from 'date-fns';
 import type { NewDeliberationPayload } from '@/components/deliberacoes/NewDeliberationModal';
 
@@ -566,7 +567,11 @@ export default function DeliberationsPage() {
             </div>
           </HudPanel>
 
-          <HudPanel className="h-full overflow-hidden">
+          <HudPanel
+            className="h-full overflow-hidden"
+            serial={selectedItem ? deliberationSerial(selectedItem.id) : undefined}
+            watermark="DELIBERATION · INSPECTOR"
+          >
             <DecisionInspector
               item={selectedItem}
               currentUserId={CURRENT_USER_ID}

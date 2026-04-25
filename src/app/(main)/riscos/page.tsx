@@ -206,7 +206,13 @@ export default function RiscosPage() {
           )}
         </HudPanel>
 
-        <HudPanel elevation={2} title="Lista de Riscos" subtitle={`${cellFiltered.length} risco(s) no recorte atual`}>
+        <HudPanel
+          elevation={2}
+          title="Lista de Riscos"
+          subtitle={`${cellFiltered.length} risco(s) no recorte atual`}
+          serial={`RSK-${new Date().getFullYear()}-${String(cellFiltered.length).padStart(4, '0')}`}
+          watermark="RISK · MATRIX · V2.6"
+        >
           <div className="space-y-4">
             <HudFilterBar
               compact

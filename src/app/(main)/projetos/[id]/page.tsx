@@ -43,6 +43,7 @@ import { FinanceView } from '@/components/projects/FinanceView';
 import { ProjectTask, ProjectAllocation } from '@/lib/types';
 import type { ProjectV2 } from '@/lib/types/project-v2';
 import { getRiskLevelFromScore, getRiskLevelLabel } from '@/lib/utils/project-utils';
+import { projectSerial } from '@/lib/utils/serial';
 import { getHealthScoreColor, getHealthScoreLabel, formatMoney } from '@/lib/utils/project-utils';
 import { mockAllocationsV2 } from '@/data/mock-projects-v2';
 import Link from 'next/link';
@@ -264,7 +265,12 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
 
         <div className="grid lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
-            <HudPanel title="Resumo do Projeto" accentColor="emerald">
+            <HudPanel
+              title="Resumo do Projeto"
+              accentColor="emerald"
+              serial={projectSerial(projeto.id)}
+              watermark="PROJECT · BRIEF"
+            >
               <div>
                 <p className="hud-text-tertiary mb-6 font-medium">{projeto.descricao || 'Sem descrição'}</p>
 
