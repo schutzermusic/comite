@@ -3,6 +3,7 @@
 import React from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import { cn } from "@/lib/utils";
+import { useParallaxGlass } from "@/hooks/useParallaxGlass";
 
 export type HudElevation = 1 | 2 | 3 | 4 | 5;
 export type HudMaterialState = "default" | "success" | "warning" | "critical";
@@ -58,9 +59,12 @@ export function HudPanel({
   serial,
   delay = 0,
   metallic = false,
+  parallax = false,
 }: HudPanelProps) {
   const hasHeader = Boolean(title || icon);
   const shouldReduceMotion = useReducedMotion();
+  const parallaxGlass = useParallaxGlass(0.8);
+  const parallaxEnabled = parallax && !shouldReduceMotion;
 
   return (
     <motion.div
@@ -74,15 +78,20 @@ export function HudPanel({
       className={cn(halo && "ig-glass-halo", className)}
     >
       <div
+        ref={parallaxEnabled ? parallaxGlass.containerRef : undefined}
         className="ig-glass"
         data-elev={elevation}
         data-state={state !== "default" ? state : undefined}
         data-interactive={interactive || undefined}
         data-sweep={sweep || undefined}
+        data-parallax={parallaxEnabled || undefined}
+        onMouseMove={parallaxEnabled ? parallaxGlass.onMouseMove : undefined}
+        onMouseLeave={parallaxEnabled ? parallaxGlass.onMouseLeave : undefined}
       >
         <span data-ig-noise="" />
         <span data-ig-specular="" />
         {sweep && <span data-ig-sweep="" />}
+        {parallaxEnabled && <span data-ig-spotlight="" />}
 
         <div data-ig-content="">
           {hasHeader && (

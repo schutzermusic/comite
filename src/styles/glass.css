@@ -212,12 +212,55 @@ html.light .ig-backdrop {
   }
 }
 
+/* ── Parallax content ── */
+.ig-glass[data-parallax] {
+  --ig-parallax-x: 0px;
+  --ig-parallax-y: 0px;
+  --ig-spot-x: 50%;
+  --ig-spot-y: 50%;
+}
+.ig-glass[data-parallax] > [data-ig-content] {
+  transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
+  transform: translate3d(
+    calc(var(--ig-parallax-x) * 0.4),
+    calc(var(--ig-parallax-y) * 0.4),
+    0
+  );
+  will-change: transform;
+}
+
+/* ── Spotlight cursor (parallax painéis) ── */
+.ig-glass[data-parallax] > [data-ig-spotlight] {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  border-radius: inherit;
+  opacity: 0;
+  transition: opacity 200ms ease;
+  background: radial-gradient(
+    circle 220px at var(--ig-spot-x) var(--ig-spot-y),
+    rgba(20, 184, 166, 0.10),
+    transparent 65%
+  );
+}
+.ig-glass[data-parallax]:hover > [data-ig-spotlight] {
+  opacity: 1;
+}
+
 /* ── prefers-reduced-motion ── */
 @media (prefers-reduced-motion: reduce) {
   .ig-glass[data-interactive] { transition: none; }
   .ig-glass[data-sweep] > [data-ig-sweep] {
     animation: none !important;
     transition: none;
+  }
+  .ig-glass[data-parallax] > [data-ig-content] {
+    transform: none !important;
+    transition: none;
+  }
+  .ig-glass[data-parallax] > [data-ig-spotlight] {
+    display: none;
   }
 }
 

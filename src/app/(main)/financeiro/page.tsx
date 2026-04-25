@@ -499,6 +499,7 @@ export default function FinanceOverviewPage() {
           <HudPanel
             title={t('pnlWaterfall')}
             hoverGlow={false}
+            parallax
             serial={`FIN-${new Date().getFullYear()}-PNL`}
             watermark="FIN · OVERVIEW · V2.6"
           >
