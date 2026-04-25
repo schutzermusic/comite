@@ -1,7 +1,6 @@
 import { AppSidebar } from '@/components/layout/app-sidebar';
 import { Header } from '@/components/layout/header';
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
-import NotificationCenter from '@/components/layout/notification-center';
 import { AtmosphericBackground } from '@/components/system/AtmosphericBackground';
 import { GlobeControlProvider } from '@/contexts/GlobeControlContext';
 import { ContractAIProvider } from '@/lib/stores/contract-ai-store';
@@ -43,11 +42,6 @@ export default function MainLayout({
                 {children}
               </main>
             </SidebarInset>
-
-            {/* Fixed Notification Center */}
-            <div className="fixed top-3 md:top-4 right-3 md:right-4 z-[9999]">
-              <NotificationCenter hiddenOnDashboard={true} />
-            </div>
           </div>
         </SidebarProvider>
       </ContractAIProvider>
