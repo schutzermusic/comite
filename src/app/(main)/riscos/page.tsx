@@ -1,506 +1,228 @@
-'use client';
+"use client";
 
-import { useState, useMemo } from "react";
-import type { Risk } from "@/lib/types";
-import { useTranslations } from "next-intl";
-import {
-  ShieldAlert,
-  Plus,
-  Search,
-  TrendingUp,
-  AlertCircle,
-  CheckCircle,
-  BarChart3,
-  LayoutGrid,
-  List,
-} from "lucide-react";
-
-// Components
-import { RiskMatrix } from "@/components/risks/risk-matrix";
+import { useMemo, useState } from "react";
+import { AlertCircle, BarChart3, CheckCircle, ShieldAlert, TrendingUp } from "lucide-react";
+import { HudFilterBar, HudHeader, HudKpiStrip, HudPageLayout, HudPanel } from "@/components/hud";
+import type { FilterGroup, KpiItem } from "@/components/hud";
 import { RiskList } from "@/components/risks/risk-list";
+import { RiskMatrix } from "@/components/risks/risk-matrix";
+import { computeCorporateRiskScore, scoreVariant } from "@/lib/risk-score";
+import type { Risk } from "@/lib/types";
 
-// New Glass HUD Components
-import {
-  HudPageLayout,
-  HudHeader,
-  HudKpiStrip,
-  HudFilterBar,
-  HudPanel,
-  HudButton,
-  HudModal,
-  HudInput,
-  HudSelect,
-  HudTabs,
-  type KpiItem,
-  type FilterGroup,
-  type HudTab,
-} from "@/components/hud";
-
-// Mock data
 const mockRisks: Risk[] = [
   {
-    id: '1',
-    title: 'Risco de Atraso em Projeto Crítico',
-    description: 'Projeto de infraestrutura com potencial de atraso devido a falta de recursos',
-    category: 'Operational',
+    id: "1",
+    title: "Risco de Atraso em Projeto Crítico",
+    description: "Projeto de infraestrutura com potencial de atraso devido a falta de recursos.",
+    category: "Operational",
     probability: 4,
     impact: 5,
     level: 20,
-    severity: 'critical',
-    origin: 'project',
-    referenceId: 'proj-123',
-    status: 'open',
-    createdAt: new Date('2024-01-10'),
-    updatedAt: new Date('2024-01-10'),
+    severity: "critical",
+    origin: "project",
+    referenceId: "proj-123",
+    responsibleName: "PMO Corporativo",
+    status: "open",
+    createdAt: new Date("2024-01-10"),
+    updatedAt: new Date("2024-01-10"),
   },
   {
-    id: '2',
-    title: 'Exposição Cambial em Contrato Internacional',
-    description: 'Variação cambial pode impactar negativamente o valor do contrato',
-    category: 'Financial',
+    id: "2",
+    title: "Exposição Cambial em Contrato Internacional",
+    description: "Variação cambial pode impactar negativamente o valor do contrato.",
+    category: "Financial",
     probability: 3,
     impact: 4,
     level: 12,
-    severity: 'high',
-    origin: 'contract',
-    referenceId: 'contract-456',
-    status: 'mitigating',
-    createdAt: new Date('2024-01-15'),
-    updatedAt: new Date('2024-01-25'),
+    severity: "high",
+    origin: "contract",
+    referenceId: "contract-456",
+    responsibleName: "Tesouraria",
+    status: "mitigating",
+    createdAt: new Date("2024-01-15"),
+    updatedAt: new Date("2024-01-25"),
   },
   {
-    id: '3',
-    title: 'Não Conformidade com LGPD',
-    description: 'Processos de tratamento de dados pessoais não atendem requisitos da LGPD',
-    category: 'Legal',
+    id: "3",
+    title: "Não Conformidade com LGPD",
+    description: "Processos de tratamento de dados pessoais não atendem requisitos da LGPD.",
+    category: "Legal",
     probability: 2,
     impact: 5,
     level: 10,
-    severity: 'medium',
-    origin: 'manual',
-    status: 'open',
-    createdAt: new Date('2024-01-20'),
-    updatedAt: new Date('2024-01-20'),
+    severity: "medium",
+    origin: "manual",
+    responsibleName: "Jurídico",
+    status: "open",
+    createdAt: new Date("2024-01-20"),
+    updatedAt: new Date("2024-01-20"),
   },
   {
-    id: '4',
-    title: 'Cláusula Contratual Desfavorável',
-    description: 'Contrato com fornecedor contém penalidades elevadas',
-    category: 'Contractual',
+    id: "4",
+    title: "Cláusula Contratual Desfavorável",
+    description: "Contrato com fornecedor contém penalidades elevadas.",
+    category: "Contractual",
     probability: 4,
     impact: 4,
     level: 16,
-    severity: 'critical',
-    origin: 'contract',
-    referenceId: 'contract-789',
-    status: 'open',
-    createdAt: new Date('2024-01-22'),
-    updatedAt: new Date('2024-01-22'),
+    severity: "critical",
+    origin: "contract",
+    referenceId: "contract-789",
+    responsibleName: "Suprimentos",
+    status: "open",
+    createdAt: new Date("2024-01-22"),
+    updatedAt: new Date("2024-01-22"),
   },
   {
-    id: '5',
-    title: 'Falta de Auditoria Interna',
-    description: 'Ausência de controles de auditoria pode gerar problemas de compliance',
-    category: 'Compliance',
+    id: "5",
+    title: "Falta de Auditoria Interna",
+    description: "Ausência de controles de auditoria pode gerar problemas de compliance.",
+    category: "Compliance",
     probability: 3,
     impact: 3,
     level: 9,
-    severity: 'medium',
-    origin: 'manual',
-    status: 'resolved',
-    createdAt: new Date('2024-01-05'),
-    updatedAt: new Date('2024-01-28'),
+    severity: "medium",
+    origin: "manual",
+    responsibleName: "Auditoria",
+    status: "resolved",
+    createdAt: new Date("2024-01-05"),
+    updatedAt: new Date("2024-01-28"),
   },
 ];
 
 export default function RiscosPage() {
-  const t = useTranslations('risks');
-  const tCommon = useTranslations('common');
+  const [selectedCell, setSelectedCell] = useState<{ prob: number; impact: number } | null>(null);
+  const [search, setSearch] = useState("");
+  const [severityFilter, setSeverityFilter] = useState("all");
 
-  const [risks, setRisks] = useState<Risk[]>(mockRisks);
-  const [view, setView] = useState<'list' | 'matrix'>('list');
-  const [searchTerm, setSearchTerm] = useState('');
-  const [severityFilter, setSeverityFilter] = useState('all');
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [categoryFilter, setCategoryFilter] = useState('all');
-  const [createOpen, setCreateOpen] = useState(false);
-  const [newRisk, setNewRisk] = useState({
-    title: '',
-    description: '',
-    category: 'Operational',
-    probability: 3,
-    impact: 3,
-    severity: 'medium' as Risk['severity'],
-    origin: 'manual' as Risk['origin'],
-  });
+  const filtered = useMemo(() => {
+    const normalizedSearch = search.trim().toLowerCase();
 
-  // Calculate KPIs
-  const stats = useMemo(() => {
-    const total = risks.length;
-    const open = risks.filter((r) => r.status === 'open').length;
-    const critical = risks.filter((r) => r.severity === 'critical').length;
-    const high = risks.filter((r) => r.severity === 'high').length;
-    const resolved = risks.filter((r) => r.status === 'resolved').length;
-    const mitigating = risks.filter((r) => r.status === 'mitigating').length;
-    return { total, open, critical, high, resolved, mitigating };
-  }, [risks]);
-
-  // Filter risks
-  const filteredRisks = useMemo(() => {
-    return risks.filter((risk) => {
-      const matchesSearch =
-        risk.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        risk.description.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesSeverity = severityFilter === 'all' || risk.severity === severityFilter;
-      const matchesStatus = statusFilter === 'all' || risk.status === statusFilter;
-      const matchesCategory = categoryFilter === 'all' || risk.category === categoryFilter;
-
-      return matchesSearch && matchesSeverity && matchesStatus && matchesCategory;
+    return mockRisks.filter((risk) => {
+      const matchSearch =
+        !normalizedSearch ||
+        risk.title.toLowerCase().includes(normalizedSearch) ||
+        risk.description.toLowerCase().includes(normalizedSearch);
+      const matchSeverity = severityFilter === "all" || risk.severity === severityFilter;
+      return matchSearch && matchSeverity;
     });
-  }, [risks, searchTerm, severityFilter, statusFilter, categoryFilter]);
+  }, [search, severityFilter]);
 
-  // Handlers
-  const handleResolveRisk = (riskId: string) => {
-    setRisks((prev) =>
-      prev.map((risk) =>
-        risk.id === riskId ? { ...risk, status: 'resolved' as const, updatedAt: new Date() } : risk
-      )
+  const cellFiltered = useMemo(() => {
+    if (!selectedCell) return filtered;
+    return filtered.filter(
+      (risk) => risk.probability === selectedCell.prob && risk.impact === selectedCell.impact,
     );
-  };
+  }, [filtered, selectedCell]);
 
-  const handleCreateRisk = () => {
-    if (!newRisk.title || !newRisk.description) return;
+  const score = computeCorporateRiskScore(mockRisks);
+  const variant = scoreVariant(score);
+  const kpiVariant = variant === "critical" ? "danger" : variant;
 
-    const probability = Number(newRisk.probability) || 0;
-    const impact = Number(newRisk.impact) || 0;
-    const level = probability * impact;
+  const filterGroups: FilterGroup[] = [
+    {
+      id: "severity",
+      label: "Severidade",
+      value: severityFilter,
+      onChange: setSeverityFilter,
+      options: [
+        { value: "all", label: "Todas" },
+        { value: "critical", label: "Crítico" },
+        { value: "high", label: "Alto" },
+        { value: "medium", label: "Médio" },
+        { value: "low", label: "Baixo" },
+      ],
+    },
+  ];
 
-    const payload: Risk = {
-      id: `new-${Date.now()}`,
-      title: newRisk.title,
-      description: newRisk.description,
-      category: newRisk.category as Risk['category'],
-      probability,
-      impact,
-      level,
-      severity: newRisk.severity,
-      origin: newRisk.origin,
-      status: 'open',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
+  const kpis: KpiItem[] = [
+    {
+      id: "total",
+      label: "Total de riscos",
+      value: mockRisks.length,
+      variant: "info",
+      icon: <ShieldAlert className="h-5 w-5" />,
+    },
+    {
+      id: "critical",
+      label: "Críticos",
+      value: mockRisks.filter((risk) => risk.severity === "critical").length,
+      variant: "danger",
+      icon: <AlertCircle className="h-5 w-5" />,
+    },
+    {
+      id: "high",
+      label: "Altos",
+      value: mockRisks.filter((risk) => risk.severity === "high").length,
+      variant: "warning",
+      icon: <TrendingUp className="h-5 w-5" />,
+    },
+    {
+      id: "score",
+      label: "Score corporativo",
+      value: score.toFixed(1),
+      variant: kpiVariant,
+      icon: <BarChart3 className="h-5 w-5" />,
+    },
+    {
+      id: "resolved",
+      label: "Resolvidos",
+      value: mockRisks.filter((risk) => risk.status === "resolved").length,
+      variant: "success",
+      icon: <CheckCircle className="h-5 w-5" />,
+    },
+  ];
 
-    setRisks((prev) => [payload, ...prev]);
-    setCreateOpen(false);
-    setNewRisk({
-      title: '',
-      description: '',
-      category: 'Operational',
-      probability: 3,
-      impact: 3,
-      severity: 'medium',
-      origin: 'manual',
-    });
-  };
-
-  // KPI items
-  const kpiItems: KpiItem[] = useMemo(
-    () => [
-      {
-        id: 'total',
-        value: stats.total,
-        label: t('totalRisks'),
-        variant: 'default',
-        icon: <ShieldAlert className="w-5 h-5" />,
-      },
-      {
-        id: 'open',
-        value: stats.open,
-        label: t('openRisks'),
-        variant: stats.open > 0 ? 'warning' : 'default',
-        icon: <AlertCircle className="w-5 h-5" />,
-      },
-      {
-        id: 'critical',
-        value: stats.critical,
-        label: t('criticalRisks'),
-        variant: stats.critical > 0 ? 'danger' : 'default',
-        icon: <TrendingUp className="w-5 h-5" />,
-      },
-      {
-        id: 'high',
-        value: stats.high,
-        label: t('highRisks'),
-        variant: stats.high > 0 ? 'warning' : 'default',
-        icon: <BarChart3 className="w-5 h-5" />,
-      },
-      {
-        id: 'mitigating',
-        value: stats.mitigating,
-        label: t('mitigating'),
-        variant: 'info',
-        icon: <ShieldAlert className="w-5 h-5" />,
-      },
-      {
-        id: 'resolved',
-        value: stats.resolved,
-        label: t('resolved'),
-        variant: 'success',
-        icon: <CheckCircle className="w-5 h-5" />,
-      },
-    ],
-    [stats, t]
-  );
-
-  // Filter groups
-  const filterGroups: FilterGroup[] = useMemo(
-    () => [
-      {
-        id: 'severity',
-        label: t('severity'),
-        value: severityFilter,
-        options: [
-          { value: 'all', label: t('allSeverities') },
-          { value: 'low', label: t('low') },
-          { value: 'medium', label: t('medium') },
-          { value: 'high', label: t('high') },
-          { value: 'critical', label: t('critical') },
-        ],
-        onChange: setSeverityFilter,
-      },
-      {
-        id: 'status',
-        label: tCommon('status'),
-        value: statusFilter,
-        options: [
-          { value: 'all', label: t('allStatuses') },
-          { value: 'open', label: t('open') },
-          { value: 'mitigating', label: t('mitigating') },
-          { value: 'resolved', label: t('resolved') },
-        ],
-        onChange: setStatusFilter,
-      },
-      {
-        id: 'category',
-        label: t('category'),
-        value: categoryFilter,
-        options: [
-          { value: 'all', label: t('allCategories') },
-          { value: 'Operational', label: t('operational') },
-          { value: 'Financial', label: t('financial') },
-          { value: 'Legal', label: t('legal') },
-          { value: 'Contractual', label: t('contractual') },
-          { value: 'Compliance', label: t('compliance') },
-        ],
-        onChange: setCategoryFilter,
-      },
-    ],
-    [severityFilter, statusFilter, categoryFilter, t, tCommon]
-  );
-
-  const activeFiltersCount = useMemo(() => {
-    let count = 0;
-    if (severityFilter !== 'all') count++;
-    if (statusFilter !== 'all') count++;
-    if (categoryFilter !== 'all') count++;
-    return count;
-  }, [severityFilter, statusFilter, categoryFilter]);
-
-  const handleClearFilters = () => {
-    setSeverityFilter('all');
-    setStatusFilter('all');
-    setCategoryFilter('all');
-    setSearchTerm('');
-  };
-
-  // Tabs
-  const tabs: HudTab[] = useMemo(
-    () => [
-      {
-        id: 'list',
-        label: t('listView'),
-        icon: <List className="w-4 h-4" />,
-        content: (
-          <HudPanel noPadding>
-            <RiskList
-              risks={filteredRisks}
-              onViewRisk={(risk) => console.log('View:', risk)}
-              onEditRisk={(risk) => console.log('Edit:', risk)}
-              onResolveRisk={handleResolveRisk}
-            />
-          </HudPanel>
-        ),
-      },
-      {
-        id: 'matrix',
-        label: t('matrixView'),
-        icon: <LayoutGrid className="w-4 h-4" />,
-        content: (
-          <HudPanel>
-            <RiskMatrix risks={filteredRisks} onRiskClick={(risk) => console.log('Click:', risk)} />
-          </HudPanel>
-        ),
-      },
-    ],
-    [filteredRisks, t]
-  );
-
-  // Category and origin options for the modal
-  const categoryOptions = useMemo(
-    () => [
-      { value: 'Operational', label: t('operational') },
-      { value: 'Financial', label: t('financial') },
-      { value: 'Legal', label: t('legal') },
-      { value: 'Contractual', label: t('contractual') },
-      { value: 'Compliance', label: t('compliance') },
-    ],
-    [t]
-  );
-
-  const severityOptions = useMemo(
-    () => [
-      { value: 'low', label: t('low') },
-      { value: 'medium', label: t('medium') },
-      { value: 'high', label: t('high') },
-      { value: 'critical', label: t('critical') },
-    ],
-    [t]
-  );
-
-  const originOptions = useMemo(
-    () => [
-      { value: 'manual', label: t('manual') },
-      { value: 'project', label: t('project') },
-      { value: 'contract', label: t('contract') },
-    ],
-    [t]
-  );
+  const clearCellFilter = () => setSelectedCell(null);
 
   return (
     <HudPageLayout>
-      {/* Header */}
       <HudHeader
-        title={t('title')}
-        subtitle={t('subtitle')}
-        icon={<ShieldAlert className="w-5 h-5" />}
-        breadcrumbs={[{ label: t('title') }]}
-        actions={
-          <HudButton
-            variant="primary"
-            size="md"
-            leftIcon={<Plus className="w-4 h-4" />}
-            onClick={() => setCreateOpen(true)}
-          >
-            {t('newRisk')}
-          </HudButton>
-        }
+        title="Riscos"
+        subtitle="Matriz corporativa de exposição a riscos"
+        icon={<ShieldAlert className="h-5 w-5" />}
+        breadcrumbs={[{ label: "Riscos" }]}
+        statusChips={[{ label: `Score ${score.toFixed(1)}`, variant }]}
       />
 
-      {/* KPI Strip */}
-      <HudKpiStrip kpis={kpiItems} columns={6} className="mb-6" />
+      <HudKpiStrip kpis={kpis} columns={6} className="mb-6" />
 
-      {/* Filters */}
-      <HudFilterBar
-        searchPlaceholder={t('searchPlaceholder')}
-        searchValue={searchTerm}
-        onSearchChange={setSearchTerm}
-        filterGroups={filterGroups}
-        activeFiltersCount={activeFiltersCount}
-        onClearFilters={handleClearFilters}
-        className="mb-6"
-      />
-
-      {/* Tabs */}
-      <HudTabs
-        tabs={tabs}
-        activeTab={view}
-        onTabChange={(v) => setView(v as typeof view)}
-        variant="default"
-      />
-
-      {/* Create Modal */}
-      <HudModal
-        isOpen={createOpen}
-        onClose={() => setCreateOpen(false)}
-        title={t('newRisk')}
-        size="lg"
-        footer={
-          <>
-            <HudButton variant="ghost" onClick={() => setCreateOpen(false)}>
-              {tCommon('cancel')}
-            </HudButton>
-            <HudButton
-              variant="primary"
-              onClick={handleCreateRisk}
-              disabled={!newRisk.title || !newRisk.description}
-            >
-              {tCommon('save')}
-            </HudButton>
-          </>
-        }
-      >
-        <div className="space-y-4">
-          <div className="grid md:grid-cols-2 gap-4">
-            <HudInput
-              label={t('title')}
-              value={newRisk.title}
-              onChange={(e) => setNewRisk((prev) => ({ ...prev, title: e.target.value }))}
-              placeholder={t('titlePlaceholder')}
-            />
-            <HudSelect
-              label={t('category')}
-              value={newRisk.category}
-              options={categoryOptions}
-              onChange={(value) => setNewRisk((prev) => ({ ...prev, category: value as Risk['category'] }))}
-            />
-          </div>
-
-          <div>
-            <label className="text-[11px] font-medium text-white/60 uppercase tracking-wider mb-1.5 block">
-              {t('description')}
-            </label>
-            <textarea
-              value={newRisk.description}
-              onChange={(e) => setNewRisk((prev) => ({ ...prev, description: e.target.value }))}
-              placeholder={t('descriptionPlaceholder')}
-              rows={4}
-              className="w-full px-4 py-3 rounded-lg bg-white/[0.03] border border-white/[0.08] text-white text-sm placeholder:text-white/30 focus:outline-none focus:border-cyan-500/30 focus:bg-white/[0.05] transition-all resize-none"
-            />
-          </div>
-
-          <div className="grid md:grid-cols-3 gap-3">
-            <HudInput
-              label={t('probability')}
-              type="number"
-              min={1}
-              max={5}
-              value={newRisk.probability}
-              onChange={(e) => setNewRisk((prev) => ({ ...prev, probability: Number(e.target.value) }))}
-            />
-            <HudInput
-              label={t('impact')}
-              type="number"
-              min={1}
-              max={5}
-              value={newRisk.impact}
-              onChange={(e) => setNewRisk((prev) => ({ ...prev, impact: Number(e.target.value) }))}
-            />
-            <HudSelect
-              label={t('severity')}
-              value={newRisk.severity}
-              options={severityOptions}
-              onChange={(value) => setNewRisk((prev) => ({ ...prev, severity: value as Risk['severity'] }))}
-            />
-          </div>
-
-          <HudSelect
-            label={t('origin')}
-            value={newRisk.origin}
-            options={originOptions}
-            onChange={(value) => setNewRisk((prev) => ({ ...prev, origin: value as Risk['origin'] }))}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[420px_1fr]">
+        <HudPanel elevation={2} title="Matriz 5x5" subtitle="Clique em uma célula para filtrar a lista">
+          <RiskMatrix
+            risks={filtered}
+            onCellClick={(prob, impact) => setSelectedCell({ prob, impact })}
+            highlightedCell={selectedCell}
           />
-        </div>
-      </HudModal>
+          {selectedCell && (
+            <button
+              type="button"
+              onClick={clearCellFilter}
+              className="mt-4 text-ig-caption text-ig-fg-muted transition-colors hover:text-ig-accent"
+            >
+              Limpar filtro de célula
+            </button>
+          )}
+        </HudPanel>
+
+        <HudPanel elevation={2} title="Lista de Riscos" subtitle={`${cellFiltered.length} risco(s) no recorte atual`}>
+          <div className="space-y-4">
+            <HudFilterBar
+              compact
+              searchPlaceholder="Buscar riscos..."
+              searchValue={search}
+              onSearchChange={setSearch}
+              filterGroups={filterGroups}
+              activeFiltersCount={severityFilter === "all" ? 0 : 1}
+              onClearFilters={() => setSeverityFilter("all")}
+            />
+            <RiskList
+              risks={cellFiltered}
+              highlightedIds={selectedCell ? cellFiltered.map((risk) => risk.id) : []}
+            />
+          </div>
+        </HudPanel>
+      </div>
     </HudPageLayout>
   );
 }
