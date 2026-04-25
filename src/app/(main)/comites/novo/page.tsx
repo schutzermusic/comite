@@ -15,7 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useToast } from '@/hooks/use-toast';
+import { useHudToast } from '@/hooks/useHudToast';
 import { OrionGreenBackground } from '@/components/system/OrionGreenBackground';
 import SankhyaIntegration from '@/components/features/sankhya-integration-comite';
 import Link from 'next/link';
@@ -33,7 +33,7 @@ const CORES_PREDEFINIDAS = [
 
 export default function NovoComite() {
   const router = useRouter();
-  const { toast } = useToast();
+  const { toast } = useHudToast();
 
   const [formData, setFormData] = useState({
     nome: '',

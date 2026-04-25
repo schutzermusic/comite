@@ -18,7 +18,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Progress } from '@/components/ui/progress';
-import { useToast } from '@/hooks/use-toast';
+import { useHudToast } from '@/hooks/useHudToast';
 import {
   Dialog,
   DialogContent,
@@ -60,7 +60,7 @@ const pautas = votes.map(v => ({...v, resultado: 'aprovado'}));
 export default function DetalheComitePage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
   const { id: comiteId } = use(params);
-  const { toast } = useToast();
+  const { toast } = useHudToast();
 
   const [showAddMember, setShowAddMember] = useState(false);
   const [selectedUser, setSelectedUser] = useState('');

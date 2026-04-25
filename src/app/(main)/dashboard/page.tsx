@@ -5,7 +5,6 @@ import dynamic from 'next/dynamic';
 import { ChevronDown } from 'lucide-react';
 import { ControlCanvas, type ScopeMode } from '@/components/dashboard/ControlCanvas';
 import { ContextDrawer, type DrawerContext } from '@/components/dashboard/ContextDrawer';
-import { QuickActionToast } from '@/components/dashboard/QuickActionToast';
 import { useHudLayout, type HudMode, type PeriodFilter, type ViewPreset } from '@/hooks/useHudLayout';
 import { getMockDashboardData } from '@/lib/dashboard-data';
 import type { DashboardPayload } from '@/lib/dashboard-data';
@@ -278,11 +277,6 @@ export default function DashboardPage() {
                     </div>
 
                 </div>
-            </div>
-
-            {/* Quick Action Toast */}
-            <div className="fixed bottom-5 right-5 z-[55] pointer-events-auto">
-                <QuickActionToast />
             </div>
 
             {/* Drawer */}

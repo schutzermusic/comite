@@ -12,7 +12,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { useToast } from '@/hooks/use-toast';
+import { useHudToast } from '@/hooks/useHudToast';
 import { ProjectAllocation, User } from '@/lib/types';
 import { OrgChart } from '@/components/organization/org-chart';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -33,7 +33,7 @@ export function AddMemberDialog({
   existingAllocations = [],
   onAddMember,
 }: AddMemberDialogProps) {
-  const { toast } = useToast();
+  const { toast } = useHudToast();
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [formData, setFormData] = useState({
     role: '',

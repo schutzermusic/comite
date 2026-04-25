@@ -7,7 +7,7 @@ import { SecondaryButton } from "@/components/ui/secondary-button";
 import { HUDCard } from "@/components/ui/hud-card";
 import { hudInputBase } from "@/components/ui/hud-input";
 import { Textarea } from "@/components/ui/textarea";
-import { useToast } from "@/hooks/use-toast";
+import { useHudToast } from "@/hooks/useHudToast";
 import { GenerateMeetingMinutesOutput } from "@/ai/flows/automated-minute-generation";
 import { Loader2, FileText, ListChecks, Sparkles, CheckCircle2, Brain } from "lucide-react";
 import { Meeting, AgendaItem } from "@/lib/types";
@@ -29,7 +29,7 @@ export function AiMinutesGenerator({ meeting, agendaItems }: AiMinutesGeneratorP
   const [transcription, setTranscription] = useState("");
   const [result, setResult] = useState<GenerateMeetingMinutesOutput | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const { toast } = useToast();
+  const { toast } = useHudToast();
 
   const handleGenerate = async () => {
     if (!transcription.trim()) {

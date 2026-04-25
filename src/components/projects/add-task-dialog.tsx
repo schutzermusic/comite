@@ -21,7 +21,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
-import { useToast } from '@/hooks/use-toast';
+import { useHudToast } from '@/hooks/useHudToast';
 import { ProjectTask } from '@/lib/types';
 import { users } from '@/lib/mock-data';
 
@@ -40,7 +40,7 @@ export function AddTaskDialog({
   existingTasks = [],
   onAddTask,
 }: AddTaskDialogProps) {
-  const { toast } = useToast();
+  const { toast } = useHudToast();
   const [formData, setFormData] = useState({
     name: '',
     description: '',

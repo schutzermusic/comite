@@ -18,7 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
-import { useToast } from "@/hooks/use-toast";
+import { useHudToast } from "@/hooks/useHudToast";
 import {
   Alert,
   AlertDescription,
@@ -26,7 +26,7 @@ import {
 
 export default function ConfiguracoesNotificacoesPage() {
   const router = useRouter();
-  const { toast } = useToast();
+  const { toast } = useHudToast();
 
   const [formData, setFormData] = useState({
     canal_email_ativo: true,

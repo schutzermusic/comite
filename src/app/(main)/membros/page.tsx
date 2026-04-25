@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Label } from '@/components/ui/label';
-import { useToast } from '@/hooks/use-toast';
+import { useHudToast } from '@/hooks/useHudToast';
 import { users as mockUsers, projects, votes, pautas as mockPautas } from '@/lib/mock-data';
 import ActivityHistory from "@/components/member/ActivityHistory";
 import { InviteMemberDialog } from "@/components/member/InviteMemberDialog";
@@ -55,7 +55,7 @@ const membrosComite = [
 ];
 
 export default function GerenciarMembrosPage() {
-  const { toast } = useToast();
+  const { toast } = useHudToast();
   const [searchTerm, setSearchTerm] = useState('');
   const [comiteFilter, setComiteFilter] = useState('all');
   const [categoriaFilter, setCategoriaFilter] = useState('all');

@@ -27,7 +27,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { meetings, users, agendaItems, votes as pautas } from '@/lib/mock-data';
-import { useToast } from '@/hooks/use-toast';
+import { useHudToast } from '@/hooks/useHudToast';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -44,7 +44,7 @@ import Link from 'next/link';
 
 export default function DetalheReuniaoPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
-  const { toast } = useToast();
+  const { toast } = useHudToast();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const { id } = use(params);
 

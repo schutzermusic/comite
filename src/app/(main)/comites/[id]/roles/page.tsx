@@ -17,7 +17,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
-import { useToast } from '@/hooks/use-toast';
+import { useHudToast } from '@/hooks/useHudToast';
 import {
   Dialog,
   DialogContent,
@@ -130,7 +130,7 @@ const mockRoles = [
 export default function GerenciarRolesPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
   const { id: comiteId } = use(params);
-  const { toast } = useToast();
+  const { toast } = useHudToast();
 
   const [roles, setRoles] = useState(mockRoles);
   const [showRoleDialog, setShowRoleDialog] = useState(false);

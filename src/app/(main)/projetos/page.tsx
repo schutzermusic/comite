@@ -22,7 +22,7 @@ import {
   Table2,
   Plus,
 } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
+import { useHudToast } from "@/hooks/useHudToast";
 import { getProjects, getProjectsV2, deleteProject } from "@/lib/services/projects";
 import type { Project } from "@/lib/types";
 import type { ProjectV2 } from "@/lib/types/project-v2";
@@ -50,7 +50,7 @@ import {
 function PortfolioProjetosInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { toast } = useToast();
+  const { toast } = useHudToast();
   const t = useTranslations('projects');
   const tCommon = useTranslations('common');
   const highlightedRowRef = useRef<HTMLTableRowElement>(null);

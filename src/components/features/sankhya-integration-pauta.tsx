@@ -14,14 +14,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { useToast } from "@/hooks/use-toast";
+import { useHudToast } from "@/hooks/useHudToast";
 import {
   Alert,
   AlertDescription,
 } from "@/components/ui/alert";
 
 export default function SankhyaIntegrationPauta({ formData, onDataUpdate }: { formData: any, onDataUpdate: (data: any) => void }) {
-    const { toast } = useToast();
+    const { toast } = useHudToast();
     const [loading, setLoading] = useState(false);
     const [connected, setConnected] = useState(formData.sankhya_integrado || false);
     const [opNumber, setOpNumber] = useState(formData.sankhya_op || "");

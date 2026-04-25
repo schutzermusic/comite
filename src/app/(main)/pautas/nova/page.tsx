@@ -15,14 +15,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useToast } from '@/hooks/use-toast';
+import { useHudToast } from '@/hooks/useHudToast';
 import { projects as comites } from '@/lib/mock-data'; // Using projects as mock comites
 import Link from 'next/link';
 import SankhyaIntegrationPauta from '@/components/features/sankhya-integration-pauta';
 
 export default function NovaPautaPage() {
   const router = useRouter();
-  const { toast } = useToast();
+  const { toast } = useHudToast();
   const [isUploading, setIsUploading] = useState(false);
 
   const [formData, setFormData] = useState({

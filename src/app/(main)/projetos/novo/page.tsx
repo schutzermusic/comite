@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Save, Briefcase, FolderPlus } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
+import { useHudToast } from '@/hooks/useHudToast';
 import { projects, users } from '@/lib/mock-data';
 import { createProject } from '@/lib/services/projects';
 import { Project } from '@/lib/types';
@@ -23,7 +23,7 @@ const comites = projects
 
 export default function NovoProjetoPage() {
   const router = useRouter();
-  const { toast } = useToast();
+  const { toast } = useHudToast();
 
   const [formData, setFormData] = useState({
     nome: '',

@@ -27,7 +27,7 @@ import { HUDCard } from '@/components/ui/hud-card';
 import { StatusPill } from '@/components/ui/status-pill';
 import { HUDProgressBar } from '@/components/ui/hud-progress-bar';
 import { OrionGreenBackground } from '@/components/system/OrionGreenBackground';
-import { useToast } from '@/hooks/use-toast';
+import { useHudToast } from '@/hooks/useHudToast';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -44,7 +44,7 @@ import Link from 'next/link';
 
 export default function DetalhePautaPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
-  const { toast } = useToast();
+  const { toast } = useHudToast();
   const { id } = use(params);
   
   const pauta = votes.find((v) => v.id === id) || votes[1];

@@ -18,7 +18,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useToast } from "@/hooks/use-toast";
+import { useHudToast } from "@/hooks/useHudToast";
 
 interface ExportMenuProps {
   data: any[];
@@ -31,7 +31,7 @@ export default function ExportMenu({
   data, 
   fileName = "relatorio",
 }: ExportMenuProps) {
-  const { toast } = useToast();
+  const { toast } = useHudToast();
   const [isExporting, setIsExporting] = useState(false);
   const [exportFormat, setExportFormat] = useState<string | null>(null);
 

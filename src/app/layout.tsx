@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import { cn } from '@/lib/utils';
-import { Toaster } from '@/components/ui/toaster';
+import { HudToaster } from '@/components/hud/HudToaster';
 import { getLocale, getMessages } from 'next-intl/server';
 import { NextIntlClientProvider } from 'next-intl';
 import { ThemeProvider } from '@/contexts/ThemeContext';
@@ -55,7 +55,7 @@ export default async function RootLayout({
         <NextIntlClientProvider locale={locale} messages={messages}>
           <ThemeProvider>
             {children}
-            <Toaster />
+            <HudToaster />
           </ThemeProvider>
         </NextIntlClientProvider>
       </body>

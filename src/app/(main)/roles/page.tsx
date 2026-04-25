@@ -44,7 +44,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { useToast } from "@/hooks/use-toast";
+import { useHudToast } from "@/hooks/useHudToast";
 import { globalRoles as mockRoles, users as mockUsers } from "@/lib/mock-data";
 
 const PERMISSION_CATEGORIES = [
@@ -121,7 +121,7 @@ const PERMISSION_CATEGORIES = [
 
 export default function GerenciarRolesGlobal() {
   const router = useRouter();
-  const { toast } = useToast();
+  const { toast } = useHudToast();
   const [showDialog, setShowDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [editingRole, setEditingRole] = useState<any>(null);

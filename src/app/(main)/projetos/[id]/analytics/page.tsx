@@ -24,7 +24,7 @@ import { HUDProgressBar } from "@/components/ui/hud-progress-bar";
 import { PrimaryCTA } from "@/components/ui/primary-cta";
 import { SecondaryButton } from "@/components/ui/secondary-button";
 import { OrionGreenBackground } from "@/components/system/OrionGreenBackground";
-import { useToast } from "@/hooks/use-toast";
+import { useHudToast } from "@/hooks/useHudToast";
 import { projects, mockAnalytics } from "@/lib/mock-data";
 import { ProjetoAnalytics } from "@/lib/types";
 
@@ -34,7 +34,7 @@ import ROIForecasting from "@/components/analytics/ROIForecasting";
 
 export default function ProjetoAnalyticsPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
-  const { toast } = useToast();
+  const { toast } = useHudToast();
   const { id: projetoId } = use(params);
 
   const [isGenerating, setIsGenerating] = useState(false);

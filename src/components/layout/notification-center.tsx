@@ -20,7 +20,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { useToast } from "@/hooks/use-toast";
+import { useHudToast } from "@/hooks/useHudToast";
 import { format } from "date-fns";
 import {
   Popover,
@@ -39,7 +39,7 @@ interface NotificationCenterProps {
 
 export default function NotificationCenter({ hiddenOnDashboard }: NotificationCenterProps) {
   const pathname = usePathname();
-  const { toast } = useToast();
+  const { toast } = useHudToast();
   const { theme } = useTheme();
   const isLight = theme === 'light';
   const [filter, setFilter] = useState('todas');

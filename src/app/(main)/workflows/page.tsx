@@ -50,7 +50,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { useToast } from "@/hooks/use-toast";
+import { useHudToast } from "@/hooks/useHudToast";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { workflows as mockWorkflows, workflowLogs as mockWorkflowLogs } from "@/lib/mock-data";
@@ -58,7 +58,7 @@ import { Workflow, WorkflowLog } from "@/lib/types";
 
 export default function GerenciarWorkflows() {
   const router = useRouter();
-  const { toast } = useToast();
+  const { toast } = useHudToast();
 
   const [workflows, setWorkflows] = useState<Workflow[]>(mockWorkflows);
   const [logs, setLogs] = useState<WorkflowLog[]>(mockWorkflowLogs);

@@ -42,7 +42,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { useToast } from "@/hooks/use-toast";
+import { useHudToast } from "@/hooks/useHudToast";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { notifications, users } from "@/lib/mock-data";
@@ -70,7 +70,7 @@ const mockConfig = {
 };
 
 export default function AdminNotificacoes() {
-  const { toast } = useToast();
+  const { toast } = useHudToast();
   const [statusFilter, setStatusFilter] = useState("all");
   const [eventFilter, setEventFilter] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");

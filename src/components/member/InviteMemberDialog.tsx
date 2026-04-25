@@ -21,7 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useToast } from '@/hooks/use-toast';
+import { useHudToast } from '@/hooks/useHudToast';
 import { Mail, MessageSquare, Loader2, UserPlus } from 'lucide-react';
 import { inviteMember, type InviteMemberData, validateEmail, formatPhoneToE164 } from '@/lib/invitations';
 import { projects } from '@/lib/mock-data';
@@ -37,7 +37,7 @@ export function InviteMemberDialog({
   onOpenChange,
   onSuccess,
 }: InviteMemberDialogProps) {
-  const { toast } = useToast();
+  const { toast } = useHudToast();
   const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState<InviteMemberData>({
     nome: '',

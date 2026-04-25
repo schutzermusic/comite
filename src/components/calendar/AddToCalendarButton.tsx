@@ -16,7 +16,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useToast } from "@/hooks/use-toast";
+import { useHudToast } from "@/hooks/useHudToast";
 import { Meeting } from "@/lib/types";
 
 // Import from local utils file
@@ -42,7 +42,7 @@ export default function AddToCalendarButton({
   size = "default",
   appUrl = ""
 }: AddToCalendarButtonProps) {
-  const { toast } = useToast();
+  const { toast } = useHudToast();
   const [isOpen, setIsOpen] = useState(false);
 
   const handleAddToCalendar = (provider: 'google' | 'outlook' | 'office365' | 'ics') => {

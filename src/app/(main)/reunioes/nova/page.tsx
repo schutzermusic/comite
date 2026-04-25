@@ -16,14 +16,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useToast } from "@/hooks/use-toast";
+import { useHudToast } from "@/hooks/useHudToast";
 import { Badge } from "@/components/ui/badge";
 import { OrionGreenBackground } from "@/components/system/OrionGreenBackground";
 import { projects as comites, votes as pautas, users } from "@/lib/mock-data";
 
 export default function NovaReuniaoPage() {
   const router = useRouter();
-  const { toast } = useToast();
+  const { toast } = useHudToast();
   const [sendingEmails, setSendingEmails] = useState(false);
   const [isClient, setIsClient] = useState(false);
 
