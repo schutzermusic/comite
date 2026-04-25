@@ -10,9 +10,8 @@ import {
   Eye,
   Edit,
   UserPlus,
+  UserCheck,
 } from 'lucide-react';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Label } from '@/components/ui/label';
 import { useHudToast } from '@/hooks/useHudToast';
 import { users as mockUsers, projects, votes, pautas as mockPautas } from '@/lib/mock-data';
 import ActivityHistory from "@/components/member/ActivityHistory";
@@ -54,17 +53,25 @@ const membrosComite = [
   { id: 'mc-5', usuario_email: 'diana@insight.com', comite_id: 'com-3', comite_nome: 'Comitê de Inovação', role_id: '3', role_nome: 'Leitor' },
 ];
 
+type MemberMembership = (typeof membrosComite)[number];
+type MemberData = (typeof mockUsers)[number] & {
+  comites: MemberMembership[];
+  totalVotos: number;
+  totalPautas: number;
+};
+type PautaWithCreator = (typeof mockPautas)[number] & { created_by?: string };
+
 export default function GerenciarMembrosPage() {
   const { toast } = useHudToast();
   const [searchTerm, setSearchTerm] = useState('');
   const [comiteFilter, setComiteFilter] = useState('all');
   const [categoriaFilter, setCategoriaFilter] = useState('all');
 
-  const [selectedMember, setSelectedMember] = useState<any>(null);
+  const [selectedMember, setSelectedMember] = useState<MemberData | null>(null);
   const [showActivityDialog, setShowActivityDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [showInviteDialog, setShowInviteDialog] = useState(false);
-  const [editingMembership, setEditingMembership] = useState<any>(null);
+  const [editingMembership, setEditingMembership] = useState<MemberMembership | null>(null);
   const [newRoleId, setNewRoleId] = useState('');
 
   const getUserInitials = (name: string | undefined) => {
@@ -75,11 +82,9 @@ export default function GerenciarMembrosPage() {
   const membersData = mockUsers.map((user) => {
     const userMemberships = membrosComite.filter((m) => m.usuario_email === user.email);
     const userVotes = votes.filter((v) => v.usuario_email === user.email);
-    const userPautas = mockPautas.filter((p) => (p as any).created_by === user.email);
+    const userPautas = mockPautas.filter((p) => (p as PautaWithCreator).created_by === user.email);
     return { ...user, comites: userMemberships, totalVotos: userVotes.length, totalPautas: userPautas.length };
   });
-
-  type MemberData = (typeof membersData)[number];
 
   const filteredMembers = membersData.filter((member) => {
     const searchMatch =
@@ -143,22 +148,17 @@ export default function GerenciarMembrosPage() {
       header: 'Membro',
       cell: (member: MemberData) => (
         <div className="flex items-center gap-3">
-          <Avatar className="w-9 h-9">
-            <AvatarFallback
-              className="font-semibold text-white text-xs"
-              style={{ background: 'linear-gradient(135deg, #06b6d4 0%, #10b981 100%)' }}
-            >
-              {getUserInitials(member.nome)}
-            </AvatarFallback>
-          </Avatar>
+          <div className="flex h-9 w-9 items-center justify-center rounded-full border border-ig-border-focus bg-ig-accent-weak text-xs font-semibold text-ig-accent">
+            {getUserInitials(member.nome)}
+          </div>
           <div>
-            <p className="font-medium text-white text-sm">{member.nome}</p>
-            <div className="flex items-center gap-1.5 text-xs text-white/40">
+            <p className="font-medium text-ig-fg-strong text-sm">{member.nome}</p>
+            <div className="flex items-center gap-1.5 text-xs text-ig-fg-subtle">
               <Mail className="w-3 h-3" />
               <span>{member.email}</span>
             </div>
             {member.cargo && (
-              <div className="flex items-center gap-1.5 text-xs text-white/40 mt-0.5">
+              <div className="flex items-center gap-1.5 text-xs text-ig-fg-subtle mt-0.5">
                 <Briefcase className="w-3 h-3" />
                 <span>{member.cargo}</span>
               </div>
@@ -175,7 +175,7 @@ export default function GerenciarMembrosPage() {
         member.categoria ? (
           <HudStatusPill variant="info" size="sm">{member.categoria}</HudStatusPill>
         ) : (
-          <span className="text-white/30 text-sm">—</span>
+          <span className="text-ig-fg-disabled text-sm">—</span>
         ),
     },
     {
@@ -193,7 +193,7 @@ export default function GerenciarMembrosPage() {
             </div>
           ))}
           {member.comites.length === 0 && (
-            <span className="text-sm text-white/30">Nenhum comitê</span>
+            <span className="text-sm text-ig-fg-disabled">Nenhum comitê</span>
           )}
         </div>
       ),
@@ -254,9 +254,10 @@ export default function GerenciarMembrosPage() {
   return (
     <HudPageLayout>
       <HudHeader
-        title="Gerenciar Membros"
+        title="Membros"
         subtitle="Administração completa de membros e suas funções nos comitês"
-        icon={<Users className="w-5 h-5" />}
+        icon={<UserCheck size={18} />}
+        iconTint="#10B981"
         breadcrumbs={[{ label: 'Membros' }]}
         actions={
           <HudButton
@@ -308,10 +309,10 @@ export default function GerenciarMembrosPage() {
       >
         {editingMembership && (
           <div className="space-y-4">
-            <div className="p-4 rounded-lg bg-white/[0.03] border border-white/[0.06]">
-              <p className="text-xs text-white/50 mb-1 uppercase tracking-wider">Membro</p>
-              <p className="font-semibold text-white">{editingMembership.usuario_nome}</p>
-              <p className="text-sm text-white/50">{editingMembership.comite_nome}</p>
+            <div className="p-4 rounded-lg bg-ig-raised border border-ig-border">
+              <p className="text-xs text-ig-fg-muted mb-1 uppercase tracking-wider">Membro</p>
+              <p className="font-semibold text-ig-fg-strong">{editingMembership.usuario_email}</p>
+              <p className="text-sm text-ig-fg-muted">{editingMembership.comite_nome}</p>
             </div>
             <HudSelect
               label="Nova Função"
@@ -343,14 +344,14 @@ export default function GerenciarMembrosPage() {
               ].map((item) => (
                 <div
                   key={item.label}
-                  className="cr-glass-panel relative overflow-hidden rounded-xl p-4"
+                  className="ig-glass relative overflow-hidden rounded-xl p-4"
+                  data-elev="2"
                 >
-                  <div className="cr-glass-panel-border" />
-                  <div className="cr-glass-panel-specular" />
-                  <div className="cr-glass-panel-inner-stroke" />
-                  <div className="relative z-[2]">
-                    <p className="text-xs text-white/50 mb-1 uppercase tracking-wider">{item.label}</p>
-                    <p className="text-xl font-semibold text-white tabular-nums">{item.value}</p>
+                  <span data-ig-noise="" />
+                  <span data-ig-specular="" />
+                  <div data-ig-content="">
+                    <p className="text-xs text-ig-fg-muted mb-1 uppercase tracking-wider">{item.label}</p>
+                    <p className="text-xl font-semibold text-ig-fg-strong tabular-nums">{item.value}</p>
                   </div>
                 </div>
               ))}

@@ -6,6 +6,7 @@ import {
   Building2,
   Plus,
   Users,
+  Users2,
   FileText,
   Shield,
   Eye,
@@ -85,9 +86,10 @@ export default function ComitesPage() {
   return (
     <HudPageLayout>
       <HudHeader
-        title="Gerenciamento de Comitês"
+        title="Comitês"
         subtitle="Administre os comitês e suas configurações"
-        icon={<Building2 className="w-5 h-5" />}
+        icon={<Users2 size={18} />}
+        iconTint="#F5A524"
         breadcrumbs={[{ label: 'Comitês' }]}
         actions={
           isAdmin ? (
@@ -117,11 +119,11 @@ export default function ComitesPage() {
                 <div className="space-y-4">
                   <div className="flex justify-between items-start">
                     <div className="flex items-center gap-3">
-                      <div className="p-2.5 rounded-xl bg-gradient-to-br from-cyan-500/10 to-emerald-500/10 border border-cyan-500/20">
-                        {React.createElement(TipoIcon, { className: "w-5 h-5 text-cyan-300" })}
+                      <div className="p-2.5 rounded-xl bg-ig-accent-weak border border-ig-border-focus">
+                        {React.createElement(TipoIcon, { className: "w-5 h-5 text-ig-accent" })}
                       </div>
                       <div>
-                        <h3 className="text-base font-semibold text-white">{comite.nome}</h3>
+                        <h3 className="text-base font-semibold text-ig-fg-strong">{comite.nome}</h3>
                         <HudStatusPill variant="info" size="sm">{comite.tipo}</HudStatusPill>
                       </div>
                     </div>
@@ -130,38 +132,38 @@ export default function ComitesPage() {
                     </HudStatusPill>
                   </div>
 
-                  <p className="text-sm text-white/50 line-clamp-3">{comite.descricao}</p>
+                  <p className="text-sm text-ig-fg-muted line-clamp-3">{comite.descricao}</p>
 
-                  <div className="grid grid-cols-2 gap-4 pt-3 border-t border-white/[0.06]">
+                  <div className="grid grid-cols-2 gap-4 pt-3 border-t border-ig-border">
                     <div>
-                      <p className="text-xs text-white/40 mb-1 uppercase tracking-wider">Membros</p>
-                      <p className="text-xl font-semibold text-white tabular-nums">{comite.total_membros || 0}</p>
+                      <p className="text-xs text-ig-fg-subtle mb-1 uppercase tracking-wider">Membros</p>
+                      <p className="text-xl font-semibold text-ig-fg-strong tabular-nums">{comite.total_membros || 0}</p>
                     </div>
                     <div>
-                      <p className="text-xs text-white/40 mb-1 uppercase tracking-wider">Pautas</p>
-                      <p className="text-xl font-semibold text-white tabular-nums">{comite.total_pautas || 0}</p>
+                      <p className="text-xs text-ig-fg-subtle mb-1 uppercase tracking-wider">Pautas</p>
+                      <p className="text-xl font-semibold text-ig-fg-strong tabular-nums">{comite.total_pautas || 0}</p>
                     </div>
                   </div>
 
-                  <div className="space-y-2 pt-3 border-t border-white/[0.06] text-xs text-white/50">
+                  <div className="space-y-2 pt-3 border-t border-ig-border text-xs text-ig-fg-muted">
                     <div className="flex justify-between">
                       <span>Quórum mínimo:</span>
-                      <span className="font-semibold text-white tabular-nums">{comite.quorum_minimo}%</span>
+                      <span className="font-semibold text-ig-fg-strong tabular-nums">{comite.quorum_minimo}%</span>
                     </div>
                     <div className="flex justify-between">
                       <span>Aprovação:</span>
-                      <span className="font-semibold text-white tabular-nums">{comite.percentual_aprovacao}%</span>
+                      <span className="font-semibold text-ig-fg-strong tabular-nums">{comite.percentual_aprovacao}%</span>
                     </div>
                     <div className="flex justify-between">
                       <span>Votação anônima:</span>
-                      <span className="font-semibold text-white">{comite.votacao_anonima ? 'Sim' : 'Não'}</span>
+                      <span className="font-semibold text-ig-fg-strong">{comite.votacao_anonima ? 'Sim' : 'Não'}</span>
                     </div>
                   </div>
 
                   {comite.presidente_nome && (
-                    <div className="pt-3 border-t border-white/[0.06]">
-                      <p className="text-xs text-white/40 mb-1 uppercase tracking-wider">Presidente</p>
-                      <p className="font-medium text-sm text-white">{comite.presidente_nome}</p>
+                    <div className="pt-3 border-t border-ig-border">
+                      <p className="text-xs text-ig-fg-subtle mb-1 uppercase tracking-wider">Presidente</p>
+                      <p className="font-medium text-sm text-ig-fg-strong">{comite.presidente_nome}</p>
                     </div>
                   )}
                 </div>
