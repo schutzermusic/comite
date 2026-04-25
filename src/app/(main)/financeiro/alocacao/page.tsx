@@ -95,6 +95,7 @@ export default function AlocacaoPage() {
       <HudHeader
         title={t('allocation')}
         icon={<Calculator className="w-5 h-5" />}
+        iconTint="#14B8A6"
         breadcrumbs={[{ label: t('title'), href: '/financeiro' }, { label: t('allocation') }]}
         actions={
           <HudButton variant="primary" leftIcon={<Plus className="w-4 h-4" />} onClick={() => setDrawerOpen(true)}>

@@ -131,6 +131,7 @@ export default function ContasPage() {
       <HudHeader
         title={t('accounts')}
         icon={<CreditCard className="w-5 h-5" />}
+        iconTint="#14B8A6"
         breadcrumbs={[{ label: t('title'), href: '/financeiro' }, { label: t('accounts') }]}
         actions={<HudButton variant="primary" leftIcon={<Plus className="w-4 h-4" />} onClick={() => setDrawerOpen(true)}>Novo Título</HudButton>}
       />

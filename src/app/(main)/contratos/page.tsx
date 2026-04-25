@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import type { Contract, Risk, Project } from "@/lib/types";
 import {
-  FileCheck,
+  FileSignature,
   Upload,
   Search,
   DollarSign,
@@ -328,7 +328,8 @@ export default function ContratosPage() {
       <HudHeader
         title={t('title')}
         subtitle={t('subtitle')}
-        icon={<FileCheck className="w-5 h-5" />}
+        icon={<FileSignature className="w-5 h-5" />}
+        iconTint="#A855F7"
         breadcrumbs={[{ label: t('title') }]}
         actions={
           <HudButton

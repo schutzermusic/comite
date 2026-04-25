@@ -37,6 +37,7 @@ export default function AparenciaPage() {
         title="Aparência"
         subtitle="Preferências visuais aplicadas ao shell executivo."
         icon={<Palette size={18} />}
+        iconTint="#64748B"
       />
 
       <div className="mt-6 flex flex-col gap-6">

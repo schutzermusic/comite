@@ -37,6 +37,7 @@ export default function IntegracoesPage() {
         title="Integrações"
         subtitle="Conectores autorizados para dados, documentos e comunicação."
         icon={<Puzzle size={18} />}
+        iconTint="#64748B"
       />
 
       <div className="mt-6 flex flex-col gap-6">

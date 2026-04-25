@@ -37,6 +37,7 @@ export default function NotificacoesPage() {
         title="Notificações"
         subtitle="Controle como e quando você recebe alertas."
         icon={<Bell size={18} />}
+        iconTint="#64748B"
       />
 
       <div className="mt-6 flex flex-col gap-6">

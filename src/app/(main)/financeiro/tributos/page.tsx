@@ -49,6 +49,7 @@ export default function TributosPage() {
   return (
     <HudPageLayout>
       <HudHeader title={t('taxes')} icon={<Wallet className="w-5 h-5" />}
+        iconTint="#14B8A6"
         breadcrumbs={[{ label: t('title'), href: '/financeiro' }, { label: t('taxes') }]} />
       <HudKpiStrip kpis={kpis} columns={3} />
       <div className="flex gap-1.5 mt-4">

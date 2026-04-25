@@ -2,7 +2,7 @@
 
 import React from "react";
 import Link from "next/link";
-import { Calendar, CheckCircle2, Clock, PlayCircle, Plus } from "lucide-react";
+import { Calendar, CalendarDays, CheckCircle2, Clock, PlayCircle, Plus } from "lucide-react";
 import { isFuture, isPast, isToday } from "date-fns";
 import { meetings } from "@/lib/mock-data";
 import { HudButton, HudEmptyState, HudHeader, HudKpiStrip, HudPageLayout, HudPanel } from "@/components/hud";
@@ -42,7 +42,8 @@ export default function ReunioesPage() {
       <HudHeader
         title="Reuniões do Comitê"
         subtitle="Agenda executiva, papéis e registros das reuniões corporativas"
-        icon={<Calendar className="h-5 w-5" />}
+        icon={<CalendarDays className="h-5 w-5" />}
+        iconTint="#3B82F6"
         breadcrumbs={[{ label: "Reuniões" }]}
         actions={
           isAdmin ? (

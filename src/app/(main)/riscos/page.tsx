@@ -181,6 +181,7 @@ export default function RiscosPage() {
         title="Riscos"
         subtitle="Matriz corporativa de exposição a riscos"
         icon={<ShieldAlert className="h-5 w-5" />}
+        iconTint="#F5A524"
         breadcrumbs={[{ label: "Riscos" }]}
         statusChips={[{ label: `Score ${score.toFixed(1)}`, variant }]}
       />

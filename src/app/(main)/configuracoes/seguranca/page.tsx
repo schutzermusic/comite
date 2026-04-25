@@ -38,6 +38,7 @@ export default function SegurancaPage() {
         title="Segurança"
         subtitle="Políticas de acesso, sessão e dispositivos confiáveis."
         icon={<Shield size={18} />}
+        iconTint="#64748B"
       />
 
       <div className="mt-6 flex flex-col gap-6">

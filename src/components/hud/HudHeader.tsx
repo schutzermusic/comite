@@ -84,19 +84,17 @@ export function HudHeader({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-3 mb-1">
             {icon && (
-              <div
-                className="hud-header-icon-box flex items-center justify-center w-10 h-10 rounded-lg bg-ig-accent-weak border border-ig-border-focus text-ig-accent"
-                style={
-                  iconTint
-                    ? {
-                        backgroundColor: `color-mix(in oklab, ${iconTint} 14%, transparent)`,
-                        color: iconTint,
-                      }
-                    : undefined
-                }
+              <span
+                className="ig-icon-jewel hud-header-icon-box"
+                style={{
+                  backgroundColor: iconTint
+                    ? `color-mix(in oklab, ${iconTint} 16%, var(--ig-bg-raised))`
+                    : 'var(--ig-accent-weak)',
+                  color: iconTint ?? 'var(--ig-accent)',
+                }}
               >
                 {icon}
-              </div>
+              </span>
             )}
             <div>
               <h1 className="hud-header-title text-xl font-semibold text-ig-fg-strong tracking-wide flex items-center gap-2">

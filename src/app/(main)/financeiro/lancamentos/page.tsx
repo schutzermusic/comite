@@ -159,6 +159,7 @@ function LancamentosContent() {
         title={t('ledgerEntries')}
         subtitle={`${entries.length} lançamentos`}
         icon={<Receipt className="w-5 h-5" />}
+        iconTint="#14B8A6"
         breadcrumbs={[{ label: t('title'), href: '/financeiro' }, { label: t('ledgerEntries') }]}
         actions={
           <HudButton variant="primary" leftIcon={<Plus className="w-4 h-4" />} onClick={() => { resetForm(); setDrawerOpen(true); }}>

@@ -37,6 +37,7 @@ export default function EmpresaPage() {
         title="Empresa"
         subtitle="Identidade institucional usada em relatórios e documentos."
         icon={<Building2 size={18} />}
+        iconTint="#64748B"
       />
 
       <div className="mt-6 flex flex-col gap-6">

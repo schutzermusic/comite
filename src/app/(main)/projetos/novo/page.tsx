@@ -144,6 +144,7 @@ export default function NovoProjetoPage() {
         title="Novo Projeto"
         subtitle="Crie um novo projeto no portfólio de governança"
         icon={<FolderPlus className="w-5 h-5" />}
+        iconTint="#10B981"
         breadcrumbs={[
           { label: 'Projetos', href: '/projetos' },
           { label: 'Novo Projeto' },

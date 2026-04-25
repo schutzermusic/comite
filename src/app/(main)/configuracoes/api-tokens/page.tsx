@@ -39,6 +39,7 @@ export default function ApiTokensPage() {
         title="API & Tokens"
         subtitle="Acesso programático com escopo e expiração controlados."
         icon={<KeyRound size={18} />}
+        iconTint="#64748B"
       />
 
       <div className="mt-6 flex flex-col gap-6">

@@ -79,6 +79,7 @@ function WorkforceCostPageInner() {
         title="Pessoas & Custos"
         subtitle="Sala de Controle de Custos de Pessoal — Análise Completa para Decisão"
         icon={<Users className="w-5 h-5" />}
+        iconTint="#10B981"
         breadcrumbs={[{ label: 'Pessoas & Custos' }]}
         statusChips={[
           {

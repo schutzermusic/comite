@@ -39,6 +39,7 @@ export default function BancosPage() {
   return (
     <HudPageLayout>
       <HudHeader title={t('banks')} icon={<Landmark className="w-5 h-5" />}
+        iconTint="#14B8A6"
         breadcrumbs={[{ label: t('title'), href: '/financeiro' }, { label: t('banks') }]} />
       <HudKpiStrip kpis={kpis} columns={3} />
       <div className="mt-4">

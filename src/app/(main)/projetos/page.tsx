@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import {
   Briefcase,
+  FolderKanban,
   Search,
   TrendingUp,
   DollarSign,
@@ -510,7 +511,8 @@ function PortfolioProjetosInner() {
       <HudHeader
         title={t('title')}
         subtitle={t('subtitle')}
-        icon={<Briefcase className="w-5 h-5" />}
+        icon={<FolderKanban className="w-5 h-5" />}
+        iconTint="#10B981"
         breadcrumbs={[{ label: t('title') }]}
         actions={
           <div className="flex items-center gap-2">

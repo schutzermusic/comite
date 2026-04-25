@@ -216,6 +216,7 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
           title={projeto.nome}
           subtitle={`Código: ${projeto.codigo} ${lastActivity ? ` · Última atividade: ${lastActivity}` : ''}`}
           icon={<Briefcase className="w-5 h-5" />}
+          iconTint="#10B981"
           breadcrumbs={[
             { label: 'Projetos', href: '/projetos' },
             { label: projeto.codigo },

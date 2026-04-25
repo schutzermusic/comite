@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useCallback } from 'react';
 import { useTranslations } from 'next-intl';
-import { DollarSign, CheckCircle2 } from 'lucide-react';
+import { TrendingUp, CheckCircle2 } from 'lucide-react';
 import ReactECharts from 'echarts-for-react';
 import { useTheme } from '@/contexts/ThemeContext';
 import {
@@ -437,7 +437,8 @@ export default function FinanceOverviewPage() {
       <HudHeader
         title={t('title')}
         subtitle={t('overview')}
-        icon={<DollarSign className="w-5 h-5" />}
+        icon={<TrendingUp className="w-5 h-5" />}
+        iconTint="#14B8A6"
         breadcrumbs={[{ label: t('title') }]}
         actions={
           <div className="flex items-center gap-2">

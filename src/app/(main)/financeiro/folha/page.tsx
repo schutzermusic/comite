@@ -82,6 +82,7 @@ export default function FolhaPage() {
         title={t('payroll')}
         subtitle={`Período: ${selectedPeriod}`}
         icon={<FileSpreadsheet className="w-5 h-5" />}
+        iconTint="#14B8A6"
         breadcrumbs={[{ label: t('title'), href: '/financeiro' }, { label: t('payroll') }]}
         actions={
           <div className="flex items-center gap-3">

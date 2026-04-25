@@ -38,6 +38,7 @@ export default function ContaPage() {
         title="Minha Conta"
         subtitle="Dados pessoais e preferências de sessão."
         icon={<User size={18} />}
+        iconTint="#64748B"
       />
 
       <div className="mt-6 flex flex-col gap-6">

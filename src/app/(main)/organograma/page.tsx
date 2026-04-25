@@ -197,6 +197,7 @@ export default function OrganogramaPage() {
         title="Organograma"
         subtitle="Visualização hierárquica da estrutura organizacional"
         icon={<Network className="w-5 h-5" />}
+        iconTint="#3B82F6"
         breadcrumbs={[{ label: 'Organograma' }]}
       />
 

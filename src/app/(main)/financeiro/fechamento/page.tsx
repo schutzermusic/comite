@@ -67,6 +67,7 @@ export default function FechamentoPage() {
       <HudHeader
         title={t('periodClose')}
         icon={<Lock className="w-5 h-5" />}
+        iconTint="#14B8A6"
         breadcrumbs={[{ label: t('title'), href: '/financeiro' }, { label: t('periodClose') }]}
         actions={
           <HudSelect label="" value={selectedPeriod} onChange={setSelectedPeriod} size="sm"

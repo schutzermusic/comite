@@ -39,6 +39,7 @@ export default function AuditoriaPage() {
         title="Auditoria"
         subtitle="Retenção, exportação e granularidade da trilha de governança."
         icon={<ScrollText size={18} />}
+        iconTint="#64748B"
       />
 
       <div className="mt-6 flex flex-col gap-6">
