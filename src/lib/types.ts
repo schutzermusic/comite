@@ -37,20 +37,27 @@ export type Project = {
   tipo?: string;
 };
 
-export type Meeting = {
+export type MeetingRole = 'presidente' | 'secretario' | 'votante' | 'observador';
+export type MeetingType = 'presencial' | 'virtual' | 'hibrida';
+export type MeetingStatus = 'agendada' | 'em_andamento' | 'encerrada' | 'cancelada';
+
+export interface Meeting {
   id: string;
   titulo: string;
-  comite: string;
+  descricao: string;
   dataHoraInicio: string;
-  tipoReuniao: 'ordinaria' | 'extraordinaria' | 'presencial' | 'virtual' | 'hibrida';
-  status: 'agendada' | 'em_andamento' | 'encerrada' | 'cancelada';
-  participantes?: string[];
-  participantes_nomes?: string[];
-  transcricao?: string;
-  ata_ia_gerada?: string;
-  acoes_sugeridas?: ActionItem[];
-  resumo_ia?: string;
-};
+  duracaoMinutos: number;
+  tipoReuniao: MeetingType;
+  local: string;
+  linkVirtual?: string;
+  comite: string;
+  comiteId: string;
+  status: MeetingStatus;
+  participantesIds: string[];
+  pautasIds: string[];
+  ataPublicada: boolean;
+  meuPapel?: MeetingRole;
+}
 
 export type AgendaItem = {
   id: string;
