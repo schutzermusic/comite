@@ -23,6 +23,7 @@ export interface HudHeaderProps {
   title: string;
   subtitle?: string;
   icon?: React.ReactNode;
+  iconTint?: string;
   breadcrumbs?: BreadcrumbItem[];
   statusChips?: StatusChip[];
   actions?: React.ReactNode;
@@ -33,6 +34,7 @@ export function HudHeader({
   title,
   subtitle,
   icon,
+  iconTint,
   breadcrumbs,
   statusChips,
   actions,
@@ -82,7 +84,17 @@ export function HudHeader({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-3 mb-1">
             {icon && (
-              <div className="hud-header-icon-box flex items-center justify-center w-10 h-10 rounded-lg bg-ig-accent-weak border border-ig-border-focus text-ig-accent">
+              <div
+                className="hud-header-icon-box flex items-center justify-center w-10 h-10 rounded-lg bg-ig-accent-weak border border-ig-border-focus text-ig-accent"
+                style={
+                  iconTint
+                    ? {
+                        backgroundColor: `color-mix(in oklab, ${iconTint} 14%, transparent)`,
+                        color: iconTint,
+                      }
+                    : undefined
+                }
+              >
                 {icon}
               </div>
             )}
