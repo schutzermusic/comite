@@ -104,11 +104,11 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
 
   const getStatusColor = (status: string) => {
     const colors: Record<string, string> = {
-      planejamento: 'bg-blue-100 text-blue-700 border-blue-300',
-      em_andamento: 'bg-green-100 text-green-700 border-green-300',
-      pausado: 'bg-amber-100 text-amber-700 border-amber-300',
-      concluido: 'bg-slate-100 text-slate-700 border-slate-300',
-      cancelado: 'bg-red-100 text-red-700 border-red-300'
+      planejamento: 'bg-ig-accent-weak text-ig-accent border-ig-border-focus',
+      em_andamento: 'bg-[color-mix(in_oklab,var(--ig-success)_12%,transparent)] text-ig-success border-[color-mix(in_oklab,var(--ig-success)_28%,transparent)]',
+      pausado: 'bg-[color-mix(in_oklab,var(--ig-warning)_12%,transparent)] text-ig-warning border-[color-mix(in_oklab,var(--ig-warning)_28%,transparent)]',
+      concluido: 'bg-ig-panel text-ig-fg-muted border-ig-border',
+      cancelado: 'bg-[color-mix(in_oklab,var(--ig-danger)_12%,transparent)] text-ig-danger border-[color-mix(in_oklab,var(--ig-danger)_28%,transparent)]'
     };
     return colors[status] || colors.planejamento;
   };
@@ -272,66 +272,66 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
               watermark="PROJECT · BRIEF"
             >
               <div>
-                <p className="hud-text-tertiary mb-6 font-medium">{projeto.descricao || 'Sem descrição'}</p>
+                <p className="mb-6 text-ig-body-sm font-medium text-ig-fg-muted">{projeto.descricao || 'Sem descrição'}</p>
 
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
                   <div>
-                    <p className="text-sm hud-text-muted mb-1">Status</p>
+                    <p className="mb-1 text-ig-caption font-medium text-ig-fg-muted">Status</p>
                     <Badge className={getStatusColor(projeto.status)}>{projeto.status}</Badge>
                   </div>
                   <div>
-                    <p className="text-sm hud-text-muted mb-1">Cliente</p>
-                    <p className="font-medium orion-text-primary">{projeto.cliente || 'N/A'}</p>
+                    <p className="mb-1 text-ig-caption font-medium text-ig-fg-muted">Cliente</p>
+                    <p className="text-ig-body-sm font-medium text-ig-fg-strong">{projeto.cliente || 'N/A'}</p>
                   </div>
                   <div>
-                    <p className="text-sm hud-text-muted mb-1">Responsável</p>
-                    <p className="font-medium orion-text-primary">{projeto.responsavel?.nome || projeto.responsavel?.full_name || 'Não definido'}</p>
+                    <p className="mb-1 text-ig-caption font-medium text-ig-fg-muted">Responsável</p>
+                    <p className="text-ig-body-sm font-medium text-ig-fg-strong">{projeto.responsavel?.nome || projeto.responsavel?.full_name || 'Não definido'}</p>
                   </div>
                   <div>
-                    <p className="text-sm hud-text-muted mb-1">Início</p>
-                    <p className="font-medium orion-text-primary">
+                    <p className="mb-1 text-ig-caption font-medium text-ig-fg-muted">Início</p>
+                    <p className="text-ig-body-sm font-medium text-ig-fg-strong">
                       {projeto.data_inicio ? format(new Date(projeto.data_inicio), 'dd/MM/yyyy', { locale: ptBR }) : 'N/A'}
                     </p>
                   </div>
                 </div>
 
                 {/* ── Revenue-focused financial KPIs ── */}
-                <div className="mt-6 pt-6 border-t border-[rgba(255,255,255,0.08)]">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-center">
-                    <div>
-                      <DollarSign className="w-8 h-8 mx-auto hud-accent-icon mb-2" />
-                      <p className="text-sm hud-text-muted">Contrato Total (Receita)</p>
-                      <p className="text-xl font-bold orion-text-primary tabular-nums">
+                <div className="mt-6 border-t border-ig-border-subtle pt-5">
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                    <div className="rounded-lg border border-ig-border-subtle bg-ig-panel/70 p-4">
+                      <DollarSign className="mb-2 h-4 w-4 text-ig-accent" />
+                      <p className="text-ig-caption font-medium text-ig-fg-muted">Contrato Total (Receita)</p>
+                      <p className="mt-1 text-ig-kpi-md font-semibold text-ig-fg-strong tabular-nums">
                         {projetoV2?.revenue
                           ? formatMoney(projetoV2.revenue.totalContracted, true)
                           : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(projeto.valor_total || 0)
                         }
                       </p>
-                      <p className="text-[10px] hud-text-muted mt-1">
+                      <p className="mt-1 text-[10px] text-ig-fg-muted">
                         Fonte: Contrato · {projetoV2?.revenue?.updatedAt
                           ? new Date(projetoV2.revenue.updatedAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' })
                           : '—'}
                       </p>
                     </div>
-                    <div>
-                      <TrendingUp className="w-8 h-8 mx-auto hud-accent-success mb-2" />
-                      <p className="text-sm hud-text-muted">Faturado (Receita)</p>
-                      <p className="text-xl font-bold hud-kpi-value-success tabular-nums">
+                    <div className="rounded-lg border border-ig-border-subtle bg-ig-panel/70 p-4">
+                      <TrendingUp className="mb-2 h-4 w-4 text-ig-success" />
+                      <p className="text-ig-caption font-medium text-ig-fg-muted">Faturado (Receita)</p>
+                      <p className="mt-1 text-ig-kpi-md font-semibold text-ig-success tabular-nums">
                         {projetoV2?.revenue
                           ? formatMoney(projetoV2.revenue.billed, true)
                           : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(projeto.valor_executado || 0)
                         }
                       </p>
-                      <p className="text-[10px] hud-text-muted mt-1">
+                      <p className="mt-1 text-[10px] text-ig-fg-muted">
                         Fonte: Financeiro · {projetoV2?.revenue?.updatedAt
                           ? new Date(projetoV2.revenue.updatedAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' })
                           : '—'}
                       </p>
                     </div>
-                    <div>
-                      <ArrowUpRight className="w-8 h-8 mx-auto hud-kpi-value-warning mb-2" />
-                      <p className="text-sm hud-text-muted">A Faturar (Receita)</p>
-                      <p className="text-xl font-bold hud-kpi-value-warning tabular-nums">
+                    <div className="rounded-lg border border-ig-border-subtle bg-ig-panel/70 p-4">
+                      <ArrowUpRight className="mb-2 h-4 w-4 text-ig-warning" />
+                      <p className="text-ig-caption font-medium text-ig-fg-muted">A Faturar (Receita)</p>
+                      <p className="mt-1 text-ig-kpi-md font-semibold text-ig-warning tabular-nums">
                         {projetoV2?.revenue
                           ? formatMoney(projetoV2.revenue.toBill, true)
                           : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format((projeto.valor_total || 0) - (projeto.valor_executado || 0))
@@ -358,7 +358,7 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
                 <div className="space-y-4">
                   <div className="flex items-center gap-3">
                     <Building2 className="w-6 h-6 hud-accent-success" />
-                    <p className="font-semibold text-lg orion-text-primary">{projeto.comite_nome}</p>
+                    <p className="text-ig-h3 font-semibold text-ig-fg-strong">{projeto.comite_nome}</p>
                   </div>
                   <Badge variant="outline" className="hud-panel-badge">{projeto.comite_status?.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) || 'Ativo'}</Badge>
                   <p className="text-sm hud-text-tertiary">Este projeto está sob a supervisão do {projeto.comite_nome || 'Comitê'}.</p>
@@ -424,22 +424,22 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
             <div className="p-6 pt-2">
               <TabsContent value="overview" className="mt-0">
                 <div className="space-y-4">
-                  <h3 className="text-lg font-semibold orion-text-primary mb-4">Informações do Projeto</h3>
+                  <h3 className="mb-4 text-ig-h3 font-semibold text-ig-fg-strong">Informações do Projeto</h3>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div>
-                      <p className="text-sm hud-text-muted">Código Interno</p>
-                      <p className="font-medium orion-text-primary">{projeto.codigoInterno || projeto.codigo || 'N/A'}</p>
+                      <p className="text-ig-caption font-medium text-ig-fg-muted">Código Interno</p>
+                      <p className="text-ig-body-sm font-medium text-ig-fg-strong">{projeto.codigoInterno || projeto.codigo || 'N/A'}</p>
                     </div>
                     <div>
-                      <p className="text-sm hud-text-muted">Tipo</p>
-                      <p className="font-medium orion-text-primary">{projeto.tipo || 'Não especificado'}</p>
+                      <p className="text-ig-caption font-medium text-ig-fg-muted">Tipo</p>
+                      <p className="text-ig-body-sm font-medium text-ig-fg-strong">{projeto.tipo || 'Não especificado'}</p>
                     </div>
                     <div>
-                      <p className="text-sm hud-text-muted">ROI Estimado</p>
-                      <p className="font-medium orion-text-primary">{projeto.roi_estimado ? `${projeto.roi_estimado}%` : 'N/A'}</p>
+                      <p className="text-ig-caption font-medium text-ig-fg-muted">ROI Estimado</p>
+                      <p className="text-ig-body-sm font-medium text-ig-fg-strong">{projeto.roi_estimado ? `${projeto.roi_estimado}%` : 'N/A'}</p>
                     </div>
                     <div>
-                      <p className="text-sm hud-text-muted">Risco Geral</p>
+                      <p className="text-ig-caption font-medium text-ig-fg-muted">Risco Geral</p>
                       {(() => {
                         const openRisks = projetoV2?.risks?.filter(r => r.status !== 'resolved') || [];
                         const topScore = openRisks.length > 0
@@ -448,7 +448,7 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
                         const level = topScore > 0 ? getRiskLevelFromScore(topScore) : null;
                         const label = level ? getRiskLevelLabel(level) : (projeto.risco_geral || 'Baixo');
                         return (
-                          <Badge className={level === 'critical' || level === 'high' ? 'bg-red-100 text-red-700' : level === 'medium' ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'}>
+                          <Badge className={level === 'critical' || level === 'high' ? 'bg-[color-mix(in_oklab,var(--ig-danger)_12%,transparent)] text-ig-danger border-[color-mix(in_oklab,var(--ig-danger)_28%,transparent)]' : level === 'medium' ? 'bg-[color-mix(in_oklab,var(--ig-warning)_12%,transparent)] text-ig-warning border-[color-mix(in_oklab,var(--ig-warning)_28%,transparent)]' : 'bg-[color-mix(in_oklab,var(--ig-success)_12%,transparent)] text-ig-success border-[color-mix(in_oklab,var(--ig-success)_28%,transparent)]'}>
                             {label}
                           </Badge>
                         );
@@ -459,30 +459,30 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
                   {/* V2 extra fields */}
                   {projetoV2 && (
                     <>
-                      <Separator className="border-[rgba(255,255,255,0.08)]" />
+                      <Separator className="bg-ig-border-subtle" />
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                         {projetoV2.uf && (
                           <div>
-                            <p className="text-sm hud-text-muted">UF</p>
-                            <p className="font-medium orion-text-primary">{projetoV2.uf}</p>
+                            <p className="text-ig-caption font-medium text-ig-fg-muted">UF</p>
+                            <p className="text-ig-body-sm font-medium text-ig-fg-strong">{projetoV2.uf}</p>
                           </div>
                         )}
                         {projetoV2.location?.city && (
                           <div>
-                            <p className="text-sm hud-text-muted">Cidade</p>
-                            <p className="font-medium orion-text-primary">{projetoV2.location.city}</p>
+                            <p className="text-ig-caption font-medium text-ig-fg-muted">Cidade</p>
+                            <p className="text-ig-body-sm font-medium text-ig-fg-strong">{projetoV2.location.city}</p>
                           </div>
                         )}
                         {projetoV2.contract_id && (
                           <div>
-                            <p className="text-sm hud-text-muted">Contrato</p>
-                            <p className="font-medium hud-accent-icon text-sm">{projetoV2.contract_id}</p>
+                            <p className="text-ig-caption font-medium text-ig-fg-muted">Contrato</p>
+                            <p className="text-ig-body-sm font-medium text-ig-accent">{projetoV2.contract_id}</p>
                           </div>
                         )}
                         {projetoV2.templateType && (
                           <div>
-                            <p className="text-sm hud-text-muted">Template</p>
-                            <Badge variant="outline" className="text-xs border-[rgba(255,255,255,0.12)] hud-text-tertiary">
+                            <p className="text-ig-caption font-medium text-ig-fg-muted">Template</p>
+                            <Badge variant="outline" className="border-ig-border text-ig-caption text-ig-fg-muted">
                               {projetoV2.templateType}
                             </Badge>
                           </div>

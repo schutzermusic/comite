@@ -477,12 +477,12 @@ export default function DeliberationsPage() {
           <div className="flex items-start justify-between">
             <div>
               <div className="flex items-center gap-3 mb-1">
-                <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-gradient-to-br from-cyan-500/10 to-emerald-500/10 border border-cyan-500/20 text-cyan-300">
+                <div className="ig-icon-jewel flex h-9 w-9 items-center justify-center">
                   <FileText className="w-5 h-5" />
                 </div>
                 <div>
-                  <h1 className="text-xl font-semibold text-white tracking-wide">Deliberações</h1>
-                  <p className="text-sm text-white/50 mt-0.5">
+                  <h1 className="text-ig-h1 font-semibold ig-text-metal">Deliberações</h1>
+                  <p className="mt-0.5 max-w-3xl text-ig-body-sm text-ig-fg-muted">
                     Encaminhe solicitações para comitês, conduza votações auditáveis, emita resoluções e execute ações.
                   </p>
                 </div>
@@ -509,13 +509,13 @@ export default function DeliberationsPage() {
               counts={queueCounts}
             />
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[rgba(255,255,255,0.35)]" />
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ig-fg-subtle" />
               <input
                 type="text"
                 placeholder="Buscar deliberações..."
                 value={searchTerm}
                 onChange={(event) => setSearchTerm(event.target.value)}
-                className="w-64 pl-9 pr-3 py-2 text-sm rounded-lg bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.08)] text-white placeholder-[rgba(255,255,255,0.35)]"
+                className="h-9 w-64 rounded-lg border border-ig-border bg-ig-panel px-3 pl-9 text-ig-body-sm text-ig-fg placeholder:text-ig-fg-subtle focus:border-ig-border-focus focus:outline-none focus-visible:shadow-[var(--ig-focus-ring-outer)]"
               />
             </div>
             <HudButton variant="secondary" size="sm" leftIcon={<Filter className="w-4 h-4" />} onClick={() => setShowFilters((value) => !value)}>
@@ -525,13 +525,13 @@ export default function DeliberationsPage() {
 
           <HudPanel title="Próxima Sessão" accentColor="amber" noPadding={false}>
             {nextSessionItems.length === 0 ? (
-              <p className="text-sm text-white/50">Sem deliberações para a próxima sessão.</p>
+              <p className="text-ig-body-sm text-ig-fg-muted">Sem deliberações para a próxima sessão.</p>
             ) : (
               <div className="space-y-2">
                 {nextSessionItems.map((item) => (
                   <div key={item.id} className="text-xs">
-                    <p className="text-white line-clamp-1">{item.title}</p>
-                    <p className="text-white/50">{item.dueDate ? `${formatDistanceToNowStrict(item.dueDate)} restantes` : 'Sem SLA'} - {item.ownerCommitteeName}</p>
+                    <p className="line-clamp-1 text-ig-body-sm font-medium text-ig-fg-strong">{item.title}</p>
+                    <p className="text-ig-caption text-ig-fg-muted">{item.dueDate ? `${formatDistanceToNowStrict(item.dueDate)} restantes` : 'Sem SLA'} - {item.ownerCommitteeName}</p>
                   </div>
                 ))}
               </div>
@@ -540,13 +540,13 @@ export default function DeliberationsPage() {
         </div>
 
         {showFilters && (
-          <div className="shrink-0 mb-4 p-3 rounded-lg bg-[rgba(255,255,255,0.02)] border border-[rgba(255,255,255,0.06)] flex items-center gap-4 flex-wrap">
+          <div className="mb-4 flex shrink-0 flex-wrap items-center gap-4 rounded-lg border border-ig-border-subtle bg-ig-panel p-3">
             <div className="flex items-center gap-2">
-              <label className="text-xs text-[rgba(255,255,255,0.55)]">Comitê:</label>
+              <label className="text-ig-caption text-ig-fg-muted">Comitê:</label>
               <select
                 value={committeeFilter}
                 onChange={(event) => setCommitteeFilter(event.target.value)}
-                className="text-sm px-2 py-1 rounded bg-[rgba(255,255,255,0.05)] border border-[rgba(255,255,255,0.1)] text-white"
+                className="rounded border border-ig-border bg-ig-panel px-2 py-1 text-ig-body-sm text-ig-fg focus:border-ig-border-focus focus:outline-none"
               >
                 <option value="all">Todos</option>
                 {COMMITTEES.map((committee) => (
@@ -559,7 +559,7 @@ export default function DeliberationsPage() {
 
         <div className="flex-1 min-h-0 grid grid-cols-[minmax(420px,1fr)_minmax(520px,1.4fr)] gap-4">
           <HudPanel noPadding className="h-full overflow-hidden flex flex-col">
-            <div className="p-3 border-b border-white/[0.06] text-xs text-white/50 relative z-[2]">
+            <div className="relative z-[2] border-b border-ig-border-subtle p-3 text-ig-caption text-ig-fg-muted">
               {filteredItems.length} resultados
             </div>
             <div className="flex-1 overflow-y-auto relative z-[2]">

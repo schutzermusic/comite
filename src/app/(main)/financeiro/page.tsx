@@ -451,9 +451,9 @@ export default function FinanceOverviewPage() {
       />
 
       {/* ── ROW 1: Executive Strip (replaces KPI cards) ──── */}
-      <div className="cr-glass-panel relative overflow-hidden rounded-xl mt-4">
+      <div className="cr-glass-panel relative mt-4 overflow-hidden rounded-xl">
         <div className="cr-glass-panel-border" />
-        <div className="relative z-[2] flex items-center divide-x divide-ig-border-subtle h-14">
+        <div className="relative z-[2] flex h-12 items-center divide-x divide-ig-border-subtle">
           {[
             { label: t('kpiNetRevenue'), value: formatCompactBRL(revenue), delta: '+8.7%', deltaOk: true, groupKey: 'revenue' as ManagementGroupKey },
             { label: t('kpiCogs'), value: formatCompactBRL(Math.abs(cogs)), delta: null, deltaOk: false, groupKey: 'cogs' as ManagementGroupKey },
@@ -476,12 +476,12 @@ export default function FinanceOverviewPage() {
                   openMetricDrawer(`${metric.label} — ${periodFrom} a ${periodTo}`);
                 }
               }}
-              className="flex-1 flex flex-col items-center justify-center gap-0.5 px-3 h-full hover:bg-ig-panel-hover transition-colors cursor-pointer"
+              className="flex h-full flex-1 cursor-pointer flex-col items-center justify-center gap-0.5 px-2 transition-colors hover:bg-ig-panel-hover"
             >
-              <span className="text-ig-label font-medium text-ig-fg-muted">
+              <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-ig-fg-muted">
                 {metric.label}
               </span>
-              <span className="text-ig-kpi-lg ig-tabular ig-text-metal-accent leading-none">
+              <span className="ig-tabular ig-text-metal-accent text-ig-kpi-md font-semibold leading-none">
                 {metric.value}
                 {metric.delta && (
                   <span className={cn('text-ig-caption ml-1.5', metric.deltaOk ? 'text-ig-success' : 'text-ig-danger')}>
