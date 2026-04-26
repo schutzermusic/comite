@@ -17,6 +17,7 @@ import {
   formatBRL, formatCompactBRL,
 } from '@/lib/finance/finance-store';
 import type { LedgerEntry, ManagementGroupKey, TopDriver, PendingAction } from '@/lib/types/finance';
+import { cn } from '@/lib/utils';
 import Link from 'next/link';
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -452,14 +453,14 @@ export default function FinanceOverviewPage() {
       {/* ── ROW 1: Executive Strip (replaces KPI cards) ──── */}
       <div className="cr-glass-panel relative overflow-hidden rounded-xl mt-4">
         <div className="cr-glass-panel-border" />
-        <div className="relative z-[2] flex items-center divide-x divide-white/[0.09] h-14">
+        <div className="relative z-[2] flex items-center divide-x divide-ig-border-subtle h-14">
           {[
-            { label: t('kpiNetRevenue'), value: formatCompactBRL(revenue), delta: '+8.7%', deltaOk: true, color: 'text-[var(--orion-text-primary)]', groupKey: 'revenue' as ManagementGroupKey },
-            { label: t('kpiCogs'), value: formatCompactBRL(Math.abs(cogs)), delta: null, deltaOk: false, color: 'text-amber-400', groupKey: 'cogs' as ManagementGroupKey },
-            { label: t('kpiGrossMargin'), value: `${marginPct.toFixed(1)}%`, delta: null, deltaOk: false, color: marginPct >= 30 ? 'text-emerald-400' : marginPct >= 15 ? 'text-amber-400' : 'text-red-400', groupKey: null },
-            { label: t('kpiOpex'), value: formatCompactBRL(Math.abs(opex)), delta: '↓ 3.2%', deltaOk: true, color: 'text-indigo-400', groupKey: 'opex' as ManagementGroupKey },
-            { label: t('kpiOperatingResult'), value: formatCompactBRL(operatingResult), delta: null, deltaOk: false, color: operatingResult >= 0 ? 'text-emerald-400' : 'text-red-400', groupKey: null },
-            { label: t('kpiPendingActions'), value: `${pendingCount}`, delta: null, deltaOk: false, color: pendingCount === 0 ? 'text-emerald-400' : pendingCount <= 5 ? 'text-amber-400' : 'text-red-400', groupKey: null, isPending: true },
+            { label: t('kpiNetRevenue'), value: formatCompactBRL(revenue), delta: '+8.7%', deltaOk: true, groupKey: 'revenue' as ManagementGroupKey },
+            { label: t('kpiCogs'), value: formatCompactBRL(Math.abs(cogs)), delta: null, deltaOk: false, groupKey: 'cogs' as ManagementGroupKey },
+            { label: t('kpiGrossMargin'), value: `${marginPct.toFixed(1)}%`, delta: null, deltaOk: false, groupKey: null },
+            { label: t('kpiOpex'), value: formatCompactBRL(Math.abs(opex)), delta: '↓ 3.2%', deltaOk: true, groupKey: 'opex' as ManagementGroupKey },
+            { label: t('kpiOperatingResult'), value: formatCompactBRL(operatingResult), delta: null, deltaOk: false, groupKey: null },
+            { label: t('kpiPendingActions'), value: `${pendingCount}`, delta: null, deltaOk: false, groupKey: null, isPending: true },
           ].map((metric, i) => (
             <button
               key={i}
@@ -475,15 +476,15 @@ export default function FinanceOverviewPage() {
                   openMetricDrawer(`${metric.label} — ${periodFrom} a ${periodTo}`);
                 }
               }}
-              className="flex-1 flex flex-col items-center justify-center gap-0.5 px-3 h-full hover:bg-white/[0.03] transition-colors cursor-pointer"
+              className="flex-1 flex flex-col items-center justify-center gap-0.5 px-3 h-full hover:bg-ig-panel-hover transition-colors cursor-pointer"
             >
-              <span className="text-[10px] uppercase tracking-[0.08em] font-medium text-[var(--orion-text-tertiary,#9abfaf)]">
+              <span className="text-ig-label font-medium text-ig-fg-muted">
                 {metric.label}
               </span>
-              <span className={`text-lg font-semibold tabular-nums leading-none ${metric.color}`}>
+              <span className="text-ig-kpi-lg ig-tabular ig-text-metal-accent leading-none">
                 {metric.value}
                 {metric.delta && (
-                  <span className={`text-[10px] ml-1.5 ${metric.deltaOk ? 'text-emerald-400' : 'text-red-400'}`}>
+                  <span className={cn('text-ig-caption ml-1.5', metric.deltaOk ? 'text-ig-success' : 'text-ig-danger')}>
                     {metric.delta}
                   </span>
                 )}
