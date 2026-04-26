@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { cn } from '@/lib/utils';
-import { Vote, CircleCheck, CircleX, CircleMinus, AlertCircle } from 'lucide-react';
+import { Vote, CircleCheck, CircleX, CircleMinus, AlertCircle, type LucideIcon } from 'lucide-react';
 import { DeliberationItem, VoteOption } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -19,7 +19,7 @@ interface VotingConsoleProps {
 const voteOptions: Array<{
   value: VoteOption;
   label: string;
-  icon: React.ElementType;
+  icon: LucideIcon;
   color: string;
   bgColor: string;
 }> = [

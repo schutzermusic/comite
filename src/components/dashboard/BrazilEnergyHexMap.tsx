@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { DeckGL } from '@deck.gl/react';
 import { HexagonLayer } from '@deck.gl/aggregation-layers';
+import type { PickingInfo } from '@deck.gl/core';
 import { Map } from 'react-map-gl/maplibre';
 import { OrionCard } from '@/components/orion';
 import { brazilMaintenancePoints, MaintenancePoint } from '@/data/geo/brazil-maintenance-points';
@@ -52,9 +53,9 @@ export function BrazilEnergyHexMap({ className, onPointClick }: BrazilEnergyHexM
     elevationRange: [0, 3000],
     coverage: 0.95,
     upperPercentile: 98,
-    getPosition: d => d.position,
-    getWeight: d => d.weight,
-    getColorWeight: d => d.weight,
+    getPosition: (d: MaintenancePoint) => d.position,
+    getElevationWeight: (d: MaintenancePoint) => d.weight,
+    getColorWeight: (d: MaintenancePoint) => d.weight,
     colorRange: COLOR_SCALE,
     material: {
       ambient: 0.4,
@@ -62,11 +63,12 @@ export function BrazilEnergyHexMap({ className, onPointClick }: BrazilEnergyHexM
       shininess: 32,
       specularColor: [60, 60, 60],
     },
-    onHover: (info) => {
+    onHover: (info: PickingInfo) => {
       setHoveredObject(info.object);
+      return false;
     },
-    onClick: (info) => {
-      if (info.object && onPointClick) {
+    onClick: (info: PickingInfo) => {
+      if (info.object && onPointClick && info.coordinate) {
         // Find the closest point to the hexagon center
         const hexCenter = info.coordinate;
         const closestPoint = brazilMaintenancePoints.reduce((closest, point) => {
@@ -82,6 +84,7 @@ export function BrazilEnergyHexMap({ className, onPointClick }: BrazilEnergyHexM
         }, brazilMaintenancePoints[0]);
         onPointClick(closestPoint);
       }
+      return false;
     },
   });
 

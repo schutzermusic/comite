@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, ExternalLink, ChevronRight, AlertTriangle, CheckCircle, FileText, Briefcase, Shield } from 'lucide-react';
+import { X, ExternalLink, ChevronRight, AlertTriangle, CheckCircle, FileText, Briefcase, Shield, type LucideIcon } from 'lucide-react';
 import Link from 'next/link';
 import { useTheme } from '@/contexts/ThemeContext';
 
@@ -26,7 +26,7 @@ interface ContextDrawerProps {
     onClose: () => void;
 }
 
-const MODULE_ICONS: Record<string, React.ElementType> = {
+const MODULE_ICONS: Record<string, LucideIcon> = {
     projetos: Briefcase,
     riscos: AlertTriangle,
     decisoes: CheckCircle,

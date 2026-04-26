@@ -8,7 +8,8 @@ import {
     FolderOpen,
     Clock,
     CheckCircle,
-    TimerReset
+    TimerReset,
+    type LucideIcon,
 } from 'lucide-react';
 
 interface BoardHealthKPIProps {
@@ -20,7 +21,7 @@ interface BoardHealthKPIProps {
 interface KPIConfig {
     id: string;
     label: string;
-    icon: React.ElementType;
+    icon: LucideIcon;
     color: string;
     bgColor: string;
     getValue: (items: DeliberationItem[]) => number;

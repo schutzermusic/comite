@@ -16,7 +16,8 @@ import {
     Gavel,
     ListChecks,
     ChevronDown,
-    ChevronUp
+    ChevronUp,
+    type LucideIcon,
 } from 'lucide-react';
 import { AuditTrailEntry } from '@/lib/types';
 import { format } from 'date-fns';
@@ -28,7 +29,7 @@ interface AuditTrailTimelineProps {
 }
 
 const getActionConfig = (action: AuditTrailEntry['action']) => {
-    const configs: Record<AuditTrailEntry['action'], { icon: React.ElementType; color: string; label: string }> = {
+    const configs: Record<AuditTrailEntry['action'], { icon: LucideIcon; color: string; label: string }> = {
         'status_changed': { icon: History, color: '#00C8FF', label: 'Status Alterado' },
         'field_edited': { icon: PenSquare, color: '#00C8FF', label: 'Campo Editado' },
         'vote_cast': { icon: Vote, color: '#A855F7', label: 'Voto Registrado' },
@@ -94,8 +95,8 @@ export function AuditTrailTimeline({ entries, maxVisible = 5 }: AuditTrailTimeli
                                     style={{
                                         backgroundColor: `${config.color}20`,
                                         borderColor: config.color,
-                                        ringColor: isFirst ? config.color : 'transparent'
-                                    }}
+                                        ['--tw-ring-color' as string]: isFirst ? config.color : 'transparent',
+                                    } as React.CSSProperties}
                                 >
                                     <Icon className="w-3 h-3" style={{ color: config.color }} />
                                 </div>

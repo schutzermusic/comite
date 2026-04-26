@@ -32,25 +32,30 @@ export function OrionPostFX({
 }: OrionPostFXProps) {
   if (disabled) return null;
 
-  return (
-    <EffectComposer multisampling={0}>
-      <Bloom
-        intensity={bloomIntensity}
-        luminanceThreshold={bloomThreshold}
-        luminanceSmoothing={bloomSmoothing}
-        kernelSize={KernelSize.MEDIUM}
-        blendFunction={BlendFunction.ADD}
-        mipmapBlur
+  const effects: JSX.Element[] = [
+    <Bloom
+      key="bloom"
+      intensity={bloomIntensity}
+      luminanceThreshold={bloomThreshold}
+      luminanceSmoothing={bloomSmoothing}
+      kernelSize={KernelSize.MEDIUM}
+      blendFunction={BlendFunction.ADD}
+      mipmapBlur
+    />,
+  ];
+
+  if (vignette) {
+    effects.push(
+      <Vignette
+        key="vignette"
+        darkness={vignetteDarkness}
+        offset={0.3}
+        blendFunction={BlendFunction.NORMAL}
       />
-      {vignette && (
-        <Vignette
-          darkness={vignetteDarkness}
-          offset={0.3}
-          blendFunction={BlendFunction.NORMAL}
-        />
-      )}
-    </EffectComposer>
-  );
+    );
+  }
+
+  return <EffectComposer multisampling={0}>{effects}</EffectComposer>;
 }
 
 /**

@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { FileText, Filter, Plus, Search } from 'lucide-react';
 import { BoardHealthKPI, DecisionInspector, DecisionList, NewDeliberationModal, QueueTabs } from '@/components/deliberacoes';
 import { HudPanel, HudButton } from '@/components/hud';
-import { AuditTrailEntry, DeliberationItem, DeliberationStatus, VoteOption, VoteRecord } from '@/lib/types';
+import { AuditTrailEntry, DeliberationItem, DeliberationStageStatus, DeliberationStatus, VoteOption, VoteRecord } from '@/lib/types';
 import { COMMITTEES, buildStagePlan, resolveTemplate } from '@/lib/deliberations-policy';
 import { deliberationSerial } from '@/lib/utils/serial';
 import { formatDistanceToNowStrict } from 'date-fns';
@@ -305,7 +305,8 @@ export default function DeliberationsPage() {
       const currentStageIndex = stages.findIndex((stage) => stage.id === item.currentStageId);
 
       if (currentStageIndex >= 0) {
-        stages[currentStageIndex] = { ...stages[currentStageIndex], status: outcome.approved ? 'completed' : 'rejected', closedAt: new Date() };
+        const nextStatus: DeliberationStageStatus = outcome.approved ? 'completed' : 'rejected';
+        stages[currentStageIndex] = { ...stages[currentStageIndex], status: nextStatus, closedAt: new Date() };
       }
 
       if (!outcome.approved) {
@@ -332,7 +333,7 @@ export default function DeliberationsPage() {
         };
       }
 
-      const updatedStages = stages.map((stage) => stage.id === nextStage.id ? { ...stage, status: 'active', openedAt: new Date() } : stage);
+      const updatedStages = stages.map((stage) => stage.id === nextStage.id ? { ...stage, status: 'active' as DeliberationStageStatus, openedAt: new Date() } : stage);
       const nextStatus: DeliberationStatus = nextStage.stageType === 'publish_minutes' ? 'awaiting_minutes' : nextStage.stageType === 'execution' ? 'in_execution' : 'in_review';
 
       return {

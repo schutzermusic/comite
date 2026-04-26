@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import DeckGL, { PickingInfo, ViewState } from '@deck.gl/react';
+import DeckGL from '@deck.gl/react';
+import type { PickingInfo, MapViewState as ViewState } from '@deck.gl/core';
 import { ArcLayer, GeoJsonLayer, ScatterplotLayer } from '@deck.gl/layers';
 import { Map as MapComponent } from 'react-map-gl/maplibre';
 import maplibregl from 'maplibre-gl';

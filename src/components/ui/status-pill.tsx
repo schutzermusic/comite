@@ -40,9 +40,14 @@ export function StatusPill({
   label,
   ...props 
 }: StatusPillProps) {
+  type PillVariant = "active" | "at_risk" | "critical" | "completed" | "success" | "warning" | "error" | "info" | "neutral";
+  const ALLOWED_VARIANTS: PillVariant[] = ["active", "at_risk", "critical", "completed", "success", "warning", "error", "info", "neutral"];
+
   // Map common status strings to variants
-  const getVariant = (): "active" | "at_risk" | "critical" | "completed" | "success" | "warning" | "error" | "info" | "neutral" => {
-    if (variant) return variant;
+  const getVariant = (): PillVariant => {
+    if (variant && (ALLOWED_VARIANTS as string[]).includes(variant)) {
+      return variant as PillVariant;
+    }
     
     // Extract text from children if it's a string, otherwise use label
     let textToCheck = label;

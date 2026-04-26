@@ -211,7 +211,7 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
     : null;
 
   return (
-    <HudPageLayout maxWidth="100%">
+    <HudPageLayout maxWidth="full">
       <div className="max-w-7xl mx-auto space-y-6">
         <HudHeader
           title={projeto.nome}

@@ -34,6 +34,13 @@ export default function ProjectRiskAssessment({ analytics }: ProjectRiskAssessme
     return 'completed';
   };
 
+  const getRiskProgressVariant = (nivel: 'baixo' | 'medio' | 'alto' | 'critico'): 'completed' | 'active' | 'medium' | 'critical' => {
+    if (nivel === 'critico') return 'critical';
+    if (nivel === 'alto') return 'medium';
+    if (nivel === 'medio') return 'active';
+    return 'completed';
+  };
+
   const getRiskGlowColor = (nivel: 'baixo' | 'medio' | 'alto' | 'critico'): 'success' | 'warning' | 'critical' => {
     if (nivel === 'critico' || nivel === 'alto') return 'critical';
     if (nivel === 'medio') return 'warning';
@@ -73,9 +80,9 @@ export default function ProjectRiskAssessment({ analytics }: ProjectRiskAssessme
               <span className="text-sm font-medium text-[rgba(255,255,255,0.85)]">Score de Risco</span>
               <span className="text-2xl font-bold text-white">{score_risco}/100</span>
             </div>
-            <HUDProgressBar 
+            <HUDProgressBar
               value={score_risco}
-              variant={getRiskVariant(nivel_risco)}
+              variant={getRiskProgressVariant(nivel_risco)}
             />
           </div>
           

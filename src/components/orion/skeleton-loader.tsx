@@ -1,13 +1,15 @@
 'use client';
 
+import type { CSSProperties } from 'react';
 import { cn } from '@/lib/utils';
 
 interface SkeletonProps {
   className?: string;
   variant?: 'default' | 'circular' | 'rectangular';
+  style?: CSSProperties;
 }
 
-export function Skeleton({ className, variant = 'default' }: SkeletonProps) {
+export function Skeleton({ className, variant = 'default', style }: SkeletonProps) {
   const variantClasses = {
     default: 'rounded-md',
     circular: 'rounded-full',
@@ -21,6 +23,7 @@ export function Skeleton({ className, variant = 'default' }: SkeletonProps) {
         variantClasses[variant],
         className
       )}
+      style={style}
     />
   );
 }
