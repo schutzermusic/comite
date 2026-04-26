@@ -216,38 +216,6 @@
   }
 }
 
-/* ============================================
-   ORION COMPONENTS (Plain CSS)
-   ============================================ */
-
-/* Orion Page Layout */
-.orion-page {
-  min-height: 100vh;
-  position: relative;
-  background: var(--orion-bg-primary);
-}
-
-.orion-page::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: radial-gradient(ellipse at top, rgba(6, 182, 212, 0.08) 0%, transparent 50%);
-  z-index: 0;
-}
-
-.orion-page-content {
-  position: relative;
-  z-index: 10;
-  padding: 1.5rem;
-}
-
-@media (min-width: 1024px) {
-  .orion-page-content {
-    padding: 2rem;
-  }
-}
-
 /* Background utilities */
 .bg-orion-grid {
   background-size: 40px 40px;
@@ -1440,15 +1408,6 @@
   z-index: 50 !important;
 }
 
-.cr-panel-overlap:hover .cr-glass-panel {
-  border-color: rgba(125, 235, 255, 0.3);
-  box-shadow:
-    0 0 1px rgba(125, 235, 255, 0.2),
-    0 0 16px rgba(0, 217, 255, 0.04),
-    0 24px 64px rgba(0, 0, 0, 0.56),
-    inset 0 1px 0 rgba(255, 255, 255, 0.16);
-}
-
 /* ════════════════════════════════════════════════════════
    HUD SIDEBAR v2 — tokenized shell
    ════════════════════════════════════════════════════════ */
@@ -1636,115 +1595,6 @@ html.dark .hud-sidebar-item[data-active="true"] {
   display: none;
 }
 
-/* Premium glass HUD panel — 4K Glass aesthetic */
-.cr-glass-panel {
-  background: linear-gradient(160deg,
-      rgba(6, 20, 16, 0.55) 0%,
-      rgba(5, 18, 14, 0.48) 55%,
-      rgba(4, 16, 12, 0.52) 100%);
-  backdrop-filter: blur(24px) saturate(130%);
-  -webkit-backdrop-filter: blur(24px) saturate(130%);
-  border: 1px solid rgba(180, 220, 200, 0.12);
-  border-radius: 14px;
-  box-shadow:
-    0 32px 64px rgba(0, 0, 0, 0.45),
-    0 12px 32px rgba(0, 0, 0, 0.2),
-    inset 0 1px 0 rgba(255, 255, 255, 0.07);
-  position: relative;
-  overflow: hidden;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
-}
-
-.cr-glass-panel::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 1px;
-  background: linear-gradient(90deg,
-      transparent 10%,
-      rgba(255, 255, 255, 0.10) 40%,
-      rgba(255, 255, 255, 0.06) 60%,
-      transparent 90%);
-  pointer-events: none;
-  z-index: 0;
-}
-
-.cr-glass-panel::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: url('/textures/noise.svg') repeat;
-  opacity: 0.35;
-  pointer-events: none;
-  z-index: 0;
-  mix-blend-mode: overlay;
-}
-
-.cr-glass-panel-border {
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background:
-    linear-gradient(130deg,
-      rgba(192, 220, 235, 0.42) 0%,
-      rgba(139, 179, 205, 0.24) 34%,
-      rgba(255, 255, 255, 0.05) 58%,
-      rgba(255, 255, 255, 0.02) 100%);
-  opacity: 0.54;
-  pointer-events: none;
-  z-index: 1;
-  mask: linear-gradient(#000, #000) content-box, linear-gradient(#000, #000);
-  -webkit-mask: linear-gradient(#000, #000) content-box, linear-gradient(#000, #000);
-  padding: 1px;
-  mask-composite: exclude;
-  -webkit-mask-composite: xor;
-}
-
-.cr-glass-panel-specular {
-  position: absolute;
-  top: 0;
-  left: 30%;
-  width: 40%;
-  height: 1px;
-  border-radius: inherit;
-  background:
-    linear-gradient(90deg,
-      transparent 0%,
-      rgba(255, 255, 255, 0.04) 30%,
-      rgba(255, 255, 255, 0.06) 50%,
-      rgba(255, 255, 255, 0.04) 70%,
-      transparent 100%);
-  z-index: 0;
-  pointer-events: none;
-}
-
-.cr-glass-panel-inner-stroke {
-  display: none;
-}
-
-.cr-glass-panel-hover:hover,
-.cr-glass-panel-hover:focus-within {
-  border-color: rgba(180, 220, 200, 0.18);
-  transform: scale(1.005);
-  box-shadow:
-    0 36px 72px rgba(0, 0, 0, 0.48),
-    0 16px 36px rgba(0, 0, 0, 0.24),
-    inset 0 1px 0 rgba(255, 255, 255, 0.09);
-}
-
-.cr-glass-panel-hover:active {
-  transform: scale(0.995);
-  filter: brightness(0.95);
-  transition: transform 100ms ease-in, filter 100ms ease-in;
-}
-
-.cr-glass-panel-breathe {
-  /* Removed breathing animation to reduce visual noise */
-}
-
 /* Left HUD stack positioning */
 .cr-left-stack {
   position: absolute;
@@ -1900,12 +1750,6 @@ html.dark .hud-sidebar-item[data-active="true"] {
   flex-wrap: wrap;
   gap: 6px;
   pointer-events: auto;
-}
-
-/* Panel content z-index above ::after pseudo */
-.cr-glass-panel>* {
-  position: relative;
-  z-index: 1;
 }
 
 /* Event stream in right stack */
@@ -2244,11 +2088,6 @@ html.dark .hud-sidebar-item[data-active="true"] {
   font-family: var(--cr-hud-font);
 }
 
-.cr-glass-panel svg,
-.cr-glass-panel [data-lucide] {
-  stroke-width: 1.8;
-}
-
 /* ── Connector arc pulse animation ── */
 .cr-connector-pulse {
   animation: cr-dash-flow 3s linear infinite;
@@ -2421,15 +2260,6 @@ html.dark .hud-sidebar-item[data-active="true"] {
 .light ::selection {
   background: rgba(132, 204, 22, 0.20);
   color: inherit;
-}
-
-/* ── Orion Page — light ── */
-.light .orion-page {
-  background: var(--orion-bg-primary);
-}
-
-.light .orion-page::before {
-  background: radial-gradient(ellipse at top, rgba(132, 204, 22, 0.02) 0%, transparent 50%);
 }
 
 /* ── Orion Typography — light ── */
@@ -2952,53 +2782,6 @@ html.dark .hud-sidebar-item[data-active="true"] {
   border-right-color: rgba(132, 204, 22, 0.08);
 }
 
-/* ── CR Glass Panel — light (modern enterprise card) ── */
-.light .cr-glass-panel {
-  background: #ffffff;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-  border: 1px solid #E2E8F0;
-  border-radius: 14px;
-  box-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.05),
-    0 2px 6px rgba(0, 0, 0, 0.04);
-}
-
-.light .cr-glass-panel::before {
-  background: none;
-}
-
-.light .cr-glass-panel::after {
-  opacity: 0;
-}
-
-.light .cr-glass-panel-border {
-  background: none;
-  opacity: 0;
-}
-
-.light .cr-glass-panel-specular {
-  background: none;
-}
-
-.light .cr-glass-panel-hover:hover,
-.light .cr-glass-panel-hover:focus-within {
-  border-color: rgba(132, 204, 22, 0.18);
-  transform: translateY(-1px);
-  box-shadow:
-    0 2px 4px rgba(0, 0, 0, 0.03),
-    0 8px 24px rgba(0, 0, 0, 0.04),
-    0 16px 48px rgba(0, 0, 0, 0.02);
-}
-
-.light .cr-panel-overlap:hover .cr-glass-panel {
-  border-color: rgba(132, 204, 22, 0.20);
-  box-shadow:
-    0 2px 4px rgba(0, 0, 0, 0.03),
-    0 8px 24px rgba(0, 0, 0, 0.04),
-    0 16px 48px rgba(0, 0, 0, 0.02);
-}
-
 /* ── CR Typography — light ── */
 .light .cr-label {
   color: #6b8578;
@@ -3192,127 +2975,6 @@ html.dark .hud-sidebar-item[data-active="true"] {
     linear-gradient(to bottom, rgba(0, 0, 0, 0.02) 1px, transparent 1px);
 }
 
-/* ════════════════════════════════════════════════════════
-   LIGHT MODE TEXT OVERRIDES
-   Sweep all common text-white patterns to dark equivalents
-   Scoped to panels/cards/hud content
-   ════════════════════════════════════════════════════════ */
-
-/* Primary content text */
-.light .cr-glass-panel .text-white,
-.light .hud-widget .text-white,
-.light .intel-panel .text-white {
-  color: #1C1F24;
-}
-
-.light .cr-glass-panel .text-white\/80,
-.light .hud-widget .text-white\/80 {
-  color: rgba(26, 37, 32, 0.8);
-}
-
-.light .cr-glass-panel .text-white\/70,
-.light .hud-widget .text-white\/70 {
-  color: rgba(26, 37, 32, 0.7);
-}
-
-.light .cr-glass-panel .text-white\/50,
-.light .hud-widget .text-white\/50 {
-  color: rgba(26, 37, 32, 0.5);
-}
-
-.light .cr-glass-panel .text-white\/40,
-.light .hud-widget .text-white\/40 {
-  color: rgba(26, 37, 32, 0.4);
-}
-
-.light .cr-glass-panel .text-white\/30,
-.light .hud-widget .text-white\/30 {
-  color: rgba(26, 37, 32, 0.3);
-}
-
-.light .cr-glass-panel .text-white\/25,
-.light .hud-widget .text-white\/25 {
-  color: rgba(26, 37, 32, 0.25);
-}
-
-/* hover:bg-white variants inside panels */
-.light .cr-glass-panel .hover\:bg-white\/\[0\.03\]:hover {
-  background: rgba(0, 0, 0, 0.03);
-}
-
-.light .cr-glass-panel .hover\:bg-white\/5:hover,
-.light .hud-widget .hover\:bg-white\/5:hover {
-  background: rgba(0, 0, 0, 0.04);
-}
-
-/* bg-white opacities inside panels */
-.light .cr-glass-panel .bg-white\/\[0\.03\] {
-  background: rgba(0, 0, 0, 0.03);
-}
-
-.light .cr-glass-panel .bg-white\/\[0\.04\] {
-  background: rgba(0, 0, 0, 0.03);
-}
-
-/* border-white inside panels */
-.light .cr-glass-panel .border-white\/\[0\.05\] {
-  border-color: rgba(0, 0, 0, 0.06);
-}
-
-.light .cr-glass-panel .border-white\/10,
-.light .hud-widget .border-white\/10 {
-  border-color: rgba(0, 0, 0, 0.08);
-}
-
-/* Tabular nums white text — keep dark in light */
-.light .cr-glass-panel .text-lg.font-semibold.text-white {
-  color: #1C1F24;
-}
-
-/* Red/Amber/Teal accent adjustments for light readability */
-.light .cr-glass-panel .text-red-400 {
-  color: #dc2626;
-}
-
-.light .cr-glass-panel .text-amber-400 {
-  color: #d97706;
-}
-
-.light .cr-glass-panel .text-red-200\/70 {
-  color: rgba(220, 38, 38, 0.7);
-}
-
-.light .cr-glass-panel .hover\:text-red-100:hover {
-  color: #dc2626;
-}
-
-/* Emerald accent chips in light mode */
-.light .cr-glass-panel .bg-emerald-500\/\[0\.08\] {
-  background: rgba(101, 163, 13, 0.06);
-}
-
-.light .cr-glass-panel .text-emerald-400\/70 {
-  color: rgba(101, 163, 13, 0.7);
-}
-
-.light .cr-glass-panel .border-emerald-500\/15 {
-  border-color: rgba(101, 163, 13, 0.12);
-}
-
-.light .cr-glass-panel .text-emerald-300\/80,
-.light .cr-glass-panel .text-emerald-400\/70 {
-  color: #65A30D;
-}
-
-/* Panel divider gradient */
-.light .cr-glass-panel .via-cyan-300\/25 {
-  --tw-gradient-via: rgba(101, 163, 13, 0.15);
-}
-
-.light .cr-glass-panel .via-emerald-500\/15 {
-  --tw-gradient-via: rgba(101, 163, 13, 0.10);
-}
-
 /* HUD bar light text overrides */
 .light .hud-bar .text-white\/70,
 .light .hud-bar .text-white\/50 {
@@ -3356,106 +3018,6 @@ html.dark .hud-sidebar-item[data-active="true"] {
   background: #f4f5f3 !important;
   color: #1C1F24 !important;
 }
-
-/* ── HudPanel deep-link — light ── */
-.light .cr-glass-panel .hover\:text-cyan-200:hover {
-  color: #65A30D;
-}
-
-/* Badge inside panels — light */
-.light .cr-glass-panel .bg-amber-500\/15 {
-  background: rgba(245, 158, 11, 0.08);
-}
-.light .cr-glass-panel .text-amber-300 {
-  color: #b45309;
-}
-.light .cr-glass-panel .border-amber-400\/25 {
-  border-color: rgba(245, 158, 11, 0.15);
-}
-
-/* Red risk chip hover — light */
-.light .cr-glass-panel .hover\:border-red-300\/40:hover {
-  border-color: rgba(220, 38, 38, 0.25);
-}
-.light .cr-glass-panel .hover\:bg-red-500\/\[0\.12\]:hover {
-  background: rgba(220, 38, 38, 0.08);
-}
-
-/* Group hover accents inside panels — light */
-.light .cr-glass-panel .group:hover .group-hover\:text-emerald-400 {
-  color: #65A30D;
-}
-.light .cr-glass-panel .group:hover .group-hover\:border-emerald-400\/30 {
-  border-color: rgba(101, 163, 13, 0.2);
-}
-.light .cr-glass-panel .group:hover .group-hover\:text-red-300 {
-  color: #dc2626;
-}
-.light .cr-glass-panel .group:hover .group-hover\:text-amber-300 {
-  color: #d97706;
-}
-.light .cr-glass-panel .group:hover .group-hover\:text-cyan-100 {
-  color: #1C1F24;
-}
-.light .cr-glass-panel .group:hover .group-hover\:text-white\/90 {
-  color: rgba(26, 37, 32, 0.9);
-}
-
-/* ── Additional light-mode accent overrides inside panels ── */
-.light .cr-glass-panel .text-emerald-400,
-.light .cr-glass-panel .text-emerald-300 {
-  color: #65A30D;
-}
-.light .cr-glass-panel .text-red-300 {
-  color: #dc2626;
-}
-.light .cr-glass-panel .text-cyan-300,
-.light .cr-glass-panel .text-cyan-400 {
-  color: #65A30D;
-}
-.light .cr-glass-panel .text-amber-200 {
-  color: #b45309;
-}
-.light .cr-glass-panel .text-white\/75 {
-  color: rgba(26, 37, 32, 0.75);
-}
-.light .cr-glass-panel .text-white\/55 {
-  color: rgba(26, 37, 32, 0.55);
-}
-.light .cr-glass-panel .text-white\/58 {
-  color: rgba(26, 37, 32, 0.58);
-}
-
-/* Deep link hover — light panel */
-.light .cr-glass-panel .hover\:text-cyan-100:hover {
-  color: #65A30D;
-}
-
-/* Live indicator inside panels — light */
-.light .cr-glass-panel .text-emerald-300.uppercase {
-  color: #65A30D;
-}
-
-/* Red risk tags inside panels — light */
-.light .cr-glass-panel .bg-red-500\/\[0\.07\] {
-  background: rgba(220, 38, 38, 0.06);
-}
-.light .cr-glass-panel .border-red-400\/20 {
-  border-color: rgba(220, 38, 38, 0.15);
-}
-.light .cr-glass-panel .text-red-200\/70 {
-  color: rgba(220, 38, 38, 0.7);
-}
-.light .cr-glass-panel .hover\:text-red-100:hover {
-  color: #dc2626;
-}
-.light .cr-glass-panel .hover\:border-red-300\/40:hover {
-  border-color: rgba(220, 38, 38, 0.25);
-}
-
-/* Severity dots inside glass panels — light adjustments */
-.light .cr-glass-panel .bg-red-500 { background: #dc2626; }
-.light .cr-glass-panel .bg-amber-400 { background: #d97706; }
 
 /* ════════════════════════════════════════════════════════
    SEMANTIC HUD CLASSES — Theme-Aware Replacements
@@ -3654,22 +3216,6 @@ html.dark .hud-sidebar-item[data-active="true"] {
   color: var(--orion-text-secondary);
 }
 
-/* ════════════════════════════════════════════════════════
-   FINANCE MODULE — Premium Light Mode Refinements
-   Executive boardroom aesthetic · Strong readability
-   Layered shadows · Analytical precision
-   ════════════════════════════════════════════════════════ */
-
-/* ── Premium card shadow system for light mode ── */
-.light .cr-glass-panel {
-  box-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.05),
-    0 2px 6px rgba(0, 0, 0, 0.04);
-  border-color: #E2E8F0;
-}
-
-/* ── Table text/border overrides for light mode ──
-   Covers HudTable when NOT inside cr-glass-panel */
 .light table .text-white { color: #1C1F24; }
 .light table .text-white\/90 { color: rgba(26, 37, 32, 0.9); }
 .light table .text-white\/80 { color: rgba(26, 37, 32, 0.8); }
@@ -3723,11 +3269,6 @@ html.dark .hud-sidebar-item[data-active="true"] {
 .light .finance-tab-inactive:hover {
   background: rgba(0, 0, 0, 0.04) !important;
   color: var(--orion-text-secondary) !important;
-}
-
-/* ── KPI executive strip — light mode ── */
-.light .cr-glass-panel .divide-white\/\[0\.09\] > :not([hidden]) ~ :not([hidden]) {
-  border-color: rgba(0, 0, 0, 0.08);
 }
 
 /* ── Data quality bar — light mode ── */
@@ -3886,14 +3427,6 @@ html.dark .hud-sidebar-item[data-active="true"] {
 }
 .light .finance-filter-bar .text-amber-200 {
   color: #b45309 !important;
-}
-
-/* ── Finance checklist rows — light mode ── */
-.light .cr-glass-panel .bg-white\/\[0\.02\] {
-  background: rgba(0, 0, 0, 0.015);
-}
-.light .cr-glass-panel .border-white\/\[0\.04\] {
-  border-color: rgba(0, 0, 0, 0.04);
 }
 
 /* ════════════════════════════════════════════════════════
@@ -4112,14 +3645,6 @@ html.dark .hud-sidebar-item[data-active="true"] {
   color: inherit;
 }
 
-/* ── Orion page background — light mode ── */
-.light .orion-page {
-  background: var(--orion-bg-primary);
-}
-.light .orion-page::before {
-  background: radial-gradient(ellipse at top, rgba(132, 204, 22, 0.02) 0%, transparent 50%);
-}
-
 /* ── Orion typography classes — light mode ── */
 .light .orion-text-primary {
   color: var(--orion-text-primary);
@@ -4313,17 +3838,6 @@ html.dark .hud-sidebar-item[data-active="true"] {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
 }
 
-/* ── KPI icon box — light mode gradient adjustments ── */
-.light .cr-glass-panel .from-cyan-500\/10 {
-  --tw-gradient-from: rgba(101, 163, 13, 0.06);
-}
-.light .cr-glass-panel .to-emerald-500\/10 {
-  --tw-gradient-to: rgba(132, 204, 22, 0.06);
-}
-.light .cr-glass-panel .border-cyan-500\/20 {
-  border-color: rgba(101, 163, 13, 0.15);
-}
-
 /* ── HudProgressBar — light mode ── */
 .light .hud-progress-bg {
   background: rgba(0, 0, 0, 0.04);
@@ -4501,24 +4015,6 @@ html.dark .hud-sidebar-item[data-active="true"] {
 .light .to-\[\#030B09\],
 .light .to-\[\#0A1612\] {
   --tw-gradient-to: rgba(248, 250, 249, 0.6) !important;
-}
-
-/* ── Hardcoded text-white — global light override inside panels ── */
-.light .cr-glass-panel .text-white,
-.light .hud-modal-surface .text-white,
-.light .hud-drawer-surface .text-white,
-.light .hud-card .text-white {
-  color: var(--orion-text-primary) !important;
-}
-
-/* ── HUDCard — light mode ── */
-.light .hud-card {
-  background: rgba(255, 255, 255, 0.65) !important;
-  border-color: rgba(0, 0, 0, 0.06) !important;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02) !important;
-}
-.light .hud-card > .pointer-events-none {
-  opacity: 0.02 !important;
 }
 
 /* ── SheetContent (drawers/sheets) — light mode ── */
@@ -5262,12 +4758,6 @@ html.dark .hud-sidebar-item[data-active="true"] {
 .light body {
   background-color: #F7F8FA;
 }
-.light .orion-page {
-  background: #F7F8FA;
-}
-.light .orion-page::before {
-  background: none;
-}
 
 /* ── Viewport / dashboard ── */
 .light .cr-viewport {
@@ -5386,16 +4876,6 @@ html.dark .hud-sidebar-item[data-active="true"] {
 .light .hud-chip-info { background: rgba(22, 163, 74, 0.06); border-color: rgba(22, 163, 74, 0.15); color: #16A34A; }
 .light .hud-chip-success { background: rgba(22, 163, 74, 0.06); border-color: rgba(22, 163, 74, 0.15); color: #15803D; }
 .light .intel-severity-medium { background: rgba(22, 163, 74, 0.06); color: #16A34A; border-color: rgba(22, 163, 74, 0.15); }
-
-/* ── Accent text within panels ── */
-.light .cr-glass-panel .text-emerald-400,
-.light .cr-glass-panel .text-emerald-300,
-.light .cr-glass-panel .text-cyan-300,
-.light .cr-glass-panel .text-cyan-400 { color: #16A34A; }
-.light .cr-glass-panel .border-emerald-500\/15,
-.light .cr-glass-panel .border-cyan-500\/20 { border-color: rgba(22, 163, 74, 0.15); }
-.light .cr-glass-panel .bg-emerald-500\/\[0\.08\],
-.light .cr-glass-panel .bg-cyan-500\/10 { background: rgba(22, 163, 74, 0.06); }
 
 /* ── CR alert chip info — forest green ── */
 .light .cr-alert-chip-info { background: rgba(22, 163, 74, 0.05); border-color: rgba(22, 163, 74, 0.12); color: #16A34A; }
@@ -5548,14 +5028,6 @@ html.dark .hud-sidebar-item[data-active="true"] {
 .light .visionpro-float:hover {
   transform: translateY(-2px) translateZ(0);
   box-shadow: 0 4px 12px rgba(0,0,0,0.08), 0 0 0 1px rgba(22,163,74,0.10);
-}
-
-/* ── CR glass panel hover ── */
-.light .cr-glass-panel-hover:hover,
-.light .cr-glass-panel-hover:focus-within {
-  border-color: rgba(22, 163, 74, 0.20);
-  transform: translateY(-1px);
-  box-shadow: 0 2px 8px rgba(0,0,0,0.07), 0 4px 16px rgba(0,0,0,0.04);
 }
 
 /* ── Chart containers ── */

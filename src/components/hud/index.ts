@@ -1,7 +1,6 @@
 /**
  * GLASS HUD DESIGN SYSTEM - Component Kit
  * Unified visual identity for the entire SaaS application.
- * Uses the exact cr-glass-panel recipe from the Control Room dashboard.
  */
 
 export { HudPanel } from './HudPanel';
