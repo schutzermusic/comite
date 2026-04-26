@@ -97,7 +97,7 @@ export function HudHeader({
               </span>
             )}
             <div>
-              <h1 className="hud-header-title text-xl font-semibold text-ig-fg-strong tracking-wide flex items-center gap-2">
+              <h1 className="text-ig-h1 ig-text-metal font-semibold">
                 {title}
               </h1>
               {subtitle && (

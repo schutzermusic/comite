@@ -4,7 +4,7 @@ import React from 'react';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { Briefcase, TrendingUp, Zap } from 'lucide-react';
-import { HudPanel, HudMetric, HudSparkline } from './hud';
+import { HudPanel, HudSparkline } from './hud';
 import type { DashboardPayload } from '@/lib/dashboard-data';
 import { formatCurrency } from '@/lib/dashboard-data';
 import type { StateAggregate } from '@/data/geo/globe-kpi-data';
@@ -107,15 +107,18 @@ export const LeftHudStack = React.memo(function LeftHudStack({ data, scopeMode =
                         <div className="flex items-end justify-between">
                             <div>
                                 <p className="cr-label mb-0.5">{t('portfolioValue')}</p>
-                                <HudMetric
-                                    value={portfolioValue}
-                                    delta={portfolioDelta}
-                                    size="xl"
-                                />
+                                <span className="text-ig-kpi-xl ig-tabular ig-text-metal-accent leading-none">
+                                    {portfolioValue}
+                                </span>
+                                {portfolioDelta !== undefined && (
+                                    <span className="ml-2 text-ig-caption font-semibold text-ig-success">
+                                        {portfolioDelta >= 0 ? '+' : ''}{portfolioDelta}%
+                                    </span>
+                                )}
                             </div>
                             <div className="text-right">
                                 <p className="cr-label mb-0.5">{t('averageHealth')}</p>
-                                <span className="text-lg font-semibold text-white tabular-nums">
+                                <span className="text-ig-kpi-xl ig-tabular ig-text-metal-accent leading-none">
                                     {scopedHealth}%
                                 </span>
                             </div>
@@ -123,13 +126,13 @@ export const LeftHudStack = React.memo(function LeftHudStack({ data, scopeMode =
 
                         <div className="grid grid-cols-2 gap-3">
                             <div>
-                                <p className="text-lg font-semibold text-white tabular-nums leading-none">
+                                <p className="text-ig-kpi-xl ig-tabular ig-text-metal-accent leading-none">
                                     {scopedProjects ?? 12}
                                 </p>
                                 <p className="cr-label mt-0.5">{t('activeProjects')}</p>
                             </div>
                             <div>
-                                <p className="text-lg font-semibold text-white tabular-nums leading-none">
+                                <p className="text-ig-kpi-xl ig-tabular ig-text-metal-accent leading-none">
                                     {scopedContracts ?? 46}
                                 </p>
                                 <p className="cr-label mt-0.5">{t('activeContracts')}</p>

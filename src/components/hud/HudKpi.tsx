@@ -19,41 +19,33 @@ export interface HudKpiProps {
 
 const SIZE_STYLES = {
   sm: {
-    value: 'text-lg',
+    value: 'text-ig-kpi-md',
     label: 'text-[10px]',
     delta: 'text-[9px]',
     iconBox: 'w-8 h-8',
     icon: 'w-4 h-4',
   },
   md: {
-    value: 'text-2xl',
+    value: 'text-ig-kpi-md',
     label: 'text-[11px]',
     delta: 'text-[10px]',
     iconBox: 'w-10 h-10',
     icon: 'w-5 h-5',
   },
   lg: {
-    value: 'text-3xl',
+    value: 'text-ig-kpi-lg',
     label: 'text-xs',
     delta: 'text-[11px]',
     iconBox: 'w-12 h-12',
     icon: 'w-6 h-6',
   },
   xl: {
-    value: 'text-4xl',
+    value: 'text-ig-kpi-xl',
     label: 'text-xs',
     delta: 'text-xs',
     iconBox: 'w-14 h-14',
     icon: 'w-7 h-7',
   },
-};
-
-const VARIANT_COLORS = {
-  default: 'text-ig-fg-strong hud-kpi-value-default',
-  success: 'text-ig-success hud-kpi-value-success',
-  warning: 'text-ig-warning hud-kpi-value-warning',
-  danger: 'text-ig-danger hud-kpi-value-danger',
-  info: 'text-ig-accent hud-kpi-value-info',
 };
 
 const ICON_VARIANT_BG = {
@@ -106,8 +98,7 @@ export function HudKpi({
           <span
             className={cn(
               s.value,
-              'font-bold tabular-nums tracking-tight leading-none',
-              VARIANT_COLORS[variant]
+              'ig-tabular ig-text-metal-accent leading-none'
             )}
           >
             {prefix && <span className="hud-kpi-prefix text-ig-fg-muted font-semibold mr-1">{prefix}</span>}
