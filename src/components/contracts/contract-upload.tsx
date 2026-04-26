@@ -5,7 +5,7 @@ import { Contract, Risk } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card } from "@/components/ui/card";
+import { HudCard as Card } from "@/components/hud";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import {
@@ -333,4 +333,3 @@ export function ContractUpload({ open, onOpenChange, onContractCreated }: Contra
     </Dialog>
   );
 }
-

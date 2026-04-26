@@ -1,12 +1,6 @@
 'use client';
 
 import React from 'react';
-import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardContent,
-} from '@/components/ui/card';
 import { HudPanel } from '@/components/hud';
 import { HUDProgressBar } from '@/components/ui/hud-progress-bar';
 import { DollarSign, Clock } from 'lucide-react';

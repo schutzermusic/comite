@@ -6,6 +6,14 @@
 
 export { HudPanel } from './HudPanel';
 export type { HudPanelProps } from './HudPanel';
+export {
+  HudCard,
+  HudCardHeader,
+  HudCardFooter,
+  HudCardTitle,
+  HudCardDescription,
+  HudCardContent,
+} from './HudCard';
 export { HudHeader } from './HudHeader';
 export type { HudHeaderProps, BreadcrumbItem, StatusChip } from './HudHeader';
 export { HudChip, type HudChipVariant } from './HudChip';
@@ -13,6 +21,16 @@ export { HudKpi } from './HudKpi';
 export type { HudKpiProps } from './HudKpi';
 export { HudTable } from './HudTable';
 export type { HudTableColumn, HudTableProps } from './HudTable';
+export {
+  HudTableElement,
+  HudTableHeader,
+  HudTableBody,
+  HudTableFooter,
+  HudTableHead,
+  HudTableRow,
+  HudTableCell,
+  HudTableCaption,
+} from './HudTablePrimitives';
 export { HudFilterBar } from './HudFilterBar';
 export type { HudFilterBarProps, FilterGroup, FilterOption } from './HudFilterBar';
 export { HudEmptyState } from './HudEmptyState';
