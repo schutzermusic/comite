@@ -6,10 +6,9 @@ import Link from 'next/link';
 import { excelContracts } from '@/data/contractsFromExcel.generated';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { HUDCard } from '@/components/ui/hud-card';
+import { HudPanel } from '@/components/hud';
 import { StatusPill } from '@/components/ui/status-pill';
 import { HUDProgressBar } from '@/components/ui/hud-progress-bar';
-import { OrionGreenBackground } from '@/components/system/OrionGreenBackground';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Table,
@@ -261,8 +260,8 @@ export default function ContractIntelligencePage() {
   }), []);
 
   return (
-    <OrionGreenBackground className="orion-page">
-      <div className="orion-page-content max-w-[1800px] mx-auto space-y-4">
+    <>
+      <div className="max-w-[1800px] mx-auto space-y-4 p-4 md:p-6 lg:p-8">
         {/* Header with Back Navigation */}
         <header className="mb-2">
           <div className="flex items-start justify-between">
@@ -323,17 +322,17 @@ export default function ContractIntelligencePage() {
 
         {/* Quick Stats Strip */}
         <div className="grid grid-cols-6 gap-3">
-          <HUDCard className="p-3">
-            <div className="flex items-center gap-2">
+          <HudPanel noPadding>
+            <div className="flex items-center gap-2 p-3">
               <DollarSign className="w-4 h-4 text-[#00C8FF]" />
               <div>
                 <p className="text-[10px] text-[rgba(255,255,255,0.50)] uppercase">Valor</p>
                 <p className="text-sm font-semibold text-white">{formatCurrencyCompact(contract.value)}</p>
               </div>
             </div>
-          </HUDCard>
-          <HUDCard className="p-3">
-            <div className="flex items-center gap-2">
+          </HudPanel>
+          <HudPanel noPadding>
+            <div className="flex items-center gap-2 p-3">
               <Calendar className="w-4 h-4 text-amber-400" />
               <div>
                 <p className="text-[10px] text-[rgba(255,255,255,0.50)] uppercase">Expira em</p>
@@ -342,36 +341,36 @@ export default function ContractIntelligencePage() {
                 </p>
               </div>
             </div>
-          </HUDCard>
-          <HUDCard className="p-3">
-            <div className="flex items-center gap-2">
+          </HudPanel>
+          <HudPanel noPadding>
+            <div className="flex items-center gap-2 p-3">
               <AlertTriangle className="w-4 h-4 text-[#FF5860]" />
               <div>
                 <p className="text-[10px] text-[rgba(255,255,255,0.50)] uppercase">Riscos</p>
                 <p className="text-sm font-semibold text-white">{keyMetrics.totalRisks} ({keyMetrics.highRisks} altos)</p>
               </div>
             </div>
-          </HUDCard>
-          <HUDCard className="p-3">
-            <div className="flex items-center gap-2">
+          </HudPanel>
+          <HudPanel noPadding>
+            <div className="flex items-center gap-2 p-3">
               <Gavel className="w-4 h-4 text-amber-400" />
               <div>
                 <p className="text-[10px] text-[rgba(255,255,255,0.50)] uppercase">Penalidades</p>
                 <p className="text-sm font-semibold text-white">{keyMetrics.openPenalties} ativas</p>
               </div>
             </div>
-          </HUDCard>
-          <HUDCard className="p-3">
-            <div className="flex items-center gap-2">
+          </HudPanel>
+          <HudPanel noPadding>
+            <div className="flex items-center gap-2 p-3">
               <CalendarClock className="w-4 h-4 text-[#00C8FF]" />
               <div>
                 <p className="text-[10px] text-[rgba(255,255,255,0.50)] uppercase">Eventos</p>
                 <p className="text-sm font-semibold text-white">{keyMetrics.upcomingEvents} próximos</p>
               </div>
             </div>
-          </HUDCard>
-          <HUDCard className="p-3">
-            <div className="flex items-center gap-2">
+          </HudPanel>
+          <HudPanel noPadding>
+            <div className="flex items-center gap-2 p-3">
               <Receipt className="w-4 h-4 text-emerald-400" />
               <div>
                 <p className="text-[10px] text-[rgba(255,255,255,0.50)] uppercase">Faturamento</p>
@@ -380,7 +379,7 @@ export default function ContractIntelligencePage() {
                 </p>
               </div>
             </div>
-          </HUDCard>
+          </HudPanel>
         </div>
 
         {/* Tabs */}
@@ -428,7 +427,7 @@ export default function ContractIntelligencePage() {
             <div className="grid grid-cols-3 gap-4">
               {/* Left: Contract Brief */}
               <div className="col-span-2 space-y-4">
-                <HUDCard>
+                <HudPanel>
                   <h3 className="text-sm font-medium text-[rgba(255,255,255,0.85)] mb-4 flex items-center gap-2">
                     <FileText className="w-4 h-4 text-[#00C8FF]" />
                     Contract Brief
@@ -479,10 +478,10 @@ export default function ContractIntelligencePage() {
                       <p className="text-sm text-[rgba(255,255,255,0.75)]">{contract.notes}</p>
                     </div>
                   )}
-                </HUDCard>
+                </HudPanel>
 
                 {/* Key Numbers */}
-                <HUDCard>
+                <HudPanel>
                   <h3 className="text-sm font-medium text-[rgba(255,255,255,0.85)] mb-4 flex items-center gap-2">
                     <BarChart3 className="w-4 h-4 text-[#00C8FF]" />
                     Key Numbers
@@ -512,12 +511,12 @@ export default function ContractIntelligencePage() {
                       </p>
                     </div>
                   </div>
-                </HUDCard>
+                </HudPanel>
               </div>
 
               {/* Right: Key Risks */}
               <div className="space-y-4">
-                <HUDCard>
+                <HudPanel>
                   <h3 className="text-sm font-medium text-[rgba(255,255,255,0.85)] mb-4 flex items-center gap-2">
                     <AlertTriangle className="w-4 h-4 text-[#FF5860]" />
                     Key Risks
@@ -555,10 +554,10 @@ export default function ContractIntelligencePage() {
                   >
                     Ver todos os riscos
                   </Button>
-                </HUDCard>
+                </HudPanel>
 
                 {/* Upcoming Events */}
-                <HUDCard>
+                <HudPanel>
                   <h3 className="text-sm font-medium text-[rgba(255,255,255,0.85)] mb-4 flex items-center gap-2">
                     <CalendarClock className="w-4 h-4 text-[#00C8FF]" />
                     Próximos Eventos
@@ -576,7 +575,7 @@ export default function ContractIntelligencePage() {
                       </div>
                     ))}
                   </div>
-                </HUDCard>
+                </HudPanel>
               </div>
             </div>
           </TabsContent>
@@ -586,7 +585,7 @@ export default function ContractIntelligencePage() {
             <div className="grid grid-cols-3 gap-4">
               {/* Risk Categories Heatmap */}
               <div className="col-span-2">
-                <HUDCard>
+                <HudPanel>
                   <h3 className="text-sm font-medium text-[rgba(255,255,255,0.85)] mb-4 flex items-center gap-2">
                     <Shield className="w-4 h-4 text-[#00C8FF]" />
                     Risk Heatmap by Category
@@ -630,10 +629,10 @@ export default function ContractIntelligencePage() {
                       );
                     })}
                   </div>
-                </HUDCard>
+                </HudPanel>
 
                 {/* Risk Details */}
-                <HUDCard className="mt-4">
+                <HudPanel className="mt-4">
                   <h3 className="text-sm font-medium text-[rgba(255,255,255,0.85)] mb-4">Risk Details</h3>
                   <div className="space-y-2 max-h-[400px] overflow-y-auto">
                     {mockRiskCategories.flatMap(cat => 
@@ -664,12 +663,12 @@ export default function ContractIntelligencePage() {
                       </div>
                     ))}
                   </div>
-                </HUDCard>
+                </HudPanel>
               </div>
 
               {/* Risk Summary */}
               <div className="space-y-4">
-                <HUDCard>
+                <HudPanel>
                   <h3 className="text-sm font-medium text-[rgba(255,255,255,0.85)] mb-4">Risk Summary</h3>
                   <div className="space-y-3">
                     <div className="flex justify-between items-center">
@@ -693,9 +692,9 @@ export default function ContractIntelligencePage() {
                       </span>
                     </div>
                   </div>
-                </HUDCard>
+                </HudPanel>
 
-                <HUDCard>
+                <HudPanel>
                   <h3 className="text-sm font-medium text-[rgba(255,255,255,0.85)] mb-4">Risk Score</h3>
                   <div className="text-center py-4">
                     <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-[rgba(255,88,96,0.15)] border-4 border-[#FF5860]">
@@ -704,14 +703,14 @@ export default function ContractIntelligencePage() {
                     <p className="text-sm text-[rgba(255,255,255,0.65)] mt-3">High Risk</p>
                     <p className="text-xs text-[rgba(255,255,255,0.40)]">Score 0-100</p>
                   </div>
-                </HUDCard>
+                </HudPanel>
               </div>
             </div>
           </TabsContent>
 
           {/* Timeline Tab */}
           <TabsContent value="timeline" className="mt-4">
-            <HUDCard>
+            <HudPanel>
               <h3 className="text-sm font-medium text-[rgba(255,255,255,0.85)] mb-4 flex items-center gap-2">
                 <CalendarClock className="w-4 h-4 text-[#00C8FF]" />
                 Contract Timeline / Eventogram
@@ -772,7 +771,7 @@ export default function ContractIntelligencePage() {
                   })}
                 </div>
               </div>
-            </HUDCard>
+            </HudPanel>
           </TabsContent>
 
           {/* Billing Tab */}
@@ -780,7 +779,7 @@ export default function ContractIntelligencePage() {
             <div className="grid grid-cols-3 gap-4">
               <div className="col-span-2 space-y-4">
                 {/* Planned vs Actual */}
-                <HUDCard>
+                <HudPanel>
                   <h3 className="text-sm font-medium text-[rgba(255,255,255,0.85)] mb-4 flex items-center gap-2">
                     <Receipt className="w-4 h-4 text-[#00C8FF]" />
                     Planned vs Actual Billing
@@ -840,10 +839,10 @@ export default function ContractIntelligencePage() {
                       </TableBody>
                     </Table>
                   </div>
-                </HUDCard>
+                </HudPanel>
 
                 {/* Backlog Trend */}
-                <HUDCard>
+                <HudPanel>
                   <h3 className="text-sm font-medium text-[rgba(255,255,255,0.85)] mb-4 flex items-center gap-2">
                     <TrendingDown className="w-4 h-4 text-amber-400" />
                     Backlog Trend
@@ -863,12 +862,12 @@ export default function ContractIntelligencePage() {
                       );
                     })}
                   </div>
-                </HUDCard>
+                </HudPanel>
               </div>
 
               {/* Billing Summary */}
               <div className="space-y-4">
-                <HUDCard>
+                <HudPanel>
                   <h3 className="text-sm font-medium text-[rgba(255,255,255,0.85)] mb-4">Billing Summary</h3>
                   <div className="space-y-4">
                     <div className="p-3 bg-[rgba(255,255,255,0.02)] rounded-lg border border-[rgba(255,255,255,0.05)]">
@@ -892,7 +891,7 @@ export default function ContractIntelligencePage() {
                       />
                     </div>
                   </div>
-                </HUDCard>
+                </HudPanel>
               </div>
             </div>
           </TabsContent>
@@ -901,7 +900,7 @@ export default function ContractIntelligencePage() {
           <TabsContent value="penalties" className="mt-4">
             <div className="grid grid-cols-3 gap-4">
               <div className="col-span-2">
-                <HUDCard>
+                <HudPanel>
                   <h3 className="text-sm font-medium text-[rgba(255,255,255,0.85)] mb-4 flex items-center gap-2">
                     <Gavel className="w-4 h-4 text-[#00C8FF]" />
                     Penalties & High Impact Clauses
@@ -990,12 +989,12 @@ export default function ContractIntelligencePage() {
                       </div>
                     ))}
                   </div>
-                </HUDCard>
+                </HudPanel>
               </div>
 
               {/* Penalties Summary */}
               <div className="space-y-4">
-                <HUDCard>
+                <HudPanel>
                   <h3 className="text-sm font-medium text-[rgba(255,255,255,0.85)] mb-4">Summary</h3>
                   <div className="space-y-3">
                     <div className="flex justify-between items-center">
@@ -1021,9 +1020,9 @@ export default function ContractIntelligencePage() {
                       </span>
                     </div>
                   </div>
-                </HUDCard>
+                </HudPanel>
 
-                <HUDCard>
+                <HudPanel>
                   <h3 className="text-sm font-medium text-[rgba(255,255,255,0.85)] mb-4">Mitigation Progress</h3>
                   <div className="space-y-3">
                     {(() => {
@@ -1041,12 +1040,12 @@ export default function ContractIntelligencePage() {
                       );
                     })()}
                   </div>
-                </HUDCard>
+                </HudPanel>
               </div>
             </div>
           </TabsContent>
         </Tabs>
       </div>
-    </OrionGreenBackground>
+    </>
   );
 }

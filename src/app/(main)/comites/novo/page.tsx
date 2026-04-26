@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Save } from 'lucide-react';
-import { HUDCard } from '@/components/ui/hud-card';
+import { HudPanel } from '@/components/hud';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
@@ -16,7 +16,6 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useHudToast } from '@/hooks/useHudToast';
-import { OrionGreenBackground } from '@/components/system/OrionGreenBackground';
 import SankhyaIntegration from '@/components/features/sankhya-integration-comite';
 import Link from 'next/link';
 
@@ -98,8 +97,8 @@ export default function NovoComite() {
   };
 
   return (
-    <OrionGreenBackground className="orion-page">
-      <div className="orion-page-content max-w-7xl mx-auto space-y-6">
+    <>
+      <div className="max-w-7xl mx-auto space-y-6 p-4 md:p-6 lg:p-8">
         <header className="mb-8">
           <div className="flex items-center gap-4">
             <Button
@@ -126,7 +125,7 @@ export default function NovoComite() {
             onDataUpdate={handleSankhyaDataUpdate}
           />
 
-          <HUDCard>
+          <HudPanel>
             <div className="mb-6">
               <h2 className="text-lg font-semibold text-white orion-text-heading">Informações Básicas</h2>
             </div>
@@ -221,9 +220,9 @@ export default function NovoComite() {
                 </div>
               </div>
             </div>
-          </HUDCard>
+          </HudPanel>
 
-          <HUDCard>
+          <HudPanel>
             <div className="mb-6">
               <h2 className="text-lg font-semibold text-white orion-text-heading">Regras de Votação</h2>
             </div>
@@ -304,11 +303,11 @@ export default function NovoComite() {
                 </div>
               </div>
             </div>
-          </HUDCard>
+          </HudPanel>
         </div>
 
         <div className="space-y-6">
-          <HUDCard>
+          <HudPanel>
             <div className="mb-6">
               <h2 className="text-lg font-semibold text-white orion-text-heading">Pré-visualização</h2>
             </div>
@@ -390,7 +389,7 @@ export default function NovoComite() {
                 </div>
               </div>
             </div>
-          </HUDCard>
+          </HudPanel>
 
           <Button
             onClick={handleSubmit}
@@ -410,6 +409,6 @@ export default function NovoComite() {
         </div>
       </div>
       </div>
-    </OrionGreenBackground>
+    </>
   );
 }

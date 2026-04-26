@@ -23,10 +23,9 @@ import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Progress } from '@/components/ui/progress';
-import { HUDCard } from '@/components/ui/hud-card';
+import { HudPanel } from '@/components/hud';
 import { StatusPill } from '@/components/ui/status-pill';
 import { HUDProgressBar } from '@/components/ui/hud-progress-bar';
-import { OrionGreenBackground } from '@/components/system/OrionGreenBackground';
 import { useHudToast } from '@/hooks/useHudToast';
 import {
   AlertDialog,
@@ -118,8 +117,8 @@ export default function DetalhePautaPage({ params }: { params: Promise<{ id: str
   };
 
   return (
-    <OrionGreenBackground className="orion-page">
-      <div className="orion-page-content max-w-6xl mx-auto space-y-6">
+    <>
+      <div className="max-w-6xl mx-auto space-y-6 p-4 md:p-6 lg:p-8">
         <header className="mb-8">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
@@ -155,7 +154,7 @@ export default function DetalhePautaPage({ params }: { params: Promise<{ id: str
 
         <div className="grid lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
-            <HUDCard>
+            <HudPanel>
               <div className="space-y-6">
                 <div>
                   <h2 className="text-xl font-semibold text-white mb-3 tracking-wide">{detailedPauta.titulo}</h2>
@@ -217,10 +216,10 @@ export default function DetalhePautaPage({ params }: { params: Promise<{ id: str
                   )}
                 </div>
               </div>
-            </HUDCard>
+            </HudPanel>
 
             {podeVotar && (
-              <HUDCard glow glowColor="green">
+              <HudPanel halo state="success">
                 <div className="space-y-4">
                   <div>
                     <h3 className="text-base font-semibold text-white mb-2">Registrar Voto</h3>
@@ -294,11 +293,11 @@ export default function DetalhePautaPage({ params }: { params: Promise<{ id: str
                     Confirmar Voto
                   </Button>
                 </div>
-              </HUDCard>
+              </HudPanel>
             )}
 
             {meuVoto && (
-              <HUDCard glow glowColor="green">
+              <HudPanel halo state="success">
                 <div className="flex items-center gap-3">
                   <CheckCircle2 className="w-6 h-6 text-[#00FFB4]" />
                   <div>
@@ -308,7 +307,7 @@ export default function DetalhePautaPage({ params }: { params: Promise<{ id: str
                     </p>
                   </div>
                 </div>
-              </HUDCard>
+              </HudPanel>
             )}
 
           {!detailedPauta.votos_sigilosos && detailedPauta.status === 'encerrada' && (
@@ -427,7 +426,7 @@ export default function DetalhePautaPage({ params }: { params: Promise<{ id: str
         </AlertDialogContent>
       </AlertDialog>
       </div>
-    </OrionGreenBackground>
+    </>
   );
 }
 
