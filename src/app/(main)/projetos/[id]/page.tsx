@@ -296,7 +296,7 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
                 </div>
 
                 {/* ── Revenue-focused financial KPIs ── */}
-                <div className="mt-6 pt-6 border-t border-[rgba(255,255,255,0.08)]">
+                <div className="mt-6 pt-6 border-t border-[var(--ig-border-default)]">
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-center">
                     <div>
                       <DollarSign className="w-8 h-8 mx-auto hud-accent-icon mb-2" />
@@ -378,7 +378,7 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
                 <ul className="space-y-3">
                   {pautasRelacionadas.slice(0, 2).map(pauta => (
                     <li key={pauta.id} className="flex items-start gap-3">
-                      <div className="p-2 hud-panel-icon rounded-full bg-[rgba(101,163,13,0.08)] text-[#65A30D] dark:bg-[rgba(0,255,180,0.12)] dark:text-[#00FFB4]"><FileText className="w-4 h-4" /></div>
+                      <div className="p-2 hud-panel-icon rounded-full" style={{ background: 'var(--ig-accent-weak)', color: 'var(--ig-success)' }}><FileText className="w-4 h-4" /></div>
                       <div>
                         <p className="text-sm font-medium orion-text-primary">Nova pauta de votação</p>
                         <p className="text-xs hud-text-muted line-clamp-1">{pauta.titulo}</p>
@@ -387,7 +387,7 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
                   ))}
                   {reunioesRelacionadas.slice(0, 1).map(reuniao => (
                     <li key={reuniao.id} className="flex items-start gap-3">
-                      <div className="p-2 hud-panel-icon rounded-full bg-[rgba(6,182,212,0.08)] text-[#06B6D4] dark:bg-[rgba(0,200,255,0.12)] dark:text-[#00C8FF]"><Calendar className="w-4 h-4" /></div>
+                      <div className="p-2 hud-panel-icon rounded-full" style={{ background: 'var(--ig-accent-weak)', color: 'var(--ig-info)' }}><Calendar className="w-4 h-4" /></div>
                       <div>
                         <p className="text-sm font-medium orion-text-primary">Reunião Agendada</p>
                         <p className="text-xs hud-text-muted line-clamp-1">{reuniao.titulo}</p>
@@ -424,7 +424,7 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
             <div className="p-6 pt-2">
               <TabsContent value="overview" className="mt-0">
                 <div className="space-y-4">
-                  <h3 className="text-lg font-semibold orion-text-primary mb-4">Informações do Projeto</h3>
+                  <h3 className="ig-section-title mb-4">Informações do Projeto</h3>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div>
                       <p className="text-sm hud-text-muted">Código Interno</p>
@@ -459,7 +459,7 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
                   {/* V2 extra fields */}
                   {projetoV2 && (
                     <>
-                      <Separator className="border-[rgba(255,255,255,0.08)]" />
+                      <Separator className="border-[var(--ig-border-default)]" />
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                         {projetoV2.uf && (
                           <div>

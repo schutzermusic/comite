@@ -5698,3 +5698,276 @@ html.dark .hud-sidebar {
 /* ── HudButton ghost/outline hover cleanup ── */
 .light .hud-btn-ghost:hover { color: #0F172A !important; background: rgba(0,0,0,0.04) !important; }
 .light .hud-btn-outline:hover { color: #0F172A !important; border-color: rgba(22,163,74,0.25) !important; background: rgba(22,163,74,0.03) !important; }
+
+/* ════════════════════════════════════════════════════════════════════════
+   TASK-019.4 — Deliberações / Pautas — Light Mode Overrides
+   Converts neon accent colors & rgba(255,255,255,*) patterns for light
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* ── Pautas page header ── */
+.light .text-white.tracking-wide,
+.light h1.text-white {
+  color: var(--ig-fg-strong) !important;
+}
+
+/* ── BoardHealthKPI — light mode ── */
+.light .scrollbar-thin .text-\[rgba\(255\,255\,255\,0\.55\)\] {
+  color: var(--ig-fg-muted) !important;
+}
+.light .scrollbar-thin .text-\[rgba\(255\,255\,255\,0\.35\)\] {
+  color: var(--ig-fg-subtle) !important;
+}
+
+/* ── QueueTabs — light mode ── */
+.light .text-\[rgba\(255\,255\,255\,0\.55\)\] {
+  color: var(--ig-fg-muted) !important;
+}
+.light .text-\[rgba\(255\,255\,255\,0\.65\)\] {
+  color: var(--ig-fg-default) !important;
+}
+.light .text-\[rgba\(255\,255\,255\,0\.75\)\] {
+  color: var(--ig-fg-default) !important;
+}
+.light .text-\[rgba\(255\,255\,255\,0\.85\)\] {
+  color: var(--ig-fg-strong) !important;
+}
+.light .text-\[rgba\(255\,255\,255\,0\.82\)\] {
+  color: var(--ig-fg-default) !important;
+}
+
+/* ── QueueTabs active/inactive bg ── */
+.light .bg-\[rgba\(255\,255\,255\,0\.08\)\] {
+  background: rgba(0, 0, 0, 0.04) !important;
+}
+.light .border-\[rgba\(255\,255\,255\,0\.12\)\] {
+  border-color: rgba(0, 0, 0, 0.10) !important;
+}
+.light .border-\[rgba\(255\,255\,255\,0\.06\)\] {
+  border-color: rgba(0, 0, 0, 0.06) !important;
+}
+.light .bg-\[rgba\(255\,255\,255\,0\.02\)\] {
+  background: rgba(0, 0, 0, 0.015) !important;
+}
+.light .bg-\[rgba\(255\,255\,255\,0\.03\)\] {
+  background: rgba(0, 0, 0, 0.02) !important;
+}
+.light .bg-\[rgba\(255\,255\,255\,0\.05\)\] {
+  background: rgba(0, 0, 0, 0.03) !important;
+}
+.light .hover\:bg-\[rgba\(255\,255\,255\,0\.04\)\]:hover {
+  background: rgba(0, 0, 0, 0.03) !important;
+}
+.light .bg-\[rgba\(255\,255\,255\,0\.15\)\] {
+  background: rgba(0, 0, 0, 0.08) !important;
+}
+
+/* ── QueueTabs badge counter ── */
+.light .bg-\[rgba\(255\,255\,255\,0\.08\)\].text-\[rgba\(255\,255\,255\,0\.65\)\] {
+  background: rgba(0, 0, 0, 0.05) !important;
+  color: var(--ig-fg-muted) !important;
+}
+
+/* ── Neon accent colors → premium dark equivalents ── */
+.light .text-\[\#00FFB4\] { color: #047857 !important; }
+.light .text-\[\#00C8FF\] { color: #0369A1 !important; }
+.light .text-\[\#C084FC\] { color: #7C3AED !important; }
+.light .text-\[\#F59E0B\] { color: #B45309 !important; }
+.light .text-\[\#A855F7\] { color: #7C3AED !important; }
+.light .text-\[\#FF5860\] { color: #B91C1C !important; }
+
+/* ── Neon bg-accent colors → subtle light tints ── */
+.light .bg-\[rgba\(0\,255\,180\,0\.14\)\] { background: rgba(4, 120, 87, 0.08) !important; }
+.light .bg-\[rgba\(0\,200\,255\,0\.14\)\] { background: rgba(3, 105, 161, 0.08) !important; }
+.light .bg-\[rgba\(245\,158\,11\,0\.14\)\] { background: rgba(180, 83, 9, 0.08) !important; }
+.light .bg-\[rgba\(168\,85\,247\,0\.14\)\] { background: rgba(124, 58, 237, 0.08) !important; }
+
+/* ── Neon border accents ── */
+.light .border-\[rgba\(0\,200\,255\,0\.3\)\] { border-color: rgba(3, 105, 161, 0.25) !important; }
+.light .bg-\[rgba\(0\,200\,255\,0\.12\)\] { background: rgba(3, 105, 161, 0.06) !important; }
+.light .border-cyan-500\/20 { border-color: rgba(3, 105, 161, 0.15) !important; }
+
+/* ── Neon bg KPI accent → subtle muted ── */
+.light .bg-\[rgba\(0\,255\,180\,0\.12\)\] { background: rgba(4, 120, 87, 0.06) !important; }
+.light .bg-\[rgba\(0\,200\,255\,0\.12\)\] { background: rgba(3, 105, 161, 0.06) !important; }
+.light .bg-\[rgba\(255\,88\,96\,0\.12\)\] { background: rgba(185, 28, 28, 0.06) !important; }
+.light .bg-\[rgba\(168\,85\,247\,0\.12\)\] { background: rgba(124, 58, 237, 0.06) !important; }
+.light .bg-\[rgba\(245\,158\,11\,0\.12\)\] { background: rgba(180, 83, 9, 0.06) !important; }
+
+/* ── Search input inside pautas ── */
+.light input.bg-\[rgba\(255\,255\,255\,0\.03\)\] {
+  background: rgba(0, 0, 0, 0.02) !important;
+  border-color: rgba(0, 0, 0, 0.10) !important;
+  color: var(--ig-fg-strong) !important;
+}
+.light input.placeholder-\[rgba\(255\,255\,255\,0\.35\)\]::placeholder {
+  color: var(--ig-fg-subtle) !important;
+}
+
+/* ── DecisionInspector headings ── */
+.light h2.text-white {
+  color: var(--ig-fg-strong) !important;
+}
+.light .text-\[rgba\(255\,255\,255\,0\.6\)\] {
+  color: var(--ig-fg-muted) !important;
+}
+.light .text-\[rgba\(255\,255\,255\,0\.5\)\] {
+  color: var(--ig-fg-subtle) !important;
+}
+.light .text-\[rgba\(255\,255\,255\,0\.8\)\] {
+  color: var(--ig-fg-default) !important;
+}
+
+/* ── DecisionInspector Tabs active states ── */
+.light [data-state="active"].data-\[state\=active\]\:bg-\[rgba\(0\,255\,180\,0\.14\)\] {
+  background: rgba(4, 120, 87, 0.08) !important;
+}
+.light [data-state="active"].data-\[state\=active\]\:text-\[\#00FFB4\] {
+  color: #047857 !important;
+}
+.light [data-state="active"].data-\[state\=active\]\:bg-\[rgba\(0\,200\,255\,0\.14\)\] {
+  background: rgba(3, 105, 161, 0.08) !important;
+}
+.light [data-state="active"].data-\[state\=active\]\:text-\[\#00C8FF\] {
+  color: #0369A1 !important;
+}
+.light [data-state="active"].data-\[state\=active\]\:bg-\[rgba\(245\,158\,11\,0\.14\)\] {
+  background: rgba(180, 83, 9, 0.08) !important;
+}
+.light [data-state="active"].data-\[state\=active\]\:text-\[\#F59E0B\] {
+  color: #B45309 !important;
+}
+.light [data-state="active"].data-\[state\=active\]\:bg-\[rgba\(168\,85\,247\,0\.14\)\] {
+  background: rgba(124, 58, 237, 0.08) !important;
+}
+.light [data-state="active"].data-\[state\=active\]\:text-\[\#C084FC\] {
+  color: #7C3AED !important;
+}
+
+/* ── DecisionInspector borders ── */
+.light .border-\[rgba\(255\,255\,255\,0\.1\)\] {
+  border-color: rgba(0, 0, 0, 0.10) !important;
+}
+.light .border-\[rgba\(255\,255\,255\,0\.08\)\] {
+  border-color: rgba(0, 0, 0, 0.08) !important;
+}
+.light .border-\[rgba\(255\,255\,255\,0\.15\)\] {
+  border-color: rgba(0, 0, 0, 0.12) !important;
+}
+.light .border-white\/\[0\.06\] {
+  border-color: rgba(0, 0, 0, 0.06) !important;
+}
+
+/* ── Filter bar inside pautas ── */
+.light .bg-\[rgba\(255\,255\,255\,0\.02\)\].border.border-\[rgba\(255\,255\,255\,0\.06\)\] {
+  background: rgba(0, 0, 0, 0.015) !important;
+  border-color: rgba(0, 0, 0, 0.08) !important;
+}
+.light .text-\[rgba\(255\,255\,255\,0\.55\)\] {
+  color: var(--ig-fg-muted) !important;
+}
+.light select.bg-\[rgba\(255\,255\,255\,0\.05\)\] {
+  background: rgba(0, 0, 0, 0.03) !important;
+  border-color: rgba(0, 0, 0, 0.10) !important;
+  color: var(--ig-fg-strong) !important;
+}
+
+/* ── Neon buttons in DecisionInspector ── */
+.light .bg-\[\#00FFB4\] {
+  background: #047857 !important;
+  color: #ffffff !important;
+}
+.light .hover\:bg-\[\#00D89A\]:hover {
+  background: #065F46 !important;
+}
+.light .bg-\[\#A855F7\] {
+  background: #7C3AED !important;
+  color: #ffffff !important;
+}
+.light .hover\:bg-\[\#9333EA\]:hover {
+  background: #6D28D9 !important;
+}
+.light .text-\[\#05100B\] {
+  color: #ffffff !important;
+}
+
+/* ── Scrollbar light ── */
+.light .scrollbar-thumb-\[rgba\(255\,255\,255\,0\.1\)\] {
+  scrollbar-color: rgba(0, 0, 0, 0.08) transparent;
+}
+
+/* ── Pautas results count ── */
+.light .border-b.border-white\/\[0\.06\].text-white\/50 {
+  color: var(--ig-fg-muted) !important;
+  border-color: rgba(0, 0, 0, 0.06) !important;
+}
+
+/* ── Search icon ── */
+.light .text-\[rgba\(255\,255\,255\,0\.35\)\] {
+  color: var(--ig-fg-subtle) !important;
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   TASK-019.4 — Financeiro Executive Strip — Compact Typography
+   Reduces the KPI strip from 32px/44px to a compact 18px/20px scale
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* ── Executive strip compact override ── */
+.divide-ig-border-subtle .text-ig-kpi-lg {
+  font-size: 18px !important;
+  line-height: 1.15 !important;
+  font-weight: 640 !important;
+  letter-spacing: -0.008em !important;
+}
+.divide-ig-border-subtle .text-ig-label {
+  font-size: 10px !important;
+  line-height: 1.35 !important;
+  letter-spacing: 0.06em !important;
+}
+.divide-ig-border-subtle .text-ig-caption {
+  font-size: 10px !important;
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   TASK-019.4 — Projetos [id] — Light Mode Fixes
+   Fix text-white patterns inside .ig-glass panels and borders
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* ── Hard border inside project detail ── */
+.light .border-\[rgba\(255\,255\,255\,0\.08\)\] {
+  border-color: rgba(0, 0, 0, 0.06) !important;
+}
+
+/* ── Separator light override ── */
+.light .border-\[rgba\(255\,255\,255\,0\.08\)\][class*="Separator"] {
+  border-color: rgba(0, 0, 0, 0.06) !important;
+}
+
+/* ── Gradient icon boxes used in project page ── */
+.light .bg-\[rgba\(101\,163\,13\,0\.08\)\] { background: rgba(101, 163, 13, 0.06) !important; }
+.light .text-\[\#65A30D\] { color: #4D7C0F !important; }
+.light .bg-\[rgba\(6\,182\,212\,0\.08\)\] { background: rgba(14, 165, 233, 0.06) !important; }
+.light .text-\[\#06B6D4\] { color: #0369A1 !important; }
+.light .bg-\[rgba\(0\,255\,180\,0\.12\)\].text-\[\#00FFB4\] {
+  background: rgba(4, 120, 87, 0.06) !important;
+  color: #047857 !important;
+}
+.light .bg-\[rgba\(0\,200\,255\,0\.12\)\].text-\[\#00C8FF\] {
+  background: rgba(3, 105, 161, 0.06) !important;
+  color: #0369A1 !important;
+}
+
+
+
+
+
+
+
+/* ── HUD card bg/border fix for light (used in deliberações HUDCard) ── */
+.light .bg-\[rgba\(255\,255\,255\,0\.04\)\] { background: rgba(0, 0, 0, 0.02) !important; }
+.light .border-\[rgba\(255\,255\,255\,0\.06\)\] { border-color: rgba(0, 0, 0, 0.06) !important; }
+
+/* ── Divide-white inside panels ── */
+.light .divide-white\/\[0\.06\] > :not([hidden]) ~ :not([hidden]) {
+  border-color: rgba(0, 0, 0, 0.06) !important;
+}
+

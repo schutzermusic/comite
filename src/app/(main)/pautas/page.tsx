@@ -481,8 +481,8 @@ export default function DeliberationsPage() {
                   <FileText className="w-5 h-5" />
                 </div>
                 <div>
-                  <h1 className="text-xl font-semibold text-white tracking-wide">Deliberações</h1>
-                  <p className="text-sm text-white/50 mt-0.5">
+                  <h1 className="ig-page-title">Deliberações</h1>
+                  <p className="ig-subtitle mt-0.5">
                     Encaminhe solicitações para comitês, conduza votações auditáveis, emita resoluções e execute ações.
                   </p>
                 </div>
@@ -525,13 +525,13 @@ export default function DeliberationsPage() {
 
           <HudPanel title="Próxima Sessão" accentColor="amber" noPadding={false}>
             {nextSessionItems.length === 0 ? (
-              <p className="text-sm text-white/50">Sem deliberações para a próxima sessão.</p>
+              <p className="text-sm hud-text-muted">Sem deliberações para a próxima sessão.</p>
             ) : (
               <div className="space-y-2">
                 {nextSessionItems.map((item) => (
                   <div key={item.id} className="text-xs">
-                    <p className="text-white line-clamp-1">{item.title}</p>
-                    <p className="text-white/50">{item.dueDate ? `${formatDistanceToNowStrict(item.dueDate)} restantes` : 'Sem SLA'} - {item.ownerCommitteeName}</p>
+                    <p className="hud-text line-clamp-1">{item.title}</p>
+                    <p className="hud-text-muted">{item.dueDate ? `${formatDistanceToNowStrict(item.dueDate)} restantes` : 'Sem SLA'} - {item.ownerCommitteeName}</p>
                   </div>
                 ))}
               </div>
@@ -559,7 +559,7 @@ export default function DeliberationsPage() {
 
         <div className="flex-1 min-h-0 grid grid-cols-[minmax(420px,1fr)_minmax(520px,1.4fr)] gap-4">
           <HudPanel noPadding className="h-full overflow-hidden flex flex-col">
-            <div className="p-3 border-b border-white/[0.06] text-xs text-white/50 relative z-[2]">
+            <div className="p-3 border-b border-white/[0.06] text-xs hud-text-muted relative z-[2]">
               {filteredItems.length} resultados
             </div>
             <div className="flex-1 overflow-y-auto relative z-[2]">

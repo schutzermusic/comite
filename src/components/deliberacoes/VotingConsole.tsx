@@ -23,9 +23,9 @@ const voteOptions: Array<{
   color: string;
   bgColor: string;
 }> = [
-  { value: 'yes', label: 'Sim', icon: CircleCheck, color: '#00FFB4', bgColor: 'rgba(0,255,180,0.1)' },
-  { value: 'no', label: 'Não', icon: CircleX, color: '#FF5860', bgColor: 'rgba(255,88,96,0.1)' },
-  { value: 'abstain', label: 'Abstenção', icon: CircleMinus, color: 'rgba(255,255,255,0.7)', bgColor: 'rgba(255,255,255,0.08)' },
+  { value: 'yes', label: 'Sim', icon: CircleCheck, color: 'var(--ig-success)', bgColor: 'rgba(16,185,129,0.08)' },
+  { value: 'no', label: 'Não', icon: CircleX, color: 'var(--ig-danger)', bgColor: 'rgba(239,75,85,0.08)' },
+  { value: 'abstain', label: 'Abstenção', icon: CircleMinus, color: 'var(--ig-fg-muted)', bgColor: 'var(--ig-accent-weak)' },
 ];
 
 export function VotingConsole({ item, currentUserId, onCastVote, onCloseVoting, onOpenVoting }: VotingConsoleProps) {
@@ -56,33 +56,33 @@ export function VotingConsole({ item, currentUserId, onCastVote, onCloseVoting, 
     <HUDCard glow glowColor="cyan" className="space-y-3">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Vote className="w-4 h-4 text-[#00C8FF]" />
-          <h3 className="text-sm font-semibold text-white">Votação</h3>
+          <Vote className="w-4 h-4" style={{ color: 'var(--ig-info)' }} />
+          <h3 className="text-sm font-semibold hud-text">Votação</h3>
         </div>
-        <span className="text-xs text-[rgba(255,255,255,0.55)]">
+        <span className="text-xs hud-text-muted">
           Janela de votação: {currentStage?.votingRule.votingWindowHours ?? 48}h
         </span>
       </div>
 
       <div className="grid grid-cols-3 gap-2 text-center">
-        <div className="p-2 rounded-lg bg-[rgba(0,255,180,0.08)]">
-          <div className="text-lg font-semibold text-[#00FFB4]">{yesCount}</div>
-          <div className="text-[10px] text-[rgba(255,255,255,0.55)]">Sim</div>
+        <div className="p-2 rounded-lg" style={{ background: 'rgba(16,185,129,0.06)' }}>
+          <div className="text-lg font-semibold" style={{ color: 'var(--ig-success)' }}>{yesCount}</div>
+          <div className="text-[10px] hud-text-muted">Sim</div>
         </div>
-        <div className="p-2 rounded-lg bg-[rgba(255,88,96,0.08)]">
-          <div className="text-lg font-semibold text-[#FF5860]">{noCount}</div>
-          <div className="text-[10px] text-[rgba(255,255,255,0.55)]">Não</div>
+        <div className="p-2 rounded-lg" style={{ background: 'rgba(239,75,85,0.06)' }}>
+          <div className="text-lg font-semibold" style={{ color: 'var(--ig-danger)' }}>{noCount}</div>
+          <div className="text-[10px] hud-text-muted">Não</div>
         </div>
-        <div className="p-2 rounded-lg bg-[rgba(255,255,255,0.08)]">
-          <div className="text-lg font-semibold text-white">{abstainCount}</div>
-          <div className="text-[10px] text-[rgba(255,255,255,0.55)]">Abstenção</div>
+        <div className="p-2 rounded-lg hud-surface">
+          <div className="text-lg font-semibold hud-text">{abstainCount}</div>
+          <div className="text-[10px] hud-text-muted">Abstenção</div>
         </div>
       </div>
 
-      <div className="p-3 rounded-lg border border-[rgba(255,255,255,0.1)] bg-[rgba(255,255,255,0.02)]">
+      <div className="p-3 rounded-lg border hud-surface">
         <div className="flex items-center justify-between">
-          <span className="text-xs text-[rgba(255,255,255,0.65)] uppercase tracking-wide">Quorum</span>
-          <span className={cn('text-xs font-medium', hasQuorum ? 'text-[#00FFB4]' : 'text-[#FFB04D]')}>
+          <span className="text-xs hud-text-muted uppercase tracking-wide">Quorum</span>
+          <span className={cn('text-xs font-medium', hasQuorum ? 'hud-accent-success' : 'hud-accent-warning')}>
             {present}/{required}
           </span>
         </div>
@@ -104,10 +104,10 @@ export function VotingConsole({ item, currentUserId, onCastVote, onCloseVoting, 
                     <button
                       key={option.value}
                       onClick={() => setSelectedVote(option.value)}
-                      className={cn('p-2 rounded border text-sm transition-all', active ? 'border-current' : 'border-[rgba(255,255,255,0.12)]')}
+                      className={cn('p-2 rounded border text-sm transition-all', active ? 'border-current' : 'border-[var(--ig-border-default)]')}
                       style={{
-                        color: active ? option.color : 'rgba(255,255,255,0.8)',
-                        backgroundColor: active ? option.bgColor : 'rgba(255,255,255,0.02)',
+                        color: active ? option.color : 'var(--ig-fg-default)',
+                        backgroundColor: active ? option.bgColor : 'var(--ig-accent-weak)',
                       }}
                     >
                       <Icon className="w-4 h-4 mx-auto mb-1" />

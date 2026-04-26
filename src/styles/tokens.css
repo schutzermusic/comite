@@ -265,6 +265,76 @@ html.light .ig-dashboard-kpi-scope > div > div:first-child p:last-child {
 .ig-label-upper {
   text-transform: uppercase;
 }
+
+/* ── Cross-module typography utilities ────────────────────── */
+.ig-page-title {
+  font-size: 22px;
+  line-height: 1.25;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ig-fg-strong);
+}
+.ig-section-title {
+  font-size: 18px;
+  line-height: 1.3;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  color: var(--ig-fg-strong);
+}
+.ig-subtitle {
+  font-size: 14px;
+  line-height: 1.5;
+  font-weight: 400;
+  color: var(--ig-fg-muted);
+}
+.ig-kpi-value {
+  font-size: 20px;
+  line-height: 1.15;
+  font-weight: 660;
+  letter-spacing: -0.008em;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum", "cv11";
+  color: var(--ig-fg-strong);
+}
+.ig-kpi-label {
+  font-size: 11px;
+  line-height: 1.4;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ig-fg-muted);
+}
+.ig-body {
+  font-size: 14px;
+  line-height: 1.55;
+  font-weight: 400;
+  color: var(--ig-fg-default);
+}
+.ig-body-sm {
+  font-size: 13px;
+  line-height: 1.5;
+  font-weight: 400;
+  color: var(--ig-fg-default);
+}
+.ig-caption {
+  font-size: 12px;
+  line-height: 1.45;
+  font-weight: 400;
+  color: var(--ig-fg-muted);
+}
+.ig-meta {
+  font-size: 10px;
+  line-height: 1.4;
+  font-weight: 400;
+  color: var(--ig-fg-subtle);
+}
+.ig-label {
+  font-size: 11px;
+  line-height: 1.4;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  color: var(--ig-fg-muted);
+}
 /* ── Aurora atmosférica ── */
 .ig-aurora {
   background:

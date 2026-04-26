@@ -26,14 +26,14 @@ const queueConfig: Array<{
     icon: React.ElementType;
     color: string;
 }> = [
-        { id: 'draft', label: 'Rascunho', icon: FileText, color: 'rgba(255,255,255,0.65)' },
-        { id: 'submitted', label: 'Submetidas', icon: Send, color: '#00C8FF' },
-        { id: 'in_review', label: 'Em Revisão', icon: SearchCheck, color: '#FFB04D' },
-        { id: 'in_voting', label: 'Em Votação', icon: Vote, color: '#A855F7' },
-        { id: 'awaiting_minutes', label: 'Aguardando Atas', icon: ClipboardCheck, color: '#4ADE80' },
-        { id: 'resolved', label: 'Resolvidas', icon: CheckCircle, color: '#00FFB4' },
-        { id: 'in_execution', label: 'Em Execução', icon: PlayCircle, color: '#F59E0B' },
-        { id: 'closed', label: 'Encerradas', icon: Lock, color: 'rgba(255,255,255,0.45)' },
+        { id: 'draft', label: 'Rascunho', icon: FileText, color: 'var(--ig-fg-muted)' },
+        { id: 'submitted', label: 'Submetidas', icon: Send, color: 'var(--ig-info)' },
+        { id: 'in_review', label: 'Em Revisão', icon: SearchCheck, color: 'var(--ig-warning)' },
+        { id: 'in_voting', label: 'Em Votação', icon: Vote, color: '#7C3AED' },
+        { id: 'awaiting_minutes', label: 'Aguardando Atas', icon: ClipboardCheck, color: 'var(--ig-success)' },
+        { id: 'resolved', label: 'Resolvidas', icon: CheckCircle, color: 'var(--ig-success)' },
+        { id: 'in_execution', label: 'Em Execução', icon: PlayCircle, color: 'var(--ig-warning)' },
+        { id: 'closed', label: 'Encerradas', icon: Lock, color: 'var(--ig-fg-subtle)' },
     ];
 
 export function QueueTabs({ activeQueue, onQueueChange, counts }: QueueTabsProps) {
@@ -52,8 +52,8 @@ export function QueueTabs({ activeQueue, onQueueChange, counts }: QueueTabsProps
                             "flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-all whitespace-nowrap",
                             "border border-transparent",
                             isActive
-                                ? "bg-[rgba(255,255,255,0.08)] border-[rgba(255,255,255,0.12)] text-white"
-                                : "text-[rgba(255,255,255,0.55)] hover:text-[rgba(255,255,255,0.85)] hover:bg-[rgba(255,255,255,0.04)]"
+                                ? "hud-surface-elevated border-[var(--ig-border-strong)] hud-text"
+                                : "hud-text-muted hover:hud-text-secondary hover:bg-[rgba(255,255,255,0.04)]"
                         )}
                     >
                         <Icon
@@ -66,8 +66,8 @@ export function QueueTabs({ activeQueue, onQueueChange, counts }: QueueTabsProps
                                 className={cn(
                                     "ml-1 px-1.5 py-0.5 text-[10px] rounded-full font-semibold min-w-[18px] text-center",
                                     isActive
-                                        ? "bg-[rgba(255,255,255,0.15)] text-white"
-                                        : "bg-[rgba(255,255,255,0.08)] text-[rgba(255,255,255,0.65)]"
+                                        ? "hud-surface-elevated hud-text"
+                                        : "hud-surface hud-text-muted"
                                 )}
                             >
                                 {count}

@@ -31,8 +31,8 @@ const kpiConfigs: KPIConfig[] = [
         id: 'open',
         label: 'Abertas',
         icon: FolderOpen,
-        color: '#00C8FF',
-        bgColor: 'rgba(0,200,255,0.12)',
+        color: 'var(--ig-info)',
+        bgColor: 'var(--ig-accent-weak)',
         getValue: (items) => items.filter((item) =>
             ['draft', 'submitted', 'in_review', 'in_voting', 'awaiting_minutes', 'in_execution'].includes(item.deliberationStatus)
         ).length,
@@ -41,16 +41,16 @@ const kpiConfigs: KPIConfig[] = [
         id: 'in_voting',
         label: 'Em Votação',
         icon: Vote,
-        color: '#A855F7',
-        bgColor: 'rgba(168,85,247,0.12)',
+        color: '#7C3AED',
+        bgColor: 'rgba(124,58,237,0.10)',
         getValue: (items) => items.filter((item) => item.deliberationStatus === 'in_voting').length,
     },
     {
         id: 'overdue',
         label: 'Atrasadas',
         icon: Clock,
-        color: '#FF5860',
-        bgColor: 'rgba(255,88,96,0.12)',
+        color: 'var(--ig-danger)',
+        bgColor: 'rgba(239,75,85,0.08)',
         getValue: (items) => {
             const now = new Date();
             return items.filter((item) => {
@@ -63,8 +63,8 @@ const kpiConfigs: KPIConfig[] = [
         id: 'resolved_30d',
         label: 'Resolvidas (30d)',
         icon: CheckCircle,
-        color: '#00FFB4',
-        bgColor: 'rgba(0,255,180,0.12)',
+        color: 'var(--ig-success)',
+        bgColor: 'rgba(16,185,129,0.08)',
         getValue: (items) => {
             const now = new Date().getTime();
             const days30 = 30 * 24 * 60 * 60 * 1000;
@@ -79,8 +79,8 @@ const kpiConfigs: KPIConfig[] = [
         id: 'avg_resolution',
         label: 'Tempo Médio de Resolução',
         icon: TimerReset,
-        color: '#F59E0B',
-        bgColor: 'rgba(245,158,11,0.12)',
+        color: 'var(--ig-warning)',
+        bgColor: 'rgba(245,165,36,0.08)',
         getValue: (items) => {
             const resolved = items.filter((item) => item.submittedAt && item.resolvedAt);
             if (resolved.length === 0) return 0;
@@ -124,12 +124,12 @@ export function BoardHealthKPI({ items, activeFilter, onFilterClick }: BoardHeal
                         </div>
                         <div className="text-left">
                             <div
-                                className="text-lg font-bold leading-none"
-                                style={{ color: value > 0 ? kpi.color : 'rgba(255,255,255,0.35)' }}
+                                className="text-lg font-bold leading-none ig-tabular"
+                                style={{ color: value > 0 ? kpi.color : 'var(--ig-fg-subtle)' }}
                             >
                                 {value}
                             </div>
-                            <div className="text-[10px] text-[rgba(255,255,255,0.55)] mt-0.5">
+                            <div className="text-[10px] hud-text-muted mt-0.5">
                                 {kpi.label}
                             </div>
                         </div>
