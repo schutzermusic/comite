@@ -51,6 +51,7 @@ export const LeftHudStack = React.memo(function LeftHudStack({ data, scopeMode =
                     icon={<Zap className="w-3 h-3" />}
                     delay={0.05}
                     badge={data.decisionQueue.length}
+                    parallax
                 >
                     <div className="space-y-1">
                         {data.decisionQueue.slice(0, 4).map((item) => (
@@ -158,6 +159,7 @@ export const LeftHudStack = React.memo(function LeftHudStack({ data, scopeMode =
                     delay={0.2}
                     serial="HUD-2026"
                     watermark="CONTROL ROOM · V2.6"
+                    parallax
                 >
                     {data.financialPulse ? (
                         <FinanceSnapshotCharts financialPulse={data.financialPulse} />

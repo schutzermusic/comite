@@ -210,6 +210,7 @@ export const RightHudStack = React.memo(function RightHudStack({ data, scopeMode
                     delay={0.35}
                     badge={filteredEvents.length}
                     watermark="EXECUTIVE · VIEW"
+                    parallax
                 >
                     <div className="space-y-1.5">
                         {/* Header controls */}
