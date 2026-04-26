@@ -107,7 +107,7 @@ export const LeftHudStack = React.memo(function LeftHudStack({ data, scopeMode =
                         <div className="flex items-end justify-between">
                             <div>
                                 <p className="cr-label mb-0.5">{t('portfolioValue')}</p>
-                                <span className="text-ig-kpi-xl ig-tabular ig-text-metal-accent leading-none">
+                                <span className="ig-dashboard-kpi-primary">
                                     {portfolioValue}
                                 </span>
                                 {portfolioDelta !== undefined && (
@@ -118,7 +118,7 @@ export const LeftHudStack = React.memo(function LeftHudStack({ data, scopeMode =
                             </div>
                             <div className="text-right">
                                 <p className="cr-label mb-0.5">{t('averageHealth')}</p>
-                                <span className="text-ig-kpi-xl ig-tabular ig-text-metal-accent leading-none">
+                                <span className="ig-dashboard-kpi-secondary">
                                     {scopedHealth}%
                                 </span>
                             </div>
@@ -126,13 +126,13 @@ export const LeftHudStack = React.memo(function LeftHudStack({ data, scopeMode =
 
                         <div className="grid grid-cols-2 gap-3">
                             <div>
-                                <p className="text-ig-kpi-xl ig-tabular ig-text-metal-accent leading-none">
+                                <p className="ig-dashboard-kpi-secondary">
                                     {scopedProjects ?? 12}
                                 </p>
                                 <p className="cr-label mt-0.5">{t('activeProjects')}</p>
                             </div>
                             <div>
-                                <p className="text-ig-kpi-xl ig-tabular ig-text-metal-accent leading-none">
+                                <p className="ig-dashboard-kpi-secondary">
                                     {scopedContracts ?? 46}
                                 </p>
                                 <p className="cr-label mt-0.5">{t('activeContracts')}</p>
@@ -165,7 +165,9 @@ export const LeftHudStack = React.memo(function LeftHudStack({ data, scopeMode =
                     parallax
                 >
                     {data.financialPulse ? (
-                        <FinanceSnapshotCharts financialPulse={data.financialPulse} />
+                        <div className="ig-dashboard-kpi-scope">
+                            <FinanceSnapshotCharts financialPulse={data.financialPulse} />
+                        </div>
                     ) : (
                         <p className="text-[10px] text-white/30">{t('noFinancialData')}</p>
                     )}

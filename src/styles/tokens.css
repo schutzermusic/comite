@@ -216,6 +216,47 @@ html.light .ig-text-metal-accent {
   color: var(--ig-fg-strong);
 }
 
+/* ── Dashboard KPI graphite finish ── */
+.ig-dashboard-kpi-primary,
+.ig-dashboard-kpi-secondary,
+.ig-dashboard-kpi-scope .ig-text-metal-accent,
+.ig-dashboard-kpi-scope > div > div:first-child p:last-child {
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  -webkit-background-clip: text;
+  background-clip: text;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum", "cv11";
+}
+.ig-dashboard-kpi-primary {
+  font-size: 24px;
+  line-height: 1.04;
+  font-weight: 660;
+  letter-spacing: -0.012em;
+}
+.ig-dashboard-kpi-secondary,
+.ig-dashboard-kpi-scope .ig-text-metal-accent,
+.ig-dashboard-kpi-scope > div > div:first-child p:last-child {
+  font-size: 16px;
+  line-height: 1.08;
+  font-weight: 620;
+  letter-spacing: -0.004em;
+}
+html.dark .ig-dashboard-kpi-primary,
+html.dark .ig-dashboard-kpi-secondary,
+html.dark .ig-dashboard-kpi-scope .ig-text-metal-accent,
+html.dark .ig-dashboard-kpi-scope > div > div:first-child p:last-child {
+  background-image: linear-gradient(180deg, var(--ig-fg-strong) 0%, color-mix(in oklab, var(--ig-accent) 36%, var(--ig-fg-strong)) 96%);
+  text-shadow: 0 0 18px color-mix(in oklab, var(--ig-accent) 8%, transparent);
+}
+html.light .ig-dashboard-kpi-primary,
+html.light .ig-dashboard-kpi-secondary,
+html.light .ig-dashboard-kpi-scope .ig-text-metal-accent,
+html.light .ig-dashboard-kpi-scope > div > div:first-child p:last-child {
+  background-image: linear-gradient(180deg, color-mix(in oklab, var(--ig-fg-strong) 86%, var(--ig-accent)) 0%, color-mix(in oklab, var(--ig-accent) 28%, var(--ig-fg-default)) 56%, var(--ig-fg-strong) 100%);
+  text-shadow: 0 1px 0 color-mix(in oklab, var(--ig-bg-raised) 74%, transparent);
+}
+
 /* ── Utilitários tipográficos ── */
 .ig-tabular {
   font-variant-numeric: tabular-nums;
