@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Save, Send, Clock, MapPin, Video, Users as UsersIcon } from "lucide-react";
-import { HUDCard } from "@/components/ui/hud-card";
+import { HudPanel } from "@/components/hud";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
@@ -18,7 +18,6 @@ import {
 } from "@/components/ui/select";
 import { useHudToast } from "@/hooks/useHudToast";
 import { Badge } from "@/components/ui/badge";
-import { OrionGreenBackground } from "@/components/system/OrionGreenBackground";
 import { projects as comites, votes as pautas, users } from "@/lib/mock-data";
 
 export default function NovaReuniaoPage() {
@@ -130,8 +129,8 @@ export default function NovaReuniaoPage() {
   }, [formData.comite_id]);
 
   return (
-    <OrionGreenBackground className="orion-page">
-      <div className="orion-page-content max-w-5xl mx-auto space-y-6">
+    <>
+      <div className="max-w-5xl mx-auto space-y-6 p-4 md:p-6 lg:p-8">
         <header className="mb-8">
           <div className="flex items-center gap-4">
             <Button
@@ -151,7 +150,7 @@ export default function NovaReuniaoPage() {
 
       <div className="grid lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
-          <HUDCard>
+          <HudPanel>
             <div className="mb-6">
               <h2 className="text-lg font-semibold text-white orion-text-heading">Informações da Reunião</h2>
             </div>
@@ -275,9 +274,9 @@ export default function NovaReuniaoPage() {
                 />
               </div>
             </div>
-          </HUDCard>
+          </HudPanel>
 
-          <HUDCard>
+          <HudPanel>
             <div className="mb-6">
               <h2 className="text-lg font-semibold text-white orion-text-heading">Participantes</h2>
             </div>
@@ -305,11 +304,11 @@ export default function NovaReuniaoPage() {
                 {formData.participantes_emails.length} participante(s) selecionado(s)
               </p>
             </div>
-          </HUDCard>
+          </HudPanel>
         </div>
 
         <div className="space-y-6">
-          <HUDCard>
+          <HudPanel>
             <div className="mb-6">
               <h2 className="text-lg font-semibold text-white orion-text-heading">Pautas da Reunião</h2>
             </div>
@@ -342,9 +341,9 @@ export default function NovaReuniaoPage() {
                 </div>
               )}
             </div>
-          </HUDCard>
+          </HudPanel>
 
-          <HUDCard>
+          <HudPanel>
             <div className="mb-6">
               <h2 className="text-lg font-semibold text-white orion-text-heading">Resumo</h2>
             </div>
@@ -362,7 +361,7 @@ export default function NovaReuniaoPage() {
                 <span className="font-semibold text-white">{formData.duracao_minutos} min</span>
               </div>
             </div>
-          </HUDCard>
+          </HudPanel>
 
           <div className="space-y-3">
             <Button
@@ -404,6 +403,6 @@ export default function NovaReuniaoPage() {
         </div>
         </div>
       </div>
-    </OrionGreenBackground>
+    </>
   );
 }

@@ -18,12 +18,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { HUDCard } from "@/components/ui/hud-card";
+import { HudPanel } from "@/components/hud";
 import { StatusPill } from "@/components/ui/status-pill";
 import { HUDProgressBar } from "@/components/ui/hud-progress-bar";
 import { PrimaryCTA } from "@/components/ui/primary-cta";
 import { SecondaryButton } from "@/components/ui/secondary-button";
-import { OrionGreenBackground } from "@/components/system/OrionGreenBackground";
 import { useHudToast } from "@/hooks/useHudToast";
 import { projects, mockAnalytics } from "@/lib/mock-data";
 import { ProjetoAnalytics } from "@/lib/types";
@@ -66,11 +65,9 @@ export default function ProjetoAnalyticsPage({ params }: { params: Promise<{ id:
 
   if (!projeto) {
     return (
-      <OrionGreenBackground className="orion-page">
-        <div className="orion-page-content flex items-center justify-center min-h-screen">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#00FFB4]"></div>
-        </div>
-      </OrionGreenBackground>
+      <div className="flex items-center justify-center min-h-screen p-4 md:p-6 lg:p-8">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#00FFB4]"></div>
+      </div>
     );
   }
 
@@ -88,8 +85,8 @@ export default function ProjetoAnalyticsPage({ params }: { params: Promise<{ id:
   };
 
   return (
-    <OrionGreenBackground className="orion-page">
-      <div className="orion-page-content max-w-[1800px] mx-auto space-y-6">
+    <>
+      <div className="max-w-[1800px] mx-auto space-y-6 p-4 md:p-6 lg:p-8">
         {/* Header */}
         <header className="mb-8">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -131,7 +128,7 @@ export default function ProjetoAnalyticsPage({ params }: { params: Promise<{ id:
         <>
           {/* Health Score Overview */}
           <div className="grid md:grid-cols-3 gap-6 mb-6">
-            <HUDCard glow glowColor="cyan" className="md:col-span-2">
+            <HudPanel halo className="md:col-span-2">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-3">
                   <Target className="w-8 h-8 text-[#00C8FF]" />
@@ -159,13 +156,13 @@ export default function ProjetoAnalyticsPage({ params }: { params: Promise<{ id:
                   <p className="text-sm text-[rgba(255,255,255,0.85)] whitespace-pre-wrap leading-relaxed">{analytics.ia_insights}</p>
                 </div>
               )}
-            </HUDCard>
+            </HudPanel>
 
             {/* Quick Stats */}
             <div className="space-y-4">
               {analytics.avaliacao_risco && (
-                <HUDCard glow glowColor={analytics.avaliacao_risco.nivel_risco === 'critico' ? 'red' : 
-                                        analytics.avaliacao_risco.nivel_risco === 'alto' ? 'amber' : 'green'}>
+                <HudPanel halo state={analytics.avaliacao_risco.nivel_risco === 'critico' ? 'critical' :
+                                        analytics.avaliacao_risco.nivel_risco === 'alto' ? 'warning' : 'success'}>
                   <div className="flex items-center justify-between mb-2">
                     <AlertTriangle className={`w-6 h-6 ${
                       analytics.avaliacao_risco.nivel_risco === 'critico' ? 'text-[#FF5860]' :
@@ -176,11 +173,11 @@ export default function ProjetoAnalyticsPage({ params }: { params: Promise<{ id:
                   <p className="text-xs text-[rgba(255,255,255,0.65)] mb-1 uppercase tracking-wide">Nível de Risco</p>
                   <p className="text-2xl font-semibold text-white capitalize">{analytics.avaliacao_risco.nivel_risco}</p>
                   <p className="text-xs text-[rgba(255,255,255,0.50)] mt-1">Score: {analytics.avaliacao_risco.score_risco}/100</p>
-                </HUDCard>
+                </HudPanel>
               )}
 
               {analytics.previsao_roi && (
-                <HUDCard glow glowColor="green">
+                <HudPanel halo state="success">
                   <div className="flex items-center justify-between mb-2">
                     <TrendingUp className="w-6 h-6 text-[#00FFB4]" />
                   </div>
@@ -189,7 +186,7 @@ export default function ProjetoAnalyticsPage({ params }: { params: Promise<{ id:
                     {analytics.previsao_roi.roi_estimado_percentual?.toFixed(1) || 0}%
                   </p>
                   <p className="text-xs text-[rgba(255,255,255,0.50)] mt-1">Cenário Realista</p>
-                </HUDCard>
+                </HudPanel>
               )}
             </div>
           </div>
@@ -239,7 +236,7 @@ export default function ProjetoAnalyticsPage({ params }: { params: Promise<{ id:
             </TabsContent>
 
             <TabsContent value="recommendations" className="mt-0">
-              <HUDCard>
+              <HudPanel>
                 <div className="mb-6">
                   <h2 className="text-lg font-semibold text-white orion-text-heading">Recomendações Estratégicas</h2>
                   <p className="text-sm text-[rgba(255,255,255,0.65)] mt-1">Ações sugeridas pela IA para otimizar o projeto</p>
@@ -309,12 +306,12 @@ export default function ProjetoAnalyticsPage({ params }: { params: Promise<{ id:
                     <p className="text-sm text-[rgba(255,255,255,0.50)] mt-1">A IA ainda não gerou recomendações para este projeto</p>
                   </div>
                 )}
-              </HUDCard>
+              </HudPanel>
             </TabsContent>
           </Tabs>
         </>
       ) : (
-        <HUDCard className="text-center">
+        <HudPanel className="text-center">
           <div className="py-12">
             <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-[rgba(0,255,180,0.12)] flex items-center justify-center">
               <Brain className="w-10 h-10 text-[#00FFB4]" />
@@ -343,9 +340,9 @@ export default function ProjetoAnalyticsPage({ params }: { params: Promise<{ id:
               )}
             </PrimaryCTA>
           </div>
-        </HUDCard>
+        </HudPanel>
       )}
       </div>
-    </OrionGreenBackground>
+    </>
   );
 }

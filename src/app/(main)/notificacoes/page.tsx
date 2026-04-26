@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { HudInput } from "@/components/ui/hud-input";
-import { HUDCard } from "@/components/ui/hud-card";
+import { HudPanel } from "@/components/hud";
 import { StatusPill } from "@/components/ui/status-pill";
 import { PrimaryCTA } from "@/components/ui/primary-cta";
 import { SecondaryButton } from "@/components/ui/secondary-button";
@@ -46,7 +46,6 @@ import { useHudToast } from "@/hooks/useHudToast";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { notifications, users } from "@/lib/mock-data";
-import { OrionGreenBackground } from "@/components/system/OrionGreenBackground";
 
 const logs = notifications.map(n => ({
     id: n.id,
@@ -142,8 +141,8 @@ export default function AdminNotificacoes() {
   };
 
   return (
-    <OrionGreenBackground className="orion-page">
-      <div className="orion-page-content max-w-[1800px] mx-auto space-y-6">
+    <>
+      <div className="max-w-[1800px] mx-auto space-y-6 p-4 md:p-6 lg:p-8">
         <div className="flex justify-between items-start">
           <div>
             <h1 className="text-2xl font-semibold text-white mb-1">Central de Notificações</h1>
@@ -162,48 +161,48 @@ export default function AdminNotificacoes() {
         </div>
 
         <div className="grid md:grid-cols-5 gap-4">
-          <HUDCard glow glowColor="cyan">
+          <HudPanel halo>
             <div className="flex items-center justify-between mb-2">
               <Bell className="w-6 h-6 text-[#00C8FF]" />
             </div>
             <p className="text-xs text-[rgba(255,255,255,0.65)] uppercase tracking-wide mb-1">Total Enviadas</p>
             <p className="text-3xl font-semibold text-white">{stats.total}</p>
-          </HUDCard>
+          </HudPanel>
 
-          <HUDCard glow glowColor="green">
+          <HudPanel halo state="success">
             <div className="flex items-center justify-between mb-2">
               <CheckCircle2 className="w-6 h-6 text-[#00FFB4]" />
             </div>
             <p className="text-xs text-[rgba(255,255,255,0.65)] uppercase tracking-wide mb-1">Entregues</p>
             <p className="text-3xl font-semibold text-white">{stats.sent}</p>
-          </HUDCard>
+          </HudPanel>
 
-          <HUDCard glow glowColor="red">
+          <HudPanel halo state="critical">
             <div className="flex items-center justify-between mb-2">
               <XCircle className="w-6 h-6 text-[#FF5860]" />
             </div>
             <p className="text-xs text-[rgba(255,255,255,0.65)] uppercase tracking-wide mb-1">Falhas</p>
             <p className="text-3xl font-semibold text-white">{stats.failed}</p>
-          </HUDCard>
+          </HudPanel>
 
-          <HUDCard glow glowColor="amber">
+          <HudPanel halo state="warning">
             <div className="flex items-center justify-between mb-2">
               <Clock className="w-6 h-6 text-[#FFB04D]" />
             </div>
             <p className="text-xs text-[rgba(255,255,255,0.65)] uppercase tracking-wide mb-1">Na Fila</p>
             <p className="text-3xl font-semibold text-white">{stats.queued}</p>
-          </HUDCard>
+          </HudPanel>
 
-          <HUDCard glow glowColor="cyan">
+          <HudPanel halo>
             <div className="flex items-center justify-between mb-2">
               <Mail className="w-6 h-6 text-[#00C8FF]" />
             </div>
             <p className="text-xs text-[rgba(255,255,255,0.65)] uppercase tracking-wide mb-1">Taxa Email</p>
             <p className="text-3xl font-semibold text-white">{stats.emailRate}%</p>
-          </HUDCard>
+          </HudPanel>
         </div>
 
-        <HUDCard>
+        <HudPanel>
           <div className="flex items-center gap-2 text-sm font-semibold text-white mb-4">
             <Settings className="w-4 h-4 text-[#00C8FF]" />
             Configuração Atual
@@ -236,9 +235,9 @@ export default function AdminNotificacoes() {
               </StatusPill>
             </div>
           </div>
-        </HUDCard>
+        </HudPanel>
 
-        <HUDCard>
+        <HudPanel>
           <div className="grid md:grid-cols-3 gap-4">
             <HudInput
               placeholder="Buscar por email ou nome..."
@@ -276,9 +275,9 @@ export default function AdminNotificacoes() {
               </SelectContent>
             </Select>
           </div>
-        </HUDCard>
+        </HudPanel>
 
-        <HUDCard className="p-0">
+        <HudPanel noPadding>
           <div className="p-5 pb-2 flex items-center justify-between">
             <h2 className="text-lg font-semibold text-white">Logs de Notificações</h2>
           </div>
@@ -374,7 +373,7 @@ export default function AdminNotificacoes() {
               <p className="text-[rgba(255,255,255,0.65)]">Nenhum log encontrado</p>
             </div>
           )}
-        </HUDCard>
+        </HudPanel>
 
         <Dialog open={showTestDialog} onOpenChange={setShowTestDialog}>
           <DialogContent className="bg-gradient-to-br from-[#0A1612] to-[#07130F] border-[rgba(255,255,255,0.10)]">
@@ -465,6 +464,6 @@ export default function AdminNotificacoes() {
           </DialogContent>
         </Dialog>
       </div>
-    </OrionGreenBackground>
+    </>
   );
 }

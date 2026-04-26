@@ -33,9 +33,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
-import { HUDCard } from '@/components/ui/hud-card';
+import { HudPanel } from '@/components/hud';
 import { StatusPill } from '@/components/ui/status-pill';
-import { OrionGreenBackground } from '@/components/system/OrionGreenBackground';
 import { PrimaryCTA } from '@/components/ui/primary-cta';
 import { projects, users as mockUsers, votes } from '@/lib/mock-data';
 
@@ -78,22 +77,20 @@ export default function DetalheComitePage({ params }: { params: Promise<{ id: st
 
   if (!comite) {
     return (
-      <OrionGreenBackground className="orion-page">
-        <div className="orion-page-content max-w-7xl mx-auto p-6 lg:p-8">
-          <HUDCard>
-            <div className="p-12 text-center">
-              <Building2 className="w-16 h-16 text-[rgba(255,255,255,0.20)] mx-auto mb-4" />
-              <h3 className="text-lg font-semibold text-white mb-2">Comitê não encontrado</h3>
-              <Button 
-                onClick={() => router.push('/comites')}
-                className="bg-[#00FFB4] text-[#050D0A] hover:bg-[#00E6A0] font-medium shadow-[0_0_18px_rgba(0,255,180,0.18)]"
-              >
-                Voltar para Comitês
-              </Button>
-            </div>
-          </HUDCard>
-        </div>
-      </OrionGreenBackground>
+      <div className="max-w-7xl mx-auto p-6 lg:p-8">
+        <HudPanel>
+          <div className="p-12 text-center">
+            <Building2 className="w-16 h-16 text-[rgba(255,255,255,0.20)] mx-auto mb-4" />
+            <h3 className="text-lg font-semibold text-white mb-2">Comitê não encontrado</h3>
+            <Button
+              onClick={() => router.push('/comites')}
+              className="bg-[#00FFB4] text-[#050D0A] hover:bg-[#00E6A0] font-medium shadow-[0_0_18px_rgba(0,255,180,0.18)]"
+            >
+              Voltar para Comitês
+            </Button>
+          </div>
+        </HudPanel>
+      </div>
     );
   }
 
@@ -140,8 +137,8 @@ export default function DetalheComitePage({ params }: { params: Promise<{ id: st
   const TipoIcon = getTipoIcon(String(comite.tipo));
 
   return (
-    <OrionGreenBackground className="orion-page">
-      <div className="orion-page-content max-w-7xl mx-auto space-y-6">
+    <>
+      <div className="max-w-7xl mx-auto space-y-6 p-4 md:p-6 lg:p-8">
         <header className="mb-8">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div className="flex items-center gap-4">
@@ -189,7 +186,7 @@ export default function DetalheComitePage({ params }: { params: Promise<{ id: st
 
         <div className="grid lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
-            <HUDCard glow glowColor="green">
+            <HudPanel halo state="success">
               <div className="flex items-center gap-4 mb-6">
                 <div className="p-3 rounded-xl bg-[rgba(0,255,180,0.12)] border border-[rgba(0,255,180,0.25)]">
                   <TipoIcon className="w-6 h-6 text-[#00FFB4]" />
@@ -252,9 +249,9 @@ export default function DetalheComitePage({ params }: { params: Promise<{ id: st
                   </div>
                 </div>
               </div>
-            </HUDCard>
+            </HudPanel>
 
-            <HUDCard>
+            <HudPanel>
               <div className="flex justify-between items-center mb-6">
                 <h2 className="text-lg font-semibold text-white orion-text-heading">Membros do Comitê</h2>
                 {isAdmin && (
@@ -314,11 +311,11 @@ export default function DetalheComitePage({ params }: { params: Promise<{ id: st
                   </div>
                 )}
               </div>
-            </HUDCard>
+            </HudPanel>
           </div>
 
           <div className="space-y-6">
-            <HUDCard>
+            <HudPanel>
               <div className="mb-6">
                 <h2 className="text-lg font-semibold text-white orion-text-heading">Informações</h2>
               </div>
@@ -345,9 +342,9 @@ export default function DetalheComitePage({ params }: { params: Promise<{ id: st
                   ></div>
                 </div>
               </div>
-            </HUDCard>
+            </HudPanel>
 
-            <HUDCard>
+            <HudPanel>
               <div className="mb-6">
                 <h2 className="text-lg font-semibold text-white orion-text-heading">Pautas Recentes</h2>
               </div>
@@ -372,7 +369,7 @@ export default function DetalheComitePage({ params }: { params: Promise<{ id: st
                   </div>
                 )}
               </div>
-            </HUDCard>
+            </HudPanel>
           </div>
         </div>
 
@@ -454,6 +451,6 @@ export default function DetalheComitePage({ params }: { params: Promise<{ id: st
         </DialogContent>
       </Dialog>
       </div>
-    </OrionGreenBackground>
+    </>
   );
 }
