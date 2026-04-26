@@ -8,7 +8,7 @@ import {
     TrendingUp,
     Receipt,
 } from 'lucide-react';
-import { HUDCard } from '@/components/ui/hud-card';
+import { HudPanel } from '@/components/hud';
 import { Button } from '@/components/ui/button';
 import type { ProjectV2 } from '@/lib/types/project-v2';
 import { formatMoney } from '@/lib/utils/project-utils';
@@ -75,7 +75,7 @@ export function ContractRevenueCard({ project, onTabChange }: ContractRevenueCar
     };
 
     return (
-        <HUDCard>
+        <HudPanel>
             {/* ── Header ────────────────────────── */}
             <div className="flex items-center justify-between mb-5">
                 <div className="flex items-center gap-2.5">
@@ -288,6 +288,6 @@ export function ContractRevenueCard({ project, onTabChange }: ContractRevenueCar
                     </Button>
                 </div>
             </div>
-        </HUDCard>
+        </HudPanel>
     );
 }

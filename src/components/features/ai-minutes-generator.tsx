@@ -4,7 +4,7 @@ import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { PrimaryCTA } from "@/components/ui/primary-cta";
 import { SecondaryButton } from "@/components/ui/secondary-button";
-import { HUDCard } from "@/components/ui/hud-card";
+import { HudPanel } from "@/components/hud";
 import { hudInputBase } from "@/components/ui/hud-input";
 import { Textarea } from "@/components/ui/textarea";
 import { useHudToast } from "@/hooks/useHudToast";
@@ -76,7 +76,7 @@ export function AiMinutesGenerator({ meeting, agendaItems }: AiMinutesGeneratorP
   };
 
   return (
-    <HUDCard className="relative overflow-hidden border-[rgba(0,200,255,0.20)]">
+    <HudPanel className="relative overflow-hidden border-[rgba(0,200,255,0.20)]">
       <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_20%_20%,rgba(0,200,255,0.20),transparent_60%)]" />
       <div className="flex flex-col gap-6 relative z-10">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -245,7 +245,7 @@ export function AiMinutesGenerator({ meeting, agendaItems }: AiMinutesGeneratorP
         </Accordion>
         )}
       </div>
-    </HUDCard>
+    </HudPanel>
   );
 }
 

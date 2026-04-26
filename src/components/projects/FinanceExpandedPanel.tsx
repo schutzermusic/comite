@@ -11,7 +11,6 @@ import {
     BarChart3,
     Info,
 } from 'lucide-react';
-import { HUDCard } from '@/components/ui/hud-card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import {

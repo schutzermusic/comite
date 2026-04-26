@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { ProjectAllocation } from "@/lib/types";
-import { HUDCard } from "@/components/ui/hud-card";
+import { HudPanel } from "@/components/hud";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { StatusPill } from "@/components/ui/status-pill";
@@ -88,34 +88,34 @@ export function TeamAllocationView({
     <div className="space-y-6">
       {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <HUDCard glow glowColor="cyan">
+        <HudPanel halo>
           <div className="flex items-center justify-between mb-2">
             <TrendingUp className="w-6 h-6 text-[#00C8FF]" />
           </div>
           <p className="text-xs text-[rgba(255,255,255,0.65)] mb-1 uppercase tracking-wide">Capacidade Média</p>
           <p className="text-3xl font-semibold text-white">{averageCapacity.toFixed(0)}%</p>
           <p className="text-xs text-[rgba(255,255,255,0.50)] mt-1">do time alocado</p>
-        </HUDCard>
-        <HUDCard glow glowColor={overloadedMembers > 0 ? "red" : "amber"}>
+        </HudPanel>
+        <HudPanel halo state={overloadedMembers > 0 ? "critical" : "warning"}>
           <div className="flex items-center justify-between mb-2">
             <AlertTriangle className={`w-6 h-6 ${overloadedMembers > 0 ? 'text-[#FF5860]' : 'text-[#FFB04D]'}`} />
           </div>
           <p className="text-xs text-[rgba(255,255,255,0.65)] mb-1 uppercase tracking-wide">Sobrecarregados</p>
           <p className="text-3xl font-semibold text-white">{overloadedMembers}</p>
           <p className="text-xs text-[rgba(255,255,255,0.50)] mt-1">acima de 100%</p>
-        </HUDCard>
-        <HUDCard glow glowColor="green">
+        </HudPanel>
+        <HudPanel halo state="success">
           <div className="flex items-center justify-between mb-2">
             <Users className="w-6 h-6 text-[#00FFB4]" />
           </div>
           <p className="text-xs text-[rgba(255,255,255,0.65)] mb-1 uppercase tracking-wide">Total da Equipe</p>
           <p className="text-3xl font-semibold text-white">{allocations.length}</p>
           <p className="text-xs text-[rgba(255,255,255,0.50)] mt-1">membros alocados</p>
-        </HUDCard>
+        </HudPanel>
       </div>
 
       {/* Team Allocation Cards */}
-      <HUDCard>
+      <HudPanel>
         <div className="flex items-center justify-between mb-6">
           <div>
             <h3 className="text-lg font-semibold text-white orion-text-heading">Alocação da Equipe</h3>
@@ -241,10 +241,10 @@ export function TeamAllocationView({
             })
           )}
         </div>
-      </HUDCard>
+      </HudPanel>
 
       {/* Capacity Legend */}
-      <HUDCard>
+      <HudPanel>
         <div className="flex items-center gap-2 text-sm flex-wrap">
           <Info className="w-4 h-4 text-[rgba(255,255,255,0.65)]" />
           <span className="font-medium text-white">Legenda de Capacidade:</span>
@@ -263,7 +263,7 @@ export function TeamAllocationView({
             </div>
           </div>
         </div>
-      </HUDCard>
+      </HudPanel>
 
       {/* Edit Dialog */}
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>

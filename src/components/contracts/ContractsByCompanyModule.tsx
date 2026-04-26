@@ -23,7 +23,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { HUDCard } from '@/components/ui/hud-card';
+import { HudPanel } from '@/components/hud';
 import { StatusPill } from '@/components/ui/status-pill';
 import { HUDProgressBar } from '@/components/ui/hud-progress-bar';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
@@ -204,7 +204,7 @@ export function ContractsByCompanyModule({
 
   return (
     <>
-      <HUDCard className={className}>
+      <HudPanel className={className}>
         {/* Header */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
           <h2 className="text-lg font-semibold hud-text">Contratos por Empresa</h2>
@@ -501,7 +501,7 @@ export function ContractsByCompanyModule({
             </Table>
           </div>
         )}
-      </HUDCard>
+      </HudPanel>
 
       {/* Company Detail Drawer */}
       <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>

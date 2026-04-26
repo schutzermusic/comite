@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { StatusPill } from '@/components/ui/status-pill';
-import { HUDCard } from '@/components/ui/hud-card';
+import { HudPanel } from '@/components/hud';
 import {
   useContractAIStore,
   useContractAnalysis,
@@ -111,7 +111,7 @@ export function ContractBriefPanel({
 
   if (!contract) {
     return (
-      <HUDCard className="h-full min-h-[500px] flex flex-col items-center justify-center">
+      <HudPanel className="h-full min-h-[500px] flex flex-col items-center justify-center">
         <div className="text-center p-6">
           <div className="p-4 bg-[rgba(255,255,255,0.03)] rounded-full w-16 h-16 mx-auto mb-4 flex items-center justify-center">
             <FileText className="w-8 h-8 text-[rgba(255,255,255,0.25)]" />
@@ -123,7 +123,7 @@ export function ContractBriefPanel({
             Selecione um contrato na lista para ver os detalhes
           </p>
         </div>
-      </HUDCard>
+      </HudPanel>
     );
   }
 
@@ -219,7 +219,7 @@ export function ContractBriefPanel({
   };
 
   return (
-    <HUDCard className="h-full flex flex-col">
+    <HudPanel className="h-full flex flex-col">
       {/* Header */}
       <div className="pb-4 border-b border-[rgba(255,255,255,0.06)]">
         <div className="flex items-start gap-3 mb-3">
@@ -707,7 +707,7 @@ export function ContractBriefPanel({
           </Button>
         )}
       </div>
-    </HUDCard>
+    </HudPanel>
   );
 }
 

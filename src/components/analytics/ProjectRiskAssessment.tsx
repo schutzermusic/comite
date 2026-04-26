@@ -4,7 +4,7 @@ import React from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { HUDCard } from "@/components/ui/hud-card";
+import { HudPanel } from "@/components/hud";
 import { StatusPill } from "@/components/ui/status-pill";
 import { HUDProgressBar } from "@/components/ui/hud-progress-bar";
 import { AlertTriangle, TrendingUp, TrendingDown, Shield } from "lucide-react";
@@ -17,12 +17,12 @@ interface ProjectRiskAssessmentProps {
 export default function ProjectRiskAssessment({ analytics }: ProjectRiskAssessmentProps) {
   if (!analytics?.avaliacao_risco) {
     return (
-      <HUDCard>
+      <HudPanel>
         <div className="text-center py-12">
           <AlertTriangle className="w-12 h-12 text-[rgba(255,255,255,0.20)] mx-auto mb-3" />
           <p className="text-[rgba(255,255,255,0.65)]">Análise de risco não disponível</p>
         </div>
-      </HUDCard>
+      </HudPanel>
     );
   }
 
@@ -35,10 +35,10 @@ export default function ProjectRiskAssessment({ analytics }: ProjectRiskAssessme
     return 'completed';
   };
 
-  const getRiskGlowColor = (nivel: 'baixo' | 'medio' | 'alto' | 'critico'): 'green' | 'amber' | 'red' => {
-    if (nivel === 'critico' || nivel === 'alto') return 'red';
-    if (nivel === 'medio') return 'amber';
-    return 'green';
+  const getRiskGlowColor = (nivel: 'baixo' | 'medio' | 'alto' | 'critico'): 'success' | 'warning' | 'critical' => {
+    if (nivel === 'critico' || nivel === 'alto') return 'critical';
+    if (nivel === 'medio') return 'warning';
+    return 'success';
   };
 
   const getImpactoIcon = (impacto: 'alto' | 'medio' | 'baixo') => {
@@ -50,7 +50,7 @@ export default function ProjectRiskAssessment({ analytics }: ProjectRiskAssessme
   return (
     <div className="space-y-6">
       {/* Overall Risk Score */}
-      <HUDCard glow glowColor={getRiskGlowColor(nivel_risco)}>
+      <HudPanel halo state={getRiskGlowColor(nivel_risco)}>
         <div className="mb-6">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
@@ -94,11 +94,11 @@ export default function ProjectRiskAssessment({ analytics }: ProjectRiskAssessme
             </div>
           )}
         </div>
-      </HUDCard>
+      </HudPanel>
 
       {/* Risk Factors */}
       {fatores_risco && fatores_risco.length > 0 && (
-        <HUDCard>
+        <HudPanel>
           <div className="mb-6">
             <h2 className="text-lg font-semibold text-white orion-text-heading">Fatores de Risco Detalhados</h2>
             <p className="text-sm text-[rgba(255,255,255,0.65)] mt-1">Análise detalhada dos principais fatores de risco identificados</p>
@@ -154,7 +154,7 @@ export default function ProjectRiskAssessment({ analytics }: ProjectRiskAssessme
               );
             })}
           </div>
-        </HUDCard>
+        </HudPanel>
       )}
     </div>
   );
