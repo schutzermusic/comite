@@ -453,7 +453,7 @@ export default function FinanceOverviewPage() {
       {/* ── ROW 1: Executive Strip (replaces KPI cards) ──── */}
       <div className="cr-glass-panel relative overflow-hidden rounded-xl mt-4">
         <div className="cr-glass-panel-border" />
-        <div className="relative z-[2] flex items-center divide-x divide-ig-border-subtle h-14">
+        <div className="relative z-[2] flex h-[60px] items-stretch divide-x divide-ig-border-subtle">
           {[
             { label: t('kpiNetRevenue'), value: formatCompactBRL(revenue), delta: '+8.7%', deltaOk: true, groupKey: 'revenue' as ManagementGroupKey },
             { label: t('kpiCogs'), value: formatCompactBRL(Math.abs(cogs)), delta: null, deltaOk: false, groupKey: 'cogs' as ManagementGroupKey },
@@ -476,15 +476,17 @@ export default function FinanceOverviewPage() {
                   openMetricDrawer(`${metric.label} — ${periodFrom} a ${periodTo}`);
                 }
               }}
-              className="flex-1 flex flex-col items-center justify-center gap-0.5 px-3 h-full hover:bg-ig-panel-hover transition-colors cursor-pointer"
+              className="flex h-full min-w-0 flex-1 cursor-pointer flex-col items-center justify-center gap-1 px-2 py-2 text-center transition-colors hover:bg-ig-panel-hover"
             >
-              <span className="text-ig-label font-medium text-ig-fg-muted">
+              <span className="flex min-h-[20px] items-end justify-center text-[9px] font-medium uppercase leading-[1.05] tracking-[0.06em] text-ig-fg-muted">
                 {metric.label}
               </span>
-              <span className="text-ig-kpi-lg ig-tabular ig-text-metal-accent leading-none">
-                {metric.value}
+              <span className="flex max-w-full items-baseline justify-center gap-1.5 overflow-hidden">
+                <span className="ig-tabular ig-text-metal-accent whitespace-nowrap text-[18px] font-semibold leading-[1.02] tracking-[-0.006em]">
+                  {metric.value}
+                </span>
                 {metric.delta && (
-                  <span className={cn('text-ig-caption ml-1.5', metric.deltaOk ? 'text-ig-success' : 'text-ig-danger')}>
+                  <span className={cn('ig-tabular whitespace-nowrap text-[10px] font-semibold leading-none [-webkit-text-fill-color:currentColor]', metric.deltaOk ? 'text-ig-success' : 'text-ig-danger')}>
                     {metric.delta}
                   </span>
                 )}

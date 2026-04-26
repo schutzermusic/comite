@@ -292,9 +292,9 @@ export default {
         'ig-body-sm': ['13px', { lineHeight: '1.5',  fontWeight: '400' }],
         'ig-caption': ['12px', { lineHeight: '1.45', fontWeight: '400' }],
         'ig-label':   ['11px', { lineHeight: '1.4',  fontWeight: '500', letterSpacing: '0.08em' }],
-        'ig-kpi-xl':  ['44px', { lineHeight: '1.05', fontWeight: '700', letterSpacing: '-0.025em' }],
-        'ig-kpi-lg':  ['32px', { lineHeight: '1.1',  fontWeight: '700', letterSpacing: '-0.02em' }],
-        'ig-kpi-md':  ['22px', { lineHeight: '1.2',  fontWeight: '600', letterSpacing: '-0.01em' }],
+        'ig-kpi-xl':  ['38px', { lineHeight: '1.02', fontWeight: '680', letterSpacing: '-0.018em' }],
+        'ig-kpi-lg':  ['28px', { lineHeight: '1.06', fontWeight: '680', letterSpacing: '-0.014em' }],
+        'ig-kpi-md':  ['19px', { lineHeight: '1.12', fontWeight: '620', letterSpacing: '-0.006em' }],
         // Sentinel KPI Typography
         'sentinel-kpi-hero': ['48px', { lineHeight: '1.1', fontWeight: '700', letterSpacing: '-0.02em' }],
         'sentinel-kpi-lg': ['36px', { lineHeight: '1.1', fontWeight: '700', letterSpacing: '-0.02em' }],

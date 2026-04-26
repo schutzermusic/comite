@@ -157,7 +157,7 @@ export const RightHudStack = React.memo(function RightHudStack({ data, scopeMode
                     <div className="space-y-3">
                         <div className="grid grid-cols-3 gap-2">
                             <Link href={`/riscos?severity=critico${scopeSuffix}`} className="text-center group cursor-pointer">
-                                <p className="text-ig-kpi-xl ig-tabular ig-text-metal-accent leading-none transition-colors">
+                                <p className="text-ig-kpi-md ig-tabular ig-text-metal-accent leading-none transition-colors">
                                     {scopedRiskSummary.critical}
                                 </p>
                                 <p className="cr-label mt-1">
@@ -165,7 +165,7 @@ export const RightHudStack = React.memo(function RightHudStack({ data, scopeMode
                                 </p>
                             </Link>
                             <Link href={`/riscos${scopeSuffix}`} className="text-center group cursor-pointer">
-                                <p className="text-ig-kpi-xl ig-tabular ig-text-metal-accent leading-none transition-colors">
+                                <p className="text-ig-kpi-md ig-tabular ig-text-metal-accent leading-none transition-colors">
                                     {scopedRiskSummary.high}
                                 </p>
                                 <p className="cr-label mt-1">
@@ -173,7 +173,7 @@ export const RightHudStack = React.memo(function RightHudStack({ data, scopeMode
                                 </p>
                             </Link>
                             <Link href={`/riscos${scopeSuffix}`} className="text-center group cursor-pointer">
-                                <p className="text-ig-kpi-xl ig-tabular ig-text-metal-accent leading-none transition-colors">
+                                <p className="text-ig-kpi-md ig-tabular ig-text-metal-accent leading-none transition-colors">
                                     {scopedRiskSummary.total}
                                 </p>
                                 <p className="cr-label mt-1">

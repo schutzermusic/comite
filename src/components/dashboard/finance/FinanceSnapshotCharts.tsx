@@ -134,7 +134,7 @@ export function FinanceSnapshotCharts({ financialPulse }: FinanceSnapshotChartsP
       <div className="flex items-end justify-between">
         <div>
           <p className="cr-label">Receita MTD</p>
-          <p className={`text-lg font-bold tabular-nums ${isLight ? 'text-[#1C1F24]' : 'text-white'}`}>
+          <p className="text-ig-kpi-md ig-tabular ig-text-metal-accent leading-none">
             {formatCurrency(financialPulse.revenue.value, 'BRL')}
           </p>
         </div>

@@ -19,7 +19,7 @@ export interface HudKpiProps {
 
 const SIZE_STYLES = {
   sm: {
-    value: 'text-ig-kpi-md',
+    value: 'text-ig-body',
     label: 'text-[10px]',
     delta: 'text-[9px]',
     iconBox: 'w-8 h-8',

@@ -199,21 +199,35 @@ html.light button[data-variant="primary"] {
 /* ── Metallic text ── */
 html.dark .ig-text-metal {
   color: transparent;
-  background: linear-gradient(180deg, #FFFFFF 0%, #C7D2D9 100%);
+  background: linear-gradient(180deg, var(--ig-fg-strong) 0%, color-mix(in oklab, var(--ig-fg-strong) 68%, var(--ig-fg-muted)) 100%);
+  -webkit-text-fill-color: transparent;
   -webkit-background-clip: text;
   background-clip: text;
-  text-shadow: 0 0 24px rgba(255,255,255,0.04);
+  text-shadow: 0 0 18px color-mix(in oklab, var(--ig-fg-strong) 7%, transparent);
 }
 html.dark .ig-text-metal-accent {
   color: transparent;
-  background: linear-gradient(180deg, #FFFFFF 0%, #93DCD4 90%);
+  background: linear-gradient(180deg, var(--ig-fg-strong) 0%, color-mix(in oklab, var(--ig-accent) 44%, var(--ig-fg-strong)) 92%);
+  -webkit-text-fill-color: transparent;
   -webkit-background-clip: text;
   background-clip: text;
-  text-shadow: 0 0 40px rgba(20,184,166,0.12);
+  text-shadow: 0 0 24px color-mix(in oklab, var(--ig-accent) 10%, transparent);
 }
-html.light .ig-text-metal,
+html.light .ig-text-metal {
+  color: var(--ig-fg-strong);
+  background: linear-gradient(180deg, var(--ig-fg-strong) 8%, color-mix(in oklab, var(--ig-accent) 14%, var(--ig-fg-default)) 55%, var(--ig-fg-strong) 100%);
+  -webkit-text-fill-color: transparent;
+  -webkit-background-clip: text;
+  background-clip: text;
+  text-shadow: 0 1px 0 color-mix(in oklab, var(--ig-bg-raised) 72%, transparent);
+}
 html.light .ig-text-metal-accent {
   color: var(--ig-fg-strong);
+  background: linear-gradient(180deg, color-mix(in oklab, var(--ig-fg-strong) 88%, var(--ig-accent)) 0%, color-mix(in oklab, var(--ig-accent) 22%, var(--ig-fg-default)) 58%, var(--ig-fg-strong) 100%);
+  -webkit-text-fill-color: transparent;
+  -webkit-background-clip: text;
+  background-clip: text;
+  text-shadow: 0 1px 0 color-mix(in oklab, var(--ig-bg-raised) 70%, transparent);
 }
 
 /* ── Utilitários tipográficos ── */

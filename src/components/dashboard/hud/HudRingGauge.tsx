@@ -129,11 +129,7 @@ export function HudRingGauge({
                 {/* Center label */}
                 <div className="cr-ring-gauge-label">
                     <span
-                        className={cn(
-                            'text-[2rem] font-bold tabular-nums tracking-tight leading-none',
-                            isLight ? 'text-[#1C1F24]' : 'text-white'
-                        )}
-                        style={isLight ? undefined : { textShadow: '0 0 16px rgba(124, 232, 253, 0.24)' }}
+                        className="text-ig-kpi-lg ig-tabular ig-text-metal-accent leading-none"
                     >
                         {value}
                     </span>
@@ -151,10 +147,7 @@ export function HudRingGauge({
                 <div className="space-y-2.5 flex-1 min-w-0">
                     {sideMetrics.map((m, i) => (
                         <div key={i}>
-                            <p
-                                className="text-xl font-bold tabular-nums leading-none"
-                                style={{ color: isLight ? (m.color === '#fff' || m.color === '#ffffff' ? '#1C1F24' : m.color || '#1C1F24') : (m.color || '#fff') }}
-                            >
+                            <p className="text-ig-kpi-md ig-tabular ig-text-metal-accent leading-none">
                                 {m.value}
                             </p>
                             <p className={cn('text-[8px] mt-0.5', isLight ? 'text-[#6B7280]' : 'text-white/40')}>{m.label}</p>
