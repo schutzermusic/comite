@@ -72,8 +72,12 @@ export function EventStreamPanel({ collapsed, onToggle, events }: EventStreamPan
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.35, delay: 0.35, ease: 'easeOut' }}
-            className="cr-glass-panel"
+            className="ig-glass"
+            data-elev="3"
         >
+            <span data-ig-noise="" />
+            <span data-ig-specular="" />
+            <div data-ig-content="">
             {/* Header */}
             <div className="flex items-center justify-between px-3.5 pt-3 pb-1.5">
                 <div className="flex items-center gap-2 min-w-0">
@@ -177,6 +181,7 @@ export function EventStreamPanel({ collapsed, onToggle, events }: EventStreamPan
                     </motion.div>
                 )}
             </AnimatePresence>
+            </div>
         </motion.div>
     );
 }

@@ -46,18 +46,18 @@ export function HudKpiStrip({
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3, delay: 0.1 + index * 0.05 }}
           className={cn(
-            glass && 'cr-glass-panel relative overflow-hidden rounded-xl',
+            glass && 'ig-glass relative overflow-hidden rounded-xl',
             !glass && 'rounded-lg',
           )}
+          data-elev={glass ? '2' : undefined}
         >
           {glass && (
             <>
-              <div className="cr-glass-panel-border" />
-              <div className="cr-glass-panel-specular" />
-              <div className="cr-glass-panel-inner-stroke" />
+              <span data-ig-noise="" />
+              <span data-ig-specular="" />
             </>
           )}
-          <div className={cn('relative z-[2] p-3', glass && 'p-4')}>
+          <div data-ig-content="" className={cn('p-3', glass && 'p-4')}>
             <HudKpi
               value={kpi.value}
               label={kpi.label}

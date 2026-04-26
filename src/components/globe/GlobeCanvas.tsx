@@ -594,7 +594,10 @@ export function GlobeCanvas({
           <div className="pointer-events-auto absolute inset-0 bg-[#020915]/50 backdrop-blur-[2px] transition-opacity duration-300 z-[-1]" />
 
           <div className="pointer-events-auto w-[min(560px,calc(100vw-2rem))]">
-            <div className="cr-glass-panel globe-focus-panel rounded-2xl p-4">
+            <div className="ig-glass globe-focus-panel rounded-2xl" data-elev="4">
+              <span data-ig-noise="" />
+              <span data-ig-specular="" />
+              <div data-ig-content="" className="p-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="text-[10px] uppercase tracking-[0.14em] text-cyan-100/70 light:text-cyan-800/70">
@@ -639,6 +642,7 @@ export function GlobeCanvas({
                 >
                   Open project
                 </button>
+              </div>
               </div>
             </div>
           </div>
