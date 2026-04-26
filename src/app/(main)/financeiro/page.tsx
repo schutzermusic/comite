@@ -451,9 +451,10 @@ export default function FinanceOverviewPage() {
       />
 
       {/* ── ROW 1: Executive Strip (replaces KPI cards) ──── */}
-      <div className="cr-glass-panel relative mt-4 overflow-hidden rounded-xl">
-        <div className="cr-glass-panel-border" />
-        <div className="relative z-[2] flex h-12 items-center divide-x divide-ig-border-subtle">
+      <div className="ig-glass relative mt-4 overflow-hidden rounded-xl" data-elev="2">
+        <span data-ig-noise="" />
+        <span data-ig-specular="" />
+        <div data-ig-content="" className="flex h-12 items-center divide-x divide-ig-border-subtle">
           {[
             { label: t('kpiNetRevenue'), value: formatCompactBRL(revenue), delta: '+8.7%', deltaOk: true, groupKey: 'revenue' as ManagementGroupKey },
             { label: t('kpiCogs'), value: formatCompactBRL(Math.abs(cogs)), delta: null, deltaOk: false, groupKey: 'cogs' as ManagementGroupKey },

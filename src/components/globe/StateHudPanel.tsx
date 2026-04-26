@@ -93,12 +93,16 @@ export function StateHudPanel({ stateData, onBackToBrazil, onProjectSelect, onPr
               onClick={(e) => e.stopPropagation()}
               className={cn(
                 'pointer-events-auto h-full w-[min(430px,calc(100vw-1.5rem))] overflow-hidden',
-                'cr-glass-panel rounded-2xl',
+                'ig-glass rounded-2xl',
                 'border border-white/10',
                 'shadow-[0_30px_70px_-24px_rgba(0,0,0,0.9)]',
                 className,
               )}
+              data-elev="4"
             >
+          <span data-ig-noise="" />
+          <span data-ig-specular="" />
+          <div data-ig-content="" className="h-full">
           <div className="px-5 py-4 border-b border-white/10">
             <div className="flex items-center justify-between gap-3">
               <div className="space-y-1">
@@ -229,6 +233,7 @@ export function StateHudPanel({ stateData, onBackToBrazil, onProjectSelect, onPr
               </div>
 
             </div>
+          </div>
           </div>
             </motion.aside>
           </div>

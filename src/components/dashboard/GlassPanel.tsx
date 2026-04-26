@@ -19,17 +19,17 @@ export function GlassPanel({
   return (
     <div
       className={cn(
-        'cr-glass-panel relative overflow-hidden rounded-[14px]',
-        hoverGlow && 'cr-glass-panel-hover',
+        'ig-glass relative overflow-hidden rounded-[14px]',
         onClick && 'cursor-pointer',
         className
       )}
+      data-elev="3"
+      data-interactive={(hoverGlow || Boolean(onClick)) || undefined}
       onClick={onClick}
     >
-      <div className="cr-glass-panel-border" />
-      <div className="cr-glass-panel-specular" />
-      <div className="relative z-[2]">{children}</div>
+      <span data-ig-noise="" />
+      <span data-ig-specular="" />
+      <div data-ig-content="">{children}</div>
     </div>
   );
 }
-
