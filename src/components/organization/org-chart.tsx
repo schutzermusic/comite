@@ -5,7 +5,7 @@ import { User } from '@/lib/types';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { HUDCard } from '@/components/ui/hud-card';
+import { HudPanel } from '@/components/hud';
 import { Input } from '@/components/ui/input';
 import { Search, Users as UsersIcon, Building2, AlertTriangle } from 'lucide-react';
 import { users as mockUsers } from '@/lib/mock-data';
@@ -161,12 +161,23 @@ export function OrgChart({
           const isOverloaded = workload.percent > 100;
 
           return (
-            <HUDCard
+            <div
               key={user.id}
-              className={`cursor-pointer transition-all hover:border-[rgba(0,255,180,0.25)] ${
+              role="button"
+              tabIndex={0}
+              onClick={() => onSelectMember?.(user)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onSelectMember?.(user);
+                }
+              }}
+              className="cursor-pointer"
+            >
+            <HudPanel
+              className={`transition-all hover:border-[rgba(0,255,180,0.25)] ${
                 isSelected ? 'border-[#00FFB4] border-2' : ''
               } ${isOverloaded ? 'border-[rgba(255,88,96,0.25)]' : ''}`}
-              onClick={() => onSelectMember?.(user)}
             >
               <div className="space-y-3">
                 <div className="flex items-start justify-between">
@@ -232,7 +243,8 @@ export function OrgChart({
                   </p>
                 </div>
               </div>
-            </HUDCard>
+            </HudPanel>
+            </div>
           );
         })}
       </div>

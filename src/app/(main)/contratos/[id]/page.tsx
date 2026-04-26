@@ -11,13 +11,13 @@ import { StatusPill } from '@/components/ui/status-pill';
 import { HUDProgressBar } from '@/components/ui/hud-progress-bar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+  HudTableElement as Table,
+  HudTableBody as TableBody,
+  HudTableCell as TableCell,
+  HudTableHead as TableHead,
+  HudTableHeader as TableHeader,
+  HudTableRow as TableRow,
+} from '@/components/hud';
 import {
   ArrowLeft,
   FileText,

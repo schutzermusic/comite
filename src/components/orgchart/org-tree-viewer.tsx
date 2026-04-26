@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { OrgMember } from "@/lib/types";
-import { Card } from "@/components/ui/card";
+import { HudCard as Card } from "@/components/hud";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";

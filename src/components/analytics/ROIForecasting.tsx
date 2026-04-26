@@ -1,8 +1,7 @@
 'use client';
 import React from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { HUDCard } from "@/components/ui/hud-card";
+import { HudPanel } from "@/components/hud";
 import { StatusPill } from "@/components/ui/status-pill";
 import { TrendingUp, DollarSign, Calendar, Percent } from "lucide-react";
 import {
@@ -24,12 +23,12 @@ interface ROIForecastingProps {
 export default function ROIForecasting({ analytics }: ROIForecastingProps) {
   if (!analytics?.previsao_roi) {
     return (
-      <HUDCard>
+      <HudPanel>
         <div className="text-center py-12">
           <TrendingUp className="w-12 h-12 text-[rgba(255,255,255,0.20)] mx-auto mb-3" />
           <p className="text-[rgba(255,255,255,0.65)]">Previsão de ROI não disponível</p>
         </div>
-      </HUDCard>
+      </HudPanel>
     );
   }
 
@@ -59,7 +58,7 @@ export default function ROIForecasting({ analytics }: ROIForecastingProps) {
   return (
     <div className="space-y-6">
       {/* Main ROI Card */}
-      <HUDCard glow glowColor="green">
+      <HudPanel halo state="success">
         <div className="mb-6">
           <div className="flex items-center gap-3 mb-4">
             <TrendingUp className="w-8 h-8 text-[#00FFB4]" />
@@ -91,11 +90,11 @@ export default function ROIForecasting({ analytics }: ROIForecastingProps) {
             </div>
           </div>
         </div>
-      </HUDCard>
+      </HudPanel>
 
       {/* Financial Metrics */}
       <div className="grid md:grid-cols-2 gap-6">
-        <HUDCard glow glowColor="amber">
+        <HudPanel halo state="warning">
           <div className="flex items-center justify-between mb-2">
             <Calendar className="w-6 h-6 text-[#FFB04D]" />
           </div>
@@ -107,9 +106,9 @@ export default function ROIForecasting({ analytics }: ROIForecastingProps) {
           <p className="text-xs text-[rgba(255,255,255,0.40)] mt-3">
             Tempo estimado para recuperar o investimento
           </p>
-        </HUDCard>
+        </HudPanel>
 
-        <HUDCard glow glowColor="green">
+        <HudPanel halo state="success">
           <div className="flex items-center justify-between mb-2">
             <DollarSign className="w-6 h-6 text-[#00FFB4]" />
           </div>
@@ -121,12 +120,12 @@ export default function ROIForecasting({ analytics }: ROIForecastingProps) {
           <p className="text-xs text-[rgba(255,255,255,0.40)] mt-3">
             Valor presente dos fluxos de caixa futuros
           </p>
-        </HUDCard>
+        </HudPanel>
       </div>
 
       {/* TIR */}
       {taxa_retorno_interna && (
-        <HUDCard glow glowColor={taxa_retorno_interna > 12 ? 'green' : 'amber'}>
+        <HudPanel halo state={taxa_retorno_interna > 12 ? 'success' : 'warning'}>
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
               <Percent className="w-8 h-8 text-[#00C8FF]" />
@@ -144,11 +143,11 @@ export default function ROIForecasting({ analytics }: ROIForecastingProps) {
           <p className="text-sm text-[rgba(255,255,255,0.65)]">
             {taxa_retorno_interna > 12 ? '✅ Acima do custo de capital' : '⚠️ Abaixo do custo de capital'}
           </p>
-        </HUDCard>
+        </HudPanel>
       )}
 
       {/* Scenario Chart */}
-      <HUDCard>
+      <HudPanel>
         <div className="mb-6">
           <h2 className="text-lg font-semibold text-white orion-text-heading">Análise de Cenários</h2>
           <p className="text-sm text-[rgba(255,255,255,0.65)] mt-1">Comparação de ROI em diferentes cenários</p>
@@ -179,7 +178,7 @@ export default function ROIForecasting({ analytics }: ROIForecastingProps) {
             </AreaChart>
           </ResponsiveContainer>
         </div>
-      </HUDCard>
+      </HudPanel>
     </div>
   );
 }

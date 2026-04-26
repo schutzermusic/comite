@@ -6,7 +6,7 @@ import { Vote, CircleCheck, CircleX, CircleMinus, AlertCircle } from 'lucide-rea
 import { DeliberationItem, VoteOption } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { HUDCard } from '@/components/ui/hud-card';
+import { HudPanel } from '@/components/hud';
 
 interface VotingConsoleProps {
   item: DeliberationItem;
@@ -53,7 +53,7 @@ export function VotingConsole({ item, currentUserId, onCastVote, onCloseVoting, 
   };
 
   return (
-    <HUDCard glow glowColor="cyan" className="space-y-3">
+    <HudPanel halo className="space-y-3">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Vote className="w-4 h-4 text-[#00C8FF]" />
@@ -148,6 +148,6 @@ export function VotingConsole({ item, currentUserId, onCastVote, onCloseVoting, 
           </Button>
         </>
       )}
-    </HUDCard>
+    </HudPanel>
   );
 }

@@ -6,13 +6,13 @@ import { Button } from "@/components/ui/button";
 import { StatusPill } from "@/components/ui/status-pill";
 import { SeverityBadge } from "@/components/ui/severity-badge";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  HudTableElement as Table,
+  HudTableBody as TableBody,
+  HudTableCell as TableCell,
+  HudTableHead as TableHead,
+  HudTableHeader as TableHeader,
+  HudTableRow as TableRow,
+} from "@/components/hud";
 import {
   DropdownMenu,
   DropdownMenuContent,

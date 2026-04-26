@@ -3,7 +3,7 @@
 import React from 'react';
 import { DeliberationItem, VoteOption } from '@/lib/types';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { HUDCard } from '@/components/ui/hud-card';
+import { HudPanel } from '@/components/hud';
 import { StatusPill } from '@/components/ui/status-pill';
 import { AuditTrailTimeline } from './AuditTrailTimeline';
 import { VotingConsole } from './VotingConsole';
@@ -100,12 +100,12 @@ export function DecisionInspector({
         </TabsList>
 
         <TabsContent value="summary" className="space-y-3">
-          <HUDCard className="space-y-2">
+          <HudPanel className="space-y-2">
             <p className="text-xs uppercase tracking-wide text-[rgba(255,255,255,0.5)]">Decisão Solicitada</p>
             <p className="text-sm text-[rgba(255,255,255,0.82)]">{item.requestedDecision || item.description}</p>
-          </HUDCard>
+          </HudPanel>
 
-          <HUDCard className="space-y-2">
+          <HudPanel className="space-y-2">
             <p className="text-xs uppercase tracking-wide text-[rgba(255,255,255,0.5)]">Fluxo de Governança</p>
             {(item.stages ?? []).map((stage) => (
               <div key={stage.id} className="flex items-center justify-between text-sm">
@@ -113,12 +113,12 @@ export function DecisionInspector({
                 <span className="text-[rgba(255,255,255,0.55)]">{stageTypeLabel[stage.stageType] ?? stage.stageType}</span>
               </div>
             ))}
-          </HUDCard>
+          </HudPanel>
 
-          <HUDCard className="space-y-1">
+          <HudPanel className="space-y-1">
             <p className="text-xs uppercase tracking-wide text-[rgba(255,255,255,0.5)]">Etapa Atual</p>
             <p className="text-sm text-white">{currentStage?.committeeName} - {stageTypeLabel[currentStage?.stageType ?? ''] ?? currentStage?.stageType}</p>
-          </HUDCard>
+          </HudPanel>
         </TabsContent>
 
         <TabsContent value="voting" className="space-y-3">
@@ -130,14 +130,14 @@ export function DecisionInspector({
             onOpenVoting={() => onStartVoting(item.id)}
           />
 
-          <HUDCard className="space-y-1">
+          <HudPanel className="space-y-1">
             <p className="text-xs uppercase tracking-wide text-[rgba(255,255,255,0.5)]">Resumo da Votação</p>
             <p className="text-sm text-[rgba(255,255,255,0.8)]">Sim {yes} | Não {no} | Abstenção {abstain}</p>
-          </HUDCard>
+          </HudPanel>
         </TabsContent>
 
         <TabsContent value="minutes" className="space-y-3">
-          <HUDCard className="space-y-2">
+          <HudPanel className="space-y-2">
             <div className="flex items-center justify-between">
               <p className="text-xs uppercase tracking-wide text-[rgba(255,255,255,0.5)]">Atas</p>
               <div className="flex items-center gap-2">
@@ -152,15 +152,15 @@ export function DecisionInspector({
               </div>
             </div>
             <p className="text-sm text-[rgba(255,255,255,0.8)] whitespace-pre-wrap">{item.minutesSummary || 'Minuta ainda não gerada.'}</p>
-          </HUDCard>
+          </HudPanel>
 
-          <HUDCard>
+          <HudPanel>
             <AuditTrailTimeline entries={item.auditTrail || []} />
-          </HUDCard>
+          </HudPanel>
         </TabsContent>
 
         <TabsContent value="execution" className="space-y-3">
-          <HUDCard className="space-y-2">
+          <HudPanel className="space-y-2">
             <div className="flex items-center justify-between">
               <p className="text-xs uppercase tracking-wide text-[rgba(255,255,255,0.5)]">Ações Pós-Decisão</p>
               <Button size="sm" onClick={() => onCreateExecutionTask(item.id)} className="bg-[#A855F7] hover:bg-[#9333EA] text-white">
@@ -186,7 +186,7 @@ export function DecisionInspector({
                 </div>
               ))
             )}
-          </HUDCard>
+          </HudPanel>
         </TabsContent>
       </Tabs>
     </div>

@@ -8,7 +8,12 @@ import {
   Loader2,
   ExternalLink
 } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  HudCard as Card,
+  HudCardContent as CardContent,
+  HudCardHeader as CardHeader,
+  HudCardTitle as CardTitle,
+} from '@/components/hud';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';

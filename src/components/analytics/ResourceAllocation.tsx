@@ -1,13 +1,7 @@
 'use client';
 
 import React from 'react';
-import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardContent,
-} from '@/components/ui/card';
-import { HUDCard } from '@/components/ui/hud-card';
+import { HudPanel } from '@/components/hud';
 import { HUDProgressBar } from '@/components/ui/hud-progress-bar';
 import { DollarSign, Clock } from 'lucide-react';
 
@@ -40,7 +34,7 @@ const ResourceAllocation: React.FC<ResourceAllocationProps> = ({ project, projec
   return (
     <div className="space-y-6">
       {/* Eficiência Financeira */}
-      <HUDCard glow glowColor="cyan">
+      <HudPanel halo>
         <div className="mb-6">
           <div className="flex items-center gap-3 mb-4">
             <DollarSign className="w-8 h-8 text-[#00C8FF]" />
@@ -76,10 +70,10 @@ const ResourceAllocation: React.FC<ResourceAllocationProps> = ({ project, projec
             </span>
           </div>
         </div>
-      </HUDCard>
+      </HudPanel>
 
       {/* Eficiência de Horas / Esforço */}
-      <HUDCard glow glowColor="amber">
+      <HudPanel halo state="warning">
         <div className="mb-6">
           <div className="flex items-center gap-3 mb-4">
             <Clock className="w-8 h-8 text-[#FFB04D]" />
@@ -105,7 +99,7 @@ const ResourceAllocation: React.FC<ResourceAllocationProps> = ({ project, projec
             <span className="font-medium text-white">{usedHours.toLocaleString('pt-BR')}</span>
           </div>
         </div>
-      </HUDCard>
+      </HudPanel>
     </div>
   );
 };

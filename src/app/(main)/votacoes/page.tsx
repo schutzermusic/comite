@@ -1,19 +1,19 @@
 import Link from "next/link";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+  HudCard as Card,
+  HudCardContent as CardContent,
+  HudCardDescription as CardDescription,
+  HudCardHeader as CardHeader,
+  HudCardTitle as CardTitle,
+} from "@/components/hud";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  HudTableElement as Table,
+  HudTableBody as TableBody,
+  HudTableCell as TableCell,
+  HudTableHead as TableHead,
+  HudTableHeader as TableHeader,
+  HudTableRow as TableRow,
+} from "@/components/hud";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { votes } from "@/lib/mock-data";

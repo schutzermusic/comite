@@ -10,7 +10,12 @@ import {
   Trash2,
   Save,
 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  HudCard as Card,
+  HudCardContent as CardContent,
+  HudCardHeader as CardHeader,
+  HudCardTitle as CardTitle,
+} from '@/components/hud';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';

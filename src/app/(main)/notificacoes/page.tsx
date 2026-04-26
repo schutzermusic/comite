@@ -28,13 +28,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  HudTableElement as Table,
+  HudTableBody as TableBody,
+  HudTableCell as TableCell,
+  HudTableHead as TableHead,
+  HudTableHeader as TableHeader,
+  HudTableRow as TableRow,
+} from "@/components/hud";
 import {
   Dialog,
   DialogContent,

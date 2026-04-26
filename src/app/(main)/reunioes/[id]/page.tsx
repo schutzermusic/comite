@@ -20,7 +20,13 @@ import {
   List,
   Sparkles
 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import {
+  HudCard as Card,
+  HudCardContent as CardContent,
+  HudCardDescription as CardDescription,
+  HudCardHeader as CardHeader,
+  HudCardTitle as CardTitle,
+} from '@/components/hud';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
