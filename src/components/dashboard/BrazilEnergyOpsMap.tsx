@@ -5,9 +5,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { DeckGL } from '@deck.gl/react';
 import { GeoJsonLayer } from '@deck.gl/layers';
+import type { FeatureCollection } from 'geojson';
 import { OrionCard } from '@/components/orion';
 import { BrazilStatesOps, StateOps } from '@/lib/dashboard-data';
 import { formatCurrency } from '@/lib/dashboard-data';
+
+type Color = [number, number, number, number];
 
 interface BrazilEnergyOpsMapProps {
   data: BrazilStatesOps;
@@ -118,18 +121,20 @@ export function BrazilEnergyOpsMap({ data, className, onStateClick }: BrazilEner
   const layers = [
     new GeoJsonLayer({
       id: 'brazil-states',
-      data: enhancedGeoJSON,
+      data: enhancedGeoJSON as unknown as FeatureCollection,
       pickable: true,
       stroked: true,
       filled: true,
       lineWidthMinPixels: 1.5,
-      getFillColor: (d: any) => {
+      getFillColor: (d: any): Color => {
         const state = stateMap.get(d.properties.uf);
-        return state ? getStateColor(state) : STATUS_COLORS.inactive;
+        const color = state ? getStateColor(state) : STATUS_COLORS.inactive;
+        return [color[0], color[1], color[2], color[3] ?? 255] as Color;
       },
-      getLineColor: (d: any) => {
+      getLineColor: (d: any): Color => {
         const state = stateMap.get(d.properties.uf);
-        return state ? getStateBorderColor(state) : STATUS_BORDER_COLORS.inactive;
+        const color = state ? getStateBorderColor(state) : STATUS_BORDER_COLORS.inactive;
+        return [color[0], color[1], color[2], color[3]] as Color;
       },
       getLineWidth: 2,
       onHover: (info: any) => {

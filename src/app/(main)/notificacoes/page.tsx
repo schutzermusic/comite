@@ -12,7 +12,8 @@ import {
   MessageSquare,
   AlertCircle,
   Settings,
-  Eye
+  Eye,
+  type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { HudInput } from "@/components/ui/hud-input";
@@ -105,7 +106,7 @@ export default function AdminNotificacoes() {
   });
 
   const getStatusIcon = (status: string) => {
-    const icons: {[key: string]: React.ElementType} = {
+    const icons: {[key: string]: LucideIcon} = {
       queued: Clock,
       sent: CheckCircle2,
       failed: XCircle,

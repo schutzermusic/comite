@@ -24,7 +24,7 @@ export function RiskOrbitalCard({
   low = 0,
   className,
 }: RiskOrbitalCardProps) {
-  const { hasWebGL, isLoading } = useWebGLSupport();
+  const { isSupported: hasWebGL, isLoading } = useWebGLSupport();
 
   if (isLoading) {
     return (
@@ -75,7 +75,8 @@ export function RiskOrbitalCard({
   return (
     <div className={className} style={{ height: 120, width: 120 }}>
       <ThreeCanvasShell
-        camera={{ position: [0, 0, 3.5], fov: 45 }}
+        cameraPosition={[0, 0, 3.5]}
+        cameraFov={45}
         className="w-full h-full"
       >
         <RiskOrbitalRadar

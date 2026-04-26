@@ -11,7 +11,8 @@ import {
     CheckCircle,
     ClipboardCheck,
     PlayCircle,
-    Lock
+    Lock,
+    type LucideIcon,
 } from 'lucide-react';
 
 interface QueueTabsProps {
@@ -23,7 +24,7 @@ interface QueueTabsProps {
 const queueConfig: Array<{
     id: DeliberationStatus;
     label: string;
-    icon: React.ElementType;
+    icon: LucideIcon;
     color: string;
 }> = [
         { id: 'draft', label: 'Rascunho', icon: FileText, color: 'rgba(255,255,255,0.65)' },

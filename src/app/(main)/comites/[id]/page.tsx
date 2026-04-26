@@ -13,6 +13,7 @@ import {
   Eye,
   Building2,
   Edit,
+  type LucideIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -94,8 +95,8 @@ export default function DetalheComitePage({ params }: { params: Promise<{ id: st
     );
   }
 
-  const getTipoIcon = (tipo: string) => {
-    const icons: { [key: string]: React.ElementType } = {
+  const getTipoIcon = (tipo: string): LucideIcon => {
+    const icons: { [key: string]: LucideIcon } = {
       executivo: Shield,
       consultivo: Users,
       fiscal: Eye,

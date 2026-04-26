@@ -266,7 +266,7 @@ export default function OperationalPresenceMap() {
           // Use a dark basemap that lets your HUD glow stand out.
           // You can swap to your own MapLibre style later.
           mapStyle="https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json"
-          attributionControl
+          attributionControl={{}}
         />
       </DeckGL>
 

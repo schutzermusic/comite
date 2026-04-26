@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Minimize2, Maximize2, Pin, PinOff, Eye, EyeOff, GripVertical } from 'lucide-react';
+import { Minimize2, Maximize2, Pin, PinOff, Eye, EyeOff, GripVertical, type LucideIcon } from 'lucide-react';
 import Link from 'next/link';
 import type { WidgetState } from '@/hooks/useHudLayout';
 import { cn } from '@/lib/utils';
@@ -10,7 +10,7 @@ import { cn } from '@/lib/utils';
 interface HudWidgetProps {
     id: string;
     title: string;
-    icon: React.ElementType;
+    icon: LucideIcon;
     compactContent: React.ReactNode;
     detailContent: React.ReactNode;
     deepLinkHref?: string;

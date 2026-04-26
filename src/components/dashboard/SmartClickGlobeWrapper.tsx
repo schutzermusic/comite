@@ -34,7 +34,6 @@ export function SmartClickGlobeWrapper({ className }: SmartClickGlobeWrapperProp
             {/* The 3D Globe */}
             <BrazilOperationalGlobe
                 className="w-full h-full"
-                fillContainer
             />
         </div>
     );

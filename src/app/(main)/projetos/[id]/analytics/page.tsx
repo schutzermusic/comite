@@ -83,6 +83,13 @@ export default function ProjetoAnalyticsPage({ params }: { params: Promise<{ id:
     return 'critical';
   };
 
+  const getProgressVariant = (score: number): 'completed' | 'active' | 'medium' | 'critical' => {
+    if (score >= 80) return 'completed';
+    if (score >= 60) return 'active';
+    if (score >= 40) return 'medium';
+    return 'critical';
+  };
+
   return (
     <>
       <div className="max-w-[1800px] mx-auto space-y-6 p-4 md:p-6 lg:p-8">
@@ -137,14 +144,14 @@ export default function ProjetoAnalyticsPage({ params }: { params: Promise<{ id:
                   </div>
                 </div>
                 <StatusPill variant={getScoreVariant(analytics.score_saude_projeto || 0)} className="text-lg px-4 py-2">
-                  {analytics.score_saude_projeto >= 80 ? 'Excelente' : 
-                   analytics.score_saude_projeto >= 60 ? 'Bom' : 
-                   analytics.score_saude_projeto >= 40 ? 'Atenção' : 'Crítico'}
+                  {(analytics.score_saude_projeto ?? 0) >= 80 ? 'Excelente' :
+                   (analytics.score_saude_projeto ?? 0) >= 60 ? 'Bom' :
+                   (analytics.score_saude_projeto ?? 0) >= 40 ? 'Atenção' : 'Crítico'}
                 </StatusPill>
               </div>
-              <HUDProgressBar 
+              <HUDProgressBar
                 value={analytics.score_saude_projeto || 0}
-                variant={getScoreVariant(analytics.score_saude_projeto || 0)}
+                variant={getProgressVariant(analytics.score_saude_projeto || 0)}
               />
               {analytics.ia_insights && (
                 <div className="mt-6 p-4 bg-[rgba(0,200,255,0.12)] border border-[rgba(0,200,255,0.25)] rounded-lg">

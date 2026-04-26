@@ -15,7 +15,7 @@ import {
 
 type HoverPreset = 'card' | 'kpi' | 'container' | 'none';
 
-interface HoverCardProps extends HTMLAttributes<HTMLDivElement> {
+interface HoverCardProps extends Omit<HTMLAttributes<HTMLDivElement>, 'onDrag' | 'onDragStart' | 'onDragEnd' | 'onAnimationStart' | 'onAnimationEnd' | 'onAnimationIteration'> {
   /**
    * Hover animation preset
    * - card: Standard subtle lift (-5px, scale 1.01)

@@ -20,16 +20,18 @@ export function useWebGLSupport(): {
       try {
         // Try to create a WebGL context
         const canvas = document.createElement('canvas');
-        const gl =
-          canvas.getContext('webgl2') ||
+        const gl = (canvas.getContext('webgl2') ||
           canvas.getContext('webgl') ||
-          canvas.getContext('experimental-webgl');
+          canvas.getContext('experimental-webgl')) as
+          | WebGLRenderingContext
+          | WebGL2RenderingContext
+          | null;
 
         if (gl) {
           // Check for major performance caveats
           const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
           if (debugInfo) {
-            const renderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
+            const renderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) as string;
             // Check for software renderers (poor performance)
             if (
               renderer.includes('SwiftShader') ||

@@ -25,9 +25,9 @@ const ResourceAllocation: React.FC<ResourceAllocationProps> = ({ project, projec
   const hoursUtilization =
     plannedHours > 0 ? Math.round((usedHours / plannedHours) * 100) : 0;
 
-  const getUtilizationVariant = (percent: number): 'completed' | 'active' | 'at_risk' | 'critical' => {
+  const getUtilizationVariant = (percent: number): 'completed' | 'active' | 'medium' | 'critical' => {
     if (percent <= 80) return 'active';
-    if (percent <= 100) return 'at_risk';
+    if (percent <= 100) return 'medium';
     return 'critical';
   };
 

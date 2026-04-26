@@ -7,7 +7,9 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import DeckGL, { PickingInfo, ViewState } from "@deck.gl/react";
+import DeckGL from "@deck.gl/react";
+import type { PickingInfo } from "@deck.gl/core";
+import type { MapViewState as ViewState } from "@deck.gl/core";
 import { GeoJsonLayer, ScatterplotLayer, TextLayer } from "@deck.gl/layers";
 import { Map } from "react-map-gl/maplibre";
 import type { FeatureCollection, Feature } from "geojson";
@@ -382,7 +384,7 @@ export default function BrazilEnergyHudMap() {
         <Map
           reuseMaps
           mapStyle={BASEMAP}
-          attributionControl={true}
+          attributionControl={{}}
           style={{ width: "100%", height: "100%" }}
         />
       </DeckGL>

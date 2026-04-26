@@ -116,6 +116,7 @@ export function RiskOrbitalRadar({
           <bufferGeometry>
             <bufferAttribute
               attach="attributes-position"
+              args={[nodePositions, 3]}
               count={nodeCount}
               array={nodePositions}
               itemSize={3}
