@@ -58,9 +58,9 @@
   "sourcePayrollAlloc": "Alocação Folha",
 
   "kpiNetRevenue": "Receita Líquida",
-  "kpiCogs": "Custo Direto (COGS)",
+  "kpiCogs": "Custo Direto",
   "kpiGrossMargin": "Margem Bruta",
-  "kpiOpex": "OPEX (Despesas Operacionais)",
+  "kpiOpex": "Despesas Operacionais",
   "kpiOperatingResult": "Resultado Operacional",
   "kpiPendingActions": "Ações Pendentes",
 
@@ -71,7 +71,7 @@
   "dataQuality": "Qualidade de Dados",
 
   "revenue": "Receita",
-  "directCosts": "Custos Diretos",
+  "directCosts": "Custo Direto",
   "operatingExpenses": "Despesas Operacionais",
   "financialCosts": "Financeiro",
   "taxesCosts": "Impostos",
@@ -202,7 +202,7 @@
   "emptyDriversSub": "Importe o orçamento ou registre lançamentos do tipo 'budget' para visualizar variações.",
   "emptyMargin": "Dados insuficientes para calcular margens por projeto.",
   "emptyMarginSub": "Para que este painel funcione, cada projeto precisa de pelo menos 1 lançamento de receita (grupo A) e 1 de custo direto (grupo B).",
-  "emptyMarginWarning": "{count} projetos têm receita sem COGS registrado — margem pode estar inflada.",
+  "emptyMarginWarning": "{count} projetos têm receita sem custo direto registrado — margem pode estar inflada.",
   "emptyCostComp": "Nenhum lançamento de custo encontrado nos últimos 6 meses.",
   "emptyCostCompSub": "Verifique os filtros ou acesse Lançamentos para registrar custos.",
   "noDataPeriod": "Sem dados para o período selecionado.",

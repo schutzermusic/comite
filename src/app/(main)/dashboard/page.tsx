@@ -76,80 +76,81 @@ function DashboardShellControls({
     }, [presetOpen]);
 
     return (
-        <div className="flex min-h-14 w-full items-center justify-end gap-2 overflow-x-auto border-b border-ig-border-subtle bg-ig-base/70 px-3 py-2 backdrop-blur-md">
-            <div className="flex items-center gap-1 rounded-[var(--ig-radius-md)] border border-ig-border bg-ig-panel p-0.5">
-                {MODE_OPTIONS.map((option) => (
+        <div className="dashboard-filter-dock pointer-events-auto">
+            <div className="dashboard-filter-cluster" role="toolbar" aria-label="Dashboard filters">
+                <div className="dashboard-filter-group" aria-label="Modo de visualização">
+                    {MODE_OPTIONS.map((option) => (
+                        <button
+                            key={option.key}
+                            type="button"
+                            onClick={() => onModeChange(option.key)}
+                            className={cn(
+                                'dashboard-filter-pill',
+                                mode === option.key && 'dashboard-filter-pill-active',
+                            )}
+                        >
+                            {option.label}
+                        </button>
+                    ))}
+                </div>
+
+                <span className="dashboard-filter-sep" aria-hidden="true" />
+
+                <div className="dashboard-filter-group dashboard-filter-group-compact" aria-label="Período">
+                    {PERIOD_OPTIONS.map((option) => (
+                        <button
+                            key={option.key}
+                            type="button"
+                            onClick={() => onPeriodChange(option.key)}
+                            className={cn(
+                                'dashboard-filter-pill dashboard-filter-pill-compact',
+                                period === option.key && 'dashboard-filter-pill-active',
+                            )}
+                        >
+                            {option.label}
+                        </button>
+                    ))}
+                </div>
+
+                <span className="dashboard-filter-sep" aria-hidden="true" />
+
+                <div ref={presetRef} className="relative">
                     <button
-                        key={option.key}
                         type="button"
-                        onClick={() => onModeChange(option.key)}
-                        className={cn(
-                            'h-8 rounded-[var(--ig-radius-sm)] px-3 text-ig-body-sm font-medium text-ig-fg-muted transition-colors hover:text-ig-fg',
-                            mode === option.key && 'bg-ig-accent-weak text-ig-accent',
-                        )}
+                        onClick={() => setPresetOpen((value) => !value)}
+                        className={cn('dashboard-filter-preset', presetOpen && 'dashboard-filter-preset-open')}
+                        aria-expanded={presetOpen}
+                        aria-label="Filtro de papel"
                     >
-                        {option.label}
+                        <span className="dashboard-filter-preset-label">{currentPresetLabel}</span>
+                        <ChevronDown
+                            className={cn('h-3 w-3 transition-transform duration-150', presetOpen && 'rotate-180')}
+                            aria-hidden="true"
+                        />
                     </button>
-                ))}
-            </div>
 
-            <div className="flex items-center gap-1 rounded-[var(--ig-radius-md)] border border-ig-border bg-ig-panel p-0.5">
-                {PERIOD_OPTIONS.map((option) => (
-                    <button
-                        key={option.key}
-                        type="button"
-                        onClick={() => onPeriodChange(option.key)}
-                        className={cn(
-                            'h-8 rounded-[var(--ig-radius-sm)] px-3 text-ig-body-sm font-medium text-ig-fg-muted transition-colors hover:text-ig-fg',
-                            period === option.key && 'bg-ig-accent-weak text-ig-accent',
-                        )}
-                    >
-                        {option.label}
-                    </button>
-                ))}
-            </div>
-
-            <div ref={presetRef} className="relative">
-                <button
-                    type="button"
-                    onClick={() => setPresetOpen((value) => !value)}
-                    className="flex h-9 items-center gap-2 rounded-[var(--ig-radius-md)] border border-ig-border bg-ig-panel px-3 text-ig-body-sm font-medium text-ig-fg transition-colors hover:border-ig-border-strong"
-                    aria-expanded={presetOpen}
-                >
-                    {currentPresetLabel}
-                    <ChevronDown
-                        className={cn('h-3.5 w-3.5 text-ig-fg-disabled transition-transform', presetOpen && 'rotate-180')}
-                        aria-hidden="true"
-                    />
-                </button>
-
-                {presetOpen && (
-                    <div
-                        data-elev="3"
-                        className="ig-glass absolute right-0 top-[calc(100%+0.5rem)] z-[60] w-40 overflow-hidden rounded-[var(--ig-radius-lg)] border border-ig-border p-1"
-                    >
-                        <span data-ig-noise="" />
-                        <span data-ig-specular="" />
-                        <div data-ig-content="">
+                    {presetOpen && (
+                        <div className="dashboard-filter-preset-menu" role="menu">
                             {PRESET_OPTIONS.map((option) => (
                                 <button
                                     key={option.key}
                                     type="button"
+                                    role="menuitem"
                                     onClick={() => {
                                         onPresetChange(option.key);
                                         setPresetOpen(false);
                                     }}
                                     className={cn(
-                                        'block w-full rounded-[var(--ig-radius-sm)] px-3 py-2 text-left text-ig-body-sm text-ig-fg-muted transition-colors hover:bg-ig-panel-hover hover:text-ig-fg',
-                                        preset === option.key && 'bg-ig-accent-weak text-ig-accent',
+                                        'dashboard-filter-preset-item',
+                                        preset === option.key && 'dashboard-filter-preset-item-active',
                                     )}
                                 >
                                     {option.label}
                                 </button>
                             ))}
                         </div>
-                    </div>
-                )}
+                    )}
+                </div>
             </div>
         </div>
     );

@@ -46,9 +46,9 @@ export function GlobalSearch() {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="hidden h-8 w-52 items-center gap-2 rounded-[var(--ig-radius-md)] border border-ig-border bg-ig-panel px-3 text-ig-body-sm text-ig-fg-subtle transition-colors hover:border-ig-border-strong hover:text-ig-fg sm:flex"
+        className="app-header-search hidden items-center sm:flex"
       >
-        <Search size={12} aria-hidden="true" />
+        <Search size={13} aria-hidden="true" />
         <span className="flex-1 text-left">Buscar...</span>
         <kbd className="font-mono text-[10px] text-ig-fg-disabled">⌘K</kbd>
       </button>

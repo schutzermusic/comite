@@ -13,7 +13,6 @@ import {
   Calculator,
   Calendar,
   ChevronDown,
-  ChevronRight,
   CreditCard,
   FileBadge,
   FileCheck,
@@ -56,6 +55,7 @@ import { InsightLogo } from "./insight-logo";
 import { cn } from "@/lib/utils";
 
 const ADMIN_STORAGE_KEY = "ig-sidebar-admin-open";
+const FINANCE_STORAGE_KEY = "ig-sidebar-finance-open";
 
 type User = {
   fullName: string;
@@ -145,16 +145,31 @@ export function AppSidebar() {
   const { user } = useUser();
   const t = useTranslations("common");
   const [adminOpen, setAdminOpen] = useState(false);
+  const [financeOpen, setFinanceOpen] = useState(false);
 
   useEffect(() => {
-    const stored = localStorage.getItem(ADMIN_STORAGE_KEY);
-    if (stored !== null) setAdminOpen(stored === "true");
-  }, []);
+    const storedAdmin = localStorage.getItem(ADMIN_STORAGE_KEY);
+    if (storedAdmin !== null) setAdminOpen(storedAdmin === "true");
+    const storedFinance = localStorage.getItem(FINANCE_STORAGE_KEY);
+    if (storedFinance !== null) {
+      setFinanceOpen(storedFinance === "true");
+    } else if (pathname.startsWith("/financeiro")) {
+      setFinanceOpen(true);
+    }
+  }, [pathname]);
 
   const toggleAdmin = () => {
     setAdminOpen((previous) => {
       const next = !previous;
       localStorage.setItem(ADMIN_STORAGE_KEY, String(next));
+      return next;
+    });
+  };
+
+  const toggleFinance = () => {
+    setFinanceOpen((previous) => {
+      const next = !previous;
+      localStorage.setItem(FINANCE_STORAGE_KEY, String(next));
       return next;
     });
   };
@@ -168,36 +183,44 @@ export function AppSidebar() {
       const isParentActive = isRouteActive(pathname, item.href);
 
       if (item.subItems) {
+        const isOpen = financeOpen;
         return (
           <SidebarMenuItem key={item.href}>
             <SidebarMenuButton
-              className="hud-sidebar-item"
+              type="button"
+              onClick={toggleFinance}
+              className="hud-nav-item hud-nav-item-parent"
               data-active={isParentActive}
+              data-open={isOpen}
+              aria-expanded={isOpen}
               isActive={isParentActive}
             >
-              <Icon className="sidebar-icon h-4 w-4 stroke-[1.8]" />
-              <span>{t(item.labelKey)}</span>
-              <ChevronDown className="ml-auto h-3.5 w-3.5 text-ig-fg-subtle transition-transform duration-150 group-data-[state=open]/collapsible:rotate-180" />
+              <Icon className="hud-nav-icon" strokeWidth={1.6} />
+              <span className="hud-nav-label">{t(item.labelKey)}</span>
+              <ChevronDown
+                className={cn("hud-nav-chevron", isOpen && "hud-nav-chevron-open")}
+                strokeWidth={1.8}
+              />
             </SidebarMenuButton>
-            <SidebarMenu className="hud-sidebar-submenu">
-              {item.subItems.map((subItem) => {
-                const SubIcon = subItem.icon;
-                const isSubActive = pathname === subItem.href;
-
-                return (
-                  <SidebarMenuItem key={subItem.href}>
-                    <Link
-                      href={subItem.href}
-                      className="hud-sidebar-item hud-sidebar-subitem"
-                      data-active={isSubActive}
-                    >
-                      <SubIcon className="sidebar-icon h-3.5 w-3.5 stroke-[1.8]" />
-                      <span>{subItem.label}</span>
-                    </Link>
-                  </SidebarMenuItem>
-                );
-              })}
-            </SidebarMenu>
+            {isOpen && (
+              <ul className="hud-nav-submenu" role="group">
+                {item.subItems.map((subItem) => {
+                  const isSubActive = pathname === subItem.href;
+                  return (
+                    <li key={subItem.href}>
+                      <Link
+                        href={subItem.href}
+                        className="hud-nav-subitem"
+                        data-active={isSubActive}
+                      >
+                        <span className="hud-nav-subitem-dot" aria-hidden="true" />
+                        <span className="hud-nav-sublabel">{subItem.label}</span>
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
           </SidebarMenuItem>
         );
       }
@@ -206,14 +229,13 @@ export function AppSidebar() {
         <SidebarMenuItem key={item.href}>
           <SidebarMenuButton
             asChild
-            className="hud-sidebar-item"
+            className="hud-nav-item"
             data-active={isParentActive}
             isActive={isParentActive}
           >
             <Link href={item.href}>
-              <Icon className="sidebar-icon h-4 w-4 stroke-[1.8]" />
-              <span>{t(item.labelKey)}</span>
-              <ChevronRight className="ml-auto h-3.5 w-3.5 text-ig-fg-subtle opacity-0 transition-all duration-150 group-hover/menu-item:translate-x-0.5 group-hover/menu-item:opacity-100" />
+              <Icon className="hud-nav-icon" strokeWidth={1.6} />
+              <span className="hud-nav-label">{t(item.labelKey)}</span>
             </Link>
           </SidebarMenuButton>
         </SidebarMenuItem>
@@ -224,52 +246,54 @@ export function AppSidebar() {
   return (
     <Sidebar className="hud-sidebar border-r-0">
       <SidebarHeader className="hud-sidebar-header shrink-0">
-        <div className="flex items-center justify-center py-2">
+        <div className="hud-sidebar-brand">
+          <span className="hud-sidebar-brand-aura" aria-hidden="true" />
+          <span className="hud-sidebar-brand-pulse" aria-hidden="true" />
+          <span className="hud-sidebar-brand-sweep" aria-hidden="true" />
+          <span className="hud-sidebar-brand-spark hud-sidebar-brand-spark--a" aria-hidden="true" />
+          <span className="hud-sidebar-brand-spark hud-sidebar-brand-spark--b" aria-hidden="true" />
+          <span className="hud-sidebar-brand-spark hud-sidebar-brand-spark--c" aria-hidden="true" />
           <InsightLogo
-            width={150}
-            height={40}
-            className="h-auto w-auto opacity-90 transition-opacity duration-150 hover:opacity-100"
+            width={156}
+            height={42}
+            className="hud-sidebar-brand-logo h-auto w-auto"
             priority
+            animated={false}
           />
         </div>
       </SidebarHeader>
 
       <SidebarContent className="hud-sidebar-content flex-1 overflow-y-auto overflow-x-hidden">
-        <SidebarGroup>
+        <SidebarGroup className="hud-sidebar-group">
           <SidebarGroupLabel className="p-0">
             <div className="hud-sidebar-section-label">
               <span className="hud-sidebar-section-dot" />
-              {t("governance")}
+              <span>{t("governance")}</span>
             </div>
           </SidebarGroupLabel>
-
-          <SidebarMenu className="gap-1">{renderMenuItems(mainItems)}</SidebarMenu>
+          <SidebarMenu className="hud-sidebar-menu">{renderMenuItems(mainItems)}</SidebarMenu>
         </SidebarGroup>
 
         {user.role === "admin" && (
-          <SidebarGroup className="mt-3">
+          <SidebarGroup className="hud-sidebar-group">
             <button
               type="button"
-              className="hud-sidebar-section-label hud-sidebar-admin-trigger"
+              className="hud-sidebar-section-label hud-sidebar-section-trigger"
               onClick={toggleAdmin}
               aria-expanded={adminOpen}
               aria-controls="hud-sidebar-admin-menu"
             >
               <span className="hud-sidebar-section-dot" />
-              <span>
-                {t("administration")}
-                {!adminOpen && <span className="ml-1"> ({adminItems.length})</span>}
-              </span>
+              <span>{t("administration")}</span>
+              {!adminOpen && <span className="hud-sidebar-section-count">{adminItems.length}</span>}
               <ChevronDown
-                className={cn(
-                  "ml-auto h-3.5 w-3.5 transition-transform duration-150",
-                  adminOpen && "rotate-180",
-                )}
+                className={cn("hud-sidebar-section-chevron", adminOpen && "hud-sidebar-section-chevron-open")}
+                strokeWidth={1.8}
               />
             </button>
 
             {adminOpen && (
-              <SidebarMenu id="hud-sidebar-admin-menu" className="mt-1 gap-1">
+              <SidebarMenu id="hud-sidebar-admin-menu" className="hud-sidebar-menu">
                 {renderMenuItems(adminItems)}
               </SidebarMenu>
             )}
@@ -280,29 +304,29 @@ export function AppSidebar() {
       <SidebarFooter className="hud-sidebar-footer mt-auto shrink-0">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="hud-sidebar-item w-full">
-              <Avatar className="h-8 w-8 ring-1 ring-ig-border-focus">
-                <AvatarFallback className="bg-ig-accent-weak text-[10px] font-semibold text-ig-accent">
+            <button className="hud-user-card" type="button">
+              <Avatar className="hud-user-avatar">
+                <AvatarFallback className="hud-user-avatar-fallback">
                   {getUserInitials(user.fullName)}
                 </AvatarFallback>
               </Avatar>
-              <div className="min-w-0 flex-1 text-left">
-                <p className="truncate text-[13px] font-medium text-ig-fg-strong">{user.fullName}</p>
-                <p className="truncate text-xs text-ig-fg-muted">{user.cargo || user.role}</p>
-              </div>
-              <span className="h-1.5 w-1.5 rounded-full bg-ig-accent" />
+              <span className="hud-user-meta">
+                <span className="hud-user-name">{user.fullName}</span>
+                <span className="hud-user-role">{user.cargo || user.role}</span>
+              </span>
+              <span className="hud-user-status" aria-hidden="true" />
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" sideOffset={8} className="hud-sidebar-dropdown w-56 p-1">
             <DropdownMenuItem asChild className="hud-sidebar-dropdown-item">
               <Link href="/configuracoes" className="flex items-center">
-                <Settings className="mr-2.5 h-3.5 w-3.5 stroke-[1.8]" />
+                <Settings className="mr-2.5 h-3.5 w-3.5" strokeWidth={1.6} />
                 <span>{t("settings")}</span>
               </Link>
             </DropdownMenuItem>
             <div className="mx-2 my-1 h-px bg-ig-border-subtle" />
             <DropdownMenuItem className="hud-sidebar-dropdown-item text-ig-danger">
-              <LogOut className="mr-2.5 h-3.5 w-3.5 stroke-[1.8]" />
+              <LogOut className="mr-2.5 h-3.5 w-3.5" strokeWidth={1.6} />
               <span>{t("logout")}</span>
             </DropdownMenuItem>
           </DropdownMenuContent>

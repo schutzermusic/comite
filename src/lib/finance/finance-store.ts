@@ -589,7 +589,7 @@ export function computeTopDrivers(periodFrom: string, periodTo: string, limit = 
     category_id: r.cat.id,
     category_name: r.cat.name,
     group_key: r.cat.group_key,
-    group_label: { revenue: 'A. Receita', cogs: 'B. COGS', opex: 'C. OPEX', financial: 'D. Financeiro', taxes: 'E. Tributos' }[r.cat.group_key],
+    group_label: { revenue: 'A. Receita', cogs: 'B. Custos Diretos', opex: 'C. Despesas Operacionais', financial: 'D. Financeiro', taxes: 'E. Tributos' }[r.cat.group_key],
     project_id: r.project_id,
     project_name: r.project_name || (r.project_id ? r.project_id : 'Corporativo'),
     actual: r.actual,

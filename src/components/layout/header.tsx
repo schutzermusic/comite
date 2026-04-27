@@ -3,22 +3,21 @@
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { ThemeToggle } from "./ThemeToggle";
 import { HeaderBreadcrumb } from "./HeaderBreadcrumb";
-import { GlobalSearch } from "./GlobalSearch";
-import { OrgSwitcher } from "./OrgSwitcher";
 import NotificationCenter from "./notification-center";
-import { UserMenu } from "./UserMenu";
 
 export function Header() {
   return (
-    <header className="sticky top-0 z-40 flex h-14 items-center gap-3 border-b border-ig-border-subtle bg-ig-base/80 px-4 backdrop-blur-md">
-      <SidebarTrigger className="lg:hidden" />
+    <header className="app-top-header sticky top-0 z-40 flex h-11 items-center gap-2 px-4">
+      <SidebarTrigger className="app-header-icon-button lg:hidden" />
       <HeaderBreadcrumb />
       <div className="flex-1" />
-      <GlobalSearch />
-      <OrgSwitcher />
-      <NotificationCenter />
-      <ThemeToggle />
-      <UserMenu />
+      <div className="app-header-control-cluster">
+        <div className="app-header-icon-wrap">
+          <NotificationCenter />
+        </div>
+        <span className="app-header-divider" aria-hidden="true" />
+        <ThemeToggle />
+      </div>
     </header>
   );
 }

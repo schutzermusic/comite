@@ -1,13 +1,14 @@
 import { redirect } from 'next/navigation';
 
 interface ProjectsAliasPageProps {
-  searchParams?: Record<string, string | string[] | undefined>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }
 
-export default function ProjectsAliasPage({ searchParams = {} }: ProjectsAliasPageProps) {
+export default async function ProjectsAliasPage({ searchParams }: ProjectsAliasPageProps) {
+  const resolvedSearchParams = searchParams ? await searchParams : {};
   const params = new URLSearchParams();
 
-  Object.entries(searchParams).forEach(([key, value]) => {
+  Object.entries(resolvedSearchParams).forEach(([key, value]) => {
     if (typeof value === 'string') {
       params.set(key, value);
       return;
@@ -20,4 +21,3 @@ export default function ProjectsAliasPage({ searchParams = {} }: ProjectsAliasPa
   const query = params.toString();
   redirect(query ? `/projetos?${query}` : '/projetos');
 }
-

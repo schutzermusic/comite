@@ -56,6 +56,16 @@ const STATUS_LABELS: Record<string, string> = {
   void: 'Anulado',
 };
 
+function displayFinanceLabel(label?: string | null): string {
+  if (!label) return '';
+
+  return label
+    .replace(/\s*\(COGS\)/g, '')
+    .replace(/\s*\(OPEX\)/g, '')
+    .replace(/\bCOGS\b/g, 'Custo Direto')
+    .replace(/\bOPEX\b/g, 'Despesas Operacionais');
+}
+
 function agingColor(days: number): string {
   if (days <= 3) return 'text-white/60';
   if (days <= 7) return 'text-amber-400';
@@ -106,7 +116,7 @@ export default function FinanceOverviewPage() {
   const operatingResult = grossMargin + opex + financial + taxes;
   const marginPct = revenue !== 0 ? (grossMargin / revenue) * 100 : 0;
 
-  // Projects with revenue but zero COGS
+  // Projects with revenue but zero direct cost
   const inflatedMarginCount = useMemo(() => {
     return margins.filter(m => m.revenue > 0 && m.cogs === 0).length;
   }, [margins]);
@@ -186,7 +196,7 @@ export default function FinanceOverviewPage() {
     { key: 'description', header: t('description'), cell: (e) => (
       <div className="min-w-0">
         <p className="text-white/80 text-xs truncate">{e.description}</p>
-        <p className="text-white/30 text-[10px]">{e.category?.name || e.category_id}</p>
+        <p className="text-white/30 text-[10px]">{displayFinanceLabel(e.category?.name || e.category_id)}</p>
       </div>
     )},
     { key: 'project', header: t('project'), width: '120px', cell: (e) => (
@@ -208,9 +218,9 @@ export default function FinanceOverviewPage() {
     const or = gm + opex + financial + taxes;
     return [
       { name: t('revenue'), value: revenue, color: '#10b981', isTotal: false },
-      { name: 'COGS', value: cogs, color: '#f59e0b', isTotal: false },
+      { name: t('directCosts'), value: cogs, color: '#f59e0b', isTotal: false },
       { name: t('grossMargin'), value: gm, color: '#34d399', isTotal: true },
-      { name: 'OPEX', value: opex, color: '#6366f1', isTotal: false },
+      { name: t('operatingExpenses'), value: opex, color: '#6366f1', isTotal: false },
       { name: t('financialCosts'), value: financial, color: '#ec4899', isTotal: false },
       { name: t('taxesCosts'), value: taxes, color: '#ef4444', isTotal: false },
       { name: t('operatingResult'), value: or, color: '#06b6d4', isTotal: true },
@@ -268,11 +278,21 @@ export default function FinanceOverviewPage() {
           return `<b>${item.name}</b><br/>${formatCompactBRL(item.value)}<br/>${pctOfRevenue}% da Receita`;
         },
       },
-      grid: { left: 12, right: 16, top: 20, bottom: 32, containLabel: true },
+      grid: { left: 12, right: 16, top: 20, bottom: 48, containLabel: true },
       xAxis: {
         type: 'category' as const,
         data: waterfallData.map(d => d.name),
-        axisLabel: { color: isLight ? '#4B5563' : '#9abfaf', fontSize: 10, interval: 0, rotate: 0 },
+        axisLabel: {
+          color: isLight ? '#4B5563' : '#9abfaf',
+          fontSize: 9,
+          interval: 0,
+          rotate: 0,
+          lineHeight: 12,
+          formatter: (value: string) => value.replace('Custo Direto', 'Custo\nDireto')
+            .replace('Margem Bruta', 'Margem\nBruta')
+            .replace('Despesas Operacionais', 'Despesas\nOperacionais')
+            .replace('Resultado Operacional', 'Resultado\nOperacional'),
+        },
         axisLine: { lineStyle: { color: isLight ? 'rgba(0,0,0,0.08)' : 'rgba(200,220,235,0.06)' } },
         axisTick: { show: false },
       },
@@ -331,14 +351,17 @@ export default function FinanceOverviewPage() {
         textStyle: { color: isLight ? '#1C1F24' : '#f0fdf8', fontSize: 11 },
       },
       legend: {
-        data: ['COGS', 'OPEX', 'Financeiro', 'Impostos'],
+        data: [t('directCosts'), t('operatingExpenses'), 'Financeiro', 'Impostos'],
+        type: 'scroll',
+        left: 8,
+        right: 8,
         textStyle: { color: isLight ? '#4B5563' : '#9abfaf', fontSize: 10 },
         bottom: 0,
         icon: 'rect',
         itemWidth: 10,
         itemHeight: 10,
       },
-      grid: { left: 50, right: 16, top: 16, bottom: 40 },
+      grid: { left: 50, right: 16, top: 16, bottom: 54 },
       xAxis: {
         type: 'category' as const,
         data: months,
@@ -353,13 +376,13 @@ export default function FinanceOverviewPage() {
         axisLine: { show: false },
       },
       series: [
-        { name: 'COGS', type: 'bar', stack: 'costs', data: costStack.map(m => Math.abs(m.cogs)), itemStyle: { color: '#f59e0b' }, barWidth: 28 },
-        { name: 'OPEX', type: 'bar', stack: 'costs', data: costStack.map(m => Math.abs(m.opex)), itemStyle: { color: '#6366f1' }, barWidth: 28 },
+        { name: t('directCosts'), type: 'bar', stack: 'costs', data: costStack.map(m => Math.abs(m.cogs)), itemStyle: { color: '#f59e0b' }, barWidth: 28 },
+        { name: t('operatingExpenses'), type: 'bar', stack: 'costs', data: costStack.map(m => Math.abs(m.opex)), itemStyle: { color: '#6366f1' }, barWidth: 28 },
         { name: 'Financeiro', type: 'bar', stack: 'costs', data: costStack.map(m => Math.abs(m.financial)), itemStyle: { color: '#ec4899' }, barWidth: 28 },
         { name: 'Impostos', type: 'bar', stack: 'costs', data: costStack.map(m => Math.abs(m.taxes)), itemStyle: { color: '#ef4444' }, barWidth: 28 },
       ],
     };
-  }, [costStack, isLight]);
+  }, [costStack, isLight, t]);
 
   // ── Margin by project chart ──────────────────────────────
   const top10Margins = useMemo(() => margins.filter(m => m.revenue > 0 && m.cogs !== 0).slice(0, 10), [margins]);
@@ -374,7 +397,7 @@ export default function FinanceOverviewPage() {
         const idx = params[0]?.dataIndex ?? 0;
         const proj = top10Margins[top10Margins.length - 1 - idx];
         if (!proj) return '';
-        return `<b>${proj.project_name}</b><br/>Receita: ${formatCompactBRL(proj.revenue)}<br/>COGS: ${formatCompactBRL(Math.abs(proj.cogs))}<br/>Margem: ${proj.margin_pct.toFixed(1)}%`;
+        return `<b>${proj.project_name}</b><br/>Receita: ${formatCompactBRL(proj.revenue)}<br/>Custo Direto: ${formatCompactBRL(Math.abs(proj.cogs))}<br/>Margem: ${proj.margin_pct.toFixed(1)}%`;
       },
     },
     grid: { left: 130, right: 50, top: 8, bottom: 8 },
@@ -413,7 +436,7 @@ export default function FinanceOverviewPage() {
   const drawerTitle = useMemo(() => {
     if (drawer.type === 'metric') return drawer.title;
     if (drawer.type === 'project') return `${t('financialDossier')} — ${drawer.projectName}`;
-    if (drawer.type === 'variance') return `${drawer.driver.category_name}: ${formatCompactBRL(drawer.driver.variance_abs)} vs. Orçamento`;
+    if (drawer.type === 'variance') return `${displayFinanceLabel(drawer.driver.category_name)}: ${formatCompactBRL(drawer.driver.variance_abs)} vs. Orçamento`;
     if (drawer.type === 'quality') return drawer.title;
     if (drawer.type === 'entry') return t('entryDetails');
     return '';
@@ -454,7 +477,7 @@ export default function FinanceOverviewPage() {
       <div className="ig-glass relative mt-4 overflow-hidden rounded-xl" data-elev="2">
         <span data-ig-noise="" />
         <span data-ig-specular="" />
-        <div data-ig-content="" className="flex h-12 items-center divide-x divide-ig-border-subtle">
+        <div data-ig-content="" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
           {[
             { label: t('kpiNetRevenue'), value: formatCompactBRL(revenue), delta: '+8.7%', deltaOk: true, groupKey: 'revenue' as ManagementGroupKey },
             { label: t('kpiCogs'), value: formatCompactBRL(Math.abs(cogs)), delta: null, deltaOk: false, groupKey: 'cogs' as ManagementGroupKey },
@@ -477,15 +500,17 @@ export default function FinanceOverviewPage() {
                   openMetricDrawer(`${metric.label} — ${periodFrom} a ${periodTo}`);
                 }
               }}
-              className="flex h-full flex-1 cursor-pointer flex-col items-center justify-center gap-0.5 px-2 transition-colors hover:bg-ig-panel-hover"
+              className="flex min-h-[4.25rem] min-w-0 cursor-pointer flex-col items-center justify-center gap-1 border border-ig-border-subtle px-3 py-2.5 text-center transition-colors hover:bg-ig-panel-hover xl:min-h-[3.5rem]"
             >
-              <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-ig-fg-muted">
+              <span className="max-w-full text-[10px] font-medium uppercase leading-tight tracking-[0.08em] text-ig-fg-muted break-words">
                 {metric.label}
               </span>
-              <span className="ig-tabular ig-text-metal-accent text-ig-kpi-md font-semibold leading-none">
-                {metric.value}
+              <span className="flex max-w-full flex-wrap items-baseline justify-center gap-x-1.5 gap-y-0.5">
+                <span className="ig-tabular ig-text-metal-accent text-[clamp(1.25rem,2vw,1.75rem)] font-semibold leading-none">
+                  {metric.value}
+                </span>
                 {metric.delta && (
-                  <span className={cn('text-ig-caption ml-1.5', metric.deltaOk ? 'text-ig-success' : 'text-ig-danger')}>
+                  <span className={cn('text-ig-caption', metric.deltaOk ? 'text-ig-success' : 'text-ig-danger')}>
                     {metric.delta}
                   </span>
                 )}
@@ -572,7 +597,7 @@ export default function FinanceOverviewPage() {
                   >
                     <div className="min-w-0">
                       <p className="text-white/80 text-xs truncate">{item.description}</p>
-                      <p className="text-white/30 text-[10px] truncate">{item.category_name}</p>
+                      <p className="text-white/30 text-[10px] truncate">{displayFinanceLabel(item.category_name)}</p>
                     </div>
                     <span className="text-white/90 text-xs font-medium tabular-nums text-right">
                       {formatCompactBRL(item.amount_cents)}
@@ -643,7 +668,7 @@ export default function FinanceOverviewPage() {
                         >
                           <td className="py-2 px-2 text-white/30 tabular-nums">{d.rank}</td>
                           <td className="py-2 px-2">
-                            <span className="text-white/80">{d.category_name}</span>
+                            <span className="text-white/80">{displayFinanceLabel(d.category_name)}</span>
                             <span className={`block text-[10px] ${GROUP_TEXT_COLORS[d.group_key]}`}>{d.group_label}</span>
                           </td>
                           <td className="py-2 px-2 text-white/50 truncate">{d.project_name}</td>
@@ -692,7 +717,7 @@ export default function FinanceOverviewPage() {
                 />
                 {inflatedMarginCount > 0 && (
                   <div className="mt-2 px-2 py-1.5 border border-amber-500/20 rounded bg-amber-500/5 text-[10px] text-amber-400">
-                    ⚠ {inflatedMarginCount} projetos têm receita sem COGS registrado — margem pode estar inflada.
+                    ⚠ {inflatedMarginCount} projetos têm receita sem custo direto registrado — margem pode estar inflada.
                   </div>
                 )}
               </>
@@ -723,7 +748,7 @@ export default function FinanceOverviewPage() {
                   const monthIdx = params.dataIndex;
                   const month = costStack[monthIdx];
                   if (!month) return;
-                  const groupMap: Record<string, ManagementGroupKey> = { COGS: 'cogs', OPEX: 'opex', Financeiro: 'financial', Impostos: 'taxes' };
+                  const groupMap: Record<string, ManagementGroupKey> = { [t('directCosts')]: 'cogs', [t('operatingExpenses')]: 'opex', Financeiro: 'financial', Impostos: 'taxes' };
                   const gk = groupMap[seriesName];
                   if (gk) {
                     openMetricDrawer(`${seriesName} — ${month.period_key}`, gk);

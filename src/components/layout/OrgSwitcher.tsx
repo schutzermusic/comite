@@ -28,7 +28,7 @@ export function OrgSwitcher() {
         type="button"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
-        className="flex h-8 items-center gap-1.5 rounded-[var(--ig-radius-md)] px-2 text-ig-body-sm text-ig-fg-muted transition-colors hover:bg-ig-panel-hover hover:text-ig-fg"
+        className="app-header-company"
       >
         <Building2 size={13} className="text-ig-accent" aria-hidden="true" />
         <span>INSIGHT Corp</span>
