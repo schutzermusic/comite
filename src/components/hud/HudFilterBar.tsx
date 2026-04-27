@@ -47,27 +47,35 @@ export function HudFilterBar({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, delay: 0.15 }}
       className={cn(
-        'hud-filter-bar flex flex-col md:flex-row items-stretch md:items-center gap-3',
-        compact ? 'p-3' : 'p-4',
-        'rounded-xl border backdrop-blur-sm',
+        'hud-filter-bar flex flex-col md:flex-row items-stretch md:items-stretch gap-2.5',
+        compact ? 'p-2.5' : 'p-3.5',
+        'rounded-2xl border backdrop-blur-md',
         className
       )}
     >
       {/* Search */}
       {onSearchChange && (
-        <div className="relative flex-1 md:max-w-xs">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 hud-icon" />
+        <div
+          className={cn(
+            'hud-filter-block flex min-w-0 flex-1 items-center gap-2.5',
+            'md:max-w-sm',
+            compact ? 'min-h-9 px-2.5 py-1.5' : 'min-h-10 px-3 py-2'
+          )}
+        >
+          <Search className="hud-icon h-4 w-4 shrink-0 opacity-[0.55]" aria-hidden />
           <input
             type="text"
             placeholder={searchPlaceholder}
             value={searchValue}
             onChange={(e) => onSearchChange(e.target.value)}
             className={cn(
-              'w-full pl-10 pr-4 rounded-lg text-sm',
-              'hud-filter-input border',
-              'focus:outline-none',
+              'hud-filter-input min-w-0 flex-1 border-0 bg-transparent text-sm leading-snug',
+              'shadow-none',
+              'placeholder:opacity-50',
+              'focus:ring-0 focus:outline-none',
               'transition-colors',
-              compact ? 'h-9' : 'h-10'
+              'py-0.5',
+              'min-h-0'
             )}
           />
         </div>
@@ -75,22 +83,31 @@ export function HudFilterBar({
 
       {/* Filters */}
       {filterGroups.length > 0 && (
-        <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex flex-wrap items-stretch gap-2.5">
           {filterGroups.map((group) => (
-            <div key={group.id} className="flex flex-col gap-1">
-              <span className="text-[11px] font-medium hud-label uppercase tracking-wider px-0.5">
+            <div
+              key={group.id}
+              className={cn(
+                'hud-filter-block flex min-w-0 flex-col',
+                'min-w-[min(100%,10.5rem)]',
+                compact ? 'min-h-9 gap-0.5 px-2.5 py-1.5' : 'min-h-10 gap-1 px-3 py-2'
+              )}
+            >
+              <span className="hud-label px-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] opacity-80">
                 {group.label}
               </span>
               <select
                 value={group.value}
                 onChange={(e) => group.onChange(e.target.value)}
                 className={cn(
-                  'hud-filter-select min-w-[140px] px-3 rounded-lg text-sm font-medium',
-                  'border',
-                  'focus:outline-none',
-                  'transition-colors cursor-pointer',
-                  'appearance-none bg-no-repeat bg-[length:16px] bg-[right_8px_center] pr-8',
-                  compact ? 'h-9' : 'h-10'
+                  'hud-filter-select w-full min-w-0 rounded-md text-left text-sm font-medium',
+                  'border-0',
+                  'focus:ring-0 focus:outline-none',
+                  'transition-[color,opacity] duration-200',
+                  'appearance-none',
+                  'cursor-pointer',
+                  'py-0 pl-0 pr-0',
+                  compact ? 'leading-tight' : ''
                 )}
               >
                 {group.options.map((option) => (
@@ -107,7 +124,7 @@ export function HudFilterBar({
             <button
               onClick={onClearFilters}
               className={cn(
-                'hud-filter-clear flex items-center gap-1.5 px-3 rounded-lg self-end',
+                'hud-filter-clear flex items-center gap-1.5 px-3 rounded-lg self-center',
                 'border border-[color-mix(in_oklab,var(--ig-warning)_32%,transparent)] bg-[color-mix(in_oklab,var(--ig-warning)_14%,transparent)]',
                 'text-ig-warning text-sm font-medium',
                 'hover:brightness-110',
