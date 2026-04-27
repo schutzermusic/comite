@@ -1,6 +1,7 @@
 import { AppSidebar } from '@/components/layout/app-sidebar';
 import { Header } from '@/components/layout/header';
-import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
+import { SidebarShell } from '@/components/layout/sidebar-shell';
+import { SidebarInset } from '@/components/ui/sidebar';
 import { AtmosphericBackground } from '@/components/system/AtmosphericBackground';
 import { GlobeControlProvider } from '@/contexts/GlobeControlContext';
 import { ContractAIProvider } from '@/lib/stores/contract-ai-store';
@@ -29,7 +30,7 @@ export default function MainLayout({
         {/* Background layer - fixed, decorative only */}
         <AtmosphericBackground />
 
-        <SidebarProvider>
+        <SidebarShell>
           {/* UI Shell - Fixed Height (100dvh) for Control Room stability */}
           <div className="relative flex h-[100dvh] w-full overflow-hidden z-10">
             {/* Sidebar */}
@@ -43,7 +44,7 @@ export default function MainLayout({
               </main>
             </SidebarInset>
           </div>
-        </SidebarProvider>
+        </SidebarShell>
       </ContractAIProvider>
     </GlobeControlProvider>
   );

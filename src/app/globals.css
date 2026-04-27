@@ -1884,12 +1884,12 @@ html.light .hud-sidebar {
 }
 .hud-nav-item[data-active="true"] {
   color: var(--ig-fg-strong);
-  background: color-mix(in oklab, var(--ig-accent-weak) 60%, transparent);
+  background: color-mix(in oklab, var(--ig-accent-weak) 48%, transparent);
   font-weight: 600;
   box-shadow: inset 2px 0 0 var(--ig-accent);
 }
 html.dark .hud-nav-item[data-active="true"] {
-  background: color-mix(in oklab, var(--ig-accent-weak) 50%, transparent);
+  background: color-mix(in oklab, var(--ig-accent-weak) 38%, transparent);
 }
 .hud-nav-item > .hud-nav-icon,
 .hud-nav-item .hud-nav-icon {
@@ -2083,6 +2083,207 @@ html.dark .hud-nav-item[data-active="true"] {
   .hud-sidebar-section-chevron {
     transition: none;
   }
+}
+
+/* ════════════════════════════════════════════════════════
+   HUD SIDEBAR — collapse / icon rail
+   ════════════════════════════════════════════════════════ */
+
+/* Header layout — stacks brand and collapse control */
+.hud-sidebar-header {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.375rem;
+}
+
+/* Collapse control */
+.hud-sidebar-collapse-slot {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 0.125rem;
+}
+.hud-sidebar-collapse-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid color-mix(in oklab, var(--ig-border-subtle) 70%, transparent);
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--ig-bg-panel) 50%, transparent);
+  color: var(--ig-fg-subtle);
+  cursor: pointer;
+  transition: color 150ms ease, background 150ms ease, border-color 150ms ease, transform 150ms ease;
+}
+.hud-sidebar-collapse-btn:hover {
+  color: var(--ig-fg-default);
+  border-color: color-mix(in oklab, var(--ig-border-default) 80%, transparent);
+  background: color-mix(in oklab, var(--ig-bg-panel-hover) 60%, transparent);
+}
+.hud-sidebar-collapse-btn:focus-visible {
+  outline: none;
+  border-color: color-mix(in oklab, var(--ig-border-focus) 60%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--ig-accent) 22%, transparent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .hud-sidebar-collapse-btn {
+    transition: none;
+  }
+}
+
+/* Compact brand mark used in collapsed mode */
+.hud-sidebar-brand-mark {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: linear-gradient(
+    140deg,
+    color-mix(in oklab, var(--ig-accent-weak) 92%, transparent) 0%,
+    color-mix(in oklab, var(--ig-accent-weak) 50%, transparent) 100%
+  );
+  border: 1px solid color-mix(in oklab, var(--ig-border-default) 60%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, var(--ig-accent) 22%, transparent),
+    0 4px 14px color-mix(in oklab, var(--ig-accent) 16%, transparent);
+}
+.hud-sidebar-brand-mark-glyph {
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-weight: 700;
+  font-size: 17px;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--ig-accent);
+  text-transform: lowercase;
+  filter: drop-shadow(0 0 4px color-mix(in oklab, var(--ig-accent) 38%, transparent));
+}
+
+/* Tooltip — shared by sidebar nav, brand and user card in collapsed mode */
+.hud-sidebar-tooltip {
+  border: 1px solid color-mix(in oklab, var(--ig-border-default) 70%, transparent) !important;
+  background: var(--ig-bg-overlay) !important;
+  color: var(--ig-fg-strong) !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.005em !important;
+  padding: 0.375rem 0.625rem !important;
+  border-radius: var(--ig-radius-sm) !important;
+  box-shadow: var(--ig-shadow-e3) !important;
+  backdrop-filter: var(--ig-blur-e2);
+  -webkit-backdrop-filter: var(--ig-blur-e2);
+}
+
+/* Section divider used in collapsed mode (replaces section label) */
+.hud-sidebar-section-divider {
+  display: block;
+  width: 60%;
+  height: 1px;
+  margin: 0 auto;
+  background: color-mix(in oklab, var(--ig-border-subtle) 70%, transparent);
+}
+
+/* ─── COLLAPSED STATE ─── */
+[data-state="collapsed"] .hud-sidebar-header {
+  padding: 1rem 0.5rem 0.875rem;
+  align-items: center;
+  border-bottom: 1px solid color-mix(in oklab, var(--ig-border-subtle) 60%, transparent);
+}
+[data-state="collapsed"] .hud-sidebar-collapse-slot {
+  justify-content: center;
+  padding: 0;
+}
+
+[data-state="collapsed"] .hud-sidebar-content {
+  padding: 0.5rem 0.375rem 0.25rem;
+}
+[data-state="collapsed"] .hud-sidebar-group {
+  padding: 0;
+  margin-bottom: 0.5rem;
+}
+[data-state="collapsed"] .hud-sidebar-menu {
+  gap: 0.25rem;
+}
+
+/* Section labels collapse to a thin divider */
+[data-state="collapsed"] .hud-sidebar-section-label {
+  height: 0.875rem;
+  padding: 0.25rem 0.25rem;
+  justify-content: center;
+}
+[data-state="collapsed"] .hud-sidebar-section-text,
+[data-state="collapsed"] .hud-sidebar-section-count,
+[data-state="collapsed"] .hud-sidebar-section-chevron,
+[data-state="collapsed"] .hud-sidebar-section-dot {
+  display: none;
+}
+
+/* Icon-only menu items */
+[data-state="collapsed"] .hud-nav-item {
+  width: 40px;
+  height: 40px;
+  min-height: 40px;
+  margin: 0 auto;
+  padding: 0;
+  justify-content: center;
+  gap: 0;
+  border-radius: var(--ig-radius-md);
+  box-shadow: none;
+}
+[data-state="collapsed"] .hud-nav-item .hud-nav-label,
+[data-state="collapsed"] .hud-nav-item .hud-nav-chevron {
+  display: none;
+}
+[data-state="collapsed"] .hud-nav-item .hud-nav-icon {
+  width: 16px;
+  height: 16px;
+}
+
+/* Refined active state for collapsed rail — glass + soft glow, no rail strip */
+[data-state="collapsed"] .hud-nav-item[data-active="true"] {
+  background: color-mix(in oklab, var(--ig-accent-weak) 70%, transparent);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklab, var(--ig-accent) 24%, transparent),
+    0 0 16px color-mix(in oklab, var(--ig-accent) 14%, transparent);
+}
+html.dark [data-state="collapsed"] .hud-nav-item[data-active="true"] {
+  background: color-mix(in oklab, var(--ig-accent-weak) 50%, transparent);
+}
+
+/* Hide submenu defensively in collapsed mode */
+[data-state="collapsed"] .hud-nav-submenu {
+  display: none;
+}
+
+/* Footer in collapsed mode */
+[data-state="collapsed"] .hud-sidebar-footer {
+  padding: 0.5rem 0.375rem 0.625rem;
+}
+.hud-user-card--collapsed {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  margin: 0 auto;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  border-radius: var(--ig-radius-md);
+}
+.hud-user-card--collapsed .hud-user-avatar {
+  width: 1.5rem !important;
+  height: 1.5rem !important;
+}
+.hud-user-card--collapsed .hud-user-status {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
 }
 
 /* Full-screen globe canvas container */

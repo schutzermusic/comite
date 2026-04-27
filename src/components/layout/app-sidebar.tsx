@@ -24,6 +24,8 @@ import {
   Lock,
   LogOut,
   Network,
+  PanelLeftClose,
+  PanelLeftOpen,
   Receipt,
   Settings,
   Shield,
@@ -43,7 +45,13 @@ import {
   SidebarMenu,
   SidebarMenuItem,
   SidebarMenuButton,
+  useSidebar,
 } from "@/components/ui/sidebar";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -144,6 +152,8 @@ export function AppSidebar() {
   const pathname = usePathname();
   const { user } = useUser();
   const t = useTranslations("common");
+  const { state, toggleSidebar, isMobile } = useSidebar();
+  const isCollapsed = state === "collapsed" && !isMobile;
   const [adminOpen, setAdminOpen] = useState(false);
   const [financeOpen, setFinanceOpen] = useState(false);
 
@@ -181,8 +191,9 @@ export function AppSidebar() {
     return items.map((item) => {
       const Icon = item.icon;
       const isParentActive = isRouteActive(pathname, item.href);
+      const label = t(item.labelKey);
 
-      if (item.subItems) {
+      if (item.subItems && !isCollapsed) {
         const isOpen = financeOpen;
         return (
           <SidebarMenuItem key={item.href}>
@@ -196,7 +207,7 @@ export function AppSidebar() {
               isActive={isParentActive}
             >
               <Icon className="hud-nav-icon" strokeWidth={1.6} />
-              <span className="hud-nav-label">{t(item.labelKey)}</span>
+              <span className="hud-nav-label">{label}</span>
               <ChevronDown
                 className={cn("hud-nav-chevron", isOpen && "hud-nav-chevron-open")}
                 strokeWidth={1.8}
@@ -225,42 +236,91 @@ export function AppSidebar() {
         );
       }
 
+      const linkContent = (
+        <Link href={item.href} aria-label={isCollapsed ? label : undefined}>
+          <Icon className="hud-nav-icon" strokeWidth={1.6} />
+          <span className="hud-nav-label">{label}</span>
+        </Link>
+      );
+
+      const button = (
+        <SidebarMenuButton
+          asChild
+          className="hud-nav-item"
+          data-active={isParentActive}
+          isActive={isParentActive}
+        >
+          {linkContent}
+        </SidebarMenuButton>
+      );
+
       return (
         <SidebarMenuItem key={item.href}>
-          <SidebarMenuButton
-            asChild
-            className="hud-nav-item"
-            data-active={isParentActive}
-            isActive={isParentActive}
-          >
-            <Link href={item.href}>
-              <Icon className="hud-nav-icon" strokeWidth={1.6} />
-              <span className="hud-nav-label">{t(item.labelKey)}</span>
-            </Link>
-          </SidebarMenuButton>
+          {isCollapsed ? (
+            <Tooltip>
+              <TooltipTrigger asChild>{button}</TooltipTrigger>
+              <TooltipContent side="right" sideOffset={10} className="hud-sidebar-tooltip">
+                {label}
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            button
+          )}
         </SidebarMenuItem>
       );
     });
   };
 
+  const collapseControl = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={toggleSidebar}
+          className="hud-sidebar-collapse-btn"
+          aria-label={isCollapsed ? t("expandSidebar") : t("collapseSidebar")}
+          aria-expanded={!isCollapsed}
+        >
+          {isCollapsed ? (
+            <PanelLeftOpen className="h-3.5 w-3.5" strokeWidth={1.6} />
+          ) : (
+            <PanelLeftClose className="h-3.5 w-3.5" strokeWidth={1.6} />
+          )}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right" sideOffset={10} className="hud-sidebar-tooltip">
+        {isCollapsed ? t("expandSidebar") : t("collapseSidebar")}
+      </TooltipContent>
+    </Tooltip>
+  );
+
   return (
-    <Sidebar className="hud-sidebar border-r-0">
+    <Sidebar className="hud-sidebar border-r-0" collapsible="icon">
       <SidebarHeader className="hud-sidebar-header shrink-0">
-        <div className="hud-sidebar-brand">
-          <span className="hud-sidebar-brand-aura" aria-hidden="true" />
-          <span className="hud-sidebar-brand-pulse" aria-hidden="true" />
-          <span className="hud-sidebar-brand-sweep" aria-hidden="true" />
-          <span className="hud-sidebar-brand-spark hud-sidebar-brand-spark--a" aria-hidden="true" />
-          <span className="hud-sidebar-brand-spark hud-sidebar-brand-spark--b" aria-hidden="true" />
-          <span className="hud-sidebar-brand-spark hud-sidebar-brand-spark--c" aria-hidden="true" />
-          <InsightLogo
-            width={156}
-            height={42}
-            className="hud-sidebar-brand-logo h-auto w-auto"
-            priority
-            animated={false}
-          />
+        <div className="hud-sidebar-brand" data-collapsed={isCollapsed || undefined}>
+          {isCollapsed ? (
+            <span className="hud-sidebar-brand-mark" aria-hidden="true">
+              <span className="hud-sidebar-brand-mark-glyph">i</span>
+            </span>
+          ) : (
+            <>
+              <span className="hud-sidebar-brand-aura" aria-hidden="true" />
+              <span className="hud-sidebar-brand-pulse" aria-hidden="true" />
+              <span className="hud-sidebar-brand-sweep" aria-hidden="true" />
+              <span className="hud-sidebar-brand-spark hud-sidebar-brand-spark--a" aria-hidden="true" />
+              <span className="hud-sidebar-brand-spark hud-sidebar-brand-spark--b" aria-hidden="true" />
+              <span className="hud-sidebar-brand-spark hud-sidebar-brand-spark--c" aria-hidden="true" />
+              <InsightLogo
+                width={156}
+                height={42}
+                className="hud-sidebar-brand-logo h-auto w-auto"
+                priority
+                animated={false}
+              />
+            </>
+          )}
         </div>
+        <div className="hud-sidebar-collapse-slot">{collapseControl}</div>
       </SidebarHeader>
 
       <SidebarContent className="hud-sidebar-content flex-1 overflow-y-auto overflow-x-hidden">
@@ -268,7 +328,7 @@ export function AppSidebar() {
           <SidebarGroupLabel className="p-0">
             <div className="hud-sidebar-section-label">
               <span className="hud-sidebar-section-dot" />
-              <span>{t("governance")}</span>
+              <span className="hud-sidebar-section-text">{t("governance")}</span>
             </div>
           </SidebarGroupLabel>
           <SidebarMenu className="hud-sidebar-menu">{renderMenuItems(mainItems)}</SidebarMenu>
@@ -276,23 +336,34 @@ export function AppSidebar() {
 
         {user.role === "admin" && (
           <SidebarGroup className="hud-sidebar-group">
-            <button
-              type="button"
-              className="hud-sidebar-section-label hud-sidebar-section-trigger"
-              onClick={toggleAdmin}
-              aria-expanded={adminOpen}
-              aria-controls="hud-sidebar-admin-menu"
-            >
-              <span className="hud-sidebar-section-dot" />
-              <span>{t("administration")}</span>
-              {!adminOpen && <span className="hud-sidebar-section-count">{adminItems.length}</span>}
-              <ChevronDown
-                className={cn("hud-sidebar-section-chevron", adminOpen && "hud-sidebar-section-chevron-open")}
-                strokeWidth={1.8}
-              />
-            </button>
+            {isCollapsed ? (
+              <div className="hud-sidebar-section-label" aria-hidden="true">
+                <span className="hud-sidebar-section-divider" />
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="hud-sidebar-section-label hud-sidebar-section-trigger"
+                onClick={toggleAdmin}
+                aria-expanded={adminOpen}
+                aria-controls="hud-sidebar-admin-menu"
+              >
+                <span className="hud-sidebar-section-dot" />
+                <span className="hud-sidebar-section-text">{t("administration")}</span>
+                {!adminOpen && (
+                  <span className="hud-sidebar-section-count">{adminItems.length}</span>
+                )}
+                <ChevronDown
+                  className={cn(
+                    "hud-sidebar-section-chevron",
+                    adminOpen && "hud-sidebar-section-chevron-open"
+                  )}
+                  strokeWidth={1.8}
+                />
+              </button>
+            )}
 
-            {adminOpen && (
+            {(isCollapsed || adminOpen) && (
               <SidebarMenu id="hud-sidebar-admin-menu" className="hud-sidebar-menu">
                 {renderMenuItems(adminItems)}
               </SidebarMenu>
@@ -304,18 +375,40 @@ export function AppSidebar() {
       <SidebarFooter className="hud-sidebar-footer mt-auto shrink-0">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="hud-user-card" type="button">
-              <Avatar className="hud-user-avatar">
-                <AvatarFallback className="hud-user-avatar-fallback">
-                  {getUserInitials(user.fullName)}
-                </AvatarFallback>
-              </Avatar>
-              <span className="hud-user-meta">
-                <span className="hud-user-name">{user.fullName}</span>
-                <span className="hud-user-role">{user.cargo || user.role}</span>
-              </span>
-              <span className="hud-user-status" aria-hidden="true" />
-            </button>
+            {isCollapsed ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    className="hud-user-card hud-user-card--collapsed"
+                    type="button"
+                    aria-label={user.fullName}
+                  >
+                    <Avatar className="hud-user-avatar">
+                      <AvatarFallback className="hud-user-avatar-fallback">
+                        {getUserInitials(user.fullName)}
+                      </AvatarFallback>
+                    </Avatar>
+                    <span className="hud-user-status" aria-hidden="true" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="right" sideOffset={10} className="hud-sidebar-tooltip">
+                  {user.fullName}
+                </TooltipContent>
+              </Tooltip>
+            ) : (
+              <button className="hud-user-card" type="button">
+                <Avatar className="hud-user-avatar">
+                  <AvatarFallback className="hud-user-avatar-fallback">
+                    {getUserInitials(user.fullName)}
+                  </AvatarFallback>
+                </Avatar>
+                <span className="hud-user-meta">
+                  <span className="hud-user-name">{user.fullName}</span>
+                  <span className="hud-user-role">{user.cargo || user.role}</span>
+                </span>
+                <span className="hud-user-status" aria-hidden="true" />
+              </button>
+            )}
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" sideOffset={8} className="hud-sidebar-dropdown w-56 p-1">
             <DropdownMenuItem asChild className="hud-sidebar-dropdown-item">

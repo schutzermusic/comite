@@ -60,5 +60,7 @@
   "executed": "exec.",
   "language": "Idioma",
   "ptBR": "Português (Brasil)",
-  "en": "English"
+  "en": "English",
+  "collapseSidebar": "Recolher menu",
+  "expandSidebar": "Expandir menu"
 }

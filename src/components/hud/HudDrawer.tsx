@@ -75,7 +75,7 @@ export function HudDrawer({
             style={{ width, maxWidth: '90vw' }}
             data-elev="3"
             className={cn(
-              'fixed top-0 bottom-0 z-50 flex flex-col',
+              'fixed top-0 bottom-0 z-50 flex min-h-0 min-w-0 flex-col',
               position === 'right' ? 'right-0' : 'left-0',
               'hud-drawer-surface ig-glass',
               className
@@ -83,9 +83,12 @@ export function HudDrawer({
           >
             <span data-ig-noise="" />
             <span data-ig-specular="" />
-            <div data-ig-content="" className="flex flex-col h-full">
+            <div
+              data-ig-content=""
+              className="flex min-h-0 min-w-0 flex-1 flex-col"
+            >
               {/* Header */}
-              <div className="flex items-start justify-between p-4 border-b border-ig-border">
+              <div className="flex shrink-0 items-start justify-between border-b border-ig-border p-4">
                 <div className="flex-1 min-w-0">
                   {title && (
                     <h2 className="text-lg font-semibold text-ig-fg-strong tracking-wide">
@@ -106,8 +109,7 @@ export function HudDrawer({
                 )}
               </div>
 
-              {/* Content */}
-              <div className="flex-1 overflow-y-auto p-4">
+              <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain p-4 [-webkit-overflow-scrolling:touch]">
                 {children}
               </div>
             </div>
