@@ -1,38 +1,25 @@
 "use client";
 
-import { usePathname } from "next/navigation";
-
-const ROUTE_LABELS: Record<string, string> = {
-  dashboard: "Dashboard",
-  financeiro: "Financeiro",
-  projetos: "Projetos",
-  contracts: "Contratos",
-  contratos: "Contratos",
-  riscos: "Riscos",
-  reunioes: "Reuniões",
-  pautas: "Deliberações",
-  "workforce-cost": "Pessoas & Custos",
-  organograma: "Organograma",
-  configuracoes: "Configurações",
-  workflows: "Workflows",
-  relatorios: "Relatórios",
-  historico: "Histórico",
-  atas: "Atas",
-  comites: "Comitês",
-  membros: "Membros",
-  roles: "Permissões",
-};
+import { InsightLogo } from "./insight-logo";
 
 export function HeaderBreadcrumb() {
-  const pathname = usePathname();
-  const segments = pathname.split("/").filter(Boolean);
-  const moduleName = ROUTE_LABELS[segments[0]] ?? segments[0] ?? "Dashboard";
-
   return (
     <div className="app-header-breadcrumb">
-      <span className="app-header-breadcrumb-eyebrow">INSIGHT</span>
-      <span className="app-header-breadcrumb-sep" aria-hidden="true">/</span>
-      <span className="app-header-breadcrumb-title">{moduleName}</span>
+      <div className="hud-header-brand">
+        <span className="hud-sidebar-brand-aura" aria-hidden="true" />
+        <span className="hud-sidebar-brand-pulse" aria-hidden="true" />
+        <span className="hud-sidebar-brand-sweep" aria-hidden="true" />
+        <span className="hud-sidebar-brand-spark hud-sidebar-brand-spark--a" aria-hidden="true" />
+        <span className="hud-sidebar-brand-spark hud-sidebar-brand-spark--b" aria-hidden="true" />
+        <span className="hud-sidebar-brand-spark hud-sidebar-brand-spark--c" aria-hidden="true" />
+        <InsightLogo
+          width={148}
+          height={40}
+          className="hud-sidebar-brand-logo"
+          priority
+          animated={false}
+        />
+      </div>
     </div>
   );
 }

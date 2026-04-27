@@ -59,7 +59,6 @@ import {
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "../ui/avatar";
-import { InsightLogo } from "./insight-logo";
 import { cn } from "@/lib/utils";
 
 const ADMIN_STORAGE_KEY = "ig-sidebar-admin-open";
@@ -296,30 +295,7 @@ export function AppSidebar() {
 
   return (
     <Sidebar className="hud-sidebar border-r-0" collapsible="icon">
-      <SidebarHeader className="hud-sidebar-header shrink-0">
-        <div className="hud-sidebar-brand" data-collapsed={isCollapsed || undefined}>
-          {isCollapsed ? (
-            <span className="hud-sidebar-brand-mark" aria-hidden="true">
-              <span className="hud-sidebar-brand-mark-glyph">i</span>
-            </span>
-          ) : (
-            <>
-              <span className="hud-sidebar-brand-aura" aria-hidden="true" />
-              <span className="hud-sidebar-brand-pulse" aria-hidden="true" />
-              <span className="hud-sidebar-brand-sweep" aria-hidden="true" />
-              <span className="hud-sidebar-brand-spark hud-sidebar-brand-spark--a" aria-hidden="true" />
-              <span className="hud-sidebar-brand-spark hud-sidebar-brand-spark--b" aria-hidden="true" />
-              <span className="hud-sidebar-brand-spark hud-sidebar-brand-spark--c" aria-hidden="true" />
-              <InsightLogo
-                width={156}
-                height={42}
-                className="hud-sidebar-brand-logo h-auto w-auto"
-                priority
-                animated={false}
-              />
-            </>
-          )}
-        </div>
+      <SidebarHeader className="h-11 min-h-11 shrink-0 p-0 gap-0 flex flex-row items-center justify-center hud-sidebar-header hud-sidebar-header--collapse-only">
         <div className="hud-sidebar-collapse-slot">{collapseControl}</div>
       </SidebarHeader>
 
