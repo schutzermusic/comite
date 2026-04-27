@@ -1459,6 +1459,7 @@ html.dark .app-top-header {
 .app-header-breadcrumb {
   display: flex;
   min-width: 0;
+  flex-shrink: 0;
   align-items: center;
   gap: 0.5rem;
   padding-inline: 0.125rem 0.5rem;
@@ -1466,10 +1467,17 @@ html.dark .app-top-header {
 .hud-header-brand {
   position: relative;
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   justify-content: center;
   isolation: isolate;
-  padding: 0.2rem 0.5rem;
+  padding: 0.125rem 0.375rem;
+}
+/* Header logo — barra 42px, marca ~26px de altura */
+.app-header-insight-logo {
+  width: auto !important;
+  height: 26px !important;
+  max-height: none !important;
 }
 .app-header-breadcrumb-eyebrow {
   display: none;

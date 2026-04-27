@@ -7,7 +7,7 @@ import NotificationCenter from "./notification-center";
 
 export function Header() {
   return (
-    <header className="app-top-header sticky top-0 z-40 flex h-11 items-center gap-2 px-4">
+    <header className="app-top-header sticky top-0 z-40 flex h-[42px] min-h-[42px] items-center gap-2 px-4">
       <SidebarTrigger className="app-header-icon-button lg:hidden" />
       <HeaderBreadcrumb />
       <div className="flex-1" />
