@@ -63,21 +63,21 @@ export function WorkforceAlertCenter({
   const severityConfig = {
     warning: {
       icon: AlertTriangle,
-      color: 'text-semantic-warning-DEFAULT',
-      bgColor: 'bg-semantic-warning-bg',
-      borderColor: 'border-semantic-warning-DEFAULT/20',
+      color: 'text-ig-warning',
+      bgColor: 'bg-ig-warning/10',
+      borderColor: 'border-ig-warning/25',
     },
     error: {
       icon: AlertCircle,
-      color: 'text-semantic-error-DEFAULT',
-      bgColor: 'bg-semantic-error-bg',
-      borderColor: 'border-semantic-error-DEFAULT/20',
+      color: 'text-ig-danger',
+      bgColor: 'bg-ig-danger/10',
+      borderColor: 'border-ig-danger/25',
     },
     info: {
       icon: CheckCircle,
-      color: 'text-semantic-info-DEFAULT',
-      bgColor: 'bg-semantic-info-bg',
-      borderColor: 'border-semantic-info-DEFAULT/20',
+      color: 'text-ig-info',
+      bgColor: 'bg-ig-info/10',
+      borderColor: 'border-ig-info/25',
     },
   };
 
@@ -85,19 +85,19 @@ export function WorkforceAlertCenter({
     return (
       <OrionCard variant="elevated" className={className}>
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-semibold text-white orion-text-heading">
+          <h3 className="text-sm font-semibold text-ig-fg-strong tracking-tight">
             Central de Alertas
           </h3>
-          <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-semantic-success-bg border border-semantic-success-DEFAULT/20">
-            <CheckCircle className="w-3 h-3 text-semantic-success-DEFAULT" />
-            <span className="text-xs text-semantic-success-DEFAULT">Tudo OK</span>
+          <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-ig-success/10 border border-ig-success/25">
+            <CheckCircle className="w-3 h-3 text-ig-success" />
+            <span className="text-xs text-ig-success font-medium">Tudo OK</span>
           </div>
         </div>
         <div className="flex items-center justify-center py-8">
           <div className="text-center">
-            <CheckCircle className="w-10 h-10 text-semantic-success-DEFAULT mx-auto mb-2 opacity-50" />
-            <p className="text-sm text-orion-text-muted">Nenhum alerta ativo</p>
-            <p className="text-xs text-orion-text-tertiary mt-1">
+            <CheckCircle className="w-10 h-10 text-ig-success mx-auto mb-2 opacity-50" />
+            <p className="text-sm text-ig-fg-muted">Nenhum alerta ativo</p>
+            <p className="text-xs text-ig-fg-subtle mt-1">
               Todos os indicadores estão dentro dos limites
             </p>
           </div>
@@ -109,12 +109,12 @@ export function WorkforceAlertCenter({
   return (
     <OrionCard variant="elevated" className={className}>
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-semibold text-white orion-text-heading">
+        <h3 className="text-sm font-semibold text-ig-fg-strong tracking-tight">
           Central de Alertas
         </h3>
-        <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-semantic-warning-bg border border-semantic-warning-DEFAULT/20">
-          <AlertTriangle className="w-3 h-3 text-semantic-warning-DEFAULT" />
-          <span className="text-xs text-semantic-warning-DEFAULT">
+        <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-ig-warning/10 border border-ig-warning/25">
+          <AlertTriangle className="w-3 h-3 text-ig-warning" />
+          <span className="text-xs text-ig-warning font-medium ig-tabular">
             {alerts.length} alerta{alerts.length > 1 ? 's' : ''}
           </span>
         </div>
@@ -133,7 +133,7 @@ export function WorkforceAlertCenter({
                 config.bgColor,
                 'border',
                 config.borderColor,
-                alert.costCenterId && 'cursor-pointer hover:border-orion-border-strong transition-colors'
+                alert.costCenterId && 'cursor-pointer hover:border-ig-border-strong transition-colors'
               )}
               initial={{ opacity: 0, x: -10 }}
               animate={{ opacity: 1, x: 0 }}
@@ -143,20 +143,20 @@ export function WorkforceAlertCenter({
                 <AlertIcon className={cn('w-4 h-4 mt-0.5', config.color)} />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between gap-2">
-                    <span className={cn('text-sm font-medium', config.color)}>
+                    <span className={cn('text-sm font-semibold', config.color)}>
                       {alert.title}
                     </span>
                     {alert.value !== undefined && (
                       <div className="flex items-center gap-1">
                         <TrendingUp className={cn('w-3 h-3', config.color)} />
-                        <span className={cn('text-xs font-semibold', config.color)}>
+                        <span className={cn('text-xs font-semibold ig-tabular', config.color)}>
                           {typeof alert.value === 'number' && alert.value > 0 ? '+' : ''}
                           {alert.value.toFixed(1)}%
                         </span>
                       </div>
                     )}
                   </div>
-                  <p className="text-xs text-orion-text-secondary mt-1">
+                  <p className="text-xs text-ig-fg-muted mt-1">
                     {alert.description}
                   </p>
                 </div>
@@ -180,18 +180,18 @@ export function WorkforceAlertCenter({
       </div>
 
       {/* Quick Recommendations */}
-      <div className="mt-4 pt-4 border-t border-orion-border-subtle">
-        <p className="text-xs text-orion-text-muted mb-2">Recomendações rápidas:</p>
-        <ul className="space-y-1">
+      <div className="mt-4 pt-4 border-t border-ig-border-subtle">
+        <p className="text-[10.5px] font-semibold tracking-wider uppercase text-ig-fg-subtle mb-2">Recomendações rápidas</p>
+        <ul className="space-y-1.5">
           {alerts.some(a => a.type === 'abnormal_growth') && (
-            <li className="text-xs text-orion-text-secondary flex items-center gap-2">
-              <span className="w-1 h-1 rounded-full bg-semantic-warning-DEFAULT" />
+            <li className="text-xs text-ig-fg-default flex items-center gap-2">
+              <span className="w-1 h-1 rounded-full bg-ig-warning" />
               Revisar contratações nos centros com crescimento anormal
             </li>
           )}
           {alerts.some(a => a.type === 'threshold_exceeded') && (
-            <li className="text-xs text-orion-text-secondary flex items-center gap-2">
-              <span className="w-1 h-1 rounded-full bg-semantic-warning-DEFAULT" />
+            <li className="text-xs text-ig-fg-default flex items-center gap-2">
+              <span className="w-1 h-1 rounded-full bg-ig-warning" />
               Avaliar otimização de custos ou aumento de receita
             </li>
           )}

@@ -95,7 +95,15 @@ export const HudPanel = React.memo(function HudPanel({
                             )}
                             <span className="cr-panel-title truncate">{title}</span>
                             {badge !== undefined && (
-                                <span className="ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-amber-500/15 text-amber-300 text-[9px] font-semibold tabular-nums border border-amber-400/25">
+                                <span
+                                    className={cn(
+                                        'ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[9px] font-semibold tabular-nums border',
+                                        /* Light: âmbar vivo + número escuro */
+                                        'bg-amber-400/35 border-amber-600/55 text-amber-950',
+                                        /* Dark HUD */
+                                        'dark:bg-amber-500/15 dark:border-amber-400/25 dark:text-amber-300'
+                                    )}
+                                >
                                     {badge}
                                 </span>
                             )}

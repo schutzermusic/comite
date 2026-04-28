@@ -191,7 +191,13 @@ export const RightHudStack = React.memo(function RightHudStack({ data, scopeMode
                                     <Link
                                         key={key}
                                         href="/riscos"
-                                        className="text-[9px] px-2 py-0.5 rounded-full bg-red-500/[0.07] border border-red-400/20 text-red-200/70 hover:border-red-300/40 hover:text-red-100 hover:bg-red-500/[0.12] transition-all duration-150 whitespace-nowrap flex-shrink-0"
+                                        className={cn(
+                                            'text-[9px] px-2 py-0.5 rounded-full border transition-all duration-150 whitespace-nowrap flex-shrink-0',
+                                            /* Light: vermelho escuro + texto quase preto (legível no glass claro) */
+                                            'bg-red-500/[0.14] border-red-700/35 text-red-950 hover:bg-red-500/20 hover:border-red-800/50 hover:text-black',
+                                            /* Dark HUD: tons suaves sobre fundo escuro */
+                                            'dark:bg-red-500/[0.07] dark:border-red-400/20 dark:text-red-200/90 dark:hover:border-red-300/40 dark:hover:text-red-100 dark:hover:bg-red-500/[0.12]'
+                                        )}
                                     >
                                         {t(key)}
                                     </Link>

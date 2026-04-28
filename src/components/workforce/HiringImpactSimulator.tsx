@@ -62,14 +62,14 @@ export function HiringImpactSimulator({
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-semantic-info-bg border border-semantic-info-DEFAULT/20">
-              <Calculator className="w-5 h-5 text-semantic-info-DEFAULT" />
+            <div className="p-2.5 rounded-xl bg-ig-info/10 border border-ig-info/25">
+              <Calculator className="w-5 h-5 text-ig-info" />
             </div>
             <div>
-              <h3 className="text-base font-semibold text-white orion-text-heading">
+              <h3 className="text-base font-semibold text-ig-fg-strong">
                 Simulador de Contratação
               </h3>
-              <p className="text-xs text-orion-text-muted">
+              <p className="text-xs text-ig-fg-muted">
                 Impacto estratégico por nova contratação
               </p>
             </div>
@@ -82,12 +82,12 @@ export function HiringImpactSimulator({
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <DollarSign className="w-4 h-4 text-orion-text-muted" />
-                <span className="text-sm text-orion-text-secondary">
+                <DollarSign className="w-4 h-4 text-ig-fg-muted" />
+                <span className="text-sm text-ig-fg-default">
                   Custo Médio/Funcionário
                 </span>
               </div>
-              <span className="text-sm font-semibold text-white">
+              <span className="text-sm font-semibold text-ig-fg-strong">
                 {formatWorkforceCurrency(avgCost, 'BRL')}
               </span>
             </div>
@@ -99,7 +99,7 @@ export function HiringImpactSimulator({
               step={500}
               className="py-2"
             />
-            <div className="flex justify-between text-[10px] text-orion-text-muted">
+            <div className="flex justify-between text-[10px] text-ig-fg-muted">
               <span>R$ 5K</span>
               <span>R$ 50K</span>
             </div>
@@ -109,12 +109,12 @@ export function HiringImpactSimulator({
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Target className="w-4 h-4 text-orion-text-muted" />
-                <span className="text-sm text-orion-text-secondary">
+                <Target className="w-4 h-4 text-ig-fg-muted" />
+                <span className="text-sm text-ig-fg-default">
                   Margem EBITDA Alvo
                 </span>
               </div>
-              <span className="text-sm font-semibold text-white">
+              <span className="text-sm font-semibold text-ig-fg-strong">
                 {targetMargin.toFixed(1)}%
               </span>
             </div>
@@ -126,7 +126,7 @@ export function HiringImpactSimulator({
               step={0.5}
               className="py-2"
             />
-            <div className="flex justify-between text-[10px] text-orion-text-muted">
+            <div className="flex justify-between text-[10px] text-ig-fg-muted">
               <span>5%</span>
               <span>40%</span>
             </div>
@@ -150,21 +150,21 @@ export function HiringImpactSimulator({
             <div className={cn(
               'p-4 rounded-xl',
               'bg-gradient-to-br from-semantic-info-bg to-transparent',
-              'border border-semantic-info-DEFAULT/20'
+              'border border-ig-info/25'
             )}>
               <div className="flex items-start gap-3">
-                <div className="p-2 rounded-lg bg-semantic-info-DEFAULT/20">
-                  <UserPlus className="w-4 h-4 text-semantic-info-DEFAULT" />
+                <div className="p-2 rounded-lg bg-ig-info/15">
+                  <UserPlus className="w-4 h-4 text-ig-info" />
                 </div>
                 <div className="flex-1">
-                  <p className="text-xs text-orion-text-muted mb-1">
+                  <p className="text-xs text-ig-fg-muted mb-1">
                     +1 funcionário requer
                   </p>
-                  <p className="text-xl font-bold text-white">
+                  <p className="text-xl font-semibold text-ig-fg-strong">
                     {formatWorkforceCurrency(results.requiredRevenue, 'BRL')}
-                    <span className="text-sm font-normal text-orion-text-muted">/mês</span>
+                    <span className="text-sm font-normal text-ig-fg-muted">/mês</span>
                   </p>
-                  <p className="text-xs text-orion-text-secondary mt-1">
+                  <p className="text-xs text-ig-fg-default mt-1">
                     em receita adicional para preservar margem
                   </p>
                 </div>
@@ -175,35 +175,35 @@ export function HiringImpactSimulator({
             <div className={cn(
               'p-4 rounded-xl',
               isHighImpact 
-                ? 'bg-gradient-to-br from-semantic-warning-bg to-transparent border border-semantic-warning-DEFAULT/20'
-                : 'bg-gradient-to-br from-orion-bg-elevated/50 to-transparent border border-orion-border-subtle'
+                ? 'bg-gradient-to-br from-semantic-warning-bg to-transparent border border-ig-warning/25'
+                : 'bg-gradient-to-br from-orion-bg-elevated/50 to-transparent border border-ig-border-subtle'
             )}>
               <div className="flex items-start gap-3">
                 <div className={cn(
                   'p-2 rounded-lg',
                   isHighImpact 
-                    ? 'bg-semantic-warning-DEFAULT/20' 
-                    : 'bg-orion-bg-elevated'
+                    ? 'bg-ig-warning/15' 
+                    : 'bg-ig-panel'
                 )}>
                   <TrendingDown className={cn(
                     'w-4 h-4',
                     isHighImpact 
-                      ? 'text-semantic-warning-DEFAULT' 
-                      : 'text-orion-text-muted'
+                      ? 'text-ig-warning' 
+                      : 'text-ig-fg-muted'
                   )} />
                 </div>
                 <div className="flex-1">
-                  <p className="text-xs text-orion-text-muted mb-1">
+                  <p className="text-xs text-ig-fg-muted mb-1">
                     Impacto no EBITDA sem receita adicional
                   </p>
                   <p className={cn(
-                    'text-xl font-bold',
+                    'text-xl font-semibold',
                     isHighImpact 
-                      ? 'text-semantic-warning-DEFAULT' 
-                      : 'text-orion-text-secondary'
+                      ? 'text-ig-warning' 
+                      : 'text-ig-fg-default'
                   )}>
                     -{results.marginDilution.toFixed(2)}%
-                    <span className="text-sm font-normal text-orion-text-muted ml-1">
+                    <span className="text-sm font-normal text-ig-fg-muted ml-1">
                       por contratação
                     </span>
                   </p>
@@ -212,19 +212,19 @@ export function HiringImpactSimulator({
             </div>
 
             {/* Executive Insight Message */}
-            <div className="p-3 rounded-lg bg-orion-bg-elevated/30 border border-orion-border-subtle">
-              <p className="text-xs text-orion-text-secondary leading-relaxed">
-                <span className="text-semantic-info-DEFAULT font-medium">Insight:</span>{' '}
+            <div className="p-3 rounded-lg bg-ig-panel/60 border border-ig-border-subtle">
+              <p className="text-xs text-ig-fg-default leading-relaxed">
+                <span className="text-ig-info font-medium">Insight:</span>{' '}
                 A cada contratação com custo de{' '}
-                <span className="text-white font-medium">
+                <span className="text-ig-fg-strong font-medium">
                   {formatWorkforceCurrency(avgCost, 'BRL')}
                 </span>
                 , a empresa precisa gerar{' '}
-                <span className="text-semantic-success-DEFAULT font-medium">
+                <span className="text-ig-success font-medium">
                   {formatWorkforceCurrency(results.requiredRevenue, 'BRL')}
                 </span>{' '}
                 em receita adicional mensal para manter a margem de{' '}
-                <span className="text-white font-medium">{targetMargin.toFixed(1)}%</span>.
+                <span className="text-ig-fg-strong font-medium">{targetMargin.toFixed(1)}%</span>.
               </p>
             </div>
           </motion.div>

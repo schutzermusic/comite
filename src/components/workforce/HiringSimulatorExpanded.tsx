@@ -51,9 +51,9 @@ export function HiringSimulatorExpanded({
 
   // Scenario multipliers
   const scenarioConfigs = {
-    conservative: { revenueGrowth: 0.02, label: 'Conservador', icon: Shield, color: 'text-semantic-success-DEFAULT' },
-    moderate: { revenueGrowth: 0.05, label: 'Moderado', icon: Zap, color: 'text-semantic-info-DEFAULT' },
-    aggressive: { revenueGrowth: 0.10, label: 'Agressivo', icon: Flame, color: 'text-semantic-warning-DEFAULT' },
+    conservative: { revenueGrowth: 0.02, label: 'Conservador', icon: Shield, color: 'text-ig-success' },
+    moderate: { revenueGrowth: 0.05, label: 'Moderado', icon: Zap, color: 'text-ig-info' },
+    aggressive: { revenueGrowth: 0.10, label: 'Agressivo', icon: Flame, color: 'text-ig-warning' },
   };
 
   // Calculate scenario results
@@ -108,14 +108,14 @@ export function HiringSimulatorExpanded({
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-semantic-info-bg border border-semantic-info-DEFAULT/20">
-              <Calculator className="w-5 h-5 text-semantic-info-DEFAULT" />
+            <div className="p-2.5 rounded-xl bg-ig-info/10 border border-ig-info/25">
+              <Calculator className="w-5 h-5 text-ig-info" />
             </div>
             <div>
-              <h3 className="text-base font-semibold text-white orion-text-heading">
+              <h3 className="text-base font-semibold text-ig-fg-strong">
                 Simulador de Contratação
               </h3>
-              <p className="text-xs text-orion-text-muted">
+              <p className="text-xs text-ig-fg-muted">
                 Análise de impacto estratégico para decisão do board
               </p>
             </div>
@@ -128,10 +128,10 @@ export function HiringSimulatorExpanded({
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <DollarSign className="w-4 h-4 text-orion-text-muted" />
-                <span className="text-sm text-orion-text-secondary">Custo Médio/Func.</span>
+                <DollarSign className="w-4 h-4 text-ig-fg-muted" />
+                <span className="text-sm text-ig-fg-default">Custo Médio/Func.</span>
               </div>
-              <span className="text-sm font-semibold text-white">
+              <span className="text-sm font-semibold text-ig-fg-strong">
                 {formatWorkforceCurrency(avgCost, 'BRL')}
               </span>
             </div>
@@ -142,7 +142,7 @@ export function HiringSimulatorExpanded({
               max={50000}
               step={500}
             />
-            <div className="flex justify-between text-[10px] text-orion-text-muted">
+            <div className="flex justify-between text-[10px] text-ig-fg-muted">
               <span>R$ 5K</span>
               <span>R$ 50K</span>
             </div>
@@ -152,10 +152,10 @@ export function HiringSimulatorExpanded({
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Target className="w-4 h-4 text-orion-text-muted" />
-                <span className="text-sm text-orion-text-secondary">Margem EBITDA Alvo</span>
+                <Target className="w-4 h-4 text-ig-fg-muted" />
+                <span className="text-sm text-ig-fg-default">Margem EBITDA Alvo</span>
               </div>
-              <span className="text-sm font-semibold text-white">
+              <span className="text-sm font-semibold text-ig-fg-strong">
                 {targetMargin.toFixed(1)}%
               </span>
             </div>
@@ -166,7 +166,7 @@ export function HiringSimulatorExpanded({
               max={40}
               step={0.5}
             />
-            <div className="flex justify-between text-[10px] text-orion-text-muted">
+            <div className="flex justify-between text-[10px] text-ig-fg-muted">
               <span>5%</span>
               <span>40%</span>
             </div>
@@ -176,10 +176,10 @@ export function HiringSimulatorExpanded({
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Users className="w-4 h-4 text-orion-text-muted" />
-                <span className="text-sm text-orion-text-secondary">Contratações</span>
+                <Users className="w-4 h-4 text-ig-fg-muted" />
+                <span className="text-sm text-ig-fg-default">Contratações</span>
               </div>
-              <span className="text-sm font-semibold text-white">
+              <span className="text-sm font-semibold text-ig-fg-strong">
                 {hiresToSimulate} funcionário{hiresToSimulate > 1 ? 's' : ''}
               </span>
             </div>
@@ -190,7 +190,7 @@ export function HiringSimulatorExpanded({
               max={20}
               step={1}
             />
-            <div className="flex justify-between text-[10px] text-orion-text-muted">
+            <div className="flex justify-between text-[10px] text-ig-fg-muted">
               <span>1</span>
               <span>20</span>
             </div>
@@ -199,7 +199,7 @@ export function HiringSimulatorExpanded({
 
         {/* Scenario Tabs */}
         <Tabs value={activeScenario} onValueChange={(v) => setActiveScenario(v as typeof activeScenario)}>
-          <TabsList className="w-full mb-4 bg-orion-bg-elevated/50">
+          <TabsList className="w-full mb-4 bg-ig-panel border border-ig-border-subtle">
             {Object.entries(scenarioConfigs).map(([key, config]) => {
               const Icon = config.icon;
               return (
@@ -207,7 +207,7 @@ export function HiringSimulatorExpanded({
                   key={key}
                   value={key}
                   className={cn(
-                    'flex-1 data-[state=active]:bg-glass-medium',
+                    'flex-1 data-[state=active]:bg-ig-panel-hover',
                     `data-[state=active]:${config.color}`
                   )}
                 >
@@ -232,45 +232,45 @@ export function HiringSimulatorExpanded({
                   {/* Results Grid */}
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
                     {/* Total Monthly Cost */}
-                    <div className="p-4 rounded-xl bg-orion-bg-elevated/50">
-                      <p className="text-xs text-orion-text-muted mb-1">Custo Mensal Total</p>
-                      <p className="text-xl font-bold text-white">
+                    <div className="p-4 rounded-xl bg-ig-panel border border-ig-border-subtle">
+                      <p className="text-xs text-ig-fg-muted mb-1">Custo Mensal Total</p>
+                      <p className="text-xl font-semibold text-ig-fg-strong">
                         {formatWorkforceCurrency(result.totalMonthlyCost, 'BRL')}
                       </p>
                     </div>
 
                     {/* Required Revenue */}
-                    <div className="p-4 rounded-xl bg-semantic-info-bg border border-semantic-info-DEFAULT/20">
-                      <p className="text-xs text-orion-text-muted mb-1">Receita Necessária</p>
-                      <p className="text-xl font-bold text-semantic-info-DEFAULT">
+                    <div className="p-4 rounded-xl bg-ig-info/10 border border-ig-info/25">
+                      <p className="text-xs text-ig-fg-muted mb-1">Receita Necessária</p>
+                      <p className="text-xl font-semibold text-ig-info">
                         {formatWorkforceCurrency(result.requiredRevenue, 'BRL')}
                       </p>
-                      <p className="text-xs text-orion-text-muted">/mês</p>
+                      <p className="text-xs text-ig-fg-muted">/mês</p>
                     </div>
 
                     {/* EBITDA Impact */}
                     <div className={cn(
                       'p-4 rounded-xl',
                       Math.abs(result.ebitdaImpact) > 0.1
-                        ? 'bg-semantic-warning-bg border border-semantic-warning-DEFAULT/20'
-                        : 'bg-orion-bg-elevated/50'
+                        ? 'bg-ig-warning/10 border border-ig-warning/25'
+                        : 'bg-ig-panel border border-ig-border-subtle'
                     )}>
-                      <p className="text-xs text-orion-text-muted mb-1">Impacto EBITDA</p>
+                      <p className="text-xs text-ig-fg-muted mb-1">Impacto EBITDA</p>
                       <p className={cn(
-                        'text-xl font-bold',
+                        'text-xl font-semibold',
                         Math.abs(result.ebitdaImpact) > 0.1
-                          ? 'text-semantic-warning-DEFAULT'
-                          : 'text-orion-text-secondary'
+                          ? 'text-ig-warning'
+                          : 'text-ig-fg-default'
                       )}>
                         {result.ebitdaImpact.toFixed(2)} p.p.
                       </p>
-                      <p className="text-xs text-orion-text-muted">sem receita adicional</p>
+                      <p className="text-xs text-ig-fg-muted">sem receita adicional</p>
                     </div>
 
                     {/* Break-even */}
-                    <div className="p-4 rounded-xl bg-orion-bg-elevated/50">
-                      <p className="text-xs text-orion-text-muted mb-1">Break-even</p>
-                      <p className="text-xl font-bold text-semantic-success-DEFAULT">
+                    <div className="p-4 rounded-xl bg-ig-panel border border-ig-border-subtle">
+                      <p className="text-xs text-ig-fg-muted mb-1">Break-even</p>
+                      <p className="text-xl font-semibold text-ig-success">
                         {result.breakEvenMonths < 24 ? `${result.breakEvenMonths} meses` : '24+ meses'}
                       </p>
                     </div>
@@ -282,16 +282,28 @@ export function HiringSimulatorExpanded({
         </Tabs>
 
         {/* Board Summary */}
-        <div className="p-4 rounded-xl bg-gradient-to-r from-semantic-info-bg to-transparent border border-semantic-info-DEFAULT/20">
+        <div
+          className={cn(
+            'p-4 rounded-xl border bg-gradient-to-r',
+            'from-sky-50/95 via-white to-slate-50/90 border-sky-200/75 shadow-[0_8px_30px_rgba(14,116,144,0.08)]',
+            'dark:from-cyan-950/35 dark:via-transparent dark:to-transparent dark:border-ig-info/25 dark:shadow-none'
+          )}
+        >
           <div className="flex items-start gap-3">
-            <div className="p-2 rounded-lg bg-semantic-info-DEFAULT/20">
-              <UserPlus className="w-4 h-4 text-semantic-info-DEFAULT" />
+            <div
+              className={cn(
+                'p-2 rounded-lg border',
+                'bg-sky-100/90 border-sky-200/80',
+                'dark:bg-ig-info/15 dark:border-transparent'
+              )}
+            >
+              <UserPlus className="w-4 h-4 text-sky-700 dark:text-ig-info" />
             </div>
-            <div>
-              <p className="text-xs text-semantic-info-DEFAULT font-medium mb-1">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold mb-1 text-sky-900 dark:text-ig-info">
                 Resumo para o Board
               </p>
-              <p className="text-sm text-orion-text-secondary leading-relaxed">
+              <p className="text-sm leading-relaxed text-slate-800 dark:text-ig-fg-default">
                 {boardSummary}
               </p>
             </div>

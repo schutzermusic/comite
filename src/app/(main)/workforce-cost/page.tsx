@@ -89,9 +89,9 @@ function WorkforceCostPageInner() {
         ]}
         actions={
           <div className="flex items-center gap-2">
-            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.06] text-sm text-white/60">
-              <Calendar className="w-4 h-4" />
-              <span>{data.cycleSummary.currentCycle}</span>
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-ig-panel border border-ig-border-subtle text-sm text-ig-fg-muted">
+              <Calendar className="w-4 h-4 text-ig-fg-subtle" />
+              <span className="ig-tabular">{data.cycleSummary.currentCycle}</span>
             </div>
             <HudButton variant="secondary" size="sm" leftIcon={<Share2 className="w-4 h-4" />}>
               Compartilhar
@@ -155,8 +155,8 @@ export default function WorkforceCostPage() {
         <HudPageLayout>
           <div className="flex items-center justify-center min-h-[60vh]">
             <div className="text-center">
-              <Users className="w-12 h-12 text-white/30 mx-auto mb-3 animate-pulse" />
-              <p className="text-sm text-white/50">Carregando dados...</p>
+              <Users className="w-12 h-12 text-ig-fg-subtle mx-auto mb-3 animate-pulse" />
+              <p className="text-sm text-ig-fg-muted">Carregando dados...</p>
             </div>
           </div>
         </HudPageLayout>

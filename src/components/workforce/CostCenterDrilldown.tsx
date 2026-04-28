@@ -115,30 +115,30 @@ export function CostCenterDrilldown({
             <div className="flex items-center gap-3">
               <div className={cn(
                 'p-2.5 rounded-xl',
-                costCenter.isAbnormal 
-                  ? 'bg-semantic-warning-bg border border-semantic-warning-DEFAULT/20' 
-                  : 'bg-semantic-info-bg border border-semantic-info-DEFAULT/20'
+                costCenter.isAbnormal
+                  ? 'bg-ig-warning/10 border border-ig-warning/25'
+                  : 'bg-ig-info/10 border border-ig-info/25'
               )}>
                 <Building2 className={cn(
                   'w-5 h-5',
-                  costCenter.isAbnormal ? 'text-semantic-warning-DEFAULT' : 'text-semantic-info-DEFAULT'
+                  costCenter.isAbnormal ? 'text-ig-warning' : 'text-ig-info'
                 )} />
               </div>
               <div>
-                <h2 className="text-lg font-semibold text-white">
+                <h2 className="text-lg font-semibold text-ig-fg-strong tracking-tight">
                   {costCenter.name}
                 </h2>
-                <p className="text-xs text-orion-text-muted">
+                <p className="text-xs text-ig-fg-muted">
                   Análise detalhada do centro de custo
                 </p>
               </div>
             </div>
-            
+
             <div className="flex items-center gap-2">
               <Button
                 variant="ghost"
                 size="sm"
-                className="text-orion-text-muted hover:text-white"
+                className="text-ig-fg-muted hover:text-ig-fg-strong hover:bg-ig-panel-hover"
               >
                 <Download className="w-4 h-4 mr-1" />
                 Exportar
@@ -148,7 +148,7 @@ export function CostCenterDrilldown({
                   variant="ghost"
                   size="icon"
                   onClick={onClose}
-                  className="text-orion-text-muted hover:text-white"
+                  className="text-ig-fg-muted hover:text-ig-fg-strong hover:bg-ig-panel-hover"
                 >
                   <X className="w-4 h-4" />
                 </Button>
@@ -157,7 +157,7 @@ export function CostCenterDrilldown({
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="text-orion-text-muted hover:text-white"
+                    className="text-ig-fg-muted hover:text-ig-fg-strong hover:bg-ig-panel-hover"
                   >
                     <ArrowLeft className="w-4 h-4 mr-1" />
                     Voltar
@@ -169,51 +169,51 @@ export function CostCenterDrilldown({
 
           {/* KPI Grid */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-            <div className="p-3 rounded-lg bg-orion-bg-elevated/50">
+            <div className="p-3 rounded-lg bg-ig-panel border border-ig-border-subtle">
               <div className="flex items-center gap-2 mb-1">
-                <DollarSign className="w-4 h-4 text-orion-text-muted" />
-                <span className="text-xs text-orion-text-muted">Folha</span>
+                <DollarSign className="w-4 h-4 text-ig-fg-subtle" />
+                <span className="text-[10.5px] font-semibold tracking-wider uppercase text-ig-fg-subtle">Folha</span>
               </div>
-              <p className="text-lg font-bold text-white">
+              <p className="text-lg font-semibold text-ig-fg-strong ig-tabular tracking-tight">
                 {formatWorkforceCurrency(costCenter.payrollValue, currency)}
               </p>
             </div>
-            
-            <div className="p-3 rounded-lg bg-orion-bg-elevated/50">
+
+            <div className="p-3 rounded-lg bg-ig-panel border border-ig-border-subtle">
               <div className="flex items-center gap-2 mb-1">
-                <Users className="w-4 h-4 text-orion-text-muted" />
-                <span className="text-xs text-orion-text-muted">Headcount</span>
+                <Users className="w-4 h-4 text-ig-fg-subtle" />
+                <span className="text-[10.5px] font-semibold tracking-wider uppercase text-ig-fg-subtle">Headcount</span>
               </div>
-              <p className="text-lg font-bold text-white">
+              <p className="text-lg font-semibold text-ig-fg-strong ig-tabular tracking-tight">
                 {costCenter.headcount}
               </p>
             </div>
-            
-            <div className="p-3 rounded-lg bg-orion-bg-elevated/50">
+
+            <div className="p-3 rounded-lg bg-ig-panel border border-ig-border-subtle">
               <div className="flex items-center gap-2 mb-1">
-                <DollarSign className="w-4 h-4 text-orion-text-muted" />
-                <span className="text-xs text-orion-text-muted">Custo Médio</span>
+                <DollarSign className="w-4 h-4 text-ig-fg-subtle" />
+                <span className="text-[10.5px] font-semibold tracking-wider uppercase text-ig-fg-subtle">Custo Médio</span>
               </div>
-              <p className="text-lg font-bold text-white">
+              <p className="text-lg font-semibold text-ig-fg-strong ig-tabular tracking-tight">
                 {formatWorkforceCurrency(avgCost, currency)}
               </p>
             </div>
-            
-            <div className="p-3 rounded-lg bg-orion-bg-elevated/50">
+
+            <div className="p-3 rounded-lg bg-ig-panel border border-ig-border-subtle">
               <div className="flex items-center gap-2 mb-1">
                 {costCenter.growthVsPrevious > 0 ? (
                   <TrendingUp className={cn(
                     'w-4 h-4',
-                    costCenter.isAbnormal ? 'text-semantic-warning-DEFAULT' : 'text-semantic-success-DEFAULT'
+                    costCenter.isAbnormal ? 'text-ig-warning' : 'text-ig-success'
                   )} />
                 ) : (
-                  <TrendingDown className="w-4 h-4 text-semantic-success-DEFAULT" />
+                  <TrendingDown className="w-4 h-4 text-ig-success" />
                 )}
-                <span className="text-xs text-orion-text-muted">Crescimento</span>
+                <span className="text-[10.5px] font-semibold tracking-wider uppercase text-ig-fg-subtle">Crescimento</span>
               </div>
               <p className={cn(
-                'text-lg font-bold',
-                costCenter.isAbnormal ? 'text-semantic-warning-DEFAULT' : 'text-white'
+                'text-lg font-semibold ig-tabular tracking-tight',
+                costCenter.isAbnormal ? 'text-ig-warning' : 'text-ig-fg-strong'
               )}>
                 {formatWorkforcePercentage(costCenter.growthVsPrevious)}
               </p>
@@ -221,17 +221,17 @@ export function CostCenterDrilldown({
           </div>
 
           {/* PJ vs CLT Distribution */}
-          <div className="p-4 rounded-lg bg-orion-bg-elevated/30 mb-6">
-            <h4 className="text-sm font-medium text-white mb-3">Mix Contratual</h4>
+          <div className="p-4 rounded-lg bg-ig-panel/60 border border-ig-border-subtle mb-6">
+            <h4 className="text-[10.5px] font-semibold tracking-wider uppercase text-ig-fg-subtle mb-3">Mix Contratual</h4>
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-4">
                 <div>
-                  <span className="text-xs text-orion-text-muted">PJ</span>
-                  <p className="text-lg font-bold text-semantic-info-DEFAULT">{pjCltDistribution.pj}</p>
+                  <span className="text-xs text-ig-fg-muted">PJ</span>
+                  <p className="text-lg font-semibold text-ig-info ig-tabular tracking-tight">{pjCltDistribution.pj}</p>
                 </div>
                 <div>
-                  <span className="text-xs text-orion-text-muted">CLT</span>
-                  <p className="text-lg font-bold text-semantic-success-DEFAULT">{pjCltDistribution.clt}</p>
+                  <span className="text-xs text-ig-fg-muted">CLT</span>
+                  <p className="text-lg font-semibold text-ig-success ig-tabular tracking-tight">{pjCltDistribution.clt}</p>
                 </div>
               </div>
             </div>
@@ -243,23 +243,23 @@ export function CostCenterDrilldown({
           </div>
 
           {/* Executive Recommendations */}
-          <div className="border-t border-orion-border-subtle pt-6">
+          <div className="border-t border-ig-border-subtle pt-6">
             <div className="flex items-center gap-2 mb-4">
-              <Lightbulb className="w-4 h-4 text-semantic-info-DEFAULT" />
-              <h4 className="text-sm font-semibold text-white">Recomendações Executivas</h4>
+              <Lightbulb className="w-4 h-4 text-ig-info" />
+              <h4 className="text-sm font-semibold text-ig-fg-strong tracking-tight">Recomendações Executivas</h4>
             </div>
-            
+
             <div className="space-y-3">
               {recommendations.map((rec, idx) => (
                 <motion.div
                   key={rec.id}
                   className={cn(
                     'p-3 rounded-lg',
-                    rec.type === 'action' 
-                      ? 'bg-semantic-info-bg border border-semantic-info-DEFAULT/20'
+                    rec.type === 'action'
+                      ? 'bg-ig-info/10 border border-ig-info/25'
                       : rec.type === 'warning'
-                      ? 'bg-semantic-warning-bg border border-semantic-warning-DEFAULT/20'
-                      : 'bg-orion-bg-elevated/50'
+                      ? 'bg-ig-warning/10 border border-ig-warning/25'
+                      : 'bg-ig-panel border border-ig-border-subtle'
                   )}
                   initial={{ opacity: 0, x: -10 }}
                   animate={{ opacity: 1, x: 0 }}
@@ -267,13 +267,13 @@ export function CostCenterDrilldown({
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <p className="text-sm font-medium text-white">{rec.title}</p>
-                      <p className="text-xs text-orion-text-secondary mt-0.5">
+                      <p className="text-sm font-medium text-ig-fg-strong">{rec.title}</p>
+                      <p className="text-xs text-ig-fg-muted mt-0.5">
                         {rec.description}
                       </p>
                     </div>
                     {rec.impact && (
-                      <span className="text-xs text-semantic-success-DEFAULT whitespace-nowrap">
+                      <span className="text-xs text-ig-success font-medium whitespace-nowrap">
                         {rec.impact}
                       </span>
                     )}

@@ -133,7 +133,7 @@ export function FinanceSnapshotCharts({ financialPulse }: FinanceSnapshotChartsP
     <div className="space-y-3">
       <div className="flex items-end justify-between">
         <div>
-          <p className="cr-label">Receita MTD</p>
+          <p className="cr-label">Receita no mês</p>
           <p className={`text-lg font-bold tabular-nums ${isLight ? 'text-[#1C1F24]' : 'text-white'}`}>
             {formatCurrency(financialPulse.revenue.value, 'BRL')}
           </p>
@@ -145,7 +145,7 @@ export function FinanceSnapshotCharts({ financialPulse }: FinanceSnapshotChartsP
 
       <div className={`rounded-lg border px-2 py-2 ${containerBorder}`}>
         <div className="mb-1 flex items-center justify-between">
-          <p className="cr-label">Receita Mensal: Real vs Previsto</p>
+          <p className="cr-label">Receita mensal: real e previsto</p>
           <span className={`
             text-[9px] tabular-nums font-semibold
             ${lastRevenue.variance >= 0 ? (isLight ? 'text-lime-700' : 'text-emerald-300') : (isLight ? 'text-red-600' : 'text-red-300')}
@@ -182,8 +182,10 @@ export function FinanceSnapshotCharts({ financialPulse }: FinanceSnapshotChartsP
 
       <div className={`rounded-lg border px-2 py-2 ${containerBorder}`}>
         <div className="mb-1 flex items-center justify-between">
-          <p className="cr-label">Queima Mensal + Run-rate</p>
-          <span className={`text-[9px] tabular-nums ${isLight ? 'text-amber-600' : 'text-amber-300'}`}>Run-rate {compactCurrency(runRate)}</span>
+          <p className="cr-label">Queima mensal + ritmo projetado</p>
+          <span className={`text-[9px] tabular-nums ${isLight ? 'text-amber-600' : 'text-amber-300'}`}>
+            Ritmo proj. {compactCurrency(runRate)}
+          </span>
         </div>
         <div className="h-20">
           <ResponsiveContainer width="100%" height="100%">
@@ -197,7 +199,7 @@ export function FinanceSnapshotCharts({ financialPulse }: FinanceSnapshotChartsP
                 y={runRate}
                 stroke={isLight ? 'rgba(0,0,0,0.25)' : 'rgba(248,250,252,0.55)'}
                 strokeDasharray="3 3"
-                label={{ value: 'Run-rate', fill: isLight ? 'rgba(0,0,0,0.45)' : 'rgba(248,250,252,0.68)', fontSize: 9, position: 'right' }}
+                label={{ value: 'Ritmo proj.', fill: isLight ? 'rgba(0,0,0,0.45)' : 'rgba(248,250,252,0.68)', fontSize: 9, position: 'right' }}
               />
             </ComposedChart>
           </ResponsiveContainer>
@@ -206,9 +208,9 @@ export function FinanceSnapshotCharts({ financialPulse }: FinanceSnapshotChartsP
 
       <div className={`rounded-lg border px-2 py-2 ${containerBorder}`}>
         <div className="mb-1 flex items-center justify-between">
-          <p className="cr-label">Curva S Acumulada</p>
+          <p className="cr-label">Curva S acumulada</p>
           <span className={`text-[9px] tabular-nums font-semibold ${lastSCurve.gap >= 0 ? (isLight ? 'text-lime-700' : 'text-emerald-300') : (isLight ? 'text-red-600' : 'text-red-300')}`}>
-            Gap {compactCurrency(lastSCurve.gap)}
+            Desvio {compactCurrency(lastSCurve.gap)}
           </span>
         </div>
         <div className="h-20">
@@ -233,7 +235,7 @@ export function FinanceSnapshotCharts({ financialPulse }: FinanceSnapshotChartsP
 
       <div className={`rounded-lg border px-2 py-2 ${containerBorder}`}>
         <div className="flex items-center justify-between">
-          <p className="cr-label">Análise Waterfall</p>
+          <p className="cr-label">Análise em cascata</p>
           <button
             type="button"
             onClick={() => setShowWaterfall((prev) => !prev)}

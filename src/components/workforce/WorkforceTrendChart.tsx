@@ -15,6 +15,7 @@ import { OrionCard } from '@/components/orion';
 import { HoverCard } from '@/components/motion';
 import { formatWorkforceCurrency } from '@/lib/workforce-data';
 import { cn } from '@/lib/utils';
+import { useTheme } from '@/contexts/ThemeContext';
 
 // Register ECharts components
 echarts.use([LineChart, TooltipComponent, GridComponent, LegendComponent, CanvasRenderer]);
@@ -37,34 +38,42 @@ export function WorkforceTrendChart({
   currency = 'BRL',
   className,
 }: WorkforceTrendChartProps) {
+  const { theme } = useTheme();
+  const isLight = theme === 'light';
+
   const chartOptions = useMemo(() => {
     const periods = data.map(d => d.period);
     const payrollData = data.map(d => d.payroll);
     const headcountData = data.map(d => d.headcount);
     const avgCostData = data.map(d => d.avgCost);
 
+    const muted = isLight ? 'rgba(51,65,85,0.72)' : 'rgba(242,245,247,0.60)';
+    const strong = isLight ? '#0f172a' : '#F2F5F7';
+    const axisMuted = isLight ? 'rgba(51,65,85,0.55)' : 'rgba(242,245,247,0.38)';
+    const split = isLight ? 'rgba(15,118,110,0.12)' : 'rgba(170, 200, 190, 0.06)';
+
     return {
       backgroundColor: 'transparent',
       tooltip: {
         trigger: 'axis',
-        backgroundColor: 'rgba(15, 24, 21, 0.95)',
-        borderColor: 'rgba(16, 185, 129, 0.2)',
+        backgroundColor: isLight ? '#ffffff' : '#141B24',
+        borderColor: isLight ? 'rgba(15, 118, 110, 0.2)' : 'rgba(170, 200, 190, 0.18)',
         borderWidth: 1,
         textStyle: {
-          color: '#f0fdf8',
+          color: isLight ? '#0f172a' : '#F2F5F7',
           fontSize: 12,
         },
         formatter: (params: { axisValue: string; seriesName: string; value: number; color: string }[]) => {
-          let html = `<div style="font-weight: 600; margin-bottom: 8px;">${params[0].axisValue}</div>`;
+          let html = `<div style="font-weight: 600; margin-bottom: 8px; color: ${strong};">${params[0].axisValue}</div>`;
           params.forEach(p => {
-            const value = p.seriesName === 'Headcount' 
+            const value = p.seriesName === 'Headcount'
               ? p.value.toLocaleString('pt-BR')
               : formatWorkforceCurrency(p.value, currency);
             html += `
               <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
                 <span style="width: 8px; height: 8px; border-radius: 50%; background: ${p.color};"></span>
-                <span style="color: #9abfaf; flex: 1;">${p.seriesName}:</span>
-                <span style="font-weight: 500;">${value}</span>
+                <span style="color: ${muted}; flex: 1;">${p.seriesName}:</span>
+                <span style="font-weight: 500; color: ${strong};">${value}</span>
               </div>
             `;
           });
@@ -76,7 +85,7 @@ export function WorkforceTrendChart({
         bottom: 0,
         left: 'center',
         textStyle: {
-          color: '#9abfaf',
+          color: muted,
           fontSize: 11,
         },
         itemWidth: 12,
@@ -100,7 +109,7 @@ export function WorkforceTrendChart({
           show: false,
         },
         axisLabel: {
-          color: '#6a8b7c',
+          color: axisMuted,
           fontSize: 10,
         },
       },
@@ -109,21 +118,15 @@ export function WorkforceTrendChart({
           type: 'value',
           name: 'Valor (R$)',
           nameTextStyle: {
-            color: '#6a8b7c',
+            color: axisMuted,
             fontSize: 10,
           },
-          axisLine: {
-            show: false,
-          },
-          axisTick: {
-            show: false,
-          },
-          axisLabel: {
-            show: false,
-          },
+          axisLine: { show: false },
+          axisTick: { show: false },
+          axisLabel: { show: false },
           splitLine: {
             lineStyle: {
-              color: 'rgba(255, 255, 255, 0.05)',
+              color: split,
             },
           },
         },
@@ -131,21 +134,13 @@ export function WorkforceTrendChart({
           type: 'value',
           name: 'Headcount',
           nameTextStyle: {
-            color: '#6a8b7c',
+            color: axisMuted,
             fontSize: 10,
           },
-          axisLine: {
-            show: false,
-          },
-          axisTick: {
-            show: false,
-          },
-          axisLabel: {
-            show: false,
-          },
-          splitLine: {
-            show: false,
-          },
+          axisLine: { show: false },
+          axisTick: { show: false },
+          axisLabel: { show: false },
+          splitLine: { show: false },
         },
       ],
       series: [
@@ -157,17 +152,12 @@ export function WorkforceTrendChart({
           smooth: true,
           symbol: 'circle',
           symbolSize: 6,
-          lineStyle: {
-            color: '#00FFB4',
-            width: 2,
-          },
-          itemStyle: {
-            color: '#00FFB4',
-          },
+          lineStyle: { color: '#14B8A6', width: 2 },
+          itemStyle: { color: '#14B8A6' },
           areaStyle: {
             color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-              { offset: 0, color: 'rgba(0, 255, 180, 0.2)' },
-              { offset: 1, color: 'rgba(0, 255, 180, 0)' },
+              { offset: 0, color: 'rgba(20, 184, 166, 0.22)' },
+              { offset: 1, color: 'rgba(20, 184, 166, 0)' },
             ]),
           },
         },
@@ -179,13 +169,8 @@ export function WorkforceTrendChart({
           smooth: true,
           symbol: 'circle',
           symbolSize: 6,
-          lineStyle: {
-            color: '#00C8FF',
-            width: 2,
-          },
-          itemStyle: {
-            color: '#00C8FF',
-          },
+          lineStyle: { color: '#3B82F6', width: 2 },
+          itemStyle: { color: '#3B82F6' },
         },
         {
           name: 'Custo Médio',
@@ -195,18 +180,12 @@ export function WorkforceTrendChart({
           smooth: true,
           symbol: 'circle',
           symbolSize: 6,
-          lineStyle: {
-            color: '#FFB04D',
-            width: 2,
-            type: 'dashed',
-          },
-          itemStyle: {
-            color: '#FFB04D',
-          },
+          lineStyle: { color: '#F5A524', width: 2, type: 'dashed' },
+          itemStyle: { color: '#F5A524' },
         },
       ],
     };
-  }, [data, currency]);
+  }, [data, currency, isLight]);
 
   // Calculate trend info
   const trendInfo = useMemo(() => {
@@ -224,35 +203,35 @@ export function WorkforceTrendChart({
         {/* Header */}
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h3 className="text-sm font-semibold text-white orion-text-heading">
+            <h3 className="text-sm font-semibold text-ig-fg-strong tracking-tight">
               Tendências 12 Meses
             </h3>
-            <p className="text-xs text-orion-text-muted mt-0.5">
+            <p className="text-xs text-ig-fg-muted mt-0.5">
               Evolução de Folha, Headcount e Custo Médio
             </p>
           </div>
-          <div className="p-2 rounded-lg bg-glass-light">
-            <TrendingUp className="w-4 h-4 text-orion-text-secondary" />
+          <div className="p-2 rounded-lg bg-ig-panel border border-ig-border-subtle">
+            <TrendingUp className="w-4 h-4 text-ig-fg-muted" />
           </div>
         </div>
 
         {/* Trend Summary */}
         {trendInfo && (
           <div className="grid grid-cols-2 gap-3 mb-4">
-            <div className="p-2 rounded-lg bg-orion-bg-elevated/50">
-              <p className="text-xs text-orion-text-muted">Variação Folha</p>
+            <div className="p-2 rounded-lg bg-ig-panel border border-ig-border-subtle">
+              <p className="text-[10.5px] font-semibold tracking-wider uppercase text-ig-fg-subtle">Variação Folha</p>
               <p className={cn(
-                'text-sm font-semibold',
-                trendInfo.payrollChange > 0 ? 'text-semantic-warning-DEFAULT' : 'text-semantic-success-DEFAULT'
+                'text-sm font-semibold ig-tabular tracking-tight',
+                trendInfo.payrollChange > 0 ? 'text-ig-warning' : 'text-ig-success'
               )}>
                 {trendInfo.payrollChange > 0 ? '+' : ''}{trendInfo.payrollChange.toFixed(1)}%
               </p>
             </div>
-            <div className="p-2 rounded-lg bg-orion-bg-elevated/50">
-              <p className="text-xs text-orion-text-muted">Variação Headcount</p>
+            <div className="p-2 rounded-lg bg-ig-panel border border-ig-border-subtle">
+              <p className="text-[10.5px] font-semibold tracking-wider uppercase text-ig-fg-subtle">Variação Headcount</p>
               <p className={cn(
-                'text-sm font-semibold',
-                trendInfo.headcountChange > 0 ? 'text-semantic-info-DEFAULT' : 'text-semantic-success-DEFAULT'
+                'text-sm font-semibold ig-tabular tracking-tight',
+                trendInfo.headcountChange > 0 ? 'text-ig-info' : 'text-ig-success'
               )}>
                 {trendInfo.headcountChange > 0 ? '+' : ''}{trendInfo.headcountChange.toFixed(1)}%
               </p>

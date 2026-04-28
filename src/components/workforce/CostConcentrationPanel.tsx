@@ -20,6 +20,7 @@ import {
 } from '@/lib/workforce-data';
 import { cn } from '@/lib/utils';
 import { motion } from 'framer-motion';
+import { useTheme } from '@/contexts/ThemeContext';
 
 // Register ECharts components
 echarts.use([BarChart, TooltipComponent, GridComponent, CanvasRenderer]);
@@ -30,6 +31,9 @@ interface CostConcentrationPanelProps {
 }
 
 export function CostConcentrationPanel({ data, className }: CostConcentrationPanelProps) {
+  const { theme } = useTheme();
+  const isLight = theme === 'light';
+
   // Sort cost centers by payroll value (descending)
   const sortedCenters = useMemo(() => 
     [...data.costCenters].sort((a, b) => b.payrollValue - a.payrollValue),
@@ -47,6 +51,10 @@ export function CostConcentrationPanel({ data, className }: CostConcentrationPan
       ((c.payrollValue / data.totalPayroll) * 100).toFixed(1)
     );
 
+    const axisLabelColor = isLight ? 'rgba(15, 23, 42, 0.72)' : 'rgba(242,245,247,0.60)';
+    const barLabelColor = isLight ? 'rgba(15, 23, 42, 0.88)' : 'rgba(242,245,247,0.82)';
+    const rankColor = isLight ? '#0d9488' : '#14B8A6';
+
     return {
       backgroundColor: 'transparent',
       tooltip: {
@@ -54,23 +62,26 @@ export function CostConcentrationPanel({ data, className }: CostConcentrationPan
         axisPointer: {
           type: 'shadow',
         },
-        backgroundColor: 'rgba(15, 24, 21, 0.95)',
-        borderColor: 'rgba(16, 185, 129, 0.2)',
+        backgroundColor: isLight ? '#ffffff' : '#141B24',
+        borderColor: isLight ? 'rgba(15, 118, 110, 0.22)' : 'rgba(170, 200, 190, 0.18)',
         borderWidth: 1,
         textStyle: {
-          color: '#f0fdf8',
+          color: isLight ? '#0f172a' : '#F2F5F7',
           fontSize: 12,
         },
         formatter: (params: { dataIndex: number; name: string; value: number }[]) => {
           const idx = params[0].dataIndex;
           const center = sortedCenters[idx];
+          const titleColor = isLight ? '#0f172a' : '#F2F5F7';
+          const bodyColor = isLight ? 'rgba(15,23,42,0.68)' : 'rgba(242,245,247,0.60)';
+          const warnColor = isLight ? '#b45309' : '#F5A524';
           return `
-            <div style="font-weight: 600; margin-bottom: 4px;">${center.name}</div>
-            <div style="color: #9abfaf; font-size: 11px;">
+            <div style="font-weight: 600; margin-bottom: 4px; color: ${titleColor};">${center.name}</div>
+            <div style="color: ${bodyColor}; font-size: 11px;">
               Valor: ${formatWorkforceCurrency(center.payrollValue, data.currency)}<br/>
               Headcount: ${center.headcount}<br/>
               Crescimento: ${formatWorkforcePercentage(center.growthVsPrevious)}
-              ${center.isAbnormal ? '<br/><span style="color: #FFB04D;">⚠ Crescimento anormal</span>' : ''}
+              ${center.isAbnormal ? `<br/><span style="color: ${warnColor};">⚠ Crescimento anormal</span>` : ''}
             </div>
           `;
         },
@@ -105,10 +116,9 @@ export function CostConcentrationPanel({ data, className }: CostConcentrationPan
           show: false,
         },
         axisLabel: {
-          color: '#9abfaf',
+          color: axisLabelColor,
           fontSize: 11,
           formatter: (value: string, idx: number) => {
-            // Add rank indicator for top 3
             if (idx < 3) {
               return `{rank|#${idx + 1}} ${value}`;
             }
@@ -116,7 +126,7 @@ export function CostConcentrationPanel({ data, className }: CostConcentrationPan
           },
           rich: {
             rank: {
-              color: '#00FFB4',
+              color: rankColor,
               fontWeight: 600,
               fontSize: 10,
             },
@@ -130,8 +140,26 @@ export function CostConcentrationPanel({ data, className }: CostConcentrationPan
             value,
             itemStyle: {
               color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
-                { offset: 0, color: idx < 3 ? 'rgba(0, 255, 180, 0.8)' : 'rgba(0, 200, 255, 0.6)' },
-                { offset: 1, color: idx < 3 ? 'rgba(0, 255, 180, 0.4)' : 'rgba(0, 200, 255, 0.3)' },
+                {
+                  offset: 0,
+                  color: idx < 3
+                    ? isLight
+                      ? 'rgba(13, 148, 136, 0.92)'
+                      : 'rgba(20, 184, 166, 0.85)'
+                    : isLight
+                      ? 'rgba(37, 99, 235, 0.78)'
+                      : 'rgba(59, 130, 246, 0.65)',
+                },
+                {
+                  offset: 1,
+                  color: idx < 3
+                    ? isLight
+                      ? 'rgba(45, 212, 191, 0.52)'
+                      : 'rgba(20, 184, 166, 0.40)'
+                    : isLight
+                      ? 'rgba(96, 165, 250, 0.42)'
+                      : 'rgba(59, 130, 246, 0.30)',
+                },
               ]),
               borderRadius: [0, 4, 4, 0],
             },
@@ -140,7 +168,7 @@ export function CostConcentrationPanel({ data, className }: CostConcentrationPan
           label: {
             show: true,
             position: 'right',
-            color: '#d8f0e4',
+            color: barLabelColor,
             fontSize: 11,
             formatter: (params: { dataIndex: number; value: number }) => {
               return `${percentages[params.dataIndex]}%`;
@@ -149,7 +177,7 @@ export function CostConcentrationPanel({ data, className }: CostConcentrationPan
         },
       ],
     };
-  }, [sortedCenters, data.totalPayroll, data.currency]);
+  }, [sortedCenters, data.totalPayroll, data.currency, isLight]);
 
   return (
     <HoverCard preset="card" lightSweep>
@@ -157,43 +185,43 @@ export function CostConcentrationPanel({ data, className }: CostConcentrationPan
         {/* Header */}
         <div className="flex items-start justify-between mb-6">
           <div>
-            <h3 className="text-base font-semibold text-white orion-text-heading">
+            <h3 className="text-base font-semibold text-ig-fg-strong tracking-tight">
               Concentração de Custos
             </h3>
-            <p className="text-xs text-orion-text-muted mt-1">
+            <p className="text-xs text-ig-fg-muted mt-1">
               Centros de custo ordenados por valor de folha
             </p>
           </div>
           <div className="flex items-center gap-3">
             {abnormalCount > 0 && (
-              <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-semantic-warning-bg">
-                <AlertTriangle className="w-3 h-3 text-semantic-warning-DEFAULT" />
-                <span className="text-xs text-semantic-warning-DEFAULT">
+              <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-ig-warning/10 border border-ig-warning/25">
+                <AlertTriangle className="w-3 h-3 text-ig-warning" />
+                <span className="text-xs text-ig-warning font-medium ig-tabular">
                   {abnormalCount} anormal{abnormalCount > 1 ? 'is' : ''}
                 </span>
               </div>
             )}
-            <div className="p-2 rounded-lg bg-glass-light">
-              <Building2 className="w-4 h-4 text-orion-text-secondary" />
+            <div className="p-2 rounded-lg bg-ig-panel border border-ig-border-subtle">
+              <Building2 className="w-4 h-4 text-ig-fg-muted" />
             </div>
           </div>
         </div>
 
         {/* Summary Stats */}
         <div className="grid grid-cols-3 gap-4 mb-6">
-          <div className="p-3 rounded-lg bg-orion-bg-elevated/50">
-            <p className="text-xs text-orion-text-muted mb-1">Total Folha</p>
-            <p className="text-lg font-bold text-white">
+          <div className="p-3 rounded-lg bg-ig-panel border border-ig-border-subtle">
+            <p className="text-[10.5px] font-semibold tracking-wider uppercase text-ig-fg-subtle mb-1">Total Folha</p>
+            <p className="text-lg font-semibold text-ig-fg-strong ig-tabular tracking-tight">
               {formatWorkforceCurrency(data.totalPayroll, data.currency)}
             </p>
           </div>
-          <div className="p-3 rounded-lg bg-orion-bg-elevated/50">
-            <p className="text-xs text-orion-text-muted mb-1">Centros de Custo</p>
-            <p className="text-lg font-bold text-white">{data.costCenters.length}</p>
+          <div className="p-3 rounded-lg bg-ig-panel border border-ig-border-subtle">
+            <p className="text-[10.5px] font-semibold tracking-wider uppercase text-ig-fg-subtle mb-1">Centros de Custo</p>
+            <p className="text-lg font-semibold text-ig-fg-strong ig-tabular tracking-tight">{data.costCenters.length}</p>
           </div>
-          <div className="p-3 rounded-lg bg-orion-bg-elevated/50">
-            <p className="text-xs text-orion-text-muted mb-1">Top 3 Concentração</p>
-            <p className="text-lg font-bold text-semantic-success-DEFAULT">
+          <div className="p-3 rounded-lg bg-ig-panel border border-ig-border-subtle">
+            <p className="text-[10.5px] font-semibold tracking-wider uppercase text-ig-fg-subtle mb-1">Top 3 Concentração</p>
+            <p className="text-lg font-semibold text-ig-success ig-tabular tracking-tight">
               {data.top3Concentration.toFixed(1)}%
             </p>
           </div>
@@ -210,44 +238,38 @@ export function CostConcentrationPanel({ data, className }: CostConcentrationPan
         </div>
 
         {/* Top 3 Detail Cards */}
-        <div className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-orion-border-subtle">
+        <div className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-ig-border-subtle">
           {top3.map((center, idx) => (
             <motion.div
               key={center.id}
               className={cn(
-                'p-3 rounded-lg',
-                'bg-gradient-to-br from-emerald-950/30 to-transparent',
-                'border border-emerald-500/10',
-                center.isAbnormal && 'border-semantic-warning-DEFAULT/30'
+                'p-3 rounded-lg bg-ig-accent-weak border border-ig-accent/15',
+                center.isAbnormal && 'border-ig-warning/30 bg-ig-warning/10'
               )}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: idx * 0.1 }}
             >
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-semibold text-semantic-success-DEFAULT">
+                <span className="text-xs font-semibold text-ig-accent ig-tabular">
                   #{idx + 1}
                 </span>
                 {center.isAbnormal && (
-                  <AlertTriangle className="w-3 h-3 text-semantic-warning-DEFAULT" />
+                  <AlertTriangle className="w-3 h-3 text-ig-warning" />
                 )}
               </div>
-              <p className="text-sm font-medium text-white truncate">{center.name}</p>
-              <p className="text-lg font-bold text-white mt-1">
+              <p className="text-sm font-medium text-ig-fg-strong truncate">{center.name}</p>
+              <p className="text-lg font-semibold text-ig-fg-strong ig-tabular tracking-tight mt-1">
                 {formatWorkforceCurrency(center.payrollValue, data.currency)}
               </p>
               <div className="flex items-center gap-1 mt-1">
                 <TrendingUp className={cn(
                   'w-3 h-3',
-                  center.growthVsPrevious > 15 
-                    ? 'text-semantic-warning-DEFAULT' 
-                    : 'text-semantic-success-DEFAULT'
+                  center.growthVsPrevious > 15 ? 'text-ig-warning' : 'text-ig-success'
                 )} />
                 <span className={cn(
-                  'text-xs',
-                  center.growthVsPrevious > 15 
-                    ? 'text-semantic-warning-DEFAULT' 
-                    : 'text-semantic-success-DEFAULT'
+                  'text-xs ig-tabular',
+                  center.growthVsPrevious > 15 ? 'text-ig-warning' : 'text-ig-success'
                 )}>
                   {formatWorkforcePercentage(center.growthVsPrevious)}
                 </span>
