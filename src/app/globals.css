@@ -1380,6 +1380,10 @@
   flex-direction: column;
   height: 100%;
   gap: 0.5rem;
+  /* Gutter extra: evita que sombras / translate dos painéis “comam” as bordas dos cards */
+  padding-inline: 0.625rem;
+  padding-block: 0.25rem;
+  box-sizing: border-box;
 }
 
 /* Floating panel wrapper — depth via shadow, not rotation */
@@ -1395,11 +1399,11 @@
 }
 
 .cr-panel-overlap:nth-child(2) {
-  transform: translateX(2px) translateY(-2px);
+  transform: translateX(1px) translateY(-2px);
 }
 
 .cr-panel-overlap:nth-child(3) {
-  transform: translateX(-2px) translateY(-4px);
+  transform: translateX(-1px) translateY(-4px);
 }
 
 /* Hover: panel glow + lift */

@@ -7,8 +7,8 @@ import ReactECharts from 'echarts-for-react';
 import { useTheme } from '@/contexts/ThemeContext';
 import {
   HudPageLayout, HudHeader, HudPanel, HudSelect, HudStatusPill,
-  HudDrawer, HudTable, HudButton, HudEmptyState,
-  type HudTableColumn,
+  HudDrawer, HudTable, HudButton, HudEmptyState, HudKpiStrip,
+  type HudTableColumn, type KpiItem,
 } from '@/components/hud';
 import {
   computePnL, computeCostStackMonthly, computeMarginByProject,
@@ -473,52 +473,43 @@ export default function FinanceOverviewPage() {
         }
       />
 
-      {/* ── ROW 1: Executive Strip (replaces KPI cards) ──── */}
-      <div className="ig-glass relative mt-4 overflow-hidden rounded-xl" data-elev="2">
-        <span data-ig-noise="" />
-        <span data-ig-specular="" />
-        <div data-ig-content="" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-          {[
-            { label: t('kpiNetRevenue'), value: formatCompactBRL(revenue), delta: '+8.7%', deltaOk: true, groupKey: 'revenue' as ManagementGroupKey },
-            { label: t('kpiCogs'), value: formatCompactBRL(Math.abs(cogs)), delta: null, deltaOk: false, groupKey: 'cogs' as ManagementGroupKey },
-            { label: t('kpiGrossMargin'), value: `${marginPct.toFixed(1)}%`, delta: null, deltaOk: false, groupKey: null },
-            { label: t('kpiOpex'), value: formatCompactBRL(Math.abs(opex)), delta: '↓ 3.2%', deltaOk: true, groupKey: 'opex' as ManagementGroupKey },
-            { label: t('kpiOperatingResult'), value: formatCompactBRL(operatingResult), delta: null, deltaOk: false, groupKey: null },
-            { label: t('kpiPendingActions'), value: `${pendingCount}`, delta: null, deltaOk: false, groupKey: null, isPending: true },
-          ].map((metric, i) => (
-            <button
-              key={i}
-              onClick={() => {
-                if (metric.isPending) {
-                  document.getElementById('approval-queue')?.scrollIntoView({ behavior: 'smooth' });
-                } else if (metric.groupKey) {
-                  openMetricDrawer(`${metric.label} — ${periodFrom} a ${periodTo}`, metric.groupKey);
-                } else if (i === 2) {
-                  // Gross margin → show all revenue + cogs
-                  openMetricDrawer(`${metric.label} — ${periodFrom} a ${periodTo}`);
-                } else if (i === 4) {
-                  openMetricDrawer(`${metric.label} — ${periodFrom} a ${periodTo}`);
-                }
-              }}
-              className="flex min-h-[4.25rem] min-w-0 cursor-pointer flex-col items-center justify-center gap-1 border border-ig-border-subtle px-3 py-2.5 text-center transition-colors hover:bg-ig-panel-hover xl:min-h-[3.5rem]"
-            >
-              <span className="max-w-full text-[10px] font-medium uppercase leading-tight tracking-[0.08em] text-ig-fg-muted break-words">
-                {metric.label}
-              </span>
-              <span className="flex max-w-full flex-wrap items-baseline justify-center gap-x-1.5 gap-y-0.5">
-                <span className="ig-tabular ig-text-metal-accent text-[clamp(1.25rem,2vw,1.75rem)] font-semibold leading-none">
-                  {metric.value}
-                </span>
-                {metric.delta && (
-                  <span className={cn('text-ig-caption', metric.deltaOk ? 'text-ig-success' : 'text-ig-danger')}>
-                    {metric.delta}
-                  </span>
-                )}
-              </span>
-            </button>
-          ))}
-        </div>
-      </div>
+      {/* ── ROW 1: Executive Strip (standardized HUD KPI strip) ──── */}
+      {(() => {
+        const execItems: Array<{
+          label: string;
+          value: string;
+          deltaText?: string;
+          deltaTone?: 'success' | 'danger' | 'neutral';
+          groupKey: ManagementGroupKey | null;
+          isPending?: boolean;
+          isMargin?: boolean;
+          isOperating?: boolean;
+        }> = [
+          { label: t('kpiNetRevenue'), value: formatCompactBRL(revenue), deltaText: '+8.7%', deltaTone: 'success', groupKey: 'revenue' },
+          { label: t('kpiCogs'), value: formatCompactBRL(Math.abs(cogs)), groupKey: 'cogs' },
+          { label: t('kpiGrossMargin'), value: `${marginPct.toFixed(1)}%`, groupKey: null, isMargin: true },
+          { label: t('kpiOpex'), value: formatCompactBRL(Math.abs(opex)), deltaText: '↓ 3.2%', deltaTone: 'success', groupKey: 'opex' },
+          { label: t('kpiOperatingResult'), value: formatCompactBRL(operatingResult), groupKey: null, isOperating: true },
+          { label: t('kpiPendingActions'), value: `${pendingCount}`, groupKey: null, isPending: true },
+        ];
+        const kpis: KpiItem[] = execItems.map((metric, i) => ({
+          id: `exec-${i}`,
+          label: metric.label,
+          value: metric.value,
+          deltaText: metric.deltaText,
+          deltaTone: metric.deltaTone,
+          onClick: () => {
+            if (metric.isPending) {
+              document.getElementById('approval-queue')?.scrollIntoView({ behavior: 'smooth' });
+            } else if (metric.groupKey) {
+              openMetricDrawer(`${metric.label} — ${periodFrom} a ${periodTo}`, metric.groupKey);
+            } else if (metric.isMargin || metric.isOperating) {
+              openMetricDrawer(`${metric.label} — ${periodFrom} a ${periodTo}`);
+            }
+          },
+        }));
+        return <HudKpiStrip kpis={kpis} columns={6} size="md" connected className="mt-4" />;
+      })()}
 
       {/* ── ROW 2: P&L Waterfall (8 cols) + Approval Queue (4 cols) ── */}
       <div className="grid grid-cols-12 gap-5 mt-5">

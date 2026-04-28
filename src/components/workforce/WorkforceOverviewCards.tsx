@@ -1,13 +1,11 @@
 'use client';
 
 import { Users, DollarSign, TrendingUp, PieChart, Percent } from 'lucide-react';
-import { KpiCard } from '@/components/orion';
-import { KpiSparkline } from '@/components/charts/echarts';
-import { OrionCard } from '@/components/orion';
+import { HudKpiStrip, type KpiItem, type HudKpiVariant } from '@/components/hud';
 import { PJvsCLTBar } from './PJvsCLTBar';
-import { 
-  WorkforceMetrics, 
-  formatWorkforceCurrency 
+import {
+  WorkforceMetrics,
+  formatWorkforceCurrency,
 } from '@/lib/workforce-data';
 import { cn } from '@/lib/utils';
 
@@ -17,147 +15,110 @@ interface WorkforceOverviewCardsProps {
 }
 
 export function WorkforceOverviewCards({ data, className }: WorkforceOverviewCardsProps) {
-  // Determine status based on thresholds
-  const getPayrollTrendStatus = (trend: number): 'success' | 'warning' | 'error' | 'neutral' => {
-    if (trend > 8) return 'error';
+  const getPayrollTrendVariant = (trend: number): HudKpiVariant => {
+    if (trend > 8) return 'danger';
     if (trend > 5) return 'warning';
-    return 'neutral';
+    return 'default';
   };
 
-  const getPayrollRevenueStatus = (value: number, threshold: number): 'success' | 'warning' | 'error' | 'neutral' => {
-    if (value >= threshold + 5) return 'error';
+  const getPayrollRevenueVariant = (value: number, threshold: number): HudKpiVariant => {
+    if (value >= threshold + 5) return 'danger';
     if (value >= threshold) return 'warning';
     return 'success';
   };
 
+  const fmtTrend = (t: number) => `${t > 0 ? '+' : ''}${t.toFixed(1)}%`;
+  const trendTone = (t: number): 'success' | 'danger' | 'neutral' => {
+    if (t > 0) return 'danger';
+    if (t < 0) return 'success';
+    return 'neutral';
+  };
+
+  const kpis: KpiItem[] = [
+    {
+      id: 'headcount',
+      label: 'Total Funcionários',
+      value: data.headcount.total.toLocaleString('pt-BR'),
+      icon: <Users className="w-full h-full" />,
+      variant: 'info',
+      deltaText: `${data.headcount.delta > 0 ? '+' : ''}${data.headcount.delta}`,
+      deltaTone: 'neutral',
+      deltaLabel: 'vs mês anterior',
+    },
+    {
+      id: 'monthly-payroll',
+      label: 'Folha Mensal',
+      value: formatWorkforceCurrency(data.monthlyPayroll.value, data.monthlyPayroll.currency),
+      icon: <DollarSign className="w-full h-full" />,
+      variant: getPayrollTrendVariant(data.monthlyPayroll.trend),
+      tintValue: data.monthlyPayroll.trend > 5,
+      deltaText: fmtTrend(data.monthlyPayroll.trend),
+      deltaTone: trendTone(data.monthlyPayroll.trend),
+      deltaLabel: 'vs mês anterior',
+    },
+    {
+      id: 'avg-cost',
+      label: 'Custo Médio/Func.',
+      value: formatWorkforceCurrency(data.avgCostPerEmployee.value, data.avgCostPerEmployee.currency),
+      icon: <TrendingUp className="w-full h-full" />,
+      variant: data.avgCostPerEmployee.trend > 3 ? 'warning' : 'default',
+      deltaText: fmtTrend(data.avgCostPerEmployee.trend),
+      deltaTone: trendTone(data.avgCostPerEmployee.trend),
+      deltaLabel: 'variação mensal',
+    },
+    {
+      id: 'payroll-revenue',
+      label: 'Folha / Receita',
+      value: `${data.payrollAsRevenuePercent.value.toFixed(1)}%`,
+      icon: <Percent className="w-full h-full" />,
+      variant: getPayrollRevenueVariant(
+        data.payrollAsRevenuePercent.value,
+        data.payrollAsRevenuePercent.threshold,
+      ),
+      tintValue: true,
+      deltaLabel: `Limite: ${data.payrollAsRevenuePercent.threshold}%`,
+    },
+    {
+      id: 'pj-vs-clt',
+      label: 'PJ vs CLT',
+      value: `${data.contractDistribution.pj} / ${data.contractDistribution.clt}`,
+      icon: <PieChart className="w-full h-full" />,
+      variant: 'default',
+      deltaLabel: `PJ ${data.contractDistribution.pjPercent.toFixed(0)}% · CLT ${data.contractDistribution.cltPercent.toFixed(0)}%`,
+    },
+  ];
+
   return (
     <div className={cn('space-y-4', className)}>
-      {/* Section Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-white orion-text-heading">
+          <h2 className="text-lg font-semibold text-ig-fg-strong">
             Inteligência de Workforce
           </h2>
-          <p className="text-sm text-orion-text-muted">
+          <p className="text-sm text-ig-fg-muted">
             Visão consolidada de custos e eficiência de pessoal
           </p>
         </div>
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-glass-light">
-          <Users className="w-4 h-4 text-semantic-info-DEFAULT" />
-          <span className="text-xs text-orion-text-secondary">Workforce Analytics</span>
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-ig-panel border border-ig-border-subtle">
+          <Users className="w-4 h-4 text-ig-info" />
+          <span className="text-xs text-ig-fg-muted">Workforce Analytics</span>
         </div>
       </div>
 
-      {/* KPI Cards Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-        {/* Total Employees */}
-        <KpiCard
-          label="Total Funcionários"
-          value={data.headcount.total.toLocaleString('pt-BR')}
-          icon={Users}
-          status="neutral"
-          trend={{
-            value: data.headcount.trend,
-            label: `${data.headcount.delta > 0 ? '+' : ''}${data.headcount.delta} vs mês anterior`,
-          }}
-          sparkline={
-            data.headcount.sparkline && (
-              <KpiSparkline
-                data={data.headcount.sparkline}
-                height={32}
-                width={100}
-                color="primary"
-              />
-            )
-          }
-          size="sm"
-        />
+      <HudKpiStrip kpis={kpis} columns={5} size="md" />
 
-        {/* Monthly Payroll */}
-        <KpiCard
-          label="Folha Mensal"
-          value={formatWorkforceCurrency(data.monthlyPayroll.value, data.monthlyPayroll.currency)}
-          icon={DollarSign}
-          status={getPayrollTrendStatus(data.monthlyPayroll.trend)}
-          trend={{
-            value: data.monthlyPayroll.trend,
-            label: 'vs mês anterior',
-          }}
-          sparkline={
-            data.monthlyPayroll.sparkline && (
-              <KpiSparkline
-                data={data.monthlyPayroll.sparkline}
-                height={32}
-                width={100}
-                color={data.monthlyPayroll.trend > 5 ? 'warning' : 'success'}
-              />
-            )
-          }
-          size="sm"
-        />
-
-        {/* Average Cost per Employee */}
-        <KpiCard
-          label="Custo Médio/Func."
-          value={formatWorkforceCurrency(data.avgCostPerEmployee.value, data.avgCostPerEmployee.currency)}
-          icon={TrendingUp}
-          status={data.avgCostPerEmployee.trend > 3 ? 'warning' : 'neutral'}
-          trend={{
-            value: data.avgCostPerEmployee.trend,
-            label: 'variação mensal',
-          }}
-          size="sm"
-        />
-
-        {/* Payroll as % of Revenue */}
-        <KpiCard
-          label="Folha/Receita"
-          value={`${data.payrollAsRevenuePercent.value.toFixed(1)}%`}
-          subtitle={`Limite: ${data.payrollAsRevenuePercent.threshold}%`}
-          icon={Percent}
-          status={getPayrollRevenueStatus(
-            data.payrollAsRevenuePercent.value,
-            data.payrollAsRevenuePercent.threshold
-          )}
-          size="sm"
-        />
-
-        {/* PJ vs CLT Distribution - Custom Card */}
-        <OrionCard variant="premium" className="p-4">
-          <div className="flex items-start justify-between mb-3">
-            <span className="text-xs font-medium uppercase tracking-wider text-orion-text-muted">
-              PJ vs CLT
-            </span>
-            <div className="p-2 rounded-lg bg-glass-light">
-              <PieChart className="w-4 h-4 text-orion-text-secondary" />
-            </div>
-          </div>
-          
-          <div className="flex items-baseline gap-2 mb-3">
-            <span className="text-lg font-bold text-semantic-info-DEFAULT">
-              {data.contractDistribution.pj}
-            </span>
-            <span className="text-orion-text-muted">/</span>
-            <span className="text-lg font-bold text-semantic-success-DEFAULT">
-              {data.contractDistribution.clt}
-            </span>
-          </div>
-
+      <div className="ig-glass relative overflow-hidden rounded-xl" data-elev="2">
+        <span data-ig-noise="" />
+        <span data-ig-specular="" />
+        <div data-ig-content="" className="p-4">
           <PJvsCLTBar
             pjPercent={data.contractDistribution.pjPercent}
             cltPercent={data.contractDistribution.cltPercent}
             pjCost={data.contractDistribution.pjCost}
             cltCost={data.contractDistribution.cltCost}
-            showLabels={false}
           />
-
-          <div className="flex items-center justify-between mt-2 text-[10px] text-orion-text-muted">
-            <span>PJ {data.contractDistribution.pjPercent.toFixed(0)}%</span>
-            <span>CLT {data.contractDistribution.cltPercent.toFixed(0)}%</span>
-          </div>
-        </OrionCard>
+        </div>
       </div>
     </div>
   );
 }
-

@@ -17,7 +17,7 @@ export { HudHeader } from './HudHeader';
 export type { HudHeaderProps, BreadcrumbItem, StatusChip } from './HudHeader';
 export { HudChip, type HudChipVariant } from './HudChip';
 export { HudKpi } from './HudKpi';
-export type { HudKpiProps } from './HudKpi';
+export type { HudKpiProps, HudKpiVariant, HudKpiSize } from './HudKpi';
 export { HudTable } from './HudTable';
 export type { HudTableColumn, HudTableProps } from './HudTable';
 export {

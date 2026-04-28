@@ -99,7 +99,7 @@ export default function DashboardPage() {
                                 ? "-translate-x-[120%] opacity-0 pointer-events-none transition-all duration-300 ease-out"
                                 : "translate-x-0 opacity-100 transition-all duration-300 ease-out",
                         )}
-                        style={{ width: '340px' }}
+                        style={{ width: '364px' }}
                     >
                         <LeftHudStack data={data} scopeMode={scopeMode} stateScope={selectedState} />
                     </div>
@@ -112,7 +112,7 @@ export default function DashboardPage() {
                                 ? "translate-x-0 opacity-100 transition-all duration-300 ease-out"
                                 : "translate-x-[120%] opacity-0 pointer-events-none transition-all duration-300 ease-out"
                         )}
-                        style={{ width: '320px' }}
+                        style={{ width: '344px' }}
                     >
                         <RightHudStack data={data} scopeMode={scopeMode} stateScope={selectedState} />
                     </div>
