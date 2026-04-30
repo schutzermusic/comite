@@ -31,21 +31,22 @@ export default function DashboardPage() {
     const [selectedState, setSelectedState] = useState<StateAggregate | null>(null);
     const [uiMode, setUiMode] = useState<'default' | 'projectFocus'>('default');
     const [isSidebarVisible, setIsSidebarVisible] = useState(true);
-    const [sidebarStateBeforeFocus, setSidebarStateBeforeFocus] = useState(true);
 
     const isRightSidebarActive = isSidebarVisible && selectedState === null;
     const isFocusMode = uiMode === 'projectFocus' || selectedState !== null;
 
     const handleProjectFocusChange = useCallback((active: boolean) => {
         if (active) {
-            setSidebarStateBeforeFocus(isSidebarVisible);
             setUiMode('projectFocus');
             setIsSidebarVisible(false);
         } else {
             setUiMode('default');
-            setIsSidebarVisible(sidebarStateBeforeFocus);
+            setSelectedState(null);
+            setScopeMode('global');
+            setSelectedUF(null);
+            setIsSidebarVisible(true);
         }
-    }, [isSidebarVisible, sidebarStateBeforeFocus]);
+    }, [setSelectedUF]);
 
     useEffect(() => {
         setData(getMockDashboardData());

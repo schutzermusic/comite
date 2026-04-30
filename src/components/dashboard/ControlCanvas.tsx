@@ -4,7 +4,19 @@ import React, { useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
-import { GlobeCanvas } from '@/components/globe/GlobeCanvas';
+import dynamic from 'next/dynamic';
+
+const CesiumDashboardGlobe = dynamic(
+  () => import('./CesiumDashboardGlobe').then((m) => m.CesiumDashboardGlobe),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="absolute inset-0 flex items-center justify-center">
+        <div className="w-10 h-10 rounded-full border border-cyan-200/40 border-t-transparent animate-spin" />
+      </div>
+    ),
+  },
+);
 import type { StateAggregate } from '@/data/geo/globe-kpi-data';
 import type { DrawerContext, DrawerItem } from './ContextDrawer';
 
@@ -91,7 +103,7 @@ export function ControlCanvas({
   return (
     <div className={cn('relative overflow-hidden w-full h-full min-h-0', className)}>
       <div className="absolute inset-0 w-full h-full min-w-0 min-h-0">
-        <GlobeCanvas
+        <CesiumDashboardGlobe
           className="w-full h-full"
           mode={mode}
           onStateSelect={handleStateSelect}
