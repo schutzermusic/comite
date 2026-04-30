@@ -14,6 +14,7 @@ import {
   Calendar,
   ChevronDown,
   CreditCard,
+  Cuboid,
   FileBadge,
   FileCheck,
   FileSpreadsheet,
@@ -63,6 +64,7 @@ import { cn } from "@/lib/utils";
 
 const ADMIN_STORAGE_KEY = "ig-sidebar-admin-open";
 const FINANCE_STORAGE_KEY = "ig-sidebar-finance-open";
+const PROJECTS_STORAGE_KEY = "ig-sidebar-projects-open";
 
 type User = {
   fullName: string;
@@ -122,7 +124,16 @@ const navigationItems: MenuItem[] = [
       { href: "/financeiro/fechamento", label: "Fechamento", icon: Lock },
     ],
   },
-  { href: "/projetos", labelKey: "projects", icon: Briefcase, section: "main" },
+  {
+    href: "/projetos",
+    labelKey: "projects",
+    icon: Briefcase,
+    section: "main",
+    subItems: [
+      { href: "/projetos", label: "Visão Geral", icon: Briefcase },
+      { href: "/projetos/operations-3d", label: "Insight Operations 3D", icon: Cuboid },
+    ],
+  },
   { href: "/reunioes", labelKey: "meetings", icon: Calendar, section: "main" },
   { href: "/pautas", labelKey: "deliberations", icon: FileText, section: "main" },
   { href: "/riscos", labelKey: "risks", icon: ShieldAlert, section: "main" },
@@ -155,6 +166,7 @@ export function AppSidebar() {
   const isCollapsed = state === "collapsed" && !isMobile;
   const [adminOpen, setAdminOpen] = useState(false);
   const [financeOpen, setFinanceOpen] = useState(false);
+  const [projectsOpen, setProjectsOpen] = useState(false);
 
   useEffect(() => {
     const storedAdmin = localStorage.getItem(ADMIN_STORAGE_KEY);
@@ -164,6 +176,12 @@ export function AppSidebar() {
       setFinanceOpen(storedFinance === "true");
     } else if (pathname.startsWith("/financeiro")) {
       setFinanceOpen(true);
+    }
+    const storedProjects = localStorage.getItem(PROJECTS_STORAGE_KEY);
+    if (storedProjects !== null) {
+      setProjectsOpen(storedProjects === "true");
+    } else if (pathname.startsWith("/projetos")) {
+      setProjectsOpen(true);
     }
   }, [pathname]);
 
@@ -183,6 +201,20 @@ export function AppSidebar() {
     });
   };
 
+  const toggleProjects = () => {
+    setProjectsOpen((previous) => {
+      const next = !previous;
+      localStorage.setItem(PROJECTS_STORAGE_KEY, String(next));
+      return next;
+    });
+  };
+
+  const getSubmenuState = (href: string) => {
+    if (href === "/financeiro") return { isOpen: financeOpen, onToggle: toggleFinance };
+    if (href === "/projetos") return { isOpen: projectsOpen, onToggle: toggleProjects };
+    return { isOpen: false, onToggle: () => undefined };
+  };
+
   const mainItems = navigationItems.filter((item) => item.section === "main");
   const adminItems = navigationItems.filter((item) => item.section === "admin");
 
@@ -193,12 +225,12 @@ export function AppSidebar() {
       const label = t(item.labelKey);
 
       if (item.subItems && !isCollapsed) {
-        const isOpen = financeOpen;
+        const { isOpen, onToggle } = getSubmenuState(item.href);
         return (
           <SidebarMenuItem key={item.href}>
             <SidebarMenuButton
               type="button"
-              onClick={toggleFinance}
+              onClick={onToggle}
               className="hud-nav-item hud-nav-item-parent"
               data-active={isParentActive}
               data-open={isOpen}
@@ -215,7 +247,9 @@ export function AppSidebar() {
             {isOpen && (
               <ul className="hud-nav-submenu" role="group">
                 {item.subItems.map((subItem) => {
-                  const isSubActive = pathname === subItem.href;
+                  const isSubActive =
+                    pathname === subItem.href ||
+                    (subItem.href !== item.href && pathname.startsWith(`${subItem.href}/`));
                   return (
                     <li key={subItem.href}>
                       <Link
