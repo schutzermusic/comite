@@ -19,6 +19,10 @@ export interface GlobeProjectRecord {
   estimatedHeadcount: number;
   hasOperationalSignal: boolean;
   updatedAt: string;
+  client?: string;
+  code?: string;
+  progressPercent?: number;
+  type?: string;
 }
 
 export interface StateAggregate {
@@ -171,6 +175,10 @@ export function buildGlobeProjectRecords(projects: Project[], projectsV2: Projec
       estimatedHeadcount: estimateProjectHeadcount(contractTotal, riskCount, v2),
       hasOperationalSignal: Boolean(v2?.billing_eventogram?.length),
       updatedAt: normalizeDate(v2?.last_activity_at || project.created_date),
+      client: project.cliente,
+      code: project.codigo || project.codigoInterno,
+      progressPercent: typeof project.progresso_percentual === 'number' ? project.progresso_percentual : undefined,
+      type: project.tipo,
     };
   });
 }

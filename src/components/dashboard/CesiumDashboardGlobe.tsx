@@ -95,6 +95,191 @@ function applyBrazilOverviewView(
   viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
 }
 
+type MarkerStatus = 'healthy' | 'attention' | 'critical' | 'completed';
+type MarkerState = 'default' | 'hover' | 'selected';
+
+const MARKER_PALETTE: Record<MarkerStatus, { core: string; ring: string; halo: string }> = {
+  healthy:    { core: '#22D3EE', ring: '#7DEBFF', halo: 'rgba(34,211,238,0.28)' },
+  attention:  { core: '#F5A524', ring: '#FFD27A', halo: 'rgba(245,165,36,0.32)' },
+  critical:   { core: '#EF4B55', ring: '#FF8A8F', halo: 'rgba(239,75,85,0.34)' },
+  completed:  { core: '#10B981', ring: '#86EFAC', halo: 'rgba(16,185,129,0.28)' },
+};
+
+function classifyProjectStatus(project: GlobeProjectRecord): MarkerStatus {
+  if (project.status === 'concluido') return 'completed';
+  if (project.riskCount >= 4) return 'critical';
+  if (project.riskCount >= 2) return 'attention';
+  return 'healthy';
+}
+
+const markerImageCache = new Map<string, string>();
+
+// Trace a flat-top hexagon centered at (cx,cy) with circumradius r.
+function hexPath(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number) {
+  ctx.beginPath();
+  for (let i = 0; i < 6; i += 1) {
+    // Pointy-top hexagon: angles at -90°, -30°, 30°, 90°, 150°, 210°
+    const angle = (-Math.PI / 2) + i * (Math.PI / 3);
+    const x = cx + r * Math.cos(angle);
+    const y = cy + r * Math.sin(angle);
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+}
+
+function buildMarkerImage(status: MarkerStatus, state: MarkerState): string {
+  const key = `${status}:${state}`;
+  const cached = markerImageCache.get(key);
+  if (cached) return cached;
+  if (typeof document === 'undefined') return '';
+
+  const palette = MARKER_PALETTE[status];
+  const size = 80;
+  const dpr = 2;
+  const canvas = document.createElement('canvas');
+  canvas.width = size * dpr;
+  canvas.height = size * dpr;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return '';
+  ctx.scale(dpr, dpr);
+
+  const cx = size / 2;
+  const cy = size / 2;
+
+  // ── Layer 1: soft atmospheric halo (radial glow) ──
+  const haloRadius = state === 'selected' ? 36 : state === 'hover' ? 28 : 22;
+  const halo = ctx.createRadialGradient(cx, cy, 2, cx, cy, haloRadius);
+  halo.addColorStop(0, palette.halo);
+  halo.addColorStop(0.55, palette.halo.replace(/[\d.]+\)$/, '0.10)'));
+  halo.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = halo;
+  ctx.beginPath();
+  ctx.arc(cx, cy, haloRadius, 0, Math.PI * 2);
+  ctx.fill();
+
+  // ── Layer 2: outer hex bracket (always present, defines silhouette over imagery) ──
+  const outerR = state === 'selected' ? 18 : state === 'hover' ? 15 : 13;
+  ctx.strokeStyle = palette.ring;
+  ctx.globalAlpha = state === 'selected' ? 0.9 : state === 'hover' ? 0.7 : 0.42;
+  ctx.lineWidth = state === 'selected' ? 1.4 : 1.1;
+  ctx.lineJoin = 'miter';
+  hexPath(ctx, cx, cy, outerR);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+
+  // Bracket gap segments at vertices for "tactical" feel (only hover/selected)
+  if (state !== 'default') {
+    ctx.save();
+    ctx.strokeStyle = '#000';
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.lineWidth = state === 'selected' ? 3 : 2.2;
+    ctx.lineCap = 'butt';
+    for (let i = 0; i < 6; i += 1) {
+      const angle = (-Math.PI / 2) + i * (Math.PI / 3);
+      const x = cx + outerR * Math.cos(angle);
+      const y = cy + outerR * Math.sin(angle);
+      ctx.beginPath();
+      ctx.arc(x, y, 1.2, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // ── Layer 3: hex body — dark base for contrast on satellite imagery ──
+  const bodyR = state === 'selected' ? 11 : state === 'hover' ? 10 : 9;
+  // Subtle dark backplate so the colored body doesn't disappear over bright land
+  ctx.fillStyle = 'rgba(8, 14, 20, 0.55)';
+  hexPath(ctx, cx, cy, bodyR + 1.2);
+  ctx.fill();
+
+  // Body gradient — top-light, bottom-shadow for jewel-like depth
+  const bodyGrad = ctx.createLinearGradient(cx, cy - bodyR, cx, cy + bodyR);
+  bodyGrad.addColorStop(0, mixHex(palette.core, '#FFFFFF', 0.42));
+  bodyGrad.addColorStop(0.5, palette.core);
+  bodyGrad.addColorStop(1, mixHex(palette.core, '#000000', 0.45));
+  ctx.fillStyle = bodyGrad;
+  ctx.lineJoin = 'miter';
+  hexPath(ctx, cx, cy, bodyR);
+  ctx.fill();
+
+  // ── Layer 4: crisp body stroke ──
+  ctx.strokeStyle = mixHex(palette.ring, '#FFFFFF', 0.15);
+  ctx.lineWidth = 1.3;
+  ctx.lineJoin = 'miter';
+  hexPath(ctx, cx, cy, bodyR);
+  ctx.stroke();
+
+  // ── Layer 5: specular highlight clipped inside the hex ──
+  ctx.save();
+  hexPath(ctx, cx, cy, bodyR);
+  ctx.clip();
+  const spec = ctx.createLinearGradient(cx - bodyR, cy - bodyR, cx + bodyR * 0.2, cy + bodyR * 0.4);
+  spec.addColorStop(0, 'rgba(255,255,255,0.65)');
+  spec.addColorStop(0.45, 'rgba(255,255,255,0.12)');
+  spec.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = spec;
+  ctx.fillRect(cx - bodyR, cy - bodyR, bodyR * 2, bodyR * 1.4);
+  ctx.restore();
+
+  // ── Layer 6: inner micro-hex (HUD core) ──
+  ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+  ctx.lineWidth = 0.8;
+  hexPath(ctx, cx, cy, bodyR * 0.5);
+  ctx.stroke();
+
+  // ── Layer 7 (selected only): outer reticle ring with tick marks ──
+  if (state === 'selected') {
+    const bracketR = 24;
+    ctx.strokeStyle = palette.ring;
+    ctx.globalAlpha = 0.55;
+    ctx.lineWidth = 0.9;
+    hexPath(ctx, cx, cy, bracketR);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+
+    // Radial tick marks at each vertex
+    ctx.strokeStyle = palette.ring;
+    ctx.globalAlpha = 0.85;
+    ctx.lineWidth = 1.2;
+    ctx.lineCap = 'round';
+    for (let i = 0; i < 6; i += 1) {
+      const angle = (-Math.PI / 2) + i * (Math.PI / 3);
+      const x1 = cx + (bracketR + 1) * Math.cos(angle);
+      const y1 = cy + (bracketR + 1) * Math.sin(angle);
+      const x2 = cx + (bracketR + 4) * Math.cos(angle);
+      const y2 = cy + (bracketR + 4) * Math.sin(angle);
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  const url = canvas.toDataURL('image/png');
+  markerImageCache.set(key, url);
+  return url;
+}
+
+// Mix two hex colors in sRGB. `t` ∈ [0,1]: 0 = a, 1 = b.
+function mixHex(a: string, b: string, t: number): string {
+  const pa = parseHex(a);
+  const pb = parseHex(b);
+  const r = Math.round(pa[0] + (pb[0] - pa[0]) * t);
+  const g = Math.round(pa[1] + (pb[1] - pa[1]) * t);
+  const bl = Math.round(pa[2] + (pb[2] - pa[2]) * t);
+  return `rgb(${r},${g},${bl})`;
+}
+
+function parseHex(hex: string): [number, number, number] {
+  const h = hex.replace('#', '');
+  const v = h.length === 3
+    ? h.split('').map((c) => parseInt(c + c, 16))
+    : [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+  return [v[0] || 0, v[1] || 0, v[2] || 0];
+}
+
 function getFeatureUF(feature: Feature): string | null {
   const props = (feature.properties || {}) as Record<string, unknown>;
   const candidates = ['UF', 'sigla', 'SIGLA_UF', 'uf', 'CD_UF', 'postal'];
@@ -142,6 +327,7 @@ export function CesiumDashboardGlobe({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedUF, setSelectedUF] = useState<string | null>(null);
   const [focusedProject, setFocusedProject] = useState<{ project: GlobeProjectRecord; uf: string } | null>(null);
+  const [hoveredProjectId, setHoveredProjectId] = useState<string | null>(null);
   const [geojson, setGeojson] = useState<FeatureCollection>(brStates);
 
   // ── Data (mirrors the Globe.GL flow) ────────────────────────────────
@@ -265,9 +451,10 @@ export function CesiumDashboardGlobe({
   const flyToProject = useCallback((project: GlobeProjectRecord) => {
     const Cesium = cesiumModRef.current;
     if (!Cesium) return false;
+    // Top-down centered framing on the project hex.
     return startCameraFlight({
-      destination: Cesium.Cartesian3.fromDegrees(project.lon, project.lat - 0.6, 250_000),
-      orientation: { heading: 0, pitch: Cesium.Math.toRadians(-55), roll: 0 },
+      destination: Cesium.Cartesian3.fromDegrees(project.lon, project.lat, 220_000),
+      orientation: { heading: 0, pitch: Cesium.Math.toRadians(-89.9), roll: 0 },
       duration: 1.2,
     });
   }, [startCameraFlight]);
@@ -482,18 +669,27 @@ export function CesiumDashboardGlobe({
       const hasProjects = !!aggregate && aggregate.projectCount > 0;
       const isSelected = selectedUF === uf;
 
+      // Fill — subtle teal wash on states with projects, near-invisible elsewhere.
       const fillCss = isSelected
-        ? 'rgba(34, 211, 238, 0.28)'
+        ? 'rgba(34, 211, 238, 0.22)'
         : hasProjects
-          ? 'rgba(34, 211, 238, 0.16)'
-          : 'rgba(120, 160, 180, 0.04)';
-      const outlineCss = isSelected
-        ? 'rgba(125, 235, 255, 0.95)'
-        : hasProjects
-          ? 'rgba(125, 235, 255, 0.55)'
-          : 'rgba(180, 200, 215, 0.30)';
+          ? 'rgba(34, 211, 238, 0.10)'
+          : 'rgba(120, 160, 180, 0.025)';
       const fillColor = Cesium.Color.fromCssColorString(fillCss);
-      const outlineColor = Cesium.Color.fromCssColorString(outlineCss);
+
+      // Outline palette — premium HUD: outer glow + crisp inner line.
+      const glowCss = isSelected
+        ? 'rgba(140, 240, 255, 0.95)'
+        : hasProjects
+          ? 'rgba(125, 235, 255, 0.65)'
+          : 'rgba(190, 215, 225, 0.30)';
+      const innerCss = isSelected
+        ? 'rgba(220, 250, 255, 1.0)'
+        : hasProjects
+          ? 'rgba(200, 245, 255, 0.85)'
+          : 'rgba(220, 235, 245, 0.55)';
+      const glowColor = Cesium.Color.fromCssColorString(glowCss);
+      const innerColor = Cesium.Color.fromCssColorString(innerCss);
 
       const polygons: number[][][][] =
         feature.geometry.type === 'Polygon'
@@ -507,9 +703,12 @@ export function CesiumDashboardGlobe({
         outer.forEach(([lon, lat]) => {
           flat.push(lon, lat);
         });
-        const id = `uf:${uf}:${idx}:${ringIdx}`;
-        const entity = viewer.entities.add({
-          id,
+        const closed = [...flat, outer[0][0], outer[0][1]];
+
+        // 1) Filled polygon
+        const fillId = `uf:${uf}:${idx}:${ringIdx}`;
+        const fillEntity = viewer.entities.add({
+          id: fillId,
           name: uf,
           polygon: {
             hierarchy: new Cesium.PolygonHierarchy(Cesium.Cartesian3.fromDegreesArray(flat)),
@@ -517,19 +716,47 @@ export function CesiumDashboardGlobe({
             height: 0,
             outline: false,
           },
+        });
+        stateEntitiesRef.current.set(fillId, fillEntity);
+
+        // 2) Outer glow line — wider, soft halo (only for project/selected states)
+        if (hasProjects || isSelected) {
+          const glowId = `uf:${uf}:${idx}:${ringIdx}:glow`;
+          const glowEntity = viewer.entities.add({
+            id: glowId,
+            name: uf,
+            polyline: {
+              positions: Cesium.Cartesian3.fromDegreesArray(closed),
+              width: isSelected ? 7 : 4.5,
+              material: new Cesium.PolylineGlowMaterialProperty({
+                color: glowColor,
+                glowPower: isSelected ? 0.45 : 0.32,
+                taperPower: 1.0,
+              }),
+              clampToGround: true,
+            },
+          });
+          stateEntitiesRef.current.set(glowId, glowEntity);
+        }
+
+        // 3) Crisp inner line — sharp definition on top of the glow
+        const lineId = `uf:${uf}:${idx}:${ringIdx}:line`;
+        const lineEntity = viewer.entities.add({
+          id: lineId,
+          name: uf,
           polyline: {
-            positions: Cesium.Cartesian3.fromDegreesArray([...flat, outer[0][0], outer[0][1]]),
-            width: isSelected ? 2.0 : hasProjects ? 1.4 : 0.9,
-            material: outlineColor,
+            positions: Cesium.Cartesian3.fromDegreesArray(closed),
+            width: isSelected ? 1.6 : hasProjects ? 1.1 : 0.7,
+            material: innerColor,
             clampToGround: true,
           },
         });
-        stateEntitiesRef.current.set(id, entity);
+        stateEntitiesRef.current.set(lineId, lineEntity);
       });
     });
   }, [geojson, ready, selectedUF, stateAggregates]);
 
-  // Render project hotspots
+  // Render project hotspots — premium HUD billboards
   useEffect(() => {
     const Cesium = cesiumModRef.current;
     const viewer = viewerRef.current as
@@ -540,30 +767,67 @@ export function CesiumDashboardGlobe({
     projectEntitiesRef.current.forEach((_, id) => viewer.entities.removeById(id));
     projectEntitiesRef.current.clear();
 
+    const focusedId = focusedProject?.project.id ?? null;
+
     projectRecords.forEach((p) => {
       const id = `proj:${p.id}`;
-      const color =
-        p.riskCount >= 4
-          ? Cesium.Color.fromCssColorString('#ef4444')
-          : p.riskCount >= 2
-            ? Cesium.Color.fromCssColorString('#f59e0b')
-            : Cesium.Color.fromCssColorString('#22d3ee');
+      const status = classifyProjectStatus(p);
+      const state: MarkerState = focusedId === p.id
+        ? 'selected'
+        : hoveredProjectId === p.id
+          ? 'hover'
+          : 'default';
+      const image = buildMarkerImage(status, state);
+      const baseScale = state === 'selected' ? 0.62 : state === 'hover' ? 0.56 : 0.5;
+
       const entity = viewer.entities.add({
         id,
         name: p.name,
         position: Cesium.Cartesian3.fromDegrees(p.lon, p.lat, 0),
-        point: {
-          pixelSize: 8,
-          color,
-          outlineColor: Cesium.Color.WHITE.withAlpha(0.85),
-          outlineWidth: 1.5,
+        billboard: {
+          image,
+          scale: baseScale,
           heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
           disableDepthTestDistance: Number.POSITIVE_INFINITY,
+          verticalOrigin: Cesium.VerticalOrigin.CENTER,
+          horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
+          // soft scale-by-distance keeps markers from getting tiny when zoomed out
+          scaleByDistance: new Cesium.NearFarScalar(2.0e5, baseScale * 1.05, 1.5e7, baseScale * 0.85),
         },
       });
       projectEntitiesRef.current.set(id, entity);
     });
-  }, [projectRecords, ready]);
+  }, [projectRecords, ready, hoveredProjectId, focusedProject]);
+
+  // Hover detection: update hovered marker + cursor
+  useEffect(() => {
+    const Cesium = cesiumModRef.current;
+    const viewer = viewerRef.current as
+      | { scene: { canvas: HTMLCanvasElement; pick: (p: unknown) => unknown } }
+      | null;
+    if (!Cesium || !viewer || !ready) return;
+    const canvas = viewer.scene.canvas;
+    const handler = new Cesium.ScreenSpaceEventHandler(canvas);
+    handler.setInputAction((event: { endPosition: { x: number; y: number } }) => {
+      const pos = new Cesium.Cartesian2(event.endPosition.x, event.endPosition.y);
+      const picked = viewer.scene.pick(pos) as { id?: { id?: string } } | undefined;
+      const pickedId = picked?.id?.id;
+      let nextHover: string | null = null;
+      let cursor = '';
+      if (typeof pickedId === 'string' && pickedId.startsWith('proj:')) {
+        nextHover = pickedId.slice(5);
+        cursor = 'pointer';
+      } else if (typeof pickedId === 'string' && pickedId.startsWith('uf:')) {
+        cursor = 'pointer';
+      }
+      canvas.style.cursor = cursor;
+      setHoveredProjectId((prev) => (prev === nextHover ? prev : nextHover));
+    }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
+    return () => {
+      try { handler.destroy(); } catch {}
+      canvas.style.cursor = '';
+    };
+  }, [ready]);
 
   // Theme reactions
   useEffect(() => {
@@ -610,7 +874,13 @@ export function CesiumDashboardGlobe({
         <button
           type="button"
           onClick={handleBackToBrazil}
-          className="absolute left-1/2 -translate-x-1/2 top-3 z-20 inline-flex items-center gap-1.5 rounded-full border border-cyan-300/35 bg-black/45 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-cyan-100 backdrop-blur-md hover:bg-cyan-400/15"
+          className="absolute left-1/2 -translate-x-1/2 top-3 z-20 inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] backdrop-blur-md transition-colors"
+          style={{
+            background: 'var(--ig-glass-e2)',
+            border: '1px solid color-mix(in oklab, var(--ig-border-strong) 80%, transparent)',
+            color: 'var(--ig-fg-strong)',
+            boxShadow: 'var(--ig-shadow-e1)',
+          }}
         >
           <ArrowLeft className="w-3.5 h-3.5" />
           Voltar ao Brasil
@@ -639,79 +909,363 @@ export function CesiumDashboardGlobe({
       />
 
       {focusedProject && (
-        <aside
-          className="pointer-events-auto fixed right-3 top-[72px] bottom-3 z-[60] w-[min(380px,calc(100vw-1.5rem))] overflow-hidden rounded-2xl border border-cyan-300/20 bg-black/55 backdrop-blur-xl shadow-[0_30px_70px_-24px_rgba(0,0,0,0.9)]"
-        >
-          <div className="px-5 py-4 border-b border-white/10">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="text-[10px] uppercase tracking-[0.14em] text-cyan-100/70">
-                  Projeto em foco · {focusedProject.uf}
-                </div>
-                <h4 className="mt-1 truncate text-lg font-semibold text-white">
-                  {focusedProject.project.name}
-                </h4>
-              </div>
-              <button
-                onClick={handleBackToBrazil}
-                className="inline-flex items-center gap-1.5 rounded-md border border-white/15 bg-white/5 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-white/70 hover:text-white hover:bg-white/10"
-              >
-                <ArrowLeft className="w-3.5 h-3.5" />
-                Voltar ao Brasil
-              </button>
-            </div>
-          </div>
-
-          <div className="p-5 space-y-3 overflow-y-auto h-[calc(100%-82px)]">
-            <div className="grid grid-cols-2 gap-2">
-              <div className="rounded-lg border border-white/10 bg-white/[0.03] p-2.5">
-                <div className="text-[9px] uppercase tracking-[0.1em] text-white/55">Contrato</div>
-                <div className="mt-1 text-sm font-semibold text-white">
-                  {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', notation: 'compact', maximumFractionDigits: 1 }).format(focusedProject.project.contractTotal)}
-                </div>
-              </div>
-              <div className="rounded-lg border border-white/10 bg-white/[0.03] p-2.5">
-                <div className="text-[9px] uppercase tracking-[0.1em] text-white/55">Faturado</div>
-                <div className="mt-1 text-sm font-semibold text-emerald-300">
-                  {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', notation: 'compact', maximumFractionDigits: 1 }).format(focusedProject.project.invoiced)}
-                </div>
-              </div>
-              <div className="rounded-lg border border-white/10 bg-white/[0.03] p-2.5">
-                <div className="text-[9px] uppercase tracking-[0.1em] text-white/55">Riscos</div>
-                <div className="mt-1 text-sm font-semibold text-amber-300">{focusedProject.project.riskCount}</div>
-              </div>
-              <div className="rounded-lg border border-white/10 bg-white/[0.03] p-2.5">
-                <div className="text-[9px] uppercase tracking-[0.1em] text-white/55">HH</div>
-                <div className="mt-1 text-sm font-semibold text-cyan-200">{focusedProject.project.estimatedHeadcount}</div>
-              </div>
-            </div>
-
-            <div className="rounded-lg border border-white/10 bg-white/[0.03] p-2.5">
-              <div className="text-[9px] uppercase tracking-[0.1em] text-white/55">Status</div>
-              <div className="mt-1 text-sm font-medium text-white/85">
-                {focusedProject.project.status.replace(/_/g, ' ')}
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-2 pt-1">
-              <button
-                onClick={() => handleProjectOpenInternal(focusedProject.project.id, focusedProject.uf)}
-                className="w-full rounded-md border border-cyan-300/35 bg-cyan-400/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-cyan-100 hover:bg-cyan-400/20"
-              >
-                Abrir projeto
-              </button>
-              <button
-                onClick={() => setFocusedProject(null)}
-                className="w-full rounded-md border border-white/12 bg-white/5 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-white/70 hover:text-white hover:bg-white/10"
-              >
-                Fechar foco
-              </button>
-            </div>
-          </div>
-        </aside>
+        <ProjectFocusPanel
+          project={focusedProject.project}
+          uf={focusedProject.uf}
+          onClose={handleBackToBrazil}
+          onOpenProject={() => handleProjectOpenInternal(focusedProject.project.id, focusedProject.uf)}
+        />
       )}
     </div>
   );
 }
 
 export default CesiumDashboardGlobe;
+
+// ─────────────────────────────────────────────────────────────────
+// ProjectFocusPanel — premium HUD inspector for a focused project
+// ─────────────────────────────────────────────────────────────────
+
+const STATUS_LABEL: Record<GlobeProjectRecord['status'], string> = {
+  planejamento: 'Planejamento',
+  em_andamento: 'Em andamento',
+  pausado: 'Pausado',
+  concluido: 'Concluído',
+  cancelado: 'Cancelado',
+};
+
+function statusTone(status: GlobeProjectRecord['status']): { label: string; varName: string } {
+  switch (status) {
+    case 'em_andamento': return { label: STATUS_LABEL[status], varName: '--ig-info' };
+    case 'concluido':    return { label: STATUS_LABEL[status], varName: '--ig-success' };
+    case 'pausado':      return { label: STATUS_LABEL[status], varName: '--ig-warning' };
+    case 'cancelado':    return { label: STATUS_LABEL[status], varName: '--ig-danger' };
+    default:             return { label: STATUS_LABEL[status] || status, varName: '--ig-fg-muted' };
+  }
+}
+
+function fmtBRLCompact(value: number) {
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency', currency: 'BRL', notation: 'compact', maximumFractionDigits: 1,
+  }).format(value || 0);
+}
+
+function fmtDate(iso?: string) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function buildInsight(p: GlobeProjectRecord): string {
+  const billedRatio = p.contractTotal > 0 ? (p.invoiced / p.contractTotal) : 0;
+  const billedPct = Math.round(billedRatio * 100);
+  const risks = p.riskCount;
+  if (risks >= 4) {
+    return `Projeto com ${risks} riscos críticos em aberto e faturamento em ${billedPct}% do contrato.`;
+  }
+  if (risks >= 2) {
+    return `Projeto em andamento com ${risks} riscos em monitoramento e faturamento em ${billedPct}%.`;
+  }
+  if (billedRatio < 0.25 && p.status === 'em_andamento') {
+    return `Projeto saudável, porém faturamento ainda em ${billedPct}% do contrato.`;
+  }
+  return `Projeto saudável — faturamento em ${billedPct}% do contrato e nenhum risco crítico em aberto.`;
+}
+
+interface ProjectFocusPanelProps {
+  project: GlobeProjectRecord;
+  uf: string;
+  onClose: () => void;
+  onOpenProject: () => void;
+}
+
+function ProjectFocusPanel({ project, uf, onClose, onOpenProject }: ProjectFocusPanelProps) {
+  const tone = statusTone(project.status);
+  const markerStatus = classifyProjectStatus(project);
+  const markerColor = MARKER_PALETTE[markerStatus].core;
+  const billedPct = project.contractTotal > 0
+    ? Math.min(100, Math.round((project.invoiced / project.contractTotal) * 100))
+    : 0;
+  const progress = typeof project.progressPercent === 'number'
+    ? Math.max(0, Math.min(100, Math.round(project.progressPercent)))
+    : billedPct;
+
+  return (
+    <aside
+      role="dialog"
+      aria-label={`Detalhes do projeto ${project.name}`}
+      className="pointer-events-auto fixed right-3 top-[72px] bottom-3 z-[60] flex w-[min(400px,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-2xl"
+      style={{
+        background: 'var(--ig-glass-e3)',
+        backdropFilter: 'var(--ig-blur-e3)',
+        WebkitBackdropFilter: 'var(--ig-blur-e3)',
+        border: '1px solid color-mix(in oklab, var(--ig-border-strong) 80%, transparent)',
+        boxShadow: 'var(--ig-shadow-e4)',
+        color: 'var(--ig-fg-default)',
+      }}
+    >
+      {/* Header */}
+      <div
+        className="px-5 pt-4 pb-3"
+        style={{ borderBottom: '1px solid color-mix(in oklab, var(--ig-border-default) 80%, transparent)' }}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <div
+              className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.14em]"
+              style={{ color: 'var(--ig-fg-subtle)' }}
+            >
+              <span
+                aria-hidden
+                className="inline-block h-2 w-2"
+                style={{
+                  background: markerColor,
+                  boxShadow: `0 0 8px ${markerColor}`,
+                  clipPath: 'polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)',
+                }}
+              />
+              Projeto em foco · {uf}
+            </div>
+            <h4
+              className="mt-1.5 truncate text-[17px] font-semibold leading-tight"
+              style={{ color: 'var(--ig-fg-strong)' }}
+              title={project.name}
+            >
+              {project.name}
+            </h4>
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <span
+                className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em]"
+                style={{
+                  background: `color-mix(in oklab, var(${tone.varName}) 16%, transparent)`,
+                  color: `var(${tone.varName})`,
+                  border: `1px solid color-mix(in oklab, var(${tone.varName}) 38%, transparent)`,
+                }}
+              >
+                {tone.label}
+              </span>
+              {project.type && (
+                <span
+                  className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em]"
+                  style={{
+                    background: 'color-mix(in oklab, var(--ig-bg-panel-hover) 60%, transparent)',
+                    color: 'var(--ig-fg-muted)',
+                    border: '1px solid color-mix(in oklab, var(--ig-border-default) 80%, transparent)',
+                  }}
+                >
+                  {project.type}
+                </span>
+              )}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Fechar foco"
+            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors"
+            style={{
+              border: '1px solid color-mix(in oklab, var(--ig-border-default) 80%, transparent)',
+              background: 'color-mix(in oklab, var(--ig-bg-panel-hover) 50%, transparent)',
+              color: 'var(--ig-fg-muted)',
+            }}
+          >
+            <ArrowLeft className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+
+      {/* Body */}
+      <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+        {/* Executive summary grid */}
+        <section>
+          <SectionLabel>Resumo executivo</SectionLabel>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <Metric label="Contrato" value={fmtBRLCompact(project.contractTotal)} />
+            <Metric label="Faturado" value={fmtBRLCompact(project.invoiced)} accentVar="--ig-success" />
+            <Metric label="A faturar" value={fmtBRLCompact(project.toInvoice)} accentVar="--ig-info" />
+            <Metric
+              label="Riscos abertos"
+              value={String(project.riskCount)}
+              accentVar={project.riskCount >= 4 ? '--ig-danger' : project.riskCount >= 2 ? '--ig-warning' : '--ig-fg-strong'}
+            />
+            <Metric label="HH / equipe" value={String(project.estimatedHeadcount)} />
+            <Metric label="Decisões" value={String(project.decisionCount)} />
+          </div>
+        </section>
+
+        {/* Progress / billing bar */}
+        <section>
+          <SectionLabel>Avanço</SectionLabel>
+          <div className="mt-2 space-y-2">
+            <ProgressRow label="Faturamento" value={billedPct} colorVar="--ig-success" />
+            <ProgressRow label="Progresso" value={progress} colorVar="--ig-accent" />
+          </div>
+        </section>
+
+        {/* Secondary info */}
+        <section>
+          <SectionLabel>Identificação</SectionLabel>
+          <div
+            className="mt-2 rounded-xl p-3 text-[12px]"
+            style={{
+              background: 'color-mix(in oklab, var(--ig-bg-panel) 70%, transparent)',
+              border: '1px solid color-mix(in oklab, var(--ig-border-default) 70%, transparent)',
+            }}
+          >
+            <InfoRow label="Cliente" value={project.client || '—'} />
+            <InfoRow label="Código" value={project.code || project.id.slice(0, 8)} mono />
+            <InfoRow label="UF" value={uf} />
+            <InfoRow label="Última atualização" value={fmtDate(project.updatedAt)} />
+          </div>
+        </section>
+
+        {/* Insight */}
+        <section
+          className="rounded-xl p-3"
+          style={{
+            background: 'color-mix(in oklab, var(--ig-accent-weak) 70%, transparent)',
+            border: '1px solid color-mix(in oklab, var(--ig-border-focus) 28%, transparent)',
+          }}
+        >
+          <div
+            className="text-[10px] font-semibold uppercase tracking-[0.14em]"
+            style={{ color: 'var(--ig-accent)' }}
+          >
+            Insight
+          </div>
+          <p
+            className="mt-1.5 text-[12.5px] leading-snug"
+            style={{ color: 'var(--ig-fg-default)' }}
+          >
+            {buildInsight(project)}
+          </p>
+        </section>
+      </div>
+
+      {/* Footer actions */}
+      <div
+        className="px-5 py-3 flex flex-col gap-2"
+        style={{
+          borderTop: '1px solid color-mix(in oklab, var(--ig-border-default) 80%, transparent)',
+          background: 'color-mix(in oklab, var(--ig-bg-panel) 40%, transparent)',
+        }}
+      >
+        <button
+          type="button"
+          onClick={onOpenProject}
+          className="w-full rounded-lg px-3 py-2.5 text-[12px] font-semibold uppercase tracking-[0.1em] transition-all hover:brightness-110 active:translate-y-px"
+          style={{
+            background: 'linear-gradient(180deg, var(--ig-accent) 0%, var(--ig-accent-strong) 100%)',
+            color: '#FFFFFF',
+            boxShadow: 'var(--ig-focus-ring-outer)',
+            border: '1px solid color-mix(in oklab, var(--ig-accent-strong) 80%, transparent)',
+          }}
+        >
+          Abrir projeto →
+        </button>
+        <button
+          type="button"
+          onClick={onClose}
+          className="w-full rounded-lg px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.1em] transition-colors"
+          style={{
+            background: 'color-mix(in oklab, var(--ig-bg-panel-hover) 55%, transparent)',
+            color: 'var(--ig-fg-muted)',
+            border: '1px solid color-mix(in oklab, var(--ig-border-default) 80%, transparent)',
+          }}
+        >
+          Voltar ao Brasil
+        </button>
+      </div>
+    </aside>
+  );
+}
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      className="text-[10px] font-semibold uppercase tracking-[0.14em]"
+      style={{ color: 'var(--ig-fg-subtle)' }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function Metric({
+  label,
+  value,
+  accentVar,
+}: { label: string; value: string; accentVar?: string }) {
+  return (
+    <div
+      className="rounded-lg p-2.5"
+      style={{
+        background: 'color-mix(in oklab, var(--ig-bg-panel) 70%, transparent)',
+        border: '1px solid color-mix(in oklab, var(--ig-border-default) 70%, transparent)',
+      }}
+    >
+      <div
+        className="text-[9.5px] font-semibold uppercase tracking-[0.1em]"
+        style={{ color: 'var(--ig-fg-subtle)' }}
+      >
+        {label}
+      </div>
+      <div
+        className="mt-1 text-[14px] font-semibold ig-tabular leading-none"
+        style={{ color: accentVar ? `var(${accentVar})` : 'var(--ig-fg-strong)' }}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function ProgressRow({ label, value, colorVar }: { label: string; value: number; colorVar: string }) {
+  return (
+    <div>
+      <div className="flex items-center justify-between text-[11px]">
+        <span style={{ color: 'var(--ig-fg-muted)' }}>{label}</span>
+        <span
+          className="ig-tabular font-semibold"
+          style={{ color: 'var(--ig-fg-strong)' }}
+        >
+          {value}%
+        </span>
+      </div>
+      <div
+        className="mt-1 h-1.5 w-full overflow-hidden rounded-full"
+        style={{ background: 'color-mix(in oklab, var(--ig-border-strong) 60%, transparent)' }}
+      >
+        <div
+          className="h-full rounded-full transition-all"
+          style={{
+            width: `${value}%`,
+            background: `linear-gradient(90deg, color-mix(in oklab, var(${colorVar}) 70%, transparent), var(${colorVar}))`,
+            boxShadow: `0 0 10px color-mix(in oklab, var(${colorVar}) 45%, transparent)`,
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function InfoRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-1 first:pt-0 last:pb-0">
+      <span
+        className="text-[11px] uppercase tracking-[0.08em]"
+        style={{ color: 'var(--ig-fg-subtle)' }}
+      >
+        {label}
+      </span>
+      <span
+        className={cn('truncate text-right text-[12px]', mono && 'ig-tabular')}
+        style={{ color: 'var(--ig-fg-strong)' }}
+        title={value}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
