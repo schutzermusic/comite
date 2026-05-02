@@ -68,7 +68,7 @@ export default function DashboardPage() {
     return (
         <div className="cr-viewport bg-ig-canvas text-ig-fg-strong">
             {/* ═══ Layer 0: Globe Canvas (3D background) ═══ */}
-            <div className="absolute inset-0 z-0 min-w-0 min-h-0" style={{ transform: 'translateX(40px)' }}>
+            <div className="absolute inset-0 z-0 min-w-0 min-h-0 overflow-hidden">
                 <ControlCanvas
                     mode={mode}
                     activeOverlay={layout.activeOverlay}
@@ -91,11 +91,11 @@ export default function DashboardPage() {
             {/* ═══ Layer 10: HUD Interface ═══ */}
             <div className="relative z-10 w-full h-full pointer-events-none flex flex-col">
                 {/* Main content: overlapping panel stacks */}
-                <div className="flex-1 relative min-h-0 px-3 pb-3 h-full">
+                <div className="flex-1 relative min-h-0 px-0 pb-0 h-full">
                     {/* ── Left Stack ── */}
                     <div
                         className={cn(
-                            "absolute top-0 left-3 bottom-3 pointer-events-auto z-40 overflow-y-auto scrollbar-hide",
+                            "absolute top-0 left-0 bottom-0 pointer-events-auto z-40 overflow-y-auto scrollbar-hide",
                             isFocusMode
                                 ? "-translate-x-[120%] opacity-0 pointer-events-none transition-all duration-300 ease-out"
                                 : "translate-x-0 opacity-100 transition-all duration-300 ease-out",
@@ -108,7 +108,7 @@ export default function DashboardPage() {
                     {/* ── Right Stack ── */}
                     <div
                         className={cn(
-                            "absolute top-0 right-3 bottom-3 pointer-events-auto z-40 overflow-y-auto scrollbar-hide",
+                            "absolute top-0 right-0 bottom-0 pointer-events-auto z-40 overflow-y-auto scrollbar-hide",
                             isRightSidebarActive
                                 ? "translate-x-0 opacity-100 transition-all duration-300 ease-out"
                                 : "translate-x-[120%] opacity-0 pointer-events-none transition-all duration-300 ease-out"

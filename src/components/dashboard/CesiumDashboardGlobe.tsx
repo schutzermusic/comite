@@ -135,13 +135,20 @@ function buildMarkerImage(status: MarkerStatus, state: MarkerState): string {
   if (typeof document === 'undefined') return '';
 
   const palette = MARKER_PALETTE[status];
-  const size = 80;
-  const dpr = 2;
+  const size = 96;
+  // Supersample at >= 3x so the texture stays crisp when Cesium downsamples it
+  // onto retina canvases. Capped at 4 to avoid wasted memory on extreme DPRs.
+  const dpr = Math.min(
+    4,
+    Math.max(3, typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 2),
+  );
   const canvas = document.createElement('canvas');
   canvas.width = size * dpr;
   canvas.height = size * dpr;
   const ctx = canvas.getContext('2d');
   if (!ctx) return '';
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
   ctx.scale(dpr, dpr);
 
   const cx = size / 2;
@@ -360,6 +367,37 @@ export function CesiumDashboardGlobe({
     interactionReadyRef.current = ready && introPhase === 'ready';
   }, [introPhase, ready]);
 
+  // After the intro flight settles, promote the viewer to retina resolution.
+  // Deferring this keeps the heavy initial frames fluid while still landing
+  // on a crisp final picture for the user. requestIdleCallback (or a small
+  // timeout fallback) ensures we never compete with the fly-to animation.
+  useEffect(() => {
+    if (!ready || introPhase !== 'ready') return;
+    const viewer = viewerRef.current as
+      | { resolutionScale: number; scene: { requestRender?: () => void } }
+      | null;
+    if (!viewer) return;
+    const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+    const target = Math.min(dpr, 1.75);
+    if (target <= 1.01) return;
+    const promote = () => {
+      try {
+        viewer.resolutionScale = target;
+        viewer.scene.requestRender?.();
+      } catch {}
+    };
+    const win = window as unknown as {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    if (win.requestIdleCallback) {
+      const id = win.requestIdleCallback(promote, { timeout: 800 });
+      return () => win.cancelIdleCallback?.(id);
+    }
+    const t = window.setTimeout(promote, 250);
+    return () => window.clearTimeout(t);
+  }, [introPhase, ready]);
+
   const clearIntroTimers = useCallback(() => {
     introTimersRef.current.forEach((timer) => window.clearTimeout(timer));
     introTimersRef.current = [];
@@ -529,6 +567,25 @@ export function CesiumDashboardGlobe({
         if (viewer.scene.skyAtmosphere) viewer.scene.skyAtmosphere.show = true;
         viewer.scene.fog.enabled = true;
         viewer.scene.backgroundColor = Cesium.Color.TRANSPARENT;
+
+        // ── Anti-alias pipeline (cheap during intro) ──
+        // Keep MSAA modest (2 samples) and FXAA on — both are essentially
+        // free on modern GPUs and clean up polyline edges. The expensive
+        // bit (high-DPR resolutionScale) is deferred until after the intro
+        // flight finishes so the first frames stay fluid.
+        try {
+          (viewer as unknown as { useBrowserRecommendedResolution: boolean })
+            .useBrowserRecommendedResolution = false;
+          (viewer as unknown as { resolutionScale: number }).resolutionScale = 1;
+        } catch {}
+        try {
+          (viewer.scene as unknown as { msaaSamples: number }).msaaSamples = 2;
+        } catch {}
+        try {
+          if (viewer.scene.postProcessStages?.fxaa) {
+            viewer.scene.postProcessStages.fxaa.enabled = true;
+          }
+        } catch {}
         viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString(
           theme === 'dark' ? '#0c1418' : '#e7ecef',
         );
@@ -720,6 +777,8 @@ export function CesiumDashboardGlobe({
         stateEntitiesRef.current.set(fillId, fillEntity);
 
         // 2) Outer glow line — wider, soft halo (only for project/selected states)
+        // Tighter glow power keeps the falloff close to the line so the inner
+        // crisp stroke remains the dominant edge instead of being washed out.
         if (hasProjects || isSelected) {
           const glowId = `uf:${uf}:${idx}:${ringIdx}:glow`;
           const glowEntity = viewer.entities.add({
@@ -727,10 +786,10 @@ export function CesiumDashboardGlobe({
             name: uf,
             polyline: {
               positions: Cesium.Cartesian3.fromDegreesArray(closed),
-              width: isSelected ? 7 : 4.5,
+              width: isSelected ? 6 : 4,
               material: new Cesium.PolylineGlowMaterialProperty({
                 color: glowColor,
-                glowPower: isSelected ? 0.45 : 0.32,
+                glowPower: isSelected ? 0.28 : 0.22,
                 taperPower: 1.0,
               }),
               clampToGround: true,
@@ -739,14 +798,17 @@ export function CesiumDashboardGlobe({
           stateEntitiesRef.current.set(glowId, glowEntity);
         }
 
-        // 3) Crisp inner line — sharp definition on top of the glow
+        // 3) Crisp inner line — sharp definition on top of the glow.
+        // Minimum width of 1.0 keeps the stroke from dropping below a pixel
+        // at low resolution scale; at retina (resolutionScale=2) this becomes
+        // a clean 2-device-pixel hairline.
         const lineId = `uf:${uf}:${idx}:${ringIdx}:line`;
         const lineEntity = viewer.entities.add({
           id: lineId,
           name: uf,
           polyline: {
             positions: Cesium.Cartesian3.fromDegreesArray(closed),
-            width: isSelected ? 1.6 : hasProjects ? 1.1 : 0.7,
+            width: isSelected ? 1.8 : hasProjects ? 1.3 : 1.0,
             material: innerColor,
             clampToGround: true,
           },
@@ -778,7 +840,10 @@ export function CesiumDashboardGlobe({
           ? 'hover'
           : 'default';
       const image = buildMarkerImage(status, state);
-      const baseScale = state === 'selected' ? 0.62 : state === 'hover' ? 0.56 : 0.5;
+      // Source canvas is now 96px (was 80px) supersampled at >=3× DPR, so we
+      // scale down slightly more aggressively to preserve the original on-
+      // screen footprint while gaining sharpness from the larger source.
+      const baseScale = state === 'selected' ? 0.52 : state === 'hover' ? 0.47 : 0.42;
 
       const entity = viewer.entities.add({
         id,
