@@ -3,11 +3,13 @@
 import React from 'react';
 import { DeliberationItem } from '@/lib/types';
 import {
-    Vote,
     FolderOpen,
-    Clock,
-    CheckCircle,
-    TimerReset,
+    SearchCheck,
+    Vote,
+    ClipboardCheck,
+    PlayCircle,
+    CheckCircle2,
+    AlertTriangle,
     type LucideIcon,
 } from 'lucide-react';
 import { HudKpiStrip, type KpiItem, type HudKpiVariant } from '@/components/hud';
@@ -37,6 +39,13 @@ const kpiConfigs: KPIConfig[] = [
         ).length,
     },
     {
+        id: 'in_review',
+        label: 'Em Revisão',
+        icon: SearchCheck,
+        variant: 'warning',
+        getValue: (items) => items.filter((item) => item.deliberationStatus === 'in_review').length,
+    },
+    {
         id: 'in_voting',
         label: 'Em Votação',
         icon: Vote,
@@ -44,22 +53,23 @@ const kpiConfigs: KPIConfig[] = [
         getValue: (items) => items.filter((item) => item.deliberationStatus === 'in_voting').length,
     },
     {
-        id: 'overdue',
-        label: 'Atrasadas',
-        icon: Clock,
-        variant: 'danger',
-        getValue: (items) => {
-            const now = new Date();
-            return items.filter((item) => {
-                if (!item.dueDate) return false;
-                return new Date(item.dueDate).getTime() < now.getTime();
-            }).length;
-        },
+        id: 'awaiting_minutes',
+        label: 'Aguardando Ata',
+        icon: ClipboardCheck,
+        variant: 'warning',
+        getValue: (items) => items.filter((item) => item.deliberationStatus === 'awaiting_minutes').length,
+    },
+    {
+        id: 'in_execution',
+        label: 'Em Execução',
+        icon: PlayCircle,
+        variant: 'info',
+        getValue: (items) => items.filter((item) => item.deliberationStatus === 'in_execution').length,
     },
     {
         id: 'resolved_30d',
-        label: 'Resolvidas (30d)',
-        icon: CheckCircle,
+        label: 'Concluídas (30d)',
+        icon: CheckCircle2,
         variant: 'success',
         getValue: (items) => {
             const now = new Date().getTime();
@@ -72,17 +82,16 @@ const kpiConfigs: KPIConfig[] = [
         },
     },
     {
-        id: 'avg_resolution',
-        label: 'Tempo Médio (d)',
-        icon: TimerReset,
-        variant: 'warning',
+        id: 'overdue',
+        label: 'Atrasadas',
+        icon: AlertTriangle,
+        variant: 'danger',
         getValue: (items) => {
-            const resolved = items.filter((item) => item.submittedAt && item.resolvedAt);
-            if (resolved.length === 0) return 0;
-            const avgMs = resolved.reduce((total, item) => {
-                return total + (new Date(item.resolvedAt as Date).getTime() - new Date(item.submittedAt as Date).getTime());
-            }, 0) / resolved.length;
-            return Math.round(avgMs / (24 * 60 * 60 * 1000));
+            const now = new Date();
+            return items.filter((item) => {
+                if (!item.dueDate) return false;
+                return new Date(item.dueDate).getTime() < now.getTime();
+            }).length;
         },
     },
 ];
@@ -104,5 +113,5 @@ export function BoardHealthKPI({ items, activeFilter, onFilterClick }: BoardHeal
         };
     });
 
-    return <HudKpiStrip kpis={kpis} columns={5} size="sm" connected />;
+    return <HudKpiStrip kpis={kpis} columns={6} size="sm" connected />;
 }

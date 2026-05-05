@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { FileText, Filter, Plus, Search } from 'lucide-react';
+import { ArrowRight, FileText, Filter, Gavel, Plus, Search } from 'lucide-react';
 import { BoardHealthKPI, DecisionInspector, DecisionList, NewDeliberationModal, QueueTabs } from '@/components/deliberacoes';
 import { HudPanel, HudButton } from '@/components/hud';
 import { AuditTrailEntry, DeliberationItem, DeliberationStageStatus, DeliberationStatus, VoteOption, VoteRecord } from '@/lib/types';
@@ -475,23 +475,45 @@ export default function DeliberationsPage() {
     <div className="min-h-full h-screen overflow-hidden p-4 md:p-6">
       <div className="max-w-[1920px] mx-auto h-full flex flex-col">
         <header className="shrink-0 mb-4">
-          <div className="flex items-start justify-between">
-            <div>
-              <div className="flex items-center gap-3 mb-1">
-                <div className="ig-icon-jewel flex h-9 w-9 items-center justify-center">
-                  <FileText className="w-5 h-5" />
-                </div>
-                <div>
-                  <h1 className="text-ig-h1 font-semibold ig-text-metal">Deliberações</h1>
-                  <p className="mt-0.5 max-w-3xl text-ig-body-sm text-ig-fg-muted">
-                    Encaminhe solicitações para comitês, conduza votações auditáveis, emita resoluções e execute ações.
-                  </p>
-                </div>
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="ig-icon-jewel flex h-10 w-10 items-center justify-center shrink-0">
+                <Gavel className="w-5 h-5" />
+              </div>
+              <div>
+                <h1 className="text-ig-h1 font-semibold ig-text-metal">Deliberações</h1>
+                <p className="mt-0.5 text-ig-body-sm text-ig-fg-muted">
+                  Centro de decisões dos comitês — revise, vote, audite e acompanhe a execução.
+                </p>
               </div>
             </div>
             <HudButton variant="primary" size="md" leftIcon={<Plus className="w-4 h-4" />} onClick={() => setNewDeliberationOpen(true)}>
               Nova Deliberação
             </HudButton>
+          </div>
+
+          {/* Workflow pipeline strip */}
+          <div className="mt-4 flex items-center gap-1 overflow-x-auto scrollbar-thin scrollbar-track-transparent scrollbar-thumb-ig-border pb-1">
+            {[
+              { label: 'Solicitação', active: activeQueue === 'draft' || activeQueue === 'submitted' },
+              { label: 'Revisão', active: activeQueue === 'in_review' },
+              { label: 'Votação', active: activeQueue === 'in_voting' },
+              { label: 'Ata', active: activeQueue === 'awaiting_minutes' },
+              { label: 'Execução', active: activeQueue === 'in_execution' },
+              { label: 'Concluído', active: activeQueue === 'resolved' || activeQueue === 'closed' },
+            ].map((step, i, arr) => (
+              <div key={step.label} className="flex items-center gap-1 shrink-0">
+                <span className={[
+                  'px-3 py-1 rounded-full text-[11px] font-semibold border transition-all',
+                  step.active
+                    ? 'bg-ig-accent-weak border-ig-border-focus text-ig-accent'
+                    : 'bg-transparent border-ig-border-subtle text-ig-fg-subtle',
+                ].join(' ')}>
+                  {step.label}
+                </span>
+                {i < arr.length - 1 && <ArrowRight className="w-3 h-3 text-ig-fg-subtle opacity-40 shrink-0" />}
+              </div>
+            ))}
           </div>
         </header>
 
@@ -499,16 +521,16 @@ export default function DeliberationsPage() {
           <BoardHealthKPI items={items} activeFilter={activeKpiFilter} onFilterClick={setActiveKpiFilter} />
         </div>
 
-        <div className="shrink-0 mb-4 grid grid-cols-[1fr_320px] gap-4">
-          <div className="flex items-center gap-3">
-            <QueueTabs
-              activeQueue={activeQueue}
-              onQueueChange={(queue) => {
-                setActiveQueue(queue);
-                setActiveKpiFilter(null);
-              }}
-              counts={queueCounts}
-            />
+        <div className="shrink-0 mb-4 flex items-center gap-3 flex-wrap">
+          <QueueTabs
+            activeQueue={activeQueue}
+            onQueueChange={(queue) => {
+              setActiveQueue(queue);
+              setActiveKpiFilter(null);
+            }}
+            counts={queueCounts}
+          />
+          <div className="flex items-center gap-2 ml-auto">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ig-fg-subtle" />
               <input
@@ -516,28 +538,13 @@ export default function DeliberationsPage() {
                 placeholder="Buscar deliberações..."
                 value={searchTerm}
                 onChange={(event) => setSearchTerm(event.target.value)}
-                className="h-9 w-64 rounded-lg border border-ig-border bg-ig-panel px-3 pl-9 text-ig-body-sm text-ig-fg placeholder:text-ig-fg-subtle focus:border-ig-border-focus focus:outline-none focus-visible:shadow-[var(--ig-focus-ring-outer)]"
+                className="h-9 w-56 rounded-lg border border-ig-border bg-ig-panel px-3 pl-9 text-ig-body-sm text-ig-fg placeholder:text-ig-fg-subtle focus:border-ig-border-focus focus:outline-none focus-visible:shadow-[var(--ig-focus-ring-outer)]"
               />
             </div>
             <HudButton variant="secondary" size="sm" leftIcon={<Filter className="w-4 h-4" />} onClick={() => setShowFilters((value) => !value)}>
               Filtros
             </HudButton>
           </div>
-
-          <HudPanel title="Próxima Sessão" accentColor="amber" noPadding={false}>
-            {nextSessionItems.length === 0 ? (
-              <p className="text-ig-body-sm text-ig-fg-muted">Sem deliberações para a próxima sessão.</p>
-            ) : (
-              <div className="space-y-2">
-                {nextSessionItems.map((item) => (
-                  <div key={item.id} className="text-xs">
-                    <p className="line-clamp-1 text-ig-body-sm font-medium text-ig-fg-strong">{item.title}</p>
-                    <p className="text-ig-caption text-ig-fg-muted">{item.dueDate ? `${formatDistanceToNowStrict(item.dueDate)} restantes` : 'Sem SLA'} - {item.ownerCommitteeName}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </HudPanel>
         </div>
 
         {showFilters && (
@@ -558,10 +565,20 @@ export default function DeliberationsPage() {
           </div>
         )}
 
-        <div className="flex-1 min-h-0 grid grid-cols-[minmax(420px,1fr)_minmax(520px,1.4fr)] gap-4">
+        <div className="flex-1 min-h-0 grid grid-cols-[minmax(380px,1fr)_minmax(480px,1.4fr)] gap-4">
           <HudPanel noPadding className="h-full overflow-hidden flex flex-col">
-            <div className="relative z-[2] border-b border-ig-border-subtle p-3 text-ig-caption text-ig-fg-muted">
-              {filteredItems.length} resultados
+            <div className="relative z-[2] border-b border-ig-border-subtle px-4 py-2.5 flex items-center justify-between">
+              <span className="text-xs font-semibold text-ig-fg-muted uppercase tracking-wide">
+                {filteredItems.length} {filteredItems.length === 1 ? 'deliberação' : 'deliberações'}
+              </span>
+              {activeKpiFilter && (
+                <button
+                  onClick={() => setActiveKpiFilter(null)}
+                  className="text-[10px] text-ig-accent hover:text-ig-accent/80 transition-colors"
+                >
+                  ✕ Limpar filtro
+                </button>
+              )}
             </div>
             <div className="flex-1 overflow-y-auto relative z-[2]">
               <DecisionList items={filteredItems} selectedId={selectedId || undefined} onSelectItem={(item) => setSelectedId(item.id)} />

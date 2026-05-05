@@ -6196,3 +6196,26 @@ html.light .group-hover\:text-white\/90:hover,
 html.light .group:hover .group-hover\:text-white\/90 { color: #0F172A !important; }
 html.light .hover\:text-white:hover,
 html.light .group:hover .group-hover\:text-white { color: #0F172A !important; }
+
+/* ── Organograma: canvas prata metálico no modo light ── */
+html.light .orgchart-stage-surface {
+  background:
+    radial-gradient(ellipse at 50% 14%, rgba(15, 118, 110, 0.16), transparent 36%),
+    radial-gradient(ellipse at 50% 100%, rgba(29, 78, 216, 0.10), transparent 58%),
+    linear-gradient(115deg, rgba(255, 255, 255, 0.72) 0%, rgba(188, 196, 208, 0.42) 18%, rgba(245, 247, 250, 0.86) 36%, rgba(161, 169, 181, 0.34) 52%, rgba(255, 255, 255, 0.76) 72%, rgba(174, 183, 196, 0.42) 100%),
+    linear-gradient(90deg, rgba(71, 85, 105, 0.11) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(71, 85, 105, 0.11) 1px, transparent 1px),
+    #D8DDE5 !important;
+  background-size: auto, auto, auto, 56px 56px, 56px 56px, auto !important;
+}
+
+html.light .orgchart-stage-surface::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.42), transparent),
+    repeating-linear-gradient(115deg, rgba(255, 255, 255, 0.16) 0 1px, transparent 1px 9px);
+  opacity: 0.5;
+}

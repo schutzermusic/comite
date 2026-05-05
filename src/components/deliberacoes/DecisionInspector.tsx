@@ -1,14 +1,26 @@
 'use client';
 
 import React from 'react';
+import { cn } from '@/lib/utils';
 import { DeliberationItem, VoteOption } from '@/lib/types';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { HudPanel } from '@/components/hud';
-import { StatusPill } from '@/components/ui/status-pill';
+import { HudPanel, HudBadge, HudButton } from '@/components/hud';
 import { AuditTrailTimeline } from './AuditTrailTimeline';
 import { VotingConsole } from './VotingConsole';
-import { Button } from '@/components/ui/button';
-import { CheckCircle, FileText, Link2, Workflow } from 'lucide-react';
+import {
+    AlertTriangle,
+    CheckCircle,
+    Clock,
+    DollarSign,
+    FileText,
+    Gavel,
+    Link2,
+    PlayCircle,
+    Search,
+    Vote,
+    Workflow,
+} from 'lucide-react';
+import { differenceInHours } from 'date-fns';
 
 interface DecisionInspectorProps {
   item: DeliberationItem | null;
@@ -22,18 +34,76 @@ interface DecisionInspectorProps {
   onCreateExecutionTask: (itemId: string) => void;
 }
 
-const statusMap: Record<string, string> = {
+const STATUS_MAP: Record<string, string> = {
   draft: 'Rascunho',
   submitted: 'Submetida',
   in_review: 'Em Revisão',
   in_voting: 'Em Votação',
-  awaiting_minutes: 'Aguardando Atas',
+  awaiting_minutes: 'Aguardando Ata',
   resolved: 'Resolvida',
   in_execution: 'Em Execução',
   closed: 'Encerrada',
   returned_for_revision: 'Devolvida para Revisão',
   withdrawn: 'Retirada',
 };
+
+const STATUS_BADGE_VARIANT: Record<string, 'neutral' | 'info' | 'warning' | 'success' | 'danger' | 'default' | 'primary' | 'outline' | 'subtle'> = {
+  draft: 'neutral',
+  submitted: 'info',
+  in_review: 'warning',
+  in_voting: 'info',
+  awaiting_minutes: 'warning',
+  resolved: 'success',
+  in_execution: 'warning',
+  closed: 'neutral',
+  returned_for_revision: 'danger',
+  withdrawn: 'neutral',
+};
+
+const STAGE_TYPE_LABELS: Record<string, string> = {
+  owner_review: 'Revisão do Responsável',
+  dependent_review: 'Revisão Dependente',
+  final_approval: 'Aprovação Final',
+  publish_minutes: 'Publicação de Ata',
+  execution: 'Execução',
+};
+
+const RISK_BADGE_VARIANT: Record<string, 'danger' | 'warning' | 'success'> = {
+  critical: 'danger',
+  high: 'danger',
+  medium: 'warning',
+  low: 'success',
+};
+
+const TASK_STATUS_LABELS: Record<string, string> = {
+  pending: 'Pendente',
+  in_progress: 'Em andamento',
+  completed: 'Concluída',
+};
+
+/** Returns the context-aware primary CTA for the inspector */
+function getPrimaryAction(item: DeliberationItem): {
+  label: string;
+  variant: 'primary' | 'secondary' | 'ghost' | 'danger' | 'glass';
+  icon: React.ReactNode;
+  disabled: boolean;
+} {
+  switch (item.deliberationStatus) {
+    case 'in_review':
+      return { label: 'Revisar Deliberação', variant: 'primary', icon: <Search className="w-4 h-4" />, disabled: false };
+    case 'in_voting':
+      return { label: 'Ir para Votação', variant: 'primary', icon: <Vote className="w-4 h-4" />, disabled: false };
+    case 'awaiting_minutes':
+      return { label: 'Gerar Ata', variant: 'primary', icon: <FileText className="w-4 h-4" />, disabled: false };
+    case 'in_execution':
+      return { label: 'Registrar Execução', variant: 'primary', icon: <PlayCircle className="w-4 h-4" />, disabled: false };
+    case 'resolved':
+    case 'closed':
+      return { label: 'Concluída', variant: 'secondary', icon: <CheckCircle className="w-4 h-4" />, disabled: true };
+    default:
+      return { label: 'Aguardando', variant: 'ghost', icon: <Clock className="w-4 h-4" />, disabled: true };
+  }
+}
 
 export function DecisionInspector({
   item,
@@ -45,83 +115,169 @@ export function DecisionInspector({
   onPublishMinutes,
   onCreateExecutionTask,
 }: DecisionInspectorProps) {
-  const stageTypeLabel: Record<string, string> = {
-    owner_review: 'Revisão do Comitê Responsável',
-    dependent_review: 'Revisão Dependente',
-    final_approval: 'Aprovação Final',
-    publish_minutes: 'Publicação de Ata',
-    execution: 'Execução',
-  };
   if (!item) {
     return (
-      <div className="h-full flex items-center justify-center">
-        <p className="text-sm text-[rgba(255,255,255,0.55)]">Selecione uma deliberação para ver os detalhes.</p>
+      <div className="h-full flex flex-col items-center justify-center gap-3 py-12">
+        <div className="w-14 h-14 rounded-2xl bg-ig-panel-hover flex items-center justify-center">
+          <Gavel className="w-7 h-7 text-ig-fg-subtle" />
+        </div>
+        <div className="text-center">
+          <p className="text-sm font-medium text-ig-fg-muted">Nenhuma deliberação selecionada</p>
+          <p className="text-xs text-ig-fg-subtle mt-1">Selecione um item na lista para inspecionar</p>
+        </div>
       </div>
     );
   }
 
-  const currentStage = item.stages?.find((stage) => stage.id === item.currentStageId);
+  const currentStage = item.stages?.find((s) => s.id === item.currentStageId);
   const voteSummary = item.votes ?? [];
-  const yes = voteSummary.filter((vote) => vote.vote === 'yes').length;
-  const no = voteSummary.filter((vote) => vote.vote === 'no').length;
-  const abstain = voteSummary.filter((vote) => vote.vote === 'abstain').length;
-  const taskStatusLabel: Record<string, string> = {
-    pending: 'Pendente',
-    in_progress: 'Em andamento',
-    completed: 'Concluída',
+  const yes = voteSummary.filter((v) => v.vote === 'yes').length;
+  const no = voteSummary.filter((v) => v.vote === 'no').length;
+  const abstain = voteSummary.filter((v) => v.vote === 'abstain').length;
+
+  const primaryAction = getPrimaryAction(item);
+
+  const slaHours = item.dueDate ? differenceInHours(new Date(item.dueDate), new Date()) : null;
+  const slaUrgent = slaHours !== null && slaHours < 24;
+
+  const formatFinancial = (value?: number) => {
+    if (!value) return null;
+    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', notation: 'compact', maximumFractionDigits: 1 }).format(value);
   };
 
   return (
-    <div className="h-full overflow-y-auto space-y-3 pr-1">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold text-white">{item.title}</h2>
-          <p className="text-sm text-[rgba(255,255,255,0.6)]">{item.ownerCommitteeName}</p>
+    <div className="h-full overflow-y-auto space-y-4 pr-1">
+      {/* ─── Header ─── */}
+      <div className="space-y-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1 min-w-0">
+            <h2 className="text-base font-semibold text-ig-fg-strong leading-snug mb-1">{item.title}</h2>
+            <p className="text-xs text-ig-fg-muted">{item.ownerCommitteeName}</p>
+          </div>
+          <HudBadge variant={STATUS_BADGE_VARIANT[item.deliberationStatus] ?? 'neutral'} dot>
+            {STATUS_MAP[item.deliberationStatus] ?? item.deliberationStatus}
+          </HudBadge>
         </div>
-        <StatusPill variant={item.deliberationStatus === 'resolved' || item.deliberationStatus === 'closed' ? 'success' : 'info'}>
-          {statusMap[item.deliberationStatus] ?? item.deliberationStatus}
-        </StatusPill>
+
+        {/* Meta chips */}
+        <div className="flex flex-wrap gap-2">
+          {slaHours !== null && (
+            <HudBadge variant={slaUrgent ? 'danger' : 'neutral'} size="sm">
+              <Clock className="w-3 h-3" />
+              {slaHours < 0 ? 'Atrasado' : `SLA: ${slaHours}h`}
+            </HudBadge>
+          )}
+          {item.financialImpact && (
+            <HudBadge variant="info" size="sm">
+              <DollarSign className="w-3 h-3" />
+              {formatFinancial(item.financialImpact)}
+            </HudBadge>
+          )}
+          {item.riskLevel && (
+            <HudBadge variant={RISK_BADGE_VARIANT[item.riskLevel] ?? 'neutral'} size="sm">
+              <AlertTriangle className="w-3 h-3" />
+              Risco {item.riskLevel.toUpperCase()}
+            </HudBadge>
+          )}
+        </div>
+
+        {/* Primary CTA */}
+        <HudButton
+          variant={primaryAction.variant}
+          fullWidth
+          disabled={primaryAction.disabled}
+          leftIcon={primaryAction.icon}
+          onClick={() => {
+            if (item.deliberationStatus === 'awaiting_minutes') onGenerateMinutes(item.id);
+            else if (item.deliberationStatus === 'in_execution') onCreateExecutionTask(item.id);
+          }}
+        >
+          {primaryAction.label}
+        </HudButton>
       </div>
 
+      {/* ─── Tabs ─── */}
       <Tabs defaultValue="summary" className="w-full">
-        <TabsList className="w-full bg-[rgba(255,255,255,0.05)] border border-[rgba(255,255,255,0.08)] h-auto p-1 grid grid-cols-4">
-          <TabsTrigger value="summary" className="text-xs text-[rgba(255,255,255,0.75)] data-[state=active]:bg-[rgba(0,255,180,0.14)] data-[state=active]:text-[#00FFB4]">
-            Resumo Executivo
+        <TabsList className="w-full bg-ig-panel border border-ig-border h-auto p-1 grid grid-cols-4">
+          <TabsTrigger
+            value="summary"
+            className="text-xs text-ig-fg-muted data-[state=active]:bg-ig-accent-weak data-[state=active]:text-ig-accent"
+          >
+            Resumo
           </TabsTrigger>
-          <TabsTrigger value="voting" className="text-xs text-[rgba(255,255,255,0.75)] data-[state=active]:bg-[rgba(0,200,255,0.14)] data-[state=active]:text-[#00C8FF]">
+          <TabsTrigger
+            value="voting"
+            className="text-xs text-ig-fg-muted data-[state=active]:bg-ig-accent-weak data-[state=active]:text-ig-accent"
+          >
             Votação
           </TabsTrigger>
-          <TabsTrigger value="minutes" className="text-xs text-[rgba(255,255,255,0.75)] data-[state=active]:bg-[rgba(245,158,11,0.14)] data-[state=active]:text-[#F59E0B]">
-            Atas & Auditoria
+          <TabsTrigger
+            value="minutes"
+            className="text-xs text-ig-fg-muted data-[state=active]:bg-ig-accent-weak data-[state=active]:text-ig-accent"
+          >
+            Ata & Auditoria
           </TabsTrigger>
-          <TabsTrigger value="execution" className="text-xs text-[rgba(255,255,255,0.75)] data-[state=active]:bg-[rgba(168,85,247,0.14)] data-[state=active]:text-[#C084FC]">
+          <TabsTrigger
+            value="execution"
+            className="text-xs text-ig-fg-muted data-[state=active]:bg-ig-accent-weak data-[state=active]:text-ig-accent"
+          >
             Execução
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="summary" className="space-y-3">
+        {/* ── Summary tab ── */}
+        <TabsContent value="summary" className="space-y-3 mt-3">
           <HudPanel className="space-y-2">
-            <p className="text-xs uppercase tracking-wide text-[rgba(255,255,255,0.5)]">Decisão Solicitada</p>
-            <p className="text-sm text-[rgba(255,255,255,0.82)]">{item.requestedDecision || item.description}</p>
+            <p className="text-xs uppercase tracking-wide text-ig-fg-subtle font-medium">Decisão Solicitada</p>
+            <p className="text-sm text-ig-fg leading-relaxed">{item.requestedDecision || item.description}</p>
           </HudPanel>
 
-          <HudPanel className="space-y-2">
-            <p className="text-xs uppercase tracking-wide text-[rgba(255,255,255,0.5)]">Fluxo de Governança</p>
-            {(item.stages ?? []).map((stage) => (
-              <div key={stage.id} className="flex items-center justify-between text-sm">
-                <span className="text-[rgba(255,255,255,0.8)]">{stage.sequence}. {stage.committeeName}</span>
-                <span className="text-[rgba(255,255,255,0.55)]">{stageTypeLabel[stage.stageType] ?? stage.stageType}</span>
-              </div>
-            ))}
+          {/* Workflow stepper */}
+          <HudPanel className="space-y-3">
+            <p className="text-xs uppercase tracking-wide text-ig-fg-subtle font-medium">Fluxo de Governança</p>
+            <div className="space-y-2">
+              {(item.stages ?? []).map((stage, index) => {
+                const isActive = stage.id === item.currentStageId;
+                const isDone = stage.status === 'completed';
+                return (
+                  <div
+                    key={stage.id}
+                    className={cn(
+                      'flex items-center gap-3 p-2 rounded-lg transition-all',
+                      isActive && 'bg-ig-accent-weak border border-ig-border-focus',
+                      isDone && 'opacity-60',
+                    )}
+                  >
+                    <div className={cn(
+                      'w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0',
+                      isDone ? 'bg-ig-success text-[var(--ig-bg-canvas)]' : isActive ? 'bg-ig-accent text-[var(--ig-bg-canvas)]' : 'bg-ig-panel-hover text-ig-fg-muted',
+                    )}>
+                      {isDone ? '✓' : index + 1}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className={cn('text-xs font-medium', isActive ? 'text-ig-accent' : isDone ? 'text-ig-fg-muted' : 'text-ig-fg')}>
+                        {stage.committeeName}
+                      </p>
+                      <p className="text-[10px] text-ig-fg-subtle">{STAGE_TYPE_LABELS[stage.stageType] ?? stage.stageType}</p>
+                    </div>
+                    {isActive && <span className="text-[10px] text-ig-accent font-semibold">← Atual</span>}
+                  </div>
+                );
+              })}
+            </div>
           </HudPanel>
 
-          <HudPanel className="space-y-1">
-            <p className="text-xs uppercase tracking-wide text-[rgba(255,255,255,0.5)]">Etapa Atual</p>
-            <p className="text-sm text-white">{currentStage?.committeeName} - {stageTypeLabel[currentStage?.stageType ?? ''] ?? currentStage?.stageType}</p>
-          </HudPanel>
+          {currentStage && (
+            <HudPanel className="space-y-1">
+              <p className="text-xs uppercase tracking-wide text-ig-fg-subtle font-medium">Etapa Atual</p>
+              <p className="text-sm text-ig-fg-strong font-medium">{currentStage.committeeName}</p>
+              <p className="text-xs text-ig-fg-muted">{STAGE_TYPE_LABELS[currentStage.stageType] ?? currentStage.stageType}</p>
+            </HudPanel>
+          )}
         </TabsContent>
 
-        <TabsContent value="voting" className="space-y-3">
+        {/* ── Voting tab ── */}
+        <TabsContent value="voting" className="space-y-3 mt-3">
           <VotingConsole
             item={item}
             currentUserId={currentUserId}
@@ -131,27 +287,42 @@ export function DecisionInspector({
           />
 
           <HudPanel className="space-y-1">
-            <p className="text-xs uppercase tracking-wide text-[rgba(255,255,255,0.5)]">Resumo da Votação</p>
-            <p className="text-sm text-[rgba(255,255,255,0.8)]">Sim {yes} | Não {no} | Abstenção {abstain}</p>
+            <p className="text-xs uppercase tracking-wide text-ig-fg-subtle font-medium">Resultado Parcial</p>
+            <div className="flex items-center gap-4 mt-2">
+              <span className="text-sm text-ig-success font-semibold tabular-nums">Sim: {yes}</span>
+              <span className="text-sm text-ig-danger font-semibold tabular-nums">Não: {no}</span>
+              <span className="text-sm text-ig-fg-muted tabular-nums">Abstenção: {abstain}</span>
+            </div>
           </HudPanel>
         </TabsContent>
 
-        <TabsContent value="minutes" className="space-y-3">
-          <HudPanel className="space-y-2">
+        {/* ── Minutes / Audit tab ── */}
+        <TabsContent value="minutes" className="space-y-3 mt-3">
+          <HudPanel className="space-y-3">
             <div className="flex items-center justify-between">
-              <p className="text-xs uppercase tracking-wide text-[rgba(255,255,255,0.5)]">Atas</p>
+              <p className="text-xs uppercase tracking-wide text-ig-fg-subtle font-medium">Ata da Deliberação</p>
               <div className="flex items-center gap-2">
-                <Button size="sm" variant="outline" className="border-[rgba(255,255,255,0.15)]" onClick={() => onGenerateMinutes(item.id)}>
-                  <FileText className="w-3.5 h-3.5 mr-1" />
+                <HudButton
+                  size="sm"
+                  variant="secondary"
+                  leftIcon={<FileText className="w-3.5 h-3.5" />}
+                  onClick={() => onGenerateMinutes(item.id)}
+                >
                   Gerar Minuta
-                </Button>
-                <Button size="sm" className="bg-[#00FFB4] hover:bg-[#00D89A] text-[#05100B]" onClick={() => onPublishMinutes(item.id)}>
-                  <CheckCircle className="w-3.5 h-3.5 mr-1" />
+                </HudButton>
+                <HudButton
+                  size="sm"
+                  variant="primary"
+                  leftIcon={<CheckCircle className="w-3.5 h-3.5" />}
+                  onClick={() => onPublishMinutes(item.id)}
+                >
                   Publicar Ata
-                </Button>
+                </HudButton>
               </div>
             </div>
-            <p className="text-sm text-[rgba(255,255,255,0.8)] whitespace-pre-wrap">{item.minutesSummary || 'Minuta ainda não gerada.'}</p>
+            <p className="text-sm text-ig-fg leading-relaxed whitespace-pre-wrap">
+              {item.minutesSummary || <span className="text-ig-fg-subtle italic">Minuta ainda não gerada.</span>}
+            </p>
           </HudPanel>
 
           <HudPanel>
@@ -159,32 +330,54 @@ export function DecisionInspector({
           </HudPanel>
         </TabsContent>
 
-        <TabsContent value="execution" className="space-y-3">
-          <HudPanel className="space-y-2">
+        {/* ── Execution tab ── */}
+        <TabsContent value="execution" className="space-y-3 mt-3">
+          <HudPanel className="space-y-3">
             <div className="flex items-center justify-between">
-              <p className="text-xs uppercase tracking-wide text-[rgba(255,255,255,0.5)]">Ações Pós-Decisão</p>
-              <Button size="sm" onClick={() => onCreateExecutionTask(item.id)} className="bg-[#A855F7] hover:bg-[#9333EA] text-white">
-                <Workflow className="w-3.5 h-3.5 mr-1" />
+              <p className="text-xs uppercase tracking-wide text-ig-fg-subtle font-medium">Ações de Execução</p>
+              <HudButton
+                size="sm"
+                variant="primary"
+                leftIcon={<Workflow className="w-3.5 h-3.5" />}
+                onClick={() => onCreateExecutionTask(item.id)}
+              >
                 Criar Ação
-              </Button>
+              </HudButton>
             </div>
 
             {(item.executionItems ?? []).length === 0 ? (
-              <p className="text-sm text-[rgba(255,255,255,0.6)]">Nenhuma ação de execução registrada.</p>
+              <div className="py-6 text-center rounded-lg border border-dashed border-ig-border">
+                <PlayCircle className="w-8 h-8 mx-auto mb-2 text-ig-fg-subtle" />
+                <p className="text-sm text-ig-fg-muted">Nenhuma ação de execução registrada.</p>
+                <p className="text-xs text-ig-fg-subtle mt-1">Clique em "Criar Ação" para iniciar a execução.</p>
+              </div>
             ) : (
-              (item.executionItems ?? []).map((task) => (
-                <div key={task.id} className="rounded-lg border border-[rgba(255,255,255,0.1)] p-3 text-sm">
-                  <p className="text-white">{task.title}</p>
-                  <p className="text-[rgba(255,255,255,0.6)]">Responsável: {task.ownerName} | Prazo: {task.dueDate.toLocaleDateString()}</p>
-                  <p className="text-[rgba(255,255,255,0.6)]">Status: {taskStatusLabel[task.status] ?? task.status}</p>
-                  {task.linkedEntityType && (
-                    <p className="text-[#00C8FF] flex items-center gap-1">
-                      <Link2 className="w-3 h-3" />
-                      Vinculado a {task.linkedEntityType}: {task.linkedEntityId}
-                    </p>
-                  )}
-                </div>
-              ))
+              <div className="space-y-2">
+                {(item.executionItems ?? []).map((task) => (
+                  <div key={task.id} className="rounded-lg border border-ig-border bg-ig-panel p-3 space-y-1.5">
+                    <p className="text-sm font-medium text-ig-fg-strong">{task.title}</p>
+                    <div className="flex items-center gap-3 text-xs text-ig-fg-muted">
+                      <span>Responsável: {task.ownerName}</span>
+                      <span>Prazo: {task.dueDate.toLocaleDateString('pt-BR')}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <HudBadge
+                        variant={task.status === 'completed' ? 'success' : task.status === 'in_progress' ? 'warning' : 'neutral'}
+                        size="sm"
+                        dot
+                      >
+                        {TASK_STATUS_LABELS[task.status] ?? task.status}
+                      </HudBadge>
+                      {task.linkedEntityType && (
+                        <span className="text-[10px] text-ig-accent flex items-center gap-1">
+                          <Link2 className="w-3 h-3" />
+                          {task.linkedEntityType}: {task.linkedEntityId}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
           </HudPanel>
         </TabsContent>

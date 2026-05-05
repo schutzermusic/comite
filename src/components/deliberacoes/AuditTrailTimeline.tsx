@@ -28,22 +28,24 @@ interface AuditTrailTimelineProps {
     maxVisible?: number;
 }
 
-const getActionConfig = (action: AuditTrailEntry['action']) => {
-    const configs: Record<AuditTrailEntry['action'], { icon: LucideIcon; color: string; label: string }> = {
-        'status_changed': { icon: History, color: '#00C8FF', label: 'Status Alterado' },
-        'field_edited': { icon: PenSquare, color: '#00C8FF', label: 'Campo Editado' },
-        'vote_cast': { icon: Vote, color: '#A855F7', label: 'Voto Registrado' },
-        'voting_started': { icon: PlayCircle, color: '#00FFB4', label: 'Votação Iniciada' },
-        'voting_closed': { icon: StopCircle, color: '#FFB04D', label: 'Votação Encerrada' },
-        'evidence_added': { icon: FileCheck, color: '#00C8FF', label: 'Evidência Adicionada' },
-        'review_requested': { icon: Send, color: '#A855F7', label: 'Revisão Solicitada' },
-        'stage_transitioned': { icon: ArrowRightLeft, color: '#4ADE80', label: 'Transição de Etapa' },
-        'minutes_generated': { icon: FileText, color: '#00FFB4', label: 'Ata Gerada' },
-        'minutes_published': { icon: ClipboardCheck, color: '#00FFB4', label: 'Ata Publicada' },
-        'decision_issued': { icon: Gavel, color: '#F59E0B', label: 'Decisão Emitida' },
-        'execution_task_created': { icon: ListChecks, color: '#C084FC', label: 'Ação de Execução Criada' },
-    };
-    return configs[action] || { icon: History, color: 'rgba(255,255,255,0.65)', label: action };
+const ACTION_CONFIGS: Record<AuditTrailEntry['action'], {
+    icon: LucideIcon;
+    colorClass: string;
+    bgClass: string;
+    label: string;
+}> = {
+    'status_changed':       { icon: History,          colorClass: 'text-ig-info',    bgClass: 'bg-[color-mix(in_oklab,var(--ig-info)_16%,transparent)] border-[color-mix(in_oklab,var(--ig-info)_28%,transparent)]',    label: 'Status Alterado' },
+    'field_edited':         { icon: PenSquare,         colorClass: 'text-ig-info',    bgClass: 'bg-[color-mix(in_oklab,var(--ig-info)_16%,transparent)] border-[color-mix(in_oklab,var(--ig-info)_28%,transparent)]',    label: 'Campo Editado' },
+    'vote_cast':            { icon: Vote,              colorClass: 'text-ig-accent',  bgClass: 'bg-ig-accent-weak border-ig-border-focus',                                                                                  label: 'Voto Registrado' },
+    'voting_started':       { icon: PlayCircle,        colorClass: 'text-ig-success', bgClass: 'bg-[color-mix(in_oklab,var(--ig-success)_16%,transparent)] border-[color-mix(in_oklab,var(--ig-success)_28%,transparent)]', label: 'Votação Iniciada' },
+    'voting_closed':        { icon: StopCircle,        colorClass: 'text-ig-warning', bgClass: 'bg-[color-mix(in_oklab,var(--ig-warning)_16%,transparent)] border-[color-mix(in_oklab,var(--ig-warning)_28%,transparent)]', label: 'Votação Encerrada' },
+    'evidence_added':       { icon: FileCheck,         colorClass: 'text-ig-info',    bgClass: 'bg-[color-mix(in_oklab,var(--ig-info)_16%,transparent)] border-[color-mix(in_oklab,var(--ig-info)_28%,transparent)]',    label: 'Evidência Adicionada' },
+    'review_requested':     { icon: Send,              colorClass: 'text-ig-accent',  bgClass: 'bg-ig-accent-weak border-ig-border-focus',                                                                                  label: 'Revisão Solicitada' },
+    'stage_transitioned':   { icon: ArrowRightLeft,    colorClass: 'text-ig-success', bgClass: 'bg-[color-mix(in_oklab,var(--ig-success)_16%,transparent)] border-[color-mix(in_oklab,var(--ig-success)_28%,transparent)]', label: 'Transição de Etapa' },
+    'minutes_generated':    { icon: FileText,          colorClass: 'text-ig-success', bgClass: 'bg-[color-mix(in_oklab,var(--ig-success)_16%,transparent)] border-[color-mix(in_oklab,var(--ig-success)_28%,transparent)]', label: 'Ata Gerada' },
+    'minutes_published':    { icon: ClipboardCheck,    colorClass: 'text-ig-success', bgClass: 'bg-[color-mix(in_oklab,var(--ig-success)_16%,transparent)] border-[color-mix(in_oklab,var(--ig-success)_28%,transparent)]', label: 'Ata Publicada' },
+    'decision_issued':      { icon: Gavel,             colorClass: 'text-ig-warning', bgClass: 'bg-[color-mix(in_oklab,var(--ig-warning)_16%,transparent)] border-[color-mix(in_oklab,var(--ig-warning)_28%,transparent)]', label: 'Decisão Emitida' },
+    'execution_task_created':{ icon: ListChecks,       colorClass: 'text-ig-accent',  bgClass: 'bg-ig-accent-weak border-ig-border-focus',                                                                                  label: 'Ação de Execução Criada' },
 };
 
 export function AuditTrailTimeline({ entries, maxVisible = 5 }: AuditTrailTimelineProps) {
@@ -58,29 +60,32 @@ export function AuditTrailTimeline({ entries, maxVisible = 5 }: AuditTrailTimeli
 
     if (entries.length === 0) {
         return (
-            <div className="py-6 text-center rounded-lg border border-dashed border-[rgba(255,255,255,0.1)] bg-[rgba(255,255,255,0.02)]">
-                <History className="w-8 h-8 mx-auto mb-2 text-[rgba(255,255,255,0.2)]" />
-                <p className="text-xs text-[rgba(255,255,255,0.45)]">
-                    Nenhuma atividade registrada
-                </p>
+            <div className="py-6 text-center rounded-lg border border-dashed border-ig-border bg-ig-panel/50">
+                <History className="w-8 h-8 mx-auto mb-2 text-ig-fg-subtle" />
+                <p className="text-xs text-ig-fg-subtle">Nenhuma atividade registrada</p>
             </div>
         );
     }
 
     return (
         <div className="space-y-3">
-            <h4 className="text-xs font-semibold text-[rgba(255,255,255,0.85)] uppercase tracking-wide flex items-center gap-2">
+            <h4 className="text-xs font-semibold text-ig-fg-strong uppercase tracking-wide flex items-center gap-2">
                 <History className="w-3.5 h-3.5" />
                 Trilha de Auditoria
             </h4>
 
             <div className="relative">
                 {/* Timeline line */}
-                <div className="absolute left-[11px] top-0 bottom-0 w-px bg-[rgba(255,255,255,0.08)]" />
+                <div className="absolute left-[11px] top-0 bottom-0 w-px bg-ig-border-subtle" />
 
                 <div className="space-y-3">
                     {visibleEntries.map((entry, index) => {
-                        const config = getActionConfig(entry.action);
+                        const config = ACTION_CONFIGS[entry.action] ?? {
+                            icon: History,
+                            colorClass: 'text-ig-fg-muted',
+                            bgClass: 'bg-ig-panel border-ig-border',
+                            label: entry.action,
+                        };
                         const Icon = config.icon;
                         const isFirst = index === 0;
 
@@ -89,36 +94,29 @@ export function AuditTrailTimeline({ entries, maxVisible = 5 }: AuditTrailTimeli
                                 {/* Timeline dot */}
                                 <div
                                     className={cn(
-                                        "relative z-10 w-6 h-6 rounded-full flex items-center justify-center shrink-0",
-                                        isFirst ? "ring-2 ring-offset-2 ring-offset-[#050D0A]" : ""
+                                        'relative z-10 w-6 h-6 rounded-full flex items-center justify-center shrink-0 border',
+                                        config.bgClass,
+                                        isFirst && 'ring-2 ring-ig-bg-canvas ring-offset-0'
                                     )}
-                                    style={{
-                                        backgroundColor: `${config.color}20`,
-                                        borderColor: config.color,
-                                        ['--tw-ring-color' as string]: isFirst ? config.color : 'transparent',
-                                    } as React.CSSProperties}
                                 >
-                                    <Icon className="w-3 h-3" style={{ color: config.color }} />
+                                    <Icon className={cn('w-3 h-3', config.colorClass)} />
                                 </div>
 
                                 {/* Content */}
                                 <div className="flex-1 min-w-0 pb-3">
                                     <div className="flex items-center gap-2 mb-0.5">
-                                        <span
-                                            className="text-xs font-medium"
-                                            style={{ color: config.color }}
-                                        >
+                                        <span className={cn('text-xs font-medium', config.colorClass)}>
                                             {config.label}
                                         </span>
-                                        <span className="text-[10px] text-[rgba(255,255,255,0.35)]">•</span>
-                                        <span className="text-[10px] text-[rgba(255,255,255,0.45)]">
-                                            {format(new Date(entry.timestamp), "dd MMM, HH:mm", { locale: pt })}
+                                        <span className="text-[10px] text-ig-fg-subtle">•</span>
+                                        <span className="text-[10px] text-ig-fg-subtle">
+                                            {format(new Date(entry.timestamp), 'dd MMM, HH:mm', { locale: pt })}
                                         </span>
                                     </div>
-                                    <p className="text-sm text-[rgba(255,255,255,0.75)] line-clamp-2">
+                                    <p className="text-sm text-ig-fg line-clamp-2">
                                         {entry.description}
                                     </p>
-                                    <p className="text-[10px] text-[rgba(255,255,255,0.45)] mt-0.5">
+                                    <p className="text-[10px] text-ig-fg-subtle mt-0.5">
                                         por {entry.userName}
                                     </p>
                                 </div>
@@ -131,18 +129,12 @@ export function AuditTrailTimeline({ entries, maxVisible = 5 }: AuditTrailTimeli
             {hasMore && (
                 <button
                     onClick={() => setExpanded(!expanded)}
-                    className="flex items-center gap-1.5 text-xs text-[#00C8FF] hover:text-[#00A8D9] transition-colors mx-auto"
+                    className="flex items-center gap-1.5 text-xs text-ig-accent hover:text-ig-accent/80 transition-colors mx-auto"
                 >
                     {expanded ? (
-                        <>
-                            <ChevronUp className="w-3.5 h-3.5" />
-                            Mostrar menos
-                        </>
+                        <><ChevronUp className="w-3.5 h-3.5" />Mostrar menos</>
                     ) : (
-                        <>
-                            <ChevronDown className="w-3.5 h-3.5" />
-                            Ver mais {sortedEntries.length - maxVisible} atividades
-                        </>
+                        <><ChevronDown className="w-3.5 h-3.5" />Ver mais {sortedEntries.length - maxVisible} atividades</>
                     )}
                 </button>
             )}
