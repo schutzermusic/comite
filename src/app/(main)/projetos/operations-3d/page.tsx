@@ -1,195 +1,589 @@
-import React from "react";
+"use client";
+
+import React, { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   AlertTriangle,
+  ArrowLeft,
+  ArrowUpRight,
   Boxes,
-  Building2,
+  BriefcaseBusiness,
+  CalendarClock,
   Clock3,
-  ClipboardCheck,
   Cuboid,
+  Download,
+  Layers3,
+  Link2,
   MapPinned,
-  Route,
-  ScanLine,
+  Radar,
+  ShieldAlert,
+  Sparkles,
+  UserRound,
+  Zap,
 } from "lucide-react";
-import {
-  HudHeader,
-  HudKpiStrip,
-  HudPageLayout,
-  type KpiItem,
-} from "@/components/hud";
+import { HudHeader, HudPageLayout } from "@/components/hud";
 import { CesiumOperationsMap } from "@/components/operations-3d/CesiumOperationsMap";
+import {
+  buildOperationsProjectRecords,
+  buildOperationsSummary,
+  formatOperationsDate,
+  formatOperationsMoney,
+  getOperationsStatusLabel,
+  type OperationsProjectRecord,
+  type OperationsProjectStatus,
+} from "@/components/operations-3d/operations-projects";
+import { cn } from "@/lib/utils";
 
-const kpis: KpiItem[] = [
-  {
-    id: "mapped-assets",
-    label: "Ativos mapeados",
-    value: "128",
-    variant: "info",
-    icon: <Boxes className="h-5 w-5" />,
-  },
-  {
-    id: "projects-3d",
-    label: "Projetos com visão 3D",
-    value: "16",
-    variant: "success",
-    icon: <Cuboid className="h-5 w-5" />,
-  },
-  {
-    id: "critical-points",
-    label: "Pontos críticos",
-    value: "7",
-    variant: "warning",
-    icon: <AlertTriangle className="h-5 w-5" />,
-  },
-  {
-    id: "last-update",
-    label: "Última atualização",
-    value: "Hoje 09:40",
-    variant: "default",
-    icon: <Clock3 className="h-5 w-5" />,
-  },
-];
-
-const useCases = [
-  { label: "Service hotspots", description: "Focos de mobilização por região e frente.", icon: MapPinned },
-  { label: "Project / asset focus", description: "Camada dedicada a ativos, contratos e projetos.", icon: Building2 },
-  { label: "Field inspections", description: "Visão operacional para inspeções e evidências.", icon: ClipboardCheck },
-  { label: "Physical progress", description: "Leitura visual de avanço físico por área.", icon: Route },
-  { label: "Critical points", description: "Sinalização de gargalos, riscos e desvios.", icon: AlertTriangle },
-];
+const STATUS_TOKEN: Record<OperationsProjectStatus, string> = {
+  active: "var(--ig-success)",
+  attention: "var(--ig-warning)",
+  critical: "var(--ig-danger)",
+  completed: "var(--ig-accent)",
+};
 
 export default function Operations3DPage() {
+  const router = useRouter();
+  const projects = useMemo(() => buildOperationsProjectRecords(), []);
+  const summary = useMemo(() => buildOperationsSummary(projects), [projects]);
+  const [selectedProject, setSelectedProject] = useState<OperationsProjectRecord | null>(null);
+
+  const selectedForReport = selectedProject || projects.find((project) => project.status === "critical") || projects[0] || null;
+
+  const kpis = [
+    {
+      id: "projects-mapped",
+      label: "Projects mapped",
+      value: summary.totalProjects.toLocaleString("pt-BR"),
+      detail: "Projetos conectados ao mapa",
+      icon: MapPinned,
+      tone: "info" as const,
+    },
+    {
+      id: "active-fronts",
+      label: "Active operational fronts",
+      value: summary.activeFronts.toLocaleString("pt-BR"),
+      detail: "Frentes em execução ou atenção",
+      icon: Zap,
+      tone: "success" as const,
+    },
+    {
+      id: "critical-alerts",
+      label: "Critical alerts",
+      value: summary.criticalProjects.toLocaleString("pt-BR"),
+      detail: `${summary.linkedRisks} riscos vinculados`,
+      icon: ShieldAlert,
+      tone: "danger" as const,
+    },
+    {
+      id: "assets-linked",
+      label: "Assets linked",
+      value: summary.assetsLinked.toLocaleString("pt-BR"),
+      detail: "Ativos, evidências e marcos",
+      icon: Boxes,
+      tone: "warning" as const,
+    },
+    {
+      id: "last-sync",
+      label: "Last sync",
+      value: formatOperationsDate(summary.lastUpdate),
+      detail: "Snapshot operacional",
+      icon: Clock3,
+      tone: "default" as const,
+    },
+  ];
+
   return (
-    <HudPageLayout>
-      <HudHeader
-        title="Insight Operations 3D"
-        subtitle="Digital twin operacional para projetos, ativos e frentes de serviço."
-        icon={<Cuboid className="h-5 w-5" />}
-        iconTint="var(--ig-accent)"
-        breadcrumbs={[
-          { label: "Projetos", href: "/projetos" },
-          { label: "Insight Operations 3D" },
-        ]}
-        statusChips={[
-          { label: "Módulo isolado", variant: "info" },
-          { label: "Globo realista", variant: "success" },
-        ]}
+    <HudPageLayout maxWidth="full">
+      <style jsx global>{`
+        @media print {
+          html,
+          body {
+            background: #ffffff !important;
+            color: #111827 !important;
+          }
+          .ig-ops3d-live {
+            display: none !important;
+          }
+          .ig-ops3d-print {
+            display: block !important;
+          }
+        }
+      `}</style>
+
+      <div className="ig-ops3d-live space-y-5">
+        <HudHeader
+          title="Insight Operations 3D"
+          subtitle="Digital twin operacional para projetos, ativos e frentes de serviço no território brasileiro."
+          icon={<Cuboid className="h-5 w-5" />}
+          iconTint="var(--ig-accent)"
+          breadcrumbs={[
+            { label: "Projetos", href: "/projetos" },
+            { label: "Insight Operations 3D" },
+          ]}
+          statusChips={[
+            { label: "Brasil focus", variant: "success" },
+            { label: `${summary.totalProjects} projetos`, variant: "info" },
+          ]}
+          actions={
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="inline-flex items-center gap-2 rounded-lg border border-ig-border-subtle bg-ig-panel/60 px-3 py-2 text-ig-label text-ig-fg-muted shadow-sm backdrop-blur transition-colors hover:text-ig-fg-strong"
+            >
+              <Download className="h-4 w-4 text-ig-accent" />
+              Exportar PDF
+            </button>
+          }
+        />
+
+        <PremiumKpiStrip items={kpis} />
+
+        <section
+          className="relative h-[720px] min-h-[680px] overflow-hidden rounded-2xl border border-ig-border-subtle/70 bg-ig-panel/25 shadow-2xl shadow-black/10 lg:h-[calc(100vh-18rem)] lg:min-h-[660px]"
+          style={{
+            background:
+              "linear-gradient(135deg, color-mix(in oklab, var(--ig-panel) 62%, transparent), color-mix(in oklab, var(--ig-bg-canvas) 72%, transparent)), radial-gradient(circle at 22% 18%, color-mix(in oklab, var(--ig-accent) 14%, transparent), transparent 36%)",
+          }}
+        >
+          <CesiumOperationsMap
+            projects={projects}
+            selectedProjectId={selectedProject?.id || null}
+            onSelectProject={setSelectedProject}
+          >
+            <ProjectInspector
+              project={selectedProject}
+              summary={summary}
+              onClear={() => setSelectedProject(null)}
+              onOpenProject={(projectId) => router.push(`/projetos/${projectId}`)}
+            />
+          </CesiumOperationsMap>
+        </section>
+      </div>
+
+      <PrintReport
+        summary={summary}
+        selectedProject={selectedForReport}
       />
-
-      <HudKpiStrip kpis={kpis} columns={4} className="mb-6" />
-
-      {/* Immersive operational canvas — Cesium fills the section, glass panels float on top. */}
-      <section
-        className="relative overflow-hidden rounded-2xl border border-ig-border-subtle/60"
-        style={{
-          height: "78vh",
-          minHeight: 640,
-          background:
-            "radial-gradient(circle at 30% 60%, color-mix(in oklab, var(--ig-accent) 8%, transparent), transparent 60%), var(--ig-bg-canvas)",
-        }}
-      >
-        <div className="absolute inset-0">
-          <CesiumOperationsMap />
-        </div>
-
-        {/* Floating glass panels — right column, hidden below lg to avoid blocking the globe */}
-        <aside className="pointer-events-none absolute right-3 top-3 bottom-3 z-30 hidden w-[320px] flex-col gap-3 lg:flex xl:right-4 xl:top-4 xl:bottom-4 xl:w-[340px]">
-          <GlassCard
-            title="Casos de uso"
-            subtitle="Direção funcional do digital twin"
-            icon={<ScanLine className="h-4 w-4" />}
-          >
-            <div className="space-y-2">
-              {useCases.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <div
-                    key={item.label}
-                    className="flex items-start gap-2.5 rounded-lg border border-ig-border-subtle/40 bg-ig-panel/25 p-2.5 backdrop-blur-sm"
-                  >
-                    <span
-                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-ig-border-subtle/50"
-                      style={{
-                        background: "color-mix(in oklab, var(--ig-accent) 18%, transparent)",
-                        color: "var(--ig-accent)",
-                      }}
-                    >
-                      <Icon className="h-3.5 w-3.5" />
-                    </span>
-                    <div className="min-w-0">
-                      <h3 className="text-ig-label text-ig-fg-strong">{item.label}</h3>
-                      <p className="mt-0.5 text-ig-caption text-ig-fg-muted">{item.description}</p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </GlassCard>
-
-          <GlassCard
-            title="Foco inicial"
-            subtitle="Validação visual e de navegação"
-            icon={<MapPinned className="h-4 w-4" />}
-          >
-            <div className="space-y-2.5">
-              <div>
-                <p className="text-ig-label text-ig-fg-strong">Brasil e América do Sul</p>
-                <p className="mt-0.5 text-ig-caption text-ig-fg-muted">
-                  Base visual concentrada na operação nacional, com leitura regional simples e estável.
-                </p>
-              </div>
-              <div className="h-px bg-gradient-to-r from-transparent via-ig-border-subtle to-transparent" />
-              <div>
-                <p className="text-ig-label text-ig-fg-strong">Sem dados produtivos</p>
-                <p className="mt-0.5 text-ig-caption text-ig-fg-muted">
-                  Hotspots e indicadores são placeholders controlados para evoluir o módulo sem alterar fontes de dados.
-                </p>
-              </div>
-            </div>
-          </GlassCard>
-        </aside>
-      </section>
     </HudPageLayout>
   );
 }
 
-function GlassCard({
-  title,
-  subtitle,
-  icon,
-  children,
+function PremiumKpiStrip({
+  items,
 }: {
-  title: string;
-  subtitle?: string;
-  icon?: React.ReactNode;
-  children: React.ReactNode;
+  items: Array<{
+    id: string;
+    label: string;
+    value: string;
+    detail: string;
+    icon: React.ComponentType<{ className?: string }>;
+    tone: "default" | "success" | "warning" | "danger" | "info";
+  }>;
 }) {
   return (
-    <div
-      className="pointer-events-auto overflow-hidden rounded-xl border border-ig-border-subtle/50 shadow-xl"
-      style={{
-        background: "color-mix(in oklab, var(--ig-panel) 55%, transparent)",
-        backdropFilter: "blur(14px) saturate(140%)",
-        WebkitBackdropFilter: "blur(14px) saturate(140%)",
-      }}
-    >
-      <div className="flex items-start gap-2.5 border-b border-ig-border-subtle/40 px-3 py-2.5">
-        {icon && (
-          <span
-            className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-ig-border-subtle/50"
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      {items.map((item, index) => {
+        const Icon = item.icon;
+        const tint =
+          item.tone === "success"
+            ? "var(--ig-success)"
+            : item.tone === "warning"
+              ? "var(--ig-warning)"
+              : item.tone === "danger"
+                ? "var(--ig-danger)"
+                : item.tone === "info"
+                  ? "var(--ig-info)"
+                  : "var(--ig-accent)";
+
+        return (
+          <motion.div
+            key={item.id}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.26, delay: index * 0.035 }}
+            className="group relative min-h-[116px] overflow-hidden rounded-xl border border-ig-border-subtle/70 p-3 shadow-lg backdrop-blur-xl"
             style={{
-              background: "color-mix(in oklab, var(--ig-accent) 16%, transparent)",
-              color: "var(--ig-accent)",
+              background:
+                "linear-gradient(145deg, color-mix(in oklab, var(--ig-panel) 72%, transparent), color-mix(in oklab, var(--ig-bg-raised) 52%, transparent))",
+              boxShadow:
+                "0 16px 40px -28px rgba(0,0,0,.55), inset 0 1px 0 color-mix(in oklab, white 18%, transparent)",
             }}
           >
-            {icon}
-          </span>
+            <div
+              aria-hidden
+              className="absolute inset-x-0 top-0 h-px"
+              style={{ background: `linear-gradient(90deg, transparent, ${tint}, transparent)` }}
+            />
+            <div className="flex h-full min-w-0 flex-col justify-between gap-3">
+              <div className="flex items-start justify-between gap-3">
+                <p className="min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-ig-fg-muted">
+                  {item.label}
+                </p>
+                <span
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border"
+                  style={{
+                    borderColor: `color-mix(in oklab, ${tint} 38%, var(--ig-border-subtle))`,
+                    background: `color-mix(in oklab, ${tint} 12%, transparent)`,
+                    color: tint,
+                  }}
+                >
+                  <Icon className="h-4 w-4" />
+                </span>
+              </div>
+              <div className="min-w-0">
+                <div className="ig-tabular truncate text-[1.55rem] font-semibold leading-none text-ig-fg-strong">
+                  {item.value}
+                </div>
+                <p className="mt-2 truncate text-ig-caption text-ig-fg-muted">{item.detail}</p>
+              </div>
+            </div>
+          </motion.div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ProjectInspector({
+  project,
+  summary,
+  onClear,
+  onOpenProject,
+}: {
+  project: OperationsProjectRecord | null;
+  summary: ReturnType<typeof buildOperationsSummary>;
+  onClear: () => void;
+  onOpenProject: (projectId: string) => void;
+}) {
+  return (
+    <aside className="pointer-events-auto absolute inset-x-3 bottom-3 z-40 max-h-[58vh] md:inset-x-auto md:bottom-16 md:right-4 md:top-4 md:w-[360px] md:max-h-none xl:w-[390px]">
+      <AnimatePresence mode="wait">
+        {project ? (
+          <motion.div
+            key={project.id}
+            initial={{ opacity: 0, x: 18 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 18 }}
+            transition={{ duration: 0.24 }}
+            className="h-full"
+          >
+            <InspectorShell>
+              <div className="flex items-start justify-between gap-3 border-b border-ig-border-subtle/60 px-4 py-4">
+                <div className="flex min-w-0 items-start gap-3">
+                  <span className="ig-ops-hud-inner flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-ig-border-subtle bg-ig-panel/65 text-sm font-semibold text-ig-fg-strong">
+                    {project.companyInitials}
+                  </span>
+                  <div className="min-w-0">
+                    <p
+                      className="text-[10px] font-semibold uppercase tracking-[0.12em]"
+                      style={{ color: STATUS_TOKEN[project.status] }}
+                    >
+                      {getOperationsStatusLabel(project.status)} · {project.uf}
+                    </p>
+                    <h2 className="mt-1 line-clamp-2 text-base font-semibold leading-tight text-ig-fg-strong">
+                      {project.name}
+                    </h2>
+                    <p className="mt-1 truncate text-ig-caption text-ig-fg-muted">{project.client}</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={onClear}
+                  className="ig-ops-hud-inner inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-ig-border-subtle bg-ig-panel/55 px-2.5 py-1.5 text-ig-caption text-ig-fg-muted transition-colors hover:text-ig-fg-strong"
+                >
+                  <ArrowLeft className="h-3.5 w-3.5" />
+                  Brasil
+                </button>
+              </div>
+
+              <div className="space-y-4 overflow-y-auto px-4 py-4 max-lg:max-h-[calc(58vh-5rem)] md:max-h-[calc(100%-5.5rem)]">
+                <div className="ig-ops-hud-inner rounded-xl border border-ig-border-subtle/60 bg-ig-panel/45 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-ig-caption text-ig-fg-muted">Progresso físico</p>
+                      <p className="ig-tabular mt-1 text-2xl font-semibold text-ig-fg-strong">{project.progress}%</p>
+                    </div>
+                    <span
+                      className="rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.09em]"
+                      style={{
+                        background: `color-mix(in oklab, ${STATUS_TOKEN[project.status]} 14%, transparent)`,
+                        color: STATUS_TOKEN[project.status],
+                      }}
+                    >
+                      {getOperationsStatusLabel(project.status)}
+                    </span>
+                  </div>
+                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-ig-bg-raised">
+                    <div
+                      className="h-full rounded-full"
+                      style={{
+                        width: `${project.progress}%`,
+                        background: `linear-gradient(90deg, ${STATUS_TOKEN[project.status]}, var(--ig-accent))`,
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <InfoGrid
+                  items={[
+                    { label: "Localização", value: project.locationLabel, icon: MapPinned },
+                    { label: "Budget/contrato", value: formatOperationsMoney(project.contractTotal), icon: BriefcaseBusiness },
+                    { label: "Milestone", value: project.deadlineLabel, icon: CalendarClock },
+                    { label: "Gestor responsável", value: project.responsibleManager, icon: UserRound },
+                    { label: "Última atualização", value: formatOperationsDate(project.lastUpdate), icon: Clock3 },
+                    { label: "Tipo", value: project.type, icon: Layers3 },
+                  ]}
+                />
+
+                <div className="ig-ops-hud-inner rounded-xl border border-ig-border-subtle/60 bg-ig-panel/45 p-3">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-ig-warning" />
+                    <div className="min-w-0">
+                      <p className="text-ig-caption text-ig-fg-muted">Risco principal</p>
+                      <p className="mt-1 text-sm font-medium leading-snug text-ig-fg-strong">{project.mainRisk}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  <LinkedMetric label="Riscos" value={project.linkedRisks} />
+                  <LinkedMetric label="Ações" value={project.linkedActions} />
+                  <LinkedMetric label="Contratos" value={project.linkedContracts} />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => onOpenProject(project.id)}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl border px-3 py-3 text-sm font-semibold transition-colors"
+                  style={{
+                    borderColor: "color-mix(in oklab, var(--ig-accent) 46%, var(--ig-border-subtle))",
+                    background: "color-mix(in oklab, var(--ig-accent) 14%, var(--ig-panel))",
+                    color: "var(--ig-accent)",
+                  }}
+                >
+                  View full project
+                  <ArrowUpRight className="h-4 w-4" />
+                </button>
+              </div>
+            </InspectorShell>
+          </motion.div>
+        ) : (
+          <motion.div
+            key="overview"
+            initial={{ opacity: 0, x: 18 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 18 }}
+            transition={{ duration: 0.24 }}
+            className="h-full"
+          >
+            <InspectorShell>
+              <div className="border-b border-ig-border-subtle/60 px-4 py-4">
+                <div className="flex items-center gap-2">
+                  <span className="ig-ops-hud-inner flex h-9 w-9 items-center justify-center rounded-xl border border-ig-border-subtle bg-ig-panel/60 text-ig-accent">
+                    <Radar className="h-4 w-4" />
+                  </span>
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ig-accent">
+                      Executive overview
+                    </p>
+                    <h2 className="text-base font-semibold text-ig-fg-strong">Operação Brasil</h2>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-4 overflow-y-auto px-4 py-4 max-lg:max-h-[calc(58vh-5rem)] md:max-h-[calc(100%-5.5rem)]">
+                <div className="grid grid-cols-2 gap-2">
+                  <OverviewMetric label="Projetos mapeados" value={summary.totalProjects} icon={MapPinned} />
+                  <OverviewMetric label="Frentes ativas" value={summary.activeFronts} icon={Zap} />
+                  <OverviewMetric label="Projetos críticos" value={summary.criticalProjects} icon={ShieldAlert} danger />
+                  <OverviewMetric label="Último sync" value={formatOperationsDate(summary.lastUpdate)} icon={Clock3} />
+                </div>
+
+                <div className="ig-ops-hud-inner rounded-xl border border-ig-border-subtle/60 bg-ig-panel/45 p-3">
+                  <div className="flex items-start gap-2">
+                    <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-ig-accent" />
+                    <div>
+                      <p className="text-ig-caption text-ig-fg-muted">Operational insight</p>
+                      <p className="mt-1 text-sm leading-snug text-ig-fg-strong">
+                        {summary.criticalProjects > 0
+                          ? `${summary.criticalProjects} frente(s) exigem leitura executiva antes do próximo marco. Priorize riscos, ações e contratos vinculados.`
+                          : "Carteira mapeada sem alerta crítico aberto. Mantenha monitoramento de marcos, riscos e ativos vinculados."}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  <LinkedMetric label="Riscos" value={summary.linkedRisks} />
+                  <LinkedMetric label="Ações" value={summary.linkedActions} />
+                  <LinkedMetric label="Contratos" value={summary.linkedContracts} />
+                </div>
+
+                <div className="ig-ops-hud-inner rounded-xl border border-ig-border-subtle/60 bg-ig-panel/45 p-3">
+                  <p className="text-ig-caption text-ig-fg-muted">Valor em governança</p>
+                  <p className="ig-tabular mt-1 text-xl font-semibold text-ig-fg-strong">
+                    {formatOperationsMoney(summary.contractTotal)}
+                  </p>
+                </div>
+              </div>
+            </InspectorShell>
+          </motion.div>
         )}
-        <div className="min-w-0">
-          <h2 className="text-ig-label text-ig-fg-strong">{title}</h2>
-          {subtitle && <p className="mt-0.5 text-ig-caption text-ig-fg-muted">{subtitle}</p>}
-        </div>
+      </AnimatePresence>
+    </aside>
+  );
+}
+
+function InspectorShell({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      className="ig-ops-hud-surface h-full max-h-full overflow-hidden rounded-2xl border border-ig-border-subtle/70 shadow-2xl backdrop-blur-2xl"
+      style={{
+        background:
+          "linear-gradient(145deg, color-mix(in oklab, var(--ig-panel) 84%, transparent), color-mix(in oklab, var(--ig-bg-raised) 62%, transparent))",
+        boxShadow:
+          "0 22px 58px -34px rgba(0,0,0,.7), inset 0 1px 0 color-mix(in oklab, white 18%, transparent)",
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function InfoGrid({
+  items,
+}: {
+  items: Array<{ label: string; value: string; icon: React.ComponentType<{ className?: string }> }>;
+}) {
+  return (
+    <div className="grid gap-2">
+      {items.map((item) => {
+        const Icon = item.icon;
+        return (
+          <div key={item.label} className="ig-ops-hud-inner flex min-w-0 items-start gap-2 rounded-xl border border-ig-border-subtle/60 bg-ig-panel/40 p-3">
+            <Icon className="mt-0.5 h-4 w-4 shrink-0 text-ig-accent" />
+            <div className="min-w-0">
+              <p className="text-ig-caption text-ig-fg-muted">{item.label}</p>
+              <p className="mt-0.5 line-clamp-2 text-sm font-medium text-ig-fg-strong">{item.value}</p>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function LinkedMetric({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="ig-ops-hud-inner rounded-xl border border-ig-border-subtle/60 bg-ig-panel/45 p-3 text-center">
+      <Link2 className="mx-auto h-3.5 w-3.5 text-ig-accent" />
+      <p className="ig-tabular mt-1 text-lg font-semibold text-ig-fg-strong">{value}</p>
+      <p className="text-[10px] font-medium uppercase tracking-[0.08em] text-ig-fg-muted">{label}</p>
+    </div>
+  );
+}
+
+function OverviewMetric({
+  label,
+  value,
+  icon: Icon,
+  danger,
+}: {
+  label: string;
+  value: number | string;
+  icon: React.ComponentType<{ className?: string }>;
+  danger?: boolean;
+}) {
+  return (
+    <div className="ig-ops-hud-inner rounded-xl border border-ig-border-subtle/60 bg-ig-panel/45 p-3">
+      <Icon className={cn("h-4 w-4", danger ? "text-ig-danger" : "text-ig-accent")} />
+      <p className="ig-tabular mt-2 text-lg font-semibold text-ig-fg-strong">{value}</p>
+      <p className="text-[10px] font-medium uppercase tracking-[0.08em] text-ig-fg-muted">{label}</p>
+    </div>
+  );
+}
+
+function PrintReport({
+  summary,
+  selectedProject,
+}: {
+  summary: ReturnType<typeof buildOperationsSummary>;
+  selectedProject: OperationsProjectRecord | null;
+}) {
+  return (
+    <div className="ig-ops3d-print hidden bg-white p-8 text-slate-950">
+      <div className="border-b border-slate-200 pb-5">
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Insight Operations 3D</p>
+        <h1 className="mt-2 text-2xl font-semibold">Relatório operacional do digital twin</h1>
+        <p className="mt-1 text-sm text-slate-600">Última atualização: {formatOperationsDate(summary.lastUpdate)}</p>
       </div>
-      <div className="px-3 py-3">{children}</div>
+
+      <div className="mt-6 grid grid-cols-5 gap-3">
+        <PrintMetric label="Projetos mapeados" value={summary.totalProjects} />
+        <PrintMetric label="Frentes ativas" value={summary.activeFronts} />
+        <PrintMetric label="Alertas críticos" value={summary.criticalProjects} />
+        <PrintMetric label="Ativos vinculados" value={summary.assetsLinked} />
+        <PrintMetric label="Riscos vinculados" value={summary.linkedRisks} />
+      </div>
+
+      {selectedProject && (
+        <div className="mt-8 rounded-xl border border-slate-200 p-5">
+          <div className="flex items-start justify-between gap-6">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Projeto selecionado</p>
+              <h2 className="mt-1 text-xl font-semibold">{selectedProject.name}</h2>
+              <p className="mt-1 text-sm text-slate-600">
+                {selectedProject.client} · {selectedProject.locationLabel} · {getOperationsStatusLabel(selectedProject.status)}
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="text-xs text-slate-500">Progresso</p>
+              <p className="text-2xl font-semibold tabular-nums">{selectedProject.progress}%</p>
+            </div>
+          </div>
+
+          <div className="mt-5 grid grid-cols-2 gap-4 text-sm">
+            <PrintField label="Budget/contrato" value={formatOperationsMoney(selectedProject.contractTotal, false)} />
+            <PrintField label="Milestone" value={selectedProject.deadlineLabel} />
+            <PrintField label="Gestor responsável" value={selectedProject.responsibleManager} />
+            <PrintField label="Última atualização" value={formatOperationsDate(selectedProject.lastUpdate)} />
+            <PrintField label="Risco principal" value={selectedProject.mainRisk} wide />
+            <PrintField
+              label="Riscos / ações / contratos"
+              value={`${selectedProject.linkedRisks} riscos · ${selectedProject.linkedActions} ações · ${selectedProject.linkedContracts} contratos`}
+              wide
+            />
+          </div>
+        </div>
+      )}
+
+      <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-5">
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Risk/alert summary</p>
+        <p className="mt-2 text-sm leading-6 text-slate-700">
+          {summary.criticalProjects > 0
+            ? `${summary.criticalProjects} projeto(s) aparecem como críticos no mapa. O snapshot inclui ${summary.linkedRisks} riscos, ${summary.linkedActions} ações e ${summary.linkedContracts} contratos vinculados.`
+            : `Sem projeto crítico no snapshot. A carteira mantém ${summary.linkedRisks} riscos e ${summary.linkedActions} ações em acompanhamento.`}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function PrintMetric({ label, value }: { label: string; value: number | string }) {
+  return (
+    <div className="rounded-lg border border-slate-200 p-3">
+      <p className="text-xs text-slate-500">{label}</p>
+      <p className="mt-2 text-xl font-semibold tabular-nums">{value}</p>
+    </div>
+  );
+}
+
+function PrintField({ label, value, wide }: { label: string; value: string; wide?: boolean }) {
+  return (
+    <div className={cn(wide && "col-span-2")}>
+      <p className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-500">{label}</p>
+      <p className="mt-1 text-slate-900">{value}</p>
     </div>
   );
 }

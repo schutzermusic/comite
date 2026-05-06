@@ -16,6 +16,12 @@ export type Project = {
   nome: string;
   codigo: string;
   cliente?: string;
+  /**
+   * Optional client logo URL. When present, ProjectClientLogo will display the image;
+   * otherwise it falls back to deterministic initials. Backend can populate this with
+   * a CDN URL, a signed asset URL, or a relative path under /public.
+   */
+  clientLogoUrl?: string;
   status: 'planejamento' | 'em_andamento' | 'pausado' | 'concluido' | 'cancelado';
   comite_id?: string;
   comite_nome?: string;

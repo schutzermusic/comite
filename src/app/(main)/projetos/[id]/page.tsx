@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, use } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   ArrowLeft,
   Briefcase,
@@ -53,10 +53,15 @@ import { ptBR } from 'date-fns/locale';
 export default function DetalheProjetoPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
   const { id } = use(params);
+  const searchParams = useSearchParams();
+  const initialTab = (() => {
+    const t = searchParams?.get('tab');
+    return t && ['overview', 'timeline', 'team', 'finance'].includes(t) ? t : 'overview';
+  })();
   const [projeto, setProjeto] = useState<ReturnType<typeof getProjectById>>(undefined);
   const [projetoV2, setProjetoV2] = useState<ProjectV2 | undefined>(undefined);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('overview');
+  const [activeTab, setActiveTab] = useState(initialTab);
 
   useEffect(() => {
     try {
