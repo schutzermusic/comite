@@ -26,6 +26,10 @@
 # misc
 .DS_Store
 *.pem
+*.pfx
+*.p12
+/secure-esocial/
+/esocial-vault/
 
 # debug
 npm-debug.log*

@@ -476,16 +476,16 @@ function CompactRow({ item, onPrimary, onPauta }: {
                 <ChevronRight className="w-2.5 h-2.5 ml-0.5" />
             </Button>
 
-            {/* Criar Pauta CTA */}
+            {/* Criar decisão CTA */}
             <Button
                 size="sm"
                 variant="outline"
                 className="h-6 px-2 text-[10px] border-[rgba(0,200,255,0.20)] text-[#00C8FF] hover:bg-[rgba(0,200,255,0.10)] shrink-0"
                 onClick={() => onPauta(item)}
-                title="Criar uma deliberação vinculada a esta pendência para decisão do comitê/conselho."
+                title="Criar uma decisão vinculada a esta pendência para análise do comitê."
             >
                 <Gavel className="w-2.5 h-2.5 mr-0.5" />
-                Pauta
+                Decisão
             </Button>
         </div>
     );
@@ -606,16 +606,16 @@ function DetailedRow({ item, onPrimary, onPauta }: {
                     <ChevronRight className="w-3 h-3 ml-0.5" />
                 </Button>
 
-                {/* Criar Pauta CTA */}
+                {/* Criar decisão CTA */}
                 <Button
                     size="sm"
                     variant="outline"
                     className="h-7 px-2.5 text-[10px] border-[rgba(0,200,255,0.25)] text-[#00C8FF] hover:bg-[rgba(0,200,255,0.10)]"
                     onClick={() => onPauta(item)}
-                    title="Criar uma deliberação vinculada a esta pendência para decisão do comitê/conselho."
+                    title="Criar uma decisão vinculada a esta pendência para análise do comitê."
                 >
                     <Gavel className="w-3 h-3 mr-1" />
-                    Criar Pauta
+                    Criar decisão
                 </Button>
             </div>
         </div>

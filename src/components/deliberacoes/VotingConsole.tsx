@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { cn } from '@/lib/utils';
-import { Vote, CircleCheck, CircleX, CircleMinus, AlertCircle, type LucideIcon } from 'lucide-react';
+import { Vote, CircleCheck, CircleX, CircleMinus, AlertCircle, Clock3, ShieldCheck, UserCheck, type LucideIcon } from 'lucide-react';
 import { DeliberationItem, VoteOption } from '@/lib/types';
 import { HudButton, HudPanel } from '@/components/hud';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -60,6 +60,15 @@ export function VotingConsole({ item, currentUserId, onCastVote, onCloseVoting, 
   const present = item.quorumPresent ?? votes.length;
   const hasQuorum = present >= required;
   const hasUserVoted = votes.some((v) => v.voterId === currentUserId);
+  const votingHoursLeft = item.dueDate ? Math.max(0, Math.ceil((new Date(item.dueDate).getTime() - Date.now()) / (60 * 60 * 1000))) : null;
+  const votesByUser = new Map(votes.map((vote) => [vote.voterId, vote]));
+  const roster = [
+    { id: 'user-1', name: 'CFO', role: 'Presidente', eligible: true },
+    { id: currentUserId, name: 'Membro Corporativo', role: 'Votante', eligible: true },
+    { id: 'user-3', name: 'Diretoria de Operações', role: 'Votante', eligible: true },
+    { id: 'user-7', name: 'Comitê de Riscos', role: 'Parecerista', eligible: true },
+    { id: 'user-observer', name: 'Secretaria de Governança', role: 'Secretaria', eligible: false },
+  ];
 
   const handleSubmitVote = () => {
     if (!selectedVote) return;
@@ -79,11 +88,29 @@ export function VotingConsole({ item, currentUserId, onCastVote, onCloseVoting, 
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Vote className="w-4 h-4 text-ig-accent" />
-          <h3 className="text-sm font-semibold text-ig-fg-strong">Votação</h3>
+          <h3 className="text-sm font-semibold text-ig-fg-strong">Votação do Comitê</h3>
         </div>
-        <span className="text-xs text-ig-fg-muted">
-          Janela: {currentStage?.votingRule.votingWindowHours ?? 48}h
-        </span>
+        <div className="flex items-center gap-2 text-xs text-ig-fg-muted">
+          <Clock3 className="h-3.5 w-3.5" />
+          {votingHoursLeft === null ? `Janela ${currentStage?.votingRule.votingWindowHours ?? 48}h` : `${votingHoursLeft}h restantes`}
+        </div>
+      </div>
+
+      <div className="grid gap-2 sm:grid-cols-3">
+        <div className="rounded-lg border border-ig-border-subtle bg-ig-panel/60 p-2.5">
+          <p className="text-[10px] uppercase tracking-[0.14em] text-ig-fg-subtle">Regra</p>
+          <p className="mt-1 text-xs font-semibold text-ig-fg-strong">
+            {currentStage?.votingRule.majorityType === 'qualified_two_thirds' ? 'Maioria 2/3' : currentStage?.votingRule.majorityType === 'unanimity' ? 'Unanimidade' : 'Maioria simples'}
+          </p>
+        </div>
+        <div className="rounded-lg border border-ig-border-subtle bg-ig-panel/60 p-2.5">
+          <p className="text-[10px] uppercase tracking-[0.14em] text-ig-fg-subtle">Elegíveis</p>
+          <p className="mt-1 text-xs font-semibold text-ig-fg-strong">{roster.filter((member) => member.eligible).length} membros</p>
+        </div>
+        <div className="rounded-lg border border-ig-border-subtle bg-ig-panel/60 p-2.5">
+          <p className="text-[10px] uppercase tracking-[0.14em] text-ig-fg-subtle">Próxima ação</p>
+          <p className="mt-1 text-xs font-semibold text-ig-fg-strong">{hasQuorum ? 'Encerrar janela' : 'Completar quórum'}</p>
+        </div>
       </div>
 
       {/* Vote tally */}
@@ -107,7 +134,7 @@ export function VotingConsole({ item, currentUserId, onCastVote, onCloseVoting, 
       {/* Quorum indicator */}
       <div className="p-3 rounded-lg border border-ig-border bg-ig-panel">
         <div className="flex items-center justify-between mb-2">
-          <span className="text-xs text-ig-fg-muted uppercase tracking-wide">Quorum</span>
+          <span className="text-xs text-ig-fg-muted uppercase tracking-wide">Quórum</span>
           <span className={cn('text-xs font-semibold tabular-nums', hasQuorum ? 'text-ig-success' : 'text-ig-warning')}>
             {present}/{required} {hasQuorum ? '✓ Atingido' : '— Pendente'}
           </span>
@@ -117,6 +144,37 @@ export function VotingConsole({ item, currentUserId, onCastVote, onCloseVoting, 
             className={cn('h-full rounded-full transition-all', hasQuorum ? 'bg-ig-success' : 'bg-ig-warning')}
             style={{ width: `${Math.min(100, (present / required) * 100)}%` }}
           />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <UserCheck className="h-4 w-4 text-ig-accent" />
+          <p className="text-xs font-semibold uppercase tracking-wide text-ig-fg-subtle">Registro de votos e elegibilidade</p>
+        </div>
+        <div className="divide-y divide-ig-border-subtle overflow-hidden rounded-lg border border-ig-border-subtle bg-ig-panel/55">
+          {roster.map((member) => {
+            const registeredVote = votesByUser.get(member.id);
+            const voteText = registeredVote?.vote === 'yes' ? 'Sim' : registeredVote?.vote === 'no' ? 'Não' : registeredVote?.vote === 'abstain' ? 'Abstenção' : member.eligible ? 'Pendente' : 'Sem voto';
+            return (
+              <div key={member.id} className="flex items-center justify-between gap-3 px-3 py-2">
+                <div className="min-w-0">
+                  <p className="truncate text-xs font-semibold text-ig-fg-strong">{member.name}</p>
+                  <p className="text-[10px] text-ig-fg-subtle">{member.role} · {member.eligible ? 'Elegível' : 'Não votante'}</p>
+                </div>
+                <span className={cn(
+                  'rounded-full border px-2 py-0.5 text-[10px] font-semibold',
+                  registeredVote?.vote === 'yes' && 'border-[color-mix(in_oklab,var(--ig-success)_30%,transparent)] bg-[color-mix(in_oklab,var(--ig-success)_10%,transparent)] text-ig-success',
+                  registeredVote?.vote === 'no' && 'border-[color-mix(in_oklab,var(--ig-danger)_30%,transparent)] bg-[color-mix(in_oklab,var(--ig-danger)_10%,transparent)] text-ig-danger',
+                  registeredVote?.vote === 'abstain' && 'border-ig-border-subtle bg-ig-panel text-ig-fg-muted',
+                  !registeredVote && member.eligible && 'border-[color-mix(in_oklab,var(--ig-warning)_30%,transparent)] bg-[color-mix(in_oklab,var(--ig-warning)_10%,transparent)] text-ig-warning',
+                  !registeredVote && !member.eligible && 'border-ig-border-subtle bg-ig-panel text-ig-fg-subtle',
+                )}>
+                  {voteText}
+                </span>
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -184,12 +242,12 @@ export function VotingConsole({ item, currentUserId, onCastVote, onCloseVoting, 
 
           {hasUserVoted && (
             <div className="p-3 rounded-lg bg-[color-mix(in_oklab,var(--ig-success)_8%,transparent)] border border-[color-mix(in_oklab,var(--ig-success)_20%,transparent)] text-center">
-              <p className="text-sm text-ig-success font-medium">✓ Voto registrado</p>
+              <p className="text-sm text-ig-success font-medium">Voto registrado</p>
               <p className="text-xs text-ig-fg-muted mt-0.5">Aguardando demais membros</p>
             </div>
           )}
 
-          <HudButton variant="ghost" fullWidth onClick={onCloseVoting} className="border border-ig-border">
+          <HudButton variant={hasQuorum ? 'primary' : 'ghost'} fullWidth onClick={onCloseVoting} className="border border-ig-border" leftIcon={<ShieldCheck className="h-4 w-4" />}>
             Encerrar Janela de Votação
           </HudButton>
         </>

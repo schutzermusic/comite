@@ -15,7 +15,7 @@ import {
   FinanceSCurveChart,
   FinanceDonutChart,
   FinanceTreemapChart,
-  FinanceBubbleChart,
+  FinanceRankMatrix,
   fmtBRL, fmtPct, fmtCompactBRL,
   type FinancePeriod, type FinanceScenario,
 } from '@/components/finance/shared';
@@ -187,23 +187,23 @@ export default function OrcadoRealizadoPage() {
       </div>
 
       <HudCard>
-        <HudCardHeader><HudCardTitle>Bubble — Centros de Custo por orçamento, variância e risco</HudCardTitle></HudCardHeader>
+        <HudCardHeader><HudCardTitle>Ranking de variância por CC</HudCardTitle></HudCardHeader>
         <HudCardContent className="p-3">
-          <FinanceBubbleChart
-            xAxisLabel="Variância %"
-            yAxisLabel="Orçado (R$)"
-            xFormatter={(v) => `${v}%`}
-            yFormatter={(v) => fmtCompactBRL(v)}
-            points={[
-              { id: 'cc1', label: 'CC-001 Tecnologia',       x: -4.6, y: 2_400_000, size: 2_510_000, tone: 'danger',  meta: 'Risco: alto • Carla Mendes' },
-              { id: 'cc2', label: 'CC-002 Operações',        x:  3.2, y: 1_850_000, size: 1_790_000, tone: 'success', meta: 'Risco: baixo • Felipe Araújo' },
-              { id: 'cc3', label: 'CC-003 Comercial',        x: -5.6, y: 1_240_000, size: 1_310_000, tone: 'warning', meta: 'Risco: médio • Renata Souza' },
-              { id: 'cc4', label: 'CC-004 CS',               x:  4.9, y: 780_000,   size: 742_000,   tone: 'success', meta: 'Risco: baixo • Diego Lopes' },
-              { id: 'cc5', label: 'CC-005 G&A',              x: -2.2, y: 540_000,   size: 552_000,   tone: 'warning', meta: 'Risco: médio • Beatriz Tavares' },
-              { id: 'cc6', label: 'CC-006 Marketing',        x:  5.7, y: 420_000,   size: 396_000,   tone: 'success', meta: 'Risco: baixo • Henrique Vidal' },
-              { id: 'cc7', label: 'CC-007 Risco/Compliance', x:  3.3, y: 360_000,   size: 348_000,   tone: 'success', meta: 'Risco: baixo • Patrícia Lemos' },
+          <FinanceRankMatrix
+            mode="diverging"
+            sort="asc"
+            headers={{ rank: 'Rank', label: 'Centro de Custo', bar: 'Δ Realizado vs Orçado', secondary: 'Orçado / Realizado' }}
+            valueFormatter={(v) => `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`}
+            axisFormatter={(v) => `${v >= 0 ? '+' : ''}${v.toFixed(0)}%`}
+            rows={[
+              { id: 'cc3', label: 'CC-003 Comercial',         meta: 'Renata Souza • Risco médio',   value: -5.6, tone: 'danger',  secondaryLabel: 'Orçado / Realizado', secondary: `${fmtCompactBRL(1_240_000)} / ${fmtCompactBRL(1_310_000)}` },
+              { id: 'cc1', label: 'CC-001 Tecnologia',        meta: 'Carla Mendes • Risco alto',     value: -4.6, tone: 'danger',  secondaryLabel: 'Orçado / Realizado', secondary: `${fmtCompactBRL(2_400_000)} / ${fmtCompactBRL(2_510_000)}` },
+              { id: 'cc5', label: 'CC-005 G&A',               meta: 'Beatriz Tavares • Risco médio', value: -2.2, tone: 'warning', secondaryLabel: 'Orçado / Realizado', secondary: `${fmtCompactBRL(540_000)} / ${fmtCompactBRL(552_000)}` },
+              { id: 'cc2', label: 'CC-002 Operações',         meta: 'Felipe Araújo • Risco baixo',   value:  3.2, tone: 'success', secondaryLabel: 'Orçado / Realizado', secondary: `${fmtCompactBRL(1_850_000)} / ${fmtCompactBRL(1_790_000)}` },
+              { id: 'cc7', label: 'CC-007 Risco/Compliance',  meta: 'Patrícia Lemos • Risco baixo',  value:  3.3, tone: 'success', secondaryLabel: 'Orçado / Realizado', secondary: `${fmtCompactBRL(360_000)} / ${fmtCompactBRL(348_000)}` },
+              { id: 'cc4', label: 'CC-004 CS',                meta: 'Diego Lopes • Risco baixo',     value:  4.9, tone: 'success', secondaryLabel: 'Orçado / Realizado', secondary: `${fmtCompactBRL(780_000)} / ${fmtCompactBRL(742_000)}` },
+              { id: 'cc6', label: 'CC-006 Marketing',         meta: 'Henrique Vidal • Risco baixo',  value:  5.7, tone: 'success', secondaryLabel: 'Orçado / Realizado', secondary: `${fmtCompactBRL(420_000)} / ${fmtCompactBRL(396_000)}` },
             ]}
-            height={320}
           />
         </HudCardContent>
       </HudCard>

@@ -83,7 +83,7 @@ export function NewDeliberationModal({ open, onOpenChange, onCreateDeliberation 
     if (!template) return;
     const owner = COMMITTEES.find((committee) => committee.id === template.ownerCommitteeId);
     onCreateDeliberation({
-      title: form.title || 'Deliberação sem título',
+      title: form.title || 'Decisão sem título',
       description: form.description,
       templateId: form.templateId,
       businessArea: form.businessArea,
@@ -107,9 +107,9 @@ export function NewDeliberationModal({ open, onOpenChange, onCreateDeliberation 
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[860px] bg-gradient-to-br from-[#08130F] to-[#040A08] border-[rgba(255,255,255,0.12)]">
         <DialogHeader>
-        <DialogTitle className="text-xl text-white">Nova Deliberação</DialogTitle>
+        <DialogTitle className="text-xl text-white">Nova decisão de comitê</DialogTitle>
         <DialogDescription className="text-[rgba(255,255,255,0.6)]">
-          Etapa {step} de 2: {step === 1 ? 'Proposta' : 'Governança & Votação'}
+          Etapa {step} de 2: {step === 1 ? 'Contexto executivo' : 'Fluxo de aprovação & votação'}
         </DialogDescription>
         </DialogHeader>
 
@@ -140,7 +140,7 @@ export function NewDeliberationModal({ open, onOpenChange, onCreateDeliberation 
                   <SelectItem value="HR">RH</SelectItem>
                   <SelectItem value="Finance">Financeiro</SelectItem>
                   <SelectItem value="R&D">P&D</SelectItem>
-                  <SelectItem value="Sales">Vendas</SelectItem>
+                  <SelectItem value="Sales">Comercial</SelectItem>
                   <SelectItem value="Risk">Riscos</SelectItem>
                   <SelectItem value="Legal">Jurídico</SelectItem>
                   </SelectContent>
@@ -153,7 +153,7 @@ export function NewDeliberationModal({ open, onOpenChange, onCreateDeliberation 
               <HudInput
                 value={form.title}
                 onChange={(event) => setForm((prev) => ({ ...prev, title: event.target.value }))}
-                placeholder="Informe o título da deliberação"
+                placeholder="Informe o título da decisão"
               />
             </div>
 
@@ -263,9 +263,9 @@ export function NewDeliberationModal({ open, onOpenChange, onCreateDeliberation 
               Cancelar
             </Button>
             {step === 1 ? (
-              <PrimaryCTA onClick={() => setStep(2)}>Continuar para Governança & Votação</PrimaryCTA>
+            <PrimaryCTA onClick={() => setStep(2)}>Continuar para aprovação & votação</PrimaryCTA>
             ) : (
-              <PrimaryCTA onClick={handleCreate}>Criar Deliberação</PrimaryCTA>
+              <PrimaryCTA onClick={handleCreate}>Criar decisão</PrimaryCTA>
             )}
           </div>
         </div>

@@ -1,132 +1,152 @@
 "use client";
 
-import { AlertTriangle } from "lucide-react";
+import React from "react";
 import { cn } from "@/lib/utils";
-import type { Risk } from "@/lib/types";
+import type { ExtendedRisk } from "./risk-types";
 
-interface RiskMatrixProps {
-  risks: Risk[];
-  onRiskClick?: (risk: Risk) => void;
-  onCellClick?: (prob: number, impact: number) => void;
+interface Props {
+  risks: ExtendedRisk[];
+  onCellClick: (prob: number, impact: number) => void;
   highlightedCell?: { prob: number; impact: number } | null;
 }
 
-const PROBABILITIES = [5, 4, 3, 2, 1];
-const IMPACTS = [1, 2, 3, 4, 5];
+const PROBS = [5, 4, 3, 2, 1];
+const IMPS = [1, 2, 3, 4, 5];
 
-const PROBABILITY_LABELS: Record<number, string> = {
-  5: "Muito Alta",
-  4: "Alta",
-  3: "Média",
-  2: "Baixa",
-  1: "Muito Baixa",
-};
+const PROB_LABELS: Record<number, string> = { 5: "Muito Alta", 4: "Alta", 3: "Média", 2: "Baixa", 1: "Muito Baixa" };
+const IMP_LABELS: Record<number, string> = { 1: "Muito Baixo", 2: "Baixo", 3: "Médio", 4: "Alto", 5: "Muito Alto" };
 
-const IMPACT_LABELS: Record<number, string> = {
-  1: "Muito Baixo",
-  2: "Baixo",
-  3: "Médio",
-  4: "Alto",
-  5: "Muito Alto",
-};
+function cellLevel(p: number, i: number) { return p * i; }
 
-function getSeverityLabel(probability: number, impact: number) {
-  const level = probability * impact;
-  if (level >= 16) return "Crítico";
-  if (level >= 11) return "Alto";
-  if (level >= 6) return "Médio";
-  return "Baixo";
+function cellGradient(level: number) {
+  if (level >= 16) return "linear-gradient(135deg, rgba(239,75,85,0.28), rgba(239,75,85,0.12))";
+  if (level >= 11) return "linear-gradient(135deg, rgba(245,165,36,0.24), rgba(245,165,36,0.10))";
+  if (level >= 6)  return "linear-gradient(135deg, rgba(59,130,246,0.20), rgba(59,130,246,0.08))";
+  return "linear-gradient(135deg, rgba(16,185,129,0.18), rgba(16,185,129,0.06))";
 }
 
-function getCellClass(probability: number, impact: number) {
-  const level = probability * impact;
-  if (level >= 16) {
-    return "bg-[color-mix(in_oklab,var(--ig-danger)_18%,transparent)] border-[color-mix(in_oklab,var(--ig-danger)_44%,transparent)] hover:bg-[color-mix(in_oklab,var(--ig-danger)_24%,transparent)]";
-  }
-  if (level >= 11) {
-    return "bg-[color-mix(in_oklab,var(--ig-warning)_18%,transparent)] border-[color-mix(in_oklab,var(--ig-warning)_42%,transparent)] hover:bg-[color-mix(in_oklab,var(--ig-warning)_24%,transparent)]";
-  }
-  if (level >= 6) {
-    return "bg-[color-mix(in_oklab,var(--ig-info)_14%,transparent)] border-[color-mix(in_oklab,var(--ig-info)_34%,transparent)] hover:bg-[color-mix(in_oklab,var(--ig-info)_20%,transparent)]";
-  }
-  return "bg-[color-mix(in_oklab,var(--ig-success)_14%,transparent)] border-[color-mix(in_oklab,var(--ig-success)_34%,transparent)] hover:bg-[color-mix(in_oklab,var(--ig-success)_20%,transparent)]";
+function cellBorderColor(level: number) {
+  if (level >= 16) return "rgba(239,75,85,0.35)";
+  if (level >= 11) return "rgba(245,165,36,0.30)";
+  if (level >= 6)  return "rgba(59,130,246,0.25)";
+  return "rgba(16,185,129,0.20)";
 }
 
-export function RiskMatrix({ risks, onRiskClick, onCellClick, highlightedCell }: RiskMatrixProps) {
-  const getRisksForCell = (probability: number, impact: number) =>
-    risks.filter((risk) => risk.probability === probability && risk.impact === impact);
+function dotColor(level: number) {
+  if (level >= 16) return "var(--ig-danger)";
+  if (level >= 11) return "var(--ig-warning)";
+  if (level >= 6)  return "var(--ig-info)";
+  return "var(--ig-success)";
+}
+
+export function RiskMatrix5x5({ risks, onCellClick, highlightedCell }: Props) {
+  const getRisksForCell = (p: number, i: number) =>
+    risks.filter((r) => r.probability === p && r.impact === i);
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-2 text-ig-fg-strong">
-        <AlertTriangle className="h-5 w-5 text-ig-warning" />
-        <h3 className="text-ig-h3">Matriz de Risco 5x5</h3>
+    <div className="space-y-2">
+      {/* Column labels */}
+      <div className="flex items-end gap-1 pl-[clamp(3rem,6vw,4.5rem)]">
+        <span className="flex-1 text-center text-[clamp(8px,0.7vw,10px)] font-semibold uppercase tracking-[0.14em] text-ig-fg-subtle">
+          Impacto →
+        </span>
       </div>
 
-      <div className="overflow-x-auto">
-        <div className="grid min-w-[640px] grid-cols-[88px_repeat(5,minmax(96px,1fr))] gap-2">
-          <div aria-hidden="true" />
-          {IMPACTS.map((impact) => (
-            <div key={`impact-${impact}`} className="text-center">
-              <div className="text-ig-body-sm font-semibold text-ig-fg-strong">{impact}</div>
-              <div className="text-[10px] text-ig-fg-muted">{IMPACT_LABELS[impact]}</div>
+      <div className="relative overflow-x-auto">
+        <div className="inline-grid min-w-[clamp(320px,100%,520px)]" style={{ gridTemplateColumns: `clamp(3rem,6vw,4.5rem) repeat(5, 1fr)` }}>
+          {/* Impact header row */}
+          <div /> {/* empty top-left */}
+          {IMPS.map((imp) => (
+            <div key={`h-${imp}`} className="flex flex-col items-center justify-end pb-1.5 px-0.5">
+              <span className="text-[clamp(13px,1.4vw,18px)] font-bold ig-tabular text-ig-fg-muted">{imp}</span>
+              <span className="text-[clamp(7px,0.6vw,8px)] text-ig-fg-subtle truncate">{IMP_LABELS[imp]}</span>
             </div>
           ))}
 
-          {PROBABILITIES.map((probability) => (
-            <div key={`row-${probability}`} className="contents">
-              <div className="flex flex-col items-center justify-center rounded-[var(--ig-radius-sm)] border border-ig-border-subtle bg-ig-panel px-2 text-center">
-                <div className="text-ig-body-sm font-semibold text-ig-fg-strong">{probability}</div>
-                <div className="text-[10px] text-ig-fg-muted">{PROBABILITY_LABELS[probability]}</div>
+          {/* Data rows */}
+          {PROBS.map((prob) => (
+            <React.Fragment key={`r-${prob}`}>
+              {/* Row label */}
+              <div className="flex items-center justify-end gap-1 pr-2">
+                <div className="flex flex-col items-end">
+                  <span className="text-[clamp(7px,0.6vw,8px)] text-ig-fg-subtle">{PROB_LABELS[prob]}</span>
+                  <span className="text-[clamp(13px,1.4vw,18px)] font-bold ig-tabular text-ig-fg-muted">{prob}</span>
+                </div>
               </div>
 
-              {IMPACTS.map((impact) => {
-                const cellRisks = getRisksForCell(probability, impact);
-                const level = probability * impact;
-                const selected =
-                  highlightedCell?.prob === probability && highlightedCell.impact === impact;
+              {/* Cells */}
+              {IMPS.map((imp) => {
+                const level = cellLevel(prob, imp);
+                const cellRisks = getRisksForCell(prob, imp);
+                const count = cellRisks.length;
+                const isHighlighted = highlightedCell?.prob === prob && highlightedCell?.impact === imp;
 
                 return (
                   <button
-                    key={`cell-${probability}-${impact}`}
+                    key={`c-${prob}-${imp}`}
                     type="button"
-                    data-selected={selected ? "true" : undefined}
-                    title={`${cellRisks.length} risco(s) em probabilidade ${probability} e impacto ${impact}`}
-                    onClick={() => {
-                      onCellClick?.(probability, impact);
-                      if (cellRisks[0]) onRiskClick?.(cellRisks[0]);
-                    }}
+                    onClick={() => onCellClick(prob, imp)}
                     className={cn(
-                      "relative min-h-[92px] rounded-[var(--ig-radius-md)] border p-3 text-left transition-colors",
-                      "focus:outline-none focus:ring-2 focus:ring-ig-border-focus",
-                      getCellClass(probability, impact),
-                      selected && "border-ig-accent ring-1 ring-ig-border-focus",
+                      "group relative m-[2px] flex flex-col items-center justify-center rounded-lg border transition-all duration-200",
+                      "aspect-square min-h-[clamp(44px,5vw,60px)]",
+                      "hover:scale-105 hover:z-10 hover:shadow-lg",
+                      isHighlighted && "ring-2 ring-ig-accent scale-105 z-10",
                     )}
+                    style={{
+                      background: cellGradient(level),
+                      borderColor: isHighlighted ? "var(--ig-accent)" : cellBorderColor(level),
+                    }}
+                    title={`P${prob} × I${imp} = ${level} | ${count} risco(s)`}
                   >
-                    <span className="block text-[11px] font-medium text-ig-fg-muted">
-                      {getSeverityLabel(probability, impact)}
+                    {/* Level number */}
+                    <span className="text-[clamp(10px,1vw,14px)] font-bold ig-tabular text-ig-fg-strong opacity-70 group-hover:opacity-100 transition-opacity">
+                      {level}
                     </span>
-                    <span className="mt-1 block text-2xl font-bold text-ig-fg-strong">{level}</span>
-                    {cellRisks.length > 0 && (
-                      <span className="absolute right-2 top-2 rounded-full border border-ig-border-focus bg-ig-accent-weak px-2 py-0.5 text-[11px] font-semibold text-ig-accent">
-                        {cellRisks.length}
+
+                    {/* Risk count badge */}
+                    {count > 0 && (
+                      <span
+                        className="absolute -top-1.5 -right-1.5 flex h-[clamp(16px,1.4vw,20px)] min-w-[clamp(16px,1.4vw,20px)] items-center justify-center rounded-full border-2 text-[clamp(8px,0.7vw,10px)] font-bold shadow-md"
+                        style={{
+                          backgroundColor: dotColor(level),
+                          borderColor: "var(--ig-bg-canvas)",
+                          color: "#fff",
+                        }}
+                      >
+                        {count}
                       </span>
                     )}
+
+                    {/* Hover glow */}
+                    <div className="pointer-events-none absolute inset-0 rounded-lg opacity-0 transition-opacity group-hover:opacity-100"
+                      style={{ background: `radial-gradient(ellipse at center, color-mix(in oklab, ${dotColor(level)} 18%, transparent), transparent 70%)` }}
+                    />
                   </button>
                 );
               })}
-            </div>
+            </React.Fragment>
           ))}
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-ig-border-subtle pt-4 text-ig-caption text-ig-fg-muted">
-        <span>
-          <span className="font-medium text-ig-fg-strong">Eixo Y:</span> Probabilidade
-        </span>
-        <span>
-          <span className="font-medium text-ig-fg-strong">Eixo X:</span> Impacto
-        </span>
+      {/* Legend */}
+      <div className="flex flex-wrap items-center justify-center gap-3 pt-1">
+        {[
+          { label: "Crítico (16-25)", color: "var(--ig-danger)" },
+          { label: "Alto (11-15)", color: "var(--ig-warning)" },
+          { label: "Médio (6-10)", color: "var(--ig-info)" },
+          { label: "Baixo (1-5)", color: "var(--ig-success)" },
+        ].map(({ label, color }) => (
+          <span key={label} className="flex items-center gap-1 text-[clamp(8px,0.65vw,9px)] text-ig-fg-subtle">
+            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />
+            {label}
+          </span>
+        ))}
+      </div>
+
+      {/* Prob label */}
+      <div className="flex justify-start pl-2 text-[clamp(8px,0.7vw,10px)] font-semibold uppercase tracking-[0.14em] text-ig-fg-subtle">
+        ← Probabilidade
       </div>
     </div>
   );

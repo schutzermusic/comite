@@ -56,7 +56,7 @@ export default function SciFiWidgetsDemo() {
 
                     {/* Different Voting Data */}
                     <ConsensusEngine
-                        title="Deliberações Q4"
+                        title="Comitês Q4"
                         data={{
                             total: 48,
                             approved: 38,

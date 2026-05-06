@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { FileSpreadsheet, RefreshCcw, Plus } from 'lucide-react';
+import { DatabaseZap, FileSpreadsheet, RefreshCcw, Plus } from 'lucide-react';
 import {
   HudPageLayout, HudHeader, HudKpiStrip, HudButton, HudTabs,
   HudCard, HudCardHeader, HudCardTitle, HudCardContent,
@@ -14,11 +14,12 @@ import {
   FinanceDetailDrawer, FinanceDrawerSection, FinanceDrawerKeyValue,
   FinanceDonutChart,
   FinanceStackedBarChart,
-  FinanceBubbleChart,
+  FinanceRankMatrix,
   FinanceSCurveChart,
   fmtBRL, fmtCompactBRL,
   type FinancePeriod, type FinanceScenario,
 } from '@/components/finance/shared';
+import { getEsocialDashboardData } from '@/lib/esocial';
 
 type Batch = { id: string; period: string; bu: string; gross: number; charges: number; benefits: number; headcount: number; status: FinanceStatus };
 type Allocation = { project: string; cc: string; allocated: number; effort: number; rate: number };
@@ -62,6 +63,7 @@ export default function FolhaAlocacaoPage() {
   const [scenario, setScenario] = useState<FinanceScenario>('realized');
   const [tab, setTab] = useState('folha');
   const [selected, setSelected] = useState<Employee | null>(null);
+  const esocial = useMemo(() => getEsocialDashboardData(), []);
 
   const totalGross = BATCHES.reduce((a, b) => a + b.gross, 0);
   const totalCharges = BATCHES.reduce((a, b) => a + b.charges, 0);
@@ -105,6 +107,15 @@ export default function FolhaAlocacaoPage() {
         icon={<FileSpreadsheet className="w-5 h-5" />}
         iconTint="#14B8A6"
         breadcrumbs={[{ label: 'Financeiro', href: '/financeiro' }, { label: 'Folha & Alocação' }]}
+        actions={
+          <div className="flex items-center gap-2 rounded-lg border border-ig-border-subtle bg-ig-panel px-3 py-2 text-sm text-ig-fg-muted">
+            <DatabaseZap className="h-4 w-4 text-ig-accent" />
+            <span>Fonte: eSocial</span>
+            <span className="hidden font-mono text-xs text-ig-fg-subtle md:inline">
+              competencia {esocial.payroll.competence}
+            </span>
+          </div>
+        }
       />
 
       <FinanceFilterBar
@@ -159,25 +170,28 @@ export default function FolhaAlocacaoPage() {
 
       <div className="grid grid-cols-1 xl:grid-cols-[1.4fr_1fr] gap-4">
         <HudCard>
-          <HudCardHeader><HudCardTitle>Bubble — Colaboradores por custo, horas e overtime</HudCardTitle></HudCardHeader>
+          <HudCardHeader><HudCardTitle>Ranking de overtime por colaborador</HudCardTitle></HudCardHeader>
           <HudCardContent className="p-3">
-            <FinanceBubbleChart
-              xAxisLabel="Horas alocadas (mês)"
-              yAxisLabel="Custo R$/mês"
-              xFormatter={(v) => `${v}h`}
-              yFormatter={(v) => fmtCompactBRL(v)}
-              points={EMPLOYEES.map((e) => {
+            <FinanceRankMatrix
+              mode="progress"
+              sort="desc"
+              headers={{ rank: 'Rank', label: 'Colaborador', bar: 'Horas alocadas (mês)', secondary: 'Custo / hora' }}
+              valueFormatter={(v) => `${v}h`}
+              axisFormatter={(v) => `${v.toFixed(0)}h`}
+              rows={EMPLOYEES.map((e) => {
                 const hours = e.allocations.reduce((a, x) => a + x.hours, 0);
-                const overtime = hours > 152 ? (hours - 152) : 0;
+                const overtime = hours > 152 ? hours - 152 : 0;
                 return {
-                  id: e.id, label: e.name.split(' ')[0],
-                  x: hours, y: e.monthlyCost,
-                  size: e.monthlyCost * (1 + overtime / 50),
-                  tone: overtime > 8 ? 'danger' : overtime > 0 ? 'warning' : 'success',
+                  id: e.id,
+                  label: e.name,
                   meta: `${e.role} • ${e.cc}`,
+                  value: hours,
+                  benchmark: 152,
+                  tone: (overtime > 8 ? 'danger' : overtime > 0 ? 'warning' : 'success') as 'danger' | 'warning' | 'success',
+                  secondaryLabel: 'Custo • R$/h',
+                  secondary: `${fmtCompactBRL(e.monthlyCost)} • ${fmtCompactBRL(Math.round(e.monthlyCost / Math.max(1, hours)))}`,
                 };
               })}
-              height={300}
             />
           </HudCardContent>
         </HudCard>

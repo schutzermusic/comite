@@ -47,19 +47,19 @@ export default function AlocacaoPage() {
   const results = useMemo(() => getAllocationResults(), [refreshKey]);
 
   const ruleColumns: HudTableColumn<AllocationRule>[] = [
-    { key: 'name', header: t('ruleName'), cell: (r) => <span className="text-white/80 text-xs">{r.name}</span> },
-    { key: 'cost_center_id', header: t('sourceCostCenter'), cell: (r) => <span className="text-white/60 text-xs">{r.cost_center?.name || r.cost_center_id}</span> },
-    { key: 'method', header: t('method'), cell: (r) => <span className="text-white/60 text-xs">{r.method}</span> },
-    { key: 'version', header: 'V', cell: (r) => <span className="text-white/40 text-xs">v{r.version}</span> },
-    { key: 'effective_from', header: t('effectiveFrom'), cell: (r) => <span className="text-white/60 text-xs font-mono">{r.effective_from}</span> },
+    { key: 'name', header: t('ruleName'), cell: (r) => <span className="text-ig-text-primary text-xs">{r.name}</span> },
+    { key: 'cost_center_id', header: t('sourceCostCenter'), cell: (r) => <span className="text-ig-text-tertiary text-xs">{r.cost_center?.name || r.cost_center_id}</span> },
+    { key: 'method', header: t('method'), cell: (r) => <span className="text-ig-text-tertiary text-xs">{r.method}</span> },
+    { key: 'version', header: 'V', cell: (r) => <span className="text-ig-text-tertiary text-xs">v{r.version}</span> },
+    { key: 'effective_from', header: t('effectiveFrom'), cell: (r) => <span className="text-ig-text-tertiary text-xs font-mono">{r.effective_from}</span> },
     { key: 'status', header: 'Status', cell: (r) => <HudStatusPill variant={RULE_STATUS[r.status] as any} size="sm">{r.status}</HudStatusPill> },
   ];
 
   const resultColumns: HudTableColumn<AllocationResult>[] = [
-    { key: 'period_key', header: t('period'), cell: (r) => <span className="text-white/70 text-xs font-mono">{r.period_key}</span> },
-    { key: 'rule_id', header: t('ruleName'), cell: (r) => <span className="text-white/70 text-xs">{r.rule?.name || r.rule_id}</span> },
-    { key: 'source_amount_cents', header: 'Valor Origem', cell: (r) => <span className="text-white/80 text-xs font-mono">{formatBRL(r.source_amount_cents)}</span> },
-    { key: 'result_entries', header: 'Destinos', cell: (r) => <span className="text-white/60 text-xs">{r.result_entries.length} projetos</span> },
+    { key: 'period_key', header: t('period'), cell: (r) => <span className="text-ig-text-secondary text-xs font-mono">{r.period_key}</span> },
+    { key: 'rule_id', header: t('ruleName'), cell: (r) => <span className="text-ig-text-secondary text-xs">{r.rule?.name || r.rule_id}</span> },
+    { key: 'source_amount_cents', header: 'Valor Origem', cell: (r) => <span className="text-ig-text-primary text-xs font-mono">{formatBRL(r.source_amount_cents)}</span> },
+    { key: 'result_entries', header: 'Destinos', cell: (r) => <span className="text-ig-text-tertiary text-xs">{r.result_entries.length} projetos</span> },
     { key: 'status', header: 'Status', cell: (r) => <HudStatusPill variant={RESULT_STATUS[r.status] as any} size="sm">{r.status}</HudStatusPill> },
     { key: 'actions', header: '', cell: (r) => r.status === 'preview' ? (
       <HudButton variant="primary" size="sm" leftIcon={<CheckCircle className="w-3.5 h-3.5" />}
@@ -109,8 +109,8 @@ export default function AlocacaoPage() {
           <button key={tab.value} onClick={() => setActiveTab(tab.value)}
             className={`px-3 py-1.5 rounded-lg text-[11px] font-medium uppercase tracking-wider transition-all ${
               activeTab === tab.value
-                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 finance-tab-active'
-                : 'bg-white/[0.04] text-white/40 border border-white/[0.06] hover:bg-white/[0.06] finance-tab-inactive'
+                ? 'bg-ig-accent-weak text-ig-accent border border-ig-border-focus finance-tab-active'
+                : 'bg-white/[0.04] text-ig-text-tertiary border border-white/[0.06] hover:bg-white/[0.06] finance-tab-inactive'
             }`}>
             {tab.label}
           </button>
@@ -163,8 +163,8 @@ export default function AlocacaoPage() {
           </div>
           <HudInput label={t('effectiveFrom')} type="date" value={formEffective} onChange={(e) => setFormEffective(e.target.value)} />
           <div>
-            <p className="text-white/40 text-[10px] uppercase tracking-wider mb-2">{t('distribution')} ({totalWeight}%)</p>
-            {totalWeight !== 100 && <p className="text-amber-400 text-xs mb-2">A soma dos pesos deve ser 100%</p>}
+            <p className="text-ig-text-tertiary text-[10px] uppercase tracking-wider mb-2">{t('distribution')} ({totalWeight}%)</p>
+            {totalWeight !== 100 && <p className="text-ig-warning text-xs mb-2">A soma dos pesos deve ser 100%</p>}
             <div className="space-y-2">
               {formTargets.map((target, i) => (
                 <div key={i} className="grid grid-cols-3 gap-2 items-end">

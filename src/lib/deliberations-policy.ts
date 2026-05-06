@@ -3,7 +3,7 @@ import { DeliberationStage, DeliberationStageType, DeliberationItem, VotingRuleS
 export type Committee = {
   id: string;
   name: string;
-  code: 'BOARD' | 'HR' | 'FINANCE' | 'RND' | 'SALES' | 'RISK' | 'LEGAL';
+  code: 'BOARD' | 'HR' | 'FINANCE' | 'RND' | 'SALES' | 'RISK' | 'LEGAL' | 'OPS';
 };
 
 export type DeliberationTemplate = {
@@ -15,13 +15,14 @@ export type DeliberationTemplate = {
 };
 
 export const COMMITTEES: Committee[] = [
-  { id: 'board', name: 'Conselho Executivo', code: 'BOARD' },
+  { id: 'board', name: 'Diretoria Executiva', code: 'BOARD' },
   { id: 'hr', name: 'Comitê de RH', code: 'HR' },
   { id: 'finance', name: 'Comitê Financeiro', code: 'FINANCE' },
-  { id: 'rnd', name: 'Comitê de P&D', code: 'RND' },
-  { id: 'sales', name: 'Comitê de Vendas', code: 'SALES' },
+  { id: 'rnd', name: 'Comitê de Engenharia / P&D', code: 'RND' },
+  { id: 'sales', name: 'Comitê Comercial', code: 'SALES' },
   { id: 'risk', name: 'Comitê de Riscos', code: 'RISK' },
   { id: 'legal', name: 'Comitê Jurídico', code: 'LEGAL' },
+  { id: 'operations', name: 'Comitê de Operações', code: 'OPS' },
 ];
 
 export const VOTING_RULES_BY_COMMITTEE: Record<string, VotingRuleSet> = {
@@ -32,6 +33,7 @@ export const VOTING_RULES_BY_COMMITTEE: Record<string, VotingRuleSet> = {
   sales: { quorumPercent: 60, majorityType: 'simple_majority', tieBreakRule: 'chair_yes', votingWindowHours: 48 },
   risk: { quorumPercent: 66, majorityType: 'qualified_two_thirds', tieBreakRule: 'chair_no', votingWindowHours: 48 },
   legal: { quorumPercent: 66, majorityType: 'qualified_two_thirds', tieBreakRule: 'chair_no', votingWindowHours: 48 },
+  operations: { quorumPercent: 60, majorityType: 'simple_majority', tieBreakRule: 'chair_yes', votingWindowHours: 48 },
 };
 
 export const DELIBERATION_TEMPLATES: DeliberationTemplate[] = [
@@ -65,7 +67,7 @@ export const DELIBERATION_TEMPLATES: DeliberationTemplate[] = [
   },
   {
     id: 'SALES_PROJECT_APPROVAL',
-    name: 'Aprovação de Projeto (Vendas)',
+    name: 'Aprovação Comercial / Projeto',
     ownerCommitteeId: 'sales',
     requiredFields: ['client_name', 'deal_value', 'margin_percent', 'payment_terms', 'special_clauses', 'client_risk'],
     defaultVotingRule: VOTING_RULES_BY_COMMITTEE.sales,
@@ -83,6 +85,13 @@ export const DELIBERATION_TEMPLATES: DeliberationTemplate[] = [
     ownerCommitteeId: 'legal',
     requiredFields: ['matter_summary', 'legal_basis', 'regulatory_impact', 'financial_materiality', 'urgency'],
     defaultVotingRule: VOTING_RULES_BY_COMMITTEE.legal,
+  },
+  {
+    id: 'OPS_KICKOFF_CLOSURE',
+    name: 'Kickoff / Encerramento Operacional',
+    ownerCommitteeId: 'operations',
+    requiredFields: ['scope', 'owners', 'go_live_plan', 'operational_risk', 'execution_controls'],
+    defaultVotingRule: VOTING_RULES_BY_COMMITTEE.operations,
   },
 ];
 
@@ -176,6 +185,12 @@ export const computeDependentCommittees = (input: RoutingInput): string[] => {
 
   if (input.ownerCommitteeId === 'legal') {
     if (input.materialFinancialImpact) deps.add('finance');
+  }
+
+  if (input.ownerCommitteeId === 'operations') {
+    if ((input.financialImpact ?? 0) > POLICY_THRESHOLDS.rndFinanceThreshold) deps.add('finance');
+    if (input.riskLevel === 'high' || input.riskLevel === 'critical') deps.add('risk');
+    if (input.atypicalContract || input.materialLegalSensitivity) deps.add('legal');
   }
 
   return Array.from(deps);

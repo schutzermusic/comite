@@ -13,7 +13,7 @@ import {
   FinanceStatusBadge, type FinanceStatus,
   FinanceDetailDrawer, FinanceDrawerSection, FinanceDrawerKeyValue,
   FinanceBarChart,
-  FinanceBubbleChart,
+  FinanceRankMatrix,
   FinanceSCurveChart,
   FinanceDonutChart,
   fmtBRL, fmtPct, fmtCompactBRL,
@@ -123,24 +123,25 @@ export default function ProjetosMargensPage() {
 
       <HudCard>
         <HudCardHeader>
-          <HudCardTitle>Bubble — Margem × Receita × Custo (cor por status)</HudCardTitle>
+          <HudCardTitle>Ranking de margem por projeto</HudCardTitle>
         </HudCardHeader>
         <HudCardContent className="p-3">
-          <FinanceBubbleChart
-            xAxisLabel="Margem %"
-            yAxisLabel="Receita contratada"
-            xFormatter={(v) => `${v}%`}
-            yFormatter={(v) => fmtCompactBRL(v)}
-            points={enriched.map((p) => ({
+          <FinanceRankMatrix
+            mode="progress"
+            sort="desc"
+            headers={{ rank: 'Rank', label: 'Projeto', bar: 'Margem %', secondary: 'Receita / Custo' }}
+            valueFormatter={(v) => `${v.toFixed(1)}%`}
+            axisFormatter={(v) => `${v.toFixed(0)}%`}
+            rows={enriched.map((p) => ({
               id: p.id,
-              label: p.code,
-              x: Math.round(p.marginPct * 10) / 10,
-              y: p.contracted,
-              size: p.cost,
-              tone: p.status === 'at_risk' ? 'danger' : p.status === 'pending' ? 'warning' : p.status === 'completed' ? 'info' : 'success',
+              label: `${p.code} ${p.name}`,
               meta: `${p.client} • Health ${p.health}`,
+              value: Math.round(p.marginPct * 10) / 10,
+              benchmark: 25,
+              tone: (p.marginPct >= 30 ? 'success' : p.marginPct >= 15 ? 'warning' : 'danger') as 'success' | 'warning' | 'danger',
+              secondaryLabel: 'Receita / Custo',
+              secondary: `${fmtCompactBRL(p.contracted)} / ${fmtCompactBRL(p.cost)}`,
             }))}
-            height={340}
           />
         </HudCardContent>
       </HudCard>

@@ -54,7 +54,7 @@ export default function NotificacoesPage() {
         </HudPanel>
 
         <HudPanel elevation={2} title="Push">
-          <SettingRow label="Novas pautas" description="Quando uma deliberação for criada para você.">
+          <SettingRow label="Novas decisões" description="Quando uma decisão de comitê for criada para você.">
             <Switch checked={settings.pushPautas} onCheckedChange={(value) => set("pushPautas", value)} />
           </SettingRow>
           <SettingRow label="Riscos elevados">

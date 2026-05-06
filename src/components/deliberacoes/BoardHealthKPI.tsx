@@ -10,6 +10,8 @@ import {
     PlayCircle,
     CheckCircle2,
     AlertTriangle,
+    Gauge,
+    Timer,
     type LucideIcon,
 } from 'lucide-react';
 import { HudKpiStrip, type KpiItem, type HudKpiVariant } from '@/components/hud';
@@ -25,7 +27,7 @@ interface KPIConfig {
     label: string;
     icon: LucideIcon;
     variant: HudKpiVariant;
-    getValue: (items: DeliberationItem[]) => number;
+    getValue: (items: DeliberationItem[]) => number | string;
 }
 
 const kpiConfigs: KPIConfig[] = [
@@ -40,14 +42,14 @@ const kpiConfigs: KPIConfig[] = [
     },
     {
         id: 'in_review',
-        label: 'Em Revisão',
+        label: 'Decisões em revisão',
         icon: SearchCheck,
         variant: 'warning',
         getValue: (items) => items.filter((item) => item.deliberationStatus === 'in_review').length,
     },
     {
         id: 'in_voting',
-        label: 'Em Votação',
+        label: 'Em votação',
         icon: Vote,
         variant: 'default',
         getValue: (items) => items.filter((item) => item.deliberationStatus === 'in_voting').length,
@@ -94,6 +96,43 @@ const kpiConfigs: KPIConfig[] = [
             }).length;
         },
     },
+    {
+        id: 'avg_sla',
+        label: 'SLA médio',
+        icon: Gauge,
+        variant: 'info',
+        getValue: (items) => {
+            const withDue = items.filter((item) => item.dueDate && !['closed', 'resolved'].includes(item.deliberationStatus));
+            if (withDue.length === 0) return '0h';
+            const now = Date.now();
+            const avgHours = Math.round(
+                withDue.reduce((total, item) => total + Math.max(0, new Date(item.dueDate as Date).getTime() - now), 0) /
+                withDue.length /
+                (60 * 60 * 1000)
+            );
+            return avgHours >= 24 ? `${Math.round(avgHours / 24)}d` : `${avgHours}h`;
+        },
+    },
+    {
+        id: 'avg_resolution',
+        label: 'Tempo médio',
+        icon: Timer,
+        variant: 'success',
+        getValue: (items) => {
+            const resolved = items.filter((item) => item.resolvedAt);
+            if (resolved.length === 0) return '0d';
+            const avgDays = Math.max(1, Math.round(
+                resolved.reduce((total, item) => {
+                    const start = new Date(item.submittedAt ?? item.createdAt).getTime();
+                    const end = new Date(item.resolvedAt as Date).getTime();
+                    return total + Math.max(0, end - start);
+                }, 0) /
+                resolved.length /
+                (24 * 60 * 60 * 1000)
+            ));
+            return `${avgDays}d`;
+        },
+    },
 ];
 
 export function BoardHealthKPI({ items, activeFilter, onFilterClick }: BoardHealthKPIProps) {
@@ -107,7 +146,7 @@ export function BoardHealthKPI({ items, activeFilter, onFilterClick }: BoardHeal
             value,
             icon: <Icon className="w-full h-full" />,
             variant: cfg.variant,
-            tintValue: value > 0,
+            tintValue: typeof value === 'number' ? value > 0 : !['0h', '0d'].includes(value),
             active: isActive,
             onClick: () => onFilterClick(isActive ? null : cfg.id),
         };

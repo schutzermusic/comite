@@ -56,7 +56,7 @@ export default function DetalhePautaPage({ params }: { params: Promise<{ id: str
   // Mocking detailed data based on the vote
   const detailedPauta = {
     ...pauta,
-    descricao: "Deliberação sobre a aprovação do novo ciclo de investimentos para o projeto de expansão da planta solar, incluindo CAPEX e cronograma.",
+    descricao: "Decisão de comitê sobre a aprovação do novo ciclo de investimentos para o projeto de expansão da planta solar, incluindo CAPEX e cronograma.",
     justificativa: "A necessidade de expansão se deve ao aumento da demanda energética na região e à meta de ampliar nossa capacidade de geração de energia limpa em 20%.",
     categoria: "Estratégica",
     prioridade: "Alta",

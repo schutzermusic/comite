@@ -4,14 +4,14 @@ import { useState, useMemo, useCallback, Suspense } from 'react';
 import { useTranslations } from 'next-intl';
 import { useSearchParams } from 'next/navigation';
 import {
-  Receipt, Plus, Eye, CheckCircle, XCircle,
-  Send, FileText,
+  Receipt, Plus, CheckCircle, XCircle,
+  Send, FileText, ArrowDownLeft, ArrowUpRight, AlertTriangle, WalletCards,
 } from 'lucide-react';
 import {
   HudPageLayout, HudHeader, HudFilterBar, HudTable,
   HudButton, HudStatusPill, HudDrawer, HudInput, HudSelect,
-  HudEmptyState, HudModal, HudBadge,
-  type HudTableColumn,
+  HudEmptyState, HudModal, HudBadge, HudPanel, HudKpiStrip,
+  type HudTableColumn, type KpiItem,
 } from '@/components/hud';
 import {
   getLedgerEntries, createLedgerEntry, transitionEntryStatus,
@@ -90,12 +90,38 @@ function LancamentosContent() {
   const l2Cats = useMemo(() => categories.filter(c => c.level === 2 && c.parent_id === formCategoryL1), [formCategoryL1]);
   const l3Cats = useMemo(() => categories.filter(c => c.level === 3 && c.parent_id === formCategoryL2), [formCategoryL2]);
 
+  const revenueTotal = entries.filter(e => e.category?.sign === 1).reduce((sum, e) => sum + e.amount_cents, 0);
+  const expenseTotal = entries.filter(e => e.category?.sign === -1).reduce((sum, e) => sum + e.amount_cents, 0);
+  const reviewCount = entries.filter(e => e.status === 'draft' || e.status === 'in_review').length;
+  const evidenceCount = entries.filter(e => e.evidence_required && !e.evidence_provided).length;
+
+  const kpis: KpiItem[] = [
+    { id: 'revenue', label: 'Créditos / Receita', value: formatBRL(revenueTotal), icon: <ArrowDownLeft className="h-5 w-5" />, variant: 'success' },
+    { id: 'expense', label: 'Débitos / Despesa', value: formatBRL(expenseTotal), icon: <ArrowUpRight className="h-5 w-5" />, variant: 'danger' },
+    { id: 'review', label: 'Fila de revisão', value: reviewCount.toString(), icon: <WalletCards className="h-5 w-5" />, variant: reviewCount > 0 ? 'warning' : 'success' },
+    { id: 'evidence', label: 'Evidências pendentes', value: evidenceCount.toString(), icon: <AlertTriangle className="h-5 w-5" />, variant: evidenceCount > 0 ? 'warning' : 'success' },
+  ];
+
   const columns: HudTableColumn<LedgerEntry>[] = [
-    { key: 'entry_date', header: t('entryDate'), cell: (e) => <span className="text-white/70 text-xs font-mono">{e.entry_date}</span> },
-    { key: 'description', header: t('description'), cell: (e) => <span className="text-white/80 text-xs truncate max-w-[200px] block">{e.description}</span> },
-    { key: 'category', header: t('category'), cell: (e) => <span className="text-white/50 text-xs">{e.category?.name || '—'}</span> },
-    { key: 'project_id', header: t('project'), cell: (e) => <span className="text-white/50 text-xs">{e.project_id?.slice(0, 10) || '—'}</span> },
-    { key: 'amount_cents', header: t('amount'), cell: (e) => <span className="text-white/80 text-xs font-mono text-right block">{formatBRL(e.amount_cents)}</span> },
+    { key: 'entry_date', header: t('entryDate'), cell: (e) => <span className="font-mono text-xs text-ig-fg-muted">{e.entry_date}</span> },
+    { key: 'description', header: t('description'), cell: (e) => (
+      <div className="min-w-0">
+        <span className="block max-w-[260px] truncate text-xs font-medium text-ig-fg-strong">{e.description}</span>
+        <span className="text-[10px] uppercase tracking-[0.14em] text-ig-fg-subtle">{e.entry_type}</span>
+      </div>
+    ) },
+    { key: 'category', header: t('category'), cell: (e) => (
+      <div className="flex min-w-0 flex-col">
+        <span className="truncate text-xs text-ig-fg-muted">{e.category?.name || '—'}</span>
+        {e.category?.group_key && <span className="text-[10px] uppercase tracking-[0.14em] text-ig-fg-subtle">{e.category.group_key}</span>}
+      </div>
+    ) },
+    { key: 'project_id', header: t('project'), cell: (e) => <span className="text-xs text-ig-fg-muted">{e.project_id?.slice(0, 10) || '—'}</span> },
+    { key: 'amount_cents', header: t('amount'), align: 'right', cell: (e) => (
+      <span className={`block font-mono text-xs font-semibold ${e.category?.sign === 1 ? 'text-ig-success' : 'text-ig-danger'}`}>
+        {e.category?.sign === 1 ? '+' : '-'}{formatBRL(e.amount_cents)}
+      </span>
+    ) },
     { key: 'status', header: 'Status', cell: (e) => (
       <HudStatusPill variant={STATUS_MAP[e.status]?.variant as any || 'pending'} size="sm">
         {STATUS_MAP[e.status]?.label || e.status}
@@ -167,15 +193,16 @@ function LancamentosContent() {
           </HudButton>
         }
       />
+      <HudKpiStrip kpis={kpis} columns={4} size="sm" />
 
       {/* Tab filter as pills */}
-      <div className="flex gap-1.5 mt-4">
+      <div className="mt-4 flex flex-wrap gap-1.5">
         {TAB_OPTIONS.map(tab => (
           <button key={tab.value} onClick={() => setActiveTab(tab.value)}
-            className={`px-3 py-1.5 rounded-lg text-[11px] font-medium uppercase tracking-wider transition-all ${
+            className={`rounded-lg border px-3 py-1.5 text-[11px] font-medium uppercase tracking-wider transition-all ${
               activeTab === tab.value
-                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 finance-tab-active'
-                : 'bg-white/[0.04] text-white/40 border border-white/[0.06] hover:bg-white/[0.06] finance-tab-inactive'
+                ? 'border-ig-border-focus bg-ig-accent-weak text-ig-accent finance-tab-active'
+                : 'border-ig-border-subtle bg-ig-panel text-ig-fg-muted hover:bg-ig-raised finance-tab-inactive'
             }`}>
             {tab.label}
           </button>
@@ -196,8 +223,10 @@ function LancamentosContent() {
           <HudEmptyState title={t('noEntries')} description={t('noEntriesDescription')} icon="file"
             action={{ label: t('newEntry'), onClick: () => setDrawerOpen(true) }} />
         ) : (
-          <HudTable columns={columns} data={entries} keyExtractor={(e) => e.id}
-            onRowClick={(e) => { setSelectedEntry(e); setDetailDrawerOpen(true); }} compact stickyHeader />
+          <HudPanel noPadding title="Ledger executivo" subtitle="Lançamentos com leitura por natureza, categoria e aprovação" icon={<Receipt className="h-4 w-4" />} sweep>
+            <HudTable columns={columns} data={entries} keyExtractor={(e) => e.id}
+              onRowClick={(e) => { setSelectedEntry(e); setDetailDrawerOpen(true); }} compact stickyHeader />
+          </HudPanel>
         )}
       </div>
 
@@ -234,9 +263,9 @@ function LancamentosContent() {
           <HudInput label={t('notes')} value={formNotes} onChange={(e) => setFormNotes(e.target.value)} />
 
           {parseFloat(formAmount) > 5000 && (
-            <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
-              <FileText className="w-4 h-4 text-amber-400" />
-              <span className="text-amber-300 text-xs">{t('evidenceRequired')}</span>
+            <div className="flex items-center gap-2 rounded-lg border border-[color-mix(in_oklab,var(--ig-warning)_28%,transparent)] bg-[color-mix(in_oklab,var(--ig-warning)_12%,transparent)] p-3">
+              <FileText className="h-4 w-4 text-ig-warning" />
+              <span className="text-xs text-ig-warning">{t('evidenceRequired')}</span>
             </div>
           )}
 
@@ -252,20 +281,20 @@ function LancamentosContent() {
         {selectedEntry && (
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
-              <div><p className="text-white/30 text-[10px] uppercase">{t('entryDate')}</p><p className="text-white/80 text-sm font-mono">{selectedEntry.entry_date}</p></div>
-              <div><p className="text-white/30 text-[10px] uppercase">Status</p><HudStatusPill variant={STATUS_MAP[selectedEntry.status]?.variant as any}>{STATUS_MAP[selectedEntry.status]?.label}</HudStatusPill></div>
+              <div><p className="text-[10px] uppercase text-ig-fg-subtle">{t('entryDate')}</p><p className="font-mono text-sm text-ig-fg-strong">{selectedEntry.entry_date}</p></div>
+              <div><p className="text-[10px] uppercase text-ig-fg-subtle">Status</p><HudStatusPill variant={STATUS_MAP[selectedEntry.status]?.variant as any}>{STATUS_MAP[selectedEntry.status]?.label}</HudStatusPill></div>
             </div>
-            <div><p className="text-white/30 text-[10px] uppercase">{t('description')}</p><p className="text-white/80 text-sm">{selectedEntry.description}</p></div>
+            <div><p className="text-[10px] uppercase text-ig-fg-subtle">{t('description')}</p><p className="text-sm text-ig-fg-strong">{selectedEntry.description}</p></div>
             <div className="grid grid-cols-2 gap-3">
-              <div><p className="text-white/30 text-[10px] uppercase">{t('amount')}</p><p className="text-white font-mono text-lg">{formatBRL(selectedEntry.amount_cents)}</p></div>
-              <div><p className="text-white/30 text-[10px] uppercase">{t('category')}</p><p className="text-white/80 text-sm">{selectedEntry.category?.name || '—'}</p></div>
+              <div><p className="text-[10px] uppercase text-ig-fg-subtle">{t('amount')}</p><p className="font-mono text-lg text-ig-fg-strong">{formatBRL(selectedEntry.amount_cents)}</p></div>
+              <div><p className="text-[10px] uppercase text-ig-fg-subtle">{t('category')}</p><p className="text-sm text-ig-fg-strong">{selectedEntry.category?.name || '—'}</p></div>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <div><p className="text-white/30 text-[10px] uppercase">{t('costCenter')}</p><p className="text-white/80 text-sm">{selectedEntry.cost_center?.name || '—'}</p></div>
-              <div><p className="text-white/30 text-[10px] uppercase">{t('businessUnit')}</p><p className="text-white/80 text-sm">{selectedEntry.business_unit?.name || '—'}</p></div>
+              <div><p className="text-[10px] uppercase text-ig-fg-subtle">{t('costCenter')}</p><p className="text-sm text-ig-fg-strong">{selectedEntry.cost_center?.name || '—'}</p></div>
+              <div><p className="text-[10px] uppercase text-ig-fg-subtle">{t('businessUnit')}</p><p className="text-sm text-ig-fg-strong">{selectedEntry.business_unit?.name || '—'}</p></div>
             </div>
 
-            <div className="flex gap-2 pt-4 border-t border-white/[0.06]">
+            <div className="flex gap-2 border-t border-ig-border-subtle pt-4">
               {selectedEntry.status === 'draft' && (
                 <>
                   <HudButton variant="primary" leftIcon={<Send className="w-4 h-4" />} onClick={() => handleTransition(selectedEntry.id, 'in_review')} fullWidth>{t('submitForReview')}</HudButton>
@@ -288,7 +317,7 @@ function LancamentosContent() {
 
       {/* Void Modal */}
       <HudModal isOpen={voidModalOpen} onClose={() => setVoidModalOpen(false)} title={t('confirmVoid')} size="sm">
-        <p className="text-white/60 text-sm mb-4">{t('confirmVoidDescription')}</p>
+        <p className="mb-4 text-sm text-ig-fg-muted">{t('confirmVoidDescription')}</p>
         <HudInput label={t('voidReason')} value={voidReason} onChange={(e) => setVoidReason(e.target.value)} />
         <div className="flex gap-2 mt-4">
           <HudButton variant="secondary" onClick={() => setVoidModalOpen(false)} fullWidth>Cancelar</HudButton>

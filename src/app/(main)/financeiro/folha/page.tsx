@@ -47,12 +47,12 @@ export default function FolhaPage() {
   ];
 
   const columns: HudTableColumn<PayrollBatch>[] = [
-    { key: 'period_key', header: t('period'), cell: (b) => <span className="text-white/70 text-xs font-mono">{b.period_key}</span> },
-    { key: 'business_unit_id', header: t('businessUnit'), cell: (b) => <span className="text-white/70 text-xs">{b.business_unit?.name || b.business_unit_id}</span> },
-    { key: 'total_gross_cents', header: t('grossSalary'), cell: (b) => <span className="text-white/80 text-xs font-mono">{formatBRL(b.total_gross_cents)}</span> },
-    { key: 'total_charges_cents', header: t('charges'), cell: (b) => <span className="text-white/80 text-xs font-mono">{formatBRL(b.total_charges_cents)}</span> },
-    { key: 'total_benefits_cents', header: t('benefits'), cell: (b) => <span className="text-white/80 text-xs font-mono">{formatBRL(b.total_benefits_cents)}</span> },
-    { key: 'headcount', header: t('headcount'), cell: (b) => <span className="text-white/70 text-xs">{b.headcount}</span> },
+    { key: 'period_key', header: t('period'), cell: (b) => <span className="text-ig-text-secondary text-xs font-mono">{b.period_key}</span> },
+    { key: 'business_unit_id', header: t('businessUnit'), cell: (b) => <span className="text-ig-text-secondary text-xs">{b.business_unit?.name || b.business_unit_id}</span> },
+    { key: 'total_gross_cents', header: t('grossSalary'), cell: (b) => <span className="text-ig-text-primary text-xs font-mono">{formatBRL(b.total_gross_cents)}</span> },
+    { key: 'total_charges_cents', header: t('charges'), cell: (b) => <span className="text-ig-text-primary text-xs font-mono">{formatBRL(b.total_charges_cents)}</span> },
+    { key: 'total_benefits_cents', header: t('benefits'), cell: (b) => <span className="text-ig-text-primary text-xs font-mono">{formatBRL(b.total_benefits_cents)}</span> },
+    { key: 'headcount', header: t('headcount'), cell: (b) => <span className="text-ig-text-secondary text-xs">{b.headcount}</span> },
     { key: 'status', header: 'Status', cell: (b) => <HudStatusPill variant={STATUS_VARIANTS[b.status] as any} size="sm">{b.status}</HudStatusPill> },
     { key: 'actions', header: '', cell: (b) => b.status === 'draft' ? (
       <HudButton variant="ghost" size="sm" leftIcon={<CheckCircle className="w-3.5 h-3.5" />} onClick={(e) => { e.stopPropagation(); approvePayrollBatch(b.id); setRefreshKey(k => k + 1); }}>

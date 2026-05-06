@@ -25,7 +25,7 @@ import { projects as comites } from '@/lib/mock-data'; // Using projects as mock
 import Link from 'next/link';
 import SankhyaIntegrationPauta from '@/components/features/sankhya-integration-pauta';
 
-export default function NovaPautaPage() {
+export default function NovaDecisaoPage() {
   const router = useRouter();
   const { toast } = useHudToast();
   const [isUploading, setIsUploading] = useState(false);
@@ -95,10 +95,10 @@ export default function NovaPautaPage() {
     }
 
     // Mock mutation
-    console.log('Submitting pauta:', { ...formData, status });
+    console.log('Submitting committee decision:', { ...formData, status });
     toast({
-      title: 'Pauta enviada com sucesso!',
-      description: `A pauta "${formData.titulo}" foi salva como ${status}.`,
+      title: 'Decisão enviada com sucesso!',
+      description: `A decisão "${formData.titulo}" foi salva como ${status}.`,
     });
     router.push('/pautas');
   };
@@ -116,9 +116,9 @@ export default function NovaPautaPage() {
           </Button>
         </Link>
         <div>
-          <h1 className="text-3xl font-bold text-slate-900">Nova Pauta</h1>
+          <h1 className="text-3xl font-bold text-slate-900">Nova decisão</h1>
           <p className="text-slate-600">
-            Crie uma nova pauta para votação do comitê
+            Crie uma decisão para revisão, votação e auditoria do comitê
           </p>
         </div>
       </div>
@@ -132,7 +132,7 @@ export default function NovaPautaPage() {
             background: 'linear-gradient(90deg, #FFF5F0 0%, #F0FFF5 100%)',
           }}
         >
-          <CardTitle>Informações da Pauta</CardTitle>
+          <CardTitle>Informações da decisão</CardTitle>
         </CardHeader>
         <CardContent className="p-6 space-y-6">
           {comites.length > 0 && (
@@ -155,7 +155,7 @@ export default function NovaPautaPage() {
                 </SelectContent>
               </Select>
               <p className="text-xs text-slate-500">
-                Se não selecionar um comitê, a pauta será geral para todos os
+                Se não selecionar um comitê, a decisão será geral para todos os
                 membros
               </p>
             </div>
@@ -163,11 +163,11 @@ export default function NovaPautaPage() {
 
           <div className="space-y-2">
             <Label htmlFor="titulo">
-              Título da Pauta <span className="text-red-500">*</span>
+              Título da decisão <span className="text-red-500">*</span>
             </Label>
             <Input
               id="titulo"
-              placeholder="Digite o título da pauta"
+              placeholder="Digite o título da decisão"
               value={formData.titulo}
               onChange={(e) => handleInputChange('titulo', e.target.value)}
               className="border-orange-200"
@@ -180,7 +180,7 @@ export default function NovaPautaPage() {
             </Label>
             <Textarea
               id="descricao"
-              placeholder="Descreva a pauta em detalhes..."
+              placeholder="Descreva a decisão em detalhes..."
               rows={8}
               value={formData.descricao}
               onChange={(e) => handleInputChange('descricao', e.target.value)}
@@ -192,7 +192,7 @@ export default function NovaPautaPage() {
             <Label htmlFor="justificativa">Justificativa</Label>
             <Textarea
               id="justificativa"
-              placeholder="Justifique a necessidade desta pauta..."
+              placeholder="Justifique a necessidade desta decisão..."
               rows={3}
               value={formData.justificativa}
               onChange={(e) =>
@@ -378,7 +378,7 @@ export default function NovaPautaPage() {
           }}
         >
           <Send className="w-4 h-4 mr-2" />
-          Publicar Pauta
+          Publicar decisão
         </Button>
       </div>
     </div>

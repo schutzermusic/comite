@@ -13,14 +13,14 @@ const ROUTES = [
   { label: "Contratos", href: "/contratos" },
   { label: "Riscos", href: "/riscos" },
   { label: "Reuniões", href: "/reunioes" },
-  { label: "Deliberações", href: "/pautas" },
+  { label: "Comitês", href: "/pautas" },
   { label: "Pessoas & Custos", href: "/workforce-cost" },
   { label: "Organograma", href: "/organograma" },
   { label: "Configurações", href: "/configuracoes" },
 ];
 
 const ACTIONS = [
-  { label: "Nova pauta", action: "nova-pauta" },
+  { label: "Nova decisão", action: "nova-decisao" },
   { label: "Novo contrato", action: "novo-contrato" },
   { label: "Nova reunião", action: "nova-reuniao" },
 ];

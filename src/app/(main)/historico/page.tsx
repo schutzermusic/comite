@@ -33,7 +33,7 @@ const pautas: HistoricoPauta[] = votes
   .map((vote, index) => ({
     id: vote.id,
     titulo: vote.titulo,
-    descricao: `Deliberação sobre a pauta: ${vote.titulo}`,
+    descricao: `Decisão de comitê sobre: ${vote.titulo}`,
     categoria: vote.categoria || "estrategica",
     comite: vote.comite,
     resultado: index === 0 ? "aprovado" : "reprovado",

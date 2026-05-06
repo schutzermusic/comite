@@ -1,5 +1,5 @@
-import { redirect } from 'next/navigation';
+import { FinanceControlRoom } from '@/components/finance/control-room';
 
 export default function FinanceIndexPage() {
-  redirect('/financeiro/control-room');
+  return <FinanceControlRoom />;
 }

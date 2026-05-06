@@ -28,12 +28,12 @@ export default function BancosPage() {
   ];
 
   const columns: HudTableColumn<LedgerEntry>[] = [
-    { key: 'entry_date', header: t('entryDate'), cell: (e) => <span className="text-white/70 text-xs font-mono">{e.entry_date}</span> },
-    { key: 'description', header: t('description'), cell: (e) => <span className="text-white/80 text-xs">{e.description}</span> },
-    { key: 'category', header: t('category'), cell: (e) => <span className="text-white/50 text-xs">{e.category?.name || '—'}</span> },
-    { key: 'amount_cents', header: t('amount'), cell: (e) => <span className="text-white/80 text-xs font-mono">{formatBRL(e.amount_cents)}</span> },
+    { key: 'entry_date', header: t('entryDate'), cell: (e) => <span className="text-ig-text-secondary text-xs font-mono">{e.entry_date}</span> },
+    { key: 'description', header: t('description'), cell: (e) => <span className="text-ig-text-primary text-xs">{e.description}</span> },
+    { key: 'category', header: t('category'), cell: (e) => <span className="text-ig-text-primary/50 text-xs">{e.category?.name || '—'}</span> },
+    { key: 'amount_cents', header: t('amount'), cell: (e) => <span className="text-ig-text-primary text-xs font-mono">{formatBRL(e.amount_cents)}</span> },
     { key: 'status', header: 'Status', cell: (e) => <HudStatusPill variant={e.status === 'posted' ? 'completed' : 'pending'} size="sm">{e.status}</HudStatusPill> },
-    { key: 'source_ref', header: 'Ref. Extrato', cell: (e) => <span className="text-white/40 text-xs">{e.source_ref || '—'}</span> },
+    { key: 'source_ref', header: 'Ref. Extrato', cell: (e) => <span className="text-ig-text-tertiary text-xs">{e.source_ref || '—'}</span> },
   ];
 
   return (

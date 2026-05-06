@@ -7,8 +7,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { HudPanel, HudBadge, HudButton } from '@/components/hud';
 import { AuditTrailTimeline } from './AuditTrailTimeline';
 import { VotingConsole } from './VotingConsole';
+import { EvidencePack } from './EvidencePack';
 import {
     AlertTriangle,
+    Building2,
     CheckCircle,
     Clock,
     DollarSign,
@@ -17,6 +19,7 @@ import {
     Link2,
     PlayCircle,
     Search,
+    ShieldCheck,
     Vote,
     Workflow,
 } from 'lucide-react';
@@ -90,7 +93,7 @@ function getPrimaryAction(item: DeliberationItem): {
 } {
   switch (item.deliberationStatus) {
     case 'in_review':
-      return { label: 'Revisar Deliberação', variant: 'primary', icon: <Search className="w-4 h-4" />, disabled: false };
+      return { label: 'Revisar decisão', variant: 'primary', icon: <Search className="w-4 h-4" />, disabled: false };
     case 'in_voting':
       return { label: 'Ir para Votação', variant: 'primary', icon: <Vote className="w-4 h-4" />, disabled: false };
     case 'awaiting_minutes':
@@ -122,8 +125,8 @@ export function DecisionInspector({
           <Gavel className="w-7 h-7 text-ig-fg-subtle" />
         </div>
         <div className="text-center">
-          <p className="text-sm font-medium text-ig-fg-muted">Nenhuma deliberação selecionada</p>
-          <p className="text-xs text-ig-fg-subtle mt-1">Selecione um item na lista para inspecionar</p>
+          <p className="text-sm font-medium text-ig-fg-muted">Nenhuma decisão selecionada</p>
+          <p className="text-xs text-ig-fg-subtle mt-1">Selecione um item da fila para abrir o workspace do comitê.</p>
         </div>
       </div>
     );
@@ -139,6 +142,11 @@ export function DecisionInspector({
 
   const slaHours = item.dueDate ? differenceInHours(new Date(item.dueDate), new Date()) : null;
   const slaUrgent = slaHours !== null && slaHours < 24;
+  const quorumRequired = item.quorumRequired ?? 0;
+  const quorumPresent = item.quorumPresent ?? voteSummary.length;
+  const quorumReached = quorumRequired > 0 && quorumPresent >= quorumRequired;
+  const completedStages = item.stages?.filter((stage) => stage.status === 'completed').length ?? 0;
+  const totalStages = item.stages?.length ?? 0;
 
   const formatFinancial = (value?: number) => {
     if (!value) return null;
@@ -147,53 +155,69 @@ export function DecisionInspector({
 
   return (
     <div className="h-full overflow-y-auto space-y-4 pr-1">
-      {/* ─── Header ─── */}
-      <div className="space-y-3">
+      <div className="relative overflow-hidden rounded-xl border border-ig-border-subtle bg-[linear-gradient(135deg,color-mix(in_oklab,var(--ig-bg-panel)_78%,transparent),color-mix(in_oklab,var(--ig-bg-raised)_38%,transparent))] p-4">
+        <div className="pointer-events-none absolute inset-x-4 top-0 h-px bg-gradient-to-r from-transparent via-ig-border-focus to-transparent" />
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
-            <h2 className="text-base font-semibold text-ig-fg-strong leading-snug mb-1">{item.title}</h2>
-            <p className="text-xs text-ig-fg-muted">{item.ownerCommitteeName}</p>
+            <p className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-ig-fg-subtle">
+              <Building2 className="h-3 w-3" />
+              {item.ownerCommitteeName}
+            </p>
+            <h2 className="text-lg font-semibold text-ig-fg-strong leading-snug">{item.title}</h2>
+            <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-ig-fg-muted">{item.description}</p>
           </div>
           <HudBadge variant={STATUS_BADGE_VARIANT[item.deliberationStatus] ?? 'neutral'} dot>
             {STATUS_MAP[item.deliberationStatus] ?? item.deliberationStatus}
           </HudBadge>
         </div>
 
-        {/* Meta chips */}
-        <div className="flex flex-wrap gap-2">
-          {slaHours !== null && (
-            <HudBadge variant={slaUrgent ? 'danger' : 'neutral'} size="sm">
-              <Clock className="w-3 h-3" />
-              {slaHours < 0 ? 'Atrasado' : `SLA: ${slaHours}h`}
-            </HudBadge>
-          )}
-          {item.financialImpact && (
-            <HudBadge variant="info" size="sm">
-              <DollarSign className="w-3 h-3" />
-              {formatFinancial(item.financialImpact)}
-            </HudBadge>
-          )}
-          {item.riskLevel && (
-            <HudBadge variant={RISK_BADGE_VARIANT[item.riskLevel] ?? 'neutral'} size="sm">
-              <AlertTriangle className="w-3 h-3" />
-              Risco {item.riskLevel.toUpperCase()}
-            </HudBadge>
-          )}
+        <div className="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-4">
+          <div className="rounded-lg border border-ig-border-subtle bg-ig-panel/60 p-2.5">
+            <p className="text-[9px] uppercase tracking-[0.14em] text-ig-fg-subtle">Impacto</p>
+            <p className="mt-1 flex items-center gap-1 text-sm font-semibold text-ig-fg-strong">
+              <DollarSign className="h-3.5 w-3.5 text-ig-info" />
+              {formatFinancial(item.financialImpact) ?? 'N/A'}
+            </p>
+          </div>
+          <div className="rounded-lg border border-ig-border-subtle bg-ig-panel/60 p-2.5">
+            <p className="text-[9px] uppercase tracking-[0.14em] text-ig-fg-subtle">Risco</p>
+            <p className={cn('mt-1 flex items-center gap-1 text-sm font-semibold', item.riskLevel ? RISK_BADGE_VARIANT[item.riskLevel] === 'danger' ? 'text-ig-danger' : RISK_BADGE_VARIANT[item.riskLevel] === 'warning' ? 'text-ig-warning' : 'text-ig-success' : 'text-ig-fg-strong')}>
+              <AlertTriangle className="h-3.5 w-3.5" />
+              {item.riskLevel?.toUpperCase() ?? 'N/A'}
+            </p>
+          </div>
+          <div className="rounded-lg border border-ig-border-subtle bg-ig-panel/60 p-2.5">
+            <p className="text-[9px] uppercase tracking-[0.14em] text-ig-fg-subtle">SLA</p>
+            <p className={cn('mt-1 flex items-center gap-1 text-sm font-semibold', slaUrgent ? 'text-ig-danger' : 'text-ig-fg-strong')}>
+              <Clock className="h-3.5 w-3.5" />
+              {slaHours === null ? 'N/A' : slaHours < 0 ? 'Atrasado' : `${slaHours}h`}
+            </p>
+          </div>
+          <div className="rounded-lg border border-ig-border-subtle bg-ig-panel/60 p-2.5">
+            <p className="text-[9px] uppercase tracking-[0.14em] text-ig-fg-subtle">Quórum</p>
+            <p className={cn('mt-1 flex items-center gap-1 text-sm font-semibold tabular-nums', quorumReached ? 'text-ig-success' : 'text-ig-warning')}>
+              <ShieldCheck className="h-3.5 w-3.5" />
+              {quorumPresent}/{quorumRequired || '-'}
+            </p>
+          </div>
         </div>
 
-        {/* Primary CTA */}
-        <HudButton
-          variant={primaryAction.variant}
-          fullWidth
-          disabled={primaryAction.disabled}
-          leftIcon={primaryAction.icon}
-          onClick={() => {
-            if (item.deliberationStatus === 'awaiting_minutes') onGenerateMinutes(item.id);
-            else if (item.deliberationStatus === 'in_execution') onCreateExecutionTask(item.id);
-          }}
-        >
-          {primaryAction.label}
-        </HudButton>
+        <div className="mt-4 grid gap-2 sm:grid-cols-[1fr_auto] sm:items-center">
+          <div className="text-xs text-ig-fg-muted">
+            Fluxo de aprovação: <span className="font-semibold text-ig-fg-strong">{completedStages}/{totalStages}</span> etapas concluídas
+          </div>
+          <HudButton
+            variant={primaryAction.variant}
+            disabled={primaryAction.disabled}
+            leftIcon={primaryAction.icon}
+            onClick={() => {
+              if (item.deliberationStatus === 'awaiting_minutes') onGenerateMinutes(item.id);
+              else if (item.deliberationStatus === 'in_execution') onCreateExecutionTask(item.id);
+            }}
+          >
+            {primaryAction.label}
+          </HudButton>
+        </div>
       </div>
 
       {/* ─── Tabs ─── */}
@@ -203,7 +227,7 @@ export function DecisionInspector({
             value="summary"
             className="text-xs text-ig-fg-muted data-[state=active]:bg-ig-accent-weak data-[state=active]:text-ig-accent"
           >
-            Resumo
+            Resumo Executivo
           </TabsTrigger>
           <TabsTrigger
             value="voting"
@@ -227,14 +251,23 @@ export function DecisionInspector({
 
         {/* ── Summary tab ── */}
         <TabsContent value="summary" className="space-y-3 mt-3">
-          <HudPanel className="space-y-2">
+          <section className="rounded-xl border border-ig-border-subtle bg-ig-panel/50 p-4">
             <p className="text-xs uppercase tracking-wide text-ig-fg-subtle font-medium">Decisão Solicitada</p>
-            <p className="text-sm text-ig-fg leading-relaxed">{item.requestedDecision || item.description}</p>
-          </HudPanel>
+            <p className="mt-2 text-sm text-ig-fg leading-relaxed">{item.requestedDecision || item.description}</p>
+            {item.recommendationNotes && item.recommendationNotes.length > 0 && (
+              <div className="mt-3 rounded-lg border border-ig-border-subtle bg-ig-panel/60 p-3">
+                <p className="text-[10px] uppercase tracking-[0.14em] text-ig-fg-subtle">Recomendação executiva</p>
+                <ul className="mt-2 space-y-1">
+                  {item.recommendationNotes.map((note) => (
+                    <li key={note} className="text-xs text-ig-fg-muted">• {note}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </section>
 
-          {/* Workflow stepper */}
-          <HudPanel className="space-y-3">
-            <p className="text-xs uppercase tracking-wide text-ig-fg-subtle font-medium">Fluxo de Governança</p>
+          <section className="rounded-xl border border-ig-border-subtle bg-ig-panel/50 p-4">
+            <p className="text-xs uppercase tracking-wide text-ig-fg-subtle font-medium">Fluxo de Aprovação</p>
             <div className="space-y-2">
               {(item.stages ?? []).map((stage, index) => {
                 const isActive = stage.id === item.currentStageId;
@@ -258,21 +291,69 @@ export function DecisionInspector({
                       <p className={cn('text-xs font-medium', isActive ? 'text-ig-accent' : isDone ? 'text-ig-fg-muted' : 'text-ig-fg')}>
                         {stage.committeeName}
                       </p>
-                      <p className="text-[10px] text-ig-fg-subtle">{STAGE_TYPE_LABELS[stage.stageType] ?? stage.stageType}</p>
+                      <p className="text-[10px] text-ig-fg-subtle">
+                        {STAGE_TYPE_LABELS[stage.stageType] ?? stage.stageType} · Quórum {stage.votingRule.quorumPercent}% · {stage.votingRule.votingWindowHours}h
+                      </p>
                     </div>
                     {isActive && <span className="text-[10px] text-ig-accent font-semibold">← Atual</span>}
                   </div>
                 );
               })}
             </div>
-          </HudPanel>
+          </section>
 
           {currentStage && (
-            <HudPanel className="space-y-1">
+            <section className="rounded-xl border border-ig-border-subtle bg-ig-panel/50 p-4">
               <p className="text-xs uppercase tracking-wide text-ig-fg-subtle font-medium">Etapa Atual</p>
               <p className="text-sm text-ig-fg-strong font-medium">{currentStage.committeeName}</p>
               <p className="text-xs text-ig-fg-muted">{STAGE_TYPE_LABELS[currentStage.stageType] ?? currentStage.stageType}</p>
-            </HudPanel>
+            </section>
+          )}
+
+          <section className="grid gap-3 lg:grid-cols-2">
+            <div className="rounded-xl border border-ig-border-subtle bg-ig-panel/50 p-4">
+              <EvidencePack attachments={item.attachments} evidenceComplete={item.evidenceComplete} />
+            </div>
+            <div className="rounded-xl border border-ig-border-subtle bg-ig-panel/50 p-4">
+              <p className="text-xs uppercase tracking-wide text-ig-fg-subtle font-medium">Pareceres</p>
+              <div className="mt-3 space-y-2">
+                {(item.reviews ?? []).length > 0 ? item.reviews?.map((review) => (
+                  <div key={`${review.type}-${review.reviewerName}`} className="rounded-lg border border-ig-border-subtle bg-ig-panel/60 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-semibold text-ig-fg-strong">{review.type}</p>
+                      <HudBadge
+                        variant={review.status === 'approved' ? 'success' : review.status === 'rejected' ? 'danger' : review.status === 'pending' ? 'warning' : 'neutral'}
+                        size="sm"
+                        dot
+                      >
+                        {review.status === 'approved' ? 'Aprovado' : review.status === 'rejected' ? 'Rejeitado' : review.status === 'pending' ? 'Pendente' : 'N/A'}
+                      </HudBadge>
+                    </div>
+                    <p className="mt-1 text-[10px] text-ig-fg-subtle">{review.reviewerName ?? 'Sem responsável'}</p>
+                    {review.notes && <p className="mt-1 text-xs text-ig-fg-muted">{review.notes}</p>}
+                  </div>
+                )) : (
+                  <p className="text-xs text-ig-fg-muted">Nenhum parecer registrado.</p>
+                )}
+              </div>
+            </div>
+          </section>
+
+          {(item.linkedEntities ?? []).length > 0 && (
+            <section className="rounded-xl border border-ig-border-subtle bg-ig-panel/50 p-4">
+              <p className="text-xs uppercase tracking-wide text-ig-fg-subtle font-medium">Entidades Vinculadas</p>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                {item.linkedEntities?.map((entity) => (
+                  <div key={entity.id} className="flex min-w-0 items-center justify-between gap-2 rounded-lg border border-ig-border-subtle bg-ig-panel/60 px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-xs font-semibold text-ig-fg-strong">{entity.label}</p>
+                      <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-ig-fg-subtle">{entity.id}</p>
+                    </div>
+                    <HudBadge variant="info" size="sm">{entity.type}</HudBadge>
+                  </div>
+                ))}
+              </div>
+            </section>
           )}
         </TabsContent>
 
@@ -300,7 +381,7 @@ export function DecisionInspector({
         <TabsContent value="minutes" className="space-y-3 mt-3">
           <HudPanel className="space-y-3">
             <div className="flex items-center justify-between">
-              <p className="text-xs uppercase tracking-wide text-ig-fg-subtle font-medium">Ata da Deliberação</p>
+              <p className="text-xs uppercase tracking-wide text-ig-fg-subtle font-medium">Ata da Decisão</p>
               <div className="flex items-center gap-2">
                 <HudButton
                   size="sm"
@@ -308,7 +389,7 @@ export function DecisionInspector({
                   leftIcon={<FileText className="w-3.5 h-3.5" />}
                   onClick={() => onGenerateMinutes(item.id)}
                 >
-                  Gerar Minuta
+                  Gerar minuta
                 </HudButton>
                 <HudButton
                   size="sm"
@@ -316,7 +397,7 @@ export function DecisionInspector({
                   leftIcon={<CheckCircle className="w-3.5 h-3.5" />}
                   onClick={() => onPublishMinutes(item.id)}
                 >
-                  Publicar Ata
+                  Publicar ata
                 </HudButton>
               </div>
             </div>

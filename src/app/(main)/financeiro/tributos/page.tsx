@@ -39,10 +39,10 @@ export default function TributosPage() {
   const currentData = activeTab === 'provisions' ? provisions : payments;
 
   const columns: HudTableColumn<LedgerEntry>[] = [
-    { key: 'entry_date', header: t('entryDate'), cell: (e) => <span className="text-white/70 text-xs font-mono">{e.entry_date}</span> },
-    { key: 'description', header: t('description'), cell: (e) => <span className="text-white/80 text-xs">{e.description}</span> },
-    { key: 'category', header: t('category'), cell: (e) => <span className="text-white/50 text-xs">{e.category?.name || '—'}</span> },
-    { key: 'amount_cents', header: t('amount'), cell: (e) => <span className="text-white/80 text-xs font-mono">{formatBRL(e.amount_cents)}</span> },
+    { key: 'entry_date', header: t('entryDate'), cell: (e) => <span className="text-ig-text-secondary text-xs font-mono">{e.entry_date}</span> },
+    { key: 'description', header: t('description'), cell: (e) => <span className="text-ig-text-primary text-xs">{e.description}</span> },
+    { key: 'category', header: t('category'), cell: (e) => <span className="text-ig-text-primary/50 text-xs">{e.category?.name || '—'}</span> },
+    { key: 'amount_cents', header: t('amount'), cell: (e) => <span className="text-ig-text-primary text-xs font-mono">{formatBRL(e.amount_cents)}</span> },
     { key: 'status', header: 'Status', cell: (e) => <HudStatusPill variant={e.status === 'posted' ? 'completed' : 'pending'} size="sm">{e.status}</HudStatusPill> },
   ];
 
@@ -57,8 +57,8 @@ export default function TributosPage() {
           <button key={tab.value} onClick={() => setActiveTab(tab.value)}
             className={`px-3 py-1.5 rounded-lg text-[11px] font-medium uppercase tracking-wider transition-all ${
               activeTab === tab.value
-                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 finance-tab-active'
-                : 'bg-white/[0.04] text-white/40 border border-white/[0.06] hover:bg-white/[0.06] finance-tab-inactive'
+                ? 'bg-ig-accent-weak text-ig-accent border border-ig-border-focus finance-tab-active'
+                : 'bg-white/[0.04] text-ig-text-tertiary border border-white/[0.06] hover:bg-white/[0.06] finance-tab-inactive'
             }`}>
             {tab.label}
           </button>

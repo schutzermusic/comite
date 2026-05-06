@@ -190,7 +190,7 @@ function buildTree(members: OrgMember[]): TreeNode | null {
 function collectDefaultExpanded(node: TreeNode | null, level = 0, next = new Set<string>()) {
   if (!node) return next;
 
-  if (node.children.length > 0) {
+  if (node.children.length > 0 && level < 2) {
     next.add(node.member.id);
   }
 
@@ -241,12 +241,17 @@ function getNodePresentation(level: number) {
 }
 
 function getPyramidChildrenLayout(level: number, childCount: number) {
-  const wideBase = childCount > 5;
-
   if (level === 0) {
+    const widthClass =
+      childCount >= 3
+        ? "w-[118rem] max-w-[118rem]"
+        : childCount === 2
+          ? "w-[78rem] max-w-[78rem]"
+          : "w-[38rem] max-w-[38rem]";
+
     return cn(
-      "gap-x-12 gap-y-16 px-8 pt-1",
-      wideBase ? "w-[68rem] max-w-[68rem]" : "w-[54rem] max-w-[54rem]",
+      "gap-x-8 gap-y-16 px-8 pt-1",
+      widthClass,
     );
   }
 
@@ -331,7 +336,7 @@ export function OrgTreeViewer({
 }: OrgTreeViewerProps) {
   const [selectedMember, setSelectedMember] = useState<OrgMember | null>(null);
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
-  const [view, setView] = useState<ViewTransform>({ scale: 0.68, x: 18, y: 32 });
+  const [view, setView] = useState<ViewTransform>({ scale: 0.5, x: 28, y: 32 });
   const [personDrawerMode, setPersonDrawerMode] = useState<"add" | "edit" | null>(null);
   const [editingMember, setEditingMember] = useState<OrgMember | null>(null);
   const [exporting, setExporting] = useState(false);
@@ -413,7 +418,7 @@ export function OrgTreeViewer({
   }, [view.scale]);
 
   const resetView = useCallback(() => {
-    setView({ scale: 0.68, x: 18, y: 32 });
+    setView({ scale: 0.5, x: 28, y: 32 });
   }, []);
 
   useEffect(() => {
@@ -528,99 +533,141 @@ export function OrgTreeViewer({
     const isSelected = selectedMember?.id === node.member.id;
     const hasChildren = node.children.length > 0;
     const tone = getDepartmentTone(node.member.department);
-    const cardSurface = getCascadeCardSurface(level, tone);
-    const childrenLayout = getCascadeChildrenLayout(level, node.children.length);
-    const branchAsRow = level <= 1;
+    const presentation = getNodePresentation(level);
+    const childrenLayout = getPyramidChildrenLayout(level, node.children.length);
+    const teamSize = node.children.length;
+    const profile = teamSize > 0 ? "Gestor" : "Membro";
 
     return (
-      <div key={node.member.id} className={cn("orgchart-cascade-node relative flex flex-col", branchAsRow ? "items-center" : "items-start")}>
-        <div
-          role="button"
-          tabIndex={0}
-          data-pan-ignore
-          data-node-card
-          onClick={() => setSelectedMember(node.member)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" || event.key === " ") {
-              event.preventDefault();
-              setSelectedMember(node.member);
-            }
-          }}
-          className={cn(
-            "group relative z-10 overflow-hidden rounded-[4px] border px-2 py-1.5 text-center transition-transform duration-150 hover:-translate-y-0.5 focus-visible:outline-none focus-visible:shadow-[var(--ig-focus-ring-outer)]",
-            getCascadeCardClass(level),
-            isSelected && "ring-2 ring-ig-accent ring-offset-2 ring-offset-transparent",
-          )}
-          style={cardSurface}
-        >
-          <button
-            type="button"
+      <div key={node.member.id} className="orgchart-node-3d relative flex flex-col items-center [perspective:1200px]">
+        <div className={cn("relative z-20 flex flex-col items-center", presentation.lift)}>
+          <div
+            role="button"
+            tabIndex={0}
             data-pan-ignore
-            onClick={(event) => {
-              event.stopPropagation();
-              openEditDrawer(node.member);
+            data-node-card
+            onClick={() => setSelectedMember(node.member)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                setSelectedMember(node.member);
+              }
             }}
-            className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-sm bg-white/55 text-slate-700 opacity-0 shadow-sm transition-opacity hover:bg-white focus-visible:opacity-100 focus-visible:outline-none group-hover:opacity-100"
-            aria-label={`Editar ${node.member.name}`}
-            title="Editar pessoa"
+            className={cn(
+              "group relative transition-transform duration-200 hover:-translate-y-1 focus-visible:outline-none",
+              presentation.card,
+              presentation.depth,
+              isSelected && "ring-2 ring-ig-accent ring-offset-4 ring-offset-transparent",
+            )}
           >
-            <Edit3 className="h-2.5 w-2.5" />
-          </button>
-
-          {hasChildren && (
-            <button
-              type="button"
-              data-pan-ignore
-              onClick={(event) => {
-                event.stopPropagation();
-                toggleNode(node.member.id);
+            <CardDepthSides tone={tone} />
+            <div
+              className={cn(
+                "relative overflow-hidden rounded-[20px] border backdrop-blur-xl",
+                "shadow-[0_18px_42px_color-mix(in_oklab,var(--ig-bg-canvas)_68%,transparent),inset_0_1px_0_rgba(255,255,255,0.52)]",
+                presentation.body,
+              )}
+              style={{
+                borderColor: `color-mix(in oklab, ${tone.accent} 34%, var(--ig-border-subtle))`,
+                background: `linear-gradient(145deg, color-mix(in oklab, var(--ig-bg-panel) 90%, ${tone.accent} 10%), color-mix(in oklab, var(--ig-bg-raised) 76%, transparent))`,
               }}
-              className="absolute left-1 top-1 flex h-4 w-4 items-center justify-center rounded-sm bg-white/55 text-slate-700 shadow-sm transition-colors hover:bg-white focus-visible:outline-none focus-visible:shadow-[var(--ig-focus-ring-outer)]"
-              aria-label={isExpanded ? `Ocultar equipe de ${node.member.name}` : `Ver equipe de ${node.member.name}`}
-              title={isExpanded ? "Ocultar equipe" : "Ver equipe"}
             >
-              {isExpanded ? <ChevronDown className="h-2.5 w-2.5" /> : <ChevronRight className="h-2.5 w-2.5" />}
-            </button>
-          )}
+              <CornerBeams tone={tone} />
+              <span
+                className="pointer-events-none absolute -right-10 -top-10 h-24 w-24 rounded-full blur-2xl"
+                style={{ background: `color-mix(in oklab, ${tone.accent} 16%, transparent)` }}
+              />
+              <button
+                type="button"
+                data-pan-ignore
+                onClick={(event) => {
+                  event.stopPropagation();
+                  openEditDrawer(node.member);
+                }}
+                className="absolute right-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-lg border border-ig-border-subtle bg-ig-panel/80 text-ig-fg-muted opacity-0 shadow-[var(--ig-shadow-e1)] transition-opacity hover:border-ig-border-focus hover:text-ig-accent focus-visible:opacity-100 focus-visible:outline-none group-hover:opacity-100"
+                aria-label={`Editar ${node.member.name}`}
+                title="Editar pessoa"
+              >
+                <Edit3 className="h-3.5 w-3.5" />
+              </button>
 
-          <p className="mx-auto max-w-[92%] truncate text-[8px] font-black uppercase leading-tight tracking-[0.02em]">
-            {node.member.name}
-          </p>
-          <p className="mx-auto mt-0.5 max-w-[94%] truncate text-[6.5px] font-bold uppercase leading-tight opacity-80">
-            {node.member.role}
-          </p>
-          {level <= 2 && (
-            <p className="mx-auto mt-0.5 max-w-[94%] truncate text-[6px] font-semibold uppercase leading-tight opacity-70">
-              {node.member.department}
-            </p>
-          )}
+              <div className="relative flex items-start gap-3">
+                <div className="rounded-[18px] p-[1.5px]" style={{ background: `linear-gradient(145deg, ${tone.accent}, transparent 68%)` }}>
+                  <Avatar className={cn("border border-ig-border-subtle shadow-[0_0_20px_color-mix(in_oklab,var(--ig-bg-canvas)_60%,transparent)]", presentation.avatar)}>
+                    {node.member.avatarUrl && <AvatarImage src={node.member.avatarUrl} alt={node.member.name} />}
+                    <AvatarFallback
+                      className={cn(
+                        "bg-[linear-gradient(145deg,var(--ig-bg-overlay),var(--ig-bg-raised))] font-semibold text-ig-fg-strong",
+                        presentation.avatarFallback,
+                      )}
+                    >
+                      {getMemberInitials(node.member.name)}
+                    </AvatarFallback>
+                  </Avatar>
+                </div>
+                <div className="min-w-0 flex-1 pr-4">
+                  <p className={cn("truncate font-semibold leading-tight text-ig-fg-strong", presentation.title)}>
+                    {node.member.name}
+                  </p>
+                  <p
+                    className={cn("mt-1 truncate font-black uppercase leading-tight", presentation.role)}
+                    style={{ color: tone.accent }}
+                  >
+                    {node.member.role}
+                  </p>
+                </div>
+              </div>
+
+              <div className="relative mt-3 grid grid-cols-2 gap-2">
+                <div>
+                  <p className="text-[8px] font-bold uppercase tracking-[0.16em] text-ig-fg-subtle">Equipe</p>
+                  <p className="mt-0.5 text-[11px] font-semibold text-ig-fg-strong">
+                    {teamSize} {teamSize === 1 ? "direto" : "diretos"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[8px] font-bold uppercase tracking-[0.16em] text-ig-fg-subtle">Status</p>
+                  <p className="mt-0.5 text-[11px] font-semibold" style={{ color: tone.accent }}>
+                    {profile}
+                  </p>
+                </div>
+              </div>
+
+              {hasChildren && (
+                <button
+                  type="button"
+                  data-pan-ignore
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    toggleNode(node.member.id);
+                  }}
+                  className="relative mt-3 flex h-8 w-full items-center justify-center gap-1.5 rounded-lg border border-ig-border-subtle bg-ig-panel/70 px-3 text-[10px] font-semibold text-ig-fg-strong shadow-[inset_0_1px_0_color-mix(in_oklab,var(--ig-border-strong)_45%,transparent)] transition-colors hover:border-ig-border-focus hover:bg-ig-panel-hover focus-visible:outline-none focus-visible:shadow-[var(--ig-focus-ring-outer)]"
+                  aria-label={isExpanded ? `Ocultar equipe de ${node.member.name}` : `Ver equipe de ${node.member.name}`}
+                  title={isExpanded ? "Ocultar equipe" : "Ver equipe"}
+                >
+                  {isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                  {isExpanded ? "Ocultar equipe" : "Ver equipe"}
+                </button>
+              )}
+            </div>
+          </div>
+
+          <NodePlatform tone={tone} className={presentation.platform} />
         </div>
 
         {hasChildren && isExpanded && (
-          branchAsRow ? (
-            <div className="relative flex flex-col items-center">
-              <CascadeStem />
-              <div className={cn("relative", childrenLayout)}>
-                {node.children.length > 1 && <CascadeRail />}
-                {node.children.map((child) => (
-                  <div key={child.member.id} className="relative flex flex-col items-center">
-                    <CascadeDrop />
-                    {renderNode(child, level + 1)}
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div className="relative mt-2 flex flex-col items-start gap-2 pl-7">
-              <span className="absolute left-3 top-0 bottom-4 w-px bg-[#7fb55d]" />
+          <div className="relative flex flex-col items-center">
+            <ConnectionStem level={level} />
+            <div className={cn("relative flex flex-wrap items-start justify-center", childrenLayout)}>
+              {node.children.length > 1 && <SiblingRail />}
               {node.children.map((child) => (
-                <div key={child.member.id} className="relative flex items-start">
-                  <span className="absolute -left-4 top-5 h-px w-4 bg-[#7fb55d]" />
+                <div key={child.member.id} className="relative flex flex-col items-center">
+                  <ConnectionDrop />
                   {renderNode(child, level + 1)}
                 </div>
               ))}
             </div>
-          )
+          </div>
         )}
       </div>
     );
@@ -717,6 +764,7 @@ export function OrgTreeViewer({
           exporting && "print:min-h-0 print:overflow-visible",
         )}
       >
+        <OrgRadar total={stats.total} />
         <div className="hidden print:mb-4 print:block">
           <div className="rounded-xl border border-ig-border-subtle bg-ig-panel p-4">
             <div className="flex items-start justify-between gap-4">
@@ -872,9 +920,14 @@ function NodePlatform({
 
 function ConnectionStem({ level }: { level: number }) {
   return (
-    <div className={cn("relative w-px bg-gradient-to-b from-ig-accent via-ig-border-focus to-transparent", level === 0 ? "h-16" : "h-10")}>
-      <span className="absolute left-1/2 top-0 h-2.5 w-2.5 -translate-x-1/2 rounded-full bg-ig-accent shadow-[0_0_22px_var(--ig-accent)]" />
-      <span className="absolute left-1/2 bottom-0 h-1.5 w-1.5 -translate-x-1/2 rounded-full bg-ig-accent shadow-[0_0_16px_var(--ig-accent)]" />
+    <div
+      className={cn(
+        "relative w-0.5 bg-ig-accent shadow-[0_0_18px_color-mix(in_oklab,var(--ig-accent)_72%,transparent)]",
+        level === 0 ? "h-16" : "h-10",
+      )}
+    >
+      <span className="absolute -top-1 left-1/2 h-2.5 w-2.5 -translate-x-1/2 rounded-full bg-ig-accent shadow-[0_0_22px_var(--ig-accent)]" />
+      <span className="absolute -bottom-1 left-1/2 h-2.5 w-2.5 -translate-x-1/2 rounded-full bg-ig-accent shadow-[0_0_20px_var(--ig-accent)]" />
     </div>
   );
 }
@@ -899,18 +952,19 @@ function CascadeRail() {
 
 function ConnectionDrop() {
   return (
-    <div className="relative h-10 w-px bg-gradient-to-b from-transparent via-ig-border-focus to-ig-border-subtle">
-      <span className="absolute left-1/2 top-0 h-1.5 w-1.5 -translate-x-1/2 rounded-full border border-ig-border-focus bg-ig-panel" />
+    <div className="relative h-10 w-0.5 bg-ig-accent shadow-[0_0_16px_color-mix(in_oklab,var(--ig-accent)_66%,transparent)]">
+      <span className="absolute -top-1 left-1/2 h-2.5 w-2.5 -translate-x-1/2 rounded-full bg-ig-accent shadow-[0_0_18px_var(--ig-accent)]" />
+      <span className="absolute -bottom-1 left-1/2 h-2 w-2 -translate-x-1/2 rounded-full bg-ig-accent shadow-[0_0_16px_var(--ig-accent)]" />
     </div>
   );
 }
 
 function SiblingRail() {
   return (
-    <div className="absolute left-10 right-10 top-0 h-px bg-gradient-to-r from-transparent via-ig-accent to-transparent shadow-[0_0_24px_color-mix(in_oklab,var(--ig-accent)_55%,transparent)]">
-      <span className="absolute inset-x-16 top-1 h-8 rounded-[50%] border-t border-ig-border-focus/35 opacity-70 [transform:rotateX(62deg)]" />
-      <span className="absolute left-0 top-0 h-2 w-2 -translate-y-1/2 rounded-full bg-ig-accent shadow-[0_0_16px_var(--ig-accent)]" />
-      <span className="absolute right-0 top-0 h-2 w-2 -translate-y-1/2 rounded-full bg-ig-accent shadow-[0_0_16px_var(--ig-accent)]" />
+    <div className="absolute left-10 right-10 top-0 z-0 h-0.5 bg-ig-accent shadow-[0_0_22px_color-mix(in_oklab,var(--ig-accent)_70%,transparent)]">
+      <span className="absolute inset-x-16 top-1 h-8 rounded-[50%] border-t border-ig-border-focus/45 opacity-80 [transform:rotateX(62deg)]" />
+      <span className="absolute left-0 top-1/2 h-2.5 w-2.5 -translate-y-1/2 rounded-full bg-ig-accent shadow-[0_0_18px_var(--ig-accent)]" />
+      <span className="absolute right-0 top-1/2 h-2.5 w-2.5 -translate-y-1/2 rounded-full bg-ig-accent shadow-[0_0_18px_var(--ig-accent)]" />
     </div>
   );
 }

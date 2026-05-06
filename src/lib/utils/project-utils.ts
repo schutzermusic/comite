@@ -271,14 +271,14 @@ export function generateProjectAlerts(project: ProjectV2): ProjectAlert[] {
         });
     }
 
-    // 6. Pending governance (no deliberations linked)
+    // 6. Pending governance (no committee decision linked)
     if ((project.governance?.deliberation_ids?.length || 0) === 0 && project.status === 'em_andamento') {
         alerts.push({
             id: `alert-${++alertId}`,
             severity: 'low',
-            message: 'Nenhuma deliberação vinculada ao projeto',
+            message: 'Nenhuma decisão de comitê vinculada ao projeto',
             action: 'create_deliberation',
-            actionLabel: 'Criar Deliberação',
+            actionLabel: 'Criar decisão',
             category: 'approval',
         });
     }
@@ -510,13 +510,13 @@ export function computeActionItems(project: ProjectV2): ActionItem[] {
         }
     }
 
-    // 8. Pending approvals (no link to deliberations)
+    // 8. Pending approvals (no linked committee decision)
     if ((project.governance?.deliberation_ids?.length || 0) === 0 && project.status === 'em_andamento') {
         items.push({
             id: `act-${++seq}`,
             type: 'approval',
             severity: 'info',
-            title: 'Nenhuma deliberação vinculada ao projeto',
+            title: 'Nenhuma decisão de comitê vinculada ao projeto',
             status: 'open',
             source: { entity: 'deliberation', ruleId: 'no-linked-deliberation' },
             createdAt: nowISO,

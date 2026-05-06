@@ -252,13 +252,19 @@ function HealthGauge({ score, periodLabel, scenarioLabel }: { score: number; per
             const angle = (i / 36) * Math.PI * 2;
             const inner = 86;
             const outer = i % 4 === 0 ? 92 : 89;
+            const tick = {
+              x1: (90 + Math.cos(angle) * inner).toFixed(3),
+              y1: (90 + Math.sin(angle) * inner).toFixed(3),
+              x2: (90 + Math.cos(angle) * outer).toFixed(3),
+              y2: (90 + Math.sin(angle) * outer).toFixed(3),
+            };
             return (
               <line
                 key={i}
-                x1={90 + Math.cos(angle) * inner}
-                y1={90 + Math.sin(angle) * inner}
-                x2={90 + Math.cos(angle) * outer}
-                y2={90 + Math.sin(angle) * outer}
+                x1={tick.x1}
+                y1={tick.y1}
+                x2={tick.x2}
+                y2={tick.y2}
                 stroke="color-mix(in oklab, var(--ig-fg-subtle) 60%, transparent)"
                 strokeWidth="0.6"
               />

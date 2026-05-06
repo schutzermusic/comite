@@ -12,6 +12,7 @@ import {
     DollarSign,
     FileCheck,
     FileX,
+    ShieldCheck,
     type LucideIcon,
 } from 'lucide-react';
 import { differenceInDays, differenceInHours, format } from 'date-fns';
@@ -155,8 +156,8 @@ export function DecisionList({ items, selectedId, onSelectItem }: DecisionListPr
                 <div className="w-12 h-12 rounded-full bg-ig-panel-hover flex items-center justify-center mb-3">
                     <FileX className="w-6 h-6 text-ig-fg-subtle" />
                 </div>
-                <p className="text-sm text-ig-fg-muted">Nenhuma deliberação encontrada para este filtro.</p>
-                <p className="text-[11px] text-ig-fg-subtle mt-1">Tente outro status ou remova os filtros ativos.</p>
+                <p className="text-sm text-ig-fg-muted">Nenhuma decisão encontrada para este filtro.</p>
+                <p className="text-[11px] text-ig-fg-subtle mt-1">Tente outro status, comitê ou responsável.</p>
             </div>
         );
     }
@@ -189,7 +190,7 @@ export function DecisionList({ items, selectedId, onSelectItem }: DecisionListPr
                         )}
 
                         {/* Title row */}
-                        <div className="flex items-start gap-2 mb-2 pr-4">
+                        <div className="mb-2 flex items-start gap-2 pr-4">
                             <h4 className="text-sm font-medium text-ig-fg-strong line-clamp-2 flex-1 leading-snug">
                                 {item.title}
                             </h4>
@@ -205,16 +206,19 @@ export function DecisionList({ items, selectedId, onSelectItem }: DecisionListPr
                             )}
                             {progress && (
                                 <span className="text-[10px] text-ig-fg-subtle font-mono">
-                                    Etapa {progress.current}/{progress.total}
+                                    Fluxo {progress.current}/{progress.total}
                                 </span>
                             )}
                         </div>
 
-                        {/* Status badge */}
-                        <div className="mb-2.5">
+                        <div className="mb-2.5 flex flex-wrap items-center gap-2">
                             <HudBadge variant={meta.badgeVariant} size="sm" dot>
                                 {meta.label}
                             </HudBadge>
+                            <span className="flex items-center gap-1 rounded-full border border-ig-border-subtle bg-ig-panel/70 px-2 py-0.5 text-[10px] font-medium text-ig-fg-muted">
+                                <ShieldCheck className="h-3 w-3 text-ig-accent" />
+                                Quórum {item.quorumPresent ?? item.votes?.length ?? 0}/{item.quorumRequired ?? '-'}
+                            </span>
                         </div>
 
                         {/* Meta strip: SLA, financial, risk, evidence */}
@@ -251,6 +255,10 @@ export function DecisionList({ items, selectedId, onSelectItem }: DecisionListPr
                                 ) : (
                                     <><FileX className="w-3 h-3 text-ig-warning" /><span className="text-ig-warning">Evidências pendentes</span></>
                                 )}
+                            </span>
+
+                            <span className="text-ig-fg-subtle">
+                                Responsável: <span className="text-ig-fg-muted">{item.ownerName || item.createdByName || item.createdBy}</span>
                             </span>
                         </div>
 

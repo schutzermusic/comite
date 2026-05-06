@@ -10,7 +10,7 @@ export default function ConfiguracoesLayout({
   return (
     <div className="flex min-h-screen">
       <SettingsNav />
-      <div className="relative flex-1 px-5 py-6 md:max-w-3xl md:px-8 md:py-8">
+      <div className="relative min-w-0 flex-1 px-5 py-6 md:px-8 md:py-8">
         {children}
         <SettingsFooter />
       </div>

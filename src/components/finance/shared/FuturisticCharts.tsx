@@ -1189,3 +1189,238 @@ export function FinanceRadialProgress({
     </div>
   );
 }
+
+/* --------------------------------------------------------------- */
+/* RANK MATRIX — Bloomberg-style ranked diverging bars              */
+/* --------------------------------------------------------------- */
+
+export interface RankRow {
+  id?: string;
+  label: string;
+  meta?: string;
+  value: number;          // primary metric used for ranking & bar length
+  secondaryLabel?: string;
+  secondary?: string;     // pre-formatted secondary (e.g. "HC 84", "R$ 2.4M")
+  tone?: Tone;            // override color; otherwise positive→success / negative→danger
+  benchmark?: number;     // optional reference line on the bar
+}
+
+export interface FinanceRankMatrixProps {
+  rows: RankRow[];
+  height?: number;
+  /** 'diverging' centers at zero; 'progress' is unidirectional from min(0) to max */
+  mode?: 'diverging' | 'progress';
+  /** Optional override for axis max; auto if not set */
+  max?: number;
+  /** Format for the value label printed at the end of the row */
+  valueFormatter?: (v: number) => string;
+  /** Header column titles */
+  headers?: { rank?: string; label?: string; bar?: string; secondary?: string };
+  /** Sort direction by value */
+  sort?: 'desc' | 'asc' | 'none';
+  /** Optional X axis tick formatter for the bar scale */
+  axisFormatter?: (v: number) => string;
+}
+
+/**
+ * Per-row bar (SVG, fills its column). Pure positional math in % so it
+ * scales with the parent grid column without colliding with text columns.
+ */
+function RankBarRow({
+  uid, value, mode, rangeMin, rangeMax, tone, benchmark,
+  height = 18,
+}: {
+  uid: string; value: number; mode: 'diverging' | 'progress';
+  rangeMin: number; rangeMax: number; tone: Tone; benchmark?: number; height?: number;
+}) {
+  const theme = useChartTheme();
+  const range = (rangeMax - rangeMin) || 1;
+  const pos = (v: number) => ((v - rangeMin) / range) * 100;
+  const zero = pos(0);
+  const v = pos(value);
+  const x0 = mode === 'diverging' ? Math.min(zero, v) : 0;
+  const x1 = mode === 'diverging' ? Math.max(zero, v) : v;
+  const W = 1000;        // viewBox units
+  const barH = height;
+  return (
+    <svg viewBox={`0 0 ${W} ${barH}`} preserveAspectRatio="none"
+      width="100%" height={barH} className="block">
+      <ChartDefs uid={uid} palette={theme.palette} tones={[tone]} />
+      {mode === 'diverging' && (
+        <line x1={(zero / 100) * W} x2={(zero / 100) * W} y1={0} y2={barH}
+          stroke={theme.axis} strokeOpacity={0.85} />
+      )}
+      <rect
+        x={(x0 / 100) * W} y={1}
+        width={Math.max(2, ((x1 - x0) / 100) * W)} height={barH - 2}
+        rx={3} ry={3}
+        fill={`url(#bar-${tone}-${uid})`}
+        stroke={theme.palette[tone]} strokeOpacity={0.55} strokeWidth={0.6}
+        filter={`url(#softglow-${uid})`}
+      />
+      {benchmark !== undefined && (
+        <line x1={(pos(benchmark) / 100) * W} x2={(pos(benchmark) / 100) * W}
+          y1={-1} y2={barH + 1}
+          stroke={theme.textStrong} strokeOpacity={0.55}
+          strokeDasharray="2 2" strokeWidth={1.2} />
+      )}
+    </svg>
+  );
+}
+
+export function FinanceRankMatrix({
+  rows,
+  mode = 'diverging',
+  max,
+  valueFormatter,
+  headers,
+  sort = 'desc',
+  axisFormatter,
+}: FinanceRankMatrixProps) {
+  const uid = useId();
+  const theme = useChartTheme();
+
+  const sorted = useMemo(() => {
+    if (sort === 'none') return rows;
+    return [...rows].sort((a, b) => sort === 'desc' ? b.value - a.value : a.value - b.value);
+  }, [rows, sort]);
+
+  const absMax = max ?? Math.max(...sorted.map((r) => Math.abs(r.value)), 1);
+  const rangeMin = mode === 'diverging' ? -absMax : Math.min(0, ...sorted.map((r) => r.value));
+  const rangeMax = mode === 'diverging' ? absMax : absMax;
+
+  const ticks = mode === 'diverging' ? 4 : 5;
+  const tickStep = (rangeMax - rangeMin) / ticks;
+  const tickVals = Array.from({ length: ticks + 1 }, (_, i) => rangeMin + tickStep * i);
+
+  // 5-column grid:
+  //   rank (28px) · label/meta (1.6fr min 160) · bar (2.4fr min 200)
+  //   value (84px) · secondary (auto, capped)
+  const gridCols = 'minmax(28px, 32px) minmax(160px, 1.6fr) minmax(200px, 2.4fr) 90px minmax(0, 160px)';
+
+  return (
+    <div className="w-full" style={{ color: theme.text }}>
+      {/* Header */}
+      <div
+        className="grid items-center gap-x-3 px-2 pb-1.5 border-b border-ig-border-subtle"
+        style={{ gridTemplateColumns: gridCols }}
+      >
+        <span className="text-[9.5px] uppercase tracking-[0.14em] text-ig-text-tertiary text-right">
+          {headers?.rank ?? '#'}
+        </span>
+        <span className="text-[9.5px] uppercase tracking-[0.14em] text-ig-text-tertiary truncate">
+          {headers?.label ?? 'Item'}
+        </span>
+        <span className="text-[9.5px] uppercase tracking-[0.14em] text-ig-text-tertiary truncate">
+          {headers?.bar ?? 'Primary'}
+        </span>
+        <span className="text-[9.5px] uppercase tracking-[0.14em] text-ig-text-tertiary text-right truncate">
+          Δ
+        </span>
+        <span className="text-[9.5px] uppercase tracking-[0.14em] text-ig-text-tertiary text-right truncate">
+          {headers?.secondary ?? ''}
+        </span>
+      </div>
+
+      {/* Rows */}
+      <ul className="divide-y divide-ig-border-subtle/40">
+        {sorted.map((r, i) => {
+          const tone: Tone = r.tone ?? (r.value >= 0 ? 'success' : 'danger');
+          const formattedValue = valueFormatter
+            ? valueFormatter(r.value)
+            : `${r.value >= 0 ? '+' : ''}${r.value.toFixed(1)}`;
+          return (
+            <li
+              key={r.id ?? i}
+              className={
+                'grid items-center gap-x-3 px-2 py-2 transition-colors hover:bg-ig-surface-subtle/30 ' +
+                (i % 2 === 1 ? 'bg-ig-surface-subtle/15' : '')
+              }
+              style={{ gridTemplateColumns: gridCols }}
+            >
+              <span className="text-[10.5px] font-mono tabular-nums text-ig-text-tertiary text-right">
+                {String(i + 1).padStart(2, '0')}
+              </span>
+
+              <div className="min-w-0">
+                <div
+                  className="text-[12.5px] font-medium text-ig-text-primary truncate leading-tight"
+                  title={r.label}
+                >
+                  {r.label}
+                </div>
+                {r.meta && (
+                  <div
+                    className="text-[10.5px] text-ig-text-tertiary truncate leading-tight mt-0.5"
+                    title={r.meta}
+                  >
+                    {r.meta}
+                  </div>
+                )}
+              </div>
+
+              <div className="min-w-0">
+                <RankBarRow
+                  uid={uid}
+                  value={r.value}
+                  mode={mode}
+                  rangeMin={rangeMin}
+                  rangeMax={rangeMax}
+                  tone={tone}
+                  benchmark={r.benchmark}
+                />
+              </div>
+
+              <span
+                className="text-[11px] font-mono tabular-nums font-semibold text-right whitespace-nowrap"
+                style={{ color: theme.palette[tone] }}
+              >
+                {formattedValue}
+              </span>
+
+              <div className="min-w-0 text-right">
+                {r.secondaryLabel && (
+                  <div className="text-[9px] uppercase tracking-[0.12em] text-ig-text-tertiary truncate leading-tight">
+                    {r.secondaryLabel}
+                  </div>
+                )}
+                {r.secondary && (
+                  <div
+                    className="text-[11.5px] font-mono tabular-nums text-ig-text-secondary truncate leading-tight"
+                    title={r.secondary}
+                  >
+                    {r.secondary}
+                  </div>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+
+      {/* Bottom axis ticks (only beneath the bar column) */}
+      <div
+        className="grid items-center gap-x-3 px-2 pt-1.5 mt-0.5 border-t border-ig-border-subtle/60"
+        style={{ gridTemplateColumns: gridCols }}
+      >
+        <span />
+        <span />
+        <div className="relative h-3.5">
+          {tickVals.map((v, i) => (
+            <span
+              key={i}
+              className="absolute top-0 -translate-x-1/2 text-[9.5px] font-mono tabular-nums text-ig-text-tertiary"
+              style={{ left: `${((v - rangeMin) / ((rangeMax - rangeMin) || 1)) * 100}%` }}
+            >
+              {axisFormatter
+                ? axisFormatter(v)
+                : (mode === 'diverging' ? `${v >= 0 ? '+' : ''}${v.toFixed(0)}` : fmtCompact(v))}
+            </span>
+          ))}
+        </div>
+        <span />
+        <span />
+      </div>
+    </div>
+  );
+}

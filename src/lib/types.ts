@@ -396,6 +396,12 @@ export type DeliberationItem = AgendaBacklogItem & {
     url: string;
     type: 'document' | 'link' | 'other';
   }>;
+  linkedEntities?: Array<{
+    id: string;
+    label: string;
+    type: 'project' | 'contract' | 'risk' | 'cost' | 'person' | 'meeting';
+    href?: string;
+  }>;
   reviews?: ReviewStatus[];
 
   recommendation?: 'approve' | 'reject' | 'adjust';

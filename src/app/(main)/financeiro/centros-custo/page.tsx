@@ -15,7 +15,7 @@ import {
   FinanceTreemapChart,
   FinanceDonutChart,
   FinanceStackedBarChart,
-  FinanceBubbleChart,
+  FinanceRankMatrix,
   fmtBRL, fmtPct, fmtCompactBRL,
   type FinancePeriod, type FinanceScenario,
 } from '@/components/finance/shared';
@@ -153,23 +153,26 @@ export default function CentrosCustoPage() {
       </HudCard>
 
       <HudCard>
-        <HudCardHeader><HudCardTitle>Bubble — CCs por orçamento, variância e responsável</HudCardTitle></HudCardHeader>
+        <HudCardHeader><HudCardTitle>Ranking de variância por CC</HudCardTitle></HudCardHeader>
         <HudCardContent className="p-3">
-          <FinanceBubbleChart
-            xAxisLabel="Variância %"
-            yAxisLabel="Orçado"
-            xFormatter={(v) => `${v}%`}
-            yFormatter={(v) => fmtCompactBRL(v)}
-            points={CENTERS.map((c) => {
+          <FinanceRankMatrix
+            mode="diverging"
+            sort="asc"
+            headers={{ rank: 'Rank', label: 'Centro de Custo', bar: 'Δ Realizado vs Orçado', secondary: 'Headcount / Orçado' }}
+            valueFormatter={(v) => `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`}
+            axisFormatter={(v) => `${v >= 0 ? '+' : ''}${v.toFixed(0)}%`}
+            rows={CENTERS.map((c) => {
               const v = ((c.actual - c.budget) / c.budget) * 100;
               return {
-                id: c.id, label: c.code,
-                x: Math.round(v * 10) / 10, y: c.budget, size: c.actual,
-                tone: v > 5 ? 'danger' : v > 0 ? 'warning' : 'success',
-                meta: `${c.name} • ${c.director}`,
+                id: c.id,
+                label: `${c.code} ${c.name}`,
+                meta: c.director,
+                value: Math.round(v * 10) / 10,
+                tone: (v > 5 ? 'danger' : v > 0 ? 'warning' : 'success') as 'danger' | 'warning' | 'success',
+                secondaryLabel: 'HC • Orçado',
+                secondary: `${c.headcount} • ${fmtCompactBRL(c.budget)}`,
               };
             })}
-            height={320}
           />
         </HudCardContent>
       </HudCard>

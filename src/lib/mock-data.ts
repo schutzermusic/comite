@@ -1424,7 +1424,7 @@ export const meetings: Meeting[] = [
   {
     id: "mtg-003",
     titulo: "Assembleia Geral Extraordinária",
-    descricao: "Deliberação sobre fusão com subsidiária e emissão de novos títulos.",
+    descricao: "Decisão de comitê sobre fusão com subsidiária e emissão de novos títulos.",
     dataHoraInicio: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
     duracaoMinutos: 180,
     tipoReuniao: "hibrida",

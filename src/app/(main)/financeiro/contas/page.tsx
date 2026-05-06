@@ -2,14 +2,14 @@
 
 import { useState, useMemo } from 'react';
 import { useTranslations } from 'next-intl';
-import { CreditCard, Plus, ArrowDownLeft, ArrowUpRight, CalendarRange, X } from 'lucide-react';
-import ReactECharts from 'echarts-for-react';
-import { useTheme } from '@/contexts/ThemeContext';
+import { CreditCard, Plus, ArrowDownLeft, ArrowUpRight, CalendarRange, AlertTriangle, Clock3, ShieldCheck } from 'lucide-react';
 import {
   HudPageLayout, HudHeader, HudKpiStrip, HudTable, HudButton,
   HudStatusPill, HudDrawer, HudInput, HudSelect,
+  HudPanel, HudFilterBar,
   type KpiItem, type HudTableColumn,
 } from '@/components/hud';
+import { FinanceBarChart, FinanceSparkline } from '@/components/finance/shared';
 import {
   getAPARTitles, createAPARTitle, getSuppliers, getClients,
   computeAgingBuckets, formatBRL, formatCompactBRL, reaisToCents,
@@ -17,11 +17,10 @@ import {
 import type { APARTitle } from '@/lib/types/finance';
 
 const STATUS_VARIANTS: Record<string, string> = { open: 'info', partial: 'warning', paid: 'completed', overdue: 'error', cancelled: 'error' };
+const STATUS_LABELS: Record<string, string> = { open: 'Aberto', partial: 'Parcial', paid: 'Pago', overdue: 'Vencido', cancelled: 'Cancelado', pending: 'Pendente' };
 
 export default function ContasPage() {
   const t = useTranslations('finance');
-  const { theme } = useTheme();
-  const isLight = theme === 'light';
   const [activeTab, setActiveTab] = useState('receivable');
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -61,6 +60,12 @@ export default function ContasPage() {
 
   const totalPayable = filteredPayables.filter(t => t.status !== 'cancelled' && t.status !== 'paid').reduce((s, t) => s + (t.amount_cents - t.paid_amount_cents), 0);
   const totalReceivable = filteredReceivables.filter(t => t.status !== 'cancelled' && t.status !== 'paid').reduce((s, t) => s + (t.amount_cents - t.paid_amount_cents), 0);
+  const overdueExposure = [...filteredPayables, ...filteredReceivables]
+    .filter(title => title.status === 'overdue')
+    .reduce((sum, title) => sum + (title.amount_cents - title.paid_amount_cents), 0);
+  const partialTitles = [...filteredPayables, ...filteredReceivables].filter(title => title.status === 'partial').length;
+  const activeTitles = [...filteredPayables, ...filteredReceivables].filter(title => !['cancelled', 'paid'].includes(title.status)).length;
+  const agingTrend = agingBuckets.map(bucket => bucket.receivable - bucket.payable);
 
   const kpis: KpiItem[] = [
     { id: 'ar', label: t('receivable'), value: formatCompactBRL(totalReceivable), icon: <ArrowDownLeft className="w-5 h-5" />, variant: 'success' },
@@ -85,31 +90,19 @@ export default function ContasPage() {
   const currentData = activeTab === 'receivable' ? filteredReceivables : filteredPayables;
 
   const columns: HudTableColumn<APARTitle>[] = [
-    { key: 'title_number', header: t('titleNumber'), cell: (title) => <span className="text-white/80 text-xs font-mono">{title.title_number}</span> },
-    { key: 'entity', header: activeTab === 'receivable' ? 'Cliente' : t('supplier'), cell: (title) => <span className="text-white/70 text-xs">{title.client?.name || title.supplier?.name || '—'}</span> },
-    { key: 'issue_date', header: t('issueDate'), cell: (title) => <span className="text-white/60 text-xs font-mono">{title.issue_date}</span> },
-    { key: 'due_date', header: t('dueDate'), cell: (title) => <span className="text-white/60 text-xs font-mono">{title.due_date}</span> },
-    { key: 'amount_cents', header: t('amount'), cell: (title) => <span className="text-white/80 text-xs font-mono">{formatBRL(title.amount_cents)}</span> },
-    { key: 'paid_amount_cents', header: t('paidAmount'), cell: (title) => <span className="text-white/60 text-xs font-mono">{formatBRL(title.paid_amount_cents)}</span> },
-    { key: 'status', header: 'Status', cell: (title) => <HudStatusPill variant={STATUS_VARIANTS[title.status] as any} size="sm">{title.status}</HudStatusPill> },
+    { key: 'title_number', header: t('titleNumber'), cell: (title) => <span className="font-mono text-xs text-ig-fg-strong">{title.title_number}</span> },
+    { key: 'entity', header: activeTab === 'receivable' ? 'Cliente' : t('supplier'), cell: (title) => (
+      <div className="min-w-0">
+        <span className="block truncate text-xs font-medium text-ig-fg-strong">{title.client?.name || title.supplier?.name || '—'}</span>
+        <span className="text-[10px] uppercase tracking-[0.14em] text-ig-fg-subtle">{title.type === 'receivable' ? 'Recebível' : 'Pagável'}</span>
+      </div>
+    ) },
+    { key: 'issue_date', header: t('issueDate'), cell: (title) => <span className="font-mono text-xs text-ig-fg-muted">{title.issue_date}</span> },
+    { key: 'due_date', header: t('dueDate'), cell: (title) => <span className="font-mono text-xs text-ig-fg-muted">{title.due_date}</span> },
+    { key: 'amount_cents', header: t('amount'), align: 'right', cell: (title) => <span className="block font-mono text-xs text-ig-fg-strong">{formatBRL(title.amount_cents)}</span> },
+    { key: 'paid_amount_cents', header: t('paidAmount'), align: 'right', cell: (title) => <span className="block font-mono text-xs text-ig-fg-muted">{formatBRL(title.paid_amount_cents)}</span> },
+    { key: 'status', header: 'Status', cell: (title) => <HudStatusPill variant={STATUS_VARIANTS[title.status] as any} size="sm">{STATUS_LABELS[title.status] ?? title.status}</HudStatusPill> },
   ];
-
-  const agingOption = {
-    tooltip: {
-      trigger: 'axis' as const,
-      backgroundColor: isLight ? 'rgba(255,255,255,0.96)' : '#162522',
-      borderColor: isLight ? 'rgba(0,0,0,0.08)' : 'rgba(200,220,235,0.12)',
-      textStyle: { color: isLight ? '#1C1F24' : '#f0fdf8' },
-    },
-    legend: { data: [t('receivable'), t('payable')], textStyle: { color: isLight ? '#4B5563' : '#94a3b8', fontSize: 10 }, bottom: 0 },
-    grid: { left: 60, right: 16, top: 16, bottom: 40 },
-    xAxis: { type: 'category' as const, data: agingBuckets.map(b => b.label), axisLabel: { color: isLight ? '#4B5563' : '#64748b', fontSize: 10 }, axisLine: { lineStyle: { color: isLight ? 'rgba(0,0,0,0.08)' : '#1e293b' } } },
-    yAxis: { type: 'value' as const, axisLabel: { color: isLight ? '#6B7280' : '#64748b', fontSize: 10, formatter: (v: number) => formatCompactBRL(v) }, splitLine: { lineStyle: { color: isLight ? 'rgba(0,0,0,0.05)' : '#1e293b' } } },
-    series: [
-      { name: t('receivable'), type: 'bar', data: agingBuckets.map(b => b.receivable), itemStyle: { color: '#10b981' } },
-      { name: t('payable'), type: 'bar', data: agingBuckets.map(b => -b.payable), itemStyle: { color: '#ef4444' } },
-    ],
-  };
 
   const handleSave = () => {
     if (!formTitleNumber || !formAmount || !formDueDate) return;
@@ -137,91 +130,84 @@ export default function ContasPage() {
       />
       <HudKpiStrip kpis={kpis} columns={3} />
 
-      {/* Period & Status Filters */}
-      <div className="mt-4 flex flex-col md:flex-row items-stretch md:items-end gap-3 p-3 rounded-xl border border-white/[0.12] bg-[#0e1614] backdrop-blur-sm finance-filter-bar">
-        <div className="flex flex-col gap-1">
-          <span className="text-[11px] font-medium text-white/50 uppercase tracking-wider px-0.5">Filtrar por</span>
-          <select
-            value={filterDateField}
-            onChange={(e) => setFilterDateField(e.target.value as any)}
-            className="h-9 min-w-[140px] px-3 rounded-lg text-sm font-medium border border-white/[0.12] text-slate-100 focus:outline-none focus:border-cyan-500/40 focus:ring-1 focus:ring-cyan-500/20 hover:border-white/[0.18] transition-colors cursor-pointer appearance-none bg-no-repeat bg-[length:16px] bg-[right_8px_center] pr-8"
-            style={{
-              backgroundImage: "url(\"data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e\")",
-              backgroundColor: '#121e1b',
-            }}
-          >
-            <option value="due_date" className="bg-[#0e1614]">{t('dueDate')}</option>
-            <option value="issue_date" className="bg-[#0e1614]">{t('issueDate')}</option>
-          </select>
-        </div>
-
-        <div className="flex items-end gap-2">
-          <div className="flex flex-col gap-1">
-            <span className="text-[11px] font-medium text-white/50 uppercase tracking-wider px-0.5">De</span>
-            <div className="relative">
-              <CalendarRange className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/30" />
-              <input
-                type="date"
-                value={filterDateFrom}
-                onChange={(e) => setFilterDateFrom(e.target.value)}
-                className="h-9 pl-8 pr-3 rounded-lg text-sm text-white border border-white/[0.12] focus:outline-none focus:border-cyan-500/40 focus:ring-1 focus:ring-cyan-500/20 transition-colors"
-                style={{ backgroundColor: '#121e1b', colorScheme: 'dark' }}
-              />
+      <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+        {[
+          { label: 'Títulos ativos', value: activeTitles.toString(), meta: `${partialTitles} parciais`, icon: <ShieldCheck className="h-4 w-4" />, tone: 'var(--ig-info)' },
+          { label: 'Exposição vencida', value: formatCompactBRL(overdueExposure), meta: 'Aging consolidado', icon: <AlertTriangle className="h-4 w-4" />, tone: 'var(--ig-danger)' },
+          { label: 'Saldo por vencimento', value: formatCompactBRL(totalReceivable - totalPayable), meta: 'Receber menos pagar', icon: <Clock3 className="h-4 w-4" />, tone: 'var(--ig-accent)' },
+        ].map((item) => (
+          <div key={item.label} className="ig-glass relative overflow-hidden rounded-2xl p-4" data-elev={2} data-sweep>
+            <span data-ig-noise="" />
+            <span data-ig-specular="" />
+            <div data-ig-content="" className="relative flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-ig-fg-subtle">{item.label}</p>
+                <p className="mt-1 font-mono text-lg font-semibold text-ig-fg-strong">{item.value}</p>
+                <p className="mt-1 text-xs text-ig-fg-muted">{item.meta}</p>
+              </div>
+              <span className="inline-flex h-9 w-9 items-center justify-center rounded-[10px]" style={{ color: item.tone, background: `color-mix(in oklab, ${item.tone} 12%, transparent)` }}>
+                {item.icon}
+              </span>
             </div>
           </div>
-          <div className="flex flex-col gap-1">
-            <span className="text-[11px] font-medium text-white/50 uppercase tracking-wider px-0.5">Até</span>
-            <div className="relative">
-              <CalendarRange className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/30" />
-              <input
-                type="date"
-                value={filterDateTo}
-                onChange={(e) => setFilterDateTo(e.target.value)}
-                className="h-9 pl-8 pr-3 rounded-lg text-sm text-white border border-white/[0.12] focus:outline-none focus:border-cyan-500/40 focus:ring-1 focus:ring-cyan-500/20 transition-colors"
-                style={{ backgroundColor: '#121e1b', colorScheme: 'dark' }}
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="flex flex-col gap-1">
-          <span className="text-[11px] font-medium text-white/50 uppercase tracking-wider px-0.5">Status</span>
-          <select
-            value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value)}
-            className="h-9 min-w-[140px] px-3 rounded-lg text-sm font-medium border border-white/[0.12] text-slate-100 focus:outline-none focus:border-cyan-500/40 focus:ring-1 focus:ring-cyan-500/20 hover:border-white/[0.18] transition-colors cursor-pointer appearance-none bg-no-repeat bg-[length:16px] bg-[right_8px_center] pr-8"
-            style={{
-              backgroundImage: "url(\"data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e\")",
-              backgroundColor: '#121e1b',
-            }}
-          >
-            <option value="" className="bg-[#0e1614]">Todos</option>
-            <option value="open" className="bg-[#0e1614]">Aberto</option>
-            <option value="partial" className="bg-[#0e1614]">Parcial</option>
-            <option value="paid" className="bg-[#0e1614]">Pago</option>
-            <option value="overdue" className="bg-[#0e1614]">Vencido</option>
-            <option value="cancelled" className="bg-[#0e1614]">Cancelado</option>
-          </select>
-        </div>
-
-        {hasActiveFilters && (
-          <button
-            onClick={clearFilters}
-            className="h-9 flex items-center gap-1.5 px-3 rounded-lg border border-amber-500/30 bg-amber-500/15 text-amber-200 text-sm font-medium hover:bg-amber-500/20 hover:border-amber-500/40 transition-colors self-end"
-          >
-            <X className="w-3.5 h-3.5" />
-            Limpar
-          </button>
-        )}
+        ))}
       </div>
 
-      <div className="flex gap-1.5 mt-4">
+      <div className="mt-4">
+        <HudFilterBar
+          compact
+          filterGroups={[
+            {
+              id: 'dateField',
+              label: 'Filtrar por',
+              value: filterDateField,
+              onChange: (value) => setFilterDateField(value as 'due_date' | 'issue_date'),
+              options: [
+                { value: 'due_date', label: t('dueDate') },
+                { value: 'issue_date', label: t('issueDate') },
+              ],
+            },
+            {
+              id: 'status',
+              label: 'Status',
+              value: filterStatus,
+              onChange: setFilterStatus,
+              options: [
+                { value: '', label: 'Todos' },
+                { value: 'open', label: 'Aberto' },
+                { value: 'partial', label: 'Parcial' },
+                { value: 'paid', label: 'Pago' },
+                { value: 'overdue', label: 'Vencido' },
+                { value: 'cancelled', label: 'Cancelado' },
+              ],
+            },
+          ]}
+          activeFiltersCount={[filterDateFrom, filterDateTo, filterStatus].filter(Boolean).length}
+          onClearFilters={clearFilters}
+          rightContent={
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="hud-filter-block flex min-h-9 items-center gap-2 px-2.5 py-1.5">
+                <CalendarRange className="h-3.5 w-3.5 text-ig-fg-subtle" />
+                <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ig-fg-subtle">De</span>
+                <input type="date" value={filterDateFrom} onChange={(e) => setFilterDateFrom(e.target.value)} className="hud-filter-input border-0 bg-transparent text-sm text-ig-fg-strong focus:outline-none focus:ring-0" />
+              </label>
+              <label className="hud-filter-block flex min-h-9 items-center gap-2 px-2.5 py-1.5">
+                <CalendarRange className="h-3.5 w-3.5 text-ig-fg-subtle" />
+                <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ig-fg-subtle">Até</span>
+                <input type="date" value={filterDateTo} onChange={(e) => setFilterDateTo(e.target.value)} className="hud-filter-input border-0 bg-transparent text-sm text-ig-fg-strong focus:outline-none focus:ring-0" />
+              </label>
+            </div>
+          }
+        />
+      </div>
+
+      <div className="mt-4 flex flex-wrap gap-1.5">
         {tabOptions.map(tab => (
           <button key={tab.value} onClick={() => setActiveTab(tab.value)}
-            className={`px-3 py-1.5 rounded-lg text-[11px] font-medium uppercase tracking-wider transition-all ${
+            className={`rounded-lg border px-3 py-1.5 text-[11px] font-medium uppercase tracking-wider transition-all ${
               activeTab === tab.value
-                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 finance-tab-active'
-                : 'bg-white/[0.04] text-white/40 border border-white/[0.06] hover:bg-white/[0.06] finance-tab-inactive'
+                ? 'border-ig-border-focus bg-ig-accent-weak text-ig-accent finance-tab-active'
+                : 'border-ig-border-subtle bg-ig-panel text-ig-fg-muted hover:bg-ig-raised finance-tab-inactive'
             }`}>
             {tab.label}
           </button>
@@ -230,9 +216,45 @@ export default function ContasPage() {
 
       <div className="mt-4">
         {activeTab === 'aging' ? (
-          <ReactECharts option={agingOption} style={{ height: 320 }} opts={{ renderer: 'svg' }} />
+          <HudPanel
+            title={t('aging')}
+            subtitle="Mapa executivo de vencimentos por fluxo"
+            icon={<Clock3 className="h-4 w-4" />}
+            sweep
+            halo
+          >
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_220px]">
+              <FinanceBarChart
+                categories={agingBuckets.map(b => b.label)}
+                series={[
+                  { name: t('receivable'), data: agingBuckets.map(b => b.receivable), tone: 'success' },
+                  { name: t('payable'), data: agingBuckets.map(b => -b.payable), tone: 'danger' },
+                ]}
+                height={320}
+              />
+              <div className="flex flex-col justify-between rounded-xl border border-ig-border-subtle bg-ig-panel/45 p-4">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-ig-fg-subtle">Curva líquida</p>
+                  <p className="mt-1 text-sm text-ig-fg-muted">Pressão de caixa por bucket.</p>
+                </div>
+                <FinanceSparkline values={agingTrend.length ? agingTrend : [0]} tone={totalReceivable >= totalPayable ? 'success' : 'warning'} height={82} />
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <p className="text-ig-fg-subtle">Receber</p>
+                    <p className="font-mono text-ig-success">{formatCompactBRL(totalReceivable)}</p>
+                  </div>
+                  <div>
+                    <p className="text-ig-fg-subtle">Pagar</p>
+                    <p className="font-mono text-ig-danger">{formatCompactBRL(totalPayable)}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </HudPanel>
         ) : (
-          <HudTable columns={columns} data={currentData} keyExtractor={(title) => title.id} compact stickyHeader />
+          <HudPanel noPadding title={activeTab === 'receivable' ? t('receivable') : t('payable')} subtitle="Carteira operacional com risco, vencimento e liquidação" sweep>
+            <HudTable columns={columns} data={currentData} keyExtractor={(title) => title.id} compact stickyHeader />
+          </HudPanel>
         )}
       </div>
 
@@ -247,7 +269,7 @@ export default function ContasPage() {
             <HudInput label={t('issueDate')} type="date" value={formIssueDate} onChange={(e) => setFormIssueDate(e.target.value)} />
             <HudInput label={t('dueDate')} type="date" value={formDueDate} onChange={(e) => setFormDueDate(e.target.value)} />
           </div>
-          <HudInput label={t('amount')} type="number" value={formAmount} onChange={(e) => setFormAmount(e.target.value)} leftIcon={<span className="text-white/30 text-xs">R$</span>} />
+          <HudInput label={t('amount')} type="number" value={formAmount} onChange={(e) => setFormAmount(e.target.value)} leftIcon={<span className="text-xs text-ig-fg-subtle">R$</span>} />
           <div className="flex gap-3 pt-4">
             <HudButton variant="secondary" onClick={() => setDrawerOpen(false)} fullWidth>Cancelar</HudButton>
             <HudButton variant="primary" onClick={handleSave} fullWidth>Salvar</HudButton>

@@ -1,1051 +1,410 @@
 'use client';
 
-import { useState, useMemo } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useParams, useRouter } from 'next/navigation';
 import { excelContracts } from '@/data/contractsFromExcel.generated';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { HudPanel } from '@/components/hud';
-import { StatusPill } from '@/components/ui/status-pill';
-import { HUDProgressBar } from '@/components/ui/hud-progress-bar';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { getProjects } from '@/lib/services/projects';
+import type { Project } from '@/lib/types';
 import {
-  HudTableElement as Table,
-  HudTableBody as TableBody,
-  HudTableCell as TableCell,
-  HudTableHead as TableHead,
-  HudTableHeader as TableHeader,
-  HudTableRow as TableRow,
+  enrichContractsForGovernance,
+  formatCurrencyCompact,
+  formatCurrencyFull,
+  type ContractGovernanceRecord,
+} from '@/components/contracts/contract-governance-data';
+import {
+  HudBadge,
+  HudButton,
+  HudHeader,
+  HudKpiStrip,
+  HudPageLayout,
+  HudPanel,
+  HudProgressBar,
+  HudStatusPill,
+  HudTabs,
+  type HudTab,
+  type KpiItem,
 } from '@/components/hud';
 import {
   ArrowLeft,
-  FileText,
-  DollarSign,
-  Calendar,
-  AlertTriangle,
-  Shield,
-  Clock,
-  TrendingUp,
-  TrendingDown,
-  CheckCircle,
-  XCircle,
-  AlertCircle,
-  Download,
-  Eye,
+  Archive,
+  BrainCircuit,
   Building2,
-  User,
-  Zap,
-  BarChart3,
-  Activity,
-  Target,
-  Scale,
-  Gavel,
-  FileWarning,
   CalendarClock,
-  Receipt,
+  CheckCircle2,
   ClipboardCheck,
+  Download,
+  FileSearch,
+  FileSignature,
+  FileText,
+  GanttChartSquare,
+  Receipt,
+  Scale,
+  ShieldAlert,
+  ShieldCheck,
+  Workflow,
 } from 'lucide-react';
-import { format, differenceInDays } from 'date-fns';
+import { format } from 'date-fns';
 import { pt } from 'date-fns/locale';
 
-// MOCK: Risk categories for Risk Map
-const mockRiskCategories = [
-  { id: 'legal', name: 'Legal', icon: Scale, count: 3, severity: 'high', items: [
-    { id: 'r1', title: 'Cláusula de rescisão ambígua', impact: 'high', probability: 'medium', status: 'open' },
-    { id: 'r2', title: 'Jurisdição contratual indefinida', impact: 'medium', probability: 'low', status: 'mitigated' },
-    { id: 'r3', title: 'Responsabilidade solidária não delimitada', impact: 'high', probability: 'high', status: 'open' },
-  ]},
-  { id: 'financial', name: 'Financeiro', icon: DollarSign, count: 2, severity: 'medium', items: [
-    { id: 'r4', title: 'Reajuste vinculado ao IGPM', impact: 'medium', probability: 'high', status: 'monitoring' },
-    { id: 'r5', title: 'Multa por atraso desproporcional', impact: 'high', probability: 'medium', status: 'open' },
-  ]},
-  { id: 'operational', name: 'Operacional', icon: Activity, count: 2, severity: 'medium', items: [
-    { id: 'r6', title: 'SLA de atendimento sem penalidade', impact: 'medium', probability: 'high', status: 'open' },
-    { id: 'r7', title: 'Dependência de fornecedor único', impact: 'high', probability: 'medium', status: 'monitoring' },
-  ]},
-  { id: 'compliance', name: 'Compliance', icon: Shield, count: 1, severity: 'low', items: [
-    { id: 'r8', title: 'LGPD - cláusula de proteção de dados', impact: 'medium', probability: 'low', status: 'mitigated' },
-  ]},
-  { id: 'sla', name: 'SLA', icon: Target, count: 2, severity: 'high', items: [
-    { id: 'r9', title: 'Tempo de resposta não definido', impact: 'high', probability: 'high', status: 'open' },
-    { id: 'r10', title: 'Métricas de performance ausentes', impact: 'medium', probability: 'high', status: 'open' },
-  ]},
-];
+type DetailTab = 'summary' | 'clauses' | 'obligations' | 'risks' | 'finance' | 'documents' | 'audit' | 'ai';
 
-// MOCK: Timeline events
-const mockTimelineEvents = [
-  { id: 't1', date: '2023-06-15', type: 'milestone', title: 'Assinatura do Contrato', status: 'completed', icon: FileText },
-  { id: 't2', date: '2023-07-01', type: 'milestone', title: 'Início da Vigência', status: 'completed', icon: CheckCircle },
-  { id: 't3', date: '2023-12-15', type: 'adjustment', title: 'Primeiro Aditivo - Reajuste 5%', status: 'completed', icon: TrendingUp },
-  { id: 't4', date: '2024-06-15', type: 'renewal', title: 'Primeira Renovação Automática', status: 'completed', icon: Calendar },
-  { id: 't5', date: '2024-12-01', type: 'deadline', title: 'Prazo para Notificação de Não-Renovação', status: 'upcoming', icon: AlertCircle },
-  { id: 't6', date: '2025-01-15', type: 'penalty', title: 'Gatilho de Multa por Descumprimento SLA', status: 'at_risk', icon: AlertTriangle },
-  { id: 't7', date: '2025-02-15', type: 'renewal', title: 'Data de Expiração / Renovação', status: 'upcoming', icon: CalendarClock },
-];
+const riskLabels = { high: 'Alto', medium: 'Médio', low: 'Baixo' } as const;
 
-// MOCK: Billing data
-const mockBillingData = {
-  planned: [
-    { month: 'Jul/24', value: 70833 },
-    { month: 'Aug/24', value: 70833 },
-    { month: 'Sep/24', value: 70833 },
-    { month: 'Oct/24', value: 70833 },
-    { month: 'Nov/24', value: 70833 },
-    { month: 'Dec/24', value: 70833 },
-  ],
-  actual: [
-    { month: 'Jul/24', value: 70833 },
-    { month: 'Aug/24', value: 68500 },
-    { month: 'Sep/24', value: 72100 },
-    { month: 'Oct/24', value: 70833 },
-    { month: 'Nov/24', value: 65000 },
-    { month: 'Dec/24', value: null }, // Not yet billed
-  ],
-  totalPlanned: 425000,
-  totalActual: 347266,
-  backlog: 502734,
-  backlogTrend: [
-    { month: 'Jul/24', value: 779167 },
-    { month: 'Aug/24', value: 710667 },
-    { month: 'Sep/24', value: 638567 },
-    { month: 'Oct/24', value: 567734 },
-    { month: 'Nov/24', value: 502734 },
-  ],
-};
-
-// MOCK: Penalties and clauses
-const mockPenaltiesClauses = [
-  { 
-    id: 'p1', 
-    type: 'penalty',
-    title: 'Multa por Atraso na Entrega', 
-    trigger: 'Atraso > 5 dias úteis',
-    impact: 'high',
-    value: '2% do valor mensal por dia',
-    status: 'active',
-    mitigations: [
-      { id: 'm1', text: 'Monitorar prazos semanalmente', done: true },
-      { id: 'm2', text: 'Estabelecer buffer de 3 dias', done: true },
-      { id: 'm3', text: 'Notificar fornecedor com 48h antecedência', done: false },
-    ]
-  },
-  { 
-    id: 'p2', 
-    type: 'penalty',
-    title: 'Multa por Descumprimento de SLA', 
-    trigger: 'Disponibilidade < 99.5%',
-    impact: 'high',
-    value: 'R$ 5.000 por 0.1% abaixo',
-    status: 'at_risk',
-    mitigations: [
-      { id: 'm4', text: 'Dashboard de monitoramento em tempo real', done: true },
-      { id: 'm5', text: 'Alertas automáticos em 99.7%', done: false },
-      { id: 'm6', text: 'Plano de contingência documentado', done: false },
-    ]
-  },
-  { 
-    id: 'p3', 
-    type: 'clause',
-    title: 'Cláusula de Rescisão Sem Justa Causa', 
-    trigger: 'Notificação com 90 dias',
-    impact: 'medium',
-    value: 'Multa de 3 mensalidades',
-    status: 'info',
-    mitigations: []
-  },
-  { 
-    id: 'p4', 
-    type: 'clause',
-    title: 'Cláusula de Reajuste Anual', 
-    trigger: 'Aniversário do contrato',
-    impact: 'medium',
-    value: 'IGPM + 2%',
-    status: 'upcoming',
-    mitigations: [
-      { id: 'm7', text: 'Negociar teto de reajuste', done: false },
-      { id: 'm8', text: 'Provisionar orçamento', done: true },
-    ]
-  },
-  { 
-    id: 'p5', 
-    type: 'penalty',
-    title: 'Multa por Vazamento de Dados', 
-    trigger: 'Incidente de segurança comprovado',
-    impact: 'critical',
-    value: 'Até R$ 50.000 + responsabilidade solidária',
-    status: 'active',
-    mitigations: [
-      { id: 'm9', text: 'Auditoria de segurança trimestral', done: true },
-      { id: 'm10', text: 'Certificação ISO 27001 do fornecedor', done: true },
-      { id: 'm11', text: 'Cláusula de DPA assinada', done: true },
-    ]
-  },
-];
-
-// ============================================
-// HELPER FUNCTIONS
-// ============================================
-
-function formatCurrency(value: number) {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency',
-    currency: 'BRL',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(value);
+function riskVariant(risk: ContractGovernanceRecord['contract']['riskClassification']) {
+  return risk === 'high' ? 'critical' : risk === 'medium' ? 'warning' : 'active';
 }
 
-function formatCurrencyCompact(value: number) {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency',
-    currency: 'BRL',
-    notation: 'compact',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 1,
-  }).format(value);
-}
-
-function getSeverityColor(severity: string) {
-  switch (severity) {
-    case 'critical': return 'text-[#FF5860] bg-[rgba(255,88,96,0.15)]';
-    case 'high': return 'text-[#FF5860] bg-[rgba(255,88,96,0.15)]';
-    case 'medium': return 'text-[#FFB04D] bg-[rgba(255,176,77,0.15)]';
-    case 'low': return 'text-[#00FFB4] bg-[rgba(0,255,180,0.15)]';
-    default: return 'text-[rgba(255,255,255,0.65)] bg-[rgba(255,255,255,0.08)]';
-  }
-}
-
-function getStatusColor(status: string) {
-  switch (status) {
-    case 'completed': return 'text-[#00FFB4] border-[#00FFB4]';
-    case 'upcoming': return 'text-[#00C8FF] border-[#00C8FF]';
-    case 'at_risk': return 'text-[#FF5860] border-[#FF5860]';
-    case 'open': return 'text-[#FFB04D] border-[#FFB04D]';
-    case 'mitigated': return 'text-[#00FFB4] border-[#00FFB4]';
-    case 'monitoring': return 'text-[#00C8FF] border-[#00C8FF]';
-    case 'active': return 'text-[rgba(255,255,255,0.65)] border-[rgba(255,255,255,0.25)]';
-    case 'info': return 'text-[#00C8FF] border-[#00C8FF]';
-    default: return 'text-[rgba(255,255,255,0.65)] border-[rgba(255,255,255,0.25)]';
-  }
-}
-
-// ============================================
-// MAIN COMPONENT
-// ============================================
-
-export default function ContractIntelligencePage() {
+export default function ContractDossierPage() {
   const params = useParams();
   const router = useRouter();
-  const contractId = params.id as string;
-  
-  const [activeTab, setActiveTab] = useState('overview');
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [activeTab, setActiveTab] = useState<DetailTab>('summary');
 
-  // Find contract by ID (in real app, fetch from API)
-  const contract = useMemo(() => {
-    return excelContracts.find(c => c.id === contractId) || excelContracts[0];
-  }, [contractId]);
+  useEffect(() => {
+    setProjects(getProjects());
+  }, []);
 
-  const daysUntilExpiration = contract.expirationDate 
-    ? differenceInDays(new Date(contract.expirationDate), new Date())
-    : null;
+  const records = useMemo(() => enrichContractsForGovernance(excelContracts, projects), [projects]);
+  const record = useMemo(() => {
+    const id = String(params.id || '');
+    return records.find((item) => item.contract.id === id) || records[0] || null;
+  }, [params.id, records]);
 
-  // Calculate key metrics
-  const keyMetrics = useMemo(() => ({
-    totalRisks: mockRiskCategories.reduce((sum, cat) => sum + cat.count, 0),
-    highRisks: mockRiskCategories.filter(c => c.severity === 'high').reduce((sum, cat) => sum + cat.count, 0),
-    openPenalties: mockPenaltiesClauses.filter(p => p.status === 'at_risk' || p.status === 'active').length,
-    upcomingEvents: mockTimelineEvents.filter(e => e.status === 'upcoming' || e.status === 'at_risk').length,
-    billingVariance: ((mockBillingData.totalActual - mockBillingData.totalPlanned) / mockBillingData.totalPlanned * 100).toFixed(1),
-  }), []);
+  if (!record) {
+    return (
+      <HudPageLayout>
+        <HudPanel title="Contrato não encontrado" interactive={false}>
+          <HudButton variant="secondary" leftIcon={<ArrowLeft className="h-4 w-4" />} onClick={() => router.push('/contratos')}>
+            Voltar para contratos
+          </HudButton>
+        </HudPanel>
+      </HudPageLayout>
+    );
+  }
+
+  const kpis: KpiItem[] = [
+    { id: 'total', label: 'Valor total', value: formatCurrencyCompact(record.totalValue), variant: 'info', icon: <FileSignature className="h-4 w-4" /> },
+    { id: 'billed', label: 'Faturado', value: formatCurrencyCompact(record.billedValue), variant: 'success', icon: <Receipt className="h-4 w-4" /> },
+    { id: 'remaining', label: 'Saldo', value: formatCurrencyCompact(record.remainingValue), variant: 'warning', icon: <GanttChartSquare className="h-4 w-4" /> },
+    { id: 'renewal', label: 'Vencimento', value: record.daysUntilExpiration === null ? 'sem data' : record.daysUntilExpiration < 0 ? 'vencido' : `${record.daysUntilExpiration}d`, variant: record.daysUntilExpiration !== null && record.daysUntilExpiration <= 90 ? 'warning' : 'default', icon: <CalendarClock className="h-4 w-4" /> },
+    { id: 'risk', label: 'Risk score', value: `${record.riskScore}/100`, variant: record.riskScore >= 70 ? 'danger' : record.riskScore >= 50 ? 'warning' : 'success', icon: <ShieldAlert className="h-4 w-4" /> },
+  ];
+
+  const tabs: HudTab[] = [
+    { id: 'summary', label: 'Resumo', icon: <FileText className="h-4 w-4" />, content: <SummaryTab record={record} /> },
+    { id: 'clauses', label: 'Cláusulas', icon: <Scale className="h-4 w-4" />, content: <ClausesTab record={record} /> },
+    { id: 'obligations', label: 'Obrigações', icon: <ClipboardCheck className="h-4 w-4" />, badge: record.obligations.filter((item) => item.status === 'overdue').length, content: <ObligationsTab record={record} /> },
+    { id: 'risks', label: 'Riscos', icon: <ShieldAlert className="h-4 w-4" />, content: <RisksTab record={record} /> },
+    { id: 'finance', label: 'Financeiro', icon: <Receipt className="h-4 w-4" />, content: <FinanceTab record={record} /> },
+    { id: 'documents', label: 'Documentos', icon: <Archive className="h-4 w-4" />, badge: record.missingDocuments.length, content: <DocumentsTab record={record} /> },
+    { id: 'audit', label: 'Auditoria', icon: <ShieldCheck className="h-4 w-4" />, content: <AuditTab record={record} /> },
+    { id: 'ai', label: 'Análise IA', icon: <BrainCircuit className="h-4 w-4" />, content: <AiTab record={record} /> },
+  ];
 
   return (
-    <>
-      <div className="max-w-[1800px] mx-auto space-y-4 p-4 md:p-6 lg:p-8">
-        {/* Header with Back Navigation */}
-        <header className="mb-2">
-          <div className="flex items-start justify-between">
-            <div className="flex items-start gap-4">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => router.back()}
-                className="text-[rgba(255,255,255,0.65)] hover:text-white hover:bg-[rgba(255,255,255,0.08)] -ml-2"
-              >
-                <ArrowLeft className="w-4 h-4 mr-1" />
-                Voltar
-              </Button>
-              <div>
-                <div className="flex items-center gap-3 mb-1">
-                  <h1 className="text-2xl font-semibold text-white tracking-wide flex items-center gap-3">
-                    <FileText className="w-6 h-6 text-[#00C8FF]" />
-                    {contract.name}
-                  </h1>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Badge variant="outline" className="text-xs bg-[rgba(255,255,255,0.05)] text-[rgba(255,255,255,0.65)] border-[rgba(255,255,255,0.12)]">
-                    {contract.vendorOrParty}
-                  </Badge>
-                  <StatusPill 
-                    variant={contract.riskClassification === 'high' ? 'critical' : contract.riskClassification === 'medium' ? 'warning' : 'active'}
-                    className="text-[10px]"
-                  >
-                    Risco {contract.riskClassification === 'high' ? 'Alto' : contract.riskClassification === 'medium' ? 'Médio' : 'Baixo'}
-                  </StatusPill>
-                  <StatusPill 
-                    variant={contract.status === 'expired' ? 'critical' : contract.status === 'expiring_soon' ? 'warning' : 'active'}
-                    className="text-[10px]"
-                  >
-                    {contract.status === 'expired' ? 'Expirado' : contract.status === 'expiring_soon' ? 'Expirando' : 'Ativo'}
-                  </StatusPill>
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="border-[rgba(255,255,255,0.08)] text-[rgba(255,255,255,0.85)] hover:bg-[rgba(0,200,255,0.08)]"
-              >
-                <Download className="w-4 h-4 mr-1.5" />
-                Download
-              </Button>
-              <Button
-                className="bg-[#00FFB4] text-[#050D0A] hover:bg-[#00E6A0]"
-              >
-                <Zap className="w-4 h-4 mr-1.5" />
-                AI Analysis
-              </Button>
-            </div>
+    <HudPageLayout>
+      <HudHeader
+        title={record.contract.name}
+        subtitle="Dossiê contratual com vínculos, exposição financeira, obrigações, riscos, documentos, auditoria e análise IA mock/pendente."
+        icon={<FileSignature className="h-5 w-5" />}
+        breadcrumbs={[{ label: 'Contratos', href: '/contratos' }, { label: record.code }]}
+        statusChips={[
+          { label: `Risco ${riskLabels[record.contract.riskClassification]}`, variant: record.contract.riskClassification === 'high' ? 'critical' : record.contract.riskClassification === 'medium' ? 'warning' : 'success' },
+          { label: record.contract.status === 'expired' ? 'Expirado' : record.contract.status === 'expiring_soon' ? 'Expirando' : 'Ativo', variant: record.contract.status === 'expired' ? 'critical' : record.contract.status === 'expiring_soon' ? 'warning' : 'success' },
+        ]}
+        actions={
+          <div className="flex items-center gap-2">
+            <HudButton variant="secondary" size="md" leftIcon={<ArrowLeft className="h-4 w-4" />} onClick={() => router.push('/contratos')}>
+              Voltar
+            </HudButton>
+            <HudButton variant="glass" size="md" leftIcon={<Download className="h-4 w-4" />}>
+              Documento
+            </HudButton>
           </div>
-        </header>
+        }
+      />
 
-        {/* Quick Stats Strip */}
-        <div className="grid grid-cols-6 gap-3">
-          <HudPanel noPadding>
-            <div className="flex items-center gap-2 p-3">
-              <DollarSign className="w-4 h-4 text-[#00C8FF]" />
-              <div>
-                <p className="text-[10px] text-[rgba(255,255,255,0.50)] uppercase">Valor</p>
-                <p className="text-sm font-semibold text-white">{formatCurrencyCompact(contract.value)}</p>
-              </div>
-            </div>
-          </HudPanel>
-          <HudPanel noPadding>
-            <div className="flex items-center gap-2 p-3">
-              <Calendar className="w-4 h-4 text-amber-400" />
-              <div>
-                <p className="text-[10px] text-[rgba(255,255,255,0.50)] uppercase">Expira em</p>
-                <p className={`text-sm font-semibold ${daysUntilExpiration && daysUntilExpiration < 30 ? 'text-amber-400' : 'text-white'}`}>
-                  {daysUntilExpiration}d
-                </p>
-              </div>
-            </div>
-          </HudPanel>
-          <HudPanel noPadding>
-            <div className="flex items-center gap-2 p-3">
-              <AlertTriangle className="w-4 h-4 text-[#FF5860]" />
-              <div>
-                <p className="text-[10px] text-[rgba(255,255,255,0.50)] uppercase">Riscos</p>
-                <p className="text-sm font-semibold text-white">{keyMetrics.totalRisks} ({keyMetrics.highRisks} altos)</p>
-              </div>
-            </div>
-          </HudPanel>
-          <HudPanel noPadding>
-            <div className="flex items-center gap-2 p-3">
-              <Gavel className="w-4 h-4 text-amber-400" />
-              <div>
-                <p className="text-[10px] text-[rgba(255,255,255,0.50)] uppercase">Penalidades</p>
-                <p className="text-sm font-semibold text-white">{keyMetrics.openPenalties} ativas</p>
-              </div>
-            </div>
-          </HudPanel>
-          <HudPanel noPadding>
-            <div className="flex items-center gap-2 p-3">
-              <CalendarClock className="w-4 h-4 text-[#00C8FF]" />
-              <div>
-                <p className="text-[10px] text-[rgba(255,255,255,0.50)] uppercase">Eventos</p>
-                <p className="text-sm font-semibold text-white">{keyMetrics.upcomingEvents} próximos</p>
-              </div>
-            </div>
-          </HudPanel>
-          <HudPanel noPadding>
-            <div className="flex items-center gap-2 p-3">
-              <Receipt className="w-4 h-4 text-emerald-400" />
-              <div>
-                <p className="text-[10px] text-[rgba(255,255,255,0.50)] uppercase">Faturamento</p>
-                <p className={`text-sm font-semibold ${parseFloat(keyMetrics.billingVariance) < 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
-                  {keyMetrics.billingVariance}%
-                </p>
-              </div>
-            </div>
-          </HudPanel>
+      <HudKpiStrip kpis={kpis} columns={5} connected size="sm" />
+
+      <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="min-w-0">
+          <HudTabs
+            tabs={tabs}
+            activeTab={activeTab}
+            onTabChange={(tabId) => setActiveTab(tabId as DetailTab)}
+            variant="underline"
+          />
         </div>
-
-        {/* Tabs */}
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)] p-1 h-auto">
-            <TabsTrigger 
-              value="overview" 
-              className="data-[state=active]:bg-[#00FFB4] data-[state=active]:text-[#050D0A] text-[rgba(255,255,255,0.65)] px-4 py-2"
-            >
-              <Eye className="w-4 h-4 mr-2" />
-              Overview
-            </TabsTrigger>
-            <TabsTrigger 
-              value="riskmap" 
-              className="data-[state=active]:bg-[#00FFB4] data-[state=active]:text-[#050D0A] text-[rgba(255,255,255,0.65)] px-4 py-2"
-            >
-              <Shield className="w-4 h-4 mr-2" />
-              Risk Map
-            </TabsTrigger>
-            <TabsTrigger 
-              value="timeline" 
-              className="data-[state=active]:bg-[#00FFB4] data-[state=active]:text-[#050D0A] text-[rgba(255,255,255,0.65)] px-4 py-2"
-            >
-              <CalendarClock className="w-4 h-4 mr-2" />
-              Timeline
-            </TabsTrigger>
-            <TabsTrigger 
-              value="billing" 
-              className="data-[state=active]:bg-[#00FFB4] data-[state=active]:text-[#050D0A] text-[rgba(255,255,255,0.65)] px-4 py-2"
-            >
-              <Receipt className="w-4 h-4 mr-2" />
-              Billing
-            </TabsTrigger>
-            <TabsTrigger 
-              value="penalties" 
-              className="data-[state=active]:bg-[#00FFB4] data-[state=active]:text-[#050D0A] text-[rgba(255,255,255,0.65)] px-4 py-2"
-            >
-              <Gavel className="w-4 h-4 mr-2" />
-              Penalties & Clauses
-            </TabsTrigger>
-          </TabsList>
-
-          {/* Overview Tab */}
-          <TabsContent value="overview" className="mt-4">
-            <div className="grid grid-cols-3 gap-4">
-              {/* Left: Contract Brief */}
-              <div className="col-span-2 space-y-4">
-                <HudPanel>
-                  <h3 className="text-sm font-medium text-[rgba(255,255,255,0.85)] mb-4 flex items-center gap-2">
-                    <FileText className="w-4 h-4 text-[#00C8FF]" />
-                    Contract Brief
-                  </h3>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-3">
-                      <div>
-                        <p className="text-[10px] text-[rgba(255,255,255,0.50)] uppercase mb-1">Fornecedor</p>
-                        <p className="text-sm text-white">{contract.vendorOrParty}</p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] text-[rgba(255,255,255,0.50)] uppercase mb-1">Valor do Contrato</p>
-                        <p className="text-lg font-semibold text-white">{formatCurrency(contract.value)}</p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] text-[rgba(255,255,255,0.50)] uppercase mb-1">Responsável</p>
-                        <p className="text-sm text-white">{contract.responsibleName || 'Não definido'}</p>
-                      </div>
-                    </div>
-                    <div className="space-y-3">
-                      <div>
-                        <p className="text-[10px] text-[rgba(255,255,255,0.50)] uppercase mb-1">Data de Assinatura</p>
-                        <p className="text-sm text-white">
-                          {contract.signingDate ? format(new Date(contract.signingDate), 'dd/MM/yyyy', { locale: pt }) : '—'}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] text-[rgba(255,255,255,0.50)] uppercase mb-1">Data de Expiração</p>
-                        <p className="text-sm text-white">
-                          {contract.expirationDate ? format(new Date(contract.expirationDate), 'dd/MM/yyyy', { locale: pt }) : '—'}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] text-[rgba(255,255,255,0.50)] uppercase mb-1">Dias Restantes</p>
-                        <p className={`text-lg font-semibold ${
-                          daysUntilExpiration && daysUntilExpiration < 0 ? 'text-[#FF5860]' :
-                          daysUntilExpiration && daysUntilExpiration < 30 ? 'text-amber-400' :
-                          'text-[#00FFB4]'
-                        }`}>
-                          {daysUntilExpiration}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                  {contract.notes && (
-                    <div className="mt-4 pt-4 border-t border-[rgba(255,255,255,0.06)]">
-                      <p className="text-[10px] text-[rgba(255,255,255,0.50)] uppercase mb-1">Observações</p>
-                      <p className="text-sm text-[rgba(255,255,255,0.75)]">{contract.notes}</p>
-                    </div>
-                  )}
-                </HudPanel>
-
-                {/* Key Numbers */}
-                <HudPanel>
-                  <h3 className="text-sm font-medium text-[rgba(255,255,255,0.85)] mb-4 flex items-center gap-2">
-                    <BarChart3 className="w-4 h-4 text-[#00C8FF]" />
-                    Key Numbers
-                    <Badge variant="outline" className="ml-2 text-[9px] bg-[rgba(255,176,77,0.15)] text-amber-400 border-amber-400/30">
-                      MOCK DATA
-                    </Badge>
-                  </h3>
-                  <div className="grid grid-cols-4 gap-4">
-                    <div className="p-3 bg-[rgba(255,255,255,0.02)] rounded-lg border border-[rgba(255,255,255,0.05)]">
-                      <p className="text-[10px] text-[rgba(255,255,255,0.50)] uppercase mb-1">Faturado YTD</p>
-                      <p className="text-lg font-semibold text-emerald-400">{formatCurrencyCompact(mockBillingData.totalActual)}</p>
-                    </div>
-                    <div className="p-3 bg-[rgba(255,255,255,0.02)] rounded-lg border border-[rgba(255,255,255,0.05)]">
-                      <p className="text-[10px] text-[rgba(255,255,255,0.50)] uppercase mb-1">Backlog</p>
-                      <p className="text-lg font-semibold text-amber-400">{formatCurrencyCompact(mockBillingData.backlog)}</p>
-                    </div>
-                    <div className="p-3 bg-[rgba(255,255,255,0.02)] rounded-lg border border-[rgba(255,255,255,0.05)]">
-                      <p className="text-[10px] text-[rgba(255,255,255,0.50)] uppercase mb-1">Variação</p>
-                      <p className={`text-lg font-semibold ${parseFloat(keyMetrics.billingVariance) < 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
-                        {keyMetrics.billingVariance}%
-                      </p>
-                    </div>
-                    <div className="p-3 bg-[rgba(255,255,255,0.02)] rounded-lg border border-[rgba(255,255,255,0.05)]">
-                      <p className="text-[10px] text-[rgba(255,255,255,0.50)] uppercase mb-1">Execução</p>
-                      <p className="text-lg font-semibold text-[#00C8FF]">
-                        {Math.round((mockBillingData.totalActual / contract.value) * 100)}%
-                      </p>
-                    </div>
-                  </div>
-                </HudPanel>
-              </div>
-
-              {/* Right: Key Risks */}
-              <div className="space-y-4">
-                <HudPanel>
-                  <h3 className="text-sm font-medium text-[rgba(255,255,255,0.85)] mb-4 flex items-center gap-2">
-                    <AlertTriangle className="w-4 h-4 text-[#FF5860]" />
-                    Key Risks
-                    <Badge variant="outline" className="ml-2 text-[9px] bg-[rgba(255,176,77,0.15)] text-amber-400 border-amber-400/30">
-                      MOCK DATA
-                    </Badge>
-                  </h3>
-                  <div className="space-y-3">
-                    {mockRiskCategories.slice(0, 3).flatMap(cat => 
-                      cat.items.filter(item => item.impact === 'high').slice(0, 1)
-                    ).map((risk, idx) => (
-                      <div key={risk.id} className="p-3 bg-[rgba(255,255,255,0.02)] rounded-lg border border-[rgba(255,255,255,0.05)]">
-                        <div className="flex items-start justify-between gap-2 mb-2">
-                          <p className="text-sm text-white">{risk.title}</p>
-                          <StatusPill 
-                            variant={risk.status === 'open' ? 'warning' : risk.status === 'mitigated' ? 'active' : 'info'}
-                            className="text-[9px] shrink-0"
-                          >
-                            {risk.status === 'open' ? 'Aberto' : risk.status === 'mitigated' ? 'Mitigado' : 'Monitorando'}
-                          </StatusPill>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded ${getSeverityColor(risk.impact)}`}>
-                            Impacto {risk.impact === 'high' ? 'Alto' : risk.impact === 'medium' ? 'Médio' : 'Baixo'}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full mt-4 border-[rgba(255,255,255,0.08)] text-[rgba(255,255,255,0.65)]"
-                    onClick={() => setActiveTab('riskmap')}
-                  >
-                    Ver todos os riscos
-                  </Button>
-                </HudPanel>
-
-                {/* Upcoming Events */}
-                <HudPanel>
-                  <h3 className="text-sm font-medium text-[rgba(255,255,255,0.85)] mb-4 flex items-center gap-2">
-                    <CalendarClock className="w-4 h-4 text-[#00C8FF]" />
-                    Próximos Eventos
-                  </h3>
-                  <div className="space-y-2">
-                    {mockTimelineEvents.filter(e => e.status === 'upcoming' || e.status === 'at_risk').slice(0, 3).map(event => (
-                      <div key={event.id} className="flex items-center gap-3 p-2 bg-[rgba(255,255,255,0.02)] rounded-lg">
-                        <div className={`p-1.5 rounded ${getStatusColor(event.status).replace('text-', 'bg-').replace('border-', '').split(' ')[0]}/20`}>
-                          <event.icon className={`w-3.5 h-3.5 ${getStatusColor(event.status).split(' ')[0]}`} />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs text-white truncate">{event.title}</p>
-                          <p className="text-[10px] text-[rgba(255,255,255,0.50)]">{event.date}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </HudPanel>
-              </div>
-            </div>
-          </TabsContent>
-
-          {/* Risk Map Tab */}
-          <TabsContent value="riskmap" className="mt-4">
-            <div className="grid grid-cols-3 gap-4">
-              {/* Risk Categories Heatmap */}
-              <div className="col-span-2">
-                <HudPanel>
-                  <h3 className="text-sm font-medium text-[rgba(255,255,255,0.85)] mb-4 flex items-center gap-2">
-                    <Shield className="w-4 h-4 text-[#00C8FF]" />
-                    Risk Heatmap by Category
-                    <Badge variant="outline" className="ml-2 text-[9px] bg-[rgba(255,176,77,0.15)] text-amber-400 border-amber-400/30">
-                      MOCK DATA
-                    </Badge>
-                  </h3>
-                  <div className="grid grid-cols-5 gap-3">
-                    {mockRiskCategories.map(category => {
-                      const CategoryIcon = category.icon;
-                      return (
-                        <div 
-                          key={category.id}
-                          className={`p-4 rounded-lg border cursor-pointer transition-all hover:scale-[1.02] ${
-                            category.severity === 'high' 
-                              ? 'bg-[rgba(255,88,96,0.08)] border-[rgba(255,88,96,0.25)]' 
-                              : category.severity === 'medium'
-                              ? 'bg-[rgba(255,176,77,0.08)] border-[rgba(255,176,77,0.25)]'
-                              : 'bg-[rgba(0,255,180,0.08)] border-[rgba(0,255,180,0.25)]'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2 mb-2">
-                            <CategoryIcon className={`w-5 h-5 ${
-                              category.severity === 'high' ? 'text-[#FF5860]' :
-                              category.severity === 'medium' ? 'text-amber-400' :
-                              'text-[#00FFB4]'
-                            }`} />
-                            <span className="text-xs font-medium text-white">{category.name}</span>
-                          </div>
-                          <p className={`text-2xl font-bold ${
-                            category.severity === 'high' ? 'text-[#FF5860]' :
-                            category.severity === 'medium' ? 'text-amber-400' :
-                            'text-[#00FFB4]'
-                          }`}>
-                            {category.count}
-                          </p>
-                          <p className="text-[10px] text-[rgba(255,255,255,0.50)]">
-                            {category.severity === 'high' ? 'Crítico' : category.severity === 'medium' ? 'Moderado' : 'Baixo'}
-                          </p>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </HudPanel>
-
-                {/* Risk Details */}
-                <HudPanel className="mt-4">
-                  <h3 className="text-sm font-medium text-[rgba(255,255,255,0.85)] mb-4">Risk Details</h3>
-                  <div className="space-y-2 max-h-[400px] overflow-y-auto">
-                    {mockRiskCategories.flatMap(cat => 
-                      cat.items.map(item => ({
-                        ...item,
-                        category: cat.name,
-                        categoryIcon: cat.icon,
-                      }))
-                    ).map(risk => (
-                      <div key={risk.id} className="p-3 bg-[rgba(255,255,255,0.02)] rounded-lg border border-[rgba(255,255,255,0.05)] hover:border-[rgba(255,255,255,0.10)] transition-colors">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex items-start gap-3">
-                            <risk.categoryIcon className="w-4 h-4 text-[rgba(255,255,255,0.50)] mt-0.5 shrink-0" />
-                            <div>
-                              <p className="text-sm text-white mb-1">{risk.title}</p>
-                              <div className="flex items-center gap-2">
-                                <Badge variant="outline" className="text-[9px] bg-transparent">{risk.category}</Badge>
-                                <span className={`text-[9px] px-1.5 py-0.5 rounded ${getSeverityColor(risk.impact)}`}>
-                                  {risk.impact === 'high' ? 'Alto' : risk.impact === 'medium' ? 'Médio' : 'Baixo'}
-                                </span>
-                                <span className={`text-[9px] px-1.5 py-0.5 rounded border ${getStatusColor(risk.status)}`}>
-                                  {risk.status === 'open' ? 'Aberto' : risk.status === 'mitigated' ? 'Mitigado' : 'Monitorando'}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </HudPanel>
-              </div>
-
-              {/* Risk Summary */}
-              <div className="space-y-4">
-                <HudPanel>
-                  <h3 className="text-sm font-medium text-[rgba(255,255,255,0.85)] mb-4">Risk Summary</h3>
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-[rgba(255,255,255,0.65)]">Total Risks</span>
-                      <span className="text-sm font-semibold text-white">{keyMetrics.totalRisks}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-[rgba(255,255,255,0.65)]">High Impact</span>
-                      <span className="text-sm font-semibold text-[#FF5860]">{keyMetrics.highRisks}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-[rgba(255,255,255,0.65)]">Open</span>
-                      <span className="text-sm font-semibold text-amber-400">
-                        {mockRiskCategories.flatMap(c => c.items).filter(r => r.status === 'open').length}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-[rgba(255,255,255,0.65)]">Mitigated</span>
-                      <span className="text-sm font-semibold text-[#00FFB4]">
-                        {mockRiskCategories.flatMap(c => c.items).filter(r => r.status === 'mitigated').length}
-                      </span>
-                    </div>
-                  </div>
-                </HudPanel>
-
-                <HudPanel>
-                  <h3 className="text-sm font-medium text-[rgba(255,255,255,0.85)] mb-4">Risk Score</h3>
-                  <div className="text-center py-4">
-                    <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-[rgba(255,88,96,0.15)] border-4 border-[#FF5860]">
-                      <span className="text-3xl font-bold text-[#FF5860]">72</span>
-                    </div>
-                    <p className="text-sm text-[rgba(255,255,255,0.65)] mt-3">High Risk</p>
-                    <p className="text-xs text-[rgba(255,255,255,0.40)]">Score 0-100</p>
-                  </div>
-                </HudPanel>
-              </div>
-            </div>
-          </TabsContent>
-
-          {/* Timeline Tab */}
-          <TabsContent value="timeline" className="mt-4">
-            <HudPanel>
-              <h3 className="text-sm font-medium text-[rgba(255,255,255,0.85)] mb-4 flex items-center gap-2">
-                <CalendarClock className="w-4 h-4 text-[#00C8FF]" />
-                Contract Timeline / Eventogram
-                <Badge variant="outline" className="ml-2 text-[9px] bg-[rgba(255,176,77,0.15)] text-amber-400 border-amber-400/30">
-                  MOCK DATA
-                </Badge>
-              </h3>
-              <div className="relative">
-                {/* Timeline Line */}
-                <div className="absolute left-6 top-0 bottom-0 w-0.5 bg-[rgba(255,255,255,0.08)]" />
-                
-                <div className="space-y-4">
-                  {mockTimelineEvents.map((event, idx) => {
-                    const EventIcon = event.icon;
-                    return (
-                      <div key={event.id} className="relative flex items-start gap-4 pl-2">
-                        {/* Timeline Node */}
-                        <div className={`relative z-10 p-2 rounded-full border-2 ${getStatusColor(event.status)} bg-[#07130F]`}>
-                          <EventIcon className={`w-4 h-4 ${getStatusColor(event.status).split(' ')[0]}`} />
-                        </div>
-                        
-                        {/* Event Content */}
-                        <div className={`flex-1 p-4 rounded-lg border transition-all ${
-                          event.status === 'completed' 
-                            ? 'bg-[rgba(255,255,255,0.02)] border-[rgba(255,255,255,0.05)]'
-                            : event.status === 'at_risk'
-                            ? 'bg-[rgba(255,88,96,0.05)] border-[rgba(255,88,96,0.20)]'
-                            : 'bg-[rgba(0,200,255,0.05)] border-[rgba(0,200,255,0.20)]'
-                        }`}>
-                          <div className="flex items-start justify-between gap-3">
-                            <div>
-                              <p className="text-sm font-medium text-white mb-1">{event.title}</p>
-                              <div className="flex items-center gap-2">
-                                <Badge variant="outline" className={`text-[9px] border ${getStatusColor(event.status)}`}>
-                                  {event.type === 'milestone' ? 'Milestone' :
-                                   event.type === 'renewal' ? 'Renewal' :
-                                   event.type === 'deadline' ? 'Deadline' :
-                                   event.type === 'adjustment' ? 'Adjustment' :
-                                   'Penalty Trigger'}
-                                </Badge>
-                                <span className={`text-[10px] px-1.5 py-0.5 rounded ${
-                                  event.status === 'completed' ? 'bg-[rgba(0,255,180,0.15)] text-[#00FFB4]' :
-                                  event.status === 'at_risk' ? 'bg-[rgba(255,88,96,0.15)] text-[#FF5860]' :
-                                  'bg-[rgba(0,200,255,0.15)] text-[#00C8FF]'
-                                }`}>
-                                  {event.status === 'completed' ? 'Concluído' :
-                                   event.status === 'at_risk' ? 'Em Risco' : 'Próximo'}
-                                </span>
-                              </div>
-                            </div>
-                            <span className="text-xs text-[rgba(255,255,255,0.50)] tabular-nums shrink-0">
-                              {event.date}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </HudPanel>
-          </TabsContent>
-
-          {/* Billing Tab */}
-          <TabsContent value="billing" className="mt-4">
-            <div className="grid grid-cols-3 gap-4">
-              <div className="col-span-2 space-y-4">
-                {/* Planned vs Actual */}
-                <HudPanel>
-                  <h3 className="text-sm font-medium text-[rgba(255,255,255,0.85)] mb-4 flex items-center gap-2">
-                    <Receipt className="w-4 h-4 text-[#00C8FF]" />
-                    Planned vs Actual Billing
-                    <Badge variant="outline" className="ml-2 text-[9px] bg-[rgba(255,176,77,0.15)] text-amber-400 border-amber-400/30">
-                      MOCK DATA
-                    </Badge>
-                  </h3>
-                  <div className="overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow className="border-[rgba(255,255,255,0.05)]">
-                          <TableHead className="text-[rgba(255,255,255,0.65)]">Mês</TableHead>
-                          <TableHead className="text-[rgba(255,255,255,0.65)] text-right">Planejado</TableHead>
-                          <TableHead className="text-[rgba(255,255,255,0.65)] text-right">Realizado</TableHead>
-                          <TableHead className="text-[rgba(255,255,255,0.65)] text-right">Variação</TableHead>
-                          <TableHead className="text-[rgba(255,255,255,0.65)] text-right">Status</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {mockBillingData.planned.map((planned, idx) => {
-                          const actual = mockBillingData.actual[idx];
-                          const variance = actual.value !== null 
-                            ? ((actual.value - planned.value) / planned.value * 100).toFixed(1)
-                            : null;
-                          return (
-                            <TableRow key={planned.month} className="border-[rgba(255,255,255,0.05)]">
-                              <TableCell className="text-white">{planned.month}</TableCell>
-                              <TableCell className="text-[rgba(255,255,255,0.85)] text-right tabular-nums">
-                                {formatCurrency(planned.value)}
-                              </TableCell>
-                              <TableCell className="text-right tabular-nums">
-                                {actual.value !== null ? (
-                                  <span className="text-white">{formatCurrency(actual.value)}</span>
-                                ) : (
-                                  <span className="text-[rgba(255,255,255,0.40)]">—</span>
-                                )}
-                              </TableCell>
-                              <TableCell className="text-right tabular-nums">
-                                {variance !== null ? (
-                                  <span className={parseFloat(variance) >= 0 ? 'text-emerald-400' : 'text-amber-400'}>
-                                    {parseFloat(variance) >= 0 ? '+' : ''}{variance}%
-                                  </span>
-                                ) : (
-                                  <span className="text-[rgba(255,255,255,0.40)]">—</span>
-                                )}
-                              </TableCell>
-                              <TableCell className="text-right">
-                                {actual.value !== null ? (
-                                  <CheckCircle className="w-4 h-4 text-[#00FFB4] inline" />
-                                ) : (
-                                  <Clock className="w-4 h-4 text-[rgba(255,255,255,0.40)] inline" />
-                                )}
-                              </TableCell>
-                            </TableRow>
-                          );
-                        })}
-                      </TableBody>
-                    </Table>
-                  </div>
-                </HudPanel>
-
-                {/* Backlog Trend */}
-                <HudPanel>
-                  <h3 className="text-sm font-medium text-[rgba(255,255,255,0.85)] mb-4 flex items-center gap-2">
-                    <TrendingDown className="w-4 h-4 text-amber-400" />
-                    Backlog Trend
-                  </h3>
-                  <div className="flex items-end gap-2 h-32">
-                    {mockBillingData.backlogTrend.map((item, idx) => {
-                      const maxValue = Math.max(...mockBillingData.backlogTrend.map(i => i.value));
-                      const height = (item.value / maxValue) * 100;
-                      return (
-                        <div key={item.month} className="flex-1 flex flex-col items-center gap-1">
-                          <div 
-                            className="w-full bg-gradient-to-t from-amber-500/30 to-amber-500/10 rounded-t border-t-2 border-amber-400"
-                            style={{ height: `${height}%` }}
-                          />
-                          <span className="text-[10px] text-[rgba(255,255,255,0.50)]">{item.month.split('/')[0]}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </HudPanel>
-              </div>
-
-              {/* Billing Summary */}
-              <div className="space-y-4">
-                <HudPanel>
-                  <h3 className="text-sm font-medium text-[rgba(255,255,255,0.85)] mb-4">Billing Summary</h3>
-                  <div className="space-y-4">
-                    <div className="p-3 bg-[rgba(255,255,255,0.02)] rounded-lg border border-[rgba(255,255,255,0.05)]">
-                      <p className="text-[10px] text-[rgba(255,255,255,0.50)] uppercase mb-1">Total Planejado YTD</p>
-                      <p className="text-lg font-semibold text-white">{formatCurrency(mockBillingData.totalPlanned)}</p>
-                    </div>
-                    <div className="p-3 bg-[rgba(255,255,255,0.02)] rounded-lg border border-[rgba(255,255,255,0.05)]">
-                      <p className="text-[10px] text-[rgba(255,255,255,0.50)] uppercase mb-1">Total Realizado YTD</p>
-                      <p className="text-lg font-semibold text-emerald-400">{formatCurrency(mockBillingData.totalActual)}</p>
-                    </div>
-                    <div className="p-3 bg-[rgba(255,255,255,0.02)] rounded-lg border border-[rgba(255,255,255,0.05)]">
-                      <p className="text-[10px] text-[rgba(255,255,255,0.50)] uppercase mb-1">Backlog Atual</p>
-                      <p className="text-lg font-semibold text-amber-400">{formatCurrency(mockBillingData.backlog)}</p>
-                    </div>
-                    <div className="p-3 bg-[rgba(255,255,255,0.02)] rounded-lg border border-[rgba(255,255,255,0.05)]">
-                      <p className="text-[10px] text-[rgba(255,255,255,0.50)] uppercase mb-1">% Execução</p>
-                      <HUDProgressBar 
-                        value={Math.round((mockBillingData.totalActual / contract.value) * 100)} 
-                        variant="active"
-                        className="mt-2"
-                      />
-                    </div>
-                  </div>
-                </HudPanel>
-              </div>
-            </div>
-          </TabsContent>
-
-          {/* Penalties & Clauses Tab */}
-          <TabsContent value="penalties" className="mt-4">
-            <div className="grid grid-cols-3 gap-4">
-              <div className="col-span-2">
-                <HudPanel>
-                  <h3 className="text-sm font-medium text-[rgba(255,255,255,0.85)] mb-4 flex items-center gap-2">
-                    <Gavel className="w-4 h-4 text-[#00C8FF]" />
-                    Penalties & High Impact Clauses
-                    <Badge variant="outline" className="ml-2 text-[9px] bg-[rgba(255,176,77,0.15)] text-amber-400 border-amber-400/30">
-                      MOCK DATA
-                    </Badge>
-                  </h3>
-                  <div className="space-y-4">
-                    {mockPenaltiesClauses.map(item => (
-                      <div 
-                        key={item.id} 
-                        className={`p-4 rounded-lg border ${
-                          item.status === 'at_risk' 
-                            ? 'bg-[rgba(255,88,96,0.05)] border-[rgba(255,88,96,0.20)]'
-                            : item.status === 'upcoming'
-                            ? 'bg-[rgba(255,176,77,0.05)] border-[rgba(255,176,77,0.20)]'
-                            : 'bg-[rgba(255,255,255,0.02)] border-[rgba(255,255,255,0.05)]'
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-3 mb-3">
-                          <div className="flex items-start gap-3">
-                            {item.type === 'penalty' ? (
-                              <AlertTriangle className={`w-5 h-5 shrink-0 ${
-                                item.impact === 'critical' ? 'text-[#FF5860]' :
-                                item.impact === 'high' ? 'text-amber-400' :
-                                'text-[rgba(255,255,255,0.50)]'
-                              }`} />
-                            ) : (
-                              <FileWarning className="w-5 h-5 text-[#00C8FF] shrink-0" />
-                            )}
-                            <div>
-                              <p className="text-sm font-medium text-white mb-1">{item.title}</p>
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <Badge variant="outline" className={`text-[9px] ${
-                                  item.type === 'penalty' ? 'text-[#FF5860] border-[#FF5860]/30' : 'text-[#00C8FF] border-[#00C8FF]/30'
-                                }`}>
-                                  {item.type === 'penalty' ? 'Penalidade' : 'Cláusula'}
-                                </Badge>
-                                <span className={`text-[9px] px-1.5 py-0.5 rounded ${getSeverityColor(item.impact)}`}>
-                                  {item.impact === 'critical' ? 'Crítico' : item.impact === 'high' ? 'Alto' : 'Médio'}
-                                </span>
-                                <span className={`text-[9px] px-1.5 py-0.5 rounded border ${getStatusColor(item.status)}`}>
-                                  {item.status === 'at_risk' ? 'Em Risco' : 
-                                   item.status === 'active' ? 'Ativo' :
-                                   item.status === 'upcoming' ? 'Próximo' : 'Info'}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                        
-                        <div className="grid grid-cols-2 gap-4 text-xs mb-3 pl-8">
-                          <div>
-                            <span className="text-[rgba(255,255,255,0.50)]">Gatilho: </span>
-                            <span className="text-white">{item.trigger}</span>
-                          </div>
-                          <div>
-                            <span className="text-[rgba(255,255,255,0.50)]">Valor: </span>
-                            <span className="text-white">{item.value}</span>
-                          </div>
-                        </div>
-
-                        {/* Mitigation Checklist */}
-                        {item.mitigations.length > 0 && (
-                          <div className="pl-8 pt-3 border-t border-[rgba(255,255,255,0.05)]">
-                            <p className="text-[10px] text-[rgba(255,255,255,0.50)] uppercase mb-2 flex items-center gap-1">
-                              <ClipboardCheck className="w-3 h-3" />
-                              Checklist de Mitigação
-                            </p>
-                            <div className="space-y-1.5">
-                              {item.mitigations.map(m => (
-                                <div key={m.id} className="flex items-center gap-2">
-                                  {m.done ? (
-                                    <CheckCircle className="w-3.5 h-3.5 text-[#00FFB4]" />
-                                  ) : (
-                                    <div className="w-3.5 h-3.5 rounded-full border border-[rgba(255,255,255,0.25)]" />
-                                  )}
-                                  <span className={`text-xs ${m.done ? 'text-[rgba(255,255,255,0.50)] line-through' : 'text-white'}`}>
-                                    {m.text}
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </HudPanel>
-              </div>
-
-              {/* Penalties Summary */}
-              <div className="space-y-4">
-                <HudPanel>
-                  <h3 className="text-sm font-medium text-[rgba(255,255,255,0.85)] mb-4">Summary</h3>
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-[rgba(255,255,255,0.65)]">Total Items</span>
-                      <span className="text-sm font-semibold text-white">{mockPenaltiesClauses.length}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-[rgba(255,255,255,0.65)]">Penalties</span>
-                      <span className="text-sm font-semibold text-[#FF5860]">
-                        {mockPenaltiesClauses.filter(p => p.type === 'penalty').length}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-[rgba(255,255,255,0.65)]">Clauses</span>
-                      <span className="text-sm font-semibold text-[#00C8FF]">
-                        {mockPenaltiesClauses.filter(p => p.type === 'clause').length}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-[rgba(255,255,255,0.65)]">At Risk</span>
-                      <span className="text-sm font-semibold text-amber-400">
-                        {mockPenaltiesClauses.filter(p => p.status === 'at_risk').length}
-                      </span>
-                    </div>
-                  </div>
-                </HudPanel>
-
-                <HudPanel>
-                  <h3 className="text-sm font-medium text-[rgba(255,255,255,0.85)] mb-4">Mitigation Progress</h3>
-                  <div className="space-y-3">
-                    {(() => {
-                      const totalMitigations = mockPenaltiesClauses.flatMap(p => p.mitigations).length;
-                      const completedMitigations = mockPenaltiesClauses.flatMap(p => p.mitigations).filter(m => m.done).length;
-                      const percentage = totalMitigations > 0 ? Math.round((completedMitigations / totalMitigations) * 100) : 0;
-                      return (
-                        <>
-                          <div className="flex justify-between items-center">
-                            <span className="text-sm text-[rgba(255,255,255,0.65)]">Completed</span>
-                            <span className="text-sm font-semibold text-white">{completedMitigations}/{totalMitigations}</span>
-                          </div>
-                          <HUDProgressBar value={percentage} variant={percentage >= 70 ? 'completed' : percentage >= 40 ? 'active' : 'critical'} />
-                        </>
-                      );
-                    })()}
-                  </div>
-                </HudPanel>
-              </div>
-            </div>
-          </TabsContent>
-        </Tabs>
+        <SideTimeline record={record} />
       </div>
-    </>
+    </HudPageLayout>
+  );
+}
+
+function SummaryTab({ record }: { record: ContractGovernanceRecord }) {
+  return (
+    <div className="grid gap-5 lg:grid-cols-[1fr_0.9fr]">
+      <HudPanel title="Resumo executivo" icon={<FileText className="h-4 w-4" />} interactive={false}>
+        <div className="space-y-4">
+          <p className="text-ig-body-sm leading-relaxed text-ig-fg-muted">
+            Este dossiê centraliza o contrato como fonte de verdade documental e de governança. Empresas e projetos aparecem como vínculos de referência, sem duplicar seus cadastros.
+          </p>
+          <div className="grid gap-3 md:grid-cols-2">
+            <Metric label="Código" value={record.code} />
+            <Metric label="Tipo" value={record.contractType} />
+            <Metric label="Empresa vinculada" value={record.companyName} />
+            <Metric label="Responsável" value={record.owner} />
+          </div>
+          {record.contract.notes && (
+            <div className="rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3">
+              <p className="text-ig-label text-ig-fg-muted">Observações</p>
+              <p className="mt-1 text-ig-body-sm text-ig-fg-strong">{record.contract.notes}</p>
+            </div>
+          )}
+        </div>
+      </HudPanel>
+
+      <HudPanel title="Entidades relacionadas" icon={<Workflow className="h-4 w-4" />} interactive={false}>
+        <div className="space-y-3">
+          <Relation icon={<Building2 className="h-4 w-4" />} label="Empresa" value={record.companyReference} />
+          {record.project ? (
+            <Link href={`/projetos/${record.project.id}`}>
+              <Relation icon={<Workflow className="h-4 w-4" />} label="Projeto" value={record.projectReference} link />
+            </Link>
+          ) : (
+            <Relation icon={<Workflow className="h-4 w-4" />} label="Projeto" value="Sem projeto vinculado" />
+          )}
+          <Relation icon={<Receipt className="h-4 w-4" />} label="Financeiro" value="Referência de faturamento e backlog" />
+          <Relation icon={<ShieldCheck className="h-4 w-4" />} label="Aprovação" value={record.approvalRoute} />
+        </div>
+      </HudPanel>
+    </div>
+  );
+}
+
+function ClausesTab({ record }: { record: ContractGovernanceRecord }) {
+  return (
+    <HudPanel title="Cláusulas monitoradas" icon={<Scale className="h-4 w-4" />} interactive={false}>
+      <div className="grid gap-3 md:grid-cols-2">
+        {record.clauses.map((clause) => (
+          <div key={clause.id} className="rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="truncate text-ig-body-sm font-semibold text-ig-fg-strong">{clause.title}</p>
+                <p className="mt-1 text-ig-caption text-ig-fg-muted">{clause.category} · {clause.status === 'mapped' ? 'Mapeada' : clause.status === 'review' ? 'Em revisão' : 'Ausente'}</p>
+              </div>
+              <HudStatusPill variant={riskVariant(clause.risk)} size="sm">{riskLabels[clause.risk]}</HudStatusPill>
+            </div>
+            <p className="mt-3 text-ig-caption leading-relaxed text-ig-fg-muted">{clause.note}</p>
+          </div>
+        ))}
+      </div>
+    </HudPanel>
+  );
+}
+
+function ObligationsTab({ record }: { record: ContractGovernanceRecord }) {
+  return (
+    <HudPanel title="Obrigações por responsável" icon={<ClipboardCheck className="h-4 w-4" />} interactive={false}>
+      <div className="space-y-2">
+        {record.obligations.map((obligation) => (
+          <div key={obligation.id} className="grid gap-3 rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3 md:grid-cols-[1fr_180px_120px_130px] md:items-center">
+            <div className="min-w-0">
+              <p className="truncate text-ig-body-sm font-semibold text-ig-fg-strong">{obligation.title}</p>
+              <p className="truncate text-ig-caption text-ig-fg-muted">{obligation.evidence}</p>
+            </div>
+            <span className="truncate text-ig-body-sm text-ig-fg-muted">{obligation.owner}</span>
+            <HudStatusPill variant={obligation.status === 'overdue' ? 'critical' : obligation.status === 'due_soon' ? 'warning' : obligation.status === 'done' ? 'active' : 'neutral'} size="sm">
+              {obligation.status === 'overdue' ? 'Atrasada' : obligation.status === 'due_soon' ? 'Próxima' : obligation.status === 'done' ? 'Concluída' : 'Aberta'}
+            </HudStatusPill>
+            <span className="text-ig-caption text-ig-fg-muted">{format(new Date(obligation.dueDate), 'dd/MM/yyyy', { locale: pt })}</span>
+          </div>
+        ))}
+      </div>
+    </HudPanel>
+  );
+}
+
+function RisksTab({ record }: { record: ContractGovernanceRecord }) {
+  return (
+    <div className="grid gap-5 lg:grid-cols-[320px_1fr]">
+      <HudPanel title="Risk score" icon={<ShieldAlert className="h-4 w-4" />} interactive={false}>
+        <div className="text-center">
+          <div className="mx-auto flex h-28 w-28 items-center justify-center rounded-full border border-ig-border-focus bg-ig-accent-weak">
+            <span className="text-3xl font-semibold tabular-nums text-ig-accent">{record.riskScore}</span>
+          </div>
+          <p className="mt-3 text-ig-body-sm font-semibold text-ig-fg-strong">Classificação {riskLabels[record.contract.riskClassification]}</p>
+          <p className="mt-1 text-ig-caption text-ig-fg-muted">Score derivado de risco cadastral, vencimento e documentos faltantes.</p>
+        </div>
+      </HudPanel>
+      <HudPanel title="Riscos legais e financeiros" icon={<Scale className="h-4 w-4" />} interactive={false}>
+        <div className="grid gap-3 md:grid-cols-2">
+          <Metric label="Status jurídico" value={record.legalStatus === 'approved' ? 'Aprovado' : record.legalStatus === 'review' ? 'Em revisão' : 'Pendente'} />
+          <Metric label="Status financeiro" value={record.financialStatus === 'ok' ? 'Sem bloqueio' : record.financialStatus === 'attention' ? 'Atenção' : 'Bloqueado'} />
+          <Metric label="Cláusulas de alto risco" value={record.clauses.filter((clause) => clause.risk === 'high').length} />
+          <Metric label="Documentos faltantes" value={record.missingDocuments.length} />
+        </div>
+      </HudPanel>
+    </div>
+  );
+}
+
+function FinanceTab({ record }: { record: ContractGovernanceRecord }) {
+  const billedPercent = record.totalValue ? Math.round((record.billedValue / record.totalValue) * 100) : 0;
+  return (
+    <HudPanel title="Exposição financeira" icon={<Receipt className="h-4 w-4" />} interactive={false}>
+      <div className="grid gap-4 lg:grid-cols-3">
+        <Metric label="Valor total" value={formatCurrencyFull(record.totalValue, record.contract.currency)} />
+        <Metric label="Valor faturado" value={formatCurrencyFull(record.billedValue, record.contract.currency)} />
+        <Metric label="Saldo contratual" value={formatCurrencyFull(record.remainingValue, record.contract.currency)} />
+      </div>
+      <div className="mt-5 rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-4">
+        <div className="mb-2 flex justify-between text-ig-body-sm">
+          <span className="text-ig-fg-muted">Execução financeira</span>
+          <span className="font-semibold tabular-nums text-ig-fg-strong">{billedPercent}%</span>
+        </div>
+        <HudProgressBar value={billedPercent} variant={record.financialStatus === 'blocked' ? 'danger' : record.financialStatus === 'attention' ? 'warning' : 'success'} />
+      </div>
+    </HudPanel>
+  );
+}
+
+function DocumentsTab({ record }: { record: ContractGovernanceRecord }) {
+  const documents = record.missingDocuments.length ? record.missingDocuments : ['Documento assinado', 'Matriz de obrigações', 'Parecer jurídico'];
+  return (
+    <HudPanel title="Repositório documental" icon={<Archive className="h-4 w-4" />} interactive={false}>
+      <div className="grid gap-3 md:grid-cols-2">
+        {documents.map((document) => {
+          const missing = record.missingDocuments.includes(document);
+          return (
+            <div key={document} className="rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-ig-body-sm font-semibold text-ig-fg-strong">{document}</p>
+                  <p className="mt-1 text-ig-caption text-ig-fg-muted">{missing ? 'Pendente para completar dossiê' : 'Referência documental disponível'}</p>
+                </div>
+                <HudBadge variant={missing ? 'warning' : 'success'} size="sm">{missing ? 'faltante' : 'ok'}</HudBadge>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </HudPanel>
+  );
+}
+
+function AuditTab({ record }: { record: ContractGovernanceRecord }) {
+  return (
+    <HudPanel title="Auditoria do contrato" icon={<ShieldCheck className="h-4 w-4" />} interactive={false}>
+      <Timeline events={record.auditEvents.map((event) => ({
+        title: event.title,
+        actor: event.actor,
+        date: event.at,
+        status: event.status,
+      }))} />
+    </HudPanel>
+  );
+}
+
+function AiTab({ record }: { record: ContractGovernanceRecord }) {
+  const output = [
+    'Resumo executivo',
+    'Cláusulas-chave',
+    'Pagamento',
+    'Renovação e rescisão',
+    'Penalidades e multas',
+    'SLA',
+    'Riscos legais',
+    'Riscos financeiros',
+    'Informações faltantes',
+    'Documentos requeridos',
+    'Ações sugeridas',
+    'Rota de aprovação',
+  ];
+
+  return (
+    <HudPanel title="Análise IA assistida" subtitle="Estado mock/pendente, sem chamada de API" icon={<BrainCircuit className="h-4 w-4" />} interactive={false}>
+      <div className="mb-4 rounded-lg border border-[color-mix(in_oklab,var(--ig-warning)_34%,transparent)] bg-[color-mix(in_oklab,var(--ig-warning)_10%,transparent)] p-3">
+        <p className="text-ig-body-sm font-semibold text-ig-fg-strong">Análise não conectada</p>
+        <p className="mt-1 text-ig-caption text-ig-fg-muted">Os campos abaixo são estrutura de produto para integração futura. Nenhuma leitura documental real foi executada.</p>
+      </div>
+      <div className="grid gap-3 md:grid-cols-3">
+        <Metric label="Confiança mock" value={`${record.confidenceScore}%`} />
+        <Metric label="Risk score" value={`${record.riskScore}/100`} />
+        <Metric label="Rota recomendada" value={record.approvalRoute} />
+      </div>
+      <div className="mt-5 grid gap-3 md:grid-cols-2">
+        {output.map((item) => (
+          <div key={item} className="rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-ig-body-sm font-semibold text-ig-fg-strong">{item}</p>
+              <HudBadge variant="neutral" size="sm">mock pendente</HudBadge>
+            </div>
+            <p className="mt-2 text-ig-caption text-ig-fg-muted">Aguardando motor de IA e documento fonte.</p>
+          </div>
+        ))}
+      </div>
+    </HudPanel>
+  );
+}
+
+function SideTimeline({ record }: { record: ContractGovernanceRecord }) {
+  const events = [
+    { title: 'Uploaded', actor: record.owner, date: record.contract.uploadedAt, status: 'done' as const },
+    { title: 'Analyzed', actor: 'INSIGHT AI mock', date: record.auditEvents[1]?.at || record.contract.uploadedAt, status: 'warning' as const },
+    { title: 'Reviewed', actor: 'Jurídico Corporativo', date: record.auditEvents[2]?.at || record.contract.uploadedAt, status: record.legalStatus === 'approved' ? 'done' as const : 'pending' as const },
+    { title: 'Approved', actor: record.approvalRoute, date: record.contract.signingDate || record.contract.uploadedAt, status: record.legalStatus === 'approved' ? 'done' as const : 'pending' as const },
+    { title: 'Renewed', actor: 'Gestão de Contratos', date: record.contract.renewalDate || record.contract.expirationDate || record.contract.uploadedAt, status: 'pending' as const },
+    { title: 'Expired', actor: 'Sistema', date: record.contract.expirationDate || record.contract.uploadedAt, status: record.contract.status === 'expired' ? 'warning' as const : 'pending' as const },
+  ];
+
+  return (
+    <HudPanel title="Timeline auditável" subtitle={record.code} icon={<CalendarClock className="h-4 w-4" />} interactive={false} className="xl:sticky xl:top-5">
+      <Timeline events={events} />
+    </HudPanel>
+  );
+}
+
+function Timeline({
+  events,
+}: {
+  events: Array<{ title: string; actor: string; date: Date; status: 'done' | 'warning' | 'pending' }>;
+}) {
+  return (
+    <div className="relative space-y-3">
+      <div className="absolute bottom-0 left-[15px] top-0 w-px bg-ig-border-subtle" />
+      {events.map((event) => (
+        <div key={`${event.title}-${event.actor}`} className="relative flex gap-3">
+          <span className={`mt-1 h-8 w-8 shrink-0 rounded-full border bg-ig-panel ${event.status === 'done' ? 'border-[color-mix(in_oklab,var(--ig-success)_40%,transparent)]' : event.status === 'warning' ? 'border-[color-mix(in_oklab,var(--ig-warning)_40%,transparent)]' : 'border-ig-border-strong'}`} />
+          <div className="min-w-0 flex-1 rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3">
+            <p className="truncate text-ig-body-sm font-semibold text-ig-fg-strong">{event.title}</p>
+            <p className="truncate text-ig-caption text-ig-fg-muted">{event.actor}</p>
+            <p className="mt-1 text-ig-caption text-ig-fg-subtle">{format(new Date(event.date), 'dd/MM/yyyy', { locale: pt })}</p>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Relation({ icon, label, value, link = false }: { icon: React.ReactNode; label: string; value: string; link?: boolean }) {
+  return (
+    <div className="flex items-center gap-3 rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3">
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-ig-border-subtle bg-ig-panel text-ig-accent">{icon}</span>
+      <div className="min-w-0">
+        <p className="text-ig-label text-ig-fg-muted">{label}</p>
+        <p className={`truncate text-ig-body-sm font-semibold ${link ? 'text-ig-accent' : 'text-ig-fg-strong'}`}>{value}</p>
+      </div>
+    </div>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="min-w-0 rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3">
+      <p className="truncate text-[10px] font-semibold uppercase tracking-[0.14em] text-ig-fg-subtle">{label}</p>
+      <p className="mt-1 truncate text-base font-semibold tabular-nums text-ig-fg-strong">{value}</p>
+    </div>
   );
 }

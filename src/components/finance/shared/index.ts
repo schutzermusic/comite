@@ -7,8 +7,15 @@ export {
   FinanceDrawerKeyValue,
 } from './FinanceDetailDrawer';
 export { FinanceStatusBadge, type FinanceStatus } from './FinanceStatusBadge';
-export { FinanceLineChart, FinanceBarChart, FinanceWaterfallChart, useFinanceChartTokens } from './FinanceMiniChart';
+
+// Theme tokens come from the existing FinanceMiniChart module (kept for back-compat).
+export { useFinanceChartTokens } from './FinanceMiniChart';
+
+// All chart components are now the futuristic SVG implementations — same public API.
 export {
+  FinanceLineChart,
+  FinanceBarChart,
+  FinanceWaterfallChart,
   FinanceSCurveChart, type SCurveSeries,
   FinanceDonutChart, type DonutSlice,
   FinanceTreemapChart, type TreemapNode,
@@ -19,5 +26,7 @@ export {
   FinanceTornadoChart, type TornadoRow,
   FinanceSparkline,
   FinanceRadialProgress,
-} from './FinanceCharts';
+  FinanceRankMatrix, type RankRow, type FinanceRankMatrixProps,
+} from './FuturisticCharts';
+
 export { Finance3DMetricCard, type Finance3DMetricCardProps, type Finance3DTone } from './Finance3DMetricCard';

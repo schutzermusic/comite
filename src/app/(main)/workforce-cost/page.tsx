@@ -10,6 +10,7 @@ import {
   CheckCircle,
   AlertCircle,
   Users,
+  DatabaseZap,
 } from 'lucide-react';
 
 import {
@@ -34,6 +35,7 @@ import {
   HudStatusPill,
   HudEmptyState,
 } from '@/components/hud';
+import { getEsocialDashboardData } from '@/lib/esocial';
 
 const statusConfig: Record<RiskStatus, {
   icon: typeof CheckCircle;
@@ -50,6 +52,7 @@ function WorkforceCostPageInner() {
   const costCenterId = searchParams.get('costCenterId');
 
   const data = useMemo(() => getMockDashboardData(), []);
+  const esocial = useMemo(() => getEsocialDashboardData(), []);
   const workforce = data.workforceData;
   const trendData = useMemo(() => generateMockTrendData(), []);
 
@@ -89,6 +92,13 @@ function WorkforceCostPageInner() {
         ]}
         actions={
           <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-ig-panel border border-ig-border-subtle text-sm text-ig-fg-muted">
+              <DatabaseZap className="w-4 h-4 text-ig-accent" />
+              <span>Fonte: eSocial</span>
+              <span className="hidden font-mono text-xs text-ig-fg-subtle md:inline">
+                ultima sync {esocial.config.lastSyncAt ? '05/05 09:30' : 'pendente'}
+              </span>
+            </div>
             <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-ig-panel border border-ig-border-subtle text-sm text-ig-fg-muted">
               <Calendar className="w-4 h-4 text-ig-fg-subtle" />
               <span className="ig-tabular">{data.cycleSummary.currentCycle}</span>

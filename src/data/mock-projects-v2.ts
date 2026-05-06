@@ -328,7 +328,7 @@ const makeDocs = (projId: string): ProjectDocument[] => [
     { id: `${projId}-d1`, name: 'Contrato Principal', category: 'contract', version: 2, required: true, uploadedAt: '2025-05-20T10:00:00Z', url: '#' },
     { id: `${projId}-d2`, name: 'Licença Ambiental', category: 'license', version: 1, required: true, uploadedAt: '2025-06-15T14:00:00Z', url: '#' },
     { id: `${projId}-d3`, name: 'Relatório de Progresso Q3', category: 'report', version: 1, required: false, uploadedAt: '2025-09-30T18:00:00Z', url: '#' },
-    { id: `${projId}-d4`, name: 'Ata de Deliberação CAE-2025-07', category: 'minutes', version: 1, required: true, uploadedAt: '2025-07-20T09:00:00Z', url: '#' },
+    { id: `${projId}-d4`, name: 'Ata de Comitê CAE-2025-07', category: 'minutes', version: 1, required: true, uploadedAt: '2025-07-20T09:00:00Z', url: '#' },
     { id: `${projId}-d5`, name: 'Estudo de Viabilidade Técnica', category: 'proposal', version: 1, required: true, uploadedAt: '', url: undefined }, // missing!
 ];
 

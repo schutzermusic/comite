@@ -2,14 +2,13 @@
 
 import { useState, useMemo } from 'react';
 import { useTranslations } from 'next-intl';
-import { Lock, CheckCircle, XCircle, ShieldCheck, AlertTriangle, TrendingUp } from 'lucide-react';
-import ReactECharts from 'echarts-for-react';
-import { useTheme } from '@/contexts/ThemeContext';
+import { Lock, CheckCircle, XCircle, ShieldCheck, AlertTriangle, TrendingUp, FileCheck2, Clock3 } from 'lucide-react';
 import {
   HudPageLayout, HudHeader, HudPanel, HudButton, HudStatusPill,
-  HudSelect, HudTable, HudModal, HudInput,
-  type HudTableColumn,
+  HudSelect, HudTable, HudModal, HudInput, HudKpiStrip,
+  type HudTableColumn, type KpiItem,
 } from '@/components/hud';
+import { FinanceAdvancedWaterfallChart } from '@/components/finance/shared';
 import {
   getPeriodCloses, getPeriodClose, getCloseChecklist,
   softClosePeriod, hardClosePeriod, formatBRL, formatCompactBRL,
@@ -35,21 +34,30 @@ export default function FechamentoPage() {
   const allReady = Object.values(checklist).every(Boolean);
 
   const checklistItems = [
-    { key: 'allEntriesPosted', label: t('allEntriesPosted'), ok: checklist.allEntriesPosted },
-    { key: 'payrollPosted', label: t('payrollPosted'), ok: checklist.payrollPosted },
-    { key: 'allocationsPosted', label: t('allocationsPosted'), ok: checklist.allocationsPosted },
-    { key: 'noPendingEntries', label: t('noPendingEntries'), ok: checklist.noPendingEntries },
-    { key: 'allEvidenceProvided', label: t('allEvidenceProvided'), ok: checklist.allEvidenceProvided },
+    { key: 'allEntriesPosted', label: t('allEntriesPosted'), ok: checklist.allEntriesPosted, owner: 'Controladoria', due: 'D+1', evidence: 'Razão contábil' },
+    { key: 'payrollPosted', label: t('payrollPosted'), ok: checklist.payrollPosted, owner: 'RH / Folha', due: 'D+2', evidence: 'Lote folha' },
+    { key: 'allocationsPosted', label: t('allocationsPosted'), ok: checklist.allocationsPosted, owner: 'PMO', due: 'D+2', evidence: 'Rateios' },
+    { key: 'noPendingEntries', label: t('noPendingEntries'), ok: checklist.noPendingEntries, owner: 'Financeiro', due: 'D+3', evidence: 'Fila zerada' },
+    { key: 'allEvidenceProvided', label: t('allEvidenceProvided'), ok: checklist.allEvidenceProvided, owner: 'Auditoria', due: 'D+4', evidence: 'Documentos' },
+  ];
+  const checklistDone = checklistItems.filter(item => item.ok).length;
+  const closeProgress = Math.round((checklistDone / checklistItems.length) * 100);
+
+  const closeKpis: KpiItem[] = [
+    { id: 'status', label: 'Status do período', value: STATUS_LABELS[currentPeriod?.status || 'open'], icon: <Lock className="h-5 w-5" />, variant: currentPeriod?.status === 'closed' ? 'success' : 'warning' },
+    { id: 'progress', label: 'Checklist pronto', value: `${closeProgress}%`, icon: <ShieldCheck className="h-5 w-5" />, variant: allReady ? 'success' : 'warning' },
+    { id: 'blockers', label: 'Bloqueios', value: `${checklistItems.length - checklistDone}`, icon: <AlertTriangle className="h-5 w-5" />, variant: allReady ? 'success' : 'danger' },
+    { id: 'reporting', label: 'Resultado líquido', value: currentPeriod?.snapshot_json ? formatCompactBRL(currentPeriod.snapshot_json.net_result) : 'Pendente', icon: <FileCheck2 className="h-5 w-5" />, variant: currentPeriod?.snapshot_json ? 'info' : 'warning' },
   ];
 
   const periodColumns: HudTableColumn<PeriodClose>[] = [
-    { key: 'period_key', header: t('period'), cell: (p) => <span className="text-white/80 text-xs font-mono">{p.period_key}</span> },
+    { key: 'period_key', header: t('period'), cell: (p) => <span className="font-mono text-xs text-ig-fg-strong">{p.period_key}</span> },
     { key: 'status', header: 'Status', cell: (p) => <HudStatusPill variant={STATUS_VARIANTS[p.status] as any} size="sm">{STATUS_LABELS[p.status]}</HudStatusPill> },
-    { key: 'soft_closed_at', header: t('softClose'), cell: (p) => <span className="text-white/50 text-xs font-mono">{p.soft_closed_at?.slice(0, 10) || '—'}</span> },
-    { key: 'closed_at', header: t('hardClose'), cell: (p) => <span className="text-white/50 text-xs font-mono">{p.closed_at?.slice(0, 10) || '—'}</span> },
+    { key: 'soft_closed_at', header: t('softClose'), cell: (p) => <span className="font-mono text-xs text-ig-fg-muted">{p.soft_closed_at?.slice(0, 10) || '—'}</span> },
+    { key: 'closed_at', header: t('hardClose'), cell: (p) => <span className="font-mono text-xs text-ig-fg-muted">{p.closed_at?.slice(0, 10) || '—'}</span> },
     { key: 'snapshot', header: 'Snapshot', cell: (p) => p.snapshot_json ? (
-      <span className="text-emerald-400 text-xs">Resultado: {formatBRL(p.snapshot_json.net_result)}</span>
-    ) : <span className="text-white/30 text-xs">—</span> },
+      <span className="text-xs text-ig-success">Resultado: {formatBRL(p.snapshot_json.net_result)}</span>
+    ) : <span className="text-xs text-ig-fg-subtle">—</span> },
   ];
 
   const handleClose = () => {
@@ -79,34 +87,63 @@ export default function FechamentoPage() {
           />
         }
       />
+      <HudKpiStrip kpis={closeKpis} columns={4} size="sm" />
+
+      <HudPanel className="mt-4" title="Trilha executiva do fechamento" subtitle="Status board-ready sem alterar o fluxo operacional" icon={<Clock3 className="h-4 w-4" />} sweep>
+        <div className="grid grid-cols-2 gap-2 md:grid-cols-4 lg:grid-cols-7">
+          {[
+            { label: 'Aberto', active: currentPeriod?.status === 'open', variant: 'info' },
+            { label: 'Em revisão', active: currentPeriod?.status === 'soft_close', variant: 'warning' },
+            { label: 'Pendente', active: !allReady && currentPeriod?.status !== 'closed', variant: 'warning' },
+            { label: 'Aprovado', active: allReady && currentPeriod?.status !== 'closed', variant: 'completed' },
+            { label: 'Fechado', active: currentPeriod?.status === 'closed', variant: 'completed' },
+            { label: 'Reportado', active: Boolean(currentPeriod?.snapshot_json), variant: 'active' },
+            { label: 'Bloqueado', active: !allReady && currentPeriod?.status === 'soft_close', variant: 'error' },
+          ].map((phase) => (
+            <div
+              key={phase.label}
+              className={`rounded-xl border p-3 transition-all ${phase.active ? 'border-ig-border-focus bg-ig-accent-weak' : 'border-ig-border-subtle bg-ig-panel/40'}`}
+            >
+              <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-ig-fg-subtle">{phase.label}</p>
+              <div className="mt-2">
+                <HudStatusPill variant={phase.variant as any} size="sm">{phase.active ? 'Atual' : 'Standby'}</HudStatusPill>
+              </div>
+            </div>
+          ))}
+        </div>
+      </HudPanel>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
         {/* Checklist */}
         <HudPanel title={t('closeChecklist')} icon={<ShieldCheck className="w-4 h-4" />}>
           <div className="space-y-3">
             {checklistItems.map((item) => (
-              <div key={item.key} className="flex items-center gap-3 py-2 px-3 rounded-lg bg-white/[0.02] border border-white/[0.04]">
+              <div key={item.key} className="grid grid-cols-[auto_1fr] gap-3 rounded-xl border border-ig-border-subtle bg-ig-panel/45 px-3 py-2.5 md:grid-cols-[auto_1fr_auto]">
                 {item.ok ? (
-                  <CheckCircle className="w-5 h-5 text-emerald-400 shrink-0" />
+                  <CheckCircle className="h-5 w-5 shrink-0 text-ig-success" />
                 ) : (
-                  <XCircle className="w-5 h-5 text-red-400 shrink-0" />
+                  <XCircle className="h-5 w-5 shrink-0 text-ig-danger" />
                 )}
-                <span className={`text-sm ${item.ok ? 'text-white/70' : 'text-red-300'}`}>{item.label}</span>
+                <div className="min-w-0">
+                  <span className={`block text-sm ${item.ok ? 'text-ig-fg-strong' : 'text-ig-danger'}`}>{item.label}</span>
+                  <span className="text-[10px] uppercase tracking-[0.14em] text-ig-fg-subtle">{item.owner} · {item.due}</span>
+                </div>
+                <span className="hidden rounded-md border border-ig-border-subtle bg-ig-raised px-2 py-1 text-[10px] text-ig-fg-muted md:inline-flex">{item.evidence}</span>
               </div>
             ))}
 
-            <div className="pt-4 border-t border-white/[0.06]">
+            <div className="border-t border-ig-border-subtle pt-4">
               <div className="flex items-center gap-2 mb-3">
-                <span className="text-white/40 text-xs uppercase tracking-wider">Status atual:</span>
+                <span className="text-xs uppercase tracking-wider text-ig-fg-subtle">Status atual:</span>
                 <HudStatusPill variant={STATUS_VARIANTS[currentPeriod?.status || 'open'] as any}>
                   {STATUS_LABELS[currentPeriod?.status || 'open']}
                 </HudStatusPill>
               </div>
 
               {currentPeriod?.status === 'closed' ? (
-                <div className="flex items-center gap-2 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
-                  <Lock className="w-4 h-4 text-emerald-400" />
-                  <span className="text-emerald-300 text-xs">Período fechado definitivamente</span>
+                <div className="flex items-center gap-2 rounded-lg border border-[color-mix(in_oklab,var(--ig-success)_28%,transparent)] bg-[color-mix(in_oklab,var(--ig-success)_12%,transparent)] p-3">
+                  <Lock className="h-4 w-4 text-ig-success" />
+                  <span className="text-xs text-ig-success">Período fechado definitivamente</span>
                 </div>
               ) : (
                 <div className="flex gap-2">
@@ -124,9 +161,9 @@ export default function FechamentoPage() {
               )}
 
               {!allReady && currentPeriod?.status !== 'closed' && (
-                <div className="flex items-center gap-2 mt-3 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
-                  <AlertTriangle className="w-4 h-4 text-amber-400" />
-                  <span className="text-amber-300 text-xs">Resolva as pendências acima antes do fechamento definitivo</span>
+                <div className="mt-3 flex items-center gap-2 rounded-lg border border-[color-mix(in_oklab,var(--ig-warning)_28%,transparent)] bg-[color-mix(in_oklab,var(--ig-warning)_12%,transparent)] p-3">
+                  <AlertTriangle className="h-4 w-4 text-ig-warning" />
+                  <span className="text-xs text-ig-warning">Resolva as pendências acima antes do fechamento definitivo</span>
                 </div>
               )}
             </div>
@@ -139,24 +176,24 @@ export default function FechamentoPage() {
             <div className="space-y-2">
               {[
                 { label: 'Receita', value: currentPeriod.snapshot_json.revenue },
-                { label: 'COGS', value: currentPeriod.snapshot_json.cogs },
+                { label: 'Custo Direto', value: currentPeriod.snapshot_json.cogs },
                 { label: 'Margem Bruta', value: currentPeriod.snapshot_json.gross_margin },
-                { label: 'OPEX', value: currentPeriod.snapshot_json.opex },
+                { label: 'Despesas Operacionais', value: currentPeriod.snapshot_json.opex },
                 { label: 'Resultado Operacional', value: currentPeriod.snapshot_json.operating_result },
                 { label: 'Financeiro', value: currentPeriod.snapshot_json.financial },
                 { label: 'Tributos', value: currentPeriod.snapshot_json.taxes },
                 { label: 'Resultado Líquido', value: currentPeriod.snapshot_json.net_result },
               ].map((row) => (
-                <div key={row.label} className="flex justify-between py-2 px-3 rounded-lg bg-white/[0.02] border border-white/[0.04]">
-                  <span className="text-white/60 text-xs">{row.label}</span>
-                  <span className={`text-xs font-mono ${row.value >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatBRL(row.value)}</span>
+                <div key={row.label} className="flex justify-between rounded-lg border border-ig-border-subtle bg-ig-panel/45 px-3 py-2">
+                  <span className="text-xs text-ig-fg-muted">{row.label}</span>
+                  <span className={`font-mono text-xs ${row.value >= 0 ? 'text-ig-success' : 'text-ig-danger'}`}>{formatBRL(row.value)}</span>
                 </div>
               ))}
             </div>
           ) : (
             <div className="text-center py-12">
-              <Lock className="w-8 h-8 text-white/20 mx-auto mb-3" />
-              <p className="text-white/30 text-sm">O snapshot será gerado ao fechar o período definitivamente.</p>
+              <Lock className="mx-auto mb-3 h-8 w-8 text-ig-fg-subtle" />
+              <p className="text-sm text-ig-fg-muted">O snapshot será gerado ao fechar o período definitivamente.</p>
             </div>
           )}
         </HudPanel>
@@ -179,7 +216,7 @@ export default function FechamentoPage() {
       </div>
 
       <HudModal isOpen={confirmModalOpen} onClose={() => setConfirmModalOpen(false)} title={closeType === 'soft' ? t('softClose') : t('hardClose')} size="sm">
-        <p className="text-white/60 text-sm mb-4">
+        <p className="mb-4 text-sm text-ig-fg-muted">
           {closeType === 'soft'
             ? 'O fechamento parcial impede novos lançamentos do tipo "Real" neste período. Ajustes ainda são permitidos.'
             : 'O fechamento definitivo congela o período e gera um snapshot do P&L. Esta ação não pode ser desfeita.'}
@@ -197,144 +234,16 @@ export default function FechamentoPage() {
 }
 
 function WaterfallChart({ snapshot }: { snapshot: PnLSnapshot }) {
-  const { theme } = useTheme();
-  const isLight = theme === 'light';
-
   const steps = [
-    { name: 'Receita',     value: snapshot.revenue,          type: 'start' },
-    { name: 'COGS',        value: snapshot.cogs,             type: 'step' },
-    { name: 'Margem Bruta',value: snapshot.gross_margin,     type: 'subtotal' },
-    { name: 'OPEX',        value: snapshot.opex,             type: 'step' },
-    { name: 'Result. Oper.', value: snapshot.operating_result, type: 'subtotal' },
-    { name: 'Financeiro',  value: snapshot.financial,        type: 'step' },
-    { name: 'Tributos',    value: snapshot.taxes,            type: 'step' },
-    { name: 'Result. Líq.',value: snapshot.net_result,       type: 'total' },
+    { label: 'Receita', value: snapshot.revenue, type: 'start' as const },
+    { label: 'Custo Direto', value: snapshot.cogs, type: 'delta' as const },
+    { label: 'Margem Bruta', value: snapshot.gross_margin, type: 'end' as const },
+    { label: 'Despesas Op.', value: snapshot.opex, type: 'delta' as const },
+    { label: 'Result. Oper.', value: snapshot.operating_result, type: 'end' as const },
+    { label: 'Financeiro', value: snapshot.financial, type: 'delta' as const },
+    { label: 'Tributos', value: snapshot.taxes, type: 'delta' as const },
+    { label: 'Result. Líq.', value: snapshot.net_result, type: 'end' as const },
   ];
-
-  const transparentData: (number | string)[] = [];
-  const positiveData: (number | string)[] = [];
-  const negativeData: (number | string)[] = [];
-
-  let cumulative = 0;
-  steps.forEach((step, i) => {
-    if (step.type === 'start' || step.type === 'subtotal' || step.type === 'total') {
-      transparentData.push(step.value >= 0 ? 0 : Math.abs(step.value));
-      positiveData.push(step.value >= 0 ? step.value : '-');
-      negativeData.push(step.value < 0 ? Math.abs(step.value) : '-');
-      cumulative = step.value;
-    } else {
-      const prev = cumulative;
-      cumulative = cumulative + step.value;
-      if (step.value < 0) {
-        transparentData.push(Math.max(cumulative, 0));
-        positiveData.push('-');
-        negativeData.push(Math.abs(step.value));
-      } else {
-        transparentData.push(prev >= 0 ? prev : 0);
-        positiveData.push(step.value);
-        negativeData.push('-');
-      }
-    }
-  });
-
-  const option = {
-    tooltip: {
-      trigger: 'axis' as const,
-      axisPointer: { type: 'shadow' as const },
-      backgroundColor: isLight ? 'rgba(255,255,255,0.96)' : 'rgba(10,20,18,0.95)',
-      borderColor: isLight ? 'rgba(0,0,0,0.08)' : 'rgba(6,182,212,0.25)',
-      textStyle: { color: isLight ? '#1C1F24' : '#e2e8f0', fontSize: 12 },
-      formatter: (params: any[]) => {
-        const idx = params[0]?.dataIndex ?? 0;
-        const step = steps[idx];
-        const color = step.value >= 0 ? '#10b981' : '#ef4444';
-        return `<div style="font-weight:600;margin-bottom:4px">${step.name}</div>
-                <span style="color:${color};font-family:monospace;font-size:13px">${formatBRL(step.value)}</span>`;
-      },
-    },
-    grid: { left: 12, right: 20, top: 24, bottom: 8, containLabel: true },
-    xAxis: {
-      type: 'category' as const,
-      data: steps.map(s => s.name),
-      axisLabel: { color: isLight ? '#4B5563' : '#94a3b8', fontSize: 10, rotate: 0, interval: 0 },
-      axisLine: { lineStyle: { color: isLight ? 'rgba(0,0,0,0.08)' : '#1e293b' } },
-      axisTick: { show: false },
-    },
-    yAxis: {
-      type: 'value' as const,
-      axisLabel: { color: isLight ? '#6B7280' : '#64748b', fontSize: 10, formatter: (v: number) => formatCompactBRL(v) },
-      splitLine: { lineStyle: { color: isLight ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.04)', type: 'dashed' as const } },
-      axisLine: { show: false },
-    },
-    series: [
-      {
-        name: 'Transparent',
-        type: 'bar',
-        stack: 'waterfall',
-        silent: true,
-        itemStyle: { borderColor: 'transparent', color: 'transparent' },
-        emphasis: { itemStyle: { borderColor: 'transparent', color: 'transparent' } },
-        data: transparentData,
-      },
-      {
-        name: 'Positivo',
-        type: 'bar',
-        stack: 'waterfall',
-        data: positiveData,
-        itemStyle: {
-          color: {
-            type: 'linear' as const, x: 0, y: 0, x2: 0, y2: 1,
-            colorStops: [
-              { offset: 0, color: '#34d399' },
-              { offset: 1, color: '#059669' },
-            ],
-          },
-          borderRadius: [4, 4, 0, 0],
-        },
-        label: {
-          show: true,
-          position: 'top' as const,
-          color: '#34d399',
-          fontSize: 10,
-          fontFamily: 'monospace',
-          formatter: (p: any) => {
-            const idx = p.dataIndex;
-            return formatCompactBRL(steps[idx].value);
-          },
-        },
-      },
-      {
-        name: 'Negativo',
-        type: 'bar',
-        stack: 'waterfall',
-        data: negativeData,
-        itemStyle: {
-          color: {
-            type: 'linear' as const, x: 0, y: 0, x2: 0, y2: 1,
-            colorStops: [
-              { offset: 0, color: '#f87171' },
-              { offset: 1, color: '#dc2626' },
-            ],
-          },
-          borderRadius: [4, 4, 0, 0],
-        },
-        label: {
-          show: true,
-          position: 'top' as const,
-          color: '#f87171',
-          fontSize: 10,
-          fontFamily: 'monospace',
-          formatter: (p: any) => {
-            const idx = p.dataIndex;
-            return formatCompactBRL(steps[idx].value);
-          },
-        },
-      },
-    ],
-    animationDuration: 800,
-    animationEasing: 'cubicInOut',
-  };
-
   const netPositive = snapshot.net_result >= 0;
 
   return (
@@ -342,25 +251,25 @@ function WaterfallChart({ snapshot }: { snapshot: PnLSnapshot }) {
       <div className="flex items-center justify-between mb-4 px-1">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
-            <span className="w-3 h-3 rounded-sm bg-gradient-to-b from-emerald-400 to-emerald-600" />
-            <span className="text-[11px] text-white/50">Positivo</span>
+            <span className="h-3 w-3 rounded-sm bg-ig-success" />
+            <span className="text-[11px] text-ig-fg-muted">Positivo</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="w-3 h-3 rounded-sm bg-gradient-to-b from-red-400 to-red-600" />
-            <span className="text-[11px] text-white/50">Negativo</span>
+            <span className="h-3 w-3 rounded-sm bg-ig-danger" />
+            <span className="text-[11px] text-ig-fg-muted">Negativo</span>
           </div>
         </div>
-        <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border ${
+        <div className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 ${
           netPositive
-            ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-300'
-            : 'bg-red-500/10 border-red-500/20 text-red-300'
+            ? 'border-[color-mix(in_oklab,var(--ig-success)_28%,transparent)] bg-[color-mix(in_oklab,var(--ig-success)_12%,transparent)] text-ig-success'
+            : 'border-[color-mix(in_oklab,var(--ig-danger)_28%,transparent)] bg-[color-mix(in_oklab,var(--ig-danger)_12%,transparent)] text-ig-danger'
         }`}>
           <TrendingUp className={`w-4 h-4 ${!netPositive ? 'rotate-180' : ''}`} />
           <span className="text-xs font-medium">Resultado Líquido:</span>
           <span className="text-sm font-mono font-bold">{formatBRL(snapshot.net_result)}</span>
         </div>
       </div>
-      <ReactECharts option={option} style={{ height: 380 }} opts={{ renderer: 'svg' }} />
+      <FinanceAdvancedWaterfallChart steps={steps} height={380} />
     </div>
   );
 }
