@@ -83,11 +83,11 @@ export default function ForecastCenariosPage() {
   }, [assumptions, baseline]);
 
   const kpis: KpiItem[] = [
-    { id: 's', label: 'Cenários ativos', value: SCENARIOS.length.toString(), variant: 'info', tintValue: true },
-    { id: 'rv', label: 'Receita simulada', value: fmtBRL(simulated.revenue), delta: ((simulated.revenue - baseline.revenue) / baseline.revenue) * 100, variant: 'success', tintValue: true },
-    { id: 'eb', label: 'EBITDA simulado', value: fmtBRL(simulated.ebitda), delta: ((simulated.ebitda - baseline.ebitda) / baseline.ebitda) * 100, variant: simulated.ebitda >= baseline.ebitda ? 'success' : 'danger', tintValue: true },
-    { id: 'mg', label: 'Margem simulada', value: `${simulated.margin.toFixed(1)}%`, delta: simulated.margin - baseline.margin, variant: 'success', tintValue: true },
-    { id: 'cs', label: 'Caixa projetado', value: fmtBRL(simulated.cash), variant: 'info', tintValue: true },
+    { id: 's', label: 'Cenários ativos', value: SCENARIOS.length, variant: 'info', tintValue: true },
+    { id: 'rv', label: 'Receita simulada', value: simulated.revenue, format: 'compactCurrency', delta: ((simulated.revenue - baseline.revenue) / baseline.revenue) * 100, variant: 'success', tintValue: true },
+    { id: 'eb', label: 'EBITDA simulado', value: simulated.ebitda, format: 'compactCurrency', delta: ((simulated.ebitda - baseline.ebitda) / baseline.ebitda) * 100, variant: simulated.ebitda >= baseline.ebitda ? 'success' : 'danger', tintValue: true },
+    { id: 'mg', label: 'Margem simulada', value: simulated.margin, format: 'percent', delta: simulated.margin - baseline.margin, variant: 'success', tintValue: true },
+    { id: 'cs', label: 'Caixa projetado', value: simulated.cash, format: 'compactCurrency', variant: 'info', tintValue: true },
   ];
 
   const updateAssumption = (id: string, value: number) => {

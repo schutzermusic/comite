@@ -5,6 +5,8 @@ import {
   HudCardDescription as CardDescription,
   HudCardHeader as CardHeader,
   HudCardTitle as CardTitle,
+  HudHeader,
+  HudPageLayout,
 } from "@/components/hud";
 import {
   HudTableElement as Table,
@@ -17,7 +19,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { votes } from "@/lib/mock-data";
-import { PlusCircle, MoreHorizontal } from "lucide-react";
+import { PlusCircle, MoreHorizontal, Vote } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 const statusMapping: { [key: string]: { text: string; color: string } } = {
@@ -28,16 +30,21 @@ const statusMapping: { [key: string]: { text: string; color: string } } = {
 
 export default function VotingsPage() {
   return (
-    <div className="flex flex-col gap-8">
-      <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold font-headline">Votações</h1>
-        <Button asChild>
-          <Link href="/votacoes/nova">
-            <PlusCircle className="mr-2 h-4 w-4" />
-            Criar Votação
-          </Link>
-        </Button>
-      </div>
+    <HudPageLayout>
+      <HudHeader
+        title="Votações"
+        subtitle="Participe das votações abertas e consulte os resultados."
+        icon={<Vote className="w-5 h-5" />}
+        breadcrumbs={[{ label: 'Votações' }]}
+        actions={
+          <Button asChild>
+            <Link href="/votacoes/nova">
+              <PlusCircle className="mr-2 h-4 w-4" />
+              Criar Votação
+            </Link>
+          </Button>
+        }
+      />
 
       <Card>
         <CardHeader>
@@ -99,6 +106,6 @@ export default function VotingsPage() {
           </Table>
         </CardContent>
       </Card>
-    </div>
+    </HudPageLayout>
   );
 }

@@ -90,12 +90,13 @@ export default function OrcadoRealizadoPage() {
     .sort((a, b) => a.vp - b.vp)
     .slice(0, 5), []);
 
+  const variance = variancePct(totalActual, totalBudget);
   const kpis: KpiItem[] = [
-    { id: 'b', label: 'Orçado (mês)', value: fmtBRL(totalBudget), variant: 'info', tintValue: true },
-    { id: 'a', label: 'Realizado (mês)', value: fmtBRL(totalActual), variant: 'success', tintValue: true },
-    { id: 'd', label: 'Δ Realizado vs Orçado', value: fmtPct(variancePct(totalActual, totalBudget)), variant: variancePct(totalActual, totalBudget) >= 0 ? 'success' : 'danger', tintValue: true },
-    { id: 'o', label: 'Linhas com overrun', value: overruns.toString(), variant: overruns > 0 ? 'warning' : 'success', tintValue: true },
-    { id: 'j', label: 'Justificadas', value: justified.toString(), variant: 'info', tintValue: true },
+    { id: 'b', label: 'Orçado (mês)', value: totalBudget, format: 'compactCurrency', variant: 'info', tintValue: true },
+    { id: 'a', label: 'Realizado (mês)', value: totalActual, format: 'compactCurrency', variant: 'success', tintValue: true },
+    { id: 'd', label: 'Δ Realizado vs Orçado', value: variance, format: 'percent', variant: variance >= 0 ? 'success' : 'danger', tintValue: true },
+    { id: 'o', label: 'Linhas com overrun', value: overruns, variant: overruns > 0 ? 'warning' : 'success', tintValue: true },
+    { id: 'j', label: 'Justificadas', value: justified, variant: 'info', tintValue: true },
   ];
 
   const heatmapAreas = (['Receita', 'Custo', 'OPEX', 'Financeiro', 'Impostos'] as Row['area'][]).map((area) => {

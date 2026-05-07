@@ -61,13 +61,14 @@ export default function CentrosCustoPage() {
   const totalHc = CENTERS.reduce((a, c) => a + c.headcount, 0);
   const overruns = CENTERS.filter((c) => c.actual > c.budget).length;
 
+  const variancePct = ((totalActual - totalBudget) / totalBudget) * 100;
   const kpis: KpiItem[] = [
-    { id: 'n', label: 'Centros de Custo', value: CENTERS.length.toString(), variant: 'info', tintValue: true },
-    { id: 'b', label: 'Orçado total', value: fmtBRL(totalBudget), variant: 'info', tintValue: true },
-    { id: 'a', label: 'Realizado total', value: fmtBRL(totalActual), variant: 'warning', tintValue: true },
-    { id: 'd', label: 'Δ vs Orçado', value: fmtPct(((totalActual - totalBudget) / totalBudget) * 100), variant: totalActual > totalBudget ? 'danger' : 'success', tintValue: true },
-    { id: 'h', label: 'Headcount', value: totalHc.toString(), variant: 'info', tintValue: true },
-    { id: 'o', label: 'Em overrun', value: overruns.toString(), variant: overruns > 0 ? 'warning' : 'success', tintValue: true },
+    { id: 'n', label: 'Centros de Custo', value: CENTERS.length, variant: 'info', tintValue: true },
+    { id: 'b', label: 'Orçado total', value: totalBudget, format: 'compactCurrency', variant: 'info', tintValue: true },
+    { id: 'a', label: 'Realizado total', value: totalActual, format: 'compactCurrency', variant: 'warning', tintValue: true },
+    { id: 'd', label: 'Δ vs Orçado', value: variancePct, format: 'percent', variant: totalActual > totalBudget ? 'danger' : 'success', tintValue: true },
+    { id: 'h', label: 'Headcount', value: totalHc, variant: 'info', tintValue: true },
+    { id: 'o', label: 'Em overrun', value: overruns, variant: overruns > 0 ? 'warning' : 'success', tintValue: true },
   ];
 
   const trendSeries = useMemo(() => {

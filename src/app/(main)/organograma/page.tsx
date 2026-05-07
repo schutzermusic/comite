@@ -9,15 +9,14 @@ import {
   TrendingUp,
   Network,
   Layers3,
-  Search,
-  SlidersHorizontal,
-  X,
 } from "lucide-react";
 import { OrgTreeViewer, departmentColors } from "@/components/orgchart/org-tree-viewer";
 
 import {
   HudPageLayout,
   HudHeader,
+  HudKpiStrip,
+  HudFilterBar,
   type KpiItem,
   type FilterGroup,
 } from "@/components/hud";
@@ -226,10 +225,11 @@ export default function OrganogramaPage() {
             breadcrumbs={[{ label: 'Organograma' }]}
           />
 
-          <OrgMetricStrip kpis={kpiItems} />
+          <HudKpiStrip kpis={kpiItems} columns={4} />
 
-          <OrgControlBar
-            searchTerm={searchTerm}
+          <HudFilterBar
+            searchPlaceholder="Buscar por nome, cargo ou e-mail..."
+            searchValue={searchTerm}
             onSearchChange={setSearchTerm}
             filterGroups={filterGroups}
             activeFiltersCount={(searchTerm ? 1 : 0) + (departmentFilter !== 'all' ? 1 : 0)}
@@ -237,6 +237,7 @@ export default function OrganogramaPage() {
               setSearchTerm('');
               setDepartmentFilter('all');
             }}
+            onAdvancedFilters={() => {}}
           />
 
           <OrgDepartmentLegend
@@ -261,125 +262,6 @@ export default function OrganogramaPage() {
         </div>
       </div>
     </HudPageLayout>
-  );
-}
-
-function OrgMetricStrip({ kpis }: { kpis: KpiItem[] }) {
-  return (
-    <section className="relative overflow-hidden rounded-[24px] border border-ig-border-focus/35 bg-[linear-gradient(180deg,color-mix(in_oklab,var(--ig-bg-panel)_92%,transparent),color-mix(in_oklab,var(--ig-bg-raised)_58%,transparent))] p-1 shadow-[var(--ig-shadow-e2),inset_0_0_0_1px_color-mix(in_oklab,var(--ig-border-focus)_20%,transparent)]">
-      <div className="pointer-events-none absolute inset-y-3 left-3 w-px bg-ig-accent shadow-[0_0_22px_var(--ig-accent)]" />
-      <div className="pointer-events-none absolute inset-y-3 right-3 w-px bg-ig-border-focus" />
-      <div className="grid gap-1 md:grid-cols-4">
-        {kpis.map((kpi, index) => (
-          <div
-            key={kpi.id}
-            className="group relative min-h-[5.35rem] overflow-hidden border border-ig-border-subtle bg-[linear-gradient(135deg,color-mix(in_oklab,var(--ig-bg-panel)_88%,transparent),color-mix(in_oklab,var(--ig-bg-raised)_42%,transparent))] px-5 py-4 shadow-[inset_0_1px_0_color-mix(in_oklab,var(--ig-border-strong)_80%,transparent)] transition-colors hover:border-ig-border-focus"
-            style={{
-              clipPath:
-                index === 0
-                  ? "polygon(18px 0,100% 0,100% calc(100% - 18px),calc(100% - 18px) 100%,18px 100%,0 calc(100% - 18px),0 18px)"
-                  : index === kpis.length - 1
-                    ? "polygon(0 0,calc(100% - 18px) 0,100% 18px,100% calc(100% - 18px),calc(100% - 18px) 100%,0 100%)"
-                    : "polygon(0 0,100% 0,calc(100% - 12px) 100%,12px 100%)",
-            }}
-          >
-            <span className="pointer-events-none absolute inset-x-10 top-0 h-px bg-gradient-to-r from-transparent via-ig-accent to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
-            <div className="relative flex items-center gap-4">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-ig-border-focus bg-ig-accent-weak text-ig-accent shadow-[0_0_26px_color-mix(in_oklab,var(--ig-accent)_22%,transparent)]">
-                {kpi.icon}
-              </div>
-              <div className="min-w-0">
-                <p className="truncate text-[10px] font-semibold uppercase tracking-[0.22em] text-ig-fg-muted">
-                  {kpi.label}
-                </p>
-                <p className="mt-1 text-2xl font-semibold tabular-nums text-ig-fg-strong">
-                  {kpi.value}
-                </p>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function OrgControlBar({
-  searchTerm,
-  onSearchChange,
-  filterGroups,
-  activeFiltersCount,
-  onClearFilters,
-}: {
-  searchTerm: string;
-  onSearchChange: (value: string) => void;
-  filterGroups: FilterGroup[];
-  activeFiltersCount: number;
-  onClearFilters: () => void;
-}) {
-  return (
-    <section className="relative overflow-hidden rounded-[22px] border border-ig-border-focus/30 bg-[linear-gradient(180deg,color-mix(in_oklab,var(--ig-bg-panel)_88%,transparent),color-mix(in_oklab,var(--ig-bg-raised)_34%,transparent))] p-3 shadow-[var(--ig-shadow-e1),inset_0_1px_0_color-mix(in_oklab,var(--ig-border-strong)_65%,transparent)]">
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-ig-info to-transparent opacity-70" />
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex flex-col gap-3 sm:flex-row">
-          <label className="flex h-12 min-w-0 items-center gap-2 rounded-xl border border-ig-border-subtle bg-ig-panel/70 px-4 shadow-[inset_0_1px_0_color-mix(in_oklab,var(--ig-border-strong)_45%,transparent)] transition-colors focus-within:border-ig-border-focus focus-within:shadow-[var(--ig-focus-ring-outer)] sm:w-[25rem]">
-            <Search className="h-4 w-4 shrink-0 text-ig-fg-muted" />
-            <input
-              value={searchTerm}
-              onChange={(event) => onSearchChange(event.target.value)}
-              placeholder="Buscar por nome, cargo ou e-mail..."
-              className="min-w-0 flex-1 border-0 bg-transparent text-sm text-ig-fg-strong outline-none placeholder:text-ig-fg-subtle focus:ring-0"
-            />
-          </label>
-
-          {filterGroups.map((group) => (
-            <label
-              key={group.id}
-              className="flex h-12 min-w-[13rem] flex-col justify-center rounded-xl border border-ig-border-subtle bg-ig-panel/70 px-4 shadow-[inset_0_1px_0_color-mix(in_oklab,var(--ig-border-strong)_45%,transparent)] transition-colors focus-within:border-ig-border-focus"
-            >
-              <span className="text-[9px] font-semibold uppercase tracking-[0.2em] text-ig-fg-subtle">
-                {group.label}
-              </span>
-              <select
-                value={group.value}
-                onChange={(event) => group.onChange(event.target.value)}
-                className="mt-0.5 cursor-pointer appearance-none border-0 bg-transparent p-0 text-sm font-medium text-ig-fg-strong outline-none focus:ring-0"
-              >
-                {group.options.map((option) => (
-                  <option key={option.value} value={option.value} className="bg-[color:var(--ig-bg-raised)] text-[color:var(--ig-fg-strong)]">
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ))}
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            className="flex h-12 w-12 items-center justify-center rounded-xl border border-ig-border-subtle bg-ig-panel/70 text-ig-accent shadow-[inset_0_1px_0_color-mix(in_oklab,var(--ig-border-strong)_45%,transparent)] transition-colors hover:border-ig-border-focus hover:bg-ig-accent-weak focus-visible:outline-none focus-visible:shadow-[var(--ig-focus-ring-outer)]"
-            aria-label="Filtros avançados"
-            title="Filtros avançados"
-          >
-            <SlidersHorizontal className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            onClick={onClearFilters}
-            className="flex h-12 items-center gap-2 rounded-xl border border-ig-border-subtle bg-ig-panel/70 px-5 text-sm font-semibold text-ig-fg-strong shadow-[inset_0_1px_0_color-mix(in_oklab,var(--ig-border-strong)_45%,transparent)] transition-colors hover:border-ig-border-focus hover:bg-ig-panel-hover focus-visible:outline-none focus-visible:shadow-[var(--ig-focus-ring-outer)]"
-          >
-            {activeFiltersCount > 0 && (
-              <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-ig-accent px-1.5 text-[10px] text-ig-bg-canvas">
-                {activeFiltersCount}
-              </span>
-            )}
-            <X className="h-4 w-4 text-ig-fg-muted" />
-            Limpar filtros
-          </button>
-        </div>
-      </div>
-    </section>
   );
 }
 

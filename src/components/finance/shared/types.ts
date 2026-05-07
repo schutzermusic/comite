@@ -43,17 +43,18 @@ export const SCENARIO_OPTIONS: { value: FinanceScenario; label: string }[] = [
   { value: 'board', label: 'Board Approved' },
 ];
 
-export const fmtBRL = (n: number) =>
-  new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(n);
+// Finance number formatters — all delegate to the canonical pt-BR helpers
+// in src/lib/i18n/format.ts so the entire SaaS renders numbers identically.
+import { formatCurrency, formatPercent } from '@/lib/i18n/format';
 
-export const fmtCompactBRL = (n: number) => {
-  const abs = Math.abs(n);
-  const sign = n < 0 ? '-' : '';
-  if (abs >= 1_000_000_000) return `${sign}R$ ${(abs / 1_000_000_000).toFixed(1)}B`;
-  if (abs >= 1_000_000) return `${sign}R$ ${(abs / 1_000_000).toFixed(1)}M`;
-  if (abs >= 1_000) return `${sign}R$ ${(abs / 1_000).toFixed(0)}k`;
-  return fmtBRL(n);
+/** R$ 1.234.567 (no decimals, accepts BRL units). */
+export const fmtBRL = (n: number) => formatCurrency(n ?? 0, { maxFraction: 0 });
+
+/** R$ 1,2 mi / R$ 1,5 mil — Intl pt-BR compact, accepts BRL units. */
+export const fmtCompactBRL = (n: number) => formatCurrency(n ?? 0, { compact: true, maxFraction: 1 });
+
+/** +12,3% — signed percentage, value already in percent units (e.g. 12.3 → "+12,3%"). */
+export const fmtPct = (n: number, digits = 1) => {
+  const sign = n >= 0 ? '+' : '';
+  return `${sign}${formatPercent(n, { minFraction: digits, maxFraction: digits })}`;
 };
-
-export const fmtPct = (n: number, digits = 1) =>
-  `${n >= 0 ? '+' : ''}${n.toFixed(digits)}%`;

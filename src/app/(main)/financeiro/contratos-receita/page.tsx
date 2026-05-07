@@ -84,12 +84,12 @@ export default function ContratosReceitaPage() {
   const totalMrr = filtered.reduce((a, c) => a + c.mrr, 0);
 
   const kpis: KpiItem[] = [
-    { id: 'arr', label: 'ARR contratado', value: fmtBRL(totalArr), variant: 'success', tintValue: true },
-    { id: 'mrr', label: 'MRR ativo', value: fmtBRL(totalMrr), variant: 'success', tintValue: true },
-    { id: 'inv', label: 'Faturado', value: fmtBRL(totalInvoiced), variant: 'info', tintValue: true },
-    { id: 'rec', label: 'Recebido', value: fmtBRL(totalReceived), variant: 'info', tintValue: true },
-    { id: 'bk',  label: 'Backlog', value: fmtBRL(totalBacklog), variant: 'warning', tintValue: true },
-    { id: 'dl',  label: 'Faturas atrasadas', value: delayed.toString(), variant: delayed > 0 ? 'danger' : 'success', tintValue: true },
+    { id: 'arr', label: 'ARR contratado', value: totalArr, format: 'compactCurrency', variant: 'success', tintValue: true },
+    { id: 'mrr', label: 'MRR ativo', value: totalMrr, format: 'compactCurrency', variant: 'success', tintValue: true },
+    { id: 'inv', label: 'Faturado', value: totalInvoiced, format: 'compactCurrency', variant: 'info', tintValue: true },
+    { id: 'rec', label: 'Recebido', value: totalReceived, format: 'compactCurrency', variant: 'info', tintValue: true },
+    { id: 'bk',  label: 'Backlog', value: totalBacklog, format: 'compactCurrency', variant: 'warning', tintValue: true },
+    { id: 'dl',  label: 'Faturas atrasadas', value: delayed, variant: delayed > 0 ? 'danger' : 'success', tintValue: true },
   ];
 
   const funnelStages = [

@@ -45,9 +45,9 @@ export default function FechamentoPage() {
 
   const closeKpis: KpiItem[] = [
     { id: 'status', label: 'Status do período', value: STATUS_LABELS[currentPeriod?.status || 'open'], icon: <Lock className="h-5 w-5" />, variant: currentPeriod?.status === 'closed' ? 'success' : 'warning' },
-    { id: 'progress', label: 'Checklist pronto', value: `${closeProgress}%`, icon: <ShieldCheck className="h-5 w-5" />, variant: allReady ? 'success' : 'warning' },
-    { id: 'blockers', label: 'Bloqueios', value: `${checklistItems.length - checklistDone}`, icon: <AlertTriangle className="h-5 w-5" />, variant: allReady ? 'success' : 'danger' },
-    { id: 'reporting', label: 'Resultado líquido', value: currentPeriod?.snapshot_json ? formatCompactBRL(currentPeriod.snapshot_json.net_result) : 'Pendente', icon: <FileCheck2 className="h-5 w-5" />, variant: currentPeriod?.snapshot_json ? 'info' : 'warning' },
+    { id: 'progress', label: 'Checklist pronto', value: closeProgress, format: 'percent', icon: <ShieldCheck className="h-5 w-5" />, variant: allReady ? 'success' : 'warning' },
+    { id: 'blockers', label: 'Bloqueios', value: checklistItems.length - checklistDone, icon: <AlertTriangle className="h-5 w-5" />, variant: allReady ? 'success' : 'danger' },
+    { id: 'reporting', label: 'Resultado líquido', value: currentPeriod?.snapshot_json ? currentPeriod.snapshot_json.net_result / 100 : 'Pendente', format: currentPeriod?.snapshot_json ? 'compactCurrency' : 'raw', icon: <FileCheck2 className="h-5 w-5" />, variant: currentPeriod?.snapshot_json ? 'info' : 'warning' },
   ];
 
   const periodColumns: HudTableColumn<PeriodClose>[] = [

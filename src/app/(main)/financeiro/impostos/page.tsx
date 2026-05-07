@@ -71,12 +71,12 @@ export default function ImpostosRetencoesPage() {
   const dreImpactTotal = filtered.reduce((a, e) => a + e.dreImpact, 0);
 
   const kpis: KpiItem[] = [
-    { id: 'p', label: 'Provisionado', value: fmtBRL(totalProvisioned), variant: 'info', tintValue: true },
-    { id: 'pd', label: 'Pago', value: fmtBRL(totalPaid), variant: 'success', tintValue: true },
-    { id: 'o', label: 'Em aberto', value: fmtBRL(totalOpen), variant: 'warning', tintValue: true },
-    { id: 'u', label: 'A vencer', value: upcoming.toString(), variant: 'info', tintValue: true },
-    { id: 'ov', label: 'Atrasados', value: overdue.toString(), variant: overdue ? 'danger' : 'success', tintValue: true },
-    { id: 'dr', label: 'Impacto na DRE', value: fmtBRL(dreImpactTotal), variant: 'danger', tintValue: true },
+    { id: 'p', label: 'Provisionado', value: totalProvisioned, format: 'compactCurrency', variant: 'info', tintValue: true },
+    { id: 'pd', label: 'Pago', value: totalPaid, format: 'compactCurrency', variant: 'success', tintValue: true },
+    { id: 'o', label: 'Em aberto', value: totalOpen, format: 'compactCurrency', variant: 'warning', tintValue: true },
+    { id: 'u', label: 'A vencer', value: upcoming, variant: 'info', tintValue: true },
+    { id: 'ov', label: 'Atrasados', value: overdue, variant: overdue ? 'danger' : 'success', tintValue: true },
+    { id: 'dr', label: 'Impacto na DRE', value: dreImpactTotal, format: 'compactCurrency', variant: 'danger', tintValue: true },
   ];
 
   const byType = (['federal', 'estadual', 'municipal', 'retencao'] as TaxEntry['type'][]).map((t) => ({

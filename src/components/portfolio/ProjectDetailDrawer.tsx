@@ -39,6 +39,7 @@ interface ProjectDetailDrawerProps {
   project: Project | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onLogoUpload?: (projectId: string, objectUrl: string | null) => void;
 }
 
 const STATUS_VARIANT: Record<string, 'active' | 'completed' | 'warning' | 'error' | 'neutral'> = {
@@ -71,17 +72,22 @@ export function ProjectDetailDrawer({
   project,
   open,
   onOpenChange,
+  onLogoUpload,
 }: ProjectDetailDrawerProps) {
   const [uploadedLogoUrl, setUploadedLogoUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Sync displayed logo: prefer uploaded override, fall back to what's on the project record
+  const displayLogoUrl = uploadedLogoUrl ?? project?.clientLogoUrl ?? null;
+
   const handleLogoUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || !project) return;
     const url = URL.createObjectURL(file);
     setUploadedLogoUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return url; });
+    onLogoUpload?.(project.id, url);
     e.target.value = '';
-  }, []);
+  }, [project, onLogoUpload]);
 
   useEffect(() => {
     return () => { if (uploadedLogoUrl) URL.revokeObjectURL(uploadedLogoUrl); };
@@ -158,17 +164,21 @@ export function ProjectDetailDrawer({
           <div className="relative flex items-start gap-3">
             {/* Client logo area — upload-enabled */}
             <div className="relative shrink-0 group/logo">
-              {uploadedLogoUrl ? (
+              {displayLogoUrl ? (
                 <div className="relative w-12 h-12 rounded-xl overflow-hidden flex items-center justify-center drawer-v2-kpi-card">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src={uploadedLogoUrl}
+                    src={displayLogoUrl}
                     alt={project.cliente || 'Logo'}
-                    className="max-h-full max-w-full object-contain"
-                    style={{ opacity: 0.78 }}
+                    className="h-8 w-auto max-w-full object-contain client-logo-img"
+                    style={{ opacity: 1 }}
                   />
                   <button
-                    onClick={() => { URL.revokeObjectURL(uploadedLogoUrl); setUploadedLogoUrl(null); }}
+                    onClick={() => {
+                      if (uploadedLogoUrl) URL.revokeObjectURL(uploadedLogoUrl);
+                      setUploadedLogoUrl(null);
+                      if (project) onLogoUpload?.(project.id, null);
+                    }}
                     className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover/logo:opacity-100 transition-opacity rounded-xl"
                     aria-label="Remover logo"
                   >
@@ -190,7 +200,7 @@ export function ProjectDetailDrawer({
                   <span className="text-[8px] font-semibold uppercase tracking-wide leading-none">Logo</span>
                 </button>
               )}
-              {!uploadedLogoUrl && (
+              {!displayLogoUrl && (
                 <button
                   onClick={() => fileInputRef.current?.click()}
                   className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center bg-emerald-500 text-white shadow-md opacity-0 group-hover/logo:opacity-100 transition-opacity"

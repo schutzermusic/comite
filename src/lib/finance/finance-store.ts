@@ -38,16 +38,16 @@ export function reaisToCents(reais: number): number {
   return Math.round(reais * 100);
 }
 
+// Currency formatters — delegate to canonical pt-BR helpers so the whole SaaS
+// renders identically regardless of which helper a module imports.
+import { formatCurrency } from '@/lib/i18n/format';
+
 export function formatBRL(cents: number): string {
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(centsToReais(cents));
+  return formatCurrency(centsToReais(cents ?? 0));
 }
 
 export function formatCompactBRL(cents: number): string {
-  const abs = Math.abs(cents);
-  const sign = cents < 0 ? '-' : '';
-  if (abs >= 100_000_000) return `${sign}R$ ${(centsToReais(abs) / 1_000_000).toFixed(1)}M`;
-  if (abs >= 100_000) return `${sign}R$ ${(centsToReais(abs) / 1_000).toFixed(0)}k`;
-  return formatBRL(cents);
+  return formatCurrency(centsToReais(cents ?? 0), { compact: true, maxFraction: 1 });
 }
 
 function generateId(): string {

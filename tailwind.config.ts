@@ -10,9 +10,10 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['Inter', 'SF Pro Display', '-apple-system', 'BlinkMacSystemFont', 'system-ui', 'sans-serif'],
+        sans: ['Gilroy', 'Manrope', 'Inter', 'SF Pro Display', '-apple-system', 'BlinkMacSystemFont', 'system-ui', 'sans-serif'],
         mono: ['JetBrains Mono', 'SF Mono', 'Consolas', 'monospace'],
-        display: ['Inter', 'SF Pro Display', 'system-ui', 'sans-serif'],
+        display: ['Gilroy', 'Manrope', 'Inter', 'SF Pro Display', 'system-ui', 'sans-serif'],
+        body: ['Gilroy', 'Manrope', 'Inter', 'SF Pro Display', 'system-ui', 'sans-serif'],
       },
       colors: {
         // =====================================================================

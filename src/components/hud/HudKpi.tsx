@@ -3,9 +3,11 @@
 import React from 'react';
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { formatCurrency, formatNumber, formatPercent } from '@/lib/i18n/format';
 
 export type HudKpiVariant = 'default' | 'success' | 'warning' | 'danger' | 'info';
 export type HudKpiSize = 'sm' | 'md' | 'lg' | 'xl';
+export type HudKpiFormat = 'auto' | 'number' | 'currency' | 'percent' | 'compactCurrency' | 'compactNumber' | 'raw';
 
 export interface HudKpiProps {
   value: string | number;
@@ -25,7 +27,46 @@ export interface HudKpiProps {
   icon?: React.ReactNode;
   /** Compact horizontal alignment used in connected strips. */
   align?: 'left' | 'center';
+  /**
+   * pt-BR formatting for numeric values.
+   * - `auto` (default): integers shown without decimals, decimals rounded to 2.
+   * - `number`: 1.234,56
+   * - `currency`: R$ 1.234,56
+   * - `percent`: 12,3%
+   * - `compactCurrency`: R$ 1,2 mi
+   * - `compactNumber`: 1,2 mi
+   * - `raw`: skip formatting (caller already formatted).
+   * String values are always rendered as-is regardless of format.
+   */
+  format?: HudKpiFormat;
+  /** Decimal places override (default depends on format). */
+  fractionDigits?: number;
   className?: string;
+}
+
+function formatValue(value: string | number, format: HudKpiFormat, fractionDigits?: number): string {
+  if (typeof value === 'string') return value;
+  if (format === 'raw') return String(value);
+  switch (format) {
+    case 'currency':
+      return formatCurrency(value, { maxFraction: fractionDigits ?? 2 });
+    case 'compactCurrency':
+      return formatCurrency(value, { compact: true, maxFraction: fractionDigits ?? 1 });
+    case 'percent':
+      return formatPercent(value, { maxFraction: fractionDigits ?? 1 });
+    case 'compactNumber':
+      return new Intl.NumberFormat('pt-BR', { notation: 'compact', maximumFractionDigits: fractionDigits ?? 1 }).format(value);
+    case 'number':
+      return formatNumber(value, { maxFraction: fractionDigits ?? 2 });
+    case 'auto':
+    default: {
+      const isInt = Number.isInteger(value);
+      return formatNumber(value, {
+        minFraction: isInt ? 0 : fractionDigits ?? 0,
+        maxFraction: isInt ? 0 : fractionDigits ?? 2,
+      });
+    }
+  }
 }
 
 const SIZE_STYLES: Record<HudKpiSize, {
@@ -104,8 +145,11 @@ export function HudKpi({
   tintValue = false,
   icon,
   align = 'left',
+  format = 'auto',
+  fractionDigits,
   className,
 }: HudKpiProps) {
+  const displayValue = formatValue(value, format, fractionDigits);
   const s = SIZE_STYLES[size];
   const isPositive = delta !== undefined && delta > 0;
   const isNegative = delta !== undefined && delta < 0;
@@ -157,7 +201,7 @@ export function HudKpi({
             {prefix && (
               <span className="hud-kpi-prefix text-ig-fg-muted font-semibold mr-1">{prefix}</span>
             )}
-            {value}
+            {displayValue}
             {suffix && (
               <span className="hud-kpi-suffix text-ig-fg-muted font-semibold ml-1">{suffix}</span>
             )}

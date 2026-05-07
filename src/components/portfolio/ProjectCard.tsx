@@ -63,14 +63,16 @@ export function ProjectCard({ project, v2, onView, delay = 0 }: ProjectCardProps
     : 0;
 
   return (
-    <motion.button
-      type="button"
+    <motion.div
+      role="button"
+      tabIndex={0}
       onClick={() => onView(project)}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onView(project); }}
       initial={reduce ? false : { opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, delay, ease: [0.22, 1, 0.36, 1] }}
       className={cn(
-        'group relative text-left w-full overflow-hidden',
+        'group relative text-left w-full overflow-hidden cursor-pointer',
         'glass-tile glass-tile-sheen glass-tile-depth glass-tile-interactive',
         'p-5 flex flex-col gap-4',
         'min-h-[280px]',
@@ -86,12 +88,10 @@ export function ProjectCard({ project, v2, onView, delay = 0 }: ProjectCardProps
       <span className="glass-tile-rail" />
 
       {/* Hover halo */}
-      <span
-        className="glass-tile-halo opacity-0 group-hover:opacity-100 transition-opacity duration-300"
-      />
+      <span className="glass-tile-halo opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
 
-      {/* Transparent client logo watermark (only when logo exists) */}
-      <ClientLogoWatermark client={project.cliente} logoUrl={project.clientLogoUrl} />
+      {/* ── Client logo — centered at top, only when a logo is set ── */}
+      <ClientLogoTop client={project.cliente} logoUrl={project.clientLogoUrl} />
 
       {/* ── Title + status ────────────────────────────── */}
       <div className="relative flex items-start gap-3">
@@ -125,7 +125,7 @@ export function ProjectCard({ project, v2, onView, delay = 0 }: ProjectCardProps
             Progresso
           </span>
           <span
-            className="text-[12px] font-bold hud-text tabular-nums"
+            className={cn('text-[12px] font-bold hud-text tabular-nums', progress >= 75 && 'card-accent-text')}
             style={{ color: progress >= 75 ? accent : undefined }}
           >
             {progress}%
@@ -189,6 +189,7 @@ export function ProjectCard({ project, v2, onView, delay = 0 }: ProjectCardProps
           className={cn(
             'inline-flex items-center gap-1 text-[11.5px] font-semibold shrink-0',
             'transition-all duration-200 group-hover:gap-1.5',
+            'card-accent-text',
           )}
           style={{ color: accent }}
         >
@@ -197,7 +198,28 @@ export function ProjectCard({ project, v2, onView, delay = 0 }: ProjectCardProps
           <ArrowUpRight className="w-3 h-3 opacity-70 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
         </span>
       </div>
-    </motion.button>
+    </motion.div>
+  );
+}
+
+function ClientLogoTop({ client, logoUrl }: { client?: string | null; logoUrl?: string | null }) {
+  const [errored, setErrored] = useState(false);
+  const resolved = getClientLogoUrl(client, logoUrl);
+
+  if (!resolved || errored) return null;
+
+  return (
+    <div className="flex items-center justify-center h-12 px-6">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={resolved}
+        alt={client || 'Logo cliente'}
+        onError={() => setErrored(true)}
+        className="h-8 w-auto max-w-full object-contain client-logo-img"
+        style={{ opacity: 1 }}
+        draggable={false}
+      />
+    </div>
   );
 }
 
@@ -225,37 +247,6 @@ function Stat({
         {value}
       </p>
     </div>
-  );
-}
-
-/**
- * Renders the client logo as a faint watermark in the top-right corner of the card.
- * Invisible when no logo is available — no placeholder, no border.
- */
-function ClientLogoWatermark({
-  client,
-  logoUrl,
-}: {
-  client?: string | null;
-  logoUrl?: string | null;
-}) {
-  const [errored, setErrored] = useState(false);
-  const resolved = getClientLogoUrl(client, logoUrl);
-
-  if (!resolved || errored) return null;
-
-  return (
-    <span className="pointer-events-none absolute top-4 right-4 w-14 h-10 flex items-center justify-center">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={resolved}
-        alt=""
-        aria-hidden="true"
-        onError={() => setErrored(true)}
-        className="max-h-full max-w-full object-contain"
-        style={{ opacity: 0.18, filter: 'grayscale(0.4)' }}
-      />
-    </span>
   );
 }
 

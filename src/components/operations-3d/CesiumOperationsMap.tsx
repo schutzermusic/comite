@@ -12,7 +12,6 @@ import {
   Radar,
   RotateCcw,
   SlidersHorizontal,
-  Target,
   Zap,
 } from "lucide-react";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -91,17 +90,6 @@ function ensureCesiumCss() {
   link.rel = "stylesheet";
   link.href = CESIUM_CSS;
   document.head.appendChild(link);
-}
-
-function formatLastSync(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Hoje";
-  return new Intl.DateTimeFormat("pt-BR", {
-    day: "2-digit",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
 }
 
 function visibleByFilters(project: OperationsProjectRecord, filters: Record<FilterKey, boolean>) {
@@ -657,27 +645,28 @@ export function CesiumOperationsMap({
         }
         html.light .ig-ops-map .ig-ops-hud-surface,
         html.light .ig-ops-map .ig-ops-hud-chip {
-          border-color: rgba(255, 255, 255, 0.28);
+          border-color: rgba(255, 255, 255, 0.34);
           background:
             radial-gradient(circle at 16% 0%, rgba(255, 255, 255, 0.18), transparent 34%),
-            linear-gradient(145deg, rgba(5, 20, 28, 0.68), rgba(7, 31, 42, 0.52) 54%, rgba(2, 10, 16, 0.58));
+            linear-gradient(145deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.05) 52%, rgba(255, 255, 255, 0.08));
           box-shadow:
-            0 22px 52px -28px rgba(0, 0, 0, 0.52),
-            0 2px 12px rgba(0, 0, 0, 0.2),
-            inset 0 1px 0 rgba(255, 255, 255, 0.36),
-            inset 0 0 0 1px rgba(255, 255, 255, 0.13);
+            0 18px 42px -30px rgba(0, 0, 0, 0.38),
+            0 2px 10px rgba(0, 0, 0, 0.1),
+            inset 0 1px 0 rgba(255, 255, 255, 0.38),
+            inset 0 0 0 1px rgba(255, 255, 255, 0.12);
           color: rgba(255, 255, 255, 0.94) !important;
+          text-shadow: 0 1px 2px rgba(0, 0, 0, 0.42);
         }
         html.light .ig-ops-map .ig-ops-hud-surface {
-          border-color: rgba(255, 255, 255, 0.28) !important;
+          border-color: rgba(255, 255, 255, 0.34) !important;
           background:
             radial-gradient(circle at 16% 0%, rgba(255, 255, 255, 0.18), transparent 34%),
-            linear-gradient(145deg, rgba(5, 20, 28, 0.68), rgba(7, 31, 42, 0.52) 54%, rgba(2, 10, 16, 0.58)) !important;
+            linear-gradient(145deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.05) 52%, rgba(255, 255, 255, 0.08)) !important;
           box-shadow:
-            0 22px 52px -28px rgba(0, 0, 0, 0.52),
-            0 2px 12px rgba(0, 0, 0, 0.2),
-            inset 0 1px 0 rgba(255, 255, 255, 0.36),
-            inset 0 0 0 1px rgba(255, 255, 255, 0.13) !important;
+            0 18px 42px -30px rgba(0, 0, 0, 0.38),
+            0 2px 10px rgba(0, 0, 0, 0.1),
+            inset 0 1px 0 rgba(255, 255, 255, 0.38),
+            inset 0 0 0 1px rgba(255, 255, 255, 0.12) !important;
         }
         html.light .ig-ops-map .ig-ops-hud-surface .text-ig-fg-strong,
         html.light .ig-ops-map .ig-ops-hud-chip .text-ig-fg-strong {
@@ -696,14 +685,14 @@ export function CesiumOperationsMap({
           position: relative;
           isolation: isolate;
           overflow: hidden;
-          border-color: rgba(255, 255, 255, 0.2) !important;
+          border-color: rgba(255, 255, 255, 0.24) !important;
           background:
             radial-gradient(circle at 14% 0%, rgba(255, 255, 255, 0.16), transparent 36%),
-            linear-gradient(148deg, rgba(255, 255, 255, 0.13), rgba(10, 45, 58, 0.36) 48%, rgba(2, 10, 16, 0.22)) !important;
+            linear-gradient(148deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.035) 48%, rgba(255, 255, 255, 0.06)) !important;
           box-shadow:
-            0 14px 30px -22px rgba(0, 0, 0, 0.5),
-            0 2px 8px rgba(0, 0, 0, 0.14),
-            inset 0 1px 0 rgba(255, 255, 255, 0.28),
+            0 12px 26px -22px rgba(0, 0, 0, 0.36),
+            0 2px 8px rgba(0, 0, 0, 0.08),
+            inset 0 1px 0 rgba(255, 255, 255, 0.24),
             inset 0 -1px 0 rgba(255, 255, 255, 0.08),
             inset 0 0 0 1px rgba(255, 255, 255, 0.1);
           backdrop-filter: blur(16px) saturate(155%);
@@ -717,8 +706,8 @@ export function CesiumOperationsMap({
           inset: 0;
           z-index: -1;
           background:
-            linear-gradient(120deg, rgba(255, 255, 255, 0.22), transparent 36%),
-            linear-gradient(180deg, rgba(20, 184, 166, 0.1), transparent 62%);
+            linear-gradient(120deg, rgba(255, 255, 255, 0.2), transparent 36%),
+            linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 62%);
         }
         html.light .ig-ops-map .ig-ops-hud-inner::after {
           content: "";
@@ -732,7 +721,36 @@ export function CesiumOperationsMap({
             inset 0 12px 22px rgba(255, 255, 255, 0.08);
         }
         html.dark .ig-ops-map .ig-ops-hud-inner {
-          background: color-mix(in oklab, var(--ig-panel) 48%, transparent) !important;
+          background:
+            radial-gradient(circle at 14% 0%, rgba(255, 255, 255, 0.16), transparent 36%),
+            linear-gradient(148deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.035) 48%, rgba(255, 255, 255, 0.06)) !important;
+        }
+        html.dark .ig-ops-map .ig-ops-hud-surface,
+        html.dark .ig-ops-map .ig-ops-hud-chip {
+          border-color: rgba(255, 255, 255, 0.34);
+          background:
+            radial-gradient(circle at 16% 0%, rgba(255, 255, 255, 0.18), transparent 34%),
+            linear-gradient(145deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.05) 52%, rgba(255, 255, 255, 0.08)) !important;
+          box-shadow:
+            0 18px 42px -30px rgba(0, 0, 0, 0.38),
+            0 2px 10px rgba(0, 0, 0, 0.1),
+            inset 0 1px 0 rgba(255, 255, 255, 0.38),
+            inset 0 0 0 1px rgba(255, 255, 255, 0.12) !important;
+          color: rgba(255, 255, 255, 0.94) !important;
+          text-shadow: 0 1px 2px rgba(0, 0, 0, 0.42);
+        }
+        html.dark .ig-ops-map .ig-ops-hud-surface .text-ig-fg-strong,
+        html.dark .ig-ops-map .ig-ops-hud-chip .text-ig-fg-strong {
+          color: rgba(255, 255, 255, 0.98) !important;
+        }
+        html.dark .ig-ops-map .ig-ops-hud-surface .text-ig-fg-muted,
+        html.dark .ig-ops-map .ig-ops-hud-chip,
+        html.dark .ig-ops-map .ig-ops-hud-chip .text-ig-fg-muted {
+          color: rgba(226, 244, 248, 0.84) !important;
+        }
+        html.dark .ig-ops-map .ig-ops-hud-surface .text-ig-caption,
+        html.dark .ig-ops-map .ig-ops-hud-inner .text-ig-caption {
+          color: rgba(226, 244, 248, 0.78) !important;
         }
       `}</style>
 
@@ -757,7 +775,7 @@ export function CesiumOperationsMap({
         }}
       />
 
-      <div className="pointer-events-none absolute left-3 top-3 z-30 flex max-w-[calc(100%-1.5rem)] flex-wrap items-center gap-2 md:left-4 md:top-4 md:max-w-[calc(100%-27rem)]">
+      <div className="pointer-events-none absolute left-3 top-3 z-30 flex max-w-[calc(100%-1.5rem)] flex-wrap items-center gap-2 md:left-4 md:top-4 md:max-w-[calc(100%-31rem)] xl:max-w-[calc(100%-34rem)]">
         <span className="ig-ops-hud-chip pointer-events-auto inline-flex items-center gap-2 rounded-full border border-ig-border-subtle bg-ig-panel/70 px-3 py-1.5 text-ig-label text-ig-fg-muted shadow-lg backdrop-blur-md">
           <Radar className="h-3.5 w-3.5 text-ig-accent" />
           Digital twin Brasil
@@ -789,7 +807,7 @@ export function CesiumOperationsMap({
         )}
       </div>
 
-      <div className="absolute left-3 top-[4.1rem] z-40 flex max-w-[min(760px,calc(100%-1.5rem))] flex-wrap items-center gap-1.5 md:left-4 md:top-[4.35rem] md:max-w-[min(760px,calc(100%-27rem))]">
+      <div className="absolute left-3 top-[4.1rem] z-40 flex max-w-[min(760px,calc(100%-1.5rem))] flex-wrap items-center gap-1.5 md:left-4 md:top-[4.35rem] md:max-w-[min(760px,calc(100%-31rem))] xl:max-w-[min(760px,calc(100%-34rem))]">
         <span className="ig-ops-hud-chip inline-flex h-8 items-center gap-1.5 rounded-full border border-ig-border-subtle bg-ig-panel/65 px-2.5 text-ig-caption text-ig-fg-muted shadow-lg backdrop-blur-md">
           <SlidersHorizontal className="h-3.5 w-3.5 text-ig-accent" />
           Filtros
@@ -857,11 +875,6 @@ export function CesiumOperationsMap({
             {getOperationsStatusLabel(status)}
           </span>
         ))}
-      </div>
-
-      <div className="ig-ops-hud-chip absolute bottom-3 right-3 z-30 hidden items-center gap-2 rounded-full border border-ig-border-subtle bg-ig-panel/70 px-3 py-1.5 text-ig-caption text-ig-fg-muted shadow-xl backdrop-blur-md md:bottom-4 md:right-4 md:flex">
-        <Target className="h-3.5 w-3.5 text-ig-accent" />
-        Foco inicial: Brasil • sync {projects[0] ? formatLastSync(projects[0].lastUpdate) : "agora"}
       </div>
 
       {tooltip && (
@@ -935,7 +948,7 @@ export function CesiumOperationsMap({
             const project = projects.find((item) => item.id === selectedProjectId);
             if (project) flyToProject(project, true);
           }}
-          className="ig-ops-hud-chip absolute bottom-16 right-3 z-30 hidden items-center gap-2 rounded-full border px-3 py-2 text-ig-label shadow-xl backdrop-blur-md md:right-[27rem] md:flex xl:right-[29rem]"
+          className="ig-ops-hud-chip absolute bottom-16 right-3 z-30 hidden items-center gap-2 rounded-full border px-3 py-2 text-ig-label shadow-xl backdrop-blur-md md:right-[31rem] md:flex xl:right-[34rem]"
           style={{
             borderColor: "color-mix(in oklab, var(--ig-accent) 42%, var(--ig-border-subtle))",
             background: "color-mix(in oklab, var(--ig-accent) 14%, var(--ig-panel))",

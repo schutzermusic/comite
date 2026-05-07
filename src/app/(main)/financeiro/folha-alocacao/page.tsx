@@ -91,12 +91,12 @@ export default function FolhaAlocacaoPage() {
   }, []);
 
   const kpis: KpiItem[] = [
-    { id: 'g', label: 'Folha bruta', value: fmtBRL(totalGross), variant: 'info', tintValue: true },
-    { id: 'c', label: 'Encargos + Benefícios', value: fmtBRL(totalCharges + totalBenefits), variant: 'warning', tintValue: true },
-    { id: 't', label: 'Custo total c/ encargos', value: fmtBRL(totalCost), variant: 'success', tintValue: true },
-    { id: 'h', label: 'Headcount', value: totalHeadcount.toString(), variant: 'info', tintValue: true },
-    { id: 'r', label: 'Taxa de alocação', value: `${allocationRate.toFixed(1)}%`, variant: allocationRate >= 70 ? 'success' : 'warning', tintValue: true },
-    { id: 'o', label: 'Hora extra + Mobilização', value: fmtBRL(overtimeCost + mobilizationCost), variant: 'warning', tintValue: true },
+    { id: 'g', label: 'Folha bruta', value: totalGross, format: 'compactCurrency', variant: 'info', tintValue: true },
+    { id: 'c', label: 'Encargos + Benefícios', value: totalCharges + totalBenefits, format: 'compactCurrency', variant: 'warning', tintValue: true },
+    { id: 't', label: 'Custo total c/ encargos', value: totalCost, format: 'compactCurrency', variant: 'success', tintValue: true },
+    { id: 'h', label: 'Headcount', value: totalHeadcount, variant: 'info', tintValue: true },
+    { id: 'r', label: 'Taxa de alocação', value: allocationRate, format: 'percent', variant: allocationRate >= 70 ? 'success' : 'warning', tintValue: true },
+    { id: 'o', label: 'Hora extra + Mobilização', value: overtimeCost + mobilizationCost, format: 'compactCurrency', variant: 'warning', tintValue: true },
   ];
 
   return (

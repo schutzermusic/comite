@@ -76,12 +76,12 @@ export default function ProjetosMargensPage() {
   const atRisk = filtered.filter((p) => p.status === 'at_risk').length;
 
   const kpis: KpiItem[] = [
-    { id: 'n', label: 'Projetos no filtro', value: filtered.length.toString(), variant: 'info', tintValue: true },
-    { id: 'r', label: 'Receita contratada', value: fmtBRL(totalRev), variant: 'success', tintValue: true },
-    { id: 'c', label: 'Custo realizado', value: fmtBRL(totalCost), variant: 'warning', tintValue: true },
-    { id: 'm', label: 'Margem total', value: fmtBRL(totalMargin), variant: 'success', tintValue: true },
-    { id: 'p', label: 'Margem média', value: `${avgMargin.toFixed(1)}%`, variant: 'success', tintValue: true },
-    { id: 'a', label: 'Em risco', value: atRisk.toString(), variant: atRisk ? 'danger' : 'success', tintValue: true },
+    { id: 'n', label: 'Projetos no filtro', value: filtered.length, variant: 'info', tintValue: true },
+    { id: 'r', label: 'Receita contratada', value: totalRev, format: 'compactCurrency', variant: 'success', tintValue: true },
+    { id: 'c', label: 'Custo realizado', value: totalCost, format: 'compactCurrency', variant: 'warning', tintValue: true },
+    { id: 'm', label: 'Margem total', value: totalMargin, format: 'compactCurrency', variant: 'success', tintValue: true },
+    { id: 'p', label: 'Margem média', value: avgMargin, format: 'percent', variant: 'success', tintValue: true },
+    { id: 'a', label: 'Em risco', value: atRisk, variant: atRisk ? 'danger' : 'success', tintValue: true },
   ];
 
   const ranking = [...enriched].sort((a, b) => b.marginPct - a.marginPct);

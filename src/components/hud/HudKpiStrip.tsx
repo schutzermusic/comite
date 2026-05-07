@@ -19,14 +19,17 @@ export interface HudKpiStripProps {
   columns?: 2 | 3 | 4 | 5 | 6;
   className?: string;
   size?: 'sm' | 'md' | 'lg';
-  /** When true (default), each item is rendered as its own glass card. */
+  /**
+   * Legacy: when false, render items as separate glass cards with gaps.
+   * Default visual is the unified faceted strip (Organograma standard).
+   */
   glass?: boolean;
   /**
-   * Renders all items inside a single glass container, separated by hairline dividers.
-   * Use this for executive top strips (e.g. financeiro overview).
+   * Legacy alias kept for compatibility — the unified faceted strip already
+   * groups all items in a single container.
    */
   connected?: boolean;
-  /** Centers content within each cell — recommended in connected mode. */
+  /** Item alignment. Defaults to left (icon + label/value horizontally). */
   align?: 'left' | 'center';
 }
 
@@ -38,46 +41,72 @@ const GRID_COLS: Record<NonNullable<HudKpiStripProps['columns']>, string> = {
   6: 'grid-cols-2 md:grid-cols-3 lg:grid-cols-6',
 };
 
+/**
+ * Builds the per-cell clip-path so each row of the strip looks faceted at its
+ * outer corners. We compute position relative to the row, not the flat array.
+ * - first-of-row: bevels left edges
+ * - last-of-row: bevels right edges
+ * - middle-of-row: subtle trapezoid bottom-cut for HUD rhythm
+ */
+function clipFor(index: number, total: number, cols: number): string | undefined {
+  if (total < 2 || cols < 2) return undefined;
+  const colIndex = index % cols;
+  const isFirstInRow = colIndex === 0;
+  const isLastInRow = colIndex === cols - 1 || index === total - 1;
+  if (isFirstInRow) {
+    return 'polygon(18px 0,100% 0,100% calc(100% - 18px),calc(100% - 18px) 100%,18px 100%,0 calc(100% - 18px),0 18px)';
+  }
+  if (isLastInRow) {
+    return 'polygon(0 0,calc(100% - 18px) 0,100% 18px,100% calc(100% - 18px),calc(100% - 18px) 100%,0 100%)';
+  }
+  return 'polygon(0 0,100% 0,calc(100% - 12px) 100%,12px 100%)';
+}
+
 export function HudKpiStrip({
   kpis,
   columns = 4,
   className,
   size = 'md',
-  glass = true,
-  connected = false,
-  align,
+  align = 'left',
 }: HudKpiStripProps) {
-  const itemAlign: 'left' | 'center' = align ?? (connected ? 'center' : 'left');
+  return (
+    <motion.section
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3, delay: 0.05 }}
+      className={cn(
+        'relative overflow-hidden rounded-[24px] border border-ig-border-focus/35',
+        'bg-[linear-gradient(180deg,color-mix(in_oklab,var(--ig-bg-panel)_92%,transparent),color-mix(in_oklab,var(--ig-bg-raised)_58%,transparent))]',
+        'p-1 shadow-[var(--ig-shadow-e2),inset_0_0_0_1px_color-mix(in_oklab,var(--ig-border-focus)_20%,transparent)]',
+        className,
+      )}
+    >
+      {/* Edge glow rails */}
+      <div className="pointer-events-none absolute inset-y-3 left-3 w-px bg-ig-accent shadow-[0_0_22px_var(--ig-accent)]" />
+      <div className="pointer-events-none absolute inset-y-3 right-3 w-px bg-ig-border-focus" />
 
-  if (connected) {
-    return (
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.3, delay: 0.05 }}
-        className={cn('ig-glass relative overflow-hidden rounded-xl', className)}
-        data-elev="2"
-      >
-        <span data-ig-noise="" />
-        <span data-ig-specular="" />
-        <div data-ig-content="" className={cn('grid', GRID_COLS[columns])}>
-          {kpis.map((kpi) => {
-            const Comp: any = kpi.onClick ? 'button' : 'div';
-            return (
-              <Comp
-                key={kpi.id}
-                onClick={kpi.onClick}
-                className={cn(
-                  'flex min-h-[4.25rem] min-w-0 flex-col items-stretch justify-center px-3 py-3',
-                  'border-r border-b border-ig-border-subtle last:border-r-0',
-                  '[&:nth-last-child(-n+1)]:border-b-0',
-                  // collapse bottom borders on the last row in each breakpoint
-                  'transition-colors',
-                  kpi.onClick && 'cursor-pointer hover:bg-ig-panel-hover/60',
-                  kpi.active && 'bg-ig-accent-weak/40',
-                )}
-                aria-pressed={kpi.onClick ? kpi.active : undefined}
-              >
+      <div className={cn('grid gap-1', GRID_COLS[columns])}>
+        {kpis.map((kpi, index) => {
+          const Comp: any = kpi.onClick ? 'button' : 'div';
+          return (
+            <Comp
+              key={kpi.id}
+              type={kpi.onClick ? 'button' : undefined}
+              onClick={kpi.onClick}
+              aria-pressed={kpi.onClick ? kpi.active : undefined}
+              className={cn(
+                'group relative min-h-[5.35rem] overflow-hidden border border-ig-border-subtle',
+                'bg-[linear-gradient(135deg,color-mix(in_oklab,var(--ig-bg-panel)_88%,transparent),color-mix(in_oklab,var(--ig-bg-raised)_42%,transparent))]',
+                'px-5 py-4',
+                'shadow-[inset_0_1px_0_color-mix(in_oklab,var(--ig-border-strong)_80%,transparent)]',
+                'transition-colors hover:border-ig-border-focus',
+                kpi.onClick && 'cursor-pointer text-left focus-visible:outline-none focus-visible:shadow-[var(--ig-focus-ring-outer)]',
+                kpi.active && 'border-ig-accent/60 bg-ig-accent-weak/40',
+              )}
+              style={{ clipPath: clipFor(index, kpis.length, columns) }}
+            >
+              <span className="pointer-events-none absolute inset-x-10 top-0 h-px bg-gradient-to-r from-transparent via-ig-accent to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
+              <div className="relative">
                 <HudKpi
                   value={kpi.value}
                   label={kpi.label}
@@ -91,73 +120,15 @@ export function HudKpiStrip({
                   variant={kpi.variant}
                   tintValue={kpi.tintValue}
                   icon={kpi.icon}
-                  align={itemAlign}
+                  align={align}
+                  format={kpi.format}
+                  fractionDigits={kpi.fractionDigits}
                 />
-              </Comp>
-            );
-          })}
-        </div>
-      </motion.div>
-    );
-  }
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3, delay: 0.1 }}
-      className={cn('grid gap-3', GRID_COLS[columns], className)}
-    >
-      {kpis.map((kpi, index) => {
-        const Inner: any = kpi.onClick ? 'button' : 'div';
-        return (
-          <motion.div
-            key={kpi.id}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3, delay: 0.1 + index * 0.04 }}
-            className={cn(
-              glass && 'ig-glass relative overflow-hidden rounded-xl',
-              !glass && 'rounded-lg',
-              kpi.active && 'ring-1 ring-ig-accent/60',
-            )}
-            data-elev={glass ? '2' : undefined}
-          >
-            {glass && (
-              <>
-                <span data-ig-noise="" />
-                <span data-ig-specular="" />
-              </>
-            )}
-            <Inner
-              data-ig-content=""
-              onClick={kpi.onClick}
-              className={cn(
-                'block w-full text-left p-4',
-                !glass && 'p-3',
-                kpi.onClick && 'transition-colors hover:bg-ig-panel-hover/40 cursor-pointer',
-              )}
-              aria-pressed={kpi.onClick ? kpi.active : undefined}
-            >
-              <HudKpi
-                value={kpi.value}
-                label={kpi.label}
-                delta={kpi.delta}
-                deltaText={kpi.deltaText}
-                deltaTone={kpi.deltaTone}
-                deltaLabel={kpi.deltaLabel}
-                prefix={kpi.prefix}
-                suffix={kpi.suffix}
-                size={size}
-                variant={kpi.variant}
-                tintValue={kpi.tintValue}
-                icon={kpi.icon}
-                align={itemAlign}
-              />
-            </Inner>
-          </motion.div>
-        );
-      })}
-    </motion.div>
+              </div>
+            </Comp>
+          );
+        })}
+      </div>
+    </motion.section>
   );
 }

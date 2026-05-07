@@ -39,11 +39,11 @@ export default function FolhaPage() {
   const totalHeadcount = batches.reduce((s, b) => s + b.headcount, 0);
 
   const kpis: KpiItem[] = [
-    { id: 'gross', label: t('grossSalary'), value: formatCompactBRL(totalGross), icon: <FileSpreadsheet className="w-5 h-5" /> },
-    { id: 'charges', label: t('charges'), value: formatCompactBRL(totalCharges) },
-    { id: 'benefits', label: t('benefits'), value: formatCompactBRL(totalBenefits) },
-    { id: 'total', label: t('totalPayroll'), value: formatCompactBRL(totalGross + totalCharges + totalBenefits), icon: <Users className="w-5 h-5" /> },
-    { id: 'hc', label: t('headcount'), value: String(totalHeadcount), icon: <Users className="w-5 h-5" /> },
+    { id: 'gross', label: t('grossSalary'), value: totalGross / 100, format: 'compactCurrency', icon: <FileSpreadsheet className="w-5 h-5" /> },
+    { id: 'charges', label: t('charges'), value: totalCharges / 100, format: 'compactCurrency' },
+    { id: 'benefits', label: t('benefits'), value: totalBenefits / 100, format: 'compactCurrency' },
+    { id: 'total', label: t('totalPayroll'), value: (totalGross + totalCharges + totalBenefits) / 100, format: 'compactCurrency', icon: <Users className="w-5 h-5" /> },
+    { id: 'hc', label: t('headcount'), value: totalHeadcount, icon: <Users className="w-5 h-5" /> },
   ];
 
   const columns: HudTableColumn<PayrollBatch>[] = [

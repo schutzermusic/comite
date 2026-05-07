@@ -30,7 +30,7 @@ export function ProjectHealthIndicator({
     const offset = circ * (1 - safe / 100);
     const box = (radius + stroke) * 2;
     return (
-      <div className={cn('inline-flex items-center gap-2', className)}>
+      <div className={cn('inline-flex items-center gap-2 health-indicator', className)}>
         <div className="relative" style={{ width: box, height: box }}>
           <svg width={box} height={box} className="-rotate-90">
             <circle
@@ -77,7 +77,7 @@ export function ProjectHealthIndicator({
 
   if (variant === 'inline') {
     return (
-      <div className={cn('inline-flex items-center gap-1.5', className)}>
+      <div className={cn('inline-flex items-center gap-1.5 health-indicator', className)}>
         <span className="w-2 h-2 rounded-full" style={{ background: color }} />
         <span className="text-sm font-semibold tabular-nums" style={{ color }}>
           {safe}
@@ -90,7 +90,7 @@ export function ProjectHealthIndicator({
   return (
     <div
       className={cn(
-        'inline-flex items-center gap-1.5 rounded-full font-semibold',
+        'inline-flex items-center gap-1.5 rounded-full font-semibold health-indicator',
         size === 'md' ? 'px-2.5 py-1 text-xs' : 'px-2 py-0.5 text-[11px]',
         className,
       )}

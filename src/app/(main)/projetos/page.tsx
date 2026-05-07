@@ -398,6 +398,16 @@ function PortfolioProjetosInner() {
         project={selectedProject}
         open={projectDrawerOpen}
         onOpenChange={setProjectDrawerOpen}
+        onLogoUpload={(projectId, url) => {
+          setProjects((prev) =>
+            prev.map((p) =>
+              p.id === projectId ? { ...p, clientLogoUrl: url ?? undefined } : p,
+            ),
+          );
+          setSelectedProject((prev) =>
+            prev?.id === projectId ? { ...prev, clientLogoUrl: url ?? undefined } : prev,
+          );
+        }}
       />
     </HudPageLayout>
   );

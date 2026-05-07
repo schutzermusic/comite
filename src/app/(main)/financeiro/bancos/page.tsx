@@ -22,9 +22,9 @@ export default function BancosPage() {
   const totalFinancial = entries.reduce((s, e) => s + e.amount_cents, 0);
 
   const kpis: KpiItem[] = [
-    { id: 'fees', label: t('totalFeesMonth'), value: formatCompactBRL(Math.abs(totalFees)), icon: <CreditCard className="w-5 h-5" /> },
-    { id: 'interest', label: t('totalInterestMonth'), value: formatCompactBRL(Math.abs(totalInterest)), icon: <TrendingDown className="w-5 h-5" /> },
-    { id: 'total', label: t('financialCosts'), value: formatCompactBRL(Math.abs(totalFinancial)), icon: <Landmark className="w-5 h-5" /> },
+    { id: 'fees', label: t('totalFeesMonth'), value: Math.abs(totalFees) / 100, format: 'compactCurrency', icon: <CreditCard className="w-5 h-5" /> },
+    { id: 'interest', label: t('totalInterestMonth'), value: Math.abs(totalInterest) / 100, format: 'compactCurrency', icon: <TrendingDown className="w-5 h-5" /> },
+    { id: 'total', label: t('financialCosts'), value: Math.abs(totalFinancial) / 100, format: 'compactCurrency', icon: <Landmark className="w-5 h-5" /> },
   ];
 
   const columns: HudTableColumn<LedgerEntry>[] = [

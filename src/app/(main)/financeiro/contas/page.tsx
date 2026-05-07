@@ -68,9 +68,9 @@ export default function ContasPage() {
   const agingTrend = agingBuckets.map(bucket => bucket.receivable - bucket.payable);
 
   const kpis: KpiItem[] = [
-    { id: 'ar', label: t('receivable'), value: formatCompactBRL(totalReceivable), icon: <ArrowDownLeft className="w-5 h-5" />, variant: 'success' },
-    { id: 'ap', label: t('payable'), value: formatCompactBRL(totalPayable), icon: <ArrowUpRight className="w-5 h-5" />, variant: 'danger' },
-    { id: 'bal', label: 'Saldo', value: formatCompactBRL(totalReceivable - totalPayable), variant: totalReceivable > totalPayable ? 'success' : 'danger', icon: <CreditCard className="w-5 h-5" /> },
+    { id: 'ar', label: t('receivable'), value: totalReceivable / 100, format: 'compactCurrency', icon: <ArrowDownLeft className="w-5 h-5" />, variant: 'success' },
+    { id: 'ap', label: t('payable'), value: totalPayable / 100, format: 'compactCurrency', icon: <ArrowUpRight className="w-5 h-5" />, variant: 'danger' },
+    { id: 'bal', label: 'Saldo', value: (totalReceivable - totalPayable) / 100, format: 'compactCurrency', variant: totalReceivable > totalPayable ? 'success' : 'danger', icon: <CreditCard className="w-5 h-5" /> },
   ];
 
   const tabOptions = [

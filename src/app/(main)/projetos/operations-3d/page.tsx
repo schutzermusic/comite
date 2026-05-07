@@ -22,7 +22,7 @@ import {
   UserRound,
   Zap,
 } from "lucide-react";
-import { HudHeader, HudPageLayout } from "@/components/hud";
+import { HudHeader, HudKpiStrip, HudPageLayout, type KpiItem } from "@/components/hud";
 import { CesiumOperationsMap } from "@/components/operations-3d/CesiumOperationsMap";
 import {
   buildOperationsProjectRecords,
@@ -50,46 +50,46 @@ export default function Operations3DPage() {
 
   const selectedForReport = selectedProject || projects.find((project) => project.status === "critical") || projects[0] || null;
 
-  const kpis = [
+  const kpis: KpiItem[] = [
     {
       id: "projects-mapped",
       label: "Projects mapped",
-      value: summary.totalProjects.toLocaleString("pt-BR"),
-      detail: "Projetos conectados ao mapa",
-      icon: MapPinned,
-      tone: "info" as const,
+      value: summary.totalProjects,
+      deltaLabel: "Projetos conectados ao mapa",
+      icon: <MapPinned className="w-5 h-5" />,
+      variant: "info",
     },
     {
       id: "active-fronts",
       label: "Active operational fronts",
-      value: summary.activeFronts.toLocaleString("pt-BR"),
-      detail: "Frentes em execução ou atenção",
-      icon: Zap,
-      tone: "success" as const,
+      value: summary.activeFronts,
+      deltaLabel: "Frentes em execução ou atenção",
+      icon: <Zap className="w-5 h-5" />,
+      variant: "success",
     },
     {
       id: "critical-alerts",
       label: "Critical alerts",
-      value: summary.criticalProjects.toLocaleString("pt-BR"),
-      detail: `${summary.linkedRisks} riscos vinculados`,
-      icon: ShieldAlert,
-      tone: "danger" as const,
+      value: summary.criticalProjects,
+      deltaLabel: `${summary.linkedRisks} riscos vinculados`,
+      icon: <ShieldAlert className="w-5 h-5" />,
+      variant: "danger",
     },
     {
       id: "assets-linked",
       label: "Assets linked",
-      value: summary.assetsLinked.toLocaleString("pt-BR"),
-      detail: "Ativos, evidências e marcos",
-      icon: Boxes,
-      tone: "warning" as const,
+      value: summary.assetsLinked,
+      deltaLabel: "Ativos, evidências e marcos",
+      icon: <Boxes className="w-5 h-5" />,
+      variant: "warning",
     },
     {
       id: "last-sync",
       label: "Last sync",
       value: formatOperationsDate(summary.lastUpdate),
-      detail: "Snapshot operacional",
-      icon: Clock3,
-      tone: "default" as const,
+      deltaLabel: "Snapshot operacional",
+      icon: <Clock3 className="w-5 h-5" />,
+      variant: "default",
     },
   ];
 
@@ -137,7 +137,7 @@ export default function Operations3DPage() {
           }
         />
 
-        <PremiumKpiStrip items={kpis} />
+        <HudKpiStrip kpis={kpis} columns={5} size="md" />
 
         <section
           className="relative h-[720px] min-h-[680px] overflow-hidden rounded-2xl border border-ig-border-subtle/70 bg-ig-panel/25 shadow-2xl shadow-black/10 lg:h-[calc(100vh-18rem)] lg:min-h-[660px]"
@@ -169,82 +169,6 @@ export default function Operations3DPage() {
   );
 }
 
-function PremiumKpiStrip({
-  items,
-}: {
-  items: Array<{
-    id: string;
-    label: string;
-    value: string;
-    detail: string;
-    icon: React.ComponentType<{ className?: string }>;
-    tone: "default" | "success" | "warning" | "danger" | "info";
-  }>;
-}) {
-  return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-      {items.map((item, index) => {
-        const Icon = item.icon;
-        const tint =
-          item.tone === "success"
-            ? "var(--ig-success)"
-            : item.tone === "warning"
-              ? "var(--ig-warning)"
-              : item.tone === "danger"
-                ? "var(--ig-danger)"
-                : item.tone === "info"
-                  ? "var(--ig-info)"
-                  : "var(--ig-accent)";
-
-        return (
-          <motion.div
-            key={item.id}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.26, delay: index * 0.035 }}
-            className="group relative min-h-[116px] overflow-hidden rounded-xl border border-ig-border-subtle/70 p-3 shadow-lg backdrop-blur-xl"
-            style={{
-              background:
-                "linear-gradient(145deg, color-mix(in oklab, var(--ig-panel) 72%, transparent), color-mix(in oklab, var(--ig-bg-raised) 52%, transparent))",
-              boxShadow:
-                "0 16px 40px -28px rgba(0,0,0,.55), inset 0 1px 0 color-mix(in oklab, white 18%, transparent)",
-            }}
-          >
-            <div
-              aria-hidden
-              className="absolute inset-x-0 top-0 h-px"
-              style={{ background: `linear-gradient(90deg, transparent, ${tint}, transparent)` }}
-            />
-            <div className="flex h-full min-w-0 flex-col justify-between gap-3">
-              <div className="flex items-start justify-between gap-3">
-                <p className="min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-ig-fg-muted">
-                  {item.label}
-                </p>
-                <span
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border"
-                  style={{
-                    borderColor: `color-mix(in oklab, ${tint} 38%, var(--ig-border-subtle))`,
-                    background: `color-mix(in oklab, ${tint} 12%, transparent)`,
-                    color: tint,
-                  }}
-                >
-                  <Icon className="h-4 w-4" />
-                </span>
-              </div>
-              <div className="min-w-0">
-                <div className="ig-tabular truncate text-[1.55rem] font-semibold leading-none text-ig-fg-strong">
-                  {item.value}
-                </div>
-                <p className="mt-2 truncate text-ig-caption text-ig-fg-muted">{item.detail}</p>
-              </div>
-            </div>
-          </motion.div>
-        );
-      })}
-    </div>
-  );
-}
-
 function ProjectInspector({
   project,
   summary,
@@ -257,7 +181,7 @@ function ProjectInspector({
   onOpenProject: (projectId: string) => void;
 }) {
   return (
-    <aside className="pointer-events-auto absolute inset-x-3 bottom-3 z-40 max-h-[58vh] md:inset-x-auto md:bottom-16 md:right-4 md:top-4 md:w-[360px] md:max-h-none xl:w-[390px]">
+    <aside className="pointer-events-auto absolute inset-x-3 bottom-3 z-40 max-h-[62vh] md:inset-x-auto md:bottom-4 md:right-4 md:top-4 md:w-[420px] md:max-h-none xl:w-[460px]">
       <AnimatePresence mode="wait">
         {project ? (
           <motion.div
