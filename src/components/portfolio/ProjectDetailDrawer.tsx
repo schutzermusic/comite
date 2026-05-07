@@ -39,7 +39,7 @@ interface ProjectDetailDrawerProps {
   project: Project | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onLogoUpload?: (projectId: string, objectUrl: string | null) => void;
+  onLogoUpload?: (projectId: string, file: File | null) => Promise<string | null> | string | null;
 }
 
 const STATUS_VARIANT: Record<string, 'active' | 'completed' | 'warning' | 'error' | 'neutral'> = {
@@ -83,15 +83,15 @@ export function ProjectDetailDrawer({
   const handleLogoUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !project) return;
-    const url = URL.createObjectURL(file);
-    setUploadedLogoUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return url; });
-    onLogoUpload?.(project.id, url);
+    const previewUrl = URL.createObjectURL(file);
+    setUploadedLogoUrl(previewUrl);
+    Promise.resolve(onLogoUpload?.(project.id, file))
+      .then((url) => {
+        if (url) setUploadedLogoUrl(url);
+      })
+      .finally(() => URL.revokeObjectURL(previewUrl));
     e.target.value = '';
   }, [project, onLogoUpload]);
-
-  useEffect(() => {
-    return () => { if (uploadedLogoUrl) URL.revokeObjectURL(uploadedLogoUrl); };
-  }, [uploadedLogoUrl]);
 
   const handleEscape = useCallback(
     (e: KeyboardEvent) => {
@@ -175,9 +175,8 @@ export function ProjectDetailDrawer({
                   />
                   <button
                     onClick={() => {
-                      if (uploadedLogoUrl) URL.revokeObjectURL(uploadedLogoUrl);
                       setUploadedLogoUrl(null);
-                      if (project) onLogoUpload?.(project.id, null);
+                      if (project) void onLogoUpload?.(project.id, null);
                     }}
                     className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover/logo:opacity-100 transition-opacity rounded-xl"
                     aria-label="Remover logo"

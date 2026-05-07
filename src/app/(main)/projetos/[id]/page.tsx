@@ -33,7 +33,7 @@ import {
   HudButton,
 } from '@/components/hud';
 import { votes, meetings, users as mockUsers } from '@/lib/mock-data';
-import { getProjectById, getProjectV2ById } from '@/lib/services/projects';
+import { getProjectByIdAsync, getProjectV2ByIdAsync } from '@/lib/services/projects';
 import { TimelineGanttView } from '@/components/projects/timeline-gantt-view';
 import { TeamAllocationView } from '@/components/projects/team-allocation-view';
 import { ActionCenter } from '@/components/projects/ActionCenter';
@@ -58,24 +58,33 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
     const t = searchParams?.get('tab');
     return t && ['overview', 'timeline', 'team', 'finance'].includes(t) ? t : 'overview';
   })();
-  const [projeto, setProjeto] = useState<ReturnType<typeof getProjectById>>(undefined);
+  const [projeto, setProjeto] = useState<Awaited<ReturnType<typeof getProjectByIdAsync>>>(undefined);
   const [projetoV2, setProjetoV2] = useState<ProjectV2 | undefined>(undefined);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState(initialTab);
 
   useEffect(() => {
-    try {
-      const loadedProjeto = getProjectById(id);
-      setProjeto(loadedProjeto);
-      // Try to load v2 enriched data
-      const v2 = getProjectV2ById(id);
-      setProjetoV2(v2);
-    } catch (error) {
-      console.error('Erro ao carregar projeto:', error);
-      setProjeto(undefined);
-    } finally {
-      setLoading(false);
+    let active = true;
+    async function loadProject() {
+      try {
+        const [loadedProjeto, v2] = await Promise.all([
+          getProjectByIdAsync(id),
+          getProjectV2ByIdAsync(id),
+        ]);
+        if (!active) return;
+        setProjeto(loadedProjeto);
+        setProjetoV2(v2);
+      } catch (error) {
+        console.error('Erro ao carregar projeto:', error);
+        if (active) setProjeto(undefined);
+      } finally {
+        if (active) setLoading(false);
+      }
     }
+    void loadProject();
+    return () => {
+      active = false;
+    };
   }, [id]);
 
   if (loading) {

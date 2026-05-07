@@ -5,7 +5,13 @@ import { useTranslations } from 'next-intl';
 import { useSearchParams } from 'next/navigation';
 import { Briefcase } from 'lucide-react';
 import { useHudToast } from '@/hooks/useHudToast';
-import { getProjects, getProjectsV2, deleteProject } from '@/lib/services/projects';
+import {
+  deleteProject,
+  getProjectsAsync,
+  getProjectsV2Async,
+  updateProjectV2,
+  uploadProjectFile,
+} from '@/lib/services/projects';
 import type { Project } from '@/lib/types';
 import type { ProjectV2 } from '@/lib/types/project-v2';
 
@@ -48,12 +54,28 @@ function PortfolioProjetosInner() {
   const [projectDrawerOpen, setProjectDrawerOpen] = useState(false);
 
   useEffect(() => {
-    setProjects(getProjects());
-    try {
-      setProjectsV2(getProjectsV2());
-    } catch {
-      /* v2 not available */
+    let active = true;
+    async function loadProjects() {
+      try {
+        const [loadedProjects, loadedProjectsV2] = await Promise.all([
+          getProjectsAsync(),
+          getProjectsV2Async(),
+        ]);
+        if (!active) return;
+        setProjects(loadedProjects);
+        setProjectsV2(loadedProjectsV2);
+      } catch (error) {
+        toast({
+          title: 'Não foi possível carregar projetos',
+          description: error instanceof Error ? error.message : 'Verifique a conexão com o Supabase.',
+          variant: 'destructive',
+        });
+      }
     }
+    void loadProjects();
+    return () => {
+      active = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -267,7 +289,12 @@ function PortfolioProjetosInner() {
     if (confirm(t('confirmDeleteDescription'))) {
       try {
         await deleteProject(projectId);
-        setProjects(getProjects());
+        const [loadedProjects, loadedProjectsV2] = await Promise.all([
+          getProjectsAsync(),
+          getProjectsV2Async(),
+        ]);
+        setProjects(loadedProjects);
+        setProjectsV2(loadedProjectsV2);
         toast({ title: t('projectDeleted'), description: t('projectDeletedDescription') });
       } catch (error) {
         toast({
@@ -398,15 +425,28 @@ function PortfolioProjetosInner() {
         project={selectedProject}
         open={projectDrawerOpen}
         onOpenChange={setProjectDrawerOpen}
-        onLogoUpload={(projectId, url) => {
-          setProjects((prev) =>
-            prev.map((p) =>
-              p.id === projectId ? { ...p, clientLogoUrl: url ?? undefined } : p,
-            ),
-          );
-          setSelectedProject((prev) =>
-            prev?.id === projectId ? { ...prev, clientLogoUrl: url ?? undefined } : prev,
-          );
+        onLogoUpload={async (projectId, file) => {
+          try {
+            const url = file ? (await uploadProjectFile(projectId, file, 'logo')).publicUrl : null;
+            await updateProjectV2(projectId, { clientLogoUrl: url ?? undefined }, 'current_user');
+            const [loadedProjects, loadedProjectsV2] = await Promise.all([
+              getProjectsAsync(),
+              getProjectsV2Async(),
+            ]);
+            setProjects(loadedProjects);
+            setProjectsV2(loadedProjectsV2);
+            setSelectedProject((prev) =>
+              prev?.id === projectId ? { ...prev, clientLogoUrl: url ?? undefined } : prev,
+            );
+            return url;
+          } catch (error) {
+            toast({
+              title: 'Não foi possível salvar a logo',
+              description: error instanceof Error ? error.message : 'Tente enviar a imagem novamente.',
+              variant: 'destructive',
+            });
+            return null;
+          }
         }}
       />
     </HudPageLayout>

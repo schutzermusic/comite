@@ -9,6 +9,7 @@
     "build": "NODE_ENV=production next build",
     "start": "next start",
     "sync:contracts": "node scripts/sync-contracts-from-excel.mjs",
+    "supabase:seed-projects": "tsx scripts/seed-projects-to-supabase.ts",
     "i18n:scan": "node scripts/scan-english-strings.mjs",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
