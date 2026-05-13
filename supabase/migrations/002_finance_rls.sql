@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS user_finance_role (
   UNIQUE (user_id, role)
 );
 
-CREATE INDEX idx_ufr_user ON user_finance_role (user_id);
+CREATE INDEX IF NOT EXISTS idx_ufr_user ON user_finance_role (user_id);
 
 -- Helper function: check if user has a specific finance role
 CREATE OR REPLACE FUNCTION has_finance_role(required_role text)
@@ -61,7 +61,10 @@ RETURNS uuid[] AS $$
 DECLARE
   v_proj_ids uuid[];
 BEGIN
-  -- Assumes a project_members table exists linking users to projects
+  IF to_regclass('public.project_members') IS NULL THEN
+    RETURN '{}'::uuid[];
+  END IF;
+
   SELECT COALESCE(array_agg(project_id), '{}')
   INTO v_proj_ids
   FROM project_members
@@ -96,25 +99,35 @@ ALTER TABLE user_finance_role ENABLE ROW LEVEL SECURITY;
 -- REFERENCE DATA: read for all authenticated
 -- ============================================================
 
+DROP POLICY IF EXISTS "ref_read_bu" ON business_unit;
 CREATE POLICY "ref_read_bu" ON business_unit FOR SELECT TO authenticated USING (true);
+DROP POLICY IF EXISTS "ref_read_cc" ON cost_center;
 CREATE POLICY "ref_read_cc" ON cost_center FOR SELECT TO authenticated USING (true);
+DROP POLICY IF EXISTS "ref_read_mc" ON management_category;
 CREATE POLICY "ref_read_mc" ON management_category FOR SELECT TO authenticated USING (true);
+DROP POLICY IF EXISTS "ref_read_sup" ON supplier;
 CREATE POLICY "ref_read_sup" ON supplier FOR SELECT TO authenticated USING (true);
+DROP POLICY IF EXISTS "ref_read_cli" ON client;
 CREATE POLICY "ref_read_cli" ON client FOR SELECT TO authenticated USING (true);
+DROP POLICY IF EXISTS "ref_read_cm" ON category_mapping;
 CREATE POLICY "ref_read_cm" ON category_mapping FOR SELECT TO authenticated USING (true);
 
 -- Write reference data: finance_admin only
+DROP POLICY IF EXISTS "ref_write_bu" ON business_unit;
 CREATE POLICY "ref_write_bu" ON business_unit FOR ALL TO authenticated
   USING (has_finance_role('finance_admin'))
   WITH CHECK (has_finance_role('finance_admin'));
 
+DROP POLICY IF EXISTS "ref_write_cc" ON cost_center;
 CREATE POLICY "ref_write_cc" ON cost_center FOR ALL TO authenticated
   USING (has_finance_role('finance_admin'))
   WITH CHECK (has_finance_role('finance_admin'));
 
+DROP POLICY IF EXISTS "ref_write_sup" ON supplier;
 CREATE POLICY "ref_write_sup" ON supplier FOR INSERT TO authenticated
   WITH CHECK (has_any_finance_role(ARRAY['finance_admin', 'finance_analyst']));
 
+DROP POLICY IF EXISTS "ref_write_cli" ON client;
 CREATE POLICY "ref_write_cli" ON client FOR INSERT TO authenticated
   WITH CHECK (has_any_finance_role(ARRAY['finance_admin', 'finance_analyst']));
 
@@ -123,6 +136,7 @@ CREATE POLICY "ref_write_cli" ON client FOR INSERT TO authenticated
 -- ============================================================
 
 -- SELECT: role-based filtering
+DROP POLICY IF EXISTS "le_select" ON ledger_entry;
 CREATE POLICY "le_select" ON ledger_entry FOR SELECT TO authenticated
 USING (
   CASE
@@ -135,6 +149,7 @@ USING (
 );
 
 -- INSERT: finance_admin, finance_analyst, project_manager (own projects)
+DROP POLICY IF EXISTS "le_insert" ON ledger_entry;
 CREATE POLICY "le_insert" ON ledger_entry FOR INSERT TO authenticated
 WITH CHECK (
   has_any_finance_role(ARRAY['finance_admin', 'finance_analyst'])
@@ -142,6 +157,7 @@ WITH CHECK (
 );
 
 -- UPDATE: only drafts, by creator or finance_admin
+DROP POLICY IF EXISTS "le_update" ON ledger_entry;
 CREATE POLICY "le_update" ON ledger_entry FOR UPDATE TO authenticated
 USING (
   status = 'draft'
@@ -156,16 +172,19 @@ WITH CHECK (
 -- PAYROLL BATCH — restricted access
 -- ============================================================
 
+DROP POLICY IF EXISTS "pb_select" ON payroll_batch;
 CREATE POLICY "pb_select" ON payroll_batch FOR SELECT TO authenticated
 USING (
   has_any_finance_role(ARRAY['finance_admin', 'finance_analyst', 'auditor'])
 );
 
+DROP POLICY IF EXISTS "pb_insert" ON payroll_batch;
 CREATE POLICY "pb_insert" ON payroll_batch FOR INSERT TO authenticated
 WITH CHECK (
   has_any_finance_role(ARRAY['finance_admin', 'finance_analyst'])
 );
 
+DROP POLICY IF EXISTS "pb_update" ON payroll_batch;
 CREATE POLICY "pb_update" ON payroll_batch FOR UPDATE TO authenticated
 USING (has_any_finance_role(ARRAY['finance_admin', 'finance_analyst']))
 WITH CHECK (has_any_finance_role(ARRAY['finance_admin', 'finance_analyst']));
@@ -174,9 +193,11 @@ WITH CHECK (has_any_finance_role(ARRAY['finance_admin', 'finance_analyst']));
 -- ALLOCATION RULE
 -- ============================================================
 
+DROP POLICY IF EXISTS "ar_select" ON allocation_rule;
 CREATE POLICY "ar_select" ON allocation_rule FOR SELECT TO authenticated
 USING (has_any_finance_role(ARRAY['finance_admin', 'finance_analyst', 'auditor']));
 
+DROP POLICY IF EXISTS "ar_write" ON allocation_rule;
 CREATE POLICY "ar_write" ON allocation_rule FOR ALL TO authenticated
 USING (has_finance_role('finance_admin'))
 WITH CHECK (has_finance_role('finance_admin'));
@@ -185,9 +206,11 @@ WITH CHECK (has_finance_role('finance_admin'));
 -- ALLOCATION RESULT
 -- ============================================================
 
+DROP POLICY IF EXISTS "alloc_select" ON allocation_result;
 CREATE POLICY "alloc_select" ON allocation_result FOR SELECT TO authenticated
 USING (has_any_finance_role(ARRAY['finance_admin', 'finance_analyst', 'auditor']));
 
+DROP POLICY IF EXISTS "alloc_write" ON allocation_result;
 CREATE POLICY "alloc_write" ON allocation_result FOR ALL TO authenticated
 USING (has_any_finance_role(ARRAY['finance_admin', 'finance_analyst']))
 WITH CHECK (has_any_finance_role(ARRAY['finance_admin', 'finance_analyst']));
@@ -196,12 +219,14 @@ WITH CHECK (has_any_finance_role(ARRAY['finance_admin', 'finance_analyst']));
 -- AP/AR TITLE
 -- ============================================================
 
+DROP POLICY IF EXISTS "apar_select" ON apar_title;
 CREATE POLICY "apar_select" ON apar_title FOR SELECT TO authenticated
 USING (
   has_any_finance_role(ARRAY['finance_admin', 'finance_analyst', 'approver', 'auditor', 'executive_readonly'])
   OR (has_finance_role('project_manager') AND project_id = ANY(user_project_ids()))
 );
 
+DROP POLICY IF EXISTS "apar_write" ON apar_title;
 CREATE POLICY "apar_write" ON apar_title FOR ALL TO authenticated
 USING (has_any_finance_role(ARRAY['finance_admin', 'finance_analyst']))
 WITH CHECK (has_any_finance_role(ARRAY['finance_admin', 'finance_analyst']));
@@ -210,8 +235,10 @@ WITH CHECK (has_any_finance_role(ARRAY['finance_admin', 'finance_analyst']));
 -- PERIOD CLOSE — admin only for mutations
 -- ============================================================
 
+DROP POLICY IF EXISTS "pc_select" ON period_close;
 CREATE POLICY "pc_select" ON period_close FOR SELECT TO authenticated USING (true);
 
+DROP POLICY IF EXISTS "pc_write" ON period_close;
 CREATE POLICY "pc_write" ON period_close FOR ALL TO authenticated
 USING (has_finance_role('finance_admin'))
 WITH CHECK (has_finance_role('finance_admin'));
@@ -220,8 +247,10 @@ WITH CHECK (has_finance_role('finance_admin'));
 -- ATTACHMENT
 -- ============================================================
 
+DROP POLICY IF EXISTS "att_select" ON attachment;
 CREATE POLICY "att_select" ON attachment FOR SELECT TO authenticated USING (true);
 
+DROP POLICY IF EXISTS "att_insert" ON attachment;
 CREATE POLICY "att_insert" ON attachment FOR INSERT TO authenticated
 WITH CHECK (has_any_finance_role(ARRAY['finance_admin', 'finance_analyst', 'project_manager']));
 
@@ -229,9 +258,11 @@ WITH CHECK (has_any_finance_role(ARRAY['finance_admin', 'finance_analyst', 'proj
 -- AUDIT LOG — append-only, read for admin + auditor
 -- ============================================================
 
+DROP POLICY IF EXISTS "audit_select" ON finance_audit_log;
 CREATE POLICY "audit_select" ON finance_audit_log FOR SELECT TO authenticated
 USING (has_any_finance_role(ARRAY['finance_admin', 'auditor']));
 
+DROP POLICY IF EXISTS "audit_insert" ON finance_audit_log;
 CREATE POLICY "audit_insert" ON finance_audit_log FOR INSERT TO authenticated
 WITH CHECK (true);
 
@@ -242,9 +273,11 @@ WITH CHECK (true);
 -- INGESTION BATCH
 -- ============================================================
 
+DROP POLICY IF EXISTS "ib_select" ON ingestion_batch;
 CREATE POLICY "ib_select" ON ingestion_batch FOR SELECT TO authenticated
 USING (has_any_finance_role(ARRAY['finance_admin', 'auditor']));
 
+DROP POLICY IF EXISTS "ib_write" ON ingestion_batch;
 CREATE POLICY "ib_write" ON ingestion_batch FOR ALL TO authenticated
 USING (has_finance_role('finance_admin'))
 WITH CHECK (has_finance_role('finance_admin'));
@@ -253,9 +286,11 @@ WITH CHECK (has_finance_role('finance_admin'));
 -- USER FINANCE ROLE — self-read, admin manage
 -- ============================================================
 
+DROP POLICY IF EXISTS "ufr_select" ON user_finance_role;
 CREATE POLICY "ufr_select" ON user_finance_role FOR SELECT TO authenticated
 USING (user_id = auth.uid() OR has_finance_role('finance_admin'));
 
+DROP POLICY IF EXISTS "ufr_write" ON user_finance_role;
 CREATE POLICY "ufr_write" ON user_finance_role FOR ALL TO authenticated
 USING (has_finance_role('finance_admin'))
 WITH CHECK (has_finance_role('finance_admin'));

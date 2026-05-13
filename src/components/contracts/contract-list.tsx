@@ -22,6 +22,7 @@ import {
   FileText,
   MoreVertical,
   ShieldCheck,
+  Trash2,
   Workflow,
 } from 'lucide-react';
 import { format } from 'date-fns';
@@ -33,6 +34,10 @@ interface ContractListProps {
   onSelectRecord?: (record: ContractGovernanceRecord) => void;
   onViewContract?: (record: ContractGovernanceRecord) => void;
   onDownloadContract?: (record: ContractGovernanceRecord) => void;
+  onDeleteLinkedProject?: (record: ContractGovernanceRecord) => void;
+  onDeleteContract?: (record: ContractGovernanceRecord) => void;
+  canDeleteLinkedProject?: boolean;
+  canDeleteContract?: boolean;
 }
 
 const riskVariant = {
@@ -81,6 +86,10 @@ export function ContractList({
   onSelectRecord,
   onViewContract,
   onDownloadContract,
+  onDeleteLinkedProject,
+  onDeleteContract,
+  canDeleteLinkedProject = false,
+  canDeleteContract = false,
 }: ContractListProps) {
   const columns: HudTableColumn<ContractGovernanceRecord>[] = [
     {
@@ -252,6 +261,31 @@ export function ContractList({
                 <BrainCircuit className="mr-2 h-4 w-4" />
                 Solicitar análise IA
               </DropdownMenuItem>
+              {canDeleteLinkedProject && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    className="text-ig-danger focus:text-ig-danger"
+                    disabled={!record.project}
+                    onClick={() => onDeleteLinkedProject?.(record)}
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    {record.project ? 'Excluir projeto' : 'Sem projeto vinculado'}
+                  </DropdownMenuItem>
+                </>
+              )}
+              {canDeleteContract && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    className="text-ig-danger focus:text-ig-danger"
+                    onClick={() => onDeleteContract?.(record)}
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Excluir contrato
+                  </DropdownMenuItem>
+                </>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>

@@ -12,7 +12,15 @@ INSERT INTO management_category (id, code, name, level, parent_id, group_key, si
   ('00000000-0000-0000-0000-00000000a130', 'A.1.3', 'Receita de Mobilização',           3, '00000000-0000-0000-0000-00000000a100', 'revenue', 1,  true,  true),
   ('00000000-0000-0000-0000-00000000a200', 'A.2',   'Outras Receitas',                  2, '00000000-0000-0000-0000-00000000a000', 'revenue', 1,  false, true),
   ('00000000-0000-0000-0000-00000000a210', 'A.2.1', 'Locação de Equipamentos (receita)',3, '00000000-0000-0000-0000-00000000a200', 'revenue', 1,  false, true),
-  ('00000000-0000-0000-0000-00000000a220', 'A.2.2', 'Receita de Reembolsos',            3, '00000000-0000-0000-0000-00000000a200', 'revenue', 1,  false, true);
+  ('00000000-0000-0000-0000-00000000a220', 'A.2.2', 'Receita de Reembolsos',            3, '00000000-0000-0000-0000-00000000a200', 'revenue', 1,  false, true)
+ON CONFLICT (code) DO UPDATE SET
+  name = EXCLUDED.name,
+  level = EXCLUDED.level,
+  parent_id = EXCLUDED.parent_id,
+  group_key = EXCLUDED.group_key,
+  sign = EXCLUDED.sign,
+  requires_project = EXCLUDED.requires_project,
+  active = EXCLUDED.active;
 
 -- B) COGS
 INSERT INTO management_category (id, code, name, level, parent_id, group_key, sign, requires_project, active) VALUES
@@ -39,7 +47,15 @@ INSERT INTO management_category (id, code, name, level, parent_id, group_key, si
   ('00000000-0000-0000-0000-00000000b430', 'B.4.3', 'Locação de Equipamentos (direto)', 3, '00000000-0000-0000-0000-00000000b400', 'cogs', -1, true,  true),
   ('00000000-0000-0000-0000-00000000b500', 'B.5',   'Equipamentos e Máquinas',          2, '00000000-0000-0000-0000-00000000b000', 'cogs', -1, true,  true),
   ('00000000-0000-0000-0000-00000000b510', 'B.5.1', 'Locação de Equipamentos Pesados',  3, '00000000-0000-0000-0000-00000000b500', 'cogs', -1, true,  true),
-  ('00000000-0000-0000-0000-00000000b520', 'B.5.2', 'Manutenção de Equipamentos',       3, '00000000-0000-0000-0000-00000000b500', 'cogs', -1, true,  true);
+  ('00000000-0000-0000-0000-00000000b520', 'B.5.2', 'Manutenção de Equipamentos',       3, '00000000-0000-0000-0000-00000000b500', 'cogs', -1, true,  true)
+ON CONFLICT (code) DO UPDATE SET
+  name = EXCLUDED.name,
+  level = EXCLUDED.level,
+  parent_id = EXCLUDED.parent_id,
+  group_key = EXCLUDED.group_key,
+  sign = EXCLUDED.sign,
+  requires_project = EXCLUDED.requires_project,
+  active = EXCLUDED.active;
 
 -- C) OPEX
 INSERT INTO management_category (id, code, name, level, parent_id, group_key, sign, requires_project, active) VALUES
@@ -63,7 +79,15 @@ INSERT INTO management_category (id, code, name, level, parent_id, group_key, si
   ('00000000-0000-0000-0000-00000000c500', 'C.5',   'Comercial e Marketing',            2, '00000000-0000-0000-0000-00000000c000', 'opex', -1, false, true),
   ('00000000-0000-0000-0000-00000000c510', 'C.5.1', 'Viagens Comerciais',               3, '00000000-0000-0000-0000-00000000c500', 'opex', -1, false, true),
   ('00000000-0000-0000-0000-00000000c520', 'C.5.2', 'Eventos e Feiras',                 3, '00000000-0000-0000-0000-00000000c500', 'opex', -1, false, true),
-  ('00000000-0000-0000-0000-00000000c530', 'C.5.3', 'Material de Divulgação',           3, '00000000-0000-0000-0000-00000000c500', 'opex', -1, false, true);
+  ('00000000-0000-0000-0000-00000000c530', 'C.5.3', 'Material de Divulgação',           3, '00000000-0000-0000-0000-00000000c500', 'opex', -1, false, true)
+ON CONFLICT (code) DO UPDATE SET
+  name = EXCLUDED.name,
+  level = EXCLUDED.level,
+  parent_id = EXCLUDED.parent_id,
+  group_key = EXCLUDED.group_key,
+  sign = EXCLUDED.sign,
+  requires_project = EXCLUDED.requires_project,
+  active = EXCLUDED.active;
 
 -- D) FINANCIAL
 INSERT INTO management_category (id, code, name, level, parent_id, group_key, sign, requires_project, active) VALUES
@@ -79,7 +103,15 @@ INSERT INTO management_category (id, code, name, level, parent_id, group_key, si
   ('00000000-0000-0000-0000-00000000d310', 'D.3.1', 'Perda Cambial',                    3, '00000000-0000-0000-0000-00000000d300', 'financial', -1, false, true),
   ('00000000-0000-0000-0000-00000000d400', 'D.4',   'Receita Financeira',               2, '00000000-0000-0000-0000-00000000d000', 'financial',  1, false, true),
   ('00000000-0000-0000-0000-00000000d410', 'D.4.1', 'Rendimento de Aplicações',         3, '00000000-0000-0000-0000-00000000d400', 'financial',  1, false, true),
-  ('00000000-0000-0000-0000-00000000d420', 'D.4.2', 'Juros Recebidos',                  3, '00000000-0000-0000-0000-00000000d400', 'financial',  1, false, true);
+  ('00000000-0000-0000-0000-00000000d420', 'D.4.2', 'Juros Recebidos',                  3, '00000000-0000-0000-0000-00000000d400', 'financial',  1, false, true)
+ON CONFLICT (code) DO UPDATE SET
+  name = EXCLUDED.name,
+  level = EXCLUDED.level,
+  parent_id = EXCLUDED.parent_id,
+  group_key = EXCLUDED.group_key,
+  sign = EXCLUDED.sign,
+  requires_project = EXCLUDED.requires_project,
+  active = EXCLUDED.active;
 
 -- E) TAXES
 INSERT INTO management_category (id, code, name, level, parent_id, group_key, sign, requires_project, active) VALUES
@@ -93,7 +125,15 @@ INSERT INTO management_category (id, code, name, level, parent_id, group_key, si
   ('00000000-0000-0000-0000-00000000e220', 'E.2.2', 'Impostos Retidos na Fonte',        3, '00000000-0000-0000-0000-00000000e200', 'taxes', -1, false, true),
   ('00000000-0000-0000-0000-00000000e300', 'E.3',   'Provisões vs Pagos',               2, '00000000-0000-0000-0000-00000000e000', 'taxes', -1, false, true),
   ('00000000-0000-0000-0000-00000000e310', 'E.3.1', 'Provisão Tributária',              3, '00000000-0000-0000-0000-00000000e300', 'taxes', -1, false, true),
-  ('00000000-0000-0000-0000-00000000e320', 'E.3.2', 'Imposto Pago',                     3, '00000000-0000-0000-0000-00000000e300', 'taxes', -1, false, true);
+  ('00000000-0000-0000-0000-00000000e320', 'E.3.2', 'Imposto Pago',                     3, '00000000-0000-0000-0000-00000000e300', 'taxes', -1, false, true)
+ON CONFLICT (code) DO UPDATE SET
+  name = EXCLUDED.name,
+  level = EXCLUDED.level,
+  parent_id = EXCLUDED.parent_id,
+  group_key = EXCLUDED.group_key,
+  sign = EXCLUDED.sign,
+  requires_project = EXCLUDED.requires_project,
+  active = EXCLUDED.active;
 
 -- ============================================================
 -- Sample CategoryMapping (Sankhya -> Management)
@@ -104,4 +144,9 @@ INSERT INTO category_mapping (source_system, source_account_code, source_account
   ('sankhya', '3.1.01.005', 'INSS Patronal',         '00000000-0000-0000-0000-00000000b120', 0.95, true),
   ('sankhya', '3.2.01.001', 'Hospedagem',            '00000000-0000-0000-0000-00000000b210', 0.90, true),
   ('sankhya', '4.1.01.001', 'Tarifas Bancárias',     '00000000-0000-0000-0000-00000000d120', 0.95, true),
-  ('sankhya', '2.1.01.001', 'ISS',                   '00000000-0000-0000-0000-00000000e110', 0.95, true);
+  ('sankhya', '2.1.01.001', 'ISS',                   '00000000-0000-0000-0000-00000000e110', 0.95, true)
+ON CONFLICT (source_system, source_account_code) DO UPDATE SET
+  source_account_name = EXCLUDED.source_account_name,
+  management_category_id = EXCLUDED.management_category_id,
+  confidence = EXCLUDED.confidence,
+  active = EXCLUDED.active;

@@ -39,6 +39,7 @@ interface DecisionDetailDrawerProps {
   deliberacao: Deliberacao | null;
   isOpen: boolean;
   onClose: () => void;
+  canVote?: boolean;
 }
 
 const STATUS_PILL: Record<DeliberacaoStatus, { variant: HudStatusPillVariant; label: string }> = {
@@ -151,6 +152,7 @@ export function DecisionDetailDrawer({
   deliberacao,
   isOpen,
   onClose,
+  canVote = false,
 }: DecisionDetailDrawerProps) {
   return (
     <HudDrawer
@@ -222,8 +224,14 @@ export function DecisionDetailDrawer({
             icon={<Vote className="w-3.5 h-3.5" />}
             action={
               deliberacao.status === 'em_votacao' ? (
-                <HudButton variant="primary" size="sm" leftIcon={<Vote className="w-3.5 h-3.5" />}>
-                  Registrar voto
+                <HudButton
+                  variant={canVote ? 'primary' : 'ghost'}
+                  size="sm"
+                  disabled={!canVote}
+                  leftIcon={<Vote className="w-3.5 h-3.5" />}
+                  title={canVote ? 'Registrar voto' : 'Requer permissão deliberations.vote'}
+                >
+                  {canVote ? 'Registrar voto' : 'Voto restrito'}
                 </HudButton>
               ) : null
             }

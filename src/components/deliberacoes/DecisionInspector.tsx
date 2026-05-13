@@ -35,6 +35,8 @@ interface DecisionInspectorProps {
   onGenerateMinutes: (itemId: string) => void;
   onPublishMinutes: (itemId: string) => void;
   onCreateExecutionTask: (itemId: string) => void;
+  canVote?: boolean;
+  canApprove?: boolean;
 }
 
 const STATUS_MAP: Record<string, string> = {
@@ -117,6 +119,8 @@ export function DecisionInspector({
   onGenerateMinutes,
   onPublishMinutes,
   onCreateExecutionTask,
+  canVote = false,
+  canApprove = false,
 }: DecisionInspectorProps) {
   if (!item) {
     return (
@@ -208,8 +212,13 @@ export function DecisionInspector({
           </div>
           <HudButton
             variant={primaryAction.variant}
-            disabled={primaryAction.disabled}
+            disabled={
+              primaryAction.disabled ||
+              (item.deliberationStatus === 'awaiting_minutes' && !canApprove) ||
+              (item.deliberationStatus === 'in_execution' && !canApprove)
+            }
             leftIcon={primaryAction.icon}
+            title={!canApprove && (item.deliberationStatus === 'awaiting_minutes' || item.deliberationStatus === 'in_execution') ? 'Requer permissão deliberations.approve' : undefined}
             onClick={() => {
               if (item.deliberationStatus === 'awaiting_minutes') onGenerateMinutes(item.id);
               else if (item.deliberationStatus === 'in_execution') onCreateExecutionTask(item.id);
@@ -365,6 +374,8 @@ export function DecisionInspector({
             onCastVote={(vote, justification, hasConflict) => onCastVote(item.id, vote, justification, hasConflict)}
             onCloseVoting={() => onCloseVoting(item.id)}
             onOpenVoting={() => onStartVoting(item.id)}
+            canVote={canVote}
+            canManageVoting={canApprove}
           />
 
           <HudPanel className="space-y-1">
@@ -388,6 +399,8 @@ export function DecisionInspector({
                   variant="secondary"
                   leftIcon={<FileText className="w-3.5 h-3.5" />}
                   onClick={() => onGenerateMinutes(item.id)}
+                  disabled={!canApprove}
+                  title={canApprove ? 'Gerar minuta' : 'Requer permissão deliberations.approve'}
                 >
                   Gerar minuta
                 </HudButton>
@@ -396,6 +409,8 @@ export function DecisionInspector({
                   variant="primary"
                   leftIcon={<CheckCircle className="w-3.5 h-3.5" />}
                   onClick={() => onPublishMinutes(item.id)}
+                  disabled={!canApprove}
+                  title={canApprove ? 'Publicar ata' : 'Requer permissão deliberations.approve'}
                 >
                   Publicar ata
                 </HudButton>
@@ -421,6 +436,8 @@ export function DecisionInspector({
                 variant="primary"
                 leftIcon={<Workflow className="w-3.5 h-3.5" />}
                 onClick={() => onCreateExecutionTask(item.id)}
+                disabled={!canApprove}
+                title={canApprove ? 'Criar ação' : 'Requer permissão deliberations.approve'}
               >
                 Criar Ação
               </HudButton>

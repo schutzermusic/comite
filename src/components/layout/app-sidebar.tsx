@@ -68,6 +68,9 @@ import {
 } from "../ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "../ui/avatar";
 import { cn } from "@/lib/utils";
+import { hasAnyPermission, hasPermission } from "@/lib/auth/permissions";
+import { createClient } from "@/utils/supabase/client";
+import { useCurrentUser } from "@/hooks/use-current-user";
 
 const ADMIN_STORAGE_KEY = "ig-sidebar-admin-open";
 const FINANCE_STORAGE_KEY = "ig-sidebar-finance-open";
@@ -75,18 +78,7 @@ const PROJECTS_STORAGE_KEY = "ig-sidebar-projects-open";
 
 type User = {
   fullName: string;
-  role: "admin";
   cargo: string;
-};
-
-const useUser = () => {
-  const [user] = useState<User>({
-    fullName: "Admin User",
-    role: "admin",
-    cargo: "Administrator",
-  });
-
-  return { user };
 };
 
 const getUserInitials = (name?: string) => {
@@ -103,6 +95,7 @@ type SubMenuItem = {
   href: string;
   label: string;
   icon: LucideIcon;
+  permission?: string;
 };
 
 type MenuItem = {
@@ -110,16 +103,20 @@ type MenuItem = {
   labelKey: string;
   icon: LucideIcon;
   section: "main" | "admin";
+  permission?: string;
+  anyPermission?: string[];
+  alwaysVisibleWhenAuthenticated?: boolean;
   subItems?: SubMenuItem[];
 };
 
 const navigationItems: MenuItem[] = [
-  { href: "/dashboard", labelKey: "dashboard", icon: LayoutDashboard, section: "main" },
+  { href: "/dashboard", labelKey: "dashboard", icon: LayoutDashboard, section: "main", permission: "dashboard.view" },
   {
     href: "/financeiro",
     labelKey: "finance",
     icon: Banknote,
     section: "main",
+    permission: "finance.view",
     subItems: [
       { href: "/financeiro/control-room", label: "Control Room", icon: Gauge },
       { href: "/financeiro/dre-gerencial", label: "DRE / P&L Gerencial", icon: LineChart },
@@ -141,25 +138,26 @@ const navigationItems: MenuItem[] = [
     labelKey: "projects",
     icon: Briefcase,
     section: "main",
+    permission: "projects.view",
     subItems: [
       { href: "/projetos", label: "Visão Geral", icon: Briefcase },
       { href: "/projetos/operations-3d", label: "Insight Operations 3D", icon: Cuboid },
     ],
   },
-  { href: "/reunioes", labelKey: "meetings", icon: Calendar, section: "main" },
-  { href: "/deliberacoes", labelKey: "deliberations", icon: Gavel, section: "main" },
-  { href: "/riscos", labelKey: "risks", icon: ShieldAlert, section: "main" },
-  { href: "/contratos", labelKey: "contracts", icon: FileCheck, section: "main" },
-  { href: "/workforce-cost", labelKey: "peopleAndCosts", icon: Users, section: "main" },
-  { href: "/organograma", labelKey: "organogram", icon: Network, section: "main" },
-  { href: "/comites", labelKey: "committeeManagement", icon: Building2, section: "admin" },
-  { href: "/membros", labelKey: "manageMembers", icon: Users, section: "admin" },
-  { href: "/roles", labelKey: "globalRoles", icon: Shield, section: "admin" },
-  { href: "/workflows", labelKey: "automations", icon: Zap, section: "admin" },
-  { href: "/atas", labelKey: "minutes", icon: FileBadge, section: "admin" },
-  { href: "/notificacoes", labelKey: "adminNotifications", icon: Bell, section: "admin" },
-  { href: "/relatorios", labelKey: "reports", icon: BarChart3, section: "admin" },
-  { href: "/historico", labelKey: "history", icon: History, section: "admin" },
+  { href: "/reunioes", labelKey: "meetings", icon: Calendar, section: "main", permission: "meetings.view" },
+  { href: "/deliberacoes", labelKey: "deliberations", icon: Gavel, section: "main", permission: "deliberations.view", alwaysVisibleWhenAuthenticated: true },
+  { href: "/riscos", labelKey: "risks", icon: ShieldAlert, section: "main", permission: "risks.view" },
+  { href: "/contratos", labelKey: "contracts", icon: FileCheck, section: "main", permission: "contracts.view" },
+  { href: "/workforce-cost", labelKey: "peopleAndCosts", icon: Users, section: "main", permission: "people.view" },
+  { href: "/organograma", labelKey: "organogram", icon: Network, section: "main", permission: "org_chart.view" },
+  { href: "/comites", labelKey: "committeeManagement", icon: Building2, section: "admin", permission: "committees.view" },
+  { href: "/admin/users", labelKey: "manageMembers", icon: Users, section: "admin", permission: "admin.manage_users" },
+  { href: "/admin/roles", labelKey: "globalRoles", icon: Shield, section: "admin", permission: "admin.manage_roles" },
+  { href: "/workflows", labelKey: "automations", icon: Zap, section: "admin", permission: "admin.view" },
+  { href: "/atas", labelKey: "minutes", icon: FileBadge, section: "admin", permission: "minutes.view" },
+  { href: "/notificacoes", labelKey: "adminNotifications", icon: Bell, section: "admin", permission: "admin.view" },
+  { href: "/relatorios", labelKey: "reports", icon: BarChart3, section: "admin", anyPermission: ["dashboard.export", "finance.export", "projects.export", "audit.export"] },
+  { href: "/admin/audit", labelKey: "history", icon: History, section: "admin", permission: "audit.view" },
 ];
 
 const isRouteActive = (pathname: string, href: string) => {
@@ -172,7 +170,11 @@ const isRouteActive = (pathname: string, href: string) => {
 
 export function AppSidebar() {
   const pathname = usePathname();
-  const { user } = useUser();
+  const { user: authUser, profile, roles, permissions } = useCurrentUser();
+  const user: User = {
+    fullName: profile?.full_name || authUser?.email || "Usuario",
+    cargo: profile?.job_title || roles[0]?.name || "Conta",
+  };
   const t = useTranslations("common");
   const { state, toggleSidebar, isMobile } = useSidebar();
   const isCollapsed = state === "collapsed" && !isMobile;
@@ -227,16 +229,29 @@ export function AppSidebar() {
     return { isOpen: false, onToggle: () => undefined };
   };
 
-  const mainItems = navigationItems.filter((item) => item.section === "main");
-  const adminItems = navigationItems.filter((item) => item.section === "admin");
+  const canSeeItem = (item: MenuItem) => {
+    if (item.alwaysVisibleWhenAuthenticated && authUser) return true;
+    if (item.permission) return hasPermission(permissions, item.permission);
+    if (item.anyPermission) return hasAnyPermission(permissions, item.anyPermission);
+    return true;
+  };
+
+  const filterSubItems = (item: MenuItem) => {
+    if (!item.subItems) return undefined;
+    return item.subItems.filter((subItem) => !subItem.permission || hasPermission(permissions, subItem.permission));
+  };
+
+  const mainItems = navigationItems.filter((item) => item.section === "main" && canSeeItem(item));
+  const adminItems = navigationItems.filter((item) => item.section === "admin" && canSeeItem(item));
 
   const renderMenuItems = (items: MenuItem[]) => {
     return items.map((item) => {
+      const visibleSubItems = filterSubItems(item);
       const Icon = item.icon;
       const isParentActive = isRouteActive(pathname, item.href);
       const label = t(item.labelKey);
 
-      if (item.subItems && !isCollapsed) {
+      if (visibleSubItems && visibleSubItems.length > 0 && !isCollapsed) {
         const { isOpen, onToggle } = getSubmenuState(item.href);
         return (
           <SidebarMenuItem key={item.href}>
@@ -258,7 +273,7 @@ export function AppSidebar() {
             </SidebarMenuButton>
             {isOpen && (
               <ul className="hud-nav-submenu" role="group">
-                {item.subItems.map((subItem) => {
+                {visibleSubItems.map((subItem) => {
                   const isSubActive =
                     pathname === subItem.href ||
                     (subItem.href !== item.href && pathname.startsWith(`${subItem.href}/`));
@@ -356,7 +371,7 @@ export function AppSidebar() {
           <SidebarMenu className="hud-sidebar-menu">{renderMenuItems(mainItems)}</SidebarMenu>
         </SidebarGroup>
 
-        {user.role === "admin" && (
+        {adminItems.length > 0 && (
           <SidebarGroup className="hud-sidebar-group">
             {isCollapsed ? (
               <div className="hud-sidebar-section-label" aria-hidden="true">
@@ -426,7 +441,7 @@ export function AppSidebar() {
                 </Avatar>
                 <span className="hud-user-meta">
                   <span className="hud-user-name">{user.fullName}</span>
-                  <span className="hud-user-role">{user.cargo || user.role}</span>
+                  <span className="hud-user-role">{user.cargo}</span>
                 </span>
                 <span className="hud-user-status" aria-hidden="true" />
               </button>
@@ -440,7 +455,13 @@ export function AppSidebar() {
               </Link>
             </DropdownMenuItem>
             <div className="mx-2 my-1 h-px bg-ig-border-subtle" />
-            <DropdownMenuItem className="hud-sidebar-dropdown-item text-ig-danger">
+            <DropdownMenuItem
+              className="hud-sidebar-dropdown-item text-ig-danger"
+              onClick={async () => {
+                await createClient().auth.signOut();
+                window.location.href = "/login";
+              }}
+            >
               <LogOut className="mr-2.5 h-3.5 w-3.5" strokeWidth={1.6} />
               <span>{t("logout")}</span>
             </DropdownMenuItem>

@@ -84,6 +84,21 @@ function normalize(value: string) {
 }
 
 function resolveProject(contract: Contract, projects: Project[]) {
+  const contractWithProjectMetadata = contract as Contract & {
+    projectId?: string;
+    disableProjectAutoMatch?: boolean;
+  };
+  const linkedProjectId = contractWithProjectMetadata.projectId;
+  if (linkedProjectId) {
+    const linked = projects.find((project) => project.id === linkedProjectId);
+    if (linked) return linked;
+    return null;
+  }
+
+  if (contractWithProjectMetadata.disableProjectAutoMatch) {
+    return null;
+  }
+
   const company = normalize(contract.vendorOrParty);
   const direct = projects.find((project) => normalize(project.cliente || '').includes(company) || company.includes(normalize(project.cliente || '')));
   if (direct) return direct;
@@ -223,7 +238,7 @@ export function enrichContractsForGovernance(contracts: Contract[], projects: Pr
       companyReference: `Empresa vinculada: ${contract.vendorOrParty}`,
       project,
       projectReference: project ? `${project.codigo} · ${project.nome}` : 'Projeto não vinculado',
-      contractType: CONTRACT_TYPES[seed % CONTRACT_TYPES.length],
+      contractType: (contract as Contract & { contractType?: string }).contractType || CONTRACT_TYPES[seed % CONTRACT_TYPES.length],
       totalValue: contract.value,
       billedValue,
       remainingValue: Math.max(contract.value - billedValue, 0),

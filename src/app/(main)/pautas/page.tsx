@@ -8,6 +8,7 @@ import { AuditTrailEntry, DeliberationItem, DeliberationStageStatus, Deliberatio
 import { COMMITTEES, buildStagePlan, resolveTemplate } from '@/lib/deliberations-policy';
 import { deliberationSerial } from '@/lib/utils/serial';
 import type { NewDeliberationPayload } from '@/components/deliberacoes/NewDeliberationModal';
+import { usePermissions } from '@/hooks/use-permissions';
 
 const CURRENT_USER_ID = 'user-current';
 const CURRENT_USER_NAME = 'Membro Corporativo';
@@ -431,6 +432,7 @@ const evaluateVoteResult = (item: DeliberationItem) => {
 };
 
 export default function CommitteesPage() {
+  const { hasPermission, loading: permissionsLoading } = usePermissions();
   const [items, setItems] = useState<DeliberationItem[]>(initialItems);
   const [selectedId, setSelectedId] = useState<string | null>(initialItems[0]?.id ?? null);
   const [activeQueue, setActiveQueue] = useState<DeliberationStatus>('in_review');
@@ -902,6 +904,8 @@ export default function CommitteesPage() {
               onGenerateMinutes={handleGenerateMinutes}
               onPublishMinutes={handlePublishMinutes}
               onCreateExecutionTask={handleCreateExecutionTask}
+              canVote={!permissionsLoading && hasPermission('deliberations.vote')}
+              canApprove={!permissionsLoading && hasPermission('deliberations.approve')}
             />
           </HudPanel>
 

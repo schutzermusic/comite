@@ -13,6 +13,8 @@ interface VotingConsoleProps {
   onCastVote: (vote: VoteOption, justification?: string, hasConflict?: boolean) => void;
   onCloseVoting: () => void;
   onOpenVoting: () => void;
+  canVote?: boolean;
+  canManageVoting?: boolean;
 }
 
 const voteOptions: Array<{
@@ -45,7 +47,15 @@ const voteOptions: Array<{
   },
 ];
 
-export function VotingConsole({ item, currentUserId, onCastVote, onCloseVoting, onOpenVoting }: VotingConsoleProps) {
+export function VotingConsole({
+  item,
+  currentUserId,
+  onCastVote,
+  onCloseVoting,
+  onOpenVoting,
+  canVote = false,
+  canManageVoting = false,
+}: VotingConsoleProps) {
   const [selectedVote, setSelectedVote] = React.useState<VoteOption | null>(null);
   const [justification, setJustification] = React.useState('');
   const [hasConflict, setHasConflict] = React.useState(false);
@@ -180,12 +190,19 @@ export function VotingConsole({ item, currentUserId, onCastVote, onCloseVoting, 
 
       {/* Voting action */}
       {!item.votingStartedAt ? (
-        <HudButton variant="primary" fullWidth onClick={onOpenVoting} leftIcon={<Vote className="w-4 h-4" />}>
-          Abrir Votação
+        <HudButton
+          variant={canManageVoting ? 'primary' : 'ghost'}
+          fullWidth
+          onClick={onOpenVoting}
+          disabled={!canManageVoting}
+          leftIcon={<Vote className="w-4 h-4" />}
+          title={canManageVoting ? 'Abrir votação' : 'Requer permissão deliberations.approve'}
+        >
+          {canManageVoting ? 'Abrir Votação' : 'Abertura restrita'}
         </HudButton>
       ) : (
         <>
-          {!hasUserVoted && (
+          {!hasUserVoted && canVote && (
             <>
               <div className="grid grid-cols-3 gap-2">
                 {voteOptions.map((option) => {
@@ -240,6 +257,13 @@ export function VotingConsole({ item, currentUserId, onCastVote, onCloseVoting, 
             </>
           )}
 
+          {!hasUserVoted && !canVote && (
+            <div className="p-3 rounded-lg bg-ig-panel border border-ig-border text-center">
+              <p className="text-sm text-ig-fg-strong font-medium">Votação restrita</p>
+              <p className="text-xs text-ig-fg-muted mt-0.5">Registrar voto requer deliberations.vote.</p>
+            </div>
+          )}
+
           {hasUserVoted && (
             <div className="p-3 rounded-lg bg-[color-mix(in_oklab,var(--ig-success)_8%,transparent)] border border-[color-mix(in_oklab,var(--ig-success)_20%,transparent)] text-center">
               <p className="text-sm text-ig-success font-medium">Voto registrado</p>
@@ -247,8 +271,16 @@ export function VotingConsole({ item, currentUserId, onCastVote, onCloseVoting, 
             </div>
           )}
 
-          <HudButton variant={hasQuorum ? 'primary' : 'ghost'} fullWidth onClick={onCloseVoting} className="border border-ig-border" leftIcon={<ShieldCheck className="h-4 w-4" />}>
-            Encerrar Janela de Votação
+          <HudButton
+            variant={hasQuorum && canManageVoting ? 'primary' : 'ghost'}
+            fullWidth
+            onClick={onCloseVoting}
+            disabled={!canManageVoting}
+            className="border border-ig-border"
+            leftIcon={<ShieldCheck className="h-4 w-4" />}
+            title={canManageVoting ? 'Encerrar janela de votação' : 'Requer permissão deliberations.approve'}
+          >
+            {canManageVoting ? 'Encerrar Janela de Votação' : 'Encerramento restrito'}
           </HudButton>
         </>
       )}

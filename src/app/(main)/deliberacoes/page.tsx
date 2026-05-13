@@ -30,6 +30,7 @@ import {
   DecisionFilterRail,
   DecisionCard,
   DecisionDetailDrawer,
+  NewDeliberationModal,
   DELIBERACOES_MOCK,
   countByStatus,
   countBySla,
@@ -41,6 +42,8 @@ import {
   type SlaStatus,
   type PipelineStage,
 } from '@/components/deliberacoes';
+import type { NewDeliberationPayload } from '@/components/deliberacoes/NewDeliberationModal';
+import { usePermissions } from '@/hooks/use-permissions';
 
 const PIPELINE_LABELS: Record<DeliberacaoStatus, string> = {
   rascunho: 'Rascunho',
@@ -69,8 +72,11 @@ function worstSlaForStatus(items: Deliberacao[], status: DeliberacaoStatus): Sla
 }
 
 export default function DeliberacoesPage() {
+  const { hasPermission, loading: permissionsLoading } = usePermissions();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [newDeliberationOpen, setNewDeliberationOpen] = useState(false);
+  const [pendingDraft, setPendingDraft] = useState<NewDeliberationPayload | null>(null);
   const [activeTab, setActiveTab] = useState<string>('fila');
   const [activePipelineStage, setActivePipelineStage] = useState<DeliberacaoStatus | null>(null);
   const [statusFilter, setStatusFilter] = useState<DeliberacaoStatus | 'all'>('all');
@@ -181,6 +187,12 @@ export default function DeliberacoesPage() {
   const handleCardClick = (id: string) => {
     setSelectedId(id);
     setDrawerOpen(true);
+  };
+
+  const canVote = hasPermission('deliberations.vote');
+
+  const handleCreateDeliberation = (payload: NewDeliberationPayload) => {
+    setPendingDraft(payload);
   };
 
   const kpiItems: KpiItem[] = [
@@ -429,7 +441,12 @@ export default function DeliberacoesPage() {
             <HudButton variant="secondary" size="md" leftIcon={<Settings2 className="w-4 h-4" />}>
               Configurar fluxo
             </HudButton>
-            <HudButton variant="primary" size="md" leftIcon={<Plus className="w-4 h-4" />}>
+            <HudButton
+              variant="primary"
+              size="md"
+              leftIcon={<Plus className="w-4 h-4" />}
+              onClick={() => setNewDeliberationOpen(true)}
+            >
               Nova deliberação
             </HudButton>
           </>
@@ -444,12 +461,37 @@ export default function DeliberacoesPage() {
         onStageClick={handlePipelineClick}
       />
 
+      {pendingDraft && (
+        <HudPanel elevation={2} className="mb-4 border-ig-border-focus bg-ig-accent-weak/30">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-ig-fg-strong">
+                Deliberação preparada, ainda não conectada ao Supabase
+              </p>
+              <p className="mt-1 text-sm text-ig-fg-muted">
+                {pendingDraft.title} foi validada no fluxo local, mas não foi salva porque as tabelas reais de deliberações/votações ainda não foram migradas.
+              </p>
+            </div>
+            <HudButton variant="ghost" size="sm" onClick={() => setPendingDraft(null)}>
+              Dispensar
+            </HudButton>
+          </div>
+        </HudPanel>
+      )}
+
       <HudTabs tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} variant="underline" />
 
       <DecisionDetailDrawer
         deliberacao={selectedDeliberacao}
         isOpen={drawerOpen}
         onClose={() => setDrawerOpen(false)}
+        canVote={!permissionsLoading && canVote}
+      />
+
+      <NewDeliberationModal
+        open={newDeliberationOpen}
+        onOpenChange={setNewDeliberationOpen}
+        onCreateDeliberation={handleCreateDeliberation}
       />
     </HudPageLayout>
   );

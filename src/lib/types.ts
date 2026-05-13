@@ -39,6 +39,7 @@ export type Project = {
   roi_estimado?: number;
   risco_geral?: 'baixo' | 'medio' | 'alto';
   data_inicio?: string;
+  data_fim?: string;
   created_date?: string;
   tipo?: string;
 };
@@ -465,7 +466,17 @@ export type Contract = {
   fileUrl: string;
   fileName?: string;
   riskClassification: 'low' | 'medium' | 'high';
-  status: 'active' | 'expiring_soon' | 'expired';
+  status:
+    | 'negotiation'
+    | 'legal_review'
+    | 'commercial_review'
+    | 'signed'
+    | 'active'
+    | 'expiring_soon'
+    | 'expired'
+    | 'closed'
+    | 'cancelled'
+    | string;
   uploadedAt: Date;
   responsibleId?: string;
   responsibleName?: string;

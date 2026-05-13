@@ -32,6 +32,7 @@ import { HudPanel } from '@/components/hud';
 import { StatusPill } from '@/components/ui/status-pill';
 import { HUDProgressBar } from '@/components/ui/hud-progress-bar';
 import { useHudToast } from '@/hooks/useHudToast';
+import { usePermissions } from '@/hooks/use-permissions';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -49,6 +50,7 @@ import Link from 'next/link';
 export default function DetalhePautaPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
   const { toast } = useHudToast();
+  const { hasPermission, loading: permissionsLoading } = usePermissions();
   const { id } = use(params);
   
   const pauta = votes.find((v) => v.id === id) || votes[1];
@@ -99,7 +101,8 @@ export default function DetalhePautaPage({ params }: { params: Promise<{ id: str
     return Math.round((valor / total) * 100);
   };
   
-  const podeVotar = detailedPauta.status === 'em_andamento' && !meuVoto;
+  const hasVotePermission = !permissionsLoading && hasPermission('deliberations.vote');
+  const podeVotar = detailedPauta.status === 'em_andamento' && !meuVoto && hasVotePermission;
   const podeEditar = (detailedPauta.status === 'nao_iniciada') && user?.email === detailedPauta.created_by;
 
   const handleVote = () => {
@@ -297,6 +300,17 @@ export default function DetalhePautaPage({ params }: { params: Promise<{ id: str
                   >
                     Confirmar Voto
                   </Button>
+                </div>
+              </HudPanel>
+            )}
+
+            {detailedPauta.status === 'em_andamento' && !meuVoto && !permissionsLoading && !hasVotePermission && (
+              <HudPanel>
+                <div className="space-y-1">
+                  <h3 className="text-base font-semibold text-white">Votação restrita</h3>
+                  <p className="text-sm text-[rgba(255,255,255,0.65)]">
+                    Registrar voto requer a permissão deliberations.vote.
+                  </p>
                 </div>
               </HudPanel>
             )}

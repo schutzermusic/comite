@@ -55,13 +55,20 @@ ALTER TABLE project_files ENABLE ROW LEVEL SECURITY;
 -- This app currently allows unauthenticated demo access. These policies keep the
 -- existing UX working while moving persistence out of localStorage. Tighten them
 -- to authenticated roles before exposing production data.
+DROP POLICY IF EXISTS "projects_read" ON projects;
 CREATE POLICY "projects_read" ON projects FOR SELECT TO anon, authenticated USING (true);
+DROP POLICY IF EXISTS "projects_insert" ON projects;
 CREATE POLICY "projects_insert" ON projects FOR INSERT TO anon, authenticated WITH CHECK (true);
+DROP POLICY IF EXISTS "projects_update" ON projects;
 CREATE POLICY "projects_update" ON projects FOR UPDATE TO anon, authenticated USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "projects_delete" ON projects;
 CREATE POLICY "projects_delete" ON projects FOR DELETE TO anon, authenticated USING (true);
 
+DROP POLICY IF EXISTS "project_files_read" ON project_files;
 CREATE POLICY "project_files_read" ON project_files FOR SELECT TO anon, authenticated USING (true);
+DROP POLICY IF EXISTS "project_files_insert" ON project_files;
 CREATE POLICY "project_files_insert" ON project_files FOR INSERT TO anon, authenticated WITH CHECK (true);
+DROP POLICY IF EXISTS "project_files_delete" ON project_files;
 CREATE POLICY "project_files_delete" ON project_files FOR DELETE TO anon, authenticated USING (true);
 
 INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
@@ -78,19 +85,23 @@ SET
   file_size_limit = EXCLUDED.file_size_limit,
   allowed_mime_types = EXCLUDED.allowed_mime_types;
 
+DROP POLICY IF EXISTS "project_files_storage_read" ON storage.objects;
 CREATE POLICY "project_files_storage_read"
 ON storage.objects FOR SELECT TO anon, authenticated
 USING (bucket_id = 'project-files');
 
+DROP POLICY IF EXISTS "project_files_storage_insert" ON storage.objects;
 CREATE POLICY "project_files_storage_insert"
 ON storage.objects FOR INSERT TO anon, authenticated
 WITH CHECK (bucket_id = 'project-files');
 
+DROP POLICY IF EXISTS "project_files_storage_update" ON storage.objects;
 CREATE POLICY "project_files_storage_update"
 ON storage.objects FOR UPDATE TO anon, authenticated
 USING (bucket_id = 'project-files')
 WITH CHECK (bucket_id = 'project-files');
 
+DROP POLICY IF EXISTS "project_files_storage_delete" ON storage.objects;
 CREATE POLICY "project_files_storage_delete"
 ON storage.objects FOR DELETE TO anon, authenticated
 USING (bucket_id = 'project-files');

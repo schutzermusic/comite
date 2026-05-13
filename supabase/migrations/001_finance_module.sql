@@ -4,23 +4,59 @@
 -- ============================================================
 
 -- ENUMS
-CREATE TYPE cost_center_type AS ENUM ('direct', 'indirect', 'admin');
-CREATE TYPE management_group_key AS ENUM ('revenue', 'cogs', 'opex', 'financial', 'taxes');
-CREATE TYPE ledger_entry_type AS ENUM ('actual', 'budget', 'forecast', 'adjustment');
-CREATE TYPE ledger_entry_status AS ENUM ('draft', 'in_review', 'approved', 'posted', 'reconciled', 'void');
-CREATE TYPE payroll_batch_status AS ENUM ('draft', 'approved', 'posted');
-CREATE TYPE allocation_method AS ENUM ('fixed_pct', 'headcount', 'revenue', 'timesheet_hh');
-CREATE TYPE allocation_rule_status AS ENUM ('draft', 'active', 'archived');
-CREATE TYPE allocation_result_status AS ENUM ('preview', 'posted', 'reversed');
-CREATE TYPE apar_type AS ENUM ('payable', 'receivable');
-CREATE TYPE apar_status AS ENUM ('open', 'partial', 'paid', 'overdue', 'cancelled');
-CREATE TYPE period_close_status AS ENUM ('open', 'soft_close', 'closed');
-CREATE TYPE ingestion_batch_status AS ENUM ('running', 'completed', 'failed');
+DO $$ BEGIN
+  CREATE TYPE cost_center_type AS ENUM ('direct', 'indirect', 'admin');
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;
+DO $$ BEGIN
+  CREATE TYPE management_group_key AS ENUM ('revenue', 'cogs', 'opex', 'financial', 'taxes');
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;
+DO $$ BEGIN
+  CREATE TYPE ledger_entry_type AS ENUM ('actual', 'budget', 'forecast', 'adjustment');
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;
+DO $$ BEGIN
+  CREATE TYPE ledger_entry_status AS ENUM ('draft', 'in_review', 'approved', 'posted', 'reconciled', 'void');
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;
+DO $$ BEGIN
+  CREATE TYPE payroll_batch_status AS ENUM ('draft', 'approved', 'posted');
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;
+DO $$ BEGIN
+  CREATE TYPE allocation_method AS ENUM ('fixed_pct', 'headcount', 'revenue', 'timesheet_hh');
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;
+DO $$ BEGIN
+  CREATE TYPE allocation_rule_status AS ENUM ('draft', 'active', 'archived');
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;
+DO $$ BEGIN
+  CREATE TYPE allocation_result_status AS ENUM ('preview', 'posted', 'reversed');
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;
+DO $$ BEGIN
+  CREATE TYPE apar_type AS ENUM ('payable', 'receivable');
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;
+DO $$ BEGIN
+  CREATE TYPE apar_status AS ENUM ('open', 'partial', 'paid', 'overdue', 'cancelled');
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;
+DO $$ BEGIN
+  CREATE TYPE period_close_status AS ENUM ('open', 'soft_close', 'closed');
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;
+DO $$ BEGIN
+  CREATE TYPE ingestion_batch_status AS ENUM ('running', 'completed', 'failed');
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;
 
 -- ============================================================
 -- 1. BUSINESS UNIT
 -- ============================================================
-CREATE TABLE business_unit (
+CREATE TABLE IF NOT EXISTS business_unit (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   code          varchar(20)  NOT NULL UNIQUE,
   name          varchar(200) NOT NULL,
@@ -32,13 +68,13 @@ CREATE TABLE business_unit (
   updated_at    timestamptz  NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_bu_uf   ON business_unit (uf);
-CREATE INDEX idx_bu_code ON business_unit (code);
+CREATE INDEX IF NOT EXISTS idx_bu_uf   ON business_unit (uf);
+CREATE INDEX IF NOT EXISTS idx_bu_code ON business_unit (code);
 
 -- ============================================================
 -- 2. COST CENTER
 -- ============================================================
-CREATE TABLE cost_center (
+CREATE TABLE IF NOT EXISTS cost_center (
   id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   code             varchar(30)      NOT NULL UNIQUE,
   name             varchar(200)     NOT NULL,
@@ -50,13 +86,13 @@ CREATE TABLE cost_center (
   updated_at       timestamptz      NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_cc_bu     ON cost_center (business_unit_id);
-CREATE INDEX idx_cc_parent ON cost_center (parent_id);
+CREATE INDEX IF NOT EXISTS idx_cc_bu     ON cost_center (business_unit_id);
+CREATE INDEX IF NOT EXISTS idx_cc_parent ON cost_center (parent_id);
 
 -- ============================================================
 -- 3. MANAGEMENT CATEGORY (Cost Stack — 3 levels)
 -- ============================================================
-CREATE TABLE management_category (
+CREATE TABLE IF NOT EXISTS management_category (
   id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   code             varchar(20)        NOT NULL UNIQUE,
   name             varchar(200)       NOT NULL,
@@ -68,13 +104,13 @@ CREATE TABLE management_category (
   active           boolean            NOT NULL DEFAULT true
 );
 
-CREATE INDEX idx_mc_parent ON management_category (parent_id);
-CREATE INDEX idx_mc_group  ON management_category (group_key);
+CREATE INDEX IF NOT EXISTS idx_mc_parent ON management_category (parent_id);
+CREATE INDEX IF NOT EXISTS idx_mc_group  ON management_category (group_key);
 
 -- ============================================================
 -- 4. SUPPLIER
 -- ============================================================
-CREATE TABLE supplier (
+CREATE TABLE IF NOT EXISTS supplier (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   name          varchar(300) NOT NULL,
   cpf_cnpj      varchar(18)  UNIQUE,
@@ -90,7 +126,7 @@ CREATE TABLE supplier (
 -- ============================================================
 -- 5. CLIENT
 -- ============================================================
-CREATE TABLE client (
+CREATE TABLE IF NOT EXISTS client (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   name          varchar(300) NOT NULL,
   cnpj          varchar(18)  UNIQUE,
@@ -105,7 +141,7 @@ CREATE TABLE client (
 -- ============================================================
 -- 6. INGESTION BATCH
 -- ============================================================
-CREATE TABLE ingestion_batch (
+CREATE TABLE IF NOT EXISTS ingestion_batch (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   source_system   varchar(30)            NOT NULL,
   started_at      timestamptz            NOT NULL DEFAULT now(),
@@ -121,7 +157,7 @@ CREATE TABLE ingestion_batch (
 -- ============================================================
 -- 7. PAYROLL BATCH
 -- ============================================================
-CREATE TABLE payroll_batch (
+CREATE TABLE IF NOT EXISTS payroll_batch (
   id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   period_key           char(7)              NOT NULL,
   business_unit_id     uuid                 NOT NULL REFERENCES business_unit(id),
@@ -141,12 +177,12 @@ CREATE TABLE payroll_batch (
   UNIQUE (period_key, business_unit_id)
 );
 
-CREATE INDEX idx_pb_period_bu ON payroll_batch (period_key, business_unit_id);
+CREATE INDEX IF NOT EXISTS idx_pb_period_bu ON payroll_batch (period_key, business_unit_id);
 
 -- ============================================================
 -- 8. ALLOCATION RULE (versioned)
 -- ============================================================
-CREATE TABLE allocation_rule (
+CREATE TABLE IF NOT EXISTS allocation_rule (
   id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   name             varchar(200)           NOT NULL,
   version          int                    NOT NULL DEFAULT 1,
@@ -162,12 +198,12 @@ CREATE TABLE allocation_rule (
   updated_at       timestamptz            NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_ar_cc_effective ON allocation_rule (cost_center_id, effective_from);
+CREATE INDEX IF NOT EXISTS idx_ar_cc_effective ON allocation_rule (cost_center_id, effective_from);
 
 -- ============================================================
 -- 9. ALLOCATION RESULT
 -- ============================================================
-CREATE TABLE allocation_result (
+CREATE TABLE IF NOT EXISTS allocation_result (
   id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   rule_id             uuid                     NOT NULL REFERENCES allocation_rule(id),
   period_key          char(7)                  NOT NULL,
@@ -182,12 +218,12 @@ CREATE TABLE allocation_result (
   created_at          timestamptz              NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_alloc_period ON allocation_result (period_key, rule_id);
+CREATE INDEX IF NOT EXISTS idx_alloc_period ON allocation_result (period_key, rule_id);
 
 -- ============================================================
 -- 10. PERIOD CLOSE
 -- ============================================================
-CREATE TABLE period_close (
+CREATE TABLE IF NOT EXISTS period_close (
   id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   period_key     char(7)             NOT NULL UNIQUE,
   status         period_close_status NOT NULL DEFAULT 'open',
@@ -201,7 +237,7 @@ CREATE TABLE period_close (
 -- ============================================================
 -- 11. LEDGER ENTRY (canonical transaction)
 -- ============================================================
-CREATE TABLE ledger_entry (
+CREATE TABLE IF NOT EXISTS ledger_entry (
   id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   entry_date           date                NOT NULL,
   description          varchar(500)        NOT NULL,
@@ -242,21 +278,21 @@ CREATE TABLE ledger_entry (
   CONSTRAINT chk_amount CHECK (status = 'void' OR amount_cents != 0)
 );
 
-CREATE INDEX idx_le_period      ON ledger_entry (period_key, status);
-CREATE INDEX idx_le_project     ON ledger_entry (project_id);
-CREATE INDEX idx_le_contract    ON ledger_entry (contract_id);
-CREATE INDEX idx_le_category    ON ledger_entry (category_id);
-CREATE INDEX idx_le_cc          ON ledger_entry (cost_center_id);
-CREATE INDEX idx_le_bu          ON ledger_entry (business_unit_id);
-CREATE INDEX idx_le_source      ON ledger_entry (source_system, external_key);
-CREATE INDEX idx_le_batch       ON ledger_entry (ingestion_batch_id);
-CREATE INDEX idx_le_status      ON ledger_entry (status);
-CREATE INDEX idx_le_type_period ON ledger_entry (entry_type, period_key);
+CREATE INDEX IF NOT EXISTS idx_le_period      ON ledger_entry (period_key, status);
+CREATE INDEX IF NOT EXISTS idx_le_project     ON ledger_entry (project_id);
+CREATE INDEX IF NOT EXISTS idx_le_contract    ON ledger_entry (contract_id);
+CREATE INDEX IF NOT EXISTS idx_le_category    ON ledger_entry (category_id);
+CREATE INDEX IF NOT EXISTS idx_le_cc          ON ledger_entry (cost_center_id);
+CREATE INDEX IF NOT EXISTS idx_le_bu          ON ledger_entry (business_unit_id);
+CREATE INDEX IF NOT EXISTS idx_le_source      ON ledger_entry (source_system, external_key);
+CREATE INDEX IF NOT EXISTS idx_le_batch       ON ledger_entry (ingestion_batch_id);
+CREATE INDEX IF NOT EXISTS idx_le_status      ON ledger_entry (status);
+CREATE INDEX IF NOT EXISTS idx_le_type_period ON ledger_entry (entry_type, period_key);
 
 -- ============================================================
 -- 12. AP/AR TITLE
 -- ============================================================
-CREATE TABLE apar_title (
+CREATE TABLE IF NOT EXISTS apar_title (
   id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   type              apar_type   NOT NULL,
   title_number      varchar(50) NOT NULL,
@@ -278,13 +314,13 @@ CREATE TABLE apar_title (
   updated_at        timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_apar_due    ON apar_title (type, due_date, status);
-CREATE INDEX idx_apar_source ON apar_title (source_system, external_key);
+CREATE INDEX IF NOT EXISTS idx_apar_due    ON apar_title (type, due_date, status);
+CREATE INDEX IF NOT EXISTS idx_apar_source ON apar_title (source_system, external_key);
 
 -- ============================================================
 -- 13. ATTACHMENT
 -- ============================================================
-CREATE TABLE attachment (
+CREATE TABLE IF NOT EXISTS attachment (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   entity_type     varchar(50)   NOT NULL,
   entity_id       uuid          NOT NULL,
@@ -296,12 +332,12 @@ CREATE TABLE attachment (
   created_at      timestamptz   NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_att_entity ON attachment (entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_att_entity ON attachment (entity_type, entity_id);
 
 -- ============================================================
 -- 14. AUDIT LOG (immutable, append-only)
 -- ============================================================
-CREATE TABLE finance_audit_log (
+CREATE TABLE IF NOT EXISTS finance_audit_log (
   id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   entity_type    varchar(50)  NOT NULL,
   entity_id      uuid         NOT NULL,
@@ -314,12 +350,12 @@ CREATE TABLE finance_audit_log (
   ip_address     inet
 );
 
-CREATE INDEX idx_audit_entity ON finance_audit_log (entity_type, entity_id, performed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_entity ON finance_audit_log (entity_type, entity_id, performed_at DESC);
 
 -- ============================================================
 -- 15. CATEGORY MAPPING (ERP -> Management)
 -- ============================================================
-CREATE TABLE category_mapping (
+CREATE TABLE IF NOT EXISTS category_mapping (
   id                     uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   source_system          varchar(30)  NOT NULL,
   source_account_code    varchar(50)  NOT NULL,
@@ -331,7 +367,7 @@ CREATE TABLE category_mapping (
   UNIQUE (source_system, source_account_code)
 );
 
-CREATE INDEX idx_cm_source ON category_mapping (source_system, source_account_code);
+CREATE INDEX IF NOT EXISTS idx_cm_source ON category_mapping (source_system, source_account_code);
 
 -- ============================================================
 -- TRIGGER: auto-update updated_at
@@ -344,13 +380,21 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trg_bu_updated ON business_unit;
 CREATE TRIGGER trg_bu_updated   BEFORE UPDATE ON business_unit   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+DROP TRIGGER IF EXISTS trg_cc_updated ON cost_center;
 CREATE TRIGGER trg_cc_updated   BEFORE UPDATE ON cost_center     FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+DROP TRIGGER IF EXISTS trg_sup_updated ON supplier;
 CREATE TRIGGER trg_sup_updated  BEFORE UPDATE ON supplier        FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+DROP TRIGGER IF EXISTS trg_cli_updated ON client;
 CREATE TRIGGER trg_cli_updated  BEFORE UPDATE ON client          FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+DROP TRIGGER IF EXISTS trg_le_updated ON ledger_entry;
 CREATE TRIGGER trg_le_updated   BEFORE UPDATE ON ledger_entry    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+DROP TRIGGER IF EXISTS trg_pb_updated ON payroll_batch;
 CREATE TRIGGER trg_pb_updated   BEFORE UPDATE ON payroll_batch   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+DROP TRIGGER IF EXISTS trg_ar_updated ON allocation_rule;
 CREATE TRIGGER trg_ar_updated   BEFORE UPDATE ON allocation_rule FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+DROP TRIGGER IF EXISTS trg_apar_updated ON apar_title;
 CREATE TRIGGER trg_apar_updated BEFORE UPDATE ON apar_title      FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 -- ============================================================
@@ -375,6 +419,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trg_period_lock ON ledger_entry;
 CREATE TRIGGER trg_period_lock
   BEFORE INSERT OR UPDATE ON ledger_entry
   FOR EACH ROW EXECUTE FUNCTION enforce_period_lock();
@@ -392,6 +437,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trg_evidence_required ON ledger_entry;
 CREATE TRIGGER trg_evidence_required
   BEFORE INSERT OR UPDATE ON ledger_entry
   FOR EACH ROW EXECUTE FUNCTION set_evidence_required();
@@ -407,6 +453,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trg_derive_period_key ON ledger_entry;
 CREATE TRIGGER trg_derive_period_key
   BEFORE INSERT OR UPDATE ON ledger_entry
   FOR EACH ROW EXECUTE FUNCTION derive_period_key();

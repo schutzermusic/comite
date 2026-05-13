@@ -43,6 +43,7 @@
   "showingContract": "Mostrando contrato {id}",
   "showingStateProjects": "Mostrando projetos do estado {uf}",
   "noProjectFound": "Nenhum projeto encontrado",
+  "clearFilters": "Limpar filtros",
   "loadingPortfolio": "Carregando portfólio...",
   "code": "Código",
   "project": "Projeto",
