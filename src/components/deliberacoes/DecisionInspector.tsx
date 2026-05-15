@@ -10,6 +10,7 @@ import { VotingConsole } from './VotingConsole';
 import { EvidencePack } from './EvidencePack';
 import {
     AlertTriangle,
+    Archive,
     Building2,
     CheckCircle,
     Clock,
@@ -20,8 +21,10 @@ import {
     PlayCircle,
     Search,
     ShieldCheck,
+    ThumbsUp,
     Vote,
     Workflow,
+    XCircle,
 } from 'lucide-react';
 import { differenceInHours } from 'date-fns';
 
@@ -35,8 +38,13 @@ interface DecisionInspectorProps {
   onGenerateMinutes: (itemId: string) => void;
   onPublishMinutes: (itemId: string) => void;
   onCreateExecutionTask: (itemId: string) => void;
+  onApprove?: (itemId: string, justification?: string) => void;
+  onReject?: (itemId: string, justification?: string) => void;
+  onClose?: (itemId: string, justification?: string) => void;
   canVote?: boolean;
   canApprove?: boolean;
+  canReject?: boolean;
+  canClose?: boolean;
 }
 
 const STATUS_MAP: Record<string, string> = {
@@ -119,8 +127,13 @@ export function DecisionInspector({
   onGenerateMinutes,
   onPublishMinutes,
   onCreateExecutionTask,
+  onApprove,
+  onReject,
+  onClose,
   canVote = false,
   canApprove = false,
+  canReject = false,
+  canClose = false,
 }: DecisionInspectorProps) {
   if (!item) {
     return (
@@ -227,6 +240,56 @@ export function DecisionInspector({
             {primaryAction.label}
           </HudButton>
         </div>
+
+        {(['in_voting', 'awaiting_minutes', 'resolved', 'in_review', 'in_execution'].includes(item.deliberationStatus)) && (
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {onApprove && ['in_voting', 'awaiting_minutes', 'resolved'].includes(item.deliberationStatus) && (
+              <HudButton
+                size="sm"
+                variant="primary"
+                leftIcon={<ThumbsUp className="w-3.5 h-3.5" />}
+                disabled={!canApprove}
+                title={canApprove ? 'Aprovar decisão' : 'Requer permissão deliberations.approve'}
+                onClick={() => {
+                  if (typeof window !== 'undefined' && !window.confirm('Confirmar APROVAÇÃO desta decisão?')) return;
+                  onApprove(item.id);
+                }}
+              >
+                Aprovar
+              </HudButton>
+            )}
+            {onReject && ['in_voting', 'awaiting_minutes', 'in_review'].includes(item.deliberationStatus) && (
+              <HudButton
+                size="sm"
+                variant="danger"
+                leftIcon={<XCircle className="w-3.5 h-3.5" />}
+                disabled={!canReject}
+                title={canReject ? 'Rejeitar decisão' : 'Requer permissão deliberations.reject'}
+                onClick={() => {
+                  if (typeof window !== 'undefined' && !window.confirm('Confirmar REJEIÇÃO desta decisão?')) return;
+                  onReject(item.id);
+                }}
+              >
+                Rejeitar
+              </HudButton>
+            )}
+            {onClose && ['resolved', 'in_execution', 'awaiting_minutes'].includes(item.deliberationStatus) && (
+              <HudButton
+                size="sm"
+                variant="secondary"
+                leftIcon={<Archive className="w-3.5 h-3.5" />}
+                disabled={!canClose}
+                title={canClose ? 'Encerrar decisão' : 'Requer permissão deliberations.close'}
+                onClick={() => {
+                  if (typeof window !== 'undefined' && !window.confirm('Confirmar ENCERRAMENTO desta decisão?')) return;
+                  onClose(item.id);
+                }}
+              >
+                Encerrar
+              </HudButton>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ─── Tabs ─── */}
@@ -447,7 +510,7 @@ export function DecisionInspector({
               <div className="py-6 text-center rounded-lg border border-dashed border-ig-border">
                 <PlayCircle className="w-8 h-8 mx-auto mb-2 text-ig-fg-subtle" />
                 <p className="text-sm text-ig-fg-muted">Nenhuma ação de execução registrada.</p>
-                <p className="text-xs text-ig-fg-subtle mt-1">Clique em "Criar Ação" para iniciar a execução.</p>
+                <p className="text-xs text-ig-fg-subtle mt-1">Clique em &ldquo;Criar Ação&rdquo; para iniciar a execução.</p>
               </div>
             ) : (
               <div className="space-y-2">

@@ -190,6 +190,8 @@ export default function DeliberacoesPage() {
   };
 
   const canVote = hasPermission('deliberations.vote');
+  const canView = hasPermission('deliberations.view');
+  const canCreate = hasPermission('deliberations.create');
 
   const handleCreateDeliberation = (payload: NewDeliberationPayload) => {
     setPendingDraft(payload);
@@ -420,6 +422,21 @@ export default function DeliberacoesPage() {
     },
   ];
 
+  if (!permissionsLoading && !canView) {
+    return (
+      <HudPageLayout maxWidth="2xl">
+        <HudPanel elevation={2}>
+          <HudEmptyState
+            icon="alert"
+            title="Acesso restrito"
+            description="Visualizar deliberações requer a permissão deliberations.view."
+            compact
+          />
+        </HudPanel>
+      </HudPageLayout>
+    );
+  }
+
   return (
     <HudPageLayout maxWidth="2xl">
       <HudHeader
@@ -441,14 +458,16 @@ export default function DeliberacoesPage() {
             <HudButton variant="secondary" size="md" leftIcon={<Settings2 className="w-4 h-4" />}>
               Configurar fluxo
             </HudButton>
-            <HudButton
-              variant="primary"
-              size="md"
-              leftIcon={<Plus className="w-4 h-4" />}
-              onClick={() => setNewDeliberationOpen(true)}
-            >
-              Nova deliberação
-            </HudButton>
+            {canCreate && (
+              <HudButton
+                variant="primary"
+                size="md"
+                leftIcon={<Plus className="w-4 h-4" />}
+                onClick={() => setNewDeliberationOpen(true)}
+              >
+                Nova deliberação
+              </HudButton>
+            )}
           </>
         }
       />

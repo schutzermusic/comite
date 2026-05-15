@@ -81,6 +81,9 @@ export function RiskActionQueue({ risks, onRiskClick }: Props) {
               <HudStatusPill variant={statusVariant(risk.status)} size="sm">
                 {STATUS_LABELS[risk.status]}
               </HudStatusPill>
+              {risk.origin === 'ai' && (
+                <HudStatusPill variant="info" size="sm">IA</HudStatusPill>
+              )}
               <span className="text-[10px] font-medium text-ig-fg-subtle ig-tabular">
                 {risk.probability}×{risk.impact}
               </span>

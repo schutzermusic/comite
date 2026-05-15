@@ -1,11 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
-  Activity, AlertCircle, BarChart3, CheckCircle, Clock,
+  Activity, AlertCircle, BarChart3, BrainCircuit, CheckCircle, Clock,
   Gauge, Layers, ShieldAlert, ShieldCheck, Target, TrendingUp,
 } from "lucide-react";
-import { HudFilterBar, HudHeader, HudKpiStrip, HudPageLayout, HudPanel } from "@/components/hud";
+import { HudEmptyState, HudFilterBar, HudHeader, HudKpiStrip, HudPageLayout, HudPanel } from "@/components/hud";
 import type { FilterGroup, KpiItem } from "@/components/hud";
 import {
   RiskMatrix5x5,
@@ -19,7 +19,6 @@ import {
   CategoryDistributionChart,
   TopRiskOwnersChart,
   RiskAreaExposureChart,
-  MOCK_RISKS,
   TREND_DATA,
   countByStage,
   computeAreaExposure,
@@ -29,47 +28,76 @@ import {
 } from "@/components/risks";
 import type { DrawerContext, FunnelStage, ExtendedRisk } from "@/components/risks";
 import { computeCorporateRiskScore, scoreVariant } from "@/lib/risk-score";
+import { useRisks } from "@/hooks/use-risks";
+import { usePermissions } from "@/hooks/use-permissions";
 
 /* ═══════════════════════════════════════════════════════════════
    PAGE COMPONENT — RISK CONTROL ROOM
    ═══════════════════════════════════════════════════════════════ */
 
 export default function RiscosPage() {
+  /* ── Data hook ── */
+  const { risks: allRisks, loading, error, dismissAiRisk, refresh } = useRisks();
+  const { hasPermission, loading: permissionsLoading } = usePermissions();
+  const canView = hasPermission("risks.view");
+  const canDismissAi = hasPermission("risks.ai_dismiss");
+
   /* ── Filter state ── */
   const [search, setSearch] = useState("");
   const [severityFilter, setSeverityFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  /** Top-level scope: 'all' = ativos não-IA-descartados, 'ai' = apenas IA ativas, 'all_inc_dismissed' = inclui descartadas. */
+  const [scopeFilter, setScopeFilter] = useState<"all" | "ai" | "dismissed">("all");
+
+  /** Apply the scope filter once. Everything else (KPIs, charts, queue) works
+   *  off `risks`, so flipping to "Alertas IA" reshapes the whole dashboard. */
+  const risks = useMemo(() => {
+    if (scopeFilter === "ai") {
+      return allRisks.filter((r) => r.origin === "ai" && !r.aiDismissed);
+    }
+    if (scopeFilter === "dismissed") {
+      return allRisks.filter((r) => r.aiDismissed === true);
+    }
+    return allRisks.filter((r) => !r.aiDismissed);
+  }, [allRisks, scopeFilter]);
+
+  const aiAlertCount = useMemo(
+    () => allRisks.filter((r) => r.origin === "ai" && !r.aiDismissed).length,
+    [allRisks],
+  );
+
+  const [dismissingId, setDismissingId] = useState<string | null>(null);
 
   /* ── Drawer state ── */
   const [drawerCtx, setDrawerCtx] = useState<DrawerContext>(null);
   const [detailRisk, setDetailRisk] = useState<ExtendedRisk | null>(null);
 
   /* ── Computed metrics ── */
-  const totalRisks = MOCK_RISKS.length;
-  const criticalCount = MOCK_RISKS.filter((r) => r.severity === "critical").length;
-  const highCount = MOCK_RISKS.filter((r) => r.severity === "high").length;
-  const mediumCount = MOCK_RISKS.filter((r) => r.severity === "medium").length;
-  const lowCount = MOCK_RISKS.filter((r) => r.severity === "low").length;
-  const resolvedCount = MOCK_RISKS.filter((r) => r.status === "resolved").length;
-  const mitigatingCount = MOCK_RISKS.filter((r) => r.status === "mitigating").length;
-  const openCount = MOCK_RISKS.filter((r) => r.status === "open").length;
+  const totalRisks = risks.length;
+  const criticalCount = risks.filter((r) => r.severity === "critical").length;
+  const highCount = risks.filter((r) => r.severity === "high").length;
+  const mediumCount = risks.filter((r) => r.severity === "medium").length;
+  const lowCount = risks.filter((r) => r.severity === "low").length;
+  const resolvedCount = risks.filter((r) => r.status === "resolved").length;
+  const mitigatingCount = risks.filter((r) => r.status === "mitigating").length;
+  const openCount = risks.filter((r) => r.status === "open").length;
 
-  const score = computeCorporateRiskScore(MOCK_RISKS);
+  const score = computeCorporateRiskScore(risks);
   const variant = scoreVariant(score);
   const kpiVariant = variant === "critical" ? "danger" : variant;
 
   const avgAging = useMemo(() => {
     const now = Date.now();
-    const open = MOCK_RISKS.filter((r) => r.status !== "resolved");
+    const open = risks.filter((r) => r.status !== "resolved");
     if (open.length === 0) return 0;
     return Math.round(open.reduce((s, r) => s + Math.floor((now - r.createdAt.getTime()) / 86400000), 0) / open.length);
-  }, []);
+  }, [risks]);
 
   /* ── Derived data ── */
-  const funnelCounts = useMemo(() => countByStage(MOCK_RISKS), []);
-  const areaCounts = useMemo(() => computeAreaExposure(MOCK_RISKS), []);
-  const categoryData = useMemo(() => computeCategoryDistribution(MOCK_RISKS), []);
-  const ownerData = useMemo(() => computeOwnerDistribution(MOCK_RISKS), []);
+  const funnelCounts = useMemo(() => countByStage(risks), [risks]);
+  const areaCounts = useMemo(() => computeAreaExposure(risks), [risks]);
+  const categoryData = useMemo(() => computeCategoryDistribution(risks), [risks]);
+  const ownerData = useMemo(() => computeOwnerDistribution(risks), [risks]);
 
   const statusCounts = useMemo(() => ({
     open: openCount,
@@ -80,27 +108,27 @@ export default function RiscosPage() {
   /* ── Filters ── */
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return MOCK_RISKS.filter((risk) => {
+    return risks.filter((risk) => {
       const matchSearch = !q || risk.title.toLowerCase().includes(q) || risk.description.toLowerCase().includes(q);
       const matchSeverity = severityFilter === "all" || risk.severity === severityFilter;
       const matchStatus = statusFilter === "all" || risk.status === statusFilter;
       return matchSearch && matchSeverity && matchStatus;
     });
-  }, [search, severityFilter, statusFilter]);
+  }, [risks, search, severityFilter, statusFilter]);
 
   /* ── Drawer filtered risks ── */
   const drawerRisks = useMemo(() => {
     if (!drawerCtx) return [];
     if (drawerCtx.type === "cell") {
-      return MOCK_RISKS.filter(
+      return risks.filter(
         (r) => r.probability === drawerCtx.probability && r.impact === drawerCtx.impact,
       );
     }
     if (drawerCtx.type === "funnel") {
-      return filterByStage(MOCK_RISKS, drawerCtx.stage);
+      return filterByStage(risks, drawerCtx.stage);
     }
     return [];
-  }, [drawerCtx]);
+  }, [risks, drawerCtx]);
 
   /* ── Filter UI ── */
   const filterGroups: FilterGroup[] = [
@@ -155,6 +183,67 @@ export default function RiscosPage() {
     setDetailRisk(risk);
   };
 
+  const handleDismissAi = useCallback(
+    async (risk: ExtendedRisk, reason?: string) => {
+      if (!risk || risk.origin !== "ai" || risk.aiDismissed) return;
+      setDismissingId(risk.id);
+      try {
+        await dismissAiRisk(risk.id, reason);
+        setDetailRisk(null);
+        await refresh();
+      } finally {
+        setDismissingId(null);
+      }
+    },
+    [dismissAiRisk, refresh],
+  );
+
+  /* ── Access / loading / error gates ── */
+  if (!permissionsLoading && !canView) {
+    return (
+      <HudPageLayout maxWidth="2xl">
+        <HudPanel elevation={2}>
+          <HudEmptyState
+            icon="alert"
+            title="Acesso restrito"
+            description="Visualizar riscos requer a permissão risks.view."
+            compact
+          />
+        </HudPanel>
+      </HudPageLayout>
+    );
+  }
+
+  if (loading) {
+    return (
+      <HudPageLayout maxWidth="2xl">
+        <HudPanel elevation={2}>
+          <HudEmptyState
+            icon="package"
+            title="Carregando riscos…"
+            description="Sincronizando dados com o servidor."
+            compact
+          />
+        </HudPanel>
+      </HudPageLayout>
+    );
+  }
+
+  if (error) {
+    return (
+      <HudPageLayout maxWidth="2xl">
+        <HudPanel elevation={2}>
+          <HudEmptyState
+            icon="alert"
+            title="Erro ao carregar riscos"
+            description={error}
+            compact
+          />
+        </HudPanel>
+      </HudPageLayout>
+    );
+  }
+
   return (
     <HudPageLayout maxWidth="2xl">
       {/* ── HEADER ── */}
@@ -170,6 +259,28 @@ export default function RiscosPage() {
         ]}
         actions={
           <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 rounded-full border border-ig-border-subtle bg-ig-raised p-0.5">
+              {([
+                { key: "all", label: "Todos" },
+                { key: "ai", label: `Alertas IA${aiAlertCount ? ` (${aiAlertCount})` : ""}` },
+                { key: "dismissed", label: "Descartados" },
+              ] as const).map(({ key, label }) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setScopeFilter(key)}
+                  className={
+                    "rounded-full px-3 py-1 text-[11px] font-semibold transition-colors " +
+                    (scopeFilter === key
+                      ? "bg-ig-accent text-white"
+                      : "text-ig-fg-muted hover:text-ig-fg-strong")
+                  }
+                >
+                  {key === "ai" ? <BrainCircuit className="-mt-px mr-1 inline-block h-3 w-3" /> : null}
+                  {label}
+                </button>
+              ))}
+            </div>
             <div className="flex items-center gap-1.5 rounded-full border border-ig-border-subtle bg-ig-accent-weak px-3 py-1.5">
               <Target className="h-3.5 w-3.5 text-ig-accent" />
               <span className="text-[11px] font-semibold text-ig-accent ig-tabular">{openCount} abertos</span>
@@ -300,6 +411,9 @@ export default function RiscosPage() {
         risk={detailRisk}
         isOpen={!!detailRisk}
         onClose={() => setDetailRisk(null)}
+        canDismissAi={canDismissAi}
+        onDismissAi={handleDismissAi}
+        dismissing={!!detailRisk && dismissingId === detailRisk.id}
       />
     </HudPageLayout>
   );

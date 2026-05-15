@@ -24,10 +24,13 @@ import { useHudToast } from '@/hooks/useHudToast';
 import { projects as comites } from '@/lib/mock-data'; // Using projects as mock comites
 import Link from 'next/link';
 import SankhyaIntegrationPauta from '@/components/features/sankhya-integration-pauta';
+import { usePermissions } from '@/hooks/use-permissions';
 
 export default function NovaDecisaoPage() {
   const router = useRouter();
   const { toast } = useHudToast();
+  const { hasPermission, loading: permissionsLoading } = usePermissions();
+  const canCreate = !permissionsLoading && hasPermission('deliberations.create');
   const [isUploading, setIsUploading] = useState(false);
 
   const [formData, setFormData] = useState({
@@ -363,23 +366,27 @@ export default function NovaDecisaoPage() {
             Cancelar
           </Button>
         </Link>
-        <Button
-          variant="outline"
-          onClick={() => handleSubmit('rascunho')}
-          className="border-orange-300 hover:bg-orange-50"
-        >
-          <Save className="w-4 h-4 mr-2" />
-          Salvar Rascunho
-        </Button>
-        <Button
-          onClick={() => handleSubmit('aberta')}
-          style={{
-            background: 'linear-gradient(135deg, #FF7A3D 0%, #E6662A 100%)',
-          }}
-        >
-          <Send className="w-4 h-4 mr-2" />
-          Publicar decisão
-        </Button>
+        {canCreate && (
+          <>
+            <Button
+              variant="outline"
+              onClick={() => handleSubmit('rascunho')}
+              className="border-orange-300 hover:bg-orange-50"
+            >
+              <Save className="w-4 h-4 mr-2" />
+              Salvar Rascunho
+            </Button>
+            <Button
+              onClick={() => handleSubmit('aberta')}
+              style={{
+                background: 'linear-gradient(135deg, #FF7A3D 0%, #E6662A 100%)',
+              }}
+            >
+              <Send className="w-4 h-4 mr-2" />
+              Publicar decisão
+            </Button>
+          </>
+        )}
       </div>
     </div>
   );

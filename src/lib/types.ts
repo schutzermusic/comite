@@ -441,7 +441,7 @@ export type Risk = {
   impact: number; // 1-5
   level: number; // computed = probability * impact
   severity: 'low' | 'medium' | 'high' | 'critical'; // computed
-  origin: 'manual' | 'contract' | 'project';
+  origin: 'manual' | 'contract' | 'project' | 'ai';
   referenceId?: string;
   referenceName?: string;
   responsibleId?: string;

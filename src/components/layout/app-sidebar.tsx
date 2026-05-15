@@ -145,7 +145,7 @@ const navigationItems: MenuItem[] = [
     ],
   },
   { href: "/reunioes", labelKey: "meetings", icon: Calendar, section: "main", permission: "meetings.view" },
-  { href: "/deliberacoes", labelKey: "deliberations", icon: Gavel, section: "main", permission: "deliberations.view", alwaysVisibleWhenAuthenticated: true },
+  { href: "/deliberacoes", labelKey: "deliberations", icon: Gavel, section: "main", permission: "deliberations.view" },
   { href: "/riscos", labelKey: "risks", icon: ShieldAlert, section: "main", permission: "risks.view" },
   { href: "/contratos", labelKey: "contracts", icon: FileCheck, section: "main", permission: "contracts.view" },
   { href: "/workforce-cost", labelKey: "peopleAndCosts", icon: Users, section: "main", permission: "people.view" },

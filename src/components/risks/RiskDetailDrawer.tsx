@@ -6,8 +6,8 @@ import type { ExtendedRisk } from "./risk-types";
 import { SEVERITY_LABELS, STATUS_LABELS, CATEGORY_LABELS } from "./risk-types";
 import { computeAging, severityColor, severityVariant, statusVariant, fmtDate } from "./risk-utils";
 import {
-  AlertTriangle, Calendar, CheckCircle2, Clock, FileText, Gauge, History,
-  ListChecks, MapPin, Shield, Target, User, ChevronRight,
+  AlertTriangle, BrainCircuit, Calendar, CheckCircle2, Clock, FileText, Gauge, History,
+  ListChecks, MapPin, Shield, Target, User, ChevronRight, XCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -15,6 +15,10 @@ interface Props {
   risk: ExtendedRisk | null;
   isOpen: boolean;
   onClose: () => void;
+  /** When true, surfaces the "Descartar sugestao IA" button for AI-origin risks. */
+  canDismissAi?: boolean;
+  onDismissAi?: (risk: ExtendedRisk, reason?: string) => void | Promise<void>;
+  dismissing?: boolean;
 }
 
 /* ── Section wrapper ── */
@@ -40,8 +44,17 @@ function KV({ label, children }: { label: string; children: React.ReactNode }) {
   );
 }
 
-export function RiskDetailDrawer({ risk, isOpen, onClose }: Props) {
+export function RiskDetailDrawer({
+  risk,
+  isOpen,
+  onClose,
+  canDismissAi,
+  onDismissAi,
+  dismissing,
+}: Props) {
   if (!risk) return null;
+  const showDismissButton =
+    !!canDismissAi && !!onDismissAi && risk.origin === "ai" && !risk.aiDismissed;
 
   const aging = computeAging(risk.createdAt);
   const pendingActions = risk.actions.filter((a) => a.status !== "done");
@@ -59,6 +72,12 @@ export function RiskDetailDrawer({ risk, isOpen, onClose }: Props) {
           <HudStatusPill variant={statusVariant(risk.status)} size="sm">
             {STATUS_LABELS[risk.status]}
           </HudStatusPill>
+          {risk.origin === 'ai' && (
+            <HudStatusPill variant="info" size="sm">IA</HudStatusPill>
+          )}
+          {risk.aiDismissed && (
+            <HudStatusPill variant="neutral" size="sm">IA descartada</HudStatusPill>
+          )}
           <div className="ml-auto flex items-center gap-1.5 rounded-lg border border-ig-border-subtle px-2.5 py-1">
             <Gauge className="h-3.5 w-3.5" style={{ color: severityColor(risk.severity) }} />
             <span className="text-[13px] font-bold ig-tabular" style={{ color: severityColor(risk.severity) }}>
@@ -93,6 +112,39 @@ export function RiskDetailDrawer({ risk, isOpen, onClose }: Props) {
             {risk.resolvedAt && <KV label="Resolvido em">{fmtDate(risk.resolvedAt)}</KV>}
           </div>
         </Section>
+
+        {/* ── AI rationale (when origin=ai) ── */}
+        {risk.origin === "ai" && (risk.aiRationale || risk.aiModel) && (
+          <Section title="Análise IA" icon={<BrainCircuit className="h-3.5 w-3.5" />}>
+            <div className="rounded-lg border border-ig-border-subtle bg-ig-raised p-3 space-y-2">
+              {risk.aiRationale && (
+                <p className="text-[12px] leading-relaxed text-ig-fg-default">
+                  {risk.aiRationale}
+                </p>
+              )}
+              <div className="flex flex-wrap items-center gap-3 text-[11px] text-ig-fg-subtle">
+                {risk.aiModel && <span>Modelo: <span className="text-ig-fg-muted">{risk.aiModel}</span></span>}
+                {typeof risk.aiConfidence === "number" && (
+                  <span>
+                    Confiança:{" "}
+                    <span className="text-ig-fg-muted ig-tabular">
+                      {Math.round(risk.aiConfidence * 100)}%
+                    </span>
+                  </span>
+                )}
+                {risk.sourceModule && (
+                  <span>Origem: <span className="text-ig-fg-muted">{risk.sourceModule}</span></span>
+                )}
+              </div>
+              {risk.aiDismissed && (
+                <div className="rounded border border-ig-border-subtle bg-ig-bg-canvas p-2 text-[11px] text-ig-fg-muted">
+                  Descartada{risk.aiDismissedAt ? ` em ${fmtDate(risk.aiDismissedAt)}` : ""}
+                  {risk.aiDismissalReason ? ` · motivo: ${risk.aiDismissalReason}` : ""}
+                </div>
+              )}
+            </div>
+          </Section>
+        )}
 
         {/* ── Mitigation plan ── */}
         {risk.mitigationPlan && (
@@ -195,6 +247,24 @@ export function RiskDetailDrawer({ risk, isOpen, onClose }: Props) {
               {label}
             </button>
           ))}
+          {showDismissButton && (
+            <button
+              type="button"
+              disabled={dismissing}
+              onClick={() => {
+                const reason =
+                  window.prompt(
+                    "Motivo para descartar esta sugestao da IA? (opcional)",
+                    "",
+                  ) ?? undefined;
+                void onDismissAi?.(risk, reason || undefined);
+              }}
+              className="flex items-center gap-1.5 rounded-lg border border-ig-danger/40 bg-ig-danger/10 px-3 py-1.5 text-[11px] font-semibold text-ig-danger transition-all hover:bg-ig-danger/20 disabled:opacity-60"
+            >
+              <XCircle className="h-3.5 w-3.5" />
+              {dismissing ? "Descartando…" : "Descartar IA"}
+            </button>
+          )}
         </div>
       </div>
     </HudDrawer>

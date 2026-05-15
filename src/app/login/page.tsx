@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { LockKeyhole, LogIn } from 'lucide-react';
 import { HudButton, HudInput, HudPanel } from '@/components/hud';
 import { createClient } from '@/utils/supabase/client';
+import { isSafeInternalPath } from '@/utils/auth/safe-path';
 import { getDefaultRouteForRole, getHighestPriorityRole } from '@/lib/auth/roles';
 import type { Role } from '@/lib/auth/types';
 
@@ -53,8 +54,9 @@ export default function LoginPage() {
       .eq('organization_id', profile.organization_id)
       .returns<UserRoleRow[]>();
 
-    const nextParam = new URLSearchParams(window.location.search).get('next');
-    const defaultRoute = nextParam || getDefaultRouteForRole(
+    const rawNextParam = new URLSearchParams(window.location.search).get('next');
+    const safeNext = isSafeInternalPath(rawNextParam) ? rawNextParam : null;
+    const defaultRoute = safeNext || getDefaultRouteForRole(
       getHighestPriorityRole((userRoles ?? []).map((row) => row.roles?.key).filter(Boolean) as string[]),
     );
 

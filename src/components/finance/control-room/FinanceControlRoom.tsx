@@ -2,8 +2,10 @@
 
 import React, { useMemo, useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { Activity } from 'lucide-react';
-import { HudPageLayout, HudHeader } from '@/components/hud';
+import { Activity, BrainCircuit } from 'lucide-react';
+import { HudPageLayout, HudHeader, HudButton } from '@/components/hud';
+import { usePermissions } from '@/hooks/use-permissions';
+import { triggerFinanceAiScan } from '@/lib/services/risks';
 import {
   computeTopDrivers,
   getPendingActionCount,
@@ -90,6 +92,37 @@ export function FinanceControlRoom() {
 
   const periodRangeLabel = `${periodLabel(filters.periodFrom)} → ${periodLabel(filters.periodTo)}`;
 
+  const { hasPermission } = usePermissions();
+  const canScanAi = hasPermission('risks.ai_scan');
+  const [scanningAi, setScanningAi] = useState(false);
+  const [aiNotice, setAiNotice] = useState<string | null>(null);
+
+  const handleAiScan = async () => {
+    if (
+      !window.confirm(
+        `Disparar analise de risco com IA sobre lancamentos financeiros (${periodRangeLabel})? Pode levar ate 1 minuto e consome tokens.`,
+      )
+    )
+      return;
+    setScanningAi(true);
+    setAiNotice(null);
+    try {
+      const { count, scanned, skipped } = await triggerFinanceAiScan({
+        periodFrom: filters.periodFrom,
+        periodTo: filters.periodTo,
+      });
+      setAiNotice(
+        `Analise IA: ${count} risco(s) gerado(s) a partir de ${scanned} lancamento(s)` +
+          (skipped ? ` · ${skipped} duplicado(s) ignorado(s)` : '') +
+          '. Veja em /riscos (aba Alertas IA).',
+      );
+    } catch (err) {
+      setAiNotice(err instanceof Error ? err.message : 'Erro na analise IA financeira.');
+    } finally {
+      setScanningAi(false);
+    }
+  };
+
   return (
     <HudPageLayout maxWidth="2xl">
       <HudHeader
@@ -103,7 +136,25 @@ export function FinanceControlRoom() {
           { label: periodRangeLabel, variant: 'neutral' },
           { label: `${pendingCount} pendentes`, variant: pendingCount > 0 ? 'warning' : 'success' },
         ]}
+        actions={
+          canScanAi ? (
+            <HudButton
+              variant="glass"
+              size="md"
+              leftIcon={<BrainCircuit className="h-4 w-4" />}
+              disabled={scanningAi}
+              onClick={handleAiScan}
+            >
+              {scanningAi ? 'Analisando...' : 'Analisar com IA'}
+            </HudButton>
+          ) : undefined
+        }
       />
+      {aiNotice && (
+        <div className="rounded-lg border border-ig-accent-weak bg-ig-accent-weak/30 px-4 py-2 text-[12px] text-ig-fg-default">
+          {aiNotice}
+        </div>
+      )}
 
       <FinanceControlBar
         filters={filters}

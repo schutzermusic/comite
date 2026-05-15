@@ -102,6 +102,14 @@ export default function DetalhePautaPage({ params }: { params: Promise<{ id: str
   };
   
   const hasVotePermission = !permissionsLoading && hasPermission('deliberations.vote');
+  // TODO(perm): approve/reject/close action buttons are not yet rendered in this view.
+  // When they are added, gate them via these flags (hide, do not just disable).
+  const canApprove = !permissionsLoading && hasPermission('deliberations.approve');
+  const canReject = !permissionsLoading && hasPermission('deliberations.reject');
+  const canClose = !permissionsLoading && hasPermission('deliberations.close');
+  void canApprove;
+  void canReject;
+  void canClose;
   const podeVotar = detailedPauta.status === 'em_andamento' && !meuVoto && hasVotePermission;
   const podeEditar = (detailedPauta.status === 'nao_iniciada') && user?.email === detailedPauta.created_by;
 

@@ -13,6 +13,11 @@ type RolePermissionRow = {
   permissions: { key: string } | null;
 };
 
+type OverrideRow = {
+  effect: 'grant' | 'deny';
+  permissions: { key: string } | null;
+};
+
 const EMPTY_CONTEXT: CurrentUserContext = {
   user: null,
   profile: null,
@@ -66,21 +71,35 @@ export function useCurrentUser() {
       roles = (userRoleRows ?? []).map((row) => row.roles).filter(Boolean) as Role[];
 
       const roleIds = roles.map((role) => role.id);
+      const rolePermSet = new Set<string>();
       if (roleIds.length > 0) {
         const { data: rolePermissionRows } = await supabase
           .from('role_permissions')
           .select('permissions(key)')
           .in('role_id', roleIds)
           .returns<RolePermissionRow[]>();
-
-        permissions = Array.from(
-          new Set(
-            (rolePermissionRows ?? [])
-              .map((row) => row.permissions?.key)
-              .filter(Boolean) as string[],
-          ),
-        );
+        for (const row of rolePermissionRows ?? []) {
+          if (row.permissions?.key) rolePermSet.add(row.permissions.key);
+        }
       }
+
+      // Apply per-user overrides (mirrors the server-side resolution in
+      // current_user_has_permission). RLS scopes the result to this user's
+      // own row via upo_select_scoped (user_id = auth.uid()).
+      const { data: overrideRows } = await supabase
+        .from('user_permission_overrides')
+        .select('effect, permissions(key)')
+        .eq('user_id', user.id)
+        .eq('organization_id', profile.organization_id)
+        .returns<OverrideRow[]>();
+      for (const row of overrideRows ?? []) {
+        const key = row.permissions?.key;
+        if (!key) continue;
+        if (row.effect === 'grant') rolePermSet.add(key);
+        else if (row.effect === 'deny') rolePermSet.delete(key);
+      }
+
+      permissions = Array.from(rolePermSet);
     }
 
     const nextContext = {

@@ -76,8 +76,26 @@ async function upsertProjectsToSupabase(projects: Project[], projectsV2?: Projec
     return;
   }
 
+  const supabase = createClient();
+  const { userId, orgId } = await getCurrentOrgAndUser(supabase);
+
   const v2ById = new Map((projectsV2 || []).map((p) => [p.id, p]));
-  const rows = projects.map((project) => {
+  const ids = projects.map((p) => p.id);
+
+  // Determine which projects already exist so we don't overwrite organization_id / created_by on update.
+  const existingIds = new Set<string>();
+  if (ids.length > 0) {
+    const { data: existing, error: existingError } = await supabase
+      .from(PROJECTS_TABLE)
+      .select('id')
+      .in('id', ids);
+    if (existingError && !isMissingProjectsTable(existingError)) {
+      throw new Error(rlsFriendlyMessage('Erro ao verificar projetos existentes', existingError));
+    }
+    (existing || []).forEach((r: { id: string }) => existingIds.add(r.id));
+  }
+
+  const baseRow = (project: Project) => {
     const projectV2 = v2ById.get(project.id) || null;
     const clientLogoUrl = project.clientLogoUrl || projectV2?.clientLogoUrl || null;
     return {
@@ -86,11 +104,31 @@ async function upsertProjectsToSupabase(projects: Project[], projectsV2?: Projec
       project_v2: projectV2 ? { ...projectV2, clientLogoUrl: clientLogoUrl || undefined } : null,
       client_logo_url: clientLogoUrl,
     };
-  });
+  };
 
-  const supabase = createClient();
-  const { error } = await supabase.from(PROJECTS_TABLE).upsert(rows, { onConflict: 'id' });
-  if (error) throw new Error(`Erro ao salvar projetos no Supabase: ${error.message}`);
+  const toInsert = projects
+    .filter((p) => !existingIds.has(p.id))
+    .map((p) => ({ ...baseRow(p), organization_id: orgId, created_by: userId }));
+
+  const toUpdate = projects.filter((p) => existingIds.has(p.id)).map(baseRow);
+
+  if (toInsert.length > 0) {
+    const { error } = await supabase.from(PROJECTS_TABLE).insert(toInsert);
+    if (error) throw new Error(rlsFriendlyMessage('Erro ao salvar projetos no Supabase', error));
+  }
+
+  // Update existing rows individually so we never touch organization_id / created_by.
+  for (const row of toUpdate) {
+    const { error } = await supabase
+      .from(PROJECTS_TABLE)
+      .update({
+        project: row.project,
+        project_v2: row.project_v2,
+        client_logo_url: row.client_logo_url,
+      })
+      .eq('id', row.id);
+    if (error) throw new Error(rlsFriendlyMessage('Erro ao atualizar projeto no Supabase', error));
+  }
 
   saveLocalProjects(projects);
   if (projectsV2) saveLocalV2Projects(projectsV2);
@@ -107,6 +145,48 @@ function sanitizeFileName(fileName: string): string {
 
 function isMissingProjectsTable(error: { code?: string; message?: string } | null | undefined): boolean {
   return error?.code === 'PGRST205' || /public\.projects|schema cache|projects/i.test(error?.message || '');
+}
+
+function isRlsError(error: { code?: string; message?: string } | null | undefined): boolean {
+  if (!error) return false;
+  // PostgREST returns 42501 for insufficient_privilege and PGRST301 for RLS denied rows.
+  return (
+    error.code === '42501' ||
+    error.code === 'PGRST301' ||
+    /row[- ]level security|permission denied|policy/i.test(error.message || '')
+  );
+}
+
+function rlsFriendlyMessage(prefix: string, error: { code?: string; message?: string }): string {
+  if (isRlsError(error)) {
+    return `${prefix}: Acesso negado pela política de segurança.`;
+  }
+  return `${prefix}: ${error.message || 'erro desconhecido'}`;
+}
+
+type SupabaseLike = ReturnType<typeof createClient>;
+
+/**
+ * Resolves the current authenticated user's organization_id via the profiles table.
+ * Throws PT-BR errors when unauthenticated or without an active org.
+ */
+async function getCurrentOrgAndUser(
+  supabase: SupabaseLike,
+): Promise<{ userId: string; orgId: string }> {
+  const { data: userData } = await supabase.auth.getUser();
+  const user = userData?.user;
+  if (!user) throw new Error('Não autenticado');
+
+  const { data: profile, error } = await supabase
+    .from('profiles')
+    .select('organization_id')
+    .eq('user_id', user.id)
+    .single();
+
+  if (error || !profile?.organization_id) {
+    throw new Error('Usuário sem organização ativa');
+  }
+  return { userId: user.id, orgId: profile.organization_id as string };
 }
 
 // ─── V1 API (backward compatible) ────────────────────────────────
@@ -409,8 +489,10 @@ export async function deleteProject(projectId: string): Promise<void> {
   try {
     if (isSupabaseConfigured()) {
       const supabase = createClient();
+      // Ensure we have an authenticated session; RLS will enforce delete permission.
+      await getCurrentOrgAndUser(supabase);
       const { error } = await supabase.from(PROJECTS_TABLE).delete().eq('id', projectId);
-      if (error) throw new Error(`Erro ao remover projeto no Supabase: ${error.message}`);
+      if (error) throw new Error(rlsFriendlyMessage('Erro ao remover projeto no Supabase', error));
     }
     saveLocalProjects(updatedProjects);
     saveV2Projects(currentProjectsV2.filter(p => p.id !== projectId));
@@ -430,19 +512,23 @@ export async function uploadProjectFile(
   }
 
   const supabase = createClient();
+  const { userId, orgId } = await getCurrentOrgAndUser(supabase);
   const safeName = sanitizeFileName(file.name);
-  const path = `${projectId}/${category}/${Date.now()}-${safeName}`;
+  // Path convention required by storage RLS: {organization_id}/{project_id}/{filename}
+  const path = `${orgId}/${projectId}/${Date.now()}-${category}-${safeName}`;
   const { error: uploadError } = await supabase.storage
     .from(PROJECT_FILES_BUCKET)
     .upload(path, file, { cacheControl: '3600', upsert: true, contentType: file.type });
 
-  if (uploadError) throw new Error(`Erro ao enviar arquivo ao Supabase Storage: ${uploadError.message}`);
+  if (uploadError) throw new Error(rlsFriendlyMessage('Erro ao enviar arquivo ao Supabase Storage', uploadError));
 
   const { data } = supabase.storage.from(PROJECT_FILES_BUCKET).getPublicUrl(path);
   const publicUrl = data.publicUrl;
 
   const { error: insertError } = await supabase.from(PROJECT_FILES_TABLE).insert({
     project_id: projectId,
+    organization_id: orgId,
+    created_by: userId,
     bucket_id: PROJECT_FILES_BUCKET,
     object_path: path,
     public_url: publicUrl,
@@ -452,7 +538,7 @@ export async function uploadProjectFile(
     category,
   });
 
-  if (insertError) throw new Error(`Erro ao registrar arquivo do projeto: ${insertError.message}`);
+  if (insertError) throw new Error(rlsFriendlyMessage('Erro ao registrar arquivo do projeto', insertError));
 
   return { publicUrl, path };
 }

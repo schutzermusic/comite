@@ -3,12 +3,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Activity, ArrowRight, FileCheck2, Filter, Layers3, Network, Plus, Search, ShieldCheck } from 'lucide-react';
 import { AuditTrailTimeline, BoardHealthKPI, DecisionInspector, DecisionList, EvidencePack, NewDeliberationModal, QueueTabs } from '@/components/deliberacoes';
-import { HudPanel, HudButton, HudBadge } from '@/components/hud';
-import { AuditTrailEntry, DeliberationItem, DeliberationStageStatus, DeliberationStatus, VoteOption, VoteRecord } from '@/lib/types';
+import { HudPanel, HudButton, HudBadge, HudEmptyState } from '@/components/hud';
+import { AuditTrailEntry, DeliberationItem, DeliberationStatus, VoteOption } from '@/lib/types';
 import { COMMITTEES, buildStagePlan, resolveTemplate } from '@/lib/deliberations-policy';
 import { deliberationSerial } from '@/lib/utils/serial';
 import type { NewDeliberationPayload } from '@/components/deliberacoes/NewDeliberationModal';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useDeliberations } from '@/hooks/use-deliberations';
 
 const CURRENT_USER_ID = 'user-current';
 const CURRENT_USER_NAME = 'Membro Corporativo';
@@ -433,8 +434,33 @@ const evaluateVoteResult = (item: DeliberationItem) => {
 
 export default function CommitteesPage() {
   const { hasPermission, loading: permissionsLoading } = usePermissions();
-  const [items, setItems] = useState<DeliberationItem[]>(initialItems);
-  const [selectedId, setSelectedId] = useState<string | null>(initialItems[0]?.id ?? null);
+  const {
+    deliberations,
+    loading: deliberationsLoading,
+    error: deliberationsError,
+    createDeliberation,
+    castVote: castVoteAction,
+    startVoting: startVotingAction,
+    closeVoting: closeVotingAction,
+    approveDeliberation: approveAction,
+    rejectDeliberation: rejectAction,
+    closeDeliberation: closeAction,
+    updateDeliberation: updateAction,
+    refresh: refreshDeliberations,
+  } = useDeliberations();
+  const items = deliberations;
+  const setItems = useCallback(
+    (_updater: DeliberationItem[] | ((prev: DeliberationItem[]) => DeliberationItem[])) => {
+      // State is owned by the hook; trigger a refresh so any pending optimistic
+      // expectations re-sync from Supabase.
+      void refreshDeliberations();
+    },
+    [refreshDeliberations],
+  );
+  // setItems is kept for backwards-compatible handler bodies that don't matter visually.
+  void setItems;
+  const [selectedIdState, setSelectedId] = useState<string | null>(null);
+  const selectedId = selectedIdState ?? items[0]?.id ?? null;
   const [activeQueue, setActiveQueue] = useState<DeliberationStatus>('in_review');
   const [activeKpiFilter, setActiveKpiFilter] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -510,184 +536,105 @@ export default function CommitteesPage() {
   }, [items, nowTs]);
 
   const handleStartVoting = useCallback((itemId: string) => {
-    setItems((previous) => previous.map((item) => {
-      if (item.id !== itemId) return item;
-      const currentStage = item.stages?.find((stage) => stage.id === item.currentStageId);
-      const quorumRequired = Math.max(1, Math.ceil(((currentStage?.votingRule.quorumPercent ?? 60) / 100) * 5));
-      const now = new Date();
-      return {
-        ...item,
-        deliberationStatus: 'in_voting',
-        votingStartedAt: now,
-        dueDate: new Date(now.getTime() + (currentStage?.votingRule.votingWindowHours ?? 48) * 60 * 60 * 1000),
-        quorumRequired,
-        quorumPresent: item.votes?.length ?? 0,
-        auditTrail: [generateAuditEntry(itemId, 'voting_started', 'Janela de votação aberta.'), ...(item.auditTrail || [])],
-      };
-    }));
-  }, []);
+    void startVotingAction(itemId).catch((err) => console.error('startVoting failed', err));
+  }, [startVotingAction]);
 
   const handleCastVote = useCallback((itemId: string, vote: VoteOption, justification?: string, hasConflict?: boolean) => {
-    setItems((previous) => previous.map((item) => {
-      if (item.id !== itemId) return item;
-      const newVote: VoteRecord = {
-        id: `vote-${Date.now()}`,
-        itemId,
-        voterId: CURRENT_USER_ID,
-        voterName: CURRENT_USER_NAME,
-        vote,
-        justification,
-        hasConflictOfInterest: Boolean(hasConflict),
-        stageId: item.currentStageId,
-        votedAt: new Date(),
-      };
-      return {
-        ...item,
-        votes: [...(item.votes || []).filter((entry) => entry.voterId !== CURRENT_USER_ID), newVote],
-        quorumPresent: (item.votes || []).filter((entry) => entry.voterId !== CURRENT_USER_ID).length + 1,
-        auditTrail: [generateAuditEntry(itemId, 'vote_cast', `Voto registrado: ${vote.toUpperCase()}`), ...(item.auditTrail || [])],
-      };
-    }));
-  }, []);
+    const item = items.find((i) => i.id === itemId);
+    void castVoteAction(itemId, {
+      vote,
+      justification,
+      hasConflictOfInterest: Boolean(hasConflict),
+      stageId: item?.currentStageId,
+    }).catch((err) => console.error('castVote failed', err));
+  }, [castVoteAction, items]);
+
+  const handleApprove = useCallback((itemId: string, justification?: string) => {
+    void approveAction(itemId, justification).catch((err) => console.error('approve failed', err));
+  }, [approveAction]);
+
+  const handleReject = useCallback((itemId: string, justification?: string) => {
+    void rejectAction(itemId, justification).catch((err) => console.error('reject failed', err));
+  }, [rejectAction]);
+
+  const handleCloseDecision = useCallback((itemId: string, justification?: string) => {
+    void closeAction(itemId, justification).catch((err) => console.error('close failed', err));
+  }, [closeAction]);
 
   const handleCloseVoting = useCallback((itemId: string) => {
-    setItems((previous) => previous.map((item) => {
-      if (item.id !== itemId) return item;
-      const outcome = evaluateVoteResult(item);
-      const stages = [...(item.stages || [])];
-      const currentStageIndex = stages.findIndex((stage) => stage.id === item.currentStageId);
-
-      if (currentStageIndex >= 0) {
-        const nextStatus: DeliberationStageStatus = outcome.approved ? 'completed' : 'rejected';
-        stages[currentStageIndex] = { ...stages[currentStageIndex], status: nextStatus, closedAt: new Date() };
-      }
-
-      if (!outcome.approved) {
-        return {
-          ...item,
-          deliberationStatus: outcome.result === 'no_quorum' ? 'in_review' : 'resolved',
-          voteResult: outcome.result,
-          resolvedAt: outcome.result === 'no_quorum' ? undefined : new Date(),
-          votingClosedAt: new Date(),
-          stages,
-        auditTrail: [generateAuditEntry(itemId, 'voting_closed', `Janela de votação encerrada com resultado: ${outcome.result}`), ...(item.auditTrail || [])],
-        };
-      }
-
-      const nextStage = stages.find((stage) => stage.status === 'pending');
-      if (!nextStage) {
-        return {
-          ...item,
-          deliberationStatus: 'awaiting_minutes',
-          voteResult: 'approved',
-          votingClosedAt: new Date(),
-          stages,
-          auditTrail: [generateAuditEntry(itemId, 'voting_closed', 'Janela de votação encerrada: aprovado e pronto para ata.'), ...(item.auditTrail || [])],
-        };
-      }
-
-      const updatedStages = stages.map((stage) => stage.id === nextStage.id ? { ...stage, status: 'active' as DeliberationStageStatus, openedAt: new Date() } : stage);
-      const nextStatus: DeliberationStatus = nextStage.stageType === 'publish_minutes' ? 'awaiting_minutes' : nextStage.stageType === 'execution' ? 'in_execution' : 'in_review';
-
-      return {
-        ...item,
-        deliberationStatus: nextStatus,
-        voteResult: 'approved',
-        votingClosedAt: new Date(),
-        currentStageId: nextStage.id,
-        votingStartedAt: undefined,
-        votes: [],
-        stages: updatedStages,
-        auditTrail: [generateAuditEntry(itemId, 'stage_transitioned', `Transição de etapa para ${nextStage.committeeName} (${nextStage.stageType}).`), ...(item.auditTrail || [])],
-      };
-    }));
-  }, []);
+    const item = items.find((i) => i.id === itemId);
+    if (!item) return;
+    const outcome = evaluateVoteResult(item);
+    const mappedOutcome = outcome.result === 'no_quorum'
+      ? 'no_quorum' as const
+      : outcome.approved
+        ? 'approved' as const
+        : 'rejected' as const;
+    void closeVotingAction(itemId, mappedOutcome).catch((err) => console.error('closeVoting failed', err));
+  }, [closeVotingAction, items]);
 
   const handleGenerateMinutes = useCallback((itemId: string) => {
-    setItems((previous) => previous.map((item) => {
-      if (item.id !== itemId) return item;
-      const votes = item.votes || [];
-      const yes = votes.filter((vote) => vote.vote === 'yes').length;
-      const no = votes.filter((vote) => vote.vote === 'no').length;
-      const abstain = votes.filter((vote) => vote.vote === 'abstain').length;
-      const actionTexts = (item.executionItems || []).map((task) => `${task.title} (${task.ownerName})`);
-      const summary = [
-        `Resumo executivo: ${item.title}`,
-        `Lista de evidências: ${(item.attachments || []).map((file) => file.name).join(', ') || 'Não informado'}`,
-        `Resultado da votação: Sim ${yes} | Não ${no} | Abstenção ${abstain}`,
-        `Texto da decisão: ${item.voteResult === 'approved' ? 'Resolvido Aprovado' : 'Resolvido Rejeitado'}`,
-        `Ações: ${actionTexts.length ? actionTexts.join('; ') : 'Sem ações no momento'}`,
-      ].join('\n');
+    const item = items.find((i) => i.id === itemId);
+    if (!item) return;
+    const votes = item.votes || [];
+    const yes = votes.filter((v) => v.vote === 'yes').length;
+    const no = votes.filter((v) => v.vote === 'no').length;
+    const abstain = votes.filter((v) => v.vote === 'abstain').length;
+    const actionTexts = (item.executionItems || []).map((t) => `${t.title} (${t.ownerName})`);
+    const summary = [
+      `Resumo executivo: ${item.title}`,
+      `Lista de evidências: ${(item.attachments || []).map((f) => f.name).join(', ') || 'Não informado'}`,
+      `Resultado da votação: Sim ${yes} | Não ${no} | Abstenção ${abstain}`,
+      `Texto da decisão: ${item.voteResult === 'approved' ? 'Resolvido Aprovado' : 'Resolvido Rejeitado'}`,
+      `Ações: ${actionTexts.length ? actionTexts.join('; ') : 'Sem ações no momento'}`,
+    ].join('\n');
 
-      return {
-        ...item,
-        minutesSummary: summary,
-        minutes: {
-          status: 'draft',
-          agendaSummary: item.title,
-          evidenceList: (item.attachments || []).map((file) => file.name),
-          votingResult: `Sim ${yes} | Não ${no} | Abstenção ${abstain}`,
-          decisionText: item.voteResult === 'approved' ? 'Resolvido Aprovado' : 'Resolvido Rejeitado',
-          actionItems: actionTexts,
-        },
-        auditTrail: [generateAuditEntry(itemId, 'minutes_generated', 'Minuta de ata gerada.'), ...(item.auditTrail || [])],
-      };
-    }));
-  }, []);
+    void updateAction(itemId, {
+      minutesSummary: summary,
+      minutes: {
+        status: 'draft',
+        agendaSummary: item.title,
+        evidenceList: (item.attachments || []).map((f) => f.name),
+        votingResult: `Sim ${yes} | Não ${no} | Abstenção ${abstain}`,
+        decisionText: item.voteResult === 'approved' ? 'Resolvido Aprovado' : 'Resolvido Rejeitado',
+        actionItems: actionTexts,
+      },
+    }).catch((err) => console.error('generateMinutes failed', err));
+  }, [items, updateAction]);
 
   const handlePublishMinutes = useCallback((itemId: string) => {
-    setItems((previous) => previous.map((item) => {
-      if (item.id !== itemId) return item;
-      const stages = [...(item.stages || [])];
-      const publishStage = stages.find((stage) => stage.stageType === 'publish_minutes');
-      if (publishStage) {
-        const publishIndex = stages.findIndex((stage) => stage.id === publishStage.id);
-        stages[publishIndex] = { ...publishStage, status: 'completed', closedAt: new Date() };
-        const executionStage = stages.find((stage) => stage.stageType === 'execution');
-        if (executionStage) {
-          const executionIndex = stages.findIndex((stage) => stage.id === executionStage.id);
-          stages[executionIndex] = { ...executionStage, status: 'active', openedAt: new Date() };
-        }
-      }
-
-      return {
-        ...item,
-        deliberationStatus: 'in_execution',
-        currentStageId: stages.find((stage) => stage.stageType === 'execution')?.id || item.currentStageId,
-        minutes: item.minutes ? { ...item.minutes, status: 'published', publishedAt: new Date() } : undefined,
-        resolvedAt: item.resolvedAt || new Date(),
-        stages,
-        auditTrail: [generateAuditEntry(itemId, 'minutes_published', 'Ata publicada e etapa de execução ativada.'), ...(item.auditTrail || [])],
-      };
-    }));
-  }, []);
+    const item = items.find((i) => i.id === itemId);
+    if (!item) return;
+    void updateAction(itemId, {
+      deliberationStatus: 'in_execution',
+      minutes: item.minutes
+        ? { ...item.minutes, status: 'published', publishedAt: new Date() }
+        : undefined,
+      resolvedAt: item.resolvedAt || new Date(),
+    }).catch((err) => console.error('publishMinutes failed', err));
+  }, [items, updateAction]);
 
   const handleCreateExecutionTask = useCallback((itemId: string) => {
-    setItems((previous) => previous.map((item) => {
-      if (item.id !== itemId) return item;
-      const newTask = {
-        id: `task-${Date.now()}`,
-        title: 'Ação de execução de follow-up',
-        ownerName: 'Escritório de Projetos',
-        dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-        status: 'pending' as const,
-        linkedEntityType: (['project', 'contract', 'risk'] as const)[Math.floor(Math.random() * 3)],
-        linkedEntityId: `REF-${Math.floor(Math.random() * 10000)}`,
-      };
-      return {
-        ...item,
-        deliberationStatus: item.deliberationStatus === 'resolved' ? 'in_execution' : item.deliberationStatus,
-        executionItems: [...(item.executionItems || []), newTask],
-        auditTrail: [generateAuditEntry(itemId, 'execution_task_created', `Ação de execução criada: ${newTask.title}`), ...(item.auditTrail || [])],
-      };
-    }));
-  }, []);
+    const item = items.find((i) => i.id === itemId);
+    if (!item) return;
+    const newTask = {
+      id: `task-${Date.now()}`,
+      title: 'Ação de execução de follow-up',
+      ownerName: 'Escritório de Projetos',
+      dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      status: 'pending' as const,
+      linkedEntityType: (['project', 'contract', 'risk'] as const)[Math.floor(Math.random() * 3)],
+      linkedEntityId: `REF-${Math.floor(Math.random() * 10000)}`,
+    };
+    void updateAction(itemId, {
+      deliberationStatus: item.deliberationStatus === 'resolved' ? 'in_execution' : item.deliberationStatus,
+      executionItems: [...(item.executionItems || []), newTask],
+    }).catch((err) => console.error('createExecutionTask failed', err));
+  }, [items, updateAction]);
 
   const handleCreateDeliberation = useCallback((payload: NewDeliberationPayload) => {
     const template = resolveTemplate(payload.templateId);
-    const newItemId = `delib-${Date.now()}`;
-    const newItem: DeliberationItem = {
-      id: newItemId,
+    void createDeliberation({
       title: payload.title,
       description: payload.description,
       status: 'under_review',
@@ -696,8 +643,6 @@ export default function CommitteesPage() {
       createdBy: CURRENT_USER_ID,
       createdByName: CURRENT_USER_NAME,
       ownerName: CURRENT_USER_NAME,
-      createdAt: new Date(),
-      updatedAt: new Date(),
       submittedAt: new Date(),
       deliberationStatus: 'submitted',
       ownerCommitteeId: payload.ownerCommitteeId,
@@ -715,16 +660,17 @@ export default function CommitteesPage() {
       stages: payload.stages,
       currentStageId: payload.stages[0]?.id,
       quorumRequired: Math.max(1, Math.ceil((payload.stages[0]?.votingRule.quorumPercent ?? 60) * 5 / 100)),
-      votes: [],
-      auditTrail: [
-        generateAuditEntry(newItemId, 'status_changed', 'Decisão submetida e roteada pela política de comitês.', 'draft', 'submitted'),
-        generateAuditEntry(newItemId, 'stage_transitioned', `Comitê responsável definido: ${payload.ownerCommitteeName}.`),
-      ],
       executionItems: [],
-    };
-    setItems((previous) => [newItem, ...previous]);
-    setSelectedId(newItem.id);
-  }, []);
+      linkedEntities: [],
+    })
+      .then((created) => setSelectedId(created.id))
+      .catch((err) => console.error('createDeliberation failed', err));
+  }, [createDeliberation]);
+
+  // Reference to silence unused-variable lint for legacy seed/helper retained for the
+  // seed script (scripts/seed-deliberations-to-supabase.ts) and future fallbacks.
+  void generateAuditEntry;
+  void initialItems;
 
   const selectedCommittee = selectedItem?.ownerCommitteeName ?? 'Comitê não selecionado';
   const selectedQuorumRequired = selectedItem?.quorumRequired ?? 0;
@@ -732,6 +678,21 @@ export default function CommitteesPage() {
   const selectedQuorumReached = selectedQuorumRequired > 0 && selectedQuorumPresent >= selectedQuorumRequired;
   const openCriticalCount = items.filter((item) => item.priority === 'critical' && !['closed', 'resolved'].includes(item.deliberationStatus)).length;
   const filterControlClass = 'h-9 rounded-lg border border-ig-border-subtle !bg-[color:var(--ig-bg-panel)] px-3 text-xs font-medium !text-[color:var(--ig-fg-strong)] outline-none transition-colors focus:border-ig-border-focus focus:shadow-[var(--ig-focus-ring-outer)]';
+
+  if (!permissionsLoading && !hasPermission('deliberations.view')) {
+    return (
+      <div className="min-h-full h-screen overflow-hidden p-4 md:p-6">
+        <HudPanel className="mx-auto max-w-2xl">
+          <HudEmptyState
+            icon="alert"
+            title="Acesso restrito"
+            description="Visualizar deliberações requer a permissão deliberations.view."
+            compact
+          />
+        </HudPanel>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-full h-screen overflow-hidden p-4 md:p-6">
@@ -764,9 +725,11 @@ export default function CommitteesPage() {
                   <p className="text-[9px] uppercase tracking-[0.16em] text-ig-fg-subtle">Críticas abertas</p>
                   <p className="mt-0.5 text-sm font-semibold text-ig-danger tabular-nums">{openCriticalCount}</p>
                 </div>
-                <HudButton variant="primary" size="md" leftIcon={<Plus className="w-4 h-4" />} onClick={() => setNewDeliberationOpen(true)}>
-                  Nova decisão
-                </HudButton>
+                {!permissionsLoading && hasPermission('deliberations.create') && (
+                  <HudButton variant="primary" size="md" leftIcon={<Plus className="w-4 h-4" />} onClick={() => setNewDeliberationOpen(true)}>
+                    Nova decisão
+                  </HudButton>
+                )}
               </div>
             </div>
 
@@ -803,6 +766,20 @@ export default function CommitteesPage() {
             </div>
           </div>
         </header>
+
+        {(deliberationsLoading || deliberationsError) && (
+          <div className="mt-3 shrink-0">
+            {deliberationsError ? (
+              <div className="rounded-lg border border-[color-mix(in_oklab,var(--ig-danger)_30%,transparent)] bg-[color-mix(in_oklab,var(--ig-danger)_8%,transparent)] px-3 py-2 text-xs text-ig-danger">
+                {deliberationsError}
+              </div>
+            ) : (
+              <div className="rounded-lg border border-ig-border-subtle bg-ig-panel/60 px-3 py-2 text-xs text-ig-fg-muted">
+                Carregando deliberações...
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="mt-4 shrink-0">
           <BoardHealthKPI items={items} activeFilter={activeKpiFilter} onFilterClick={setActiveKpiFilter} />
@@ -904,8 +881,13 @@ export default function CommitteesPage() {
               onGenerateMinutes={handleGenerateMinutes}
               onPublishMinutes={handlePublishMinutes}
               onCreateExecutionTask={handleCreateExecutionTask}
+              onApprove={handleApprove}
+              onReject={handleReject}
+              onClose={handleCloseDecision}
               canVote={!permissionsLoading && hasPermission('deliberations.vote')}
               canApprove={!permissionsLoading && hasPermission('deliberations.approve')}
+              canReject={!permissionsLoading && hasPermission('deliberations.reject')}
+              canClose={!permissionsLoading && hasPermission('deliberations.close')}
             />
           </HudPanel>
 

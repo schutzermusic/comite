@@ -14,6 +14,7 @@ import {
   type ContractGovernanceRecord,
 } from '@/components/contracts/contract-governance-data';
 import { contractRowToLegacyContract, createProjectFromContract, type ContractDetail } from '@/lib/contracts/contract-service';
+import { triggerContractAiScan } from '@/lib/services/risks';
 import {
   HudBadge,
   HudButton,
@@ -67,6 +68,24 @@ export default function ContractDossierPage() {
   const [activeTab, setActiveTab] = useState<DetailTab>('summary');
   const [creatingProject, setCreatingProject] = useState(false);
   const [flowNotice, setFlowNotice] = useState<string | null>(null);
+  const [scanningAi, setScanningAi] = useState(false);
+
+  const canScanAi = hasPermission('risks.ai_scan');
+
+  const handleAiScan = async () => {
+    if (!contractId) return;
+    if (!window.confirm('Disparar análise de risco com IA? Isso pode levar até 1 minuto e consome tokens.')) return;
+    setScanningAi(true);
+    setFlowNotice(null);
+    try {
+      const { count } = await triggerContractAiScan(contractId);
+      setFlowNotice(`${count} risco(s) gerado(s) pela IA. Veja em /riscos.`);
+    } catch (err) {
+      setFlowNotice(err instanceof Error ? err.message : 'Erro na análise IA.');
+    } finally {
+      setScanningAi(false);
+    }
+  };
 
   useEffect(() => {
     getProjectsAsync()
@@ -173,6 +192,11 @@ export default function ContractDossierPage() {
             {canCreateProjectFromContract && (
               <HudButton variant="primary" size="md" leftIcon={<Workflow className="h-4 w-4" />} disabled={creatingProject} onClick={handleCreateProject}>
                 {creatingProject ? 'Criando...' : 'Criar projeto'}
+              </HudButton>
+            )}
+            {canScanAi && (
+              <HudButton variant="glass" size="md" leftIcon={<BrainCircuit className="h-4 w-4" />} disabled={scanningAi} onClick={handleAiScan}>
+                {scanningAi ? 'Analisando...' : 'Analisar com IA'}
               </HudButton>
             )}
             <HudButton variant="glass" size="md" leftIcon={<Download className="h-4 w-4" />}>

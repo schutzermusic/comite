@@ -118,7 +118,7 @@ function renewalVariant(status: ContractGovernanceRecord['renewalStatus']) {
 export default function ContratosPage() {
   const router = useRouter();
   const { contracts: contractRows, loading, error, refresh, createContract: persistContract, deleteContract } = useContracts();
-  const { hasPermission, roles, loading: permissionsLoading } = usePermissions();
+  const { hasPermission, loading: permissionsLoading } = usePermissions();
   const [projects, setProjects] = useState<Project[]>([]);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [activeSection, setActiveSection] = useState<SectionId>('overview');
@@ -218,17 +218,16 @@ export default function ContratosPage() {
     setTypeFilter('all');
   };
 
+  // owner_admin holds every permission via the catch-all CTE in
+  // 005_auth_rbac_foundation.sql, so a permission-only check covers it
+  // without inspecting role keys (RBAC audit R10).
   const canDeleteLinkedProject =
-    roles.some((role) => role.key === 'owner_admin')
-    || hasPermission('admin.manage_users')
-    || hasPermission('admin.manage_organization')
-    || hasPermission('projects.delete');
+    hasPermission('projects.delete')
+    || hasPermission('admin.manage_organization');
 
   const canDeleteContract =
-    roles.some((role) => role.key === 'owner_admin')
-    || hasPermission('admin.manage_users')
-    || hasPermission('admin.manage_organization')
-    || hasPermission('contracts.delete');
+    hasPermission('contracts.delete')
+    || hasPermission('admin.manage_organization');
 
   const handleDeleteLinkedProject = async (record: ContractGovernanceRecord) => {
     if (!record.project) return;

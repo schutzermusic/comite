@@ -1,3 +1,5 @@
+'use client';
+
 import Link from "next/link";
 import {
   HudCard as Card,
@@ -5,9 +7,12 @@ import {
   HudCardDescription as CardDescription,
   HudCardHeader as CardHeader,
   HudCardTitle as CardTitle,
+  HudEmptyState,
   HudHeader,
   HudPageLayout,
+  HudPanel,
 } from "@/components/hud";
+import { usePermissions } from "@/hooks/use-permissions";
 import {
   HudTableElement as Table,
   HudTableBody as TableBody,
@@ -29,6 +34,25 @@ const statusMapping: { [key: string]: { text: string; color: string } } = {
 };
 
 export default function VotingsPage() {
+  const { hasPermission, loading: permissionsLoading } = usePermissions();
+  const canView = hasPermission('deliberations.view');
+  const canCreate = hasPermission('deliberations.create');
+
+  if (!permissionsLoading && !canView) {
+    return (
+      <HudPageLayout>
+        <HudPanel elevation={2}>
+          <HudEmptyState
+            icon="alert"
+            title="Acesso restrito"
+            description="Visualizar votações requer a permissão deliberations.view."
+            compact
+          />
+        </HudPanel>
+      </HudPageLayout>
+    );
+  }
+
   return (
     <HudPageLayout>
       <HudHeader
@@ -37,12 +61,14 @@ export default function VotingsPage() {
         icon={<Vote className="w-5 h-5" />}
         breadcrumbs={[{ label: 'Votações' }]}
         actions={
-          <Button asChild>
-            <Link href="/votacoes/nova">
-              <PlusCircle className="mr-2 h-4 w-4" />
-              Criar Votação
-            </Link>
-          </Button>
+          canCreate ? (
+            <Button asChild>
+              <Link href="/votacoes/nova">
+                <PlusCircle className="mr-2 h-4 w-4" />
+                Criar Votação
+              </Link>
+            </Button>
+          ) : undefined
         }
       />
 

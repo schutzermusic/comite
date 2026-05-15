@@ -16,11 +16,14 @@ import {
   Building2,
   FileText,
   Brain,
+  BrainCircuit,
   GanttChart,
   UserCog,
   Activity,
   Heart,
 } from 'lucide-react';
+import { usePermissions } from '@/hooks/use-permissions';
+import { triggerProjectAiScan } from '@/lib/services/risks';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
@@ -62,6 +65,32 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
   const [projetoV2, setProjetoV2] = useState<ProjectV2 | undefined>(undefined);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState(initialTab);
+  const [scanningAi, setScanningAi] = useState(false);
+  const [aiNotice, setAiNotice] = useState<string | null>(null);
+  const { hasPermission } = usePermissions();
+  const canScanAi = hasPermission('risks.ai_scan');
+
+  const handleAiScan = async () => {
+    if (!id) return;
+    if (
+      !window.confirm(
+        'Disparar analise de risco com IA para este projeto? Pode levar ate 1 minuto e consome tokens.',
+      )
+    )
+      return;
+    setScanningAi(true);
+    setAiNotice(null);
+    try {
+      const { count, skipped } = await triggerProjectAiScan(id);
+      setAiNotice(
+        `${count} risco(s) IA gerado(s)${skipped ? ` · ${skipped} duplicado(s) ignorado(s)` : ''}. Veja em /riscos.`,
+      );
+    } catch (err) {
+      setAiNotice(err instanceof Error ? err.message : 'Erro na analise IA.');
+    } finally {
+      setScanningAi(false);
+    }
+  };
 
   useEffect(() => {
     let active = true;
@@ -259,6 +288,17 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
                   {healthScore} — {healthLabel}
                 </div>
               )}
+              {canScanAi && (
+                <HudButton
+                  variant="glass"
+                  size="md"
+                  leftIcon={<BrainCircuit className="h-4 w-4" />}
+                  disabled={scanningAi}
+                  onClick={handleAiScan}
+                >
+                  {scanningAi ? 'Analisando...' : 'Analisar com IA'}
+                </HudButton>
+              )}
               <Link href={`/projetos/${projeto.id}/analytics`}>
                 <HudButton variant="primary" leftIcon={<Brain className="w-4 h-4" />}>
                   Análise Avançada
@@ -267,6 +307,11 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
             </div>
           }
         />
+        {aiNotice && (
+          <div className="rounded-lg border border-ig-accent-weak bg-ig-accent-weak/30 px-4 py-2 text-[12px] text-ig-fg-default">
+            {aiNotice}
+          </div>
+        )}
 
         {/* ── Action Center (top alerts block) ────────────────── */}
         {projetoV2 && (

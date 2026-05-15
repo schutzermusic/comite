@@ -54,6 +54,8 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     permissions: [
       { key: 'finance.view', label: 'Visualizar' },
       { key: 'finance.view_executive', label: 'Executivo' },
+      { key: 'finance.admin', label: 'Administrar modulo' },
+      { key: 'finance.edit', label: 'Editar (geral)' },
       { key: 'finance.create_entry', label: 'Criar lancamento' },
       { key: 'finance.edit_entry', label: 'Editar lancamento' },
       { key: 'finance.delete_entry', label: 'Excluir lancamento' },
@@ -94,6 +96,8 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
       { key: 'risks.view_all', label: 'Todos' },
       { key: 'risks.view_assigned', label: 'Atribuidos' },
       { key: 'risks.export', label: 'Exportar' },
+      { key: 'risks.ai_scan', label: 'Analisar com IA' },
+      { key: 'risks.ai_dismiss', label: 'Descartar sugestao IA' },
     ],
   },
   {

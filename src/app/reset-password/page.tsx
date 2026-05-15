@@ -1,17 +1,61 @@
 'use client';
 
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { KeyRound } from 'lucide-react';
 import { HudButton, HudInput, HudPanel } from '@/components/hud';
 import { createClient } from '@/utils/supabase/client';
 
 export default function ResetPasswordPage() {
+  const router = useRouter();
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [bootstrapping, setBootstrapping] = useState(true);
+  const [sessionReady, setSessionReady] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const bootstrap = async () => {
+      const supabase = createClient();
+      const url = new URL(window.location.href);
+      const code = url.searchParams.get('code');
+
+      if (code) {
+        const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+        if (cancelled) return;
+        if (exchangeError) {
+          setError(exchangeError.message);
+          setBootstrapping(false);
+          return;
+        }
+        // Strip the code from the URL once consumed.
+        url.searchParams.delete('code');
+        window.history.replaceState({}, '', url.pathname + (url.search || ''));
+        setSessionReady(true);
+        setBootstrapping(false);
+        return;
+      }
+
+      const { data } = await supabase.auth.getSession();
+      if (cancelled) return;
+      if (!data.session) {
+        router.replace('/forgot-password');
+        return;
+      }
+      setSessionReady(true);
+      setBootstrapping(false);
+    };
+
+    bootstrap();
+    return () => {
+      cancelled = true;
+    };
+  }, [router]);
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -46,15 +90,21 @@ export default function ResetPasswordPage() {
           <h1 className="text-xl font-semibold text-ig-fg-strong">Redefinir senha</h1>
           <p className="mt-1 text-sm text-ig-fg-muted">Crie uma nova senha para sua conta.</p>
         </div>
-        <form className="space-y-4" onSubmit={handleSubmit}>
-          <HudInput label="Nova senha" type="password" value={password} onChange={(event) => setPassword(event.target.value)} required />
-          <HudInput label="Confirmar senha" type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required />
-          {error && <p className="text-sm text-ig-danger">{error}</p>}
-          {message && <p className="text-sm text-ig-success">{message}</p>}
-          <HudButton type="submit" variant="primary" fullWidth isLoading={loading} leftIcon={<KeyRound className="h-4 w-4" />}>
-            Atualizar senha
-          </HudButton>
-        </form>
+        {bootstrapping ? (
+          <p className="text-sm text-ig-fg-muted">Validando link de recuperacao...</p>
+        ) : sessionReady ? (
+          <form className="space-y-4" onSubmit={handleSubmit}>
+            <HudInput label="Nova senha" type="password" value={password} onChange={(event) => setPassword(event.target.value)} required />
+            <HudInput label="Confirmar senha" type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required />
+            {error && <p className="text-sm text-ig-danger">{error}</p>}
+            {message && <p className="text-sm text-ig-success">{message}</p>}
+            <HudButton type="submit" variant="primary" fullWidth isLoading={loading} leftIcon={<KeyRound className="h-4 w-4" />}>
+              Atualizar senha
+            </HudButton>
+          </form>
+        ) : (
+          <p className="text-sm text-ig-danger">{error || 'Link invalido ou expirado.'}</p>
+        )}
         <Link href="/login" className="mt-5 block text-sm text-ig-accent hover:underline">
           Ir para o login
         </Link>

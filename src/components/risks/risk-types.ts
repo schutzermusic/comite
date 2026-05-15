@@ -38,6 +38,18 @@ export interface ExtendedRisk extends Risk {
   actions: RiskAction[];
   history: RiskHistoryEntry[];
   evidences: RiskEvidence[];
+  /** AI-origin metadata (populated when origin === 'ai'). */
+  sourceModule?: string;
+  sourceEntityId?: string;
+  aiConfidence?: number;
+  aiRationale?: string;
+  aiModel?: string;
+  aiAnalyzedAt?: Date;
+  /** AI suggestion dismissal (independent from status='resolved'). */
+  aiDismissed?: boolean;
+  aiDismissedAt?: Date;
+  aiDismissedBy?: string;
+  aiDismissalReason?: string;
 }
 
 /* ── Funnel stages ── */
