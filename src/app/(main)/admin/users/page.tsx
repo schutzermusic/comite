@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Edit, Lock, Shield, ShieldCheck, UserPlus, Users, X } from 'lucide-react';
+import { Edit, Lock, Shield, ShieldCheck, Trash2, UserPlus, Users, X } from 'lucide-react';
 import {
   HudBadge,
   HudButton,
@@ -11,6 +11,7 @@ import {
   HudHeader,
   HudInput,
   HudKpiStrip,
+  HudModal,
   HudPageLayout,
   HudPanel,
   HudSelect,
@@ -20,6 +21,7 @@ import {
   type HudTableColumn,
   type KpiItem,
 } from '@/components/hud';
+import { useHudToast } from '@/hooks/useHudToast';
 import { AccessRestrictedState } from '@/components/auth/AccessRestrictedState';
 import { AccessCustomizer, type OverrideMap } from '@/components/admin/AccessCustomizer';
 import { InviteMemberModal } from '@/components/admin/InviteMemberModal';
@@ -75,6 +77,9 @@ export default function AdminUsersPage() {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteKey, setInviteKey] = useState(0);
   const [topNotice, setTopNotice] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<AdminUserRow | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const { success: toastSuccess, error: toastError } = useHudToast();
 
   const canManageUsers = hasPermission(permissions, 'admin.manage_users');
 
@@ -350,6 +355,41 @@ export default function AdminUsersPage() {
     }
   };
 
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      const response = await fetch(`/api/admin/users/${deleteTarget.user_id}`, { method: 'DELETE' });
+      const raw = await response.text();
+      let payload: { ok?: boolean; error?: string; code?: string } | null = null;
+      if (raw) {
+        try {
+          payload = JSON.parse(raw);
+        } catch {
+          payload = null;
+        }
+      }
+      if (!response.ok || !payload?.ok) {
+        toastError(
+          'Falha ao excluir usuário',
+          payload?.error ?? `HTTP ${response.status}`,
+        );
+        return;
+      }
+      toastSuccess(
+        'Usuário excluído',
+        deleteTarget.full_name ?? deleteTarget.user_id,
+      );
+      setDeleteTarget(null);
+      if (drawerUserId === deleteTarget.user_id) closeDrawer();
+      await load();
+    } catch (err) {
+      toastError('Falha ao excluir usuário', err instanceof Error ? err.message : String(err));
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const filterGroups: FilterGroup[] = [
     {
       id: 'role',
@@ -404,12 +444,33 @@ export default function AdminUsersPage() {
       key: 'actions',
       header: 'Acoes',
       align: 'right',
-      width: '110px',
-      cell: (row) => (
-        <HudButton variant="ghost" size="sm" leftIcon={<Edit className="h-4 w-4" />} onClick={() => openDrawer(row)}>
-          Acessos
-        </HudButton>
-      ),
+      width: '210px',
+      cell: (row) => {
+        const isCurrentUser = row.user_id === authUser?.id;
+        return (
+          <div className="flex items-center justify-end gap-1">
+            <HudButton
+              variant="ghost"
+              size="sm"
+              leftIcon={<Edit className="h-4 w-4" />}
+              onClick={() => openDrawer(row)}
+            >
+              Acessos
+            </HudButton>
+            <HudButton
+              variant="ghost"
+              size="sm"
+              aria-label="Excluir usuário"
+              title={isCurrentUser ? 'Você não pode excluir sua própria conta' : 'Excluir usuário'}
+              disabled={isCurrentUser}
+              onClick={() => setDeleteTarget(row)}
+              className="text-ig-danger hover:bg-[color-mix(in_oklab,var(--ig-danger)_14%,transparent)] hover:text-ig-danger"
+            >
+              <Trash2 className="h-4 w-4" />
+            </HudButton>
+          </div>
+        );
+      },
     },
   ];
 
@@ -581,6 +642,57 @@ export default function AdminUsersPage() {
         )}
       </HudDrawer>
 
+      <HudModal
+        isOpen={Boolean(deleteTarget)}
+        onClose={() => {
+          if (deleting) return;
+          setDeleteTarget(null);
+        }}
+        title="Excluir usuário"
+        subtitle="Esta ação não pode ser desfeita."
+        size="sm"
+        footer={
+          <>
+            <HudButton
+              variant="ghost"
+              size="sm"
+              onClick={() => setDeleteTarget(null)}
+              disabled={deleting}
+            >
+              Cancelar
+            </HudButton>
+            <HudButton
+              variant="danger"
+              size="sm"
+              leftIcon={<Trash2 className="h-4 w-4" />}
+              onClick={confirmDelete}
+              disabled={deleting}
+              isLoading={deleting}
+            >
+              {deleting ? 'Excluindo...' : 'Excluir'}
+            </HudButton>
+          </>
+        }
+      >
+        {deleteTarget && (
+          <div className="space-y-3 text-sm text-ig-fg">
+            <p>Tem certeza que deseja excluir permanentemente este usuário?</p>
+            <div className="rounded-md border border-ig-border bg-ig-panel p-3">
+              <p className="font-medium text-ig-fg-strong">
+                {deleteTarget.full_name || 'Sem nome'}
+              </p>
+              <p className="mt-0.5 text-xs text-ig-fg-subtle break-all">{deleteTarget.user_id}</p>
+              {deleteTarget.job_title && (
+                <p className="mt-1 text-xs text-ig-fg-muted">{deleteTarget.job_title}</p>
+              )}
+            </div>
+            <p className="text-xs text-ig-fg-muted">
+              Perfil, roles atribuídas e overrides serão removidos. Registros de auditoria são preservados.
+            </p>
+          </div>
+        )}
+      </HudModal>
+
       <InviteMemberModal
         key={inviteKey}
         isOpen={inviteOpen}
@@ -588,18 +700,49 @@ export default function AdminUsersPage() {
         roles={roles}
         permsByRole={permsByRole}
         onSubmit={async (payload) => {
-          const response = await fetch('/api/admin/invitations', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-          });
-          const json = (await response.json()) as { ok: boolean; error?: string; code?: string; email?: string };
-          if (response.ok && json.ok) {
+          let response: Response;
+          try {
+            response = await fetch('/api/admin/invitations', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+            });
+          } catch (err) {
+            return {
+              ok: false,
+              error: `Falha de rede ao enviar o convite: ${err instanceof Error ? err.message : String(err)}`,
+            };
+          }
+          // Defensive parse: server is supposed to always return JSON, but a
+          // proxy or framework-level 5xx may return an empty/HTML body. Read
+          // text first, then attempt JSON.parse; never let response.json()
+          // throw "Unexpected end of JSON input" through to the user.
+          const raw = await response.text();
+          let json: { ok?: boolean; error?: string; code?: string; email?: string } | null = null;
+          if (raw) {
+            try {
+              json = JSON.parse(raw);
+            } catch {
+              json = null;
+            }
+          }
+          if (response.ok && json?.ok) {
             setTopNotice(`Convite enviado para ${json.email ?? payload.email}.`);
             await load();
             return { ok: true };
           }
-          return { ok: false, error: json.error ?? `Falha (HTTP ${response.status})`, code: json.code };
+          if (json?.error) {
+            return { ok: false, error: json.error, code: json.code };
+          }
+          // Non-JSON body fallback: surface status + first 200 chars so the
+          // admin sees something actionable instead of "Unexpected end of JSON".
+          const snippet = raw.trim().slice(0, 200);
+          return {
+            ok: false,
+            error: snippet
+              ? `Falha (HTTP ${response.status}): ${snippet}`
+              : `Falha (HTTP ${response.status}) sem corpo na resposta. Verifique o log do servidor.`,
+          };
         }}
       />
     </HudPageLayout>

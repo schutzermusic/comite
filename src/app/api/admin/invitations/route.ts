@@ -36,6 +36,39 @@ function isValidEmail(value: string): boolean {
 }
 
 export async function POST(req: Request) {
+  try {
+    return await handlePost(req);
+  } catch (err) {
+    // Last-resort guard: any uncaught throw inside the handler (most commonly a
+    // missing SUPABASE_SERVICE_ROLE_KEY env var) would otherwise produce an
+    // empty 500 body and the client would fail with "Unexpected end of JSON
+    // input". Map known failures to typed codes; default to 500 + JSON.
+    const message = err instanceof Error ? err.message : String(err);
+    const isServiceRoleMissing = /SUPABASE_SERVICE_ROLE_KEY/i.test(message);
+    const isSupabaseUrlMissing = /NEXT_PUBLIC_SUPABASE_URL/i.test(message);
+    const code = isServiceRoleMissing
+      ? 'service_role_missing'
+      : isSupabaseUrlMissing
+        ? 'supabase_url_missing'
+        : 'unhandled_server_error';
+    // Server log only — never includes secrets, JWTs, cookies or env values.
+    console.error('[api/admin/invitations] POST failed', { code, message });
+    return NextResponse.json(
+      {
+        ok: false,
+        code,
+        error: isServiceRoleMissing
+          ? 'Backend mal configurado: SUPABASE_SERVICE_ROLE_KEY ausente. Adicione-a em .env.local e reinicie o servidor.'
+          : isSupabaseUrlMissing
+            ? 'Backend mal configurado: NEXT_PUBLIC_SUPABASE_URL ausente.'
+            : `Erro interno: ${message}`,
+      },
+      { status: 500 },
+    );
+  }
+}
+
+async function handlePost(req: Request) {
   // Same convention as Phase 4: user-role-assignment is gated by admin.manage_users.
   // Inviting a member is the bootstrap of that operation, so the same key applies.
   const guard = await requireApiPermission('admin.manage_users');
@@ -116,12 +149,16 @@ export async function POST(req: Request) {
     );
   }
 
-  // Origin used for the email's redirect link. Falls back to NEXT_PUBLIC_SITE_URL,
-  // then to the request origin. The redirect lands on /auth/callback which already
-  // exchanges the code for a session and forwards to /dashboard.
-  const origin =
-    process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/+$/, '') ?? new URL(req.url).origin;
-  const redirectTo = `${origin}/auth/callback?next=/dashboard`;
+  // Origin used for the email's redirect link. We MUST pass an explicit
+  // redirectTo ending in /welcome — otherwise Supabase falls back to the
+  // dashboard-configured Site URL (which is the bare origin) and the invite
+  // token lands on "/", where middleware bounces it to /login.
+  const siteUrl =
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    process.env.NEXT_PUBLIC_APP_URL ||
+    new URL(req.url).origin;
+  const cleanSiteUrl = siteUrl.replace(/\/$/, '');
+  const redirectTo = `${cleanSiteUrl}/welcome`;
 
   // 1) Send the Supabase Auth invite email (admin API, service-role).
   //    NOTE: requires Supabase email provider configured for this project.
@@ -140,18 +177,67 @@ export async function POST(req: Request) {
   );
 
   if (inviteErr || !inviteData?.user) {
-    const message = inviteErr?.message ?? 'Falha ao enviar convite.';
-    const isAlreadyRegistered = /already.*registered|user.*exists/i.test(message);
-    return NextResponse.json(
-      {
-        ok: false,
-        error: isAlreadyRegistered
-          ? 'Este e-mail já está cadastrado. Use o painel de usuários para atribuir roles.'
-          : `Falha no convite: ${message}`,
-        code: isAlreadyRegistered ? 'user_already_registered' : 'invite_failed',
-      },
-      { status: isAlreadyRegistered ? 409 : 502 },
-    );
+    const rawMessage = inviteErr?.message ?? '';
+    const errStatus = (inviteErr as { status?: number } | undefined)?.status ?? null;
+    const errCode = (inviteErr as { code?: string } | undefined)?.code ?? null;
+    // Some Supabase Auth failures (notably default-SMTP rate-limit, or an
+    // upstream email provider that responds without a JSON body) come back
+    // with an empty / "{}" / unhelpful `message`. Detect that explicitly so
+    // the admin sees an actionable hint instead of `Falha no convite: {}`.
+    const isEmptyMessage = !rawMessage || rawMessage.trim() === '' || rawMessage.trim() === '{}';
+    const isRateLimit = /rate.*limit|too.many.*requests|429/i.test(rawMessage) || errStatus === 429;
+    const isAlreadyRegistered = /already.*registered|user.*exists|email.*registered/i.test(rawMessage)
+      || errCode === 'email_exists'
+      || errCode === 'user_already_exists';
+    const isInvalidEmail = /invalid.*email|email.*invalid/i.test(rawMessage)
+      || errCode === 'validation_failed' && /email/i.test(rawMessage);
+    const isSmtp = /smtp|email.*not.*configured|provider.*not.*configured|sending.*email|email.*provider/i.test(rawMessage)
+      || errStatus === 500
+      || errStatus === 502
+      || errStatus === 503;
+
+    // Server log: dumps the full error envelope (no JWTs, no cookies, no key
+    // values — Supabase's AuthError doesn't carry those). Helps diagnose the
+    // "{}" case where the client-visible message is uninformative.
+    console.error('[api/admin/invitations] inviteUserByEmail failed', {
+      supabase_status: errStatus,
+      supabase_code: errCode,
+      supabase_raw_message: rawMessage,
+      supabase_error_keys: inviteErr ? Object.keys(inviteErr) : null,
+      supabase_error_dump: inviteErr ? JSON.parse(JSON.stringify(inviteErr)) : null,
+      redirect_to: redirectTo,
+    });
+
+    let code: string;
+    let userMessage: string;
+    let httpStatus: number;
+    if (isAlreadyRegistered) {
+      code = 'user_already_registered';
+      userMessage = 'Este e-mail já está cadastrado. Use o painel de usuários para atribuir roles.';
+      httpStatus = 409;
+    } else if (isInvalidEmail) {
+      code = 'invalid_email';
+      userMessage = 'E-mail inválido segundo o provedor de autenticação.';
+      httpStatus = 400;
+    } else if (isRateLimit) {
+      code = 'email_rate_limit';
+      userMessage = 'Limite de e-mails do Supabase atingido. Aguarde alguns minutos ou configure um provedor SMTP em Authentication → Email Templates → SMTP Settings.';
+      httpStatus = 429;
+    } else if (isEmptyMessage || isSmtp) {
+      code = 'invite_failed';
+      userMessage =
+        'Supabase Auth retornou erro sem mensagem'
+        + (errStatus ? ` (HTTP ${errStatus})` : '')
+        + '. Causa mais provável: SMTP não configurado ou provedor de e-mail bloqueando envio. '
+        + 'Vá em Supabase Dashboard → Authentication → SMTP Settings e configure um provedor (ou habilite o default para dev). Veja os logs do servidor para o envelope completo do erro.';
+      httpStatus = 502;
+    } else {
+      code = 'invite_failed';
+      userMessage = `Falha no convite${errStatus ? ` (HTTP ${errStatus})` : ''}: ${rawMessage}`;
+      httpStatus = 502;
+    }
+
+    return NextResponse.json({ ok: false, error: userMessage, code, supabase_status: errStatus }, { status: httpStatus });
   }
 
   const newUserId = inviteData.user.id;

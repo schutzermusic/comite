@@ -81,7 +81,7 @@ export function HudModal({
             transition={{ type: 'spring', damping: 25, stiffness: 300 }}
             data-elev="4"
             className={cn(
-              'relative w-full overflow-hidden',
+              'relative flex w-full max-h-[calc(100vh-2rem)] flex-col overflow-hidden',
               SIZE_WIDTHS[size],
               'hud-modal-surface ig-glass',
               className
@@ -89,10 +89,10 @@ export function HudModal({
           >
             <span data-ig-noise="" />
             <span data-ig-specular="" />
-            <div data-ig-content="">
+            <div data-ig-content="" className="flex min-h-0 flex-1 flex-col">
               {/* Header */}
               {(title || showCloseButton) && (
-                <div className="flex items-start justify-between p-5 border-b border-ig-border">
+                <div className="flex shrink-0 items-start justify-between border-b border-ig-border p-5">
                   <div className="flex-1 min-w-0">
                     {title && (
                       <h2 className="text-lg font-semibold text-ig-fg-strong tracking-wide">
@@ -115,13 +115,13 @@ export function HudModal({
               )}
 
               {/* Content */}
-              <div className={cn('p-5', !title && !showCloseButton && 'pt-6')}>
+              <div className={cn('min-h-0 flex-1 overflow-y-auto overscroll-y-contain p-5', !title && !showCloseButton && 'pt-6')}>
                 {children}
               </div>
 
               {/* Footer */}
               {footer && (
-                <div className="flex items-center justify-end gap-2 p-5 border-t border-ig-border bg-ig-raised">
+                <div className="flex shrink-0 items-center justify-end gap-2 border-t border-ig-border bg-ig-raised p-5">
                   {footer}
                 </div>
               )}

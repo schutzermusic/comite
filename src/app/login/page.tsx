@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { LockKeyhole, LogIn } from 'lucide-react';
@@ -20,6 +20,30 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Rescue invite/recovery tokens that were funneled through /login because
+  // middleware bounced a protected route while the session wasn't established
+  // yet. Two shapes we must handle:
+  //   1. /login#access_token=…&refresh_token=…&type=invite (browser preserved
+  //      the fragment across the redirect).
+  //   2. /login?next=/%23access_token=…  (the fragment was URL-encoded into
+  //      the `next` query param by the original protected page).
+  // Either way, forward to /welcome with the tokens intact so it can finish
+  // the handshake. Never log or render the tokens.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const hash = window.location.hash;
+    if (hash && /access_token=/.test(hash)) {
+      window.location.replace(`/welcome${hash}`);
+      return;
+    }
+    const nextRaw = new URLSearchParams(window.location.search).get('next');
+    if (nextRaw && /#?access_token=/.test(nextRaw)) {
+      const hashStart = nextRaw.indexOf('#');
+      const recovered = hashStart >= 0 ? nextRaw.slice(hashStart) : `#${nextRaw.replace(/^\/+/, '')}`;
+      window.location.replace(`/welcome${recovered}`);
+    }
+  }, []);
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();

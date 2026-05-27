@@ -1211,9 +1211,26 @@ client. **This requires Supabase email delivery to be configured for the project
 | Production | A custom SMTP provider must be configured in Supabase Dashboard → Authentication → SMTP Settings. The default provider is not suitable for production volume. |
 
 **Optional environment variable:** `NEXT_PUBLIC_SITE_URL` — used to build the email
-redirect link (`${SITE_URL}/auth/callback?next=/dashboard`). Falls back to the
+redirect link (`${SITE_URL}/auth/callback?next=/welcome`). Falls back to the
 request origin if unset, which works for local dev but should be set explicitly in
 production so the link points at the canonical site URL.
+
+**Supabase Dashboard → Authentication → URL Configuration** must list every origin
+the app is served from, otherwise Supabase strips the `redirectTo` and the invite
+link drops the user on the project hosted-auth page instead of `/welcome`:
+
+| Field | Value |
+|---|---|
+| Site URL | The canonical production URL (e.g. `https://app.example.com`) |
+| Redirect URLs | `http://localhost:3000/**` (dev), `https://<vercel-preview>.vercel.app/**` (previews), `https://app.example.com/**` (prod) |
+
+The wildcards cover both `/auth/callback` and `/welcome`. Recovery, magic-link and
+invite emails share the same allow-list.
+
+**Invite acceptance flow:**
+1. Admin sends invite → Supabase emails the user a link to `${SITE_URL}/auth/callback?code=…&next=/welcome`.
+2. `/auth/callback` exchanges the code for a session, then 302s to `/welcome`.
+3. `/welcome` calls `supabase.auth.updateUser({ password })` and routes the user to `/dashboard`. The profile + roles already exist (created eagerly at invite time), so middleware doesn't bounce them to `/onboarding`.
 
 **No Anthropic key, no Resend, no SendGrid.** No third-party provider was added.
 The flow is end-to-end via Supabase Auth.
@@ -1242,8 +1259,8 @@ Source: [src/app/api/admin/invitations/route.ts](../../src/app/api/admin/invitat
 3. Resolve caller's organization_id from `profiles`.
 4. Validate every role: must exist, must be system (`organization_id IS NULL`) or in caller's org.
 5. If any selected role has `key = 'owner_admin'`, require `confirm_owner_admin: true`. Otherwise return 409 `code: owner_admin_confirmation_required`.
-6. Call `service.auth.admin.inviteUserByEmail(email, { redirectTo: '<origin>/auth/callback?next=/dashboard', data: { full_name, invited_by, organization_id } })`. **If this fails, abort and return 502** (or 409 `code: user_already_registered` for the already-exists case). Nothing is written.
-7. Eagerly upsert `profiles` for the new `auth.users.id` with `organization_id`, `full_name`, `department`, `job_title`, `status`. The invitee will land in `/dashboard` on first login (no onboarding interaction needed because the profile already has an org).
+6. Call `service.auth.admin.inviteUserByEmail(email, { redirectTo: '<origin>/auth/callback?next=/welcome', data: { full_name, invited_by, organization_id } })`. **If this fails, abort and return 502** (or 409 `code: user_already_registered` for the already-exists case). Nothing is written.
+7. Eagerly upsert `profiles` for the new `auth.users.id` with `organization_id`, `full_name`, `department`, `job_title`, `status`. After `/welcome` sets the password the invitee lands directly in `/dashboard` (no onboarding interaction needed because the profile already has an org).
 8. Upsert `user_roles` (idempotent on `user_id, role_id, organization_id`).
 9. Insert `audit_logs` rows: one `access.user.invited` with the invite metadata, plus one `access.user.role_assign` per role assigned (consistent with Phase 4's role-assign event so audit consumers don't need a special case).
 

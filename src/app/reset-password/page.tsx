@@ -22,25 +22,6 @@ export default function ResetPasswordPage() {
 
     const bootstrap = async () => {
       const supabase = createClient();
-      const url = new URL(window.location.href);
-      const code = url.searchParams.get('code');
-
-      if (code) {
-        const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
-        if (cancelled) return;
-        if (exchangeError) {
-          setError(exchangeError.message);
-          setBootstrapping(false);
-          return;
-        }
-        // Strip the code from the URL once consumed.
-        url.searchParams.delete('code');
-        window.history.replaceState({}, '', url.pathname + (url.search || ''));
-        setSessionReady(true);
-        setBootstrapping(false);
-        return;
-      }
-
       const { data } = await supabase.auth.getSession();
       if (cancelled) return;
       if (!data.session) {
