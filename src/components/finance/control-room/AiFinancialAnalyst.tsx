@@ -44,7 +44,7 @@ export function AiFinancialAnalyst({ insights, approvalQueue, onSimulate, onAnal
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, delay: 0.05, ease: [0.22, 1, 0.36, 1] }}
-      className="ig-glass relative h-full"
+      className="ig-glass relative h-full w-full overflow-hidden"
       data-elev={3}
       data-sweep
       data-state="success"
@@ -53,7 +53,7 @@ export function AiFinancialAnalyst({ insights, approvalQueue, onSimulate, onAnal
       <span data-ig-specular="" />
       <span data-ig-sweep="" />
       <div data-ig-content="" className="flex h-full flex-col">
-        <header className="flex items-center justify-between border-b border-[color:var(--ig-border-subtle)] px-5 py-4">
+        <header className="flex items-center justify-between border-b border-[color:var(--ig-border-subtle)] px-4 py-2.5">
           <div className="flex items-center gap-3">
             <span
               className="relative inline-flex h-8 w-8 items-center justify-center rounded-[10px]"
@@ -80,8 +80,8 @@ export function AiFinancialAnalyst({ insights, approvalQueue, onSimulate, onAnal
           )}
         </header>
 
-        <div className="grid grid-cols-[1fr_180px] gap-0">
-          <div className="px-5 py-4">
+        <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_180px] gap-0 overflow-hidden">
+          <div className="flex min-h-0 flex-col overflow-hidden px-4 py-2.5">
             <AnimatePresence mode="wait">
               {active && (
                 <motion.div
@@ -90,6 +90,7 @@ export function AiFinancialAnalyst({ insights, approvalQueue, onSimulate, onAnal
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -6 }}
                   transition={{ duration: 0.25 }}
+                  className="flex min-h-0 flex-1 flex-col"
                 >
                   <div className="flex items-center gap-2">
                     <KindChip kind={active.kind} />
@@ -98,18 +99,18 @@ export function AiFinancialAnalyst({ insights, approvalQueue, onSimulate, onAnal
                       {formatCompactBRL(Math.abs(active.impact))} de impacto
                     </span>
                   </div>
-                  <h4 className="mt-2 text-base font-semibold leading-tight tracking-tight text-[color:var(--ig-fg-strong)]">
+                  <h4 className="mt-1.5 text-sm font-semibold leading-tight tracking-tight text-[color:var(--ig-fg-strong)]">
                     {active.headline}
                   </h4>
-                  <p className="mt-2 text-[12px] leading-relaxed text-[color:var(--ig-fg-default)]">
+                  <p className="mt-1.5 text-[11.5px] leading-snug text-[color:var(--ig-fg-default)]">
                     {active.detail}
                   </p>
 
-                  <div className="mt-3 rounded-lg border border-[color:var(--ig-border-strong)] bg-[color:var(--ig-bg-raised)]/50 p-2.5">
+                  <div className="mt-auto rounded-lg border border-[color:var(--ig-border-strong)] bg-[color:var(--ig-bg-raised)]/50 p-2">
                     <div className="flex items-center gap-1.5 text-[9px] font-semibold uppercase tracking-[0.18em] text-[#A78BFA]">
                       <Sparkles className="h-3 w-3" /> Ação Sugerida
                     </div>
-                    <p className="mt-1 text-[12px] leading-snug text-[color:var(--ig-fg-strong)]">
+                    <p className="mt-1 text-[11.5px] leading-snug text-[color:var(--ig-fg-strong)]">
                       {active.suggestion}
                     </p>
                   </div>
@@ -118,9 +119,9 @@ export function AiFinancialAnalyst({ insights, approvalQueue, onSimulate, onAnal
             </AnimatePresence>
           </div>
 
-          <div className="border-l border-[color:var(--ig-border-subtle)] p-2">
+          <div className="flex min-h-0 flex-col overflow-hidden border-l border-[color:var(--ig-border-subtle)] p-2">
             <div className="mb-1 px-2 text-[9px] font-semibold uppercase tracking-[0.18em] text-[color:var(--ig-fg-subtle)]">Insights</div>
-            <div className="flex flex-col gap-1">
+            <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
               {insights.map((i) => {
                 const meta = KIND_META[i.kind];
                 const isActive = i.id === activeId;
@@ -130,7 +131,7 @@ export function AiFinancialAnalyst({ insights, approvalQueue, onSimulate, onAnal
                     type="button"
                     onClick={() => setActiveId(i.id)}
                     className={cn(
-                      'group flex items-start gap-2 rounded-md border px-2 py-1.5 text-left transition-all',
+                      'group flex flex-1 items-start gap-2 rounded-md border px-2 py-1 text-left transition-all',
                       isActive
                         ? 'border-[color:var(--ig-border-focus)] bg-[color:var(--ig-bg-raised)]/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]'
                         : 'border-transparent hover:border-[color:var(--ig-border-strong)] hover:bg-[color:var(--ig-bg-raised)]/40',
@@ -152,7 +153,7 @@ export function AiFinancialAnalyst({ insights, approvalQueue, onSimulate, onAnal
           </div>
         </div>
 
-        <div className="border-t border-[color:var(--ig-border-subtle)] px-5 py-3">
+        <div className="border-t border-[color:var(--ig-border-subtle)] px-4 py-1.5">
           <div className="flex flex-wrap items-center gap-1.5">
             <ActionButton onClick={onSimulate} icon={<Sparkles className="h-3 w-3" />} variant="primary">
               Simular Impacto
@@ -166,8 +167,8 @@ export function AiFinancialAnalyst({ insights, approvalQueue, onSimulate, onAnal
           </div>
         </div>
 
-        <div className="border-t border-[color:var(--ig-border-subtle)] px-5 py-3">
-          <div className="flex items-center justify-between pb-2">
+        <div className="border-t border-[color:var(--ig-border-subtle)] px-4 py-1.5">
+          <div className="flex items-center justify-between pb-1.5">
             <h4 className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-[color:var(--ig-fg-subtle)]">
               <Clock className="h-3 w-3" />
               Fila de Aprovação
@@ -259,7 +260,7 @@ function ApprovalRow({ item }: { item: ExecutiveDecisionItem }) {
   const overSla = aging * 24 > item.sla_hours;
   const slaColor = overSla ? '#EF4444' : aging >= 3 ? '#F59E0B' : '#10B981';
   return (
-    <div className="flex items-center gap-2 py-2">
+    <div className="flex items-center gap-2 py-1.5">
       <div className="flex flex-col items-center gap-0.5">
         <span className="font-mono text-[12px] font-semibold tabular-nums text-[color:var(--ig-fg-strong)]">{aging}d</span>
         <span className="h-1 w-1 rounded-full" style={{ background: slaColor }} />

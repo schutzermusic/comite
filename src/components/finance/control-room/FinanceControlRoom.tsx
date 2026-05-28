@@ -178,11 +178,11 @@ export function FinanceControlRoom() {
       />
 
       {/* Main Control Grid */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
-        <div className="lg:col-span-8">
+      <div className="grid grid-cols-1 items-stretch gap-4 lg:h-[480px] lg:grid-cols-12 lg:overflow-hidden xl:h-[520px]">
+        <div className="flex min-w-0 w-full lg:col-span-8 lg:h-full lg:overflow-hidden">
           <DreIntelligenceBridge rows={dreRows} scenarioLabel={scenario.label} />
         </div>
-        <div className="lg:col-span-4">
+        <div className="flex min-w-0 w-full lg:col-span-4 lg:h-full lg:overflow-hidden">
           <AiFinancialAnalyst
             insights={AI_INSIGHTS}
             approvalQueue={DECISION_QUEUE}
@@ -191,21 +191,21 @@ export function FinanceControlRoom() {
       </div>
 
       {/* Secondary Analytics */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
-        <div className="lg:col-span-7">
+      <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-12">
+        <div className="flex min-w-0 w-full lg:col-span-7">
           <ForecastScenarioChart data={FORECAST_TIMESERIES} />
         </div>
-        <div className="lg:col-span-5">
+        <div className="flex min-w-0 w-full lg:col-span-5">
           <ProjectMarginMatrix rows={PROJECT_MARGINS} />
         </div>
       </div>
 
       {/* Tertiary Layer */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
-        <div className="lg:col-span-7">
+      <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-12">
+        <div className="flex min-w-0 w-full lg:col-span-7">
           <CostCenterHeatmap data={COST_HEATMAP} />
         </div>
-        <div className="lg:col-span-5">
+        <div className="flex min-w-0 w-full lg:col-span-5">
           <ContractRevenuePanel contracts={CONTRACTS} />
         </div>
       </div>
@@ -214,14 +214,14 @@ export function FinanceControlRoom() {
       <ManagerialDreTable rows={dreRows} />
 
       {/* Decision Intelligence Layer */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
-        <div className="lg:col-span-4">
+      <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-12">
+        <div className="flex min-w-0 w-full lg:col-span-4">
           <TopVariationsPanel drivers={topDrivers} />
         </div>
-        <div className="lg:col-span-4">
+        <div className="flex min-w-0 w-full lg:col-span-4">
           <ExecutiveDecisionQueue items={DECISION_QUEUE} />
         </div>
-        <div className="lg:col-span-4">
+        <div className="flex min-w-0 w-full lg:col-span-4">
           <FinancialRiskRadar risks={FINANCIAL_RISKS} />
         </div>
       </div>

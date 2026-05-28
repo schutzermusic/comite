@@ -57,7 +57,7 @@ export function FinanceControlBar({
         <span data-ig-sweep="" />
         <div data-ig-content="" className="px-4 py-3">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 [&_>_div]:h-9">
               <SegmentedRange
                 icon={<CalendarRange className="h-3.5 w-3.5" />}
                 label="Período"
@@ -105,12 +105,12 @@ export function FinanceControlBar({
               />
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 [&_>_button]:h-9">
               <button
                 type="button"
                 onClick={onSimulate}
                 className={cn(
-                  'group inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-semibold tracking-wide',
+                  'group inline-flex items-center gap-2 rounded-lg px-3.5 text-xs font-semibold tracking-wide',
                   'bg-[linear-gradient(180deg,rgba(20,184,166,0.18),rgba(15,118,110,0.10))]',
                   'text-[color:var(--ig-accent)]',
                   'border border-[color:var(--ig-border-focus)]',
@@ -126,7 +126,7 @@ export function FinanceControlBar({
                 type="button"
                 onClick={onGenerateReport}
                 className={cn(
-                  'inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-semibold tracking-wide',
+                  'inline-flex items-center gap-2 rounded-lg px-3.5 text-xs font-semibold tracking-wide',
                   'bg-[linear-gradient(180deg,#17C3B2_0%,#0F9C8F_100%)]',
                   'text-white',
                   'shadow-[inset_0_1px_0_rgba(255,255,255,0.22),0_4px_12px_rgba(15,156,143,0.28)]',
@@ -157,7 +157,7 @@ interface SegmentedRangeProps {
 
 function SegmentedRange({ icon, label, fromValue, toValue, options, onChange }: SegmentedRangeProps) {
   return (
-    <div className="flex items-center gap-1.5 rounded-lg border border-[color:var(--ig-border-strong)] bg-[color:var(--ig-bg-raised)]/60 px-2 py-1 backdrop-blur-sm">
+    <div className="flex items-center gap-1.5 rounded-lg border border-[color:var(--ig-border-strong)] bg-[color:var(--ig-bg-raised)]/60 px-2 backdrop-blur-sm">
       <span className="flex items-center gap-1.5 pl-1 pr-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[color:var(--ig-fg-subtle)]">
         {icon}
         {label}
@@ -187,7 +187,7 @@ interface CompactSelectProps {
 
 function CompactSelect({ icon, label, value, options, onChange }: CompactSelectProps) {
   return (
-    <div className="flex items-center gap-1.5 rounded-lg border border-[color:var(--ig-border-strong)] bg-[color:var(--ig-bg-raised)]/60 px-2 py-1 backdrop-blur-sm">
+    <div className="flex items-center gap-1.5 rounded-lg border border-[color:var(--ig-border-strong)] bg-[color:var(--ig-bg-raised)]/60 px-2 backdrop-blur-sm">
       <span className="flex items-center gap-1.5 pl-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[color:var(--ig-fg-subtle)]">
         {icon}
         {label}
@@ -240,7 +240,7 @@ interface ScenarioPickerProps {
 
 function ScenarioPicker({ value, onChange }: ScenarioPickerProps) {
   return (
-    <div className="flex items-center gap-1.5 rounded-lg border border-[color:var(--ig-border-strong)] bg-[color:var(--ig-bg-raised)]/60 p-1 backdrop-blur-sm">
+    <div className="flex items-center gap-1.5 rounded-lg border border-[color:var(--ig-border-strong)] bg-[color:var(--ig-bg-raised)]/60 px-1.5 backdrop-blur-sm">
       <span className="flex items-center gap-1.5 pl-2 pr-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[color:var(--ig-fg-subtle)]">
         <Layers className="h-3.5 w-3.5" />
         Cenário
