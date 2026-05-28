@@ -179,7 +179,7 @@ export function FinancialHealthHero(props: FinancialHealthHeroProps) {
           {/* Left KPI cluster */}
           <div className="grid auto-rows-fr grid-cols-2 gap-3">
             {leftTiles.map((t, i) => (
-              <KpiTile key={t.key} kpi={t} index={i} align="right" />
+              <KpiTile key={t.key} kpi={t} index={i} align="left" />
             ))}
           </div>
 
@@ -315,7 +315,7 @@ function HealthGauge({ score, periodLabel, scenarioLabel }: { score: number; per
           })}
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <div className="font-mono text-[54px] font-semibold leading-none tabular-nums" style={{ color: c.hex }}>
+          <div className="font-mono text-[54px] font-light leading-none tabular-nums" style={{ color: c.hex }}>
             {Math.round(score)}
           </div>
           <div className="mt-1 text-[10px] uppercase tracking-[0.24em] text-[color:var(--ig-fg-subtle)]">
