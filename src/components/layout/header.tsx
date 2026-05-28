@@ -1,11 +1,9 @@
-"use client";
-
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { ThemeToggle } from "./ThemeToggle";
 import { HeaderBreadcrumb } from "./HeaderBreadcrumb";
 import NotificationCenter from "./notification-center";
 
-export function Header() {
+export async function Header() {
   return (
     <header className="app-top-header sticky top-0 z-40 flex h-[42px] min-h-[42px] items-center gap-2 px-4">
       <SidebarTrigger className="app-header-icon-button lg:hidden" />

@@ -279,7 +279,7 @@ export function buildReportModel(payload: ProjectPdfPayload): ReportModel {
     v2Map,
     filters,
     mode = 'executive',
-    brandName = 'INSIGHT — Governança Corporativa',
+    brandName = 'Insight Apex Board',
     generatedBy,
   } = payload;
 

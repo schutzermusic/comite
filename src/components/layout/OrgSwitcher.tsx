@@ -31,7 +31,7 @@ export function OrgSwitcher() {
         className="app-header-company"
       >
         <Building2 size={13} className="text-ig-accent" aria-hidden="true" />
-        <span>INSIGHT Corp</span>
+        <span>Apex Board</span>
         <ChevronDown
           size={11}
           className="text-ig-fg-disabled transition-transform data-[open=true]:rotate-180"
@@ -48,7 +48,7 @@ export function OrgSwitcher() {
           <span data-ig-noise="" />
           <span data-ig-specular="" />
           <div data-ig-content="" className="p-2 text-ig-body-sm text-ig-fg-muted">
-            INSIGHT Corp
+            Apex Board
           </div>
         </div>
       )}

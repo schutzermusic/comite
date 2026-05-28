@@ -10,28 +10,47 @@ interface InsightLogoProps {
   variant?: 'default' | 'compact';
   priority?: boolean;
   animated?: boolean;
+  src?: string;
+  alt?: string;
 }
 
-export function InsightLogo({ 
-  width = 200, 
-  height = 53, 
+export function InsightLogo({
+  width = 200,
+  height = 53,
   className,
   variant = 'default',
   priority = false,
-  animated = true
+  animated = true,
+  src = "/LOGO INSIGHT.png",
+  alt = "Insight Apex Board",
 }: InsightLogoProps) {
-  const dimensions = variant === 'compact' 
+  const dimensions = variant === 'compact'
     ? { width: 140, height: 37 }
     : { width, height };
 
+  const isRemote = /^https?:\/\//i.test(src);
+
+  // Fit-any-logo box: object-contain inside a fixed-aspect slot so logos of
+  // any ratio render at the same on-screen size as the original Insight one.
+  const boxStyle = { width: dimensions.width, height: dimensions.height };
+  const imgClass = "relative z-10 h-full w-full object-contain object-left";
+
   const logoContent = (
-    <Image
-      src="/LOGO INSIGHT.png"
-      alt="Insight Energy"
-      {...dimensions}
-      className={cn("h-auto relative z-10", className)}
-      priority={priority}
-    />
+    <div className={cn("inline-flex items-center justify-start", className)} style={boxStyle}>
+      {isRemote ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={src} alt={alt} className={imgClass} />
+      ) : (
+        <Image
+          src={src}
+          alt={alt}
+          width={dimensions.width}
+          height={dimensions.height}
+          className={imgClass}
+          priority={priority}
+        />
+      )}
+    </div>
   );
 
   if (!animated) {

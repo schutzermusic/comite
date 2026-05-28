@@ -9,6 +9,7 @@ import { createClient } from '@/utils/supabase/client';
 import { isSafeInternalPath } from '@/utils/auth/safe-path';
 import { getDefaultRouteForRole, getHighestPriorityRole } from '@/lib/auth/roles';
 import type { Role } from '@/lib/auth/types';
+import { PRODUCT_NAME, PRODUCT_TAGLINE, PRODUCT_SIGNATURE } from '@/lib/branding';
 
 type UserRoleRow = {
   roles: Pick<Role, 'key'> | null;
@@ -97,8 +98,8 @@ export default function LoginPage() {
             <LockKeyhole className="h-5 w-5" />
           </div>
           <div>
-            <h1 className="text-xl font-semibold text-ig-fg-strong">INSIGHT</h1>
-            <p className="text-sm text-ig-fg-muted">Acesso seguro a governanca corporativa</p>
+            <h1 className="text-xl font-semibold text-ig-fg-strong">{PRODUCT_NAME}</h1>
+            <p className="text-sm text-ig-fg-muted">{PRODUCT_TAGLINE}</p>
           </div>
         </div>
 
@@ -121,7 +122,7 @@ export default function LoginPage() {
           <Link href="/forgot-password" className="text-ig-accent hover:underline">
             Esqueci minha senha
           </Link>
-          <span className="text-ig-fg-subtle">Supabase Auth</span>
+          <span className="text-ig-fg-subtle">{PRODUCT_SIGNATURE}</span>
         </div>
       </HudPanel>
     </main>

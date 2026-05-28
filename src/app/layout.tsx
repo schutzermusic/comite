@@ -7,8 +7,8 @@ import { NextIntlClientProvider } from 'next-intl';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 
 export const metadata: Metadata = {
-  title: 'Insight Energy Governance Hub',
-  description: 'Plataforma de governança corporativa Insight Energy.',
+  title: 'Insight Apex Board — Executive Governance Control Room',
+  description: 'Insight Apex Board — Governança executiva em tempo real.',
 };
 
 // Inline script to prevent FOUC — runs before React hydrates

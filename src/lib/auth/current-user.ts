@@ -35,7 +35,7 @@ export async function getCurrentUserContext(): Promise<CurrentUserContext> {
   if (profile?.organization_id) {
     const { data: organizationRow } = await supabase
       .from('organizations')
-      .select('id,name,slug,status')
+      .select('id,name,slug,status,workspace_name,logo_url,brand_color,email_from_name,notification_name,branding_enabled')
       .eq('id', profile.organization_id)
       .maybeSingle<Organization>();
 

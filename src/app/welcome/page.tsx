@@ -5,10 +5,16 @@ import { useRouter } from 'next/navigation';
 import { KeyRound, ShieldCheck } from 'lucide-react';
 import { HudButton, HudInput, HudPanel } from '@/components/hud';
 import { createClient } from '@/utils/supabase/client';
+import {
+  PRODUCT_NAME,
+  PRODUCT_SIGNATURE,
+  PRODUCT_TAGLINE_PT,
+  getWorkspaceName,
+} from '@/lib/branding';
 
 type BootState =
   | { kind: 'loading' }
-  | { kind: 'ready'; email: string | null }
+  | { kind: 'ready'; email: string | null; workspaceName: string }
   | { kind: 'no-session' };
 
 export default function WelcomePage() {
@@ -80,7 +86,28 @@ export default function WelcomePage() {
         setBoot({ kind: 'no-session' });
         return;
       }
-      setBoot({ kind: 'ready', email: user.email ?? null });
+
+      // Resolve workspace name from invite metadata or organization row.
+      let workspaceName = PRODUCT_NAME;
+      const meta = (user.user_metadata ?? {}) as {
+        workspace_name?: string;
+        organization_name?: string;
+        organization_id?: string;
+      };
+      if (meta.workspace_name) {
+        workspaceName = meta.workspace_name;
+      } else if (meta.organization_name) {
+        workspaceName = `${meta.organization_name} Board`;
+      } else if (meta.organization_id) {
+        const { data: org } = await supabase
+          .from('organizations')
+          .select('name,workspace_name,branding_enabled')
+          .eq('id', meta.organization_id)
+          .maybeSingle();
+        if (org) workspaceName = getWorkspaceName(org);
+      }
+
+      setBoot({ kind: 'ready', email: user.email ?? null, workspaceName });
     };
 
     bootstrap();
@@ -123,8 +150,13 @@ export default function WelcomePage() {
             <ShieldCheck className="h-5 w-5" />
           </div>
           <div>
-            <h1 className="text-xl font-semibold text-ig-fg-strong">Bem-vindo ao INSIGHT</h1>
-            <p className="text-sm text-ig-fg-muted">Crie sua senha para concluir o acesso.</p>
+            <h1 className="text-xl font-semibold text-ig-fg-strong">
+              Bem-vindo ao {boot.kind === 'ready' ? boot.workspaceName : PRODUCT_NAME}
+            </h1>
+            <p className="text-sm text-ig-fg-muted">{PRODUCT_TAGLINE_PT}. Crie sua senha para concluir o acesso.</p>
+            <p className="mt-0.5 text-[11px] uppercase tracking-[0.18em] text-ig-fg-subtle">
+              {PRODUCT_SIGNATURE}
+            </p>
           </div>
         </div>
 

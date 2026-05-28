@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { getServiceClient } from '@/lib/ai/server-clients';
 import { requireApiPermission } from '@/lib/auth/api-guard';
+import { getWorkspaceName } from '@/lib/branding';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -164,6 +165,14 @@ async function handlePost(req: Request) {
   //    NOTE: requires Supabase email provider configured for this project.
   //    If it's not, this call fails and we DO NOT write profile/roles — see
   //    docs/auth/RBAC_ACCESS_MATRIX.md §20.3.
+  // Resolve org branding so the invite metadata carries workspace context.
+  const { data: orgRow } = await service
+    .from('organizations')
+    .select('name,workspace_name,branding_enabled')
+    .eq('id', orgId)
+    .maybeSingle();
+  const workspaceName = getWorkspaceName(orgRow ?? null);
+
   const { data: inviteData, error: inviteErr } = await service.auth.admin.inviteUserByEmail(
     email,
     {
@@ -172,6 +181,8 @@ async function handlePost(req: Request) {
         full_name: fullName,
         invited_by: guard.userId,
         organization_id: orgId,
+        organization_name: orgRow?.name ?? null,
+        workspace_name: workspaceName,
       },
     },
   );

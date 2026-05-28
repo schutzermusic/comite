@@ -10,7 +10,7 @@ import { SettingRow } from "@/components/settings/SettingRow";
 import { SettingsFooter } from "@/components/settings/SettingsFooter";
 
 const DEFAULTS = {
-  razaoSocial: "INSIGHT Governança Corporativa",
+  razaoSocial: "Insight Apex Board",
   cnpj: "12.345.678/0001-90",
   setor: "energia",
   porte: "enterprise",

@@ -10,6 +10,7 @@ import {
   Puzzle,
   ScrollText,
   Shield,
+  Sparkles,
   User,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -17,6 +18,7 @@ import { cn } from "@/lib/utils";
 const SETTINGS_LINKS = [
   { href: "/configuracoes/conta", label: "Minha Conta", icon: User },
   { href: "/configuracoes/empresa", label: "Empresa", icon: Building2 },
+  { href: "/configuracoes/branding", label: "Branding da Organização", icon: Sparkles },
   { href: "/configuracoes/notificacoes", label: "Notificações", icon: Bell },
   { href: "/configuracoes/integracoes", label: "Integrações", icon: Puzzle },
   { href: "/configuracoes/api-tokens", label: "API & Tokens", icon: KeyRound },

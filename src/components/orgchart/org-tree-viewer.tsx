@@ -769,7 +769,7 @@ export function OrgTreeViewer({
           <div className="rounded-xl border border-ig-border-subtle bg-ig-panel p-4">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-ig-accent">INSIGHT Governança Corporativa</p>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-ig-accent">Insight Apex Board</p>
                 <h1 className="mt-1 text-xl font-semibold text-ig-fg-strong">Organograma Executivo</h1>
                 <p className="mt-1 text-xs text-ig-fg-muted">Exportado em {new Date().toLocaleDateString("pt-BR")}</p>
               </div>

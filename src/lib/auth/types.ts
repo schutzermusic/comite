@@ -17,6 +17,12 @@ export type Organization = {
   name: string;
   slug: string;
   status: string;
+  workspace_name?: string | null;
+  logo_url?: string | null;
+  brand_color?: string | null;
+  email_from_name?: string | null;
+  notification_name?: string | null;
+  branding_enabled?: boolean | null;
 };
 
 export type Profile = {

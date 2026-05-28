@@ -84,7 +84,7 @@ async function sendEmailInvite(data: InviteMemberData): Promise<{ success: boole
         Acesse o sistema para criar sua conta e começar a participar.
         
         Atenciosamente,
-        Equipe Insight Energy
+        Equipe Insight Apex Board
       `,
     };
     
@@ -129,7 +129,7 @@ async function sendWhatsAppInvite(data: InviteMemberData): Promise<{ success: bo
       
       Acesse o sistema para criar sua conta.
       
-      Equipe Insight Energy
+      Equipe Insight Apex Board
     `;
     
     // Simulação de envio
