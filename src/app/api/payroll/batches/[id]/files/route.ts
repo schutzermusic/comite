@@ -24,8 +24,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   let form: FormData;
   try {
     form = await req.formData();
-  } catch {
-    return NextResponse.json({ ok: false, error: 'Form inválido.' }, { status: 400 });
+  } catch (err) {
+    // Surface the real reason. In `next dev --turbopack` the request body is
+    // capped (~10MB), so a single very large file fails here — the message makes
+    // that diagnosable instead of a generic "Form inválido".
+    const detail = err instanceof Error ? err.message : 'corpo inválido';
+    console.error('[batches/files] formData parse failed:', detail);
+    return NextResponse.json(
+      { ok: false, error: 'Form inválido.', message: `Falha ao ler o upload: ${detail}` },
+      { status: 400 },
+    );
   }
   const file = form.get('file');
   const fileType = String(form.get('file_type') ?? '') as PayrollImportFileType;

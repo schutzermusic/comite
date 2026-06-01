@@ -6,8 +6,18 @@ import type { PayrollEmailAudience } from '@/lib/types/payroll-closing';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-/** Resend recommends keeping the whole message under ~40MB. */
-const MAX_TOTAL_BYTES = 40 * 1024 * 1024;
+/**
+ * Maximum combined attachment size accepted by this route.
+ *
+ * Default raised to 100MB so large holerite/spreadsheet batches don't trip the
+ * limit in dev/simulated sends. Override with PAYROLL_EMAIL_MAX_MB if needed.
+ *
+ * NOTE: real delivery via Resend still caps the whole message at ~40MB — beyond
+ * that a live send will be rejected by the provider even though this route
+ * accepts it (the dry-run / simulated path has no such cap).
+ */
+const MAX_TOTAL_MB = Number(process.env.PAYROLL_EMAIL_MAX_MB) || 100;
+const MAX_TOTAL_BYTES = MAX_TOTAL_MB * 1024 * 1024;
 
 interface AttachmentPayload {
   file_name: string;
@@ -72,11 +82,47 @@ export async function POST(req: Request) {
   if (!actorRes.ok) return actorRes.response;
   const { actor } = actorRes;
 
+  const contentType = req.headers.get('content-type') ?? '';
+
   let body: SendBody;
   try {
-    body = (await req.json()) as SendBody;
-  } catch {
-    return NextResponse.json({ ok: false, error: 'JSON inválido.' }, { status: 400 });
+    if (contentType.includes('multipart/form-data')) {
+      // Preferred path for inline attachments: files stream as multipart parts,
+      // avoiding the JSON body parser's size cap (which truncated large base64
+      // payloads → "Unterminated string in JSON"). Metadata rides in `meta`.
+      const form = await req.formData();
+      const metaRaw = form.get('meta');
+      body = JSON.parse(typeof metaRaw === 'string' ? metaRaw : '{}') as SendBody;
+
+      const files: AttachmentPayload[] = [];
+      for (const [key, value] of form.entries()) {
+        if (key === 'meta' || typeof value === 'string') continue;
+        const file = value as File;
+        const buf = Buffer.from(await file.arrayBuffer());
+        files.push({
+          file_name: file.name,
+          content_base64: buf.toString('base64'),
+          mime_type: file.type || undefined,
+          file_size: buf.byteLength,
+        });
+      }
+      body.attachments = files;
+    } else {
+      // Reject oversized JSON payloads before parsing — base64 inflates the body
+      // ~33%, so surface the friendly "too large" message (factor base64→bytes is 3/4).
+      const contentLength = Number(req.headers.get('content-length') ?? 0);
+      if (contentLength > 0 && contentLength * 0.75 > MAX_TOTAL_BYTES) {
+        return tooLargeResponse(Math.round(contentLength * 0.75));
+      }
+      body = (await req.json()) as SendBody;
+    }
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : 'corpo da requisição inválido';
+    console.error('[email/send] body parse failed:', detail);
+    return NextResponse.json(
+      { ok: false, error: 'JSON inválido.', message: `Falha ao ler o envio: ${detail}` },
+      { status: 400 },
+    );
   }
 
   if (!body.subject || !body.html) {

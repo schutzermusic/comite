@@ -161,7 +161,35 @@ export interface SendEmailResponse {
   limit_bytes?: number;
 }
 
+function base64ToUint8Array(b64: string): Uint8Array {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
 export async function sendPayrollEmail(input: SendEmailInput): Promise<SendEmailResponse> {
+  // When there are inline attachment bytes, send as multipart/form-data instead
+  // of base64-in-JSON. A JSON body carrying several MB of base64 gets truncated
+  // by the route handler's body parser (~10MB cap) → "Unterminated string in
+  // JSON". Multipart streams the files, avoids the ~33% base64 inflation, and
+  // sidesteps that limit entirely. Metadata travels in a single `meta` field.
+  const inlineFiles = input.attachments ?? [];
+  if (inlineFiles.length > 0) {
+    const form = new FormData();
+    const { attachments: _omit, ...meta } = input;
+    void _omit;
+    form.append('meta', JSON.stringify(meta));
+    inlineFiles.forEach((a, i) => {
+      const blob = new Blob([base64ToUint8Array(a.content_base64) as BlobPart], {
+        type: a.mime_type || 'application/octet-stream',
+      });
+      form.append(`file_${i}`, blob, a.file_name);
+    });
+    const res = await fetch('/api/payroll/email/send', { method: 'POST', body: form });
+    return (await res.json()) as SendEmailResponse;
+  }
+
   const res = await fetch('/api/payroll/email/send', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
