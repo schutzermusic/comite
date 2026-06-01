@@ -151,6 +151,12 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
       { key: 'people.view_costs', label: 'Custos' },
       { key: 'people.view_salary', label: 'Salarios' },
       { key: 'people.view_sensitive_data', label: 'Dados sensiveis' },
+      { key: 'people.payroll_close', label: 'Fechamento da Folha' },
+      { key: 'people.payroll_send', label: 'Enviar Folha por E-mail' },
+      { key: 'people.payroll_send_sensitive', label: 'Enviar Anexos Sensiveis' },
+      { key: 'people.payroll_view_sensitive', label: 'Ver Dados Sensiveis da Folha' },
+      { key: 'people.payroll_bank_file_access', label: 'Acesso a Arquivos Bancarios' },
+      { key: 'people.payroll_holerite_access', label: 'Acesso a Holerites' },
     ],
   },
   {

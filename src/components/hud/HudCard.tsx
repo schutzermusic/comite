@@ -9,16 +9,21 @@ type HudCardProps = React.HTMLAttributes<HTMLDivElement> &
 
 const HudCard = React.forwardRef<HTMLDivElement, HudCardProps>(
   ({ className, children, elevation, state, interactive, halo, sweep, ...props }, ref) => (
+    // className is applied on the HudPanel wrapper (the glass shell). The inner
+    // div used to also receive `className` which caused layout classes like
+    // `h-full flex flex-col` to be duplicated and break flex stretching inside
+    // cards. We keep the inner div neutral so consumers can rely on the wrapper
+    // class controlling layout.
     <HudPanel
       noPadding
-      className={className}
+      className={cn('min-w-0', className)}
       elevation={elevation}
       state={state}
       interactive={interactive}
       halo={halo}
       sweep={sweep}
     >
-      <div ref={ref} className={className} {...props}>
+      <div ref={ref} className="h-full min-w-0" {...props}>
         {children}
       </div>
     </HudPanel>

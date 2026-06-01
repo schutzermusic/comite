@@ -45,3 +45,42 @@ export const RISK_FINDING_SCHEMA = {
   },
   required: ['findings'],
 } as const;
+
+/**
+ * Structured-output schema for the payroll closing narrative. The model returns
+ * ONLY narrative text fields — every monetary number is supplied by the parser
+ * and must never be invented. Causes not present in the data must be phrased as
+ * validation points, not asserted as fact.
+ */
+export const PAYROLL_NARRATIVE_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    executive_summary: { type: 'string' },
+    closing_email: { type: 'string' },
+    board_summary: { type: 'string' },
+    finance_email: { type: 'string' },
+    hr_validation: { type: 'string' },
+    top_increases: { type: 'array', maxItems: 8, items: { type: 'string' } },
+    top_decreases: { type: 'array', maxItems: 8, items: { type: 'string' } },
+    cost_center_highlights: { type: 'array', maxItems: 8, items: { type: 'string' } },
+    anomalies: { type: 'array', maxItems: 8, items: { type: 'string' } },
+    attention_points: { type: 'array', maxItems: 8, items: { type: 'string' } },
+    recommendations: { type: 'array', maxItems: 8, items: { type: 'string' } },
+    conclusion: { type: 'string' },
+  },
+  required: [
+    'executive_summary',
+    'closing_email',
+    'board_summary',
+    'finance_email',
+    'hr_validation',
+    'top_increases',
+    'top_decreases',
+    'cost_center_highlights',
+    'anomalies',
+    'attention_points',
+    'recommendations',
+    'conclusion',
+  ],
+} as const;

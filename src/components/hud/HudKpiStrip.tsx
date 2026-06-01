@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { motion } from 'framer-motion';
+import { ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { HudKpi } from './HudKpi';
 import type { HudKpiProps } from './HudKpi';
@@ -88,25 +89,30 @@ export function HudKpiStrip({
       <div className={cn('grid gap-1', GRID_COLS[columns])}>
         {kpis.map((kpi, index) => {
           const Comp: any = kpi.onClick ? 'button' : 'div';
+          const isClickable = Boolean(kpi.onClick);
           return (
             <Comp
               key={kpi.id}
-              type={kpi.onClick ? 'button' : undefined}
+              type={isClickable ? 'button' : undefined}
               onClick={kpi.onClick}
-              aria-pressed={kpi.onClick ? kpi.active : undefined}
+              aria-pressed={isClickable ? kpi.active : undefined}
               className={cn(
-                'group relative min-h-[5.35rem] overflow-hidden border border-ig-border-subtle',
+                'group relative min-w-0 min-h-[5.35rem] overflow-hidden border border-ig-border-subtle',
                 'bg-[linear-gradient(135deg,color-mix(in_oklab,var(--ig-bg-panel)_88%,transparent),color-mix(in_oklab,var(--ig-bg-raised)_42%,transparent))]',
                 'px-5 py-4',
                 'shadow-[inset_0_1px_0_color-mix(in_oklab,var(--ig-border-strong)_80%,transparent)]',
-                'transition-colors hover:border-ig-border-focus',
-                kpi.onClick && 'cursor-pointer text-left focus-visible:outline-none focus-visible:shadow-[var(--ig-focus-ring-outer)]',
+                'transition-all duration-200 ease-out hover:border-ig-border-focus',
+                isClickable && [
+                  'cursor-pointer text-left focus-visible:outline-none focus-visible:shadow-[var(--ig-focus-ring-outer)]',
+                  'hover:-translate-y-px hover:shadow-[0_8px_24px_-12px_color-mix(in_oklab,var(--ig-accent)_45%,transparent),inset_0_1px_0_color-mix(in_oklab,var(--ig-border-strong)_80%,transparent)]',
+                  'active:translate-y-0',
+                ],
                 kpi.active && 'border-ig-accent/60 bg-ig-accent-weak/40',
               )}
               style={{ clipPath: clipFor(index, kpis.length, columns) }}
             >
               <span className="pointer-events-none absolute inset-x-10 top-0 h-px bg-gradient-to-r from-transparent via-ig-accent to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
-              <div className="relative">
+              <div className="relative min-w-0">
                 <HudKpi
                   value={kpi.value}
                   label={kpi.label}
@@ -125,6 +131,13 @@ export function HudKpiStrip({
                   fractionDigits={kpi.fractionDigits}
                 />
               </div>
+              {isClickable && (
+                <ChevronRight
+                  aria-hidden
+                  className="pointer-events-none absolute right-2.5 bottom-2.5 h-3 w-3 text-ig-fg-subtle opacity-0 transition-all duration-200 group-hover:opacity-100 group-hover:translate-x-0.5 group-hover:text-ig-accent"
+                  strokeWidth={2.2}
+                />
+              )}
             </Comp>
           );
         })}

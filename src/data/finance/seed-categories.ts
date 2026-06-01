@@ -1,4 +1,4 @@
-import type { ManagementCategory, BusinessUnit, CostCenter, Supplier, Client, EntryTemplate } from '@/lib/types/finance';
+import type { ManagementCategory, ManagementGroupKey, BusinessUnit, CostCenter, Supplier, Client, EntryTemplate } from '@/lib/types/finance';
 
 // ============================================================
 // Management Categories — 3-level Cost Stack Taxonomy
@@ -91,7 +91,43 @@ export const managementCategories: ManagementCategory[] = [
   { id: 'cat-e3',    code: 'E.3',   name: 'Provisões vs Pagos',              level: 2, group_key: 'taxes',     sign: -1, requires_project: false, active: true, parent_id: 'cat-e' },
   { id: 'cat-e31',   code: 'E.3.1', name: 'Provisão Tributária',             level: 3, group_key: 'taxes',     sign: -1, requires_project: false, active: true, parent_id: 'cat-e3' },
   { id: 'cat-e32',   code: 'E.3.2', name: 'Imposto Pago',                    level: 3, group_key: 'taxes',     sign: -1, requires_project: false, active: true, parent_id: 'cat-e3' },
+
+  // ── F) CLEARING / TREASURY (non-P&L) ──────────────────────
+  // Balance-sheet / cash movement categories. Excluded from managerial DRE
+  // by every P&L selector (group_key='clearing'); used for AP/AR settlement
+  // cash legs and cash-flow analysis. Sign reflects cash direction: +1 in, -1 out.
+  { id: 'cat-f',     code: 'F',     name: 'Tesouraria / Clearing',           level: 1, group_key: 'clearing',  sign:  1, requires_project: false, active: true },
+  { id: 'cat-f1',    code: 'F.1',   name: 'Movimento de Caixa',              level: 2, group_key: 'clearing',  sign:  1, requires_project: false, active: true, parent_id: 'cat-f' },
+  { id: 'cat-f11',   code: 'F.1.1', name: 'Recebimento (Cash-in Clearing)',  level: 3, group_key: 'clearing',  sign:  1, requires_project: false, active: true, parent_id: 'cat-f1' },
+  { id: 'cat-f12',   code: 'F.1.2', name: 'Pagamento (Cash-out Clearing)',   level: 3, group_key: 'clearing',  sign: -1, requires_project: false, active: true, parent_id: 'cat-f1' },
+  { id: 'cat-f2',    code: 'F.2',   name: 'Liquidação AP/AR',                level: 2, group_key: 'clearing',  sign:  1, requires_project: false, active: true, parent_id: 'cat-f' },
+  { id: 'cat-f21',   code: 'F.2.1', name: 'Liquidação de Recebível (AR)',    level: 3, group_key: 'clearing',  sign:  1, requires_project: false, active: true, parent_id: 'cat-f2' },
+  { id: 'cat-f22',   code: 'F.2.2', name: 'Liquidação de Pagável (AP)',      level: 3, group_key: 'clearing',  sign: -1, requires_project: false, active: true, parent_id: 'cat-f2' },
+  { id: 'cat-f3',    code: 'F.3',   name: 'Liquidação Tributária',           level: 2, group_key: 'clearing',  sign: -1, requires_project: false, active: true, parent_id: 'cat-f' },
+  { id: 'cat-f31',   code: 'F.3.1', name: 'Pagamento de Tributo (DARF/GPS/Guia)', level: 3, group_key: 'clearing', sign: -1, requires_project: false, active: true, parent_id: 'cat-f3' },
 ];
+
+// ============================================================
+// P&L group helpers — keep the managerial DRE free of clearing/cash entries
+// ============================================================
+
+/** The five managerial-DRE groups. Excludes 'clearing' (treasury/cash). */
+export const PNL_GROUP_KEYS: ManagementGroupKey[] = ['revenue', 'cogs', 'opex', 'financial', 'taxes'];
+
+export function isPnlGroup(groupKey: ManagementGroupKey): boolean {
+  return PNL_GROUP_KEYS.includes(groupKey);
+}
+
+export function isClearingGroup(groupKey: ManagementGroupKey): boolean {
+  return groupKey === 'clearing';
+}
+
+/** True when the category (by id) belongs to the clearing/treasury group. */
+export function isClearingCategory(categoryId: string | undefined): boolean {
+  if (!categoryId) return false;
+  const cat = managementCategories.find(c => c.id === categoryId);
+  return cat ? cat.group_key === 'clearing' : false;
+}
 
 // ============================================================
 // Business Units seed

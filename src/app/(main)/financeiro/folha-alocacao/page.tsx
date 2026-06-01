@@ -1,387 +1,560 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { DatabaseZap, FileSpreadsheet, RefreshCcw, Plus } from 'lucide-react';
+import { useMemo, useState, useCallback, Suspense, useEffect } from 'react';
+import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import {
-  HudPageLayout, HudHeader, HudKpiStrip, HudButton, HudTabs,
-  HudCard, HudCardHeader, HudCardTitle, HudCardContent,
-  type KpiItem,
+  FileSpreadsheet, Users, Layers, Calendar, Activity, Building2, Briefcase,
+  AlertTriangle, CheckCircle, Link2, ArrowUpRight, ArrowUpDown, Send, PieChart, Scale,
+} from 'lucide-react';
+import {
+  HudPageLayout, HudHeader, HudKpiStrip, HudButton,
+  HudPanel, HudTable, HudStatusPill, HudDrawer, HudBadge, HudProgressBar,
+  type KpiItem, type HudTableColumn, type HudStatusPillVariant,
 } from '@/components/hud';
 import {
-  FinanceFilterBar,
-  FinanceInsightCard,
-  FinanceStatusBadge, type FinanceStatus,
-  FinanceDetailDrawer, FinanceDrawerSection, FinanceDrawerKeyValue,
-  FinanceDonutChart,
-  FinanceStackedBarChart,
-  FinanceRankMatrix,
-  FinanceSCurveChart,
+  FinanceFilterBar, FinanceFilterChip,
+  FinanceBarChart, FinanceDonutChart,
   fmtBRL, fmtCompactBRL,
-  type FinancePeriod, type FinanceScenario,
 } from '@/components/finance/shared';
-import { getEsocialDashboardData } from '@/lib/esocial';
+import {
+  getPayrollAllocations, getPayrollAllocation, getLedgerEntry, getPayrollBatches,
+  approvePayrollAllocation, postPayrollAllocation, cancelPayrollAllocation,
+  formatBRL, formatCompactBRL,
+} from '@/lib/finance/finance-store';
+import {
+  selectPayrollSummary, selectPayrollByProject, selectPayrollByDepartment,
+  selectPayrollByCostCenter, selectPayrollByContract, selectPayrollByCompetence,
+  selectPayrollBatchReconciliation, reconcilePayrollBatch,
+  filterPayrollAllocations, sortPayrollByCost, canApprovePayroll, canPostPayroll,
+  type PayrollAllocationListFilter, type PayrollReconciliationStatus,
+} from '@/lib/finance/selectors/payroll';
+import type { PayrollAllocation, PayrollAllocationStatus, LedgerEntry } from '@/lib/types/finance';
 
-type Batch = { id: string; period: string; bu: string; gross: number; charges: number; benefits: number; headcount: number; status: FinanceStatus };
-type Allocation = { project: string; cc: string; allocated: number; effort: number; rate: number };
-type Employee = {
-  id: string;
-  name: string;
-  role: string;
-  cc: string;
-  monthlyCost: number;
-  allocations: { project: string; hours: number; pct: number }[];
+const STATUS_VARIANT: Record<PayrollAllocationStatus, HudStatusPillVariant> = {
+  draft: 'neutral',
+  allocated: 'info',
+  approved: 'pending',
+  posted: 'completed',
+  cancelled: 'error',
+};
+const STATUS_LABEL: Record<PayrollAllocationStatus, string> = {
+  draft: 'Rascunho',
+  allocated: 'Alocado',
+  approved: 'Aprovado',
+  posted: 'Lançado (DRE)',
+  cancelled: 'Cancelado',
+};
+const ALLOC_STATUSES: PayrollAllocationStatus[] = ['draft', 'allocated', 'approved', 'posted', 'cancelled'];
+
+function allocBarVariant(pct: number): 'success' | 'warning' | 'danger' {
+  if (pct >= 80) return 'success';
+  if (pct >= 40) return 'warning';
+  return 'danger';
+}
+
+const RECON_VARIANT: Record<PayrollReconciliationStatus, HudStatusPillVariant> = {
+  fully_allocated: 'completed',
+  underallocated: 'warning',
+  overallocated: 'error',
+};
+const RECON_LABEL: Record<PayrollReconciliationStatus, string> = {
+  fully_allocated: 'Totalmente alocado',
+  underallocated: 'Subalocado',
+  overallocated: 'Superalocado',
+};
+const RECON_BAR: Record<PayrollReconciliationStatus, 'success' | 'warning' | 'danger'> = {
+  fully_allocated: 'success',
+  underallocated: 'warning',
+  overallocated: 'danger',
 };
 
-const BATCHES: Batch[] = [
-  { id: 'b1', period: '2026-04', bu: 'Tecnologia', gross: 1_240_000, charges: 558_000, benefits: 172_000, headcount: 84, status: 'approved' },
-  { id: 'b2', period: '2026-04', bu: 'Operações',  gross: 820_000,   charges: 369_000, benefits: 110_000, headcount: 62, status: 'closed' },
-  { id: 'b3', period: '2026-04', bu: 'Comercial',  gross: 510_000,   charges: 229_500, benefits: 71_400,  headcount: 38, status: 'approved' },
-  { id: 'b4', period: '2026-04', bu: 'CS',         gross: 320_000,   charges: 144_000, benefits: 44_800,  headcount: 24, status: 'draft' },
-  { id: 'b5', period: '2026-04', bu: 'G&A',        gross: 240_000,   charges: 108_000, benefits: 33_600,  headcount: 18, status: 'draft' },
-];
-
-const ALLOCATIONS: Allocation[] = [
-  { project: 'PRJ-2026-001 — ERP Aurora',          cc: 'CC-001', allocated: 412_000, effort: 1840, rate: 224 },
-  { project: 'PRJ-2026-002 — Plataforma de Risco', cc: 'CC-001', allocated: 318_000, effort: 1420, rate: 224 },
-  { project: 'PRJ-2026-003 — Data Lake Fênix',     cc: 'CC-001', allocated: 264_000, effort: 1180, rate: 224 },
-  { project: 'PRJ-2026-005 — Operations 3D',       cc: 'CC-002', allocated: 575_000, effort: 2750, rate: 209 },
-  { project: 'Estrutura — Não alocado',             cc: 'CC-001', allocated: 198_000, effort: 880,  rate: 225 },
-];
-
-const EMPLOYEES: Employee[] = [
-  { id: 'e1', name: 'Carla Mendes',     role: 'Eng. Mgr',     cc: 'CC-001', monthlyCost: 38_000, allocations: [{ project: 'PRJ-2026-001', hours: 92, pct: 60 }, { project: 'PRJ-2026-003', hours: 60, pct: 40 }] },
-  { id: 'e2', name: 'Felipe Araújo',    role: 'Tech Lead',    cc: 'CC-001', monthlyCost: 32_000, allocations: [{ project: 'PRJ-2026-002', hours: 152, pct: 100 }] },
-  { id: 'e3', name: 'Renata Souza',     role: 'Senior Eng.',  cc: 'CC-001', monthlyCost: 26_000, allocations: [{ project: 'PRJ-2026-002', hours: 100, pct: 65 }, { project: 'PRJ-2026-003', hours: 52, pct: 35 }] },
-  { id: 'e4', name: 'Diego Lopes',      role: 'Senior Eng.',  cc: 'CC-001', monthlyCost: 26_000, allocations: [{ project: 'PRJ-2026-005', hours: 152, pct: 100 }] },
-  { id: 'e5', name: 'Beatriz Tavares',  role: 'Data Eng.',    cc: 'CC-001', monthlyCost: 22_000, allocations: [{ project: 'PRJ-2026-003', hours: 120, pct: 78 }, { project: 'Estrutura', hours: 32, pct: 22 }] },
-];
-
-const PROJECT_KEYS = Array.from(new Set(EMPLOYEES.flatMap((e) => e.allocations.map((a) => a.project))));
-
 export default function FolhaAlocacaoPage() {
-  const [period, setPeriod] = useState<FinancePeriod>('2026-04');
-  const [scenario, setScenario] = useState<FinanceScenario>('realized');
-  const [tab, setTab] = useState('folha');
-  const [selected, setSelected] = useState<Employee | null>(null);
-  const esocial = useMemo(() => getEsocialDashboardData(), []);
+  return (
+    <Suspense>
+      <FolhaAlocacaoContent />
+    </Suspense>
+  );
+}
 
-  const totalGross = BATCHES.reduce((a, b) => a + b.gross, 0);
-  const totalCharges = BATCHES.reduce((a, b) => a + b.charges, 0);
-  const totalBenefits = BATCHES.reduce((a, b) => a + b.benefits, 0);
-  const totalHeadcount = BATCHES.reduce((a, b) => a + b.headcount, 0);
-  const totalCost = totalGross + totalCharges + totalBenefits;
-  const totalAllocated = ALLOCATIONS.reduce((a, x) => a + x.allocated, 0);
-  const allocationRate = (totalAllocated / totalCost) * 100;
-  const overtimeCost = 88_500;
-  const mobilizationCost = 142_000;
+function FolhaAlocacaoContent() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const focusAllocId = searchParams.get('allocId');
 
-  const matrix = useMemo(() => {
-    const rows = EMPLOYEES.map((e) => {
-      const row: Record<string, number | string> = { id: e.id, name: e.name };
-      let total = 0;
-      e.allocations.forEach((a) => {
-        const cost = e.monthlyCost * (a.pct / 100);
-        row[a.project] = cost;
-        total += cost;
-      });
-      row['__total'] = total;
-      return row;
-    });
-    return rows;
-  }, []);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [detailId, setDetailId] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [filterCompetence, setFilterCompetence] = useState('2026-04');
+  const [filterStatus, setFilterStatus] = useState<PayrollAllocationStatus | 'all'>('all');
+  const [filterProject, setFilterProject] = useState('all');
+  const [filterCostCenter, setFilterCostCenter] = useState('all');
+  const [filterDepartment, setFilterDepartment] = useState('all');
+  const [processing, setProcessing] = useState(false);
+  const [deepLinkMissing, setDeepLinkMissing] = useState<string | null>(null);
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const allAllocations = useMemo(() => getPayrollAllocations(), [refreshKey]);
+
+  useEffect(() => {
+    if (!focusAllocId) return;
+    const alloc = getPayrollAllocation(focusAllocId);
+    if (alloc) { setDetailId(alloc.id); setDeepLinkMissing(null); }
+    else setDeepLinkMissing(focusAllocId);
+    router.replace(pathname, { scroll: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusAllocId]);
+
+  // Filter option lists derived from the full dataset.
+  const competenceOptions = useMemo(() => {
+    const set = new Set(allAllocations.map(a => a.competence_month));
+    return [{ value: 'all', label: 'Todas' }, ...Array.from(set).sort().reverse().map(c => ({ value: c, label: c }))];
+  }, [allAllocations]);
+  const projectOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    allAllocations.forEach(a => { if (a.project_id) map.set(a.project_id, a.project_name || a.project_id); });
+    return [{ value: 'all', label: 'Todos' }, ...Array.from(map.entries()).map(([value, label]) => ({ value, label }))];
+  }, [allAllocations]);
+  const costCenterOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    allAllocations.forEach(a => { if (a.cost_center_id) map.set(a.cost_center_id, a.cost_center?.name || a.cost_center_id); });
+    return [{ value: 'all', label: 'Todos' }, ...Array.from(map.entries()).map(([value, label]) => ({ value, label }))];
+  }, [allAllocations]);
+  const departmentOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    allAllocations.forEach(a => { if (a.department_id) map.set(a.department_id, a.department_name || a.department_id); });
+    return [{ value: 'all', label: 'Todos' }, ...Array.from(map.entries()).map(([value, label]) => ({ value, label }))];
+  }, [allAllocations]);
+
+  const filter: PayrollAllocationListFilter = useMemo(() => ({
+    competenceMonth: filterCompetence === 'all' ? undefined : filterCompetence,
+    status: filterStatus,
+    projectId: filterProject === 'all' ? undefined : filterProject,
+    costCenterId: filterCostCenter === 'all' ? undefined : filterCostCenter,
+    departmentId: filterDepartment === 'all' ? undefined : filterDepartment,
+  }), [filterCompetence, filterStatus, filterProject, filterCostCenter, filterDepartment]);
+
+  const filtered = useMemo(
+    () => sortPayrollByCost(filterPayrollAllocations(allAllocations, filter), sortDir),
+    [allAllocations, filter, sortDir],
+  );
+
+  const summary = useMemo(() => selectPayrollSummary(filtered), [filtered]);
+  const byProject = useMemo(() => selectPayrollByProject(filtered), [filtered]);
+  const byDepartment = useMemo(() => selectPayrollByDepartment(filtered), [filtered]);
+  const byCostCenter = useMemo(() => selectPayrollByCostCenter(filtered), [filtered]);
+  const byContract = useMemo(() => selectPayrollByContract(filtered), [filtered]);
+  const byCompetence = useMemo(() => selectPayrollByCompetence(allAllocations), [allAllocations]);
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const allBatches = useMemo(() => getPayrollBatches(), [refreshKey]);
+  const competenceBatches = useMemo(
+    () => (filterCompetence === 'all' ? allBatches : allBatches.filter(b => b.period_key === filterCompetence)),
+    [allBatches, filterCompetence],
+  );
+  const batchRecon = useMemo(
+    () => selectPayrollBatchReconciliation(allAllocations, competenceBatches),
+    [allAllocations, competenceBatches],
+  );
+  const hasOverallocation = batchRecon.some(r => r.status === 'overallocated');
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const detail = useMemo(() => (detailId ? getPayrollAllocation(detailId) : undefined), [detailId, refreshKey]);
+  const linkedEntry: LedgerEntry | undefined = useMemo(
+    () => (detail?.linked_entry_id ? getLedgerEntry(detail.linked_entry_id) : undefined),
+    [detail],
+  );
+  const detailRecon = useMemo(
+    () => reconcilePayrollBatch(allAllocations, allBatches.find(b => b.id === detail?.payroll_batch_id)),
+    [allAllocations, allBatches, detail],
+  );
+  const detailBatchBlocksPost = detailRecon?.status === 'overallocated';
+
+  const postableCount = useMemo(() => filtered.filter(canPostPayroll).length, [filtered]);
+
+  const hasActiveFilters = filterStatus !== 'all' || filterProject !== 'all' || filterCostCenter !== 'all' || filterDepartment !== 'all';
+  const clearFilters = () => {
+    setFilterStatus('all'); setFilterProject('all'); setFilterCostCenter('all'); setFilterDepartment('all');
+  };
+
+  const handleApprove = useCallback((alloc: PayrollAllocation) => {
+    if (processing || !canApprovePayroll(alloc)) return;
+    setProcessing(true);
+    try { approvePayrollAllocation(alloc.id); setRefreshKey(k => k + 1); }
+    finally { setProcessing(false); }
+  }, [processing]);
+
+  const handlePost = useCallback((alloc: PayrollAllocation) => {
+    if (processing || !canPostPayroll(alloc)) return;
+    setProcessing(true);
+    try { postPayrollAllocation(alloc.id); setRefreshKey(k => k + 1); }
+    finally { setProcessing(false); }
+  }, [processing]);
+
+  const handleCancel = useCallback((alloc: PayrollAllocation) => {
+    if (processing || alloc.status === 'posted' || alloc.status === 'cancelled') return;
+    setProcessing(true);
+    try { cancelPayrollAllocation(alloc.id, 'Cancelado pelo operador'); setRefreshKey(k => k + 1); }
+    finally { setProcessing(false); }
+  }, [processing]);
+
+  const handlePostAll = useCallback(() => {
+    if (processing || postableCount === 0) return;
+    setProcessing(true);
+    try {
+      filtered.filter(canPostPayroll).forEach(a => postPayrollAllocation(a.id));
+      setRefreshKey(k => k + 1);
+    } finally { setProcessing(false); }
+  }, [processing, postableCount, filtered]);
+
+  const goToLedgerEntry = useCallback((entryId: string) => {
+    router.push(`/financeiro/lancamentos?entryId=${encodeURIComponent(entryId)}`);
+  }, [router]);
 
   const kpis: KpiItem[] = [
-    { id: 'g', label: 'Folha bruta', value: totalGross, format: 'compactCurrency', variant: 'info', tintValue: true },
-    { id: 'c', label: 'Encargos + Benefícios', value: totalCharges + totalBenefits, format: 'compactCurrency', variant: 'warning', tintValue: true },
-    { id: 't', label: 'Custo total c/ encargos', value: totalCost, format: 'compactCurrency', variant: 'success', tintValue: true },
-    { id: 'h', label: 'Headcount', value: totalHeadcount, variant: 'info', tintValue: true },
-    { id: 'r', label: 'Taxa de alocação', value: allocationRate, format: 'percent', variant: allocationRate >= 70 ? 'success' : 'warning', tintValue: true },
-    { id: 'o', label: 'Hora extra + Mobilização', value: overtimeCost + mobilizationCost, format: 'compactCurrency', variant: 'warning', tintValue: true },
+    { id: 'tc', label: 'Custo total (carregado)', value: summary.totalCost / 100, format: 'compactCurrency', variant: 'info' },
+    { id: 'al', label: 'Custo alocado', value: summary.allocatedCost / 100, format: 'compactCurrency', variant: 'success' },
+    { id: 'un', label: 'Não alocado', value: summary.unallocatedCost / 100, format: 'compactCurrency', variant: summary.unallocatedCost > 0 ? 'warning' : 'success', icon: <AlertTriangle className="h-5 w-5" /> },
+    { id: 'rt', label: 'Taxa de alocação', value: summary.allocationRate, format: 'percent', variant: summary.allocationRate >= 70 ? 'success' : 'warning' },
+    { id: 'hc', label: 'Headcount', value: summary.headcount, variant: 'info', icon: <Users className="h-5 w-5" /> },
+    { id: 'ac', label: 'Custo médio / colaborador', value: summary.avgCostPerEmployee / 100, format: 'compactCurrency', variant: 'info' },
   ];
+
+  const columns: HudTableColumn<PayrollAllocation>[] = [
+    { key: 'employee', header: 'Colaborador', cell: (a) => (
+      <div className="min-w-0">
+        <span className="block truncate text-xs font-semibold text-ig-fg-strong">{a.employee_name}</span>
+        <span className="block max-w-[220px] truncate text-[11px] text-ig-fg-muted">{a.role} • {a.department_name}</span>
+      </div>
+    ) },
+    { key: 'competence_month', header: 'Competência', cell: (a) => <span className="font-mono text-xs text-ig-fg-muted">{a.competence_month}</span> },
+    { key: 'destination', header: 'Destino', cell: (a) => (
+      <div className="min-w-0">
+        <span className="block truncate text-xs text-ig-fg-strong">{a.project_name || 'Estrutural'}</span>
+        <span className="block truncate text-[11px] text-ig-fg-muted">{a.cost_center?.name || a.cost_center_id || '—'}</span>
+      </div>
+    ) },
+    { key: 'total_cost_cents', header: 'Custo total', align: 'right', cell: (a) => <span className="block font-mono text-xs text-ig-fg-strong">{formatBRL(a.total_cost_cents)}</span> },
+    { key: 'allocated_amount_cents', header: 'Alocado', align: 'right', cell: (a) => <span className="block font-mono text-xs text-ig-fg-muted">{formatBRL(a.allocated_amount_cents)}</span> },
+    { key: 'allocation_percentage', header: 'Alocação', cell: (a) => (
+      <div className="w-[120px]">
+        <HudProgressBar value={a.allocation_percentage} variant={allocBarVariant(a.allocation_percentage)} size="sm" showLabel={false} />
+        <span className="mt-0.5 block text-[10px] font-mono text-ig-fg-muted">{a.allocation_percentage.toFixed(0)}%</span>
+      </div>
+    ) },
+    { key: 'status', header: 'Status', cell: (a) => (
+      <div className="flex items-center gap-1.5">
+        <HudStatusPill variant={STATUS_VARIANT[a.status]} size="sm">{STATUS_LABEL[a.status]}</HudStatusPill>
+        {a.linked_entry_id && <Link2 className="h-3 w-3 text-ig-accent" aria-label="Vinculado ao DRE" />}
+      </div>
+    ) },
+  ];
+
+  const projectDonut = byProject.slice(0, 8).map((row, i) => ({
+    name: row.label,
+    value: row.allocatedCost / 100,
+    tone: (['accent', 'info', 'success', 'warning', 'danger', 'budget'] as const)[i % 6],
+  }));
 
   return (
     <HudPageLayout>
       <HudHeader
         title="Folha & Alocação"
-        subtitle="Custo de força de trabalho por colaborador, projeto e centro de custo, com matriz de alocação"
+        subtitle="Custo de força de trabalho alocado por colaborador, projeto e centro de custo — reconhecido no DRE por competência"
         icon={<FileSpreadsheet className="w-5 h-5" />}
         iconTint="#14B8A6"
         breadcrumbs={[{ label: 'Financeiro', href: '/financeiro' }, { label: 'Folha & Alocação' }]}
-        actions={
-          <div className="flex items-center gap-2 rounded-lg border border-ig-border-subtle bg-ig-panel px-3 py-2 text-sm text-ig-fg-muted">
-            <DatabaseZap className="h-4 w-4 text-ig-accent" />
-            <span>Fonte: eSocial</span>
-            <span className="hidden font-mono text-xs text-ig-fg-subtle md:inline">
-              competencia {esocial.payroll.competence}
-            </span>
+      />
+
+      {deepLinkMissing && (
+        <div className="mt-4 flex items-start gap-2 rounded-lg border border-[color-mix(in_oklab,var(--ig-warning)_28%,transparent)] bg-[color-mix(in_oklab,var(--ig-warning)_12%,transparent)] p-3">
+          <AlertTriangle className="h-4 w-4 shrink-0 text-ig-warning" />
+          <p className="text-xs font-medium text-ig-warning">Alocação <span className="font-mono">{deepLinkMissing}</span> não encontrada.</p>
+        </div>
+      )}
+
+      <HudKpiStrip kpis={kpis} columns={6} size="sm" />
+
+      <div className="mt-4">
+        <FinanceFilterBar
+          showPeriod={false}
+          showScenario={false}
+          extra={
+            <>
+              <FinanceFilterChip icon={<Calendar className="h-3.5 w-3.5" />} label="Competência" value={filterCompetence} onChange={setFilterCompetence} options={competenceOptions} />
+              <FinanceFilterChip icon={<Activity className="h-3.5 w-3.5" />} label="Status" value={filterStatus} onChange={(v) => setFilterStatus(v as PayrollAllocationStatus | 'all')} options={[{ value: 'all', label: 'Todos' }, ...ALLOC_STATUSES.map(s => ({ value: s, label: STATUS_LABEL[s] }))]} />
+              <FinanceFilterChip icon={<Briefcase className="h-3.5 w-3.5" />} label="Projeto" value={filterProject} onChange={setFilterProject} options={projectOptions} maxValueChars={18} />
+              <FinanceFilterChip icon={<Layers className="h-3.5 w-3.5" />} label="C. Custo" value={filterCostCenter} onChange={setFilterCostCenter} options={costCenterOptions} maxValueChars={16} />
+              <FinanceFilterChip icon={<Building2 className="h-3.5 w-3.5" />} label="Depto" value={filterDepartment} onChange={setFilterDepartment} options={departmentOptions} maxValueChars={14} />
+            </>
+          }
+          rightSlot={
+            <>
+              {hasActiveFilters && <HudButton variant="ghost" size="sm" onClick={clearFilters}>Limpar</HudButton>}
+              <HudButton variant="primary" size="sm" leftIcon={<Send className="w-4 h-4" />} onClick={handlePostAll} disabled={processing || postableCount === 0}>
+                Lançar aprovados{postableCount > 0 ? ` (${postableCount})` : ''}
+              </HudButton>
+            </>
+          }
+        />
+      </div>
+
+      {/* Posted vs pending banner */}
+      <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <HudPanel title="Lançado no DRE" subtitle="Custo já reconhecido por competência" icon={<CheckCircle className="h-4 w-4" />}>
+          <p className="font-mono text-xl font-semibold text-ig-success">{fmtBRL(summary.postedCost / 100)}</p>
+          <p className="mt-1 text-[11px] text-ig-fg-muted">{summary.postedCount} alocação(ões) lançada(s)</p>
+        </HudPanel>
+        <HudPanel title="Pendente de lançamento" subtitle="Custo alocado ainda fora do DRE" icon={<ArrowUpRight className="h-4 w-4" />}>
+          <p className="font-mono text-xl font-semibold text-ig-warning">{fmtBRL(summary.pendingCost / 100)}</p>
+          <p className="mt-1 text-[11px] text-ig-fg-muted">{summary.pendingCount} pendente(s) • {postableCount} pronta(s) p/ lançar</p>
+        </HudPanel>
+        <HudPanel title="Composição do custo" subtitle="Bruto · encargos · benefícios" icon={<PieChart className="h-4 w-4" />}>
+          <div className="space-y-1 text-[11px]">
+            <div className="flex items-center justify-between"><span className="text-ig-fg-muted">Bruto</span><span className="font-mono text-ig-fg-strong">{fmtCompactBRL(summary.grossTotal / 100)}</span></div>
+            <div className="flex items-center justify-between"><span className="text-ig-fg-muted">Encargos</span><span className="font-mono text-ig-fg-strong">{fmtCompactBRL(summary.taxesTotal / 100)}</span></div>
+            <div className="flex items-center justify-between"><span className="text-ig-fg-muted">Benefícios</span><span className="font-mono text-ig-fg-strong">{fmtCompactBRL(summary.benefitsTotal / 100)}</span></div>
           </div>
-        }
-      />
-
-      <FinanceFilterBar
-        period={period} onPeriodChange={setPeriod}
-        scenario={scenario} onScenarioChange={setScenario}
-        rightSlot={
-          <>
-            <HudButton variant="ghost" size="sm" leftIcon={<RefreshCcw className="w-4 h-4" />}>Recalcular rateio</HudButton>
-            <HudButton variant="primary" size="sm" leftIcon={<Plus className="w-4 h-4" />}>Novo lote</HudButton>
-          </>
-        }
-      />
-
-      <HudKpiStrip kpis={kpis} columns={6} connected align="center" />
-
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-        <HudCard>
-          <HudCardHeader><HudCardTitle>Composição do custo de força de trabalho</HudCardTitle></HudCardHeader>
-          <HudCardContent className="p-3">
-            <FinanceDonutChart
-              data={[
-                { name: 'Folha bruta',  value: totalGross,    tone: 'accent'  },
-                { name: 'Encargos',     value: totalCharges,  tone: 'warning' },
-                { name: 'Benefícios',   value: totalBenefits, tone: 'info'    },
-                { name: 'Hora extra',   value: overtimeCost,  tone: 'danger'  },
-                { name: 'Mobilização',  value: mobilizationCost, tone: 'budget' },
-              ]}
-              centerLabel="Total c/ encargos"
-              centerValue={fmtCompactBRL(totalCost + overtimeCost + mobilizationCost)}
-              height={300}
-            />
-          </HudCardContent>
-        </HudCard>
-
-        <HudCard className="xl:col-span-2">
-          <HudCardHeader><HudCardTitle>Stacked — Alocação de custo por projeto × BU</HudCardTitle></HudCardHeader>
-          <HudCardContent className="p-3">
-            <FinanceStackedBarChart
-              categories={['Tecnologia', 'Operações', 'Comercial', 'CS', 'G&A']}
-              series={[
-                { name: 'PRJ-2026-001 ERP',          tone: 'accent',  data: [412_000, 0, 0, 0, 0] },
-                { name: 'PRJ-2026-002 Risco',        tone: 'danger',  data: [318_000, 0, 0, 0, 0] },
-                { name: 'PRJ-2026-003 Data Lake',    tone: 'info',    data: [264_000, 0, 0, 0, 0] },
-                { name: 'PRJ-2026-005 Operations 3D', tone: 'success', data: [0, 575_000, 0, 0, 0] },
-                { name: 'Estrutura / não alocado',   tone: 'budget',  data: [198_000, 245_000, 510_000, 320_000, 240_000] },
-              ]}
-              height={300}
-            />
-          </HudCardContent>
-        </HudCard>
+        </HudPanel>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-[1.4fr_1fr] gap-4">
-        <HudCard>
-          <HudCardHeader><HudCardTitle>Ranking de overtime por colaborador</HudCardTitle></HudCardHeader>
-          <HudCardContent className="p-3">
-            <FinanceRankMatrix
-              mode="progress"
-              sort="desc"
-              headers={{ rank: 'Rank', label: 'Colaborador', bar: 'Horas alocadas (mês)', secondary: 'Custo / hora' }}
-              valueFormatter={(v) => `${v}h`}
-              axisFormatter={(v) => `${v.toFixed(0)}h`}
-              rows={EMPLOYEES.map((e) => {
-                const hours = e.allocations.reduce((a, x) => a + x.hours, 0);
-                const overtime = hours > 152 ? hours - 152 : 0;
-                return {
-                  id: e.id,
-                  label: e.name,
-                  meta: `${e.role} • ${e.cc}`,
-                  value: hours,
-                  benchmark: 152,
-                  tone: (overtime > 8 ? 'danger' : overtime > 0 ? 'warning' : 'success') as 'danger' | 'warning' | 'success',
-                  secondaryLabel: 'Custo • R$/h',
-                  secondary: `${fmtCompactBRL(e.monthlyCost)} • ${fmtCompactBRL(Math.round(e.monthlyCost / Math.max(1, hours)))}`,
-                };
-              })}
-            />
-          </HudCardContent>
-        </HudCard>
-
-        <HudCard>
-          <HudCardHeader><HudCardTitle>S-Curve — Custo de pessoas acumulado (12m)</HudCardTitle></HudCardHeader>
-          <HudCardContent className="p-3">
-            <FinanceSCurveChart
-              categories={['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']}
-              series={[
-                { name: 'Realizado', values: [3_010_000, 3_080_000, 3_140_000, 3_198_800, 0, 0, 0, 0, 0, 0, 0, 0], tone: 'accent', emphasized: true },
-                { name: 'Orçado',    values: Array(12).fill(3_120_000), tone: 'budget', dashed: true },
-              ]}
-              height={300}
-            />
-          </HudCardContent>
-        </HudCard>
-      </div>
-
-      <HudTabs
-        activeTab={tab}
-        onTabChange={setTab}
-        tabs={[
-          {
-            id: 'folha', label: 'Folha Mensal',
-            content: (
-              <HudCard>
-                <HudCardHeader><HudCardTitle>Lotes de folha — Abril/2026</HudCardTitle></HudCardHeader>
-                <HudCardContent className="p-0">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead className="border-b border-ig-border-subtle">
-                        <tr className="text-[10.5px] uppercase tracking-[0.12em] text-ig-text-tertiary">
-                          <th className="text-left px-5 py-3 font-medium">Período</th>
-                          <th className="text-left px-5 py-3 font-medium">Business Unit</th>
-                          <th className="text-right px-5 py-3 font-medium">Bruto</th>
-                          <th className="text-right px-5 py-3 font-medium">Encargos</th>
-                          <th className="text-right px-5 py-3 font-medium">Benefícios</th>
-                          <th className="text-right px-5 py-3 font-medium">HC</th>
-                          <th className="text-left px-5 py-3 font-medium">Status</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {BATCHES.map((b) => (
-                          <tr key={b.id} className="border-b border-ig-border-subtle/40 hover:bg-ig-surface-subtle/30">
-                            <td className="px-5 py-2.5 font-mono text-[12px] text-ig-text-secondary">{b.period}</td>
-                            <td className="px-5 py-2.5 text-ig-text-primary">{b.bu}</td>
-                            <td className="text-right px-5 py-2.5 font-mono tabular-nums">{fmtBRL(b.gross)}</td>
-                            <td className="text-right px-5 py-2.5 font-mono tabular-nums text-ig-text-secondary">{fmtBRL(b.charges)}</td>
-                            <td className="text-right px-5 py-2.5 font-mono tabular-nums text-ig-text-secondary">{fmtBRL(b.benefits)}</td>
-                            <td className="text-right px-5 py-2.5 font-mono tabular-nums">{b.headcount}</td>
-                            <td className="px-5 py-2.5"><FinanceStatusBadge status={b.status} /></td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+      {/* Payroll batch reconciliation guard */}
+      {batchRecon.length > 0 && (
+        <div className="mt-4">
+          <HudPanel
+            title="Reconciliação de lotes de folha"
+            subtitle="Custo alocado × total do lote — bloqueia lançamento quando superalocado"
+            icon={<Scale className="h-4 w-4" />}
+            sweep
+          >
+            {hasOverallocation && (
+              <div className="mb-3 flex items-center gap-2 rounded-lg border border-[color-mix(in_oklab,var(--ig-danger)_28%,transparent)] bg-[color-mix(in_oklab,var(--ig-danger)_10%,transparent)] px-3 py-2">
+                <AlertTriangle className="h-4 w-4 shrink-0 text-ig-danger" />
+                <span className="text-xs font-medium text-ig-danger">Há lote(s) superalocado(s) — corrija as alocações antes de aprovar/lançar.</span>
+              </div>
+            )}
+            <div className="space-y-3">
+              {batchRecon.map((r) => (
+                <div key={r.batch_id} className="rounded-lg border border-ig-border-subtle bg-ig-panel/40 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <span className="font-mono text-xs text-ig-fg-strong">{r.batch_id}</span>
+                      <span className="ml-2 text-[11px] text-ig-fg-muted">{r.period_key} • {r.headcount} colab. • {r.allocationCount} alocação(ões)</span>
+                    </div>
+                    <HudStatusPill variant={RECON_VARIANT[r.status]} size="sm">{RECON_LABEL[r.status]}</HudStatusPill>
                   </div>
-                </HudCardContent>
-              </HudCard>
-            ),
-          },
-          {
-            id: 'aloc', label: 'Alocação por Projeto',
-            content: (
-              <HudCard>
-                <HudCardHeader><HudCardTitle>Custo de pessoas alocado em projetos</HudCardTitle></HudCardHeader>
-                <HudCardContent className="p-0">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead className="border-b border-ig-border-subtle">
-                        <tr className="text-[10.5px] uppercase tracking-[0.12em] text-ig-text-tertiary">
-                          <th className="text-left px-5 py-3 font-medium">Projeto</th>
-                          <th className="text-left px-5 py-3 font-medium">Centro de Custo</th>
-                          <th className="text-right px-5 py-3 font-medium">Alocado</th>
-                          <th className="text-right px-5 py-3 font-medium">Esforço (h)</th>
-                          <th className="text-right px-5 py-3 font-medium">R$/h</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {ALLOCATIONS.map((a, idx) => (
-                          <tr key={idx} className="border-b border-ig-border-subtle/40 hover:bg-ig-surface-subtle/30">
-                            <td className="px-5 py-2.5 text-ig-text-primary">{a.project}</td>
-                            <td className="px-5 py-2.5 text-ig-text-secondary">{a.cc}</td>
-                            <td className="text-right px-5 py-2.5 font-mono tabular-nums">{fmtBRL(a.allocated)}</td>
-                            <td className="text-right px-5 py-2.5 font-mono tabular-nums text-ig-text-secondary">{a.effort.toLocaleString('pt-BR')}</td>
-                            <td className="text-right px-5 py-2.5 font-mono tabular-nums">{fmtBRL(a.rate)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                  <div className="mt-2">
+                    <HudProgressBar value={Math.min(r.utilizationPct, 100)} variant={RECON_BAR[r.status]} size="sm" showLabel={false} />
+                    <div className="mt-1 flex items-center justify-between text-[10.5px] text-ig-fg-muted">
+                      <span>Alocado <span className="font-mono text-ig-fg-strong">{fmtBRL(r.allocatedTotalCents / 100)}</span> / {fmtBRL(r.batchTotalCents / 100)}</span>
+                      <span className={r.status === 'overallocated' ? 'font-mono text-ig-danger' : 'font-mono'}>
+                        {r.utilizationPct.toFixed(0)}%{r.varianceCents > 0 ? ` • +${fmtCompactBRL(r.varianceCents / 100)}` : ''}
+                      </span>
+                    </div>
                   </div>
-                </HudCardContent>
-              </HudCard>
-            ),
-          },
-          {
-            id: 'matrix', label: 'Matriz Colaborador × Projeto',
-            content: (
-              <HudCard>
-                <HudCardHeader><HudCardTitle>Matriz de alocação</HudCardTitle></HudCardHeader>
-                <HudCardContent className="p-0">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead className="border-b border-ig-border-subtle">
-                        <tr className="text-[10.5px] uppercase tracking-[0.12em] text-ig-text-tertiary">
-                          <th className="text-left px-5 py-3 font-medium sticky left-0 bg-ig-panel z-10">Colaborador</th>
-                          {PROJECT_KEYS.map((p) => (
-                            <th key={p} className="text-right px-3 py-3 font-medium whitespace-nowrap">{p.split(' — ')[0]}</th>
-                          ))}
-                          <th className="text-right px-5 py-3 font-medium">Total</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {matrix.map((r) => {
-                          const emp = EMPLOYEES.find((e) => e.id === r.id)!;
-                          return (
-                            <tr key={r.id as string} onClick={() => setSelected(emp)} className="border-b border-ig-border-subtle/40 hover:bg-ig-surface-subtle/30 cursor-pointer">
-                              <td className="px-5 py-2.5 text-ig-text-primary sticky left-0 bg-ig-panel z-10">
-                                <div>{r.name}</div>
-                                <div className="text-[10.5px] text-ig-text-tertiary">{emp.role} • {emp.cc}</div>
-                              </td>
-                              {PROJECT_KEYS.map((p) => {
-                                const v = (r as any)[p] as number | undefined;
-                                const pct = v ? (v / (r['__total'] as number)) * 100 : 0;
-                                return (
-                                  <td key={p} className="text-right px-3 py-2.5">
-                                    {v ? (
-                                      <div className="inline-flex flex-col items-end">
-                                        <span className="text-[12px] font-mono tabular-nums">{fmtBRL(v)}</span>
-                                        <span className="text-[10px] text-ig-text-tertiary">{pct.toFixed(0)}%</span>
-                                      </div>
-                                    ) : (
-                                      <span className="text-ig-text-tertiary">—</span>
-                                    )}
-                                  </td>
-                                );
-                              })}
-                              <td className="text-right px-5 py-2.5 font-mono tabular-nums">{fmtBRL(r['__total'] as number)}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </HudCardContent>
-              </HudCard>
-            ),
-          },
-        ]}
-      />
-
-      <FinanceInsightCard
-        title="Workforce insights"
-        subtitle="Eficiência, mobilização e custo de hora"
-        insights={[
-          { id: '1', tone: 'warning',  title: 'Hora extra concentrada', detail: `${fmtBRL(overtimeCost)} em hora extra no mês — 78% concentrado em PRJ-2026-002.` },
-          { id: '2', tone: 'negative', title: 'Mobilização extra', detail: `${fmtBRL(mobilizationCost)} de custo de mobilização não previsto no orçamento.` },
-          { id: '3', tone: 'positive', title: 'Taxa de alocação saudável', detail: `${allocationRate.toFixed(1)}% do custo de pessoas direcionado a projetos faturáveis.` },
-          { id: '4', tone: 'neutral',  title: 'Custo médio por hora', detail: 'R$ 218/h (média ponderada) — dentro do range planejado de R$ 200–230/h.' },
-        ]}
-      />
-
-      <FinanceDetailDrawer
-        open={!!selected}
-        onClose={() => setSelected(null)}
-        title={selected?.name || ''}
-        subtitle={selected ? `${selected.role} • ${selected.cc}` : ''}
-        metaPills={selected ? [
-          { label: `Custo ${fmtBRL(selected.monthlyCost)}/mês`, tone: 'info' },
-          { label: `${selected.allocations.length} alocações`, tone: 'neutral' },
-        ] : []}
-      >
-        {selected && (
-          <FinanceDrawerSection title="Alocações do mês">
-            <ul className="divide-y divide-ig-border-subtle/60">
-              {selected.allocations.map((a, idx) => (
-                <li key={idx} className="py-2.5 flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="text-[12.5px] text-ig-text-primary truncate">{a.project}</div>
-                    <div className="text-[10.5px] text-ig-text-tertiary">{a.hours}h • {a.pct}% do mês</div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-[12.5px] font-mono tabular-nums">{fmtBRL(selected.monthlyCost * (a.pct / 100))}</div>
-                  </div>
-                </li>
+                </div>
               ))}
-            </ul>
-          </FinanceDrawerSection>
+            </div>
+          </HudPanel>
+        </div>
+      )}
+
+      {/* Breakdown charts */}
+      <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[360px_1fr]">
+        <HudPanel title="Alocação por projeto" subtitle="Custo alocado por projeto" icon={<Briefcase className="h-4 w-4" />} sweep>
+          {projectDonut.length === 0 ? (
+            <p className="text-xs text-ig-fg-muted">Sem custo alocado para os filtros atuais.</p>
+          ) : (
+            <FinanceDonutChart data={projectDonut} centerLabel="Alocado" centerValue={fmtCompactBRL(summary.allocatedCost / 100)} height={240} />
+          )}
+        </HudPanel>
+        <HudPanel title="Folha por departamento" subtitle="Custo total × alocado por departamento" icon={<Building2 className="h-4 w-4" />} sweep>
+          {byDepartment.length === 0 ? (
+            <p className="text-xs text-ig-fg-muted">Sem dados para os filtros atuais.</p>
+          ) : (
+            <FinanceBarChart
+              categories={byDepartment.map(r => r.label)}
+              series={[
+                { name: 'Alocado', data: byDepartment.map(r => r.allocatedCost / 100), tone: 'success' },
+                { name: 'Não alocado', data: byDepartment.map(r => r.unallocatedCost / 100), tone: 'warning' },
+              ]}
+              height={240}
+            />
+          )}
+        </HudPanel>
+      </div>
+
+      {/* Cost center + competence trend */}
+      <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <HudPanel title="Folha por centro de custo" subtitle="Custo alocado por CC" icon={<Layers className="h-4 w-4" />} sweep>
+          {byCostCenter.length === 0 ? (
+            <p className="text-xs text-ig-fg-muted">Sem dados para os filtros atuais.</p>
+          ) : (
+            <FinanceBarChart categories={byCostCenter.map(r => r.label)} series={[{ name: 'Alocado', data: byCostCenter.map(r => r.allocatedCost / 100), tone: 'accent' }]} height={220} />
+          )}
+        </HudPanel>
+        <HudPanel title="Evolução por competência" subtitle="Custo total × alocado (todas as competências)" icon={<Calendar className="h-4 w-4" />} sweep>
+          {byCompetence.length === 0 ? (
+            <p className="text-xs text-ig-fg-muted">Sem histórico disponível.</p>
+          ) : (
+            <FinanceBarChart
+              categories={byCompetence.map(r => r.competence_month)}
+              series={[
+                { name: 'Custo total', data: byCompetence.map(r => r.totalCost / 100), tone: 'info' },
+                { name: 'Alocado', data: byCompetence.map(r => r.allocatedCost / 100), tone: 'success' },
+              ]}
+              height={220}
+            />
+          )}
+        </HudPanel>
+      </div>
+
+      {/* Allocation table */}
+      <div className="mt-4">
+        <HudPanel
+          noPadding
+          title="Alocação de folha"
+          subtitle={`${filtered.length} alocação(ões) • ${summary.headcount} colaborador(es) • ${summary.postedCount} lançada(s)`}
+          icon={<Users className="h-4 w-4" />}
+          sweep
+          headerActions={
+            <HudButton variant="ghost" size="sm" leftIcon={<ArrowUpDown className="w-4 h-4" />} onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}>
+              Custo {sortDir === 'asc' ? '↑' : '↓'}
+            </HudButton>
+          }
+        >
+          <HudTable
+            columns={columns}
+            data={filtered}
+            keyExtractor={(a) => a.id}
+            onRowClick={(a) => setDetailId(a.id)}
+            selectedRowId={detailId}
+            compact
+            stickyHeader
+          />
+        </HudPanel>
+      </div>
+
+      {/* Detail drawer */}
+      <HudDrawer isOpen={!!detailId} onClose={() => setDetailId(null)} title="Detalhe da alocação" width="md">
+        {detail && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <p className="text-[10px] uppercase text-ig-fg-subtle">Colaborador</p>
+                <p className="text-sm font-semibold text-ig-fg-strong">{detail.employee_name}</p>
+                <p className="text-xs text-ig-fg-muted">{detail.role}</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase text-ig-fg-subtle">Status</p>
+                <HudStatusPill variant={STATUS_VARIANT[detail.status]} size="sm">{STATUS_LABEL[detail.status]}</HudStatusPill>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div><p className="text-[10px] uppercase text-ig-fg-subtle">Competência</p><p className="font-mono text-sm text-ig-fg-strong">{detail.competence_month}</p></div>
+              <div><p className="text-[10px] uppercase text-ig-fg-subtle">Departamento</p><p className="text-sm text-ig-fg-strong">{detail.department_name}</p></div>
+            </div>
+
+            {/* Cost composition */}
+            <div className="grid grid-cols-3 gap-3 rounded-lg border border-ig-border-subtle bg-ig-panel/40 p-3">
+              <div><p className="text-[10px] uppercase text-ig-fg-subtle">Bruto</p><p className="font-mono text-sm text-ig-fg-strong">{formatBRL(detail.gross_amount_cents)}</p></div>
+              <div><p className="text-[10px] uppercase text-ig-fg-subtle">Encargos</p><p className="font-mono text-sm text-ig-fg-muted">{formatBRL(detail.taxes_amount_cents)}</p></div>
+              <div><p className="text-[10px] uppercase text-ig-fg-subtle">Benefícios</p><p className="font-mono text-sm text-ig-fg-muted">{formatBRL(detail.benefits_amount_cents)}</p></div>
+            </div>
+
+            {/* Allocation */}
+            <div>
+              <div className="mb-1 flex items-center justify-between">
+                <p className="text-[10px] uppercase text-ig-fg-subtle">Alocação ({detail.allocation_percentage.toFixed(0)}%)</p>
+                <span className="font-mono text-xs text-ig-fg-strong">{formatBRL(detail.allocated_amount_cents)} / {formatBRL(detail.total_cost_cents)}</span>
+              </div>
+              <HudProgressBar value={detail.allocation_percentage} variant={allocBarVariant(detail.allocation_percentage)} size="md" showLabel={false} />
+            </div>
+
+            {/* Destination dimensions */}
+            <div className="rounded-lg border border-ig-border-subtle bg-ig-panel/40 p-3 text-xs space-y-1">
+              <p><span className="text-ig-fg-subtle">Projeto: </span><span className="text-ig-fg-strong">{detail.project_name || 'Estrutural (não alocado)'}</span></p>
+              {detail.contract_name && <p><span className="text-ig-fg-subtle">Contrato: </span><span className="font-mono text-ig-fg-strong">{detail.contract_name}</span></p>}
+              <p><span className="text-ig-fg-subtle">Centro de custo: </span><span className="text-ig-fg-strong">{detail.cost_center?.name || detail.cost_center_id || '—'}</span></p>
+              <p><span className="text-ig-fg-subtle">Business unit: </span><span className="text-ig-fg-strong">{detail.business_unit?.name || detail.business_unit_id || '—'}</span></p>
+              {detail.payroll_batch_id && <p><span className="text-ig-fg-subtle">Lote de folha: </span><span className="font-mono text-ig-fg-strong">{detail.payroll_batch_id}</span></p>}
+              {detail.notes && <p className="mt-1 text-ig-fg-muted">{detail.notes}</p>}
+            </div>
+
+            {/* Linked DRE entry */}
+            <div className="rounded-lg border border-ig-border-subtle bg-ig-panel/40 p-3">
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] uppercase text-ig-fg-subtle">Lançamento no DRE</p>
+                {linkedEntry && <HudBadge variant="default" size="sm">1</HudBadge>}
+              </div>
+              {!linkedEntry ? (
+                <p className="mt-1 text-sm text-ig-fg-muted">Nenhum lançamento vinculado.</p>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => goToLedgerEntry(linkedEntry.id)}
+                  title="Ver lançamento vinculado"
+                  className="mt-2 flex w-full items-center justify-between gap-2 rounded-md px-1 py-1.5 text-left transition-colors hover:bg-ig-panel/60 focus:bg-ig-panel/60 focus:outline-none"
+                >
+                  <div className="flex min-w-0 items-center gap-2">
+                    <Link2 className="h-3 w-3 shrink-0 text-ig-accent" />
+                    <span className="truncate text-xs text-ig-fg-strong">{linkedEntry.entry_date}</span>
+                    <span className="text-[10px] uppercase tracking-[0.12em] text-ig-fg-subtle">Custo P&L</span>
+                  </div>
+                  <span className="shrink-0 font-mono text-xs font-semibold text-ig-fg-strong">{formatBRL(linkedEntry.amount_cents)}</span>
+                </button>
+              )}
+            </div>
+
+            {/* Lifecycle actions */}
+            {detail.status === 'posted' || detail.status === 'cancelled' ? (
+              <div className="border-t border-ig-border-subtle pt-4">
+                <HudBadge variant="default" size="sm">{STATUS_LABEL[detail.status]}</HudBadge>
+              </div>
+            ) : (
+              <div className="space-y-2 border-t border-ig-border-subtle pt-4">
+                <div className="flex gap-2">
+                  {canApprovePayroll(detail) && (
+                    <HudButton variant="secondary" leftIcon={<CheckCircle className="w-4 h-4" />} onClick={() => handleApprove(detail)} disabled={processing || detailBatchBlocksPost} fullWidth>
+                      Aprovar
+                    </HudButton>
+                  )}
+                  <HudButton
+                    variant="primary"
+                    leftIcon={<Send className="w-4 h-4" />}
+                    onClick={() => handlePost(detail)}
+                    disabled={processing || !canPostPayroll(detail) || detailBatchBlocksPost}
+                    fullWidth
+                  >
+                    Lançar no DRE
+                  </HudButton>
+                </div>
+                {detailBatchBlocksPost && (
+                  <p className="flex items-center gap-1.5 text-[11px] text-ig-danger">
+                    <AlertTriangle className="h-3 w-3 shrink-0" />
+                    Lote {detail.payroll_batch_id} superalocado ({detailRecon ? `${detailRecon.utilizationPct.toFixed(0)}%` : ''}) — corrija antes de lançar.
+                  </p>
+                )}
+                {!canPostPayroll(detail) && detail.status !== 'approved' && (
+                  <p className="text-[11px] text-ig-fg-muted">Aprove a alocação antes de lançar no DRE.</p>
+                )}
+                {detail.allocated_amount_cents <= 0 && (
+                  <p className="text-[11px] text-ig-warning">Sem valor alocado — nada a reconhecer no DRE.</p>
+                )}
+                <HudButton variant="ghost" size="sm" onClick={() => handleCancel(detail)} disabled={processing} fullWidth>
+                  Cancelar alocação
+                </HudButton>
+              </div>
+            )}
+          </div>
         )}
-      </FinanceDetailDrawer>
+      </HudDrawer>
+
+      {/* Footer summary */}
+      <div className="mt-4 text-right text-[10.5px] text-ig-text-tertiary">
+        Custo total nos filtros: <span className="font-mono">{fmtBRL(summary.totalCost / 100)}</span> • alocado <span className="font-mono">{fmtBRL(summary.allocatedCost / 100)}</span> • contratos: {byContract.filter(c => c.key !== '_none').length}
+      </div>
     </HudPageLayout>
   );
 }

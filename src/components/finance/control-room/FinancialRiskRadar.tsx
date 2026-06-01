@@ -64,7 +64,7 @@ export function FinancialRiskRadar({ risks }: FinancialRiskRadarProps) {
               <span className="absolute -right-0.5 -top-0.5 h-2 w-2 animate-pulse rounded-full bg-[#EF4444]" />
             </span>
             <div>
-              <h3 className="text-sm font-semibold tracking-tight text-[color:var(--ig-fg-strong)]">Financial Risk Radar</h3>
+              <h3 className="text-sm font-semibold tracking-tight text-[color:var(--ig-fg-strong)]">Radar de Riscos Financeiros</h3>
               <p className="text-[11px] text-[color:var(--ig-fg-muted)]">Exposição agregada · {criticalCount} riscos elevados</p>
             </div>
           </div>

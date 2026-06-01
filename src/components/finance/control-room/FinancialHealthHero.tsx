@@ -114,7 +114,7 @@ export function FinancialHealthHero(props: FinancialHealthHeroProps) {
     },
     {
       key: 'forecastGap',
-      label: 'Desvio do Forecast',
+      label: 'Desvio da Projeção',
       value: formatCompactBRL(forecastGap),
       helper: 'vs Orçado Aprovado',
       variance: -1.2,

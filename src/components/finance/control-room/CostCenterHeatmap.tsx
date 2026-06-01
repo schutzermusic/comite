@@ -65,7 +65,7 @@ export function CostCenterHeatmap({ data }: CostCenterHeatmapProps) {
               <Grid3x3 className="h-4 w-4" />
             </span>
             <div>
-              <h3 className="text-sm font-semibold tracking-tight text-[color:var(--ig-fg-strong)]">Cost Center Heatmap</h3>
+              <h3 className="text-sm font-semibold tracking-tight text-[color:var(--ig-fg-strong)]">Mapa de Calor por Centro de Custo</h3>
               <p className="text-[11px] text-[color:var(--ig-fg-muted)]">Desvio % vs Orçado por categoria × centro de custo</p>
             </div>
           </div>
@@ -78,18 +78,24 @@ export function CostCenterHeatmap({ data }: CostCenterHeatmapProps) {
           </div>
         </header>
 
-        <div className="flex-1 overflow-auto px-5 py-4">
-          <div className="inline-grid gap-[3px]" style={{ gridTemplateColumns: `132px repeat(${data.costCenters.length}, minmax(80px, 1fr))` }}>
+        <div className="min-h-0 flex-1 overflow-hidden px-5 py-4">
+          <div
+            className="grid h-full w-full gap-[3px]"
+            style={{
+              gridTemplateColumns: `minmax(96px, 0.9fr) repeat(${data.costCenters.length}, minmax(0, 1fr))`,
+              gridTemplateRows: `auto repeat(${data.categories.length}, minmax(0, 1fr))`,
+            }}
+          >
             <div />
             {data.costCenters.map((cc) => (
-              <div key={cc} className="px-2 py-1.5 text-center text-[10px] font-semibold uppercase tracking-[0.14em] text-[color:var(--ig-fg-subtle)]">
+              <div key={cc} className="truncate px-1 py-1.5 text-center text-[10px] font-semibold uppercase tracking-[0.14em] text-[color:var(--ig-fg-subtle)]">
                 {cc}
               </div>
             ))}
 
             {data.categories.map((cat) => (
               <React.Fragment key={cat}>
-                <div className="flex items-center px-2 py-1.5 text-[11px] font-medium text-[color:var(--ig-fg-default)]">
+                <div className="flex min-w-0 items-center px-2 text-[11px] font-medium text-[color:var(--ig-fg-default)]">
                   <span className="truncate">{cat}</span>
                 </div>
                 {data.costCenters.map((cc) => {
@@ -105,7 +111,7 @@ export function CostCenterHeatmap({ data }: CostCenterHeatmapProps) {
                       onMouseEnter={() => setHover({ cc, cat })}
                       onMouseLeave={() => setHover(null)}
                       className={cn(
-                        'group relative flex h-12 items-center justify-center rounded-md border text-[11px] font-mono font-semibold tabular-nums transition-all',
+                        'group relative flex h-full min-h-0 w-full items-center justify-center rounded-md border text-[11px] font-mono font-semibold tabular-nums transition-all',
                         'hover:scale-[1.04]',
                       )}
                       style={{

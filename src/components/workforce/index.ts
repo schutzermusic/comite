@@ -16,4 +16,5 @@ export { WorkforceAlertCenter } from './WorkforceAlertCenter';
 export { WorkforceTrendChart, generateMockTrendData } from './WorkforceTrendChart';
 export { CostCenterDrilldown } from './CostCenterDrilldown';
 export { HiringSimulatorExpanded } from './HiringSimulatorExpanded';
+export { WorkforcePeriodFilter } from './WorkforcePeriodFilter';
 

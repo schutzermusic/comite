@@ -2,16 +2,35 @@
 // Finance Module — Canonical Type Definitions
 // ============================================================
 
-export type ManagementGroupKey = 'revenue' | 'cogs' | 'opex' | 'financial' | 'taxes';
+/**
+ * P&L groups (revenue..taxes) plus 'clearing' — a non-P&L bucket for cash /
+ * treasury / settlement movements that must NOT inflate the managerial DRE.
+ * Selectors treat 'clearing' as out-of-P&L (see PNL_GROUP_KEYS / isPnlGroup).
+ */
+export type ManagementGroupKey = 'revenue' | 'cogs' | 'opex' | 'financial' | 'taxes' | 'clearing';
 export type CostCenterType = 'direct' | 'indirect' | 'admin';
 export type LedgerEntryType = 'actual' | 'budget' | 'forecast' | 'adjustment';
 export type LedgerEntryStatus = 'draft' | 'in_review' | 'approved' | 'posted' | 'reconciled' | 'void';
 export type PayrollBatchStatus = 'draft' | 'approved' | 'posted';
+export type PayrollAllocationStatus = 'draft' | 'allocated' | 'approved' | 'posted' | 'cancelled';
 export type AllocationMethod = 'fixed_pct' | 'headcount' | 'revenue' | 'timesheet_hh';
 export type AllocationRuleStatus = 'draft' | 'active' | 'archived';
 export type AllocationResultStatus = 'preview' | 'posted' | 'reversed';
+/**
+ * Project-allocation lifecycle for a ledger entry:
+ *  - 'allocated'        → project_id is set (counts toward official project AC)
+ *  - 'pending_project'  → no project_id yet but contract_id exists (a pre-project
+ *                         cost awaiting allocation once the project is created)
+ *  - 'unallocated'      → neither project_id nor contract_id (corporate/overhead)
+ * Always derived from project_id/contract_id so it can never drift.
+ */
+export type LedgerAllocationStatus = 'allocated' | 'pending_project' | 'unallocated';
 export type APARType = 'payable' | 'receivable';
 export type APARStatus = 'open' | 'partial' | 'paid' | 'overdue' | 'cancelled';
+export type TaxType =
+  | 'ISS' | 'INSS' | 'IRRF' | 'CSLL' | 'IRPJ' | 'PIS' | 'COFINS'
+  | 'ICMS' | 'DIFAL' | 'FGTS' | 'CSRF' | 'OTHER';
+export type TaxStatus = 'open' | 'scheduled' | 'paid' | 'partial' | 'overdue' | 'cancelled';
 export type PeriodCloseStatus = 'open' | 'soft_close' | 'closed';
 export type IngestionBatchStatus = 'running' | 'completed' | 'failed';
 export type SourceSystem = 'manual' | 'sankhya' | 'payroll_alloc' | 'other';
@@ -98,19 +117,47 @@ export interface Client {
   updated_at: string;
 }
 
+/** Forecast / planning scenario key. 'realized' = actual ledger; others overlay budget/forecast variants. */
+export type FinanceScenarioKey =
+  | 'realized'
+  | 'budget'
+  | 'forecast'
+  | 'stress'
+  | 'optimistic'
+  | 'board';
+
 export interface LedgerEntry {
   id: string;
   entry_date: string;
+  /** Competence month (YYYY-MM). Defaults to period_key. Lets entries be allocated to a different month than entry_date. */
+  competence_month?: string;
+  /** Due date for AP/AR-style settlement (YYYY-MM-DD). */
+  due_date?: string;
   description: string;
   amount_cents: number;
   currency: string;
   category_id: string;
+  /** Optional explicit DRE management line code (e.g. "A.1.1"). Falls back to the category's code. */
+  dre_line?: string;
   cost_center_id: string;
+  /** Nullable: a cost can be booked before its project exists (see allocation_status). */
   project_id?: string;
   contract_id?: string;
+  /**
+   * Derived allocation lifecycle (allocated / pending_project / unallocated).
+   * Populated on create and recomputed on read so it always matches the
+   * project_id/contract_id dimensions. See deriveAllocationStatus in finance-store.
+   */
+  allocation_status?: LedgerAllocationStatus;
+  /** Free-form note about the allocation (e.g. who linked it and why). */
+  allocation_notes?: string;
   supplier_id?: string;
   client_id?: string;
   business_unit_id: string;
+  /** Bank / GL account code. Optional; for treasury reconciliation. */
+  account?: string;
+  /** Scenario this entry belongs to. Forecast/stress/optimistic entries are tagged with the corresponding key. */
+  scenario?: FinanceScenarioKey;
   period_key: string;
   entry_type: LedgerEntryType;
   status: LedgerEntryStatus;
@@ -125,6 +172,8 @@ export interface LedgerEntry {
   evidence_provided: boolean;
   template_key?: string;
   tags?: string[];
+  /** Free-form operator note attached to the entry. */
+  notes?: string;
   metadata?: Record<string, unknown>;
   created_by: string;
   approved_by?: string;
@@ -163,6 +212,66 @@ export interface PayrollBatch {
   approved_at?: string;
   created_at: string;
   updated_at: string;
+  business_unit?: BusinessUnit;
+}
+
+/**
+ * Payroll allocation — distributes a single employee's fully-loaded payroll
+ * cost (gross + employer taxes + benefits) for a competence month onto a
+ * project / contract / cost center, so workforce cost lands in the managerial
+ * DRE by competence.
+ *
+ * Accounting: this is a P&L COST recognized at competence (NOT a clearing/cash
+ * movement). Posting generates an 'actual' LedgerEntry under a P&L payroll
+ * category (COGS direct folha for project work, OPEX indirect folha for
+ * structural roles) — never the clearing group used by AP/AR & tax settlements.
+ * Future cash payment of the payroll is a separate treasury/clearing concern.
+ *
+ * `total_cost_cents` is the employee's full loaded cost for the month;
+ * `allocated_amount_cents` is the portion directed to this project line
+ * (= total_cost_cents * allocation_percentage / 100). The unallocated
+ * remainder is structural/idle cost. See [[finance-store.postPayrollAllocation]].
+ */
+export interface PayrollAllocation {
+  id: string;
+  employee_id: string;
+  employee_name: string;
+  department_id: string;
+  department_name: string;
+  role: string;
+  /** Competence month (YYYY-MM) the cost belongs to. */
+  competence_month: string;
+  /** Source payroll batch this allocation draws from. */
+  payroll_batch_id?: string;
+  gross_amount_cents: number;
+  taxes_amount_cents: number;
+  benefits_amount_cents: number;
+  /** Fully-loaded monthly cost = gross + taxes + benefits. */
+  total_cost_cents: number;
+  /** Portion of total_cost_cents directed to this project/CC line. */
+  allocated_amount_cents: number;
+  /** allocated_amount_cents / total_cost_cents * 100. */
+  allocation_percentage: number;
+  project_id?: string;
+  contract_id?: string;
+  cost_center_id?: string;
+  business_unit_id?: string;
+  status: PayrollAllocationStatus;
+  /** P&L LedgerEntry generated when the allocation is posted. */
+  linked_entry_id?: string;
+  notes?: string;
+  source_system?: string;
+  created_by: string;
+  approved_by?: string;
+  approved_at?: string;
+  posted_at?: string;
+  cancelled_at?: string;
+  created_at: string;
+  updated_at: string;
+  // Joined fields for display
+  project_name?: string;
+  contract_name?: string;
+  cost_center?: CostCenter;
   business_unit?: BusinessUnit;
 }
 
@@ -229,9 +338,62 @@ export interface APARTitle {
   amount_cents: number;
   paid_amount_cents: number;
   status: APARStatus;
+  /** Most recent cash LedgerEntry generated by a settlement of this title. */
   linked_entry_id?: string;
+  /** Full settlement history — every cash LedgerEntry id produced by a payment/receipt. */
+  settlement_entry_ids?: string[];
+  /** Optional cost center used for the generated cash entry (treasury default applied when absent). */
+  cost_center_id?: string;
   source_system: string;
   external_key?: string;
+  notes?: string;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+  supplier?: Supplier;
+  client?: Client;
+}
+
+/**
+ * Tax obligation — an accrued/scheduled tax with its own lifecycle, separate
+ * from the LedgerEntry that recognized the expense at competence. Cash
+ * settlement is posted via the clearing group so the managerial DRE is not
+ * double-counted; see recordTaxPayment in finance-store.
+ */
+export interface TaxObligation {
+  id: string;
+  tax_type: TaxType;
+  title: string;
+  description?: string;
+  competence_month: string;       // YYYY-MM
+  due_date: string;               // YYYY-MM-DD
+  paid_date?: string;             // YYYY-MM-DD (last payment)
+  status: TaxStatus;
+  amount_cents: number;
+  paid_amount_cents: number;
+  supplier_id?: string;
+  client_id?: string;
+  contract_id?: string;
+  project_id?: string;
+  cost_center_id?: string;
+  /**
+   * P&L accrual LedgerEntry that recognized this tax at competence (group
+   * 'taxes', non-clearing). Set via linkTaxObligationToAccrual — kept separate
+   * from the cash settlement entries so recognition and payment never conflate.
+   */
+  accrual_entry_id?: string;
+  /**
+   * Latest cash-settlement LedgerEntry (clearing group) produced by a payment.
+   * For full settlement history use settlement_entry_ids. (Historically this
+   * field doubled as the accrual link; accrual now lives in accrual_entry_id.)
+   */
+  linked_entry_id?: string;
+  /** Optional AP/AR title if the tax was raised as an obligation. */
+  linked_apar_title_id?: string;
+  /** Every cash LedgerEntry id produced by recordTaxPayment for this obligation. */
+  settlement_entry_ids?: string[];
+  source_document?: string;
+  invoice_number?: string;
   notes?: string;
   created_by: string;
   created_at: string;

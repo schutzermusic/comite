@@ -134,7 +134,7 @@ export function FinanceControlBar({
                 )}
               >
                 <FileBarChart2 className="h-3.5 w-3.5" />
-                Gerar Board Report
+                Gerar Relatório do Conselho
               </button>
             </div>
           </div>

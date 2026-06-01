@@ -1,17 +1,20 @@
 'use client';
 
-import { useMemo, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useMemo, useState, Suspense } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import {
   Download,
   Share2,
-  Calendar,
   AlertTriangle,
   CheckCircle,
   AlertCircle,
   Users,
   DatabaseZap,
+  FileSpreadsheet,
+  ArrowRight,
 } from 'lucide-react';
+import { useCurrentUser } from '@/hooks/use-current-user';
+import { hasAnyPermission, hasPermission } from '@/lib/auth/permissions';
 
 import {
   WorkforceOverviewCards,
@@ -21,19 +24,22 @@ import {
   CostCenterDrilldown,
   HiringSimulatorExpanded,
   PayrollRiskIndicator,
-  generateMockTrendData,
+  WorkforcePeriodFilter,
 } from '@/components/workforce';
 
 import { getMockDashboardData } from '@/lib/dashboard-data';
 import { RiskStatus } from '@/lib/workforce-data';
-import { cn } from '@/lib/utils';
+import {
+  selectWorkforceView,
+  DEFAULT_WORKFORCE_PERIOD,
+  type WorkforcePeriodSelection,
+} from '@/lib/workforce/period';
+import { openWorkforceReport } from '@/lib/workforce/export-report';
 
 import {
   HudPageLayout,
   HudHeader,
   HudButton,
-  HudStatusPill,
-  HudEmptyState,
 } from '@/components/hud';
 import { getEsocialDashboardData } from '@/lib/esocial';
 
@@ -47,31 +53,40 @@ const statusConfig: Record<RiskStatus, {
   risk: { icon: AlertCircle, label: 'Risco', variant: 'error' },
 };
 
+const PAYROLL_PERMS = ['people.payroll_close', 'people.payroll_send', 'people.payroll_send_sensitive'];
+
 function WorkforceCostPageInner() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const costCenterId = searchParams.get('costCenterId');
+
+  // Show the payroll closing entry points to owners/admins or anyone holding a
+  // payroll permission. Owners/admins are never blocked even if perms aren't
+  // seeded yet. (Server routes still enforce permissions on every action.)
+  const { roles, permissions } = useCurrentUser();
+  const canSeePayroll =
+    roles.some((r) => r.key === 'owner_admin') ||
+    hasPermission(permissions, 'admin.manage_users') ||
+    hasAnyPermission(permissions, PAYROLL_PERMS);
+  const goToPayrollClosing = () => router.push('/workforce-cost/fechamento-folha');
 
   const data = useMemo(() => getMockDashboardData(), []);
   const esocial = useMemo(() => getEsocialDashboardData(), []);
-  const workforce = data.workforceData;
-  const trendData = useMemo(() => generateMockTrendData(), []);
+
+  // Global period filter — every workforce indicator below is derived from the
+  // selected period through the `selectWorkforce*` selectors (no hardcoding).
+  const [period, setPeriod] = useState<WorkforcePeriodSelection>(DEFAULT_WORKFORCE_PERIOD);
+  const workforce = useMemo(() => selectWorkforceView(period), [period]);
+  const trendData = workforce.trend;
+
+  const handleExportPdf = () => {
+    openWorkforceReport(workforce);
+  };
 
   const selectedCostCenter = useMemo(() => {
-    if (!costCenterId || !workforce) return null;
+    if (!costCenterId) return null;
     return workforce.costConcentration.costCenters.find((c) => c.id === costCenterId) || null;
   }, [costCenterId, workforce]);
-
-  if (!workforce) {
-    return (
-      <HudPageLayout>
-        <HudEmptyState
-          icon="alert"
-          title="Dados de Workforce Indisponíveis"
-          description="Não foi possível carregar os dados de workforce neste momento."
-        />
-      </HudPageLayout>
-    );
-  }
 
   const riskStatus = workforce.payrollRisk.status;
   const config = statusConfig[riskStatus];
@@ -86,12 +101,16 @@ function WorkforceCostPageInner() {
         breadcrumbs={[{ label: 'Pessoas & Custos' }]}
         statusChips={[
           {
+            label: workforce.meta.periodLabel,
+            variant: 'info',
+          },
+          {
             label: `${config.label} ${workforce.payrollRisk.riskScore}/100`,
             variant: config.variant === 'active' ? 'success' : config.variant === 'warning' ? 'warning' : 'critical',
           },
         ]}
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-ig-panel border border-ig-border-subtle text-sm text-ig-fg-muted">
               <DatabaseZap className="w-4 h-4 text-ig-accent" />
               <span>Fonte: eSocial</span>
@@ -99,19 +118,60 @@ function WorkforceCostPageInner() {
                 ultima sync {esocial.config.lastSyncAt ? '05/05 09:30' : 'pendente'}
               </span>
             </div>
-            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-ig-panel border border-ig-border-subtle text-sm text-ig-fg-muted">
-              <Calendar className="w-4 h-4 text-ig-fg-subtle" />
-              <span className="ig-tabular">{data.cycleSummary.currentCycle}</span>
-            </div>
+            <WorkforcePeriodFilter value={period} onChange={setPeriod} />
+            {canSeePayroll && (
+              <HudButton
+                variant="primary"
+                size="sm"
+                leftIcon={<FileSpreadsheet className="w-4 h-4" />}
+                onClick={goToPayrollClosing}
+              >
+                Fechamento da Folha
+              </HudButton>
+            )}
             <HudButton variant="secondary" size="sm" leftIcon={<Share2 className="w-4 h-4" />}>
               Compartilhar
             </HudButton>
-            <HudButton variant="secondary" size="sm" leftIcon={<Download className="w-4 h-4" />}>
+            <HudButton
+              variant="secondary"
+              size="sm"
+              leftIcon={<Download className="w-4 h-4" />}
+              onClick={handleExportPdf}
+            >
               Exportar PDF
             </HudButton>
           </div>
         }
       />
+
+      {canSeePayroll && (
+        <section>
+          <div className="relative overflow-hidden rounded-2xl border border-ig-border-focus/40 bg-ig-panel p-5 shadow-[var(--ig-shadow-e1)]">
+            <div className="pointer-events-none absolute inset-y-0 left-0 w-1 bg-ig-accent/70" />
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="flex min-w-0 items-start gap-3">
+                <div className="shrink-0 rounded-xl bg-ig-accent-weak p-2.5">
+                  <FileSpreadsheet className="h-5 w-5 text-ig-accent" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-base font-semibold text-ig-fg-strong">Fechamento da Folha</h3>
+                  <p className="text-sm text-ig-fg-muted">
+                    Importar folha, gerar análise com IA, anexar holerites e enviar por e-mail.
+                  </p>
+                </div>
+              </div>
+              <HudButton
+                variant="primary"
+                leftIcon={<FileSpreadsheet className="h-4 w-4" />}
+                rightIcon={<ArrowRight className="h-4 w-4" />}
+                onClick={goToPayrollClosing}
+              >
+                Novo fechamento
+              </HudButton>
+            </div>
+          </div>
+        </section>
+      )}
 
       {selectedCostCenter && (
         <section>
@@ -123,7 +183,7 @@ function WorkforceCostPageInner() {
       )}
 
       <section>
-        <WorkforceOverviewCards data={workforce.metrics} />
+        <WorkforceOverviewCards data={workforce.metrics} meta={workforce.meta} />
       </section>
 
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">

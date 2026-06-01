@@ -434,6 +434,7 @@ export const v2Overlays: Record<string, Omit<ProjectV2, keyof import('@/lib/type
         governance: { deliberation_ids: ['delib-001', 'delib-005'], meeting_ids: ['meet-002'] },
         audit_log: makeAudit('proj-001'),
         contract_id: 'contract-cemig-001',
+        finance_project_id: 'proj-3', // Equinor — carries pending pre-project costs
         uf: 'MG',
         location: { city: 'Belo Horizonte', lat: -19.9167, lng: -43.9345 },
         health_score: 0, // will be computed
@@ -461,6 +462,7 @@ export const v2Overlays: Record<string, Omit<ProjectV2, keyof import('@/lib/type
         governance: { deliberation_ids: ['delib-003'], meeting_ids: ['meet-001', 'meet-003'] },
         audit_log: makeAudit('proj-007'),
         contract_id: 'contract-enel-001',
+        finance_project_id: 'proj-4', // Eneva GNL Parnaíba (energy generation)
         uf: 'PE',
         location: { city: 'Caetés', lat: -8.7731, lng: -36.6242 },
         health_score: 0,
@@ -497,6 +499,7 @@ export const v2Overlays: Record<string, Omit<ProjectV2, keyof import('@/lib/type
         governance: { deliberation_ids: [], meeting_ids: [] },
         audit_log: [],
         contract_id: 'contract-petrobras-p80',
+        finance_project_id: 'proj-1', // Petrobras FPSO P-80
         uf: 'RJ',
         location: { city: 'Rio de Janeiro', lat: -22.9068, lng: -43.1729 },
         health_score: 0,

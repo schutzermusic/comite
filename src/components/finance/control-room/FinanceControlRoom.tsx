@@ -127,7 +127,7 @@ export function FinanceControlRoom() {
     <HudPageLayout maxWidth="2xl">
       <HudHeader
         title="Financeiro"
-        subtitle="Sala Financeira Executiva — DRE, Forecast e Performance por Projeto"
+        subtitle="Sala Financeira Executiva — DRE, Projeção e Performance por Projeto"
         icon={<Activity className="h-5 w-5" />}
         iconTint="#14B8A6"
         breadcrumbs={[{ label: 'Financeiro' }]}

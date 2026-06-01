@@ -75,6 +75,7 @@ import { useCurrentUser } from "@/hooks/use-current-user";
 const ADMIN_STORAGE_KEY = "ig-sidebar-admin-open";
 const FINANCE_STORAGE_KEY = "ig-sidebar-finance-open";
 const PROJECTS_STORAGE_KEY = "ig-sidebar-projects-open";
+const WORKFORCE_STORAGE_KEY = "ig-sidebar-workforce-open";
 
 type User = {
   fullName: string;
@@ -96,6 +97,7 @@ type SubMenuItem = {
   label: string;
   icon: LucideIcon;
   permission?: string;
+  anyPermission?: string[];
 };
 
 type MenuItem = {
@@ -148,7 +150,22 @@ const navigationItems: MenuItem[] = [
   { href: "/deliberacoes", labelKey: "deliberations", icon: Gavel, section: "main", permission: "deliberations.view" },
   { href: "/riscos", labelKey: "risks", icon: ShieldAlert, section: "main", permission: "risks.view" },
   { href: "/contratos", labelKey: "contracts", icon: FileCheck, section: "main", permission: "contracts.view" },
-  { href: "/workforce-cost", labelKey: "peopleAndCosts", icon: Users, section: "main", permission: "people.view" },
+  {
+    href: "/workforce-cost",
+    labelKey: "peopleAndCosts",
+    icon: Users,
+    section: "main",
+    permission: "people.view",
+    subItems: [
+      { href: "/workforce-cost", label: "Visão Geral", icon: Users },
+      {
+        href: "/workforce-cost/fechamento-folha",
+        label: "Fechamento da Folha",
+        icon: FileSpreadsheet,
+        anyPermission: ["people.payroll_close", "people.payroll_send", "people.payroll_send_sensitive"],
+      },
+    ],
+  },
   { href: "/organograma", labelKey: "organogram", icon: Network, section: "main", permission: "org_chart.view" },
   { href: "/comites", labelKey: "committeeManagement", icon: Building2, section: "admin", permission: "committees.view" },
   { href: "/admin/users", labelKey: "manageMembers", icon: Users, section: "admin", permission: "admin.manage_users" },
@@ -181,6 +198,7 @@ export function AppSidebar() {
   const [adminOpen, setAdminOpen] = useState(false);
   const [financeOpen, setFinanceOpen] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(false);
+  const [workforceOpen, setWorkforceOpen] = useState(false);
 
   useEffect(() => {
     const storedAdmin = localStorage.getItem(ADMIN_STORAGE_KEY);
@@ -196,6 +214,12 @@ export function AppSidebar() {
       setProjectsOpen(storedProjects === "true");
     } else if (pathname.startsWith("/projetos")) {
       setProjectsOpen(true);
+    }
+    const storedWorkforce = localStorage.getItem(WORKFORCE_STORAGE_KEY);
+    if (storedWorkforce !== null) {
+      setWorkforceOpen(storedWorkforce === "true");
+    } else if (pathname.startsWith("/workforce-cost")) {
+      setWorkforceOpen(true);
     }
   }, [pathname]);
 
@@ -223,14 +247,31 @@ export function AppSidebar() {
     });
   };
 
+  const toggleWorkforce = () => {
+    setWorkforceOpen((previous) => {
+      const next = !previous;
+      localStorage.setItem(WORKFORCE_STORAGE_KEY, String(next));
+      return next;
+    });
+  };
+
   const getSubmenuState = (href: string) => {
     if (href === "/financeiro") return { isOpen: financeOpen, onToggle: toggleFinance };
     if (href === "/projetos") return { isOpen: projectsOpen, onToggle: toggleProjects };
+    if (href === "/workforce-cost") return { isOpen: workforceOpen, onToggle: toggleWorkforce };
     return { isOpen: false, onToggle: () => undefined };
   };
 
+  // Owners/admins always see everything (RBAC perms may not be seeded yet for
+  // newer modules like payroll closing). Mirrors current_user_is_admin() server-side.
+  const isOwnerAdmin =
+    roles.some((r) => r.key === "owner_admin") ||
+    hasPermission(permissions, "admin.manage_users") ||
+    hasPermission(permissions, "admin.manage_roles");
+
   const canSeeItem = (item: MenuItem) => {
     if (item.alwaysVisibleWhenAuthenticated && authUser) return true;
+    if (isOwnerAdmin) return true;
     if (item.permission) return hasPermission(permissions, item.permission);
     if (item.anyPermission) return hasAnyPermission(permissions, item.anyPermission);
     return true;
@@ -238,7 +279,12 @@ export function AppSidebar() {
 
   const filterSubItems = (item: MenuItem) => {
     if (!item.subItems) return undefined;
-    return item.subItems.filter((subItem) => !subItem.permission || hasPermission(permissions, subItem.permission));
+    return item.subItems.filter((subItem) => {
+      if (isOwnerAdmin) return true;
+      if (subItem.anyPermission) return hasAnyPermission(permissions, subItem.anyPermission);
+      if (subItem.permission) return hasPermission(permissions, subItem.permission);
+      return true;
+    });
   };
 
   const mainItems = navigationItems.filter((item) => item.section === "main" && canSeeItem(item));

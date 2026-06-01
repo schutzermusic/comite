@@ -1,75 +1,28 @@
 'use client';
 
 import { Fragment, useMemo, useState } from 'react';
-import { LineChart, Download, ChevronRight, ExternalLink } from 'lucide-react';
+import { LineChart, Download, ChevronRight, ExternalLink, GitBranch } from 'lucide-react';
 import {
   HudPageLayout, HudHeader, HudKpiStrip, HudButton,
   HudCard, HudCardHeader, HudCardTitle, HudCardContent,
   type KpiItem,
 } from '@/components/hud';
 import {
-  FinanceFilterBar,
+  FinanceFilterBar, FinanceFilterChip,
   FinanceInsightCard,
   FinanceDetailDrawer, FinanceDrawerSection, FinanceDrawerKeyValue,
   FinanceAdvancedWaterfallChart,
   FinanceDonutChart,
   FinanceSCurveChart,
   FinanceStackedBarChart,
-  Finance3DMetricCard,
   fmtBRL, fmtPct, fmtCompactBRL,
   type FinancePeriod, type FinanceScenario,
 } from '@/components/finance/shared';
+import { selectDreManagerial, variancePct, type DreManagerialRow } from '@/lib/finance';
 
-type DreLine = {
-  key: string;
-  label: string;
-  level: 0 | 1 | 2;
-  tone?: 'sub' | 'final';
-  current: number;
-  prior: number;
-  budget: number;
-  composition: { name: string; value: number }[];
-};
+type DreLine = DreManagerialRow;
 
-const DATA: DreLine[] = [
-  { key: 'rb', label: 'Receita Bruta', level: 0, current: 18_540_000, prior: 16_120_000, budget: 18_000_000, composition: [
-    { name: 'Receita Recorrente (SaaS)', value: 11_240_000 },
-    { name: 'Serviços Profissionais', value: 5_120_000 },
-    { name: 'Consumo / Usage', value: 1_280_000 },
-    { name: 'Receitas Diversas', value: 900_000 },
-  ]},
-  { key: 'ded', label: '(–) Deduções e Impostos sobre Receita', level: 1, current: -2_410_200, prior: -2_096_000, budget: -2_340_000, composition: [
-    { name: 'PIS/COFINS', value: -1_390_500 },
-    { name: 'ISS/ICMS', value: -740_000 },
-    { name: 'Devoluções e Cancelamentos', value: -279_700 },
-  ]},
-  { key: 'rl', label: 'Receita Líquida', level: 0, tone: 'sub', current: 16_129_800, prior: 14_024_000, budget: 15_660_000, composition: [] },
-  { key: 'cd', label: '(–) Custo Direto (CMV / CSP)', level: 1, current: -8_710_400, prior: -7_820_000, budget: -8_430_000, composition: [
-    { name: 'Pessoal alocado em projetos', value: -5_840_000 },
-    { name: 'Infra / Cloud / Licenças', value: -1_620_000 },
-    { name: 'Subcontratação', value: -890_400 },
-    { name: 'Materiais e insumos', value: -360_000 },
-  ]},
-  { key: 'mb', label: 'Margem Bruta', level: 0, tone: 'sub', current: 7_419_400, prior: 6_204_000, budget: 7_230_000, composition: [] },
-  { key: 'opex', label: '(–) OPEX (Pessoal, Estrutura, G&A)', level: 1, current: -3_185_700, prior: -2_910_000, budget: -3_120_000, composition: [
-    { name: 'Pessoal não alocado', value: -1_640_000 },
-    { name: 'Estrutura e facilities', value: -612_000 },
-    { name: 'G&A (jurídico, financeiro, TI)', value: -533_700 },
-    { name: 'Marketing & Branding', value: -400_000 },
-  ]},
-  { key: 'ebitda', label: 'EBITDA', level: 0, tone: 'sub', current: 4_233_700, prior: 3_294_000, budget: 4_110_000, composition: [] },
-  { key: 'fin', label: 'Resultado Financeiro', level: 1, current: -612_400, prior: -540_000, budget: -580_000, composition: [
-    { name: 'Despesas financeiras', value: -780_000 },
-    { name: 'Receitas financeiras', value: 167_600 },
-  ]},
-  { key: 'tax', label: 'Impostos sobre o Lucro (IR/CSLL)', level: 1, current: -985_300, prior: -760_000, budget: -940_000, composition: [
-    { name: 'IRPJ', value: -680_000 },
-    { name: 'CSLL', value: -305_300 },
-  ]},
-  { key: 'rl_final', label: 'Resultado Líquido', level: 0, tone: 'final', current: 2_636_000, prior: 1_994_000, budget: 2_590_000, composition: [] },
-];
-
-const variancePct = (a: number, b: number) => (b === 0 ? 0 : ((a - b) / Math.abs(b)) * 100);
+const DATA: DreLine[] = selectDreManagerial('2026-04');
 
 const VIEWS = [
   { value: 'consolidated', label: 'Consolidado' },
@@ -169,28 +122,13 @@ export default function DreGerencialPage() {
         period={period} onPeriodChange={setPeriod}
         scenario={scenario} onScenarioChange={setScenario}
         extra={
-          <div className="flex items-end gap-1.5">
-            <div className="flex flex-col gap-1">
-              <span className="text-[10.5px] uppercase tracking-wider text-ig-text-tertiary font-medium">Visão</span>
-              <div className="flex rounded-lg border border-ig-border-subtle overflow-hidden bg-ig-surface-subtle/30">
-                {VIEWS.map((v) => (
-                  <button
-                    key={v.value}
-                    type="button"
-                    onClick={() => setView(v.value)}
-                    className={
-                      'px-2.5 h-8 text-[11px] font-medium transition-colors ' +
-                      (view === v.value
-                        ? 'bg-ig-accent-weak text-ig-accent border-r border-ig-border-focus last:border-r-0'
-                        : 'text-ig-text-secondary hover:text-ig-text-primary hover:bg-ig-surface-subtle/60 border-r border-ig-border-subtle/60 last:border-r-0')
-                    }
-                  >
-                    {v.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
+          <FinanceFilterChip
+            icon={<GitBranch className="h-3.5 w-3.5" />}
+            label="Visão"
+            value={view}
+            onChange={(v) => setView(v as ViewMode)}
+            options={VIEWS.map((v) => ({ value: v.value, label: v.label }))}
+          />
         }
         rightSlot={
           <>
@@ -202,23 +140,15 @@ export default function DreGerencialPage() {
 
       <HudKpiStrip kpis={kpis} columns={6} connected align="center" />
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
-        <Finance3DMetricCard label="Receita Líquida" value={fmtCompactBRL(totals.rl)} delta={{ value: '+15.0% vs anterior', tone: 'pos' }} caption="Recorrência + Serv. Prof." tone="info"    icon={<LineChart className="w-3.5 h-3.5" />} intensity="strong" />
-        <Finance3DMetricCard label="EBITDA"          value={fmtCompactBRL(totals.ebitda)} delta={{ value: '+28.5% YoY',     tone: 'pos' }} caption={`Margem ${((totals.ebitda / totals.rl) * 100).toFixed(1)}%`} tone="success" intensity="strong" />
-        <Finance3DMetricCard label="Lucro Líquido"   value={fmtCompactBRL(totals.liq)}    delta={{ value: '+32.2% YoY',     tone: 'pos' }} caption="Carga efetiva 27.3%" tone="accent"  intensity="strong" />
-        <Finance3DMetricCard label="EBITDA vs Orç."  value={fmtPct(totals.ebitdaVar)}    delta={{ value: 'Acima do plano', tone: totals.ebitdaVar >= 0 ? 'pos' : 'neg' }} caption="Bridge: Receita +Δ −Custo −OPEX" tone={totals.ebitdaVar >= 0 ? 'success' : 'danger'} intensity="strong" />
-      </div>
-
-      <div className="grid grid-cols-1 xl:grid-cols-[1.7fr_1fr] gap-4">
-        <HudCard>
-          <HudCardHeader>
-            <HudCardTitle>
-              Demonstração de Resultado — {VIEWS.find((v) => v.value === view)?.label}
-            </HudCardTitle>
-          </HudCardHeader>
-          <HudCardContent className="p-0">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+      <HudCard>
+        <HudCardHeader>
+          <HudCardTitle>
+            Demonstração de Resultado — {VIEWS.find((v) => v.value === view)?.label}
+          </HudCardTitle>
+        </HudCardHeader>
+        <HudCardContent className="p-0">
+          <div className="w-full">
+            <table className="w-full table-fixed text-sm">
                 <thead className="border-b border-ig-border-subtle">
                   <tr className="text-[10.5px] uppercase tracking-[0.12em] text-ig-text-tertiary">
                     <th className="text-left px-5 py-3 font-medium w-[36%]">Conta</th>
@@ -292,41 +222,40 @@ export default function DreGerencialPage() {
                   })}
                 </tbody>
               </table>
-            </div>
+          </div>
+        </HudCardContent>
+      </HudCard>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <HudCard>
+          <HudCardHeader><HudCardTitle>DRE Bridge — Receita Líquida → Lucro Líquido</HudCardTitle></HudCardHeader>
+          <HudCardContent className="p-3">
+            <FinanceAdvancedWaterfallChart steps={waterfallSteps} height={300} />
           </HudCardContent>
         </HudCard>
 
-        <div className="flex flex-col gap-4">
-          <HudCard>
-            <HudCardHeader><HudCardTitle>DRE Bridge — Receita Líquida → Lucro Líquido</HudCardTitle></HudCardHeader>
-            <HudCardContent className="p-3">
-              <FinanceAdvancedWaterfallChart steps={waterfallSteps} height={300} />
-            </HudCardContent>
-          </HudCard>
-
-          <FinanceInsightCard
-            title="Variance Explanation"
-            subtitle="Análise automatizada da DRE do período"
-            insights={[
-              { id: '1', tone: 'positive', title: 'EBITDA acima do orçado', detail: `Realizado de ${fmtBRL(totals.ebitda)}, ${fmtPct(totals.ebitdaVar)} vs orçado, puxado por receita recorrente e ganho de eficiência em CSP.` },
-              { id: '2', tone: 'warning',  title: 'Custo direto pressionado', detail: 'Pessoal alocado em projetos cresceu 4.2% acima do orçado — investigar mobilização do projeto PRJ-2026-002.' },
-              { id: '3', tone: 'negative', title: 'Resultado financeiro negativo', detail: 'Despesas financeiras +5.6% vs orçado por exposição cambial em contratos USD.', action: { label: 'Revisar exposição' } },
-              { id: '4', tone: 'neutral',  title: 'Impostos sobre o lucro', detail: 'Carga efetiva 27.3%; benefício de Lei do Bem em apuração para Q2.' },
-            ]}
-          />
-        </div>
+        <FinanceInsightCard
+          title="Variance Explanation"
+          subtitle="Análise automatizada da DRE do período"
+          insights={[
+            { id: '1', tone: 'positive', title: 'EBITDA acima do orçado', detail: `Realizado de ${fmtBRL(totals.ebitda)}, ${fmtPct(totals.ebitdaVar)} vs orçado, puxado por receita recorrente e ganho de eficiência em CSP.` },
+            { id: '2', tone: 'warning',  title: 'Custo direto pressionado', detail: 'Pessoal alocado em projetos cresceu 4.2% acima do orçado — investigar mobilização do projeto PRJ-2026-002.' },
+            { id: '3', tone: 'negative', title: 'Resultado financeiro negativo', detail: 'Despesas financeiras +5.6% vs orçado por exposição cambial em contratos USD.', action: { label: 'Revisar exposição' } },
+            { id: '4', tone: 'neutral',  title: 'Impostos sobre o lucro', detail: 'Carga efetiva 27.3%; benefício de Lei do Bem em apuração para Q2.' },
+          ]}
+        />
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-[1.25fr_1fr] gap-4">
-        <HudCard>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
+        <HudCard className="flex flex-col h-full">
           <HudCardHeader><HudCardTitle>S-Curve — Resultado acumulado vs Orçado vs Forecast</HudCardTitle></HudCardHeader>
-          <HudCardContent className="p-3">
-            <FinanceSCurveChart categories={monthLabels} series={cumulativeSeries} height={280} />
+          <HudCardContent className="p-3 flex-1 flex items-center justify-center">
+            <FinanceSCurveChart categories={monthLabels} series={cumulativeSeries} height={300} />
           </HudCardContent>
         </HudCard>
-        <HudCard>
+        <HudCard className="flex flex-col h-full">
           <HudCardHeader><HudCardTitle>Composição de despesas — Período</HudCardTitle></HudCardHeader>
-          <HudCardContent className="p-3">
+          <HudCardContent className="p-3 flex-1 flex items-center justify-center">
             <FinanceDonutChart
               data={expenseDonut}
               centerLabel="Despesa total"

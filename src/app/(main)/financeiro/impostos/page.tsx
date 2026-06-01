@@ -1,322 +1,506 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { Wallet, Calendar, AlertTriangle, FileBarChart2 } from 'lucide-react';
+import { useMemo, useState, useCallback, Suspense, useEffect } from 'react';
+import { useRouter, useSearchParams, usePathname } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import {
-  HudPageLayout, HudHeader, HudKpiStrip, HudButton, HudSelect,
-  HudCard, HudCardHeader, HudCardTitle, HudCardContent,
-  type KpiItem,
+  Wallet, Calendar, AlertTriangle, Tag, Activity, Clock3, CheckCircle, Link2,
+  ArrowUpRight, ArrowUpDown,
+} from 'lucide-react';
+import {
+  HudPageLayout, HudHeader, HudKpiStrip, HudButton,
+  HudPanel, HudTable, HudStatusPill, HudDrawer, HudBadge, HudInput,
+  type KpiItem, type HudTableColumn, type HudStatusPillVariant,
 } from '@/components/hud';
 import {
-  FinanceFilterBar,
-  FinanceInsightCard,
-  FinanceStatusBadge, type FinanceStatus,
-  FinanceDetailDrawer, FinanceDrawerSection, FinanceDrawerKeyValue,
-  FinanceBarChart,
-  FinanceDonutChart,
-  FinanceStackedBarChart,
-  FinanceSCurveChart,
-  fmtBRL, fmtPct, fmtCompactBRL,
-  type FinancePeriod, type FinanceScenario,
+  FinanceFilterBar, FinanceFilterChip,
+  FinanceBarChart, FinanceDonutChart,
+  fmtBRL, fmtCompactBRL,
 } from '@/components/finance/shared';
+import {
+  getTaxObligations, getTaxObligation, getLedgerEntry,
+  recordTaxPayment, formatBRL, formatCompactBRL, reaisToCents, centsToReais,
+} from '@/lib/finance/finance-store';
+import {
+  selectTaxSummary, selectTaxAging, selectTaxesByType, selectProjectedTaxCashOut,
+  filterTaxes, sortTaxesByDueDate, isTaxOverdue, daysOverdueTax, remainingTaxCents,
+  type TaxFilter,
+} from '@/lib/finance/selectors/taxes';
+import type { TaxObligation, TaxStatus, TaxType, LedgerEntry } from '@/lib/types/finance';
 
-type TaxEntry = {
-  id: string;
-  code: string;
-  name: string;
-  type: 'federal' | 'estadual' | 'municipal' | 'retencao';
-  provisioned: number;
-  paid: number;
-  dueDate: string;
-  reference: string;
-  status: FinanceStatus;
-  client?: string;
-  contract?: string;
-  dreImpact: number;
-  alert?: string;
+const STATUS_VARIANT: Record<TaxStatus, HudStatusPillVariant> = {
+  open: 'info',
+  scheduled: 'pending',
+  partial: 'warning',
+  paid: 'completed',
+  overdue: 'error',
+  cancelled: 'error',
+};
+const STATUS_LABEL: Record<TaxStatus, string> = {
+  open: 'Em aberto',
+  scheduled: 'Agendado',
+  partial: 'Parcial',
+  paid: 'Pago',
+  overdue: 'Vencido',
+  cancelled: 'Cancelado',
 };
 
-const ENTRIES: TaxEntry[] = [
-  { id: 't1', code: 'PIS',     name: 'PIS sobre faturamento',    type: 'federal',  provisioned: 305_000, paid: 305_000, dueDate: '2026-05-25', reference: '2026-04', status: 'paid',     dreImpact: -305_000 },
-  { id: 't2', code: 'COFINS',  name: 'COFINS sobre faturamento', type: 'federal',  provisioned: 1_085_500, paid: 1_085_500, dueDate: '2026-05-25', reference: '2026-04', status: 'paid', dreImpact: -1_085_500 },
-  { id: 't3', code: 'ISS',     name: 'ISS — São Paulo',          type: 'municipal', provisioned: 462_000, paid: 0, dueDate: '2026-05-15', reference: '2026-04', status: 'pending', dreImpact: -462_000, alert: 'Vence em 11 dias' },
-  { id: 't4', code: 'IRPJ',    name: 'IRPJ — apuração mensal',    type: 'federal',  provisioned: 680_000, paid: 0, dueDate: '2026-05-31', reference: '2026-04', status: 'pending', dreImpact: -680_000 },
-  { id: 't5', code: 'CSLL',    name: 'CSLL — apuração mensal',    type: 'federal',  provisioned: 305_300, paid: 0, dueDate: '2026-05-31', reference: '2026-04', status: 'pending', dreImpact: -305_300 },
-  { id: 't6', code: 'IRRF',    name: 'IRRF — Banco Iguaçu',       type: 'retencao', provisioned: 79_500,  paid: 79_500, dueDate: '2026-04-20', reference: '2026-04', status: 'paid', client: 'Banco Iguaçu', contract: 'CT-2025-021', dreImpact: 0 },
-  { id: 't7', code: 'CSRF',    name: 'CSRF — Mineração Vale Sul', type: 'retencao', provisioned: 215_625, paid: 0, dueDate: '2026-05-20', reference: '2026-04', status: 'overdue', client: 'Mineração Vale Sul', contract: 'CT-2025-098', dreImpact: 0, alert: 'Atrasado 4 dias' },
-  { id: 't8', code: 'INSS',    name: 'INSS sobre folha',          type: 'federal',  provisioned: 558_000, paid: 558_000, dueDate: '2026-05-20', reference: '2026-04', status: 'paid', dreImpact: -558_000 },
-  { id: 't9', code: 'ICMS',    name: 'ICMS — produtos digitais',  type: 'estadual', provisioned: 142_000, paid: 0, dueDate: '2026-05-22', reference: '2026-04', status: 'review', dreImpact: -142_000, alert: 'Em revisão fiscal' },
-];
+const TAX_TYPES: TaxType[] = ['ISS', 'INSS', 'IRRF', 'CSLL', 'IRPJ', 'PIS', 'COFINS', 'ICMS', 'DIFAL', 'FGTS', 'CSRF', 'OTHER'];
 
-const TYPE_LABEL: Record<TaxEntry['type'], string> = { federal: 'Federal', estadual: 'Estadual', municipal: 'Municipal', retencao: 'Retenção' };
+export default function ImpostosPage() {
+  return (
+    <Suspense>
+      <ImpostosContent />
+    </Suspense>
+  );
+}
 
-export default function ImpostosRetencoesPage() {
-  const [period, setPeriod] = useState<FinancePeriod>('2026-04');
-  const [scenario, setScenario] = useState<FinanceScenario>('realized');
-  const [filterType, setFilterType] = useState<string>('');
-  const [filterStatus, setFilterStatus] = useState<string>('');
-  const [selected, setSelected] = useState<TaxEntry | null>(null);
+function ImpostosContent() {
+  const t = useTranslations('finance');
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const focusTaxId = searchParams.get('taxId');
 
-  const filtered = useMemo(() => ENTRIES.filter((e) => {
-    if (filterType && e.type !== filterType) return false;
-    if (filterStatus && e.status !== filterStatus) return false;
-    return true;
-  }), [filterType, filterStatus]);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [detailId, setDetailId] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const [filterType, setFilterType] = useState<TaxType | 'all'>('all');
+  const [filterStatus, setFilterStatus] = useState<TaxStatus | 'all'>('all');
+  const [filterCompetence, setFilterCompetence] = useState('');
+  const [filterDueFrom, setFilterDueFrom] = useState('');
+  const [filterDueTo, setFilterDueTo] = useState('');
+  const [settleAmount, setSettleAmount] = useState('');
+  const [settleDate, setSettleDate] = useState(new Date().toISOString().slice(0, 10));
+  const [processing, setProcessing] = useState(false);
+  const [deepLinkMissing, setDeepLinkMissing] = useState<string | null>(null);
 
-  const totalProvisioned = filtered.reduce((a, e) => a + e.provisioned, 0);
-  const totalPaid = filtered.reduce((a, e) => a + e.paid, 0);
-  const totalOpen = totalProvisioned - totalPaid;
-  const upcoming = filtered.filter((e) => e.status === 'pending' || e.status === 'review').length;
-  const overdue = filtered.filter((e) => e.status === 'overdue').length;
-  const dreImpactTotal = filtered.reduce((a, e) => a + e.dreImpact, 0);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const allTaxes = useMemo(() => getTaxObligations(), [refreshKey]);
+
+  useEffect(() => {
+    if (!focusTaxId) return;
+    const obligation = getTaxObligation(focusTaxId);
+    if (obligation) { setDetailId(obligation.id); setDeepLinkMissing(null); }
+    else setDeepLinkMissing(focusTaxId);
+    router.replace(pathname, { scroll: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusTaxId]);
+
+  const filter: TaxFilter = useMemo(() => ({
+    taxType: filterType,
+    status: filterStatus,
+    competenceMonth: filterCompetence || undefined,
+    dueFrom: filterDueFrom || undefined,
+    dueTo: filterDueTo || undefined,
+  }), [filterType, filterStatus, filterCompetence, filterDueFrom, filterDueTo]);
+
+  const filtered = useMemo(() => sortTaxesByDueDate(filterTaxes(allTaxes, filter), sortDir), [allTaxes, filter, sortDir]);
+
+  const summary = useMemo(() => selectTaxSummary(filtered), [filtered]);
+  const aging = useMemo(() => selectTaxAging(filtered), [filtered]);
+  const byType = useMemo(() => selectTaxesByType(filtered), [filtered]);
+  const projected = useMemo(() => selectProjectedTaxCashOut(filtered), [filtered]);
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const detail = useMemo(() => (detailId ? getTaxObligation(detailId) : undefined), [detailId, refreshKey]);
+  const settlementEntries: LedgerEntry[] = useMemo(() => {
+    if (!detail?.settlement_entry_ids?.length) return [];
+    return detail.settlement_entry_ids
+      .map(id => getLedgerEntry(id))
+      .filter((e): e is LedgerEntry => !!e)
+      .sort((a, b) => b.entry_date.localeCompare(a.entry_date));
+  }, [detail]);
+  // P&L accrual (competence recognition) — distinct from the clearing cash legs.
+  const accrualEntry: LedgerEntry | undefined = useMemo(
+    () => (detail?.accrual_entry_id ? getLedgerEntry(detail.accrual_entry_id) : undefined),
+    [detail],
+  );
+
+  const competenceOptions = useMemo(() => {
+    const set = new Set(allTaxes.map(x => x.competence_month));
+    return [{ value: '', label: 'Todas' }, ...Array.from(set).sort().reverse().map(c => ({ value: c, label: c }))];
+  }, [allTaxes]);
+
+  const hasActiveFilters = !!(filterType !== 'all' || filterStatus !== 'all' || filterCompetence || filterDueFrom || filterDueTo);
+  const clearFilters = () => {
+    setFilterType('all'); setFilterStatus('all'); setFilterCompetence('');
+    setFilterDueFrom(''); setFilterDueTo('');
+  };
+
+  const handleSettle = useCallback((obligation: TaxObligation, amountCents?: number) => {
+    if (processing) return;
+    if (obligation.status === 'paid' || obligation.status === 'cancelled') return;
+    if (amountCents !== undefined && amountCents <= 0) return;
+    setProcessing(true);
+    try {
+      recordTaxPayment(obligation.id, amountCents, settleDate);
+      setSettleAmount('');
+      setRefreshKey(k => k + 1);
+    } finally {
+      setProcessing(false);
+    }
+  }, [processing, settleDate]);
+
+  const goToLedgerEntry = useCallback((entryId: string) => {
+    router.push(`/financeiro/lancamentos?entryId=${encodeURIComponent(entryId)}`);
+  }, [router]);
 
   const kpis: KpiItem[] = [
-    { id: 'p', label: 'Provisionado', value: totalProvisioned, format: 'compactCurrency', variant: 'info', tintValue: true },
-    { id: 'pd', label: 'Pago', value: totalPaid, format: 'compactCurrency', variant: 'success', tintValue: true },
-    { id: 'o', label: 'Em aberto', value: totalOpen, format: 'compactCurrency', variant: 'warning', tintValue: true },
-    { id: 'u', label: 'A vencer', value: upcoming, variant: 'info', tintValue: true },
-    { id: 'ov', label: 'Atrasados', value: overdue, variant: overdue ? 'danger' : 'success', tintValue: true },
-    { id: 'dr', label: 'Impacto na DRE', value: dreImpactTotal, format: 'compactCurrency', variant: 'danger', tintValue: true },
+    { id: 'p', label: 'Provisionado', value: summary.totalProvisioned / 100, format: 'compactCurrency', variant: 'info' },
+    { id: 'pd', label: 'Pago', value: summary.totalPaid / 100, format: 'compactCurrency', variant: 'success' },
+    { id: 'o', label: 'Em aberto', value: summary.totalOpen / 100, format: 'compactCurrency', variant: 'warning' },
+    { id: 'ov', label: 'Vencidos', value: summary.overdueTotal / 100, format: 'compactCurrency', variant: summary.overdueTotal > 0 ? 'danger' : 'success', icon: <AlertTriangle className="h-5 w-5" /> },
+    { id: 'wk', label: 'Vence em 7 dias', value: summary.dueThisWeek / 100, format: 'compactCurrency', variant: summary.dueThisWeek > 0 ? 'warning' : 'success', icon: <Clock3 className="h-5 w-5" /> },
+    { id: 'mo', label: 'Vence em 30 dias', value: summary.dueThisMonth / 100, format: 'compactCurrency', variant: 'info', icon: <Calendar className="h-5 w-5" /> },
   ];
 
-  const byType = (['federal', 'estadual', 'municipal', 'retencao'] as TaxEntry['type'][]).map((t) => ({
-    type: t,
-    provisioned: ENTRIES.filter((e) => e.type === t).reduce((a, e) => a + e.provisioned, 0),
-    paid: ENTRIES.filter((e) => e.type === t).reduce((a, e) => a + e.paid, 0),
-  }));
+  const columns: HudTableColumn<TaxObligation>[] = [
+    { key: 'tax_type', header: 'Imposto', cell: (x) => (
+      <div className="min-w-0">
+        <span className="block truncate text-xs font-semibold text-ig-fg-strong">{x.tax_type}</span>
+        <span className="block max-w-[280px] truncate text-[11px] text-ig-fg-muted">{x.title}</span>
+      </div>
+    ) },
+    { key: 'competence_month', header: 'Competência', cell: (x) => <span className="font-mono text-xs text-ig-fg-muted">{x.competence_month}</span> },
+    { key: 'due_date', header: t('dueDate'), cell: (x) => {
+      const overdue = isTaxOverdue(x);
+      return (
+        <div className="flex flex-col">
+          <span className={`font-mono text-xs ${overdue ? 'font-semibold text-ig-danger' : 'text-ig-fg-muted'}`}>{x.due_date}</span>
+          {overdue && <span className="text-[10px] font-medium text-ig-danger">{daysOverdueTax(x)}d {t('overdue').toLowerCase()}</span>}
+        </div>
+      );
+    } },
+    { key: 'amount_cents', header: 'Provisionado', align: 'right', cell: (x) => <span className="block font-mono text-xs text-ig-fg-strong">{formatBRL(x.amount_cents)}</span> },
+    { key: 'paid_amount_cents', header: 'Pago', align: 'right', cell: (x) => <span className="block font-mono text-xs text-ig-fg-muted">{formatBRL(x.paid_amount_cents)}</span> },
+    { key: 'remaining', header: 'Em aberto', align: 'right', cell: (x) => <span className="block font-mono text-xs text-ig-fg-strong">{formatBRL(remainingTaxCents(x))}</span> },
+    { key: 'status', header: 'Status', cell: (x) => (
+      <div className="flex items-center gap-1.5">
+        <HudStatusPill variant={isTaxOverdue(x) ? 'error' : STATUS_VARIANT[x.status]} size="sm">
+          {isTaxOverdue(x) ? STATUS_LABEL.overdue : STATUS_LABEL[x.status]}
+        </HudStatusPill>
+        {x.linked_entry_id && <Link2 className="h-3 w-3 text-ig-accent" aria-label="Vinculado a lançamento" />}
+      </div>
+    ) },
+  ];
 
-  const calendar = [...filtered]
-    .filter((e) => e.status !== 'paid')
-    .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+  const donutData = byType.slice(0, 8).map((row, i) => ({
+    name: row.tax_type,
+    value: row.provisioned / 100,
+    tone: (['accent', 'info', 'success', 'warning', 'danger', 'budget'] as const)[i % 6],
+  }));
 
   return (
     <HudPageLayout>
       <HudHeader
         title="Impostos & Retenções"
-        subtitle="Gestão de provisões, pagamentos, retenções por contrato e impacto na DRE"
+        subtitle="Obrigações tributárias — apuração, vencimentos e liquidação"
         icon={<Wallet className="w-5 h-5" />}
         iconTint="#A855F7"
-        breadcrumbs={[{ label: 'Financeiro', href: '/financeiro' }, { label: 'Impostos & Retenções' }]}
+        breadcrumbs={[{ label: t('title'), href: '/financeiro' }, { label: 'Impostos & Retenções' }]}
       />
 
-      <FinanceFilterBar
-        period={period} onPeriodChange={setPeriod}
-        scenario={scenario} onScenarioChange={setScenario}
-        extra={
-          <>
-            <HudSelect label="Tipo" size="sm" value={filterType} onChange={setFilterType}
-              options={[{ value: '', label: 'Todos' }, ...(['federal', 'estadual', 'municipal', 'retencao'] as TaxEntry['type'][]).map((t) => ({ value: t, label: TYPE_LABEL[t] }))]} />
-            <HudSelect label="Status" size="sm" value={filterStatus} onChange={setFilterStatus}
-              options={[{ value: '', label: 'Todos' }, { value: 'paid', label: 'Pago' }, { value: 'pending', label: 'Pendente' }, { value: 'review', label: 'Em revisão' }, { value: 'overdue', label: 'Atrasado' }]} />
-          </>
-        }
-        rightSlot={<HudButton variant="ghost" size="sm" leftIcon={<FileBarChart2 className="w-4 h-4" />}>Impacto na DRE</HudButton>}
-      />
+      {deepLinkMissing && (
+        <div className="mt-4 flex items-start gap-2 rounded-lg border border-[color-mix(in_oklab,var(--ig-warning)_28%,transparent)] bg-[color-mix(in_oklab,var(--ig-warning)_12%,transparent)] p-3">
+          <AlertTriangle className="h-4 w-4 shrink-0 text-ig-warning" />
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-medium text-ig-warning">Obrigação <span className="font-mono">{deepLinkMissing}</span> não encontrada.</p>
+          </div>
+        </div>
+      )}
 
-      <HudKpiStrip kpis={kpis} columns={6} connected align="center" />
+      <HudKpiStrip kpis={kpis} columns={6} size="sm" />
 
-      <div className="grid grid-cols-1 xl:grid-cols-[1fr_1fr] gap-4">
-        <HudCard>
-          <HudCardHeader><HudCardTitle>S-Curve — Exposição tributária acumulada (12m)</HudCardTitle></HudCardHeader>
-          <HudCardContent className="p-3">
-            <FinanceSCurveChart
-              categories={['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']}
-              series={[
-                { name: 'Provisionado', values: [3_410_000, 3_460_000, 3_510_000, 3_832_300, 0, 0, 0, 0, 0, 0, 0, 0], tone: 'accent', emphasized: true },
-                { name: 'Pago',         values: [3_350_000, 3_410_000, 3_460_000, 2_028_000, 0, 0, 0, 0, 0, 0, 0, 0], tone: 'success' },
-                { name: 'Orçado',       values: Array(12).fill(3_500_000), tone: 'budget', dashed: true },
-              ]}
-              height={300}
-            />
-          </HudCardContent>
-        </HudCard>
-
-        <HudCard>
-          <HudCardHeader><HudCardTitle>Composição — Tributos do período</HudCardTitle></HudCardHeader>
-          <HudCardContent className="p-3">
-            <FinanceDonutChart
-              data={ENTRIES.map((e, i) => ({
-                name: e.code, value: e.provisioned,
-                tone: (['accent', 'info', 'success', 'warning', 'danger', 'budget'] as const)[i % 6],
-              }))}
-              centerLabel="Provisionado"
-              centerValue={fmtCompactBRL(totalProvisioned)}
-              height={300}
-            />
-          </HudCardContent>
-        </HudCard>
-      </div>
-
-      <HudCard>
-        <HudCardHeader><HudCardTitle>Provisionado vs Pago — por tipo de tributo</HudCardTitle></HudCardHeader>
-        <HudCardContent className="p-3">
-          <FinanceStackedBarChart
-            categories={byType.map((t) => TYPE_LABEL[t.type])}
-            series={[
-              { name: 'Pago',         data: byType.map((t) => t.paid), tone: 'success' },
-              { name: 'Em aberto',    data: byType.map((t) => t.provisioned - t.paid), tone: 'warning' },
-            ]}
-            height={260}
-          />
-        </HudCardContent>
-      </HudCard>
-
-      <div className="grid grid-cols-1 xl:grid-cols-[1fr_1fr_1fr] gap-4">
-        <HudCard className="xl:col-span-1">
-          <HudCardHeader><HudCardTitle>Provisionado vs Pago — barras comparativas</HudCardTitle></HudCardHeader>
-          <HudCardContent className="p-3">
-            <FinanceBarChart
-              categories={byType.map((t) => TYPE_LABEL[t.type])}
-              series={[
-                { name: 'Provisionado', data: byType.map((t) => t.provisioned), tone: 'info' },
-                { name: 'Pago',          data: byType.map((t) => t.paid),         tone: 'success' },
-              ]}
-              height={260}
-            />
-          </HudCardContent>
-        </HudCard>
-
-        <HudCard className="xl:col-span-1">
-          <HudCardHeader>
-            <HudCardTitle className="flex items-center gap-2"><Calendar className="w-4 h-4" /> Calendário fiscal</HudCardTitle>
-          </HudCardHeader>
-          <HudCardContent className="p-4">
-            <ul className="divide-y divide-ig-border-subtle/60">
-              {calendar.map((e) => (
-                <li key={e.id} className="py-2 flex items-start gap-3">
-                  <div className="text-center w-12 shrink-0">
-                    <div className="text-[10px] uppercase font-mono tracking-[0.12em] text-ig-text-tertiary">
-                      {new Date(e.dueDate).toLocaleString('pt-BR', { month: 'short' }).replace('.', '')}
-                    </div>
-                    <div className="text-[18px] font-semibold leading-none text-ig-text-primary">
-                      {new Date(e.dueDate).getDate()}
-                    </div>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <button onClick={() => setSelected(e)} className="text-[12.5px] font-medium text-ig-text-primary hover:text-ig-accent text-left truncate w-full">
-                      {e.code} — {e.name}
-                    </button>
-                    <div className="text-[10.5px] text-ig-text-tertiary truncate">{TYPE_LABEL[e.type]} • Ref. {e.reference}</div>
-                    {e.alert && (
-                      <div className="mt-0.5 inline-flex items-center gap-1 text-[10.5px] text-ig-warning">
-                        <AlertTriangle className="w-3 h-3" /> {e.alert}
-                      </div>
-                    )}
-                  </div>
-                  <div className="text-right">
-                    <div className="text-[12px] font-mono tabular-nums">{fmtBRL(e.provisioned)}</div>
-                    <FinanceStatusBadge status={e.status} size="xs" />
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </HudCardContent>
-        </HudCard>
-
-        <FinanceInsightCard
-          title="Sinais fiscais"
-          subtitle="Risco e oportunidades de tributação"
-          insights={[
-            { id: '1', tone: 'negative', title: 'CSRF atrasado', detail: 'Mineração Vale Sul — retenção atrasada 4 dias, possível multa de 0.33%/dia.', action: { label: 'Regularizar' } },
-            { id: '2', tone: 'warning',  title: 'ICMS em revisão', detail: 'Classificação fiscal de produtos digitais sob revisão; risco de R$ 142k.' },
-            { id: '3', tone: 'positive', title: 'Lei do Bem em apuração', detail: 'Benefício fiscal estimado em R$ 380k para Q2 — aguardando dossiê P&D.' },
-            { id: '4', tone: 'neutral',  title: 'IRRF reconciliado', detail: 'Todas as retenções na fonte do mês conferem com NFs emitidas.' },
-          ]}
+      <div className="mt-4">
+        <FinanceFilterBar
+          showPeriod={false}
+          showScenario={false}
+          extra={
+            <>
+              <FinanceFilterChip
+                icon={<Tag className="h-3.5 w-3.5" />}
+                label="Tipo"
+                value={filterType}
+                onChange={(v) => setFilterType(v as TaxType | 'all')}
+                options={[{ value: 'all', label: 'Todos' }, ...TAX_TYPES.map(tt => ({ value: tt, label: tt }))]}
+              />
+              <FinanceFilterChip
+                icon={<Activity className="h-3.5 w-3.5" />}
+                label="Status"
+                value={filterStatus}
+                onChange={(v) => setFilterStatus(v as TaxStatus | 'all')}
+                options={[
+                  { value: 'all', label: 'Todos' },
+                  { value: 'open', label: STATUS_LABEL.open },
+                  { value: 'scheduled', label: STATUS_LABEL.scheduled },
+                  { value: 'partial', label: STATUS_LABEL.partial },
+                  { value: 'paid', label: STATUS_LABEL.paid },
+                  { value: 'overdue', label: STATUS_LABEL.overdue },
+                  { value: 'cancelled', label: STATUS_LABEL.cancelled },
+                ]}
+              />
+              <FinanceFilterChip
+                icon={<Calendar className="h-3.5 w-3.5" />}
+                label="Competência"
+                value={filterCompetence}
+                onChange={setFilterCompetence}
+                options={competenceOptions}
+              />
+              <label className="flex items-center gap-1.5 rounded-lg border border-[color:var(--ig-border-strong)] bg-[color:var(--ig-bg-raised)]/60 px-2 h-9 backdrop-blur-sm">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[color:var(--ig-fg-subtle)]">Vence de</span>
+                <input type="date" value={filterDueFrom} onChange={(e) => setFilterDueFrom(e.target.value)} className="bg-transparent text-xs font-medium text-[color:var(--ig-fg-strong)] focus:outline-none" />
+              </label>
+              <label className="flex items-center gap-1.5 rounded-lg border border-[color:var(--ig-border-strong)] bg-[color:var(--ig-bg-raised)]/60 px-2 h-9 backdrop-blur-sm">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[color:var(--ig-fg-subtle)]">até</span>
+                <input type="date" value={filterDueTo} onChange={(e) => setFilterDueTo(e.target.value)} className="bg-transparent text-xs font-medium text-[color:var(--ig-fg-strong)] focus:outline-none" />
+              </label>
+            </>
+          }
+          rightSlot={hasActiveFilters ? (
+            <HudButton variant="ghost" size="sm" onClick={clearFilters}>Limpar</HudButton>
+          ) : undefined}
         />
       </div>
 
-      <HudCard>
-        <HudCardHeader><HudCardTitle>Apuração tributária</HudCardTitle></HudCardHeader>
-        <HudCardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="border-b border-ig-border-subtle">
-                <tr className="text-[10.5px] uppercase tracking-[0.12em] text-ig-text-tertiary">
-                  <th className="text-left px-5 py-3 font-medium">Imposto</th>
-                  <th className="text-left px-5 py-3 font-medium">Tipo</th>
-                  <th className="text-left px-5 py-3 font-medium">Cliente / Contrato</th>
-                  <th className="text-right px-5 py-3 font-medium">Provisionado</th>
-                  <th className="text-right px-5 py-3 font-medium">Pago</th>
-                  <th className="text-right px-5 py-3 font-medium">Em aberto</th>
-                  <th className="text-left px-5 py-3 font-medium">Vencimento</th>
-                  <th className="text-left px-5 py-3 font-medium">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((e) => (
-                  <tr key={e.id} onClick={() => setSelected(e)} className="border-b border-ig-border-subtle/40 hover:bg-ig-surface-subtle/30 cursor-pointer">
-                    <td className="px-5 py-2.5 text-ig-text-primary">
-                      <div className="font-medium">{e.code} — {e.name}</div>
-                      {e.alert && <div className="text-[10.5px] text-ig-warning inline-flex items-center gap-1 mt-0.5"><AlertTriangle className="w-3 h-3" />{e.alert}</div>}
-                    </td>
-                    <td className="px-5 py-2.5 text-ig-text-secondary">{TYPE_LABEL[e.type]}</td>
-                    <td className="px-5 py-2.5 text-ig-text-secondary">{e.client ? `${e.client}${e.contract ? ` • ${e.contract}` : ''}` : '—'}</td>
-                    <td className="text-right px-5 py-2.5 font-mono tabular-nums">{fmtBRL(e.provisioned)}</td>
-                    <td className="text-right px-5 py-2.5 font-mono tabular-nums text-ig-text-secondary">{fmtBRL(e.paid)}</td>
-                    <td className="text-right px-5 py-2.5 font-mono tabular-nums">{fmtBRL(e.provisioned - e.paid)}</td>
-                    <td className="px-5 py-2.5 font-mono text-[11px] text-ig-text-tertiary">{e.dueDate}</td>
-                    <td className="px-5 py-2.5"><FinanceStatusBadge status={e.status} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </HudCardContent>
-      </HudCard>
+      {/* Aging + projected cash-out */}
+      <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[1fr_360px]">
+        <HudPanel title="Aging tributário" subtitle="Saldo em aberto por bucket de vencimento" icon={<Clock3 className="h-4 w-4" />} sweep halo>
+          <FinanceBarChart
+            categories={aging.map(b => b.label)}
+            series={[{ name: 'Em aberto', data: aging.map(b => b.amount / 100), tone: 'warning' }]}
+            height={240}
+          />
+        </HudPanel>
+        <HudPanel title="Composição" subtitle="Provisionado por imposto" icon={<Tag className="h-4 w-4" />} sweep>
+          <FinanceDonutChart
+            data={donutData}
+            centerLabel="Provisionado"
+            centerValue={fmtCompactBRL(summary.totalProvisioned / 100)}
+            height={240}
+          />
+        </HudPanel>
+      </div>
 
-      <FinanceDetailDrawer
-        open={!!selected}
-        onClose={() => setSelected(null)}
-        title={selected ? `${selected.code} — ${selected.name}` : ''}
-        subtitle={selected ? `Ref. ${selected.reference} • ${TYPE_LABEL[selected.type]}` : ''}
-        metaPills={selected ? [
-          { label: `Vence ${selected.dueDate}`, tone: 'info' },
-          { label: `Em aberto ${fmtBRL(selected.provisioned - selected.paid)}`, tone: selected.provisioned - selected.paid > 0 ? 'warn' : 'pos' },
-          ...(selected.status === 'overdue' ? [{ label: 'Atrasado', tone: 'neg' as const }] : []),
-        ] : []}
-        primaryActions={
-          <>
-            <HudButton variant="ghost" size="sm">Anexar guia</HudButton>
-            <HudButton variant="primary" size="sm">Registrar pagamento</HudButton>
-          </>
-        }
-      >
-        {selected && (
-          <>
-            <FinanceDrawerSection title="Apuração">
-              <FinanceDrawerKeyValue rows={[
-                { label: 'Provisionado', value: fmtBRL(selected.provisioned) },
-                { label: 'Pago',          value: fmtBRL(selected.paid) },
-                { label: 'Em aberto',     value: fmtBRL(selected.provisioned - selected.paid), tone: selected.provisioned - selected.paid > 0 ? 'neg' : 'pos' },
-                { label: 'Impacto DRE',   value: fmtBRL(selected.dreImpact), tone: selected.dreImpact < 0 ? 'neg' : 'neutral' },
-                { label: 'Tipo',          value: TYPE_LABEL[selected.type] },
-                { label: 'Status',        value: selected.status },
-              ]} />
-            </FinanceDrawerSection>
+      {/* Projected cash-out + by type roll-up */}
+      <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[1fr_1fr]">
+        <HudPanel title="Cash-out tributário projetado" subtitle="Por mês de vencimento — obrigações em aberto" icon={<ArrowUpRight className="h-4 w-4" />} sweep>
+          {projected.length === 0 ? (
+            <p className="text-xs text-ig-fg-muted">Sem obrigações em aberto para os filtros atuais.</p>
+          ) : (
+            <FinanceBarChart
+              categories={projected.map(p => p.month)}
+              series={[{ name: 'Projeção', data: projected.map(p => p.amount / 100), tone: 'danger' }]}
+              height={220}
+            />
+          )}
+        </HudPanel>
+        <HudPanel title="Provisionado × Pago por imposto" subtitle="Roll-up por tipo de tributo" icon={<Tag className="h-4 w-4" />} sweep>
+          {byType.length === 0 ? (
+            <p className="text-xs text-ig-fg-muted">Sem dados para os filtros atuais.</p>
+          ) : (
+            <FinanceBarChart
+              categories={byType.map(r => r.tax_type)}
+              series={[
+                { name: 'Pago', data: byType.map(r => r.paid / 100), tone: 'success' },
+                { name: 'Em aberto', data: byType.map(r => r.open / 100), tone: 'warning' },
+              ]}
+              height={220}
+            />
+          )}
+        </HudPanel>
+      </div>
 
-            {(selected.client || selected.contract) && (
-              <FinanceDrawerSection title="Vínculo contratual">
-                <p className="text-[12.5px] text-ig-text-secondary leading-snug">
-                  Cliente: <span className="text-ig-text-primary">{selected.client}</span>
-                  {selected.contract && <> • Contrato: <span className="font-mono">{selected.contract}</span></>}
-                </p>
-              </FinanceDrawerSection>
+      {/* Obligations table */}
+      <div className="mt-4">
+        <HudPanel
+          noPadding
+          title="Apuração tributária"
+          subtitle={`${filtered.length} obrigação(ões) • ${summary.activeCount} ativa(s) • ${summary.overdueCount} vencida(s)`}
+          icon={<Wallet className="h-4 w-4" />}
+          sweep
+          headerActions={
+            <HudButton variant="ghost" size="sm" leftIcon={<ArrowUpDown className="w-4 h-4" />} onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}>
+              {t('dueDate')} {sortDir === 'asc' ? '↑' : '↓'}
+            </HudButton>
+          }
+        >
+          <HudTable
+            columns={columns}
+            data={filtered}
+            keyExtractor={(x) => x.id}
+            onRowClick={(x) => setDetailId(x.id)}
+            selectedRowId={detailId}
+            compact
+            stickyHeader
+          />
+        </HudPanel>
+      </div>
+
+      {/* Detail drawer */}
+      <HudDrawer isOpen={!!detailId} onClose={() => setDetailId(null)} title="Detalhe da obrigação" width="md">
+        {detail && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <p className="text-[10px] uppercase text-ig-fg-subtle">Imposto</p>
+                <p className="font-mono text-sm text-ig-fg-strong">{detail.tax_type}</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase text-ig-fg-subtle">Status</p>
+                <HudStatusPill variant={isTaxOverdue(detail) ? 'error' : STATUS_VARIANT[detail.status]} size="sm">
+                  {isTaxOverdue(detail) ? STATUS_LABEL.overdue : STATUS_LABEL[detail.status]}
+                </HudStatusPill>
+              </div>
+            </div>
+
+            <div>
+              <p className="text-[10px] uppercase text-ig-fg-subtle">{t('description')}</p>
+              <p className="text-sm text-ig-fg-strong">{detail.title}</p>
+              {detail.description && <p className="mt-1 text-xs text-ig-fg-muted">{detail.description}</p>}
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <p className="text-[10px] uppercase text-ig-fg-subtle">Competência</p>
+                <p className="font-mono text-sm text-ig-fg-strong">{detail.competence_month}</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase text-ig-fg-subtle">{t('dueDate')}</p>
+                <p className={`font-mono text-sm ${isTaxOverdue(detail) ? 'font-semibold text-ig-danger' : 'text-ig-fg-strong'}`}>{detail.due_date}</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              <div><p className="text-[10px] uppercase text-ig-fg-subtle">Provisionado</p><p className="font-mono text-sm text-ig-fg-strong">{formatBRL(detail.amount_cents)}</p></div>
+              <div><p className="text-[10px] uppercase text-ig-fg-subtle">Pago</p><p className="font-mono text-sm text-ig-fg-muted">{formatBRL(detail.paid_amount_cents)}</p></div>
+              <div><p className="text-[10px] uppercase text-ig-fg-subtle">Em aberto</p><p className="font-mono text-sm text-ig-fg-strong">{formatBRL(remainingTaxCents(detail))}</p></div>
+            </div>
+
+            {(detail.client?.name || detail.invoice_number) && (
+              <div className="rounded-lg border border-ig-border-subtle bg-ig-panel/40 p-3 text-xs">
+                {detail.client?.name && <p><span className="text-ig-fg-subtle">Cliente: </span><span className="text-ig-fg-strong">{detail.client.name}</span></p>}
+                {detail.invoice_number && <p><span className="text-ig-fg-subtle">NF/Doc: </span><span className="font-mono text-ig-fg-strong">{detail.invoice_number}</span></p>}
+                {detail.contract_id && <p><span className="text-ig-fg-subtle">Contrato: </span><span className="font-mono text-ig-fg-strong">{detail.contract_id}</span></p>}
+                {detail.notes && <p className="mt-1 text-ig-fg-muted">{detail.notes}</p>}
+              </div>
             )}
 
-            <FinanceDrawerSection title="Próximos passos">
-              <ul className="space-y-1.5 text-[12.5px] text-ig-text-secondary">
-                <li>• Conciliar guia gerada com sistema fiscal (Sankhya / SEFAZ).</li>
-                <li>• Validar enquadramento e alíquota aplicada.</li>
-                <li>• {selected.status === 'overdue' ? 'Calcular multa e juros antes do pagamento.' : 'Anexar comprovante após pagamento.'}</li>
-              </ul>
-            </FinanceDrawerSection>
-          </>
-        )}
-      </FinanceDetailDrawer>
+            {isTaxOverdue(detail) && (
+              <div className="flex items-center gap-2 rounded-lg border border-[color-mix(in_oklab,var(--ig-danger)_28%,transparent)] bg-[color-mix(in_oklab,var(--ig-danger)_10%,transparent)] px-3 py-2">
+                <AlertTriangle className="h-4 w-4 text-ig-danger" />
+                <span className="text-xs font-medium text-ig-danger">{daysOverdueTax(detail)} {t('overdue').toLowerCase()}</span>
+              </div>
+            )}
 
-      {/* Variation footer pill */}
-      <div className="text-right text-[10.5px] text-ig-text-tertiary">
-        Variação efetiva vs orçada: <span className="font-mono">{fmtPct(((totalProvisioned - 2_900_000) / 2_900_000) * 100)}</span>
+            {/* Accrual recognition (P&L competence) — separate from cash settlement */}
+            <div className="rounded-lg border border-ig-border-subtle bg-ig-panel/40 p-3">
+              <p className="text-[10px] uppercase text-ig-fg-subtle">Lançamento de competência (accrual)</p>
+              {!accrualEntry ? (
+                <p className="mt-1 text-sm text-ig-fg-muted">Sem lançamento de competência vinculado.</p>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => goToLedgerEntry(accrualEntry.id)}
+                  title={t('viewLinkedEntry')}
+                  className="mt-2 flex w-full items-center justify-between gap-2 rounded-md px-1 py-1.5 text-left transition-colors hover:bg-ig-panel/60 focus:bg-ig-panel/60 focus:outline-none"
+                >
+                  <div className="flex min-w-0 items-center gap-2">
+                    <Link2 className="h-3 w-3 shrink-0 text-ig-accent" />
+                    <span className="truncate text-xs text-ig-fg-strong">{accrualEntry.entry_date}</span>
+                    <span className="text-[10px] uppercase tracking-[0.12em] text-ig-fg-subtle">Competência</span>
+                  </div>
+                  <span className="shrink-0 font-mono text-xs font-semibold text-ig-fg-strong">{formatBRL(accrualEntry.amount_cents)}</span>
+                </button>
+              )}
+            </div>
+
+            {/* Settlement history */}
+            <div className="rounded-lg border border-ig-border-subtle bg-ig-panel/40 p-3">
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] uppercase text-ig-fg-subtle">{t('settlementHistory')}</p>
+                {settlementEntries.length > 0 && <HudBadge variant="default" size="sm">{settlementEntries.length}</HudBadge>}
+              </div>
+              {settlementEntries.length === 0 ? (
+                <p className="mt-1 text-sm text-ig-fg-muted">{t('noLinkedEntry')}</p>
+              ) : (
+                <ul className="mt-2 divide-y divide-ig-border-subtle/60">
+                  {settlementEntries.map((e) => (
+                    <li key={e.id}>
+                      <button
+                        type="button"
+                        onClick={() => goToLedgerEntry(e.id)}
+                        title={t('viewLinkedEntry')}
+                        className="flex w-full items-center justify-between gap-2 py-1.5 text-left transition-colors hover:bg-ig-panel/60 focus:bg-ig-panel/60 focus:outline-none rounded-md px-1"
+                      >
+                        <div className="flex min-w-0 items-center gap-2">
+                          <Link2 className="h-3 w-3 shrink-0 text-ig-accent" />
+                          <span className="truncate text-xs text-ig-fg-strong">{e.entry_date}</span>
+                          <span className="text-[10px] uppercase tracking-[0.12em] text-ig-fg-subtle">{t('cashOut')}</span>
+                        </div>
+                        <span className="shrink-0 font-mono text-xs font-semibold text-ig-danger">−{formatBRL(e.amount_cents)}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            {/* Settlement actions */}
+            {detail.status !== 'paid' && detail.status !== 'cancelled' ? (
+              (() => {
+                const remaining = remainingTaxCents(detail);
+                const parsed = settleAmount ? reaisToCents(parseFloat(settleAmount)) : 0;
+                const partialValid = parsed > 0 && parsed <= remaining;
+                return (
+                  <div className="space-y-3 border-t border-ig-border-subtle pt-4">
+                    <div className="grid grid-cols-2 gap-3">
+                      <HudInput
+                        label={t('paymentAmount')}
+                        type="number"
+                        value={settleAmount}
+                        onChange={(e) => setSettleAmount(e.target.value)}
+                        placeholder={String(centsToReais(remaining))}
+                        leftIcon={<span className="text-xs text-ig-fg-subtle">R$</span>}
+                        error={settleAmount && !partialValid ? `≤ ${formatBRL(remaining)}` : undefined}
+                      />
+                      <HudInput label={t('paymentDate')} type="date" value={settleDate} onChange={(e) => setSettleDate(e.target.value)} />
+                    </div>
+                    <div className="flex gap-2">
+                      <HudButton
+                        variant="secondary"
+                        leftIcon={<CheckCircle className="w-4 h-4" />}
+                        onClick={() => handleSettle(detail, parsed)}
+                        disabled={processing || !partialValid}
+                        fullWidth
+                      >
+                        {t('registerPayment')}
+                      </HudButton>
+                      <HudButton
+                        variant="primary"
+                        leftIcon={<CheckCircle className="w-4 h-4" />}
+                        onClick={() => handleSettle(detail)}
+                        disabled={processing}
+                        fullWidth
+                      >
+                        {t('fullPayment')}
+                      </HudButton>
+                    </div>
+                  </div>
+                );
+              })()
+            ) : (
+              <div className="border-t border-ig-border-subtle pt-4">
+                <HudBadge variant="default" size="sm">{STATUS_LABEL[detail.status]}</HudBadge>
+              </div>
+            )}
+          </div>
+        )}
+      </HudDrawer>
+
+      {/* Footer KPI tile */}
+      <div className="mt-4 text-right text-[10.5px] text-ig-text-tertiary">
+        Total provisionado nos filtros: <span className="font-mono">{fmtBRL(summary.totalProvisioned / 100)}</span> • pago <span className="font-mono">{fmtBRL(summary.totalPaid / 100)}</span>
       </div>
     </HudPageLayout>
   );

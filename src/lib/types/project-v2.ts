@@ -189,6 +189,12 @@ export type ProjectV2 = Project & {
 
     // New scalar fields
     contract_id?: string;
+    /**
+     * Finance ledger project id (proj-1…proj-5) this project maps to. The
+     * project detail FinanceView derives all monetary numbers from the unified
+     * ledger filtered by this id — replacing the local cost/revenue curve mocks.
+     */
+    finance_project_id?: string;
     uf?: string;
     location?: ProjectLocation;
     health_score: number;            // 0-100

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import {
     AreaChart,
     Area,
@@ -20,23 +21,19 @@ import {
     BarChart3,
     Layers,
     Zap,
+    Link2,
+    Plus,
+    AlertTriangle,
 } from 'lucide-react';
 import { HudPanel } from '@/components/hud';
 import { Badge } from '@/components/ui/badge';
-import type {
-    ProjectV2,
-    CostCurvePoint,
-    RevenueCurvePoint,
-    CostBreakdownItem,
-} from '@/lib/types/project-v2';
-import { formatMoney, compactBRL } from '@/lib/utils/project-utils';
-import type { MoneyAmount } from '@/lib/types/project-v2';
+import type { ProjectV2 } from '@/lib/types/project-v2';
+import { compactBRL } from '@/lib/utils/project-utils';
+import { getLedgerEntries, linkEntriesToProject, formatBRL } from '@/lib/finance/finance-store';
+import { selectProjectFinanceView } from '@/lib/finance/selectors/project-finance';
+import { resolveFinanceProjectId } from '@/lib/projects/finance-mapping';
 
 // ── Helpers ─────────────────────────────────────────────────────
-
-function cents(m: MoneyAmount | undefined): number {
-    return m ? m.amountCents / 100 : 0;
-}
 
 function getConfidenceColor(c: string): string {
     if (c === 'high') return '#00FFB4';
@@ -159,98 +156,90 @@ interface FinanceViewProps {
 // ── Main Component ──────────────────────────────────────────────
 
 export function FinanceView({ project }: FinanceViewProps) {
-    const [granularity, setGranularity] = useState<'monthly' | 'weekly'>('monthly');
+    const router = useRouter();
     const [hiddenCostSeries, setHiddenCostSeries] = useState<Set<string>>(new Set());
     const [hiddenRevSeries, setHiddenRevSeries] = useState<Set<string>>(new Set());
+    const [refreshKey, setRefreshKey] = useState(0);
 
-    const { finance, revenue, costCurve, revenueCurve, costBreakdown } = project;
+    const { finance } = project;
+    // Resolve the unified-ledger project id (explicit link → contract fallback →
+    // code match). All monetary numbers derive from the ledger filtered by it.
+    const financeProjectId = resolveFinanceProjectId(project);
 
-    // ── Cutoff period resolution ─────────────────────────
-    const cutoffPeriod = useMemo(() => {
-        if (project.cutoffPeriod) return project.cutoffPeriod;
-        // Fallback: derive from finance.updatedAt or now
-        const refDate = finance.updatedAt ? new Date(finance.updatedAt) : new Date();
-        const y = refDate.getFullYear();
-        const m = refDate.getMonth() + 1;
-        return `${y}-${String(m).padStart(2, '0')}`;
-    }, [project.cutoffPeriod, finance.updatedAt]);
+    // ── Ledger-derived financial view ────────────────────
+    const view = useMemo(
+        () => (financeProjectId ? selectProjectFinanceView(getLedgerEntries(), financeProjectId) : undefined),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [financeProjectId, refreshKey],
+    );
 
-    // ── Transform curves for recharts (cents → reais, nulls preserved) ──
-    const costData = useMemo(() => {
-        if (!costCurve?.length) return [];
-        return costCurve.map(p => ({
+    const cutoffPeriod = view?.sCurve.cutoffPeriod ?? '';
+
+    // ── Recharts series (already in reais) ──
+    const costData = useMemo(
+        () => view?.sCurve.cost.map(p => ({ period: p.period, BAC: p.BAC, AC: p.AC, EAC: p.EAC })) ?? [],
+        [view],
+    );
+
+    const revenueData = useMemo(
+        () => view?.sCurve.revenue.map(p => ({
             period: p.period,
-            BAC: p.bacCumulative / 100,
-            AC: p.acCumulative != null ? p.acCumulative / 100 : null,
-            EAC: p.eacCumulative / 100,
-        }));
-    }, [costCurve]);
+            'Planejado Faturar': p.planned,
+            'Faturado': p.billed,
+            'Recebido': p.received,
+        })) ?? [],
+        [view],
+    );
 
-    const revenueData = useMemo(() => {
-        if (!revenueCurve?.length) return [];
-        return revenueCurve.map(p => ({
-            period: p.period,
-            'Planejado Faturar': p.plannedCumulative / 100,
-            'Faturado': p.billedCumulative != null ? p.billedCumulative / 100 : null,
-            'Recebido': p.receivedCumulative != null ? p.receivedCumulative / 100 : null,
-        }));
-    }, [revenueCurve]);
-
-    // ── Breakdown computations with TOTAL row ────────────
+    // ── Cost breakdown (ledger buckets) with variance ──
     const breakdownRows = useMemo(() => {
-        if (!costBreakdown?.length) return [];
-        return costBreakdown.map(item => {
-            const bacVal = cents(item.bac);
-            const acVal = cents(item.ac);
-            const eacVal = cents(item.eac);
-            const varR$ = eacVal - bacVal;
-            const varPct = bacVal > 0 ? ((eacVal - bacVal) / bacVal) * 100 : 0;
-            return {
-                category: item.category,
-                bac: bacVal,
-                ac: acVal,
-                eac: eacVal,
-                varMoney: varR$,
-                varPercent: varPct,
-            };
+        if (!view) return [];
+        return view.costBreakdown.map(item => {
+            const varR$ = item.eac - item.bac;
+            const varPct = item.bac > 0 ? (varR$ / item.bac) * 100 : 0;
+            return { category: item.category, bac: item.bac, ac: item.ac, eac: item.eac, varMoney: varR$, varPercent: varPct };
         });
-    }, [costBreakdown]);
+    }, [view]);
 
     const totals = useMemo(() => {
-        if (breakdownRows.length === 0) return null;
-        const totalBac = breakdownRows.reduce((s, r) => s + r.bac, 0);
-        const totalAc = breakdownRows.reduce((s, r) => s + r.ac, 0);
-        const totalEac = breakdownRows.reduce((s, r) => s + r.eac, 0);
-        const totalVar = totalEac - totalBac;
-        const totalVarPct = totalBac > 0 ? (totalVar / totalBac) * 100 : 0;
-        return { bac: totalBac, ac: totalAc, eac: totalEac, varMoney: totalVar, varPercent: totalVarPct };
-    }, [breakdownRows]);
+        if (!view) return null;
+        const { bac, ac, eac, variance, variancePct } = view.baf;
+        return { bac, ac, eac, varMoney: variance, varPercent: variancePct };
+    }, [view]);
 
-    // ── Forecast panel uses computed totals for consistency ──
-    const forecastDelta = totals ? totals.varMoney : cents(finance.varianceAmount);
-    const forecastDeltaPct = totals ? totals.varPercent : finance.variancePercent;
+    // ── Forecast panel uses ledger BAF ──
+    const forecastDelta = view ? view.baf.variance : 0;
+    const forecastDeltaPct = view ? view.baf.variancePct : 0;
     const isOverBudget = forecastDelta > 0;
 
-    const updatedDate = finance.updatedAt
-        ? new Date(finance.updatedAt).toLocaleDateString('pt-BR', {
-            day: '2-digit',
-            month: 'short',
-            year: 'numeric',
-        })
+    const updatedDate = finance?.updatedAt
+        ? new Date(finance.updatedAt).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' })
         : '—';
 
-    // ── Revenue gap KPIs ─────────────────────────────────
+    // ── Revenue gap KPIs (ledger) ──
     const revenueGaps = useMemo(() => {
-        if (!revenue) return null;
-        const planned = cents(revenue.totalContracted);
-        const billed = cents(revenue.billed);
-        const received = cents(revenue.received);
-        const toBill = planned - billed;
-        const toReceive = billed - received;
-        const toBillPct = planned > 0 ? (toBill / planned) * 100 : 0;
+        if (!view) return null;
+        const { contracted, billed, toBill, toReceive } = view.revenue;
+        const toBillPct = contracted > 0 ? (toBill / contracted) * 100 : 0;
         const toReceivePct = billed > 0 ? (toReceive / billed) * 100 : 0;
         return { toBill, toReceive, toBillPct, toReceivePct };
-    }, [revenue]);
+    }, [view]);
+
+    // ── Shortcut actions → Finance ledger (prefilled) ──
+    const pending = view?.pending;
+    const goToNewEntry = useCallback((nature: 'expense' | 'revenue' | 'budget' | 'forecast') => {
+        if (!financeProjectId) return;
+        const params = new URLSearchParams({ projectId: financeProjectId, nature });
+        const contractId = view?.summary.contract_id;
+        if (contractId) params.set('contractId', contractId);
+        router.push(`/financeiro/lancamentos?${params.toString()}`);
+    }, [financeProjectId, view, router]);
+
+    const handleLinkPending = useCallback(() => {
+        if (!financeProjectId || !pending?.entries.length) return;
+        linkEntriesToProject(pending.entries.map(e => e.id), financeProjectId, 'Vinculado via detalhe do projeto');
+        setRefreshKey(k => k + 1);
+    }, [financeProjectId, pending]);
 
     // ── Legend toggle handlers ───────────────────────────
     const toggleCostSeries = useCallback((dataKey: string) => {
@@ -342,28 +331,88 @@ export function FinanceView({ project }: FinanceViewProps) {
                         CUSTOS vs RECEITAS
                     </p>
                 </div>
-                {/* Granularity toggle */}
+                {/* Granularity toggle — ledger data is monthly; weekly is not
+                    yet supported so it stays disabled (no fabricated precision). */}
                 <div className="flex items-center gap-1 bg-[rgba(255,255,255,0.05)] rounded-full p-0.5 border border-[rgba(255,255,255,0.08)]">
                     <button
-                        onClick={() => setGranularity('monthly')}
-                        className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${granularity === 'monthly'
-                            ? 'bg-[#00FFB4] text-[#050D0A]'
-                            : 'text-[rgba(255,255,255,0.50)] hover:text-white'
-                            }`}
+                        className="px-3 py-1 rounded-full text-xs font-medium transition-all bg-[#00FFB4] text-[#050D0A]"
                     >
                         Mensal
                     </button>
                     <button
-                        onClick={() => setGranularity('weekly')}
-                        className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${granularity === 'weekly'
-                            ? 'bg-[#00FFB4] text-[#050D0A]'
-                            : 'text-[rgba(255,255,255,0.50)] hover:text-white'
-                            }`}
+                        disabled
+                        title="Disponível em breve — o ledger financeiro é mensal"
+                        className="px-3 py-1 rounded-full text-xs font-medium text-[rgba(255,255,255,0.30)] cursor-not-allowed"
                     >
-                        Semanal
+                        Semanal (em breve)
                     </button>
                 </div>
             </div>
+
+            {!financeProjectId && (
+                <div className="flex items-center gap-2 rounded-xl border border-[rgba(255,184,77,0.28)] bg-[rgba(255,184,77,0.10)] px-4 py-3">
+                    <AlertTriangle className="w-4 h-4 text-[#FFB84D]" />
+                    <span className="text-xs text-[#FFB84D]">Projeto sem vínculo com o ledger financeiro — sem dados oficiais.</span>
+                </div>
+            )}
+
+            {/* ── Ledger-derived KPI strip (BAC / AC / EAC / ETC / Receita / Margem) ── */}
+            {view && (
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                    {([
+                        { label: 'BAC (orçado)', value: view.baf.bac, color: '#00C8FF' },
+                        { label: 'AC (realizado)', value: view.baf.ac, color: '#00FFB4' },
+                        { label: 'EAC (estimado)', value: view.baf.eac, color: '#FF8C42' },
+                        { label: 'ETC (a concluir)', value: view.baf.etc, color: '#FFB84D' },
+                        { label: 'Receita realizada', value: view.summary.revenue, color: '#00FFB4' },
+                        { label: 'Margem', value: view.summary.margin, color: view.summary.margin >= 0 ? '#00FFB4' : '#FF4040', sub: `${view.summary.marginPct.toFixed(1)}%` },
+                    ] as const).map((k) => (
+                        <div key={k.label} className="rounded-xl border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.03)] p-3">
+                            <p className="text-[10px] uppercase tracking-wider text-[rgba(255,255,255,0.40)]">{k.label}</p>
+                            <p className="mt-1 text-sm font-semibold tabular-nums" style={{ color: k.color }}>{compactBRL(k.value)}</p>
+                            {'sub' in k && k.sub && <p className="text-[10px] tabular-nums" style={{ color: k.color }}>{k.sub}</p>}
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {/* ── Shortcut actions → Finance ledger (prefilled) ── */}
+            {financeProjectId && (
+                <div className="flex flex-wrap items-center gap-2">
+                    <button onClick={() => goToNewEntry('expense')} className="flex items-center gap-1.5 rounded-lg border border-[rgba(255,255,255,0.10)] bg-[rgba(255,255,255,0.04)] px-3 py-1.5 text-xs font-medium text-[rgba(255,255,255,0.75)] transition-colors hover:bg-[rgba(255,255,255,0.08)]"><Plus className="w-3.5 h-3.5" />Nova despesa</button>
+                    <button onClick={() => goToNewEntry('revenue')} className="flex items-center gap-1.5 rounded-lg border border-[rgba(255,255,255,0.10)] bg-[rgba(255,255,255,0.04)] px-3 py-1.5 text-xs font-medium text-[rgba(255,255,255,0.75)] transition-colors hover:bg-[rgba(255,255,255,0.08)]"><Plus className="w-3.5 h-3.5" />Nova receita</button>
+                    <button onClick={() => goToNewEntry('budget')} className="flex items-center gap-1.5 rounded-lg border border-[rgba(255,255,255,0.10)] bg-[rgba(255,255,255,0.04)] px-3 py-1.5 text-xs font-medium text-[rgba(255,255,255,0.75)] transition-colors hover:bg-[rgba(255,255,255,0.08)]"><Plus className="w-3.5 h-3.5" />Novo orçado</button>
+                    <button onClick={() => goToNewEntry('forecast')} className="flex items-center gap-1.5 rounded-lg border border-[rgba(255,255,255,0.10)] bg-[rgba(255,255,255,0.04)] px-3 py-1.5 text-xs font-medium text-[rgba(255,255,255,0.75)] transition-colors hover:bg-[rgba(255,255,255,0.08)]"><Plus className="w-3.5 h-3.5" />Novo forecast</button>
+                </div>
+            )}
+
+            {/* ── Pending pre-project costs (excluded from AC until linked) ── */}
+            {pending && pending.count > 0 && (
+                <div className="rounded-xl border border-[rgba(255,184,77,0.28)] bg-[rgba(255,184,77,0.08)] p-4">
+                    <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-start gap-2">
+                            <AlertTriangle className="mt-0.5 w-4 h-4 shrink-0 text-[#FFB84D]" />
+                            <div>
+                                <p className="text-sm font-semibold text-[#FFB84D]">Custos pendentes relacionados ao contrato</p>
+                                <p className="text-xs text-[rgba(255,255,255,0.55)] mt-0.5">
+                                    {pending.count} custo(s) no contrato <span className="font-mono">{pending.contract_id}</span> lançados antes do projeto — não entram no AC/margem até serem vinculados. Total {formatBRL(pending.totalCents)}.
+                                </p>
+                            </div>
+                        </div>
+                        <button onClick={handleLinkPending} className="flex shrink-0 items-center gap-1.5 rounded-lg bg-[#00FFB4] px-3 py-1.5 text-xs font-semibold text-[#050D0A] transition-opacity hover:opacity-90">
+                            <Link2 className="w-3.5 h-3.5" />Vincular custos
+                        </button>
+                    </div>
+                    <ul className="mt-3 divide-y divide-[rgba(255,255,255,0.06)]">
+                        {pending.entries.map((e) => (
+                            <li key={e.id} className="flex items-center justify-between gap-3 py-1.5">
+                                <span className="truncate text-xs text-[rgba(255,255,255,0.70)]">{e.entry_date} • {e.description}</span>
+                                <span className="shrink-0 font-mono text-xs text-[rgba(255,255,255,0.85)]">{formatBRL(e.amount_cents)}</span>
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            )}
 
             {/* ── Twin S-Curve Charts ───────── */}
             {(costData.length > 0 || revenueData.length > 0) && (

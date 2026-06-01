@@ -3,9 +3,8 @@
 import { useMemo, useState } from 'react';
 import { PieChart, Plus, MessageCircle } from 'lucide-react';
 import {
-  HudPageLayout, HudHeader, HudKpiStrip, HudButton,
+  HudPageLayout, HudHeader, HudButton,
   HudCard, HudCardHeader, HudCardTitle, HudCardContent,
-  type KpiItem,
 } from '@/components/hud';
 import {
   FinanceFilterBar,
@@ -16,69 +15,27 @@ import {
   FinanceDonutChart,
   FinanceStackedBarChart,
   FinanceRankMatrix,
+  FinanceKpiGrid,
+  FinanceChartContainer,
   fmtBRL, fmtPct, fmtCompactBRL,
   type FinancePeriod, type FinanceScenario,
 } from '@/components/finance/shared';
-
-type CostCenter = {
-  id: string;
-  code: string;
-  name: string;
-  director: string;
-  budget: number;
-  actual: number;
-  headcount: number;
-  trend: number[]; // 6 last months
-  composition: { category: string; value: number }[];
-};
-
-const CENTERS: CostCenter[] = [
-  { id: 'cc1', code: 'CC-001', name: 'Tecnologia & Engenharia',     director: 'Carla Mendes',     budget: 2_400_000, actual: 2_510_000, headcount: 84, trend: [2_310, 2_360, 2_390, 2_440, 2_480, 2_510],
-    composition: [ { category: 'Pessoal CLT', value: 1_840_000 }, { category: 'Cloud / Infra', value: 420_000 }, { category: 'Subcontratação', value: 180_000 }, { category: 'Treinamento', value: 70_000 } ] },
-  { id: 'cc2', code: 'CC-002', name: 'Operações',                    director: 'Felipe Araújo',    budget: 1_850_000, actual: 1_790_000, headcount: 62, trend: [1_780, 1_810, 1_820, 1_790, 1_770, 1_790],
-    composition: [ { category: 'Pessoal CLT', value: 1_410_000 }, { category: 'Estrutura', value: 220_000 }, { category: 'Materiais', value: 160_000 } ] },
-  { id: 'cc3', code: 'CC-003', name: 'Comercial & Pré-Vendas',      director: 'Renata Souza',     budget: 1_240_000, actual: 1_310_000, headcount: 38, trend: [1_180, 1_210, 1_240, 1_280, 1_300, 1_310],
-    composition: [ { category: 'Pessoal CLT', value: 880_000 }, { category: 'Comissões', value: 320_000 }, { category: 'Eventos', value: 110_000 } ] },
-  { id: 'cc4', code: 'CC-004', name: 'Customer Success',             director: 'Diego Lopes',      budget: 780_000,   actual: 742_000,   headcount: 24, trend: [710, 720, 740, 750, 745, 742],
-    composition: [ { category: 'Pessoal CLT', value: 590_000 }, { category: 'Ferramentas', value: 92_000 }, { category: 'Viagens', value: 60_000 } ] },
-  { id: 'cc5', code: 'CC-005', name: 'G&A — Administrativo',         director: 'Beatriz Tavares',  budget: 540_000,   actual: 552_000,   headcount: 18, trend: [510, 520, 525, 540, 548, 552],
-    composition: [ { category: 'Pessoal CLT', value: 380_000 }, { category: 'Jurídico', value: 88_000 }, { category: 'Auditoria', value: 84_000 } ] },
-  { id: 'cc6', code: 'CC-006', name: 'Marketing & Branding',         director: 'Henrique Vidal',   budget: 420_000,   actual: 396_000,   headcount: 11, trend: [380, 390, 400, 405, 398, 396],
-    composition: [ { category: 'Mídia paga', value: 220_000 }, { category: 'Conteúdo', value: 96_000 }, { category: 'Eventos', value: 80_000 } ] },
-  { id: 'cc7', code: 'CC-007', name: 'Risco, Compliance & Auditoria', director: 'Patrícia Lemos', budget: 360_000,   actual: 348_000,   headcount: 9,  trend: [330, 335, 340, 345, 348, 348],
-    composition: [ { category: 'Pessoal CLT', value: 268_000 }, { category: 'Auditoria externa', value: 80_000 } ] },
-];
-
-const MONTHS_REF = ['Nov', 'Dez', 'Jan', 'Fev', 'Mar', 'Abr'];
+import {
+  COST_CENTERS,
+  COST_CENTERS_MONTHS_REF,
+  buildCostCentersKpis,
+  buildTopCostCentersTrend,
+  type CostCenterMock,
+} from '@/lib/finance';
 
 export default function CentrosCustoPage() {
   const [period, setPeriod] = useState<FinancePeriod>('2026-04');
   const [scenario, setScenario] = useState<FinanceScenario>('budget');
-  const [selected, setSelected] = useState<CostCenter | null>(null);
+  const [selected, setSelected] = useState<CostCenterMock | null>(null);
 
-  const totalBudget = CENTERS.reduce((a, c) => a + c.budget, 0);
-  const totalActual = CENTERS.reduce((a, c) => a + c.actual, 0);
-  const totalHc = CENTERS.reduce((a, c) => a + c.headcount, 0);
-  const overruns = CENTERS.filter((c) => c.actual > c.budget).length;
-
-  const variancePct = ((totalActual - totalBudget) / totalBudget) * 100;
-  const kpis: KpiItem[] = [
-    { id: 'n', label: 'Centros de Custo', value: CENTERS.length, variant: 'info', tintValue: true },
-    { id: 'b', label: 'Orçado total', value: totalBudget, format: 'compactCurrency', variant: 'info', tintValue: true },
-    { id: 'a', label: 'Realizado total', value: totalActual, format: 'compactCurrency', variant: 'warning', tintValue: true },
-    { id: 'd', label: 'Δ vs Orçado', value: variancePct, format: 'percent', variant: totalActual > totalBudget ? 'danger' : 'success', tintValue: true },
-    { id: 'h', label: 'Headcount', value: totalHc, variant: 'info', tintValue: true },
-    { id: 'o', label: 'Em overrun', value: overruns, variant: overruns > 0 ? 'warning' : 'success', tintValue: true },
-  ];
-
-  const trendSeries = useMemo(() => {
-    const top4 = [...CENTERS].sort((a, b) => b.actual - a.actual).slice(0, 4);
-    return top4.map((c, idx) => ({
-      name: c.name,
-      data: c.trend.map((v) => v * 1000),
-      tone: (['accent', 'info', 'success', 'warning'] as const)[idx],
-    }));
-  }, []);
+  const kpis = useMemo(() => buildCostCentersKpis(COST_CENTERS, '2026-04-30'), []);
+  const trendSeries = useMemo(() => buildTopCostCentersTrend(COST_CENTERS, 4), []);
+  const totalActual = useMemo(() => COST_CENTERS.reduce((a, c) => a + c.actual, 0), []);
 
   return (
     <HudPageLayout>
@@ -96,40 +53,44 @@ export default function CentrosCustoPage() {
         rightSlot={<HudButton variant="primary" size="sm" leftIcon={<Plus className="w-4 h-4" />}>Novo CC</HudButton>}
       />
 
-      <HudKpiStrip kpis={kpis} columns={6} connected align="center" />
+      <FinanceKpiGrid kpis={kpis} columns={6} />
 
-      <div className="grid grid-cols-1 xl:grid-cols-[1.4fr_1fr] gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-[1.4fr_1fr] gap-4">
         <HudCard>
           <HudCardHeader><HudCardTitle>Treemap — Distribuição de custo realizado</HudCardTitle></HudCardHeader>
           <HudCardContent className="p-3">
-            <FinanceTreemapChart
-              data={CENTERS.map((c) => ({
-                name: `${c.code} ${c.name}`,
-                value: c.actual,
-                tone: c.actual > c.budget ? 'danger' : 'success',
-                deltaPct: ((c.actual - c.budget) / c.budget) * 100,
-              }))}
-              height={300}
-            />
+            <FinanceChartContainer>
+              <FinanceTreemapChart
+                data={COST_CENTERS.map((c) => ({
+                  name: `${c.code} ${c.name}`,
+                  value: c.actual,
+                  tone: c.actual > c.budget ? 'danger' : 'success',
+                  deltaPct: ((c.actual - c.budget) / c.budget) * 100,
+                }))}
+                height={300}
+              />
+            </FinanceChartContainer>
           </HudCardContent>
         </HudCard>
 
         <HudCard>
           <HudCardHeader><HudCardTitle>Composição por categoria — consolidado</HudCardTitle></HudCardHeader>
           <HudCardContent className="p-3">
-            <FinanceDonutChart
-              data={(() => {
-                const buckets = new Map<string, number>();
-                CENTERS.forEach((c) => c.composition.forEach((x) => buckets.set(x.category, (buckets.get(x.category) || 0) + x.value)));
-                return Array.from(buckets.entries()).map(([name, value], i) => ({
-                  name, value,
-                  tone: (['danger', 'warning', 'info', 'accent', 'success', 'budget'] as const)[i % 6],
-                }));
-              })()}
-              centerLabel="Total"
-              centerValue={fmtCompactBRL(totalActual)}
-              height={300}
-            />
+            <FinanceChartContainer>
+              <FinanceDonutChart
+                data={(() => {
+                  const buckets = new Map<string, number>();
+                  COST_CENTERS.forEach((c) => c.composition.forEach((x) => buckets.set(x.category, (buckets.get(x.category) || 0) + x.value)));
+                  return Array.from(buckets.entries()).map(([name, value], i) => ({
+                    name, value,
+                    tone: (['danger', 'warning', 'info', 'accent', 'success', 'budget'] as const)[i % 6],
+                  }));
+                })()}
+                centerLabel="Total"
+                centerValue={fmtCompactBRL(totalActual)}
+                height={300}
+              />
+            </FinanceChartContainer>
           </HudCardContent>
         </HudCard>
       </div>
@@ -137,53 +98,57 @@ export default function CentrosCustoPage() {
       <HudCard>
         <HudCardHeader><HudCardTitle>Stacked — Orçado vs Realizado por CC (componentes do realizado)</HudCardTitle></HudCardHeader>
         <HudCardContent className="p-3">
-          <FinanceStackedBarChart
-            categories={CENTERS.map((c) => c.code)}
-            series={(() => {
-              const allCats = Array.from(new Set(CENTERS.flatMap((c) => c.composition.map((x) => x.category))));
-              const palette = ['accent', 'info', 'success', 'warning', 'danger', 'budget'] as const;
-              return allCats.map((cat, idx) => ({
-                name: cat,
-                tone: palette[idx % palette.length],
-                data: CENTERS.map((c) => c.composition.find((x) => x.category === cat)?.value ?? 0),
-              }));
-            })()}
-            height={280}
-          />
+          <FinanceChartContainer>
+            <FinanceStackedBarChart
+              categories={COST_CENTERS.map((c) => c.code)}
+              series={(() => {
+                const allCats = Array.from(new Set(COST_CENTERS.flatMap((c) => c.composition.map((x) => x.category))));
+                const palette = ['accent', 'info', 'success', 'warning', 'danger', 'budget'] as const;
+                return allCats.map((cat, idx) => ({
+                  name: cat,
+                  tone: palette[idx % palette.length],
+                  data: COST_CENTERS.map((c) => c.composition.find((x) => x.category === cat)?.value ?? 0),
+                }));
+              })()}
+              height={280}
+            />
+          </FinanceChartContainer>
         </HudCardContent>
       </HudCard>
 
       <HudCard>
         <HudCardHeader><HudCardTitle>Ranking de variância por CC</HudCardTitle></HudCardHeader>
         <HudCardContent className="p-3">
-          <FinanceRankMatrix
-            mode="diverging"
-            sort="asc"
-            headers={{ rank: 'Rank', label: 'Centro de Custo', bar: 'Δ Realizado vs Orçado', secondary: 'Headcount / Orçado' }}
-            valueFormatter={(v) => `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`}
-            axisFormatter={(v) => `${v >= 0 ? '+' : ''}${v.toFixed(0)}%`}
-            rows={CENTERS.map((c) => {
-              const v = ((c.actual - c.budget) / c.budget) * 100;
-              return {
-                id: c.id,
-                label: `${c.code} ${c.name}`,
-                meta: c.director,
-                value: Math.round(v * 10) / 10,
-                tone: (v > 5 ? 'danger' : v > 0 ? 'warning' : 'success') as 'danger' | 'warning' | 'success',
-                secondaryLabel: 'HC • Orçado',
-                secondary: `${c.headcount} • ${fmtCompactBRL(c.budget)}`,
-              };
-            })}
-          />
+          <FinanceChartContainer>
+            <FinanceRankMatrix
+              mode="diverging"
+              sort="asc"
+              headers={{ rank: 'Rank', label: 'Centro de Custo', bar: 'Δ Realizado vs Orçado', secondary: 'Headcount / Orçado' }}
+              valueFormatter={(v) => `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`}
+              axisFormatter={(v) => `${v >= 0 ? '+' : ''}${v.toFixed(0)}%`}
+              rows={COST_CENTERS.map((c) => {
+                const v = ((c.actual - c.budget) / c.budget) * 100;
+                return {
+                  id: c.id,
+                  label: `${c.code} ${c.name}`,
+                  meta: c.director,
+                  value: Math.round(v * 10) / 10,
+                  tone: (v > 5 ? 'danger' : v > 0 ? 'warning' : 'success') as 'danger' | 'warning' | 'success',
+                  secondaryLabel: 'HC • Orçado',
+                  secondary: `${c.headcount} • ${fmtCompactBRL(c.budget)}`,
+                };
+              })}
+            />
+          </FinanceChartContainer>
         </HudCardContent>
       </HudCard>
 
-      <div className="grid grid-cols-1 xl:grid-cols-[1.6fr_1fr] gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-[1.6fr_1fr] gap-4">
         <HudCard>
           <HudCardHeader><HudCardTitle>Heatmap de execução por CC</HudCardTitle></HudCardHeader>
           <HudCardContent className="p-4">
-            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2.5">
-              {CENTERS.map((c) => {
+            <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2.5">
+              {COST_CENTERS.map((c) => {
                 const exec = (c.actual / c.budget) * 100;
                 const delta = ((c.actual - c.budget) / c.budget) * 100;
                 const tone = exec <= 100 ? 'var(--ig-success)' : exec <= 105 ? 'var(--ig-warning)' : 'var(--ig-danger)';
@@ -193,7 +158,7 @@ export default function CentrosCustoPage() {
                     key={c.id}
                     type="button"
                     onClick={() => setSelected(c)}
-                    className="text-left rounded-lg border border-ig-border-subtle p-3 hover:border-ig-border-focus transition-colors"
+                    className="text-left rounded-lg border border-ig-border-subtle p-3 hover:border-ig-border-focus hover:-translate-y-px transition-all min-w-0"
                     style={{ backgroundImage: `linear-gradient(135deg, color-mix(in oklab, ${tone} ${intensity}%, transparent), transparent 60%)` }}
                   >
                     <div className="flex items-center justify-between text-[10.5px] font-mono uppercase tracking-[0.12em] text-ig-text-tertiary">
@@ -201,9 +166,9 @@ export default function CentrosCustoPage() {
                       <span>{c.headcount} HC</span>
                     </div>
                     <div className="mt-1 text-[12.5px] font-medium text-ig-text-primary truncate">{c.name}</div>
-                    <div className="mt-1 flex items-center justify-between text-[11.5px]">
-                      <span className="text-ig-text-secondary font-mono">{fmtBRL(c.actual)}</span>
-                      <span className={'font-mono tabular-nums ' + (delta >= 0 ? 'text-ig-danger' : 'text-ig-success')}>{fmtPct(delta)}</span>
+                    <div className="mt-1 flex items-center justify-between text-[11.5px] min-w-0">
+                      <span className="text-ig-text-secondary font-mono truncate">{fmtBRL(c.actual)}</span>
+                      <span className={'font-mono tabular-nums shrink-0 ' + (delta >= 0 ? 'text-ig-danger' : 'text-ig-success')}>{fmtPct(delta)}</span>
                     </div>
                   </button>
                 );
@@ -215,16 +180,18 @@ export default function CentrosCustoPage() {
         <HudCard>
           <HudCardHeader><HudCardTitle>Tendência — top 4 centros</HudCardTitle></HudCardHeader>
           <HudCardContent className="p-3">
-            <FinanceLineChart categories={MONTHS_REF} series={trendSeries} height={280} />
+            <FinanceChartContainer>
+              <FinanceLineChart categories={COST_CENTERS_MONTHS_REF} series={trendSeries} height={280} />
+            </FinanceChartContainer>
           </HudCardContent>
         </HudCard>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-[1.6fr_1fr] gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-[1.6fr_1fr] gap-4">
         <HudCard>
           <HudCardHeader><HudCardTitle>Execução por centro de custo</HudCardTitle></HudCardHeader>
           <HudCardContent className="p-0">
-            <div className="overflow-x-auto">
+            <FinanceChartContainer scrollX>
               <table className="w-full text-sm">
                 <thead className="border-b border-ig-border-subtle">
                   <tr className="text-[10.5px] uppercase tracking-[0.12em] text-ig-text-tertiary">
@@ -239,19 +206,19 @@ export default function CentrosCustoPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {CENTERS.map((c) => {
+                  {COST_CENTERS.map((c) => {
                     const exec = (c.actual / c.budget) * 100;
                     const delta = ((c.actual - c.budget) / c.budget) * 100;
                     const tone = delta <= 0 ? 'text-ig-success' : delta <= 5 ? 'text-ig-warning' : 'text-ig-danger';
                     return (
                       <tr key={c.id} onClick={() => setSelected(c)} className="border-b border-ig-border-subtle/40 hover:bg-ig-surface-subtle/30 cursor-pointer">
-                        <td className="px-5 py-2.5 font-mono text-[12px] text-ig-text-secondary">{c.code}</td>
-                        <td className="px-5 py-2.5 text-ig-text-primary">{c.name}</td>
-                        <td className="px-5 py-2.5 text-ig-text-secondary">{c.director}</td>
-                        <td className="text-right px-5 py-2.5 font-mono tabular-nums">{fmtBRL(c.budget)}</td>
-                        <td className="text-right px-5 py-2.5 font-mono tabular-nums">{fmtBRL(c.actual)}</td>
-                        <td className={'text-right px-5 py-2.5 font-mono tabular-nums ' + tone}>{fmtPct(delta)}</td>
-                        <td className="text-right px-5 py-2.5">
+                        <td className="px-5 py-2.5 font-mono text-[12px] text-ig-text-secondary whitespace-nowrap">{c.code}</td>
+                        <td className="px-5 py-2.5 text-ig-text-primary whitespace-nowrap">{c.name}</td>
+                        <td className="px-5 py-2.5 text-ig-text-secondary whitespace-nowrap">{c.director}</td>
+                        <td className="text-right px-5 py-2.5 font-mono tabular-nums whitespace-nowrap">{fmtBRL(c.budget)}</td>
+                        <td className="text-right px-5 py-2.5 font-mono tabular-nums whitespace-nowrap">{fmtBRL(c.actual)}</td>
+                        <td className={'text-right px-5 py-2.5 font-mono tabular-nums whitespace-nowrap ' + tone}>{fmtPct(delta)}</td>
+                        <td className="text-right px-5 py-2.5 whitespace-nowrap">
                           <div className="inline-flex items-center gap-2">
                             <div className="w-20 h-1.5 rounded-full bg-ig-surface-subtle overflow-hidden">
                               <div className={'h-full ' + (exec <= 100 ? 'bg-ig-success' : exec <= 105 ? 'bg-ig-warning' : 'bg-ig-danger')} style={{ width: `${Math.min(exec, 130)}%` }} />
@@ -259,13 +226,13 @@ export default function CentrosCustoPage() {
                             <span className="text-[11px] font-mono text-ig-text-secondary">{exec.toFixed(0)}%</span>
                           </div>
                         </td>
-                        <td className="text-right px-5 py-2.5 font-mono tabular-nums text-ig-text-secondary">{c.headcount}</td>
+                        <td className="text-right px-5 py-2.5 font-mono tabular-nums text-ig-text-secondary whitespace-nowrap">{c.headcount}</td>
                       </tr>
                     );
                   })}
                 </tbody>
               </table>
-            </div>
+            </FinanceChartContainer>
           </HudCardContent>
         </HudCard>
 
@@ -273,9 +240,9 @@ export default function CentrosCustoPage() {
           title="Insights de execução"
           subtitle="Sinais por centro de custo"
           insights={[
-            { id: '1', tone: 'negative', title: 'Tecnologia em overrun', detail: 'CC-001 4.6% acima do orçado por crescimento de cloud e subcontratação.' },
+            { id: '1', tone: 'negative', title: 'Tecnologia em overrun', detail: 'CC-001 4,6% acima do orçado por crescimento de cloud e subcontratação.' },
             { id: '2', tone: 'warning',  title: 'Comercial pressionado', detail: 'CC-003 com comissões variáveis acima do plano em função de bookings.' },
-            { id: '3', tone: 'positive', title: 'CS abaixo do orçado', detail: 'CC-004 economizando 4.9% — eficiência em ferramentas SaaS.' },
+            { id: '3', tone: 'positive', title: 'CS abaixo do orçado', detail: 'CC-004 economizando 4,9% — eficiência em ferramentas SaaS.' },
             { id: '4', tone: 'neutral',  title: 'G&A estável', detail: 'CC-005 dentro de range; honorários jurídicos extraordinários sob revisão.' },
           ]}
         />
@@ -316,14 +283,14 @@ export default function CentrosCustoPage() {
                   const total = selected.composition.reduce((a, x) => a + x.value, 0);
                   const share = (c.value / total) * 100;
                   return (
-                    <li key={idx} className="py-2 flex items-center justify-between gap-3">
+                    <li key={idx} className="py-2 flex items-center justify-between gap-3 min-w-0">
                       <div className="flex-1 min-w-0">
                         <div className="text-[12.5px] text-ig-text-primary truncate">{c.category}</div>
                         <div className="mt-1 h-1 rounded-full bg-ig-surface-subtle overflow-hidden">
                           <div className="h-full bg-ig-accent" style={{ width: `${share}%` }} />
                         </div>
                       </div>
-                      <div className="text-right">
+                      <div className="text-right shrink-0">
                         <div className="text-[12.5px] font-mono tabular-nums">{fmtBRL(c.value)}</div>
                         <div className="text-[10.5px] text-ig-text-tertiary">{share.toFixed(1)}%</div>
                       </div>

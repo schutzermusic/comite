@@ -7,14 +7,29 @@ import {
   WorkforceMetrics,
   formatWorkforceCurrency,
 } from '@/lib/workforce-data';
+import type { WorkforcePeriodMeta } from '@/lib/workforce/period';
 import { cn } from '@/lib/utils';
 
 interface WorkforceOverviewCardsProps {
   data: WorkforceMetrics;
+  /**
+   * Period context. Drives whether KPIs show a month-over-month variation or an
+   * accumulated/average label (e.g. "Todo período" has no clear baseline).
+   */
+  meta?: WorkforcePeriodMeta;
   className?: string;
 }
 
-export function WorkforceOverviewCards({ data, className }: WorkforceOverviewCardsProps) {
+export function WorkforceOverviewCards({ data, meta, className }: WorkforceOverviewCardsProps) {
+  // Default to month-over-month behavior when no period meta is supplied
+  // (keeps the component backward compatible).
+  const hasComparison = meta ? meta.hasComparison : true;
+  const comparisonLabel = meta?.comparisonLabel || 'vs mês anterior';
+  const accum = meta?.accumulatedLabels ?? {
+    headcount: 'posição atual',
+    payroll: 'acumulado histórico',
+    avgCost: 'média histórica',
+  };
   const getPayrollTrendVariant = (trend: number): HudKpiVariant => {
     if (trend > 8) return 'danger';
     if (trend > 5) return 'warning';
@@ -41,9 +56,9 @@ export function WorkforceOverviewCards({ data, className }: WorkforceOverviewCar
       value: data.headcount.total.toLocaleString('pt-BR'),
       icon: <Users className="w-full h-full" />,
       variant: 'info',
-      deltaText: `${data.headcount.delta > 0 ? '+' : ''}${data.headcount.delta}`,
+      deltaText: hasComparison ? `${data.headcount.delta > 0 ? '+' : ''}${data.headcount.delta}` : undefined,
       deltaTone: 'neutral',
-      deltaLabel: 'vs mês anterior',
+      deltaLabel: hasComparison ? comparisonLabel : accum.headcount,
     },
     {
       id: 'monthly-payroll',
@@ -52,9 +67,9 @@ export function WorkforceOverviewCards({ data, className }: WorkforceOverviewCar
       icon: <DollarSign className="w-full h-full" />,
       variant: getPayrollTrendVariant(data.monthlyPayroll.trend),
       tintValue: data.monthlyPayroll.trend > 5,
-      deltaText: fmtTrend(data.monthlyPayroll.trend),
+      deltaText: hasComparison ? fmtTrend(data.monthlyPayroll.trend) : undefined,
       deltaTone: trendTone(data.monthlyPayroll.trend),
-      deltaLabel: 'vs mês anterior',
+      deltaLabel: hasComparison ? comparisonLabel : accum.payroll,
     },
     {
       id: 'avg-cost',
@@ -62,9 +77,9 @@ export function WorkforceOverviewCards({ data, className }: WorkforceOverviewCar
       value: formatWorkforceCurrency(data.avgCostPerEmployee.value, data.avgCostPerEmployee.currency),
       icon: <TrendingUp className="w-full h-full" />,
       variant: data.avgCostPerEmployee.trend > 3 ? 'warning' : 'default',
-      deltaText: fmtTrend(data.avgCostPerEmployee.trend),
+      deltaText: hasComparison ? fmtTrend(data.avgCostPerEmployee.trend) : undefined,
       deltaTone: trendTone(data.avgCostPerEmployee.trend),
-      deltaLabel: 'variação mensal',
+      deltaLabel: hasComparison ? comparisonLabel : accum.avgCost,
     },
     {
       id: 'payroll-revenue',

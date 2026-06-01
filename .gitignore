@@ -13,6 +13,10 @@
 # testing
 /coverage
 /test-results/
+
+# local test fixtures — NEVER commit (may contain sensitive payroll/HR data)
+/tmp/
+/payroll-fixtures/
 /playwright-report/
 /playwright/.cache/
 

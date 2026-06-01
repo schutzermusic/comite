@@ -40,7 +40,7 @@ export function ExecutiveDecisionQueue({ items }: ExecutiveDecisionQueueProps) {
               <Gavel className="h-4 w-4" />
             </span>
             <div>
-              <h3 className="text-sm font-semibold tracking-tight text-[color:var(--ig-fg-strong)]">Executive Decision Queue</h3>
+              <h3 className="text-sm font-semibold tracking-tight text-[color:var(--ig-fg-strong)]">Fila de Decisões Executivas</h3>
               <p className="text-[11px] text-[color:var(--ig-fg-muted)]">Decisões financeiras com SLA · {items.length} ativas</p>
             </div>
           </div>

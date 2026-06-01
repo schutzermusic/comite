@@ -1,5 +1,12 @@
 export * from './types';
-export { FinanceFilterBar, type FinanceFilterBarProps } from './FinanceFilterBar';
+export {
+  FinanceFilterBar,
+  FinanceFilterChip,
+  FinanceFilterSegment,
+  type FinanceFilterBarProps,
+  type FinanceFilterChipProps,
+  type FinanceFilterSegmentProps,
+} from './FinanceFilterBar';
 export { FinanceInsightCard, type FinanceInsight, type FinanceInsightTone } from './FinanceInsightCard';
 export {
   FinanceDetailDrawer,
@@ -30,3 +37,10 @@ export {
 } from './FuturisticCharts';
 
 export { Finance3DMetricCard, type Finance3DMetricCardProps, type Finance3DTone } from './Finance3DMetricCard';
+
+// Standardized KPI grid — converts a FinanceKpi[] (canonical contract) into
+// the HudKpiStrip layout and wires the click-to-drawer affordance.
+export { FinanceKpiGrid, type FinanceKpiGridProps } from './FinanceKpiGrid';
+
+// Generic chart container that scopes any horizontal overflow to itself.
+export { FinanceChartContainer, type FinanceChartContainerProps } from './FinanceChartContainer';

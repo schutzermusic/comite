@@ -40,8 +40,8 @@ export function ContractRevenuePanel({ contracts }: ContractRevenuePanelProps) {
               <FileText className="h-4 w-4" />
             </span>
             <div>
-              <h3 className="text-sm font-semibold tracking-tight text-[color:var(--ig-fg-strong)]">Contract Revenue</h3>
-              <p className="text-[11px] text-[color:var(--ig-fg-muted)]">Faturado · A faturar · Forecast · Risco</p>
+              <h3 className="text-sm font-semibold tracking-tight text-[color:var(--ig-fg-strong)]">Receita de Contratos</h3>
+              <p className="text-[11px] text-[color:var(--ig-fg-muted)]">Faturado · A faturar · Projeção · Risco</p>
             </div>
           </div>
         </header>
@@ -90,7 +90,7 @@ export function ContractRevenuePanel({ contracts }: ContractRevenuePanelProps) {
                 <div className="mt-2.5 grid grid-cols-3 gap-2">
                   <MiniStat label="Faturado" value={formatCompactBRL(c.invoiced)} color="#14B8A6" />
                   <MiniStat label="A Faturar" value={formatCompactBRL(c.toInvoice)} color="#A78BFA" />
-                  <MiniStat label="Forecast" value={formatCompactBRL(c.forecastInvoicing)} color="#F59E0B" />
+                  <MiniStat label="Projeção" value={formatCompactBRL(c.forecastInvoicing)} color="#F59E0B" />
                 </div>
 
                 <div className="mt-2.5">
@@ -112,7 +112,7 @@ export function ContractRevenuePanel({ contracts }: ContractRevenuePanelProps) {
                   </div>
                   <div className="mt-1 flex items-center justify-between text-[10px] text-[color:var(--ig-fg-muted)]">
                     <span>Faturado {invoicedPct.toFixed(1)}%</span>
-                    <span>Forecast {forecastPct.toFixed(1)}%</span>
+                    <span>Projeção {forecastPct.toFixed(1)}%</span>
                   </div>
                 </div>
               </motion.div>

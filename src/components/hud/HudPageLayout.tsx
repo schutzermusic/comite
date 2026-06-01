@@ -32,7 +32,10 @@ export function HudPageLayout({
   maxWidth = '2xl',
 }: HudPageLayoutProps) {
   return (
-    <div className={cn('min-h-full relative', className)}>
+    // overflow-x-hidden at the page-layout root is the single point where
+    // we clip any rogue child width. The parent <main> in (main)/layout.tsx
+    // still scrolls vertically; horizontal scroll must live INSIDE charts/tables.
+    <div className={cn('min-h-full relative w-full min-w-0 overflow-x-hidden', className)}>
       <motion.div
         initial={{ opacity: 1 }}
         animate={{ opacity: 1 }}
@@ -41,6 +44,8 @@ export function HudPageLayout({
           'relative z-10',
           'p-4 md:p-6 lg:p-8',
           'mx-auto',
+          // min-w-0 + w-full so grid children can shrink rather than push the page wider.
+          'w-full min-w-0',
           MAX_WIDTHS[maxWidth],
           'space-y-6',
           contentClassName,

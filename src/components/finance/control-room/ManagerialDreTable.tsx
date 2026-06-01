@@ -37,7 +37,7 @@ export function ManagerialDreTable({ rows }: ManagerialDreTableProps) {
             </span>
             <div>
               <h3 className="text-sm font-semibold tracking-tight text-[color:var(--ig-fg-strong)]">DRE Gerencial</h3>
-              <p className="text-[11px] text-[color:var(--ig-fg-muted)]">Estrutura completa · Realizado · Orçado · Forecast · Variação · Status</p>
+              <p className="text-[11px] text-[color:var(--ig-fg-muted)]">Estrutura completa · Realizado · Orçado · Projeção · Variação · Status</p>
             </div>
           </div>
           <span className="text-[10px] uppercase tracking-[0.18em] text-[color:var(--ig-fg-subtle)]">{rows.length} linhas</span>
@@ -50,7 +50,7 @@ export function ManagerialDreTable({ rows }: ManagerialDreTableProps) {
                 <Th className="text-left">Linha DRE</Th>
                 <Th className="text-right">Realizado</Th>
                 <Th className="text-right">Orçado</Th>
-                <Th className="text-right">Forecast</Th>
+                <Th className="text-right">Projeção</Th>
                 <Th className="text-right">Var. R$</Th>
                 <Th className="text-right">Var. %</Th>
                 <Th className="text-center">Status</Th>
@@ -128,8 +128,8 @@ export function ManagerialDreTable({ rows }: ManagerialDreTableProps) {
                           <div className="grid grid-cols-4 gap-3 text-[11px]">
                             <ExpandStat label="Mês corrente" value={formatCompactBRL(r.actual / 3)} />
                             <ExpandStat label="Acumulado YTD" value={formatCompactBRL(r.actual)} />
-                            <ExpandStat label="Run-rate anual" value={formatCompactBRL(r.actual * 4)} />
-                            <ExpandStat label="Δ Forecast" value={formatCompactBRL(r.forecast - r.actual)} tone={r.forecast > r.actual ? 'positive' : 'negative'} />
+                            <ExpandStat label="Taxa anual" value={formatCompactBRL(r.actual * 4)} />
+                            <ExpandStat label="Δ Projeção" value={formatCompactBRL(r.forecast - r.actual)} tone={r.forecast > r.actual ? 'positive' : 'negative'} />
                           </div>
                         </td>
                       </tr>

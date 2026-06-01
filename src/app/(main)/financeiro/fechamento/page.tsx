@@ -2,13 +2,13 @@
 
 import { useState, useMemo } from 'react';
 import { useTranslations } from 'next-intl';
-import { Lock, CheckCircle, XCircle, ShieldCheck, AlertTriangle, TrendingUp, FileCheck2, Clock3 } from 'lucide-react';
+import { Lock, CheckCircle, XCircle, ShieldCheck, AlertTriangle, TrendingUp, FileCheck2, Clock3, CalendarRange } from 'lucide-react';
 import {
   HudPageLayout, HudHeader, HudPanel, HudButton, HudStatusPill,
   HudSelect, HudTable, HudModal, HudInput, HudKpiStrip,
   type HudTableColumn, type KpiItem,
 } from '@/components/hud';
-import { FinanceAdvancedWaterfallChart } from '@/components/finance/shared';
+import { FinanceAdvancedWaterfallChart, FinanceFilterBar, FinanceFilterChip } from '@/components/finance/shared';
 import {
   getPeriodCloses, getPeriodClose, getCloseChecklist,
   softClosePeriod, hardClosePeriod, formatBRL, formatCompactBRL,
@@ -77,8 +77,17 @@ export default function FechamentoPage() {
         icon={<Lock className="w-5 h-5" />}
         iconTint="#14B8A6"
         breadcrumbs={[{ label: t('title'), href: '/financeiro' }, { label: t('periodClose') }]}
-        actions={
-          <HudSelect label="" value={selectedPeriod} onChange={setSelectedPeriod} size="sm"
+      />
+
+      <FinanceFilterBar
+        showPeriod={false}
+        showScenario={false}
+        extra={
+          <FinanceFilterChip
+            icon={<CalendarRange className="h-3.5 w-3.5" />}
+            label="Período"
+            value={selectedPeriod}
+            onChange={setSelectedPeriod}
             options={[
               { value: '2026-01', label: 'Jan/2026' },
               { value: '2026-02', label: 'Fev/2026' },
@@ -86,7 +95,26 @@ export default function FechamentoPage() {
             ]}
           />
         }
+        rightSlot={
+          <>
+            <HudButton
+              variant="secondary" size="sm" leftIcon={<Lock className="w-4 h-4" />}
+              onClick={() => { setCloseType('soft'); setConfirmModalOpen(true); }}
+              disabled={currentPeriod?.status === 'closed'}
+            >
+              {t('softClose')}
+            </HudButton>
+            <HudButton
+              variant="primary" size="sm" leftIcon={<Lock className="w-4 h-4" />}
+              onClick={() => { setCloseType('hard'); setConfirmModalOpen(true); }}
+              disabled={!allReady || currentPeriod?.status === 'closed'}
+            >
+              {t('hardClose')}
+            </HudButton>
+          </>
+        }
       />
+
       <HudKpiStrip kpis={closeKpis} columns={4} size="sm" />
 
       <HudPanel className="mt-4" title="Trilha executiva do fechamento" subtitle="Status board-ready sem alterar o fluxo operacional" icon={<Clock3 className="h-4 w-4" />} sweep>

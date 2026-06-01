@@ -1,16 +1,16 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { Target, ExternalLink, FileBarChart2 } from 'lucide-react';
+import { useMemo, useState, useCallback } from 'react';
+import { Target, ExternalLink, FileBarChart2, Building2, Activity, Percent, Link2, AlertTriangle } from 'lucide-react';
 import {
-  HudPageLayout, HudHeader, HudKpiStrip, HudButton, HudSelect,
+  HudPageLayout, HudHeader, HudKpiStrip, HudButton,
   HudCard, HudCardHeader, HudCardTitle, HudCardContent,
   type KpiItem,
 } from '@/components/hud';
 import {
-  FinanceFilterBar,
+  FinanceFilterBar, FinanceFilterChip,
   FinanceInsightCard,
-  FinanceStatusBadge, type FinanceStatus,
+  FinanceStatusBadge,
   FinanceDetailDrawer, FinanceDrawerSection, FinanceDrawerKeyValue,
   FinanceBarChart,
   FinanceRankMatrix,
@@ -20,28 +20,10 @@ import {
   type FinancePeriod, type FinanceScenario,
 } from '@/components/finance/shared';
 
-type Project = {
-  id: string;
-  code: string;
-  name: string;
-  client: string;
-  status: FinanceStatus;
-  health: number;
-  contracted: number;
-  invoiced: number;
-  cost: number;
-  forecastCost: number;
-  risks: string[];
-};
+import { type ProjectPortfolioRow, selectProjectsPortfolio, selectPendingProjectCostsForProject } from '@/lib/finance';
+import { getLedgerEntries, linkEntriesToProject, formatBRL } from '@/lib/finance/finance-store';
 
-const PROJECTS: Project[] = [
-  { id: 'p1', code: 'PRJ-2026-001', name: 'Implantação ERP — Fase II',         client: 'Grupo Aurora',     status: 'active',    health: 88, contracted: 4_200_000, invoiced: 2_520_000, cost: 2_910_000, forecastCost: 3_080_000, risks: ['Escopo aditivo em discussão'] },
-  { id: 'p2', code: 'PRJ-2026-002', name: 'Plataforma de Risco',               client: 'Banco Iguaçu',     status: 'at_risk',   health: 62, contracted: 3_180_000, invoiced: 1_590_000, cost: 2_650_000, forecastCost: 2_880_000, risks: ['Mobilização extra', 'Penalidade contratual', 'Schedule slip Q2'] },
-  { id: 'p3', code: 'PRJ-2026-003', name: 'Modernização Data Lake',            client: 'Fênix Energia',    status: 'active',    health: 91, contracted: 2_640_000, invoiced: 1_320_000, cost: 1_790_000, forecastCost: 1_840_000, risks: [] },
-  { id: 'p4', code: 'PRJ-2026-004', name: 'Compliance LGPD/SOX',               client: 'NorteCar',         status: 'pending',   health: 71, contracted: 1_980_000, invoiced: 0,         cost: 1_650_000, forecastCost: 1_720_000, risks: ['Aguardando aprovação do projeto'] },
-  { id: 'p5', code: 'PRJ-2026-005', name: 'Insight Operations 3D',             client: 'Mineração Vale Sul', status: 'active',  health: 94, contracted: 5_750_000, invoiced: 4_312_500, cost: 3_810_000, forecastCost: 3_910_000, risks: [] },
-  { id: 'p6', code: 'PRJ-2025-098', name: 'Squad Outsourcing — Q4',            client: 'OrionTech',        status: 'completed', health: 48, contracted: 1_320_000, invoiced: 1_320_000, cost: 1_390_000, forecastCost: 1_390_000, risks: ['Margem negativa — projeto encerrado com déficit'] },
-];
+type Project = ProjectPortfolioRow;
 
 export default function ProjetosMargensPage() {
   const [period, setPeriod] = useState<FinancePeriod>('2026-Q2');
@@ -50,15 +32,33 @@ export default function ProjetosMargensPage() {
   const [filterMargin, setFilterMargin] = useState<string>('');
   const [filterClient, setFilterClient] = useState<string>('');
   type EnrichedProject = Project & { margin: number; marginPct: number; fcstMargin: number; fcstMarginPct: number };
-  const [selected, setSelected] = useState<EnrichedProject | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  const enriched: EnrichedProject[] = PROJECTS.map((p) => {
+  // Live ledger (reflects allocation changes) feeds the portfolio + pending costs.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const ledger = useMemo(() => getLedgerEntries(), [refreshKey]);
+  const PROJECTS: Project[] = useMemo(() => selectProjectsPortfolio(ledger), [ledger]);
+
+  const enriched: EnrichedProject[] = useMemo(() => PROJECTS.map((p) => {
     const margin = p.contracted - p.cost;
     const marginPct = (margin / p.contracted) * 100;
     const fcstMargin = p.contracted - p.forecastCost;
     const fcstMarginPct = (fcstMargin / p.contracted) * 100;
     return { ...p, margin, marginPct, fcstMargin, fcstMarginPct };
-  });
+  }), [PROJECTS]);
+
+  const selected = useMemo(() => enriched.find((p) => p.id === selectedId) ?? null, [enriched, selectedId]);
+  const pending = useMemo(
+    () => (selectedId ? selectPendingProjectCostsForProject(ledger, selectedId) : undefined),
+    [selectedId, ledger],
+  );
+
+  const handleLinkPending = useCallback(() => {
+    if (!selectedId || !pending?.entries.length) return;
+    linkEntriesToProject(pending.entries.map((e) => e.id), selectedId, 'Vinculado via Projetos & Margens');
+    setRefreshKey((k) => k + 1);
+  }, [selectedId, pending]);
 
   const filtered = useMemo(() => enriched.filter((p) => {
     if (filterStatus && p.status !== filterStatus) return false;
@@ -109,12 +109,21 @@ export default function ProjetosMargensPage() {
         scenario={scenario} onScenarioChange={setScenario}
         extra={
           <>
-            <HudSelect label="Cliente" size="sm" value={filterClient} onChange={setFilterClient}
-              options={[{ value: '', label: 'Todos' }, ...clients.map((c) => ({ value: c, label: c }))]} />
-            <HudSelect label="Status" size="sm" value={filterStatus} onChange={setFilterStatus}
-              options={[{ value: '', label: 'Todos' }, { value: 'active', label: 'Ativo' }, { value: 'at_risk', label: 'Em risco' }, { value: 'completed', label: 'Concluído' }, { value: 'pending', label: 'Pendente' }]} />
-            <HudSelect label="Margem" size="sm" value={filterMargin} onChange={setFilterMargin}
-              options={[{ value: '', label: 'Todas' }, { value: 'high', label: '≥ 30%' }, { value: 'mid', label: '15–30%' }, { value: 'low', label: '< 15%' }]} />
+            <FinanceFilterChip
+              icon={<Building2 className="h-3.5 w-3.5" />}
+              label="Cliente" value={filterClient} onChange={setFilterClient}
+              options={[{ value: '', label: 'Todos' }, ...clients.map((c) => ({ value: c, label: c }))]}
+            />
+            <FinanceFilterChip
+              icon={<Activity className="h-3.5 w-3.5" />}
+              label="Status" value={filterStatus} onChange={setFilterStatus}
+              options={[{ value: '', label: 'Todos' }, { value: 'active', label: 'Ativo' }, { value: 'at_risk', label: 'Em risco' }, { value: 'completed', label: 'Concluído' }, { value: 'pending', label: 'Pendente' }]}
+            />
+            <FinanceFilterChip
+              icon={<Percent className="h-3.5 w-3.5" />}
+              label="Margem" value={filterMargin} onChange={setFilterMargin}
+              options={[{ value: '', label: 'Todas' }, { value: 'high', label: '≥ 30%' }, { value: 'mid', label: '15–30%' }, { value: 'low', label: '< 15%' }]}
+            />
           </>
         }
       />
@@ -188,7 +197,7 @@ export default function ProjetosMargensPage() {
                 {filtered.map((p) => {
                   const tone = p.marginPct >= 30 ? 'text-ig-success' : p.marginPct >= 15 ? 'text-ig-warning' : 'text-ig-danger';
                   return (
-                    <tr key={p.id} onClick={() => setSelected(p)} className="border-b border-ig-border-subtle/40 hover:bg-ig-surface-subtle/30 cursor-pointer">
+                    <tr key={p.id} onClick={() => setSelectedId(p.id)} className="border-b border-ig-border-subtle/40 hover:bg-ig-surface-subtle/30 cursor-pointer">
                       <td className="px-5 py-2.5 font-mono text-[12px] text-ig-text-secondary">{p.code}</td>
                       <td className="px-5 py-2.5 text-ig-text-primary">{p.name}</td>
                       <td className="px-5 py-2.5 text-ig-text-secondary">{p.client}</td>
@@ -216,7 +225,7 @@ export default function ProjetosMargensPage() {
 
       <FinanceDetailDrawer
         open={!!selected}
-        onClose={() => setSelected(null)}
+        onClose={() => setSelectedId(null)}
         title={selected?.name || ''}
         subtitle={selected ? `${selected.code} • ${selected.client}` : ''}
         metaPills={selected ? [
@@ -241,6 +250,38 @@ export default function ProjetosMargensPage() {
                 { label: 'Margem realizada',    value: fmtBRL(selected.contracted - selected.cost), tone: selected.contracted - selected.cost >= 0 ? 'pos' : 'neg' },
                 { label: 'Margem forecast',     value: fmtBRL(selected.contracted - selected.forecastCost), tone: selected.contracted - selected.forecastCost >= 0 ? 'pos' : 'neg' },
               ]} />
+            </FinanceDrawerSection>
+
+            <FinanceDrawerSection title="Custos pendentes relacionados (contrato)">
+              {!pending || pending.count === 0 ? (
+                <p className="text-[12.5px] text-ig-text-tertiary">
+                  Nenhum custo pendente de alocação para o contrato deste projeto.
+                </p>
+              ) : (
+                <div className="space-y-2.5">
+                  <div className="flex items-start gap-2 rounded-lg border border-[color-mix(in_oklab,var(--ig-warning)_28%,transparent)] bg-[color-mix(in_oklab,var(--ig-warning)_10%,transparent)] px-3 py-2">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-ig-warning" />
+                    <p className="text-[12px] text-ig-warning">
+                      {pending.count} custo(s) lançados no contrato <span className="font-mono">{pending.contract_id}</span> antes da criação do projeto.
+                      Não entram no AC/margem oficiais até serem vinculados. Total: <span className="font-mono">{formatBRL(pending.totalCents)}</span>.
+                    </p>
+                  </div>
+                  <ul className="divide-y divide-ig-border-subtle/60">
+                    {pending.entries.map((e) => (
+                      <li key={e.id} className="flex items-center justify-between gap-3 py-1.5">
+                        <div className="min-w-0">
+                          <p className="truncate text-[12.5px] text-ig-text-primary">{e.description}</p>
+                          <p className="text-[10.5px] text-ig-text-tertiary">{e.entry_date} • {e.category?.name || e.category_id} • {e.status}</p>
+                        </div>
+                        <span className="shrink-0 font-mono text-[12.5px] text-ig-text-secondary">{formatBRL(e.amount_cents)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <HudButton variant="primary" size="sm" leftIcon={<Link2 className="w-4 h-4" />} onClick={handleLinkPending} fullWidth>
+                    Vincular custos pendentes ao projeto
+                  </HudButton>
+                </div>
+              )}
             </FinanceDrawerSection>
 
             <FinanceDrawerSection title="Risk register">

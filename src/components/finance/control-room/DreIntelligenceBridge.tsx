@@ -188,7 +188,7 @@ export function DreIntelligenceBridge({ rows, scenarioLabel }: DreIntelligenceBr
             </span>
             <div>
               <h3 className="text-sm font-semibold tracking-tight text-[color:var(--ig-fg-strong)]">
-                DRE Intelligence Bridge
+                Bridge Inteligente do DRE
               </h3>
               <p className="text-[11px] text-[color:var(--ig-fg-muted)]">
                 Bridge analítico Receita → Resultado · {scenarioLabel}
@@ -200,7 +200,7 @@ export function DreIntelligenceBridge({ rows, scenarioLabel }: DreIntelligenceBr
             <LegendDot color={colors.positive} label="Contribuição (+)" />
             <LegendDot color={colors.negative} label="Contribuição (−)" />
             <LegendLine color={colors.budget} label="Orçado" />
-            <LegendLine color={colors.forecast} label="Forecast" />
+            <LegendLine color={colors.forecast} label="Projeção" />
           </div>
         </header>
 
@@ -396,7 +396,7 @@ function BridgeTooltip({ bar }: { bar: BarSpec }) {
 
       <div className="mt-2.5 grid grid-cols-2 gap-1.5 text-[10px]">
         <Row label="Orçado" value={formatCompactBRL(bar.budget)} />
-        <Row label="Forecast" value={formatCompactBRL(bar.forecast)} />
+        <Row label="Projeção" value={formatCompactBRL(bar.forecast)} />
       </div>
       <div className="mt-2 flex items-center justify-between rounded-md border border-[color:var(--ig-border-strong)] bg-[color:var(--ig-bg-canvas)]/40 px-2 py-1.5">
         <span className="text-[10px] uppercase tracking-wider text-[color:var(--ig-fg-subtle)]">Variação vs Bdg</span>

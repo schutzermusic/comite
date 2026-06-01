@@ -31,7 +31,7 @@ const KIND_META: Record<AiInsight['kind'], { label: string; color: string; icon:
   margin: { label: 'Margem', color: '#A78BFA', icon: <Activity className="h-3 w-3" /> },
   revenue: { label: 'Receita', color: '#14B8A6', icon: <TrendingUp className="h-3 w-3" /> },
   cost: { label: 'Custo', color: '#F59E0B', icon: <Zap className="h-3 w-3" /> },
-  forecast: { label: 'Forecast', color: '#22D3EE', icon: <Sparkles className="h-3 w-3" /> },
+  forecast: { label: 'Projeção', color: '#22D3EE', icon: <Sparkles className="h-3 w-3" /> },
   operational: { label: 'Operacional', color: '#F43F5E', icon: <AlertCircle className="h-3 w-3" /> },
 };
 
@@ -68,7 +68,7 @@ export function AiFinancialAnalyst({ insights, approvalQueue, onSimulate, onAnal
             </span>
             <div>
               <h3 className="text-sm font-semibold tracking-tight text-[color:var(--ig-fg-strong)]">
-                AI Financial Analyst
+                Analista Financeiro IA
               </h3>
               <p className="text-[11px] text-[color:var(--ig-fg-muted)]">
                 Análise executiva contínua · 5 insights priorizados

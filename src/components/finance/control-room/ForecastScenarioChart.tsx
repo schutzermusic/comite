@@ -17,8 +17,8 @@ type SeriesKey = 'actual' | 'budget' | 'forecast' | 'board';
 const SERIES: { key: SeriesKey; label: string; color: string; dashed?: boolean }[] = [
   { key: 'actual', label: 'Realizado', color: '#14B8A6' },
   { key: 'budget', label: 'Orçado', color: '#818CF8', dashed: true },
-  { key: 'forecast', label: 'Forecast', color: '#F59E0B' },
-  { key: 'board', label: 'Board Approved', color: '#A78BFA', dashed: true },
+  { key: 'forecast', label: 'Projeção', color: '#F59E0B' },
+  { key: 'board', label: 'Aprovado pelo Conselho', color: '#A78BFA', dashed: true },
 ];
 
 export function ForecastScenarioChart({ data }: ForecastScenarioChartProps) {
@@ -139,7 +139,7 @@ export function ForecastScenarioChart({ data }: ForecastScenarioChartProps) {
               <LineChart className="h-4 w-4" />
             </span>
             <div>
-              <h3 className="text-sm font-semibold tracking-tight text-[color:var(--ig-fg-strong)]">Forecast vs Realizado</h3>
+              <h3 className="text-sm font-semibold tracking-tight text-[color:var(--ig-fg-strong)]">Projeção vs Realizado</h3>
               <p className="text-[11px] text-[color:var(--ig-fg-muted)]">Receita líquida · 12 meses · 4 cenários</p>
             </div>
           </div>
@@ -292,7 +292,7 @@ export function ForecastScenarioChart({ data }: ForecastScenarioChartProps) {
 
         <footer className="flex items-center justify-between border-t border-[color:var(--ig-border-subtle)] px-5 py-2.5">
           <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.18em] text-[color:var(--ig-fg-subtle)]">
-            <Sparkles className="h-3 w-3" /> Convergência Forecast → Board: Jul/26
+            <Sparkles className="h-3 w-3" /> Convergência Projeção → Conselho: Jul/26
           </div>
           <span className="font-mono text-[10px] tabular-nums text-[color:var(--ig-fg-muted)]">
             Gap acum.: <span className="text-[#F59E0B]">−R$ 28M</span>
