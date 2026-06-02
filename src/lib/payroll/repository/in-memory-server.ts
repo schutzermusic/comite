@@ -9,15 +9,26 @@
 
 import type {
   PayrollAttachment, PayrollClosingBatch, PayrollClosingBatchApproved,
-  PayrollEmailDispatch, PayrollEmailPackage,
+  PayrollCostCenterMapping, PayrollEmailDispatch, PayrollEmailPackage,
   PayrollGeneratedReport, PayrollImportFile, PayrollParseResult,
 } from '@/lib/types/payroll-closing';
 import {
   IMPORT_TYPE_MAP,
-  type AttachmentBytes, type AuditInput, type CreateBatchInput, type CreatePackageInput,
-  type GeneratedAttachmentInput, type PayrollRepository, type RecordDispatchInput, type RepoActor,
-  type SaveReportInput, type SendToFinanceResult, type UploadFileInput,
+  type AttachmentBytes, type AuditInput, type CreateBatchInput, type CreateFinanceCostCenterInput,
+  type CreatePackageInput, type DeleteBatchResult, type FinanceCostCenterRecord, type FinancePayrollBatchRecord,
+  type GeneratedAttachmentInput, type PayrollRepository,
+  type RecordDispatchInput, type RemoveAttachmentResult, type RepoActor,
+  type SaveReportInput, type SendToFinanceOptions, type SendToFinanceResult,
+  type UpdateBatchInput, type UpsertCostCenterMappingInput, type UploadFileInput,
 } from './types';
+
+/** Standard cost centers, mirroring the seed used by migration 022. */
+const SEED_COST_CENTERS: Array<{ code: string; name: string }> = [
+  { code: 'ENG-CAMPO', name: 'Engenharia de Campo' }, { code: 'MANUT', name: 'Manutenção Industrial' },
+  { code: 'MOB', name: 'Mobilização' }, { code: 'ADM-SP', name: 'Administrativo SP' },
+  { code: 'TI', name: 'Tecnologia da Informação' }, { code: 'RH', name: 'Recursos Humanos' },
+  { code: 'COMERC', name: 'Comercial' }, { code: 'FIN', name: 'Financeiro' },
+];
 
 let batches: PayrollClosingBatch[] = [];
 let importFiles: PayrollImportFile[] = [];
@@ -25,6 +36,8 @@ let attachments: PayrollAttachment[] = [];
 let reports: PayrollGeneratedReport[] = [];
 let packages: PayrollEmailPackage[] = [];
 let dispatches: PayrollEmailDispatch[] = [];
+let mappings: PayrollCostCenterMapping[] = [];
+let financeCostCenters: FinanceCostCenterRecord[] = [];
 const blobs = new Map<string, Buffer>();
 let seq = 0;
 const uid = (p: string) => `${p}-${Date.now().toString(36)}-${++seq}`;
@@ -156,7 +169,10 @@ export class InMemoryServerRepository implements PayrollRepository {
     return this.patch(id, { status: 'approved', approved_by: actor.userId });
   }
 
-  async sendToFinance(actor: RepoActor, id: string): Promise<SendToFinanceResult> {
+  async sendToFinance(actor: RepoActor, id: string, _options: SendToFinanceOptions = {}): Promise<SendToFinanceResult> {
+    // Mock mode keeps no parsed cost-center summaries, so it can't evaluate the
+    // unmapped-mapping gate server-side — the client gate covers dev/mock. The
+    // options param is accepted for signature parity with the Supabase repo.
     const batch = await this.getClosingBatch(actor, id);
     if (!batch) return { ok: false, error: 'Fechamento não encontrado.' };
     if (batch.finance_batch_id) return { ok: false, error: 'Já enviado ao Financeiro (anti-duplicidade).', finance_batch_id: batch.finance_batch_id };
@@ -164,6 +180,125 @@ export class InMemoryServerRepository implements PayrollRepository {
     const financeId = uid('pb');
     const updated = this.patch(id, { status: 'sent_to_finance', finance_batch_id: financeId });
     return { ok: true, batch: updated, finance_batch_id: financeId };
+  }
+
+  // ── Lifecycle: edit / cancel / reopen / delete ──────────────
+  async updateClosingBatch(_actor: RepoActor, id: string, patch: UpdateBatchInput): Promise<PayrollClosingBatch> {
+    return this.patch(id, {
+      ...(patch.competence_month !== undefined ? { competence_month: patch.competence_month } : {}),
+      ...(patch.payment_deadline !== undefined ? { payment_deadline: patch.payment_deadline ?? undefined } : {}),
+    });
+  }
+
+  async cancelClosingBatch(actor: RepoActor, id: string, reason?: string): Promise<PayrollClosingBatch> {
+    return this.patch(id, { status: 'cancelled', cancellation_reason: reason, deleted_at: now(), deleted_by: actor.userId });
+  }
+
+  async reopenClosingBatch(actor: RepoActor, id: string, _reason?: string): Promise<PayrollClosingBatch> {
+    const current = batches.find((b) => b.id === id);
+    const newStatus: PayrollClosingBatch['status'] = current?.status === 'cancelled' ? 'imported' : 'reviewed';
+    return this.patch(id, { status: newStatus, deleted_at: undefined, deleted_by: undefined, cancellation_reason: undefined, reopened_at: now(), reopened_by: actor.userId });
+  }
+
+  async deleteClosingBatch(actor: RepoActor, id: string): Promise<DeleteBatchResult> {
+    const batch = batches.find((b) => b.id === id && b.organization_id === actor.organizationId);
+    if (!batch) return { ok: false, error: 'Fechamento não encontrado.' };
+    if (batch.finance_batch_id) return { ok: false, error: 'Possui lote no Financeiro — exclusão bloqueada.' };
+    if (batch.status === 'posted') return { ok: false, error: 'Lançado no ledger — exclusão bloqueada.' };
+    const attIds = new Set(attachments.filter((a) => a.batch_id === id).map((a) => a.id));
+    attIds.forEach((aid) => blobs.delete(aid));
+    attachments = attachments.filter((a) => a.batch_id !== id);
+    importFiles = importFiles.filter((f) => f.batch_id !== id);
+    reports = reports.filter((r) => r.batch_id !== id);
+    const pkgIds = new Set(packages.filter((p) => p.batch_id === id).map((p) => p.id));
+    packages = packages.filter((p) => p.batch_id !== id);
+    dispatches = dispatches.filter((d) => !pkgIds.has(d.package_id));
+    batches = batches.filter((b) => b.id !== id);
+    return { ok: true };
+  }
+
+  async removeAttachment(_actor: RepoActor, batchId: string, attachmentId: string): Promise<RemoveAttachmentResult> {
+    const att = attachments.find((a) => a.id === attachmentId && a.batch_id === batchId);
+    if (!att) return { ok: false, error: 'Anexo não encontrado.' };
+    blobs.delete(attachmentId);
+    attachments = attachments.filter((a) => a.id !== attachmentId);
+    importFiles = importFiles.filter((f) => !(f.batch_id === batchId && f.storage_path === att.storage_path));
+    packages = packages.map((p) => p.batch_id === batchId && p.attachment_ids.includes(attachmentId)
+      ? { ...p, attachment_ids: p.attachment_ids.filter((x) => x !== attachmentId) } : p);
+    return { ok: true, file_type: att.file_type, was_payroll_spreadsheet: att.file_type === 'payroll_spreadsheet' };
+  }
+
+  async invalidateParse(_actor: RepoActor, id: string): Promise<PayrollClosingBatch> {
+    reports = reports.filter((r) => r.batch_id !== id);
+    attachments = attachments.filter((a) => !(a.batch_id === id && a.storage_path.includes('/generated/')));
+    return this.patch(id, { status: 'imported', total_amount_cents: 0, previous_month_amount_cents: 0, variation_amount_cents: 0, variation_percentage: 0 });
+  }
+
+  // ── Finance cost centers ────────────────────────────────────
+  async listFinanceCostCenters(actor: RepoActor): Promise<FinanceCostCenterRecord[]> {
+    if (!financeCostCenters.some((c) => c.organization_id === actor.organizationId)) {
+      // Lazy-seed the standard set for this org on first read.
+      for (const s of SEED_COST_CENTERS) {
+        financeCostCenters.push({
+          id: uid('fcc'), organization_id: actor.organizationId, code: s.code, name: s.name,
+          active: true, created_at: now(), updated_at: now(),
+        });
+      }
+    }
+    return financeCostCenters.filter((c) => c.organization_id === actor.organizationId && c.active);
+  }
+
+  async createFinanceCostCenter(actor: RepoActor, input: CreateFinanceCostCenterInput): Promise<FinanceCostCenterRecord> {
+    const base = (input.code || input.name).normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 24) || 'CC';
+    let code = base; let n = 1;
+    while (financeCostCenters.some((c) => c.organization_id === actor.organizationId && c.code === code)) code = `${base}-${++n}`;
+    const cc: FinanceCostCenterRecord = {
+      id: uid('fcc'), organization_id: actor.organizationId, code, name: input.name.trim(),
+      active: true, created_at: now(), updated_at: now(),
+    };
+    financeCostCenters = [cc, ...financeCostCenters];
+    return cc;
+  }
+
+  // ── Cost-center mapping aliases ─────────────────────────────
+  async listCostCenterMappings(actor: RepoActor): Promise<PayrollCostCenterMapping[]> {
+    return mappings.filter((m) => m.organization_id === actor.organizationId);
+  }
+
+  async upsertCostCenterMapping(actor: RepoActor, input: UpsertCostCenterMappingInput): Promise<PayrollCostCenterMapping> {
+    const idx = mappings.findIndex((m) => m.organization_id === actor.organizationId && m.normalized_name === input.normalized_name);
+    if (idx !== -1) {
+      mappings[idx] = {
+        ...mappings[idx], imported_name: input.imported_name, cost_center_id: input.cost_center_id,
+        confidence: input.confidence ?? 1, updated_by: actor.userId, updated_at: now(),
+      };
+      return mappings[idx];
+    }
+    const record: PayrollCostCenterMapping = {
+      id: uid('pccm'), organization_id: actor.organizationId,
+      imported_name: input.imported_name, normalized_name: input.normalized_name,
+      cost_center_id: input.cost_center_id, confidence: input.confidence ?? 1,
+      created_by: actor.userId, updated_by: actor.userId, created_at: now(), updated_at: now(),
+    };
+    mappings = [record, ...mappings];
+    return record;
+  }
+
+  async saveCostCenterMappings(actor: RepoActor, inputs: UpsertCostCenterMappingInput[]): Promise<PayrollCostCenterMapping[]> {
+    const out: PayrollCostCenterMapping[] = [];
+    for (const input of inputs) out.push(await this.upsertCostCenterMapping(actor, input));
+    return out;
+  }
+
+  async deleteCostCenterMapping(actor: RepoActor, id: string): Promise<void> {
+    mappings = mappings.filter((m) => !(m.id === id && m.organization_id === actor.organizationId));
+  }
+
+  async listFinancePayrollBatches(_actor: RepoActor, _filters?: { periodKey?: string }): Promise<FinancePayrollBatchRecord[]> {
+    // Mock mode keeps no persisted finance batches — the client-side in-memory
+    // finance store (with its mock seed + injectPayrollBatch mirror) is the
+    // source of truth there, so there is nothing to hydrate from the server.
+    return [];
   }
 
   async listApprovedBatches(actor: RepoActor): Promise<PayrollClosingBatchApproved[]> {

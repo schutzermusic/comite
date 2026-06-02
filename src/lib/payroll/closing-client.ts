@@ -14,10 +14,16 @@
 
 import * as store from '@/lib/payroll/payroll-closing-store';
 import { blobToBase64, sendPayrollEmail, type SendEmailResponse } from '@/lib/payroll/client';
-import { injectPayrollBatch } from '@/lib/finance/finance-store';
+import { injectPayrollBatch, getCostCenters, createCostCenter } from '@/lib/finance/finance-store';
+import {
+  getCostCenterMappings, saveCostCenterMappings as saveLocalMappings,
+  deleteCostCenterMapping as deleteLocalMapping, type CostCenterLike,
+} from '@/lib/payroll/cost-center-mapping';
 import type {
-  PayrollAttachment, PayrollAttachmentFileType, PayrollClosingBatch, PayrollEmailAudience,
-  PayrollEmailDispatch, PayrollImportFileType, PayrollParseResult, PayrollReportType, PayrollSecurityLevel,
+  CostCenterMatchMethod,
+  PayrollAttachment, PayrollAttachmentFileType, PayrollClosingBatch, PayrollCostCenterMapping,
+  PayrollEmailAudience, PayrollEmailDispatch, PayrollImportFileType, PayrollParseResult,
+  PayrollReportType, PayrollSecurityLevel,
 } from '@/lib/types/payroll-closing';
 
 export function repositoryMode(): 'mock' | 'supabase' {
@@ -38,6 +44,36 @@ export async function createBatch(input: { competence_month: string; payment_dea
   });
   if (!r.ok || !r.batch) throw new Error(r.error ?? 'Falha ao criar fechamento');
   return r.batch;
+}
+
+/**
+ * Return the existing active batch for this competence, or create a new one.
+ * Prevents the unique-constraint error (`uq_pcb_org_comp_active`) when the user
+ * uploads a second file into the same competence session — the constraint allows
+ * only one non-cancelled batch per org+competence.
+ */
+export async function findOrCreateBatch(input: { competence_month: string; payment_deadline?: string }): Promise<PayrollClosingBatch> {
+  if (!isSupabase()) {
+    // Mock: find an existing non-cancelled batch for the competence.
+    const existing = store.getClosingBatches().find(
+      (b) => b.competence_month === input.competence_month && b.status !== 'cancelled',
+    );
+    if (existing) return existing;
+    return store.createClosingBatch(input);
+  }
+  // Supabase: list batches and look for a match first.
+  try {
+    const list = await jsonFetch<{ ok: boolean; batches?: PayrollClosingBatch[] }>('/api/payroll/batches');
+    if (list.ok && list.batches) {
+      const existing = list.batches.find(
+        (b) => b.competence_month === input.competence_month && b.status !== 'cancelled',
+      );
+      if (existing) return existing;
+    }
+  } catch {
+    // If list fails, fall through to create — let the server return the constraint error.
+  }
+  return createBatch(input);
 }
 
 export interface UploadResult { attachment: PayrollAttachment }
@@ -98,14 +134,17 @@ export async function approveBatch(batchId: string): Promise<PayrollClosingBatch
   return r.batch;
 }
 
-export interface SendToFinanceResult { ok: boolean; batch?: PayrollClosingBatch; finance_batch_id?: string; error?: string }
-export async function sendToFinance(batchId: string): Promise<SendToFinanceResult> {
+export interface SendToFinanceResult { ok: boolean; batch?: PayrollClosingBatch; finance_batch_id?: string; error?: string; code?: string; unmapped_count?: number }
+export interface SendToFinanceOptions { override?: boolean; overrideReason?: string }
+export async function sendToFinance(batchId: string, options: SendToFinanceOptions = {}): Promise<SendToFinanceResult> {
   if (!isSupabase()) {
-    // Must be approved first in mock mode (page approves before calling).
+    // Must be approved first in mock mode (page approves before calling). The
+    // unmapped-center gate is enforced client-side in mock mode.
     return store.sendToFinance(batchId);
   }
   const result = await jsonFetch<SendToFinanceResult>(`/api/payroll/batches/${batchId}/actions`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'send_to_finance' }),
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'send_to_finance', override: options.override, override_reason: options.overrideReason }),
   });
   // Mirror the DB-created finance batch into the in-memory finance store so
   // Financeiro > Folha & Alocação can see it without a server-backed finance module.
@@ -176,4 +215,119 @@ export async function sendEmail(args: SendArgs): Promise<SendEmailResponse> {
     });
   }
   return res;
+}
+
+// ── Cost-center mapping aliases ─────────────────────────────
+// supabase → shared, server-persisted table (payroll_cost_center_mappings).
+// mock/dev → org-scoped localStorage (cost-center-mapping.ts), unchanged.
+
+export interface SaveMappingInput {
+  imported_name: string;
+  cost_center_id: string;
+  confidence?: number;
+  match_method?: CostCenterMatchMethod;
+}
+
+export async function listCostCenterMappings(): Promise<PayrollCostCenterMapping[]> {
+  if (!isSupabase()) return getCostCenterMappings();
+  try {
+    const r = await jsonFetch<{ ok: boolean; mappings?: PayrollCostCenterMapping[] }>('/api/payroll/cost-center-mappings');
+    return r.ok && r.mappings ? r.mappings : [];
+  } catch {
+    // Network/parse failure — fall back to any local aliases so the UI still
+    // auto-matches instead of showing everything as unmapped.
+    return getCostCenterMappings();
+  }
+}
+
+export async function saveCostCenterMappings(inputs: SaveMappingInput[]): Promise<PayrollCostCenterMapping[]> {
+  if (!isSupabase()) return saveLocalMappings(inputs);
+  const r = await jsonFetch<{ ok: boolean; mappings?: PayrollCostCenterMapping[]; error?: string }>('/api/payroll/cost-center-mappings', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mappings: inputs }),
+  });
+  if (!r.ok) throw new Error(r.error ?? 'Falha ao salvar mapeamentos');
+  return r.mappings ?? [];
+}
+
+export async function deleteCostCenterMapping(mapping: { id?: string; imported_name: string }): Promise<void> {
+  if (!isSupabase()) { deleteLocalMapping(mapping.imported_name); return; }
+  if (!mapping.id) return;
+  await jsonFetch(`/api/payroll/cost-center-mappings?id=${encodeURIComponent(mapping.id)}`, { method: 'DELETE' });
+}
+
+// ── Finance cost centers (mapping dropdown source) ──────────
+// supabase → finance_cost_centers (uuid ids) via API. mock/dev → client
+// finance-store (cc-* ids). Returns the minimal CostCenterLike shape the
+// matcher + dropdown need.
+
+export async function listFinanceCostCenters(): Promise<CostCenterLike[]> {
+  if (!isSupabase()) {
+    return getCostCenters().filter((c) => c.active).map((c) => ({ id: c.id, code: c.code, name: c.name }));
+  }
+  try {
+    const r = await jsonFetch<{ ok: boolean; costCenters?: CostCenterLike[] }>('/api/finance/cost-centers');
+    return r.ok && r.costCenters ? r.costCenters : [];
+  } catch {
+    // Fall back to the client seed so the dropdown isn't empty on a transient error.
+    return getCostCenters().filter((c) => c.active).map((c) => ({ id: c.id, code: c.code, name: c.name }));
+  }
+}
+
+export async function createFinanceCostCenter(name: string): Promise<CostCenterLike> {
+  if (!isSupabase()) {
+    const cc = createCostCenter({ name });
+    return { id: cc.id, code: cc.code, name: cc.name };
+  }
+  const r = await jsonFetch<{ ok: boolean; costCenter?: CostCenterLike; error?: string }>('/api/finance/cost-centers', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }),
+  });
+  if (!r.ok || !r.costCenter) throw new Error(r.error ?? 'Falha ao criar centro de custo');
+  return r.costCenter;
+}
+
+// ── Lifecycle: edit / cancel / reopen / delete ──────────────
+async function batchAction(batchId: string, body: Record<string, unknown>): Promise<{ ok: boolean; batch?: PayrollClosingBatch; error?: string }> {
+  return jsonFetch(`/api/payroll/batches/${batchId}/actions`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+}
+
+export async function updateBatch(batchId: string, patch: { competence_month?: string; payment_deadline?: string | null; notes?: string | null }): Promise<PayrollClosingBatch | undefined> {
+  if (!isSupabase()) return store.updateClosingBatch(batchId, patch);
+  const r = await batchAction(batchId, { action: 'update', ...patch });
+  if (!r.ok) throw new Error(r.error ?? 'Falha ao editar fechamento');
+  return r.batch;
+}
+
+export async function cancelBatch(batchId: string, reason?: string): Promise<PayrollClosingBatch | undefined> {
+  if (!isSupabase()) return store.cancelClosingBatch(batchId, reason);
+  const r = await batchAction(batchId, { action: 'cancel', reason });
+  if (!r.ok) throw new Error(r.error ?? 'Falha ao cancelar fechamento');
+  return r.batch;
+}
+
+export async function reopenBatch(batchId: string, reason?: string): Promise<PayrollClosingBatch | undefined> {
+  if (!isSupabase()) return store.reopenClosingBatch(batchId, reason);
+  const r = await batchAction(batchId, { action: 'reopen', reason });
+  if (!r.ok) throw new Error(r.error ?? 'Falha ao reabrir fechamento');
+  return r.batch;
+}
+
+export async function invalidateParse(batchId: string): Promise<PayrollClosingBatch | undefined> {
+  if (!isSupabase()) return store.invalidateParse(batchId);
+  const r = await batchAction(batchId, { action: 'invalidate_parse' });
+  if (!r.ok) throw new Error(r.error ?? 'Falha ao reprocessar');
+  return r.batch;
+}
+
+export interface DeleteBatchResult { ok: boolean; error?: string }
+export async function deleteBatch(batchId: string): Promise<DeleteBatchResult> {
+  if (!isSupabase()) return store.deleteClosingBatch(batchId);
+  return jsonFetch<DeleteBatchResult>(`/api/payroll/batches/${batchId}`, { method: 'DELETE' });
+}
+
+export interface RemoveAttachmentResult { ok: boolean; file_type?: string; was_payroll_spreadsheet?: boolean; error?: string }
+export async function removeAttachment(batchId: string, attachmentId: string): Promise<RemoveAttachmentResult> {
+  if (!isSupabase()) return store.removeAttachment(batchId, attachmentId);
+  return jsonFetch<RemoveAttachmentResult>(`/api/payroll/batches/${batchId}/files?attachment_id=${encodeURIComponent(attachmentId)}`, { method: 'DELETE' });
 }

@@ -85,6 +85,41 @@ function addAudit(entityType: string, entityId: string, action: FinanceAuditLog[
 export function getCategories(): ManagementCategory[] { return managementCategories; }
 export function getBusinessUnits(): BusinessUnit[] { return businessUnits; }
 export function getCostCenters(): CostCenter[] { return costCenters; }
+
+/**
+ * Create a Finance cost center on the fly — used by the payroll-closing mapping
+ * step when an imported name has no counterpart in the master data yet. Pushes
+ * into the shared `costCenters` array so every existing lookup (`costCenters.find`)
+ * sees it immediately. The generated `code` is a slug of the name unless one is
+ * given; the business unit defaults to the first BU.
+ */
+export function createCostCenter(data: {
+  name: string;
+  code?: string;
+  business_unit_id?: string;
+  type?: CostCenter['type'];
+}): CostCenter {
+  const now = new Date().toISOString();
+  const slug = (data.code || data.name)
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 16) || 'CC';
+  let code = slug;
+  let n = 1;
+  while (costCenters.some((c) => c.code === code)) code = `${slug}-${++n}`;
+  const cc: CostCenter = {
+    id: `cc-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+    code,
+    name: data.name.trim(),
+    business_unit_id: data.business_unit_id || businessUnits[0]?.id || '',
+    type: data.type ?? 'indirect',
+    active: true,
+    created_at: now,
+    updated_at: now,
+  };
+  costCenters.push(cc);
+  addAudit('cost_center', cc.id, 'created');
+  return cc;
+}
 export function getSuppliers(): Supplier[] { return suppliers; }
 export function getClients(): Client[] { return clients; }
 export function getProjects(): ProjectRef[] { return referenceProjects; }
@@ -401,6 +436,39 @@ export function createPayrollBatch(data: Partial<PayrollBatch>): PayrollBatch {
 export function injectPayrollBatch(batch: PayrollBatch): void {
   if (payrollBatches.some((b) => b.id === batch.id)) return;
   payrollBatches = [{ ...batch, business_unit: businessUnits.find((bu) => bu.id === batch.business_unit_id) }, ...payrollBatches];
+}
+
+/**
+ * Hydrate the in-memory store with the persisted Finance PayrollBatch records
+ * from Supabase (via /api/finance/payroll-batches), so Financeiro > Folha &
+ * Alocação shows real batches created by the payroll-closing sendToFinance flow
+ * even after a reload / server restart.
+ *
+ * Fallback-safe: only runs in supabase mode; on any network/parse failure it
+ * silently keeps the existing in-memory batches (mock seed + same-session
+ * injectPayrollBatch mirror). Idempotent — injectPayrollBatch dedupes by id, so
+ * calling sendToFinance twice (and hydrating) never creates a duplicate batch.
+ * Read-only: it never creates a LedgerEntry.
+ *
+ * @returns the number of NEW batches added to the store (0 when nothing changed).
+ */
+export async function hydratePayrollBatchesFromServer(periodKey?: string): Promise<number> {
+  if (process.env.NEXT_PUBLIC_PAYROLL_CLOSING_REPOSITORY_MODE !== 'supabase') return 0;
+  try {
+    const url = periodKey ? `/api/finance/payroll-batches?period=${encodeURIComponent(periodKey)}` : '/api/finance/payroll-batches';
+    const res = await fetch(url);
+    const data = (await res.json()) as { ok: boolean; batches?: PayrollBatch[] };
+    if (!data.ok || !data.batches) return 0;
+    let added = 0;
+    for (const b of data.batches) {
+      if (payrollBatches.some((x) => x.id === b.id)) continue;
+      injectPayrollBatch(b);
+      added++;
+    }
+    return added;
+  } catch {
+    return 0;
+  }
 }
 
 export function approvePayrollBatch(id: string): PayrollBatch | undefined {

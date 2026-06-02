@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useTranslations } from 'next-intl';
 import { FileSpreadsheet, Plus, CheckCircle, Users } from 'lucide-react';
 import {
@@ -11,6 +11,7 @@ import {
 import {
   getPayrollBatches, createPayrollBatch, approvePayrollBatch,
   getBusinessUnits, formatBRL, formatCompactBRL, reaisToCents,
+  hydratePayrollBatchesFromServer,
 } from '@/lib/finance/finance-store';
 import type { PayrollBatch } from '@/lib/types/finance';
 
@@ -21,6 +22,13 @@ export default function FolhaPage() {
   const [selectedPeriod, setSelectedPeriod] = useState('2026-03');
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+
+  // Pull persisted Supabase PayrollBatch records into the in-memory store so
+  // batches sent from the payroll closing survive a reload. No-op in mock mode;
+  // failures keep the existing in-memory batches (fallback).
+  useEffect(() => {
+    hydratePayrollBatchesFromServer().then((added) => { if (added > 0) setRefreshKey((k) => k + 1); });
+  }, []);
 
   const [formPeriod, setFormPeriod] = useState('2026-03');
   const [formBU, setFormBU] = useState('');

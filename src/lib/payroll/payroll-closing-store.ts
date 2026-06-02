@@ -414,6 +414,72 @@ export function sendToFinance(batchId: string): SendToFinanceResult {
   return { ok: true, batch: updated, finance_batch_id: created.id };
 }
 
+// ── Lifecycle: edit / cancel / reopen / delete (mock) ───────
+
+export function updateClosingBatch(
+  batchId: string,
+  patch: { competence_month?: string; payment_deadline?: string | null; notes?: string | null },
+): PayrollClosingBatch | undefined {
+  audit('payroll_closing', batchId, 'edited', Object.keys(patch).join(','));
+  return patchBatch(batchId, {
+    ...(patch.competence_month !== undefined ? { competence_month: patch.competence_month } : {}),
+    ...(patch.payment_deadline !== undefined ? { payment_deadline: patch.payment_deadline ?? undefined } : {}),
+  });
+}
+
+export function cancelClosingBatch(batchId: string, reason?: string): PayrollClosingBatch | undefined {
+  audit('payroll_closing', batchId, 'cancelled', reason);
+  return patchBatch(batchId, { status: 'cancelled', cancellation_reason: reason, deleted_at: new Date().toISOString(), deleted_by: CURRENT_USER });
+}
+
+export function reopenClosingBatch(batchId: string, reason?: string): PayrollClosingBatch | undefined {
+  const current = getClosingBatch(batchId);
+  const newStatus: PayrollClosingBatch['status'] = current?.status === 'cancelled' ? 'imported' : 'reviewed';
+  audit('payroll_closing', batchId, 'reopened', reason);
+  return patchBatch(batchId, { status: newStatus, deleted_at: undefined, deleted_by: undefined, cancellation_reason: undefined, reopened_at: new Date().toISOString(), reopened_by: CURRENT_USER });
+}
+
+export function deleteClosingBatch(batchId: string): { ok: boolean; error?: string } {
+  const batch = getClosingBatch(batchId);
+  if (!batch) return { ok: false, error: 'Fechamento não encontrado.' };
+  if (batch.finance_batch_id) return { ok: false, error: 'Possui lote no Financeiro — exclusão bloqueada.' };
+  if (batch.status === 'posted') return { ok: false, error: 'Lançado no ledger — exclusão bloqueada.' };
+  audit('payroll_closing', batchId, 'deleted', batch.competence_month);
+  attachments.filter((a) => a.batch_id === batchId).forEach((a) => attachmentBlobs.delete(a.id));
+  attachments = attachments.filter((a) => a.batch_id !== batchId);
+  importFiles = importFiles.filter((f) => f.batch_id !== batchId);
+  reports = reports.filter((r) => r.batch_id !== batchId);
+  const pkgIds = new Set(emailPackages.filter((p) => p.batch_id === batchId).map((p) => p.id));
+  emailPackages = emailPackages.filter((p) => p.batch_id !== batchId);
+  dispatches = dispatches.filter((d) => !pkgIds.has(d.package_id));
+  parseResults.delete(batchId);
+  closingBatches = closingBatches.filter((b) => b.id !== batchId);
+  return { ok: true };
+}
+
+export function removeAttachment(
+  batchId: string,
+  attachmentId: string,
+): { ok: boolean; file_type?: string; was_payroll_spreadsheet?: boolean; error?: string } {
+  const att = attachments.find((a) => a.id === attachmentId && a.batch_id === batchId);
+  if (!att) return { ok: false, error: 'Anexo não encontrado.' };
+  attachmentBlobs.delete(attachmentId);
+  attachments = attachments.filter((a) => a.id !== attachmentId);
+  importFiles = importFiles.filter((f) => !(f.batch_id === batchId && f.storage_path === att.storage_path));
+  emailPackages = emailPackages.map((p) => p.batch_id === batchId && p.attachment_ids.includes(attachmentId)
+    ? { ...p, attachment_ids: p.attachment_ids.filter((x) => x !== attachmentId) } : p);
+  audit('payroll_attachment', attachmentId, 'file_removed', att.file_type);
+  return { ok: true, file_type: att.file_type, was_payroll_spreadsheet: att.file_type === 'payroll_spreadsheet' };
+}
+
+export function invalidateParse(batchId: string): PayrollClosingBatch | undefined {
+  parseResults.delete(batchId);
+  reports = reports.filter((r) => r.batch_id !== batchId);
+  attachments = attachments.filter((a) => !(a.batch_id === batchId && a.storage_path.includes('/generated/')));
+  audit('payroll_closing', batchId, 'parse_invalidated');
+  return patchBatch(batchId, { status: 'imported', total_amount_cents: 0, previous_month_amount_cents: 0, variation_amount_cents: 0, variation_percentage: 0 });
+}
+
 // ── Audit ───────────────────────────────────────────────────
 
 export function getPayrollAuditLog(batchId?: string): PayrollAuditEntry[] {

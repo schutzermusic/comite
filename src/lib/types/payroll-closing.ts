@@ -120,6 +120,14 @@ export interface PayrollClosingBatch {
    * closing was sent to finance. Once set, `sendToFinance` refuses to run again.
    */
   finance_batch_id?: string;
+  // ── Soft-delete / lifecycle bookkeeping (migration 023) ──
+  /** Set when the closing was cancelled (soft-deleted). */
+  deleted_at?: string;
+  deleted_by?: string;
+  cancellation_reason?: string;
+  /** Last reopen (approved/sent_to_finance/cancelled → editable). */
+  reopened_at?: string;
+  reopened_by?: string;
 }
 
 export interface PayrollAttachment {
@@ -191,6 +199,59 @@ export interface PayrollCostCenterTotal {
   previous_amount_cents?: number;
   variation_amount_cents?: number;
   variation_percentage?: number;
+  /** How `cost_center_id` was resolved (auto-match / alias / manual). */
+  match_method?: CostCenterMatchMethod;
+  /** Confidence of the match in [0,1] (1 = exact / explicit alias / manual). */
+  match_confidence?: number;
+}
+
+/**
+ * Strategy that resolved an imported payroll cost-center name to a Finance
+ * `cost_center_id`. Ordered loosely from strongest to weakest signal — see
+ * `matchCostCenter` in `cost-center-mapping.ts`.
+ */
+export type CostCenterMatchMethod =
+  | 'manual'            // user picked it in the dropdown
+  | 'alias'             // saved PayrollCostCenterMapping for this org
+  | 'exact'             // name/code identical
+  | 'case_insensitive'
+  | 'accent_insensitive'
+  | 'normalized'        // equal after removing accents + punctuation
+  | 'fuzzy'             // bigram (Dice) similarity above threshold
+  | 'none';             // unmatched
+
+/**
+ * Persisted alias linking an imported payroll cost-center name to a Finance
+ * cost center, so future imports of the same name auto-match. The `normalized_name`
+ * is the lookup key (see `normalizeCostCenterName`); `imported_name` keeps the
+ * original spelling for display/audit. See [[payroll-closing-store]].
+ */
+export interface PayrollCostCenterMapping {
+  id: string;
+  organization_id: string;
+  imported_name: string;
+  normalized_name: string;
+  cost_center_id: string;
+  /** Confidence at the time the mapping was saved (1 when set by a human). */
+  confidence: number;
+  created_by: string;
+  updated_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * One line of the Finance handoff payload. When a closing is sent to
+ * Financeiro > Folha & Alocação, each mapped cost center carries exactly this:
+ * the original imported name, the resolved Finance `cost_center_id`, the amount,
+ * the competence and the originating finance `payroll_batch_id`.
+ */
+export interface PayrollFinanceHandoffLine {
+  imported_name: string;
+  cost_center_id: string | null;
+  amount_cents: number;
+  competence_month: string;
+  payroll_batch_id: string;
 }
 
 export interface PayrollEmployeeLine {

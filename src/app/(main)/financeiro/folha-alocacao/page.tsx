@@ -19,6 +19,7 @@ import {
 import {
   getPayrollAllocations, getPayrollAllocation, getLedgerEntry, getPayrollBatches,
   approvePayrollAllocation, postPayrollAllocation, cancelPayrollAllocation,
+  hydratePayrollBatchesFromServer,
   formatBRL, formatCompactBRL,
 } from '@/lib/finance/finance-store';
 import {
@@ -92,6 +93,13 @@ function FolhaAlocacaoContent() {
   const [filterDepartment, setFilterDepartment] = useState('all');
   const [processing, setProcessing] = useState(false);
   const [deepLinkMissing, setDeepLinkMissing] = useState<string | null>(null);
+
+  // Hydrate the in-memory finance store with persisted Supabase PayrollBatch
+  // records so batches sent from the payroll closing survive a reload. No-op in
+  // mock mode; on failure the existing in-memory batches are kept (fallback).
+  useEffect(() => {
+    hydratePayrollBatchesFromServer().then((added) => { if (added > 0) setRefreshKey((k) => k + 1); });
+  }, []);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const allAllocations = useMemo(() => getPayrollAllocations(), [refreshKey]);

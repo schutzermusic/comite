@@ -52,3 +52,23 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     return NextResponse.json({ ok: false, error: err instanceof Error ? err.message : 'Erro' }, { status: 500 });
   }
 }
+
+/**
+ * DELETE /api/payroll/batches/[id]/files?attachment_id=... — remove one uploaded
+ * attachment (Storage object + row + email-package references). Requires
+ * people.payroll_close. The client invalidates the parse when the removed file
+ * was the main payroll spreadsheet.
+ */
+export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const r = await resolvePayrollActor('people.payroll_close');
+  if (!r.ok) return r.response;
+  const attachmentId = new URL(req.url).searchParams.get('attachment_id');
+  if (!attachmentId) return NextResponse.json({ ok: false, error: 'attachment_id é obrigatório.' }, { status: 400 });
+  try {
+    const result = await getServerRepository().removeAttachment(r.actor, id, attachmentId);
+    return NextResponse.json(result, { status: result.ok ? 200 : 404 });
+  } catch (err) {
+    return NextResponse.json({ ok: false, error: err instanceof Error ? err.message : 'Erro' }, { status: 500 });
+  }
+}
