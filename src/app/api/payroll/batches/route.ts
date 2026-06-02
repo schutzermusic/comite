@@ -5,11 +5,20 @@ import { getServerRepository } from '@/lib/payroll/repository';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-/** GET /api/payroll/batches — list closing batches for the org. */
-export async function GET() {
+/**
+ * GET /api/payroll/batches — list closing batches for the org.
+ * ?approved=true returns only approved/sent_to_finance batches enriched with
+ * headcount and cost-center summaries (for the Pessoas & Custos overview).
+ */
+export async function GET(req: Request) {
   const r = await resolvePayrollActor('people.payroll_close');
   if (!r.ok) return r.response;
   try {
+    const { searchParams } = new URL(req.url);
+    if (searchParams.get('approved') === 'true') {
+      const batches = await getServerRepository().listApprovedBatches(r.actor);
+      return NextResponse.json({ ok: true, batches });
+    }
     const batches = await getServerRepository().listClosingBatches(r.actor);
     return NextResponse.json({ ok: true, batches });
   } catch (err) {

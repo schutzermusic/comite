@@ -393,6 +393,16 @@ export function createPayrollBatch(data: Partial<PayrollBatch>): PayrollBatch {
   return batch;
 }
 
+/**
+ * Inject a PayrollBatch that was created externally (e.g. by the supabase
+ * payroll-closing sendToFinance API). Idempotent — silently skips if the id
+ * already exists in the in-memory store.
+ */
+export function injectPayrollBatch(batch: PayrollBatch): void {
+  if (payrollBatches.some((b) => b.id === batch.id)) return;
+  payrollBatches = [{ ...batch, business_unit: businessUnits.find((bu) => bu.id === batch.business_unit_id) }, ...payrollBatches];
+}
+
 export function approvePayrollBatch(id: string): PayrollBatch | undefined {
   const idx = payrollBatches.findIndex(b => b.id === id);
   if (idx === -1) return undefined;

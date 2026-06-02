@@ -280,6 +280,26 @@ export interface PayrollNarrative {
   generated_by_ai: boolean;
 }
 
+// ── Approved batch with summaries (used by Pessoas & Custos overview) ─────────
+
+export interface PayrollCostCenterSummary {
+  cost_center_label: string;
+  matched_cost_center_id?: string | null;
+  amount_cents: number;
+  previous_amount_cents?: number | null;
+  variation_amount_cents?: number | null;
+  variation_percentage?: number | null;
+}
+
+/**
+ * Enriched closing batch returned by listApprovedBatches — includes headcount
+ * and cost-center summaries for the Pessoas & Custos workforce overview adapter.
+ */
+export interface PayrollClosingBatchApproved extends PayrollClosingBatch {
+  headcount: number;
+  cost_center_summaries: PayrollCostCenterSummary[];
+}
+
 // ── E-mail package presets (UI) ─────────────────────────────
 
 export interface PayrollPackagePreset {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, Suspense } from 'react';
+import { useMemo, useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import {
   Download,
@@ -30,10 +30,12 @@ import {
 import { getMockDashboardData } from '@/lib/dashboard-data';
 import { RiskStatus } from '@/lib/workforce-data';
 import {
-  selectWorkforceView,
+  selectWorkforceViewWithClosings,
   DEFAULT_WORKFORCE_PERIOD,
   type WorkforcePeriodSelection,
 } from '@/lib/workforce/period';
+import { repositoryMode } from '@/lib/payroll/closing-client';
+import type { PayrollClosingBatchApproved } from '@/lib/types/payroll-closing';
 import { openWorkforceReport } from '@/lib/workforce/export-report';
 
 import {
@@ -73,10 +75,25 @@ function WorkforceCostPageInner() {
   const data = useMemo(() => getMockDashboardData(), []);
   const esocial = useMemo(() => getEsocialDashboardData(), []);
 
+  // Load approved closing batches so the overview uses imported payroll data.
+  const [approvedBatches, setApprovedBatches] = useState<PayrollClosingBatchApproved[]>([]);
+  useEffect(() => {
+    if (repositoryMode() !== 'supabase') return;
+    fetch('/api/payroll/batches?approved=true')
+      .then((r) => r.json())
+      .then((d: { ok: boolean; batches?: PayrollClosingBatchApproved[] }) => {
+        if (d.ok) setApprovedBatches(d.batches ?? []);
+      })
+      .catch(() => {});
+  }, []);
+
   // Global period filter — every workforce indicator below is derived from the
   // selected period through the `selectWorkforce*` selectors (no hardcoding).
   const [period, setPeriod] = useState<WorkforcePeriodSelection>(DEFAULT_WORKFORCE_PERIOD);
-  const workforce = useMemo(() => selectWorkforceView(period), [period]);
+  const workforce = useMemo(
+    () => selectWorkforceViewWithClosings(period, approvedBatches),
+    [period, approvedBatches],
+  );
   const trendData = workforce.trend;
 
   const handleExportPdf = () => {
@@ -108,6 +125,9 @@ function WorkforceCostPageInner() {
             label: `${config.label} ${workforce.payrollRisk.riskScore}/100`,
             variant: config.variant === 'active' ? 'success' : config.variant === 'warning' ? 'warning' : 'critical',
           },
+          ...(workforce.hasMockFallback
+            ? [{ label: 'dados demonstrativos', variant: 'neutral' as const }]
+            : [{ label: 'folha importada', variant: 'success' as const }]),
         ]}
         actions={
           <div className="flex flex-wrap items-center gap-2">

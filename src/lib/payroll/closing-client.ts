@@ -14,6 +14,7 @@
 
 import * as store from '@/lib/payroll/payroll-closing-store';
 import { blobToBase64, sendPayrollEmail, type SendEmailResponse } from '@/lib/payroll/client';
+import { injectPayrollBatch } from '@/lib/finance/finance-store';
 import type {
   PayrollAttachment, PayrollAttachmentFileType, PayrollClosingBatch, PayrollEmailAudience,
   PayrollEmailDispatch, PayrollImportFileType, PayrollParseResult, PayrollReportType, PayrollSecurityLevel,
@@ -103,9 +104,30 @@ export async function sendToFinance(batchId: string): Promise<SendToFinanceResul
     // Must be approved first in mock mode (page approves before calling).
     return store.sendToFinance(batchId);
   }
-  return jsonFetch<SendToFinanceResult>(`/api/payroll/batches/${batchId}/actions`, {
+  const result = await jsonFetch<SendToFinanceResult>(`/api/payroll/batches/${batchId}/actions`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'send_to_finance' }),
   });
+  // Mirror the DB-created finance batch into the in-memory finance store so
+  // Financeiro > Folha & Alocação can see it without a server-backed finance module.
+  if (result.ok && result.finance_batch_id && result.batch) {
+    const now = new Date().toISOString();
+    injectPayrollBatch({
+      id: result.finance_batch_id,
+      period_key: result.batch.competence_month,
+      business_unit_id: '',
+      total_gross_cents: result.batch.total_amount_cents,
+      total_charges_cents: 0,
+      total_benefits_cents: 0,
+      headcount: 0,
+      status: 'approved',
+      source_system: 'payroll_close',
+      notes: `Fechamento ${result.batch.id} (${result.batch.competence_month})`,
+      created_by: '',
+      created_at: now,
+      updated_at: now,
+    });
+  }
+  return result;
 }
 
 export async function getDispatches(batchId: string): Promise<PayrollEmailDispatch[]> {

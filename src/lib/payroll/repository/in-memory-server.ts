@@ -8,7 +8,8 @@
  */
 
 import type {
-  PayrollAttachment, PayrollClosingBatch, PayrollEmailDispatch, PayrollEmailPackage,
+  PayrollAttachment, PayrollClosingBatch, PayrollClosingBatchApproved,
+  PayrollEmailDispatch, PayrollEmailPackage,
   PayrollGeneratedReport, PayrollImportFile, PayrollParseResult,
 } from '@/lib/types/payroll-closing';
 import {
@@ -163,5 +164,12 @@ export class InMemoryServerRepository implements PayrollRepository {
     const financeId = uid('pb');
     const updated = this.patch(id, { status: 'sent_to_finance', finance_batch_id: financeId });
     return { ok: true, batch: updated, finance_batch_id: financeId };
+  }
+
+  async listApprovedBatches(actor: RepoActor): Promise<PayrollClosingBatchApproved[]> {
+    const all = await this.listClosingBatches(actor);
+    return all
+      .filter((b) => b.status === 'approved' || b.status === 'sent_to_finance')
+      .map((b) => ({ ...b, headcount: 0, cost_center_summaries: [] }));
   }
 }

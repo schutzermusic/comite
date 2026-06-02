@@ -17,7 +17,8 @@ if (typeof window !== 'undefined') {
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getServiceClient } from '@/lib/ai/server-clients';
 import type {
-  PayrollAttachment, PayrollClosingBatch, PayrollEmailDispatch, PayrollEmailPackage,
+  PayrollAttachment, PayrollClosingBatch, PayrollClosingBatchApproved,
+  PayrollEmailDispatch, PayrollEmailPackage,
   PayrollGeneratedReport, PayrollImportFile, PayrollParseResult,
 } from '@/lib/types/payroll-closing';
 import {
@@ -388,5 +389,27 @@ export class SupabasePayrollRepository implements PayrollRepository {
 
     await this.writeAudit(actor, { entity_type: 'payroll_closing', entity_id: id, action: 'sent_to_finance', metadata: { finance_batch_id: fb.id } });
     return { ok: true, batch: mapBatch(updated), finance_batch_id: fb.id };
+  }
+
+  async listApprovedBatches(actor: RepoActor): Promise<PayrollClosingBatchApproved[]> {
+    const { data, error } = await this.db
+      .from('payroll_closing_batches')
+      .select('*, payroll_cost_center_summaries(*)')
+      .eq('organization_id', actor.organizationId)
+      .in('status', ['approved', 'sent_to_finance'])
+      .order('competence_month', { ascending: false });
+    if (error) throw new Error(`listApprovedBatches: ${error.message}`);
+    return (data ?? []).map((r: any) => ({
+      ...mapBatch(r),
+      headcount: Number(r.headcount ?? 0),
+      cost_center_summaries: (r.payroll_cost_center_summaries ?? []).map((s: any) => ({
+        cost_center_label: s.cost_center_label,
+        matched_cost_center_id: s.matched_cost_center_id ?? null,
+        amount_cents: Number(s.amount_cents ?? 0),
+        previous_amount_cents: s.previous_amount_cents != null ? Number(s.previous_amount_cents) : null,
+        variation_amount_cents: s.variation_amount_cents != null ? Number(s.variation_amount_cents) : null,
+        variation_percentage: s.variation_percentage != null ? Number(s.variation_percentage) : null,
+      })),
+    }));
   }
 }

@@ -27,6 +27,7 @@ import {
   determinePayrollRiskStatus,
   calculatePayrollRiskScore,
 } from '@/lib/workforce-data';
+import type { PayrollClosingBatchApproved } from '@/lib/types/payroll-closing';
 
 // ============================================
 // PERIOD TYPES & OPTIONS
@@ -220,9 +221,10 @@ function monthLabel(competenceMonth: string): string {
  * Resolve a period selection into current + comparison windows over the series.
  * Resolution is index/competence based (not wall-clock) because the data is a
  * fixed mock; the latest record is treated as the "current month".
+ * Pass `seriesOverride` to use an effective merged series instead of the cached mock.
  */
-export function resolvePeriodRange(selection: WorkforcePeriodSelection): ResolvedRange {
-  const series = getWorkforceMonthlySeries();
+export function resolvePeriodRange(selection: WorkforcePeriodSelection, seriesOverride?: WorkforceMonthlyRecord[]): ResolvedRange {
+  const series = seriesOverride ?? getWorkforceMonthlySeries();
   const latestIdx = series.length - 1;
   const latest = series[latestIdx];
 
@@ -409,8 +411,8 @@ export interface WorkforceOverviewResult {
 }
 
 /** KPI cards + PJ vs CLT, period-aware. */
-export function selectWorkforceOverview(selection: WorkforcePeriodSelection): WorkforceOverviewResult {
-  const range = resolvePeriodRange(selection);
+export function selectWorkforceOverview(selection: WorkforcePeriodSelection, seriesOverride?: WorkforceMonthlyRecord[]): WorkforceOverviewResult {
+  const range = resolvePeriodRange(selection, seriesOverride);
   const agg = aggregateRange(range.current)!;
   const prev = aggregateRange(range.previous);
   const meta = buildMeta(selection, range, agg);
@@ -463,10 +465,44 @@ export function selectWorkforceOverview(selection: WorkforcePeriodSelection): Wo
 export const selectPayrollKpis = selectWorkforceOverview;
 
 /** Cost-center concentration, period-aware (accumulated payroll across window). */
-export function selectCostCenterConcentration(selection: WorkforcePeriodSelection): CostConcentrationData {
-  const range = resolvePeriodRange(selection);
-  const ids = COST_CENTER_SEEDS.map((s) => s.id);
+export function selectCostCenterConcentration(selection: WorkforcePeriodSelection, seriesOverride?: WorkforceMonthlyRecord[]): CostConcentrationData {
+  const range = resolvePeriodRange(selection, seriesOverride);
 
+  // When imported records supply their own CCs (non-empty costCenters on the
+  // latest record in the window), use those directly instead of the mock seeds.
+  const latestRecord = range.current[range.current.length - 1];
+  const useImportedCCs = (latestRecord?.costCenters.length ?? 0) > 0 &&
+    latestRecord.costCenters.some((c) => c.id.startsWith('cc-imported-'));
+
+  if (useImportedCCs) {
+    const allIds = [...new Set(range.current.flatMap((r) => r.costCenters.map((c) => c.id)))];
+    const costCenters: CostCenter[] = allIds.map((id) => {
+      const curRows = range.current.map((r) => r.costCenters.find((c) => c.id === id)!).filter(Boolean);
+      const prevRows = range.previous.map((r) => r.costCenters.find((c) => c.id === id)!).filter(Boolean);
+      const payrollValue = curRows.reduce((s, c) => s + c.payrollValue, 0);
+      const latestCC = curRows[curRows.length - 1];
+      const prevSum = prevRows.reduce((s, c) => s + c.payrollValue, 0);
+      const growthVsPrevious = prevSum > 0 ? Number(pctChange(payrollValue, prevSum).toFixed(1)) : 0;
+      return {
+        id,
+        name: latestCC?.name ?? id,
+        payrollValue,
+        headcount: latestCC?.headcount ?? 0,
+        growthVsPrevious,
+        isAbnormal: Math.abs(growthVsPrevious) > 15,
+        department: latestCC?.department ?? '',
+        manager: latestCC?.manager ?? '',
+      };
+    });
+    const totalPayroll = costCenters.reduce((s, c) => s + c.payrollValue, 0);
+    const sorted = [...costCenters].sort((a, b) => b.payrollValue - a.payrollValue);
+    const top3 = sorted.slice(0, 3).reduce((s, c) => s + c.payrollValue, 0);
+    const top3Concentration = totalPayroll > 0 ? Number(((top3 / totalPayroll) * 100).toFixed(1)) : 0;
+    return { costCenters: sorted, totalPayroll, top3Concentration, currency: 'BRL' };
+  }
+
+  // Original mock path — uses COST_CENTER_SEEDS.
+  const ids = COST_CENTER_SEEDS.map((s) => s.id);
   const costCenters: CostCenter[] = ids.map((id) => {
     const seed = COST_CENTER_SEEDS.find((s) => s.id === id)!;
     const curRows = range.current.map((r) => r.costCenters.find((c) => c.id === id)!).filter(Boolean);
@@ -481,7 +517,6 @@ export function selectCostCenterConcentration(selection: WorkforcePeriodSelectio
       const prevSum = prevRows.reduce((s, c) => s + c.payrollValue, 0);
       growthVsPrevious = pctChange(payrollValue, prevSum);
     } else if (curRows.length > 1) {
-      // No baseline window → use cumulative growth within the range (last vs first).
       growthVsPrevious = pctChange(curRows[curRows.length - 1].payrollValue, curRows[0].payrollValue);
     } else {
       growthVsPrevious = seed.growth * 100;
@@ -518,9 +553,9 @@ export interface WorkforceAlert {
 }
 
 /** Period-aware alert list — same logic the Alert Center renders, for counts/PDF. */
-export function selectWorkforceAlerts(selection: WorkforcePeriodSelection): WorkforceAlert[] {
-  const { costCenters } = selectCostCenterConcentration(selection);
-  const { metrics } = selectWorkforceOverview(selection);
+export function selectWorkforceAlerts(selection: WorkforcePeriodSelection, seriesOverride?: WorkforceMonthlyRecord[]): WorkforceAlert[] {
+  const { costCenters } = selectCostCenterConcentration(selection, seriesOverride);
+  const { metrics } = selectWorkforceOverview(selection, seriesOverride);
   const alerts: WorkforceAlert[] = [];
 
   costCenters.forEach((c) => {
@@ -553,8 +588,8 @@ export function selectWorkforceAlerts(selection: WorkforcePeriodSelection): Work
 }
 
 /** Payroll risk indicator, period-aware (payroll growth vs revenue growth). */
-export function selectPayrollRisk(selection: WorkforcePeriodSelection): PayrollRiskData {
-  const range = resolvePeriodRange(selection);
+export function selectPayrollRisk(selection: WorkforcePeriodSelection, seriesOverride?: WorkforceMonthlyRecord[]): PayrollRiskData {
+  const range = resolvePeriodRange(selection, seriesOverride);
   const agg = aggregateRange(range.current)!;
   const prev = aggregateRange(range.previous);
 
@@ -591,13 +626,13 @@ export interface WorkforceTrendPoint {
 }
 
 /** Trend chart series scoped to the selected window. */
-export function selectWorkforceTrend(selection: WorkforcePeriodSelection): WorkforceTrendPoint[] {
-  const range = resolvePeriodRange(selection);
+export function selectWorkforceTrend(selection: WorkforcePeriodSelection, seriesOverride?: WorkforceMonthlyRecord[]): WorkforceTrendPoint[] {
+  const range = resolvePeriodRange(selection, seriesOverride);
   // For a single-month selection the chart is uninformative; show the trailing
   // 12 months ending at that month instead so the trend stays meaningful.
   let rows = range.current;
   if (rows.length < 2) {
-    const series = getWorkforceMonthlySeries();
+    const series = seriesOverride ?? getWorkforceMonthlySeries();
     const endIdx = series.findIndex((r) => r.competenceMonth === rows[0].competenceMonth);
     rows = series.slice(Math.max(0, endIdx - 11), endIdx + 1);
   }
@@ -631,5 +666,104 @@ export function selectWorkforceView(selection: WorkforcePeriodSelection): Workfo
     alerts: selectWorkforceAlerts(selection),
     trend: selectWorkforceTrend(selection),
     meta,
+  };
+}
+
+// ============================================
+// PAYROLL CLOSING ADAPTERS
+// ============================================
+
+/**
+ * Map an approved PayrollClosingBatch (enriched with cost-center summaries and
+ * headcount) into a WorkforceMonthlyRecord suitable for the period selectors.
+ */
+export function mapPayrollClosingBatchToWorkforceMonth(
+  batch: PayrollClosingBatchApproved,
+): WorkforceMonthlyRecord {
+  const totalBRL = batch.total_amount_cents / 100;
+  const costCenters: WorkforceMonthlyCostCenter[] = batch.cost_center_summaries.map((s) => ({
+    id: s.matched_cost_center_id ?? `cc-imported-${s.cost_center_label.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')}`,
+    name: s.cost_center_label,
+    payrollValue: s.amount_cents / 100,
+    headcount: 0,
+  }));
+  const safeCostCenters =
+    costCenters.length > 0
+      ? costCenters
+      : [{ id: 'cc-imported-total', name: 'Folha Importada', payrollValue: totalBRL, headcount: batch.headcount }];
+  return {
+    competenceMonth: batch.competence_month,
+    headcount: batch.headcount,
+    payroll: totalBRL,
+    revenue: 0,
+    pj: 0,
+    clt: batch.headcount,
+    pjCost: 0,
+    cltCost: totalBRL,
+    costCenters: safeCostCenters,
+  };
+}
+
+/**
+ * Merge approved PayrollClosingBatch records into the base mock series.
+ * Imported months replace the corresponding mock record (or extend beyond it).
+ * Returns a sorted series (oldest → newest).
+ */
+export function buildEffectiveSeries(approvedBatches: PayrollClosingBatchApproved[]): WorkforceMonthlyRecord[] {
+  if (approvedBatches.length === 0) return getWorkforceMonthlySeries();
+  const base = getWorkforceMonthlySeries();
+  const overrides = new Map(
+    approvedBatches.map((b) => [b.competence_month, mapPayrollClosingBatchToWorkforceMonth(b)]),
+  );
+
+  // The mock series ends well before an imported competence (e.g. 2026-04), so a
+  // batch may have no preceding record for the month-over-month comparison. When
+  // the batch carries its own previous_month_amount_cents and no real record
+  // exists for that prior month, synthesize a minimal previous-month record so
+  // the overview shows the imported variation exactly (not a mock baseline).
+  for (const b of approvedBatches) {
+    if (b.previous_month_amount_cents == null) continue;
+    const prevMonth = shiftCompetenceMonth(b.competence_month, 1);
+    if (overrides.has(prevMonth)) continue;
+    const prevPayroll = b.previous_month_amount_cents / 100;
+    overrides.set(prevMonth, {
+      competenceMonth: prevMonth,
+      headcount: 0,
+      payroll: prevPayroll,
+      revenue: 0,
+      pj: 0,
+      clt: 0,
+      pjCost: 0,
+      cltCost: prevPayroll,
+      costCenters: [{ id: 'cc-imported-total', name: 'Folha Importada', payrollValue: prevPayroll, headcount: 0 }],
+    });
+  }
+
+  const merged = base.map((r) => overrides.get(r.competenceMonth) ?? r);
+  for (const [month, record] of overrides) {
+    if (!merged.find((r) => r.competenceMonth === month)) merged.push(record);
+  }
+  return merged.sort((a, b) => a.competenceMonth.localeCompare(b.competenceMonth));
+}
+
+/**
+ * Drop-in replacement for selectWorkforceView that feeds approved
+ * PayrollClosingBatch records as the primary payroll source.
+ * Falls back to the mock series when approvedBatches is empty.
+ */
+export function selectWorkforceViewWithClosings(
+  selection: WorkforcePeriodSelection,
+  approvedBatches: PayrollClosingBatchApproved[],
+): WorkforceViewModel & { hasMockFallback: boolean } {
+  const series = buildEffectiveSeries(approvedBatches);
+  const { metrics, meta } = selectWorkforceOverview(selection, series);
+  return {
+    metrics,
+    costConcentration: selectCostCenterConcentration(selection, series),
+    payrollRisk: selectPayrollRisk(selection, series),
+    alerts: selectWorkforceAlerts(selection, series),
+    trend: selectWorkforceTrend(selection, series),
+    meta,
+    hasMockFallback: approvedBatches.length === 0,
   };
 }

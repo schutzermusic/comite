@@ -18,6 +18,7 @@ import type {
   PayrollAttachment,
   PayrollAttachmentFileType,
   PayrollClosingBatch,
+  PayrollClosingBatchApproved,
   PayrollEmailAudience,
   PayrollEmailDispatch,
   PayrollEmailPackage,
@@ -28,6 +29,8 @@ import type {
   PayrollReportType,
   PayrollSecurityLevel,
 } from '@/lib/types/payroll-closing';
+
+export type { PayrollClosingBatchApproved };
 
 export type PayrollRepositoryMode = 'mock' | 'supabase';
 
@@ -126,6 +129,9 @@ export interface PayrollRepository {
 
   approveClosingBatch(actor: RepoActor, id: string): Promise<PayrollClosingBatch>;
   sendToFinance(actor: RepoActor, id: string): Promise<SendToFinanceResult>;
+
+  /** Returns approved/sent_to_finance batches enriched with headcount and cost-center summaries. */
+  listApprovedBatches(actor: RepoActor): Promise<PayrollClosingBatchApproved[]>;
 
   writeAudit(actor: RepoActor, input: AuditInput): Promise<void>;
 }
