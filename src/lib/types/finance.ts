@@ -87,7 +87,21 @@ export interface ManagementCategory {
   group_key: ManagementGroupKey;
   sign: 1 | -1;
   requires_project: boolean;
+  /** Whether a contract_id is required for entries on this category (e.g. revenue). */
+  requires_contract?: boolean;
+  /** Whether a cost_center_id is required (defaults to true for non-revenue/expense). */
+  requires_cost_center?: boolean;
   active: boolean;
+  /**
+   * Tenant scope. `undefined`/null = global default category (shipped seed,
+   * shared across orgs). Set when an org clones/customizes its own taxonomy.
+   */
+  organization_id?: string;
+  /** Convenience alias for the L3 leaf name; mirrors `name` for level-3 rows. */
+  subcategory?: string;
+  description?: string;
+  created_at?: string;
+  updated_at?: string;
   children?: ManagementCategory[];
   parent?: ManagementCategory;
 }

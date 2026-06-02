@@ -295,14 +295,32 @@ export function validateLedgerEntryInput(data: Partial<LedgerEntry>): LedgerEntr
     errors.push({ field: 'description', message: 'Descrição é obrigatória.' });
   }
 
-  // Cost center required for expense categories (non-revenue groups).
+  // Category-driven requirement rules. Falls back to the expense heuristic for
+  // cost-center when the category does not declare requires_cost_center, so
+  // legacy categories keep their existing behavior.
   const category = data.category_id
     ? managementCategories.find(c => c.id === data.category_id)
     : data.dre_line
       ? findCategoryByCode(data.dre_line)
       : undefined;
   const isExpense = category ? category.group_key !== 'revenue' : false;
-  if (isExpense && !data.cost_center_id) {
+  const isClearing = category ? category.group_key === 'clearing' : false;
+
+  // Project required when the category master demands it (e.g. Mobilização/Hotel,
+  // Mobilização/Passagem aérea, project revenue). Clearing never requires a project.
+  if (category?.requires_project && !isClearing && !data.project_id) {
+    errors.push({ field: 'project_id', message: `Projeto é obrigatório para "${category.name}".` });
+  }
+
+  // Contract required when declared (e.g. Receita de Contrato).
+  if (category?.requires_contract && !data.contract_id) {
+    errors.push({ field: 'contract_id', message: `Contrato é obrigatório para "${category.name}".` });
+  }
+
+  // Cost center: required when the category declares it, or (legacy fallback)
+  // for any non-revenue P&L expense. Clearing/treasury legs are exempt.
+  const needsCostCenter = category?.requires_cost_center ?? (isExpense && !isClearing);
+  if (needsCostCenter && !data.cost_center_id) {
     errors.push({ field: 'cost_center_id', message: 'Centro de custo é obrigatório para despesas.' });
   }
 

@@ -19,3 +19,4 @@ export * from './payroll';
 export * from './project-allocation';
 export * from './project-finance';
 export * from './data-quality';
+export * from './category-analysis';

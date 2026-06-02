@@ -8,7 +8,7 @@ export const managementCategories: ManagementCategory[] = [
   // ── A) REVENUE ────────────────────────────────────────────
   { id: 'cat-a',     code: 'A',     name: 'Receita',                         level: 1, group_key: 'revenue',   sign: 1,  requires_project: false, active: true },
   { id: 'cat-a1',    code: 'A.1',   name: 'Receita de Serviços',             level: 2, group_key: 'revenue',   sign: 1,  requires_project: false, active: true, parent_id: 'cat-a' },
-  { id: 'cat-a11',   code: 'A.1.1', name: 'Receita de Contratos',            level: 3, group_key: 'revenue',   sign: 1,  requires_project: true,  active: true, parent_id: 'cat-a1' },
+  { id: 'cat-a11',   code: 'A.1.1', name: 'Receita de Contratos',            level: 3, group_key: 'revenue',   sign: 1,  requires_project: true,  requires_contract: true, active: true, parent_id: 'cat-a1' },
   { id: 'cat-a12',   code: 'A.1.2', name: 'Receita de Projetos Avulsos',     level: 3, group_key: 'revenue',   sign: 1,  requires_project: true,  active: true, parent_id: 'cat-a1' },
   { id: 'cat-a13',   code: 'A.1.3', name: 'Receita de Mobilização',          level: 3, group_key: 'revenue',   sign: 1,  requires_project: true,  active: true, parent_id: 'cat-a1' },
   { id: 'cat-a2',    code: 'A.2',   name: 'Outras Receitas',                 level: 2, group_key: 'revenue',   sign: 1,  requires_project: false, active: true, parent_id: 'cat-a' },
@@ -105,6 +105,62 @@ export const managementCategories: ManagementCategory[] = [
   { id: 'cat-f22',   code: 'F.2.2', name: 'Liquidação de Pagável (AP)',      level: 3, group_key: 'clearing',  sign: -1, requires_project: false, active: true, parent_id: 'cat-f2' },
   { id: 'cat-f3',    code: 'F.3',   name: 'Liquidação Tributária',           level: 2, group_key: 'clearing',  sign: -1, requires_project: false, active: true, parent_id: 'cat-f' },
   { id: 'cat-f31',   code: 'F.3.1', name: 'Pagamento de Tributo (DARF/GPS/Guia)', level: 3, group_key: 'clearing', sign: -1, requires_project: false, active: true, parent_id: 'cat-f3' },
+
+  // ════════════════════════════════════════════════════════════
+  // HIERARCHY EXTENSION (additive) — deeper cost analysis.
+  // Existing codes/ids above are preserved; the entries below add the
+  // granular subcategories and the Frota / Viagens / Administrativo
+  // categories requested for drill-down. requires_cost_center marks
+  // P&L expense leaves; requires_contract marks revenue leaves.
+  // ════════════════════════════════════════════════════════════
+
+  // ── B.2) Mobilização — granular subcategories ─────────────
+  { id: 'cat-b27',   code: 'B.2.7', name: 'Diárias',                          level: 3, group_key: 'cogs', sign: -1, requires_project: true, requires_cost_center: true, active: true, parent_id: 'cat-b2', description: 'Diárias de viagem/campo pagas à equipe.' },
+  { id: 'cat-b28',   code: 'B.2.8', name: 'Frete / Transporte de Material',   level: 3, group_key: 'cogs', sign: -1, requires_project: true, requires_cost_center: true, active: true, parent_id: 'cat-b2', description: 'Frete e transporte de materiais/equipamentos para o campo.' },
+
+  // ── B.3) Materiais — granular subcategories ───────────────
+  { id: 'cat-b34',   code: 'B.3.4', name: 'Cabos',                            level: 3, group_key: 'cogs', sign: -1, requires_project: true, requires_cost_center: true, active: true, parent_id: 'cat-b3' },
+  { id: 'cat-b35',   code: 'B.3.5', name: 'Peças',                            level: 3, group_key: 'cogs', sign: -1, requires_project: true, requires_cost_center: true, active: true, parent_id: 'cat-b3' },
+  { id: 'cat-b36',   code: 'B.3.6', name: 'Equipamentos (consumo)',           level: 3, group_key: 'cogs', sign: -1, requires_project: true, requires_cost_center: true, active: true, parent_id: 'cat-b3' },
+
+  // ── B.4) Serviços Terceiros — granular subcategories ──────
+  { id: 'cat-b44',   code: 'B.4.4', name: 'Engenharia',                       level: 3, group_key: 'cogs', sign: -1, requires_project: true, requires_cost_center: true, active: true, parent_id: 'cat-b4' },
+  { id: 'cat-b45',   code: 'B.4.5', name: 'Manutenção (terceiros)',           level: 3, group_key: 'cogs', sign: -1, requires_project: true, requires_cost_center: true, active: true, parent_id: 'cat-b4' },
+
+  // ── B.6) Frota (nova categoria L2 sob COGS) ───────────────
+  { id: 'cat-b6',    code: 'B.6',   name: 'Frota',                            level: 2, group_key: 'cogs', sign: -1, requires_project: false, active: true, parent_id: 'cat-b', description: 'Custos da frota própria/locada alocados a obra.' },
+  { id: 'cat-b61',   code: 'B.6.1', name: 'Locação',                          level: 3, group_key: 'cogs', sign: -1, requires_project: true, requires_cost_center: true, active: true, parent_id: 'cat-b6' },
+  { id: 'cat-b62',   code: 'B.6.2', name: 'Combustível',                      level: 3, group_key: 'cogs', sign: -1, requires_project: true, requires_cost_center: true, active: true, parent_id: 'cat-b6' },
+  { id: 'cat-b63',   code: 'B.6.3', name: 'Manutenção',                       level: 3, group_key: 'cogs', sign: -1, requires_project: true, requires_cost_center: true, active: true, parent_id: 'cat-b6' },
+  { id: 'cat-b64',   code: 'B.6.4', name: 'Seguro',                           level: 3, group_key: 'cogs', sign: -1, requires_project: true, requires_cost_center: true, active: true, parent_id: 'cat-b6' },
+  { id: 'cat-b65',   code: 'B.6.5', name: 'Pedágio',                          level: 3, group_key: 'cogs', sign: -1, requires_project: true, requires_cost_center: true, active: true, parent_id: 'cat-b6' },
+
+  // ── C.6) Viagens (nova categoria L2 sob OPEX) ─────────────
+  { id: 'cat-c6',    code: 'C.6',   name: 'Viagens',                          level: 2, group_key: 'opex', sign: -1, requires_project: false, active: true, parent_id: 'cat-c', description: 'Viagens corporativas (não-campo).' },
+  { id: 'cat-c61',   code: 'C.6.1', name: 'Hospedagem',                       level: 3, group_key: 'opex', sign: -1, requires_project: false, requires_cost_center: true, active: true, parent_id: 'cat-c6' },
+  { id: 'cat-c62',   code: 'C.6.2', name: 'Passagem Aérea',                   level: 3, group_key: 'opex', sign: -1, requires_project: false, requires_cost_center: true, active: true, parent_id: 'cat-c6' },
+  { id: 'cat-c63',   code: 'C.6.3', name: 'Reembolso',                        level: 3, group_key: 'opex', sign: -1, requires_project: false, requires_cost_center: true, active: true, parent_id: 'cat-c6' },
+  { id: 'cat-c64',   code: 'C.6.4', name: 'Alimentação',                      level: 3, group_key: 'opex', sign: -1, requires_project: false, requires_cost_center: true, active: true, parent_id: 'cat-c6' },
+  { id: 'cat-c65',   code: 'C.6.5', name: 'Transporte',                       level: 3, group_key: 'opex', sign: -1, requires_project: false, requires_cost_center: true, active: true, parent_id: 'cat-c6' },
+
+  // ── C.7) Administrativo (nova categoria L2 sob OPEX) ──────
+  { id: 'cat-c7',    code: 'C.7',   name: 'Administrativo',                   level: 2, group_key: 'opex', sign: -1, requires_project: false, active: true, parent_id: 'cat-c', description: 'Despesas administrativas gerais.' },
+  { id: 'cat-c71',   code: 'C.7.1', name: 'Software',                         level: 3, group_key: 'opex', sign: -1, requires_project: false, requires_cost_center: true, active: true, parent_id: 'cat-c7' },
+  { id: 'cat-c72',   code: 'C.7.2', name: 'Escritório',                       level: 3, group_key: 'opex', sign: -1, requires_project: false, requires_cost_center: true, active: true, parent_id: 'cat-c7' },
+  { id: 'cat-c73',   code: 'C.7.3', name: 'Telefonia',                        level: 3, group_key: 'opex', sign: -1, requires_project: false, requires_cost_center: true, active: true, parent_id: 'cat-c7' },
+  { id: 'cat-c74',   code: 'C.7.4', name: 'Internet',                         level: 3, group_key: 'opex', sign: -1, requires_project: false, requires_cost_center: true, active: true, parent_id: 'cat-c7' },
+  { id: 'cat-c75',   code: 'C.7.5', name: 'Contabilidade',                    level: 3, group_key: 'opex', sign: -1, requires_project: false, requires_cost_center: true, active: true, parent_id: 'cat-c7' },
+  { id: 'cat-c76',   code: 'C.7.6', name: 'Jurídico',                         level: 3, group_key: 'opex', sign: -1, requires_project: false, requires_cost_center: true, active: true, parent_id: 'cat-c7' },
+
+  // ── E) Tributos — granular subcategories ──────────────────
+  { id: 'cat-e14',   code: 'E.1.4', name: 'PIS',                              level: 3, group_key: 'taxes', sign: -1, requires_project: false, active: true, parent_id: 'cat-e1' },
+  { id: 'cat-e15',   code: 'E.1.5', name: 'COFINS',                           level: 3, group_key: 'taxes', sign: -1, requires_project: false, active: true, parent_id: 'cat-e1' },
+  { id: 'cat-e16',   code: 'E.1.6', name: 'CSLL',                             level: 3, group_key: 'taxes', sign: -1, requires_project: false, active: true, parent_id: 'cat-e1' },
+  // E.4) Tributos sobre Folha (nova categoria L2 sob TAXES)
+  { id: 'cat-e4',    code: 'E.4',   name: 'Tributos sobre Folha',            level: 2, group_key: 'taxes', sign: -1, requires_project: false, active: true, parent_id: 'cat-e', description: 'Encargos e retenções incidentes sobre a folha.' },
+  { id: 'cat-e41',   code: 'E.4.1', name: 'INSS',                             level: 3, group_key: 'taxes', sign: -1, requires_project: false, active: true, parent_id: 'cat-e4' },
+  { id: 'cat-e42',   code: 'E.4.2', name: 'FGTS',                             level: 3, group_key: 'taxes', sign: -1, requires_project: false, active: true, parent_id: 'cat-e4' },
+  { id: 'cat-e43',   code: 'E.4.3', name: 'IRRF',                             level: 3, group_key: 'taxes', sign: -1, requires_project: false, active: true, parent_id: 'cat-e4' },
 ];
 
 // ============================================================
@@ -312,4 +368,45 @@ export function findCategoryByCode(code: string): ManagementCategory | undefined
 // Helper: get L3 categories for a group
 export function getL3CategoriesByGroup(groupKey: string): ManagementCategory[] {
   return managementCategories.filter(c => c.group_key === groupKey && c.level === 3);
+}
+
+// Helper: find category by id
+export function findCategoryById(id: string | undefined): ManagementCategory | undefined {
+  if (!id) return undefined;
+  return managementCategories.find(c => c.id === id);
+}
+
+/** Direct children (one level down) of a category id — drives cascading selects. */
+export function getSubcategories(parentId: string | undefined): ManagementCategory[] {
+  if (!parentId) return [];
+  return managementCategories.filter(c => c.parent_id === parentId && c.active);
+}
+
+/**
+ * Resolve a category to its (L2 category, L3 subcategory) display pair.
+ * For an L3 entry, parent is the L2 categoria; for an L2 entry, it is the
+ * categoria with no subcategory. Used by analysis selectors and drill-downs.
+ */
+export function resolveCategoryPath(category: ManagementCategory): {
+  groupKey: ManagementCategory['group_key'];
+  categoryId: string;
+  categoryName: string;
+  subcategoryId?: string;
+  subcategoryName?: string;
+} {
+  if (category.level === 3) {
+    const l2 = category.parent_id ? findCategoryById(category.parent_id) : undefined;
+    return {
+      groupKey: category.group_key,
+      categoryId: l2?.id ?? category.id,
+      categoryName: l2?.name ?? category.name,
+      subcategoryId: category.id,
+      subcategoryName: category.name,
+    };
+  }
+  if (category.level === 2) {
+    return { groupKey: category.group_key, categoryId: category.id, categoryName: category.name };
+  }
+  // L1 group root
+  return { groupKey: category.group_key, categoryId: category.id, categoryName: category.name };
 }

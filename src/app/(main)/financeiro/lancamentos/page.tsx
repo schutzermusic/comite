@@ -420,11 +420,11 @@ function LancamentosContent() {
           <HudInput label={t('description')} value={formDescription} onChange={(e) => setFormDescription(e.target.value)} error={fieldError('description')} />
           <HudInput label={t('amount')} type="number" value={formAmount} onChange={(e) => setFormAmount(e.target.value)} error={fieldError('amount_cents')} />
           <div className="grid grid-cols-3 gap-3">
-            <HudSelect label="Nível 1" value={formCategoryL1} onChange={(v) => { setFormCategoryL1(v); setFormCategoryL2(''); setFormCategoryL3(''); }} error={fieldError('category_id')}
+            <HudSelect label="Grupo DRE" value={formCategoryL1} onChange={(v) => { setFormCategoryL1(v); setFormCategoryL2(''); setFormCategoryL3(''); }} error={fieldError('category_id')}
               options={[{ value: '', label: 'Selecionar...' }, ...l1Cats.map(c => ({ value: c.id, label: c.name }))]} />
-            <HudSelect label="Nível 2" value={formCategoryL2} onChange={(v) => { setFormCategoryL2(v); setFormCategoryL3(''); }}
+            <HudSelect label="Categoria" value={formCategoryL2} onChange={(v) => { setFormCategoryL2(v); setFormCategoryL3(''); }}
               options={[{ value: '', label: 'Selecionar...' }, ...l2Cats.map(c => ({ value: c.id, label: c.name }))]} />
-            <HudSelect label="Nível 3" value={formCategoryL3} onChange={setFormCategoryL3}
+            <HudSelect label="Subcategoria" value={formCategoryL3} onChange={setFormCategoryL3}
               options={[{ value: '', label: 'Selecionar...' }, ...l3Cats.map(c => ({ value: c.id, label: c.name }))]} />
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -434,9 +434,9 @@ function LancamentosContent() {
               options={getBusinessUnits().map(b => ({ value: b.id, label: b.name }))} />
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <HudSelect label={t('project')} value={formProject} onChange={setFormProject} placeholder={t('selectProject')}
+            <HudSelect label={t('project')} value={formProject} onChange={setFormProject} placeholder={t('selectProject')} error={fieldError('project_id')}
               options={[{ value: '', label: '— Nenhum —' }, ...getProjects().map(p => ({ value: p.id, label: `${p.code} — ${p.name}` }))]} />
-            <HudSelect label={t('contract')} value={formContract} onChange={setFormContract} placeholder={t('selectContract')}
+            <HudSelect label={t('contract')} value={formContract} onChange={setFormContract} placeholder={t('selectContract')} error={fieldError('contract_id')}
               options={[{ value: '', label: '— Nenhum —' }, ...getContracts().map(c => ({ value: c.id, label: `${c.code} — ${c.client_name}` }))]} />
           </div>
           <div className="grid grid-cols-2 gap-3">

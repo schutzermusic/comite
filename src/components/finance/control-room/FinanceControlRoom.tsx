@@ -19,6 +19,7 @@ import { ProjectMarginMatrix } from './ProjectMarginMatrix';
 import { CostCenterHeatmap } from './CostCenterHeatmap';
 import { ContractRevenuePanel } from './ContractRevenuePanel';
 import { ManagerialDreTable } from './ManagerialDreTable';
+import { CategoryDrilldownPanel } from './CategoryDrilldownPanel';
 import { TopVariationsPanel } from './TopVariationsPanel';
 import { ExecutiveDecisionQueue } from './ExecutiveDecisionQueue';
 import { FinancialRiskRadar } from './FinancialRiskRadar';
@@ -212,6 +213,9 @@ export function FinanceControlRoom() {
 
       {/* Managerial DRE Table */}
       <ManagerialDreTable rows={dreRows} />
+
+      {/* Category → Subcategory → Entries drilldown */}
+      <CategoryDrilldownPanel filters={filters} />
 
       {/* Decision Intelligence Layer */}
       <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-12">
