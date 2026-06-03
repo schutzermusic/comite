@@ -122,6 +122,69 @@ export function FinanceFilterChip({
   );
 }
 
+// Combined from→to period range — same pattern as FinanceControlBar (control room).
+export interface FinanceFilterRangeProps {
+  icon?: React.ReactNode;
+  label: string;
+  fromValue: string;
+  toValue: string;
+  options: { value: string; label: string }[];
+  onChange: (from: string, to: string) => void;
+}
+
+export function FinanceFilterRange({
+  icon, label, fromValue, toValue, options, onChange,
+}: FinanceFilterRangeProps) {
+  return (
+    <div className="flex items-center gap-1.5 rounded-lg border border-[color:var(--ig-border-strong)] bg-[color:var(--ig-bg-raised)]/60 px-2 h-9 backdrop-blur-sm min-w-0">
+      <span className="flex items-center gap-1.5 pl-1 pr-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[color:var(--ig-fg-subtle)] whitespace-nowrap">
+        {icon}
+        {label}
+      </span>
+      <BareSelect
+        value={fromValue}
+        onChange={(v) => onChange(v, toValue < v ? v : toValue)}
+        options={options}
+      />
+      <span className="text-[10px] text-[color:var(--ig-fg-subtle)]">→</span>
+      <BareSelect
+        value={toValue}
+        onChange={(v) => onChange(fromValue > v ? v : fromValue, v)}
+        options={options}
+      />
+    </div>
+  );
+}
+
+// Native date input inside the same chip shell (vencimento, emissão, etc.).
+export interface FinanceFilterDateFieldProps {
+  icon?: React.ReactNode;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}
+
+export function FinanceFilterDateField({
+  icon, label, value, onChange,
+}: FinanceFilterDateFieldProps) {
+  return (
+    <label className="flex items-center gap-1.5 rounded-lg border border-[color:var(--ig-border-strong)] bg-[color:var(--ig-bg-raised)]/60 px-2 h-9 backdrop-blur-sm min-w-0 cursor-pointer">
+      {icon && (
+        <span className="flex items-center text-[color:var(--ig-fg-subtle)]">{icon}</span>
+      )}
+      <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[color:var(--ig-fg-subtle)] whitespace-nowrap">
+        {label}
+      </span>
+      <input
+        type="date"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="bg-transparent text-xs font-medium text-[color:var(--ig-fg-strong)] focus:outline-none min-w-0"
+      />
+    </label>
+  );
+}
+
 // Segmented two-button group used inside `extra` for binary/ternary
 // switches like "Visão" / view modes. Same chip shell.
 export interface FinanceFilterSegmentProps<T extends string> {

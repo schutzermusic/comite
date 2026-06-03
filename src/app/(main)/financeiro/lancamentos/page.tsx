@@ -6,7 +6,7 @@ import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import {
   Receipt, Plus, CheckCircle, XCircle,
   Send, FileText, ArrowDownLeft, ArrowUpRight, AlertTriangle, WalletCards,
-  Activity, Search, Layers, Link2,
+  Activity, Search, Layers, Link2, CalendarRange,
 } from 'lucide-react';
 import {
   HudPageLayout, HudHeader, HudTable,
@@ -14,7 +14,8 @@ import {
   HudEmptyState, HudModal, HudBadge, HudPanel, HudKpiStrip,
   type HudTableColumn, type KpiItem,
 } from '@/components/hud';
-import { FinanceFilterBar, FinanceFilterChip } from '@/components/finance/shared';
+import { FinanceFilterBar, FinanceFilterChip, FinanceFilterRange } from '@/components/finance/shared';
+import { generatePeriodOptions } from '@/components/finance/control-room/helpers';
 import {
   getLedgerEntries, getLedgerEntry, createLedgerEntry, updateLedgerEntry, transitionEntryStatus,
   linkEntriesToProject,
@@ -47,6 +48,8 @@ const STATUS_MAP: Record<string, { label: string; variant: string }> = {
   void: { label: 'Anulado', variant: 'error' },
 };
 
+const PERIOD_OPTIONS = generatePeriodOptions();
+
 const TAB_OPTIONS = [
   { value: 'all', label: 'Todos' },
   { value: 'draft', label: 'Rascunhos' },
@@ -72,6 +75,8 @@ function LancamentosContent() {
   const focusEntryId = searchParams.get('entryId');
 
   const [activeTab, setActiveTab] = useState(initialTab);
+  const [periodFrom, setPeriodFrom] = useState('2026-01');
+  const [periodTo, setPeriodTo] = useState('2026-06');
   const [allocFilter, setAllocFilter] = useState<LedgerAllocationStatus | 'all'>('all');
   const [allocProject, setAllocProject] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
@@ -151,8 +156,12 @@ function LancamentosContent() {
   }, [prefillProjectId, prefillContractId, prefillEntryType, prefillNature]);
 
   const statusFilter = activeTab === 'all' ? undefined : activeTab as LedgerEntryStatus;
+  const periodFilters = useMemo(
+    () => ({ period_from: periodFrom, period_to: periodTo }),
+    [periodFrom, periodTo],
+  );
   const entries = useMemo(() => {
-    let result = getLedgerEntries(undefined, statusFilter);
+    let result = getLedgerEntries(periodFilters, statusFilter);
     if (allocFilter !== 'all') {
       result = result.filter(e => (e.allocation_status ?? 'unallocated') === allocFilter);
     }
@@ -162,12 +171,12 @@ function LancamentosContent() {
     }
     return result;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter, allocFilter, searchTerm, refreshKey]);
+  }, [statusFilter, allocFilter, searchTerm, refreshKey, periodFilters]);
 
   const pendingAllocationCount = useMemo(
-    () => getLedgerEntries().filter(e => e.allocation_status === 'pending_project').length,
+    () => getLedgerEntries(periodFilters).filter(e => e.allocation_status === 'pending_project').length,
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [refreshKey],
+    [refreshKey, periodFilters],
   );
 
   const handleAllocateToProject = useCallback((entryId: string, projectId: string) => {
@@ -347,6 +356,17 @@ function LancamentosContent() {
         showScenario={false}
         extra={
           <>
+            <FinanceFilterRange
+              icon={<CalendarRange className="h-3.5 w-3.5" />}
+              label="Período"
+              fromValue={periodFrom}
+              toValue={periodTo}
+              options={PERIOD_OPTIONS}
+              onChange={(from, to) => {
+                setPeriodFrom(from);
+                setPeriodTo(to);
+              }}
+            />
             <FinanceFilterChip
               icon={<Activity className="h-3.5 w-3.5" />}
               label="Status"

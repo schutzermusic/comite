@@ -34,7 +34,6 @@ export function CostDriversPanel({ filters }: CostDriversPanelProps) {
     periodTo: filters.periodTo,
     projectId: filters.projectId,
     contractId: filters.contractId,
-    costCenterId: filters.costCenterId,
     entryType: planeFromScenario(filters.scenario),
   }), [filters]);
 
@@ -47,15 +46,15 @@ export function CostDriversPanel({ filters }: CostDriversPanelProps) {
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
-      className="ig-glass relative w-full"
+      className="ig-glass relative h-full w-full"
       data-elev={3}
       data-sweep
     >
       <span data-ig-noise="" />
       <span data-ig-specular="" />
       <span data-ig-sweep="" />
-      <div data-ig-content="" className="flex flex-col">
-        <header className="flex items-center justify-between border-b border-[color:var(--ig-border-subtle)] px-5 py-4">
+      <div data-ig-content="" className="flex h-full flex-col">
+        <header className="flex shrink-0 items-center justify-between border-b border-[color:var(--ig-border-subtle)] px-5 py-4">
           <div className="flex items-center gap-3">
             <span
               className="inline-flex h-8 w-8 items-center justify-center rounded-[10px]"
@@ -76,12 +75,12 @@ export function CostDriversPanel({ filters }: CostDriversPanelProps) {
           )}
         </header>
 
-        <div className="flex flex-col gap-0.5 p-3">
+        <div className="flex min-h-0 flex-1 flex-col gap-0.5 p-3">
           {drivers.length === 0 && (
-            <p className="px-2 py-6 text-center text-[11px] text-[color:var(--ig-fg-muted)]">Sem custos no período.</p>
+            <p className="flex flex-1 items-center justify-center px-2 text-center text-[11px] text-[color:var(--ig-fg-muted)]">Sem custos no período.</p>
           )}
           {drivers.map((d, i) => (
-            <div key={d.subcategoryId} className="relative flex items-center justify-between gap-2 rounded-md px-2 py-1.5">
+            <div key={d.subcategoryId} className="relative flex min-h-[2rem] flex-1 items-center justify-between gap-2 rounded-md px-2 py-1.5">
               <span className="absolute inset-y-1 left-2 rounded-sm opacity-[0.10]" style={{ width: `${(d.value / max) * 100}%`, background: 'linear-gradient(90deg, #F59E0B, transparent)' }} />
               <span className="relative flex min-w-0 items-center gap-2">
                 <span className="font-mono text-[10px] tabular-nums text-[color:var(--ig-fg-subtle)]">{String(i + 1).padStart(2, '0')}</span>

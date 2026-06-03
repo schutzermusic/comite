@@ -13,7 +13,7 @@ import {
   type KpiItem, type HudTableColumn, type HudStatusPillVariant,
 } from '@/components/hud';
 import {
-  FinanceFilterBar, FinanceFilterChip,
+  FinanceFilterBar, FinanceFilterChip, FinanceFilterDateField,
   FinanceBarChart, FinanceDonutChart,
   fmtBRL, fmtCompactBRL,
 } from '@/components/finance/shared';
@@ -247,14 +247,18 @@ function ImpostosContent() {
                 onChange={setFilterCompetence}
                 options={competenceOptions}
               />
-              <label className="flex items-center gap-1.5 rounded-lg border border-[color:var(--ig-border-strong)] bg-[color:var(--ig-bg-raised)]/60 px-2 h-9 backdrop-blur-sm">
-                <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[color:var(--ig-fg-subtle)]">Vence de</span>
-                <input type="date" value={filterDueFrom} onChange={(e) => setFilterDueFrom(e.target.value)} className="bg-transparent text-xs font-medium text-[color:var(--ig-fg-strong)] focus:outline-none" />
-              </label>
-              <label className="flex items-center gap-1.5 rounded-lg border border-[color:var(--ig-border-strong)] bg-[color:var(--ig-bg-raised)]/60 px-2 h-9 backdrop-blur-sm">
-                <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[color:var(--ig-fg-subtle)]">até</span>
-                <input type="date" value={filterDueTo} onChange={(e) => setFilterDueTo(e.target.value)} className="bg-transparent text-xs font-medium text-[color:var(--ig-fg-strong)] focus:outline-none" />
-              </label>
+              <FinanceFilterDateField
+                icon={<Calendar className="h-3.5 w-3.5" />}
+                label="Vence de"
+                value={filterDueFrom}
+                onChange={setFilterDueFrom}
+              />
+              <FinanceFilterDateField
+                icon={<Calendar className="h-3.5 w-3.5" />}
+                label="Até"
+                value={filterDueTo}
+                onChange={setFilterDueTo}
+              />
             </>
           }
           rightSlot={hasActiveFilters ? (

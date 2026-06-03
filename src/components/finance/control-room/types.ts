@@ -122,6 +122,5 @@ export interface ControlRoomFilters {
   scenario: ScenarioKey;
   projectId: string;
   contractId: string;
-  costCenterId: string;
   consolidation: 'consolidated' | 'by_bu' | 'by_project';
 }

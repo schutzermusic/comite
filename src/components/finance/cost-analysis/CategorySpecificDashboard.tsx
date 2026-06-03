@@ -3,7 +3,7 @@
 import React, { useMemo, useCallback, useState } from 'react';
 import {
   Download, Layers, FolderKanban, Truck, Users, Gauge, Building2, FileText,
-  Fuel, Receipt, Briefcase, CalendarClock, Eye, EyeOff, Repeat,
+  Fuel, Briefcase, CalendarClock, Eye, EyeOff, Repeat,
 } from 'lucide-react';
 import { HudCard, HudCardContent, HudButton } from '@/components/hud';
 import {
@@ -15,6 +15,7 @@ import {
   type SCurveSeries,
 } from '@/components/finance/shared';
 import type { LedgerEntry } from '@/lib/types/finance';
+import { cn } from '@/lib/utils';
 import {
   selectCostBySubcategory,
   selectCategoryByProject,
@@ -28,7 +29,6 @@ import {
   selectCostLedgerEntries,
   selectCostAnalysisSummary,
   selectSupplierVariation,
-  selectTopCostDrivers,
   categoryIdsUnderCodes,
   type CategoryAnalysisFilter,
 } from '@/lib/finance/selectors';
@@ -44,6 +44,7 @@ import {
 import { buildCategoryInsights } from './narrative';
 import { monthAxis, previousWindow, alignToAxis, buildMoMWaterfall, buildHeatmap } from './transforms';
 import { entriesToCsv, downloadCsv } from './cost-csv';
+import { openCostReport, type CostReportPayload } from './cost-pdf';
 import type { CategoryDashboardConfig } from './category-dashboards';
 
 const DONUT_TONES: DonutSlice['tone'][] = ['accent', 'info', 'success', 'warning', 'danger', 'budget'];
@@ -142,7 +143,6 @@ export function CategorySpecificDashboard({
   // Per-subcategoria monthly series — drives the stacked composition, the
   // m/m waterfall bridge and the subcategoria × month heatmap.
   const subTrend = useMemo(() => selectSubcategoryTrendByMonth(scoped, source), [scoped, source]);
-  const topDrivers = useMemo(() => selectTopCostDrivers(scoped, 8, source), [scoped, source]);
   const supplierVar = useMemo(() => (config.supportsSupplier ? selectSupplierVariation(base, source) : new Map()), [config.supportsSupplier, base, source]);
   const allEntries = useMemo(() => selectCostLedgerEntries(scoped, undefined, source), [scoped, source]);
   const entries = useMemo(() => allEntries.slice(0, 120), [allEntries]);
@@ -154,11 +154,11 @@ export function CategorySpecificDashboard({
     const prevW = previousWindow(periodFrom, periodTo);
     const prevMonthly = selectMonthlyCostTotals({ ...scoped, periodFrom: prevW.from, periodTo: prevW.to }, source);
     const prevVals = alignToAxis(prevMonthly, monthAxis(prevW.from, prevW.to));
-    const series: SCurveSeries[] = [{ name: 'Realizado acumulado', values: cur, tone: 'accent', emphasized: true }];
-    if (prevVals.some((v) => v > 0)) series.push({ name: 'Período anterior', values: prevVals, tone: 'info', dashed: true });
+    const series: SCurveSeries[] = [{ name: 'Realizado — período atual', values: cur, tone: 'accent', emphasized: true }];
+    if (prevVals.some((v) => v > 0)) series.push({ name: 'Período anterior (equivalente)', values: prevVals, tone: 'info', dashed: true });
     return series;
   }, [monthly, axis, periodFrom, periodTo, scoped, source]);
-  const waterfall = useMemo(() => buildMoMWaterfall(subTrend, 7), [subTrend]);
+  const waterfall = useMemo(() => buildMoMWaterfall(subTrend, 6), [subTrend]);
   const heatmap = useMemo(() => buildHeatmap(subTrend, axis, 10), [subTrend, axis]);
 
   // Recurring vs one-off composition per month (admin stacked bar).
@@ -342,12 +342,48 @@ export function CategorySpecificDashboard({
     downloadCsv(`analise-custos_${config.key}_${tag}_${periodFrom}_${periodTo}.csv`, entriesToCsv(allEntries));
   }, [allEntries, config.key, periodFrom, periodTo, isDemo]);
 
+  const handleExportPdf = useCallback(() => {
+    const payload: CostReportPayload = {
+      title: 'Análise de Custos',
+      scopeLabel: drillSub ? `${config.title} · ${managementCategories.find((c) => c.id === drillSub)?.name ?? ''}` : config.title,
+      periodLabel: `${periodFrom} → ${periodTo}`,
+      isDemo,
+      kpis: kpis.map((k) => ({ label: k.label, value: k.value, helper: k.helper })),
+      rankings: [
+        { title: `Top ${subLabel}s`, rows: subcategories.slice(0, 10).map((s) => ({ label: s.name, value: s.value, share: s.share })) },
+        ...(config.supportsProject ? [{ title: 'Top projetos', rows: byProject.filter((r) => r.id).slice(0, 10).map((r) => ({ label: r.name, value: r.value, share: r.share })) }] : []),
+        { title: 'Top centros de custo', rows: byCostCenter.slice(0, 10).map((r) => ({ label: r.name, value: r.value, share: r.share })) },
+        ...(config.supportsSupplier ? [{ title: `Top ${config.supplierLabel.toLowerCase()}`, rows: bySupplier.slice(0, 10).map((r) => ({ label: r.name, value: r.value, share: r.share })) }] : []),
+        ...(config.supportsCollaborator ? [{ title: 'Top colaboradores', rows: byCollaborator.slice(0, 10).map((r) => ({ label: r.name, value: r.value, share: r.share })) }] : []),
+      ],
+      entries: allEntries,
+    };
+    const res = openCostReport(payload);
+    if (!res.ok) window.alert(res.message);
+  }, [allEntries, config, drillSub, periodFrom, periodTo, isDemo, kpis, subcategories, byProject, byCostCenter, bySupplier, byCollaborator, subLabel]);
+
   // Toggle helpers — clicking an active row clears that filter.
   const toggleProject = useCallback((id: string) => onSelectProject(filter.projectId === id ? 'all' : id), [filter.projectId, onSelectProject]);
   const toggleSupplier = useCallback((id: string) => onSelectSupplier(filter.supplierId === id ? 'all' : id), [filter.supplierId, onSelectSupplier]);
   const toggleCollaborator = useCallback((id: string) => onSelectCollaborator(filter.collaboratorId === id ? 'all' : id), [filter.collaboratorId, onSelectCollaborator]);
 
   const drillSubName = drillSub ? managementCategories.find((c) => c.id === drillSub)?.name : undefined;
+
+  // The m/m bridge only makes sense for multi-driver subtrees (folha/tributos
+  // collapse to a single recorte). When absent, the Pareto takes the full width.
+  const showWaterfall = config.dashboardType !== 'payroll' && config.dashboardType !== 'taxes';
+  const showCompositionSection = showRecurring || showSubStack
+    || config.dashboardType === 'materials' || config.dashboardType === 'taxes';
+
+  // Subcategoria Pareto — reused both paired with the waterfall and standalone.
+  const subParetoPanel = (limit: number) => (
+    <RankPanel
+      title={<span className="inline-flex items-center gap-1.5"><Layers className="h-3.5 w-3.5 text-ig-text-tertiary" /> Custo por {subLabel} (Pareto)</span>}
+      rows={subcategories.map((s) => ({ id: s.id, label: s.name, meta: s.categoryName, value: s.value, share: s.share }))}
+      accent={config.accent} activeId={drillSub} onSelect={onSelectSub} pareto limit={limit}
+      emptyLabel={config.emptyState}
+    />
+  );
 
   return (
     <>
@@ -401,16 +437,28 @@ export function CategorySpecificDashboard({
         <DonutPanel title={`Distribuição por ${subLabel}`} data={donutData} centerLabel={config.title} centerValue={fmtCompactBRL(summary.total)} />
       )}
 
+      {/* ── Comparativo ────────────────────────────────────────── */}
+      <SectionTitle>Análise comparativa</SectionTitle>
+
       {/* Curva S (realizado acumulado) + tendência mensal */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <SCurvePanel title={`Curva S — ${config.title} acumulado`} categories={axis} series={sCurveSeries} />
         <TrendPanel title={`Tendência mensal · ${config.title}`} points={monthly} />
       </div>
 
-      {/* Ponte de variação m/m (não aplicável a folha/tributos no recorte único) */}
-      {config.dashboardType !== 'payroll' && config.dashboardType !== 'taxes' && (
-        <WaterfallPanel title={`Variação m/m por ${subLabel} (ponte)`} steps={waterfall} />
+      {/* Ponte de variação m/m + Pareto por subcategoria (comparativo + composição).
+          Folha/Tributos não têm ponte no recorte único → Pareto ocupa a largura. */}
+      {showWaterfall ? (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <WaterfallPanel title={`Variação m/m por ${subLabel} (ponte)`} steps={waterfall} />
+          {subParetoPanel(12)}
+        </div>
+      ) : (
+        subParetoPanel(20)
       )}
+
+      {/* ── Composição ao longo do tempo ───────────────────────── */}
+      {showCompositionSection && <SectionTitle>Composição ao longo do tempo</SectionTitle>}
 
       {/* Recurring vs one-off (services / admin) */}
       {showRecurring && (
@@ -454,13 +502,8 @@ export function CategorySpecificDashboard({
         />
       )}
 
-      {/* Subcategory ranking (Pareto) */}
-      <RankPanel
-        title={<span className="inline-flex items-center gap-1.5"><Layers className="h-3.5 w-3.5 text-ig-text-tertiary" /> Custo por {subLabel} (Pareto)</span>}
-        rows={subcategories.map((s) => ({ id: s.id, label: s.name, meta: s.categoryName, value: s.value, share: s.share }))}
-        accent={config.accent} activeId={drillSub} onSelect={onSelectSub} pareto limit={20}
-        emptyLabel={config.emptyState}
-      />
+      {/* ── Rankings & drilldown ────────────────────────────────── */}
+      <SectionTitle>Rankings &amp; drilldown</SectionTitle>
 
       {/* Project analysis */}
       {config.supportsProject && (
@@ -518,23 +561,27 @@ export function CategorySpecificDashboard({
         </div>
       )}
 
-      {/* Contract analysis (services / generic with contracts) */}
-      {config.supportsContract && byContract.length > 0 && config.dashboardType !== 'payroll' && config.dashboardType !== 'taxes' && (
-        <RankPanel
-          title={<span className="inline-flex items-center gap-1.5"><FileText className="h-3.5 w-3.5 text-ig-text-tertiary" /> Custo por contrato</span>}
-          rows={byContract.map((r) => ({ id: r.id, label: r.name, value: r.value, share: r.share }))}
-          accent="#A78BFA" emptyLabel="Sem contratos no recorte."
-        />
-      )}
-
-      {/* Cost-center ranking for non-payroll/non-tax types that support it */}
-      {config.supportsCostCenter && byCostCenter.length > 0 && !['payroll', 'taxes'].includes(config.dashboardType) && (
-        <RankPanel
-          title={<span className="inline-flex items-center gap-1.5"><Building2 className="h-3.5 w-3.5 text-ig-text-tertiary" /> Custo por centro de custo</span>}
-          rows={byCostCenter.map((r) => ({ id: r.id, label: r.name, value: r.value, share: r.share }))}
-          accent="#EC4899" emptyLabel="Sem centros de custo no recorte."
-        />
-      )}
+      {/* Contrato + Centro de custo — pareados; um item solitário ocupa a largura. */}
+      <PanelRows
+        panels={[
+          config.supportsContract && byContract.length > 0 && showWaterfall ? (
+            <RankPanel
+              key="contract"
+              title={<span className="inline-flex items-center gap-1.5"><FileText className="h-3.5 w-3.5 text-ig-text-tertiary" /> Custo por contrato</span>}
+              rows={byContract.map((r) => ({ id: r.id, label: r.name, value: r.value, share: r.share }))}
+              accent="#A78BFA" emptyLabel="Sem contratos no recorte."
+            />
+          ) : null,
+          config.supportsCostCenter && byCostCenter.length > 0 && showWaterfall ? (
+            <RankPanel
+              key="cc"
+              title={<span className="inline-flex items-center gap-1.5"><Building2 className="h-3.5 w-3.5 text-ig-text-tertiary" /> Custo por centro de custo</span>}
+              rows={byCostCenter.map((r) => ({ id: r.id, label: r.name, value: r.value, share: r.share }))}
+              accent="#EC4899" emptyLabel="Sem centros de custo no recorte."
+            />
+          ) : null,
+        ]}
+      />
 
       {/* Collaborator analysis (logistics) */}
       {config.supportsCollaborator && (
@@ -594,28 +641,57 @@ export function CategorySpecificDashboard({
         </>
       )}
 
-      {/* Top cost drivers */}
-      <RankPanel
-        title={<span className="inline-flex items-center gap-1.5"><Receipt className="h-3.5 w-3.5 text-ig-text-tertiary" /> Top cost drivers ({subLabel})</span>}
-        rows={topDrivers.map((d) => ({ id: d.subcategoryId, label: d.subcategoryName, meta: d.categoryName, value: d.value, share: d.share }))}
-        accent="#F59E0B" onSelect={onSelectSub} activeId={drillSub} limit={8}
-        emptyLabel={config.emptyState}
-      />
+      {/* ── Detalhe (recolhido por padrão) ─────────────────────── */}
+      <SectionTitle>Detalhe</SectionTitle>
 
-      {/* Detail table */}
       <EntryTable
+        collapsible
+        defaultOpen={false}
+        count={allEntries.length}
         title={
-          <span className="inline-flex w-full items-center justify-between gap-2">
-            <span className="inline-flex items-center gap-1.5">
-              <Gauge className="h-3.5 w-3.5 text-ig-text-tertiary" /> Lançamentos {drillSubName ? `· ${drillSubName}` : `· ${config.title}`}
-              {isDemo && <DemoBadge className="ml-1" />}
-            </span>
-            <HudButton variant="glass" size="sm" leftIcon={<Download className="h-3.5 w-3.5" />} onClick={handleExport}>CSV</HudButton>
+          <span className="inline-flex items-center gap-1.5">
+            <Gauge className="h-3.5 w-3.5 text-ig-text-tertiary" /> Lançamentos {drillSubName ? `· ${drillSubName}` : `· ${config.title}`}
+            {isDemo && <DemoBadge className="ml-1" />}
           </span>
+        }
+        action={
+          <>
+            <HudButton variant="glass" size="sm" leftIcon={<Download className="h-3.5 w-3.5" />} onClick={handleExport}>CSV</HudButton>
+            <HudButton variant="glass" size="sm" leftIcon={<FileText className="h-3.5 w-3.5" />} onClick={handleExportPdf}>PDF</HudButton>
+          </>
         }
         rows={entryRows}
         emptyLabel={config.emptyState}
       />
     </>
+  );
+}
+
+/** Subtle uppercase section divider used to chunk the long category dashboard
+ *  into deliberate executive blocks (comparativo / composição / rankings / detalhe). */
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-3 pt-1">
+      <span className="shrink-0 text-[10.5px] font-semibold uppercase tracking-[0.16em] text-ig-text-tertiary">{children}</span>
+      <span aria-hidden className="h-px flex-1 bg-ig-border-subtle/60" />
+    </div>
+  );
+}
+
+/** Lays panels out two-per-row with equal heights; a trailing odd panel spans
+ *  the full width so there is never an awkward half-empty column. Null/false
+ *  entries are dropped, so callers can pass conditional panels inline. */
+function PanelRows({ panels }: { panels: Array<React.ReactNode> }) {
+  const items = panels.filter((p): p is React.ReactNode => Boolean(p));
+  if (items.length === 0) return null;
+  const odd = items.length % 2 === 1;
+  return (
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      {items.map((panel, i) => (
+        <div key={i} className={cn('min-w-0', odd && i === items.length - 1 && 'lg:col-span-2')}>
+          {panel}
+        </div>
+      ))}
+    </div>
   );
 }

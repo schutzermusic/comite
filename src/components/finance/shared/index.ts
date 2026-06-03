@@ -2,9 +2,13 @@ export * from './types';
 export {
   FinanceFilterBar,
   FinanceFilterChip,
+  FinanceFilterRange,
+  FinanceFilterDateField,
   FinanceFilterSegment,
   type FinanceFilterBarProps,
   type FinanceFilterChipProps,
+  type FinanceFilterRangeProps,
+  type FinanceFilterDateFieldProps,
   type FinanceFilterSegmentProps,
 } from './FinanceFilterBar';
 export { FinanceInsightCard, type FinanceInsight, type FinanceInsightTone } from './FinanceInsightCard';

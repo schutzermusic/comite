@@ -7,13 +7,13 @@ import {
   Layers,
   FolderKanban,
   FileText,
-  Building2,
   GitBranch,
   Sparkles,
   FileBarChart2,
   ChevronDown,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { FinanceFilterRange } from '@/components/finance/shared';
 import { SCENARIOS, type ControlRoomFilters, type ScenarioKey } from './types';
 import { generatePeriodOptions } from './helpers';
 
@@ -24,7 +24,6 @@ interface FinanceControlBarProps {
   onGenerateReport?: () => void;
   projects: { id: string; label: string }[];
   contracts: { id: string; label: string }[];
-  costCenters: { id: string; label: string }[];
 }
 
 const periods = generatePeriodOptions();
@@ -42,7 +41,6 @@ export function FinanceControlBar({
   onGenerateReport,
   projects,
   contracts,
-  costCenters,
 }: FinanceControlBarProps) {
   return (
     <motion.div
@@ -58,7 +56,7 @@ export function FinanceControlBar({
         <div data-ig-content="" className="px-4 py-3">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex flex-wrap items-center gap-2 [&_>_div]:h-9">
-              <SegmentedRange
+              <FinanceFilterRange
                 icon={<CalendarRange className="h-3.5 w-3.5" />}
                 label="Período"
                 fromValue={filters.periodFrom}
@@ -86,14 +84,6 @@ export function FinanceControlBar({
                 value={filters.contractId}
                 options={[{ id: 'all', label: 'Todos os contratos' }, ...contracts]}
                 onChange={(contractId) => onChange({ contractId })}
-              />
-
-              <CompactSelect
-                icon={<Building2 className="h-3.5 w-3.5" />}
-                label="Centro de Custo"
-                value={filters.costCenterId}
-                options={[{ id: 'all', label: 'Todos os CC' }, ...costCenters]}
-                onChange={(costCenterId) => onChange({ costCenterId })}
               />
 
               <CompactSelect
@@ -145,37 +135,6 @@ export function FinanceControlBar({
 }
 
 // ───── Internals ─────
-
-interface SegmentedRangeProps {
-  icon: React.ReactNode;
-  label: string;
-  fromValue: string;
-  toValue: string;
-  options: { value: string; label: string }[];
-  onChange: (from: string, to: string) => void;
-}
-
-function SegmentedRange({ icon, label, fromValue, toValue, options, onChange }: SegmentedRangeProps) {
-  return (
-    <div className="flex items-center gap-1.5 rounded-lg border border-[color:var(--ig-border-strong)] bg-[color:var(--ig-bg-raised)]/60 px-2 backdrop-blur-sm">
-      <span className="flex items-center gap-1.5 pl-1 pr-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[color:var(--ig-fg-subtle)]">
-        {icon}
-        {label}
-      </span>
-      <BareSelect
-        value={fromValue}
-        onChange={(v) => onChange(v, toValue < v ? v : toValue)}
-        options={options}
-      />
-      <span className="text-[10px] text-[color:var(--ig-fg-subtle)]">→</span>
-      <BareSelect
-        value={toValue}
-        onChange={(v) => onChange(fromValue > v ? v : fromValue, v)}
-        options={options}
-      />
-    </div>
-  );
-}
 
 interface CompactSelectProps {
   icon: React.ReactNode;

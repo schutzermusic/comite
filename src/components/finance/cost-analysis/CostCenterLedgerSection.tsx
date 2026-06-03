@@ -5,7 +5,7 @@ import { Building2, CalendarRange } from 'lucide-react';
 import {
   HudCard, HudCardHeader, HudCardTitle, HudCardContent,
 } from '@/components/hud';
-import { FinanceFilterChip } from '@/components/finance/shared';
+import { FinanceFilterChip, FinanceFilterRange } from '@/components/finance/shared';
 import { costCenters as costCenterSeed } from '@/data/finance/seed-categories';
 import { generatePeriodOptions } from '@/components/finance/control-room/helpers';
 import { LedgerCostBreakdown } from './LedgerCostBreakdown';
@@ -36,10 +36,17 @@ export function CostCenterLedgerSection() {
           <div className="flex flex-wrap items-center gap-2">
             <FinanceFilterChip icon={<Building2 className="h-3.5 w-3.5" />} label="CC" value={costCenterId}
               options={CC_OPTIONS} onChange={setCostCenterId} />
-            <FinanceFilterChip icon={<CalendarRange className="h-3.5 w-3.5" />} label="De" value={periodFrom}
-              options={PERIODS} onChange={(v) => setPeriodFrom(v > periodTo ? periodTo : v)} maxValueChars={8} />
-            <FinanceFilterChip icon={<CalendarRange className="h-3.5 w-3.5" />} label="Até" value={periodTo}
-              options={PERIODS} onChange={(v) => setPeriodTo(v < periodFrom ? periodFrom : v)} maxValueChars={8} />
+            <FinanceFilterRange
+              icon={<CalendarRange className="h-3.5 w-3.5" />}
+              label="Período"
+              fromValue={periodFrom}
+              toValue={periodTo}
+              options={PERIODS}
+              onChange={(from, to) => {
+                setPeriodFrom(from);
+                setPeriodTo(to);
+              }}
+            />
           </div>
         </div>
       </HudCardHeader>

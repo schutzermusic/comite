@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { ChevronRight, FlaskConical, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import {
   HudCard, HudCardHeader, HudCardTitle, HudCardContent,
@@ -14,6 +14,7 @@ import {
   FinanceSCurveChart,
   FinanceAdvancedWaterfallChart,
   FinanceSparkline,
+  useFinanceChartTokens,
   fmtBRL, fmtCompactBRL, fmtPct,
   type DonutSlice,
   type TreemapNode,
@@ -229,46 +230,89 @@ interface EntryTableProps {
   title: React.ReactNode;
   rows: EntryRow[];
   emptyLabel?: string;
+  /** Render as a collapsible accordion (header toggles the table). */
+  collapsible?: boolean;
+  /** Initial open state when collapsible (defaults to closed). */
+  defaultOpen?: boolean;
+  /** Rows in the current scope — shown as a header badge even when truncated/closed. */
+  count?: number;
+  /** Right-aligned header actions (e.g. CSV/PDF). Not part of the toggle button. */
+  action?: React.ReactNode;
 }
 
-/** Ledger drilldown table — the deepest level of the cost analysis. */
-export function EntryTable({ title, rows, emptyLabel = 'Selecione uma subcategoria para ver os lançamentos.' }: EntryTableProps) {
+/** Ledger drilldown table — the deepest level of the cost analysis. Optionally
+ *  collapsible: the body is only mounted while open, keeping long screens short. */
+export function EntryTable({
+  title, rows, emptyLabel = 'Selecione uma subcategoria para ver os lançamentos.',
+  collapsible = false, defaultOpen = !collapsible, count, action,
+}: EntryTableProps) {
+  const [open, setOpen] = useState(defaultOpen);
+  const total = count ?? rows.length;
+
+  const tableBody = (
+    <FinanceChartContainer scrollX>
+      <table className="w-full text-sm">
+        <thead className="border-b border-ig-border-subtle">
+          <tr className="text-[10.5px] uppercase tracking-[0.12em] text-ig-text-tertiary">
+            <th className="whitespace-nowrap px-4 py-2.5 text-left font-medium">Data</th>
+            <th className="px-4 py-2.5 text-left font-medium">Descrição</th>
+            <th className="whitespace-nowrap px-4 py-2.5 text-left font-medium">Categoria</th>
+            <th className="whitespace-nowrap px-4 py-2.5 text-left font-medium">Subcategoria</th>
+            <th className="whitespace-nowrap px-4 py-2.5 text-left font-medium">Projeto</th>
+            <th className="whitespace-nowrap px-4 py-2.5 text-left font-medium">Fornecedor</th>
+            <th className="whitespace-nowrap px-4 py-2.5 text-right font-medium">Valor</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length === 0 && (
+            <tr><td colSpan={7} className="px-4 py-10 text-center text-[11px] text-ig-text-tertiary">{emptyLabel}</td></tr>
+          )}
+          {rows.map((e) => (
+            <tr key={e.id} className="border-b border-ig-border-subtle/40 hover:bg-ig-surface-subtle/30">
+              <td className="whitespace-nowrap px-4 py-2 font-mono text-[11px] text-ig-text-secondary">{e.date}</td>
+              <td className="max-w-[280px] truncate px-4 py-2 text-ig-text-primary" title={e.description}>{e.description}</td>
+              <td className="max-w-[160px] truncate px-4 py-2 text-ig-text-secondary" title={e.categoryName}>{e.categoryName}</td>
+              <td className="max-w-[160px] truncate px-4 py-2 text-ig-text-secondary" title={e.subcategoryName}>{e.subcategoryName}</td>
+              <td className="max-w-[160px] truncate px-4 py-2 text-ig-text-secondary" title={e.projectName || undefined}>{e.projectName || '—'}</td>
+              <td className="max-w-[160px] truncate px-4 py-2 text-ig-text-secondary" title={e.supplierName || undefined}>{e.supplierName || '—'}</td>
+              <td className="whitespace-nowrap px-4 py-2 text-right font-mono tabular-nums text-ig-text-primary">{fmtBRL(e.value)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </FinanceChartContainer>
+  );
+
+  if (!collapsible) {
+    return (
+      <HudCard className="min-w-0">
+        <HudCardHeader><HudCardTitle>{title}</HudCardTitle></HudCardHeader>
+        <HudCardContent className="p-0">{tableBody}</HudCardContent>
+      </HudCard>
+    );
+  }
+
   return (
     <HudCard className="min-w-0">
-      <HudCardHeader><HudCardTitle>{title}</HudCardTitle></HudCardHeader>
-      <HudCardContent className="p-0">
-        <FinanceChartContainer scrollX>
-          <table className="w-full text-sm">
-            <thead className="border-b border-ig-border-subtle">
-              <tr className="text-[10.5px] uppercase tracking-[0.12em] text-ig-text-tertiary">
-                <th className="whitespace-nowrap px-4 py-2.5 text-left font-medium">Data</th>
-                <th className="px-4 py-2.5 text-left font-medium">Descrição</th>
-                <th className="whitespace-nowrap px-4 py-2.5 text-left font-medium">Categoria</th>
-                <th className="whitespace-nowrap px-4 py-2.5 text-left font-medium">Subcategoria</th>
-                <th className="whitespace-nowrap px-4 py-2.5 text-left font-medium">Projeto</th>
-                <th className="whitespace-nowrap px-4 py-2.5 text-left font-medium">Fornecedor</th>
-                <th className="whitespace-nowrap px-4 py-2.5 text-right font-medium">Valor</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.length === 0 && (
-                <tr><td colSpan={7} className="px-4 py-10 text-center text-[11px] text-ig-text-tertiary">{emptyLabel}</td></tr>
-              )}
-              {rows.map((e) => (
-                <tr key={e.id} className="border-b border-ig-border-subtle/40 hover:bg-ig-surface-subtle/30">
-                  <td className="whitespace-nowrap px-4 py-2 font-mono text-[11px] text-ig-text-secondary">{e.date}</td>
-                  <td className="max-w-[280px] truncate px-4 py-2 text-ig-text-primary" title={e.description}>{e.description}</td>
-                  <td className="max-w-[160px] truncate px-4 py-2 text-ig-text-secondary" title={e.categoryName}>{e.categoryName}</td>
-                  <td className="max-w-[160px] truncate px-4 py-2 text-ig-text-secondary" title={e.subcategoryName}>{e.subcategoryName}</td>
-                  <td className="max-w-[160px] truncate px-4 py-2 text-ig-text-secondary" title={e.projectName || undefined}>{e.projectName || '—'}</td>
-                  <td className="max-w-[160px] truncate px-4 py-2 text-ig-text-secondary" title={e.supplierName || undefined}>{e.supplierName || '—'}</td>
-                  <td className="whitespace-nowrap px-4 py-2 text-right font-mono tabular-nums text-ig-text-primary">{fmtBRL(e.value)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </FinanceChartContainer>
-      </HudCardContent>
+      <HudCardHeader className="flex-row items-center justify-between gap-2 py-3">
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+          className="group flex min-w-0 flex-1 items-center gap-2 text-left"
+        >
+          <ChevronRight className={cn('h-4 w-4 shrink-0 text-ig-text-tertiary transition-transform', open && 'rotate-90 text-ig-accent')} />
+          <HudCardTitle className="min-w-0 truncate">{title}</HudCardTitle>
+          <span className="shrink-0 rounded-full bg-ig-surface-subtle/60 px-2 py-0.5 font-mono text-[10px] tabular-nums text-ig-text-secondary">
+            {total} {total === 1 ? 'linha' : 'linhas'}
+          </span>
+          <span className="shrink-0 text-[10.5px] text-ig-text-tertiary transition-colors group-hover:text-ig-text-secondary">
+            {open ? 'recolher' : 'expandir'}
+          </span>
+        </button>
+        {action && <div className="flex shrink-0 items-center gap-2">{action}</div>}
+      </HudCardHeader>
+      {open && <HudCardContent className="p-0">{tableBody}</HudCardContent>}
     </HudCard>
   );
 }
@@ -306,6 +350,32 @@ export function MiniStat({
   );
 }
 
+export interface LegendItem { name: string; tone?: SparkTone; dashed?: boolean; value?: string }
+
+/** Mode-aware legend swatches matching the chart palette (used by stacked/S-curve). */
+export function ChartLegend({ items }: { items: LegendItem[] }) {
+  const palette = useFinanceChartTokens();
+  if (items.length === 0) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-1 pt-1">
+      {items.map((it) => {
+        const color = palette[it.tone ?? 'accent'];
+        return (
+          <span key={it.name} className="inline-flex min-w-0 items-center gap-1.5 text-[11px]">
+            {it.dashed ? (
+              <span aria-hidden className="inline-block h-0 w-4 shrink-0 border-t-2 border-dashed" style={{ borderColor: color }} />
+            ) : (
+              <span aria-hidden className="inline-block h-2.5 w-2.5 shrink-0 rounded-[3px]" style={{ background: color, boxShadow: `0 0 6px ${color}66` }} />
+            )}
+            <span className="truncate text-ig-text-secondary" title={it.name}>{it.name}</span>
+            {it.value && <span className="font-mono tabular-nums text-ig-text-tertiary">{it.value}</span>}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 interface StackedBarPanelProps {
   title: React.ReactNode;
   categories: string[];
@@ -321,13 +391,16 @@ export function StackedBarPanel({ title, categories, series, height = 280, empty
     <HudCard className="flex h-full min-w-0 flex-col">
       <HudCardHeader><HudCardTitle className="truncate">{title}</HudCardTitle></HudCardHeader>
       <HudCardContent className="flex flex-1 flex-col justify-center p-3">
-        <FinanceChartContainer>
-          {!hasData ? (
-            <p className="w-full px-2 py-10 text-center text-[11px] text-ig-text-tertiary">{emptyLabel}</p>
-          ) : (
-            <FinanceStackedBarChart categories={categories} series={series} height={height} />
-          )}
-        </FinanceChartContainer>
+        {!hasData ? (
+          <p className="w-full px-2 py-10 text-center text-[11px] text-ig-text-tertiary">{emptyLabel}</p>
+        ) : (
+          <>
+            <FinanceChartContainer>
+              <FinanceStackedBarChart categories={categories} series={series} height={height} />
+            </FinanceChartContainer>
+            <ChartLegend items={series.map((s) => ({ name: s.name, tone: s.tone }))} />
+          </>
+        )}
       </HudCardContent>
     </HudCard>
   );
@@ -350,13 +423,16 @@ export function SCurvePanel({ title, categories, series, height = 280, emptyLabe
     <HudCard className="flex h-full min-w-0 flex-col">
       <HudCardHeader><HudCardTitle className="truncate">{title}</HudCardTitle></HudCardHeader>
       <HudCardContent className="flex flex-1 flex-col justify-center p-3">
-        <FinanceChartContainer>
-          {!hasData ? (
-            <p className="w-full px-2 py-10 text-center text-[11px] text-ig-text-tertiary">{emptyLabel}</p>
-          ) : (
-            <FinanceSCurveChart categories={categories.map(fmtMonth)} series={series} height={height} />
-          )}
-        </FinanceChartContainer>
+        {!hasData ? (
+          <p className="w-full px-2 py-10 text-center text-[11px] text-ig-text-tertiary">{emptyLabel}</p>
+        ) : (
+          <>
+            <FinanceChartContainer>
+              <FinanceSCurveChart categories={categories.map(fmtMonth)} series={series} height={height} />
+            </FinanceChartContainer>
+            <ChartLegend items={series.map((s) => ({ name: s.name, tone: s.tone, dashed: s.dashed }))} />
+          </>
+        )}
       </HudCardContent>
     </HudCard>
   );
@@ -371,17 +447,38 @@ interface WaterfallPanelProps {
 
 /** Waterfall bridge explaining the month-over-month cost variation. */
 export function WaterfallPanel({ title, steps, height = 300, emptyLabel = 'Sem variação a explicar (período único).' }: WaterfallPanelProps) {
+  const deltas = steps.filter((s) => s.type === 'delta' || s.type === undefined);
   return (
     <HudCard className="flex h-full min-w-0 flex-col">
       <HudCardHeader><HudCardTitle className="truncate">{title}</HudCardTitle></HudCardHeader>
       <HudCardContent className="flex flex-1 flex-col justify-center p-3">
-        <FinanceChartContainer>
-          {steps.length < 3 ? (
-            <p className="w-full px-2 py-10 text-center text-[11px] text-ig-text-tertiary">{emptyLabel}</p>
-          ) : (
-            <FinanceAdvancedWaterfallChart steps={steps} height={height} />
-          )}
-        </FinanceChartContainer>
+        {steps.length < 3 ? (
+          <p className="w-full px-2 py-10 text-center text-[11px] text-ig-text-tertiary">{emptyLabel}</p>
+        ) : (
+          <>
+            <FinanceChartContainer>
+              <FinanceAdvancedWaterfallChart steps={steps} height={height} />
+            </FinanceChartContainer>
+            {/* Full-name legend — the chart x-axis is abbreviated, so the driver
+                names + signed deltas are listed here to keep it legible. */}
+            {deltas.length > 0 && (
+              <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 px-1">
+                {deltas.map((d, i) => {
+                  const up = d.value >= 0;
+                  return (
+                    <span key={`${d.label}-${i}`} className="inline-flex min-w-0 items-center gap-1.5 text-[11px]">
+                      <span aria-hidden className={cn('inline-block h-2.5 w-2.5 shrink-0 rounded-[3px]', up ? 'bg-ig-danger' : 'bg-ig-success')} />
+                      <span className="truncate text-ig-text-secondary" title={d.label}>{d.label}</span>
+                      <span className={cn('font-mono tabular-nums', up ? 'text-ig-danger' : 'text-ig-success')}>
+                        {up ? '+' : '−'}{fmtCompactBRL(Math.abs(d.value))}
+                      </span>
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+          </>
+        )}
       </HudCardContent>
     </HudCard>
   );
@@ -406,41 +503,54 @@ export function HeatmapPanel({ title, data, accent = '#14B8A6', emptyLabel = 'Se
         {empty ? (
           <p className="px-2 py-10 text-center text-[11px] text-ig-text-tertiary">{emptyLabel}</p>
         ) : (
-          <FinanceChartContainer scrollX>
-            <table className="w-full border-separate" style={{ borderSpacing: '3px' }}>
-              <thead>
-                <tr>
-                  <th className="sticky left-0 z-10 bg-ig-panel px-1 py-1 text-left text-[10px] font-medium uppercase tracking-[0.1em] text-ig-text-tertiary" />
-                  {cols.map((c) => (
-                    <th key={c} className="px-1 py-1 text-center text-[10px] font-medium tabular-nums text-ig-text-tertiary">{fmtMonth(c)}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r, ri) => (
-                  <tr key={r.id}>
-                    <td className="sticky left-0 z-10 max-w-[160px] truncate bg-ig-panel py-1 pr-2 text-[11px] font-medium text-ig-text-primary" title={r.label}>{r.label}</td>
-                    {matrix[ri].map((v, ci) => {
-                      const intensity = v / max;
-                      return (
-                        <td
-                          key={ci}
-                          className="h-7 min-w-[44px] rounded text-center align-middle font-mono text-[10px] tabular-nums"
-                          style={{
-                            background: v > 0 ? `color-mix(in oklab, ${accent} ${Math.round(12 + intensity * 78)}%, transparent)` : 'transparent',
-                            color: intensity > 0.55 ? '#fff' : 'var(--ig-text-secondary)',
-                          }}
-                          title={`${r.label} · ${fmtMonth(cols[ci])} · ${fmtBRL(v)}`}
-                        >
-                          {v > 0 ? fmtCompactBRL(v) : '·'}
-                        </td>
-                      );
-                    })}
+          <>
+            <FinanceChartContainer scrollX>
+              <table className="w-full border-separate" style={{ borderSpacing: '3px' }}>
+                <thead>
+                  <tr>
+                    <th className="sticky left-0 z-10 bg-ig-panel px-1 py-1 text-left text-[10px] font-medium uppercase tracking-[0.1em] text-ig-text-tertiary" />
+                    {cols.map((c) => (
+                      <th key={c} className="px-1 py-1 text-center text-[10px] font-medium tabular-nums text-ig-text-tertiary">{fmtMonth(c)}</th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </FinanceChartContainer>
+                </thead>
+                <tbody>
+                  {rows.map((r, ri) => (
+                    <tr key={r.id}>
+                      <td className="sticky left-0 z-10 max-w-[160px] truncate bg-ig-panel py-1 pr-2 text-[11px] font-medium text-ig-text-primary" title={r.label}>{r.label}</td>
+                      {matrix[ri].map((v, ci) => {
+                        const intensity = max > 0 ? v / max : 0;
+                        // Floor keeps faint cells visible in light mode; a subtle
+                        // border defines empty cells in both themes.
+                        const fill = v > 0 ? Math.round(18 + intensity * 72) : 0;
+                        return (
+                          <td
+                            key={ci}
+                            className="h-7 min-w-[46px] rounded border text-center align-middle font-mono text-[10px] tabular-nums"
+                            style={{
+                              background: v > 0 ? `color-mix(in oklab, ${accent} ${fill}%, transparent)` : 'transparent',
+                              borderColor: v > 0 ? `color-mix(in oklab, ${accent} ${Math.min(100, fill + 16)}%, transparent)` : 'var(--ig-border-subtle)',
+                              color: intensity >= 0.5 ? '#fff' : 'var(--ig-text-primary)',
+                            }}
+                            title={`${r.label} · ${fmtMonth(cols[ci])} · ${fmtBRL(v)}`}
+                          >
+                            {v > 0 ? fmtCompactBRL(v) : '·'}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </FinanceChartContainer>
+            {/* Intensity scale */}
+            <div className="mt-2 flex items-center gap-2 px-1 text-[10px] text-ig-text-tertiary">
+              <span>menor</span>
+              <span className="inline-flex h-2.5 w-24 rounded" style={{ background: `linear-gradient(90deg, color-mix(in oklab, ${accent} 18%, transparent), ${accent})` }} />
+              <span>maior</span>
+              <span className="ml-auto font-mono tabular-nums">máx {fmtCompactBRL(max)}</span>
+            </div>
+          </>
         )}
       </HudCardContent>
     </HudCard>

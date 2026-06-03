@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { HudPageLayout, HudHeader, HudButton } from '@/components/hud';
 import {
-  FinanceFilterBar, FinanceFilterChip,
+  FinanceFilterBar, FinanceFilterChip, FinanceFilterRange,
   FinanceInsightCard,
   fmtBRL, fmtCompactBRL,
   type DonutSlice,
@@ -33,7 +33,6 @@ import {
 import {
   managementCategories,
   resolveCategoryPath,
-  costCenters as costCenterSeed,
   suppliers as supplierSeed,
 } from '@/data/finance/seed-categories';
 import { projects as projectRefs, contracts as contractRefs, collaborators } from '@/data/finance/reference';
@@ -49,6 +48,7 @@ import { quickCategories, resolveCategoryDashboard, type CategoryDashboardType }
 import { buildGlobalInsights } from './narrative';
 import { monthAxis, previousWindow, alignToAxis, buildMoMWaterfall, buildHeatmap } from './transforms';
 import { entriesToCsv, downloadCsv } from './cost-csv';
+import { openCostReport, type CostReportPayload } from './cost-pdf';
 
 // ── Static option sets ──────────────────────────────────────────
 const PERIODS = generatePeriodOptions();
@@ -64,7 +64,6 @@ const DONUT_TONES: DonutSlice['tone'][] = ['accent', 'info', 'success', 'warning
 // rankings/drilldowns.
 const PROJECT_OPTIONS = [{ value: 'all', label: 'Todos os projetos' }, ...projectRefs.map((p) => ({ value: p.id, label: p.name }))];
 const CONTRACT_OPTIONS = [{ value: 'all', label: 'Todos os contratos' }, ...contractRefs.map((c) => ({ value: c.id, label: `${c.code} — ${c.client_name}` }))];
-const CC_OPTIONS = [{ value: 'all', label: 'Todos os CC' }, ...costCenterSeed.map((c) => ({ value: c.id, label: c.name }))];
 const COLLABORATOR_OPTIONS = [{ value: 'all', label: 'Todos os colaboradores' }, ...collaborators.map((c) => ({ value: c.id, label: c.name }))];
 
 // Curated quick-access categories (Viagens intentionally folded into B.2).
@@ -94,9 +93,12 @@ export function CostAnalysisDashboard() {
   const entryType: LedgerEntryType = 'actual';
   const groupKey: ManagementGroupKey | 'all' = 'all';
   const status: LedgerEntryStatus | 'all' = 'all';
+  // Projeto é o filtro operacional principal. Centro de Custo NÃO é exposto aqui
+  // (análise dedicada vive em Financeiro > Centros de Custo); fica em 'all' e o
+  // cost_center_id segue disponível internamente para selectors/rankings/CSV.
+  const costCenterId: string = 'all';
   const [projectId, setProjectId] = useState('all');
   const [contractId, setContractId] = useState('all');
-  const [costCenterId, setCostCenterId] = useState('all');
   const [supplierId, setSupplierId] = useState('all');
   const [collaboratorId, setCollaboratorId] = useState('all');
   // The SELECTED CATEGORY drives which dashboard renders (no top-level tab).
@@ -144,11 +146,11 @@ export function CostAnalysisDashboard() {
     const prevW = previousWindow(periodFrom, periodTo);
     const prevMonthly = selectMonthlyCostTotals({ ...scopedFilter, periodFrom: prevW.from, periodTo: prevW.to });
     const prevVals = alignToAxis(prevMonthly, monthAxis(prevW.from, prevW.to));
-    const series: SCurveSeries[] = [{ name: 'Realizado acumulado', values: cur, tone: 'accent', emphasized: true }];
-    if (prevVals.some((v) => v > 0)) series.push({ name: 'Período anterior', values: prevVals, tone: 'info', dashed: true });
+    const series: SCurveSeries[] = [{ name: 'Realizado — período atual', values: cur, tone: 'accent', emphasized: true }];
+    if (prevVals.some((v) => v > 0)) series.push({ name: 'Período anterior (equivalente)', values: prevVals, tone: 'info', dashed: true });
     return series;
   }, [monthly, axis, periodFrom, periodTo, scopedFilter]);
-  const waterfall = useMemo(() => buildMoMWaterfall(categoryTrend, 7), [categoryTrend]);
+  const waterfall = useMemo(() => buildMoMWaterfall(categoryTrend, 6), [categoryTrend]);
   const heatmap = useMemo(() => buildHeatmap(categoryTrend, axis, 10), [categoryTrend, axis]);
 
   // ── Dependent chip option sets ────────────────────────────────
@@ -261,6 +263,26 @@ export function CostAnalysisDashboard() {
     downloadCsv(`analise-custos_${periodFrom}_${periodTo}.csv`, entriesToCsv(all));
   }, [scopedFilter, periodFrom, periodTo]);
 
+  const handleExportPdf = useCallback(() => {
+    const all = selectCostLedgerEntries(scopedFilter); // same scope as the CSV/table
+    const payload: CostReportPayload = {
+      title: 'Análise de Custos',
+      scopeLabel: dashboardConfig ? dashboardConfig.title : 'Visão Geral',
+      periodLabel: `${periodFrom} → ${periodTo}`,
+      kpis: kpis.map((k) => ({ label: k.label, value: k.value, helper: k.helper })),
+      rankings: [
+        { title: 'Top categorias', rows: categories.slice(0, 10).map((c) => ({ label: c.name, value: c.value, share: c.share })) },
+        { title: 'Top subcategorias', rows: subcategories.slice(0, 10).map((s) => ({ label: s.name, value: s.value, share: s.share })) },
+        { title: 'Top projetos', rows: byProject.filter((r) => r.id).slice(0, 10).map((r) => ({ label: r.name, value: r.value, share: r.share })) },
+        { title: 'Top centros de custo', rows: byCostCenter.filter((r) => r.id).slice(0, 10).map((r) => ({ label: r.name, value: r.value, share: r.share })) },
+        { title: 'Top fornecedores', rows: bySupplier.slice(0, 10).map((r) => ({ label: r.name, value: r.value, share: r.share })) },
+      ],
+      entries: all,
+    };
+    const res = openCostReport(payload);
+    if (!res.ok) window.alert(res.message);
+  }, [scopedFilter, dashboardConfig, periodFrom, periodTo, kpis, categories, subcategories, byProject, byCostCenter, bySupplier]);
+
   const visual = headerVisual(dashboardConfig?.dashboardType);
   const supportsCollaborator = dashboardConfig?.supportsCollaborator ?? false;
   // Filter visibility follows the active category config (all shown on the
@@ -286,9 +308,14 @@ export function CostAnalysisDashboard() {
             : []),
         ]}
         actions={
-          <HudButton variant="glass" size="md" leftIcon={<Download className="h-4 w-4" />} onClick={handleExport}>
-            Exportar CSV
-          </HudButton>
+          <div className="flex items-center gap-2">
+            <HudButton variant="glass" size="md" leftIcon={<Download className="h-4 w-4" />} onClick={handleExport}>
+              Exportar CSV
+            </HudButton>
+            <HudButton variant="glass" size="md" leftIcon={<FileText className="h-4 w-4" />} onClick={handleExportPdf}>
+              Exportar PDF
+            </HudButton>
+          </div>
         }
       />
 
@@ -297,10 +324,17 @@ export function CostAnalysisDashboard() {
         showScenario={false}
         extra={
           <>
-            <FinanceFilterChip icon={<CalendarRange className="h-3.5 w-3.5" />} label="De" value={periodFrom}
-              options={PERIODS} onChange={(v) => setPeriodFrom(v > periodTo ? periodTo : v)} maxValueChars={8} />
-            <FinanceFilterChip icon={<CalendarRange className="h-3.5 w-3.5" />} label="Até" value={periodTo}
-              options={PERIODS} onChange={(v) => setPeriodTo(v < periodFrom ? periodFrom : v)} maxValueChars={8} />
+            <FinanceFilterRange
+              icon={<CalendarRange className="h-3.5 w-3.5" />}
+              label="Período"
+              fromValue={periodFrom}
+              toValue={periodTo}
+              options={PERIODS}
+              onChange={(from, to) => {
+                setPeriodFrom(from);
+                setPeriodTo(to);
+              }}
+            />
             <FinanceFilterChip icon={<Tag className="h-3.5 w-3.5" />} label="Categoria" value={drillCategory ?? 'all'}
               options={categoryOptions} onChange={selectCategory} />
             <FinanceFilterChip icon={<Tag className="h-3.5 w-3.5" />} label="Subcategoria" value={drillSub ?? 'all'}
@@ -311,8 +345,6 @@ export function CostAnalysisDashboard() {
             )}
             <FinanceFilterChip icon={<FileText className="h-3.5 w-3.5" />} label="Contrato" value={contractId}
               options={CONTRACT_OPTIONS} onChange={setContractId} />
-            <FinanceFilterChip icon={<Building2 className="h-3.5 w-3.5" />} label="CC" value={costCenterId}
-              options={CC_OPTIONS} onChange={setCostCenterId} />
             {supportsCollaborator && (
               <FinanceFilterChip icon={<Users className="h-3.5 w-3.5" />} label="Colaborador" value={collaboratorId}
                 options={COLLABORATOR_OPTIONS} onChange={setCollaboratorId} />
@@ -462,8 +494,11 @@ export function CostAnalysisDashboard() {
           emptyLabel="Sem custos de mobilização." />
       </div>
 
-      {/* Entry drilldown */}
+      {/* Entry drilldown — collapsible, closed by default to keep the screen short. */}
       <EntryTable
+        collapsible
+        defaultOpen={false}
+        count={entries.length}
         title={drillSubName ? `Lançamentos · ${drillSubName}` : 'Lançamentos (maiores do recorte)'}
         rows={entryRows}
         emptyLabel="Sem lançamentos no recorte."

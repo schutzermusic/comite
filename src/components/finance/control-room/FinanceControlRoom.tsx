@@ -48,15 +48,6 @@ const PROJECTS = [
 
 const CONTRACTS_OPTIONS = CONTRACTS.map((c) => ({ id: c.id, label: c.name }));
 
-const COST_CENTERS = [
-  { id: 'cc-eng-campo', label: 'Engenharia de Campo' },
-  { id: 'cc-mob', label: 'Mobilização' },
-  { id: 'cc-logistica', label: 'Logística' },
-  { id: 'cc-ti', label: 'TI' },
-  { id: 'cc-financeiro', label: 'Financeiro' },
-  { id: 'cc-admin-sp', label: 'Adm. SP' },
-];
-
 export function FinanceControlRoom() {
   const [filters, setFilters] = useState<ControlRoomFilters>({
     periodFrom: '2026-01',
@@ -64,7 +55,6 @@ export function FinanceControlRoom() {
     scenario: 'actual',
     projectId: 'all',
     contractId: 'all',
-    costCenterId: 'all',
     consolidation: 'consolidated',
   });
 
@@ -163,7 +153,6 @@ export function FinanceControlRoom() {
         onChange={updateFilters}
         projects={PROJECTS}
         contracts={CONTRACTS_OPTIONS}
-        costCenters={COST_CENTERS}
       />
 
       <FinancialHealthHero
@@ -216,7 +205,7 @@ export function FinanceControlRoom() {
       <ManagerialDreTable rows={dreRows} />
 
       {/* Category → Subcategory → Entries drilldown + top cost drivers / MoM */}
-      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-12">
+      <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-12">
         <div className="flex min-w-0 w-full lg:col-span-8">
           <CategoryDrilldownPanel filters={filters} />
         </div>
