@@ -13,6 +13,7 @@ import {
   Calculator,
   Calendar,
   ChevronDown,
+  Coins,
   CreditCard,
   Cuboid,
   FileBadge,
@@ -121,6 +122,7 @@ const navigationItems: MenuItem[] = [
     permission: "finance.view",
     subItems: [
       { href: "/financeiro/control-room", label: "Control Room", icon: Gauge },
+      { href: "/financeiro/analise-custos", label: "Análise de Custos", icon: Coins },
       { href: "/financeiro/dre-gerencial", label: "DRE / P&L Gerencial", icon: LineChart },
       { href: "/financeiro/forecast-cenarios", label: "Forecast & Cenários", icon: SlidersHorizontal },
       { href: "/financeiro/orcado-realizado", label: "Orçado x Realizado", icon: GitCompare },

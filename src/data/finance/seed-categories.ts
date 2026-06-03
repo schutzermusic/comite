@@ -23,12 +23,13 @@ export const managementCategories: ManagementCategory[] = [
   { id: 'cat-b13',   code: 'B.1.3', name: 'Benefícios (VT, VR, Saúde)',      level: 3, group_key: 'cogs',      sign: -1, requires_project: true,  active: true, parent_id: 'cat-b1' },
   { id: 'cat-b14',   code: 'B.1.4', name: 'Horas Extras / Adicionais',       level: 3, group_key: 'cogs',      sign: -1, requires_project: true,  active: true, parent_id: 'cat-b1' },
   { id: 'cat-b2',    code: 'B.2',   name: 'Mobilização e Logística',         level: 2, group_key: 'cogs',      sign: -1, requires_project: true,  active: true, parent_id: 'cat-b' },
-  { id: 'cat-b21',   code: 'B.2.1', name: 'Hospedagem / Diárias',            level: 3, group_key: 'cogs',      sign: -1, requires_project: true,  active: true, parent_id: 'cat-b2' },
-  { id: 'cat-b22',   code: 'B.2.2', name: 'Passagens Aéreas / Terrestres',   level: 3, group_key: 'cogs',      sign: -1, requires_project: true,  active: true, parent_id: 'cat-b2' },
+  { id: 'cat-b21',   code: 'B.2.1', name: 'Hospedagem',                      level: 3, group_key: 'cogs',      sign: -1, requires_project: true,  active: true, parent_id: 'cat-b2' },
+  { id: 'cat-b22',   code: 'B.2.2', name: 'Passagens Aéreas',               level: 3, group_key: 'cogs',      sign: -1, requires_project: true,  active: true, parent_id: 'cat-b2' },
+  { id: 'cat-b29',   code: 'B.2.9', name: 'Ônibus',                         level: 3, group_key: 'cogs',      sign: -1, requires_project: true,  active: true, parent_id: 'cat-b2' },
   { id: 'cat-b23',   code: 'B.2.3', name: 'Locação de Veículos',             level: 3, group_key: 'cogs',      sign: -1, requires_project: true,  active: true, parent_id: 'cat-b2' },
-  { id: 'cat-b24',   code: 'B.2.4', name: 'Combustível / Pedágio',           level: 3, group_key: 'cogs',      sign: -1, requires_project: true,  active: true, parent_id: 'cat-b2' },
+  { id: 'cat-b24',   code: 'B.2.4', name: 'Combustível',                     level: 3, group_key: 'cogs',      sign: -1, requires_project: true,  active: true, parent_id: 'cat-b2' },
+  { id: 'cat-b2a',   code: 'B.2.10', name: 'Pedágio',                        level: 3, group_key: 'cogs',      sign: -1, requires_project: true,  active: true, parent_id: 'cat-b2' },
   { id: 'cat-b25',   code: 'B.2.5', name: 'Alimentação em Campo',            level: 3, group_key: 'cogs',      sign: -1, requires_project: true,  active: true, parent_id: 'cat-b2' },
-  { id: 'cat-b26',   code: 'B.2.6', name: 'Fretamento / Transporte Especial', level: 3, group_key: 'cogs',     sign: -1, requires_project: true,  active: true, parent_id: 'cat-b2' },
   { id: 'cat-b3',    code: 'B.3',   name: 'Materiais e Insumos',             level: 2, group_key: 'cogs',      sign: -1, requires_project: true,  active: true, parent_id: 'cat-b' },
   { id: 'cat-b31',   code: 'B.3.1', name: 'Materiais de Consumo',            level: 3, group_key: 'cogs',      sign: -1, requires_project: true,  active: true, parent_id: 'cat-b3' },
   { id: 'cat-b32',   code: 'B.3.2', name: 'EPIs e Uniformes',                level: 3, group_key: 'cogs',      sign: -1, requires_project: true,  active: true, parent_id: 'cat-b3' },
@@ -116,7 +117,7 @@ export const managementCategories: ManagementCategory[] = [
 
   // ── B.2) Mobilização — granular subcategories ─────────────
   { id: 'cat-b27',   code: 'B.2.7', name: 'Diárias',                          level: 3, group_key: 'cogs', sign: -1, requires_project: true, requires_cost_center: true, active: true, parent_id: 'cat-b2', description: 'Diárias de viagem/campo pagas à equipe.' },
-  { id: 'cat-b28',   code: 'B.2.8', name: 'Frete / Transporte de Material',   level: 3, group_key: 'cogs', sign: -1, requires_project: true, requires_cost_center: true, active: true, parent_id: 'cat-b2', description: 'Frete e transporte de materiais/equipamentos para o campo.' },
+  { id: 'cat-b28',   code: 'B.2.8', name: 'Transporte de Material',          level: 3, group_key: 'cogs', sign: -1, requires_project: true, requires_cost_center: true, active: true, parent_id: 'cat-b2', description: 'Frete e transporte de materiais/equipamentos para o campo.' },
 
   // ── B.3) Materiais — granular subcategories ───────────────
   { id: 'cat-b34',   code: 'B.3.4', name: 'Cabos',                            level: 3, group_key: 'cogs', sign: -1, requires_project: true, requires_cost_center: true, active: true, parent_id: 'cat-b3' },
@@ -222,6 +223,10 @@ export const suppliers: Supplier[] = [
   { id: 'sup-4', name: 'TechServ Soluções Industriais', cpf_cnpj: '33.000.444/0001-04', category: 'subcontractor', uf: 'RJ', active: true, source_system: 'manual', created_at: '2025-01-01T00:00:00Z', updated_at: '2025-01-01T00:00:00Z' },
   { id: 'sup-5', name: 'Ipiranga Combustíveis',        cpf_cnpj: '33.000.555/0001-05', category: 'fuel',          uf: 'RJ', active: true, source_system: 'manual', created_at: '2025-01-01T00:00:00Z', updated_at: '2025-01-01T00:00:00Z' },
   { id: 'sup-6', name: 'SafetyPro EPIs',               cpf_cnpj: '33.000.666/0001-06', category: 'materials',     uf: 'SP', active: true, source_system: 'manual', created_at: '2025-01-01T00:00:00Z', updated_at: '2025-01-01T00:00:00Z' },
+  { id: 'sup-7', name: 'Viação 1001',                  cpf_cnpj: '33.000.777/0001-07', category: 'bus',           uf: 'RJ', active: true, source_system: 'manual', created_at: '2025-01-01T00:00:00Z', updated_at: '2025-01-01T00:00:00Z' },
+  { id: 'sup-8', name: 'ConectCar Pedágios',           cpf_cnpj: '33.000.888/0001-08', category: 'toll',          uf: 'SP', active: true, source_system: 'manual', created_at: '2025-01-01T00:00:00Z', updated_at: '2025-01-01T00:00:00Z' },
+  { id: 'sup-9', name: 'Sabor de Campo Refeições',     cpf_cnpj: '33.000.999/0001-09', category: 'catering',      uf: 'RJ', active: true, source_system: 'manual', created_at: '2025-01-01T00:00:00Z', updated_at: '2025-01-01T00:00:00Z' },
+  { id: 'sup-10', name: 'TransCarga Logística',        cpf_cnpj: '33.000.101/0001-10', category: 'freight',       uf: 'RJ', active: true, source_system: 'manual', created_at: '2025-01-01T00:00:00Z', updated_at: '2025-01-01T00:00:00Z' },
 ];
 
 // ============================================================

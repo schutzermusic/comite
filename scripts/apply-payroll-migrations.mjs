@@ -1,6 +1,6 @@
 /**
- * One-off runner: applies the payroll-closing migrations (017–020) to the
- * Supabase database in SUPABASE_DB_URL. All four migrations are idempotent
+ * One-off runner: applies the payroll-closing migrations (017–025) to the
+ * Supabase database in SUPABASE_DB_URL. All migrations are idempotent
  * (IF NOT EXISTS / ON CONFLICT / DROP POLICY IF EXISTS), so re-running is safe.
  *
  * Usage: node scripts/apply-payroll-migrations.mjs
@@ -45,6 +45,11 @@ const FILES = [
   '018_payroll_closing_rls.sql',
   '019_payroll_storage.sql',
   '020_payroll_perm_seeds.sql',
+  '021_payroll_cost_center_mappings.sql',
+  '022_finance_cost_centers.sql',
+  '023_payroll_closing_lifecycle.sql',
+  '024_finance_category_hierarchy.sql',
+  '025_finance_category_aliases.sql',
 ];
 
 const client = new pg.Client(config);
@@ -66,13 +71,37 @@ try {
     }
   }
 
-  // Verify the core table is now present.
+  // Verify the core tables and columns are now present.
   const { rows } = await client.query(
-    `SELECT to_regclass('public.payroll_closing_batches') AS tbl,
-            (SELECT count(*) FROM storage.buckets WHERE id LIKE 'payroll-%') AS buckets`,
+    `SELECT
+       to_regclass('public.payroll_closing_batches')       AS tbl_batches,
+       to_regclass('public.payroll_cost_center_mappings')  AS tbl_pccm,
+       to_regclass('public.finance_cost_centers')          AS tbl_fcc,
+       to_regclass('public.finance_category_aliases')      AS tbl_fca,
+       (SELECT count(*) FROM storage.buckets WHERE id LIKE 'payroll-%') AS buckets,
+       EXISTS(SELECT 1 FROM information_schema.columns
+              WHERE table_schema='public' AND table_name='management_category'
+                AND column_name='organization_id')                     AS mc_has_org_id,
+       EXISTS(SELECT 1 FROM information_schema.columns
+              WHERE table_schema='public' AND table_name='management_category'
+                AND column_name='requires_contract')                   AS mc_has_req_contract,
+       EXISTS(SELECT 1 FROM information_schema.columns
+              WHERE table_schema='public' AND table_name='management_category'
+                AND column_name='requires_cost_center')                AS mc_has_req_cc,
+       (SELECT count(*) FROM management_category WHERE level = 3)      AS subcategory_count`,
   );
-  console.log(`\nVerificação: tabela=${rows[0].tbl}  buckets_payroll=${rows[0].buckets}`);
-  console.log('\n✅ Migrations aplicadas com sucesso.');
+  const r = rows[0];
+  console.log(`\nVerificação:`);
+  console.log(`  payroll_closing_batches       = ${r.tbl_batches}`);
+  console.log(`  payroll_cost_center_mappings  = ${r.tbl_pccm}`);
+  console.log(`  finance_cost_centers          = ${r.tbl_fcc}`);
+  console.log(`  finance_category_aliases      = ${r.tbl_fca}`);
+  console.log(`  buckets_payroll               = ${r.buckets}`);
+  console.log(`  management_category.org_id    = ${r.mc_has_org_id}`);
+  console.log(`  management_category.req_contr = ${r.mc_has_req_contract}`);
+  console.log(`  management_category.req_cc    = ${r.mc_has_req_cc}`);
+  console.log(`  subcategorias (L3)            = ${r.subcategory_count}`);
+  console.log('\n✅ Migrations 017–025 aplicadas com sucesso.');
 } catch (err) {
   console.error('\n❌ Erro ao aplicar migrations:', err.message);
   process.exitCode = 1;

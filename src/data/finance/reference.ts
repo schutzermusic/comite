@@ -110,6 +110,39 @@ export const scenarios: ScenarioRef[] = [
   { id: 'brd',  key: 'board',      name: 'Aprovado pelo Conselho',  owner: 'Conselho',   status: 'approved', updated: '2025-12-20', multiplier: 0.985 },
 ];
 
+// ============================================================
+// Collaborators (people who incur logistics / mobilization cost)
+// ----------------------------------------------------------------
+// Dimensional master data only (no money). Logistics ledger entries
+// attribute their spend to a collaborator via metadata.collaborator_id;
+// the selectors resolve the display name from here (falling back to the
+// name embedded on the entry). Ids reuse the payroll employee ids where
+// the same person also appears in folha, plus field crew that only show
+// up in mobilization spend.
+// ============================================================
+
+export interface CollaboratorRef {
+  id: string;
+  name: string;
+  role?: string;
+  /** Home department. */
+  department?: string;
+}
+
+export const collaborators: CollaboratorRef[] = [
+  { id: 'emp-006', name: 'Marcos Pereira',  role: 'Field Coordinator', department: 'Mobilização' },
+  { id: 'emp-001', name: 'Carla Mendes',    role: 'Eng. Manager',      department: 'Engenharia'  },
+  { id: 'emp-004', name: 'Diego Lopes',     role: 'Senior Engineer',   department: 'Manutenção'  },
+  { id: 'emp-002', name: 'Felipe Araújo',   role: 'Tech Lead',         department: 'Engenharia'  },
+  { id: 'emp-101', name: 'João Batista',    role: 'Field Technician',  department: 'Mobilização' },
+  { id: 'emp-102', name: 'Sandra Lima',     role: 'Field Technician',  department: 'Mobilização' },
+  { id: 'emp-103', name: 'Rogério Alves',   role: 'Logistics Analyst', department: 'Mobilização' },
+];
+
+export function findCollaborator(id: string | undefined) {
+  return id ? collaborators.find(c => c.id === id) : undefined;
+}
+
 // Convenience lookups
 export function findContract(id: string | undefined) {
   return id ? contracts.find(c => c.id === id) : undefined;

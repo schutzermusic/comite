@@ -20,6 +20,7 @@ import { CostCenterHeatmap } from './CostCenterHeatmap';
 import { ContractRevenuePanel } from './ContractRevenuePanel';
 import { ManagerialDreTable } from './ManagerialDreTable';
 import { CategoryDrilldownPanel } from './CategoryDrilldownPanel';
+import { CostDriversPanel } from './CostDriversPanel';
 import { TopVariationsPanel } from './TopVariationsPanel';
 import { ExecutiveDecisionQueue } from './ExecutiveDecisionQueue';
 import { FinancialRiskRadar } from './FinancialRiskRadar';
@@ -214,8 +215,15 @@ export function FinanceControlRoom() {
       {/* Managerial DRE Table */}
       <ManagerialDreTable rows={dreRows} />
 
-      {/* Category → Subcategory → Entries drilldown */}
-      <CategoryDrilldownPanel filters={filters} />
+      {/* Category → Subcategory → Entries drilldown + top cost drivers / MoM */}
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-12">
+        <div className="flex min-w-0 w-full lg:col-span-8">
+          <CategoryDrilldownPanel filters={filters} />
+        </div>
+        <div className="flex min-w-0 w-full lg:col-span-4">
+          <CostDriversPanel filters={filters} />
+        </div>
+      </div>
 
       {/* Decision Intelligence Layer */}
       <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-12">

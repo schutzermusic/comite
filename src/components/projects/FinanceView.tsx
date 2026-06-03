@@ -32,6 +32,7 @@ import { compactBRL } from '@/lib/utils/project-utils';
 import { getLedgerEntries, linkEntriesToProject, formatBRL } from '@/lib/finance/finance-store';
 import { selectProjectFinanceView } from '@/lib/finance/selectors/project-finance';
 import { resolveFinanceProjectId } from '@/lib/projects/finance-mapping';
+import { LedgerCostBreakdown } from '@/components/finance/cost-analysis';
 
 // ── Helpers ─────────────────────────────────────────────────────
 
@@ -859,6 +860,11 @@ export function FinanceView({ project }: FinanceViewProps) {
                   </div>
                 </HudPanel>
             </div>
+
+            {/* ── Ledger-backed cost analytics (category / subcategory / mobilization) ── */}
+            {financeProjectId && (
+                <LedgerCostBreakdown filter={{ projectId: financeProjectId }} variant="project" />
+            )}
         </div>
     );
 }

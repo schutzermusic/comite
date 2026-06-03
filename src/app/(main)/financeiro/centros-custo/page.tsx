@@ -27,6 +27,7 @@ import {
   buildTopCostCentersTrend,
   type CostCenterMock,
 } from '@/lib/finance';
+import { CostCenterLedgerSection } from '@/components/finance/cost-analysis';
 
 export default function CentrosCustoPage() {
   const [period, setPeriod] = useState<FinancePeriod>('2026-04');
@@ -247,6 +248,8 @@ export default function CentrosCustoPage() {
           ]}
         />
       </div>
+
+      <CostCenterLedgerSection />
 
       <FinanceDetailDrawer
         open={!!selected}
