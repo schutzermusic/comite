@@ -8,6 +8,7 @@ import {
   BarChart3,
   Banknote,
   Bell,
+  BrainCircuit,
   Briefcase,
   Building2,
   Calculator,
@@ -72,6 +73,7 @@ import { cn } from "@/lib/utils";
 import { hasAnyPermission, hasPermission } from "@/lib/auth/permissions";
 import { createClient } from "@/utils/supabase/client";
 import { useCurrentUser } from "@/hooks/use-current-user";
+import { useRiskBadge } from "@/hooks/use-risk-badge";
 
 const ADMIN_STORAGE_KEY = "ig-sidebar-admin-open";
 const FINANCE_STORAGE_KEY = "ig-sidebar-finance-open";
@@ -148,7 +150,7 @@ const navigationItems: MenuItem[] = [
       { href: "/projetos/operations-3d", label: "Insight Operations 3D", icon: Cuboid },
     ],
   },
-  { href: "/reunioes", labelKey: "meetings", icon: Calendar, section: "main", permission: "meetings.view" },
+  { href: "/reunioes", labelKey: "agenda", icon: Calendar, section: "main", permission: "meetings.view" },
   { href: "/deliberacoes", labelKey: "deliberations", icon: Gavel, section: "main", permission: "deliberations.view" },
   { href: "/riscos", labelKey: "risks", icon: ShieldAlert, section: "main", permission: "risks.view" },
   { href: "/contratos", labelKey: "contracts", icon: FileCheck, section: "main", permission: "contracts.view" },
@@ -271,6 +273,19 @@ export function AppSidebar() {
     hasPermission(permissions, "admin.manage_users") ||
     hasPermission(permissions, "admin.manage_roles");
 
+  // Live risk pressure badge on the "Riscos" nav item. Only fetched when the
+  // user can actually see risks, so it stays silent for everyone else.
+  const canViewRisks = isOwnerAdmin || hasPermission(permissions, "risks.view");
+  const riskCounts = useRiskBadge(canViewRisks);
+
+  /** Resolve the alert badge for a nav item (currently only "Riscos"). */
+  const getItemBadge = (href: string): { count: number; tone: "critical" | "ai" } | null => {
+    if (href !== "/riscos") return null;
+    if (riskCounts.critical > 0) return { count: riskCounts.critical, tone: "critical" };
+    if (riskCounts.aiAlerts > 0) return { count: riskCounts.aiAlerts, tone: "ai" };
+    return null;
+  };
+
   const canSeeItem = (item: MenuItem) => {
     if (item.alwaysVisibleWhenAuthenticated && authUser) return true;
     if (isOwnerAdmin) return true;
@@ -344,10 +359,33 @@ export function AppSidebar() {
         );
       }
 
+      const badge = getItemBadge(item.href);
+      const badgeTitle =
+        badge?.tone === "critical"
+          ? `${badge.count} risco(s) crítico(s) em aberto`
+          : badge
+            ? `${badge.count} alerta(s) de IA aguardando revisão`
+            : undefined;
+
       const linkContent = (
         <Link href={item.href} aria-label={isCollapsed ? label : undefined}>
           <Icon className="hud-nav-icon" strokeWidth={1.6} />
           <span className="hud-nav-label">{label}</span>
+          {badge && (
+            <span
+              className={cn(
+                "hud-nav-badge",
+                badge.tone === "critical" ? "hud-nav-badge--critical" : "hud-nav-badge--ai",
+              )}
+              title={badgeTitle}
+            >
+              {badge.tone === "ai" && (
+                <BrainCircuit className="hud-nav-badge-icon" strokeWidth={2} aria-hidden="true" />
+              )}
+              <span className="hud-nav-badge-count">{badge.count > 99 ? "99+" : badge.count}</span>
+            </span>
+          )}
+          {badge && <span className="hud-nav-dot" aria-hidden="true" />}
         </Link>
       );
 

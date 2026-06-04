@@ -2,7 +2,7 @@
 
 import React from "react";
 import { cn } from "@/lib/utils";
-import { Search, ClipboardCheck, Shield, CheckCircle2 } from "lucide-react";
+import { Search, ClipboardCheck, Shield, BadgeCheck, CheckCircle2 } from "lucide-react";
 import type { FunnelStage } from "./risk-types";
 import { FUNNEL_STAGE_LABELS, FUNNEL_STAGE_ORDER } from "./risk-types";
 
@@ -16,14 +16,16 @@ const STAGE_META: Record<FunnelStage, { icon: typeof Search; color: string }> = 
   identified: { icon: Search, color: "var(--ig-info)" },
   assessed:   { icon: ClipboardCheck, color: "var(--ig-chart-3)" },
   mitigating: { icon: Shield, color: "var(--ig-warning)" },
+  validating: { icon: BadgeCheck, color: "var(--ig-accent)" },
   resolved:   { icon: CheckCircle2, color: "var(--ig-success)" },
 };
 
 const WIDTHS: Record<FunnelStage, string> = {
   identified: "100%",
-  assessed:   "82%",
-  mitigating: "62%",
-  resolved:   "42%",
+  assessed:   "84%",
+  mitigating: "68%",
+  validating: "54%",
+  resolved:   "40%",
 };
 
 export function RiskMitigationFunnel({ counts, onStageClick, activeStage }: Props) {

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState, useCallback } from 'react';
+import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import {
   Coins, FolderKanban, FileText, Building2, Truck, Boxes,
   CalendarRange, Tag, Download, X, Plane, Users, ChevronRight,
@@ -20,9 +20,7 @@ import {
   selectCostBySubcategory,
   selectCategoryByProject,
   selectCategoryByContract,
-  selectCategoryByCostCenter,
   selectCostBySupplier,
-  selectTopCostDrivers,
   selectMobilizationBreakdown,
   selectMonthlyCostTotals,
   selectCategoryTrendByMonth,
@@ -105,6 +103,17 @@ export function CostAnalysisDashboard() {
   // null = global cost overview; otherwise the category-specific dashboard.
   const [drillCategory, setDrillCategory] = useState<string | null>(null);
   const [drillSub, setDrillSub] = useState<string | null>(null);
+  // Drilldown por projeto → mostra categorias do projeto selecionado
+  const [drillProject, setDrillProject] = useState<string | null>(null);
+
+  // Sincroniza drillProject quando projectId muda via filtro superior (e vice-versa)
+  useEffect(() => {
+    if (projectId !== 'all' && projectId !== drillProject) {
+      setDrillProject(projectId);
+    } else if (projectId === 'all' && drillProject) {
+      setDrillProject(null);
+    }
+  }, [projectId, drillProject]);
 
   // Resolve the dashboard configuration for the selected category (if any).
   const dashboardConfig = useMemo(() => resolveCategoryDashboard(drillCategory), [drillCategory]);
@@ -132,9 +141,7 @@ export function CostAnalysisDashboard() {
   const monthly = useMemo(() => selectMonthlyCostTotals(scopedFilter), [scopedFilter]);
   const byProject = useMemo(() => selectCategoryByProject(scopedFilter), [scopedFilter]);
   const byContract = useMemo(() => selectCategoryByContract(scopedFilter), [scopedFilter]);
-  const byCostCenter = useMemo(() => selectCategoryByCostCenter(scopedFilter), [scopedFilter]);
   const bySupplier = useMemo(() => selectCostBySupplier(scopedFilter).filter((s) => s.id), [scopedFilter]);
-  const topDrivers = useMemo(() => selectTopCostDrivers(scopedFilter, 8), [scopedFilter]);
   const mobilization = useMemo(() => selectMobilizationBreakdown(baseFilter), [baseFilter]);
   const entries = useMemo(() => selectCostLedgerEntries(scopedFilter, 100), [scopedFilter]);
   const categoryTrend = useMemo(() => selectCategoryTrendByMonth(scopedFilter), [scopedFilter]);
@@ -191,10 +198,25 @@ export function CostAnalysisDashboard() {
   const selectSub = useCallback((id: string) => {
     setDrillSub((cur) => (cur === id ? null : (id === 'all' ? null : id)));
   }, []);
-  const clearDrill = useCallback(() => { setDrillCategory(null); setDrillSub(null); setCollaboratorId('all'); }, []);
+  const selectProject = useCallback((id: string) => {
+    const next = (drillProject === id || id === 'all' || id === '_none') ? null : id;
+    setDrillProject(next);
+    // Atualiza o filtro de projeto no topo para manter sincronizado
+    setProjectId(next ?? 'all');
+    // Quando seleciona projeto, limpa categoria para mostrar categorias do projeto
+    if (next) setDrillCategory(null);
+  }, [drillProject]);
+  const clearDrill = useCallback(() => { setDrillCategory(null); setDrillSub(null); setCollaboratorId('all'); setDrillProject(null); setProjectId('all'); }, []);
 
   const drillCategoryName = drillCategory ? (managementCategories.find((c) => c.id === drillCategory)?.name ?? dashboardConfig?.title) : undefined;
   const drillSubName = drillSub ? managementCategories.find((c) => c.id === drillSub)?.name : undefined;
+  const drillProjectName = drillProject ? (byProject.find((p) => p.id === drillProject)?.name ?? drillProject) : undefined;
+
+  // Categorias filtradas por projeto selecionado (drilldown)
+  const categoriesByProject = useMemo(() => {
+    if (!drillProject) return [];
+    return selectCostByCategory({ ...baseFilter, projectId: drillProject });
+  }, [baseFilter, drillProject]);
 
   // ── Premium KPIs (with mini sparkline on the headline) ────────
   const kpis = useMemo<SparkKpi[]>(() => [
@@ -223,13 +245,7 @@ export function CostAnalysisDashboard() {
         ? `${fmtCompactBRL(byProject.find((r) => r.id)!.value)} · ${(byProject.find((r) => r.id)!.share * 100).toFixed(0)}%`
         : 'Sem projeto',
     },
-    {
-      id: 'top-cc', label: 'Centro de custo que mais gastou', value: byCostCenter.find((r) => r.id)?.name ?? '—',
-      helper: byCostCenter.find((r) => r.id)
-        ? `${fmtCompactBRL(byCostCenter.find((r) => r.id)!.value)} · ${(byCostCenter.find((r) => r.id)!.share * 100).toFixed(0)}%`
-        : 'Sem centro de custo',
-    },
-  ], [summary, monthly, byProject, byCostCenter]);
+  ], [summary, monthly, byProject]);
 
   const globalInsights = useMemo(
     () => buildGlobalInsights({ summary, categories, subcategories }),
@@ -272,16 +288,14 @@ export function CostAnalysisDashboard() {
       kpis: kpis.map((k) => ({ label: k.label, value: k.value, helper: k.helper })),
       rankings: [
         { title: 'Top categorias', rows: categories.slice(0, 10).map((c) => ({ label: c.name, value: c.value, share: c.share })) },
-        { title: 'Top subcategorias', rows: subcategories.slice(0, 10).map((s) => ({ label: s.name, value: s.value, share: s.share })) },
         { title: 'Top projetos', rows: byProject.filter((r) => r.id).slice(0, 10).map((r) => ({ label: r.name, value: r.value, share: r.share })) },
-        { title: 'Top centros de custo', rows: byCostCenter.filter((r) => r.id).slice(0, 10).map((r) => ({ label: r.name, value: r.value, share: r.share })) },
         { title: 'Top fornecedores', rows: bySupplier.slice(0, 10).map((r) => ({ label: r.name, value: r.value, share: r.share })) },
       ],
       entries: all,
     };
     const res = openCostReport(payload);
     if (!res.ok) window.alert(res.message);
-  }, [scopedFilter, dashboardConfig, periodFrom, periodTo, kpis, categories, subcategories, byProject, byCostCenter, bySupplier]);
+  }, [scopedFilter, dashboardConfig, periodFrom, periodTo, kpis, categories, byProject, bySupplier]);
 
   const visual = headerVisual(dashboardConfig?.dashboardType);
   const supportsCollaborator = dashboardConfig?.supportsCollaborator ?? false;
@@ -353,37 +367,39 @@ export function CostAnalysisDashboard() {
         }
       />
 
-      {/* Quick category chips — selecting one drives the category dashboard. */}
-      <div className="flex flex-wrap items-center gap-1.5">
-        <span className="mr-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-ig-text-tertiary">Categorias</span>
-        {QUICK_CATS.map((q) => {
-          const active = drillCategory === q.id;
-          return (
-            <button
-              key={q.id}
-              type="button"
-              onClick={() => selectCategory(q.id)}
-              className={cn(
-                'rounded-full border px-3 py-1 text-[12px] font-medium transition-colors',
-                active
-                  ? 'border-ig-border-focus bg-ig-accent-weak text-ig-accent'
-                  : 'border-ig-border-subtle text-ig-text-secondary hover:bg-ig-surface-subtle/40 hover:text-ig-text-primary',
-              )}
-            >
-              {q.label}
+      {/* Quick category chips — hidden when drilling down by project to avoid duplication */}
+      {!drillProject && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="mr-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-ig-text-tertiary">Categorias</span>
+          {QUICK_CATS.map((q) => {
+            const active = drillCategory === q.id;
+            return (
+              <button
+                key={q.id}
+                type="button"
+                onClick={() => selectCategory(q.id)}
+                className={cn(
+                  'rounded-full border px-3 py-1 text-[12px] font-medium transition-colors',
+                  active
+                    ? 'border-ig-border-focus bg-ig-accent-weak text-ig-accent'
+                    : 'border-ig-border-subtle text-ig-text-secondary hover:bg-ig-surface-subtle/40 hover:text-ig-text-primary',
+                )}
+              >
+                {q.label}
+              </button>
+            );
+          })}
+          {drillCategory && (
+            <button type="button" onClick={clearDrill}
+              className="ml-1 inline-flex items-center gap-1 text-[11px] text-ig-text-tertiary hover:text-ig-text-primary">
+              <X className="h-3 w-3" /> limpar
             </button>
-          );
-        })}
-        {drillCategory && (
-          <button type="button" onClick={clearDrill}
-            className="ml-1 inline-flex items-center gap-1 text-[11px] text-ig-text-tertiary hover:text-ig-text-primary">
-            <X className="h-3 w-3" /> limpar
-          </button>
-        )}
-      </div>
+          )}
+        </div>
+      )}
 
-      {/* Drilldown trail: Geral → Categoria → Subcategoria → Lançamentos */}
-      {drillCategory && (
+      {/* Drilldown trail: shown only for category drilldown (not project drilldown) to avoid duplication with top filter */}
+      {drillCategory && !drillProject && (
         <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-ig-border-subtle bg-ig-surface-subtle/30 px-3 py-2 text-[12px] text-ig-text-secondary">
           <button type="button" onClick={clearDrill} className="inline-flex items-center gap-1 text-ig-text-tertiary hover:text-ig-text-primary">
             <Home className="h-3 w-3" /> Geral
@@ -424,75 +440,89 @@ export function CostAnalysisDashboard() {
         />
       ) : (
       <>
-      <KpiSparkGrid kpis={kpis} columns={6} />
+      <KpiSparkGrid kpis={kpis} columns={5} />
 
-      {/* Executive reading + composition */}
-      {globalInsights.length > 0 ? (
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.1fr_1fr]">
+      {/* Leitura executiva + Composição por categoria */}
+      <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-2">
+        {globalInsights.length > 0 ? (
           <FinanceInsightCard
             title="Leitura executiva"
             subtitle="Onde o custo está concentrado no recorte selecionado"
             insights={globalInsights}
           />
+        ) : (
           <DonutPanel title="Composição por categoria" data={donutData} centerLabel="Total" centerValue={fmtCompactBRL(summary.total)} />
-        </div>
-      ) : (
-        <DonutPanel title="Composição por categoria" data={donutData} centerLabel="Total" centerValue={fmtCompactBRL(summary.total)} />
-      )}
+        )}
+        {globalInsights.length > 0 && (
+          <DonutPanel title="Composição por categoria" data={donutData} centerLabel="Total" centerValue={fmtCompactBRL(summary.total)} />
+        )}
+      </div>
 
-      {/* Curva S (realizado acumulado) + tendência mensal */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      {/* Curva S + Tendência mensal */}
+      <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-2">
         <SCurvePanel title="Curva S — custo realizado acumulado" categories={axis} series={sCurveSeries} />
         <TrendPanel title="Tendência mensal de custo" points={monthly} />
       </div>
 
-      {/* Ponte de variação (waterfall) + mapa de calor categoria × mês */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <WaterfallPanel title="Variação m/m por categoria (ponte)" steps={waterfall} />
+      {/* Waterfall + Heatmap */}
+      <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-2">
+        <WaterfallPanel title="Variação m/m por categoria (ponte)" steps={waterfall} height={380} />
         <HeatmapPanel title="Mapa de calor — categoria × mês" data={heatmap} />
       </div>
 
-      {/* Category → Subcategory drilldown */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <RankPanel
-          title="Custo por categoria"
-          rows={categories.map((c) => ({ id: c.id, label: c.name, value: c.value, share: c.share }))}
-          accent="#14B8A6"
-          activeId={drillCategory}
-          onSelect={selectCategory}
-        />
-        <RankPanel
-          title={drillCategoryName ? `Subcategorias · ${drillCategoryName}` : 'Custo por subcategoria'}
-          rows={subcategories.map((s) => ({ id: s.id, label: s.name, meta: s.categoryName, value: s.value, share: s.share }))}
-          accent="#6366F1"
-          activeId={drillSub}
-          onSelect={selectSub}
-        />
-      </div>
+      {/* Projetos / drilldown de projeto */}
+      {drillProject ? (
+        <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-2">
+          <RankPanel
+            title={`Categorias do projeto · ${drillProjectName}`}
+            rows={categoriesByProject.map((c) => ({ id: c.id, label: c.name, value: c.value, share: c.share }))}
+            accent="#14B8A6"
+            activeId={drillCategory}
+            onSelect={selectCategory}
+          />
+          <RankPanel
+            title={drillCategoryName ? `Subcategorias · ${drillCategoryName}` : 'Selecione uma categoria'}
+            rows={subcategories.map((s) => ({ id: s.id, label: s.name, meta: s.categoryName, value: s.value, share: s.share }))}
+            accent="#6366F1"
+            activeId={drillSub}
+            onSelect={selectSub}
+          />
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-2">
+            <RankPanel
+              title="Custo por projeto"
+              rows={byProject.map((r) => ({ id: r.id || '_none', label: r.name, value: r.value, share: r.share }))}
+              accent="#3B82F6"
+              activeId={drillProject ?? undefined}
+              onSelect={selectProject}
+            />
+            <RankPanel
+              title="Custo por contrato"
+              accent="#A78BFA"
+              rows={byContract.map((r) => ({ id: r.id || '_none', label: r.name, value: r.value, share: r.share }))}
+            />
+          </div>
 
-      {/* Dimensional breakdowns */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-        <RankPanel title="Custo por projeto" accent="#3B82F6"
-          rows={byProject.map((r) => ({ id: r.id || '_none', label: r.name, value: r.value, share: r.share }))} />
-        <RankPanel title="Custo por contrato" accent="#A78BFA"
-          rows={byContract.map((r) => ({ id: r.id || '_none', label: r.name, value: r.value, share: r.share }))} />
-        <RankPanel title="Custo por centro de custo" accent="#EC4899"
-          rows={byCostCenter.map((r) => ({ id: r.id || '_none', label: r.name, value: r.value, share: r.share }))} />
-      </div>
-
-      {/* Drivers + suppliers + mobilization */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-        <RankPanel title="Top cost drivers (subcategoria)" accent="#F59E0B"
-          rows={topDrivers.map((d) => ({ id: d.subcategoryId, label: d.subcategoryName, meta: d.categoryName, value: d.value, share: d.share }))}
-          onSelect={selectSub} activeId={drillSub} />
-        <RankPanel title="Top fornecedores" accent="#10B981"
-          rows={bySupplier.map((r) => ({ id: r.id, label: r.name, value: r.value, share: r.share }))}
-          emptyLabel="Sem fornecedores no recorte." />
-        <RankPanel title={<>Mobilização <span className="text-ig-text-tertiary">(Hotel, Passagens, Frota…)</span></>} accent="#F43F5E"
-          rows={mobilization.map((r) => ({ id: r.id, label: r.name, value: r.value, share: r.share }))}
-          onSelect={selectSub} activeId={drillSub}
-          emptyLabel="Sem custos de mobilização." />
-      </div>
+          <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-2">
+            <RankPanel
+              title="Top fornecedores"
+              accent="#10B981"
+              rows={bySupplier.map((r) => ({ id: r.id, label: r.name, value: r.value, share: r.share }))}
+              emptyLabel="Sem fornecedores no recorte."
+            />
+            <RankPanel
+              title={<>Mobilização <span className="text-ig-text-tertiary">(Hotel, Passagens, Frota…)</span></>}
+              accent="#F43F5E"
+              rows={mobilization.map((r) => ({ id: r.id, label: r.name, value: r.value, share: r.share }))}
+              onSelect={selectSub}
+              activeId={drillSub}
+              emptyLabel="Sem custos de mobilização."
+            />
+          </div>
+        </>
+      )}
 
       {/* Entry drilldown — collapsible, closed by default to keep the screen short. */}
       <EntryTable

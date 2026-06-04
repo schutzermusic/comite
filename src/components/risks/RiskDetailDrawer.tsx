@@ -6,10 +6,12 @@ import type { ExtendedRisk } from "./risk-types";
 import { SEVERITY_LABELS, STATUS_LABELS, CATEGORY_LABELS } from "./risk-types";
 import { computeAging, severityColor, severityVariant, statusVariant, fmtDate } from "./risk-utils";
 import {
-  AlertTriangle, BrainCircuit, Calendar, CheckCircle2, Clock, FileText, Gauge, History,
-  ListChecks, MapPin, Shield, Target, User, ChevronRight, XCircle,
+  BrainCircuit, CheckCircle2, FileText, FolderGit2, Gauge, History,
+  ListChecks, Pencil, RefreshCw, Shield, Sparkles, Target, User, ChevronRight, Wallet, XCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { formatCurrency } from "@/lib/i18n/format";
+import { riskExposure } from "./risk-analytics";
 
 interface Props {
   risk: ExtendedRisk | null;
@@ -19,6 +21,11 @@ interface Props {
   canDismissAi?: boolean;
   onDismissAi?: (risk: ExtendedRisk, reason?: string) => void | Promise<void>;
   dismissing?: boolean;
+  /** Executive action callbacks (optional — buttons render regardless). */
+  onEdit?: (risk: ExtendedRisk) => void;
+  onCreatePlan?: (risk: ExtendedRisk) => void;
+  onMarkMitigated?: (risk: ExtendedRisk) => void;
+  onReanalyze?: (risk: ExtendedRisk) => void;
 }
 
 /* ── Section wrapper ── */
@@ -51,13 +58,16 @@ export function RiskDetailDrawer({
   canDismissAi,
   onDismissAi,
   dismissing,
+  onEdit,
+  onCreatePlan,
+  onMarkMitigated,
+  onReanalyze,
 }: Props) {
   if (!risk) return null;
   const showDismissButton =
     !!canDismissAi && !!onDismissAi && risk.origin === "ai" && !risk.aiDismissed;
 
   const aging = computeAging(risk.createdAt);
-  const pendingActions = risk.actions.filter((a) => a.status !== "done");
   const completedActions = risk.actions.filter((a) => a.status === "done");
   const progress = risk.actions.length > 0 ? Math.round((completedActions.length / risk.actions.length) * 100) : 0;
 
@@ -98,6 +108,17 @@ export function RiskDetailDrawer({
             <KV label="Severidade"><span style={{ color: severityColor(risk.severity) }}>{SEVERITY_LABELS[risk.severity]}</span></KV>
             <KV label="Categoria">{CATEGORY_LABELS[risk.category ?? ""] ?? risk.category}</KV>
             <KV label="Área">{risk.area}</KV>
+            <KV label="Exposição financeira">
+              <span className="flex items-center gap-1 ig-tabular"><Wallet className="h-3 w-3 text-ig-fg-subtle" />{formatCurrency(riskExposure(risk), { compact: true })}</span>
+            </KV>
+            {risk.referenceName && (
+              <KV label={risk.origin === "project" ? "Projeto vinculado" : risk.origin === "contract" ? "Contrato vinculado" : "Vínculo"}>
+                <span className="flex items-center gap-1">
+                  {risk.origin === "project" ? <FolderGit2 className="h-3 w-3 text-ig-info" /> : <FileText className="h-3 w-3 text-ig-chart-3" />}
+                  {risk.referenceName}
+                </span>
+              </KV>
+            )}
             <KV label="Responsável">
               <span className="flex items-center gap-1"><User className="h-3 w-3 text-ig-fg-subtle" />{risk.responsibleName ?? "—"}</span>
             </KV>
@@ -121,6 +142,15 @@ export function RiskDetailDrawer({
                 <p className="text-[12px] leading-relaxed text-ig-fg-default">
                   {risk.aiRationale}
                 </p>
+              )}
+              {risk.aiRecommendation && (
+                <div className="flex items-start gap-2 rounded border border-ig-accent-weak bg-ig-accent-weak/40 p-2.5">
+                  <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ig-accent" />
+                  <div>
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-ig-accent">Recomendação da IA</span>
+                    <p className="mt-0.5 text-[12px] text-ig-fg-strong">{risk.aiRecommendation}</p>
+                  </div>
+                </div>
               )}
               <div className="flex flex-wrap items-center gap-3 text-[11px] text-ig-fg-subtle">
                 {risk.aiModel && <span>Modelo: <span className="text-ig-fg-muted">{risk.aiModel}</span></span>}
@@ -231,16 +261,18 @@ export function RiskDetailDrawer({
           </Section>
         )}
 
-        {/* ── Quick actions ── */}
+        {/* ── Executive actions ── */}
         <div className="flex flex-wrap gap-2 border-t border-ig-border-subtle pt-4">
           {[
-            { label: "Adicionar ação", icon: ListChecks },
-            { label: "Atualizar mitigação", icon: Target },
-            ...(risk.status !== "resolved" ? [{ label: "Marcar como resolvido", icon: CheckCircle2 }] : []),
-          ].map(({ label, icon: Icon }) => (
+            { label: "Editar", icon: Pencil, on: onEdit },
+            { label: "Criar plano de ação", icon: Target, on: onCreatePlan },
+            ...(risk.status !== "resolved" ? [{ label: "Marcar mitigado", icon: CheckCircle2, on: onMarkMitigated }] : []),
+            { label: "Reavaliar com IA", icon: RefreshCw, on: onReanalyze },
+          ].map(({ label, icon: Icon, on }) => (
             <button
               key={label}
               type="button"
+              onClick={() => on?.(risk)}
               className="flex items-center gap-1.5 rounded-lg border border-ig-border-subtle bg-ig-raised px-3 py-1.5 text-[11px] font-semibold text-ig-fg-muted transition-all hover:border-ig-accent hover:text-ig-accent hover:bg-ig-accent-weak"
             >
               <Icon className="h-3.5 w-3.5" />

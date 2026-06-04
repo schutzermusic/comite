@@ -45,10 +45,16 @@ export function cellSeverityKey(prob: number, impact: number): ExtendedRisk["sev
   return "low";
 }
 
-/* ── Map risk to its funnel stage ── */
+/* ── Map risk to its funnel stage ──
+   "validating" is inferred: a mitigating risk whose action plan is fully
+   executed but not yet formally resolved sits in validation/review. */
 export function riskToFunnelStage(risk: ExtendedRisk): FunnelStage {
   if (risk.status === "resolved") return "resolved";
-  if (risk.status === "mitigating") return "mitigating";
+  if (risk.status === "mitigating") {
+    const hasActions = risk.actions.length > 0;
+    const allDone = hasActions && risk.actions.every((a) => a.status === "done");
+    return allDone ? "validating" : "mitigating";
+  }
   if (risk.mitigationPlan) return "assessed";
   return "identified";
 }
@@ -60,49 +66,12 @@ export function filterByStage(risks: ExtendedRisk[], stage: FunnelStage): Extend
 
 /* ── Count risks per funnel stage ── */
 export function countByStage(risks: ExtendedRisk[]): Record<FunnelStage, number> {
-  const counts: Record<FunnelStage, number> = { identified: 0, assessed: 0, mitigating: 0, resolved: 0 };
+  const counts: Record<FunnelStage, number> = { identified: 0, assessed: 0, mitigating: 0, validating: 0, resolved: 0 };
   risks.forEach((r) => { counts[riskToFunnelStage(r)]++; });
   return counts;
 }
 
-/* ── Exposure data per area ── */
-export function computeAreaExposure(risks: ExtendedRisk[]): { area: string; score: number; count: number }[] {
-  const map: Record<string, { total: number; count: number }> = {};
-  risks.forEach((r) => {
-    if (!map[r.area]) map[r.area] = { total: 0, count: 0 };
-    map[r.area].total += r.level;
-    map[r.area].count += 1;
-  });
-  return Object.entries(map)
-    .map(([area, { total, count }]) => ({ area, score: Math.round((total / count) * 10) / 10, count }))
-    .sort((a, b) => b.score - a.score);
-}
-
-/* ── Category distribution ── */
-export function computeCategoryDistribution(risks: ExtendedRisk[]): { name: string; value: number }[] {
-  const labels: Record<string, string> = {
-    Operational: "Operacional",
-    Financial: "Financeiro",
-    Legal: "Jurídico",
-    Contractual: "Contratual",
-    Compliance: "Compliance",
-  };
-  const map: Record<string, number> = {};
-  risks.forEach((r) => {
-    const key = labels[r.category ?? ""] ?? r.category ?? "Outros";
-    map[key] = (map[key] || 0) + 1;
-  });
-  return Object.entries(map).map(([name, value]) => ({ name, value }));
-}
-
-/* ── Owner distribution ── */
-export function computeOwnerDistribution(risks: ExtendedRisk[]): { name: string; count: number }[] {
-  const map: Record<string, number> = {};
-  risks.forEach((r) => {
-    if (r.responsibleName) map[r.responsibleName] = (map[r.responsibleName] || 0) + 1;
-  });
-  return Object.entries(map).map(([name, count]) => ({ name, count }));
-}
+/* ── Distribution selectors live in risk-analytics.ts (single source of truth). ── */
 
 /* ── Format date to pt-BR ── */
 export function fmtDate(d: Date | undefined): string {

@@ -79,29 +79,49 @@ export function RiskMatrix5x5({ risks, onCellClick, highlightedCell }: Props) {
                 const level = cellLevel(prob, imp);
                 const cellRisks = getRisksForCell(prob, imp);
                 const count = cellRisks.length;
+                const exposure = cellRisks.reduce((s, r) => s + r.level, 0);
                 const isHighlighted = highlightedCell?.prob === prob && highlightedCell?.impact === imp;
+                const dimmed = !!highlightedCell && !isHighlighted;
+                const topTitles = [...cellRisks]
+                  .sort((a, b) => b.level - a.level)
+                  .slice(0, 3)
+                  .map((r) => `• ${r.title}`)
+                  .join("\n");
+                const tooltip =
+                  `P${prob} × I${imp} = ${level}\n${count} risco(s) · exposição ${exposure}` +
+                  (topTitles ? `\n${topTitles}` : "") +
+                  (count ? "\n(clique para filtrar)" : "");
 
                 return (
                   <button
                     key={`c-${prob}-${imp}`}
                     type="button"
                     onClick={() => onCellClick(prob, imp)}
+                    aria-pressed={isHighlighted}
                     className={cn(
                       "group relative m-[2px] flex flex-col items-center justify-center rounded-lg border transition-all duration-200",
                       "aspect-square min-h-[clamp(44px,5vw,60px)]",
                       "hover:scale-105 hover:z-10 hover:shadow-lg",
                       isHighlighted && "ring-2 ring-ig-accent scale-105 z-10",
+                      dimmed && "opacity-45",
                     )}
                     style={{
                       background: cellGradient(level),
                       borderColor: isHighlighted ? "var(--ig-accent)" : cellBorderColor(level),
                     }}
-                    title={`P${prob} × I${imp} = ${level} | ${count} risco(s)`}
+                    title={tooltip}
                   >
                     {/* Level number */}
                     <span className="text-[clamp(10px,1vw,14px)] font-bold ig-tabular text-ig-fg-strong opacity-70 group-hover:opacity-100 transition-opacity">
                       {level}
                     </span>
+
+                    {/* Exposure footprint (only when populated) */}
+                    {count > 0 && (
+                      <span className="mt-0.5 text-[clamp(7px,0.6vw,9px)] font-medium ig-tabular text-ig-fg-subtle">
+                        {exposure} exp
+                      </span>
+                    )}
 
                     {/* Risk count badge */}
                     {count > 0 && (

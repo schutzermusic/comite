@@ -267,6 +267,45 @@ export async function listRisks(): Promise<ExtendedRisk[]> {
   return (data ?? []).map((row) => mapRowToExtendedRisk(row as RiskRow));
 }
 
+export interface RiskBadgeCounts {
+  /** Open critical risks (status not resolved/closed). */
+  critical: number;
+  /** Active AI-detected alerts awaiting review (not dismissed, not resolved). */
+  aiAlerts: number;
+}
+
+/**
+ * Lightweight count-only query for the sidebar badge. Uses `head: true` so no
+ * rows are transferred — only the count — keeping it cheap to run globally.
+ */
+export async function getRiskBadgeCounts(): Promise<RiskBadgeCounts> {
+  const supabase = createClient();
+  const OPEN_STATUSES = ['open', 'mitigating'];
+
+  const [criticalRes, aiRes] = await Promise.all([
+    supabase
+      .from(RISKS_TABLE)
+      .select('id', { count: 'exact', head: true })
+      .eq('severity', 'critical')
+      .in('status', OPEN_STATUSES)
+      .or('ai_dismissed.is.null,ai_dismissed.eq.false'),
+    supabase
+      .from(RISKS_TABLE)
+      .select('id', { count: 'exact', head: true })
+      .eq('origin', 'ai')
+      .in('status', OPEN_STATUSES)
+      .or('ai_dismissed.is.null,ai_dismissed.eq.false'),
+  ]);
+
+  if (criticalRes.error) throw new Error(rlsFriendlyMessage('Erro ao contar riscos', criticalRes.error));
+  if (aiRes.error) throw new Error(rlsFriendlyMessage('Erro ao contar alertas de risco', aiRes.error));
+
+  return {
+    critical: criticalRes.count ?? 0,
+    aiAlerts: aiRes.count ?? 0,
+  };
+}
+
 export async function createRisk(input: CreateRiskInput): Promise<ExtendedRisk> {
   const supabase = createClient();
   const { userId, orgId } = await getCurrentOrgAndUser(supabase);

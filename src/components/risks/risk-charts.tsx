@@ -30,13 +30,36 @@ function useC() {
   }), []);
 }
 
-function tip(c: ReturnType<typeof useC>) {
+type Palette = ReturnType<typeof useC>;
+
+function tip(c: Palette) {
   return {
     backgroundColor: c.pnl, borderColor: c.bd, borderWidth: 1, borderRadius: 10,
     padding: [10, 14],
     textStyle: { color: c.fg, fontSize: 11, fontFamily: "Inter, sans-serif" },
     extraCssText: "backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);box-shadow:0 8px 32px rgba(0,0,0,.35);",
   };
+}
+
+/* ── Severity → color (module-level so chart useMemo deps stay stable). ── */
+function sevColor(key: string, c: Palette): string {
+  return key === "critical" ? c.err : key === "high" ? c.warn : key === "medium" ? c.info : c.ok;
+}
+
+/* ── Empty-data placeholder ──
+   ECharts crashes on degenerate configs (e.g. a radar with an empty
+   `indicator` array throws "Cannot read properties of undefined (reading
+   'push')"). Render this instead of the chart when there is no data. */
+function ChartEmpty({ height = 280 }: { height?: number | string }) {
+  return (
+    <div
+      className="flex flex-col items-center justify-center gap-1 text-center"
+      style={{ height, width: "100%" }}
+    >
+      <span className="text-[11px] font-medium text-ig-fg-muted">Sem dados no recorte atual</span>
+      <span className="text-[10px] text-ig-fg-subtle">Ajuste os filtros ou cadastre riscos</span>
+    </div>
+  );
 }
 
 /* ════════════════════════════════════════════════
@@ -119,35 +142,252 @@ export function StatusBreakdownChart({ open, mitigating, resolved, height = 200,
 }
 
 /* ════════════════════════════════════════════════
-   RISK TREND — Area line
+   RISK TREND — Area line + corporate score overlay
    ════════════════════════════════════════════════ */
-interface TrendPoint { month: string; critical: number; high: number; medium: number }
+interface TrendPoint { month: string; critical: number; high: number; medium: number; score?: number }
 interface TrendProps { data: TrendPoint[]; height?: number | string }
 
 export function RiskExposureTrendChart({ data, height = 280 }: TrendProps) {
   const c = useC();
-  const mkSeries = (name: string, key: keyof TrendPoint, color: string) => ({
-    name, type: "line" as const, data: data.map((d) => d[key] as number), smooth: true,
-    symbol: "circle", symbolSize: 5,
-    lineStyle: { width: 2.5, color },
-    itemStyle: { color },
-    areaStyle: { color: { type: "linear" as const, x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: `${color}30` }, { offset: 1, color: `${color}04` }] } },
-  });
+  const hasScore = data.some((d) => typeof d.score === "number");
 
-  const opt = useMemo(() => ({
+  const opt = useMemo(() => {
+    const mkSeries = (name: string, key: "critical" | "high" | "medium", color: string) => ({
+      name, type: "line" as const, data: data.map((d) => d[key]), smooth: true,
+      symbol: "circle", symbolSize: 5,
+      lineStyle: { width: 2.5, color },
+      itemStyle: { color },
+      areaStyle: { color: { type: "linear" as const, x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: `${color}30` }, { offset: 1, color: `${color}04` }] } },
+    });
+    return {
     backgroundColor: "transparent",
     tooltip: { ...tip(c), trigger: "axis" as const },
     legend: { top: 0, right: 0, textStyle: { color: c.fgM, fontSize: 10, fontFamily: "Inter" }, itemWidth: 14, itemHeight: 3, icon: "roundRect" },
-    grid: { left: 8, right: 8, top: 36, bottom: 8, containLabel: true },
+    grid: { left: 8, right: hasScore ? 30 : 8, top: 36, bottom: 8, containLabel: true },
     xAxis: { type: "category" as const, data: data.map((d) => d.month), axisLabel: { color: c.fgM, fontSize: 10 }, axisLine: { lineStyle: { color: c.bd } }, axisTick: { show: false }, boundaryGap: false },
-    yAxis: { type: "value" as const, axisLabel: { color: c.fgS, fontSize: 10 }, splitLine: { lineStyle: { color: c.bd, type: "dashed" as const } }, axisLine: { show: false } },
+    yAxis: [
+      { type: "value" as const, name: "Riscos", nameTextStyle: { color: c.fgS, fontSize: 9 }, axisLabel: { color: c.fgS, fontSize: 10 }, splitLine: { lineStyle: { color: c.bd, type: "dashed" as const } }, axisLine: { show: false } },
+      ...(hasScore ? [{
+        type: "value" as const, name: "Score", min: 0, max: 10, position: "right" as const,
+        nameTextStyle: { color: c.fgS, fontSize: 9 },
+        axisLabel: { color: c.fgS, fontSize: 10 }, splitLine: { show: false }, axisLine: { show: false },
+      }] : []),
+    ],
     series: [
       mkSeries("Crítico", "critical", c.err),
       mkSeries("Alto", "high", c.warn),
       mkSeries("Médio", "medium", c.info),
+      ...(hasScore ? [{
+        name: "Score corporativo", type: "line" as const, yAxisIndex: 1,
+        data: data.map((d) => d.score ?? null), smooth: true,
+        symbol: "circle", symbolSize: 6,
+        lineStyle: { width: 2.5, color: c.acc, type: "dashed" as const },
+        itemStyle: { color: c.acc },
+        z: 5,
+      }] : []),
     ],
-  }), [c, data]);
+    };
+  }, [c, data, hasScore]);
 
+  return <ReactECharts option={opt} style={{ height, width: "100%" }} opts={{ renderer: "canvas" }} />;
+}
+
+/* ════════════════════════════════════════════════
+   SEVERITY DONUT + SIDE LEGEND
+   ════════════════════════════════════════════════ */
+interface SeveritySlice { key: string; label: string; value: number; pct: number }
+interface DonutLegendProps { slices: SeveritySlice[]; height?: number | string }
+
+export function SeverityDonutWithLegend({ slices, height = 240 }: DonutLegendProps) {
+  const c = useC();
+  const total = slices.reduce((s, x) => s + x.value, 0);
+
+  const opt = useMemo(() => ({
+    backgroundColor: "transparent",
+    tooltip: { ...tip(c), trigger: "item" as const, formatter: (p: { name: string; value: number; percent: number }) => `${p.name}: <b>${p.value}</b> (${p.percent}%)` },
+    series: [{
+      type: "pie", radius: ["56%", "82%"], center: ["50%", "50%"],
+      avoidLabelOverlap: false,
+      itemStyle: { borderRadius: 6, borderColor: c.cvs, borderWidth: 3 },
+      label: { show: false },
+      emphasis: { scale: true, scaleSize: 5, itemStyle: { shadowBlur: 18, shadowColor: "rgba(20,184,166,.22)" } },
+      data: slices.map((s) => ({ value: s.value, name: s.label, itemStyle: { color: sevColor(s.key, c) } })),
+      animationType: "scale", animationEasing: "cubicOut", animationDuration: 700,
+    }],
+    graphic: [{
+      type: "group", left: "center", top: "center",
+      children: [
+        { type: "text", style: { text: String(total), textAlign: "center", fill: c.fg, fontSize: 30, fontWeight: 700, fontFamily: "Inter" }, left: "center", top: -14 },
+        { type: "text", style: { text: "Riscos", textAlign: "center", fill: c.fgM, fontSize: 10, fontFamily: "Inter" }, left: "center", top: 20 },
+      ],
+    }],
+  }), [c, slices, total]);
+
+  return (
+    <div className="flex items-center gap-3" style={{ minHeight: height }}>
+      <div className="shrink-0" style={{ width: "52%", height }}>
+        {total === 0 ? <ChartEmpty height={height} /> : <ReactECharts option={opt} style={{ height, width: "100%" }} opts={{ renderer: "canvas" }} />}
+      </div>
+      <ul className="flex-1 space-y-2">
+        {slices.map((s) => (
+          <li key={s.key} className="flex items-center justify-between gap-2 rounded-lg border border-ig-border-subtle bg-ig-raised px-2.5 py-1.5">
+            <span className="flex items-center gap-2 min-w-0">
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: sevColor(s.key, c) }} />
+              <span className="truncate text-[11px] font-medium text-ig-fg-muted">{s.label}</span>
+            </span>
+            <span className="flex items-baseline gap-1.5 shrink-0">
+              <span className="text-[13px] font-bold ig-tabular text-ig-fg-strong">{s.value}</span>
+              <span className="text-[10px] font-medium ig-tabular text-ig-fg-subtle">{s.pct}%</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════
+   EXPOSURE WATERFALL / BRIDGE
+   ════════════════════════════════════════════════ */
+interface WaterfallStep { name: string; value: number; kind: "total" | "inc" | "dec" }
+interface WaterfallProps { data: WaterfallStep[]; height?: number | string }
+
+export function RiskWaterfallChart({ data, height = 260 }: WaterfallProps) {
+  const c = useC();
+
+  const opt = useMemo(() => {
+    const colorFor = (step: WaterfallStep) =>
+      step.kind === "total" ? c.info : step.kind === "inc" ? c.err : c.ok;
+    // Compute the transparent base for each floating bar.
+    const bases: number[] = [];
+    const values: number[] = [];
+    let running = 0;
+    data.forEach((step) => {
+      if (step.kind === "total") {
+        bases.push(0);
+        values.push(step.value);
+        running = step.value;
+      } else {
+        const v = step.value;
+        if (v >= 0) { bases.push(running); values.push(v); }
+        else { bases.push(running + v); values.push(-v); }
+        running += v;
+      }
+    });
+    return {
+    backgroundColor: "transparent",
+    tooltip: {
+      ...tip(c), trigger: "axis" as const, axisPointer: { type: "shadow" as const },
+      formatter: (params: { dataIndex: number }[]) => {
+        const i = params[0]?.dataIndex ?? 0;
+        const step = data[i];
+        const sign = step.kind === "inc" ? "+" : step.kind === "dec" ? "−" : "";
+        return `<div style="font-size:11px;color:${c.fg}"><b>${step.name}</b></div><div style="font-size:11px;color:${c.fgM}">${sign}${Math.abs(step.value)} pts de exposição</div>`;
+      },
+    },
+    grid: { left: 8, right: 12, top: 12, bottom: 8, containLabel: true },
+    xAxis: { type: "category" as const, data: data.map((d) => d.name), axisLabel: { color: c.fgM, fontSize: 10, interval: 0 }, axisLine: { lineStyle: { color: c.bd } }, axisTick: { show: false } },
+    yAxis: { type: "value" as const, axisLabel: { color: c.fgS, fontSize: 10 }, splitLine: { lineStyle: { color: c.bd, type: "dashed" as const } }, axisLine: { show: false } },
+    series: [
+      { type: "bar", stack: "wf", silent: true, itemStyle: { color: "transparent" }, data: bases, barWidth: "52%", emphasis: { itemStyle: { color: "transparent" } } },
+      {
+        type: "bar", stack: "wf", barWidth: "52%",
+        data: values.map((v, i) => ({ value: v, itemStyle: { color: colorFor(data[i]), borderRadius: [4, 4, 0, 0] } })),
+        label: { show: true, position: "top" as const, color: c.fgM, fontSize: 10, fontWeight: 700, formatter: (p: { dataIndex: number }) => { const s = data[p.dataIndex]; return `${s.kind === "inc" ? "+" : s.kind === "dec" ? "−" : ""}${Math.abs(s.value)}`; } },
+        animationDuration: 700,
+      },
+    ],
+    };
+  }, [c, data]);
+
+  if (data.length === 0) return <ChartEmpty height={height} />;
+  return <ReactECharts option={opt} style={{ height, width: "100%" }} opts={{ renderer: "canvas" }} />;
+}
+
+/* ════════════════════════════════════════════════
+   BUBBLE — Probability × Impact × Exposure
+   ════════════════════════════════════════════════ */
+interface BubblePoint { id: string; title: string; probability: number; impact: number; exposure: number; severity: string }
+interface BubbleProps { data: BubblePoint[]; height?: number | string }
+
+export function RiskBubbleChart({ data, height = 300 }: BubbleProps) {
+  const c = useC();
+
+  const opt = useMemo(() => {
+    const maxExp = Math.max(...data.map((d) => d.exposure), 1);
+    return {
+    backgroundColor: "transparent",
+    tooltip: {
+      ...tip(c), trigger: "item" as const,
+      formatter: (p: { data: { raw: BubblePoint } }) => {
+        const r = p.data.raw;
+        const exp = new Intl.NumberFormat("pt-BR", { notation: "compact", style: "currency", currency: "BRL", maximumFractionDigits: 1 }).format(r.exposure);
+        return `<div style="max-width:220px"><div style="font-size:11px;font-weight:700;color:${c.fg}">${r.title}</div><div style="font-size:10px;color:${c.fgM};margin-top:4px">P${r.probability} × I${r.impact} · Score ${r.probability * r.impact}</div><div style="font-size:10px;color:${c.fgS}">Exposição ${exp}</div></div>`;
+      },
+    },
+    grid: { left: 8, right: 16, top: 16, bottom: 24, containLabel: true },
+    xAxis: { type: "value" as const, name: "Probabilidade", nameLocation: "middle" as const, nameGap: 26, min: 0.5, max: 5.5, interval: 1, nameTextStyle: { color: c.fgM, fontSize: 10 }, axisLabel: { color: c.fgS, fontSize: 10 }, splitLine: { lineStyle: { color: c.bd, type: "dashed" as const } }, axisLine: { show: false } },
+    yAxis: { type: "value" as const, name: "Impacto", nameLocation: "middle" as const, nameGap: 22, min: 0.5, max: 5.5, interval: 1, nameTextStyle: { color: c.fgM, fontSize: 10 }, axisLabel: { color: c.fgS, fontSize: 10 }, splitLine: { lineStyle: { color: c.bd, type: "dashed" as const } }, axisLine: { show: false } },
+    series: [{
+      type: "scatter",
+      symbolSize: (val: number[]) => 12 + Math.sqrt((val[2] ?? 0) / maxExp) * 34,
+      data: data.map((d) => {
+        const color = sevColor(d.severity, c);
+        return {
+          value: [d.probability, d.impact, d.exposure],
+          raw: d,
+          itemStyle: { color: `${color}cc`, borderColor: color, borderWidth: 1.5, shadowBlur: 8, shadowColor: `${color}55` },
+        };
+      }),
+      emphasis: { itemStyle: { shadowBlur: 16 } },
+      animationDuration: 700,
+    }],
+    };
+  }, [c, data]);
+
+  if (data.length === 0) return <ChartEmpty height={height} />;
+  return <ReactECharts option={opt} style={{ height, width: "100%" }} opts={{ renderer: "canvas" }} />;
+}
+
+/* ════════════════════════════════════════════════
+   HEATMAP — Area × Severity concentration
+   ════════════════════════════════════════════════ */
+interface HeatmapProps {
+  rows: string[];
+  cols: { key: string; label: string }[];
+  cells: [number, number, number][];
+  max: number;
+  height?: number | string;
+}
+
+export function RiskHeatmapChart({ rows, cols, cells, max, height = 300 }: HeatmapProps) {
+  const c = useC();
+  const opt = useMemo(() => ({
+    backgroundColor: "transparent",
+    tooltip: {
+      ...tip(c), position: "top" as const,
+      formatter: (p: { data: [number, number, number] }) => {
+        const [x, y, v] = p.data;
+        return `<div style="font-size:11px;color:${c.fg}">${rows[y]} · ${cols[x].label}</div><div style="font-size:13px;font-weight:700;color:${c.fg}">${v} risco(s)</div>`;
+      },
+    },
+    grid: { left: 8, right: 12, top: 8, bottom: 22, containLabel: true },
+    xAxis: { type: "category" as const, data: cols.map((cc) => cc.label), splitArea: { show: true }, axisLabel: { color: c.fgM, fontSize: 10 }, axisLine: { lineStyle: { color: c.bd } }, axisTick: { show: false } },
+    yAxis: { type: "category" as const, data: rows, splitArea: { show: true }, axisLabel: { color: c.fgM, fontSize: 10 }, axisLine: { lineStyle: { color: c.bd } }, axisTick: { show: false } },
+    visualMap: {
+      min: 0, max, calculable: false, show: false,
+      inRange: { color: [`${c.acc}10`, `${c.info}99`, c.warn, c.err] },
+    },
+    series: [{
+      type: "heatmap", data: cells,
+      label: { show: true, color: c.fg, fontSize: 10, fontWeight: 600, formatter: (p: { data: [number, number, number] }) => (p.data[2] > 0 ? String(p.data[2]) : "") },
+      itemStyle: { borderColor: c.cvs, borderWidth: 2, borderRadius: 4 },
+      emphasis: { itemStyle: { shadowBlur: 12, shadowColor: `${c.acc}55` } },
+      animationDuration: 700,
+    }],
+  }), [c, rows, cols, cells, max]);
+
+  if (rows.length === 0) return <ChartEmpty height={height} />;
   return <ReactECharts option={opt} style={{ height, width: "100%" }} opts={{ renderer: "canvas" }} />;
 }
 
@@ -180,6 +420,7 @@ export function CategoryDistributionChart({ data, height = 280 }: CatProps) {
     }],
   }), [c, data]);
 
+  if (data.length === 0) return <ChartEmpty height={height} />;
   return <ReactECharts option={opt} style={{ height, width: "100%" }} opts={{ renderer: "canvas" }} />;
 }
 
@@ -219,6 +460,7 @@ export function TopRiskOwnersChart({ data, height = 280 }: OwnersProps) {
     }],
   }), [c, sorted, palette]);
 
+  if (sorted.length === 0) return <ChartEmpty height={height} />;
   return <ReactECharts option={opt} style={{ height, width: "100%" }} opts={{ renderer: "canvas" }} />;
 }
 
@@ -268,6 +510,7 @@ export function RiskAreaExposureChart({ data, height = 300 }: AreaProps) {
     }],
   }), [c, data, maxVal]);
 
+  if (data.length === 0) return <ChartEmpty height={height} />;
   return <ReactECharts option={opt} style={{ height, width: "100%" }} opts={{ renderer: "canvas" }} />;
 }
 

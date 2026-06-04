@@ -80,9 +80,9 @@ export function RankPanel({
         {action}
       </HudCardHeader>
       <HudCardContent className="flex flex-1 flex-col p-2.5">
-        <div className="flex flex-col gap-0.5">
+        <div className="flex min-h-0 flex-1 flex-col gap-0.5">
           {shown.length === 0 && (
-            <p className="flex flex-1 items-center justify-center px-2 py-8 text-center text-[11px] text-ig-text-tertiary">{emptyLabel}</p>
+            <p className="flex flex-1 items-center justify-center px-2 text-center text-[11px] text-ig-text-tertiary">{emptyLabel}</p>
           )}
           {shown.map((r, i) => {
             const active = r.id === activeId;
@@ -110,7 +110,7 @@ export function RankPanel({
                 </span>
               </>
             );
-            const baseCls = 'relative flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left transition-colors';
+            const baseCls = 'relative flex min-h-[2rem] flex-1 items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left transition-colors';
             return onSelect ? (
               <button
                 key={r.id}
@@ -451,12 +451,12 @@ export function WaterfallPanel({ title, steps, height = 300, emptyLabel = 'Sem v
   return (
     <HudCard className="flex h-full min-w-0 flex-col">
       <HudCardHeader><HudCardTitle className="truncate">{title}</HudCardTitle></HudCardHeader>
-      <HudCardContent className="flex flex-1 flex-col justify-center p-3">
+      <HudCardContent className="flex flex-1 flex-col p-3">
         {steps.length < 3 ? (
           <p className="w-full px-2 py-10 text-center text-[11px] text-ig-text-tertiary">{emptyLabel}</p>
         ) : (
           <>
-            <FinanceChartContainer>
+            <FinanceChartContainer className="flex-1">
               <FinanceAdvancedWaterfallChart steps={steps} height={height} />
             </FinanceChartContainer>
             {/* Full-name legend — the chart x-axis is abbreviated, so the driver
@@ -499,12 +499,12 @@ export function HeatmapPanel({ title, data, accent = '#14B8A6', emptyLabel = 'Se
   return (
     <HudCard className="flex h-full min-w-0 flex-col">
       <HudCardHeader><HudCardTitle className="truncate">{title}</HudCardTitle></HudCardHeader>
-      <HudCardContent className="p-3">
+      <HudCardContent className="flex flex-1 flex-col p-3">
         {empty ? (
           <p className="px-2 py-10 text-center text-[11px] text-ig-text-tertiary">{emptyLabel}</p>
         ) : (
           <>
-            <FinanceChartContainer scrollX>
+            <FinanceChartContainer scrollX className="flex-1">
               <table className="w-full border-separate" style={{ borderSpacing: '3px' }}>
                 <thead>
                   <tr>
@@ -520,13 +520,11 @@ export function HeatmapPanel({ title, data, accent = '#14B8A6', emptyLabel = 'Se
                       <td className="sticky left-0 z-10 max-w-[160px] truncate bg-ig-panel py-1 pr-2 text-[11px] font-medium text-ig-text-primary" title={r.label}>{r.label}</td>
                       {matrix[ri].map((v, ci) => {
                         const intensity = max > 0 ? v / max : 0;
-                        // Floor keeps faint cells visible in light mode; a subtle
-                        // border defines empty cells in both themes.
                         const fill = v > 0 ? Math.round(18 + intensity * 72) : 0;
                         return (
                           <td
                             key={ci}
-                            className="h-7 min-w-[46px] rounded border text-center align-middle font-mono text-[10px] tabular-nums"
+                            className="h-8 min-w-[52px] rounded border text-center align-middle font-mono text-[10px] tabular-nums"
                             style={{
                               background: v > 0 ? `color-mix(in oklab, ${accent} ${fill}%, transparent)` : 'transparent',
                               borderColor: v > 0 ? `color-mix(in oklab, ${accent} ${Math.min(100, fill + 16)}%, transparent)` : 'var(--ig-border-subtle)',
@@ -544,7 +542,7 @@ export function HeatmapPanel({ title, data, accent = '#14B8A6', emptyLabel = 'Se
               </table>
             </FinanceChartContainer>
             {/* Intensity scale */}
-            <div className="mt-2 flex items-center gap-2 px-1 text-[10px] text-ig-text-tertiary">
+            <div className="mt-2 flex shrink-0 items-center gap-2 px-1 text-[10px] text-ig-text-tertiary">
               <span>menor</span>
               <span className="inline-flex h-2.5 w-24 rounded" style={{ background: `linear-gradient(90deg, color-mix(in oklab, ${accent} 18%, transparent), ${accent})` }} />
               <span>maior</span>
@@ -638,16 +636,16 @@ export function KpiSparkCard({ kpi }: { kpi: SparkKpi }) {
   const hasSpark = !!kpi.spark && kpi.spark.length > 1 && kpi.spark.some((v) => v !== 0);
   return (
     <HudCard className="h-full min-w-0">
-      <HudCardContent className="flex h-full min-h-[104px] flex-col gap-1 p-3.5">
-        <div className="flex items-start justify-between gap-2">
+      <HudCardContent className="flex h-full min-h-[96px] flex-col gap-1 p-3.5">
+        <div className="flex min-w-0 items-start justify-between gap-1">
           <p className="min-w-0 truncate text-[10px] font-medium uppercase tracking-[0.12em] text-ig-text-tertiary" title={kpi.label}>{kpi.label}</p>
           <DeltaPill value={kpi.delta} invert={kpi.invertDelta} />
         </div>
-        <p className="truncate font-mono text-[17px] leading-tight tabular-nums text-ig-text-primary" title={kpi.value}>{kpi.value}</p>
-        {kpi.helper && <p className="truncate text-[10.5px] text-ig-text-tertiary" title={kpi.helper}>{kpi.helper}</p>}
+        <p className="min-w-0 truncate font-mono text-[16px] leading-tight tabular-nums text-ig-text-primary" title={kpi.value}>{kpi.value}</p>
+        {kpi.helper && <p className="min-w-0 truncate text-[10px] text-ig-text-tertiary" title={kpi.helper}>{kpi.helper}</p>}
         {hasSpark && (
-          <div className="mt-auto h-9 pt-2">
-            <FinanceSparkline values={kpi.spark!} tone={kpi.tone ?? 'accent'} height={34} />
+          <div className="mt-auto h-8 pt-2">
+            <FinanceSparkline values={kpi.spark!} tone={kpi.tone ?? 'accent'} height={28} />
           </div>
         )}
       </HudCardContent>
@@ -657,9 +655,9 @@ export function KpiSparkCard({ kpi }: { kpi: SparkKpi }) {
 
 /** Responsive grid of premium KPI cards (no horizontal overflow). */
 export function KpiSparkGrid({ kpis, columns = 6 }: { kpis: SparkKpi[]; columns?: 4 | 5 | 6 }) {
-  const colCls = columns === 6 ? 'xl:grid-cols-6' : columns === 5 ? 'xl:grid-cols-5' : 'xl:grid-cols-4';
+  const colCls = columns === 6 ? 'lg:grid-cols-3 xl:grid-cols-6' : columns === 5 ? 'lg:grid-cols-3 xl:grid-cols-5' : 'lg:grid-cols-2 xl:grid-cols-4';
   return (
-    <div className={cn('grid grid-cols-2 gap-3 md:grid-cols-3', colCls)}>
+    <div className={cn('grid grid-cols-2 items-stretch gap-4', colCls)}>
       {kpis.map((k) => <KpiSparkCard key={k.id} kpi={k} />)}
     </div>
   );
