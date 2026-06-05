@@ -21,6 +21,7 @@ import {
   UserCog,
   Activity,
   Heart,
+  ShieldAlert,
 } from 'lucide-react';
 import { usePermissions } from '@/hooks/use-permissions';
 import { triggerProjectAiScan } from '@/lib/services/risks';
@@ -299,6 +300,18 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
                   {scanningAi ? 'Analisando...' : 'Analisar com IA'}
                 </HudButton>
               )}
+              <HudButton
+                variant="secondary"
+                size="md"
+                leftIcon={<ShieldAlert className="w-4 h-4" />}
+                onClick={() =>
+                  router.push(
+                    `/riscos?linkType=project&refId=${encodeURIComponent(projeto.id)}&refName=${encodeURIComponent(projeto.nome)}`,
+                  )
+                }
+              >
+                Criar risco
+              </HudButton>
               <Link href={`/projetos/${projeto.id}/analytics`}>
                 <HudButton variant="primary" leftIcon={<Brain className="w-4 h-4" />}>
                   Análise Avançada

@@ -199,6 +199,18 @@ export default function ContractDossierPage() {
                 {scanningAi ? 'Analisando...' : 'Analisar com IA'}
               </HudButton>
             )}
+            <HudButton
+              variant="secondary"
+              size="md"
+              leftIcon={<ShieldAlert className="h-4 w-4" />}
+              onClick={() =>
+                router.push(
+                  `/riscos?linkType=contract&refId=${encodeURIComponent(contractId)}&refName=${encodeURIComponent(record.contract.name)}`,
+                )
+              }
+            >
+              Criar risco
+            </HudButton>
             <HudButton variant="glass" size="md" leftIcon={<Download className="h-4 w-4" />}>
               Documento
             </HudButton>

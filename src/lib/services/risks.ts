@@ -41,6 +41,9 @@ type RiskRow = {
   created_at: string;
   updated_at: string;
   resolved_at: string | null;
+  // Cockpit fields (migration 028)
+  financial_exposure?: number | null;
+  ai_recommendation?: string | null;
   // AI engine fields (migration 011)
   source_module?: string | null;
   source_entity_id?: string | null;
@@ -179,6 +182,7 @@ export function mapRowToExtendedRisk(row: RiskRow): ExtendedRisk {
     mitigationPlan: row.mitigation_plan ?? undefined,
     nextAction: row.next_action ?? undefined,
     dueDate: toDate(row.due_date),
+    financialExposure: row.financial_exposure ?? undefined,
     actions: hydrateActions(row.actions),
     history: hydrateHistory(row.history),
     evidences: hydrateEvidences(row.evidences),
@@ -189,6 +193,7 @@ export function mapRowToExtendedRisk(row: RiskRow): ExtendedRisk {
     sourceEntityId: row.source_entity_id ?? undefined,
     aiConfidence: row.ai_confidence ?? undefined,
     aiRationale: row.ai_rationale ?? undefined,
+    aiRecommendation: row.ai_recommendation ?? undefined,
     aiModel: row.ai_model ?? undefined,
     aiAnalyzedAt: toDate(row.ai_analyzed_at),
     aiDismissed: row.ai_dismissed ?? false,
@@ -231,9 +236,13 @@ export function mapExtendedRiskToRow(
     mitigation_plan: risk.mitigationPlan ?? null,
     next_action: risk.nextAction ?? null,
     due_date: risk.dueDate ? new Date(risk.dueDate).toISOString() : null,
-    actions: (risk.actions ?? []) as RiskAction[],
-    history: (risk.history ?? []) as RiskHistoryEntry[],
-    evidences: (risk.evidences ?? []) as RiskEvidence[],
+    financial_exposure: risk.financialExposure ?? null,
+    // Only emit JSONB arrays when the caller actually provides them, so a
+    // partial update (e.g. status-only) never wipes existing actions/history/
+    // evidences. `undefined` values are stripped below.
+    actions: risk.actions as RiskAction[] | undefined,
+    history: risk.history as RiskHistoryEntry[] | undefined,
+    evidences: risk.evidences as RiskEvidence[] | undefined,
     resolved_at: risk.resolvedAt ? new Date(risk.resolvedAt).toISOString() : null,
   };
 

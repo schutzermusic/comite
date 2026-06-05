@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   Activity, AlertCircle, ArrowLeftRight, BarChart3, Boxes, BrainCircuit, CheckCircle2,
   ChevronDown, Clock, Disc3, FileDown, Flame, Gauge, Layers, ListChecks, Percent,
@@ -16,6 +17,7 @@ import {
   RiskStatusPipeline,
   RiskTable,
   RiskDetailDrawer,
+  RiskFormModal,
   RiskKpiGrid,
   RiskInsightStrip,
   SeverityDonutWithLegend,
@@ -52,8 +54,11 @@ import {
   SEVERITY_LABELS,
   STATUS_LABELS,
 } from "@/components/risks";
-import type { RiskKpiCardData, ExtendedRisk, FunnelStage } from "@/components/risks";
+import type { RiskKpiCardData, RiskFormValues, RiskLink, ExtendedRisk, FunnelStage } from "@/components/risks";
 import { scoreVariant } from "@/lib/risk-score";
+import { triggerContractAiScan, triggerProjectAiScan } from "@/lib/services/risks";
+import { getProjectsAsync } from "@/lib/services/projects";
+import { listContracts } from "@/lib/contracts/contract-service";
 import { useRisks } from "@/hooks/use-risks";
 import { usePermissions } from "@/hooks/use-permissions";
 import { useHudToast } from "@/hooks/useHudToast";
@@ -72,8 +77,16 @@ function deltaPct(curr: number, prev: number): number {
 }
 
 export default function RiscosPage() {
+  return (
+    <Suspense fallback={null}>
+      <RiscosCockpit />
+    </Suspense>
+  );
+}
+
+function RiscosCockpit() {
   /* ── Data ── */
-  const { risks: allRisks, loading, error, dismissAiRisk, refresh } = useRisks();
+  const { risks: allRisks, loading, error, dismissAiRisk, createRisk, updateRisk, refresh } = useRisks();
   const { hasPermission, loading: permissionsLoading } = usePermissions();
   const toast = useHudToast();
   const canView = hasPermission("risks.view");
@@ -115,6 +128,53 @@ export default function RiscosPage() {
   const [detailRisk, setDetailRisk] = useState<ExtendedRisk | null>(null);
   const [dismissingId, setDismissingId] = useState<string | null>(null);
   const [tableOpen, setTableOpen] = useState(false);
+
+  /* ── Deep-link from a project/contract: /riscos?linkType=project&refId=…&refName=… ── */
+  const searchParams = useSearchParams();
+  const urlLink = useMemo<RiskLink | null>(() => {
+    const t = searchParams.get("linkType");
+    if (t !== "project" && t !== "contract") return null;
+    return {
+      origin: t,
+      referenceId: searchParams.get("refId") ?? undefined,
+      referenceName: searchParams.get("refName") ?? undefined,
+    };
+  }, [searchParams]);
+
+  /* ── Create / edit form ── */
+  const [formOpen, setFormOpen] = useState<boolean>(() => !!urlLink);
+  const [formMode, setFormMode] = useState<"create" | "edit">("create");
+  const [formRisk, setFormRisk] = useState<ExtendedRisk | null>(null);
+  const [formFocusPlan, setFormFocusPlan] = useState(false);
+  const [formInitialLink, setFormInitialLink] = useState<RiskLink | null>(() => urlLink);
+  const [saving, setSaving] = useState(false);
+
+  /* ── Link options (projects/contracts), lazy-loaded on first form open ── */
+  const [projectOptions, setProjectOptions] = useState<{ value: string; label: string }[]>([]);
+  const [contractOptions, setContractOptions] = useState<{ value: string; label: string }[]>([]);
+  const [linkLoaded, setLinkLoaded] = useState(false);
+
+  const loadLinkOptions = useCallback(async () => {
+    if (linkLoaded) return;
+    setLinkLoaded(true);
+    try {
+      const [projects, contracts] = await Promise.all([
+        getProjectsAsync().catch(() => []),
+        listContracts().catch(() => []),
+      ]);
+      setProjectOptions(projects.map((p) => ({ value: p.id, label: p.codigo ? `${p.codigo} · ${p.nome}` : p.nome })));
+      setContractOptions(contracts.map((c) => ({ value: c.id, label: c.title })));
+    } catch {
+      /* options stay empty — vínculo still selectable once loaded */
+    }
+  }, [linkLoaded]);
+
+  // When deep-linked from a project/contract, preload the link options so the
+  // pre-selected entity renders its label. Runs once on mount.
+  useEffect(() => {
+    if (urlLink) void loadLinkOptions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /* ── Dashboard analytics (scope-level) ── */
   const summary = useMemo(() => computeRiskSummary(scoped), [scoped]);
@@ -276,8 +336,110 @@ export default function RiscosPage() {
     toast.notify("Recorte de IA aplicado", { description: aiAlertCount ? `${aiAlertCount} alerta(s) de IA ativo(s).` : "Nenhum alerta de IA ativo no momento.", variant: "info" });
   };
 
-  const actionToast = (label: string) => (risk: ExtendedRisk) =>
-    toast.notify(label, { description: risk.title, variant: "info" });
+  /* ── CRUD ── */
+  const isDemoRisk = (risk: ExtendedRisk) => usingDemo || risk.id.startsWith("DEMO-");
+
+  const openCreate = (link?: RiskLink) => {
+    void loadLinkOptions();
+    setFormMode("create");
+    setFormRisk(null);
+    setFormFocusPlan(false);
+    setFormInitialLink(link ?? null);
+    setFormOpen(true);
+  };
+
+  const openEdit = (risk: ExtendedRisk, focusPlan = false) => {
+    if (isDemoRisk(risk)) {
+      toast.notify("Indisponível em modo demo", { description: "Os dados demonstrativos não podem ser editados.", variant: "warning" });
+      return;
+    }
+    void loadLinkOptions();
+    setFormMode("edit");
+    setFormRisk(risk);
+    setFormFocusPlan(focusPlan);
+    setFormOpen(true);
+  };
+
+  const handleFormSubmit = useCallback(
+    async (values: RiskFormValues) => {
+      setSaving(true);
+      const resolvedAt = values.status === "resolved" ? (formRisk?.resolvedAt ?? new Date()) : undefined;
+      const shared = {
+        title: values.title,
+        description: values.description,
+        category: values.category,
+        area: values.area,
+        probability: values.probability,
+        impact: values.impact,
+        status: values.status,
+        responsibleName: values.responsibleName || undefined,
+        mitigationPlan: values.mitigationPlan || undefined,
+        nextAction: values.nextAction || undefined,
+        dueDate: values.dueDate ? new Date(`${values.dueDate}T00:00:00`) : undefined,
+        financialExposure: values.financialExposure,
+        origin: values.origin,
+        referenceId: values.origin === "manual" ? undefined : values.referenceId,
+        referenceName: values.origin === "manual" ? undefined : values.referenceName,
+        resolvedAt,
+      };
+      try {
+        if (formMode === "create") {
+          await createRisk({ ...shared, actions: values.actions, history: [], evidences: values.evidences });
+          toast.success("Risco criado", values.title);
+        } else if (formRisk) {
+          const updated = await updateRisk(formRisk.id, { ...shared, actions: values.actions, evidences: values.evidences });
+          setDetailRisk((cur) => (cur && cur.id === updated.id ? updated : cur));
+          toast.success("Risco atualizado", values.title);
+        }
+        setFormOpen(false);
+      } catch (e) {
+        toast.error("Falha ao salvar risco", e instanceof Error ? e.message : "Erro desconhecido.");
+      } finally {
+        setSaving(false);
+      }
+    },
+    [formMode, formRisk, createRisk, updateRisk, toast],
+  );
+
+  const handleMarkMitigated = useCallback(
+    async (risk: ExtendedRisk) => {
+      if (isDemoRisk(risk)) {
+        toast.notify("Indisponível em modo demo", { description: "Ative dados reais para alterar status.", variant: "warning" });
+        return;
+      }
+      try {
+        const updated = await updateRisk(risk.id, { status: "resolved", resolvedAt: new Date() });
+        setDetailRisk((cur) => (cur && cur.id === updated.id ? updated : cur));
+        toast.success("Risco marcado como mitigado", risk.title);
+      } catch (e) {
+        toast.error("Falha ao atualizar", e instanceof Error ? e.message : "Erro desconhecido.");
+      }
+    },
+    [usingDemo, updateRisk, toast], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
+  const handleReanalyze = useCallback(
+    async (risk: ExtendedRisk) => {
+      if (isDemoRisk(risk)) {
+        toast.notify("Indisponível em modo demo", { description: "Reavaliação por IA requer dados reais.", variant: "warning" });
+        return;
+      }
+      if (!risk.referenceId || (risk.origin !== "project" && risk.origin !== "contract")) {
+        toast.notify("Reavaliação por IA", { description: "Disponível para riscos vinculados a um projeto ou contrato.", variant: "info" });
+        return;
+      }
+      try {
+        toast.notify("Reavaliando com IA…", { description: risk.title, variant: "info" });
+        if (risk.origin === "project") await triggerProjectAiScan(risk.referenceId);
+        else await triggerContractAiScan(risk.referenceId);
+        await refresh();
+        toast.success("Reavaliação concluída", "Riscos atualizados pela IA.");
+      } catch (e) {
+        toast.error("Falha na reavaliação por IA", e instanceof Error ? e.message : "Verifique a configuração de IA.");
+      }
+    },
+    [usingDemo, refresh, toast], // eslint-disable-line react-hooks/exhaustive-deps
+  );
 
   /* ── Gates ── */
   if (!permissionsLoading && !canView) {
@@ -356,7 +518,7 @@ export default function RiscosPage() {
                 </button>
               ))}
             </div>
-            <HudButton variant="primary" size="sm" leftIcon={<Plus className="h-3.5 w-3.5" />} onClick={() => toast.notify("Novo risco", { description: "Formulário de cadastro em breve.", variant: "info" })}>Novo risco</HudButton>
+            <HudButton variant="primary" size="sm" leftIcon={<Plus className="h-3.5 w-3.5" />} onClick={() => openCreate()}>Novo risco</HudButton>
             <HudButton variant="secondary" size="sm" leftIcon={<Sparkles className="h-3.5 w-3.5" />} onClick={handleAnalyzeAi}>Analisar com IA</HudButton>
             <HudButton variant="ghost" size="sm" leftIcon={<FileDown className="h-3.5 w-3.5" />} onClick={handleExport}>Exportar</HudButton>
             <HudButton variant="ghost" size="sm" leftIcon={<Flame className="h-3.5 w-3.5" />} onClick={handleViewCritical}>Ver críticos</HudButton>
@@ -549,11 +711,27 @@ export default function RiscosPage() {
         canDismissAi={canDismissAi && !usingDemo}
         onDismissAi={handleDismissAi}
         dismissing={!!detailRisk && dismissingId === detailRisk.id}
-        onEdit={actionToast("Editar risco — em breve")}
-        onCreatePlan={actionToast("Criar plano de ação — em breve")}
-        onMarkMitigated={actionToast("Marcar como mitigado — em breve")}
-        onReanalyze={actionToast("Reavaliar com IA — em breve")}
+        onEdit={(risk) => openEdit(risk)}
+        onCreatePlan={(risk) => openEdit(risk, true)}
+        onMarkMitigated={handleMarkMitigated}
+        onReanalyze={handleReanalyze}
       />
+
+      {/* ── CREATE / EDIT MODAL (mounted only while open → fresh initial values) ── */}
+      {formOpen && (
+        <RiskFormModal
+          open
+          mode={formMode}
+          risk={formRisk}
+          focusPlan={formFocusPlan}
+          saving={saving}
+          initialLink={formInitialLink ?? undefined}
+          projectOptions={projectOptions}
+          contractOptions={contractOptions}
+          onClose={() => setFormOpen(false)}
+          onSubmit={handleFormSubmit}
+        />
+      )}
     </HudPageLayout>
   );
 }
