@@ -18,3 +18,10 @@ export { CostCenterDrilldown } from './CostCenterDrilldown';
 export { HiringSimulatorExpanded } from './HiringSimulatorExpanded';
 export { WorkforcePeriodFilter } from './WorkforcePeriodFilter';
 
+// Extended cockpit panels (Sections B–I)
+export { PayrollEvolutionPanel } from './PayrollEvolutionPanel';
+export { HeadcountDynamicsPanel } from './HeadcountDynamicsPanel';
+export { WorkforceCompositionPanel } from './WorkforceCompositionPanel';
+export { WorkforceEfficiencyPanel } from './WorkforceEfficiencyPanel';
+export { CollapsibleDetailPanel } from './CollapsibleDetailPanel';
+

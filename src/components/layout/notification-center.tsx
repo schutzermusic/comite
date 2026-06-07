@@ -9,6 +9,8 @@ import {
   Calendar,
   ClipboardList,
   CheckCircle2,
+  Clock,
+  AlertTriangle,
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -37,9 +39,12 @@ interface NotificationCenterProps {
 }
 
 const TYPE_META: Record<string, { icon: LucideIcon; color: string }> = {
-  meeting_invite: { icon: Calendar, color: "#17C3B2" },
-  task_assigned: { icon: ClipboardList, color: "#FFB04D" },
-  task_status: { icon: CheckCircle2, color: "#00C8FF" },
+  meeting_invite:   { icon: Calendar,       color: "#17C3B2" },
+  meeting_reminder: { icon: Calendar,       color: "#00C8FF" },
+  task_assigned:    { icon: ClipboardList,  color: "#FFB04D" },
+  task_status:      { icon: CheckCircle2,   color: "#00C8FF" },
+  task_reminder:    { icon: Clock,          color: "#FFB04D" },
+  task_overdue:     { icon: AlertTriangle,  color: "#FF5860" },
 };
 
 export default function NotificationCenter({ hiddenOnDashboard }: NotificationCenterProps) {

@@ -645,6 +645,294 @@ export function selectWorkforceTrend(selection: WorkforcePeriodSelection, series
 }
 
 // ============================================
+// EXTENDED ANALYTICS SELECTORS (Sections C–F)
+// ============================================
+
+// --- Payroll Composition (salary / benefits / charges) ---
+
+export interface PayrollCompositionPoint {
+  period: string;
+  salary: number;
+  benefits: number;
+  charges: number;
+}
+
+function compositionFactors(idx: number): { salaryPct: number; benefitsPct: number; chargesPct: number } {
+  const salaryPct = 0.685 + 0.018 * Math.sin(idx * 0.4);
+  const chargesPct = 0.148 - 0.005 * Math.cos(idx * 0.6);
+  const benefitsPct = 1 - salaryPct - chargesPct;
+  return { salaryPct, benefitsPct, chargesPct };
+}
+
+export function selectPayrollComposition(
+  selection: WorkforcePeriodSelection,
+  seriesOverride?: WorkforceMonthlyRecord[],
+): PayrollCompositionPoint[] {
+  const range = resolvePeriodRange(selection, seriesOverride);
+  const series = seriesOverride ?? getWorkforceMonthlySeries();
+  let rows = range.current;
+  if (rows.length < 2) {
+    const endIdx = series.findIndex((r) => r.competenceMonth === rows[0].competenceMonth);
+    rows = series.slice(Math.max(0, endIdx - 11), endIdx + 1);
+  }
+  return rows.map((r, i) => {
+    const { salaryPct, benefitsPct, chargesPct } = compositionFactors(i);
+    return {
+      period: monthLabel(r.competenceMonth),
+      salary: Math.round(r.payroll * salaryPct),
+      benefits: Math.round(r.payroll * benefitsPct),
+      charges: Math.round(r.payroll * chargesPct),
+    };
+  });
+}
+
+// --- S-Curve (cumulative payroll, current vs previous period) ---
+
+export interface SCurvePoint {
+  period: string;
+  cumulative: number;
+  cumulativePrev: number | null;
+}
+
+export function selectPayrollSCurve(
+  selection: WorkforcePeriodSelection,
+  seriesOverride?: WorkforceMonthlyRecord[],
+): SCurvePoint[] {
+  const range = resolvePeriodRange(selection, seriesOverride);
+  const curRows = range.current;
+  const prevRows = range.previous;
+  const maxLen = Math.max(curRows.length, prevRows.length);
+  let cumCur = 0;
+  let cumPrev = 0;
+  const result: SCurvePoint[] = [];
+  for (let i = 0; i < maxLen; i++) {
+    if (i < curRows.length) cumCur += curRows[i].payroll;
+    if (i < prevRows.length) cumPrev += prevRows[i].payroll;
+    const period = i < curRows.length
+      ? monthLabel(curRows[i].competenceMonth)
+      : monthLabel(prevRows[i].competenceMonth);
+    result.push({
+      period,
+      cumulative: i < curRows.length ? cumCur : 0,
+      cumulativePrev: prevRows.length > 0 && i < prevRows.length ? cumPrev : null,
+    });
+  }
+  return result;
+}
+
+// --- Payroll vs Revenue series ---
+
+export interface PayrollVsRevenuePoint {
+  period: string;
+  payroll: number;
+  revenue: number;
+  payrollPct: number;
+}
+
+export function selectPayrollVsRevenue(
+  selection: WorkforcePeriodSelection,
+  seriesOverride?: WorkforceMonthlyRecord[],
+): PayrollVsRevenuePoint[] {
+  const range = resolvePeriodRange(selection, seriesOverride);
+  const series = seriesOverride ?? getWorkforceMonthlySeries();
+  let rows = range.current;
+  if (rows.length < 2) {
+    const endIdx = series.findIndex((r) => r.competenceMonth === rows[0].competenceMonth);
+    rows = series.slice(Math.max(0, endIdx - 11), endIdx + 1);
+  }
+  return rows.map((r) => ({
+    period: monthLabel(r.competenceMonth),
+    payroll: r.payroll,
+    revenue: r.revenue,
+    payrollPct: r.revenue > 0 ? Number(((r.payroll / r.revenue) * 100).toFixed(1)) : 0,
+  }));
+}
+
+// --- Benefits by Type ---
+
+export interface BenefitTypePoint {
+  period: string;
+  va: number;
+  vr: number;
+  health: number;
+  dental: number;
+  transport: number;
+  other: number;
+}
+
+function benefitSplit(total: number, idx: number): Omit<BenefitTypePoint, 'period'> {
+  const n = (phase: number) => 1 + 0.04 * Math.sin(idx * 0.7 + phase);
+  return {
+    va: Math.round(total * 0.22 * n(0)),
+    vr: Math.round(total * 0.18 * n(1)),
+    health: Math.round(total * 0.35 * n(2)),
+    dental: Math.round(total * 0.12 * n(3)),
+    transport: Math.round(total * 0.08 * n(4)),
+    other: Math.round(total * 0.05 * n(5)),
+  };
+}
+
+export function selectBenefitsByType(
+  selection: WorkforcePeriodSelection,
+  seriesOverride?: WorkforceMonthlyRecord[],
+): BenefitTypePoint[] {
+  const range = resolvePeriodRange(selection, seriesOverride);
+  const series = seriesOverride ?? getWorkforceMonthlySeries();
+  let rows = range.current;
+  if (rows.length < 2) {
+    const endIdx = series.findIndex((r) => r.competenceMonth === rows[0].competenceMonth);
+    rows = series.slice(Math.max(0, endIdx - 11), endIdx + 1);
+  }
+  return rows.map((r, i) => {
+    const { benefitsPct } = compositionFactors(i);
+    return { period: monthLabel(r.competenceMonth), ...benefitSplit(r.payroll * benefitsPct, i) };
+  });
+}
+
+// --- Admissions vs Dismissals ---
+
+export interface AdmissionDismissalPoint {
+  period: string;
+  admissions: number;
+  dismissals: number;
+  net: number;
+}
+
+export function selectAdmissionsVsDismissals(
+  selection: WorkforcePeriodSelection,
+  seriesOverride?: WorkforceMonthlyRecord[],
+): AdmissionDismissalPoint[] {
+  const range = resolvePeriodRange(selection, seriesOverride);
+  const series = seriesOverride ?? getWorkforceMonthlySeries();
+  let rows = range.current;
+  if (rows.length < 2) {
+    const endIdx = series.findIndex((r) => r.competenceMonth === rows[0].competenceMonth);
+    rows = series.slice(Math.max(0, endIdx - 11), endIdx + 1);
+  }
+  return rows.map((r, i) => {
+    const globalIdx = series.findIndex((s) => s.competenceMonth === r.competenceMonth);
+    const prev = globalIdx > 0 ? series[globalIdx - 1] : null;
+    const net = prev ? r.headcount - prev.headcount : 0;
+    const churn = Math.round(r.headcount * 0.015 * (1 + 0.3 * Math.sin(i * 0.8)));
+    const admissions = Math.max(net, 0) + churn;
+    const dismissals = Math.max(-net, 0) + churn;
+    return { period: monthLabel(r.competenceMonth), admissions, dismissals, net };
+  });
+}
+
+// --- Turnover Trend ---
+
+export interface TurnoverPoint {
+  period: string;
+  turnoverPct: number;
+}
+
+export function selectTurnoverTrend(
+  selection: WorkforcePeriodSelection,
+  seriesOverride?: WorkforceMonthlyRecord[],
+): TurnoverPoint[] {
+  const range = resolvePeriodRange(selection, seriesOverride);
+  const series = seriesOverride ?? getWorkforceMonthlySeries();
+  let rows = range.current;
+  if (rows.length < 2) {
+    const endIdx = series.findIndex((r) => r.competenceMonth === rows[0].competenceMonth);
+    rows = series.slice(Math.max(0, endIdx - 11), endIdx + 1);
+  }
+  const adm = selectAdmissionsVsDismissals(selection, seriesOverride);
+  return adm.map((d, i) => {
+    const headcount = i < rows.length ? rows[i].headcount : 0;
+    const turnoverPct = headcount > 0
+      ? Number(((d.dismissals / headcount) * 100).toFixed(2))
+      : 0;
+    return { period: d.period, turnoverPct };
+  });
+}
+
+// --- Absenteeism by Area ---
+
+export interface AbsenteeismPoint {
+  area: string;
+  pct: number;
+  headcount: number;
+}
+
+const ABSENTEEISM_DEMO: Record<string, number> = {
+  'cc-001': 3.2,
+  'cc-002': 5.8,
+  'cc-003': 4.1,
+  'cc-004': 2.9,
+  'cc-005': 3.5,
+  'cc-006': 3.8,
+  'cc-007': 2.4,
+};
+
+export function selectAbsenteeismByArea(
+  selection: WorkforcePeriodSelection,
+  seriesOverride?: WorkforceMonthlyRecord[],
+): AbsenteeismPoint[] {
+  const { costCenters } = selectCostCenterConcentration(selection, seriesOverride);
+  return costCenters
+    .map((cc) => ({ area: cc.name, pct: ABSENTEEISM_DEMO[cc.id] ?? 4.0, headcount: cc.headcount }))
+    .sort((a, b) => b.pct - a.pct);
+}
+
+// --- Overtime Trend ---
+
+export interface OvertimePoint {
+  period: string;
+  overtimePct: number;
+}
+
+export function selectOvertimeTrend(
+  selection: WorkforcePeriodSelection,
+  seriesOverride?: WorkforceMonthlyRecord[],
+): OvertimePoint[] {
+  const range = resolvePeriodRange(selection, seriesOverride);
+  const series = seriesOverride ?? getWorkforceMonthlySeries();
+  let rows = range.current;
+  if (rows.length < 2) {
+    const endIdx = series.findIndex((r) => r.competenceMonth === rows[0].competenceMonth);
+    rows = series.slice(Math.max(0, endIdx - 11), endIdx + 1);
+  }
+  return rows.map((r, i) => ({
+    period: monthLabel(r.competenceMonth),
+    overtimePct: Number((8.5 + 3.2 * Math.sin(i * 0.7) + 1.5 * Math.cos(i * 1.1)).toFixed(1)),
+  }));
+}
+
+// --- Workforce Efficiency ---
+
+export interface EfficiencyPoint {
+  period: string;
+  revenuePerEmployee: number;
+  costPerEmployee: number;
+  payrollAsRevenuePct: number;
+  headcount: number;
+  revenue: number;
+}
+
+export function selectWorkforceEfficiency(
+  selection: WorkforcePeriodSelection,
+  seriesOverride?: WorkforceMonthlyRecord[],
+): EfficiencyPoint[] {
+  const range = resolvePeriodRange(selection, seriesOverride);
+  const series = seriesOverride ?? getWorkforceMonthlySeries();
+  let rows = range.current;
+  if (rows.length < 2) {
+    const endIdx = series.findIndex((r) => r.competenceMonth === rows[0].competenceMonth);
+    rows = series.slice(Math.max(0, endIdx - 11), endIdx + 1);
+  }
+  return rows.map((r) => ({
+    period: monthLabel(r.competenceMonth),
+    revenuePerEmployee: r.headcount > 0 && r.revenue > 0 ? Math.round(r.revenue / r.headcount) : 0,
+    costPerEmployee: r.headcount > 0 ? Math.round(r.payroll / r.headcount) : 0,
+    payrollAsRevenuePct: r.revenue > 0 ? Number(((r.payroll / r.revenue) * 100).toFixed(1)) : 0,
+    headcount: r.headcount,
+    revenue: r.revenue,
+  }));
+}
+
+// ============================================
 // COMPOSED VIEW MODEL (one call for the page)
 // ============================================
 
@@ -747,6 +1035,22 @@ export function buildEffectiveSeries(approvedBatches: PayrollClosingBatchApprove
 }
 
 /**
+ * Overlay real revenue (from AR module) onto a workforce series.
+ * Only months present in `revenueByMonth` are touched; others keep their
+ * existing value (mock revenue for the demo, 0 for imported months).
+ */
+export function enrichSeriesWithRevenue(
+  series: WorkforceMonthlyRecord[],
+  revenueByMonth: Record<string, number>,
+): WorkforceMonthlyRecord[] {
+  if (Object.keys(revenueByMonth).length === 0) return series;
+  return series.map((r) => {
+    const rev = revenueByMonth[r.competenceMonth];
+    return rev !== undefined ? { ...r, revenue: rev } : r;
+  });
+}
+
+/**
  * Drop-in replacement for selectWorkforceView that feeds approved
  * PayrollClosingBatch records as the primary payroll source.
  * Falls back to the mock series when approvedBatches is empty.
@@ -754,8 +1058,9 @@ export function buildEffectiveSeries(approvedBatches: PayrollClosingBatchApprove
 export function selectWorkforceViewWithClosings(
   selection: WorkforcePeriodSelection,
   approvedBatches: PayrollClosingBatchApproved[],
+  seriesOverride?: WorkforceMonthlyRecord[],
 ): WorkforceViewModel & { hasMockFallback: boolean } {
-  const series = buildEffectiveSeries(approvedBatches);
+  const series = seriesOverride ?? buildEffectiveSeries(approvedBatches);
   const { metrics, meta } = selectWorkforceOverview(selection, series);
   return {
     metrics,

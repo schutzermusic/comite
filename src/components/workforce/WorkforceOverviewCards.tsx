@@ -1,139 +1,156 @@
 'use client';
 
-import { Users, DollarSign, TrendingUp, PieChart, Percent } from 'lucide-react';
-import { HudKpiStrip, type KpiItem, type HudKpiVariant } from '@/components/hud';
-import { PJvsCLTBar } from './PJvsCLTBar';
 import {
-  WorkforceMetrics,
-  formatWorkforceCurrency,
-} from '@/lib/workforce-data';
+  Users, DollarSign, TrendingUp, Percent, UserMinus,
+  Activity, Clock,
+} from 'lucide-react';
+import { formatWorkforceCurrency, WorkforceMetrics } from '@/lib/workforce-data';
 import type { WorkforcePeriodMeta } from '@/lib/workforce/period';
 import { cn } from '@/lib/utils';
+import { RiskKpiGrid, type RiskKpiCardData } from '@/components/risks/RiskKpiGrid';
+
+interface ExtendedKpiProps {
+  turnoverPct?: number;
+  absenteeismPct?: number;
+  overtimePct?: number;
+  benefitsTotal?: number;
+  chargesTotal?: number;
+  revenuePerEmployee?: number;
+  directPayrollPct?: number;
+  indirectPayrollPct?: number;
+}
 
 interface WorkforceOverviewCardsProps {
   data: WorkforceMetrics;
-  /**
-   * Period context. Drives whether KPIs show a month-over-month variation or an
-   * accumulated/average label (e.g. "Todo período" has no clear baseline).
-   */
   meta?: WorkforcePeriodMeta;
+  extended?: ExtendedKpiProps;
   className?: string;
 }
 
-export function WorkforceOverviewCards({ data, meta, className }: WorkforceOverviewCardsProps) {
-  // Default to month-over-month behavior when no period meta is supplied
-  // (keeps the component backward compatible).
+export function WorkforceOverviewCards({ data, meta, extended = {}, className }: WorkforceOverviewCardsProps) {
   const hasComparison = meta ? meta.hasComparison : true;
   const comparisonLabel = meta?.comparisonLabel || 'vs mês anterior';
-  const accum = meta?.accumulatedLabels ?? {
-    headcount: 'posição atual',
-    payroll: 'acumulado histórico',
-    avgCost: 'média histórica',
-  };
-  const getPayrollTrendVariant = (trend: number): HudKpiVariant => {
-    if (trend > 8) return 'danger';
-    if (trend > 5) return 'warning';
-    return 'default';
-  };
 
-  const getPayrollRevenueVariant = (value: number, threshold: number): HudKpiVariant => {
-    if (value >= threshold + 5) return 'danger';
-    if (value >= threshold) return 'warning';
-    return 'success';
-  };
+  const payrollValue = data.monthlyPayroll.value;
+  const folhaRevPct = data.payrollAsRevenuePercent.value;
+  const turnover = extended.turnoverPct ?? 0;
+  const absenteeism = extended.absenteeismPct ?? 0;
+  const overtime = extended.overtimePct ?? 0;
+  const totalCost = data.contractDistribution.cltCost + data.contractDistribution.pjCost;
 
-  const fmtTrend = (t: number) => `${t > 0 ? '+' : ''}${t.toFixed(1)}%`;
-  const trendTone = (t: number): 'success' | 'danger' | 'neutral' => {
-    if (t > 0) return 'danger';
-    if (t < 0) return 'success';
-    return 'neutral';
-  };
+  const ic = (I: typeof Users) => <I className="h-4 w-4" />;
 
-  const kpis: KpiItem[] = [
+  const kpis: RiskKpiCardData[] = [
+    // ── Row 1: Headcount & Payroll ────────────────────────────────────
     {
       id: 'headcount',
       label: 'Total Funcionários',
-      value: data.headcount.total.toLocaleString('pt-BR'),
-      icon: <Users className="w-full h-full" />,
-      variant: 'info',
-      deltaText: hasComparison ? `${data.headcount.delta > 0 ? '+' : ''}${data.headcount.delta}` : undefined,
-      deltaTone: 'neutral',
-      deltaLabel: hasComparison ? comparisonLabel : accum.headcount,
+      value: data.headcount.total,
+      icon: ic(Users),
+      tone: 'info',
+      delta: hasComparison && data.headcount.delta !== 0 ? data.headcount.delta : undefined,
+      upIsGood: true,
+      help: hasComparison ? comparisonLabel : undefined,
     },
     {
-      id: 'monthly-payroll',
+      id: 'payroll',
       label: 'Folha Mensal',
-      value: formatWorkforceCurrency(data.monthlyPayroll.value, data.monthlyPayroll.currency),
-      icon: <DollarSign className="w-full h-full" />,
-      variant: getPayrollTrendVariant(data.monthlyPayroll.trend),
-      tintValue: data.monthlyPayroll.trend > 5,
-      deltaText: hasComparison ? fmtTrend(data.monthlyPayroll.trend) : undefined,
-      deltaTone: trendTone(data.monthlyPayroll.trend),
-      deltaLabel: hasComparison ? comparisonLabel : accum.payroll,
+      value: formatWorkforceCurrency(payrollValue),
+      icon: ic(DollarSign),
+      tone: data.monthlyPayroll.trend > 8 ? 'danger' : data.monthlyPayroll.trend > 5 ? 'warning' : 'default',
+      delta: hasComparison ? Math.round(data.monthlyPayroll.trend * 10) / 10 : undefined,
+      upIsGood: false,
     },
     {
       id: 'avg-cost',
-      label: 'Custo Médio/Func.',
-      value: formatWorkforceCurrency(data.avgCostPerEmployee.value, data.avgCostPerEmployee.currency),
-      icon: <TrendingUp className="w-full h-full" />,
-      variant: data.avgCostPerEmployee.trend > 3 ? 'warning' : 'default',
-      deltaText: hasComparison ? fmtTrend(data.avgCostPerEmployee.trend) : undefined,
-      deltaTone: trendTone(data.avgCostPerEmployee.trend),
-      deltaLabel: hasComparison ? comparisonLabel : accum.avgCost,
+      label: 'Custo Médio / Func.',
+      value: formatWorkforceCurrency(data.avgCostPerEmployee.value),
+      icon: ic(TrendingUp),
+      tone: 'default',
+      delta: hasComparison ? Math.round(data.avgCostPerEmployee.trend * 10) / 10 : undefined,
+      upIsGood: false,
     },
     {
-      id: 'payroll-revenue',
+      id: 'rev-per-emp',
+      label: 'Receita / Colaborador',
+      value: extended.revenuePerEmployee ? formatWorkforceCurrency(extended.revenuePerEmployee) : '–',
+      icon: ic(TrendingUp),
+      tone: 'success',
+      help: 'Eficiência produtiva por colaborador',
+    },
+    {
+      id: 'payroll-rev',
       label: 'Folha / Receita',
-      value: `${data.payrollAsRevenuePercent.value.toFixed(1)}%`,
-      icon: <Percent className="w-full h-full" />,
-      variant: getPayrollRevenueVariant(
-        data.payrollAsRevenuePercent.value,
-        data.payrollAsRevenuePercent.threshold,
-      ),
-      tintValue: true,
-      deltaLabel: `Limite: ${data.payrollAsRevenuePercent.threshold}%`,
+      value: `${folhaRevPct.toFixed(1)}%`,
+      icon: ic(Percent),
+      tone: folhaRevPct >= 35 ? 'danger' : folhaRevPct >= 30 ? 'warning' : 'success',
+      help: `Meta: ≤ ${data.payrollAsRevenuePercent.threshold}%`,
+    },
+
+    // ── Row 2: Composition & Risk ─────────────────────────────────────
+    {
+      id: 'clt-pj',
+      label: 'CLT / PJ',
+      value: `${data.contractDistribution.clt} · ${data.contractDistribution.pj}`,
+      suffix: ` CLT ${data.contractDistribution.cltPercent.toFixed(0)}%`,
+      icon: ic(Users),
+      tone: 'accent',
+      help: `PJ: ${data.contractDistribution.pjPercent.toFixed(0)}% do headcount`,
     },
     {
-      id: 'pj-vs-clt',
-      label: 'PJ vs CLT',
-      value: `${data.contractDistribution.pj} / ${data.contractDistribution.clt}`,
-      icon: <PieChart className="w-full h-full" />,
-      variant: 'default',
-      deltaLabel: `PJ ${data.contractDistribution.pjPercent.toFixed(0)}% · CLT ${data.contractDistribution.cltPercent.toFixed(0)}%`,
+      id: 'turnover',
+      label: 'Turnover',
+      value: extended.turnoverPct !== undefined ? `${extended.turnoverPct.toFixed(2)}%` : '–',
+      icon: ic(Activity),
+      tone: turnover > 3 ? 'danger' : turnover > 2 ? 'warning' : 'success',
+      help: 'Rotatividade mensal',
+    },
+    {
+      id: 'absenteeism',
+      label: 'Absenteísmo',
+      value: extended.absenteeismPct !== undefined ? `${extended.absenteeismPct.toFixed(1)}%` : '–',
+      icon: ic(UserMinus),
+      tone: absenteeism > 5 ? 'danger' : absenteeism > 4 ? 'warning' : 'success',
+      help: 'Média por área',
+    },
+    {
+      id: 'overtime',
+      label: 'Horas Extras',
+      value: extended.overtimePct !== undefined ? `${extended.overtimePct.toFixed(1)}%` : '–',
+      icon: ic(Clock),
+      tone: overtime > 12 ? 'warning' : 'info',
+      help: 'Do total de horas trabalhadas',
+    },
+    {
+      id: 'clt-pj-cost',
+      label: 'Custo CLT vs PJ',
+      value: totalCost > 0
+        ? `${((data.contractDistribution.cltCost / totalCost) * 100).toFixed(0)}% CLT`
+        : '–',
+      icon: ic(DollarSign),
+      tone: 'info',
+      help: totalCost > 0
+        ? `PJ: ${((data.contractDistribution.pjCost / totalCost) * 100).toFixed(0)}% do custo total`
+        : undefined,
     },
   ];
 
   return (
     <div className={cn('space-y-4', className)}>
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
-          <h2 className="text-lg font-semibold text-ig-fg-strong">
-            Inteligência de Workforce
-          </h2>
-          <p className="text-sm text-ig-fg-muted">
-            Visão consolidada de custos e eficiência de pessoal
+          <h2 className="text-base font-semibold text-ig-fg-strong tracking-tight">Cockpit Executivo de Pessoas</h2>
+          <p className="text-xs text-ig-fg-muted">
+            Indicadores-chave{meta?.periodLabel ? ` — ${meta.periodLabel}` : ''}
           </p>
         </div>
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-ig-panel border border-ig-border-subtle">
-          <Users className="w-4 h-4 text-ig-info" />
-          <span className="text-xs text-ig-fg-muted">Workforce Analytics</span>
-        </div>
+        {hasComparison && (
+          <span className="text-[10px] text-ig-fg-subtle px-2 py-1 rounded-full bg-ig-panel border border-ig-border-subtle">
+            Variações {comparisonLabel}
+          </span>
+        )}
       </div>
-
-      <HudKpiStrip kpis={kpis} columns={5} size="md" />
-
-      <div className="ig-glass relative overflow-hidden rounded-xl" data-elev="2">
-        <span data-ig-noise="" />
-        <span data-ig-specular="" />
-        <div data-ig-content="" className="p-4">
-          <PJvsCLTBar
-            pjPercent={data.contractDistribution.pjPercent}
-            cltPercent={data.contractDistribution.cltPercent}
-            pjCost={data.contractDistribution.pjCost}
-            cltCost={data.contractDistribution.cltCost}
-          />
-        </div>
-      </div>
+      <RiskKpiGrid cards={kpis} />
     </div>
   );
 }

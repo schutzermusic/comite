@@ -1,7 +1,12 @@
 import type { ExtendedRisk, FunnelStage } from "./risk-types";
-import { FUNNEL_STAGE_LABELS, FUNNEL_STAGE_ORDER, categoryToDomain, RISK_DOMAINS, CATEGORY_LABELS } from "./risk-types";
+import { FUNNEL_STAGE_LABELS, FUNNEL_STAGE_ORDER, categoryToDomain, RISK_DOMAINS, CATEGORY_LABELS, SEVERITY_LABELS, STATUS_LABELS } from "./risk-types";
 import { computeAging, riskToFunnelStage } from "./risk-utils";
 import type { TrendPoint } from "./risk-demo-data";
+
+type Severity = ExtendedRisk["severity"];
+function categoryLabelOf(r: ExtendedRisk): string {
+  return CATEGORY_LABELS[r.category ?? ""] ?? r.category ?? "Outros";
+}
 
 /* ════════════════════════════════════════════════════════════════════
    RISK ANALYTICS — pure selectors
@@ -391,3 +396,149 @@ export function distinctCategories(risks: ExtendedRisk[]): { value: string; labe
   const set = new Set(risks.map((r) => r.category).filter(Boolean));
   return Array.from(set).map((c) => ({ value: c, label: CATEGORY_LABELS[c] ?? c })).sort((a, b) => a.label.localeCompare(b.label));
 }
+
+/* ════════════════════════════════════════════════════════════════════
+   CHART DRILLDOWN — unified selection model
+   ────────────────────────────────────────────────────────────────────
+   Any clickable chart item produces a RiskSelection; the drilldown drawer
+   renders filterRisksBySelection() + describeSelection(). One source of
+   truth so charts stay declarative and never compute filters inline.
+   ════════════════════════════════════════════════════════════════════ */
+
+export type WaterfallBucket = "anterior" | "novos" | "escalados" | "mitigados" | "resolvidos" | "atual";
+
+export type RiskSelection =
+  | { kind: "all" }
+  | { kind: "active" }
+  | { kind: "severity"; severity: Severity }
+  | { kind: "status"; status: ExtendedRisk["status"] }
+  | { kind: "stage"; stage: FunnelStage }
+  | { kind: "cell"; probability: number; impact: number }
+  | { kind: "domain"; domain: string }
+  | { kind: "area"; area: string }
+  | { kind: "owner"; owner: string }
+  | { kind: "category"; category: string }
+  | { kind: "project"; referenceName: string; referenceId?: string }
+  | { kind: "contract"; referenceName: string; referenceId?: string }
+  | { kind: "trend"; month: string; severity?: Severity }
+  | { kind: "heatmap"; area: string; severity: Severity }
+  | { kind: "waterfall"; bucket: WaterfallBucket }
+  | { kind: "overdue" }
+  | { kind: "noPlan" }
+  | { kind: "aiDetected" };
+
+const WATERFALL_LABELS: Record<WaterfallBucket, string> = {
+  anterior: "Exposição anterior",
+  novos: "Riscos novos (≤30d)",
+  escalados: "Riscos escalados (críticos)",
+  mitigados: "Em mitigação",
+  resolvidos: "Resolvidos",
+  atual: "Exposição atual",
+};
+
+function filterWaterfallBucket(risks: ExtendedRisk[], bucket: WaterfallBucket): ExtendedRisk[] {
+  const open = risks.filter((r) => r.status !== "resolved");
+  switch (bucket) {
+    case "novos": return open.filter((r) => computeAging(r.createdAt) <= 30);
+    case "escalados": return risks.filter((r) => r.severity === "critical");
+    case "mitigados": return risks.filter((r) => r.status === "mitigating");
+    case "resolvidos": return risks.filter((r) => r.status === "resolved");
+    case "atual":
+    case "anterior":
+    default: return open;
+  }
+}
+
+/** The single filter entry point — every chart routes through this. */
+export function filterRisksBySelection(risks: ExtendedRisk[], sel: RiskSelection): ExtendedRisk[] {
+  switch (sel.kind) {
+    case "all": return risks;
+    case "active": return risks.filter((r) => r.status !== "resolved");
+    case "severity": return risks.filter((r) => r.severity === sel.severity);
+    case "status": return risks.filter((r) => r.status === sel.status);
+    case "stage": return risks.filter((r) => riskToFunnelStage(r) === sel.stage);
+    case "cell": return risks.filter((r) => r.probability === sel.probability && r.impact === sel.impact);
+    case "domain": return risks.filter((r) => categoryToDomain(r.category) === sel.domain);
+    case "area": return risks.filter((r) => (r.area || "—") === sel.area);
+    case "owner": return risks.filter((r) => (r.responsibleName ?? "Não atribuído") === sel.owner);
+    case "category": return risks.filter((r) => categoryLabelOf(r) === sel.category);
+    case "project": return risks.filter((r) => r.origin === "project" && (sel.referenceId ? r.referenceId === sel.referenceId : r.referenceName === sel.referenceName));
+    case "contract": return risks.filter((r) => r.origin === "contract" && (sel.referenceId ? r.referenceId === sel.referenceId : r.referenceName === sel.referenceName));
+    case "trend": return risks.filter((r) => (sel.severity ? r.severity === sel.severity : true));
+    case "heatmap": return risks.filter((r) => (r.area || "—") === sel.area && r.severity === sel.severity);
+    case "waterfall": return filterWaterfallBucket(risks, sel.bucket);
+    case "overdue": return risks.filter((r) => isOverdue(r));
+    case "noPlan": return risks.filter((r) => r.status !== "resolved" && !hasActionPlan(r));
+    case "aiDetected": return risks.filter((r) => r.origin === "ai" && !r.aiDismissed);
+    default: return risks;
+  }
+}
+
+/** Human-readable label for breadcrumb / drawer header. */
+export function describeSelection(sel: RiskSelection): { label: string; sublabel?: string } {
+  switch (sel.kind) {
+    case "all": return { label: "Todos os riscos" };
+    case "active": return { label: "Riscos ativos", sublabel: "Não resolvidos" };
+    case "severity": return { label: `Severidade: ${SEVERITY_LABELS[sel.severity]}` };
+    case "status": return { label: `Status: ${STATUS_LABELS[sel.status]}` };
+    case "stage": return { label: `Etapa: ${FUNNEL_STAGE_LABELS[sel.stage]}` };
+    case "cell": return { label: `Matriz: Probabilidade ${sel.probability} × Impacto ${sel.impact}`, sublabel: `Score ${sel.probability * sel.impact}` };
+    case "domain": return { label: `Domínio: ${sel.domain}` };
+    case "area": return { label: `Área: ${sel.area}` };
+    case "owner": return { label: `Responsável: ${sel.owner}` };
+    case "category": return { label: `Categoria: ${sel.category}` };
+    case "project": return { label: `Projeto: ${sel.referenceName}` };
+    case "contract": return { label: `Contrato: ${sel.referenceName}` };
+    case "trend": return { label: `Tendência: ${sel.month}`, sublabel: sel.severity ? SEVERITY_LABELS[sel.severity] : "Score corporativo" };
+    case "heatmap": return { label: `${sel.area} × ${SEVERITY_LABELS[sel.severity]}` };
+    case "waterfall": return { label: `Exposição: ${WATERFALL_LABELS[sel.bucket]}` };
+    case "overdue": return { label: "Mitigação em atraso" };
+    case "noPlan": return { label: "Sem plano de ação" };
+    case "aiDetected": return { label: "Detectados por IA" };
+    default: return { label: "Recorte" };
+  }
+}
+
+export interface RiskDrilldownContext {
+  selection: RiskSelection;
+  label: string;
+  sublabel?: string;
+  risks: ExtendedRisk[];
+  total: number;
+  exposure: number;
+  severity: { critical: number; high: number; medium: number; low: number };
+}
+
+export function severityBreakdown(risks: ExtendedRisk[]) {
+  return {
+    critical: risks.filter((r) => r.severity === "critical").length,
+    high: risks.filter((r) => r.severity === "high").length,
+    medium: risks.filter((r) => r.severity === "medium").length,
+    low: risks.filter((r) => r.severity === "low").length,
+  };
+}
+
+export function buildRiskDrilldownContext(risks: ExtendedRisk[], sel: RiskSelection): RiskDrilldownContext {
+  const list = filterRisksBySelection(risks, sel);
+  const d = describeSelection(sel);
+  return {
+    selection: sel,
+    label: d.label,
+    sublabel: d.sublabel,
+    risks: list,
+    total: list.length,
+    exposure: list.reduce((s, r) => s + riskExposure(r), 0),
+    severity: severityBreakdown(list),
+  };
+}
+
+/* ── Named convenience selectors (thin wrappers over filterRisksBySelection) ── */
+export const selectRisksBySeverity = (risks: ExtendedRisk[], severity: Severity) => filterRisksBySelection(risks, { kind: "severity", severity });
+export const selectRisksByStatus = (risks: ExtendedRisk[], status: ExtendedRisk["status"]) => filterRisksBySelection(risks, { kind: "status", status });
+export const selectRisksForMatrixCell = (risks: ExtendedRisk[], probability: number, impact: number) => filterRisksBySelection(risks, { kind: "cell", probability, impact });
+export const selectRisksByOwner = (risks: ExtendedRisk[], owner: string) => filterRisksBySelection(risks, { kind: "owner", owner });
+export const selectRisksByDomain = (risks: ExtendedRisk[], domain: string) => filterRisksBySelection(risks, { kind: "domain", domain });
+export const selectRisksByArea = (risks: ExtendedRisk[], area: string) => filterRisksBySelection(risks, { kind: "area", area });
+export const selectRisksByProject = (risks: ExtendedRisk[], referenceName: string, referenceId?: string) => filterRisksBySelection(risks, { kind: "project", referenceName, referenceId });
+export const selectRisksByContract = (risks: ExtendedRisk[], referenceName: string, referenceId?: string) => filterRisksBySelection(risks, { kind: "contract", referenceName, referenceId });
+export const selectRisksByTrendPoint = (risks: ExtendedRisk[], month: string, severity?: Severity) => filterRisksBySelection(risks, { kind: "trend", month, severity });

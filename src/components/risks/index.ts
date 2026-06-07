@@ -9,6 +9,7 @@ export { RiskActionQueue } from "./RiskActionQueue";
 export { RiskTable } from "./RiskTable";
 export { RiskDetailDrawer } from "./RiskDetailDrawer";
 export { RiskDrawer } from "./RiskDrawer";
+export { RiskDrilldownDrawer } from "./RiskDrilldownDrawer";
 export { RiskFormModal } from "./RiskFormModal";
 export type { RiskFormValues, RiskLink } from "./RiskFormModal";
 export { RiskKpiGrid } from "./RiskKpiGrid";

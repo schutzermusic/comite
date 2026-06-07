@@ -86,7 +86,7 @@ export function RiskDetailDrawer({
             <HudStatusPill variant="info" size="sm">IA</HudStatusPill>
           )}
           {risk.aiDismissed && (
-            <HudStatusPill variant="neutral" size="sm">IA descartada</HudStatusPill>
+            <HudStatusPill variant="neutral" size="sm">Arquivado</HudStatusPill>
           )}
           <div className="ml-auto flex items-center gap-1.5 rounded-lg border border-ig-border-subtle px-2.5 py-1">
             <Gauge className="h-3.5 w-3.5" style={{ color: severityColor(risk.severity) }} />
@@ -168,7 +168,7 @@ export function RiskDetailDrawer({
               </div>
               {risk.aiDismissed && (
                 <div className="rounded border border-ig-border-subtle bg-ig-bg-canvas p-2 text-[11px] text-ig-fg-muted">
-                  Descartada{risk.aiDismissedAt ? ` em ${fmtDate(risk.aiDismissedAt)}` : ""}
+                  Arquivado{risk.aiDismissedAt ? ` em ${fmtDate(risk.aiDismissedAt)}` : ""}
                   {risk.aiDismissalReason ? ` · motivo: ${risk.aiDismissalReason}` : ""}
                 </div>
               )}
@@ -286,7 +286,7 @@ export function RiskDetailDrawer({
               onClick={() => {
                 const reason =
                   window.prompt(
-                    "Motivo para descartar esta sugestao da IA? (opcional)",
+                    "Motivo para arquivar este risco? (opcional)",
                     "",
                   ) ?? undefined;
                 void onDismissAi?.(risk, reason || undefined);
@@ -294,7 +294,7 @@ export function RiskDetailDrawer({
               className="flex items-center gap-1.5 rounded-lg border border-ig-danger/40 bg-ig-danger/10 px-3 py-1.5 text-[11px] font-semibold text-ig-danger transition-all hover:bg-ig-danger/20 disabled:opacity-60"
             >
               <XCircle className="h-3.5 w-3.5" />
-              {dismissing ? "Descartando…" : "Descartar IA"}
+              {dismissing ? "Arquivando…" : "Rejeitar / Arquivar"}
             </button>
           )}
         </div>

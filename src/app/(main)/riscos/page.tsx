@@ -8,17 +8,17 @@ import {
   Plus, Radar, ShieldAlert, ShieldCheck, Sparkles, Target, TrendingUp, X,
 } from "lucide-react";
 import {
-  HudButton, HudEmptyState, HudFilterBar, HudHeader, HudPageLayout, HudPanel,
+  HudButton, HudEmptyState, HudFilterBar, HudHeader, HudKpiStrip, HudPageLayout, HudPanel,
 } from "@/components/hud";
-import type { FilterGroup } from "@/components/hud";
+import type { FilterGroup, KpiItem } from "@/components/hud";
 import {
   RiskMatrix5x5,
   RiskMitigationPipeline,
   RiskStatusPipeline,
   RiskTable,
   RiskDetailDrawer,
+  RiskDrilldownDrawer,
   RiskFormModal,
-  RiskKpiGrid,
   RiskInsightStrip,
   SeverityDonutWithLegend,
   RiskExposureTrendChart,
@@ -41,20 +41,20 @@ import {
   computePipeline,
   computeExposureTrend,
   computeInsights,
+  buildRiskDrilldownContext,
   distinctOwners,
   distinctAreas,
   distinctCategories,
   riskExposure,
   isOverdue,
   hasActionPlan,
-  riskToFunnelStage,
   computeAging,
   fmtDateShort,
   categoryToDomain,
   SEVERITY_LABELS,
   STATUS_LABELS,
 } from "@/components/risks";
-import type { RiskKpiCardData, RiskFormValues, RiskLink, ExtendedRisk, FunnelStage } from "@/components/risks";
+import type { RiskFormValues, RiskLink, RiskSelection, ExtendedRisk } from "@/components/risks";
 import { scoreVariant } from "@/lib/risk-score";
 import { triggerContractAiScan, triggerProjectAiScan } from "@/lib/services/risks";
 import { getProjectsAsync } from "@/lib/services/projects";
@@ -70,11 +70,6 @@ import { useHudToast } from "@/hooks/useHudToast";
 const PERIOD_DAYS: Record<string, number | null> = {
   all: null, "30": 30, "90": 90, "180": 180, "365": 365,
 };
-
-function deltaPct(curr: number, prev: number): number {
-  if (!prev) return 0;
-  return Math.round(((curr - prev) / prev) * 100);
-}
 
 export default function RiscosPage() {
   return (
@@ -97,18 +92,24 @@ function RiscosCockpit() {
   const usingDemo = !loading && !error && (allRisks.length === 0 || demoPreview);
   const sourceRisks = usingDemo ? DEMO_RISKS : allRisks;
 
-  /* ── Scope (Todos / Alertas IA / Descartados) ── */
-  const [scopeFilter, setScopeFilter] = useState<"all" | "ai" | "dismissed">("all");
-  const scoped = useMemo(() => {
-    if (scopeFilter === "ai") return sourceRisks.filter((r) => r.origin === "ai" && !r.aiDismissed);
-    if (scopeFilter === "dismissed") return sourceRisks.filter((r) => r.aiDismissed === true);
-    return sourceRisks.filter((r) => !r.aiDismissed);
-  }, [sourceRisks, scopeFilter]);
+  /* ── Source filter (chip only — no top-level tab) ── */
+  const [aiFilter, setAiFilter] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
 
-  const aiAlertCount = useMemo(
+  const aiCount = useMemo(
     () => sourceRisks.filter((r) => r.origin === "ai" && !r.aiDismissed).length,
     [sourceRisks],
   );
+  const archivedCount = useMemo(
+    () => sourceRisks.filter((r) => r.aiDismissed).length,
+    [sourceRisks],
+  );
+  const scoped = useMemo(() => {
+    const base = showArchived
+      ? sourceRisks.filter((r) => r.aiDismissed)
+      : sourceRisks.filter((r) => !r.aiDismissed);
+    return aiFilter ? base.filter((r) => r.origin === "ai") : base;
+  }, [sourceRisks, aiFilter, showArchived]);
 
   /* ── Detail-level filter state ── */
   const [search, setSearch] = useState("");
@@ -121,8 +122,9 @@ function RiscosCockpit() {
   const [periodFilter, setPeriodFilter] = useState("all");
   const [overdueOnly, setOverdueOnly] = useState(false);
   const [noPlanOnly, setNoPlanOnly] = useState(false);
-  const [selectedCell, setSelectedCell] = useState<{ prob: number; impact: number } | null>(null);
-  const [selectedStage, setSelectedStage] = useState<FunnelStage | null>(null);
+
+  /* ── Chart drilldown ("Riscos do recorte") ── */
+  const [drilldown, setDrilldown] = useState<RiskSelection | null>(null);
 
   /* ── Drawer + table ── */
   const [detailRisk, setDetailRisk] = useState<ExtendedRisk | null>(null);
@@ -215,31 +217,29 @@ function RiscosCockpit() {
       if (periodCut !== null && computeAging(r.createdAt) > periodCut) return false;
       if (overdueOnly && !isOverdue(r)) return false;
       if (noPlanOnly && (hasActionPlan(r) || r.status === "resolved")) return false;
-      if (selectedCell && (r.probability !== selectedCell.prob || r.impact !== selectedCell.impact)) return false;
-      if (selectedStage && riskToFunnelStage(r) !== selectedStage) return false;
       return true;
     });
-  }, [scoped, search, severityFilter, statusFilter, categoryFilter, ownerFilter, areaFilter, linkFilter, periodFilter, overdueOnly, noPlanOnly, selectedCell, selectedStage]);
+  }, [scoped, search, severityFilter, statusFilter, categoryFilter, ownerFilter, areaFilter, linkFilter, periodFilter, overdueOnly, noPlanOnly]);
 
-  /* ── KPI cards ── */
-  const totalSpark = trend.map((t) => t.critical + t.high + t.medium);
-  const criticalSpark = trend.map((t) => t.critical);
-  const highSpark = trend.map((t) => t.high);
-  const mediumSpark = trend.map((t) => t.medium);
-  const scoreSpark = trend.map((t) => t.score ?? 0);
-  const lastTwo = (arr: number[]) => (arr.length >= 2 ? [arr[arr.length - 2], arr[arr.length - 1]] : [0, 0]);
+  /* ── Drilldown context (recorte selecionado via chart) ── */
+  const drilldownContext = useMemo(
+    () => (drilldown ? buildRiskDrilldownContext(scoped, drilldown) : null),
+    [drilldown, scoped],
+  );
 
-  const kpiCards: RiskKpiCardData[] = [
-    { id: "total", label: "Total de riscos", value: summary.total, icon: <ShieldAlert className="h-4 w-4" />, tone: "info", spark: totalSpark, delta: deltaPct(...(lastTwo(totalSpark).reverse() as [number, number])), help: "Riscos no recorte atual (escopo selecionado)." },
-    { id: "critical", label: "Críticos", value: summary.critical, icon: <AlertCircle className="h-4 w-4" />, tone: "danger", spark: criticalSpark, delta: deltaPct(...(lastTwo(criticalSpark).reverse() as [number, number])), help: "Severidade crítica (score ≥ 16)." },
-    { id: "high", label: "Altos", value: summary.high, icon: <TrendingUp className="h-4 w-4" />, tone: "warning", spark: highSpark, delta: deltaPct(...(lastTwo(highSpark).reverse() as [number, number])), help: "Severidade alta (score 12–15)." },
-    { id: "medium", label: "Médios", value: summary.medium, icon: <Layers className="h-4 w-4" />, tone: "info", spark: mediumSpark, help: "Severidade média (score 7–11)." },
-    { id: "mitigating", label: "Em mitigação", value: summary.mitigating, icon: <Activity className="h-4 w-4" />, tone: "warning", help: "Riscos com mitigação em andamento." },
-    { id: "resolved", label: "Resolvidos", value: summary.resolved, icon: <CheckCircle2 className="h-4 w-4" />, tone: "success", upIsGood: true, help: "Riscos encerrados no período." },
-    { id: "aging", label: "Aging médio", value: summary.avgAging, suffix: "d", icon: <Clock className="h-4 w-4" />, tone: summary.avgAging > 60 ? "danger" : summary.avgAging > 30 ? "warning" : "success", help: "Tempo médio em aberto dos riscos ativos." },
-    { id: "score", label: "Score corporativo", value: summary.score.toFixed(1), icon: <Gauge className="h-4 w-4" />, tone: variant === "critical" ? "danger" : variant, spark: scoreSpark, delta: deltaPct(...(lastTwo(scoreSpark).reverse() as [number, number])), help: "Índice corporativo de exposição (0–10)." },
-    { id: "plan", label: "% com plano", value: summary.withPlanPct, suffix: "%", icon: <ListChecks className="h-4 w-4" />, tone: summary.withPlanPct >= 70 ? "success" : "warning", upIsGood: true, help: "Riscos ativos com plano de ação definido." },
-    { id: "ontime", label: "% mitig. no prazo", value: summary.onTimePct, suffix: "%", icon: <Percent className="h-4 w-4" />, tone: summary.onTimePct >= 80 ? "success" : summary.onTimePct >= 60 ? "warning" : "danger", upIsGood: true, help: "Riscos com prazo que não estão em atraso." },
+  /* ── KPI strip (padrão HudKpiStrip dos demais módulos) ── */
+  const scoreVar = variant === "critical" ? "danger" : variant;
+  const kpis: KpiItem[] = [
+    { id: "total", label: "Total de riscos", value: summary.total, icon: <ShieldAlert className="h-4 w-4" />, variant: "info", onClick: () => setDrilldown({ kind: "all" }), active: drilldown?.kind === "all" },
+    { id: "critical", label: "Críticos", value: summary.critical, icon: <AlertCircle className="h-4 w-4" />, variant: "danger", onClick: () => setDrilldown({ kind: "severity", severity: "critical" }), active: drilldown?.kind === "severity" && drilldown.severity === "critical" },
+    { id: "high", label: "Altos", value: summary.high, icon: <TrendingUp className="h-4 w-4" />, variant: "warning", onClick: () => setDrilldown({ kind: "severity", severity: "high" }), active: drilldown?.kind === "severity" && drilldown.severity === "high" },
+    { id: "ai", label: "Detectados por IA", value: summary.aiActive, icon: <BrainCircuit className="h-4 w-4" />, variant: "info", onClick: () => { setAiFilter(true); setShowArchived(false); setDrilldown({ kind: "aiDetected" }); }, active: drilldown?.kind === "aiDetected" },
+    { id: "mitigating", label: "Em mitigação", value: summary.mitigating, icon: <Activity className="h-4 w-4" />, variant: "warning", onClick: () => setDrilldown({ kind: "status", status: "mitigating" }), active: drilldown?.kind === "status" && drilldown.status === "mitigating" },
+    { id: "resolved", label: "Resolvidos", value: summary.resolved, icon: <CheckCircle2 className="h-4 w-4" />, variant: "success", onClick: () => setDrilldown({ kind: "status", status: "resolved" }), active: drilldown?.kind === "status" && drilldown.status === "resolved" },
+    { id: "aging", label: "Aging médio", value: summary.avgAging, suffix: "d", icon: <Clock className="h-4 w-4" />, variant: summary.avgAging > 60 ? "danger" : summary.avgAging > 30 ? "warning" : "success", onClick: () => setDrilldown({ kind: "active" }), active: drilldown?.kind === "active" },
+    { id: "score", label: "Score corporativo", value: summary.score.toFixed(1), icon: <Gauge className="h-4 w-4" />, variant: scoreVar, tintValue: true, onClick: () => setDrilldown({ kind: "active" }) },
+    { id: "plan", label: "% com plano", value: summary.withPlanPct, suffix: "%", icon: <ListChecks className="h-4 w-4" />, variant: summary.withPlanPct >= 70 ? "success" : "warning", onClick: () => setDrilldown({ kind: "noPlan" }), active: drilldown?.kind === "noPlan" },
+    { id: "ontime", label: "% mitig. no prazo", value: summary.onTimePct, suffix: "%", icon: <Percent className="h-4 w-4" />, variant: summary.onTimePct >= 80 ? "success" : summary.onTimePct >= 60 ? "warning" : "danger", onClick: () => setDrilldown({ kind: "overdue" }), active: drilldown?.kind === "overdue" },
   ];
 
   /* ── Filter bar ── */
@@ -255,12 +255,13 @@ function RiscosCockpit() {
 
   const activeFiltersCount =
     [severityFilter, statusFilter, categoryFilter, ownerFilter, areaFilter, linkFilter, periodFilter].filter((v) => v !== "all").length +
-    (overdueOnly ? 1 : 0) + (noPlanOnly ? 1 : 0) + (selectedCell ? 1 : 0) + (selectedStage ? 1 : 0);
+    (overdueOnly ? 1 : 0) + (noPlanOnly ? 1 : 0);
 
   const clearAllFilters = useCallback(() => {
     setSeverityFilter("all"); setStatusFilter("all"); setCategoryFilter("all");
     setOwnerFilter("all"); setAreaFilter("all"); setLinkFilter("all"); setPeriodFilter("all");
-    setOverdueOnly(false); setNoPlanOnly(false); setSelectedCell(null); setSelectedStage(null); setSearch("");
+    setOverdueOnly(false); setNoPlanOnly(false); setSearch("");
+    setAiFilter(false); setShowArchived(false);
   }, []);
 
   /* ── Quick chips ── */
@@ -272,21 +273,40 @@ function RiscosCockpit() {
     { id: "noplan", label: "Sem plano de ação", tone: "warning", active: noPlanOnly, onClick: () => { setNoPlanOnly((v) => !v); setTableOpen(true); } },
     { id: "mit", label: "Em mitigação", tone: "info", active: statusFilter === "mitigating", onClick: () => { setStatusFilter(statusFilter === "mitigating" ? "all" : "mitigating"); setTableOpen(true); } },
     { id: "res", label: "Resolvidos", tone: "success", active: statusFilter === "resolved", onClick: () => { setStatusFilter(statusFilter === "resolved" ? "all" : "resolved"); setTableOpen(true); } },
-    { id: "ai", label: "IA detectados", tone: "accent", active: scopeFilter === "ai", onClick: () => setScopeFilter(scopeFilter === "ai" ? "all" : "ai") },
+    { id: "ai", label: "Detectados por IA", tone: "accent", active: aiFilter, onClick: () => { setAiFilter((v) => !v); setShowArchived(false); setTableOpen(true); } },
   ];
 
   /* ── Handlers ── */
-  const handleCellClick = (prob: number, impact: number) => {
-    setSelectedCell((cur) => (cur && cur.prob === prob && cur.impact === impact ? null : { prob, impact }));
-    setSelectedStage(null);
-    setTableOpen(true);
+  /* ── Drilldown handlers — every chart routes a RiskSelection to the drawer ── */
+  const handleRiskRowClick = (risk: ExtendedRisk) => {
+    setDrilldown(null);
+    setTimeout(() => setDetailRisk(risk), 120);
   };
-  const handleStageClick = (stage: FunnelStage) => {
-    setSelectedStage((cur) => (cur === stage ? null : stage));
-    setSelectedCell(null);
-    setTableOpen(true);
+  const handleBubbleSelect = (riskId: string) => {
+    const risk = scoped.find((r) => r.id === riskId);
+    if (risk) setDetailRisk(risk);
   };
-  const handleStatusClick = (status: string) => setStatusFilter(status === statusFilter ? "all" : status);
+
+  const applySelectionToTable = useCallback((sel: RiskSelection) => {
+    switch (sel.kind) {
+      case "severity": setSeverityFilter(sel.severity); break;
+      case "status": setStatusFilter(sel.status); break;
+      case "owner": setOwnerFilter(sel.owner); break;
+      case "area": setAreaFilter(sel.area); break;
+      case "category": {
+        // selection carries the display label; match it back to a raw category value
+        const opt = categoryOptions.find((o) => o.label === sel.category);
+        if (opt) setCategoryFilter(opt.value);
+        break;
+      }
+      case "overdue": setOverdueOnly(true); break;
+      case "noPlan": setNoPlanOnly(true); break;
+      case "aiDetected": setAiFilter(true); setShowArchived(false); break;
+      default: break; // cell/stage/trend/heatmap/waterfall/domain/project/contract → no clean table mapping
+    }
+    setDrilldown(null);
+    setTableOpen(true);
+  }, [categoryOptions]);
 
   const handleDismissAi = useCallback(
     async (risk: ExtendedRisk, reason?: string) => {
@@ -327,13 +347,13 @@ function RiscosCockpit() {
   }, [tableRisks, toast]);
 
   const handleViewCritical = () => {
-    setSeverityFilter("critical");
-    setSelectedCell(null); setSelectedStage(null);
-    setTableOpen(true);
+    setDrilldown({ kind: "severity", severity: "critical" });
   };
   const handleAnalyzeAi = () => {
-    setScopeFilter("ai");
-    toast.notify("Recorte de IA aplicado", { description: aiAlertCount ? `${aiAlertCount} alerta(s) de IA ativo(s).` : "Nenhum alerta de IA ativo no momento.", variant: "info" });
+    setAiFilter(true);
+    setShowArchived(false);
+    setTableOpen(true);
+    toast.notify("Análise por IA", { description: aiCount ? `${aiCount} risco(s) detectado(s) por IA no funil.` : "Nenhum risco detectado por IA no momento.", variant: "info" });
   };
 
   /* ── CRUD ── */
@@ -501,23 +521,6 @@ function RiscosCockpit() {
         ]}
         actions={
           <div className="flex flex-wrap items-center justify-end gap-2">
-            <div className="flex items-center gap-1 rounded-full border border-ig-border-subtle bg-ig-raised p-0.5">
-              {([
-                { key: "all", label: "Todos" },
-                { key: "ai", label: `Alertas IA${aiAlertCount ? ` (${aiAlertCount})` : ""}` },
-                { key: "dismissed", label: "Descartados" },
-              ] as const).map(({ key, label }) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => setScopeFilter(key)}
-                  className={"rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors " + (scopeFilter === key ? "bg-ig-accent text-white" : "text-ig-fg-muted hover:text-ig-fg-strong")}
-                >
-                  {key === "ai" ? <BrainCircuit className="-mt-px mr-1 inline-block h-3 w-3" /> : null}
-                  {label}
-                </button>
-              ))}
-            </div>
             <HudButton variant="primary" size="sm" leftIcon={<Plus className="h-3.5 w-3.5" />} onClick={() => openCreate()}>Novo risco</HudButton>
             <HudButton variant="secondary" size="sm" leftIcon={<Sparkles className="h-3.5 w-3.5" />} onClick={handleAnalyzeAi}>Analisar com IA</HudButton>
             <HudButton variant="ghost" size="sm" leftIcon={<FileDown className="h-3.5 w-3.5" />} onClick={handleExport}>Exportar</HudButton>
@@ -540,11 +543,11 @@ function RiscosCockpit() {
         </div>
       )}
 
+      {/* ── KPI STRIP (padrão dos demais módulos) ── */}
+      <HudKpiStrip kpis={kpis} columns={5} size="sm" />
+
       {/* ── EXECUTIVE INSIGHT STRIP ── */}
       <RiskInsightStrip insights={insights} />
-
-      {/* ── PREMIUM KPI GRID ── */}
-      <RiskKpiGrid cards={kpiCards} />
 
       {/* ── QUICK CHIPS ── */}
       <div className="flex flex-wrap items-center gap-2">
@@ -554,6 +557,15 @@ function RiscosCockpit() {
             {chip.label}
           </button>
         ))}
+        {archivedCount > 0 && (
+          <button
+            type="button"
+            onClick={() => { setShowArchived((v) => !v); setAiFilter(false); setTableOpen(true); }}
+            className={"inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-semibold transition-all " + (showArchived ? "border-ig-border-strong bg-ig-raised text-ig-fg-strong" : "border-ig-border-subtle bg-ig-raised text-ig-fg-subtle hover:border-ig-border-strong hover:text-ig-fg-muted")}
+          >
+            {showArchived ? "← Painel principal" : `Arquivados (${archivedCount})`}
+          </button>
+        )}
       </div>
 
       {/* ══════ ROW 1: MATRIX + SEVERITY DONUT + STATUS PIPELINE ══════ */}
@@ -561,27 +573,27 @@ function RiscosCockpit() {
         <HudPanel
           elevation={2}
           title="Matriz 5×5 — Probabilidade × Impacto"
-          subtitle="Clique em uma célula para filtrar a tabela"
+          subtitle="Clique em uma célula para ver os riscos"
           icon={<ShieldCheck className="h-4 w-4" />}
           iconTint="#14B8A6"
           watermark="RISK · MATRIX · V5"
         >
           <RiskMatrix5x5
             risks={scoped}
-            onCellClick={handleCellClick}
-            highlightedCell={selectedCell}
+            onCellClick={(probability, impact) => setDrilldown({ kind: "cell", probability, impact })}
+            highlightedCell={drilldown?.kind === "cell" ? { prob: drilldown.probability, impact: drilldown.impact } : null}
           />
         </HudPanel>
 
         <div className="grid grid-cols-1 gap-4">
-          <HudPanel elevation={2} title="Por Severidade" subtitle="Distribuição e participação" icon={<BarChart3 className="h-4 w-4" />} iconTint="#EF4B55">
-            <SeverityDonutWithLegend slices={severityData} height={208} />
+          <HudPanel elevation={2} title="Por Severidade" subtitle="Clique para ver os riscos" icon={<BarChart3 className="h-4 w-4" />} iconTint="#EF4B55">
+            <SeverityDonutWithLegend slices={severityData} height={208} onSelect={(key) => setDrilldown({ kind: "severity", severity: key as ExtendedRisk["severity"] })} />
           </HudPanel>
-          <HudPanel elevation={2} title="Pipeline de Status" subtitle="Clique para filtrar" icon={<Activity className="h-4 w-4" />} iconTint="#14B8A6">
+          <HudPanel elevation={2} title="Pipeline de Status" subtitle="Clique para ver os riscos" icon={<Activity className="h-4 w-4" />} iconTint="#14B8A6">
             <RiskStatusPipeline
               counts={{ open: summary.open, mitigating: summary.mitigating, resolved: summary.resolved }}
-              active={statusFilter === "all" ? null : (statusFilter as ExtendedRisk["status"])}
-              onStatusClick={handleStatusClick}
+              active={drilldown?.kind === "status" ? drilldown.status : null}
+              onStatusClick={(status) => setDrilldown({ kind: "status", status: status as ExtendedRisk["status"] })}
             />
           </HudPanel>
         </div>
@@ -589,11 +601,11 @@ function RiscosCockpit() {
 
       {/* ══════ ROW 2: TREND + WATERFALL + DOMAIN RADAR ══════ */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <HudPanel elevation={2} title="Evolução de Exposição" subtitle="Tendência mensal + score corporativo" icon={<TrendingUp className="h-4 w-4" />} iconTint="#EF4B55">
-          <RiskExposureTrendChart data={trend} height={272} />
+        <HudPanel elevation={2} title="Evolução de Exposição" subtitle="Clique em um ponto para ver os riscos" icon={<TrendingUp className="h-4 w-4" />} iconTint="#EF4B55">
+          <RiskExposureTrendChart data={trend} height={272} onSelect={(month, severity) => setDrilldown({ kind: "trend", month, severity })} />
         </HudPanel>
-        <HudPanel elevation={2} title="Ponte de Exposição" subtitle="O que mudou vs. período anterior" icon={<ArrowLeftRight className="h-4 w-4" />} iconTint="#F5A524">
-          <RiskWaterfallChart data={waterfallData} height={272} />
+        <HudPanel elevation={2} title="Ponte de Exposição" subtitle="Clique em uma barra para ver os riscos" icon={<ArrowLeftRight className="h-4 w-4" />} iconTint="#F5A524">
+          <RiskWaterfallChart data={waterfallData} height={272} onSelect={(bucket) => setDrilldown({ kind: "waterfall", bucket })} />
         </HudPanel>
         <HudPanel elevation={2} title="Exposição por Domínio" subtitle="Radar de exposição comparativa" icon={<Radar className="h-4 w-4" />} iconTint="#A855F7">
           <RiskAreaExposureChart data={domainData} height={272} />
@@ -602,33 +614,44 @@ function RiscosCockpit() {
 
       {/* ══════ ROW 3: BUBBLE + HEATMAP ══════ */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <HudPanel elevation={2} title="Mapa de Risco" subtitle="Probabilidade × Impacto × Exposição" icon={<Disc3 className="h-4 w-4" />} iconTint="#3B82F6">
-          <RiskBubbleChart data={bubbleData} height={300} />
+        <HudPanel elevation={2} title="Mapa de Risco" subtitle="Clique em um ponto para abrir o risco" icon={<Disc3 className="h-4 w-4" />} iconTint="#3B82F6">
+          <RiskBubbleChart data={bubbleData} height={300} onSelect={handleBubbleSelect} />
         </HudPanel>
-        <HudPanel elevation={2} title="Concentração por Área" subtitle="Área × severidade" icon={<Boxes className="h-4 w-4" />} iconTint="#14B8A6">
-          <RiskHeatmapChart rows={heatmapData.rows} cols={heatmapData.cols} cells={heatmapData.cells} max={heatmapData.max} height={300} />
+        <HudPanel elevation={2} title="Concentração por Área" subtitle="Clique em uma célula para ver os riscos" icon={<Boxes className="h-4 w-4" />} iconTint="#14B8A6">
+          <RiskHeatmapChart
+            rows={heatmapData.rows}
+            cols={heatmapData.cols}
+            cells={heatmapData.cells}
+            max={heatmapData.max}
+            height={300}
+            onSelect={(area, severityKey) => setDrilldown({ kind: "heatmap", area, severity: severityKey as ExtendedRisk["severity"] })}
+          />
         </HudPanel>
       </div>
 
       {/* ══════ ROW 4: CATEGORY + OWNERS ══════ */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <HudPanel elevation={2} title="Por Categoria" subtitle="Distribuição por domínio" icon={<Layers className="h-4 w-4" />} iconTint="#3B82F6">
-          <CategoryDistributionChart data={categoryData} height={252} />
+        <HudPanel elevation={2} title="Por Categoria" subtitle="Clique em uma barra para ver os riscos" icon={<Layers className="h-4 w-4" />} iconTint="#3B82F6">
+          <CategoryDistributionChart data={categoryData} height={252} onSelect={(category) => setDrilldown({ kind: "category", category })} />
         </HudPanel>
-        <HudPanel elevation={2} title="Top Responsáveis" subtitle="Riscos por área responsável" icon={<Target className="h-4 w-4" />} iconTint="#A855F7">
-          <TopRiskOwnersChart data={ownerData} height={252} />
+        <HudPanel elevation={2} title="Top Responsáveis" subtitle="Clique em um responsável para ver os riscos" icon={<Target className="h-4 w-4" />} iconTint="#A855F7">
+          <TopRiskOwnersChart data={ownerData} height={252} onSelect={(owner) => setDrilldown({ kind: "owner", owner })} />
         </HudPanel>
       </div>
 
       {/* ══════ ROW 5: MITIGATION PIPELINE (full width) ══════ */}
-      <HudPanel elevation={2} title="Pipeline de Mitigação" subtitle="Conversão, aging e atrasos por etapa — clique para filtrar" icon={<Gauge className="h-4 w-4" />} iconTint="#F5A524">
-        <RiskMitigationPipeline stages={pipeline} activeStage={selectedStage} onStageClick={handleStageClick} />
+      <HudPanel elevation={2} title="Pipeline de Mitigação" subtitle="Clique em uma etapa para ver os riscos" icon={<Gauge className="h-4 w-4" />} iconTint="#F5A524">
+        <RiskMitigationPipeline
+          stages={pipeline}
+          activeStage={drilldown?.kind === "stage" ? drilldown.stage : null}
+          onStageClick={(stage) => setDrilldown({ kind: "stage", stage })}
+        />
       </HudPanel>
 
       {/* ══════ ROW 6: COLLAPSIBLE RISK TABLE ══════ */}
       <HudPanel
         elevation={2}
-        title="Detalhamento de Riscos"
+        title="Lista completa de riscos"
         subtitle={`${tableRisks.length} risco(s) no recorte atual`}
         icon={<ShieldAlert className="h-4 w-4" />}
         iconTint="#F5A524"
@@ -657,22 +680,10 @@ function RiscosCockpit() {
               onClearFilters={clearAllFilters}
             />
 
-            {/* Active drill breadcrumb */}
-            {(selectedCell || selectedStage || overdueOnly || noPlanOnly) && (
+            {/* Active filter breadcrumb (table chips) */}
+            {(overdueOnly || noPlanOnly) && (
               <div className="flex flex-wrap items-center gap-2 rounded-lg border border-ig-border-subtle bg-ig-raised/60 px-3 py-2">
                 <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-ig-fg-subtle">Recorte ativo</span>
-                {selectedCell && (
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-ig-accent-weak px-2.5 py-0.5 text-[11px] font-semibold text-ig-accent">
-                    Matriz P{selectedCell.prob} × I{selectedCell.impact}
-                    <button type="button" onClick={() => setSelectedCell(null)} className="hover:text-ig-fg-strong"><X className="h-3 w-3" /></button>
-                  </span>
-                )}
-                {selectedStage && (
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-ig-accent-weak px-2.5 py-0.5 text-[11px] font-semibold text-ig-accent">
-                    Etapa: {pipeline.find((p) => p.stage === selectedStage)?.label}
-                    <button type="button" onClick={() => setSelectedStage(null)} className="hover:text-ig-fg-strong"><X className="h-3 w-3" /></button>
-                  </span>
-                )}
                 {overdueOnly && (
                   <span className="inline-flex items-center gap-1.5 rounded-full bg-[color-mix(in_oklab,var(--ig-danger)_14%,transparent)] px-2.5 py-0.5 text-[11px] font-semibold text-ig-danger">
                     Em atraso
@@ -702,6 +713,14 @@ function RiscosCockpit() {
           </button>
         )}
       </HudPanel>
+
+      {/* ── DRILLDOWN DRAWER ("Riscos do recorte") ── */}
+      <RiskDrilldownDrawer
+        context={drilldownContext}
+        onClose={() => setDrilldown(null)}
+        onRiskClick={handleRiskRowClick}
+        onApplyToTable={(ctx) => applySelectionToTable(ctx.selection)}
+      />
 
       {/* ── DETAIL DRAWER ── */}
       <RiskDetailDrawer

@@ -181,6 +181,26 @@ export function filterAparTitles(titles: APARTitle[], f: AparFilter, today: stri
 }
 
 /** Sort titles by due date (asc by default). */
+/**
+ * Aggregate receivable titles by competence month (YYYY-MM from due_date).
+ * Includes all non-cancelled titles so the workforce dashboard sees accrued
+ * revenue, not just cash-settled. Pass `onlyPaid: true` for cash-basis instead.
+ */
+export function selectMonthlyRevenue(
+  titles: APARTitle[],
+  onlyPaid = false,
+): Record<string, number> {
+  const map: Record<string, number> = {};
+  for (const t of titles) {
+    if (t.type !== 'receivable') continue;
+    if (t.status === 'cancelled') continue;
+    if (onlyPaid && t.status !== 'paid') continue;
+    const month = t.due_date.slice(0, 7); // 'YYYY-MM'
+    map[month] = (map[month] ?? 0) + t.amount_cents / 100;
+  }
+  return map;
+}
+
 export function sortByDueDate(titles: APARTitle[], dir: 'asc' | 'desc' = 'asc'): APARTitle[] {
   return [...titles].sort((a, b) =>
     dir === 'asc' ? a.due_date.localeCompare(b.due_date) : b.due_date.localeCompare(a.due_date),

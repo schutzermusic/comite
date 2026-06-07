@@ -2,7 +2,7 @@
 
 import React from "react";
 import { cn } from "@/lib/utils";
-import { TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { TrendingUp, TrendingDown, Minus, ArrowUpRight } from "lucide-react";
 
 export type KpiTone = "default" | "danger" | "warning" | "info" | "success" | "accent";
 
@@ -94,29 +94,36 @@ export function RiskKpiGrid({ cards }: { cards: RiskKpiCardData[] }) {
             title={card.help}
             aria-pressed={card.onClick ? card.active : undefined}
             className={cn(
-              "group relative flex min-h-[6.25rem] flex-col justify-between overflow-hidden rounded-2xl border border-ig-border-subtle p-3.5 text-left transition-all duration-200",
+              "group relative flex min-h-[6.5rem] flex-col justify-between overflow-hidden rounded-2xl border border-ig-border-subtle p-3.5 text-left transition-all duration-200",
               "bg-[linear-gradient(135deg,color-mix(in_oklab,var(--ig-bg-panel)_90%,transparent),color-mix(in_oklab,var(--ig-bg-raised)_45%,transparent))]",
               "shadow-[inset_0_1px_0_color-mix(in_oklab,var(--ig-border-strong)_70%,transparent)]",
-              card.onClick && "cursor-pointer hover:-translate-y-px hover:border-ig-border-focus",
+              card.onClick && "cursor-pointer hover:-translate-y-0.5 hover:border-ig-border-focus hover:shadow-[0_10px_28px_-14px_color-mix(in_oklab,var(--ig-accent)_55%,transparent)]",
               card.active && "border-ig-accent/60 bg-ig-accent-weak/40",
             )}
           >
+            {/* Severity-aware top accent */}
+            <span className="pointer-events-none absolute inset-x-0 top-0 h-[2px] opacity-70" style={{ background: `linear-gradient(90deg, ${tone.stroke}, transparent 85%)` }} />
+
             <div className="flex items-start justify-between gap-2">
               <span className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border", tone.bg, tone.border, tone.text)}>
                 {card.icon}
               </span>
-              {typeof card.delta === "number" && <DeltaBadge delta={card.delta} upIsGood={card.upIsGood ?? false} />}
+              {typeof card.delta === "number" ? (
+                <DeltaBadge delta={card.delta} upIsGood={card.upIsGood ?? false} />
+              ) : card.onClick ? (
+                <ArrowUpRight className="h-3.5 w-3.5 text-ig-fg-subtle opacity-0 transition-all group-hover:opacity-100 group-hover:text-ig-accent" />
+              ) : null}
             </div>
 
             <div className="mt-2 min-w-0">
               <p className="truncate text-[10px] font-medium uppercase tracking-[0.08em] text-ig-fg-muted">{card.label}</p>
               <div className="mt-0.5 flex items-end justify-between gap-2">
-                <span className={cn("ig-tabular text-[1.5rem] font-semibold leading-none", card.tone && card.tone !== "default" ? tone.text : "text-ig-fg-strong")}>
+                <span className={cn("ig-tabular text-[1.6rem] font-bold leading-none tracking-tight", card.tone && card.tone !== "default" ? tone.text : "text-ig-fg-strong")}>
                   {typeof card.value === "number" ? card.value.toLocaleString("pt-BR") : card.value}
-                  {card.suffix && <span className="ml-0.5 text-[11px] font-medium text-ig-fg-muted">{card.suffix}</span>}
+                  {card.suffix && <span className="ml-0.5 text-[11px] font-semibold text-ig-fg-muted">{card.suffix}</span>}
                 </span>
                 {card.spark && card.spark.length > 1 && (
-                  <span className="shrink-0 opacity-80"><Sparkline data={card.spark} stroke={tone.stroke} /></span>
+                  <span className="shrink-0 opacity-80 transition-opacity group-hover:opacity-100"><Sparkline data={card.spark} stroke={tone.stroke} /></span>
                 )}
               </div>
             </div>

@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import ReactECharts from "echarts-for-react";
+import { cn } from "@/lib/utils";
 
 /* ── Theme-aware color reader ── */
 function v(name: string, fb = "#888") {
@@ -145,9 +146,13 @@ export function StatusBreakdownChart({ open, mitigating, resolved, height = 200,
    RISK TREND — Area line + corporate score overlay
    ════════════════════════════════════════════════ */
 interface TrendPoint { month: string; critical: number; high: number; medium: number; score?: number }
-interface TrendProps { data: TrendPoint[]; height?: number | string }
+interface TrendProps { data: TrendPoint[]; height?: number | string; onSelect?: (month: string, severity?: "critical" | "high" | "medium") => void }
 
-export function RiskExposureTrendChart({ data, height = 280 }: TrendProps) {
+const TREND_SERIES_SEV: Record<string, "critical" | "high" | "medium" | undefined> = {
+  "Crítico": "critical", "Alto": "high", "Médio": "medium", "Score corporativo": undefined,
+};
+
+export function RiskExposureTrendChart({ data, height = 280, onSelect }: TrendProps) {
   const c = useC();
   const hasScore = data.some((d) => typeof d.score === "number");
 
@@ -189,58 +194,125 @@ export function RiskExposureTrendChart({ data, height = 280 }: TrendProps) {
     };
   }, [c, data, hasScore]);
 
-  return <ReactECharts option={opt} style={{ height, width: "100%" }} opts={{ renderer: "canvas" }} />;
+  const events = onSelect
+    ? { click: (p: { name?: string; seriesName?: string }) => { if (p.name) onSelect(p.name, TREND_SERIES_SEV[p.seriesName ?? ""]); } }
+    : undefined;
+
+  return <ReactECharts option={opt} style={{ height, width: "100%" }} opts={{ renderer: "canvas" }} onEvents={events} />;
 }
 
 /* ════════════════════════════════════════════════
    SEVERITY DONUT + SIDE LEGEND
    ════════════════════════════════════════════════ */
 interface SeveritySlice { key: string; label: string; value: number; pct: number }
-interface DonutLegendProps { slices: SeveritySlice[]; height?: number | string }
+interface DonutLegendProps { slices: SeveritySlice[]; height?: number | string; onSelect?: (key: string) => void }
 
-export function SeverityDonutWithLegend({ slices, height = 240 }: DonutLegendProps) {
+export function SeverityDonutWithLegend({ slices, height = 240, onSelect }: DonutLegendProps) {
   const c = useC();
   const total = slices.reduce((s, x) => s + x.value, 0);
+  const [hover, setHover] = useState<string | null>(null);
 
-  const opt = useMemo(() => ({
-    backgroundColor: "transparent",
-    tooltip: { ...tip(c), trigger: "item" as const, formatter: (p: { name: string; value: number; percent: number }) => `${p.name}: <b>${p.value}</b> (${p.percent}%)` },
-    series: [{
-      type: "pie", radius: ["56%", "82%"], center: ["50%", "50%"],
-      avoidLabelOverlap: false,
-      itemStyle: { borderRadius: 6, borderColor: c.cvs, borderWidth: 3 },
-      label: { show: false },
-      emphasis: { scale: true, scaleSize: 5, itemStyle: { shadowBlur: 18, shadowColor: "rgba(20,184,166,.22)" } },
-      data: slices.map((s) => ({ value: s.value, name: s.label, itemStyle: { color: sevColor(s.key, c) } })),
-      animationType: "scale", animationEasing: "cubicOut", animationDuration: 700,
-    }],
-    graphic: [{
-      type: "group", left: "center", top: "center",
-      children: [
-        { type: "text", style: { text: String(total), textAlign: "center", fill: c.fg, fontSize: 30, fontWeight: 700, fontFamily: "Inter" }, left: "center", top: -14 },
-        { type: "text", style: { text: "Riscos", textAlign: "center", fill: c.fgM, fontSize: 10, fontFamily: "Inter" }, left: "center", top: 20 },
-      ],
-    }],
-  }), [c, slices, total]);
+  /* Geometry — pure SVG donut (no charting lib). */
+  const R = 74, SW = 22, CIRC = 2 * Math.PI * R, GAP_DEG = 6;
+  const visible = slices.filter((s) => s.value > 0);
+  const angles = visible.map((s) => (s.value / total) * 360);
+  const segs = visible.map((s, i) => {
+    const start = angles.slice(0, i).reduce((a, b) => a + b, 0);
+    const arcLen = Math.max(2, (angles[i] / 360) * CIRC - (GAP_DEG / 360) * CIRC);
+    return { ...s, rot: start - 90, dash: arcLen, color: sevColor(s.key, c) };
+  });
+  const active = hover ? slices.find((s) => s.key === hover) ?? null : null;
+  const activeColor = active ? sevColor(active.key, c) : c.fg;
 
   return (
     <div className="flex items-center gap-3" style={{ minHeight: height }}>
-      <div className="shrink-0" style={{ width: "52%", height }}>
-        {total === 0 ? <ChartEmpty height={height} /> : <ReactECharts option={opt} style={{ height, width: "100%" }} opts={{ renderer: "canvas" }} />}
+      <div className="shrink-0" style={{ width: "50%", height }}>
+        {total === 0 ? (
+          <ChartEmpty height={height} />
+        ) : (
+          <svg viewBox="0 0 200 200" className="overflow-visible" style={{ width: "100%", height }} role="img" aria-label="Distribuição por severidade">
+            <defs>
+              {segs.map((s) => (
+                <linearGradient key={s.key} id={`sev-grad-${s.key}`} x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stopColor={`color-mix(in oklab, ${s.color} 72%, white 24%)`} />
+                  <stop offset="100%" stopColor={s.color} />
+                </linearGradient>
+              ))}
+            </defs>
+
+            {/* base track */}
+            <circle cx="100" cy="100" r={R} fill="none" stroke={c.bd} strokeWidth={SW} opacity={0.45} style={{ pointerEvents: "none" }} />
+
+            {segs.map((s, i) => {
+              const dim = hover !== null && hover !== s.key;
+              const on = hover === s.key;
+              return (
+                <circle
+                  key={s.key}
+                  cx="100" cy="100" r={R} fill="none"
+                  stroke={`url(#sev-grad-${s.key})`}
+                  strokeWidth={on ? SW + 5 : SW}
+                  strokeLinecap="round"
+                  strokeDasharray={`0 ${CIRC}`}
+                  transform={`rotate(${s.rot} 100 100)`}
+                  style={{
+                    opacity: dim ? 0.22 : 1,
+                    cursor: onSelect ? "pointer" : "default",
+                    filter: on ? `drop-shadow(0 0 7px color-mix(in oklab, ${s.color} 70%, transparent))` : "none",
+                    transition: "opacity .2s ease, stroke-width .2s ease, filter .2s ease",
+                  }}
+                  onMouseEnter={() => setHover(s.key)}
+                  onMouseLeave={() => setHover(null)}
+                  onClick={onSelect ? () => onSelect(s.key) : undefined}
+                >
+                  <title>{`${s.label}: ${s.value} (${s.pct}%)`}</title>
+                  <animate attributeName="stroke-dasharray" from={`0 ${CIRC}`} to={`${s.dash} ${CIRC}`} dur="0.7s" begin={`${i * 0.1}s`} fill="freeze" />
+                </circle>
+              );
+            })}
+
+            {/* center readout */}
+            <text x="100" y="98" textAnchor="middle" style={{ fontFamily: "Inter, sans-serif", fontSize: 30, fontWeight: 700, fill: activeColor, transition: "fill .2s ease" }}>
+              {active ? active.value : total}
+            </text>
+            <text x="100" y="118" textAnchor="middle" style={{ fontFamily: "Inter, sans-serif", fontSize: 9, fontWeight: 600, letterSpacing: 1, fill: c.fgM }}>
+              {active ? active.label.toUpperCase() : "RISCOS"}
+            </text>
+          </svg>
+        )}
       </div>
       <ul className="flex-1 space-y-2">
-        {slices.map((s) => (
-          <li key={s.key} className="flex items-center justify-between gap-2 rounded-lg border border-ig-border-subtle bg-ig-raised px-2.5 py-1.5">
-            <span className="flex items-center gap-2 min-w-0">
-              <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: sevColor(s.key, c) }} />
-              <span className="truncate text-[11px] font-medium text-ig-fg-muted">{s.label}</span>
-            </span>
-            <span className="flex items-baseline gap-1.5 shrink-0">
-              <span className="text-[13px] font-bold ig-tabular text-ig-fg-strong">{s.value}</span>
-              <span className="text-[10px] font-medium ig-tabular text-ig-fg-subtle">{s.pct}%</span>
-            </span>
-          </li>
-        ))}
+        {slices.map((s) => {
+          const Row = onSelect ? "button" : "li";
+          const color = sevColor(s.key, c);
+          return (
+            <Row
+              key={s.key}
+              type={onSelect ? "button" : undefined}
+              onClick={onSelect ? () => onSelect(s.key) : undefined}
+              className={cn(
+                "group/sev relative w-full overflow-hidden rounded-lg border border-ig-border-subtle bg-ig-raised px-2.5 py-1.5 text-left",
+                onSelect && "cursor-pointer transition-all hover:border-ig-accent hover:bg-ig-accent-weak/30",
+              )}
+            >
+              {/* progress track */}
+              <span
+                className="pointer-events-none absolute inset-y-0 left-0 opacity-15 transition-opacity group-hover/sev:opacity-25"
+                style={{ width: `${s.pct}%`, background: `linear-gradient(90deg, ${color}, transparent)` }}
+              />
+              <span className="relative flex items-center justify-between gap-2">
+                <span className="flex min-w-0 items-center gap-2">
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: color, boxShadow: `0 0 8px ${color}` }} />
+                  <span className="truncate text-[11px] font-medium text-ig-fg-muted">{s.label}</span>
+                </span>
+                <span className="flex shrink-0 items-baseline gap-1.5">
+                  <span className="text-[13px] font-bold ig-tabular text-ig-fg-strong">{s.value}</span>
+                  <span className="text-[10px] font-medium ig-tabular text-ig-fg-subtle">{s.pct}%</span>
+                </span>
+              </span>
+            </Row>
+          );
+        })}
       </ul>
     </div>
   );
@@ -250,9 +322,15 @@ export function SeverityDonutWithLegend({ slices, height = 240 }: DonutLegendPro
    EXPOSURE WATERFALL / BRIDGE
    ════════════════════════════════════════════════ */
 interface WaterfallStep { name: string; value: number; kind: "total" | "inc" | "dec" }
-interface WaterfallProps { data: WaterfallStep[]; height?: number | string }
+type WaterfallBucketKey = "anterior" | "novos" | "escalados" | "mitigados" | "resolvidos" | "atual";
+interface WaterfallProps { data: WaterfallStep[]; height?: number | string; onSelect?: (bucket: WaterfallBucketKey) => void }
 
-export function RiskWaterfallChart({ data, height = 260 }: WaterfallProps) {
+const WATERFALL_NAME_BUCKET: Record<string, WaterfallBucketKey> = {
+  "Anterior": "anterior", "Novos": "novos", "Escalados": "escalados",
+  "Mitigados": "mitigados", "Resolvidos": "resolvidos", "Atual": "atual",
+};
+
+export function RiskWaterfallChart({ data, height = 260, onSelect }: WaterfallProps) {
   const c = useC();
 
   const opt = useMemo(() => {
@@ -292,25 +370,30 @@ export function RiskWaterfallChart({ data, height = 260 }: WaterfallProps) {
       { type: "bar", stack: "wf", silent: true, itemStyle: { color: "transparent" }, data: bases, barWidth: "52%", emphasis: { itemStyle: { color: "transparent" } } },
       {
         type: "bar", stack: "wf", barWidth: "52%",
+        cursor: onSelect ? "pointer" : "default",
         data: values.map((v, i) => ({ value: v, itemStyle: { color: colorFor(data[i]), borderRadius: [4, 4, 0, 0] } })),
         label: { show: true, position: "top" as const, color: c.fgM, fontSize: 10, fontWeight: 700, formatter: (p: { dataIndex: number }) => { const s = data[p.dataIndex]; return `${s.kind === "inc" ? "+" : s.kind === "dec" ? "−" : ""}${Math.abs(s.value)}`; } },
         animationDuration: 700,
       },
     ],
     };
-  }, [c, data]);
+  }, [c, data, onSelect]);
+
+  const events = onSelect
+    ? { click: (p: { dataIndex?: number }) => { const s = data[p.dataIndex ?? -1]; const b = s ? WATERFALL_NAME_BUCKET[s.name] : undefined; if (b) onSelect(b); } }
+    : undefined;
 
   if (data.length === 0) return <ChartEmpty height={height} />;
-  return <ReactECharts option={opt} style={{ height, width: "100%" }} opts={{ renderer: "canvas" }} />;
+  return <ReactECharts option={opt} style={{ height, width: "100%" }} opts={{ renderer: "canvas" }} onEvents={events} />;
 }
 
 /* ════════════════════════════════════════════════
    BUBBLE — Probability × Impact × Exposure
    ════════════════════════════════════════════════ */
 interface BubblePoint { id: string; title: string; probability: number; impact: number; exposure: number; severity: string }
-interface BubbleProps { data: BubblePoint[]; height?: number | string }
+interface BubbleProps { data: BubblePoint[]; height?: number | string; onSelect?: (riskId: string) => void }
 
-export function RiskBubbleChart({ data, height = 300 }: BubbleProps) {
+export function RiskBubbleChart({ data, height = 300, onSelect }: BubbleProps) {
   const c = useC();
 
   const opt = useMemo(() => {
@@ -330,6 +413,7 @@ export function RiskBubbleChart({ data, height = 300 }: BubbleProps) {
     yAxis: { type: "value" as const, name: "Impacto", nameLocation: "middle" as const, nameGap: 22, min: 0.5, max: 5.5, interval: 1, nameTextStyle: { color: c.fgM, fontSize: 10 }, axisLabel: { color: c.fgS, fontSize: 10 }, splitLine: { lineStyle: { color: c.bd, type: "dashed" as const } }, axisLine: { show: false } },
     series: [{
       type: "scatter",
+      cursor: onSelect ? "pointer" : "default",
       symbolSize: (val: number[]) => 12 + Math.sqrt((val[2] ?? 0) / maxExp) * 34,
       data: data.map((d) => {
         const color = sevColor(d.severity, c);
@@ -343,10 +427,14 @@ export function RiskBubbleChart({ data, height = 300 }: BubbleProps) {
       animationDuration: 700,
     }],
     };
-  }, [c, data]);
+  }, [c, data, onSelect]);
+
+  const events = onSelect
+    ? { click: (p: { data?: { raw?: { id: string } } }) => { if (p.data?.raw?.id) onSelect(p.data.raw.id); } }
+    : undefined;
 
   if (data.length === 0) return <ChartEmpty height={height} />;
-  return <ReactECharts option={opt} style={{ height, width: "100%" }} opts={{ renderer: "canvas" }} />;
+  return <ReactECharts option={opt} style={{ height, width: "100%" }} opts={{ renderer: "canvas" }} onEvents={events} />;
 }
 
 /* ════════════════════════════════════════════════
@@ -358,9 +446,10 @@ interface HeatmapProps {
   cells: [number, number, number][];
   max: number;
   height?: number | string;
+  onSelect?: (area: string, severityKey: string) => void;
 }
 
-export function RiskHeatmapChart({ rows, cols, cells, max, height = 300 }: HeatmapProps) {
+export function RiskHeatmapChart({ rows, cols, cells, max, height = 300, onSelect }: HeatmapProps) {
   const c = useC();
   const opt = useMemo(() => ({
     backgroundColor: "transparent",
@@ -380,24 +469,29 @@ export function RiskHeatmapChart({ rows, cols, cells, max, height = 300 }: Heatm
     },
     series: [{
       type: "heatmap", data: cells,
+      cursor: onSelect ? "pointer" : "default",
       label: { show: true, color: c.fg, fontSize: 10, fontWeight: 600, formatter: (p: { data: [number, number, number] }) => (p.data[2] > 0 ? String(p.data[2]) : "") },
       itemStyle: { borderColor: c.cvs, borderWidth: 2, borderRadius: 4 },
       emphasis: { itemStyle: { shadowBlur: 12, shadowColor: `${c.acc}55` } },
       animationDuration: 700,
     }],
-  }), [c, rows, cols, cells, max]);
+  }), [c, rows, cols, cells, max, onSelect]);
+
+  const events = onSelect
+    ? { click: (p: { data?: [number, number, number] }) => { if (p.data) { const [x, y] = p.data; const area = rows[y]; const sev = cols[x]?.key; if (area && sev) onSelect(area, sev); } } }
+    : undefined;
 
   if (rows.length === 0) return <ChartEmpty height={height} />;
-  return <ReactECharts option={opt} style={{ height, width: "100%" }} opts={{ renderer: "canvas" }} />;
+  return <ReactECharts option={opt} style={{ height, width: "100%" }} opts={{ renderer: "canvas" }} onEvents={events} />;
 }
 
 /* ════════════════════════════════════════════════
    CATEGORY DISTRIBUTION — Bar
    ════════════════════════════════════════════════ */
 interface CatItem { name: string; value: number }
-interface CatProps { data: CatItem[]; height?: number | string }
+interface CatProps { data: CatItem[]; height?: number | string; onSelect?: (name: string) => void }
 
-export function CategoryDistributionChart({ data, height = 280 }: CatProps) {
+export function CategoryDistributionChart({ data, height = 280, onSelect }: CatProps) {
   const c = useC();
   const opt = useMemo(() => ({
     backgroundColor: "transparent",
@@ -411,6 +505,7 @@ export function CategoryDistributionChart({ data, height = 280 }: CatProps) {
     yAxis: { type: "value" as const, axisLabel: { color: c.fgS, fontSize: 10 }, splitLine: { lineStyle: { color: c.bd, type: "dashed" as const } }, axisLine: { show: false } },
     series: [{
       type: "bar", data: data.map((d) => d.value), barWidth: "44%",
+      cursor: onSelect ? "pointer" : "default",
       itemStyle: {
         borderRadius: [5, 5, 0, 0],
         color: { type: "linear", x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: c.c1 }, { offset: 1, color: `${c.c1}55` }] },
@@ -418,19 +513,21 @@ export function CategoryDistributionChart({ data, height = 280 }: CatProps) {
       emphasis: { itemStyle: { shadowBlur: 14, shadowColor: `${c.acc}44` } },
       animationDuration: 700,
     }],
-  }), [c, data]);
+  }), [c, data, onSelect]);
+
+  const events = onSelect ? { click: (p: { name?: string }) => { if (p.name) onSelect(p.name); } } : undefined;
 
   if (data.length === 0) return <ChartEmpty height={height} />;
-  return <ReactECharts option={opt} style={{ height, width: "100%" }} opts={{ renderer: "canvas" }} />;
+  return <ReactECharts option={opt} style={{ height, width: "100%" }} opts={{ renderer: "canvas" }} onEvents={events} />;
 }
 
 /* ════════════════════════════════════════════════
    TOP RISK OWNERS — Horizontal bar
    ════════════════════════════════════════════════ */
 interface OwnerItem { name: string; count: number }
-interface OwnersProps { data: OwnerItem[]; height?: number | string }
+interface OwnersProps { data: OwnerItem[]; height?: number | string; onSelect?: (name: string) => void }
 
-export function TopRiskOwnersChart({ data, height = 280 }: OwnersProps) {
+export function TopRiskOwnersChart({ data, height = 280, onSelect }: OwnersProps) {
   const c = useC();
   const sorted = useMemo(() => [...data].sort((a, b) => a.count - b.count), [data]);
   const palette = [c.c1, c.c2, c.c3, c.c4, c.c5];
@@ -447,6 +544,7 @@ export function TopRiskOwnersChart({ data, height = 280 }: OwnersProps) {
     },
     series: [{
       type: "bar",
+      cursor: onSelect ? "pointer" : "default",
       data: sorted.map((d, i) => ({
         value: d.count,
         itemStyle: {
@@ -458,10 +556,12 @@ export function TopRiskOwnersChart({ data, height = 280 }: OwnersProps) {
       label: { show: true, position: "right" as const, color: c.fgM, fontSize: 10, fontWeight: 700 },
       animationDuration: 700,
     }],
-  }), [c, sorted, palette]);
+  }), [c, sorted, palette, onSelect]);
+
+  const events = onSelect ? { click: (p: { name?: string }) => { if (p.name) onSelect(p.name); } } : undefined;
 
   if (sorted.length === 0) return <ChartEmpty height={height} />;
-  return <ReactECharts option={opt} style={{ height, width: "100%" }} opts={{ renderer: "canvas" }} />;
+  return <ReactECharts option={opt} style={{ height, width: "100%" }} opts={{ renderer: "canvas" }} onEvents={events} />;
 }
 
 /* ════════════════════════════════════════════════
