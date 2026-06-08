@@ -9,10 +9,8 @@ import {
   CheckCircle,
   AlertCircle,
   Users,
-  DatabaseZap,
   FileSpreadsheet,
   ArrowRight,
-  Zap,
   Building2,
 } from 'lucide-react';
 import { useCurrentUser } from '@/hooks/use-current-user';
@@ -28,7 +26,6 @@ import {
   WorkforcePeriodFilter,
   PayrollEvolutionPanel,
   HeadcountDynamicsPanel,
-  WorkforceCompositionPanel,
   WorkforceEfficiencyPanel,
   CollapsibleDetailPanel,
 } from '@/components/workforce';
@@ -61,7 +58,6 @@ import {
   HudHeader,
   HudButton,
 } from '@/components/hud';
-import { getEsocialDashboardData } from '@/lib/esocial';
 import { cn } from '@/lib/utils';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -90,7 +86,7 @@ function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }
   );
 }
 
-// ─── Compact signal strip ────────────────────────────────────────────────────
+// ─── Executive signal strip ──────────────────────────────────────────────────
 
 interface WorkforceSignalStripProps {
   alerts: { id: string; type?: string; severity: 'warning' | 'error'; title: string; description: string; value?: number; costCenterId?: string }[];
@@ -113,7 +109,7 @@ function WorkforceSignalStrip({
   if (payrollGrowth - revenueGrowth > 5)
     signals.push({ level: 'error', label: 'Crescimento', detail: `Folha +${payrollGrowth.toFixed(1)}% > Rec. +${revenueGrowth.toFixed(1)}%` });
   else if (payrollGrowth - revenueGrowth > 2)
-    signals.push({ level: 'warn', label: 'Crescimento', detail: `Folha acima da receita` });
+    signals.push({ level: 'warn', label: 'Crescimento', detail: 'Folha acima da receita' });
   else
     signals.push({ level: 'ok', label: 'Crescimento', detail: 'Alinhado com receita' });
 
@@ -151,69 +147,113 @@ function WorkforceSignalStrip({
     signals.push({ level: 'ok', label: 'Folha/Rec.', detail: `${payrollRevenuePct.toFixed(1)}%` });
 
   const errorCount = signals.filter((s) => s.level === 'error').length;
-  const warnCount = signals.filter((s) => s.level === 'warn').length;
-  const allGood = errorCount === 0 && warnCount === 0;
+  const warnCount  = signals.filter((s) => s.level === 'warn').length;
+  const allGood    = errorCount === 0 && warnCount === 0;
 
   const levelIcon = { ok: CheckCircle, warn: AlertTriangle, error: AlertCircle };
   const chipCls = {
-    ok: 'bg-ig-success/8 border-ig-success/20 text-ig-success',
-    warn: 'bg-ig-warning/8 border-ig-warning/20 text-ig-warning',
-    error: 'bg-ig-danger/8 border-ig-danger/20 text-ig-danger',
+    ok:    'bg-ig-success/8 border-ig-success/20',
+    warn:  'bg-ig-warning/8 border-ig-warning/20',
+    error: 'bg-ig-danger/8  border-ig-danger/20',
   };
   const iconCls = {
-    ok: 'text-ig-success',
-    warn: 'text-ig-warning',
+    ok:    'text-ig-success',
+    warn:  'text-ig-warning',
+    error: 'text-ig-danger',
+  };
+  const valueCls = {
+    ok:    'text-ig-fg-muted',
+    warn:  'text-ig-warning',
     error: 'text-ig-danger',
   };
 
   const ccAlerts = alerts.filter((a) => a.type === 'abnormal_growth' || !a.type);
 
   return (
-    <div className="flex flex-wrap items-center gap-2 px-4 py-3 rounded-xl border border-ig-border-subtle bg-ig-panel">
-      {/* Label + overall status */}
-      <div className="flex items-center gap-1.5 shrink-0">
-        <Zap className="w-3.5 h-3.5 text-ig-accent" />
-        <span className="text-xs font-semibold text-ig-fg-muted">Sinais de Risco</span>
-      </div>
-      <span className={cn(
-        'text-[11px] font-semibold px-2.5 py-0.5 rounded-full border shrink-0',
+    <div className="rounded-xl border border-ig-border-subtle overflow-hidden">
+      {/* ── Header bar: title + severity summary ──────────────────────────── */}
+      <div className={cn(
+        'flex items-center justify-between px-4 py-2.5 border-b border-ig-border-subtle/70',
         allGood
-          ? 'bg-ig-success/8 border-ig-success/20 text-ig-success'
+          ? 'bg-ig-success/[0.04]'
           : errorCount > 0
-            ? 'bg-ig-danger/8 border-ig-danger/20 text-ig-danger'
-            : 'bg-ig-warning/8 border-ig-warning/20 text-ig-warning',
+            ? 'bg-ig-danger/[0.04]'
+            : 'bg-ig-warning/[0.04]',
       )}>
-        {allGood ? '✓ Tudo OK' : `${errorCount} crítico${errorCount !== 1 ? 's' : ''} · ${warnCount} alerta${warnCount !== 1 ? 's' : ''}`}
-      </span>
-
-      <div className="w-px h-4 bg-ig-border-subtle mx-0.5 hidden sm:block" />
-
-      {/* Signal chips */}
-      {signals.map((s) => {
-        const Icon = levelIcon[s.level];
-        return (
-          <div
-            key={s.label}
-            className={cn(
-              'flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] shrink-0',
-              chipCls[s.level],
-            )}
-          >
-            <Icon className={cn('w-3 h-3 shrink-0', iconCls[s.level])} />
-            <span className="font-semibold">{s.label}</span>
-            <span className="text-ig-fg-muted hidden md:inline">· {s.detail}</span>
-          </div>
-        );
-      })}
-
-      {/* Cost center alerts */}
-      {ccAlerts.length > 0 && (
-        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] shrink-0 bg-ig-warning/8 border-ig-warning/20 text-ig-warning">
-          <Building2 className="w-3 h-3 shrink-0" />
-          <span className="font-semibold">{ccAlerts.length} centro{ccAlerts.length !== 1 ? 's' : ''}</span>
-          <span className="hidden md:inline text-ig-fg-muted">· crescimento anormal</span>
+        <div className="flex items-center gap-2">
+          <div className={cn(
+            'w-1.5 h-1.5 rounded-full shrink-0',
+            allGood
+              ? 'bg-ig-success'
+              : errorCount > 0
+                ? 'bg-ig-danger animate-pulse'
+                : 'bg-ig-warning animate-pulse',
+          )} />
+          <span className="text-[10.5px] font-bold uppercase tracking-[0.14em] text-ig-fg-muted">
+            Radar de Riscos
+          </span>
         </div>
-      )}
+
+        <div className="flex items-center gap-2 shrink-0">
+          {allGood ? (
+            <span className="flex items-center gap-1.5 text-[11px] font-semibold text-ig-success">
+              <CheckCircle className="w-3.5 h-3.5" />
+              Todos os indicadores saudáveis
+            </span>
+          ) : (
+            <>
+              {errorCount > 0 && (
+                <span className="flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-ig-danger/10 border border-ig-danger/25 text-ig-danger">
+                  <AlertCircle className="w-3 h-3" />
+                  {errorCount} crítico{errorCount !== 1 ? 's' : ''}
+                </span>
+              )}
+              {warnCount > 0 && (
+                <span className="flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-ig-warning/10 border border-ig-warning/25 text-ig-warning">
+                  <AlertTriangle className="w-3 h-3" />
+                  {warnCount} alerta{warnCount !== 1 ? 's' : ''}
+                </span>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* ── Signal chips body ──────────────────────────────────────────────── */}
+      <div className="flex flex-wrap items-center gap-1.5 px-4 py-2.5 bg-ig-panel">
+        {signals.map((s) => {
+          const Icon = levelIcon[s.level];
+          return (
+            <div
+              key={s.label}
+              className={cn(
+                'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11px] shrink-0',
+                chipCls[s.level],
+              )}
+            >
+              <Icon className={cn('w-3 h-3 shrink-0', iconCls[s.level])} />
+              <span className="font-semibold text-ig-fg-strong">{s.label}</span>
+              <span className="text-ig-fg-subtle opacity-50">·</span>
+              <span className={cn('font-medium ig-tabular', valueCls[s.level])}>
+                {s.detail}
+              </span>
+            </div>
+          );
+        })}
+
+        {ccAlerts.length > 0 && (
+          <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11px] shrink-0 bg-ig-warning/8 border-ig-warning/20">
+            <Building2 className="w-3 h-3 shrink-0 text-ig-warning" />
+            <span className="font-semibold text-ig-fg-strong">
+              {ccAlerts.length} centro{ccAlerts.length !== 1 ? 's' : ''}
+            </span>
+            <span className="text-ig-fg-subtle opacity-50">·</span>
+            <span className="font-medium text-ig-warning ig-tabular">
+              crescimento anormal
+            </span>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -231,8 +271,6 @@ function WorkforceCostPageInner() {
     hasPermission(permissions, 'admin.manage_users') ||
     hasAnyPermission(permissions, PAYROLL_PERMS);
   const goToPayrollClosing = () => router.push('/workforce-cost/fechamento-folha');
-
-  const esocial = useMemo(() => getEsocialDashboardData(), []);
 
   const [approvedBatches, setApprovedBatches] = useState<PayrollClosingBatchApproved[]>([]);
   useEffect(() => {
@@ -314,13 +352,6 @@ function WorkforceCostPageInner() {
         ]}
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-ig-panel border border-ig-border-subtle text-sm text-ig-fg-muted">
-              <DatabaseZap className="w-4 h-4 text-ig-accent" />
-              <span>Fonte: eSocial</span>
-              <span className="hidden font-mono text-xs text-ig-fg-subtle md:inline">
-                última sync {esocial.config.lastSyncAt ? '05/05 09:30' : 'pendente'}
-              </span>
-            </div>
             <WorkforcePeriodFilter value={period} onChange={setPeriod} />
             {canSeePayroll && (
               <HudButton
@@ -420,21 +451,7 @@ function WorkforceCostPageInner() {
         />
       </section>
 
-      {/* ── B. Workforce Composition ── */}
-      <section className="space-y-3">
-        <SectionHeader title="Composição do Workforce" subtitle="Distribuição de pessoas e folha por área, base e vínculo" />
-        <WorkforceCompositionPanel
-          costConcentration={workforce.costConcentration}
-          pjPercent={workforce.metrics.contractDistribution.pjPercent}
-          cltPercent={workforce.metrics.contractDistribution.cltPercent}
-          pjCount={workforce.metrics.contractDistribution.pj}
-          cltCount={workforce.metrics.contractDistribution.clt}
-          pjCost={workforce.metrics.contractDistribution.pjCost}
-          cltCost={workforce.metrics.contractDistribution.cltCost}
-        />
-      </section>
-
-      {/* ── C. Payroll Evolution + S-Curve ── */}
+      {/* ── B. Payroll Evolution + S-Curve ── */}
       <section className="space-y-3">
         <SectionHeader title="Evolução da Folha" subtitle="Tendência, composição salarial, Curva S acumulada e comparativo com receita" />
         <PayrollEvolutionPanel
@@ -475,7 +492,7 @@ function WorkforceCostPageInner() {
       {/* ── G. Payroll Risk + Trend ── */}
       <section className="space-y-3">
         <SectionHeader title="Risco de Folha & Tendência" subtitle="Score de risco, evolução histórica e comparativo payroll vs receita" />
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
           <PayrollRiskIndicator data={workforce.payrollRisk} />
           <WorkforceTrendChart
             data={workforce.trend}

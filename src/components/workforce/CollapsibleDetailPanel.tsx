@@ -58,11 +58,6 @@ export function CollapsibleDetailPanel({ costConcentration, trend, className }: 
 
   return (
     <div className={cn('space-y-3', className)}>
-      <div>
-        <h3 className="text-sm font-semibold text-ig-fg-strong tracking-tight">Detalhamento</h3>
-        <p className="text-xs text-ig-fg-muted mt-0.5">Tabelas detalhadas — expanda conforme necessário</p>
-      </div>
-
       {/* Cost centers table */}
       <Section title="Centros de Custo" count={sorted.length}>
         <div className="overflow-x-auto">

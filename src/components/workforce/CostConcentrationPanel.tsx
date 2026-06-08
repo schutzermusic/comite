@@ -60,19 +60,19 @@ export function CostConcentrationPanel({ data, className }: CostConcentrationPan
 
   const chartOptions = useMemo(() => {
     const maxVal = values[0] || 1;
-    const axisColor = isLight ? 'rgba(51,65,85,0.45)' : 'rgba(242,245,247,0.32)';
-    const splitColor = isLight ? 'rgba(15,118,110,0.08)' : 'rgba(170,200,190,0.05)';
-    const tooltipBg = isLight ? '#ffffff' : '#141B24';
-    const tooltipBorder = isLight ? 'rgba(15,118,110,0.2)' : 'rgba(170,200,190,0.18)';
-    const strongColor = isLight ? '#0f172a' : '#F2F5F7';
-    const mutedColor = isLight ? 'rgba(15,23,42,0.65)' : 'rgba(242,245,247,0.55)';
-    const warnColor = isLight ? '#b45309' : '#F5A524';
-    const labelStrong = isLight ? 'rgba(15,23,42,0.85)' : 'rgba(242,245,247,0.80)';
-    const labelMuted = isLight ? 'rgba(100,116,139,0.65)' : 'rgba(148,163,184,0.55)';
-    const ghostColor = isLight ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.05)';
+    const axisColor    = isLight ? 'rgba(51,65,85,0.45)'    : 'rgba(242,245,247,0.32)';
+    const splitColor   = isLight ? 'rgba(15,118,110,0.08)'  : 'rgba(170,200,190,0.05)';
+    const tooltipBg    = isLight ? '#ffffff'                 : '#141B24';
+    const tooltipBd    = isLight ? 'rgba(15,118,110,0.2)'   : 'rgba(170,200,190,0.18)';
+    const strongColor  = isLight ? '#0f172a'                 : '#F2F5F7';
+    const mutedColor   = isLight ? 'rgba(15,23,42,0.65)'    : 'rgba(242,245,247,0.55)';
+    const warnColor    = isLight ? '#b45309'                 : '#F5A524';
+    const labelStrong  = isLight ? 'rgba(15,23,42,0.85)'    : 'rgba(242,245,247,0.80)';
+    const labelMuted   = isLight ? 'rgba(100,116,139,0.65)' : 'rgba(148,163,184,0.55)';
+    const ghostColor   = isLight ? 'rgba(0,0,0,0.05)'       : 'rgba(255,255,255,0.05)';
 
-    const categories = [...sortedCenters].reverse().map((c) => c.name);
-    const reversedValues = [...values].reverse();
+    const categories      = [...sortedCenters].reverse().map((c) => c.name);
+    const reversedValues  = [...values].reverse();
     const reversedCumPcts = [...cumulativePcts].reverse();
     const reversedCenters = [...sortedCenters].reverse();
 
@@ -81,7 +81,7 @@ export function CostConcentrationPanel({ data, className }: CostConcentrationPan
       tooltip: {
         trigger: 'item',
         backgroundColor: tooltipBg,
-        borderColor: tooltipBorder,
+        borderColor: tooltipBd,
         borderWidth: 1,
         textStyle: { color: strongColor, fontSize: 12 },
         formatter: (params: { dataIndex: number; seriesName: string; value: number }) => {
@@ -129,7 +129,7 @@ export function CostConcentrationPanel({ data, className }: CostConcentrationPan
         },
       },
       series: [
-        // Ghost background bar (full scale) — shows proportion visually
+        // Ghost background bar
         {
           name: '__ghost',
           type: 'bar',
@@ -142,7 +142,7 @@ export function CostConcentrationPanel({ data, className }: CostConcentrationPan
           })),
           label: { show: false },
         },
-        // Actual value bar
+        // Value bar with gradient
         {
           name: 'Folha',
           type: 'bar',
@@ -185,15 +185,23 @@ export function CostConcentrationPanel({ data, className }: CostConcentrationPan
 
   const chartHeight = Math.max(180, sortedCenters.length * 38);
 
+  const top3Pct = data.top3Concentration;
+  const top3Tone = top3Pct > 80 ? 'text-ig-danger' : top3Pct > 70 ? 'text-ig-warning' : 'text-ig-success';
+  const top3Sub  = top3Pct > 80 ? 'crítica' : top3Pct > 70 ? 'atenção' : 'saudável';
+
   return (
-    <OrionCard variant="elevated" className={cn('', className)}>
+    <OrionCard variant="elevated" className={cn('', className)} disableHover>
       {/* Header */}
-      <div className="flex items-start justify-between mb-4">
+      <div className="flex items-start justify-between mb-5">
         <div>
-          <h3 className="text-sm font-semibold text-ig-fg-strong tracking-tight">Concentração de Custos</h3>
-          <p className="text-xs text-ig-fg-muted mt-0.5">Centros de custo · ranking por folha com acumulado Pareto</p>
+          <h3 className="text-sm font-semibold text-ig-fg-strong tracking-tight">
+            Concentração de Custos
+          </h3>
+          <p className="text-xs text-ig-fg-muted mt-0.5">
+            Centros de custo · ranking por folha com acumulado Pareto
+          </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           {abnormalCount > 0 && (
             <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-ig-warning/10 border border-ig-warning/25">
               <AlertTriangle className="w-3 h-3 text-ig-warning" />
@@ -208,40 +216,47 @@ export function CostConcentrationPanel({ data, className }: CostConcentrationPan
         </div>
       </div>
 
-      {/* Summary chips */}
-      <div className="flex flex-wrap gap-2 mb-4">
-        {[
-          {
-            label: 'Total Folha',
-            value: formatWorkforceCurrency(data.totalPayroll, data.currency),
-            tone: 'text-ig-fg-strong',
-          },
-          {
-            label: 'Centros de Custo',
-            value: String(data.costCenters.length),
-            tone: 'text-ig-fg-strong',
-          },
-          {
-            label: 'Concentração Top-3',
-            value: `${data.top3Concentration.toFixed(1)}%`,
-            tone: data.top3Concentration > 80 ? 'text-ig-danger' : data.top3Concentration > 70 ? 'text-ig-warning' : 'text-ig-success',
-          },
-          ...(top1
-            ? [{
-                label: 'Maior centro',
-                value: top1.name,
-                tone: 'text-ig-accent',
-              }]
-            : []),
-        ].map((chip) => (
-          <div key={chip.label} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-ig-panel border border-ig-border-subtle">
-            <span className="text-[10px] text-ig-fg-muted">{chip.label}:</span>
-            <span className={cn('text-[11px] font-semibold ig-tabular', chip.tone)}>{chip.value}</span>
+      {/* Premium stat blocks */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+        {/* Total Folha */}
+        <div className="flex flex-col gap-0.5 px-3 py-2.5 rounded-xl bg-ig-panel border border-ig-border-subtle">
+          <span className="text-[9.5px] font-bold uppercase tracking-[0.12em] text-ig-fg-subtle">
+            Total Folha
+          </span>
+          <span className="text-sm font-bold ig-tabular text-ig-fg-strong truncate">
+            {formatWorkforceCurrency(data.totalPayroll, data.currency)}
+          </span>
+          <span className="text-[10px] text-ig-fg-muted">
+            {data.costCenters.length} centros
+          </span>
+        </div>
+
+        {/* Concentração Top-3 */}
+        <div className="flex flex-col gap-0.5 px-3 py-2.5 rounded-xl bg-ig-panel border border-ig-border-subtle">
+          <span className="text-[9.5px] font-bold uppercase tracking-[0.12em] text-ig-fg-subtle">
+            Top-3
+          </span>
+          <span className={cn('text-sm font-bold ig-tabular', top3Tone)}>
+            {top3Pct.toFixed(1)}%
+          </span>
+          <span className={cn('text-[10px]', top3Tone)}>{top3Sub}</span>
+        </div>
+
+        {/* Maior Centro */}
+        {top1 && (
+          <div className="flex flex-col gap-0.5 px-3 py-2.5 rounded-xl bg-ig-panel border border-ig-border-subtle col-span-1 sm:col-span-2">
+            <span className="text-[9.5px] font-bold uppercase tracking-[0.12em] text-ig-fg-subtle">
+              Maior Centro
+            </span>
+            <span className="text-sm font-bold text-ig-accent truncate">{top1.name}</span>
+            <span className="text-[10px] text-ig-fg-muted">
+              {formatWorkforceCurrency(top1.payrollValue, data.currency)} · {top1.headcount} pessoas
+            </span>
           </div>
-        ))}
+        )}
       </div>
 
-      {/* Chart */}
+      {/* Pareto chart */}
       <div style={{ height: `${chartHeight}px` }}>
         <ReactEChartsCore
           echarts={echarts}
@@ -251,54 +266,64 @@ export function CostConcentrationPanel({ data, className }: CostConcentrationPan
         />
       </div>
 
-      {/* Inline top-3 strip */}
+      {/* Top-3 rank strip */}
       {sortedCenters.length > 0 && (
-        <div className="mt-4 pt-3 border-t border-ig-border-subtle flex flex-wrap gap-2">
-          {sortedCenters.slice(0, 3).map((center, idx) => {
-            const colorIdx = idx < PALETTE.length ? idx : PALETTE.length - 1;
-            const GrowthIcon = center.growthVsPrevious >= 0 ? TrendingUp : TrendingDown;
-            return (
-              <div
-                key={center.id}
-                className={cn(
-                  'flex-1 min-w-[120px] p-3 rounded-xl border',
-                  center.isAbnormal
-                    ? 'bg-ig-warning/8 border-ig-warning/20'
-                    : 'bg-ig-panel border-ig-border-subtle',
-                )}
-              >
-                <div className="flex items-center justify-between mb-1.5">
-                  <span
-                    className="text-[11px] font-bold ig-tabular"
-                    style={{ color: PALETTE[colorIdx] }}
-                  >
-                    #{idx + 1}
-                  </span>
-                  {center.isAbnormal && <AlertTriangle className="w-3 h-3 text-ig-warning" />}
-                </div>
-                <p className="text-xs font-medium text-ig-fg-strong truncate mb-1">{center.name}</p>
-                <p className="text-sm font-bold text-ig-fg-strong ig-tabular leading-tight">
-                  {formatWorkforceCurrency(center.payrollValue, data.currency)}
-                </p>
-                <div className="flex items-center gap-1 mt-1">
-                  <GrowthIcon
-                    className={cn(
-                      'w-3 h-3',
-                      center.growthVsPrevious > 15 ? 'text-ig-warning' : center.growthVsPrevious > 0 ? 'text-ig-success' : 'text-ig-danger',
+        <div className="mt-5 pt-4 border-t border-ig-border-subtle">
+          <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-ig-fg-subtle mb-3">
+            Ranking Top-3
+          </p>
+          <div className="flex flex-wrap gap-3">
+            {sortedCenters.slice(0, 3).map((center, idx) => {
+              const colorIdx = idx < PALETTE.length ? idx : PALETTE.length - 1;
+              const GrowthIcon = center.growthVsPrevious >= 0 ? TrendingUp : TrendingDown;
+              const growthCls = center.growthVsPrevious > 15
+                ? 'text-ig-warning'
+                : center.growthVsPrevious > 0
+                  ? 'text-ig-success'
+                  : 'text-ig-danger';
+              return (
+                <div
+                  key={center.id}
+                  className={cn(
+                    'flex-1 min-w-[140px] p-3.5 rounded-xl border',
+                    center.isAbnormal
+                      ? 'bg-ig-warning/8 border-ig-warning/20'
+                      : 'bg-ig-panel border-ig-border-subtle',
+                  )}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span
+                      className="text-xs font-black ig-tabular"
+                      style={{ color: PALETTE[colorIdx] }}
+                    >
+                      #{idx + 1}
+                    </span>
+                    {center.isAbnormal && (
+                      <AlertTriangle className="w-3 h-3 text-ig-warning" />
                     )}
-                  />
-                  <span
-                    className={cn(
-                      'text-[10px] ig-tabular font-semibold',
-                      center.growthVsPrevious > 15 ? 'text-ig-warning' : center.growthVsPrevious > 0 ? 'text-ig-success' : 'text-ig-danger',
-                    )}
-                  >
-                    {formatWorkforcePercentage(center.growthVsPrevious)}
-                  </span>
+                  </div>
+                  <p className="text-xs font-semibold text-ig-fg-strong truncate mb-1.5">
+                    {center.name}
+                  </p>
+                  <p className="text-base font-bold text-ig-fg-strong ig-tabular leading-none mb-2">
+                    {formatWorkforceCurrency(center.payrollValue, data.currency)}
+                  </p>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] text-ig-fg-muted">
+                      {center.headcount} pessoas
+                    </span>
+                    <span className="text-ig-border-subtle">·</span>
+                    <div className="flex items-center gap-0.5">
+                      <GrowthIcon className={cn('w-3 h-3', growthCls)} />
+                      <span className={cn('text-[10px] ig-tabular font-semibold', growthCls)}>
+                        {formatWorkforcePercentage(center.growthVsPrevious)}
+                      </span>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
       )}
     </OrionCard>

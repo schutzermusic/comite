@@ -1,9 +1,10 @@
 'use client';
 
 import { useMemo } from 'react';
-import { Shield, TrendingUp, TrendingDown, AlertTriangle, CheckCircle, AlertCircle } from 'lucide-react';
-import { OrionCard } from '@/components/orion';
-import { HoverCard } from '@/components/motion';
+import {
+  Shield, TrendingUp, TrendingDown,
+  AlertTriangle, CheckCircle, AlertCircle,
+} from 'lucide-react';
 import { PayrollRiskData, RiskStatus, formatWorkforcePercentage } from '@/lib/workforce-data';
 import { cn } from '@/lib/utils';
 import { motion } from 'framer-motion';
@@ -14,65 +15,66 @@ interface PayrollRiskIndicatorProps {
   compact?: boolean;
 }
 
-const statusConfig: Record<RiskStatus, {
+const STATUS: Record<RiskStatus, {
   icon: typeof CheckCircle;
   color: string;
-  bgColor: string;
-  borderColor: string;
-  glowColor: string;
+  bg: string;
+  border: string;
   label: string;
+  arcColor: string;
+  railFrom: string;
 }> = {
   healthy: {
     icon: CheckCircle,
     color: 'text-ig-success',
-    bgColor: 'bg-ig-success/10',
-    borderColor: 'border-ig-success/25',
-    glowColor: '',
+    bg: 'bg-ig-success/10',
+    border: 'border-ig-success/25',
     label: 'Saudável',
+    arcColor: '#22C55E',
+    railFrom: 'from-ig-success',
   },
   attention: {
     icon: AlertTriangle,
     color: 'text-ig-warning',
-    bgColor: 'bg-ig-warning/10',
-    borderColor: 'border-ig-warning/25',
-    glowColor: '',
+    bg: 'bg-ig-warning/10',
+    border: 'border-ig-warning/25',
     label: 'Atenção',
+    arcColor: '#F59E0B',
+    railFrom: 'from-ig-warning',
   },
   risk: {
     icon: AlertCircle,
     color: 'text-ig-danger',
-    bgColor: 'bg-ig-danger/10',
-    borderColor: 'border-ig-danger/25',
-    glowColor: '',
+    bg: 'bg-ig-danger/10',
+    border: 'border-ig-danger/25',
     label: 'Risco',
+    arcColor: '#EF4444',
+    railFrom: 'from-ig-danger',
   },
 };
 
-export function PayrollRiskIndicator({ data, className, compact = false }: PayrollRiskIndicatorProps) {
-  const config = statusConfig[data.status];
-  const StatusIcon = config.icon;
-  
-  const delta = useMemo(() => 
-    data.payrollGrowth - data.revenueGrowth,
-    [data.payrollGrowth, data.revenueGrowth]
-  );
+// Total arc length for M 20 80 A 60 60 0 0 1 140 80 (semicircle r=60) ≈ π×60 ≈ 188.5
+const ARC_LEN = 188;
 
-  // Calculate gauge percentage (inverted: 100 = healthy, 0 = risk)
-  const gaugePercent = data.riskScore;
+export function PayrollRiskIndicator({ data, className, compact = false }: PayrollRiskIndicatorProps) {
+  const cfg = STATUS[data.status];
+  const StatusIcon = cfg.icon;
+
+  const delta = useMemo(
+    () => data.payrollGrowth - data.revenueGrowth,
+    [data.payrollGrowth, data.revenueGrowth],
+  );
 
   if (compact) {
     return (
       <div className={cn(
-        'flex items-center gap-3 p-3 rounded-xl',
-        config.bgColor,
-        'border',
-        config.borderColor,
-        className
+        'flex items-center gap-3 p-3 rounded-xl border',
+        cfg.bg, cfg.border, className,
       )}>
-        <StatusIcon className={cn('w-5 h-5', config.color)} />
+        <StatusIcon className={cn('w-5 h-5', cfg.color)} />
         <div className="flex-1">
           <p className="text-xs text-ig-fg-muted">Risco de Folha</p>
-          <p className={cn('text-sm font-semibold', config.color)}>{config.label}</p>
+          <p className={cn('text-sm font-semibold', cfg.color)}>{cfg.label}</p>
         </div>
         <div className="text-right">
           <p className="text-xs text-ig-fg-muted">Score</p>
@@ -83,163 +85,127 @@ export function PayrollRiskIndicator({ data, className, compact = false }: Payro
   }
 
   return (
-    <HoverCard preset="card" lightSweep>
-      <OrionCard 
-        variant="elevated" 
-        className={cn(config.glowColor, className)}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            <div className={cn('p-2.5 rounded-xl', config.bgColor, 'border', config.borderColor)}>
-              <Shield className={cn('w-5 h-5', config.color)} />
-            </div>
-            <div>
-              <h3 className="text-base font-semibold text-ig-fg-strong tracking-tight">
-                Indicador de Risco de Folha
-              </h3>
-              <p className="text-xs text-ig-fg-muted">
-                Crescimento folha vs receita
-              </p>
-            </div>
+    <div className={cn('rounded-2xl border border-ig-border-subtle overflow-hidden', className)}>
+      {/* Top gradient rail */}
+      <div className={cn('h-[3px] bg-gradient-to-r to-transparent via-transparent/40', cfg.railFrom)} />
+
+      {/* Header */}
+      <div className="flex items-center justify-between px-5 py-3.5 border-b border-ig-border-subtle/60 bg-gradient-to-r from-ig-panel to-ig-panel/60">
+        <div className="flex items-center gap-2.5">
+          <div className={cn('p-1.5 rounded-lg border shrink-0', cfg.bg, cfg.border)}>
+            <Shield className={cn('w-3.5 h-3.5', cfg.color)} />
           </div>
-          <div className={cn(
-            'flex items-center gap-2 px-3 py-1.5 rounded-full',
-            config.bgColor,
-            'border',
-            config.borderColor
-          )}>
-            <StatusIcon className={cn('w-4 h-4', config.color)} />
-            <span className={cn('text-sm font-semibold', config.color)}>
-              {config.label}
-            </span>
+          <div>
+            <span className="text-xs font-semibold text-ig-fg-strong">Indicador de Risco de Folha</span>
+            <p className="text-[10px] text-ig-fg-subtle leading-none mt-0.5">Crescimento folha vs receita</p>
           </div>
         </div>
+        <div className={cn(
+          'flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-bold',
+          cfg.bg, cfg.border, cfg.color,
+        )}>
+          <StatusIcon className="w-3 h-3 shrink-0" />
+          {cfg.label}
+        </div>
+      </div>
 
-        {/* Gauge Visualization */}
-        <div className="relative flex items-center justify-center mb-6">
-          <svg viewBox="0 0 120 70" className="w-full max-w-[200px]">
-            {/* Background arc */}
-            <path
-              d="M 10 60 A 50 50 0 0 1 110 60"
-              fill="none"
-              stroke="var(--ig-border-default)"
-              strokeWidth="8"
-              strokeLinecap="round"
-            />
-            {/* Colored arc based on score */}
+      {/* Body */}
+      <div className="px-5 py-4 space-y-4 bg-ig-panel">
+
+        {/* Gauge */}
+        <div className="flex items-center justify-center">
+          <svg viewBox="0 0 160 100" className="w-full max-w-[220px]">
+            {/* Zone bands: green [0,63] · yellow [63,126] · red [126,188] */}
+            <path d="M 20 80 A 60 60 0 0 1 140 80" fill="none"
+              stroke="#22C55E" strokeOpacity="0.18" strokeWidth="12" strokeLinecap="butt"
+              strokeDasharray="63 125" strokeDashoffset="0" />
+            <path d="M 20 80 A 60 60 0 0 1 140 80" fill="none"
+              stroke="#F59E0B" strokeOpacity="0.18" strokeWidth="12" strokeLinecap="butt"
+              strokeDasharray="63 125" strokeDashoffset="125" />
+            <path d="M 20 80 A 60 60 0 0 1 140 80" fill="none"
+              stroke="#EF4444" strokeOpacity="0.18" strokeWidth="12" strokeLinecap="butt"
+              strokeDasharray="62 126" strokeDashoffset="62" />
+
+            {/* Value arc */}
             <motion.path
-              d="M 10 60 A 50 50 0 0 1 110 60"
+              d="M 20 80 A 60 60 0 0 1 140 80"
               fill="none"
-              stroke={
-                data.status === 'healthy'
-                  ? 'var(--ig-success)'
-                  : data.status === 'attention'
-                  ? 'var(--ig-warning)'
-                  : 'var(--ig-danger)'
-              }
-              strokeWidth="8"
+              stroke={cfg.arcColor}
+              strokeWidth="10"
               strokeLinecap="round"
-              strokeDasharray="157"
-              initial={{ strokeDashoffset: 157 }}
-              animate={{ strokeDashoffset: 157 - (157 * gaugePercent / 100) }}
-              transition={{ duration: 1, ease: 'easeOut' }}
+              strokeDasharray={ARC_LEN}
+              initial={{ strokeDashoffset: ARC_LEN }}
+              animate={{ strokeDashoffset: ARC_LEN - (ARC_LEN * data.riskScore / 100) }}
+              transition={{ duration: 1.2, ease: 'easeOut' }}
             />
-            {/* Score text */}
-            <text
-              x="60"
-              y="55"
-              textAnchor="middle"
-              className="ig-tabular"
-              style={{ fontSize: '24px', fontWeight: 600, fill: 'var(--ig-fg-strong)', letterSpacing: '-0.02em' }}
-            >
+
+            {/* Score */}
+            <text x="80" y="73" textAnchor="middle"
+              style={{ fontSize: '30px', fontWeight: 700, fill: 'var(--ig-fg-strong)', letterSpacing: '-0.03em', fontVariantNumeric: 'tabular-nums' }}>
               {data.riskScore}
             </text>
-            <text
-              x="60"
-              y="68"
-              textAnchor="middle"
-              style={{ fontSize: '8px', fontWeight: 600, letterSpacing: '0.16em', fill: 'var(--ig-fg-subtle)' }}
-            >
+            <text x="80" y="87" textAnchor="middle"
+              style={{ fontSize: '8.5px', fontWeight: 700, letterSpacing: '0.18em', fill: 'var(--ig-fg-subtle)' }}>
               SCORE
             </text>
           </svg>
         </div>
 
-        {/* Growth Comparison */}
-        <div className="grid grid-cols-2 gap-4 mb-4">
-          {/* Payroll Growth */}
-          <div className="p-3 rounded-lg bg-ig-panel border border-ig-border-subtle">
-            <div className="flex items-center gap-2 mb-1">
-              <TrendingUp className="w-4 h-4 text-ig-fg-subtle" />
-              <span className="text-[10.5px] font-semibold tracking-wider uppercase text-ig-fg-subtle">Crescimento Folha</span>
+        {/* Growth grid */}
+        <div className="grid grid-cols-2 gap-3">
+          <div className="px-3 py-2.5 rounded-xl bg-ig-panel border border-ig-border-subtle">
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <TrendingUp className="w-3 h-3 text-ig-fg-subtle shrink-0" />
+              <span className="text-[9.5px] font-bold uppercase tracking-[0.12em] text-ig-fg-subtle">Crescimento Folha</span>
             </div>
             <p className={cn(
-              'text-lg font-semibold ig-tabular tracking-tight',
-              data.payrollGrowth > data.revenueGrowth
-                ? 'text-ig-warning'
-                : 'text-ig-fg-strong'
+              'text-lg font-bold ig-tabular leading-none',
+              data.payrollGrowth > data.revenueGrowth ? 'text-ig-warning' : 'text-ig-fg-strong',
             )}>
               {formatWorkforcePercentage(data.payrollGrowth)}
             </p>
           </div>
-
-          {/* Revenue Growth */}
-          <div className="p-3 rounded-lg bg-ig-panel border border-ig-border-subtle">
-            <div className="flex items-center gap-2 mb-1">
-              <TrendingDown className="w-4 h-4 text-ig-fg-subtle" />
-              <span className="text-[10.5px] font-semibold tracking-wider uppercase text-ig-fg-subtle">Crescimento Receita</span>
+          <div className="px-3 py-2.5 rounded-xl bg-ig-panel border border-ig-border-subtle">
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <TrendingDown className="w-3 h-3 text-ig-fg-subtle shrink-0" />
+              <span className="text-[9.5px] font-bold uppercase tracking-[0.12em] text-ig-fg-subtle">Crescimento Receita</span>
             </div>
-            <p className="text-lg font-semibold text-ig-success ig-tabular tracking-tight">
+            <p className="text-lg font-bold text-ig-success ig-tabular leading-none">
               {formatWorkforcePercentage(data.revenueGrowth)}
             </p>
           </div>
         </div>
 
-        {/* Delta Indicator */}
+        {/* Delta banner */}
         <div className={cn(
-          'p-3 rounded-lg border',
-          delta > 0 ? config.bgColor : 'bg-ig-success/10',
-          delta > 0 ? config.borderColor : 'border-ig-success/25'
+          'flex items-center justify-between px-4 py-2.5 rounded-xl border',
+          delta > 0 ? `${cfg.bg} ${cfg.border}` : 'bg-ig-success/8 border-ig-success/20',
         )}>
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-ig-fg-muted">
-              Diferencial (Folha - Receita)
-            </span>
-            <span className={cn(
-              'text-sm font-semibold ig-tabular',
-              delta > 5
-                ? 'text-ig-danger'
-                : delta > 0
-                ? 'text-ig-warning'
-                : 'text-ig-success'
-            )}>
-              {delta > 0 ? '+' : ''}{delta.toFixed(1)} p.p.
-            </span>
-          </div>
+          <span className="text-[11px] text-ig-fg-muted">Diferencial Folha − Receita</span>
+          <span className={cn(
+            'text-sm font-bold ig-tabular',
+            delta > 5 ? 'text-ig-danger' : delta > 0 ? 'text-ig-warning' : 'text-ig-success',
+          )}>
+            {delta > 0 ? '+' : ''}{delta.toFixed(1)}&nbsp;p.p.
+          </span>
         </div>
 
         {/* Message */}
-        <div className="mt-4 p-3 rounded-lg bg-ig-panel/60 border border-ig-border-subtle">
-          <p className="text-xs text-ig-fg-default leading-relaxed">
-            <StatusIcon className={cn('w-3 h-3 inline mr-1', config.color)} />
-            {data.message}
-          </p>
+        <div className="flex gap-2.5 px-4 py-2.5 rounded-xl bg-ig-panel/60 border border-ig-border-subtle">
+          <StatusIcon className={cn('w-3.5 h-3.5 shrink-0 mt-0.5', cfg.color)} />
+          <p className="text-[11px] text-ig-fg-muted leading-relaxed">{data.message}</p>
         </div>
 
-        {/* Governance Health Integration Note */}
-        <div className="mt-4 pt-4 border-t border-ig-border-subtle">
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-ig-fg-muted">
-              Contribuição para Governance Health
-            </span>
-            <span className="text-ig-fg-default font-semibold ig-tabular">
-              Score: {data.riskScore}/100
-            </span>
-          </div>
+        {/* Governance footer */}
+        <div className="flex items-center justify-between pt-3 border-t border-ig-border-subtle/60">
+          <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-ig-fg-subtle">
+            Governance Health
+          </span>
+          <span className={cn('text-xs font-bold ig-tabular', cfg.color)}>
+            {data.riskScore}/100
+          </span>
         </div>
-      </OrionCard>
-    </HoverCard>
+      </div>
+    </div>
   );
 }
-
