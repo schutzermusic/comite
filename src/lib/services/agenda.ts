@@ -762,6 +762,7 @@ export async function createTask(input: CreateTaskInput): Promise<Task> {
       recurrence_until: input.recurrenceUntil ? new Date(input.recurrenceUntil).toISOString() : null,
       reminder_offsets: input.reminderOffsets ?? null,
       notify_emails: input.notifyEmails ?? [],
+      metadata: input.metadata ?? {},
     })
     .select('*')
     .single();

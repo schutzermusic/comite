@@ -5,6 +5,8 @@ const withNextIntl = createNextIntlPlugin('./src/i18n/request.ts');
 
 const nextConfig: NextConfig = {
   output: 'standalone',
+  // pdfjs-dist runs only in the Node runtime (MS Project PDF import route).
+  serverExternalPackages: ['pdfjs-dist'],
   typescript: {
     ignoreBuildErrors: true,
   },

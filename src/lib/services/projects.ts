@@ -505,7 +505,7 @@ export async function deleteProject(projectId: string): Promise<void> {
 export async function uploadProjectFile(
   projectId: string,
   file: File,
-  category: 'logo' | 'document' = 'document',
+  category: 'logo' | 'document' | 'cronograma' = 'document',
 ): Promise<{ publicUrl: string; path: string }> {
   if (!isSupabaseConfigured()) {
     throw new Error('Supabase não está configurado. Defina NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY.');

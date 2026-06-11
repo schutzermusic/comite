@@ -303,6 +303,8 @@ export interface CreateTaskInput {
   /** Optional "notificar também" free emails (notify-only). */
   notifyEmails?: string[];
   checklist?: string[];
+  /** Free-form metadata (e.g. related_timeline_item_id from Projetos). */
+  metadata?: Record<string, unknown>;
 }
 
 /** Patch shape for full task edit (detail drawer). */

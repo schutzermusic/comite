@@ -168,3 +168,84 @@ export function taskStatusEmail(p: TaskStatusParams): EmailContent {
     ),
   };
 }
+
+/* ───────────── Project timeline: assignment ───────────── */
+
+export interface TimelineAssignedParams {
+  projectName: string;
+  taskTitle: string;
+  wbsCode?: string | null;
+  roleLabel: string; // "Responsável" | "Equipe de execução"
+  assignerName?: string | null;
+  dueLabel?: string | null;
+  statusLabel?: string | null;
+  detailUrl?: string | null;
+}
+
+export function timelineAssignedEmail(p: TimelineAssignedParams): EmailContent {
+  const rows = [
+    row('Projeto', escapeHtml(p.projectName)),
+    p.wbsCode ? row('EDT', escapeHtml(p.wbsCode)) : '',
+    row('Papel', escapeHtml(p.roleLabel)),
+    p.assignerName ? row('Atribuída por', escapeHtml(p.assignerName)) : '',
+    p.dueLabel ? row('Término planejado', escapeHtml(p.dueLabel)) : '',
+    p.statusLabel ? row('Status', escapeHtml(p.statusLabel)) : '',
+    row('Ação requerida', 'Revise a atividade e mantenha status e progresso atualizados.'),
+  ]
+    .filter(Boolean)
+    .join('');
+
+  return {
+    subject: `Atividade do cronograma atribuída: ${p.taskTitle} — ${p.projectName}`,
+    html: shell(
+      `Atividade atribuída: "${p.taskTitle}"`,
+      rows,
+      p.detailUrl ? 'Abrir atividade' : undefined,
+      p.detailUrl ?? undefined,
+    ),
+  };
+}
+
+/* ───────────── Project timeline: delay report ───────────── */
+
+export interface TimelineDelayParams {
+  projectName: string;
+  taskTitle: string;
+  wbsCode?: string | null;
+  statusLabel: string;
+  reasonLabel?: string | null;
+  newForecastLabel?: string | null;
+  reportedByName?: string | null;
+  /** true = pedindo justificativa; false = informando atraso reportado. */
+  actionRequired: boolean;
+  detailUrl?: string | null;
+}
+
+export function timelineDelayEmail(p: TimelineDelayParams): EmailContent {
+  const rows = [
+    row('Projeto', escapeHtml(p.projectName)),
+    p.wbsCode ? row('EDT', escapeHtml(p.wbsCode)) : '',
+    row('Status', escapeHtml(p.statusLabel)),
+    p.reasonLabel ? row('Motivo', escapeHtml(p.reasonLabel)) : '',
+    p.newForecastLabel ? row('Novo término previsto', escapeHtml(p.newForecastLabel)) : '',
+    p.reportedByName ? row('Reportado por', escapeHtml(p.reportedByName)) : '',
+    row(
+      'Ação requerida',
+      p.actionRequired
+        ? 'Informe o motivo do atraso, o impacto e o plano de recuperação.'
+        : 'Avalie o impacto no cronograma e o plano de recuperação proposto.',
+    ),
+  ]
+    .filter(Boolean)
+    .join('');
+
+  return {
+    subject: `Atraso no cronograma: ${p.taskTitle} — ${p.projectName}`,
+    html: shell(
+      `Atividade em atraso: "${p.taskTitle}"`,
+      rows,
+      p.detailUrl ? 'Abrir atividade' : undefined,
+      p.detailUrl ?? undefined,
+    ),
+  };
+}

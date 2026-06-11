@@ -38,20 +38,24 @@ import {
 } from '@/components/hud';
 import { votes, meetings, users as mockUsers } from '@/lib/mock-data';
 import { getProjectByIdAsync, getProjectV2ByIdAsync } from '@/lib/services/projects';
-import { TimelineGanttView } from '@/components/projects/timeline-gantt-view';
+import { TimelineTab } from '@/components/projects/timeline/TimelineTab';
+import { TimelineOverviewKpis } from '@/components/projects/timeline/TimelineOverviewKpis';
+import { ProjectContractTab } from '@/components/projects/ProjectContractTab';
+import { ProjectRisksTab } from '@/components/projects/ProjectRisksTab';
+import { ProjectDocumentsView } from '@/components/projects/ProjectDocumentsView';
 import { TeamAllocationView } from '@/components/projects/team-allocation-view';
 import { ActionCenter } from '@/components/projects/ActionCenter';
 import { RiskCardV2 } from '@/components/projects/RiskCardV2';
 import { ContractBillingEventogramCard } from '@/components/projects/ContractBillingEventogramCard';
 import { FinanceView } from '@/components/projects/FinanceView';
-import { ProjectTask, ProjectAllocation } from '@/lib/types';
+import { ProjectAllocation } from '@/lib/types';
 import type { ProjectV2 } from '@/lib/types/project-v2';
 import { getRiskLevelFromScore, getRiskLevelLabel } from '@/lib/utils/project-utils';
 import { projectSerial } from '@/lib/utils/serial';
 import { getHealthScoreColor, getHealthScoreLabel, formatMoney } from '@/lib/utils/project-utils';
 import { mockAllocationsV2 } from '@/data/mock-projects-v2';
 import Link from 'next/link';
-import { format, addDays } from 'date-fns';
+import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 export default function DetalheProjetoPage({ params }: { params: Promise<{ id: string }> }) {
@@ -60,7 +64,7 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
   const searchParams = useSearchParams();
   const initialTab = (() => {
     const t = searchParams?.get('tab');
-    return t && ['overview', 'timeline', 'team', 'finance'].includes(t) ? t : 'overview';
+    return t && ['overview', 'timeline', 'contract', 'finance', 'risks', 'documents', 'team'].includes(t) ? t : 'overview';
   })();
   const [projeto, setProjeto] = useState<Awaited<ReturnType<typeof getProjectByIdAsync>>>(undefined);
   const [projetoV2, setProjetoV2] = useState<ProjectV2 | undefined>(undefined);
@@ -170,60 +174,6 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
   const comiteNome = projeto.comiteResponsavel || projeto.comite_nome || '';
   const pautasRelacionadas = comiteNome ? votes.filter(v => v.comite === comiteNome) : [];
   const reunioesRelacionadas = comiteNome ? meetings.filter(m => m.comite === comiteNome) : [];
-
-  // Use v2 tasks if available, otherwise fallback to mock
-  const tasks: ProjectTask[] = projetoV2?.tasks?.length
-    ? projetoV2.tasks.map(t => ({
-      id: t.id,
-      projectId: t.projectId,
-      name: t.name,
-      description: t.description,
-      startDate: new Date(t.startDate),
-      endDate: new Date(t.endDate),
-      status: t.status,
-      responsibleId: t.responsibleId,
-      responsibleName: t.responsibleName,
-      milestone: t.milestone,
-      dependencies: t.dependencies,
-      progress: t.progress,
-    }))
-    : [
-      {
-        id: '1',
-        projectId: id,
-        name: 'Planejamento Inicial',
-        description: 'Definição de escopo e requisitos',
-        startDate: new Date(),
-        endDate: addDays(new Date(), 14),
-        status: 'completed' as const,
-        responsibleId: projeto.responsavel?.id || '',
-        responsibleName: projeto.responsavel?.nome || 'Não definido',
-        milestone: true,
-        progress: 100,
-      },
-      {
-        id: '2',
-        projectId: id,
-        name: 'Desenvolvimento MVP',
-        description: 'Primeira versão funcional',
-        startDate: addDays(new Date(), 15),
-        endDate: addDays(new Date(), 45),
-        status: 'in_progress' as const,
-        responsibleId: projeto.responsavel?.id || '',
-        responsibleName: projeto.responsavel?.nome || 'Não definido',
-        progress: 60,
-      },
-      {
-        id: '3',
-        projectId: id,
-        name: 'Testes e QA',
-        description: 'Validação de qualidade',
-        startDate: addDays(new Date(), 46),
-        endDate: addDays(new Date(), 60),
-        status: 'not_started' as const,
-        dependencies: ['2'],
-      },
-    ];
 
   // Use V2 allocations if available
   const v2Allocs = mockAllocationsV2[id];
@@ -476,19 +426,31 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
         <HudPanel noPadding>
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
             <div className="p-6 border-b hud-panel-divider" id="project-tabs">
-              <TabsList className="grid w-full grid-cols-4 lg:w-[800px] hud-tabs-container">
+              <TabsList className="grid w-full grid-cols-4 lg:grid-cols-7 hud-tabs-container">
                 <TabsTrigger value="overview" className="hud-tab-trigger">Visão Geral</TabsTrigger>
                 <TabsTrigger value="timeline" className="hud-tab-trigger">
                   <GanttChart className="w-4 h-4 mr-2" />
                   Timeline
                 </TabsTrigger>
-                <TabsTrigger value="team" className="hud-tab-trigger">
-                  <UserCog className="w-4 h-4 mr-2" />
-                  Equipe
+                <TabsTrigger value="contract" className="hud-tab-trigger">
+                  <FileText className="w-4 h-4 mr-2" />
+                  Contrato
                 </TabsTrigger>
                 <TabsTrigger value="finance" className="hud-tab-trigger">
                   <DollarSign className="w-4 h-4 mr-2" />
                   Financeiro
+                </TabsTrigger>
+                <TabsTrigger value="risks" className="hud-tab-trigger">
+                  <ShieldAlert className="w-4 h-4 mr-2" />
+                  Riscos
+                </TabsTrigger>
+                <TabsTrigger value="documents" className="hud-tab-trigger">
+                  <FileText className="w-4 h-4 mr-2" />
+                  Documentos
+                </TabsTrigger>
+                <TabsTrigger value="team" className="hud-tab-trigger">
+                  <UserCog className="w-4 h-4 mr-2" />
+                  Equipe
                 </TabsTrigger>
               </TabsList>
             </div>
@@ -496,6 +458,7 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
             <div className="p-6 pt-2">
               <TabsContent value="overview" className="mt-0">
                 <div className="space-y-4">
+                  <TimelineOverviewKpis projectId={id} onOpenTimeline={() => setActiveTab('timeline')} />
                   <h3 className="mb-4 text-ig-h3 font-semibold text-ig-fg-strong">Informações do Projeto</h3>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div>
@@ -566,14 +529,23 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
               </TabsContent>
 
               <TabsContent value="timeline" className="mt-0">
-                <TimelineGanttView
+                <TimelineTab
                   projectId={id}
-                  tasks={tasks}
-                  onAddTask={(task) => {
-                    console.log('Add task:', task);
-                  }}
-                  onTaskClick={(task) => console.log('Task clicked:', task)}
+                  projectName={projeto.nome}
+                  projectManagerUserId={projeto.responsavel?.id ?? null}
                 />
+              </TabsContent>
+
+              <TabsContent value="contract" className="mt-0">
+                <ProjectContractTab projectId={id} />
+              </TabsContent>
+
+              <TabsContent value="risks" className="mt-0">
+                <ProjectRisksTab projectId={id} />
+              </TabsContent>
+
+              <TabsContent value="documents" className="mt-0">
+                <ProjectDocumentsView projectId={id} />
               </TabsContent>
 
               <TabsContent value="team" className="mt-0">

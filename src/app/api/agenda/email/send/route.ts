@@ -35,12 +35,18 @@ function isEmailList(v: unknown): v is string[] {
  * exactly like the payroll route. RESEND_API_KEY never reaches the client.
  */
 export async function POST(req: Request) {
-  // Either meetings.create or tasks.create is sufficient.
+  // meetings.create, tasks.create or projects.timeline.assign is sufficient
+  // (the project timeline reuses this route for assignment/delay e-mails).
   let guard = await requireApiPermission('meetings.create', { allowAdmin: true });
   if (!guard.ok) {
     const taskGuard = await requireApiPermission('tasks.create', { allowAdmin: true });
-    if (!taskGuard.ok) return guard.response;
-    guard = taskGuard;
+    if (taskGuard.ok) {
+      guard = taskGuard;
+    } else {
+      const timelineGuard = await requireApiPermission('projects.timeline.assign', { allowAdmin: true });
+      if (!timelineGuard.ok) return guard.response;
+      guard = timelineGuard;
+    }
   }
 
   let body: SendBody;
