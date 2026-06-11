@@ -16,6 +16,8 @@ export interface HudDrawerProps {
   className?: string;
   showCloseButton?: boolean;
   hideMainContent?: boolean;
+  /** Sticky footer rendered below the scroll area (action buttons). */
+  footer?: React.ReactNode;
 }
 
 export function HudDrawer({
@@ -28,6 +30,7 @@ export function HudDrawer({
   width = '420px',
   className,
   showCloseButton = true,
+  footer,
 }: HudDrawerProps) {
   // Lock body scroll when drawer is open
   useEffect(() => {
@@ -112,6 +115,12 @@ export function HudDrawer({
               <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain p-4 [-webkit-overflow-scrolling:touch]">
                 {children}
               </div>
+
+              {footer && (
+                <div className="shrink-0 border-t border-ig-border p-4">
+                  {footer}
+                </div>
+              )}
             </div>
           </motion.div>
         </>

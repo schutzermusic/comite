@@ -37,6 +37,8 @@ export interface HudPanelProps {
   iconTint?: string;
   metallic?: boolean;
   parallax?: boolean;
+  /** Makes the panel fill its CSS-Grid / flex container height. Propagates h-full through the glass layers. */
+  fullHeight?: boolean;
 }
 
 export function HudPanel({
@@ -60,6 +62,7 @@ export function HudPanel({
   delay = 0,
   metallic = false,
   parallax = false,
+  fullHeight = false,
 }: HudPanelProps) {
   const hasHeader = Boolean(title || icon);
   const shouldReduceMotion = useReducedMotion();
@@ -75,11 +78,11 @@ export function HudPanel({
           ? { duration: 0 }
           : { duration: 0.4, delay, ease: [0.22, 1, 0.36, 1] }
       }
-      className={cn(halo && "ig-glass-halo", className)}
+      className={cn(halo && "ig-glass-halo", fullHeight && "flex h-full flex-col", className)}
     >
       <div
         ref={parallaxEnabled ? parallaxGlass.containerRef : undefined}
-        className="ig-glass"
+        className={cn("ig-glass", fullHeight && "flex h-full flex-col")}
         data-elev={elevation}
         data-state={state !== "default" ? state : undefined}
         data-interactive={interactive || undefined}
@@ -93,7 +96,7 @@ export function HudPanel({
         {sweep && <span data-ig-sweep="" />}
         {parallaxEnabled && <span data-ig-spotlight="" />}
 
-        <div data-ig-content="">
+        <div data-ig-content="" className={fullHeight ? "flex h-full flex-col" : undefined}>
           {hasHeader && (
             <header className="flex items-start justify-between px-5 pt-4 pb-3">
               <div className="flex min-w-0 items-center gap-3">
@@ -159,7 +162,7 @@ export function HudPanel({
             <div className="mx-5 h-px bg-gradient-to-r from-transparent via-ig-border to-transparent" />
           )}
 
-          <div className={cn(!noPadding && "px-5 py-4", hasHeader && !noPadding && "pt-4")}>
+          <div className={cn(!noPadding && "px-5 py-4", hasHeader && !noPadding && "pt-4", fullHeight && "flex-1 min-h-0")}>
             {children}
           </div>
 

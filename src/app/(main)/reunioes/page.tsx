@@ -1,12 +1,22 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
+import { endOfWeek, startOfWeek } from 'date-fns';
 import { CalendarDays, ClipboardList, ListTodo, Plus, UserCheck } from 'lucide-react';
-import { HudButton, HudHeader, HudPageLayout, HudTabs, type HudTab } from '@/components/hud';
+import { HudButton, HudHeader, HudModal, HudPageLayout, HudTabs, type HudTab } from '@/components/hud';
 import { useCurrentUser } from '@/hooks/use-current-user';
-import type { CalendarItem, OrgMember } from '@/lib/types/agenda';
-import { listOrgMembers } from '@/lib/services/agenda';
+import type {
+  CalendarEvent,
+  CalendarFilterKey,
+  CalendarItem,
+  CreateTaskInput,
+  OrgMember,
+  Task,
+} from '@/lib/types/agenda';
+import { listCalendarEvents, listOrgMembers, listTasks } from '@/lib/services/agenda';
 import {
+  AgendaSummaryStrip,
+  type AgendaSummary,
   CalendarView,
   MeetingsList,
   MeetingDetailDrawer,
@@ -16,6 +26,16 @@ import {
   TaskDetailDrawer,
   TasksList,
 } from '@/components/agenda/calendar';
+
+/** Summary card → tab + calendar filter activation. */
+const CARD_ACTIONS: Record<keyof AgendaSummary, { tab: string; filters: CalendarFilterKey[] }> = {
+  myOpen: { tab: 'pendings', filters: [] },
+  overdue: { tab: 'calendar', filters: ['tasks', 'overdue'] },
+  meetingsThisWeek: { tab: 'calendar', filters: ['meetings', 'this_week'] },
+  criticalDeadlines: { tab: 'calendar', filters: ['tasks', 'high_priority', 'pending'] },
+  waiting: { tab: 'tasks', filters: [] },
+  doneThisMonth: { tab: 'calendar', filters: ['done'] },
+};
 
 export default function AgendaPage() {
   const { user, permissions, roles } = useCurrentUser();
@@ -38,11 +58,31 @@ export default function AgendaPage() {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('calendar');
 
+  // Prefills: criar a partir de reunião / clicar num dia vazio.
+  const [taskPrefill, setTaskPrefill] = useState<Partial<CreateTaskInput> | null>(null);
+  const [createDate, setCreateDate] = useState<Date | null>(null);
+  const [dayChooserOpen, setDayChooserOpen] = useState(false);
+
+  // Summary strip data + filtros disparados pelos cards.
+  const [summaryTasks, setSummaryTasks] = useState<Task[]>([]);
+  const [summaryEvents, setSummaryEvents] = useState<CalendarEvent[]>([]);
+  const [filterSeed, setFilterSeed] = useState<{ token: number; filters: CalendarFilterKey[] } | null>(null);
+
   useEffect(() => {
     listOrgMembers()
       .then(setMembers)
       .catch(() => setMembers([]));
   }, []);
+
+  useEffect(() => {
+    const now = new Date();
+    listTasks()
+      .then(setSummaryTasks)
+      .catch(() => setSummaryTasks([]));
+    listCalendarEvents(startOfWeek(now, { weekStartsOn: 1 }), endOfWeek(now, { weekStartsOn: 1 }))
+      .then(setSummaryEvents)
+      .catch(() => setSummaryEvents([]));
+  }, [reloadToken]);
 
   // Deep links from notifications / e-mails / legacy routes:
   // ?event=<id>, ?task=<id>, ?new=meeting|task.
@@ -63,12 +103,55 @@ export default function AgendaPage() {
     else setSelectedTaskId(item.id);
   };
 
+  const handleCreateAt = (day: Date) => {
+    setCreateDate(day);
+    if (canCreateMeeting && canCreateTask) {
+      setDayChooserOpen(true);
+    } else if (canCreateMeeting) {
+      setMeetingModalOpen(true);
+    } else if (canCreateTask) {
+      setTaskModalOpen(true);
+    }
+  };
+
+  const handleCreateTaskFromMeeting = (prefill: Partial<CreateTaskInput>) => {
+    setTaskPrefill(prefill);
+    setTaskModalOpen(true);
+  };
+
+  const handleCardClick = (card: keyof AgendaSummary) => {
+    const action = CARD_ACTIONS[card];
+    setActiveTab(action.tab);
+    if (action.filters.length > 0) {
+      setFilterSeed({ token: Date.now(), filters: action.filters });
+    }
+  };
+
+  const closeTaskModal = () => {
+    setTaskModalOpen(false);
+    setTaskPrefill(null);
+    setCreateDate(null);
+  };
+  const closeMeetingModal = () => {
+    setMeetingModalOpen(false);
+    setCreateDate(null);
+  };
+
   const tabs: HudTab[] = [
     {
       id: 'calendar',
       label: 'Calendário',
       icon: <CalendarDays className="h-4 w-4" />,
-      content: <CalendarView members={members} currentUserId={currentUserId} reloadToken={reloadToken} onSelectItem={handleSelectItem} />,
+      content: (
+        <CalendarView
+          members={members}
+          currentUserId={currentUserId}
+          reloadToken={reloadToken}
+          onSelectItem={handleSelectItem}
+          onCreateAt={canCreateMeeting || canCreateTask ? handleCreateAt : undefined}
+          filterSeed={filterSeed}
+        />
+      ),
     },
     {
       id: 'meetings',
@@ -114,21 +197,74 @@ export default function AgendaPage() {
         }
       />
 
+      <AgendaSummaryStrip
+        tasks={summaryTasks}
+        events={summaryEvents}
+        currentUserId={currentUserId}
+        onCardClick={handleCardClick}
+      />
+
       <HudTabs tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} variant="pills" />
+
+      {/* Escolha rápida ao clicar "+" num dia do calendário */}
+      <HudModal
+        isOpen={dayChooserOpen}
+        onClose={() => {
+          setDayChooserOpen(false);
+          setCreateDate(null);
+        }}
+        title="Criar neste dia"
+        subtitle={createDate ? createDate.toLocaleDateString('pt-BR') : undefined}
+        size="sm"
+      >
+        <div className="flex flex-col gap-2">
+          <HudButton
+            variant="primary"
+            fullWidth
+            leftIcon={<CalendarDays className="h-4 w-4" />}
+            onClick={() => {
+              setDayChooserOpen(false);
+              setMeetingModalOpen(true);
+            }}
+          >
+            Nova reunião
+          </HudButton>
+          <HudButton
+            variant="secondary"
+            fullWidth
+            leftIcon={<ClipboardList className="h-4 w-4" />}
+            onClick={() => {
+              setDayChooserOpen(false);
+              setTaskModalOpen(true);
+            }}
+          >
+            Nova tarefa
+          </HudButton>
+        </div>
+      </HudModal>
 
       <NewMeetingModal
         isOpen={meetingModalOpen}
-        onClose={() => setMeetingModalOpen(false)}
+        onClose={closeMeetingModal}
         members={members}
         onCreated={bump}
+        defaultDate={createDate}
       />
-      <NewTaskModal isOpen={taskModalOpen} onClose={() => setTaskModalOpen(false)} members={members} onCreated={bump} />
+      <NewTaskModal
+        isOpen={taskModalOpen}
+        onClose={closeTaskModal}
+        members={members}
+        onCreated={bump}
+        defaultDueDate={createDate}
+        prefill={taskPrefill}
+      />
 
       <MeetingDetailDrawer
         isOpen={selectedEventId != null}
         eventId={selectedEventId}
         onClose={() => setSelectedEventId(null)}
         onChanged={bump}
+        onCreateTask={canCreateTask ? handleCreateTaskFromMeeting : undefined}
       />
       <TaskDetailDrawer
         isOpen={selectedTaskId != null}

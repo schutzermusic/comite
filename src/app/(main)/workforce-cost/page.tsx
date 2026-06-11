@@ -311,9 +311,6 @@ function WorkforceCostPageInner() {
   const latestEfficiency = efficiency[efficiency.length - 1];
   const latestTurnover = turnoverTrend[turnoverTrend.length - 1];
   const latestOvertime = overtime[overtime.length - 1];
-  const avgAbsenteeism = absenteeism.length > 0
-    ? absenteeism.reduce((s, a) => s + a.pct, 0) / absenteeism.length
-    : 0;
   const maxAbsenteeism = absenteeism.length > 0 ? absenteeism[0].pct : 0;
   const latestComposition = composition[composition.length - 1];
   const benefitsTotal = latestComposition ? latestComposition.benefits : undefined;
@@ -353,16 +350,6 @@ function WorkforceCostPageInner() {
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <WorkforcePeriodFilter value={period} onChange={setPeriod} />
-            {canSeePayroll && (
-              <HudButton
-                variant="primary"
-                size="sm"
-                leftIcon={<FileSpreadsheet className="w-4 h-4" />}
-                onClick={goToPayrollClosing}
-              >
-                Fechamento da Folha
-              </HudButton>
-            )}
             <HudButton variant="secondary" size="sm" leftIcon={<Share2 className="w-4 h-4" />}>
               Compartilhar
             </HudButton>
@@ -377,36 +364,6 @@ function WorkforceCostPageInner() {
           </div>
         }
       />
-
-      {/* Payroll closing entry */}
-      {canSeePayroll && (
-        <section>
-          <div className="relative overflow-hidden rounded-2xl border border-ig-border-focus/40 bg-ig-panel p-5 shadow-[var(--ig-shadow-e1)]">
-            <div className="pointer-events-none absolute inset-y-0 left-0 w-1 bg-ig-accent/70" />
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <div className="flex min-w-0 items-start gap-3">
-                <div className="shrink-0 rounded-xl bg-ig-accent-weak p-2.5">
-                  <FileSpreadsheet className="h-5 w-5 text-ig-accent" />
-                </div>
-                <div className="min-w-0">
-                  <h3 className="text-base font-semibold text-ig-fg-strong">Fechamento da Folha</h3>
-                  <p className="text-sm text-ig-fg-muted">
-                    Importar folha, gerar análise com IA, anexar holerites e enviar por e-mail.
-                  </p>
-                </div>
-              </div>
-              <HudButton
-                variant="primary"
-                leftIcon={<FileSpreadsheet className="h-4 w-4" />}
-                rightIcon={<ArrowRight className="h-4 w-4" />}
-                onClick={goToPayrollClosing}
-              >
-                Novo fechamento
-              </HudButton>
-            </div>
-          </div>
-        </section>
-      )}
 
       {/* Cost Center Drilldown (conditional) */}
       {selectedCostCenter && (
@@ -425,7 +382,6 @@ function WorkforceCostPageInner() {
           meta={workforce.meta}
           extended={{
             turnoverPct: latestTurnover?.turnoverPct,
-            absenteeismPct: avgAbsenteeism,
             overtimePct: latestOvertime?.overtimePct,
             benefitsTotal,
             chargesTotal,
@@ -462,6 +418,36 @@ function WorkforceCostPageInner() {
           currency={workforce.costConcentration.currency}
         />
       </section>
+
+      {/* Payroll closing entry */}
+      {canSeePayroll && (
+        <section>
+          <div className="relative overflow-hidden rounded-2xl border border-ig-border-focus/40 bg-ig-panel p-5 shadow-[var(--ig-shadow-e1)]">
+            <div className="pointer-events-none absolute inset-y-0 left-0 w-1 bg-ig-accent/70" />
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="flex min-w-0 items-start gap-3">
+                <div className="shrink-0 rounded-xl bg-ig-accent-weak p-2.5">
+                  <FileSpreadsheet className="h-5 w-5 text-ig-accent" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-base font-semibold text-ig-fg-strong">Fechamento da Folha</h3>
+                  <p className="text-sm text-ig-fg-muted">
+                    Importar folha, gerar análise com IA, anexar holerites e enviar por e-mail.
+                  </p>
+                </div>
+              </div>
+              <HudButton
+                variant="primary"
+                leftIcon={<FileSpreadsheet className="h-4 w-4" />}
+                rightIcon={<ArrowRight className="h-4 w-4" />}
+                onClick={goToPayrollClosing}
+              >
+                Novo fechamento
+              </HudButton>
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* ── D. Headcount Dynamics ── */}
       <section className="space-y-3">

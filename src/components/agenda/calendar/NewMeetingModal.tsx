@@ -1,23 +1,33 @@
 'use client';
 
-import React, { useState } from 'react';
-import { Link2, MapPin, Send } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { ChevronDown, ChevronRight, Link2, MapPin, Paperclip, Send, X } from 'lucide-react';
 import { HudButton, HudInput, HudModal, HudSelect, useHudToast } from '@/components/hud';
-import type { EventVisibility, MeetingGuestInput, OrgMember } from '@/lib/types/agenda';
+import type { EventVisibility, MeetingGuestInput, MeetingReminderToken, OrgMember } from '@/lib/types/agenda';
 import { VISIBILITY_LABELS } from '@/lib/types/agenda';
 import { createMeeting } from '@/lib/services/agenda';
+import { uploadAttachment } from '@/lib/services/agenda-attachments';
 import { EmailChipsInput } from './EmailChipsInput';
+import { ModuleLinkPicker } from './ModuleLinkPicker';
+import { ReminderOffsetsField } from './ReminderOffsetsField';
+import type { RelatedLinks } from './module-links';
 
 interface Props {
   isOpen: boolean;
   onClose: () => void;
   members: OrgMember[];
   onCreated: () => void;
+  /** Prefill date (click on an empty calendar day). */
+  defaultDate?: Date | null;
 }
 
-const todayStr = () => new Date().toISOString().slice(0, 10);
+const toDateStr = (d: Date) => {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
+const todayStr = () => toDateStr(new Date());
 
-export function NewMeetingModal({ isOpen, onClose, members, onCreated }: Props) {
+export function NewMeetingModal({ isOpen, onClose, members, onCreated, defaultDate }: Props) {
   const { toast } = useHudToast();
   const [saving, setSaving] = useState(false);
 
@@ -26,10 +36,20 @@ export function NewMeetingModal({ isOpen, onClose, members, onCreated }: Props) 
   const [date, setDate] = useState(todayStr());
   const [startTime, setStartTime] = useState('09:00');
   const [endTime, setEndTime] = useState('10:00');
+  const [allDay, setAllDay] = useState(false);
   const [location, setLocation] = useState('');
   const [meetingLink, setMeetingLink] = useState('');
   const [visibility, setVisibility] = useState<EventVisibility>('personal');
   const [guests, setGuests] = useState<MeetingGuestInput[]>([]);
+  const [links, setLinks] = useState<RelatedLinks>({});
+  const [reminders, setReminders] = useState<MeetingReminderToken[] | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
+  useEffect(() => {
+    if (isOpen && defaultDate) setDate(toDateStr(defaultDate));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
 
   const reset = () => {
     setTitle('');
@@ -37,10 +57,15 @@ export function NewMeetingModal({ isOpen, onClose, members, onCreated }: Props) 
     setDate(todayStr());
     setStartTime('09:00');
     setEndTime('10:00');
+    setAllDay(false);
     setLocation('');
     setMeetingLink('');
     setVisibility('personal');
     setGuests([]);
+    setLinks({});
+    setReminders(null);
+    setFiles([]);
+    setShowAdvanced(false);
   };
 
   const handleClose = () => {
@@ -54,22 +79,39 @@ export function NewMeetingModal({ isOpen, onClose, members, onCreated }: Props) 
       toast({ title: 'Informe um título para a reunião.', variant: 'destructive' });
       return;
     }
-    if (!date || !startTime) {
+    if (!date || (!allDay && !startTime)) {
       toast({ title: 'Informe data e horário de início.', variant: 'destructive' });
       return;
     }
     setSaving(true);
     try {
-      await createMeeting({
+      const event = await createMeeting({
         title: title.trim(),
         description: description.trim() || undefined,
-        startsAt: `${date}T${startTime}`,
-        endsAt: endTime ? `${date}T${endTime}` : undefined,
+        startsAt: allDay ? `${date}T00:00` : `${date}T${startTime}`,
+        endsAt: allDay ? `${date}T23:59` : endTime ? `${date}T${endTime}` : undefined,
+        allDay,
         visibility,
         location: location.trim() || undefined,
         meetingLink: meetingLink.trim() || undefined,
+        ...links,
+        reminderOffsets: reminders,
         guests,
       });
+
+      // Anexos: best-effort após a criação.
+      let failedUploads = 0;
+      for (const file of files) {
+        try {
+          await uploadAttachment('event', event.id, file);
+        } catch {
+          failedUploads += 1;
+        }
+      }
+      if (failedUploads > 0) {
+        toast({ title: `${failedUploads} anexo(s) não pôde(ram) ser enviado(s).`, variant: 'destructive' });
+      }
+
       const internal = guests.filter((g) => !g.isExternal).length;
       toast({
         title: 'Reunião agendada!',
@@ -122,9 +164,19 @@ export function NewMeetingModal({ isOpen, onClose, members, onCreated }: Props) 
 
         <div className="grid gap-3 sm:grid-cols-3">
           <HudInput label="Data *" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-          <HudInput label="Início *" type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
-          <HudInput label="Término" type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
+          <HudInput label="Início *" type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} disabled={allDay} />
+          <HudInput label="Término" type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} disabled={allDay} />
         </div>
+
+        <label className="flex w-fit cursor-pointer items-center gap-2 text-sm text-ig-fg-muted">
+          <input
+            type="checkbox"
+            checked={allDay}
+            onChange={(e) => setAllDay(e.target.checked)}
+            className="h-4 w-4 rounded border-ig-border accent-[var(--ig-accent)]"
+          />
+          Dia inteiro
+        </label>
 
         <div className="grid gap-3 sm:grid-cols-2">
           <HudInput label="Local" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Sala / endereço" leftIcon={<MapPin className="h-4 w-4" />} />
@@ -145,6 +197,54 @@ export function NewMeetingModal({ isOpen, onClose, members, onCreated }: Props) 
             E-mails internos são vinculados ao usuário e recebem notificação no app; externos recebem apenas o convite por e-mail.
           </p>
         </div>
+
+        <ReminderOffsetsField kind="meeting" value={reminders} onChange={setReminders} />
+
+        <button
+          type="button"
+          onClick={() => setShowAdvanced((v) => !v)}
+          className="flex items-center gap-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-ig-fg-muted transition-colors hover:text-ig-fg-strong"
+        >
+          {showAdvanced ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+          Opções avançadas
+        </button>
+
+        {showAdvanced && (
+          <div className="flex flex-col gap-4 rounded-lg border border-ig-border-subtle bg-ig-panel/40 p-3">
+            <div className="flex flex-col gap-1.5">
+              <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-ig-fg-muted">
+                <Link2 className="h-3.5 w-3.5" />
+                Vincular a módulo
+              </span>
+              <ModuleLinkPicker value={links} onChange={setLinks} />
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-ig-fg-muted">
+                <Paperclip className="h-3.5 w-3.5" />
+                Anexos
+              </span>
+              <input
+                type="file"
+                multiple
+                onChange={(e) => setFiles((prev) => [...prev, ...Array.from(e.target.files ?? [])])}
+                className="text-xs text-ig-fg-muted file:mr-2 file:rounded-md file:border file:border-ig-border file:bg-ig-panel file:px-2.5 file:py-1 file:text-xs file:text-ig-fg-strong hover:file:bg-ig-panel-hover"
+              />
+              {files.length > 0 && (
+                <ul className="flex flex-col gap-1">
+                  {files.map((f, i) => (
+                    <li key={`${f.name}-${i}`} className="flex items-center justify-between rounded-md border border-ig-border-subtle bg-ig-panel px-2.5 py-1.5 text-xs text-ig-fg-strong">
+                      <span className="truncate">{f.name}</span>
+                      <button type="button" onClick={() => setFiles((prev) => prev.filter((_, idx) => idx !== i))} className="text-ig-fg-muted hover:text-ig-danger" aria-label="Remover anexo">
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </HudModal>
   );

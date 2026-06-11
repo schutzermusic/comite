@@ -1,7 +1,7 @@
 'use client';
 
 import {
-  Users, DollarSign, TrendingUp, Percent, UserMinus,
+  Users, DollarSign, TrendingUp, Percent,
   Activity, Clock,
 } from 'lucide-react';
 import { formatWorkforceCurrency, WorkforceMetrics } from '@/lib/workforce-data';
@@ -11,7 +11,6 @@ import { HudKpiStrip, type KpiItem } from '@/components/hud';
 
 interface ExtendedKpiProps {
   turnoverPct?: number;
-  absenteeismPct?: number;
   overtimePct?: number;
   benefitsTotal?: number;
   chargesTotal?: number;
@@ -56,9 +55,7 @@ export function WorkforceOverviewCards({ data, meta, extended = {}, className }:
   const payrollValue   = data.monthlyPayroll.value;
   const folhaRevPct    = data.payrollAsRevenuePercent.value;
   const turnover       = extended.turnoverPct ?? 0;
-  const absenteeism    = extended.absenteeismPct ?? 0;
   const overtime       = extended.overtimePct ?? 0;
-  const totalCost      = data.contractDistribution.cltCost + data.contractDistribution.pjCost;
   const headcountDelta = hasComparison && data.headcount.delta !== 0 ? data.headcount.delta : undefined;
   const payrollDelta   = hasComparison ? Math.round(data.monthlyPayroll.trend * 10) / 10 : undefined;
   const avgCostDelta   = hasComparison ? Math.round(data.avgCostPerEmployee.trend * 10) / 10 : undefined;
@@ -99,6 +96,10 @@ export function WorkforceOverviewCards({ data, meta, extended = {}, className }:
       icon: <TrendingUp className="w-5 h-5" />,
       deltaLabel: 'Eficiência produtiva',
     },
+  ];
+
+  // ── Row 2: Risk & Composition ─────────────────────────────────────────
+  const riskKpis: KpiItem[] = [
     {
       id: 'payroll-rev',
       label: 'Folha / Receita',
@@ -107,10 +108,6 @@ export function WorkforceOverviewCards({ data, meta, extended = {}, className }:
       icon: <Percent className="w-5 h-5" />,
       deltaLabel: `Meta: ≤ ${data.payrollAsRevenuePercent.threshold}%`,
     },
-  ];
-
-  // ── Row 2: Risk & Composition ─────────────────────────────────────────
-  const riskKpis: KpiItem[] = [
     {
       id: 'clt-pj',
       label: 'CLT / PJ',
@@ -128,32 +125,12 @@ export function WorkforceOverviewCards({ data, meta, extended = {}, className }:
       deltaLabel: 'Rotatividade mensal',
     },
     {
-      id: 'absenteeism',
-      label: 'Absenteísmo',
-      value: extended.absenteeismPct !== undefined ? `${extended.absenteeismPct.toFixed(1)}%` : '–',
-      variant: absenteeism > 5 ? 'danger' : absenteeism > 4 ? 'warning' : 'success',
-      icon: <UserMinus className="w-5 h-5" />,
-      deltaLabel: 'Média por área',
-    },
-    {
       id: 'overtime',
       label: 'Horas Extras',
       value: extended.overtimePct !== undefined ? `${extended.overtimePct.toFixed(1)}%` : '–',
       variant: overtime > 12 ? 'warning' : 'info',
       icon: <Clock className="w-5 h-5" />,
       deltaLabel: '% do total trabalhado',
-    },
-    {
-      id: 'clt-pj-cost',
-      label: 'Custo CLT vs PJ',
-      value: totalCost > 0
-        ? `${((data.contractDistribution.cltCost / totalCost) * 100).toFixed(0)}% CLT`
-        : '–',
-      variant: 'info',
-      icon: <DollarSign className="w-5 h-5" />,
-      deltaLabel: totalCost > 0
-        ? `PJ: ${((data.contractDistribution.pjCost / totalCost) * 100).toFixed(0)}% do custo`
-        : undefined,
     },
   ];
 
@@ -182,13 +159,13 @@ export function WorkforceOverviewCards({ data, meta, extended = {}, className }:
       {/* Row 1 — Financial & Efficiency */}
       <div className="space-y-1.5">
         <KpiGroupDivider label="Financeiro & Eficiência" />
-        <HudKpiStrip kpis={primaryKpis} columns={5} />
+        <HudKpiStrip kpis={primaryKpis} columns={4} />
       </div>
 
       {/* Row 2 — Risk & Composition */}
       <div className="space-y-1.5">
         <KpiGroupDivider label="Risco & Composição" />
-        <HudKpiStrip kpis={riskKpis} columns={5} />
+        <HudKpiStrip kpis={riskKpis} columns={4} />
       </div>
     </div>
   );

@@ -15,6 +15,7 @@ export type { RiskFormValues, RiskLink } from "./RiskFormModal";
 export { RiskKpiGrid } from "./RiskKpiGrid";
 export type { RiskKpiCardData, KpiTone } from "./RiskKpiGrid";
 export { RiskInsightStrip } from "./RiskInsightStrip";
+export { RiskAiAlerts } from "./RiskAiAlerts";
 
 // Charts
 export {

@@ -19,15 +19,32 @@ interface Props {
   currentUserId: string | null;
   reloadToken?: number;
   onSelectItem: (item: CalendarItem) => void;
+  /** Hover "+" on a month cell → create prefilled with that date. */
+  onCreateAt?: (day: Date) => void;
+  /** External filter activation (summary strip cards). */
+  filterSeed?: { token: number; filters: CalendarFilterKey[] } | null;
 }
 
-export function CalendarView({ members, currentUserId, reloadToken = 0, onSelectItem }: Props) {
+export function CalendarView({
+  members,
+  currentUserId,
+  reloadToken = 0,
+  onSelectItem,
+  onCreateAt,
+  filterSeed,
+}: Props) {
   const [view, setView] = useState<CalendarViewMode>('month');
   const [cursor, setCursor] = useState<Date>(new Date());
   const [filters, setFilters] = useState<Set<CalendarFilterKey>>(new Set());
   const [items, setItems] = useState<CalendarItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (filterSeed && filterSeed.filters.length > 0) {
+      setFilters(new Set(filterSeed.filters));
+    }
+  }, [filterSeed]);
 
   const range = useMemo(() => getRangeForView(view, cursor), [view, cursor]);
 
@@ -93,6 +110,7 @@ export function CalendarView({ members, currentUserId, reloadToken = 0, onSelect
             items={visibleItems}
             members={members}
             onSelectItem={onSelectItem}
+            onCreateAt={onCreateAt}
             onSelectDay={(day) => {
               setCursor(day);
               setView('day');

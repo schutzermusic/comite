@@ -19,9 +19,31 @@ export type AttendeeRole = 'organizer' | 'attendee' | 'optional';
 export type AttendeeResponse = 'pending' | 'accepted' | 'declined' | 'tentative';
 
 export type TaskPriority = 'low' | 'medium' | 'high' | 'critical';
-export type TaskStatus = 'todo' | 'in_progress' | 'done' | 'cancelled';
+export type TaskStatus =
+  | 'todo'
+  | 'in_progress'
+  | 'waiting'
+  | 'blocked'
+  | 'done'
+  | 'cancelled';
 
 export type EmailDispatchStatus = 'sent' | 'failed' | 'simulated';
+
+export type RecurrenceFreq = 'daily' | 'weekly' | 'monthly';
+
+/** Reminder offset tokens. NULL/undefined offsets = legacy default. */
+export type TaskReminderToken = '3d' | '1d' | 'at_due' | 'overdue';
+export type MeetingReminderToken = '1d' | '3h' | '1h' | '15m';
+
+/** Modules a task/meeting can be linked to ("Vincular a módulo"). */
+export type RelatedModule =
+  | 'project'
+  | 'contract'
+  | 'risk'
+  | 'deliberation'
+  | 'committee'
+  | 'finance'
+  | 'payroll';
 
 /* ───────────── Core domain models ───────────── */
 
@@ -55,6 +77,12 @@ export interface CalendarEvent {
   relatedProjectId: string | null;
   relatedContractId: string | null;
   relatedCommitteeId: string | null;
+  relatedRiskId: string | null;
+  relatedDeliberationId: string | null;
+  relatedFinanceItemId: string | null;
+  relatedPayrollBatchId: string | null;
+  /** Per-item reminder tokens; null = legacy default (['1h']). */
+  reminderOffsets: MeetingReminderToken[] | null;
   metadata: Record<string, unknown>;
   createdAt: Date;
   updatedAt: Date;
@@ -88,6 +116,18 @@ export interface Task {
   relatedEventId: string | null;
   relatedProjectId: string | null;
   relatedContractId: string | null;
+  relatedRiskId: string | null;
+  relatedDeliberationId: string | null;
+  relatedCommitteeId: string | null;
+  relatedFinanceItemId: string | null;
+  relatedPayrollBatchId: string | null;
+  /** Single-dependency model: this task waits for another to finish. */
+  blockedByTaskId: string | null;
+  recurrenceFreq: RecurrenceFreq | null;
+  recurrenceInterval: number;
+  recurrenceUntil: Date | null;
+  /** Per-item reminder tokens; null = legacy default (['1d','overdue']). */
+  reminderOffsets: TaskReminderToken[] | null;
   /** Optional "notify also" recipients — never the responsible assignee. */
   notifyEmails: string[];
   completedAt: Date | null;
@@ -97,6 +137,28 @@ export interface Task {
   deletedAt: Date | null;
   /** Hydrated on demand (detail view). */
   checklist?: TaskChecklistItem[];
+}
+
+export interface TaskComment {
+  id: string;
+  taskId: string;
+  organizationId: string;
+  authorUserId: string;
+  body: string;
+  createdAt: Date;
+}
+
+export interface AgendaAttachment {
+  id: string;
+  organizationId: string;
+  entityType: 'task' | 'event';
+  entityId: string;
+  fileName: string;
+  filePath: string;
+  fileSize: number | null;
+  contentType: string | null;
+  uploadedBy: string | null;
+  createdAt: Date;
 }
 
 export interface AppNotification {
@@ -187,7 +249,33 @@ export interface CreateMeetingInput {
   relatedProjectId?: string | null;
   relatedContractId?: string | null;
   relatedCommitteeId?: string | null;
+  relatedRiskId?: string | null;
+  relatedDeliberationId?: string | null;
+  relatedFinanceItemId?: string | null;
+  relatedPayrollBatchId?: string | null;
+  reminderOffsets?: MeetingReminderToken[] | null;
   guests: MeetingGuestInput[];
+}
+
+/** Patch shape for full meeting edit (detail drawer). */
+export interface UpdateMeetingInput {
+  title?: string;
+  description?: string | null;
+  startsAt?: string;
+  endsAt?: string | null;
+  allDay?: boolean;
+  visibility?: EventVisibility;
+  location?: string | null;
+  meetingLink?: string | null;
+  status?: CalendarEventStatus;
+  relatedProjectId?: string | null;
+  relatedContractId?: string | null;
+  relatedCommitteeId?: string | null;
+  relatedRiskId?: string | null;
+  relatedDeliberationId?: string | null;
+  relatedFinanceItemId?: string | null;
+  relatedPayrollBatchId?: string | null;
+  reminderOffsets?: MeetingReminderToken[] | null;
 }
 
 export interface CreateTaskInput {
@@ -202,9 +290,43 @@ export interface CreateTaskInput {
   relatedEventId?: string | null;
   relatedProjectId?: string | null;
   relatedContractId?: string | null;
+  relatedRiskId?: string | null;
+  relatedDeliberationId?: string | null;
+  relatedCommitteeId?: string | null;
+  relatedFinanceItemId?: string | null;
+  relatedPayrollBatchId?: string | null;
+  blockedByTaskId?: string | null;
+  recurrenceFreq?: RecurrenceFreq | null;
+  recurrenceInterval?: number;
+  recurrenceUntil?: string | null;
+  reminderOffsets?: TaskReminderToken[] | null;
   /** Optional "notificar também" free emails (notify-only). */
   notifyEmails?: string[];
   checklist?: string[];
+}
+
+/** Patch shape for full task edit (detail drawer). */
+export interface UpdateTaskInput {
+  title?: string;
+  description?: string | null;
+  dueAt?: string | null;
+  dueAllDay?: boolean;
+  priority?: TaskPriority;
+  status?: TaskStatus;
+  relatedEventId?: string | null;
+  relatedProjectId?: string | null;
+  relatedContractId?: string | null;
+  relatedRiskId?: string | null;
+  relatedDeliberationId?: string | null;
+  relatedCommitteeId?: string | null;
+  relatedFinanceItemId?: string | null;
+  relatedPayrollBatchId?: string | null;
+  blockedByTaskId?: string | null;
+  recurrenceFreq?: RecurrenceFreq | null;
+  recurrenceInterval?: number;
+  recurrenceUntil?: string | null;
+  reminderOffsets?: TaskReminderToken[] | null;
+  notifyEmails?: string[];
 }
 
 /* ───────────── Calendar filters (UI) ───────────── */
@@ -216,7 +338,10 @@ export type CalendarFilterKey =
   | 'tasks'
   | 'pending'
   | 'done'
-  | 'overdue';
+  | 'overdue'
+  | 'high_priority'
+  | 'today'
+  | 'this_week';
 
 export type CalendarViewMode = 'month' | 'week' | 'day' | 'agenda';
 
@@ -232,8 +357,40 @@ export const TASK_PRIORITY_LABELS: Record<TaskPriority, string> = {
 export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
   todo: 'A fazer',
   in_progress: 'Em andamento',
+  waiting: 'Aguardando terceiros',
+  blocked: 'Bloqueada',
   done: 'Concluída',
   cancelled: 'Cancelada',
+};
+
+export const RECURRENCE_FREQ_LABELS: Record<RecurrenceFreq, string> = {
+  daily: 'Diária',
+  weekly: 'Semanal',
+  monthly: 'Mensal',
+};
+
+export const TASK_REMINDER_LABELS: Record<TaskReminderToken, string> = {
+  '3d': '3 dias antes',
+  '1d': '1 dia antes',
+  at_due: 'No prazo',
+  overdue: 'Ao atrasar',
+};
+
+export const MEETING_REMINDER_LABELS: Record<MeetingReminderToken, string> = {
+  '1d': '1 dia antes',
+  '3h': '3 horas antes',
+  '1h': '1 hora antes',
+  '15m': '15 min antes',
+};
+
+export const RELATED_MODULE_LABELS: Record<RelatedModule, string> = {
+  project: 'Projeto',
+  contract: 'Contrato',
+  risk: 'Risco',
+  deliberation: 'Deliberação',
+  committee: 'Comitê',
+  finance: 'Financeiro',
+  payroll: 'Pessoas & Custos',
 };
 
 export const EVENT_STATUS_LABELS: Record<CalendarEventStatus, string> = {

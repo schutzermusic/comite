@@ -1,6 +1,7 @@
 "use client";
 
 import type React from "react";
+import { useCallback } from "react";
 import { create } from "zustand";
 
 export type ToastVariant = "success" | "error" | "warning" | "info";
@@ -62,49 +63,74 @@ export function useHudToast() {
   const add = useHudToastStore((state) => state.add);
   const remove = useHudToastStore((state) => state.remove);
 
-  const notify = (
-    title: React.ReactNode,
-    options?: { description?: React.ReactNode; variant?: ToastVariant; duration?: number },
-  ) =>
-    add({
-      title,
-      description: options?.description,
-      variant: options?.variant ?? "info",
-      duration: options?.duration ?? 4000,
-    });
+  // All callbacks are memoized so their identity is stable across renders.
+  // Consumers routinely list `toast`/`notify` in useEffect dependency arrays;
+  // an unstable identity here causes effects that setState to loop forever
+  // (e.g. the agenda detail drawers re-fetching endlessly).
+  const notify = useCallback(
+    (
+      title: React.ReactNode,
+      options?: { description?: React.ReactNode; variant?: ToastVariant; duration?: number },
+    ) =>
+      add({
+        title,
+        description: options?.description,
+        variant: options?.variant ?? "info",
+        duration: options?.duration ?? 4000,
+      }),
+    [add],
+  );
 
-  const toast = ({ title, description, variant, duration }: LegacyToastOptions) => {
-    const id = add({
-      title,
-      description,
-      variant: normalizeVariant(variant),
-      duration: duration ?? (variant === "destructive" ? 6000 : 4000),
-    });
+  const toast = useCallback(
+    ({ title, description, variant, duration }: LegacyToastOptions) => {
+      const id = add({
+        title,
+        description,
+        variant: normalizeVariant(variant),
+        duration: duration ?? (variant === "destructive" ? 6000 : 4000),
+      });
 
-    return {
-      id,
-      dismiss: () => remove(id),
-      update: (nextToast: LegacyToastOptions) => {
-        remove(id);
-        add({
-          title: nextToast.title,
-          description: nextToast.description,
-          variant: normalizeVariant(nextToast.variant),
-          duration: nextToast.duration ?? duration ?? 4000,
-        });
-      },
-    };
-  };
+      return {
+        id,
+        dismiss: () => remove(id),
+        update: (nextToast: LegacyToastOptions) => {
+          remove(id);
+          add({
+            title: nextToast.title,
+            description: nextToast.description,
+            variant: normalizeVariant(nextToast.variant),
+            duration: nextToast.duration ?? duration ?? 4000,
+          });
+        },
+      };
+    },
+    [add, remove],
+  );
+
+  const success = useCallback(
+    (title: React.ReactNode, description?: React.ReactNode) =>
+      add({ title, description, variant: "success", duration: 4000 }),
+    [add],
+  );
+
+  const error = useCallback(
+    (title: React.ReactNode, description?: React.ReactNode) =>
+      add({ title, description, variant: "error", duration: 6000 }),
+    [add],
+  );
+
+  const warning = useCallback(
+    (title: React.ReactNode, description?: React.ReactNode) =>
+      add({ title, description, variant: "warning", duration: 5000 }),
+    [add],
+  );
 
   return {
     notify,
     toast,
     dismiss: remove,
-    success: (title: React.ReactNode, description?: React.ReactNode) =>
-      add({ title, description, variant: "success", duration: 4000 }),
-    error: (title: React.ReactNode, description?: React.ReactNode) =>
-      add({ title, description, variant: "error", duration: 6000 }),
-    warning: (title: React.ReactNode, description?: React.ReactNode) =>
-      add({ title, description, variant: "warning", duration: 5000 }),
+    success,
+    error,
+    warning,
   };
 }

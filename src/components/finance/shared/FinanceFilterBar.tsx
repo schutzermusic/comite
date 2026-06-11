@@ -12,9 +12,8 @@ import {
 // ─────────────────────────────────────────────────────────────────────
 // Shared HUD/glass filter shell used across every Finance submenu page.
 // Visual reference: /financeiro/control-room (FinanceControlBar).
-// The bar wraps cleanly on small screens, keeps actions right-aligned
-// on desktop, and exposes compact primitives so page-specific filters
-// inside `extra` can match the same chip language.
+// Fixed-width chips in a wrapping flex row — no horizontal scroll bars.
+// When the row fills up, chips flow to the next line. Sticky only on xl+.
 // ─────────────────────────────────────────────────────────────────────
 
 export interface FinanceFilterBarProps {
@@ -44,32 +43,38 @@ export function FinanceFilterBar({
       initial={{ opacity: 0, y: -6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-      className={cn(sticky && 'sticky top-3 z-30', className)}
+      className={cn(
+        'relative z-20 w-full min-w-0',
+        sticky && 'xl:sticky xl:top-3',
+        className,
+      )}
     >
-      <div className="ig-glass" data-elev={3} data-sweep>
+      <div className="ig-glass w-full min-w-0 overflow-hidden" data-elev={3} data-sweep>
         <span data-ig-noise="" />
         <span data-ig-specular="" />
         <span data-ig-sweep="" />
-        <div data-ig-content="" className="px-3.5 py-2.5">
-          <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex flex-wrap items-center gap-2 min-w-0">
+        <div data-ig-content="" className="px-3 py-2.5 sm:px-4 sm:py-3">
+          <div className="flex w-full min-w-0 flex-col gap-2.5 sm:flex-row sm:items-start sm:gap-2">
+            <div className="flex min-w-0 w-full flex-1 flex-wrap items-stretch gap-2">
               {renderPeriod && (
                 <FinanceFilterChip
-                  icon={<CalendarRange className="h-3.5 w-3.5" />}
+                  icon={<CalendarRange className="h-3.5 w-3.5 shrink-0" />}
                   label="Período"
                   value={period}
                   options={PERIOD_OPTIONS}
                   onChange={(v) => onPeriodChange(v as FinancePeriod)}
+                  layout="periodSelect"
                 />
               )}
 
               {renderScenario && (
                 <FinanceFilterChip
-                  icon={<Layers className="h-3.5 w-3.5" />}
+                  icon={<Layers className="h-3.5 w-3.5 shrink-0" />}
                   label="Cenário"
                   value={scenario}
                   options={SCENARIO_OPTIONS}
                   onChange={(v) => onScenarioChange(v as FinanceScenario)}
+                  layout="scenarioSelect"
                 />
               )}
 
@@ -77,7 +82,7 @@ export function FinanceFilterBar({
             </div>
 
             {rightSlot && (
-              <div className="flex flex-wrap items-center gap-2 lg:justify-end [&_>_button]:h-9">
+              <div className="flex w-full shrink-0 flex-wrap items-center gap-2 lg:w-auto lg:justify-end [&_>_button]:h-9 [&_>_button]:min-w-0 [&_>_button]:flex-1 sm:[&_>_button]:flex-none">
                 {rightSlot}
               </div>
             )}
@@ -89,10 +94,28 @@ export function FinanceFilterBar({
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// FinanceFilterChip — the canonical "icon + UPPERCASE label + value"
-// chip. Use this inside `extra` to keep page-specific filters visually
-// consistent with the period/scenario chips.
+// Chip shell + fixed standard widths. All chips shrink-0 on sm+ and wrap
+// to the next row when the bar runs out of horizontal space.
 // ─────────────────────────────────────────────────────────────────────
+
+export const FILTER_CHIP_SHELL =
+  'flex h-9 w-full min-w-0 items-center gap-1.5 rounded-lg border border-[color:var(--ig-border-strong)] bg-[color:var(--ig-bg-raised)]/60 px-2 backdrop-blur-sm';
+
+export const FILTER_CHIP_LABEL =
+  'flex shrink-0 items-center gap-1.5 pl-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[color:var(--ig-fg-subtle)] whitespace-nowrap';
+
+export const CHIP_DIVIDER = 'mx-0.5 h-4 w-px shrink-0 rounded-full bg-[color:var(--ig-border-strong)]';
+
+export const FILTER_CHIP_LAYOUT = {
+  periodSelect: 'w-full sm:w-[12.5rem] sm:max-w-[12.5rem] sm:shrink-0',
+  periodRange: 'w-full sm:w-[16rem] sm:max-w-[16rem] sm:shrink-0',
+  /** Largura conforme os botões — o chip inteiro quebra de linha, nunca o conteúdo */
+  scenarioSegment: 'w-full sm:w-auto sm:max-w-full sm:shrink-0',
+  scenarioSelect: 'w-full sm:w-[12.5rem] sm:max-w-[12.5rem] sm:shrink-0',
+  grow: 'w-full sm:w-[11rem] sm:max-w-[11rem] sm:shrink-0',
+} as const;
+
+export type FinanceFilterChipLayout = keyof typeof FILTER_CHIP_LAYOUT;
 
 export interface FinanceFilterChipProps {
   icon?: React.ReactNode;
@@ -101,22 +124,28 @@ export interface FinanceFilterChipProps {
   options: { value: string; label: string }[];
   onChange: (value: string) => void;
   maxValueChars?: number;
+  className?: string;
+  /** Width preset — defaults to `grow` (11rem standard select). */
+  layout?: FinanceFilterChipLayout;
 }
 
 export function FinanceFilterChip({
-  icon, label, value, options, onChange, maxValueChars,
+  icon, label, value, options, onChange, maxValueChars, className,
+  layout = 'grow',
 }: FinanceFilterChipProps) {
   return (
-    <div className="flex items-center gap-1.5 rounded-lg border border-[color:var(--ig-border-strong)] bg-[color:var(--ig-bg-raised)]/60 px-2 h-9 backdrop-blur-sm min-w-0">
-      <span className="flex items-center gap-1.5 pl-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[color:var(--ig-fg-subtle)] whitespace-nowrap">
+    <div className={cn(FILTER_CHIP_SHELL, FILTER_CHIP_LAYOUT[layout], className)}>
+      <span className={FILTER_CHIP_LABEL}>
         {icon}
         {label}
       </span>
+      <span className={CHIP_DIVIDER} />
       <BareSelect
         value={value}
         onChange={onChange}
         options={options}
         maxValueChars={maxValueChars}
+        className="min-w-0 flex-1"
       />
     </div>
   );
@@ -130,28 +159,36 @@ export interface FinanceFilterRangeProps {
   toValue: string;
   options: { value: string; label: string }[];
   onChange: (from: string, to: string) => void;
+  className?: string;
+  layout?: Extract<FinanceFilterChipLayout, 'periodRange'>;
 }
 
 export function FinanceFilterRange({
-  icon, label, fromValue, toValue, options, onChange,
+  icon, label, fromValue, toValue, options, onChange, className,
+  layout = 'periodRange',
 }: FinanceFilterRangeProps) {
   return (
-    <div className="flex items-center gap-1.5 rounded-lg border border-[color:var(--ig-border-strong)] bg-[color:var(--ig-bg-raised)]/60 px-2 h-9 backdrop-blur-sm min-w-0">
-      <span className="flex items-center gap-1.5 pl-1 pr-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[color:var(--ig-fg-subtle)] whitespace-nowrap">
+    <div className={cn(FILTER_CHIP_SHELL, FILTER_CHIP_LAYOUT[layout], className)}>
+      <span className={FILTER_CHIP_LABEL}>
         {icon}
         {label}
       </span>
-      <BareSelect
-        value={fromValue}
-        onChange={(v) => onChange(v, toValue < v ? v : toValue)}
-        options={options}
-      />
-      <span className="text-[10px] text-[color:var(--ig-fg-subtle)]">→</span>
-      <BareSelect
-        value={toValue}
-        onChange={(v) => onChange(fromValue > v ? v : fromValue, v)}
-        options={options}
-      />
+      <span className={CHIP_DIVIDER} />
+      <div className="flex min-w-0 flex-1 items-center gap-0.5">
+        <BareSelect
+          value={fromValue}
+          onChange={(v) => onChange(v, toValue < v ? v : toValue)}
+          options={options}
+          className="min-w-0 flex-1"
+        />
+        <span className="shrink-0 text-[10px] text-[color:var(--ig-fg-subtle)]">→</span>
+        <BareSelect
+          value={toValue}
+          onChange={(v) => onChange(fromValue > v ? v : fromValue, v)}
+          options={options}
+          className="min-w-0 flex-1"
+        />
+      </div>
     </div>
   );
 }
@@ -168,18 +205,17 @@ export function FinanceFilterDateField({
   icon, label, value, onChange,
 }: FinanceFilterDateFieldProps) {
   return (
-    <label className="flex items-center gap-1.5 rounded-lg border border-[color:var(--ig-border-strong)] bg-[color:var(--ig-bg-raised)]/60 px-2 h-9 backdrop-blur-sm min-w-0 cursor-pointer">
-      {icon && (
-        <span className="flex items-center text-[color:var(--ig-fg-subtle)]">{icon}</span>
-      )}
-      <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[color:var(--ig-fg-subtle)] whitespace-nowrap">
+    <label className={cn(FILTER_CHIP_SHELL, 'cursor-pointer')}>
+      <span className={FILTER_CHIP_LABEL}>
+        {icon}
         {label}
       </span>
+      <span className={CHIP_DIVIDER} />
       <input
         type="date"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="bg-transparent text-xs font-medium text-[color:var(--ig-fg-strong)] focus:outline-none min-w-0"
+        className="min-w-0 flex-1 bg-transparent text-xs font-medium text-[color:var(--ig-fg-strong)] focus:outline-none"
       />
     </label>
   );
@@ -193,18 +229,22 @@ export interface FinanceFilterSegmentProps<T extends string> {
   value: T;
   options: { value: T; label: string }[];
   onChange: (value: T) => void;
+  className?: string;
+  layout?: Extract<FinanceFilterChipLayout, 'scenarioSegment'>;
 }
 
 export function FinanceFilterSegment<T extends string>({
-  icon, label, value, options, onChange,
+  icon, label, value, options, onChange, className,
+  layout = 'scenarioSegment',
 }: FinanceFilterSegmentProps<T>) {
   return (
-    <div className="flex items-center gap-1.5 rounded-lg border border-[color:var(--ig-border-strong)] bg-[color:var(--ig-bg-raised)]/60 px-1.5 h-9 backdrop-blur-sm">
-      <span className="flex items-center gap-1.5 pl-2 pr-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[color:var(--ig-fg-subtle)] whitespace-nowrap">
+    <div className={cn(FILTER_CHIP_SHELL, FILTER_CHIP_LAYOUT[layout], 'overflow-hidden', className)}>
+      <span className={FILTER_CHIP_LABEL}>
         {icon}
         {label}
       </span>
-      <div className="flex items-center gap-0.5">
+      <span className={CHIP_DIVIDER} />
+      <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-0.5">
         {options.map((o) => {
           const active = o.value === value;
           return (
@@ -213,7 +253,7 @@ export function FinanceFilterSegment<T extends string>({
               type="button"
               onClick={() => onChange(o.value)}
               className={cn(
-                'rounded-md px-2 py-1 text-[11px] font-semibold transition-colors whitespace-nowrap',
+                'shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-semibold transition-colors whitespace-nowrap',
                 active
                   ? 'bg-[color:var(--ig-accent-weak)] text-[color:var(--ig-accent)] border border-[color:var(--ig-border-focus)]'
                   : 'text-[color:var(--ig-fg-muted)] hover:text-[color:var(--ig-fg-strong)] border border-transparent',
@@ -233,20 +273,21 @@ interface BareSelectProps {
   onChange: (value: string) => void;
   options: { value: string; label: string }[];
   maxValueChars?: number;
+  className?: string;
 }
 
-function BareSelect({ value, onChange, options, maxValueChars }: BareSelectProps) {
+function BareSelect({ value, onChange, options, maxValueChars, className }: BareSelectProps) {
   const style = maxValueChars
     ? { maxWidth: `${maxValueChars}ch` as const }
     : undefined;
   return (
-    <div className="relative min-w-0">
+    <div className={cn('relative min-w-0', className)}>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
         style={style}
         className={cn(
-          'appearance-none cursor-pointer rounded-md max-w-[22ch] truncate',
+          'w-full max-w-full appearance-none cursor-pointer truncate rounded-md',
           'bg-transparent pl-2 pr-6 py-1 text-xs font-medium',
           'text-[color:var(--ig-fg-strong)]',
           'border border-transparent hover:border-[color:var(--ig-border-strong)]',

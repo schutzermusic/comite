@@ -13,53 +13,103 @@ interface Props {
 const PROBS = [5, 4, 3, 2, 1];
 const IMPS = [1, 2, 3, 4, 5];
 
-const PROB_LABELS: Record<number, string> = { 5: "Muito Alta", 4: "Alta", 3: "Média", 2: "Baixa", 1: "Muito Baixa" };
-const IMP_LABELS: Record<number, string> = { 1: "Muito Baixo", 2: "Baixo", 3: "Médio", 4: "Alto", 5: "Muito Alto" };
+const PROB_LABELS: Record<number, string> = {
+  5: "Muito Alta", 4: "Alta", 3: "Média", 2: "Baixa", 1: "Muito Baixa",
+};
+const IMP_LABELS: Record<number, string> = {
+  1: "M. Baixo", 2: "Baixo", 3: "Médio", 4: "Alto", 5: "M. Alto",
+};
 
 function cellLevel(p: number, i: number) { return p * i; }
 
-function cellGradient(level: number) {
-  if (level >= 16) return "linear-gradient(135deg, rgba(239,75,85,0.28), rgba(239,75,85,0.12))";
-  if (level >= 11) return "linear-gradient(135deg, rgba(245,165,36,0.24), rgba(245,165,36,0.10))";
-  if (level >= 6)  return "linear-gradient(135deg, rgba(59,130,246,0.20), rgba(59,130,246,0.08))";
-  return "linear-gradient(135deg, rgba(16,185,129,0.18), rgba(16,185,129,0.06))";
+/* ── Zone config (level thresholds) ── */
+type Zone = "critical" | "high" | "medium" | "low";
+function cellZone(level: number): Zone {
+  if (level >= 16) return "critical";
+  if (level >= 11) return "high";
+  if (level >= 6)  return "medium";
+  return "low";
 }
 
-function cellBorderColor(level: number) {
-  if (level >= 16) return "rgba(239,75,85,0.35)";
-  if (level >= 11) return "rgba(245,165,36,0.30)";
-  if (level >= 6)  return "rgba(59,130,246,0.25)";
-  return "rgba(16,185,129,0.20)";
-}
+const ZONE_STYLES: Record<Zone, {
+  bg: string; border: string; glow: string; dot: string; dotGlow: string;
+}> = {
+  critical: {
+    bg: "linear-gradient(145deg, rgba(239,75,85,0.22) 0%, rgba(239,75,85,0.08) 60%, rgba(239,75,85,0.04) 100%)",
+    border: "rgba(239,75,85,0.30)",
+    glow: "rgba(239,75,85,0.15)",
+    dot: "var(--ig-danger)",
+    dotGlow: "rgba(239,75,85,0.60)",
+  },
+  high: {
+    bg: "linear-gradient(145deg, rgba(245,165,36,0.20) 0%, rgba(245,165,36,0.07) 60%, rgba(245,165,36,0.03) 100%)",
+    border: "rgba(245,165,36,0.26)",
+    glow: "rgba(245,165,36,0.12)",
+    dot: "var(--ig-warning)",
+    dotGlow: "rgba(245,165,36,0.60)",
+  },
+  medium: {
+    bg: "linear-gradient(145deg, rgba(59,130,246,0.18) 0%, rgba(59,130,246,0.06) 60%, rgba(59,130,246,0.03) 100%)",
+    border: "rgba(59,130,246,0.22)",
+    glow: "rgba(59,130,246,0.10)",
+    dot: "var(--ig-info)",
+    dotGlow: "rgba(59,130,246,0.60)",
+  },
+  low: {
+    bg: "linear-gradient(145deg, rgba(16,185,129,0.14) 0%, rgba(16,185,129,0.05) 60%, rgba(16,185,129,0.02) 100%)",
+    border: "rgba(16,185,129,0.18)",
+    glow: "rgba(16,185,129,0.08)",
+    dot: "var(--ig-success)",
+    dotGlow: "rgba(16,185,129,0.55)",
+  },
+};
 
-function dotColor(level: number) {
-  if (level >= 16) return "var(--ig-danger)";
-  if (level >= 11) return "var(--ig-warning)";
-  if (level >= 6)  return "var(--ig-info)";
-  return "var(--ig-success)";
-}
+const ZONE_BADGE: Record<Zone, { label: string; range: string; color: string; bg: string; border: string }> = {
+  critical: { label: "Crítico",  range: "16–25", color: "var(--ig-danger)",  bg: "color-mix(in oklab, var(--ig-danger) 12%, transparent)",  border: "color-mix(in oklab, var(--ig-danger) 28%, transparent)"  },
+  high:     { label: "Alto",     range: "11–15", color: "var(--ig-warning)", bg: "color-mix(in oklab, var(--ig-warning) 12%, transparent)", border: "color-mix(in oklab, var(--ig-warning) 28%, transparent)" },
+  medium:   { label: "Médio",    range: "6–10",  color: "var(--ig-info)",    bg: "color-mix(in oklab, var(--ig-info) 12%, transparent)",    border: "color-mix(in oklab, var(--ig-info) 28%, transparent)"    },
+  low:      { label: "Baixo",    range: "1–5",   color: "var(--ig-success)", bg: "color-mix(in oklab, var(--ig-success) 12%, transparent)", border: "color-mix(in oklab, var(--ig-success) 28%, transparent)" },
+};
+
+/* ── Column template: label gutter uses a fixed percentage of total width ── */
+const COL_TEMPLATE = "8% repeat(5, 1fr)";
 
 export function RiskMatrix5x5({ risks, onCellClick, highlightedCell }: Props) {
   const getRisksForCell = (p: number, i: number) =>
     risks.filter((r) => r.probability === p && r.impact === i);
 
   return (
-    <div className="space-y-2">
-      {/* Column labels */}
-      <div className="flex items-end gap-1 pl-[clamp(3rem,6vw,4.5rem)]">
-        <span className="flex-1 text-center text-[clamp(8px,0.7vw,10px)] font-semibold uppercase tracking-[0.14em] text-ig-fg-subtle">
+    /* container-type:inline-size so cqw = % of THIS element's width */
+    <div className="w-full flex flex-col gap-2" style={{ containerType: "inline-size" }}>
+      {/* ── Impact axis header ── */}
+      <div className="flex items-center gap-1.5" style={{ paddingLeft: "8%" }}>
+        <div className="h-px flex-1 bg-gradient-to-r from-transparent via-ig-border-subtle to-transparent" />
+        <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.16em] text-ig-fg-subtle">
           Impacto →
         </span>
+        <div className="h-px flex-1 bg-gradient-to-r from-ig-border-subtle to-transparent" />
       </div>
 
-      <div className="relative overflow-x-auto">
-        <div className="inline-grid min-w-[clamp(320px,100%,520px)]" style={{ gridTemplateColumns: `clamp(3rem,6vw,4.5rem) repeat(5, 1fr)` }}>
-          {/* Impact header row */}
-          <div /> {/* empty top-left */}
+      {/* ── Square grid wrapper — height driven by own width via aspect-ratio.
+           Works on any screen size: no h-full / flex-1 dependency on parent. ── */}
+      <div className="relative w-full flex-shrink-0" style={{ aspectRatio: "1 / 1" }}>
+        <div
+          className="absolute inset-0 grid"
+          style={{
+            gridTemplateColumns: COL_TEMPLATE,
+            gridTemplateRows: "auto repeat(5, 1fr)",
+          }}
+        >
+          {/* Impact column headers */}
+          <div />
           {IMPS.map((imp) => (
-            <div key={`h-${imp}`} className="flex flex-col items-center justify-end pb-1.5 px-0.5">
-              <span className="text-[clamp(13px,1.4vw,18px)] font-bold ig-tabular text-ig-fg-muted">{imp}</span>
-              <span className="text-[clamp(7px,0.6vw,8px)] text-ig-fg-subtle truncate">{IMP_LABELS[imp]}</span>
+            <div key={`h-${imp}`} className="flex flex-col items-center justify-end pb-1 px-0.5">
+              <span className="text-[clamp(11px,2.6cqw,18px)] font-bold tabular-nums text-ig-fg-muted leading-none">
+                {imp}
+              </span>
+              <span className="mt-0.5 text-[clamp(6px,1.3cqw,9px)] font-medium text-ig-fg-subtle truncate">
+                {IMP_LABELS[imp]}
+              </span>
             </div>
           ))}
 
@@ -67,16 +117,22 @@ export function RiskMatrix5x5({ risks, onCellClick, highlightedCell }: Props) {
           {PROBS.map((prob) => (
             <React.Fragment key={`r-${prob}`}>
               {/* Row label */}
-              <div className="flex items-center justify-end gap-1 pr-2">
-                <div className="flex flex-col items-end">
-                  <span className="text-[clamp(7px,0.6vw,8px)] text-ig-fg-subtle">{PROB_LABELS[prob]}</span>
-                  <span className="text-[clamp(13px,1.4vw,18px)] font-bold ig-tabular text-ig-fg-muted">{prob}</span>
+              <div className="flex items-center justify-end pr-1.5">
+                <div className="flex flex-col items-end text-right">
+                  <span className="text-[clamp(6px,1.3cqw,9px)] font-medium text-ig-fg-subtle leading-tight">
+                    {PROB_LABELS[prob]}
+                  </span>
+                  <span className="text-[clamp(11px,2.6cqw,18px)] font-bold tabular-nums text-ig-fg-muted leading-none">
+                    {prob}
+                  </span>
                 </div>
               </div>
 
               {/* Cells */}
               {IMPS.map((imp) => {
                 const level = cellLevel(prob, imp);
+                const zone = cellZone(level);
+                const zs = ZONE_STYLES[zone];
                 const cellRisks = getRisksForCell(prob, imp);
                 const count = cellRisks.length;
                 const exposure = cellRisks.reduce((s, r) => s + r.level, 0);
@@ -99,47 +155,47 @@ export function RiskMatrix5x5({ risks, onCellClick, highlightedCell }: Props) {
                     onClick={() => onCellClick(prob, imp)}
                     aria-pressed={isHighlighted}
                     className={cn(
-                      "group relative m-[2px] flex flex-col items-center justify-center rounded-lg border transition-all duration-200",
-                      "aspect-square min-h-[clamp(44px,5vw,60px)]",
-                      "hover:scale-105 hover:z-10 hover:shadow-lg",
-                      isHighlighted && "ring-2 ring-ig-accent scale-105 z-10",
-                      dimmed && "opacity-45",
+                      "group relative m-[2px] flex h-[calc(100%-4px)] w-[calc(100%-4px)] flex-col items-center justify-center rounded-[8px] border transition-all duration-200",
+                      "hover:scale-[1.06] hover:z-10",
+                      isHighlighted && "ring-2 ring-ig-accent scale-[1.06] z-10",
+                      dimmed && "opacity-35",
                     )}
                     style={{
-                      background: cellGradient(level),
-                      borderColor: isHighlighted ? "var(--ig-accent)" : cellBorderColor(level),
+                      background: cellGradientWithHighlight(zone, isHighlighted),
+                      borderColor: isHighlighted ? "var(--ig-accent)" : zs.border,
+                      boxShadow: isHighlighted
+                        ? `0 0 0 1px var(--ig-accent), 0 4px 16px ${zs.glow}, inset 0 1px 0 rgba(255,255,255,0.08)`
+                        : `0 2px 8px ${zs.glow}, inset 0 1px 0 rgba(255,255,255,0.06)`,
                     }}
                     title={tooltip}
                   >
-                    {/* Level number */}
-                    <span className="text-[clamp(10px,1vw,14px)] font-bold ig-tabular text-ig-fg-strong opacity-70 group-hover:opacity-100 transition-opacity">
+                    <span className="relative z-10 text-[clamp(10px,3cqw,20px)] font-bold tabular-nums text-ig-fg-strong opacity-75 transition-opacity group-hover:opacity-100">
                       {level}
                     </span>
 
-                    {/* Exposure footprint (only when populated) */}
                     {count > 0 && (
-                      <span className="mt-0.5 text-[clamp(7px,0.6vw,9px)] font-medium ig-tabular text-ig-fg-subtle">
-                        {exposure} exp
+                      <span className="relative z-10 mt-0.5 text-[clamp(5.5px,1.3cqw,9px)] font-medium tabular-nums text-ig-fg-subtle">
+                        {exposure}
                       </span>
                     )}
 
-                    {/* Risk count badge */}
                     {count > 0 && (
                       <span
-                        className="absolute -top-1.5 -right-1.5 flex h-[clamp(16px,1.4vw,20px)] min-w-[clamp(16px,1.4vw,20px)] items-center justify-center rounded-full border-2 text-[clamp(8px,0.7vw,10px)] font-bold shadow-md"
+                        className="absolute -top-1.5 -right-1.5 z-20 flex h-[clamp(14px,3cqw,22px)] min-w-[clamp(14px,3cqw,22px)] items-center justify-center rounded-full border-2 px-0.5 text-[clamp(7px,1.6cqw,11px)] font-bold shadow-md"
                         style={{
-                          backgroundColor: dotColor(level),
+                          backgroundColor: zs.dot,
                           borderColor: "var(--ig-bg-canvas)",
                           color: "#fff",
+                          boxShadow: `0 0 8px ${zs.dotGlow}`,
                         }}
                       >
                         {count}
                       </span>
                     )}
 
-                    {/* Hover glow */}
-                    <div className="pointer-events-none absolute inset-0 rounded-lg opacity-0 transition-opacity group-hover:opacity-100"
-                      style={{ background: `radial-gradient(ellipse at center, color-mix(in oklab, ${dotColor(level)} 18%, transparent), transparent 70%)` }}
+                    <div
+                      className="pointer-events-none absolute inset-0 rounded-[8px] opacity-0 transition-opacity group-hover:opacity-100"
+                      style={{ background: `radial-gradient(ellipse 80% 80% at 50% 50%, ${zs.glow}, transparent 75%)` }}
                     />
                   </button>
                 );
@@ -149,25 +205,42 @@ export function RiskMatrix5x5({ risks, onCellClick, highlightedCell }: Props) {
         </div>
       </div>
 
-      {/* Legend */}
-      <div className="flex flex-wrap items-center justify-center gap-3 pt-1">
-        {[
-          { label: "Crítico (16-25)", color: "var(--ig-danger)" },
-          { label: "Alto (11-15)", color: "var(--ig-warning)" },
-          { label: "Médio (6-10)", color: "var(--ig-info)" },
-          { label: "Baixo (1-5)", color: "var(--ig-success)" },
-        ].map(({ label, color }) => (
-          <span key={label} className="flex items-center gap-1 text-[clamp(8px,0.65vw,9px)] text-ig-fg-subtle">
-            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />
-            {label}
-          </span>
-        ))}
+      {/* ── Legend ── */}
+      <div className="flex flex-wrap items-center justify-center gap-1.5">
+        {(["critical", "high", "medium", "low"] as Zone[]).map((zone) => {
+          const b = ZONE_BADGE[zone];
+          return (
+            <span
+              key={zone}
+              className="inline-flex items-center gap-1 rounded-full border px-2 py-[3px] text-[9.5px] font-semibold"
+              style={{ color: b.color, backgroundColor: b.bg, borderColor: b.border }}
+            >
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: b.color, boxShadow: `0 0 5px ${b.color}` }} />
+              {b.label}
+              <span className="opacity-55 font-normal">{b.range}</span>
+            </span>
+          );
+        })}
       </div>
 
-      {/* Prob label */}
-      <div className="flex justify-start pl-2 text-[clamp(8px,0.7vw,10px)] font-semibold uppercase tracking-[0.14em] text-ig-fg-subtle">
-        ← Probabilidade
+      {/* ── Probability axis label ── */}
+      <div className="flex items-center gap-2">
+        <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-ig-fg-subtle">
+          ← Probabilidade
+        </span>
+        <div className="h-px flex-1 bg-gradient-to-r from-ig-border-subtle to-transparent opacity-60" />
       </div>
     </div>
   );
+}
+
+function cellGradientWithHighlight(zone: Zone, highlighted: boolean): string {
+  const zs = ZONE_STYLES[zone];
+  if (highlighted) {
+    return zs.bg.replace(/rgba/g, "rgba").replace(
+      /0\.(22|20|18|14)\)/,
+      (_, n) => `${(parseFloat(n) * 1.6).toFixed(2)})`
+    );
+  }
+  return zs.bg;
 }

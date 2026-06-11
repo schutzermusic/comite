@@ -3,9 +3,9 @@
 import React, { useMemo, useCallback, useState } from 'react';
 import {
   Download, Layers, FolderKanban, Truck, Users, Gauge, Building2, FileText,
-  Fuel, Briefcase, CalendarClock, Eye, EyeOff, Repeat,
+  Fuel, Briefcase, CalendarClock, Eye, EyeOff, Repeat, Coins,
 } from 'lucide-react';
-import { HudCard, HudCardContent, HudButton } from '@/components/hud';
+import { HudCard, HudCardContent, HudButton, HudKpiStrip, type KpiItem } from '@/components/hud';
 import {
   FinanceInsightCard,
   fmtBRL, fmtCompactBRL, fmtPct,
@@ -38,8 +38,8 @@ import { managementCategories, resolveCategoryPath, suppliers as supplierSeed } 
 import { projects as projectRefs } from '@/data/finance/reference';
 import {
   RankPanel, DonutPanel, TreemapPanel, TrendPanel, StackedBarPanel, ListPanel, EntryTable, DemoBadge, MiniStat,
-  KpiSparkGrid, SCurvePanel, WaterfallPanel, HeatmapPanel,
-  type EntryRow, type ListRow, type SparkKpi,
+  SCurvePanel, WaterfallPanel, HeatmapPanel,
+  type EntryRow, type ListRow,
 } from './panels';
 import { buildCategoryInsights } from './narrative';
 import { monthAxis, previousWindow, alignToAxis, buildMoMWaterfall, buildHeatmap } from './transforms';
@@ -214,27 +214,34 @@ export function CategorySpecificDashboard({
   const subLabel = config.dashboardType === 'taxes' ? 'tipo de tributo'
     : config.dashboardType === 'payroll' ? 'rubrica' : 'subcategoria';
 
-  // ── Premium KPI strip (type-aware sixth/extra metric) ─────────
+  // ── KPI strip (tipo-aware, padrão HUD dos demais módulos) ─────
   const dim = (r?: { name: string; value: number; share: number }, fallback = '—') =>
-    ({ value: r?.name ?? fallback, helper: r ? `${fmtCompactBRL(r.value)} · ${(r.share * 100).toFixed(0)}%` : undefined });
+    ({ value: r?.name ?? fallback, deltaLabel: r ? `${fmtCompactBRL(r.value)} · ${(r.share * 100).toFixed(0)}%` : undefined });
 
-  const kpis = useMemo<SparkKpi[]>(() => {
-    const sparkVals = monthly.map((p) => p.value);
-    const out: SparkKpi[] = [
+  const kpis = useMemo<KpiItem[]>(() => {
+    function costDelta(pct?: number): { deltaText?: string; deltaTone?: 'success' | 'danger' | 'neutral' } {
+      if (pct === undefined) return {};
+      return {
+        deltaText: `${pct > 0 ? '+' : ''}${pct.toFixed(1)}%`,
+        deltaTone: pct === 0 ? 'neutral' : pct > 0 ? 'danger' : 'success',
+      };
+    }
+    const out: KpiItem[] = [
       {
         id: 'cat-total', label: 'Custo total', value: fmtBRL(summary.total),
-        helper: `${summary.entryCount} lançamentos`, delta: summary.momPct,
-        spark: sparkVals, tone: 'accent',
+        deltaLabel: `${summary.entryCount} lançamentos`,
+        ...costDelta(summary.momPct),
+        variant: 'info', icon: <Coins className="w-5 h-5" />,
       },
       {
         id: 'cat-mom', label: 'Variação m/m',
         value: summary.momPct === undefined ? '—' : `${summary.momPct > 0 ? '+' : ''}${summary.momPct.toFixed(1)}%`,
-        helper: summary.lastPeriod ? `${fmtCompactBRL(summary.lastPeriodValue)} no último mês` : 'Sem série',
-        delta: summary.momPct,
+        deltaLabel: summary.lastPeriod ? `${fmtCompactBRL(summary.lastPeriodValue)} no último mês` : 'Sem série',
+        ...costDelta(summary.momPct),
+        variant: summary.momPct === undefined ? 'default' : summary.momPct > 0 ? 'danger' : 'success',
+        tintValue: true,
       },
-      {
-        id: 'cat-sub', label: 'Maior subcategoria', ...dim(summary.topSubcategory),
-      },
+      { id: 'cat-sub', label: 'Maior subcategoria', ...dim(summary.topSubcategory) },
     ];
 
     if (config.dashboardType === 'payroll') {
@@ -244,15 +251,15 @@ export function CategorySpecificDashboard({
         { id: 'cat-cc', label: 'Centro de custo líder', ...dim(byCostCenter[0]) },
         {
           id: 'cat-alloc', label: 'Alocado a projeto', value: `${(allocationRate * 100).toFixed(0)}%`,
-          helper: `${fmtCompactBRL(allocatedValue)} aloc. · ${fmtCompactBRL(unallocatedValue)} estrutural`,
+          deltaLabel: `${fmtCompactBRL(allocatedValue)} aloc. · ${fmtCompactBRL(unallocatedValue)} estrutural`,
         },
       );
     } else if (config.dashboardType === 'taxes') {
       const perMonth = monthly.length ? summary.total / monthly.length : 0;
       out.push(
         { id: 'cat-cc', label: 'Centro de custo líder', ...dim(byCostCenter[0]) },
-        { id: 'cat-ticket', label: 'Tributo médio / mês', value: fmtBRL(perMonth), helper: `${monthly.length} competências`, spark: sparkVals, tone: 'warning' },
-        { id: 'cat-count', label: 'Tipos de tributo', value: `${summary.subcategoryCount} tipos`, helper: `${summary.entryCount} lançamentos` },
+        { id: 'cat-ticket', label: 'Tributo médio / mês', value: fmtBRL(perMonth), deltaLabel: `${monthly.length} competências`, variant: 'warning' },
+        { id: 'cat-count', label: 'Tipos de tributo', value: `${summary.subcategoryCount} tipos`, deltaLabel: `${summary.entryCount} lançamentos` },
       );
     } else {
       out.push({
@@ -263,8 +270,8 @@ export function CategorySpecificDashboard({
         ? { id: 'cat-sup', label: config.supplierLabel, ...dim(topAgency, 'Sem fornecedor') }
         : { id: 'cat-cc', label: 'Centro de custo líder', ...dim(byCostCenter[0]) });
       out.push(config.supportsCollaborator
-        ? { id: 'cat-collab', label: 'Custo médio / colaborador', value: fmtBRL(avgPerCollaborator), helper: `${byCollaborator.length} colaboradores` }
-        : { id: 'cat-ticket', label: 'Ticket médio', value: fmtBRL(ticketAll), helper: `${summary.entryCount} lançamentos` });
+        ? { id: 'cat-collab', label: 'Custo médio / colaborador', value: fmtBRL(avgPerCollaborator), deltaLabel: `${byCollaborator.length} colaboradores` }
+        : { id: 'cat-ticket', label: 'Ticket médio', value: fmtBRL(ticketAll), deltaLabel: `${summary.entryCount} lançamentos` });
     }
     return out;
   }, [config, summary, monthly, byProject, byCostCenter, byDepartment, topAgency, avgPerCollaborator, byCollaborator.length, ticketAll, allocationRate, allocatedValue, unallocatedValue]);
@@ -348,7 +355,7 @@ export function CategorySpecificDashboard({
       scopeLabel: drillSub ? `${config.title} · ${managementCategories.find((c) => c.id === drillSub)?.name ?? ''}` : config.title,
       periodLabel: `${periodFrom} → ${periodTo}`,
       isDemo,
-      kpis: kpis.map((k) => ({ label: k.label, value: k.value, helper: k.helper })),
+      kpis: kpis.map((k) => ({ label: k.label ?? '', value: String(k.value), helper: k.deltaLabel })),
       rankings: [
         { title: `Top ${subLabel}s`, rows: subcategories.slice(0, 10).map((s) => ({ label: s.name, value: s.value, share: s.share })) },
         ...(config.supportsProject ? [{ title: 'Top projetos', rows: byProject.filter((r) => r.id).slice(0, 10).map((r) => ({ label: r.name, value: r.value, share: r.share })) }] : []),
@@ -421,7 +428,7 @@ export function CategorySpecificDashboard({
       )}
 
       {/* Executive KPIs */}
-      <KpiSparkGrid kpis={kpis} columns={6} />
+      <HudKpiStrip kpis={kpis} columns={6} />
 
       {/* Executive reading + composition */}
       {insights.length > 0 ? (

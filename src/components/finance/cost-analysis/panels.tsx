@@ -194,22 +194,26 @@ const monthLabel = (p: string) => {
   return `${MONTHS_PT[Number(m) - 1] ?? m}/${y?.slice(2) ?? ''}`;
 };
 
-export function TrendPanel({ title, points, height = 260 }: TrendPanelProps) {
+export function TrendPanel({ title, points, height = 280 }: TrendPanelProps) {
+  const series = [{ name: 'Custo', data: points.map((p) => p.value), tone: 'accent' as const }];
   return (
     <HudCard className="flex h-full min-w-0 flex-col">
       <HudCardHeader><HudCardTitle className="truncate">{title}</HudCardTitle></HudCardHeader>
       <HudCardContent className="flex flex-1 flex-col justify-center p-3">
-        <FinanceChartContainer>
-          {points.length === 0 ? (
-            <p className="w-full px-2 py-10 text-center text-[11px] text-ig-text-tertiary">Sem série no período.</p>
-          ) : (
-            <FinanceLineChart
-              categories={points.map((p) => monthLabel(p.period))}
-              series={[{ name: 'Custo', data: points.map((p) => p.value), tone: 'accent' }]}
-              height={height}
-            />
-          )}
-        </FinanceChartContainer>
+        {points.length === 0 ? (
+          <p className="w-full px-2 py-10 text-center text-[11px] text-ig-text-tertiary">Sem série no período.</p>
+        ) : (
+          <>
+            <FinanceChartContainer>
+              <FinanceLineChart
+                categories={points.map((p) => monthLabel(p.period))}
+                series={series}
+                height={height}
+              />
+            </FinanceChartContainer>
+            <ChartLegend items={series.map((s) => ({ name: s.name, tone: s.tone }))} />
+          </>
+        )}
       </HudCardContent>
     </HudCard>
   );

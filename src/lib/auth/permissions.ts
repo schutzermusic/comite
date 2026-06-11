@@ -112,6 +112,18 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     ],
   },
   {
+    module: 'tasks',
+    label: 'Tarefas',
+    permissions: [
+      { key: 'tasks.view', label: 'Visualizar' },
+      { key: 'tasks.create', label: 'Criar' },
+      { key: 'tasks.assign', label: 'Atribuir' },
+      { key: 'tasks.edit', label: 'Editar' },
+      { key: 'tasks.complete', label: 'Concluir' },
+      { key: 'tasks.admin', label: 'Administrar' },
+    ],
+  },
+  {
     module: 'deliberations',
     label: 'Deliberacoes',
     permissions: [

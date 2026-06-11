@@ -1,7 +1,6 @@
 'use client';
 
 import React from 'react';
-import { motion } from 'framer-motion';
 import {
   CalendarRange,
   Layers,
@@ -10,10 +9,17 @@ import {
   GitBranch,
   Sparkles,
   FileBarChart2,
-  ChevronDown,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { FinanceFilterRange } from '@/components/finance/shared';
+import {
+  FinanceFilterBar,
+  FinanceFilterChip,
+  FinanceFilterRange,
+  FILTER_CHIP_SHELL,
+  FILTER_CHIP_LABEL,
+  CHIP_DIVIDER,
+  FILTER_CHIP_LAYOUT,
+} from '@/components/finance/shared';
 import { SCENARIOS, type ControlRoomFilters, type ScenarioKey } from './types';
 import { generatePeriodOptions } from './helpers';
 
@@ -43,152 +49,87 @@ export function FinanceControlBar({
   contracts,
 }: FinanceControlBarProps) {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: -8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
-      className="sticky top-3 z-30"
-    >
-      <div className="ig-glass" data-elev={3} data-interactive={undefined} data-sweep>
-        <span data-ig-noise="" />
-        <span data-ig-specular="" />
-        <span data-ig-sweep="" />
-        <div data-ig-content="" className="px-4 py-3">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex flex-wrap items-center gap-2 [&_>_div]:h-9">
-              <FinanceFilterRange
-                icon={<CalendarRange className="h-3.5 w-3.5" />}
-                label="Período"
-                fromValue={filters.periodFrom}
-                toValue={filters.periodTo}
-                options={periods}
-                onChange={(from, to) => onChange({ periodFrom: from, periodTo: to })}
-              />
+    <FinanceFilterBar
+      showPeriod={false}
+      showScenario={false}
+      extra={
+        <>
+          <FinanceFilterRange
+            icon={<CalendarRange className="h-3.5 w-3.5 shrink-0" />}
+            label="Período"
+            fromValue={filters.periodFrom}
+            toValue={filters.periodTo}
+            options={periods}
+            onChange={(from, to) => onChange({ periodFrom: from, periodTo: to })}
+          />
 
-              <ScenarioPicker
-                value={filters.scenario}
-                onChange={(scenario) => onChange({ scenario })}
-              />
+          <ScenarioPicker
+            value={filters.scenario}
+            onChange={(scenario) => onChange({ scenario })}
+          />
 
-              <CompactSelect
-                icon={<FolderKanban className="h-3.5 w-3.5" />}
-                label="Projeto"
-                value={filters.projectId}
-                options={[{ id: 'all', label: 'Todos os projetos' }, ...projects]}
-                onChange={(projectId) => onChange({ projectId })}
-              />
+          <FinanceFilterChip
+            icon={<FolderKanban className="h-3.5 w-3.5 shrink-0" />}
+            label="Projeto"
+            value={filters.projectId}
+            options={[{ value: 'all', label: 'Todos os projetos' }, ...projects.map((p) => ({ value: p.id, label: p.label }))]}
+            onChange={(projectId) => onChange({ projectId })}
+          />
 
-              <CompactSelect
-                icon={<FileText className="h-3.5 w-3.5" />}
-                label="Contrato"
-                value={filters.contractId}
-                options={[{ id: 'all', label: 'Todos os contratos' }, ...contracts]}
-                onChange={(contractId) => onChange({ contractId })}
-              />
+          <FinanceFilterChip
+            icon={<FileText className="h-3.5 w-3.5 shrink-0" />}
+            label="Contrato"
+            value={filters.contractId}
+            options={[{ value: 'all', label: 'Todos os contratos' }, ...contracts.map((c) => ({ value: c.id, label: c.label }))]}
+            onChange={(contractId) => onChange({ contractId })}
+          />
 
-              <CompactSelect
-                icon={<GitBranch className="h-3.5 w-3.5" />}
-                label="Visão"
-                value={filters.consolidation}
-                options={CONSOLIDATION_OPTIONS.map((o) => ({ id: o.value, label: o.label }))}
-                onChange={(value) => onChange({ consolidation: value as ControlRoomFilters['consolidation'] })}
-              />
-            </div>
-
-            <div className="flex items-center gap-2 [&_>_button]:h-9">
-              <button
-                type="button"
-                onClick={onSimulate}
-                className={cn(
-                  'group inline-flex items-center gap-2 rounded-lg px-3.5 text-xs font-semibold tracking-wide',
-                  'bg-[linear-gradient(180deg,rgba(20,184,166,0.18),rgba(15,118,110,0.10))]',
-                  'text-[color:var(--ig-accent)]',
-                  'border border-[color:var(--ig-border-focus)]',
-                  'shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_4px_16px_-8px_rgba(20,184,166,0.55)]',
-                  'transition-all hover:bg-[linear-gradient(180deg,rgba(20,184,166,0.28),rgba(15,118,110,0.16))]',
-                  'hover:-translate-y-px',
-                )}
-              >
-                <Sparkles className="h-3.5 w-3.5" />
-                Simular Cenário
-              </button>
-              <button
-                type="button"
-                onClick={onGenerateReport}
-                className={cn(
-                  'inline-flex items-center gap-2 rounded-lg px-3.5 text-xs font-semibold tracking-wide',
-                  'bg-[linear-gradient(180deg,#17C3B2_0%,#0F9C8F_100%)]',
-                  'text-white',
-                  'shadow-[inset_0_1px_0_rgba(255,255,255,0.22),0_4px_12px_rgba(15,156,143,0.28)]',
-                  'transition-all hover:brightness-110 hover:-translate-y-px',
-                )}
-              >
-                <FileBarChart2 className="h-3.5 w-3.5" />
-                Gerar Relatório do Conselho
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </motion.div>
-  );
-}
-
-// ───── Internals ─────
-
-interface CompactSelectProps {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  options: { id: string; label: string }[];
-  onChange: (value: string) => void;
-}
-
-function CompactSelect({ icon, label, value, options, onChange }: CompactSelectProps) {
-  return (
-    <div className="flex items-center gap-1.5 rounded-lg border border-[color:var(--ig-border-strong)] bg-[color:var(--ig-bg-raised)]/60 px-2 backdrop-blur-sm">
-      <span className="flex items-center gap-1.5 pl-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[color:var(--ig-fg-subtle)]">
-        {icon}
-        {label}
-      </span>
-      <BareSelect
-        value={value}
-        onChange={onChange}
-        options={options.map((o) => ({ value: o.id, label: o.label }))}
-      />
-    </div>
-  );
-}
-
-interface BareSelectProps {
-  value: string;
-  onChange: (value: string) => void;
-  options: { value: string; label: string }[];
-}
-
-function BareSelect({ value, onChange, options }: BareSelectProps) {
-  return (
-    <div className="relative">
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className={cn(
-          'appearance-none cursor-pointer rounded-md',
-          'bg-transparent pl-2 pr-6 py-1 text-xs font-medium',
-          'text-[color:var(--ig-fg-strong)]',
-          'border border-transparent hover:border-[color:var(--ig-border-strong)]',
-          'focus:outline-none focus:border-[color:var(--ig-border-focus)]',
-          'transition-colors',
-        )}
-      >
-        {options.map((o) => (
-          <option key={o.value} value={o.value} className="bg-[color:var(--ig-bg-raised)] text-[color:var(--ig-fg-strong)]">
-            {o.label}
-          </option>
-        ))}
-      </select>
-      <ChevronDown className="pointer-events-none absolute right-1 top-1/2 h-3 w-3 -translate-y-1/2 text-[color:var(--ig-fg-subtle)]" />
-    </div>
+          <FinanceFilterChip
+            icon={<GitBranch className="h-3.5 w-3.5 shrink-0" />}
+            label="Visão"
+            value={filters.consolidation}
+            options={CONSOLIDATION_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+            onChange={(value) => onChange({ consolidation: value as ControlRoomFilters['consolidation'] })}
+          />
+        </>
+      }
+      rightSlot={
+        <>
+          <button
+            type="button"
+            onClick={onSimulate}
+            className={cn(
+              'group inline-flex items-center justify-center gap-2 rounded-lg px-3 text-xs font-semibold tracking-wide sm:px-3.5',
+              'bg-[linear-gradient(180deg,rgba(20,184,166,0.18),rgba(15,118,110,0.10))]',
+              'text-[color:var(--ig-accent)]',
+              'border border-[color:var(--ig-border-focus)]',
+              'shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_4px_16px_-8px_rgba(20,184,166,0.55)]',
+              'transition-all hover:bg-[linear-gradient(180deg,rgba(20,184,166,0.28),rgba(15,118,110,0.16))]',
+              'hover:-translate-y-px',
+            )}
+          >
+            <Sparkles className="h-3.5 w-3.5 shrink-0" />
+            <span className="sm:hidden">Simular</span>
+            <span className="hidden sm:inline">Simular Cenário</span>
+          </button>
+          <button
+            type="button"
+            onClick={onGenerateReport}
+            className={cn(
+              'inline-flex items-center justify-center gap-2 rounded-lg px-3 text-xs font-semibold tracking-wide sm:px-3.5',
+              'bg-[linear-gradient(180deg,#17C3B2_0%,#0F9C8F_100%)]',
+              'text-white',
+              'shadow-[inset_0_1px_0_rgba(255,255,255,0.22),0_4px_12px_rgba(15,156,143,0.28)]',
+              'transition-all hover:brightness-110 hover:-translate-y-px',
+            )}
+          >
+            <FileBarChart2 className="h-3.5 w-3.5 shrink-0" />
+            <span className="sm:hidden">Relatório</span>
+            <span className="hidden sm:inline">Gerar Relatório do Conselho</span>
+          </button>
+        </>
+      }
+    />
   );
 }
 
@@ -199,12 +140,13 @@ interface ScenarioPickerProps {
 
 function ScenarioPicker({ value, onChange }: ScenarioPickerProps) {
   return (
-    <div className="flex items-center gap-1.5 rounded-lg border border-[color:var(--ig-border-strong)] bg-[color:var(--ig-bg-raised)]/60 px-1.5 backdrop-blur-sm">
-      <span className="flex items-center gap-1.5 pl-2 pr-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[color:var(--ig-fg-subtle)]">
-        <Layers className="h-3.5 w-3.5" />
+    <div className={cn(FILTER_CHIP_SHELL, FILTER_CHIP_LAYOUT.scenarioSegment, 'overflow-hidden')}>
+      <span className={FILTER_CHIP_LABEL}>
+        <Layers className="h-3.5 w-3.5 shrink-0" />
         Cenário
       </span>
-      <div className="flex items-center gap-0.5">
+      <span className={CHIP_DIVIDER} />
+      <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-0.5">
         {SCENARIOS.map((s) => {
           const active = s.key === value;
           return (
@@ -214,7 +156,7 @@ function ScenarioPicker({ value, onChange }: ScenarioPickerProps) {
               onClick={() => onChange(s.key)}
               title={s.description}
               className={cn(
-                'rounded-md px-2 py-1 text-[11px] font-semibold transition-all',
+                'shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-semibold transition-all whitespace-nowrap',
                 active
                   ? 'text-[color:var(--ig-bg-canvas)]'
                   : 'text-[color:var(--ig-fg-muted)] hover:text-[color:var(--ig-fg-strong)]',

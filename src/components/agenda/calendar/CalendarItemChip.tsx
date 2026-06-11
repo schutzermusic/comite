@@ -4,7 +4,8 @@ import React from 'react';
 import { format } from 'date-fns';
 import { CheckSquare, MapPin, Users, Video } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { CalendarItem, OrgMember } from '@/lib/types/agenda';
+import type { CalendarItem, OrgMember, TaskStatus } from '@/lib/types/agenda';
+import { EVENT_STATUS_LABELS, TASK_PRIORITY_LABELS, TASK_STATUS_LABELS } from '@/lib/types/agenda';
 import { isOverdue, itemAccentClass, memberName } from './helpers';
 
 interface Props {
@@ -13,6 +14,27 @@ interface Props {
   onClick?: (item: CalendarItem) => void;
   /** Dense single-line variant used inside month cells. */
   dense?: boolean;
+}
+
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function buildTooltip(item: CalendarItem, members: OrgMember[]): string {
+  const lines: string[] = [item.title];
+  lines.push(item.allDay ? 'Dia todo' : `Horário: ${format(item.start, 'HH:mm')}`);
+  if (item.kind === 'task') {
+    lines.push(`Status: ${TASK_STATUS_LABELS[item.status as TaskStatus] ?? item.status}`);
+    if (item.priority) lines.push(`Prioridade: ${TASK_PRIORITY_LABELS[item.priority]}`);
+    if (item.assigneeUserId) lines.push(`Responsável: ${memberName(members, item.assigneeUserId)}`);
+  } else {
+    lines.push(`Status: ${EVENT_STATUS_LABELS[item.status as keyof typeof EVENT_STATUS_LABELS] ?? item.status}`);
+    if (item.location) lines.push(`Local: ${item.location}`);
+  }
+  if (isOverdue(item)) lines.push('⚠ Atrasada');
+  return lines.join('\n');
 }
 
 /**
@@ -24,16 +46,19 @@ export function CalendarItemChip({ item, members, onClick, dense }: Props) {
   const overdue = isOverdue(item);
   const cancelled = item.status === 'cancelled';
   const time = item.allDay ? 'Dia todo' : format(item.start, 'HH:mm');
+  const assigneeName = item.kind === 'task' && item.assigneeUserId ? memberName(members, item.assigneeUserId) : null;
 
   return (
     <button
       type="button"
       onClick={() => onClick?.(item)}
-      title={item.title}
+      title={buildTooltip(item, members)}
       className={cn(
         'group flex w-full min-w-0 items-center gap-1.5 rounded-md border text-left transition-colors',
         dense ? 'px-1.5 py-0.5' : 'px-2 py-1.5',
         'border-ig-border-subtle bg-ig-panel hover:border-ig-border-focus hover:bg-ig-panel-hover',
+        'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ig-border-focus',
+        overdue && 'border-ig-danger/40',
         cancelled && 'opacity-60',
       )}
     >
@@ -55,7 +80,7 @@ export function CalendarItemChip({ item, members, onClick, dense }: Props) {
       <span
         className={cn(
           'min-w-0 flex-1 truncate text-xs',
-          cancelled ? 'text-ig-fg-muted line-through' : 'text-ig-fg-strong',
+          cancelled ? 'text-ig-fg-muted line-through' : overdue ? 'text-ig-danger' : 'text-ig-fg-strong',
         )}
       >
         {item.title}
@@ -65,9 +90,13 @@ export function CalendarItemChip({ item, members, onClick, dense }: Props) {
           atrasada
         </span>
       )}
-      {!dense && item.kind === 'task' && item.assigneeUserId && (
-        <span className="hidden flex-shrink-0 text-[10px] text-ig-fg-subtle md:inline">
-          {memberName(members, item.assigneeUserId).split(' ')[0]}
+      {!dense && assigneeName && (
+        <span
+          className="flex h-4.5 w-4.5 flex-shrink-0 items-center justify-center rounded-full bg-ig-accent-weak text-[8px] font-semibold text-ig-accent"
+          style={{ height: 18, width: 18 }}
+          title={assigneeName}
+        >
+          {initials(assigneeName)}
         </span>
       )}
     </button>

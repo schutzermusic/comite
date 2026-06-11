@@ -13,17 +13,27 @@ function Item({
   icon, tint, label, value, hint,
 }: { icon: React.ReactNode; tint: string; label: string; value: string; hint?: string }) {
   return (
-    <div className="flex min-w-0 items-start gap-2.5 px-3.5 py-3">
+    <div className="group flex min-w-0 items-start gap-3 px-4 py-3.5 transition-colors duration-150 hover:bg-ig-bg-overlay/40">
       <span
-        className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg"
-        style={{ backgroundColor: `color-mix(in oklab, ${tint} 14%, transparent)`, color: tint }}
+        className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] transition-transform duration-200 group-hover:scale-105"
+        style={{
+          backgroundColor: `color-mix(in oklab, ${tint} 14%, transparent)`,
+          color: tint,
+          boxShadow: `inset 0 1px 0 rgba(255,255,255,0.08), 0 2px 8px color-mix(in oklab, ${tint} 20%, transparent)`,
+        }}
       >
         {icon}
       </span>
       <div className="min-w-0">
-        <p className="text-[10px] font-medium uppercase tracking-[0.08em] text-ig-fg-subtle">{label}</p>
-        <p className="truncate text-[12.5px] font-semibold text-ig-fg-strong" title={value}>{value}</p>
-        {hint && <p className="truncate text-[10px] text-ig-fg-muted">{hint}</p>}
+        <p className="text-[9.5px] font-semibold uppercase tracking-[0.1em] text-ig-fg-subtle">
+          {label}
+        </p>
+        <p className="mt-0.5 truncate text-[12px] font-semibold text-ig-fg-strong" title={value}>
+          {value}
+        </p>
+        {hint && (
+          <p className="truncate text-[10px] text-ig-fg-muted">{hint}</p>
+        )}
       </div>
     </div>
   );
@@ -34,13 +44,20 @@ export function RiskInsightStrip({ insights }: Props) {
 
   const trendMeta =
     trend.direction === "up"
-      ? { icon: <TrendingUp className="h-4 w-4" />, tint: "var(--ig-danger)", value: `Em alta (+${trend.delta})`, hint: "Score corporativo subindo" }
+      ? { icon: <TrendingUp className="h-4 w-4" />, tint: "var(--ig-danger)",  value: `Em alta (+${trend.delta})`,   hint: "Score corporativo subindo"   }
       : trend.direction === "down"
-        ? { icon: <TrendingDown className="h-4 w-4" />, tint: "var(--ig-success)", value: `Em queda (${trend.delta})`, hint: "Score corporativo recuando" }
-        : { icon: <Minus className="h-4 w-4" />, tint: "var(--ig-info)", value: "Estável", hint: "Sem variação relevante" };
+        ? { icon: <TrendingDown className="h-4 w-4" />, tint: "var(--ig-success)", value: `Em queda (${trend.delta})`,   hint: "Score corporativo recuando"  }
+        : { icon: <Minus className="h-4 w-4" />,        tint: "var(--ig-info)",    value: "Estável",                    hint: "Sem variação relevante"     };
 
   return (
-    <div className="grid grid-cols-1 divide-y divide-ig-border-subtle overflow-hidden rounded-2xl border border-ig-border-subtle bg-ig-bg-panel/60 sm:grid-cols-2 sm:divide-y-0 lg:grid-cols-5 sm:[&>*]:border-r sm:[&>*]:border-ig-border-subtle sm:[&>*:last-child]:border-r-0">
+    <div
+      className="grid grid-cols-1 divide-y divide-ig-border-subtle overflow-hidden rounded-2xl border border-ig-border bg-ig-bg-panel/50 sm:grid-cols-2 sm:divide-y-0 lg:grid-cols-5 sm:[&>*]:border-r sm:[&>*]:border-ig-border-subtle sm:[&>*:last-child]:border-r-0"
+      style={{
+        boxShadow: "inset 0 0 0 1px var(--ig-edge-e2), 0 4px 24px rgba(0,0,0,0.10)",
+        backdropFilter: "blur(8px)",
+        WebkitBackdropFilter: "blur(8px)",
+      }}
+    >
       <Item
         icon={<Flame className="h-4 w-4" />}
         tint="var(--ig-danger)"

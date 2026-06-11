@@ -6,7 +6,7 @@ import {
   CalendarRange, Tag, Download, X, Plane, Users, ChevronRight,
   Receipt, Wallet, Home,
 } from 'lucide-react';
-import { HudPageLayout, HudHeader, HudButton } from '@/components/hud';
+import { HudPageLayout, HudHeader, HudButton, HudKpiStrip, type KpiItem } from '@/components/hud';
 import {
   FinanceFilterBar, FinanceFilterChip, FinanceFilterRange,
   FinanceInsightCard,
@@ -37,9 +37,9 @@ import { projects as projectRefs, contracts as contractRefs, collaborators } fro
 import { generatePeriodOptions } from '@/components/finance/control-room/helpers';
 import { cn } from '@/lib/utils';
 import {
-  RankPanel, DonutPanel, TrendPanel, EntryTable, KpiSparkGrid,
+  RankPanel, DonutPanel, TrendPanel, EntryTable,
   SCurvePanel, WaterfallPanel, HeatmapPanel,
-  type EntryRow, type SparkKpi,
+  type EntryRow,
 } from './panels';
 import { CategorySpecificDashboard } from './CategorySpecificDashboard';
 import { quickCategories, resolveCategoryDashboard, type CategoryDashboardType } from './category-dashboards';
@@ -218,34 +218,45 @@ export function CostAnalysisDashboard() {
     return selectCostByCategory({ ...baseFilter, projectId: drillProject });
   }, [baseFilter, drillProject]);
 
-  // ── Premium KPIs (with mini sparkline on the headline) ────────
-  const kpis = useMemo<SparkKpi[]>(() => [
-    {
-      id: 'total', label: 'Custo total', value: fmtBRL(summary.total),
-      helper: `${summary.entryCount} lançamentos`, delta: summary.momPct,
-      spark: monthly.map((p) => p.value), tone: 'accent',
-    },
-    {
-      id: 'mom', label: 'Variação m/m',
-      value: summary.momPct === undefined ? '—' : `${summary.momPct > 0 ? '+' : ''}${summary.momPct.toFixed(1)}%`,
-      helper: summary.lastPeriod ? `${fmtCompactBRL(summary.lastPeriodValue)} no último mês` : 'Sem série',
-      delta: summary.momPct,
-    },
-    {
-      id: 'top-cat', label: 'Maior categoria', value: summary.topCategory?.name ?? '—',
-      helper: summary.topCategory ? `${fmtCompactBRL(summary.topCategory.value)} · ${(summary.topCategory.share * 100).toFixed(0)}%` : undefined,
-    },
-    {
-      id: 'top-sub', label: 'Maior subcategoria', value: summary.topSubcategory?.name ?? '—',
-      helper: summary.topSubcategory ? `${fmtCompactBRL(summary.topSubcategory.value)} · ${(summary.topSubcategory.share * 100).toFixed(0)}%` : undefined,
-    },
-    {
-      id: 'top-proj', label: 'Projeto que mais gastou', value: byProject.find((r) => r.id)?.name ?? '—',
-      helper: byProject.find((r) => r.id)
-        ? `${fmtCompactBRL(byProject.find((r) => r.id)!.value)} · ${(byProject.find((r) => r.id)!.share * 100).toFixed(0)}%`
-        : 'Sem projeto',
-    },
-  ], [summary, monthly, byProject]);
+  // ── KPIs — strip facetada (padrão HUD dos demais módulos) ─────
+  const kpis = useMemo<KpiItem[]>(() => {
+    function costDelta(pct?: number): { deltaText?: string; deltaTone?: 'success' | 'danger' | 'neutral' } {
+      if (pct === undefined) return {};
+      return {
+        deltaText: `${pct > 0 ? '+' : ''}${pct.toFixed(1)}%`,
+        deltaTone: pct === 0 ? 'neutral' : pct > 0 ? 'danger' : 'success',
+      };
+    }
+    const topProj = byProject.find((r) => r.id);
+    return [
+      {
+        id: 'total', label: 'Custo total', value: fmtBRL(summary.total),
+        deltaLabel: `${summary.entryCount} lançamentos`,
+        ...costDelta(summary.momPct),
+        variant: 'info',
+        icon: <Coins className="w-5 h-5" />,
+      },
+      {
+        id: 'mom', label: 'Variação m/m',
+        value: summary.momPct === undefined ? '—' : `${summary.momPct > 0 ? '+' : ''}${summary.momPct.toFixed(1)}%`,
+        deltaLabel: summary.lastPeriod ? `${fmtCompactBRL(summary.lastPeriodValue)} no último mês` : 'Sem série',
+        variant: summary.momPct === undefined ? 'default' : summary.momPct > 0 ? 'danger' : 'success',
+        tintValue: true,
+      },
+      {
+        id: 'top-cat', label: 'Maior categoria', value: summary.topCategory?.name ?? '—',
+        deltaLabel: summary.topCategory ? `${fmtCompactBRL(summary.topCategory.value)} · ${(summary.topCategory.share * 100).toFixed(0)}%` : undefined,
+      },
+      {
+        id: 'top-sub', label: 'Maior subcategoria', value: summary.topSubcategory?.name ?? '—',
+        deltaLabel: summary.topSubcategory ? `${fmtCompactBRL(summary.topSubcategory.value)} · ${(summary.topSubcategory.share * 100).toFixed(0)}%` : undefined,
+      },
+      {
+        id: 'top-proj', label: 'Projeto que mais gastou', value: topProj?.name ?? '—',
+        deltaLabel: topProj ? `${fmtCompactBRL(topProj.value)} · ${(topProj.share * 100).toFixed(0)}%` : 'Sem projeto',
+      },
+    ];
+  }, [summary, byProject]);
 
   const globalInsights = useMemo(
     () => buildGlobalInsights({ summary, categories, subcategories }),
@@ -285,7 +296,7 @@ export function CostAnalysisDashboard() {
       title: 'Análise de Custos',
       scopeLabel: dashboardConfig ? dashboardConfig.title : 'Visão Geral',
       periodLabel: `${periodFrom} → ${periodTo}`,
-      kpis: kpis.map((k) => ({ label: k.label, value: k.value, helper: k.helper })),
+      kpis: kpis.map((k) => ({ label: k.label ?? '', value: String(k.value), helper: k.deltaLabel })),
       rankings: [
         { title: 'Top categorias', rows: categories.slice(0, 10).map((c) => ({ label: c.name, value: c.value, share: c.share })) },
         { title: 'Top projetos', rows: byProject.filter((r) => r.id).slice(0, 10).map((r) => ({ label: r.name, value: r.value, share: r.share })) },
@@ -367,37 +378,6 @@ export function CostAnalysisDashboard() {
         }
       />
 
-      {/* Quick category chips — hidden when drilling down by project to avoid duplication */}
-      {!drillProject && (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="mr-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-ig-text-tertiary">Categorias</span>
-          {QUICK_CATS.map((q) => {
-            const active = drillCategory === q.id;
-            return (
-              <button
-                key={q.id}
-                type="button"
-                onClick={() => selectCategory(q.id)}
-                className={cn(
-                  'rounded-full border px-3 py-1 text-[12px] font-medium transition-colors',
-                  active
-                    ? 'border-ig-border-focus bg-ig-accent-weak text-ig-accent'
-                    : 'border-ig-border-subtle text-ig-text-secondary hover:bg-ig-surface-subtle/40 hover:text-ig-text-primary',
-                )}
-              >
-                {q.label}
-              </button>
-            );
-          })}
-          {drillCategory && (
-            <button type="button" onClick={clearDrill}
-              className="ml-1 inline-flex items-center gap-1 text-[11px] text-ig-text-tertiary hover:text-ig-text-primary">
-              <X className="h-3 w-3" /> limpar
-            </button>
-          )}
-        </div>
-      )}
-
       {/* Drilldown trail: shown only for category drilldown (not project drilldown) to avoid duplication with top filter */}
       {drillCategory && !drillProject && (
         <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-ig-border-subtle bg-ig-surface-subtle/30 px-3 py-2 text-[12px] text-ig-text-secondary">
@@ -440,7 +420,7 @@ export function CostAnalysisDashboard() {
         />
       ) : (
       <>
-      <KpiSparkGrid kpis={kpis} columns={5} />
+      <HudKpiStrip kpis={kpis} columns={5} />
 
       {/* Leitura executiva + Composição por categoria */}
       <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-2">

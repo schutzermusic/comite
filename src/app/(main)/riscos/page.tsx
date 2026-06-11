@@ -3,7 +3,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
-  Activity, AlertCircle, ArrowLeftRight, BarChart3, Boxes, BrainCircuit, CheckCircle2,
+  Activity, AlertCircle, ArrowLeftRight, Boxes, BrainCircuit, CheckCircle2,
   ChevronDown, Clock, Disc3, FileDown, Flame, Gauge, Layers, ListChecks, Percent,
   Plus, Radar, ShieldAlert, ShieldCheck, Sparkles, Target, TrendingUp, X,
 } from "lucide-react";
@@ -14,13 +14,13 @@ import type { FilterGroup, KpiItem } from "@/components/hud";
 import {
   RiskMatrix5x5,
   RiskMitigationPipeline,
-  RiskStatusPipeline,
+
   RiskTable,
   RiskDetailDrawer,
   RiskDrilldownDrawer,
   RiskFormModal,
   RiskInsightStrip,
-  SeverityDonutWithLegend,
+  RiskAiAlerts,
   RiskExposureTrendChart,
   CategoryDistributionChart,
   TopRiskOwnersChart,
@@ -568,10 +568,14 @@ function RiscosCockpit() {
         )}
       </div>
 
-      {/* ══════ ROW 1: MATRIX + SEVERITY DONUT + STATUS PIPELINE ══════ */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.5fr_1fr]">
+      {/* ══════ ROW 1: MATRIX + AI ALERTS ══════
+           Desktop: dois cards lado a lado, IA estica para igualar a altura da matriz.
+           Mobile: empilhados, cada um com altura automática — sem h-full forçado. ══════ */}
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:items-stretch">
+        {/* Matriz: sem fullHeight — a própria matriz carrega seu aspect-ratio */}
         <HudPanel
-          elevation={2}
+          elevation={3}
+          sweep
           title="Matriz 5×5 — Probabilidade × Impacto"
           subtitle="Clique em uma célula para ver os riscos"
           icon={<ShieldCheck className="h-4 w-4" />}
@@ -585,39 +589,44 @@ function RiscosCockpit() {
           />
         </HudPanel>
 
-        <div className="grid grid-cols-1 gap-4">
-          <HudPanel elevation={2} title="Por Severidade" subtitle="Clique para ver os riscos" icon={<BarChart3 className="h-4 w-4" />} iconTint="#EF4B55">
-            <SeverityDonutWithLegend slices={severityData} height={208} onSelect={(key) => setDrilldown({ kind: "severity", severity: key as ExtendedRisk["severity"] })} />
-          </HudPanel>
-          <HudPanel elevation={2} title="Pipeline de Status" subtitle="Clique para ver os riscos" icon={<Activity className="h-4 w-4" />} iconTint="#14B8A6">
-            <RiskStatusPipeline
-              counts={{ open: summary.open, mitigating: summary.mitigating, resolved: summary.resolved }}
-              active={drilldown?.kind === "status" ? drilldown.status : null}
-              onStatusClick={(status) => setDrilldown({ kind: "status", status: status as ExtendedRisk["status"] })}
-            />
-          </HudPanel>
-        </div>
+        {/* IA: fullHeight ativo → estica para igualar altura da matriz no desktop */}
+        <HudPanel
+          elevation={3}
+          fullHeight
+          title="Avisos de Riscos por IA"
+          subtitle="Sinalizações automáticas priorizadas"
+          icon={<BrainCircuit className="h-4 w-4" />}
+          iconTint="#A855F7"
+          badge={aiCount}
+          watermark="AI · ALERTS"
+        >
+          <RiskAiAlerts risks={scoped} onSelect={setDetailRisk} onAnalyze={handleAnalyzeAi} limit={6} />
+        </HudPanel>
       </div>
 
-      {/* ══════ ROW 2: TREND + WATERFALL + DOMAIN RADAR ══════ */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <HudPanel elevation={2} title="Evolução de Exposição" subtitle="Clique em um ponto para ver os riscos" icon={<TrendingUp className="h-4 w-4" />} iconTint="#EF4B55">
-          <RiskExposureTrendChart data={trend} height={272} onSelect={(month, severity) => setDrilldown({ kind: "trend", month, severity })} />
+      {/* ══════ ROW 1b: EVOLUÇÃO DE EXPOSIÇÃO (full width, maior, edge-to-edge) ══════ */}
+      <HudPanel elevation={2} noPadding title="Evolução de Exposição" subtitle="Clique em um ponto para ver os riscos" icon={<TrendingUp className="h-4 w-4" />} iconTint="#EF4B55" watermark="TREND · 6M">
+        <div className="px-3 pb-2 pt-3 sm:px-4">
+          <RiskExposureTrendChart data={trend} height={380} onSelect={(month, severity) => setDrilldown({ kind: "trend", month, severity })} />
+        </div>
+      </HudPanel>
+
+      {/* ══════ ROW 2: WATERFALL + DOMAIN RADAR ══════ */}
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+        <HudPanel elevation={2} title="Ponte de Exposição" subtitle="Clique em uma barra para ver os riscos" icon={<ArrowLeftRight className="h-4 w-4" />} iconTint="#F5A524" watermark="WATERFALL">
+          <RiskWaterfallChart data={waterfallData} height={300} onSelect={(bucket) => setDrilldown({ kind: "waterfall", bucket })} />
         </HudPanel>
-        <HudPanel elevation={2} title="Ponte de Exposição" subtitle="Clique em uma barra para ver os riscos" icon={<ArrowLeftRight className="h-4 w-4" />} iconTint="#F5A524">
-          <RiskWaterfallChart data={waterfallData} height={272} onSelect={(bucket) => setDrilldown({ kind: "waterfall", bucket })} />
-        </HudPanel>
-        <HudPanel elevation={2} title="Exposição por Domínio" subtitle="Radar de exposição comparativa" icon={<Radar className="h-4 w-4" />} iconTint="#A855F7">
-          <RiskAreaExposureChart data={domainData} height={272} />
+        <HudPanel elevation={2} title="Exposição por Domínio" subtitle="Radar de exposição comparativa" icon={<Radar className="h-4 w-4" />} iconTint="#A855F7" watermark="RADAR">
+          <RiskAreaExposureChart data={domainData} height={300} />
         </HudPanel>
       </div>
 
       {/* ══════ ROW 3: BUBBLE + HEATMAP ══════ */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <HudPanel elevation={2} title="Mapa de Risco" subtitle="Clique em um ponto para abrir o risco" icon={<Disc3 className="h-4 w-4" />} iconTint="#3B82F6">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+        <HudPanel elevation={2} title="Mapa de Risco" subtitle="Clique em um ponto para abrir o risco" icon={<Disc3 className="h-4 w-4" />} iconTint="#3B82F6" watermark="BUBBLE · MAP">
           <RiskBubbleChart data={bubbleData} height={300} onSelect={handleBubbleSelect} />
         </HudPanel>
-        <HudPanel elevation={2} title="Concentração por Área" subtitle="Clique em uma célula para ver os riscos" icon={<Boxes className="h-4 w-4" />} iconTint="#14B8A6">
+        <HudPanel elevation={2} title="Concentração por Área" subtitle="Clique em uma célula para ver os riscos" icon={<Boxes className="h-4 w-4" />} iconTint="#14B8A6" watermark="HEATMAP">
           <RiskHeatmapChart
             rows={heatmapData.rows}
             cols={heatmapData.cols}
@@ -630,17 +639,17 @@ function RiscosCockpit() {
       </div>
 
       {/* ══════ ROW 4: CATEGORY + OWNERS ══════ */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <HudPanel elevation={2} title="Por Categoria" subtitle="Clique em uma barra para ver os riscos" icon={<Layers className="h-4 w-4" />} iconTint="#3B82F6">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+        <HudPanel elevation={2} title="Por Categoria" subtitle="Clique em uma barra para ver os riscos" icon={<Layers className="h-4 w-4" />} iconTint="#3B82F6" watermark="CATEGORY">
           <CategoryDistributionChart data={categoryData} height={252} onSelect={(category) => setDrilldown({ kind: "category", category })} />
         </HudPanel>
-        <HudPanel elevation={2} title="Top Responsáveis" subtitle="Clique em um responsável para ver os riscos" icon={<Target className="h-4 w-4" />} iconTint="#A855F7">
+        <HudPanel elevation={2} title="Top Responsáveis" subtitle="Clique em um responsável para ver os riscos" icon={<Target className="h-4 w-4" />} iconTint="#A855F7" watermark="OWNERS">
           <TopRiskOwnersChart data={ownerData} height={252} onSelect={(owner) => setDrilldown({ kind: "owner", owner })} />
         </HudPanel>
       </div>
 
       {/* ══════ ROW 5: MITIGATION PIPELINE (full width) ══════ */}
-      <HudPanel elevation={2} title="Pipeline de Mitigação" subtitle="Clique em uma etapa para ver os riscos" icon={<Gauge className="h-4 w-4" />} iconTint="#F5A524">
+      <HudPanel elevation={2} title="Pipeline de Mitigação" subtitle="Clique em uma etapa para ver os riscos" icon={<Gauge className="h-4 w-4" />} iconTint="#F5A524" watermark="PIPELINE · V5">
         <RiskMitigationPipeline
           stages={pipeline}
           activeStage={drilldown?.kind === "stage" ? drilldown.stage : null}

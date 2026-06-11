@@ -1,107 +1,46 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
-import { Plus, User, X } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { ChevronDown, ChevronRight, Link2, Paperclip, Plus, X } from 'lucide-react';
 import { HudButton, HudInput, HudModal, HudSelect, useHudToast } from '@/components/hud';
 import { cn } from '@/lib/utils';
-import type { MeetingGuestInput, OrgMember, TaskPriority, TaskStatus } from '@/lib/types/agenda';
+import type {
+  CreateTaskInput,
+  MeetingGuestInput,
+  OrgMember,
+  TaskPriority,
+  TaskReminderToken,
+  TaskStatus,
+} from '@/lib/types/agenda';
 import { TASK_PRIORITY_LABELS, TASK_STATUS_LABELS } from '@/lib/types/agenda';
 import { createTask } from '@/lib/services/agenda';
-import { EmailChipsInput, isValidEmail } from './EmailChipsInput';
+import { uploadAttachment } from '@/lib/services/agenda-attachments';
+import { EmailChipsInput } from './EmailChipsInput';
+import { AssigneePicker } from './AssigneePicker';
+import { ModuleLinkPicker } from './ModuleLinkPicker';
+import { ReminderOffsetsField } from './ReminderOffsetsField';
+import { RecurrenceField, type RecurrenceValue } from './RecurrenceField';
+import { TaskDependencyPicker } from './TaskDependencyPicker';
+import type { RelatedLinks } from './module-links';
 
 interface Props {
   isOpen: boolean;
   onClose: () => void;
   members: OrgMember[];
   onCreated: () => void;
+  /** Prefill due date (click on an empty calendar day). */
+  defaultDueDate?: Date | null;
+  /** Prefill arbitrary fields (e.g. "criar tarefa a partir da reunião"). */
+  prefill?: Partial<CreateTaskInput> | null;
 }
 
-const ASSIGN_EXTERNAL_MSG = 'Tarefas só podem ser atribuídas a usuários internos do grupo.';
+const toDateStr = (d: Date) => {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
+const todayStr = () => toDateStr(new Date());
 
-/** Internal-only assignee picker. Typing an external e-mail is rejected. */
-function AssigneePicker({
-  members,
-  value,
-  onChange,
-}: {
-  members: OrgMember[];
-  value: string | null;
-  onChange: (userId: string | null) => void;
-}) {
-  const [query, setQuery] = useState('');
-  const [open, setOpen] = useState(false);
-  const selected = members.find((m) => m.userId === value);
-
-  const filtered = useMemo(() => {
-    const q = query.toLowerCase().trim();
-    if (!q) return members.slice(0, 8);
-    return members
-      .filter((m) => (m.fullName ?? '').toLowerCase().includes(q) || (m.email ?? '').toLowerCase().includes(q))
-      .slice(0, 8);
-  }, [query, members]);
-
-  // External email typed with no internal match → blocked.
-  const externalAttempt = query.trim().length > 0 && isValidEmail(query) && filtered.length === 0;
-
-  if (selected) {
-    return (
-      <div className="flex items-center justify-between rounded-lg border border-ig-border-focus bg-ig-accent-weak px-3 py-2">
-        <span className="flex items-center gap-2 text-sm text-ig-accent">
-          <User className="h-4 w-4" />
-          {selected.fullName || selected.email}
-        </span>
-        <button type="button" onClick={() => onChange(null)} className="text-ig-fg-muted hover:text-ig-fg-strong" aria-label="Remover responsável">
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="relative">
-      <input
-        value={query}
-        onChange={(e) => {
-          setQuery(e.target.value);
-          setOpen(true);
-        }}
-        onFocus={() => setOpen(true)}
-        onBlur={() => setTimeout(() => setOpen(false), 150)}
-        placeholder="Buscar usuário interno…"
-        className={cn(
-          'w-full rounded-lg border bg-ig-panel px-3 py-2 text-sm text-ig-fg-strong placeholder:text-ig-fg-subtle focus:outline-none',
-          externalAttempt ? 'border-ig-danger focus:border-ig-danger' : 'border-ig-border-strong focus:border-ig-border-focus',
-        )}
-      />
-      {externalAttempt && <p className="mt-1 text-xs text-ig-danger">{ASSIGN_EXTERNAL_MSG}</p>}
-      {open && !externalAttempt && filtered.length > 0 && (
-        <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-lg border border-ig-border bg-ig-overlay shadow-lg">
-          {filtered.map((m) => (
-            <button
-              key={m.userId}
-              type="button"
-              onMouseDown={(e) => {
-                e.preventDefault();
-                onChange(m.userId);
-                setQuery('');
-                setOpen(false);
-              }}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-ig-fg-strong transition-colors hover:bg-ig-panel-hover"
-            >
-              <User className="h-3.5 w-3.5 text-ig-accent" />
-              <span className="flex-1 truncate">{m.fullName || m.email}</span>
-              <span className="truncate text-xs text-ig-fg-subtle">{m.jobTitle || m.email}</span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-const todayStr = () => new Date().toISOString().slice(0, 10);
-
-export function NewTaskModal({ isOpen, onClose, members, onCreated }: Props) {
+export function NewTaskModal({ isOpen, onClose, members, onCreated, defaultDueDate, prefill }: Props) {
   const { toast } = useHudToast();
   const [saving, setSaving] = useState(false);
 
@@ -115,6 +54,36 @@ export function NewTaskModal({ isOpen, onClose, members, onCreated }: Props) {
   const [checklist, setChecklist] = useState<string[]>([]);
   const [checklistDraft, setChecklistDraft] = useState('');
   const [notify, setNotify] = useState<MeetingGuestInput[]>([]);
+  const [links, setLinks] = useState<RelatedLinks>({});
+  const [relatedEventId, setRelatedEventId] = useState<string | null>(null);
+  const [blockedBy, setBlockedBy] = useState<string | null>(null);
+  const [reminders, setReminders] = useState<TaskReminderToken[] | null>(null);
+  const [recurrence, setRecurrence] = useState<RecurrenceValue>({ freq: null, interval: 1, until: '' });
+  const [files, setFiles] = useState<File[]>([]);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
+  // Apply prefills when the modal opens.
+  useEffect(() => {
+    if (!isOpen) return;
+    if (defaultDueDate) setDueDate(toDateStr(defaultDueDate));
+    if (prefill) {
+      if (prefill.title) setTitle(prefill.title);
+      if (prefill.description) setDescription(prefill.description);
+      if (prefill.priority) setPriority(prefill.priority);
+      if (prefill.relatedEventId) setRelatedEventId(prefill.relatedEventId);
+      setLinks((prev) => ({
+        ...prev,
+        relatedProjectId: prefill.relatedProjectId ?? prev.relatedProjectId,
+        relatedContractId: prefill.relatedContractId ?? prev.relatedContractId,
+        relatedRiskId: prefill.relatedRiskId ?? prev.relatedRiskId,
+        relatedDeliberationId: prefill.relatedDeliberationId ?? prev.relatedDeliberationId,
+        relatedCommitteeId: prefill.relatedCommitteeId ?? prev.relatedCommitteeId,
+        relatedFinanceItemId: prefill.relatedFinanceItemId ?? prev.relatedFinanceItemId,
+        relatedPayrollBatchId: prefill.relatedPayrollBatchId ?? prev.relatedPayrollBatchId,
+      }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
 
   const reset = () => {
     setTitle('');
@@ -127,6 +96,13 @@ export function NewTaskModal({ isOpen, onClose, members, onCreated }: Props) {
     setChecklist([]);
     setChecklistDraft('');
     setNotify([]);
+    setLinks({});
+    setRelatedEventId(null);
+    setBlockedBy(null);
+    setReminders(null);
+    setRecurrence({ freq: null, interval: 1, until: '' });
+    setFiles([]);
+    setShowAdvanced(false);
   };
 
   const handleClose = () => {
@@ -150,7 +126,7 @@ export function NewTaskModal({ isOpen, onClose, members, onCreated }: Props) {
     setSaving(true);
     try {
       const dueAt = dueDate ? `${dueDate}T${dueTime || '09:00'}` : undefined;
-      await createTask({
+      const task = await createTask({
         title: title.trim(),
         description: description.trim() || undefined,
         dueAt,
@@ -158,9 +134,30 @@ export function NewTaskModal({ isOpen, onClose, members, onCreated }: Props) {
         priority,
         status,
         assigneeUserId,
+        relatedEventId,
+        ...links,
+        blockedByTaskId: blockedBy,
+        recurrenceFreq: recurrence.freq,
+        recurrenceInterval: recurrence.interval,
+        recurrenceUntil: recurrence.until || null,
+        reminderOffsets: reminders,
         notifyEmails: notify.map((n) => n.email),
         checklist,
       });
+
+      // Anexos: best-effort após a criação (falha não desfaz a tarefa).
+      let failedUploads = 0;
+      for (const file of files) {
+        try {
+          await uploadAttachment('task', task.id, file);
+        } catch {
+          failedUploads += 1;
+        }
+      }
+      if (failedUploads > 0) {
+        toast({ title: `${failedUploads} anexo(s) não pôde(ram) ser enviado(s).`, variant: 'destructive' });
+      }
+
       toast({
         title: 'Tarefa criada!',
         description: assigneeUserId ? 'Responsável notificado no app e por e-mail.' : undefined,
@@ -232,6 +229,8 @@ export function NewTaskModal({ isOpen, onClose, members, onCreated }: Props) {
           <AssigneePicker members={members} value={assigneeUserId} onChange={setAssigneeUserId} />
         </div>
 
+        <ReminderOffsetsField kind="task" value={reminders} onChange={setReminders} />
+
         <div className="flex flex-col gap-1.5">
           <label className="text-[11px] font-medium uppercase tracking-wider text-ig-fg-muted">Checklist</label>
           <div className="flex gap-2">
@@ -265,10 +264,67 @@ export function NewTaskModal({ isOpen, onClose, members, onCreated }: Props) {
           )}
         </div>
 
-        <div className="flex flex-col gap-1.5">
-          <label className="text-[11px] font-medium uppercase tracking-wider text-ig-fg-muted">Notificar também (opcional)</label>
-          <EmailChipsInput members={members} value={notify} onChange={setNotify} placeholder="E-mails que receberão um aviso (sem ser responsáveis)" />
-        </div>
+        {/* Avançado: vínculos, recorrência, dependência, anexos, notificações */}
+        <button
+          type="button"
+          onClick={() => setShowAdvanced((v) => !v)}
+          className="flex items-center gap-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-ig-fg-muted transition-colors hover:text-ig-fg-strong"
+        >
+          {showAdvanced ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+          Opções avançadas
+        </button>
+
+        {showAdvanced && (
+          <div className="flex flex-col gap-4 rounded-lg border border-ig-border-subtle bg-ig-panel/40 p-3">
+            <div className="flex flex-col gap-1.5">
+              <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-ig-fg-muted">
+                <Link2 className="h-3.5 w-3.5" />
+                Vincular a módulo
+              </span>
+              <ModuleLinkPicker value={links} onChange={setLinks} />
+            </div>
+
+            <RecurrenceField value={recurrence} onChange={setRecurrence} />
+
+            <TaskDependencyPicker value={blockedBy} onChange={setBlockedBy} />
+
+            <div className="flex flex-col gap-1.5">
+              <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-ig-fg-muted">
+                <Paperclip className="h-3.5 w-3.5" />
+                Anexos
+              </span>
+              <input
+                type="file"
+                multiple
+                onChange={(e) => setFiles((prev) => [...prev, ...Array.from(e.target.files ?? [])])}
+                className="text-xs text-ig-fg-muted file:mr-2 file:rounded-md file:border file:border-ig-border file:bg-ig-panel file:px-2.5 file:py-1 file:text-xs file:text-ig-fg-strong hover:file:bg-ig-panel-hover"
+              />
+              {files.length > 0 && (
+                <ul className="flex flex-col gap-1">
+                  {files.map((f, i) => (
+                    <li key={`${f.name}-${i}`} className="flex items-center justify-between rounded-md border border-ig-border-subtle bg-ig-panel px-2.5 py-1.5 text-xs text-ig-fg-strong">
+                      <span className="truncate">{f.name}</span>
+                      <button type="button" onClick={() => setFiles((prev) => prev.filter((_, idx) => idx !== i))} className="text-ig-fg-muted hover:text-ig-danger" aria-label="Remover anexo">
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[11px] font-medium uppercase tracking-wider text-ig-fg-muted">Notificar também (opcional)</label>
+              <EmailChipsInput members={members} value={notify} onChange={setNotify} placeholder="E-mails que receberão um aviso (sem ser responsáveis)" />
+            </div>
+          </div>
+        )}
+
+        {relatedEventId && (
+          <p className={cn('rounded-md border border-ig-border-subtle bg-ig-accent-weak/40 px-2.5 py-1.5 text-xs text-ig-fg-muted')}>
+            Esta tarefa será vinculada à reunião de origem.
+          </p>
+        )}
       </div>
     </HudModal>
   );

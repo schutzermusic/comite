@@ -158,24 +158,65 @@ export function RiskExposureTrendChart({ data, height = 280, onSelect }: TrendPr
 
   const opt = useMemo(() => {
     const mkSeries = (name: string, key: "critical" | "high" | "medium", color: string) => ({
-      name, type: "line" as const, data: data.map((d) => d[key]), smooth: true,
-      symbol: "circle", symbolSize: 5,
-      lineStyle: { width: 2.5, color },
-      itemStyle: { color },
-      areaStyle: { color: { type: "linear" as const, x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: `${color}30` }, { offset: 1, color: `${color}04` }] } },
+      name, type: "line" as const, data: data.map((d) => d[key]), smooth: 0.4,
+      showSymbol: false, symbol: "circle", symbolSize: 7,
+      lineStyle: {
+        width: 3, color,
+        shadowColor: `${color}66`, shadowBlur: 12, shadowOffsetY: 4,
+        cap: "round" as const,
+      },
+      itemStyle: { color, borderColor: c.cvs, borderWidth: 2 },
+      emphasis: { focus: "series" as const, scale: 1.4 },
+      areaStyle: {
+        color: {
+          type: "linear" as const, x: 0, y: 0, x2: 0, y2: 1,
+          colorStops: [
+            { offset: 0, color: `${color}55` },
+            { offset: 0.55, color: `${color}1f` },
+            { offset: 1, color: `${color}00` },
+          ],
+        },
+      },
     });
     return {
     backgroundColor: "transparent",
-    tooltip: { ...tip(c), trigger: "axis" as const },
-    legend: { top: 0, right: 0, textStyle: { color: c.fgM, fontSize: 10, fontFamily: "Inter" }, itemWidth: 14, itemHeight: 3, icon: "roundRect" },
-    grid: { left: 8, right: hasScore ? 30 : 8, top: 36, bottom: 8, containLabel: true },
-    xAxis: { type: "category" as const, data: data.map((d) => d.month), axisLabel: { color: c.fgM, fontSize: 10 }, axisLine: { lineStyle: { color: c.bd } }, axisTick: { show: false }, boundaryGap: false },
+    tooltip: {
+      ...tip(c), trigger: "axis" as const,
+      axisPointer: {
+        type: "line" as const,
+        lineStyle: { color: c.acc, width: 1, type: "dashed" as const, opacity: 0.6 },
+        z: 0,
+      },
+    },
+    legend: {
+      top: 2, right: 2,
+      textStyle: { color: c.fgM, fontSize: 11, fontFamily: "Inter" },
+      itemWidth: 16, itemHeight: 4, icon: "roundRect", itemGap: 16,
+      inactiveColor: c.fgS,
+    },
+    grid: { left: 2, right: hasScore ? 22 : 6, top: 40, bottom: 2, containLabel: true },
+    xAxis: {
+      type: "category" as const, data: data.map((d) => d.month),
+      axisLabel: { color: c.fgM, fontSize: 11, fontWeight: 500, margin: 12 },
+      axisLine: { show: false },
+      axisTick: { show: false },
+      boundaryGap: false,
+      axisPointer: { label: { show: false } },
+    },
     yAxis: [
-      { type: "value" as const, name: "Riscos", nameTextStyle: { color: c.fgS, fontSize: 9 }, axisLabel: { color: c.fgS, fontSize: 10 }, splitLine: { lineStyle: { color: c.bd, type: "dashed" as const } }, axisLine: { show: false } },
+      {
+        type: "value" as const, name: "Riscos",
+        nameTextStyle: { color: c.fgS, fontSize: 9, fontWeight: 600, padding: [0, 0, 4, 0] },
+        nameGap: 14,
+        axisLabel: { color: c.fgS, fontSize: 10 },
+        splitLine: { lineStyle: { color: c.bd, type: "dashed" as const, opacity: 0.5 } },
+        axisLine: { show: false }, axisTick: { show: false },
+      },
       ...(hasScore ? [{
         type: "value" as const, name: "Score", min: 0, max: 10, position: "right" as const,
-        nameTextStyle: { color: c.fgS, fontSize: 9 },
-        axisLabel: { color: c.fgS, fontSize: 10 }, splitLine: { show: false }, axisLine: { show: false },
+        nameTextStyle: { color: c.fgS, fontSize: 9, fontWeight: 600 },
+        axisLabel: { color: c.fgS, fontSize: 10 }, splitLine: { show: false },
+        axisLine: { show: false }, axisTick: { show: false },
       }] : []),
     ],
     series: [
@@ -184,13 +225,16 @@ export function RiskExposureTrendChart({ data, height = 280, onSelect }: TrendPr
       mkSeries("Médio", "medium", c.info),
       ...(hasScore ? [{
         name: "Score corporativo", type: "line" as const, yAxisIndex: 1,
-        data: data.map((d) => d.score ?? null), smooth: true,
-        symbol: "circle", symbolSize: 6,
-        lineStyle: { width: 2.5, color: c.acc, type: "dashed" as const },
-        itemStyle: { color: c.acc },
+        data: data.map((d) => d.score ?? null), smooth: 0.4,
+        showSymbol: false, symbol: "circle", symbolSize: 7,
+        lineStyle: { width: 2.5, color: c.acc, type: "dashed" as const, shadowColor: `${c.acc}55`, shadowBlur: 10 },
+        itemStyle: { color: c.acc, borderColor: c.cvs, borderWidth: 2 },
+        emphasis: { focus: "series" as const, scale: 1.4 },
         z: 5,
       }] : []),
     ],
+    animationDuration: 800,
+    animationEasing: "cubicOut" as const,
     };
   }, [c, data, hasScore]);
 
@@ -198,7 +242,7 @@ export function RiskExposureTrendChart({ data, height = 280, onSelect }: TrendPr
     ? { click: (p: { name?: string; seriesName?: string }) => { if (p.name) onSelect(p.name, TREND_SERIES_SEV[p.seriesName ?? ""]); } }
     : undefined;
 
-  return <ReactECharts option={opt} style={{ height, width: "100%" }} opts={{ renderer: "canvas" }} onEvents={events} />;
+  return <ReactECharts option={opt} style={{ height, width: "100%" }} opts={{ renderer: "canvas" }} onEvents={events} notMerge />;
 }
 
 /* ════════════════════════════════════════════════
@@ -281,7 +325,7 @@ export function SeverityDonutWithLegend({ slices, height = 240, onSelect }: Donu
           </svg>
         )}
       </div>
-      <ul className="flex-1 space-y-2">
+      <ul className="flex-1 space-y-1.5">
         {slices.map((s) => {
           const Row = onSelect ? "button" : "li";
           const color = sevColor(s.key, c);
@@ -291,23 +335,40 @@ export function SeverityDonutWithLegend({ slices, height = 240, onSelect }: Donu
               type={onSelect ? "button" : undefined}
               onClick={onSelect ? () => onSelect(s.key) : undefined}
               className={cn(
-                "group/sev relative w-full overflow-hidden rounded-lg border border-ig-border-subtle bg-ig-raised px-2.5 py-1.5 text-left",
-                onSelect && "cursor-pointer transition-all hover:border-ig-accent hover:bg-ig-accent-weak/30",
+                "group/sev relative w-full overflow-hidden rounded-lg border border-ig-border-subtle bg-ig-raised px-2.5 py-2 text-left",
+                onSelect && "cursor-pointer transition-all duration-150 hover:border-ig-accent hover:bg-ig-accent-weak/20",
               )}
             >
-              {/* progress track */}
+              {/* progress fill track */}
               <span
-                className="pointer-events-none absolute inset-y-0 left-0 opacity-15 transition-opacity group-hover/sev:opacity-25"
-                style={{ width: `${s.pct}%`, background: `linear-gradient(90deg, ${color}, transparent)` }}
+                className="pointer-events-none absolute inset-y-0 left-0 rounded-l-lg opacity-10 transition-opacity group-hover/sev:opacity-20"
+                style={{ width: `${s.pct}%`, background: `linear-gradient(90deg, ${color}cc, transparent)` }}
+              />
+              {/* bottom accent line */}
+              <span
+                className="pointer-events-none absolute bottom-0 left-0 h-[2px] rounded-full opacity-0 transition-opacity group-hover/sev:opacity-100"
+                style={{ width: `${s.pct}%`, backgroundColor: color }}
               />
               <span className="relative flex items-center justify-between gap-2">
                 <span className="flex min-w-0 items-center gap-2">
-                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: color, boxShadow: `0 0 8px ${color}` }} />
-                  <span className="truncate text-[11px] font-medium text-ig-fg-muted">{s.label}</span>
+                  <span
+                    className="h-2 w-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: color, boxShadow: `0 0 7px ${color}` }}
+                  />
+                  <span className="truncate text-[11px] font-medium text-ig-fg-muted">
+                    {s.label}
+                  </span>
                 </span>
                 <span className="flex shrink-0 items-baseline gap-1.5">
-                  <span className="text-[13px] font-bold ig-tabular text-ig-fg-strong">{s.value}</span>
-                  <span className="text-[10px] font-medium ig-tabular text-ig-fg-subtle">{s.pct}%</span>
+                  <span
+                    className="text-[13px] font-bold tabular-nums text-ig-fg-strong"
+                    style={{ textShadow: `0 0 16px ${color}55` }}
+                  >
+                    {s.value}
+                  </span>
+                  <span className="text-[10px] font-medium tabular-nums text-ig-fg-subtle">
+                    {s.pct}%
+                  </span>
                 </span>
               </span>
             </Row>
@@ -363,7 +424,7 @@ export function RiskWaterfallChart({ data, height = 260, onSelect }: WaterfallPr
         return `<div style="font-size:11px;color:${c.fg}"><b>${step.name}</b></div><div style="font-size:11px;color:${c.fgM}">${sign}${Math.abs(step.value)} pts de exposição</div>`;
       },
     },
-    grid: { left: 8, right: 12, top: 12, bottom: 8, containLabel: true },
+    grid: { left: 8, right: 16, top: 18, bottom: 12, containLabel: true },
     xAxis: { type: "category" as const, data: data.map((d) => d.name), axisLabel: { color: c.fgM, fontSize: 10, interval: 0 }, axisLine: { lineStyle: { color: c.bd } }, axisTick: { show: false } },
     yAxis: { type: "value" as const, axisLabel: { color: c.fgS, fontSize: 10 }, splitLine: { lineStyle: { color: c.bd, type: "dashed" as const } }, axisLine: { show: false } },
     series: [
@@ -408,7 +469,7 @@ export function RiskBubbleChart({ data, height = 300, onSelect }: BubbleProps) {
         return `<div style="max-width:220px"><div style="font-size:11px;font-weight:700;color:${c.fg}">${r.title}</div><div style="font-size:10px;color:${c.fgM};margin-top:4px">P${r.probability} × I${r.impact} · Score ${r.probability * r.impact}</div><div style="font-size:10px;color:${c.fgS}">Exposição ${exp}</div></div>`;
       },
     },
-    grid: { left: 8, right: 16, top: 16, bottom: 24, containLabel: true },
+    grid: { left: 8, right: 20, top: 20, bottom: 30, containLabel: true },
     xAxis: { type: "value" as const, name: "Probabilidade", nameLocation: "middle" as const, nameGap: 26, min: 0.5, max: 5.5, interval: 1, nameTextStyle: { color: c.fgM, fontSize: 10 }, axisLabel: { color: c.fgS, fontSize: 10 }, splitLine: { lineStyle: { color: c.bd, type: "dashed" as const } }, axisLine: { show: false } },
     yAxis: { type: "value" as const, name: "Impacto", nameLocation: "middle" as const, nameGap: 22, min: 0.5, max: 5.5, interval: 1, nameTextStyle: { color: c.fgM, fontSize: 10 }, axisLabel: { color: c.fgS, fontSize: 10 }, splitLine: { lineStyle: { color: c.bd, type: "dashed" as const } }, axisLine: { show: false } },
     series: [{
@@ -590,8 +651,8 @@ export function RiskAreaExposureChart({ data, height = 300 }: AreaProps) {
       splitLine: { lineStyle: { color: c.bd } },
       splitArea: { areaStyle: { color: ["transparent", `${c.acc}06`, "transparent", `${c.acc}04`] } },
       axisLine: { lineStyle: { color: c.bd } },
-      center: ["50%", "52%"],
-      radius: "68%",
+      center: ["50%", "50%"],
+      radius: "63%",
     },
     series: [{
       type: "radar",
