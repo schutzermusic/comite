@@ -690,7 +690,7 @@ export function computeInvestorView(project: ProjectV2, view?: ProjectFinanceVie
         const costComposition = [
             ...baseCostComposition,
             ...(ledgerProjectedCost > 0
-                ? [{ category: 'Custos diretos PDF + projeção fixa', value: ledgerProjectedCost }]
+                ? [{ category: 'Custos diretos + projeção fixa', value: ledgerProjectedCost }]
                 : []),
         ];
         const directPassThrough = centsToReais(project.directPassThroughCents);
@@ -824,7 +824,7 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
     const iv = useMemo(() => computeInvestorView(project, view), [project, view]);
 
     const curveSeries = useMemo(() => [
-        { key: 'receitaPrevista', name: 'Receita prevista', color: pal.primary },
+        { key: 'receitaPrevista', name: 'Caixa Insight previsto', color: pal.primary },
         { key: 'receitaRealizada', name: 'Receita realizada', color: pal.successSoft },
         { key: 'desembolsoPrevisto', name: 'Desembolso previsto', color: pal.cost },
         { key: 'imposto', name: 'Imposto', color: pal.critical },
@@ -1185,7 +1185,7 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
                         <PanelHeader
                             icon={<Wallet className="h-4 w-4" />}
                             accent={pal.primary}
-                            title="Curva S · Receita × Desembolso"
+                            title="Curva S · Caixa Insight × Desembolso"
                             subtitle="acumulado mensal · clique em um mês para detalhar"
                             actions={zoomControl({
                                 accent: pal.primary,
@@ -1245,7 +1245,7 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
                                                 <ReferenceLine x={iv.breakEvenPeriod} stroke={hexWithAlpha(pal.success, 0.55)} strokeDasharray="2 3" label={<BreakEvenLabel fill={hexWithAlpha(pal.success, 0.85)} />} />
                                             )}
                                             <RechartsTooltip content={<CurveTooltip pal={pal} />} />
-                                            <Area type="monotone" dataKey="receitaPrevista" name="Receita prevista" stroke={pal.primary} fill="url(#icRevenue)" strokeWidth={2.4} strokeOpacity={curveVis('receitaPrevista')} fillOpacity={curveVis('receitaPrevista')} dot={false} activeDot={{ r: 4, fill: pal.primary, stroke: pal.dotStroke, strokeWidth: 2 }} />
+                                            <Area type="monotone" dataKey="receitaPrevista" name="Caixa Insight previsto" stroke={pal.primary} fill="url(#icRevenue)" strokeWidth={2.4} strokeOpacity={curveVis('receitaPrevista')} fillOpacity={curveVis('receitaPrevista')} dot={false} activeDot={{ r: 4, fill: pal.primary, stroke: pal.dotStroke, strokeWidth: 2 }} />
                                             <Line type="monotone" dataKey="receitaRealizada" name="Receita realizada" stroke={pal.successSoft} strokeWidth={1.8} strokeOpacity={curveVis('receitaRealizada')} dot={false} activeDot={{ r: 3.5, fill: pal.successSoft, stroke: pal.dotStroke, strokeWidth: 2 }} />
                                             <Area type="monotone" dataKey="desembolsoPrevisto" name="Desembolso previsto" stroke={pal.cost} fill="url(#icCost)" strokeWidth={2.2} strokeOpacity={curveVis('desembolsoPrevisto')} fillOpacity={curveVis('desembolsoPrevisto') * 0.55} dot={false} activeDot={{ r: 4, fill: pal.cost, stroke: pal.dotStroke, strokeWidth: 2 }} />
                                             <Line type="monotone" dataKey="imposto" name="Imposto" stroke={pal.critical} strokeWidth={2} strokeDasharray="3 4" strokeOpacity={curveVis('imposto')} dot={false} activeDot={{ r: 3.5, fill: pal.critical, stroke: pal.dotStroke, strokeWidth: 2 }} />
@@ -1277,7 +1277,7 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
                                 icon={<BarChart3 className="h-4 w-4" />}
                                 accent={pal.success}
                                 title="Fluxo Mensal do Projeto"
-                                subtitle="receita × desembolso por mês · clique para detalhar"
+                                subtitle="caixa Insight × desembolso por mês · clique para detalhar"
                                 actions={zoomControl({
                                     accent: pal.success,
                                     rangeLabel: cashFlowRangeLabel,
@@ -1307,7 +1307,7 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
                                             <XAxis dataKey="period" tickFormatter={xAxisFmt} tick={{ fontSize: 10, fill: pal.fgSubtle }} axisLine={{ stroke: pal.axisLine }} tickLine={false} />
                                             <YAxis tickFormatter={yAxisFmt} tick={{ fontSize: 10, fill: pal.fgSubtle }} axisLine={false} tickLine={false} width={68} />
                                             <RechartsTooltip formatter={(value: number) => compactBRL(value)} labelFormatter={(label) => periodLabel(String(label))} contentStyle={tooltipStyle} />
-                                            <Bar dataKey="receitaMensal" name="Receita mensal" fill="url(#icBarRev)" radius={[4, 4, 0, 0]} maxBarSize={visibleCashFlow.length <= 12 ? 30 : 20} />
+                                            <Bar dataKey="receitaMensal" name="Caixa Insight mensal" fill="url(#icBarRev)" radius={[4, 4, 0, 0]} maxBarSize={visibleCashFlow.length <= 12 ? 30 : 20} />
                                             <Bar dataKey="desembolsoPrevistoMensal" name="Desembolso previsto" fill="url(#icBarCost)" radius={[4, 4, 0, 0]} maxBarSize={visibleCashFlow.length <= 12 ? 30 : 20} />
                                             <Line
                                                 type="monotone"
@@ -1357,7 +1357,7 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
                                     </ResponsiveContainer>
                                 </div>
                                 <div className="mt-2 flex flex-wrap items-center justify-center gap-4 text-[10px] text-[color:var(--ig-fg-muted)]">
-                                    <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm" style={{ background: pal.primary }} />Receita</span>
+                                    <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm" style={{ background: pal.primary }} />Caixa Insight</span>
                                     <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm" style={{ background: pal.cost }} />Desembolso previsto</span>
                                     <span className="flex items-center gap-1.5"><span className="h-0.5 w-3 rounded-full border-t border-dashed" style={{ borderColor: pal.critical }} />Imposto</span>
                                     <span className="flex items-center gap-1.5"><span className="h-0.5 w-3 rounded-full" style={{ background: pal.costSoft }} />Realizado</span>
@@ -1641,7 +1641,7 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
                             <p className="text-[10px] font-semibold uppercase tracking-wider text-[color:var(--ig-fg-muted)]">Fluxo do mês</p>
                             <div className="grid grid-cols-2 gap-2">
                                 {[
-                                    { label: 'Receita mensal', value: compactBRL(selectedPoint.receitaMensal), color: pal.success },
+                                    { label: 'Caixa Insight mensal', value: compactBRL(selectedPoint.receitaMensal), color: pal.success },
                                     { label: 'Previsto mensal', value: compactBRL(selectedPoint.desembolsoPrevistoMensal), color: pal.cost },
                                     { label: 'Imposto mensal', value: compactBRL(selectedPoint.impostoMensal), color: pal.critical },
                                     { label: 'Realizado mensal', value: selectedPoint.desembolsoRealizadoMensal == null ? '—' : compactBRL(selectedPoint.desembolsoRealizadoMensal), color: pal.costSoft },
@@ -1661,7 +1661,7 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
                             <p className="text-[10px] font-semibold uppercase tracking-wider text-[color:var(--ig-fg-muted)]">Acumulado</p>
                             <div className="grid grid-cols-2 gap-2">
                                 {[
-                                    { label: 'Receita prevista', value: compactBRL(selectedPoint.receitaPrevista), color: 'var(--ig-fg-default)' },
+                                    { label: 'Caixa Insight previsto', value: compactBRL(selectedPoint.receitaPrevista), color: 'var(--ig-fg-default)' },
                                     { label: 'Desembolso previsto', value: compactBRL(selectedPoint.desembolsoPrevisto), color: 'var(--ig-fg-default)' },
                                     { label: 'Imposto', value: compactBRL(selectedPoint.imposto), color: pal.critical },
                                     { label: 'Receita realizada', value: compactBRL(selectedPoint.receitaRealizada), color: pal.successSoft },
