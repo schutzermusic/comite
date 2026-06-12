@@ -193,6 +193,7 @@ export function isClearingCategory(categoryId: string | undefined): boolean {
 export const businessUnits: BusinessUnit[] = [
   { id: 'bu-sp', code: 'INSIGHT-SP', name: 'Insight SP — Matriz',     cnpj: '12.345.678/0001-00', uf: 'SP', city: 'São Paulo',    active: true, created_at: '2025-01-01T00:00:00Z', updated_at: '2025-01-01T00:00:00Z' },
   { id: 'bu-rj', code: 'INSIGHT-RJ', name: 'Insight RJ — Macaé',     cnpj: '12.345.678/0002-81', uf: 'RJ', city: 'Macaé',         active: true, created_at: '2025-01-01T00:00:00Z', updated_at: '2025-01-01T00:00:00Z' },
+  { id: 'bu-mg', code: 'INSIGHT-MG', name: 'Insight MG — CEMIG',     cnpj: '12.345.678/0005-24', uf: 'MG', city: 'Belo Horizonte', active: true, created_at: '2025-01-01T00:00:00Z', updated_at: '2025-01-01T00:00:00Z' },
   { id: 'bu-ba', code: 'INSIGHT-BA', name: 'Insight BA — Salvador',   cnpj: '12.345.678/0003-62', uf: 'BA', city: 'Salvador',      active: true, created_at: '2025-01-01T00:00:00Z', updated_at: '2025-01-01T00:00:00Z' },
   { id: 'bu-es', code: 'INSIGHT-ES', name: 'Insight ES — Vitória',   cnpj: '12.345.678/0004-43', uf: 'ES', city: 'Vitória',       active: true, created_at: '2025-01-01T00:00:00Z', updated_at: '2025-01-01T00:00:00Z' },
 ];

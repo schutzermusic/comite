@@ -26,6 +26,8 @@ import {
     ChevronDown,
     ChevronUp,
     SlidersHorizontal,
+    FileDown,
+    Loader2,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -36,6 +38,7 @@ import { selectProjectFinanceView } from '@/lib/finance/selectors/project-financ
 import { resolveFinanceProjectId } from '@/lib/projects/finance-mapping';
 import { LedgerCostBreakdown } from '@/components/finance/cost-analysis';
 import { FinanceInvestorCockpit, GlassPanel, PanelHeader } from '@/components/projects/FinanceInvestorCockpit';
+import { openProjectFinanceReport } from '@/lib/projects/export-project-finance-report';
 
 // ── Helpers ─────────────────────────────────────────────────────
 
@@ -45,8 +48,19 @@ function getConfidenceLabel(c: string): string {
     return 'Baixa';
 }
 function getMethodLabel(m: string): string {
-    if (m === 'ac_plus_etc') return 'AC + ETC';
+    if (m === 'ac_plus_etc') return 'Custo realizado + Estimativa para concluir';
     return 'Manual';
+}
+
+const COST_SERIES_LABELS: Record<string, string> = {
+    BAC: 'Orçamento ao concluir',
+    AC: 'Custo realizado acumulado',
+    EAC: 'Estimativa ao concluir',
+    ETC: 'Estimativa para concluir',
+};
+
+function costSeriesLabel(key: string): string {
+    return COST_SERIES_LABELS[key] ?? key;
 }
 
 const MONTHS_PT = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
@@ -55,6 +69,8 @@ const xAxisFmt = (period: string) => {
     return MONTHS_PT[parseInt(m, 10) - 1] || period;
 };
 const yAxisFmt = (v: number) => compactBRL(v);
+const curveCentsToReais = (value: number | null | undefined): number | null =>
+    typeof value === 'number' && Number.isFinite(value) ? value / 100 : null;
 
 // ── Theme chart palette (dark keeps HUD neons; light uses deep tones) ──
 
@@ -147,12 +163,12 @@ function ChartTooltipContent({ active, payload, label, type, hiddenSeries }: Cha
                     <div className="mt-1.5 pt-1.5 border-t border-[var(--ig-border-subtle)] space-y-0.5">
                         {eac && bac && (
                             <span className="text-[10px] text-[var(--ig-fg-subtle)] block">
-                                Δ EAC−BAC: {compactBRL(eac.value - bac.value)}
+                                Δ {costSeriesLabel('EAC')} − {costSeriesLabel('BAC')}: {compactBRL(eac.value - bac.value)}
                             </span>
                         )}
                         {ac && bac && (
                             <span className="text-[10px] text-[var(--ig-fg-subtle)] block">
-                                Δ AC−BAC: {compactBRL(ac.value - bac.value)}
+                                Δ {costSeriesLabel('AC')} − {costSeriesLabel('BAC')}: {compactBRL(ac.value - bac.value)}
                             </span>
                         )}
                     </div>
@@ -200,6 +216,8 @@ export function FinanceView({ project }: FinanceViewProps) {
     const [hiddenRevSeries, setHiddenRevSeries] = useState<Set<string>>(new Set());
     const [refreshKey, setRefreshKey] = useState(0);
     const [internalOpen, setInternalOpen] = useState<boolean | null>(null);
+    const [exporting, setExporting] = useState(false);
+    const [exportError, setExportError] = useState<string | null>(null);
 
     const { finance } = project;
     // Resolve the unified-ledger project id (explicit link → contract fallback →
@@ -227,15 +245,32 @@ export function FinanceView({ project }: FinanceViewProps) {
         [view],
     );
 
-    const revenueData = useMemo(
-        () => view?.sCurve.revenue.map(p => ({
-            period: p.period,
-            'Planejado Faturar': p.planned,
-            'Faturado': p.billed,
-            'Recebido': p.received,
-        })) ?? [],
-        [view],
-    );
+    const revenueData = useMemo(() => {
+        const ledgerByPeriod = new Map(
+            (view?.sCurve.revenue ?? []).map(p => [p.period, p]),
+        );
+        const projectByPeriod = new Map(
+            (project.revenueCurve ?? []).map(p => [p.period, p]),
+        );
+        const periods = Array.from(new Set([
+            ...projectByPeriod.keys(),
+            ...ledgerByPeriod.keys(),
+        ])).sort((a, b) => a.localeCompare(b));
+
+        return periods.map(period => {
+            const projectPoint = projectByPeriod.get(period);
+            const ledgerPoint = ledgerByPeriod.get(period);
+            const planned = curveCentsToReais(projectPoint?.plannedCumulative) ?? ledgerPoint?.planned ?? 0;
+            const billed = curveCentsToReais(projectPoint?.billedCumulative) ?? ledgerPoint?.billed ?? null;
+            const received = curveCentsToReais(projectPoint?.receivedCumulative) ?? ledgerPoint?.received ?? null;
+            return {
+                period,
+                'Planejado Faturar': planned,
+                'Faturado': billed,
+                'Recebido': received,
+            };
+        });
+    }, [project.revenueCurve, view]);
 
     // ── Cost breakdown (ledger buckets) with variance ──
     const breakdownRows = useMemo(() => {
@@ -287,6 +322,24 @@ export function FinanceView({ project }: FinanceViewProps) {
         setRefreshKey(k => k + 1);
     }, [financeProjectId, pending]);
 
+    // ── Investor PDF report (print window → PDF). Uses the SAME ledger view
+    //    and project state shown on screen — no recalculation here. ──
+    const handleExportPdf = useCallback(() => {
+        setExportError(null);
+        setExporting(true);
+        // Defer one frame so the button paints its loading state before the
+        // synchronous report build / window.open blocks the main thread.
+        requestAnimationFrame(() => {
+            const result = openProjectFinanceReport({
+                project,
+                ledgerView: view,
+                cutoffPeriod,
+            });
+            if (!result.ok) setExportError(result.message);
+            setExporting(false);
+        });
+    }, [project, view, cutoffPeriod]);
+
     // ── Legend toggle handlers ───────────────────────────
     const toggleCostSeries = useCallback((dataKey: string) => {
         setHiddenCostSeries(prev => {
@@ -321,7 +374,7 @@ export function FinanceView({ project }: FinanceViewProps) {
                         >
                             <div className="w-3 h-0.5 rounded-full" style={{ background: entry.color }} />
                             <span className={isHidden ? 'text-[var(--ig-fg-disabled)]' : 'text-[var(--ig-fg-muted)]'}>
-                                {entry.value}
+                                {costSeriesLabel(entry.dataKey || entry.value)}
                             </span>
                         </button>
                     );
@@ -359,6 +412,29 @@ export function FinanceView({ project }: FinanceViewProps) {
 
     return (
         <div className="min-w-0 space-y-6">
+            {/* ── Financeiro tab header + investor PDF export ── */}
+            <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="min-w-0">
+                    <p className="text-sm font-semibold tracking-tight text-[color:var(--ig-fg-strong)]">Visão Financeira / Visão do Investidor</p>
+                    <p className="text-[11px] text-[color:var(--ig-fg-muted)]">Relatório financeiro do projeto · pronto para apresentação a investidores e conselho</p>
+                </div>
+                <div className="flex flex-col items-end gap-1">
+                    <button
+                        onClick={handleExportPdf}
+                        disabled={exporting}
+                        title="Gera um relatório financeiro em PDF (abre uma janela de impressão)"
+                        className="flex shrink-0 items-center gap-1.5 rounded-lg border border-[var(--ig-border-default)] bg-[color-mix(in_srgb,var(--ig-fg-strong)_4%,transparent)] px-3 py-1.5 text-xs font-semibold text-[var(--ig-fg-default)] transition-colors hover:bg-[color-mix(in_srgb,var(--ig-fg-strong)_8%,transparent)] disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                        {exporting
+                            ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Gerando PDF...</>
+                            : <><FileDown className="h-3.5 w-3.5" />Exportar PDF</>}
+                    </button>
+                    {exportError && (
+                        <span className="max-w-[280px] text-right text-[10px] text-[var(--ig-critical)]">{exportError}</span>
+                    )}
+                </div>
+            </div>
+
             {/* ── Investor Financial Cockpit (primary content) ── */}
             <FinanceInvestorCockpit project={project} ledgerView={view} cutoffPeriod={cutoffPeriod} />
 
@@ -382,7 +458,7 @@ export function FinanceView({ project }: FinanceViewProps) {
                         <div className="text-left">
                             <p className="text-sm font-semibold tracking-tight text-[color:var(--ig-fg-strong)]">Controle Interno do Projeto</p>
                             <p className="text-[11px] text-[color:var(--ig-fg-muted)]">
-                                BAC / AC / EAC / ETC · ledger oficial · detalhamento de custos
+                                Orçamento, realizado, estimativa ao concluir · ledger oficial · detalhamento de custos
                             </p>
                         </div>
                     </div>
@@ -390,7 +466,7 @@ export function FinanceView({ project }: FinanceViewProps) {
                         {view && (
                             hasCostControlData ? (
                                 <span className="hidden font-mono text-[11px] tabular-nums text-[color:var(--ig-fg-muted)] md:inline">
-                                    EAC {compactBRL(view.baf.eac)} · AC {compactBRL(view.baf.ac)}
+                                    {costSeriesLabel('EAC')} {compactBRL(view.baf.eac)} · {costSeriesLabel('AC')} {compactBRL(view.baf.ac)}
                                 </span>
                             ) : (
                                 <span className="hidden rounded-full border border-[color:var(--ig-border-default)] px-2 py-0.5 text-[10px] text-[color:var(--ig-fg-subtle)] md:inline">
@@ -410,10 +486,10 @@ export function FinanceView({ project }: FinanceViewProps) {
                         {view && (
                             <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(150px,1fr))]">
                                 {([
-                                    { label: 'BAC (orçado)', value: view.baf.bac, color: pal.info },
-                                    { label: 'AC (realizado)', value: view.baf.ac, color: pal.success },
-                                    { label: 'EAC (estimado)', value: view.baf.eac, color: pal.cost },
-                                    { label: 'ETC (a concluir)', value: view.baf.etc, color: pal.warning },
+                                    { label: costSeriesLabel('BAC'), value: view.baf.bac, color: pal.info },
+                                    { label: costSeriesLabel('AC'), value: view.baf.ac, color: pal.success },
+                                    { label: costSeriesLabel('EAC'), value: view.baf.eac, color: pal.cost },
+                                    { label: costSeriesLabel('ETC'), value: view.baf.etc, color: pal.warning },
                                     { label: 'Receita realizada', value: view.summary.revenue, color: pal.success },
                                     { label: 'Margem', value: view.summary.margin, color: view.summary.margin >= 0 ? pal.success : pal.critical, sub: `${view.summary.marginPct.toFixed(1)}%` },
                                 ] as const).map((k) => (
@@ -475,7 +551,7 @@ export function FinanceView({ project }: FinanceViewProps) {
                                         icon={<DollarSign className="h-4 w-4" />}
                                         accent={pal.info}
                                         title="Custo Acumulado"
-                                        subtitle="BAC × AC × EAC · ledger oficial"
+                                        subtitle={`${costSeriesLabel('BAC')} × ${costSeriesLabel('AC')} × ${costSeriesLabel('EAC')} · ledger oficial`}
                                         actions={
                                             <Badge variant="outline" className="text-[10px] border-[color:var(--ig-border-default)] text-[color:var(--ig-fg-subtle)]">
                                                 COST
@@ -528,6 +604,7 @@ export function FinanceView({ project }: FinanceViewProps) {
                                                 <Area
                                                     type="monotone"
                                                     dataKey="BAC"
+                                                    name={costSeriesLabel('BAC')}
                                                     stroke={pal.info}
                                                     fill="url(#gradBAC)"
                                                     strokeWidth={2}
@@ -540,6 +617,7 @@ export function FinanceView({ project }: FinanceViewProps) {
                                                 <Area
                                                     type="monotone"
                                                     dataKey="AC"
+                                                    name={costSeriesLabel('AC')}
                                                     stroke={pal.success}
                                                     fill="url(#gradAC)"
                                                     strokeWidth={2}
@@ -552,6 +630,7 @@ export function FinanceView({ project }: FinanceViewProps) {
                                                 <Area
                                                     type="monotone"
                                                     dataKey="EAC"
+                                                    name={costSeriesLabel('EAC')}
                                                     stroke={pal.cost}
                                                     fill="url(#gradEAC)"
                                                     strokeWidth={2}
@@ -715,7 +794,7 @@ export function FinanceView({ project }: FinanceViewProps) {
                                     icon={<BarChart3 className="h-4 w-4" />}
                                     accent={pal.info}
                                     title="Detalhamento Financeiro"
-                                    subtitle="custos por categoria · variação EAC vs BAC"
+                                    subtitle={`custos por categoria · variação ${costSeriesLabel('EAC')} vs ${costSeriesLabel('BAC')}`}
                                     actions={
                                         <Badge variant="outline" className="text-[10px] border-[color:var(--ig-border-default)] text-[color:var(--ig-fg-subtle)]">
                                             CUSTOS
@@ -730,14 +809,14 @@ export function FinanceView({ project }: FinanceViewProps) {
                                                 <th className="text-left py-2 px-2 text-[var(--ig-fg-subtle)] font-medium uppercase tracking-wider">
                                                     Categoria
                                                 </th>
-                                                <th className="text-right py-2 px-2 text-[var(--ig-fg-subtle)] font-medium uppercase tracking-wider">
-                                                    BAC
+                                                <th className="text-right py-2 px-2 text-[var(--ig-fg-subtle)] font-medium tracking-wider">
+                                                    {costSeriesLabel('BAC')}
                                                 </th>
-                                                <th className="text-right py-2 px-2 font-medium uppercase tracking-wider" style={{ color: pal.success }}>
-                                                    AC
+                                                <th className="text-right py-2 px-2 font-medium tracking-wider" style={{ color: pal.success }}>
+                                                    {costSeriesLabel('AC')}
                                                 </th>
-                                                <th className="text-right py-2 px-2 text-[var(--ig-fg-subtle)] font-medium uppercase tracking-wider">
-                                                    EAC
+                                                <th className="text-right py-2 px-2 text-[var(--ig-fg-subtle)] font-medium tracking-wider">
+                                                    {costSeriesLabel('EAC')}
                                                 </th>
                                                 <th className="text-right py-2 px-2 text-[var(--ig-fg-subtle)] font-medium uppercase tracking-wider">
                                                     Var (R$)
@@ -869,7 +948,7 @@ export function FinanceView({ project }: FinanceViewProps) {
                                     {/* Variance Summary — uses computed totals for consistency */}
                                     <div className="p-3 rounded-xl bg-[color-mix(in_srgb,var(--ig-fg-strong)_3%,transparent)] border border-[var(--ig-border-subtle)]">
                                         <p className="text-[10px] text-[var(--ig-fg-subtle)] uppercase mb-1 tracking-wider">
-                                            Variação EAC vs BAC
+                                            Variação {costSeriesLabel('EAC')} vs {costSeriesLabel('BAC')}
                                         </p>
                                         <div className="flex items-end gap-4">
                                             <span
@@ -887,7 +966,7 @@ export function FinanceView({ project }: FinanceViewProps) {
                                         </div>
                                         {totals && (
                                             <p className="text-[9px] text-[var(--ig-fg-disabled)] mt-1">
-                                                ∑ categorias: EAC {compactBRL(totals.eac)} − BAC {compactBRL(totals.bac)}
+                                                ∑ categorias: {costSeriesLabel('EAC')} {compactBRL(totals.eac)} − {costSeriesLabel('BAC')} {compactBRL(totals.bac)}
                                             </p>
                                         )}
                                     </div>

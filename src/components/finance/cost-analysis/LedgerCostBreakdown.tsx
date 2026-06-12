@@ -64,7 +64,7 @@ export function LedgerCostBreakdown({ filter, variant }: LedgerCostBreakdownProp
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 items-stretch lg:grid-cols-2 gap-4">
         <RankPanel
           title="Custo por categoria"
           rows={categories.map((c) => ({ id: c.id, label: c.name, value: c.value, share: c.share }))}
@@ -72,21 +72,29 @@ export function LedgerCostBreakdown({ filter, variant }: LedgerCostBreakdownProp
           activeId={drillCategory}
           onSelect={selectCategory}
         />
-        <RankPanel
-          title={drillCategoryName ? `Subcategorias · ${drillCategoryName}` : 'Custo por subcategoria'}
-          rows={subcategories.map((s) => ({ id: s.id, label: s.name, meta: s.categoryName, value: s.value, share: s.share }))}
-          accent="#6366F1"
-        />
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <TrendPanel title="Tendência mensal de custo" points={monthly} />
         {variant === 'project' ? (
           <RankPanel
             title="Mobilização (Hotel, Passagens, Frota…)"
             rows={mobilization.map((r) => ({ id: r.id, label: r.name, value: r.value, share: r.share }))}
             accent="#F43F5E"
             emptyLabel="Sem custos de mobilização."
+          />
+        ) : (
+          <RankPanel
+            title={drillCategoryName ? `Subcategorias · ${drillCategoryName}` : 'Custo por subcategoria'}
+            rows={subcategories.map((s) => ({ id: s.id, label: s.name, meta: s.categoryName, value: s.value, share: s.share }))}
+            accent="#6366F1"
+          />
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 items-stretch lg:grid-cols-2 gap-4">
+        <TrendPanel title="Tendência mensal de custo" points={monthly} fillHeight />
+        {variant === 'project' ? (
+          <RankPanel
+            title={drillCategoryName ? `Subcategorias · ${drillCategoryName}` : 'Custo por subcategoria'}
+            rows={subcategories.map((s) => ({ id: s.id, label: s.name, meta: s.categoryName, value: s.value, share: s.share }))}
+            accent="#6366F1"
           />
         ) : (
           <RankPanel

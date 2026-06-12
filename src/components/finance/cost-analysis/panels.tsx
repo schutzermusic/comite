@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useLayoutEffect, useRef, useState } from 'react';
 import { ChevronRight, FlaskConical, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import {
   HudCard, HudCardHeader, HudCardTitle, HudCardContent,
@@ -186,6 +186,26 @@ interface TrendPanelProps {
   /** Sorted ascending monthly points. */
   points: { period: string; value: number }[];
   height?: number;
+  /** Stretch the chart to fill the card body (matches sibling RankPanels in a grid row). */
+  fillHeight?: boolean;
+}
+
+function useChartAreaHeight(enabled: boolean, fallback: number) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState(fallback);
+
+  useLayoutEffect(() => {
+    if (!enabled || !ref.current) return;
+    const obs = new ResizeObserver((entries) => {
+      for (const e of entries) {
+        setHeight(Math.max(200, Math.round(e.contentRect.height)));
+      }
+    });
+    obs.observe(ref.current);
+    return () => obs.disconnect();
+  }, [enabled]);
+
+  return [ref, enabled ? height : fallback] as const;
 }
 
 const MONTHS_PT = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
@@ -194,23 +214,26 @@ const monthLabel = (p: string) => {
   return `${MONTHS_PT[Number(m) - 1] ?? m}/${y?.slice(2) ?? ''}`;
 };
 
-export function TrendPanel({ title, points, height = 280 }: TrendPanelProps) {
+export function TrendPanel({ title, points, height = 280, fillHeight = false }: TrendPanelProps) {
   const series = [{ name: 'Custo', data: points.map((p) => p.value), tone: 'accent' as const }];
+  const [chartAreaRef, chartHeight] = useChartAreaHeight(fillHeight, height);
   return (
     <HudCard className="flex h-full min-w-0 flex-col">
       <HudCardHeader><HudCardTitle className="truncate">{title}</HudCardTitle></HudCardHeader>
-      <HudCardContent className="flex flex-1 flex-col justify-center p-3">
+      <HudCardContent className={cn('flex flex-1 flex-col p-3', fillHeight ? 'min-h-0' : 'justify-center')}>
         {points.length === 0 ? (
           <p className="w-full px-2 py-10 text-center text-[11px] text-ig-text-tertiary">Sem série no período.</p>
         ) : (
           <>
-            <FinanceChartContainer>
-              <FinanceLineChart
-                categories={points.map((p) => monthLabel(p.period))}
-                series={series}
-                height={height}
-              />
-            </FinanceChartContainer>
+            <div ref={fillHeight ? chartAreaRef : undefined} className={fillHeight ? 'min-h-0 flex-1' : undefined}>
+              <FinanceChartContainer className={fillHeight ? 'h-full' : undefined}>
+                <FinanceLineChart
+                  categories={points.map((p) => monthLabel(p.period))}
+                  series={series}
+                  height={chartHeight}
+                />
+              </FinanceChartContainer>
+            </div>
             <ChartLegend items={series.map((s) => ({ name: s.name, tone: s.tone }))} />
           </>
         )}

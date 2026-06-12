@@ -63,10 +63,12 @@ export function isProjectActualCost(e: LedgerEntry): boolean {
   return isProjectCostEntry(e) && e.entry_type === 'actual' && isSettled(e);
 }
 
-export type ProjectCostBucket = 'Custo direto' | 'Folha alocada' | 'OPEX' | 'Financeiro' | 'Tributos' | 'Outros';
+export type ProjectCostBucket = string;
 
 /** Bucket a cost entry for the breakdown table (payroll split out from COGS). */
 export function projectCostBucket(e: LedgerEntry): ProjectCostBucket {
+  const customCategory = e.metadata?.projectCostCategory;
+  if (typeof customCategory === 'string' && customCategory.trim()) return customCategory;
   if (e.source_system === 'payroll_alloc') return 'Folha alocada';
   const cat = catOf(e);
   switch (cat?.group_key) {

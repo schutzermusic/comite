@@ -31,6 +31,7 @@ export const projects: ProjectRef[] = [
   { id: 'proj-3', code: 'PRJ-2025-003', name: 'Equinor Bacalhau',        client_id: 'cli-3', contract_id: 'ctr-3', status: 'at_risk' },
   { id: 'proj-4', code: 'PRJ-2026-001', name: 'Eneva GNL Parnaíba',      client_id: 'cli-4', contract_id: 'ctr-4', status: 'active'  },
   { id: 'proj-5', code: 'PRJ-2026-002', name: 'Mineração Vale Sul',                                              contract_id: 'ctr-5', status: 'active'  },
+  { id: 'proj-cemig', code: 'CEMIG-MOD-01', name: 'UHE São Clemente — CEMIG', client_id: 'cli-cemig', contract_id: 'ctr-cemig', status: 'at_risk' },
 ];
 
 // ============================================================
@@ -61,6 +62,7 @@ export const contracts: ContractRef[] = [
   { id: 'ctr-4', code: 'CT-2026-009', client_id: 'cli-4', client_name: 'Eneva',           type: 'usage',     total_value_cents:   462_000_00, mrr_cents:    38_500_00, start_date: '2026-02-01', end_date: '2027-01-31', status: 'pending'   },
   { id: 'ctr-5', code: 'CT-2025-098', client_id: 'cli-2', client_name: 'Mineração Vale Sul', type: 'fixed',  total_value_cents: 5_750_000_00, mrr_cents:           0, start_date: '2024-11-01', end_date: '2026-10-31', status: 'active'    },
   { id: 'ctr-6', code: 'CT-2024-122', client_id: 'cli-3', client_name: 'OrionTech',       type: 'recurring', total_value_cents:   324_000_00, mrr_cents:    27_000_00, start_date: '2024-04-01', end_date: '2025-03-31', status: 'completed' },
+  { id: 'ctr-cemig', code: 'OS 201067.0', client_id: 'cli-cemig', client_name: 'CEMIG', type: 'fixed', total_value_cents: 198_827_691_78, mrr_cents: 0, start_date: '2024-07-01', end_date: '2030-03-31', status: 'at_risk' },
 ];
 
 // ============================================================

@@ -142,8 +142,9 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
           'Leitura determinística fraca e ANTHROPIC_API_KEY ausente — revise as linhas sinalizadas antes de importar.',
         );
       } else {
-        console.error('[timeline/import] AI fallback failed:', e instanceof Error ? e.message : e);
-        extraWarnings.push('Fallback de IA falhou — resultado determinístico mantido.');
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error('[timeline/import] AI fallback failed:', msg);
+        extraWarnings.push(`Fallback de IA falhou (${msg}) — resultado determinístico mantido.`);
       }
     }
   }

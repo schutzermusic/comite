@@ -1,4 +1,6 @@
 import type { LedgerEntry, PayrollBatch, PayrollAllocation, AllocationRule, AllocationResult, PeriodClose, APARTitle, TaxObligation } from '@/lib/types/finance';
+import { cemigDirectCostLedgerEntries } from '@/data/finance/cemig-direct-costs';
+import { cemigProjectedCostLedgerEntries } from '@/data/finance/cemig-cost-projection';
 
 const CURRENT_USER = 'user-admin-001';
 
@@ -54,6 +56,9 @@ const BACKFILL_LAST_DAY: Record<string, string> = {
 // ============================================================
 
 export const mockLedgerEntries: LedgerEntry[] = [
+  ...cemigDirectCostLedgerEntries,
+  ...cemigProjectedCostLedgerEntries,
+
   // ── 2026-01 ──
   { id: 'le-001', entry_date: '2026-01-15', description: 'NF Serviços - Contrato Petrobras FPSO P-80', amount_cents: 285000000, currency: 'BRL', category_id: 'cat-a11', cost_center_id: 'cc-eng-campo', project_id: 'proj-1', contract_id: 'ctr-1', business_unit_id: 'bu-rj', period_key: '2026-01', entry_type: 'actual', status: 'posted', source_system: 'manual', evidence_required: true, evidence_provided: true, template_key: undefined, created_by: CURRENT_USER, posted_by: CURRENT_USER, posted_at: '2026-01-20T10:00:00Z', created_at: '2026-01-15T08:00:00Z', updated_at: '2026-01-20T10:00:00Z' },
   { id: 'le-002', entry_date: '2026-01-10', description: 'Hotel Comfort Macaé - 5 técnicos x 20 diárias', amount_cents: 7500000, currency: 'BRL', category_id: 'cat-b21', cost_center_id: 'cc-mob', project_id: 'proj-1', supplier_id: 'sup-1', business_unit_id: 'bu-rj', period_key: '2026-01', entry_type: 'actual', status: 'posted', source_system: 'manual', evidence_required: true, evidence_provided: true, template_key: 'hotel_per_diem', metadata: { city: 'Macaé', nights: 100, rate_per_night_cents: 75000, collaborator_id: 'emp-006', collaborator_name: 'Marcos Pereira' }, created_by: CURRENT_USER, posted_by: CURRENT_USER, posted_at: '2026-01-12T10:00:00Z', created_at: '2026-01-10T08:00:00Z', updated_at: '2026-01-12T10:00:00Z' },

@@ -26,7 +26,7 @@ export interface MappableProject {
 export const CONTRACT_TO_FINANCE_PROJECT: Record<string, string> = {
   'contract-petrobras-p80': 'proj-1',
   'contract-enel-001': 'proj-4',
-  // contract-cemig-001: investor data comes from the CEMIG totalizer overlay, not the ledger.
+  'contract-cemig-001': 'proj-cemig',
 };
 
 const financeProjectExists = (id: string | undefined): id is string =>

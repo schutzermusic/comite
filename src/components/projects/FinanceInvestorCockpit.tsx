@@ -537,7 +537,7 @@ function BreakEvenLabel({ viewBox, fill }: { viewBox?: { x?: number }; fill?: st
 
 // ── Investor financial view (business rules preserved verbatim) ──
 
-function computeInvestorView(project: ProjectV2, view?: ProjectFinanceView) {
+export function computeInvestorView(project: ProjectV2, view?: ProjectFinanceView) {
     const revenue = project.revenue;
         const financeData = project.finance;
         const revenueByPeriod = new Map(
@@ -550,7 +550,7 @@ function computeInvestorView(project: ProjectV2, view?: ProjectFinanceView) {
                 },
             ]),
         );
-        const costByPeriod = new Map(
+        const costByPeriod = new Map<string, { planned: number | null; realized: number | null; projected?: number | null; projectedMonthly?: boolean }>(
             (project.costCurve ?? []).map(p => [
                 p.period,
                 {
@@ -559,6 +559,16 @@ function computeInvestorView(project: ProjectV2, view?: ProjectFinanceView) {
                 },
             ]),
         );
+        const ledgerCutoffPeriod = view?.sCurve.cutoffPeriod ?? '';
+        for (const p of view?.sCurve.cost ?? []) {
+            const current = costByPeriod.get(p.period) ?? { planned: null, realized: null };
+            costByPeriod.set(p.period, {
+                ...current,
+                realized: p.AC,
+                projected: ledgerCutoffPeriod && p.period >= ledgerCutoffPeriod ? p.EAC : null,
+                projectedMonthly: ledgerCutoffPeriod ? p.period > ledgerCutoffPeriod : false,
+            });
+        }
         const periods = Array.from(new Set([
             ...revenueByPeriod.keys(),
             ...costByPeriod.keys(),
@@ -570,8 +580,11 @@ function computeInvestorView(project: ProjectV2, view?: ProjectFinanceView) {
         let lastReceived = 0;
         let lastPlannedCost = 0;
         let lastRealizedCost: number | null = null;
+        let lastProjectedCost: number | null = null;
         let prevPlannedRevenue = 0;
         let prevPlannedCost = 0;
+        let prevRealizedCost = 0;
+        let prevProjectedCost = 0;
 
         const curve = periods.map(period => {
             const r = revenueByPeriod.get(period);
@@ -584,11 +597,23 @@ function computeInvestorView(project: ProjectV2, view?: ProjectFinanceView) {
             if (c) {
                 if (c.planned != null) lastPlannedCost = c.planned;
                 if (c.realized != null) lastRealizedCost = c.realized;
+                if (c.projected != null) lastProjectedCost = c.projected;
+                else if (c.realized != null) prevProjectedCost = c.realized;
             }
             const receitaMensal = Math.max(0, lastRevenue - prevPlannedRevenue);
-            const desembolsoMensal = Math.max(0, lastPlannedCost - prevPlannedCost);
+            const desembolsoPrevistoMensal = Math.max(0, lastPlannedCost - prevPlannedCost);
+            const desembolsoRealizadoMensal = c?.realized == null || lastRealizedCost == null
+                ? null
+                : Math.max(0, lastRealizedCost - prevRealizedCost);
+            const desembolsoProjetadoMensal = !c?.projectedMonthly || c.projected == null || lastProjectedCost == null
+                ? null
+                : Math.max(0, lastProjectedCost - prevProjectedCost);
+            const desembolsoTotal = lastPlannedCost + (lastProjectedCost ?? lastRealizedCost ?? 0);
+            const desembolsoMensal = desembolsoPrevistoMensal + (desembolsoProjetadoMensal ?? 0);
             prevPlannedRevenue = lastRevenue;
             prevPlannedCost = lastPlannedCost;
+            if (desembolsoRealizadoMensal != null && lastRealizedCost != null) prevRealizedCost = lastRealizedCost;
+            if (desembolsoProjetadoMensal != null && lastProjectedCost != null) prevProjectedCost = lastProjectedCost;
             return {
                 period,
                 receitaPrevista: lastRevenue,
@@ -596,9 +621,14 @@ function computeInvestorView(project: ProjectV2, view?: ProjectFinanceView) {
                 recebido: lastReceived,
                 desembolsoPrevisto: lastPlannedCost,
                 desembolsoRealizado: lastRealizedCost,
-                saldoLiquido: lastRevenue - lastPlannedCost,
+                desembolsoProjetado: lastProjectedCost,
+                desembolsoTotal,
+                saldoLiquido: lastRevenue - desembolsoTotal,
                 receitaMensal,
                 desembolsoMensal,
+                desembolsoPrevistoMensal,
+                desembolsoRealizadoMensal,
+                desembolsoProjetadoMensal,
                 resultadoMensal: receitaMensal - desembolsoMensal,
             };
         });
@@ -608,7 +638,8 @@ function computeInvestorView(project: ProjectV2, view?: ProjectFinanceView) {
         const received = centsToReais(revenue?.received.amountCents) || 0;
         const toBill = revenue ? centsToReais(revenue.toBill.amountCents) : Math.max(0, contractTotal - billed);
         const toReceive = revenue ? centsToReais(revenue.toReceive.amountCents) : Math.max(0, billed - received);
-        const disbursementPlanned = centsToReais(financeData?.eac.amountCents) || curve.at(-1)?.desembolsoPrevisto || view?.baf.eac || 0;
+        const finalCurvePoint = curve.at(-1);
+        const disbursementPlanned = finalCurvePoint?.desembolsoTotal ?? finalCurvePoint?.desembolsoPrevisto ?? centsToReais(financeData?.eac.amountCents) ?? view?.baf.eac ?? 0;
         const hasActualDisbursement = curve.some(p => p.desembolsoRealizado != null && p.desembolsoRealizado > 0);
         const disbursementRealized = hasActualDisbursement
             ? curve.findLast(p => p.desembolsoRealizado != null && p.desembolsoRealizado > 0)?.desembolsoRealizado ?? null
@@ -641,15 +672,22 @@ function computeInvestorView(project: ProjectV2, view?: ProjectFinanceView) {
             r.status !== 'resolved' &&
             (r.category.toLowerCase().includes('financ') || r.exposure?.amountCents),
         );
-        const costComposition = (project.costBreakdown ?? [])
+        const baseCostComposition = (project.costBreakdown ?? [])
             .map(item => ({
                 category: item.category,
                 value: centsToReais(item.eac.amountCents),
             }))
             .filter(item => item.value > 0);
+        const ledgerProjectedCost = finalCurvePoint?.desembolsoProjetado ?? 0;
+        const costComposition = [
+            ...baseCostComposition,
+            ...(ledgerProjectedCost > 0
+                ? [{ category: 'Custos diretos PDF + projeção fixa', value: ledgerProjectedCost }]
+                : []),
+        ];
         const directPassThrough = costComposition.find(item => item.category.toLowerCase().includes('faturamento direto'))?.value ?? 0;
         const insightCashRevenue = Math.max(0, contractTotal - directPassThrough);
-        const insightDisbursement = Math.max(0, disbursementPlanned - directPassThrough);
+        const insightDisbursement = disbursementPlanned;
         const netResult = insightCashRevenue - insightDisbursement;
         const marginPct = insightCashRevenue > 0 ? (netResult / insightCashRevenue) * 100 : null;
         const pendingRevenuePct = contractTotal > 0 ? (toBill / contractTotal) * 100 : null;
@@ -701,6 +739,52 @@ function computeInvestorView(project: ProjectV2, view?: ProjectFinanceView) {
         };
 }
 
+/** Investor view-model shape (single source of truth, shared with the PDF report). */
+export type InvestorView = ReturnType<typeof computeInvestorView>;
+
+// ── Eventogram summary (pure — shared with the PDF report) ──────
+
+export interface EventStats {
+    total: number;
+    pendingValue: number;
+    billedValue: number;
+    biggest?: BillingEvent;
+    delayedValue: number;
+}
+
+export function computeEventStats(project: ProjectV2, delayedEvents: BillingEvent[]): EventStats {
+    const events = project.billing_eventogram ?? [];
+    const pendingValue = events
+        .filter(e => e.status !== 'billed' && e.status !== 'cancelled')
+        .reduce((s, e) => s + centsToReais(e.amountPlannedCents), 0);
+    const billedValue = events
+        .filter(e => e.status === 'billed' || e.status === 'partial')
+        .reduce((s, e) => s + centsToReais(e.amountActualCents ?? (e.status === 'billed' ? e.amountPlannedCents : 0)), 0);
+    const biggest = [...events].sort((a, b) => b.amountPlannedCents - a.amountPlannedCents)[0];
+    const delayedValue = delayedEvents.reduce((s, e) => s + centsToReais(e.amountPlannedCents), 0);
+    return { total: events.length, pendingValue, billedValue, biggest, delayedValue };
+}
+
+// ── Sensitivity scenarios (pure — shared with the PDF report) ───
+
+export interface SensitivityRow { label: string; result: number; margin: number | null; }
+
+export function computeSensitivityScenarios(iv: InvestorView): SensitivityRow[] {
+    const baseRevenue = iv.insightCashRevenue;
+    const baseCost = iv.insightDisbursement;
+    const scenarios = [
+        { label: 'Base', result: iv.netResult },
+        { label: '+10% custo', result: baseRevenue - baseCost * 1.10 },
+        { label: '+20% custo', result: baseRevenue - baseCost * 1.20 },
+        { label: '-10% receita', result: baseRevenue * 0.90 - baseCost },
+        { label: 'Riscos aplicados', result: iv.netResult - iv.riskExposure },
+    ];
+    return scenarios.map(scenario => ({
+        ...scenario,
+        margin: baseRevenue > 0 ? (scenario.result / baseRevenue) * 100 : null,
+    }));
+}
+
 // ── Props ───────────────────────────────────────────────────────
 
 interface FinanceInvestorCockpitProps {
@@ -732,6 +816,7 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
         { key: 'receitaRealizada', name: 'Receita realizada', color: pal.successSoft },
         { key: 'desembolsoPrevisto', name: 'Desembolso previsto', color: pal.cost },
         { key: 'desembolsoRealizado', name: 'Desembolso realizado', color: pal.costSoft },
+        { key: 'desembolsoProjetado', name: 'Projeção custos fixos', color: pal.warning },
         { key: 'saldoLiquido', name: 'Saldo líquido', color: pal.info },
     ], [pal]);
 
@@ -745,18 +830,10 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
     // ── Pure visual transforms (no business logic) ──────────────
 
     // Eventogram summary chips
-    const eventStats = useMemo(() => {
-        const events = project.billing_eventogram ?? [];
-        const pendingValue = events
-            .filter(e => e.status !== 'billed' && e.status !== 'cancelled')
-            .reduce((s, e) => s + centsToReais(e.amountPlannedCents), 0);
-        const billedValue = events
-            .filter(e => e.status === 'billed' || e.status === 'partial')
-            .reduce((s, e) => s + centsToReais(e.amountActualCents ?? (e.status === 'billed' ? e.amountPlannedCents : 0)), 0);
-        const biggest = [...events].sort((a, b) => b.amountPlannedCents - a.amountPlannedCents)[0];
-        const delayedValue = iv.delayedEvents.reduce((s, e) => s + centsToReais(e.amountPlannedCents), 0);
-        return { total: events.length, pendingValue, billedValue, biggest, delayedValue };
-    }, [project.billing_eventogram, iv.delayedEvents]);
+    const eventStats = useMemo(
+        () => computeEventStats(project, iv.delayedEvents),
+        [project, iv.delayedEvents],
+    );
 
     // Event list shown in table (visual filter only)
     const eventRows = useMemo(() => {
@@ -772,7 +849,7 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
         );
     }, [showAllEvents, eventQuery, project.billing_eventogram, iv.criticalEvents]);
 
-    // Waterfall bridge geometry (values unchanged; only bar bases computed for the bridge layout)
+    // Waterfall bridge geometry (visual only; business values come from iv)
     const waterfall = useMemo(() => {
         const start = iv.insightCashRevenue;
         const afterDisbursement = start - iv.insightDisbursement;
@@ -783,7 +860,7 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
             ghost?: boolean; total?: boolean; cumulative: number | null; note?: string;
         }[] = [
             { name: 'Caixa Insight', base: 0, delta: start, real: start, fill: pal.primary, total: true, cumulative: start, note: 'Receita que entra no caixa da Insight' },
-            { name: 'Desembolso Insight', base: afterDisbursement, delta: iv.insightDisbursement, real: -iv.insightDisbursement, fill: pal.cost, cumulative: afterDisbursement, note: 'Desembolso previsto, sem faturamento direto' },
+            { name: 'Desembolso total', base: afterDisbursement, delta: iv.insightDisbursement, real: -iv.insightDisbursement, fill: pal.cost, cumulative: afterDisbursement, note: 'Desembolso da Curva S + projeção de custos' },
             { name: 'Faturamento direto', base: 0, delta: iv.directPassThrough, real: iv.directPassThrough, fill: pal.info, ghost: true, cumulative: null, note: 'Repasse a terceiros — fora do caixa Insight' },
             { name: 'Contingências', base: Math.min(afterRisk, afterDisbursement), delta: iv.riskExposure, real: -iv.riskExposure, fill: iv.riskExposure ? pal.critical : pal.gray, cumulative: afterRisk, note: iv.riskExposure ? 'Exposição de riscos abertos' : 'não informado' },
             { name: 'Resultado Insight', base: Math.min(0, finalResult), delta: Math.abs(finalResult), real: finalResult, fill: finalResult >= 0 ? pal.success : pal.critical, total: true, cumulative: finalResult, note: 'Resultado final projetado' },
@@ -976,7 +1053,7 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
     const leftTiles: HeroTileData[] = [
         { key: 'contract', label: 'Valor do contrato', value: compactBRL(iv.contractTotal), helper: 'teto contratado', accent: pal.primary, icon: <FileText className="h-3.5 w-3.5" />, title: 'Receita total contratada usada como base de retorno.' },
         { key: 'cash-in', label: 'Caixa Insight previsto', value: compactBRL(iv.insightCashRevenue), helper: 'entra no caixa da Insight', accent: pal.success, icon: <Wallet className="h-3.5 w-3.5" />, spark: sparkRevenue, title: 'Receita contratual que efetivamente entra no caixa da Insight.' },
-        { key: 'cash-out', label: 'Desembolso Insight', value: compactBRL(iv.insightDisbursement), helper: 'sem faturamento direto', accent: pal.cost, icon: <CircleDollarSign className="h-3.5 w-3.5" />, spark: sparkCost, chip: iv.insightDisbursement > iv.insightCashRevenue ? { label: 'crítico', color: pal.critical } : undefined, title: 'Desembolso previsto da Insight, excluindo faturamento direto de terceiros.' },
+        { key: 'cash-out', label: 'Desembolso total', value: compactBRL(iv.insightDisbursement), helper: 'Curva S + projeção', accent: pal.cost, icon: <CircleDollarSign className="h-3.5 w-3.5" />, spark: sparkCost, chip: iv.insightDisbursement > iv.insightCashRevenue ? { label: 'crítico', color: pal.critical } : undefined, title: 'Desembolso previsto pela Curva S somado à projeção de custos.' },
         { key: 'net', label: 'Resultado final Insight', value: compactBRL(iv.netResult), helper: 'caixa Insight − desembolso', accent: iv.netResult >= 0 ? pal.success : pal.critical, valueColor: iv.netResult >= 0 ? pal.success : pal.critical, icon: <PiggyBank className="h-3.5 w-3.5" />, spark: sparkNet, title: 'Resultado antes de contingências não informadas, excluindo repasse direto a terceiros.' },
     ];
 
@@ -993,22 +1070,7 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
         { label: 'Atrasados', value: String(iv.delayedEvents.length), color: iv.delayedEvents.length ? pal.critical : pal.success },
     ];
 
-    const sensitivityRows = useMemo(() => {
-        const baseRevenue = iv.insightCashRevenue;
-        const baseCost = iv.insightDisbursement;
-        const scenarios = [
-            { label: 'Base', result: iv.netResult },
-            { label: '+10% custo', result: baseRevenue - baseCost * 1.10 },
-            { label: '+20% custo', result: baseRevenue - baseCost * 1.20 },
-            { label: '-10% receita', result: baseRevenue * 0.90 - baseCost },
-            { label: 'Riscos aplicados', result: iv.netResult - iv.riskExposure },
-        ];
-
-        return scenarios.map(scenario => ({
-            ...scenario,
-            margin: baseRevenue > 0 ? (scenario.result / baseRevenue) * 100 : null,
-        }));
-    }, [iv]);
+    const sensitivityRows = useMemo(() => computeSensitivityScenarios(iv), [iv]);
 
     const maxComposition = Math.max(...iv.costComposition.map(c => c.value), 1);
 
@@ -1168,8 +1230,9 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
                                             <RechartsTooltip content={<CurveTooltip pal={pal} />} />
                                             <Area type="monotone" dataKey="receitaPrevista" name="Receita prevista" stroke={pal.primary} fill="url(#icRevenue)" strokeWidth={2.4} strokeOpacity={curveVis('receitaPrevista')} fillOpacity={curveVis('receitaPrevista')} dot={false} activeDot={{ r: 4, fill: pal.primary, stroke: pal.dotStroke, strokeWidth: 2 }} />
                                             <Line type="monotone" dataKey="receitaRealizada" name="Receita realizada" stroke={pal.successSoft} strokeWidth={1.8} strokeOpacity={curveVis('receitaRealizada')} dot={false} activeDot={{ r: 3.5, fill: pal.successSoft, stroke: pal.dotStroke, strokeWidth: 2 }} />
-                                            <Area type="monotone" dataKey="desembolsoPrevisto" name="Desembolso previsto" stroke={pal.cost} fill="url(#icCost)" strokeWidth={2.2} strokeOpacity={curveVis('desembolsoPrevisto')} fillOpacity={curveVis('desembolsoPrevisto')} dot={false} activeDot={{ r: 4, fill: pal.cost, stroke: pal.dotStroke, strokeWidth: 2 }} />
-                                            <Line type="monotone" dataKey="desembolsoRealizado" name="Desembolso realizado" stroke={pal.costSoft} strokeWidth={1.8} strokeDasharray="5 3" strokeOpacity={curveVis('desembolsoRealizado')} dot={false} activeDot={{ r: 3.5, fill: pal.costSoft, stroke: pal.dotStroke, strokeWidth: 2 }} />
+                                            <Area type="monotone" dataKey="desembolsoPrevisto" name="Desembolso previsto" stroke={pal.cost} fill="url(#icCost)" strokeWidth={2.2} strokeOpacity={curveVis('desembolsoPrevisto')} fillOpacity={curveVis('desembolsoPrevisto') * 0.55} dot={false} activeDot={{ r: 4, fill: pal.cost, stroke: pal.dotStroke, strokeWidth: 2 }} />
+                                            <Line type="monotone" dataKey="desembolsoRealizado" name="Desembolso realizado" stroke={pal.costSoft} strokeWidth={2.4} strokeOpacity={curveVis('desembolsoRealizado')} dot={false} activeDot={{ r: 3.5, fill: pal.costSoft, stroke: pal.dotStroke, strokeWidth: 2 }} />
+                                            <Line type="monotone" dataKey="desembolsoProjetado" name="Projeção custos fixos" stroke={pal.warning} strokeWidth={2.2} strokeDasharray="5 4" strokeOpacity={curveVis('desembolsoProjetado')} dot={false} activeDot={{ r: 3.5, fill: pal.warning, stroke: pal.dotStroke, strokeWidth: 2 }} />
                                             <Line type="monotone" dataKey="saldoLiquido" name="Saldo líquido" stroke={pal.info} strokeWidth={2.6} strokeOpacity={curveVis('saldoLiquido')} dot={false} activeDot={{ r: 4.5, fill: pal.info, stroke: pal.dotStroke, strokeWidth: 2 }} />
                                             {iv.peakGap > 0 && iv.peakGapPeriod && !hiddenCurves.has('saldoLiquido') && (
                                                 <ReferenceDot x={iv.peakGapPeriod} y={iv.peakGapValue} r={5} fill={pal.critical} stroke={pal.dotStroke} strokeWidth={2} label={{ value: 'PICO', position: 'bottom', fill: hexWithAlpha(pal.critical, 0.9), fontSize: 9, fontWeight: 700 }} />
@@ -1227,7 +1290,26 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
                                             <YAxis tickFormatter={yAxisFmt} tick={{ fontSize: 10, fill: pal.fgSubtle }} axisLine={false} tickLine={false} width={68} />
                                             <RechartsTooltip formatter={(value: number) => compactBRL(value)} labelFormatter={(label) => periodLabel(String(label))} contentStyle={tooltipStyle} />
                                             <Bar dataKey="receitaMensal" name="Receita mensal" fill="url(#icBarRev)" radius={[4, 4, 0, 0]} maxBarSize={visibleCashFlow.length <= 12 ? 30 : 20} />
-                                            <Bar dataKey="desembolsoMensal" name="Desembolso mensal" fill="url(#icBarCost)" radius={[4, 4, 0, 0]} maxBarSize={visibleCashFlow.length <= 12 ? 30 : 20} />
+                                            <Bar dataKey="desembolsoPrevistoMensal" name="Desembolso previsto" fill="url(#icBarCost)" radius={[4, 4, 0, 0]} maxBarSize={visibleCashFlow.length <= 12 ? 30 : 20} />
+                                            <Line
+                                                type="monotone"
+                                                dataKey="desembolsoRealizadoMensal"
+                                                name="Desembolso realizado"
+                                                stroke={pal.costSoft}
+                                                strokeWidth={2.4}
+                                                dot={false}
+                                                activeDot={{ r: 4, fill: pal.costSoft, stroke: pal.dotStroke, strokeWidth: 2 }}
+                                            />
+                                            <Line
+                                                type="monotone"
+                                                dataKey="desembolsoProjetadoMensal"
+                                                name="Projeção de custos"
+                                                stroke={pal.warning}
+                                                strokeWidth={2.2}
+                                                strokeDasharray="5 4"
+                                                dot={false}
+                                                activeDot={{ r: 4, fill: pal.warning, stroke: pal.dotStroke, strokeWidth: 2 }}
+                                            />
                                             <Line
                                                 type="monotone"
                                                 dataKey="resultadoMensal"
@@ -1248,7 +1330,9 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
                                 </div>
                                 <div className="mt-2 flex flex-wrap items-center justify-center gap-4 text-[10px] text-[color:var(--ig-fg-muted)]">
                                     <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm" style={{ background: pal.primary }} />Receita</span>
-                                    <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm" style={{ background: pal.cost }} />Desembolso</span>
+                                    <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm" style={{ background: pal.cost }} />Desembolso previsto</span>
+                                    <span className="flex items-center gap-1.5"><span className="h-0.5 w-3 rounded-full" style={{ background: pal.costSoft }} />Realizado</span>
+                                    <span className="flex items-center gap-1.5"><span className="h-0.5 w-3 rounded-full border-t border-dashed" style={{ borderColor: pal.warning }} />Projeção</span>
                                     <span className="flex items-center gap-1.5"><span className="h-0.5 w-3 rounded-full" style={{ background: pal.info }} />Saldo líquido</span>
                                     <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full" style={{ background: pal.critical }} />mês negativo</span>
                                 </div>
@@ -1355,7 +1439,6 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
                                                 );
                                             }}
                                         />
-                                        {/* invisible base for the floating bridge bars */}
                                         <Bar dataKey="base" stackId="wf" fill="transparent" isAnimationActive={false} />
                                         <Bar dataKey="delta" stackId="wf" name="Valor" maxBarSize={52} radius={[5, 5, 0, 0]}>
                                             {waterfall.map(item => (
@@ -1368,7 +1451,6 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
                                                 />
                                             ))}
                                         </Bar>
-                                        {/* running-total connector */}
                                         <Line type="stepAfter" dataKey="cumulative" name="Acumulado" stroke={pal.isLight ? 'rgba(15,23,42,0.35)' : 'rgba(255,255,255,0.35)'} strokeWidth={1} strokeDasharray="3 3" dot={false} connectNulls />
                                     </ComposedChart>
                                 </ResponsiveContainer>
@@ -1531,7 +1613,9 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
                             <div className="grid grid-cols-2 gap-2">
                                 {[
                                     { label: 'Receita mensal', value: compactBRL(selectedPoint.receitaMensal), color: pal.success },
-                                    { label: 'Desembolso mensal', value: compactBRL(selectedPoint.desembolsoMensal), color: pal.cost },
+                                    { label: 'Previsto mensal', value: compactBRL(selectedPoint.desembolsoPrevistoMensal), color: pal.cost },
+                                    { label: 'Realizado mensal', value: selectedPoint.desembolsoRealizadoMensal == null ? '—' : compactBRL(selectedPoint.desembolsoRealizadoMensal), color: pal.costSoft },
+                                    { label: 'Projeção mensal', value: selectedPoint.desembolsoProjetadoMensal == null ? '—' : compactBRL(selectedPoint.desembolsoProjetadoMensal), color: pal.warning },
                                     { label: 'Resultado mensal', value: compactBRL(selectedPoint.resultadoMensal), color: selectedPoint.resultadoMensal >= 0 ? pal.success : pal.critical },
                                     { label: 'Saldo acumulado', value: compactBRL(selectedPoint.saldoLiquido), color: selectedPoint.saldoLiquido >= 0 ? pal.success : pal.critical },
                                 ].map(item => (
@@ -1551,6 +1635,8 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
                                     { label: 'Desembolso previsto', value: compactBRL(selectedPoint.desembolsoPrevisto), color: 'var(--ig-fg-default)' },
                                     { label: 'Receita realizada', value: compactBRL(selectedPoint.receitaRealizada), color: pal.successSoft },
                                     { label: 'Desembolso realizado', value: selectedPoint.desembolsoRealizado == null ? 'dados insuf.' : compactBRL(selectedPoint.desembolsoRealizado), color: pal.costSoft },
+                                    { label: 'Projeção acumulada', value: selectedPoint.desembolsoProjetado == null ? '—' : compactBRL(selectedPoint.desembolsoProjetado), color: pal.warning },
+                                    { label: 'Desembolso total', value: compactBRL(selectedPoint.desembolsoTotal), color: pal.cost },
                                 ].map(item => (
                                     <div key={item.label} className="rounded-lg border border-[color:var(--ig-border-subtle)] bg-[color:var(--ig-bg-raised)]/40 p-2.5">
                                         <p className="text-[9px] uppercase tracking-wider text-[color:var(--ig-fg-muted)]">{item.label}</p>
