@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -32,6 +33,12 @@ export function HudDrawer({
   showCloseButton = true,
   footer,
 }: HudDrawerProps) {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   // Lock body scroll when drawer is open
   useEffect(() => {
     if (isOpen) {
@@ -55,7 +62,7 @@ export function HudDrawer({
     return () => window.removeEventListener('keydown', handleEscape);
   }, [isOpen, onClose]);
 
-  return (
+  const drawer = (
     <AnimatePresence>
       {isOpen && (
         <>
@@ -66,7 +73,7 @@ export function HudDrawer({
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
             onClick={onClose}
-            className="fixed inset-0 z-50 ig-backdrop"
+            className="fixed inset-0 z-[80] ig-backdrop"
           />
 
           {/* Drawer */}
@@ -75,10 +82,10 @@ export function HudDrawer({
             animate={{ x: 0, opacity: 1 }}
             exit={{ x: position === 'right' ? '100%' : '-100%', opacity: 0.8 }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-            style={{ width, maxWidth: '90vw' }}
+            style={{ width, maxWidth: 'min(90vw, 100%)' }}
             data-elev="3"
             className={cn(
-              'fixed top-0 bottom-0 z-50 flex min-h-0 min-w-0 flex-col',
+              'fixed inset-y-0 z-[81] flex h-[100dvh] max-h-[100dvh] min-h-0 min-w-0 flex-col overflow-hidden',
               position === 'right' ? 'right-0' : 'left-0',
               'hud-drawer-surface ig-glass',
               className
@@ -127,4 +134,7 @@ export function HudDrawer({
       )}
     </AnimatePresence>
   );
+
+  if (!mounted || typeof document === 'undefined') return null;
+  return createPortal(drawer, document.body);
 }

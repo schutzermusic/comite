@@ -615,13 +615,13 @@ export function resolveActionTarget(item: ActionItem, projectId: string): Action
         case 'finance':
             return { type: 'tab', tab: 'finance' };
         case 'document':
-            return { type: 'tab', tab: 'overview' };
+            return { type: 'tab', tab: 'documents' };
         case 'risk':
             return { type: 'route', url: `/riscos` };
         case 'deliberation':
             return { type: 'route', url: `/pautas` };
         default:
-            return { type: 'tab', tab: 'overview' };
+            return { type: 'tab', tab: 'timeline' };
     }
 }
 

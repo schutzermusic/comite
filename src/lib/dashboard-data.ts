@@ -429,8 +429,8 @@ export function getMockDashboardData(): DashboardPayload {
     },
     financialPulse: {
       revenue: {
-        value: 125000000,
-        period: 'quarter',
+        value: 11_000_000,
+        period: 'month',
         trend: 8.5,
       },
       ebitda: {
@@ -445,8 +445,8 @@ export function getMockDashboardData(): DashboardPayload {
       },
     },
     portfolioMetrics: {
-      activeValue: 438000000,
-      activeValueTrend: [420, 425, 430, 432, 435, 436, 438],
+      activeValue: 422_000_000,
+      activeValueTrend: [420, 425, 430, 432, 435, 436, 422],
       activeValueDelta: 3.2,
       realizedValue: 182000000,
       realizedValueTrend: 12.5,
@@ -466,7 +466,7 @@ export function getMockDashboardData(): DashboardPayload {
         { id: '10', name: 'Projeto GO-1', city: 'Goiânia', state: 'GO', status: 'at_risk', value: 2400000, coordinates: { x: 62, y: 58 } },
       ],
       summary: {
-        active: 7,
+        active: 18,
         atRisk: 2,
         completed: 1,
       },

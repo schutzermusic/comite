@@ -2,10 +2,10 @@
 
 import React, { useState, useEffect, use } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import {
   ArrowLeft,
   Briefcase,
-  Calendar,
   DollarSign,
   TrendingUp,
   ArrowUpRight,
@@ -13,22 +13,16 @@ import {
   CheckCircle2,
   Clock,
   Users,
-  Building2,
   FileText,
   Brain,
-  BrainCircuit,
   GanttChart,
   UserCog,
   Activity,
-  Heart,
   ShieldAlert,
 } from 'lucide-react';
-import { usePermissions } from '@/hooks/use-permissions';
-import { triggerProjectAiScan } from '@/lib/services/risks';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   HudPageLayout,
@@ -36,64 +30,51 @@ import {
   HudPanel,
   HudButton,
 } from '@/components/hud';
-import { votes, meetings, users as mockUsers } from '@/lib/mock-data';
+import { users as mockUsers } from '@/lib/mock-data';
 import { getProjectByIdAsync, getProjectV2ByIdAsync } from '@/lib/services/projects';
 import { TimelineTab } from '@/components/projects/timeline/TimelineTab';
-import { TimelineOverviewKpis } from '@/components/projects/timeline/TimelineOverviewKpis';
 import { ProjectContractTab } from '@/components/projects/ProjectContractTab';
 import { ProjectRisksTab } from '@/components/projects/ProjectRisksTab';
 import { ProjectDocumentsView } from '@/components/projects/ProjectDocumentsView';
 import { TeamAllocationView } from '@/components/projects/team-allocation-view';
-import { ActionCenter } from '@/components/projects/ActionCenter';
-import { RiskCardV2 } from '@/components/projects/RiskCardV2';
-import { ContractBillingEventogramCard } from '@/components/projects/ContractBillingEventogramCard';
 import { FinanceView } from '@/components/projects/FinanceView';
 import { ProjectAllocation } from '@/lib/types';
 import type { ProjectV2 } from '@/lib/types/project-v2';
-import { getRiskLevelFromScore, getRiskLevelLabel } from '@/lib/utils/project-utils';
 import { projectSerial } from '@/lib/utils/serial';
-import { getHealthScoreColor, getHealthScoreLabel, formatMoney } from '@/lib/utils/project-utils';
+import { formatMoney } from '@/lib/utils/project-utils';
+import { getClientLogoUrl } from '@/lib/utils/client-logos';
 import { mockAllocationsV2 } from '@/data/mock-projects-v2';
-import Link from 'next/link';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 export default function DetalheProjetoPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
+  const tProjects = useTranslations('projects');
   const { id } = use(params);
   const searchParams = useSearchParams();
   const initialTab = (() => {
     const t = searchParams?.get('tab');
-    return t && ['overview', 'timeline', 'contract', 'finance', 'risks', 'documents', 'team'].includes(t) ? t : 'overview';
+    return t && ['timeline', 'contract', 'finance', 'risks', 'documents', 'team'].includes(t) ? t : 'timeline';
   })();
   const [projeto, setProjeto] = useState<Awaited<ReturnType<typeof getProjectByIdAsync>>>(undefined);
   const [projetoV2, setProjetoV2] = useState<ProjectV2 | undefined>(undefined);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState(initialTab);
-  const [scanningAi, setScanningAi] = useState(false);
-  const [aiNotice, setAiNotice] = useState<string | null>(null);
-  const { hasPermission } = usePermissions();
-  const canScanAi = hasPermission('risks.ai_scan');
+  const [scanningAdvanced, setScanningAdvanced] = useState(false);
 
-  const handleAiScan = async () => {
+  const handleAdvancedAnalysis = async () => {
     if (!id) return;
     if (
       !window.confirm(
-        'Disparar analise de risco com IA para este projeto? Pode levar ate 1 minuto e consome tokens.',
+        'Gerar diagnóstico avançado com IA e abrir a análise completa do projeto?',
       )
     )
       return;
-    setScanningAi(true);
-    setAiNotice(null);
+    setScanningAdvanced(true);
     try {
-      const { count, skipped } = await triggerProjectAiScan(id);
-      setAiNotice(
-        `${count} risco(s) IA gerado(s)${skipped ? ` · ${skipped} duplicado(s) ignorado(s)` : ''}. Veja em /riscos.`,
-      );
-    } catch (err) {
-      setAiNotice(err instanceof Error ? err.message : 'Erro na analise IA.');
+      router.push(`/projetos/${id}/analytics?run=1`);
     } finally {
-      setScanningAi(false);
+      setScanningAdvanced(false);
     }
   };
 
@@ -161,6 +142,17 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
     return colors[status] || colors.planejamento;
   };
 
+  const getStatusLabel = (status: string) => {
+    const labels: Record<string, string> = {
+      planejamento: tProjects('planning'),
+      em_andamento: tProjects('inProgress'),
+      pausado: tProjects('paused'),
+      concluido: tProjects('completed'),
+      cancelado: tProjects('cancelled'),
+    };
+    return labels[status] || status.replace(/_/g, ' ');
+  };
+
   const getImpactoColor = (impacto: string) => {
     const colors: Record<string, string> = {
       baixo: 'text-green-600',
@@ -170,10 +162,6 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
     };
     return colors[impacto] || colors.medio;
   };
-
-  const comiteNome = projeto.comiteResponsavel || projeto.comite_nome || '';
-  const pautasRelacionadas = comiteNome ? votes.filter(v => v.comite === comiteNome) : [];
-  const reunioesRelacionadas = comiteNome ? meetings.filter(m => m.comite === comiteNome) : [];
 
   // Use V2 allocations if available
   const v2Allocs = mockAllocationsV2[id];
@@ -194,21 +182,32 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
       { id: '3', projectId: id, memberId: '3', memberName: 'Carlos Santos', role: 'UX Designer', allocationPercent: 60, hoursPerWeek: 24 },
     ];
 
-  const healthScore = projetoV2?.health_score ?? 100;
-  const healthColor = getHealthScoreColor(healthScore);
-  const healthLabel = getHealthScoreLabel(healthScore);
-
-
   // Last activity
   const lastActivity = projetoV2?.last_activity_at
     ? format(new Date(projetoV2.last_activity_at), "dd MMM yyyy 'às' HH:mm", { locale: ptBR })
     : null;
+  const clientLogoUrl = getClientLogoUrl(projeto.cliente, projeto.clientLogoUrl);
 
   return (
     <HudPageLayout maxWidth="full">
-      <div className="max-w-7xl mx-auto space-y-6">
+      <div className="w-full max-w-none space-y-6">
         <HudHeader
-          title={projeto.nome}
+          title={
+            <>
+              <span>{projeto.nome}</span>
+              {clientLogoUrl && (
+                <span className="inline-flex h-12 shrink-0 items-center justify-center px-2">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={clientLogoUrl}
+                    alt={projeto.cliente || 'Logo cliente'}
+                    className="h-10 w-auto max-w-full object-contain client-logo-img"
+                    draggable={false}
+                  />
+                </span>
+              )}
+            </>
+          }
           subtitle={`Código: ${projeto.codigo} ${lastActivity ? ` · Última atividade: ${lastActivity}` : ''}`}
           icon={<Briefcase className="w-5 h-5" />}
           iconTint="#10B981"
@@ -226,30 +225,6 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
               >
                 Voltar
               </HudButton>
-              {healthScore != null && (
-                <div
-                  className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold"
-                  style={{
-                    background: `${healthColor}15`,
-                    color: healthColor,
-                    border: `1px solid ${healthColor}30`,
-                  }}
-                >
-                  <Heart className="w-3.5 h-3.5" />
-                  {healthScore} — {healthLabel}
-                </div>
-              )}
-              {canScanAi && (
-                <HudButton
-                  variant="glass"
-                  size="md"
-                  leftIcon={<BrainCircuit className="h-4 w-4" />}
-                  disabled={scanningAi}
-                  onClick={handleAiScan}
-                >
-                  {scanningAi ? 'Analisando...' : 'Analisar com IA'}
-                </HudButton>
-              )}
               <HudButton
                 variant="secondary"
                 size="md"
@@ -262,31 +237,18 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
               >
                 Criar risco
               </HudButton>
-              <Link href={`/projetos/${projeto.id}/analytics`}>
-                <HudButton variant="primary" leftIcon={<Brain className="w-4 h-4" />}>
-                  Análise Avançada
-                </HudButton>
-              </Link>
+              <HudButton
+                variant="primary"
+                leftIcon={<Brain className="w-4 h-4" />}
+                disabled={scanningAdvanced}
+                onClick={handleAdvancedAnalysis}
+              >
+                {scanningAdvanced ? 'Abrindo análise...' : 'Análise Avançada'}
+              </HudButton>
             </div>
           }
         />
-        {aiNotice && (
-          <div className="rounded-lg border border-ig-accent-weak bg-ig-accent-weak/30 px-4 py-2 text-[12px] text-ig-fg-default">
-            {aiNotice}
-          </div>
-        )}
-
-        {/* ── Action Center (top alerts block) ────────────────── */}
-        {projetoV2 && (
-          <ActionCenter
-            project={projetoV2}
-            maxAlerts={3}
-            onTabChange={setActiveTab}
-          />
-        )}
-
-        <div className="grid lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 space-y-6">
+        <div className="space-y-6">
             <HudPanel
               title="Resumo do Projeto"
               accentColor="emerald"
@@ -299,7 +261,7 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
                   <div>
                     <p className="mb-1 text-ig-caption font-medium text-ig-fg-muted">Status</p>
-                    <Badge className={getStatusColor(projeto.status)}>{projeto.status}</Badge>
+                    <Badge className={getStatusColor(projeto.status)}>{getStatusLabel(projeto.status)}</Badge>
                   </div>
                   <div>
                     <p className="mb-1 text-ig-caption font-medium text-ig-fg-muted">Cliente</p>
@@ -364,170 +326,40 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
                 </div>
               </div>
             </HudPanel>
-
-            {/* ── Billing Eventogram Card ── */}
-            {projetoV2 && (
-              <ContractBillingEventogramCard
-                project={projetoV2}
-                onTabChange={setActiveTab}
-              />
-            )}
-          </div>
-
-          <div className="space-y-6">
-            {projeto.comite_id && (
-              <HudPanel title="Supervisão do Comitê" accentColor="cyan">
-                <div className="space-y-4">
-                  <div className="flex items-center gap-3">
-                    <Building2 className="w-6 h-6 hud-accent-success" />
-                    <p className="text-ig-h3 font-semibold text-ig-fg-strong">{projeto.comite_nome}</p>
-                  </div>
-                  <Badge variant="outline" className="hud-panel-badge">{projeto.comite_status?.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) || 'Ativo'}</Badge>
-                  <p className="text-sm hud-text-tertiary">Este projeto está sob a supervisão do {projeto.comite_nome || 'Comitê'}.</p>
-                </div>
-              </HudPanel>
-            )}
-
-            {/* Risk Card v2 — P/I/Score explicit */}
-            {projetoV2 && (
-              <RiskCardV2
-                project={projetoV2}
-              />
-            )}
-
-            <HudPanel title="Atividades Recentes">
-              <div>
-                <ul className="space-y-3">
-                  {pautasRelacionadas.slice(0, 2).map(pauta => (
-                    <li key={pauta.id} className="flex items-start gap-3">
-                      <div className="p-2 hud-panel-icon rounded-full bg-[rgba(101,163,13,0.08)] text-[#65A30D] dark:bg-[rgba(0,255,180,0.12)] dark:text-[#00FFB4]"><FileText className="w-4 h-4" /></div>
-                      <div>
-                        <p className="text-sm font-medium orion-text-primary">Nova pauta de votação</p>
-                        <p className="text-xs hud-text-muted line-clamp-1">{pauta.titulo}</p>
-                      </div>
-                    </li>
-                  ))}
-                  {reunioesRelacionadas.slice(0, 1).map(reuniao => (
-                    <li key={reuniao.id} className="flex items-start gap-3">
-                      <div className="p-2 hud-panel-icon rounded-full bg-[rgba(6,182,212,0.08)] text-[#06B6D4] dark:bg-[rgba(0,200,255,0.12)] dark:text-[#00C8FF]"><Calendar className="w-4 h-4" /></div>
-                      <div>
-                        <p className="text-sm font-medium orion-text-primary">Reunião Agendada</p>
-                        <p className="text-xs hud-text-muted line-clamp-1">{reuniao.titulo}</p>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </HudPanel>
-          </div>
         </div>
 
-        {/* Tabs: Overview, Timeline, Team, Financeiro */}
-        <HudPanel noPadding>
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <div className="p-6 border-b hud-panel-divider" id="project-tabs">
-              <TabsList className="grid w-full grid-cols-4 lg:grid-cols-7 hud-tabs-container">
-                <TabsTrigger value="overview" className="hud-tab-trigger">Visão Geral</TabsTrigger>
-                <TabsTrigger value="timeline" className="hud-tab-trigger">
-                  <GanttChart className="w-4 h-4 mr-2" />
-                  Timeline
-                </TabsTrigger>
-                <TabsTrigger value="contract" className="hud-tab-trigger">
-                  <FileText className="w-4 h-4 mr-2" />
-                  Contrato
-                </TabsTrigger>
-                <TabsTrigger value="finance" className="hud-tab-trigger">
-                  <DollarSign className="w-4 h-4 mr-2" />
-                  Financeiro
-                </TabsTrigger>
-                <TabsTrigger value="risks" className="hud-tab-trigger">
-                  <ShieldAlert className="w-4 h-4 mr-2" />
-                  Riscos
-                </TabsTrigger>
-                <TabsTrigger value="documents" className="hud-tab-trigger">
-                  <FileText className="w-4 h-4 mr-2" />
-                  Documentos
-                </TabsTrigger>
-                <TabsTrigger value="team" className="hud-tab-trigger">
-                  <UserCog className="w-4 h-4 mr-2" />
-                  Equipe
-                </TabsTrigger>
-              </TabsList>
-            </div>
+        {/* Tabs: barra solta — painéis de conteúdo flutuam direto na página */}
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <div id="project-tabs">
+            <TabsList className="grid w-full grid-cols-3 rounded-xl backdrop-blur-sm lg:grid-cols-6 hud-tabs-container">
+              <TabsTrigger value="finance" className="hud-tab-trigger">
+                <DollarSign className="w-4 h-4 mr-2" />
+                Financeiro
+              </TabsTrigger>
+              <TabsTrigger value="contract" className="hud-tab-trigger">
+                <FileText className="w-4 h-4 mr-2" />
+                Contrato
+              </TabsTrigger>
+              <TabsTrigger value="timeline" className="hud-tab-trigger">
+                <GanttChart className="w-4 h-4 mr-2" />
+                Timeline
+              </TabsTrigger>
+              <TabsTrigger value="risks" className="hud-tab-trigger">
+                <ShieldAlert className="w-4 h-4 mr-2" />
+                Riscos
+              </TabsTrigger>
+              <TabsTrigger value="documents" className="hud-tab-trigger">
+                <FileText className="w-4 h-4 mr-2" />
+                Documentos
+              </TabsTrigger>
+              <TabsTrigger value="team" className="hud-tab-trigger">
+                <UserCog className="w-4 h-4 mr-2" />
+                Equipe
+              </TabsTrigger>
+            </TabsList>
+          </div>
 
-            <div className="p-6 pt-2">
-              <TabsContent value="overview" className="mt-0">
-                <div className="space-y-4">
-                  <TimelineOverviewKpis projectId={id} onOpenTimeline={() => setActiveTab('timeline')} />
-                  <h3 className="mb-4 text-ig-h3 font-semibold text-ig-fg-strong">Informações do Projeto</h3>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div>
-                      <p className="text-ig-caption font-medium text-ig-fg-muted">Código Interno</p>
-                      <p className="text-ig-body-sm font-medium text-ig-fg-strong">{projeto.codigoInterno || projeto.codigo || 'N/A'}</p>
-                    </div>
-                    <div>
-                      <p className="text-ig-caption font-medium text-ig-fg-muted">Tipo</p>
-                      <p className="text-ig-body-sm font-medium text-ig-fg-strong">{projeto.tipo || 'Não especificado'}</p>
-                    </div>
-                    <div>
-                      <p className="text-ig-caption font-medium text-ig-fg-muted">ROI Estimado</p>
-                      <p className="text-ig-body-sm font-medium text-ig-fg-strong">{projeto.roi_estimado ? `${projeto.roi_estimado}%` : 'N/A'}</p>
-                    </div>
-                    <div>
-                      <p className="text-ig-caption font-medium text-ig-fg-muted">Risco Geral</p>
-                      {(() => {
-                        const openRisks = projetoV2?.risks?.filter(r => r.status !== 'resolved') || [];
-                        const topScore = openRisks.length > 0
-                          ? Math.max(...openRisks.map(r => r.probability * r.impact))
-                          : 0;
-                        const level = topScore > 0 ? getRiskLevelFromScore(topScore) : null;
-                        const label = level ? getRiskLevelLabel(level) : (projeto.risco_geral || 'Baixo');
-                        return (
-                          <Badge className={level === 'critical' || level === 'high' ? 'bg-[color-mix(in_oklab,var(--ig-danger)_12%,transparent)] text-ig-danger border-[color-mix(in_oklab,var(--ig-danger)_28%,transparent)]' : level === 'medium' ? 'bg-[color-mix(in_oklab,var(--ig-warning)_12%,transparent)] text-ig-warning border-[color-mix(in_oklab,var(--ig-warning)_28%,transparent)]' : 'bg-[color-mix(in_oklab,var(--ig-success)_12%,transparent)] text-ig-success border-[color-mix(in_oklab,var(--ig-success)_28%,transparent)]'}>
-                            {label}
-                          </Badge>
-                        );
-                      })()}
-                    </div>
-                  </div>
-
-                  {/* V2 extra fields */}
-                  {projetoV2 && (
-                    <>
-                      <Separator className="bg-ig-border-subtle" />
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        {projetoV2.uf && (
-                          <div>
-                            <p className="text-ig-caption font-medium text-ig-fg-muted">UF</p>
-                            <p className="text-ig-body-sm font-medium text-ig-fg-strong">{projetoV2.uf}</p>
-                          </div>
-                        )}
-                        {projetoV2.location?.city && (
-                          <div>
-                            <p className="text-ig-caption font-medium text-ig-fg-muted">Cidade</p>
-                            <p className="text-ig-body-sm font-medium text-ig-fg-strong">{projetoV2.location.city}</p>
-                          </div>
-                        )}
-                        {projetoV2.contract_id && (
-                          <div>
-                            <p className="text-ig-caption font-medium text-ig-fg-muted">Contrato</p>
-                            <p className="text-ig-body-sm font-medium text-ig-accent">{projetoV2.contract_id}</p>
-                          </div>
-                        )}
-                        {projetoV2.templateType && (
-                          <div>
-                            <p className="text-ig-caption font-medium text-ig-fg-muted">Template</p>
-                            <Badge variant="outline" className="border-ig-border text-ig-caption text-ig-fg-muted">
-                              {projetoV2.templateType}
-                            </Badge>
-                          </div>
-                        )}
-                      </div>
-                    </>
-                  )}
-                </div>
-              </TabsContent>
-
+          <div className="mt-5">
               <TabsContent value="timeline" className="mt-0">
                 <TimelineTab
                   projectId={id}
@@ -572,9 +404,8 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
                   </div>
                 )}
               </TabsContent>
-            </div>
-          </Tabs>
-        </HudPanel>
+          </div>
+        </Tabs>
       </div>
     </HudPageLayout>
   );

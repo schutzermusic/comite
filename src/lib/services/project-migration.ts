@@ -4,7 +4,7 @@
 
 import type { Project } from '@/lib/types';
 import type { ProjectV2, ProjectFinance, ProjectAuditEvent, ProjectRevenue } from '@/lib/types/project-v2';
-import { v2Overlays, V2_ENRICHED_IDS } from '@/data/mock-projects-v2';
+import { CEMIG_TOTAL_CONTRACTED, CEMIG_TOTALIZER_CUTOFF_BILLED, v2Overlays, V2_ENRICHED_IDS } from '@/data/mock-projects-v2';
 import { makeMoney, computeHealthScore } from '@/lib/utils/project-utils';
 
 const STORAGE_KEY_V1 = 'insight_projects';
@@ -138,6 +138,31 @@ export function migrateToV2(v1Projects: Project[]): ProjectV2[] {
     return v2Projects;
 }
 
+export function applyLatestV2Overlay(project: ProjectV2): ProjectV2 {
+    const overlay = v2Overlays[project.id];
+    if (!overlay) return project;
+
+    const merged: ProjectV2 = {
+        ...project,
+        ...overlay,
+        id: project.id,
+        nome: project.nome,
+        codigo: project.codigo,
+        cliente: project.cliente,
+        status: project.status,
+        responsavel: project.responsavel,
+        valor_total: project.id === 'proj-001' ? CEMIG_TOTAL_CONTRACTED : project.valor_total,
+        valor_executado: project.id === 'proj-001' ? CEMIG_TOTALIZER_CUTOFF_BILLED : project.valor_executado,
+        progresso_percentual: project.progresso_percentual,
+        audit_log: overlay.audit_log?.length ? overlay.audit_log : project.audit_log,
+    };
+
+    const { score, reasons } = computeHealthScore(merged);
+    merged.health_score = score;
+    merged.health_reasons = reasons;
+    return merged;
+}
+
 /**
  * Load v2 projects from storage, or migrate if needed.
  */
@@ -152,7 +177,9 @@ export function loadV2Projects(v1Projects: Project[]): ProjectV2[] {
         if (stored) {
             const parsed = JSON.parse(stored);
             if (Array.isArray(parsed) && parsed.length > 0 && parsed[0]?.schemaVersion === 2) {
-                return parsed as ProjectV2[];
+                const refreshed = (parsed as ProjectV2[]).map(applyLatestV2Overlay);
+                localStorage.setItem(STORAGE_KEY_V2, JSON.stringify(refreshed));
+                return refreshed;
             }
         }
     } catch {

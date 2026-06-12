@@ -85,7 +85,11 @@ export function ImportWizard({ projectId, open, onClose, onImported }: ImportWiz
       });
       const body = await res.json();
       if (!res.ok || !body.ok) {
-        throw new Error(body?.error ?? `Falha ao analisar o PDF (HTTP ${res.status}).`);
+        const base = body?.error ?? `Falha ao analisar o PDF (HTTP ${res.status}).`;
+        const details = Array.isArray(body?.warnings) && body.warnings.length > 0
+          ? ` Detalhes: ${body.warnings.join(' ')}`
+          : '';
+        throw new Error(`${base}${details}`);
       }
       setPreview(body.preview as ParsePreview);
       setHasExisting(Boolean(body.hasExistingTimeline));

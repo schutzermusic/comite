@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, use } from "react";
-import { useRouter } from "next/navigation";
+import React, { useState, use, useCallback, useRef, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
   RefreshCw,
@@ -32,35 +32,42 @@ import ROIForecasting from "@/components/analytics/ROIForecasting";
 
 export default function ProjetoAnalyticsPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { toast } = useHudToast();
   const { id: projetoId } = use(params);
+  const autoRunRequested = searchParams?.get('run') === '1';
+  const autoRunStarted = useRef(false);
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [analytics, setAnalytics] = useState<ProjetoAnalytics | null>(null);
 
   const projeto = projects.find(p => p.id === projetoId);
 
-  React.useEffect(() => {
-    // Simulate fetching analytics data
-    if (projetoId === mockAnalytics.projeto_id) {
-      setAnalytics(mockAnalytics);
-    }
-  }, [projetoId]);
-
-  const generateAnalyticsMutation = () => {
+  const generateAnalyticsMutation = useCallback(() => {
     setIsGenerating(true);
     toast({
-        title: 'Gerando Análise...',
-        description: 'A IA está processando os dados do projeto. Isso pode levar alguns segundos.',
+      title: 'Gerando Análise...',
+      description: 'A IA está processando os dados do projeto. Isso pode levar alguns segundos.',
     });
     setTimeout(() => {
-      setAnalytics(mockAnalytics);
+      setAnalytics({
+        ...mockAnalytics,
+        projeto_id: projetoId,
+        projeto_nome: projeto?.nome ?? mockAnalytics.projeto_nome,
+        data_analise: new Date().toISOString().slice(0, 10),
+      });
       setIsGenerating(false);
       toast({
         title: 'Análise gerada com sucesso!',
       });
     }, 2500);
-  };
+  }, [projeto?.nome, projetoId, toast]);
+
+  useEffect(() => {
+    if (!projeto || !autoRunRequested || autoRunStarted.current || analytics) return;
+    autoRunStarted.current = true;
+    generateAnalyticsMutation();
+  }, [analytics, autoRunRequested, generateAnalyticsMutation, projeto]);
 
   if (!projeto) {
     return (

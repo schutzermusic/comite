@@ -1,7 +1,8 @@
 import { Project } from '@/lib/types';
 import type { ProjectV2, ProjectAuditEvent } from '@/lib/types/project-v2';
 import { projects as defaultProjects, users } from '@/lib/mock-data';
-import { loadV2Projects, STORAGE_KEY_V2 } from '@/lib/services/project-migration';
+import { applyLatestV2Overlay, loadV2Projects, STORAGE_KEY_V2 } from '@/lib/services/project-migration';
+import { CEMIG_TOTAL_CONTRACTED, CEMIG_TOTALIZER_CUTOFF_BILLED } from '@/data/mock-projects-v2';
 import { computeHealthScore } from '@/lib/utils/project-utils';
 import { createClient } from '@/utils/supabase/client';
 
@@ -25,11 +26,22 @@ function isSupabaseConfigured(): boolean {
   );
 }
 
+const PROJECT_RESPONSAVEL_IDS: Record<string, string> = {
+  'proj-001': 'user-6',
+};
+
+function resolveProjectResponsavel(project: Pick<Project, 'id' | 'responsavel'>): (typeof users)[number] {
+  const canonicalId = PROJECT_RESPONSAVEL_IDS[project.id] ?? project.responsavel?.id;
+  if (canonicalId) {
+    const match = users.find((u) => u.id === canonicalId);
+    if (match) return match;
+  }
+  return users[0];
+}
+
 function normalizeProject(p: any): Project {
   const project = { ...p };
-  if (!project.responsavel || typeof project.responsavel !== 'object' || !project.responsavel.id) {
-    project.responsavel = users[0];
-  }
+  project.responsavel = resolveProjectResponsavel(project);
   if (!project.codigoInterno) {
     project.codigoInterno = project.codigo || '';
   }
@@ -39,6 +51,10 @@ function normalizeProject(p: any): Project {
   if (typeof project.valor_total !== 'number') project.valor_total = 0;
   if (typeof project.valor_executado !== 'number') project.valor_executado = 0;
   if (typeof project.progresso_percentual !== 'number') project.progresso_percentual = 0;
+  if (project.id === 'proj-001') {
+    project.valor_total = CEMIG_TOTAL_CONTRACTED;
+    project.valor_executado = CEMIG_TOTALIZER_CUTOFF_BILLED;
+  }
   return project;
 }
 
@@ -62,11 +78,11 @@ function rowToProject(row: ProjectRow): Project {
 
 function rowToProjectV2(row: ProjectRow): ProjectV2 | null {
   if (!row.project_v2) return null;
-  return {
+  return applyLatestV2Overlay({
     ...row.project_v2,
     id: row.id,
     clientLogoUrl: row.client_logo_url || row.project_v2.clientLogoUrl,
-  };
+  });
 }
 
 async function upsertProjectsToSupabase(projects: Project[], projectsV2?: ProjectV2[]): Promise<void> {
@@ -252,9 +268,7 @@ export function getProjectById(projectId: string): Project | undefined {
   const projeto = projects.find(p => p.id === projectId);
 
   if (projeto) {
-    if (!projeto.responsavel || typeof projeto.responsavel !== 'object' || !projeto.responsavel.id) {
-      projeto.responsavel = users[0];
-    }
+    projeto.responsavel = resolveProjectResponsavel(projeto);
     if (!projeto.codigoInterno) {
       projeto.codigoInterno = projeto.codigo || '';
     }

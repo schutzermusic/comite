@@ -44,11 +44,13 @@ function getFinancialExposureLevel(totalCents: number): { level: string; color: 
 
 interface RiskCardV2Props {
     project: ProjectV2;
+    variant?: 'default' | 'compact';
 }
 
 // ── Main Component ──────────────────────────────────────────────
 
-export function RiskCardV2({ project }: RiskCardV2Props) {
+export function RiskCardV2({ project, variant = 'default' }: RiskCardV2Props) {
+    const isCompact = variant === 'compact';
     const router = useRouter();
     const risks = project.risks || [];
 
@@ -63,8 +65,8 @@ export function RiskCardV2({ project }: RiskCardV2Props) {
         const topScore = topRisk.probability * topRisk.impact;
         const overallLevel = getRiskLevelFromScore(topScore);
 
-        // Top contributing risks (max 3)
-        const topContributing = sorted.slice(0, 3);
+        // Top contributing risks (max 3 default, 1 compact)
+        const topContributing = sorted.slice(0, isCompact ? 1 : 3);
 
         // Counts
         const highCriticalCount = openRisks.filter(r => {
@@ -88,7 +90,7 @@ export function RiskCardV2({ project }: RiskCardV2Props) {
             totalExposureCents,
             totalOpen: openRisks.length,
         };
-    }, [risks]);
+    }, [isCompact, risks]);
 
     // No risks state
     if (!computed) {
@@ -113,23 +115,23 @@ export function RiskCardV2({ project }: RiskCardV2Props) {
 
     return (
         <HudPanel noPadding>
-          <div className="p-6">
+          <div className={isCompact ? 'p-4' : 'p-6'}>
             {/* ── Header ────────────────────────── */}
-            <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-semibold orion-text-primary">Risco Geral</h3>
+            <div className={`flex items-center justify-between ${isCompact ? 'mb-2' : 'mb-4'}`}>
+                <h3 className={`font-semibold orion-text-primary ${isCompact ? 'text-[13px]' : 'text-sm'}`}>Risco Geral</h3>
                 <Button
                     size="sm"
                     variant="outline"
-                    className="h-7 px-2.5 text-[11px] border-[rgba(255,255,255,0.12)] text-[rgba(255,255,255,0.75)] hover:bg-[rgba(255,255,255,0.08)] hover:text-white"
+                    className={`px-2.5 text-[11px] border-[rgba(255,255,255,0.12)] text-[rgba(255,255,255,0.75)] hover:bg-[rgba(255,255,255,0.08)] hover:text-white ${isCompact ? 'h-6' : 'h-7'}`}
                     onClick={() => router.push(`/projetos/${project.id}?tab=riscos`)}
                 >
-                    Registro de Riscos
+                    {isCompact ? 'Riscos' : 'Registro de Riscos'}
                     <ExternalLink className="w-3 h-3 ml-1" />
                 </Button>
             </div>
 
             {/* ── P / I / Score Chips ───────────── */}
-            <div className="flex items-center gap-3 mb-4">
+            <div className={`flex flex-wrap items-center gap-2 ${isCompact ? 'mb-2' : 'mb-4'} ${isCompact ? '' : 'gap-3'}`}>
                 {/* Probability chip */}
                 <div
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[rgba(0,0,0,0.06)] dark:border-[rgba(255,255,255,0.08)] bg-[rgba(0,0,0,0.02)] dark:bg-[rgba(255,255,255,0.04)]"
@@ -175,7 +177,7 @@ export function RiskCardV2({ project }: RiskCardV2Props) {
             </div>
 
             {/* ── Risk Counts ──────────────────── */}
-            <div className="flex items-center gap-4 mb-4">
+            <div className={`flex flex-wrap items-center gap-3 ${isCompact ? 'mb-2' : 'mb-4'} ${isCompact ? '' : 'gap-4'}`}>
                 <div className="flex items-center gap-1.5">
                     <div className="w-2 h-2 rounded-full bg-[#FF4040]" />
                     <span className="text-[11px] hud-text-tertiary">
@@ -196,10 +198,12 @@ export function RiskCardV2({ project }: RiskCardV2Props) {
             </div>
 
             {/* ── Top Contributing Risks ──────── */}
-            <div className="space-y-2 mb-4">
-                <p className="text-[10px] hud-text-muted uppercase tracking-wider font-medium">
-                    Top Riscos Contribuintes
-                </p>
+            <div className={`space-y-1.5 ${isCompact ? 'mb-0' : 'mb-4'}`}>
+                {!isCompact && (
+                    <p className="text-[10px] hud-text-muted uppercase tracking-wider font-medium">
+                        Top Riscos Contribuintes
+                    </p>
+                )}
                 {computed.topContributing.map(risk => {
                     const score = risk.probability * risk.impact;
                     const level = getRiskLevelFromScore(score);
@@ -209,12 +213,12 @@ export function RiskCardV2({ project }: RiskCardV2Props) {
                     return (
                         <div
                             key={risk.id}
-                            className="flex items-center gap-3 p-2.5 rounded-lg"
+                            className={`flex items-center gap-2 rounded-lg ${isCompact ? 'p-2' : 'gap-3 p-2.5'}`}
                             style={{ background: 'rgba(255,255,255,0.03)' }}
                         >
                             {/* Score badge */}
                             <div
-                                className="flex items-center justify-center w-8 h-8 rounded-md text-xs font-bold shrink-0"
+                                className={`flex items-center justify-center rounded-md font-bold shrink-0 ${isCompact ? 'h-7 w-7 text-[11px]' : 'w-8 h-8 text-xs'}`}
                                 style={{
                                     background: `${lColor}18`,
                                     color: lColor,
@@ -226,7 +230,7 @@ export function RiskCardV2({ project }: RiskCardV2Props) {
 
                             {/* Title */}
                             <div className="flex-1 min-w-0">
-                                <p className="text-sm orion-text-primary truncate">{risk.title}</p>
+                                <p className={`orion-text-primary truncate ${isCompact ? 'text-[12px]' : 'text-sm'}`}>{risk.title}</p>
                                 <div className="flex items-center gap-2 mt-0.5">
                                     <span className="text-[10px] hud-text-muted">
                                         P{risk.probability}×I{risk.impact}
@@ -252,7 +256,7 @@ export function RiskCardV2({ project }: RiskCardV2Props) {
             </div>
 
             {/* ── Impacto Financeiro (separate section) ── */}
-            {computed.totalExposureCents > 0 && (
+            {!isCompact && computed.totalExposureCents > 0 && (
                 <div
                     className="p-3 rounded-lg border bg-[rgba(0,0,0,0.02)] border-[rgba(0,0,0,0.06)] dark:bg-[rgba(255,255,255,0.02)] dark:border-[rgba(255,255,255,0.06)]"
                 >

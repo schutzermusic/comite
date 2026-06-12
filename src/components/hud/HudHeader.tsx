@@ -20,7 +20,7 @@ export interface StatusChip {
 }
 
 export interface HudHeaderProps {
-  title: string;
+  title: React.ReactNode;
   subtitle?: string;
   icon?: React.ReactNode;
   iconTint?: string;
@@ -97,7 +97,7 @@ export function HudHeader({
               </span>
             )}
             <div>
-              <h1 className="text-ig-h1 ig-text-metal font-semibold">
+              <h1 className="flex flex-wrap items-center gap-3 text-ig-h1 ig-text-metal font-semibold">
                 {title}
               </h1>
               {subtitle && (

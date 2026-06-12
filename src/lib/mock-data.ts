@@ -6,6 +6,7 @@ export const users: User[] = [
   { id: 'user-3', nome: 'Carlos Davis', full_name: 'Carlos Davis', email: 'carlos@insight.com', avatarUrl: 'https://picsum.photos/seed/user3/40/40', papelPrincipal: 'membroComite', cargo: 'Senior Engineer' },
   { id: 'user-4', nome: 'Diana Miller', full_name: 'Diana Miller', email: 'diana@insight.com', avatarUrl: 'https://picsum.photos/seed/user4/40/40', papelPrincipal: 'membroComite', cargo: 'Financial Analyst' },
   { id: 'user-5', nome: 'Edward Wilson', full_name: 'Edward Wilson', email: 'edward@insight.com', avatarUrl: 'https://picsum.photos/seed/user5/40/40', papelPrincipal: 'visualizador', cargo: 'Intern' },
+  { id: 'user-6', nome: 'Ricardo Ferreira', full_name: 'Ricardo Ferreira', email: 'ricardo.ferreira@insight.com', avatarUrl: 'https://picsum.photos/seed/ricardo-ferreira/40/40', papelPrincipal: 'gerenteProjeto', cargo: 'Gerente de Projeto' },
 ];
 
 export const projects: Project[] = [
@@ -22,10 +23,10 @@ export const projects: Project[] = [
     comite_id: 'com-1',
     comite_nome: 'Comitê Estratégico',
     comite_status: 'ativo',
-    responsavel: users[1],
+    responsavel: users.find((u) => u.id === 'user-6')!,
     impacto_financeiro: 'critico',
     valor_total: 198827691.78,
-    valor_executado: 10353629.78,
+    valor_executado: 11153499.19,
     progresso_percentual: 5,
     sankhya_integrado: true,
     sankhya_projeto_id: 'SK-CEMIG-001',
@@ -1616,18 +1617,19 @@ export const workflowLogs: WorkflowLog[] = [
 export const mockAnalytics: ProjetoAnalytics = {
   id: 'analytics-1',
   projeto_id: 'proj-001',
-  projeto_nome: 'Expansão da Planta Solar',
-  data_analise: '2024-08-30',
-  score_saude_projeto: 78,
-  ia_insights: 'O projeto está no caminho certo, mas o risco orçamentário aumentou devido à flutuação de preços de matéria-prima. Recomenda-se renegociar com fornecedores e revisar a alocação de recursos para contingência.',
+  projeto_nome: 'UHE São Clemente — CEMIG',
+  data_analise: '2026-06-12',
+  score_saude_projeto: 72,
+  ia_insights: 'O projeto CEMIG apresenta pressão no cronograma de compras de material (006-MAT, 007-MAT e 304-MAT atrasados). O risco operacional de definir novo investidor permanece crítico para o fluxo de caixa. Priorize desbloqueio das entregas de material e renegociação de prazos com fornecedores estratégicos.',
   avaliacao_risco: {
-    nivel_risco: 'medio',
-    score_risco: 65,
+    nivel_risco: 'alto',
+    score_risco: 68,
     fatores_risco: [
-      { fator: 'Orçamentário', impacto: 'alto', descricao: 'Volatilidade nos preços de painéis solares.', mitigacao_sugerida: 'Contratos de longo prazo com fornecedores.' },
-      { fator: 'Cronograma', impacto: 'medio', descricao: 'Possíveis atrasos na entrega de equipamentos.', mitigacao_sugerida: 'Monitoramento semanal e fornecedores alternativos.' }
+      { fator: 'Compras de Material', impacto: 'alto', descricao: 'Atrasos em pacotes MAT críticos do eventograma.', mitigacao_sugerida: 'Plano de recuperação com fornecedores alternativos e compras emergenciais.' },
+      { fator: 'Investidor', impacto: 'alto', descricao: 'Definição pendente de novo investidor do projeto CEMIG.', mitigacao_sugerida: 'Acelerar due diligence e alinhar governança com o comitê.' },
+      { fator: 'Cronograma', impacto: 'medio', descricao: 'Marcos de obra dependentes de liberação de material.', mitigacao_sugerida: 'Replanejamento semanal com foco em caminho crítico.' }
     ],
-    riscos_identificados: ['Volatilidade de Preços', 'Atraso na Logística']
+    riscos_identificados: ['Atraso em Compras MAT', 'Investidor Indefinido', 'Pressão no Cronograma']
   },
   previsao_roi: {
     roi_estimado_percentual: 18,
@@ -1647,15 +1649,17 @@ export const mockAnalytics: ProjetoAnalytics = {
       { role: 'Analista Financeiro', horas_alocadas: 80, custo_estimado: 15000, utilizacao_percentual: 70 }
     ],
     recursos_materiais: [
-      { item: 'Painéis Solares (lote)', quantidade: 5000, custo: 250000 },
-      { item: 'Inversores', quantidade: 100, custo: 75000 }
+      { item: '006-MAT — Estruturas metálicas', quantidade: 1, custo: 18500000 },
+      { item: '304-MAT — Equipamentos eletromecânicos', quantidade: 1, custo: 42000000 },
+      { item: '007-MAT — Tubulações e válvulas', quantidade: 1, custo: 12800000 }
     ],
     recursos_subutilizados: ['Analista Financeiro'],
     recursos_sobreutilizados: ['Engenheiro Elétrico Sênior']
   },
   recomendacoes: [
-    { tipo: 'financeiro', prioridade: 'alta', descricao: 'Renegociar contrato com fornecedor de painéis solares para fixar preços.', impacto_esperado: 'Redução de até 10% no CAPEX.' },
-    { tipo: 'operacional', prioridade: 'media', descricao: 'Alocar um engenheiro de projeto adicional para supervisionar a logística.', impacto_esperado: 'Mitigação de atrasos no cronograma.' }
+    { tipo: 'operacional', prioridade: 'urgente', descricao: 'Desbloquear imediatamente os pacotes 006-MAT e 007-MAT com plano de compras emergenciais.', impacto_esperado: 'Recuperação de 3–4 semanas no caminho crítico.' },
+    { tipo: 'financeiro', prioridade: 'alta', descricao: 'Concluir definição do novo investidor CEMIG para garantir fluxo de caixa das próximas medições.', impacto_esperado: 'Redução do risco de paralisação de fornecedores.' },
+    { tipo: 'operacional', prioridade: 'media', descricao: 'Intensificar war room semanal de compras com foco em 304-MAT e dependências de obra.', impacto_esperado: 'Visibilidade antecipada de gargalos logísticos.' }
   ]
 };
 

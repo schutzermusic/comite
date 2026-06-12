@@ -42,7 +42,24 @@ interface SCurvePoint {
   gapBand: [number, number];
 }
 
-const MONTHS = ['SET', 'OUT', 'NOV', 'DEZ', 'JAN', 'FEV'];
+const MONTH_LABELS = ['JAN', 'FEV', 'MAR', 'ABR', 'MAI', 'JUN', 'JUL', 'AGO', 'SET', 'OUT', 'NOV', 'DEZ'] as const;
+
+/** Rolling window ending at the current calendar month. */
+function getRollingMonths(count = 6): string[] {
+  const currentMonth = new Date().getMonth();
+  return Array.from({ length: count }, (_, i) => {
+    const idx = (currentMonth - (count - 1 - i) + 12) % 12;
+    return MONTH_LABELS[idx];
+  });
+}
+
+function monthTrendFactor(index: number): number {
+  return 0.88 + index * 0.04;
+}
+
+function monthSeasonality(index: number): number {
+  return index % 2 === 0 ? 1.01 : 0.98;
+}
 
 function compactCurrency(value: number): string {
   return new Intl.NumberFormat('pt-BR', {
@@ -70,12 +87,19 @@ export function FinanceSnapshotCharts({ financialPulse }: FinanceSnapshotChartsP
   const waterfallBorder = isLight ? 'border-black/[0.06] bg-black/[0.02]' : 'border-white/[0.08] bg-white/[0.03]';
   const mutedText = isLight ? 'text-[#6B7280]' : 'text-white/45';
 
+  const chartMonths = useMemo(() => getRollingMonths(), []);
+
   const revenueSeries = useMemo<RevenuePoint[]>(() => {
-    const monthlyBase = financialPulse.revenue.value / (financialPulse.revenue.period === 'quarter' ? 3 : 1);
-    return MONTHS.map((month, index) => {
-      const trendFactor = 0.88 + index * 0.04;
-      const seasonality = index % 2 === 0 ? 1.01 : 0.98;
-      const actual = Math.round(monthlyBase * trendFactor * seasonality);
+    const currentRevenue = financialPulse.revenue.value;
+    const lastIndex = chartMonths.length - 1;
+    const lastMultiplier = monthTrendFactor(lastIndex) * monthSeasonality(lastIndex);
+
+    return chartMonths.map((month, index) => {
+      const scaled =
+        financialPulse.revenue.period === 'month'
+          ? currentRevenue * ((monthTrendFactor(index) * monthSeasonality(index)) / lastMultiplier)
+          : (currentRevenue / 3) * monthTrendFactor(index) * monthSeasonality(index);
+      const actual = Math.round(scaled);
       const forecast = Math.round(actual * (1.015 + ((index + 1) % 3) * 0.012));
       return {
         month,
@@ -84,15 +108,15 @@ export function FinanceSnapshotCharts({ financialPulse }: FinanceSnapshotChartsP
         variance: actual - forecast,
       };
     });
-  }, [financialPulse.revenue.period, financialPulse.revenue.value]);
+  }, [chartMonths, financialPulse.revenue.period, financialPulse.revenue.value]);
 
   const burnSeries = useMemo<BurnPoint[]>(() => {
     const burnBase = Math.abs(financialPulse.cash.actual) / 3;
-    return MONTHS.map((month, index) => ({
+    return chartMonths.map((month, index) => ({
       month,
       burn: Math.round(burnBase * (0.9 + index * 0.06)),
     }));
-  }, [financialPulse.cash.actual]);
+  }, [chartMonths, financialPulse.cash.actual]);
 
   const runRate = useMemo(
     () => Math.round(burnSeries.reduce((sum, point) => sum + point.burn, 0) / Math.max(1, burnSeries.length)),

@@ -122,6 +122,7 @@ type ViewMode = 'compact' | 'detailed';
 interface ActionCenterProps {
     project: ProjectV2;
     maxAlerts?: number;
+    layout?: 'default' | 'compact';
     onTabChange?: (tab: string) => void;
 }
 
@@ -138,8 +139,9 @@ const TIME_WINDOWS = [
 
 // ── Main Component ──────────────────────────────────────────────
 
-export function ActionCenter({ project, maxAlerts = 4, onTabChange }: ActionCenterProps) {
+export function ActionCenter({ project, maxAlerts = 4, layout = 'default', onTabChange }: ActionCenterProps) {
     const router = useRouter();
+    const isCompactLayout = layout === 'compact';
     const [viewMode, setViewMode] = useState<ViewMode>('compact');
     const [showAll, setShowAll] = useState(false);
     const [filterSeverity, setFilterSeverity] = useState<ActionItemSeverity | 'all'>('all');
@@ -231,12 +233,12 @@ export function ActionCenter({ project, maxAlerts = 4, onTabChange }: ActionCent
 
     return (
         <HudPanel noPadding>
-          <div className="p-6">
+          <div className={isCompactLayout ? 'p-4' : 'p-6'}>
             {/* ── Header Row 1: Title + Severity Badges ── */}
-            <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-3">
+            <div className={`flex items-center justify-between ${isCompactLayout ? 'mb-2' : 'mb-3'}`}>
+                <div className="flex items-center gap-2.5">
                     <div
-                        className="p-2 rounded-lg"
+                        className={`rounded-lg ${isCompactLayout ? 'p-1.5' : 'p-2'}`}
                         style={{
                             background: criticalCount > 0
                                 ? 'rgba(255,64,64,0.15)'
@@ -246,7 +248,7 @@ export function ActionCenter({ project, maxAlerts = 4, onTabChange }: ActionCent
                         }}
                     >
                         <AlertTriangle
-                            className="w-5 h-5"
+                            className={isCompactLayout ? 'w-4 h-4' : 'w-5 h-5'}
                             style={{
                                 color: criticalCount > 0
                                     ? '#FF4040'
@@ -257,10 +259,12 @@ export function ActionCenter({ project, maxAlerts = 4, onTabChange }: ActionCent
                         />
                     </div>
                     <div>
-                        <h3 className="text-sm font-semibold orion-text-primary">Central de Ações</h3>
-                        <p className="text-xs hud-text-tertiary uppercase tracking-wider">
-                            Pendências & Alertas
-                        </p>
+                        <h3 className={`font-semibold orion-text-primary ${isCompactLayout ? 'text-[13px]' : 'text-sm'}`}>Central de Ações</h3>
+                        {!isCompactLayout && (
+                            <p className="text-xs hud-text-tertiary uppercase tracking-wider">
+                                Pendências & Alertas
+                            </p>
+                        )}
                     </div>
                 </div>
 
@@ -294,29 +298,33 @@ export function ActionCenter({ project, maxAlerts = 4, onTabChange }: ActionCent
             </div>
 
             {/* ── Header Row 2: Compact / Detailed Toggle ── */}
-            <div className="flex items-center justify-between mb-3 pb-2 border-b border-[rgba(255,255,255,0.06)]">
-                <div className="flex items-center rounded-lg overflow-hidden border border-[rgba(255,255,255,0.10)]">
-                    <button
-                        onClick={() => setViewMode('compact')}
-                        className={`flex items-center gap-1 px-3 py-1 text-[11px] font-medium transition-all ${viewMode === 'compact'
-                            ? 'bg-[rgba(255,255,255,0.10)] text-white'
-                            : 'text-[rgba(255,255,255,0.40)] hover:text-white'
-                            }`}
-                    >
-                        <AlignJustify className="w-3 h-3" />
-                        Compact
-                    </button>
-                    <button
-                        onClick={() => setViewMode('detailed')}
-                        className={`flex items-center gap-1 px-3 py-1 text-[11px] font-medium transition-all ${viewMode === 'detailed'
-                            ? 'bg-[rgba(255,255,255,0.10)] text-white'
-                            : 'text-[rgba(255,255,255,0.40)] hover:text-white'
-                            }`}
-                    >
-                        <LayoutList className="w-3 h-3" />
-                        Detailed
-                    </button>
-                </div>
+            <div className={`flex items-center justify-between pb-2 border-b border-[rgba(255,255,255,0.06)] ${isCompactLayout ? 'mb-2' : 'mb-3'}`}>
+                {!isCompactLayout ? (
+                    <div className="flex items-center rounded-lg overflow-hidden border border-[rgba(255,255,255,0.10)]">
+                        <button
+                            onClick={() => setViewMode('compact')}
+                            className={`flex items-center gap-1 px-3 py-1 text-[11px] font-medium transition-all ${viewMode === 'compact'
+                                ? 'bg-[rgba(255,255,255,0.10)] text-white'
+                                : 'text-[rgba(255,255,255,0.40)] hover:text-white'
+                                }`}
+                        >
+                            <AlignJustify className="w-3 h-3" />
+                            Compact
+                        </button>
+                        <button
+                            onClick={() => setViewMode('detailed')}
+                            className={`flex items-center gap-1 px-3 py-1 text-[11px] font-medium transition-all ${viewMode === 'detailed'
+                                ? 'bg-[rgba(255,255,255,0.10)] text-white'
+                                : 'text-[rgba(255,255,255,0.40)] hover:text-white'
+                                }`}
+                        >
+                            <LayoutList className="w-3 h-3" />
+                            Detailed
+                        </button>
+                    </div>
+                ) : (
+                    <span className="text-[10px] hud-text-muted uppercase tracking-wider">Pendências</span>
+                )}
                 <span className="text-[10px] text-[rgba(255,255,255,0.30)]">
                     {totalCount} pendência{totalCount !== 1 ? 's' : ''}
                 </span>
@@ -325,7 +333,7 @@ export function ActionCenter({ project, maxAlerts = 4, onTabChange }: ActionCent
             {/* ── Action Items List ────────────────── */}
             <div className={viewMode === 'compact' ? 'space-y-1' : 'space-y-2'}>
                 {displayItems.map((item) => viewMode === 'compact'
-                    ? <CompactRow key={item.id} item={item} onPrimary={handlePrimaryCTA} onPauta={handleCriarPauta} />
+                    ? <CompactRow key={item.id} item={item} dense={isCompactLayout} onPrimary={handlePrimaryCTA} onPauta={handleCriarPauta} />
                     : <DetailedRow key={item.id} item={item} onPrimary={handlePrimaryCTA} onPauta={handleCriarPauta} />
                 )}
             </div>
@@ -422,8 +430,9 @@ export function ActionCenter({ project, maxAlerts = 4, onTabChange }: ActionCent
 
 // ── Compact Row Component ──────────────────────────────────────
 
-function CompactRow({ item, onPrimary, onPauta }: {
+function CompactRow({ item, dense = false, onPrimary, onPauta }: {
     item: ActionItem;
+    dense?: boolean;
     onPrimary: (item: ActionItem) => void;
     onPauta: (item: ActionItem) => void;
 }) {
@@ -431,7 +440,7 @@ function CompactRow({ item, onPrimary, onPauta }: {
 
     return (
         <div
-            className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg transition-all hover:bg-[rgba(255,255,255,0.04)]"
+            className={`flex items-center gap-2 rounded-lg transition-all hover:bg-[rgba(255,255,255,0.04)] ${dense ? 'px-2 py-1' : 'px-2.5 py-1.5'}`}
             style={{ background: getActionSeverityBg(item.severity) }}
         >
             {/* Severity dot */}
@@ -441,10 +450,10 @@ function CompactRow({ item, onPrimary, onPauta }: {
             />
 
             {/* Title */}
-            <p className="text-[13px] text-white truncate flex-1 min-w-0">{item.title}</p>
+            <p className={`text-white truncate flex-1 min-w-0 ${dense ? 'text-[11px]' : 'text-[13px]'}`}>{item.title}</p>
 
             {/* Owner (inline, if any) */}
-            {item.owner?.name && (
+            {!dense && item.owner?.name && (
                 <span className="text-[10px] text-[rgba(255,255,255,0.45)] truncate max-w-[80px] shrink-0">
                     {item.owner.name}
                 </span>
@@ -477,16 +486,18 @@ function CompactRow({ item, onPrimary, onPauta }: {
             </Button>
 
             {/* Criar decisão CTA */}
-            <Button
-                size="sm"
-                variant="outline"
-                className="h-6 px-2 text-[10px] border-[rgba(0,200,255,0.20)] text-[#00C8FF] hover:bg-[rgba(0,200,255,0.10)] shrink-0"
-                onClick={() => onPauta(item)}
-                title="Criar uma decisão vinculada a esta pendência para análise do comitê."
-            >
-                <Gavel className="w-2.5 h-2.5 mr-0.5" />
-                Decisão
-            </Button>
+            {!dense && (
+                <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-6 px-2 text-[10px] border-[rgba(0,200,255,0.20)] text-[#00C8FF] hover:bg-[rgba(0,200,255,0.10)] shrink-0"
+                    onClick={() => onPauta(item)}
+                    title="Criar uma decisão vinculada a esta pendência para análise do comitê."
+                >
+                    <Gavel className="w-2.5 h-2.5 mr-0.5" />
+                    Decisão
+                </Button>
+            )}
         </div>
     );
 }

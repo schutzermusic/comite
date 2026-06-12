@@ -91,11 +91,16 @@ export async function extractScheduleWithAi(pdfBase64: string): Promise<ParsedSc
     .map((b) => b.text)
     .join('');
 
-  // Strip a possible code fence, then parse strictly.
-  const cleaned = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '');
+  // Tolerate code fences and preamble/epilogue text: parse from the first
+  // "[" to the last "]" (the prompt demands a bare JSON array).
+  const firstBracket = text.indexOf('[');
+  const lastBracket = text.lastIndexOf(']');
+  if (firstBracket === -1 || lastBracket <= firstBracket) {
+    throw new Error('Resposta da IA não contém um array JSON — extração abortada.');
+  }
   let rows: AiRow[];
   try {
-    rows = JSON.parse(cleaned) as AiRow[];
+    rows = JSON.parse(text.slice(firstBracket, lastBracket + 1)) as AiRow[];
   } catch {
     throw new Error('Resposta da IA não é um JSON válido — extração abortada.');
   }

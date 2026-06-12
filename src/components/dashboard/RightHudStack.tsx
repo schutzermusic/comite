@@ -71,7 +71,7 @@ const CATEGORY_LABEL_KEYS: Record<EventCategory, string> = {
 };
 
 const MOCK_EVENT_KEYS: { id: string; type: EventCategory; severity: EventItem['severity']; labelKey: string; timestamp: string; href: string }[] = [
-    { id: 'e1', type: 'riscos', severity: 'critical', labelKey: 'eventCriticalRiskSp', timestamp: '17:15', href: '/riscos?severity=critico' },
+    { id: 'e1', type: 'riscos', severity: 'critical', labelKey: 'eventCriticalRiskSp', timestamp: '17:15', href: '/projetos/proj-001?tab=finance' },
     { id: 'e2', type: 'decisoes', severity: 'warning', labelKey: 'eventVoteSolar', timestamp: '17:10', href: '/deliberacoes' },
     { id: 'e3', type: 'docs', severity: 'info', labelKey: 'eventMinutesPending', timestamp: '17:05', href: '/atas' },
     { id: 'e4', type: 'projetos', severity: 'success', labelKey: 'eventMilestoneEnergisa', timestamp: '16:45', href: '/projetos' },
