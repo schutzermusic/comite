@@ -105,94 +105,13 @@ export const CEMIG_TOTAL_CONTRACTED = 198827691.78;
 export const CEMIG_TOTALIZER_CUTOFF_BILLED = 11153499.19;
 const CEMIG_MATERIAL_PURCHASES = 33975808.11;
 const CEMIG_SERVICE_DISBURSEMENTS = 30698976.49;
-const CEMIG_OTHER_INSIGHT_DISBURSEMENTS = 100000;
+const CEMIG_OTHER_INSIGHT_DISBURSEMENTS = 0;
 const CEMIG_DIRECT_BILLING_DISBURSEMENTS = 41470199.02;
+const CEMIG_TAX_DISBURSEMENTS = 33024500;
 const CEMIG_INSIGHT_CASH_REVENUE = 157357492.76;
 const CEMIG_MACHINE_STOP_MATERIAL_EXPOSURE = 8127926.01;
 const CEMIG_TOTALIZER_CUTOFF = '2026-04';
 const CEMIG_TOTALIZER_UPDATED_AT = '2026-04-30T12:00:00Z';
-
-// Source: 30.04.26-Rev.30-UHE-SC Eventograma.xlsx, sheet "03_Eventos_pagamentos".
-// Correct monthly cash-out is SUM(Q) by P ("Mês de desembolso"). The totalizer
-// sheet had the SUMIF criteria shifted one row ahead, which made months such
-// as July carry the wrong disbursement in the system S-curve.
-const CEMIG_INSIGHT_DISBURSEMENT_MONTHLY = [
-    ['2024-07', 0],
-    ['2024-08', 0],
-    ['2024-09', 0],
-    ['2024-10', 0],
-    ['2024-11', 0],
-    ['2024-12', 0],
-    ['2025-01', 0],
-    ['2025-02', 0],
-    ['2025-03', 0],
-    ['2025-04', 0],
-    ['2025-05', 0],
-    ['2025-06', 0],
-    ['2025-07', 0],
-    ['2025-08', 0],
-    ['2025-09', 0],
-    ['2025-10', 57924.44],
-    ['2025-11', 0],
-    ['2025-12', 40000],
-    ['2026-01', 5401436.85],
-    ['2026-02', 1706646.55],
-    ['2026-03', 1700000],
-    ['2026-04', 6151716.14],
-    ['2026-05', 240000],
-    ['2026-06', 195816.17],
-    ['2026-07', 1871731.64],
-    ['2026-08', 2375450.39],
-    ['2026-09', 267326.54],
-    ['2026-10', 400000],
-    ['2026-11', 1440145.15],
-    ['2026-12', 4289595.25],
-    ['2027-01', 400806.78],
-    ['2027-02', 3360866.39],
-    ['2027-03', 186098.68],
-    ['2027-04', 2055686.67],
-    ['2027-05', 1401805.31],
-    ['2027-06', 351183.39],
-    ['2027-07', 2751959.76],
-    ['2027-08', 1491961.53],
-    ['2027-09', 1158454.51],
-    ['2027-10', 2337855.27],
-    ['2027-11', 1165680],
-    ['2027-12', 1822713.75],
-    ['2028-01', 478452.5],
-    ['2028-02', 346098.68],
-    ['2028-03', 3360866.39],
-    ['2028-04', 168000],
-    ['2028-05', 0],
-    ['2028-06', 0],
-    ['2028-07', 248000],
-    ['2028-08', 1429049.76],
-    ['2028-09', 1911680],
-    ['2028-10', 3953970.13],
-    ['2028-11', 458452.5],
-    ['2028-12', 400000],
-    ['2029-01', 224287.12],
-    ['2029-02', 304311.54],
-    ['2029-03', 0],
-    ['2029-04', 80000],
-    ['2029-05', 3206398.88],
-    ['2029-06', 1347504.27],
-    ['2029-07', 372726.36],
-    ['2029-08', 400000],
-    ['2029-09', 158995.55],
-    ['2029-10', 0],
-    ['2029-11', 1040850.93],
-    ['2029-12', 0],
-    ['2030-01', 0],
-    ['2030-02', 0],
-    ['2030-03', 162278.83],
-    ['2030-04', 815726.89],
-] as const;
-
-const CEMIG_INSIGHT_DISBURSEMENT_TOTAL = CEMIG_INSIGHT_DISBURSEMENT_MONTHLY.reduce(
-    (total, [, amount]) => total + amount,
-    0,
-);
 
 // Source: 30.04.26-Rev.30-UHE-SC Eventograma.xlsx, sheet "04_TOTALIZADORA (3)".
 // Tuple: period, gtEvents, gtValue, dEvents, dValue, revenueMonthly, revenueCumulative,
@@ -275,6 +194,29 @@ function totalizerCents(value: number): number {
     return centsFromReais(value);
 }
 
+const CEMIG_TOTALIZER_INSIGHT_REVENUE_TOTAL = CEMIG_TOTALIZER_MONTHS.reduce(
+    (total, row) => total + row[7],
+    0,
+);
+
+function totalizerMonthlyTax(row: typeof CEMIG_TOTALIZER_MONTHS[number]): number {
+    if (CEMIG_TOTALIZER_INSIGHT_REVENUE_TOTAL <= 0) return 0;
+    return (row[7] / CEMIG_TOTALIZER_INSIGHT_REVENUE_TOTAL) * CEMIG_TAX_DISBURSEMENTS;
+}
+
+function totalizerMonthlyDisbursement(row: typeof CEMIG_TOTALIZER_MONTHS[number]): number {
+    // Monthly cash-out in the S-curve is Insight disbursement plus taxes.
+    // Direct billing is a pass-through and must not reduce the cash curve.
+    // row[11] came from the totalizer's P+Q monthly display, so remove the
+    // auxiliary R$ 100k.
+    return Math.max(0, row[11] - 100000) + totalizerMonthlyTax(row);
+}
+
+const CEMIG_TOTALIZER_DISBURSEMENT_TOTAL = CEMIG_TOTALIZER_MONTHS.reduce(
+    (total, row) => total + totalizerMonthlyDisbursement(row),
+    0,
+);
+
 function makeCemigRevenueFromTotalizer(): ProjectRevenue {
     const cutoff = CEMIG_TOTALIZER_MONTHS.find(row => row[0] === CEMIG_TOTALIZER_CUTOFF) ?? CEMIG_TOTALIZER_MONTHS[0];
     const billed = cutoff[15];
@@ -289,7 +231,7 @@ function makeCemigRevenueFromTotalizer(): ProjectRevenue {
 }
 
 function makeCemigFinanceFromTotalizer(): ProjectFinance {
-    const finalDisbursement = CEMIG_INSIGHT_DISBURSEMENT_TOTAL;
+    const finalDisbursement = CEMIG_TOTALIZER_DISBURSEMENT_TOTAL;
     return {
         bac: makeMoney(finalDisbursement),
         ac: makeMoney(0),
@@ -325,19 +267,27 @@ function makeCemigCostBreakdownFromTotalizer(): CostBreakdownItem[] {
             eac: makeMoney(CEMIG_OTHER_INSIGHT_DISBURSEMENTS),
         },
         {
-            category: 'Faturamento direto previsto',
-            bac: makeMoney(CEMIG_DIRECT_BILLING_DISBURSEMENTS),
+            category: 'Impostos sobre receita (20%)',
+            bac: makeMoney(CEMIG_TAX_DISBURSEMENTS),
             ac: makeMoney(0),
-            eac: makeMoney(CEMIG_DIRECT_BILLING_DISBURSEMENTS),
+            eac: makeMoney(CEMIG_TAX_DISBURSEMENTS),
+        },
+        {
+            category: 'Faturamento direto previsto (fora da Curva S)',
+            bac: makeMoney(0),
+            ac: makeMoney(0),
+            eac: makeMoney(0),
         },
     ];
 }
 
 function makeCemigRevenueCurveFromTotalizer(): RevenueCurvePoint[] {
+    let cashRevenueCumulative = 0;
     return CEMIG_TOTALIZER_MONTHS.map(row => {
+        cashRevenueCumulative += row[9];
         return {
             period: row[0],
-            plannedCumulative: totalizerCents(row[8]),
+            plannedCumulative: totalizerCents(cashRevenueCumulative),
             billedCumulative: row[0] <= CEMIG_TOTALIZER_CUTOFF ? totalizerCents(row[15]) : (null as unknown as number),
             receivedCumulative: null as unknown as number,
         };
@@ -346,15 +296,18 @@ function makeCemigRevenueCurveFromTotalizer(): RevenueCurvePoint[] {
 
 function makeCemigCostCurveFromTotalizer(): { points: CostCurvePoint[]; cutoffPeriod: string } {
     let cumulative = 0;
+    let taxCumulative = 0;
     return {
         cutoffPeriod: CEMIG_TOTALIZER_CUTOFF,
-        points: CEMIG_INSIGHT_DISBURSEMENT_MONTHLY.map(([period, monthly]) => {
-            cumulative += monthly;
+        points: CEMIG_TOTALIZER_MONTHS.map(row => {
+            cumulative += totalizerMonthlyDisbursement(row);
+            taxCumulative += totalizerMonthlyTax(row);
             return {
-                period,
+                period: row[0],
                 bacCumulative: totalizerCents(cumulative),
                 acCumulative: null as unknown as number,
                 eacCumulative: totalizerCents(cumulative),
+                taxCumulative: totalizerCents(taxCumulative),
             };
         }),
     };
@@ -561,50 +514,6 @@ const makeMilestones2 = (projId: string): ProjectMilestone[] => [
 // ─── Risk Items ──────────────────────────────────────────────────
 const makeRisks = (projId: string): ProjectRiskItem[] => [
     {
-        id: `${projId}-r1`,
-        title: 'Atraso na entrega de transformadores',
-        description: 'Fornecedor principal com backlog de 90 dias',
-        category: 'Schedule',
-        probability: 4,
-        impact: 4,
-        level: 16,
-        severity: 'high',
-        exposure: makeMoney(2500000),
-        mitigation: 'Contato com fornecedor alternativo ABB. Negociação de prazo acelerado.',
-        ownerId: 'user-1',
-        ownerName: 'Alice Chen',
-        status: 'mitigating',
-        createdAt: '2025-07-15T10:00:00Z',
-        updatedAt: '2025-09-20T14:30:00Z',
-    },
-    {
-        id: `${projId}-r2`,
-        title: 'Variação cambial em equipamentos importados',
-        category: 'Financial',
-        probability: 3,
-        impact: 3,
-        level: 9,
-        severity: 'medium',
-        exposure: makeMoney(1200000),
-        status: 'open',
-        ownerId: 'user-2',
-        ownerName: 'Bob Torres',
-        createdAt: '2025-08-01T09:00:00Z',
-        updatedAt: '2025-08-01T09:00:00Z',
-    },
-    {
-        id: `${projId}-r3`,
-        title: 'Licença ambiental pendente para área de manejo',
-        category: 'Legal',
-        probability: 2,
-        impact: 5,
-        level: 10,
-        severity: 'medium',
-        status: 'open',
-        createdAt: '2025-09-10T11:00:00Z',
-        updatedAt: '2025-09-10T11:00:00Z',
-    },
-    {
         id: `${projId}-r4`,
         title: 'Definir novo investidor projeto CEMIG',
         description: 'Incidente operacional em São Paulo escalado para governança corporativa; monitoramento ativo no comitê de riscos.',
@@ -614,7 +523,8 @@ const makeRisks = (projId: string): ProjectRiskItem[] => [
         level: 25,
         severity: 'critical',
         exposure: makeMoney(3500000),
-        status: 'open',
+        mitigation: 'Mapeamento de investidores estratégicos em andamento; pauta priorizada no comitê de riscos com revisão quinzenal.',
+        status: 'mitigating',
         ownerId: 'user-1',
         ownerName: 'Alice Chen',
         createdAt: '2026-04-30T17:15:00Z',
@@ -758,7 +668,7 @@ const makeFinance3 = (): ProjectFinance => {
 const makeAudit = (projId: string): ProjectAuditEvent[] => [
     { id: `${projId}-a1`, path: 'status', before: 'planejamento', after: 'em_andamento', timestamp: '2025-06-01T08:00:00Z', actor: 'Alice Chen', action: 'updated' },
     { id: `${projId}-a2`, path: 'finance.eac.amountCents', before: '19882769178', after: '21250000000', timestamp: '2025-09-15T14:30:00Z', actor: 'Bob Torres', action: 'updated' },
-    { id: `${projId}-a3`, path: 'risks', before: null, after: `${projId}-r1`, timestamp: '2025-07-15T10:00:00Z', actor: 'Alice Chen', action: 'created' },
+    { id: `${projId}-a3`, path: 'risks', before: null, after: `${projId}-r4`, timestamp: '2026-04-30T17:15:00Z', actor: 'Alice Chen', action: 'created' },
 ];
 
 // ─── Team Allocations V2 ─────────────────────────────────────────
@@ -799,6 +709,7 @@ export const v2Overlays: Record<string, Omit<ProjectV2, keyof import('@/lib/type
         governance: { deliberation_ids: ['delib-001', 'delib-005'], meeting_ids: ['meet-002'] },
         audit_log: makeAudit('proj-001'),
         contract_id: 'contract-cemig-001',
+        directPassThroughCents: centsFromReais(CEMIG_DIRECT_BILLING_DISBURSEMENTS),
         // Investor view derives from the CEMIG totalizer (eventograma); no ledger cross-link.
         uf: 'MG',
         location: { city: 'Belo Horizonte', lat: -19.9167, lng: -43.9345 },

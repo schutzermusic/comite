@@ -550,12 +550,13 @@ export function computeInvestorView(project: ProjectV2, view?: ProjectFinanceVie
                 },
             ]),
         );
-        const costByPeriod = new Map<string, { planned: number | null; realized: number | null; projected?: number | null; projectedMonthly?: boolean }>(
+        const costByPeriod = new Map<string, { planned: number | null; realized: number | null; tax?: number | null; projected?: number | null; projectedMonthly?: boolean }>(
             (project.costCurve ?? []).map(p => [
                 p.period,
                 {
                     planned: p.eacCumulative == null && p.bacCumulative == null ? null : centsToReais(p.eacCumulative || p.bacCumulative),
                     realized: p.acCumulative == null ? null : centsToReais(p.acCumulative),
+                    tax: p.taxCumulative == null ? null : centsToReais(p.taxCumulative),
                 },
             ]),
         );
@@ -579,10 +580,12 @@ export function computeInvestorView(project: ProjectV2, view?: ProjectFinanceVie
         let lastBilled = 0;
         let lastReceived = 0;
         let lastPlannedCost = 0;
+        let lastTax = 0;
         let lastRealizedCost: number | null = null;
         let lastProjectedCost: number | null = null;
         let prevPlannedRevenue = 0;
         let prevPlannedCost = 0;
+        let prevTax = 0;
         let prevRealizedCost = 0;
         let prevProjectedCost = 0;
 
@@ -596,12 +599,14 @@ export function computeInvestorView(project: ProjectV2, view?: ProjectFinanceVie
             }
             if (c) {
                 if (c.planned != null) lastPlannedCost = c.planned;
+                if (c.tax != null) lastTax = c.tax;
                 if (c.realized != null) lastRealizedCost = c.realized;
                 if (c.projected != null) lastProjectedCost = c.projected;
                 else if (c.realized != null) prevProjectedCost = c.realized;
             }
             const receitaMensal = Math.max(0, lastRevenue - prevPlannedRevenue);
             const desembolsoPrevistoMensal = Math.max(0, lastPlannedCost - prevPlannedCost);
+            const impostoMensal = Math.max(0, lastTax - prevTax);
             const desembolsoRealizadoMensal = c?.realized == null || lastRealizedCost == null
                 ? null
                 : Math.max(0, lastRealizedCost - prevRealizedCost);
@@ -612,6 +617,7 @@ export function computeInvestorView(project: ProjectV2, view?: ProjectFinanceVie
             const desembolsoMensal = desembolsoPrevistoMensal + (desembolsoProjetadoMensal ?? 0);
             prevPlannedRevenue = lastRevenue;
             prevPlannedCost = lastPlannedCost;
+            prevTax = lastTax;
             if (desembolsoRealizadoMensal != null && lastRealizedCost != null) prevRealizedCost = lastRealizedCost;
             if (desembolsoProjetadoMensal != null && lastProjectedCost != null) prevProjectedCost = lastProjectedCost;
             return {
@@ -620,6 +626,7 @@ export function computeInvestorView(project: ProjectV2, view?: ProjectFinanceVie
                 receitaRealizada: lastBilled,
                 recebido: lastReceived,
                 desembolsoPrevisto: lastPlannedCost,
+                imposto: lastTax,
                 desembolsoRealizado: lastRealizedCost,
                 desembolsoProjetado: lastProjectedCost,
                 desembolsoTotal,
@@ -627,6 +634,7 @@ export function computeInvestorView(project: ProjectV2, view?: ProjectFinanceVie
                 receitaMensal,
                 desembolsoMensal,
                 desembolsoPrevistoMensal,
+                impostoMensal,
                 desembolsoRealizadoMensal,
                 desembolsoProjetadoMensal,
                 resultadoMensal: receitaMensal - desembolsoMensal,
@@ -685,9 +693,11 @@ export function computeInvestorView(project: ProjectV2, view?: ProjectFinanceVie
                 ? [{ category: 'Custos diretos PDF + projeção fixa', value: ledgerProjectedCost }]
                 : []),
         ];
-        const directPassThrough = costComposition.find(item => item.category.toLowerCase().includes('faturamento direto'))?.value ?? 0;
+        const directPassThrough = centsToReais(project.directPassThroughCents);
+        const taxDisbursement = finalCurvePoint?.imposto ?? 0;
         const insightCashRevenue = Math.max(0, contractTotal - directPassThrough);
         const insightDisbursement = disbursementPlanned;
+        const baseDisbursement = Math.max(0, insightDisbursement - taxDisbursement);
         const netResult = insightCashRevenue - insightDisbursement;
         const marginPct = insightCashRevenue > 0 ? (netResult / insightCashRevenue) * 100 : null;
         const pendingRevenuePct = contractTotal > 0 ? (toBill / contractTotal) * 100 : null;
@@ -714,6 +724,8 @@ export function computeInvestorView(project: ProjectV2, view?: ProjectFinanceVie
             directPassThrough,
             insightCashRevenue,
             insightDisbursement,
+            baseDisbursement,
+            taxDisbursement,
             disbursementRealized,
             netResult,
             marginPct,
@@ -815,6 +827,7 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
         { key: 'receitaPrevista', name: 'Receita prevista', color: pal.primary },
         { key: 'receitaRealizada', name: 'Receita realizada', color: pal.successSoft },
         { key: 'desembolsoPrevisto', name: 'Desembolso previsto', color: pal.cost },
+        { key: 'imposto', name: 'Imposto', color: pal.critical },
         { key: 'desembolsoRealizado', name: 'Desembolso realizado', color: pal.costSoft },
         { key: 'desembolsoProjetado', name: 'Projeção custos fixos', color: pal.warning },
         { key: 'saldoLiquido', name: 'Saldo líquido', color: pal.info },
@@ -852,7 +865,9 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
     // Waterfall bridge geometry (visual only; business values come from iv)
     const waterfall = useMemo(() => {
         const start = iv.insightCashRevenue;
-        const afterDisbursement = start - iv.insightDisbursement;
+        const afterBaseDisbursement = start - iv.baseDisbursement;
+        const afterTax = afterBaseDisbursement - iv.taxDisbursement;
+        const afterDisbursement = afterTax;
         const afterRisk = afterDisbursement - iv.riskExposure;
         const finalResult = iv.netResult - iv.riskExposure;
         const rows: {
@@ -860,7 +875,8 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
             ghost?: boolean; total?: boolean; cumulative: number | null; note?: string;
         }[] = [
             { name: 'Caixa Insight', base: 0, delta: start, real: start, fill: pal.primary, total: true, cumulative: start, note: 'Receita que entra no caixa da Insight' },
-            { name: 'Desembolso total', base: afterDisbursement, delta: iv.insightDisbursement, real: -iv.insightDisbursement, fill: pal.cost, cumulative: afterDisbursement, note: 'Desembolso da Curva S + projeção de custos' },
+            { name: 'Custo Insight', base: afterBaseDisbursement, delta: iv.baseDisbursement, real: -iv.baseDisbursement, fill: pal.cost, cumulative: afterBaseDisbursement, note: 'Custo operacional da Curva S, sem impostos' },
+            { name: 'Imposto', base: afterTax, delta: iv.taxDisbursement, real: -iv.taxDisbursement, fill: pal.critical, cumulative: afterTax, note: 'Imposto de 20% distribuído na Curva S' },
             { name: 'Faturamento direto', base: 0, delta: iv.directPassThrough, real: iv.directPassThrough, fill: pal.info, ghost: true, cumulative: null, note: 'Repasse a terceiros — fora do caixa Insight' },
             { name: 'Contingências', base: Math.min(afterRisk, afterDisbursement), delta: iv.riskExposure, real: -iv.riskExposure, fill: iv.riskExposure ? pal.critical : pal.gray, cumulative: afterRisk, note: iv.riskExposure ? 'Exposição de riscos abertos' : 'não informado' },
             { name: 'Resultado Insight', base: Math.min(0, finalResult), delta: Math.abs(finalResult), real: finalResult, fill: finalResult >= 0 ? pal.success : pal.critical, total: true, cumulative: finalResult, note: 'Resultado final projetado' },
@@ -1053,12 +1069,13 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
     const leftTiles: HeroTileData[] = [
         { key: 'contract', label: 'Valor do contrato', value: compactBRL(iv.contractTotal), helper: 'teto contratado', accent: pal.primary, icon: <FileText className="h-3.5 w-3.5" />, title: 'Receita total contratada usada como base de retorno.' },
         { key: 'cash-in', label: 'Caixa Insight previsto', value: compactBRL(iv.insightCashRevenue), helper: 'entra no caixa da Insight', accent: pal.success, icon: <Wallet className="h-3.5 w-3.5" />, spark: sparkRevenue, title: 'Receita contratual que efetivamente entra no caixa da Insight.' },
-        { key: 'cash-out', label: 'Desembolso total', value: compactBRL(iv.insightDisbursement), helper: 'Curva S + projeção', accent: pal.cost, icon: <CircleDollarSign className="h-3.5 w-3.5" />, spark: sparkCost, chip: iv.insightDisbursement > iv.insightCashRevenue ? { label: 'crítico', color: pal.critical } : undefined, title: 'Desembolso previsto pela Curva S somado à projeção de custos.' },
+        { key: 'cash-out', label: 'Desembolso total', value: compactBRL(iv.insightDisbursement), helper: 'custo Insight + imposto', accent: pal.cost, icon: <CircleDollarSign className="h-3.5 w-3.5" />, spark: sparkCost, chip: iv.insightDisbursement > iv.insightCashRevenue ? { label: 'crítico', color: pal.critical } : undefined, title: 'Desembolso previsto pela Curva S: custo Insight somado ao imposto.' },
         { key: 'net', label: 'Resultado final Insight', value: compactBRL(iv.netResult), helper: 'caixa Insight − desembolso', accent: iv.netResult >= 0 ? pal.success : pal.critical, valueColor: iv.netResult >= 0 ? pal.success : pal.critical, icon: <PiggyBank className="h-3.5 w-3.5" />, spark: sparkNet, title: 'Resultado antes de contingências não informadas, excluindo repasse direto a terceiros.' },
     ];
 
     const rightTiles: HeroTileData[] = [
         { key: 'margin', label: 'Margem estimada', value: formatPct(iv.marginPct), missing: iv.marginPct == null, helper: 'sobre caixa Insight', accent: pal.purple, icon: <Percent className="h-3.5 w-3.5" />, chip: iv.marginPct != null && iv.marginPct < 8 ? { label: iv.marginPct < 0 ? 'crítico' : 'atenção', color: iv.marginPct < 0 ? pal.critical : pal.warning } : undefined, title: 'Margem calculada sobre o caixa efetivo da Insight.' },
+        { key: 'tax', label: 'Imposto', value: compactBRL(iv.taxDisbursement), helper: '20% distribuído na Curva S', accent: pal.critical, icon: <Receipt className="h-3.5 w-3.5" />, title: 'Imposto total considerado como linha separada dentro da Curva S.' },
         { key: 'peak', label: 'Pico de caixa', value: iv.peakGap ? compactBRL(iv.peakGap) : 'sem gap', helper: iv.peakGap ? `necessidade em ${formatPeriod(iv.peakGapPeriod)}` : 'sem saldo negativo', accent: iv.peakGap ? pal.critical : pal.success, valueColor: iv.peakGap ? pal.critical : pal.success, icon: <TrendingDown className="h-3.5 w-3.5" />, chip: iv.peakGap > 0 ? { label: 'cash gap', color: pal.critical } : undefined, title: 'Maior saldo acumulado negativo entre receita prevista e desembolso previsto.' },
         { key: 'breakeven', label: 'Break-even', value: formatPeriod(iv.breakEvenPeriod), missing: !iv.breakEvenPeriod, helper: 'lucro acumulado sustentado', accent: pal.info, icon: <Flag className="h-3.5 w-3.5" />, chip: !iv.breakEvenPeriod ? { label: 'revisar', color: pal.warning } : undefined, title: 'Primeiro mês em que o saldo acumulado fica lucrativo e permanece no lucro até o fim do projeto.' },
         { key: 'tobill', label: 'Receita a faturar', value: compactBRL(iv.toBill), helper: `${formatPct(iv.pendingRevenuePct)} do contrato`, accent: pal.warning, icon: <Banknote className="h-3.5 w-3.5" />, chip: iv.billingRisk === 'warning' || iv.billingRisk === 'critical' ? { label: SEVERITY_LABEL[iv.billingRisk], color: severityColors(iv.billingRisk, pal).fg } : undefined, title: 'Saldo contratual ainda não faturado.' },
@@ -1231,6 +1248,7 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
                                             <Area type="monotone" dataKey="receitaPrevista" name="Receita prevista" stroke={pal.primary} fill="url(#icRevenue)" strokeWidth={2.4} strokeOpacity={curveVis('receitaPrevista')} fillOpacity={curveVis('receitaPrevista')} dot={false} activeDot={{ r: 4, fill: pal.primary, stroke: pal.dotStroke, strokeWidth: 2 }} />
                                             <Line type="monotone" dataKey="receitaRealizada" name="Receita realizada" stroke={pal.successSoft} strokeWidth={1.8} strokeOpacity={curveVis('receitaRealizada')} dot={false} activeDot={{ r: 3.5, fill: pal.successSoft, stroke: pal.dotStroke, strokeWidth: 2 }} />
                                             <Area type="monotone" dataKey="desembolsoPrevisto" name="Desembolso previsto" stroke={pal.cost} fill="url(#icCost)" strokeWidth={2.2} strokeOpacity={curveVis('desembolsoPrevisto')} fillOpacity={curveVis('desembolsoPrevisto') * 0.55} dot={false} activeDot={{ r: 4, fill: pal.cost, stroke: pal.dotStroke, strokeWidth: 2 }} />
+                                            <Line type="monotone" dataKey="imposto" name="Imposto" stroke={pal.critical} strokeWidth={2} strokeDasharray="3 4" strokeOpacity={curveVis('imposto')} dot={false} activeDot={{ r: 3.5, fill: pal.critical, stroke: pal.dotStroke, strokeWidth: 2 }} />
                                             <Line type="monotone" dataKey="desembolsoRealizado" name="Desembolso realizado" stroke={pal.costSoft} strokeWidth={2.4} strokeOpacity={curveVis('desembolsoRealizado')} dot={false} activeDot={{ r: 3.5, fill: pal.costSoft, stroke: pal.dotStroke, strokeWidth: 2 }} />
                                             <Line type="monotone" dataKey="desembolsoProjetado" name="Projeção custos fixos" stroke={pal.warning} strokeWidth={2.2} strokeDasharray="5 4" strokeOpacity={curveVis('desembolsoProjetado')} dot={false} activeDot={{ r: 3.5, fill: pal.warning, stroke: pal.dotStroke, strokeWidth: 2 }} />
                                             <Line type="monotone" dataKey="saldoLiquido" name="Saldo líquido" stroke={pal.info} strokeWidth={2.6} strokeOpacity={curveVis('saldoLiquido')} dot={false} activeDot={{ r: 4.5, fill: pal.info, stroke: pal.dotStroke, strokeWidth: 2 }} />
@@ -1293,6 +1311,16 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
                                             <Bar dataKey="desembolsoPrevistoMensal" name="Desembolso previsto" fill="url(#icBarCost)" radius={[4, 4, 0, 0]} maxBarSize={visibleCashFlow.length <= 12 ? 30 : 20} />
                                             <Line
                                                 type="monotone"
+                                                dataKey="impostoMensal"
+                                                name="Imposto"
+                                                stroke={pal.critical}
+                                                strokeWidth={2}
+                                                strokeDasharray="3 4"
+                                                dot={false}
+                                                activeDot={{ r: 4, fill: pal.critical, stroke: pal.dotStroke, strokeWidth: 2 }}
+                                            />
+                                            <Line
+                                                type="monotone"
                                                 dataKey="desembolsoRealizadoMensal"
                                                 name="Desembolso realizado"
                                                 stroke={pal.costSoft}
@@ -1331,6 +1359,7 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
                                 <div className="mt-2 flex flex-wrap items-center justify-center gap-4 text-[10px] text-[color:var(--ig-fg-muted)]">
                                     <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm" style={{ background: pal.primary }} />Receita</span>
                                     <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm" style={{ background: pal.cost }} />Desembolso previsto</span>
+                                    <span className="flex items-center gap-1.5"><span className="h-0.5 w-3 rounded-full border-t border-dashed" style={{ borderColor: pal.critical }} />Imposto</span>
                                     <span className="flex items-center gap-1.5"><span className="h-0.5 w-3 rounded-full" style={{ background: pal.costSoft }} />Realizado</span>
                                     <span className="flex items-center gap-1.5"><span className="h-0.5 w-3 rounded-full border-t border-dashed" style={{ borderColor: pal.warning }} />Projeção</span>
                                     <span className="flex items-center gap-1.5"><span className="h-0.5 w-3 rounded-full" style={{ background: pal.info }} />Saldo líquido</span>
@@ -1614,6 +1643,7 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
                                 {[
                                     { label: 'Receita mensal', value: compactBRL(selectedPoint.receitaMensal), color: pal.success },
                                     { label: 'Previsto mensal', value: compactBRL(selectedPoint.desembolsoPrevistoMensal), color: pal.cost },
+                                    { label: 'Imposto mensal', value: compactBRL(selectedPoint.impostoMensal), color: pal.critical },
                                     { label: 'Realizado mensal', value: selectedPoint.desembolsoRealizadoMensal == null ? '—' : compactBRL(selectedPoint.desembolsoRealizadoMensal), color: pal.costSoft },
                                     { label: 'Projeção mensal', value: selectedPoint.desembolsoProjetadoMensal == null ? '—' : compactBRL(selectedPoint.desembolsoProjetadoMensal), color: pal.warning },
                                     { label: 'Resultado mensal', value: compactBRL(selectedPoint.resultadoMensal), color: selectedPoint.resultadoMensal >= 0 ? pal.success : pal.critical },
@@ -1633,6 +1663,7 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
                                 {[
                                     { label: 'Receita prevista', value: compactBRL(selectedPoint.receitaPrevista), color: 'var(--ig-fg-default)' },
                                     { label: 'Desembolso previsto', value: compactBRL(selectedPoint.desembolsoPrevisto), color: 'var(--ig-fg-default)' },
+                                    { label: 'Imposto', value: compactBRL(selectedPoint.imposto), color: pal.critical },
                                     { label: 'Receita realizada', value: compactBRL(selectedPoint.receitaRealizada), color: pal.successSoft },
                                     { label: 'Desembolso realizado', value: selectedPoint.desembolsoRealizado == null ? 'dados insuf.' : compactBRL(selectedPoint.desembolsoRealizado), color: pal.costSoft },
                                     { label: 'Projeção acumulada', value: selectedPoint.desembolsoProjetado == null ? '—' : compactBRL(selectedPoint.desembolsoProjetado), color: pal.warning },

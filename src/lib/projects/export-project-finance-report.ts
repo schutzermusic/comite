@@ -1,23 +1,27 @@
 /**
  * Project finance / investor report → print-ready HTML (browser print → PDF).
  *
- * Mirrors the established export pattern (portfolio / cost-analysis / workforce):
- * a pure `buildProjectFinanceReportHtml(payload)` renderer plus
- * `openProjectFinanceReport(payload)` that opens the print window.
+ * Premium investor-grade layout: centered Insight Energy logo, glass-inspired
+ * light print theme, detailed static charts (callouts, end-of-series labels,
+ * cut-off / break-even / peak markers) and compact supporting tables per chart.
  *
  * IMPORTANT — single source of truth:
  *   All monetary numbers come from the SAME investor view-model used by the
  *   on-screen Financeiro tab (`computeInvestorView`, `computeEventStats`,
  *   `computeSensitivityScenarios` from FinanceInvestorCockpit) and from the
  *   ledger-derived `ProjectFinanceView`. This module performs NO financial
- *   calculation of its own — it only formats and lays the data out for print.
+ *   calculation of its own — only formatting, selection and layout for print.
  *
- * Charts are rendered as inline SVG recreated from the same series data (not a
- * screenshot of the page) so they print crisply on a light A4 landscape sheet
- * regardless of the app's dark/light theme.
+ * Charts are rendered as inline SVG (vector — crisp at any zoom/print DPI)
+ * recreated from the same series data, never screenshots of the dark app UI.
+ *
+ * Pagination: CSS `counter(pages)` is not supported by Chromium print (it
+ * renders "0"), so each report page is an explicit section and the footer
+ * "Página N de TOTAL" is computed at build time. Tables are capped so each
+ * section fits its physical page.
  */
 
-import type { ProjectV2 } from '@/lib/types/project-v2';
+import type { BillingEvent, ProjectV2 } from '@/lib/types/project-v2';
 import type { ProjectFinanceView } from '@/lib/finance/selectors/project-finance';
 import {
   computeInvestorView,
@@ -71,12 +75,12 @@ function statusLabelPt(status: string): string {
   return map[status] ?? status;
 }
 
-function severityLabel(s: InvestorView['financialRisk']): string {
+function severityLabel(s: 'success' | 'warning' | 'critical' | 'neutral'): string {
   const map: Record<string, string> = { success: 'Baixo', warning: 'Atenção', critical: 'Crítico', neutral: 'Dados insuf.' };
   return map[s] ?? s;
 }
 
-// ── Light print palette ─────────────────────────────────────────────
+// ── Print palette (light, brand-aligned: Insight orange + green) ────
 
 const C = {
   ink: '#0F172A',
@@ -85,38 +89,48 @@ const C = {
   subtle: '#64748B',
   border: '#E2E8F0',
   borderStrong: '#CBD5E1',
+  // Brand (from the Insight Energy wordmark)
+  brandOrange: '#E87722',
+  brandGreen: '#00984A',
+  // Chart family (print-contrast variants of the cockpit palette)
   primary: '#0F766E',
   success: '#047857',
   successSoft: '#059669',
   info: '#1D4ED8',
+  cyan: '#0E7490',
   cost: '#C2410C',
   costSoft: '#A16207',
   warning: '#B45309',
   critical: '#B91C1C',
   purple: '#7C3AED',
-  grid: '#EEF2F6',
+  grid: '#EDF2F7',
+  panel: '#FBFDFE',
 };
 
-function sevColor(s: InvestorView['financialRisk']): string {
+function sevColor(s: 'success' | 'warning' | 'critical' | 'neutral'): string {
   if (s === 'success') return C.success;
   if (s === 'warning') return C.warning;
   if (s === 'critical') return C.critical;
   return C.subtle;
 }
 
-// ── Inline SVG chart primitives (print-safe) ────────────────────────
+// ── Inline SVG chart primitives (vector, print-safe) ────────────────
 
 interface LineSeries {
   name: string;
   color: string;
   values: (number | null)[];
   dashed?: boolean;
+  /** Draw the last non-null value as a label at the right edge. */
+  endLabel?: boolean;
 }
 
 interface ChartMarker {
   index: number;
   label: string;
   color: string;
+  /** Optional value rendered under the marker label. */
+  value?: string;
 }
 
 function niceTicks(min: number, max: number, count = 4): number[] {
@@ -129,13 +143,18 @@ function niceTicks(min: number, max: number, count = 4): number[] {
   return Array.from({ length: count + 1 }, (_, i) => min + step * i);
 }
 
+function chartFrame(width: number, height: number, padL: number, padT: number, plotW: number, plotH: number): string {
+  return `<rect x="${padL}" y="${padT}" width="${plotW}" height="${plotH}" fill="${C.panel}" rx="4"/>`;
+}
+
 function svgLineChart(
   periods: string[],
   series: LineSeries[],
   opts: { width: number; height: number; markers?: ChartMarker[] },
 ): string {
   const { width, height, markers = [] } = opts;
-  const padL = 64, padR = 16, padT = 16, padB = 30;
+  const hasEndLabels = series.some((s) => s.endLabel);
+  const padL = 66, padR = hasEndLabels ? 92 : 18, padT = 30, padB = 32;
   const plotW = width - padL - padR;
   const plotH = height - padT - padB;
   const n = periods.length;
@@ -153,7 +172,7 @@ function svgLineChart(
     .map((t) => {
       const y = yAt(t).toFixed(1);
       return `<line x1="${padL}" y1="${y}" x2="${padL + plotW}" y2="${y}" stroke="${C.grid}" stroke-width="1"/>` +
-        `<text x="${padL - 8}" y="${y}" text-anchor="end" dominant-baseline="middle" font-size="9" fill="${C.subtle}">${esc(compactBRL(t))}</text>`;
+        `<text x="${padL - 8}" y="${y}" text-anchor="end" dominant-baseline="middle" font-size="9.5" fill="${C.subtle}">${esc(compactBRL(t))}</text>`;
     })
     .join('');
 
@@ -161,26 +180,28 @@ function svgLineChart(
     ? `<line x1="${padL}" y1="${yAt(0).toFixed(1)}" x2="${padL + plotW}" y2="${yAt(0).toFixed(1)}" stroke="${C.borderStrong}" stroke-width="1.2"/>`
     : '';
 
-  // x labels (sample to avoid overlap)
-  const labelStep = Math.max(1, Math.ceil(n / 8));
+  const labelStep = Math.max(1, Math.ceil(n / 9));
   const xLabels = periods
     .map((p, i) => (i % labelStep === 0 || i === n - 1)
-      ? `<text x="${xAt(i).toFixed(1)}" y="${height - 10}" text-anchor="middle" font-size="9" fill="${C.subtle}">${esc(periodLabel(p))}</text>`
+      ? `<text x="${xAt(i).toFixed(1)}" y="${height - 10}" text-anchor="middle" font-size="9.5" fill="${C.subtle}">${esc(periodLabel(p))}</text>`
       : '')
     .join('');
 
-  const markerEls = markers
-    .filter((m) => m.index >= 0 && m.index < n)
-    .map((m) => {
-      const x = xAt(m.index).toFixed(1);
+  // One label row per marker so close markers (e.g. corte/pico) never collide.
+  const visibleMarkers = markers.filter((m) => m.index >= 0 && m.index < n);
+  const markerEls = visibleMarkers
+    .map((m, mi) => {
+      const xNum = xAt(m.index);
+      const x = xNum.toFixed(1);
+      const ly = 9 + mi * 10;
+      const anchor = xNum < padL + plotW * 0.12 ? 'start' : xNum > padL + plotW * 0.88 ? 'end' : 'middle';
       return `<line x1="${x}" y1="${padT}" x2="${x}" y2="${padT + plotH}" stroke="${m.color}" stroke-width="1.2" stroke-dasharray="4 3"/>` +
-        `<text x="${x}" y="${padT - 4}" text-anchor="middle" font-size="8" font-weight="700" fill="${m.color}">${esc(m.label)}</text>`;
+        `<text x="${x}" y="${ly}" text-anchor="${anchor}" font-size="8.5" font-weight="700" fill="${m.color}">${esc(m.label)}${m.value ? ` · ${esc(m.value)}` : ''}</text>`;
     })
     .join('');
 
   const paths = series
     .map((s) => {
-      // break the line into segments on null gaps
       let d = '';
       let pen = false;
       s.values.forEach((v, i) => {
@@ -191,11 +212,35 @@ function svgLineChart(
       });
       if (!d.trim()) return '';
       const dash = s.dashed ? ' stroke-dasharray="5 3"' : '';
-      return `<path d="${d.trim()}" fill="none" stroke="${s.color}" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"${dash}/>`;
+      return `<path d="${d.trim()}" fill="none" stroke="${s.color}" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round"${dash}/>`;
     })
     .join('');
 
-  return `<svg viewBox="0 0 ${width} ${height}" width="100%" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">${gridLines}${zeroLine}${markerEls}${paths}${xLabels}</svg>`;
+  // End-of-series value labels with simple vertical collision avoidance.
+  let endLabels = '';
+  if (hasEndLabels) {
+    const entries = series
+      .filter((s) => s.endLabel)
+      .map((s) => {
+        let lastIdx = -1;
+        for (let i = s.values.length - 1; i >= 0; i--) {
+          if (s.values[i] != null) { lastIdx = i; break; }
+        }
+        return lastIdx >= 0 ? { color: s.color, value: s.values[lastIdx] as number, x: xAt(lastIdx), y: yAt(s.values[lastIdx] as number) } : null;
+      })
+      .filter((e): e is NonNullable<typeof e> => e != null)
+      .sort((a, b) => a.y - b.y);
+    // nudge labels apart (min 12px)
+    for (let i = 1; i < entries.length; i++) {
+      if (entries[i].y - entries[i - 1].y < 12) entries[i].y = entries[i - 1].y + 12;
+    }
+    endLabels = entries
+      .map((e) => `<circle cx="${e.x.toFixed(1)}" cy="${yAt(e.value).toFixed(1)}" r="2.4" fill="${e.color}"/>` +
+        `<text x="${(padL + plotW + 8).toFixed(1)}" y="${e.y.toFixed(1)}" font-size="9" font-weight="700" dominant-baseline="middle" fill="${e.color}">${esc(compactBRL(e.value))}</text>`)
+      .join('');
+  }
+
+  return `<svg viewBox="0 0 ${width} ${height}" width="100%" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">${chartFrame(width, height, padL, padT, plotW, plotH)}${gridLines}${zeroLine}${markerEls}${paths}${endLabels}${xLabels}</svg>`;
 }
 
 interface BarSeries { name: string; color: string; values: number[]; }
@@ -203,30 +248,46 @@ interface BarSeries { name: string; color: string; values: number[]; }
 function svgGroupedBarChart(
   periods: string[],
   series: BarSeries[],
-  opts: { width: number; height: number; highlightNegative?: (number | null)[] },
+  opts: {
+    width: number;
+    height: number;
+    highlightNegative?: (number | null)[];
+    /** Line overlay (e.g. saldo líquido mensal). */
+    line?: { name: string; color: string; values: (number | null)[] };
+    /** Bar value labels: indices (per series) worth calling out. */
+    barLabels?: { seriesIdx: number; index: number }[];
+    /** Line point labels (e.g. most negative / most positive month). */
+    lineLabels?: { index: number; text: string }[];
+  },
 ): string {
-  const { width, height, highlightNegative } = opts;
-  const padL = 64, padR = 16, padT = 16, padB = 30;
+  const { width, height, highlightNegative, line, barLabels = [], lineLabels = [] } = opts;
+  const padL = 66, padR = 18, padT = 26, padB = 32;
   const plotW = width - padL - padR;
   const plotH = height - padT - padB;
   const n = periods.length;
   if (n === 0) return emptyChart(width, height);
 
-  const all = series.flatMap((s) => s.values);
+  const all = [
+    ...series.flatMap((s) => s.values),
+    ...(line ? line.values.filter((v): v is number => v != null) : []),
+  ];
   let min = Math.min(0, ...all);
   let max = Math.max(0, ...all);
   if (min === max) max = min + 1;
+  // headroom for bar value labels
+  max += (max - min) * 0.08;
   const yAt = (v: number) => padT + (1 - (v - min) / (max - min)) * plotH;
   const groupW = plotW / n;
   const barGap = 2;
   const barW = Math.max(2, (groupW * 0.62) / series.length - barGap);
+  const xCenter = (i: number) => padL + i * groupW + groupW / 2;
 
   const ticks = niceTicks(min, max, 4);
   const gridLines = ticks
     .map((t) => {
       const y = yAt(t).toFixed(1);
       return `<line x1="${padL}" y1="${y}" x2="${padL + plotW}" y2="${y}" stroke="${C.grid}" stroke-width="1"/>` +
-        `<text x="${padL - 8}" y="${y}" text-anchor="end" dominant-baseline="middle" font-size="9" fill="${C.subtle}">${esc(compactBRL(t))}</text>`;
+        `<text x="${padL - 8}" y="${y}" text-anchor="end" dominant-baseline="middle" font-size="9.5" fill="${C.subtle}">${esc(compactBRL(t))}</text>`;
     })
     .join('');
   const y0 = yAt(0);
@@ -237,38 +298,78 @@ function svgGroupedBarChart(
       : '')
     .join('');
 
+  const barX = (i: number, si: number) => {
+    const groupStart = padL + i * groupW + (groupW - (barW + barGap) * series.length) / 2;
+    return groupStart + si * (barW + barGap);
+  };
+
   const bars = periods
-    .map((_, i) => {
-      const groupStart = padL + i * groupW + (groupW - (barW + barGap) * series.length) / 2;
-      return series
-        .map((s, si) => {
-          const v = s.values[i] ?? 0;
-          const y = yAt(Math.max(0, v));
-          const h = Math.abs(yAt(v) - y0);
-          const x = groupStart + si * (barW + barGap);
-          return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(0.5, h).toFixed(1)}" fill="${s.color}" rx="1"/>`;
-        })
-        .join('');
+    .map((_, i) => series
+      .map((s, si) => {
+        const v = s.values[i] ?? 0;
+        const y = yAt(Math.max(0, v));
+        const h = Math.abs(yAt(v) - y0);
+        return `<rect x="${barX(i, si).toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(0.5, h).toFixed(1)}" fill="${s.color}" rx="1"/>`;
+      })
+      .join(''))
+    .join('');
+
+  const barLabelEls = barLabels
+    .filter((b) => b.index >= 0 && b.index < n && b.seriesIdx < series.length)
+    .map((b) => {
+      const s = series[b.seriesIdx];
+      const v = s.values[b.index] ?? 0;
+      const x = barX(b.index, b.seriesIdx) + barW / 2;
+      const y = yAt(Math.max(0, v)) - 4;
+      return `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" text-anchor="middle" font-size="8.5" font-weight="700" fill="${s.color}">${esc(compactBRL(v))}</text>`;
     })
     .join('');
 
+  let lineEls = '';
+  if (line) {
+    let d = '';
+    let pen = false;
+    line.values.forEach((v, i) => {
+      if (v == null) { pen = false; return; }
+      d += `${pen ? 'L' : 'M'}${xCenter(i).toFixed(1)},${yAt(v).toFixed(1)} `;
+      pen = true;
+    });
+    if (d.trim()) {
+      lineEls = `<path d="${d.trim()}" fill="none" stroke="${line.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+      lineEls += lineLabels
+        .filter((l) => l.index >= 0 && l.index < n && line.values[l.index] != null)
+        .map((l) => {
+          const v = line.values[l.index] as number;
+          const x = xCenter(l.index);
+          const y = yAt(v);
+          const above = v >= 0;
+          return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3" fill="${line.color}" stroke="#fff" stroke-width="1.2"/>` +
+            `<text x="${x.toFixed(1)}" y="${(above ? y - 7 : y + 13).toFixed(1)}" text-anchor="middle" font-size="8.5" font-weight="700" fill="${line.color}">${esc(l.text)}</text>`;
+        })
+        .join('');
+    }
+  }
+
   const zeroLine = `<line x1="${padL}" y1="${y0.toFixed(1)}" x2="${padL + plotW}" y2="${y0.toFixed(1)}" stroke="${C.borderStrong}" stroke-width="1.2"/>`;
 
-  const labelStep = Math.max(1, Math.ceil(n / 8));
+  const labelStep = Math.max(1, Math.ceil(n / 9));
   const xLabels = periods
     .map((p, i) => (i % labelStep === 0 || i === n - 1)
-      ? `<text x="${(padL + i * groupW + groupW / 2).toFixed(1)}" y="${height - 10}" text-anchor="middle" font-size="9" fill="${C.subtle}">${esc(periodLabel(p))}</text>`
+      ? `<text x="${xCenter(i).toFixed(1)}" y="${height - 10}" text-anchor="middle" font-size="9.5" fill="${C.subtle}">${esc(periodLabel(p))}</text>`
       : '')
     .join('');
 
-  return `<svg viewBox="0 0 ${width} ${height}" width="100%" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">${gridLines}${highlights}${bars}${zeroLine}${xLabels}</svg>`;
+  return `<svg viewBox="0 0 ${width} ${height}" width="100%" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">${chartFrame(width, height, padL, padT, plotW, plotH)}${gridLines}${highlights}${bars}${zeroLine}${lineEls}${barLabelEls}${xLabels}</svg>`;
 }
 
-/** Horizontal sensitivity / generic value bar chart (supports negatives). */
-function svgHBarChart(rows: { label: string; value: number; color: string }[], opts: { width: number; rowH?: number }): string {
-  const rowH = opts.rowH ?? 26;
+/** Horizontal scenario bars with value + margin labels (supports negatives). */
+function svgScenarioBars(
+  rows: { label: string; value: number; margin: number | null; color: string }[],
+  opts: { width: number; rowH?: number },
+): string {
+  const rowH = opts.rowH ?? 32;
   const width = opts.width;
-  const padL = 110, padR = 70;
+  const padL = 116, padR = 110;
   const plotW = width - padL - padR;
   const height = rows.length * rowH + 8;
   const vals = rows.map((r) => r.value);
@@ -282,23 +383,25 @@ function svgHBarChart(rows: { label: string; value: number; color: string }[], o
     .map((r, i) => {
       const cy = 4 + i * rowH + rowH / 2;
       const x = xAt(Math.min(0, r.value));
-      const w = Math.max(1, Math.abs(xAt(r.value) - x0));
-      const labelX = r.value >= 0 ? xAt(r.value) + 6 : xAt(r.value) - 6;
+      const w = Math.max(1.5, Math.abs(xAt(r.value) - x0));
+      const labelX = r.value >= 0 ? xAt(r.value) + 7 : xAt(r.value) - 7;
       const anchor = r.value >= 0 ? 'start' : 'end';
-      return `<text x="${padL - 8}" y="${cy}" text-anchor="end" dominant-baseline="middle" font-size="10" fill="${C.body}">${esc(r.label)}</text>` +
-        `<rect x="${x.toFixed(1)}" y="${(cy - rowH * 0.32).toFixed(1)}" width="${w.toFixed(1)}" height="${(rowH * 0.64).toFixed(1)}" fill="${r.color}" rx="2"/>` +
-        `<text x="${labelX.toFixed(1)}" y="${cy}" text-anchor="${anchor}" dominant-baseline="middle" font-size="9.5" font-weight="600" fill="${C.body}">${esc(BRL(r.value))}</text>`;
+      const sign = r.value > 0 ? '+' : '';
+      return `<text x="${padL - 8}" y="${cy}" text-anchor="end" dominant-baseline="middle" font-size="10" font-weight="600" fill="${C.body}">${esc(r.label)}</text>` +
+        `<rect x="${x.toFixed(1)}" y="${(cy - rowH * 0.30).toFixed(1)}" width="${w.toFixed(1)}" height="${(rowH * 0.60).toFixed(1)}" fill="${r.color}" rx="3"/>` +
+        `<text x="${labelX.toFixed(1)}" y="${(cy - 5).toFixed(1)}" text-anchor="${anchor}" dominant-baseline="middle" font-size="9.5" font-weight="700" fill="${r.color}">${sign}${esc(BRL(r.value))}</text>` +
+        `<text x="${labelX.toFixed(1)}" y="${(cy + 7).toFixed(1)}" text-anchor="${anchor}" dominant-baseline="middle" font-size="8.5" fill="${C.subtle}">margem ${esc(fmtPct(r.margin))}</text>`;
     })
     .join('');
 
-  const axis = `<line x1="${x0.toFixed(1)}" y1="2" x2="${x0.toFixed(1)}" y2="${height - 2}" stroke="${C.borderStrong}" stroke-width="1"/>`;
+  const axis = `<line x1="${x0.toFixed(1)}" y1="2" x2="${x0.toFixed(1)}" y2="${height - 2}" stroke="${C.borderStrong}" stroke-width="1.2"/>`;
   return `<svg viewBox="0 0 ${width} ${height}" width="100%" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">${axis}${bars}</svg>`;
 }
 
-/** Waterfall bridge (Caixa → Resultado). */
+/** Waterfall bridge (Caixa → Resultado) with signed value labels. */
 function svgWaterfall(iv: InvestorView, opts: { width: number; height: number }): string {
   const { width, height } = opts;
-  const padL = 64, padR = 16, padT = 18, padB = 40;
+  const padL = 66, padR = 18, padT = 30, padB = 46;
   const plotW = width - padL - padR;
   const plotH = height - padT - padB;
 
@@ -308,26 +411,38 @@ function svgWaterfall(iv: InvestorView, opts: { width: number; height: number })
   const finalResult = iv.netResult - iv.riskExposure;
 
   const steps = [
-    { name: 'Caixa Insight', from: 0, to: start, color: C.primary, total: true },
-    { name: 'Desembolso total', from: start, to: afterDisb, color: C.cost },
-    { name: 'Contingências', from: afterDisb, to: afterRisk, color: iv.riskExposure ? C.critical : C.subtle },
-    { name: 'Resultado Insight', from: 0, to: finalResult, color: finalResult >= 0 ? C.success : C.critical, total: true },
+    { name: 'Caixa Insight previsto', from: 0, to: start, color: C.primary, total: true, signed: BRL(start) },
+    { name: 'Desembolso total', from: start, to: afterDisb, color: C.cost, total: false, signed: `−${BRL(iv.insightDisbursement)}` },
+    { name: 'Contingências / riscos', from: afterDisb, to: afterRisk, color: iv.riskExposure ? C.critical : C.subtle, total: false, signed: iv.riskExposure ? `−${BRL(iv.riskExposure)}` : 'não informado' },
+    { name: 'Resultado Insight', from: 0, to: finalResult, color: finalResult >= 0 ? C.success : C.critical, total: true, signed: `${finalResult > 0 ? '+' : ''}${BRL(finalResult)}` },
   ];
 
   const all = steps.flatMap((s) => [s.from, s.to]);
   let min = Math.min(0, ...all);
   let max = Math.max(0, ...all);
   if (min === max) max = min + 1;
+  max += (max - min) * 0.06;
   const yAt = (v: number) => padT + (1 - (v - min) / (max - min)) * plotH;
   const colW = plotW / steps.length;
-  const barW = colW * 0.5;
+  const barW = colW * 0.46;
 
   const ticks = niceTicks(min, max, 4);
   const gridLines = ticks
     .map((t) => {
       const y = yAt(t).toFixed(1);
       return `<line x1="${padL}" y1="${y}" x2="${padL + plotW}" y2="${y}" stroke="${C.grid}" stroke-width="1"/>` +
-        `<text x="${padL - 8}" y="${y}" text-anchor="end" dominant-baseline="middle" font-size="9" fill="${C.subtle}">${esc(compactBRL(t))}</text>`;
+        `<text x="${padL - 8}" y="${y}" text-anchor="end" dominant-baseline="middle" font-size="9.5" fill="${C.subtle}">${esc(compactBRL(t))}</text>`;
+    })
+    .join('');
+
+  // connector lines between cumulative levels
+  const connectors = steps
+    .slice(0, -1)
+    .map((s, i) => {
+      const xEnd = padL + i * colW + (colW + barW) / 2;
+      const xNext = padL + (i + 1) * colW + (colW - barW) / 2;
+      const y = yAt(s.total ? s.to : s.to).toFixed(1);
+      return `<line x1="${xEnd.toFixed(1)}" y1="${y}" x2="${xNext.toFixed(1)}" y2="${y}" stroke="${C.borderStrong}" stroke-width="1" stroke-dasharray="3 3"/>`;
     })
     .join('');
 
@@ -335,12 +450,12 @@ function svgWaterfall(iv: InvestorView, opts: { width: number; height: number })
     .map((s, i) => {
       const x = padL + i * colW + (colW - barW) / 2;
       const top = Math.min(yAt(s.from), yAt(s.to));
-      const h = Math.max(1, Math.abs(yAt(s.from) - yAt(s.to)));
-      const value = s.total ? s.to : s.to - s.from;
-      const labelY = top - 4;
-      return `<rect x="${x.toFixed(1)}" y="${top.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="${s.color}" rx="2"/>` +
-        `<text x="${(x + barW / 2).toFixed(1)}" y="${labelY.toFixed(1)}" text-anchor="middle" font-size="8.5" font-weight="700" fill="${s.color}">${esc(BRL(value))}</text>` +
-        `<text x="${(x + barW / 2).toFixed(1)}" y="${(height - 22).toFixed(1)}" text-anchor="middle" font-size="8.5" fill="${C.body}">${esc(s.name)}</text>`;
+      const h = Math.max(1.5, Math.abs(yAt(s.from) - yAt(s.to)));
+      const cx = x + barW / 2;
+      return `<rect x="${x.toFixed(1)}" y="${top.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="${s.color}" rx="3"/>` +
+        `<text x="${cx.toFixed(1)}" y="${(top - 6).toFixed(1)}" text-anchor="middle" font-size="9.5" font-weight="700" fill="${s.color}">${esc(s.signed)}</text>` +
+        `<text x="${cx.toFixed(1)}" y="${(height - 28).toFixed(1)}" text-anchor="middle" font-size="9" font-weight="600" fill="${C.body}">${esc(s.name)}</text>` +
+        (s.total ? '' : `<text x="${cx.toFixed(1)}" y="${(height - 17).toFixed(1)}" text-anchor="middle" font-size="8" fill="${C.subtle}">acumulado ${esc(compactBRL(s.to))}</text>`);
     })
     .join('');
 
@@ -348,21 +463,34 @@ function svgWaterfall(iv: InvestorView, opts: { width: number; height: number })
     ? `<line x1="${padL}" y1="${yAt(0).toFixed(1)}" x2="${padL + plotW}" y2="${yAt(0).toFixed(1)}" stroke="${C.borderStrong}" stroke-width="1.2"/>`
     : '';
 
-  const note = `<text x="${padL}" y="${height - 6}" font-size="8" fill="${C.subtle}">Faturamento direto (repasse a terceiros, fora do caixa): ${esc(BRL(iv.directPassThrough))}</text>`;
+  const note = iv.directPassThrough > 0
+    ? `<text x="${padL}" y="${height - 4}" font-size="8.5" fill="${C.subtle}">Faturamento direto a terceiros (repasse, fora do caixa Insight): ${esc(BRL(iv.directPassThrough))}</text>`
+    : '';
 
-  return `<svg viewBox="0 0 ${width} ${height}" width="100%" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">${gridLines}${zeroLine}${bars}${note}</svg>`;
+  return `<svg viewBox="0 0 ${width} ${height}" width="100%" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">${chartFrame(width, height, padL, padT, plotW, plotH)}${gridLines}${zeroLine}${connectors}${bars}${note}</svg>`;
 }
 
 function emptyChart(width: number, height: number): string {
   return `<svg viewBox="0 0 ${width} ${height}" width="100%" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">` +
-    `<rect x="0" y="0" width="${width}" height="${height}" fill="#F8FAFC" rx="6"/>` +
+    `<rect x="0" y="0" width="${width}" height="${height}" fill="#F8FAFC" rx="8"/>` +
     `<text x="${width / 2}" y="${height / 2}" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="${C.subtle}">Dados insuficientes para este gráfico</text></svg>`;
 }
 
 function legend(items: { name: string; color: string; dashed?: boolean }[]): string {
   return `<div class="legend">${items
-    .map((i) => `<span class="lg"><span class="sw" style="background:${i.color};${i.dashed ? 'background:repeating-linear-gradient(90deg,' + i.color + ' 0 4px,transparent 4px 7px);' : ''}"></span>${esc(i.name)}</span>`)
+    .map((i) => `<span class="lg"><span class="sw" style="background:${i.dashed ? `repeating-linear-gradient(90deg, ${i.color} 0 4px, transparent 4px 7px)` : i.color}"></span>${esc(i.name)}</span>`)
     .join('')}</div>`;
+}
+
+/** Row of key-value callout chips above a chart. */
+function callouts(items: { label: string; value: string; color: string }[]): string {
+  return `<div class="chips">${items
+    .map((c) => `<span class="chip" style="border-color:${c.color}40;background:${c.color}0D"><span class="dot" style="background:${c.color}"></span><span class="chip-l">${esc(c.label)}</span><span class="chip-v" style="color:${c.color}">${esc(c.value)}</span></span>`)
+    .join('')}</div>`;
+}
+
+function sectionTitle(title: string, subtitle?: string): string {
+  return `<div class="sec-head"><div class="sec-rule"></div><div><h2>${esc(title)}</h2>${subtitle ? `<p class="sec-sub">${esc(subtitle)}</p>` : ''}</div></div>`;
 }
 
 // ── Payload ─────────────────────────────────────────────────────────
@@ -374,6 +502,8 @@ export interface ProjectFinanceReportPayload {
   brandName?: string;
   dataSourceNote?: string;
   generatedBy?: string;
+  /** Absolute or root-relative URL of the brand logo (PNG/SVG). */
+  logoUrl?: string;
 }
 
 export function buildProjectFinanceFileName(project: ProjectV2, date = new Date()): string {
@@ -387,24 +517,26 @@ export function buildProjectFinanceFileName(project: ProjectV2, date = new Date(
   return `project-finance-report-${code}-${ymd}`;
 }
 
-// ── KPI / warning model helpers (read from the shared iv — no new math) ──
+// ── KPI / warning helpers (read from the shared iv — no new math) ──
 
-function buildKpis(iv: InvestorView): { label: string; value: string; color?: string; helper?: string; missing?: boolean }[] {
+interface KpiCard { label: string; value: string; color?: string; helper?: string; missing?: boolean; chip?: { label: string; cls: 'ok' | 'warn' | 'crit' } }
+
+function buildKpis(iv: InvestorView): KpiCard[] {
   return [
-    { label: 'Valor do contrato', value: BRL(iv.contractTotal), helper: 'teto contratado' },
-    { label: 'Caixa Insight previsto', value: BRL(iv.insightCashRevenue), color: C.success, helper: 'entra no caixa' },
-    { label: 'Desembolso total', value: BRL(iv.insightDisbursement), color: C.cost, helper: 'Curva S + projeção' },
-    { label: 'Resultado final Insight', value: BRL(iv.netResult), color: iv.netResult >= 0 ? C.success : C.critical, helper: 'caixa − desembolso' },
-    { label: 'Margem estimada', value: fmtPct(iv.marginPct), missing: iv.marginPct == null, color: C.purple, helper: 'sobre caixa Insight' },
-    { label: 'Pico de caixa', value: iv.peakGap ? BRL(iv.peakGap) : 'sem gap', color: iv.peakGap ? C.critical : C.success, helper: iv.peakGap ? `em ${periodLabel(iv.peakGapPeriod)}` : 'sem saldo negativo' },
+    { label: 'Valor do contrato', value: BRL(iv.contractTotal), color: C.primary, helper: 'teto contratado' },
+    { label: 'Caixa Insight previsto', value: BRL(iv.insightCashRevenue), color: C.success, helper: 'entra no caixa da Insight' },
+    { label: 'Receita faturada', value: BRL(iv.billed), color: C.successSoft, helper: iv.contractTotal > 0 ? `${((iv.billed / iv.contractTotal) * 100).toFixed(0)}% do contrato` : 'sem contrato' },
+    { label: 'Receita a faturar', value: BRL(iv.toBill), color: C.warning, helper: `${fmtPct(iv.pendingRevenuePct)} do contrato`, chip: iv.billingRisk === 'critical' ? { label: 'crítico', cls: 'crit' } : iv.billingRisk === 'warning' ? { label: 'atenção', cls: 'warn' } : undefined },
+    { label: 'Desembolso previsto', value: BRL(iv.insightDisbursement), color: C.cost, helper: 'Curva S + projeção', chip: iv.insightDisbursement > iv.insightCashRevenue ? { label: 'crítico', cls: 'crit' } : undefined },
+    { label: 'Resultado projetado', value: BRL(iv.netResult), color: iv.netResult >= 0 ? C.success : C.critical, helper: 'caixa Insight − desembolso' },
+    { label: 'Margem estimada', value: fmtPct(iv.marginPct), missing: iv.marginPct == null, color: C.purple, helper: 'sobre caixa Insight', chip: iv.marginPct != null && iv.marginPct < 8 ? { label: iv.marginPct < 0 ? 'crítico' : 'atenção', cls: iv.marginPct < 0 ? 'crit' : 'warn' } : undefined },
+    { label: 'Pico de necessidade de caixa', value: iv.peakGap ? BRL(iv.peakGap) : 'sem gap', color: iv.peakGap ? C.critical : C.success, helper: iv.peakGap ? `em ${periodLabel(iv.peakGapPeriod)}` : 'sem saldo negativo', chip: iv.peakGap > 0 ? { label: 'cash gap', cls: 'crit' } : undefined },
     { label: 'Break-even', value: iv.breakEvenPeriod ? periodLabel(iv.breakEvenPeriod) : 'não projetado', missing: !iv.breakEvenPeriod, color: C.info, helper: 'lucro acumulado sustentado' },
-    { label: 'Receita a faturar', value: BRL(iv.toBill), color: C.warning, helper: `${fmtPct(iv.pendingRevenuePct)} do contrato` },
-    { label: 'Eventos atrasados', value: String(iv.delayedEvents.length), color: iv.delayedEvents.length ? C.critical : C.success, helper: 'no eventograma' },
-    { label: 'Risco financeiro', value: severityLabel(iv.financialRisk), color: sevColor(iv.financialRisk), helper: iv.openFinancialRisks.length ? `${iv.openFinancialRisks.length} em aberto` : 'sem riscos abertos' },
+    { label: 'Risco financeiro', value: severityLabel(iv.financialRisk), color: sevColor(iv.financialRisk), helper: iv.openFinancialRisks.length ? `${iv.openFinancialRisks.length} risco(s) em aberto` : 'sem riscos abertos' },
   ];
 }
 
-/** Deterministic investor narrative — pure string composition over the shared iv (no new math). */
+/** Deterministic investor narrative — pure string composition over the shared iv. */
 function buildNarrative(iv: InvestorView): string[] {
   const parts: string[] = [];
   parts.push(`Projeto com contrato de ${compactBRL(iv.contractTotal)}`);
@@ -436,141 +568,437 @@ function buildWarnings(project: ProjectV2, iv: InvestorView): string[] {
   return w;
 }
 
-// ── Section renderers ───────────────────────────────────────────────
+// ── Key-row selection helpers (presentation-level filtering only) ──
 
 function indexOfPeriod(periods: string[], period?: string | null): number {
   if (!period) return -1;
   return periods.indexOf(period);
 }
 
-function renderCurvaS(iv: InvestorView, effectiveCutoff?: string): string {
+/** Key months for the Curva S table: first, cut-off, peak, break-even, last. */
+function selectKeyCurveIndices(iv: InvestorView, effectiveCutoff?: string): number[] {
   const periods = iv.curve.map((p) => p.period);
-  if (!periods.length) return emptyChart(900, 360);
+  const n = periods.length;
+  if (!n) return [];
+  const set = new Set<number>([0, n - 1]);
+  const cut = indexOfPeriod(periods, effectiveCutoff);
+  if (cut >= 0) set.add(cut);
+  const be = indexOfPeriod(periods, iv.breakEvenPeriod);
+  if (be >= 0) set.add(be);
+  const peak = indexOfPeriod(periods, iv.peakGapPeriod);
+  if (peak >= 0 && iv.peakGap > 0) set.add(peak);
+  return Array.from(set).sort((a, b) => a - b);
+}
+
+/** Relevant months for the monthly-flow table (top pressure/revenue + cut-off window). */
+function selectKeyMonthlyIndices(iv: InvestorView, effectiveCutoff?: string, cap = 12): number[] {
+  const n = iv.curve.length;
+  if (!n) return [];
+  const byRevenue = iv.curve.map((p, i) => ({ i, v: p.receitaMensal })).sort((a, b) => b.v - a.v).slice(0, 3);
+  const byCost = iv.curve.map((p, i) => ({ i, v: p.desembolsoMensal })).sort((a, b) => b.v - a.v).slice(0, 3);
+  let minIdx = 0, maxIdx = 0;
+  iv.curve.forEach((p, i) => {
+    if (p.resultadoMensal < iv.curve[minIdx].resultadoMensal) minIdx = i;
+    if (p.resultadoMensal > iv.curve[maxIdx].resultadoMensal) maxIdx = i;
+  });
+  const set = new Set<number>([...byRevenue.map((r) => r.i), ...byCost.map((r) => r.i), minIdx, maxIdx]);
+  const cut = indexOfPeriod(iv.curve.map((p) => p.period), effectiveCutoff);
+  if (cut >= 0) {
+    for (let i = cut; i <= Math.min(n - 1, cut + 6); i++) set.add(i);
+  }
+  return Array.from(set).sort((a, b) => a - b).slice(0, cap);
+}
+
+interface EventGroup { title: string; cls: 'crit' | 'warn' | 'ok' | ''; events: BillingEvent[] }
+
+/** Grouped, prioritized event selection: delayed → upcoming → largest → billed. */
+function selectEventGroups(project: ProjectV2): EventGroup[] {
+  const events = project.billing_eventogram ?? [];
+  const todayIso = new Date().toISOString().slice(0, 10);
+
+  const delayed = events
+    .filter((e) => e.status === 'delayed')
+    .sort((a, b) => a.datePlanned.localeCompare(b.datePlanned))
+    .slice(0, 8);
+  const upcoming = events
+    .filter((e) => (e.status === 'planned' || e.status === 'partial') && e.datePlanned >= todayIso)
+    .sort((a, b) => a.datePlanned.localeCompare(b.datePlanned))
+    .slice(0, 6);
+  const shown = new Set([...delayed, ...upcoming].map((e) => e.id));
+  const largest = events
+    .filter((e) => !shown.has(e.id) && e.status !== 'cancelled' && e.status !== 'billed')
+    .sort((a, b) => b.amountPlannedCents - a.amountPlannedCents)
+    .slice(0, 4);
+  largest.forEach((e) => shown.add(e.id));
+  const billed = events
+    .filter((e) => (e.status === 'billed' || e.status === 'partial') && !shown.has(e.id))
+    .sort((a, b) => b.amountPlannedCents - a.amountPlannedCents)
+    .slice(0, 4);
+
+  return [
+    { title: 'Eventos atrasados', cls: 'crit', events: delayed },
+    { title: 'Próximos eventos', cls: 'warn', events: upcoming },
+    { title: 'Maiores eventos pendentes', cls: '', events: largest },
+    { title: 'Faturados / parciais', cls: 'ok', events: billed },
+  ].filter((g) => g.events.length > 0) as EventGroup[];
+}
+
+function delayLabel(e: BillingEvent): string {
+  if (e.status !== 'delayed') return '—';
+  const today = new Date();
+  const planned = new Date(`${e.datePlanned}T00:00:00`);
+  const days = Math.max(0, Math.floor((today.getTime() - planned.getTime()) / 86_400_000));
+  return days > 0 ? `+${days}d` : '—';
+}
+
+// ── Section renderers ───────────────────────────────────────────────
+
+function kpiCardHtml(k: KpiCard): string {
+  return `<div class="kpi">
+    <div class="bar" style="background:linear-gradient(90deg, transparent, ${k.color ?? C.ink}, transparent)"></div>
+    <div class="kpi-l">${esc(k.label)}</div>
+    <div class="kpi-v" style="color:${k.missing ? C.subtle : (k.color ?? C.ink)}">${k.missing ? 'dados insuficientes' : esc(k.value)}</div>
+    <div class="kpi-foot">
+      ${k.helper ? `<span class="kpi-h">${esc(k.helper)}</span>` : '<span></span>'}
+      ${k.chip ? `<span class="pill ${k.chip.cls}">${esc(k.chip.label)}</span>` : ''}
+    </div>
+  </div>`;
+}
+
+function renderCurvaSPage(iv: InvestorView, effectiveCutoff?: string): string {
+  const periods = iv.curve.map((p) => p.period);
+  const last = iv.curve.at(-1);
+
+  const chips = callouts([
+    { label: 'Contrato total', value: compactBRL(iv.contractTotal), color: C.primary },
+    { label: 'Receita acum. final', value: compactBRL(last?.receitaPrevista ?? 0), color: C.success },
+    { label: 'Desembolso acum. final', value: compactBRL(last?.desembolsoTotal ?? 0), color: C.cost },
+    { label: 'Resultado final projetado', value: compactBRL(iv.netResult), color: iv.netResult >= 0 ? C.success : C.critical },
+    { label: 'Pico de caixa', value: iv.peakGap ? `${compactBRL(iv.peakGap)} (${periodLabel(iv.peakGapPeriod)})` : 'sem gap', color: iv.peakGap ? C.critical : C.success },
+    { label: 'Break-even', value: iv.breakEvenPeriod ? periodLabel(iv.breakEvenPeriod) : 'não projetado', color: C.info },
+  ]);
+
+  if (!periods.length) {
+    return chips + `<div class="chart">${emptyChart(1040, 330)}</div>`;
+  }
 
   const series: LineSeries[] = [
-    { name: 'Receita prevista', color: C.primary, values: iv.curve.map((p) => p.receitaPrevista) },
-    { name: 'Receita realizada', color: C.successSoft, values: iv.curve.map((p) => p.receitaRealizada) },
-    { name: 'Desembolso previsto', color: C.cost, values: iv.curve.map((p) => p.desembolsoPrevisto) },
-    { name: 'Desembolso realizado', color: C.costSoft, values: iv.curve.map((p) => p.desembolsoRealizado) },
-    { name: 'Projeção custos fixos', color: C.warning, dashed: true, values: iv.curve.map((p) => p.desembolsoProjetado) },
-    { name: 'Saldo líquido', color: C.info, values: iv.curve.map((p) => p.saldoLiquido) },
+    { name: 'Receita prevista acum.', color: C.primary, values: iv.curve.map((p) => p.receitaPrevista), endLabel: true },
+    { name: 'Receita realizada acum.', color: C.successSoft, values: iv.curve.map((p) => p.receitaRealizada), endLabel: false },
+    { name: 'Desembolso previsto acum.', color: C.cost, values: iv.curve.map((p) => p.desembolsoPrevisto), endLabel: true },
+    { name: 'Desembolso realizado acum.', color: C.costSoft, values: iv.curve.map((p) => p.desembolsoRealizado), endLabel: false },
+    { name: 'Projeção custos fixos', color: C.warning, dashed: true, values: iv.curve.map((p) => p.desembolsoProjetado), endLabel: false },
+    { name: 'Saldo líquido acum.', color: C.info, values: iv.curve.map((p) => p.saldoLiquido), endLabel: true },
   ].filter((s) => s.values.some((v) => v != null));
 
   const markers: ChartMarker[] = [];
   const cutIdx = indexOfPeriod(periods, effectiveCutoff);
-  if (cutIdx >= 0) markers.push({ index: cutIdx, label: 'CUTOFF', color: C.subtle });
+  if (cutIdx >= 0) markers.push({ index: cutIdx, label: 'CORTE', color: C.subtle, value: periodLabel(effectiveCutoff) });
   const beIdx = indexOfPeriod(periods, iv.breakEvenPeriod);
-  if (beIdx >= 0) markers.push({ index: beIdx, label: 'BREAK-EVEN', color: C.success });
+  if (beIdx >= 0) markers.push({ index: beIdx, label: 'BREAK-EVEN', color: C.success, value: periodLabel(iv.breakEvenPeriod) });
   const peakIdx = indexOfPeriod(periods, iv.peakGapPeriod);
-  if (peakIdx >= 0 && iv.peakGap > 0) markers.push({ index: peakIdx, label: 'PICO CAIXA', color: C.critical });
+  if (peakIdx >= 0 && iv.peakGap > 0) markers.push({ index: peakIdx, label: 'PICO CAIXA', color: C.critical, value: `−${compactBRL(iv.peakGap)}` });
 
-  return svgLineChart(periods, series, { width: 1040, height: 380, markers }) +
+  const chart = svgLineChart(periods, series, { width: 1040, height: 330, markers }) +
     legend(series.map((s) => ({ name: s.name, color: s.color, dashed: s.dashed })));
+
+  // Key months supporting table
+  const keyIdx = selectKeyCurveIndices(iv, effectiveCutoff);
+  const tag = (i: number): string => {
+    const tags: string[] = [];
+    if (i === 0) tags.push('início');
+    if (i === periods.length - 1) tags.push('final');
+    if (i === cutIdx) tags.push('corte');
+    if (i === beIdx) tags.push('break-even');
+    if (i === peakIdx && iv.peakGap > 0) tags.push('pico de caixa');
+    return tags.join(' · ');
+  };
+  const fmtCell = (v: number | null | undefined): string => (v == null ? '—' : BRL(v));
+  const tableRows = keyIdx
+    .map((i) => {
+      const p = iv.curve[i];
+      const neg = p.saldoLiquido < 0;
+      return `<tr>
+        <td><b>${esc(periodLabel(p.period))}</b> <span class="muted" style="font-size:8.5px">${esc(tag(i))}</span></td>
+        <td class="num mono">${esc(fmtCell(p.receitaPrevista))}</td>
+        <td class="num mono">${esc(fmtCell(p.receitaRealizada))}</td>
+        <td class="num mono">${esc(fmtCell(p.desembolsoPrevisto))}</td>
+        <td class="num mono">${esc(fmtCell(p.desembolsoRealizado))}</td>
+        <td class="num mono" style="color:${neg ? C.critical : C.success};font-weight:700">${esc(fmtCell(p.saldoLiquido))}</td>
+      </tr>`;
+    })
+    .join('');
+  const table = `<table class="data compact">
+    <thead><tr><th>Mês</th><th class="num">Receita prev. acum.</th><th class="num">Receita real. acum.</th><th class="num">Desemb. prev. acum.</th><th class="num">Desemb. real. acum.</th><th class="num">Saldo líquido acum.</th></tr></thead>
+    <tbody>${tableRows}</tbody>
+  </table>`;
+
+  return chips + `<div class="chart">${chart}</div><h3 style="margin-top:10px">Meses-chave</h3>` + table;
 }
 
-function renderMonthlyFlow(iv: InvestorView): string {
+function renderMonthlyFlowPage(iv: InvestorView, effectiveCutoff?: string): string {
   const periods = iv.curve.map((p) => p.period);
-  if (!periods.length) return emptyChart(900, 320);
+  if (!periods.length) return `<div class="chart">${emptyChart(1040, 300)}</div>`;
+
   const bars: BarSeries[] = [
     { name: 'Receita mensal', color: C.successSoft, values: iv.curve.map((p) => p.receitaMensal) },
     { name: 'Desembolso mensal', color: C.cost, values: iv.curve.map((p) => p.desembolsoMensal) },
   ];
-  const highlight = iv.curve.map((p) => p.resultadoMensal);
-  return svgGroupedBarChart(periods, bars, { width: 1040, height: 320, highlightNegative: highlight }) +
-    legend([...bars.map((b) => ({ name: b.name, color: b.color })), { name: 'Mês com saldo líquido negativo', color: C.critical }]);
-}
+  const saldo = iv.curve.map((p) => p.resultadoMensal);
 
-function renderEventTable(iv: InvestorView): string {
-  const events = iv.criticalEvents;
-  if (!events.length) {
-    return `<p class="empty">Sem eventos de faturamento relevantes (próximos, atrasados, maiores ou pendentes).</p>`;
-  }
-  const rows = events
-    .map((e, i) => {
-      const linked = e.contractId
-        ? `Contrato ${esc(e.contractId)}`
-        : (e.linked?.milestoneId ? `Marco ${esc(e.linked.milestoneId)}` : (e.linked?.taskId ? `Tarefa ${esc(e.linked.taskId)}` : '—'));
-      const value = centsToReais(e.amountActualCents ?? e.amountPlannedCents);
-      const sevCls = e.status === 'delayed' || e.status === 'cancelled' ? 'crit' : e.status === 'billed' ? 'ok' : e.status === 'partial' ? 'warn' : '';
+  // Extreme points (presentation selection)
+  let topRevIdx = 0, topCostIdx = 0, minNetIdx = 0, maxNetIdx = 0;
+  iv.curve.forEach((p, i) => {
+    if (p.receitaMensal > iv.curve[topRevIdx].receitaMensal) topRevIdx = i;
+    if (p.desembolsoMensal > iv.curve[topCostIdx].desembolsoMensal) topCostIdx = i;
+    if (p.resultadoMensal < iv.curve[minNetIdx].resultadoMensal) minNetIdx = i;
+    if (p.resultadoMensal > iv.curve[maxNetIdx].resultadoMensal) maxNetIdx = i;
+  });
+
+  const chips = callouts([
+    { label: 'Maior receita', value: `${compactBRL(iv.curve[topRevIdx].receitaMensal)} (${periodLabel(periods[topRevIdx])})`, color: C.success },
+    { label: 'Maior desembolso', value: `${compactBRL(iv.curve[topCostIdx].desembolsoMensal)} (${periodLabel(periods[topCostIdx])})`, color: C.cost },
+    { label: 'Mês mais negativo', value: `${compactBRL(iv.curve[minNetIdx].resultadoMensal)} (${periodLabel(periods[minNetIdx])})`, color: C.critical },
+    { label: 'Mês mais positivo', value: `${compactBRL(iv.curve[maxNetIdx].resultadoMensal)} (${periodLabel(periods[maxNetIdx])})`, color: C.successSoft },
+    { label: 'Meses negativos', value: String(saldo.filter((v) => v < 0).length), color: C.warning },
+  ]);
+
+  const chart = svgGroupedBarChart(periods, bars, {
+    width: 1040,
+    height: 300,
+    highlightNegative: saldo,
+    line: { name: 'Saldo líquido mensal', color: C.info, values: saldo },
+    barLabels: [
+      { seriesIdx: 0, index: topRevIdx },
+      { seriesIdx: 1, index: topCostIdx },
+    ],
+    lineLabels: [
+      { index: minNetIdx, text: compactBRL(saldo[minNetIdx]) },
+      ...(maxNetIdx !== minNetIdx ? [{ index: maxNetIdx, text: compactBRL(saldo[maxNetIdx]) }] : []),
+    ],
+  }) + legend([
+    ...bars.map((b) => ({ name: b.name, color: b.color })),
+    { name: 'Saldo líquido mensal', color: C.info },
+    { name: 'Fundo destacado = mês negativo', color: '#F5D0D0' },
+  ]);
+
+  // Relevant months supporting table
+  const keyIdx = selectKeyMonthlyIndices(iv, effectiveCutoff);
+  const cutIdx = indexOfPeriod(periods, effectiveCutoff);
+  const rows = keyIdx
+    .map((i) => {
+      const p = iv.curve[i];
+      const st = p.resultadoMensal > 0 ? ['Positivo', 'ok'] : p.resultadoMensal < 0 ? ['Negativo', 'crit'] : ['Neutro', ''];
+      const tags: string[] = [];
+      if (i === cutIdx) tags.push('corte');
+      if (i === topRevIdx) tags.push('maior receita');
+      if (i === topCostIdx) tags.push('maior desembolso');
+      if (i === minNetIdx) tags.push('mais negativo');
+      if (i === maxNetIdx) tags.push('mais positivo');
       return `<tr>
-        <td class="num">${i + 1}</td>
-        <td>${esc(e.title)}</td>
-        <td>${esc(periodLabel(e.datePlanned.slice(0, 7)))}</td>
-        <td class="num mono">${esc(BRL(value))}</td>
-        <td><span class="pill ${sevCls}">${esc(statusLabelPt(e.status))}</span></td>
-        <td class="muted">${linked}</td>
+        <td><b>${esc(periodLabel(p.period))}</b> <span class="muted" style="font-size:8.5px">${esc(tags.join(' · '))}</span></td>
+        <td class="num mono">${esc(BRL(p.receitaMensal))}</td>
+        <td class="num mono">${esc(BRL(p.desembolsoMensal))}</td>
+        <td class="num mono" style="color:${p.resultadoMensal < 0 ? C.critical : C.success};font-weight:700">${esc(BRL(p.resultadoMensal))}</td>
+        <td><span class="pill ${st[1]}">${esc(st[0])}</span></td>
       </tr>`;
     })
     .join('');
-  return `<table class="data">
-    <thead><tr><th class="num">#</th><th>Descrição</th><th>Mês</th><th class="num">Valor</th><th>Status</th><th>Vínculo</th></tr></thead>
+  const table = `<table class="data compact">
+    <thead><tr><th>Mês</th><th class="num">Receita mensal</th><th class="num">Desembolso mensal</th><th class="num">Saldo mensal</th><th>Status</th></tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
+
+  return chips + `<div class="chart">${chart}</div><h3 style="margin-top:10px">Meses relevantes</h3>` + table;
 }
 
 function renderEventCards(iv: InvestorView, eventStats: ReturnType<typeof computeEventStats>): string {
   const next = iv.nextEvent;
+  const totalValue = eventStats.billedValue + eventStats.pendingValue;
+  const pctBilled = totalValue > 0 ? (eventStats.billedValue / totalValue) * 100 : null;
+  const pctPending = totalValue > 0 ? (eventStats.pendingValue / totalValue) * 100 : null;
   const cards = [
-    { label: 'Próximo evento', value: next ? compactBRL(centsToReais(next.amountPlannedCents)) : 'sem pendência', helper: next ? `${esc(next.title)} · ${periodLabel(next.datePlanned.slice(0, 7))}` : '—', color: C.info },
+    { label: 'Próximo evento', value: next ? compactBRL(centsToReais(next.amountPlannedCents)) : 'sem pendência', helper: next ? `${next.title} · ${periodLabel(next.datePlanned.slice(0, 7))}` : '—', color: C.info },
     { label: 'Eventos atrasados', value: String(iv.delayedEvents.length), helper: iv.delayedEvents.length ? `valor ${compactBRL(eventStats.delayedValue)}` : 'nenhum', color: iv.delayedEvents.length ? C.critical : C.success },
-    { label: 'Maior evento', value: eventStats.biggest ? compactBRL(centsToReais(eventStats.biggest.amountPlannedCents)) : '—', helper: eventStats.biggest ? esc(eventStats.biggest.title) : '—', color: C.purple },
+    { label: 'Maior evento', value: eventStats.biggest ? compactBRL(centsToReais(eventStats.biggest.amountPlannedCents)) : '—', helper: eventStats.biggest?.title ?? '—', color: C.purple },
     { label: 'Pendente de faturar', value: compactBRL(eventStats.pendingValue), helper: 'eventos não faturados', color: C.warning },
-    { label: 'Faturado', value: compactBRL(eventStats.billedValue), helper: 'eventos faturados/parciais', color: C.success },
+    { label: 'Faturado', value: compactBRL(eventStats.billedValue), helper: 'faturados / parciais', color: C.success },
+    { label: 'Total de eventos', value: String(eventStats.total), helper: 'no eventograma', color: C.cyan },
+    { label: '% faturado', value: fmtPct(pctBilled), helper: 'sobre valor de eventos', color: C.successSoft },
+    { label: '% pendente', value: fmtPct(pctPending), helper: 'sobre valor de eventos', color: C.costSoft },
   ];
-  return `<div class="mini-cards">${cards
-    .map((c) => `<div class="mini-card"><div class="bar" style="background:${c.color}"></div><div class="mc-l">${esc(c.label)}</div><div class="mc-v" style="color:${c.color}">${c.value}</div><div class="mc-h">${c.helper}</div></div>`)
+  return `<div class="mini-cards cols-8">${cards
+    .map((c) => `<div class="mini-card"><div class="bar" style="background:linear-gradient(90deg, transparent, ${c.color}, transparent)"></div><div class="mc-l">${esc(c.label)}</div><div class="mc-v" style="color:${c.color}">${esc(c.value)}</div><div class="mc-h">${esc(c.helper)}</div></div>`)
     .join('')}</div>`;
 }
 
-function renderSensitivity(rows: SensitivityRow[]): string {
-  const bars = rows.map((r) => ({
-    label: r.label,
-    value: r.result,
-    color: r.result < 0 ? C.critical : r.label === 'Base' ? C.primary : C.info,
-  }));
-  const table = `<table class="data compact">
-    <thead><tr><th>Cenário</th><th class="num">Resultado</th><th class="num">Margem</th></tr></thead>
-    <tbody>${rows
-      .map((r) => `<tr><td>${esc(r.label)}</td><td class="num mono" style="color:${r.result < 0 ? C.critical : C.body}">${esc(BRL(r.result))}</td><td class="num mono">${esc(fmtPct(r.margin))}</td></tr>`)
-      .join('')}</tbody></table>`;
-  return svgHBarChart(bars, { width: 520 }) + table;
+function renderEventGroups(project: ProjectV2): string {
+  const groups = selectEventGroups(project);
+  if (!groups.length) {
+    return `<p class="empty">Sem eventos de faturamento no eventograma deste projeto.</p>`;
+  }
+  let seq = 0;
+  return groups
+    .map((g) => {
+      const rows = g.events
+        .map((e) => {
+          seq += 1;
+          const linked = e.contractId
+            ? `Contrato ${e.contractId}`
+            : (e.linked?.milestoneId ? `Marco ${e.linked.milestoneId}` : (e.linked?.taskId ? `Tarefa ${e.linked.taskId}` : '—'));
+          const value = centsToReais(e.amountActualCents ?? e.amountPlannedCents);
+          const sevCls = e.status === 'delayed' || e.status === 'cancelled' ? 'crit' : e.status === 'billed' ? 'ok' : e.status === 'partial' ? 'warn' : '';
+          const obs = e.status === 'partial' && e.amountActualCents != null
+            ? `faturado ${compactBRL(centsToReais(e.amountActualCents))} de ${compactBRL(centsToReais(e.amountPlannedCents))}`
+            : (e.dateActual ? `realizado em ${periodLabel(e.dateActual.slice(0, 7))}` : '—');
+          return `<tr>
+            <td class="num">${seq}</td>
+            <td>${esc(e.title)}</td>
+            <td>${esc(periodLabel(e.datePlanned.slice(0, 7)))}</td>
+            <td class="num mono">${esc(BRL(value))}</td>
+            <td><span class="pill ${sevCls}">${esc(statusLabelPt(e.status))}</span></td>
+            <td class="num mono" style="color:${e.status === 'delayed' ? C.critical : C.subtle}">${esc(delayLabel(e))}</td>
+            <td class="muted">${esc(linked)}</td>
+            <td class="muted">${esc(obs)}</td>
+          </tr>`;
+        })
+        .join('');
+      return `<div class="event-group">
+        <div class="group-title ${g.cls}">${esc(g.title)} <span class="muted">(${g.events.length})</span></div>
+        <table class="data compact">
+          <thead><tr><th class="num">#</th><th>Descrição</th><th>Mês previsto</th><th class="num">Valor</th><th>Status</th><th class="num">Atraso</th><th>Vínculo</th><th>Observação</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+    })
+    .join('');
 }
 
-function renderInternalAppendix(view?: ProjectFinanceView): string {
-  const hasData = view && (view.baf.bac > 0 || view.baf.ac > 0 || view.baf.eac > 0);
-  if (!hasData) {
-    return `<p class="empty">Dados de controle interno ainda não disponíveis.</p>`;
-  }
-  const baf = view!.baf;
-  const kpis = [
-    { label: 'Orçamento (BAC)', value: BRL(baf.bac), color: C.info },
+function renderWaterfallPage(iv: InvestorView): string {
+  const finalResult = iv.netResult - iv.riskExposure;
+  const badge = `<div class="result-badge" style="border-color:${finalResult >= 0 ? C.success : C.critical}40;background:${finalResult >= 0 ? C.success : C.critical}0D">
+    <span class="rb-l">Resultado final projetado</span>
+    <span class="rb-v" style="color:${finalResult >= 0 ? C.success : C.critical}">${finalResult > 0 ? '+' : ''}${esc(BRL(finalResult))}</span>
+    <span class="rb-m">margem ${esc(fmtPct(iv.marginPct))}</span>
+  </div>`;
+
+  const passThroughSentence = iv.directPassThrough > 0
+    ? ` O faturamento direto a terceiros de ${compactBRL(iv.directPassThrough)} transita fora do caixa da Insight.`
+    : '';
+  const interp = iv.riskExposure
+    ? `O caixa Insight previsto de ${compactBRL(iv.insightCashRevenue)} absorve ${compactBRL(iv.insightDisbursement)} de desembolso e ${compactBRL(iv.riskExposure)} de contingências, resultando em ${compactBRL(finalResult)} (${fmtPct(iv.marginPct)} de margem sobre o caixa Insight).${passThroughSentence}`
+    : `O caixa Insight previsto de ${compactBRL(iv.insightCashRevenue)} absorve ${compactBRL(iv.insightDisbursement)} de desembolso, resultando em ${compactBRL(finalResult)} (${fmtPct(iv.marginPct)} de margem sobre o caixa Insight). Contingências ainda não informadas.${passThroughSentence}`;
+
+  // Composition cards (from iv.costComposition — same data as the screen)
+  const compTotal = iv.costComposition.reduce((s, c) => s + c.value, 0);
+  const compCards = iv.costComposition.length
+    ? `<h3 style="margin-top:12px">Composição do desembolso</h3><div class="mini-cards cols-5">${iv.costComposition
+      .slice(0, 5)
+      .map((c, i) => {
+        const share = compTotal > 0 ? (c.value / compTotal) * 100 : null;
+        const colors = [C.cost, C.costSoft, C.warning, C.cyan, C.purple];
+        const color = colors[i % colors.length];
+        return `<div class="mini-card"><div class="bar" style="background:linear-gradient(90deg, transparent, ${color}, transparent)"></div><div class="mc-l">${esc(c.category)}</div><div class="mc-v" style="color:${color}">${esc(compactBRL(c.value))}</div><div class="mc-h">${share != null ? `${share.toFixed(0)}% do desembolso` : '—'}</div></div>`;
+      })
+      .join('')}${iv.riskExposure ? `<div class="mini-card"><div class="bar" style="background:linear-gradient(90deg, transparent, ${C.critical}, transparent)"></div><div class="mc-l">Contingências / riscos</div><div class="mc-v" style="color:${C.critical}">${esc(compactBRL(iv.riskExposure))}</div><div class="mc-h">exposição de riscos abertos</div></div>` : ''}</div>`
+    : `<p class="empty">Composição de custos não informada para este projeto.</p>`;
+
+  return `<div class="wf-head">${badge}<p class="interp">${esc(interp)}</p></div>
+    <div class="chart">${svgWaterfall(iv, { width: 1040, height: 310 })}</div>
+    ${compCards}`;
+}
+
+function renderSensitivityPage(iv: InvestorView, rows: SensitivityRow[], warnings: string[]): string {
+  const base = rows[0]?.result ?? 0;
+  const colorOf = (r: SensitivityRow): string =>
+    r.result < 0 ? C.critical : (r.margin != null && r.margin < 8) ? C.warning : (r.label === 'Base' ? C.primary : C.info);
+
+  const chart = svgScenarioBars(rows.map((r) => ({ label: r.label, value: r.result, margin: r.margin, color: colorOf(r) })), { width: 560 });
+
+  const table = `<table class="data compact">
+    <thead><tr><th>Cenário</th><th class="num">Resultado</th><th class="num">Margem</th><th class="num">Δ vs base</th><th>Status</th></tr></thead>
+    <tbody>${rows
+      .map((r) => {
+        const delta = r.result - base;
+        const st = r.result < 0 ? ['Negativo', 'crit'] : (r.margin != null && r.margin < 8) ? ['Atenção', 'warn'] : ['Positivo', 'ok'];
+        return `<tr>
+          <td><b>${esc(r.label)}</b></td>
+          <td class="num mono" style="color:${r.result < 0 ? C.critical : C.body};font-weight:600">${esc(BRL(r.result))}</td>
+          <td class="num mono">${esc(fmtPct(r.margin))}</td>
+          <td class="num mono" style="color:${delta < 0 ? C.critical : C.subtle}">${r.label === 'Base' ? '—' : `${delta > 0 ? '+' : ''}${esc(BRL(delta))}`}</td>
+          <td><span class="pill ${st[1]}">${esc(st[0])}</span></td>
+        </tr>`;
+      })
+      .join('')}</tbody></table>`;
+
+  const interp = (() => {
+    const worst = rows.reduce((w, r) => (r.result < w.result ? r : w), rows[0]);
+    return worst && worst.result < 0
+      ? `No cenário mais adverso (${worst.label}), o resultado projetado fica em ${compactBRL(worst.result)} — o projeto não absorve esse estresse sem medidas de mitigação.`
+      : `Mesmo no cenário mais adverso, o resultado projetado permanece positivo — o projeto demonstra resiliência aos estresses simulados.`;
+  })();
+
+  const warnBox = warnings.length
+    ? `<div class="warn-box"><div class="warn-title">Alertas e qualidade de dados</div><ul class="warn-list">${warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul></div>`
+    : `<div class="warn-box ok"><div class="warn-title" style="color:${C.success}">Sem alertas críticos</div><p class="empty" style="padding:2px 0 0">Sem alertas de qualidade de dados ou riscos financeiros críticos no momento.</p></div>`;
+
+  return `<div class="two-col">
+    <div>
+      <div class="chart">${chart}</div>
+      <p class="interp" style="margin-top:8px">${esc(interp)}</p>
+    </div>
+    <div>${table}${warnBox}</div>
+  </div>`;
+}
+
+function renderInternalAppendix(view: ProjectFinanceView, drivers: string[]): string {
+  const baf = view.baf;
+  const varColor = baf.variance > 0 ? C.critical : C.success;
+  const cards = [
+    { label: 'Orçamento ao concluir (BAC)', value: BRL(baf.bac), color: C.info },
     { label: 'Custo realizado (AC)', value: BRL(baf.ac), color: C.success },
     { label: 'Estimativa ao concluir (EAC)', value: BRL(baf.eac), color: C.cost },
     { label: 'Estimativa para concluir (ETC)', value: BRL(baf.etc), color: C.warning },
+    { label: 'Variação EAC − BAC', value: `${baf.variance > 0 ? '+' : ''}${BRL(baf.variance)}`, color: varColor, helper: `${baf.variance > 0 ? '+' : ''}${baf.variancePct.toFixed(1)}%` },
   ];
-  const kpiHtml = `<div class="kpis cols-4">${kpis
-    .map((k) => `<div class="kpi"><div class="bar" style="background:${k.color}"></div><div class="kpi-l">${esc(k.label)}</div><div class="kpi-v" style="color:${k.color}">${k.value}</div></div>`)
+  const cardsHtml = `<div class="mini-cards cols-5">${cards
+    .map((k) => `<div class="mini-card"><div class="bar" style="background:linear-gradient(90deg, transparent, ${k.color}, transparent)"></div><div class="mc-l">${esc(k.label)}</div><div class="mc-v" style="color:${k.color}">${esc(k.value)}</div><div class="mc-h">${esc(k.helper ?? '')}</div></div>`)
     .join('')}</div>`;
 
-  const rows = view!.costBreakdown
+  const breakdown = view.costBreakdown.slice(0, 8);
+  const rows = breakdown
     .map((r) => {
       const variance = r.eac - r.bac;
       const varPct = r.bac > 0 ? (variance / r.bac) * 100 : 0;
       const vc = variance > 0 ? C.critical : C.success;
-      return `<tr><td>${esc(r.category)}</td><td class="num mono">${esc(BRL(r.bac))}</td><td class="num mono">${esc(BRL(r.ac))}</td><td class="num mono">${esc(BRL(r.eac))}</td><td class="num mono" style="color:${vc}">${variance > 0 ? '+' : ''}${esc(BRL(variance))}</td><td class="num mono" style="color:${vc}">${variance > 0 ? '+' : ''}${varPct.toFixed(1)}%</td></tr>`;
+      const major = Math.abs(varPct) > 10;
+      return `<tr${major ? ` style="background:${vc}08"` : ''}>
+        <td${major ? ' style="font-weight:700"' : ''}>${esc(r.category)}${major ? ` <span class="pill ${variance > 0 ? 'crit' : 'ok'}">desvio</span>` : ''}</td>
+        <td class="num mono">${esc(BRL(r.bac))}</td>
+        <td class="num mono">${esc(BRL(r.ac))}</td>
+        <td class="num mono">${esc(BRL(r.eac))}</td>
+        <td class="num mono" style="color:${vc}">${variance > 0 ? '+' : ''}${esc(BRL(variance))}</td>
+        <td class="num mono" style="color:${vc}">${variance > 0 ? '+' : ''}${varPct.toFixed(1)}%</td>
+      </tr>`;
     })
     .join('');
   const table = rows
-    ? `<table class="data compact"><thead><tr><th>Categoria</th><th class="num">BAC</th><th class="num">AC</th><th class="num">EAC</th><th class="num">Var (R$)</th><th class="num">Var (%)</th></tr></thead><tbody>${rows}</tbody></table>`
+    ? `<h3 style="margin-top:12px">Principais categorias de custo</h3><table class="data compact"><thead><tr><th>Categoria</th><th class="num">BAC</th><th class="num">AC</th><th class="num">EAC</th><th class="num">Var (R$)</th><th class="num">Var (%)</th></tr></thead><tbody>${rows}</tbody></table>`
     : '';
-  return kpiHtml + table;
+
+  const driversHtml = drivers.length
+    ? `<h3 style="margin-top:12px">Principais impulsores de custo</h3><ul class="warn-list">${drivers.slice(0, 4).map((d) => `<li>${esc(d)}</li>`).join('')}</ul>`
+    : '';
+
+  return cardsHtml + table + driversHtml;
 }
 
 // ── Main renderer ───────────────────────────────────────────────────
 
 export function buildProjectFinanceReportHtml(payload: ProjectFinanceReportPayload): string {
   const { project, ledgerView, cutoffPeriod, dataSourceNote, generatedBy } = payload;
-  const brand = payload.brandName ?? 'Insight Energy — Governança Corporativa';
+  const brand = payload.brandName ?? 'Insight Energy';
+  const logoUrl = payload.logoUrl ?? '/LOGO%20INSIGHT.png';
 
   const iv = computeInvestorView(project, ledgerView);
   const eventStats = computeEventStats(project, iv.delayedEvents);
@@ -592,22 +1020,15 @@ export function buildProjectFinanceReportHtml(payload: ProjectFinanceReportPaylo
   const rangeLabel = periods.length
     ? `${periodLabel(periods[0])} – ${periodLabel(periods[periods.length - 1])}`
     : 'sem período';
-  const title = 'Relatório Financeiro do Projeto';
   const fileName = buildProjectFinanceFileName(project);
+  const statusColor = sevColor(iv.generalStatus.severity);
 
-  const kpiCards = kpis
-    .map((k) => `<div class="kpi">
-      <div class="bar" style="background:${k.color ?? C.ink}"></div>
-      <div class="kpi-l">${esc(k.label)}</div>
-      <div class="kpi-v" style="color:${k.missing ? C.subtle : (k.color ?? C.ink)}">${k.missing ? 'dados insuficientes' : esc(k.value)}</div>
-      ${k.helper ? `<div class="kpi-h">${esc(k.helper)}</div>` : ''}
-    </div>`)
-    .join('');
+  const hasInternalData = Boolean(ledgerView && (ledgerView.baf.bac > 0 || ledgerView.baf.ac > 0 || ledgerView.baf.eac > 0));
 
-  const summaryRows = [
+  const summaryRows: [string, string][] = [
     ['Valor do projeto', BRL(iv.contractTotal)],
-    ['Faturado', BRL(iv.billed)],
-    ['A faturar', BRL(iv.toBill)],
+    ['Receita faturada', BRL(iv.billed)],
+    ['Receita a faturar', BRL(iv.toBill)],
     ['Desembolso previsto', BRL(iv.insightDisbursement)],
     ['Resultado projetado', BRL(iv.netResult)],
     ['Margem estimada', fmtPct(iv.marginPct)],
@@ -616,151 +1037,31 @@ export function buildProjectFinanceReportHtml(payload: ProjectFinanceReportPaylo
     ['Risco financeiro', severityLabel(iv.financialRisk)],
   ];
 
-  const warningsHtml = warnings.length
-    ? `<ul class="warn-list">${warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>`
-    : `<p class="empty">Sem alertas de qualidade de dados ou riscos financeiros críticos no momento.</p>`;
+  // ── Page bodies (footers are appended with computed page numbers) ──
 
-  return `<!doctype html>
-<html lang="pt-BR"><head><meta charset="utf-8" />
-<title>${esc(fileName)}</title>
-<style>
-  @page { size: A4 landscape; margin: 12mm 12mm 16mm; }
-  @page :first { margin-top: 12mm; }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; background: #fff; color: ${C.ink};
-    font: 12px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-    -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .page { padding: 0 2mm; }
-  .page-break { page-break-before: always; }
-  .section { margin: 0 0 14px; page-break-inside: avoid; }
-  h1 { font-size: 22px; margin: 0 0 2px; line-height: 1.15; }
-  h2 { font-size: 13px; margin: 0 0 10px; text-transform: uppercase; letter-spacing: .1em;
-    color: ${C.ink}; border-bottom: 1px solid ${C.border}; padding-bottom: 5px; }
-  h3 { font-size: 11px; margin: 0 0 6px; color: ${C.muted}; text-transform: uppercase; letter-spacing: .08em; }
-  .sub { color: ${C.subtle}; font-size: 11px; }
-  .mono { font-variant-numeric: tabular-nums; font-family: ui-monospace, Menlo, monospace; }
-  .num { text-align: right; }
-  .muted { color: ${C.subtle}; }
-  .empty { color: ${C.subtle}; font-size: 11px; font-style: italic; padding: 8px 0; }
-
-  /* Cover header */
-  header.cover { display: flex; justify-content: space-between; align-items: flex-end; gap: 20px;
-    border-bottom: 2px solid ${C.primary}; padding-bottom: 14px; margin-bottom: 16px; }
-  .brand-row { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
-  .logo { display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px;
-    border-radius: 9px; background: linear-gradient(135deg, ${C.primary}, ${C.info}); color: #fff;
-    font-weight: 800; font-size: 16px; letter-spacing: -0.5px; }
-  .brand-name { font-weight: 700; font-size: 13px; color: ${C.ink}; }
-  .brand-name small { display: block; font-weight: 600; color: ${C.primary}; font-size: 9px;
-    letter-spacing: .14em; text-transform: uppercase; }
-  .meta { text-align: right; font-size: 10.5px; color: ${C.muted}; line-height: 1.7; }
-  .meta b { color: ${C.ink}; }
-  .proj-line { font-size: 13px; color: ${C.body}; margin-top: 6px; }
-  .proj-line b { color: ${C.ink}; }
-
-  /* Executive summary + KPIs */
-  .exec { display: grid; grid-template-columns: 1.1fr 1fr; gap: 18px; align-items: start; }
-  .narrative p { margin: 0 0 7px; font-size: 11.5px; color: ${C.body}; }
-  table.summary { width: 100%; border-collapse: collapse; }
-  table.summary td { padding: 4px 4px; border-bottom: 1px solid ${C.border}; font-size: 11px; }
-  table.summary td:last-child { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
-
-  .kpis { display: grid; gap: 8px; margin-top: 4px; }
-  .kpis.cols-5 { grid-template-columns: repeat(5, 1fr); }
-  .kpis.cols-4 { grid-template-columns: repeat(4, 1fr); }
-  .kpi { position: relative; border: 1px solid ${C.border}; border-radius: 8px; padding: 9px 10px 8px;
-    background: #FCFDFE; overflow: hidden; page-break-inside: avoid; }
-  .kpi .bar { position: absolute; top: 0; left: 0; right: 0; height: 2.5px; }
-  .kpi-l { font-size: 8.5px; text-transform: uppercase; letter-spacing: .1em; color: ${C.subtle}; }
-  .kpi-v { font-size: 15px; font-weight: 700; margin-top: 3px; font-variant-numeric: tabular-nums; }
-  .kpi-h { font-size: 8.5px; color: ${C.subtle}; margin-top: 2px; }
-
-  /* Mini cards (eventogram) */
-  .mini-cards { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 12px; }
-  .mini-card { position: relative; border: 1px solid ${C.border}; border-radius: 8px; padding: 8px 10px; overflow: hidden; }
-  .mini-card .bar { position: absolute; top: 0; left: 0; right: 0; height: 2.5px; }
-  .mc-l { font-size: 8.5px; text-transform: uppercase; letter-spacing: .1em; color: ${C.subtle}; }
-  .mc-v { font-size: 15px; font-weight: 700; margin-top: 2px; font-variant-numeric: tabular-nums; }
-  .mc-h { font-size: 8.5px; color: ${C.subtle}; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
-  /* Charts */
-  .chart { border: 1px solid ${C.border}; border-radius: 10px; padding: 10px 12px; background: #fff; page-break-inside: avoid; }
-  .legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 6px; justify-content: center; }
-  .legend .lg { display: inline-flex; align-items: center; gap: 5px; font-size: 9.5px; color: ${C.muted}; }
-  .legend .sw { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
-
-  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
-
-  /* Tables */
-  table.data { width: 100%; border-collapse: collapse; font-size: 10.5px; margin-top: 6px; }
-  table.data thead th { text-align: left; background: #F8FAFC; border-bottom: 1.5px solid ${C.borderStrong};
-    padding: 6px 7px; font-size: 9px; text-transform: uppercase; letter-spacing: .06em; color: ${C.muted}; }
-  table.data tbody td { padding: 5px 7px; border-bottom: 1px solid ${C.border}; }
-  table.data tbody tr { page-break-inside: avoid; }
-  table.data.compact { font-size: 10px; }
-  table.data thead { display: table-header-group; }
-  .pill { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 9px; font-weight: 600;
-    background: #EEF2F6; color: ${C.muted}; }
-  .pill.ok { background: #ECFDF5; color: ${C.success}; }
-  .pill.warn { background: #FFFBEB; color: ${C.warning}; }
-  .pill.crit { background: #FEF2F2; color: ${C.critical}; }
-
-  .warn-list { margin: 4px 0 0; padding-left: 18px; }
-  .warn-list li { font-size: 11px; color: ${C.body}; margin-bottom: 4px; }
-
-  /* Running footer with page numbers */
-  .footer { position: fixed; bottom: -12mm; left: 0; right: 0; display: flex; justify-content: space-between;
-    align-items: center; font-size: 8.5px; color: ${C.subtle}; border-top: 1px solid ${C.border}; padding-top: 3px; }
-  .page-num::before { content: counter(page); }
-  .page-total::before { content: counter(pages); }
-
-  /* Screen-only toolbar */
-  .toolbar { position: fixed; top: 12px; right: 12px; z-index: 20; background: ${C.ink}; color: #fff;
-    padding: 8px 12px; border-radius: 10px; display: flex; gap: 8px; box-shadow: 0 6px 18px rgba(0,0,0,.18); }
-  .toolbar button { background: ${C.primary}; color: #fff; border: 0; border-radius: 6px; padding: 6px 12px;
-    font-weight: 600; cursor: pointer; font-size: 11px; }
-  .toolbar button.alt { background: transparent; border: 1px solid rgba(255,255,255,.25); }
-
-  @media print { .no-print { display: none !important; } .footer { display: flex; } }
-  @media screen { .footer { display: none; } body { background: #f1f5f9; } .page { background: #fff; max-width: 1100px; margin: 16px auto; padding: 22px; box-shadow: 0 1px 6px rgba(0,0,0,.12); } }
-</style></head>
-<body>
-  <div class="toolbar no-print">
-    <button onclick="window.print()">Imprimir / Salvar PDF</button>
-    <button class="alt" onclick="window.close()">Fechar</button>
-  </div>
-
-  <div class="footer">
-    <span>${esc(brand)} · ${esc(project.nome)} · Confidencial</span>
-    <span>Página <span class="page-num"></span> de <span class="page-total"></span></span>
-  </div>
-
-  <!-- PAGE 1 — Cover + Executive summary + KPIs -->
-  <div class="page">
-    <header class="cover">
-      <div>
-        <div class="brand-row">
-          <span class="logo">IE</span>
-          <span class="brand-name">${esc(brand)}<small>Project Finance Review</small></span>
-        </div>
-        <h1>${esc(title)}</h1>
-        <div class="proj-line"><b>${esc(project.nome)}</b> · ${esc(project.codigo || '—')}${project.cliente ? ` · ${esc(project.cliente)}` : ''}</div>
+  const coverPage = `
+    <header class="cover-band">
+      <img class="cover-logo" src="${esc(logoUrl)}" alt="${esc(brand)}" />
+      <div class="cover-kicker">Project Finance Review</div>
+      <h1 class="cover-title">Relatório Financeiro do Projeto</h1>
+      <div class="cover-proj">
+        <b>${esc(project.nome)}</b>
+        ${project.cliente ? `<span class="sep">·</span>${esc(project.cliente)}` : ''}
+        <span class="status-chip" style="color:${statusColor};border-color:${statusColor}40;background:${statusColor}0D">${esc(iv.generalStatus.label)}</span>
       </div>
-      <div class="meta">
-        <div><b>Gerado em</b> ${esc(generated)}</div>
-        ${generatedBy ? `<div><b>Por</b> ${esc(generatedBy)}</div>` : ''}
-        <div><b>Período</b> ${esc(rangeLabel)}</div>
-        ${effectiveCutoff ? `<div><b>Data de corte</b> ${esc(periodLabel(effectiveCutoff))}</div>` : ''}
-        <div class="sub">${esc(dataSourceNote ?? 'Fonte: Financeiro (ledger oficial) + eventograma do projeto')}</div>
+      <div class="cover-meta">
+        <span><b>Gerado em</b> ${esc(generated)}</span>
+        ${generatedBy ? `<span><b>Por</b> ${esc(generatedBy)}</span>` : ''}
+        <span><b>Período</b> ${esc(rangeLabel)}</span>
+        ${effectiveCutoff ? `<span><b>Data de corte</b> ${esc(periodLabel(effectiveCutoff))}</span>` : ''}
       </div>
+      <div class="cover-note">${esc(dataSourceNote ?? 'Fonte: Financeiro (ledger oficial) + eventograma do projeto')} · Documento confidencial — uso restrito de diretoria, conselho e investidores.</div>
     </header>
 
     <section class="section">
-      <h2>Resumo Executivo</h2>
+      ${sectionTitle('Resumo Executivo')}
       <div class="exec">
-        <div class="narrative">
-          ${narrative.map((s) => `<p>${esc(s)}</p>`).join('')}
-        </div>
+        <div class="narrative">${narrative.map((s) => `<p>${esc(s)}</p>`).join('')}</div>
         <table class="summary">
           ${summaryRows.map(([l, v]) => `<tr><td>${esc(l)}</td><td>${esc(v)}</td></tr>`).join('')}
         </table>
@@ -768,59 +1069,230 @@ export function buildProjectFinanceReportHtml(payload: ProjectFinanceReportPaylo
     </section>
 
     <section class="section">
-      <h2>Indicadores Financeiros</h2>
-      <div class="kpis cols-5">${kpiCards}</div>
-    </section>
-  </div>
+      ${sectionTitle('Indicadores Financeiros')}
+      <div class="kpis cols-5">${kpis.map(kpiCardHtml).join('')}</div>
+    </section>`;
 
-  <!-- PAGE 2 — Curva S -->
-  <div class="page page-break">
+  const curvaSPage = `
     <section class="section">
-      <h2>Curva S — Receita × Desembolso</h2>
-      <div class="chart">${renderCurvaS(iv, effectiveCutoff)}</div>
-    </section>
-    <section class="section">
-      <h2>Fluxo Mensal do Projeto</h2>
-      <div class="chart">${renderMonthlyFlow(iv)}</div>
-    </section>
-  </div>
+      ${sectionTitle('Curva S — Receita × Desembolso', 'valores acumulados · previsto × realizado × projeção · marcadores de corte, break-even e pico de caixa')}
+      ${renderCurvaSPage(iv, effectiveCutoff)}
+    </section>`;
 
-  <!-- PAGE 3 — Eventograma -->
-  <div class="page page-break">
+  const monthlyPage = `
     <section class="section">
-      <h2>Eventograma de Faturamento</h2>
+      ${sectionTitle('Fluxo Mensal do Projeto', 'receita × desembolso mensais · saldo líquido · meses negativos destacados')}
+      ${renderMonthlyFlowPage(iv, effectiveCutoff)}
+    </section>`;
+
+  const eventsPage = `
+    <section class="section">
+      ${sectionTitle('Eventograma de Faturamento', 'priorização: atrasados · próximos · maiores · faturados')}
       ${renderEventCards(iv, eventStats)}
-      ${renderEventTable(iv)}
-    </section>
-  </div>
+      ${renderEventGroups(project)}
+    </section>`;
 
-  <!-- PAGE 4 — Resultado projetado + Sensibilidade + Qualidade -->
-  <div class="page page-break">
+  const waterfallPage = `
     <section class="section">
-      <h2>Resultado Projetado</h2>
-      <div class="chart">${svgWaterfall(iv, { width: 1040, height: 320 })}</div>
-    </section>
-    <div class="two-col">
-      <section class="section">
-        <h3>Sensibilidade / Riscos Financeiros</h3>
-        ${renderSensitivity(sensitivity)}
-      </section>
-      <section class="section">
-        <h3>Qualidade de Dados &amp; Alertas</h3>
-        ${warningsHtml}
-      </section>
+      ${sectionTitle('Resultado Projetado', 'ponte do caixa Insight ao resultado final · composição do desembolso')}
+      ${renderWaterfallPage(iv)}
+    </section>`;
+
+  const internalNote = !hasInternalData
+    ? `<p class="empty" style="margin-top:10px">Controle interno (BAC / AC / EAC / ETC): dados ainda insuficientes — apêndice omitido.</p>`
+    : '';
+  const sensitivityPage = `
+    <section class="section">
+      ${sectionTitle('Sensibilidade / Riscos Financeiros', 'estresse de custo e receita sobre o resultado projetado')}
+      ${renderSensitivityPage(iv, sensitivity, warnings)}
+      ${internalNote}
+    </section>`;
+
+  const appendixPage = hasInternalData
+    ? `
+    <section class="section">
+      ${sectionTitle('Apêndice — Controle Interno do Projeto', 'BAC / AC / EAC / ETC · variações e principais categorias · ledger oficial')}
+      ${renderInternalAppendix(ledgerView!, project.finance?.drivers ?? [])}
+    </section>`
+    : null;
+
+  const pageBodies = [coverPage, curvaSPage, monthlyPage, eventsPage, waterfallPage, sensitivityPage, ...(appendixPage ? [appendixPage] : [])];
+  const totalPages = pageBodies.length;
+
+  const pagesHtml = pageBodies
+    .map((body, i) => `
+  <div class="page${i > 0 ? ' page-break' : ''}">
+    <div class="page-body">${body}</div>
+    <div class="pfoot">
+      <span class="pf-brand"><img class="pf-logo" src="${esc(logoUrl)}" alt="${esc(brand)}" /> · ${esc(project.nome)} · Confidencial</span>
+      <span>Página ${i + 1} de ${totalPages}</span>
     </div>
-  </div>
+  </div>`)
+    .join('');
 
-  <!-- APPENDIX — Internal control -->
-  <div class="page page-break">
-    <section class="section">
-      <h2>Apêndice — Controle Interno do Projeto</h2>
-      <div class="sub" style="margin-bottom:8px">BAC / AC / EAC / ETC e detalhamento de custos · ledger oficial</div>
-      ${renderInternalAppendix(ledgerView)}
-    </section>
-  </div>
+  return `<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8" />
+<title>${esc(fileName)}</title>
+<style>
+  @page { size: A4 landscape; margin: 10mm 12mm 8mm; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: #fff; color: ${C.ink};
+    font: 12px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 
+  /* Each .page is one explicit printed page; footer is laid out at its bottom. */
+  .page { display: flex; flex-direction: column; min-height: 186mm; padding: 0 1mm; }
+  .page-break { page-break-before: always; }
+  .page-body { flex: 1 1 auto; }
+  .pfoot { margin-top: auto; display: flex; justify-content: space-between; align-items: center;
+    border-top: 1px solid ${C.border}; padding-top: 5px; font-size: 8.5px; color: ${C.subtle}; }
+  .pf-brand { display: inline-flex; align-items: center; gap: 5px; }
+  .pf-logo { height: 11px; width: auto; object-fit: contain; display: inline-block; }
+
+  .section { margin: 0 0 12px; page-break-inside: avoid; }
+  h2 { font-size: 14px; margin: 0; color: ${C.ink}; letter-spacing: .02em; }
+  h3 { font-size: 10.5px; margin: 0 0 6px; color: ${C.muted}; text-transform: uppercase; letter-spacing: .08em; }
+  .sec-head { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; padding-bottom: 6px;
+    border-bottom: 1px solid ${C.border}; }
+  .sec-rule { width: 4px; height: 26px; border-radius: 99px;
+    background: linear-gradient(180deg, ${C.brandOrange}, ${C.brandGreen}); }
+  .sec-sub { margin: 1px 0 0; font-size: 9.5px; color: ${C.subtle}; }
+
+  .mono { font-variant-numeric: tabular-nums; font-family: ui-monospace, Menlo, monospace; }
+  .num { text-align: right; }
+  .muted { color: ${C.subtle}; }
+  .empty { color: ${C.subtle}; font-size: 11px; font-style: italic; padding: 6px 0; }
+  .interp { font-size: 10.5px; color: ${C.body}; margin: 6px 0 0; max-width: 980px; }
+
+  /* ── Cover band (glass-inspired, light) ── */
+  .cover-band { position: relative; text-align: center; padding: 22px 28px 16px; margin-bottom: 14px;
+    border: 1px solid ${C.border}; border-radius: 16px; overflow: hidden;
+    background:
+      radial-gradient(120% 140% at 0% 0%, ${C.brandOrange}14 0%, transparent 45%),
+      radial-gradient(120% 140% at 100% 0%, ${C.brandGreen}14 0%, transparent 45%),
+      linear-gradient(180deg, #FFFFFF 0%, #FAFCFB 100%); }
+  .cover-band::after { content: ''; position: absolute; inset-inline: 0; bottom: 0; height: 3px;
+    background: linear-gradient(90deg, ${C.brandOrange}, #F5C518, ${C.brandGreen}); }
+  .cover-logo { height: 52px; max-width: 360px; object-fit: contain; margin: 0 auto 10px; display: block; }
+  .cover-kicker { font-size: 9px; font-weight: 700; letter-spacing: .22em; text-transform: uppercase; color: ${C.subtle}; }
+  .cover-title { font-size: 26px; font-weight: 800; margin: 6px 0 12px; color: ${C.ink}; letter-spacing: -0.01em; }
+  .cover-proj { font-size: 13.5px; color: ${C.body}; }
+  .cover-proj b { color: ${C.ink}; }
+  .cover-proj .sep { margin: 0 7px; color: ${C.borderStrong}; }
+  .status-chip { display: inline-block; margin-left: 10px; padding: 2px 10px; border: 1px solid; border-radius: 999px;
+    font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .12em; vertical-align: 2px; }
+  .cover-meta { display: flex; justify-content: center; flex-wrap: wrap; gap: 6px 22px; margin-top: 10px;
+    font-size: 10px; color: ${C.muted}; }
+  .cover-meta b { color: ${C.ink}; }
+  .cover-note { margin-top: 9px; font-size: 8.5px; color: ${C.subtle}; }
+
+  /* ── Executive summary ── */
+  .exec { display: grid; grid-template-columns: 1.15fr 1fr; gap: 18px; align-items: start; }
+  .narrative p { margin: 0 0 7px; font-size: 11.5px; color: ${C.body}; }
+  table.summary { width: 100%; border-collapse: collapse; }
+  table.summary td { padding: 4px 6px; border-bottom: 1px solid ${C.border}; font-size: 10.5px; }
+  table.summary tr:nth-child(even) td { background: #FAFCFB; }
+  table.summary td:last-child { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+  /* ── KPI cards ── */
+  .kpis { display: grid; gap: 8px; }
+  .kpis.cols-5 { grid-template-columns: repeat(5, 1fr); }
+  .kpi { position: relative; display: flex; flex-direction: column; min-height: 64px;
+    border: 1px solid ${C.border}; border-radius: 10px; padding: 9px 11px 8px;
+    background: linear-gradient(180deg, #FFFFFF 0%, #FBFDFC 100%); overflow: hidden; page-break-inside: avoid;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04); }
+  .kpi .bar { position: absolute; top: 0; left: 10%; right: 10%; height: 2px; }
+  .kpi-l { font-size: 8px; text-transform: uppercase; letter-spacing: .1em; color: ${C.subtle}; font-weight: 700; }
+  .kpi-v { font-size: 15.5px; font-weight: 800; margin-top: 3px; font-variant-numeric: tabular-nums; }
+  .kpi-foot { margin-top: auto; display: flex; justify-content: space-between; align-items: center; gap: 4px; padding-top: 2px; }
+  .kpi-h { font-size: 8.5px; color: ${C.subtle}; }
+
+  /* ── Mini cards ── */
+  .mini-cards { display: grid; gap: 8px; margin-bottom: 10px; }
+  .mini-cards.cols-5 { grid-template-columns: repeat(5, 1fr); }
+  .mini-cards.cols-8 { grid-template-columns: repeat(8, 1fr); }
+  .mini-card { position: relative; border: 1px solid ${C.border}; border-radius: 10px; padding: 8px 10px; overflow: hidden;
+    background: linear-gradient(180deg, #FFFFFF 0%, #FBFDFC 100%); box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04); }
+  .mini-card .bar { position: absolute; top: 0; left: 10%; right: 10%; height: 2px; }
+  .mc-l { font-size: 7.5px; text-transform: uppercase; letter-spacing: .09em; color: ${C.subtle}; font-weight: 700;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mc-v { font-size: 13.5px; font-weight: 800; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .mc-h { font-size: 8px; color: ${C.subtle}; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* ── Callout chips ── */
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border: 1px solid; border-radius: 999px; }
+  .chip .dot { width: 6px; height: 6px; border-radius: 99px; }
+  .chip-l { font-size: 8.5px; text-transform: uppercase; letter-spacing: .08em; color: ${C.muted}; }
+  .chip-v { font-size: 10px; font-weight: 800; font-variant-numeric: tabular-nums; }
+
+  /* ── Charts ── */
+  .chart { border: 1px solid ${C.border}; border-radius: 12px; padding: 10px 12px 8px; background: #fff;
+    page-break-inside: avoid; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04); }
+  .legend { display: flex; flex-wrap: wrap; gap: 5px 14px; margin-top: 6px; justify-content: center; }
+  .legend .lg { display: inline-flex; align-items: center; gap: 5px; font-size: 9px; color: ${C.muted}; }
+  .legend .sw { width: 16px; height: 3px; border-radius: 2px; display: inline-block; }
+
+  .two-col { display: grid; grid-template-columns: 1.05fr 1fr; gap: 16px; align-items: start; }
+
+  /* ── Tables ── */
+  table.data { width: 100%; border-collapse: collapse; font-size: 10px; margin-top: 4px; }
+  table.data thead th { text-align: left; background: #F6F9F8; border-bottom: 1.5px solid ${C.borderStrong};
+    padding: 5px 7px; font-size: 8.5px; text-transform: uppercase; letter-spacing: .06em; color: ${C.muted}; }
+  table.data thead th.num { text-align: right; }
+  table.data tbody td { padding: 4.5px 7px; border-bottom: 1px solid ${C.border}; }
+  table.data tbody tr { page-break-inside: avoid; }
+  table.data tbody tr:nth-child(even) { background: #FBFDFC; }
+  table.data thead { display: table-header-group; }
+  .pill { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 8.5px; font-weight: 700;
+    background: #EEF2F6; color: ${C.muted}; }
+  .pill.ok { background: #ECFDF5; color: ${C.success}; }
+  .pill.warn { background: #FFFBEB; color: ${C.warning}; }
+  .pill.crit { background: #FEF2F2; color: ${C.critical}; }
+
+  .event-group { margin-bottom: 10px; page-break-inside: avoid; }
+  .group-title { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .1em; color: ${C.body};
+    padding: 3px 0 3px 9px; border-left: 3px solid ${C.borderStrong}; }
+  .group-title.crit { border-left-color: ${C.critical}; color: ${C.critical}; }
+  .group-title.warn { border-left-color: ${C.warning}; color: ${C.warning}; }
+  .group-title.ok { border-left-color: ${C.success}; color: ${C.success}; }
+
+  /* ── Waterfall extras ── */
+  .wf-head { display: flex; align-items: flex-start; gap: 16px; margin-bottom: 8px; }
+  .result-badge { display: flex; flex-direction: column; gap: 1px; border: 1px solid; border-radius: 12px;
+    padding: 8px 14px; flex-shrink: 0; }
+  .rb-l { font-size: 8px; text-transform: uppercase; letter-spacing: .1em; color: ${C.subtle}; font-weight: 700; }
+  .rb-v { font-size: 18px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .rb-m { font-size: 9px; color: ${C.muted}; }
+
+  /* ── Warning box ── */
+  .warn-box { margin-top: 10px; border: 1px solid ${C.warning}40; background: ${C.warning}0A;
+    border-radius: 12px; padding: 10px 14px; page-break-inside: avoid; }
+  .warn-box.ok { border-color: ${C.success}40; background: ${C.success}0A; }
+  .warn-title { font-size: 9.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .1em; color: ${C.warning}; margin-bottom: 4px; }
+  .warn-list { margin: 2px 0 0; padding-left: 16px; }
+  .warn-list li { font-size: 10px; color: ${C.body}; margin-bottom: 3px; }
+
+  /* ── Screen-only toolbar & preview ── */
+  .toolbar { position: fixed; top: 12px; right: 12px; z-index: 20; background: ${C.ink}; color: #fff;
+    padding: 8px 12px; border-radius: 10px; display: flex; gap: 8px; box-shadow: 0 6px 18px rgba(0,0,0,.18); }
+  .toolbar button { background: ${C.brandGreen}; color: #fff; border: 0; border-radius: 6px; padding: 6px 12px;
+    font-weight: 600; cursor: pointer; font-size: 11px; }
+  .toolbar button.alt { background: transparent; border: 1px solid rgba(255,255,255,.25); }
+
+  @media print { .no-print { display: none !important; } }
+  @media screen {
+    body { background: #E9EEF2; }
+    .page { background: #fff; width: 297mm; min-height: 190mm; margin: 16px auto; padding: 10mm 12mm 8mm;
+      box-shadow: 0 2px 14px rgba(15, 23, 42, .14); border-radius: 4px; }
+  }
+</style></head>
+<body>
+  <div class="toolbar no-print">
+    <button onclick="window.print()">Imprimir / Salvar PDF</button>
+    <button class="alt" onclick="window.close()">Fechar</button>
+  </div>
+${pagesHtml}
   <script>
     document.title = ${JSON.stringify(fileName)};
   </script>
@@ -834,7 +1306,10 @@ export type ProjectFinanceExportResult =
 /** Open the print-ready investor report in a new window (user prints / saves as PDF). */
 export function openProjectFinanceReport(payload: ProjectFinanceReportPayload): ProjectFinanceExportResult {
   try {
-    const html = buildProjectFinanceReportHtml(payload);
+    // Absolute logo URL so the asset resolves regardless of the new window's base URI.
+    const logoUrl = payload.logoUrl
+      ?? (typeof window !== 'undefined' ? `${window.location.origin}/LOGO%20INSIGHT.png` : '/LOGO%20INSIGHT.png');
+    const html = buildProjectFinanceReportHtml({ ...payload, logoUrl });
     const w = window.open('', '_blank', 'width=1280,height=860');
     if (!w) {
       return { ok: false, reason: 'popup_blocked', message: 'O navegador bloqueou a janela. Habilite pop-ups para este site.' };

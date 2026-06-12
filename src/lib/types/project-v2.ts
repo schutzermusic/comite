@@ -108,6 +108,7 @@ export type CostCurvePoint = {
     bacCumulative: number;         // cents
     acCumulative: number;          // cents
     eacCumulative: number;         // cents
+    taxCumulative?: number;        // cents, optional tax component shown separately in S-curve
 };
 
 export type RevenueCurvePoint = {
@@ -189,6 +190,7 @@ export type ProjectV2 = Project & {
 
     // New scalar fields
     contract_id?: string;
+    directPassThroughCents?: number;  // pass-through/direct billing outside Insight cash and S-curve
     /**
      * Finance ledger project id (proj-1…proj-5) this project maps to. The
      * project detail FinanceView derives all monetary numbers from the unified
