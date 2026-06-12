@@ -316,12 +316,25 @@ function makeCemigCostCurveFromTotalizer(): { points: CostCurvePoint[]; cutoffPe
 }
 
 function makeCemigBillingEventsFromTotalizer(projectId: string, contractId: string): BillingEvent[] {
+    let billedBalanceCents = CEMIG_TOTALIZER_MONTHS
+        .filter(row => row[0] <= CEMIG_TOTALIZER_CUTOFF)
+        .reduce((total, row) => total + totalizerCents(row[14]), 0);
+
     return CEMIG_TOTALIZER_MONTHS
-        .filter(row => row[10] > 0 || row[14] > 0)
+        .filter(row => row[10] > 0)
         .map((row, index) => {
             const eventCount = row[1] + row[3];
             const isPast = row[0] <= CEMIG_TOTALIZER_CUTOFF;
-            const status: BillingEvent['status'] = row[14] > 0 ? 'billed' : isPast && row[10] > 0 ? 'delayed' : 'planned';
+            const plannedCents = totalizerCents(row[10]);
+            const actualCents = Math.min(plannedCents, billedBalanceCents);
+            billedBalanceCents -= actualCents;
+            const status: BillingEvent['status'] = actualCents >= plannedCents
+                ? 'billed'
+                : actualCents > 0
+                    ? 'partial'
+                    : isPast
+                        ? 'delayed'
+                        : 'planned';
             const title = eventCount > 0
                 ? `Totalizadora ${row[0]} - ${eventCount} evento(s) de faturamento`
                 : `Totalizadora ${row[0]} - antecipação`;
@@ -330,10 +343,10 @@ function makeCemigBillingEventsFromTotalizer(projectId: string, contractId: stri
                 projectId,
                 contractId,
                 datePlanned: `${row[0]}-01`,
-                dateActual: status === 'billed' ? `${row[0]}-01` : undefined,
+                dateActual: actualCents > 0 ? `${row[0]}-01` : undefined,
                 title,
-                amountPlannedCents: totalizerCents(row[10]),
-                amountActualCents: row[14] > 0 ? totalizerCents(row[14]) : undefined,
+                amountPlannedCents: plannedCents,
+                amountActualCents: actualCents > 0 ? actualCents : undefined,
                 status,
                 linked: {
                     documentIds: ['30.04.26-Rev.30-UHE-SC Eventograma.xlsx'],

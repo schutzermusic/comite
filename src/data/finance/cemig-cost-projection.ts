@@ -17,7 +17,7 @@ const cemigFixedCostProjectionLines: CemigProjectionLine[] = [
   {
     label: 'Folha de pagamento / salários',
     monthlyAmountCents: 23_613_662,
-    projectCostCategory: 'Folha / ordenados e salários',
+    projectCostCategory: 'Custo de Folha',
     categoryId: 'cat-b11',
     costCenterId: 'cc-eng-campo',
     detail: 'Projeção mensal sugerida de folha direta CEMIG',
@@ -41,7 +41,7 @@ const cemigFixedCostProjectionLines: CemigProjectionLine[] = [
   {
     label: 'Aluguel de imóvel/base de apoio',
     monthlyAmountCents: 200_000,
-    projectCostCategory: 'LOGISTICAS/Mobilização',
+    projectCostCategory: 'Logisticas',
     categoryId: 'cat-b27',
     costCenterId: 'cc-mob',
     detail: 'Projeção mensal sugerida de base de apoio',
@@ -49,7 +49,7 @@ const cemigFixedCostProjectionLines: CemigProjectionLine[] = [
   {
     label: 'Aluguel de equipamentos / contêineres',
     monthlyAmountCents: 176_213,
-    projectCostCategory: 'LOGISTICAS/Mobilização',
+    projectCostCategory: 'Logisticas',
     categoryId: 'cat-b43',
     costCenterId: 'cc-mob',
     detail: 'Projeção mensal sugerida de equipamentos e contêineres',
@@ -57,7 +57,7 @@ const cemigFixedCostProjectionLines: CemigProjectionLine[] = [
   {
     label: 'Locação de veículos dedicada',
     monthlyAmountCents: 2_700_000,
-    projectCostCategory: 'LOGISTICAS/Mobilização',
+    projectCostCategory: 'Logisticas',
     categoryId: 'cat-b23',
     costCenterId: 'cc-mob',
     detail: 'Projeção mensal sugerida de veículos dedicados',
@@ -65,7 +65,7 @@ const cemigFixedCostProjectionLines: CemigProjectionLine[] = [
   {
     label: 'Imóveis/alojamentos adicionais',
     monthlyAmountCents: 677_890,
-    projectCostCategory: 'LOGISTICAS/Mobilização',
+    projectCostCategory: 'Logisticas',
     categoryId: 'cat-b21',
     costCenterId: 'cc-mob',
     detail: 'Projeção mensal sugerida de alojamentos adicionais',

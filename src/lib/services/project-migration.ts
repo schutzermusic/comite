@@ -4,11 +4,16 @@
 
 import type { Project } from '@/lib/types';
 import type { ProjectV2, ProjectFinance, ProjectAuditEvent, ProjectRevenue } from '@/lib/types/project-v2';
+import { projects as seedProjects } from '@/lib/mock-data';
 import { CEMIG_TOTAL_CONTRACTED, CEMIG_TOTALIZER_CUTOFF_BILLED, v2Overlays, V2_ENRICHED_IDS } from '@/data/mock-projects-v2';
 import { makeMoney, computeHealthScore } from '@/lib/utils/project-utils';
 
 const STORAGE_KEY_V1 = 'insight_projects';
 const STORAGE_KEY_V2 = 'insight_projects_v2_b'; // bumped to include billing_eventogram
+
+function seedProject(id: string): Project | undefined {
+    return seedProjects.find((p) => p.id === id);
+}
 
 /**
  * Check if v2 migration has already been performed
@@ -88,14 +93,15 @@ function migrateProjectToV2(p: Project): ProjectV2 {
 
     // Merge overlay data if available
     if (overlay) {
+        const seed = seedProject(p.id);
         const merged: ProjectV2 = {
             ...base,
             ...overlay,
             // Keep the original project fields (spread base first, then overlay)
             id: p.id,
-            nome: p.nome,
-            codigo: p.codigo,
-            cliente: p.cliente,
+            nome: seed?.nome ?? p.nome,
+            codigo: seed?.codigo ?? p.codigo,
+            cliente: seed?.cliente ?? p.cliente,
             status: p.status,
             responsavel: p.responsavel,
             valor_total: p.valor_total,
@@ -140,15 +146,19 @@ export function migrateToV2(v1Projects: Project[]): ProjectV2[] {
 
 export function applyLatestV2Overlay(project: ProjectV2): ProjectV2 {
     const overlay = v2Overlays[project.id];
-    if (!overlay) return project;
+    const seed = seedProject(project.id);
+    if (!overlay) {
+        if (!seed) return project;
+        return { ...project, nome: seed.nome, descricao: seed.descricao ?? project.descricao };
+    }
 
     const merged: ProjectV2 = {
         ...project,
         ...overlay,
         id: project.id,
-        nome: project.nome,
-        codigo: project.codigo,
-        cliente: project.cliente,
+        nome: seed?.nome ?? project.nome,
+        codigo: seed?.codigo ?? project.codigo,
+        cliente: seed?.cliente ?? project.cliente,
         status: project.status,
         responsavel: project.responsavel,
         valor_total: project.id === 'proj-001' ? CEMIG_TOTAL_CONTRACTED : project.valor_total,

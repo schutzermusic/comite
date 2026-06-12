@@ -74,12 +74,12 @@ export function RankPanel({
     return acc;
   }, []);
   return (
-    <HudCard className="flex h-full min-w-0 flex-col">
+    <HudCard fullHeight className="flex h-full min-w-0 flex-col">
       <HudCardHeader className="flex-row items-center justify-between gap-2">
         <HudCardTitle className="min-w-0 truncate">{title}</HudCardTitle>
         {action}
       </HudCardHeader>
-      <HudCardContent className="flex flex-1 flex-col p-2.5">
+      <HudCardContent className="flex min-h-0 flex-1 flex-col p-2.5">
         <div className="flex min-h-0 flex-1 flex-col gap-0.5">
           {shown.length === 0 && (
             <p className="flex flex-1 items-center justify-center px-2 text-center text-[11px] text-ig-text-tertiary">{emptyLabel}</p>
@@ -196,12 +196,11 @@ function useChartAreaHeight(enabled: boolean, fallback: number) {
 
   useLayoutEffect(() => {
     if (!enabled || !ref.current) return;
-    const obs = new ResizeObserver((entries) => {
-      for (const e of entries) {
-        setHeight(Math.max(200, Math.round(e.contentRect.height)));
-      }
-    });
-    obs.observe(ref.current);
+    const el = ref.current;
+    const measure = () => setHeight(Math.max(200, Math.round(el.clientHeight)));
+    measure();
+    const obs = new ResizeObserver(measure);
+    obs.observe(el);
     return () => obs.disconnect();
   }, [enabled]);
 
@@ -218,7 +217,7 @@ export function TrendPanel({ title, points, height = 280, fillHeight = false }: 
   const series = [{ name: 'Custo', data: points.map((p) => p.value), tone: 'accent' as const }];
   const [chartAreaRef, chartHeight] = useChartAreaHeight(fillHeight, height);
   return (
-    <HudCard className="flex h-full min-w-0 flex-col">
+    <HudCard fullHeight={fillHeight} className={cn('flex min-w-0 flex-col', fillHeight && 'h-full')}>
       <HudCardHeader><HudCardTitle className="truncate">{title}</HudCardTitle></HudCardHeader>
       <HudCardContent className={cn('flex flex-1 flex-col p-3', fillHeight ? 'min-h-0' : 'justify-center')}>
         {points.length === 0 ? (

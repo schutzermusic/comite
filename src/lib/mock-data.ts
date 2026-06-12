@@ -15,7 +15,7 @@ export const projects: Project[] = [
   // ============================================
   { 
     id: 'proj-001', 
-    nome: 'Modernização da Rede de Distribuição MG', 
+    nome: 'Reforma e modernização da UHE Salto Grande e modernização e digitalização da SE UHE Salto Grande', 
     codigo: 'CEMIG-MOD-01', 
     cliente: 'CEMIG S.A',
     clientLogoUrl: 'https://picsum.photos/seed/cemig/64/64',
@@ -34,7 +34,7 @@ export const projects: Project[] = [
     comiteResponsavel: 'Comitê Estratégico',
     data_inicio: '2024-06-01',
     created_date: '2024-06-01',
-    descricao: 'Projeto de modernização e expansão da rede de distribuição de energia em Minas Gerais, incluindo smart grids e automação.',
+    descricao: 'Reforma e modernização da UHE Salto Grande, incluindo sistemas de controle, proteção e supervisão, e modernização e digitalização da subestação da UHE Salto Grande.',
     risco_geral: 'medio',
     roi_estimado: 22,
     tipo: 'transmissao',

@@ -63,6 +63,8 @@ function esc(s: unknown): string {
 }
 
 const centsToReais = (cents?: number | null): number => (cents ?? 0) / 100;
+const curveCentsToReais = (value: number | null | undefined): number | null =>
+  value == null || Number.isNaN(value) ? null : value / 100;
 
 function statusLabelPt(status: string): string {
   const map: Record<string, string> = {
@@ -493,6 +495,17 @@ function sectionTitle(title: string, subtitle?: string): string {
   return `<div class="sec-head"><div class="sec-rule"></div><div><h2>${esc(title)}</h2>${subtitle ? `<p class="sec-sub">${esc(subtitle)}</p>` : ''}</div></div>`;
 }
 
+// ── Report section selector ─────────────────────────────────────────
+
+/** Which sections to include in the generated PDF report. */
+export type ReportSections = 'financeiro' | 'controle-interno' | 'all';
+
+const SECTION_LABEL: Record<ReportSections, string> = {
+  'financeiro': 'Relatório Financeiro',
+  'controle-interno': 'Controle Interno',
+  'all': 'Relatório Completo',
+};
+
 // ── Payload ─────────────────────────────────────────────────────────
 
 export interface ProjectFinanceReportPayload {
@@ -504,9 +517,11 @@ export interface ProjectFinanceReportPayload {
   generatedBy?: string;
   /** Absolute or root-relative URL of the brand logo (PNG/SVG). */
   logoUrl?: string;
+  /** Which sections to include. Defaults to 'all'. */
+  sections?: ReportSections;
 }
 
-export function buildProjectFinanceFileName(project: ProjectV2, date = new Date()): string {
+export function buildProjectFinanceFileName(project: ProjectV2, date = new Date(), sections: ReportSections = 'all'): string {
   const code = (project.codigo || project.id || 'projeto')
     .toString()
     .normalize('NFD')
@@ -514,7 +529,8 @@ export function buildProjectFinanceFileName(project: ProjectV2, date = new Date(
     .replace(/[^a-zA-Z0-9-]+/g, '-')
     .replace(/^-+|-+$/g, '');
   const ymd = date.toISOString().slice(0, 10);
-  return `project-finance-report-${code}-${ymd}`;
+  const suffix = sections === 'controle-interno' ? '-controle-interno' : sections === 'financeiro' ? '-financeiro' : '';
+  return `project-finance-report-${code}${suffix}-${ymd}`;
 }
 
 // ── KPI / warning helpers (read from the shared iv — no new math) ──
@@ -993,12 +1009,95 @@ function renderInternalAppendix(view: ProjectFinanceView, drivers: string[]): st
   return cardsHtml + table + driversHtml;
 }
 
+/** S-curve chart page specific to Internal Controls (cost BAC/AC/EAC + revenue planned/billed/received). */
+function renderInternalSCurvePage(view: ProjectFinanceView, project: ProjectV2, effectiveCutoff?: string): string {
+  const costPeriods = view.sCurve.cost.map((p) => p.period);
+  const ledgerRevenueByPeriod = new Map(view.sCurve.revenue.map((p) => [p.period, p]));
+  const projectRevenueByPeriod = new Map((project.revenueCurve ?? []).map((p) => [p.period, p]));
+  const revenuePoints = Array.from(new Set([
+    ...projectRevenueByPeriod.keys(),
+    ...ledgerRevenueByPeriod.keys(),
+  ]))
+    .sort((a, b) => a.localeCompare(b))
+    .map((period) => {
+      const projectPoint = projectRevenueByPeriod.get(period);
+      const ledgerPoint = ledgerRevenueByPeriod.get(period);
+      return {
+        period,
+        planned: curveCentsToReais(projectPoint?.plannedCumulative) ?? ledgerPoint?.planned ?? null,
+        billed: curveCentsToReais(projectPoint?.billedCumulative) ?? ledgerPoint?.billed ?? null,
+        received: curveCentsToReais(projectPoint?.receivedCumulative) ?? ledgerPoint?.received ?? null,
+      };
+    });
+  const revPeriods = revenuePoints.map((p) => p.period);
+
+  // Cost S-curve
+  let costChart = '';
+  if (costPeriods.length > 0) {
+    const costSeries: LineSeries[] = [
+      { name: 'BAC (orçamento)', color: C.info, values: view.sCurve.cost.map((p) => p.BAC), endLabel: true },
+      { name: 'AC (realizado)', color: C.success, values: view.sCurve.cost.map((p) => p.AC), endLabel: true },
+      { name: 'EAC (estimativa)', color: C.cost, values: view.sCurve.cost.map((p) => p.EAC), dashed: true, endLabel: true },
+    ].filter((s) => s.values.some((v) => v != null));
+
+    const costMarkers: ChartMarker[] = [];
+    const cutIdx = costPeriods.indexOf(effectiveCutoff ?? '');
+    if (cutIdx >= 0) costMarkers.push({ index: cutIdx, label: 'CORTE', color: C.subtle, value: periodLabel(effectiveCutoff) });
+
+    costChart = `<h3>Custo Acumulado — BAC × AC × EAC</h3>
+      <div class="chart">${svgLineChart(costPeriods, costSeries, { width: 1040, height: 280, markers: costMarkers })}${legend(costSeries.map((s) => ({ name: s.name, color: s.color, dashed: s.dashed })))}</div>`;
+  }
+
+  // Revenue S-curve
+  let revenueChart = '';
+  if (revPeriods.length > 0) {
+    const revSeries: LineSeries[] = [
+      { name: 'Receita planejada', color: C.info, values: revenuePoints.map((p) => p.planned), endLabel: true },
+      { name: 'Receita faturada', color: C.success, values: revenuePoints.map((p) => p.billed), endLabel: true },
+      { name: 'Receita recebida', color: C.warning, values: revenuePoints.map((p) => p.received), endLabel: true },
+    ].filter((s) => s.values.some((v) => v != null));
+
+    const revMarkers: ChartMarker[] = [];
+    const cutIdx = revPeriods.indexOf(effectiveCutoff ?? '');
+    if (cutIdx >= 0) revMarkers.push({ index: cutIdx, label: 'CORTE', color: C.subtle, value: periodLabel(effectiveCutoff) });
+
+    revenueChart = `<h3 style="margin-top:14px">Receita Acumulada — Planejado × Faturado × Recebido</h3>
+      <div class="chart">${svgLineChart(revPeriods, revSeries, { width: 1040, height: 280, markers: revMarkers })}${legend(revSeries.map((s) => ({ name: s.name, color: s.color, dashed: s.dashed })))}</div>`;
+  }
+
+  // Revenue gap callouts
+  const rev = view.revenue;
+  const chips = callouts([
+    { label: 'Contrato total', value: compactBRL(rev.contracted), color: C.primary },
+    { label: 'Faturado', value: compactBRL(rev.billed), color: C.success },
+    { label: 'A faturar', value: compactBRL(rev.toBill), color: C.warning },
+    { label: 'Recebido', value: compactBRL(rev.received), color: C.info },
+    { label: 'A receber', value: compactBRL(rev.toReceive), color: C.costSoft },
+  ]);
+
+  // Margin & variance summary
+  const summary = view.summary;
+  const marginColor = summary.margin >= 0 ? C.success : C.critical;
+  const summaryCallouts = callouts([
+    { label: 'Receita realizada', value: compactBRL(summary.revenue), color: C.success },
+    { label: 'Custo realizado', value: compactBRL(view.baf.ac), color: C.cost },
+    { label: 'Margem', value: `${BRL(summary.margin)} (${summary.marginPct.toFixed(1)}%)`, color: marginColor },
+  ]);
+
+  if (!costPeriods.length && !revPeriods.length) {
+    return chips + `<div class="chart">${emptyChart(1040, 280)}</div>`;
+  }
+
+  return chips + summaryCallouts + costChart + revenueChart;
+}
+
 // ── Main renderer ───────────────────────────────────────────────────
 
 export function buildProjectFinanceReportHtml(payload: ProjectFinanceReportPayload): string {
   const { project, ledgerView, cutoffPeriod, dataSourceNote, generatedBy } = payload;
   const brand = payload.brandName ?? 'Insight Energy';
   const logoUrl = payload.logoUrl ?? '/LOGO%20INSIGHT.png';
+  const sections = payload.sections ?? 'all';
 
   const iv = computeInvestorView(project, ledgerView);
   const eventStats = computeEventStats(project, iv.delayedEvents);
@@ -1020,7 +1119,7 @@ export function buildProjectFinanceReportHtml(payload: ProjectFinanceReportPaylo
   const rangeLabel = periods.length
     ? `${periodLabel(periods[0])} – ${periodLabel(periods[periods.length - 1])}`
     : 'sem período';
-  const fileName = buildProjectFinanceFileName(project);
+  const fileName = buildProjectFinanceFileName(project, new Date(), sections);
   const statusColor = sevColor(iv.generalStatus.severity);
 
   const hasInternalData = Boolean(ledgerView && (ledgerView.baf.bac > 0 || ledgerView.baf.ac > 0 || ledgerView.baf.eac > 0));
@@ -1039,11 +1138,13 @@ export function buildProjectFinanceReportHtml(payload: ProjectFinanceReportPaylo
 
   // ── Page bodies (footers are appended with computed page numbers) ──
 
+  const reportTitle = SECTION_LABEL[sections];
+
   const coverPage = `
     <header class="cover-band">
       <img class="cover-logo" src="${esc(logoUrl)}" alt="${esc(brand)}" />
       <div class="cover-kicker">Project Finance Review</div>
-      <h1 class="cover-title">Relatório Financeiro do Projeto</h1>
+      <h1 class="cover-title">${esc(reportTitle)}</h1>
       <div class="cover-proj">
         <b>${esc(project.nome)}</b>
         ${project.cliente ? `<span class="sep">·</span>${esc(project.cliente)}` : ''}
@@ -1072,6 +1173,10 @@ export function buildProjectFinanceReportHtml(payload: ProjectFinanceReportPaylo
       ${sectionTitle('Indicadores Financeiros')}
       <div class="kpis cols-5">${kpis.map(kpiCardHtml).join('')}</div>
     </section>`;
+
+  // ── Financial pages (investor view) ──
+  const includeFinanceiro = sections === 'financeiro' || sections === 'all';
+  const includeInternal = sections === 'controle-interno' || sections === 'all';
 
   const curvaSPage = `
     <section class="section">
@@ -1108,15 +1213,43 @@ export function buildProjectFinanceReportHtml(payload: ProjectFinanceReportPaylo
       ${internalNote}
     </section>`;
 
+  // ── Internal Controls pages (S-curves BAC/AC/EAC, cost breakdown, revenue gaps) ──
+  const internalSCurvePage = hasInternalData && ledgerView
+    ? `
+    <section class="section">
+      ${sectionTitle('Curva S — Controle Interno', 'BAC × AC × EAC acumulado · receita planejada × faturada × recebida · ledger oficial')}
+      ${renderInternalSCurvePage(ledgerView, project, effectiveCutoff)}
+    </section>`
+    : null;
+
   const appendixPage = hasInternalData
     ? `
     <section class="section">
-      ${sectionTitle('Apêndice — Controle Interno do Projeto', 'BAC / AC / EAC / ETC · variações e principais categorias · ledger oficial')}
+      ${sectionTitle('Detalhamento de Custos — Controle Interno', 'BAC / AC / EAC / ETC · variações e principais categorias · ledger oficial')}
       ${renderInternalAppendix(ledgerView!, project.finance?.drivers ?? [])}
     </section>`
     : null;
 
-  const pageBodies = [coverPage, curvaSPage, monthlyPage, eventsPage, waterfallPage, sensitivityPage, ...(appendixPage ? [appendixPage] : [])];
+  // ── Assemble pages based on selected sections ──
+  const pageBodies: string[] = [coverPage];
+
+  if (includeFinanceiro) {
+    pageBodies.push(curvaSPage, monthlyPage, eventsPage, waterfallPage, sensitivityPage);
+  }
+
+  if (includeInternal) {
+    if (internalSCurvePage) pageBodies.push(internalSCurvePage);
+    if (appendixPage) pageBodies.push(appendixPage);
+    if (!hasInternalData && !includeFinanceiro) {
+      // When only internal controls requested but no data exists
+      pageBodies.push(`
+        <section class="section">
+          ${sectionTitle('Controle Interno do Projeto')}
+          <p class="empty">Dados de controle interno (BAC / AC / EAC / ETC) ainda insuficientes. Vincule entradas do ledger financeiro a este projeto para gerar o relatório de controle interno.</p>
+        </section>`);
+    }
+  }
+
   const totalPages = pageBodies.length;
 
   const pagesHtml = pageBodies

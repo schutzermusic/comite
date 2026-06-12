@@ -30,6 +30,22 @@ const PROJECT_RESPONSAVEL_IDS: Record<string, string> = {
   'proj-001': 'user-6',
 };
 
+/** Canonical demo catalog — keeps nome/descricao in sync even when localStorage/Supabase are stale. */
+const SEED_PROJECT_BY_ID = new Map(defaultProjects.map((p) => [p.id, p]));
+
+function applySeedCatalogFields(project: Project): Project {
+  const seed = SEED_PROJECT_BY_ID.get(project.id);
+  if (!seed) return project;
+  return {
+    ...project,
+    nome: seed.nome,
+    descricao: seed.descricao ?? project.descricao,
+    cliente: seed.cliente ?? project.cliente,
+    codigo: seed.codigo ?? project.codigo,
+    codigoInterno: seed.codigoInterno ?? seed.codigo ?? project.codigoInterno,
+  };
+}
+
 function resolveProjectResponsavel(project: Pick<Project, 'id' | 'responsavel'>): (typeof users)[number] {
   const canonicalId = PROJECT_RESPONSAVEL_IDS[project.id] ?? project.responsavel?.id;
   if (canonicalId) {
@@ -55,7 +71,7 @@ function normalizeProject(p: any): Project {
     project.valor_total = CEMIG_TOTAL_CONTRACTED;
     project.valor_executado = CEMIG_TOTALIZER_CUTOFF_BILLED;
   }
-  return project;
+  return applySeedCatalogFields(project);
 }
 
 function saveLocalProjects(projects: Project[]): void {

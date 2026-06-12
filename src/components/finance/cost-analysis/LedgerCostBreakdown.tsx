@@ -89,21 +89,25 @@ export function LedgerCostBreakdown({ filter, variant }: LedgerCostBreakdownProp
       </div>
 
       <div className="grid grid-cols-1 items-stretch lg:grid-cols-2 gap-4">
-        <TrendPanel title="Tendência mensal de custo" points={monthly} fillHeight />
-        {variant === 'project' ? (
-          <RankPanel
-            title={drillCategoryName ? `Subcategorias · ${drillCategoryName}` : 'Custo por subcategoria'}
-            rows={subcategories.map((s) => ({ id: s.id, label: s.name, meta: s.categoryName, value: s.value, share: s.share }))}
-            accent="#6366F1"
-          />
-        ) : (
-          <RankPanel
-            title="Projetos que consomem este CC"
-            rows={projectsConsuming.map((r) => ({ id: r.id, label: r.name, value: r.value, share: r.share }))}
-            accent="#3B82F6"
-            emptyLabel="Sem projetos no recorte."
-          />
-        )}
+        <div className="flex h-full min-w-0 flex-col">
+          <TrendPanel title="Tendência mensal de custo" points={monthly} fillHeight />
+        </div>
+        <div className="flex h-full min-w-0 flex-col">
+          {variant === 'project' ? (
+            <RankPanel
+              title={drillCategoryName ? `Subcategorias · ${drillCategoryName}` : 'Custo por subcategoria'}
+              rows={subcategories.map((s) => ({ id: s.id, label: s.name, meta: s.categoryName, value: s.value, share: s.share }))}
+              accent="#6366F1"
+            />
+          ) : (
+            <RankPanel
+              title="Projetos que consomem este CC"
+              rows={projectsConsuming.map((r) => ({ id: r.id, label: r.name, value: r.value, share: r.share }))}
+              accent="#3B82F6"
+              emptyLabel="Sem projetos no recorte."
+            />
+          )}
+        </div>
       </div>
 
       <RankPanel

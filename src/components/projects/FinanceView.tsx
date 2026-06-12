@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
     AreaChart,
@@ -38,7 +38,7 @@ import { selectProjectFinanceView } from '@/lib/finance/selectors/project-financ
 import { resolveFinanceProjectId } from '@/lib/projects/finance-mapping';
 import { LedgerCostBreakdown } from '@/components/finance/cost-analysis';
 import { FinanceInvestorCockpit, GlassPanel, PanelHeader } from '@/components/projects/FinanceInvestorCockpit';
-import { openProjectFinanceReport } from '@/lib/projects/export-project-finance-report';
+import { openProjectFinanceReport, type ReportSections } from '@/lib/projects/export-project-finance-report';
 
 // ── Helpers ─────────────────────────────────────────────────────
 
@@ -218,6 +218,20 @@ export function FinanceView({ project }: FinanceViewProps) {
     const [internalOpen, setInternalOpen] = useState<boolean | null>(null);
     const [exporting, setExporting] = useState(false);
     const [exportError, setExportError] = useState<string | null>(null);
+    const [exportMenuOpen, setExportMenuOpen] = useState(false);
+    const exportMenuRef = useRef<HTMLDivElement>(null);
+
+    // Close export menu on outside click
+    useEffect(() => {
+        if (!exportMenuOpen) return;
+        const handler = (e: MouseEvent) => {
+            if (exportMenuRef.current && !exportMenuRef.current.contains(e.target as Node)) {
+                setExportMenuOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handler);
+        return () => document.removeEventListener('mousedown', handler);
+    }, [exportMenuOpen]);
 
     const { finance } = project;
     // Resolve the unified-ledger project id (explicit link → contract fallback →
@@ -324,9 +338,10 @@ export function FinanceView({ project }: FinanceViewProps) {
 
     // ── Investor PDF report (print window → PDF). Uses the SAME ledger view
     //    and project state shown on screen — no recalculation here. ──
-    const handleExportPdf = useCallback(() => {
+    const handleExportPdf = useCallback((sections: ReportSections = 'all') => {
         setExportError(null);
         setExporting(true);
+        setExportMenuOpen(false);
         // Defer one frame so the button paints its loading state before the
         // synchronous report build / window.open blocks the main thread.
         requestAnimationFrame(() => {
@@ -334,6 +349,7 @@ export function FinanceView({ project }: FinanceViewProps) {
                 project,
                 ledgerView: view,
                 cutoffPeriod,
+                sections,
             });
             if (!result.ok) setExportError(result.message);
             setExporting(false);
@@ -418,17 +434,63 @@ export function FinanceView({ project }: FinanceViewProps) {
                     <p className="text-sm font-semibold tracking-tight text-[color:var(--ig-fg-strong)]">Visão Financeira / Visão do Investidor</p>
                     <p className="text-[11px] text-[color:var(--ig-fg-muted)]">Relatório financeiro do projeto · pronto para apresentação a investidores e conselho</p>
                 </div>
-                <div className="flex flex-col items-end gap-1">
+                <div className="relative flex flex-col items-end gap-1" ref={exportMenuRef}>
                     <button
-                        onClick={handleExportPdf}
+                        onClick={() => setExportMenuOpen(!exportMenuOpen)}
                         disabled={exporting}
-                        title="Gera um relatório financeiro em PDF (abre uma janela de impressão)"
+                        title="Gera um relatório em PDF (abre uma janela de impressão)"
                         className="flex shrink-0 items-center gap-1.5 rounded-lg border border-[var(--ig-border-default)] bg-[color-mix(in_srgb,var(--ig-fg-strong)_4%,transparent)] px-3 py-1.5 text-xs font-semibold text-[var(--ig-fg-default)] transition-colors hover:bg-[color-mix(in_srgb,var(--ig-fg-strong)_8%,transparent)] disabled:cursor-not-allowed disabled:opacity-60"
                     >
                         {exporting
                             ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Gerando PDF...</>
-                            : <><FileDown className="h-3.5 w-3.5" />Exportar PDF</>}
+                            : <><FileDown className="h-3.5 w-3.5" />Exportar PDF <ChevronDown className="h-3 w-3 opacity-60" /></>}
                     </button>
+                    {/* Export dropdown menu */}
+                    {exportMenuOpen && !exporting && (
+                        <div className="absolute right-0 top-full z-50 mt-1.5 min-w-[240px] overflow-hidden rounded-xl border border-[var(--ig-border-default)] bg-[var(--ig-bg-overlay)] shadow-xl backdrop-blur-md">
+                            <div className="px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--ig-fg-subtle)] border-b border-[var(--ig-border-subtle)]">
+                                Escolha o conteúdo do PDF
+                            </div>
+                            <button
+                                onClick={() => handleExportPdf('financeiro')}
+                                className="flex w-full items-start gap-3 px-3 py-2.5 text-left transition-colors hover:bg-[color-mix(in_srgb,var(--ig-fg-strong)_6%,transparent)]"
+                            >
+                                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-[color-mix(in_srgb,var(--ig-success)_14%,transparent)] text-[var(--ig-success)]">
+                                    <DollarSign className="h-3 w-3" />
+                                </span>
+                                <div className="min-w-0">
+                                    <p className="text-xs font-semibold text-[var(--ig-fg-strong)]">Relatório Financeiro</p>
+                                    <p className="text-[10px] text-[var(--ig-fg-muted)]">Curva S, fluxo mensal, eventograma, resultado e sensibilidade</p>
+                                </div>
+                            </button>
+                            <button
+                                onClick={() => handleExportPdf('controle-interno')}
+                                className="flex w-full items-start gap-3 px-3 py-2.5 text-left transition-colors hover:bg-[color-mix(in_srgb,var(--ig-fg-strong)_6%,transparent)]"
+                            >
+                                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-[color-mix(in_srgb,var(--ig-info)_14%,transparent)] text-[var(--ig-info)]">
+                                    <SlidersHorizontal className="h-3 w-3" />
+                                </span>
+                                <div className="min-w-0">
+                                    <p className="text-xs font-semibold text-[var(--ig-fg-strong)]">Controle Interno</p>
+                                    <p className="text-[10px] text-[var(--ig-fg-muted)]">BAC / AC / EAC / ETC, variações de custo e detalhamento</p>
+                                </div>
+                            </button>
+                            <div className="border-t border-[var(--ig-border-subtle)]">
+                                <button
+                                    onClick={() => handleExportPdf('all')}
+                                    className="flex w-full items-start gap-3 px-3 py-2.5 text-left transition-colors hover:bg-[color-mix(in_srgb,var(--ig-fg-strong)_6%,transparent)]"
+                                >
+                                    <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-[color-mix(in_srgb,var(--ig-accent)_14%,transparent)] text-[var(--ig-accent)]">
+                                        <FileDown className="h-3 w-3" />
+                                    </span>
+                                    <div className="min-w-0">
+                                        <p className="text-xs font-semibold text-[var(--ig-fg-strong)]">Completo</p>
+                                        <p className="text-[10px] text-[var(--ig-fg-muted)]">Financeiro + Controle Interno em um único relatório</p>
+                                    </div>
+                                </button>
+                            </div>
+                        </div>
+                    )}
                     {exportError && (
                         <span className="max-w-[280px] text-right text-[10px] text-[var(--ig-critical)]">{exportError}</span>
                     )}

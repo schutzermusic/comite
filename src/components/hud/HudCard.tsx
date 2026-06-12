@@ -5,10 +5,10 @@ import { cn } from "@/lib/utils";
 import { HudPanel, type HudPanelProps } from "./HudPanel";
 
 type HudCardProps = React.HTMLAttributes<HTMLDivElement> &
-  Pick<HudPanelProps, "elevation" | "state" | "interactive" | "halo" | "sweep">;
+  Pick<HudPanelProps, "elevation" | "state" | "interactive" | "halo" | "sweep" | "fullHeight">;
 
 const HudCard = React.forwardRef<HTMLDivElement, HudCardProps>(
-  ({ className, children, elevation, state, interactive, halo, sweep, ...props }, ref) => (
+  ({ className, children, elevation, state, interactive, halo, sweep, fullHeight, ...props }, ref) => (
     // className is applied on the HudPanel wrapper (the glass shell). The inner
     // div used to also receive `className` which caused layout classes like
     // `h-full flex flex-col` to be duplicated and break flex stretching inside
@@ -16,6 +16,7 @@ const HudCard = React.forwardRef<HTMLDivElement, HudCardProps>(
     // class controlling layout.
     <HudPanel
       noPadding
+      fullHeight={fullHeight}
       className={cn('min-w-0', className)}
       elevation={elevation}
       state={state}
@@ -23,7 +24,7 @@ const HudCard = React.forwardRef<HTMLDivElement, HudCardProps>(
       halo={halo}
       sweep={sweep}
     >
-      <div ref={ref} className="h-full min-w-0" {...props}>
+      <div ref={ref} className={cn('min-w-0', fullHeight && 'flex h-full flex-col')} {...props}>
         {children}
       </div>
     </HudPanel>

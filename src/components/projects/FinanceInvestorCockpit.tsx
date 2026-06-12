@@ -768,7 +768,7 @@ export function computeEventStats(project: ProjectV2, delayedEvents: BillingEven
     const events = project.billing_eventogram ?? [];
     const pendingValue = events
         .filter(e => e.status !== 'billed' && e.status !== 'cancelled')
-        .reduce((s, e) => s + centsToReais(e.amountPlannedCents), 0);
+        .reduce((s, e) => s + centsToReais(Math.max(e.amountPlannedCents - (e.amountActualCents ?? 0), 0)), 0);
     const billedValue = events
         .filter(e => e.status === 'billed' || e.status === 'partial')
         .reduce((s, e) => s + centsToReais(e.amountActualCents ?? (e.status === 'billed' ? e.amountPlannedCents : 0)), 0);
@@ -1545,13 +1545,13 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
                                     value={eventQuery}
                                     onChange={e => setEventQuery(e.target.value)}
                                     placeholder="Filtrar eventos…"
-                                    className="h-7 w-44 rounded-lg border border-[color:var(--ig-border-default)] bg-[color:var(--ig-bg-raised)]/60 pl-7 pr-2 text-[11px] text-[color:var(--ig-fg-strong)] placeholder:text-[color:var(--ig-fg-disabled)] focus:border-[color:var(--ig-border-focus)] focus:outline-none"
+                                    className="h-7 w-44 appearance-none rounded-lg border border-[color:var(--ig-border-default)] bg-[color-mix(in_oklab,var(--ig-bg-raised)_82%,var(--ig-bg-base))] pl-7 pr-2 text-[11px] text-[color:var(--ig-fg-strong)] placeholder:text-[color:var(--ig-fg-disabled)] shadow-[inset_0_1px_0_color-mix(in_oklab,var(--ig-fg-strong)_5%,transparent)] backdrop-blur-sm focus:border-[color:var(--ig-border-focus)] focus:outline-none focus:ring-1 focus:ring-[color-mix(in_oklab,var(--ig-accent)_18%,transparent)]"
                                 />
                             </div>
                             {(project.billing_eventogram ?? []).length > iv.criticalEvents.length && (
                                 <button
                                     onClick={() => setShowAllEvents(v => !v)}
-                                    className="flex items-center gap-1 rounded-lg border border-[color:var(--ig-border-default)] bg-[color:var(--ig-bg-raised)]/60 px-2.5 py-1 text-[11px] text-[color:var(--ig-fg-default)] transition-colors hover:border-[color:var(--ig-border-strong)]"
+                                    className="flex items-center gap-1 rounded-lg border border-[color:var(--ig-border-default)] bg-[color-mix(in_oklab,var(--ig-bg-raised)_82%,var(--ig-bg-base))] px-2.5 py-1 text-[11px] text-[color:var(--ig-fg-default)] backdrop-blur-sm transition-colors hover:border-[color:var(--ig-border-strong)]"
                                 >
                                     {showAllEvents ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                                     {showAllEvents ? 'ver críticos' : `ver todos (${eventStats.total})`}
