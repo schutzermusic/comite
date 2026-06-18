@@ -36,6 +36,8 @@ import {
 } from './mock-data';
 import { SCENARIOS, type ControlRoomFilters } from './types';
 import { periodLabel } from './helpers';
+import { ExportReportButton } from '@/components/reports/ExportReportButton';
+import { openFinanceControlRoomReport } from '@/lib/reports/modules/finance-control-room-report';
 
 const PROJECTS = [
   { id: 'proj-1', label: 'FPSO P-80' },
@@ -129,17 +131,48 @@ export function FinanceControlRoom() {
           { label: `${pendingCount} pendentes`, variant: pendingCount > 0 ? 'warning' : 'success' },
         ]}
         actions={
-          canScanAi ? (
-            <HudButton
-              variant="glass"
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <ExportReportButton
               size="md"
-              leftIcon={<BrainCircuit className="h-4 w-4" />}
-              disabled={scanningAi}
-              onClick={handleAiScan}
-            >
-              {scanningAi ? 'Analisando...' : 'Analisar com IA'}
-            </HudButton>
-          ) : undefined
+              variant="glass"
+              permission="finance.export"
+              fallbackPermission="finance.view"
+              build={() => openFinanceControlRoomReport({
+                periodLabel: periodRangeLabel,
+                scenarioLabel: scenario.label,
+                source: 'demonstração',
+                healthScore: 78,
+                netRevenue,
+                ebitda,
+                ebitdaMargin,
+                operatingResult: operating,
+                forecastGap,
+                cashRisk,
+                pendingActions: pendingCount + DECISION_QUEUE.length,
+                dreRows: dreRows.map((r) => ({ label: r.label, actual: r.actual, budget: r.budget, forecast: r.forecast })),
+                drivers: topDrivers.map((d) => ({
+                  categoryName: d.category_name,
+                  groupLabel: d.group_label,
+                  projectName: d.project_name,
+                  actual: d.actual,
+                  budget: d.budget,
+                  varianceAbs: d.variance_abs,
+                  variancePct: d.variance_pct,
+                })),
+              })}
+            />
+            {canScanAi ? (
+              <HudButton
+                variant="glass"
+                size="md"
+                leftIcon={<BrainCircuit className="h-4 w-4" />}
+                disabled={scanningAi}
+                onClick={handleAiScan}
+              >
+                {scanningAi ? 'Analisando...' : 'Analisar com IA'}
+              </HudButton>
+            ) : null}
+          </div>
         }
       />
       {aiNotice && (

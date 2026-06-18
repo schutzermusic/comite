@@ -24,6 +24,8 @@ import {
   reaisToCents, centsToReais, getCategories,
   validateLedgerEntryInput, type LedgerEntryValidationError,
 } from '@/lib/finance/finance-store';
+import { ExportReportButton } from '@/components/reports/ExportReportButton';
+import { openFinanceReport, kpiFromHud } from '@/lib/reports/modules/finance-report';
 import { entryTemplates, managementCategories } from '@/data/finance/seed-categories';
 import type { LedgerEntry, LedgerEntryStatus, LedgerEntryType, FinanceScenarioKey, LedgerAllocationStatus } from '@/lib/types/finance';
 
@@ -344,9 +346,42 @@ function LancamentosContent() {
         iconTint="#14B8A6"
         breadcrumbs={[{ label: t('title'), href: '/financeiro' }, { label: t('ledgerEntries') }]}
         actions={
-          <HudButton variant="primary" leftIcon={<Plus className="w-4 h-4" />} onClick={() => { resetForm(); setDrawerOpen(true); }}>
-            {t('newEntry')}
-          </HudButton>
+          <div className="flex items-center gap-2">
+            <ExportReportButton
+              size="md"
+              variant="glass"
+              permission="finance.export"
+              fallbackPermission="finance.view"
+              build={() => openFinanceReport({
+                title: 'Lançamentos Financeiros',
+                fileContext: 'lancamentos',
+                context: `${entries.length} lançamentos no recorte`,
+                kpis: kpis.map((k) => kpiFromHud(k)),
+                sections: [{
+                  title: 'Lançamentos',
+                  tables: [{
+                    columns: [
+                      { key: 'data', label: 'Data' },
+                      { key: 'desc', label: 'Descrição' },
+                      { key: 'tipo', label: 'Tipo' },
+                      { key: 'cat', label: 'Categoria' },
+                      { key: 'valor', label: 'Valor', num: true },
+                    ],
+                    rows: entries.slice(0, 200).map((e) => ({
+                      data: { html: `<span class="mono">${e.entry_date}</span>` },
+                      desc: e.description,
+                      tipo: String(e.entry_type),
+                      cat: e.category?.name || '—',
+                      valor: { html: `<span class="mono" style="color:${e.category?.sign === 1 ? '#047857' : '#B91C1C'}">${e.category?.sign === 1 ? '+' : '-'}${formatBRL(e.amount_cents)}</span>` },
+                    })),
+                  }],
+                }],
+              })}
+            />
+            <HudButton variant="primary" leftIcon={<Plus className="w-4 h-4" />} onClick={() => { resetForm(); setDrawerOpen(true); }}>
+              {t('newEntry')}
+            </HudButton>
+          </div>
         }
       />
       <HudKpiStrip kpis={kpis} columns={4} size="sm" />

@@ -27,6 +27,8 @@ import {
   selectCashFlowSummary, selectCashMovements, cashDirection,
 } from '@/lib/finance/selectors/cash';
 import type { APARTitle, APARType, LedgerEntry } from '@/lib/types/finance';
+import { ExportReportButton } from '@/components/reports/ExportReportButton';
+import { openFinanceReport, kpiFromHud } from '@/lib/reports/modules/finance-report';
 
 const STATUS_VARIANTS: Record<string, string> = {
   open: 'info', partial: 'warning', paid: 'completed', overdue: 'error', cancelled: 'error',
@@ -234,7 +236,44 @@ export default function ContasPagarReceberPage() {
         icon={<CreditCard className="w-5 h-5" />}
         iconTint="#14B8A6"
         breadcrumbs={[{ label: t('title'), href: '/financeiro' }, { label: t('accounts') }]}
-        actions={<HudButton variant="primary" leftIcon={<Plus className="w-4 h-4" />} onClick={() => setDrawerOpen(true)}>{t('newTitle')}</HudButton>}
+        actions={
+          <div className="flex items-center gap-2">
+            <ExportReportButton
+              size="md"
+              variant="glass"
+              permission="finance.export"
+              fallbackPermission="finance.view"
+              build={() => openFinanceReport({
+                title: 'Contas a Pagar / Receber',
+                fileContext: 'contas-pagar-receber',
+                context: 'Carteira, aging e liquidação de títulos',
+                kpis: kpis.map((k) => kpiFromHud(k)),
+                sections: [{
+                  title: 'Títulos',
+                  tables: [{
+                    columns: [
+                      { key: 'num', label: 'Título' },
+                      { key: 'type', label: 'Tipo' },
+                      { key: 'due', label: 'Vencimento' },
+                      { key: 'amount', label: 'Valor', num: true },
+                      { key: 'rem', label: 'Em aberto', num: true },
+                      { key: 'status', label: 'Status' },
+                    ],
+                    rows: filtered.slice(0, 150).map((title) => ({
+                      num: title.title_number,
+                      type: title.type === 'receivable' ? t('receivable') : t('payable'),
+                      due: { html: `<span class="mono" style="${isOverdue(title) ? 'color:#B91C1C;font-weight:700' : ''}">${title.due_date}</span>` },
+                      amount: { html: `<span class="mono">${formatBRL(title.amount_cents)}</span>` },
+                      rem: { html: `<span class="mono">${formatBRL(remainingCents(title))}</span>` },
+                      status: { html: `<span class="pill ${isOverdue(title) ? 'crit' : title.status === 'paid' ? 'ok' : 'warn'}">${isOverdue(title) ? (STATUS_LABELS.overdue ?? 'vencido') : (STATUS_LABELS[title.status] ?? title.status)}</span>` },
+                    })),
+                  }],
+                }],
+              })}
+            />
+            <HudButton variant="primary" leftIcon={<Plus className="w-4 h-4" />} onClick={() => setDrawerOpen(true)}>{t('newTitle')}</HudButton>
+          </div>
+        }
       />
 
       <HudKpiStrip kpis={kpis} columns={5} size="sm" />

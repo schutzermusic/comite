@@ -4,7 +4,6 @@ import React, { useMemo, useState } from 'react';
 import {
   Gavel,
   Plus,
-  FileText,
   Settings2,
   FolderOpen,
   AlertTriangle,
@@ -44,6 +43,41 @@ import {
 } from '@/components/deliberacoes';
 import type { NewDeliberationPayload } from '@/components/deliberacoes/NewDeliberationModal';
 import { usePermissions } from '@/hooks/use-permissions';
+import { ExportReportButton } from '@/components/reports/ExportReportButton';
+import { openDeliberationReport } from '@/lib/reports/modules/deliberation-report';
+import type { DeliberationItem, DeliberationStatus } from '@/lib/types';
+
+const DELIB_STATUS_MAP: Record<DeliberacaoStatus, DeliberationStatus> = {
+  rascunho: 'draft',
+  em_revisao: 'in_review',
+  em_votacao: 'in_voting',
+  aguardando_ata: 'awaiting_minutes',
+  em_execucao: 'in_execution',
+  concluida: 'resolved',
+};
+
+/** Adapt the central-deliberations model to the shared report's DeliberationItem. */
+function toReportDeliberation(d: Deliberacao): DeliberationItem {
+  return {
+    id: d.id,
+    title: d.titulo,
+    deliberationStatus: DELIB_STATUS_MAP[d.status],
+    ownerCommitteeName: d.comite_nome,
+    ownerName: d.responsavel_nome,
+    dueDate: d.sla_deadline ? new Date(d.sla_deadline) : undefined,
+    riskLevel: d.risco === 'critico' ? 'critical' : d.risco === 'alto' ? 'high' : d.risco === 'medio' ? 'medium' : 'low',
+    createdAt: new Date(d.created_at),
+    resolvedAt: d.status === 'concluida' ? new Date(d.updated_at) : undefined,
+    executionItems: d.acoes_execucao.map((a) => ({
+      id: a.id,
+      title: a.titulo,
+      ownerName: a.responsavel_nome,
+      dueDate: new Date(a.prazo),
+      status: a.status === 'concluida' ? 'completed' : a.status === 'em_andamento' ? 'in_progress' : 'pending',
+      linkedEntityType: a.linked_entity_tipo as 'project' | 'contract' | 'risk' | undefined,
+    })),
+  } as unknown as DeliberationItem;
+}
 
 const PIPELINE_LABELS: Record<DeliberacaoStatus, string> = {
   rascunho: 'Rascunho',
@@ -452,9 +486,17 @@ export default function DeliberacoesPage() {
         ]}
         actions={
           <>
-            <HudButton variant="secondary" size="md" leftIcon={<FileText className="w-4 h-4" />}>
-              Gerar relatório
-            </HudButton>
+            <ExportReportButton
+              size="md"
+              variant="secondary"
+              label="Gerar relatório"
+              permission="deliberations.export"
+              fallbackPermission="deliberations.view"
+              build={() => openDeliberationReport({
+                deliberations: (filteredItems.length ? filteredItems : items).map(toReportDeliberation),
+                source: 'demonstração',
+              })}
+            />
             <HudButton variant="secondary" size="md" leftIcon={<Settings2 className="w-4 h-4" />}>
               Configurar fluxo
             </HudButton>

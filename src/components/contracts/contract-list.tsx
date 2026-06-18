@@ -95,28 +95,51 @@ export function ContractList({
     {
       key: 'contract',
       header: 'Contrato',
-      width: '300px',
-      cell: (record) => (
-        <div className="flex min-w-[260px] items-start gap-3">
-          <div className="ig-icon-jewel mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center text-ig-accent">
-            <FileText className="h-4 w-4" />
-          </div>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <HudBadge variant="outline" size="sm">{record.code}</HudBadge>
-              <HudBadge variant={record.contractType.includes('Aditivo') ? 'warning' : 'subtle'} size="sm">
-                {record.contractType}
-              </HudBadge>
+      width: '320px',
+      cell: (record) => {
+        const isCritical = record.contract.riskClassification === 'high' || record.renewalStatus === 'expired';
+        const isExpiring = record.renewalStatus === 'critical';
+        const statusLabel = 
+          record.contract.status === 'negotiation' ? 'Negociação'
+          : record.contract.status === 'legal_review' ? 'Revisão Jurídica'
+          : record.contract.status === 'commercial_review' ? 'Revisão Comercial'
+          : record.contract.status === 'signed' ? 'Assinado'
+          : record.contract.status === 'active' ? 'Ativo'
+          : record.contract.status === 'expired' ? 'Expirado'
+          : record.contract.status === 'closed' ? 'Encerrado'
+          : record.contract.status === 'cancelled' ? 'Cancelado'
+          : record.contract.status;
+
+        const statusVariant =
+          record.contract.status === 'active' || record.contract.status === 'signed' ? 'active'
+          : record.contract.status === 'expired' || record.contract.status === 'cancelled' ? 'critical'
+          : 'warning';
+
+        return (
+          <div className="flex min-w-[280px] items-start gap-3">
+            <div className={`ig-icon-jewel mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center ${isCritical ? 'text-ig-danger border-ig-danger/30' : isExpiring ? 'text-ig-warning border-ig-warning/30' : 'text-ig-accent border-ig-accent/30'}`}>
+              <FileText className="h-4 w-4" />
             </div>
-            <p className="mt-1 truncate text-ig-body-sm font-semibold text-ig-fg-strong">
-              {record.contract.name}
-            </p>
-            <p className="truncate text-ig-caption text-ig-fg-muted">
-              Owner: {record.owner}
-            </p>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <HudBadge variant="outline" size="sm">{record.code}</HudBadge>
+                <HudBadge variant={record.contractType.includes('Aditivo') ? 'warning' : 'subtle'} size="sm">
+                  {record.contractType}
+                </HudBadge>
+                <HudStatusPill variant={statusVariant} size="sm">
+                  {statusLabel}
+                </HudStatusPill>
+              </div>
+              <p className="mt-1 truncate text-ig-body-sm font-semibold text-ig-fg-strong">
+                {record.contract.name}
+              </p>
+              <p className="truncate text-ig-caption text-ig-fg-muted">
+                Resp: {record.owner}
+              </p>
+            </div>
           </div>
-        </div>
-      ),
+        );
+      },
     },
     {
       key: 'relations',
@@ -141,7 +164,10 @@ export function ContractList({
                 {record.projectReference}
               </Link>
             ) : (
-              <span className="truncate text-ig-caption text-ig-fg-muted">{record.projectReference}</span>
+              <span className="inline-flex items-center gap-1 truncate text-ig-caption font-medium text-ig-warning">
+                <AlertTriangle className="h-3 w-3" />
+                Projeto não vinculado
+              </span>
             )}
           </div>
         </div>
@@ -151,50 +177,62 @@ export function ContractList({
       key: 'value',
       header: 'Exposição',
       width: '210px',
-      cell: (record) => (
-        <div className="min-w-[180px] space-y-2">
-          <div className="flex items-baseline justify-between gap-3">
-            <span className="text-ig-caption text-ig-fg-muted">Total</span>
-            <span className="ig-tabular text-ig-body-sm font-semibold text-ig-fg-strong">
-              {formatCurrencyCompact(record.totalValue, record.contract.currency)}
-            </span>
+      cell: (record) => {
+        const pct = record.totalValue ? Math.round((record.billedValue / record.totalValue) * 100) : 0;
+        const noBilling = record.billedValue === 0 && record.totalValue > 0;
+        return (
+          <div className="min-w-[180px] space-y-1.5">
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="text-ig-caption text-ig-fg-muted">Total</span>
+              <span className="ig-tabular text-ig-body-sm font-semibold text-ig-fg-strong">
+                {formatCurrencyCompact(record.totalValue, record.contract.currency)}
+              </span>
+            </div>
+            <HudProgressBar
+              value={pct}
+              size="sm"
+              variant={record.financialStatus === 'blocked' ? 'danger' : record.financialStatus === 'attention' ? 'warning' : 'success'}
+            />
+            <div className="flex justify-between gap-3 text-ig-caption text-ig-fg-muted">
+              <span>Faturado {formatCurrencyCompact(record.billedValue, record.contract.currency)}</span>
+              {noBilling ? (
+                <span className="text-ig-warning font-semibold">Sem faturamento</span>
+              ) : (
+                <span>Saldo {formatCurrencyCompact(record.remainingValue, record.contract.currency)}</span>
+              )}
+            </div>
           </div>
-          <HudProgressBar
-            value={record.totalValue ? Math.round((record.billedValue / record.totalValue) * 100) : 0}
-            size="sm"
-            variant={record.financialStatus === 'blocked' ? 'danger' : record.financialStatus === 'attention' ? 'warning' : 'success'}
-          />
-          <div className="flex justify-between gap-3 text-ig-caption text-ig-fg-muted">
-            <span>Faturado {formatCurrencyCompact(record.billedValue, record.contract.currency)}</span>
-            <span>Saldo {formatCurrencyCompact(record.remainingValue, record.contract.currency)}</span>
-          </div>
-        </div>
-      ),
+        );
+      },
     },
     {
       key: 'renewal',
       header: 'Renovação',
       width: '150px',
-      cell: (record) => (
-        <div className="space-y-1">
-          <HudStatusPill variant={renewalVariant[record.renewalStatus]} size="sm">
-            {renewalLabel[record.renewalStatus]}
-          </HudStatusPill>
-          <div className="flex items-center gap-1.5 text-ig-caption text-ig-fg-muted">
-            <CalendarClock className="h-3.5 w-3.5" />
-            {record.contract.expirationDate
-              ? format(new Date(record.contract.expirationDate), 'dd/MM/yyyy', { locale: pt })
-              : 'Sem data'}
+      cell: (record) => {
+        const isExpired = record.renewalStatus === 'expired';
+        const isExpiringSoon = record.renewalStatus === 'critical';
+        return (
+          <div className="space-y-1">
+            <HudStatusPill variant={renewalVariant[record.renewalStatus]} size="sm">
+              {renewalLabel[record.renewalStatus]}
+            </HudStatusPill>
+            <div className="flex items-center gap-1.5 text-ig-caption text-ig-fg-muted">
+              <CalendarClock className="h-3.5 w-3.5" />
+              {record.contract.expirationDate
+                ? format(new Date(record.contract.expirationDate), 'dd/MM/yyyy', { locale: pt })
+                : 'Sem data'}
+            </div>
+            <p className={`text-ig-caption ${isExpired ? 'text-ig-danger font-semibold' : isExpiringSoon ? 'text-ig-warning font-semibold' : 'text-ig-fg-muted'}`}>
+              {record.daysUntilExpiration === null
+                ? 'Prazo não informado'
+                : record.daysUntilExpiration < 0
+                  ? `${Math.abs(record.daysUntilExpiration)}d vencido`
+                  : `${record.daysUntilExpiration}d restantes`}
+            </p>
           </div>
-          <p className="text-ig-caption text-ig-fg-muted">
-            {record.daysUntilExpiration === null
-              ? 'Prazo não informado'
-              : record.daysUntilExpiration < 0
-                ? `${Math.abs(record.daysUntilExpiration)}d vencido`
-                : `${record.daysUntilExpiration}d restantes`}
-          </p>
-        </div>
-      ),
+        );
+      },
     },
     {
       key: 'risk',
@@ -217,22 +255,34 @@ export function ContractList({
     {
       key: 'ai',
       header: 'IA / Docs',
-      width: '180px',
-      cell: (record) => (
-        <div className="min-w-[150px] space-y-1.5">
-          <HudBadge variant={aiVariant[record.aiStatus]} size="sm" dot>
-            {aiLabel[record.aiStatus]}
-          </HudBadge>
-          <div className="flex items-center gap-1.5 text-ig-caption text-ig-fg-muted">
-            <BrainCircuit className="h-3.5 w-3.5" />
-            Confiança mock {record.confidenceScore}%
+      width: '190px',
+      cell: (record) => {
+        const isPendingAi = record.aiStatus === 'mock_pending';
+        return (
+          <div className="min-w-[160px] space-y-1.5">
+            <HudBadge variant={aiVariant[record.aiStatus]} size="sm" dot={!isPendingAi}>
+              {isPendingAi ? 'IA Pendente Backend' : aiLabel[record.aiStatus]}
+            </HudBadge>
+            <div className="flex items-center gap-1.5 text-ig-caption text-ig-fg-muted">
+              <BrainCircuit className="h-3.5 w-3.5" />
+              IA Confiança {record.confidenceScore}%
+            </div>
+            <div className="flex items-center gap-1.5 text-ig-caption">
+              {record.missingDocuments.length > 0 ? (
+                <span className="flex items-center gap-1 text-ig-warning font-semibold">
+                  <AlertTriangle className="h-3 w-3 shrink-0" />
+                  {record.missingDocuments.length} docs faltantes
+                </span>
+              ) : (
+                <span className="flex items-center gap-1 text-ig-success">
+                  <ShieldCheck className="h-3 w-3 shrink-0" />
+                  Docs completos
+                </span>
+              )}
+            </div>
           </div>
-          <div className="flex items-center gap-1.5 text-ig-caption text-ig-fg-muted">
-            <AlertTriangle className="h-3.5 w-3.5" />
-            {record.missingDocuments.length} pendência(s)
-          </div>
-        </div>
-      ),
+        );
+      },
     },
     {
       key: 'actions',

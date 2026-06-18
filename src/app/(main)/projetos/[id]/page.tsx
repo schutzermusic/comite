@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, use } from 'react';
+import React, { useState, useEffect, useCallback, use } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import {
@@ -46,6 +46,8 @@ import { getClientLogoUrl } from '@/lib/utils/client-logos';
 import { mockAllocationsV2 } from '@/data/mock-projects-v2';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { ExportReportButton } from '@/components/reports/ExportReportButton';
+import { openProjectOverviewReport } from '@/lib/reports/modules/project-overview-report';
 
 export default function DetalheProjetoPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
@@ -78,29 +80,25 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
     }
   };
 
-  useEffect(() => {
-    let active = true;
-    async function loadProject() {
-      try {
-        const [loadedProjeto, v2] = await Promise.all([
-          getProjectByIdAsync(id),
-          getProjectV2ByIdAsync(id),
-        ]);
-        if (!active) return;
-        setProjeto(loadedProjeto);
-        setProjetoV2(v2);
-      } catch (error) {
-        console.error('Erro ao carregar projeto:', error);
-        if (active) setProjeto(undefined);
-      } finally {
-        if (active) setLoading(false);
-      }
+  const reloadProject = useCallback(async () => {
+    try {
+      const [loadedProjeto, v2] = await Promise.all([
+        getProjectByIdAsync(id),
+        getProjectV2ByIdAsync(id),
+      ]);
+      setProjeto(loadedProjeto);
+      setProjetoV2(v2);
+    } catch (error) {
+      console.error('Erro ao carregar projeto:', error);
+      setProjeto(undefined);
+    } finally {
+      setLoading(false);
     }
-    void loadProject();
-    return () => {
-      active = false;
-    };
   }, [id]);
+
+  useEffect(() => {
+    void reloadProject();
+  }, [reloadProject]);
 
   if (loading) {
     return (
@@ -237,6 +235,38 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
               >
                 Criar risco
               </HudButton>
+              <ExportReportButton
+                size="md"
+                variant="secondary"
+                permission="projects.export"
+                fallbackPermission="projects.view"
+                build={() => openProjectOverviewReport({
+                  name: projeto.nome,
+                  code: projeto.codigo,
+                  client: projeto.cliente,
+                  status: projeto.status,
+                  statusLabel: getStatusLabel(projeto.status),
+                  responsible: projeto.responsavel?.nome || projeto.responsavel?.full_name,
+                  description: projeto.descricao,
+                  startDate: projeto.data_inicio,
+                  endDate: projeto.data_fim,
+                  progressPercent: projeto.progresso_percentual ?? 0,
+                  healthScore: projetoV2?.health_score,
+                  healthReasons: projetoV2?.health_reasons,
+                  revenue: projetoV2?.revenue
+                    ? { totalContracted: projetoV2.revenue.totalContracted, billed: projetoV2.revenue.billed, toBill: projetoV2.revenue.toBill }
+                    : undefined,
+                  finance: projetoV2?.finance
+                    ? { bac: projetoV2.finance.bac, ac: projetoV2.finance.ac, eac: projetoV2.finance.eac, variancePercent: projetoV2.finance.variancePercent }
+                    : undefined,
+                  milestones: projetoV2?.milestones ?? [],
+                  risks: projetoV2?.risks ?? [],
+                  tasks: projetoV2?.tasks ?? [],
+                  documents: projetoV2?.documents ?? [],
+                  allocations: allocations.map((a) => ({ memberName: a.memberName, role: a.role, allocationPercent: a.allocationPercent })),
+                  source: projetoV2 ? 'Supabase' : 'demonstração',
+                })}
+              />
               <HudButton
                 variant="primary"
                 leftIcon={<Brain className="w-4 h-4" />}
@@ -395,7 +425,7 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
 
               <TabsContent value="finance" className="mt-0">
                 {projetoV2 ? (
-                  <FinanceView project={projetoV2} />
+                  <FinanceView project={projetoV2} onProjectChange={reloadProject} />
                 ) : (
                   <div className="text-center py-12">
                     <DollarSign className="w-12 h-12 hud-text-muted mx-auto mb-3" />

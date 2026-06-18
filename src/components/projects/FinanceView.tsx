@@ -39,6 +39,7 @@ import { resolveFinanceProjectId } from '@/lib/projects/finance-mapping';
 import { LedgerCostBreakdown } from '@/components/finance/cost-analysis';
 import { FinanceInvestorCockpit, GlassPanel, PanelHeader } from '@/components/projects/FinanceInvestorCockpit';
 import { openProjectFinanceReport, type ReportSections } from '@/lib/projects/export-project-finance-report';
+import { EditDataButton, ProjectChartEditorHost, type ProjectChartEditorKind } from '@/components/projects/ProjectChartEditors';
 
 // ── Helpers ─────────────────────────────────────────────────────
 
@@ -204,16 +205,19 @@ function CutoffLabel({ viewBox, fill }: any) {
 
 interface FinanceViewProps {
     project: ProjectV2;
+    /** Re-fetch do projeto após edição manual de dados de gráfico. */
+    onProjectChange?: () => void | Promise<void>;
 }
 
 // ── Main Component ──────────────────────────────────────────────
 
-export function FinanceView({ project }: FinanceViewProps) {
+export function FinanceView({ project, onProjectChange }: FinanceViewProps) {
     const router = useRouter();
     const { theme } = useTheme();
     const pal = useMemo(() => buildViewPalette(theme === 'light'), [theme]);
     const [hiddenCostSeries, setHiddenCostSeries] = useState<Set<string>>(new Set());
     const [hiddenRevSeries, setHiddenRevSeries] = useState<Set<string>>(new Set());
+    const [activeEditor, setActiveEditor] = useState<ProjectChartEditorKind | null>(null);
     const [refreshKey, setRefreshKey] = useState(0);
     const [internalOpen, setInternalOpen] = useState<boolean | null>(null);
     const [exporting, setExporting] = useState(false);
@@ -254,10 +258,31 @@ export function FinanceView({ project }: FinanceViewProps) {
     const showInternal = internalOpen ?? hasCostControlData;
 
     // ── Recharts series (already in reais) ──
-    const costData = useMemo(
-        () => view?.sCurve.cost.map(p => ({ period: p.period, BAC: p.BAC, AC: p.AC, EAC: p.EAC })) ?? [],
-        [view],
-    );
+    // project.costCurve (edição manual) tem precedência sobre o ledger — mesmo
+    // padrão de merge usado na curva de receita abaixo.
+    const costData = useMemo(() => {
+        const ledgerByPeriod = new Map(
+            (view?.sCurve.cost ?? []).map(p => [p.period, p]),
+        );
+        const projectByPeriod = new Map(
+            (project.costCurve ?? []).map(p => [p.period, p]),
+        );
+        const periods = Array.from(new Set([
+            ...projectByPeriod.keys(),
+            ...ledgerByPeriod.keys(),
+        ])).sort((a, b) => a.localeCompare(b));
+
+        return periods.map(period => {
+            const projectPoint = projectByPeriod.get(period);
+            const ledgerPoint = ledgerByPeriod.get(period);
+            return {
+                period,
+                BAC: curveCentsToReais(projectPoint?.bacCumulative) ?? ledgerPoint?.BAC ?? null,
+                AC: curveCentsToReais(projectPoint?.acCumulative) ?? ledgerPoint?.AC ?? null,
+                EAC: curveCentsToReais(projectPoint?.eacCumulative) ?? ledgerPoint?.EAC ?? null,
+            };
+        });
+    }, [project.costCurve, view]);
 
     const revenueData = useMemo(() => {
         const ledgerByPeriod = new Map(
@@ -498,7 +523,15 @@ export function FinanceView({ project }: FinanceViewProps) {
             </div>
 
             {/* ── Investor Financial Cockpit (primary content) ── */}
-            <FinanceInvestorCockpit project={project} ledgerView={view} cutoffPeriod={cutoffPeriod} />
+            <FinanceInvestorCockpit project={project} ledgerView={view} cutoffPeriod={cutoffPeriod} onEditChart={setActiveEditor} />
+
+            {/* ── Manual chart-data editor (single modal instance) ── */}
+            <ProjectChartEditorHost
+                project={project}
+                editor={activeEditor}
+                onClose={() => setActiveEditor(null)}
+                onSaved={onProjectChange}
+            />
 
             {/* ── Internal project-control section (secondary / collapsible) ── */}
             <section className="space-y-5">
@@ -615,9 +648,12 @@ export function FinanceView({ project }: FinanceViewProps) {
                                         title="Custo Acumulado"
                                         subtitle={`${costSeriesLabel('BAC')} × ${costSeriesLabel('AC')} × ${costSeriesLabel('EAC')} · ledger oficial`}
                                         actions={
-                                            <Badge variant="outline" className="text-[10px] border-[color:var(--ig-border-default)] text-[color:var(--ig-fg-subtle)]">
-                                                COST
-                                            </Badge>
+                                            <>
+                                                <EditDataButton onClick={() => setActiveEditor('costCurve')} />
+                                                <Badge variant="outline" className="text-[10px] border-[color:var(--ig-border-default)] text-[color:var(--ig-fg-subtle)]">
+                                                    COST
+                                                </Badge>
+                                            </>
                                         }
                                       />
                                       <div className="min-w-0 flex-1 px-5 pb-4 pt-3">
@@ -719,9 +755,12 @@ export function FinanceView({ project }: FinanceViewProps) {
                                         title="Receita Acumulada"
                                         subtitle="planejado × faturado × recebido"
                                         actions={
-                                            <Badge variant="outline" className="text-[10px] border-[color:var(--ig-border-default)] text-[color:var(--ig-fg-subtle)]">
-                                                REVENUE
-                                            </Badge>
+                                            <>
+                                                <EditDataButton onClick={() => setActiveEditor('revenueCurve')} />
+                                                <Badge variant="outline" className="text-[10px] border-[color:var(--ig-border-default)] text-[color:var(--ig-fg-subtle)]">
+                                                    REVENUE
+                                                </Badge>
+                                            </>
                                         }
                                       />
                                       <div className="min-w-0 flex-1 px-5 pb-4 pt-3">

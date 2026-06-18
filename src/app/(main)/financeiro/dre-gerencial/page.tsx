@@ -1,7 +1,7 @@
 'use client';
 
 import { Fragment, useMemo, useState } from 'react';
-import { LineChart, Download, ChevronRight, ExternalLink, GitBranch } from 'lucide-react';
+import { LineChart, ChevronRight, ExternalLink, GitBranch } from 'lucide-react';
 import {
   HudPageLayout, HudHeader, HudKpiStrip, HudButton,
   HudCard, HudCardHeader, HudCardTitle, HudCardContent,
@@ -19,6 +19,8 @@ import {
   type FinancePeriod, type FinanceScenario,
 } from '@/components/finance/shared';
 import { selectDreManagerial, variancePct, type DreManagerialRow } from '@/lib/finance';
+import { ExportReportButton } from '@/components/reports/ExportReportButton';
+import { openFinanceDreReport } from '@/lib/reports/modules/finance-dre-report';
 
 type DreLine = DreManagerialRow;
 
@@ -133,7 +135,27 @@ export default function DreGerencialPage() {
         rightSlot={
           <>
             <HudButton variant="ghost" size="sm">Comparar período</HudButton>
-            <HudButton variant="primary" size="sm" leftIcon={<Download className="w-4 h-4" />}>Exportar</HudButton>
+            <ExportReportButton
+              size="sm"
+              variant="primary"
+              permission="finance.export"
+              fallbackPermission="finance.view"
+              build={() => openFinanceDreReport({
+                periodLabel: period,
+                scenarioLabel: scenario,
+                source: 'demonstração',
+                kpis: kpis.map((k) => ({
+                  label: String(k.label),
+                  value: String(k.value),
+                  delta: typeof k.delta === 'number' ? k.delta : undefined,
+                  variant: (k.variant as 'info' | 'success' | 'warning' | 'danger' | 'neutral' | undefined),
+                })),
+                rows: DATA.map((r) => ({ key: r.key, label: r.label, level: r.level, current: r.current, budget: r.budget })),
+                expenseComposition: expenseDonut.map((e) => ({ name: e.name, value: e.value })),
+                cumulative: cumulativeSeries.map((s) => ({ name: s.name, values: s.values, dashed: s.dashed })),
+                monthLabels,
+              })}
+            />
           </>
         }
       />

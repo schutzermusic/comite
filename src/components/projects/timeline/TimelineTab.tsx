@@ -23,6 +23,8 @@ import { GanttView } from './GanttView';
 import { ImportWizard } from './ImportWizard';
 import { TaskDetailDrawer } from './TaskDetailDrawer';
 import { useTimelineStore } from './timeline-store';
+import { ExportReportButton } from '@/components/reports/ExportReportButton';
+import { openProjectTimelineReport } from '@/lib/reports/modules/project-timeline-report';
 
 const ZOOMS: { value: GanttZoom; label: string }[] = [
   { value: 'day', label: 'Dia' },
@@ -78,6 +80,13 @@ export function TimelineTab({ projectId, projectName, projectManagerUserId }: Ti
 
   const kpis = useMemo(() => timelineKpis(items, new Date()), [items]);
   const selectedItem = useMemo(() => items.find((i) => i.id === selectedItemId) ?? null, [items, selectedItemId]);
+
+  // Resolve responsible user ids to names from hydrated assignments (for the PDF report).
+  const resolveUserName = useMemo(() => {
+    const map = new Map<string, string>();
+    items.forEach((i) => (i.assignments ?? []).forEach((a) => { if (a.userId && a.userName) map.set(a.userId, a.userName); }));
+    return (userId: string | null) => (userId ? map.get(userId) ?? '—' : '—');
+  }, [items]);
 
   const handleItemChanged = useCallback((updated: TimelineItem) => {
     setItems((prev) => prev.map((i) => (i.id === updated.id ? { ...updated, assignments: updated.assignments ?? i.assignments } : i)));
@@ -138,6 +147,20 @@ export function TimelineTab({ projectId, projectName, projectManagerUserId }: Ti
           ))}
         </div>
         <div className="flex items-center gap-2">
+          {items.length > 0 && (
+            <ExportReportButton
+              size="sm"
+              variant="secondary"
+              permission="projects.export"
+              fallbackPermission="projects.view"
+              build={() => openProjectTimelineReport({
+                projectName,
+                items,
+                resolveUserName,
+                source: 'Supabase',
+              })}
+            />
+          )}
           {canEdit && (
             <HudButton variant="secondary" size="sm" leftIcon={<Plus className="h-4 w-4" />} onClick={() => void handleAddItem()}>
               Nova atividade

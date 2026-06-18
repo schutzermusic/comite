@@ -30,6 +30,8 @@ import {
   RADAR_INDICATORS,
   simulateScenario,
 } from '@/lib/finance';
+import { ExportReportButton } from '@/components/reports/ExportReportButton';
+import { openFinanceReport, kpiFromHud } from '@/lib/reports/modules/finance-report';
 
 const MONTHS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
@@ -80,6 +82,61 @@ export default function ForecastCenariosPage() {
         rightSlot={
           <>
             <HudButton variant="ghost" size="sm" leftIcon={<Sparkles className="w-4 h-4" />}>Sugestão IA</HudButton>
+            <ExportReportButton
+              size="sm"
+              variant="primary"
+              label="Exportar PDF"
+              permission="finance.export"
+              fallbackPermission="finance.view"
+              build={() => openFinanceReport({
+                title: 'Projeção & Cenários',
+                fileContext: 'forecast',
+                periodLabel: period,
+                scenarioLabel: scenario,
+                context: 'Planejamento dinâmico, simulação de premissas e baseline',
+                kpis: kpis.map((k) => kpiFromHud(k)),
+                sections: [
+                  {
+                    title: 'Comparação de Cenários',
+                    charts: [{ title: 'EBITDA por cenário', spec: { kind: 'bars', valueFmt: 'compactCurrency', rows: FORECAST_SCENARIOS.map((s) => ({ label: s.name, value: s.ebitda })) } }],
+                    tables: [{
+                      columns: [
+                        { key: 'cen', label: 'Cenário' },
+                        { key: 'rev', label: 'Receita', num: true },
+                        { key: 'ebitda', label: 'EBITDA', num: true },
+                        { key: 'mg', label: 'Margem', num: true },
+                        { key: 'cash', label: 'Caixa', num: true },
+                        { key: 'dr', label: 'Δ Real.', num: true },
+                        { key: 'resp', label: 'Resp.' },
+                        { key: 'status', label: 'Status' },
+                      ],
+                      rows: FORECAST_SCENARIOS.map((s) => ({
+                        cen: s.name,
+                        rev: { html: `<span class="mono">${fmtCompactBRL(s.revenue)}</span>` },
+                        ebitda: { html: `<span class="mono">${fmtCompactBRL(s.ebitda)}</span>` },
+                        mg: `${s.margin.toFixed(1)}%`,
+                        cash: { html: `<span class="mono">${fmtCompactBRL(s.cash)}</span>` },
+                        dr: fmtPct(s.variance),
+                        resp: s.owner,
+                        status: String(s.status),
+                      })),
+                    }],
+                  },
+                  {
+                    title: 'Drivers de Custo (Projeção)',
+                    charts: [{
+                      title: 'Custo por driver',
+                      spec: {
+                        kind: 'donut',
+                        valueFmt: 'compactCurrency',
+                        center: fmtCompactBRL(FORECAST_COST_DRIVERS.reduce((a, d) => a + d.value, 0)),
+                        slices: FORECAST_COST_DRIVERS.map((d) => ({ label: (d as { name?: string; label?: string }).name ?? (d as { label?: string }).label ?? '—', value: d.value })),
+                      },
+                    }],
+                  },
+                ],
+              })}
+            />
             <HudButton variant="primary" size="sm" leftIcon={<Plus className="w-4 h-4" />}>Novo cenário</HudButton>
           </>
         }

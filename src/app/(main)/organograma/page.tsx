@@ -11,6 +11,8 @@ import {
   Layers3,
 } from "lucide-react";
 import { OrgTreeViewer, departmentColors } from "@/components/orgchart/org-tree-viewer";
+import { ExportReportButton } from "@/components/reports/ExportReportButton";
+import { openOrgChartReport } from "@/lib/reports/modules/orgchart-report";
 
 import {
   HudPageLayout,
@@ -223,6 +225,19 @@ export default function OrganogramaPage() {
             icon={<Network className="w-5 h-5" />}
             iconTint="#14B8A6"
             breadcrumbs={[{ label: 'Organograma' }]}
+            actions={
+              <ExportReportButton
+                size="md"
+                variant="glass"
+                permission="org_chart.export"
+                fallbackPermission="org_chart.view"
+                build={() => openOrgChartReport({
+                  members: filteredMembers,
+                  filtersLabel: departmentFilter !== 'all' ? `Departamento: ${departmentFilter}` : 'todos os departamentos',
+                  source: 'demonstração',
+                })}
+              />
+            }
           />
 
           <HudKpiStrip kpis={kpiItems} columns={4} />

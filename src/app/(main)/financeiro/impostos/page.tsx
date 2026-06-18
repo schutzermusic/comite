@@ -26,6 +26,8 @@ import {
   filterTaxes, sortTaxesByDueDate, isTaxOverdue, daysOverdueTax, remainingTaxCents,
   type TaxFilter,
 } from '@/lib/finance/selectors/taxes';
+import { ExportReportButton } from '@/components/reports/ExportReportButton';
+import { openFinanceReport, kpiFromHud } from '@/lib/reports/modules/finance-report';
 import type { TaxObligation, TaxStatus, TaxType, LedgerEntry } from '@/lib/types/finance';
 
 const STATUS_VARIANT: Record<TaxStatus, HudStatusPillVariant> = {
@@ -199,6 +201,46 @@ function ImpostosContent() {
         icon={<Wallet className="w-5 h-5" />}
         iconTint="#A855F7"
         breadcrumbs={[{ label: t('title'), href: '/financeiro' }, { label: 'Impostos & Retenções' }]}
+        actions={
+          <ExportReportButton
+            size="md"
+            variant="glass"
+            permission="finance.export"
+            fallbackPermission="finance.view"
+            build={() => openFinanceReport({
+              title: 'Impostos & Retenções',
+              fileContext: 'impostos',
+              context: 'Obrigações tributárias — apuração, vencimentos e liquidação',
+              kpis: kpis.map((k) => kpiFromHud(k)),
+              sections: [{
+                title: 'Tributos por Tipo',
+                charts: [{
+                  title: 'Provisionado por tipo de tributo',
+                  spec: { kind: 'donut', valueFmt: 'compactCurrency', slices: byType.slice(0, 8).map((r) => ({ label: r.tax_type, value: r.provisioned / 100 })) },
+                }],
+                tables: [{
+                  title: 'Obrigações',
+                  columns: [
+                    { key: 'tipo', label: 'Tributo' },
+                    { key: 'venc', label: 'Vencimento' },
+                    { key: 'prov', label: 'Provisionado', num: true },
+                    { key: 'pago', label: 'Pago', num: true },
+                    { key: 'aberto', label: 'Em aberto', num: true },
+                    { key: 'status', label: 'Status' },
+                  ],
+                  rows: filtered.slice(0, 150).map((x) => ({
+                    tipo: x.tax_type,
+                    venc: { html: `<span class="mono" style="${isTaxOverdue(x) ? 'color:#B91C1C;font-weight:700' : ''}">${x.due_date}</span>` },
+                    prov: { html: `<span class="mono">${formatBRL(x.amount_cents)}</span>` },
+                    pago: { html: `<span class="mono">${formatBRL(x.paid_amount_cents)}</span>` },
+                    aberto: { html: `<span class="mono">${formatBRL(remainingTaxCents(x))}</span>` },
+                    status: { html: `<span class="pill ${isTaxOverdue(x) ? 'crit' : x.status === 'paid' ? 'ok' : 'warn'}">${isTaxOverdue(x) ? 'vencido' : x.status}</span>` },
+                  })),
+                }],
+              }],
+            })}
+          />
+        }
       />
 
       {deepLinkMissing && (

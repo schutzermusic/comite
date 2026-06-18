@@ -55,6 +55,8 @@ import {
   STATUS_LABELS,
 } from "@/components/risks";
 import type { RiskFormValues, RiskLink, RiskSelection, ExtendedRisk } from "@/components/risks";
+import { ExportReportButton } from "@/components/reports/ExportReportButton";
+import { openRiskReport } from "@/lib/reports/modules/risk-report";
 import { scoreVariant } from "@/lib/risk-score";
 import { triggerContractAiScan, triggerProjectAiScan } from "@/lib/services/risks";
 import { getProjectsAsync } from "@/lib/services/projects";
@@ -523,7 +525,19 @@ function RiscosCockpit() {
           <div className="flex flex-wrap items-center justify-end gap-2">
             <HudButton variant="primary" size="sm" leftIcon={<Plus className="h-3.5 w-3.5" />} onClick={() => openCreate()}>Novo risco</HudButton>
             <HudButton variant="secondary" size="sm" leftIcon={<Sparkles className="h-3.5 w-3.5" />} onClick={handleAnalyzeAi}>Analisar com IA</HudButton>
-            <HudButton variant="ghost" size="sm" leftIcon={<FileDown className="h-3.5 w-3.5" />} onClick={handleExport}>Exportar</HudButton>
+            <HudButton variant="ghost" size="sm" leftIcon={<FileDown className="h-3.5 w-3.5" />} onClick={handleExport}>Exportar CSV</HudButton>
+            <ExportReportButton
+              size="sm"
+              variant="ghost"
+              permission="risks.export"
+              fallbackPermission="risks.view"
+              build={() => openRiskReport({
+                risks: tableRisks,
+                periodLabel: periodFilter === "all" ? "Todo o período" : `Últimos ${periodFilter} dias`,
+                filtersLabel: activeFiltersCount ? `${activeFiltersCount} filtro(s) ativo(s)` : "sem filtros",
+                source: usingDemo ? "demonstração" : "Supabase",
+              })}
+            />
             <HudButton variant="ghost" size="sm" leftIcon={<Flame className="h-3.5 w-3.5" />} onClick={handleViewCritical}>Ver críticos</HudButton>
           </div>
         }

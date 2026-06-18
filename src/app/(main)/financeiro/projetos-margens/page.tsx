@@ -22,6 +22,8 @@ import {
 
 import { type ProjectPortfolioRow, selectProjectsPortfolio, selectPendingProjectCostsForProject } from '@/lib/finance';
 import { getLedgerEntries, linkEntriesToProject, formatBRL } from '@/lib/finance/finance-store';
+import { ExportReportButton } from '@/components/reports/ExportReportButton';
+import { openFinanceReport, kpiFromHud } from '@/lib/reports/modules/finance-report';
 
 type Project = ProjectPortfolioRow;
 
@@ -102,6 +104,49 @@ export default function ProjetosMargensPage() {
         icon={<Target className="w-5 h-5" />}
         iconTint="#10B981"
         breadcrumbs={[{ label: 'Financeiro', href: '/financeiro' }, { label: 'Projetos & Margens' }]}
+        actions={
+          <ExportReportButton
+            size="md"
+            variant="glass"
+            permission="finance.export"
+            fallbackPermission="finance.view"
+            build={() => openFinanceReport({
+              title: 'Projetos & Margens',
+              fileContext: 'projetos-margens',
+              periodLabel: period,
+              scenarioLabel: scenario,
+              context: 'Performance financeira por projeto — receita, custo, forecast e margem',
+              kpis: kpis.map((k) => kpiFromHud(k)),
+              sections: [{
+                title: 'Margem por Projeto',
+                charts: [{
+                  title: 'Margem % por projeto',
+                  spec: { kind: 'bars', valueFmt: 'percent', rows: ranking.map((p) => ({ label: p.code, value: Math.round(p.marginPct * 10) / 10 })) },
+                }],
+                tables: [{
+                  columns: [
+                    { key: 'code', label: 'Projeto' },
+                    { key: 'client', label: 'Cliente' },
+                    { key: 'contracted', label: 'Contratado', num: true },
+                    { key: 'cost', label: 'Custo', num: true },
+                    { key: 'margin', label: 'Margem', num: true },
+                    { key: 'mpct', label: 'Margem %', num: true },
+                    { key: 'status', label: 'Status' },
+                  ],
+                  rows: filtered.map((p) => ({
+                    code: p.code,
+                    client: p.client,
+                    contracted: { html: `<span class="mono">${formatBRL(p.contracted)}</span>` },
+                    cost: { html: `<span class="mono">${formatBRL(p.cost)}</span>` },
+                    margin: { html: `<span class="mono">${formatBRL(p.margin)}</span>` },
+                    mpct: `${p.marginPct.toFixed(1)}%`,
+                    status: String(p.status),
+                  })),
+                }],
+              }],
+            })}
+          />
+        }
       />
 
       <FinanceFilterBar

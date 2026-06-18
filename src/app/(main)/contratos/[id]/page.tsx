@@ -2,10 +2,12 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { getProjectsAsync } from '@/lib/services/projects';
 import { useContractDetail } from '@/hooks/use-contract-detail';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useContractActionModals } from '@/components/contracts/useContractActionModals';
+import { useContractCreateModals } from '@/components/contracts/useContractCreateModals';
 import type { Project } from '@/lib/types';
 import {
   enrichContractsForGovernance,
@@ -15,6 +17,7 @@ import {
 } from '@/components/contracts/contract-governance-data';
 import { contractRowToLegacyContract, createProjectFromContract, type ContractDetail } from '@/lib/contracts/contract-service';
 import { triggerContractAiScan } from '@/lib/services/risks';
+import { openContractDossierReport } from '@/lib/reports/modules/contract-dossier-report';
 import {
   HudBadge,
   HudButton,
@@ -25,6 +28,7 @@ import {
   HudProgressBar,
   HudStatusPill,
   HudTabs,
+  useHudToast,
   type HudTab,
   type KpiItem,
 } from '@/components/hud';
@@ -34,13 +38,12 @@ import {
   BrainCircuit,
   Building2,
   CalendarClock,
-  CheckCircle2,
   ClipboardCheck,
   Download,
-  FileSearch,
   FileSignature,
   FileText,
   GanttChartSquare,
+  Plus,
   Receipt,
   Scale,
   ShieldAlert,
@@ -52,6 +55,8 @@ import { pt } from 'date-fns/locale';
 
 type DetailTab = 'summary' | 'clauses' | 'obligations' | 'risks' | 'finance' | 'documents' | 'audit' | 'ai';
 
+const DETAIL_TABS: DetailTab[] = ['summary', 'clauses', 'obligations', 'risks', 'finance', 'documents', 'audit', 'ai'];
+
 const riskLabels = { high: 'Alto', medium: 'Médio', low: 'Baixo' } as const;
 
 function riskVariant(risk: ContractGovernanceRecord['contract']['riskClassification']) {
@@ -61,11 +66,14 @@ function riskVariant(risk: ContractGovernanceRecord['contract']['riskClassificat
 export default function ContractDossierPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const contractId = String(params.id || '');
   const { detail, loading, error, refresh } = useContractDetail(contractId);
   const { hasPermission } = usePermissions();
+  const { notify } = useHudToast();
   const [projects, setProjects] = useState<Project[]>([]);
-  const [activeTab, setActiveTab] = useState<DetailTab>('summary');
+  const initialTab = searchParams.get('tab') as DetailTab | null;
+  const [activeTab, setActiveTab] = useState<DetailTab>(initialTab && DETAIL_TABS.includes(initialTab) ? initialTab : 'summary');
   const [creatingProject, setCreatingProject] = useState(false);
   const [flowNotice, setFlowNotice] = useState<string | null>(null);
   const [scanningAi, setScanningAi] = useState(false);
@@ -107,6 +115,33 @@ export default function ContractDossierPage() {
   const record = useMemo(() => {
     return records.find((item) => item.contract.id === contractId) || records[0] || null;
   }, [contractId, records]);
+
+  const refreshDetailAndProjects = async () => {
+    const [nextProjects] = await Promise.all([getProjectsAsync(), refresh()]);
+    setProjects(nextProjects);
+  };
+
+  const { actions: contractActions, modals: contractActionModals } = useContractActionModals({
+    projects,
+    onRefresh: refreshDetailAndProjects,
+  });
+
+  const canEditContract = hasPermission('contracts.edit') || hasPermission('admin.manage_organization');
+  const { openObligation, openBilling, modals: contractCreateModals } = useContractCreateModals({
+    contractId,
+    ownerUserId: detail?.contract.owner_user_id ?? null,
+    onRefresh: async () => {
+      await refresh();
+    },
+  });
+
+  const handleExportPdf = () => {
+    if (!record) return;
+    const result = openContractDossierReport({ record, source: 'Supabase' });
+    if (!result.ok) {
+      notify('Não foi possível gerar o PDF', { description: result.message ?? 'Falha ao montar o dossiê.', variant: 'error' });
+    }
+  };
 
   if (loading || error || !record || !detail) {
     return (
@@ -165,10 +200,10 @@ export default function ContractDossierPage() {
   const tabs: HudTab[] = [
     { id: 'summary', label: 'Resumo', icon: <FileText className="h-4 w-4" />, content: <SummaryTab record={record} /> },
     { id: 'clauses', label: 'Cláusulas', icon: <Scale className="h-4 w-4" />, content: <ClausesTab record={record} detail={detail} /> },
-    { id: 'obligations', label: 'Timeline', icon: <ClipboardCheck className="h-4 w-4" />, badge: detail.milestones.filter((item) => item.status !== 'completed').length, content: <ObligationsTab record={record} detail={detail} /> },
+    { id: 'obligations', label: 'Timeline', icon: <ClipboardCheck className="h-4 w-4" />, badge: detail.milestones.filter((item) => item.status !== 'completed').length, content: <ObligationsTab record={record} detail={detail} onNewObligation={canEditContract ? openObligation : undefined} /> },
     { id: 'risks', label: 'Mapa de Riscos', icon: <ShieldAlert className="h-4 w-4" />, content: <RisksTab record={record} detail={detail} /> },
-    { id: 'finance', label: 'Billing', icon: <Receipt className="h-4 w-4" />, content: <FinanceTab record={record} detail={detail} /> },
-    { id: 'documents', label: 'Arquivos', icon: <Archive className="h-4 w-4" />, badge: detail.files.length, content: <DocumentsTab record={record} detail={detail} /> },
+    { id: 'finance', label: 'Billing', icon: <Receipt className="h-4 w-4" />, content: <FinanceTab record={record} detail={detail} onNewBilling={canEditContract ? openBilling : undefined} /> },
+    { id: 'documents', label: 'Arquivos', icon: <Archive className="h-4 w-4" />, badge: detail.files.length + detail.documents.length, content: <DocumentsTab record={record} detail={detail} /> },
     { id: 'audit', label: 'Auditoria', icon: <ShieldCheck className="h-4 w-4" />, content: <AuditTab record={record} detail={detail} /> },
     { id: 'ai', label: 'Análise IA', icon: <BrainCircuit className="h-4 w-4" />, content: <AiTab record={record} detail={detail} /> },
   ];
@@ -199,20 +234,23 @@ export default function ContractDossierPage() {
                 {scanningAi ? 'Analisando...' : 'Analisar com IA'}
               </HudButton>
             )}
-            <HudButton
-              variant="secondary"
-              size="md"
-              leftIcon={<ShieldAlert className="h-4 w-4" />}
-              onClick={() =>
-                router.push(
-                  `/riscos?linkType=contract&refId=${encodeURIComponent(contractId)}&refName=${encodeURIComponent(record.contract.name)}`,
-                )
-              }
-            >
+            <HudButton variant="secondary" size="md" leftIcon={<Workflow className="h-4 w-4" />} onClick={() => contractActions.linkProject(record)}>
+              Vincular projeto
+            </HudButton>
+            <HudButton variant="secondary" size="md" leftIcon={<ClipboardCheck className="h-4 w-4" />} onClick={() => contractActions.createTask(record)}>
+              Criar tarefa
+            </HudButton>
+            <HudButton variant="secondary" size="md" leftIcon={<ShieldAlert className="h-4 w-4" />} onClick={() => contractActions.createRisk(record)}>
               Criar risco
             </HudButton>
-            <HudButton variant="glass" size="md" leftIcon={<Download className="h-4 w-4" />}>
-              Documento
+            <HudButton variant="secondary" size="md" leftIcon={<Scale className="h-4 w-4" />} onClick={() => contractActions.sendToLegal(record)}>
+              Enviar ao jurídico
+            </HudButton>
+            <HudButton variant="glass" size="md" leftIcon={<Archive className="h-4 w-4" />} onClick={() => contractActions.attachDocument(record)}>
+              Anexar documento
+            </HudButton>
+            <HudButton variant="glass" size="md" leftIcon={<Download className="h-4 w-4" />} onClick={handleExportPdf}>
+              Exportar PDF
             </HudButton>
           </div>
         }
@@ -253,6 +291,9 @@ export default function ContractDossierPage() {
         </div>
         <SideTimeline record={record} />
       </div>
+
+      {contractActionModals}
+      {contractCreateModals}
     </HudPageLayout>
   );
 }
@@ -292,6 +333,12 @@ function SummaryTab({ record }: { record: ContractGovernanceRecord }) {
           )}
           <Relation icon={<Receipt className="h-4 w-4" />} label="Financeiro" value="Referência de faturamento e backlog" />
           <Relation icon={<ShieldCheck className="h-4 w-4" />} label="Aprovação" value={record.approvalRoute} />
+          {record.linkedTasks.length > 0 && (
+            <Relation icon={<ClipboardCheck className="h-4 w-4" />} label="Tarefas de agenda" value={`${record.linkedTasks.length} tarefa(s) vinculada(s)`} />
+          )}
+          {record.linkedDeliberations.length > 0 && (
+            <Relation icon={<Scale className="h-4 w-4" />} label="Deliberações" value={record.linkedDeliberations.map((d) => d.committeeName).join(' · ')} />
+          )}
         </div>
       </HudPanel>
     </div>
@@ -337,20 +384,43 @@ function ClausesTab({ record, detail }: { record: ContractGovernanceRecord; deta
   );
 }
 
-function ObligationsTab({ record, detail }: { record: ContractGovernanceRecord; detail: ContractDetail }) {
-  const items = detail.milestones.length > 0
-    ? detail.milestones.map((milestone) => ({
-        id: milestone.id,
-        title: milestone.title,
-        evidence: milestone.description || milestone.milestone_type || 'Marco contratual',
+function ObligationsTab({ record, detail, onNewObligation }: { record: ContractGovernanceRecord; detail: ContractDetail; onNewObligation?: () => void }) {
+  const items = detail.obligations.length > 0
+    ? detail.obligations.map((obligation) => ({
+        id: obligation.id,
+        title: obligation.title,
+        evidence: obligation.evidence || obligation.description || 'Obrigação contratual',
         owner: record.owner,
-        status: milestone.status === 'completed' ? 'done' : milestone.status === 'overdue' ? 'overdue' : 'open',
-        dueDate: milestone.due_date ? new Date(`${milestone.due_date}T00:00:00`) : new Date(),
+        status: obligation.status,
+        dueDate: obligation.due_date ? new Date(`${obligation.due_date}T00:00:00`) : new Date(),
       }))
-    : record.obligations.map((obligation) => ({ ...obligation, evidence: `${obligation.evidence} (placeholder)` }));
+    : detail.milestones.length > 0
+      ? detail.milestones.map((milestone) => ({
+          id: milestone.id,
+          title: milestone.title,
+          evidence: milestone.description || milestone.milestone_type || 'Marco contratual',
+          owner: record.owner,
+          status: milestone.status === 'completed' ? 'done' : milestone.status === 'overdue' ? 'overdue' : 'open',
+          dueDate: milestone.due_date ? new Date(`${milestone.due_date}T00:00:00`) : new Date(),
+        }))
+      : record.obligations.map((obligation) => ({ ...obligation, evidence: `${obligation.evidence} (placeholder)` }));
+
+  const isPersisted = detail.obligations.length > 0;
 
   return (
-    <HudPanel title="Obrigações por responsável" icon={<ClipboardCheck className="h-4 w-4" />} interactive={false}>
+    <HudPanel
+      title="Obrigações por responsável"
+      subtitle={isPersisted ? `${detail.obligations.length} obrigações persistidas` : 'Marcos e obrigações do dossiê'}
+      icon={<ClipboardCheck className="h-4 w-4" />}
+      interactive={false}
+    >
+      {onNewObligation && (
+        <div className="mb-3 flex justify-end">
+          <HudButton variant="secondary" size="sm" leftIcon={<Plus className="h-4 w-4" />} onClick={onNewObligation}>
+            Nova obrigação
+          </HudButton>
+        </div>
+      )}
       <div className="space-y-2">
         {items.map((obligation) => (
           <div key={obligation.id} className="grid gap-3 rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3 md:grid-cols-[1fr_180px_120px_130px] md:items-center">
@@ -383,62 +453,210 @@ function RisksTab({ record, detail }: { record: ContractGovernanceRecord; detail
           <p className="mt-1 text-ig-caption text-ig-fg-muted">Score derivado de risco cadastral, vencimento e documentos faltantes.</p>
         </div>
       </HudPanel>
-      <HudPanel title="Riscos legais e financeiros" icon={<Scale className="h-4 w-4" />} interactive={false}>
-        <div className="grid gap-3 md:grid-cols-2">
-          <Metric label="Riscos persistidos" value={contractRisks.length} />
-          <Metric label="Riscos abertos" value={contractRisks.filter((risk) => risk.status === 'open').length} />
-          <Metric label="Cláusulas de alto risco" value={detail.clauses.filter((clause) => clause.risk_level === 'high').length || record.clauses.filter((clause) => clause.risk === 'high').length} />
-          <Metric label="Mitigações cadastradas" value={contractRisks.filter((risk) => risk.mitigation_plan).length} />
+      <div className="space-y-5">
+        <HudPanel title="Riscos legais e financeiros" icon={<Scale className="h-4 w-4" />} interactive={false}>
+          <div className="grid gap-3 md:grid-cols-2">
+            <Metric label="Riscos persistidos" value={contractRisks.length} />
+            <Metric label="Riscos abertos" value={contractRisks.filter((risk) => risk.status === 'open').length} />
+            <Metric label="Cláusulas de alto risco" value={detail.clauses.filter((clause) => clause.risk_level === 'high').length || record.clauses.filter((clause) => clause.risk === 'high').length} />
+            <Metric label="Mitigações cadastradas" value={contractRisks.filter((risk) => risk.mitigation_plan).length} />
+          </div>
+        </HudPanel>
+
+        <HudPanel
+          title="Riscos vinculados ao contrato"
+          subtitle={contractRisks.length ? `${contractRisks.length} riscos persistidos` : `${record.linkedRisks.length} riscos do dossiê (placeholder)`}
+          icon={<ShieldAlert className="h-4 w-4" />}
+          interactive={false}
+        >
+          <div className="space-y-2">
+            {(contractRisks.length
+              ? contractRisks.map((risk) => ({
+                  id: risk.id,
+                  title: risk.title,
+                  category: risk.category || 'Geral',
+                  score: risk.risk_score ?? 0,
+                  severity: (risk.risk_score ?? 0) >= 16 ? 'critical' : (risk.risk_score ?? 0) >= 12 ? 'high' : (risk.risk_score ?? 0) >= 6 ? 'medium' : 'low',
+                  mitigation: risk.mitigation_plan,
+                }))
+              : record.linkedRisks.map((risk) => ({
+                  id: risk.id,
+                  title: risk.title,
+                  category: risk.category,
+                  score: risk.riskScore,
+                  severity: risk.severity,
+                  mitigation: risk.mitigationPlan,
+                }))
+            ).map((risk) => (
+              <div key={risk.id} className="rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-ig-body-sm font-semibold text-ig-fg-strong">{risk.title}</p>
+                    <p className="mt-1 text-ig-caption text-ig-fg-muted">{risk.category}</p>
+                  </div>
+                  <HudStatusPill variant={risk.severity === 'critical' || risk.severity === 'high' ? 'critical' : risk.severity === 'medium' ? 'warning' : 'active'} size="sm">
+                    {risk.score}
+                  </HudStatusPill>
+                </div>
+                {risk.mitigation && <p className="mt-2 text-ig-caption leading-relaxed text-ig-fg-muted">{risk.mitigation}</p>}
+              </div>
+            ))}
+          </div>
+        </HudPanel>
+      </div>
+    </div>
+  );
+}
+
+function FinanceTab({ record, detail, onNewBilling }: { record: ContractGovernanceRecord; detail: ContractDetail; onNewBilling?: () => void }) {
+  const billedPercent = record.totalValue ? Math.round((record.billedValue / record.totalValue) * 100) : 0;
+  const persistedBilling = detail.billingEvents.length > 0;
+  const billingTotal = detail.billingEvents.reduce((sum, event) => sum + Number(event.amount || 0), 0);
+  const schedule = persistedBilling
+    ? detail.billingEvents.map((event) => ({
+        id: event.id,
+        title: event.title,
+        amount: Number(event.amount || 0),
+        dueDate: event.due_date ? new Date(`${event.due_date}T00:00:00`) : null,
+        status: event.status,
+        paid: !!event.paid_at,
+      }))
+    : record.billingEvents.map((event) => ({
+        id: event.id,
+        title: event.title,
+        amount: event.amount,
+        dueDate: event.due_date,
+        status: event.status,
+        paid: !!event.paid_at,
+      }));
+
+  return (
+    <div className="space-y-5">
+      <HudPanel title="Exposição financeira" icon={<Receipt className="h-4 w-4" />} interactive={false}>
+        <div className="grid gap-4 lg:grid-cols-3">
+          <Metric label="Valor total" value={formatCurrencyFull(record.totalValue, record.contract.currency)} />
+          <Metric label="Faturado" value={formatCurrencyFull(record.billedValue, record.contract.currency)} />
+          <Metric label="Saldo a faturar" value={formatCurrencyFull(record.remainingValue, record.contract.currency)} />
+          <Metric label="Margem estimada" value={`${record.margin}%`} />
+          <Metric label="Adimplência" value={record.paymentStatus} />
+          <Metric label="Reconhecimento" value={record.revenueRecognitionStatus} />
         </div>
+        <div className="mt-5 rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-4">
+          <div className="mb-2 flex justify-between text-ig-body-sm">
+            <span className="text-ig-fg-muted">Execução financeira</span>
+            <span className="font-semibold tabular-nums text-ig-fg-strong">{billedPercent}%</span>
+          </div>
+          <HudProgressBar value={billedPercent} variant={record.financialStatus === 'blocked' ? 'danger' : record.financialStatus === 'attention' ? 'warning' : 'success'} />
+        </div>
+      </HudPanel>
+
+      <HudPanel
+        title="Cronograma de faturamento"
+        subtitle={persistedBilling ? `${detail.billingEvents.length} eventos · ${formatCurrencyFull(billingTotal, record.contract.currency)} cadastrados` : 'Eventograma do dossiê (placeholder até billing persistido)'}
+        icon={<GanttChartSquare className="h-4 w-4" />}
+        interactive={false}
+      >
+        {onNewBilling && (
+          <div className="mb-3 flex justify-end">
+            <HudButton variant="secondary" size="sm" leftIcon={<Plus className="h-4 w-4" />} onClick={onNewBilling}>
+              Novo evento
+            </HudButton>
+          </div>
+        )}
+        <div className="space-y-2">
+          {schedule.map((event) => {
+            const paid = event.paid || event.status === 'pago' || event.status === 'paid';
+            return (
+              <div key={event.id} className="grid gap-3 rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3 md:grid-cols-[1fr_160px_120px_120px] md:items-center">
+                <p className="truncate text-ig-body-sm font-semibold text-ig-fg-strong">{event.title}</p>
+                <span className="text-ig-body-sm font-semibold tabular-nums text-ig-fg-strong">{formatCurrencyFull(event.amount, record.contract.currency)}</span>
+                <span className="text-ig-caption text-ig-fg-muted">{event.dueDate ? format(new Date(event.dueDate), 'dd/MM/yyyy', { locale: pt }) : 'Sem data'}</span>
+                <HudStatusPill variant={paid ? 'active' : 'warning'} size="sm">{paid ? 'Pago' : 'Pendente'}</HudStatusPill>
+              </div>
+            );
+          })}
+        </div>
+        {!persistedBilling && (
+          <p className="mt-3 text-ig-caption text-ig-fg-muted">Nenhum evento de billing persistido. O cronograma acima é derivado do dossiê para manter a leitura visual.</p>
+        )}
       </HudPanel>
     </div>
   );
 }
 
-function FinanceTab({ record, detail }: { record: ContractGovernanceRecord; detail: ContractDetail }) {
-  const billedPercent = record.totalValue ? Math.round((record.billedValue / record.totalValue) * 100) : 0;
-  const billingTotal = detail.billingEvents.reduce((sum, event) => sum + Number(event.amount || 0), 0);
-  return (
-    <HudPanel title="Exposição financeira" icon={<Receipt className="h-4 w-4" />} interactive={false}>
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Metric label="Valor total" value={formatCurrencyFull(record.totalValue, record.contract.currency)} />
-        <Metric label="Eventos billing" value={detail.billingEvents.length} />
-        <Metric label="Billing cadastrado" value={formatCurrencyFull(billingTotal, record.contract.currency)} />
-      </div>
-      <div className="mt-5 rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-4">
-        <div className="mb-2 flex justify-between text-ig-body-sm">
-          <span className="text-ig-fg-muted">Execução financeira</span>
-          <span className="font-semibold tabular-nums text-ig-fg-strong">{billedPercent}%</span>
-        </div>
-        <HudProgressBar value={billedPercent} variant={record.financialStatus === 'blocked' ? 'danger' : record.financialStatus === 'attention' ? 'warning' : 'success'} />
-      </div>
-      {detail.billingEvents.length === 0 && (
-        <p className="mt-3 text-ig-caption text-ig-fg-muted">Nenhum evento de billing persistido. A barra financeira acima e derivada do dossie para manter a leitura visual.</p>
-      )}
-    </HudPanel>
-  );
-}
+const DOC_TYPE_LABELS: Record<string, string> = {
+  contract: 'Contrato assinado',
+  amendment: 'Aditivo',
+  invoice: 'Nota / fatura',
+  guarantee: 'Garantia bancária',
+  insurance: 'Apólice de seguro',
+  annex: 'Anexo',
+  purchase_order: 'Ordem de compra',
+  certificate: 'Certidão',
+  approval: 'Aprovação',
+  minutes: 'Ata',
+};
+
+const DOC_STATUS: Record<string, { label: string; variant: 'success' | 'warning' | 'danger' | 'info' | 'neutral' }> = {
+  uploaded: { label: 'Disponível', variant: 'success' },
+  missing: { label: 'Faltante', variant: 'warning' },
+  expired: { label: 'Expirado', variant: 'danger' },
+  expiring_soon: { label: 'Expirando', variant: 'warning' },
+  pending_approval: { label: 'Em aprovação', variant: 'info' },
+  rejected: { label: 'Rejeitado', variant: 'danger' },
+};
 
 function DocumentsTab({ record, detail }: { record: ContractGovernanceRecord; detail: ContractDetail }) {
-  const documents = detail.files.length > 0 ? detail.files.map((file) => file.file_name) : (record.missingDocuments.length ? record.missingDocuments : ['Documento assinado']);
+  const items = [
+    ...detail.documents.map((doc) => ({
+      id: doc.id,
+      name: doc.title,
+      kind: DOC_TYPE_LABELS[doc.document_type] ?? doc.document_type,
+      status: DOC_STATUS[doc.status] ?? { label: doc.status, variant: 'neutral' as const },
+    })),
+    ...detail.files.map((file) => ({
+      id: file.id,
+      name: file.file_name,
+      kind: 'Arquivo do contrato',
+      status: { label: 'Disponível', variant: 'success' as const },
+    })),
+  ];
+
+  const hasPersisted = items.length > 0;
+
   return (
-    <HudPanel title="Repositório documental" icon={<Archive className="h-4 w-4" />} interactive={false}>
-      <div className="grid gap-3 md:grid-cols-2">
-        {documents.map((document) => {
-          const missing = detail.files.length === 0 && record.missingDocuments.includes(document);
-          return (
-            <div key={document} className="rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3">
+    <HudPanel
+      title="Repositório documental"
+      subtitle={hasPersisted ? `${items.length} documento(s) no repositório` : 'Documentos obrigatórios pendentes'}
+      icon={<Archive className="h-4 w-4" />}
+      interactive={false}
+    >
+      {hasPersisted ? (
+        <div className="grid gap-3 md:grid-cols-2">
+          {items.map((item) => (
+            <div key={item.id} className="rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="truncate text-ig-body-sm font-semibold text-ig-fg-strong">{document}</p>
-                  <p className="mt-1 text-ig-caption text-ig-fg-muted">{missing ? 'Pendente para completar dossiê' : 'Referência documental disponível'}</p>
+                  <p className="truncate text-ig-body-sm font-semibold text-ig-fg-strong">{item.name}</p>
+                  <p className="mt-1 text-ig-caption text-ig-fg-muted">{item.kind}</p>
                 </div>
-                <HudBadge variant={missing ? 'warning' : 'success'} size="sm">{missing ? 'faltante' : 'ok'}</HudBadge>
+                <HudBadge variant={item.status.variant} size="sm">{item.status.label}</HudBadge>
               </div>
             </div>
-          );
-        })}
-      </div>
+          ))}
+        </div>
+      ) : (
+        <div className="grid gap-3 md:grid-cols-2">
+          {(record.missingDocuments.length ? record.missingDocuments : ['Documento assinado']).map((doc) => (
+            <div key={doc} className="rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3">
+              <div className="flex items-start justify-between gap-3">
+                <p className="min-w-0 truncate text-ig-body-sm font-semibold text-ig-fg-strong">{doc}</p>
+                <HudBadge variant="warning" size="sm">faltante</HudBadge>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </HudPanel>
   );
 }
@@ -491,13 +709,14 @@ function AiTab({ record, detail }: { record: ContractGovernanceRecord; detail: C
   return (
     <HudPanel title="Análise IA assistida" subtitle="Estado mock/pendente, sem chamada de API" icon={<BrainCircuit className="h-4 w-4" />} interactive={false}>
       <div className="mb-4 rounded-lg border border-[color-mix(in_oklab,var(--ig-warning)_34%,transparent)] bg-[color-mix(in_oklab,var(--ig-warning)_10%,transparent)] p-3">
-        <p className="text-ig-body-sm font-semibold text-ig-fg-strong">Análise não conectada</p>
+        <p className="text-ig-body-sm font-semibold text-ig-fg-strong">Análise IA pendente de backend</p>
         <p className="mt-1 text-ig-caption text-ig-fg-muted">Os campos abaixo são estrutura de produto para integração futura. Nenhuma leitura documental real foi executada.</p>
       </div>
-      <div className="grid gap-3 md:grid-cols-3">
-        <Metric label="Analises solicitadas" value={detail.aiAnalyses.length} />
+      <div className="grid gap-3 md:grid-cols-4">
+        <Metric label="Estado IA" value={record.aiStatus === 'mock_ready' ? 'Pré-extraído' : record.aiStatus === 'manual_review' ? 'Revisão manual' : 'Pendente'} />
+        <Metric label="Análises solicitadas" value={detail.aiAnalyses.length} />
         <Metric label="Risk score" value={`${record.riskScore}/100`} />
-        <Metric label="Rota recomendada" value={record.approvalRoute} />
+        <Metric label="Confiança" value={`${record.confidenceScore}%`} />
       </div>
       <div className="mt-5 grid gap-3 md:grid-cols-2">
         {output.map((item) => (

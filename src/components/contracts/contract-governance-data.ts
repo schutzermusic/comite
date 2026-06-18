@@ -27,6 +27,51 @@ export type ContractGovernanceRecord = {
   obligations: ContractObligation[];
   clauses: ContractClause[];
   auditEvents: ContractAuditEvent[];
+  linkedProjects: Project[];
+  linkedRisks: LinkedRisk[];
+  linkedTasks: LinkedTask[];
+  linkedDeliberations: LinkedDeliberation[];
+  billingEvents: LinkedBillingEvent[];
+  revenueRecognitionStatus: string;
+  margin: number;
+  paymentStatus: string;
+  financialAllocationsPending: boolean;
+};
+
+export type LinkedRisk = {
+  id: string;
+  title: string;
+  category: string;
+  riskScore: number;
+  status: 'open' | 'mitigating' | 'resolved';
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  mitigationPlan: string | null;
+};
+
+export type LinkedTask = {
+  id: string;
+  title: string;
+  dueAt: Date | null;
+  status: string;
+  priority: string;
+  assigneeName: string | null;
+};
+
+export type LinkedDeliberation = {
+  id: string;
+  title: string;
+  status: string;
+  date: Date;
+  committeeName: string;
+};
+
+export type LinkedBillingEvent = {
+  id: string;
+  title: string;
+  amount: number;
+  due_date: Date | null;
+  status: string;
+  paid_at: Date | null;
 };
 
 export type ContractObligation = {
@@ -231,6 +276,89 @@ export function enrichContractsForGovernance(contracts: Contract[], projects: Pr
     const riskBase = contract.riskClassification === 'high' ? 72 : contract.riskClassification === 'medium' ? 48 : 24;
     const expirationWeight = daysUntilExpiration === null ? 12 : daysUntilExpiration < 0 ? 18 : daysUntilExpiration < 45 ? 14 : 0;
 
+    const linkedProjects = project ? [project] : [];
+    const linkedRisks: LinkedRisk[] = [
+      {
+        id: `${contract.id}-risk-1`,
+        title: `Risco de Atraso Financeiro — ${contract.vendorOrParty}`,
+        category: 'Financeiro',
+        riskScore: riskBase + (seed % 10),
+        status: seed % 2 === 0 ? 'open' : 'mitigating',
+        severity: contract.riskClassification === 'high' ? 'high' : 'medium',
+        mitigationPlan: 'Acompanhamento semanal de medições físicas e liberação de notas.'
+      },
+      ...(contract.riskClassification === 'high' ? [{
+        id: `${contract.id}-risk-2`,
+        title: `Disputa sobre Cláusula Penal de SLA`,
+        category: 'Legal',
+        riskScore: 85,
+        status: 'open' as const,
+        severity: 'critical' as const,
+        mitigationPlan: 'Revisão jurídica prévia e renegociação do anexo de níveis de serviço.'
+      }] : [])
+    ];
+
+    const linkedTasks: LinkedTask[] = [
+      {
+        id: `${contract.id}-task-1`,
+        title: `Revisar vigência e apólice do contrato ${getCode(contract)}`,
+        dueAt: contract.expirationDate ? subDays(new Date(contract.expirationDate), 30) : addDays(now, 15),
+        status: seed % 3 === 0 ? 'todo' : 'in_progress',
+        priority: contract.riskClassification === 'high' ? 'high' : 'medium',
+        assigneeName: contract.responsibleName || OWNERS[seed % OWNERS.length]
+      },
+      {
+        id: `${contract.id}-task-2`,
+        title: `Validar medição física de faturamento`,
+        dueAt: addDays(now, 5),
+        status: seed % 2 === 0 ? 'done' : 'todo',
+        priority: 'medium',
+        assigneeName: OWNERS[(seed + 1) % OWNERS.length]
+      }
+    ];
+
+    const linkedDeliberations: LinkedDeliberation[] = [
+      {
+        id: `${contract.id}-delib-1`,
+        title: `Homologação do Contrato ${getCode(contract)} — Comitê Executivo`,
+        status: contract.riskClassification === 'high' ? 'em_pauta' : 'aprovado',
+        date: contract.signingDate ? new Date(contract.signingDate) : subDays(now, 10),
+        committeeName: 'Comitê de Governança e Finanças'
+      }
+    ];
+
+    const billingEvents: LinkedBillingEvent[] = [
+      {
+        id: `${contract.id}-be-1`,
+        title: 'Assinatura & Mobilização (10%)',
+        amount: Math.round(contract.value * 0.1),
+        due_date: contract.signingDate ? new Date(contract.signingDate) : subDays(now, 20),
+        status: 'pago',
+        paid_at: contract.signingDate ? new Date(contract.signingDate) : subDays(now, 19)
+      },
+      {
+        id: `${contract.id}-be-2`,
+        title: 'Medição Física Fase 1 (40%)',
+        amount: Math.round(contract.value * 0.4),
+        due_date: addDays(now, 10),
+        status: seed % 2 === 0 ? 'pago' : 'pendente',
+        paid_at: seed % 2 === 0 ? addDays(now, 11) : null
+      },
+      {
+        id: `${contract.id}-be-3`,
+        title: 'Medição Final & Encerramento (50%)',
+        amount: Math.round(contract.value * 0.5),
+        due_date: contract.expirationDate ? new Date(contract.expirationDate) : addDays(now, 90),
+        status: 'pendente',
+        paid_at: null
+      }
+    ];
+
+    const revenueRecognitionStatus = seed % 3 === 0 ? 'Linear mensal' : seed % 3 === 1 ? 'Medição física' : 'Reconhecimento integral na entrega';
+    const margin = 20 + (seed % 25);
+    const paymentStatus = contract.value <= 0 ? 'Suspenso' : seed % 4 === 0 ? 'Atrasado' : 'Adimplente';
+    const financialAllocationsPending = seed % 6 === 0 && !project;
+
     return {
       contract,
       code: getCode(contract),
@@ -255,6 +383,15 @@ export function enrichContractsForGovernance(contracts: Contract[], projects: Pr
       obligations: buildObligations(contract, contract.responsibleName || OWNERS[seed % OWNERS.length], seed, now),
       clauses: buildClauses(contract, seed),
       auditEvents: buildAuditEvents(contract, seed),
+      linkedProjects,
+      linkedRisks,
+      linkedTasks,
+      linkedDeliberations,
+      billingEvents,
+      revenueRecognitionStatus,
+      margin,
+      paymentStatus,
+      financialAllocationsPending,
     };
   });
 }

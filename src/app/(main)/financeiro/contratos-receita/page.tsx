@@ -25,6 +25,8 @@ import {
   buildRecognitionFunnel,
   type ContractMock,
 } from '@/lib/finance';
+import { ExportReportButton } from '@/components/reports/ExportReportButton';
+import { openFinanceReport, kpiFromHud } from '@/lib/reports/modules/finance-report';
 
 export default function ContratosReceitaPage() {
   const [period, setPeriod] = useState<FinancePeriod>('2026-Q2');
@@ -77,6 +79,49 @@ export default function ContratosReceitaPage() {
         }
         rightSlot={
           <>
+            <ExportReportButton
+              size="sm"
+              variant="primary"
+              label="Exportar PDF"
+              permission="finance.export"
+              fallbackPermission="finance.view"
+              build={() => openFinanceReport({
+                title: 'Contratos & Receita',
+                fileContext: 'contratos-receita',
+                periodLabel: period,
+                scenarioLabel: scenario,
+                context: 'Reconhecimento de receita, faturamento e backlog por contrato',
+                kpis: kpis.map((k) => kpiFromHud(k)),
+                sections: [{
+                  title: 'Funil de Reconhecimento',
+                  charts: [{
+                    title: 'Contratado → Medido → Faturado → Recebido → Backlog',
+                    spec: { kind: 'bars', valueFmt: 'compactCurrency', rows: funnelStages.map((s) => ({ label: s.label, value: s.value })) },
+                  }],
+                  tables: [{
+                    title: 'Contratos',
+                    columns: [
+                      { key: 'code', label: 'Código' },
+                      { key: 'client', label: 'Cliente' },
+                      { key: 'type', label: 'Tipo' },
+                      { key: 'contracted', label: 'Contratado', num: true },
+                      { key: 'invoiced', label: 'Faturado', num: true },
+                      { key: 'received', label: 'Recebido', num: true },
+                      { key: 'status', label: 'Status' },
+                    ],
+                    rows: filtered.map((c) => ({
+                      code: c.code,
+                      client: c.client,
+                      type: CONTRACT_TYPE_LABEL[c.type],
+                      contracted: { html: `<span class="mono">${fmtBRL(c.contracted)}</span>` },
+                      invoiced: { html: `<span class="mono">${fmtBRL(c.invoiced)}</span>` },
+                      received: { html: `<span class="mono">${fmtBRL(c.received)}</span>` },
+                      status: String(c.status),
+                    })),
+                  }],
+                }],
+              })}
+            />
             <HudButton variant="ghost" size="sm" leftIcon={<Calendar className="w-4 h-4" />}>Previsão de faturamento</HudButton>
             <HudButton variant="primary" size="sm" leftIcon={<Plus className="w-4 h-4" />}>Novo contrato</HudButton>
           </>

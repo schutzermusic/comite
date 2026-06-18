@@ -30,41 +30,35 @@ import {
   type InvestorView,
   type SensitivityRow,
 } from '@/components/projects/FinanceInvestorCockpit';
+import {
+  BRL,
+  compactBRL,
+  fmtPct,
+  esc,
+  periodLabel,
+  centsToReais,
+  curveCentsToReais,
+} from '@/lib/reports/report-formatters';
+import { C, sevColor } from '@/lib/reports/report-theme';
+import {
+  svgLineChart,
+  svgGroupedBarChart,
+  svgScenarioBars,
+  emptyChart,
+  niceTicks,
+  chartFrame,
+  legend,
+  callouts,
+  type LineSeries,
+  type ChartMarker,
+  type BarSeries,
+} from '@/lib/reports/report-charts';
+import { sectionTitle } from '@/lib/reports/report-blocks';
+import { renderReportDocument } from '@/lib/reports/report-shell';
+import { openReport, resolveLogoUrl } from '@/lib/reports/report-export';
+import type { ReportExportResult } from '@/lib/reports/report-types';
 
-// ── Formatting helpers (presentation only — no business rules) ──────
-
-const MONTHS_PT = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-
-function periodLabel(period?: string | null): string {
-  if (!period) return '—';
-  const [y, m] = period.split('-');
-  return `${MONTHS_PT[parseInt(m, 10) - 1] || m}/${y?.slice(2) ?? ''}`;
-}
-
-const BRL = (n: number): string =>
-  (n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
-
-function compactBRL(n: number): string {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency',
-    currency: 'BRL',
-    notation: 'compact',
-    maximumFractionDigits: 1,
-  }).format(n || 0);
-}
-
-const fmtPct = (v: number | null | undefined): string =>
-  v == null || !Number.isFinite(v) ? 'dados insuf.' : `${v.toFixed(1)}%`;
-
-function esc(s: unknown): string {
-  return String(s ?? '').replace(/[&<>"']/g, (c) => (
-    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string
-  ));
-}
-
-const centsToReais = (cents?: number | null): number => (cents ?? 0) / 100;
-const curveCentsToReais = (value: number | null | undefined): number | null =>
-  value == null || Number.isNaN(value) ? null : value / 100;
+// ── Project-specific label helpers (formatters live in report-formatters) ──
 
 function statusLabelPt(status: string): string {
   const map: Record<string, string> = {
@@ -82,323 +76,10 @@ function severityLabel(s: 'success' | 'warning' | 'critical' | 'neutral'): strin
   return map[s] ?? s;
 }
 
-// ── Print palette (light, brand-aligned: Insight orange + green) ────
+// ── Inline SVG chart primitives (shared engine: report-charts) ────────────────
+// Generic primitives live in report-charts; only the project-specific waterfall
+// (depends on InvestorView) remains local, defined further below.
 
-const C = {
-  ink: '#0F172A',
-  body: '#1E293B',
-  muted: '#475569',
-  subtle: '#64748B',
-  border: '#E2E8F0',
-  borderStrong: '#CBD5E1',
-  // Brand (from the Insight Energy wordmark)
-  brandOrange: '#E87722',
-  brandGreen: '#00984A',
-  // Chart family (print-contrast variants of the cockpit palette)
-  primary: '#0F766E',
-  success: '#047857',
-  successSoft: '#059669',
-  info: '#1D4ED8',
-  cyan: '#0E7490',
-  cost: '#C2410C',
-  costSoft: '#A16207',
-  warning: '#B45309',
-  critical: '#B91C1C',
-  purple: '#7C3AED',
-  grid: '#EDF2F7',
-  panel: '#FBFDFE',
-};
-
-function sevColor(s: 'success' | 'warning' | 'critical' | 'neutral'): string {
-  if (s === 'success') return C.success;
-  if (s === 'warning') return C.warning;
-  if (s === 'critical') return C.critical;
-  return C.subtle;
-}
-
-// ── Inline SVG chart primitives (vector, print-safe) ────────────────
-
-interface LineSeries {
-  name: string;
-  color: string;
-  values: (number | null)[];
-  dashed?: boolean;
-  /** Draw the last non-null value as a label at the right edge. */
-  endLabel?: boolean;
-}
-
-interface ChartMarker {
-  index: number;
-  label: string;
-  color: string;
-  /** Optional value rendered under the marker label. */
-  value?: string;
-}
-
-function niceTicks(min: number, max: number, count = 4): number[] {
-  if (min === max) {
-    const pad = Math.abs(min) || 1;
-    min -= pad;
-    max += pad;
-  }
-  const step = (max - min) / count;
-  return Array.from({ length: count + 1 }, (_, i) => min + step * i);
-}
-
-function chartFrame(width: number, height: number, padL: number, padT: number, plotW: number, plotH: number): string {
-  return `<rect x="${padL}" y="${padT}" width="${plotW}" height="${plotH}" fill="${C.panel}" rx="4"/>`;
-}
-
-function svgLineChart(
-  periods: string[],
-  series: LineSeries[],
-  opts: { width: number; height: number; markers?: ChartMarker[] },
-): string {
-  const { width, height, markers = [] } = opts;
-  const hasEndLabels = series.some((s) => s.endLabel);
-  const padL = 66, padR = hasEndLabels ? 92 : 18, padT = 30, padB = 32;
-  const plotW = width - padL - padR;
-  const plotH = height - padT - padB;
-  const n = periods.length;
-  if (n === 0) return emptyChart(width, height);
-
-  const all = series.flatMap((s) => s.values.filter((v): v is number => v != null));
-  let min = Math.min(0, ...all);
-  let max = Math.max(0, ...all);
-  if (min === max) max = min + 1;
-  const xAt = (i: number) => padL + (n === 1 ? plotW / 2 : (i / (n - 1)) * plotW);
-  const yAt = (v: number) => padT + (1 - (v - min) / (max - min)) * plotH;
-
-  const ticks = niceTicks(min, max, 4);
-  const gridLines = ticks
-    .map((t) => {
-      const y = yAt(t).toFixed(1);
-      return `<line x1="${padL}" y1="${y}" x2="${padL + plotW}" y2="${y}" stroke="${C.grid}" stroke-width="1"/>` +
-        `<text x="${padL - 8}" y="${y}" text-anchor="end" dominant-baseline="middle" font-size="9.5" fill="${C.subtle}">${esc(compactBRL(t))}</text>`;
-    })
-    .join('');
-
-  const zeroLine = min < 0 && max > 0
-    ? `<line x1="${padL}" y1="${yAt(0).toFixed(1)}" x2="${padL + plotW}" y2="${yAt(0).toFixed(1)}" stroke="${C.borderStrong}" stroke-width="1.2"/>`
-    : '';
-
-  const labelStep = Math.max(1, Math.ceil(n / 9));
-  const xLabels = periods
-    .map((p, i) => (i % labelStep === 0 || i === n - 1)
-      ? `<text x="${xAt(i).toFixed(1)}" y="${height - 10}" text-anchor="middle" font-size="9.5" fill="${C.subtle}">${esc(periodLabel(p))}</text>`
-      : '')
-    .join('');
-
-  // One label row per marker so close markers (e.g. corte/pico) never collide.
-  const visibleMarkers = markers.filter((m) => m.index >= 0 && m.index < n);
-  const markerEls = visibleMarkers
-    .map((m, mi) => {
-      const xNum = xAt(m.index);
-      const x = xNum.toFixed(1);
-      const ly = 9 + mi * 10;
-      const anchor = xNum < padL + plotW * 0.12 ? 'start' : xNum > padL + plotW * 0.88 ? 'end' : 'middle';
-      return `<line x1="${x}" y1="${padT}" x2="${x}" y2="${padT + plotH}" stroke="${m.color}" stroke-width="1.2" stroke-dasharray="4 3"/>` +
-        `<text x="${x}" y="${ly}" text-anchor="${anchor}" font-size="8.5" font-weight="700" fill="${m.color}">${esc(m.label)}${m.value ? ` · ${esc(m.value)}` : ''}</text>`;
-    })
-    .join('');
-
-  const paths = series
-    .map((s) => {
-      let d = '';
-      let pen = false;
-      s.values.forEach((v, i) => {
-        if (v == null) { pen = false; return; }
-        const cmd = pen ? 'L' : 'M';
-        d += `${cmd}${xAt(i).toFixed(1)},${yAt(v).toFixed(1)} `;
-        pen = true;
-      });
-      if (!d.trim()) return '';
-      const dash = s.dashed ? ' stroke-dasharray="5 3"' : '';
-      return `<path d="${d.trim()}" fill="none" stroke="${s.color}" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round"${dash}/>`;
-    })
-    .join('');
-
-  // End-of-series value labels with simple vertical collision avoidance.
-  let endLabels = '';
-  if (hasEndLabels) {
-    const entries = series
-      .filter((s) => s.endLabel)
-      .map((s) => {
-        let lastIdx = -1;
-        for (let i = s.values.length - 1; i >= 0; i--) {
-          if (s.values[i] != null) { lastIdx = i; break; }
-        }
-        return lastIdx >= 0 ? { color: s.color, value: s.values[lastIdx] as number, x: xAt(lastIdx), y: yAt(s.values[lastIdx] as number) } : null;
-      })
-      .filter((e): e is NonNullable<typeof e> => e != null)
-      .sort((a, b) => a.y - b.y);
-    // nudge labels apart (min 12px)
-    for (let i = 1; i < entries.length; i++) {
-      if (entries[i].y - entries[i - 1].y < 12) entries[i].y = entries[i - 1].y + 12;
-    }
-    endLabels = entries
-      .map((e) => `<circle cx="${e.x.toFixed(1)}" cy="${yAt(e.value).toFixed(1)}" r="2.4" fill="${e.color}"/>` +
-        `<text x="${(padL + plotW + 8).toFixed(1)}" y="${e.y.toFixed(1)}" font-size="9" font-weight="700" dominant-baseline="middle" fill="${e.color}">${esc(compactBRL(e.value))}</text>`)
-      .join('');
-  }
-
-  return `<svg viewBox="0 0 ${width} ${height}" width="100%" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">${chartFrame(width, height, padL, padT, plotW, plotH)}${gridLines}${zeroLine}${markerEls}${paths}${endLabels}${xLabels}</svg>`;
-}
-
-interface BarSeries { name: string; color: string; values: number[]; }
-
-function svgGroupedBarChart(
-  periods: string[],
-  series: BarSeries[],
-  opts: {
-    width: number;
-    height: number;
-    highlightNegative?: (number | null)[];
-    /** Line overlay (e.g. saldo líquido mensal). */
-    line?: { name: string; color: string; values: (number | null)[] };
-    /** Bar value labels: indices (per series) worth calling out. */
-    barLabels?: { seriesIdx: number; index: number }[];
-    /** Line point labels (e.g. most negative / most positive month). */
-    lineLabels?: { index: number; text: string }[];
-  },
-): string {
-  const { width, height, highlightNegative, line, barLabels = [], lineLabels = [] } = opts;
-  const padL = 66, padR = 18, padT = 26, padB = 32;
-  const plotW = width - padL - padR;
-  const plotH = height - padT - padB;
-  const n = periods.length;
-  if (n === 0) return emptyChart(width, height);
-
-  const all = [
-    ...series.flatMap((s) => s.values),
-    ...(line ? line.values.filter((v): v is number => v != null) : []),
-  ];
-  let min = Math.min(0, ...all);
-  let max = Math.max(0, ...all);
-  if (min === max) max = min + 1;
-  // headroom for bar value labels
-  max += (max - min) * 0.08;
-  const yAt = (v: number) => padT + (1 - (v - min) / (max - min)) * plotH;
-  const groupW = plotW / n;
-  const barGap = 2;
-  const barW = Math.max(2, (groupW * 0.62) / series.length - barGap);
-  const xCenter = (i: number) => padL + i * groupW + groupW / 2;
-
-  const ticks = niceTicks(min, max, 4);
-  const gridLines = ticks
-    .map((t) => {
-      const y = yAt(t).toFixed(1);
-      return `<line x1="${padL}" y1="${y}" x2="${padL + plotW}" y2="${y}" stroke="${C.grid}" stroke-width="1"/>` +
-        `<text x="${padL - 8}" y="${y}" text-anchor="end" dominant-baseline="middle" font-size="9.5" fill="${C.subtle}">${esc(compactBRL(t))}</text>`;
-    })
-    .join('');
-  const y0 = yAt(0);
-
-  const highlights = (highlightNegative ?? [])
-    .map((v, i) => (v != null && v < 0)
-      ? `<rect x="${(padL + i * groupW).toFixed(1)}" y="${padT}" width="${groupW.toFixed(1)}" height="${plotH}" fill="${C.critical}" opacity="0.06"/>`
-      : '')
-    .join('');
-
-  const barX = (i: number, si: number) => {
-    const groupStart = padL + i * groupW + (groupW - (barW + barGap) * series.length) / 2;
-    return groupStart + si * (barW + barGap);
-  };
-
-  const bars = periods
-    .map((_, i) => series
-      .map((s, si) => {
-        const v = s.values[i] ?? 0;
-        const y = yAt(Math.max(0, v));
-        const h = Math.abs(yAt(v) - y0);
-        return `<rect x="${barX(i, si).toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(0.5, h).toFixed(1)}" fill="${s.color}" rx="1"/>`;
-      })
-      .join(''))
-    .join('');
-
-  const barLabelEls = barLabels
-    .filter((b) => b.index >= 0 && b.index < n && b.seriesIdx < series.length)
-    .map((b) => {
-      const s = series[b.seriesIdx];
-      const v = s.values[b.index] ?? 0;
-      const x = barX(b.index, b.seriesIdx) + barW / 2;
-      const y = yAt(Math.max(0, v)) - 4;
-      return `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" text-anchor="middle" font-size="8.5" font-weight="700" fill="${s.color}">${esc(compactBRL(v))}</text>`;
-    })
-    .join('');
-
-  let lineEls = '';
-  if (line) {
-    let d = '';
-    let pen = false;
-    line.values.forEach((v, i) => {
-      if (v == null) { pen = false; return; }
-      d += `${pen ? 'L' : 'M'}${xCenter(i).toFixed(1)},${yAt(v).toFixed(1)} `;
-      pen = true;
-    });
-    if (d.trim()) {
-      lineEls = `<path d="${d.trim()}" fill="none" stroke="${line.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
-      lineEls += lineLabels
-        .filter((l) => l.index >= 0 && l.index < n && line.values[l.index] != null)
-        .map((l) => {
-          const v = line.values[l.index] as number;
-          const x = xCenter(l.index);
-          const y = yAt(v);
-          const above = v >= 0;
-          return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3" fill="${line.color}" stroke="#fff" stroke-width="1.2"/>` +
-            `<text x="${x.toFixed(1)}" y="${(above ? y - 7 : y + 13).toFixed(1)}" text-anchor="middle" font-size="8.5" font-weight="700" fill="${line.color}">${esc(l.text)}</text>`;
-        })
-        .join('');
-    }
-  }
-
-  const zeroLine = `<line x1="${padL}" y1="${y0.toFixed(1)}" x2="${padL + plotW}" y2="${y0.toFixed(1)}" stroke="${C.borderStrong}" stroke-width="1.2"/>`;
-
-  const labelStep = Math.max(1, Math.ceil(n / 9));
-  const xLabels = periods
-    .map((p, i) => (i % labelStep === 0 || i === n - 1)
-      ? `<text x="${xCenter(i).toFixed(1)}" y="${height - 10}" text-anchor="middle" font-size="9.5" fill="${C.subtle}">${esc(periodLabel(p))}</text>`
-      : '')
-    .join('');
-
-  return `<svg viewBox="0 0 ${width} ${height}" width="100%" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">${chartFrame(width, height, padL, padT, plotW, plotH)}${gridLines}${highlights}${bars}${zeroLine}${lineEls}${barLabelEls}${xLabels}</svg>`;
-}
-
-/** Horizontal scenario bars with value + margin labels (supports negatives). */
-function svgScenarioBars(
-  rows: { label: string; value: number; margin: number | null; color: string }[],
-  opts: { width: number; rowH?: number },
-): string {
-  const rowH = opts.rowH ?? 32;
-  const width = opts.width;
-  const padL = 116, padR = 110;
-  const plotW = width - padL - padR;
-  const height = rows.length * rowH + 8;
-  const vals = rows.map((r) => r.value);
-  let min = Math.min(0, ...vals);
-  let max = Math.max(0, ...vals);
-  if (min === max) max = min + 1;
-  const xAt = (v: number) => padL + ((v - min) / (max - min)) * plotW;
-  const x0 = xAt(0);
-
-  const bars = rows
-    .map((r, i) => {
-      const cy = 4 + i * rowH + rowH / 2;
-      const x = xAt(Math.min(0, r.value));
-      const w = Math.max(1.5, Math.abs(xAt(r.value) - x0));
-      const labelX = r.value >= 0 ? xAt(r.value) + 7 : xAt(r.value) - 7;
-      const anchor = r.value >= 0 ? 'start' : 'end';
-      const sign = r.value > 0 ? '+' : '';
-      return `<text x="${padL - 8}" y="${cy}" text-anchor="end" dominant-baseline="middle" font-size="10" font-weight="600" fill="${C.body}">${esc(r.label)}</text>` +
-        `<rect x="${x.toFixed(1)}" y="${(cy - rowH * 0.30).toFixed(1)}" width="${w.toFixed(1)}" height="${(rowH * 0.60).toFixed(1)}" fill="${r.color}" rx="3"/>` +
-        `<text x="${labelX.toFixed(1)}" y="${(cy - 5).toFixed(1)}" text-anchor="${anchor}" dominant-baseline="middle" font-size="9.5" font-weight="700" fill="${r.color}">${sign}${esc(BRL(r.value))}</text>` +
-        `<text x="${labelX.toFixed(1)}" y="${(cy + 7).toFixed(1)}" text-anchor="${anchor}" dominant-baseline="middle" font-size="8.5" fill="${C.subtle}">margem ${esc(fmtPct(r.margin))}</text>`;
-    })
-    .join('');
-
-  const axis = `<line x1="${x0.toFixed(1)}" y1="2" x2="${x0.toFixed(1)}" y2="${height - 2}" stroke="${C.borderStrong}" stroke-width="1.2"/>`;
-  return `<svg viewBox="0 0 ${width} ${height}" width="100%" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">${axis}${bars}</svg>`;
-}
 
 /** Waterfall bridge (Caixa → Resultado) with signed value labels. */
 function svgWaterfall(iv: InvestorView, opts: { width: number; height: number }): string {
@@ -472,28 +153,7 @@ function svgWaterfall(iv: InvestorView, opts: { width: number; height: number })
   return `<svg viewBox="0 0 ${width} ${height}" width="100%" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">${chartFrame(width, height, padL, padT, plotW, plotH)}${gridLines}${zeroLine}${connectors}${bars}${note}</svg>`;
 }
 
-function emptyChart(width: number, height: number): string {
-  return `<svg viewBox="0 0 ${width} ${height}" width="100%" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">` +
-    `<rect x="0" y="0" width="${width}" height="${height}" fill="#F8FAFC" rx="8"/>` +
-    `<text x="${width / 2}" y="${height / 2}" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="${C.subtle}">Dados insuficientes para este gráfico</text></svg>`;
-}
 
-function legend(items: { name: string; color: string; dashed?: boolean }[]): string {
-  return `<div class="legend">${items
-    .map((i) => `<span class="lg"><span class="sw" style="background:${i.dashed ? `repeating-linear-gradient(90deg, ${i.color} 0 4px, transparent 4px 7px)` : i.color}"></span>${esc(i.name)}</span>`)
-    .join('')}</div>`;
-}
-
-/** Row of key-value callout chips above a chart. */
-function callouts(items: { label: string; value: string; color: string }[]): string {
-  return `<div class="chips">${items
-    .map((c) => `<span class="chip" style="border-color:${c.color}40;background:${c.color}0D"><span class="dot" style="background:${c.color}"></span><span class="chip-l">${esc(c.label)}</span><span class="chip-v" style="color:${c.color}">${esc(c.value)}</span></span>`)
-    .join('')}</div>`;
-}
-
-function sectionTitle(title: string, subtitle?: string): string {
-  return `<div class="sec-head"><div class="sec-rule"></div><div><h2>${esc(title)}</h2>${subtitle ? `<p class="sec-sub">${esc(subtitle)}</p>` : ''}</div></div>`;
-}
 
 // ── Report section selector ─────────────────────────────────────────
 
@@ -1250,208 +910,27 @@ export function buildProjectFinanceReportHtml(payload: ProjectFinanceReportPaylo
     }
   }
 
-  const totalPages = pageBodies.length;
-
-  const pagesHtml = pageBodies
-    .map((body, i) => `
-  <div class="page${i > 0 ? ' page-break' : ''}">
-    <div class="page-body">${body}</div>
-    <div class="pfoot">
-      <span class="pf-brand"><img class="pf-logo" src="${esc(logoUrl)}" alt="${esc(brand)}" /> · ${esc(project.nome)} · Confidencial</span>
-      <span>Página ${i + 1} de ${totalPages}</span>
-    </div>
-  </div>`)
-    .join('');
-
-  return `<!doctype html>
-<html lang="pt-BR"><head><meta charset="utf-8" />
-<title>${esc(fileName)}</title>
-<style>
-  @page { size: A4 landscape; margin: 10mm 12mm 8mm; }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; background: #fff; color: ${C.ink};
-    font: 12px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-    -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-
-  /* Each .page is one explicit printed page; footer is laid out at its bottom. */
-  .page { display: flex; flex-direction: column; min-height: 186mm; padding: 0 1mm; }
-  .page-break { page-break-before: always; }
-  .page-body { flex: 1 1 auto; }
-  .pfoot { margin-top: auto; display: flex; justify-content: space-between; align-items: center;
-    border-top: 1px solid ${C.border}; padding-top: 5px; font-size: 8.5px; color: ${C.subtle}; }
-  .pf-brand { display: inline-flex; align-items: center; gap: 5px; }
-  .pf-logo { height: 11px; width: auto; object-fit: contain; display: inline-block; }
-
-  .section { margin: 0 0 12px; page-break-inside: avoid; }
-  h2 { font-size: 14px; margin: 0; color: ${C.ink}; letter-spacing: .02em; }
-  h3 { font-size: 10.5px; margin: 0 0 6px; color: ${C.muted}; text-transform: uppercase; letter-spacing: .08em; }
-  .sec-head { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; padding-bottom: 6px;
-    border-bottom: 1px solid ${C.border}; }
-  .sec-rule { width: 4px; height: 26px; border-radius: 99px;
-    background: linear-gradient(180deg, ${C.brandOrange}, ${C.brandGreen}); }
-  .sec-sub { margin: 1px 0 0; font-size: 9.5px; color: ${C.subtle}; }
-
-  .mono { font-variant-numeric: tabular-nums; font-family: ui-monospace, Menlo, monospace; }
-  .num { text-align: right; }
-  .muted { color: ${C.subtle}; }
-  .empty { color: ${C.subtle}; font-size: 11px; font-style: italic; padding: 6px 0; }
-  .interp { font-size: 10.5px; color: ${C.body}; margin: 6px 0 0; max-width: 980px; }
-
-  /* ── Cover band (glass-inspired, light) ── */
-  .cover-band { position: relative; text-align: center; padding: 22px 28px 16px; margin-bottom: 14px;
-    border: 1px solid ${C.border}; border-radius: 16px; overflow: hidden;
-    background:
-      radial-gradient(120% 140% at 0% 0%, ${C.brandOrange}14 0%, transparent 45%),
-      radial-gradient(120% 140% at 100% 0%, ${C.brandGreen}14 0%, transparent 45%),
-      linear-gradient(180deg, #FFFFFF 0%, #FAFCFB 100%); }
-  .cover-band::after { content: ''; position: absolute; inset-inline: 0; bottom: 0; height: 3px;
-    background: linear-gradient(90deg, ${C.brandOrange}, #F5C518, ${C.brandGreen}); }
-  .cover-logo { height: 52px; max-width: 360px; object-fit: contain; margin: 0 auto 10px; display: block; }
-  .cover-kicker { font-size: 9px; font-weight: 700; letter-spacing: .22em; text-transform: uppercase; color: ${C.subtle}; }
-  .cover-title { font-size: 26px; font-weight: 800; margin: 6px 0 12px; color: ${C.ink}; letter-spacing: -0.01em; }
-  .cover-proj { font-size: 13.5px; color: ${C.body}; }
-  .cover-proj b { color: ${C.ink}; }
-  .cover-proj .sep { margin: 0 7px; color: ${C.borderStrong}; }
-  .status-chip { display: inline-block; margin-left: 10px; padding: 2px 10px; border: 1px solid; border-radius: 999px;
-    font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .12em; vertical-align: 2px; }
-  .cover-meta { display: flex; justify-content: center; flex-wrap: wrap; gap: 6px 22px; margin-top: 10px;
-    font-size: 10px; color: ${C.muted}; }
-  .cover-meta b { color: ${C.ink}; }
-  .cover-note { margin-top: 9px; font-size: 8.5px; color: ${C.subtle}; }
-
-  /* ── Executive summary ── */
-  .exec { display: grid; grid-template-columns: 1.15fr 1fr; gap: 18px; align-items: start; }
-  .narrative p { margin: 0 0 7px; font-size: 11.5px; color: ${C.body}; }
-  table.summary { width: 100%; border-collapse: collapse; }
-  table.summary td { padding: 4px 6px; border-bottom: 1px solid ${C.border}; font-size: 10.5px; }
-  table.summary tr:nth-child(even) td { background: #FAFCFB; }
-  table.summary td:last-child { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
-
-  /* ── KPI cards ── */
-  .kpis { display: grid; gap: 8px; }
-  .kpis.cols-5 { grid-template-columns: repeat(5, 1fr); }
-  .kpi { position: relative; display: flex; flex-direction: column; min-height: 64px;
-    border: 1px solid ${C.border}; border-radius: 10px; padding: 9px 11px 8px;
-    background: linear-gradient(180deg, #FFFFFF 0%, #FBFDFC 100%); overflow: hidden; page-break-inside: avoid;
-    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04); }
-  .kpi .bar { position: absolute; top: 0; left: 10%; right: 10%; height: 2px; }
-  .kpi-l { font-size: 8px; text-transform: uppercase; letter-spacing: .1em; color: ${C.subtle}; font-weight: 700; }
-  .kpi-v { font-size: 15.5px; font-weight: 800; margin-top: 3px; font-variant-numeric: tabular-nums; }
-  .kpi-foot { margin-top: auto; display: flex; justify-content: space-between; align-items: center; gap: 4px; padding-top: 2px; }
-  .kpi-h { font-size: 8.5px; color: ${C.subtle}; }
-
-  /* ── Mini cards ── */
-  .mini-cards { display: grid; gap: 8px; margin-bottom: 10px; }
-  .mini-cards.cols-5 { grid-template-columns: repeat(5, 1fr); }
-  .mini-cards.cols-8 { grid-template-columns: repeat(8, 1fr); }
-  .mini-card { position: relative; border: 1px solid ${C.border}; border-radius: 10px; padding: 8px 10px; overflow: hidden;
-    background: linear-gradient(180deg, #FFFFFF 0%, #FBFDFC 100%); box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04); }
-  .mini-card .bar { position: absolute; top: 0; left: 10%; right: 10%; height: 2px; }
-  .mc-l { font-size: 7.5px; text-transform: uppercase; letter-spacing: .09em; color: ${C.subtle}; font-weight: 700;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .mc-v { font-size: 13.5px; font-weight: 800; margin-top: 2px; font-variant-numeric: tabular-nums; }
-  .mc-h { font-size: 8px; color: ${C.subtle}; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
-  /* ── Callout chips ── */
-  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
-  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border: 1px solid; border-radius: 999px; }
-  .chip .dot { width: 6px; height: 6px; border-radius: 99px; }
-  .chip-l { font-size: 8.5px; text-transform: uppercase; letter-spacing: .08em; color: ${C.muted}; }
-  .chip-v { font-size: 10px; font-weight: 800; font-variant-numeric: tabular-nums; }
-
-  /* ── Charts ── */
-  .chart { border: 1px solid ${C.border}; border-radius: 12px; padding: 10px 12px 8px; background: #fff;
-    page-break-inside: avoid; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04); }
-  .legend { display: flex; flex-wrap: wrap; gap: 5px 14px; margin-top: 6px; justify-content: center; }
-  .legend .lg { display: inline-flex; align-items: center; gap: 5px; font-size: 9px; color: ${C.muted}; }
-  .legend .sw { width: 16px; height: 3px; border-radius: 2px; display: inline-block; }
-
-  .two-col { display: grid; grid-template-columns: 1.05fr 1fr; gap: 16px; align-items: start; }
-
-  /* ── Tables ── */
-  table.data { width: 100%; border-collapse: collapse; font-size: 10px; margin-top: 4px; }
-  table.data thead th { text-align: left; background: #F6F9F8; border-bottom: 1.5px solid ${C.borderStrong};
-    padding: 5px 7px; font-size: 8.5px; text-transform: uppercase; letter-spacing: .06em; color: ${C.muted}; }
-  table.data thead th.num { text-align: right; }
-  table.data tbody td { padding: 4.5px 7px; border-bottom: 1px solid ${C.border}; }
-  table.data tbody tr { page-break-inside: avoid; }
-  table.data tbody tr:nth-child(even) { background: #FBFDFC; }
-  table.data thead { display: table-header-group; }
-  .pill { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 8.5px; font-weight: 700;
-    background: #EEF2F6; color: ${C.muted}; }
-  .pill.ok { background: #ECFDF5; color: ${C.success}; }
-  .pill.warn { background: #FFFBEB; color: ${C.warning}; }
-  .pill.crit { background: #FEF2F2; color: ${C.critical}; }
-
-  .event-group { margin-bottom: 10px; page-break-inside: avoid; }
-  .group-title { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .1em; color: ${C.body};
-    padding: 3px 0 3px 9px; border-left: 3px solid ${C.borderStrong}; }
-  .group-title.crit { border-left-color: ${C.critical}; color: ${C.critical}; }
-  .group-title.warn { border-left-color: ${C.warning}; color: ${C.warning}; }
-  .group-title.ok { border-left-color: ${C.success}; color: ${C.success}; }
-
-  /* ── Waterfall extras ── */
-  .wf-head { display: flex; align-items: flex-start; gap: 16px; margin-bottom: 8px; }
-  .result-badge { display: flex; flex-direction: column; gap: 1px; border: 1px solid; border-radius: 12px;
-    padding: 8px 14px; flex-shrink: 0; }
-  .rb-l { font-size: 8px; text-transform: uppercase; letter-spacing: .1em; color: ${C.subtle}; font-weight: 700; }
-  .rb-v { font-size: 18px; font-weight: 800; font-variant-numeric: tabular-nums; }
-  .rb-m { font-size: 9px; color: ${C.muted}; }
-
-  /* ── Warning box ── */
-  .warn-box { margin-top: 10px; border: 1px solid ${C.warning}40; background: ${C.warning}0A;
-    border-radius: 12px; padding: 10px 14px; page-break-inside: avoid; }
-  .warn-box.ok { border-color: ${C.success}40; background: ${C.success}0A; }
-  .warn-title { font-size: 9.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .1em; color: ${C.warning}; margin-bottom: 4px; }
-  .warn-list { margin: 2px 0 0; padding-left: 16px; }
-  .warn-list li { font-size: 10px; color: ${C.body}; margin-bottom: 3px; }
-
-  /* ── Screen-only toolbar & preview ── */
-  .toolbar { position: fixed; top: 12px; right: 12px; z-index: 20; background: ${C.ink}; color: #fff;
-    padding: 8px 12px; border-radius: 10px; display: flex; gap: 8px; box-shadow: 0 6px 18px rgba(0,0,0,.18); }
-  .toolbar button { background: ${C.brandGreen}; color: #fff; border: 0; border-radius: 6px; padding: 6px 12px;
-    font-weight: 600; cursor: pointer; font-size: 11px; }
-  .toolbar button.alt { background: transparent; border: 1px solid rgba(255,255,255,.25); }
-
-  @media print { .no-print { display: none !important; } }
-  @media screen {
-    body { background: #E9EEF2; }
-    .page { background: #fff; width: 297mm; min-height: 190mm; margin: 16px auto; padding: 10mm 12mm 8mm;
-      box-shadow: 0 2px 14px rgba(15, 23, 42, .14); border-radius: 4px; }
-  }
-</style></head>
-<body>
-  <div class="toolbar no-print">
-    <button onclick="window.print()">Imprimir / Salvar PDF</button>
-    <button class="alt" onclick="window.close()">Fechar</button>
-  </div>
-${pagesHtml}
-  <script>
-    document.title = ${JSON.stringify(fileName)};
-  </script>
-</body></html>`;
+  // Shared engine wraps page bodies with the branded shell, A4 landscape
+  // pagination and the "Página N de TOTAL" footer (computed at build time).
+  return renderReportDocument({
+    fileName,
+    brand,
+    logoUrl,
+    footerLabel: project.nome,
+    pages: pageBodies,
+    orientation: 'landscape',
+  });
 }
 
-export type ProjectFinanceExportResult =
-  | { ok: true }
-  | { ok: false; reason: 'popup_blocked' | 'error'; message: string };
+export type ProjectFinanceExportResult = ReportExportResult;
 
 /** Open the print-ready investor report in a new window (user prints / saves as PDF). */
 export function openProjectFinanceReport(payload: ProjectFinanceReportPayload): ProjectFinanceExportResult {
   try {
     // Absolute logo URL so the asset resolves regardless of the new window's base URI.
-    const logoUrl = payload.logoUrl
-      ?? (typeof window !== 'undefined' ? `${window.location.origin}/LOGO%20INSIGHT.png` : '/LOGO%20INSIGHT.png');
+    const logoUrl = resolveLogoUrl(payload.logoUrl);
     const html = buildProjectFinanceReportHtml({ ...payload, logoUrl });
-    const w = window.open('', '_blank', 'width=1280,height=860');
-    if (!w) {
-      return { ok: false, reason: 'popup_blocked', message: 'O navegador bloqueou a janela. Habilite pop-ups para este site.' };
-    }
-    w.document.open();
-    w.document.write(html);
-    w.document.close();
-    w.focus();
-    return { ok: true };
+    return openReport(html, { width: 1280, height: 860 });
   } catch (err) {
     return { ok: false, reason: 'error', message: err instanceof Error ? err.message : 'Falha ao gerar o relatório.' };
   }

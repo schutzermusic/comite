@@ -28,6 +28,8 @@ import {
   type CostCenterMock,
 } from '@/lib/finance';
 import { CostCenterLedgerSection } from '@/components/finance/cost-analysis';
+import { ExportReportButton } from '@/components/reports/ExportReportButton';
+import { openFinanceReport, kpiFromHud } from '@/lib/reports/modules/finance-report';
 
 export default function CentrosCustoPage() {
   const [period, setPeriod] = useState<FinancePeriod>('2026-04');
@@ -51,7 +53,55 @@ export default function CentrosCustoPage() {
       <FinanceFilterBar
         period={period} onPeriodChange={setPeriod}
         scenario={scenario} onScenarioChange={setScenario}
-        rightSlot={<HudButton variant="primary" size="sm" leftIcon={<Plus className="w-4 h-4" />}>Novo CC</HudButton>}
+        rightSlot={
+          <>
+            <ExportReportButton
+              size="sm"
+              variant="primary"
+              label="Exportar PDF"
+              permission="finance.export"
+              fallbackPermission="finance.view"
+              build={() => {
+                const buckets = new Map<string, number>();
+                COST_CENTERS.forEach((c) => c.composition.forEach((x) => buckets.set(x.category, (buckets.get(x.category) || 0) + x.value)));
+                return openFinanceReport({
+                  title: 'Centros de Custo',
+                  fileContext: 'centros-custo',
+                  context: 'Orçado x realizado e concentração de custos por centro',
+                  kpis: kpis.map((k) => kpiFromHud(k)),
+                  sections: [{
+                    title: 'Centros de Custo',
+                    charts: [{
+                      title: 'Composição por categoria',
+                      spec: { kind: 'donut', valueFmt: 'compactCurrency', slices: Array.from(buckets.entries()).map(([label, value]) => ({ label, value })) },
+                    }],
+                    tables: [{
+                      columns: [
+                        { key: 'code', label: 'CC' },
+                        { key: 'name', label: 'Nome' },
+                        { key: 'director', label: 'Diretor' },
+                        { key: 'budget', label: 'Orçado', num: true },
+                        { key: 'actual', label: 'Realizado', num: true },
+                        { key: 'var', label: 'Variação', num: true },
+                        { key: 'hc', label: 'Headcount', num: true },
+                      ],
+                      rows: [...COST_CENTERS].sort((a, b) => b.actual - a.actual).map((c) => ({
+                        code: c.code,
+                        name: c.name,
+                        director: c.director,
+                        budget: { html: `<span class="mono">${fmtBRL(c.budget)}</span>` },
+                        actual: { html: `<span class="mono">${fmtBRL(c.actual)}</span>` },
+                        var: { html: `<span class="mono">${fmtBRL(c.actual - c.budget)}</span>` },
+                        hc: String(c.headcount),
+                      })),
+                    }],
+                  }],
+                });
+              }}
+            />
+            <HudButton variant="primary" size="sm" leftIcon={<Plus className="w-4 h-4" />}>Novo CC</HudButton>
+          </>
+        }
       />
 
       <FinanceKpiGrid kpis={kpis} columns={6} />

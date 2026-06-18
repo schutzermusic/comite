@@ -14,6 +14,8 @@ import {
   getCostCenters, formatBRL,
 } from '@/lib/finance/finance-store';
 import type { AllocationRule, AllocationResult, AllocationRuleTarget } from '@/lib/types/finance';
+import { ExportReportButton } from '@/components/reports/ExportReportButton';
+import { openFinanceReport } from '@/lib/reports/modules/finance-report';
 
 const RULE_STATUS: Record<string, string> = { draft: 'pending', active: 'completed', archived: 'error' };
 const RESULT_STATUS: Record<string, string> = { preview: 'warning', posted: 'completed', reversed: 'error' };
@@ -98,9 +100,65 @@ export default function AlocacaoPage() {
         iconTint="#14B8A6"
         breadcrumbs={[{ label: t('title'), href: '/financeiro' }, { label: t('allocation') }]}
         actions={
-          <HudButton variant="primary" leftIcon={<Plus className="w-4 h-4" />} onClick={() => setDrawerOpen(true)}>
-            {t('newRule')}
-          </HudButton>
+          <div className="flex items-center gap-2">
+            <ExportReportButton
+              size="md"
+              variant="glass"
+              permission="finance.export"
+              fallbackPermission="finance.view"
+              build={() => openFinanceReport({
+                title: 'Alocação de Custos',
+                fileContext: 'alocacao',
+                context: 'Regras de rateio e resultados de alocação por projeto',
+                kpis: [],
+                sections: [
+                  {
+                    title: 'Regras de Rateio',
+                    tables: [{
+                      columns: [
+                        { key: 'name', label: 'Regra' },
+                        { key: 'cc', label: 'Centro de Custo origem' },
+                        { key: 'method', label: 'Método' },
+                        { key: 'ver', label: 'Versão' },
+                        { key: 'eff', label: 'Vigência' },
+                        { key: 'status', label: 'Status' },
+                      ],
+                      rows: rules.map((r) => ({
+                        name: r.name,
+                        cc: r.cost_center?.name || r.cost_center_id,
+                        method: String(r.method),
+                        ver: `v${r.version}`,
+                        eff: { html: `<span class="mono">${r.effective_from}</span>` },
+                        status: { html: `<span class="pill ${r.status === 'active' ? 'ok' : ''}">${r.status}</span>` },
+                      })),
+                    }],
+                  },
+                  {
+                    title: 'Resultados de Alocação',
+                    tables: [{
+                      columns: [
+                        { key: 'period', label: 'Período' },
+                        { key: 'rule', label: 'Regra' },
+                        { key: 'src', label: 'Valor Origem', num: true },
+                        { key: 'targets', label: 'Destinos', num: true },
+                        { key: 'status', label: 'Status' },
+                      ],
+                      rows: results.map((r) => ({
+                        period: { html: `<span class="mono">${r.period_key}</span>` },
+                        rule: r.rule?.name || r.rule_id,
+                        src: { html: `<span class="mono">${formatBRL(r.source_amount_cents)}</span>` },
+                        targets: `${r.result_entries.length} projetos`,
+                        status: { html: `<span class="pill ${r.status === 'posted' ? 'ok' : r.status === 'preview' ? 'warn' : ''}">${r.status}</span>` },
+                      })),
+                    }],
+                  },
+                ],
+              })}
+            />
+            <HudButton variant="primary" leftIcon={<Plus className="w-4 h-4" />} onClick={() => setDrawerOpen(true)}>
+              {t('newRule')}
+            </HudButton>
+          </div>
         }
       />
 

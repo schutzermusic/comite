@@ -14,6 +14,8 @@ import {
   softClosePeriod, hardClosePeriod, formatBRL, formatCompactBRL,
 } from '@/lib/finance/finance-store';
 import type { PeriodClose, PnLSnapshot } from '@/lib/types/finance';
+import { ExportReportButton } from '@/components/reports/ExportReportButton';
+import { openFinanceReport, kpiFromHud } from '@/lib/reports/modules/finance-report';
 
 const STATUS_VARIANTS: Record<string, string> = { open: 'info', soft_close: 'warning', closed: 'completed' };
 const STATUS_LABELS: Record<string, string> = { open: 'Aberto', soft_close: 'Fechamento Parcial', closed: 'Fechado' };
@@ -97,6 +99,47 @@ export default function FechamentoPage() {
         }
         rightSlot={
           <>
+            <ExportReportButton
+              size="sm"
+              variant="glass"
+              permission="finance.export"
+              fallbackPermission="finance.view"
+              build={() => openFinanceReport({
+                title: 'Fechamento Mensal',
+                fileContext: 'fechamento',
+                periodLabel: selectedPeriod,
+                context: `Status do fechamento contábil — período <b>${selectedPeriod}</b>`,
+                kpis: closeKpis.map((k) => kpiFromHud(k)),
+                sections: [{
+                  title: 'Checklist de Fechamento',
+                  tables: [{
+                    columns: [
+                      { key: 'item', label: 'Item' },
+                      { key: 'owner', label: 'Responsável' },
+                      { key: 'due', label: 'Prazo' },
+                      { key: 'ev', label: 'Evidência' },
+                      { key: 'status', label: 'Status' },
+                    ],
+                    rows: checklistItems.map((it) => ({
+                      item: it.label,
+                      owner: it.owner,
+                      due: it.due,
+                      ev: it.evidence,
+                      status: { html: `<span class="pill ${it.ok ? 'ok' : 'warn'}">${it.ok ? 'OK' : 'pendente'}</span>` },
+                    })),
+                  }],
+                  note: {
+                    title: 'Situação do período',
+                    tone: allReady ? 'ok' : 'warn',
+                    items: [
+                      `Progresso do checklist: ${closeProgress}% (${checklistDone}/${checklistItems.length}).`,
+                      `Status do período: ${currentPeriod?.status ?? 'aberto'}.`,
+                      currentPeriod?.snapshot_json ? `Resultado do snapshot: ${formatBRL(currentPeriod.snapshot_json.net_result)}.` : 'Snapshot ainda não gerado.',
+                    ],
+                  },
+                }],
+              })}
+            />
             <HudButton
               variant="secondary" size="sm" leftIcon={<Lock className="w-4 h-4" />}
               onClick={() => { setCloseType('soft'); setConfirmModalOpen(true); }}

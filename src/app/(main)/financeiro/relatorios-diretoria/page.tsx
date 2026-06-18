@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { FileText, Plus, Send, FileType2, FileSpreadsheet, FileBarChart2, Wand2 } from 'lucide-react';
+import { FileText, Send, FileType2, FileSpreadsheet, FileBarChart2, Wand2 } from 'lucide-react';
 import {
   HudPageLayout, HudHeader, HudKpiStrip, HudButton,
   HudCard, HudCardHeader, HudCardTitle, HudCardContent,
@@ -18,6 +18,8 @@ import {
   FinanceRadarChart,
   type FinancePeriod, type FinanceScenario,
 } from '@/components/finance/shared';
+import { ExportReportButton } from '@/components/reports/ExportReportButton';
+import { openFinanceBoardReport, type BoardChartSpec, type BoardTemplateSection, type FinanceBoardReportPayload } from '@/lib/reports/modules/finance-board-report';
 
 type Template = {
   id: string;
@@ -82,6 +84,56 @@ const RUNS: ReportRun[] = [
 
 const CADENCE_LABEL: Record<Template['cadence'], string> = { monthly: 'Mensal', quarterly: 'Trimestral', 'on-demand': 'Sob demanda' };
 
+/** Normalized chart descriptor per board template (same figures as the on-screen preview). */
+function templateChartSpec(id: string): BoardChartSpec {
+  switch (id) {
+    case 'tpl-dre':
+      return { kind: 'bars', rows: [
+        { label: 'Receita Líquida', value: 16_129_800 },
+        { label: 'Custo Direto', value: -8_710_400 },
+        { label: 'OPEX', value: -3_185_700 },
+        { label: 'Resultado Fin.', value: -612_400 },
+        { label: 'Impostos', value: -985_300 },
+        { label: 'Lucro Líquido', value: 2_636_000 },
+      ] };
+    case 'tpl-fcst':
+      return { kind: 'donut', center: 'R$ 4,5M', slices: [
+        { label: 'Receita', value: 19_240_000 },
+        { label: 'Custo', value: 11_750_000 },
+        { label: 'OPEX', value: 3_005_000 },
+        { label: 'Caixa líq.', value: 4_485_000 },
+      ] };
+    case 'tpl-bvr':
+      return { kind: 'donut', center: 'Δ R$ 461k', slices: [
+        { label: 'Pessoal direto', value: 290_000 },
+        { label: 'Pessoal não aloc.', value: 60_000 },
+        { label: 'G&A', value: 33_700 },
+        { label: 'Resultado fin.', value: 32_400 },
+        { label: 'Impostos', value: 45_300 },
+      ] };
+    case 'tpl-prj':
+      return { kind: 'donut', center: '30,0%', slices: [
+        { label: '≥ 30% (saudável)', value: 12_590_000 },
+        { label: '15–30% (médio)', value: 5_180_000 },
+        { label: '< 15% (baixa)', value: 1_320_000 },
+      ] };
+    case 'tpl-risk':
+      return { kind: 'grouped', valueFmt: 'number',
+        labels: ['Câmbio', 'Crédito', 'Tributário', 'Operacional', 'Contratual'],
+        series: [
+          { name: 'Exposição', values: [62, 45, 38, 30, 70], color: '#B91C1C' },
+          { name: 'Mitigação', values: [45, 60, 70, 65, 50], color: '#047857' },
+        ] };
+    case 'tpl-ir':
+    default:
+      return { kind: 'trend',
+        labels: ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago'],
+        series: [{ name: 'Lucro líquido', values: [2_080_000, 2_240_000, 2_410_000, 2_580_000, 2_720_000, 2_870_000, 3_020_000, 3_180_000] }] };
+  }
+}
+
+const STATUS_LABEL_PT: Record<string, string> = { draft: 'Rascunho', review: 'Em revisão', approved: 'Aprovado', closed: 'Encerrado', pending: 'Pendente' };
+
 export default function RelatoriosDiretoriaPage() {
   const [period, setPeriod] = useState<FinancePeriod>('2026-04');
   const [scenario, setScenario] = useState<FinanceScenario>('realized');
@@ -102,6 +154,40 @@ export default function RelatoriosDiretoriaPage() {
     { id: 'rc', label: 'Destinatários (acum.)', value: RUNS.reduce((a, r) => a + r.recipients, 0).toString(), variant: 'info', tintValue: true },
   ];
 
+  const toSection = (tpl: Template): BoardTemplateSection => ({
+    code: tpl.code,
+    title: tpl.title,
+    audience: tpl.audience,
+    cadence: CADENCE_LABEL[tpl.cadence],
+    status: STATUS_LABEL_PT[tpl.defaultStatus] ?? tpl.defaultStatus,
+    summaryBullets: tpl.preview,
+    chart: templateChartSpec(tpl.id),
+  });
+
+  const buildBoardPayload = (only?: Template): FinanceBoardReportPayload => ({
+    periodLabel: period,
+    scenarioLabel: scenario,
+    source: 'demonstração',
+    singleTitle: only?.title,
+    templates: (only ? [only] : TEMPLATES).map(toSection),
+    aiInsights: [
+      { tone: 'positive', title: 'Resultado robusto em Abr/2026', detail: 'Lucro líquido R$ 2.64M (+32% YoY), EBITDA margin expansão de 270 bps.' },
+      { tone: 'warning', title: 'Pressão em custo direto', detail: 'Mobilização do PRJ-2026-002 e cloud growth +4.6% sobre orçado em CC-001.' },
+      { tone: 'neutral', title: 'Pipeline e renovação', detail: 'Pipeline qualificado de R$ 4.8M para Q2/Q3, taxa de renovação 96%.' },
+      { tone: 'positive', title: 'Conformidade fiscal', detail: '8 de 9 obrigações pagas no prazo; CSRF Vale Sul em regularização.' },
+    ],
+    runs: RUNS.map((r) => {
+      const tpl = TEMPLATES.find((t) => t.id === r.templateId)!;
+      return { title: tpl.title, code: tpl.code, period: r.period, owner: r.owner, generatedAt: r.generatedAt, recipients: r.recipients, status: r.status };
+    }),
+    nextActions: [
+      'Validar dados do período antes de submeter para revisão.',
+      'Anexar narrativa CFO e racional de variâncias ≥ 5%.',
+      'Submeter para aprovação de comitê executivo.',
+      'Distribuir nos canais oficiais (board portal, e-mail).',
+    ],
+  });
+
   return (
     <HudPageLayout>
       <HudHeader
@@ -118,7 +204,14 @@ export default function RelatoriosDiretoriaPage() {
         rightSlot={
           <>
             <HudButton variant="ghost" size="sm" leftIcon={<Wand2 className="w-4 h-4" />}>AI summary</HudButton>
-            <HudButton variant="primary" size="sm" leftIcon={<Plus className="w-4 h-4" />}>Gerar pacote</HudButton>
+            <ExportReportButton
+              size="sm"
+              variant="primary"
+              label="Exportar PDF"
+              permission="finance.export"
+              fallbackPermission="finance.view"
+              build={() => openFinanceBoardReport(buildBoardPayload())}
+            />
           </>
         }
       />
@@ -245,7 +338,16 @@ export default function RelatoriosDiretoriaPage() {
         ] : []}
         primaryActions={
           <>
-            <HudButton variant="ghost" size="sm" leftIcon={<FileType2 className="w-4 h-4" />}>PDF</HudButton>
+            {selected && (
+              <ExportReportButton
+                size="sm"
+                variant="ghost"
+                label="PDF"
+                permission="finance.export"
+                fallbackPermission="finance.view"
+                build={() => openFinanceBoardReport(buildBoardPayload(selected))}
+              />
+            )}
             <HudButton variant="ghost" size="sm" leftIcon={<FileSpreadsheet className="w-4 h-4" />}>Excel</HudButton>
             <HudButton variant="primary" size="sm" leftIcon={<Send className="w-4 h-4" />}>Distribuir</HudButton>
           </>

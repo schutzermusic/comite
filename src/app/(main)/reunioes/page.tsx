@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { endOfWeek, startOfWeek } from 'date-fns';
+import { addDays, endOfWeek, startOfWeek } from 'date-fns';
 import { CalendarDays, ClipboardList, ListTodo, Plus, UserCheck } from 'lucide-react';
 import { HudButton, HudHeader, HudModal, HudPageLayout, HudTabs, type HudTab } from '@/components/hud';
 import { useCurrentUser } from '@/hooks/use-current-user';
@@ -14,6 +14,8 @@ import type {
   Task,
 } from '@/lib/types/agenda';
 import { listCalendarEvents, listOrgMembers, listTasks } from '@/lib/services/agenda';
+import { ExportReportButton } from '@/components/reports/ExportReportButton';
+import { openAgendaReport } from '@/lib/reports/modules/agenda-report';
 import {
   AgendaSummaryStrip,
   type AgendaSummary,
@@ -66,6 +68,8 @@ export default function AgendaPage() {
   // Summary strip data + filtros disparados pelos cards.
   const [summaryTasks, setSummaryTasks] = useState<Task[]>([]);
   const [summaryEvents, setSummaryEvents] = useState<CalendarEvent[]>([]);
+  // Wider event window (−30d … +60d) so the exported PDF can show the upcoming agenda.
+  const [reportEvents, setReportEvents] = useState<CalendarEvent[]>([]);
   const [filterSeed, setFilterSeed] = useState<{ token: number; filters: CalendarFilterKey[] } | null>(null);
 
   useEffect(() => {
@@ -82,6 +86,9 @@ export default function AgendaPage() {
     listCalendarEvents(startOfWeek(now, { weekStartsOn: 1 }), endOfWeek(now, { weekStartsOn: 1 }))
       .then(setSummaryEvents)
       .catch(() => setSummaryEvents([]));
+    listCalendarEvents(addDays(now, -30), addDays(now, 60))
+      .then(setReportEvents)
+      .catch(() => setReportEvents([]));
   }, [reloadToken]);
 
   // Deep links from notifications / e-mails / legacy routes:
@@ -183,6 +190,18 @@ export default function AgendaPage() {
         breadcrumbs={[{ label: 'Agenda' }]}
         actions={
           <div className="flex flex-wrap gap-2">
+            <ExportReportButton
+              size="md"
+              variant="glass"
+              permission="meetings.view"
+              build={() => openAgendaReport({
+                meetings: reportEvents.length ? reportEvents : summaryEvents,
+                tasks: summaryTasks,
+                resolveUserName: (id) => members.find((m) => m.userId === id)?.fullName ?? 'Não atribuído',
+                periodLabel: 'Próximos 30 dias',
+                source: 'Supabase',
+              })}
+            />
             {canCreateTask && (
               <HudButton variant="secondary" size="md" leftIcon={<Plus className="h-4 w-4" />} onClick={() => setTaskModalOpen(true)}>
                 Nova tarefa

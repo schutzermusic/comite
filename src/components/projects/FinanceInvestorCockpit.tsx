@@ -44,6 +44,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import type { BillingEvent, ProjectV2 } from '@/lib/types/project-v2';
 import type { ProjectFinanceView } from '@/lib/finance/selectors/project-finance';
 import { compactBRL } from '@/lib/utils/project-utils';
+import { EditDataButton, type ProjectChartEditorKind } from '@/components/projects/ProjectChartEditors';
 
 // ── Shared formatting helpers ───────────────────────────────────
 
@@ -803,11 +804,13 @@ interface FinanceInvestorCockpitProps {
     project: ProjectV2;
     ledgerView?: ProjectFinanceView;
     cutoffPeriod?: string;
+    /** Abre o editor manual de dados do gráfico correspondente (modal vive no FinanceView). */
+    onEditChart?: (kind: ProjectChartEditorKind) => void;
 }
 
 // ── Main component ──────────────────────────────────────────────
 
-export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod }: FinanceInvestorCockpitProps) {
+export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod, onEditChart }: FinanceInvestorCockpitProps) {
     const { theme } = useTheme();
     const pal = useMemo(() => buildPalette(theme === 'light'), [theme]);
     const tooltipStyle = useMemo(() => glassTooltipStyle(pal), [pal]);
@@ -1187,16 +1190,21 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
                             accent={pal.primary}
                             title="Curva S · Caixa Insight × Desembolso"
                             subtitle="acumulado mensal · clique em um mês para detalhar"
-                            actions={zoomControl({
-                                accent: pal.primary,
-                                rangeLabel: curveRangeLabel,
-                                zoomed: isCurveZoomed,
-                                canZoomIn: visibleCurve.length > 3,
-                                onIn: () => zoomCurve('in'),
-                                onOut: () => zoomCurve('out'),
-                                onReset: () => setBrushWindow(null),
-                                label: 'Curva S',
-                            })}
+                            actions={
+                                <>
+                                    {onEditChart && <EditDataButton onClick={() => onEditChart('curves')} />}
+                                    {zoomControl({
+                                        accent: pal.primary,
+                                        rangeLabel: curveRangeLabel,
+                                        zoomed: isCurveZoomed,
+                                        canZoomIn: visibleCurve.length > 3,
+                                        onIn: () => zoomCurve('in'),
+                                        onOut: () => zoomCurve('out'),
+                                        onReset: () => setBrushWindow(null),
+                                        label: 'Curva S',
+                                    })}
+                                </>
+                            }
                         />
                         <div className="flex min-w-0 flex-1 flex-col px-5 pb-4 pt-3">
                             <div className="mb-3 flex flex-wrap items-center gap-1.5">
@@ -1278,16 +1286,21 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
                                 accent={pal.success}
                                 title="Fluxo Mensal do Projeto"
                                 subtitle="caixa Insight × desembolso por mês · clique para detalhar"
-                                actions={zoomControl({
-                                    accent: pal.success,
-                                    rangeLabel: cashFlowRangeLabel,
-                                    zoomed: isCashFlowZoomed,
-                                    canZoomIn: visibleCashFlow.length > 3,
-                                    onIn: () => zoomCashFlow('in'),
-                                    onOut: () => zoomCashFlow('out'),
-                                    onReset: () => setCashFlowBrushWindow(null),
-                                    label: 'Fluxo Mensal',
-                                })}
+                                actions={
+                                    <>
+                                        {onEditChart && <EditDataButton onClick={() => onEditChart('curves')} />}
+                                        {zoomControl({
+                                            accent: pal.success,
+                                            rangeLabel: cashFlowRangeLabel,
+                                            zoomed: isCashFlowZoomed,
+                                            canZoomIn: visibleCashFlow.length > 3,
+                                            onIn: () => zoomCashFlow('in'),
+                                            onOut: () => zoomCashFlow('out'),
+                                            onReset: () => setCashFlowBrushWindow(null),
+                                            label: 'Fluxo Mensal',
+                                        })}
+                                    </>
+                                }
                             />
                             <div className="flex min-w-0 flex-1 flex-col px-5 pb-4 pt-3">
                                 <div className="h-[clamp(340px,42vh,500px)] min-w-0">
@@ -1432,6 +1445,8 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
                             title="Resultado Projetado"
                             subtitle="ponte do caixa Insight até o resultado final"
                             actions={
+                                <>
+                                {onEditChart && <EditDataButton onClick={() => onEditChart('breakdown')} />}
                                 <span
                                     className="rounded-full border px-3 py-1 font-mono text-xs font-bold tabular-nums"
                                     style={{
@@ -1442,6 +1457,7 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
                                 >
                                     {compactBRL(iv.netResult - iv.riskExposure)}
                                 </span>
+                                </>
                             }
                         />
                         <div className="flex min-w-0 flex-1 flex-col">
@@ -1539,6 +1555,7 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
                     subtitle={`${eventStats.total} evento(s) · clique em um evento para detalhar`}
                     actions={
                         <>
+                            {onEditChart && <EditDataButton onClick={() => onEditChart('eventogram')} />}
                             <div className="relative">
                                 <Search className="absolute left-2.5 top-1/2 h-3 w-3 -translate-y-1/2 text-[color:var(--ig-fg-subtle)]" />
                                 <input

@@ -32,6 +32,8 @@ import type {
   PayrollEmailDispatch, PayrollImportFileType, PayrollCostCenterTotal,
   PayrollCostCenterMapping, CostCenterMatchMethod,
 } from '@/lib/types/payroll-closing';
+import { ExportReportButton } from '@/components/reports/ExportReportButton';
+import { openPayrollClosingReport } from '@/lib/reports/modules/payroll-closing-report';
 
 const STEPS = [
   { n: 1, label: 'Upload', icon: Upload },
@@ -692,6 +694,23 @@ export default function FechamentoFolhaPage() {
         icon={<FileSpreadsheet className="w-5 h-5" />}
         breadcrumbs={[{ label: 'Pessoas & Custos', href: '/workforce-cost' }, { label: 'Fechamento da Folha' }]}
         statusChips={batch ? [{ label: batch.status, variant: 'info' }] : undefined}
+        actions={batch ? (
+          <ExportReportButton
+            size="md"
+            variant="glass"
+            permission="people.view_costs"
+            fallbackPermission="people.view"
+            build={() => openPayrollClosingReport({
+              batch,
+              parse,
+              narrative,
+              attachments,
+              dispatches,
+              financeBatchId,
+              source: 'Supabase',
+            })}
+          />
+        ) : undefined}
       />
 
       {/* Stepper */}

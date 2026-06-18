@@ -30,6 +30,8 @@ import {
   type PayrollAllocationListFilter, type PayrollReconciliationStatus,
 } from '@/lib/finance/selectors/payroll';
 import type { PayrollAllocation, PayrollAllocationStatus, LedgerEntry } from '@/lib/types/finance';
+import { ExportReportButton } from '@/components/reports/ExportReportButton';
+import { openFinanceReport, kpiFromHud } from '@/lib/reports/modules/finance-report';
 
 const STATUS_VARIANT: Record<PayrollAllocationStatus, HudStatusPillVariant> = {
   draft: 'neutral',
@@ -299,6 +301,37 @@ function FolhaAlocacaoContent() {
           rightSlot={
             <>
               {hasActiveFilters && <HudButton variant="ghost" size="sm" onClick={clearFilters}>Limpar</HudButton>}
+              <ExportReportButton
+                size="sm"
+                variant="glass"
+                permission="finance.export"
+                fallbackPermission="finance.view"
+                build={() => openFinanceReport({
+                  title: 'Folha & Alocação',
+                  fileContext: 'folha-alocacao',
+                  context: 'Distribuição da folha por projeto e centro de custo',
+                  kpis: kpis.map((k) => kpiFromHud(k)),
+                  sections: [{
+                    title: 'Alocações',
+                    tables: [{
+                      columns: [
+                        { key: 'proj', label: 'Projeto' },
+                        { key: 'cc', label: 'Centro de Custo' },
+                        { key: 'total', label: 'Custo total', num: true },
+                        { key: 'aloc', label: 'Alocado', num: true },
+                        { key: 'pct', label: 'Alocação %', num: true },
+                      ],
+                      rows: filtered.slice(0, 150).map((a) => ({
+                        proj: a.project_name || 'Estrutural',
+                        cc: a.cost_center?.name || a.cost_center_id || '—',
+                        total: { html: `<span class="mono">${formatBRL(a.total_cost_cents)}</span>` },
+                        aloc: { html: `<span class="mono">${formatBRL(a.allocated_amount_cents)}</span>` },
+                        pct: `${a.allocation_percentage.toFixed(0)}%`,
+                      })),
+                    }],
+                  }],
+                })}
+              />
               <HudButton variant="primary" size="sm" leftIcon={<Send className="w-4 h-4" />} onClick={handlePostAll} disabled={processing || postableCount === 0}>
                 Lançar aprovados{postableCount > 0 ? ` (${postableCount})` : ''}
               </HudButton>

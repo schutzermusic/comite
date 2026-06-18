@@ -142,6 +142,64 @@ export type ContractAiAnalysisRow = {
   completed_at: string | null;
 };
 
+export type ContractObligationRow = {
+  id: string;
+  organization_id: string;
+  contract_id: string;
+  title: string;
+  description: string | null;
+  owner_user_id: string | null;
+  status: 'open' | 'due_soon' | 'overdue' | 'done';
+  due_date: string | null;
+  evidence: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ContractApprovalRow = {
+  id: string;
+  organization_id: string;
+  contract_id: string;
+  step_name: 'juridico' | 'financeiro' | 'comite' | 'diretoria';
+  status: 'pending' | 'under_review' | 'approved' | 'rejected';
+  reviewer_user_id: string | null;
+  deadline_date: string | null;
+  comments: string | null;
+  approval_timestamp: string | null;
+  rejection_reason: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ContractProjectLinkRow = {
+  id: string;
+  organization_id: string;
+  contract_id: string;
+  project_id: string;
+  created_at: string;
+};
+
+export type ContractRiskLinkRow = {
+  id: string;
+  organization_id: string;
+  contract_id: string;
+  risk_id: string;
+  created_at: string;
+};
+
+export type ContractDocumentRow = {
+  id: string;
+  organization_id: string;
+  contract_id: string;
+  title: string;
+  file_path: string;
+  document_type: 'contract' | 'amendment' | 'invoice' | 'guarantee' | 'insurance' | 'annex' | 'purchase_order' | 'certificate' | 'approval' | 'minutes';
+  status: 'uploaded' | 'missing' | 'expired' | 'expiring_soon' | 'pending_approval' | 'rejected';
+  uploaded_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type ContractDetail = {
   contract: ContractRow;
   clauses: ContractClauseRow[];
@@ -151,6 +209,11 @@ export type ContractDetail = {
   risks: ContractRiskRow[];
   files: ContractFileRow[];
   aiAnalyses: ContractAiAnalysisRow[];
+  obligations: ContractObligationRow[];
+  approvals: ContractApprovalRow[];
+  projectLinks: ContractProjectLinkRow[];
+  riskLinks: ContractRiskLinkRow[];
+  documents: ContractDocumentRow[];
 };
 
 export type CreateContractInput = {
@@ -271,7 +334,20 @@ export async function getContractById(contractId: string): Promise<ContractDetai
   if (error) throw new Error(`Erro ao carregar contrato: ${error.message}`);
   if (!contract) return null;
 
-  const [clauses, penalties, milestones, billingEvents, risks, files, aiAnalyses] = await Promise.all([
+  const [
+    clauses,
+    penalties,
+    milestones,
+    billingEvents,
+    risks,
+    files,
+    aiAnalyses,
+    obligations,
+    approvals,
+    projectLinks,
+    riskLinks,
+    documents
+  ] = await Promise.all([
     listContractClauses(contractId),
     listContractPenalties(contractId),
     listContractMilestones(contractId),
@@ -279,9 +355,28 @@ export async function getContractById(contractId: string): Promise<ContractDetai
     listContractRisks(contractId),
     listContractFiles(contractId),
     listContractAiAnalyses(contractId),
+    listContractObligations(contractId),
+    listContractApprovals(contractId),
+    listContractProjectLinks(contractId),
+    listContractRisksLinks(contractId),
+    listContractDocuments(contractId),
   ]);
 
-  return { contract, clauses, penalties, milestones, billingEvents, risks, files, aiAnalyses };
+  return {
+    contract,
+    clauses,
+    penalties,
+    milestones,
+    billingEvents,
+    risks,
+    files,
+    aiAnalyses,
+    obligations,
+    approvals,
+    projectLinks,
+    riskLinks,
+    documents
+  };
 }
 
 export async function createContract(input: CreateContractInput): Promise<ContractRow> {
@@ -465,6 +560,44 @@ export async function listContractBillingEvents(contractId: string): Promise<Con
   return (data ?? []) as ContractBillingEventRow[];
 }
 
+export type CreateContractBillingEventInput = {
+  contractId: string;
+  title: string;
+  amount: number;
+  dueDate?: string | null;
+  status?: string;
+  milestoneId?: string | null;
+};
+
+export async function createContractBillingEvent(input: CreateContractBillingEventInput): Promise<ContractBillingEventRow> {
+  const { supabase, organizationId } = await getCurrentIdentity();
+  const { data, error } = await supabase
+    .from('contract_billing_events')
+    .insert({
+      organization_id: organizationId,
+      contract_id: input.contractId,
+      milestone_id: input.milestoneId ?? null,
+      title: input.title,
+      amount: input.amount,
+      due_date: input.dueDate ?? null,
+      status: input.status ?? 'pendente',
+      paid_at: input.status === 'pago' ? new Date().toISOString() : null,
+    })
+    .select('*')
+    .single<ContractBillingEventRow>();
+  if (error) throw new Error(`Erro ao criar evento de faturamento: ${error.message}`);
+
+  await logAuditEvent({
+    organizationId,
+    action: 'contract.billing_event_created',
+    entityType: 'contract',
+    entityId: input.contractId,
+    metadata: { title: input.title, amount: input.amount, status: data.status },
+  });
+
+  return data;
+}
+
 export async function listContractRisks(contractId: string): Promise<ContractRiskRow[]> {
   const supabase = createClient();
   const { data, error } = await supabase.from('contract_risks').select('*').eq('contract_id', contractId).order('created_at', { ascending: false });
@@ -567,4 +700,269 @@ export async function createProjectFromContract(contractId: string) {
   });
 
   return createdProject;
+}
+
+export async function listContractObligations(contractId: string): Promise<ContractObligationRow[]> {
+  const supabase = createClient();
+  const { data, error } = await supabase.from('contract_obligations').select('*').eq('contract_id', contractId).order('due_date');
+  if (error) throw new Error(`Erro ao carregar obrigações: ${error.message}`);
+  return (data ?? []) as ContractObligationRow[];
+}
+
+export async function createContractObligation(input: Omit<ContractObligationRow, 'id' | 'organization_id' | 'created_at' | 'updated_at'>): Promise<ContractObligationRow> {
+  const { supabase, organizationId } = await getCurrentIdentity();
+  const { data, error } = await supabase
+    .from('contract_obligations')
+    .insert({ ...input, organization_id: organizationId })
+    .select('*')
+    .single<ContractObligationRow>();
+  if (error) throw new Error(`Erro ao criar obrigação: ${error.message}`);
+  return data;
+}
+
+export async function updateContractObligation(id: string, input: Partial<ContractObligationRow>): Promise<ContractObligationRow> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from('contract_obligations')
+    .update(input)
+    .eq('id', id)
+    .select('*')
+    .single<ContractObligationRow>();
+  if (error) throw new Error(`Erro ao atualizar obrigação: ${error.message}`);
+  return data;
+}
+
+export async function listContractApprovals(contractId: string): Promise<ContractApprovalRow[]> {
+  const supabase = createClient();
+  const { data, error } = await supabase.from('contract_approvals').select('*').eq('contract_id', contractId).order('created_at');
+  if (error) throw new Error(`Erro ao carregar aprovações: ${error.message}`);
+  return (data ?? []) as ContractApprovalRow[];
+}
+
+export async function submitContractApproval(contractId: string, stepName: string, status: string, comments?: string | null, rejectionReason?: string | null): Promise<ContractApprovalRow> {
+  const { supabase, user, organizationId } = await getCurrentIdentity();
+  const { data, error } = await supabase
+    .from('contract_approvals')
+    .upsert({
+      organization_id: organizationId,
+      contract_id: contractId,
+      step_name: stepName,
+      status,
+      reviewer_user_id: user.id,
+      comments,
+      rejection_reason: rejectionReason,
+      approval_timestamp: status === 'approved' ? new Date().toISOString() : null,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'contract_id,step_name' })
+    .select('*')
+    .single<ContractApprovalRow>();
+  if (error) throw new Error(`Erro ao salvar aprovação: ${error.message}`);
+
+  await logAuditEvent({
+    organizationId,
+    action: `contract.approval.${stepName}.${status}`,
+    entityType: 'contract',
+    entityId: contractId,
+    metadata: { reviewer: user.email, comments },
+  });
+
+  return data;
+}
+
+export async function listContractProjectLinks(contractId: string): Promise<ContractProjectLinkRow[]> {
+  const supabase = createClient();
+  const { data, error } = await supabase.from('contract_project_links').select('*').eq('contract_id', contractId);
+  if (error) throw new Error(`Erro ao carregar vínculos de projeto: ${error.message}`);
+  return (data ?? []) as ContractProjectLinkRow[];
+}
+
+export async function linkContractToProject(contractId: string, projectId: string): Promise<ContractProjectLinkRow> {
+  const { supabase, organizationId } = await getCurrentIdentity();
+  const { data, error } = await supabase
+    .from('contract_project_links')
+    .insert({
+      organization_id: organizationId,
+      contract_id: contractId,
+      project_id: projectId
+    })
+    .select('*')
+    .single<ContractProjectLinkRow>();
+  if (error) throw new Error(`Erro ao vincular projeto: ${error.message}`);
+
+  await logAuditEvent({
+    organizationId,
+    action: 'contract.linked_project',
+    entityType: 'contract',
+    entityId: contractId,
+    metadata: { project_id: projectId },
+  });
+
+  return data;
+}
+
+export async function unlinkContractFromProject(contractId: string, projectId: string): Promise<void> {
+  const { supabase, organizationId } = await getCurrentIdentity();
+  const { error } = await supabase
+    .from('contract_project_links')
+    .delete()
+    .eq('contract_id', contractId)
+    .eq('project_id', projectId);
+  if (error) throw new Error(`Erro ao desvincular projeto: ${error.message}`);
+
+  await logAuditEvent({
+    organizationId,
+    action: 'contract.unlinked_project',
+    entityType: 'contract',
+    entityId: contractId,
+    metadata: { project_id: projectId },
+  });
+}
+
+export async function listContractRisksLinks(contractId: string): Promise<ContractRiskLinkRow[]> {
+  const supabase = createClient();
+  const { data, error } = await supabase.from('contract_risks_links').select('*').eq('contract_id', contractId);
+  if (error) throw new Error(`Erro ao carregar vínculos de risco: ${error.message}`);
+  return (data ?? []) as ContractRiskLinkRow[];
+}
+
+export async function linkContractToRisk(contractId: string, riskId: string): Promise<ContractRiskLinkRow> {
+  const { supabase, organizationId } = await getCurrentIdentity();
+  const { data, error } = await supabase
+    .from('contract_risks_links')
+    .insert({
+      organization_id: organizationId,
+      contract_id: contractId,
+      risk_id: riskId
+    })
+    .select('*')
+    .single<ContractRiskLinkRow>();
+  if (error) throw new Error(`Erro ao vincular risco: ${error.message}`);
+
+  await logAuditEvent({
+    organizationId,
+    action: 'contract.linked_risk',
+    entityType: 'contract',
+    entityId: contractId,
+    metadata: { risk_id: riskId },
+  });
+
+  return data;
+}
+
+export async function unlinkContractFromRisk(contractId: string, riskId: string): Promise<void> {
+  const { supabase, organizationId } = await getCurrentIdentity();
+  const { error } = await supabase
+    .from('contract_risks_links')
+    .delete()
+    .eq('contract_id', contractId)
+    .eq('risk_id', riskId);
+  if (error) throw new Error(`Erro ao desvincular risco: ${error.message}`);
+
+  await logAuditEvent({
+    organizationId,
+    action: 'contract.unlinked_risk',
+    entityType: 'contract',
+    entityId: contractId,
+    metadata: { risk_id: riskId },
+  });
+}
+
+export async function listContractDocuments(contractId: string): Promise<ContractDocumentRow[]> {
+  const supabase = createClient();
+  const { data, error } = await supabase.from('contract_documents').select('*').eq('contract_id', contractId).order('created_at', { ascending: false });
+  if (error) throw new Error(`Erro ao carregar documentos: ${error.message}`);
+  return (data ?? []) as ContractDocumentRow[];
+}
+
+export async function uploadContractDocument(contractId: string, title: string, file: File, documentType: string): Promise<ContractDocumentRow> {
+  const { supabase, user, organizationId } = await getCurrentIdentity();
+  const safeName = sanitizeFileName(file.name);
+  const filePath = `${organizationId}/${contractId}/docs/${crypto.randomUUID()}-${safeName}`;
+  const { error: uploadError } = await supabase.storage.from(CONTRACT_FILES_BUCKET).upload(filePath, file, { upsert: false });
+  if (uploadError) throw new Error(`Erro ao enviar documento: ${uploadError.message}`);
+
+  const { data, error } = await supabase
+    .from('contract_documents')
+    .insert({
+      organization_id: organizationId,
+      contract_id: contractId,
+      title,
+      file_path: filePath,
+      document_type: documentType,
+      status: 'uploaded',
+      uploaded_by: user.id
+    })
+    .select('*')
+    .single<ContractDocumentRow>();
+
+  if (error) throw new Error(`Erro ao registrar documento: ${error.message}`);
+
+  await logAuditEvent({
+    organizationId,
+    action: 'contract.document_uploaded',
+    entityType: 'contract',
+    entityId: contractId,
+    metadata: { title, file_name: file.name, document_type: documentType },
+  });
+
+  return data;
+}
+
+export async function createAgendaTaskForContract(contractId: string, title: string, description: string, dueAt: string, assigneeUserId: string | null): Promise<any> {
+  const { organizationId } = await getCurrentIdentity();
+  
+  // Call the createTask function from agenda service
+  const { createTask } = await import('@/lib/services/agenda');
+  
+  const createdTask = await createTask({
+    title,
+    description,
+    dueAt,
+    priority: 'medium',
+    assigneeUserId,
+    relatedContractId: contractId,
+    dueAllDay: false
+  });
+
+  await logAuditEvent({
+    organizationId,
+    action: 'contract.agenda_task_created',
+    entityType: 'contract',
+    entityId: contractId,
+    metadata: { task_id: createdTask.id, title },
+  });
+
+  return createdTask;
+}
+
+export async function createRiskFromContract(contractId: string, title: string, category: string, probability: number, impact: number, mitigationPlan?: string): Promise<any> {
+  const { supabase, user, organizationId } = await getCurrentIdentity();
+  
+  const severity = probability * impact >= 16 ? 'critical' : probability * impact >= 12 ? 'high' : probability * impact >= 6 ? 'medium' : 'low';
+  
+  const { data, error } = await supabase
+    .from('risks')
+    .insert({
+      organization_id: organizationId,
+      title,
+      category,
+      probability,
+      impact,
+      severity,
+      origin: 'contract',
+      reference_id: contractId,
+      reference_name: 'Vínculo contratual',
+      status: 'open',
+      mitigation_plan: mitigationPlan || null,
+      created_by: user.id
+    })
+    .select('*')
+    .single();
+
+  if (error) throw new Error(`Erro ao criar risco a partir do contrato: ${error.message}`);
+
+  // Also create a link in the contract_risks_links table
+  await linkContractToRisk(contractId, data.id);
+
+  return data;
 }

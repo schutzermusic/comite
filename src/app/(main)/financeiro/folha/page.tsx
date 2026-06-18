@@ -14,6 +14,8 @@ import {
   hydratePayrollBatchesFromServer,
 } from '@/lib/finance/finance-store';
 import type { PayrollBatch } from '@/lib/types/finance';
+import { ExportReportButton } from '@/components/reports/ExportReportButton';
+import { openFinanceReport, kpiFromHud } from '@/lib/reports/modules/finance-report';
 
 const STATUS_VARIANTS: Record<string, string> = { draft: 'pending', approved: 'info', posted: 'completed' };
 
@@ -96,6 +98,42 @@ export default function FolhaPage() {
           <div className="flex items-center gap-3">
             <HudSelect label="" value={selectedPeriod} onChange={setSelectedPeriod} size="sm"
               options={[{ value: '2026-01', label: 'Jan/2026' }, { value: '2026-02', label: 'Fev/2026' }, { value: '2026-03', label: 'Mar/2026' }]} />
+            <ExportReportButton
+              size="md"
+              variant="glass"
+              permission="finance.export"
+              fallbackPermission="finance.view"
+              build={() => openFinanceReport({
+                title: 'Folha de Pagamento',
+                fileContext: 'folha',
+                periodLabel: selectedPeriod,
+                context: `Lotes de folha do período <b>${selectedPeriod}</b>`,
+                kpis: kpis.map((k) => kpiFromHud(k)),
+                sections: [{
+                  title: 'Lotes de Folha',
+                  tables: [{
+                    columns: [
+                      { key: 'periodo', label: 'Período' },
+                      { key: 'bu', label: 'Unidade' },
+                      { key: 'gross', label: 'Salário Bruto', num: true },
+                      { key: 'charges', label: 'Encargos', num: true },
+                      { key: 'benefits', label: 'Benefícios', num: true },
+                      { key: 'hc', label: 'Headcount', num: true },
+                      { key: 'status', label: 'Status' },
+                    ],
+                    rows: batches.map((b) => ({
+                      periodo: { html: `<span class="mono">${b.period_key}</span>` },
+                      bu: b.business_unit?.name || b.business_unit_id,
+                      gross: { html: `<span class="mono">${formatBRL(b.total_gross_cents)}</span>` },
+                      charges: { html: `<span class="mono">${formatBRL(b.total_charges_cents)}</span>` },
+                      benefits: { html: `<span class="mono">${formatBRL(b.total_benefits_cents)}</span>` },
+                      hc: String(b.headcount),
+                      status: { html: `<span class="pill ${b.status === 'posted' ? 'ok' : b.status === 'approved' ? 'info' : 'warn'}">${b.status}</span>` },
+                    })),
+                  }],
+                }],
+              })}
+            />
             <HudButton variant="primary" leftIcon={<Plus className="w-4 h-4" />} onClick={() => setDrawerOpen(true)}>
               {t('newPayrollBatch')}
             </HudButton>

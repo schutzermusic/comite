@@ -20,6 +20,8 @@ import {
   fmtBRL, fmtPct, fmtCompactBRL,
   type FinancePeriod, type FinanceScenario,
 } from '@/components/finance/shared';
+import { ExportReportButton } from '@/components/reports/ExportReportButton';
+import { openFinanceReport, kpiFromHud } from '@/lib/reports/modules/finance-report';
 import {
   BUDGET_ACTUAL_ROWS,
   buildBudgetActualKpis,
@@ -80,7 +82,57 @@ export default function OrcadoRealizadoPage() {
             />
           </>
         }
-        rightSlot={<HudButton variant="primary" size="sm" leftIcon={<Download className="w-4 h-4" />}>Exportar variância</HudButton>}
+        rightSlot={
+          <>
+            <ExportReportButton
+              size="sm"
+              variant="primary"
+              label="Exportar PDF"
+              permission="finance.export"
+              fallbackPermission="finance.view"
+              build={() => openFinanceReport({
+                title: 'Orçado x Realizado',
+                fileContext: 'orcado-realizado',
+                periodLabel: period,
+                scenarioLabel: scenario,
+                context: 'Análise de variância YTD por área, linha e centro de custo',
+                kpis: kpis.map((k) => kpiFromHud(k)),
+                sections: [{
+                  title: 'Variância por Linha',
+                  charts: [{
+                    title: 'Maiores variâncias (Realizado − Orçado)',
+                    spec: {
+                      kind: 'bars', valueFmt: 'compactCurrency', signed: true,
+                      rows: [...filtered].sort((a, b) => Math.abs(b.actual - b.budget) - Math.abs(a.actual - a.budget)).slice(0, 8).map((r) => ({ label: r.category, value: r.actual - r.budget })),
+                    },
+                  }],
+                  tables: [{
+                    columns: [
+                      { key: 'cat', label: 'Linha' },
+                      { key: 'area', label: 'Área' },
+                      { key: 'orc', label: 'Orçado', num: true },
+                      { key: 'real', label: 'Realizado', num: true },
+                      { key: 'var', label: 'Variância', num: true },
+                      { key: 'status', label: 'Status' },
+                    ],
+                    rows: filtered.map((r) => {
+                      const v = r.actual - r.budget;
+                      return {
+                        cat: r.category,
+                        area: String(r.area),
+                        orc: { html: `<span class="mono">${fmtBRL(r.budget)}</span>` },
+                        real: { html: `<span class="mono">${fmtBRL(r.actual)}</span>` },
+                        var: { html: `<span class="mono">${fmtBRL(v)}</span>` },
+                        status: String(r.status),
+                      };
+                    }),
+                  }],
+                }],
+              })}
+            />
+            <HudButton variant="ghost" size="sm" leftIcon={<Download className="w-4 h-4" />}>Exportar variância</HudButton>
+          </>
+        }
       />
 
       <FinanceKpiGrid kpis={kpis} columns={5} />

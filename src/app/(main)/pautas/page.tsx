@@ -5,6 +5,8 @@ import { Activity, ArrowRight, FileCheck2, Filter, Layers3, Network, Plus, Searc
 import { AuditTrailTimeline, BoardHealthKPI, DecisionInspector, DecisionList, EvidencePack, NewDeliberationModal, QueueTabs } from '@/components/deliberacoes';
 import { HudPanel, HudButton, HudBadge, HudEmptyState } from '@/components/hud';
 import { AuditTrailEntry, DeliberationItem, DeliberationStatus, VoteOption } from '@/lib/types';
+import { ExportReportButton } from '@/components/reports/ExportReportButton';
+import { openDeliberationReport } from '@/lib/reports/modules/deliberation-report';
 import { COMMITTEES, buildStagePlan, resolveTemplate } from '@/lib/deliberations-policy';
 import { deliberationSerial } from '@/lib/utils/serial';
 import type { NewDeliberationPayload } from '@/components/deliberacoes/NewDeliberationModal';
@@ -725,6 +727,16 @@ export default function CommitteesPage() {
                   <p className="text-[9px] uppercase tracking-[0.16em] text-ig-fg-subtle">Críticas abertas</p>
                   <p className="mt-0.5 text-sm font-semibold text-ig-danger tabular-nums">{openCriticalCount}</p>
                 </div>
+                <ExportReportButton
+                  size="md"
+                  variant="glass"
+                  permission="deliberations.export"
+                  fallbackPermission="deliberations.view"
+                  build={() => openDeliberationReport({
+                    deliberations: items,
+                    source: deliberationsError ? 'demonstração' : (items.length ? 'Supabase' : 'demonstração'),
+                  })}
+                />
                 {!permissionsLoading && hasPermission('deliberations.create') && (
                   <HudButton variant="primary" size="md" leftIcon={<Plus className="w-4 h-4" />} onClick={() => setNewDeliberationOpen(true)}>
                     Nova decisão

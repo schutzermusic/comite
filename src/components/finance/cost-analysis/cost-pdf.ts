@@ -1,13 +1,12 @@
 /**
  * Análise de Custos → print-ready HTML report (browser print → PDF).
  *
- * Mirrors the workforce/portfolio export pattern: a pure `buildCostReportHtml`
- * renderer plus `openCostReport` that opens the print window. The report ALWAYS
- * reflects the SAME active scope as the on-screen table / CSV export (the caller
- * passes the already-filtered entries), so the three exports never disagree.
- *
- * It performs no aggregation of its own beyond simple sums of the values the
- * selectors already produced — no financial rule lives here.
+ * Built on the shared enterprise report engine (src/lib/reports), so it shares
+ * the branded cover, light print theme, KPI grid, charts and tables with every
+ * other module report. The report ALWAYS reflects the SAME active scope as the
+ * on-screen table / CSV export (the caller passes already-filtered entries), so
+ * the three exports never disagree. No financial rule lives here — only sums of
+ * the values the selectors already produced.
  */
 
 import type { LedgerEntry } from '@/lib/types/finance';
@@ -18,14 +17,13 @@ import {
   suppliers as supplierRefs,
 } from '@/data/finance/seed-categories';
 import { projects as projectRefs, contracts as contractRefs } from '@/data/finance/reference';
-
-const BRL = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
-
-function esc(s: string): string {
-  return String(s ?? '').replace(/[&<>"']/g, (c) => (
-    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string
-  ));
-}
+import { BRL, esc, fmtInt } from '@/lib/reports/report-formatters';
+import { CATEGORICAL } from '@/lib/reports/report-theme';
+import { svgHorizontalBar } from '@/lib/reports/report-charts';
+import { reportCover, sectionTitle, kpiGrid, chartBlock, dataTable, type KpiCardSpec } from '@/lib/reports/report-blocks';
+import { renderReportDocument } from '@/lib/reports/report-shell';
+import { openReport, buildReportMeta, buildReportFileName } from '@/lib/reports/report-export';
+import type { ReportExportResult } from '@/lib/reports/report-types';
 
 const catName = (id: string) => managementCategories.find((c) => c.id === id);
 const projName = (id?: string) => projectRefs.find((p) => p.id === id)?.name ?? '';
@@ -55,124 +53,101 @@ export interface CostReportPayload {
 
 export function buildCostReportHtml(payload: CostReportPayload): string {
   const brand = payload.brandName ?? 'INSIGHT — Governança Corporativa';
-  const generated = new Date().toLocaleString('pt-BR');
   const maxRows = payload.maxRows ?? 250;
   const total = payload.entries.reduce((s, e) => s + Math.abs(e.amount_cents) / 100, 0);
   const shown = payload.entries.slice(0, maxRows);
   const truncated = payload.entries.length - shown.length;
+  const fileName = buildReportFileName({ module: 'financeiro', context: `custos-${payload.scopeLabel}` });
 
-  const kpiCards = payload.kpis.map((k) => `
-    <div class="kpi">
-      <div class="kpi-l">${esc(k.label)}</div>
-      <div class="kpi-v">${esc(k.value)}</div>
-      ${k.helper ? `<div class="kpi-h">${esc(k.helper)}</div>` : ''}
-    </div>`).join('');
+  const meta = buildReportMeta({
+    brand,
+    periodLabel: payload.periodLabel,
+    filtersLabel: payload.scopeLabel,
+    source: payload.isDemo ? 'demonstração' : 'Supabase',
+  });
 
-  const rankingBlocks = payload.rankings.filter((r) => r.rows.length > 0).map((r) => `
-    <div class="rank">
-      <h3>${esc(r.title)}</h3>
-      <table class="mini">
-        <tbody>
-          ${r.rows.slice(0, 10).map((row) => `
-            <tr>
-              <td>${esc(row.label)}</td>
-              <td class="num">${esc(BRL(row.value))}</td>
-              <td class="num muted">${row.share !== undefined ? `${(row.share * 100).toFixed(1)}%` : ''}</td>
-            </tr>`).join('')}
-        </tbody>
-      </table>
-    </div>`).join('');
+  const cover = reportCover({
+    meta,
+    kicker: 'Relatório Executivo · Financeiro',
+    title: 'Análise de Custos',
+    context: `<b>${esc(payload.scopeLabel)}</b><span class="sep">·</span>Realizado`,
+  });
+
+  const kpiCards: KpiCardSpec[] = payload.kpis.map((k, i) => ({
+    label: k.label,
+    value: k.value,
+    helper: k.helper,
+    color: CATEGORICAL[i % CATEGORICAL.length],
+  }));
+  const kpis = `${sectionTitle('Indicadores do recorte')}${kpiGrid(kpiCards)}`;
+
+  const rankingBlocks = payload.rankings
+    .filter((r) => r.rows.length > 0)
+    .map((r) => chartBlock({
+      title: r.title,
+      svg: svgHorizontalBar(
+        r.rows.slice(0, 8).map((row) => ({ label: row.label, value: row.value })),
+        { width: 520, fmtValue: BRL },
+      ),
+    }))
+    .join('');
+  const rankingsSection = rankingBlocks
+    ? `${sectionTitle('Rankings do recorte', 'principais categorias, projetos e fornecedores por valor')}<div class="two-col">${rankingBlocks}</div>`
+    : '';
 
   const entryRows = shown.map((e) => {
     const cat = catName(e.category_id);
     const path = cat ? resolveCategoryPath(cat) : undefined;
-    return `
-      <tr>
-        <td class="mono">${esc(e.entry_date)}</td>
-        <td>${esc(e.description)}</td>
-        <td>${esc(path?.categoryName ?? '')}</td>
-        <td>${esc(path?.subcategoryName ?? path?.categoryName ?? '')}</td>
-        <td>${esc(projName(e.project_id))}</td>
-        <td>${esc(ctrName(e.contract_id))}</td>
-        <td>${esc(ccName(e.cost_center_id))}</td>
-        <td>${esc(supName(e.supplier_id))}</td>
-        <td class="num mono">${esc(BRL(Math.abs(e.amount_cents) / 100))}</td>
-      </tr>`;
-  }).join('');
+    return {
+      data: { html: `<span class="mono">${esc(e.entry_date)}</span>` },
+      desc: e.description,
+      categoria: path?.categoryName ?? '',
+      sub: path?.subcategoryName ?? path?.categoryName ?? '',
+      projeto: projName(e.project_id),
+      contrato: ctrName(e.contract_id),
+      cc: ccName(e.cost_center_id),
+      fornecedor: supName(e.supplier_id),
+      valor: { html: `<span class="mono">${esc(BRL(Math.abs(e.amount_cents) / 100))}</span>` },
+    };
+  });
 
-  return `<!doctype html>
-<html lang="pt-BR"><head><meta charset="utf-8" />
-<title>${esc(payload.title)}</title>
-<style>
-  * { box-sizing: border-box; }
-  body { font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color: #0f172a; margin: 28px; }
-  header { display:flex; justify-content:space-between; align-items:flex-start; border-bottom:2px solid #0891b2; padding-bottom:10px; }
-  h1 { font-size: 18px; margin: 0 0 2px; }
-  h2 { font-size: 14px; margin: 22px 0 8px; color:#0e7490; }
-  h3 { font-size: 12px; margin: 0 0 6px; color:#334155; }
-  .sub { color:#64748b; font-size: 11px; }
-  .badge { display:inline-block; background:#fef3c7; color:#92400e; border:1px solid #f59e0b; border-radius:999px; padding:2px 8px; font-size:10px; font-weight:600; }
-  .kpis { display:grid; grid-template-columns: repeat(3, 1fr); gap:10px; margin-top:14px; }
-  .kpi { border:1px solid #e2e8f0; border-radius:8px; padding:10px 12px; }
-  .kpi-l { font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:#64748b; }
-  .kpi-v { font-size:16px; font-weight:700; margin-top:2px; }
-  .kpi-h { font-size:10px; color:#94a3b8; margin-top:2px; }
-  .ranks { display:grid; grid-template-columns: repeat(2, 1fr); gap:16px; }
-  table { width:100%; border-collapse:collapse; }
-  table.mini td { padding:3px 0; border-bottom:1px solid #f1f5f9; font-size:11px; }
-  table.entries { font-size:10.5px; margin-top:8px; }
-  table.entries th { text-align:left; background:#f8fafc; border-bottom:1px solid #cbd5e1; padding:5px 6px; font-size:10px; text-transform:uppercase; letter-spacing:.06em; color:#475569; }
-  table.entries td { padding:4px 6px; border-bottom:1px solid #f1f5f9; }
-  .num { text-align:right; } .mono { font-variant-numeric: tabular-nums; font-family: ui-monospace, Menlo, monospace; }
-  .muted { color:#94a3b8; }
-  .totalbar { margin-top:10px; font-size:12px; } .totalbar b { font-size:14px; }
-  .bar { margin-top:22px; }
-  button { background:#0891b2; color:#fff; border:0; border-radius:6px; padding:8px 14px; font-size:13px; cursor:pointer; }
-  @media print { .bar { display:none; } body { margin:0; } }
-</style></head>
-<body>
-  <header>
-    <div>
-      <h1>Análise de Custos — ${esc(payload.scopeLabel)}</h1>
-      <div class="sub">${esc(brand)} · Realizado · ${esc(payload.periodLabel)}</div>
-    </div>
-    <div style="text-align:right">
-      <div class="sub">Gerado em ${esc(generated)}</div>
-      ${payload.isDemo ? '<div style="margin-top:4px"><span class="badge">dados demonstrativos</span></div>' : ''}
-    </div>
-  </header>
+  const entriesTable = dataTable(
+    [
+      { key: 'data', label: 'Data' },
+      { key: 'desc', label: 'Descrição' },
+      { key: 'categoria', label: 'Categoria' },
+      { key: 'sub', label: 'Subcategoria' },
+      { key: 'projeto', label: 'Projeto' },
+      { key: 'contrato', label: 'Contrato' },
+      { key: 'cc', label: 'Centro de Custo' },
+      { key: 'fornecedor', label: 'Fornecedor' },
+      { key: 'valor', label: 'Valor', num: true },
+    ],
+    entryRows,
+  );
 
-  <div class="kpis">${kpiCards}</div>
+  const totalbar = `<p class="interp">Total do recorte: <b>${esc(BRL(total))}</b> · ${fmtInt(payload.entries.length)} lançamentos${truncated > 0 ? ` (exibindo ${fmtInt(shown.length)}; +${fmtInt(truncated)} no CSV)` : ''}</p>`;
 
-  ${rankingBlocks ? `<h2>Rankings do recorte</h2><div class="ranks">${rankingBlocks}</div>` : ''}
+  const page1 = `<section class="section">${cover}</section><section class="section">${kpis}</section>${rankingsSection ? `<section class="section">${rankingsSection}</section>` : ''}`;
+  const page2 = `<section class="section">${sectionTitle('Lançamentos do recorte', 'detalhamento — mesma base do CSV')}${totalbar}${entriesTable}</section>`;
 
-  <h2>Lançamentos do recorte</h2>
-  <div class="totalbar">Total do recorte: <b>${esc(BRL(total))}</b> · ${payload.entries.length} lançamentos${truncated > 0 ? ` (exibindo ${shown.length}; +${truncated} no CSV)` : ''}</div>
-  <table class="entries">
-    <thead><tr>
-      <th>Data</th><th>Descrição</th><th>Categoria</th><th>Subcategoria</th>
-      <th>Projeto</th><th>Contrato</th><th>Centro de Custo</th><th>Fornecedor</th><th class="num">Valor</th>
-    </tr></thead>
-    <tbody>${entryRows || '<tr><td colspan="9" class="muted">Sem lançamentos no recorte.</td></tr>'}</tbody>
-  </table>
-
-  <div class="bar"><button onclick="window.print()">Imprimir / Salvar PDF</button></div>
-</body></html>`;
+  return renderReportDocument({
+    fileName,
+    brand,
+    logoUrl: meta.logoUrl,
+    footerLabel: `Análise de Custos · ${payload.scopeLabel}`,
+    pages: [page1, page2],
+    orientation: 'landscape',
+  });
 }
 
-export type CostExportResult = { ok: true } | { ok: false; message: string };
+export type CostExportResult = ReportExportResult;
 
 /** Open the print-ready report in a new window (user prints / saves as PDF). */
 export function openCostReport(payload: CostReportPayload): CostExportResult {
   try {
-    const w = window.open('', '_blank', 'width=1024,height=768');
-    if (!w) return { ok: false, message: 'O navegador bloqueou a janela. Habilite pop-ups para este site.' };
-    w.document.open();
-    w.document.write(buildCostReportHtml(payload));
-    w.document.close();
-    w.focus();
-    return { ok: true };
+    return openReport(buildCostReportHtml(payload), { width: 1280, height: 860 });
   } catch (err) {
-    return { ok: false, message: err instanceof Error ? err.message : 'Falha ao gerar o PDF.' };
+    return { ok: false, reason: 'error', message: err instanceof Error ? err.message : 'Falha ao gerar o PDF.' };
   }
 }

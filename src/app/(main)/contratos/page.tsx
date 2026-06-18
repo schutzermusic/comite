@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { Contract, Project } from '@/lib/types';
 import { deleteProject, getProjectsAsync } from '@/lib/services/projects';
@@ -9,12 +8,18 @@ import { useContracts } from '@/hooks/use-contracts';
 import { usePermissions } from '@/hooks/use-permissions';
 import { ContractList } from '@/components/contracts/contract-list';
 import { ContractUpload } from '@/components/contracts/contract-upload';
+import { ContractCard } from '@/components/contracts/ContractCard';
+import { ContractDossierDrawer } from '@/components/contracts/ContractDossierDrawer';
+import { useContractActionModals } from '@/components/contracts/useContractActionModals';
 import {
   enrichContractsForGovernance,
   formatCurrencyCompact,
   type ContractGovernanceRecord,
 } from '@/components/contracts/contract-governance-data';
 import { contractRowToLegacyContract, createProjectFromContract } from '@/lib/contracts/contract-service';
+import { ExportReportButton } from '@/components/reports/ExportReportButton';
+import { openContractReport } from '@/lib/reports/modules/contract-report';
+import { openContractDossierReport } from '@/lib/reports/modules/contract-dossier-report';
 import {
   HudBadge,
   HudButton,
@@ -25,27 +30,25 @@ import {
   HudProgressBar,
   HudStatusPill,
   HudTabs,
+  useHudToast,
   type HudTab,
   type KpiItem,
 } from '@/components/hud';
 import {
-  AlertTriangle,
   Archive,
   BarChart3,
   BrainCircuit,
-  Building2,
   CalendarClock,
   CheckCircle2,
   ClipboardCheck,
   Clock3,
-  Eye,
   FileSearch,
   FileSignature,
   FileText,
-  GanttChartSquare,
   LayoutGrid,
   ListFilter,
   Plus,
+  Receipt,
   RefreshCcw,
   Scale,
   Search,
@@ -74,6 +77,17 @@ const sectionLabels: Record<SectionId, string> = {
 };
 
 const riskLabels = { high: 'Alto', medium: 'Médio', low: 'Baixo' } as const;
+
+const QUICK_FILTERS: { key: string; label: string; icon: typeof ShieldAlert }[] = [
+  { key: 'alto_risco', label: 'Alto risco', icon: ShieldAlert },
+  { key: 'vencendo_30', label: 'Vencendo em 30d', icon: CalendarClock },
+  { key: 'sem_projeto', label: 'Sem projeto', icon: Workflow },
+  { key: 'sem_faturamento', label: 'Sem faturamento', icon: Receipt },
+  { key: 'revisao_juridica', label: 'Em revisão jurídica', icon: Scale },
+  { key: 'docs_pendentes', label: 'Documentos pendentes', icon: Archive },
+  { key: 'saldo_a_faturar', label: 'Saldo a faturar', icon: Clock3 },
+  { key: 'sem_ia', label: 'Sem análise IA', icon: BrainCircuit },
+];
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return <span className="mb-1.5 block text-ig-label text-ig-fg-muted">{children}</span>;
@@ -124,6 +138,7 @@ export default function ContratosPage() {
   const [activeSection, setActiveSection] = useState<SectionId>('overview');
   const [viewMode, setViewMode] = useState<ViewMode>('table');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [companyFilter, setCompanyFilter] = useState('all');
   const [projectFilter, setProjectFilter] = useState('all');
@@ -132,6 +147,8 @@ export default function ContratosPage() {
   const [expiryFilter, setExpiryFilter] = useState<ExpiryFilter>('all');
   const [typeFilter, setTypeFilter] = useState('all');
   const [notice, setNotice] = useState<string | null>(null);
+  const [activeQuickFilters, setActiveQuickFilters] = useState<string[]>([]);
+  const { notify } = useHudToast();
 
   useEffect(() => {
     getProjectsAsync()
@@ -153,6 +170,58 @@ export default function ContratosPage() {
   const companies = useMemo(() => Array.from(new Set(records.map((record) => record.companyName))).sort(), [records]);
   const contractTypes = useMemo(() => Array.from(new Set(records.map((record) => record.contractType))).sort(), [records]);
 
+  const toggleQuickFilter = (filterKey: string) => {
+    setActiveQuickFilters((current) =>
+      current.includes(filterKey)
+        ? current.filter((k) => k !== filterKey)
+        : [...current, filterKey]
+    );
+  };
+
+  const refreshContractsAndProjects = async () => {
+    const [nextProjects] = await Promise.all([getProjectsAsync(), refresh()]);
+    setProjects(nextProjects);
+  };
+
+  const { actions: contractActions, modals: contractActionModals } = useContractActionModals({
+    projects,
+    onRefresh: refreshContractsAndProjects,
+  });
+
+  const handleExportPdf = (record: ContractGovernanceRecord) => {
+    const result = openContractDossierReport({
+      record,
+      source: records.length ? 'Supabase' : 'demonstração',
+    });
+    if (!result.ok) {
+      notify('Não foi possível gerar o PDF', {
+        description: result.message ?? 'Falha ao montar o dossiê do contrato.',
+        variant: 'error',
+      });
+    }
+  };
+
+  const openDossierDrawer = (record: ContractGovernanceRecord) => {
+    setSelectedId(record.contract.id);
+    setDrawerOpen(true);
+  };
+
+  const handleViewContract = (record: ContractGovernanceRecord) => {
+    router.push(`/contratos/${record.contract.id}`);
+  };
+
+  const handleOpenFinance = (record: ContractGovernanceRecord) => {
+    router.push(`/contratos/${record.contract.id}?tab=finance`);
+  };
+
+  const handleOpenBilling = (record: ContractGovernanceRecord) => {
+    router.push(`/contratos/${record.contract.id}?tab=finance`);
+  };
+
+  const handleViewDocuments = (record: ContractGovernanceRecord) => {
+    router.push(`/contratos/${record.contract.id}?tab=documents`);
+  };
+
   const filteredRecords = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
     return records.filter((record) => {
@@ -171,9 +240,21 @@ export default function ContratosPage() {
         || (expiryFilter === 'expired' && record.daysUntilExpiration !== null && record.daysUntilExpiration < 0)
         || (expiryFilter !== 'expired' && record.daysUntilExpiration !== null && record.daysUntilExpiration >= 0 && record.daysUntilExpiration <= Number(expiryFilter));
 
-      return matchesQuery && matchesCompany && matchesProject && matchesStatus && matchesRisk && matchesType && matchesExpiry;
+      const matchesQuickFilters = activeQuickFilters.every((filterKey) => {
+        if (filterKey === 'alto_risco') return record.contract.riskClassification === 'high';
+        if (filterKey === 'vencendo_30') return record.daysUntilExpiration !== null && record.daysUntilExpiration >= 0 && record.daysUntilExpiration <= 30;
+        if (filterKey === 'sem_projeto') return !record.project;
+        if (filterKey === 'sem_faturamento') return record.billedValue === 0;
+        if (filterKey === 'revisao_juridica') return record.contract.status === 'legal_review';
+        if (filterKey === 'docs_pendentes') return record.missingDocuments.length > 0;
+        if (filterKey === 'saldo_a_faturar') return record.remainingValue > 0;
+        if (filterKey === 'sem_ia') return record.aiStatus === 'mock_pending';
+        return true;
+      });
+
+      return matchesQuery && matchesCompany && matchesProject && matchesStatus && matchesRisk && matchesType && matchesExpiry && matchesQuickFilters;
     });
-  }, [companyFilter, expiryFilter, projectFilter, records, riskFilter, searchTerm, statusFilter, typeFilter]);
+  }, [companyFilter, expiryFilter, projectFilter, records, riskFilter, searchTerm, statusFilter, typeFilter, activeQuickFilters]);
 
   const selectedRecord = useMemo(() => {
     return filteredRecords.find((record) => record.contract.id === selectedId)
@@ -189,7 +270,7 @@ export default function ContratosPage() {
     const expiring = records.filter((record) => record.daysUntilExpiration !== null && record.daysUntilExpiration >= 0 && record.daysUntilExpiration <= 90).length;
     const highRisk = records.filter((record) => record.contract.riskClassification === 'high').length;
     const missingDocs = records.reduce((sum, record) => sum + record.missingDocuments.length, 0);
-    const legalReview = records.filter((record) => record.legalStatus !== 'approved').length;
+    const legalReview = records.filter((record) => record.contract.status === 'legal_review' || record.legalStatus !== 'approved').length;
     const obligations = records.flatMap((record) => record.obligations);
     const overdue = obligations.filter((obligation) => obligation.status === 'overdue').length;
     const avgSla = Math.round(18 + records.reduce((sum, record) => sum + (record.riskScore > 70 ? 8 : 2), 0) / Math.max(records.length, 1));
@@ -201,6 +282,7 @@ export default function ContratosPage() {
     { id: 'exposure', label: 'Exposição total', value: formatCurrencyCompact(stats.totalValue), variant: 'info', icon: <FileSignature className="h-4 w-4" /> },
     { id: 'backlog', label: 'Backlog contratual', value: formatCurrencyCompact(stats.remainingValue), variant: 'warning', icon: <Clock3 className="h-4 w-4" /> },
     { id: 'billed', label: 'Valor faturado', value: formatCurrencyCompact(stats.billedValue), variant: 'success', icon: <CheckCircle2 className="h-4 w-4" /> },
+    { id: 'saldo', label: 'Saldo a faturar', value: formatCurrencyCompact(stats.remainingValue), variant: 'info', icon: <Receipt className="h-4 w-4" /> },
     { id: 'renewals', label: 'Contratos a vencer', value: stats.expiring, variant: stats.expiring ? 'warning' : 'default', icon: <RefreshCcw className="h-4 w-4" /> },
     { id: 'high-risk', label: 'Alto risco', value: stats.highRisk, variant: stats.highRisk ? 'danger' : 'default', icon: <ShieldAlert className="h-4 w-4" /> },
     { id: 'missing-docs', label: 'Docs faltantes', value: stats.missingDocs, variant: stats.missingDocs ? 'warning' : 'default', icon: <Archive className="h-4 w-4" /> },
@@ -216,6 +298,7 @@ export default function ContratosPage() {
     setRiskFilter('all');
     setExpiryFilter('all');
     setTypeFilter('all');
+    setActiveQuickFilters([]);
   };
 
   // owner_admin holds every permission via the catch-all CTE in
@@ -326,12 +409,8 @@ export default function ContratosPage() {
         <OverviewSection
           records={filteredRecords}
           selectedRecord={selectedRecord}
-          canDeleteLinkedProject={canDeleteLinkedProject}
-          canDeleteContract={canDeleteContract}
-          onSelect={setSelectedId}
-          onView={(record) => router.push(`/contratos/${record.contract.id}`)}
-          onDeleteLinkedProject={handleDeleteLinkedProject}
-          onDeleteContract={handleDeleteContract}
+          onSelect={openDossierDrawer}
+          onView={handleViewContract}
         />
       ),
     },
@@ -346,8 +425,8 @@ export default function ContratosPage() {
           selectedId={selectedRecord?.contract.id || null}
           viewMode={viewMode}
           onViewModeChange={setViewMode}
-          onSelect={(record) => setSelectedId(record.contract.id)}
-          onView={(record) => router.push(`/contratos/${record.contract.id}`)}
+          onSelect={openDossierDrawer}
+          onView={handleViewContract}
           canDeleteLinkedProject={canDeleteLinkedProject}
           canDeleteContract={canDeleteContract}
           onDeleteLinkedProject={handleDeleteLinkedProject}
@@ -405,11 +484,23 @@ export default function ContratosPage() {
         icon={<FileSignature className="h-5 w-5" />}
         breadcrumbs={[{ label: 'Gestão de Contratos' }]}
         actions={
-          hasPermission('contracts.create') && !permissionsLoading ? (
-          <HudButton variant="primary" size="md" leftIcon={<Plus className="h-4 w-4" />} onClick={() => setUploadOpen(true)}>
-            Novo Contrato
-          </HudButton>
-          ) : null
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <ExportReportButton
+              size="md"
+              variant="glass"
+              permission="contracts.export"
+              fallbackPermission="contracts.view"
+              build={() => openContractReport({
+                records,
+                source: records.length ? 'Supabase' : 'demonstração',
+              })}
+            />
+            {hasPermission('contracts.create') && !permissionsLoading ? (
+              <HudButton variant="primary" size="md" leftIcon={<Plus className="h-4 w-4" />} onClick={() => setUploadOpen(true)}>
+                Novo Contrato
+              </HudButton>
+            ) : null}
+          </div>
         }
       />
 
@@ -435,7 +526,7 @@ export default function ContratosPage() {
         </HudPanel>
       )}
 
-      <HudKpiStrip kpis={kpis} columns={4} connected size="sm" className="mb-5" />
+      <HudKpiStrip kpis={kpis} columns={5} connected size="sm" className="mb-5" />
 
       <HudPanel title="Filtros de governança" icon={<ListFilter className="h-4 w-4" />} interactive={false}>
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.4fr_repeat(6,minmax(0,1fr))_auto] xl:items-end">
@@ -492,6 +583,41 @@ export default function ContratosPage() {
             Limpar
           </HudButton>
         </div>
+
+        <div className="mt-4 border-t border-ig-border-subtle pt-3">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <span className="text-ig-label text-ig-fg-muted">Filtros rápidos</span>
+            {activeQuickFilters.length > 0 && (
+              <button
+                className="text-ig-caption text-ig-fg-muted transition-colors hover:text-ig-fg-strong"
+                onClick={() => setActiveQuickFilters([])}
+              >
+                limpar {activeQuickFilters.length}
+              </button>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {QUICK_FILTERS.map((filter) => {
+              const active = activeQuickFilters.includes(filter.key);
+              return (
+                <button
+                  key={filter.key}
+                  type="button"
+                  onClick={() => toggleQuickFilter(filter.key)}
+                  aria-pressed={active}
+                  className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold transition-colors ${
+                    active
+                      ? 'border-ig-border-focus bg-ig-accent-weak text-ig-accent'
+                      : 'border-ig-border-subtle bg-ig-panel/55 text-ig-fg-muted hover:bg-ig-panel-hover hover:text-ig-fg-strong'
+                  }`}
+                >
+                  <filter.icon className="h-3.5 w-3.5" />
+                  {filter.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </HudPanel>
 
       <HudTabs
@@ -510,6 +636,23 @@ export default function ContratosPage() {
         projects={projects}
         companies={companies}
       />
+
+      <ContractDossierDrawer
+        record={selectedRecord}
+        isOpen={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        onView={handleViewContract}
+        onLinkProject={contractActions.linkProject}
+        onCreateTask={contractActions.createTask}
+        onCreateRisk={contractActions.createRisk}
+        onSendToLegal={contractActions.sendToLegal}
+        onViewDocuments={handleViewDocuments}
+        onExportPdf={handleExportPdf}
+        onOpenFinance={handleOpenFinance}
+        onOpenBilling={handleOpenBilling}
+      />
+
+      {contractActionModals}
     </HudPageLayout>
   );
 }
@@ -517,39 +660,83 @@ export default function ContratosPage() {
 function OverviewSection({
   records,
   selectedRecord,
-  canDeleteLinkedProject,
-  canDeleteContract,
   onSelect,
   onView,
-  onDeleteLinkedProject,
-  onDeleteContract,
 }: {
   records: ContractGovernanceRecord[];
   selectedRecord: ContractGovernanceRecord | null;
-  canDeleteLinkedProject: boolean;
-  canDeleteContract: boolean;
-  onSelect: (id: string) => void;
+  onSelect: (record: ContractGovernanceRecord) => void;
   onView: (record: ContractGovernanceRecord) => void;
-  onDeleteLinkedProject: (record: ContractGovernanceRecord) => void;
-  onDeleteContract: (record: ContractGovernanceRecord) => void;
 }) {
   return (
-    <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
-      <div className="space-y-5">
-        <ContractList
-          records={records}
-          selectedRecordId={selectedRecord?.contract.id || null}
-          onSelectRecord={(record) => onSelect(record.contract.id)}
-          onViewContract={onView}
-          canDeleteLinkedProject={canDeleteLinkedProject}
-          canDeleteContract={canDeleteContract}
-          onDeleteLinkedProject={onDeleteLinkedProject}
-          onDeleteContract={onDeleteContract}
-        />
-        <AnalyticsBand records={records} />
-      </div>
-      <ContractIntelligencePanel record={selectedRecord} onView={onView} />
+    <div className="space-y-5">
+      <PriorityContracts
+        records={records}
+        selectedId={selectedRecord?.contract.id || null}
+        onSelect={onSelect}
+        onView={onView}
+      />
+      <AnalyticsBand records={records} />
     </div>
+  );
+}
+
+function priorityScore(record: ContractGovernanceRecord) {
+  let score = record.riskScore / 5;
+  if (record.contract.riskClassification === 'high') score += 40;
+  if (record.daysUntilExpiration !== null && record.daysUntilExpiration < 0) score += 35;
+  else if (record.daysUntilExpiration !== null && record.daysUntilExpiration <= 30) score += 25;
+  else if (record.daysUntilExpiration !== null && record.daysUntilExpiration <= 90) score += 12;
+  score += record.missingDocuments.length * 6;
+  if (!record.project) score += 10;
+  if (record.contract.status === 'legal_review') score += 10;
+  return score;
+}
+
+function PriorityContracts({
+  records,
+  selectedId,
+  onSelect,
+  onView,
+}: {
+  records: ContractGovernanceRecord[];
+  selectedId: string | null;
+  onSelect: (record: ContractGovernanceRecord) => void;
+  onView: (record: ContractGovernanceRecord) => void;
+}) {
+  const top = [...records].sort((a, b) => priorityScore(b) - priorityScore(a)).slice(0, 9);
+
+  if (top.length === 0) {
+    return (
+      <HudPanel title="Carteira em destaque" icon={<FileSignature className="h-4 w-4" />} interactive={false}>
+        <div className="py-12 text-center">
+          <FileText className="mx-auto mb-3 h-10 w-10 text-ig-fg-muted" />
+          <p className="text-ig-body-sm text-ig-fg-muted">Nenhum contrato no recorte atual.</p>
+        </div>
+      </HudPanel>
+    );
+  }
+
+  return (
+    <HudPanel
+      title="Carteira em destaque"
+      subtitle="Contratos priorizados por risco, vencimento e pendências — clique para abrir o dossiê"
+      icon={<FileSignature className="h-4 w-4" />}
+      badge={top.length}
+      interactive={false}
+    >
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        {top.map((record) => (
+          <ContractCard
+            key={record.contract.id}
+            record={record}
+            active={record.contract.id === selectedId}
+            onSelect={onSelect}
+            onView={onView}
+          />
+        ))}
+      </div>
+    </HudPanel>
   );
 }
 
@@ -617,75 +804,39 @@ function ContractsSection({
           onDeleteContract={onDeleteContract}
         />
       )}
-      {viewMode === 'cards' && <ContractCards records={records} onSelect={onSelect} onView={onView} />}
-      {viewMode === 'risk' && <RiskBoard records={records} onSelect={onSelect} />}
+      {viewMode === 'cards' && <ContractCards records={records} selectedId={selectedId} onSelect={onSelect} onView={onView} />}
+      {viewMode === 'risk' && <RiskBoard records={records} selectedId={selectedId} onSelect={onSelect} />}
     </div>
   );
 }
 
 function ContractCards({
   records,
+  selectedId,
   onSelect,
   onView,
 }: {
   records: ContractGovernanceRecord[];
+  selectedId: string | null;
   onSelect: (record: ContractGovernanceRecord) => void;
   onView: (record: ContractGovernanceRecord) => void;
 }) {
   return (
-    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
       {records.map((record) => (
-        <div
+        <ContractCard
           key={record.contract.id}
-          role="button"
-          tabIndex={0}
-          onClick={() => onSelect(record)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' || event.key === ' ') {
-              event.preventDefault();
-              onSelect(record);
-            }
-          }}
-          className="text-left"
-        >
-          <HudPanel interactive sweep className="h-full">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <HudBadge variant="outline" size="sm">{record.code}</HudBadge>
-                <p className="mt-2 line-clamp-2 text-ig-body-sm font-semibold text-ig-fg-strong">{record.contract.name}</p>
-                <p className="mt-1 truncate text-ig-caption text-ig-fg-muted">{record.companyName}</p>
-              </div>
-              <HudStatusPill variant={riskVariant(record.contract.riskClassification)} size="sm">
-                {riskLabels[record.contract.riskClassification]}
-              </HudStatusPill>
-            </div>
-            <div className="mt-4 grid grid-cols-2 gap-3">
-              <Metric label="Total" value={formatCurrencyCompact(record.totalValue)} />
-              <Metric label="Saldo" value={formatCurrencyCompact(record.remainingValue)} />
-            </div>
-            <div className="mt-4 flex items-center justify-between gap-2">
-              <HudBadge variant={record.missingDocuments.length ? 'warning' : 'success'} size="sm">
-                {record.missingDocuments.length} docs pendentes
-              </HudBadge>
-              <button
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onView(record);
-                }}
-                className="flex items-center gap-1 text-ig-label text-ig-accent hover:text-ig-accent-strong"
-              >
-                <Eye className="h-3.5 w-3.5" />
-                Dossiê
-              </button>
-            </div>
-          </HudPanel>
-        </div>
+          record={record}
+          active={record.contract.id === selectedId}
+          onSelect={onSelect}
+          onView={onView}
+        />
       ))}
     </div>
   );
 }
 
-function RiskBoard({ records, onSelect }: { records: ContractGovernanceRecord[]; onSelect: (record: ContractGovernanceRecord) => void }) {
+function RiskBoard({ records, selectedId, onSelect }: { records: ContractGovernanceRecord[]; selectedId: string | null; onSelect: (record: ContractGovernanceRecord) => void }) {
   const lanes = [
     { id: 'high', label: 'Alto risco', variant: 'critical' },
     { id: 'medium', label: 'Risco médio', variant: 'warning' },
@@ -701,7 +852,7 @@ function RiskBoard({ records, onSelect }: { records: ContractGovernanceRecord[];
               <button
                 key={record.contract.id}
                 onClick={() => onSelect(record)}
-                className="w-full rounded-lg border border-ig-border-subtle bg-ig-panel/55 p-3 text-left transition-colors hover:border-ig-border-focus hover:bg-ig-panel-hover"
+                className={`w-full rounded-lg border p-3 text-left transition-colors ${record.contract.id === selectedId ? 'border-ig-border-focus bg-ig-accent-weak/15 ring-1 ring-ig-accent/40' : 'border-ig-border-subtle bg-ig-panel/55 hover:border-ig-border-focus hover:bg-ig-panel-hover'}`}
               >
                 <div className="flex items-start justify-between gap-2">
                   <p className="line-clamp-2 text-ig-body-sm font-semibold text-ig-fg-strong">{record.contract.name}</p>
@@ -717,140 +868,78 @@ function RiskBoard({ records, onSelect }: { records: ContractGovernanceRecord[];
   );
 }
 
-function ContractIntelligencePanel({ record, onView }: { record: ContractGovernanceRecord | null; onView: (record: ContractGovernanceRecord) => void }) {
-  if (!record) {
-    return (
-      <HudPanel title="Inteligência contratual" icon={<BrainCircuit className="h-4 w-4" />} interactive={false}>
-        <div className="py-12 text-center">
-          <FileText className="mx-auto mb-3 h-10 w-10 text-ig-fg-muted" />
-          <p className="text-ig-body-sm text-ig-fg-muted">Selecione um contrato para ver o resumo.</p>
-        </div>
-      </HudPanel>
-    );
-  }
-
-  return (
-    <HudPanel title="Inteligência contratual" subtitle="Resumo executivo e governança" icon={<BrainCircuit className="h-4 w-4" />} interactive={false} className="xl:sticky xl:top-5">
-      <div className="space-y-4">
-        <div>
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <HudBadge variant="outline" size="sm">{record.code}</HudBadge>
-              <h2 className="mt-2 line-clamp-3 text-lg font-semibold text-ig-fg-strong">{record.contract.name}</h2>
-              <p className="mt-1 truncate text-ig-body-sm text-ig-fg-muted">{record.companyReference}</p>
-            </div>
-            <HudStatusPill variant={riskVariant(record.contract.riskClassification)}>
-              Risco {riskLabels[record.contract.riskClassification]}
-            </HudStatusPill>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <Metric label="Exposição" value={formatCurrencyCompact(record.totalValue)} />
-          <Metric label="Saldo" value={formatCurrencyCompact(record.remainingValue)} />
-          <Metric label="Risk score" value={`${record.riskScore}/100`} />
-          <Metric label="Confiança IA mock" value={`${record.confidenceScore}%`} />
-        </div>
-
-        <div className="rounded-lg border border-ig-border-subtle bg-ig-panel/55 p-3">
-          <p className="text-ig-label text-ig-fg-muted">Projeto vinculado</p>
-          {record.project ? (
-            <Link href={`/projetos/${record.project.id}`} className="mt-1 flex min-w-0 items-center gap-2 text-ig-body-sm font-semibold text-ig-accent hover:text-ig-accent-strong">
-              <Workflow className="h-4 w-4 shrink-0" />
-              <span className="truncate">{record.projectReference}</span>
-            </Link>
-          ) : (
-            <p className="mt-1 text-ig-body-sm text-ig-fg-muted">Sem projeto vinculado</p>
-          )}
-        </div>
-
-        <div className="space-y-2">
-          {[
-            { label: 'Aprovação', value: record.approvalRoute, icon: ShieldCheck },
-            { label: 'Jurídico', value: record.legalStatus === 'approved' ? 'Aprovado' : record.legalStatus === 'review' ? 'Em revisão' : 'Pendente', icon: Scale },
-            { label: 'Financeiro', value: record.financialStatus === 'ok' ? 'Sem bloqueio' : record.financialStatus === 'attention' ? 'Atenção' : 'Bloqueado', icon: GanttChartSquare },
-          ].map((item) => (
-            <div key={item.label} className="flex items-center justify-between gap-3 rounded-lg border border-ig-border-subtle bg-ig-panel/45 px-3 py-2">
-              <span className="flex min-w-0 items-center gap-2 text-ig-body-sm text-ig-fg-muted">
-                <item.icon className="h-4 w-4 shrink-0 text-ig-fg-subtle" />
-                {item.label}
-              </span>
-              <span className="truncate text-right text-ig-body-sm font-semibold text-ig-fg-strong">{item.value}</span>
-            </div>
-          ))}
-        </div>
-
-        <HudPanel elevation={1} state="warning" interactive={false}>
-          <div className="flex items-start gap-2">
-            <BrainCircuit className="mt-0.5 h-4 w-4 shrink-0 text-ig-warning" />
-            <p className="text-ig-caption text-ig-fg-muted">
-              Análise IA em estado mock/pendente. Nenhuma cláusula foi lida por backend nesta versão da tela.
-            </p>
-          </div>
-        </HudPanel>
-
-        <HudButton fullWidth variant="primary" leftIcon={<FileSearch className="h-4 w-4" />} onClick={() => onView(record)}>
-          Abrir dossiê do contrato
-        </HudButton>
-      </div>
-    </HudPanel>
-  );
-}
-
 function AnalyticsBand({ records }: { records: ContractGovernanceRecord[] }) {
-  const byRisk = ['high', 'medium', 'low'].map((risk) => ({
+  const totalCount = Math.max(records.length, 1);
+  const byRisk = (['high', 'medium', 'low'] as const).map((risk) => ({
     risk,
     count: records.filter((record) => record.contract.riskClassification === risk).length,
+    exposure: records.filter((record) => record.contract.riskClassification === risk).reduce((sum, record) => sum + record.totalValue, 0),
+    barClass: risk === 'high' ? 'bg-ig-danger' : risk === 'medium' ? 'bg-ig-warning' : 'bg-ig-success',
   }));
-  const maxRisk = Math.max(...byRisk.map((item) => item.count), 1);
   const upcoming = records
     .filter((record) => record.daysUntilExpiration !== null)
-    .sort((a, b) => (a.daysUntilExpiration || 0) - (b.daysUntilExpiration || 0))
+    .sort((a, b) => (a.daysUntilExpiration ?? 0) - (b.daysUntilExpiration ?? 0))
     .slice(0, 5);
+  const obligations = records.flatMap((record) => record.obligations);
+  const obligationStats = [
+    { key: 'overdue', label: 'Atrasadas', tone: 'danger' as const },
+    { key: 'due_soon', label: 'Próximas', tone: 'warning' as const },
+    { key: 'open', label: 'Abertas', tone: 'default' as const },
+    { key: 'done', label: 'Concluídas', tone: 'success' as const },
+  ].map((item) => ({ ...item, value: obligations.filter((o) => o.status === item.key).length }));
 
   return (
     <div className="grid gap-4 lg:grid-cols-3">
-      <HudPanel title="Contratos por risco" icon={<ShieldAlert className="h-4 w-4" />} interactive={false}>
-        <div className="space-y-3">
+      <HudPanel title="Contratos por risco" subtitle="Distribuição e exposição" icon={<ShieldAlert className="h-4 w-4" />} interactive={false}>
+        <div className="space-y-3.5">
           {byRisk.map((item) => (
             <div key={item.risk}>
-              <div className="mb-1 flex justify-between text-ig-caption">
-                <span className="text-ig-fg-muted">{riskLabels[item.risk as keyof typeof riskLabels]}</span>
-                <span className="ig-tabular font-semibold text-ig-fg-strong">{item.count}</span>
+              <div className="mb-1.5 flex items-baseline justify-between gap-2 text-ig-caption">
+                <span className="flex items-center gap-2 text-ig-fg-muted">
+                  <span className={`h-2 w-2 rounded-full ${item.barClass}`} />
+                  {riskLabels[item.risk]}
+                </span>
+                <span className="flex items-baseline gap-2">
+                  <span className="ig-tabular font-semibold text-ig-fg-strong">{item.count}</span>
+                  <span className="text-ig-fg-subtle">{formatCurrencyCompact(item.exposure)}</span>
+                </span>
               </div>
               <div className="h-2 overflow-hidden rounded-full bg-ig-panel-hover">
-                <div className="h-full rounded-full bg-ig-accent" style={{ width: `${(item.count / maxRisk) * 100}%` }} />
+                <div className={`h-full rounded-full ${item.barClass} transition-[width]`} style={{ width: `${(item.count / totalCount) * 100}%` }} />
               </div>
             </div>
           ))}
         </div>
       </HudPanel>
-      <HudPanel title="Próximas renovações" icon={<CalendarClock className="h-4 w-4" />} interactive={false}>
+
+      <HudPanel title="Próximas renovações" subtitle="Janela mais próxima de vencimento" icon={<CalendarClock className="h-4 w-4" />} interactive={false}>
         <div className="space-y-2">
+          {upcoming.length === 0 && <p className="py-6 text-center text-ig-caption text-ig-fg-muted">Sem datas de vencimento no recorte.</p>}
           {upcoming.map((record) => (
             <div key={record.contract.id} className="flex items-center justify-between gap-3 rounded-lg border border-ig-border-subtle bg-ig-panel/45 px-3 py-2">
-              <span className="truncate text-ig-body-sm text-ig-fg-strong">{record.code}</span>
+              <div className="min-w-0">
+                <p className="truncate text-ig-body-sm font-semibold text-ig-fg-strong">{record.code}</p>
+                <p className="truncate text-ig-caption text-ig-fg-muted">{record.companyName}</p>
+              </div>
               <HudStatusPill variant={renewalVariant(record.renewalStatus)} size="sm">
-                {record.daysUntilExpiration !== null && record.daysUntilExpiration < 0 ? 'vencido' : `${record.daysUntilExpiration}d`}
+                {record.daysUntilExpiration !== null && record.daysUntilExpiration < 0 ? `${Math.abs(record.daysUntilExpiration)}d vencido` : `${record.daysUntilExpiration}d`}
               </HudStatusPill>
             </div>
           ))}
         </div>
       </HudPanel>
-      <HudPanel title="Obrigações por status" icon={<ClipboardCheck className="h-4 w-4" />} interactive={false}>
-        <div className="grid grid-cols-2 gap-3">
-          {[
-            ['overdue', 'Atrasadas'],
-            ['due_soon', 'Próximas'],
-            ['open', 'Abertas'],
-            ['done', 'Concluídas'],
-          ].map(([status, label]) => (
-            <Metric
-              key={status}
-              label={label}
-              value={records.flatMap((record) => record.obligations).filter((obligation) => obligation.status === status).length}
-            />
-          ))}
+
+      <HudPanel title="Obrigações por status" subtitle={`${obligations.length} obrigações mapeadas`} icon={<ClipboardCheck className="h-4 w-4" />} interactive={false}>
+        <div className="grid grid-cols-2 gap-2.5">
+          {obligationStats.map((item) => {
+            const toneClass = item.tone === 'danger' ? 'text-ig-danger' : item.tone === 'warning' ? 'text-ig-warning' : item.tone === 'success' ? 'text-ig-success' : 'text-ig-fg-strong';
+            return (
+              <div key={item.key} className="rounded-lg border border-ig-border-subtle bg-ig-panel/45 px-3 py-2.5">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ig-fg-subtle">{item.label}</p>
+                <p className={`mt-0.5 text-xl font-semibold tabular-nums ${toneClass}`}>{item.value}</p>
+              </div>
+            );
+          })}
         </div>
       </HudPanel>
     </div>
