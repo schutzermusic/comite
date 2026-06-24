@@ -804,7 +804,15 @@ function ContractsSection({
           onDeleteContract={onDeleteContract}
         />
       )}
-      {viewMode === 'cards' && <ContractCards records={records} selectedId={selectedId} onSelect={onSelect} onView={onView} />}
+      {viewMode === 'cards' && (
+        <ContractCards
+          records={records}
+          selectedId={selectedId}
+          onSelect={onSelect}
+          onView={onView}
+          onDelete={canDeleteContract ? onDeleteContract : undefined}
+        />
+      )}
       {viewMode === 'risk' && <RiskBoard records={records} selectedId={selectedId} onSelect={onSelect} />}
     </div>
   );
@@ -815,11 +823,13 @@ function ContractCards({
   selectedId,
   onSelect,
   onView,
+  onDelete,
 }: {
   records: ContractGovernanceRecord[];
   selectedId: string | null;
   onSelect: (record: ContractGovernanceRecord) => void;
   onView: (record: ContractGovernanceRecord) => void;
+  onDelete?: (record: ContractGovernanceRecord) => void;
 }) {
   return (
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -830,6 +840,7 @@ function ContractCards({
           active={record.contract.id === selectedId}
           onSelect={onSelect}
           onView={onView}
+          onDelete={onDelete}
         />
       ))}
     </div>

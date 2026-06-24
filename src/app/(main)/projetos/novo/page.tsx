@@ -5,8 +5,15 @@ import { useRouter } from 'next/navigation';
 import { ArrowLeft, Save, Briefcase, FolderPlus } from 'lucide-react';
 import { useHudToast } from '@/hooks/useHudToast';
 import { projects, users } from '@/lib/mock-data';
-import { createProject } from '@/lib/services/projects';
+import { createProject, updateProjectV2 } from '@/lib/services/projects';
 import { Project } from '@/lib/types';
+import { STATE_CENTROIDS } from '@/data/geo/brazil-operational-data';
+
+// Estados (UF) ordenados por nome — alimenta o seletor de localização e
+// garante que o projeto seja plotado no globo e no Operations 3D.
+const UF_OPTIONS = Object.entries(STATE_CENTROIDS)
+  .map(([uf, info]) => ({ uf, name: info.name }))
+  .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
 
 // HUD-based components — theme-aware
 import {
@@ -39,6 +46,8 @@ export default function NovoProjetoPage() {
     valor_executado: '',
     data_inicio: '',
     tipo: '',
+    uf: '',
+    cidade: '',
     risco_geral: 'medio' as const,
     roi_estimado: '',
   });
@@ -120,11 +129,28 @@ export default function NovoProjetoPage() {
       };
 
       // Salvar projeto
-      await createProject(projetoData);
+      const novoProjeto = await createProject(projetoData);
+
+      // Vincular a localização (UF / cidade) ao overlay V2 — é isso que o
+      // dashboard do globo e o Operations 3D leem para plotar o projeto no
+      // estado correto. Sem isso o projeto cairia numa posição padrão (SP).
+      if (formData.uf && STATE_CENTROIDS[formData.uf]) {
+        try {
+          await updateProjectV2(novoProjeto.id, {
+            uf: formData.uf,
+            location: { city: formData.cidade.trim() || undefined },
+          });
+        } catch (locError) {
+          // Não bloqueia a criação do projeto se o overlay de localização falhar.
+          console.error('Erro ao vincular localização do projeto:', locError);
+        }
+      }
 
       toast({
         title: 'Projeto criado com sucesso!',
-        description: `O projeto "${formData.nome}" foi criado.`,
+        description: formData.uf
+          ? `O projeto "${formData.nome}" foi criado e posicionado em ${formData.cidade ? `${formData.cidade} - ` : ''}${formData.uf} no globo e no Operations 3D.`
+          : `O projeto "${formData.nome}" foi criado.`,
       });
       
       router.push('/projetos');
@@ -311,6 +337,45 @@ export default function NovoProjetoPage() {
             </div>
           </HudPanel>
 
+          {/* ── Localização ── */}
+          <HudPanel title="Localização" accentColor="cyan">
+            <div className="space-y-2">
+              <p className="text-[12px] hud-text-muted">
+                Define onde o projeto aparece no dashboard do globo e no Operations 3D.
+              </p>
+              <div className="grid md:grid-cols-2 gap-5">
+                <div className="novo-projeto-field">
+                  <label htmlFor="uf" className="novo-projeto-label">Estado (UF)</label>
+                  <select
+                    id="uf"
+                    value={formData.uf}
+                    onChange={(e) => handleInputChange('uf', e.target.value)}
+                    className="novo-projeto-input novo-projeto-select"
+                  >
+                    <option value="">Selecione o estado</option>
+                    {UF_OPTIONS.map((opt) => (
+                      <option key={opt.uf} value={opt.uf}>
+                        {opt.name} ({opt.uf})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="novo-projeto-field">
+                  <label htmlFor="cidade" className="novo-projeto-label">Cidade (Opcional)</label>
+                  <input
+                    id="cidade"
+                    type="text"
+                    placeholder="Ex.: Belo Horizonte"
+                    value={formData.cidade}
+                    onChange={(e) => handleInputChange('cidade', e.target.value)}
+                    className="novo-projeto-input"
+                  />
+                </div>
+              </div>
+            </div>
+          </HudPanel>
+
           {/* ── Informações Financeiras ── */}
           <HudPanel title="Informações Financeiras" accentColor="amber">
             <div className="space-y-5">
@@ -410,6 +475,15 @@ export default function NovoProjetoPage() {
                 <div className="novo-projeto-summary-item">
                   <span className="novo-projeto-summary-label">Comitê Supervisor</span>
                   <span className="novo-projeto-summary-value">{formData.comite_nome}</span>
+                </div>
+              )}
+
+              {formData.uf && (
+                <div className="novo-projeto-summary-item">
+                  <span className="novo-projeto-summary-label">Localização</span>
+                  <span className="novo-projeto-summary-value">
+                    {formData.cidade ? `${formData.cidade} - ${formData.uf}` : formData.uf}
+                  </span>
                 </div>
               )}
 

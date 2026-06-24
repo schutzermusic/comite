@@ -1,7 +1,7 @@
 'use client';
 
 import { motion, useReducedMotion } from 'framer-motion';
-import { Eye, ShieldAlert, ArrowUpRight, AlertTriangle } from 'lucide-react';
+import { Eye, ShieldAlert, ArrowUpRight, AlertTriangle, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Project } from '@/lib/types';
 import type { ProjectV2 } from '@/lib/types/project-v2';
@@ -15,6 +15,7 @@ interface ProjectCardProps {
   project: Project;
   v2?: ProjectV2;
   onView: (p: Project) => void;
+  onDelete?: (projectId: string) => void;
   delay?: number;
 }
 
@@ -45,7 +46,7 @@ function formatStatus(status: string) {
   return status.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
 }
 
-export function ProjectCard({ project, v2, onView, delay = 0 }: ProjectCardProps) {
+export function ProjectCard({ project, v2, onView, onDelete, delay = 0 }: ProjectCardProps) {
   const reduce = useReducedMotion();
   const accent = ACCENT[project.status] ?? '#94A3B8';
   const impact = IMPACT_LABEL[project.impacto_financeiro] ?? IMPACT_LABEL.baixo;
@@ -89,6 +90,26 @@ export function ProjectCard({ project, v2, onView, delay = 0 }: ProjectCardProps
 
       {/* Hover halo */}
       <span className="glass-tile-halo opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+
+      {/* ── Delete (X) — top-right, reveals on hover ── */}
+      {onDelete && (
+        <button
+          type="button"
+          aria-label="Excluir projeto"
+          title="Excluir projeto"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete(project.id);
+          }}
+          className={cn(
+            'absolute right-3 top-3 z-10 inline-flex h-7 w-7 items-center justify-center rounded-md',
+            'text-[var(--ig-fg-muted,#94A3B8)] opacity-0 group-hover:opacity-100',
+            'transition-all duration-200 hover:bg-red-500/15 hover:text-red-400 focus:opacity-100 focus:outline-none',
+          )}
+        >
+          <X className="h-4 w-4" />
+        </button>
+      )}
 
       {/* ── Client logo — centered at top, only when a logo is set ── */}
       <ClientLogoTop client={project.cliente} logoUrl={project.clientLogoUrl} />

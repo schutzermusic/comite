@@ -407,6 +407,7 @@ function PortfolioProjetosInner() {
               project={p}
               v2={v2Map.get(p.id)}
               onView={handleOpenProject}
+              onDelete={handleDeleteClick}
               delay={Math.min(i * 0.04, 0.4)}
             />
           ))}

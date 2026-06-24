@@ -30,6 +30,7 @@ import {
     Loader2,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { HudMetricChip, HudAlertCard } from '@/components/projects/finance-hud';
 import { useTheme } from '@/contexts/ThemeContext';
 import type { ProjectV2 } from '@/lib/types/project-v2';
 import { compactBRL } from '@/lib/utils/project-utils';
@@ -610,21 +611,19 @@ export function FinanceView({ project, onProjectChange }: FinanceViewProps) {
 
                         {/* ── Pending pre-project costs (excluded from AC until linked) ── */}
                         {pending && pending.count > 0 && (
-                            <div className="rounded-xl border border-[color-mix(in_srgb,var(--ig-warning)_28%,transparent)] bg-[color-mix(in_srgb,var(--ig-warning)_8%,transparent)] p-4">
-                                <div className="flex items-start justify-between gap-3">
-                                    <div className="flex items-start gap-2">
-                                        <AlertTriangle className="mt-0.5 w-4 h-4 shrink-0 text-[var(--ig-warning)]" />
-                                        <div>
-                                            <p className="text-sm font-semibold text-[var(--ig-warning)]">Custos pendentes relacionados ao contrato</p>
-                                            <p className="text-xs text-[var(--ig-fg-muted)] mt-0.5">
-                                                {pending.count} custo(s) no contrato <span className="font-mono">{pending.contract_id}</span> lançados antes do projeto — não entram no AC/margem até serem vinculados. Total {formatBRL(pending.totalCents)}.
-                                            </p>
-                                        </div>
-                                    </div>
+                            <HudAlertCard
+                                accent={pal.warning}
+                                icon={<AlertTriangle className="h-4 w-4" />}
+                                title="Custos pendentes relacionados ao contrato"
+                                message={<>
+                                    {pending.count} custo(s) no contrato <span className="font-mono">{pending.contract_id}</span> lançados antes do projeto — não entram no AC/margem até serem vinculados. Total {formatBRL(pending.totalCents)}.
+                                </>}
+                                action={
                                     <button onClick={handleLinkPending} className="flex shrink-0 items-center gap-1.5 rounded-lg bg-[var(--ig-accent)] px-3 py-1.5 text-xs font-semibold text-white transition-opacity hover:opacity-90">
-                                        <Link2 className="w-3.5 h-3.5" />Vincular custos
+                                        <Link2 className="h-3.5 w-3.5" />Vincular custos
                                     </button>
-                                </div>
+                                }
+                            >
                                 <ul className="mt-3 divide-y divide-[var(--ig-border-subtle)]">
                                     {pending.entries.map((e) => (
                                         <li key={e.id} className="flex items-center justify-between gap-3 py-1.5">
@@ -633,7 +632,7 @@ export function FinanceView({ project, onProjectChange }: FinanceViewProps) {
                                         </li>
                                     ))}
                                 </ul>
-                            </div>
+                            </HudAlertCard>
                         )}
 
                         {/* ── Twin S-Curve Charts ───────── */}
@@ -766,35 +765,23 @@ export function FinanceView({ project, onProjectChange }: FinanceViewProps) {
                                       <div className="min-w-0 flex-1 px-5 pb-4 pt-3">
                                         {/* Revenue Gap Chips */}
                                         {revenueGaps && (
-                                            <div className="flex flex-wrap items-center gap-3 mb-4">
-                                                <div
-                                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all"
-                                                    style={{
-                                                        background: chipColor(revenueGaps.toBillPct, pal).bg,
-                                                        color: chipColor(revenueGaps.toBillPct, pal).fg,
-                                                        borderColor: `${chipColor(revenueGaps.toBillPct, pal).fg}30`,
-                                                    }}
-                                                >
-                                                    <Zap className="w-3 h-3" />
-                                                    A Faturar: {compactBRL(revenueGaps.toBill)}
-                                                    <span className="opacity-60 text-[10px] ml-0.5">
-                                                        ({revenueGaps.toBillPct.toFixed(0)}%)
-                                                    </span>
-                                                </div>
-                                                <div
-                                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all"
-                                                    style={{
-                                                        background: chipColor(revenueGaps.toReceivePct, pal).bg,
-                                                        color: chipColor(revenueGaps.toReceivePct, pal).fg,
-                                                        borderColor: `${chipColor(revenueGaps.toReceivePct, pal).fg}30`,
-                                                    }}
-                                                >
-                                                    <Zap className="w-3 h-3" />
-                                                    A Receber: {compactBRL(revenueGaps.toReceive)}
-                                                    <span className="opacity-60 text-[10px] ml-0.5">
-                                                        ({revenueGaps.toReceivePct.toFixed(0)}%)
-                                                    </span>
-                                                </div>
+                                            <div className="mb-4 flex min-w-0 flex-wrap items-center gap-2">
+                                                <HudMetricChip
+                                                    icon={<Zap className="h-3 w-3" />}
+                                                    label="A Faturar"
+                                                    value={compactBRL(revenueGaps.toBill)}
+                                                    sub={`${revenueGaps.toBillPct.toFixed(0)}%`}
+                                                    color={chipColor(revenueGaps.toBillPct, pal).fg}
+                                                    title="Saldo contratual ainda não faturado"
+                                                />
+                                                <HudMetricChip
+                                                    icon={<Zap className="h-3 w-3" />}
+                                                    label="A Receber"
+                                                    value={compactBRL(revenueGaps.toReceive)}
+                                                    sub={`${revenueGaps.toReceivePct.toFixed(0)}%`}
+                                                    color={chipColor(revenueGaps.toReceivePct, pal).fg}
+                                                    title="Valor faturado ainda não recebido"
+                                                />
                                             </div>
                                         )}
 

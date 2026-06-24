@@ -26,7 +26,6 @@ import {
     Banknote,
     PiggyBank,
     Flag,
-    AlertTriangle,
     Search,
     ChevronDown,
     ChevronUp,
@@ -37,8 +36,15 @@ import {
     ZoomOut,
     Percent,
     TrendingDown,
+    Scissors,
 } from 'lucide-react';
 import { HudDrawer } from '@/components/hud';
+import {
+    HudLegendChip,
+    HudMarkerChip,
+    HudStatusChip,
+    HudAlertChip,
+} from '@/components/projects/finance-hud';
 import { cn } from '@/lib/utils';
 import { useTheme } from '@/contexts/ThemeContext';
 import type { BillingEvent, ProjectV2 } from '@/lib/types/project-v2';
@@ -512,20 +518,7 @@ function CurveTooltip({ active, payload, label, pal }: { active?: boolean; paylo
     );
 }
 
-// ── Marker chip (chart annotations summary) ─────────────────────
-
-function MarkerChip({ label, value, color }: { label: string; value: string; color: string }) {
-    return (
-        <div
-            className="flex items-center gap-1.5 rounded-full border px-2.5 py-1"
-            style={{ background: hexWithAlpha(color, 0.08), borderColor: hexWithAlpha(color, 0.25) }}
-        >
-            <span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} />
-            <span className="text-[10px] uppercase tracking-wide text-[color:var(--ig-fg-muted)]">{label}</span>
-            <span className="font-mono text-[10px] font-semibold tabular-nums" style={{ color }}>{value}</span>
-        </div>
-    );
-}
+// ── Break-even reference-line label ─────────────────────────────
 
 function BreakEvenLabel({ viewBox, fill }: { viewBox?: { x?: number }; fill?: string }) {
     const { x } = viewBox || {};
@@ -1207,25 +1200,25 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
                             }
                         />
                         <div className="flex min-w-0 flex-1 flex-col px-5 pb-4 pt-3">
-                            <div className="mb-3 flex flex-wrap items-center gap-1.5">
-                                {curveSeries.map(s => {
-                                    const hidden = hiddenCurves.has(s.key);
-                                    return (
-                                        <button
-                                            key={s.key}
-                                            onClick={() => toggleCurve(s.key)}
-                                            className={cn('flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] transition-all', hidden && 'opacity-35')}
-                                            style={{ borderColor: hexWithAlpha(s.color, hidden ? 0.15 : 0.3), background: hidden ? 'transparent' : hexWithAlpha(s.color, 0.07), color: hidden ? 'var(--ig-fg-subtle)' : s.color }}
-                                        >
-                                            <span className="h-1 w-3 rounded-full" style={{ background: s.color }} />
-                                            {s.name}
-                                        </button>
-                                    );
-                                })}
-                                <span className="mx-1 h-4 w-px bg-[color:var(--ig-border-default)]" />
-                                {effectiveCutoff && <MarkerChip label="Corte" value={formatPeriod(effectiveCutoff)} color={pal.costSoft} />}
-                                <MarkerChip label="Break-even" value={formatPeriod(iv.breakEvenPeriod)} color={pal.success} />
-                                {iv.peakGap > 0 && <MarkerChip label="Pico" value={`${compactBRL(iv.peakGap)} · ${formatPeriod(iv.peakGapPeriod)}`} color={pal.critical} />}
+                            <div className="mb-3 flex min-w-0 flex-wrap items-center gap-1.5">
+                                {curveSeries.map(s => (
+                                    <HudLegendChip
+                                        key={s.key}
+                                        color={s.color}
+                                        label={s.name}
+                                        active={!hiddenCurves.has(s.key)}
+                                        onClick={() => toggleCurve(s.key)}
+                                        title={`${hiddenCurves.has(s.key) ? 'Mostrar' : 'Ocultar'} série · ${s.name}`}
+                                    />
+                                ))}
+                                <span className="mx-1 h-4 w-px shrink-0 bg-[color:var(--ig-border-default)]" />
+                                {effectiveCutoff && (
+                                    <HudMarkerChip label="Corte" value={formatPeriod(effectiveCutoff)} color={pal.costSoft} icon={<Scissors className="h-2.5 w-2.5" />} />
+                                )}
+                                <HudMarkerChip label="Break-even" value={formatPeriod(iv.breakEvenPeriod)} color={pal.success} icon={<Flag className="h-2.5 w-2.5" />} />
+                                {iv.peakGap > 0 && (
+                                    <HudMarkerChip label="Pico" value={`${compactBRL(iv.peakGap)} · ${formatPeriod(iv.peakGapPeriod)}`} color={pal.critical} icon={<TrendingDown className="h-2.5 w-2.5" />} />
+                                )}
                             </div>
 
                             {iv.curve.length > 0 ? (
@@ -1611,9 +1604,7 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
                                             <td className="px-3 py-2.5 font-mono tabular-nums text-[color:var(--ig-fg-muted)]">{periodLabel(event.datePlanned.slice(0, 7))}</td>
                                             <td className="px-3 py-2.5 font-mono font-semibold tabular-nums text-[color:var(--ig-fg-strong)]">{compactBRL(centsToReais(event.amountPlannedCents))}</td>
                                             <td className="px-3 py-2.5">
-                                                <span className="rounded-full border px-2 py-0.5 text-[10px] font-semibold" style={{ color: colors.fg, background: colors.bg, borderColor: colors.border }}>
-                                                    {eventStatusLabel(event.status)}
-                                                </span>
+                                                <HudStatusChip label={eventStatusLabel(event.status)} color={colors.fg} size="md" />
                                             </td>
                                             <td className="max-w-[160px] truncate px-3 py-2.5 text-[color:var(--ig-fg-muted)]">
                                                 {event.linked.milestoneId || event.linked.taskId || event.contractId || 'não vinculado'}
@@ -1634,12 +1625,11 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
 
             {/* ── Data quality (compact) ── */}
             {dataQualityAlerts.length > 0 && (
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
                     {dataQualityAlerts.map(alert => (
-                        <span key={alert} className="flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[10px]" style={{ borderColor: hexWithAlpha(pal.warning, 0.24), background: hexWithAlpha(pal.warning, 0.07), color: pal.warning }}>
-                            <AlertTriangle className="h-3 w-3 shrink-0" />
+                        <HudAlertChip key={alert} color={pal.warning} title={alert}>
                             {alert}
-                        </span>
+                        </HudAlertChip>
                     ))}
                 </div>
             )}
@@ -1710,9 +1700,7 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
                                             >
                                                 <div className="min-w-0">
                                                     <p className="truncate text-xs text-[color:var(--ig-fg-default)]">{event.title}</p>
-                                                    <span className="mt-1 inline-block rounded-full border px-1.5 py-px text-[9px] font-semibold" style={{ color: colors.fg, background: colors.bg, borderColor: colors.border }}>
-                                                        {eventStatusLabel(event.status)}
-                                                    </span>
+                                                    <HudStatusChip className="mt-1" label={eventStatusLabel(event.status)} color={colors.fg} />
                                                 </div>
                                                 <span className="shrink-0 font-mono text-xs font-semibold tabular-nums text-[color:var(--ig-fg-strong)]">
                                                     {compactBRL(centsToReais(event.amountPlannedCents))}
@@ -1743,9 +1731,7 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
                                 <p className="text-[10px] uppercase tracking-wider text-[color:var(--ig-fg-muted)]">Valor previsto</p>
                                 <p className="mt-1 font-mono text-lg font-bold tabular-nums text-[color:var(--ig-fg-strong)]">{compactBRL(centsToReais(selectedEvent.amountPlannedCents))}</p>
                             </div>
-                            <span className="rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase" style={{ color: severityColors(eventSeverity(selectedEvent.status), pal).fg, background: severityColors(eventSeverity(selectedEvent.status), pal).bg, borderColor: severityColors(eventSeverity(selectedEvent.status), pal).border }}>
-                                {eventStatusLabel(selectedEvent.status)}
-                            </span>
+                            <HudStatusChip label={eventStatusLabel(selectedEvent.status)} color={severityColors(eventSeverity(selectedEvent.status), pal).fg} size="md" />
                         </div>
                         <div className="grid grid-cols-2 gap-2.5">
                             {[
@@ -1763,10 +1749,9 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
                             ))}
                         </div>
                         {selectedEvent.status === 'delayed' && (
-                            <div className="flex items-center gap-2 rounded-xl border px-3 py-2.5" style={{ borderColor: hexWithAlpha(pal.critical, 0.24), background: hexWithAlpha(pal.critical, 0.07) }}>
-                                <AlertTriangle className="h-3.5 w-3.5 shrink-0" style={{ color: pal.critical }} />
-                                <span className="text-[11px]" style={{ color: pal.critical }}>Evento atrasado — receita prevista ainda não faturada.</span>
-                            </div>
+                            <HudAlertChip color={pal.critical}>
+                                Evento atrasado — receita prevista ainda não faturada.
+                            </HudAlertChip>
                         )}
                     </div>
                 )}

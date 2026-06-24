@@ -15,7 +15,7 @@ import {
   formatCurrencyCompact,
   type ContractGovernanceRecord,
 } from '@/components/contracts/contract-governance-data';
-import { AlertTriangle, ArrowRight, Building2, ShieldCheck, Workflow } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Building2, ShieldCheck, Workflow, X } from 'lucide-react';
 
 const riskLabels = { high: 'Alto', medium: 'Médio', low: 'Baixo' } as const;
 function riskVariant(risk: ContractGovernanceRecord['contract']['riskClassification']) {
@@ -42,9 +42,10 @@ export interface ContractCardProps {
   active?: boolean;
   onSelect: (record: ContractGovernanceRecord) => void;
   onView?: (record: ContractGovernanceRecord) => void;
+  onDelete?: (record: ContractGovernanceRecord) => void;
 }
 
-export function ContractCard({ record, active = false, onSelect, onView }: ContractCardProps) {
+export function ContractCard({ record, active = false, onSelect, onView, onDelete }: ContractCardProps) {
   const pct = record.totalValue ? Math.round((record.billedValue / record.totalValue) * 100) : 0;
   const noBilling = record.billedValue === 0 && record.totalValue > 0;
   const expiringSoon = record.daysUntilExpiration !== null && record.daysUntilExpiration >= 0 && record.daysUntilExpiration <= 30;
@@ -61,8 +62,22 @@ export function ContractCard({ record, active = false, onSelect, onView }: Contr
           onSelect(record);
         }
       }}
-      className="group h-full text-left outline-none"
+      className="group relative h-full text-left outline-none"
     >
+      {onDelete && (
+        <button
+          type="button"
+          aria-label="Excluir contrato"
+          title="Excluir contrato"
+          onClick={(event) => {
+            event.stopPropagation();
+            onDelete(record);
+          }}
+          className="absolute right-2 top-2 z-10 inline-flex h-7 w-7 items-center justify-center rounded-md text-ig-fg-muted opacity-0 transition-all duration-200 hover:bg-red-500/15 hover:text-red-400 focus:opacity-100 focus:outline-none group-hover:opacity-100"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      )}
       <HudPanel
         interactive
         sweep
