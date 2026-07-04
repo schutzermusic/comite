@@ -82,10 +82,13 @@ export function HudDrawer({
             animate={{ x: 0, opacity: 1 }}
             exit={{ x: position === 'right' ? '100%' : '-100%', opacity: 0.8 }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-            style={{ width, maxWidth: 'min(90vw, 100%)' }}
+            // Width via CSS var so mobile can go full-width while sm+ keeps the
+            // caller-provided width (clamped to 90vw as before).
+            style={{ '--hud-drawer-w': width } as React.CSSProperties}
             data-elev="3"
             className={cn(
               'fixed inset-y-0 z-[81] flex h-[100dvh] max-h-[100dvh] min-h-0 min-w-0 flex-col overflow-hidden',
+              'w-full sm:w-[min(var(--hud-drawer-w),90vw)]',
               position === 'right' ? 'right-0' : 'left-0',
               'hud-drawer-surface ig-glass',
               className
@@ -124,7 +127,7 @@ export function HudDrawer({
               </div>
 
               {footer && (
-                <div className="shrink-0 border-t border-ig-border p-4">
+                <div className="shrink-0 border-t border-ig-border p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
                   {footer}
                 </div>
               )}

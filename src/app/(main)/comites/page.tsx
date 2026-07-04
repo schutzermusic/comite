@@ -26,7 +26,9 @@ import {
   type KpiItem,
 } from '@/components/hud';
 
-const comites = projects.map((p, index) => ({
+const comites = projects
+  .filter((p, i, arr) => arr.findIndex((o) => o.comiteResponsavel === p.comiteResponsavel) === i)
+  .map((p, index) => ({
   id: p.id,
   nome: p.comiteResponsavel,
   descricao: `Comitê responsável por projetos ${p.comiteResponsavel.split(' ')[1].toLowerCase()}.`,

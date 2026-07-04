@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { Contract, Project } from '@/lib/types';
 import { deleteProject, getProjectsAsync } from '@/lib/services/projects';
+import { listRisks } from '@/lib/services/risks';
 import { useContracts } from '@/hooks/use-contracts';
 import { usePermissions } from '@/hooks/use-permissions';
 import { ContractList } from '@/components/contracts/contract-list';
@@ -11,12 +12,18 @@ import { ContractUpload } from '@/components/contracts/contract-upload';
 import { ContractCard } from '@/components/contracts/ContractCard';
 import { ContractDossierDrawer } from '@/components/contracts/ContractDossierDrawer';
 import { useContractActionModals } from '@/components/contracts/useContractActionModals';
+import { useContractCreateModals } from '@/components/contracts/useContractCreateModals';
+import { useContractItemModals } from '@/components/contracts/useContractItemModals';
 import {
   enrichContractsForGovernance,
   formatCurrencyCompact,
+  isBillingEventRealized,
+  countOverdueBillingEvents,
   type ContractGovernanceRecord,
 } from '@/components/contracts/contract-governance-data';
-import { contractRowToLegacyContract, createProjectFromContract } from '@/lib/contracts/contract-service';
+import { applyLiveGovernanceData, countLiveSections } from '@/components/contracts/contract-governance-live';
+import { ContractExecutiveBand } from '@/components/contracts/ContractExecutiveBand';
+import { computeApprovalSla, contractRowToLegacyContract, createProjectFromContract, createTaskFromObligation, fetchContractRelationsBatch, submitContractApproval, updateContractDocumentStatus } from '@/lib/contracts/contract-service';
 import { ExportReportButton } from '@/components/reports/ExportReportButton';
 import { openContractReport } from '@/lib/reports/modules/contract-report';
 import { openContractDossierReport } from '@/lib/reports/modules/contract-dossier-report';
@@ -24,7 +31,6 @@ import {
   HudBadge,
   HudButton,
   HudHeader,
-  HudKpiStrip,
   HudPageLayout,
   HudPanel,
   HudProgressBar,
@@ -32,7 +38,6 @@ import {
   HudTabs,
   useHudToast,
   type HudTab,
-  type KpiItem,
 } from '@/components/hud';
 import {
   Archive,
@@ -40,8 +45,9 @@ import {
   BrainCircuit,
   CalendarClock,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   ClipboardCheck,
-  Clock3,
   FileSearch,
   FileSignature,
   FileText,
@@ -49,21 +55,19 @@ import {
   ListFilter,
   Plus,
   Receipt,
-  RefreshCcw,
   Scale,
-  Search,
   ShieldAlert,
   ShieldCheck,
   Table2,
   Upload,
   Workflow,
+  X,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { pt } from 'date-fns/locale';
 
-type SectionId = 'overview' | 'contracts' | 'ai' | 'renewals' | 'obligations' | 'risks' | 'documents' | 'audit';
+type SectionId = 'overview' | 'contracts' | 'ai' | 'renewals' | 'obligations' | 'faturamento' | 'aprovacoes' | 'risks' | 'documents' | 'audit';
 type ViewMode = 'table' | 'cards' | 'risk';
-type ExpiryFilter = 'all' | 'expired' | '30' | '90' | '180';
 
 const sectionLabels: Record<SectionId, string> = {
   overview: 'Visão Geral',
@@ -71,6 +75,8 @@ const sectionLabels: Record<SectionId, string> = {
   ai: 'Análise IA',
   renewals: 'Renovações',
   obligations: 'Obrigações',
+  faturamento: 'Faturamento',
+  aprovacoes: 'Aprovações',
   risks: 'Riscos & Cláusulas',
   documents: 'Documentos',
   audit: 'Auditoria',
@@ -78,45 +84,22 @@ const sectionLabels: Record<SectionId, string> = {
 
 const riskLabels = { high: 'Alto', medium: 'Médio', low: 'Baixo' } as const;
 
-const QUICK_FILTERS: { key: string; label: string; icon: typeof ShieldAlert }[] = [
-  { key: 'alto_risco', label: 'Alto risco', icon: ShieldAlert },
-  { key: 'vencendo_30', label: 'Vencendo em 30d', icon: CalendarClock },
-  { key: 'sem_projeto', label: 'Sem projeto', icon: Workflow },
-  { key: 'sem_faturamento', label: 'Sem faturamento', icon: Receipt },
-  { key: 'revisao_juridica', label: 'Em revisão jurídica', icon: Scale },
-  { key: 'docs_pendentes', label: 'Documentos pendentes', icon: Archive },
-  { key: 'saldo_a_faturar', label: 'Saldo a faturar', icon: Clock3 },
-  { key: 'sem_ia', label: 'Sem análise IA', icon: BrainCircuit },
-];
-
-function FieldLabel({ children }: { children: React.ReactNode }) {
-  return <span className="mb-1.5 block text-ig-label text-ig-fg-muted">{children}</span>;
-}
-
-function SelectField({
-  label,
-  value,
-  onChange,
-  children,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <label className="min-w-0">
-      <FieldLabel>{label}</FieldLabel>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="h-9 w-full rounded-lg border border-ig-border-strong bg-ig-panel px-3 text-xs font-medium text-ig-fg-strong outline-none transition-colors focus:border-ig-border-focus"
-      >
-        {children}
-      </select>
-    </label>
-  );
-}
+/**
+ * Single-select KPI filters — the Executive Band (and the Sinais operacionais
+ * headers) are the only filtering system of this screen. Predicates mirror the
+ * KPI counts shown in the band so "click the number → see those contracts".
+ */
+const KPI_FILTERS: Record<string, { label: string; predicate: (record: ContractGovernanceRecord) => boolean }> = {
+  saldo_a_faturar: { label: 'Saldo a faturar', predicate: (r) => r.remainingValue > 0 },
+  a_vencer: { label: 'Contratos a vencer', predicate: (r) => r.daysUntilExpiration !== null && r.daysUntilExpiration >= 0 && r.daysUntilExpiration <= 90 },
+  alto_risco: { label: 'Alto risco', predicate: (r) => r.contract.riskClassification === 'high' },
+  docs_pendentes: { label: 'Documentos pendentes', predicate: (r) => r.missingDocuments.length > 0 },
+  revisao_juridica: { label: 'Revisão jurídica', predicate: (r) => r.contract.status === 'legal_review' || r.legalStatus !== 'approved' },
+  sem_projeto: { label: 'Sem projeto', predicate: (r) => !r.project },
+  sem_faturamento: { label: 'Sem faturamento', predicate: (r) => r.billedValue === 0 },
+  sem_ia: { label: 'Sem análise IA', predicate: (r) => r.aiStatus === 'mock_pending' },
+  obrigacoes_atrasadas: { label: 'Obrigações atrasadas', predicate: (r) => r.obligations.some((o) => o.status === 'overdue') },
+};
 
 function riskVariant(risk: Contract['riskClassification']) {
   return risk === 'high' ? 'critical' : risk === 'medium' ? 'warning' : 'active';
@@ -134,26 +117,27 @@ export default function ContratosPage() {
   const { contracts: contractRows, loading, error, refresh, createContract: persistContract, deleteContract } = useContracts();
   const { hasPermission, loading: permissionsLoading } = usePermissions();
   const [projects, setProjects] = useState<Project[]>([]);
+  const [riskOptions, setRiskOptions] = useState<{ id: string; title: string }[]>([]);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [activeSection, setActiveSection] = useState<SectionId>('overview');
   const [viewMode, setViewMode] = useState<ViewMode>('table');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [companyFilter, setCompanyFilter] = useState('all');
-  const [projectFilter, setProjectFilter] = useState('all');
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [riskFilter, setRiskFilter] = useState('all');
-  const [expiryFilter, setExpiryFilter] = useState<ExpiryFilter>('all');
-  const [typeFilter, setTypeFilter] = useState('all');
   const [notice, setNotice] = useState<string | null>(null);
-  const [activeQuickFilters, setActiveQuickFilters] = useState<string[]>([]);
+  // Single-select KPI filter driven by the Executive Band (null = full portfolio).
+  const [activeKpiFilter, setActiveKpiFilter] = useState<string | null>(null);
   const { notify } = useHudToast();
 
   useEffect(() => {
     getProjectsAsync()
       .then(setProjects)
       .catch(() => setProjects([]));
+  }, []);
+
+  useEffect(() => {
+    listRisks()
+      .then((rows) => setRiskOptions(rows.map((risk) => ({ id: risk.id, title: risk.title }))))
+      .catch(() => setRiskOptions([]));
   }, []);
 
   const contracts = useMemo(() => {
@@ -166,16 +150,43 @@ export default function ContratosPage() {
     }));
   }, [contractRows]);
 
-  const records = useMemo(() => enrichContractsForGovernance(contracts, projects), [contracts, projects]);
-  const companies = useMemo(() => Array.from(new Set(records.map((record) => record.companyName))).sort(), [records]);
-  const contractTypes = useMemo(() => Array.from(new Set(records.map((record) => record.contractType))).sort(), [records]);
+  // Mock preview: fabricated from each contract's own columns (dev/instant paint).
+  const mockRecords = useMemo(() => enrichContractsForGovernance(contracts, projects), [contracts, projects]);
+  // Live merge: real migration-034 relation rows override the mock per section.
+  const [liveRecords, setLiveRecords] = useState<ContractGovernanceRecord[] | null>(null);
+  const [governance, setGovernance] = useState<{ error: string | null; live: number; total: number }>({ error: null, live: 0, total: 0 });
 
-  const toggleQuickFilter = (filterKey: string) => {
-    setActiveQuickFilters((current) =>
-      current.includes(filterKey)
-        ? current.filter((k) => k !== filterKey)
-        : [...current, filterKey]
-    );
+  useEffect(() => {
+    const ids = mockRecords.map((record) => record.contract.id);
+    if (ids.length === 0) return;
+    let active = true;
+    // State is only written from the async callbacks below (external-system sync),
+    // never synchronously in the effect body.
+    fetchContractRelationsBatch(ids)
+      .then((batch) => {
+        if (!active) return;
+        setLiveRecords(applyLiveGovernanceData(mockRecords, batch, projects));
+        const { live, total } = countLiveSections(batch);
+        setGovernance({ error: null, live, total });
+      })
+      .catch((err) => {
+        if (!active) return;
+        // Non-blocking: fall back to the mock preview if the live read fails.
+        setLiveRecords(null);
+        setGovernance({ error: err instanceof Error ? err.message : 'Falha ao carregar governança ao vivo', live: 0, total: 0 });
+      });
+    return () => {
+      active = false;
+    };
+  }, [mockRecords, projects]);
+
+  const records = useMemo(() => (mockRecords.length === 0 ? mockRecords : liveRecords ?? mockRecords), [liveRecords, mockRecords]);
+  const governanceLoading = mockRecords.length > 0 && liveRecords === null && governance.error === null;
+  const companies = useMemo(() => Array.from(new Set(records.map((record) => record.companyName))).sort(), [records]);
+
+  // Click a KPI to filter, click it again to clear, click another to replace.
+  const toggleKpiFilter = (filterKey: string) => {
+    setActiveKpiFilter((current) => (current === filterKey ? null : filterKey));
   };
 
   const refreshContractsAndProjects = async () => {
@@ -185,13 +196,16 @@ export default function ContratosPage() {
 
   const { actions: contractActions, modals: contractActionModals } = useContractActionModals({
     projects,
+    risks: riskOptions,
     onRefresh: refreshContractsAndProjects,
   });
 
   const handleExportPdf = (record: ContractGovernanceRecord) => {
+    const approvalSla = computeApprovalSla(record.liveApprovals ?? []);
     const result = openContractDossierReport({
       record,
       source: records.length ? 'Supabase' : 'demonstração',
+      sla: { avgHours: approvalSla.avgHours, quality: approvalSla.quality, overdueSteps: approvalSla.overdueSteps },
     });
     if (!result.ok) {
       notify('Não foi possível gerar o PDF', {
@@ -223,38 +237,10 @@ export default function ContratosPage() {
   };
 
   const filteredRecords = useMemo(() => {
-    const query = searchTerm.trim().toLowerCase();
-    return records.filter((record) => {
-      const matchesQuery = !query
-        || record.contract.name.toLowerCase().includes(query)
-        || record.code.toLowerCase().includes(query)
-        || record.companyName.toLowerCase().includes(query)
-        || record.projectReference.toLowerCase().includes(query);
-      const matchesCompany = companyFilter === 'all' || record.companyName === companyFilter;
-      const matchesProject = projectFilter === 'all' || record.project?.id === projectFilter;
-      const matchesStatus = statusFilter === 'all' || record.contract.status === statusFilter;
-      const matchesRisk = riskFilter === 'all' || record.contract.riskClassification === riskFilter;
-      const matchesType = typeFilter === 'all' || record.contractType === typeFilter;
-      const matchesExpiry =
-        expiryFilter === 'all'
-        || (expiryFilter === 'expired' && record.daysUntilExpiration !== null && record.daysUntilExpiration < 0)
-        || (expiryFilter !== 'expired' && record.daysUntilExpiration !== null && record.daysUntilExpiration >= 0 && record.daysUntilExpiration <= Number(expiryFilter));
-
-      const matchesQuickFilters = activeQuickFilters.every((filterKey) => {
-        if (filterKey === 'alto_risco') return record.contract.riskClassification === 'high';
-        if (filterKey === 'vencendo_30') return record.daysUntilExpiration !== null && record.daysUntilExpiration >= 0 && record.daysUntilExpiration <= 30;
-        if (filterKey === 'sem_projeto') return !record.project;
-        if (filterKey === 'sem_faturamento') return record.billedValue === 0;
-        if (filterKey === 'revisao_juridica') return record.contract.status === 'legal_review';
-        if (filterKey === 'docs_pendentes') return record.missingDocuments.length > 0;
-        if (filterKey === 'saldo_a_faturar') return record.remainingValue > 0;
-        if (filterKey === 'sem_ia') return record.aiStatus === 'mock_pending';
-        return true;
-      });
-
-      return matchesQuery && matchesCompany && matchesProject && matchesStatus && matchesRisk && matchesType && matchesExpiry && matchesQuickFilters;
-    });
-  }, [companyFilter, expiryFilter, projectFilter, records, riskFilter, searchTerm, statusFilter, typeFilter, activeQuickFilters]);
+    const filter = activeKpiFilter ? KPI_FILTERS[activeKpiFilter] : null;
+    if (!filter) return records;
+    return records.filter(filter.predicate);
+  }, [records, activeKpiFilter]);
 
   const selectedRecord = useMemo(() => {
     return filteredRecords.find((record) => record.contract.id === selectedId)
@@ -263,43 +249,82 @@ export default function ContratosPage() {
       || null;
   }, [filteredRecords, records, selectedId]);
 
+  // Create-obligation / create-billing modals, bound to the drawer's selected contract.
+  const createModals = useContractCreateModals({
+    contractId: selectedRecord?.contract.id ?? '',
+    ownerUserId: selectedRecord?.contract.responsibleId ?? null,
+    onRefresh: refreshContractsAndProjects,
+  });
+
+  // RBAC gating for drawer + tab actions (UI-level; Supabase RLS enforces server-side).
+  // Keys mirror the migration-034 RLS policies so UI gating == server enforcement:
+  //  - documents manage: contracts.documents.upload OR contracts.edit
+  //  - approvals manage: contracts.approve OR contracts.edit
+  //  - obligations/links manage: contracts.edit
+  const contractPermissions = {
+    edit: hasPermission('contracts.edit'),
+    approve: hasPermission('contracts.approve') || hasPermission('contracts.edit'),
+    uploadDoc: hasPermission('contracts.documents.upload') || hasPermission('contracts.edit'),
+  };
+
+  // Shared item-action modals reused by the drawer's tabs (Obrigações/Documentos).
+  const pageItemModals = useContractItemModals({ onSuccess: refreshContractsAndProjects });
+  const [tabBusyId, setTabBusyId] = useState<string | null>(null);
+  const runTabAction = async (key: string, action: () => Promise<unknown>, successMsg: string) => {
+    setTabBusyId(key);
+    try {
+      await action();
+      await refreshContractsAndProjects();
+      notify(successMsg, { variant: 'success' });
+    } catch (err) {
+      notify('Não foi possível concluir', { description: err instanceof Error ? err.message : 'Erro inesperado.', variant: 'error' });
+    } finally {
+      setTabBusyId(null);
+    }
+  };
+
   const stats = useMemo(() => {
     const totalValue = records.reduce((sum, record) => sum + record.totalValue, 0);
     const billedValue = records.reduce((sum, record) => sum + record.billedValue, 0);
     const remainingValue = records.reduce((sum, record) => sum + record.remainingValue, 0);
     const expiring = records.filter((record) => record.daysUntilExpiration !== null && record.daysUntilExpiration >= 0 && record.daysUntilExpiration <= 90).length;
+    const within30 = records.filter((record) => record.daysUntilExpiration !== null && record.daysUntilExpiration >= 0 && record.daysUntilExpiration <= 30).length;
     const highRisk = records.filter((record) => record.contract.riskClassification === 'high').length;
+    const highRiskExposure = records
+      .filter((record) => record.contract.riskClassification === 'high')
+      .reduce((sum, record) => sum + record.totalValue, 0);
     const missingDocs = records.reduce((sum, record) => sum + record.missingDocuments.length, 0);
+    const contractsWithMissing = records.filter((record) => record.missingDocuments.length > 0).length;
+    const contractsWithBalance = records.filter((record) => record.remainingValue > 0).length;
     const legalReview = records.filter((record) => record.contract.status === 'legal_review' || record.legalStatus !== 'approved').length;
+    const semProjeto = records.filter((record) => !record.project).length;
+    const semFaturamento = records.filter((record) => record.billedValue === 0).length;
+    const semIa = records.filter((record) => record.aiStatus === 'mock_pending').length;
     const obligations = records.flatMap((record) => record.obligations);
     const overdue = obligations.filter((obligation) => obligation.status === 'overdue').length;
-    const avgSla = Math.round(18 + records.reduce((sum, record) => sum + (record.riskScore > 70 ? 8 : 2), 0) / Math.max(records.length, 1));
+    const contractsWithOverdue = records.filter((record) => record.obligations.some((o) => o.status === 'overdue')).length;
+    const heuristicSla = Math.round(18 + records.reduce((sum, record) => sum + (record.riskScore > 70 ? 8 : 2), 0) / Math.max(records.length, 1));
+    const approvalRows = records.flatMap((record) => record.liveApprovals ?? []);
+    const liveSla = approvalRows.length ? computeApprovalSla(approvalRows) : null;
+    const avgSla = liveSla?.avgHours ?? heuristicSla;
+    const slaLive = liveSla?.avgHours != null;
+    const billedPct = totalValue ? Math.round((billedValue / totalValue) * 100) : 0;
+    const backlogPct = totalValue ? Math.round((remainingValue / totalValue) * 100) : 0;
 
-    return { totalValue, billedValue, remainingValue, expiring, highRisk, missingDocs, legalReview, overdue, avgSla };
+    return {
+      totalValue, billedValue, remainingValue, expiring, within30, highRisk, highRiskExposure,
+      missingDocs, contractsWithMissing, contractsWithBalance, legalReview, semProjeto, semFaturamento, semIa,
+      overdue, contractsWithOverdue, avgSla, slaLive, billedPct, backlogPct,
+    };
   }, [records]);
 
-  const kpis: KpiItem[] = [
-    { id: 'exposure', label: 'Exposição total', value: formatCurrencyCompact(stats.totalValue), variant: 'info', icon: <FileSignature className="h-4 w-4" /> },
-    { id: 'backlog', label: 'Backlog contratual', value: formatCurrencyCompact(stats.remainingValue), variant: 'warning', icon: <Clock3 className="h-4 w-4" /> },
-    { id: 'billed', label: 'Valor faturado', value: formatCurrencyCompact(stats.billedValue), variant: 'success', icon: <CheckCircle2 className="h-4 w-4" /> },
-    { id: 'saldo', label: 'Saldo a faturar', value: formatCurrencyCompact(stats.remainingValue), variant: 'info', icon: <Receipt className="h-4 w-4" /> },
-    { id: 'renewals', label: 'Contratos a vencer', value: stats.expiring, variant: stats.expiring ? 'warning' : 'default', icon: <RefreshCcw className="h-4 w-4" /> },
-    { id: 'high-risk', label: 'Alto risco', value: stats.highRisk, variant: stats.highRisk ? 'danger' : 'default', icon: <ShieldAlert className="h-4 w-4" /> },
-    { id: 'missing-docs', label: 'Docs faltantes', value: stats.missingDocs, variant: stats.missingDocs ? 'warning' : 'default', icon: <Archive className="h-4 w-4" /> },
-    { id: 'legal', label: 'Em revisão jurídica', value: stats.legalReview, variant: stats.legalReview ? 'warning' : 'default', icon: <Scale className="h-4 w-4" /> },
-    { id: 'sla', label: 'SLA médio aprovação', value: `${stats.avgSla}h`, variant: 'info', icon: <ClipboardCheck className="h-4 w-4" /> },
-  ];
-
-  const clearFilters = () => {
-    setSearchTerm('');
-    setCompanyFilter('all');
-    setProjectFilter('all');
-    setStatusFilter('all');
-    setRiskFilter('all');
-    setExpiryFilter('all');
-    setTypeFilter('all');
-    setActiveQuickFilters([]);
-  };
+  // Badge counts for the tabs follow the active KPI recorte (band stays global).
+  const tabCounts = useMemo(() => ({
+    expiring: filteredRecords.filter((record) => record.daysUntilExpiration !== null && record.daysUntilExpiration >= 0 && record.daysUntilExpiration <= 90).length,
+    overdue: filteredRecords.flatMap((record) => record.obligations).filter((obligation) => obligation.status === 'overdue').length,
+    highRisk: filteredRecords.filter((record) => record.contract.riskClassification === 'high').length,
+    missingDocs: filteredRecords.reduce((sum, record) => sum + record.missingDocuments.length, 0),
+  }), [filteredRecords]);
 
   // owner_admin holds every permission via the catch-all CTE in
   // 005_auth_rbac_foundation.sql, so a permission-only check covers it
@@ -411,6 +436,9 @@ export default function ContratosPage() {
           selectedRecord={selectedRecord}
           onSelect={openDossierDrawer}
           onView={handleViewContract}
+          onOpenPortfolio={() => setActiveSection('contracts')}
+          activeKpiFilter={activeKpiFilter}
+          onToggleKpiFilter={toggleKpiFilter}
         />
       ),
     },
@@ -444,35 +472,80 @@ export default function ContratosPage() {
       id: 'renewals',
       label: sectionLabels.renewals,
       icon: <CalendarClock className="h-4 w-4" />,
-      badge: stats.expiring,
-      content: <RenewalsSection records={records} />,
+      badge: tabCounts.expiring,
+      content: <RenewalsSection records={filteredRecords} />,
     },
     {
       id: 'obligations',
       label: sectionLabels.obligations,
       icon: <ClipboardCheck className="h-4 w-4" />,
-      badge: stats.overdue,
-      content: <ObligationsSection records={records} />,
+      badge: tabCounts.overdue,
+      content: (
+        <ObligationsSection
+          records={filteredRecords}
+          canEdit={contractPermissions.edit}
+          busyId={tabBusyId}
+          onComplete={(item) => pageItemModals.openCompleteObligation(item)}
+          onCreateTask={(contractId, title, dueAt, ownerUserId, key) => runTabAction(key, () => createTaskFromObligation(contractId, title, dueAt, ownerUserId), 'Tarefa criada na agenda')}
+        />
+      ),
+    },
+    {
+      id: 'faturamento',
+      label: sectionLabels.faturamento,
+      icon: <Receipt className="h-4 w-4" />,
+      content: (
+        <FaturamentoSection
+          records={filteredRecords}
+          canEdit={contractPermissions.edit}
+          busyId={tabBusyId}
+          onRealize={(event) => pageItemModals.openRealizeBilling(event)}
+          onFollowUp={(record) => contractActions.createTask(record)}
+        />
+      ),
+    },
+    {
+      id: 'aprovacoes',
+      label: sectionLabels.aprovacoes,
+      icon: <ShieldCheck className="h-4 w-4" />,
+      content: (
+        <AprovacoesSection
+          records={filteredRecords}
+          canApprove={contractPermissions.approve}
+          busyId={tabBusyId}
+          onApproveStep={(contractId, step, key) => runTabAction(key, () => submitContractApproval(contractId, step, 'approved'), 'Etapa aprovada')}
+          onReview={(record) => contractActions.reviewApproval(record)}
+        />
+      ),
     },
     {
       id: 'risks',
       label: sectionLabels.risks,
       icon: <ShieldAlert className="h-4 w-4" />,
-      badge: stats.highRisk,
-      content: <RisksSection records={records} />,
+      badge: tabCounts.highRisk,
+      content: <RisksSection records={filteredRecords} />,
     },
     {
       id: 'documents',
       label: sectionLabels.documents,
       icon: <FileText className="h-4 w-4" />,
-      badge: stats.missingDocs,
-      content: <DocumentsSection records={records} />,
+      badge: tabCounts.missingDocs,
+      content: (
+        <DocumentsSection
+          records={filteredRecords}
+          canUploadDoc={contractPermissions.uploadDoc}
+          busyId={tabBusyId}
+          onApprove={(docId, key) => runTabAction(key, () => updateContractDocumentStatus(docId, 'approved'), 'Documento aprovado')}
+          onSendToApproval={(docId, key) => runTabAction(key, () => updateContractDocumentStatus(docId, 'pending_approval'), 'Documento enviado para aprovação')}
+          onReject={(doc) => pageItemModals.openRejectDoc(doc)}
+        />
+      ),
     },
     {
       id: 'audit',
       label: sectionLabels.audit,
       icon: <ShieldCheck className="h-4 w-4" />,
-      content: <AuditSection records={records} />,
+      content: <AuditSection records={filteredRecords} />,
     },
   ];
 
@@ -485,6 +558,29 @@ export default function ContratosPage() {
         breadcrumbs={[{ label: 'Gestão de Contratos' }]}
         actions={
           <div className="flex flex-wrap items-center justify-end gap-2">
+            <span
+              className={`hidden items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-medium md:inline-flex ${
+                governance.error
+                  ? 'border-[color-mix(in_oklab,var(--ig-warning)_34%,transparent)] text-ig-warning'
+                  : governance.live > 0
+                    ? 'border-[color-mix(in_oklab,var(--ig-success)_30%,transparent)] text-ig-success'
+                    : 'border-ig-border-subtle text-ig-fg-muted'
+              }`}
+              title="Fonte dos dados de governança (obrigações, faturamento, documentos, aprovações, vínculos)"
+            >
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${
+                  governanceLoading ? 'animate-pulse bg-ig-fg-subtle' : governance.error ? 'bg-ig-warning' : governance.live > 0 ? 'bg-ig-success' : 'bg-ig-fg-subtle'
+                }`}
+              />
+              {governanceLoading
+                ? 'Sincronizando…'
+                : governance.error
+                  ? 'Dados estimados'
+                  : governance.live > 0
+                    ? `Ao vivo · ${governance.live}/${governance.total}`
+                    : 'Estimado'}
+            </span>
             <ExportReportButton
               size="md"
               variant="glass"
@@ -526,106 +622,40 @@ export default function ContratosPage() {
         </HudPanel>
       )}
 
-      <HudKpiStrip kpis={kpis} columns={5} connected size="sm" className="mb-5" />
+      <ContractExecutiveBand
+        stats={stats}
+        contractCount={records.length}
+        activeFilter={activeKpiFilter}
+        onToggleFilter={toggleKpiFilter}
+        className="mb-5"
+      />
 
-      <HudPanel title="Filtros de governança" icon={<ListFilter className="h-4 w-4" />} interactive={false}>
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.4fr_repeat(6,minmax(0,1fr))_auto] xl:items-end">
-          <label className="min-w-0">
-            <FieldLabel>Busca</FieldLabel>
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ig-fg-subtle" />
-              <input
-                value={searchTerm}
-                onChange={(event) => setSearchTerm(event.target.value)}
-                placeholder="Contrato, código, empresa ou projeto"
-                className="h-9 w-full rounded-lg border border-ig-border-strong bg-ig-panel pl-9 pr-3 text-xs font-medium text-ig-fg-strong outline-none transition-colors placeholder:text-ig-fg-subtle focus:border-ig-border-focus"
-              />
-            </div>
-          </label>
-          <SelectField label="Empresa vinculada" value={companyFilter} onChange={setCompanyFilter}>
-            <option value="all">Todas</option>
-            {companies.map((company) => <option key={company} value={company}>{company}</option>)}
-          </SelectField>
-          <SelectField label="Projeto vinculado" value={projectFilter} onChange={setProjectFilter}>
-            <option value="all">Todos</option>
-            {projects.slice(0, 80).map((project) => <option key={project.id} value={project.id}>{project.codigo}</option>)}
-          </SelectField>
-          <SelectField label="Status" value={statusFilter} onChange={setStatusFilter}>
-            <option value="all">Todos</option>
-            <option value="negotiation">Em negociação</option>
-            <option value="legal_review">Revisão jurídica</option>
-            <option value="commercial_review">Revisão comercial</option>
-            <option value="signed">Assinado</option>
-            <option value="active">Ativo</option>
-            <option value="expiring_soon">Expirando</option>
-            <option value="expired">Expirado</option>
-            <option value="closed">Encerrado</option>
-            <option value="cancelled">Cancelado</option>
-          </SelectField>
-          <SelectField label="Risco" value={riskFilter} onChange={setRiskFilter}>
-            <option value="all">Todos</option>
-            <option value="high">Alto</option>
-            <option value="medium">Médio</option>
-            <option value="low">Baixo</option>
-          </SelectField>
-          <SelectField label="Vencimento" value={expiryFilter} onChange={(value) => setExpiryFilter(value as ExpiryFilter)}>
-            <option value="all">Todos</option>
-            <option value="expired">Vencidos</option>
-            <option value="30">Até 30d</option>
-            <option value="90">Até 90d</option>
-            <option value="180">Até 180d</option>
-          </SelectField>
-          <SelectField label="Tipo" value={typeFilter} onChange={setTypeFilter}>
-            <option value="all">Todos</option>
-            {contractTypes.map((type) => <option key={type} value={type}>{type}</option>)}
-          </SelectField>
-          <HudButton variant="ghost" size="sm" onClick={clearFilters}>
-            Limpar
-          </HudButton>
+      {/* Active-filter indicator — the band is the filter; this is just the receipt */}
+      {activeKpiFilter && KPI_FILTERS[activeKpiFilter] && (
+        <div className="-mt-1 mb-4 flex flex-wrap items-center gap-2">
+          <span className="inline-flex items-center gap-1.5 text-ig-label text-ig-fg-muted">
+            <ListFilter className="h-3.5 w-3.5" />
+            Filtro ativo
+          </span>
+          <button
+            type="button"
+            onClick={() => setActiveKpiFilter(null)}
+            title="Remover filtro"
+            className="inline-flex h-7 items-center gap-1.5 rounded-md border border-ig-border-focus bg-ig-accent-weak px-2.5 text-[11px] font-semibold text-ig-accent transition-colors hover:bg-ig-panel-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_oklab,var(--ig-accent)_45%,transparent)]"
+          >
+            <span className="truncate">
+              {KPI_FILTERS[activeKpiFilter].label} · {filteredRecords.length} contrato{filteredRecords.length === 1 ? '' : 's'}
+            </span>
+            <X className="h-3 w-3 shrink-0" />
+          </button>
         </div>
-
-        <div className="mt-4 border-t border-ig-border-subtle pt-3">
-          <div className="mb-2 flex items-center justify-between gap-3">
-            <span className="text-ig-label text-ig-fg-muted">Filtros rápidos</span>
-            {activeQuickFilters.length > 0 && (
-              <button
-                className="text-ig-caption text-ig-fg-muted transition-colors hover:text-ig-fg-strong"
-                onClick={() => setActiveQuickFilters([])}
-              >
-                limpar {activeQuickFilters.length}
-              </button>
-            )}
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {QUICK_FILTERS.map((filter) => {
-              const active = activeQuickFilters.includes(filter.key);
-              return (
-                <button
-                  key={filter.key}
-                  type="button"
-                  onClick={() => toggleQuickFilter(filter.key)}
-                  aria-pressed={active}
-                  className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold transition-colors ${
-                    active
-                      ? 'border-ig-border-focus bg-ig-accent-weak text-ig-accent'
-                      : 'border-ig-border-subtle bg-ig-panel/55 text-ig-fg-muted hover:bg-ig-panel-hover hover:text-ig-fg-strong'
-                  }`}
-                >
-                  <filter.icon className="h-3.5 w-3.5" />
-                  {filter.label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      </HudPanel>
+      )}
 
       <HudTabs
         tabs={tabs}
         activeTab={activeSection}
         onTabChange={(tabId) => setActiveSection(tabId as SectionId)}
         variant="underline"
-        className="mt-5"
         contentClassName="mt-5"
       />
 
@@ -645,14 +675,23 @@ export default function ContratosPage() {
         onLinkProject={contractActions.linkProject}
         onCreateTask={contractActions.createTask}
         onCreateRisk={contractActions.createRisk}
+        onLinkExistingRisk={contractActions.linkExistingRisk}
+        onAttachDocument={contractActions.attachDocument}
         onSendToLegal={contractActions.sendToLegal}
+        onReviewApproval={contractActions.reviewApproval}
+        onCreateObligation={createModals.openObligation}
+        onCreateBilling={createModals.openBilling}
         onViewDocuments={handleViewDocuments}
         onExportPdf={handleExportPdf}
         onOpenFinance={handleOpenFinance}
         onOpenBilling={handleOpenBilling}
+        permissions={contractPermissions}
+        onDataChanged={refreshContractsAndProjects}
       />
 
       {contractActionModals}
+      {createModals.modals}
+      {pageItemModals.modals}
     </HudPageLayout>
   );
 }
@@ -662,22 +701,243 @@ function OverviewSection({
   selectedRecord,
   onSelect,
   onView,
+  onOpenPortfolio,
+  activeKpiFilter,
+  onToggleKpiFilter,
 }: {
   records: ContractGovernanceRecord[];
   selectedRecord: ContractGovernanceRecord | null;
   onSelect: (record: ContractGovernanceRecord) => void;
   onView: (record: ContractGovernanceRecord) => void;
+  onOpenPortfolio: () => void;
+  activeKpiFilter: string | null;
+  onToggleKpiFilter: (key: string) => void;
 }) {
   return (
     <div className="space-y-5">
-      <PriorityContracts
-        records={records}
-        selectedId={selectedRecord?.contract.id || null}
-        onSelect={onSelect}
-        onView={onView}
-      />
+      {/* Control-room composition: portfolio commands the left, signals stack on the right */}
+      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+        <PriorityContracts
+          records={records}
+          selectedId={selectedRecord?.contract.id || null}
+          onSelect={onSelect}
+          onView={onView}
+          onOpenAll={onOpenPortfolio}
+        />
+        <ExecutiveSignals
+          records={records}
+          onSelect={onSelect}
+          activeKpiFilter={activeKpiFilter}
+          onToggleKpiFilter={onToggleKpiFilter}
+        />
+      </div>
       <AnalyticsBand records={records} />
     </div>
+  );
+}
+
+type SignalItem = { id: string; primary: string; secondary: string; badge?: React.ReactNode; onClick: () => void };
+
+/** Keeps the rail shorter than the portfolio: 2 items visible per group by default. */
+const SIGNAL_COLLAPSED_COUNT = 2;
+
+/** One group inside the unified "Sinais operacionais" column — not a loose card. */
+function SignalGroup({
+  icon,
+  title,
+  metric,
+  meta,
+  tone,
+  empty,
+  items,
+  filterActive,
+  onToggleFilter,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  metric: string;
+  meta?: string;
+  tone: 'success' | 'warning' | 'danger';
+  empty: string;
+  items: SignalItem[];
+  /** When provided, the group header doubles as a KPI filter toggle. */
+  filterActive?: boolean;
+  onToggleFilter?: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const visibleItems = expanded ? items : items.slice(0, SIGNAL_COLLAPSED_COUNT);
+  const hiddenCount = items.length - SIGNAL_COLLAPSED_COUNT;
+  const toneClass = tone === 'danger' ? 'text-ig-danger' : tone === 'warning' ? 'text-ig-warning' : 'text-ig-success';
+  const iconChipClass =
+    tone === 'danger'
+      ? 'border-[color-mix(in_oklab,var(--ig-danger)_32%,transparent)] bg-[color-mix(in_oklab,var(--ig-danger)_10%,transparent)] text-ig-danger'
+      : tone === 'warning'
+        ? 'border-[color-mix(in_oklab,var(--ig-warning)_32%,transparent)] bg-[color-mix(in_oklab,var(--ig-warning)_10%,transparent)] text-ig-warning'
+        : 'border-ig-border-subtle bg-ig-panel text-ig-success';
+  const HeaderComp: React.ElementType = onToggleFilter ? 'button' : 'div';
+  return (
+    <div className="py-3.5 first:pt-0 last:pb-0">
+      <HeaderComp
+        type={onToggleFilter ? 'button' : undefined}
+        onClick={onToggleFilter}
+        aria-pressed={onToggleFilter ? filterActive : undefined}
+        title={onToggleFilter ? (filterActive ? 'Remover filtro deste sinal' : 'Filtrar carteira por este sinal') : undefined}
+        className={`flex w-full items-center justify-between gap-3 rounded-md transition-colors ${
+          onToggleFilter
+            ? `-mx-1.5 w-[calc(100%+0.75rem)] px-1.5 py-0.5 text-left hover:bg-ig-panel-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_oklab,var(--ig-accent)_45%,transparent)] ${
+                filterActive ? 'border border-[color-mix(in_oklab,var(--ig-accent)_45%,transparent)] bg-[color-mix(in_oklab,var(--ig-accent)_10%,transparent)]' : ''
+              }`
+            : ''
+        }`}
+      >
+        <div className={`flex min-w-0 items-center gap-2 ${filterActive ? 'text-ig-accent' : 'text-ig-fg-muted'}`}>
+          <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md border ${iconChipClass}`}>{icon}</span>
+          <span className="min-w-0 truncate text-[10px] font-semibold uppercase tracking-[0.12em]">{title}</span>
+          {/* Non-color active indication (a11y) */}
+          {filterActive && <ListFilter className="h-3 w-3 shrink-0 text-ig-accent" aria-hidden />}
+        </div>
+        <div className="flex shrink-0 items-baseline gap-1.5">
+          <span className={`text-lg font-semibold leading-none tabular-nums ${toneClass}`}>{metric}</span>
+          {meta && <span className="text-[11px] text-ig-fg-muted">{meta}</span>}
+        </div>
+      </HeaderComp>
+      <div className="mt-2.5 space-y-1.5">
+        {items.length === 0 ? (
+          <p className="rounded-md border border-dashed border-ig-border-subtle px-2.5 py-1.5 text-[11px] text-ig-fg-subtle">{empty}</p>
+        ) : (
+          visibleItems.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={item.onClick}
+              title="Abrir dossiê do contrato"
+              className="group/item flex w-full items-center justify-between gap-2 rounded-md border border-ig-border-subtle bg-ig-panel/45 px-2.5 py-1.5 text-left transition-colors hover:border-ig-border-focus hover:bg-ig-panel-hover"
+            >
+              <span className="min-w-0">
+                <span className="block truncate text-[12px] font-semibold text-ig-fg-strong">{item.primary}</span>
+                <span className="block truncate text-[11px] text-ig-fg-muted">{item.secondary}</span>
+              </span>
+              <span className="flex shrink-0 items-center gap-1.5">
+                {item.badge}
+                <ChevronRight className="h-3.5 w-3.5 text-ig-fg-subtle transition-all group-hover/item:translate-x-0.5 group-hover/item:text-ig-accent" />
+              </span>
+            </button>
+          ))
+        )}
+        {hiddenCount > 0 && (
+          <button
+            type="button"
+            onClick={() => setExpanded((value) => !value)}
+            aria-expanded={expanded}
+            className="flex w-full items-center justify-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-semibold text-ig-fg-muted transition-colors hover:text-ig-accent"
+          >
+            {expanded ? 'Ver menos' : `Ver mais ${hiddenCount}`}
+            <ChevronDown className={`h-3 w-3 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ExecutiveSignals({
+  records,
+  onSelect,
+  activeKpiFilter,
+  onToggleKpiFilter,
+}: {
+  records: ContractGovernanceRecord[];
+  onSelect: (record: ContractGovernanceRecord) => void;
+  activeKpiFilter: string | null;
+  onToggleKpiFilter: (key: string) => void;
+}) {
+  const semProjeto = records.filter((record) => !record.project);
+  const overdueObligations = records
+    .flatMap((record) => record.obligations.filter((obligation) => obligation.status === 'overdue').map((obligation) => ({ obligation, record })))
+    .sort((a, b) => new Date(a.obligation.dueDate).getTime() - new Date(b.obligation.dueDate).getTime());
+  const pendingBilling = records.filter((record) => record.remainingValue > 0).sort((a, b) => b.remainingValue - a.remainingValue);
+  const pendingBillingTotal = pendingBilling.reduce((sum, record) => sum + record.remainingValue, 0);
+  const missingDocs = records.filter((record) => record.missingDocuments.length > 0).sort((a, b) => b.missingDocuments.length - a.missingDocuments.length);
+  const missingDocsTotal = records.reduce((sum, record) => sum + record.missingDocuments.length, 0);
+
+  return (
+    <HudPanel
+      title="Sinais operacionais"
+      subtitle="Pendências que exigem ação — clique no título para filtrar, no item para abrir"
+      icon={<ShieldAlert className="h-4 w-4" />}
+      interactive={false}
+      fullHeight
+    >
+      <div className="divide-y divide-ig-border-subtle">
+        <SignalGroup
+          icon={<Workflow className="h-3.5 w-3.5" />}
+          title="Sem projeto"
+          metric={String(semProjeto.length)}
+          meta={semProjeto.length ? 'sem vínculo' : undefined}
+          tone={semProjeto.length ? 'warning' : 'success'}
+          empty="Todos os contratos vinculados"
+          filterActive={activeKpiFilter === 'sem_projeto'}
+          onToggleFilter={() => onToggleKpiFilter('sem_projeto')}
+          items={semProjeto.slice(0, 6).map((record) => ({
+            id: record.contract.id,
+            primary: record.code,
+            secondary: record.companyName,
+            badge: <HudBadge variant="warning" size="sm">vincular</HudBadge>,
+            onClick: () => onSelect(record),
+          }))}
+        />
+        <SignalGroup
+          icon={<ClipboardCheck className="h-3.5 w-3.5" />}
+          title="Obrigações atrasadas"
+          metric={String(overdueObligations.length)}
+          meta={overdueObligations.length ? 'em atraso' : undefined}
+          tone={overdueObligations.length ? 'danger' : 'success'}
+          empty="Nenhuma obrigação atrasada"
+          filterActive={activeKpiFilter === 'obrigacoes_atrasadas'}
+          onToggleFilter={() => onToggleKpiFilter('obrigacoes_atrasadas')}
+          items={overdueObligations.slice(0, 6).map(({ obligation, record }) => ({
+            id: obligation.id,
+            primary: obligation.title,
+            secondary: `${record.code} · ${format(new Date(obligation.dueDate), 'dd/MM/yyyy', { locale: pt })}`,
+            onClick: () => onSelect(record),
+          }))}
+        />
+        <SignalGroup
+          icon={<Receipt className="h-3.5 w-3.5" />}
+          title="Faturamento pendente"
+          metric={formatCurrencyCompact(pendingBillingTotal)}
+          meta={pendingBilling.length ? `${pendingBilling.length} contrato${pendingBilling.length === 1 ? '' : 's'}` : undefined}
+          tone={pendingBilling.length ? 'warning' : 'success'}
+          empty="Sem saldo a faturar"
+          filterActive={activeKpiFilter === 'saldo_a_faturar'}
+          onToggleFilter={() => onToggleKpiFilter('saldo_a_faturar')}
+          items={pendingBilling.slice(0, 6).map((record) => ({
+            id: record.contract.id,
+            primary: record.code,
+            secondary: record.companyName,
+            badge: <span className="ig-tabular text-[11px] font-semibold text-ig-fg-strong">{formatCurrencyCompact(record.remainingValue)}</span>,
+            onClick: () => onSelect(record),
+          }))}
+        />
+        <SignalGroup
+          icon={<Archive className="h-3.5 w-3.5" />}
+          title="Documentos pendentes"
+          metric={String(missingDocsTotal)}
+          meta={missingDocs.length ? `${missingDocs.length} contrato${missingDocs.length === 1 ? '' : 's'}` : undefined}
+          tone={missingDocsTotal ? 'warning' : 'success'}
+          empty="Documentação completa"
+          filterActive={activeKpiFilter === 'docs_pendentes'}
+          onToggleFilter={() => onToggleKpiFilter('docs_pendentes')}
+          items={missingDocs.slice(0, 6).map((record) => ({
+            id: record.contract.id,
+            primary: record.code,
+            secondary: record.companyName,
+            badge: <HudBadge variant="warning" size="sm">{record.missingDocuments.length}</HudBadge>,
+            onClick: () => onSelect(record),
+          }))}
+        />
+      </div>
+    </HudPanel>
   );
 }
 
@@ -698,13 +958,15 @@ function PriorityContracts({
   selectedId,
   onSelect,
   onView,
+  onOpenAll,
 }: {
   records: ContractGovernanceRecord[];
   selectedId: string | null;
   onSelect: (record: ContractGovernanceRecord) => void;
   onView: (record: ContractGovernanceRecord) => void;
+  onOpenAll?: () => void;
 }) {
-  const top = [...records].sort((a, b) => priorityScore(b) - priorityScore(a)).slice(0, 9);
+  const top = [...records].sort((a, b) => priorityScore(b) - priorityScore(a)).slice(0, 6);
 
   if (top.length === 0) {
     return (
@@ -724,8 +986,21 @@ function PriorityContracts({
       icon={<FileSignature className="h-4 w-4" />}
       badge={top.length}
       interactive={false}
+      fullHeight
+      headerActions={
+        onOpenAll ? (
+          <button
+            type="button"
+            onClick={onOpenAll}
+            className="inline-flex items-center gap-1 text-ig-label font-semibold text-ig-fg-muted transition-colors hover:text-ig-accent"
+          >
+            Ver carteira completa
+            <ChevronRight className="h-3.5 w-3.5" />
+          </button>
+        ) : undefined
+      }
     >
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2">
         {top.map((record) => (
           <ContractCard
             key={record.contract.id}
@@ -901,7 +1176,7 @@ function AnalyticsBand({ records }: { records: ContractGovernanceRecord[] }) {
 
   return (
     <div className="grid gap-4 lg:grid-cols-3">
-      <HudPanel title="Contratos por risco" subtitle="Distribuição e exposição" icon={<ShieldAlert className="h-4 w-4" />} interactive={false}>
+      <HudPanel title="Contratos por risco" subtitle="Distribuição e exposição" icon={<ShieldAlert className="h-4 w-4" />} interactive={false} elevation={1}>
         <div className="space-y-3.5">
           {byRisk.map((item) => (
             <div key={item.risk}>
@@ -923,7 +1198,7 @@ function AnalyticsBand({ records }: { records: ContractGovernanceRecord[] }) {
         </div>
       </HudPanel>
 
-      <HudPanel title="Próximas renovações" subtitle="Janela mais próxima de vencimento" icon={<CalendarClock className="h-4 w-4" />} interactive={false}>
+      <HudPanel title="Próximas renovações" subtitle="Janela mais próxima de vencimento" icon={<CalendarClock className="h-4 w-4" />} interactive={false} elevation={1}>
         <div className="space-y-2">
           {upcoming.length === 0 && <p className="py-6 text-center text-ig-caption text-ig-fg-muted">Sem datas de vencimento no recorte.</p>}
           {upcoming.map((record) => (
@@ -940,7 +1215,7 @@ function AnalyticsBand({ records }: { records: ContractGovernanceRecord[] }) {
         </div>
       </HudPanel>
 
-      <HudPanel title="Obrigações por status" subtitle={`${obligations.length} obrigações mapeadas`} icon={<ClipboardCheck className="h-4 w-4" />} interactive={false}>
+      <HudPanel title="Obrigações por status" subtitle={`${obligations.length} obrigações mapeadas`} icon={<ClipboardCheck className="h-4 w-4" />} interactive={false} elevation={1}>
         <div className="grid grid-cols-2 gap-2.5">
           {obligationStats.map((item) => {
             const toneClass = item.tone === 'danger' ? 'text-ig-danger' : item.tone === 'warning' ? 'text-ig-warning' : item.tone === 'success' ? 'text-ig-success' : 'text-ig-fg-strong';
@@ -1039,27 +1314,68 @@ function RenewalsSection({ records }: { records: ContractGovernanceRecord[] }) {
   );
 }
 
-function ObligationsSection({ records }: { records: ContractGovernanceRecord[] }) {
+function ObligationsSection({
+  records,
+  canEdit,
+  busyId,
+  onComplete,
+  onCreateTask,
+}: {
+  records: ContractGovernanceRecord[];
+  canEdit: boolean;
+  busyId: string | null;
+  onComplete: (item: { id: string; title: string; contract_id: string; owner_user_id: string | null; due_date: string | null }) => void;
+  onCreateTask: (contractId: string, title: string, dueAt: string, ownerUserId: string | null, key: string) => void;
+}) {
   const obligations = records.flatMap((record) => record.obligations.map((obligation) => ({ ...obligation, record })));
   return (
     <HudPanel title="Obrigações contratuais" icon={<ClipboardCheck className="h-4 w-4" />} interactive={false}>
       <div className="space-y-2">
-        {obligations.slice(0, 36).map((item) => (
-          <div key={item.id} className="grid gap-3 rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3 md:grid-cols-[1fr_180px_110px_180px] md:items-center">
-            <div className="min-w-0">
-              <p className="truncate text-ig-body-sm font-semibold text-ig-fg-strong">{item.title}</p>
-              <p className="truncate text-ig-caption text-ig-fg-muted">{item.record.code} · {item.evidence}</p>
+        {obligations.slice(0, 36).map((item) => {
+          // Item-level actions require a real Supabase row (live merge), never the mock preview.
+          const isLive = item.record.dataQuality?.obligations === 'live';
+          const done = item.status === 'done';
+          const dueStr = format(new Date(item.dueDate), 'yyyy-MM-dd');
+          return (
+            <div key={item.id} className="grid gap-3 rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3 md:grid-cols-[1fr_150px_100px_120px_auto] md:items-center">
+              <div className="min-w-0">
+                <p className="truncate text-ig-body-sm font-semibold text-ig-fg-strong">{item.title}</p>
+                <p className="truncate text-ig-caption text-ig-fg-muted">{item.record.code} · {item.evidence}</p>
+              </div>
+              <span className="truncate text-ig-body-sm text-ig-fg-muted">{item.owner}</span>
+              <HudStatusPill
+                variant={item.status === 'overdue' ? 'critical' : item.status === 'due_soon' ? 'warning' : item.status === 'done' ? 'active' : 'neutral'}
+                size="sm"
+              >
+                {item.status === 'overdue' ? 'Atrasada' : item.status === 'due_soon' ? 'Próxima' : item.status === 'done' ? 'Concluída' : 'Aberta'}
+              </HudStatusPill>
+              <span className="text-ig-caption text-ig-fg-muted">{format(new Date(item.dueDate), 'dd/MM/yyyy', { locale: pt })}</span>
+              <div className="flex items-center justify-end gap-1.5">
+                {canEdit && isLive && !done && (
+                  <button
+                    type="button"
+                    title="Concluir obrigação"
+                    onClick={() => onComplete({ id: item.id, title: item.title, contract_id: item.record.contract.id, owner_user_id: item.record.contract.responsibleId ?? null, due_date: dueStr })}
+                    className="inline-flex h-9 items-center gap-1 rounded-md border border-ig-border-subtle px-2 text-ig-label font-semibold text-ig-fg-muted transition-colors sm:h-7 hover:border-ig-border-focus hover:text-ig-success"
+                  >
+                    <CheckCircle2 className="h-3.5 w-3.5" /> Concluir
+                  </button>
+                )}
+                {canEdit && isLive && (
+                  <button
+                    type="button"
+                    title="Criar tarefa na agenda"
+                    disabled={busyId === `tab-obltask-${item.id}`}
+                    onClick={() => onCreateTask(item.record.contract.id, item.title, `${dueStr}T23:59:59`, item.record.contract.responsibleId ?? null, `tab-obltask-${item.id}`)}
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-ig-border-subtle text-ig-fg-muted transition-colors sm:h-7 sm:w-7 hover:border-ig-border-focus hover:text-ig-fg-strong disabled:opacity-50"
+                  >
+                    <CalendarClock className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
             </div>
-            <span className="truncate text-ig-body-sm text-ig-fg-muted">{item.owner}</span>
-            <HudStatusPill
-              variant={item.status === 'overdue' ? 'critical' : item.status === 'due_soon' ? 'warning' : item.status === 'done' ? 'active' : 'neutral'}
-              size="sm"
-            >
-              {item.status === 'overdue' ? 'Atrasada' : item.status === 'due_soon' ? 'Próxima' : item.status === 'done' ? 'Concluída' : 'Aberta'}
-            </HudStatusPill>
-            <span className="text-ig-caption text-ig-fg-muted">{format(new Date(item.dueDate), 'dd/MM/yyyy', { locale: pt })}</span>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </HudPanel>
   );
@@ -1105,32 +1421,250 @@ function RisksSection({ records }: { records: ContractGovernanceRecord[] }) {
   );
 }
 
-function DocumentsSection({ records }: { records: ContractGovernanceRecord[] }) {
+const DOC_TAB_STATUS: Record<string, { label: string; variant: 'active' | 'warning' | 'critical' | 'neutral' }> = {
+  uploaded: { label: 'Enviado', variant: 'active' },
+  missing: { label: 'Faltante', variant: 'warning' },
+  expired: { label: 'Vencido', variant: 'critical' },
+  expiring_soon: { label: 'A vencer', variant: 'warning' },
+  pending_approval: { label: 'Em aprovação', variant: 'warning' },
+  approved: { label: 'Aprovado', variant: 'active' },
+  rejected: { label: 'Rejeitado', variant: 'critical' },
+};
+
+function DocumentsSection({
+  records,
+  canUploadDoc,
+  busyId,
+  onApprove,
+  onSendToApproval,
+  onReject,
+}: {
+  records: ContractGovernanceRecord[];
+  canUploadDoc: boolean;
+  busyId: string | null;
+  onApprove: (docId: string, key: string) => void;
+  onSendToApproval: (docId: string, key: string) => void;
+  onReject: (doc: { id: string; title: string }) => void;
+}) {
+  // Live document rows (with real ids + status) come from the Phase-2 merge; records
+  // without them fall back to the estimated missing-docs preview.
+  const liveRows = records.flatMap((record) => (record.liveDocuments ?? []).map((doc) => ({ doc, record })));
+
   return (
-    <HudPanel title="Documentos e pendências" icon={<Archive className="h-4 w-4" />} interactive={false}>
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {records.slice(0, 24).map((record) => (
-          <div key={record.contract.id} className="rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="truncate text-ig-body-sm font-semibold text-ig-fg-strong">{record.code}</p>
-                <p className="truncate text-ig-caption text-ig-fg-muted">{record.contract.fileName || record.contract.name}</p>
-              </div>
-              <HudBadge variant={record.missingDocuments.length ? 'warning' : 'success'} size="sm">
-                {record.missingDocuments.length ? `${record.missingDocuments.length} faltando` : 'Completo'}
-              </HudBadge>
-            </div>
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              {(record.missingDocuments.length ? record.missingDocuments : ['Documento assinado', 'Matriz de obrigações']).map((doc) => (
-                <HudBadge key={doc} variant={record.missingDocuments.includes(doc) ? 'warning' : 'success'} size="sm">
-                  {doc}
+    <div className="space-y-5">
+      {liveRows.length > 0 && (
+        <HudPanel title="Documentos ao vivo" subtitle="Ações por documento — aprovar, rejeitar, enviar para aprovação" icon={<FileText className="h-4 w-4" />} interactive={false}>
+          <div className="space-y-2">
+            {liveRows.slice(0, 40).map(({ doc, record }) => {
+              const meta = DOC_TAB_STATUS[doc.status] ?? { label: doc.status, variant: 'neutral' as const };
+              return (
+                <div key={doc.id} className="grid gap-3 rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3 md:grid-cols-[1fr_140px_auto] md:items-center">
+                  <div className="min-w-0">
+                    <p className="truncate text-ig-body-sm font-semibold text-ig-fg-strong">{doc.title}</p>
+                    <p className="truncate text-ig-caption text-ig-fg-muted">{record.code}{doc.rejection_reason ? ` · ${doc.rejection_reason}` : ''}</p>
+                  </div>
+                  <HudStatusPill variant={meta.variant} size="sm">{meta.label}</HudStatusPill>
+                  <div className="flex items-center justify-end gap-1.5">
+                    {canUploadDoc && doc.status !== 'pending_approval' && doc.status !== 'approved' && doc.status !== 'rejected' && (
+                      <button type="button" title="Enviar para aprovação" disabled={busyId === `tab-docp-${doc.id}`} onClick={() => onSendToApproval(doc.id, `tab-docp-${doc.id}`)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-ig-border-subtle text-ig-fg-muted transition-colors sm:h-7 sm:w-7 hover:border-ig-border-focus hover:text-ig-fg-strong disabled:opacity-50">
+                        <ClipboardCheck className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                    {canUploadDoc && doc.status !== 'approved' && (
+                      <button type="button" title="Aprovar documento" disabled={busyId === `tab-doca-${doc.id}`} onClick={() => onApprove(doc.id, `tab-doca-${doc.id}`)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-ig-border-subtle text-ig-fg-muted transition-colors sm:h-7 sm:w-7 hover:border-ig-border-focus hover:text-ig-success disabled:opacity-50">
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                    {canUploadDoc && doc.status !== 'rejected' && (
+                      <button type="button" title="Rejeitar documento" onClick={() => onReject({ id: doc.id, title: doc.title })} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-ig-border-subtle text-ig-fg-muted transition-colors sm:h-7 sm:w-7 hover:border-ig-border-focus hover:text-ig-danger">
+                        <ShieldAlert className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </HudPanel>
+      )}
+
+      <HudPanel title="Documentos e pendências" subtitle="Visão de completude por contrato" icon={<Archive className="h-4 w-4" />} interactive={false}>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {records.slice(0, 24).map((record) => (
+            <div key={record.contract.id} className="rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-ig-body-sm font-semibold text-ig-fg-strong">{record.code}</p>
+                  <p className="truncate text-ig-caption text-ig-fg-muted">{record.contract.fileName || record.contract.name}</p>
+                </div>
+                <HudBadge variant={record.missingDocuments.length ? 'warning' : 'success'} size="sm">
+                  {record.missingDocuments.length ? `${record.missingDocuments.length} faltando` : 'Completo'}
                 </HudBadge>
-              ))}
+              </div>
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {(record.missingDocuments.length ? record.missingDocuments : ['Documento assinado', 'Matriz de obrigações']).map((doc) => (
+                  <HudBadge key={doc} variant={record.missingDocuments.includes(doc) ? 'warning' : 'success'} size="sm">
+                    {doc}
+                  </HudBadge>
+                ))}
+              </div>
             </div>
+          ))}
+        </div>
+      </HudPanel>
+    </div>
+  );
+}
+
+function FaturamentoSection({
+  records,
+  canEdit,
+  busyId,
+  onRealize,
+  onFollowUp,
+}: {
+  records: ContractGovernanceRecord[];
+  canEdit: boolean;
+  busyId: string | null;
+  onRealize: (event: { id: string; title: string }) => void;
+  onFollowUp: (record: ContractGovernanceRecord) => void;
+}) {
+  const events = records.flatMap((record) => record.billingEvents.map((event) => ({ event, record })));
+  const totalPlanned = events.reduce((sum, { event }) => sum + event.amount, 0);
+  const totalRealized = events.filter(({ event }) => isBillingEventRealized(event)).reduce((sum, { event }) => sum + event.amount, 0);
+  const overdue = countOverdueBillingEvents(events.map(({ event }) => event));
+  const cards = [
+    { label: 'Planejado', value: formatCurrencyCompact(totalPlanned), tone: 'text-ig-fg-strong' },
+    { label: 'Realizado', value: formatCurrencyCompact(totalRealized), tone: 'text-ig-success' },
+    { label: 'Saldo a faturar', value: formatCurrencyCompact(Math.max(totalPlanned - totalRealized, 0)), tone: 'text-ig-warning' },
+    { label: 'Vencidos', value: String(overdue), tone: overdue ? 'text-ig-danger' : 'text-ig-fg-strong' },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {cards.map((card) => (
+          <div key={card.label} className="rounded-lg border border-ig-border-subtle bg-ig-panel/45 px-3 py-2.5">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ig-fg-subtle">{card.label}</p>
+            <p className={`mt-0.5 text-lg font-semibold tabular-nums ${card.tone}`}>{card.value}</p>
           </div>
         ))}
       </div>
-    </HudPanel>
+      <HudPanel title="Eventos de faturamento" subtitle="Eventograma consolidado — marque realizado nos eventos ao vivo" icon={<Receipt className="h-4 w-4" />} interactive={false}>
+        <div className="space-y-2">
+          {events.length === 0 && <p className="py-6 text-center text-ig-caption text-ig-fg-muted">Nenhum evento de faturamento no recorte.</p>}
+          {events.slice(0, 40).map(({ event, record }) => {
+            const realized = isBillingEventRealized(event);
+            const isLive = record.dataQuality?.billing === 'live';
+            return (
+              <div key={event.id} className="grid gap-3 rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3 md:grid-cols-[1fr_140px_120px_auto] md:items-center">
+                <div className="min-w-0">
+                  <p className="truncate text-ig-body-sm font-semibold text-ig-fg-strong">{event.title}</p>
+                  <p className="truncate text-ig-caption text-ig-fg-muted">{record.code} · {record.companyName}</p>
+                </div>
+                <span className="ig-tabular text-ig-body-sm font-semibold text-ig-fg-strong">{formatCurrencyCompact(event.amount)}</span>
+                <HudStatusPill variant={realized ? 'active' : 'warning'} size="sm">
+                  {realized ? 'Faturado' : event.due_date ? format(event.due_date, 'dd/MM/yyyy', { locale: pt }) : 'Pendente'}
+                </HudStatusPill>
+                <div className="flex items-center justify-end gap-1.5">
+                  {canEdit && isLive && !realized && (
+                    <button type="button" title="Marcar como faturado" onClick={() => onRealize({ id: event.id, title: event.title })} className="inline-flex h-9 items-center gap-1 rounded-md border border-ig-border-subtle px-2 text-ig-label font-semibold text-ig-fg-muted transition-colors sm:h-7 hover:border-ig-border-focus hover:text-ig-success">
+                      <CheckCircle2 className="h-3.5 w-3.5" /> Faturar
+                    </button>
+                  )}
+                  {canEdit && (
+                    <button type="button" title="Criar tarefa de follow-up" disabled={busyId === `tab-bilfu-${event.id}`} onClick={() => onFollowUp(record)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-ig-border-subtle text-ig-fg-muted transition-colors sm:h-7 sm:w-7 hover:border-ig-border-focus hover:text-ig-fg-strong disabled:opacity-50">
+                      <CalendarClock className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </HudPanel>
+    </div>
+  );
+}
+
+const APPROVAL_STEP_LABELS: Record<string, string> = { juridico: 'Jurídico', financeiro: 'Financeiro', comite: 'Comitê', diretoria: 'Diretoria' };
+
+function AprovacoesSection({
+  records,
+  canApprove,
+  busyId,
+  onApproveStep,
+  onReview,
+}: {
+  records: ContractGovernanceRecord[];
+  canApprove: boolean;
+  busyId: string | null;
+  onApproveStep: (contractId: string, step: string, key: string) => void;
+  onReview: (record: ContractGovernanceRecord) => void;
+}) {
+  const rows = records.filter((record) => (record.liveApprovals?.length ?? 0) > 0);
+  if (rows.length === 0) {
+    return (
+      <HudPanel title="Fluxos de aprovação" icon={<ShieldCheck className="h-4 w-4" />} interactive={false}>
+        <div className="py-12 text-center">
+          <ShieldCheck className="mx-auto mb-3 h-10 w-10 text-ig-fg-muted" />
+          <p className="text-ig-body-sm text-ig-fg-muted">Nenhum fluxo de aprovação ao vivo. Envie contratos para revisão para popular as etapas.</p>
+        </div>
+      </HudPanel>
+    );
+  }
+  return (
+    <div className="space-y-4">
+      {rows.map((record) => {
+        const sla = computeApprovalSla(record.liveApprovals ?? []);
+        return (
+          <HudPanel
+            key={record.contract.id}
+            title={`${record.code} · ${record.companyName}`}
+            subtitle={`Rota: ${record.approvalRoute}`}
+            icon={<ShieldCheck className="h-4 w-4" />}
+            interactive={false}
+          >
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <HudBadge variant={sla.quality === 'live' ? 'success' : 'subtle'} size="sm">{sla.quality === 'live' ? 'SLA ao vivo' : 'SLA estimado'}</HudBadge>
+              {sla.avgHours != null && <HudBadge variant="info" size="sm">Média {sla.avgHours}h</HudBadge>}
+              {sla.overdueSteps > 0 && <HudBadge variant="warning" size="sm">{sla.overdueSteps} em atraso</HudBadge>}
+              {sla.rejectedSteps > 0 && <HudBadge variant="danger" size="sm">{sla.rejectedSteps} rejeitada(s)</HudBadge>}
+            </div>
+            <div className="space-y-1.5">
+              {(record.liveApprovals ?? []).map((step) => {
+                const terminal = step.status === 'approved' || step.status === 'rejected';
+                const hours = sla.byStep[step.step_name];
+                const isOpen = sla.openStepName === step.step_name;
+                return (
+                  <div key={step.id} className="grid gap-3 rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-2.5 md:grid-cols-[1fr_120px_100px_auto] md:items-center">
+                    <span className="text-ig-body-sm font-semibold text-ig-fg-strong">{APPROVAL_STEP_LABELS[step.step_name] ?? step.step_name}</span>
+                    <HudStatusPill variant={step.status === 'approved' ? 'active' : step.status === 'rejected' ? 'critical' : step.status === 'under_review' ? 'warning' : 'neutral'} size="sm">
+                      {step.status === 'approved' ? 'Aprovada' : step.status === 'rejected' ? 'Rejeitada' : step.status === 'under_review' ? 'Em análise' : 'Pendente'}
+                    </HudStatusPill>
+                    <span className={`text-ig-caption tabular-nums ${isOpen ? 'text-ig-warning' : 'text-ig-fg-muted'}`}>
+                      {hours != null ? `${hours}h` : isOpen && sla.openStepHours != null ? `${sla.openStepHours}h aberto` : '—'}
+                    </span>
+                    <div className="flex items-center justify-end">
+                      {canApprove && !terminal && (
+                        <button type="button" title="Aprovar etapa" disabled={busyId === `tab-apr-${step.id}`} onClick={() => onApproveStep(record.contract.id, step.step_name, `tab-apr-${step.id}`)} className="inline-flex h-9 items-center gap-1 rounded-md border border-ig-border-subtle px-2 text-ig-label font-semibold text-ig-fg-muted transition-colors sm:h-7 hover:border-ig-border-focus hover:text-ig-success disabled:opacity-50">
+                          <CheckCircle2 className="h-3.5 w-3.5" /> Aprovar
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {canApprove && (
+              <HudButton variant="glass" size="sm" className="mt-3" leftIcon={<Scale className="h-4 w-4" />} onClick={() => onReview(record)}>
+                Rejeitar / solicitar ajustes
+              </HudButton>
+            )}
+          </HudPanel>
+        );
+      })}
+    </div>
   );
 }
 

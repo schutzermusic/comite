@@ -23,7 +23,19 @@ export interface ContractDossierPayload {
   brandName?: string;
   source?: string;
   generatedBy?: string;
+  /** Optional real approval SLA (from computeApprovalSla); falls back to heuristic when absent. */
+  sla?: { avgHours: number | null; quality: 'live' | 'estimated'; overdueSteps: number };
 }
+
+const DOC_STATUS_PT: Record<string, string> = {
+  uploaded: 'Enviado',
+  missing: 'Faltante',
+  expired: 'Vencido',
+  expiring_soon: 'A vencer',
+  pending_approval: 'Em aprovação',
+  approved: 'Aprovado',
+  rejected: 'Rejeitado',
+};
 
 const STATUS_LABELS: Record<string, string> = {
   negotiation: 'Em negociação',
@@ -135,11 +147,36 @@ export function buildContractDossierHtml(payload: ContractDossierPayload): strin
       kv('Rota de aprovação', r.approvalRoute),
       { k: 'Parecer jurídico', v: { html: `<span class="pill ${r.legalStatus === 'approved' ? 'ok' : 'warn'}">${esc(legalLabel)}</span>` } },
       { k: 'Parecer financeiro', v: { html: `<span class="pill ${r.financialStatus === 'ok' ? 'ok' : r.financialStatus === 'attention' ? 'warn' : 'crit'}">${esc(financeLabel)}</span>` } },
-      kv('SLA médio de aprovação', r.contract.riskClassification === 'high' ? '~26h' : '~18h'),
+      kv('SLA médio de aprovação', payload.sla?.avgHours != null
+        ? `${payload.sla.avgHours}h (${payload.sla.quality === 'live' ? 'ao vivo' : 'estimado'})${payload.sla.overdueSteps ? ` · ${payload.sla.overdueSteps} em atraso` : ''}`
+        : (r.contract.riskClassification === 'high' ? '~26h' : '~18h')),
       kv('Adimplência', r.paymentStatus),
     ],
   );
   const sectionD = `${sectionTitle('D — Governança & Workflow')}${governance}`;
+
+  // ── Documentos (live status) ──
+  const liveDocs = r.liveDocuments ?? [];
+  const docsTable = dataTable(
+    [
+      { key: 'titulo', label: 'Documento' },
+      { key: 'tipo', label: 'Tipo' },
+      { key: 'status', label: 'Situação' },
+    ],
+    liveDocs.map((doc) => {
+      const st = doc.status;
+      const pillClass = st === 'approved' ? 'ok' : st === 'rejected' || st === 'expired' ? 'crit' : st === 'pending_approval' || st === 'expiring_soon' ? 'warn' : '';
+      const statusText = `${DOC_STATUS_PT[st] ?? st}${st === 'rejected' && doc.rejection_reason ? ` — ${doc.rejection_reason}` : ''}`;
+      return {
+        titulo: doc.title,
+        tipo: doc.document_type,
+        status: { html: `<span class="pill ${pillClass}">${esc(statusText)}</span>` },
+      };
+    }),
+  );
+  const documentsSection = liveDocs.length
+    ? `${sectionTitle('Documentos', `${liveDocs.length} documento(s) registrados`)}${docsTable}`
+    : '';
 
   // ── Obrigações ──
   const obligationsTable = dataTable(
@@ -182,7 +219,7 @@ export function buildContractDossierHtml(payload: ContractDossierPayload): strin
   const page1 = `<section class="section">${cover}</section><section class="section">${summary}${kpis}</section>`;
   const page2 = `<section class="section">${sectionA}${sectionB}</section>`;
   const page3 = `<section class="section">${sectionC}${sectionD}</section>`;
-  const page4 = `<section class="section">${obligationsSection}${sectionE}</section>`;
+  const page4 = `<section class="section">${obligationsSection}${documentsSection}${sectionE}</section>`;
 
   return renderReportDocument({
     fileName,

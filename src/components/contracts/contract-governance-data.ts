@@ -2,6 +2,25 @@
 
 import { differenceInDays, addDays, subDays } from 'date-fns';
 import type { Contract, Project } from '@/lib/types';
+import type { ContractApprovalRow, ContractDocumentRow } from '@/lib/contracts/contract-service';
+
+export type GovernanceSectionQuality = 'live' | 'estimated';
+
+/**
+ * Per-section provenance for a governance record. `live` = merged from real
+ * Supabase relation rows (migration 034); `estimated` = still using the mock
+ * enrichment preview below. Undefined means the record was never run through the
+ * live merge (pure mock/dev path) and should be treated as fully estimated.
+ */
+export type ContractGovernanceDataQuality = {
+  obligations: GovernanceSectionQuality;
+  billing: GovernanceSectionQuality;
+  documents: GovernanceSectionQuality;
+  approvals: GovernanceSectionQuality;
+  projectLink: GovernanceSectionQuality;
+  risks: GovernanceSectionQuality;
+  ai: GovernanceSectionQuality;
+};
 
 export type ContractGovernanceRecord = {
   contract: Contract;
@@ -36,6 +55,11 @@ export type ContractGovernanceRecord = {
   margin: number;
   paymentStatus: string;
   financialAllocationsPending: boolean;
+  /** Set by applyLiveGovernanceData when relations are merged from Supabase. */
+  dataQuality?: ContractGovernanceDataQuality;
+  /** Raw live rows attached by applyLiveGovernanceData (for step SLA + tab actions). */
+  liveApprovals?: ContractApprovalRow[];
+  liveDocuments?: ContractDocumentRow[];
 };
 
 export type LinkedRisk = {
@@ -404,6 +428,17 @@ export function formatCurrencyCompact(value: number, currency = 'BRL') {
     minimumFractionDigits: 0,
     maximumFractionDigits: 1,
   }).format(value || 0);
+}
+
+const BILLED_STATUS_TOKENS = ['pago', 'paid', 'billed', 'realizado', 'realized', 'faturado'];
+
+export function isBillingEventRealized(event: LinkedBillingEvent): boolean {
+  return Boolean(event.paid_at) || BILLED_STATUS_TOKENS.includes((event.status ?? '').toLowerCase());
+}
+
+/** Overdue = not realized and past due. `now` defaults here (outside React render) to stay lint-pure in components. */
+export function countOverdueBillingEvents(events: LinkedBillingEvent[], now: Date = new Date()): number {
+  return events.filter((event) => !isBillingEventRealized(event) && event.due_date != null && event.due_date.getTime() < now.getTime()).length;
 }
 
 export function formatCurrencyFull(value: number, currency = 'BRL') {

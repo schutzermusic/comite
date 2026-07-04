@@ -81,7 +81,7 @@ export function HudModal({
             transition={{ type: 'spring', damping: 25, stiffness: 300 }}
             data-elev="4"
             className={cn(
-              'relative flex w-full max-h-[calc(100vh-2rem)] flex-col overflow-hidden',
+              'relative flex w-full max-h-[calc(100dvh-2rem)] flex-col overflow-hidden',
               SIZE_WIDTHS[size],
               'hud-modal-surface ig-glass',
               className

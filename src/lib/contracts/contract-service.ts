@@ -2,7 +2,7 @@
 
 import type { Contract } from '@/lib/types';
 import { logAuditEvent } from '@/lib/audit/log-audit-event';
-import { createProject } from '@/lib/services/projects';
+import { createProject, getProjectsAsync } from '@/lib/services/projects';
 import { createClient } from '@/utils/supabase/client';
 
 const CONTRACT_FILES_BUCKET = 'contract-files';
@@ -95,6 +95,12 @@ export type ContractBillingEventRow = {
   due_date: string | null;
   paid_at: string | null;
   status: string;
+  // 036: realized provenance (nullable until the event is realized).
+  realized_amount: number | string | null;
+  invoice_reference: string | null;
+  realized_note: string | null;
+  realized_by: string | null;
+  realized_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -152,6 +158,10 @@ export type ContractObligationRow = {
   status: 'open' | 'due_soon' | 'overdue' | 'done';
   due_date: string | null;
   evidence: string | null;
+  // 036: completion provenance.
+  completion_note: string | null;
+  completed_by: string | null;
+  completed_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -167,6 +177,10 @@ export type ContractApprovalRow = {
   comments: string | null;
   approval_timestamp: string | null;
   rejection_reason: string | null;
+  // 036: step SLA timestamps + request-changes note.
+  started_at: string | null;
+  completed_at: string | null;
+  requested_changes_note: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -187,6 +201,8 @@ export type ContractRiskLinkRow = {
   created_at: string;
 };
 
+export type ContractDocumentStatus = 'uploaded' | 'missing' | 'expired' | 'expiring_soon' | 'pending_approval' | 'approved' | 'rejected';
+
 export type ContractDocumentRow = {
   id: string;
   organization_id: string;
@@ -194,8 +210,11 @@ export type ContractDocumentRow = {
   title: string;
   file_path: string;
   document_type: 'contract' | 'amendment' | 'invoice' | 'guarantee' | 'insurance' | 'annex' | 'purchase_order' | 'certificate' | 'approval' | 'minutes';
-  status: 'uploaded' | 'missing' | 'expired' | 'expiring_soon' | 'pending_approval' | 'rejected';
+  status: ContractDocumentStatus;
   uploaded_by: string | null;
+  approved_at: string | null;
+  approved_by: string | null;
+  rejection_reason: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -285,6 +304,56 @@ async function getCurrentIdentity() {
   if (!profile?.organization_id) throw new Error('Usuario sem organizacao ativa.');
 
   return { supabase, user, organizationId: profile.organization_id };
+}
+
+type SupabaseClientLike = ReturnType<typeof createClient>;
+
+/**
+ * Best-effort in-app notification via the shared `create_notification` RPC
+ * (same one used by the agenda module). Never throws — a notification failure
+ * must never block or roll back the underlying mutation.
+ */
+async function notifyContractRecipient(
+  supabase: SupabaseClientLike,
+  recipientUserId: string | null | undefined,
+  type: string,
+  title: string,
+  body: string,
+  contractId: string,
+): Promise<void> {
+  if (!recipientUserId) return;
+  try {
+    await supabase.rpc('create_notification', {
+      p_recipient: recipientUserId,
+      p_type: type,
+      p_title: title,
+      p_body: body,
+      p_link: `/contratos/${contractId}`,
+    });
+  } catch {
+    /* best-effort */
+  }
+}
+
+async function getContractOwnerId(supabase: SupabaseClientLike, contractId: string): Promise<string | null> {
+  try {
+    const { data } = await supabase
+      .from('contracts')
+      .select('owner_user_id')
+      .eq('id', contractId)
+      .maybeSingle<{ owner_user_id: string | null }>();
+    return data?.owner_user_id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeProjectKey(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]/g, '');
 }
 
 export function contractRowToLegacyContract(row: ContractRow, files: ContractFileRow[] = []): Contract {
@@ -598,6 +667,74 @@ export async function createContractBillingEvent(input: CreateContractBillingEve
   return data;
 }
 
+export async function updateContractBillingEvent(
+  id: string,
+  patch: Partial<Pick<ContractBillingEventRow, 'title' | 'amount' | 'due_date' | 'paid_at' | 'status' | 'milestone_id'>>,
+): Promise<ContractBillingEventRow> {
+  const { supabase, organizationId } = await getCurrentIdentity();
+  const { data, error } = await supabase
+    .from('contract_billing_events')
+    .update({ ...patch, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select('*')
+    .single<ContractBillingEventRow>();
+  if (error) throw new Error(`Erro ao atualizar evento de faturamento: ${error.message}`);
+
+  await logAuditEvent({
+    organizationId,
+    action: 'contract.billing_event_updated',
+    entityType: 'contract',
+    entityId: data.contract_id,
+    metadata: { billing_event_id: id, status: data.status },
+  });
+
+  return data;
+}
+
+export async function markBillingEventRealized(
+  id: string,
+  opts?: { paidAt?: string | null; status?: string; reference?: string | null; note?: string | null; realizedAmount?: number | null },
+): Promise<ContractBillingEventRow> {
+  const { supabase, user, organizationId } = await getCurrentIdentity();
+  const realizedAt = opts?.paidAt ?? new Date().toISOString();
+  const patch: Record<string, unknown> = {
+    paid_at: realizedAt,
+    status: opts?.status ?? 'pago',
+    realized_at: realizedAt,
+    realized_by: user.id,
+    invoice_reference: opts?.reference ?? null,
+    realized_note: opts?.note ?? null,
+    updated_at: new Date().toISOString(),
+  };
+  if (opts?.realizedAmount != null) patch.realized_amount = opts.realizedAmount;
+  const { data, error } = await supabase
+    .from('contract_billing_events')
+    .update(patch)
+    .eq('id', id)
+    .select('*')
+    .single<ContractBillingEventRow>();
+  if (error) throw new Error(`Erro ao marcar faturamento como realizado: ${error.message}`);
+
+  await logAuditEvent({
+    organizationId,
+    action: 'contract.billing_event_realized',
+    entityType: 'contract',
+    entityId: data.contract_id,
+    metadata: { billing_event_id: id, amount: data.amount, status: data.status, reference: opts?.reference ?? null, note: opts?.note ?? null },
+  });
+
+  await notifyContractRecipient(
+    supabase,
+    await getContractOwnerId(supabase, data.contract_id),
+    'contract_billing_event_realized',
+    'Faturamento realizado',
+    `Evento "${data.title}" marcado como faturado.`,
+    data.contract_id,
+  );
+
+  return data;
+}
+
 export async function listContractRisks(contractId: string): Promise<ContractRiskRow[]> {
   const supabase = createClient();
   const { data, error } = await supabase.from('contract_risks').select('*').eq('contract_id', contractId).order('created_at', { ascending: false });
@@ -650,6 +787,25 @@ export async function createProjectFromContract(contractId: string) {
   if (contract.project_id) throw new Error('Contrato ja possui projeto vinculado.');
   if (!['signed', 'active'].includes(contract.status)) {
     throw new Error('Projeto deve ser criado apenas depois do contrato assinado ou ativo.');
+  }
+
+  // Duplicate guard: block if a project link already exists, or a project with
+  // the same code / normalized title already exists. Prefer linking the existing
+  // project over creating a near-duplicate.
+  const existingLinks = detail.projectLinks ?? [];
+  if (existingLinks.length > 0) {
+    throw new Error('Contrato já possui vínculo de projeto (contract_project_links). Vincule o projeto existente.');
+  }
+  const projectCandidateCode = normalizeProjectKey(contract.contract_number || `CTR-${contract.id.slice(0, 8)}`);
+  const projectCandidateTitle = normalizeProjectKey(contract.title || '');
+  const existingProjects = await getProjectsAsync().catch(() => []);
+  const duplicate = existingProjects.find((project) => {
+    const codeMatch = project.codigo ? normalizeProjectKey(project.codigo) === projectCandidateCode : false;
+    const titleMatch = project.nome ? normalizeProjectKey(project.nome) === projectCandidateTitle : false;
+    return codeMatch || (titleMatch && projectCandidateTitle.length > 0);
+  });
+  if (duplicate) {
+    throw new Error(`Já existe um projeto semelhante (${duplicate.codigo ?? duplicate.nome}). Vincule o projeto existente em vez de criar um novo.`);
   }
 
   const { user, organizationId } = await getCurrentIdentity();
@@ -709,7 +865,7 @@ export async function listContractObligations(contractId: string): Promise<Contr
   return (data ?? []) as ContractObligationRow[];
 }
 
-export async function createContractObligation(input: Omit<ContractObligationRow, 'id' | 'organization_id' | 'created_at' | 'updated_at'>): Promise<ContractObligationRow> {
+export async function createContractObligation(input: Omit<ContractObligationRow, 'id' | 'organization_id' | 'created_at' | 'updated_at' | 'completion_note' | 'completed_by' | 'completed_at'>): Promise<ContractObligationRow> {
   const { supabase, organizationId } = await getCurrentIdentity();
   const { data, error } = await supabase
     .from('contract_obligations')
@@ -717,19 +873,123 @@ export async function createContractObligation(input: Omit<ContractObligationRow
     .select('*')
     .single<ContractObligationRow>();
   if (error) throw new Error(`Erro ao criar obrigação: ${error.message}`);
+
+  await logAuditEvent({
+    organizationId,
+    action: 'contract.obligation_created',
+    entityType: 'contract',
+    entityId: input.contract_id,
+    metadata: { title: input.title, status: data.status, due_date: input.due_date },
+  });
+
+  await notifyContractRecipient(
+    supabase,
+    input.owner_user_id,
+    'contract_obligation_assigned',
+    'Nova obrigação contratual',
+    `Você é responsável pela obrigação "${input.title}".`,
+    input.contract_id,
+  );
+
   return data;
 }
 
 export async function updateContractObligation(id: string, input: Partial<ContractObligationRow>): Promise<ContractObligationRow> {
-  const supabase = createClient();
+  const { supabase, organizationId } = await getCurrentIdentity();
   const { data, error } = await supabase
     .from('contract_obligations')
-    .update(input)
+    .update({ ...input, updated_at: new Date().toISOString() })
     .eq('id', id)
     .select('*')
     .single<ContractObligationRow>();
   if (error) throw new Error(`Erro ao atualizar obrigação: ${error.message}`);
+
+  await logAuditEvent({
+    organizationId,
+    action: 'contract.obligation_updated',
+    entityType: 'contract',
+    entityId: data.contract_id,
+    metadata: { obligation_id: id, status: data.status },
+  });
+
   return data;
+}
+
+export async function completeContractObligation(id: string, note?: string | null): Promise<ContractObligationRow> {
+  const { supabase, user, organizationId } = await getCurrentIdentity();
+  const { data, error } = await supabase
+    .from('contract_obligations')
+    .update({
+      status: 'done',
+      completion_note: note ?? null,
+      completed_by: user.id,
+      completed_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+    .select('*')
+    .single<ContractObligationRow>();
+  if (error) throw new Error(`Erro ao concluir obrigação: ${error.message}`);
+
+  await logAuditEvent({
+    organizationId,
+    action: 'contract.obligation_completed',
+    entityType: 'contract',
+    entityId: data.contract_id,
+    metadata: { obligation_id: id, title: data.title, note: note ?? null },
+  });
+
+  await notifyContractRecipient(
+    supabase,
+    await getContractOwnerId(supabase, data.contract_id),
+    'contract_obligation_completed',
+    'Obrigação concluída',
+    `A obrigação "${data.title}" foi marcada como concluída.`,
+    data.contract_id,
+  );
+
+  return data;
+}
+
+export async function createTaskFromObligation(contractId: string, obligationTitle: string, dueAt: string, assigneeUserId: string | null) {
+  // Reuses the audited agenda helper. Tasks link to the contract; there is no
+  // obligation FK on the tasks table (migration 031), so the obligation is
+  // referenced in the task title/description for traceability.
+  return createAgendaTaskForContract(
+    contractId,
+    `Obrigação: ${obligationTitle}`,
+    `Tarefa gerada a partir da obrigação contratual "${obligationTitle}".`,
+    dueAt,
+    assigneeUserId,
+  );
+}
+
+export type ContractRelatedTask = {
+  id: string;
+  title: string;
+  due_at: string | null;
+  status: string;
+  priority: string;
+};
+
+/**
+ * Agenda read-side: tasks linked to this contract via tasks.related_contract_id
+ * (migration 031). Best-effort — returns [] if the column/table is unavailable
+ * so the drawer never breaks when agenda linking is not present.
+ */
+export async function listContractRelatedTasks(contractId: string): Promise<ContractRelatedTask[]> {
+  const supabase = createClient();
+  try {
+    const { data, error } = await supabase
+      .from('tasks')
+      .select('id,title,due_at,status,priority')
+      .eq('related_contract_id', contractId)
+      .order('due_at', { ascending: true });
+    if (error) return [];
+    return (data ?? []) as ContractRelatedTask[];
+  } catch {
+    return [];
+  }
 }
 
 export async function listContractApprovals(contractId: string): Promise<ContractApprovalRow[]> {
@@ -739,8 +999,25 @@ export async function listContractApprovals(contractId: string): Promise<Contrac
   return (data ?? []) as ContractApprovalRow[];
 }
 
-export async function submitContractApproval(contractId: string, stepName: string, status: string, comments?: string | null, rejectionReason?: string | null): Promise<ContractApprovalRow> {
+export async function submitContractApproval(
+  contractId: string,
+  stepName: string,
+  status: string,
+  comments?: string | null,
+  rejectionReason?: string | null,
+  requestedChangesNote?: string | null,
+): Promise<ContractApprovalRow> {
   const { supabase, user, organizationId } = await getCurrentIdentity();
+  const now = new Date().toISOString();
+  // Preserve the original started_at across upserts so step SLA is measured from
+  // the first action, not the latest.
+  const { data: existing } = await supabase
+    .from('contract_approvals')
+    .select('started_at')
+    .eq('contract_id', contractId)
+    .eq('step_name', stepName)
+    .maybeSingle<{ started_at: string | null }>();
+  const isTerminal = status === 'approved' || status === 'rejected';
   const { data, error } = await supabase
     .from('contract_approvals')
     .upsert({
@@ -751,8 +1028,11 @@ export async function submitContractApproval(contractId: string, stepName: strin
       reviewer_user_id: user.id,
       comments,
       rejection_reason: rejectionReason,
-      approval_timestamp: status === 'approved' ? new Date().toISOString() : null,
-      updated_at: new Date().toISOString(),
+      requested_changes_note: requestedChangesNote ?? null,
+      approval_timestamp: status === 'approved' ? now : null,
+      started_at: existing?.started_at ?? now,
+      completed_at: isTerminal ? now : null,
+      updated_at: now,
     }, { onConflict: 'contract_id,step_name' })
     .select('*')
     .single<ContractApprovalRow>();
@@ -766,7 +1046,101 @@ export async function submitContractApproval(contractId: string, stepName: strin
     metadata: { reviewer: user.email, comments },
   });
 
+  await notifyContractRecipient(
+    supabase,
+    await getContractOwnerId(supabase, contractId),
+    'contract_approval_decision',
+    'Decisão de aprovação',
+    `Etapa ${stepName}: ${status}${rejectionReason ? ` — ${rejectionReason}` : ''}.`,
+    contractId,
+  );
+
   return data;
+}
+
+/** Request changes on an approval step: keeps the step under review + records the note. */
+export async function requestContractApprovalChanges(contractId: string, stepName: string, note: string): Promise<ContractApprovalRow> {
+  const row = await submitContractApproval(contractId, stepName, 'under_review', note, null, note);
+  const { organizationId } = await getCurrentIdentity();
+  await logAuditEvent({
+    organizationId,
+    action: 'contract.changes_requested',
+    entityType: 'contract',
+    entityId: contractId,
+    metadata: { step: stepName, note },
+  });
+  return row;
+}
+
+export type ApprovalStep = 'juridico' | 'financeiro' | 'comite' | 'diretoria';
+
+export type ApprovalSlaResult = {
+  avgHours: number | null;
+  byStep: Partial<Record<ApprovalStep, number | null>>;
+  openStepHours: number | null;
+  openStepName: ApprovalStep | null;
+  overdueSteps: number;
+  rejectedSteps: number;
+  blocked: boolean;
+  quality: 'live' | 'estimated';
+};
+
+/**
+ * Step-level approval SLA from contract_approvals. Prefers completed_at, falls
+ * back to approval_timestamp (approved) for the end, and started_at→created_at
+ * for the start. `quality` is 'live' only when at least one terminal step has a
+ * real completed_at/approval_timestamp; otherwise it is 'estimated'.
+ */
+export function computeApprovalSla(approvals: ContractApprovalRow[], now: Date = new Date()): ApprovalSlaResult {
+  const hoursBetween = (start: string | null, end: string | null): number | null => {
+    if (!start || !end) return null;
+    const ms = new Date(end).getTime() - new Date(start).getTime();
+    return Number.isFinite(ms) && ms >= 0 ? ms / 3_600_000 : null;
+  };
+
+  const byStep: Partial<Record<ApprovalStep, number | null>> = {};
+  const durations: number[] = [];
+  let hasRealEnd = false;
+  let openStepHours: number | null = null;
+  let openStepName: ApprovalStep | null = null;
+  let overdueSteps = 0;
+  let rejectedSteps = 0;
+
+  for (const a of approvals) {
+    const start = a.started_at ?? a.created_at;
+    const isTerminal = a.status === 'approved' || a.status === 'rejected';
+    const end = a.completed_at ?? (a.status === 'approved' ? a.approval_timestamp : null);
+    if (isTerminal) {
+      const d = hoursBetween(start, end ?? a.updated_at);
+      byStep[a.step_name] = d;
+      if (d != null) durations.push(d);
+      if (a.completed_at || (a.status === 'approved' && a.approval_timestamp)) hasRealEnd = true;
+      if (a.status === 'rejected') rejectedSteps += 1;
+    } else {
+      byStep[a.step_name] = null;
+      const d = hoursBetween(start, now.toISOString());
+      if (d != null && (openStepHours == null || d > openStepHours)) {
+        openStepHours = d;
+        openStepName = a.step_name;
+      }
+    }
+    if (a.deadline_date && a.status !== 'approved') {
+      const overdue = new Date(a.deadline_date).getTime() < now.getTime();
+      if (overdue) overdueSteps += 1;
+    }
+  }
+
+  const avgHours = durations.length ? Math.round(durations.reduce((s, h) => s + h, 0) / durations.length) : null;
+  return {
+    avgHours,
+    byStep,
+    openStepHours: openStepHours != null ? Math.round(openStepHours) : null,
+    openStepName,
+    overdueSteps,
+    rejectedSteps,
+    blocked: rejectedSteps > 0 || overdueSteps > 0,
+    quality: hasRealEnd ? 'live' : 'estimated',
+  };
 }
 
 export async function listContractProjectLinks(contractId: string): Promise<ContractProjectLinkRow[]> {
@@ -796,6 +1170,15 @@ export async function linkContractToProject(contractId: string, projectId: strin
     entityId: contractId,
     metadata: { project_id: projectId },
   });
+
+  await notifyContractRecipient(
+    supabase,
+    await getContractOwnerId(supabase, contractId),
+    'contract_project_linked',
+    'Projeto vinculado',
+    'Um projeto foi vinculado ao contrato.',
+    contractId,
+  );
 
   return data;
 }
@@ -845,6 +1228,15 @@ export async function linkContractToRisk(contractId: string, riskId: string): Pr
     entityId: contractId,
     metadata: { risk_id: riskId },
   });
+
+  await notifyContractRecipient(
+    supabase,
+    await getContractOwnerId(supabase, contractId),
+    'contract_risk_linked',
+    'Risco vinculado',
+    'Um risco existente foi vinculado ao contrato.',
+    contractId,
+  );
 
   return data;
 }
@@ -904,6 +1296,60 @@ export async function uploadContractDocument(contractId: string, title: string, 
     entityId: contractId,
     metadata: { title, file_name: file.name, document_type: documentType },
   });
+
+  await notifyContractRecipient(
+    supabase,
+    await getContractOwnerId(supabase, contractId),
+    'contract_document_uploaded',
+    'Documento anexado',
+    `Documento "${title}" (${documentType}) anexado ao contrato.`,
+    contractId,
+  );
+
+  return data;
+}
+
+export async function updateContractDocumentStatus(
+  id: string,
+  status: ContractDocumentStatus,
+  reason?: string | null,
+): Promise<ContractDocumentRow> {
+  const { supabase, user, organizationId } = await getCurrentIdentity();
+  const patch: Record<string, unknown> = { status, updated_at: new Date().toISOString() };
+  if (status === 'approved') {
+    patch.approved_at = new Date().toISOString();
+    patch.approved_by = user.id;
+    patch.rejection_reason = null;
+  }
+  if (status === 'rejected') {
+    patch.rejection_reason = reason ?? null;
+    patch.approved_at = null;
+    patch.approved_by = null;
+  }
+  const { data, error } = await supabase
+    .from('contract_documents')
+    .update(patch)
+    .eq('id', id)
+    .select('*')
+    .single<ContractDocumentRow>();
+  if (error) throw new Error(`Erro ao atualizar status do documento: ${error.message}`);
+
+  await logAuditEvent({
+    organizationId,
+    action: status === 'approved' ? 'contract.document_approved' : status === 'rejected' ? 'contract.document_rejected' : 'contract.document_status_changed',
+    entityType: 'contract',
+    entityId: data.contract_id,
+    metadata: { document_id: id, new_status: status, reason: reason ?? null },
+  });
+
+  await notifyContractRecipient(
+    supabase,
+    await getContractOwnerId(supabase, data.contract_id),
+    status === 'approved' ? 'contract_document_approved' : status === 'rejected' ? 'contract_document_rejected' : 'contract_document_pending_approval',
+    status === 'approved' ? 'Documento aprovado' : status === 'rejected' ? 'Documento rejeitado' : 'Documento em aprovação',
+    `Documento "${data.title}" — ${status}${reason ? `: ${reason}` : ''}.`,
+    data.contract_id,
+  );
 
   return data;
 }
@@ -965,4 +1411,147 @@ export async function createRiskFromContract(contractId: string, title: string, 
   await linkContractToRisk(contractId, data.id);
 
   return data;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 2 — batched relation reads for the Contract Control Room list view.
+// All per-contract read helpers above are 1:1 with a single contract; the list
+// page needs the same data for N contracts at once. These helpers issue one
+// `.in('contract_id', ids)` query per relation (no N+1) and group the rows by
+// contract_id. Every query is resilient: a failure/absent table yields an empty
+// map for that section instead of throwing, so one missing relation never blanks
+// the page. RLS still scopes rows to the caller's organization.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type ContractRiskDetail = {
+  id: string;
+  title: string;
+  category: string;
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  status: string;
+  level: number;
+  mitigationPlan: string | null;
+};
+
+export type ContractRelationsBatch = {
+  obligations: Map<string, ContractObligationRow[]>;
+  billingEvents: Map<string, ContractBillingEventRow[]>;
+  documents: Map<string, ContractDocumentRow[]>;
+  approvals: Map<string, ContractApprovalRow[]>;
+  projectLinks: Map<string, ContractProjectLinkRow[]>;
+  riskLinks: Map<string, ContractRiskLinkRow[]>;
+  aiAnalyses: Map<string, ContractAiAnalysisRow[]>;
+  riskDetails: Map<string, ContractRiskDetail>;
+  /** True when at least one live row was returned for that relation across all contracts. */
+  sectionsWithData: {
+    obligations: boolean;
+    billing: boolean;
+    documents: boolean;
+    approvals: boolean;
+    projectLinks: boolean;
+    risks: boolean;
+    ai: boolean;
+  };
+};
+
+function groupByContract<T extends { contract_id: string }>(rows: T[]): Map<string, T[]> {
+  const map = new Map<string, T[]>();
+  for (const row of rows) {
+    const bucket = map.get(row.contract_id);
+    if (bucket) bucket.push(row);
+    else map.set(row.contract_id, [row]);
+  }
+  return map;
+}
+
+function emptyRelationsBatch(): ContractRelationsBatch {
+  return {
+    obligations: new Map(),
+    billingEvents: new Map(),
+    documents: new Map(),
+    approvals: new Map(),
+    projectLinks: new Map(),
+    riskLinks: new Map(),
+    aiAnalyses: new Map(),
+    riskDetails: new Map(),
+    sectionsWithData: {
+      obligations: false,
+      billing: false,
+      documents: false,
+      approvals: false,
+      projectLinks: false,
+      risks: false,
+      ai: false,
+    },
+  };
+}
+
+export async function fetchContractRelationsBatch(contractIds: string[]): Promise<ContractRelationsBatch> {
+  const ids = Array.from(new Set(contractIds)).filter(Boolean);
+  if (ids.length === 0) return emptyRelationsBatch();
+
+  const supabase = createClient();
+  // Each query returns [] on error/absent table so one failure never blanks the page.
+  const safe = async <T>(builder: PromiseLike<{ data: unknown; error: unknown }>): Promise<T[]> => {
+    try {
+      const { data, error } = await builder;
+      if (error) return [];
+      return (data ?? []) as T[];
+    } catch {
+      return [];
+    }
+  };
+
+  const [obligations, billingEvents, documents, approvals, projectLinks, riskLinks, aiAnalyses] = await Promise.all([
+    safe<ContractObligationRow>(supabase.from('contract_obligations').select('*').in('contract_id', ids)),
+    safe<ContractBillingEventRow>(supabase.from('contract_billing_events').select('*').in('contract_id', ids)),
+    safe<ContractDocumentRow>(supabase.from('contract_documents').select('*').in('contract_id', ids)),
+    safe<ContractApprovalRow>(supabase.from('contract_approvals').select('*').in('contract_id', ids)),
+    safe<ContractProjectLinkRow>(supabase.from('contract_project_links').select('*').in('contract_id', ids)),
+    safe<ContractRiskLinkRow>(supabase.from('contract_risks_links').select('*').in('contract_id', ids)),
+    safe<ContractAiAnalysisRow>(supabase.from('contract_ai_analyses').select('*').in('contract_id', ids)),
+  ]);
+
+  const riskIds = Array.from(new Set(riskLinks.map((link) => link.risk_id))).filter(Boolean);
+  const riskRows = riskIds.length
+    ? await safe<{ id: string; title: string | null; category: string | null; severity: string | null; status: string | null; level: number | string | null; mitigation_plan: string | null }>(
+        supabase.from('risks').select('id,title,category,severity,status,level,mitigation_plan').in('id', riskIds),
+      )
+    : [];
+
+  const riskDetails = new Map<string, ContractRiskDetail>();
+  for (const row of riskRows) {
+    const severity = (['low', 'medium', 'high', 'critical'] as const).includes(row.severity as never)
+      ? (row.severity as ContractRiskDetail['severity'])
+      : 'medium';
+    riskDetails.set(row.id, {
+      id: row.id,
+      title: row.title ?? 'Risco vinculado',
+      category: row.category ?? 'Geral',
+      severity,
+      status: row.status ?? 'open',
+      level: toNumber(row.level),
+      mitigationPlan: row.mitigation_plan ?? null,
+    });
+  }
+
+  return {
+    obligations: groupByContract(obligations),
+    billingEvents: groupByContract(billingEvents),
+    documents: groupByContract(documents),
+    approvals: groupByContract(approvals),
+    projectLinks: groupByContract(projectLinks),
+    riskLinks: groupByContract(riskLinks),
+    aiAnalyses: groupByContract(aiAnalyses),
+    riskDetails,
+    sectionsWithData: {
+      obligations: obligations.length > 0,
+      billing: billingEvents.length > 0,
+      documents: documents.length > 0,
+      approvals: approvals.length > 0,
+      projectLinks: projectLinks.length > 0,
+      risks: riskLinks.length > 0,
+      ai: aiAnalyses.length > 0,
+    },
+  };
 }

@@ -37,6 +37,12 @@ function statusVariant(status: string) {
   return status === 'active' || status === 'signed' ? 'active' : status === 'expired' || status === 'cancelled' ? 'critical' : 'warning';
 }
 
+const aiStatusMeta: Record<ContractGovernanceRecord['aiStatus'], { label: string; variant: 'neutral' | 'info' | 'warning' }> = {
+  mock_pending: { label: 'IA pendente', variant: 'neutral' },
+  mock_ready: { label: 'IA analisada', variant: 'info' },
+  manual_review: { label: 'Revisão manual', variant: 'warning' },
+};
+
 export interface ContractCardProps {
   record: ContractGovernanceRecord;
   active?: boolean;
@@ -62,8 +68,12 @@ export function ContractCard({ record, active = false, onSelect, onView, onDelet
           onSelect(record);
         }
       }}
-      className="group relative h-full text-left outline-none"
+      className="group relative h-full rounded-[22px] text-left outline-none focus-visible:shadow-[var(--ig-focus-ring-outer)]"
     >
+      {/* Selected state: accent edge rail + soft glow — echoes the dossier drawer hero */}
+      {active && (
+        <span className="pointer-events-none absolute inset-y-5 left-0 z-10 w-[2.5px] rounded-full bg-ig-accent shadow-[0_0_14px_var(--ig-accent)]" />
+      )}
       {onDelete && (
         <button
           type="button"
@@ -82,7 +92,11 @@ export function ContractCard({ record, active = false, onSelect, onView, onDelet
         interactive
         sweep
         elevation={active ? 2 : 1}
-        className={`flex h-full flex-col transition-all ${active ? 'ring-1 ring-ig-accent/45' : ''}`}
+        className={`flex h-full flex-col transition-all ${
+          active
+            ? 'rounded-[22px] ring-1 ring-ig-accent/30 shadow-[0_14px_36px_-18px_color-mix(in_oklab,var(--ig-accent)_55%,transparent)]'
+            : ''
+        }`}
       >
         {/* Header */}
         <div className="flex items-start justify-between gap-3">
@@ -153,6 +167,9 @@ export function ContractCard({ record, active = false, onSelect, onView, onDelet
             <HudStatusPill variant={statusVariant(record.contract.status)} size="sm">
               {statusLabels[record.contract.status] ?? record.contract.status}
             </HudStatusPill>
+            <HudBadge variant={aiStatusMeta[record.aiStatus].variant} size="sm">
+              {aiStatusMeta[record.aiStatus].label}
+            </HudBadge>
             {record.missingDocuments.length > 0 && (
               <HudBadge variant="warning" size="sm">{record.missingDocuments.length} docs</HudBadge>
             )}
@@ -177,10 +194,10 @@ export function ContractCard({ record, active = false, onSelect, onView, onDelet
                   event.stopPropagation();
                   onView(record);
                 }}
-                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-ig-label font-semibold text-ig-accent transition-colors hover:bg-ig-accent-weak hover:text-ig-accent-strong"
+                className="inline-flex items-center gap-1 rounded-md border border-transparent px-2 py-1 text-ig-label font-semibold text-ig-accent transition-colors hover:bg-ig-accent-weak hover:text-ig-accent-strong group-hover:border-ig-accent/25"
               >
                 Dossiê
-                <ArrowRight className="h-3.5 w-3.5" />
+                <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
               </button>
             )}
           </div>

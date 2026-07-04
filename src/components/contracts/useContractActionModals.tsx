@@ -18,15 +18,30 @@ import type { Project } from '@/lib/types';
 import type { ContractGovernanceRecord } from './contract-governance-data';
 import {
   linkContractToProject,
+  linkContractToRisk,
   createAgendaTaskForContract,
   createRiskFromContract,
   uploadContractDocument,
   updateContract,
   submitContractApproval,
+  requestContractApprovalChanges,
 } from '@/lib/contracts/contract-service';
 import { format } from 'date-fns';
 
-type ActionKind = 'link' | 'task' | 'risk' | 'doc' | 'legal';
+type ActionKind = 'link' | 'task' | 'risk' | 'doc' | 'legal' | 'approve' | 'linkRisk';
+
+const APPROVAL_STEPS = [
+  { value: 'juridico', label: 'Jurídico' },
+  { value: 'financeiro', label: 'Financeiro' },
+  { value: 'comite', label: 'Comitê' },
+  { value: 'diretoria', label: 'Diretoria' },
+];
+
+const APPROVAL_DECISIONS = [
+  { value: 'approved', label: 'Aprovar etapa' },
+  { value: 'rejected', label: 'Rejeitar etapa' },
+  { value: 'changes', label: 'Solicitar ajustes' },
+];
 
 const DOC_TYPES = [
   { value: 'contract', label: 'Contrato assinado' },
@@ -56,13 +71,17 @@ export interface ContractActions {
   createRisk: (record: ContractGovernanceRecord) => void;
   attachDocument: (record: ContractGovernanceRecord) => void;
   sendToLegal: (record: ContractGovernanceRecord) => void;
+  reviewApproval: (record: ContractGovernanceRecord) => void;
+  linkExistingRisk: (record: ContractGovernanceRecord) => void;
 }
 
 export function useContractActionModals({
   projects,
+  risks = [],
   onRefresh,
 }: {
   projects: Project[];
+  risks?: { id: string; title: string }[];
   onRefresh: () => Promise<void> | void;
 }): { actions: ContractActions; modals: React.ReactNode } {
   const { notify } = useHudToast();
@@ -81,6 +100,10 @@ export function useContractActionModals({
   const [docType, setDocType] = useState('insurance');
   const [docFile, setDocFile] = useState<File | null>(null);
   const [legalNote, setLegalNote] = useState('');
+  const [approvalStep, setApprovalStep] = useState('juridico');
+  const [approvalDecision, setApprovalDecision] = useState('approved');
+  const [approvalReason, setApprovalReason] = useState('');
+  const [linkRiskId, setLinkRiskId] = useState('');
 
   const open = (next: ActionKind, target: ContractGovernanceRecord) => {
     setRecord(target);
@@ -95,6 +118,10 @@ export function useContractActionModals({
     setDocType('insurance');
     setDocFile(null);
     setLegalNote('Solicitação de revisão jurídica manual.');
+    setApprovalStep('juridico');
+    setApprovalDecision('approved');
+    setApprovalReason('');
+    setLinkRiskId('');
     setKind(next);
   };
 
@@ -110,6 +137,8 @@ export function useContractActionModals({
     createRisk: (target) => open('risk', target),
     attachDocument: (target) => open('doc', target),
     sendToLegal: (target) => open('legal', target),
+    reviewApproval: (target) => open('approve', target),
+    linkExistingRisk: (target) => open('linkRisk', target),
   };
 
   async function run(task: () => Promise<void>, successTitle: string, successMessage: string) {
@@ -186,12 +215,52 @@ export function useContractActionModals({
     }, 'Enviado ao jurídico', 'Contrato encaminhado para o fluxo de revisão jurídica.');
   };
 
+  const submitApprove = () => {
+    if (!record) return;
+    const needsReason = approvalDecision === 'rejected' || approvalDecision === 'changes';
+    if (needsReason && !approvalReason.trim()) return; // reason required for rejection / changes
+    const stepLabel = APPROVAL_STEPS.find((s) => s.value === approvalStep)?.label ?? approvalStep;
+    if (approvalDecision === 'changes') {
+      run(
+        () => requestContractApprovalChanges(record.contract.id, approvalStep, approvalReason.trim()).then(() => undefined),
+        'Ajustes solicitados',
+        `Ajustes solicitados na etapa ${stepLabel} do contrato ${record.code}.`,
+      );
+      return;
+    }
+    const rejecting = approvalDecision === 'rejected';
+    run(
+      () =>
+        submitContractApproval(
+          record.contract.id,
+          approvalStep,
+          approvalDecision,
+          approvalReason.trim() || null,
+          rejecting ? approvalReason.trim() : null,
+        ).then(() => undefined),
+      rejecting ? 'Etapa rejeitada' : 'Etapa aprovada',
+      `Etapa ${stepLabel} ${rejecting ? 'rejeitada' : 'aprovada'} para o contrato ${record.code}.`,
+    );
+  };
+
+  const submitLinkRisk = () => {
+    if (!record || !linkRiskId) return;
+    const risk = risks.find((r) => r.id === linkRiskId);
+    run(
+      () => linkContractToRisk(record.contract.id, linkRiskId).then(() => undefined),
+      'Risco vinculado',
+      `Risco "${risk?.title ?? ''}" vinculado ao contrato.`,
+    );
+  };
+
   const submitByKind: Record<ActionKind, () => void> = {
     link: submitLink,
     task: submitTask,
     risk: submitRisk,
     doc: submitDoc,
     legal: submitLegal,
+    approve: submitApprove,
+    linkRisk: submitLinkRisk,
   };
 
   const titles: Record<ActionKind, { title: string; cta: string }> = {
@@ -200,6 +269,8 @@ export function useContractActionModals({
     risk: { title: 'Criar risco contratual', cta: 'Criar risco' },
     doc: { title: 'Anexar documento', cta: 'Anexar' },
     legal: { title: 'Enviar para revisão jurídica', cta: 'Enviar' },
+    approve: { title: 'Revisar etapa de aprovação', cta: approvalDecision === 'rejected' ? 'Rejeitar' : approvalDecision === 'changes' ? 'Solicitar' : 'Aprovar' },
+    linkRisk: { title: 'Vincular risco existente', cta: 'Vincular risco' },
   };
 
   const textareaClass =
@@ -288,6 +359,45 @@ export function useContractActionModals({
             <label className="text-[11px] font-medium uppercase tracking-wider hud-label">Observação</label>
             <textarea className={textareaClass} rows={3} value={legalNote} onChange={(e) => setLegalNote(e.target.value)} />
           </div>
+        </div>
+      )}
+
+      {kind === 'approve' && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <HudSelect label="Etapa" value={approvalStep} onChange={setApprovalStep} options={APPROVAL_STEPS} />
+            <HudSelect label="Decisão" value={approvalDecision} onChange={setApprovalDecision} options={APPROVAL_DECISIONS} />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[11px] font-medium uppercase tracking-wider hud-label">
+              {approvalDecision === 'rejected' ? 'Motivo da rejeição (obrigatório)' : approvalDecision === 'changes' ? 'Ajustes solicitados (obrigatório)' : 'Comentário (opcional)'}
+            </label>
+            <textarea
+              className={textareaClass}
+              rows={3}
+              value={approvalReason}
+              onChange={(e) => setApprovalReason(e.target.value)}
+              placeholder={approvalDecision === 'rejected' ? 'Descreva o motivo da rejeição' : approvalDecision === 'changes' ? 'Descreva os ajustes necessários' : 'Observação da análise'}
+            />
+          </div>
+          <p className="text-[11px] text-ig-fg-muted">A decisão é registrada em auditoria e atualiza o fluxo de aprovação do contrato.</p>
+        </div>
+      )}
+
+      {kind === 'linkRisk' && (
+        <div className="space-y-4">
+          {risks.length === 0 ? (
+            <p className="text-sm text-ig-fg-muted">Nenhum risco disponível para vincular. Crie um risco a partir do contrato.</p>
+          ) : (
+            <HudSelect
+              label="Risco existente"
+              value={linkRiskId}
+              onChange={setLinkRiskId}
+              placeholder="Selecione um risco"
+              options={risks.slice(0, 200).map((r) => ({ value: r.id, label: r.title }))}
+            />
+          )}
+          <p className="text-[11px] text-ig-fg-muted">Cria um vínculo em contract_risks_links; o risco continua no módulo de Riscos.</p>
         </div>
       )}
     </HudModal>

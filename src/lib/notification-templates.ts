@@ -398,9 +398,87 @@ export function validateRenderedTemplate(rendered: { [key: string]: string }) {
   return { valid: true };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Contract lifecycle templates (Phase 6). In-app notifications are sent inline
+// via the create_notification RPC (title/body), so these email/whatsapp templates
+// exist for when the outbound email flow is wired to contract events. Variables:
+// {{contractCode}} {{contractTitle}} {{actionNeeded}} {{dueDate}} {{actor}} {{contractLink}}
+// ─────────────────────────────────────────────────────────────────────────────
+function contractTemplate(subjectSuffix: string, bodyLine: string) {
+  return {
+    email: {
+      subject: `[Contratos Insight] ${subjectSuffix}: {{contractCode}}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <div style="background: linear-gradient(135deg, #0F766E 0%, #14B8A6 100%); padding: 28px; text-align: center;">
+            <h1 style="color: white; margin: 0;">Insight — Contratos</h1>
+          </div>
+          <div style="padding: 28px; background: #f9f9f9;">
+            <p style="font-size: 16px; color: #444;">${bodyLine}</p>
+            <div style="background: white; padding: 18px; border-left: 4px solid #0F766E; margin: 18px 0;">
+              <h3 style="margin: 0 0 6px; color: #0F766E;">{{contractCode}} — {{contractTitle}}</h3>
+              <p style="color: #666; font-size: 14px; margin: 0;">
+                <strong>Ação:</strong> {{actionNeeded}}<br>
+                <strong>Prazo:</strong> {{dueDate}}<br>
+                <strong>Responsável:</strong> {{actor}}
+              </p>
+            </div>
+            <div style="text-align: center; margin: 26px 0;">
+              <a href="{{contractLink}}" style="background: #0F766E; color: white; padding: 13px 36px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: bold;">Abrir contrato</a>
+            </div>
+          </div>
+        </div>
+      `,
+      text: `${bodyLine}\n\nContrato: {{contractCode}} — {{contractTitle}}\nAção: {{actionNeeded}}\nPrazo: {{dueDate}}\nResponsável: {{actor}}\nAbrir: {{contractLink}}`,
+    },
+    whatsapp: {
+      text: `📄 ${subjectSuffix}: *{{contractCode}}*\n{{actionNeeded}}\n{{contractLink}}`,
+    },
+  };
+}
+
+export const CONTRACT_NOTIFICATION_TEMPLATES = {
+  contract_document_required: contractTemplate('Documento obrigatório pendente', 'Um documento obrigatório está pendente neste contrato.'),
+  contract_document_uploaded: contractTemplate('Documento anexado', 'Um documento foi anexado ao contrato.'),
+  contract_document_pending_approval: contractTemplate('Documento em aprovação', 'Um documento entrou no fluxo de aprovação.'),
+  contract_document_approved: contractTemplate('Documento aprovado', 'Um documento do contrato foi aprovado.'),
+  contract_document_rejected: contractTemplate('Documento rejeitado', 'Um documento do contrato foi rejeitado.'),
+  contract_document_expiring: contractTemplate('Documento a vencer', 'Um documento do contrato está próximo do vencimento.'),
+  contract_document_expired: contractTemplate('Documento vencido', 'Um documento do contrato venceu.'),
+  contract_billing_event_created: contractTemplate('Evento de faturamento criado', 'Um novo evento de faturamento foi registrado.'),
+  contract_billing_event_due: contractTemplate('Faturamento a vencer', 'Um evento de faturamento está próximo do vencimento.'),
+  contract_billing_event_overdue: contractTemplate('Faturamento em atraso', 'Um evento de faturamento está atrasado.'),
+  contract_billing_event_realized: contractTemplate('Faturamento realizado', 'Um evento de faturamento foi marcado como realizado.'),
+  contract_obligation_assigned: contractTemplate('Obrigação atribuída', 'Você foi designado responsável por uma obrigação contratual.'),
+  contract_obligation_due: contractTemplate('Obrigação a vencer', 'Uma obrigação contratual está próxima do prazo.'),
+  contract_obligation_overdue: contractTemplate('Obrigação em atraso', 'Uma obrigação contratual está atrasada.'),
+  contract_obligation_completed: contractTemplate('Obrigação concluída', 'Uma obrigação contratual foi concluída.'),
+  contract_review_requested: contractTemplate('Revisão solicitada', 'Foi solicitada a revisão de uma etapa do contrato.'),
+  contract_approval_approved: contractTemplate('Etapa aprovada', 'Uma etapa de aprovação do contrato foi aprovada.'),
+  contract_approval_rejected: contractTemplate('Etapa rejeitada', 'Uma etapa de aprovação do contrato foi rejeitada.'),
+  contract_changes_requested: contractTemplate('Ajustes solicitados', 'Foram solicitados ajustes em uma etapa do contrato.'),
+  contract_renewal_due: contractTemplate('Renovação a vencer', 'A renovação deste contrato está próxima.'),
+  contract_expiring_soon: contractTemplate('Contrato a vencer', 'Este contrato está próximo do vencimento.'),
+  contract_expired: contractTemplate('Contrato vencido', 'Este contrato venceu.'),
+  contract_risk_created: contractTemplate('Risco criado', 'Um risco foi criado a partir do contrato.'),
+  contract_risk_linked: contractTemplate('Risco vinculado', 'Um risco foi vinculado ao contrato.'),
+  contract_project_linked: contractTemplate('Projeto vinculado', 'Um projeto foi vinculado ao contrato.'),
+  project_created_from_contract: contractTemplate('Projeto criado', 'Um projeto foi criado a partir do contrato.'),
+} as const;
+
+// Register under pt-BR so getTemplate() resolves contract events once email is wired.
+Object.assign((NOTIFICATION_TEMPLATES as { 'pt-BR': Record<string, unknown> })['pt-BR'], CONTRACT_NOTIFICATION_TEMPLATES);
+
+/** Typed accessor for contract templates (channel-aware). */
+export function getContractTemplate(eventType: keyof typeof CONTRACT_NOTIFICATION_TEMPLATES, channel: 'email' | 'whatsapp') {
+  return CONTRACT_NOTIFICATION_TEMPLATES[eventType]?.[channel] ?? null;
+}
+
 export default {
   getTemplate,
   renderTemplate,
   validateRenderedTemplate,
-  NOTIFICATION_TEMPLATES
+  NOTIFICATION_TEMPLATES,
+  CONTRACT_NOTIFICATION_TEMPLATES,
+  getContractTemplate,
 };

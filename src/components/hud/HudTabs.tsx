@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 
 export interface HudTab {
@@ -35,6 +35,48 @@ export function HudTabs({
 }: HudTabsProps) {
   const [internalActiveTab, setInternalActiveTab] = useState(defaultTab || tabs[0]?.id);
   const activeTab = controlledActiveTab ?? internalActiveTab;
+
+  // Fade-edge hint for the horizontally scrollable tab list. A mask (not a
+  // colored overlay) fades the clipped side, so it works over any surface in
+  // both themes without layout shift.
+  const listRef = useRef<HTMLDivElement>(null);
+  const [fade, setFade] = useState({ left: false, right: false });
+
+  const updateFade = useCallback(() => {
+    const el = listRef.current;
+    if (!el) return;
+    const left = el.scrollLeft > 4;
+    const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 4;
+    setFade((prev) => (prev.left === left && prev.right === right ? prev : { left, right }));
+  }, []);
+
+  useEffect(() => {
+    updateFade();
+    const el = listRef.current;
+    if (!el) return;
+    el.addEventListener('scroll', updateFade, { passive: true });
+    const observer = new ResizeObserver(updateFade);
+    observer.observe(el);
+    return () => {
+      el.removeEventListener('scroll', updateFade);
+      observer.disconnect();
+    };
+  }, [updateFade, tabs.length]);
+
+  // Keep the active tab visible when it changes while the list is scrolled.
+  useEffect(() => {
+    const el = listRef.current?.querySelector<HTMLElement>('[data-tab-active]');
+    el?.scrollIntoView({ inline: 'nearest', block: 'nearest' });
+  }, [activeTab]);
+
+  const maskImage =
+    fade.left && fade.right
+      ? 'linear-gradient(to right, transparent, black 28px, black calc(100% - 28px), transparent)'
+      : fade.left
+        ? 'linear-gradient(to right, transparent, black 28px)'
+        : fade.right
+          ? 'linear-gradient(to right, black calc(100% - 28px), transparent)'
+          : undefined;
 
   const handleTabChange = (tabId: string) => {
     if (controlledActiveTab === undefined) {
@@ -71,11 +113,19 @@ export function HudTabs({
 
   return (
     <div className={className}>
-      {/* Tab List */}
-      <div className={cn('flex items-center', styles.list)}>
+      {/* Tab List — scrolls horizontally instead of squishing when there are many tabs */}
+      <div
+        ref={listRef}
+        style={{ maskImage, WebkitMaskImage: maskImage }}
+        className={cn(
+          'flex items-center overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+          styles.list,
+        )}
+      >
         {tabs.map((tab) => (
           <button
             key={tab.id}
+            data-tab-active={activeTab === tab.id || undefined}
             onClick={() => !tab.disabled && handleTabChange(tab.id)}
             disabled={tab.disabled}
             className={cn(
@@ -83,7 +133,7 @@ export function HudTabs({
               sizeStyles,
               activeTab === tab.id ? styles.active : styles.inactive,
               tab.disabled && 'opacity-50 cursor-not-allowed',
-              'flex items-center gap-2'
+              'flex shrink-0 items-center gap-2 whitespace-nowrap'
             )}
           >
             {tab.icon}
