@@ -322,7 +322,7 @@ export function BrazilOperationalGlobe({
             border: 1px solid rgba(100, 120, 115, 0.5);
             border-radius: 8px;
             padding: 8px 12px;
-            font-family: system-ui, sans-serif;
+            font-family: var(--font-gilroy);
             pointer-events: none;
           ">
             <div style="color: rgba(255,255,255,0.7); font-weight: 500; font-size: 13px;">
@@ -341,7 +341,7 @@ export function BrazilOperationalGlobe({
           border: 1px solid ${RISK_COLORS[stateData.riskLevel]};
           border-radius: 10px;
           padding: 10px 14px;
-          font-family: system-ui, sans-serif;
+          font-family: var(--font-gilroy);
           box-shadow: 0 0 15px ${RISK_COLORS[stateData.riskLevel]}30;
           pointer-events: none;
         ">

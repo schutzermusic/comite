@@ -24,6 +24,14 @@ interface WorkforceOverviewCardsProps {
   meta?: WorkforcePeriodMeta;
   extended?: ExtendedKpiProps;
   className?: string;
+  /** Torna cada KPI clicável (padrão Contratos) — o pai decide a ação por id. */
+  onKpiClick?: (id: string) => void;
+}
+
+/** Anexa o clique do KPI (padrão Contratos) quando o pai fornece o handler. */
+function withKpiClick(kpis: KpiItem[], onKpiClick?: (id: string) => void): KpiItem[] {
+  if (!onKpiClick) return kpis;
+  return kpis.map((kpi) => ({ ...kpi, onClick: () => onKpiClick(kpi.id) }));
 }
 
 function makeDelta(
@@ -48,7 +56,7 @@ function KpiGroupDivider({ label }: { label: string }) {
   );
 }
 
-export function WorkforceOverviewCards({ data, meta, extended = {}, className }: WorkforceOverviewCardsProps) {
+export function WorkforceOverviewCards({ data, meta, extended = {}, className, onKpiClick }: WorkforceOverviewCardsProps) {
   const hasComparison = meta ? meta.hasComparison : true;
   const comparisonLabel = meta?.comparisonLabel || 'vs mês anterior';
 
@@ -159,13 +167,13 @@ export function WorkforceOverviewCards({ data, meta, extended = {}, className }:
       {/* Row 1 — Financial & Efficiency */}
       <div className="space-y-1.5">
         <KpiGroupDivider label="Financeiro & Eficiência" />
-        <HudKpiStrip kpis={primaryKpis} columns={4} />
+        <HudKpiStrip kpis={withKpiClick(primaryKpis, onKpiClick)} columns={4} />
       </div>
 
       {/* Row 2 — Risk & Composition */}
       <div className="space-y-1.5">
         <KpiGroupDivider label="Risco & Composição" />
-        <HudKpiStrip kpis={riskKpis} columns={4} />
+        <HudKpiStrip kpis={withKpiClick(riskKpis, onKpiClick)} columns={4} />
       </div>
     </div>
   );

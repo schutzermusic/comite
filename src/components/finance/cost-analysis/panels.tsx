@@ -99,9 +99,9 @@ export function RankPanel({
                   {r.meta && <span className="block truncate text-[10.5px] leading-tight text-ig-text-tertiary" title={r.meta}>{r.meta}</span>}
                 </span>
                 <span className="relative flex shrink-0 items-center gap-2">
-                  <span className="font-mono text-[11px] tabular-nums text-ig-text-secondary" title={fmtBRL(r.value)}>{fmtCompactBRL(r.value)}</span>
+                  <span className="text-[11px] tabular-nums text-ig-text-secondary" title={fmtBRL(r.value)}>{fmtCompactBRL(r.value)}</span>
                   <span
-                    className="w-12 text-right font-mono text-[10px] tabular-nums text-ig-text-tertiary"
+                    className="w-12 text-right text-[10px] tabular-nums text-ig-text-tertiary"
                     title={pareto ? `${(r.share * 100).toFixed(1)}% · acum. ${(cumPct * 100).toFixed(0)}%` : `${(r.share * 100).toFixed(1)}%`}
                   >
                     {pareto ? `Σ${(cumPct * 100).toFixed(0)}%` : `${(r.share * 100).toFixed(1)}%`}
@@ -295,13 +295,13 @@ export function EntryTable({
           )}
           {rows.map((e) => (
             <tr key={e.id} className="border-b border-ig-border-subtle/40 hover:bg-ig-surface-subtle/30">
-              <td className="whitespace-nowrap px-4 py-2 font-mono text-[11px] text-ig-text-secondary">{e.date}</td>
+              <td className="whitespace-nowrap px-4 py-2 tabular-nums text-[11px] text-ig-text-secondary">{e.date}</td>
               <td className="max-w-[280px] truncate px-4 py-2 text-ig-text-primary" title={e.description}>{e.description}</td>
               <td className="max-w-[160px] truncate px-4 py-2 text-ig-text-secondary" title={e.categoryName}>{e.categoryName}</td>
               <td className="max-w-[160px] truncate px-4 py-2 text-ig-text-secondary" title={e.subcategoryName}>{e.subcategoryName}</td>
               <td className="max-w-[160px] truncate px-4 py-2 text-ig-text-secondary" title={e.projectName || undefined}>{e.projectName || '—'}</td>
               <td className="max-w-[160px] truncate px-4 py-2 text-ig-text-secondary" title={e.supplierName || undefined}>{e.supplierName || '—'}</td>
-              <td className="whitespace-nowrap px-4 py-2 text-right font-mono tabular-nums text-ig-text-primary">{fmtBRL(e.value)}</td>
+              <td className="whitespace-nowrap px-4 py-2 text-right tabular-nums text-ig-text-primary">{fmtBRL(e.value)}</td>
             </tr>
           ))}
         </tbody>
@@ -329,7 +329,7 @@ export function EntryTable({
         >
           <ChevronRight className={cn('h-4 w-4 shrink-0 text-ig-text-tertiary transition-transform', open && 'rotate-90 text-ig-accent')} />
           <HudCardTitle className="min-w-0 truncate">{title}</HudCardTitle>
-          <span className="shrink-0 rounded-full bg-ig-surface-subtle/60 px-2 py-0.5 font-mono text-[10px] tabular-nums text-ig-text-secondary">
+          <span className="shrink-0 rounded-full bg-ig-surface-subtle/60 px-2 py-0.5 text-[10px] tabular-nums text-ig-text-secondary">
             {total} {total === 1 ? 'linha' : 'linhas'}
           </span>
           <span className="shrink-0 text-[10.5px] text-ig-text-tertiary transition-colors group-hover:text-ig-text-secondary">
@@ -369,7 +369,7 @@ export function MiniStat({
     <HudCard className="h-full min-w-0">
       <HudCardContent className="p-3">
         <p className="truncate text-[10px] uppercase tracking-[0.12em] text-ig-text-tertiary" title={label}>{label}</p>
-        <p className={`mt-1 truncate font-mono text-[15px] tabular-nums ${toneCls}`} title={value}>{value}</p>
+        <p className={`mt-1 truncate text-[15px] tabular-nums ${toneCls}`} title={value}>{value}</p>
         {helper && <p className="mt-0.5 truncate text-[10px] text-ig-text-tertiary" title={helper}>{helper}</p>}
       </HudCardContent>
     </HudCard>
@@ -394,7 +394,7 @@ export function ChartLegend({ items }: { items: LegendItem[] }) {
               <span aria-hidden className="inline-block h-2.5 w-2.5 shrink-0 rounded-[3px]" style={{ background: color, boxShadow: `0 0 6px ${color}66` }} />
             )}
             <span className="truncate text-ig-text-secondary" title={it.name}>{it.name}</span>
-            {it.value && <span className="font-mono tabular-nums text-ig-text-tertiary">{it.value}</span>}
+            {it.value && <span className="tabular-nums text-ig-text-tertiary">{it.value}</span>}
           </span>
         );
       })}
@@ -495,7 +495,7 @@ export function WaterfallPanel({ title, steps, height = 300, emptyLabel = 'Sem v
                     <span key={`${d.label}-${i}`} className="inline-flex min-w-0 items-center gap-1.5 text-[11px]">
                       <span aria-hidden className={cn('inline-block h-2.5 w-2.5 shrink-0 rounded-[3px]', up ? 'bg-ig-danger' : 'bg-ig-success')} />
                       <span className="truncate text-ig-text-secondary" title={d.label}>{d.label}</span>
-                      <span className={cn('font-mono tabular-nums', up ? 'text-ig-danger' : 'text-ig-success')}>
+                      <span className={cn('tabular-nums', up ? 'text-ig-danger' : 'text-ig-success')}>
                         {up ? '+' : '−'}{fmtCompactBRL(Math.abs(d.value))}
                       </span>
                     </span>
@@ -550,7 +550,7 @@ export function HeatmapPanel({ title, data, accent = '#14B8A6', emptyLabel = 'Se
                         return (
                           <td
                             key={ci}
-                            className="h-8 min-w-[52px] rounded border text-center align-middle font-mono text-[10px] tabular-nums"
+                            className="h-8 min-w-[52px] rounded border text-center align-middle text-[10px] tabular-nums"
                             style={{
                               background: v > 0 ? `color-mix(in oklab, ${accent} ${fill}%, transparent)` : 'transparent',
                               borderColor: v > 0 ? `color-mix(in oklab, ${accent} ${Math.min(100, fill + 16)}%, transparent)` : 'var(--ig-border-subtle)',
@@ -572,7 +572,7 @@ export function HeatmapPanel({ title, data, accent = '#14B8A6', emptyLabel = 'Se
               <span>menor</span>
               <span className="inline-flex h-2.5 w-24 rounded" style={{ background: `linear-gradient(90deg, color-mix(in oklab, ${accent} 18%, transparent), ${accent})` }} />
               <span>maior</span>
-              <span className="ml-auto font-mono tabular-nums">máx {fmtCompactBRL(max)}</span>
+              <span className="ml-auto tabular-nums">máx {fmtCompactBRL(max)}</span>
             </div>
           </>
         )}
@@ -613,8 +613,8 @@ export function ListPanel({ title, rows, emptyLabel = 'Sem registros no recorte.
                 {r.meta && <span className="block truncate text-[10.5px] leading-tight text-ig-text-tertiary" title={r.meta}>{r.meta}</span>}
               </span>
               <span className="flex shrink-0 items-center gap-2">
-                {r.badge && <span className="rounded bg-ig-surface-subtle/60 px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-ig-text-tertiary">{r.badge}</span>}
-                <span className="font-mono text-[11px] tabular-nums text-ig-text-secondary" title={fmtBRL(r.value)}>{fmtCompactBRL(r.value)}</span>
+                {r.badge && <span className="rounded bg-ig-surface-subtle/60 px-1.5 py-0.5 text-[10px] tabular-nums text-ig-text-tertiary">{r.badge}</span>}
+                <span className="text-[11px] tabular-nums text-ig-text-secondary" title={fmtBRL(r.value)}>{fmtCompactBRL(r.value)}</span>
               </span>
             </div>
           ))}
@@ -635,7 +635,7 @@ export function DeltaPill({ value, invert = false }: { value?: number; invert?: 
   const cls = value === 0 ? 'text-ig-text-tertiary' : good ? 'text-ig-success' : 'text-ig-danger';
   const Icon = value === 0 ? Minus : up ? TrendingUp : TrendingDown;
   return (
-    <span className={cn('inline-flex items-center gap-0.5 rounded-full bg-ig-surface-subtle/60 px-1.5 py-0.5 font-mono text-[10px] tabular-nums', cls)}>
+    <span className={cn('inline-flex items-center gap-0.5 rounded-full bg-ig-surface-subtle/60 px-1.5 py-0.5 text-[10px] tabular-nums', cls)}>
       <Icon className="h-3 w-3" /> {fmtPct(value)}
     </span>
   );
@@ -667,7 +667,7 @@ export function KpiSparkCard({ kpi }: { kpi: SparkKpi }) {
           <p className="min-w-0 truncate text-[10px] font-medium uppercase tracking-[0.12em] text-ig-text-tertiary" title={kpi.label}>{kpi.label}</p>
           <DeltaPill value={kpi.delta} invert={kpi.invertDelta} />
         </div>
-        <p className="min-w-0 truncate font-mono text-[16px] leading-tight tabular-nums text-ig-text-primary" title={kpi.value}>{kpi.value}</p>
+        <p className="min-w-0 truncate text-[16px] leading-tight tabular-nums text-ig-text-primary" title={kpi.value}>{kpi.value}</p>
         {kpi.helper && <p className="min-w-0 truncate text-[10px] text-ig-text-tertiary" title={kpi.helper}>{kpi.helper}</p>}
         {hasSpark && (
           <div className="mt-auto h-8 pt-2">
@@ -694,7 +694,7 @@ export function MoMBadge({ momPct }: { momPct?: number }) {
   if (momPct === undefined) return null;
   const up = momPct >= 0;
   return (
-    <span className={cn('font-mono text-[11px] tabular-nums', up ? 'text-ig-danger' : 'text-ig-success')}>
+    <span className={cn('text-[11px] tabular-nums', up ? 'text-ig-danger' : 'text-ig-success')}>
       {fmtPct(momPct)} m/m
     </span>
   );

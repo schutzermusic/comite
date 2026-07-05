@@ -389,6 +389,15 @@ function WorkforceCostPageInner() {
             directPayrollPct: directPct,
             indirectPayrollPct: indirectPct,
           }}
+          onKpiClick={(id) => {
+            // KPI clicável leva à seção com o detalhe correspondente.
+            const target =
+              id === 'payroll' ? 'wf-folha'
+                : id === 'headcount' || id === 'clt-pj' || id === 'turnover' || id === 'overtime' ? 'wf-headcount'
+                  : id === 'payroll-rev' ? 'wf-risco'
+                    : 'wf-eficiencia';
+            document.getElementById(target)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }}
         />
       </section>
 
@@ -408,7 +417,7 @@ function WorkforceCostPageInner() {
       </section>
 
       {/* ── B. Payroll Evolution + S-Curve ── */}
-      <section className="space-y-3">
+      <section id="wf-folha" className="space-y-3">
         <SectionHeader title="Evolução da Folha" subtitle="Tendência, composição salarial, Curva S acumulada e comparativo com receita" />
         <PayrollEvolutionPanel
           composition={composition}
@@ -450,7 +459,7 @@ function WorkforceCostPageInner() {
       )}
 
       {/* ── D. Headcount Dynamics ── */}
-      <section className="space-y-3">
+      <section id="wf-headcount" className="space-y-3">
         <SectionHeader title="Dinâmica de Headcount" subtitle="Admissões, desligamentos, turnover, absenteísmo e horas extras" />
         <HeadcountDynamicsPanel
           admissions={admissions}
@@ -467,7 +476,7 @@ function WorkforceCostPageInner() {
       </section>
 
       {/* ── F. Efficiency & Productivity ── */}
-      <section className="space-y-3">
+      <section id="wf-eficiencia" className="space-y-3">
         <SectionHeader title="Eficiência & Produtividade" subtitle="Receita por colaborador, custo médio e índice folha/receita ao longo do tempo" />
         <WorkforceEfficiencyPanel
           data={efficiency}
@@ -476,7 +485,7 @@ function WorkforceCostPageInner() {
       </section>
 
       {/* ── G. Payroll Risk + Trend ── */}
-      <section className="space-y-3">
+      <section id="wf-risco" className="space-y-3">
         <SectionHeader title="Risco de Folha & Tendência" subtitle="Score de risco, evolução histórica e comparativo payroll vs receita" />
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
           <PayrollRiskIndicator data={workforce.payrollRisk} />

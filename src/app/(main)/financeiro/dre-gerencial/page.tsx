@@ -50,13 +50,18 @@ export default function DreGerencialPage() {
     return { rl, mb, ebitda, liq, ebitdaVar: variancePct(ebitda, ebitdaBudget) };
   }, []);
 
+  // KPIs clicáveis (padrão Contratos): abrem o drawer da linha do DRE correspondente;
+  // clicar de novo fecha.
+  const toggleLine = (key: string) =>
+    setSelected((current) => (current?.key === key ? null : DATA.find((l) => l.key === key) ?? null));
+
   const kpis: KpiItem[] = [
-    { id: 'rl', label: 'Receita Líquida', value: fmtBRL(totals.rl), delta: 15.0, deltaLabel: 'vs anterior', variant: 'info', tintValue: true },
-    { id: 'mb', label: 'Margem Bruta', value: `${((totals.mb / totals.rl) * 100).toFixed(1)}%`, delta: 1.8, variant: 'success', tintValue: true },
-    { id: 'ebitda', label: 'EBITDA', value: fmtBRL(totals.ebitda), delta: 28.5, variant: 'success', tintValue: true },
-    { id: 'eb_m', label: 'Margem EBITDA', value: `${((totals.ebitda / totals.rl) * 100).toFixed(1)}%`, delta: 2.7, variant: 'success', tintValue: true },
-    { id: 'liq', label: 'Resultado Líquido', value: fmtBRL(totals.liq), delta: 32.2, variant: 'success', tintValue: true },
-    { id: 'eb_v', label: 'EBITDA vs Orçado', value: fmtPct(totals.ebitdaVar), variant: totals.ebitdaVar >= 0 ? 'success' : 'danger', tintValue: true },
+    { id: 'rl', label: 'Receita Líquida', value: fmtBRL(totals.rl), delta: 15.0, deltaLabel: 'vs anterior', variant: 'info', tintValue: true, onClick: () => toggleLine('rl'), active: selected?.key === 'rl' },
+    { id: 'mb', label: 'Margem Bruta', value: `${((totals.mb / totals.rl) * 100).toFixed(1)}%`, delta: 1.8, variant: 'success', tintValue: true, onClick: () => toggleLine('mb'), active: selected?.key === 'mb' },
+    { id: 'ebitda', label: 'EBITDA', value: fmtBRL(totals.ebitda), delta: 28.5, variant: 'success', tintValue: true, onClick: () => toggleLine('ebitda'), active: selected?.key === 'ebitda' },
+    { id: 'eb_m', label: 'Margem EBITDA', value: `${((totals.ebitda / totals.rl) * 100).toFixed(1)}%`, delta: 2.7, variant: 'success', tintValue: true, onClick: () => toggleLine('ebitda'), active: selected?.key === 'ebitda' },
+    { id: 'liq', label: 'Resultado Líquido', value: fmtBRL(totals.liq), delta: 32.2, variant: 'success', tintValue: true, onClick: () => toggleLine('rl_final'), active: selected?.key === 'rl_final' },
+    { id: 'eb_v', label: 'EBITDA vs Orçado', value: fmtPct(totals.ebitdaVar), variant: totals.ebitdaVar >= 0 ? 'success' : 'danger', tintValue: true, onClick: () => toggleLine('ebitda'), active: selected?.key === 'ebitda' },
   ];
 
   const waterfallSteps = useMemo(() => {
@@ -213,10 +218,10 @@ export default function DreGerencialPage() {
                               {row.label}
                             </span>
                           </td>
-                          <td className="text-right px-5 py-2.5 font-mono tabular-nums">{fmtBRL(row.current)}</td>
-                          <td className="text-right px-5 py-2.5 font-mono tabular-nums text-ig-text-secondary">{fmtBRL(row.prior)}</td>
-                          <td className="text-right px-5 py-2.5 font-mono tabular-nums text-ig-text-secondary">{fmtBRL(row.budget)}</td>
-                          <td className={'text-right px-5 py-2.5 font-mono tabular-nums ' + (dBudget >= 0 ? 'text-ig-success' : 'text-ig-danger')}>
+                          <td className="text-right px-5 py-2.5 tabular-nums">{fmtBRL(row.current)}</td>
+                          <td className="text-right px-5 py-2.5 tabular-nums text-ig-text-secondary">{fmtBRL(row.prior)}</td>
+                          <td className="text-right px-5 py-2.5 tabular-nums text-ig-text-secondary">{fmtBRL(row.budget)}</td>
+                          <td className={'text-right px-5 py-2.5 tabular-nums ' + (dBudget >= 0 ? 'text-ig-success' : 'text-ig-danger')}>
                             {fmtPct(dBudget)}
                           </td>
                           <td className="text-right px-3 py-2.5">
@@ -232,9 +237,9 @@ export default function DreGerencialPage() {
                         {isOpen && expandable && row.composition.map((c, idx) => (
                           <tr key={`${row.key}-${idx}`} className="border-b border-ig-border-subtle/30 bg-ig-surface-subtle/20">
                             <td className="pl-14 pr-5 py-2 text-[12.5px] text-ig-text-secondary">↳ {c.name}</td>
-                            <td className="text-right px-5 py-2 font-mono tabular-nums text-[12.5px]">{fmtBRL(c.value)}</td>
-                            <td className="text-right px-5 py-2 font-mono tabular-nums text-[12.5px] text-ig-text-tertiary">—</td>
-                            <td className="text-right px-5 py-2 font-mono tabular-nums text-[12.5px] text-ig-text-tertiary">—</td>
+                            <td className="text-right px-5 py-2 tabular-nums text-[12.5px]">{fmtBRL(c.value)}</td>
+                            <td className="text-right px-5 py-2 tabular-nums text-[12.5px] text-ig-text-tertiary">—</td>
+                            <td className="text-right px-5 py-2 tabular-nums text-[12.5px] text-ig-text-tertiary">—</td>
                             <td></td>
                             <td></td>
                           </tr>
@@ -340,7 +345,7 @@ export default function DreGerencialPage() {
                           </div>
                         </div>
                         <div className="text-right">
-                          <div className="text-[13px] font-mono tabular-nums">{fmtBRL(c.value)}</div>
+                          <div className="text-[13px] tabular-nums">{fmtBRL(c.value)}</div>
                           <div className="text-[10.5px] text-ig-text-tertiary">{share.toFixed(1)}%</div>
                         </div>
                       </li>

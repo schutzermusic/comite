@@ -4,6 +4,8 @@
  * Inspired by Palantir, Orion UI, and high-end control rooms
  */
 
+import { FONT_FAMILY_SANS, FONT_FAMILY_MONO } from '@/lib/fonts';
+
 // =============================================================================
 // COLOR TOKENS
 // =============================================================================
@@ -174,9 +176,9 @@ export const orionGreenShadows = {
 
 export const orionGreenTypography = {
   fontFamily: {
-    display: '"SF Pro Display", "Inter", -apple-system, BlinkMacSystemFont, sans-serif',
-    body: '"Inter", -apple-system, BlinkMacSystemFont, sans-serif',
-    mono: '"SF Mono", "Fira Code", "Consolas", monospace',
+    display: FONT_FAMILY_SANS,
+    body: FONT_FAMILY_SANS,
+    mono: FONT_FAMILY_MONO,
   },
   
   fontSize: {

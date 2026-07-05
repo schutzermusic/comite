@@ -158,12 +158,13 @@ export default function ContractDossierPage() {
     );
   }
 
+  // KPIs clicáveis (padrão Contratos): atalhos para a aba do dossiê correspondente.
   const kpis: KpiItem[] = [
-    { id: 'total', label: 'Valor total', value: formatCurrencyCompact(record.totalValue), variant: 'info', icon: <FileSignature className="h-4 w-4" /> },
-    { id: 'billed', label: 'Faturado', value: formatCurrencyCompact(record.billedValue), variant: 'success', icon: <Receipt className="h-4 w-4" /> },
-    { id: 'remaining', label: 'Saldo', value: formatCurrencyCompact(record.remainingValue), variant: 'warning', icon: <GanttChartSquare className="h-4 w-4" /> },
-    { id: 'renewal', label: 'Vencimento', value: record.daysUntilExpiration === null ? 'sem data' : record.daysUntilExpiration < 0 ? 'vencido' : `${record.daysUntilExpiration}d`, variant: record.daysUntilExpiration !== null && record.daysUntilExpiration <= 90 ? 'warning' : 'default', icon: <CalendarClock className="h-4 w-4" /> },
-    { id: 'risk', label: 'Risk score', value: `${record.riskScore}/100`, variant: record.riskScore >= 70 ? 'danger' : record.riskScore >= 50 ? 'warning' : 'success', icon: <ShieldAlert className="h-4 w-4" /> },
+    { id: 'total', label: 'Valor total', value: formatCurrencyCompact(record.totalValue), variant: 'info', icon: <FileSignature className="h-4 w-4" />, onClick: () => setActiveTab('finance'), active: activeTab === 'finance' },
+    { id: 'billed', label: 'Faturado', value: formatCurrencyCompact(record.billedValue), variant: 'success', icon: <Receipt className="h-4 w-4" />, onClick: () => setActiveTab('finance'), active: activeTab === 'finance' },
+    { id: 'remaining', label: 'Saldo', value: formatCurrencyCompact(record.remainingValue), variant: 'warning', icon: <GanttChartSquare className="h-4 w-4" />, onClick: () => setActiveTab('finance'), active: activeTab === 'finance' },
+    { id: 'renewal', label: 'Vencimento', value: record.daysUntilExpiration === null ? 'sem data' : record.daysUntilExpiration < 0 ? 'vencido' : `${record.daysUntilExpiration}d`, variant: record.daysUntilExpiration !== null && record.daysUntilExpiration <= 90 ? 'warning' : 'default', icon: <CalendarClock className="h-4 w-4" />, onClick: () => setActiveTab('obligations'), active: activeTab === 'obligations' },
+    { id: 'risk', label: 'Risk score', value: `${record.riskScore}/100`, variant: record.riskScore >= 70 ? 'danger' : record.riskScore >= 50 ? 'warning' : 'success', icon: <ShieldAlert className="h-4 w-4" />, onClick: () => setActiveTab('risks'), active: activeTab === 'risks' },
   ];
 
   const contractStatusLabel =

@@ -543,7 +543,7 @@ function DetailedRow({ item, onPrimary, onPauta }: {
 
                 {/* Schedule baseline info (detailed only) */}
                 {scheduleSlip && (
-                    <p className="text-[10px] text-[rgba(255,255,255,0.45)] mt-0.5 font-mono">
+                    <p className="text-[10px] text-[rgba(255,255,255,0.45)] mt-0.5 tabular-nums">
                         {scheduleSlip}
                     </p>
                 )}

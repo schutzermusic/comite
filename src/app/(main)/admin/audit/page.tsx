@@ -109,10 +109,12 @@ export default function AdminAuditPage() {
     },
   ];
 
+  // KPIs clicáveis (padrão Contratos): "Eventos"/"Atores" limpam o recorte;
+  // "Entidades" volta o filtro de entidade para Todos.
   const kpis: KpiItem[] = [
-    { id: 'logs', label: 'Eventos', value: logs.length, variant: 'info', icon: <ScrollText className="h-5 w-5" /> },
-    { id: 'users', label: 'Atores', value: new Set(logs.map((log) => log.actor_user_id).filter(Boolean)).size, variant: 'success', icon: <ScrollText className="h-5 w-5" /> },
-    { id: 'entities', label: 'Entidades', value: entityOptions.length - 1, variant: 'warning', icon: <ScrollText className="h-5 w-5" /> },
+    { id: 'logs', label: 'Eventos', value: logs.length, variant: 'info', icon: <ScrollText className="h-5 w-5" />, onClick: () => { setSearch(''); setEntityFilter('all'); } },
+    { id: 'users', label: 'Atores', value: new Set(logs.map((log) => log.actor_user_id).filter(Boolean)).size, variant: 'success', icon: <ScrollText className="h-5 w-5" />, onClick: () => setSearch('') },
+    { id: 'entities', label: 'Entidades', value: entityOptions.length - 1, variant: 'warning', icon: <ScrollText className="h-5 w-5" />, onClick: () => setEntityFilter('all') },
   ];
 
   if (!authLoading && !canViewAudit) {

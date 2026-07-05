@@ -17,7 +17,7 @@ import {
   isTimelineAvailable,
   listTimelineItems,
 } from '@/lib/services/project-timeline';
-import { timelineKpis, type GanttZoom } from '@/lib/projects/timeline-analytics';
+import { deriveDelayStatus, timelineKpis, type GanttZoom } from '@/lib/projects/timeline-analytics';
 import type { TimelineItem } from '@/lib/types/project-timeline';
 import { GanttView } from './GanttView';
 import { ImportWizard } from './ImportWizard';
@@ -186,19 +186,31 @@ export function TimelineTab({ projectId, projectName, projectManagerUserId }: Ti
         <>
           <HudKpiStrip
             columns={5}
-            kpis={[
-              { id: 'progress', label: '% geral', value: `${kpis.overallPercent}%` },
-              { id: 'delayed', label: 'Atrasadas', value: kpis.delayedCount, variant: kpis.delayedCount > 0 ? 'danger' : 'default', tintValue: kpis.delayedCount > 0 },
-              { id: 'blocked', label: 'Bloqueadas', value: kpis.blockedCount, variant: kpis.blockedCount > 0 ? 'warning' : 'default', tintValue: kpis.blockedCount > 0 },
-              { id: 'no-resp', label: 'Sem responsável', value: kpis.missingResponsible },
-              {
-                id: 'milestone',
-                label: 'Próximo marco',
-                value: kpis.nextMilestone?.plannedFinish
-                  ? kpis.nextMilestone.plannedFinish.split('-').reverse().slice(0, 2).join('/')
-                  : '—',
-              },
-            ]}
+            kpis={(() => {
+              // KPIs clicáveis (padrão Contratos): focam a primeira atividade do
+              // recorte no drawer de detalhe; clicar de novo fecha.
+              const focusFirst = (pred: (i: TimelineItem) => boolean) => {
+                const target = items.find((i) => i.isActive && !i.deletedAt && !i.isSummary && pred(i));
+                if (target) selectItem(selectedItemId === target.id ? null : target.id);
+              };
+              return [
+                { id: 'progress', label: '% geral', value: `${kpis.overallPercent}%`, onClick: () => selectItem(null) },
+                { id: 'delayed', label: 'Atrasadas', value: kpis.delayedCount, variant: kpis.delayedCount > 0 ? 'danger' : 'default', tintValue: kpis.delayedCount > 0, onClick: () => focusFirst((i) => deriveDelayStatus(i, new Date()) === 'delayed') },
+                { id: 'blocked', label: 'Bloqueadas', value: kpis.blockedCount, variant: kpis.blockedCount > 0 ? 'warning' : 'default', tintValue: kpis.blockedCount > 0, onClick: () => focusFirst((i) => deriveDelayStatus(i, new Date()) === 'blocked') },
+                { id: 'no-resp', label: 'Sem responsável', value: kpis.missingResponsible, onClick: () => focusFirst((i) => !i.responsibleUserId && i.status !== 'completed') },
+                {
+                  id: 'milestone',
+                  label: 'Próximo marco',
+                  value: kpis.nextMilestone?.plannedFinish
+                    ? kpis.nextMilestone.plannedFinish.split('-').reverse().slice(0, 2).join('/')
+                    : '—',
+                  onClick: () => {
+                    if (kpis.nextMilestone) selectItem(selectedItemId === kpis.nextMilestone.id ? null : kpis.nextMilestone.id);
+                  },
+                  active: !!kpis.nextMilestone && selectedItemId === kpis.nextMilestone.id,
+                },
+              ];
+            })()}
           />
           <GanttView items={items} />
         </>

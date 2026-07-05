@@ -315,7 +315,7 @@ function HealthGauge({ score, periodLabel, scenarioLabel }: { score: number; per
           })}
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <div className="font-mono text-[54px] font-light leading-none tabular-nums" style={{ color: c.hex }}>
+          <div className="text-[54px] font-light leading-none tabular-nums" style={{ color: c.hex }}>
             {Math.round(score)}
           </div>
           <div className="mt-1 text-[10px] uppercase tracking-[0.24em] text-[color:var(--ig-fg-subtle)]">
@@ -349,7 +349,7 @@ function MicroStat({ label, value, tone }: { label: string; value: string; tone:
   return (
     <div className="rounded-xl border border-[color:var(--ig-border-subtle)] bg-[color:var(--ig-bg-raised)]/40 px-2 py-1.5 text-center backdrop-blur-sm">
       <div className="text-[9px] uppercase tracking-[0.16em] text-[color:var(--ig-fg-subtle)]">{label}</div>
-      <div className="mt-0.5 font-mono text-xs font-semibold tabular-nums" style={{ color }}>
+      <div className="mt-0.5 text-xs font-semibold tabular-nums" style={{ color }}>
         {value}
       </div>
     </div>
@@ -406,7 +406,7 @@ function KpiTile({
         <span style={{ color: accent }}>{kpi.icon}</span>
         {kpi.label}
       </div>
-      <div className="font-mono text-[26px] font-semibold leading-none tabular-nums text-[color:var(--ig-fg-strong)]">
+      <div className="text-[26px] font-semibold leading-none tabular-nums text-[color:var(--ig-fg-strong)]">
         {kpi.value}
       </div>
       {kpi.helper && (
@@ -421,7 +421,7 @@ function KpiTile({
       >
         {kpi.spark && <Sparkline points={kpi.spark} color={accent} />}
         <span
-          className="inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 font-mono text-[10px] font-semibold tabular-nums"
+          className="inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold tabular-nums"
           style={{
             color: varianceColor,
             borderColor: `color-mix(in oklab, ${varianceColor} 30%, transparent)`,

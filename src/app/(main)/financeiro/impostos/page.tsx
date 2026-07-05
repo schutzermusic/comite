@@ -148,13 +148,26 @@ function ImpostosContent() {
     router.push(`/financeiro/lancamentos?entryId=${encodeURIComponent(entryId)}`);
   }, [router]);
 
+  // KPIs clicáveis (padrão Contratos): alternam o filtro correspondente da carteira.
+  const toggleStatusKpi = (status: TaxStatus) =>
+    setFilterStatus(current => (current === status ? 'all' : status));
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const in7Iso = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const in30Iso = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const dueRangeActive = (to: string) => filterDueFrom === todayIso && filterDueTo === to;
+  const toggleDueRangeKpi = (to: string) => {
+    const active = dueRangeActive(to);
+    setFilterDueFrom(active ? '' : todayIso);
+    setFilterDueTo(active ? '' : to);
+  };
+
   const kpis: KpiItem[] = [
-    { id: 'p', label: 'Provisionado', value: summary.totalProvisioned / 100, format: 'compactCurrency', variant: 'info' },
-    { id: 'pd', label: 'Pago', value: summary.totalPaid / 100, format: 'compactCurrency', variant: 'success' },
-    { id: 'o', label: 'Em aberto', value: summary.totalOpen / 100, format: 'compactCurrency', variant: 'warning' },
-    { id: 'ov', label: 'Vencidos', value: summary.overdueTotal / 100, format: 'compactCurrency', variant: summary.overdueTotal > 0 ? 'danger' : 'success', icon: <AlertTriangle className="h-5 w-5" /> },
-    { id: 'wk', label: 'Vence em 7 dias', value: summary.dueThisWeek / 100, format: 'compactCurrency', variant: summary.dueThisWeek > 0 ? 'warning' : 'success', icon: <Clock3 className="h-5 w-5" /> },
-    { id: 'mo', label: 'Vence em 30 dias', value: summary.dueThisMonth / 100, format: 'compactCurrency', variant: 'info', icon: <Calendar className="h-5 w-5" /> },
+    { id: 'p', label: 'Provisionado', value: summary.totalProvisioned / 100, format: 'compactCurrency', variant: 'info', onClick: clearFilters },
+    { id: 'pd', label: 'Pago', value: summary.totalPaid / 100, format: 'compactCurrency', variant: 'success', onClick: () => toggleStatusKpi('paid'), active: filterStatus === 'paid' },
+    { id: 'o', label: 'Em aberto', value: summary.totalOpen / 100, format: 'compactCurrency', variant: 'warning', onClick: () => toggleStatusKpi('open'), active: filterStatus === 'open' },
+    { id: 'ov', label: 'Vencidos', value: summary.overdueTotal / 100, format: 'compactCurrency', variant: summary.overdueTotal > 0 ? 'danger' : 'success', icon: <AlertTriangle className="h-5 w-5" />, onClick: () => toggleStatusKpi('overdue'), active: filterStatus === 'overdue' },
+    { id: 'wk', label: 'Vence em 7 dias', value: summary.dueThisWeek / 100, format: 'compactCurrency', variant: summary.dueThisWeek > 0 ? 'warning' : 'success', icon: <Clock3 className="h-5 w-5" />, onClick: () => toggleDueRangeKpi(in7Iso), active: dueRangeActive(in7Iso) },
+    { id: 'mo', label: 'Vence em 30 dias', value: summary.dueThisMonth / 100, format: 'compactCurrency', variant: 'info', icon: <Calendar className="h-5 w-5" />, onClick: () => toggleDueRangeKpi(in30Iso), active: dueRangeActive(in30Iso) },
   ];
 
   const columns: HudTableColumn<TaxObligation>[] = [
@@ -164,19 +177,19 @@ function ImpostosContent() {
         <span className="block max-w-[280px] truncate text-[11px] text-ig-fg-muted">{x.title}</span>
       </div>
     ) },
-    { key: 'competence_month', header: 'Competência', cell: (x) => <span className="font-mono text-xs text-ig-fg-muted">{x.competence_month}</span> },
+    { key: 'competence_month', header: 'Competência', cell: (x) => <span className="tabular-nums text-xs text-ig-fg-muted">{x.competence_month}</span> },
     { key: 'due_date', header: t('dueDate'), cell: (x) => {
       const overdue = isTaxOverdue(x);
       return (
         <div className="flex flex-col">
-          <span className={`font-mono text-xs ${overdue ? 'font-semibold text-ig-danger' : 'text-ig-fg-muted'}`}>{x.due_date}</span>
+          <span className={`tabular-nums text-xs ${overdue ? 'font-semibold text-ig-danger' : 'text-ig-fg-muted'}`}>{x.due_date}</span>
           {overdue && <span className="text-[10px] font-medium text-ig-danger">{daysOverdueTax(x)}d {t('overdue').toLowerCase()}</span>}
         </div>
       );
     } },
-    { key: 'amount_cents', header: 'Provisionado', align: 'right', cell: (x) => <span className="block font-mono text-xs text-ig-fg-strong">{formatBRL(x.amount_cents)}</span> },
-    { key: 'paid_amount_cents', header: 'Pago', align: 'right', cell: (x) => <span className="block font-mono text-xs text-ig-fg-muted">{formatBRL(x.paid_amount_cents)}</span> },
-    { key: 'remaining', header: 'Em aberto', align: 'right', cell: (x) => <span className="block font-mono text-xs text-ig-fg-strong">{formatBRL(remainingTaxCents(x))}</span> },
+    { key: 'amount_cents', header: 'Provisionado', align: 'right', cell: (x) => <span className="block tabular-nums text-xs text-ig-fg-strong">{formatBRL(x.amount_cents)}</span> },
+    { key: 'paid_amount_cents', header: 'Pago', align: 'right', cell: (x) => <span className="block tabular-nums text-xs text-ig-fg-muted">{formatBRL(x.paid_amount_cents)}</span> },
+    { key: 'remaining', header: 'Em aberto', align: 'right', cell: (x) => <span className="block tabular-nums text-xs text-ig-fg-strong">{formatBRL(remainingTaxCents(x))}</span> },
     { key: 'status', header: 'Status', cell: (x) => (
       <div className="flex items-center gap-1.5">
         <HudStatusPill variant={isTaxOverdue(x) ? 'error' : STATUS_VARIANT[x.status]} size="sm">
@@ -390,7 +403,7 @@ function ImpostosContent() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <p className="text-[10px] uppercase text-ig-fg-subtle">Imposto</p>
-                <p className="font-mono text-sm text-ig-fg-strong">{detail.tax_type}</p>
+                <p className="tabular-nums text-sm text-ig-fg-strong">{detail.tax_type}</p>
               </div>
               <div>
                 <p className="text-[10px] uppercase text-ig-fg-subtle">Status</p>
@@ -409,18 +422,18 @@ function ImpostosContent() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <p className="text-[10px] uppercase text-ig-fg-subtle">Competência</p>
-                <p className="font-mono text-sm text-ig-fg-strong">{detail.competence_month}</p>
+                <p className="tabular-nums text-sm text-ig-fg-strong">{detail.competence_month}</p>
               </div>
               <div>
                 <p className="text-[10px] uppercase text-ig-fg-subtle">{t('dueDate')}</p>
-                <p className={`font-mono text-sm ${isTaxOverdue(detail) ? 'font-semibold text-ig-danger' : 'text-ig-fg-strong'}`}>{detail.due_date}</p>
+                <p className={`tabular-nums text-sm ${isTaxOverdue(detail) ? 'font-semibold text-ig-danger' : 'text-ig-fg-strong'}`}>{detail.due_date}</p>
               </div>
             </div>
 
             <div className="grid grid-cols-3 gap-3">
-              <div><p className="text-[10px] uppercase text-ig-fg-subtle">Provisionado</p><p className="font-mono text-sm text-ig-fg-strong">{formatBRL(detail.amount_cents)}</p></div>
-              <div><p className="text-[10px] uppercase text-ig-fg-subtle">Pago</p><p className="font-mono text-sm text-ig-fg-muted">{formatBRL(detail.paid_amount_cents)}</p></div>
-              <div><p className="text-[10px] uppercase text-ig-fg-subtle">Em aberto</p><p className="font-mono text-sm text-ig-fg-strong">{formatBRL(remainingTaxCents(detail))}</p></div>
+              <div><p className="text-[10px] uppercase text-ig-fg-subtle">Provisionado</p><p className="tabular-nums text-sm text-ig-fg-strong">{formatBRL(detail.amount_cents)}</p></div>
+              <div><p className="text-[10px] uppercase text-ig-fg-subtle">Pago</p><p className="tabular-nums text-sm text-ig-fg-muted">{formatBRL(detail.paid_amount_cents)}</p></div>
+              <div><p className="text-[10px] uppercase text-ig-fg-subtle">Em aberto</p><p className="tabular-nums text-sm text-ig-fg-strong">{formatBRL(remainingTaxCents(detail))}</p></div>
             </div>
 
             {(detail.client?.name || detail.invoice_number) && (
@@ -456,7 +469,7 @@ function ImpostosContent() {
                     <span className="truncate text-xs text-ig-fg-strong">{accrualEntry.entry_date}</span>
                     <span className="text-[10px] uppercase tracking-[0.12em] text-ig-fg-subtle">Competência</span>
                   </div>
-                  <span className="shrink-0 font-mono text-xs font-semibold text-ig-fg-strong">{formatBRL(accrualEntry.amount_cents)}</span>
+                  <span className="shrink-0 tabular-nums text-xs font-semibold text-ig-fg-strong">{formatBRL(accrualEntry.amount_cents)}</span>
                 </button>
               )}
             </div>
@@ -484,7 +497,7 @@ function ImpostosContent() {
                           <span className="truncate text-xs text-ig-fg-strong">{e.entry_date}</span>
                           <span className="text-[10px] uppercase tracking-[0.12em] text-ig-fg-subtle">{t('cashOut')}</span>
                         </div>
-                        <span className="shrink-0 font-mono text-xs font-semibold text-ig-danger">−{formatBRL(e.amount_cents)}</span>
+                        <span className="shrink-0 tabular-nums text-xs font-semibold text-ig-danger">−{formatBRL(e.amount_cents)}</span>
                       </button>
                     </li>
                   ))}
@@ -546,7 +559,7 @@ function ImpostosContent() {
 
       {/* Footer KPI tile */}
       <div className="mt-4 text-right text-[10.5px] text-ig-text-tertiary">
-        Total provisionado nos filtros: <span className="font-mono">{fmtBRL(summary.totalProvisioned / 100)}</span> • pago <span className="font-mono">{fmtBRL(summary.totalPaid / 100)}</span>
+        Total provisionado nos filtros: <span className="tabular-nums">{fmtBRL(summary.totalProvisioned / 100)}</span> • pago <span className="tabular-nums">{fmtBRL(summary.totalPaid / 100)}</span>
       </div>
     </HudPageLayout>
   );

@@ -143,8 +143,8 @@ export default function ContratosReceitaPage() {
                   <div className="flex items-center justify-between mb-1 gap-3 min-w-0">
                     <span className="text-[11.5px] font-medium text-ig-text-secondary truncate">{s.label}</span>
                     <div className="flex items-center gap-3 shrink-0">
-                      <span className="text-[11px] font-mono tabular-nums text-ig-text-tertiary">{conversion.toFixed(0)}%</span>
-                      <span className="text-[12.5px] font-mono tabular-nums text-ig-text-primary">{fmtBRL(s.value)}</span>
+                      <span className="text-[11px] tabular-nums text-ig-text-tertiary">{conversion.toFixed(0)}%</span>
+                      <span className="text-[12.5px] tabular-nums text-ig-text-primary">{fmtBRL(s.value)}</span>
                     </div>
                   </div>
                   <div className="relative h-2.5 rounded-full bg-ig-surface-subtle overflow-hidden">
@@ -232,14 +232,14 @@ export default function ContratosReceitaPage() {
                     <td className="px-5 py-2.5 font-mono text-[12px] text-ig-text-secondary whitespace-nowrap">{c.code}</td>
                     <td className="px-5 py-2.5 text-ig-text-primary whitespace-nowrap">{c.client}</td>
                     <td className="px-5 py-2.5 text-ig-text-secondary whitespace-nowrap">{CONTRACT_TYPE_LABEL[c.type]}</td>
-                    <td className="text-right px-5 py-2.5 font-mono tabular-nums whitespace-nowrap">{fmtBRL(c.contracted)}</td>
-                    <td className="text-right px-5 py-2.5 font-mono tabular-nums text-ig-text-secondary whitespace-nowrap">{fmtBRL(c.measured)}</td>
-                    <td className="text-right px-5 py-2.5 font-mono tabular-nums whitespace-nowrap">{fmtBRL(c.invoiced)}</td>
-                    <td className="text-right px-5 py-2.5 font-mono tabular-nums text-ig-text-secondary whitespace-nowrap">{fmtBRL(c.received)}</td>
-                    <td className={'text-right px-5 py-2.5 font-mono tabular-nums whitespace-nowrap ' + (c.delayedDays > 0 ? 'text-ig-danger' : 'text-ig-text-tertiary')}>
+                    <td className="text-right px-5 py-2.5 tabular-nums whitespace-nowrap">{fmtBRL(c.contracted)}</td>
+                    <td className="text-right px-5 py-2.5 tabular-nums text-ig-text-secondary whitespace-nowrap">{fmtBRL(c.measured)}</td>
+                    <td className="text-right px-5 py-2.5 tabular-nums whitespace-nowrap">{fmtBRL(c.invoiced)}</td>
+                    <td className="text-right px-5 py-2.5 tabular-nums text-ig-text-secondary whitespace-nowrap">{fmtBRL(c.received)}</td>
+                    <td className={'text-right px-5 py-2.5 tabular-nums whitespace-nowrap ' + (c.delayedDays > 0 ? 'text-ig-danger' : 'text-ig-text-tertiary')}>
                       {c.delayedDays > 0 ? `${c.delayedDays}d` : '—'}
                     </td>
-                    <td className="px-5 py-2.5 font-mono text-[11px] text-ig-text-tertiary whitespace-nowrap">{c.start} → {c.end}</td>
+                    <td className="px-5 py-2.5 tabular-nums text-[11px] text-ig-text-tertiary whitespace-nowrap">{c.start} → {c.end}</td>
                     <td className="px-5 py-2.5"><FinanceStatusBadge status={c.status} /></td>
                   </tr>
                 ))}
@@ -287,9 +287,9 @@ export default function ContratosReceitaPage() {
                   {selected.timeline.map((e, i) => (
                     <li key={i} className="relative">
                       <span className="absolute -left-[20px] top-1 w-2 h-2 rounded-full bg-ig-accent" />
-                      <div className="text-[10.5px] font-mono uppercase tracking-[0.12em] text-ig-text-tertiary">{e.date}</div>
+                      <div className="text-[10.5px] tabular-nums uppercase tracking-[0.12em] text-ig-text-tertiary">{e.date}</div>
                       <div className="text-[13px] text-ig-text-primary">{e.event}</div>
-                      {e.amount !== undefined && <div className="text-[12px] font-mono tabular-nums text-ig-text-secondary">{fmtBRL(e.amount)}</div>}
+                      {e.amount !== undefined && <div className="text-[12px] tabular-nums text-ig-text-secondary">{fmtBRL(e.amount)}</div>}
                     </li>
                   ))}
                 </ol>

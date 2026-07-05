@@ -124,7 +124,7 @@ export function RiskDetailDrawer({
             </KV>
             <KV label="Status"><HudStatusPill variant={statusVariant(risk.status)} size="sm">{STATUS_LABELS[risk.status]}</HudStatusPill></KV>
             <KV label="Aging">
-              <span className={cn("font-mono ig-tabular", aging > 60 ? "text-ig-danger" : aging > 30 ? "text-ig-warning" : "text-ig-fg-strong")}>
+              <span className={cn("ig-tabular", aging > 60 ? "text-ig-danger" : aging > 30 ? "text-ig-warning" : "text-ig-fg-strong")}>
                 {aging}d
               </span>
             </KV>

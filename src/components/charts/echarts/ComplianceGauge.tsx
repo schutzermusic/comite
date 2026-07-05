@@ -1,5 +1,6 @@
 'use client';
 
+import { FONT_FAMILY_SANS } from '@/lib/fonts';
 import React, { useMemo } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { orionGreenColors } from '@/theme/orionGreen';
@@ -183,13 +184,13 @@ export function ComplianceGauge({
           fontSize: 32,
           fontWeight: 700,
           color: orionGreenColors.text.primary,
-          fontFamily: 'Inter, sans-serif',
+          fontFamily: FONT_FAMILY_SANS,
         },
         title: {
           offsetCenter: [0, '65%'],
           fontSize: 11,
           color: orionGreenColors.text.muted,
-          fontFamily: 'Inter, sans-serif',
+          fontFamily: FONT_FAMILY_SANS,
         },
         data: [
           {

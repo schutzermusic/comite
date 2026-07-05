@@ -10,6 +10,7 @@ import type {
   PayrollNarrative,
   PayrollParseResult,
 } from '@/lib/types/payroll-closing';
+import { FONT_FAMILY_SANS, buildGilroyFontFaceCss } from '@/lib/fonts';
 
 function brl(cents: number): string {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(cents / 100);
@@ -176,7 +177,7 @@ export function buildExecutiveReportHtml(parse: PayrollParseResult, narrative?: 
   return `<!DOCTYPE html>
 <html lang="pt-BR"><head><meta charset="utf-8"/>
 <title>Relatório Executivo — Folha ${esc(competenceLabel(parse.competence_month))}</title>
-<style>@media print{.no-print{display:none}}body{font-family:Segoe UI,Arial,sans-serif;color:#0f172a;margin:40px;}</style>
+<style>${buildGilroyFontFaceCss()}@media print{.no-print{display:none}}body{font-family:${FONT_FAMILY_SANS};color:#0f172a;margin:40px;}</style>
 </head><body>
   <h1 style="margin-bottom:0;">Relatório Executivo — Fechamento da Folha</h1>
   <div style="color:#64748b;margin-bottom:24px;">Competência ${esc(competenceLabel(parse.competence_month))}</div>

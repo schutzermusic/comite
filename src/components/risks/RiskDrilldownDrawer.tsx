@@ -103,7 +103,7 @@ export function RiskDrilldownDrawer({ context, onClose, onRiskClick, onApplyToTa
                       {risk.title}
                     </span>
                     <span
-                      className="flex shrink-0 items-center gap-1 rounded-md border px-1.5 py-0.5 font-mono text-[12px] font-bold ig-tabular"
+                      className="flex shrink-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-[12px] font-bold ig-tabular"
                       style={{ color, borderColor: `color-mix(in oklab, ${color} 30%, transparent)`, backgroundColor: `color-mix(in oklab, ${color} 8%, transparent)` }}
                     >
                       <Gauge className="h-3 w-3" />{risk.level}

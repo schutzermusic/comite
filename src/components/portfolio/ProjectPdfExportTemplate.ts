@@ -21,6 +21,7 @@
 
 import type { Project } from '@/lib/types';
 import type { ProjectV2 } from '@/lib/types/project-v2';
+import { FONT_FAMILY_SANS, buildGilroyFontFaceCss } from '@/lib/fonts';
 
 export type PdfExportMode = 'executive' | 'full';
 
@@ -323,6 +324,7 @@ export function renderReportToHtml(model: ReportModel): string {
 <meta charset="utf-8" />
 <title>${escapeHtml(title)} — ${escapeHtml(brandName)}</title>
 <style>
+${buildGilroyFontFaceCss()}
   /* Page setup — running header + footer via @page margins */
   @page {
     size: A4;
@@ -333,7 +335,7 @@ export function renderReportToHtml(model: ReportModel): string {
   * { box-sizing: border-box; }
   html, body {
     padding: 0; margin: 0; background: #fff; color: #0F172A;
-    font: 12px/1.55 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 12px; line-height: 1.55; font-family: ${FONT_FAMILY_SANS};
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
 

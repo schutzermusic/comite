@@ -87,12 +87,12 @@ export function ProjectMarginMatrix({ rows }: ProjectMarginMatrixProps) {
                       <div className="text-[10px] text-[color:var(--ig-fg-muted)]">{r.client}</div>
                     )}
                   </div>
-                  <div className="relative text-right font-mono text-[11px] tabular-nums text-[color:var(--ig-fg-default)]">{formatCompactBRL(r.revenue)}</div>
-                  <div className="relative text-right font-mono text-[11px] tabular-nums text-[color:var(--ig-fg-muted)]">{formatCompactBRL(r.cost)}</div>
-                  <div className="relative text-right font-mono text-[12px] font-semibold tabular-nums" style={{ color: meta.color }}>
+                  <div className="relative text-right text-[11px] tabular-nums text-[color:var(--ig-fg-default)]">{formatCompactBRL(r.revenue)}</div>
+                  <div className="relative text-right text-[11px] tabular-nums text-[color:var(--ig-fg-muted)]">{formatCompactBRL(r.cost)}</div>
+                  <div className="relative text-right text-[12px] font-semibold tabular-nums" style={{ color: meta.color }}>
                     {r.margin_pct.toFixed(1)}%
                   </div>
-                  <div className={cn('relative text-right font-mono text-[11px] tabular-nums', r.variance_pct >= 0 ? 'text-[#10B981]' : 'text-[#EF4444]')}>
+                  <div className={cn('relative text-right text-[11px] tabular-nums', r.variance_pct >= 0 ? 'text-[#10B981]' : 'text-[#EF4444]')}>
                     {formatPct(r.variance_pct)}
                   </div>
                   <div className="relative flex justify-center">

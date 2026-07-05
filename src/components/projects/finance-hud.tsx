@@ -94,7 +94,7 @@ export function HudLegendChip({
             <span className={cn('truncate', !active && 'line-through decoration-1')}>{label}</span>
             {value && (
                 <span
-                    className="shrink-0 font-mono text-[10px] font-semibold tabular-nums"
+                    className="shrink-0 text-[10px] font-semibold tabular-nums"
                     style={{ color: active ? color : 'inherit' }}
                 >
                     {value}
@@ -143,7 +143,7 @@ export function HudMarkerChip({
             <span className="relative z-[1] text-[9px] font-semibold uppercase tracking-[0.12em] text-[color:var(--ig-fg-muted)]">
                 {label}
             </span>
-            <span className="relative z-[1] truncate font-mono text-[10px] font-semibold tabular-nums" style={{ color }}>
+            <span className="relative z-[1] truncate text-[10px] font-semibold tabular-nums" style={{ color }}>
                 {value}
             </span>
         </span>
@@ -179,11 +179,11 @@ export function HudMetricChip({
                 </span>
             )}
             <span className="truncate text-[11px] font-medium text-[color:var(--ig-fg-muted)]">{label}</span>
-            <span className="shrink-0 font-mono text-[11px] font-semibold tabular-nums" style={{ color }}>
+            <span className="shrink-0 text-[11px] font-semibold tabular-nums" style={{ color }}>
                 {value}
             </span>
             {sub && (
-                <span className="shrink-0 font-mono text-[10px] tabular-nums text-[color:var(--ig-fg-subtle)]">
+                <span className="shrink-0 text-[10px] tabular-nums text-[color:var(--ig-fg-subtle)]">
                     {sub}
                 </span>
             )}

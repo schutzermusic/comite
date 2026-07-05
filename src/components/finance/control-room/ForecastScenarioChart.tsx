@@ -1,5 +1,6 @@
 'use client';
 
+import { FONT_FAMILY_SANS } from '@/lib/fonts';
 import React, { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { LineChart, Sparkles } from 'lucide-react';
@@ -204,7 +205,7 @@ export function ForecastScenarioChart({ data }: ForecastScenarioChartProps) {
                 return (
                   <g key={i}>
                     <line x1={36} y1={y} x2={w - 12} y2={y} stroke={colors.grid} strokeWidth="0.7" strokeDasharray="2 4" />
-                    <text x={32} y={y + 3} textAnchor="end" fontSize="9" fill={colors.axis} fontFamily="ui-monospace, monospace">
+                    <text x={32} y={y + 3} textAnchor="end" fontSize="9" fill={colors.axis} fontFamily={FONT_FAMILY_SANS}>
                       {formatCompactBRL(v).replace('R$ ', '')}
                     </text>
                   </g>
@@ -294,7 +295,7 @@ export function ForecastScenarioChart({ data }: ForecastScenarioChartProps) {
           <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.18em] text-[color:var(--ig-fg-subtle)]">
             <Sparkles className="h-3 w-3" /> Convergência Projeção → Conselho: Jul/26
           </div>
-          <span className="font-mono text-[10px] tabular-nums text-[color:var(--ig-fg-muted)]">
+          <span className="text-[10px] tabular-nums text-[color:var(--ig-fg-muted)]">
             Gap acum.: <span className="text-[#F59E0B]">−R$ 28M</span>
           </span>
         </footer>
@@ -324,7 +325,7 @@ function ChartTooltip({ point, left, right }: { point: ForecastPoint; left?: num
                 <span className="h-1.5 w-1.5 rounded-sm" style={{ background: s.color }} />
                 {s.label}
               </span>
-              <span className="font-mono font-semibold tabular-nums" style={{ color: s.color }}>{formatCompactBRL(v)}</span>
+              <span className="font-semibold tabular-nums" style={{ color: s.color }}>{formatCompactBRL(v)}</span>
             </div>
           );
         })}

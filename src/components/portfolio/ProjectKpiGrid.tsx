@@ -29,13 +29,17 @@ export interface ProjectKpiSummary {
 interface ProjectKpiGridProps {
   summary: ProjectKpiSummary;
   className?: string;
+  /** Torna cada KPI clicável (padrão Contratos) — o pai decide a ação por id. */
+  onKpiClick?: (id: string) => void;
+  /** Ids de KPIs com filtro ativo (estado visual aria-pressed + tint). */
+  activeKpiIds?: string[];
 }
 
-export function ProjectKpiGrid({ summary, className }: ProjectKpiGridProps) {
+export function ProjectKpiGrid({ summary, className, onKpiClick, activeKpiIds }: ProjectKpiGridProps) {
   const healthVariant: KpiItem['variant'] =
     summary.avgHealth >= 80 ? 'success' : summary.avgHealth >= 60 ? 'info' : 'warning';
 
-  const kpis: KpiItem[] = [
+  const baseKpis: KpiItem[] = [
     {
       id: 'total',
       label: 'Total Projects',
@@ -97,6 +101,14 @@ export function ProjectKpiGrid({ summary, className }: ProjectKpiGridProps) {
       variant: summary.delayed > 0 ? 'warning' : 'default',
     },
   ];
+
+  const kpis: KpiItem[] = onKpiClick
+    ? baseKpis.map((kpi) => ({
+        ...kpi,
+        onClick: () => onKpiClick(kpi.id),
+        active: activeKpiIds?.includes(kpi.id) ?? false,
+      }))
+    : baseKpis;
 
   return <HudKpiStrip kpis={kpis} columns={4} size="md" className={className} />;
 }

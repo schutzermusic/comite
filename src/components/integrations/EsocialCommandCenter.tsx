@@ -89,13 +89,17 @@ export function EsocialCommandCenter() {
   const [companyCnpj, setCompanyCnpj] = useState(config.companyCnpjMasked);
   const [certificateFileName, setCertificateFileName] = useState("empresa-a1.pfx");
 
+  // KPIs clicáveis (padrão Contratos): levam à seção com o detalhe correspondente.
+  const scrollToSection = (id: string) =>
+    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+
   const kpis: KpiItem[] = [
-    { id: "events", label: "Eventos importados", value: fmtNumber.format(config.importedEventsCount), variant: "success", tintValue: true, icon: <DatabaseZap /> },
-    { id: "failures", label: "Falhas/rejeicoes", value: fmtNumber.format(config.failedEventsCount), variant: "warning", tintValue: true, icon: <FileWarning /> },
-    { id: "headcount", label: "Headcount eSocial", value: fmtNumber.format(workforce.headcount), variant: "info", tintValue: true, icon: <Fingerprint /> },
-    { id: "gross", label: "Folha bruta", value: fmtCurrency.format(payroll.grossPayroll), variant: "success", tintValue: true, icon: <Archive /> },
-    { id: "overtime", label: "Overtime", value: fmtCurrency.format(payroll.overtimeAmount), variant: "warning", tintValue: true, icon: <Clock3 /> },
-    { id: "updated", label: "Ultima sync", value: "05/05", deltaText: "09:30", deltaTone: "neutral", variant: "info", tintValue: true, icon: <RefreshCcw /> },
+    { id: "events", label: "Eventos importados", value: fmtNumber.format(config.importedEventsCount), variant: "success", tintValue: true, icon: <DatabaseZap />, onClick: () => scrollToSection("esocial-timeline") },
+    { id: "failures", label: "Falhas/rejeicoes", value: fmtNumber.format(config.failedEventsCount), variant: "warning", tintValue: true, icon: <FileWarning />, onClick: () => scrollToSection("esocial-rejeicoes") },
+    { id: "headcount", label: "Headcount eSocial", value: fmtNumber.format(workforce.headcount), variant: "info", tintValue: true, icon: <Fingerprint />, onClick: () => scrollToSection("esocial-consumidores") },
+    { id: "gross", label: "Folha bruta", value: fmtCurrency.format(payroll.grossPayroll), variant: "success", tintValue: true, icon: <Archive />, onClick: () => scrollToSection("esocial-consumidores") },
+    { id: "overtime", label: "Overtime", value: fmtCurrency.format(payroll.overtimeAmount), variant: "warning", tintValue: true, icon: <Clock3 />, onClick: () => scrollToSection("esocial-consumidores") },
+    { id: "updated", label: "Ultima sync", value: "05/05", deltaText: "09:30", deltaTone: "neutral", variant: "info", tintValue: true, icon: <RefreshCcw />, onClick: () => scrollToSection("esocial-timeline") },
   ];
 
   return (
@@ -312,6 +316,7 @@ export function EsocialCommandCenter() {
           </div>
         </HudPanel>
 
+        <div id="esocial-rejeicoes" className="scroll-mt-24">
         <HudPanel
           title="Console de rejeicoes"
           subtitle="Somente metadados seguros; CPF/CNPJ e XML bruto nao aparecem na UI."
@@ -348,6 +353,7 @@ export function EsocialCommandCenter() {
             </HudButton>
           </div>
         </HudPanel>
+        </div>
       </section>
 
       <section className="grid grid-cols-1 gap-4 xl:grid-cols-[0.85fr_1.15fr]">
@@ -384,13 +390,14 @@ export function EsocialCommandCenter() {
                 <span className="font-mono text-xs text-ig-fg-muted">{eventType}</span>
                 <div className="flex flex-1 items-center gap-3">
                   <HudProgressBar value={(count / importSummary.eventsImported) * 100} size="sm" />
-                  <span className="w-8 text-right font-mono text-xs text-ig-fg-strong">{count}</span>
+                  <span className="w-8 text-right tabular-nums text-xs text-ig-fg-strong">{count}</span>
                 </div>
               </div>
             ))}
           </div>
         </HudPanel>
 
+        <div id="esocial-timeline" className="scroll-mt-24">
         <HudPanel
           title="Timeline de sincronizacao"
           subtitle="Runs recentes, origem, protocolos e sumarizacao segura."
@@ -429,9 +436,10 @@ export function EsocialCommandCenter() {
             ))}
           </div>
         </HudPanel>
+        </div>
       </section>
 
-      <section className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+      <section id="esocial-consumidores" className="grid scroll-mt-24 grid-cols-1 gap-4 xl:grid-cols-3">
         <ConsumerCard
           title="Pessoas & Custos"
           description="Headcount, ativos, admissoes, desligamentos, tenure, turnover, PJ vs CLT, overtime, custo por colaborador, concentracao e alertas."
@@ -488,7 +496,7 @@ function InfoTile({ label, value, tone }: { label: string; value: string; tone: 
       )}
     >
       <p className="text-[10px] uppercase tracking-[0.12em] text-ig-fg-subtle">{label}</p>
-      <p className="mt-1 truncate font-mono text-xs text-ig-fg-strong">{value}</p>
+      <p className="mt-1 truncate tabular-nums text-xs text-ig-fg-strong">{value}</p>
     </div>
   );
 }
@@ -509,7 +517,7 @@ function InfoRow({ label, value, tone }: { label: string; value: string; tone: "
       <span className="text-xs text-ig-fg-muted">{label}</span>
       <span
         className={cn(
-          "max-w-[58%] truncate text-right font-mono text-xs font-semibold",
+          "max-w-[58%] truncate text-right tabular-nums text-xs font-semibold",
           tone === "info" && "text-ig-info",
           tone === "warning" && "text-ig-warning",
           tone === "neutral" && "text-ig-fg-strong",
@@ -546,7 +554,7 @@ function MiniStat({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="rounded-lg border border-ig-border-subtle bg-ig-panel/70 px-3 py-2">
       <p className="text-[10px] uppercase tracking-[0.1em] text-ig-fg-subtle">{label}</p>
-      <p className="mt-1 font-mono text-sm font-semibold text-ig-fg-strong">{value}</p>
+      <p className="mt-1 tabular-nums text-sm font-semibold text-ig-fg-strong">{value}</p>
     </div>
   );
 }
@@ -555,7 +563,7 @@ function RunMetric({ label, value }: { label: string; value: number }) {
   return (
     <div className="rounded-md bg-ig-surface-subtle/50 px-2 py-1.5">
       <p className="text-[9px] uppercase tracking-[0.1em] text-ig-fg-subtle">{label}</p>
-      <p className="font-mono text-xs font-semibold text-ig-fg-strong">{value}</p>
+      <p className="tabular-nums text-xs font-semibold text-ig-fg-strong">{value}</p>
     </div>
   );
 }
@@ -572,7 +580,7 @@ function ConsumerCard({ title, description, metrics }: { title: string; descript
           {metrics.map(([label, value]) => (
             <div key={label} className="flex items-center justify-between gap-3 rounded-lg border border-ig-border-subtle bg-ig-panel/60 px-3 py-2">
               <span className="text-xs text-ig-fg-muted">{label}</span>
-              <span className="max-w-[70%] truncate text-right font-mono text-xs font-semibold text-ig-fg-strong">{value}</span>
+              <span className="max-w-[70%] truncate text-right tabular-nums text-xs font-semibold text-ig-fg-strong">{value}</span>
             </div>
           ))}
         </div>

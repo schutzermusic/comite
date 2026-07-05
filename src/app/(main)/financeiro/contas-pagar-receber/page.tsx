@@ -135,12 +135,26 @@ export default function ContasPagarReceberPage() {
       .sort((a, b) => b.entry_date.localeCompare(a.entry_date));
   }, [detail]);
 
+  // KPIs clicáveis (padrão Contratos): alternam o filtro correspondente da carteira.
+  const toggleTypeKpi = (type: APARType) => {
+    setFilterType(current => (current === type ? 'all' : type));
+    setFilterEntity('');
+  };
+  const weekFrom = new Date().toISOString().slice(0, 10);
+  const weekTo = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const dueWeekActive = filterDateField === 'due_date' && filterDateFrom === weekFrom && filterDateTo === weekTo;
+  const toggleDueWeekKpi = () => {
+    setFilterDateField('due_date');
+    setFilterDateFrom(dueWeekActive ? '' : weekFrom);
+    setFilterDateTo(dueWeekActive ? '' : weekTo);
+  };
+
   const kpis: KpiItem[] = [
-    { id: 'ar', label: t('receivable'), value: summary.totalReceivable / 100, format: 'compactCurrency', icon: <ArrowDownLeft className="w-5 h-5" />, variant: 'success' },
-    { id: 'ap', label: t('payable'), value: summary.totalPayable / 100, format: 'compactCurrency', icon: <ArrowUpRight className="w-5 h-5" />, variant: 'danger' },
-    { id: 'overdue', label: t('overdueExposure'), value: summary.overdueTotal / 100, format: 'compactCurrency', icon: <AlertTriangle className="w-5 h-5" />, variant: summary.overdueTotal > 0 ? 'danger' : 'success' },
-    { id: 'due', label: t('dueThisWeek'), value: summary.dueThisWeek / 100, format: 'compactCurrency', icon: <Clock3 className="w-5 h-5" />, variant: summary.dueThisWeek > 0 ? 'warning' : 'success' },
-    { id: 'cash', label: t('cashImpact'), value: summary.cashImpact / 100, format: 'compactCurrency', icon: <Wallet className="w-5 h-5" />, variant: summary.cashImpact >= 0 ? 'success' : 'danger' },
+    { id: 'ar', label: t('receivable'), value: summary.totalReceivable / 100, format: 'compactCurrency', icon: <ArrowDownLeft className="w-5 h-5" />, variant: 'success', onClick: () => toggleTypeKpi('receivable'), active: filterType === 'receivable' },
+    { id: 'ap', label: t('payable'), value: summary.totalPayable / 100, format: 'compactCurrency', icon: <ArrowUpRight className="w-5 h-5" />, variant: 'danger', onClick: () => toggleTypeKpi('payable'), active: filterType === 'payable' },
+    { id: 'overdue', label: t('overdueExposure'), value: summary.overdueTotal / 100, format: 'compactCurrency', icon: <AlertTriangle className="w-5 h-5" />, variant: summary.overdueTotal > 0 ? 'danger' : 'success', onClick: () => setFilterStatus(filterStatus === 'overdue' ? '' : 'overdue'), active: filterStatus === 'overdue' },
+    { id: 'due', label: t('dueThisWeek'), value: summary.dueThisWeek / 100, format: 'compactCurrency', icon: <Clock3 className="w-5 h-5" />, variant: summary.dueThisWeek > 0 ? 'warning' : 'success', onClick: toggleDueWeekKpi, active: dueWeekActive },
+    { id: 'cash', label: t('cashImpact'), value: summary.cashImpact / 100, format: 'compactCurrency', icon: <Wallet className="w-5 h-5" />, variant: summary.cashImpact >= 0 ? 'success' : 'danger', onClick: () => setFilterStatus(filterStatus === 'paid' ? '' : 'paid'), active: filterStatus === 'paid' },
   ];
 
   const suppliers = getSuppliers();
@@ -172,18 +186,18 @@ export default function ContasPagarReceberPage() {
         <span className="text-[10px] uppercase tracking-[0.14em] text-ig-fg-subtle">{title.type === 'receivable' ? t('receivable') : t('payable')}</span>
       </div>
     ) },
-    { key: 'issue_date', header: t('issueDate'), cell: (title) => <span className="font-mono text-xs text-ig-fg-muted">{title.issue_date}</span> },
+    { key: 'issue_date', header: t('issueDate'), cell: (title) => <span className="tabular-nums text-xs text-ig-fg-muted">{title.issue_date}</span> },
     { key: 'due_date', header: t('dueDate'), cell: (title) => {
       const overdue = isOverdue(title);
       return (
         <div className="flex flex-col">
-          <span className={`font-mono text-xs ${overdue ? 'font-semibold text-ig-danger' : 'text-ig-fg-muted'}`}>{title.due_date}</span>
+          <span className={`tabular-nums text-xs ${overdue ? 'font-semibold text-ig-danger' : 'text-ig-fg-muted'}`}>{title.due_date}</span>
           {overdue && <span className="text-[10px] font-medium text-ig-danger">{daysOverdue(title)}d {t('overdue').toLowerCase()}</span>}
         </div>
       );
     } },
-    { key: 'amount_cents', header: t('amount'), align: 'right', cell: (title) => <span className="block font-mono text-xs text-ig-fg-strong">{formatBRL(title.amount_cents)}</span> },
-    { key: 'remaining', header: t('remaining'), align: 'right', cell: (title) => <span className="block font-mono text-xs text-ig-fg-muted">{formatBRL(remainingCents(title))}</span> },
+    { key: 'amount_cents', header: t('amount'), align: 'right', cell: (title) => <span className="block tabular-nums text-xs text-ig-fg-strong">{formatBRL(title.amount_cents)}</span> },
+    { key: 'remaining', header: t('remaining'), align: 'right', cell: (title) => <span className="block tabular-nums text-xs text-ig-fg-muted">{formatBRL(remainingCents(title))}</span> },
     { key: 'status', header: 'Status', cell: (title) => (
       <HudStatusPill variant={(isOverdue(title) ? 'error' : STATUS_VARIANTS[title.status]) as any} size="sm">
         {isOverdue(title) ? STATUS_LABELS.overdue : (STATUS_LABELS[title.status] ?? title.status)}
@@ -374,16 +388,16 @@ export default function ContasPagarReceberPage() {
                 <p className="mt-1 text-xs text-ig-fg-muted">Totais sobre o filtro atual.</p>
               </div>
               <div className="grid grid-cols-2 gap-3 text-xs">
-                <div><p className="text-ig-fg-subtle">{t('receivable')}</p><p className="font-mono text-ig-success">{formatCompactBRL(summary.totalReceivable)}</p></div>
-                <div><p className="text-ig-fg-subtle">{t('payable')}</p><p className="font-mono text-ig-danger">{formatCompactBRL(summary.totalPayable)}</p></div>
-                <div><p className="text-ig-fg-subtle">{t('overdue')}</p><p className="font-mono text-ig-danger">{formatCompactBRL(summary.overdueTotal)}</p></div>
-                <div><p className="text-ig-fg-subtle">{t('dueThisMonth')}</p><p className="font-mono text-ig-warning">{formatCompactBRL(summary.dueThisMonth)}</p></div>
-                <div><p className="text-ig-fg-subtle">Recebido</p><p className="font-mono text-ig-fg-muted">{formatCompactBRL(summary.receivedTotal)}</p></div>
-                <div><p className="text-ig-fg-subtle">Pago</p><p className="font-mono text-ig-fg-muted">{formatCompactBRL(summary.paidTotal)}</p></div>
+                <div><p className="text-ig-fg-subtle">{t('receivable')}</p><p className="tabular-nums text-ig-success">{formatCompactBRL(summary.totalReceivable)}</p></div>
+                <div><p className="text-ig-fg-subtle">{t('payable')}</p><p className="tabular-nums text-ig-danger">{formatCompactBRL(summary.totalPayable)}</p></div>
+                <div><p className="text-ig-fg-subtle">{t('overdue')}</p><p className="tabular-nums text-ig-danger">{formatCompactBRL(summary.overdueTotal)}</p></div>
+                <div><p className="text-ig-fg-subtle">{t('dueThisMonth')}</p><p className="tabular-nums text-ig-warning">{formatCompactBRL(summary.dueThisMonth)}</p></div>
+                <div><p className="text-ig-fg-subtle">Recebido</p><p className="tabular-nums text-ig-fg-muted">{formatCompactBRL(summary.receivedTotal)}</p></div>
+                <div><p className="text-ig-fg-subtle">Pago</p><p className="tabular-nums text-ig-fg-muted">{formatCompactBRL(summary.paidTotal)}</p></div>
               </div>
               <div className="border-t border-ig-border-subtle pt-2 text-xs">
                 <p className="text-ig-fg-subtle">{t('cashImpact')}</p>
-                <p className={`font-mono text-base font-semibold ${summary.cashImpact >= 0 ? 'text-ig-success' : 'text-ig-danger'}`}>{formatCompactBRL(summary.cashImpact)}</p>
+                <p className={`tabular-nums text-base font-semibold ${summary.cashImpact >= 0 ? 'text-ig-success' : 'text-ig-danger'}`}>{formatCompactBRL(summary.cashImpact)}</p>
               </div>
             </div>
           </div>
@@ -397,19 +411,19 @@ export default function ContasPagarReceberPage() {
             <div className="grid grid-cols-2 gap-3">
               <div className="rounded-xl border border-ig-border-subtle bg-ig-panel/45 p-3">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-ig-fg-subtle">{t('cashIn')}</p>
-                <p className="mt-1 font-mono text-base font-semibold text-ig-success">{formatCompactBRL(cashSummary.cashIn)}</p>
+                <p className="mt-1 tabular-nums text-base font-semibold text-ig-success">{formatCompactBRL(cashSummary.cashIn)}</p>
               </div>
               <div className="rounded-xl border border-ig-border-subtle bg-ig-panel/45 p-3">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-ig-fg-subtle">{t('cashOut')}</p>
-                <p className="mt-1 font-mono text-base font-semibold text-ig-danger">{formatCompactBRL(cashSummary.cashOut)}</p>
+                <p className="mt-1 tabular-nums text-base font-semibold text-ig-danger">{formatCompactBRL(cashSummary.cashOut)}</p>
               </div>
               <div className="rounded-xl border border-ig-border-subtle bg-ig-panel/45 p-3">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-ig-fg-subtle">{t('netCash')}</p>
-                <p className={`mt-1 font-mono text-base font-semibold ${cashSummary.net >= 0 ? 'text-ig-success' : 'text-ig-danger'}`}>{formatCompactBRL(cashSummary.net)}</p>
+                <p className={`mt-1 tabular-nums text-base font-semibold ${cashSummary.net >= 0 ? 'text-ig-success' : 'text-ig-danger'}`}>{formatCompactBRL(cashSummary.net)}</p>
               </div>
               <div className="rounded-xl border border-ig-border-subtle bg-ig-panel/45 p-3">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-ig-fg-subtle">{t('movements')}</p>
-                <p className="mt-1 font-mono text-base font-semibold text-ig-fg-strong">{cashSummary.count}</p>
+                <p className="mt-1 tabular-nums text-base font-semibold text-ig-fg-strong">{cashSummary.count}</p>
               </div>
             </div>
             <div className="rounded-xl border border-ig-border-subtle bg-ig-panel/45 p-3">
@@ -435,8 +449,8 @@ export default function ContasPagarReceberPage() {
                             <span className="truncate text-xs text-ig-fg-strong">{m.description}</span>
                           </div>
                           <div className="flex shrink-0 items-center gap-3">
-                            <span className="font-mono text-[11px] text-ig-fg-muted">{m.entry_date}</span>
-                            <span className={`font-mono text-xs font-semibold ${dir === 'in' ? 'text-ig-success' : 'text-ig-danger'}`}>
+                            <span className="tabular-nums text-[11px] text-ig-fg-muted">{m.entry_date}</span>
+                            <span className={`tabular-nums text-xs font-semibold ${dir === 'in' ? 'text-ig-success' : 'text-ig-danger'}`}>
                               {dir === 'in' ? '+' : '−'}{formatBRL(m.amount_cents)}
                             </span>
                           </div>
@@ -487,13 +501,13 @@ export default function ContasPagarReceberPage() {
               <p className="text-sm text-ig-fg-strong">{detail.client?.name || detail.supplier?.name || '—'}</p>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <div><p className="text-[10px] uppercase text-ig-fg-subtle">{t('issueDate')}</p><p className="font-mono text-sm text-ig-fg-strong">{detail.issue_date}</p></div>
-              <div><p className="text-[10px] uppercase text-ig-fg-subtle">{t('dueDate')}</p><p className={`font-mono text-sm ${isOverdue(detail) ? 'font-semibold text-ig-danger' : 'text-ig-fg-strong'}`}>{detail.due_date}</p></div>
+              <div><p className="text-[10px] uppercase text-ig-fg-subtle">{t('issueDate')}</p><p className="tabular-nums text-sm text-ig-fg-strong">{detail.issue_date}</p></div>
+              <div><p className="text-[10px] uppercase text-ig-fg-subtle">{t('dueDate')}</p><p className={`tabular-nums text-sm ${isOverdue(detail) ? 'font-semibold text-ig-danger' : 'text-ig-fg-strong'}`}>{detail.due_date}</p></div>
             </div>
             <div className="grid grid-cols-3 gap-3">
-              <div><p className="text-[10px] uppercase text-ig-fg-subtle">{t('amount')}</p><p className="font-mono text-sm text-ig-fg-strong">{formatBRL(detail.amount_cents)}</p></div>
-              <div><p className="text-[10px] uppercase text-ig-fg-subtle">{t('paidAmount')}</p><p className="font-mono text-sm text-ig-fg-muted">{formatBRL(detail.paid_amount_cents)}</p></div>
-              <div><p className="text-[10px] uppercase text-ig-fg-subtle">{t('remaining')}</p><p className="font-mono text-sm text-ig-fg-strong">{formatBRL(remainingCents(detail))}</p></div>
+              <div><p className="text-[10px] uppercase text-ig-fg-subtle">{t('amount')}</p><p className="tabular-nums text-sm text-ig-fg-strong">{formatBRL(detail.amount_cents)}</p></div>
+              <div><p className="text-[10px] uppercase text-ig-fg-subtle">{t('paidAmount')}</p><p className="tabular-nums text-sm text-ig-fg-muted">{formatBRL(detail.paid_amount_cents)}</p></div>
+              <div><p className="text-[10px] uppercase text-ig-fg-subtle">{t('remaining')}</p><p className="tabular-nums text-sm text-ig-fg-strong">{formatBRL(remainingCents(detail))}</p></div>
             </div>
             {isOverdue(detail) && (
               <div className="flex items-center gap-2 rounded-lg border border-[color-mix(in_oklab,var(--ig-danger)_28%,transparent)] bg-[color-mix(in_oklab,var(--ig-danger)_10%,transparent)] px-3 py-2">
@@ -527,7 +541,7 @@ export default function ContasPagarReceberPage() {
                             <span className="truncate text-xs text-ig-fg-strong">{e.entry_date}</span>
                             <span className="text-[10px] uppercase tracking-[0.12em] text-ig-fg-subtle">{dir === 'in' ? t('cashIn') : t('cashOut')}</span>
                           </div>
-                          <span className={`shrink-0 font-mono text-xs font-semibold ${dir === 'in' ? 'text-ig-success' : 'text-ig-danger'}`}>
+                          <span className={`shrink-0 tabular-nums text-xs font-semibold ${dir === 'in' ? 'text-ig-success' : 'text-ig-danger'}`}>
                             {dir === 'in' ? '+' : '−'}{formatBRL(e.amount_cents)}
                           </span>
                         </button>

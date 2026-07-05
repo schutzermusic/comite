@@ -1,5 +1,6 @@
 'use client';
 
+import { FONT_FAMILY_SANS } from '@/lib/fonts';
 import React, { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { STATE_PROJECT_DATA, STATE_CENTROIDS, formatCompact } from '@/data/geo/brazil-operational-data';
@@ -265,7 +266,7 @@ export function BrazilHeatmap() {
                             fontWeight: active ? 700 : 400,
                             fill: active ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.1)',
                             letterSpacing: '0.1em',
-                            fontFamily: 'Inter, system-ui, sans-serif',
+                            fontFamily: FONT_FAMILY_SANS,
                         }}
                     >
                         {uf}

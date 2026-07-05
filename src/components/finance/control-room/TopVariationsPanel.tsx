@@ -69,7 +69,7 @@ export function TopVariationsPanel({ drivers }: TopVariationsPanelProps) {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
                       <span
-                        className="inline-flex h-4 w-4 items-center justify-center rounded font-mono text-[9px] font-semibold"
+                        className="inline-flex h-4 w-4 items-center justify-center rounded tabular-nums text-[9px] font-semibold"
                         style={{ background: `color-mix(in oklab, ${color} 14%, transparent)`, color }}
                       >
                         {d.rank}
@@ -83,11 +83,11 @@ export function TopVariationsPanel({ drivers }: TopVariationsPanelProps) {
                     </div>
                   </div>
                   <div className="flex flex-col items-end">
-                    <span className={cn('flex items-center gap-1 font-mono text-[12px] font-semibold tabular-nums')} style={{ color }}>
+                    <span className={cn('flex items-center gap-1 text-[12px] font-semibold tabular-nums')} style={{ color }}>
                       {isOver ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
                       {isOver ? '+' : ''}{formatCompactBRL(d.variance_abs)}
                     </span>
-                    <span className="font-mono text-[10px] tabular-nums text-[color:var(--ig-fg-muted)]">{formatPct(d.variance_pct)}</span>
+                    <span className="text-[10px] tabular-nums text-[color:var(--ig-fg-muted)]">{formatPct(d.variance_pct)}</span>
                   </div>
                 </div>
               </motion.div>

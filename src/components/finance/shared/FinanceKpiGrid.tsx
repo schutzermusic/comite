@@ -8,7 +8,6 @@ import {
   type FinanceKpi,
   type FinanceKpiTone,
   type FinanceKpiBreakdownRow,
-  isKpiExplorable,
 } from '@/lib/finance/kpi';
 import {
   FinanceDetailDrawer,
@@ -64,7 +63,6 @@ export function FinanceKpiGrid({ kpis, columns, align = 'center', className }: F
   const items = useMemo<KpiItem[]>(
     () =>
       kpis.map((k) => {
-        const explorable = isKpiExplorable(k);
         const tone: FinanceKpiTone = k.tone ?? 'default';
         return {
           id: k.id,
@@ -76,15 +74,16 @@ export function FinanceKpiGrid({ kpis, columns, align = 'center', className }: F
           deltaLabel: k.deltaLabel ?? k.helper,
           variant: TONE_TO_VARIANT[tone],
           tintValue: tone !== 'default',
-          onClick: explorable
-            ? () => {
-                if (k.onClick) k.onClick();
-                else setActiveId(k.id);
-              }
-            : k.onClick,
+          // Todo KPI é clicável (padrão Contratos): custom onClick quando o
+          // caller define; senão o drawer de detalhe genérico (mesmo sem drilldown).
+          onClick: () => {
+            if (k.onClick) k.onClick();
+            else setActiveId(k.id);
+          },
+          active: activeId === k.id,
         };
       }),
-    [kpis],
+    [kpis, activeId],
   );
 
   const resolvedColumns = (columns ?? (Math.max(2, Math.min(6, kpis.length)) as 2 | 3 | 4 | 5 | 6));
@@ -221,7 +220,7 @@ function DrilldownList({ rows }: { rows: FinanceKpiBreakdownRow[] }) {
               </div>
             </div>
             <div className="text-right shrink-0">
-              <div className="text-[12.5px] font-mono tabular-nums">
+              <div className="text-[12.5px] tabular-nums">
                 {row.formattedValue ?? new Intl.NumberFormat('pt-BR').format(row.value)}
               </div>
               <div className="text-[10.5px] text-ig-text-tertiary">{share.toFixed(1)}%</div>
@@ -257,7 +256,7 @@ function TrendSparkline({ series }: { series: NonNullable<FinanceKpi['trendSerie
         <path d={path} stroke="currentColor" className="text-ig-accent" fill="none" strokeWidth={1.5} />
       </svg>
       <div className="text-right">
-        <div className="text-[12px] font-mono tabular-nums">{last?.value.toLocaleString('pt-BR')}</div>
+        <div className="text-[12px] tabular-nums">{last?.value.toLocaleString('pt-BR')}</div>
         <div className={cn('text-[11px] flex items-center gap-1 justify-end', delta >= 0 ? 'text-ig-success' : 'text-ig-danger')}>
           {delta === 0 ? <Minus className="w-3 h-3" /> : delta > 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
           {fmtPct(delta)}

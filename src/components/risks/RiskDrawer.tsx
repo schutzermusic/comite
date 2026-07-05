@@ -71,7 +71,7 @@ export function RiskDrawer({ context, risks, onClose, onRiskClick }: Props) {
                   {risk.title}
                 </span>
                 <span
-                  className="shrink-0 rounded-md border px-1.5 py-0.5 font-mono text-[12px] font-bold ig-tabular"
+                  className="shrink-0 rounded-md border px-1.5 py-0.5 text-[12px] font-bold ig-tabular"
                   style={{
                     color: severityColor(risk.severity),
                     borderColor: `color-mix(in oklab, ${severityColor(risk.severity)} 30%, transparent)`,

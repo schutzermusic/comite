@@ -69,7 +69,7 @@ export function FinancialRiskRadar({ risks }: FinancialRiskRadarProps) {
             </div>
           </div>
           <div className="text-right">
-            <div className="font-mono text-[14px] font-semibold tabular-nums text-[#EF4444]">{formatCompactBRL(totalExposure)}</div>
+            <div className="text-[14px] font-semibold tabular-nums text-[#EF4444]">{formatCompactBRL(totalExposure)}</div>
             <div className="text-[9px] uppercase tracking-[0.18em] text-[color:var(--ig-fg-subtle)]">Exposição total</div>
           </div>
         </header>
@@ -117,10 +117,10 @@ export function FinancialRiskRadar({ risks }: FinancialRiskRadarProps) {
                 <p className="mt-1 text-[10.5px] leading-snug text-[color:var(--ig-fg-muted)]">{r.detail}</p>
                 <div className="mt-2 flex items-center justify-between">
                   <div className="flex items-baseline gap-1">
-                    <span className="font-mono text-[11.5px] font-semibold tabular-nums text-[color:var(--ig-fg-strong)]">{formatCompactBRL(r.exposure)}</span>
+                    <span className="text-[11.5px] font-semibold tabular-nums text-[color:var(--ig-fg-strong)]">{formatCompactBRL(r.exposure)}</span>
                     <span className="text-[9px] uppercase tracking-[0.16em] text-[color:var(--ig-fg-subtle)]">expos.</span>
                   </div>
-                  <span className="inline-flex items-center gap-1 font-mono text-[10px] tabular-nums" style={{ color: trendColor }}>
+                  <span className="inline-flex items-center gap-1 text-[10px] tabular-nums" style={{ color: trendColor }}>
                     <TrendIcon className="h-3 w-3" />
                     {r.trend === 'up' ? 'Crescente' : r.trend === 'down' ? 'Em redução' : 'Estável'}
                   </span>

@@ -92,7 +92,7 @@ export function Finance3DMetricCard({
         </div>
 
         <div
-          className="text-[22px] leading-none font-semibold font-mono tabular-nums tracking-tight"
+          className="text-[22px] leading-none font-semibold tabular-nums tracking-tight"
           style={{
             color: 'var(--ig-text-primary)',
             textShadow: `0 1px 0 rgba(255,255,255,0.08), 0 8px 28px color-mix(in oklab, ${toneVar} 28%, transparent)`,
@@ -105,7 +105,7 @@ export function Finance3DMetricCard({
           {delta && (
             <span
               className={cn(
-                'text-[11.5px] font-mono tabular-nums',
+                'text-[11.5px] tabular-nums',
                 delta.tone === 'pos' && 'text-ig-success',
                 delta.tone === 'neg' && 'text-ig-danger',
                 (!delta.tone || delta.tone === 'neutral') && 'text-ig-text-secondary',

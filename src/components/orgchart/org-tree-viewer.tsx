@@ -720,7 +720,7 @@ export function OrgTreeViewer({
               disabled={view.scale <= 0.12}
               icon={<ZoomOut className="h-4 w-4" />}
             />
-            <span className="min-w-16 rounded-lg border border-ig-border-subtle bg-ig-panel px-3 py-1.5 text-center font-mono text-xs font-semibold text-ig-fg-strong">
+            <span className="min-w-16 rounded-lg border border-ig-border-subtle bg-ig-panel px-3 py-1.5 text-center tabular-nums text-xs font-semibold text-ig-fg-strong">
               {zoomPercent}%
             </span>
             <ChevronDown className="h-3.5 w-3.5 text-ig-fg-subtle" />

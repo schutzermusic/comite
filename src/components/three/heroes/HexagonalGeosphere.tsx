@@ -1,5 +1,6 @@
 'use client';
 
+import { FONT_FAMILY_SANS } from '@/lib/fonts';
 import { motion } from 'framer-motion';
 
 interface HexagonalGeosphereProps {
@@ -177,7 +178,7 @@ export function HexagonalGeosphere({ value, size = 'md' }: HexagonalGeospherePro
                         fill: '#FFFFFF',
                         fontSize: dimension * 0.14,
                         fontWeight: 900,
-                        fontFamily: 'system-ui, -apple-system, sans-serif',
+                        fontFamily: FONT_FAMILY_SANS,
                         filter: 'drop-shadow(0 0 6px rgba(0, 255, 255, 0.8))',
                     }}
                 >

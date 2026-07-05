@@ -24,6 +24,8 @@ export default function FolhaPage() {
   const [selectedPeriod, setSelectedPeriod] = useState('2026-03');
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  // KPI clicável ordena os lotes pela dimensão do KPI (padrão Contratos: clique de novo desliga).
+  const [kpiSort, setKpiSort] = useState<string | null>(null);
 
   // Pull persisted Supabase PayrollBatch records into the in-memory store so
   // batches sent from the payroll closing survive a reload. No-op in mock mode;
@@ -48,20 +50,32 @@ export default function FolhaPage() {
   const totalBenefits = batches.reduce((s, b) => s + b.total_benefits_cents, 0);
   const totalHeadcount = batches.reduce((s, b) => s + b.headcount, 0);
 
+  const kpiSortValue = (b: PayrollBatch, key: string) =>
+    key === 'total' ? b.total_gross_cents + b.total_charges_cents + b.total_benefits_cents
+      : key === 'hc' ? b.headcount
+        : key === 'charges' ? b.total_charges_cents
+          : key === 'benefits' ? b.total_benefits_cents
+            : b.total_gross_cents;
+  const toggleKpiSort = (key: string) => setKpiSort(current => (current === key ? null : key));
+  const sortedBatches = useMemo(
+    () => (kpiSort ? [...batches].sort((a, b) => kpiSortValue(b, kpiSort) - kpiSortValue(a, kpiSort)) : batches),
+    [batches, kpiSort],
+  );
+
   const kpis: KpiItem[] = [
-    { id: 'gross', label: t('grossSalary'), value: totalGross / 100, format: 'compactCurrency', icon: <FileSpreadsheet className="w-5 h-5" /> },
-    { id: 'charges', label: t('charges'), value: totalCharges / 100, format: 'compactCurrency' },
-    { id: 'benefits', label: t('benefits'), value: totalBenefits / 100, format: 'compactCurrency' },
-    { id: 'total', label: t('totalPayroll'), value: (totalGross + totalCharges + totalBenefits) / 100, format: 'compactCurrency', icon: <Users className="w-5 h-5" /> },
-    { id: 'hc', label: t('headcount'), value: totalHeadcount, icon: <Users className="w-5 h-5" /> },
+    { id: 'gross', label: t('grossSalary'), value: totalGross / 100, format: 'compactCurrency', icon: <FileSpreadsheet className="w-5 h-5" />, onClick: () => toggleKpiSort('gross'), active: kpiSort === 'gross' },
+    { id: 'charges', label: t('charges'), value: totalCharges / 100, format: 'compactCurrency', onClick: () => toggleKpiSort('charges'), active: kpiSort === 'charges' },
+    { id: 'benefits', label: t('benefits'), value: totalBenefits / 100, format: 'compactCurrency', onClick: () => toggleKpiSort('benefits'), active: kpiSort === 'benefits' },
+    { id: 'total', label: t('totalPayroll'), value: (totalGross + totalCharges + totalBenefits) / 100, format: 'compactCurrency', icon: <Users className="w-5 h-5" />, onClick: () => toggleKpiSort('total'), active: kpiSort === 'total' },
+    { id: 'hc', label: t('headcount'), value: totalHeadcount, icon: <Users className="w-5 h-5" />, onClick: () => toggleKpiSort('hc'), active: kpiSort === 'hc' },
   ];
 
   const columns: HudTableColumn<PayrollBatch>[] = [
-    { key: 'period_key', header: t('period'), cell: (b) => <span className="text-ig-text-secondary text-xs font-mono">{b.period_key}</span> },
+    { key: 'period_key', header: t('period'), cell: (b) => <span className="text-ig-text-secondary text-xs tabular-nums">{b.period_key}</span> },
     { key: 'business_unit_id', header: t('businessUnit'), cell: (b) => <span className="text-ig-text-secondary text-xs">{b.business_unit?.name || b.business_unit_id}</span> },
-    { key: 'total_gross_cents', header: t('grossSalary'), cell: (b) => <span className="text-ig-text-primary text-xs font-mono">{formatBRL(b.total_gross_cents)}</span> },
-    { key: 'total_charges_cents', header: t('charges'), cell: (b) => <span className="text-ig-text-primary text-xs font-mono">{formatBRL(b.total_charges_cents)}</span> },
-    { key: 'total_benefits_cents', header: t('benefits'), cell: (b) => <span className="text-ig-text-primary text-xs font-mono">{formatBRL(b.total_benefits_cents)}</span> },
+    { key: 'total_gross_cents', header: t('grossSalary'), cell: (b) => <span className="text-ig-text-primary text-xs tabular-nums">{formatBRL(b.total_gross_cents)}</span> },
+    { key: 'total_charges_cents', header: t('charges'), cell: (b) => <span className="text-ig-text-primary text-xs tabular-nums">{formatBRL(b.total_charges_cents)}</span> },
+    { key: 'total_benefits_cents', header: t('benefits'), cell: (b) => <span className="text-ig-text-primary text-xs tabular-nums">{formatBRL(b.total_benefits_cents)}</span> },
     { key: 'headcount', header: t('headcount'), cell: (b) => <span className="text-ig-text-secondary text-xs">{b.headcount}</span> },
     { key: 'status', header: 'Status', cell: (b) => <HudStatusPill variant={STATUS_VARIANTS[b.status] as any} size="sm">{b.status}</HudStatusPill> },
     { key: 'actions', header: '', cell: (b) => b.status === 'draft' ? (
@@ -146,7 +160,7 @@ export default function FolhaPage() {
           <HudEmptyState title="Nenhum lote de folha para este período" description="Crie um novo lote de folha de pagamento." icon="file"
             action={{ label: t('newPayrollBatch'), onClick: () => setDrawerOpen(true) }} />
         ) : (
-          <HudTable columns={columns} data={batches} keyExtractor={(b) => b.id} compact stickyHeader />
+          <HudTable columns={columns} data={sortedBatches} keyExtractor={(b) => b.id} compact stickyHeader />
         )}
       </div>
 

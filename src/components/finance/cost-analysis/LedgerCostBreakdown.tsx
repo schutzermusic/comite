@@ -59,7 +59,7 @@ export function LedgerCostBreakdown({ filter, variant }: LedgerCostBreakdownProp
           Análise de custos {variant === 'project' ? 'do projeto' : 'do centro de custo'}
         </h4>
         <div className="flex items-center gap-3 text-[12px] text-ig-text-secondary">
-          <span className="font-mono tabular-nums">{fmtCompactBRL(summary.total)}</span>
+          <span className="tabular-nums">{fmtCompactBRL(summary.total)}</span>
           <MoMBadge momPct={summary.momPct} />
         </div>
       </div>

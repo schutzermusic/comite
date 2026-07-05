@@ -66,6 +66,10 @@ export default function GerenciarMembrosPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [comiteFilter, setComiteFilter] = useState('all');
   const [categoriaFilter, setCategoriaFilter] = useState('all');
+  // Single-select KPI filter (padrão Contratos): clicar filtra, clicar de novo limpa.
+  const [kpiFilter, setKpiFilter] = useState<'com_comite' | 'multi_comite' | null>(null);
+  const toggleKpiFilter = (key: 'com_comite' | 'multi_comite') =>
+    setKpiFilter((current) => (current === key ? null : key));
 
   const [selectedMember, setSelectedMember] = useState<MemberData | null>(null);
   const [showActivityDialog, setShowActivityDialog] = useState(false);
@@ -92,7 +96,10 @@ export default function GerenciarMembrosPage() {
       member.email?.toLowerCase().includes(searchTerm.toLowerCase());
     const comiteMatch = comiteFilter === 'all' || member.comites.some((c) => c.comite_id === comiteFilter);
     const categoriaMatch = categoriaFilter === 'all' || member.categoria === categoriaFilter;
-    return searchMatch && comiteMatch && categoriaMatch;
+    const kpiMatch =
+      !kpiFilter
+      || (kpiFilter === 'com_comite' ? member.comites.length > 0 : member.comites.length > 1);
+    return searchMatch && comiteMatch && categoriaMatch && kpiMatch;
   });
 
   const handleUpdateRole = () => {
@@ -112,11 +119,18 @@ export default function GerenciarMembrosPage() {
         : 0,
   };
 
+  const clearAllFilters = () => {
+    setKpiFilter(null);
+    setComiteFilter('all');
+    setCategoriaFilter('all');
+    setSearchTerm('');
+  };
+
   const kpiItems: KpiItem[] = [
-    { id: 'total', value: stats.totalMembros, label: 'Total de Membros', variant: 'info', icon: <Users className="w-5 h-5" /> },
-    { id: 'ativos', value: stats.membrosAtivos, label: 'Membros Ativos', variant: 'success', icon: <Shield className="w-5 h-5" /> },
-    { id: 'membership', value: stats.comMembership, label: 'Em Comitês', variant: 'warning', icon: <Building2 className="w-5 h-5" /> },
-    { id: 'media', value: stats.mediaComitesPorMembro, label: 'Média Comitês/Membro', variant: 'info', icon: <Users className="w-5 h-5" /> },
+    { id: 'total', value: stats.totalMembros, label: 'Total de Membros', variant: 'info', icon: <Users className="w-5 h-5" />, onClick: clearAllFilters },
+    { id: 'ativos', value: stats.membrosAtivos, label: 'Membros Ativos', variant: 'success', icon: <Shield className="w-5 h-5" />, onClick: clearAllFilters },
+    { id: 'membership', value: stats.comMembership, label: 'Em Comitês', variant: 'warning', icon: <Building2 className="w-5 h-5" />, onClick: () => toggleKpiFilter('com_comite'), active: kpiFilter === 'com_comite' },
+    { id: 'media', value: stats.mediaComitesPorMembro, label: 'Média Comitês/Membro', variant: 'info', icon: <Users className="w-5 h-5" />, onClick: () => toggleKpiFilter('multi_comite'), active: kpiFilter === 'multi_comite' },
   ];
 
   const filterGroups: FilterGroup[] = [

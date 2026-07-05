@@ -60,7 +60,7 @@ export function RiskActionQueue({ risks, onRiskClick }: Props) {
 
               <div className="flex items-center gap-2 shrink-0">
                 <span
-                  className="flex items-center gap-1 rounded-lg border px-2 py-1 font-mono text-[clamp(14px,1.3vw,18px)] font-bold ig-tabular"
+                  className="flex items-center gap-1 rounded-lg border px-2 py-1 text-[clamp(14px,1.3vw,18px)] font-bold ig-tabular"
                   style={{
                     color,
                     borderColor: `color-mix(in oklab, ${color} 30%, transparent)`,

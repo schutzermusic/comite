@@ -9,6 +9,7 @@
  * gradient strokes, hairline grids, glass-friendly panels, animated reveal.
  */
 
+import { FONT_FAMILY_SANS } from '@/lib/fonts';
 import React, { useId, useMemo, useState, useRef, useLayoutEffect } from 'react';
 import { useTheme } from '@/contexts/ThemeContext';
 
@@ -231,7 +232,7 @@ export function FinanceLineChart({
                 <circle
                   key={i} cx={px} cy={py} r={3.2}
                   fill={theme.palette[tone]} stroke="rgba(255,255,255,0.6)" strokeWidth={1}
-                  onMouseEnter={() => setTip({ x: px, y: py, html: <span><b>{s.name}</b> · {categories[i]} · <span style={{ fontFamily: 'ui-monospace, Menlo, monospace' }}>{fmtBRL(s.data[i])}</span></span> })}
+                  onMouseEnter={() => setTip({ x: px, y: py, html: <span><b>{s.name}</b> · {categories[i]} · <span style={{ fontFamily: FONT_FAMILY_SANS }}>{fmtBRL(s.data[i])}</span></span> })}
                   onMouseLeave={() => setTip(null)}
                 />
               ))}
@@ -308,7 +309,7 @@ export function FinanceSCurveChart({
                 <span className="w-2 h-2 rounded-full" style={{ background: theme.palette[s.tone || 'accent'] }} />
                 {s.name}
               </span>
-              <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', color: theme.textStrong }}>{fmtBRL(cumulatives[idx][i])}</span>
+              <span style={{ fontFamily: FONT_FAMILY_SANS, color: theme.textStrong }}>{fmtBRL(cumulatives[idx][i])}</span>
             </div>
           ))}
         </div>
@@ -493,7 +494,7 @@ export function FinanceBarChart({
                       fill={`url(#bar-${tone}-${uid})`}
                       stroke={theme.palette[tone]} strokeOpacity={0.55} strokeWidth={0.6}
                       filter={`url(#softglow-${uid})`}
-                      onMouseEnter={() => setTip({ x: x + len / 2, y, html: <span><b>{s.name}</b> · {categories[i]} · <span style={{ fontFamily: 'ui-monospace,Menlo,monospace' }}>{fmtBRL(v)}</span></span> })}
+                      onMouseEnter={() => setTip({ x: x + len / 2, y, html: <span><b>{s.name}</b> · {categories[i]} · <span style={{ fontFamily: FONT_FAMILY_SANS }}>{fmtBRL(v)}</span></span> })}
                       onMouseLeave={() => setTip(null)}
                     />
                   );
@@ -507,7 +508,7 @@ export function FinanceBarChart({
                     fill={`url(#bar-${tone}-${uid})`}
                     stroke={theme.palette[tone]} strokeOpacity={0.55} strokeWidth={0.6}
                     filter={`url(#softglow-${uid})`}
-                    onMouseEnter={() => setTip({ x: x + barW / 2, y, html: <span><b>{s.name}</b> · {categories[i]} · <span style={{ fontFamily: 'ui-monospace,Menlo,monospace' }}>{fmtBRL(v)}</span></span> })}
+                    onMouseEnter={() => setTip({ x: x + barW / 2, y, html: <span><b>{s.name}</b> · {categories[i]} · <span style={{ fontFamily: FONT_FAMILY_SANS }}>{fmtBRL(v)}</span></span> })}
                     onMouseLeave={() => setTip(null)}
                   />
                 );
@@ -605,7 +606,7 @@ export function FinanceStackedBarChart({
                   fill={`url(#bar-${tone}-${uid})`}
                   stroke={theme.palette[tone]} strokeOpacity={0.45} strokeWidth={0.6}
                   filter={`url(#softglow-${uid})`}
-                  onMouseEnter={() => setTip({ x: x + lenAxis / 2, y, html: <span><b>{s.name}</b> · {cat} · <span style={{ fontFamily: 'ui-monospace,Menlo,monospace' }}>{percent ? `${portion.toFixed(1)}%` : fmtBRL(v)}</span></span> })}
+                  onMouseEnter={() => setTip({ x: x + lenAxis / 2, y, html: <span><b>{s.name}</b> · {cat} · <span style={{ fontFamily: FONT_FAMILY_SANS }}>{percent ? `${portion.toFixed(1)}%` : fmtBRL(v)}</span></span> })}
                   onMouseLeave={() => setTip(null)}
                 />
               );
@@ -620,7 +621,7 @@ export function FinanceStackedBarChart({
                 fill={`url(#bar-${tone}-${uid})`}
                 stroke={theme.palette[tone]} strokeOpacity={0.45} strokeWidth={0.6}
                 filter={`url(#softglow-${uid})`}
-                onMouseEnter={() => setTip({ x: x + barW / 2, y, html: <span><b>{s.name}</b> · {cat} · <span style={{ fontFamily: 'ui-monospace,Menlo,monospace' }}>{percent ? `${portion.toFixed(1)}%` : fmtBRL(v)}</span></span> })}
+                onMouseEnter={() => setTip({ x: x + barW / 2, y, html: <span><b>{s.name}</b> · {cat} · <span style={{ fontFamily: FONT_FAMILY_SANS }}>{percent ? `${portion.toFixed(1)}%` : fmtBRL(v)}</span></span> })}
                 onMouseLeave={() => setTip(null)}
               />
             );
@@ -711,10 +712,10 @@ export function FinanceAdvancedWaterfallChart({
                 fill={`url(#bar-${tone}-${uid})`}
                 stroke={theme.palette[tone]} strokeOpacity={0.55} strokeWidth={0.6}
                 filter={`url(#softglow-${uid})`}
-                onMouseEnter={() => setTip({ x: x + barW / 2, y: top, html: <span><b>{s.label}</b> · <span style={{ fontFamily: 'ui-monospace,Menlo,monospace' }}>{fmtBRL(s.value)}</span> · acum: <span style={{ fontFamily: 'ui-monospace,Menlo,monospace' }}>{fmtBRL(cumulative[i])}</span></span> })}
+                onMouseEnter={() => setTip({ x: x + barW / 2, y: top, html: <span><b>{s.label}</b> · <span style={{ fontFamily: FONT_FAMILY_SANS }}>{fmtBRL(s.value)}</span> · acum: <span style={{ fontFamily: FONT_FAMILY_SANS }}>{fmtBRL(cumulative[i])}</span></span> })}
                 onMouseLeave={() => setTip(null)}
               />
-              <text x={x + barW / 2} y={top - 6} fontSize="10" fill={theme.textStrong} textAnchor="middle" style={{ fontFamily: 'ui-monospace,Menlo,monospace' }}>{fmtCompact(s.value)}</text>
+              <text x={x + barW / 2} y={top - 6} fontSize="10" fill={theme.textStrong} textAnchor="middle" style={{ fontFamily: FONT_FAMILY_SANS }}>{fmtCompact(s.value)}</text>
               {i < steps.length - 1 && (
                 <line x1={x + barW} x2={nextX} y1={connectorY} y2={connectorY} stroke={theme.axis} strokeDasharray="2 3" strokeOpacity={0.6} />
               )}
@@ -800,7 +801,7 @@ export function FinanceDonutChart({
         })}
         {/* center */}
         {centerValue && (
-          <text x={cx} y={cy - 2} textAnchor="middle" fontSize="20" fontWeight={700} fill={theme.textStrong} style={{ fontFamily: 'ui-monospace,Menlo,monospace' }}>{centerValue}</text>
+          <text x={cx} y={cy - 2} textAnchor="middle" fontSize="20" fontWeight={700} fill={theme.textStrong} style={{ fontFamily: FONT_FAMILY_SANS }}>{centerValue}</text>
         )}
         {centerLabel && (
           <text x={cx} y={cy + 16} textAnchor="middle" fontSize="10" fill={theme.text}>{centerLabel}</text>
@@ -825,7 +826,7 @@ export function FinanceDonutChart({
                 <span className="w-2 h-2 rounded-full" style={{ background: theme.palette[tone], boxShadow: `0 0 6px ${theme.palette[tone]}` }} />
                 <span style={{ color: theme.text }} className="truncate">{d.name}</span>
               </span>
-              <span style={{ color: theme.textStrong, fontFamily: 'ui-monospace,Menlo,monospace' }}>{pct.toFixed(1)}%</span>
+              <span style={{ color: theme.textStrong, fontFamily: FONT_FAMILY_SANS }}>{pct.toFixed(1)}%</span>
             </button>
           );
         })}
@@ -905,7 +906,7 @@ export function FinanceTreemapChart({
               {c.rect.w > 70 && c.rect.h > 38 && (
                 <>
                   <text x={c.rect.x + 12} y={c.rect.y + 18} fontSize="11" fontWeight={600} fill={theme.textStrong}>{c.node.name}</text>
-                  <text x={c.rect.x + 12} y={c.rect.y + 33} fontSize="10" fill={theme.text} style={{ fontFamily: 'ui-monospace,Menlo,monospace' }}>
+                  <text x={c.rect.x + 12} y={c.rect.y + 33} fontSize="10" fill={theme.text} style={{ fontFamily: FONT_FAMILY_SANS }}>
                     {fmtCompact(c.node.value)}
                     {c.node.deltaPct !== undefined && (
                       <tspan dx="6" fill={c.node.deltaPct >= 0 ? theme.palette.success : theme.palette.danger}>
@@ -1071,9 +1072,9 @@ export function FinanceBubbleChart({
                 onMouseEnter={() => setTip({ x: cx, y: cy - r, html: (
                   <div className="space-y-0.5">
                     <div style={{ color: theme.textStrong }}><b>{p.label}</b></div>
-                    <div>{xAxisLabel}: <span style={{ fontFamily: 'ui-monospace,Menlo,monospace' }}>{xFormatter ? xFormatter(p.x) : p.x.toFixed(1)}</span></div>
-                    <div>{yAxisLabel}: <span style={{ fontFamily: 'ui-monospace,Menlo,monospace' }}>{yFormatter ? yFormatter(p.y) : p.y.toFixed(1)}</span></div>
-                    <div>Size: <span style={{ fontFamily: 'ui-monospace,Menlo,monospace' }}>{fmtCompact(p.size)}</span></div>
+                    <div>{xAxisLabel}: <span style={{ fontFamily: FONT_FAMILY_SANS }}>{xFormatter ? xFormatter(p.x) : p.x.toFixed(1)}</span></div>
+                    <div>{yAxisLabel}: <span style={{ fontFamily: FONT_FAMILY_SANS }}>{yFormatter ? yFormatter(p.y) : p.y.toFixed(1)}</span></div>
+                    <div>Size: <span style={{ fontFamily: FONT_FAMILY_SANS }}>{fmtCompact(p.size)}</span></div>
                     {p.meta && <div style={{ color: theme.text }}>{p.meta}</div>}
                   </div>
                 ) })}
@@ -1139,8 +1140,8 @@ export function FinanceTornadoChart({
               <rect x={center} y={y} width={highW} height={barH} rx={4}
                 fill={`url(#bar-success-${uid})`} stroke={theme.palette.success} strokeOpacity={0.5} strokeWidth={0.6}
                 filter={`url(#softglow-${uid})`} />
-              <text x={center - lowW - 6} y={y + barH / 2 + 3} textAnchor="end" fontSize="10" fill={theme.palette.danger} style={{ fontFamily: 'ui-monospace,Menlo,monospace' }}>−{Math.abs(r.low).toFixed(1)}%</text>
-              <text x={center + highW + 6} y={y + barH / 2 + 3} fontSize="10" fill={theme.palette.success} style={{ fontFamily: 'ui-monospace,Menlo,monospace' }}>+{Math.abs(r.high).toFixed(1)}%</text>
+              <text x={center - lowW - 6} y={y + barH / 2 + 3} textAnchor="end" fontSize="10" fill={theme.palette.danger} style={{ fontFamily: FONT_FAMILY_SANS }}>−{Math.abs(r.low).toFixed(1)}%</text>
+              <text x={center + highW + 6} y={y + barH / 2 + 3} fontSize="10" fill={theme.palette.success} style={{ fontFamily: FONT_FAMILY_SANS }}>+{Math.abs(r.high).toFixed(1)}%</text>
             </g>
           );
         })}
@@ -1183,7 +1184,7 @@ export function FinanceRadialProgress({
         <path d={arc(startAngle, endAngle)} fill="none" stroke={theme.grid} strokeWidth={12} strokeLinecap="round" />
         <path d={arc(startAngle, valueAngle)} fill="none" stroke={theme.palette[tone]} strokeWidth={12} strokeLinecap="round"
           filter={`url(#softglow-${uid})`} />
-        <text x={cx} y={cy + 8} textAnchor="middle" fontSize="24" fontWeight={700} fill={theme.textStrong} style={{ fontFamily: 'ui-monospace,Menlo,monospace' }}>{(pct * 100).toFixed(0)}%</text>
+        <text x={cx} y={cy + 8} textAnchor="middle" fontSize="24" fontWeight={700} fill={theme.textStrong} style={{ fontFamily: FONT_FAMILY_SANS }}>{(pct * 100).toFixed(0)}%</text>
         {sublabel && <text x={cx} y={cy + 28} textAnchor="middle" fontSize="11" fill={theme.text}>{sublabel || label}</text>}
       </svg>
     </div>
@@ -1338,7 +1339,7 @@ export function FinanceRankMatrix({
               }
               style={{ gridTemplateColumns: gridCols }}
             >
-              <span className="text-[10.5px] font-mono tabular-nums text-ig-text-tertiary text-right">
+              <span className="text-[10.5px] tabular-nums text-ig-text-tertiary text-right">
                 {String(i + 1).padStart(2, '0')}
               </span>
 
@@ -1372,7 +1373,7 @@ export function FinanceRankMatrix({
               </div>
 
               <span
-                className="text-[11px] font-mono tabular-nums font-semibold text-right whitespace-nowrap"
+                className="text-[11px] tabular-nums font-semibold text-right whitespace-nowrap"
                 style={{ color: theme.palette[tone] }}
               >
                 {formattedValue}
@@ -1386,7 +1387,7 @@ export function FinanceRankMatrix({
                 )}
                 {r.secondary && (
                   <div
-                    className="text-[11.5px] font-mono tabular-nums text-ig-text-secondary truncate leading-tight"
+                    className="text-[11.5px] tabular-nums text-ig-text-secondary truncate leading-tight"
                     title={r.secondary}
                   >
                     {r.secondary}
@@ -1409,7 +1410,7 @@ export function FinanceRankMatrix({
           {tickVals.map((v, i) => (
             <span
               key={i}
-              className="absolute top-0 -translate-x-1/2 text-[9.5px] font-mono tabular-nums text-ig-text-tertiary"
+              className="absolute top-0 -translate-x-1/2 text-[9.5px] tabular-nums text-ig-text-tertiary"
               style={{ left: `${((v - rangeMin) / ((rangeMax - rangeMin) || 1)) * 100}%` }}
             >
               {axisFormatter

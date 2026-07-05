@@ -45,18 +45,22 @@ export default function FechamentoPage() {
   const checklistDone = checklistItems.filter(item => item.ok).length;
   const closeProgress = Math.round((checklistDone / checklistItems.length) * 100);
 
+  // KPIs clicáveis: levam à seção correspondente do fechamento (checklist / histórico).
+  const scrollToSection = (id: string) =>
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
   const closeKpis: KpiItem[] = [
-    { id: 'status', label: 'Status do período', value: STATUS_LABELS[currentPeriod?.status || 'open'], icon: <Lock className="h-5 w-5" />, variant: currentPeriod?.status === 'closed' ? 'success' : 'warning' },
-    { id: 'progress', label: 'Checklist pronto', value: closeProgress, format: 'percent', icon: <ShieldCheck className="h-5 w-5" />, variant: allReady ? 'success' : 'warning' },
-    { id: 'blockers', label: 'Bloqueios', value: checklistItems.length - checklistDone, icon: <AlertTriangle className="h-5 w-5" />, variant: allReady ? 'success' : 'danger' },
-    { id: 'reporting', label: 'Resultado líquido', value: currentPeriod?.snapshot_json ? currentPeriod.snapshot_json.net_result / 100 : 'Pendente', format: currentPeriod?.snapshot_json ? 'compactCurrency' : 'raw', icon: <FileCheck2 className="h-5 w-5" />, variant: currentPeriod?.snapshot_json ? 'info' : 'warning' },
+    { id: 'status', label: 'Status do período', value: STATUS_LABELS[currentPeriod?.status || 'open'], icon: <Lock className="h-5 w-5" />, variant: currentPeriod?.status === 'closed' ? 'success' : 'warning', onClick: () => scrollToSection('fechamento-checklist') },
+    { id: 'progress', label: 'Checklist pronto', value: closeProgress, format: 'percent', icon: <ShieldCheck className="h-5 w-5" />, variant: allReady ? 'success' : 'warning', onClick: () => scrollToSection('fechamento-checklist') },
+    { id: 'blockers', label: 'Bloqueios', value: checklistItems.length - checklistDone, icon: <AlertTriangle className="h-5 w-5" />, variant: allReady ? 'success' : 'danger', onClick: () => scrollToSection('fechamento-checklist') },
+    { id: 'reporting', label: 'Resultado líquido', value: currentPeriod?.snapshot_json ? currentPeriod.snapshot_json.net_result / 100 : 'Pendente', format: currentPeriod?.snapshot_json ? 'compactCurrency' : 'raw', icon: <FileCheck2 className="h-5 w-5" />, variant: currentPeriod?.snapshot_json ? 'info' : 'warning', onClick: () => scrollToSection('fechamento-periodos') },
   ];
 
   const periodColumns: HudTableColumn<PeriodClose>[] = [
-    { key: 'period_key', header: t('period'), cell: (p) => <span className="font-mono text-xs text-ig-fg-strong">{p.period_key}</span> },
+    { key: 'period_key', header: t('period'), cell: (p) => <span className="tabular-nums text-xs text-ig-fg-strong">{p.period_key}</span> },
     { key: 'status', header: 'Status', cell: (p) => <HudStatusPill variant={STATUS_VARIANTS[p.status] as any} size="sm">{STATUS_LABELS[p.status]}</HudStatusPill> },
-    { key: 'soft_closed_at', header: t('softClose'), cell: (p) => <span className="font-mono text-xs text-ig-fg-muted">{p.soft_closed_at?.slice(0, 10) || '—'}</span> },
-    { key: 'closed_at', header: t('hardClose'), cell: (p) => <span className="font-mono text-xs text-ig-fg-muted">{p.closed_at?.slice(0, 10) || '—'}</span> },
+    { key: 'soft_closed_at', header: t('softClose'), cell: (p) => <span className="tabular-nums text-xs text-ig-fg-muted">{p.soft_closed_at?.slice(0, 10) || '—'}</span> },
+    { key: 'closed_at', header: t('hardClose'), cell: (p) => <span className="tabular-nums text-xs text-ig-fg-muted">{p.closed_at?.slice(0, 10) || '—'}</span> },
     { key: 'snapshot', header: 'Snapshot', cell: (p) => p.snapshot_json ? (
       <span className="text-xs text-ig-success">Resultado: {formatBRL(p.snapshot_json.net_result)}</span>
     ) : <span className="text-xs text-ig-fg-subtle">—</span> },
@@ -184,7 +188,7 @@ export default function FechamentoPage() {
         </div>
       </HudPanel>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
+      <div id="fechamento-checklist" className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
         {/* Checklist */}
         <HudPanel title={t('closeChecklist')} icon={<ShieldCheck className="w-4 h-4" />}>
           <div className="space-y-3">
@@ -257,7 +261,7 @@ export default function FechamentoPage() {
               ].map((row) => (
                 <div key={row.label} className="flex justify-between rounded-lg border border-ig-border-subtle bg-ig-panel/45 px-3 py-2">
                   <span className="text-xs text-ig-fg-muted">{row.label}</span>
-                  <span className={`font-mono text-xs ${row.value >= 0 ? 'text-ig-success' : 'text-ig-danger'}`}>{formatBRL(row.value)}</span>
+                  <span className={`tabular-nums text-xs ${row.value >= 0 ? 'text-ig-success' : 'text-ig-danger'}`}>{formatBRL(row.value)}</span>
                 </div>
               ))}
             </div>
@@ -280,7 +284,7 @@ export default function FechamentoPage() {
       )}
 
       {/* All Periods */}
-      <div className="mt-4">
+      <div id="fechamento-periodos" className="mt-4">
         <HudPanel title="Histórico de Períodos">
           <HudTable columns={periodColumns} data={periods} keyExtractor={(p) => p.id} compact />
         </HudPanel>
@@ -337,7 +341,7 @@ function WaterfallChart({ snapshot }: { snapshot: PnLSnapshot }) {
         }`}>
           <TrendingUp className={`w-4 h-4 ${!netPositive ? 'rotate-180' : ''}`} />
           <span className="text-xs font-medium">Resultado Líquido:</span>
-          <span className="text-sm font-mono font-bold">{formatBRL(snapshot.net_result)}</span>
+          <span className="text-sm tabular-nums font-bold">{formatBRL(snapshot.net_result)}</span>
         </div>
       </div>
       <FinanceAdvancedWaterfallChart steps={steps} height={380} />

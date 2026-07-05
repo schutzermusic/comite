@@ -215,7 +215,7 @@ export function RiskFormModal({ open, mode, risk, focusPlan, saving, initialLink
         <div className="flex items-center justify-between gap-3">
           <span className="flex items-center gap-2 text-[11px] text-ig-fg-muted">
             Score
-            <span className="rounded-md border px-1.5 py-0.5 font-mono text-[12px] font-bold ig-tabular"
+            <span className="rounded-md border px-1.5 py-0.5 text-[12px] font-bold ig-tabular"
               style={{ color: severityColor(severity), borderColor: `color-mix(in oklab, ${severityColor(severity)} 30%, transparent)` }}>
               {values.probability}×{values.impact}={level}
             </span>

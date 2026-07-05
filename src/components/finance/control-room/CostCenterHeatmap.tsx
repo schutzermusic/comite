@@ -111,7 +111,7 @@ export function CostCenterHeatmap({ data }: CostCenterHeatmapProps) {
                       onMouseEnter={() => setHover({ cc, cat })}
                       onMouseLeave={() => setHover(null)}
                       className={cn(
-                        'group relative flex h-full min-h-0 w-full items-center justify-center rounded-md border text-[11px] font-mono font-semibold tabular-nums transition-all',
+                        'group relative flex h-full min-h-0 w-full items-center justify-center rounded-md border text-[11px] font-semibold tabular-nums transition-all',
                         'hover:scale-[1.04]',
                       )}
                       style={{
@@ -142,7 +142,7 @@ export function CostCenterHeatmap({ data }: CostCenterHeatmapProps) {
             const cell = getCell(hover.cc, hover.cat);
             if (!cell || (cell.actual === 0 && cell.budget === 0)) return null;
             return (
-              <div className="flex items-center gap-3 font-mono text-[10px] tabular-nums text-[color:var(--ig-fg-muted)]">
+              <div className="flex items-center gap-3 text-[10px] tabular-nums text-[color:var(--ig-fg-muted)]">
                 <span>{hover.cc} · {hover.cat}</span>
                 <span>Real: <span className="text-[color:var(--ig-fg-strong)]">{formatCompactBRL(cell.actual)}</span></span>
                 <span>Bdg: <span className="text-[color:var(--ig-fg-strong)]">{formatCompactBRL(cell.budget)}</span></span>

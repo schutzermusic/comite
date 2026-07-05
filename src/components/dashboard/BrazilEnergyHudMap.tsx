@@ -6,6 +6,7 @@
 
 'use client';
 
+import { FONT_FAMILY_SANS } from '@/lib/fonts';
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import DeckGL from "@deck.gl/react";
 import type { PickingInfo } from "@deck.gl/core";
@@ -315,7 +316,7 @@ export default function BrazilEnergyHudMap() {
       getTextAnchor: "middle",
       getAlignmentBaseline: "center",
       fontFamily:
-        "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Inter, Arial",
+        FONT_FAMILY_SANS,
       background: true,
       getBackgroundColor: [8, 14, 13, 110],
       backgroundPadding: [6, 8],

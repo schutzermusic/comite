@@ -239,7 +239,7 @@ export default function OrcadoRealizadoPage() {
                 >
                   <div className="flex items-center justify-between gap-3 min-w-0">
                     <div className="text-[12.5px] font-medium text-ig-text-primary truncate">{a.area}</div>
-                    <div className={'text-[12.5px] font-mono tabular-nums shrink-0 ' + (a.vp >= 0 ? 'text-ig-success' : 'text-ig-danger')}>{fmtPct(a.vp)}</div>
+                    <div className={'text-[12.5px] tabular-nums shrink-0 ' + (a.vp >= 0 ? 'text-ig-success' : 'text-ig-danger')}>{fmtPct(a.vp)}</div>
                   </div>
                   <div className="text-[10.5px] text-ig-text-tertiary mt-0.5">{a.count} linha{a.count !== 1 ? 's' : ''}</div>
                 </button>
@@ -254,7 +254,7 @@ export default function OrcadoRealizadoPage() {
             <ul className="divide-y divide-ig-border-subtle/60">
               {ranking.map((r, idx) => (
                 <li key={r.id} className="py-2.5 flex items-center gap-3 min-w-0">
-                  <span className="text-[11px] font-mono text-ig-text-tertiary w-6 shrink-0">#{idx + 1}</span>
+                  <span className="text-[11px] tabular-nums text-ig-text-tertiary w-6 shrink-0">#{idx + 1}</span>
                   <div className="flex-1 min-w-0">
                     <button onClick={() => setSelected(r)} className="text-[13px] font-medium text-ig-text-primary hover:text-ig-accent text-left truncate w-full">
                       {r.category}
@@ -262,8 +262,8 @@ export default function OrcadoRealizadoPage() {
                     <div className="text-[10.5px] text-ig-text-tertiary truncate">{r.area} {r.costCenter ? `• ${r.costCenter}` : ''}</div>
                   </div>
                   <div className="text-right shrink-0">
-                    <div className="text-[12.5px] font-mono tabular-nums text-ig-danger">{fmtPct(r.vp)}</div>
-                    <div className="text-[10.5px] text-ig-text-tertiary font-mono">{fmtBRL(r.actual - r.budget)}</div>
+                    <div className="text-[12.5px] tabular-nums text-ig-danger">{fmtPct(r.vp)}</div>
+                    <div className="text-[10.5px] text-ig-text-tertiary tabular-nums">{fmtBRL(r.actual - r.budget)}</div>
                   </div>
                   <FinanceStatusBadge status={r.status} size="xs" />
                 </li>
@@ -300,10 +300,10 @@ export default function OrcadoRealizadoPage() {
                           <div className="truncate">{r.category}</div>
                           <div className="text-[10.5px] text-ig-text-tertiary truncate">{r.area}{r.project ? ` • ${r.project}` : ''}{r.costCenter ? ` • ${r.costCenter}` : ''}</div>
                         </td>
-                        <td className="text-right px-5 py-2.5 font-mono tabular-nums text-ig-text-secondary whitespace-nowrap">{fmtBRL(r.budget)}</td>
-                        <td className="text-right px-5 py-2.5 font-mono tabular-nums whitespace-nowrap">{fmtBRL(r.actual)}</td>
-                        <td className={'text-right px-5 py-2.5 font-mono tabular-nums whitespace-nowrap ' + (dM >= 0 ? 'text-ig-success' : 'text-ig-danger')}>{fmtPct(dM)}</td>
-                        <td className={'text-right px-5 py-2.5 font-mono tabular-nums whitespace-nowrap ' + (dY >= 0 ? 'text-ig-success' : 'text-ig-danger')}>{fmtPct(dY)}</td>
+                        <td className="text-right px-5 py-2.5 tabular-nums text-ig-text-secondary whitespace-nowrap">{fmtBRL(r.budget)}</td>
+                        <td className="text-right px-5 py-2.5 tabular-nums whitespace-nowrap">{fmtBRL(r.actual)}</td>
+                        <td className={'text-right px-5 py-2.5 tabular-nums whitespace-nowrap ' + (dM >= 0 ? 'text-ig-success' : 'text-ig-danger')}>{fmtPct(dM)}</td>
+                        <td className={'text-right px-5 py-2.5 tabular-nums whitespace-nowrap ' + (dY >= 0 ? 'text-ig-success' : 'text-ig-danger')}>{fmtPct(dY)}</td>
                         <td className="px-5 py-2.5"><FinanceStatusBadge status={r.status} /></td>
                         <td className="text-right px-3 py-2.5 text-[11px] text-ig-accent whitespace-nowrap">Detalhe →</td>
                       </tr>
@@ -376,10 +376,10 @@ export default function OrcadoRealizadoPage() {
                     <tbody>
                       {selected.transactions.map((t, idx) => (
                         <tr key={idx} className="border-t border-ig-border-subtle/50">
-                          <td className="py-1.5 font-mono text-[11px] text-ig-text-secondary whitespace-nowrap">{t.date}</td>
+                          <td className="py-1.5 tabular-nums text-[11px] text-ig-text-secondary whitespace-nowrap">{t.date}</td>
                           <td className="font-mono text-[11px] text-ig-text-secondary whitespace-nowrap">{t.ref}</td>
                           <td className="text-ig-text-primary">{t.description}</td>
-                          <td className="text-right font-mono tabular-nums whitespace-nowrap">{fmtBRL(t.value)}</td>
+                          <td className="text-right tabular-nums whitespace-nowrap">{fmtBRL(t.value)}</td>
                         </tr>
                       ))}
                     </tbody>

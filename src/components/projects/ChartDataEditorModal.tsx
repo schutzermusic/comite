@@ -220,7 +220,7 @@ export function ChartDataEditorModal({
                     value={value}
                     placeholder={col.nullable ? '—' : '0,00'}
                     onChange={e => setCell(row.localId, col.key, e.target.value)}
-                    className={`${inputBase} ${borderClass} text-right font-mono`}
+                    className={`${inputBase} ${borderClass} text-right tabular-nums`}
                 />
             );
         }
@@ -230,7 +230,7 @@ export function ChartDataEditorModal({
                     type="date"
                     value={value}
                     onChange={e => setCell(row.localId, col.key, e.target.value)}
-                    className={`${inputBase} ${borderClass} font-mono`}
+                    className={`${inputBase} ${borderClass} tabular-nums`}
                 />
             );
         }
@@ -240,7 +240,7 @@ export function ChartDataEditorModal({
                 value={value}
                 placeholder={col.type === 'period' ? 'AAAA-MM' : ''}
                 onChange={e => setCell(row.localId, col.key, e.target.value)}
-                className={`${inputBase} ${borderClass} ${col.type === 'period' ? 'font-mono' : ''}`}
+                className={`${inputBase} ${borderClass} ${col.type === 'period' ? 'tabular-nums' : ''}`}
             />
         );
     };

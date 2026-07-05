@@ -176,7 +176,7 @@ export default function ForecastCenariosPage() {
               <div key={a.id}>
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-[11.5px] text-ig-text-secondary truncate">{a.label}</span>
-                  <span className={'text-[11.5px] font-mono tabular-nums shrink-0 ' + (a.current > 0 ? 'text-ig-success' : a.current < 0 ? 'text-ig-danger' : 'text-ig-text-tertiary')}>
+                  <span className={'text-[11.5px] tabular-nums shrink-0 ' + (a.current > 0 ? 'text-ig-success' : a.current < 0 ? 'text-ig-danger' : 'text-ig-text-tertiary')}>
                     {a.current > 0 ? '+' : ''}{a.current}%
                   </span>
                 </div>
@@ -190,7 +190,7 @@ export default function ForecastCenariosPage() {
             ))}
             <div className="rounded-lg border border-ig-border-subtle bg-ig-surface-subtle/40 px-3 py-2.5 mt-2">
               <div className="text-[10.5px] uppercase tracking-[0.12em] text-ig-text-tertiary">Impacto composto</div>
-              <div className={'text-[16px] font-mono tabular-nums font-semibold ' + (simulated.delta >= 0 ? 'text-ig-success' : 'text-ig-danger')}>
+              <div className={'text-[16px] tabular-nums font-semibold ' + (simulated.delta >= 0 ? 'text-ig-success' : 'text-ig-danger')}>
                 {fmtPct(simulated.delta)} EBITDA
               </div>
             </div>
@@ -237,11 +237,11 @@ export default function ForecastCenariosPage() {
                       className={'border-b border-ig-border-subtle/40 hover:bg-ig-surface-subtle/30 cursor-pointer transition-colors ' + (active === s.id ? 'bg-ig-accent-weak/30' : '')}
                     >
                       <td className="px-3 py-2.5 text-ig-text-primary">{s.name}</td>
-                      <td className="text-left px-3 py-2.5 font-mono tabular-nums whitespace-nowrap">{fmtCompactBRL(s.revenue)}</td>
-                      <td className="text-left px-3 py-2.5 font-mono tabular-nums whitespace-nowrap">{fmtCompactBRL(s.ebitda)}</td>
-                      <td className="text-left px-3 py-2.5 font-mono tabular-nums whitespace-nowrap">{s.margin.toFixed(1)}%</td>
-                      <td className="text-left px-3 py-2.5 font-mono tabular-nums text-ig-text-secondary truncate">{fmtCompactBRL(s.cash)}</td>
-                      <td className={'text-left px-3 py-2.5 font-mono tabular-nums whitespace-nowrap ' + (s.variance >= 0 ? 'text-ig-success' : 'text-ig-danger')}>{fmtPct(s.variance)}</td>
+                      <td className="text-left px-3 py-2.5 tabular-nums whitespace-nowrap">{fmtCompactBRL(s.revenue)}</td>
+                      <td className="text-left px-3 py-2.5 tabular-nums whitespace-nowrap">{fmtCompactBRL(s.ebitda)}</td>
+                      <td className="text-left px-3 py-2.5 tabular-nums whitespace-nowrap">{s.margin.toFixed(1)}%</td>
+                      <td className="text-left px-3 py-2.5 tabular-nums text-ig-text-secondary truncate">{fmtCompactBRL(s.cash)}</td>
+                      <td className={'text-left px-3 py-2.5 tabular-nums whitespace-nowrap ' + (s.variance >= 0 ? 'text-ig-success' : 'text-ig-danger')}>{fmtPct(s.variance)}</td>
                       <td className="pl-6 pr-3 py-2.5 text-ig-text-secondary truncate">{s.owner}</td>
                       <td className="px-3 py-2.5"><FinanceStatusBadge status={s.status} /></td>
                     </tr>

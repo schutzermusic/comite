@@ -84,7 +84,7 @@ export function FinanceDrawerKeyValue({
           <dt className="text-[10px] uppercase tracking-[0.12em] text-ig-text-tertiary">{r.label}</dt>
           <dd
             className={cn(
-              'text-[13px] font-mono tabular-nums truncate',
+              'text-[13px] tabular-nums truncate',
               r.tone === 'pos' && 'text-ig-success',
               r.tone === 'neg' && 'text-ig-danger',
               !r.tone && 'text-ig-text-primary',

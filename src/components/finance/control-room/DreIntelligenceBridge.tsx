@@ -311,7 +311,7 @@ export function DreIntelligenceBridge({ rows, scenarioLabel }: DreIntelligenceBr
                           x={x + barWidth / 2}
                           y={clampedY}
                           textAnchor="middle"
-                          className="font-mono"
+                          className="tabular-nums"
                           fill={insideBar ? 'rgba(255,255,255,0.9)' : colors.axis}
                           fontSize="9.5"
                           fontWeight="600"
@@ -392,7 +392,7 @@ function BridgeTooltip({ bar }: { bar: BarSpec }) {
       )}
     >
       <div className="text-[10px] font-semibold uppercase tracking-wider text-[color:var(--ig-fg-subtle)]">{bar.label}</div>
-      <div className="mt-1 font-mono text-base font-semibold tabular-nums text-[color:var(--ig-fg-strong)]">{formatCompactBRL(bar.value)}</div>
+      <div className="mt-1 text-base font-semibold tabular-nums text-[color:var(--ig-fg-strong)]">{formatCompactBRL(bar.value)}</div>
 
       <div className="mt-2.5 grid grid-cols-2 gap-1.5 text-[10px]">
         <Row label="Orçado" value={formatCompactBRL(bar.budget)} />
@@ -400,7 +400,7 @@ function BridgeTooltip({ bar }: { bar: BarSpec }) {
       </div>
       <div className="mt-2 flex items-center justify-between rounded-md border border-[color:var(--ig-border-strong)] bg-[color:var(--ig-bg-canvas)]/40 px-2 py-1.5">
         <span className="text-[10px] uppercase tracking-wider text-[color:var(--ig-fg-subtle)]">Variação vs Bdg</span>
-        <span className="font-mono text-[11px] font-semibold tabular-nums" style={{ color: varianceColor }}>
+        <span className="text-[11px] font-semibold tabular-nums" style={{ color: varianceColor }}>
           {variancePos ? '+' : ''}{formatCompactBRL(bar.varianceAbs)} · {formatPct(bar.variancePct)}
         </span>
       </div>
@@ -412,7 +412,7 @@ function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between rounded-md bg-[color:var(--ig-bg-canvas)]/30 px-2 py-1">
       <span className="text-[color:var(--ig-fg-muted)]">{label}</span>
-      <span className="font-mono font-medium tabular-nums text-[color:var(--ig-fg-strong)]">{value}</span>
+      <span className="font-medium tabular-nums text-[color:var(--ig-fg-strong)]">{value}</span>
     </div>
   );
 }

@@ -289,7 +289,7 @@ function HeroTile({ tile, index }: { tile: HeroTileData; index: number }) {
                 <span className="truncate">{tile.label}</span>
             </div>
             {tile.missing ? (
-                <div className="font-mono text-[13px] font-medium text-[color:var(--ig-fg-subtle)]">dados insuficientes</div>
+                <div className="tabular-nums text-[13px] font-medium text-[color:var(--ig-fg-subtle)]">dados insuficientes</div>
             ) : (
                 <div
                     className="text-ig-kpi-md font-semibold tabular-nums"
@@ -306,7 +306,7 @@ function HeroTile({ tile, index }: { tile: HeroTileData; index: number }) {
                     {tile.spark ? <Sparkline id={tile.key} points={tile.spark} color={tile.accent} /> : <span />}
                     {tile.chip && (
                         <span
-                            className="inline-flex shrink-0 items-center rounded-md border px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase tracking-wide"
+                            className="inline-flex shrink-0 items-center rounded-md border px-1.5 py-0.5 tabular-nums text-[9px] font-semibold uppercase tracking-wide"
                             style={{
                                 color: tile.chip.color,
                                 borderColor: `color-mix(in oklab, ${tile.chip.color} 30%, transparent)`,
@@ -448,7 +448,7 @@ function ScoreGauge({ score, statusLabel, statusColor, micro }: {
                     })}
                 </svg>
                 <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    <div className="font-mono text-[46px] font-light leading-none tabular-nums" style={{ color: statusColor }}>
+                    <div className="text-[46px] font-light leading-none tabular-nums" style={{ color: statusColor }}>
                         {Math.round(score)}
                     </div>
                     <div className="mt-1 text-[10px] uppercase tracking-[0.24em] text-[color:var(--ig-fg-subtle)]">/ 100</div>
@@ -470,7 +470,7 @@ function ScoreGauge({ score, statusLabel, statusColor, micro }: {
                 {micro.map(m => (
                     <div key={m.label} className="rounded-xl border border-[color:var(--ig-border-subtle)] bg-[color:var(--ig-bg-raised)]/40 px-2 py-1.5 text-center backdrop-blur-sm">
                         <div className="text-[9px] uppercase tracking-[0.14em] text-[color:var(--ig-fg-subtle)]">{m.label}</div>
-                        <div className="mt-0.5 font-mono text-xs font-semibold tabular-nums" style={{ color: m.color }}>{m.value}</div>
+                        <div className="mt-0.5 text-xs font-semibold tabular-nums" style={{ color: m.color }}>{m.value}</div>
                     </div>
                 ))}
             </div>
@@ -485,7 +485,7 @@ function StatTile({ label, value, sub, color }: { label: string; value: string; 
         <div className="relative min-w-0 overflow-hidden rounded-xl border border-[color:var(--ig-border-subtle)] bg-[color:var(--ig-bg-raised)]/55 px-3 py-2.5 backdrop-blur-sm">
             <div className="absolute inset-x-3 top-0 h-px" style={{ background: `linear-gradient(90deg, transparent, ${color}, transparent)` }} />
             <p className="truncate text-[9px] font-semibold uppercase tracking-[0.14em] text-[color:var(--ig-fg-subtle)]">{label}</p>
-            <p className="mt-1 truncate font-mono text-sm font-semibold tabular-nums" style={{ color }}>{value}</p>
+            <p className="mt-1 truncate text-sm font-semibold tabular-nums" style={{ color }}>{value}</p>
             <p className="truncate text-[10px] text-[color:var(--ig-fg-muted)]">{sub}</p>
         </div>
     );
@@ -508,7 +508,7 @@ function CurveTooltip({ active, payload, label, pal }: { active?: boolean; paylo
                         <span className="h-1.5 w-1.5 rounded-full" style={{ background: entry.color || entry.stroke }} />
                         <span className="text-[11px]" style={{ color: pal.fgDefault }}>{entry.name}</span>
                     </div>
-                    <span className="font-mono text-[11px] font-semibold tabular-nums" style={{ color: pal.fgStrong }}>{compactBRL(entry.value)}</span>
+                    <span className="text-[11px] font-semibold tabular-nums" style={{ color: pal.fgStrong }}>{compactBRL(entry.value)}</span>
                 </div>
             ))}
             <p className="mt-1.5 border-t pt-1.5 text-[9px]" style={{ borderColor: pal.neutralBorder, color: pal.fgSubtle }}>
@@ -1112,7 +1112,7 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
                 >
                     <ZoomOut className="h-3.5 w-3.5" />
                 </button>
-                <span className="min-w-[100px] border-x border-[color:var(--ig-border-subtle)] px-2 text-center font-mono text-[10px] font-semibold uppercase tracking-[0.06em] text-[color:var(--ig-fg-muted)]">
+                <span className="min-w-[100px] border-x border-[color:var(--ig-border-subtle)] px-2 text-center tabular-nums text-[10px] font-semibold uppercase tracking-[0.06em] text-[color:var(--ig-fg-muted)]">
                     {opts.rangeLabel}
                 </span>
                 <button
@@ -1415,13 +1415,13 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
                             <div className="mt-3 grid grid-cols-2 gap-1.5 border-t border-[color:var(--ig-border-subtle)] pt-3">
                                 <div className="rounded-xl border border-[color:var(--ig-border-subtle)] bg-[color:var(--ig-bg-raised)]/40 px-2.5 py-2 text-center">
                                     <div className="text-[9px] uppercase tracking-[0.14em] text-[color:var(--ig-fg-subtle)]">Exposição de riscos</div>
-                                    <div className="mt-0.5 font-mono text-xs font-semibold tabular-nums" style={{ color: iv.riskExposure ? pal.critical : 'var(--ig-fg-subtle)' }}>
+                                    <div className="mt-0.5 text-xs font-semibold tabular-nums" style={{ color: iv.riskExposure ? pal.critical : 'var(--ig-fg-subtle)' }}>
                                         {iv.riskExposure ? compactBRL(iv.riskExposure) : 'não informado'}
                                     </div>
                                 </div>
                                 <div className="rounded-xl border border-[color:var(--ig-border-subtle)] bg-[color:var(--ig-bg-raised)]/40 px-2.5 py-2 text-center">
                                     <div className="text-[9px] uppercase tracking-[0.14em] text-[color:var(--ig-fg-subtle)]">Riscos financeiros</div>
-                                    <div className="mt-0.5 font-mono text-xs font-semibold tabular-nums" style={{ color: iv.openFinancialRisks.length ? pal.warning : pal.success }}>
+                                    <div className="mt-0.5 text-xs font-semibold tabular-nums" style={{ color: iv.openFinancialRisks.length ? pal.warning : pal.success }}>
                                         {iv.openFinancialRisks.length ? `${iv.openFinancialRisks.length} aberto(s)` : 'baixo'}
                                     </div>
                                 </div>
@@ -1441,7 +1441,7 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
                                 <>
                                 {onEditChart && <EditDataButton onClick={() => onEditChart('breakdown')} />}
                                 <span
-                                    className="rounded-full border px-3 py-1 font-mono text-xs font-bold tabular-nums"
+                                    className="rounded-full border px-3 py-1 text-xs font-bold tabular-nums"
                                     style={{
                                         color: iv.netResult - iv.riskExposure >= 0 ? pal.success : pal.critical,
                                         background: hexWithAlpha(iv.netResult - iv.riskExposure >= 0 ? pal.success : pal.critical, 0.08),
@@ -1469,7 +1469,7 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
                                                 return (
                                                     <div style={tooltipStyle} className="min-w-[190px] p-3">
                                                         <p className="text-[11px] font-semibold" style={{ color: pal.fgStrong }}>{row.name}</p>
-                                                        <p className="mt-1 font-mono text-sm font-bold tabular-nums" style={{ color: row.fill }}>
+                                                        <p className="mt-1 text-sm font-bold tabular-nums" style={{ color: row.fill }}>
                                                             {row.name === 'Contingências' && !iv.riskExposure ? 'não informado' : compactBRL(row.real)}
                                                         </p>
                                                         {row.note && <p className="mt-1 text-[10px]" style={{ color: pal.fgMuted }}>{row.note}</p>}
@@ -1512,8 +1512,8 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
                                                 <div className="relative flex items-center justify-between gap-2">
                                                     <span className="min-w-0 truncate text-[12px] font-medium text-[color:var(--ig-fg-default)]">{item.category}</span>
                                                     <span className="flex shrink-0 items-baseline gap-2">
-                                                        <span className="font-mono text-[12px] font-semibold tabular-nums text-[color:var(--ig-fg-strong)]">{compactBRL(item.value)}</span>
-                                                        <span className="font-mono text-[10px] tabular-nums text-[color:var(--ig-fg-muted)]">{pct.toFixed(1)}%</span>
+                                                        <span className="text-[12px] font-semibold tabular-nums text-[color:var(--ig-fg-strong)]">{compactBRL(item.value)}</span>
+                                                        <span className="text-[10px] tabular-nums text-[color:var(--ig-fg-muted)]">{pct.toFixed(1)}%</span>
                                                     </span>
                                                 </div>
                                             </div>
@@ -1522,7 +1522,7 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
                                     <div className="relative px-5 py-2">
                                         <div className="relative flex items-center justify-between gap-2">
                                             <span className="min-w-0 truncate text-[12px] font-medium text-[color:var(--ig-fg-default)]">Contingências / riscos</span>
-                                            <span className="shrink-0 font-mono text-[12px] font-semibold tabular-nums" style={{ color: iv.riskExposure ? pal.critical : 'var(--ig-fg-subtle)' }}>
+                                            <span className="shrink-0 text-[12px] font-semibold tabular-nums" style={{ color: iv.riskExposure ? pal.critical : 'var(--ig-fg-subtle)' }}>
                                                 {iv.riskExposure ? compactBRL(iv.riskExposure) : 'não informado'}
                                             </span>
                                         </div>
@@ -1599,10 +1599,10 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
                                             onClick={() => setSelectedEvent(event)}
                                             className="cursor-pointer border-b border-[color:var(--ig-border-subtle)] transition-colors last:border-0 hover:bg-[color-mix(in_srgb,var(--ig-fg-strong)_5%,transparent)]"
                                         >
-                                            <td className="px-3 py-2.5 font-mono tabular-nums text-[color:var(--ig-fg-subtle)]">{index + 1}</td>
+                                            <td className="px-3 py-2.5 tabular-nums text-[color:var(--ig-fg-subtle)]">{index + 1}</td>
                                             <td className="px-3 py-2.5 text-[color:var(--ig-fg-default)]">{event.title}</td>
-                                            <td className="px-3 py-2.5 font-mono tabular-nums text-[color:var(--ig-fg-muted)]">{periodLabel(event.datePlanned.slice(0, 7))}</td>
-                                            <td className="px-3 py-2.5 font-mono font-semibold tabular-nums text-[color:var(--ig-fg-strong)]">{compactBRL(centsToReais(event.amountPlannedCents))}</td>
+                                            <td className="px-3 py-2.5 tabular-nums text-[color:var(--ig-fg-muted)]">{periodLabel(event.datePlanned.slice(0, 7))}</td>
+                                            <td className="px-3 py-2.5 font-semibold tabular-nums text-[color:var(--ig-fg-strong)]">{compactBRL(centsToReais(event.amountPlannedCents))}</td>
                                             <td className="px-3 py-2.5">
                                                 <HudStatusChip label={eventStatusLabel(event.status)} color={colors.fg} size="md" />
                                             </td>
@@ -1658,7 +1658,7 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
                                 ].map(item => (
                                     <div key={item.label} className="rounded-lg border border-[color:var(--ig-border-subtle)] bg-[color:var(--ig-bg-raised)]/40 p-2.5">
                                         <p className="text-[9px] uppercase tracking-wider text-[color:var(--ig-fg-muted)]">{item.label}</p>
-                                        <p className="mt-0.5 font-mono text-sm font-semibold tabular-nums" style={{ color: item.color }}>{item.value}</p>
+                                        <p className="mt-0.5 text-sm font-semibold tabular-nums" style={{ color: item.color }}>{item.value}</p>
                                     </div>
                                 ))}
                             </div>
@@ -1678,7 +1678,7 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
                                 ].map(item => (
                                     <div key={item.label} className="rounded-lg border border-[color:var(--ig-border-subtle)] bg-[color:var(--ig-bg-raised)]/40 p-2.5">
                                         <p className="text-[9px] uppercase tracking-wider text-[color:var(--ig-fg-muted)]">{item.label}</p>
-                                        <p className="mt-0.5 font-mono text-sm font-semibold tabular-nums" style={{ color: item.color }}>{item.value}</p>
+                                        <p className="mt-0.5 text-sm font-semibold tabular-nums" style={{ color: item.color }}>{item.value}</p>
                                     </div>
                                 ))}
                             </div>
@@ -1702,7 +1702,7 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
                                                     <p className="truncate text-xs text-[color:var(--ig-fg-default)]">{event.title}</p>
                                                     <HudStatusChip className="mt-1" label={eventStatusLabel(event.status)} color={colors.fg} />
                                                 </div>
-                                                <span className="shrink-0 font-mono text-xs font-semibold tabular-nums text-[color:var(--ig-fg-strong)]">
+                                                <span className="shrink-0 text-xs font-semibold tabular-nums text-[color:var(--ig-fg-strong)]">
                                                     {compactBRL(centsToReais(event.amountPlannedCents))}
                                                 </span>
                                             </button>
@@ -1729,7 +1729,7 @@ export function FinanceInvestorCockpit({ project, ledgerView: view, cutoffPeriod
                         <div className="flex items-center justify-between rounded-xl border border-[color:var(--ig-border-subtle)] bg-[color:var(--ig-bg-raised)]/55 p-3.5">
                             <div>
                                 <p className="text-[10px] uppercase tracking-wider text-[color:var(--ig-fg-muted)]">Valor previsto</p>
-                                <p className="mt-1 font-mono text-lg font-bold tabular-nums text-[color:var(--ig-fg-strong)]">{compactBRL(centsToReais(selectedEvent.amountPlannedCents))}</p>
+                                <p className="mt-1 text-lg font-bold tabular-nums text-[color:var(--ig-fg-strong)]">{compactBRL(centsToReais(selectedEvent.amountPlannedCents))}</p>
                             </div>
                             <HudStatusChip label={eventStatusLabel(selectedEvent.status)} color={severityColors(eventSeverity(selectedEvent.status), pal).fg} size="md" />
                         </div>

@@ -212,14 +212,14 @@ export default function CentrosCustoPage() {
                     className="text-left rounded-lg border border-ig-border-subtle p-3 hover:border-ig-border-focus hover:-translate-y-px transition-all min-w-0"
                     style={{ backgroundImage: `linear-gradient(135deg, color-mix(in oklab, ${tone} ${intensity}%, transparent), transparent 60%)` }}
                   >
-                    <div className="flex items-center justify-between text-[10.5px] font-mono uppercase tracking-[0.12em] text-ig-text-tertiary">
+                    <div className="flex items-center justify-between text-[10.5px] tabular-nums uppercase tracking-[0.12em] text-ig-text-tertiary">
                       <span>{c.code}</span>
                       <span>{c.headcount} HC</span>
                     </div>
                     <div className="mt-1 text-[12.5px] font-medium text-ig-text-primary truncate">{c.name}</div>
                     <div className="mt-1 flex items-center justify-between text-[11.5px] min-w-0">
-                      <span className="text-ig-text-secondary font-mono truncate">{fmtBRL(c.actual)}</span>
-                      <span className={'font-mono tabular-nums shrink-0 ' + (delta >= 0 ? 'text-ig-danger' : 'text-ig-success')}>{fmtPct(delta)}</span>
+                      <span className="text-ig-text-secondary tabular-nums truncate">{fmtBRL(c.actual)}</span>
+                      <span className={'tabular-nums shrink-0 ' + (delta >= 0 ? 'text-ig-danger' : 'text-ig-success')}>{fmtPct(delta)}</span>
                     </div>
                   </button>
                 );
@@ -266,18 +266,18 @@ export default function CentrosCustoPage() {
                         <td className="px-5 py-2.5 font-mono text-[12px] text-ig-text-secondary whitespace-nowrap">{c.code}</td>
                         <td className="px-5 py-2.5 text-ig-text-primary whitespace-nowrap">{c.name}</td>
                         <td className="px-5 py-2.5 text-ig-text-secondary whitespace-nowrap">{c.director}</td>
-                        <td className="text-right px-5 py-2.5 font-mono tabular-nums whitespace-nowrap">{fmtBRL(c.budget)}</td>
-                        <td className="text-right px-5 py-2.5 font-mono tabular-nums whitespace-nowrap">{fmtBRL(c.actual)}</td>
-                        <td className={'text-right px-5 py-2.5 font-mono tabular-nums whitespace-nowrap ' + tone}>{fmtPct(delta)}</td>
+                        <td className="text-right px-5 py-2.5 tabular-nums whitespace-nowrap">{fmtBRL(c.budget)}</td>
+                        <td className="text-right px-5 py-2.5 tabular-nums whitespace-nowrap">{fmtBRL(c.actual)}</td>
+                        <td className={'text-right px-5 py-2.5 tabular-nums whitespace-nowrap ' + tone}>{fmtPct(delta)}</td>
                         <td className="text-right px-5 py-2.5 whitespace-nowrap">
                           <div className="inline-flex items-center gap-2">
                             <div className="w-20 h-1.5 rounded-full bg-ig-surface-subtle overflow-hidden">
                               <div className={'h-full ' + (exec <= 100 ? 'bg-ig-success' : exec <= 105 ? 'bg-ig-warning' : 'bg-ig-danger')} style={{ width: `${Math.min(exec, 130)}%` }} />
                             </div>
-                            <span className="text-[11px] font-mono text-ig-text-secondary">{exec.toFixed(0)}%</span>
+                            <span className="text-[11px] tabular-nums text-ig-text-secondary">{exec.toFixed(0)}%</span>
                           </div>
                         </td>
-                        <td className="text-right px-5 py-2.5 font-mono tabular-nums text-ig-text-secondary whitespace-nowrap">{c.headcount}</td>
+                        <td className="text-right px-5 py-2.5 tabular-nums text-ig-text-secondary whitespace-nowrap">{c.headcount}</td>
                       </tr>
                     );
                   })}
@@ -344,7 +344,7 @@ export default function CentrosCustoPage() {
                         </div>
                       </div>
                       <div className="text-right shrink-0">
-                        <div className="text-[12.5px] font-mono tabular-nums">{fmtBRL(c.value)}</div>
+                        <div className="text-[12.5px] tabular-nums">{fmtBRL(c.value)}</div>
                         <div className="text-[10.5px] text-ig-text-tertiary">{share.toFixed(1)}%</div>
                       </div>
                     </li>

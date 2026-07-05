@@ -273,8 +273,24 @@ export function CategorySpecificDashboard({
         ? { id: 'cat-collab', label: 'Custo médio / colaborador', value: fmtBRL(avgPerCollaborator), deltaLabel: `${byCollaborator.length} colaboradores` }
         : { id: 'cat-ticket', label: 'Ticket médio', value: fmtBRL(ticketAll), deltaLabel: `${summary.entryCount} lançamentos` });
     }
-    return out;
-  }, [config, summary, monthly, byProject, byCostCenter, byDepartment, topAgency, avgPerCollaborator, byCollaborator.length, ticketAll, allocationRate, allocatedValue, unallocatedValue]);
+
+    // KPIs clicáveis (padrão Contratos): drill na dimensão do KPI quando existe
+    // alvo direto; caso contrário o clique limpa o recorte de subcategoria.
+    const topSub = subcategories[0];
+    return out.map((kpi) => {
+      if (kpi.id === 'cat-sub' && topSub) {
+        return { ...kpi, onClick: () => onSelectSub(drillSub === topSub.id ? 'all' : topSub.id), active: drillSub === topSub.id };
+      }
+      if ((kpi.id === 'cat-proj' || kpi.id === 'cat-leader') && config.supportsProject && byProject[0]?.id) {
+        const projectId = byProject[0].id;
+        return { ...kpi, onClick: () => onSelectProject(projectId) };
+      }
+      if (kpi.id === 'cat-sup' && topAgency?.id) {
+        return { ...kpi, onClick: () => onSelectSupplier(topAgency.id) };
+      }
+      return { ...kpi, onClick: () => onSelectSub('all') };
+    });
+  }, [config, summary, monthly, byProject, byCostCenter, byDepartment, topAgency, avgPerCollaborator, byCollaborator.length, ticketAll, allocationRate, allocatedValue, unallocatedValue, subcategories, drillSub, onSelectSub, onSelectProject, onSelectSupplier]);
 
   // ── Executive narrative ───────────────────────────────────────
   const insights = useMemo(

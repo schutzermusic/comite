@@ -1,5 +1,6 @@
 'use client';
 
+import { FONT_FAMILY_SANS } from '@/lib/fonts';
 import React, { useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -83,7 +84,7 @@ function tooltip(t: ReturnType<typeof useFinanceChartTokens>) {
     textStyle: {
       color: t.textStrong,
       fontSize: 11,
-      fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif',
+      fontFamily: FONT_FAMILY_SANS,
     },
     extraCssText: [
       'border-radius:12px',
@@ -107,7 +108,7 @@ function axisLabel(t: ReturnType<typeof useFinanceChartTokens>) {
   return {
     color: t.text,
     fontSize: 10,
-    fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif',
+    fontFamily: FONT_FAMILY_SANS,
   };
 }
 
@@ -329,7 +330,7 @@ export function FinanceWaterfallChart({
         const color = colors[idx];
         return `<div style="min-width:148px">
           <div style="font-size:11px;color:${t.text};text-transform:uppercase;letter-spacing:.08em">${categories[idx]}</div>
-          <div style="margin-top:4px;font-family:ui-monospace,Menlo,monospace;font-size:13px;color:${color}">${fmtBRL(values[idx])}</div>
+          <div style="margin-top:4px;font-family:inherit;font-size:13px;color:${color}">${fmtBRL(values[idx])}</div>
           <div style="margin-top:2px;font-size:10px;color:${t.text}">Acumulado ${fmtBRL(cumulative[idx] ?? 0)}</div>
         </div>`;
       },
@@ -380,7 +381,7 @@ export function FinanceWaterfallChart({
           position: 'top',
           color: t.textStrong,
           fontSize: 10,
-          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+          fontFamily: FONT_FAMILY_SANS,
           formatter: (p: any) => fmtCompact(values[p.dataIndex]),
         },
         markLine: {

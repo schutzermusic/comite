@@ -82,7 +82,7 @@ export function ContractRevenuePanel({ contracts }: ContractRevenuePanelProps) {
                     </div>
                   </div>
                   <div className="text-right">
-                    <div className="font-mono text-[14px] font-semibold tabular-nums text-[color:var(--ig-fg-strong)]">{formatCompactBRL(c.contractTotal)}</div>
+                    <div className="text-[14px] font-semibold tabular-nums text-[color:var(--ig-fg-strong)]">{formatCompactBRL(c.contractTotal)}</div>
                     <div className="text-[10px] uppercase tracking-wider text-[color:var(--ig-fg-subtle)]">Total contrato</div>
                   </div>
                 </div>
@@ -131,7 +131,7 @@ function MiniStat({ label, value, color }: { label: string; value: string; color
         <span className="h-1.5 w-1.5 rounded-sm" style={{ background: color }} />
         {label}
       </div>
-      <div className="mt-0.5 font-mono text-[11.5px] font-semibold tabular-nums" style={{ color }}>
+      <div className="mt-0.5 text-[11.5px] font-semibold tabular-nums" style={{ color }}>
         {value}
       </div>
     </div>

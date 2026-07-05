@@ -247,7 +247,7 @@ export function StateOverlay({
       const state = statesByUF[uf];
       const name = ((feature.properties?.name || state?.stateName || uf) as string);
       if (!state) {
-        return `<div style="background:rgba(8,14,20,0.72);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,0.05);border-radius:6px;padding:10px 14px;min-width:140px;font-family:Inter,system-ui,sans-serif;box-shadow:0 12px 40px -12px rgba(0,0,0,0.55);">
+        return `<div style="background:rgba(8,14,20,0.72);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,0.05);border-radius:6px;padding:10px 14px;min-width:140px;font-family:var(--font-gilroy);box-shadow:0 12px 40px -12px rgba(0,0,0,0.55);">
           <div style="color:rgba(255,255,255,0.85);font-size:13px;font-weight:400;letter-spacing:0.01em;">${name}</div>
           <div style="margin-top:4px;color:rgba(255,255,255,0.22);font-size:10px;letter-spacing:0.06em;text-transform:uppercase;">Sem projetos ativos</div>
         </div>`;
@@ -260,7 +260,7 @@ export function StateOverlay({
           ? `${state.headcount}`
           : `${state.riskCount}`;
 
-      return `<div style="background:rgba(8,14,20,0.78);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border:1px solid rgba(255,255,255,0.06);border-radius:6px;padding:12px 16px;min-width:180px;font-family:Inter,system-ui,sans-serif;box-shadow:0 12px 40px -12px rgba(0,0,0,0.6);">
+      return `<div style="background:rgba(8,14,20,0.78);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border:1px solid rgba(255,255,255,0.06);border-radius:6px;padding:12px 16px;min-width:180px;font-family:var(--font-gilroy);box-shadow:0 12px 40px -12px rgba(0,0,0,0.6);">
         <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;">
           <span style="font-size:14px;font-weight:500;color:#fff;letter-spacing:-0.01em;">${uf}</span>
           <span style="font-size:10px;font-weight:400;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:0.06em;">${name}</span>

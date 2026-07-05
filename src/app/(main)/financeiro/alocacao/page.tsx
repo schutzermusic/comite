@@ -53,14 +53,14 @@ export default function AlocacaoPage() {
     { key: 'cost_center_id', header: t('sourceCostCenter'), cell: (r) => <span className="text-ig-text-tertiary text-xs">{r.cost_center?.name || r.cost_center_id}</span> },
     { key: 'method', header: t('method'), cell: (r) => <span className="text-ig-text-tertiary text-xs">{r.method}</span> },
     { key: 'version', header: 'V', cell: (r) => <span className="text-ig-text-tertiary text-xs">v{r.version}</span> },
-    { key: 'effective_from', header: t('effectiveFrom'), cell: (r) => <span className="text-ig-text-tertiary text-xs font-mono">{r.effective_from}</span> },
+    { key: 'effective_from', header: t('effectiveFrom'), cell: (r) => <span className="text-ig-text-tertiary text-xs tabular-nums">{r.effective_from}</span> },
     { key: 'status', header: 'Status', cell: (r) => <HudStatusPill variant={RULE_STATUS[r.status] as any} size="sm">{r.status}</HudStatusPill> },
   ];
 
   const resultColumns: HudTableColumn<AllocationResult>[] = [
-    { key: 'period_key', header: t('period'), cell: (r) => <span className="text-ig-text-secondary text-xs font-mono">{r.period_key}</span> },
+    { key: 'period_key', header: t('period'), cell: (r) => <span className="text-ig-text-secondary text-xs tabular-nums">{r.period_key}</span> },
     { key: 'rule_id', header: t('ruleName'), cell: (r) => <span className="text-ig-text-secondary text-xs">{r.rule?.name || r.rule_id}</span> },
-    { key: 'source_amount_cents', header: 'Valor Origem', cell: (r) => <span className="text-ig-text-primary text-xs font-mono">{formatBRL(r.source_amount_cents)}</span> },
+    { key: 'source_amount_cents', header: 'Valor Origem', cell: (r) => <span className="text-ig-text-primary text-xs tabular-nums">{formatBRL(r.source_amount_cents)}</span> },
     { key: 'result_entries', header: 'Destinos', cell: (r) => <span className="text-ig-text-tertiary text-xs">{r.result_entries.length} projetos</span> },
     { key: 'status', header: 'Status', cell: (r) => <HudStatusPill variant={RESULT_STATUS[r.status] as any} size="sm">{r.status}</HudStatusPill> },
     { key: 'actions', header: '', cell: (r) => r.status === 'preview' ? (

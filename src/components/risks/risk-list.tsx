@@ -103,7 +103,7 @@ export function RiskList({ risks, onRowClick, highlightedIds }: RiskListProps) {
       width: "72px",
       align: "center",
       cell: (risk) => (
-        <span className={cn("font-mono text-[clamp(13px,1.2vw,16px)] font-bold ig-tabular", riskScoreColor(risk.level))}>
+        <span className={cn("text-[clamp(13px,1.2vw,16px)] font-bold ig-tabular", riskScoreColor(risk.level))}>
           {risk.level}
         </span>
       ),
@@ -114,7 +114,7 @@ export function RiskList({ risks, onRowClick, highlightedIds }: RiskListProps) {
       width: "80px",
       align: "center",
       cell: (risk) => (
-        <span className="font-mono text-[clamp(10px,0.9vw,12px)] text-ig-fg-muted ig-tabular">
+        <span className="text-[clamp(10px,0.9vw,12px)] text-ig-fg-muted ig-tabular">
           {risk.probability}×{risk.impact}
         </span>
       ),

@@ -1,5 +1,6 @@
 "use client";
 
+import { FONT_FAMILY_SANS } from '@/lib/fonts';
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import DeckGL from "@deck.gl/react";
 import { ScatterplotLayer, TextLayer } from "@deck.gl/layers";
@@ -203,7 +204,7 @@ export default function OperationalPresenceMap() {
       getAlignmentBaseline: "center",
       background: false,
       fontFamily:
-        "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Inter, sans-serif",
+        FONT_FAMILY_SANS,
     });
 
     return [pulseLayer, basePointLayer, labelLayer];

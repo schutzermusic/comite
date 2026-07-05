@@ -593,18 +593,21 @@ export default function FechamentoFolhaPage() {
   }, [batch, parse, mappedCenters, unmappedCount, confirmUnmapped, overrideReason, notify]);
 
   // ── KPIs ──────────────────────────────────────────────────
+  // KPIs clicáveis: levam ao passo de validação, onde os números foram conferidos.
   const kpis: KpiItem[] = useMemo(() => {
     if (!parse) return [];
+    const goToValidation = () => setStep(2);
     return [
-      { id: 'total', label: 'Total da Folha', value: formatBRL(parse.total_amount_cents) },
-      { id: 'prev', label: 'Mês Anterior', value: formatBRL(parse.previous_month_amount_cents) },
+      { id: 'total', label: 'Total da Folha', value: formatBRL(parse.total_amount_cents), onClick: goToValidation },
+      { id: 'prev', label: 'Mês Anterior', value: formatBRL(parse.previous_month_amount_cents), onClick: goToValidation },
       {
         id: 'var', label: 'Variação',
         value: `${formatBRL(parse.variation_amount_cents)}`,
         deltaText: `${parse.variation_percentage.toFixed(2)}%`,
         deltaTone: parse.variation_amount_cents >= 0 ? 'danger' : 'success',
+        onClick: goToValidation,
       },
-      { id: 'hc', label: 'Headcount', value: parse.headcount ?? '—' },
+      { id: 'hc', label: 'Headcount', value: parse.headcount ?? '—', onClick: goToValidation },
     ];
   }, [parse]);
 

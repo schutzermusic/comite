@@ -190,7 +190,7 @@ export function ProjectAnchorLayer({
 
   const pointLabel = useCallback((point: ProjectAnchorPoint) => {
     if (point.isCluster) {
-      return `<div style="background:rgba(8,14,20,0.78);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border:1px solid rgba(255,255,255,0.06);border-radius:6px;padding:12px 16px;min-width:180px;font-family:Inter,system-ui,sans-serif;box-shadow:0 12px 40px -12px rgba(0,0,0,0.6);">
+      return `<div style="background:rgba(8,14,20,0.78);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border:1px solid rgba(255,255,255,0.06);border-radius:6px;padding:12px 16px;min-width:180px;font-family:var(--font-gilroy);box-shadow:0 12px 40px -12px rgba(0,0,0,0.6);">
         <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;">
           <span style="font-size:14px;font-weight:500;color:#fff;">${point.clusterCount} projetos</span>
           <span style="font-size:10px;font-weight:400;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:0.06em;">${point.uf}</span>
@@ -208,7 +208,7 @@ export function ProjectAnchorLayer({
       </div>`;
     }
 
-    return `<div style="background:rgba(8,14,20,0.78);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border:1px solid rgba(255,255,255,0.06);border-radius:6px;padding:12px 16px;min-width:180px;font-family:Inter,system-ui,sans-serif;box-shadow:0 12px 40px -12px rgba(0,0,0,0.6);">
+    return `<div style="background:rgba(8,14,20,0.78);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border:1px solid rgba(255,255,255,0.06);border-radius:6px;padding:12px 16px;min-width:180px;font-family:var(--font-gilroy);box-shadow:0 12px 40px -12px rgba(0,0,0,0.6);">
       <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;">
         <span style="font-size:13px;font-weight:500;color:#fff;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px;">${point.name}</span>
         <span style="font-size:10px;font-weight:400;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:0.06em;">${point.uf}</span>

@@ -398,7 +398,7 @@ export function ProjectChartEditorHost({ project, editor, onClose, onSaved }: Pr
                         value={passThrough}
                         placeholder="0,00"
                         onChange={e => setPassThrough(e.target.value)}
-                        className="w-40 rounded-md border border-[var(--ig-border-default)] bg-[color-mix(in_oklab,var(--ig-bg-raised)_82%,var(--ig-bg-base))] px-2 py-1 text-right font-mono text-xs text-[var(--ig-fg-strong)] tabular-nums focus:border-[color:var(--ig-border-focus)] focus:outline-none focus:ring-1 focus:ring-[color-mix(in_oklab,var(--ig-accent)_18%,transparent)]"
+                        className="w-40 rounded-md border border-[var(--ig-border-default)] bg-[color-mix(in_oklab,var(--ig-bg-raised)_82%,var(--ig-bg-base))] px-2 py-1 text-right text-xs text-[var(--ig-fg-strong)] tabular-nums focus:border-[color:var(--ig-border-focus)] focus:outline-none focus:ring-1 focus:ring-[color-mix(in_oklab,var(--ig-accent)_18%,transparent)]"
                     />
                 </div>
             ) : undefined}

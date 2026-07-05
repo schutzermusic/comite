@@ -114,8 +114,8 @@ export function CategoryDrilldownPanel({ filters }: CategoryDrilldownPanelProps)
                     <span className="absolute inset-y-1 left-2 rounded-sm opacity-[0.10]" style={{ width: `${(c.value / maxCat) * 100}%`, background: 'linear-gradient(90deg, #14B8A6, transparent)' }} />
                     <span className="relative min-w-0 truncate text-[12px] font-medium text-[color:var(--ig-fg-strong)]">{c.name}</span>
                     <span className="relative flex shrink-0 items-center gap-2">
-                      <span className="font-mono text-[11px] tabular-nums text-[color:var(--ig-fg-default)]">{fmtReais(c.value)}</span>
-                      <span className="font-mono text-[10px] tabular-nums text-[color:var(--ig-fg-muted)]">{fmtPct(c.share)}</span>
+                      <span className="text-[11px] tabular-nums text-[color:var(--ig-fg-default)]">{fmtReais(c.value)}</span>
+                      <span className="text-[10px] tabular-nums text-[color:var(--ig-fg-muted)]">{fmtPct(c.share)}</span>
                       <ChevronRight className="h-3 w-3 text-[color:var(--ig-fg-subtle)]" />
                     </span>
                   </button>
@@ -142,8 +142,8 @@ export function CategoryDrilldownPanel({ filters }: CategoryDrilldownPanelProps)
                     <span className="absolute inset-y-1 left-2 rounded-sm opacity-[0.10]" style={{ width: `${(s.value / maxSub) * 100}%`, background: 'linear-gradient(90deg, #6366F1, transparent)' }} />
                     <span className="relative min-w-0 truncate text-[12px] text-[color:var(--ig-fg-strong)]">{s.name}</span>
                     <span className="relative flex shrink-0 items-center gap-2">
-                      <span className="font-mono text-[11px] tabular-nums text-[color:var(--ig-fg-default)]">{fmtReais(s.value)}</span>
-                      <span className="font-mono text-[10px] tabular-nums text-[color:var(--ig-fg-muted)]">{fmtPct(s.share)}</span>
+                      <span className="text-[11px] tabular-nums text-[color:var(--ig-fg-default)]">{fmtReais(s.value)}</span>
+                      <span className="text-[10px] tabular-nums text-[color:var(--ig-fg-muted)]">{fmtPct(s.share)}</span>
                     </span>
                   </button>
                 );
@@ -165,7 +165,7 @@ export function CategoryDrilldownPanel({ filters }: CategoryDrilldownPanelProps)
                     <span className="block truncate text-[12px] text-[color:var(--ig-fg-strong)]">{e.description}</span>
                     <span className="text-[10px] text-[color:var(--ig-fg-muted)]">{e.period_key}{e.project_id ? ` · ${e.project_id}` : ''}</span>
                   </div>
-                  <span className="shrink-0 font-mono text-[11px] tabular-nums text-[color:var(--ig-fg-default)]">{fmtReais(Math.abs(e.amount_cents) / 100)}</span>
+                  <span className="shrink-0 text-[11px] tabular-nums text-[color:var(--ig-fg-default)]">{fmtReais(Math.abs(e.amount_cents) / 100)}</span>
                 </div>
               ))}
               {selectedSubId && drilldownEntries.length > 0 && (

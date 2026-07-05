@@ -1,5 +1,6 @@
 'use client';
 
+import { FONT_FAMILY_SANS } from '@/lib/fonts';
 import React, { useMemo } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { orionGreenColors } from '@/theme/orionGreen';
@@ -165,7 +166,7 @@ export function RiskHeatRing({
               fill: orionGreenColors.text.primary,
               fontSize: 28,
               fontWeight: 700,
-              fontFamily: 'Inter, sans-serif',
+              fontFamily: FONT_FAMILY_SANS,
             },
             left: 'center',
             top: -12,
@@ -177,7 +178,7 @@ export function RiskHeatRing({
               textAlign: 'center',
               fill: orionGreenColors.text.muted,
               fontSize: 10,
-              fontFamily: 'Inter, sans-serif',
+              fontFamily: FONT_FAMILY_SANS,
             },
             left: 'center',
             top: 16,

@@ -148,6 +148,7 @@ export default function GerenciarRolesGlobal() {
   const [deletingRole, setDeletingRole] = useState<GlobalRole | null>(null);
   const [roles, setRoles] = useState<GlobalRole[]>(mockRoles);
   const [formData, setFormData] = useState<RoleFormData>(EMPTY_FORM);
+  const [kpiFilter, setKpiFilter] = useState<'system' | 'custom' | 'with_perms' | null>(null);
 
   const resetForm = () => {
     setFormData(EMPTY_FORM);
@@ -220,11 +221,22 @@ export default function GerenciarRolesGlobal() {
 
   const totalPermissions = roles.reduce((sum, role) => sum + countPermissions(role), 0);
 
+  // Single-select KPI filter (padrão Contratos): clicar filtra, clicar de novo limpa.
+  const toggleKpiFilter = (key: 'system' | 'custom' | 'with_perms') =>
+    setKpiFilter((current) => (current === key ? null : key));
+
+  const visibleRoles = roles.filter((role) => {
+    if (kpiFilter === 'system') return role.is_system_role;
+    if (kpiFilter === 'custom') return !role.is_system_role;
+    if (kpiFilter === 'with_perms') return countPermissions(role) > 0;
+    return true;
+  });
+
   const kpiItems: KpiItem[] = [
-    { id: 'roles', value: roles.length, label: 'Funções', variant: 'info', icon: <Shield className="w-5 h-5" /> },
-    { id: 'system', value: roles.filter((role) => role.is_system_role).length, label: 'Sistema', variant: 'warning', icon: <Lock className="w-5 h-5" /> },
-    { id: 'custom', value: roles.filter((role) => !role.is_system_role).length, label: 'Customizadas', variant: 'success', icon: <KeyRound className="w-5 h-5" /> },
-    { id: 'permissions', value: totalPermissions, label: 'Permissões ativas', variant: 'info', icon: <Users className="w-5 h-5" /> },
+    { id: 'roles', value: roles.length, label: 'Funções', variant: 'info', icon: <Shield className="w-5 h-5" />, onClick: () => setKpiFilter(null) },
+    { id: 'system', value: roles.filter((role) => role.is_system_role).length, label: 'Sistema', variant: 'warning', icon: <Lock className="w-5 h-5" />, onClick: () => toggleKpiFilter('system'), active: kpiFilter === 'system' },
+    { id: 'custom', value: roles.filter((role) => !role.is_system_role).length, label: 'Customizadas', variant: 'success', icon: <KeyRound className="w-5 h-5" />, onClick: () => toggleKpiFilter('custom'), active: kpiFilter === 'custom' },
+    { id: 'permissions', value: totalPermissions, label: 'Permissões ativas', variant: 'info', icon: <Users className="w-5 h-5" />, onClick: () => toggleKpiFilter('with_perms'), active: kpiFilter === 'with_perms' },
   ];
 
   return (
@@ -260,7 +272,7 @@ export default function GerenciarRolesGlobal() {
       <HudKpiStrip kpis={kpiItems} columns={4} />
 
       <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {roles.map((role, index) => {
+        {visibleRoles.map((role, index) => {
           const permCount = countPermissions(role);
           const userCount = getUsersWithRole(role.id);
 

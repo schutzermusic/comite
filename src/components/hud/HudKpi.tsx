@@ -44,7 +44,7 @@ export interface HudKpiProps {
   className?: string;
 }
 
-function formatValue(value: string | number, format: HudKpiFormat, fractionDigits?: number): string {
+export function formatKpiValue(value: string | number, format: HudKpiFormat, fractionDigits?: number): string {
   if (typeof value === 'string') return value;
   if (format === 'raw') return String(value);
   switch (format) {
@@ -149,7 +149,7 @@ export function HudKpi({
   fractionDigits,
   className,
 }: HudKpiProps) {
-  const displayValue = formatValue(value, format, fractionDigits);
+  const displayValue = formatKpiValue(value, format, fractionDigits);
   const s = SIZE_STYLES[size];
   const isPositive = delta !== undefined && delta > 0;
   const isNegative = delta !== undefined && delta < 0;

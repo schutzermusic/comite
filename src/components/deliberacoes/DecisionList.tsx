@@ -205,7 +205,7 @@ export function DecisionList({ items, selectedId, onSelectItem }: DecisionListPr
                                 <HudBadge variant="info" size="sm">{item.templateName}</HudBadge>
                             )}
                             {progress && (
-                                <span className="text-[10px] text-ig-fg-subtle font-mono">
+                                <span className="text-[10px] text-ig-fg-subtle tabular-nums">
                                     Fluxo {progress.current}/{progress.total}
                                 </span>
                             )}

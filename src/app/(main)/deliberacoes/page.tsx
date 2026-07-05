@@ -231,6 +231,10 @@ export default function DeliberacoesPage() {
     setPendingDraft(payload);
   };
 
+  // KPIs clicáveis (padrão Contratos): alternam o filtro correspondente da fila.
+  const toggleStatusKpi = (status: DeliberacaoStatus) =>
+    handleStatusChange(statusFilter === status ? 'all' : status);
+
   const kpiItems: KpiItem[] = [
     {
       id: 'abertas',
@@ -239,6 +243,7 @@ export default function DeliberacoesPage() {
       variant: 'info',
       icon: <FolderOpen className="w-4 h-4" />,
       tintValue: true,
+      onClick: () => { handleClearFilters(); setActivePipelineStage(null); },
     },
     {
       id: 'criticas',
@@ -247,6 +252,8 @@ export default function DeliberacoesPage() {
       variant: 'danger',
       icon: <AlertTriangle className="w-4 h-4" />,
       tintValue: true,
+      onClick: () => setPrioridadeFilter((current) => (current === 'critica' ? 'all' : 'critica')),
+      active: prioridadeFilter === 'critica',
     },
     {
       id: 'aguardando_voto',
@@ -254,6 +261,8 @@ export default function DeliberacoesPage() {
       value: countByStatus(items, 'em_votacao'),
       variant: 'info',
       icon: <Vote className="w-4 h-4" />,
+      onClick: () => toggleStatusKpi('em_votacao'),
+      active: statusFilter === 'em_votacao',
     },
     {
       id: 'atrasadas',
@@ -262,6 +271,8 @@ export default function DeliberacoesPage() {
       variant: 'danger',
       icon: <AlarmClock className="w-4 h-4" />,
       tintValue: true,
+      onClick: () => setSlaFilter((current) => (current === 'overdue' ? 'all' : 'overdue')),
+      active: slaFilter === 'overdue',
     },
     {
       id: 'tempo_medio',
@@ -269,6 +280,7 @@ export default function DeliberacoesPage() {
       value: '4.2d',
       variant: 'success',
       icon: <Timer className="w-4 h-4" />,
+      onClick: () => { handleClearFilters(); setActivePipelineStage(null); },
     },
     {
       id: 'exec_pendentes',
@@ -276,6 +288,8 @@ export default function DeliberacoesPage() {
       value: countByStatus(items, 'em_execucao'),
       variant: 'warning',
       icon: <PlayCircle className="w-4 h-4" />,
+      onClick: () => toggleStatusKpi('em_execucao'),
+      active: statusFilter === 'em_execucao',
     },
   ];
 

@@ -89,15 +89,15 @@ export function ManagerialDreTable({ rows }: ManagerialDreTableProps) {
                           {r.isSubtotal && <span className="ml-1 h-1 w-1 rounded-full bg-[color:var(--ig-accent)]" />}
                         </button>
                       </Td>
-                      <Td className="text-right font-mono tabular-nums">
+                      <Td className="text-right tabular-nums">
                         <span className={r.isSubtotal ? 'text-[color:var(--ig-fg-strong)]' : 'text-[color:var(--ig-fg-default)]'}>{formatCompactBRL(r.actual)}</span>
                       </Td>
-                      <Td className="text-right font-mono tabular-nums text-[color:var(--ig-fg-muted)]">{formatCompactBRL(r.budget)}</Td>
-                      <Td className="text-right font-mono tabular-nums text-[color:var(--ig-fg-muted)]">{formatCompactBRL(r.forecast)}</Td>
-                      <Td className="text-right font-mono tabular-nums" style={{ color: toneColor }}>
+                      <Td className="text-right tabular-nums text-[color:var(--ig-fg-muted)]">{formatCompactBRL(r.budget)}</Td>
+                      <Td className="text-right tabular-nums text-[color:var(--ig-fg-muted)]">{formatCompactBRL(r.forecast)}</Td>
+                      <Td className="text-right tabular-nums" style={{ color: toneColor }}>
                         {r.variance_abs >= 0 ? '+' : ''}{formatCompactBRL(r.variance_abs)}
                       </Td>
-                      <Td className="text-right font-mono tabular-nums">
+                      <Td className="text-right tabular-nums">
                         <span
                           className="inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-semibold"
                           style={{
@@ -200,7 +200,7 @@ function ExpandStat({ label, value, tone }: { label: string; value: string; tone
   return (
     <div className="flex flex-col gap-0.5 rounded-md border border-[color:var(--ig-border-subtle)] bg-[color:var(--ig-bg-raised)]/40 px-2.5 py-1.5">
       <span className="text-[9px] uppercase tracking-[0.16em] text-[color:var(--ig-fg-subtle)]">{label}</span>
-      <span className="font-mono text-[11.5px] font-semibold tabular-nums" style={{ color }}>{value}</span>
+      <span className="text-[11.5px] font-semibold tabular-nums" style={{ color }}>{value}</span>
     </div>
   );
 }

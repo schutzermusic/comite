@@ -50,6 +50,14 @@ export default function Operations3DPage() {
 
   const selectedForReport = selectedProject || projects.find((project) => project.status === "critical") || projects[0] || null;
 
+  // KPIs clicáveis (padrão Contratos): focam o projeto mais relevante do recorte
+  // no mapa; clicar de novo limpa a seleção.
+  const toggleFocus = (match: (p: OperationsProjectRecord) => boolean) =>
+    setSelectedProject((current) => {
+      const next = projects.find(match) ?? null;
+      return current && next && current.id === next.id ? null : next;
+    });
+
   const kpis: KpiItem[] = [
     {
       id: "projects-mapped",
@@ -58,6 +66,7 @@ export default function Operations3DPage() {
       deltaLabel: "Projetos conectados ao mapa",
       icon: <MapPinned className="w-5 h-5" />,
       variant: "info",
+      onClick: () => setSelectedProject(null),
     },
     {
       id: "active-fronts",
@@ -66,6 +75,7 @@ export default function Operations3DPage() {
       deltaLabel: "Frentes em execução ou atenção",
       icon: <Zap className="w-5 h-5" />,
       variant: "success",
+      onClick: () => toggleFocus((p) => p.status === "active" || p.status === "attention"),
     },
     {
       id: "critical-alerts",
@@ -74,6 +84,8 @@ export default function Operations3DPage() {
       deltaLabel: `${summary.linkedRisks} riscos vinculados`,
       icon: <ShieldAlert className="w-5 h-5" />,
       variant: "danger",
+      onClick: () => toggleFocus((p) => p.status === "critical"),
+      active: selectedProject?.status === "critical",
     },
     {
       id: "assets-linked",
@@ -82,6 +94,7 @@ export default function Operations3DPage() {
       deltaLabel: "Ativos, evidências e marcos",
       icon: <Boxes className="w-5 h-5" />,
       variant: "warning",
+      onClick: () => setSelectedProject(null),
     },
     {
       id: "last-sync",
@@ -90,6 +103,7 @@ export default function Operations3DPage() {
       deltaLabel: "Snapshot operacional",
       icon: <Clock3 className="w-5 h-5" />,
       variant: "default",
+      onClick: () => setSelectedProject(null),
     },
   ];
 

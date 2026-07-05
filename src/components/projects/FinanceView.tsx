@@ -561,7 +561,7 @@ export function FinanceView({ project, onProjectChange }: FinanceViewProps) {
                     <div className="flex items-center gap-3">
                         {view && (
                             hasCostControlData ? (
-                                <span className="hidden font-mono text-[11px] tabular-nums text-[color:var(--ig-fg-muted)] md:inline">
+                                <span className="hidden text-[11px] tabular-nums text-[color:var(--ig-fg-muted)] md:inline">
                                     {costSeriesLabel('EAC')} {compactBRL(view.baf.eac)} · {costSeriesLabel('AC')} {compactBRL(view.baf.ac)}
                                 </span>
                             ) : (
@@ -592,8 +592,8 @@ export function FinanceView({ project, onProjectChange }: FinanceViewProps) {
                                     <div key={k.label} className="relative min-w-0 overflow-hidden rounded-xl border border-[color:var(--ig-border-subtle)] bg-[color:var(--ig-bg-raised)]/55 px-3 py-2.5 backdrop-blur-sm">
                                         <div className="absolute inset-x-3 top-0 h-px" style={{ background: `linear-gradient(90deg, transparent, ${k.color}, transparent)` }} />
                                         <p className="truncate text-[9px] font-semibold uppercase tracking-[0.14em] text-[color:var(--ig-fg-subtle)]">{k.label}</p>
-                                        <p className="mt-1 truncate font-mono text-sm font-semibold tabular-nums" style={{ color: k.color }}>{compactBRL(k.value)}</p>
-                                        {'sub' in k && k.sub && <p className="font-mono text-[10px] tabular-nums" style={{ color: k.color }}>{k.sub}</p>}
+                                        <p className="mt-1 truncate text-sm font-semibold tabular-nums" style={{ color: k.color }}>{compactBRL(k.value)}</p>
+                                        {'sub' in k && k.sub && <p className="text-[10px] tabular-nums" style={{ color: k.color }}>{k.sub}</p>}
                                     </div>
                                 ))}
                             </div>
@@ -628,7 +628,7 @@ export function FinanceView({ project, onProjectChange }: FinanceViewProps) {
                                     {pending.entries.map((e) => (
                                         <li key={e.id} className="flex items-center justify-between gap-3 py-1.5">
                                             <span className="truncate text-xs text-[var(--ig-fg-default)]">{e.entry_date} • {e.description}</span>
-                                            <span className="shrink-0 font-mono text-xs text-[var(--ig-fg-strong)]">{formatBRL(e.amount_cents)}</span>
+                                            <span className="shrink-0 tabular-nums text-xs text-[var(--ig-fg-strong)]">{formatBRL(e.amount_cents)}</span>
                                         </li>
                                     ))}
                                 </ul>

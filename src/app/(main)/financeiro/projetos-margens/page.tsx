@@ -36,6 +36,8 @@ export default function ProjetosMargensPage() {
   type EnrichedProject = Project & { margin: number; marginPct: number; fcstMargin: number; fcstMarginPct: number };
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  // Ordenação dirigida pelo KPI clicado (padrão Contratos: clique de novo desliga).
+  const [kpiSort, setKpiSort] = useState<'contracted' | 'cost' | 'margin' | 'marginPct' | null>(null);
 
   // Live ledger (reflects allocation changes) feeds the portfolio + pending costs.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -77,13 +79,22 @@ export default function ProjetosMargensPage() {
   const avgMargin = totalRev > 0 ? (totalMargin / totalRev) * 100 : 0;
   const atRisk = filtered.filter((p) => p.status === 'at_risk').length;
 
+  // KPIs clicáveis (padrão Contratos): valores ordenam a tabela pela dimensão;
+  // "Em risco" alterna o filtro de status; "Projetos no filtro" limpa tudo.
+  const toggleKpiSort = (key: 'contracted' | 'cost' | 'margin' | 'marginPct') =>
+    setKpiSort((current) => (current === key ? null : key));
+  const sorted = useMemo(
+    () => (kpiSort ? [...filtered].sort((a, b) => (b[kpiSort] as number) - (a[kpiSort] as number)) : filtered),
+    [filtered, kpiSort],
+  );
+
   const kpis: KpiItem[] = [
-    { id: 'n', label: 'Projetos no filtro', value: filtered.length, variant: 'info', tintValue: true },
-    { id: 'r', label: 'Receita contratada', value: totalRev, format: 'compactCurrency', variant: 'success', tintValue: true },
-    { id: 'c', label: 'Custo realizado', value: totalCost, format: 'compactCurrency', variant: 'warning', tintValue: true },
-    { id: 'm', label: 'Margem total', value: totalMargin, format: 'compactCurrency', variant: 'success', tintValue: true },
-    { id: 'p', label: 'Margem média', value: avgMargin, format: 'percent', variant: 'success', tintValue: true },
-    { id: 'a', label: 'Em risco', value: atRisk, variant: atRisk ? 'danger' : 'success', tintValue: true },
+    { id: 'n', label: 'Projetos no filtro', value: filtered.length, variant: 'info', tintValue: true, onClick: () => { setFilterStatus(''); setFilterClient(''); setFilterMargin(''); setKpiSort(null); } },
+    { id: 'r', label: 'Receita contratada', value: totalRev, format: 'compactCurrency', variant: 'success', tintValue: true, onClick: () => toggleKpiSort('contracted'), active: kpiSort === 'contracted' },
+    { id: 'c', label: 'Custo realizado', value: totalCost, format: 'compactCurrency', variant: 'warning', tintValue: true, onClick: () => toggleKpiSort('cost'), active: kpiSort === 'cost' },
+    { id: 'm', label: 'Margem total', value: totalMargin, format: 'compactCurrency', variant: 'success', tintValue: true, onClick: () => toggleKpiSort('margin'), active: kpiSort === 'margin' },
+    { id: 'p', label: 'Margem média', value: avgMargin, format: 'percent', variant: 'success', tintValue: true, onClick: () => toggleKpiSort('marginPct'), active: kpiSort === 'marginPct' },
+    { id: 'a', label: 'Em risco', value: atRisk, variant: atRisk ? 'danger' : 'success', tintValue: true, onClick: () => setFilterStatus(filterStatus === 'at_risk' ? '' : 'at_risk'), active: filterStatus === 'at_risk' },
   ];
 
   const ranking = [...enriched].sort((a, b) => b.marginPct - a.marginPct);
@@ -239,23 +250,23 @@ export default function ProjetosMargensPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((p) => {
+                {sorted.map((p) => {
                   const tone = p.marginPct >= 30 ? 'text-ig-success' : p.marginPct >= 15 ? 'text-ig-warning' : 'text-ig-danger';
                   return (
                     <tr key={p.id} onClick={() => setSelectedId(p.id)} className="border-b border-ig-border-subtle/40 hover:bg-ig-surface-subtle/30 cursor-pointer">
                       <td className="px-5 py-2.5 font-mono text-[12px] text-ig-text-secondary">{p.code}</td>
                       <td className="px-5 py-2.5 text-ig-text-primary">{p.name}</td>
                       <td className="px-5 py-2.5 text-ig-text-secondary">{p.client}</td>
-                      <td className="text-right px-5 py-2.5 font-mono tabular-nums">{fmtBRL(p.contracted)}</td>
-                      <td className="text-right px-5 py-2.5 font-mono tabular-nums text-ig-text-secondary">{fmtBRL(p.cost)}</td>
-                      <td className={'text-right px-5 py-2.5 font-mono tabular-nums ' + tone}>{p.marginPct.toFixed(1)}%</td>
-                      <td className="text-right px-5 py-2.5 font-mono tabular-nums text-ig-text-secondary">{p.fcstMarginPct.toFixed(1)}%</td>
+                      <td className="text-right px-5 py-2.5 tabular-nums">{fmtBRL(p.contracted)}</td>
+                      <td className="text-right px-5 py-2.5 tabular-nums text-ig-text-secondary">{fmtBRL(p.cost)}</td>
+                      <td className={'text-right px-5 py-2.5 tabular-nums ' + tone}>{p.marginPct.toFixed(1)}%</td>
+                      <td className="text-right px-5 py-2.5 tabular-nums text-ig-text-secondary">{p.fcstMarginPct.toFixed(1)}%</td>
                       <td className="text-right px-5 py-2.5">
                         <div className="inline-flex items-center gap-2">
                           <div className="w-16 h-1.5 rounded-full bg-ig-surface-subtle overflow-hidden">
                             <div className={'h-full ' + (p.health >= 80 ? 'bg-ig-success' : p.health >= 60 ? 'bg-ig-warning' : 'bg-ig-danger')} style={{ width: `${p.health}%` }} />
                           </div>
-                          <span className="text-[11px] font-mono text-ig-text-secondary">{p.health}</span>
+                          <span className="text-[11px] tabular-nums text-ig-text-secondary">{p.health}</span>
                         </div>
                       </td>
                       <td className="px-5 py-2.5"><FinanceStatusBadge status={p.status} /></td>
@@ -308,7 +319,7 @@ export default function ProjetosMargensPage() {
                     <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-ig-warning" />
                     <p className="text-[12px] text-ig-warning">
                       {pending.count} custo(s) lançados no contrato <span className="font-mono">{pending.contract_id}</span> antes da criação do projeto.
-                      Não entram no AC/margem oficiais até serem vinculados. Total: <span className="font-mono">{formatBRL(pending.totalCents)}</span>.
+                      Não entram no AC/margem oficiais até serem vinculados. Total: <span className="tabular-nums">{formatBRL(pending.totalCents)}</span>.
                     </p>
                   </div>
                   <ul className="divide-y divide-ig-border-subtle/60">
@@ -318,7 +329,7 @@ export default function ProjetosMargensPage() {
                           <p className="truncate text-[12.5px] text-ig-text-primary">{e.description}</p>
                           <p className="text-[10.5px] text-ig-text-tertiary">{e.entry_date} • {e.category?.name || e.category_id} • {e.status}</p>
                         </div>
-                        <span className="shrink-0 font-mono text-[12.5px] text-ig-text-secondary">{formatBRL(e.amount_cents)}</span>
+                        <span className="shrink-0 tabular-nums text-[12.5px] text-ig-text-secondary">{formatBRL(e.amount_cents)}</span>
                       </li>
                     ))}
                   </ul>

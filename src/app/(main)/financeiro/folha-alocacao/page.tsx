@@ -221,13 +221,17 @@ function FolhaAlocacaoContent() {
     router.push(`/financeiro/lancamentos?entryId=${encodeURIComponent(entryId)}`);
   }, [router]);
 
+  // KPIs clicáveis (padrão Contratos): alternam o filtro de status correspondente.
+  const toggleStatusKpi = (status: PayrollAllocationStatus) =>
+    setFilterStatus(current => (current === status ? 'all' : status));
+
   const kpis: KpiItem[] = [
-    { id: 'tc', label: 'Custo total (carregado)', value: summary.totalCost / 100, format: 'compactCurrency', variant: 'info' },
-    { id: 'al', label: 'Custo alocado', value: summary.allocatedCost / 100, format: 'compactCurrency', variant: 'success' },
-    { id: 'un', label: 'Não alocado', value: summary.unallocatedCost / 100, format: 'compactCurrency', variant: summary.unallocatedCost > 0 ? 'warning' : 'success', icon: <AlertTriangle className="h-5 w-5" /> },
-    { id: 'rt', label: 'Taxa de alocação', value: summary.allocationRate, format: 'percent', variant: summary.allocationRate >= 70 ? 'success' : 'warning' },
-    { id: 'hc', label: 'Headcount', value: summary.headcount, variant: 'info', icon: <Users className="h-5 w-5" /> },
-    { id: 'ac', label: 'Custo médio / colaborador', value: summary.avgCostPerEmployee / 100, format: 'compactCurrency', variant: 'info' },
+    { id: 'tc', label: 'Custo total (carregado)', value: summary.totalCost / 100, format: 'compactCurrency', variant: 'info', onClick: clearFilters },
+    { id: 'al', label: 'Custo alocado', value: summary.allocatedCost / 100, format: 'compactCurrency', variant: 'success', onClick: () => toggleStatusKpi('allocated'), active: filterStatus === 'allocated' },
+    { id: 'un', label: 'Não alocado', value: summary.unallocatedCost / 100, format: 'compactCurrency', variant: summary.unallocatedCost > 0 ? 'warning' : 'success', icon: <AlertTriangle className="h-5 w-5" />, onClick: () => toggleStatusKpi('draft'), active: filterStatus === 'draft' },
+    { id: 'rt', label: 'Taxa de alocação', value: summary.allocationRate, format: 'percent', variant: summary.allocationRate >= 70 ? 'success' : 'warning', onClick: () => toggleStatusKpi('posted'), active: filterStatus === 'posted' },
+    { id: 'hc', label: 'Headcount', value: summary.headcount, variant: 'info', icon: <Users className="h-5 w-5" />, onClick: clearFilters },
+    { id: 'ac', label: 'Custo médio / colaborador', value: summary.avgCostPerEmployee / 100, format: 'compactCurrency', variant: 'info', onClick: clearFilters },
   ];
 
   const columns: HudTableColumn<PayrollAllocation>[] = [
@@ -237,19 +241,19 @@ function FolhaAlocacaoContent() {
         <span className="block max-w-[220px] truncate text-[11px] text-ig-fg-muted">{a.role} • {a.department_name}</span>
       </div>
     ) },
-    { key: 'competence_month', header: 'Competência', cell: (a) => <span className="font-mono text-xs text-ig-fg-muted">{a.competence_month}</span> },
+    { key: 'competence_month', header: 'Competência', cell: (a) => <span className="tabular-nums text-xs text-ig-fg-muted">{a.competence_month}</span> },
     { key: 'destination', header: 'Destino', cell: (a) => (
       <div className="min-w-0">
         <span className="block truncate text-xs text-ig-fg-strong">{a.project_name || 'Estrutural'}</span>
         <span className="block truncate text-[11px] text-ig-fg-muted">{a.cost_center?.name || a.cost_center_id || '—'}</span>
       </div>
     ) },
-    { key: 'total_cost_cents', header: 'Custo total', align: 'right', cell: (a) => <span className="block font-mono text-xs text-ig-fg-strong">{formatBRL(a.total_cost_cents)}</span> },
-    { key: 'allocated_amount_cents', header: 'Alocado', align: 'right', cell: (a) => <span className="block font-mono text-xs text-ig-fg-muted">{formatBRL(a.allocated_amount_cents)}</span> },
+    { key: 'total_cost_cents', header: 'Custo total', align: 'right', cell: (a) => <span className="block tabular-nums text-xs text-ig-fg-strong">{formatBRL(a.total_cost_cents)}</span> },
+    { key: 'allocated_amount_cents', header: 'Alocado', align: 'right', cell: (a) => <span className="block tabular-nums text-xs text-ig-fg-muted">{formatBRL(a.allocated_amount_cents)}</span> },
     { key: 'allocation_percentage', header: 'Alocação', cell: (a) => (
       <div className="w-[120px]">
         <HudProgressBar value={a.allocation_percentage} variant={allocBarVariant(a.allocation_percentage)} size="sm" showLabel={false} />
-        <span className="mt-0.5 block text-[10px] font-mono text-ig-fg-muted">{a.allocation_percentage.toFixed(0)}%</span>
+        <span className="mt-0.5 block text-[10px] tabular-nums text-ig-fg-muted">{a.allocation_percentage.toFixed(0)}%</span>
       </div>
     ) },
     { key: 'status', header: 'Status', cell: (a) => (
@@ -343,18 +347,18 @@ function FolhaAlocacaoContent() {
       {/* Posted vs pending banner */}
       <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
         <HudPanel title="Lançado no DRE" subtitle="Custo já reconhecido por competência" icon={<CheckCircle className="h-4 w-4" />}>
-          <p className="font-mono text-xl font-semibold text-ig-success">{fmtBRL(summary.postedCost / 100)}</p>
+          <p className="tabular-nums text-xl font-semibold text-ig-success">{fmtBRL(summary.postedCost / 100)}</p>
           <p className="mt-1 text-[11px] text-ig-fg-muted">{summary.postedCount} alocação(ões) lançada(s)</p>
         </HudPanel>
         <HudPanel title="Pendente de lançamento" subtitle="Custo alocado ainda fora do DRE" icon={<ArrowUpRight className="h-4 w-4" />}>
-          <p className="font-mono text-xl font-semibold text-ig-warning">{fmtBRL(summary.pendingCost / 100)}</p>
+          <p className="tabular-nums text-xl font-semibold text-ig-warning">{fmtBRL(summary.pendingCost / 100)}</p>
           <p className="mt-1 text-[11px] text-ig-fg-muted">{summary.pendingCount} pendente(s) • {postableCount} pronta(s) p/ lançar</p>
         </HudPanel>
         <HudPanel title="Composição do custo" subtitle="Bruto · encargos · benefícios" icon={<PieChart className="h-4 w-4" />}>
           <div className="space-y-1 text-[11px]">
-            <div className="flex items-center justify-between"><span className="text-ig-fg-muted">Bruto</span><span className="font-mono text-ig-fg-strong">{fmtCompactBRL(summary.grossTotal / 100)}</span></div>
-            <div className="flex items-center justify-between"><span className="text-ig-fg-muted">Encargos</span><span className="font-mono text-ig-fg-strong">{fmtCompactBRL(summary.taxesTotal / 100)}</span></div>
-            <div className="flex items-center justify-between"><span className="text-ig-fg-muted">Benefícios</span><span className="font-mono text-ig-fg-strong">{fmtCompactBRL(summary.benefitsTotal / 100)}</span></div>
+            <div className="flex items-center justify-between"><span className="text-ig-fg-muted">Bruto</span><span className="tabular-nums text-ig-fg-strong">{fmtCompactBRL(summary.grossTotal / 100)}</span></div>
+            <div className="flex items-center justify-between"><span className="text-ig-fg-muted">Encargos</span><span className="tabular-nums text-ig-fg-strong">{fmtCompactBRL(summary.taxesTotal / 100)}</span></div>
+            <div className="flex items-center justify-between"><span className="text-ig-fg-muted">Benefícios</span><span className="tabular-nums text-ig-fg-strong">{fmtCompactBRL(summary.benefitsTotal / 100)}</span></div>
           </div>
         </HudPanel>
       </div>
@@ -387,8 +391,8 @@ function FolhaAlocacaoContent() {
                   <div className="mt-2">
                     <HudProgressBar value={Math.min(r.utilizationPct, 100)} variant={RECON_BAR[r.status]} size="sm" showLabel={false} />
                     <div className="mt-1 flex items-center justify-between text-[10.5px] text-ig-fg-muted">
-                      <span>Alocado <span className="font-mono text-ig-fg-strong">{fmtBRL(r.allocatedTotalCents / 100)}</span> / {fmtBRL(r.batchTotalCents / 100)}</span>
-                      <span className={r.status === 'overallocated' ? 'font-mono text-ig-danger' : 'font-mono'}>
+                      <span>Alocado <span className="tabular-nums text-ig-fg-strong">{fmtBRL(r.allocatedTotalCents / 100)}</span> / {fmtBRL(r.batchTotalCents / 100)}</span>
+                      <span className={r.status === 'overallocated' ? 'tabular-nums text-ig-danger' : 'tabular-nums'}>
                         {r.utilizationPct.toFixed(0)}%{r.varianceCents > 0 ? ` • +${fmtCompactBRL(r.varianceCents / 100)}` : ''}
                       </span>
                     </div>
@@ -493,22 +497,22 @@ function FolhaAlocacaoContent() {
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              <div><p className="text-[10px] uppercase text-ig-fg-subtle">Competência</p><p className="font-mono text-sm text-ig-fg-strong">{detail.competence_month}</p></div>
+              <div><p className="text-[10px] uppercase text-ig-fg-subtle">Competência</p><p className="tabular-nums text-sm text-ig-fg-strong">{detail.competence_month}</p></div>
               <div><p className="text-[10px] uppercase text-ig-fg-subtle">Departamento</p><p className="text-sm text-ig-fg-strong">{detail.department_name}</p></div>
             </div>
 
             {/* Cost composition */}
             <div className="grid grid-cols-3 gap-3 rounded-lg border border-ig-border-subtle bg-ig-panel/40 p-3">
-              <div><p className="text-[10px] uppercase text-ig-fg-subtle">Bruto</p><p className="font-mono text-sm text-ig-fg-strong">{formatBRL(detail.gross_amount_cents)}</p></div>
-              <div><p className="text-[10px] uppercase text-ig-fg-subtle">Encargos</p><p className="font-mono text-sm text-ig-fg-muted">{formatBRL(detail.taxes_amount_cents)}</p></div>
-              <div><p className="text-[10px] uppercase text-ig-fg-subtle">Benefícios</p><p className="font-mono text-sm text-ig-fg-muted">{formatBRL(detail.benefits_amount_cents)}</p></div>
+              <div><p className="text-[10px] uppercase text-ig-fg-subtle">Bruto</p><p className="tabular-nums text-sm text-ig-fg-strong">{formatBRL(detail.gross_amount_cents)}</p></div>
+              <div><p className="text-[10px] uppercase text-ig-fg-subtle">Encargos</p><p className="tabular-nums text-sm text-ig-fg-muted">{formatBRL(detail.taxes_amount_cents)}</p></div>
+              <div><p className="text-[10px] uppercase text-ig-fg-subtle">Benefícios</p><p className="tabular-nums text-sm text-ig-fg-muted">{formatBRL(detail.benefits_amount_cents)}</p></div>
             </div>
 
             {/* Allocation */}
             <div>
               <div className="mb-1 flex items-center justify-between">
                 <p className="text-[10px] uppercase text-ig-fg-subtle">Alocação ({detail.allocation_percentage.toFixed(0)}%)</p>
-                <span className="font-mono text-xs text-ig-fg-strong">{formatBRL(detail.allocated_amount_cents)} / {formatBRL(detail.total_cost_cents)}</span>
+                <span className="tabular-nums text-xs text-ig-fg-strong">{formatBRL(detail.allocated_amount_cents)} / {formatBRL(detail.total_cost_cents)}</span>
               </div>
               <HudProgressBar value={detail.allocation_percentage} variant={allocBarVariant(detail.allocation_percentage)} size="md" showLabel={false} />
             </div>
@@ -516,7 +520,7 @@ function FolhaAlocacaoContent() {
             {/* Destination dimensions */}
             <div className="rounded-lg border border-ig-border-subtle bg-ig-panel/40 p-3 text-xs space-y-1">
               <p><span className="text-ig-fg-subtle">Projeto: </span><span className="text-ig-fg-strong">{detail.project_name || 'Estrutural (não alocado)'}</span></p>
-              {detail.contract_name && <p><span className="text-ig-fg-subtle">Contrato: </span><span className="font-mono text-ig-fg-strong">{detail.contract_name}</span></p>}
+              {detail.contract_name && <p><span className="text-ig-fg-subtle">Contrato: </span><span className="tabular-nums text-ig-fg-strong">{detail.contract_name}</span></p>}
               <p><span className="text-ig-fg-subtle">Centro de custo: </span><span className="text-ig-fg-strong">{detail.cost_center?.name || detail.cost_center_id || '—'}</span></p>
               <p><span className="text-ig-fg-subtle">Business unit: </span><span className="text-ig-fg-strong">{detail.business_unit?.name || detail.business_unit_id || '—'}</span></p>
               {detail.payroll_batch_id && <p><span className="text-ig-fg-subtle">Lote de folha: </span><span className="font-mono text-ig-fg-strong">{detail.payroll_batch_id}</span></p>}
@@ -543,7 +547,7 @@ function FolhaAlocacaoContent() {
                     <span className="truncate text-xs text-ig-fg-strong">{linkedEntry.entry_date}</span>
                     <span className="text-[10px] uppercase tracking-[0.12em] text-ig-fg-subtle">Custo P&L</span>
                   </div>
-                  <span className="shrink-0 font-mono text-xs font-semibold text-ig-fg-strong">{formatBRL(linkedEntry.amount_cents)}</span>
+                  <span className="shrink-0 tabular-nums text-xs font-semibold text-ig-fg-strong">{formatBRL(linkedEntry.amount_cents)}</span>
                 </button>
               )}
             </div>
@@ -594,7 +598,7 @@ function FolhaAlocacaoContent() {
 
       {/* Footer summary */}
       <div className="mt-4 text-right text-[10.5px] text-ig-text-tertiary">
-        Custo total nos filtros: <span className="font-mono">{fmtBRL(summary.totalCost / 100)}</span> • alocado <span className="font-mono">{fmtBRL(summary.allocatedCost / 100)}</span> • contratos: {byContract.filter(c => c.key !== '_none').length}
+        Custo total nos filtros: <span className="tabular-nums">{fmtBRL(summary.totalCost / 100)}</span> • alocado <span className="tabular-nums">{fmtBRL(summary.allocatedCost / 100)}</span> • contratos: {byContract.filter(c => c.key !== '_none').length}
       </div>
     </HudPageLayout>
   );

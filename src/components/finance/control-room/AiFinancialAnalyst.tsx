@@ -94,7 +94,7 @@ export function AiFinancialAnalyst({ insights, approvalQueue, onSimulate, onAnal
                 >
                   <div className="flex items-center gap-2">
                     <KindChip kind={active.kind} />
-                    <span className={cn('inline-flex items-center gap-1 rounded-md px-2 py-0.5 font-mono text-[10px] font-semibold tabular-nums', active.impact >= 0 ? 'text-[#10B981]' : 'text-[#EF4444]')} style={{ background: active.impact >= 0 ? 'color-mix(in oklab, #10B981 12%, transparent)' : 'color-mix(in oklab, #EF4444 12%, transparent)' }}>
+                    <span className={cn('inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-semibold tabular-nums', active.impact >= 0 ? 'text-[#10B981]' : 'text-[#EF4444]')} style={{ background: active.impact >= 0 ? 'color-mix(in oklab, #10B981 12%, transparent)' : 'color-mix(in oklab, #EF4444 12%, transparent)' }}>
                       {active.impact >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
                       {formatCompactBRL(Math.abs(active.impact))} de impacto
                     </span>
@@ -219,7 +219,7 @@ function ConfidenceMeter({ value }: { value: number }) {
             transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
           />
         </div>
-        <span className="font-mono text-[11px] font-semibold tabular-nums" style={{ color }}>
+        <span className="text-[11px] font-semibold tabular-nums" style={{ color }}>
           {pct}%
         </span>
       </div>
@@ -262,7 +262,7 @@ function ApprovalRow({ item }: { item: ExecutiveDecisionItem }) {
   return (
     <div className="flex items-center gap-2 py-1.5">
       <div className="flex flex-col items-center gap-0.5">
-        <span className="font-mono text-[12px] font-semibold tabular-nums text-[color:var(--ig-fg-strong)]">{aging}d</span>
+        <span className="text-[12px] font-semibold tabular-nums text-[color:var(--ig-fg-strong)]">{aging}d</span>
         <span className="h-1 w-1 rounded-full" style={{ background: slaColor }} />
       </div>
       <div className="min-w-0 flex-1">
@@ -270,7 +270,7 @@ function ApprovalRow({ item }: { item: ExecutiveDecisionItem }) {
         <div className="mt-0.5 flex items-center gap-2 text-[10px] text-[color:var(--ig-fg-muted)]">
           <span>{item.category}</span>
           <span>·</span>
-          <span className="font-mono tabular-nums">{formatCompactBRL(item.impact)}</span>
+          <span className="tabular-nums">{formatCompactBRL(item.impact)}</span>
         </div>
       </div>
       <button

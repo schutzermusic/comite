@@ -10,6 +10,7 @@
 
 import { esc } from './report-formatters';
 import { C } from './report-theme';
+import { FONT_FAMILY_SANS, buildGilroyFontFaceCss } from '@/lib/fonts';
 
 export interface RenderReportDocumentInput {
   /** Document <title> and default download filename. */
@@ -29,7 +30,7 @@ export interface RenderReportDocumentInput {
 const REPORT_CSS = `
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; background: #fff; color: ${C.ink};
-    font: 12px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    font-size: 12px; line-height: 1.5; font-family: ${FONT_FAMILY_SANS};
     -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 
   .page { display: flex; flex-direction: column; min-height: 186mm; padding: 0 1mm; }
@@ -49,7 +50,7 @@ const REPORT_CSS = `
     background: linear-gradient(180deg, ${C.brandOrange}, ${C.brandGreen}); }
   .sec-sub { margin: 1px 0 0; font-size: 9.5px; color: ${C.subtle}; }
 
-  .mono { font-variant-numeric: tabular-nums; font-family: ui-monospace, Menlo, monospace; }
+  .mono { font-variant-numeric: tabular-nums; font-family: inherit; }
   .num { text-align: right; }
   .muted { color: ${C.subtle}; }
   .empty { color: ${C.subtle}; font-size: 11px; font-style: italic; padding: 6px 0; }
@@ -227,6 +228,7 @@ export function renderReportDocument(input: RenderReportDocumentInput): string {
 <html lang="pt-BR"><head><meta charset="utf-8" />
 <title>${esc(fileName)}</title>
 <style>
+${buildGilroyFontFaceCss()}
   ${pageRule}
 ${REPORT_CSS}
 ${screenRule}

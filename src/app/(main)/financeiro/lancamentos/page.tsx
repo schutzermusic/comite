@@ -80,6 +80,8 @@ function LancamentosContent() {
   const [periodFrom, setPeriodFrom] = useState('2026-01');
   const [periodTo, setPeriodTo] = useState('2026-06');
   const [allocFilter, setAllocFilter] = useState<LedgerAllocationStatus | 'all'>('all');
+  // Single-select KPI filter de natureza (padrão Contratos): clicar filtra, clicar de novo limpa.
+  const [natureFilter, setNatureFilter] = useState<'revenue' | 'expense' | null>(null);
   const [allocProject, setAllocProject] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -162,7 +164,7 @@ function LancamentosContent() {
     () => ({ period_from: periodFrom, period_to: periodTo }),
     [periodFrom, periodTo],
   );
-  const entries = useMemo(() => {
+  const entriesBase = useMemo(() => {
     let result = getLedgerEntries(periodFilters, statusFilter);
     if (allocFilter !== 'all') {
       result = result.filter(e => (e.allocation_status ?? 'unallocated') === allocFilter);
@@ -174,6 +176,12 @@ function LancamentosContent() {
     return result;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusFilter, allocFilter, searchTerm, refreshKey, periodFilters]);
+
+  // Recorte de natureza (KPI clicável) aplicado só à tabela — os KPIs seguem globais.
+  const entries = useMemo(
+    () => (natureFilter ? entriesBase.filter(e => e.category?.sign === (natureFilter === 'revenue' ? 1 : -1)) : entriesBase),
+    [entriesBase, natureFilter],
+  );
 
   const pendingAllocationCount = useMemo(
     () => getLedgerEntries(periodFilters).filter(e => e.allocation_status === 'pending_project').length,
@@ -194,19 +202,19 @@ function LancamentosContent() {
   const l2Cats = useMemo(() => categories.filter(c => c.level === 2 && c.parent_id === formCategoryL1), [formCategoryL1]);
   const l3Cats = useMemo(() => categories.filter(c => c.level === 3 && c.parent_id === formCategoryL2), [formCategoryL2]);
 
-  const revenueTotal = entries.filter(e => e.category?.sign === 1).reduce((sum, e) => sum + e.amount_cents, 0);
-  const expenseTotal = entries.filter(e => e.category?.sign === -1).reduce((sum, e) => sum + e.amount_cents, 0);
-  const reviewCount = entries.filter(e => e.status === 'draft' || e.status === 'in_review').length;
+  const revenueTotal = entriesBase.filter(e => e.category?.sign === 1).reduce((sum, e) => sum + e.amount_cents, 0);
+  const expenseTotal = entriesBase.filter(e => e.category?.sign === -1).reduce((sum, e) => sum + e.amount_cents, 0);
+  const reviewCount = entriesBase.filter(e => e.status === 'draft' || e.status === 'in_review').length;
 
   const kpis: KpiItem[] = [
-    { id: 'revenue', label: 'Créditos / Receita', value: formatBRL(revenueTotal), icon: <ArrowDownLeft className="h-5 w-5" />, variant: 'success' },
-    { id: 'expense', label: 'Débitos / Despesa', value: formatBRL(expenseTotal), icon: <ArrowUpRight className="h-5 w-5" />, variant: 'danger' },
-    { id: 'review', label: 'Fila de revisão', value: reviewCount.toString(), icon: <WalletCards className="h-5 w-5" />, variant: reviewCount > 0 ? 'warning' : 'success' },
-    { id: 'pending_alloc', label: 'Projeto pendente', value: pendingAllocationCount.toString(), icon: <Layers className="h-5 w-5" />, variant: pendingAllocationCount > 0 ? 'warning' : 'success' },
+    { id: 'revenue', label: 'Créditos / Receita', value: formatBRL(revenueTotal), icon: <ArrowDownLeft className="h-5 w-5" />, variant: 'success', onClick: () => setNatureFilter(current => (current === 'revenue' ? null : 'revenue')), active: natureFilter === 'revenue' },
+    { id: 'expense', label: 'Débitos / Despesa', value: formatBRL(expenseTotal), icon: <ArrowUpRight className="h-5 w-5" />, variant: 'danger', onClick: () => setNatureFilter(current => (current === 'expense' ? null : 'expense')), active: natureFilter === 'expense' },
+    { id: 'review', label: 'Fila de revisão', value: reviewCount.toString(), icon: <WalletCards className="h-5 w-5" />, variant: reviewCount > 0 ? 'warning' : 'success', onClick: () => setActiveTab(activeTab === 'in_review' ? 'all' : 'in_review'), active: activeTab === 'in_review' },
+    { id: 'pending_alloc', label: 'Projeto pendente', value: pendingAllocationCount.toString(), icon: <Layers className="h-5 w-5" />, variant: pendingAllocationCount > 0 ? 'warning' : 'success', onClick: () => setAllocFilter(allocFilter === 'pending_project' ? 'all' : 'pending_project'), active: allocFilter === 'pending_project' },
   ];
 
   const columns: HudTableColumn<LedgerEntry>[] = [
-    { key: 'entry_date', header: t('entryDate'), cell: (e) => <span className="font-mono text-xs text-ig-fg-muted">{e.entry_date}</span> },
+    { key: 'entry_date', header: t('entryDate'), cell: (e) => <span className="tabular-nums text-xs text-ig-fg-muted">{e.entry_date}</span> },
     { key: 'description', header: t('description'), cell: (e) => (
       <div className="min-w-0">
         <span className="block max-w-[260px] truncate text-xs font-medium text-ig-fg-strong">{e.description}</span>
@@ -229,7 +237,7 @@ function LancamentosContent() {
       );
     } },
     { key: 'amount_cents', header: t('amount'), align: 'right', cell: (e) => (
-      <span className={`block font-mono text-xs font-semibold ${e.category?.sign === 1 ? 'text-ig-success' : 'text-ig-danger'}`}>
+      <span className={`block tabular-nums text-xs font-semibold ${e.category?.sign === 1 ? 'text-ig-success' : 'text-ig-danger'}`}>
         {e.category?.sign === 1 ? '+' : '-'}{formatBRL(e.amount_cents)}
       </span>
     ) },
@@ -529,12 +537,12 @@ function LancamentosContent() {
         {selectedEntry && (
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
-              <div><p className="text-[10px] uppercase text-ig-fg-subtle">{t('entryDate')}</p><p className="font-mono text-sm text-ig-fg-strong">{selectedEntry.entry_date}</p></div>
+              <div><p className="text-[10px] uppercase text-ig-fg-subtle">{t('entryDate')}</p><p className="tabular-nums text-sm text-ig-fg-strong">{selectedEntry.entry_date}</p></div>
               <div><p className="text-[10px] uppercase text-ig-fg-subtle">Status</p><HudStatusPill variant={STATUS_MAP[selectedEntry.status]?.variant as any}>{STATUS_MAP[selectedEntry.status]?.label}</HudStatusPill></div>
             </div>
             <div><p className="text-[10px] uppercase text-ig-fg-subtle">{t('description')}</p><p className="text-sm text-ig-fg-strong">{selectedEntry.description}</p></div>
             <div className="grid grid-cols-2 gap-3">
-              <div><p className="text-[10px] uppercase text-ig-fg-subtle">{t('amount')}</p><p className="font-mono text-lg text-ig-fg-strong">{formatBRL(selectedEntry.amount_cents)}</p></div>
+              <div><p className="text-[10px] uppercase text-ig-fg-subtle">{t('amount')}</p><p className="tabular-nums text-lg text-ig-fg-strong">{formatBRL(selectedEntry.amount_cents)}</p></div>
               <div><p className="text-[10px] uppercase text-ig-fg-subtle">{t('category')}</p><p className="text-sm text-ig-fg-strong">{selectedEntry.category?.name || '—'}</p></div>
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -542,8 +550,8 @@ function LancamentosContent() {
               <div><p className="text-[10px] uppercase text-ig-fg-subtle">{t('businessUnit')}</p><p className="text-sm text-ig-fg-strong">{selectedEntry.business_unit?.name || '—'}</p></div>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <div><p className="text-[10px] uppercase text-ig-fg-subtle">{t('competenceMonth')}</p><p className="font-mono text-sm text-ig-fg-strong">{selectedEntry.competence_month || selectedEntry.period_key}</p></div>
-              <div><p className="text-[10px] uppercase text-ig-fg-subtle">{t('dueDate')}</p><p className="font-mono text-sm text-ig-fg-strong">{selectedEntry.due_date || '—'}</p></div>
+              <div><p className="text-[10px] uppercase text-ig-fg-subtle">{t('competenceMonth')}</p><p className="tabular-nums text-sm text-ig-fg-strong">{selectedEntry.competence_month || selectedEntry.period_key}</p></div>
+              <div><p className="text-[10px] uppercase text-ig-fg-subtle">{t('dueDate')}</p><p className="tabular-nums text-sm text-ig-fg-strong">{selectedEntry.due_date || '—'}</p></div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div><p className="text-[10px] uppercase text-ig-fg-subtle">{t('scenario')}</p><p className="text-sm text-ig-fg-strong">{selectedEntry.scenario || '—'}</p></div>

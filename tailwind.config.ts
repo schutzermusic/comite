@@ -11,7 +11,7 @@ export default {
     extend: {
       fontFamily: {
         sans: ['Gilroy', 'Manrope', 'Inter', 'SF Pro Display', '-apple-system', 'BlinkMacSystemFont', 'system-ui', 'sans-serif'],
-        mono: ['JetBrains Mono', 'SF Mono', 'Consolas', 'monospace'],
+        mono: ['ui-monospace', 'SF Mono', 'Menlo', 'Consolas', 'monospace'],
         display: ['Gilroy', 'Manrope', 'Inter', 'SF Pro Display', 'system-ui', 'sans-serif'],
         body: ['Gilroy', 'Manrope', 'Inter', 'SF Pro Display', 'system-ui', 'sans-serif'],
       },

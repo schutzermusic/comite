@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Edit, Lock, Shield, ShieldCheck, Trash2, UserPlus, Users, X } from 'lucide-react';
 import {
   HudBadge,
@@ -60,6 +61,7 @@ const OWNER_ROLE_KEY = 'owner_admin';
 
 export default function AdminUsersPage() {
   const { user: authUser, organization, permissions, loading: authLoading, refresh: refreshUser } = useCurrentUser();
+  const router = useRouter();
   const [profiles, setProfiles] = useState<AdminUserRow[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [permsByRole, setPermsByRole] = useState<Map<string, string[]>>(new Map());
@@ -474,10 +476,11 @@ export default function AdminUsersPage() {
     },
   ];
 
+  // KPIs clicáveis (padrão Contratos): filtram a base ou navegam ao módulo relacionado.
   const kpis: KpiItem[] = [
-    { id: 'users', label: 'Usuarios', value: profiles.length, variant: 'info', icon: <Users className="h-5 w-5" /> },
-    { id: 'active', label: 'Ativos', value: profiles.filter((item) => item.status === 'active').length, variant: 'success', icon: <Shield className="h-5 w-5" /> },
-    { id: 'roles', label: 'Roles', value: roles.length, variant: 'warning', icon: <Shield className="h-5 w-5" /> },
+    { id: 'users', label: 'Usuarios', value: profiles.length, variant: 'info', icon: <Users className="h-5 w-5" />, onClick: () => { setSearch(''); setRoleFilter('all'); setStatusFilter('all'); } },
+    { id: 'active', label: 'Ativos', value: profiles.filter((item) => item.status === 'active').length, variant: 'success', icon: <Shield className="h-5 w-5" />, onClick: () => setStatusFilter(statusFilter === 'active' ? 'all' : 'active'), active: statusFilter === 'active' },
+    { id: 'roles', label: 'Roles', value: roles.length, variant: 'warning', icon: <Shield className="h-5 w-5" />, onClick: () => router.push('/admin/roles') },
   ];
 
   if (!authLoading && !canManageUsers) {

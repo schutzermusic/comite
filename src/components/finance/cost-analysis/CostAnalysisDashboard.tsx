@@ -228,6 +228,9 @@ export function CostAnalysisDashboard() {
       };
     }
     const topProj = byProject.find((r) => r.id);
+    const topCat = categories[0];
+    const topSub = subcategories[0];
+    // KPIs clicáveis (padrão Contratos): drill direto na dimensão do KPI.
     return [
       {
         id: 'total', label: 'Custo total', value: fmtBRL(summary.total),
@@ -235,6 +238,7 @@ export function CostAnalysisDashboard() {
         ...costDelta(summary.momPct),
         variant: 'info',
         icon: <Coins className="w-5 h-5" />,
+        onClick: clearDrill,
       },
       {
         id: 'mom', label: 'Variação m/m',
@@ -242,21 +246,28 @@ export function CostAnalysisDashboard() {
         deltaLabel: summary.lastPeriod ? `${fmtCompactBRL(summary.lastPeriodValue)} no último mês` : 'Sem série',
         variant: summary.momPct === undefined ? 'default' : summary.momPct > 0 ? 'danger' : 'success',
         tintValue: true,
+        onClick: clearDrill,
       },
       {
         id: 'top-cat', label: 'Maior categoria', value: summary.topCategory?.name ?? '—',
         deltaLabel: summary.topCategory ? `${fmtCompactBRL(summary.topCategory.value)} · ${(summary.topCategory.share * 100).toFixed(0)}%` : undefined,
+        onClick: topCat ? () => selectCategory(topCat.id) : clearDrill,
+        active: !!topCat && drillCategory === topCat.id,
       },
       {
         id: 'top-sub', label: 'Maior subcategoria', value: summary.topSubcategory?.name ?? '—',
         deltaLabel: summary.topSubcategory ? `${fmtCompactBRL(summary.topSubcategory.value)} · ${(summary.topSubcategory.share * 100).toFixed(0)}%` : undefined,
+        onClick: topSub ? () => selectSub(topSub.id) : clearDrill,
+        active: !!topSub && drillSub === topSub.id,
       },
       {
         id: 'top-proj', label: 'Projeto que mais gastou', value: topProj?.name ?? '—',
         deltaLabel: topProj ? `${fmtCompactBRL(topProj.value)} · ${(topProj.share * 100).toFixed(0)}%` : 'Sem projeto',
+        onClick: topProj ? () => selectProject(topProj.id) : clearDrill,
+        active: !!topProj && drillProject === topProj.id,
       },
     ];
-  }, [summary, byProject]);
+  }, [summary, byProject, categories, subcategories, drillCategory, drillSub, drillProject, selectCategory, selectSub, selectProject, clearDrill]);
 
   const globalInsights = useMemo(
     () => buildGlobalInsights({ summary, categories, subcategories }),

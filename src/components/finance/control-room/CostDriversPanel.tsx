@@ -68,7 +68,7 @@ export function CostDriversPanel({ filters }: CostDriversPanelProps) {
             </div>
           </div>
           {summary.momPct !== undefined && (
-            <span className={`inline-flex items-center gap-1 font-mono text-[12px] tabular-nums ${summary.momPct > 0 ? 'text-[color:var(--ig-danger)]' : 'text-[color:var(--ig-success)]'}`}>
+            <span className={`inline-flex items-center gap-1 text-[12px] tabular-nums ${summary.momPct > 0 ? 'text-[color:var(--ig-danger)]' : 'text-[color:var(--ig-success)]'}`}>
               {summary.momPct > 0 ? <TrendingUp className="h-3.5 w-3.5" /> : <TrendingDown className="h-3.5 w-3.5" />}
               {fmtPct(summary.momPct)} m/m
             </span>
@@ -83,15 +83,15 @@ export function CostDriversPanel({ filters }: CostDriversPanelProps) {
             <div key={d.subcategoryId} className="relative flex min-h-[2rem] flex-1 items-center justify-between gap-2 rounded-md px-2 py-1.5">
               <span className="absolute inset-y-1 left-2 rounded-sm opacity-[0.10]" style={{ width: `${(d.value / max) * 100}%`, background: 'linear-gradient(90deg, #F59E0B, transparent)' }} />
               <span className="relative flex min-w-0 items-center gap-2">
-                <span className="font-mono text-[10px] tabular-nums text-[color:var(--ig-fg-subtle)]">{String(i + 1).padStart(2, '0')}</span>
+                <span className="text-[10px] tabular-nums text-[color:var(--ig-fg-subtle)]">{String(i + 1).padStart(2, '0')}</span>
                 <span className="min-w-0">
                   <span className="block truncate text-[12px] font-medium text-[color:var(--ig-fg-strong)]">{d.subcategoryName}</span>
                   <span className="block truncate text-[10px] text-[color:var(--ig-fg-muted)]">{d.categoryName}</span>
                 </span>
               </span>
               <span className="relative flex shrink-0 items-center gap-2">
-                <span className="font-mono text-[11px] tabular-nums text-[color:var(--ig-fg-default)]">{fmtCompactBRL(d.value)}</span>
-                <span className="w-10 text-right font-mono text-[10px] tabular-nums text-[color:var(--ig-fg-muted)]">{(d.share * 100).toFixed(1)}%</span>
+                <span className="text-[11px] tabular-nums text-[color:var(--ig-fg-default)]">{fmtCompactBRL(d.value)}</span>
+                <span className="w-10 text-right text-[10px] tabular-nums text-[color:var(--ig-fg-muted)]">{(d.share * 100).toFixed(1)}%</span>
               </span>
             </div>
           ))}

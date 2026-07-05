@@ -54,14 +54,14 @@ export function RiskTable({ risks, onRowClick, selectedId }: Props) {
       header: "P × I",
       width: "64px",
       align: "center",
-      cell: (r) => <span className="font-mono text-[11px] text-ig-fg-muted ig-tabular">{r.probability}×{r.impact}</span>,
+      cell: (r) => <span className="text-[11px] text-ig-fg-muted ig-tabular">{r.probability}×{r.impact}</span>,
     },
     {
       key: "score",
       header: "Score",
       width: "60px",
       align: "center",
-      cell: (r) => <span className={cn("font-mono text-[clamp(13px,1.2vw,15px)] font-bold ig-tabular", scoreColor(r.level))}>{r.level}</span>,
+      cell: (r) => <span className={cn("text-[clamp(13px,1.2vw,15px)] font-bold ig-tabular", scoreColor(r.level))}>{r.level}</span>,
     },
     {
       key: "owner",
@@ -122,7 +122,7 @@ export function RiskTable({ risks, onRowClick, selectedId }: Props) {
       align: "center",
       cell: (r) => {
         const aging = computeAging(r.createdAt);
-        return <span className={cn("font-mono text-[11px] ig-tabular", aging > 60 ? "text-ig-danger" : aging > 30 ? "text-ig-warning" : "text-ig-fg-muted")}>{aging}d</span>;
+        return <span className={cn("text-[11px] ig-tabular", aging > 60 ? "text-ig-danger" : aging > 30 ? "text-ig-warning" : "text-ig-fg-muted")}>{aging}d</span>;
       },
     },
   ];

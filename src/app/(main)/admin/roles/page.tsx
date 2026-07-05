@@ -38,6 +38,8 @@ export default function AdminRolesPage() {
   const [roles, setRoles] = useState<RoleRow[]>([]);
   const [search, setSearch] = useState('');
   const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
+  // Single-select KPI filter (padrão Contratos): clicar filtra, clicar de novo limpa.
+  const [onlySystem, setOnlySystem] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const canManageRoles = hasPermission(permissions, 'admin.manage_roles');
@@ -107,8 +109,10 @@ export default function AdminRolesPage() {
 
   const filteredRoles = useMemo(() => {
     const term = search.toLowerCase();
-    return roles.filter((role) => [role.name, role.key, role.description].filter(Boolean).some((value) => String(value).toLowerCase().includes(term)));
-  }, [roles, search]);
+    return roles.filter((role) =>
+      (!onlySystem || role.is_system_role)
+      && [role.name, role.key, role.description].filter(Boolean).some((value) => String(value).toLowerCase().includes(term)));
+  }, [roles, search, onlySystem]);
 
   const selectedRole = roles.find((role) => role.id === selectedRoleId) ?? filteredRoles[0] ?? null;
   const isProtectedRole = selectedRole?.key === PROTECTED_ROLE_KEY;
@@ -228,10 +232,11 @@ export default function AdminRolesPage() {
     },
   ];
 
+  // KPIs clicáveis (padrão Contratos): filtram a lista de roles.
   const kpis: KpiItem[] = [
-    { id: 'roles', label: 'Roles', value: roles.length, variant: 'info', icon: <Shield className="h-5 w-5" /> },
-    { id: 'system', label: 'Sistema', value: roles.filter((role) => role.is_system_role).length, variant: 'warning', icon: <Lock className="h-5 w-5" /> },
-    { id: 'perms', label: 'Permissoes', value: PERMISSION_GROUPS.reduce((sum, group) => sum + group.permissions.length, 0), variant: 'success', icon: <Shield className="h-5 w-5" /> },
+    { id: 'roles', label: 'Roles', value: roles.length, variant: 'info', icon: <Shield className="h-5 w-5" />, onClick: () => { setOnlySystem(false); setSearch(''); } },
+    { id: 'system', label: 'Sistema', value: roles.filter((role) => role.is_system_role).length, variant: 'warning', icon: <Lock className="h-5 w-5" />, onClick: () => setOnlySystem((v) => !v), active: onlySystem },
+    { id: 'perms', label: 'Permissoes', value: PERMISSION_GROUPS.reduce((sum, group) => sum + group.permissions.length, 0), variant: 'success', icon: <Shield className="h-5 w-5" />, onClick: () => { setOnlySystem(false); setSearch(''); } },
   ];
 
   if (!authLoading && !canManageRoles) {

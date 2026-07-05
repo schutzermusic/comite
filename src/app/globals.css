@@ -249,6 +249,21 @@
     font-weight: 400;
   }
 
+  /* Form controls não herdam fonte por padrão do UA stylesheet */
+  button,
+  input,
+  select,
+  textarea {
+    font-family: inherit;
+  }
+
+  /* Recharts renderiza <text> SVG; força a fonte do app em ticks/labels/tooltips SVG */
+  .recharts-wrapper text,
+  .recharts-text,
+  .recharts-cartesian-axis-tick-value {
+    font-family: var(--font-gilroy);
+  }
+
   /* Selection styling */
   ::selection {
     background: rgba(6, 182, 212, 0.3);

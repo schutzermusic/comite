@@ -370,7 +370,7 @@ export function EnterpriseGlobe({
             border: 1px solid rgba(100, 120, 115, 0.3);
             border-radius: 8px;
             padding: 8px 12px;
-            font-family: system-ui, sans-serif;
+            font-family: var(--font-gilroy);
             pointer-events: none;
           ">
             <div style="color: rgba(255,255,255,0.6); font-weight: 500; font-size: 12px;">
@@ -396,7 +396,7 @@ export function EnterpriseGlobe({
           border: 1px solid ${RISK_COLORS[stateData.riskLevel]}60;
           border-radius: 10px;
           padding: 10px 14px;
-          font-family: system-ui, sans-serif;
+          font-family: var(--font-gilroy);
           box-shadow: 0 0 20px ${RISK_COLORS[stateData.riskLevel]}20;
           pointer-events: none;
         ">

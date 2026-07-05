@@ -4,6 +4,8 @@
  * Inspired by Orion UI Kit, Palantir, and Diligent
  */
 
+import { FONT_FAMILY_SANS, FONT_FAMILY_MONO } from '@/lib/fonts';
+
 // ============================================
 // COLOR PALETTE
 // ============================================
@@ -155,8 +157,8 @@ export const colors = {
 
 export const typography = {
   fontFamily: {
-    primary: '"Inter var", "Inter", "ui-sans-serif", system-ui, -apple-system, "SF Pro Display", BlinkMacSystemFont, sans-serif',
-    mono: '"JetBrains Mono", "SF Mono", Consolas, monospace',
+    primary: FONT_FAMILY_SANS,
+    mono: FONT_FAMILY_MONO,
   },
   fontSize: {
     // KPI and metrics

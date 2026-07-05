@@ -1,5 +1,6 @@
 'use client';
 
+import { FONT_FAMILY_SANS } from '@/lib/fonts';
 import React, { useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { useFinanceChartTokens } from './FinanceMiniChart';
@@ -87,7 +88,7 @@ export function FinanceDonutChart({
       text: centerValue || '',
       subtext: centerLabel,
       left: '32%', top: 'center', textAlign: 'center',
-      textStyle: { color: t.textStrong, fontSize: 18, fontWeight: 600, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' },
+      textStyle: { color: t.textStrong, fontSize: 18, fontWeight: 600, fontFamily: FONT_FAMILY_SANS },
       subtextStyle: { color: t.text, fontSize: 10, fontFamily: 'inherit' },
     } : undefined,
     series: [{
@@ -131,8 +132,8 @@ export function FinanceTreemapChart({
         },
         rich: {
           title: { color: t.textStrong, fontSize: 11, fontWeight: 600, lineHeight: 14 },
-          value: { color: t.text, fontSize: 10, lineHeight: 14, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' },
-          delta: { color: '#FFFFFF', fontSize: 10, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' },
+          value: { color: t.text, fontSize: 10, lineHeight: 14, fontFamily: FONT_FAMILY_SANS },
+          delta: { color: '#FFFFFF', fontSize: 10, fontFamily: FONT_FAMILY_SANS },
         },
       },
       children: node.children?.map((c, i) => colorize(c, i)),
@@ -140,7 +141,7 @@ export function FinanceTreemapChart({
   };
 
   const option = useMemo(() => ({
-    tooltip: { ...TOOLTIP, formatter: (p: any) => `<div style="font-weight:600">${p.name}</div><div style="font-family:ui-monospace,Menlo,monospace">${fmtBRL(p.value)}</div>` },
+    tooltip: { ...TOOLTIP, formatter: (p: any) => `<div style="font-weight:600">${p.name}</div><div style="font-family:inherit">${fmtBRL(p.value)}</div>` },
     series: [{
       type: 'treemap',
       roam: false,
@@ -222,9 +223,9 @@ export function FinanceBubbleChart({
       formatter: (p: any) => {
         const pt = points[p.dataIndex];
         return `<div style="font-weight:600">${pt.label}</div>
-        <div>${xAxisLabel}: <span style="font-family:ui-monospace,Menlo,monospace">${xFormatter ? xFormatter(pt.x) : pt.x.toFixed(1)}</span></div>
-        <div>${yAxisLabel}: <span style="font-family:ui-monospace,Menlo,monospace">${yFormatter ? yFormatter(pt.y) : pt.y.toFixed(1)}</span></div>
-        <div>Size: <span style="font-family:ui-monospace,Menlo,monospace">${fmtCompact(pt.size)}</span></div>
+        <div>${xAxisLabel}: <span style="font-family:inherit">${xFormatter ? xFormatter(pt.x) : pt.x.toFixed(1)}</span></div>
+        <div>${yAxisLabel}: <span style="font-family:inherit">${yFormatter ? yFormatter(pt.y) : pt.y.toFixed(1)}</span></div>
+        <div>Size: <span style="font-family:inherit">${fmtCompact(pt.size)}</span></div>
         ${pt.meta ? `<div style="margin-top:2px;color:#A8B0BD">${pt.meta}</div>` : ''}`;
       },
     },
@@ -348,7 +349,7 @@ export function FinanceAdvancedWaterfallChart({
         const idx = params[0]?.dataIndex ?? 0;
         const s = steps[idx];
         return `<div style="font-weight:600">${s.label}</div>
-        <div style="font-family:ui-monospace,Menlo,monospace">${fmtBRL(s.value)}</div>
+        <div style="font-family:inherit">${fmtBRL(s.value)}</div>
         <div style="color:#A8B0BD;font-size:10px">Acumulado: ${fmtBRL(cumulative[idx])}</div>`;
       },
     },
@@ -475,7 +476,7 @@ export function FinanceRadialProgress({
       anchor: { show: false },
       detail: {
         valueAnimation: true, formatter: () => `${pct.toFixed(0)}%`,
-        offsetCenter: [0, '5%'], color: t.textStrong, fontSize: 24, fontWeight: 700, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+        offsetCenter: [0, '5%'], color: t.textStrong, fontSize: 24, fontWeight: 700, fontFamily: FONT_FAMILY_SANS,
       },
       title: {
         offsetCenter: [0, '34%'], color: t.text, fontSize: 11,

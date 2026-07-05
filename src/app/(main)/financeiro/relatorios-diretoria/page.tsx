@@ -138,6 +138,8 @@ export default function RelatoriosDiretoriaPage() {
   const [period, setPeriod] = useState<FinancePeriod>('2026-04');
   const [scenario, setScenario] = useState<FinanceScenario>('realized');
   const [selected, setSelected] = useState<Template | null>(null);
+  // Single-select KPI filter (padrão Contratos) sobre o histórico de distribuições.
+  const [runFilter, setRunFilter] = useState<'sent' | 'review' | 'draft' | null>(null);
 
   const stats = useMemo(() => {
     const sent = RUNS.filter((r) => r.status === 'approved' || r.status === 'closed').length;
@@ -146,12 +148,21 @@ export default function RelatoriosDiretoriaPage() {
     return { sent, drafts, review };
   }, []);
 
+  const visibleRuns = useMemo(() => {
+    if (!runFilter) return RUNS;
+    if (runFilter === 'sent') return RUNS.filter((r) => r.status === 'approved' || r.status === 'closed');
+    return RUNS.filter((r) => r.status === runFilter);
+  }, [runFilter]);
+
+  const toggleRunFilter = (key: 'sent' | 'review' | 'draft') =>
+    setRunFilter((current) => (current === key ? null : key));
+
   const kpis: KpiItem[] = [
-    { id: 't', label: 'Templates ativos', value: TEMPLATES.length.toString(), variant: 'info', tintValue: true },
-    { id: 's', label: 'Distribuídos no mês', value: stats.sent.toString(), variant: 'success', tintValue: true },
-    { id: 'r', label: 'Em revisão', value: stats.review.toString(), variant: 'warning', tintValue: true },
-    { id: 'd', label: 'Em rascunho', value: stats.drafts.toString(), variant: 'info', tintValue: true },
-    { id: 'rc', label: 'Destinatários (acum.)', value: RUNS.reduce((a, r) => a + r.recipients, 0).toString(), variant: 'info', tintValue: true },
+    { id: 't', label: 'Templates ativos', value: TEMPLATES.length.toString(), variant: 'info', tintValue: true, onClick: () => setRunFilter(null) },
+    { id: 's', label: 'Distribuídos no mês', value: stats.sent.toString(), variant: 'success', tintValue: true, onClick: () => toggleRunFilter('sent'), active: runFilter === 'sent' },
+    { id: 'r', label: 'Em revisão', value: stats.review.toString(), variant: 'warning', tintValue: true, onClick: () => toggleRunFilter('review'), active: runFilter === 'review' },
+    { id: 'd', label: 'Em rascunho', value: stats.drafts.toString(), variant: 'info', tintValue: true, onClick: () => toggleRunFilter('draft'), active: runFilter === 'draft' },
+    { id: 'rc', label: 'Destinatários (acum.)', value: RUNS.reduce((a, r) => a + r.recipients, 0).toString(), variant: 'info', tintValue: true, onClick: () => setRunFilter(null) },
   ];
 
   const toSection = (tpl: Template): BoardTemplateSection => ({
@@ -286,7 +297,7 @@ export default function RelatoriosDiretoriaPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {RUNS.map((r) => {
+                  {visibleRuns.map((r) => {
                     const tpl = TEMPLATES.find((t) => t.id === r.templateId)!;
                     return (
                       <tr key={r.id} className="border-b border-ig-border-subtle/40 hover:bg-ig-surface-subtle/30">
@@ -294,10 +305,10 @@ export default function RelatoriosDiretoriaPage() {
                           <div className="font-medium">{tpl.title}</div>
                           <div className="text-[10.5px] text-ig-text-tertiary">{tpl.code}</div>
                         </td>
-                        <td className="px-5 py-2.5 font-mono text-[12px] text-ig-text-secondary">{r.period}</td>
+                        <td className="px-5 py-2.5 tabular-nums text-[12px] text-ig-text-secondary">{r.period}</td>
                         <td className="px-5 py-2.5 text-ig-text-secondary">{r.owner}</td>
-                        <td className="text-right px-5 py-2.5 font-mono text-[11px] text-ig-text-tertiary">{r.generatedAt}</td>
-                        <td className="text-right px-5 py-2.5 font-mono tabular-nums">{r.recipients}</td>
+                        <td className="text-right px-5 py-2.5 tabular-nums text-[11px] text-ig-text-tertiary">{r.generatedAt}</td>
+                        <td className="text-right px-5 py-2.5 tabular-nums">{r.recipients}</td>
                         <td className="px-5 py-2.5"><FinanceStatusBadge status={r.status} /></td>
                         <td className="text-right px-5 py-2.5">
                           <div className="inline-flex items-center gap-1">

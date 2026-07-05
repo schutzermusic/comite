@@ -30,7 +30,7 @@ export function MeetingTimelineToday({ meetings }: MeetingTimelineTodayProps) {
       {Array.from({ length: END_HOUR - START_HOUR + 1 }, (_, index) => (
         <div
           key={index}
-          className="absolute left-0 font-mono text-[10px] text-ig-fg-subtle"
+          className="absolute left-0 tabular-nums text-[10px] text-ig-fg-subtle"
           style={{ top: index * HOUR_HEIGHT_PX - 6 }}
         >
           {String(START_HOUR + index).padStart(2, "0")}:00

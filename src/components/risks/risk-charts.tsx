@@ -1,5 +1,6 @@
 "use client";
 
+import { FONT_FAMILY_SANS } from '@/lib/fonts';
 import React, { useMemo, useState } from "react";
 import ReactECharts from "echarts-for-react";
 import { cn } from "@/lib/utils";
@@ -37,7 +38,7 @@ function tip(c: Palette) {
   return {
     backgroundColor: c.pnl, borderColor: c.bd, borderWidth: 1, borderRadius: 10,
     padding: [10, 14],
-    textStyle: { color: c.fg, fontSize: 11, fontFamily: "Inter, sans-serif" },
+    textStyle: { color: c.fg, fontSize: 11, fontFamily: FONT_FAMILY_SANS },
     extraCssText: "backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);box-shadow:0 8px 32px rgba(0,0,0,.35);",
   };
 }
@@ -74,7 +75,7 @@ export function SeverityDistributionChart({ critical, high, medium, low, height 
   const opt = useMemo(() => ({
     backgroundColor: "transparent",
     tooltip: { ...tip(c), trigger: "item" as const },
-    legend: { bottom: 4, textStyle: { color: c.fgM, fontSize: 10, fontFamily: "Inter" }, itemWidth: 8, itemHeight: 8, itemGap: 14, icon: "circle" },
+    legend: { bottom: 4, textStyle: { color: c.fgM, fontSize: 10, fontFamily: FONT_FAMILY_SANS }, itemWidth: 8, itemHeight: 8, itemGap: 14, icon: "circle" },
     series: [{
       type: "pie", radius: ["52%", "78%"], center: ["50%", "44%"],
       avoidLabelOverlap: false,
@@ -92,8 +93,8 @@ export function SeverityDistributionChart({ critical, high, medium, low, height 
     graphic: [{
       type: "group", left: "center", top: "37%",
       children: [
-        { type: "text", style: { text: String(total), textAlign: "center", fill: c.fg, fontSize: 28, fontWeight: 700, fontFamily: "Inter" }, left: "center", top: -10 },
-        { type: "text", style: { text: "Riscos", textAlign: "center", fill: c.fgM, fontSize: 10, fontFamily: "Inter" }, left: "center", top: 20 },
+        { type: "text", style: { text: String(total), textAlign: "center", fill: c.fg, fontSize: 28, fontWeight: 700, fontFamily: FONT_FAMILY_SANS }, left: "center", top: -10 },
+        { type: "text", style: { text: "Riscos", textAlign: "center", fill: c.fgM, fontSize: 10, fontFamily: FONT_FAMILY_SANS }, left: "center", top: 20 },
       ],
     }],
   }), [c, critical, high, medium, low, total]);
@@ -115,7 +116,7 @@ export function StatusBreakdownChart({ open, mitigating, resolved, height = 200,
     xAxis: { type: "value" as const, axisLabel: { color: c.fgS, fontSize: 10 }, splitLine: { lineStyle: { color: c.bd, type: "dashed" as const } }, axisLine: { show: false } },
     yAxis: {
       type: "category" as const, data: ["Resolvido", "Mitigando", "Aberto"],
-      axisLabel: { color: c.fgM, fontSize: 11, fontFamily: "Inter", fontWeight: 500 },
+      axisLabel: { color: c.fgM, fontSize: 11, fontFamily: FONT_FAMILY_SANS, fontWeight: 500 },
       axisLine: { show: false }, axisTick: { show: false },
     },
     series: [{
@@ -127,7 +128,7 @@ export function StatusBreakdownChart({ open, mitigating, resolved, height = 200,
       ],
       barWidth: 20,
       itemStyle: { borderRadius: [0, 5, 5, 0] },
-      label: { show: true, position: "right" as const, color: c.fgM, fontSize: 12, fontWeight: 700, fontFamily: "Inter" },
+      label: { show: true, position: "right" as const, color: c.fgM, fontSize: 12, fontWeight: 700, fontFamily: FONT_FAMILY_SANS },
       animationDuration: 700,
     }],
   }), [c, open, mitigating, resolved]);
@@ -190,7 +191,7 @@ export function RiskExposureTrendChart({ data, height = 280, onSelect }: TrendPr
     },
     legend: {
       top: 2, right: 2,
-      textStyle: { color: c.fgM, fontSize: 11, fontFamily: "Inter" },
+      textStyle: { color: c.fgM, fontSize: 11, fontFamily: FONT_FAMILY_SANS },
       itemWidth: 16, itemHeight: 4, icon: "roundRect", itemGap: 16,
       inactiveColor: c.fgS,
     },
@@ -316,10 +317,10 @@ export function SeverityDonutWithLegend({ slices, height = 240, onSelect }: Donu
             })}
 
             {/* center readout */}
-            <text x="100" y="98" textAnchor="middle" style={{ fontFamily: "Inter, sans-serif", fontSize: 30, fontWeight: 700, fill: activeColor, transition: "fill .2s ease" }}>
+            <text x="100" y="98" textAnchor="middle" style={{ fontFamily: FONT_FAMILY_SANS, fontSize: 30, fontWeight: 700, fill: activeColor, transition: "fill .2s ease" }}>
               {active ? active.value : total}
             </text>
-            <text x="100" y="118" textAnchor="middle" style={{ fontFamily: "Inter, sans-serif", fontSize: 9, fontWeight: 600, letterSpacing: 1, fill: c.fgM }}>
+            <text x="100" y="118" textAnchor="middle" style={{ fontFamily: FONT_FAMILY_SANS, fontSize: 9, fontWeight: 600, letterSpacing: 1, fill: c.fgM }}>
               {active ? active.label.toUpperCase() : "RISCOS"}
             </text>
           </svg>
@@ -560,7 +561,7 @@ export function CategoryDistributionChart({ data, height = 280, onSelect }: CatP
     grid: { left: 8, right: 16, top: 12, bottom: 24, containLabel: true },
     xAxis: {
       type: "category" as const, data: data.map((d) => d.name),
-      axisLabel: { color: c.fgM, fontSize: 10, fontFamily: "Inter", interval: 0, rotate: data.length > 5 ? 20 : 0 },
+      axisLabel: { color: c.fgM, fontSize: 10, fontFamily: FONT_FAMILY_SANS, interval: 0, rotate: data.length > 5 ? 20 : 0 },
       axisLine: { lineStyle: { color: c.bd } }, axisTick: { show: false },
     },
     yAxis: { type: "value" as const, axisLabel: { color: c.fgS, fontSize: 10 }, splitLine: { lineStyle: { color: c.bd, type: "dashed" as const } }, axisLine: { show: false } },
@@ -600,7 +601,7 @@ export function TopRiskOwnersChart({ data, height = 280, onSelect }: OwnersProps
     xAxis: { type: "value" as const, axisLabel: { color: c.fgS, fontSize: 10 }, splitLine: { lineStyle: { color: c.bd, type: "dashed" as const } }, axisLine: { show: false } },
     yAxis: {
       type: "category" as const, data: sorted.map((d) => d.name),
-      axisLabel: { color: c.fgM, fontSize: 10, fontFamily: "Inter" },
+      axisLabel: { color: c.fgM, fontSize: 10, fontFamily: FONT_FAMILY_SANS },
       axisLine: { show: false }, axisTick: { show: false },
     },
     series: [{
@@ -647,7 +648,7 @@ export function RiskAreaExposureChart({ data, height = 300 }: AreaProps) {
     radar: {
       indicator: data.map((d) => ({ name: `${d.area}\n(${d.count})`, max: maxVal })),
       shape: "polygon" as const, splitNumber: 4,
-      axisName: { color: c.fgM, fontSize: 10, fontFamily: "Inter", lineHeight: 14 },
+      axisName: { color: c.fgM, fontSize: 10, fontFamily: FONT_FAMILY_SANS, lineHeight: 14 },
       splitLine: { lineStyle: { color: c.bd } },
       splitArea: { areaStyle: { color: ["transparent", `${c.acc}06`, "transparent", `${c.acc}04`] } },
       axisLine: { lineStyle: { color: c.bd } },

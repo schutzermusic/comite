@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   Building2,
   Plus,
@@ -44,13 +45,17 @@ const comites = projects
 }));
 
 export default function ComitesPage() {
+  const router = useRouter();
   const [searchTerm, setSearchTerm] = useState('');
+  // Single-select KPI filter (padrão Contratos): clicar filtra, clicar de novo limpa.
+  const [onlyActive, setOnlyActive] = useState(false);
   const isAdmin = true;
 
   const filteredComites = comites.filter(
     (comite) =>
-      comite.nome.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      comite.descricao?.toLowerCase().includes(searchTerm.toLowerCase())
+      (comite.nome.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        comite.descricao?.toLowerCase().includes(searchTerm.toLowerCase())) &&
+      (!onlyActive || comite.status === 'ativo')
   );
 
   const getStatusVariant = (status: string) => {
@@ -79,10 +84,10 @@ export default function ComitesPage() {
   };
 
   const kpiItems: KpiItem[] = [
-    { id: 'total', value: stats.total, label: 'Total de Comitês', variant: 'info', icon: <Building2 className="w-5 h-5" /> },
-    { id: 'ativos', value: stats.ativos, label: 'Comitês Ativos', variant: 'success', icon: <Shield className="w-5 h-5" /> },
-    { id: 'membros', value: stats.totalMembros, label: 'Total de Membros', variant: 'info', icon: <Users className="w-5 h-5" /> },
-    { id: 'pautas', value: stats.totalPautas, label: 'Total de Pautas', variant: 'warning', icon: <FileText className="w-5 h-5" /> },
+    { id: 'total', value: stats.total, label: 'Total de Comitês', variant: 'info', icon: <Building2 className="w-5 h-5" />, onClick: () => { setOnlyActive(false); setSearchTerm(''); } },
+    { id: 'ativos', value: stats.ativos, label: 'Comitês Ativos', variant: 'success', icon: <Shield className="w-5 h-5" />, onClick: () => setOnlyActive((v) => !v), active: onlyActive },
+    { id: 'membros', value: stats.totalMembros, label: 'Total de Membros', variant: 'info', icon: <Users className="w-5 h-5" />, onClick: () => router.push('/membros') },
+    { id: 'pautas', value: stats.totalPautas, label: 'Total de Pautas', variant: 'warning', icon: <FileText className="w-5 h-5" />, onClick: () => router.push('/pautas') },
   ];
 
   return (

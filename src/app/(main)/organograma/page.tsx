@@ -154,6 +154,8 @@ export default function OrganogramaPage() {
   const [members, setMembers] = useState<OrgMember[]>(mockOrgMembers);
   const [searchTerm, setSearchTerm] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('all');
+  // Single-select KPI filter (padrão Contratos): clicar filtra, clicar de novo limpa.
+  const [onlyManagers, setOnlyManagers] = useState(false);
 
   const departments = Array.from(new Set(members.map((m) => m.department)));
   const managers = members.filter((m) => members.some((member) => member.managerId === m.id));
@@ -173,14 +175,21 @@ export default function OrganogramaPage() {
       member.role.toLowerCase().includes(searchTerm.toLowerCase()) ||
       member.email.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesDepartment = departmentFilter === 'all' || member.department === departmentFilter;
-    return matchesSearch && matchesDepartment;
+    const matchesManagers = !onlyManagers || managers.some((manager) => manager.id === member.id);
+    return matchesSearch && matchesDepartment && matchesManagers;
   });
 
+  const clearAllFilters = () => {
+    setOnlyManagers(false);
+    setSearchTerm('');
+    setDepartmentFilter('all');
+  };
+
   const kpiItems: KpiItem[] = [
-    { id: 'total', value: stats.total, label: 'Total de Colaboradores', variant: 'info', icon: <Users className="w-5 h-5" /> },
-    { id: 'departments', value: stats.departments, label: 'Departamentos', variant: 'default', icon: <Building2 className="w-5 h-5" /> },
-    { id: 'managers', value: stats.managers, label: 'Gestores', variant: 'success', icon: <UserCheck className="w-5 h-5" /> },
-    { id: 'avgTeam', value: stats.avgTeamSize, label: 'Média por Equipe', variant: 'default', icon: <TrendingUp className="w-5 h-5" /> },
+    { id: 'total', value: stats.total, label: 'Total de Colaboradores', variant: 'info', icon: <Users className="w-5 h-5" />, onClick: clearAllFilters },
+    { id: 'departments', value: stats.departments, label: 'Departamentos', variant: 'default', icon: <Building2 className="w-5 h-5" />, onClick: () => { setOnlyManagers(false); setDepartmentFilter('all'); } },
+    { id: 'managers', value: stats.managers, label: 'Gestores', variant: 'success', icon: <UserCheck className="w-5 h-5" />, onClick: () => setOnlyManagers((v) => !v), active: onlyManagers },
+    { id: 'avgTeam', value: stats.avgTeamSize, label: 'Média por Equipe', variant: 'default', icon: <TrendingUp className="w-5 h-5" />, onClick: () => setOnlyManagers((v) => !v), active: onlyManagers },
   ];
 
   const filterGroups: FilterGroup[] = [

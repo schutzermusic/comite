@@ -285,6 +285,34 @@ function PortfolioProjetosInner() {
     setUfFilter(null);
   };
 
+  // KPIs clicáveis (padrão Contratos): cada KPI alterna o filtro correspondente;
+  // KPIs sem recorte direto limpam a visão.
+  const handleKpiClick = (id: string) => {
+    switch (id) {
+      case 'in-progress':
+        setStatusFilter(statusFilter === 'em_andamento' ? 'all' : 'em_andamento');
+        break;
+      case 'critical':
+        setImpactoFilter(impactoFilter === 'critico' ? 'all' : 'critico');
+        break;
+      case 'health':
+        setHealthFilter(healthFilter === 'critical' ? 'all' : 'critical');
+        break;
+      case 'delayed':
+        setHealthFilter(healthFilter === 'attention' ? 'all' : 'attention');
+        break;
+      default:
+        handleClearFilters();
+    }
+  };
+
+  const activeKpiIds = [
+    ...(statusFilter === 'em_andamento' ? ['in-progress'] : []),
+    ...(impactoFilter === 'critico' ? ['critical'] : []),
+    ...(healthFilter === 'critical' ? ['health'] : []),
+    ...(healthFilter === 'attention' ? ['delayed'] : []),
+  ];
+
   const handleDeleteClick = async (projectId: string) => {
     if (confirm(t('confirmDeleteDescription'))) {
       try {
@@ -375,7 +403,7 @@ function PortfolioProjetosInner() {
         onExportPdf={exportToPdf}
       />
 
-      <ProjectKpiGrid summary={kpiSummary} className="mb-5" />
+      <ProjectKpiGrid summary={kpiSummary} className="mb-5" onKpiClick={handleKpiClick} activeKpiIds={activeKpiIds} />
 
       <ProjectFilterBar
         searchValue={searchTerm}

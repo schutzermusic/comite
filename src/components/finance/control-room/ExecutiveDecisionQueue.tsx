@@ -59,7 +59,7 @@ export function ExecutiveDecisionQueue({ items }: ExecutiveDecisionQueueProps) {
                 transition={{ duration: 0.25, delay: i * 0.04 }}
                 className="group flex items-start gap-3 px-5 py-3 transition-colors hover:bg-[color:var(--ig-bg-raised)]/40"
               >
-                <div className="relative flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-[color:var(--ig-border-strong)] bg-[color:var(--ig-bg-raised)]/60 font-mono text-[12px] font-bold tabular-nums" style={{ color: slaColor }}>
+                <div className="relative flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-[color:var(--ig-border-strong)] bg-[color:var(--ig-bg-raised)]/60 text-[12px] font-bold tabular-nums" style={{ color: slaColor }}>
                   {d.aging_days}d
                   <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full" style={{ background: slaColor, boxShadow: `0 0 6px ${slaColor}` }} />
                 </div>
@@ -88,7 +88,7 @@ export function ExecutiveDecisionQueue({ items }: ExecutiveDecisionQueueProps) {
                     </span>
                   </div>
                   <div className="mt-1.5 flex items-center justify-between">
-                    <span className="font-mono text-[12px] font-semibold tabular-nums text-[color:var(--ig-fg-strong)]">
+                    <span className="text-[12px] font-semibold tabular-nums text-[color:var(--ig-fg-strong)]">
                       {formatCompactBRL(d.impact)}
                     </span>
                     <button
