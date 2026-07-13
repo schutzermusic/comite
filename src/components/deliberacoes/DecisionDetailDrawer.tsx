@@ -14,6 +14,8 @@ import {
   Download,
   Vote,
   ScrollText,
+  MessageSquarePlus,
+  Paperclip,
 } from 'lucide-react';
 import {
   HudDrawer,
@@ -27,6 +29,7 @@ import { cn } from '@/lib/utils';
 import type {
   Deliberacao,
   DeliberacaoStatus,
+  DeliberacaoPrioridade,
   AcaoExecucaoStatus,
   ParecerStatus,
   ItemRelacionadoTipo,
@@ -35,12 +38,58 @@ import { DecisionSlaBadge } from './DecisionSlaBadge';
 import { DecisionRiskBadge } from './DecisionRiskBadge';
 import { CommitteeBadge } from './CommitteeBadge';
 
+type UiVoteChoice = 'favor' | 'contra' | 'abstencao';
+type ExecStatus = 'pendente' | 'em_andamento' | 'concluida';
+
 interface DecisionDetailDrawerProps {
   deliberacao: Deliberacao | null;
   isOpen: boolean;
   onClose: () => void;
   canVote?: boolean;
+  canRequestOpinion?: boolean;
+  canAttachEvidence?: boolean;
+  canExecute?: boolean;
+  canMinutes?: boolean;
+  /** A mutation is in flight — disables action buttons. */
+  busy?: boolean;
+  /** Demo/mock mode — hides real operational actions. */
+  readOnly?: boolean;
+  onVote?: (choice: UiVoteChoice, justification?: string) => void;
+  onRequestOpinion?: () => void;
+  onAttachEvidence?: () => void;
+  onGenerateMinutes?: () => void;
+  onCreateTask?: () => void;
+  onExecutionToggle?: (
+    itemId: string,
+    next: 'pending' | 'in_progress' | 'completed',
+    title: string,
+    ownerName: string,
+    dueDate: string,
+  ) => void;
+  /** Exports the single-decision report (wired by the page). */
+  onExport?: () => void;
 }
+
+// Execution status cycle: pendente → em_andamento → concluída → pendente.
+const EXEC_NEXT: Record<ExecStatus, { next: 'pending' | 'in_progress' | 'completed'; label: string }> = {
+  pendente: { next: 'in_progress', label: 'Iniciar' },
+  em_andamento: { next: 'completed', label: 'Concluir' },
+  concluida: { next: 'pending', label: 'Reabrir' },
+};
+
+const PRIORIDADE_LABEL: Record<DeliberacaoPrioridade, string> = {
+  critica: 'Crítica',
+  alta: 'Alta',
+  media: 'Média',
+  baixa: 'Baixa',
+};
+
+const PRIORIDADE_VARIANT: Record<DeliberacaoPrioridade, 'danger' | 'warning' | 'info' | 'subtle'> = {
+  critica: 'danger',
+  alta: 'warning',
+  media: 'info',
+  baixa: 'subtle',
+};
 
 const STATUS_PILL: Record<DeliberacaoStatus, { variant: HudStatusPillVariant; label: string }> = {
   rascunho: { variant: 'neutral', label: 'Rascunho' },
@@ -153,7 +202,86 @@ export function DecisionDetailDrawer({
   isOpen,
   onClose,
   canVote = false,
+  canRequestOpinion = false,
+  canAttachEvidence = false,
+  canExecute = false,
+  canMinutes = false,
+  busy = false,
+  readOnly = false,
+  onVote,
+  onRequestOpinion,
+  onAttachEvidence,
+  onGenerateMinutes,
+  onCreateTask,
+  onExecutionToggle,
+  onExport,
 }: DecisionDetailDrawerProps) {
+  const canOperate = !readOnly && !busy;
+  const footer = deliberacao ? (
+    <div className="flex flex-wrap items-center gap-2">
+      {(deliberacao.status === 'em_revisao' || deliberacao.status === 'em_votacao') &&
+        onRequestOpinion && (
+          <HudButton
+            variant="secondary"
+            size="sm"
+            leftIcon={<MessageSquarePlus className="w-3.5 h-3.5" />}
+            disabled={!canOperate || !canRequestOpinion}
+            title={canRequestOpinion ? 'Solicitar parecer' : 'Requer permissão deliberations.request_opinion'}
+            onClick={onRequestOpinion}
+          >
+            Solicitar parecer
+          </HudButton>
+        )}
+      {deliberacao.status !== 'concluida' && onAttachEvidence && (
+        <HudButton
+          variant="secondary"
+          size="sm"
+          leftIcon={<Paperclip className="w-3.5 h-3.5" />}
+          disabled={!canOperate || !canAttachEvidence}
+          title={canAttachEvidence ? 'Anexar evidência' : 'Requer permissão deliberations.attach_evidence'}
+          onClick={onAttachEvidence}
+        >
+          Anexar evidência
+        </HudButton>
+      )}
+      {deliberacao.status === 'aguardando_ata' && onGenerateMinutes && (
+        <HudButton
+          variant="primary"
+          size="sm"
+          leftIcon={<FileText className="w-3.5 h-3.5" />}
+          disabled={!canOperate || !canMinutes}
+          title={canMinutes ? 'Gerar e publicar ata' : 'Requer permissão deliberations.minutes'}
+          onClick={onGenerateMinutes}
+        >
+          Gerar ata
+        </HudButton>
+      )}
+      {deliberacao.status === 'em_execucao' && onCreateTask && (
+        <HudButton
+          variant="secondary"
+          size="sm"
+          leftIcon={<Briefcase className="w-3.5 h-3.5" />}
+          disabled={!canOperate || !canExecute}
+          title={canExecute ? 'Criar tarefa de execução' : 'Requer permissão deliberations.execute'}
+          onClick={onCreateTask}
+        >
+          Criar tarefa
+        </HudButton>
+      )}
+      {onExport && (
+        <HudButton
+          variant="ghost"
+          size="sm"
+          leftIcon={<Download className="w-3.5 h-3.5" />}
+          onClick={onExport}
+          className="ml-auto"
+        >
+          Exportar
+        </HudButton>
+      )}
+    </div>
+  ) : undefined;
+
   return (
     <HudDrawer
       isOpen={isOpen}
@@ -161,6 +289,7 @@ export function DecisionDetailDrawer({
       title={deliberacao?.titulo}
       subtitle={deliberacao?.comite_nome}
       width="580px"
+      footer={footer}
     >
       {!deliberacao ? (
         <div className="flex h-full items-center justify-center">
@@ -174,6 +303,9 @@ export function DecisionDetailDrawer({
             <HudStatusPill variant={STATUS_PILL[deliberacao.status].variant} size="md">
               {STATUS_PILL[deliberacao.status].label}
             </HudStatusPill>
+            <HudBadge variant={PRIORIDADE_VARIANT[deliberacao.prioridade]} size="md">
+              {PRIORIDADE_LABEL[deliberacao.prioridade]}
+            </HudBadge>
             <DecisionRiskBadge risco={deliberacao.risco} size="md" />
             <DecisionSlaBadge status={deliberacao.sla_status} size="md" />
             <HudBadge variant="neutral" size="md">
@@ -215,27 +347,19 @@ export function DecisionDetailDrawer({
                 label="Próxima Ação"
                 value={<span className="text-sm">{deliberacao.proxima_acao}</span>}
               />
+              <DrawerKV
+                label="Criada em"
+                value={<span className="text-sm tabular-nums">{formatDate(deliberacao.created_at)}</span>}
+              />
+              <DrawerKV
+                label="Prazo (SLA)"
+                value={<span className="text-sm tabular-nums">{formatDate(deliberacao.sla_deadline)}</span>}
+              />
             </div>
           </DrawerSection>
 
           {/* Voting / Quorum */}
-          <DrawerSection
-            title="Votação & Quórum"
-            icon={<Vote className="w-3.5 h-3.5" />}
-            action={
-              deliberacao.status === 'em_votacao' ? (
-                <HudButton
-                  variant={canVote ? 'primary' : 'ghost'}
-                  size="sm"
-                  disabled={!canVote}
-                  leftIcon={<Vote className="w-3.5 h-3.5" />}
-                  title={canVote ? 'Registrar voto' : 'Requer permissão deliberations.vote'}
-                >
-                  {canVote ? 'Registrar voto' : 'Voto restrito'}
-                </HudButton>
-              ) : null
-            }
-          >
+          <DrawerSection title="Votação & Quórum" icon={<Vote className="w-3.5 h-3.5" />}>
             <div className="space-y-3">
               <div>
                 <div className="flex items-center justify-between text-xs mb-1.5">
@@ -243,12 +367,15 @@ export function DecisionDetailDrawer({
                     Quórum {deliberacao.quorum_atual}/{deliberacao.quorum_necessario}
                   </span>
                   <span className="text-ig-fg-strong tabular-nums">
-                    {Math.round((deliberacao.quorum_atual / deliberacao.quorum_necessario) * 100)}%
+                    {deliberacao.quorum_necessario > 0
+                      ? Math.round((deliberacao.quorum_atual / deliberacao.quorum_necessario) * 100)
+                      : 0}
+                    %
                   </span>
                 </div>
                 <HudProgressBar
                   value={deliberacao.quorum_atual}
-                  max={deliberacao.quorum_necessario}
+                  max={Math.max(1, deliberacao.quorum_necessario)}
                   size="sm"
                   showLabel={false}
                 />
@@ -273,6 +400,37 @@ export function DecisionDetailDrawer({
                   </p>
                 </div>
               </div>
+
+              {/* Cast vote — live action, gated by RBAC + voting stage */}
+              {deliberacao.status === 'em_votacao' && onVote && (
+                <div className="flex items-center gap-2 pt-1">
+                  <HudButton
+                    variant="primary"
+                    size="sm"
+                    disabled={!canVote || readOnly || busy}
+                    title={canVote ? 'Votar a favor' : 'Requer permissão deliberations.vote'}
+                    onClick={() => onVote('favor')}
+                  >
+                    A favor
+                  </HudButton>
+                  <HudButton
+                    variant="secondary"
+                    size="sm"
+                    disabled={!canVote || readOnly || busy}
+                    onClick={() => onVote('contra')}
+                  >
+                    Contra
+                  </HudButton>
+                  <HudButton
+                    variant="ghost"
+                    size="sm"
+                    disabled={!canVote || readOnly || busy}
+                    onClick={() => onVote('abstencao')}
+                  >
+                    Abster
+                  </HudButton>
+                </div>
+              )}
             </div>
           </DrawerSection>
 
@@ -365,6 +523,9 @@ export function DecisionDetailDrawer({
                     variant="primary"
                     size="sm"
                     leftIcon={<FileText className="w-3.5 h-3.5" />}
+                    disabled={!onGenerateMinutes || !canMinutes || readOnly || busy}
+                    title={canMinutes ? 'Gerar e publicar ata' : 'Requer permissão deliberations.minutes'}
+                    onClick={onGenerateMinutes}
                   >
                     Lavrar ata
                   </HudButton>
@@ -373,6 +534,7 @@ export function DecisionDetailDrawer({
                     variant="secondary"
                     size="sm"
                     leftIcon={<Download className="w-3.5 h-3.5" />}
+                    onClick={onExport}
                   >
                     Baixar ata
                   </HudButton>
@@ -412,18 +574,38 @@ export function DecisionDetailDrawer({
                         {a.responsavel_nome} · prazo {formatDate(a.prazo)}
                       </p>
                     </div>
-                    <HudBadge
-                      variant={
-                        a.status === 'concluida'
-                          ? 'success'
-                          : a.status === 'em_andamento'
-                            ? 'warning'
-                            : 'neutral'
-                      }
-                      size="sm"
-                    >
-                      {ACAO_STATUS_LABEL[a.status]}
-                    </HudBadge>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <HudBadge
+                        variant={
+                          a.status === 'concluida'
+                            ? 'success'
+                            : a.status === 'em_andamento'
+                              ? 'warning'
+                              : 'neutral'
+                        }
+                        size="sm"
+                      >
+                        {ACAO_STATUS_LABEL[a.status]}
+                      </HudBadge>
+                      {onExecutionToggle && canExecute && !readOnly && (
+                        <HudButton
+                          variant="ghost"
+                          size="sm"
+                          disabled={busy}
+                          onClick={() =>
+                            onExecutionToggle(
+                              a.id,
+                              EXEC_NEXT[a.status].next,
+                              a.titulo,
+                              a.responsavel_nome,
+                              a.prazo,
+                            )
+                          }
+                        >
+                          {EXEC_NEXT[a.status].label}
+                        </HudButton>
+                      )}
+                    </div>
                   </li>
                 ))}
               </ul>

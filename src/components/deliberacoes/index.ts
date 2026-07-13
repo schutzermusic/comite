@@ -9,8 +9,13 @@ export { NewDeliberationModal } from './NewDeliberationModal';
 
 // Central de Deliberações — Decision Inbox module
 export { DecisionPipeline } from './DecisionPipeline';
-export { DecisionFilterRail } from './DecisionFilterRail';
-export { DecisionCard } from './DecisionCard';
+export {
+  DecisionAdvancedFilters,
+  ADVANCED_FILTERS_EMPTY,
+  countAdvancedFilters,
+  type AdvancedFilterState,
+} from './DecisionAdvancedFilters';
+export { DecisionCard, type DecisionCardAction } from './DecisionCard';
 export { DecisionDetailDrawer } from './DecisionDetailDrawer';
 export { DecisionSlaBadge } from './DecisionSlaBadge';
 export { DecisionRiskBadge } from './DecisionRiskBadge';

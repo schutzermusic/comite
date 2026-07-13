@@ -1,4 +1,6 @@
 import { createClient } from '@/utils/supabase/client';
+import { logAuditEvent } from '@/lib/audit/log-audit-event';
+import { createTask } from '@/lib/services/agenda';
 import type {
   DeliberationItem,
   DeliberationStatus,
@@ -6,6 +8,7 @@ import type {
   DeliberationMinutes,
   DeliberationActionItem,
   AuditTrailEntry,
+  ReviewStatus,
   VoteRecord,
   VoteOption,
 } from '@/lib/types';
@@ -73,6 +76,9 @@ function isRlsError(error: { code?: string; message?: string } | null | undefine
     /row[- ]level security|permission denied|policy/i.test(error.message || '')
   );
 }
+
+/** Valida se uma string é um uuid (colunas FK uuid não aceitam ids de política). */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function rlsFriendlyMessage(prefix: string, error: { code?: string; message?: string }): string {
   if (isRlsError(error)) return `${prefix}: Acesso negado pela política de segurança.`;
@@ -181,7 +187,7 @@ export function mapRowToDeliberation(
     updatedAt: toDate(row.updated_at) ?? new Date(),
     submittedAt: toDate(row.created_at),
     deliberationStatus: row.status,
-    ownerCommitteeId: row.owner_committee_id ?? undefined,
+    ownerCommitteeId: row.owner_committee_id ?? (meta.ownerCommitteeId as string) ?? undefined,
     ownerCommitteeName: (meta.ownerCommitteeName as string) ?? undefined,
     dependentCommitteeIds: row.dependent_committee_ids ?? undefined,
     dependentCommitteeNames: (meta.dependentCommitteeNames as string[]) ?? undefined,
@@ -224,6 +230,7 @@ function buildMetadata(item: Partial<DeliberationItem>): Record<string, unknown>
     type: item.type,
     createdByName: item.createdByName,
     ownerName: item.ownerName,
+    ownerCommitteeId: item.ownerCommitteeId,
     ownerCommitteeName: item.ownerCommitteeName,
     dependentCommitteeNames: item.dependentCommitteeNames,
     strategicFlag: item.strategicFlag,
@@ -255,7 +262,11 @@ export function mapDeliberationToRow(
     status: item.deliberationStatus,
     vote_result: item.voteResult ?? null,
     priority: item.priority,
-    owner_committee_id: item.ownerCommitteeId ?? null,
+    // `owner_committee_id` é uuid FK → committees(id). O módulo usa ids de
+    // política (ex.: 'hr'), que não são uuids; grava só quando for uuid real,
+    // caso contrário null. O id lógico é preservado em metadata.ownerCommitteeId.
+    owner_committee_id:
+      item.ownerCommitteeId && UUID_RE.test(item.ownerCommitteeId) ? item.ownerCommitteeId : null,
     dependent_committee_ids: item.dependentCommitteeIds ?? null,
     due_date: item.dueDate ? new Date(item.dueDate).toISOString() : null,
     voting_window_start: item.votingStartedAt ? new Date(item.votingStartedAt).toISOString() : null,
@@ -668,4 +679,340 @@ export async function deleteDeliberation(id: string): Promise<void> {
   await getCurrentOrgAndUser(supabase);
   const { error } = await supabase.from(DELIBERATIONS_TABLE).delete().eq('id', id);
   if (error) throw new Error(rlsFriendlyMessage('Erro ao remover deliberação', error));
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Operational mutations (opinion / evidence / execution / minutes / task)
+   These persist through the existing deliberations row (JSONB detail model)
+   + deliberation_votes, mirror the enterprise audit_logs table via
+   logAuditEvent, and fan out in-app notifications through the shared
+   SECURITY DEFINER create_notification RPC. Notifications are best-effort
+   and never block the mutation.
+   ───────────────────────────────────────────────────────────── */
+
+const DELIBERATION_LINK = '/deliberacoes';
+
+/** Best-effort in-app notification for another org member. Never throws. */
+async function notifyRecipient(
+  supabase: SupabaseLike,
+  recipientUserId: string | null | undefined,
+  type: string,
+  title: string,
+  body: string,
+): Promise<void> {
+  if (!recipientUserId) return;
+  try {
+    const { error } = await supabase.rpc('create_notification', {
+      p_recipient: recipientUserId,
+      p_type: type,
+      p_title: title,
+      p_body: body,
+      p_link: DELIBERATION_LINK,
+    });
+    if (error) console.warn('[deliberations] notify failed:', error.message);
+  } catch (e) {
+    console.warn('[deliberations] notify threw:', e instanceof Error ? e.message : e);
+  }
+}
+
+/** Fetch the current row (for JSONB read-modify-write) + refresh helper. */
+async function fetchRow(supabase: SupabaseLike, id: string): Promise<DeliberationRow> {
+  const { data, error } = await supabase
+    .from(DELIBERATIONS_TABLE)
+    .select('*')
+    .eq('id', id)
+    .single();
+  if (error) throw new Error(rlsFriendlyMessage('Erro ao carregar deliberação', error));
+  return data as DeliberationRow;
+}
+
+async function refreshWithVotes(supabase: SupabaseLike, id: string): Promise<DeliberationItem> {
+  const row = await fetchRow(supabase, id);
+  const { data: voteRows } = await supabase.from(VOTES_TABLE).select('*').eq('deliberation_id', id);
+  const votes = ((voteRows ?? []) as VoteRow[]).map(hydrateVote);
+  return mapRowToDeliberation(row, votes);
+}
+
+export type RequestOpinionInput = {
+  type: ReviewStatus['type'];
+  reviewerUserId?: string;
+  reviewerName?: string;
+  notes?: string;
+};
+
+/** Register a pending opinion/parecer request (metadata.reviews) + notify. */
+export async function requestOpinion(
+  deliberationId: string,
+  input: RequestOpinionInput,
+): Promise<DeliberationItem> {
+  const supabase = createClient();
+  const { userId, orgId, userName } = await getCurrentOrgAndUser(supabase);
+  const row = await fetchRow(supabase, deliberationId);
+
+  const meta = (row.metadata ?? {}) as Record<string, unknown>;
+  const reviews = Array.isArray(meta.reviews) ? (meta.reviews as ReviewStatus[]) : [];
+  const nextReviews: ReviewStatus[] = [
+    ...reviews.filter((r) => r.type !== input.type),
+    {
+      type: input.type,
+      status: 'pending',
+      reviewerId: input.reviewerUserId,
+      reviewerName: input.reviewerName,
+      notes: input.notes,
+    },
+  ];
+
+  const { error } = await supabase
+    .from(DELIBERATIONS_TABLE)
+    .update({ metadata: { ...meta, reviews: nextReviews } })
+    .eq('id', deliberationId);
+  if (error) throw new Error(rlsFriendlyMessage('Erro ao solicitar parecer', error));
+
+  await appendAuditEntry(
+    supabase,
+    deliberationId,
+    makeAuditEntry(deliberationId, 'review_requested', `Parecer ${input.type} solicitado.`, userId, userName),
+  );
+  await logAuditEvent({
+    organizationId: orgId,
+    action: 'deliberation.opinion_requested',
+    entityType: 'deliberation',
+    entityId: deliberationId,
+    metadata: { type: input.type, reviewerUserId: input.reviewerUserId ?? null },
+  });
+  await notifyRecipient(
+    supabase,
+    input.reviewerUserId,
+    'deliberation_opinion_requested',
+    'Parecer solicitado',
+    `Foi solicitado seu parecer (${input.type}) na deliberação "${row.title}".`,
+  );
+
+  return refreshWithVotes(supabase, deliberationId);
+}
+
+export type AttachEvidenceInput = {
+  name: string;
+  url: string;
+  type?: 'document' | 'link' | 'other';
+};
+
+/** Append an evidence attachment (metadata.attachments) + audit. */
+export async function attachEvidence(
+  deliberationId: string,
+  input: AttachEvidenceInput,
+): Promise<DeliberationItem> {
+  const supabase = createClient();
+  const { userId, orgId, userName } = await getCurrentOrgAndUser(supabase);
+  const row = await fetchRow(supabase, deliberationId);
+
+  const meta = (row.metadata ?? {}) as Record<string, unknown>;
+  const attachments = Array.isArray(meta.attachments)
+    ? (meta.attachments as DeliberationItem['attachments'])
+    : [];
+  const nextAttachments = [
+    ...(attachments ?? []),
+    {
+      id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      name: input.name,
+      url: input.url,
+      type: input.type ?? (input.url.startsWith('http') ? 'link' : 'document'),
+    },
+  ];
+
+  const { error } = await supabase
+    .from(DELIBERATIONS_TABLE)
+    .update({ metadata: { ...meta, attachments: nextAttachments } })
+    .eq('id', deliberationId);
+  if (error) throw new Error(rlsFriendlyMessage('Erro ao anexar evidência', error));
+
+  await appendAuditEntry(
+    supabase,
+    deliberationId,
+    makeAuditEntry(deliberationId, 'evidence_added', `Evidência anexada: ${input.name}.`, userId, userName),
+  );
+  await logAuditEvent({
+    organizationId: orgId,
+    action: 'deliberation.evidence_attached',
+    entityType: 'deliberation',
+    entityId: deliberationId,
+    metadata: { name: input.name },
+  });
+
+  return refreshWithVotes(supabase, deliberationId);
+}
+
+export type ExecutionItemInput = {
+  id?: string;
+  title: string;
+  ownerName: string;
+  ownerUserId?: string;
+  dueDate: string; // ISO
+  status?: 'pending' | 'in_progress' | 'completed';
+};
+
+/** Add or update an execution action item (execution_items JSONB) + audit. */
+export async function upsertExecutionItem(
+  deliberationId: string,
+  input: ExecutionItemInput,
+): Promise<DeliberationItem> {
+  const supabase = createClient();
+  const { userId, orgId, userName } = await getCurrentOrgAndUser(supabase);
+  const row = await fetchRow(supabase, deliberationId);
+
+  const items = Array.isArray(row.execution_items)
+    ? (row.execution_items as DeliberationActionItem[])
+    : [];
+  const itemId = input.id ?? `exec-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const nextItem: DeliberationActionItem = {
+    id: itemId,
+    title: input.title,
+    ownerName: input.ownerName,
+    dueDate: new Date(input.dueDate),
+    status: input.status ?? 'pending',
+  };
+  const exists = items.some((i) => i.id === itemId);
+  const nextItems = exists ? items.map((i) => (i.id === itemId ? nextItem : i)) : [...items, nextItem];
+
+  const patch: Record<string, unknown> = { execution_items: nextItems };
+  // First execution item promotes the deliberation into the execution stage.
+  if (!exists && row.status === 'resolved') patch.status = 'in_execution';
+
+  const { error } = await supabase.from(DELIBERATIONS_TABLE).update(patch).eq('id', deliberationId);
+  if (error) throw new Error(rlsFriendlyMessage('Erro ao atualizar execução', error));
+
+  const action = exists ? 'deliberation.execution_updated' : 'deliberation.execution_started';
+  await appendAuditEntry(
+    supabase,
+    deliberationId,
+    makeAuditEntry(
+      deliberationId,
+      'execution_task_created',
+      exists ? `Ação de execução atualizada: ${input.title}.` : `Ação de execução criada: ${input.title}.`,
+      userId,
+      userName,
+    ),
+  );
+  await logAuditEvent({
+    organizationId: orgId,
+    action,
+    entityType: 'deliberation',
+    entityId: deliberationId,
+    metadata: { itemId, status: nextItem.status },
+  });
+  if (!exists) {
+    await notifyRecipient(
+      supabase,
+      input.ownerUserId,
+      'deliberation_execution_assigned',
+      'Execução atribuída',
+      `Você é responsável pela ação "${input.title}" da deliberação "${row.title}".`,
+    );
+  }
+
+  return refreshWithVotes(supabase, deliberationId);
+}
+
+export type GenerateMinutesInput = {
+  agendaSummary?: string;
+  decisionText?: string;
+  votingResult?: string;
+  actionItems?: string[];
+  publish?: boolean;
+};
+
+/** Generate/attach the ata (minutes JSONB) and advance out of awaiting_minutes. */
+export async function generateMinutes(
+  deliberationId: string,
+  input: GenerateMinutesInput = {},
+): Promise<DeliberationItem> {
+  const supabase = createClient();
+  const { userId, orgId, userName } = await getCurrentOrgAndUser(supabase);
+  const row = await fetchRow(supabase, deliberationId);
+
+  const votes = row.vote_result ?? 'pending';
+  const minutes: DeliberationMinutes = {
+    status: input.publish ? 'published' : 'draft',
+    agendaSummary: input.agendaSummary ?? row.title,
+    evidenceList: [],
+    votingResult: input.votingResult ?? String(votes),
+    decisionText: input.decisionText ?? `Decisão registrada para "${row.title}".`,
+    actionItems: input.actionItems ?? [],
+    publishedAt: input.publish ? new Date() : undefined,
+  };
+
+  const patch: Record<string, unknown> = {
+    minutes: { ...minutes, publishedAt: minutes.publishedAt?.toISOString() },
+  };
+  // Publishing the ata resolves the decision if it was awaiting minutes.
+  if (input.publish && row.status === 'awaiting_minutes') patch.status = 'resolved';
+
+  const { error } = await supabase.from(DELIBERATIONS_TABLE).update(patch).eq('id', deliberationId);
+  if (error) throw new Error(rlsFriendlyMessage('Erro ao gerar ata', error));
+
+  await appendAuditEntry(
+    supabase,
+    deliberationId,
+    makeAuditEntry(
+      deliberationId,
+      input.publish ? 'minutes_published' : 'minutes_generated',
+      input.publish ? 'Ata publicada.' : 'Ata gerada (rascunho).',
+      userId,
+      userName,
+    ),
+  );
+  await logAuditEvent({
+    organizationId: orgId,
+    action: 'deliberation.minutes_generated',
+    entityType: 'deliberation',
+    entityId: deliberationId,
+    metadata: { published: Boolean(input.publish) },
+  });
+
+  return refreshWithVotes(supabase, deliberationId);
+}
+
+export type CreateDeliberationTaskInput = {
+  title: string;
+  assigneeUserId: string | null;
+  dueDate?: string; // ISO
+  priority?: 'low' | 'medium' | 'high' | 'critical';
+};
+
+/**
+ * Create an Agenda task natively linked to the deliberation
+ * (tasks.related_deliberation_id). The Agenda service notifies the assignee;
+ * we mirror the event into the deliberation audit trail + audit_logs.
+ */
+export async function createDeliberationTask(
+  deliberationId: string,
+  input: CreateDeliberationTaskInput,
+): Promise<DeliberationItem> {
+  const supabase = createClient();
+  const { userId, orgId, userName } = await getCurrentOrgAndUser(supabase);
+  const row = await fetchRow(supabase, deliberationId);
+
+  await createTask({
+    title: input.title,
+    priority: input.priority ?? 'medium',
+    assigneeUserId: input.assigneeUserId,
+    dueAt: input.dueDate,
+    relatedDeliberationId: deliberationId,
+    relatedCommitteeId: row.owner_committee_id ?? null,
+  });
+
+  await appendAuditEntry(
+    supabase,
+    deliberationId,
+    makeAuditEntry(deliberationId, 'execution_task_created', `Tarefa criada: ${input.title}.`, userId, userName),
+  );
+  await logAuditEvent({
+    organizationId: orgId,
+    action: 'deliberation.task_created',
+    entityType: 'deliberation',
+    entityId: deliberationId,
+    metadata: { title: input.title, assigneeUserId: input.assigneeUserId },
+  });
+
+  return refreshWithVotes(supabase, deliberationId);
 }

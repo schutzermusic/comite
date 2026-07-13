@@ -12,6 +12,8 @@ import {
   Timer,
   PlayCircle,
   Search,
+  ListFilter,
+  X,
 } from 'lucide-react';
 import {
   HudPageLayout,
@@ -21,31 +23,41 @@ import {
   HudButton,
   HudEmptyState,
   HudPanel,
+  HudBadge,
+  useHudToast,
   type KpiItem,
   type HudTab,
 } from '@/components/hud';
 import {
   DecisionPipeline,
-  DecisionFilterRail,
   DecisionCard,
   DecisionDetailDrawer,
   NewDeliberationModal,
-  DELIBERACOES_MOCK,
   countByStatus,
   countBySla,
   getOpenCount,
   getCriticalCount,
   type Deliberacao,
   type DeliberacaoStatus,
-  type DeliberacaoPrioridade,
   type SlaStatus,
   type PipelineStage,
+  type DecisionCardAction,
 } from '@/components/deliberacoes';
+import { useDeliberacoesView } from '@/hooks/use-deliberacoes-view';
+import type { UiVoteChoice } from '@/lib/deliberacoes/live-adapter';
+import {
+  DecisionAdvancedFilters,
+  ADVANCED_FILTERS_EMPTY,
+  countAdvancedFilters,
+  type AdvancedFilterState,
+} from '@/components/deliberacoes/DecisionAdvancedFilters';
 import type { NewDeliberationPayload } from '@/components/deliberacoes/NewDeliberationModal';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useMyCommittees } from '@/hooks/use-my-committees';
 import { ExportReportButton } from '@/components/reports/ExportReportButton';
 import { openDeliberationReport } from '@/lib/reports/modules/deliberation-report';
 import type { DeliberationItem, DeliberationStatus } from '@/lib/types';
+import { cn } from '@/lib/utils';
 
 const DELIB_STATUS_MAP: Record<DeliberacaoStatus, DeliberationStatus> = {
   rascunho: 'draft',
@@ -105,22 +117,55 @@ function worstSlaForStatus(items: Deliberacao[], status: DeliberacaoStatus): Sla
   return 'on_track';
 }
 
+type KpiFilterId = 'abertas' | 'criticas' | 'aguardando_voto' | 'atrasadas' | 'exec_pendentes';
+
+/**
+ * Single-select KPI filters (Contratos Executive Band standard): predicates
+ * mirror the counts shown in the band, so "click the number → see those
+ * decisions". Mutually exclusive with the pipeline stage filter.
+ */
+const KPI_FILTERS: Record<KpiFilterId, { label: string; predicate: (d: Deliberacao) => boolean }> = {
+  abertas: { label: 'Abertas', predicate: (d) => d.status !== 'concluida' },
+  criticas: { label: 'Críticas', predicate: (d) => d.prioridade === 'critica' || d.risco === 'critico' },
+  aguardando_voto: { label: 'Aguardando voto', predicate: (d) => d.status === 'em_votacao' },
+  atrasadas: { label: 'Atrasadas', predicate: (d) => d.sla_status === 'overdue' },
+  exec_pendentes: { label: 'Execuções pendentes', predicate: (d) => d.status === 'em_execucao' },
+};
+
 export default function DeliberacoesPage() {
-  const { hasPermission, loading: permissionsLoading } = usePermissions();
+  const { hasPermission, roles, loading: permissionsLoading } = usePermissions();
+  const { policyCommitteeIds, hasAny: hasCommittee, loading: committeesLoading } = useMyCommittees();
+
+  // Owners/admins veem tudo, independentemente de vínculo a comitê
+  // (espelha current_user_is_admin() / o gate da sidebar).
+  const isOwnerAdmin =
+    roles.some((r) => r.key === 'owner_admin') ||
+    hasPermission('admin.manage_users') ||
+    hasPermission('admin.manage_roles');
+  const { notify } = useHudToast();
+  const {
+    items,
+    loading: dataLoading,
+    error: dataError,
+    isDemo,
+    castVote,
+    requestOpinion,
+    attachEvidence,
+    upsertExecution,
+    generateMinutes,
+    createTask,
+    createDeliberation,
+  } = useDeliberacoesView();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [newDeliberationOpen, setNewDeliberationOpen] = useState(false);
-  const [pendingDraft, setPendingDraft] = useState<NewDeliberationPayload | null>(null);
   const [activeTab, setActiveTab] = useState<string>('fila');
+  const [busy, setBusy] = useState(false);
+  // Primary filter: either a KPI condition or a pipeline stage — never both.
+  const [activeKpiFilter, setActiveKpiFilter] = useState<KpiFilterId | null>(null);
   const [activePipelineStage, setActivePipelineStage] = useState<DeliberacaoStatus | null>(null);
-  const [statusFilter, setStatusFilter] = useState<DeliberacaoStatus | 'all'>('all');
-  const [prioridadeFilter, setPrioridadeFilter] = useState<DeliberacaoPrioridade | 'all'>('all');
-  const [comiteFilter, setComiteFilter] = useState<string>('all');
-  const [slaFilter, setSlaFilter] = useState<SlaStatus | 'all'>('all');
-  const [responsavelFilter, setResponsavelFilter] = useState<string>('all');
+  const [advancedFilters, setAdvancedFilters] = useState<AdvancedFilterState>(ADVANCED_FILTERS_EMPTY);
   const [searchTerm, setSearchTerm] = useState('');
-
-  const items = DELIBERACOES_MOCK;
 
   const pipelineStages: PipelineStage[] = useMemo(
     () =>
@@ -148,21 +193,21 @@ export default function DeliberacoesPage() {
 
     if (activePipelineStage !== null) {
       result = result.filter((d) => d.status === activePipelineStage);
-    } else if (statusFilter !== 'all') {
-      result = result.filter((d) => d.status === statusFilter);
+    } else if (activeKpiFilter !== null) {
+      result = result.filter(KPI_FILTERS[activeKpiFilter].predicate);
     }
 
-    if (prioridadeFilter !== 'all') {
-      result = result.filter((d) => d.prioridade === prioridadeFilter);
+    if (advancedFilters.prioridade !== 'all') {
+      result = result.filter((d) => d.prioridade === advancedFilters.prioridade);
     }
-    if (comiteFilter !== 'all') {
-      result = result.filter((d) => d.comite_nome === comiteFilter);
+    if (advancedFilters.comite !== 'all') {
+      result = result.filter((d) => d.comite_nome === advancedFilters.comite);
     }
-    if (slaFilter !== 'all') {
-      result = result.filter((d) => d.sla_status === slaFilter);
+    if (advancedFilters.sla !== 'all') {
+      result = result.filter((d) => d.sla_status === advancedFilters.sla);
     }
-    if (responsavelFilter !== 'all') {
-      result = result.filter((d) => d.responsavel_nome === responsavelFilter);
+    if (advancedFilters.responsavel !== 'all') {
+      result = result.filter((d) => d.responsavel_nome === advancedFilters.responsavel);
     }
 
     if (searchTerm.trim()) {
@@ -170,6 +215,7 @@ export default function DeliberacoesPage() {
       result = result.filter(
         (d) =>
           d.titulo.toLowerCase().includes(term) ||
+          d.id.toLowerCase().includes(term) ||
           d.comite_nome.toLowerCase().includes(term) ||
           d.responsavel_nome.toLowerCase().includes(term) ||
           d.proxima_acao.toLowerCase().includes(term),
@@ -177,45 +223,38 @@ export default function DeliberacoesPage() {
     }
 
     return result;
-  }, [
-    items,
-    activePipelineStage,
-    statusFilter,
-    prioridadeFilter,
-    comiteFilter,
-    slaFilter,
-    responsavelFilter,
-    searchTerm,
-  ]);
+  }, [items, activePipelineStage, activeKpiFilter, advancedFilters, searchTerm]);
 
   const selectedDeliberacao = useMemo(
     () => items.find((d) => d.id === selectedId) ?? null,
     [items, selectedId],
   );
 
-  const activeFilterCount =
-    (statusFilter !== 'all' ? 1 : 0) +
-    (prioridadeFilter !== 'all' ? 1 : 0) +
-    (comiteFilter !== 'all' ? 1 : 0) +
-    (slaFilter !== 'all' ? 1 : 0) +
-    (responsavelFilter !== 'all' ? 1 : 0);
+  const advancedCount = countAdvancedFilters(advancedFilters);
+  const hasAnyFilter =
+    activeKpiFilter !== null || activePipelineStage !== null || advancedCount > 0 || searchTerm.trim() !== '';
 
-  const handleClearFilters = () => {
-    setStatusFilter('all');
-    setPrioridadeFilter('all');
-    setComiteFilter('all');
-    setSlaFilter('all');
-    setResponsavelFilter('all');
+  const handleClearAll = () => {
+    setActiveKpiFilter(null);
+    setActivePipelineStage(null);
+    setAdvancedFilters(ADVANCED_FILTERS_EMPTY);
+    setSearchTerm('');
   };
 
-  const handleStatusChange = (v: DeliberacaoStatus | 'all') => {
-    setStatusFilter(v);
-    if (v !== 'all') setActivePipelineStage(null);
+  // KPI band and pipeline are the two primary (single-select) filter systems;
+  // activating one clears the other so the queue never gets an empty AND.
+  const toggleKpiFilter = (id: KpiFilterId) => {
+    setActiveKpiFilter((current) => (current === id ? null : id));
+    setActivePipelineStage(null);
+    setActiveTab('fila');
   };
 
   const handlePipelineClick = (s: DeliberacaoStatus | null) => {
     setActivePipelineStage(s);
-    if (s !== null) setStatusFilter('all');
+    if (s !== null) {
+      setActiveKpiFilter(null);
+      setActiveTab('fila');
+    }
   };
 
   const handleCardClick = (id: string) => {
@@ -226,14 +265,84 @@ export default function DeliberacoesPage() {
   const canVote = hasPermission('deliberations.vote');
   const canView = hasPermission('deliberations.view');
   const canCreate = hasPermission('deliberations.create');
+  const canRequestOpinion = hasPermission('deliberations.request_opinion') || canCreate;
+  const canAttachEvidence = hasPermission('deliberations.attach_evidence') || canCreate;
+  const canExecute = hasPermission('deliberations.execute') || canCreate;
+  const canMinutes = hasPermission('deliberations.minutes') || hasPermission('deliberations.close') || canCreate;
 
-  const handleCreateDeliberation = (payload: NewDeliberationPayload) => {
-    setPendingDraft(payload);
+  // Mutation wrapper — the drawer stays open; useDeliberacoesView refreshes the
+  // list in place, so selectedDeliberacao re-derives with the new data while
+  // the active tab / search / filters are preserved.
+  const runMutation = async (label: string, fn: () => Promise<void>) => {
+    setBusy(true);
+    try {
+      await fn();
+      notify(label, { variant: 'success' });
+    } catch (err) {
+      notify('Não foi possível concluir a ação', {
+        description: err instanceof Error ? err.message : 'Erro inesperado.',
+        variant: 'error',
+      });
+    } finally {
+      setBusy(false);
+    }
   };
 
-  // KPIs clicáveis (padrão Contratos): alternam o filtro correspondente da fila.
-  const toggleStatusKpi = (status: DeliberacaoStatus) =>
-    handleStatusChange(statusFilter === status ? 'all' : status);
+  const handleVote = (id: string) => (choice: UiVoteChoice, justification?: string) =>
+    runMutation('Voto registrado.', () => castVote(id, choice, justification));
+
+  const handleRequestOpinion = (id: string) => () => {
+    const tipo = (window.prompt('Tipo de parecer (Legal, Finance, Compliance):', 'Legal') ?? '').trim();
+    if (!tipo) return;
+    const normalized = (['Legal', 'Finance', 'Compliance'].find((t) => t.toLowerCase() === tipo.toLowerCase()) ??
+      'Legal') as 'Legal' | 'Finance' | 'Compliance';
+    void runMutation('Parecer solicitado.', () => requestOpinion(id, { type: normalized }));
+  };
+
+  const handleAttachEvidence = (id: string) => () => {
+    const url = (window.prompt('URL ou link da evidência:') ?? '').trim();
+    if (!url) return;
+    const name = (window.prompt('Nome da evidência:', url.split('/').pop() || 'Evidência') ?? '').trim() || 'Evidência';
+    void runMutation('Evidência anexada.', () => attachEvidence(id, { name, url }));
+  };
+
+  const handleGenerateMinutes = (id: string) => () =>
+    runMutation('Ata gerada e publicada.', () => generateMinutes(id, { publish: true }));
+
+  const handleCreateTask = (id: string) => () => {
+    const title = (window.prompt('Título da tarefa de execução:') ?? '').trim();
+    if (!title) return;
+    void runMutation('Tarefa criada e vinculada.', () => createTask(id, { title, assigneeUserId: null }));
+  };
+
+  const handleExecutionToggle = (id: string) => (itemId: string, next: 'pending' | 'in_progress' | 'completed', title: string, ownerName: string, dueDate: string) =>
+    runMutation('Execução atualizada.', () =>
+      upsertExecution(id, { id: itemId, title, ownerName, dueDate, status: next }),
+    );
+
+  const handleCardAction = (id: string) => (action: DecisionCardAction) => {
+    // Card quick actions route to the dossier drawer where the real,
+    // permission-gated operations live.
+    if (action === 'vote' && !canVote) return;
+    handleCardClick(id);
+  };
+
+  // Mensagem de sucesso por rota de criação (status + próximo passo).
+  const CREATE_TOAST: Record<NewDeliberationPayload['route'], string> = {
+    voting: 'Deliberação criada e enviada para votação.',
+    review: 'Deliberação criada em revisão. Próximo passo: solicitar parecer.',
+    draft: 'Rascunho salvo. Complete os dados para enviar.',
+  };
+
+  const handleCreateDeliberation = (payload: NewDeliberationPayload) => {
+    void runMutation(CREATE_TOAST[payload.route], async () => {
+      const created = await createDeliberation(payload);
+      // Preserva tab/filtros/busca (spec §4) — o dossiê recém-criado é aberto
+      // diretamente, então a decisão fica acessível mesmo se um filtro a ocultar.
+      setSelectedId(created.id);
+      setDrawerOpen(true);
+    });
+  };
 
   const kpiItems: KpiItem[] = [
     {
@@ -243,7 +352,8 @@ export default function DeliberacoesPage() {
       variant: 'info',
       icon: <FolderOpen className="w-4 h-4" />,
       tintValue: true,
-      onClick: () => { handleClearFilters(); setActivePipelineStage(null); },
+      onClick: () => toggleKpiFilter('abertas'),
+      active: activeKpiFilter === 'abertas',
     },
     {
       id: 'criticas',
@@ -252,8 +362,8 @@ export default function DeliberacoesPage() {
       variant: 'danger',
       icon: <AlertTriangle className="w-4 h-4" />,
       tintValue: true,
-      onClick: () => setPrioridadeFilter((current) => (current === 'critica' ? 'all' : 'critica')),
-      active: prioridadeFilter === 'critica',
+      onClick: () => toggleKpiFilter('criticas'),
+      active: activeKpiFilter === 'criticas',
     },
     {
       id: 'aguardando_voto',
@@ -261,8 +371,8 @@ export default function DeliberacoesPage() {
       value: countByStatus(items, 'em_votacao'),
       variant: 'info',
       icon: <Vote className="w-4 h-4" />,
-      onClick: () => toggleStatusKpi('em_votacao'),
-      active: statusFilter === 'em_votacao',
+      onClick: () => toggleKpiFilter('aguardando_voto'),
+      active: activeKpiFilter === 'aguardando_voto',
     },
     {
       id: 'atrasadas',
@@ -271,16 +381,16 @@ export default function DeliberacoesPage() {
       variant: 'danger',
       icon: <AlarmClock className="w-4 h-4" />,
       tintValue: true,
-      onClick: () => setSlaFilter((current) => (current === 'overdue' ? 'all' : 'overdue')),
-      active: slaFilter === 'overdue',
+      onClick: () => toggleKpiFilter('atrasadas'),
+      active: activeKpiFilter === 'atrasadas',
     },
     {
+      // Metric, not a condition — stays informational (no filter semantics).
       id: 'tempo_medio',
       label: 'Tempo Médio',
       value: '4.2d',
       variant: 'success',
       icon: <Timer className="w-4 h-4" />,
-      onClick: () => { handleClearFilters(); setActivePipelineStage(null); },
     },
     {
       id: 'exec_pendentes',
@@ -288,129 +398,81 @@ export default function DeliberacoesPage() {
       value: countByStatus(items, 'em_execucao'),
       variant: 'warning',
       icon: <PlayCircle className="w-4 h-4" />,
-      onClick: () => toggleStatusKpi('em_execucao'),
-      active: statusFilter === 'em_execucao',
+      onClick: () => toggleKpiFilter('exec_pendentes'),
+      active: activeKpiFilter === 'exec_pendentes',
     },
   ];
 
+  const renderCards = (list: Deliberacao[], emptyTitle: string, emptyDescription: string) =>
+    list.length === 0 ? (
+      <HudPanel elevation={2}>
+        <HudEmptyState
+          icon="inbox"
+          title={emptyTitle}
+          description={emptyDescription}
+          action={
+            hasAnyFilter
+              ? { label: 'Limpar filtros', onClick: handleClearAll, variant: 'secondary' }
+              : undefined
+          }
+          compact
+        />
+      </HudPanel>
+    ) : (
+      // Poucas decisões (1–2): coluna única, cartões largos — evita o cartão
+      // pequeno e isolado à esquerda. A partir de 3, volta a duas colunas.
+      <div className={cn('grid gap-3', list.length <= 2 ? 'grid-cols-1' : 'grid-cols-1 xl:grid-cols-2')}>
+        {list.map((d) => (
+          <DecisionCard
+            key={d.id}
+            deliberacao={d}
+            isSelected={d.id === selectedId}
+            onClick={() => handleCardClick(d.id)}
+            onAction={handleCardAction(d.id)}
+            canVote={!permissionsLoading && canVote}
+          />
+        ))}
+      </div>
+    );
+
   const filaContent = (
     <div className="space-y-4">
-      {/* Search bar */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ig-fg-muted pointer-events-none" />
-        <input
-          type="text"
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          placeholder="Buscar por título, comitê, responsável ou próxima ação..."
-          className="w-full rounded-lg border border-ig-border bg-ig-panel/60 pl-10 pr-3 py-2 text-sm text-ig-fg-strong placeholder:text-ig-fg-muted focus:outline-none focus:border-ig-border-focus transition-colors"
-        />
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-        <div className="lg:col-span-1">
-          <DecisionFilterRail
-            statusFilter={statusFilter}
-            onStatusChange={handleStatusChange}
-            prioridadeFilter={prioridadeFilter}
-            onPrioridadeChange={setPrioridadeFilter}
-            comiteFilter={comiteFilter}
-            onComiteChange={setComiteFilter}
-            slaFilter={slaFilter}
-            onSlaChange={setSlaFilter}
-            responsavelFilter={responsavelFilter}
-            onResponsavelChange={setResponsavelFilter}
-            comiteOptions={comiteOptions}
-            responsavelOptions={responsavelOptions}
-            onClear={handleClearFilters}
-            activeCount={activeFilterCount}
+      {/* Queue toolbar: compact search + advanced filters */}
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1 sm:max-w-xs">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ig-fg-muted pointer-events-none" />
+          <input
+            type="search"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Buscar deliberação..."
+            aria-label="Buscar por título, código, comitê, responsável ou próxima ação"
+            className="hud-input-bg backdrop-blur-sm h-9 w-full rounded-lg border pl-8 pr-3 text-xs focus:outline-none focus-visible:shadow-[var(--ig-focus-ring-outer)] transition-all duration-200"
           />
         </div>
-        <div className="lg:col-span-3 space-y-3">
-          {filteredItems.length === 0 ? (
-            <HudPanel elevation={2}>
-              <HudEmptyState
-                icon="inbox"
-                title="Nenhuma deliberação encontrada"
-                description="Ajuste os filtros ou o estágio ativo para ver outros itens."
-                action={
-                  activeFilterCount > 0 || activePipelineStage !== null
-                    ? {
-                        label: 'Limpar filtros',
-                        onClick: () => {
-                          handleClearFilters();
-                          setActivePipelineStage(null);
-                          setSearchTerm('');
-                        },
-                        variant: 'secondary',
-                      }
-                    : undefined
-                }
-                compact
-              />
-            </HudPanel>
-          ) : (
-            filteredItems.map((d) => (
-              <DecisionCard
-                key={d.id}
-                deliberacao={d}
-                isSelected={d.id === selectedId}
-                onClick={() => handleCardClick(d.id)}
-              />
-            ))
-          )}
+        <span className="hidden sm:block text-[11px] text-ig-fg-muted tabular-nums whitespace-nowrap">
+          {filteredItems.length} {filteredItems.length === 1 ? 'deliberação' : 'deliberações'}
+        </span>
+        <div className="ml-auto">
+          <DecisionAdvancedFilters
+            value={advancedFilters}
+            onChange={setAdvancedFilters}
+            comiteOptions={comiteOptions}
+            responsavelOptions={responsavelOptions}
+          />
         </div>
       </div>
+
+      {renderCards(
+        filteredItems,
+        'Nenhuma deliberação encontrada',
+        'Ajuste os filtros, o estágio ativo ou a busca para ver outros itens.',
+      )}
     </div>
   );
 
   const votacaoItems = items.filter((d) => d.status === 'em_votacao');
-  const votacaoContent =
-    votacaoItems.length === 0 ? (
-      <HudPanel elevation={2}>
-        <HudEmptyState
-          icon="inbox"
-          title="Nenhuma deliberação em votação"
-          description="Quando uma deliberação entrar em fase de votação, ela aparecerá aqui."
-          compact
-        />
-      </HudPanel>
-    ) : (
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        {votacaoItems.map((d) => (
-          <DecisionCard
-            key={d.id}
-            deliberacao={d}
-            isSelected={d.id === selectedId}
-            onClick={() => handleCardClick(d.id)}
-          />
-        ))}
-      </div>
-    );
-
   const execucaoItems = items.filter((d) => d.status === 'em_execucao');
-  const execucaoContent =
-    execucaoItems.length === 0 ? (
-      <HudPanel elevation={2}>
-        <HudEmptyState
-          icon="inbox"
-          title="Nenhuma deliberação em execução"
-          description="Deliberações aprovadas com plano de execução aparecerão aqui."
-          compact
-        />
-      </HudPanel>
-    ) : (
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        {execucaoItems.map((d) => (
-          <DecisionCard
-            key={d.id}
-            deliberacao={d}
-            isSelected={d.id === selectedId}
-            onClick={() => handleCardClick(d.id)}
-          />
-        ))}
-      </div>
-    );
 
   const tabs: HudTab[] = [
     { id: 'fila', label: 'Fila', badge: filteredItems.length, content: filaContent },
@@ -418,13 +480,21 @@ export default function DeliberacoesPage() {
       id: 'votacao',
       label: 'Em votação',
       badge: votacaoItems.length,
-      content: votacaoContent,
+      content: renderCards(
+        votacaoItems,
+        'Nenhuma deliberação em votação',
+        'Quando uma deliberação entrar em fase de votação, ela aparecerá aqui.',
+      ),
     },
     {
       id: 'execucao',
       label: 'Execução',
       badge: execucaoItems.length,
-      content: execucaoContent,
+      content: renderCards(
+        execucaoItems,
+        'Nenhuma deliberação em execução',
+        'Deliberações aprovadas com plano de execução aparecerão aqui.',
+      ),
     },
     {
       id: 'atas',
@@ -485,6 +555,24 @@ export default function DeliberacoesPage() {
     );
   }
 
+  // Deliberações é restrito a membros de comitê: sem vínculo, sem acesso
+  // (o item do menu também é ocultado na sidebar). Owners/admins e o modo
+  // demonstração são isentos.
+  if (!isDemo && !isOwnerAdmin && !committeesLoading && !hasCommittee) {
+    return (
+      <HudPageLayout maxWidth="2xl">
+        <HudPanel elevation={2}>
+          <HudEmptyState
+            icon="alert"
+            title="Acesso restrito"
+            description="Deliberações está disponível apenas para membros de comitê. Solicite ao administrador que vincule você a um comitê."
+            compact
+          />
+        </HudPanel>
+      </HudPageLayout>
+    );
+  }
+
   return (
     <HudPageLayout maxWidth="2xl">
       <HudHeader
@@ -508,7 +596,7 @@ export default function DeliberacoesPage() {
               fallbackPermission="deliberations.view"
               build={() => openDeliberationReport({
                 deliberations: (filteredItems.length ? filteredItems : items).map(toReportDeliberation),
-                source: 'demonstração',
+                source: isDemo ? 'demonstração' : 'Supabase',
               })}
             />
             <HudButton variant="secondary" size="md" leftIcon={<Settings2 className="w-4 h-4" />}>
@@ -528,6 +616,29 @@ export default function DeliberacoesPage() {
         }
       />
 
+      {(isDemo || dataError || dataLoading) && (
+        <div
+          className="flex flex-wrap items-center gap-2 rounded-lg border border-ig-border-subtle bg-ig-panel/50 px-3 py-2 text-[11.5px]"
+          role="status"
+        >
+          {dataLoading ? (
+            <span className="text-ig-fg-muted">Carregando deliberações…</span>
+          ) : dataError ? (
+            <>
+              <HudBadge variant="danger" size="sm">Erro</HudBadge>
+              <span className="text-ig-fg-muted">{dataError}</span>
+            </>
+          ) : (
+            <>
+              <HudBadge variant="warning" size="sm">Demonstração</HudBadge>
+              <span className="text-ig-fg-muted">
+                Dados de exemplo — conecte o Supabase para operar deliberações reais (votação, pareceres, execução e ata).
+              </span>
+            </>
+          )}
+        </div>
+      )}
+
       <HudKpiStrip kpis={kpiItems} columns={6} connected size="sm" />
 
       <DecisionPipeline
@@ -536,22 +647,52 @@ export default function DeliberacoesPage() {
         onStageClick={handlePipelineClick}
       />
 
-      {pendingDraft && (
-        <HudPanel elevation={2} className="mb-4 border-ig-border-focus bg-ig-accent-weak/30">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <p className="text-sm font-semibold text-ig-fg-strong">
-                Deliberação preparada, ainda não conectada ao Supabase
-              </p>
-              <p className="mt-1 text-sm text-ig-fg-muted">
-                {pendingDraft.title} foi validada no fluxo local, mas não foi salva porque as tabelas reais de deliberações/votações ainda não foram migradas.
-              </p>
-            </div>
-            <HudButton variant="ghost" size="sm" onClick={() => setPendingDraft(null)}>
-              Dispensar
-            </HudButton>
-          </div>
-        </HudPanel>
+      {/* Active-filter receipt — the band/pipeline are the filters; this is the summary */}
+      {(activeKpiFilter !== null || activePipelineStage !== null || advancedCount > 0) && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-ig-fg-muted">
+            <ListFilter className="h-3.5 w-3.5" />
+            Filtros ativos
+          </span>
+          {activeKpiFilter !== null && (
+            <button
+              type="button"
+              onClick={() => setActiveKpiFilter(null)}
+              title="Remover filtro"
+              className="inline-flex h-7 items-center gap-1.5 rounded-md border border-ig-border-focus bg-ig-accent-weak px-2.5 text-[11px] font-semibold text-ig-accent transition-colors hover:bg-ig-panel-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_oklab,var(--ig-accent)_45%,transparent)]"
+            >
+              <span className="truncate">{KPI_FILTERS[activeKpiFilter].label}</span>
+              <X className="h-3 w-3 shrink-0" />
+            </button>
+          )}
+          {activePipelineStage !== null && (
+            <button
+              type="button"
+              onClick={() => setActivePipelineStage(null)}
+              title="Remover estágio"
+              className="inline-flex h-7 items-center gap-1.5 rounded-md border border-ig-border-focus bg-ig-accent-weak px-2.5 text-[11px] font-semibold text-ig-accent transition-colors hover:bg-ig-panel-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_oklab,var(--ig-accent)_45%,transparent)]"
+            >
+              <span className="truncate">Estágio: {PIPELINE_LABELS[activePipelineStage]}</span>
+              <X className="h-3 w-3 shrink-0" />
+            </button>
+          )}
+          {advancedCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setAdvancedFilters(ADVANCED_FILTERS_EMPTY)}
+              title="Remover filtros avançados"
+              className="inline-flex h-7 items-center gap-1.5 rounded-md border border-ig-border bg-ig-panel px-2.5 text-[11px] font-semibold text-ig-fg transition-colors hover:bg-ig-panel-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_oklab,var(--ig-accent)_45%,transparent)]"
+            >
+              <span className="truncate">
+                {advancedCount} {advancedCount === 1 ? 'filtro avançado' : 'filtros avançados'}
+              </span>
+              <X className="h-3 w-3 shrink-0" />
+            </button>
+          )}
+          <span className="text-[11px] text-ig-fg-muted tabular-nums">
+            · {filteredItems.length} {filteredItems.length === 1 ? 'resultado' : 'resultados'}
+          </span>
+        </div>
       )}
 
       <HudTabs tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} variant="underline" />
@@ -561,12 +702,34 @@ export default function DeliberacoesPage() {
         isOpen={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         canVote={!permissionsLoading && canVote}
+        canRequestOpinion={!permissionsLoading && canRequestOpinion}
+        canAttachEvidence={!permissionsLoading && canAttachEvidence}
+        canExecute={!permissionsLoading && canExecute}
+        canMinutes={!permissionsLoading && canMinutes}
+        busy={busy}
+        readOnly={isDemo}
+        onVote={selectedDeliberacao ? handleVote(selectedDeliberacao.id) : undefined}
+        onRequestOpinion={selectedDeliberacao ? handleRequestOpinion(selectedDeliberacao.id) : undefined}
+        onAttachEvidence={selectedDeliberacao ? handleAttachEvidence(selectedDeliberacao.id) : undefined}
+        onGenerateMinutes={selectedDeliberacao ? handleGenerateMinutes(selectedDeliberacao.id) : undefined}
+        onCreateTask={selectedDeliberacao ? handleCreateTask(selectedDeliberacao.id) : undefined}
+        onExecutionToggle={selectedDeliberacao ? handleExecutionToggle(selectedDeliberacao.id) : undefined}
+        onExport={
+          selectedDeliberacao
+            ? () =>
+                openDeliberationReport({
+                  deliberations: [toReportDeliberation(selectedDeliberacao)],
+                  source: isDemo ? 'demonstração' : 'Supabase',
+                })
+            : undefined
+        }
       />
 
       <NewDeliberationModal
         open={newDeliberationOpen}
         onOpenChange={setNewDeliberationOpen}
         onCreateDeliberation={handleCreateDeliberation}
+        allowedCommitteeIds={isDemo || isOwnerAdmin ? undefined : policyCommitteeIds}
       />
     </HudPageLayout>
   );

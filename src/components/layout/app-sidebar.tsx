@@ -73,7 +73,13 @@ import { cn } from "@/lib/utils";
 import { hasAnyPermission, hasPermission } from "@/lib/auth/permissions";
 import { createClient } from "@/utils/supabase/client";
 import { useCurrentUser } from "@/hooks/use-current-user";
+import { useMyCommittees } from "@/hooks/use-my-committees";
 import { useRiskBadge } from "@/hooks/use-risk-badge";
+
+/** Supabase configurado quando ambas as env vars públicas existem. */
+const SUPABASE_CONFIGURED = Boolean(
+  process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+);
 
 const ADMIN_STORAGE_KEY = "ig-sidebar-admin-open";
 const FINANCE_STORAGE_KEY = "ig-sidebar-finance-open";
@@ -192,6 +198,7 @@ const isRouteActive = (pathname: string, href: string) => {
 export function AppSidebar() {
   const pathname = usePathname();
   const { user: authUser, profile, roles, permissions } = useCurrentUser();
+  const { hasAny: hasCommittee, loading: committeesLoading } = useMyCommittees();
   const user: User = {
     fullName: profile?.full_name || authUser?.email || "Usuario",
     cargo: profile?.job_title || roles[0]?.name || "Conta",
@@ -289,6 +296,16 @@ export function AppSidebar() {
   const canSeeItem = (item: MenuItem) => {
     if (item.alwaysVisibleWhenAuthenticated && authUser) return true;
     if (isOwnerAdmin) return true;
+    // Deliberações é restrito a membros de comitê: sem vínculo, oculta o item.
+    // Só aplica com Supabase configurado (não quebra demo/local) e após o load.
+    if (
+      item.href === "/deliberacoes" &&
+      SUPABASE_CONFIGURED &&
+      !committeesLoading &&
+      !hasCommittee
+    ) {
+      return false;
+    }
     if (item.permission) return hasPermission(permissions, item.permission);
     if (item.anyPermission) return hasAnyPermission(permissions, item.anyPermission);
     return true;

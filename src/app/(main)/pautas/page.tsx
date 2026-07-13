@@ -636,16 +636,26 @@ export default function CommitteesPage() {
 
   const handleCreateDeliberation = useCallback((payload: NewDeliberationPayload) => {
     const template = resolveTemplate(payload.templateId);
+    const linkedEntities = [
+      payload.linkedProjectLabel
+        ? { id: `proj-${Date.now()}`, label: payload.linkedProjectLabel, type: 'project' as const }
+        : null,
+      payload.linkedContractLabel
+        ? { id: `ctr-${Date.now()}`, label: payload.linkedContractLabel, type: 'contract' as const }
+        : null,
+    ].filter((entity): entity is NonNullable<typeof entity> => entity !== null);
+    const ownerStage = payload.stages.find((stage) => stage.stageType === 'owner_review') ?? payload.stages[0];
     void createDeliberation({
       title: payload.title,
       description: payload.description,
       status: 'under_review',
       type: payload.businessArea,
-      priority: payload.riskLevel === 'critical' ? 'critical' : payload.riskLevel === 'high' ? 'high' : 'medium',
+      priority: payload.priority,
       createdBy: CURRENT_USER_ID,
       createdByName: CURRENT_USER_NAME,
       ownerName: CURRENT_USER_NAME,
       submittedAt: new Date(),
+      dueDate: payload.deadline ? new Date(payload.deadline) : undefined,
       deliberationStatus: 'submitted',
       ownerCommitteeId: payload.ownerCommitteeId,
       ownerCommitteeName: payload.ownerCommitteeName,
@@ -660,10 +670,10 @@ export default function CommitteesPage() {
       marginPercent: payload.marginPercent,
       evidenceComplete: false,
       stages: payload.stages,
-      currentStageId: payload.stages[0]?.id,
-      quorumRequired: Math.max(1, Math.ceil((payload.stages[0]?.votingRule.quorumPercent ?? 60) * 5 / 100)),
+      currentStageId: ownerStage?.id,
+      quorumRequired: Math.max(1, Math.ceil((ownerStage?.votingRule.quorumPercent ?? payload.quorumPercent) * 5 / 100)),
       executionItems: [],
-      linkedEntities: [],
+      linkedEntities,
     })
       .then((created) => setSelectedId(created.id))
       .catch((err) => console.error('createDeliberation failed', err));

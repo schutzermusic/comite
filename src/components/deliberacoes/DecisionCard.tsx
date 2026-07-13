@@ -3,6 +3,8 @@
 import React from 'react';
 import {
   ArrowRight,
+  CalendarClock,
+  ChevronRight,
   Vote,
   FileText,
   MessageSquarePlus,
@@ -28,10 +30,16 @@ import { DecisionSlaBadge } from './DecisionSlaBadge';
 import { DecisionRiskBadge } from './DecisionRiskBadge';
 import { CommitteeBadge } from './CommitteeBadge';
 
+export type DecisionCardAction = 'open' | 'vote' | 'parecer' | 'evidence' | 'ata';
+
 interface DecisionCardProps {
   deliberacao: Deliberacao;
   isSelected: boolean;
   onClick: () => void;
+  /** Called with the quick-action id; defaults to opening the dossier. */
+  onAction?: (action: DecisionCardAction) => void;
+  /** RBAC: gates the "Votar" quick action. */
+  canVote?: boolean;
 }
 
 const STATUS_PILL: Record<
@@ -65,8 +73,19 @@ function getInitials(nome: string): string {
     .join('');
 }
 
+function formatDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    });
+  } catch {
+    return iso;
+  }
+}
+
 function derivePanelState(d: Deliberacao): HudPanelProps['state'] {
-  if (d.risco === 'critico' && d.sla_status === 'overdue') return 'critical';
   if (d.sla_status === 'overdue') return 'critical';
   if (d.sla_status === 'at_risk' || d.prioridade === 'critica') return 'warning';
   return 'default';
@@ -74,7 +93,7 @@ function derivePanelState(d: Deliberacao): HudPanelProps['state'] {
 
 function quickActionsForStatus(
   status: DeliberacaoStatus,
-): { id: string; label: string; icon: React.ReactNode }[] {
+): { id: DecisionCardAction; label: string; icon: React.ReactNode }[] {
   switch (status) {
     case 'rascunho':
       return [
@@ -85,7 +104,6 @@ function quickActionsForStatus(
       return [
         { id: 'open', label: 'Abrir', icon: <Eye className="w-3.5 h-3.5" /> },
         { id: 'parecer', label: 'Solicitar parecer', icon: <MessageSquarePlus className="w-3.5 h-3.5" /> },
-        { id: 'evidence', label: 'Anexar', icon: <Paperclip className="w-3.5 h-3.5" /> },
       ];
     case 'em_votacao':
       return [
@@ -108,7 +126,19 @@ function quickActionsForStatus(
   }
 }
 
-export function DecisionCard({ deliberacao, isSelected, onClick }: DecisionCardProps) {
+/**
+ * Decision dossier card — a single cohesive surface: one identity row
+ * (comitê · status · prioridade | risco/SLA), title, meta line (responsável ·
+ * prazo · quórum), next action strip and a hairline-divided action footer that
+ * opens the dossier drawer.
+ */
+export function DecisionCard({
+  deliberacao,
+  isSelected,
+  onClick,
+  onAction,
+  canVote = true,
+}: DecisionCardProps) {
   const statusCfg = STATUS_PILL[deliberacao.status];
   const prioCfg = PRIORIDADE_BADGE[deliberacao.prioridade];
   const panelState = derivePanelState(deliberacao);
@@ -119,13 +149,12 @@ export function DecisionCard({ deliberacao, isSelected, onClick }: DecisionCardP
       : 0,
   );
   const actions = quickActionsForStatus(deliberacao.status);
+  const handleAction = (id: DecisionCardAction) => (onAction ?? (() => onClick()))(id);
 
   return (
-    <button
-      type="button"
-      onClick={onClick}
+    <div
       className={cn(
-        'w-full text-left rounded-xl transition-shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ig-accent/40',
+        'w-full rounded-xl transition-shadow',
         isSelected && 'ring-1 ring-ig-accent/60',
       )}
     >
@@ -136,16 +165,27 @@ export function DecisionCard({ deliberacao, isSelected, onClick }: DecisionCardP
         sweep={isSelected}
         noPadding
       >
-        <div className="px-4 py-3.5 space-y-3">
-          {/* Header row: committee | status pill | risk */}
+        <button
+          type="button"
+          onClick={onClick}
+          aria-label={`Abrir dossiê: ${deliberacao.titulo}`}
+          className="block w-full text-left px-4 pt-3.5 pb-3 space-y-2.5 rounded-t-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ig-accent/40"
+        >
+          {/* Identity row: committee · status · priority | risk + SLA */}
           <div className="flex items-center justify-between gap-2 flex-wrap">
-            <div className="flex items-center gap-2 min-w-0">
+            <div className="flex items-center gap-2 min-w-0 flex-wrap">
               <CommitteeBadge nome={deliberacao.comite_nome} cor={deliberacao.comite_cor} />
               <HudStatusPill variant={statusCfg.variant} size="sm">
                 {statusCfg.label}
               </HudStatusPill>
+              <HudBadge variant={prioCfg.variant} size="sm">
+                <span title={`Prioridade ${prioCfg.label.toLowerCase()}`}>{prioCfg.label}</span>
+              </HudBadge>
             </div>
-            <DecisionRiskBadge risco={deliberacao.risco} size="sm" />
+            <div className="flex items-center gap-1.5 shrink-0">
+              <DecisionRiskBadge risco={deliberacao.risco} size="sm" />
+              <DecisionSlaBadge status={deliberacao.sla_status} size="sm" />
+            </div>
           </div>
 
           {/* Title */}
@@ -153,34 +193,35 @@ export function DecisionCard({ deliberacao, isSelected, onClick }: DecisionCardP
             {deliberacao.titulo}
           </h4>
 
-          {/* Meta row: owner | quorum */}
-          <div className="flex items-center justify-between gap-3 text-xs">
-            <div className="flex items-center gap-2 min-w-0">
-              <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-ig-accent-weak text-[10px] font-semibold text-ig-accent shrink-0">
-                {getInitials(deliberacao.responsavel_nome)}
+          {/* Meta row: owner · due date · quorum (quórum é destacado apenas em
+              votação — nos demais estados não sugerimos que a votação começou) */}
+          <div className="flex items-center justify-between gap-3 text-xs flex-wrap">
+            <div className="flex items-center gap-3 min-w-0">
+              <span className="flex items-center gap-2 min-w-0">
+                <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-ig-accent-weak text-[10px] font-semibold text-ig-accent shrink-0">
+                  {getInitials(deliberacao.responsavel_nome)}
+                </span>
+                <span className="text-ig-fg-muted truncate">{deliberacao.responsavel_nome}</span>
               </span>
-              <span className="text-ig-fg-muted truncate">{deliberacao.responsavel_nome}</span>
+              <span className="flex items-center gap-1 text-ig-fg-muted shrink-0">
+                <CalendarClock className="w-3.5 h-3.5" />
+                <span className="tabular-nums">{formatDate(deliberacao.sla_deadline)}</span>
+              </span>
             </div>
-            <div className="flex items-center gap-1.5 shrink-0">
-              <span className="text-ig-fg-muted text-[11px]">Quórum</span>
-              <span className="text-ig-fg-strong tabular-nums font-medium">
-                {deliberacao.quorum_atual}/{deliberacao.quorum_necessario}
-              </span>
-              <div className="w-12 h-1.5 rounded-full bg-ig-panel-hover overflow-hidden">
-                <div
-                  className="h-full bg-ig-accent rounded-full transition-all"
-                  style={{ width: `${quorumPct}%` }}
-                />
+            {deliberacao.status === 'em_votacao' && (
+              <div className="flex items-center gap-1.5 shrink-0">
+                <span className="text-ig-fg-muted text-[11px]">Quórum</span>
+                <span className="text-ig-fg-strong tabular-nums font-medium">
+                  {deliberacao.quorum_atual}/{deliberacao.quorum_necessario}
+                </span>
+                <div className="w-12 h-1.5 rounded-full bg-ig-panel-hover overflow-hidden">
+                  <div
+                    className="h-full bg-ig-accent rounded-full transition-all"
+                    style={{ width: `${quorumPct}%` }}
+                  />
+                </div>
               </div>
-            </div>
-          </div>
-
-          {/* Badges row */}
-          <div className="flex items-center gap-2 flex-wrap">
-            <DecisionSlaBadge status={deliberacao.sla_status} size="sm" />
-            <HudBadge variant={prioCfg.variant} size="sm">
-              {prioCfg.label}
-            </HudBadge>
+            )}
           </div>
 
           {/* Próxima ação */}
@@ -190,25 +231,41 @@ export function DecisionCard({ deliberacao, isSelected, onClick }: DecisionCardP
               {deliberacao.proxima_acao}
             </p>
           </div>
+        </button>
 
-          {/* Quick actions */}
-          <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
-            {actions.map((a) => (
-              <HudButton
-                key={a.id}
-                variant="ghost"
-                size="sm"
-                leftIcon={a.icon}
-                onClick={(e) => {
-                  e.stopPropagation();
-                }}
-              >
-                {a.label}
-              </HudButton>
-            ))}
+        {/* Action footer */}
+        <div className="flex items-center justify-between gap-2 border-t border-ig-border-subtle px-3 py-1.5">
+          <div className="flex items-center gap-1 flex-wrap">
+            {actions.map((a) => {
+              const voteBlocked = a.id === 'vote' && !canVote;
+              return (
+                <HudButton
+                  key={a.id}
+                  variant="ghost"
+                  size="sm"
+                  leftIcon={a.icon}
+                  disabled={voteBlocked}
+                  title={voteBlocked ? 'Requer permissão deliberations.vote' : undefined}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (!voteBlocked) handleAction(a.id);
+                  }}
+                >
+                  {a.label}
+                </HudButton>
+              );
+            })}
           </div>
+          <button
+            type="button"
+            onClick={onClick}
+            className="hidden sm:inline-flex items-center gap-0.5 text-[11px] font-medium text-ig-fg-muted hover:text-ig-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ig-accent/40 rounded-md px-1.5 py-1 shrink-0"
+          >
+            Dossiê
+            <ChevronRight className="w-3.5 h-3.5" />
+          </button>
         </div>
       </HudPanel>
-    </button>
+    </div>
   );
 }
