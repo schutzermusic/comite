@@ -115,10 +115,34 @@ where entity_type = 'deliberation' group by action order by action;
 ## 7. Mobile / tablet
 
 - [ ] No horizontal page overflow at 375px / 768px.
-- [ ] KPI band stacks; pipeline scrolls with the right fade edge.
+- [ ] KPI band stacks (the standalone pipeline section was removed — the full
+      flow lives in the drawer stepper, which wraps instead of overflowing).
 - [ ] Tabs scroll; cards single-column; drawer full-width; toasts visible.
 
-## 8. Known boundaries (next phase)
+## 8. Drawer dynamic flow ("Fluxo da Decisão")
+
+The stepper derives the historical path from persisted signals
+(`metadata.creationRoute`, `metadata.enteredReviewAt`, audit `entered_review`,
+pareceres issued before `voting_window_start`) — never from the mere existence
+of an optional parecer.
+
+- [ ] **Direct-to-voting (e.g. simple HR decision)**: create with route
+      "votação direta" → drawer shows `Criada → Em votação → Concluída`
+      (no "Em revisão" step).
+- [ ] **Review route without parecer**: create with route "revisão", advance
+      to voting without any parecer issued → drawer still shows
+      `Criada → Em revisão → Em votação → Concluída`.
+- [ ] **Optional parecer during voting**: on a direct-to-voting decision,
+      request a parecer while `in_voting` (answered or not) → "Em revisão"
+      does NOT appear in the flow.
+- [ ] "Aguardando ata" appears only when the decision awaits/has real minutes
+      (rejected decisions resolve without an ata step); "Em execução" only
+      with execution actions or status.
+- [ ] Legacy rows (created before `creationRoute` existed) fall back to
+      audit/parecer-timing heuristics; a legacy review-route decision already
+      in voting may under-show "Em revisão" — expected.
+
+## 9. Known boundaries (next phase)
 
 - Creating a deliberation from **this** screen still shows the local-draft
   banner; persisted creation lives in `/pautas`. Wiring this screen's create

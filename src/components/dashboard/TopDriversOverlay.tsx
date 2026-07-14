@@ -4,7 +4,7 @@ import React from 'react';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 import { AlertTriangle, Vote, FileText } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 import { GlassPanel } from './GlassPanel';
 import type { DashboardPayload } from '@/lib/dashboard-data';
 import { useTheme } from '@/contexts/ThemeContext';

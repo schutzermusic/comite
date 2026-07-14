@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import { motion, AnimatePresence, useAnimationFrame } from 'framer-motion';
+import { motion, AnimatePresence, useAnimationFrame } from 'motion/react';
 import { AlertTriangle, AlertCircle, AlertOctagon, Info, ShieldCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 

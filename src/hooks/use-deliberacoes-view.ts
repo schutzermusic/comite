@@ -8,6 +8,7 @@ import {
   upsertExecutionItem as upsertExecutionItemService,
   generateMinutes as generateMinutesService,
   createDeliberationTask as createDeliberationTaskService,
+  deleteDeliberation as deleteDeliberationService,
   type RequestOpinionInput,
   type AttachEvidenceInput,
   type ExecutionItemInput,
@@ -64,6 +65,10 @@ function buildCreateInput(payload: NewDeliberationPayload): CreateDeliberationIn
     submittedAt: now,
     dueDate: payload.deadline ? new Date(payload.deadline) : undefined,
     deliberationStatus,
+    // Persistidos em metadata: permitem ao dossiê mostrar "Em revisão" no
+    // fluxo histórico mesmo sem parecer emitido (revisão formal ≠ parecer).
+    creationRoute: payload.route,
+    enteredReviewAt: payload.route === 'review' ? now : undefined,
     votingStartedAt,
     votingClosedAt,
     ownerCommitteeId: payload.ownerCommitteeId,
@@ -179,6 +184,16 @@ export function useDeliberacoesView() {
     [guardDemo, refresh],
   );
 
+  // Exclui uma deliberação (restrito a admin na UI; RLS reforça no backend).
+  const deleteDeliberation = useCallback(
+    async (id: string) => {
+      guardDemo();
+      await deleteDeliberationService(id);
+      await refresh();
+    },
+    [guardDemo, refresh],
+  );
+
   // Cria e persiste uma nova deliberação a partir do payload do formulário.
   // `createDeliberationLive` já dá refresh na lista após inserir.
   const createDeliberation = useCallback(
@@ -202,5 +217,6 @@ export function useDeliberacoesView() {
     generateMinutes,
     createTask,
     createDeliberation,
+    deleteDeliberation,
   };
 }

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 import { X, TrendingUp, TrendingDown, FileText, DollarSign, Percent, BarChart3 } from 'lucide-react';
 import { StateProjectData, formatBRL, formatCompact, RISK_COLORS } from '@/data/geo/brazil-operational-data';
 import { cn } from '@/lib/utils';

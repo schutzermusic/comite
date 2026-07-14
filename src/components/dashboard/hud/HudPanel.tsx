@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { motion, useReducedMotion } from 'framer-motion';
+import { motion, useReducedMotion } from 'motion/react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { GlassPanel } from '@/components/dashboard/GlassPanel';

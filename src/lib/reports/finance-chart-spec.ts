@@ -57,6 +57,14 @@ export function renderFinanceChart(spec: FinanceChartSpec): string {
   );
 }
 
+/** ViewBox dimensions of the SVG a spec renders — used by height estimators. */
+export function financeChartDims(spec: FinanceChartSpec): { w: number; h: number } {
+  if (spec.kind === 'donut') return { w: 380, h: 200 };
+  if (spec.kind === 'bars') return { w: 560, h: spec.rows.length * 26 + 8 };
+  if (spec.kind === 'trend') return { w: 560, h: 230 };
+  return { w: 560, h: 240 };
+}
+
 export function financeChartLegend(spec: FinanceChartSpec): string {
   if (spec.kind === 'trend') {
     return legend(spec.series.map((s, i) => ({ name: s.name, color: s.color ?? CATEGORICAL_3[i % 3], dashed: s.dashed })));

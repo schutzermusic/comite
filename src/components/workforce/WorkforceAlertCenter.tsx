@@ -4,7 +4,7 @@ import { AlertTriangle, TrendingUp, AlertCircle, CheckCircle } from 'lucide-reac
 import { OrionCard } from '@/components/orion';
 import { CostCenter, formatWorkforcePercentage } from '@/lib/workforce-data';
 import { cn } from '@/lib/utils';
-import { motion } from 'framer-motion';
+import { motion } from 'motion/react';
 import Link from 'next/link';
 
 interface WorkforceAlert {

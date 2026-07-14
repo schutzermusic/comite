@@ -2,7 +2,7 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { motion } from 'framer-motion';
+import { motion } from 'motion/react';
 import { FolderKanban, ArrowUpRight, AlertTriangle, CheckCircle2, Eye } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { formatCompactBRL, formatPct } from './helpers';

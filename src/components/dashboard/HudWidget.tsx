@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { motion } from 'framer-motion';
+import { motion } from 'motion/react';
 import { Minimize2, Maximize2, Pin, PinOff, Eye, EyeOff, GripVertical, type LucideIcon } from 'lucide-react';
 import Link from 'next/link';
 import type { WidgetState } from '@/hooks/useHudLayout';

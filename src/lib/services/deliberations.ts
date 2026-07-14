@@ -219,6 +219,8 @@ export function mapRowToDeliberation(
     templateName: (meta.templateName as string) ?? undefined,
     requestedDecision: (meta.requestedDecision as string) ?? undefined,
     resolvedAt: toDate((meta.resolvedAt as string) ?? null),
+    creationRoute: (meta.creationRoute as DeliberationItem['creationRoute']) ?? undefined,
+    enteredReviewAt: toDate((meta.enteredReviewAt as string) ?? null),
   };
 }
 
@@ -249,6 +251,8 @@ function buildMetadata(item: Partial<DeliberationItem>): Record<string, unknown>
     templateName: item.templateName,
     requestedDecision: item.requestedDecision,
     resolvedAt: item.resolvedAt ? new Date(item.resolvedAt).toISOString() : undefined,
+    creationRoute: item.creationRoute,
+    enteredReviewAt: item.enteredReviewAt ? new Date(item.enteredReviewAt).toISOString() : undefined,
   };
 }
 
@@ -416,15 +420,38 @@ export async function createDeliberation(input: CreateDeliberationInput): Promis
   const supabase = createClient();
   const { userId, orgId, userName } = await getCurrentOrgAndUser(supabase);
 
-  const auditEntry = makeAuditEntry(
-    'pending',
-    'status_changed',
-    'Decisão submetida.',
-    userId,
-    userName,
-    undefined,
-    'submitted',
-  );
+  // Entrada de auditoria específica por rota — o wording genérico "submetida"
+  // com newValue 'submitted' para toda rota impedia distinguir, no histórico,
+  // revisão formal de votação direta (fluxo dinâmico do dossiê depende disso).
+  const route =
+    input.creationRoute ??
+    (input.deliberationStatus === 'in_voting'
+      ? 'voting'
+      : input.deliberationStatus === 'draft'
+      ? 'draft'
+      : 'review');
+  const auditEntry =
+    route === 'voting'
+      ? makeAuditEntry(
+          'pending',
+          'voting_started',
+          'Decisão criada e enviada diretamente para votação.',
+          userId,
+          userName,
+          undefined,
+          'in_voting',
+        )
+      : route === 'draft'
+      ? makeAuditEntry('pending', 'status_changed', 'Rascunho criado.', userId, userName, undefined, 'draft')
+      : makeAuditEntry(
+          'pending',
+          'entered_review',
+          'Decisão submetida para revisão.',
+          userId,
+          userName,
+          undefined,
+          input.deliberationStatus ?? 'submitted',
+        );
 
   const itemForRow: Partial<DeliberationItem> = {
     ...input,

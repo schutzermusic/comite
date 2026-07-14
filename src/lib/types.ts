@@ -345,6 +345,7 @@ export type AuditTrailEntry = {
     | 'voting_closed'
     | 'evidence_added'
     | 'review_requested'
+    | 'entered_review'
     | 'stage_transitioned'
     | 'minutes_generated'
     | 'minutes_published'
@@ -418,6 +419,11 @@ export type DeliberationItem = AgendaBacklogItem & {
 
   minutesSummary?: string;
   minutes?: DeliberationMinutes;
+
+  /** Rota de criação (persistida em metadata) — distingue revisão formal de votação direta. */
+  creationRoute?: 'draft' | 'review' | 'voting';
+  /** Quando a decisão entrou formalmente em revisão (persistido em metadata). */
+  enteredReviewAt?: Date;
 
   executionItems?: DeliberationActionItem[];
 

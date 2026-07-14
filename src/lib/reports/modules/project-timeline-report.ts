@@ -9,12 +9,16 @@
 import type { TimelineItem } from '@/lib/types/project-timeline';
 import { timelineKpis, deriveDelayStatus } from '@/lib/projects/timeline-analytics';
 import { esc, fmtDate, fmtInt } from '@/lib/reports/report-formatters';
-import { C } from '@/lib/reports/report-theme';
-import { svgDonut } from '@/lib/reports/report-charts';
+import { C, REPORT_BRAND_NAME } from '@/lib/reports/report-theme';
+import { svgDonut, svgGauge, svgTimelineStrip, type TimelineMarker } from '@/lib/reports/report-charts';
 import {
-  reportCover, sectionTitle, kpiGrid, chartBlock, dataTable, dataQualityBox,
+  reportCover, sectionTitle, kpiGrid, chartBlock, dataTable, dataTableChunked, dataQualityBox,
   type KpiCardSpec,
 } from '@/lib/reports/report-blocks';
+import {
+  composePages, block, mmForChart, mmForColumns, mmForCover, mmForKpiGrid,
+  mmForSectionTitle, mmForTable, mmForWarningBox, type ReportBlock,
+} from '@/lib/reports/report-compose';
 import { renderReportDocument } from '@/lib/reports/report-shell';
 import { openReport, buildReportMeta, buildReportFileName } from '@/lib/reports/report-export';
 import type { ReportExportResult } from '@/lib/reports/report-types';
@@ -37,7 +41,7 @@ const STATUS_LABEL: Record<string, string> = { not_started: 'Não iniciada', in_
 export function buildProjectTimelineReportHtml(payload: ProjectTimelineReportPayload): string {
   const items = payload.items ?? [];
   const nameOf = payload.resolveUserName ?? ((id) => id ?? '—');
-  const brand = payload.brandName ?? 'INSIGHT — Governança Corporativa';
+  const brand = payload.brandName ?? REPORT_BRAND_NAME;
   const fileName = buildReportFileName({ module: 'projeto', context: `cronograma-${payload.projectCode ?? payload.projectName}` });
   const now = new Date();
   const kpi = timelineKpis(items, now);
@@ -49,12 +53,19 @@ export function buildProjectTimelineReportHtml(payload: ProjectTimelineReportPay
     generatedBy: payload.generatedBy,
   });
 
-  const cover = reportCover({
+  const blocks: ReportBlock[] = [];
+  blocks.push(block(reportCover({
     meta,
     kicker: 'Relatório Executivo · Cronograma',
     title: payload.projectName,
     context: `${payload.projectCode ? `<b>${esc(payload.projectCode)}</b><span class="sep">·</span>` : ''}${kpi.overallPercent.toFixed(0)}% concluído<span class="sep">·</span>${fmtInt(kpi.delayedCount)} atrasadas`,
-  });
+    coverKpis: [
+      { label: 'Avanço geral', value: `${kpi.overallPercent.toFixed(0)}%` },
+      { label: 'Atividades', value: fmtInt(kpi.totalLeaf) },
+      { label: 'Atrasadas', value: fmtInt(kpi.delayedCount) },
+      { label: 'Término previsto', value: kpi.projectFinish ? fmtDate(kpi.projectFinish) : '—' },
+    ],
+  }), mmForCover(true)));
 
   // ── KPIs ──
   const kpiCards: KpiCardSpec[] = [
@@ -67,7 +78,8 @@ export function buildProjectTimelineReportHtml(payload: ProjectTimelineReportPay
     { label: 'Próximo marco', value: kpi.nextMilestone ? (kpi.daysRemaining != null ? `${fmtInt(kpi.daysRemaining)}d` : '—') : 'sem marco', color: C.purple, helper: kpi.nextMilestone?.title },
     { label: 'Término previsto', value: kpi.projectFinish ? fmtDate(kpi.projectFinish) : '—', color: C.cost },
   ];
-  const kpis = `${sectionTitle('Visão Geral do Cronograma')}${kpiGrid(kpiCards)}`;
+  blocks.push(block(sectionTitle('Visão Geral do Cronograma', undefined, 1), mmForSectionTitle(), { keepWithNext: true }));
+  blocks.push(block(kpiGrid(kpiCards, 4), mmForKpiGrid(kpiCards.length, 4)));
 
   // ── Delay distribution donut ──
   const leaves = items.filter((i) => !i.isSummary);
@@ -76,9 +88,58 @@ export function buildProjectTimelineReportHtml(payload: ProjectTimelineReportPay
     .filter((x) => x.value > 0);
   const delayBlock = chartBlock({
     title: 'Atividades por situação de prazo',
-    svg: svgDonut(delayCounts, { width: 360, centerLabel: fmtInt(leaves.length), fmtValue: (n) => fmtInt(n) }),
+    svg: svgDonut(delayCounts, { width: 490, height: 132, centerLabel: fmtInt(leaves.length), fmtValue: (n) => fmtInt(n) }),
   });
-  const distSection = `${sectionTitle('Distribuição de Prazos')}${delayBlock}`;
+  const progressBlock = chartBlock({
+    title: 'Avanço Físico do Cronograma',
+    sub: `${fmtInt(kpi.completedCount)} de ${fmtInt(kpi.totalLeaf)} atividades concluídas`,
+    svg: svgGauge(kpi.overallPercent, {
+      width: 490,
+      height: 132,
+      label: 'Concluído',
+      color: kpi.overallPercent >= 70 ? C.success : kpi.overallPercent >= 40 ? C.primary : C.warning,
+    }),
+  });
+  blocks.push(block(
+    `<div class="two-col">${progressBlock}${delayBlock}</div>`,
+    mmForColumns(
+      mmForChart(132, { svgWidthPx: 490, cols: 2, title: true }),
+      mmForChart(132, { svgWidthPx: 490, cols: 2, title: true }),
+    ),
+  ));
+
+  // ── Milestone strip: next 12 months ──
+  const monthLabels: string[] = [];
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+    const mon = d.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '');
+    monthLabels.push(i === 0 || d.getMonth() === 0 ? `${mon} ${String(d.getFullYear()).slice(2)}` : mon);
+  }
+  const monthIdxOf = (iso: string) => {
+    const d = new Date(iso);
+    return (d.getFullYear() - now.getFullYear()) * 12 + d.getMonth() - now.getMonth();
+  };
+  const msAll = items.filter((i) => i.isMilestone);
+  const msWindow = msAll.filter((m) => {
+    const ref = m.plannedFinish || m.plannedStart;
+    if (!ref) return false;
+    const idx = monthIdxOf(ref);
+    return idx >= 0 && idx < 12;
+  });
+  if (msWindow.length) {
+    const msCounts = Array.from({ length: 12 }, () => 0);
+    msWindow.forEach((m) => { msCounts[monthIdxOf((m.plannedFinish || m.plannedStart) as string)] += 1; });
+    const msMarkers: TimelineMarker[] = msWindow.slice(0, 9).map((m) => ({
+      monthIdx: monthIdxOf((m.plannedFinish || m.plannedStart) as string),
+      label: m.title.length > 22 ? `${m.title.slice(0, 21)}…` : m.title,
+      color: m.status === 'completed' ? C.success : deriveDelayStatus(m, now) === 'delayed' ? C.critical : C.info,
+    }));
+    blocks.push(block(chartBlock({
+      title: 'Marcos — Próximos 12 Meses',
+      sub: `${fmtInt(msWindow.length)} marcos na janela`,
+      svg: svgTimelineStrip(monthLabels, msMarkers, { width: 1000, counts: msCounts, accent: C.info }),
+    }), mmForChart(128, { svgWidthPx: 1000, title: true })));
+  }
 
   // ── Delayed / at-risk activities ──
   const delayed = leaves
@@ -106,7 +167,8 @@ export function buildProjectTimelineReportHtml(payload: ProjectTimelineReportPay
       };
     }),
   );
-  const delayedSection = `${sectionTitle('Atividades Atrasadas / Em Risco', `${fmtInt(delayed.length)} atividades`)}${delayed.length ? delayedTable : '<p class="empty">Nenhuma atividade atrasada ou em risco.</p>'}`;
+  blocks.push(block(sectionTitle('Atividades Atrasadas / Em Risco', `${fmtInt(delayed.length)} atividades`, 2), mmForSectionTitle(true), { breakBefore: true, keepWithNext: true }));
+  blocks.push(block(delayed.length ? delayedTable : '<p class="empty">Nenhuma atividade atrasada ou em risco.</p>', delayed.length ? mmForTable(delayed.length) : 8));
 
   // ── Next critical tasks (upcoming, not completed, by finish) ──
   const upcoming = leaves
@@ -131,7 +193,8 @@ export function buildProjectTimelineReportHtml(payload: ProjectTimelineReportPay
       status: STATUS_LABEL[i.status] ?? i.status,
     })),
   );
-  const upcomingSection = `${sectionTitle('Próximas Tarefas Críticas')}${upcoming.length ? upcomingTable : '<p class="empty">Sem tarefas pendentes no horizonte.</p>'}`;
+  blocks.push(block(sectionTitle('Próximas Tarefas Críticas', undefined, 3), mmForSectionTitle(), { breakBefore: true, keepWithNext: true }));
+  blocks.push(block(upcoming.length ? upcomingTable : '<p class="empty">Sem tarefas pendentes no horizonte.</p>', upcoming.length ? mmForTable(upcoming.length, { rowMm: 5.6 }) : 8));
 
   // ── Milestones ──
   const milestones = items.filter((i) => i.isMilestone).sort((a, b) => (a.plannedFinish || a.plannedStart || '').localeCompare(b.plannedFinish || b.plannedStart || ''));
@@ -147,7 +210,8 @@ export function buildProjectTimelineReportHtml(payload: ProjectTimelineReportPay
       status: { html: `<span class="pill ${m.status === 'completed' ? 'ok' : deriveDelayStatus(m, now) === 'delayed' ? 'crit' : 'warn'}">${STATUS_LABEL[m.status] ?? m.status}</span>` },
     })),
   );
-  const msSection = `${sectionTitle('Marcos', `${fmtInt(milestones.length)} marcos`)}${milestones.length ? msTable : '<p class="empty">Sem marcos no cronograma.</p>'}`;
+  blocks.push(block(sectionTitle('Marcos', `${fmtInt(milestones.length)} marcos`), mmForSectionTitle(true), { keepWithNext: true }));
+  blocks.push(block(milestones.length ? msTable : '<p class="empty">Sem marcos no cronograma.</p>', milestones.length ? mmForTable(milestones.length, { rowMm: 5.6 }) : 8));
 
   // ── Data quality ──
   const issues: string[] = [];
@@ -155,18 +219,15 @@ export function buildProjectTimelineReportHtml(payload: ProjectTimelineReportPay
   if (kpi.missingResponsible) issues.push(`${fmtInt(kpi.missingResponsible)} atividade(s) sem responsável.`);
   const noDates = leaves.filter((i) => !i.plannedFinish && !i.forecastFinish).length;
   if (noDates) issues.push(`${fmtInt(noDates)} atividade(s) sem data de término.`);
-  const dqSection = `${sectionTitle('Qualidade dos Dados')}${dataQualityBox(issues)}`;
-
-  const page1 = `<section class="section">${cover}</section><section class="section">${kpis}</section><section class="section">${distSection}</section>`;
-  const page2 = `<section class="section">${delayedSection}</section>`;
-  const page3 = `<section class="section">${upcomingSection}</section><section class="section">${msSection}</section><section class="section">${dqSection}</section>`;
+  blocks.push(block(sectionTitle('Qualidade dos Dados'), mmForSectionTitle(), { keepWithNext: true }));
+  blocks.push(block(dataQualityBox(issues), mmForWarningBox(Math.max(1, issues.length))));
 
   return renderReportDocument({
     fileName,
     brand,
     logoUrl: meta.logoUrl,
     footerLabel: `Cronograma · ${payload.projectName}`,
-    pages: [page1, page2, page3],
+    pages: composePages(blocks, { orientation: 'landscape' }),
     orientation: 'landscape',
   });
 }

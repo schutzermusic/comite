@@ -2,7 +2,7 @@
 
 import { FONT_FAMILY_SANS } from '@/lib/fonts';
 import React, { useEffect, useRef, useState } from 'react';
-import { motion } from 'framer-motion';
+import { motion } from 'motion/react';
 import { STATE_PROJECT_DATA, STATE_CENTROIDS, formatCompact } from '@/data/geo/brazil-operational-data';
 
 /* ───────────────────────────────────────────────────────

@@ -5,8 +5,7 @@
  *
  * Animated iridescent "liquid metal" gradient used as a subtle backdrop behind
  * the squared glass chips/cards. Adapted from the provided reference component;
- * import switched to `framer-motion` (the repo convention — same v12 engine as
- * `motion/react`).
+ * imports use `motion/react` (the repo convention).
  *
  * To stay enterprise/on-brand instead of rainbow, `buildAccentLiquidColors`
  * derives the 17 stops from a single semantic accent (metallic shades + faint
@@ -14,7 +13,7 @@
  */
 
 import React from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 
 type ColorKey =
     | 'color1' | 'color2' | 'color3' | 'color4' | 'color5' | 'color6'

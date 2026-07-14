@@ -20,7 +20,7 @@ import { Slider } from '@/components/ui/slider';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { formatWorkforceCurrency } from '@/lib/workforce-data';
 import { cn } from '@/lib/utils';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 
 interface HiringSimulatorExpandedProps {
   /** Real average TOTAL cost per employee (payroll total ÷ headcount). */

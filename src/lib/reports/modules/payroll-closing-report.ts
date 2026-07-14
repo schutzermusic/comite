@@ -12,12 +12,16 @@ import type {
   PayrollAttachmentFileType, PayrollSecurityLevel,
 } from '@/lib/types/payroll-closing';
 import { BRL, compactBRL, esc, fmtInt, fmtDate, periodLabel } from '@/lib/reports/report-formatters';
-import { C } from '@/lib/reports/report-theme';
-import { svgHorizontalBar } from '@/lib/reports/report-charts';
+import { C, REPORT_BRAND_NAME } from '@/lib/reports/report-theme';
+import { svgHorizontalBar, svgStackedBar } from '@/lib/reports/report-charts';
 import {
   reportCover, sectionTitle, kpiGrid, chartBlock, dataTable, warningBox, dataQualityBox, summaryBox,
   type KpiCardSpec,
 } from '@/lib/reports/report-blocks';
+import {
+  composePages, block, mmForChart, mmForColumns, mmForCover, mmForKpiGrid,
+  mmForSectionTitle, mmForSummary, mmForTable, mmForWarningBox, type ReportBlock,
+} from '@/lib/reports/report-compose';
 import { renderReportDocument } from '@/lib/reports/report-shell';
 import { openReport, buildReportMeta, buildReportFileName } from '@/lib/reports/report-export';
 import type { ReportExportResult } from '@/lib/reports/report-types';
@@ -49,7 +53,7 @@ const cents = (n?: number) => (n ?? 0) / 100;
 
 export function buildPayrollClosingReportHtml(payload: PayrollClosingReportPayload): string {
   const { batch, parse, narrative, attachments, dispatches } = payload;
-  const brand = payload.brandName ?? 'INSIGHT — Governança Corporativa';
+  const brand = payload.brandName ?? REPORT_BRAND_NAME;
   const fileName = buildReportFileName({ module: 'pessoas-custos', context: `fechamento-${batch.competence_month}` });
   const financeBatchId = payload.financeBatchId ?? batch.finance_batch_id;
 
@@ -64,13 +68,20 @@ export function buildPayrollClosingReportHtml(payload: PayrollClosingReportPaylo
   const total = batch.total_amount_cents;
   const variationPct = batch.variation_percentage;
 
-  const cover = reportCover({
+  const blocks: ReportBlock[] = [];
+  blocks.push(block(reportCover({
     meta,
     kicker: 'Relatório de Fechamento · Pessoas & Custos',
     title: 'Fechamento da Folha',
     context: `Competência <b>${esc(periodLabel(batch.competence_month))}</b><span class="sep">·</span>total <b>${esc(compactBRL(cents(total)))}</b>`,
     statusChip: { label: STATUS_LABEL[batch.status] ?? batch.status, color: batch.status === 'posted' || batch.status === 'sent_to_finance' ? C.success : batch.status === 'cancelled' ? C.critical : C.info },
-  });
+    coverKpis: [
+      { label: 'Folha total', value: compactBRL(cents(total)) },
+      { label: 'Variação', value: `${variationPct >= 0 ? '+' : ''}${variationPct.toFixed(1)}%` },
+      ...(parse?.headcount != null ? [{ label: 'Headcount', value: fmtInt(parse.headcount) }] : []),
+      { label: 'Status', value: STATUS_LABEL[batch.status] ?? batch.status },
+    ],
+  }), mmForCover(true)));
 
   // ── Sensitive-data warning (always shown) ──
   const sensitiveCount = attachments.filter((a) => SENSITIVE_LEVELS.includes(a.security_level)).length;
@@ -87,10 +98,13 @@ export function buildPayrollClosingReportHtml(payload: PayrollClosingReportPaylo
 
   // ── Board summary ──
   const boardText = narrative?.board_summary || narrative?.executive_summary;
-  const summarySection = `${sectionTitle('Sumário para a Diretoria', narrative?.generated_by_ai ? 'gerado por IA' : 'resumo determinístico')}`
-    + (boardText ? summaryBox(boardText.split(/\n\n+/).slice(0, 4)) : '<p class="empty">Narrativa ainda não gerada.</p>')
-    + (narrative?.attention_points?.length ? warningBox('Pontos de atenção', narrative.attention_points, 'warn') : '')
-    + sensitiveBox;
+  const boardParas = boardText ? boardText.split(/\n\n+/).slice(0, 4) : [];
+  blocks.push(block(sectionTitle('Sumário para a Diretoria', narrative?.generated_by_ai ? 'gerado por IA' : 'resumo determinístico', 1), mmForSectionTitle(true), { keepWithNext: true }));
+  blocks.push(block(boardParas.length ? summaryBox(boardParas) : '<p class="empty">Narrativa ainda não gerada.</p>', boardParas.length ? mmForSummary(boardParas) : 8));
+  if (narrative?.attention_points?.length) {
+    blocks.push(block(warningBox('Pontos de atenção', narrative.attention_points, 'warn'), mmForWarningBox(narrative.attention_points.length)));
+  }
+  blocks.push(block(sensitiveBox, mmForWarningBox(3)));
 
   // ── KPIs ──
   const kpiCards: KpiCardSpec[] = [
@@ -102,7 +116,23 @@ export function buildPayrollClosingReportHtml(payload: PayrollClosingReportPaylo
     ...(parse?.charges_amount_cents != null ? [{ label: 'Encargos', value: compactBRL(cents(parse.charges_amount_cents)), color: C.warning } as KpiCardSpec] : []),
     ...(parse?.benefits_amount_cents != null ? [{ label: 'Benefícios', value: compactBRL(cents(parse.benefits_amount_cents)), color: C.success } as KpiCardSpec] : []),
   ];
-  const kpis = `${sectionTitle('Indicadores do Fechamento')}${kpiGrid(kpiCards)}`;
+  blocks.push(block(sectionTitle('Indicadores do Fechamento', undefined, 2), mmForSectionTitle(), { breakBefore: true, keepWithNext: true }));
+  blocks.push(block(kpiGrid(kpiCards, 4), mmForKpiGrid(kpiCards.length, 4)));
+
+  // Composition stacked bar (bruto × encargos × benefícios) when parsed.
+  if (parse?.gross_amount_cents != null && parse?.charges_amount_cents != null) {
+    blocks.push(block(chartBlock({
+      title: 'Composição da Folha',
+      svg: svgStackedBar(
+        [
+          { label: 'Bruto', value: cents(parse.gross_amount_cents), color: C.cost },
+          { label: 'Encargos', value: cents(parse.charges_amount_cents), color: C.warning },
+          ...(parse.benefits_amount_cents != null ? [{ label: 'Benefícios', value: cents(parse.benefits_amount_cents), color: C.success }] : []),
+        ],
+        { width: 1000, fmtValue: compactBRL },
+      ),
+    }), mmForChart(64, { svgWidthPx: 1000, title: true })));
+  }
 
   // ── Cost centers ──
   const ccSection = (() => {
@@ -112,7 +142,7 @@ export function buildPayrollClosingReportHtml(payload: PayrollClosingReportPaylo
       title: 'Folha por centro de custo',
       svg: svgHorizontalBar(
         [...ccs].sort((a, b) => b.amount_cents - a.amount_cents).slice(0, 8).map((c) => ({ label: c.cost_center_label, value: cents(c.amount_cents) })),
-        { width: 520, fmtValue: compactBRL },
+        { width: 490, fmtValue: compactBRL },
       ),
     });
     const table = dataTable(
@@ -127,8 +157,18 @@ export function buildPayrollClosingReportHtml(payload: PayrollClosingReportPaylo
         var: c.variation_percentage != null ? { html: `<span class="mono" style="color:${c.variation_percentage > 0 ? C.critical : C.success}">${c.variation_percentage >= 0 ? '+' : ''}${c.variation_percentage.toFixed(1)}%</span>` } : '—',
       })),
     );
-    return `${sectionTitle('Concentração por Centro de Custo')}<div class="two-col">${chart}<div>${table}</div></div>`;
+    return { html: `<div class="two-col">${chart}<div>${table}</div></div>`, chartRows: Math.min(ccs.length, 8), tableRows: ccs.length };
   })();
+  if (ccSection) {
+    blocks.push(block(sectionTitle('Concentração por Centro de Custo'), mmForSectionTitle(), { keepWithNext: true }));
+    blocks.push(block(
+      ccSection.html,
+      mmForColumns(
+        mmForChart(ccSection.chartRows * 26 + 8, { svgWidthPx: 490, cols: 2, title: true }),
+        mmForTable(ccSection.tableRows, { rowMm: 5 }),
+      ),
+    ));
+  }
 
   // ── Attachments summary ──
   const byType = new Map<PayrollAttachmentFileType, { count: number; size: number }>();
@@ -145,7 +185,8 @@ export function buildPayrollClosingReportHtml(payload: PayrollClosingReportPaylo
       sensitive: { html: (type === 'holerite' || type === 'external_holerite') ? '<span class="pill crit">sim</span>' : '<span class="pill ok">não</span>' },
     })),
   );
-  const attachSection = `${sectionTitle('Resumo de Anexos', `${fmtInt(attachments.length)} arquivos no pacote — conteúdo não embarcado neste PDF`)}${attachments.length ? attachTable : '<p class="empty">Nenhum anexo no pacote.</p>'}`;
+  blocks.push(block(sectionTitle('Resumo de Anexos', `${fmtInt(attachments.length)} arquivos no pacote — conteúdo não embarcado neste PDF`, 3), mmForSectionTitle(true), { breakBefore: true, keepWithNext: true }));
+  blocks.push(block(attachments.length ? attachTable : '<p class="empty">Nenhum anexo no pacote.</p>', attachments.length ? mmForTable(byType.size, { rowMm: 5.6 }) : 8));
 
   // ── Finance hand-off + dispatch ──
   const handoffItems = [
@@ -154,25 +195,23 @@ export function buildPayrollClosingReportHtml(payload: PayrollClosingReportPaylo
     batch.payment_deadline ? `Prazo de pagamento: ${fmtDate(batch.payment_deadline)}.` : 'Prazo de pagamento não informado.',
     dispatches.length ? `${fmtInt(dispatches.length)} envio(s) de e-mail registrados.` : 'Nenhum e-mail de fechamento enviado ainda.',
   ];
-  const handoffSection = `${sectionTitle('Handoff Financeiro & Distribuição')}${warningBox('Status do handoff', handoffItems, financeBatchId ? 'ok' : 'warn')}`;
+  blocks.push(block(sectionTitle('Handoff Financeiro & Distribuição'), mmForSectionTitle(), { keepWithNext: true }));
+  blocks.push(block(warningBox('Status do handoff', handoffItems, financeBatchId ? 'ok' : 'warn'), mmForWarningBox(handoffItems.length)));
 
   // ── Data quality ──
   const issues: string[] = [];
   if (parse && parse.reconciled === false) issues.push('Total geral NÃO reconcilia com a soma das partes — revisar a planilha de origem.');
   (parse?.flags ?? []).filter((f) => f.severity !== 'info').slice(0, 6).forEach((f) => issues.push(`${f.code}: ${f.message}`));
   if (!narrative) issues.push('Narrativa executiva ainda não gerada.');
-  const dqSection = `${sectionTitle('Qualidade dos Dados')}${dataQualityBox(issues)}`;
-
-  const page1 = `<section class="section">${cover}</section><section class="section">${summarySection}</section>`;
-  const page2 = `<section class="section">${kpis}</section>${ccSection ? `<section class="section">${ccSection}</section>` : ''}`;
-  const page3 = `<section class="section">${attachSection}</section><section class="section">${handoffSection}</section><section class="section">${dqSection}</section>`;
+  blocks.push(block(sectionTitle('Qualidade dos Dados'), mmForSectionTitle(), { keepWithNext: true }));
+  blocks.push(block(dataQualityBox(issues), mmForWarningBox(Math.max(1, issues.length))));
 
   return renderReportDocument({
     fileName,
     brand,
     logoUrl: meta.logoUrl,
     footerLabel: `Fechamento da Folha · ${periodLabel(batch.competence_month)}`,
-    pages: [page1, page2, page3],
+    pages: composePages(blocks, { orientation: 'landscape' }),
     orientation: 'landscape',
   });
 }

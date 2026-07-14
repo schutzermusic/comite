@@ -7,12 +7,17 @@
 
 import type { DeliberationItem, DeliberationStatus } from '@/lib/types';
 import { compactBRL, esc, fmtDate, fmtInt } from '@/lib/reports/report-formatters';
-import { C } from '@/lib/reports/report-theme';
-import { svgDonut, svgHorizontalBar, svgLineChart, legend } from '@/lib/reports/report-charts';
+import { C, REPORT_BRAND_NAME } from '@/lib/reports/report-theme';
+import { svgDonut, svgHorizontalBar, svgLineChart, svgGauge, legend } from '@/lib/reports/report-charts';
 import {
-  reportCover, sectionTitle, kpiGrid, chartBlock, dataTable, dataQualityBox,
-  type KpiCardSpec,
+  reportCover, sectionTitle, kpiGrid, chartBlock, dataTable, dataTableChunked,
+  dataQualityBox, type KpiCardSpec,
 } from '@/lib/reports/report-blocks';
+import {
+  composePages, block, mmForChart, mmForColumns, mmForCover, mmForKpiGrid,
+  mmForSectionTitle, mmForTable, mmForWarningBox, type ReportBlock,
+} from '@/lib/reports/report-compose';
+import { insightPanel, mmForInsightPanel, type InsightItem } from '@/lib/reports/report-insights';
 import { renderReportDocument } from '@/lib/reports/report-shell';
 import { openReport, buildReportMeta, buildReportFileName } from '@/lib/reports/report-export';
 import type { ReportExportResult } from '@/lib/reports/report-types';
@@ -47,7 +52,7 @@ const monthKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).pad
 
 export function buildDeliberationReportHtml(payload: DeliberationReportPayload): string {
   const items = payload.deliberations ?? [];
-  const brand = payload.brandName ?? 'INSIGHT — Governança Corporativa';
+  const brand = payload.brandName ?? REPORT_BRAND_NAME;
   const fileName = buildReportFileName({ module: 'deliberacoes' });
   const meta = buildReportMeta({
     brand,
@@ -69,12 +74,19 @@ export function buildDeliberationReportHtml(payload: DeliberationReportPayload):
   const allActions = items.flatMap((d) => d.executionItems ?? []);
   const openActions = allActions.filter((a) => a.status !== 'completed').length;
 
-  const cover = reportCover({
+  const blocks: ReportBlock[] = [];
+  blocks.push(block(reportCover({
     meta,
     kicker: 'Relatório Executivo · Deliberações',
     title: 'Governança de Deliberações',
     context: `<b>${fmtInt(items.length)}</b> deliberações<span class="sep">·</span>${fmtInt(approved)} aprovadas<span class="sep">·</span>${fmtInt(pending)} pendentes`,
-  });
+    coverKpis: [
+      { label: 'Deliberações', value: fmtInt(items.length) },
+      { label: 'Aprovadas', value: fmtInt(approved) },
+      { label: 'Em atraso', value: fmtInt(overdue) },
+      { label: 'Impacto', value: compactBRL(totalImpact) },
+    ],
+  }), mmForCover(true)));
 
   const kpiCards: KpiCardSpec[] = [
     { label: 'Total', value: fmtInt(items.length), color: C.primary },
@@ -84,7 +96,21 @@ export function buildDeliberationReportHtml(payload: DeliberationReportPayload):
     { label: 'Impacto financeiro', value: compactBRL(totalImpact), color: C.info },
     { label: 'Follow-ups abertos', value: fmtInt(openActions), color: openActions ? C.cost : C.success, helper: `${fmtInt(allActions.length)} no total` },
   ];
-  const kpis = `${sectionTitle('Indicadores de Governança')}${kpiGrid(kpiCards)}`;
+  blocks.push(block(sectionTitle('Indicadores de Governança', undefined, 1), mmForSectionTitle(), { keepWithNext: true }));
+  blocks.push(block(kpiGrid(kpiCards, 3), mmForKpiGrid(kpiCards.length, 3)));
+
+  // Decision-execution gauge: share of the portfolio already approved.
+  const approvalRate = items.length ? Math.round((approved / items.length) * 100) : 0;
+  const gaugeBlock = chartBlock({
+    title: 'Taxa de Aprovação da Carteira',
+    sub: `${fmtInt(approved)} de ${fmtInt(items.length)} deliberações aprovadas`,
+    svg: svgGauge(approvalRate, {
+      width: 490,
+      height: 124,
+      label: 'Aprovadas',
+      color: approvalRate >= 60 ? C.success : approvalRate >= 30 ? C.primary : C.warning,
+    }),
+  });
 
   // ── Status donut + by committee ──
   const statusCounts: Record<string, number> = {};
@@ -93,7 +119,7 @@ export function buildDeliberationReportHtml(payload: DeliberationReportPayload):
     title: 'Distribuição por Status',
     svg: svgDonut(
       Object.entries(statusCounts).map(([label, value]) => ({ label, value })),
-      { width: 360, centerLabel: fmtInt(items.length), fmtValue: fmtInt },
+      { width: 490, height: 150, centerLabel: fmtInt(items.length), fmtValue: fmtInt },
     ),
   });
   const byCommittee: Record<string, number> = {};
@@ -102,10 +128,19 @@ export function buildDeliberationReportHtml(payload: DeliberationReportPayload):
     title: 'Deliberações por Comitê',
     svg: svgHorizontalBar(
       Object.entries(byCommittee).map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value).slice(0, 8),
-      { width: 520, fmtValue: fmtInt },
+      { width: 490, fmtValue: fmtInt },
     ),
   });
-  const chartsSection = `${sectionTitle('Distribuição')}<div class="two-col">${statusBlock}${committeeBlock}</div>`;
+  const committeeCount = Math.min(Object.keys(byCommittee).length, 8);
+  blocks.push(block(
+    `<div class="two-col">${gaugeBlock}${committeeBlock}</div>`,
+    mmForColumns(
+      mmForChart(124, { svgWidthPx: 490, cols: 2, title: true }),
+      mmForChart(committeeCount * 26 + 8, { svgWidthPx: 490, cols: 2, title: true }),
+    ),
+  ));
+
+  blocks.push(block(sectionTitle('Distribuição & Tendência', 'status da carteira e fluxo de decisão', 2), mmForSectionTitle(true), { breakBefore: true, keepWithNext: true }));
 
   // ── Monthly trend (created vs resolved, 6 months) ──
   const months: { key: string; label: string }[] = [];
@@ -125,60 +160,92 @@ export function buildDeliberationReportHtml(payload: DeliberationReportPayload):
         { name: 'Criadas', color: C.info, values: createdSeries, endLabel: true },
         { name: 'Resolvidas', color: C.success, values: resolvedSeries, endLabel: true },
       ],
-      { width: 1040, height: 220, fmtValue: fmtInt },
+      { width: 490, height: 190, fmtValue: fmtInt, xLabel: (x) => x },
     ),
     legendHtml: legend([{ name: 'Criadas', color: C.info }, { name: 'Resolvidas', color: C.success }]),
   });
-  const trendSection = `${sectionTitle('Tendência de Decisões')}${trendBlock}`;
+  blocks.push(block(
+    `<div class="two-col">${statusBlock}${trendBlock}</div>`,
+    mmForColumns(
+      mmForChart(150, { svgWidthPx: 490, cols: 2, title: true }),
+      mmForChart(190, { svgWidthPx: 490, cols: 2, title: true, legend: true }),
+    ),
+  ));
 
-  // ── Action items table ──
-  const actionTable = dataTable(
-    [
-      { key: 'titulo', label: 'Item de ação' },
-      { key: 'owner', label: 'Responsável' },
-      { key: 'due', label: 'Prazo' },
-      { key: 'status', label: 'Status' },
-      { key: 'link', label: 'Vínculo' },
-    ],
-    [...allActions]
-      .sort((a, b) => a.dueDate.getTime() - b.dueDate.getTime())
-      .slice(0, 40)
-      .map((a) => {
-        const overdueItem = a.dueDate.getTime() < now && a.status !== 'completed';
-        return {
-          titulo: a.title,
-          owner: a.ownerName,
-          due: { html: `<span class="mono" style="${overdueItem ? `color:${C.critical};font-weight:700` : ''}">${esc(fmtDate(a.dueDate))}</span>` },
-          status: { html: `<span class="pill ${a.status === 'completed' ? 'ok' : overdueItem ? 'crit' : 'warn'}">${esc(a.status === 'completed' ? 'Concluído' : a.status === 'in_progress' ? 'Em andamento' : 'Pendente')}</span>` },
-          link: a.linkedEntityType ?? '—',
-        };
-      }),
-  );
-  const actionSection = `${sectionTitle('Itens de Ação / Follow-ups', `${fmtInt(allActions.length)} itens · ${fmtInt(openActions)} em aberto`)}${allActions.length ? actionTable : '<p class="empty">Nenhum item de ação registrado.</p>'}`;
+  // ── Action items table (chunked — can exceed one page) ──
+  blocks.push(block(sectionTitle('Itens de Ação / Follow-ups', `${fmtInt(allActions.length)} itens · ${fmtInt(openActions)} em aberto`, 3), mmForSectionTitle(true), { breakBefore: true, keepWithNext: true }));
+  if (allActions.length) {
+    blocks.push(...dataTableChunked(
+      [
+        { key: 'titulo', label: 'Item de ação' },
+        { key: 'owner', label: 'Responsável' },
+        { key: 'due', label: 'Prazo' },
+        { key: 'status', label: 'Status' },
+        { key: 'link', label: 'Vínculo' },
+      ],
+      [...allActions]
+        .sort((a, b) => a.dueDate.getTime() - b.dueDate.getTime())
+        .slice(0, 40)
+        .map((a) => {
+          const overdueItem = a.dueDate.getTime() < now && a.status !== 'completed';
+          return {
+            titulo: a.title,
+            owner: a.ownerName,
+            due: { html: `<span class="mono" style="${overdueItem ? `color:${C.critical};font-weight:700` : ''}">${esc(fmtDate(a.dueDate))}</span>` },
+            status: { html: `<span class="pill ${a.status === 'completed' ? 'ok' : overdueItem ? 'crit' : 'warn'}">${esc(a.status === 'completed' ? 'Concluído' : a.status === 'in_progress' ? 'Em andamento' : 'Pendente')}</span>` },
+            link: a.linkedEntityType ?? '—',
+          };
+        }),
+      { rowsPerChunk: 24 },
+    ));
+  } else {
+    blocks.push(block('<p class="empty">Nenhum item de ação registrado.</p>', 8));
+  }
 
-  // ── Appendix: full list ──
-  const fullTable = dataTable(
-    [
-      { key: 'titulo', label: 'Deliberação' },
-      { key: 'committee', label: 'Comitê' },
-      { key: 'status', label: 'Status' },
-      { key: 'owner', label: 'Relator' },
-      { key: 'impact', label: 'Impacto', num: true },
-      { key: 'due', label: 'Prazo' },
-    ],
-    [...items]
-      .sort((a, b) => (b.financialImpact ?? 0) - (a.financialImpact ?? 0))
-      .slice(0, 60)
-      .map((d) => ({
-        titulo: d.title,
-        committee: d.ownerCommitteeName || '—',
-        status: { html: `<span class="pill ${isApproved(d) ? 'ok' : isOverdue(d) ? 'crit' : 'warn'}">${esc(STATUS_LABEL[d.deliberationStatus])}</span>` },
-        owner: d.ownerName || '—',
-        impact: { html: `<span class="mono">${esc(d.financialImpact ? compactBRL(d.financialImpact) : '—')}</span>` },
-        due: d.dueDate ? { html: `<span class="mono" style="${isOverdue(d) ? `color:${C.critical};font-weight:700` : ''}">${esc(fmtDate(d.dueDate))}</span>` } : '—',
-      })),
-  );
-  const appendixSection = `${sectionTitle('Apêndice — Deliberações', `${fmtInt(items.length)} deliberações · top 60 por impacto`)}${items.length ? fullTable : '<p class="empty">Nenhuma deliberação no escopo.</p>'}`;
+  // ── Insights ──
+  const insights: InsightItem[] = [];
+  if (overdue) insights.push({ kind: 'alert', title: 'Deliberações em atraso', detail: `${fmtInt(overdue)} deliberação(ões) além do prazo sem resolução.`, value: fmtInt(overdue) });
+  if (openActions) insights.push({ kind: 'alert', title: 'Follow-ups em aberto', detail: `${fmtInt(openActions)} item(ns) de ação pendentes de ${fmtInt(allActions.length)} registrados.`, value: fmtInt(openActions) });
+  const topImpact = [...items].sort((a, b) => (b.financialImpact ?? 0) - (a.financialImpact ?? 0))[0];
+  if (topImpact?.financialImpact) {
+    insights.push({ kind: 'fact', title: 'Maior impacto financeiro', detail: `"${topImpact.title}" concentra o maior impacto da carteira.`, value: compactBRL(topImpact.financialImpact) });
+  }
+  const topCommittee = Object.entries(byCommittee).sort((a, b) => b[1] - a[1])[0];
+  if (topCommittee && items.length) {
+    insights.push({ kind: 'fact', title: 'Comitê mais demandado', detail: `${topCommittee[0]} responde por ${Math.round((topCommittee[1] / items.length) * 100)}% das deliberações.`, value: fmtInt(topCommittee[1]) });
+  }
+  const noCommitteeCount = items.filter((d) => !d.ownerCommitteeName).length;
+  if (noCommitteeCount) insights.push({ kind: 'data-quality', title: 'Sem comitê responsável', detail: `${fmtInt(noCommitteeCount)} deliberação(ões) sem comitê atribuído.` });
+  if (insights.length) blocks.push(block(insightPanel(insights.slice(0, 6), { cols: 2 }), mmForInsightPanel(Math.min(insights.length, 6), 2)));
+
+  // ── Appendix: full list (chunked) ──
+  blocks.push(block(sectionTitle('Apêndice — Deliberações', `${fmtInt(items.length)} deliberações · top 60 por impacto`, 4), mmForSectionTitle(true), { breakBefore: true, keepWithNext: true }));
+  if (items.length) {
+    blocks.push(...dataTableChunked(
+      [
+        { key: 'titulo', label: 'Deliberação' },
+        { key: 'committee', label: 'Comitê' },
+        { key: 'status', label: 'Status' },
+        { key: 'owner', label: 'Relator' },
+        { key: 'impact', label: 'Impacto', num: true },
+        { key: 'due', label: 'Prazo' },
+      ],
+      [...items]
+        .sort((a, b) => (b.financialImpact ?? 0) - (a.financialImpact ?? 0))
+        .slice(0, 60)
+        .map((d) => ({
+          titulo: d.title,
+          committee: d.ownerCommitteeName || '—',
+          status: { html: `<span class="pill ${isApproved(d) ? 'ok' : isOverdue(d) ? 'crit' : 'warn'}">${esc(STATUS_LABEL[d.deliberationStatus])}</span>` },
+          owner: d.ownerName || '—',
+          impact: { html: `<span class="mono">${esc(d.financialImpact ? compactBRL(d.financialImpact) : '—')}</span>` },
+          due: d.dueDate ? { html: `<span class="mono" style="${isOverdue(d) ? `color:${C.critical};font-weight:700` : ''}">${esc(fmtDate(d.dueDate))}</span>` } : '—',
+        })),
+      { rowsPerChunk: 24 },
+    ));
+  } else {
+    blocks.push(block('<p class="empty">Nenhuma deliberação no escopo.</p>', 8));
+  }
 
   // ── Data quality ──
   const issues: string[] = [];
@@ -187,18 +254,15 @@ export function buildDeliberationReportHtml(payload: DeliberationReportPayload):
   if (noCommittee) issues.push(`${fmtInt(noCommittee)} deliberação(ões) sem comitê responsável.`);
   const noDue = items.filter((d) => !isApproved(d) && !d.dueDate).length;
   if (noDue) issues.push(`${fmtInt(noDue)} deliberação(ões) pendente(s) sem prazo definido.`);
-  const dqSection = `${sectionTitle('Qualidade dos Dados')}${dataQualityBox(issues)}`;
-
-  const page1 = `<section class="section">${cover}</section><section class="section">${kpis}</section>`;
-  const page2 = `<section class="section">${chartsSection}</section><section class="section">${trendSection}</section>`;
-  const page3 = `<section class="section">${actionSection}</section><section class="section">${appendixSection}</section><section class="section">${dqSection}</section>`;
+  blocks.push(block(sectionTitle('Qualidade dos Dados'), mmForSectionTitle(), { keepWithNext: true }));
+  blocks.push(block(dataQualityBox(issues), mmForWarningBox(Math.max(1, issues.length))));
 
   return renderReportDocument({
     fileName,
     brand,
     logoUrl: meta.logoUrl,
     footerLabel: 'Deliberações',
-    pages: [page1, page2, page3],
+    pages: composePages(blocks, { orientation: 'landscape' }),
     orientation: 'landscape',
   });
 }

@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import type React from "react";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { AlertTriangle, CheckCircle2, Info, X, XCircle } from "lucide-react";
 import { useHudToastStore, type ToastItem, type ToastVariant } from "@/hooks/useHudToast";
 

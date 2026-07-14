@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { ChevronDown, ChevronRight, Table2 } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 import { OrionCard } from '@/components/orion';
 import { formatWorkforceCurrency } from '@/lib/workforce-data';
 import type { CostConcentrationData } from '@/lib/workforce-data';

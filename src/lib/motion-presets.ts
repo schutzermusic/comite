@@ -3,7 +3,7 @@
  * Used with Framer Motion throughout the dashboard
  */
 
-import { Variants, Transition } from 'framer-motion';
+import { Variants, Transition } from 'motion/react';
 
 // =============================================================================
 // SPRING CONFIGS - Premium Refined

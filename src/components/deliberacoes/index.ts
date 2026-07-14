@@ -8,7 +8,6 @@ export { BoardHealthKPI } from './BoardHealthKPI';
 export { NewDeliberationModal } from './NewDeliberationModal';
 
 // Central de Deliberações — Decision Inbox module
-export { DecisionPipeline } from './DecisionPipeline';
 export {
   DecisionAdvancedFilters,
   ADVANCED_FILTERS_EMPTY,
@@ -39,4 +38,6 @@ export {
   countBySla,
   getOpenCount,
   getCriticalCount,
+  hasAta,
+  hasFormalReviewStep,
 } from './mock-data';

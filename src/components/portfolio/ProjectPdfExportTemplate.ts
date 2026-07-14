@@ -1,27 +1,32 @@
 /**
  * ProjectPdfExportTemplate
  *
- * Renders an HTML report (in a new window) suitable for print → PDF.
+ * Renders the Projetos portfolio report (executive top-10 or full list) on the
+ * SHARED report engine (src/lib/reports): branded cover, premium light print
+ * theme, 2.5D charts, insight cards and accurate "Página X de Y" via
+ * composePages — replacing the old standalone HTML template whose CSS
+ * `counter(pages)` printed "de 0" in Chromium.
  *
- * Modes:
- *   - 'executive' : compact 1–2 page summary for board / directors (Top 10 + KPIs)
- *   - 'full'      : full portfolio report with all filtered projects
- *
- * Architecture (kept stable so we can migrate the renderer later without
- * rewriting the data layer):
- *
- *   buildReportModel(payload) → ReportModel    (pure data — no DOM)
- *   renderReportToHtml(model)  → string         (current renderer — window.print)
- *   renderReportToPdfDoc(model) → jsPDF | ReactPDF.Document   (future)
- *
- * Today only `renderReportToHtml` exists. When migrating to @react-pdf/renderer
- * or jsPDF + jspdf-autotable, build a new renderer that consumes the same
- * `ReportModel` — the page (`exportToPdf`) won't need to change.
+ * Architecture (kept stable):
+ *   buildReportModel(payload) → ReportModel   (pure data — no DOM)
+ *   renderReportToHtml(model) → string        (shared-engine renderer)
  */
 
 import type { Project } from '@/lib/types';
 import type { ProjectV2 } from '@/lib/types/project-v2';
-import { FONT_FAMILY_SANS, buildGilroyFontFaceCss } from '@/lib/fonts';
+import { compactBRL, esc, fmtInt } from '@/lib/reports/report-formatters';
+import { C, REPORT_BRAND_NAME } from '@/lib/reports/report-theme';
+import { svgDonut, svgHorizontalBar, svgGauge } from '@/lib/reports/report-charts';
+import {
+  reportCover, sectionTitle, kpiGrid, chartBlock, dataTableChunked, type KpiCardSpec,
+} from '@/lib/reports/report-blocks';
+import {
+  composePages, block, mmForChart, mmForColumns, mmForCover, mmForKpiGrid,
+  mmForSectionTitle, type ReportBlock,
+} from '@/lib/reports/report-compose';
+import { insightPanel, mmForInsightPanel, type InsightItem } from '@/lib/reports/report-insights';
+import { renderReportDocument } from '@/lib/reports/report-shell';
+import { openReport, buildReportMeta, buildReportFileName } from '@/lib/reports/report-export';
 
 export type PdfExportMode = 'executive' | 'full';
 
@@ -106,15 +111,6 @@ const IMPACT_LABEL: Record<string, string> = {
   critico: 'Crítico',
 };
 
-function escapeHtml(s: unknown): string {
-  return String(s ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
 function formatBRL(n: number): string {
   return new Intl.NumberFormat('pt-BR', {
     style: 'currency',
@@ -124,20 +120,11 @@ function formatBRL(n: number): string {
   }).format(n || 0);
 }
 
-function compactBRL(n: number): string {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency',
-    currency: 'BRL',
-    notation: 'compact',
-    maximumFractionDigits: 1,
-  }).format(n || 0);
-}
-
 function healthColor(score: number): string {
-  if (score >= 80) return '#10B981';
-  if (score >= 60) return '#22D3EE';
-  if (score >= 40) return '#F59E0B';
-  return '#EF4444';
+  if (score >= 80) return C.success;
+  if (score >= 60) return C.info;
+  if (score >= 40) return C.warning;
+  return C.critical;
 }
 
 function initialsFor(name: string): string {
@@ -147,7 +134,7 @@ function initialsFor(name: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-function buildKpis(projects: Project[], v2Map: Map<string, ProjectV2>) {
+function buildKpis(projects: Project[], v2Map: Map<string, ProjectV2>): ReportKpis {
   const total = projects.length;
   const inProgress = projects.filter((p) => p.status === 'em_andamento').length;
   const completed = projects.filter((p) => p.status === 'concluido').length;
@@ -180,34 +167,6 @@ function buildKpis(projects: Project[], v2Map: Map<string, ProjectV2>) {
   return { total, inProgress, completed, totalValue, critical, avgHealth, avgProgress, openRisks, delayed };
 }
 
-function renderKpis(k: ReturnType<typeof buildKpis>): string {
-  const cell = (label: string, value: string | number, color = '#0F172A') => `
-    <div class="kpi">
-      <div class="kpi-label">${escapeHtml(label)}</div>
-      <div class="kpi-value" style="color:${color}">${escapeHtml(value)}</div>
-    </div>`;
-  return `
-    <section class="kpi-grid">
-      ${cell('Total Projects', k.total, '#0F172A')}
-      ${cell('In Progress', k.inProgress, '#10B981')}
-      ${cell('Portfolio Value', compactBRL(k.totalValue), '#16A34A')}
-      ${cell('Critical', k.critical, k.critical > 0 ? '#EF4444' : '#0F172A')}
-      ${cell('Avg Health', `${k.avgHealth}%`, healthColor(k.avgHealth))}
-      ${cell('Open Risks', k.openRisks, k.openRisks > 0 ? '#EF4444' : '#0F172A')}
-      ${cell('Avg Progress', `${k.avgProgress}%`, '#22D3EE')}
-      ${cell('Delayed Tasks', k.delayed, k.delayed > 0 ? '#F59E0B' : '#0F172A')}
-    </section>`;
-}
-
-function renderFilters(filters?: ProjectPdfFilters): string {
-  if (!filters) return '';
-  const items = Object.entries(filters)
-    .filter(([, v]) => v && v !== 'all')
-    .map(([k, v]) => `<span class="chip">${escapeHtml(k)}: ${escapeHtml(v)}</span>`);
-  if (!items.length) return '';
-  return `<div class="filters"><span class="filters-label">Filtros aplicados:</span>${items.join('')}</div>`;
-}
-
 function buildRow(p: Project, v2: ProjectV2 | undefined): ReportRow {
   const health = v2?.health_score ?? 100;
   const openHighRisks = (v2?.risks || []).filter(
@@ -235,52 +194,13 @@ function buildRow(p: Project, v2: ProjectV2 | undefined): ReportRow {
   };
 }
 
-function renderRow(r: ReportRow): string {
-  return `
-    <tr>
-      <td>
-        <div class="proj-cell">
-          <span class="logo">${escapeHtml(r.initials)}</span>
-          <div>
-            <div class="proj-name">${escapeHtml(r.nome)}</div>
-            <div class="proj-sub">${escapeHtml(r.codigo)} · ${escapeHtml(r.cliente)}</div>
-          </div>
-        </div>
-      </td>
-      <td>${escapeHtml(r.statusLabel)}</td>
-      <td><span class="dot" style="background:${r.healthColor}"></span><b style="color:${r.healthColor}">${r.health}</b></td>
-      <td>
-        <div class="bar"><span style="width:${r.progress}%;background:${r.healthColor}"></span></div>
-        <div class="bar-label">${r.progress}%</div>
-      </td>
-      <td class="num">${escapeHtml(r.valorFormatted)}</td>
-      <td>${escapeHtml(r.impactoLabel)}</td>
-      <td class="num">${r.openHighRisks > 0 ? `<b style="color:#EF4444">${r.openHighRisks}</b>` : '—'}</td>
-      <td>${escapeHtml(r.comite)}</td>
-    </tr>`;
-}
-
-function renderTable(rows: ReportRow[], heading: string): string {
-  return `
-    <section class="section section-table">
-      <h2>${escapeHtml(heading)}</h2>
-      <table class="proj-table">
-        <thead><tr>
-          <th>Projeto</th><th>Status</th><th>Health</th><th>Progresso</th>
-          <th class="num">Valor</th><th>Impacto</th><th class="num">Riscos</th><th>Comitê</th>
-        </tr></thead>
-        <tbody>${rows.map(renderRow).join('')}</tbody>
-      </table>
-    </section>`;
-}
-
 export function buildReportModel(payload: ProjectPdfPayload): ReportModel {
   const {
     projects,
     v2Map,
     filters,
     mode = 'executive',
-    brandName = 'Insight Apex Board',
+    brandName = REPORT_BRAND_NAME,
     generatedBy,
   } = payload;
 
@@ -316,190 +236,154 @@ export function buildProjectPortfolioReport(payload: ProjectPdfPayload): string 
   return renderReportToHtml(model);
 }
 
+const FILTER_LABEL: Record<keyof ProjectPdfFilters, string> = {
+  search: 'busca',
+  status: 'status',
+  client: 'cliente',
+  health: 'health',
+  impact: 'impacto',
+  committee: 'comitê',
+};
+
 export function renderReportToHtml(model: ReportModel): string {
-  const { title, brandName, generatedAt, generatedBy, mode, filters, kpis, rows, totalProjectsInScope } = model;
-  return `<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-<meta charset="utf-8" />
-<title>${escapeHtml(title)} — ${escapeHtml(brandName)}</title>
-<style>
-${buildGilroyFontFaceCss()}
-  /* Page setup — running header + footer via @page margins */
-  @page {
-    size: A4;
-    margin: 22mm 14mm 22mm;
-  }
-  @page :first { margin-top: 18mm; }
+  const { title, brandName, generatedBy, mode, filters, kpis, rows, totalProjectsInScope } = model;
+  const fileName = buildReportFileName({ module: 'projetos', context: mode === 'executive' ? 'executivo' : 'completo' });
+  const activeFilters = Object.entries(filters ?? {})
+    .filter(([, v]) => v && v !== 'all')
+    .map(([k, v]) => `${FILTER_LABEL[k as keyof ProjectPdfFilters] ?? k}: ${v}`);
+  const meta = buildReportMeta({
+    brand: brandName,
+    filtersLabel: activeFilters.length ? activeFilters.join(' · ') : undefined,
+    generatedBy,
+  });
+  const blocks: ReportBlock[] = [];
 
-  * { box-sizing: border-box; }
-  html, body {
-    padding: 0; margin: 0; background: #fff; color: #0F172A;
-    font-size: 12px; line-height: 1.55; font-family: ${FONT_FAMILY_SANS};
-    -webkit-print-color-adjust: exact; print-color-adjust: exact;
-  }
+  /* ── 01 · Visão do Portfólio ── */
 
-  /* Running header strip — repeats on every printed page */
-  .running-header {
-    position: fixed; top: -16mm; left: 0; right: 0;
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 0 0 4px;
-    border-bottom: 1px solid #E2E8F0;
-    font-size: 9px; color: #64748B; letter-spacing: 0.08em; text-transform: uppercase;
-  }
-  .running-header .brand-mini { color: #16A34A; font-weight: 700; }
+  blocks.push(block(reportCover({
+    meta,
+    kicker: 'Relatório Executivo · Projetos',
+    title,
+    context: `<b>${fmtInt(totalProjectsInScope)}</b> projetos no escopo<span class="sep">·</span>valor total <b>${esc(compactBRL(kpis.totalValue))}</b>`,
+    statusChip: { label: mode === 'executive' ? 'Sumário Executivo' : 'Portfólio Completo', color: C.brandGreen },
+    coverKpis: [
+      { label: 'Projetos', value: fmtInt(kpis.total) },
+      { label: 'Valor do portfólio', value: compactBRL(kpis.totalValue) },
+      { label: 'Health médio', value: `${kpis.avgHealth}%` },
+      { label: 'Críticos', value: fmtInt(kpis.critical) },
+    ],
+  }), mmForCover(true)));
 
-  /* Running footer strip — repeats on every printed page with page numbers */
-  .running-footer {
-    position: fixed; bottom: -16mm; left: 0; right: 0;
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 4px 0 0;
-    border-top: 1px solid #E2E8F0;
-    font-size: 9px; color: #94A3B8;
-  }
-  .page-num::before { content: counter(page); }
-  .page-total::before { content: counter(pages); }
+  const kpiCards: KpiCardSpec[] = [
+    { label: 'Total de projetos', value: fmtInt(kpis.total), color: C.primary },
+    { label: 'Em andamento', value: fmtInt(kpis.inProgress), color: C.success, helper: `${fmtInt(kpis.completed)} concluídos` },
+    { label: 'Valor do portfólio', value: compactBRL(kpis.totalValue), color: C.info },
+    { label: 'Impacto alto/crítico', value: fmtInt(kpis.critical), color: kpis.critical ? C.critical : C.success },
+    { label: 'Health médio', value: `${kpis.avgHealth}%`, color: healthColor(kpis.avgHealth) },
+    { label: 'Riscos abertos', value: fmtInt(kpis.openRisks), color: kpis.openRisks ? C.critical : C.success, helper: 'altos/críticos' },
+    { label: 'Progresso médio', value: `${kpis.avgProgress}%`, color: C.info },
+    { label: 'Tarefas atrasadas', value: fmtInt(kpis.delayed), color: kpis.delayed ? C.warning : C.success },
+  ];
+  blocks.push(block(sectionTitle('Visão do Portfólio', undefined, 1), mmForSectionTitle(), { keepWithNext: true }));
+  blocks.push(block(kpiGrid(kpiCards, 4), mmForKpiGrid(8, 4)));
 
-  /* Document header (only on first page) */
-  header.report {
-    display: flex; align-items: flex-end; justify-content: space-between; gap: 16px;
-    border-bottom: 2px solid #0F172A; padding-bottom: 14px; margin-bottom: 18px;
-  }
-  .brand { font-weight: 700; letter-spacing: 0.04em; color: #0F172A; }
-  .brand small {
-    display: block; font-weight: 600; color: #16A34A;
-    letter-spacing: .16em; font-size: 9px; text-transform: uppercase; margin-bottom: 4px;
-  }
-  .brand .mode {
-    display: inline-block; margin-top: 8px; padding: 3px 10px; border-radius: 999px;
-    background: #ECFDF5; color: #166534; font-size: 10px; font-weight: 600; letter-spacing: 0.04em;
-    border: 1px solid #BBF7D0;
-  }
-  .meta { text-align: right; font-size: 10px; color: #475569; line-height: 1.55; }
-  .meta b { color: #0F172A; }
-  h1 { margin: 0 0 4px 0; font-size: 22px; color: #0F172A; line-height: 1.2; }
-  h2 {
-    font-size: 13px; margin: 0 0 10px 0; color: #0F172A;
-    text-transform: uppercase; letter-spacing: 0.12em;
-    padding-bottom: 6px; border-bottom: 1px solid #E2E8F0;
-  }
+  const healthGauge = chartBlock({
+    title: 'Health Médio do Portfólio',
+    sub: `${fmtInt(kpis.inProgress)} projetos em andamento`,
+    svg: svgGauge(kpis.avgHealth, {
+      width: 490,
+      height: 124,
+      label: 'Health',
+      color: healthColor(kpis.avgHealth),
+      bands: [[0, 40, C.critical], [40, 70, C.warning], [70, 100, C.success]],
+    }),
+  });
+  const other = Math.max(0, kpis.total - kpis.inProgress - kpis.completed);
+  const statusDonut = chartBlock({
+    title: 'Projetos por Status',
+    svg: svgDonut(
+      [
+        { label: 'Em andamento', value: kpis.inProgress, color: C.info },
+        { label: 'Concluídos', value: kpis.completed, color: C.success },
+        { label: 'Outros', value: other, color: C.subtle },
+      ],
+      { width: 490, height: 124, centerLabel: fmtInt(kpis.total), fmtValue: fmtInt },
+    ),
+  });
+  blocks.push(block(
+    `<div class="two-col">${healthGauge}${statusDonut}</div>`,
+    mmForColumns(
+      mmForChart(124, { svgWidthPx: 490, cols: 2, title: true }),
+      mmForChart(124, { svgWidthPx: 490, cols: 2, title: true }),
+    ),
+  ));
 
-  .filters {
-    display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 18px; font-size: 10px;
-    align-items: center;
-  }
-  .filters-label { color: #64748B; margin-right: 4px; text-transform: uppercase; letter-spacing: 0.1em; font-size: 9px; }
-  .chip { background: #F1F5F9; border: 1px solid #E2E8F0; color: #334155; padding: 2px 9px; border-radius: 999px; }
+  /* ── 02 · Maiores Projetos ── */
 
-  .section { margin: 0 0 18px; }
-  .section-table { page-break-before: auto; }
-
-  .kpi-grid {
-    display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
-    margin: 0 0 4px;
-  }
-  .kpi {
-    border: 1px solid #E2E8F0; border-radius: 10px; padding: 10px 12px;
-    background: #F8FAFC; page-break-inside: avoid;
-  }
-  .kpi-label { font-size: 9px; text-transform: uppercase; letter-spacing: .14em; color: #64748B; }
-  .kpi-value { font-size: 18px; font-weight: 700; margin-top: 6px; }
-
-  table.proj-table {
-    width: 100%; border-collapse: collapse; font-size: 10.5px;
-    table-layout: auto;
-  }
-  table.proj-table th, table.proj-table td {
-    padding: 8px 10px; border-bottom: 1px solid #E2E8F0; vertical-align: middle; text-align: left;
-  }
-  table.proj-table thead {
-    /* Repeat the header row on every printed page */
-    display: table-header-group;
-  }
-  table.proj-table thead th {
-    background: #F8FAFC;
-    font-size: 9px; text-transform: uppercase; letter-spacing: .12em; color: #475569;
-    border-bottom: 2px solid #CBD5E1;
-  }
-  table.proj-table tbody tr { page-break-inside: avoid; break-inside: avoid; }
-  table.proj-table tbody tr:nth-child(even) { background: #FAFBFC; }
-  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
-
-  .proj-cell { display: flex; gap: 8px; align-items: center; }
-  .proj-name { font-weight: 600; color: #0F172A; }
-  .proj-sub { font-size: 9.5px; color: #64748B; margin-top: 1px; }
-  .logo {
-    display: inline-flex; align-items: center; justify-content: center;
-    width: 26px; height: 26px; border-radius: 7px; flex-shrink: 0;
-    background: linear-gradient(135deg, #16A34A, #0F766E);
-    color: #fff; font-weight: 700; font-size: 9.5px; letter-spacing: 0.04em;
+  const topByValue = [...rows].sort((a, b) => b.valor - a.valor).slice(0, 8);
+  if (topByValue.length) {
+    blocks.push(block(sectionTitle('Concentração de Valor', 'maiores projetos do recorte', 2), mmForSectionTitle(true), { breakBefore: true, keepWithNext: true }));
+    blocks.push(block(chartBlock({
+      title: 'Top Projetos por Valor',
+      svg: svgHorizontalBar(
+        topByValue.map((r) => ({ label: `${r.codigo || r.nome}`, value: r.valor, color: r.healthColor })),
+        { width: 1000, fmtValue: compactBRL, labelW: 190 },
+      ),
+    }), mmForChart(topByValue.length * 26 + 8, { svgWidthPx: 1000, title: true })));
   }
 
-  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 99px; margin-right: 5px; vertical-align: middle; }
-  .bar { width: 92px; height: 6px; background: #E2E8F0; border-radius: 99px; overflow: hidden; }
-  .bar > span { display: block; height: 100%; border-radius: 99px; }
-  .bar-label { font-size: 9.5px; color: #475569; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  /* ── Insights ── */
 
-  /* Toolbar — only visible on screen, hidden when printing */
-  .toolbar {
-    position: fixed; top: 12px; right: 12px; z-index: 10;
-    background: #0F172A; color: #fff; padding: 8px 12px; border-radius: 10px; display: flex; gap: 8px;
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18); font-size: 11px;
+  const insights: InsightItem[] = [];
+  if (topByValue[0] && kpis.totalValue > 0) {
+    const share = Math.round((topByValue[0].valor / kpis.totalValue) * 100);
+    insights.push({ kind: 'fact', title: 'Concentração do portfólio', detail: `${topByValue[0].nome} responde por ${share}% do valor do recorte (${compactBRL(topByValue[0].valor)}).`, value: `${share}%` });
   }
-  .toolbar button {
-    background: #16A34A; color: #fff; border: 0; border-radius: 6px; padding: 6px 12px;
-    font-weight: 600; cursor: pointer; font-size: 11px;
-  }
-  .toolbar button.alt { background: transparent; border: 1px solid rgba(255, 255, 255, 0.25); }
+  if (kpis.openRisks) insights.push({ kind: 'alert', title: 'Riscos altos/críticos abertos', detail: `${fmtInt(kpis.openRisks)} risco(s) de severidade alta ou crítica sem resolução no portfólio.`, value: fmtInt(kpis.openRisks) });
+  if (kpis.delayed) insights.push({ kind: 'alert', title: 'Tarefas atrasadas', detail: `${fmtInt(kpis.delayed)} tarefa(s) além do prazo nos projetos do recorte.`, value: fmtInt(kpis.delayed) });
+  if (kpis.avgHealth < 60) insights.push({ kind: 'recommendation', title: 'Revisar projetos de baixa saúde', detail: `Health médio de ${kpis.avgHealth}% — priorizar planos de recuperação nos projetos abaixo de 60.` });
+  if (insights.length) blocks.push(block(insightPanel(insights.slice(0, 4), { cols: 2 }), mmForInsightPanel(Math.min(insights.length, 4), 2)));
 
-  @media print {
-    .no-print { display: none !important; }
-    .running-header, .running-footer { display: flex; }
-  }
-  @media screen {
-    .running-header, .running-footer { display: none; }
-  }
-</style>
-</head>
-<body>
-  <div class="toolbar no-print">
-    <button onclick="window.print()">Imprimir / Salvar PDF</button>
-    <button class="alt" onclick="window.close()">Fechar</button>
-  </div>
+  /* ── 03 · Tabela do portfólio ── */
 
-  <div class="running-header">
-    <span><span class="brand-mini">${escapeHtml(brandName)}</span> · ${escapeHtml(title)}</span>
-    <span>${escapeHtml(generatedAt)}</span>
-  </div>
-  <div class="running-footer">
-    <span>Confidencial — uso interno do Conselho / Diretoria</span>
-    <span>Página <span class="page-num"></span> de <span class="page-total"></span></span>
-  </div>
+  blocks.push(block(sectionTitle(
+    mode === 'executive' ? 'Top 10 Projetos por Valor' : `Portfólio Completo (${fmtInt(rows.length)} projetos)`,
+    mode === 'executive' && totalProjectsInScope > rows.length ? `${fmtInt(totalProjectsInScope)} projetos no escopo — exibindo os 10 maiores` : undefined,
+    3,
+  ), mmForSectionTitle(true), { breakBefore: true, keepWithNext: true }));
 
-  <header class="report">
-    <div class="brand">
-      <small>${escapeHtml(brandName)}</small>
-      <h1>${escapeHtml(title)}</h1>
-      <span class="mode">${escapeHtml(mode === 'executive' ? 'Sumário Executivo' : 'Portfólio Completo')}</span>
-    </div>
-    <div class="meta">
-      <div><b>Gerado em</b> ${escapeHtml(generatedAt)}</div>
-      ${generatedBy ? `<div><b>Por</b> ${escapeHtml(generatedBy)}</div>` : ''}
-      <div><b>${escapeHtml(totalProjectsInScope)}</b> projetos no escopo</div>
-      <div><b>${escapeHtml(rows.length)}</b> exibidos no relatório</div>
-    </div>
-  </header>
+  blocks.push(...dataTableChunked(
+    [
+      { key: 'proj', label: 'Projeto' },
+      { key: 'status', label: 'Status' },
+      { key: 'health', label: 'Health', num: true },
+      { key: 'prog', label: 'Progresso' },
+      { key: 'valor', label: 'Valor', num: true },
+      { key: 'impacto', label: 'Impacto' },
+      { key: 'riscos', label: 'Riscos', num: true },
+      { key: 'comite', label: 'Comitê' },
+    ],
+    rows.map((r) => ({
+      proj: { html: `<div><span style="font-weight:600;color:${C.ink}">${esc(r.nome)}</span><br/><span style="font-size:8.5px;color:${C.subtle}">${esc(r.codigo)} · ${esc(r.cliente)}</span></div>` },
+      status: r.statusLabel,
+      health: { html: `<span class="mono" style="color:${r.healthColor};font-weight:700">${r.health}</span>` },
+      prog: { html: `<div style="width:92px;height:6px;background:${C.grid};border-radius:99px;overflow:hidden"><span style="display:block;height:100%;width:${r.progress}%;background:${r.healthColor};border-radius:99px"></span></div><span style="font-size:8.5px;color:${C.subtle}" class="mono">${r.progress}%</span>` },
+      valor: { html: `<span class="mono">${esc(r.valorFormatted)}</span>` },
+      impacto: { html: `<span class="pill ${r.impacto === 'critico' ? 'crit' : r.impacto === 'alto' ? 'warn' : 'ok'}">${esc(r.impactoLabel)}</span>` },
+      riscos: { html: r.openHighRisks > 0 ? `<span class="mono" style="color:${C.critical};font-weight:700">${r.openHighRisks}</span>` : '—' },
+      comite: r.comite,
+    })),
+    { rowsPerChunk: 18, rowMm: 8 },
+  ));
 
-  ${renderFilters(filters)}
-
-  <section class="section">
-    <h2>KPIs Executivos</h2>
-    ${renderKpis(kpis)}
-  </section>
-
-  ${renderTable(rows, mode === 'executive' ? 'Top 10 Projetos por Valor' : `Portfólio Completo (${rows.length} projetos)`)}
-</body>
-</html>`;
+  return renderReportDocument({
+    fileName,
+    brand: brandName,
+    logoUrl: meta.logoUrl,
+    footerLabel: title,
+    pages: composePages(blocks, { orientation: 'landscape' }),
+    orientation: 'landscape',
+  });
 }
 
 export type PdfExportResult =
@@ -511,20 +395,9 @@ export function openProjectPortfolioReport(payload: ProjectPdfPayload): PdfExpor
     return { ok: false, reason: 'empty', message: 'Nenhum projeto no escopo para exportar.' };
   }
   try {
-    const html = buildProjectPortfolioReport(payload);
-    const w = window.open('', '_blank', 'width=1024,height=768');
-    if (!w) {
-      return {
-        ok: false,
-        reason: 'popup_blocked',
-        message: 'O navegador bloqueou a janela de impressão. Habilite pop-ups para este site.',
-      };
-    }
-    w.document.open();
-    w.document.write(html);
-    w.document.close();
-    w.focus();
-    return { ok: true };
+    const result = openReport(buildProjectPortfolioReport(payload), { width: 1280, height: 860 });
+    if (result.ok) return { ok: true };
+    return { ok: false, reason: result.reason === 'popup_blocked' ? 'popup_blocked' : 'error', message: result.message ?? 'Falha ao gerar o relatório.' };
   } catch (err) {
     return {
       ok: false,

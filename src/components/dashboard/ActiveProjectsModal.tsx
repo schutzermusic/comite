@@ -1,6 +1,6 @@
 'use client';
 
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 import { X, MapPin, DollarSign, Clock, AlertTriangle } from 'lucide-react';
 import { STATE_PROJECT_DATA, formatCompact, RISK_COLORS } from '@/data/geo/brazil-operational-data';
 

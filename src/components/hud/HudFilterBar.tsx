@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { motion } from 'framer-motion';
+import { motion } from 'motion/react';
 import { LayoutGrid, List, Search, SlidersHorizontal, Table2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 

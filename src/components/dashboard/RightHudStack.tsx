@@ -13,7 +13,7 @@ import {
     Briefcase,
     Shield,
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 import { HudPanel, HudRingGauge } from './hud';
 import type { DashboardPayload } from '@/lib/dashboard-data';
 import { cn } from '@/lib/utils';

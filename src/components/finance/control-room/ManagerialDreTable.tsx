@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { motion } from 'framer-motion';
+import { motion } from 'motion/react';
 import { Table2, ChevronRight, ArrowUpRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { formatCompactBRL, formatPct } from './helpers';

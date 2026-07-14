@@ -2,7 +2,7 @@
 
 import { useMemo, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 import { ArrowLeft, ExternalLink, AlertTriangle, Landmark, Wallet, CircleDot } from 'lucide-react';
 import type { GlobeProjectRecord, StateAggregate } from '@/data/geo/globe-kpi-data';
 import { cn } from '@/lib/utils';

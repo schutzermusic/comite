@@ -18,9 +18,13 @@ import {
 } from '@/data/finance/seed-categories';
 import { projects as projectRefs, contracts as contractRefs } from '@/data/finance/reference';
 import { BRL, esc, fmtInt } from '@/lib/reports/report-formatters';
-import { CATEGORICAL } from '@/lib/reports/report-theme';
+import { CATEGORICAL, REPORT_BRAND_NAME } from '@/lib/reports/report-theme';
 import { svgHorizontalBar } from '@/lib/reports/report-charts';
-import { reportCover, sectionTitle, kpiGrid, chartBlock, dataTable, type KpiCardSpec } from '@/lib/reports/report-blocks';
+import { reportCover, sectionTitle, kpiGrid, chartBlock, dataTableChunked, type KpiCardSpec } from '@/lib/reports/report-blocks';
+import {
+  composePages, block, mmForChart, mmForColumns, mmForCover, mmForKpiGrid,
+  mmForSectionTitle, type ReportBlock,
+} from '@/lib/reports/report-compose';
 import { renderReportDocument } from '@/lib/reports/report-shell';
 import { openReport, buildReportMeta, buildReportFileName } from '@/lib/reports/report-export';
 import type { ReportExportResult } from '@/lib/reports/report-types';
@@ -52,7 +56,7 @@ export interface CostReportPayload {
 }
 
 export function buildCostReportHtml(payload: CostReportPayload): string {
-  const brand = payload.brandName ?? 'INSIGHT — Governança Corporativa';
+  const brand = payload.brandName ?? REPORT_BRAND_NAME;
   const maxRows = payload.maxRows ?? 250;
   const total = payload.entries.reduce((s, e) => s + Math.abs(e.amount_cents) / 100, 0);
   const shown = payload.entries.slice(0, maxRows);
@@ -66,12 +70,14 @@ export function buildCostReportHtml(payload: CostReportPayload): string {
     source: payload.isDemo ? 'demonstração' : 'Supabase',
   });
 
-  const cover = reportCover({
+  const blocks: ReportBlock[] = [];
+  blocks.push(block(reportCover({
     meta,
     kicker: 'Relatório Executivo · Financeiro',
     title: 'Análise de Custos',
     context: `<b>${esc(payload.scopeLabel)}</b><span class="sep">·</span>Realizado`,
-  });
+    coverKpis: payload.kpis.slice(0, 4).map((k) => ({ label: k.label, value: k.value })),
+  }), mmForCover(payload.kpis.length > 0)));
 
   const kpiCards: KpiCardSpec[] = payload.kpis.map((k, i) => ({
     label: k.label,
@@ -79,21 +85,28 @@ export function buildCostReportHtml(payload: CostReportPayload): string {
     helper: k.helper,
     color: CATEGORICAL[i % CATEGORICAL.length],
   }));
-  const kpis = `${sectionTitle('Indicadores do recorte')}${kpiGrid(kpiCards)}`;
+  blocks.push(block(sectionTitle('Indicadores do recorte'), mmForSectionTitle(), { keepWithNext: true }));
+  blocks.push(block(kpiGrid(kpiCards), mmForKpiGrid(kpiCards.length, kpiCards.length >= 4 ? 4 : Math.max(1, kpiCards.length))));
 
-  const rankingBlocks = payload.rankings
-    .filter((r) => r.rows.length > 0)
-    .map((r) => chartBlock({
-      title: r.title,
-      svg: svgHorizontalBar(
-        r.rows.slice(0, 8).map((row) => ({ label: row.label, value: row.value })),
-        { width: 520, fmtValue: BRL },
-      ),
-    }))
-    .join('');
-  const rankingsSection = rankingBlocks
-    ? `${sectionTitle('Rankings do recorte', 'principais categorias, projetos e fornecedores por valor')}<div class="two-col">${rankingBlocks}</div>`
-    : '';
+  const rankings = payload.rankings.filter((r) => r.rows.length > 0);
+  if (rankings.length) {
+    blocks.push(block(sectionTitle('Rankings do recorte', 'principais categorias, projetos e fornecedores por valor'), mmForSectionTitle(true), { keepWithNext: true }));
+    // Pair rankings two-by-two so each row is a measured block.
+    for (let i = 0; i < rankings.length; i += 2) {
+      const pair = rankings.slice(i, i + 2);
+      const html = pair.map((r) => chartBlock({
+        title: r.title,
+        svg: svgHorizontalBar(
+          r.rows.slice(0, 8).map((row) => ({ label: row.label, value: row.value })),
+          { width: 490, fmtValue: BRL },
+        ),
+      })).join('');
+      blocks.push(block(
+        `<div class="two-col">${html}</div>`,
+        mmForColumns(...pair.map((r) => mmForChart(Math.min(r.rows.length, 8) * 26 + 8, { svgWidthPx: 490, cols: 2, title: true }))),
+      ));
+    }
+  }
 
   const entryRows = shown.map((e) => {
     const cat = catName(e.category_id);
@@ -111,7 +124,10 @@ export function buildCostReportHtml(payload: CostReportPayload): string {
     };
   });
 
-  const entriesTable = dataTable(
+  const totalbar = `<p class="interp">Total do recorte: <b>${esc(BRL(total))}</b> · ${fmtInt(payload.entries.length)} lançamentos${truncated > 0 ? ` (exibindo ${fmtInt(shown.length)}; +${fmtInt(truncated)} no CSV)` : ''}</p>`;
+  blocks.push(block(sectionTitle('Lançamentos do recorte', 'detalhamento — mesma base do CSV'), mmForSectionTitle(true), { breakBefore: true, keepWithNext: true }));
+  blocks.push(block(totalbar, 6, { keepWithNext: true }));
+  blocks.push(...dataTableChunked(
     [
       { key: 'data', label: 'Data' },
       { key: 'desc', label: 'Descrição' },
@@ -124,19 +140,15 @@ export function buildCostReportHtml(payload: CostReportPayload): string {
       { key: 'valor', label: 'Valor', num: true },
     ],
     entryRows,
-  );
-
-  const totalbar = `<p class="interp">Total do recorte: <b>${esc(BRL(total))}</b> · ${fmtInt(payload.entries.length)} lançamentos${truncated > 0 ? ` (exibindo ${fmtInt(shown.length)}; +${fmtInt(truncated)} no CSV)` : ''}</p>`;
-
-  const page1 = `<section class="section">${cover}</section><section class="section">${kpis}</section>${rankingsSection ? `<section class="section">${rankingsSection}</section>` : ''}`;
-  const page2 = `<section class="section">${sectionTitle('Lançamentos do recorte', 'detalhamento — mesma base do CSV')}${totalbar}${entriesTable}</section>`;
+    { rowsPerChunk: 26, rowMm: 5.6 },
+  ));
 
   return renderReportDocument({
     fileName,
     brand,
     logoUrl: meta.logoUrl,
     footerLabel: `Análise de Custos · ${payload.scopeLabel}`,
-    pages: [page1, page2],
+    pages: composePages(blocks, { orientation: 'landscape' }),
     orientation: 'landscape',
   });
 }

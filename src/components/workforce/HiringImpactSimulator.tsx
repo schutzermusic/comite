@@ -11,7 +11,7 @@ import {
   formatWorkforceCurrency,
 } from '@/lib/workforce-data';
 import { cn } from '@/lib/utils';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 
 interface HiringImpactSimulatorProps {
   initialAvgCost?: number;

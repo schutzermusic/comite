@@ -2,7 +2,7 @@
 
 import { FONT_FAMILY_SANS } from '@/lib/fonts';
 import React, { useMemo, useState } from 'react';
-import { motion } from 'framer-motion';
+import { motion } from 'motion/react';
 import { LineChart, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTheme } from '@/contexts/ThemeContext';

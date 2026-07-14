@@ -7,12 +7,17 @@
  */
 
 import { BRL, compactBRL, esc } from '@/lib/reports/report-formatters';
-import { C } from '@/lib/reports/report-theme';
-import { svgDonut, svgLineChart, legend } from '@/lib/reports/report-charts';
+import { C, REPORT_BRAND_NAME } from '@/lib/reports/report-theme';
+import { svgDonut, svgAreaChart, legend } from '@/lib/reports/report-charts';
 import {
   reportCover, sectionTitle, kpiGrid, chartBlock, dataTable, dataQualityBox,
   type KpiCardSpec,
 } from '@/lib/reports/report-blocks';
+import {
+  composePages, block, mmForChart, mmForColumns, mmForCover, mmForKpiGrid,
+  mmForSectionTitle, mmForTable, mmForWarningBox, type ReportBlock,
+} from '@/lib/reports/report-compose';
+import { insightPanel, mmForInsightPanel, type InsightItem } from '@/lib/reports/report-insights';
 import { renderReportDocument } from '@/lib/reports/report-shell';
 import { openReport, buildReportMeta, buildReportFileName } from '@/lib/reports/report-export';
 import type { ReportExportResult } from '@/lib/reports/report-types';
@@ -61,7 +66,7 @@ const VARIANT_COLOR: Record<NonNullable<DreReportKpi['variant']>, string> = {
 };
 
 export function buildFinanceDreReportHtml(payload: FinanceDreReportPayload): string {
-  const brand = payload.brandName ?? 'INSIGHT — Governança Corporativa';
+  const brand = payload.brandName ?? REPORT_BRAND_NAME;
   const fileName = buildReportFileName({ module: 'financeiro', context: 'dre' });
   const meta = buildReportMeta({
     brand,
@@ -71,12 +76,15 @@ export function buildFinanceDreReportHtml(payload: FinanceDreReportPayload): str
     generatedBy: payload.generatedBy,
   });
 
-  const cover = reportCover({
+  const blocks: ReportBlock[] = [];
+
+  blocks.push(block(reportCover({
     meta,
     kicker: 'Relatório Executivo · Financeiro',
     title: 'DRE / P&L Gerencial',
     context: `Demonstração de Resultado consolidada<span class="sep">·</span>${esc(payload.periodLabel)}`,
-  });
+    coverKpis: payload.kpis.slice(0, 4).map((k) => ({ label: k.label, value: k.value })),
+  }), mmForCover(true)));
 
   const kpiCards: KpiCardSpec[] = payload.kpis.map((k) => ({
     label: k.label,
@@ -84,7 +92,8 @@ export function buildFinanceDreReportHtml(payload: FinanceDreReportPayload): str
     color: VARIANT_COLOR[k.variant ?? 'neutral'],
     helper: k.delta != null ? `${k.delta >= 0 ? '+' : ''}${k.delta.toFixed(1)}% vs anterior` : undefined,
   }));
-  const kpis = `${sectionTitle('Indicadores do Resultado', `Cenário: ${esc(payload.scenarioLabel)}`)}${kpiGrid(kpiCards, 3)}`;
+  blocks.push(block(sectionTitle('Indicadores do Resultado', `Cenário: ${payload.scenarioLabel}`, 1), mmForSectionTitle(true), { keepWithNext: true }));
+  blocks.push(block(kpiGrid(kpiCards, 3), mmForKpiGrid(kpiCards.length, 3)));
 
   // ── DRE table (indented; group lines bold) ──
   const dreTable = dataTable(
@@ -107,7 +116,7 @@ export function buildFinanceDreReportHtml(payload: FinanceDreReportPayload): str
       };
     }),
   );
-  const dreSection = `${sectionTitle('Demonstração de Resultado (Gerencial)')}${dreTable}`;
+
 
   // ── Expense composition donut + cumulative S-curve ──
   const donutBlock = chartBlock({
@@ -115,13 +124,13 @@ export function buildFinanceDreReportHtml(payload: FinanceDreReportPayload): str
     sub: 'custos diretos, OPEX e deduções',
     svg: svgDonut(
       [...payload.expenseComposition].sort((a, b) => b.value - a.value).slice(0, 8).map((e) => ({ label: e.name, value: e.value })),
-      { width: 360, fmtValue: compactBRL },
+      { width: 490, height: 170, fmtValue: compactBRL },
     ),
   });
   const curveBlock = chartBlock({
     title: 'Resultado Acumulado (12 meses)',
     sub: 'realizado × orçado × forecast',
-    svg: svgLineChart(
+    svg: svgAreaChart(
       payload.monthLabels,
       payload.cumulative.map((s, i) => ({
         name: s.name,
@@ -129,29 +138,65 @@ export function buildFinanceDreReportHtml(payload: FinanceDreReportPayload): str
         dashed: s.dashed,
         values: accumulate(s.values),
         endLabel: true,
+        area: i === 0,
       })),
-      { width: 560, height: 240, xLabel: (x) => x },
+      { width: 490, height: 190, xLabel: (x) => x },
     ),
     legendHtml: legend(payload.cumulative.map((s, i) => ({ name: s.name, color: s.color ?? [C.primary, C.info, C.success][i % 3], dashed: s.dashed }))),
   });
-  const chartsSection = `${sectionTitle('Análise Gráfica')}<div class="two-col">${donutBlock}${curveBlock}</div>`;
+  blocks.push(block(
+    `<div class="two-col">${donutBlock}${curveBlock}</div>`,
+    mmForColumns(
+      mmForChart(170, { svgWidthPx: 490, cols: 2, title: true }),
+      mmForChart(190, { svgWidthPx: 490, cols: 2, title: true, legend: true }),
+    ),
+  ));
+
+  blocks.push(block(sectionTitle('Demonstração de Resultado (Gerencial)', undefined, 2), mmForSectionTitle(), { breakBefore: true, keepWithNext: true }));
+  blocks.push(block(dreTable, mmForTable(payload.rows.length, { rowMm: 5 })));
+
+  const insights: InsightItem[] = [];
+  const worstRow = [...payload.rows].filter((r) => r.level === 0).sort((a, b) => (a.current - a.budget) - (b.current - b.budget))[0];
+  if (worstRow && worstRow.current - worstRow.budget < 0) {
+    insights.push({
+      kind: 'alert',
+      title: 'Maior desvio negativo vs orçado',
+      detail: `${worstRow.label} está ${compactBRL(Math.abs(worstRow.current - worstRow.budget))} abaixo do orçamento no período.`,
+    });
+  }
+  const topExpense = [...payload.expenseComposition].sort((a, b) => b.value - a.value)[0];
+  const expenseTotal = payload.expenseComposition.reduce((sum, e) => sum + e.value, 0);
+  if (topExpense && expenseTotal > 0) {
+    insights.push({
+      kind: 'fact',
+      title: 'Maior componente de despesa',
+      detail: `${topExpense.name} representa ${Math.round((topExpense.value / expenseTotal) * 100)}% da composição de despesas (${compactBRL(topExpense.value)}).`,
+      value: `${Math.round((topExpense.value / expenseTotal) * 100)}%`,
+    });
+  }
+  if ((payload.source ?? 'demonstração') === 'demonstração') {
+    insights.push({
+      kind: 'data-quality',
+      title: 'Dados de demonstração',
+      detail: 'Números do DRE gerados em modo demonstração — não refletem lançamentos reais.',
+    });
+  }
+  if (insights.length) {
+    blocks.push(block(insightPanel(insights, { cols: 2 }), mmForInsightPanel(insights.length, 2)));
+  }
 
   // ── Data quality ──
   const issues: string[] = [];
   if (!payload.rows.length) issues.push('DRE sem linhas para o período/cenário selecionado.');
   if ((payload.source ?? 'demonstração') === 'demonstração') issues.push('Relatório gerado a partir de dados de demonstração do DRE gerencial.');
-  const dqSection = `${sectionTitle('Qualidade dos Dados')}${dataQualityBox(issues)}`;
-
-  const page1 = `<section class="section">${cover}</section><section class="section">${kpis}</section>`;
-  const page2 = `<section class="section">${dreSection}</section>`;
-  const page3 = `<section class="section">${chartsSection}</section><section class="section">${dqSection}</section>`;
+  blocks.push(block(dataQualityBox(issues), mmForWarningBox(Math.max(1, issues.length))));
 
   return renderReportDocument({
     fileName,
     brand,
     logoUrl: meta.logoUrl,
     footerLabel: 'DRE / P&L Gerencial',
-    pages: [page1, page2, page3],
+    pages: composePages(blocks, { orientation: 'landscape' }),
     orientation: 'landscape',
   });
 }

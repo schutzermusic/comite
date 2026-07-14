@@ -167,6 +167,34 @@ export function mapLiveToDeliberacao(item: DeliberationItem, now: number = Date.
     timestamp: new Date(a.timestamp).toISOString(),
   }));
 
+  // Revisão FORMAL ≠ parecer opcional. Sinais confiáveis, nesta ordem:
+  // 1. status atual é de revisão (submitted/in_review/returned_for_revision);
+  // 2. rota de criação persistida = review, ou enteredReviewAt gravado;
+  // 3. o histórico registra entrada em revisão ('entered_review' na criação
+  //    por rota de revisão; closeVoting no_quorum/returned escrevem newValue
+  //    in_review/returned_for_revision). 'submitted' era escrito na criação
+  //    de TODA rota em registros legados — não é sinal;
+  // 4. parecer emitido ANTES da abertura da votação. Rota de votação direta
+  //    tem votingStartedAt = criação, então nada a antecede; pareceres
+  //    solicitados durante a votação não contam.
+  const votingStartMs = item.votingStartedAt ? new Date(item.votingStartedAt).getTime() : null;
+  const revisaoFormal =
+    status === 'em_revisao' ||
+    item.creationRoute === 'review' ||
+    Boolean(item.enteredReviewAt) ||
+    (item.auditTrail ?? []).some(
+      (a) =>
+        a.action === 'entered_review' ||
+        ['in_review', 'returned_for_revision'].includes(a.newValue ?? ''),
+    ) ||
+    (votingStartMs !== null &&
+      (item.reviews ?? []).some(
+        (r) =>
+          r.status !== 'not_required' &&
+          r.reviewedAt !== undefined &&
+          new Date(r.reviewedAt).getTime() <= votingStartMs,
+      ));
+
   const itensRelacionados: ItemRelacionado[] = (item.linkedEntities ?? [])
     .filter((l) => LINKED_TIPO_MAP[l.type])
     .map((l) => ({
@@ -198,6 +226,8 @@ export function mapLiveToDeliberacao(item: DeliberationItem, now: number = Date.
     votos_contra: votosContra,
     votos_abstencao: votosAbstencao,
     proxima_acao: nextActionForStatus(status),
+    tem_ata: Boolean(item.minutes),
+    revisao_formal: revisaoFormal,
     pareceres,
     evidencias,
     acoes_execucao: acoesExecucao,

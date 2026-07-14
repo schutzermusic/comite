@@ -5,12 +5,14 @@
  * string-returning functions styled by the shared shell CSS.
  */
 
+import { block, mmForTable, type ReportBlock } from './report-compose';
 import { esc } from './report-formatters';
 import { C } from './report-theme';
 import type { ReportMeta } from './report-types';
 
-export function sectionTitle(title: string, subtitle?: string): string {
-  return `<div class="sec-head"><div class="sec-rule"></div><div><h2>${esc(title)}</h2>${subtitle ? `<p class="sec-sub">${esc(subtitle)}</p>` : ''}</div></div>`;
+export function sectionTitle(title: string, subtitle?: string, chapter?: number): string {
+  const num = chapter != null ? `<span class="chap-num">${String(chapter).padStart(2, '0')}</span>` : '';
+  return `<div class="sec-head"><div class="sec-rule"></div>${num}<div><h2>${esc(title)}</h2>${subtitle ? `<p class="sec-sub">${esc(subtitle)}</p>` : ''}</div></div>`;
 }
 
 export interface ReportCoverInput {
@@ -23,11 +25,13 @@ export interface ReportCoverInput {
   context?: string;
   /** Optional status chip { label, color }. */
   statusChip?: { label: string; color: string };
+  /** Optional headline metric strip rendered inside the cover band. */
+  coverKpis?: { label: string; value: string }[];
 }
 
 /** Branded cover band: centered logo, title, context line, metadata + notes. */
 export function reportCover(input: ReportCoverInput): string {
-  const { meta, title, kicker, context, statusChip } = input;
+  const { meta, title, kicker, context, statusChip, coverKpis } = input;
   const generated = new Date(meta.generatedAt).toLocaleString('pt-BR');
   const confidentiality = meta.confidentiality ?? 'Confidencial — uso interno';
 
@@ -48,6 +52,9 @@ export function reportCover(input: ReportCoverInput): string {
     ${kicker ? `<div class="cover-kicker">${esc(kicker)}</div>` : ''}
     <div class="cover-title">${esc(title)}</div>
     ${context ? `<div class="cover-proj">${context}${chip}</div>` : (chip ? `<div class="cover-proj">${chip}</div>` : '')}
+    ${coverKpis?.length ? `<div class="cover-kpis">${coverKpis
+      .map((k) => `<div class="cover-kpi"><div class="ck-l">${esc(k.label)}</div><div class="ck-v">${esc(k.value)}</div></div>`)
+      .join('')}</div>` : ''}
     <div class="cover-meta">${metaItems.join('')}</div>
     <div class="cover-note">${esc(confidentiality)} · ${esc(meta.brand)}</div>
   </div>`;
@@ -121,6 +128,41 @@ export function dataTable(columns: TableColumn[], rows: Record<string, TableCell
       .join('')}</tr>`)
     .join('');
   return `<table class="data">${thead}<tbody>${body}</tbody></table>`;
+}
+
+/**
+ * Long table split into page-sized chunks for the page composer. Each chunk is
+ * a complete `<table class="data">` with its own header (deterministic header
+ * repetition — never relies on the browser splitting a table across pages) and
+ * carries its height estimate for `composePages`.
+ */
+export function dataTableChunked(
+  columns: TableColumn[],
+  rows: Record<string, TableCell>[],
+  opts?: { rowsPerChunk?: number; totalsRow?: Record<string, TableCell>; rowMm?: number },
+): ReportBlock[] {
+  if (!rows.length) return [block(dataTable(columns, rows), mmForTable(0))];
+  const size = opts?.rowsPerChunk ?? 22;
+  const rowMm = opts?.rowMm;
+  const chunks: ReportBlock[] = [];
+  for (let start = 0; start < rows.length; start += size) {
+    const slice = rows.slice(start, start + size);
+    const isLast = start + size >= rows.length;
+    const cont = start > 0 ? `<p class="tbl-cont">continuação (${start + 1}–${start + slice.length} de ${rows.length})</p>` : '';
+    let html = cont + dataTable(columns, slice);
+    if (isLast && opts?.totalsRow) {
+      const tfoot = `<tfoot><tr>${columns
+        .map((c) => {
+          const cell = opts.totalsRow?.[c.key];
+          const content = cell == null ? '' : typeof cell === 'object' ? cell.html : esc(cell);
+          return `<td class="${c.num ? 'num' : ''}">${content}</td>`;
+        })
+        .join('')}</tr></tfoot>`;
+      html = html.replace('</table>', `${tfoot}</table>`);
+    }
+    chunks.push(block(html, mmForTable(slice.length + (isLast && opts?.totalsRow ? 1 : 0), { rowMm }) + (cont ? 4 : 0)));
+  }
+  return chunks;
 }
 
 export type BoxTone = 'warn' | 'ok' | 'crit' | 'info';

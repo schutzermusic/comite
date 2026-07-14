@@ -148,6 +148,9 @@ export function DecisionCard({
       ? (deliberacao.quorum_atual / deliberacao.quorum_necessario) * 100
       : 0,
   );
+  const execTotal = deliberacao.acoes_execucao.length;
+  const execDone = deliberacao.acoes_execucao.filter((a) => a.status === 'concluida').length;
+  const execPct = execTotal > 0 ? Math.round((execDone / execTotal) * 100) : 0;
   const actions = quickActionsForStatus(deliberacao.status);
   const handleAction = (id: DecisionCardAction) => (onAction ?? (() => onClick()))(id);
 
@@ -208,6 +211,20 @@ export function DecisionCard({
                 <span className="tabular-nums">{formatDate(deliberacao.sla_deadline)}</span>
               </span>
             </div>
+            {deliberacao.status === 'em_execucao' && execTotal > 0 && (
+              <div className="flex items-center gap-1.5 shrink-0">
+                <span className="text-ig-fg-muted text-[11px]">Execução</span>
+                <span className="text-ig-fg-strong tabular-nums font-medium">
+                  {execDone}/{execTotal}
+                </span>
+                <div className="w-12 h-1.5 rounded-full bg-ig-panel-hover overflow-hidden">
+                  <div
+                    className="h-full bg-ig-accent rounded-full transition-all"
+                    style={{ width: `${execPct}%` }}
+                  />
+                </div>
+              </div>
+            )}
             {deliberacao.status === 'em_votacao' && (
               <div className="flex items-center gap-1.5 shrink-0">
                 <span className="text-ig-fg-muted text-[11px]">Quórum</span>

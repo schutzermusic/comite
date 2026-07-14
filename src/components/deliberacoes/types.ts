@@ -93,6 +93,14 @@ export interface Deliberacao {
   votos_contra: number;
   votos_abstencao: number;
   proxima_acao: string;
+  /** Ata real (gerada/publicada) — vem de `DeliberationItem.minutes` no modo live. */
+  tem_ata?: boolean;
+  /**
+   * Passou formalmente por revisão (status atual/histórico de revisão, ou
+   * parecer emitido antes da abertura da votação) — derivado no live-adapter.
+   * Pareceres opcionais solicitados durante a votação NÃO contam.
+   */
+  revisao_formal?: boolean;
   pareceres: Parecer[];
   evidencias: Evidencia[];
   acoes_execucao: AcaoExecucao[];

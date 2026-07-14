@@ -9,7 +9,7 @@
 
 import type { ContractGovernanceRecord } from '@/components/contracts/contract-governance-data';
 import { BRL, compactBRL, esc, fmtDate, fmtInt } from '@/lib/reports/report-formatters';
-import { C } from '@/lib/reports/report-theme';
+import { C, REPORT_BRAND_NAME } from '@/lib/reports/report-theme';
 import {
   reportCover, sectionTitle, kpiGrid, dataTable, warningBox, summaryBox,
   type KpiCardSpec,
@@ -57,7 +57,7 @@ function kv(k: string, v: string): Record<string, { html: string } | string> {
 
 export function buildContractDossierHtml(payload: ContractDossierPayload): string {
   const r = payload.record;
-  const brand = payload.brandName ?? 'INSIGHT — Governança Corporativa';
+  const brand = payload.brandName ?? REPORT_BRAND_NAME;
   const fileName = buildReportFileName({ module: `contrato-${r.code}` });
   const meta = buildReportMeta({
     brand,

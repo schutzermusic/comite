@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils';
 import { OrionCard } from './orion-card';
 import { LucideIcon, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { ReactNode } from 'react';
-import { motion } from 'framer-motion';
+import { motion } from 'motion/react';
 import { kpiCardHoverVariants } from '@/lib/motion-presets';
 
 interface KpiCardProps {

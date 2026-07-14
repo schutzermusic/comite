@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useMemo, useState, useCallback } from 'react';
-import { motion } from 'framer-motion';
+import { motion } from 'motion/react';
 import { Activity, BrainCircuit } from 'lucide-react';
 import { HudPageLayout, HudHeader, HudButton } from '@/components/hud';
 import { usePermissions } from '@/hooks/use-permissions';

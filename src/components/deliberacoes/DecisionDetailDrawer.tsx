@@ -5,9 +5,11 @@ import {
   FileText,
   Link2,
   CheckCircle,
+  ChevronRight,
   Circle,
   Clock,
   Gavel,
+  GitBranch,
   Briefcase,
   AlertOctagon,
   Calendar,
@@ -16,6 +18,7 @@ import {
   ScrollText,
   MessageSquarePlus,
   Paperclip,
+  Trash2,
 } from 'lucide-react';
 import {
   HudDrawer,
@@ -34,6 +37,7 @@ import type {
   ParecerStatus,
   ItemRelacionadoTipo,
 } from './types';
+import { hasAta, hasFormalReviewStep } from './mock-data';
 import { DecisionSlaBadge } from './DecisionSlaBadge';
 import { DecisionRiskBadge } from './DecisionRiskBadge';
 import { CommitteeBadge } from './CommitteeBadge';
@@ -50,6 +54,8 @@ interface DecisionDetailDrawerProps {
   canAttachEvidence?: boolean;
   canExecute?: boolean;
   canMinutes?: boolean;
+  /** Admin-only: permite excluir deliberações abertas (não concluídas). */
+  canDelete?: boolean;
   /** A mutation is in flight — disables action buttons. */
   busy?: boolean;
   /** Demo/mock mode — hides real operational actions. */
@@ -68,6 +74,8 @@ interface DecisionDetailDrawerProps {
   ) => void;
   /** Exports the single-decision report (wired by the page). */
   onExport?: () => void;
+  /** Admin-only: exclui a deliberação (confirmação fica na página). */
+  onDelete?: () => void;
 }
 
 // Execution status cycle: pendente → em_andamento → concluída → pendente.
@@ -130,6 +138,37 @@ const ITEM_RELACIONADO_ICON: Record<ItemRelacionadoTipo, React.ReactNode> = {
   risco: <AlertOctagon className="w-3.5 h-3.5" />,
   reuniao: <Calendar className="w-3.5 h-3.5" />,
 };
+
+interface FlowStage {
+  id: string;
+  label: string;
+}
+
+/**
+ * Dynamic decision path (the full workflow lives only in the dossier):
+ * - simples: Criada → Em votação → Concluída
+ * - com revisão: adiciona "Em revisão" só quando houve revisão FORMAL —
+ *   parecer opcional solicitado durante a votação não conta
+ * - com ata: adiciona "Aguardando ata" (status exige ata, ou ata real existe)
+ * - com execução: adiciona "Em execução" (status atual ou ações de execução)
+ */
+function buildDecisionFlow(d: Deliberacao): { stages: FlowStage[]; currentIndex: number } {
+  const hasReview = hasFormalReviewStep(d);
+  const hasMinutes = d.status === 'aguardando_ata' || hasAta(d);
+  const hasExecution = d.status === 'em_execucao' || d.acoes_execucao.length > 0;
+
+  const stages: FlowStage[] = [
+    { id: 'rascunho', label: 'Criada' },
+    ...(hasReview ? [{ id: 'em_revisao', label: 'Em revisão' }] : []),
+    { id: 'em_votacao', label: 'Em votação' },
+    ...(hasMinutes ? [{ id: 'aguardando_ata', label: 'Aguardando ata' }] : []),
+    ...(hasExecution ? [{ id: 'em_execucao', label: 'Em execução' }] : []),
+    { id: 'concluida', label: 'Concluída' },
+  ];
+
+  const currentIndex = Math.max(0, stages.findIndex((s) => s.id === d.status));
+  return { stages, currentIndex };
+}
 
 function formatDateTime(iso: string): string {
   try {
@@ -206,6 +245,7 @@ export function DecisionDetailDrawer({
   canAttachEvidence = false,
   canExecute = false,
   canMinutes = false,
+  canDelete = false,
   busy = false,
   readOnly = false,
   onVote,
@@ -215,8 +255,11 @@ export function DecisionDetailDrawer({
   onCreateTask,
   onExecutionToggle,
   onExport,
+  onDelete,
 }: DecisionDetailDrawerProps) {
   const canOperate = !readOnly && !busy;
+  // Excluir só aparece para admin e apenas em deliberações abertas.
+  const showDelete = Boolean(onDelete) && canDelete && deliberacao?.status !== 'concluida';
   const footer = deliberacao ? (
     <div className="flex flex-wrap items-center gap-2">
       {(deliberacao.status === 'em_revisao' || deliberacao.status === 'em_votacao') &&
@@ -279,6 +322,19 @@ export function DecisionDetailDrawer({
           Exportar
         </HudButton>
       )}
+      {showDelete && (
+        <HudButton
+          variant="danger"
+          size="sm"
+          leftIcon={<Trash2 className="w-3.5 h-3.5" />}
+          disabled={!canOperate}
+          title="Excluir deliberação (admin)"
+          onClick={onDelete}
+          className={onExport ? undefined : 'ml-auto'}
+        >
+          Excluir
+        </HudButton>
+      )}
     </div>
   ) : undefined;
 
@@ -312,6 +368,46 @@ export function DecisionDetailDrawer({
               Prazo: {formatDate(deliberacao.sla_deadline)}
             </HudBadge>
           </div>
+
+          {/* Dynamic decision flow — full path only in the dossier */}
+          <DrawerSection title="Fluxo da Decisão" icon={<GitBranch className="w-3.5 h-3.5" />}>
+            {(() => {
+              const { stages, currentIndex } = buildDecisionFlow(deliberacao);
+              const isConcluded = deliberacao.status === 'concluida';
+              return (
+                <ol className="flex flex-wrap items-center gap-y-1.5">
+                  {stages.map((s, i) => {
+                    const done = i < currentIndex || (isConcluded && i <= currentIndex);
+                    const current = !done && i === currentIndex;
+                    return (
+                      <li key={s.id} className="flex items-center">
+                        <span
+                          className={cn(
+                            'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10.5px] font-semibold uppercase tracking-[0.06em] whitespace-nowrap',
+                            done && 'border-ig-border-subtle bg-ig-panel/60 text-ig-fg-muted',
+                            current && 'border-ig-accent/55 bg-ig-accent-weak text-ig-accent',
+                            !done && !current && 'border-ig-border-subtle text-ig-fg-subtle',
+                          )}
+                        >
+                          {done ? (
+                            <CheckCircle className="w-3 h-3 text-ig-success shrink-0" />
+                          ) : current ? (
+                            <span className="inline-block h-1.5 w-1.5 rounded-full bg-ig-accent animate-pulse shrink-0" />
+                          ) : (
+                            <Circle className="w-3 h-3 shrink-0" />
+                          )}
+                          {s.label}
+                        </span>
+                        {i < stages.length - 1 && (
+                          <ChevronRight className="w-3.5 h-3.5 mx-1 text-ig-fg-subtle/70 shrink-0" aria-hidden />
+                        )}
+                      </li>
+                    );
+                  })}
+                </ol>
+              );
+            })()}
+          </DrawerSection>
 
           {/* Executive summary */}
           <DrawerSection title="Resumo Executivo" icon={<ScrollText className="w-3.5 h-3.5" />}>
@@ -512,8 +608,9 @@ export function DecisionDetailDrawer({
             </DrawerSection>
           )}
 
-          {/* Ata section */}
-          {(deliberacao.status === 'aguardando_ata' || deliberacao.status === 'concluida') && (
+          {/* Ata section — concluída só mostra a ata quando ela existe de fato */}
+          {(deliberacao.status === 'aguardando_ata' ||
+            (deliberacao.status === 'concluida' && hasAta(deliberacao))) && (
             <DrawerSection
               title="Ata"
               icon={<Gavel className="w-3.5 h-3.5" />}

@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { PJvsCLTBar } from './PJvsCLTBar';
 import { CostCenter, formatWorkforceCurrency, formatWorkforcePercentage } from '@/lib/workforce-data';
 import { cn } from '@/lib/utils';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 import Link from 'next/link';
 
 interface CostCenterDrilldownProps {

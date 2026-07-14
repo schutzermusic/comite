@@ -708,6 +708,37 @@ export const DELIBERACOES_MOCK: Deliberacao[] = [
   },
 ];
 
+/**
+ * Ata real: flag do modelo live (`minutes` JSONB via adapter) ou evento de
+ * ata/minutes na trilha de auditoria. Não presume ata em toda concluída —
+ * no live, decisões rejeitadas resolvem sem passar por awaiting_minutes.
+ */
+export function hasAta(d: Deliberacao): boolean {
+  return (
+    d.tem_ata === true ||
+    d.audit_trail.some((ev) =>
+      /\bata\b|minutes_(generated|published)/i.test(`${ev.acao} ${ev.descricao}`),
+    )
+  );
+}
+
+/**
+ * Revisão FORMAL: status atual de revisão, ou o flag derivado no live-adapter
+ * (histórico de status / parecer anterior à votação). Um parecer opcional
+ * solicitado durante a votação NÃO insere etapa de revisão. O fallback por
+ * pareceres só vale para o mock, que não tem histórico de status: conta
+ * apenas pareceres emitidos antes do evento "Votação iniciada" da trilha.
+ */
+export function hasFormalReviewStep(d: Deliberacao): boolean {
+  if (d.status === 'em_revisao') return true;
+  if (d.revisao_formal !== undefined) return d.revisao_formal;
+  const votacaoInicio = d.audit_trail.find((ev) => /vota[çc][ãa]o iniciada/i.test(ev.acao))?.timestamp;
+  if (votacaoInicio) {
+    return d.pareceres.some((p) => p.created_at <= votacaoInicio);
+  }
+  return d.pareceres.length > 0;
+}
+
 export function countByStatus(items: Deliberacao[], status: DeliberacaoStatus): number {
   return items.filter((d) => d.status === status).length;
 }

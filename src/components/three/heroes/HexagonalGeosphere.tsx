@@ -1,7 +1,7 @@
 'use client';
 
 import { FONT_FAMILY_SANS } from '@/lib/fonts';
-import { motion } from 'framer-motion';
+import { motion } from 'motion/react';
 
 interface HexagonalGeosphereProps {
     value: number;

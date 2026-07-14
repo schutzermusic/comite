@@ -16,7 +16,12 @@ import {
 import { renderReportDocument } from '@/lib/reports/report-shell';
 import { openReport, buildReportMeta, buildReportFileName } from '@/lib/reports/report-export';
 import type { ReportExportResult } from '@/lib/reports/report-types';
-import { renderFinanceChart, financeChartLegend, type FinanceChartSpec } from '@/lib/reports/finance-chart-spec';
+import { REPORT_BRAND_NAME } from '@/lib/reports/report-theme';
+import { renderFinanceChart, financeChartLegend, financeChartDims, type FinanceChartSpec } from '@/lib/reports/finance-chart-spec';
+import {
+  composePages, block, mmForChart, mmForColumns, mmForCover, mmForKpiGrid,
+  mmForSectionTitle, mmForTable, mmForWarningBox, type ReportBlock,
+} from '@/lib/reports/report-compose';
 
 export interface FinanceReportChart {
   title?: string;
@@ -65,27 +70,44 @@ export interface FinanceReportPayload {
   dataQuality?: string[];
 }
 
-function renderSection(s: FinanceReportSection): string {
-  const charts = (s.charts ?? []).map((c) => chartBlock({
-    title: c.title,
-    sub: c.sub,
-    svg: renderFinanceChart(c.spec),
-    legendHtml: financeChartLegend(c.spec),
-  }));
-  const chartsHtml = charts.length === 0 ? ''
-    : charts.length === 1 ? charts[0]
-    : `<div class="two-col">${charts.slice(0, 2).join('')}</div>`;
-  const tablesHtml = (s.tables ?? []).map((t) => {
+/** Render one section as measured blocks for the page composer. */
+function sectionBlocks(s: FinanceReportSection): ReportBlock[] {
+  const out: ReportBlock[] = [];
+  out.push(block(sectionTitle(s.title, s.sub), mmForSectionTitle(!!s.sub), { breakBefore: true, keepWithNext: true }));
+  const charts = (s.charts ?? []).slice(0, 2);
+  if (charts.length) {
+    const rendered = charts.map((c) => chartBlock({
+      title: c.title,
+      sub: c.sub,
+      svg: renderFinanceChart(c.spec),
+      legendHtml: financeChartLegend(c.spec),
+    }));
+    const cols = charts.length === 1 ? 1 : 2;
+    const heights = charts.map((c) => {
+      const dims = financeChartDims(c.spec);
+      return mmForChart(dims.h, {
+        svgWidthPx: dims.w,
+        cols: cols as 1 | 2,
+        title: !!c.title,
+        legend: c.spec.kind === 'trend' || c.spec.kind === 'grouped',
+      });
+    });
+    out.push(block(
+      cols === 1 ? rendered[0] : `<div class="two-col">${rendered.join('')}</div>`,
+      mmForColumns(...heights),
+    ));
+  }
+  (s.tables ?? []).forEach((t) => {
     const head = t.title ? `<h3 style="margin-top:8px">${esc(t.title)}</h3>` : '';
     const sub = t.sub ? `<p class="chart-sub">${esc(t.sub)}</p>` : '';
-    return `${head}${sub}${dataTable(t.columns, t.rows)}`;
-  }).join('');
-  const note = s.note ? warningBox(s.note.title, s.note.items, s.note.tone ?? 'info') : '';
-  return `<section class="section">${sectionTitle(s.title, s.sub)}${chartsHtml}${tablesHtml}${note}</section>`;
+    out.push(block(`${head}${sub}${dataTable(t.columns, t.rows)}`, mmForTable(t.rows.length, { rowMm: 5.6 }) + (t.title ? 6 : 0)));
+  });
+  if (s.note) out.push(block(warningBox(s.note.title, s.note.items, s.note.tone ?? 'info'), mmForWarningBox(s.note.items.length)));
+  return out;
 }
 
 export function buildFinanceReportHtml(payload: FinanceReportPayload): string {
-  const brand = payload.brandName ?? 'INSIGHT — Governança Corporativa';
+  const brand = payload.brandName ?? REPORT_BRAND_NAME;
   const fileName = buildReportFileName({ module: 'financeiro', context: payload.fileContext });
   const meta = buildReportMeta({
     brand,
@@ -95,35 +117,33 @@ export function buildFinanceReportHtml(payload: FinanceReportPayload): string {
     generatedBy: payload.generatedBy,
   });
 
-  const cover = reportCover({
+  const blocks: ReportBlock[] = [];
+  blocks.push(block(reportCover({
     meta,
     kicker: payload.kicker ?? 'Relatório Executivo · Financeiro',
     title: payload.title,
     context: payload.context,
-  });
+    coverKpis: payload.kpis.slice(0, 4).map((k) => ({ label: k.label, value: k.value })),
+  }), mmForCover(payload.kpis.length > 0)));
 
-  const kpis = payload.kpis.length
-    ? `<section class="section">${sectionTitle('Indicadores', payload.scenarioLabel ? `Cenário: ${payload.scenarioLabel}` : undefined)}${kpiGrid(payload.kpis)}</section>`
-    : '';
-
-  const sectionHtml = payload.sections.map(renderSection);
-  const dq = `<section class="section">${sectionTitle('Qualidade dos Dados')}${dataQualityBox(payload.dataQuality ?? ((payload.source ?? 'demonstração') === 'demonstração' ? [`Relatório gerado a partir de dados de demonstração (${esc(payload.title)}).`] : []))}</section>`;
-
-  // Page 1: cover + KPIs + first section. Remaining sections: 2 per page. Last: data quality.
-  const pages: string[] = [];
-  const firstSection = sectionHtml.length ? sectionHtml[0] : '';
-  pages.push(`<section class="section">${cover}</section>${kpis}${firstSection}`);
-  for (let i = 1; i < sectionHtml.length; i += 2) {
-    pages.push(sectionHtml.slice(i, i + 2).join(''));
+  if (payload.kpis.length) {
+    const cols = payload.kpis.length % 5 === 0 ? 5 : payload.kpis.length % 4 === 0 ? 4 : payload.kpis.length <= 3 ? payload.kpis.length : 4;
+    blocks.push(block(sectionTitle('Indicadores', payload.scenarioLabel ? `Cenário: ${payload.scenarioLabel}` : undefined), mmForSectionTitle(!!payload.scenarioLabel), { keepWithNext: true }));
+    blocks.push(block(kpiGrid(payload.kpis), mmForKpiGrid(payload.kpis.length, cols)));
   }
-  pages.push(dq);
+
+  payload.sections.forEach((s) => blocks.push(...sectionBlocks(s)));
+
+  const dqIssues = payload.dataQuality ?? ((payload.source ?? 'demonstração') === 'demonstração' ? [`Relatório gerado a partir de dados de demonstração (${payload.title}).`] : []);
+  blocks.push(block(sectionTitle('Qualidade dos Dados'), mmForSectionTitle(), { keepWithNext: true }));
+  blocks.push(block(dataQualityBox(dqIssues), mmForWarningBox(Math.max(1, dqIssues.length))));
 
   return renderReportDocument({
     fileName,
     brand,
     logoUrl: meta.logoUrl,
     footerLabel: payload.title,
-    pages,
+    pages: composePages(blocks, { orientation: 'landscape' }),
     orientation: 'landscape',
   });
 }

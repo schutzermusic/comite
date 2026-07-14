@@ -2,7 +2,7 @@
 
 import { useRef, useCallback } from 'react';
 import dynamic from 'next/dynamic';
-import { motion } from 'framer-motion';
+import { motion } from 'motion/react';
 import { MapPin, TrendingUp, ExternalLink } from 'lucide-react';
 import { STATE_PROJECT_DATA, formatCompact } from '@/data/geo/brazil-operational-data';
 import { cn } from '@/lib/utils';

@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { PayrollRiskData, RiskStatus, formatWorkforcePercentage } from '@/lib/workforce-data';
 import { cn } from '@/lib/utils';
-import { motion } from 'framer-motion';
+import { motion } from 'motion/react';
 
 interface PayrollRiskIndicatorProps {
   data: PayrollRiskData;
