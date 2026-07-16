@@ -30,20 +30,18 @@ import {
   HudPanel,
   HudButton,
 } from '@/components/hud';
-import { users as mockUsers } from '@/lib/mock-data';
 import { getProjectByIdAsync, getProjectV2ByIdAsync } from '@/lib/services/projects';
 import { TimelineTab } from '@/components/projects/timeline/TimelineTab';
 import { ProjectContractTab } from '@/components/projects/ProjectContractTab';
 import { ProjectRisksTab } from '@/components/projects/ProjectRisksTab';
 import { ProjectDocumentsView } from '@/components/projects/ProjectDocumentsView';
 import { TeamAllocationView } from '@/components/projects/team-allocation-view';
+import { ProjectTimesheetView } from '@/components/projects/project-timesheet-view';
 import { FinanceView } from '@/components/projects/FinanceView';
-import { ProjectAllocation } from '@/lib/types';
 import type { ProjectV2 } from '@/lib/types/project-v2';
 import { projectSerial } from '@/lib/utils/serial';
 import { formatMoney } from '@/lib/utils/project-utils';
 import { getClientLogoUrl } from '@/lib/utils/client-logos';
-import { mockAllocationsV2 } from '@/data/mock-projects-v2';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { ExportReportButton } from '@/components/reports/ExportReportButton';
@@ -56,7 +54,7 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
   const searchParams = useSearchParams();
   const initialTab = (() => {
     const t = searchParams?.get('tab');
-    return t && ['timeline', 'contract', 'finance', 'risks', 'documents', 'team'].includes(t) ? t : 'timeline';
+    return t && ['timeline', 'contract', 'finance', 'risks', 'documents', 'team', 'timesheet'].includes(t) ? t : 'timeline';
   })();
   const [projeto, setProjeto] = useState<Awaited<ReturnType<typeof getProjectByIdAsync>>>(undefined);
   const [projetoV2, setProjetoV2] = useState<ProjectV2 | undefined>(undefined);
@@ -161,25 +159,6 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
     return colors[impacto] || colors.medio;
   };
 
-  // Use V2 allocations if available
-  const v2Allocs = mockAllocationsV2[id];
-  const allocations: ProjectAllocation[] = v2Allocs
-    ? v2Allocs.map(a => ({
-      id: a.id,
-      projectId: a.projectId,
-      memberId: a.memberId,
-      memberName: a.memberName,
-      role: a.role,
-      allocationPercent: a.allocationPercent,
-      hoursPerWeek: a.hoursPerWeek,
-      critical: a.critical,
-    }))
-    : [
-      { id: '1', projectId: id, memberId: projeto.responsavel?.id || '', memberName: projeto.responsavel?.nome || 'Não definido', role: 'Gerente de Projeto', allocationPercent: 80, hoursPerWeek: 32 },
-      { id: '2', projectId: id, memberId: '2', memberName: 'Ana Silva', role: 'Desenvolvedora Full Stack', allocationPercent: 120, hoursPerWeek: 48, critical: true },
-      { id: '3', projectId: id, memberId: '3', memberName: 'Carlos Santos', role: 'UX Designer', allocationPercent: 60, hoursPerWeek: 24 },
-    ];
-
   // Last activity
   const lastActivity = projetoV2?.last_activity_at
     ? format(new Date(projetoV2.last_activity_at), "dd MMM yyyy 'às' HH:mm", { locale: ptBR })
@@ -263,7 +242,7 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
                   risks: projetoV2?.risks ?? [],
                   tasks: projetoV2?.tasks ?? [],
                   documents: projetoV2?.documents ?? [],
-                  allocations: allocations.map((a) => ({ memberName: a.memberName, role: a.role, allocationPercent: a.allocationPercent })),
+                  allocations: [],
                   source: projetoV2 ? 'Supabase' : 'demonstração',
                 })}
               />
@@ -361,7 +340,7 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
         {/* Tabs: barra solta — painéis de conteúdo flutuam direto na página */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <div id="project-tabs">
-            <TabsList className="grid w-full grid-cols-3 rounded-xl backdrop-blur-sm lg:grid-cols-6 hud-tabs-container">
+            <TabsList className="grid w-full grid-cols-3 rounded-xl backdrop-blur-sm lg:grid-cols-7 hud-tabs-container">
               <TabsTrigger value="finance" className="hud-tab-trigger">
                 <DollarSign className="w-4 h-4 mr-2" />
                 Financeiro
@@ -385,6 +364,10 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
               <TabsTrigger value="team" className="hud-tab-trigger">
                 <UserCog className="w-4 h-4 mr-2" />
                 Equipe
+              </TabsTrigger>
+              <TabsTrigger value="timesheet" className="hud-tab-trigger">
+                <Clock className="w-4 h-4 mr-2" />
+                Apontamentos
               </TabsTrigger>
             </TabsList>
           </div>
@@ -411,16 +394,11 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
               </TabsContent>
 
               <TabsContent value="team" className="mt-0">
-                <TeamAllocationView
-                  projectId={id}
-                  allocations={allocations}
-                  onEditAllocation={(allocation) => {
-                    console.log('Edit allocation:', allocation);
-                  }}
-                  onAddMember={(allocation) => {
-                    console.log('Add member:', allocation);
-                  }}
-                />
+                <TeamAllocationView projectId={id} />
+              </TabsContent>
+
+              <TabsContent value="timesheet" className="mt-0">
+                <ProjectTimesheetView projectId={id} />
               </TabsContent>
 
               <TabsContent value="finance" className="mt-0">

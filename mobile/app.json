@@ -1,0 +1,31 @@
+{
+  "expo": {
+    "name": "Insight Apex",
+    "slug": "insight-apex-mobile",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "scheme": "insightapex",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.insight.apex.mobile",
+      "infoPlist": {
+        "NSFaceIDUsageDescription": "Usamos o Face ID para confirmar sua identidade ao registrar o ponto.",
+        "NSLocationWhenInUseUsageDescription": "A localização é capturada apenas ao registrar ponto para confirmar presença no local de trabalho."
+      }
+    },
+    "android": {
+      "package": "com.insight.apex.mobile",
+      "permissions": ["ACCESS_FINE_LOCATION", "USE_BIOMETRIC", "USE_FINGERPRINT"]
+    },
+    "plugins": [
+      "expo-local-authentication",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "A localização é capturada apenas ao registrar ponto."
+        }
+      ]
+    ]
+  }
+}

@@ -34,7 +34,13 @@ const ROUTE_PERMISSIONS: RoutePermission[] = [
     { prefix: '/projetos', permission: 'projects.view' },
     { prefix: '/projects', permission: 'projects.view' },
     { prefix: '/riscos', permission: 'risks.view' },
-    // People / org
+    // People / org (most specific first)
+    { prefix: '/workforce-cost/aprovacoes', permission: 'people.timesheet_approve' },
+    { prefix: '/workforce-cost/custos', anyPermission: ['people.cost_view', 'people.cost_manage'] },
+    { prefix: '/workforce-cost/jornada', anyPermission: ['people.attendance_use', 'people.attendance_view', 'people.attendance_manage'] },
+    { prefix: '/workforce-cost/governanca', anyPermission: ['people.governance_view', 'people.governance_manage'] },
+    { prefix: '/workforce-cost/inteligencia', anyPermission: ['people.allocations_view', 'people.ai_insights'] },
+    { prefix: '/workforce-cost/geofences', anyPermission: ['people.geofence_manage', 'people.attendance_view'] },
     { prefix: '/workforce-cost', permission: 'people.view' },
     { prefix: '/pessoas', permission: 'people.view' },
     { prefix: '/organograma', permission: 'org_chart.view' },
