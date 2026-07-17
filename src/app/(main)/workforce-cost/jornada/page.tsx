@@ -167,10 +167,6 @@ export default function JornadaPage() {
   const nextOptions = nextPunchOptions(lastPunchType);
 
   async function handlePunch(type: PunchType) {
-    if (usingDemo) {
-      notify('Indisponível em modo demo', { variant: 'warning' });
-      return;
-    }
     setBusy(true);
     try {
       await registerPunch(type);

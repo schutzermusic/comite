@@ -33,6 +33,7 @@ function demoPerson(
     profileId: null,
     fullName,
     payrollNameKey: fullName.toLowerCase(),
+    cpf: null,
     email: null,
     jobTitle,
     department,
