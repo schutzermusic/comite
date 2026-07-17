@@ -51,6 +51,8 @@ type PunchRow = {
   corrected_by: string | null;
   client_event_id: string | null;
   notes: string | null;
+  nsr: number | string | null;
+  integrity_hash: string | null;
   created_at: string;
   updated_at: string;
   people?: PersonRow | null;
@@ -72,6 +74,8 @@ function mapPunch(row: PunchRow): AttendancePunch {
     correctedBy: row.corrected_by,
     clientEventId: row.client_event_id,
     notes: row.notes,
+    nsr: row.nsr == null ? null : Number(row.nsr),
+    integrityHash: row.integrity_hash ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     person: row.people ? mapPersonRow(row.people) : undefined,

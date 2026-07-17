@@ -192,6 +192,7 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
       { key: 'people.governance_manage', label: 'Governança — Analisar/Resolver' },
       { key: 'people.ai_insights', label: 'Inteligência — Insights de IA' },
       { key: 'people.geofence_manage', label: 'Mobile — Gerenciar geofences' },
+      { key: 'people.rep_manage', label: 'Ponto Oficial (REP-P) — Configurar/Exportar' },
     ],
   },
   {
