@@ -210,7 +210,6 @@ export function ProjectTimesheetView({ projectId }: ProjectTimesheetViewProps) {
   /* ── timer / manual actions ── */
 
   async function handleStart() {
-    if (blockDemo()) return;
     setBusy(true);
     try {
       const session = await startSession({ projectId });
@@ -239,7 +238,6 @@ export function ProjectTimesheetView({ projectId }: ProjectTimesheetViewProps) {
   }
 
   async function handleManual() {
-    if (blockDemo()) return;
     const hours = Number(manualHours.replace(',', '.'));
     if (!manualDate || !Number.isFinite(hours) || hours <= 0 || hours > 24) {
       notify('Informe data e horas válidas (0–24)', { variant: 'warning' });
@@ -267,7 +265,6 @@ export function ProjectTimesheetView({ projectId }: ProjectTimesheetViewProps) {
   }
 
   async function handleConsolidateAndSubmit() {
-    if (blockDemo()) return;
     setBusy(true);
     try {
       const consolidated = await consolidateMySessions();

@@ -72,6 +72,7 @@ export type PersonRow = {
   profile_id: string | null;
   full_name: string;
   payroll_name_key: string | null;
+  cpf: string | null;
   email: string | null;
   job_title: string | null;
   department: string | null;
@@ -95,6 +96,7 @@ export function mapPersonRow(row: PersonRow): Person {
     profileId: row.profile_id,
     fullName: row.full_name,
     payrollNameKey: row.payroll_name_key,
+    cpf: row.cpf ?? null,
     email: row.email,
     jobTitle: row.job_title,
     department: row.department,
@@ -173,6 +175,7 @@ export async function getCurrentPerson(): Promise<Person | null> {
 
 export interface PersonInput {
   fullName: string;
+  cpf?: string | null;
   email?: string | null;
   jobTitle?: string | null;
   department?: string | null;
@@ -191,6 +194,7 @@ function mapInputToRow(input: Partial<PersonInput>): Record<string, unknown> {
   const row: Record<string, unknown> = {
     full_name: input.fullName?.trim(),
     payroll_name_key: input.fullName !== undefined ? normalizePersonName(input.fullName) : undefined,
+    cpf: input.cpf !== undefined ? (input.cpf ? input.cpf.replace(/\D/g, '') : null) : undefined,
     email: input.email,
     job_title: input.jobTitle,
     department: input.department,

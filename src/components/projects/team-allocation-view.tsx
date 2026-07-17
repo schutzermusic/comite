@@ -458,7 +458,6 @@ export function TeamAllocationView({ projectId }: TeamAllocationViewProps) {
             variant="primary"
             leftIcon={<Plus className="h-4 w-4" />}
             onClick={() => {
-              if (blockDemo()) return;
               setEditing(null);
               setModalOpen(true);
             }}
@@ -493,7 +492,6 @@ export function TeamAllocationView({ projectId }: TeamAllocationViewProps) {
                           ? {
                               label: 'Alocar pessoa',
                               onClick: () => {
-                                if (blockDemo()) return;
                                 setEditing(null);
                                 setModalOpen(true);
                               },
@@ -657,7 +655,7 @@ export function TeamAllocationView({ projectId }: TeamAllocationViewProps) {
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         projectId={projectId}
-        people={sourcePeople}
+        people={people}
         editing={editing}
         onSaved={async () => {
           setModalOpen(false);

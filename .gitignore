@@ -54,3 +54,6 @@ next-env.d.ts
 # firebase
 firebase-debug.log
 firestore-debug.log
+
+# QA E2E — credenciais geradas (não versionar)
+tests/.qa-env.json

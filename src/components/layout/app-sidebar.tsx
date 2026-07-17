@@ -225,6 +225,12 @@ const navigationItems: MenuItem[] = [
         icon: MapPin,
         anyPermission: ["people.geofence_manage", "people.attendance_view"],
       },
+      {
+        href: "/workforce-cost/ponto-oficial",
+        label: "Ponto Oficial (REP-P)",
+        icon: FileBadge,
+        permission: "people.rep_manage",
+      },
     ],
   },
   { href: "/organograma", labelKey: "organogram", icon: Network, section: "main", permission: "org_chart.view" },

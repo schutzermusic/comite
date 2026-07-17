@@ -40,6 +40,8 @@ function punch(
     correctedBy: null,
     clientEventId: null,
     notes: null,
+    nsr: null,
+    integrityHash: null,
     createdAt: at(daysAgo, h, m),
     updatedAt: at(daysAgo, h, m),
     person,

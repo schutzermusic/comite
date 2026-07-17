@@ -21,6 +21,8 @@ export interface Person {
   fullName: string;
   /** normalized name used to match payroll_employee_lines */
   payrollNameKey: string | null;
+  /** CPF (11 dígitos) — chave legal do trabalhador (Portaria 671) */
+  cpf: string | null;
   email: string | null;
   jobTitle: string | null;
   department: string | null;
@@ -316,9 +318,48 @@ export interface AttendancePunch {
   correctedBy: string | null;
   clientEventId: string | null;
   notes: string | null;
+  /** Número Sequencial de Registro (Portaria 671) — atribuído pelo banco */
+  nsr: number | null;
+  /** SHA-256 encadeado com o registro anterior (integridade fiscal) */
+  integrityHash: string | null;
   createdAt: string;
   updatedAt: string;
   person?: Person;
+}
+
+/* ─────────────── Ponto Oficial / REP-P (migration 052) ──────── */
+
+export interface RepSettings {
+  organizationId: string;
+  employerIdType: 'cnpj' | 'cpf';
+  employerId: string;
+  employerName: string;
+  employerCei: string | null;
+  timezone: string;
+  developerIdType: 'cnpj' | 'cpf';
+  developerId: string;
+  developerName: string;
+  repPVersion: string;
+  active: boolean;
+  notes: string | null;
+  updatedAt: string;
+}
+
+export type RepFileType = 'afd' | 'aej' | 'espelho' | 'comprovante';
+
+export interface RepFileExport {
+  id: string;
+  organizationId: string;
+  fileType: RepFileType;
+  periodStart: string | null;
+  periodEnd: string | null;
+  personId: string | null;
+  fileName: string;
+  sha256: string;
+  recordCount: number;
+  params: Record<string, unknown>;
+  generatedBy: string | null;
+  generatedAt: string;
 }
 
 /** Derived journey of one person on one day (never a table). */

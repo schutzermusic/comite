@@ -1663,6 +1663,21 @@ Planejar para:
 
 # 25. Estratégia de implementação
 
+> **STATUS DE ENTREGA (15/07/2026)** — implementado no repositório web
+> (migrations 038–051 aplicadas, typecheck/build verdes):
+>
+> | Fase | Status |
+> |---|---|
+> | 1 — Fundação de alocação | ✅ ENTREGUE (people, project_allocations, aba Equipe) |
+> | 2 — Capacidade corporativa | ✅ ENTREGUE (leave_periods, matriz /capacidade) |
+> | 3 — Apontamento operacional | ✅ ENTREGUE (sessions, time_entries, aprovação por exceção) |
+> | 4 — Mobile | ✅ Backend (devices, geofences, evidências, /api/mobile/*) + gestão web de geofences com globo · App RN: scaffold em `mobile/` (build/teste na máquina do time) |
+> | 5 — Jornada | ✅ ENTREGUE (attendance_punches imutável, HE/noturno/banco derivados, conciliação D4) |
+> | 6 — Custos | ✅ ENTREGUE (snapshots, custo-hora, project_labor_cost, margem D1) |
+> | 7 — Governança | ✅ ENTREGUE (audit append-only enforced, governance_exceptions, SoD — D3) |
+> | 8 — Inteligência | ✅ ENTREGUE (simulador §17, forecast, IA via /api/ai/workforce-insights — D2) |
+> | 9 — Compliance REP-P | ✅ Módulo implementado (NSR + hash encadeado por trigger, imutabilidade fiscal, AFD, espelho, comprovante, trilha de exportações — /workforce-cost/ponto-oficial) · ⚠️ uso fiscal requer homologação: layout AFD vs Anexo oficial, assinatura ICP-Brasil e atestado técnico |
+
 ## Fase 0 — Descoberta e mapeamento
 
 - mapear tabelas existentes;

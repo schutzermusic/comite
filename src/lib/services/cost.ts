@@ -308,9 +308,9 @@ export async function computeCostSnapshots(month: string): Promise<EmployeeCostS
 
 /**
  * Consolidates labor cost of a project in a competence from approved
- * time_entries × cost snapshots, and persists project_labor_cost_periods.
- * Also stamps time_entries.hourly_cost_cents/cost_cents (audit trail of
- * the frozen cost). Requires people.cost_manage (enforced by RLS).
+ * time_entries × cost snapshots, and persists project_labor_cost_periods
+ * (restrito a people.cost_view). Requires people.cost_manage (RLS).
+ * Cost is NEVER written back to time_entries (broadly readable table).
  */
 export async function computeProjectLaborCost(
   projectId: string,
@@ -391,19 +391,11 @@ export async function computeProjectLaborCost(
             ? 'estimated'
             : 'open';
 
-    // stamp cost onto approved time_entries of this person (frozen)
-    if (hourlyCents > 0) {
-      const ids = (entries ?? [])
-        .filter((e) => e.person_id === personId)
-        .map((e) => e.id as string);
-      if (ids.length > 0) {
-        await supabase
-          .from('time_entries')
-          .update({ hourly_cost_cents: hourlyCents })
-          .in('id', ids)
-          .is('hourly_cost_cents', null);
-      }
-    }
+    // SECURITY: NÃO carimbar custo em time_entries — essa tabela é
+    // legível por timesheet_view/approve (ex.: gestor_projetos, que NÃO
+    // tem cost_view). O custo congelado vive apenas em
+    // employee_cost_snapshots e project_labor_cost_periods, ambos
+    // restritos a people.cost_view. (Revisão de segurança, 17/07/2026.)
 
     const { data: upserted, error: upsertError } = await supabase
       .from(LABOR_COST_TABLE)

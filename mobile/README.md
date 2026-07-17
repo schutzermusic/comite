@@ -24,14 +24,22 @@ Consome os endpoints `/api/mobile/*` do backend (Fase 4a) no repositório web.
 
 ## Arquitetura
 ```
-App.tsx                 navegação simples (login ↔ home)
-src/config.ts           env
-src/lib/supabase.ts     Supabase Auth (login/sessão, token bearer)
-src/lib/offlineQueue.ts fila offline idempotente (AsyncStorage)
-src/api/mobileApi.ts    cliente dos endpoints /api/mobile/* (bearer token)
+App.tsx                    login ↔ app com abas (Ponto · Atividade · Histórico)
+src/config.ts              env
+src/lib/supabase.ts        Supabase Auth (login/sessão, token bearer)
+src/lib/device.ts          device binding (enroll idempotente + id em AsyncStorage)
+src/lib/capture.ts         biometria nativa + GPS + uuid (idempotência)
+src/lib/offlineQueue.ts    fila offline idempotente (AsyncStorage)
+src/api/mobileApi.ts       cliente dos endpoints /api/mobile/* (bearer token)
 src/screens/LoginScreen.tsx
-src/screens/HomeScreen.tsx   home do colaborador (spec §12.2)
+src/screens/HomeScreen.tsx     bater ponto (biometria+GPS+offline) — spec §12.2
+src/screens/ActivityScreen.tsx iniciar/trocar/encerrar atividade — spec §12
+src/screens/HistoryScreen.tsx  timeline do dia + estado de sincronização — spec §12.3
 ```
+
+O `App.tsx` chama `ensureDeviceEnrolled()` após o login: gera um id estável por
+instalação, registra o dispositivo no backend (idempotente) e cacheia o id
+interno usado nas marcações.
 
 ## Contrato com o backend (Fase 4a)
 | Endpoint | Uso |

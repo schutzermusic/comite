@@ -115,10 +115,6 @@ export default function GovernancaPage() {
   const source = usingDemo ? DEMO_EXCEPTIONS : exceptions;
 
   async function handleScan() {
-    if (usingDemo) {
-      notify('Indisponível em modo demo', { variant: 'warning' });
-      return;
-    }
     setBusy(true);
     try {
       const result = await scanExceptions();

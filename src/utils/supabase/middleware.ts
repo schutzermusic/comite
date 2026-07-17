@@ -41,6 +41,7 @@ const ROUTE_PERMISSIONS: RoutePermission[] = [
     { prefix: '/workforce-cost/governanca', anyPermission: ['people.governance_view', 'people.governance_manage'] },
     { prefix: '/workforce-cost/inteligencia', anyPermission: ['people.allocations_view', 'people.ai_insights'] },
     { prefix: '/workforce-cost/geofences', anyPermission: ['people.geofence_manage', 'people.attendance_view'] },
+    { prefix: '/workforce-cost/ponto-oficial', permission: 'people.rep_manage' },
     { prefix: '/workforce-cost', permission: 'people.view' },
     { prefix: '/pessoas', permission: 'people.view' },
     { prefix: '/organograma', permission: 'org_chart.view' },

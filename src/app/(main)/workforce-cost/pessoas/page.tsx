@@ -316,6 +316,7 @@ function PersonModal({
 }) {
   const { notify } = useHudToast();
   const [fullName, setFullName] = useState('');
+  const [cpf, setCpf] = useState('');
   const [email, setEmail] = useState('');
   const [jobTitle, setJobTitle] = useState('');
   const [department, setDepartment] = useState('');
@@ -329,6 +330,7 @@ function PersonModal({
   useEffect(() => {
     if (!open) return;
     setFullName(editing?.fullName ?? '');
+    setCpf(editing?.cpf ?? '');
     setEmail(editing?.email ?? '');
     setJobTitle(editing?.jobTitle ?? '');
     setDepartment(editing?.department ?? '');
@@ -355,6 +357,7 @@ function PersonModal({
     try {
       const input: PersonInput = {
         fullName: fullName.trim(),
+        cpf: cpf.trim() || null,
         email: email.trim() || null,
         jobTitle: jobTitle.trim() || null,
         department: department.trim() || null,
@@ -405,6 +408,7 @@ function PersonModal({
     >
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <HudInput label="Nome completo" value={fullName} onChange={(e) => setFullName(e.target.value)} />
+        <HudInput label="CPF (só dígitos)" value={cpf} onChange={(e) => setCpf(e.target.value)} placeholder="00000000000" />
         <HudInput label="E-mail" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
         <HudInput label="Cargo" value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} />
         <HudInput label="Área / Departamento" value={department} onChange={(e) => setDepartment(e.target.value)} />
