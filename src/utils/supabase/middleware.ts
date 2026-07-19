@@ -7,7 +7,7 @@ export { isSafeInternalPath }
 
 type CookieToSet = { name: string; value: string; options: CookieOptions }
 
-const PUBLIC_ROUTES = ['/login', '/forgot-password', '/reset-password']
+const PUBLIC_ROUTES = ['/login', '/forgot-password', '/reset-password', '/ponto/login']
 // Routes that must bypass *all* auth gating (including the
 // "authenticated → /dashboard" redirect). Invite & OAuth callbacks land here
 // before the client-side session has been established from the URL hash, so
@@ -34,6 +34,8 @@ const ROUTE_PERMISSIONS: RoutePermission[] = [
     { prefix: '/projetos', permission: 'projects.view' },
     { prefix: '/projects', permission: 'projects.view' },
     { prefix: '/riscos', permission: 'risks.view' },
+    // Portal de Ponto Web (colaborador; /ponto/login é público)
+    { prefix: '/ponto', anyPermission: ['people.attendance_use', 'people.attendance_view', 'people.attendance_manage'] },
     // People / org (most specific first)
     { prefix: '/workforce-cost/aprovacoes', permission: 'people.timesheet_approve' },
     { prefix: '/workforce-cost/custos', anyPermission: ['people.cost_view', 'people.cost_manage'] },
@@ -145,7 +147,18 @@ export async function updateSession(request: NextRequest) {
         data: { user },
     } = await supabase.auth.getUser()
 
-    const pathname = request.nextUrl.pathname
+    // Subdomínio do Portal de Ponto (ponto.insightapex.co): mapeia as rotas
+    // raiz do host para as páginas /ponto — a URL do navegador fica limpa
+    // (ponto.…/login) e todo o gating abaixo usa o pathname mapeado.
+    const host = (request.headers.get('host') ?? '').toLowerCase()
+    const isPontoHost = host === 'ponto.insightapex.co' || host.startsWith('ponto.')
+    let pontoRewrite: string | null = null
+    let pathname = request.nextUrl.pathname
+    if (isPontoHost && !pathname.startsWith('/ponto') && !pathname.startsWith('/api')) {
+        if (pathname === '/' || pathname === '') pontoRewrite = '/ponto'
+        else if (pathname === '/login') pontoRewrite = '/ponto/login'
+        if (pontoRewrite) pathname = pontoRewrite
+    }
     const isPublicRoute = isRoute(pathname, PUBLIC_ROUTES) || isRoute(pathname, AUTH_UTILITY_ROUTES)
     const isSetupRoute = isRoute(pathname, PROFILE_SETUP_ROUTES)
     const isAccessRestricted = pathname === ACCESS_RESTRICTED_ROUTE
@@ -160,7 +173,9 @@ export async function updateSession(request: NextRequest) {
     }
 
     if (user && isRoute(pathname, PUBLIC_ROUTES)) {
-        return redirectWithCookies(request, supabaseResponse, '/dashboard')
+        // Colaborador já autenticado no portal de ponto vai direto bater ponto
+        const target = isPontoHost || pathname.startsWith('/ponto') ? '/ponto' : '/dashboard'
+        return redirectWithCookies(request, supabaseResponse, target)
     }
 
     if (user && !isPublicRoute) {
@@ -207,5 +222,10 @@ export async function updateSession(request: NextRequest) {
     //    the cookies!
     // 4. Finally:
     //    return myNewResponse
+    if (pontoRewrite) {
+        const rewriteResponse = NextResponse.rewrite(new URL(pontoRewrite, request.url), { request })
+        supabaseResponse.cookies.getAll().forEach((cookie) => rewriteResponse.cookies.set(cookie))
+        return rewriteResponse
+    }
     return supabaseResponse
 }
