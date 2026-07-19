@@ -91,7 +91,7 @@ export function ActivityScreen() {
 
   const running = state?.runningSession;
   const runningProject = running
-    ? state?.allocations.find((a) => a.project_id === running.project_id)
+    ? (state?.allocations ?? []).find((a) => a.project_id === running.project_id)
     : null;
 
   return (
@@ -119,7 +119,7 @@ export function ActivityScreen() {
       {(state?.allocations ?? []).length === 0 ? (
         <Text style={styles.empty}>Você não tem alocações ativas.</Text>
       ) : (
-        state?.allocations.map((a) => (
+        (state?.allocations ?? []).map((a) => (
           <TouchableOpacity
             key={a.project_id}
             style={[styles.projectRow, a.project_id === running?.project_id && styles.projectRowActive]}

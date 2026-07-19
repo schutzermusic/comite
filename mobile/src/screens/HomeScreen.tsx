@@ -63,9 +63,10 @@ export function HomeScreen() {
     void load();
   }, [load]);
 
-  const last = state?.punches.length ? state.punches[state.punches.length - 1].type : null;
+  const punches = state?.punches ?? [];
+  const last = punches.length ? punches[punches.length - 1].type : null;
   const options = nextPunchOptions(last);
-  const deviceId = state?.devices.find((d) => d.status !== 'revoked')?.id;
+  const deviceId = state?.devices?.find((d) => d.status !== 'revoked')?.id;
 
   async function handlePunch(type: PunchType) {
     setBusy(true);
@@ -125,8 +126,8 @@ export function HomeScreen() {
 
       <View style={styles.card}>
         <Text style={styles.cardLabel}>Jornada de hoje</Text>
-        {state?.punches.length ? (
-          state.punches.map((p) => (
+        {punches.length ? (
+          punches.map((p) => (
             <View key={p.id} style={styles.punchRow}>
               <Text style={styles.punchTime}>{fmtTime(p.occurred_at)}</Text>
               <Text style={styles.punchType}>{PUNCH_LABEL[p.type]}</Text>
