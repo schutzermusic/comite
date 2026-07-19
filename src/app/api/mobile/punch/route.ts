@@ -17,6 +17,8 @@ interface PunchBody {
     result: 'success' | 'failure';
     assuranceLevel?: 'basic' | 'standard' | 'enhanced';
   };
+  /** Evidência biométrica já verificada no servidor (WebAuthn/auth-verify). */
+  authenticationEvidenceId?: string;
 }
 
 /**
@@ -119,7 +121,27 @@ export async function POST(req: Request) {
 
   // 4) authentication evidence
   let authEvidenceId: string | null = null;
-  if (body.auth) {
+  let biometricVerified = false;
+
+  // 4a) evidência WebAuthn já verificada no servidor (portal web / Face ID):
+  //     valida posse + frescor (< 3 min) e anexa como evidência forte.
+  if (body.authenticationEvidenceId) {
+    const cutoff = new Date(Date.now() - 3 * 60_000).toISOString();
+    const { data: ev } = await supabase
+      .from('authentication_evidence')
+      .select('id, created_at, result, method')
+      .eq('id', body.authenticationEvidenceId)
+      .eq('person_id', personId)
+      .eq('result', 'success')
+      .gte('created_at', cutoff)
+      .maybeSingle();
+    if (ev) {
+      authEvidenceId = ev.id as string;
+      biometricVerified = true;
+    }
+  }
+
+  if (!authEvidenceId && body.auth) {
     const { data: authEv, error: authErr } = await supabase
       .from('authentication_evidence')
       .insert({
@@ -178,5 +200,6 @@ export async function POST(req: Request) {
     punch,
     geofence: geofenceResult,
     needsReview,
+    biometricVerified,
   });
 }

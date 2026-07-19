@@ -37,6 +37,7 @@ const files = [
   'supabase/migrations/052_rep_compliance.sql',
   'supabase/migrations/053_rep_perm_seeds.sql',
   'supabase/migrations/054_labor_cost_rls_hardening.sql',
+  'supabase/migrations/055_webauthn_biometrics.sql',
 ];
 
 const client = new pg.Client({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
