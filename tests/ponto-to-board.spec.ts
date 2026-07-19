@@ -66,29 +66,33 @@ test('portal (Face ID) → apontamento no board → Jornada em Pessoas & Custos'
     options: { protocol: 'ctap2', transport: 'internal', hasResidentKey: true, hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true },
   });
 
-  await test.step('portal: login + Face ID + bater ponto', async () => {
+  await test.step('portal: entrada com Face ID + projeto/etapa', async () => {
     await page.goto('/ponto/login');
     await page.getByPlaceholder('E-mail').fill(qa.email);
     await page.getByPlaceholder('Senha').fill(qa.password);
     await page.getByRole('button', { name: 'Entrar' }).click();
     await page.waitForURL('**/ponto', { timeout: 30_000 });
 
-    await page.getByRole('button', { name: /Registrar entrada/ }).click();
+    // entrada abre a folha; escolhe etapa; 1ª confirmação pede cadastro de biometria
+    await page.getByRole('button', { name: /escolher projeto/ }).click();
+    await expect(page.getByText('Onde você vai trabalhar?')).toBeVisible({ timeout: 15_000 });
+    await page.getByRole('button', { name: /Comissionamento de subestação/ }).click();
+    await page.getByRole('button', { name: /Registrar entrada · Integração E2E/ }).click();
     await page.getByRole('button', { name: /Cadastrar Face ID/ }).click();
     await expect(page.getByText(/Biometria cadastrada/)).toBeVisible({ timeout: 15_000 });
-    await page.getByRole('button', { name: /Registrar entrada/ }).click();
-    await expect(page.getByText(/Ponto registrado/)).toBeVisible({ timeout: 20_000 });
+
+    // reabre e confirma: entrada + apontamento na etapa iniciam juntos
+    await page.getByRole('button', { name: /escolher projeto/ }).click();
+    await page.getByRole('button', { name: /Comissionamento de subestação/ }).click();
+    await page.getByRole('button', { name: /Registrar entrada · Integração E2E/ }).click();
+    await expect(page.getByText(/registrad/i)).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText('Atividade em andamento')).toBeVisible({ timeout: 15_000 });
   });
 
-  await test.step('portal: iniciar e encerrar atividade na etapa do cronograma', async () => {
-    await page.getByRole('button', { name: /Integração E2E/ }).click();
-    await expect(page.getByText('Etapa do cronograma')).toBeVisible({ timeout: 15_000 });
-    await page.getByRole('button', { name: /Comissionamento de subestação/ }).click();
-    await expect(page.getByText('Em andamento')).toBeVisible({ timeout: 15_000 });
-    // deixa acumular alguns segundos e encerra (gera sessão draft consolidável)
+  await test.step('portal: encerrar atividade (gera sessão consolidável)', async () => {
     await page.waitForTimeout(3000);
     await page.getByRole('button', { name: /Encerrar atividade/ }).click();
-    await expect(page.getByText('Em andamento')).toHaveCount(0, { timeout: 15_000 });
+    await expect(page.getByText('Atividade em andamento')).toHaveCount(0, { timeout: 15_000 });
   });
 
   await test.step('board: Projeto → Apontamentos → consolidar e enviar', async () => {
