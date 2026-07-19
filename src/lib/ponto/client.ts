@@ -7,8 +7,23 @@
  * fluxo de cookies. Assim o portal web e o app compartilham o backend.
  */
 import { createClient } from '@/utils/supabase/client';
+import {
+  startRegistration,
+  startAuthentication,
+  browserSupportsWebAuthn,
+} from '@simplewebauthn/browser';
 
 export type PunchType = 'clock_in' | 'break_start' | 'break_end' | 'clock_out';
+
+export interface TimelineStage {
+  id: string;
+  wbs_code: string | null;
+  title: string;
+  type: string;
+  status: string;
+  percent_complete: number;
+  outline_level: number;
+}
 
 export interface PontoBootstrap {
   person: { id: string; full_name: string; job_title: string | null } | null;
@@ -25,6 +40,7 @@ export interface PunchInput {
   clientEventId: string;
   occurredAt?: string;
   location?: { lat: number; lng: number; accuracy?: number };
+  authenticationEvidenceId?: string;
 }
 
 async function authFetch<T>(path: string, init?: RequestInit): Promise<T> {
@@ -72,16 +88,67 @@ export function captureLocation(): Promise<{ lat: number; lng: number; accuracy?
 export const pontoApi = {
   bootstrap: () => authFetch<PontoBootstrap & { ok: true }>('/api/mobile/bootstrap'),
   punch: (body: PunchInput) =>
-    authFetch<{ ok: true; needsReview?: boolean; geofence?: { inside: boolean; distanceMeters: number | null; geofenceName: string | null } | null }>(
+    authFetch<{ ok: true; needsReview?: boolean; biometricVerified?: boolean; geofence?: { inside: boolean; distanceMeters: number | null; geofenceName: string | null } | null }>(
       '/api/mobile/punch',
       { method: 'POST', body: JSON.stringify(body) },
     ),
-  activity: (body: { action: 'start' | 'stop'; projectId?: string }) =>
+  activity: (body: { action: 'start' | 'stop'; projectId?: string; timelineItemId?: string }) =>
     authFetch<{ ok: true; running: unknown; stoppedSessionId?: string | null }>('/api/mobile/activity', {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+  timeline: (projectId: string) =>
+    authFetch<{ ok: true; items: TimelineStage[] }>(
+      `/api/mobile/timeline?projectId=${encodeURIComponent(projectId)}`,
+    ),
 };
+
+/* ───────────────────── biometria (Face ID/Touch ID) ───────────────────── */
+
+export function biometricsSupported(): boolean {
+  return typeof window !== 'undefined' && browserSupportsWebAuthn();
+}
+
+/** Cadastra a biometria do aparelho (uma vez por dispositivo). */
+export async function enrollBiometric(): Promise<void> {
+  const { options } = await authFetch<{ ok: true; options: import('@simplewebauthn/browser').PublicKeyCredentialCreationOptionsJSON }>(
+    '/api/mobile/webauthn/register-options',
+    { method: 'POST', body: '{}' },
+  );
+  const attResp = await startRegistration({ optionsJSON: options });
+  await authFetch('/api/mobile/webauthn/register-verify', {
+    method: 'POST',
+    body: JSON.stringify({ response: attResp, deviceLabel: navigator.userAgent.slice(0, 80) }),
+  });
+}
+
+/**
+ * Solicita o gesto biométrico e retorna o id da evidência verificada no
+ * servidor (para anexar à marcação). Lança { needsEnroll:true } se não há
+ * credencial cadastrada.
+ */
+export async function verifyBiometric(): Promise<string> {
+  let opts;
+  try {
+    opts = await authFetch<{ ok: true; options: import('@simplewebauthn/browser').PublicKeyCredentialRequestOptionsJSON }>(
+      '/api/mobile/webauthn/auth-options',
+      { method: 'POST', body: '{}' },
+    );
+  } catch (e) {
+    if (e instanceof Error && /credencial/i.test(e.message)) {
+      const err = new Error('Cadastre o Face ID/Touch ID antes de bater o ponto.');
+      (err as Error & { needsEnroll?: boolean }).needsEnroll = true;
+      throw err;
+    }
+    throw e;
+  }
+  const asseResp = await startAuthentication({ optionsJSON: opts.options });
+  const res = await authFetch<{ ok: true; authenticationEvidenceId: string }>(
+    '/api/mobile/webauthn/auth-verify',
+    { method: 'POST', body: JSON.stringify({ response: asseResp }) },
+  );
+  return res.authenticationEvidenceId;
+}
 
 export const PUNCH_LABEL: Record<PunchType, string> = {
   clock_in: 'Registrar entrada',
