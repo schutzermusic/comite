@@ -73,16 +73,24 @@ test('Face ID + etapa do cronograma no portal', async ({ page, context }) => {
   await page.waitForURL('**/ponto', { timeout: 30_000 });
   await expect(page.getByText(/Olá,/)).toBeVisible();
 
-  // 1º toque em Registrar entrada → precisa cadastrar biometria
-  await page.getByRole('button', { name: /Registrar entrada/ }).click();
+  // entrada abre a folha de projeto/etapa
+  await page.getByRole('button', { name: /escolher projeto/ }).click();
+  await expect(page.getByText('Onde você vai trabalhar?')).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(/Montagem eletromecânica/)).toBeVisible();
+  await page.getByRole('button', { name: /Montagem eletromecânica/ }).click();
+
+  // 1ª confirmação → precisa cadastrar biometria
+  await page.getByRole('button', { name: /Registrar entrada · QA Portal/ }).click();
   await expect(page.getByRole('button', { name: /Cadastrar Face ID/ })).toBeVisible({ timeout: 15_000 });
   await page.getByRole('button', { name: /Cadastrar Face ID/ }).click();
   await expect(page.getByText(/Biometria cadastrada/)).toBeVisible({ timeout: 15_000 });
 
-  // agora bate o ponto (verifica biometria no servidor + registra)
-  await page.getByRole('button', { name: /Registrar entrada/ }).click();
-  await expect(page.getByText(/Ponto registrado/)).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByText('Entrada', { exact: true })).toBeVisible();
+  // reabre a folha e confirma (biometria + entrada + apontamento na etapa)
+  await page.getByRole('button', { name: /escolher projeto/ }).click();
+  await page.getByRole('button', { name: /Montagem eletromecânica/ }).click();
+  await page.getByRole('button', { name: /Registrar entrada · QA Portal/ }).click();
+  await expect(page.getByText(/registrad/i)).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText('Atividade em andamento')).toBeVisible({ timeout: 15_000 });
 
   // a marcação tem evidência biométrica verificada (enhanced)
   const ev = await db.query(
@@ -94,13 +102,6 @@ test('Face ID + etapa do cronograma no portal', async ({ page, context }) => {
   );
   expect(ev.rows[0]?.method).toBe('device_biometric');
   expect(ev.rows[0]?.assurance_level).toBe('enhanced');
-
-  // atividade: abrir etapas do projeto e iniciar na etapa do cronograma
-  await page.getByRole('button', { name: /QA Portal/ }).click();
-  await expect(page.getByText('Etapa do cronograma')).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByText(/Montagem eletromecânica/)).toBeVisible();
-  await page.getByRole('button', { name: /Montagem eletromecânica/ }).click();
-  await expect(page.getByText('Em andamento')).toBeVisible({ timeout: 15_000 });
 
   // a sessão foi criada com a etapa (timeline_item_id)
   const sess = await db.query(
