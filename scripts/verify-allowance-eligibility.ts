@@ -17,6 +17,11 @@ import {
   reconcileDaily,
   type ReconciliationInput,
 } from '../src/lib/services/allowance-reconciliation';
+import {
+  computeAlerts,
+  costByProject,
+  type IntelligenceInput,
+} from '../src/lib/services/allowance-intelligence';
 
 /** Entrada "tudo elegível" — cada caso sobrescreve o que precisa. */
 function base(overrides: Partial<EligibilityInput> = {}): EligibilityInput {
@@ -245,6 +250,107 @@ check('política sem exigência de geofence ignora localização', () => {
     rbase({ geofenceRequired: false, locationAvailable: false, hasLocationWithinGeofence: false }),
   );
   assert.equal(r.outcome, 'confirmed');
+});
+
+console.log('\nallowance-intelligence (alertas §19 + custo)');
+
+function ibase(overrides: Partial<IntelligenceInput> = {}): IntelligenceInput {
+  return {
+    dailies: [],
+    leaves: [],
+    allocationState: [],
+    allocatedPeopleByProject: {},
+    closedProjectIds: [],
+    ...overrides,
+  };
+}
+const daily = (o: Partial<IntelligenceInput['dailies'][number]> = {}) => ({
+  personId: 'p1',
+  projectId: 'proj1',
+  allowanceDate: '2026-07-27',
+  status: 'confirmed',
+  eligibilityReason: 'planned_eligible',
+  amountCents: 4500,
+  ...o,
+});
+
+check('semana consistente → nenhum alerta', () => {
+  const a = computeAlerts(
+    ibase({ dailies: [daily()], allocatedPeopleByProject: { proj1: 1 }, allocationState: [
+      { personId: 'p1', projectId: 'proj1', hasLive: true, lastEndDate: null },
+    ] }),
+  );
+  assert.equal(a.length, 0);
+});
+
+check('diária durante afastamento → leave_overlap crítico', () => {
+  const a = computeAlerts(
+    ibase({
+      dailies: [daily()],
+      leaves: [{ personId: 'p1', start: '2026-07-25', end: '2026-07-30' }],
+      allocatedPeopleByProject: { proj1: 1 },
+    }),
+  );
+  assert.ok(a.some((x) => x.code === 'leave_overlap' && x.severity === 'critical'));
+});
+
+check('diária após desmobilização → paid_after_demobilization', () => {
+  const a = computeAlerts(
+    ibase({
+      dailies: [daily({ allowanceDate: '2026-07-29' })],
+      allocationState: [
+        { personId: 'p1', projectId: 'proj1', hasLive: false, lastEndDate: '2026-07-28' },
+      ],
+      allocatedPeopleByProject: {},
+    }),
+  );
+  assert.ok(a.some((x) => x.code === 'paid_after_demobilization'));
+});
+
+check('mais diárias que alocados → worksite_count_mismatch', () => {
+  const a = computeAlerts(
+    ibase({
+      dailies: [daily({ personId: 'p1' }), daily({ personId: 'p2' })],
+      allocatedPeopleByProject: { proj1: 1 },
+    }),
+  );
+  assert.ok(a.some((x) => x.code === 'worksite_count_mismatch' && x.count === 1));
+});
+
+check('projeto encerrado → closed_project', () => {
+  const a = computeAlerts(
+    ibase({ dailies: [daily()], closedProjectIds: ['proj1'], allocatedPeopleByProject: { proj1: 1 } }),
+  );
+  assert.ok(a.some((x) => x.code === 'closed_project'));
+});
+
+check('conciliação sem jornada → journey_missing', () => {
+  const a = computeAlerts(
+    ibase({
+      dailies: [daily({ reconciliationReasons: ['no_attendance'] })],
+      allocatedPeopleByProject: { proj1: 1 },
+    }),
+  );
+  assert.ok(a.some((x) => x.code === 'journey_missing'));
+});
+
+check('gasto sobe sem aumento de pessoas → spend_spike', () => {
+  const a = computeAlerts(
+    ibase({
+      dailies: [daily({ amountCents: 10000 })],
+      allocatedPeopleByProject: { proj1: 1 },
+      previous: { totalCents: 5000, people: 1 },
+    }),
+  );
+  assert.ok(a.some((x) => x.code === 'spend_spike'));
+});
+
+check('custo por projeto ignora bloqueadas', () => {
+  const c = costByProject([
+    daily({ amountCents: 4500 }),
+    daily({ personId: 'p2', status: 'blocked', amountCents: 4500 }),
+  ]);
+  assert.equal(c.proj1, 4500);
 });
 
 console.log(`\n${passed} verificações OK`);
