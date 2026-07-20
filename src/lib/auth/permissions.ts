@@ -193,6 +193,13 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
       { key: 'people.ai_insights', label: 'Inteligência — Insights de IA' },
       { key: 'people.geofence_manage', label: 'Mobile — Gerenciar geofences' },
       { key: 'people.rep_manage', label: 'Ponto Oficial (REP-P) — Configurar/Exportar' },
+      { key: 'allowances.view', label: 'Diárias — Visualizar' },
+      { key: 'allowances.manage', label: 'Diárias — Gerar prévia/editar' },
+      { key: 'allowances.review_exception', label: 'Diárias — Revisar exceções (gestor)' },
+      { key: 'allowances.hr_validate', label: 'Diárias — Validar vínculo/ausências (RH)' },
+      { key: 'allowances.finance_approve', label: 'Diárias — Aprovar lote (Financeiro)' },
+      { key: 'allowances.policy_manage', label: 'Diárias — Configurar políticas' },
+      { key: 'allowances.adjustment_manage', label: 'Diárias — Ajustes/compensações' },
     ],
   },
   {
