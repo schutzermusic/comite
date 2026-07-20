@@ -15,6 +15,7 @@ import {
   CalendarRange,
   CheckCircle2,
   Clock,
+  Download,
   RefreshCw,
   UtensilsCrossed,
   Users,
@@ -41,10 +42,13 @@ import { getProjectsAsync } from '@/lib/services/projects';
 import { listGeofences } from '@/lib/services/geofence';
 import {
   createAllowancePolicy,
+  exportBatchCsv,
+  generatePaymentBatch,
   generateWeeklyAllowancePreview,
   getLatestWeek,
   listAllowancePolicies,
   listDailyAllowancesByWeek,
+  listPaymentBatchesByWeek,
   nextWeekBounds,
   performWeekAction,
   reviewException,
@@ -58,7 +62,9 @@ import {
   ALLOWANCE_WEEK_STATUS_LABELS,
   classifyReason,
   ELIGIBILITY_REASON_LABELS,
+  PAYMENT_BATCH_STATUS_LABELS,
   SCHEDULE_MODE_LABELS,
+  type AllowancePaymentBatch,
   type AllowancePolicy,
   type AllowanceWeek,
   type DailyAllowance,
@@ -177,7 +183,9 @@ export default function DiariasPage() {
   const [filter, setFilter] = useState<DayClassification | null>(null);
   const [selected, setSelected] = useState<DailyAllowance | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
-  const [activeTab, setActiveTab] = useState<'planning' | 'policies'>('planning');
+  const [activeTab, setActiveTab] = useState<'planning' | 'batches' | 'policies'>('planning');
+  const [batches, setBatches] = useState<AllowancePaymentBatch[]>([]);
+  const canFinance = hasPermission('allowances.finance_approve');
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -191,7 +199,17 @@ export default function DiariasPage() {
         Object.fromEntries(projects.map((p) => [p.id, p.codigo || p.nome || p.id])),
       );
       setWeek(existing);
-      setItems(existing ? await listDailyAllowancesByWeek(existing.id) : []);
+      if (existing) {
+        const [dailies, wkBatches] = await Promise.all([
+          listDailyAllowancesByWeek(existing.id),
+          listPaymentBatchesByWeek(existing.id).catch(() => []),
+        ]);
+        setItems(dailies);
+        setBatches(wkBatches);
+      } else {
+        setItems([]);
+        setBatches([]);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Erro ao carregar diárias');
     } finally {
@@ -245,6 +263,43 @@ export default function DiariasPage() {
       }
     },
     [week, notify],
+  );
+
+  const handleGenerateBatch = useCallback(async () => {
+    if (!week) return;
+    setActionBusy(true);
+    try {
+      const batch = await generatePaymentBatch(week.id);
+      await reload();
+      notify(`Lote ${batch.batchCode} gerado — ${batch.itemCount} diárias`, { variant: 'success' });
+    } catch (e) {
+      notify(e instanceof Error ? e.message : 'Erro ao gerar lote', { variant: 'error' });
+    } finally {
+      setActionBusy(false);
+    }
+  }, [week, notify, reload]);
+
+  const handleExportCsv = useCallback(
+    async (batchId: string) => {
+      setActionBusy(true);
+      try {
+        const { filename, csv } = await exportBatchCsv(batchId);
+        const blob = new Blob(['﻿', csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+        await reload();
+        notify('Lote exportado (CSV)', { variant: 'success' });
+      } catch (e) {
+        notify(e instanceof Error ? e.message : 'Erro ao exportar', { variant: 'error' });
+      } finally {
+        setActionBusy(false);
+      }
+    },
+    [notify, reload],
   );
 
   const handleReview = useCallback(
@@ -366,18 +421,29 @@ export default function DiariasPage() {
           tabs={[
             { id: 'planning', label: 'Planejamento semanal', content: null },
             { id: 'operation', label: 'Operação do dia', disabled: true, content: null },
-            { id: 'batches', label: 'Lotes de pagamento', disabled: true, content: null },
+            { id: 'batches', label: 'Lotes de pagamento', content: null },
             { id: 'exceptions', label: 'Exceções', disabled: true, content: null },
             { id: 'policies', label: 'Políticas', content: null },
             { id: 'history', label: 'Histórico e conciliação', disabled: true, content: null },
           ]}
           activeTab={activeTab}
           onTabChange={(id) => {
-            if (id === 'planning' || id === 'policies') setActiveTab(id);
+            if (id === 'planning' || id === 'policies' || id === 'batches') setActiveTab(id);
           }}
         />
 
         {activeTab === 'policies' && <PoliciesPanel />}
+
+        {activeTab === 'batches' && (
+          <BatchesPanel
+            week={week}
+            batches={batches}
+            canFinance={canFinance}
+            busy={actionBusy}
+            onGenerate={handleGenerateBatch}
+            onExport={handleExportCsv}
+          />
+        )}
 
         {activeTab === 'planning' && (
           <>
@@ -985,5 +1051,120 @@ function PolicyCreateModal({
         </label>
       </div>
     </HudModal>
+  );
+}
+
+/* ────────────────────── payment batches ─────────────────────── */
+
+const BATCH_STATUS_VARIANT: Record<
+  AllowancePaymentBatch['status'],
+  'success' | 'warning' | 'danger' | 'default'
+> = {
+  draft: 'default',
+  pending_approval: 'warning',
+  approved: 'warning',
+  exported: 'success',
+  failed: 'danger',
+  cancelled: 'default',
+};
+
+function BatchesPanel({
+  week,
+  batches,
+  canFinance,
+  busy,
+  onGenerate,
+  onExport,
+}: {
+  week: AllowanceWeek | null;
+  batches: AllowancePaymentBatch[];
+  canFinance: boolean;
+  busy: boolean;
+  onGenerate: () => void;
+  onExport: (batchId: string) => void;
+}) {
+  const canGenerate = canFinance && week?.status === 'finance_approved' && batches.length === 0;
+
+  return (
+    <HudPanel
+      title="Lotes de pagamento"
+      accentColor="emerald"
+      headerActions={
+        canGenerate ? (
+          <HudButton size="sm" variant="primary" disabled={busy} onClick={onGenerate}>
+            Gerar lote
+          </HudButton>
+        ) : undefined
+      }
+    >
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <HudBadge variant="info">modo simulação</HudBadge>
+        <span className="text-xs text-ig-fg-muted">
+          O Financeiro aprova e exporta um único lote semanal. O pagamento é executado na ferramenta
+          financeira atual — sem integração bancária nesta fase.
+        </span>
+      </div>
+
+      {batches.length === 0 ? (
+        <HudEmptyState
+          icon="inbox"
+          title="Nenhum lote gerado"
+          description={
+            week?.status === 'finance_approved'
+              ? 'A semana está aprovada. Gere o lote único para exportação.'
+              : 'O lote é gerado após a aprovação financeira da semana (aba Planejamento).'
+          }
+        />
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-ig-border">
+                {['Lote', 'Diárias', 'Valor', 'Status', 'Exportado em', ''].map((h) => (
+                  <th
+                    key={h}
+                    className="px-3 py-3 text-left text-xs font-medium uppercase tracking-wider text-ig-fg-muted"
+                  >
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {batches.map((b) => (
+                <tr key={b.id} className="border-b border-ig-border-subtle">
+                  <td className="px-3 py-2.5 font-mono text-xs text-ig-fg-strong">{b.batchCode}</td>
+                  <td className="px-3 py-2.5 text-sm tabular-nums text-ig-fg">{b.itemCount}</td>
+                  <td className="px-3 py-2.5 text-sm font-semibold tabular-nums text-ig-fg-strong">
+                    {formatCents(b.totalAmountCents)}
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <HudBadge variant={BATCH_STATUS_VARIANT[b.status]}>
+                      {PAYMENT_BATCH_STATUS_LABELS[b.status]}
+                    </HudBadge>
+                  </td>
+                  <td className="px-3 py-2.5 text-xs text-ig-fg-muted">
+                    {b.exportedAt ? new Date(b.exportedAt).toLocaleString('pt-BR') : '—'}
+                  </td>
+                  <td className="px-3 py-2.5 text-right">
+                    {canFinance && (
+                      <HudButton
+                        size="sm"
+                        variant="secondary"
+                        disabled={busy}
+                        onClick={() => onExport(b.id)}
+                      >
+                        <Download className="h-4 w-4" />
+                        Exportar CSV
+                      </HudButton>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </HudPanel>
   );
 }

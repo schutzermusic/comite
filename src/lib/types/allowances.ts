@@ -177,6 +177,45 @@ export interface DailyAllowance {
   person?: import('./people').Person;
 }
 
+/* ────────────────────── Payment batch (Fase 3) ──────────────── */
+
+export type PaymentBatchStatus =
+  | 'draft'
+  | 'pending_approval'
+  | 'approved'
+  | 'exported'
+  | 'failed'
+  | 'cancelled';
+
+export type PaymentExportFormat = 'csv' | 'pdf' | 'manual_export';
+
+export interface AllowancePaymentBatch {
+  id: string;
+  organizationId: string;
+  allowanceWeekId: string;
+  batchCode: string;
+  itemCount: number;
+  totalAmountCents: number;
+  status: PaymentBatchStatus;
+  exportFormat: PaymentExportFormat | null;
+  simulationMode: boolean;
+  requestedBy: string | null;
+  approvedBy: string | null;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+  exportedAt: string | null;
+}
+
+export const PAYMENT_BATCH_STATUS_LABELS: Record<PaymentBatchStatus, string> = {
+  draft: 'Rascunho',
+  pending_approval: 'Aguardando aprovação',
+  approved: 'Aprovado',
+  exported: 'Exportado',
+  failed: 'Falha',
+  cancelled: 'Cancelado',
+};
+
 /* ─────────────────────── Allowance adjustment ───────────────── */
 
 export type AdjustmentType =

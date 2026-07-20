@@ -23,6 +23,7 @@ const files = [
   'supabase/migrations/056_allowance_policies.sql',
   'supabase/migrations/057_work_schedule_days.sql',
   'supabase/migrations/058_allowance_weeks_and_daily.sql',
+  'supabase/migrations/059_allowance_payment_batches.sql',
   'supabase/migrations/060_allowance_adjustments.sql',
   'supabase/migrations/061_allowance_perm_seeds.sql',
 ];

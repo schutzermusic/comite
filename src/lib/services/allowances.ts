@@ -31,6 +31,9 @@ import type {
   AdjustmentStatus,
   AdjustmentType,
   AllowanceAdjustment,
+  AllowancePaymentBatch,
+  PaymentBatchStatus,
+  PaymentExportFormat,
 } from '@/lib/types/allowances';
 import {
   evaluateDailyEligibility,
@@ -996,4 +999,228 @@ export async function listAdjustmentsByWeek(weekId: string): Promise<AllowanceAd
     .order('created_at', { ascending: false });
   if (error) throw new Error(rlsFriendlyMessage('Erro ao carregar ajustes', error));
   return (data ?? []).map((r) => mapAdjustmentRow(r as AdjustmentRow));
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Fase 3 — Lote de pagamento (exportação, sem integração bancária)
+   ───────────────────────────────────────────────────────────── */
+
+export const ALLOWANCE_PAYMENT_BATCHES_TABLE = 'allowance_payment_batches';
+
+type BatchRow = {
+  id: string;
+  organization_id: string;
+  allowance_week_id: string;
+  batch_code: string;
+  item_count: number;
+  total_amount_cents: number | string;
+  status: PaymentBatchStatus;
+  export_format: PaymentExportFormat | null;
+  simulation_mode: boolean;
+  requested_by: string | null;
+  approved_by: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+  exported_at: string | null;
+};
+
+function mapBatchRow(row: BatchRow): AllowancePaymentBatch {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    allowanceWeekId: row.allowance_week_id,
+    batchCode: row.batch_code,
+    itemCount: row.item_count,
+    totalAmountCents: Number(row.total_amount_cents),
+    status: row.status,
+    exportFormat: row.export_format,
+    simulationMode: row.simulation_mode,
+    requestedBy: row.requested_by,
+    approvedBy: row.approved_by,
+    notes: row.notes,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    exportedAt: row.exported_at,
+  };
+}
+
+/** Número ISO-8601 da semana da data (segunda como primeiro dia). */
+function isoWeek(dateISO: string): { year: number; week: number } {
+  const d = parseDate(dateISO);
+  const target = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dayNr = (target.getUTCDay() + 6) % 7; // 0=segunda
+  target.setUTCDate(target.getUTCDate() - dayNr + 3); // quinta da semana
+  const firstThursday = new Date(Date.UTC(target.getUTCFullYear(), 0, 4));
+  const firstDayNr = (firstThursday.getUTCDay() + 6) % 7;
+  firstThursday.setUTCDate(firstThursday.getUTCDate() - firstDayNr + 3);
+  const week = 1 + Math.round((target.getTime() - firstThursday.getTime()) / (7 * 24 * 3600 * 1000));
+  return { year: target.getUTCFullYear(), week };
+}
+
+export function batchCodeFor(weekStart: string, version: number): string {
+  const { year, week } = isoWeek(weekStart);
+  return `DIARIAS-${year}-W${String(week).padStart(2, '0')}-v${version}`;
+}
+
+export async function listPaymentBatchesByWeek(weekId: string): Promise<AllowancePaymentBatch[]> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from(ALLOWANCE_PAYMENT_BATCHES_TABLE)
+    .select('*')
+    .eq('allowance_week_id', weekId)
+    .order('created_at', { ascending: false });
+  if (error) throw new Error(rlsFriendlyMessage('Erro ao carregar lotes', error));
+  return (data ?? []).map((r) => mapBatchRow(r as BatchRow));
+}
+
+/**
+ * Gera (ou retorna, se já existir) o lote único da semana aprovada.
+ * Idempotente: reexecutar não cria um segundo lote. As diárias
+ * aprovadas passam a included_in_batch e a semana avança para
+ * 'scheduled'. Fase 3 = exportação; nenhum pagamento é executado.
+ */
+export async function generatePaymentBatch(weekId: string): Promise<AllowancePaymentBatch> {
+  const supabase = createClient();
+  const { userId, orgId } = await getCurrentOrgAndUser(supabase);
+  const week = await loadWeek(weekId);
+
+  if (week.status !== 'finance_approved') {
+    throw new Error('O lote só pode ser gerado após a aprovação financeira da semana.');
+  }
+
+  // idempotência: reusa lote existente não cancelado
+  const existing = (await listPaymentBatchesByWeek(weekId)).find((b) => b.status !== 'cancelled');
+  if (existing) return existing;
+
+  // diárias aprovadas compõem o lote
+  const { data: approvedRows, error: apprErr } = await supabase
+    .from(DAILY_ALLOWANCES_TABLE)
+    .select('id, amount_cents, person_id')
+    .eq('allowance_week_id', weekId)
+    .eq('status', 'approved');
+  if (apprErr) throw new Error(rlsFriendlyMessage('Erro ao carregar diárias aprovadas', apprErr));
+
+  const items = approvedRows ?? [];
+  const totalAmount = items.reduce((s, r) => s + Number(r.amount_cents), 0);
+
+  const { data: batchRow, error: batchErr } = await supabase
+    .from(ALLOWANCE_PAYMENT_BATCHES_TABLE)
+    .insert({
+      organization_id: orgId,
+      allowance_week_id: weekId,
+      batch_code: batchCodeFor(week.weekStart, week.version),
+      item_count: items.length,
+      total_amount_cents: totalAmount,
+      status: 'approved',
+      simulation_mode: week.simulationMode,
+      requested_by: userId,
+      approved_by: week.approvedBy,
+    })
+    .select('*')
+    .single();
+  if (batchErr) throw new Error(rlsFriendlyMessage('Erro ao gerar lote', batchErr));
+  const batch = mapBatchRow(batchRow as BatchRow);
+
+  // vincula as diárias ao lote (approved → included_in_batch)
+  if (items.length > 0) {
+    const { error: linkErr } = await supabase
+      .from(DAILY_ALLOWANCES_TABLE)
+      .update({ payment_batch_id: batch.id, status: 'included_in_batch' })
+      .eq('allowance_week_id', weekId)
+      .eq('status', 'approved');
+    if (linkErr) throw new Error(rlsFriendlyMessage('Erro ao vincular diárias ao lote', linkErr));
+  }
+
+  // semana avança para 'scheduled' (lote pronto)
+  await supabase.from(ALLOWANCE_WEEKS_TABLE).update({ status: 'scheduled' }).eq('id', weekId);
+
+  void logAuditEvent({
+    organizationId: orgId,
+    action: 'allowance_batch.generated',
+    entityType: 'allowance_payment_batch',
+    entityId: batch.id,
+    metadata: {
+      batch_code: batch.batchCode,
+      item_count: batch.itemCount,
+      total_amount_cents: batch.totalAmountCents,
+      simulation: batch.simulationMode,
+    },
+  });
+  return batch;
+}
+
+export interface BatchExport {
+  filename: string;
+  csv: string;
+}
+
+/** Formata centavos como decimal simples (sem símbolo) para CSV. */
+function centsToDecimal(cents: number): string {
+  return (cents / 100).toFixed(2).replace('.', ',');
+}
+
+/**
+ * Exporta o lote em CSV (uma linha por colaborador, com nº de diárias e
+ * total) e marca o lote como exportado. O pagamento em si continua na
+ * ferramenta financeira atual — sem cofre de contas nem integração
+ * bancária nesta fase.
+ */
+export async function exportBatchCsv(batchId: string): Promise<BatchExport> {
+  const supabase = createClient();
+  const { orgId } = await getCurrentOrgAndUser(supabase);
+
+  const { data: batchRow, error: batchErr } = await supabase
+    .from(ALLOWANCE_PAYMENT_BATCHES_TABLE)
+    .select('*')
+    .eq('id', batchId)
+    .single();
+  if (batchErr) throw new Error(rlsFriendlyMessage('Erro ao carregar lote', batchErr));
+  const batch = mapBatchRow(batchRow as BatchRow);
+
+  const { data: lines, error: linesErr } = await supabase
+    .from(DAILY_ALLOWANCES_TABLE)
+    .select('person_id, amount_cents, allowance_date, project_id, people(full_name, cpf)')
+    .eq('payment_batch_id', batchId)
+    .order('allowance_date');
+  if (linesErr) throw new Error(rlsFriendlyMessage('Erro ao carregar linhas do lote', linesErr));
+
+  // agrega por colaborador
+  type Agg = { name: string; cpf: string; days: number; cents: number };
+  const byPerson = new Map<string, Agg>();
+  for (const l of lines ?? []) {
+    const person = (l.people ?? null) as { full_name?: string; cpf?: string | null } | null;
+    const agg = byPerson.get(l.person_id as string) ?? {
+      name: person?.full_name ?? (l.person_id as string),
+      cpf: person?.cpf ?? '',
+      days: 0,
+      cents: 0,
+    };
+    agg.days += 1;
+    agg.cents += Number(l.amount_cents);
+    byPerson.set(l.person_id as string, agg);
+  }
+
+  const header = ['Colaborador', 'CPF', 'Diarias', 'Valor'];
+  const rows = Array.from(byPerson.values())
+    .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
+    .map((a) => [a.name, a.cpf, String(a.days), centsToDecimal(a.cents)]);
+  const escape = (v: string) => (/[",;\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+  const csv = [header, ...rows].map((r) => r.map(escape).join(';')).join('\r\n');
+
+  const { error: updErr } = await supabase
+    .from(ALLOWANCE_PAYMENT_BATCHES_TABLE)
+    .update({ status: 'exported', export_format: 'csv', exported_at: new Date().toISOString() })
+    .eq('id', batchId);
+  if (updErr) throw new Error(rlsFriendlyMessage('Erro ao marcar lote exportado', updErr));
+
+  void logAuditEvent({
+    organizationId: orgId,
+    action: 'allowance_batch.exported',
+    entityType: 'allowance_payment_batch',
+    entityId: batchId,
+    metadata: { format: 'csv', batch_code: batch.batchCode, lines: rows.length },
+  });
+
+  return { filename: `${batch.batchCode}.csv`, csv };
 }
