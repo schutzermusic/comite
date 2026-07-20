@@ -5,8 +5,9 @@ const withNextIntl = createNextIntlPlugin('./src/i18n/request.ts');
 
 const nextConfig: NextConfig = {
   output: 'standalone',
-  // pdfjs-dist runs only in the Node runtime (MS Project PDF import route).
-  serverExternalPackages: ['pdfjs-dist'],
+  // PDF libraries run only in the Node runtime and need their package assets
+  // (font metrics in pdfkit) preserved outside the Next.js server bundle.
+  serverExternalPackages: ['pdfjs-dist', 'pdfkit'],
   typescript: {
     ignoreBuildErrors: true,
   },

@@ -27,7 +27,9 @@ import {
 function base(overrides: Partial<EligibilityInput> = {}): EligibilityInput {
   return {
     activeEmployment: true,
+    activeEmploymentRequired: true,
     activeAllocation: true,
+    activeAllocationRequired: true,
     eligibleWorksite: true,
     onLeave: false,
     demobilizedBeforeDate: false,
@@ -38,6 +40,13 @@ function base(overrides: Partial<EligibilityInput> = {}): EligibilityInput {
     explicitlyIncluded: false,
     explicitlyExcluded: false,
     isCalendarWorkday: true,
+    travelEligibilityMode: 'not_required',
+    residenceMunicipalityRequired: false,
+    serviceMunicipalityRequired: false,
+    residenceMunicipalityCode: null,
+    residenceMunicipalityValidated: false,
+    serviceMunicipalityCode: null,
+    serviceMunicipalityValidated: false,
     ...overrides,
   };
 }
@@ -59,9 +68,13 @@ check('caso feliz (derived, dia útil) → planned_eligible', () => {
   assert.equal(statusFromReason(r.reason), 'planned');
 });
 
-check('sem política → blocked_no_policy (precede tudo)', () => {
+check('vínculo inativo precede ausência de política', () => {
   const r = evaluateDailyEligibility(base({ hasApplicablePolicy: false, activeEmployment: false }));
-  assert.equal(r.reason, 'blocked_no_policy');
+  assert.equal(r.reason, 'blocked_inactive_employment');
+});
+
+check('sem política → blocked_no_policy', () => {
+  assert.equal(evaluateDailyEligibility(base({ hasApplicablePolicy: false })).reason, 'blocked_no_policy');
 });
 
 check('vínculo inativo → blocked_inactive_employment', () => {
@@ -75,9 +88,13 @@ check('férias vence alocação → blocked_leave', () => {
   assert.equal(r.reason, 'blocked_leave');
 });
 
-check('desmobilizado antes da data → blocked_demobilized', () => {
+check('sem alocação precede desmobilização', () => {
   const r = evaluateDailyEligibility(base({ demobilizedBeforeDate: true, activeAllocation: false }));
-  assert.equal(r.reason, 'blocked_demobilized');
+  assert.equal(r.reason, 'blocked_no_allocation');
+});
+
+check('desmobilizado com alocação de referência → blocked_demobilized', () => {
+  assert.equal(evaluateDailyEligibility(base({ demobilizedBeforeDate: true })).reason, 'blocked_demobilized');
 });
 
 check('sem alocação viva → blocked_no_allocation', () => {
@@ -136,6 +153,53 @@ check('duplicidade após passar na escala → blocked_duplicate', () => {
   assert.equal(r.reason, 'blocked_duplicate');
   // preserva a origem da escala mesmo bloqueando por duplicidade
   assert.equal(r.scheduleEvidenceSource, 'active_allocation_and_calendar');
+});
+
+console.log('\nmunicipality eligibility');
+
+check('mesmo código IBGE → bloqueada', () => {
+  const r = evaluateDailyEligibility(base({
+    travelEligibilityMode: 'different_municipality',
+    residenceMunicipalityRequired: true,
+    serviceMunicipalityRequired: true,
+    residenceMunicipalityCode: '4113700', residenceMunicipalityValidated: true,
+    serviceMunicipalityCode: '4113700', serviceMunicipalityValidated: true,
+  }));
+  assert.equal(r.reason, 'same_residence_and_service_municipality');
+  assert.equal(statusFromReason(r.reason), 'blocked');
+});
+
+check('códigos IBGE diferentes → continua elegível', () => {
+  const r = evaluateDailyEligibility(base({
+    travelEligibilityMode: 'different_municipality',
+    residenceMunicipalityRequired: true,
+    serviceMunicipalityRequired: true,
+    residenceMunicipalityCode: '4113700', residenceMunicipalityValidated: true,
+    serviceMunicipalityCode: '3304557', serviceMunicipalityValidated: true,
+  }));
+  assert.equal(r.reason, 'service_outside_residence_municipality');
+  assert.equal(statusFromReason(r.reason), 'planned');
+});
+
+check('residência ausente ou não validada → revisão', () => {
+  const r = evaluateDailyEligibility(base({
+    travelEligibilityMode: 'different_municipality', residenceMunicipalityRequired: true,
+    serviceMunicipalityRequired: true, serviceMunicipalityCode: '3304557', serviceMunicipalityValidated: true,
+  }));
+  assert.equal(r.reason, 'missing_or_unvalidated_residence_municipality');
+  assert.equal(statusFromReason(r.reason), 'under_review');
+});
+
+check('município de serviço ausente → revisão', () => {
+  const r = evaluateDailyEligibility(base({
+    travelEligibilityMode: 'different_municipality', residenceMunicipalityRequired: true,
+    serviceMunicipalityRequired: true, residenceMunicipalityCode: '4113700', residenceMunicipalityValidated: true,
+  }));
+  assert.equal(r.reason, 'missing_service_municipality');
+});
+
+check('regra municipal not_required preserva elegibilidade', () => {
+  assert.equal(evaluateDailyEligibility(base({ travelEligibilityMode: 'not_required' })).reason, 'planned_eligible');
 });
 
 check('exclusão manual vence duplicidade (schedule antes de duplicidade)', () => {

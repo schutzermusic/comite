@@ -7,7 +7,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link2, Pencil, Plus, Trash2, Users } from 'lucide-react';
+import { Home, Link2, Pencil, Plus, Trash2, Users } from 'lucide-react';
 import {
   HudBadge,
   HudButton,
@@ -26,7 +26,7 @@ import {
   type KpiItem,
 } from '@/components/hud';
 import { usePermissions } from '@/hooks/use-permissions';
-import type { Person } from '@/lib/types/people';
+import type { Person, PersonResidenceMunicipality, ResidenceMunicipalitySource } from '@/lib/types/people';
 import { CONTRACT_TYPE_LABELS } from '@/lib/types/people';
 import {
   createPerson,
@@ -36,6 +36,10 @@ import {
   updatePerson,
   type PersonInput,
 } from '@/lib/services/people';
+import {
+  createResidenceMunicipality,
+  listResidenceMunicipalities,
+} from '@/lib/services/residence-municipalities';
 
 const SOURCE_LABELS: Record<Person['source'], string> = {
   payroll_import: 'Folha',
@@ -47,6 +51,7 @@ export default function PessoasPage() {
   const { hasPermission } = usePermissions();
   const { notify } = useHudToast();
   const canManage = hasPermission('people.manage');
+  const canValidateResidence = hasPermission('allowances.residence_validate');
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -55,12 +60,19 @@ export default function PessoasPage() {
   const [statusFilter, setStatusFilter] = useState('active');
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Person | null>(null);
+  const [residences, setResidences] = useState<PersonResidenceMunicipality[]>([]);
+  const [residencePerson, setResidencePerson] = useState<Person | null>(null);
 
   const reload = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      setPeople(await listPeople({ status: 'all' }));
+      const [peopleRows, residenceRows] = await Promise.all([
+        listPeople({ status: 'all' }),
+        listResidenceMunicipalities().catch(() => []),
+      ]);
+      setPeople(peopleRows);
+      setResidences(residenceRows);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Erro ao carregar pessoas');
     } finally {
@@ -152,6 +164,19 @@ export default function PessoasPage() {
       ),
     },
     {
+      key: 'residence',
+      header: 'Município residencial',
+      cell: (p) => {
+        const r = residences.find((item) => item.personId === p.id && item.status === 'validated');
+        return r ? (
+          <div>
+            <p className="text-sm text-ig-fg-strong">{r.municipalityName} - {r.stateCode}</p>
+            <p className="font-mono text-[11px] text-ig-fg-muted">IBGE {r.municipalityCode}</p>
+          </div>
+        ) : <HudBadge variant="warning">Não validado</HudBadge>;
+      },
+    },
+    {
       key: 'status',
       header: 'Status',
       cell: (p) => (
@@ -165,27 +190,39 @@ export default function PessoasPage() {
       header: '',
       align: 'right',
       cell: (p) =>
-        canManage ? (
+        (canManage || canValidateResidence) ? (
           <div className="flex items-center justify-end gap-1">
-            <button
-              type="button"
-              title="Editar"
-              className="rounded-md p-1.5 text-ig-fg-muted transition-colors hover:bg-ig-panel-hover hover:text-ig-fg-strong"
-              onClick={() => {
-                setEditing(p);
-                setModalOpen(true);
-              }}
-            >
-              <Pencil className="h-3.5 w-3.5" />
-            </button>
-            <button
-              type="button"
-              title="Excluir"
-              className="rounded-md p-1.5 text-ig-fg-muted transition-colors hover:bg-ig-panel-hover hover:text-ig-danger"
-              onClick={() => void handleDelete(p)}
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </button>
+            {canValidateResidence && (
+              <button
+                type="button"
+                title="Validar município residencial"
+                className="rounded-md p-1.5 text-ig-fg-muted transition-colors hover:bg-ig-panel-hover hover:text-ig-accent"
+                onClick={() => setResidencePerson(p)}
+              >
+                <Home className="h-3.5 w-3.5" />
+              </button>
+            )}
+            {canManage && <>
+              <button
+                type="button"
+                title="Editar"
+                className="rounded-md p-1.5 text-ig-fg-muted transition-colors hover:bg-ig-panel-hover hover:text-ig-fg-strong"
+                onClick={() => {
+                  setEditing(p);
+                  setModalOpen(true);
+                }}
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                title="Excluir"
+                className="rounded-md p-1.5 text-ig-fg-muted transition-colors hover:bg-ig-panel-hover hover:text-ig-danger"
+                onClick={() => void handleDelete(p)}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </>}
           </div>
         ) : null,
     },
@@ -297,7 +334,96 @@ export default function PessoasPage() {
           await reload();
         }}
       />
+      <ResidenceMunicipalityModal
+        person={residencePerson}
+        current={residencePerson
+          ? residences.find((r) => r.personId === residencePerson.id && r.status === 'validated') ?? null
+          : null}
+        onClose={() => setResidencePerson(null)}
+        onSaved={async () => {
+          setResidencePerson(null);
+          await reload();
+        }}
+      />
     </HudPageLayout>
+  );
+}
+
+function ResidenceMunicipalityModal({
+  person,
+  current,
+  onClose,
+  onSaved,
+}: {
+  person: Person | null;
+  current: PersonResidenceMunicipality | null;
+  onClose: () => void;
+  onSaved: () => Promise<void>;
+}) {
+  const { notify } = useHudToast();
+  const [code, setCode] = useState('');
+  const [name, setName] = useState('');
+  const [uf, setUf] = useState('');
+  const [validFrom, setValidFrom] = useState(new Date().toISOString().slice(0, 10));
+  const [source, setSource] = useState<ResidenceMunicipalitySource>('hr_registration');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!person) return;
+    setCode(current?.municipalityCode ?? '');
+    setName(current?.municipalityName ?? '');
+    setUf(current?.stateCode ?? '');
+    setValidFrom(current?.validFrom ?? new Date().toISOString().slice(0, 10));
+    setSource(current?.source ?? 'hr_registration');
+  }, [person, current]);
+
+  if (!person) return null;
+
+  async function save() {
+    if (!/^\d{7}$/.test(code)) return notify('Código IBGE deve ter 7 dígitos', { variant: 'warning' });
+    if (!name.trim() || !/^[A-Za-z]{2}$/.test(uf)) return notify('Informe município e UF', { variant: 'warning' });
+    setSaving(true);
+    try {
+      await createResidenceMunicipality({
+        personId: person!.id,
+        municipalityCode: code,
+        municipalityName: name,
+        stateCode: uf,
+        validFrom,
+        source,
+        status: 'validated',
+        validationMetadata: { method: 'hr_manual_validation' },
+      });
+      notify('Município residencial validado', { variant: 'success' });
+      await onSaved();
+    } catch (e) {
+      notify(e instanceof Error ? e.message : 'Erro ao validar residência', { variant: 'error' });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <HudModal
+      isOpen
+      onClose={onClose}
+      title="Validar município residencial"
+      subtitle={`${person.fullName} - somente município, sem endereço completo`}
+      footer={<div className="flex justify-end gap-2"><HudButton variant="ghost" onClick={onClose}>Cancelar</HudButton><HudButton variant="primary" disabled={saving} onClick={() => void save()}>{saving ? 'Salvando…' : 'Validar'}</HudButton></div>}
+    >
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <HudInput label="Código IBGE" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 7))} placeholder="4113700" />
+        <HudInput label="Município" value={name} onChange={(e) => setName(e.target.value)} placeholder="Londrina" />
+        <HudInput label="UF" value={uf} onChange={(e) => setUf(e.target.value.toUpperCase().slice(0, 2))} placeholder="PR" />
+        <HudInput label="Válido desde" type="date" value={validFrom} onChange={(e) => setValidFrom(e.target.value)} />
+        <HudSelect label="Fonte" value={source} onChange={(v) => setSource(v as ResidenceMunicipalitySource)} options={[
+          { value: 'hr_registration', label: 'Cadastro de RH' },
+          { value: 'employee_declaration', label: 'Declaração do colaborador' },
+          { value: 'manual_adjustment', label: 'Ajuste manual' },
+          { value: 'migration', label: 'Migração' },
+        ]} />
+      </div>
+    </HudModal>
   );
 }
 

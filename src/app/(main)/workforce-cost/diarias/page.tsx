@@ -61,7 +61,13 @@ import {
   type WeekIntelligence,
 } from '@/lib/services/allowances';
 import { RECONCILIATION_REASON_LABELS } from '@/lib/services/allowance-reconciliation';
+import { openAllowanceReport } from '@/lib/reports/modules/allowance-report';
 import { ALERT_SEVERITY_LABELS, type AlertSeverity } from '@/lib/services/allowance-intelligence';
+import {
+  decideAllowanceOverride,
+  listAllowanceOverrides,
+  requestAllowanceOverride,
+} from '@/lib/services/allowance-overrides';
 import { WEEK_ACTIONS, type WeekAction } from '@/lib/services/allowance-workflow';
 import type { PermissionKey } from '@/lib/auth/types';
 import {
@@ -70,13 +76,16 @@ import {
   ELIGIBILITY_REASON_LABELS,
   PAYMENT_BATCH_STATUS_LABELS,
   SCHEDULE_MODE_LABELS,
+  TRAVEL_ELIGIBILITY_MODE_LABELS,
   type AllowancePaymentBatch,
+  type AllowanceEligibilityOverride,
   type AllowancePolicy,
   type AllowanceWeek,
   type DailyAllowance,
   type DayClassification,
   type EligibilityReason,
   type ScheduleMode,
+  type TravelEligibilityMode,
 } from '@/lib/types/allowances';
 import type { ProjectGeofence } from '@/lib/types/people';
 
@@ -175,7 +184,8 @@ export default function DiariasPage() {
   const { hasPermission } = usePermissions();
   const { notify } = useHudToast();
   const canManage = hasPermission('allowances.manage');
-  const canReview = hasPermission('allowances.review_exception') || canManage;
+  const canReview = hasPermission('allowances.review_exception') || hasPermission('allowances.override_request') || canManage;
+  const canApproveOverride = hasPermission('allowances.override_approve');
 
   const bounds = useMemo(() => nextWeekBounds(), []);
   const dates = useMemo(() => eachDate(bounds.weekStart, bounds.weekEnd), [bounds]);
@@ -195,7 +205,13 @@ export default function DiariasPage() {
   const [intel, setIntel] = useState<WeekIntelligence | null>(null);
   const [intelLoading, setIntelLoading] = useState(false);
   const [batches, setBatches] = useState<AllowancePaymentBatch[]>([]);
+  const [overrides, setOverrides] = useState<AllowanceEligibilityOverride[]>([]);
+  const [exporting, setExporting] = useState(false);
   const canFinance = hasPermission('allowances.finance_approve');
+  const canExportPdf =
+    hasPermission('allowances.financial_export') ||
+    hasPermission('allowances.audit_export') ||
+    hasPermission('allowances.manage');
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -210,15 +226,18 @@ export default function DiariasPage() {
       );
       setWeek(existing);
       if (existing) {
-        const [dailies, wkBatches] = await Promise.all([
+        const [dailies, wkBatches, wkOverrides] = await Promise.all([
           listDailyAllowancesByWeek(existing.id),
           listPaymentBatchesByWeek(existing.id).catch(() => []),
+          listAllowanceOverrides(bounds.weekStart, bounds.weekEnd).catch(() => []),
         ]);
         setItems(dailies);
         setBatches(wkBatches);
+        setOverrides(wkOverrides);
       } else {
         setItems([]);
         setBatches([]);
+        setOverrides([]);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Erro ao carregar diárias');
@@ -283,9 +302,13 @@ export default function DiariasPage() {
       if (!week) return;
       setActionBusy(true);
       try {
-        const updated = await performWeekAction(week.id, action);
+        const updated = await performWeekAction(week.id, action, week);
+        // A resposta do PATCH é a fonte consistente da transição. Um GET
+        // imediato pode atingir uma réplica ainda defasada e regredir a UI.
         setWeek(updated);
-        setItems(await listDailyAllowancesByWeek(updated.id));
+        if (action === 'approve_finance') {
+          setItems(await listDailyAllowancesByWeek(updated.id));
+        }
         notify(`${WEEK_ACTIONS[action].label} — concluído`, { variant: 'success' });
       } catch (e) {
         notify(e instanceof Error ? e.message : 'Erro na transição', { variant: 'error' });
@@ -333,6 +356,28 @@ export default function DiariasPage() {
     [notify, reload],
   );
 
+  const handleExportPdf = useCallback(async () => {
+    if (!week) return;
+    setExporting(true);
+    try {
+      // usa a inteligência já carregada; senão calcula na hora (alertas + custo)
+      const data = intel && intel.week.id === week.id ? intel : await computeWeekIntelligence(week.id);
+      const result = openAllowanceReport({
+        week,
+        items,
+        projectNames,
+        alerts: data.alerts,
+        costByProject: data.costByProject,
+        previous: data.previous,
+      });
+      if (!result.ok) notify(result.message, { variant: 'error' });
+    } catch (e) {
+      notify(e instanceof Error ? e.message : 'Erro ao gerar PDF', { variant: 'error' });
+    } finally {
+      setExporting(false);
+    }
+  }, [week, items, projectNames, intel, notify]);
+
   const handleReconcile = useCallback(async () => {
     if (!week) return;
     setActionBusy(true);
@@ -368,20 +413,46 @@ export default function DiariasPage() {
     async (item: DailyAllowance, decision: ExceptionDecision, reason: string) => {
       setActionBusy(true);
       try {
-        const updated = await reviewException(item.id, decision, reason);
-        setItems((prev) => prev.map((it) => (it.id === updated.id ? updated : it)));
-        setSelected(updated);
-        notify(decision === 'include' ? 'Diária incluída' : 'Diária bloqueada', {
-          variant: 'success',
-        });
+        const municipalityReasons: EligibilityReason[] = [
+          'same_residence_and_service_municipality',
+          'missing_or_unvalidated_residence_municipality',
+          'missing_service_municipality',
+          'manual_municipality_review_required',
+        ];
+        if (municipalityReasons.includes((item.eligibilityReason ?? 'planned_eligible') as EligibilityReason)) {
+          await requestAllowanceOverride({
+            personId: item.personId, allowanceDate: item.allowanceDate, projectId: item.projectId,
+            geofenceId: item.geofenceId, action: decision, reason,
+          });
+          setOverrides(await listAllowanceOverrides(bounds.weekStart, bounds.weekEnd));
+          notify('Exceção enviada para aprovação', { variant: 'success' });
+        } else {
+          const updated = await reviewException(item.id, decision, reason);
+          setItems((prev) => prev.map((it) => (it.id === updated.id ? updated : it)));
+          setSelected(updated);
+          notify(decision === 'include' ? 'Diária incluída' : 'Diária bloqueada', { variant: 'success' });
+        }
       } catch (e) {
         notify(e instanceof Error ? e.message : 'Erro ao revisar', { variant: 'error' });
       } finally {
         setActionBusy(false);
       }
     },
-    [notify],
+    [notify, bounds],
   );
+
+  const handleOverrideDecision = useCallback(async (id: string, decision: 'approved' | 'rejected') => {
+    setActionBusy(true);
+    try {
+      await decideAllowanceOverride(id, decision);
+      setOverrides(await listAllowanceOverrides(bounds.weekStart, bounds.weekEnd));
+      notify(decision === 'approved' ? 'Exceção aprovada; recalcule a prévia' : 'Exceção rejeitada', { variant: 'success' });
+    } catch (e) {
+      notify(e instanceof Error ? e.message : 'Erro ao decidir exceção', { variant: 'error' });
+    } finally {
+      setActionBusy(false);
+    }
+  }, [bounds, notify]);
 
   /** Ações de fluxo disponíveis no estado atual, filtradas por permissão. */
   const weekActions = useMemo(() => {
@@ -464,12 +535,20 @@ export default function DiariasPage() {
           icon={<UtensilsCrossed className="h-5 w-5" />}
           breadcrumbs={[{ label: 'Pessoas & Custos', href: '/workforce-cost' }, { label: 'Diárias' }]}
           actions={
-            canManage ? (
-              <HudButton onClick={handleGenerate} disabled={generating} variant="primary" size="sm">
-                <RefreshCw className={`h-4 w-4 ${generating ? 'animate-spin' : ''}`} />
-                {week ? 'Recalcular prévia' : 'Gerar prévia'}
-              </HudButton>
-            ) : undefined
+            <div className="flex flex-wrap gap-2">
+              {week && canExportPdf && (
+                <HudButton onClick={handleExportPdf} disabled={exporting} variant="glass" size="sm">
+                  <Download className="h-4 w-4" />
+                  {exporting ? 'Gerando PDF…' : 'Exportar PDF'}
+                </HudButton>
+              )}
+              {canManage && (
+                <HudButton onClick={handleGenerate} disabled={generating} variant="primary" size="sm">
+                  <RefreshCw className={`h-4 w-4 ${generating ? 'animate-spin' : ''}`} />
+                  {week ? 'Recalcular prévia' : 'Gerar prévia'}
+                </HudButton>
+              )}
+            </div>
           }
         />
 
@@ -517,7 +596,15 @@ export default function DiariasPage() {
         )}
 
         {activeTab === 'exceptions' && (
-          <ExceptionsPanel items={items} projectNames={projectNames} onSelect={setSelected} />
+          <ExceptionsPanel
+            items={items}
+            projectNames={projectNames}
+            overrides={overrides}
+            canApproveOverride={canApproveOverride}
+            busy={actionBusy}
+            onOverrideDecision={handleOverrideDecision}
+            onSelect={setSelected}
+          />
         )}
 
         {activeTab === 'batches' && (
@@ -755,6 +842,10 @@ function EvidenceDrawer({
   const klass = classifyReason(reason);
   const meta = CLASS_META[klass];
   const ev = item.plannedEvidence as Record<string, unknown>;
+  const municipality = (ev.municipality ?? {}) as Record<string, unknown>;
+  const residence = (municipality.residence ?? null) as Record<string, unknown> | null;
+  const service = (municipality.service ?? null) as Record<string, unknown> | null;
+  const municipalityOverride = (municipality.override ?? null) as Record<string, unknown> | null;
   const showReview = canReview && REVIEWABLE_STATUSES.includes(item.status);
 
   const checks: Array<{ ok: boolean; label: string }> = [
@@ -816,6 +907,36 @@ function EvidenceDrawer({
           <p className="mt-1">
             Origem da evidência: {item.scheduleEvidenceSource ?? '—'} · Regra {item.ruleVersion}
           </p>
+        </div>
+
+        <div className="space-y-3 rounded-lg border border-ig-border-subtle px-4 py-3">
+          <p className="text-xs font-medium uppercase tracking-wider text-ig-fg-muted">Elegibilidade de deslocamento</p>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <p className="text-[11px] uppercase tracking-wider text-ig-fg-muted">Residência validada</p>
+              <p className="text-sm font-medium text-ig-fg-strong">
+                {residence ? `${String(residence.name ?? '—')} - ${String(residence.state_code ?? '—')}` : '—'}
+              </p>
+              <p className="text-xs text-ig-fg-muted">
+                {residence ? `IBGE ${String(residence.code ?? '—')} - fonte ${String(residence.source ?? '—')}` : 'Dado ausente ou não validado'}
+              </p>
+            </div>
+            <div>
+              <p className="text-[11px] uppercase tracking-wider text-ig-fg-muted">Local operacional</p>
+              <p className="text-sm font-medium text-ig-fg-strong">
+                {service ? `${String(service.name ?? '—')} - ${String(service.state_code ?? '—')}` : '—'}
+              </p>
+              <p className="text-xs text-ig-fg-muted">
+                {service ? `IBGE ${String(service.code ?? '—')} - geofence ${String(municipality.project_geofence_id ?? '—')}` : 'Município da geofence ausente'}
+              </p>
+            </div>
+          </div>
+          <p className="text-xs text-ig-fg-muted">
+            Resultado automático: {ELIGIBILITY_REASON_LABELS[(municipality.automatic_result ?? reason) as EligibilityReason] ?? String(municipality.automatic_result ?? reason)}
+          </p>
+          {municipalityOverride && (
+            <HudBadge variant="info">Exceção aprovada - {String(municipalityOverride.reason ?? '')}</HudBadge>
+          )}
         </div>
 
         {showReview && (
@@ -1008,7 +1129,7 @@ function PoliciesPanel() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-ig-border">
-                {['Política', 'Projeto', 'Valor', 'Escala', 'Vigência', 'Status', ''].map((h) => (
+                {['Política', 'Projeto', 'Valor', 'Escala', 'Deslocamento', 'Vigência', 'Status', ''].map((h) => (
                   <th
                     key={h}
                     className="px-3 py-3 text-left text-xs font-medium uppercase tracking-wider text-ig-fg-muted"
@@ -1030,6 +1151,9 @@ function PoliciesPanel() {
                     </td>
                     <td className="px-3 py-2.5 text-xs text-ig-fg-muted">
                       {SCHEDULE_MODE_LABELS[p.scheduleMode]}
+                    </td>
+                    <td className="px-3 py-2.5 text-xs text-ig-fg-muted">
+                      {TRAVEL_ELIGIBILITY_MODE_LABELS[p.travelEligibilityMode]} - v{p.version}
                     </td>
                     <td className="px-3 py-2.5 text-xs text-ig-fg-muted">
                       {new Date(`${p.effectiveFrom}T00:00:00`).toLocaleDateString('pt-BR')}
@@ -1096,6 +1220,9 @@ function PolicyCreateModal({
   const [amount, setAmount] = useState('45,00');
   const [effectiveFrom, setEffectiveFrom] = useState(today);
   const [scheduleMode, setScheduleMode] = useState<ScheduleMode>('derived');
+  const [travelEligibilityMode, setTravelEligibilityMode] = useState<TravelEligibilityMode>('different_municipality');
+  const [residenceRequired, setResidenceRequired] = useState(true);
+  const [serviceRequired, setServiceRequired] = useState(true);
   const [activateNow, setActivateNow] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -1124,6 +1251,9 @@ function PolicyCreateModal({
         amountCents,
         effectiveFrom,
         scheduleMode,
+        travelEligibilityMode,
+        residenceMunicipalityRequired: residenceRequired,
+        serviceMunicipalityRequired: serviceRequired,
         status: activateNow ? 'active' : 'draft',
       });
       notify('Política criada', { variant: 'success' });
@@ -1206,6 +1336,20 @@ function PolicyCreateModal({
               Este projeto ainda não tem geofences cadastradas — a obra ficará como “qualquer”.
             </p>
           )}
+        </section>
+
+        <section className="space-y-3">
+          <p className="text-[11px] font-medium uppercase tracking-wider text-ig-fg-muted">Elegibilidade de deslocamento</p>
+          <HudSelect
+            label="Regra municipal"
+            value={travelEligibilityMode}
+            onChange={(v) => setTravelEligibilityMode(v as TravelEligibilityMode)}
+            options={Object.entries(TRAVEL_ELIGIBILITY_MODE_LABELS).map(([value, label]) => ({ value, label }))}
+          />
+          <div className="flex flex-wrap gap-5 text-sm text-ig-fg-muted">
+            <label className="flex items-center gap-2"><input type="checkbox" checked={residenceRequired} onChange={(e) => setResidenceRequired(e.target.checked)} /> Residência validada obrigatória</label>
+            <label className="flex items-center gap-2"><input type="checkbox" checked={serviceRequired} onChange={(e) => setServiceRequired(e.target.checked)} /> Município do serviço obrigatório</label>
+          </div>
         </section>
 
         {/* Valor e vigência */}
@@ -1383,6 +1527,9 @@ function BatchesPanel({
           </table>
         </div>
       )}
+      <p className="mt-4 text-xs text-ig-fg-muted">
+        Use <b>Exportar PDF</b> (cabeçalho) para o relatório executivo da semana no padrão Insight.
+      </p>
     </HudPanel>
   );
 }
@@ -1653,10 +1800,18 @@ const EXCEPTION_STATUSES: DailyAllowance['status'][] = [
 function ExceptionsPanel({
   items,
   projectNames,
+  overrides,
+  canApproveOverride,
+  busy,
+  onOverrideDecision,
   onSelect,
 }: {
   items: DailyAllowance[];
   projectNames: Record<string, string>;
+  overrides: AllowanceEligibilityOverride[];
+  canApproveOverride: boolean;
+  busy: boolean;
+  onOverrideDecision: (id: string, decision: 'approved' | 'rejected') => void;
   onSelect: (item: DailyAllowance) => void;
 }) {
   const exceptions = useMemo(
@@ -1669,6 +1824,26 @@ function ExceptionsPanel({
 
   return (
     <HudPanel title="Exceções" accentColor="emerald">
+      {overrides.length > 0 && (
+        <div className="mb-5 space-y-2 rounded-xl border border-ig-border bg-ig-panel p-3">
+          <p className="text-xs font-medium uppercase tracking-wider text-ig-fg-muted">Exceções municipais auditáveis</p>
+          {overrides.map((override) => (
+            <div key={override.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-ig-border-subtle px-3 py-2">
+              <div>
+                <p className="text-sm text-ig-fg-strong">{override.action === 'include' ? 'Incluir' : 'Excluir'} - {override.allowanceDate} - {projectNames[override.projectId] ?? override.projectId}</p>
+                <p className="text-xs text-ig-fg-muted">{override.reason}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <HudBadge variant={override.status === 'approved' ? 'success' : override.status === 'rejected' ? 'danger' : 'warning'}>{override.status}</HudBadge>
+                {canApproveOverride && override.status === 'pending_approval' && <>
+                  <HudButton size="sm" variant="primary" disabled={busy} onClick={() => onOverrideDecision(override.id, 'approved')}>Aprovar</HudButton>
+                  <HudButton size="sm" variant="danger" disabled={busy} onClick={() => onOverrideDecision(override.id, 'rejected')}>Rejeitar</HudButton>
+                </>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <HudBadge variant={exceptions.length > 0 ? 'warning' : 'success'}>
           {exceptions.length} exceção(ões)

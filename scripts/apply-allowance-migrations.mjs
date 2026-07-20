@@ -1,5 +1,5 @@
 /**
- * Aplica as migrations de Diárias de Campo (056–061) contra
+ * Aplica as migrations de Diárias de Campo (056–064) contra
  * SUPABASE_DB_URL. Todos os arquivos são idempotentes — reexecutar é
  * no-op. (Migrations 059/060 chegam nas Fases 3/4.)
  *
@@ -26,6 +26,9 @@ const files = [
   'supabase/migrations/059_allowance_payment_batches.sql',
   'supabase/migrations/060_allowance_adjustments.sql',
   'supabase/migrations/061_allowance_perm_seeds.sql',
+  'supabase/migrations/062_allowance_municipalities.sql',
+  'supabase/migrations/063_allowance_municipality_security.sql',
+  'supabase/migrations/064_allowance_report_exports.sql',
 ];
 
 const client = new pg.Client({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
@@ -43,7 +46,10 @@ try {
     `select table_name from information_schema.tables
      where table_schema='public'
        and table_name in ('allowance_policies','work_schedule_days',
-                          'allowance_weeks','daily_allowances')
+                          'allowance_weeks','daily_allowances',
+                          'person_residence_municipalities',
+                          'allowance_eligibility_overrides',
+                          'allowance_report_exports')
      order by table_name`,
   );
   console.log('Tabelas presentes:', rows.map((r) => r.table_name).join(', '));
@@ -59,7 +65,7 @@ try {
   const { rows: perms } = await client.query(
     `select count(*)::int as n from permissions where key like 'allowances.%'`,
   );
-  console.log(`Permissões allowances.* seedadas: ${perms[0].n}/7`);
+  console.log(`Permissões allowances.* seedadas: ${perms[0].n}/14`);
 
   await client.query(`NOTIFY pgrst, 'reload schema'`);
   console.log('Schema cache do PostgREST recarregado.');
