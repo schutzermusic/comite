@@ -41,6 +41,7 @@ import { formatCents } from '@/lib/services/cost';
 import { getProjectsAsync } from '@/lib/services/projects';
 import { listGeofences } from '@/lib/services/geofence';
 import {
+  closeWeek,
   createAllowancePolicy,
   exportBatchCsv,
   generatePaymentBatch,
@@ -51,11 +52,13 @@ import {
   listPaymentBatchesByWeek,
   nextWeekBounds,
   performWeekAction,
+  reconcileWeek,
   reviewException,
   setAllowancePolicyStatus,
   weekLabel,
   type ExceptionDecision,
 } from '@/lib/services/allowances';
+import { RECONCILIATION_REASON_LABELS } from '@/lib/services/allowance-reconciliation';
 import { WEEK_ACTIONS, type WeekAction } from '@/lib/services/allowance-workflow';
 import type { PermissionKey } from '@/lib/auth/types';
 import {
@@ -183,7 +186,9 @@ export default function DiariasPage() {
   const [filter, setFilter] = useState<DayClassification | null>(null);
   const [selected, setSelected] = useState<DailyAllowance | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
-  const [activeTab, setActiveTab] = useState<'planning' | 'batches' | 'policies'>('planning');
+  const [activeTab, setActiveTab] = useState<'planning' | 'batches' | 'history' | 'policies'>(
+    'planning',
+  );
   const [batches, setBatches] = useState<AllowancePaymentBatch[]>([]);
   const canFinance = hasPermission('allowances.finance_approve');
 
@@ -301,6 +306,37 @@ export default function DiariasPage() {
     },
     [notify, reload],
   );
+
+  const handleReconcile = useCallback(async () => {
+    if (!week) return;
+    setActionBusy(true);
+    try {
+      const res = await reconcileWeek(week.id);
+      setWeek(res.week);
+      setItems(res.items);
+      notify(`Conciliação concluída — ${res.confirmed} confirmadas, ${res.divergent} divergentes`, {
+        variant: res.divergent > 0 ? 'warning' : 'success',
+      });
+    } catch (e) {
+      notify(e instanceof Error ? e.message : 'Erro ao conciliar', { variant: 'error' });
+    } finally {
+      setActionBusy(false);
+    }
+  }, [week, notify]);
+
+  const handleCloseWeek = useCallback(async () => {
+    if (!week) return;
+    setActionBusy(true);
+    try {
+      const updated = await closeWeek(week.id);
+      setWeek(updated);
+      notify('Semana encerrada', { variant: 'success' });
+    } catch (e) {
+      notify(e instanceof Error ? e.message : 'Erro ao encerrar', { variant: 'error' });
+    } finally {
+      setActionBusy(false);
+    }
+  }, [week, notify]);
 
   const handleReview = useCallback(
     async (item: DailyAllowance, decision: ExceptionDecision, reason: string) => {
@@ -424,11 +460,17 @@ export default function DiariasPage() {
             { id: 'batches', label: 'Lotes de pagamento', content: null },
             { id: 'exceptions', label: 'Exceções', disabled: true, content: null },
             { id: 'policies', label: 'Políticas', content: null },
-            { id: 'history', label: 'Histórico e conciliação', disabled: true, content: null },
+            { id: 'history', label: 'Histórico e conciliação', content: null },
           ]}
           activeTab={activeTab}
           onTabChange={(id) => {
-            if (id === 'planning' || id === 'policies' || id === 'batches') setActiveTab(id);
+            if (
+              id === 'planning' ||
+              id === 'policies' ||
+              id === 'batches' ||
+              id === 'history'
+            )
+              setActiveTab(id);
           }}
         />
 
@@ -442,6 +484,19 @@ export default function DiariasPage() {
             busy={actionBusy}
             onGenerate={handleGenerateBatch}
             onExport={handleExportCsv}
+          />
+        )}
+
+        {activeTab === 'history' && (
+          <ReconciliationPanel
+            week={week}
+            items={items}
+            projectNames={projectNames}
+            canManage={canManage}
+            busy={actionBusy}
+            onReconcile={handleReconcile}
+            onClose={handleCloseWeek}
+            onSelect={setSelected}
           />
         )}
 
@@ -745,11 +800,63 @@ function EvidenceDrawer({
           </div>
         )}
 
-        <div className="rounded-lg border border-ig-warning/30 bg-[color-mix(in_oklab,var(--ig-warning)_8%,transparent)] px-4 py-3 text-xs text-ig-fg-muted">
-          Evidências de execução (jornada, geofence, apontamento) e conciliação chegam na Fase 4.
-        </div>
+        {item.reconciliationEvidence ? (
+          <ReconciliationEvidence evidence={item.reconciliationEvidence} status={item.status} />
+        ) : (
+          <div className="rounded-lg border border-ig-warning/30 bg-[color-mix(in_oklab,var(--ig-warning)_8%,transparent)] px-4 py-3 text-xs text-ig-fg-muted">
+            Evidências de execução (jornada, geofence, apontamento) aparecem aqui após a conciliação
+            (aba Histórico e conciliação).
+          </div>
+        )}
       </div>
     </HudDrawer>
+  );
+}
+
+function ReconciliationEvidence({
+  evidence,
+  status,
+}: {
+  evidence: Record<string, unknown>;
+  status: DailyAllowance['status'];
+}) {
+  const signals = (evidence.signals ?? {}) as Record<string, boolean>;
+  const reasons = (evidence.reasons ?? []) as Array<keyof typeof RECONCILIATION_REASON_LABELS>;
+  const checks: Array<{ ok: boolean; label: string }> = [
+    { ok: signals.clock_in === true, label: 'Entrada registrada (jornada)' },
+    { ok: signals.within_geofence === true, label: 'Dentro da geofence da obra' },
+    { ok: signals.project_time_entry === true, label: 'Apontamento no projeto correto' },
+  ];
+  const divergent = status === 'divergent';
+  return (
+    <div
+      className={`space-y-2 rounded-lg border px-4 py-3 ${
+        divergent
+          ? 'border-ig-danger/30 bg-[color-mix(in_oklab,var(--ig-danger)_8%,transparent)]'
+          : 'border-ig-success/30 bg-[color-mix(in_oklab,var(--ig-success)_8%,transparent)]'
+      }`}
+    >
+      <p className="text-xs font-medium uppercase tracking-wider text-ig-fg-muted">
+        Evidências de execução · {divergent ? 'divergente' : 'confirmada'}
+      </p>
+      <ul className="space-y-1.5">
+        {checks.map((c) => (
+          <li key={c.label} className="flex items-center gap-2 text-sm">
+            {c.ok ? (
+              <CheckCircle2 className="h-4 w-4 text-ig-success" />
+            ) : (
+              <AlertTriangle className="h-4 w-4 text-ig-warning" />
+            )}
+            <span className={c.ok ? 'text-ig-fg' : 'text-ig-fg-muted'}>{c.label}</span>
+          </li>
+        ))}
+      </ul>
+      {reasons.length > 0 && (
+        <div className="pt-1 text-xs text-ig-danger">
+          {reasons.map((r) => RECONCILIATION_REASON_LABELS[r] ?? r).join(' · ')}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1161,6 +1268,141 @@ function BatchesPanel({
                   </td>
                 </tr>
               ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </HudPanel>
+  );
+}
+
+/* ─────────────────── reconciliation (Fase 4) ─────────────────── */
+
+const RECONCILABLE_WEEK_STATUSES: AllowanceWeek['status'][] = [
+  'scheduled',
+  'paid',
+  'reconciliation',
+];
+const RECONCILED_STATUSES: DailyAllowance['status'][] = ['confirmed', 'divergent'];
+
+function ReconciliationPanel({
+  week,
+  items,
+  projectNames,
+  canManage,
+  busy,
+  onReconcile,
+  onClose,
+  onSelect,
+}: {
+  week: AllowanceWeek | null;
+  items: DailyAllowance[];
+  projectNames: Record<string, string>;
+  canManage: boolean;
+  busy: boolean;
+  onReconcile: () => void;
+  onClose: () => void;
+  onSelect: (item: DailyAllowance) => void;
+}) {
+  const reconciled = useMemo(
+    () => items.filter((it) => RECONCILED_STATUSES.includes(it.status)),
+    [items],
+  );
+  const confirmed = reconciled.filter((it) => it.status === 'confirmed').length;
+  const divergent = reconciled.filter((it) => it.status === 'divergent').length;
+
+  const canReconcile = canManage && week != null && RECONCILABLE_WEEK_STATUSES.includes(week.status);
+  const canClose = canManage && week?.status === 'reconciliation';
+
+  return (
+    <HudPanel
+      title="Histórico e conciliação"
+      accentColor="emerald"
+      headerActions={
+        <div className="flex gap-2">
+          {canReconcile && (
+            <HudButton size="sm" variant="primary" disabled={busy} onClick={onReconcile}>
+              <RefreshCw className={`h-4 w-4 ${busy ? 'animate-spin' : ''}`} />
+              Conciliar semana
+            </HudButton>
+          )}
+          {canClose && (
+            <HudButton size="sm" variant="secondary" disabled={busy} onClick={onClose}>
+              Encerrar semana
+            </HudButton>
+          )}
+        </div>
+      }
+    >
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <HudBadge variant="success">{confirmed} confirmadas</HudBadge>
+        <HudBadge variant={divergent > 0 ? 'danger' : 'default'}>{divergent} divergentes</HudBadge>
+        <span className="text-xs text-ig-fg-muted">
+          Cruza jornada, geofence e apontamento com o previsto. Divergências são sinalizadas para
+          análise — nenhum desconto é aplicado automaticamente.
+        </span>
+      </div>
+
+      {reconciled.length === 0 ? (
+        <HudEmptyState
+          icon="inbox"
+          title="Semana ainda não conciliada"
+          description={
+            canReconcile
+              ? 'Clique em “Conciliar semana” para comparar o previsto com o realizado.'
+              : 'A conciliação ocorre após o lote de pagamento da semana.'
+          }
+        />
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-ig-border">
+                {['Colaborador', 'Projeto', 'Data', 'Resultado', 'Motivos'].map((h) => (
+                  <th
+                    key={h}
+                    className="px-3 py-3 text-left text-xs font-medium uppercase tracking-wider text-ig-fg-muted"
+                  >
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {reconciled.map((it) => {
+                const ev = (it.reconciliationEvidence ?? {}) as Record<string, unknown>;
+                const reasons = (ev.reasons ?? []) as Array<
+                  keyof typeof RECONCILIATION_REASON_LABELS
+                >;
+                const div = it.status === 'divergent';
+                return (
+                  <tr
+                    key={it.id}
+                    onClick={() => onSelect(it)}
+                    className="cursor-pointer border-b border-ig-border-subtle hover:bg-ig-panel-hover/40"
+                  >
+                    <td className="px-3 py-2.5 text-sm font-medium text-ig-fg-strong">
+                      {it.person?.fullName ?? it.personId}
+                    </td>
+                    <td className="px-3 py-2.5 text-xs text-ig-fg-muted">
+                      {projectNames[it.projectId] ?? it.projectId}
+                    </td>
+                    <td className="px-3 py-2.5 text-xs text-ig-fg-muted">
+                      {new Date(`${it.allowanceDate}T00:00:00`).toLocaleDateString('pt-BR')}
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <HudBadge variant={div ? 'danger' : 'success'}>
+                        {div ? 'Divergente' : 'Confirmada'}
+                      </HudBadge>
+                    </td>
+                    <td className="px-3 py-2.5 text-xs text-ig-fg-muted">
+                      {reasons.length > 0
+                        ? reasons.map((r) => RECONCILIATION_REASON_LABELS[r] ?? r).join(' · ')
+                        : '—'}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

@@ -47,6 +47,7 @@ import {
   WEEK_ACTIONS,
   type WeekAction,
 } from './allowance-workflow';
+import { reconcileDaily, type ReconciliationInput } from './allowance-reconciliation';
 import { getCurrentOrgAndUser, rlsFriendlyMessage, mapPersonRow, type PersonRow } from './people';
 
 export const ALLOWANCE_POLICIES_TABLE = 'allowance_policies';
@@ -1223,4 +1224,221 @@ export async function exportBatchCsv(batchId: string): Promise<BatchExport> {
   });
 
   return { filename: `${batch.batchCode}.csv`, csv };
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Fase 4 — Conciliação (previsto × realizado)
+   ───────────────────────────────────────────────────────────── */
+
+/** Diárias que entram na conciliação (pagas / incluídas no lote). */
+const RECONCILABLE_DAILY_STATUSES: DailyAllowance['status'][] = [
+  'included_in_batch',
+  'paid',
+  'confirmed',
+  'divergent',
+];
+
+export interface ReconciliationSummary {
+  week: AllowanceWeek;
+  items: DailyAllowance[];
+  confirmed: number;
+  divergent: number;
+}
+
+/**
+ * Concilia a semana: cruza cada diária paga com jornada
+ * (attendance_punches), geofence (location_evidence) e apontamento
+ * (time_entries), grava reconciliation_evidence e marca
+ * confirmed/divergent. Nunca desconta nem cria ajuste automático — a
+ * divergência é sinalizada para análise (ADR-006). Idempotente:
+ * reexecutar recomputa a partir dos sinais atuais.
+ */
+export async function reconcileWeek(weekId: string): Promise<ReconciliationSummary> {
+  const supabase = createClient();
+  const { orgId } = await getCurrentOrgAndUser(supabase);
+  const week = await loadWeek(weekId);
+
+  if (!['scheduled', 'paid', 'reconciliation'].includes(week.status)) {
+    throw new Error('A conciliação só ocorre após o lote da semana (status agendado/pago).');
+  }
+
+  const dailies = (await listDailyAllowancesByWeek(weekId)).filter((d) =>
+    RECONCILABLE_DAILY_STATUSES.includes(d.status),
+  );
+  if (dailies.length === 0) {
+    return { week, items: await listDailyAllowancesByWeek(weekId), confirmed: 0, divergent: 0 };
+  }
+
+  const personIds = Array.from(new Set(dailies.map((d) => d.personId)));
+  const from = `${week.weekStart}T00:00:00`;
+  const to = `${week.weekEnd}T23:59:59`;
+
+  const [
+    policies,
+    { data: punchRows, error: punchErr },
+    { data: locRows, error: locErr },
+    { data: teRows, error: teErr },
+    { data: geoRows, error: geoErr },
+  ] = await Promise.all([
+    listAllowancePolicies(),
+    supabase
+      .from('attendance_punches')
+      .select('id, person_id, occurred_at')
+      .eq('type', 'clock_in')
+      .eq('status', 'accepted')
+      .in('person_id', personIds)
+      .gte('occurred_at', from)
+      .lte('occurred_at', to),
+    supabase
+      .from('location_evidence')
+      .select('id, person_id, geofence_id, distance_from_geofence_meters, captured_at_device')
+      .in('person_id', personIds)
+      .gte('captured_at_device', from)
+      .lte('captured_at_device', to),
+    supabase
+      .from('time_entries')
+      .select('id, person_id, project_id, work_date, status')
+      .in('person_id', personIds)
+      .in('status', ['submitted', 'approved'])
+      .gte('work_date', week.weekStart)
+      .lte('work_date', week.weekEnd),
+    supabase.from('project_geofences').select('id, radius_meters, accuracy_tolerance_meters'),
+  ]);
+
+  if (punchErr) throw new Error(rlsFriendlyMessage('Erro ao carregar jornada', punchErr));
+  if (locErr) throw new Error(rlsFriendlyMessage('Erro ao carregar localização', locErr));
+  if (teErr) throw new Error(rlsFriendlyMessage('Erro ao carregar apontamentos', teErr));
+  if (geoErr) throw new Error(rlsFriendlyMessage('Erro ao carregar geofences', geoErr));
+
+  const policyById = new Map(policies.map((p) => [p.id, p]));
+  const geoById = new Map(
+    (geoRows ?? []).map((g) => [
+      g.id as string,
+      Number(g.radius_meters) + Number(g.accuracy_tolerance_meters),
+    ]),
+  );
+
+  // índices por pessoa|data (a data vem do occurred_at/captured_at)
+  const punchByKey = new Map<string, string>(); // -> punch id
+  for (const p of punchRows ?? []) {
+    punchByKey.set(`${p.person_id}|${(p.occurred_at as string).slice(0, 10)}`, p.id as string);
+  }
+  type Loc = { id: string; within: boolean };
+  const locByKey = new Map<string, Loc>();
+  for (const l of locRows ?? []) {
+    const key = `${l.person_id}|${(l.captured_at_device as string).slice(0, 10)}`;
+    const limit = l.geofence_id ? geoById.get(l.geofence_id as string) : undefined;
+    const dist = l.distance_from_geofence_meters as number | null;
+    const within = limit != null && dist != null && dist <= limit;
+    const prev = locByKey.get(key);
+    // preferir uma evidência dentro da cerca, se houver
+    if (!prev || (within && !prev.within)) locByKey.set(key, { id: l.id as string, within });
+  }
+  const teByKey = new Map<string, string>(); // person|date|project -> time_entry id
+  for (const t of teRows ?? []) {
+    teByKey.set(`${t.person_id}|${t.work_date}|${t.project_id}`, t.id as string);
+  }
+
+  let confirmed = 0;
+  let divergent = 0;
+
+  for (const d of dailies) {
+    const policy = policyById.get(d.policyId);
+    const attendanceRequired = policy?.attendanceRequiredForReconciliation ?? true;
+    const geofenceRequired = policy?.geofenceRequiredForReconciliation ?? true;
+
+    const pKey = `${d.personId}|${d.allowanceDate}`;
+    const punchId = punchByKey.get(pKey) ?? null;
+    const loc = locByKey.get(pKey) ?? null;
+    const teId = teByKey.get(`${d.personId}|${d.allowanceDate}|${d.projectId}`) ?? null;
+
+    const input: ReconciliationInput = {
+      attendanceRequired,
+      geofenceRequired,
+      hasAcceptedClockIn: punchId != null,
+      locationAvailable: loc != null,
+      hasLocationWithinGeofence: loc?.within ?? false,
+      hasProjectTimeEntry: teId != null,
+    };
+    const result = reconcileDaily(input);
+    if (result.outcome === 'confirmed') confirmed += 1;
+    else divergent += 1;
+
+    const evidence = {
+      outcome: result.outcome,
+      reasons: result.reasons,
+      signals: {
+        clock_in: input.hasAcceptedClockIn,
+        location_available: input.locationAvailable,
+        within_geofence: input.hasLocationWithinGeofence,
+        project_time_entry: input.hasProjectTimeEntry,
+      },
+      reconciled_at: new Date().toISOString(),
+    };
+
+    const { error: updErr } = await supabase
+      .from(DAILY_ALLOWANCES_TABLE)
+      .update({
+        status: result.outcome,
+        reconciliation_evidence: evidence,
+        attendance_punch_id: punchId,
+        location_evidence_id: loc?.id ?? null,
+        time_entry_id: teId,
+      })
+      .eq('id', d.id);
+    if (updErr) throw new Error(rlsFriendlyMessage('Erro ao gravar conciliação', updErr));
+  }
+
+  const { data: updatedWeek, error: weekErr } = await supabase
+    .from(ALLOWANCE_WEEKS_TABLE)
+    .update({ status: 'reconciliation' })
+    .eq('id', weekId)
+    .select('*')
+    .single();
+  if (weekErr) throw new Error(rlsFriendlyMessage('Erro ao atualizar a semana', weekErr));
+
+  void logAuditEvent({
+    organizationId: orgId,
+    action: 'allowance_week.reconciled',
+    entityType: 'allowance_week',
+    entityId: weekId,
+    metadata: { confirmed, divergent, total: dailies.length },
+  });
+
+  return {
+    week: mapWeekRow(updatedWeek as WeekRow),
+    items: await listDailyAllowancesByWeek(weekId),
+    confirmed,
+    divergent,
+  };
+}
+
+/**
+ * Encerra a semana conciliada. Reabertura futura exige permissão
+ * dedicada (allowances.manage) — aqui apenas fecha reconciliation →
+ * closed, preservando todo o histórico e as divergências para
+ * auditoria/ajuste.
+ */
+export async function closeWeek(weekId: string): Promise<AllowanceWeek> {
+  const supabase = createClient();
+  const { orgId } = await getCurrentOrgAndUser(supabase);
+  const week = await loadWeek(weekId);
+  if (week.status !== 'reconciliation') {
+    throw new Error('Só é possível encerrar uma semana em conciliação.');
+  }
+  const { data, error } = await supabase
+    .from(ALLOWANCE_WEEKS_TABLE)
+    .update({ status: 'closed' })
+    .eq('id', weekId)
+    .select('*')
+    .single();
+  if (error) throw new Error(rlsFriendlyMessage('Erro ao encerrar a semana', error));
+  void logAuditEvent({
+    organizationId: orgId,
+    action: 'allowance_week.closed',
+    entityType: 'allowance_week',
+    entityId: weekId,
+    metadata: { period: `${week.weekStart}..${week.weekEnd}` },
+  });
+  return mapWeekRow(data as WeekRow);
 }
