@@ -25,9 +25,12 @@ import {
   HudDrawer,
   HudEmptyState,
   HudHeader,
+  HudInput,
   HudKpiStrip,
+  HudModal,
   HudPageLayout,
   HudPanel,
+  HudSelect,
   HudTabs,
   useHudToast,
   type KpiItem,
@@ -35,13 +38,17 @@ import {
 import { usePermissions } from '@/hooks/use-permissions';
 import { formatCents } from '@/lib/services/cost';
 import { getProjectsAsync } from '@/lib/services/projects';
+import { listGeofences } from '@/lib/services/geofence';
 import {
+  createAllowancePolicy,
   generateWeeklyAllowancePreview,
   getLatestWeek,
+  listAllowancePolicies,
   listDailyAllowancesByWeek,
   nextWeekBounds,
   performWeekAction,
   reviewException,
+  setAllowancePolicyStatus,
   weekLabel,
   type ExceptionDecision,
 } from '@/lib/services/allowances';
@@ -52,11 +59,14 @@ import {
   classifyReason,
   ELIGIBILITY_REASON_LABELS,
   SCHEDULE_MODE_LABELS,
+  type AllowancePolicy,
   type AllowanceWeek,
   type DailyAllowance,
   type DayClassification,
   type EligibilityReason,
+  type ScheduleMode,
 } from '@/lib/types/allowances';
+import type { ProjectGeofence } from '@/lib/types/people';
 
 /* ─────────────────────── date helpers ───────────────────────── */
 
@@ -167,6 +177,7 @@ export default function DiariasPage() {
   const [filter, setFilter] = useState<DayClassification | null>(null);
   const [selected, setSelected] = useState<DailyAllowance | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
+  const [activeTab, setActiveTab] = useState<'planning' | 'policies'>('planning');
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -345,60 +356,11 @@ export default function DiariasPage() {
           }
         />
 
-        <div className="flex flex-wrap items-center gap-2">
-          <HudBadge variant="info">modo simulação</HudBadge>
-          {week && (
-            <HudBadge variant={week.status === 'finance_approved' ? 'success' : 'default'}>
-              {ALLOWANCE_WEEK_STATUS_LABELS[week.status]}
-            </HudBadge>
-          )}
-          <span className="text-xs text-ig-fg-muted">
-            Nenhum pagamento é executado nesta fase. A prévia calibra as regras contra a rotina atual.
-          </span>
-          {week && (
-            <span className="ml-auto text-xs text-ig-fg-muted">
-              Versão {week.version}
-              {week.generatedAt
-                ? ` · gerada em ${new Date(week.generatedAt).toLocaleString('pt-BR')}`
-                : ''}
-            </span>
-          )}
-        </div>
-
-        {week && weekActions.length > 0 && (
-          <HudPanel>
-            <div className="flex flex-wrap items-center gap-3">
-              <span className="text-xs font-medium uppercase tracking-wider text-ig-fg-muted">
-                Fluxo de aprovação
-              </span>
-              {week.managerReviewedAt && (
-                <HudBadge variant="success">revisão do gestor OK</HudBadge>
-              )}
-              {week.hrValidatedAt && <HudBadge variant="success">RH validou</HudBadge>}
-              <div className="ml-auto flex flex-wrap gap-2">
-                {weekActions.map((a) => (
-                  <HudButton
-                    key={a}
-                    size="sm"
-                    variant={a === 'approve_finance' ? 'primary' : 'secondary'}
-                    disabled={actionBusy}
-                    onClick={() => handleWeekAction(a)}
-                  >
-                    {WEEK_ACTIONS[a].label}
-                  </HudButton>
-                ))}
-              </div>
-            </div>
-          </HudPanel>
-        )}
-
         {error && (
           <HudPanel state="critical">
             <p className="text-sm text-ig-danger">{error}</p>
           </HudPanel>
         )}
-
-        <HudKpiStrip kpis={kpis} columns={5} />
 
         <HudTabs
           tabs={[
@@ -406,14 +368,70 @@ export default function DiariasPage() {
             { id: 'operation', label: 'Operação do dia', disabled: true, content: null },
             { id: 'batches', label: 'Lotes de pagamento', disabled: true, content: null },
             { id: 'exceptions', label: 'Exceções', disabled: true, content: null },
-            { id: 'policies', label: 'Políticas', disabled: true, content: null },
+            { id: 'policies', label: 'Políticas', content: null },
             { id: 'history', label: 'Histórico e conciliação', disabled: true, content: null },
           ]}
-          activeTab="planning"
-          onTabChange={() => undefined}
+          activeTab={activeTab}
+          onTabChange={(id) => {
+            if (id === 'planning' || id === 'policies') setActiveTab(id);
+          }}
         />
 
-        <HudPanel title="Prévia por colaborador × dia" accentColor="emerald">
+        {activeTab === 'policies' && <PoliciesPanel />}
+
+        {activeTab === 'planning' && (
+          <>
+            <div className="flex flex-wrap items-center gap-2">
+              <HudBadge variant="info">modo simulação</HudBadge>
+              {week && (
+                <HudBadge variant={week.status === 'finance_approved' ? 'success' : 'default'}>
+                  {ALLOWANCE_WEEK_STATUS_LABELS[week.status]}
+                </HudBadge>
+              )}
+              <span className="text-xs text-ig-fg-muted">
+                Nenhum pagamento é executado nesta fase. A prévia calibra as regras contra a rotina
+                atual.
+              </span>
+              {week && (
+                <span className="ml-auto text-xs text-ig-fg-muted">
+                  Versão {week.version}
+                  {week.generatedAt
+                    ? ` · gerada em ${new Date(week.generatedAt).toLocaleString('pt-BR')}`
+                    : ''}
+                </span>
+              )}
+            </div>
+
+            {week && weekActions.length > 0 && (
+              <HudPanel>
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className="text-xs font-medium uppercase tracking-wider text-ig-fg-muted">
+                    Fluxo de aprovação
+                  </span>
+                  {week.managerReviewedAt && (
+                    <HudBadge variant="success">revisão do gestor OK</HudBadge>
+                  )}
+                  {week.hrValidatedAt && <HudBadge variant="success">RH validou</HudBadge>}
+                  <div className="ml-auto flex flex-wrap gap-2">
+                    {weekActions.map((a) => (
+                      <HudButton
+                        key={a}
+                        size="sm"
+                        variant={a === 'approve_finance' ? 'primary' : 'secondary'}
+                        disabled={actionBusy}
+                        onClick={() => handleWeekAction(a)}
+                      >
+                        {WEEK_ACTIONS[a].label}
+                      </HudButton>
+                    ))}
+                  </div>
+                </div>
+              </HudPanel>
+            )}
+
+            <HudKpiStrip kpis={kpis} columns={5} />
+
+            <HudPanel title="Prévia por colaborador × dia" accentColor="emerald">
           {loading ? (
             <div className="flex items-center justify-center py-12">
               <div className="h-8 w-8 animate-spin rounded-full border-2 border-ig-border border-t-ig-accent" />
@@ -515,7 +533,9 @@ export default function DiariasPage() {
               </table>
             </div>
           )}
-        </HudPanel>
+            </HudPanel>
+          </>
+        )}
       </div>
 
       <EvidenceDrawer
@@ -664,5 +684,306 @@ function EvidenceDrawer({
         </div>
       </div>
     </HudDrawer>
+  );
+}
+
+/* ─────────────────────────── policies ───────────────────────── */
+
+const POLICY_STATUS_META: Record<
+  AllowancePolicy['status'],
+  { label: string; variant: 'success' | 'warning' | 'default' }
+> = {
+  active: { label: 'Ativa', variant: 'success' },
+  draft: { label: 'Rascunho', variant: 'warning' },
+  inactive: { label: 'Inativa', variant: 'default' },
+};
+
+function PoliciesPanel() {
+  const { hasPermission } = usePermissions();
+  const { notify } = useHudToast();
+  const canManage = hasPermission('allowances.policy_manage');
+
+  const [loading, setLoading] = useState(true);
+  const [policies, setPolicies] = useState<AllowancePolicy[]>([]);
+  const [projects, setProjects] = useState<Array<{ id: string; label: string }>>([]);
+  const [geofences, setGeofences] = useState<ProjectGeofence[]>([]);
+  const [showCreate, setShowCreate] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const reload = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [pols, projs, geos] = await Promise.all([
+        listAllowancePolicies(),
+        getProjectsAsync().catch(() => []),
+        listGeofences().catch(() => []),
+      ]);
+      setPolicies(pols);
+      setProjects(projs.map((p) => ({ id: p.id, label: p.codigo || p.nome || p.id })));
+      setGeofences(geos);
+    } catch (e) {
+      notify(e instanceof Error ? e.message : 'Erro ao carregar políticas', { variant: 'error' });
+    } finally {
+      setLoading(false);
+    }
+  }, [notify]);
+
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  const projectLabel = useCallback(
+    (id: string | null) => (id ? projects.find((p) => p.id === id)?.label ?? id : 'Todos (fallback)'),
+    [projects],
+  );
+
+  async function toggleStatus(policy: AllowancePolicy) {
+    setBusyId(policy.id);
+    try {
+      const next = policy.status === 'active' ? 'inactive' : 'active';
+      await setAllowancePolicyStatus(policy.id, next);
+      notify(next === 'active' ? 'Política ativada' : 'Política desativada', { variant: 'success' });
+      await reload();
+    } catch (e) {
+      notify(e instanceof Error ? e.message : 'Erro ao atualizar', { variant: 'error' });
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <HudPanel
+      title="Políticas de diária"
+      accentColor="emerald"
+      headerActions={
+        canManage ? (
+          <HudButton size="sm" variant="primary" onClick={() => setShowCreate(true)}>
+            Nova política
+          </HudButton>
+        ) : undefined
+      }
+    >
+      {loading ? (
+        <div className="flex items-center justify-center py-12">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-ig-border border-t-ig-accent" />
+        </div>
+      ) : policies.length === 0 ? (
+        <HudEmptyState
+          icon="file"
+          title="Nenhuma política cadastrada"
+          description={
+            canManage
+              ? 'Cadastre uma política ativa (valor + projeto + regras) para a prévia semanal poder gerar diárias.'
+              : 'Nenhuma política de diária cadastrada.'
+          }
+        />
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-ig-border">
+                {['Política', 'Projeto', 'Valor', 'Escala', 'Vigência', 'Status', ''].map((h) => (
+                  <th
+                    key={h}
+                    className="px-3 py-3 text-left text-xs font-medium uppercase tracking-wider text-ig-fg-muted"
+                  >
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {policies.map((p) => {
+                const meta = POLICY_STATUS_META[p.status];
+                return (
+                  <tr key={p.id} className="border-b border-ig-border-subtle">
+                    <td className="px-3 py-2.5 text-sm font-medium text-ig-fg-strong">{p.name}</td>
+                    <td className="px-3 py-2.5 text-xs text-ig-fg-muted">{projectLabel(p.projectId)}</td>
+                    <td className="px-3 py-2.5 text-sm font-semibold tabular-nums text-ig-fg-strong">
+                      {formatCents(p.amountCents)}
+                    </td>
+                    <td className="px-3 py-2.5 text-xs text-ig-fg-muted">
+                      {SCHEDULE_MODE_LABELS[p.scheduleMode]}
+                    </td>
+                    <td className="px-3 py-2.5 text-xs text-ig-fg-muted">
+                      {new Date(`${p.effectiveFrom}T00:00:00`).toLocaleDateString('pt-BR')}
+                      {p.effectiveUntil
+                        ? ` – ${new Date(`${p.effectiveUntil}T00:00:00`).toLocaleDateString('pt-BR')}`
+                        : ' →'}
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <HudBadge variant={meta.variant}>{meta.label}</HudBadge>
+                    </td>
+                    <td className="px-3 py-2.5 text-right">
+                      {canManage && (
+                        <HudButton
+                          size="sm"
+                          variant="ghost"
+                          disabled={busyId === p.id}
+                          onClick={() => void toggleStatus(p)}
+                        >
+                          {p.status === 'active' ? 'Desativar' : 'Ativar'}
+                        </HudButton>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {showCreate && (
+        <PolicyCreateModal
+          projects={projects}
+          geofences={geofences}
+          onClose={() => setShowCreate(false)}
+          onSaved={async () => {
+            setShowCreate(false);
+            await reload();
+          }}
+        />
+      )}
+    </HudPanel>
+  );
+}
+
+function PolicyCreateModal({
+  projects,
+  geofences,
+  onClose,
+  onSaved,
+}: {
+  projects: Array<{ id: string; label: string }>;
+  geofences: ProjectGeofence[];
+  onClose: () => void;
+  onSaved: () => Promise<void>;
+}) {
+  const { notify } = useHudToast();
+  const today = new Date().toISOString().slice(0, 10);
+  const [name, setName] = useState('');
+  const [projectId, setProjectId] = useState('');
+  const [geofenceId, setGeofenceId] = useState('');
+  const [amount, setAmount] = useState('45,00');
+  const [effectiveFrom, setEffectiveFrom] = useState(today);
+  const [scheduleMode, setScheduleMode] = useState<ScheduleMode>('derived');
+  const [activateNow, setActivateNow] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  const projectGeofences = geofences.filter((g) => g.projectId === projectId);
+
+  function parseAmountCents(v: string): number {
+    const normalized = v.replace(/\./g, '').replace(',', '.');
+    return Math.round(Number(normalized) * 100);
+  }
+
+  async function handleSave() {
+    if (!name.trim()) {
+      notify('Informe o nome da política', { variant: 'warning' });
+      return;
+    }
+    const cents = parseAmountCents(amount);
+    if (!Number.isFinite(cents) || cents <= 0) {
+      notify('Valor inválido', { variant: 'warning' });
+      return;
+    }
+    setSaving(true);
+    try {
+      await createAllowancePolicy({
+        name: name.trim(),
+        projectId: projectId || null,
+        geofenceId: geofenceId || null,
+        amountCents: cents,
+        effectiveFrom,
+        scheduleMode,
+        status: activateNow ? 'active' : 'draft',
+      });
+      notify('Política criada', { variant: 'success' });
+      await onSaved();
+    } catch (e) {
+      notify(e instanceof Error ? e.message : 'Erro ao criar política', { variant: 'error' });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <HudModal
+      isOpen
+      onClose={onClose}
+      title="Nova política de diária"
+      subtitle="Valor, escopo e regras de elegibilidade (ADR-005 — regras configuráveis)"
+      size="md"
+      footer={
+        <div className="flex justify-end gap-2">
+          <HudButton variant="ghost" onClick={onClose}>
+            Cancelar
+          </HudButton>
+          <HudButton variant="primary" onClick={() => void handleSave()} disabled={saving}>
+            {saving ? 'Salvando…' : 'Criar'}
+          </HudButton>
+        </div>
+      }
+    >
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="sm:col-span-2">
+          <HudInput
+            label="Nome"
+            placeholder="Ex.: Diária Alimentação CEMIG"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </div>
+        <HudSelect
+          label="Projeto"
+          value={projectId}
+          onChange={(v) => {
+            setProjectId(v);
+            setGeofenceId('');
+          }}
+          options={[
+            { value: '', label: 'Todos (fallback da organização)' },
+            ...projects.map((p) => ({ value: p.id, label: p.label })),
+          ]}
+        />
+        <HudSelect
+          label="Obra (geofence)"
+          value={geofenceId}
+          onChange={setGeofenceId}
+          options={[
+            { value: '', label: 'Qualquer / não exigir' },
+            ...projectGeofences.map((g) => ({ value: g.id, label: g.name })),
+          ]}
+        />
+        <HudInput
+          label="Valor (R$)"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          placeholder="45,00"
+        />
+        <HudInput
+          label="Vigência a partir de"
+          type="date"
+          value={effectiveFrom}
+          onChange={(e) => setEffectiveFrom(e.target.value)}
+        />
+        <HudSelect
+          label="Escala"
+          value={scheduleMode}
+          onChange={(v) => setScheduleMode(v as ScheduleMode)}
+          options={Object.entries(SCHEDULE_MODE_LABELS).map(([value, label]) => ({ value, label }))}
+        />
+        <label className="flex items-center gap-2 text-sm text-ig-fg sm:col-span-2">
+          <input
+            type="checkbox"
+            checked={activateNow}
+            onChange={(e) => setActivateNow(e.target.checked)}
+            className="h-4 w-4 rounded border-ig-border"
+          />
+          Ativar imediatamente (necessário para a prévia gerar diárias)
+        </label>
+      </div>
+    </HudModal>
   );
 }

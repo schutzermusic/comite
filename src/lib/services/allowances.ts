@@ -335,6 +335,29 @@ export async function createAllowancePolicy(input: AllowancePolicyInput): Promis
   return policy;
 }
 
+export async function setAllowancePolicyStatus(
+  id: string,
+  status: AllowancePolicyStatus,
+): Promise<AllowancePolicy> {
+  const supabase = createClient();
+  const { orgId } = await getCurrentOrgAndUser(supabase);
+  const { data, error } = await supabase
+    .from(ALLOWANCE_POLICIES_TABLE)
+    .update({ status })
+    .eq('id', id)
+    .select('*')
+    .single();
+  if (error) throw new Error(rlsFriendlyMessage('Erro ao atualizar status da política', error));
+  void logAuditEvent({
+    organizationId: orgId,
+    action: 'allowance_policy.status_changed',
+    entityType: 'allowance_policy',
+    entityId: id,
+    metadata: { status },
+  });
+  return mapPolicyRow(data as PolicyRow);
+}
+
 /* ─────────────────────────────────────────────────────────────
    Weeks + daily allowances (leitura)
    ───────────────────────────────────────────────────────────── */
