@@ -10,6 +10,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import pg from 'pg';
 import dotenv from 'dotenv';
+import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 
 dotenv.config({ path: '.env' });
 dotenv.config({ path: '.env.local' });
@@ -112,6 +113,52 @@ try {
   }
 
   // 6) limpeza transacional do QA (idempotência do run)
+  // Semanas simuladas aprovadas protegem suas evidências contra cascatas
+  // (allocation_id/geofence_id ON DELETE SET NULL). Cancele e remova somente
+  // lotes QA que contenham a pessoa antes de recriar a fundação do teste.
+  await client.query(
+    `update allowance_weeks set status = 'cancelled'
+      where simulation_mode = true
+        and id in (select allowance_week_id from daily_allowances where person_id = $1)`,
+    [person.id],
+  );
+  // Bypass deliberado e restrito ao fixture: exports oficiais não têm DELETE
+  // por RLS, mas o seed usa a conexão administrativa e remove somente objetos
+  // de semanas simuladas que contêm a pessoa QA.
+  const qaExports = (
+    await client.query(
+      `select e.storage_bucket, e.file_path
+         from allowance_report_exports e
+         join allowance_weeks w on w.id = e.allowance_week_id
+        where w.simulation_mode = true
+          and w.id in (select allowance_week_id from daily_allowances where person_id = $1)`,
+      [person.id],
+    )
+  ).rows;
+  const storageAdmin = createSupabaseClient(SUPABASE_URL, SERVICE_KEY, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  for (const bucket of new Set(qaExports.map((item) => item.storage_bucket))) {
+    const paths = qaExports.filter((item) => item.storage_bucket === bucket).map((item) => item.file_path);
+    if (paths.length > 0) {
+      const { error } = await storageAdmin.storage.from(bucket).remove(paths);
+      if (error) throw new Error(`Falha ao limpar PDFs QA: ${error.message}`);
+    }
+  }
+  await client.query(
+    `delete from allowance_report_exports e
+      using allowance_weeks w
+      where e.allowance_week_id = w.id
+        and w.simulation_mode = true
+        and w.id in (select allowance_week_id from daily_allowances where person_id = $1)`,
+    [person.id],
+  );
+  await client.query(
+    `delete from allowance_weeks
+      where simulation_mode = true
+        and id in (select allowance_week_id from daily_allowances where person_id = $1)`,
+    [person.id],
+  );
   await client.query('delete from time_entries where person_id = $1', [person.id]);
   await client.query('delete from project_work_sessions where person_id = $1', [person.id]);
   await client.query('delete from attendance_punches where person_id = $1', [person.id]);

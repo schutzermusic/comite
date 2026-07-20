@@ -40,6 +40,31 @@ export interface Person {
   updatedAt: string;
 }
 
+export type ResidenceMunicipalitySource =
+  | 'hr_registration'
+  | 'employee_declaration'
+  | 'migration'
+  | 'manual_adjustment';
+export type ResidenceMunicipalityStatus = 'pending_validation' | 'validated' | 'expired';
+
+export interface PersonResidenceMunicipality {
+  id: string;
+  organizationId: string;
+  personId: string;
+  municipalityCode: string;
+  municipalityName: string;
+  stateCode: string;
+  validFrom: string;
+  validUntil: string | null;
+  source: ResidenceMunicipalitySource;
+  status: ResidenceMunicipalityStatus;
+  validationMetadata: Record<string, unknown>;
+  verifiedBy: string | null;
+  verifiedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 /* ──────────────────────── Allocation ────────────────────────── */
 
 export type AllocationType =
@@ -180,6 +205,12 @@ export interface ProjectGeofence {
   radiusMeters: number;
   accuracyToleranceMeters: number;
   active: boolean;
+  municipalityCode: string | null;
+  municipalityName: string | null;
+  stateCode: string | null;
+  municipalitySource: 'manual' | 'reverse_geocoding' | 'migration' | null;
+  municipalityVerifiedAt: string | null;
+  municipalityVerifiedBy: string | null;
   createdAt: string;
   updatedAt: string;
 }

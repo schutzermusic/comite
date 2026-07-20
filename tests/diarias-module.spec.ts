@@ -48,6 +48,27 @@ async function clearGenerator(): Promise<void> {
   }
 }
 
+async function validateMissingResidence(): Promise<void> {
+  const client = new pg.Client({ connectionString: process.env.SUPABASE_DB_URL, ssl: { rejectUnauthorized: false } });
+  await client.connect();
+  try {
+    await client.query(
+      `insert into person_residence_municipalities
+        (organization_id, person_id, municipality_code, municipality_name, state_code,
+         valid_from, source, status, verified_by, verified_at)
+       select $1, p.id, '4113700', 'Londrina', 'PR', current_date,
+              'hr_registration', 'validated', pr.user_id, now()
+       from people p
+       join profiles pr on pr.organization_id = p.organization_id and pr.user_id is not null
+       where p.organization_id = $1 and p.full_name = 'QA Diárias Sem Município'
+       limit 1`,
+      [qa.orgId],
+    );
+  } finally {
+    await client.end();
+  }
+}
+
 const tab = (page: Page, name: string) => page.getByRole('button', { name, exact: true });
 const toast = (page: Page, re: RegExp, timeout = 20_000) =>
   expect(page.getByText(re).first()).toBeVisible({ timeout });
@@ -92,19 +113,45 @@ test('Diárias de Campo — fluxo ponta a ponta (Fases 1–5)', async ({ page })
   });
 
   await test.step('Fase 1 — gerar prévia semanal', async () => {
+    const previewToast = /Pr[ée]via gerada \(v\d+\) — \d+ diárias/;
     await tab(page, 'Planejamento semanal').click();
     await page.getByRole('button', { name: /Gerar prévia|Recalcular prévia/ }).click();
-    await toast(page, /Pr[ée]via gerada/);
+    await toast(page, previewToast);
     await expect(page.getByText(qa.personName).first()).toBeVisible();
+    await tab(page, 'Exceções').click();
+    await expect(page.getByText('QA Diárias Mesma Cidade').first()).toBeVisible();
+    await expect(page.getByText('Mesmo município').first()).toBeVisible();
+    await expect(page.getByText('QA Diárias Sem Município').first()).toBeVisible();
+    await expect(page.getByText('Residência não validada').first()).toBeVisible();
+    await validateMissingResidence();
+    await tab(page, 'Planejamento semanal').click();
+    await expect(page.getByText(previewToast)).toHaveCount(0, { timeout: 10_000 });
+    await page.getByRole('button', { name: /Recalcular prévia/ }).click();
+    await toast(page, previewToast);
+    await tab(page, 'Operação do dia').click();
+    await expect(page.getByText('Deslocamento elegível').first()).toBeVisible();
+    await tab(page, 'Planejamento semanal').click();
   });
 
   await test.step('Fase 2 — enviar para gestor, revisar, validar RH', async () => {
+    const managerTransition = page.waitForResponse((response) =>
+      response.request().method() === 'PATCH'
+      && response.url().includes('/rest/v1/allowance_weeks')
+      && (response.request().postData() ?? '').includes('manager_review'),
+    );
     await page.getByRole('button', { name: 'Enviar para gestor' }).click();
+    const managerResponse = await managerTransition;
+    const managerBody = await managerResponse.text();
+    expect(managerResponse.ok(), managerBody).toBeTruthy();
+    expect(managerBody).toContain('manager_review');
     await toast(page, /Enviar para gestor — conclu/);
+    await expect(page.getByRole('button', { name: 'Concluir revisão do gestor' })).toBeVisible();
     await page.getByRole('button', { name: 'Concluir revisão do gestor' }).click();
     await toast(page, /Concluir revisão do gestor — conclu/);
+    await expect(page.getByRole('button', { name: 'Validar vínculo e ausências (RH)' })).toBeVisible();
     await page.getByRole('button', { name: 'Validar vínculo e ausências (RH)' }).click();
     await toast(page, /Validar vínculo e ausências \(RH\) — conclu/);
+    await expect(page.getByText('RH validou')).toBeVisible();
   });
 
   await test.step('Fase 2 — segregação bloqueia auto-aprovação', async () => {
@@ -152,5 +199,14 @@ test('Diárias de Campo — fluxo ponta a ponta (Fases 1–5)', async ({ page })
     await expect(page.getByText('Alertas de inconsistência')).toBeVisible({ timeout: 40_000 });
     await expect(page.getByText('Custo por projeto')).toBeVisible();
     await expect(page.getByText(/Total\s+R\$/).first()).toBeVisible();
+  });
+
+  await test.step('Exportar PDF — relatório enterprise abre', async () => {
+    const [popup] = await Promise.all([
+      page.waitForEvent('popup'),
+      page.getByRole('button', { name: /Exportar PDF/ }).click(),
+    ]);
+    await expect(popup.getByText('Diárias de Campo').first()).toBeVisible({ timeout: 20_000 });
+    await popup.close();
   });
 });

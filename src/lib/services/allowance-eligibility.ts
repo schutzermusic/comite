@@ -23,14 +23,17 @@ import type {
   EligibilityReason,
   ScheduleEvidenceSource,
   ScheduleMode,
+  TravelEligibilityMode,
 } from '@/lib/types/allowances';
 import { classifyReason } from '@/lib/types/allowances';
 
 export interface EligibilityInput {
   /** people.status = 'active' e não desligado até a data */
   activeEmployment: boolean;
+  activeEmploymentRequired: boolean;
   /** alocação viva (pending_approval|active) cobrindo a data */
   activeAllocation: boolean;
+  activeAllocationRequired: boolean;
   /**
    * obra elegível. Obra = geofence do projeto: quando a política fixa
    * uma geofence, ela deve estar ativa; caso contrário true.
@@ -54,6 +57,14 @@ export interface EligibilityInput {
   explicitlyExcluded: boolean;
   /** dia útil pelo calendário operacional (schedule_mode='derived') */
   isCalendarWorkday: boolean;
+
+  travelEligibilityMode: TravelEligibilityMode;
+  residenceMunicipalityRequired: boolean;
+  serviceMunicipalityRequired: boolean;
+  residenceMunicipalityCode: string | null;
+  residenceMunicipalityValidated: boolean;
+  serviceMunicipalityCode: string | null;
+  serviceMunicipalityValidated: boolean;
 }
 
 export interface EligibilityResult {
@@ -103,11 +114,9 @@ function evaluateSchedule(
  * da evidência de escala a ser gravada no snapshot.
  */
 export function evaluateDailyEligibility(input: EligibilityInput): EligibilityResult {
+  if (input.activeEmploymentRequired && !input.activeEmployment) return result('blocked_inactive_employment', null);
+  if (input.activeAllocationRequired && !input.activeAllocation) return result('blocked_no_allocation', null);
   if (!input.hasApplicablePolicy) return result('blocked_no_policy', null);
-  if (!input.activeEmployment) return result('blocked_inactive_employment', null);
-  if (input.onLeave) return result('blocked_leave', null);
-  if (input.demobilizedBeforeDate) return result('blocked_demobilized', null);
-  if (!input.activeAllocation) return result('blocked_no_allocation', null);
   if (!input.eligibleWorksite) return result('blocked_ineligible_worksite', null);
 
   const schedule = evaluateSchedule(input);
@@ -118,16 +127,61 @@ export function evaluateDailyEligibility(input: EligibilityInput): EligibilityRe
     return result('blocked_not_scheduled', schedule.blocked);
   }
 
+  if (input.onLeave) return result('blocked_leave', schedule.source);
+  if (input.demobilizedBeforeDate) return result('blocked_demobilized', schedule.source);
+
+  if (input.travelEligibilityMode === 'manual_review') {
+    return result('manual_municipality_review_required', schedule.source);
+  }
+
+  if (input.travelEligibilityMode === 'different_municipality') {
+    if (
+      input.residenceMunicipalityRequired
+      && (!input.residenceMunicipalityCode || !input.residenceMunicipalityValidated)
+    ) {
+      return result('missing_or_unvalidated_residence_municipality', schedule.source);
+    }
+    if (
+      input.serviceMunicipalityRequired
+      && (!input.serviceMunicipalityCode || !input.serviceMunicipalityValidated)
+    ) {
+      return result('missing_service_municipality', schedule.source);
+    }
+    if (
+      input.residenceMunicipalityCode
+      && input.serviceMunicipalityCode
+      && input.residenceMunicipalityCode === input.serviceMunicipalityCode
+    ) {
+      return result('same_residence_and_service_municipality', schedule.source);
+    }
+  }
+
   if (input.alreadyHasAllowance) return result('blocked_duplicate', schedule.source);
 
-  return result('planned_eligible', schedule.source);
+  return result(
+    input.travelEligibilityMode === 'different_municipality'
+      && Boolean(input.residenceMunicipalityCode)
+      && Boolean(input.serviceMunicipalityCode)
+      ? 'service_outside_residence_municipality'
+      : 'planned_eligible',
+    schedule.source,
+  );
 }
 
 /** Status inicial da diária a partir do motivo (mapeamento canônico). */
 export function statusFromReason(
   reason: EligibilityReason,
-): 'planned' | 'under_review_missing_schedule' | 'blocked' {
-  if (reason === 'planned_eligible') return 'planned';
+): 'planned' | 'under_review' | 'under_review_missing_schedule' | 'blocked' {
+  if (
+    reason === 'planned_eligible'
+    || reason === 'service_outside_residence_municipality'
+    || reason === 'manual_include_override'
+  ) return 'planned';
   if (reason === 'under_review_missing_schedule') return 'under_review_missing_schedule';
+  if (
+    reason === 'missing_or_unvalidated_residence_municipality'
+    || reason === 'missing_service_municipality'
+    || reason === 'manual_municipality_review_required'
+  ) return 'under_review';
   return 'blocked';
 }

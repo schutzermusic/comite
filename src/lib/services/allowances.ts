@@ -62,7 +62,7 @@ export const ALLOWANCE_WEEKS_TABLE = 'allowance_weeks';
 export const DAILY_ALLOWANCES_TABLE = 'daily_allowances';
 export const WORK_SCHEDULE_DAYS_TABLE = 'work_schedule_days';
 
-export const RULE_VERSION = 'v1';
+export const RULE_VERSION = 'v2-municipality';
 
 /** Alocações consideradas "vivas" para elegibilidade. */
 const LIVE_ALLOCATION_STATUSES: AllocationStatus[] = ['pending_approval', 'active'];
@@ -134,6 +134,11 @@ type PolicyRow = {
   block_on_leave: boolean;
   block_on_demobilization: boolean;
   schedule_mode: AllowancePolicy['scheduleMode'];
+  travel_eligibility_mode: AllowancePolicy['travelEligibilityMode'];
+  residence_municipality_required: boolean;
+  service_municipality_required: boolean;
+  version: number;
+  supersedes_policy_id: string | null;
   attendance_required_for_reconciliation: boolean;
   geofence_required_for_reconciliation: boolean;
   geofence_tolerance_meters: number | string | null;
@@ -161,6 +166,11 @@ function mapPolicyRow(row: PolicyRow): AllowancePolicy {
     blockOnLeave: row.block_on_leave,
     blockOnDemobilization: row.block_on_demobilization,
     scheduleMode: row.schedule_mode,
+    travelEligibilityMode: row.travel_eligibility_mode,
+    residenceMunicipalityRequired: row.residence_municipality_required,
+    serviceMunicipalityRequired: row.service_municipality_required,
+    version: row.version,
+    supersedesPolicyId: row.supersedes_policy_id,
     attendanceRequiredForReconciliation: row.attendance_required_for_reconciliation,
     geofenceRequiredForReconciliation: row.geofence_required_for_reconciliation,
     geofenceToleranceMeters:
@@ -306,6 +316,9 @@ export interface AllowancePolicyInput {
   effectiveFrom: string;
   effectiveUntil?: string | null;
   scheduleMode?: AllowancePolicy['scheduleMode'];
+  travelEligibilityMode?: AllowancePolicy['travelEligibilityMode'];
+  residenceMunicipalityRequired?: boolean;
+  serviceMunicipalityRequired?: boolean;
   blockOnLeave?: boolean;
   autoApprovalEnabled?: boolean;
   status?: AllowancePolicyStatus;
@@ -326,6 +339,9 @@ export async function createAllowancePolicy(input: AllowancePolicyInput): Promis
       effective_from: input.effectiveFrom,
       effective_until: input.effectiveUntil ?? null,
       schedule_mode: input.scheduleMode ?? 'derived',
+      travel_eligibility_mode: input.travelEligibilityMode ?? 'different_municipality',
+      residence_municipality_required: input.residenceMunicipalityRequired ?? true,
+      service_municipality_required: input.serviceMunicipalityRequired ?? true,
       block_on_leave: input.blockOnLeave ?? true,
       auto_approval_enabled: input.autoApprovalEnabled ?? true,
       status: input.status ?? 'draft',
@@ -479,6 +495,8 @@ export async function generateWeeklyAllowancePreview(
     { data: leaveRows, error: leaveErr },
     { data: geofenceRows, error: geoErr },
     { data: scheduleRows, error: schedErr },
+    { data: residenceRows, error: residenceErr },
+    { data: overrideRows, error: overrideErr },
   ] = await Promise.all([
     listAllowancePolicies(true),
     supabase.from('people').select('*').eq('status', 'active'),
@@ -494,13 +512,26 @@ export async function generateWeeklyAllowancePreview(
       .in('status', ['planned', 'approved', 'active'])
       .lte('start_date', weekEnd)
       .gte('end_date', weekStart),
-    supabase.from('project_geofences').select('id, project_id, active'),
+    supabase.from('project_geofences').select(
+      'id, project_id, active, municipality_code, municipality_name, state_code, municipality_source, municipality_verified_at, municipality_verified_by',
+    ),
     supabase
       .from(WORK_SCHEDULE_DAYS_TABLE)
       .select('person_id, project_id, geofence_id, work_date, status, source')
       .in('status', ['planned', 'excluded'])
       .gte('work_date', weekStart)
       .lte('work_date', weekEnd),
+    supabase
+      .from('person_residence_municipalities')
+      .select('person_id, municipality_code, municipality_name, state_code, valid_from, valid_until, source, status, validation_metadata, verified_by, verified_at')
+      .lte('valid_from', weekEnd)
+      .or(`valid_until.is.null,valid_until.gte.${weekStart}`),
+    supabase
+      .from('allowance_eligibility_overrides')
+      .select('id, person_id, allowance_date, project_id, geofence_id, action, reason, approved_by, approved_at')
+      .eq('status', 'approved')
+      .gte('allowance_date', weekStart)
+      .lte('allowance_date', weekEnd),
   ]);
 
   if (peopleErr) throw new Error(rlsFriendlyMessage('Erro ao carregar pessoas', peopleErr));
@@ -508,6 +539,8 @@ export async function generateWeeklyAllowancePreview(
   if (leaveErr) throw new Error(rlsFriendlyMessage('Erro ao carregar afastamentos', leaveErr));
   if (geoErr) throw new Error(rlsFriendlyMessage('Erro ao carregar geofences', geoErr));
   if (schedErr) throw new Error(rlsFriendlyMessage('Erro ao carregar escala', schedErr));
+  if (residenceErr) throw new Error(rlsFriendlyMessage('Erro ao carregar municípios residenciais', residenceErr));
+  if (overrideErr) throw new Error(rlsFriendlyMessage('Erro ao carregar exceções de elegibilidade', overrideErr));
 
   const people = (peopleRows ?? []).map((r) => mapPersonRow(r as PersonRow));
   const allocations: ConsideredAllocation[] = (allocRows ?? []).map((r) => ({
@@ -521,8 +554,58 @@ export async function generateWeeklyAllowancePreview(
   }));
 
   // geofence ativa? (obra = geofence)
-  const geofenceActive = new Map<string, boolean>();
-  for (const g of geofenceRows ?? []) geofenceActive.set(g.id as string, Boolean(g.active));
+  type GeofenceMunicipality = {
+    id: string; active: boolean; municipalityCode: string | null; municipalityName: string | null;
+    stateCode: string | null; source: string | null; verifiedAt: string | null; verifiedBy: string | null;
+  };
+  const geofences = new Map<string, GeofenceMunicipality>();
+  for (const g of geofenceRows ?? []) {
+    geofences.set(g.id as string, {
+      id: g.id as string,
+      active: Boolean(g.active),
+      municipalityCode: (g.municipality_code as string | null) ?? null,
+      municipalityName: (g.municipality_name as string | null) ?? null,
+      stateCode: (g.state_code as string | null) ?? null,
+      source: (g.municipality_source as string | null) ?? null,
+      verifiedAt: (g.municipality_verified_at as string | null) ?? null,
+      verifiedBy: (g.municipality_verified_by as string | null) ?? null,
+    });
+  }
+
+  type ResidenceEvidence = {
+    municipalityCode: string; municipalityName: string; stateCode: string; validFrom: string;
+    validUntil: string | null; source: string; status: string; validationMetadata: Record<string, unknown>;
+    verifiedBy: string | null; verifiedAt: string | null;
+  };
+  const residencesByPerson = new Map<string, ResidenceEvidence[]>();
+  for (const r of residenceRows ?? []) {
+    const personId = r.person_id as string;
+    const arr = residencesByPerson.get(personId) ?? [];
+    arr.push({
+      municipalityCode: r.municipality_code as string,
+      municipalityName: r.municipality_name as string,
+      stateCode: r.state_code as string,
+      validFrom: r.valid_from as string,
+      validUntil: (r.valid_until as string | null) ?? null,
+      source: r.source as string,
+      status: r.status as string,
+      validationMetadata: (r.validation_metadata as Record<string, unknown> | null) ?? {},
+      verifiedBy: (r.verified_by as string | null) ?? null,
+      verifiedAt: (r.verified_at as string | null) ?? null,
+    });
+    residencesByPerson.set(personId, arr);
+  }
+
+  type ApprovedOverride = {
+    id: string; personId: string; allowanceDate: string; projectId: string; geofenceId: string | null;
+    action: 'include' | 'exclude'; reason: string; approvedBy: string; approvedAt: string;
+  };
+  const approvedOverrides = (overrideRows ?? []).map((r) => ({
+    id: r.id as string, personId: r.person_id as string, allowanceDate: r.allowance_date as string,
+    projectId: r.project_id as string, geofenceId: (r.geofence_id as string | null) ?? null,
+    action: r.action as 'include' | 'exclude', reason: r.reason as string,
+    approvedBy: r.approved_by as string, approvedAt: r.approved_at as string,
+  } satisfies ApprovedOverride));
 
   // afastamento por pessoa (intervalos)
   const leavesByPerson = new Map<string, Array<{ start: string; end: string }>>();
@@ -551,18 +634,22 @@ export async function generateWeeklyAllowancePreview(
     allocByPerson.set(a.personId, arr);
   }
 
-  // diárias já existentes de OUTRAS semanas no período (duplicidade)
+  // diárias já existentes de OUTRAS semanas no período (duplicidade).
+  // A versão editável atual será apagada e não pode se bloquear a si mesma.
+  const latest = await getLatestWeek(weekStart, weekEnd);
   const { data: existingRows, error: existErr } = await supabase
     .from(DAILY_ALLOWANCES_TABLE)
-    .select('idempotency_key')
+    .select('idempotency_key, allowance_week_id')
     .neq('status', 'reversed')
     .gte('allowance_date', weekStart)
     .lte('allowance_date', weekEnd);
   if (existErr) throw new Error(rlsFriendlyMessage('Erro ao verificar duplicidade', existErr));
-  const existingKeys = new Set((existingRows ?? []).map((r) => r.idempotency_key as string));
+  const ignoreWeekId = latest && EDITABLE_WEEK_STATUSES.includes(latest.status) ? latest.id : null;
+  const existingKeys = new Set((existingRows ?? [])
+    .filter((r) => r.allowance_week_id !== ignoreWeekId)
+    .map((r) => r.idempotency_key as string));
 
   // ── 2) Semana (reusa não-aprovada ou cria nova versão) ─────
-  const latest = await getLatestWeek(weekStart, weekEnd);
   let week: AllowanceWeek;
   if (latest && EDITABLE_WEEK_STATUSES.includes(latest.status)) {
     week = latest;
@@ -638,18 +725,23 @@ export async function generateWeeklyAllowancePreview(
         continue;
       }
 
-      const geofenceId = policy.geofenceId ?? null;
-      const eligibleWorksite = geofenceId == null ? true : geofenceActive.get(geofenceId) === true;
-
       const onLeave = personLeaves.some((l) => l.start <= date && l.end >= date);
       const sched = scheduleByKey.get(`${person.id}|${date}`);
+      const geofenceId = policy.geofenceId ?? sched?.geofenceId ?? null;
+      const serviceMunicipality = geofenceId ? geofences.get(geofenceId) ?? null : null;
+      const eligibleWorksite = geofenceId == null ? true : serviceMunicipality?.active === true;
+      const residence = (residencesByPerson.get(person.id) ?? [])
+        .filter((r) => r.validFrom <= date && (r.validUntil == null || r.validUntil >= date))
+        .sort((a, b) => Number(b.status === 'validated') - Number(a.status === 'validated'))[0] ?? null;
 
       const idempotencyKey = `allowance:${orgId}:${person.id}:${date}:${policy.allowanceType}:${policy.id}`;
       const alreadyHasAllowance = existingKeys.has(idempotencyKey) || seenKeys.has(idempotencyKey);
 
       const input: EligibilityInput = {
         activeEmployment: employmentActive,
+        activeEmploymentRequired: policy.activeEmploymentRequired,
         activeAllocation: liveAlloc != null,
+        activeAllocationRequired: policy.activeAllocationRequired,
         eligibleWorksite,
         onLeave: policy.blockOnLeave ? onLeave : false,
         demobilizedBeforeDate: policy.blockOnDemobilization ? demobilized : false,
@@ -660,10 +752,29 @@ export async function generateWeeklyAllowancePreview(
         explicitlyIncluded: sched?.status === 'planned' && sched.source === 'override',
         explicitlyExcluded: sched?.status === 'excluded',
         isCalendarWorkday: isWeekday(date),
+        travelEligibilityMode: policy.travelEligibilityMode,
+        residenceMunicipalityRequired: policy.residenceMunicipalityRequired,
+        serviceMunicipalityRequired: policy.serviceMunicipalityRequired,
+        residenceMunicipalityCode: residence?.municipalityCode ?? null,
+        residenceMunicipalityValidated: residence?.status === 'validated' && residence.verifiedAt != null,
+        serviceMunicipalityCode: serviceMunicipality?.municipalityCode ?? null,
+        serviceMunicipalityValidated: serviceMunicipality?.verifiedAt != null,
       };
 
-      const outcome = evaluateDailyEligibility(input);
-      const status = statusFromReason(outcome.reason);
+      const automaticOutcome = evaluateDailyEligibility(input);
+      const approvedOverride = approvedOverrides.find((o) =>
+        o.personId === person.id && o.allowanceDate === date && o.projectId === projectId
+        && (o.geofenceId == null || o.geofenceId === geofenceId));
+      const includeForbidden = new Set<EligibilityReason>([
+        'blocked_inactive_employment','blocked_no_allocation','blocked_duplicate','blocked_no_policy',
+      ]);
+      const finalReason: EligibilityReason = approvedOverride?.action === 'exclude'
+        ? 'manual_exclude_override'
+        : approvedOverride?.action === 'include' && !includeForbidden.has(automaticOutcome.reason)
+          ? 'manual_include_override'
+          : automaticOutcome.reason;
+      const status = statusFromReason(finalReason);
+      const evaluatedAt = new Date().toISOString();
 
       const plannedEvidence = {
         active_employment: input.activeEmployment,
@@ -673,8 +784,34 @@ export async function generateWeeklyAllowancePreview(
         on_leave: input.onLeave,
         demobilized: input.demobilizedBeforeDate,
         schedule_mode: input.scheduleMode,
-        schedule_source: outcome.scheduleEvidenceSource,
-        evaluated_at: new Date().toISOString(),
+        schedule_source: automaticOutcome.scheduleEvidenceSource,
+        policy: {
+          id: policy.id,
+          version: policy.version,
+          travel_eligibility_mode: policy.travelEligibilityMode,
+          residence_municipality_required: policy.residenceMunicipalityRequired,
+          service_municipality_required: policy.serviceMunicipalityRequired,
+        },
+        municipality: {
+          residence: residence ? {
+            code: residence.municipalityCode, name: residence.municipalityName,
+            state_code: residence.stateCode, source: residence.source, valid_from: residence.validFrom,
+            valid_until: residence.validUntil, status: residence.status,
+            verified_by: residence.verifiedBy, verified_at: residence.verifiedAt,
+            validation_metadata: residence.validationMetadata,
+          } : null,
+          service: serviceMunicipality ? {
+            code: serviceMunicipality.municipalityCode, name: serviceMunicipality.municipalityName,
+            state_code: serviceMunicipality.stateCode, source: serviceMunicipality.source,
+            verified_by: serviceMunicipality.verifiedBy, verified_at: serviceMunicipality.verifiedAt,
+          } : null,
+          project_geofence_id: geofenceId,
+          automatic_result: automaticOutcome.reason,
+          final_result: finalReason,
+          override: approvedOverride ?? null,
+          evaluated_at: evaluatedAt,
+        },
+        evaluated_at: evaluatedAt,
       };
 
       seenKeys.add(idempotencyKey);
@@ -690,9 +827,9 @@ export async function generateWeeklyAllowancePreview(
         allowance_type: policy.allowanceType,
         amount_cents: policy.amountCents,
         status,
-        eligibility_reason: outcome.reason,
-        blocking_reason: status === 'blocked' ? outcome.reason : null,
-        schedule_evidence_source: outcome.scheduleEvidenceSource,
+        eligibility_reason: finalReason,
+        blocking_reason: status === 'blocked' ? (approvedOverride?.reason ?? finalReason) : null,
+        schedule_evidence_source: automaticOutcome.scheduleEvidenceSource,
         planned_evidence: plannedEvidence,
         rule_version: RULE_VERSION,
         idempotency_key: idempotencyKey,
@@ -707,12 +844,12 @@ export async function generateWeeklyAllowancePreview(
     if (insErr) throw new Error(rlsFriendlyMessage('Erro ao gravar diárias', insErr));
   }
 
-  const totalItems = rowsToInsert.filter((r) => r.status !== 'blocked').length;
+  const totalItems = rowsToInsert.filter((r) => r.status === 'planned').length;
   const totalAmount = rowsToInsert
-    .filter((r) => r.status !== 'blocked')
+    .filter((r) => r.status === 'planned')
     .reduce((s, r) => s + Number(r.amount_cents), 0);
   const totalPeople = new Set(
-    rowsToInsert.filter((r) => r.status !== 'blocked').map((r) => r.person_id),
+    rowsToInsert.filter((r) => r.status === 'planned').map((r) => r.person_id),
   ).size;
 
   const { data: updatedWeek, error: updErr } = await supabase
@@ -851,10 +988,11 @@ async function countUnresolvedReviews(weekId: string): Promise<number> {
 export async function performWeekAction(
   weekId: string,
   action: WeekAction,
+  currentWeek?: AllowanceWeek,
 ): Promise<AllowanceWeek> {
   const supabase = createClient();
   const { userId, orgId } = await getCurrentOrgAndUser(supabase);
-  const week = await loadWeek(weekId);
+  const week = currentWeek?.id === weekId ? currentWeek : await loadWeek(weekId);
 
   const approverDistinct = week.generatedBy == null || week.generatedBy !== userId;
   const unresolved = action === 'approve_finance' ? await countUnresolvedReviews(weekId) : 0;
@@ -883,6 +1021,7 @@ export async function performWeekAction(
     .from(ALLOWANCE_WEEKS_TABLE)
     .update(patch)
     .eq('id', weekId)
+    .eq('status', week.status)
     .select('*')
     .single();
   if (error) throw new Error(rlsFriendlyMessage('Erro ao atualizar a semana', error));

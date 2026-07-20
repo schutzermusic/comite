@@ -20,6 +20,12 @@ type GeofenceRow = {
   radius_meters: number | string;
   accuracy_tolerance_meters: number | string;
   active: boolean;
+  municipality_code: string | null;
+  municipality_name: string | null;
+  state_code: string | null;
+  municipality_source: 'manual' | 'reverse_geocoding' | 'migration' | null;
+  municipality_verified_at: string | null;
+  municipality_verified_by: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -35,6 +41,12 @@ function mapRow(row: GeofenceRow): ProjectGeofence {
     radiusMeters: Number(row.radius_meters),
     accuracyToleranceMeters: Number(row.accuracy_tolerance_meters),
     active: row.active,
+    municipalityCode: row.municipality_code,
+    municipalityName: row.municipality_name,
+    stateCode: row.state_code,
+    municipalitySource: row.municipality_source,
+    municipalityVerifiedAt: row.municipality_verified_at,
+    municipalityVerifiedBy: row.municipality_verified_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -57,6 +69,11 @@ export interface GeofenceInput {
   radiusMeters: number;
   accuracyToleranceMeters?: number;
   active?: boolean;
+  municipalityCode?: string | null;
+  municipalityName?: string | null;
+  stateCode?: string | null;
+  municipalitySource?: 'manual' | 'reverse_geocoding' | 'migration' | null;
+  verifyMunicipality?: boolean;
 }
 
 export async function createGeofence(input: GeofenceInput): Promise<ProjectGeofence> {
@@ -73,6 +90,12 @@ export async function createGeofence(input: GeofenceInput): Promise<ProjectGeofe
       radius_meters: input.radiusMeters,
       accuracy_tolerance_meters: input.accuracyToleranceMeters ?? 50,
       active: input.active ?? true,
+      municipality_code: input.municipalityCode ?? null,
+      municipality_name: input.municipalityName ?? null,
+      state_code: input.stateCode ?? null,
+      municipality_source: input.municipalitySource ?? null,
+      municipality_verified_at: input.verifyMunicipality ? new Date().toISOString() : null,
+      municipality_verified_by: input.verifyMunicipality ? userId : null,
       created_by: userId,
     })
     .select('*')
@@ -95,7 +118,7 @@ export async function updateGeofence(
   patch: Partial<GeofenceInput>,
 ): Promise<ProjectGeofence> {
   const supabase = createClient();
-  const { orgId } = await getCurrentOrgAndUser(supabase);
+  const { orgId, userId } = await getCurrentOrgAndUser(supabase);
   const row: Record<string, unknown> = {
     name: patch.name?.trim(),
     center_lat: patch.centerLat,
@@ -103,7 +126,15 @@ export async function updateGeofence(
     radius_meters: patch.radiusMeters,
     accuracy_tolerance_meters: patch.accuracyToleranceMeters,
     active: patch.active,
+    municipality_code: patch.municipalityCode,
+    municipality_name: patch.municipalityName,
+    state_code: patch.stateCode,
+    municipality_source: patch.municipalitySource,
   };
+  if (patch.verifyMunicipality !== undefined) {
+    row.municipality_verified_at = patch.verifyMunicipality ? new Date().toISOString() : null;
+    row.municipality_verified_by = patch.verifyMunicipality ? userId : null;
+  }
   Object.keys(row).forEach((k) => row[k] === undefined && delete row[k]);
 
   const { data, error } = await supabase

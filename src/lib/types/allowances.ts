@@ -12,6 +12,7 @@
 export type AllowanceType = 'meal';
 
 export type ScheduleMode = 'derived' | 'explicit_required' | 'not_required';
+export type TravelEligibilityMode = 'different_municipality' | 'not_required' | 'manual_review';
 
 export type AllowancePolicyStatus = 'draft' | 'active' | 'inactive';
 
@@ -33,6 +34,11 @@ export interface AllowancePolicy {
   blockOnLeave: boolean;
   blockOnDemobilization: boolean;
   scheduleMode: ScheduleMode;
+  travelEligibilityMode: TravelEligibilityMode;
+  residenceMunicipalityRequired: boolean;
+  serviceMunicipalityRequired: boolean;
+  version: number;
+  supersedesPolicyId: string | null;
   attendanceRequiredForReconciliation: boolean;
   geofenceRequiredForReconciliation: boolean;
   geofenceToleranceMeters: number | null;
@@ -136,6 +142,13 @@ export type ScheduleEvidenceSource =
  */
 export type EligibilityReason =
   | 'planned_eligible'
+  | 'service_outside_residence_municipality'
+  | 'same_residence_and_service_municipality'
+  | 'missing_or_unvalidated_residence_municipality'
+  | 'missing_service_municipality'
+  | 'manual_municipality_review_required'
+  | 'manual_include_override'
+  | 'manual_exclude_override'
   | 'blocked_inactive_employment'
   | 'blocked_no_allocation'
   | 'blocked_ineligible_worksite'
@@ -145,6 +158,35 @@ export type EligibilityReason =
   | 'blocked_demobilized'
   | 'blocked_duplicate'
   | 'blocked_no_policy';
+
+export interface MunicipalitySnapshot {
+  code: string | null;
+  name: string | null;
+  stateCode: string | null;
+  source: string | null;
+  validFrom?: string | null;
+  validUntil?: string | null;
+  status?: string | null;
+  verifiedBy?: string | null;
+  verifiedAt?: string | null;
+  validationMetadata?: Record<string, unknown>;
+}
+
+export interface AllowanceMunicipalityEvidence {
+  residence: MunicipalitySnapshot | null;
+  service: MunicipalitySnapshot | null;
+  projectGeofenceId: string | null;
+  automaticResult: EligibilityReason;
+  finalResult: EligibilityReason;
+  override?: {
+    id: string;
+    action: 'include' | 'exclude';
+    reason: string;
+    approvedBy: string;
+    approvedAt: string;
+  } | null;
+  evaluatedAt: string;
+}
 
 export interface DailyAllowance {
   id: string;
@@ -175,6 +217,26 @@ export interface DailyAllowance {
   updatedAt: string;
   /** joined person (quando selecionado com people(*)) */
   person?: import('./people').Person;
+}
+
+export type AllowanceOverrideAction = 'include' | 'exclude';
+export type AllowanceOverrideStatus = 'pending_approval' | 'approved' | 'rejected' | 'cancelled';
+
+export interface AllowanceEligibilityOverride {
+  id: string;
+  organizationId: string;
+  personId: string;
+  allowanceDate: string;
+  projectId: string;
+  geofenceId: string | null;
+  action: AllowanceOverrideAction;
+  reason: string;
+  status: AllowanceOverrideStatus;
+  requestedBy: string;
+  approvedBy: string | null;
+  approvedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 /* ────────────────────── Payment batch (Fase 3) ──────────────── */
@@ -267,6 +329,12 @@ export const SCHEDULE_MODE_LABELS: Record<ScheduleMode, string> = {
   not_required: 'Sem exigência de escala',
 };
 
+export const TRAVEL_ELIGIBILITY_MODE_LABELS: Record<TravelEligibilityMode, string> = {
+  different_municipality: 'Municípios diferentes',
+  not_required: 'Não exigido',
+  manual_review: 'Revisão manual',
+};
+
 export const ALLOWANCE_WEEK_STATUS_LABELS: Record<AllowanceWeekStatus, string> = {
   draft: 'Rascunho',
   generated: 'Prévia gerada',
@@ -300,6 +368,13 @@ export const DAILY_ALLOWANCE_STATUS_LABELS: Record<DailyAllowanceStatus, string>
 /** Rótulo humano de cada motivo de elegibilidade/bloqueio. */
 export const ELIGIBILITY_REASON_LABELS: Record<EligibilityReason, string> = {
   planned_eligible: 'Elegível',
+  service_outside_residence_municipality: 'Deslocamento elegível',
+  same_residence_and_service_municipality: 'Mesmo município',
+  missing_or_unvalidated_residence_municipality: 'Residência não validada',
+  missing_service_municipality: 'Município do serviço ausente',
+  manual_municipality_review_required: 'Revisão municipal obrigatória',
+  manual_include_override: 'Exceção aprovada',
+  manual_exclude_override: 'Exclusão manual aprovada',
   blocked_inactive_employment: 'Vínculo inativo',
   blocked_no_allocation: 'Sem alocação ativa',
   blocked_ineligible_worksite: 'Obra não elegível',
@@ -315,7 +390,16 @@ export const ELIGIBILITY_REASON_LABELS: Record<EligibilityReason, string> = {
 export type DayClassification = 'eligible' | 'review' | 'blocked';
 
 export function classifyReason(reason: EligibilityReason): DayClassification {
-  if (reason === 'planned_eligible') return 'eligible';
-  if (reason === 'under_review_missing_schedule') return 'review';
+  if (
+    reason === 'planned_eligible'
+    || reason === 'service_outside_residence_municipality'
+    || reason === 'manual_include_override'
+  ) return 'eligible';
+  if (
+    reason === 'under_review_missing_schedule'
+    || reason === 'missing_or_unvalidated_residence_municipality'
+    || reason === 'missing_service_municipality'
+    || reason === 'manual_municipality_review_required'
+  ) return 'review';
   return 'blocked';
 }
