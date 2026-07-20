@@ -186,9 +186,9 @@ export default function DiariasPage() {
   const [filter, setFilter] = useState<DayClassification | null>(null);
   const [selected, setSelected] = useState<DailyAllowance | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
-  const [activeTab, setActiveTab] = useState<'planning' | 'batches' | 'history' | 'policies'>(
-    'planning',
-  );
+  const [activeTab, setActiveTab] = useState<
+    'planning' | 'operation' | 'batches' | 'exceptions' | 'history' | 'policies'
+  >('planning');
   const [batches, setBatches] = useState<AllowancePaymentBatch[]>([]);
   const canFinance = hasPermission('allowances.finance_approve');
 
@@ -456,25 +456,35 @@ export default function DiariasPage() {
         <HudTabs
           tabs={[
             { id: 'planning', label: 'Planejamento semanal', content: null },
-            { id: 'operation', label: 'Operação do dia', disabled: true, content: null },
+            { id: 'operation', label: 'Operação do dia', content: null },
             { id: 'batches', label: 'Lotes de pagamento', content: null },
-            { id: 'exceptions', label: 'Exceções', disabled: true, content: null },
+            { id: 'exceptions', label: 'Exceções', content: null },
             { id: 'policies', label: 'Políticas', content: null },
             { id: 'history', label: 'Histórico e conciliação', content: null },
           ]}
           activeTab={activeTab}
-          onTabChange={(id) => {
-            if (
-              id === 'planning' ||
-              id === 'policies' ||
-              id === 'batches' ||
-              id === 'history'
+          onTabChange={(id) =>
+            setActiveTab(
+              id as 'planning' | 'operation' | 'batches' | 'exceptions' | 'history' | 'policies',
             )
-              setActiveTab(id);
-          }}
+          }
         />
 
         {activeTab === 'policies' && <PoliciesPanel />}
+
+        {activeTab === 'operation' && (
+          <OperationPanel
+            week={week}
+            items={items}
+            dates={dates}
+            projectNames={projectNames}
+            onSelect={setSelected}
+          />
+        )}
+
+        {activeTab === 'exceptions' && (
+          <ExceptionsPanel items={items} projectNames={projectNames} onSelect={setSelected} />
+        )}
 
         {activeTab === 'batches' && (
           <BatchesPanel
@@ -1033,11 +1043,13 @@ function PolicyCreateModal({
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
+  const ALL_PROJECTS = '__all__';
+  const NO_GEOFENCE = '__none__';
   const { notify } = useHudToast();
   const today = new Date().toISOString().slice(0, 10);
   const [name, setName] = useState('');
-  const [projectId, setProjectId] = useState('');
-  const [geofenceId, setGeofenceId] = useState('');
+  const [projectId, setProjectId] = useState(ALL_PROJECTS);
+  const [geofenceId, setGeofenceId] = useState(NO_GEOFENCE);
   const [amount, setAmount] = useState('45,00');
   const [effectiveFrom, setEffectiveFrom] = useState(today);
   const [scheduleMode, setScheduleMode] = useState<ScheduleMode>('derived');
@@ -1045,19 +1057,18 @@ function PolicyCreateModal({
   const [saving, setSaving] = useState(false);
 
   const projectGeofences = geofences.filter((g) => g.projectId === projectId);
-
-  function parseAmountCents(v: string): number {
-    const normalized = v.replace(/\./g, '').replace(',', '.');
-    return Math.round(Number(normalized) * 100);
-  }
+  const amountCents = (() => {
+    const n = Number(amount.replace(/\./g, '').replace(',', '.'));
+    return Number.isFinite(n) ? Math.round(n * 100) : NaN;
+  })();
+  const amountValid = Number.isFinite(amountCents) && amountCents > 0;
 
   async function handleSave() {
     if (!name.trim()) {
       notify('Informe o nome da política', { variant: 'warning' });
       return;
     }
-    const cents = parseAmountCents(amount);
-    if (!Number.isFinite(cents) || cents <= 0) {
+    if (!amountValid) {
       notify('Valor inválido', { variant: 'warning' });
       return;
     }
@@ -1065,9 +1076,9 @@ function PolicyCreateModal({
     try {
       await createAllowancePolicy({
         name: name.trim(),
-        projectId: projectId || null,
-        geofenceId: geofenceId || null,
-        amountCents: cents,
+        projectId: projectId === ALL_PROJECTS ? null : projectId,
+        geofenceId: geofenceId === NO_GEOFENCE ? null : geofenceId,
+        amountCents,
         effectiveFrom,
         scheduleMode,
         status: activateNow ? 'active' : 'draft',
@@ -1086,76 +1097,133 @@ function PolicyCreateModal({
       isOpen
       onClose={onClose}
       title="Nova política de diária"
-      subtitle="Valor, escopo e regras de elegibilidade (ADR-005 — regras configuráveis)"
-      size="md"
+      subtitle="Valor, escopo e regras de elegibilidade"
+      size="lg"
       footer={
-        <div className="flex justify-end gap-2">
-          <HudButton variant="ghost" onClick={onClose}>
-            Cancelar
-          </HudButton>
-          <HudButton variant="primary" onClick={() => void handleSave()} disabled={saving}>
-            {saving ? 'Salvando…' : 'Criar'}
-          </HudButton>
+        <div className="flex w-full items-center justify-between gap-2">
+          <span className="text-xs text-ig-fg-muted">
+            {amountValid ? formatCents(amountCents) : '—'} · {SCHEDULE_MODE_LABELS[scheduleMode]}
+          </span>
+          <div className="flex gap-2">
+            <HudButton variant="ghost" onClick={onClose}>
+              Cancelar
+            </HudButton>
+            <HudButton
+              variant="primary"
+              onClick={() => void handleSave()}
+              disabled={saving || !name.trim() || !amountValid}
+            >
+              {saving ? 'Salvando…' : 'Criar política'}
+            </HudButton>
+          </div>
         </div>
       }
     >
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <div className="sm:col-span-2">
+      <div className="space-y-6">
+        {/* Identificação */}
+        <section className="space-y-3">
           <HudInput
-            label="Nome"
+            label="Nome da política"
             placeholder="Ex.: Diária Alimentação CEMIG"
             value={name}
             onChange={(e) => setName(e.target.value)}
           />
-        </div>
-        <HudSelect
-          label="Projeto"
-          value={projectId}
-          onChange={(v) => {
-            setProjectId(v);
-            setGeofenceId('');
-          }}
-          options={[
-            { value: '', label: 'Todos (fallback da organização)' },
-            ...projects.map((p) => ({ value: p.id, label: p.label })),
-          ]}
-        />
-        <HudSelect
-          label="Obra (geofence)"
-          value={geofenceId}
-          onChange={setGeofenceId}
-          options={[
-            { value: '', label: 'Qualquer / não exigir' },
-            ...projectGeofences.map((g) => ({ value: g.id, label: g.name })),
-          ]}
-        />
-        <HudInput
-          label="Valor (R$)"
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-          placeholder="45,00"
-        />
-        <HudInput
-          label="Vigência a partir de"
-          type="date"
-          value={effectiveFrom}
-          onChange={(e) => setEffectiveFrom(e.target.value)}
-        />
-        <HudSelect
-          label="Escala"
-          value={scheduleMode}
-          onChange={(v) => setScheduleMode(v as ScheduleMode)}
-          options={Object.entries(SCHEDULE_MODE_LABELS).map(([value, label]) => ({ value, label }))}
-        />
-        <label className="flex items-center gap-2 text-sm text-ig-fg sm:col-span-2">
-          <input
-            type="checkbox"
-            checked={activateNow}
-            onChange={(e) => setActivateNow(e.target.checked)}
-            className="h-4 w-4 rounded border-ig-border"
+        </section>
+
+        {/* Escopo */}
+        <section className="space-y-3">
+          <p className="text-[11px] font-medium uppercase tracking-wider text-ig-fg-muted">
+            Escopo
+          </p>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <HudSelect
+              label="Projeto"
+              value={projectId}
+              onChange={(v) => {
+                setProjectId(v);
+                setGeofenceId(NO_GEOFENCE);
+              }}
+              options={[
+                { value: ALL_PROJECTS, label: 'Todos os projetos (fallback)' },
+                ...projects.map((p) => ({ value: p.id, label: p.label })),
+              ]}
+            />
+            <HudSelect
+              label="Obra (geofence)"
+              value={geofenceId}
+              onChange={setGeofenceId}
+              options={[
+                { value: NO_GEOFENCE, label: 'Qualquer / não exigir' },
+                ...projectGeofences.map((g) => ({ value: g.id, label: g.name })),
+              ]}
+            />
+          </div>
+          {projectId !== ALL_PROJECTS && projectGeofences.length === 0 && (
+            <p className="text-xs text-ig-fg-muted">
+              Este projeto ainda não tem geofences cadastradas — a obra ficará como “qualquer”.
+            </p>
+          )}
+        </section>
+
+        {/* Valor e vigência */}
+        <section className="space-y-3">
+          <p className="text-[11px] font-medium uppercase tracking-wider text-ig-fg-muted">
+            Valor e vigência
+          </p>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <HudInput
+              label="Valor da diária"
+              inputMode="decimal"
+              leftIcon={<span className="text-xs font-semibold text-ig-fg-muted">R$</span>}
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="45,00"
+              error={amount && !amountValid ? 'Valor inválido' : undefined}
+            />
+            <HudInput
+              label="Vigência a partir de"
+              type="date"
+              value={effectiveFrom}
+              onChange={(e) => setEffectiveFrom(e.target.value)}
+            />
+          </div>
+        </section>
+
+        {/* Regras */}
+        <section className="space-y-3">
+          <p className="text-[11px] font-medium uppercase tracking-wider text-ig-fg-muted">
+            Regras
+          </p>
+          <HudSelect
+            label="Modo de escala"
+            value={scheduleMode}
+            onChange={(v) => setScheduleMode(v as ScheduleMode)}
+            options={Object.entries(SCHEDULE_MODE_LABELS).map(([value, label]) => ({ value, label }))}
           />
-          Ativar imediatamente (necessário para a prévia gerar diárias)
-        </label>
+          <button
+            type="button"
+            onClick={() => setActivateNow((v) => !v)}
+            className="flex w-full items-center justify-between gap-3 rounded-xl border border-ig-border bg-ig-panel px-4 py-3 text-left transition-colors hover:bg-ig-panel-hover/50"
+          >
+            <span>
+              <span className="block text-sm font-medium text-ig-fg-strong">Ativar imediatamente</span>
+              <span className="block text-xs text-ig-fg-muted">
+                Necessário para a prévia semanal gerar diárias com esta política.
+              </span>
+            </span>
+            <span
+              className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
+                activateNow ? 'bg-ig-accent' : 'bg-ig-border'
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                  activateNow ? 'translate-x-[22px]' : 'translate-x-0.5'
+                }`}
+              />
+            </span>
+          </button>
+        </section>
       </div>
     </HudModal>
   );
@@ -1399,6 +1467,219 @@ function ReconciliationPanel({
                       {reasons.length > 0
                         ? reasons.map((r) => RECONCILIATION_REASON_LABELS[r] ?? r).join(' · ')
                         : '—'}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </HudPanel>
+  );
+}
+
+/* ─────────────────── operação do dia (por data) ──────────────── */
+
+function OperationPanel({
+  week,
+  items,
+  dates,
+  projectNames,
+  onSelect,
+}: {
+  week: AllowanceWeek | null;
+  items: DailyAllowance[];
+  dates: string[];
+  projectNames: Record<string, string>;
+  onSelect: (item: DailyAllowance) => void;
+}) {
+  const todayISO = new Date().toISOString().slice(0, 10);
+  const defaultDay = dates.includes(todayISO) ? todayISO : dates[0];
+  const [day, setDay] = useState(defaultDay);
+
+  const dayItems = useMemo(
+    () =>
+      items
+        .filter((it) => it.allowanceDate === day)
+        .sort((a, b) => (a.person?.fullName ?? '').localeCompare(b.person?.fullName ?? '', 'pt-BR')),
+    [items, day],
+  );
+
+  if (!week || items.length === 0) {
+    return (
+      <HudPanel title="Operação do dia" accentColor="emerald">
+        <HudEmptyState
+          icon="inbox"
+          title="Sem diárias para operar"
+          description="Gere a prévia semanal (aba Planejamento) para acompanhar a operação por dia."
+        />
+      </HudPanel>
+    );
+  }
+
+  return (
+    <HudPanel title="Operação do dia" accentColor="emerald">
+      <div className="mb-4 flex flex-wrap gap-1.5">
+        {dates.map((d) => {
+          const active = d === day;
+          const isToday = d === todayISO;
+          return (
+            <button
+              key={d}
+              type="button"
+              onClick={() => setDay(d)}
+              className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
+                active
+                  ? 'border-ig-accent bg-ig-accent-weak text-ig-accent'
+                  : 'border-ig-border text-ig-fg-muted hover:bg-ig-panel-hover/50'
+              }`}
+            >
+              {DOW_LABELS[new Date(`${d}T00:00:00`).getDay()]} {dayNum(d)}
+              {isToday && <span className="ml-1 text-[10px] opacity-70">hoje</span>}
+            </button>
+          );
+        })}
+      </div>
+
+      {dayItems.length === 0 ? (
+        <HudEmptyState icon="inbox" title="Nenhuma diária neste dia" description="" />
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-ig-border">
+                {['Colaborador', 'Projeto', 'Valor', 'Situação'].map((h) => (
+                  <th
+                    key={h}
+                    className="px-3 py-3 text-left text-xs font-medium uppercase tracking-wider text-ig-fg-muted"
+                  >
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {dayItems.map((it) => {
+                const klass = classifyReason(
+                  (it.eligibilityReason ?? 'planned_eligible') as EligibilityReason,
+                );
+                return (
+                  <tr
+                    key={it.id}
+                    onClick={() => onSelect(it)}
+                    className="cursor-pointer border-b border-ig-border-subtle hover:bg-ig-panel-hover/40"
+                  >
+                    <td className="px-3 py-2.5 text-sm font-medium text-ig-fg-strong">
+                      {it.person?.fullName ?? it.personId}
+                    </td>
+                    <td className="px-3 py-2.5 text-xs text-ig-fg-muted">
+                      {projectNames[it.projectId] ?? it.projectId}
+                    </td>
+                    <td className="px-3 py-2.5 text-sm font-semibold tabular-nums text-ig-fg-strong">
+                      {formatCents(it.amountCents)}
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <HudBadge
+                        variant={
+                          klass === 'eligible' ? 'success' : klass === 'review' ? 'warning' : 'danger'
+                        }
+                      >
+                        {ELIGIBILITY_REASON_LABELS[(it.eligibilityReason ?? 'planned_eligible') as EligibilityReason]}
+                      </HudBadge>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </HudPanel>
+  );
+}
+
+/* ─────────────────────── exceções (fila) ─────────────────────── */
+
+const EXCEPTION_STATUSES: DailyAllowance['status'][] = [
+  'under_review',
+  'under_review_missing_schedule',
+  'blocked',
+];
+
+function ExceptionsPanel({
+  items,
+  projectNames,
+  onSelect,
+}: {
+  items: DailyAllowance[];
+  projectNames: Record<string, string>;
+  onSelect: (item: DailyAllowance) => void;
+}) {
+  const exceptions = useMemo(
+    () =>
+      items
+        .filter((it) => EXCEPTION_STATUSES.includes(it.status))
+        .sort((a, b) => a.allowanceDate.localeCompare(b.allowanceDate)),
+    [items],
+  );
+
+  return (
+    <HudPanel title="Exceções" accentColor="emerald">
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <HudBadge variant={exceptions.length > 0 ? 'warning' : 'success'}>
+          {exceptions.length} exceção(ões)
+        </HudBadge>
+        <span className="text-xs text-ig-fg-muted">
+          Diárias que exigem decisão do gestor (revisão) ou já bloqueadas. Abra para incluir no lote
+          ou bloquear com motivo.
+        </span>
+      </div>
+
+      {exceptions.length === 0 ? (
+        <HudEmptyState
+          icon="search"
+          title="Nenhuma exceção"
+          description="Todos os casos da semana estão elegíveis ou já resolvidos."
+        />
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-ig-border">
+                {['Colaborador', 'Projeto', 'Data', 'Motivo'].map((h) => (
+                  <th
+                    key={h}
+                    className="px-3 py-3 text-left text-xs font-medium uppercase tracking-wider text-ig-fg-muted"
+                  >
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {exceptions.map((it) => {
+                const reason = (it.eligibilityReason ?? 'planned_eligible') as EligibilityReason;
+                const klass = classifyReason(reason);
+                return (
+                  <tr
+                    key={it.id}
+                    onClick={() => onSelect(it)}
+                    className="cursor-pointer border-b border-ig-border-subtle hover:bg-ig-panel-hover/40"
+                  >
+                    <td className="px-3 py-2.5 text-sm font-medium text-ig-fg-strong">
+                      {it.person?.fullName ?? it.personId}
+                    </td>
+                    <td className="px-3 py-2.5 text-xs text-ig-fg-muted">
+                      {projectNames[it.projectId] ?? it.projectId}
+                    </td>
+                    <td className="px-3 py-2.5 text-xs text-ig-fg-muted">
+                      {new Date(`${it.allowanceDate}T00:00:00`).toLocaleDateString('pt-BR')}
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <HudBadge variant={klass === 'review' ? 'warning' : 'danger'}>
+                        {ELIGIBILITY_REASON_LABELS[reason]}
+                      </HudBadge>
                     </td>
                   </tr>
                 );
