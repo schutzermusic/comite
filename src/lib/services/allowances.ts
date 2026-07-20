@@ -48,7 +48,14 @@ import {
   type WeekAction,
 } from './allowance-workflow';
 import { reconcileDaily, type ReconciliationInput } from './allowance-reconciliation';
+import {
+  computeAlerts,
+  costByProject as computeCostByProject,
+  type AllowanceAlert,
+  type IntelligenceDaily,
+} from './allowance-intelligence';
 import { getCurrentOrgAndUser, rlsFriendlyMessage, mapPersonRow, type PersonRow } from './people';
+import { getProjectsAsync } from './projects';
 
 export const ALLOWANCE_POLICIES_TABLE = 'allowance_policies';
 export const ALLOWANCE_WEEKS_TABLE = 'allowance_weeks';
@@ -1441,4 +1448,162 @@ export async function closeWeek(weekId: string): Promise<AllowanceWeek> {
     metadata: { period: `${week.weekStart}..${week.weekEnd}` },
   });
   return mapWeekRow(data as WeekRow);
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Fase 5 — Inteligência (alertas de inconsistência + custo)
+   ───────────────────────────────────────────────────────────── */
+
+export interface CostByProjectRow {
+  projectId: string;
+  amountCents: number;
+  people: number;
+  items: number;
+}
+
+export interface WeekIntelligence {
+  week: AllowanceWeek;
+  alerts: AllowanceAlert[];
+  costByProject: CostByProjectRow[];
+  totalCents: number;
+  totalPeople: number;
+  previous: { totalCents: number; people: number } | null;
+}
+
+/**
+ * Deriva os alertas de inconsistência (§19) e o custo por projeto da
+ * semana. Só leitura/agregação — não altera nada. Alertas são sinais
+ * para análise, jamais acusação (ADR-006).
+ */
+export async function computeWeekIntelligence(weekId: string): Promise<WeekIntelligence> {
+  const supabase = createClient();
+  await getCurrentOrgAndUser(supabase);
+  const week = await loadWeek(weekId);
+
+  const dailies = await listDailyAllowancesByWeek(weekId);
+  const personIds = Array.from(new Set(dailies.map((d) => d.personId)));
+
+  const prevStart = addDays(week.weekStart, -7);
+  const prevEnd = addDays(week.weekEnd, -7);
+
+  const [
+    { data: leaveRows, error: leaveErr },
+    { data: allocRows, error: allocErr },
+    projects,
+    previousWeek,
+  ] = await Promise.all([
+    supabase
+      .from('leave_periods')
+      .select('person_id, start_date, end_date')
+      .in('status', ['planned', 'approved', 'active'])
+      .lte('start_date', week.weekEnd)
+      .gte('end_date', week.weekStart),
+    personIds.length > 0
+      ? supabase
+          .from('project_allocations')
+          .select('person_id, project_id, start_date, end_date, status')
+          .in('status', CONSIDERED_ALLOCATION_STATUSES)
+          .in('person_id', personIds)
+      : Promise.resolve({ data: [], error: null }),
+    getProjectsAsync().catch(() => []),
+    getLatestWeek(prevStart, prevEnd).catch(() => null),
+  ]);
+
+  if (leaveErr) throw new Error(rlsFriendlyMessage('Erro ao carregar afastamentos', leaveErr));
+  if (allocErr) throw new Error(rlsFriendlyMessage('Erro ao carregar alocações', allocErr));
+
+  // estado de alocação por pessoa+projeto (viva? última data de fim?)
+  type AllocState = { personId: string; projectId: string; hasLive: boolean; lastEndDate: string | null };
+  const stateMap = new Map<string, AllocState>();
+  const livePeopleByProject = new Map<string, Set<string>>();
+  for (const a of allocRows ?? []) {
+    const personId = a.person_id as string;
+    const projectId = a.project_id as string;
+    const key = `${personId}|${projectId}`;
+    const endDate = (a.end_date as string | null) ?? null;
+    const isLive =
+      ['pending_approval', 'active'].includes(a.status as string) &&
+      (a.start_date as string) <= week.weekEnd &&
+      (endDate == null || endDate >= week.weekStart);
+
+    const prev = stateMap.get(key) ?? { personId, projectId, hasLive: false, lastEndDate: null };
+    prev.hasLive = prev.hasLive || isLive;
+    if (endDate != null && (prev.lastEndDate == null || endDate > prev.lastEndDate)) {
+      prev.lastEndDate = endDate;
+    }
+    stateMap.set(key, prev);
+
+    if (isLive) {
+      const s = livePeopleByProject.get(projectId) ?? new Set<string>();
+      s.add(personId);
+      livePeopleByProject.set(projectId, s);
+    }
+  }
+
+  const allocatedPeopleByProject: Record<string, number> = {};
+  for (const [projectId, people] of livePeopleByProject) {
+    allocatedPeopleByProject[projectId] = people.size;
+  }
+
+  const closedProjectIds = projects
+    .filter((p) => p.status === 'concluido' || p.status === 'cancelado')
+    .map((p) => p.id);
+
+  const intelDailies: IntelligenceDaily[] = dailies.map((d) => ({
+    personId: d.personId,
+    projectId: d.projectId,
+    allowanceDate: d.allowanceDate,
+    status: d.status,
+    eligibilityReason: d.eligibilityReason,
+    amountCents: d.amountCents,
+    reconciliationReasons:
+      (d.reconciliationEvidence?.reasons as string[] | undefined) ?? undefined,
+  }));
+
+  const previous = previousWeek
+    ? { totalCents: previousWeek.totalAmountCents, people: previousWeek.totalPeople }
+    : null;
+
+  const alerts = computeAlerts({
+    dailies: intelDailies,
+    leaves: (leaveRows ?? []).map((l) => ({
+      personId: l.person_id as string,
+      start: l.start_date as string,
+      end: l.end_date as string,
+    })),
+    allocationState: Array.from(stateMap.values()),
+    allocatedPeopleByProject,
+    closedProjectIds,
+    previous: previous ?? undefined,
+  });
+
+  // custo por projeto (agrega centavos + pessoas + itens)
+  const cents = computeCostByProject(intelDailies);
+  const peopleByProject = new Map<string, Set<string>>();
+  const itemsByProject = new Map<string, number>();
+  for (const d of intelDailies) {
+    if (!['planned', 'approved', 'included_in_batch', 'paid', 'confirmed', 'divergent'].includes(d.status))
+      continue;
+    const s = peopleByProject.get(d.projectId) ?? new Set<string>();
+    s.add(d.personId);
+    peopleByProject.set(d.projectId, s);
+    itemsByProject.set(d.projectId, (itemsByProject.get(d.projectId) ?? 0) + 1);
+  }
+  const costRows: CostByProjectRow[] = Object.entries(cents)
+    .map(([projectId, amountCents]) => ({
+      projectId,
+      amountCents,
+      people: peopleByProject.get(projectId)?.size ?? 0,
+      items: itemsByProject.get(projectId) ?? 0,
+    }))
+    .sort((a, b) => b.amountCents - a.amountCents);
+
+  const totalCents = costRows.reduce((s, r) => s + r.amountCents, 0);
+  const totalPeople = new Set(
+    intelDailies
+      .filter((d) => d.status !== 'blocked' && d.status !== 'reversed')
+      .map((d) => d.personId),
+  ).size;
+
+  return { week, alerts, costByProject: costRows, totalCents, totalPeople, previous };
 }

@@ -42,6 +42,7 @@ import { getProjectsAsync } from '@/lib/services/projects';
 import { listGeofences } from '@/lib/services/geofence';
 import {
   closeWeek,
+  computeWeekIntelligence,
   createAllowancePolicy,
   exportBatchCsv,
   generatePaymentBatch,
@@ -57,8 +58,10 @@ import {
   setAllowancePolicyStatus,
   weekLabel,
   type ExceptionDecision,
+  type WeekIntelligence,
 } from '@/lib/services/allowances';
 import { RECONCILIATION_REASON_LABELS } from '@/lib/services/allowance-reconciliation';
+import { ALERT_SEVERITY_LABELS, type AlertSeverity } from '@/lib/services/allowance-intelligence';
 import { WEEK_ACTIONS, type WeekAction } from '@/lib/services/allowance-workflow';
 import type { PermissionKey } from '@/lib/auth/types';
 import {
@@ -187,8 +190,10 @@ export default function DiariasPage() {
   const [selected, setSelected] = useState<DailyAllowance | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
   const [activeTab, setActiveTab] = useState<
-    'planning' | 'operation' | 'batches' | 'exceptions' | 'history' | 'policies'
+    'planning' | 'operation' | 'batches' | 'exceptions' | 'history' | 'intelligence' | 'policies'
   >('planning');
+  const [intel, setIntel] = useState<WeekIntelligence | null>(null);
+  const [intelLoading, setIntelLoading] = useState(false);
   const [batches, setBatches] = useState<AllowancePaymentBatch[]>([]);
   const canFinance = hasPermission('allowances.finance_approve');
 
@@ -225,6 +230,27 @@ export default function DiariasPage() {
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  // carrega inteligência sob demanda (ao abrir a aba)
+  useEffect(() => {
+    if (activeTab !== 'intelligence' || !week) return;
+    let cancelled = false;
+    setIntelLoading(true);
+    computeWeekIntelligence(week.id)
+      .then((res) => {
+        if (!cancelled) setIntel(res);
+      })
+      .catch((e) => {
+        if (!cancelled)
+          notify(e instanceof Error ? e.message : 'Erro na inteligência', { variant: 'error' });
+      })
+      .finally(() => {
+        if (!cancelled) setIntelLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, week, notify]);
 
   const handleGenerate = useCallback(async () => {
     setGenerating(true);
@@ -459,13 +485,21 @@ export default function DiariasPage() {
             { id: 'operation', label: 'Operação do dia', content: null },
             { id: 'batches', label: 'Lotes de pagamento', content: null },
             { id: 'exceptions', label: 'Exceções', content: null },
-            { id: 'policies', label: 'Políticas', content: null },
             { id: 'history', label: 'Histórico e conciliação', content: null },
+            { id: 'intelligence', label: 'Inteligência', content: null },
+            { id: 'policies', label: 'Políticas', content: null },
           ]}
           activeTab={activeTab}
           onTabChange={(id) =>
             setActiveTab(
-              id as 'planning' | 'operation' | 'batches' | 'exceptions' | 'history' | 'policies',
+              id as
+                | 'planning'
+                | 'operation'
+                | 'batches'
+                | 'exceptions'
+                | 'history'
+                | 'intelligence'
+                | 'policies',
             )
           }
         />
@@ -494,6 +528,15 @@ export default function DiariasPage() {
             busy={actionBusy}
             onGenerate={handleGenerateBatch}
             onExport={handleExportCsv}
+          />
+        )}
+
+        {activeTab === 'intelligence' && (
+          <IntelligencePanel
+            week={week}
+            intel={intel}
+            loading={intelLoading}
+            projectNames={projectNames}
           />
         )}
 
@@ -1689,5 +1732,136 @@ function ExceptionsPanel({
         </div>
       )}
     </HudPanel>
+  );
+}
+
+/* ───────────────────── inteligência (Fase 5) ─────────────────── */
+
+const ALERT_SEVERITY_VARIANT: Record<AlertSeverity, 'danger' | 'warning' | 'info'> = {
+  critical: 'danger',
+  warning: 'warning',
+  info: 'info',
+};
+
+function IntelligencePanel({
+  week,
+  intel,
+  loading,
+  projectNames,
+}: {
+  week: AllowanceWeek | null;
+  intel: WeekIntelligence | null;
+  loading: boolean;
+  projectNames: Record<string, string>;
+}) {
+  if (!week) {
+    return (
+      <HudPanel title="Inteligência" accentColor="emerald">
+        <HudEmptyState
+          icon="inbox"
+          title="Sem dados para analisar"
+          description="Gere a prévia semanal para ver alertas de inconsistência e custo por projeto."
+        />
+      </HudPanel>
+    );
+  }
+  if (loading || !intel) {
+    return (
+      <HudPanel title="Inteligência" accentColor="emerald">
+        <div className="flex items-center justify-center py-12">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-ig-border border-t-ig-accent" />
+        </div>
+      </HudPanel>
+    );
+  }
+
+  const growth =
+    intel.previous && intel.previous.totalCents > 0
+      ? ((intel.totalCents - intel.previous.totalCents) / intel.previous.totalCents) * 100
+      : null;
+
+  return (
+    <div className="space-y-6">
+      <HudPanel title="Alertas de inconsistência" accentColor="emerald">
+        <p className="mb-3 text-xs text-ig-fg-muted">
+          Sinais para análise — nunca acusação de fraude. Cada alerta indica uma diária que merece
+          revisão de RH/Financeiro.
+        </p>
+        {intel.alerts.length === 0 ? (
+          <HudEmptyState
+            icon="search"
+            title="Nenhuma inconsistência detectada"
+            description="A semana está consistente com alocação, escala e ausências conhecidas."
+          />
+        ) : (
+          <div className="space-y-2">
+            {intel.alerts.map((a, i) => (
+              <div
+                key={`${a.code}-${i}`}
+                className="flex items-start gap-3 rounded-xl border border-ig-border bg-ig-panel px-4 py-3"
+              >
+                <HudBadge variant={ALERT_SEVERITY_VARIANT[a.severity]}>
+                  {ALERT_SEVERITY_LABELS[a.severity]}
+                </HudBadge>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-ig-fg-strong">
+                    {a.title}
+                    {a.projectId ? ` · ${projectNames[a.projectId] ?? a.projectId}` : ''}
+                  </p>
+                  <p className="text-xs text-ig-fg-muted">{a.detail}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </HudPanel>
+
+      <HudPanel title="Custo por projeto" accentColor="emerald">
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <HudBadge variant="default">Total {formatCents(intel.totalCents)}</HudBadge>
+          <HudBadge variant="default">{intel.totalPeople} colaborador(es)</HudBadge>
+          {growth != null && (
+            <HudBadge variant={growth > 25 ? 'warning' : 'default'}>
+              {growth >= 0 ? '+' : ''}
+              {growth.toFixed(0)}% vs. semana anterior
+            </HudBadge>
+          )}
+        </div>
+        {intel.costByProject.length === 0 ? (
+          <HudEmptyState icon="inbox" title="Sem custo apropriado" description="" />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-ig-border">
+                  {['Projeto', 'Colaboradores', 'Diárias', 'Custo'].map((h) => (
+                    <th
+                      key={h}
+                      className="px-3 py-3 text-left text-xs font-medium uppercase tracking-wider text-ig-fg-muted"
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {intel.costByProject.map((r) => (
+                  <tr key={r.projectId} className="border-b border-ig-border-subtle">
+                    <td className="px-3 py-2.5 text-sm font-medium text-ig-fg-strong">
+                      {projectNames[r.projectId] ?? r.projectId}
+                    </td>
+                    <td className="px-3 py-2.5 text-sm tabular-nums text-ig-fg">{r.people}</td>
+                    <td className="px-3 py-2.5 text-sm tabular-nums text-ig-fg">{r.items}</td>
+                    <td className="px-3 py-2.5 text-sm font-semibold tabular-nums text-ig-fg-strong">
+                      {formatCents(r.amountCents)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </HudPanel>
+    </div>
   );
 }
