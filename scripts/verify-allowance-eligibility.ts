@@ -13,6 +13,10 @@ import {
   type EligibilityInput,
 } from '../src/lib/services/allowance-eligibility';
 import { canPerform, nextStatus } from '../src/lib/services/allowance-workflow';
+import {
+  reconcileDaily,
+  type ReconciliationInput,
+} from '../src/lib/services/allowance-reconciliation';
 
 /** Entrada "tudo elegível" — cada caso sobrescreve o que precisa. */
 function base(overrides: Partial<EligibilityInput> = {}): EligibilityInput {
@@ -190,6 +194,57 @@ check('validate_hr não muda o estado (carimbo apenas)', () => {
 check('cancel permitido em estados editáveis, bloqueado após aprovar', () => {
   assert.equal(canPerform('cancel', 'manager_review').ok, true);
   assert.equal(canPerform('cancel', 'finance_approved').ok, false);
+});
+
+console.log('\nallowance-reconciliation (previsto × realizado)');
+
+function rbase(overrides: Partial<ReconciliationInput> = {}): ReconciliationInput {
+  return {
+    attendanceRequired: true,
+    geofenceRequired: true,
+    hasAcceptedClockIn: true,
+    locationAvailable: true,
+    hasLocationWithinGeofence: true,
+    hasProjectTimeEntry: true,
+    ...overrides,
+  };
+}
+
+check('presença + geofence + apontamento → confirmed', () => {
+  const r = reconcileDaily(rbase());
+  assert.equal(r.outcome, 'confirmed');
+  assert.deepEqual(r.reasons, []);
+});
+
+check('sem entrada → divergent (no_attendance)', () => {
+  const r = reconcileDaily(rbase({ hasAcceptedClockIn: false }));
+  assert.equal(r.outcome, 'divergent');
+  assert.ok(r.reasons.includes('no_attendance'));
+});
+
+check('fora da geofence → divergent (outside_geofence)', () => {
+  const r = reconcileDaily(rbase({ hasLocationWithinGeofence: false }));
+  assert.equal(r.outcome, 'divergent');
+  assert.ok(r.reasons.includes('outside_geofence'));
+});
+
+check('GPS indisponível → divergent (location_unavailable, requer análise)', () => {
+  const r = reconcileDaily(rbase({ locationAvailable: false, hasLocationWithinGeofence: false }));
+  assert.equal(r.outcome, 'divergent');
+  assert.ok(r.reasons.includes('location_unavailable'));
+});
+
+check('sem apontamento é observação, não divergência', () => {
+  const r = reconcileDaily(rbase({ hasProjectTimeEntry: false }));
+  assert.equal(r.outcome, 'confirmed');
+  assert.ok(r.reasons.includes('no_time_entry'));
+});
+
+check('política sem exigência de geofence ignora localização', () => {
+  const r = reconcileDaily(
+    rbase({ geofenceRequired: false, locationAvailable: false, hasLocationWithinGeofence: false }),
+  );
+  assert.equal(r.outcome, 'confirmed');
 });
 
 console.log(`\n${passed} verificações OK`);
