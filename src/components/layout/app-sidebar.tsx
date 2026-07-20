@@ -43,6 +43,7 @@ import {
   ShieldAlert,
   SlidersHorizontal,
   Target,
+  UtensilsCrossed,
   Users,
   Wallet,
   Zap,
@@ -194,6 +195,12 @@ const navigationItems: MenuItem[] = [
         label: "Jornada",
         icon: Clock,
         anyPermission: ["people.attendance_use", "people.attendance_view", "people.attendance_manage"],
+      },
+      {
+        href: "/workforce-cost/diarias",
+        label: "Diárias",
+        icon: UtensilsCrossed,
+        anyPermission: ["allowances.view", "allowances.manage"],
       },
       {
         href: "/workforce-cost/aprovacoes",

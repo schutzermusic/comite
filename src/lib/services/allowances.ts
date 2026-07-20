@@ -1,0 +1,698 @@
+/**
+ * Diárias de Campo — serviço de dados (migrations 056–061).
+ * Live-first via Supabase RLS (mesmo padrão de people/allocations).
+ *
+ * Responsabilidades:
+ *   - CRUD leve de políticas e leitura de semanas/diárias;
+ *   - generateWeeklyAllowancePreview: motor de geração da prévia
+ *     semanal (Fase 1 = modo simulação). Reúne pessoas, alocações,
+ *     afastamentos, políticas, geofences e escala explícita, chama o
+ *     motor PURO (allowance-eligibility.ts) por pessoa/dia e persiste
+ *     uma diária por pessoa/data. Idempotente por recomputo: regenerar
+ *     apaga as diárias não aprovadas da semana e recria.
+ *
+ * A regra de negócio vive em allowance-eligibility.ts (sem I/O); aqui
+ * só há coleta de dados e persistência.
+ */
+import { createClient } from '@/utils/supabase/client';
+import { logAuditEvent } from '@/lib/audit/log-audit-event';
+import type {
+  AllocationStatus,
+  PersonProjectAllocation,
+} from '@/lib/types/people';
+import type {
+  AllowancePolicy,
+  AllowancePolicyStatus,
+  AllowanceWeek,
+  DailyAllowance,
+  EligibilityReason,
+} from '@/lib/types/allowances';
+import {
+  evaluateDailyEligibility,
+  statusFromReason,
+  type EligibilityInput,
+} from './allowance-eligibility';
+import { getCurrentOrgAndUser, rlsFriendlyMessage, mapPersonRow, type PersonRow } from './people';
+
+export const ALLOWANCE_POLICIES_TABLE = 'allowance_policies';
+export const ALLOWANCE_WEEKS_TABLE = 'allowance_weeks';
+export const DAILY_ALLOWANCES_TABLE = 'daily_allowances';
+export const WORK_SCHEDULE_DAYS_TABLE = 'work_schedule_days';
+
+export const RULE_VERSION = 'v1';
+
+/** Alocações consideradas "vivas" para elegibilidade. */
+const LIVE_ALLOCATION_STATUSES: AllocationStatus[] = ['pending_approval', 'active'];
+/** Alocações consultadas para detectar desmobilização (inclui encerradas). */
+const CONSIDERED_ALLOCATION_STATUSES: AllocationStatus[] = ['pending_approval', 'active', 'ended'];
+/** Quantos dias antes da semana ainda contam como "desmobilizado recente". */
+const DEMOB_LOOKBACK_DAYS = 45;
+
+/* ─────────────────────────────────────────────────────────────
+   Date helpers (YYYY-MM-DD, sem fuso — datas civis)
+   ───────────────────────────────────────────────────────────── */
+
+function parseDate(value: string): Date {
+  return new Date(`${value}T00:00:00`);
+}
+function toISO(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function addDays(value: string, delta: number): string {
+  const d = parseDate(value);
+  d.setDate(d.getDate() + delta);
+  return toISO(d);
+}
+function isWeekday(value: string): boolean {
+  const dow = parseDate(value).getDay();
+  return dow !== 0 && dow !== 6;
+}
+function eachDateInclusive(start: string, end: string): string[] {
+  const out: string[] = [];
+  let cursor = start;
+  while (cursor <= end) {
+    out.push(cursor);
+    cursor = addDays(cursor, 1);
+  }
+  return out;
+}
+
+/** Segunda-feira da próxima semana e seu domingo (semana Seg..Dom). */
+export function nextWeekBounds(from: Date = new Date()): { weekStart: string; weekEnd: string } {
+  const today = parseDate(toISO(from));
+  const dow = today.getDay(); // 0=Dom..6=Sáb
+  const daysUntilNextMonday = ((8 - dow) % 7) || 7;
+  const weekStart = addDays(toISO(today), daysUntilNextMonday);
+  return { weekStart, weekEnd: addDays(weekStart, 6) };
+}
+
+export function weekLabel(weekStart: string, weekEnd: string): string {
+  const fmt = (v: string) => parseDate(v).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+  return `${fmt(weekStart)} a ${fmt(weekEnd)}`;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Row mappings
+   ───────────────────────────────────────────────────────────── */
+
+type PolicyRow = {
+  id: string;
+  organization_id: string;
+  name: string;
+  allowance_type: 'meal';
+  project_id: string | null;
+  geofence_id: string | null;
+  amount_cents: number | string;
+  currency: 'BRL';
+  effective_from: string;
+  effective_until: string | null;
+  active_employment_required: boolean;
+  active_allocation_required: boolean;
+  block_on_leave: boolean;
+  block_on_demobilization: boolean;
+  schedule_mode: AllowancePolicy['scheduleMode'];
+  attendance_required_for_reconciliation: boolean;
+  geofence_required_for_reconciliation: boolean;
+  geofence_tolerance_meters: number | string | null;
+  auto_approval_enabled: boolean;
+  status: AllowancePolicyStatus;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+function mapPolicyRow(row: PolicyRow): AllowancePolicy {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    name: row.name,
+    allowanceType: row.allowance_type,
+    projectId: row.project_id,
+    geofenceId: row.geofence_id,
+    amountCents: Number(row.amount_cents),
+    currency: row.currency,
+    effectiveFrom: row.effective_from,
+    effectiveUntil: row.effective_until,
+    activeEmploymentRequired: row.active_employment_required,
+    activeAllocationRequired: row.active_allocation_required,
+    blockOnLeave: row.block_on_leave,
+    blockOnDemobilization: row.block_on_demobilization,
+    scheduleMode: row.schedule_mode,
+    attendanceRequiredForReconciliation: row.attendance_required_for_reconciliation,
+    geofenceRequiredForReconciliation: row.geofence_required_for_reconciliation,
+    geofenceToleranceMeters:
+      row.geofence_tolerance_meters == null ? null : Number(row.geofence_tolerance_meters),
+    autoApprovalEnabled: row.auto_approval_enabled,
+    status: row.status,
+    notes: row.notes,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+type WeekRow = {
+  id: string;
+  organization_id: string;
+  week_start: string;
+  week_end: string;
+  status: AllowanceWeek['status'];
+  total_people: number;
+  total_items: number;
+  total_amount_cents: number | string;
+  generated_by: string | null;
+  generated_at: string | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  simulation_mode: boolean;
+  version: number;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+function mapWeekRow(row: WeekRow): AllowanceWeek {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    weekStart: row.week_start,
+    weekEnd: row.week_end,
+    status: row.status,
+    totalPeople: row.total_people,
+    totalItems: row.total_items,
+    totalAmountCents: Number(row.total_amount_cents),
+    generatedBy: row.generated_by,
+    generatedAt: row.generated_at,
+    approvedBy: row.approved_by,
+    approvedAt: row.approved_at,
+    simulationMode: row.simulation_mode,
+    version: row.version,
+    notes: row.notes,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+type DailyRow = {
+  id: string;
+  organization_id: string;
+  allowance_week_id: string;
+  person_id: string;
+  allocation_id: string | null;
+  policy_id: string;
+  project_id: string;
+  geofence_id: string | null;
+  allowance_date: string;
+  allowance_type: 'meal';
+  amount_cents: number | string;
+  currency: 'BRL';
+  status: DailyAllowance['status'];
+  eligibility_reason: EligibilityReason | null;
+  blocking_reason: string | null;
+  schedule_evidence_source: DailyAllowance['scheduleEvidenceSource'];
+  planned_evidence: Record<string, unknown>;
+  reconciliation_evidence: Record<string, unknown> | null;
+  attendance_punch_id: string | null;
+  location_evidence_id: string | null;
+  time_entry_id: string | null;
+  rule_version: string;
+  payment_batch_id: string | null;
+  idempotency_key: string;
+  created_at: string;
+  updated_at: string;
+  people?: PersonRow | null;
+};
+
+function mapDailyRow(row: DailyRow): DailyAllowance {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    allowanceWeekId: row.allowance_week_id,
+    personId: row.person_id,
+    allocationId: row.allocation_id,
+    policyId: row.policy_id,
+    projectId: row.project_id,
+    geofenceId: row.geofence_id,
+    allowanceDate: row.allowance_date,
+    allowanceType: row.allowance_type,
+    amountCents: Number(row.amount_cents),
+    currency: row.currency,
+    status: row.status,
+    eligibilityReason: row.eligibility_reason,
+    blockingReason: row.blocking_reason,
+    scheduleEvidenceSource: row.schedule_evidence_source,
+    plannedEvidence: row.planned_evidence ?? {},
+    reconciliationEvidence: row.reconciliation_evidence,
+    attendancePunchId: row.attendance_punch_id,
+    locationEvidenceId: row.location_evidence_id,
+    timeEntryId: row.time_entry_id,
+    ruleVersion: row.rule_version,
+    paymentBatchId: row.payment_batch_id,
+    idempotencyKey: row.idempotency_key,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    person: row.people ? mapPersonRow(row.people) : undefined,
+  };
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Policies (leitura + criação leve para configuração)
+   ───────────────────────────────────────────────────────────── */
+
+export async function listAllowancePolicies(activeOnly = false): Promise<AllowancePolicy[]> {
+  const supabase = createClient();
+  let query = supabase.from(ALLOWANCE_POLICIES_TABLE).select('*').order('name');
+  if (activeOnly) query = query.eq('status', 'active');
+  const { data, error } = await query;
+  if (error) throw new Error(rlsFriendlyMessage('Erro ao carregar políticas de diária', error));
+  return (data ?? []).map((r) => mapPolicyRow(r as PolicyRow));
+}
+
+export interface AllowancePolicyInput {
+  name: string;
+  projectId?: string | null;
+  geofenceId?: string | null;
+  amountCents: number;
+  effectiveFrom: string;
+  effectiveUntil?: string | null;
+  scheduleMode?: AllowancePolicy['scheduleMode'];
+  blockOnLeave?: boolean;
+  autoApprovalEnabled?: boolean;
+  status?: AllowancePolicyStatus;
+  notes?: string | null;
+}
+
+export async function createAllowancePolicy(input: AllowancePolicyInput): Promise<AllowancePolicy> {
+  const supabase = createClient();
+  const { userId, orgId } = await getCurrentOrgAndUser(supabase);
+  const { data, error } = await supabase
+    .from(ALLOWANCE_POLICIES_TABLE)
+    .insert({
+      organization_id: orgId,
+      name: input.name.trim(),
+      project_id: input.projectId ?? null,
+      geofence_id: input.geofenceId ?? null,
+      amount_cents: input.amountCents,
+      effective_from: input.effectiveFrom,
+      effective_until: input.effectiveUntil ?? null,
+      schedule_mode: input.scheduleMode ?? 'derived',
+      block_on_leave: input.blockOnLeave ?? true,
+      auto_approval_enabled: input.autoApprovalEnabled ?? true,
+      status: input.status ?? 'draft',
+      notes: input.notes ?? null,
+      created_by: userId,
+    })
+    .select('*')
+    .single();
+  if (error) throw new Error(rlsFriendlyMessage('Erro ao criar política de diária', error));
+  const policy = mapPolicyRow(data as PolicyRow);
+  void logAuditEvent({
+    organizationId: orgId,
+    action: 'allowance_policy.created',
+    entityType: 'allowance_policy',
+    entityId: policy.id,
+    metadata: { name: policy.name, project_id: policy.projectId, amount_cents: policy.amountCents },
+  });
+  return policy;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Weeks + daily allowances (leitura)
+   ───────────────────────────────────────────────────────────── */
+
+export async function listAllowanceWeeks(): Promise<AllowanceWeek[]> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from(ALLOWANCE_WEEKS_TABLE)
+    .select('*')
+    .order('week_start', { ascending: false })
+    .order('version', { ascending: false });
+  if (error) throw new Error(rlsFriendlyMessage('Erro ao carregar semanas de diárias', error));
+  return (data ?? []).map((r) => mapWeekRow(r as WeekRow));
+}
+
+/** Semana mais recente (maior versão) de um período, se existir. */
+export async function getLatestWeek(
+  weekStart: string,
+  weekEnd: string,
+): Promise<AllowanceWeek | null> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from(ALLOWANCE_WEEKS_TABLE)
+    .select('*')
+    .eq('week_start', weekStart)
+    .eq('week_end', weekEnd)
+    .order('version', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(rlsFriendlyMessage('Erro ao carregar semana de diárias', error));
+  return data ? mapWeekRow(data as WeekRow) : null;
+}
+
+export async function listDailyAllowancesByWeek(weekId: string): Promise<DailyAllowance[]> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from(DAILY_ALLOWANCES_TABLE)
+    .select('*, people(*)')
+    .eq('allowance_week_id', weekId)
+    .order('allowance_date');
+  if (error) throw new Error(rlsFriendlyMessage('Erro ao carregar diárias', error));
+  return (data ?? []).map((r) => mapDailyRow(r as unknown as DailyRow));
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Geração da prévia semanal (motor)
+   ───────────────────────────────────────────────────────────── */
+
+type ConsideredAllocation = Pick<
+  PersonProjectAllocation,
+  'id' | 'personId' | 'projectId' | 'startDate' | 'endDate' | 'plannedPercentage' | 'status'
+>;
+
+/** Política aplicável a (projeto, data): mais específica primeiro. */
+function resolvePolicy(
+  policies: AllowancePolicy[],
+  projectId: string,
+  date: string,
+): AllowancePolicy | null {
+  const inEffect = (p: AllowancePolicy) =>
+    p.status === 'active' &&
+    p.effectiveFrom <= date &&
+    (p.effectiveUntil == null || p.effectiveUntil >= date);
+  const forProject = policies.filter((p) => inEffect(p) && p.projectId === projectId);
+  // preferir a que fixa geofence (mais específica), depois projeto puro
+  const specific = forProject.find((p) => p.geofenceId != null) ?? forProject[0];
+  if (specific) return specific;
+  // fallback da organização (project_id NULL)
+  return policies.find((p) => inEffect(p) && p.projectId == null) ?? null;
+}
+
+export interface WeeklyPreviewResult {
+  week: AllowanceWeek;
+  items: DailyAllowance[];
+  /** pessoas/dias sem política aplicável (não persistidos em Fase 1) */
+  skippedNoPolicy: number;
+  /** pessoas sem qualquer alocação considerada (não persistidos) */
+  skippedNoAllocation: number;
+}
+
+export interface GeneratePreviewOptions {
+  weekStart?: string;
+  weekEnd?: string;
+}
+
+/**
+ * Gera (ou regenera) a prévia da próxima semana em modo simulação.
+ * Reprodutível: apaga as diárias não aprovadas da semana e recria a
+ * partir do estado atual de pessoas/alocações/afastamentos/políticas.
+ */
+export async function generateWeeklyAllowancePreview(
+  options: GeneratePreviewOptions = {},
+): Promise<WeeklyPreviewResult> {
+  const supabase = createClient();
+  const { userId, orgId } = await getCurrentOrgAndUser(supabase);
+
+  const bounds = nextWeekBounds();
+  const weekStart = options.weekStart ?? bounds.weekStart;
+  const weekEnd = options.weekEnd ?? bounds.weekEnd;
+  const dates = eachDateInclusive(weekStart, weekEnd);
+
+  // ── 1) Reunir dados (org-wide) ─────────────────────────────
+  const lookbackStart = addDays(weekStart, -DEMOB_LOOKBACK_DAYS);
+  const [
+    policies,
+    { data: peopleRows, error: peopleErr },
+    { data: allocRows, error: allocErr },
+    { data: leaveRows, error: leaveErr },
+    { data: geofenceRows, error: geoErr },
+    { data: scheduleRows, error: schedErr },
+  ] = await Promise.all([
+    listAllowancePolicies(true),
+    supabase.from('people').select('*').eq('status', 'active'),
+    supabase
+      .from('project_allocations')
+      .select('id, person_id, project_id, start_date, end_date, planned_percentage, status')
+      .in('status', CONSIDERED_ALLOCATION_STATUSES)
+      .lte('start_date', weekEnd)
+      .or(`end_date.is.null,end_date.gte.${lookbackStart}`),
+    supabase
+      .from('leave_periods')
+      .select('person_id, start_date, end_date, status')
+      .in('status', ['planned', 'approved', 'active'])
+      .lte('start_date', weekEnd)
+      .gte('end_date', weekStart),
+    supabase.from('project_geofences').select('id, project_id, active'),
+    supabase
+      .from(WORK_SCHEDULE_DAYS_TABLE)
+      .select('person_id, project_id, geofence_id, work_date, status, source')
+      .in('status', ['planned', 'excluded'])
+      .gte('work_date', weekStart)
+      .lte('work_date', weekEnd),
+  ]);
+
+  if (peopleErr) throw new Error(rlsFriendlyMessage('Erro ao carregar pessoas', peopleErr));
+  if (allocErr) throw new Error(rlsFriendlyMessage('Erro ao carregar alocações', allocErr));
+  if (leaveErr) throw new Error(rlsFriendlyMessage('Erro ao carregar afastamentos', leaveErr));
+  if (geoErr) throw new Error(rlsFriendlyMessage('Erro ao carregar geofences', geoErr));
+  if (schedErr) throw new Error(rlsFriendlyMessage('Erro ao carregar escala', schedErr));
+
+  const people = (peopleRows ?? []).map((r) => mapPersonRow(r as PersonRow));
+  const allocations: ConsideredAllocation[] = (allocRows ?? []).map((r) => ({
+    id: r.id as string,
+    personId: r.person_id as string,
+    projectId: r.project_id as string,
+    startDate: r.start_date as string,
+    endDate: (r.end_date as string | null) ?? null,
+    plannedPercentage: Number(r.planned_percentage ?? 0),
+    status: r.status as AllocationStatus,
+  }));
+
+  // geofence ativa? (obra = geofence)
+  const geofenceActive = new Map<string, boolean>();
+  for (const g of geofenceRows ?? []) geofenceActive.set(g.id as string, Boolean(g.active));
+
+  // afastamento por pessoa (intervalos)
+  const leavesByPerson = new Map<string, Array<{ start: string; end: string }>>();
+  for (const l of leaveRows ?? []) {
+    const arr = leavesByPerson.get(l.person_id as string) ?? [];
+    arr.push({ start: l.start_date as string, end: l.end_date as string });
+    leavesByPerson.set(l.person_id as string, arr);
+  }
+
+  // escala explícita / overrides por pessoa+data
+  type Sched = { status: 'planned' | 'excluded'; source: string; geofenceId: string | null };
+  const scheduleByKey = new Map<string, Sched>();
+  for (const s of scheduleRows ?? []) {
+    scheduleByKey.set(`${s.person_id}|${s.work_date}`, {
+      status: s.status as 'planned' | 'excluded',
+      source: s.source as string,
+      geofenceId: (s.geofence_id as string | null) ?? null,
+    });
+  }
+
+  // alocações por pessoa
+  const allocByPerson = new Map<string, ConsideredAllocation[]>();
+  for (const a of allocations) {
+    const arr = allocByPerson.get(a.personId) ?? [];
+    arr.push(a);
+    allocByPerson.set(a.personId, arr);
+  }
+
+  // diárias já existentes de OUTRAS semanas no período (duplicidade)
+  const { data: existingRows, error: existErr } = await supabase
+    .from(DAILY_ALLOWANCES_TABLE)
+    .select('idempotency_key')
+    .neq('status', 'reversed')
+    .gte('allowance_date', weekStart)
+    .lte('allowance_date', weekEnd);
+  if (existErr) throw new Error(rlsFriendlyMessage('Erro ao verificar duplicidade', existErr));
+  const existingKeys = new Set((existingRows ?? []).map((r) => r.idempotency_key as string));
+
+  // ── 2) Semana (reusa não-aprovada ou cria nova versão) ─────
+  const editableStatuses: AllowanceWeek['status'][] = ['draft', 'generated', 'manager_review'];
+  const latest = await getLatestWeek(weekStart, weekEnd);
+  let week: AllowanceWeek;
+  if (latest && editableStatuses.includes(latest.status)) {
+    week = latest;
+    // recomputo: limpar diárias anteriores desta semana
+    const { error: delErr } = await supabase
+      .from(DAILY_ALLOWANCES_TABLE)
+      .delete()
+      .eq('allowance_week_id', week.id);
+    if (delErr) throw new Error(rlsFriendlyMessage('Erro ao limpar prévia anterior', delErr));
+  } else {
+    const nextVersion = (latest?.version ?? 0) + 1;
+    const { data: weekRow, error: weekErr } = await supabase
+      .from(ALLOWANCE_WEEKS_TABLE)
+      .insert({
+        organization_id: orgId,
+        week_start: weekStart,
+        week_end: weekEnd,
+        status: 'generated',
+        simulation_mode: true,
+        version: nextVersion,
+        generated_by: userId,
+        generated_at: new Date().toISOString(),
+        created_by: userId,
+      })
+      .select('*')
+      .single();
+    if (weekErr) throw new Error(rlsFriendlyMessage('Erro ao criar semana', weekErr));
+    week = mapWeekRow(weekRow as WeekRow);
+  }
+
+  // ── 3) Avaliar pessoa × dia e montar as linhas ─────────────
+  const rowsToInsert: Record<string, unknown>[] = [];
+  const seenKeys = new Set<string>();
+  let skippedNoPolicy = 0;
+  let skippedNoAllocation = 0;
+
+  for (const person of people) {
+    const personAllocs = allocByPerson.get(person.id) ?? [];
+    if (personAllocs.length === 0) {
+      skippedNoAllocation += 1;
+      continue;
+    }
+    const personLeaves = leavesByPerson.get(person.id) ?? [];
+    const employmentActive =
+      person.status === 'active' && (person.terminatedAt == null || person.terminatedAt >= weekEnd);
+
+    for (const date of dates) {
+      // alocação viva cobrindo a data
+      const live = personAllocs
+        .filter(
+          (a) =>
+            LIVE_ALLOCATION_STATUSES.includes(a.status) &&
+            a.startDate <= date &&
+            (a.endDate == null || a.endDate >= date),
+        )
+        .sort((a, b) => b.plannedPercentage - a.plannedPercentage);
+      const liveAlloc = live[0] ?? null;
+
+      // alocação encerrada antes da data (desmobilização) sem viva
+      const demobilized =
+        !liveAlloc &&
+        personAllocs.some((a) => a.endDate != null && a.endDate < date);
+
+      // projeto de referência: da alocação viva, senão da mais recente
+      const refAlloc =
+        liveAlloc ??
+        [...personAllocs].sort((a, b) => (a.endDate ?? '9999') > (b.endDate ?? '9999') ? -1 : 1)[0];
+      const projectId = refAlloc.projectId;
+
+      const policy = resolvePolicy(policies, projectId, date);
+      if (!policy) {
+        skippedNoPolicy += 1;
+        continue;
+      }
+
+      const geofenceId = policy.geofenceId ?? null;
+      const eligibleWorksite = geofenceId == null ? true : geofenceActive.get(geofenceId) === true;
+
+      const onLeave = personLeaves.some((l) => l.start <= date && l.end >= date);
+      const sched = scheduleByKey.get(`${person.id}|${date}`);
+
+      const idempotencyKey = `allowance:${orgId}:${person.id}:${date}:${policy.allowanceType}:${policy.id}`;
+      const alreadyHasAllowance = existingKeys.has(idempotencyKey) || seenKeys.has(idempotencyKey);
+
+      const input: EligibilityInput = {
+        activeEmployment: employmentActive,
+        activeAllocation: liveAlloc != null,
+        eligibleWorksite,
+        onLeave: policy.blockOnLeave ? onLeave : false,
+        demobilizedBeforeDate: policy.blockOnDemobilization ? demobilized : false,
+        alreadyHasAllowance,
+        hasApplicablePolicy: true,
+        scheduleMode: policy.scheduleMode,
+        hasExplicitSchedule: sched?.status === 'planned',
+        explicitlyIncluded: sched?.status === 'planned' && sched.source === 'override',
+        explicitlyExcluded: sched?.status === 'excluded',
+        isCalendarWorkday: isWeekday(date),
+      };
+
+      const outcome = evaluateDailyEligibility(input);
+      const status = statusFromReason(outcome.reason);
+
+      const plannedEvidence = {
+        active_employment: input.activeEmployment,
+        active_allocation: input.activeAllocation,
+        allocation_id: liveAlloc?.id ?? null,
+        eligible_worksite: input.eligibleWorksite,
+        on_leave: input.onLeave,
+        demobilized: input.demobilizedBeforeDate,
+        schedule_mode: input.scheduleMode,
+        schedule_source: outcome.scheduleEvidenceSource,
+        evaluated_at: new Date().toISOString(),
+      };
+
+      seenKeys.add(idempotencyKey);
+      rowsToInsert.push({
+        organization_id: orgId,
+        allowance_week_id: week.id,
+        person_id: person.id,
+        allocation_id: liveAlloc?.id ?? null,
+        policy_id: policy.id,
+        project_id: projectId,
+        geofence_id: geofenceId ?? sched?.geofenceId ?? null,
+        allowance_date: date,
+        allowance_type: policy.allowanceType,
+        amount_cents: policy.amountCents,
+        status,
+        eligibility_reason: outcome.reason,
+        blocking_reason: status === 'blocked' ? outcome.reason : null,
+        schedule_evidence_source: outcome.scheduleEvidenceSource,
+        planned_evidence: plannedEvidence,
+        rule_version: RULE_VERSION,
+        idempotency_key: idempotencyKey,
+        created_by: userId,
+      });
+    }
+  }
+
+  // ── 4) Persistir diárias + atualizar totais da semana ──────
+  if (rowsToInsert.length > 0) {
+    const { error: insErr } = await supabase.from(DAILY_ALLOWANCES_TABLE).insert(rowsToInsert);
+    if (insErr) throw new Error(rlsFriendlyMessage('Erro ao gravar diárias', insErr));
+  }
+
+  const totalItems = rowsToInsert.filter((r) => r.status !== 'blocked').length;
+  const totalAmount = rowsToInsert
+    .filter((r) => r.status !== 'blocked')
+    .reduce((s, r) => s + Number(r.amount_cents), 0);
+  const totalPeople = new Set(
+    rowsToInsert.filter((r) => r.status !== 'blocked').map((r) => r.person_id),
+  ).size;
+
+  const { data: updatedWeek, error: updErr } = await supabase
+    .from(ALLOWANCE_WEEKS_TABLE)
+    .update({
+      status: 'generated',
+      total_people: totalPeople,
+      total_items: totalItems,
+      total_amount_cents: totalAmount,
+      generated_by: userId,
+      generated_at: new Date().toISOString(),
+    })
+    .eq('id', week.id)
+    .select('*')
+    .single();
+  if (updErr) throw new Error(rlsFriendlyMessage('Erro ao atualizar totais da semana', updErr));
+  week = mapWeekRow(updatedWeek as WeekRow);
+
+  void logAuditEvent({
+    organizationId: orgId,
+    action: 'allowance_week.generated',
+    entityType: 'allowance_week',
+    entityId: week.id,
+    metadata: {
+      period: `${weekStart}..${weekEnd}`,
+      version: week.version,
+      total_items: totalItems,
+      total_people: totalPeople,
+      total_amount_cents: totalAmount,
+      simulation: true,
+    },
+  });
+
+  const items = await listDailyAllowancesByWeek(week.id);
+  return { week, items, skippedNoPolicy, skippedNoAllocation };
+}
