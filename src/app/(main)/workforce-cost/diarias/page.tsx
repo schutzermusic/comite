@@ -40,11 +40,16 @@ import {
   getLatestWeek,
   listDailyAllowancesByWeek,
   nextWeekBounds,
+  performWeekAction,
+  reviewException,
   weekLabel,
+  type ExceptionDecision,
 } from '@/lib/services/allowances';
+import { WEEK_ACTIONS, type WeekAction } from '@/lib/services/allowance-workflow';
+import type { PermissionKey } from '@/lib/auth/types';
 import {
+  ALLOWANCE_WEEK_STATUS_LABELS,
   classifyReason,
-  DAILY_ALLOWANCE_STATUS_LABELS,
   ELIGIBILITY_REASON_LABELS,
   SCHEDULE_MODE_LABELS,
   type AllowanceWeek,
@@ -148,6 +153,7 @@ export default function DiariasPage() {
   const { hasPermission } = usePermissions();
   const { notify } = useHudToast();
   const canManage = hasPermission('allowances.manage');
+  const canReview = hasPermission('allowances.review_exception') || canManage;
 
   const bounds = useMemo(() => nextWeekBounds(), []);
   const dates = useMemo(() => eachDate(bounds.weekStart, bounds.weekEnd), [bounds]);
@@ -160,6 +166,7 @@ export default function DiariasPage() {
   const [projectNames, setProjectNames] = useState<Record<string, string>>({});
   const [filter, setFilter] = useState<DayClassification | null>(null);
   const [selected, setSelected] = useState<DailyAllowance | null>(null);
+  const [actionBusy, setActionBusy] = useState(false);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -210,6 +217,56 @@ export default function DiariasPage() {
       setGenerating(false);
     }
   }, [bounds, notify]);
+
+  const handleWeekAction = useCallback(
+    async (action: WeekAction) => {
+      if (!week) return;
+      setActionBusy(true);
+      try {
+        const updated = await performWeekAction(week.id, action);
+        setWeek(updated);
+        setItems(await listDailyAllowancesByWeek(updated.id));
+        notify(`${WEEK_ACTIONS[action].label} — concluído`, { variant: 'success' });
+      } catch (e) {
+        notify(e instanceof Error ? e.message : 'Erro na transição', { variant: 'error' });
+      } finally {
+        setActionBusy(false);
+      }
+    },
+    [week, notify],
+  );
+
+  const handleReview = useCallback(
+    async (item: DailyAllowance, decision: ExceptionDecision, reason: string) => {
+      setActionBusy(true);
+      try {
+        const updated = await reviewException(item.id, decision, reason);
+        setItems((prev) => prev.map((it) => (it.id === updated.id ? updated : it)));
+        setSelected(updated);
+        notify(decision === 'include' ? 'Diária incluída' : 'Diária bloqueada', {
+          variant: 'success',
+        });
+      } catch (e) {
+        notify(e instanceof Error ? e.message : 'Erro ao revisar', { variant: 'error' });
+      } finally {
+        setActionBusy(false);
+      }
+    },
+    [notify],
+  );
+
+  /** Ações de fluxo disponíveis no estado atual, filtradas por permissão. */
+  const weekActions = useMemo(() => {
+    if (!week) return [] as WeekAction[];
+    const byStatus: Partial<Record<AllowanceWeek['status'], WeekAction[]>> = {
+      generated: ['send_to_manager_review'],
+      manager_review: ['complete_manager_review'],
+      hr_validation: week.hrValidatedAt ? ['approve_finance'] : ['validate_hr', 'approve_finance'],
+    };
+    return (byStatus[week.status] ?? []).filter((a) =>
+      hasPermission(WEEK_ACTIONS[a].permission as PermissionKey),
+    );
+  }, [week, hasPermission]);
 
   const rows = useMemo(() => buildRows(items), [items]);
 
@@ -290,18 +347,50 @@ export default function DiariasPage() {
 
         <div className="flex flex-wrap items-center gap-2">
           <HudBadge variant="info">modo simulação</HudBadge>
+          {week && (
+            <HudBadge variant={week.status === 'finance_approved' ? 'success' : 'default'}>
+              {ALLOWANCE_WEEK_STATUS_LABELS[week.status]}
+            </HudBadge>
+          )}
           <span className="text-xs text-ig-fg-muted">
-            Fase 1 — nenhum pagamento é executado. A prévia calibra as regras contra a rotina atual.
+            Nenhum pagamento é executado nesta fase. A prévia calibra as regras contra a rotina atual.
           </span>
           {week && (
             <span className="ml-auto text-xs text-ig-fg-muted">
-              Versão {week.version} · {DAILY_ALLOWANCE_STATUS_LABELS.planned && ''}
+              Versão {week.version}
               {week.generatedAt
-                ? `gerada em ${new Date(week.generatedAt).toLocaleString('pt-BR')}`
+                ? ` · gerada em ${new Date(week.generatedAt).toLocaleString('pt-BR')}`
                 : ''}
             </span>
           )}
         </div>
+
+        {week && weekActions.length > 0 && (
+          <HudPanel>
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-xs font-medium uppercase tracking-wider text-ig-fg-muted">
+                Fluxo de aprovação
+              </span>
+              {week.managerReviewedAt && (
+                <HudBadge variant="success">revisão do gestor OK</HudBadge>
+              )}
+              {week.hrValidatedAt && <HudBadge variant="success">RH validou</HudBadge>}
+              <div className="ml-auto flex flex-wrap gap-2">
+                {weekActions.map((a) => (
+                  <HudButton
+                    key={a}
+                    size="sm"
+                    variant={a === 'approve_finance' ? 'primary' : 'secondary'}
+                    disabled={actionBusy}
+                    onClick={() => handleWeekAction(a)}
+                  >
+                    {WEEK_ACTIONS[a].label}
+                  </HudButton>
+                ))}
+              </div>
+            </div>
+          </HudPanel>
+        )}
 
         {error && (
           <HudPanel state="critical">
@@ -430,8 +519,12 @@ export default function DiariasPage() {
       </div>
 
       <EvidenceDrawer
+        key={selected?.id ?? 'none'}
         item={selected}
         projectName={selected ? projectNames[selected.projectId] ?? selected.projectId : ''}
+        canReview={canReview}
+        busy={actionBusy}
+        onReview={handleReview}
         onClose={() => setSelected(null)}
       />
     </HudPageLayout>
@@ -440,20 +533,35 @@ export default function DiariasPage() {
 
 /* ─────────────────────── evidence drawer ─────────────────────── */
 
+const REVIEWABLE_STATUSES: DailyAllowance['status'][] = [
+  'under_review',
+  'under_review_missing_schedule',
+  'blocked',
+];
+
 function EvidenceDrawer({
   item,
   projectName,
+  canReview,
+  busy,
+  onReview,
   onClose,
 }: {
   item: DailyAllowance | null;
   projectName: string;
+  canReview: boolean;
+  busy: boolean;
+  onReview: (item: DailyAllowance, decision: ExceptionDecision, reason: string) => void;
   onClose: () => void;
 }) {
+  const [reviewReason, setReviewReason] = useState('');
+
   if (!item) return null;
   const reason = (item.eligibilityReason ?? 'planned_eligible') as EligibilityReason;
   const klass = classifyReason(reason);
   const meta = CLASS_META[klass];
   const ev = item.plannedEvidence as Record<string, unknown>;
+  const showReview = canReview && REVIEWABLE_STATUSES.includes(item.status);
 
   const checks: Array<{ ok: boolean; label: string }> = [
     { ok: ev.active_employment === true, label: 'Vínculo ativo' },
@@ -515,6 +623,41 @@ function EvidenceDrawer({
             Origem da evidência: {item.scheduleEvidenceSource ?? '—'} · Regra {item.ruleVersion}
           </p>
         </div>
+
+        {showReview && (
+          <div className="space-y-2 rounded-lg border border-ig-border bg-ig-panel px-4 py-3">
+            <p className="text-xs font-medium uppercase tracking-wider text-ig-fg-muted">
+              Revisão de exceção
+            </p>
+            <textarea
+              value={reviewReason}
+              onChange={(e) => setReviewReason(e.target.value)}
+              placeholder="Motivo da decisão (obrigatório)…"
+              rows={2}
+              className="w-full rounded-md border border-ig-border bg-ig-bg px-3 py-2 text-sm text-ig-fg placeholder:text-ig-fg-muted focus:border-ig-accent focus:outline-none"
+            />
+            <div className="flex gap-2">
+              <HudButton
+                size="sm"
+                variant="primary"
+                disabled={busy || !reviewReason.trim()}
+                onClick={() => onReview(item, 'include', reviewReason.trim())}
+              >
+                <CheckCircle2 className="h-4 w-4" />
+                Incluir no lote
+              </HudButton>
+              <HudButton
+                size="sm"
+                variant="danger"
+                disabled={busy || !reviewReason.trim()}
+                onClick={() => onReview(item, 'exclude', reviewReason.trim())}
+              >
+                <Ban className="h-4 w-4" />
+                Bloquear
+              </HudButton>
+            </div>
+          </div>
+        )}
 
         <div className="rounded-lg border border-ig-warning/30 bg-[color-mix(in_oklab,var(--ig-warning)_8%,transparent)] px-4 py-3 text-xs text-ig-fg-muted">
           Evidências de execução (jornada, geofence, apontamento) e conciliação chegam na Fase 4.

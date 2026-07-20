@@ -27,11 +27,23 @@ import type {
   DailyAllowance,
   EligibilityReason,
 } from '@/lib/types/allowances';
+import type {
+  AdjustmentStatus,
+  AdjustmentType,
+  AllowanceAdjustment,
+} from '@/lib/types/allowances';
 import {
   evaluateDailyEligibility,
   statusFromReason,
   type EligibilityInput,
 } from './allowance-eligibility';
+import {
+  canPerform,
+  EDITABLE_WEEK_STATUSES,
+  nextStatus,
+  WEEK_ACTIONS,
+  type WeekAction,
+} from './allowance-workflow';
 import { getCurrentOrgAndUser, rlsFriendlyMessage, mapPersonRow, type PersonRow } from './people';
 
 export const ALLOWANCE_POLICIES_TABLE = 'allowance_policies';
@@ -163,6 +175,10 @@ type WeekRow = {
   generated_at: string | null;
   approved_by: string | null;
   approved_at: string | null;
+  manager_reviewed_by: string | null;
+  manager_reviewed_at: string | null;
+  hr_validated_by: string | null;
+  hr_validated_at: string | null;
   simulation_mode: boolean;
   version: number;
   notes: string | null;
@@ -184,6 +200,10 @@ function mapWeekRow(row: WeekRow): AllowanceWeek {
     generatedAt: row.generated_at,
     approvedBy: row.approved_by,
     approvedAt: row.approved_at,
+    managerReviewedBy: row.manager_reviewed_by ?? null,
+    managerReviewedAt: row.manager_reviewed_at ?? null,
+    hrValidatedBy: row.hr_validated_by ?? null,
+    hrValidatedAt: row.hr_validated_at ?? null,
     simulationMode: row.simulation_mode,
     version: row.version,
     notes: row.notes,
@@ -508,10 +528,9 @@ export async function generateWeeklyAllowancePreview(
   const existingKeys = new Set((existingRows ?? []).map((r) => r.idempotency_key as string));
 
   // ── 2) Semana (reusa não-aprovada ou cria nova versão) ─────
-  const editableStatuses: AllowanceWeek['status'][] = ['draft', 'generated', 'manager_review'];
   const latest = await getLatestWeek(weekStart, weekEnd);
   let week: AllowanceWeek;
-  if (latest && editableStatuses.includes(latest.status)) {
+  if (latest && EDITABLE_WEEK_STATUSES.includes(latest.status)) {
     week = latest;
     // recomputo: limpar diárias anteriores desta semana
     const { error: delErr } = await supabase
@@ -695,4 +714,263 @@ export async function generateWeeklyAllowancePreview(
 
   const items = await listDailyAllowancesByWeek(week.id);
   return { week, items, skippedNoPolicy, skippedNoAllocation };
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Fase 2 — Revisão de exceções
+   ───────────────────────────────────────────────────────────── */
+
+/** Diárias que ainda exigem tratamento antes da aprovação financeira. */
+const UNRESOLVED_DAILY_STATUSES: DailyAllowance['status'][] = [
+  'under_review',
+  'under_review_missing_schedule',
+];
+
+export type ExceptionDecision = 'include' | 'exclude';
+
+/**
+ * Revisão de exceção pelo gestor (spec §4.2). 'include' torna a diária
+ * prevista (entra no lote); 'exclude' a bloqueia com motivo. A decisão
+ * é registrada no snapshot e auditada — nunca apaga o motivo original.
+ */
+export async function reviewException(
+  dailyAllowanceId: string,
+  decision: ExceptionDecision,
+  reason: string,
+): Promise<DailyAllowance> {
+  const supabase = createClient();
+  const { userId, orgId } = await getCurrentOrgAndUser(supabase);
+
+  const { data: current, error: readErr } = await supabase
+    .from(DAILY_ALLOWANCES_TABLE)
+    .select('*')
+    .eq('id', dailyAllowanceId)
+    .single();
+  if (readErr) throw new Error(rlsFriendlyMessage('Erro ao carregar diária', readErr));
+  const before = mapDailyRow(current as unknown as DailyRow);
+
+  const newStatus = decision === 'include' ? 'planned' : 'blocked';
+  const review = {
+    decision,
+    reason,
+    previous_status: before.status,
+    previous_reason: before.eligibilityReason,
+    reviewed_by: userId,
+    reviewed_at: new Date().toISOString(),
+  };
+  const plannedEvidence = { ...before.plannedEvidence, exception_review: review };
+
+  const { data, error } = await supabase
+    .from(DAILY_ALLOWANCES_TABLE)
+    .update({
+      status: newStatus,
+      blocking_reason: decision === 'exclude' ? reason : null,
+      planned_evidence: plannedEvidence,
+    })
+    .eq('id', dailyAllowanceId)
+    .select('*, people(*)')
+    .single();
+  if (error) throw new Error(rlsFriendlyMessage('Erro ao revisar exceção', error));
+
+  void logAuditEvent({
+    organizationId: orgId,
+    action: 'allowance_daily.exception_reviewed',
+    entityType: 'daily_allowance',
+    entityId: dailyAllowanceId,
+    metadata: { decision, reason, previous_status: before.status, new_status: newStatus },
+  });
+  return mapDailyRow(data as unknown as DailyRow);
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Fase 2 — Transições do lote semanal (workflow + segregação)
+   ───────────────────────────────────────────────────────────── */
+
+async function loadWeek(weekId: string): Promise<AllowanceWeek> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from(ALLOWANCE_WEEKS_TABLE)
+    .select('*')
+    .eq('id', weekId)
+    .single();
+  if (error) throw new Error(rlsFriendlyMessage('Erro ao carregar semana', error));
+  return mapWeekRow(data as WeekRow);
+}
+
+async function countUnresolvedReviews(weekId: string): Promise<number> {
+  const supabase = createClient();
+  const { count, error } = await supabase
+    .from(DAILY_ALLOWANCES_TABLE)
+    .select('id', { count: 'exact', head: true })
+    .eq('allowance_week_id', weekId)
+    .in('status', UNRESOLVED_DAILY_STATUSES);
+  if (error) throw new Error(rlsFriendlyMessage('Erro ao contar exceções', error));
+  return count ?? 0;
+}
+
+/**
+ * Executa uma ação de transição do lote semanal validando a máquina de
+ * estados pura e a segregação de funções (RH validado antes do
+ * Financeiro; aprovador ≠ gerador; exceções resolvidas). Nunca
+ * sobrescreve silenciosamente: cada transição é auditada.
+ */
+export async function performWeekAction(
+  weekId: string,
+  action: WeekAction,
+): Promise<AllowanceWeek> {
+  const supabase = createClient();
+  const { userId, orgId } = await getCurrentOrgAndUser(supabase);
+  const week = await loadWeek(weekId);
+
+  const approverDistinct = week.generatedBy == null || week.generatedBy !== userId;
+  const unresolved = action === 'approve_finance' ? await countUnresolvedReviews(weekId) : 0;
+
+  const check = canPerform(action, week.status, {
+    hrValidated: week.hrValidatedAt != null,
+    approverDistinctFromGenerator: approverDistinct,
+    hasUnresolvedReviews: unresolved > 0,
+  });
+  if (!check.ok) throw new Error(check.reason ?? 'Transição não permitida.');
+
+  const now = new Date().toISOString();
+  const patch: Record<string, unknown> = { status: nextStatus(action, week.status) };
+  if (action === 'complete_manager_review') {
+    patch.manager_reviewed_by = userId;
+    patch.manager_reviewed_at = now;
+  } else if (action === 'validate_hr') {
+    patch.hr_validated_by = userId;
+    patch.hr_validated_at = now;
+  } else if (action === 'approve_finance') {
+    patch.approved_by = userId;
+    patch.approved_at = now;
+  }
+
+  const { data, error } = await supabase
+    .from(ALLOWANCE_WEEKS_TABLE)
+    .update(patch)
+    .eq('id', weekId)
+    .select('*')
+    .single();
+  if (error) throw new Error(rlsFriendlyMessage('Erro ao atualizar a semana', error));
+
+  // ao aprovar, as diárias previstas viram aprovadas (entram no lote)
+  if (action === 'approve_finance') {
+    const { error: bulkErr } = await supabase
+      .from(DAILY_ALLOWANCES_TABLE)
+      .update({ status: 'approved' })
+      .eq('allowance_week_id', weekId)
+      .eq('status', 'planned');
+    if (bulkErr) throw new Error(rlsFriendlyMessage('Erro ao aprovar diárias', bulkErr));
+  }
+
+  void logAuditEvent({
+    organizationId: orgId,
+    action: `allowance_week.${action}`,
+    entityType: 'allowance_week',
+    entityId: weekId,
+    metadata: { from: week.status, to: patch.status, label: WEEK_ACTIONS[action].label },
+  });
+  return mapWeekRow(data as WeekRow);
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Fase 2 — Ajustes imutáveis (ADR-004)
+   ───────────────────────────────────────────────────────────── */
+
+type AdjustmentRow = {
+  id: string;
+  organization_id: string;
+  person_id: string;
+  daily_allowance_id: string | null;
+  source_week_id: string | null;
+  target_week_id: string | null;
+  type: AdjustmentType;
+  amount_cents: number | string;
+  reason: string;
+  status: AdjustmentStatus;
+  requested_by: string | null;
+  approved_by: string | null;
+  created_at: string;
+  updated_at: string;
+  applied_at: string | null;
+};
+
+function mapAdjustmentRow(row: AdjustmentRow): AllowanceAdjustment {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    personId: row.person_id,
+    dailyAllowanceId: row.daily_allowance_id,
+    sourceWeekId: row.source_week_id,
+    targetWeekId: row.target_week_id,
+    type: row.type,
+    amountCents: Number(row.amount_cents),
+    reason: row.reason,
+    status: row.status,
+    requestedBy: row.requested_by,
+    approvedBy: row.approved_by,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    appliedAt: row.applied_at,
+  };
+}
+
+export interface AdjustmentInput {
+  personId: string;
+  dailyAllowanceId?: string | null;
+  sourceWeekId?: string | null;
+  targetWeekId?: string | null;
+  type: AdjustmentType;
+  amountCents: number;
+  reason: string;
+}
+
+/**
+ * Cria um ajuste (suplemento/compensação/correção/exceção/baixa). Nunca
+ * edita a diária paga: o histórico é preservado e o impacto financeiro
+ * fica no ajuste, sujeito a aprovação própria.
+ */
+export async function createAdjustment(input: AdjustmentInput): Promise<AllowanceAdjustment> {
+  const supabase = createClient();
+  const { userId, orgId } = await getCurrentOrgAndUser(supabase);
+  if (!input.reason.trim()) throw new Error('Informe o motivo do ajuste.');
+
+  const { data, error } = await supabase
+    .from('allowance_adjustments')
+    .insert({
+      organization_id: orgId,
+      person_id: input.personId,
+      daily_allowance_id: input.dailyAllowanceId ?? null,
+      source_week_id: input.sourceWeekId ?? null,
+      target_week_id: input.targetWeekId ?? null,
+      type: input.type,
+      amount_cents: input.amountCents,
+      reason: input.reason.trim(),
+      status: 'pending_approval',
+      requested_by: userId,
+    })
+    .select('*')
+    .single();
+  if (error) throw new Error(rlsFriendlyMessage('Erro ao criar ajuste', error));
+
+  const adj = mapAdjustmentRow(data as AdjustmentRow);
+  void logAuditEvent({
+    organizationId: orgId,
+    action: 'allowance_adjustment.created',
+    entityType: 'allowance_adjustment',
+    entityId: adj.id,
+    metadata: { person_id: adj.personId, type: adj.type, amount_cents: adj.amountCents },
+  });
+  return adj;
+}
+
+export async function listAdjustmentsByWeek(weekId: string): Promise<AllowanceAdjustment[]> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from('allowance_adjustments')
+    .select('*')
+    .or(`source_week_id.eq.${weekId},target_week_id.eq.${weekId}`)
+    .order('created_at', { ascending: false });
+  if (error) throw new Error(rlsFriendlyMessage('Erro ao carregar ajustes', error));
+  return (data ?? []).map((r) => mapAdjustmentRow(r as AdjustmentRow));
 }

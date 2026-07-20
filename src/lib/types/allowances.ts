@@ -95,6 +95,11 @@ export interface AllowanceWeek {
   generatedAt: string | null;
   approvedBy: string | null;
   approvedAt: string | null;
+  /** carimbos de segregação de funções (migration 060) */
+  managerReviewedBy: string | null;
+  managerReviewedAt: string | null;
+  hrValidatedBy: string | null;
+  hrValidatedAt: string | null;
   simulationMode: boolean;
   version: number;
   notes: string | null;
@@ -171,6 +176,49 @@ export interface DailyAllowance {
   /** joined person (quando selecionado com people(*)) */
   person?: import('./people').Person;
 }
+
+/* ─────────────────────── Allowance adjustment ───────────────── */
+
+export type AdjustmentType =
+  | 'supplement'
+  | 'compensation'
+  | 'manual_correction'
+  | 'approved_exception'
+  | 'write_off';
+
+export type AdjustmentStatus =
+  | 'draft'
+  | 'pending_approval'
+  | 'approved'
+  | 'applied'
+  | 'cancelled';
+
+export interface AllowanceAdjustment {
+  id: string;
+  organizationId: string;
+  personId: string;
+  dailyAllowanceId: string | null;
+  sourceWeekId: string | null;
+  targetWeekId: string | null;
+  type: AdjustmentType;
+  /** pode ser negativo (compensação/baixa) ou positivo (suplemento) */
+  amountCents: number;
+  reason: string;
+  status: AdjustmentStatus;
+  requestedBy: string | null;
+  approvedBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+  appliedAt: string | null;
+}
+
+export const ADJUSTMENT_TYPE_LABELS: Record<AdjustmentType, string> = {
+  supplement: 'Suplemento',
+  compensation: 'Compensação',
+  manual_correction: 'Correção manual',
+  approved_exception: 'Exceção aprovada',
+  write_off: 'Baixa (não recuperável)',
+};
 
 /* ─────────────────────────── Labels ─────────────────────────── */
 

@@ -12,6 +12,7 @@ import {
   statusFromReason,
   type EligibilityInput,
 } from '../src/lib/services/allowance-eligibility';
+import { canPerform, nextStatus } from '../src/lib/services/allowance-workflow';
 
 /** Entrada "tudo elegível" — cada caso sobrescreve o que precisa. */
 function base(overrides: Partial<EligibilityInput> = {}): EligibilityInput {
@@ -131,6 +132,64 @@ check('duplicidade após passar na escala → blocked_duplicate', () => {
 check('exclusão manual vence duplicidade (schedule antes de duplicidade)', () => {
   const r = evaluateDailyEligibility(base({ explicitlyExcluded: true, alreadyHasAllowance: true }));
   assert.equal(r.reason, 'blocked_not_scheduled');
+});
+
+console.log('\nallowance-workflow (máquina de estados + segregação)');
+
+check('generated → manager_review permitido', () => {
+  assert.equal(canPerform('send_to_manager_review', 'generated').ok, true);
+  assert.equal(nextStatus('send_to_manager_review', 'generated'), 'manager_review');
+});
+
+check('ação fora de ordem é bloqueada', () => {
+  assert.equal(canPerform('approve_finance', 'generated').ok, false);
+});
+
+check('aprovação sem RH validado é bloqueada', () => {
+  const r = canPerform('approve_finance', 'hr_validation', {
+    hrValidated: false,
+    approverDistinctFromGenerator: true,
+    hasUnresolvedReviews: false,
+  });
+  assert.equal(r.ok, false);
+});
+
+check('segregação: aprovador = gerador é bloqueado', () => {
+  const r = canPerform('approve_finance', 'hr_validation', {
+    hrValidated: true,
+    approverDistinctFromGenerator: false,
+    hasUnresolvedReviews: false,
+  });
+  assert.equal(r.ok, false);
+});
+
+check('aprovação com exceções pendentes é bloqueada', () => {
+  const r = canPerform('approve_finance', 'hr_validation', {
+    hrValidated: true,
+    approverDistinctFromGenerator: true,
+    hasUnresolvedReviews: true,
+  });
+  assert.equal(r.ok, false);
+});
+
+check('aprovação válida (RH ok, aprovador distinto, sem pendências)', () => {
+  const r = canPerform('approve_finance', 'hr_validation', {
+    hrValidated: true,
+    approverDistinctFromGenerator: true,
+    hasUnresolvedReviews: false,
+  });
+  assert.equal(r.ok, true);
+  assert.equal(nextStatus('approve_finance', 'hr_validation'), 'finance_approved');
+});
+
+check('validate_hr não muda o estado (carimbo apenas)', () => {
+  assert.equal(canPerform('validate_hr', 'hr_validation', {}).ok, true);
+  assert.equal(nextStatus('validate_hr', 'hr_validation'), 'hr_validation');
+});
+
+check('cancel permitido em estados editáveis, bloqueado após aprovar', () => {
+  assert.equal(canPerform('cancel', 'manager_review').ok, true);
+  assert.equal(canPerform('cancel', 'finance_approved').ok, false);
 });
 
 console.log(`\n${passed} verificações OK`);
