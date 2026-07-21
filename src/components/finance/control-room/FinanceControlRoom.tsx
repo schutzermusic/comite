@@ -225,11 +225,11 @@ export function FinanceControlRoom() {
       </div>
 
       {/* Tertiary Layer */}
-      <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-12">
-        <div className="flex min-w-0 w-full lg:col-span-7">
+      <div className="grid grid-cols-1 items-stretch gap-4 lg:h-[560px] lg:grid-cols-12 lg:overflow-hidden">
+        <div className="flex min-w-0 w-full lg:col-span-7 lg:h-full lg:overflow-hidden">
           <CostCenterHeatmap data={COST_HEATMAP} />
         </div>
-        <div className="flex min-w-0 w-full lg:col-span-5">
+        <div className="flex min-w-0 w-full lg:col-span-5 lg:h-full lg:overflow-hidden">
           <ContractRevenuePanel contracts={CONTRACTS} />
         </div>
       </div>
