@@ -7,16 +7,26 @@
  * tanto na geração da prévia quanto na revisão. Toda a coleta de dados
  * vive em allowances.ts; aqui só há regra.
  *
- * Precedência dos bloqueios (quando mais de um se aplica, vence o mais
- * informativo para a operação):
- *   1. vínculo inativo
- *   2. férias/afastamento (ausência conhecida)
- *   3. desmobilizado antes da data
- *   4. sem alocação ativa
- *   5. obra não elegível
- *   6. escala (derived / explicit_required / not_required + overrides)
- *   7. duplicidade
- *   8. sem política aplicável
+ * Precedência da avaliação (a primeira que dispara vence). Mantida em
+ * sincronia com evaluateDailyEligibility abaixo:
+ *   1. vínculo inativo (quando exigido pela política)
+ *   2. sem alocação ativa (quando exigido pela política)
+ *   3. sem política aplicável
+ *   4. obra não elegível (geofence inativa)
+ *   5. escala (derived / explicit_required / not_required + overrides):
+ *      pode bloquear (fora da escala) ou marcar under_review (sem escala)
+ *   6. férias/afastamento
+ *   7. desmobilizado antes da data
+ *   8. município (travel_eligibility_mode): manual_review, ou, em
+ *      different_municipality, residência/serviço exigidos e validados e
+ *      residência ≠ serviço (mesmo município bloqueia)
+ *   9. duplicidade
+ *  10. elegível (service_outside_residence_municipality quando o par de
+ *      municípios está resolvido; senão planned_eligible)
+ *
+ * Observação: overrides de elegibilidade aprovados são aplicados NO
+ * SERVIÇO (allowances.ts), após esta função, e nunca furam bloqueios
+ * duros (inativo / sem alocação / duplicidade / sem política).
  */
 import type {
   DayClassification,
