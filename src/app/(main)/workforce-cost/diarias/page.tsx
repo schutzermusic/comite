@@ -530,10 +530,10 @@ export default function DiariasPage() {
     <HudPageLayout>
       <div className="space-y-6">
         <HudHeader
-          title="Diárias de Campo"
+          title="Diárias de Alimentação"
           subtitle={`Planejamento semanal · ${weekLabel(bounds.weekStart, bounds.weekEnd)}`}
           icon={<UtensilsCrossed className="h-5 w-5" />}
-          breadcrumbs={[{ label: 'Pessoas & Custos', href: '/workforce-cost' }, { label: 'Diárias' }]}
+          breadcrumbs={[{ label: 'Pessoas & Custos', href: '/workforce-cost' }, { label: 'Diárias de Alimentação' }]}
           actions={
             <div className="flex flex-wrap gap-2">
               {week && canExportPdf && (

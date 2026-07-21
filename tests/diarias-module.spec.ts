@@ -89,7 +89,7 @@ test('Diárias de Campo — fluxo ponta a ponta (Fases 1–5)', async ({ page })
 
   await test.step('abre o módulo Diárias', async () => {
     await page.goto('/workforce-cost/diarias');
-    await expect(page.getByRole('heading', { name: 'Diárias de Campo' })).toBeVisible({
+    await expect(page.getByRole('heading', { name: 'Diárias de Alimentação' })).toBeVisible({
       timeout: 40_000,
     });
   });
@@ -206,7 +206,7 @@ test('Diárias de Campo — fluxo ponta a ponta (Fases 1–5)', async ({ page })
       page.waitForEvent('popup'),
       page.getByRole('button', { name: /Exportar PDF/ }).click(),
     ]);
-    await expect(popup.getByText('Diárias de Campo').first()).toBeVisible({ timeout: 20_000 });
+    await expect(popup.getByText('Diárias de Alimentação').first()).toBeVisible({ timeout: 20_000 });
     await popup.close();
   });
 });
