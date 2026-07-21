@@ -116,8 +116,8 @@ export function buildAllowanceReportHtml(payload: AllowanceReportPayload): strin
   // ── capa ──
   blocks.push(block(reportCover({
     meta,
-    kicker: 'Relatório de Diárias · Pessoas & Custos',
-    title: 'Diárias de Campo',
+    kicker: 'Relatório de Diárias de Alimentação · Pessoas & Custos',
+    title: 'Diárias de Alimentação',
     context: `Semana <b>${esc(fmtWeek(week))}</b><span class="sep">·</span>previstas <b>${esc(fmtInt(eligible.length))}</b><span class="sep">·</span>valor <b>${esc(compactBRL(cents(totalCents)))}</b>`,
     statusChip: {
       label: ALLOWANCE_WEEK_STATUS_LABELS[week.status],
@@ -235,7 +235,7 @@ export function buildAllowanceReportHtml(payload: AllowanceReportPayload): strin
     fileName,
     brand,
     logoUrl: meta.logoUrl,
-    footerLabel: `Diárias de Campo · ${fmtWeek(week)}`,
+    footerLabel: `Diárias de Alimentação · ${fmtWeek(week)}`,
     pages: composePages(blocks, { orientation: 'landscape' }),
     orientation: 'landscape',
   });

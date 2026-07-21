@@ -198,7 +198,7 @@ const navigationItems: MenuItem[] = [
       },
       {
         href: "/workforce-cost/diarias",
-        label: "Diárias",
+        label: "Diárias de Alimentação",
         icon: UtensilsCrossed,
         anyPermission: ["allowances.view", "allowances.manage"],
       },
