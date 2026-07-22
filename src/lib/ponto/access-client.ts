@@ -34,3 +34,25 @@ export async function runPontoAccessAction(personId: string, action: PontoAccess
   });
   return parse<AccessActionResult>(res);
 }
+
+export interface BatchItemResult {
+  personId: string;
+  ok: boolean;
+  status?: PontoAccessStatus;
+  error?: string;
+}
+
+export interface BatchInviteResult {
+  results: BatchItemResult[];
+  summary: { sent: number; failed: number; total: number };
+}
+
+/** Envia convites em lote (a ação por pessoa é derivada do status atual). */
+export async function batchInvitePonto(personIds: string[]): Promise<BatchInviteResult> {
+  const res = await fetch('/api/ponto/access', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ personIds }),
+  });
+  return parse<BatchInviteResult>(res);
+}

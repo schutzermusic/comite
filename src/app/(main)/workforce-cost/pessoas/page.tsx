@@ -40,7 +40,7 @@ import {
   createResidenceMunicipality,
   listResidenceMunicipalities,
 } from '@/lib/services/residence-municipalities';
-import { listPontoAccess, runPontoAccessAction } from '@/lib/ponto/access-client';
+import { batchInvitePonto, listPontoAccess, runPontoAccessAction } from '@/lib/ponto/access-client';
 import {
   PONTO_ACCESS_LABELS,
   allowedActions,
@@ -89,6 +89,7 @@ export default function PessoasPage() {
   const [residencePerson, setResidencePerson] = useState<Person | null>(null);
   const [accessMap, setAccessMap] = useState<Map<string, PontoAccessInfo>>(new Map());
   const [accessPerson, setAccessPerson] = useState<Person | null>(null);
+  const [batchOpen, setBatchOpen] = useState(false);
 
   const reloadAccess = useCallback(async () => {
     if (!canManage) return setAccessMap(new Map());
@@ -315,16 +316,25 @@ export default function PessoasPage() {
           breadcrumbs={[{ label: 'Pessoas & Custos', href: '/workforce-cost' }, { label: 'Pessoas' }]}
           actions={
             canManage ? (
-              <HudButton
-                variant="primary"
-                leftIcon={<Plus className="h-4 w-4" />}
-                onClick={() => {
-                  setEditing(null);
-                  setModalOpen(true);
-                }}
-              >
-                Nova pessoa
-              </HudButton>
+              <div className="flex items-center gap-2">
+                <HudButton
+                  variant="secondary"
+                  leftIcon={<Send className="h-4 w-4" />}
+                  onClick={() => setBatchOpen(true)}
+                >
+                  Convite em lote
+                </HudButton>
+                <HudButton
+                  variant="primary"
+                  leftIcon={<Plus className="h-4 w-4" />}
+                  onClick={() => {
+                    setEditing(null);
+                    setModalOpen(true);
+                  }}
+                >
+                  Nova pessoa
+                </HudButton>
+              </div>
             ) : undefined
           }
         />
@@ -409,7 +419,120 @@ export default function PessoasPage() {
         onClose={() => setAccessPerson(null)}
         onChanged={reloadAccess}
       />
+      <BatchInviteModal
+        open={batchOpen}
+        people={people}
+        accessMap={accessMap}
+        onClose={() => setBatchOpen(false)}
+        onDone={reloadAccess}
+      />
     </HudPageLayout>
+  );
+}
+
+/* ─────────────────────── BatchInviteModal ─────────────────────────── */
+
+function BatchInviteModal({
+  open,
+  people,
+  accessMap,
+  onClose,
+  onDone,
+}: {
+  open: boolean;
+  people: Person[];
+  accessMap: Map<string, PontoAccessInfo>;
+  onClose: () => void;
+  onDone: () => Promise<void>;
+}) {
+  const { notify } = useHudToast();
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [sending, setSending] = useState(false);
+
+  // Elegíveis: sem acesso / pendente / expirado E com e-mail cadastrado.
+  const eligible = useMemo(
+    () =>
+      people.filter((p) => {
+        if (!p.email?.trim()) return false;
+        const s = accessMap.get(p.id)?.status ?? 'no_access';
+        return s === 'no_access' || s === 'pending' || s === 'expired';
+      }),
+    [people, accessMap],
+  );
+
+  useEffect(() => {
+    if (open) setSelected(new Set(eligible.map((p) => p.id)));
+  }, [open, eligible]);
+
+  if (!open) return null;
+
+  function toggle(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function send() {
+    if (selected.size === 0) return notify('Selecione ao menos uma pessoa', { variant: 'warning' });
+    setSending(true);
+    try {
+      const { summary } = await batchInvitePonto(Array.from(selected));
+      notify(`${summary.sent} convite(s) enviado(s)` + (summary.failed ? `, ${summary.failed} falha(s)` : ''), {
+        variant: summary.failed ? 'warning' : 'success',
+      });
+      await onDone();
+      onClose();
+    } catch (e) {
+      notify('Falha no convite em lote', { description: e instanceof Error ? e.message : undefined, variant: 'error' });
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <HudModal
+      isOpen={open}
+      onClose={onClose}
+      title="Convite em lote ao Ponto"
+      subtitle="Colaboradores sem acesso, com convite pendente ou expirado (e com e-mail)"
+      size="lg"
+      footer={
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs text-ig-fg-muted">{selected.size} de {eligible.length} selecionados</span>
+          <div className="flex gap-2">
+            <HudButton variant="ghost" onClick={onClose}>Cancelar</HudButton>
+            <HudButton variant="primary" isLoading={sending} disabled={selected.size === 0} leftIcon={<Send className="h-4 w-4" />} onClick={() => void send()}>
+              Enviar convites
+            </HudButton>
+          </div>
+        </div>
+      }
+    >
+      {eligible.length === 0 ? (
+        <p className="py-6 text-center text-sm text-ig-fg-muted">
+          Nenhum colaborador elegível. Cadastre e-mail nas pessoas ou verifique se já têm acesso ativo.
+        </p>
+      ) : (
+        <div className="max-h-[52vh] space-y-1 overflow-y-auto">
+          {eligible.map((p) => {
+            const status = accessMap.get(p.id)?.status ?? 'no_access';
+            return (
+              <label key={p.id} className="flex cursor-pointer items-center gap-3 rounded-lg border border-ig-border-subtle bg-ig-panel/40 px-3 py-2.5 hover:bg-ig-panel-hover">
+                <input type="checkbox" checked={selected.has(p.id)} onChange={() => toggle(p.id)} className="h-4 w-4 accent-ig-accent" />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium text-ig-fg-strong">{p.fullName}</span>
+                  <span className="block truncate text-xs text-ig-fg-muted">{p.email}</span>
+                </span>
+                <HudStatusPill variant={ACCESS_PILL[status]} size="sm">{PONTO_ACCESS_LABELS[status]}</HudStatusPill>
+              </label>
+            );
+          })}
+        </div>
+      )}
+    </HudModal>
   );
 }
 

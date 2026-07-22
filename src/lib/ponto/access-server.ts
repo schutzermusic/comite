@@ -480,3 +480,48 @@ export async function runAccessAction(
       throw new AccessError('Ação desconhecida.', 400, 'unknown_action');
   }
 }
+
+export interface BatchItemResult {
+  personId: string;
+  ok: boolean;
+  status?: PontoAccessStatus;
+  error?: string;
+}
+
+/**
+ * Convite em lote (rollout). Só aceita ações de convite (invite/resend);
+ * cada pessoa é processada isoladamente — uma falha (sem e-mail, rate-limit,
+ * transição inválida) não interrompe as demais. A ação real por pessoa é
+ * resolvida pelo status atual (no_access -> invite; pending/expired ->
+ * resend), então o chamador pode mandar 'invite' para todas.
+ */
+export async function runAccessBatch(
+  actorUserId: string,
+  orgId: string,
+  personIds: string[],
+  origin: string,
+): Promise<BatchItemResult[]> {
+  const service = getServiceClient();
+  const results: BatchItemResult[] = [];
+  for (const personId of Array.from(new Set(personIds)).slice(0, 200)) {
+    try {
+      const person = await loadPerson(service, personId, orgId);
+      const status = await currentStatus(service, person);
+      const action: PontoAccessAction | null =
+        status === 'no_access' ? 'invite' : status === 'pending' || status === 'expired' ? 'resend' : null;
+      if (!action) {
+        results.push({ personId, ok: false, status, error: 'Sem ação de convite aplicável a este status.' });
+        continue;
+      }
+      const r = await sendActivation(service, actorUserId, orgId, person, origin, {
+        mode: 'email',
+        isResend: action === 'resend',
+      });
+      results.push({ personId, ok: true, status: r.status });
+    } catch (e) {
+      const msg = e instanceof AccessError ? e.message : e instanceof Error ? e.message : 'Falha';
+      results.push({ personId, ok: false, error: msg });
+    }
+  }
+  return results;
+}

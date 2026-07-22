@@ -22,6 +22,8 @@ const files = [
   'supabase/migrations/065_attendance_selfies_storage.sql',
   'supabase/migrations/066_ponto_access.sql',
   'supabase/migrations/067_ponto_access_auth_rpc.sql',
+  'supabase/migrations/068_attendance_review.sql',
+  'supabase/migrations/069_attendance_selfie_retention.sql',
 ];
 
 const client = new pg.Client({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
@@ -68,6 +70,18 @@ try {
     `select key, name from roles where key = 'ponto_field_worker' and organization_id is null`,
   );
   console.log('Role ponto_field_worker:', role[0] ?? 'AUSENTE');
+
+  const { rows: reviewCols } = await client.query(
+    `select column_name from information_schema.columns
+     where table_schema='public' and table_name='attendance_punches'
+       and column_name in ('reviewed_by','reviewed_at','review_note') order by column_name`,
+  );
+  console.log('Colunas attendance_punches review:', reviewCols.map((c) => c.column_name).join(', ') || 'NENHUMA');
+
+  const { rows: purgeFn } = await client.query(
+    `select proname from pg_proc where proname = 'purge_attendance_selfies'`,
+  );
+  console.log('Função purge_attendance_selfies:', purgeFn[0]?.proname ?? 'AUSENTE');
 
   await client.query(`NOTIFY pgrst, 'reload schema'`);
   console.log('Schema cache do PostgREST recarregado.');

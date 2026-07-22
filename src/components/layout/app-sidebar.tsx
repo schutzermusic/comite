@@ -20,6 +20,7 @@ import {
   CreditCard,
   Cuboid,
   FileBadge,
+  ScanFace,
   FileCheck,
   FileSpreadsheet,
   FileText,
@@ -231,6 +232,12 @@ const navigationItems: MenuItem[] = [
         label: "Geofences",
         icon: MapPin,
         anyPermission: ["people.geofence_manage", "people.attendance_view"],
+      },
+      {
+        href: "/workforce-cost/ponto-revisao",
+        label: "Revisão de Ponto",
+        icon: ScanFace,
+        permission: "people.attendance_manage",
       },
       {
         href: "/workforce-cost/ponto-oficial",
