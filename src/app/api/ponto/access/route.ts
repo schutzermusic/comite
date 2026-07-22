@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { requireApiPermission } from '@/lib/auth/api-guard';
-import { AccessError, listAccess, runAccessAction, runAccessBatch } from '@/lib/ponto/access-server';
+import { AccessError, confirmRolloutSend, listAccess, runAccessAction, runAccessBatch } from '@/lib/ponto/access-server';
 import type { PontoAccessAction } from '@/lib/ponto/access-types';
 
 export const runtime = 'nodejs';
@@ -57,7 +57,7 @@ export async function POST(req: Request) {
     const orgId = await actorOrg(guard.userId);
     if (!orgId) return NextResponse.json({ ok: false, error: 'Admin sem organização.' }, { status: 403 });
 
-    let body: { personId?: string; action?: string; personIds?: string[] } = {};
+    let body: { personId?: string; action?: string; personIds?: string[]; rollout?: boolean } = {};
     try {
       body = (await req.json()) as typeof body;
     } catch {
@@ -69,6 +69,13 @@ export async function POST(req: Request) {
       const ids = body.personIds.filter((v): v is string => typeof v === 'string' && v.length > 0);
       if (ids.length === 0) return NextResponse.json({ ok: false, error: 'Selecione ao menos uma pessoa.' }, { status: 400 });
       const origin = new URL(req.url).origin;
+
+      // Confirmação do preview de rollout → REVALIDA cada pessoa no servidor.
+      if (body.rollout === true) {
+        const { results, summary } = await confirmRolloutSend(guard.userId, orgId, ids, origin);
+        return NextResponse.json({ ok: true, rollout: true, results, summary });
+      }
+
       const results = await runAccessBatch(guard.userId, orgId, ids, origin);
       const sent = results.filter((r) => r.ok).length;
       return NextResponse.json({ ok: true, results, summary: { sent, failed: results.length - sent, total: results.length } });

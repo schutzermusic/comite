@@ -40,7 +40,7 @@ import {
   createResidenceMunicipality,
   listResidenceMunicipalities,
 } from '@/lib/services/residence-municipalities';
-import { batchInvitePonto, listPontoAccess, previewProvisioning, runPontoAccessAction } from '@/lib/ponto/access-client';
+import { batchInvitePonto, confirmRolloutSend, listPontoAccess, previewProvisioning, runPontoAccessAction } from '@/lib/ponto/access-client';
 import type { PontoPreviewItem, PontoPreviewTotals } from '@/lib/ponto/access-types';
 import {
   PONTO_ACCESS_LABELS,
@@ -701,13 +701,15 @@ function RolloutPreviewModal({ open, onClose, onDone }: { open: boolean; onClose
   async function confirmSend() {
     const ids = Array.from(selected);
     if (ids.length === 0) return notify('Selecione ao menos uma pessoa', { variant: 'warning' });
-    if (!window.confirm(`Enviar convite de acesso ao Ponto para ${ids.length} colaborador(es)?`)) return;
+    if (!window.confirm(`Enviar convite de acesso ao Ponto para ${ids.length} colaborador(es)? Cada pessoa é revalidada no servidor antes do envio.`)) return;
     setSending(true);
     try {
-      const { summary } = await batchInvitePonto(ids);
-      notify(`${summary.sent} convite(s) enviado(s)` + (summary.failed ? `, ${summary.failed} falha(s)` : ''), {
-        variant: summary.failed ? 'warning' : 'success',
-      });
+      // Caminho de rollout: o servidor REVALIDA cada pessoa antes de enviar.
+      const { summary } = await confirmRolloutSend(ids);
+      notify(
+        `${summary.sent} convite(s) enviado(s)` + (summary.skipped ? `, ${summary.skipped} pulado(s)/revalidado(s)` : ''),
+        { variant: summary.skipped ? 'warning' : 'success' },
+      );
       await onDone();
       onClose();
     } catch (e) {

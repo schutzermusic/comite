@@ -60,11 +60,20 @@ export default defineConfig({
     // },
   ],
 
-  /* Execute seu servidor de desenvolvimento local antes de iniciar os testes */
+  /*
+   * Sobe um servidor de teste FRESCO automaticamente (não depende de um
+   * servidor 9002 iniciado manualmente, que pode estar stale→500). O
+   * health-check aponta para uma página pública real; reuseExistingServer=false
+   * garante uma instância limpa. Ajuste PONTO_E2E_REUSE=1 p/ reaproveitar um
+   * server saudável já rodando (dev local rápido).
+   */
   webServer: {
     command: 'npm run dev',
-    url: 'http://localhost:9002',
-    reuseExistingServer: !process.env.CI,
+    url: 'http://localhost:9002/ponto/login',
+    reuseExistingServer: process.env.PONTO_E2E_REUSE === '1',
+    timeout: 180_000,
+    stdout: 'ignore',
+    stderr: 'pipe',
   },
 });
 

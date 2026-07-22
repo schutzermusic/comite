@@ -29,6 +29,16 @@ export const PONTO_ROLE_KEY = 'ponto_field_worker';
 export const RESEND_COOLDOWN_MS = 60_000; // 60s entre envios (anti-spam duro)
 
 /**
+ * KILL SWITCH da automação. Default FALSE (ausente = desligado). Quando
+ * desligado, os jobs agendados (provisionamento/lembretes/retenção) rodam
+ * SOMENTE em dry-run — nenhum convite/lembrete/mutação automática ocorre.
+ * Ações manuais confirmadas pelo admin (UI protegida) continuam funcionando.
+ */
+export function isAutomationEnabled(): boolean {
+  return /^(1|true|yes|on)$/i.test((process.env.PONTO_AUTOMATION_ENABLED ?? '').trim());
+}
+
+/**
  * Validade REAL do link de ativação. O TTL é config do Supabase Auth
  * (Authentication → Email → link expiry / MAILER_OTP_EXP), que não é
  * consultável de forma confiável pelo app — por isso é declarado por
@@ -70,6 +80,7 @@ export interface PersonAccessRow {
   organization_id: string;
   full_name: string;
   email: string | null;
+  status: string; // people.status (active/inactive) — revalidação de envio
   profile_id: string | null;
   access_invited_at: string | null;
   access_invite_count: number;
@@ -83,7 +94,7 @@ export interface PersonAccessRow {
 }
 
 const PERSON_ACCESS_COLS =
-  'id, organization_id, full_name, email, profile_id, access_invited_at, access_invite_count, access_blocked, ' +
+  'id, organization_id, full_name, email, status, profile_id, access_invited_at, access_invite_count, access_blocked, ' +
   'access_last_reminder_at, access_reminder_count, access_activated_at, access_provision_source, access_last_error, access_last_error_at';
 
 export class AccessError extends Error {
@@ -630,6 +641,90 @@ export async function runAccessBatch(
     }
   }
   return results;
+}
+
+/* ─────────────────── revalidação server-side antes do envio ─────────────────── */
+
+async function hasLiveRequiresPontoAllocation(service: SupabaseClient, orgId: string, personId: string): Promise<boolean> {
+  const { data } = await service
+    .from('project_allocations')
+    .select('id')
+    .eq('organization_id', orgId)
+    .eq('person_id', personId)
+    .eq('requires_ponto', true)
+    .in('status', ['active', 'pending_approval'])
+    .limit(1);
+  return (data ?? []).length > 0;
+}
+
+/**
+ * Revalida uma pessoa NO SERVIDOR imediatamente antes do envio, sem confiar
+ * em nada vindo do frontend. Retorna { ok, reason }.
+ */
+async function revalidateForSend(
+  service: SupabaseClient,
+  orgId: string,
+  person: PersonAccessRow,
+  opts: { requireAllocation: boolean },
+): Promise<{ ok: boolean; reason: string }> {
+  if (person.organization_id !== orgId) return { ok: false, reason: 'Pessoa de outra organização' };
+  if (person.status !== 'active') return { ok: false, reason: 'Colaborador inativo' };
+  if (!hasValidEmail(person)) return { ok: false, reason: 'Sem e-mail válido' };
+
+  const status = await currentStatus(service, person);
+  if (status === 'blocked') return { ok: false, reason: 'Acesso bloqueado' };
+  if (status === 'active') return { ok: false, reason: 'Já ativo' };
+  if (status === 'pending') return { ok: false, reason: 'Convite já pendente' };
+
+  if (opts.requireAllocation && !(await hasLiveRequiresPontoAllocation(service, orgId, person.id))) {
+    return { ok: false, reason: 'Sem alocação viva que exija ponto' };
+  }
+
+  // posse conflitante de e-mail (outra org / outra pessoa)
+  const email = (person.email ?? '').trim().toLowerCase();
+  const { data: byEmail } = await service.rpc('ponto_auth_user_by_email', { p_email: email });
+  const existing = (byEmail?.[0] ?? null) as { user_id: string } | null;
+  if (existing) {
+    const { data: prof } = await service.from('profiles').select('id, organization_id').eq('user_id', existing.user_id).maybeSingle();
+    if (prof?.organization_id && prof.organization_id !== orgId) return { ok: false, reason: 'E-mail pertence a outra organização' };
+    if (prof?.id) {
+      const { data: other } = await service.from('people').select('id').eq('profile_id', prof.id).neq('id', person.id).maybeSingle();
+      if (other) return { ok: false, reason: 'E-mail já vinculado a outro colaborador' };
+    }
+  }
+  return { ok: true, reason: 'ok' };
+}
+
+export interface RolloutSendItem { personId: string; sent: boolean; reason: string }
+
+/**
+ * Confirma o envio dos convites selecionados no preview de rollout,
+ * REVALIDANDO cada pessoa no servidor (não confia no frontend). Registros
+ * que mudaram após o preview são PULADOS com o motivo atual; uma falha não
+ * derruba as demais. `actorUserId` já foi autorizado (people.manage) na rota.
+ */
+export async function confirmRolloutSend(
+  actorUserId: string,
+  orgId: string,
+  personIds: string[],
+  origin: string,
+): Promise<{ results: RolloutSendItem[]; summary: { sent: number; skipped: number; failed: number; total: number } }> {
+  const service = getServiceClient();
+  const results: RolloutSendItem[] = [];
+  for (const personId of Array.from(new Set(personIds)).slice(0, 500)) {
+    try {
+      const person = await loadPerson(service, personId, orgId); // valida tenant
+      const v = await revalidateForSend(service, orgId, person, { requireAllocation: true });
+      if (!v.ok) { results.push({ personId, sent: false, reason: v.reason }); continue; }
+      await sendActivation(service, actorUserId, orgId, person, origin, { mode: 'email', isResend: false, source: 'allocation' });
+      results.push({ personId, sent: true, reason: 'Convite enviado' });
+    } catch (e) {
+      results.push({ personId, sent: false, reason: e instanceof AccessError ? e.message : e instanceof Error ? e.message : 'Falha' });
+    }
+  }
+  const sent = results.filter((r) => r.sent).length;
+  const total = results.length;
+  return { results, summary: { sent, skipped: total - sent, failed: results.filter((r) => !r.sent && r.reason !== 'ok').length, total } };
 }
 
 /* ═══════════════════ AUTO-PROVISIONING + LEMBRETES (cron) ═══════════════════ */

@@ -23,6 +23,12 @@ import {
 import { usePermissions } from '@/hooks/use-permissions';
 import { listReviewItems, resolvePunch, type ReviewItem } from '@/lib/ponto/review-client';
 
+type JobRun = {
+  id: string; job_type: string; started_at: string; status: string; dry_run: boolean;
+  scanned: number; succeeded: number; failed: number; skipped: number; error_summary: string | null;
+};
+type JobsState = { automationEnabled: boolean; schedules: Record<string, string>; runs: JobRun[] };
+
 const PUNCH_LABEL: Record<string, string> = {
   clock_in: 'Entrada',
   break_start: 'Início de intervalo',
@@ -110,6 +116,8 @@ export default function PontoRevisaoPage() {
           </HudPanel>
         )}
 
+        <PontoJobsPanel />
+
         <HudKpiStrip kpis={kpis} columns={3} />
 
         {loading ? (
@@ -181,5 +189,66 @@ export default function PontoRevisaoPage() {
         )}
       </div>
     </HudPageLayout>
+  );
+}
+
+/* ─────────────────────── Painel de automação/jobs ─────────────────────── */
+
+function fmtJobTime(iso: string | null): string {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+function PontoJobsPanel() {
+  const [state, setState] = useState<JobsState | null>(null);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    void fetch('/api/ponto/jobs')
+      .then((r) => r.json())
+      .then((j) => { if (active) { if (j.ok) setState(j); else setError(true); } })
+      .catch(() => { if (active) setError(true); });
+    return () => { active = false; };
+  }, []);
+
+  if (error) return null;
+
+  const cronRuns = state?.runs.filter((r) => r.job_type === 'cron') ?? [];
+  const retRuns = state?.runs.filter((r) => r.job_type === 'retention') ?? [];
+  const lastSuccess = state?.runs.find((r) => r.status === 'success' || r.status === 'partial') ?? null;
+  const lastFailed = state?.runs.find((r) => r.status === 'failed') ?? null;
+
+  return (
+    <HudPanel>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ig-fg-muted">Automação do Ponto</p>
+          <HudStatusPill variant={state?.automationEnabled ? 'active' : 'neutral'} size="sm">
+            {state == null ? '…' : state.automationEnabled ? 'Ativada' : 'Desativada (dry-run)'}
+          </HudStatusPill>
+        </div>
+        <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-ig-fg-muted">
+          <span>Cron: <span className="text-ig-fg-strong">{state?.schedules.cron ?? '—'}</span></span>
+          <span>Retenção: <span className="text-ig-fg-strong">{state?.schedules.retention ?? '—'}</span></span>
+        </div>
+      </div>
+      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <JobStat label="Última execução OK" value={fmtJobTime(lastSuccess?.started_at ?? null)} sub={lastSuccess ? `${lastSuccess.succeeded} ok · ${lastSuccess.failed} falha` : undefined} />
+        <JobStat label="Última falha" value={fmtJobTime(lastFailed?.started_at ?? null)} sub={lastFailed?.error_summary ?? undefined} tone={lastFailed ? 'danger' : undefined} />
+        <JobStat label="Cron (últimas)" value={cronRuns.length ? `${cronRuns[0].succeeded} processados` : '—'} sub={cronRuns.length ? `${cronRuns[0].failed} falha · ${cronRuns[0].dry_run ? 'dry-run' : 'live'}` : undefined} />
+        <JobStat label="Retenção (última)" value={retRuns.length ? `${retRuns[0].succeeded} removidos` : '—'} sub={retRuns.length ? `${retRuns[0].failed} falha · ${retRuns[0].dry_run ? 'dry-run' : 'live'}` : undefined} />
+      </div>
+    </HudPanel>
+  );
+}
+
+function JobStat({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone?: 'danger' }) {
+  return (
+    <div className="rounded-lg border border-ig-border-subtle bg-ig-panel/40 px-3 py-2">
+      <p className="text-[10px] uppercase tracking-[0.08em] text-ig-fg-subtle">{label}</p>
+      <p className={`text-sm font-semibold ${tone === 'danger' ? 'text-ig-danger' : 'text-ig-fg-strong'}`}>{value}</p>
+      {sub && <p className="mt-0.5 truncate text-[11px] text-ig-fg-muted" title={sub}>{sub}</p>}
+    </div>
   );
 }

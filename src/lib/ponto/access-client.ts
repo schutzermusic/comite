@@ -59,6 +59,22 @@ export async function previewProvisioning(): Promise<{ items: PontoPreviewItem[]
   return parse<{ items: PontoPreviewItem[]; totals: PontoPreviewTotals }>(res);
 }
 
+export interface RolloutSendItem { personId: string; sent: boolean; reason: string }
+export interface RolloutSendResult {
+  results: RolloutSendItem[];
+  summary: { sent: number; skipped: number; failed: number; total: number };
+}
+
+/** Confirma o envio do rollout — o servidor REVALIDA cada pessoa antes de enviar. */
+export async function confirmRolloutSend(personIds: string[]): Promise<RolloutSendResult> {
+  const res = await fetch('/api/ponto/access', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ personIds, rollout: true }),
+  });
+  return parse<RolloutSendResult>(res);
+}
+
 /** Envia convites em lote (a ação por pessoa é derivada do status atual). */
 export async function batchInvitePonto(personIds: string[]): Promise<BatchInviteResult> {
   const res = await fetch('/api/ponto/access', {
