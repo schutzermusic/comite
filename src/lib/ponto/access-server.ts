@@ -15,23 +15,45 @@ import { getServiceClient } from '@/lib/ai/server-clients';
 import { getWorkspaceName } from '@/lib/branding';
 import {
   allowedActions,
+  tallyPreview,
   type PontoAccessAction,
   type PontoAccessInfo,
   type PontoAccessStatus,
+  type PontoPreview,
+  type PontoPreviewItem,
+  type PontoProposedAction,
   type PontoProvisionSource,
 } from '@/lib/ponto/access-types';
 
 export const PONTO_ROLE_KEY = 'ponto_field_worker';
 export const RESEND_COOLDOWN_MS = 60_000; // 60s entre envios (anti-spam duro)
-export const INVITE_EXPIRY_HOURS = 168; // validade do convite (7 dias)
-export const EXPIRING_WINDOW_MS = 24 * 3_600_000; // "expirando" = < 24h p/ vencer
+
 /**
- * Cadência de lembretes (por reminder_count), medida desde o último envio
- * (access_invited_at). Cada lembrete reenvia um link fresco. Máx = 3.
- *   #0 -> 24h, #1 -> 72h (3d), #2 -> 72h (final, antes do vencimento).
+ * Validade REAL do link de ativação. O TTL é config do Supabase Auth
+ * (Authentication → Email → link expiry / MAILER_OTP_EXP), que não é
+ * consultável de forma confiável pelo app — por isso é declarado por
+ * ambiente. Default 24h = padrão do Supabase. Ajuste PONTO_INVITE_TTL_HOURS
+ * para casar com o valor real do seu projeto.
  */
-export const REMINDER_INTERVALS_MS = [24 * 3_600_000, 72 * 3_600_000, 72 * 3_600_000];
-export const MAX_REMINDERS = REMINDER_INTERVALS_MS.length;
+export function inviteTtlHours(): number {
+  const v = Number(process.env.PONTO_INVITE_TTL_HOURS);
+  return Number.isFinite(v) && v > 0 ? v : 24;
+}
+export function inviteTtlMs(): number {
+  return inviteTtlHours() * 3_600_000;
+}
+/** "Expirando" quando falta ≤ 25% do TTL (mín. 1h). */
+export function expiringWindowMs(): number {
+  return Math.max(60 * 60_000, inviteTtlMs() * 0.25);
+}
+/**
+ * Cadência de lembretes como FRAÇÃO do TTL, garantindo que todo lembrete é
+ * enviado ANTES do vencimento (item 5). Cada lembrete reenvia um link fresco
+ * (reinicia o relógio). Máx = REMINDER_FRACTIONS.length.
+ *   #0 -> 50% do TTL, #1 -> 80% do TTL.
+ */
+export const REMINDER_FRACTIONS = [0.5, 0.8];
+export const MAX_REMINDERS = REMINDER_FRACTIONS.length;
 /** Erro de e-mail: retenta no cron após esta janela (estado retryable). */
 export const ERROR_RETRY_MS = 60 * 60_000; // 1h
 
@@ -79,7 +101,7 @@ function statusFor(person: PersonAccessRow, auth: AuthState | undefined): PontoA
   if (auth.email_confirmed_at) return 'active';
   if (person.access_invited_at) {
     const ageMs = Date.now() - new Date(person.access_invited_at).getTime();
-    if (ageMs > INVITE_EXPIRY_HOURS * 3_600_000) return 'expired';
+    if (ageMs > inviteTtlMs()) return 'expired';
   }
   return 'pending';
 }
@@ -87,9 +109,9 @@ function statusFor(person: PersonAccessRow, auth: AuthState | undefined): PontoA
 /** Vencimento do convite (base = último envio) + flag "expirando". */
 function expiryOf(person: PersonAccessRow, status: PontoAccessStatus): { expiresAt: string | null; expiringSoon: boolean } {
   if (!person.access_invited_at) return { expiresAt: null, expiringSoon: false };
-  const expMs = new Date(person.access_invited_at).getTime() + INVITE_EXPIRY_HOURS * 3_600_000;
+  const expMs = new Date(person.access_invited_at).getTime() + inviteTtlMs();
   const remaining = expMs - Date.now();
-  return { expiresAt: new Date(expMs).toISOString(), expiringSoon: status === 'pending' && remaining <= EXPIRING_WINDOW_MS };
+  return { expiresAt: new Date(expMs).toISOString(), expiringSoon: status === 'pending' && remaining <= expiringWindowMs() };
 }
 
 /** profile_id[] -> { profileId -> userId } via profiles (service role). */
@@ -217,7 +239,7 @@ function activationEmailHtml(params: { name: string; workspace: string; link: st
         <tr><td style="color:#E8EEF2;font-size:22px;font-weight:800;padding-top:8px;">Ative seu acesso ao ponto</td></tr>
         <tr><td style="color:#8DA2B5;font-size:14px;line-height:22px;padding-top:12px;">
           Olá, ${first}. Você recebeu acesso ao app de Ponto de <strong style="color:#E8EEF2;">${workspace}</strong>.
-          Clique no botão abaixo para criar sua senha e ativar a conta. O link é de uso único e expira em ${INVITE_EXPIRY_HOURS} horas.
+          Clique no botão abaixo para criar sua senha e ativar a conta. O link é de uso único e expira em ${inviteTtlHours()} horas.
         </td></tr>
         <tr><td style="padding-top:24px;">
           <a href="${link}" style="display:inline-block;background:#22C08D;color:#07120E;font-size:15px;font-weight:bold;text-decoration:none;padding:14px 28px;border-radius:12px;">Ativar minha conta</a>
@@ -614,6 +636,65 @@ export async function runAccessBatch(
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+function hasValidEmail(person: PersonAccessRow): boolean {
+  const email = (person.email ?? '').trim();
+  return !!email && EMAIL_RE.test(email);
+}
+
+/* ── avaliadores PUROS (sem efeito colateral) — base do dry-run ── */
+
+type ProvisionDecision = { proposedAction: PontoProposedAction; reason: string; eligible: boolean; blockingError: string | null };
+
+/** Decisão de provisionamento para um CANDIDATO (alocação exige ponto). */
+function evalProvision(person: PersonAccessRow, status: PontoAccessStatus): ProvisionDecision {
+  switch (status) {
+    case 'no_access':
+      return hasValidEmail(person)
+        ? { proposedAction: 'invite', reason: 'Sem acesso — convite será enviado', eligible: true, blockingError: null }
+        : { proposedAction: 'fail', reason: 'Sem e-mail válido no cadastro', eligible: false, blockingError: 'missing_email' };
+    case 'blocked':
+      return { proposedAction: 'skip', reason: 'Acesso bloqueado — não reativa automaticamente', eligible: false, blockingError: null };
+    case 'active':
+      return { proposedAction: 'skip', reason: 'Já ativo', eligible: false, blockingError: null };
+    case 'pending':
+      return { proposedAction: 'skip', reason: 'Convite pendente — não duplica', eligible: false, blockingError: null };
+    default: // expired
+      return { proposedAction: 'skip', reason: 'Convite expirado — reenvie manualmente', eligible: false, blockingError: null };
+  }
+}
+
+type ReminderDecision = { due: boolean; reason: string };
+
+/** Decisão de lembrete (respeita TTL: nunca lembra após o vencimento). */
+function evalReminder(person: PersonAccessRow, status: PontoAccessStatus): ReminderDecision {
+  if (status !== 'pending') return { due: false, reason: 'não está pendente' };
+  const count = person.access_reminder_count ?? 0;
+  if (count >= MAX_REMINDERS) return { due: false, reason: 'lembretes esgotados' };
+  const anchor = person.access_invited_at ? new Date(person.access_invited_at).getTime() : 0;
+  const ttl = inviteTtlMs();
+  if (Date.now() >= anchor + ttl) return { due: false, reason: 'link expirado' };
+  if (person.access_last_error && person.access_last_error_at && Date.now() - new Date(person.access_last_error_at).getTime() < ERROR_RETRY_MS) {
+    return { due: false, reason: 'aguardando backoff de erro' };
+  }
+  if (Date.now() < anchor + REMINDER_FRACTIONS[count] * ttl) return { due: false, reason: 'intervalo ainda não vencido' };
+  return { due: true, reason: `lembrete #${count + 1}` };
+}
+
+function previewItem(person: PersonAccessRow, status: PontoAccessStatus, project: string | null, d: ProvisionDecision): PontoPreviewItem {
+  return {
+    personId: person.id,
+    personName: person.full_name,
+    email: person.email,
+    organizationId: person.organization_id,
+    project,
+    currentStatus: status,
+    proposedAction: d.proposedAction,
+    reason: d.reason,
+    eligible: d.eligible,
+    blockingError: d.blockingError,
+  };
+}
+
 /** Núcleo do provisionamento para uma pessoa em 'no_access' (ou marca erro). */
 async function doProvision(
   service: SupabaseClient,
@@ -623,8 +704,7 @@ async function doProvision(
   origin: string,
   source: PontoProvisionSource,
 ): Promise<{ action: 'provisioned' | 'skipped_no_email'; status: PontoAccessStatus }> {
-  const email = (person.email ?? '').trim();
-  if (!email || !EMAIL_RE.test(email)) {
+  if (!hasValidEmail(person)) {
     // Sem e-mail válido → aviso acionável de RH (surge em access_last_error).
     if (person.access_last_error !== 'missing_email') {
       await service
@@ -643,12 +723,14 @@ async function doProvision(
 export interface ProvisionResult {
   action: 'provisioned' | 'skipped_no_email' | 'skipped_active' | 'skipped_pending' | 'skipped_blocked';
   status: PontoAccessStatus;
+  preview?: PontoPreviewItem; // presente quando dryRun
 }
 
 /**
  * Provisiona (ou não) o acesso de UMA pessoa, idempotente e seguro para
- * repetir. Regras: no_access -> convida; pending -> não duplica; active ->
- * nada; blocked -> NÃO reativa; sem e-mail -> aviso de RH. Audita o desfecho.
+ * repetir. dryRun=true NÃO muta/envia — só devolve a decisão prevista.
+ * Regras: no_access -> convida; pending -> não duplica; active -> nada;
+ * blocked -> NÃO reativa; sem e-mail -> aviso de RH. Audita o desfecho.
  */
 export async function provisionPerson(
   actorUserId: string | null,
@@ -656,10 +738,25 @@ export async function provisionPerson(
   personId: string,
   origin: string,
   source: PontoProvisionSource = 'manual',
+  dryRun = false,
 ): Promise<ProvisionResult> {
   const service = getServiceClient();
   const person = await loadPerson(service, personId, orgId);
   const status = await currentStatus(service, person);
+
+  if (dryRun) {
+    const d = evalProvision(person, status);
+    return {
+      action:
+        d.proposedAction === 'invite' ? 'provisioned'
+          : d.proposedAction === 'fail' ? 'skipped_no_email'
+            : status === 'blocked' ? 'skipped_blocked'
+              : status === 'active' ? 'skipped_active' : 'skipped_pending',
+      status,
+      preview: previewItem(person, status, null, d),
+    };
+  }
+
   switch (status) {
     case 'no_access':
       return doProvision(service, actorUserId, orgId, person, origin, source);
@@ -675,34 +772,37 @@ export async function provisionPerson(
   }
 }
 
-/** person_ids de colaboradores ATIVOS com alocação viva (requer Ponto). */
-async function activeAllocatedPersonIds(service: SupabaseClient, orgId: string): Promise<string[]> {
+/**
+ * Candidatos que EXIGEM ponto: colaborador ativo + alocação viva marcada
+ * com requires_ponto=true. Retorna personId -> um project_id (amostra).
+ */
+async function requiresPontoCandidates(service: SupabaseClient, orgId: string): Promise<Map<string, string>> {
   const { data } = await service
     .from('project_allocations')
-    .select('person_id, people:person_id ( status )')
+    .select('person_id, project_id, people:person_id ( status )')
     .eq('organization_id', orgId)
+    .eq('requires_ponto', true)
     .in('status', ['active', 'pending_approval']);
-  const ids = new Set<string>();
-  for (const row of (data ?? []) as unknown as Array<{ person_id: string; people: { status: string } | null }>) {
-    if (row.people?.status === 'active') ids.add(row.person_id);
+  const map = new Map<string, string>();
+  for (const row of (data ?? []) as unknown as Array<{ person_id: string; project_id: string; people: { status: string } | null }>) {
+    if (row.people?.status === 'active' && !map.has(row.person_id)) map.set(row.person_id, row.project_id);
   }
-  return Array.from(ids);
+  return map;
 }
 
 export interface ReconcileResult { candidates: number; provisioned: number; noEmail: number; failed: number }
 
 /**
- * Reconciliação de provisionamento por alocação (idempotente). Age APENAS
- * em quem está 'no_access' (não audita "steady state"); falha isolada por
- * pessoa não interrompe as demais.
+ * Reconciliação de provisionamento por alocação que EXIGE ponto (idempotente).
+ * Age APENAS em quem está 'no_access'. Falha isolada por pessoa.
  */
 export async function reconcileProvisioning(orgId: string, origin: string): Promise<ReconcileResult> {
   const service = getServiceClient();
-  const ids = await activeAllocatedPersonIds(service, orgId);
-  const res: ReconcileResult = { candidates: ids.length, provisioned: 0, noEmail: 0, failed: 0 };
-  if (ids.length === 0) return res;
+  const candidates = await requiresPontoCandidates(service, orgId);
+  const res: ReconcileResult = { candidates: candidates.size, provisioned: 0, noEmail: 0, failed: 0 };
+  if (candidates.size === 0) return res;
   const infos = new Map((await listAccess(orgId)).map((i) => [i.personId, i]));
-  for (const pid of ids) {
+  for (const pid of candidates.keys()) {
     const info = infos.get(pid);
     if (!info || info.status !== 'no_access') continue;
     try {
@@ -717,12 +817,28 @@ export async function reconcileProvisioning(orgId: string, origin: string): Prom
   return res;
 }
 
+/** Preview (dry-run) do provisionamento por alocação — sem mutar/enviar. */
+export async function previewProvisioning(orgId: string): Promise<PontoPreviewItem[]> {
+  const service = getServiceClient();
+  const candidates = await requiresPontoCandidates(service, orgId);
+  if (candidates.size === 0) return [];
+  const infos = new Map((await listAccess(orgId)).map((i) => [i.personId, i]));
+  const items: PontoPreviewItem[] = [];
+  for (const [pid, projectId] of candidates) {
+    const info = infos.get(pid);
+    if (!info) continue;
+    const person = await loadPerson(service, pid, orgId).catch(() => null);
+    if (!person) continue;
+    items.push(previewItem(person, info.status, projectId, evalProvision(person, info.status)));
+  }
+  return items;
+}
+
 export interface ReminderResult { sent: number; failed: number; skipped: number }
 
 /**
- * Lembretes de convites pendentes. Cadência escalonada por reminder_count
- * (REMINDER_INTERVALS_MS), máx MAX_REMINDERS, com backoff em erro. Para
- * automaticamente após ativação/bloqueio/revogação (só atua em 'pending').
+ * Lembretes de convites pendentes. Cadência = fração do TTL (nunca após o
+ * vencimento), máx MAX_REMINDERS, com backoff em erro. Só atua em 'pending'.
  */
 export async function runReminders(orgId: string, origin: string): Promise<ReminderResult> {
   const service = getServiceClient();
@@ -732,16 +848,7 @@ export async function runReminders(orgId: string, origin: string): Promise<Remin
     if (info.status !== 'pending') continue;
     const person = await loadPerson(service, info.personId, orgId).catch(() => null);
     if (!person) { res.skipped += 1; continue; }
-
-    const count = person.access_reminder_count ?? 0;
-    if (count >= MAX_REMINDERS) { res.skipped += 1; continue; }
-    // backoff após falha de e-mail (estado retryable, sem hammering)
-    if (person.access_last_error && person.access_last_error_at) {
-      if (Date.now() - new Date(person.access_last_error_at).getTime() < ERROR_RETRY_MS) { res.skipped += 1; continue; }
-    }
-    const anchor = person.access_invited_at ? new Date(person.access_invited_at).getTime() : 0;
-    if (Date.now() < anchor + REMINDER_INTERVALS_MS[count]) { res.skipped += 1; continue; }
-
+    if (!evalReminder(person, info.status).due) { res.skipped += 1; continue; }
     try {
       await sendActivation(service, null, orgId, person, origin, {
         mode: 'email',
@@ -755,6 +862,33 @@ export async function runReminders(orgId: string, origin: string): Promise<Remin
     }
   }
   return res;
+}
+
+/** Preview (dry-run) dos lembretes devidos — sem enviar. */
+export async function previewReminders(orgId: string): Promise<PontoPreviewItem[]> {
+  const service = getServiceClient();
+  const infos = await listAccess(orgId);
+  const items: PontoPreviewItem[] = [];
+  for (const info of infos) {
+    if (info.status !== 'pending') continue;
+    const person = await loadPerson(service, info.personId, orgId).catch(() => null);
+    if (!person) continue;
+    const d = evalReminder(person, info.status);
+    if (!d.due) continue;
+    items.push({
+      personId: person.id,
+      personName: person.full_name,
+      email: person.email,
+      organizationId: person.organization_id,
+      project: null,
+      currentStatus: info.status,
+      proposedAction: 'remind',
+      reason: d.reason,
+      eligible: true,
+      blockingError: null,
+    });
+  }
+  return items;
 }
 
 export interface ActivationResult { activated: number }
@@ -779,6 +913,7 @@ export async function detectActivations(orgId: string): Promise<ActivationResult
 }
 
 export interface CronSummary {
+  dryRun: false;
   orgs: number;
   activated: number;
   provisioned: number;
@@ -789,16 +924,34 @@ export interface CronSummary {
   errors: Array<{ orgId: string; error: string }>;
 }
 
+async function allOrgIds(service: SupabaseClient): Promise<string[]> {
+  const { data } = await service.from('people').select('organization_id').not('organization_id', 'is', null);
+  return Array.from(new Set((data ?? []).map((o) => o.organization_id as string)));
+}
+
 /**
- * Job agendado: para cada organização detecta ativações, reconcilia o
- * provisionamento por alocação e dispara lembretes. Falha por org é isolada.
+ * Job agendado. dryRun=true NÃO muta/envia: devolve o que FARIA (itens +
+ * totais wouldInvite/wouldRemind/wouldSkip/wouldFail). Falha por org isolada.
  */
-export async function runPontoCron(origin: string): Promise<CronSummary> {
+export async function runPontoCron(origin: string, dryRun = false): Promise<CronSummary | PontoPreview> {
   const service = getServiceClient();
-  const { data: orgRows } = await service.from('people').select('organization_id').not('organization_id', 'is', null);
-  const orgIds = Array.from(new Set((orgRows ?? []).map((o) => o.organization_id as string)));
+  const orgIds = await allOrgIds(service);
+
+  if (dryRun) {
+    const items: PontoPreviewItem[] = [];
+    for (const orgId of orgIds) {
+      try {
+        items.push(...(await previewProvisioning(orgId)));
+        items.push(...(await previewReminders(orgId)));
+      } catch {
+        /* isola falha por org no preview */
+      }
+    }
+    return { dryRun: true, items, totals: tallyPreview(items) };
+  }
+
   const summary: CronSummary = {
-    orgs: orgIds.length, activated: 0, provisioned: 0, noEmail: 0,
+    dryRun: false, orgs: orgIds.length, activated: 0, provisioned: 0, noEmail: 0,
     remindersSent: 0, remindersFailed: 0, provisionFailed: 0, errors: [],
   };
   for (const orgId of orgIds) {
@@ -816,4 +969,10 @@ export async function runPontoCron(origin: string): Promise<CronSummary> {
     }
   }
   return summary;
+}
+
+/** Preview (dry-run) de UMA organização — para a tela de rollout. */
+export async function previewOrg(orgId: string): Promise<PontoPreview> {
+  const items = [...(await previewProvisioning(orgId)), ...(await previewReminders(orgId))];
+  return { dryRun: true, items, totals: tallyPreview(items) };
 }

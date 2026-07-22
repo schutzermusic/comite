@@ -3,6 +3,10 @@
     {
       "path": "/api/ponto/cron",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/ponto/retention",
+      "schedule": "0 3 * * *"
     }
   ]
 }

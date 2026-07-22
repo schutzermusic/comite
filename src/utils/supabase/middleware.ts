@@ -159,6 +159,13 @@ export async function updateSession(request: NextRequest) {
         else if (pathname === '/login') pontoRewrite = '/ponto/login'
         if (pontoRewrite) pathname = pontoRewrite
     }
+    // Endpoints de job agendado autenticam por CRON_SECRET (Bearer), sem
+    // sessão de usuário — o Vercel Cron não envia cookie. Nunca podem ser
+    // redirecionados para /login; o próprio handler valida o segredo.
+    if (pathname.startsWith('/api/ponto/cron') || pathname.startsWith('/api/ponto/retention')) {
+        return supabaseResponse
+    }
+
     const isPublicRoute = isRoute(pathname, PUBLIC_ROUTES) || isRoute(pathname, AUTH_UTILITY_ROUTES)
     const isSetupRoute = isRoute(pathname, PROFILE_SETUP_ROUTES)
     const isAccessRestricted = pathname === ACCESS_RESTRICTED_ROUTE

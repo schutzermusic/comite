@@ -24,7 +24,10 @@ if (!secret) {
   process.exit(1);
 }
 
-const url = `${base}/api/ponto/cron`;
+const dryRun = process.argv.includes('--dry-run') || process.argv.includes('--dryRun');
+const url = new URL(`${base}/api/ponto/cron`);
+if (dryRun) url.searchParams.set('dryRun', '1');
+
 const res = await fetch(url, {
   method: 'POST',
   headers: { authorization: `Bearer ${secret}` },
@@ -34,4 +37,4 @@ if (!res.ok || json.ok === false) {
   console.error(`Falha (${res.status}):`, json.error || 'erro desconhecido');
   process.exit(1);
 }
-console.log('Cron do Ponto executado:', JSON.stringify(json.summary, null, 2));
+console.log(dryRun ? 'DRY-RUN (nada enviado/mutado):' : 'Cron do Ponto executado:', JSON.stringify(json.summary, null, 2));

@@ -78,6 +78,53 @@ export function bucketOf(info: PontoAccessInfo | undefined | null): PontoAccessB
   return info.expiringSoon ? 'expiring' : 'pending'; // pending
 }
 
+/* ─────────────────────── dry-run / preview ─────────────────────── */
+
+export type PontoProposedAction = 'invite' | 'remind' | 'skip' | 'fail';
+
+export interface PontoPreviewItem {
+  personId: string;
+  personName: string;
+  email: string | null;
+  organizationId: string;
+  project: string | null;
+  currentStatus: PontoAccessStatus;
+  proposedAction: PontoProposedAction;
+  reason: string;
+  eligible: boolean;
+  blockingError: string | null;
+}
+
+export interface PontoPreviewTotals {
+  wouldInvite: number;
+  wouldRemind: number;
+  wouldSkip: number;
+  wouldFail: number;
+  total: number;
+}
+
+export interface PontoPreview {
+  dryRun: true;
+  items: PontoPreviewItem[];
+  totals: PontoPreviewTotals;
+}
+
+export function emptyTotals(): PontoPreviewTotals {
+  return { wouldInvite: 0, wouldRemind: 0, wouldSkip: 0, wouldFail: 0, total: 0 };
+}
+
+export function tallyPreview(items: PontoPreviewItem[]): PontoPreviewTotals {
+  const t = emptyTotals();
+  for (const i of items) {
+    t.total += 1;
+    if (i.proposedAction === 'invite') t.wouldInvite += 1;
+    else if (i.proposedAction === 'remind') t.wouldRemind += 1;
+    else if (i.proposedAction === 'fail') t.wouldFail += 1;
+    else t.wouldSkip += 1;
+  }
+  return t;
+}
+
 /** Ações permitidas conforme o status atual (usado para renderizar a UI). */
 export function allowedActions(status: PontoAccessStatus): PontoAccessAction[] {
   switch (status) {

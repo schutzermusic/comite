@@ -84,6 +84,7 @@ function demoAllocation(
     source: 'manual',
     costCenterId: null,
     justification: plannedPercentage > 100 ? 'Pico de comissionamento autorizado pela diretoria' : null,
+    requiresPonto: false,
     requestedBy: null,
     approvedBy: null,
     approvedAt: status === 'active' ? new Date().toISOString() : null,

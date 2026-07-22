@@ -25,13 +25,28 @@ function authorize(req: Request): NextResponse | null {
   return null;
 }
 
+async function wantsDryRun(req: Request): Promise<boolean> {
+  const url = new URL(req.url);
+  if (/^(1|true|yes)$/i.test(url.searchParams.get('dryRun') || '')) return true;
+  if (req.method === 'POST') {
+    try {
+      const body = (await req.clone().json()) as { dryRun?: unknown };
+      return body?.dryRun === true;
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
 async function handle(req: Request) {
   const denied = authorize(req);
   if (denied) return denied;
   try {
     const origin = new URL(req.url).origin;
-    const summary = await runPontoCron(origin);
-    return NextResponse.json({ ok: true, summary });
+    const dryRun = await wantsDryRun(req);
+    const result = await runPontoCron(origin, dryRun);
+    return NextResponse.json({ ok: true, dryRun, summary: result });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error('[api/ponto/cron] failed', { message });

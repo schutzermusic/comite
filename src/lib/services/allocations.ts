@@ -46,6 +46,7 @@ export type AllocationRow = {
   source: AllocationSource;
   cost_center_id: string | null;
   justification: string | null;
+  requires_ponto: boolean | null;
   requested_by: string | null;
   approved_by: string | null;
   approved_at: string | null;
@@ -71,6 +72,7 @@ export function mapAllocationRow(row: AllocationRow): PersonProjectAllocation {
     source: row.source,
     costCenterId: row.cost_center_id,
     justification: row.justification,
+    requiresPonto: row.requires_ponto ?? false,
     requestedBy: row.requested_by,
     approvedBy: row.approved_by,
     approvedAt: row.approved_at,
@@ -207,6 +209,7 @@ export interface AllocationInput {
   status?: AllocationStatus;
   costCenterId?: string | null;
   justification?: string | null;
+  requiresPonto?: boolean;
 }
 
 function isOverlapDbError(error: { code?: string; message?: string }): boolean {
@@ -245,6 +248,7 @@ export async function createAllocation(input: AllocationInput): Promise<PersonPr
     source: 'manual',
     cost_center_id: input.costCenterId ?? null,
     justification: input.justification ?? null,
+    requires_ponto: input.requiresPonto ?? false,
     requested_by: userId,
     created_by: userId,
   };
@@ -328,6 +332,7 @@ export async function updateAllocation(
     status: patch.status,
     cost_center_id: patch.costCenterId,
     justification: patch.justification,
+    requires_ponto: patch.requiresPonto,
   };
   Object.keys(row).forEach((k) => {
     if (row[k] === undefined) delete row[k];

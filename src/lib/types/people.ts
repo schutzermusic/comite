@@ -99,6 +99,8 @@ export interface PersonProjectAllocation {
   source: AllocationSource;
   costCenterId: string | null;
   justification: string | null;
+  /** exige registro de ponto (dispara provisionamento de acesso) */
+  requiresPonto: boolean;
   requestedBy: string | null;
   approvedBy: string | null;
   approvedAt: string | null;

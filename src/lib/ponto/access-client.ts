@@ -5,7 +5,13 @@
  * Pessoas. Usa cookies de sessão (mesma origem) — a autorização é feita
  * no servidor por people.manage.
  */
-import type { PontoAccessAction, PontoAccessInfo, PontoAccessStatus } from '@/lib/ponto/access-types';
+import type {
+  PontoAccessAction,
+  PontoAccessInfo,
+  PontoAccessStatus,
+  PontoPreviewItem,
+  PontoPreviewTotals,
+} from '@/lib/ponto/access-types';
 
 async function parse<T>(res: Response): Promise<T> {
   const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string } & Record<string, unknown>;
@@ -45,6 +51,12 @@ export interface BatchItemResult {
 export interface BatchInviteResult {
   results: BatchItemResult[];
   summary: { sent: number; failed: number; total: number };
+}
+
+/** Preview (dry-run) do provisionamento/lembretes da organização (rollout). */
+export async function previewProvisioning(): Promise<{ items: PontoPreviewItem[]; totals: PontoPreviewTotals }> {
+  const res = await fetch('/api/ponto/provision', { method: 'GET' });
+  return parse<{ items: PontoPreviewItem[]; totals: PontoPreviewTotals }>(res);
 }
 
 /** Envia convites em lote (a ação por pessoa é derivada do status atual). */

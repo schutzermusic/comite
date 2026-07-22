@@ -7,7 +7,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Ban, CheckCircle2, Copy, Home, KeyRound, Link2, Pencil, Plus, RotateCcw, Send, Trash2, Users, XCircle } from 'lucide-react';
+import { Ban, CheckCircle2, Copy, Eye, Home, KeyRound, Link2, Pencil, Plus, RotateCcw, Send, Trash2, Users, XCircle } from 'lucide-react';
 import {
   HudBadge,
   HudButton,
@@ -40,7 +40,8 @@ import {
   createResidenceMunicipality,
   listResidenceMunicipalities,
 } from '@/lib/services/residence-municipalities';
-import { batchInvitePonto, listPontoAccess, runPontoAccessAction } from '@/lib/ponto/access-client';
+import { batchInvitePonto, listPontoAccess, previewProvisioning, runPontoAccessAction } from '@/lib/ponto/access-client';
+import type { PontoPreviewItem, PontoPreviewTotals } from '@/lib/ponto/access-types';
 import {
   PONTO_ACCESS_LABELS,
   PONTO_BUCKET_LABELS,
@@ -107,6 +108,7 @@ export default function PessoasPage() {
   const [accessMap, setAccessMap] = useState<Map<string, PontoAccessInfo>>(new Map());
   const [accessPerson, setAccessPerson] = useState<Person | null>(null);
   const [batchOpen, setBatchOpen] = useState(false);
+  const [rolloutOpen, setRolloutOpen] = useState(false);
   const [accessFilter, setAccessFilter] = useState<PontoAccessBucket | 'all'>('all');
 
   const reloadAccess = useCallback(async () => {
@@ -345,6 +347,13 @@ export default function PessoasPage() {
             canManage ? (
               <div className="flex items-center gap-2">
                 <HudButton
+                  variant="ghost"
+                  leftIcon={<Eye className="h-4 w-4" />}
+                  onClick={() => setRolloutOpen(true)}
+                >
+                  Pré-visualizar provisionamento
+                </HudButton>
+                <HudButton
                   variant="secondary"
                   leftIcon={<Send className="h-4 w-4" />}
                   onClick={() => setBatchOpen(true)}
@@ -467,6 +476,11 @@ export default function PessoasPage() {
         people={people}
         accessMap={accessMap}
         onClose={() => setBatchOpen(false)}
+        onDone={reloadAccess}
+      />
+      <RolloutPreviewModal
+        open={rolloutOpen}
+        onClose={() => setRolloutOpen(false)}
         onDone={reloadAccess}
       />
     </HudPageLayout>
@@ -628,6 +642,144 @@ function AccessChip({
       <span className={active ? 'text-ig-fg-strong' : tone}>{label}</span>
       <span className="tabular-nums text-ig-fg-subtle">{count}</span>
     </button>
+  );
+}
+
+/* ─────────────────────── RolloutPreviewModal ─────────────────────────── */
+
+const PROPOSED_LABELS: Record<string, string> = {
+  invite: 'Convidar',
+  remind: 'Lembrar',
+  skip: 'Ignorar',
+  fail: 'Bloqueado',
+};
+
+function RolloutPreviewModal({ open, onClose, onDone }: { open: boolean; onClose: () => void; onDone: () => Promise<void> }) {
+  const { notify } = useHudToast();
+  const [loading, setLoading] = useState(false);
+  const [items, setItems] = useState<PontoPreviewItem[]>([]);
+  const [totals, setTotals] = useState<PontoPreviewTotals | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [sending, setSending] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const { items: rows, totals: t } = await previewProvisioning();
+      setItems(rows);
+      setTotals(t);
+      // pré-seleciona só quem seria efetivamente convidado
+      setSelected(new Set(rows.filter((r) => r.proposedAction === 'invite').map((r) => r.personId)));
+    } catch (e) {
+      notify('Falha ao pré-visualizar', { description: e instanceof Error ? e.message : undefined, variant: 'error' });
+    } finally {
+      setLoading(false);
+    }
+  }, [notify]);
+
+  useEffect(() => {
+    if (open) void load();
+    else {
+      setItems([]);
+      setTotals(null);
+      setSelected(new Set());
+    }
+  }, [open, load]);
+
+  if (!open) return null;
+
+  const invitable = items.filter((r) => r.proposedAction === 'invite');
+
+  function toggle(id: string) {
+    setSelected((prev) => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id); else n.add(id);
+      return n;
+    });
+  }
+
+  async function confirmSend() {
+    const ids = Array.from(selected);
+    if (ids.length === 0) return notify('Selecione ao menos uma pessoa', { variant: 'warning' });
+    if (!window.confirm(`Enviar convite de acesso ao Ponto para ${ids.length} colaborador(es)?`)) return;
+    setSending(true);
+    try {
+      const { summary } = await batchInvitePonto(ids);
+      notify(`${summary.sent} convite(s) enviado(s)` + (summary.failed ? `, ${summary.failed} falha(s)` : ''), {
+        variant: summary.failed ? 'warning' : 'success',
+      });
+      await onDone();
+      onClose();
+    } catch (e) {
+      notify('Falha no envio', { description: e instanceof Error ? e.message : undefined, variant: 'error' });
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <HudModal
+      isOpen={open}
+      onClose={onClose}
+      title="Pré-visualizar provisionamento do Ponto"
+      subtitle="Dry-run: nada é enviado ao abrir. Revise e confirme para enviar."
+      size="lg"
+      footer={
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs text-ig-fg-muted">
+            {selected.size} selecionado(s) de {invitable.length} elegível(is)
+          </span>
+          <div className="flex gap-2">
+            <HudButton variant="ghost" onClick={onClose}>Fechar</HudButton>
+            <HudButton variant="primary" isLoading={sending} disabled={selected.size === 0} leftIcon={<Send className="h-4 w-4" />} onClick={() => void confirmSend()}>
+              Enviar aos selecionados
+            </HudButton>
+          </div>
+        </div>
+      }
+    >
+      {totals && (
+        <div className="mb-4 flex flex-wrap gap-2 text-xs">
+          <span className="rounded-full bg-ig-panel-hover px-3 py-1">Convidaria: <b className="text-ig-fg-strong">{totals.wouldInvite}</b></span>
+          <span className="rounded-full bg-ig-panel-hover px-3 py-1">Lembraria: <b className="text-ig-fg-strong">{totals.wouldRemind}</b></span>
+          <span className="rounded-full bg-ig-panel-hover px-3 py-1">Ignoraria: <b className="text-ig-fg-strong">{totals.wouldSkip}</b></span>
+          <span className="rounded-full bg-ig-panel-hover px-3 py-1 text-ig-danger">Bloqueado: <b>{totals.wouldFail}</b></span>
+        </div>
+      )}
+      {loading ? (
+        <p className="py-6 text-center text-sm text-ig-fg-muted">Calculando prévia…</p>
+      ) : items.length === 0 ? (
+        <p className="py-6 text-center text-sm text-ig-fg-muted">
+          Nenhuma ação prevista. Marque alocações com “Exige registro de ponto” para provisionar.
+        </p>
+      ) : (
+        <div className="max-h-[52vh] space-y-1 overflow-y-auto">
+          {items.map((r) => {
+            const canSelect = r.proposedAction === 'invite';
+            return (
+              <div key={r.personId + r.proposedAction} className="flex items-center gap-3 rounded-lg border border-ig-border-subtle bg-ig-panel/40 px-3 py-2.5">
+                <input
+                  type="checkbox"
+                  disabled={!canSelect}
+                  checked={selected.has(r.personId)}
+                  onChange={() => toggle(r.personId)}
+                  className="h-4 w-4 shrink-0 accent-ig-accent disabled:opacity-40"
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium text-ig-fg-strong">{r.personName}</span>
+                  <span className="block truncate text-xs text-ig-fg-muted">
+                    {r.email ?? 'sem e-mail'}{r.project ? ` · ${r.project}` : ''} · {r.reason}
+                  </span>
+                </span>
+                <HudBadge variant={r.proposedAction === 'invite' ? 'success' : r.proposedAction === 'remind' ? 'info' : r.proposedAction === 'fail' ? 'danger' : 'neutral'}>
+                  {PROPOSED_LABELS[r.proposedAction]}
+                </HudBadge>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </HudModal>
   );
 }
 
