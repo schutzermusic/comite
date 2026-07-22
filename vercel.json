@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/ponto/cron",
+      "schedule": "0 * * * *"
+    }
+  ]
+}

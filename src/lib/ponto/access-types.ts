@@ -25,6 +25,8 @@ export type PontoAccessAction =
   | 'reactivate'
   | 'revoke';
 
+export type PontoProvisionSource = 'manual' | 'allocation' | 'batch';
+
 export interface PontoAccessInfo {
   personId: string;
   status: PontoAccessStatus;
@@ -32,6 +34,48 @@ export interface PontoAccessInfo {
   invitedAt: string | null;
   inviteCount: number;
   lastSignInAt: string | null;
+  /* visibilidade estendida (070) */
+  lastReminderAt: string | null;
+  reminderCount: number;
+  activatedAt: string | null;
+  provisionSource: PontoProvisionSource | null;
+  lastError: string | null;
+  lastErrorAt: string | null;
+  expiresAt: string | null;
+  expiringSoon: boolean;
+}
+
+/**
+ * "Balde" para filtros/indicadores na tela de Pessoas — combina o status
+ * efetivo com sinais auxiliares (expirando, falha de provisionamento).
+ */
+export type PontoAccessBucket =
+  | 'no_access'
+  | 'pending'
+  | 'expiring'
+  | 'expired'
+  | 'active'
+  | 'blocked'
+  | 'provision_failed';
+
+export const PONTO_BUCKET_LABELS: Record<PontoAccessBucket, string> = {
+  no_access: 'Sem acesso',
+  pending: 'Convite pendente',
+  expiring: 'Convite expirando',
+  expired: 'Convite expirado',
+  active: 'Ativo',
+  blocked: 'Bloqueado',
+  provision_failed: 'Falha no provisionamento',
+};
+
+export function bucketOf(info: PontoAccessInfo | undefined | null): PontoAccessBucket {
+  if (!info) return 'no_access';
+  if (info.lastError) return 'provision_failed';
+  if (info.status === 'blocked') return 'blocked';
+  if (info.status === 'active') return 'active';
+  if (info.status === 'no_access') return 'no_access';
+  if (info.status === 'expired') return 'expired';
+  return info.expiringSoon ? 'expiring' : 'pending'; // pending
 }
 
 /** Ações permitidas conforme o status atual (usado para renderizar a UI). */

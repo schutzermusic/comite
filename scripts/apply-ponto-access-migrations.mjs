@@ -24,6 +24,7 @@ const files = [
   'supabase/migrations/067_ponto_access_auth_rpc.sql',
   'supabase/migrations/068_attendance_review.sql',
   'supabase/migrations/069_attendance_selfie_retention.sql',
+  'supabase/migrations/070_ponto_access_visibility.sql',
 ];
 
 const client = new pg.Client({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });

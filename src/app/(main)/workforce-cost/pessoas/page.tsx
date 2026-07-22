@@ -43,8 +43,11 @@ import {
 import { batchInvitePonto, listPontoAccess, runPontoAccessAction } from '@/lib/ponto/access-client';
 import {
   PONTO_ACCESS_LABELS,
+  PONTO_BUCKET_LABELS,
   allowedActions,
+  bucketOf,
   type PontoAccessAction,
+  type PontoAccessBucket,
   type PontoAccessInfo,
   type PontoAccessStatus,
 } from '@/lib/ponto/access-types';
@@ -62,6 +65,20 @@ const ACCESS_PILL: Record<PontoAccessStatus, 'neutral' | 'pending' | 'active' | 
   expired: 'warning',
   blocked: 'error',
 };
+
+const BUCKET_PILL: Record<PontoAccessBucket, 'neutral' | 'pending' | 'active' | 'warning' | 'error' | 'info'> = {
+  no_access: 'neutral',
+  pending: 'pending',
+  expiring: 'info',
+  expired: 'warning',
+  active: 'active',
+  blocked: 'error',
+  provision_failed: 'error',
+};
+
+const BUCKET_ORDER: PontoAccessBucket[] = [
+  'no_access', 'pending', 'expiring', 'expired', 'active', 'blocked', 'provision_failed',
+];
 
 const ACCESS_ACTION_META: Record<PontoAccessAction, { label: string; icon: typeof Send; danger?: boolean }> = {
   invite: { label: 'Enviar convite', icon: Send },
@@ -90,6 +107,7 @@ export default function PessoasPage() {
   const [accessMap, setAccessMap] = useState<Map<string, PontoAccessInfo>>(new Map());
   const [accessPerson, setAccessPerson] = useState<Person | null>(null);
   const [batchOpen, setBatchOpen] = useState(false);
+  const [accessFilter, setAccessFilter] = useState<PontoAccessBucket | 'all'>('all');
 
   const reloadAccess = useCallback(async () => {
     if (!canManage) return setAccessMap(new Map());
@@ -127,10 +145,19 @@ export default function PessoasPage() {
       people.filter((p) => {
         if (statusFilter !== 'all' && p.status !== statusFilter) return false;
         if (search && !p.fullName.toLowerCase().includes(search.toLowerCase())) return false;
+        if (accessFilter !== 'all' && bucketOf(accessMap.get(p.id)) !== accessFilter) return false;
         return true;
       }),
-    [people, search, statusFilter],
+    [people, search, statusFilter, accessFilter, accessMap],
   );
+
+  // contagens por balde de acesso ao Ponto (indicadores/filtros)
+  const accessCounts = useMemo(() => {
+    const counts = {} as Record<PontoAccessBucket, number>;
+    for (const b of BUCKET_ORDER) counts[b] = 0;
+    for (const p of people) counts[bucketOf(accessMap.get(p.id))] += 1;
+    return counts;
+  }, [people, accessMap]);
 
   const kpis: KpiItem[] = useMemo(
     () => [
@@ -366,6 +393,22 @@ export default function PessoasPage() {
               ]}
             />
           </div>
+          {canManage && (
+            <div className="mb-4 flex flex-wrap items-center gap-1.5">
+              <span className="mr-1 text-[11px] font-semibold uppercase tracking-[0.1em] text-ig-fg-subtle">Acesso Ponto:</span>
+              <AccessChip label="Todos" count={people.length} active={accessFilter === 'all'} onClick={() => setAccessFilter('all')} />
+              {BUCKET_ORDER.filter((b) => accessCounts[b] > 0).map((b) => (
+                <AccessChip
+                  key={b}
+                  label={PONTO_BUCKET_LABELS[b]}
+                  count={accessCounts[b]}
+                  variant={BUCKET_PILL[b]}
+                  active={accessFilter === b}
+                  onClick={() => setAccessFilter(accessFilter === b ? 'all' : b)}
+                />
+              ))}
+            </div>
+          )}
           <HudTable<Person>
             columns={columns}
             data={filtered}
@@ -536,6 +579,58 @@ function BatchInviteModal({
   );
 }
 
+/* ─────────────────────── Acesso Ponto — helpers ─────────────────────────── */
+
+const PROVISION_SOURCE_LABELS: Record<string, string> = {
+  manual: 'Manual',
+  allocation: 'Alocação',
+  batch: 'Lote',
+};
+const ACCESS_ERROR_LABELS: Record<string, string> = {
+  missing_email: 'E-mail ausente no cadastro',
+};
+
+function fmtAccessDate(iso: string | null): string {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+function AccessField({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+  return (
+    <div>
+      <p className="text-[10px] uppercase tracking-[0.08em] text-ig-fg-subtle">{label}</p>
+      <p className={`text-xs ${highlight ? 'font-semibold text-ig-warning' : 'text-ig-fg-strong'}`}>{value}</p>
+    </div>
+  );
+}
+
+function AccessChip({
+  label,
+  count,
+  active,
+  variant = 'neutral',
+  onClick,
+}: {
+  label: string;
+  count: number;
+  active: boolean;
+  variant?: 'neutral' | 'pending' | 'active' | 'warning' | 'error' | 'info';
+  onClick: () => void;
+}) {
+  const tone =
+    variant === 'error' ? 'text-ig-danger' : variant === 'warning' ? 'text-ig-warning' : variant === 'active' ? 'text-ig-success' : variant === 'info' ? 'text-ig-info' : 'text-ig-fg-muted';
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-colors ${active ? 'border-ig-border-focus bg-ig-accent-weak text-ig-fg-strong' : 'border-ig-border-subtle bg-ig-panel/40 hover:bg-ig-panel-hover'}`}
+    >
+      <span className={active ? 'text-ig-fg-strong' : tone}>{label}</span>
+      <span className="tabular-nums text-ig-fg-subtle">{count}</span>
+    </button>
+  );
+}
+
 /* ─────────────────────── PontoAccessModal ─────────────────────────── */
 
 function PontoAccessModal({
@@ -607,6 +702,24 @@ function PontoAccessModal({
           </div>
           <HudStatusPill variant={ACCESS_PILL[status]} size="md">{PONTO_ACCESS_LABELS[status]}</HudStatusPill>
         </div>
+
+        {info?.lastError && (
+          <p className="rounded-lg border border-ig-border-subtle bg-[color-mix(in_oklab,var(--ig-danger)_10%,transparent)] px-4 py-3 text-xs text-ig-danger">
+            Falha no provisionamento: {ACCESS_ERROR_LABELS[info.lastError] ?? info.lastError}
+            {info.lastErrorAt ? ` · ${fmtAccessDate(info.lastErrorAt)}` : ''}
+          </p>
+        )}
+
+        {info && (info.invitedAt || info.activatedAt || info.reminderCount > 0 || info.provisionSource) && (
+          <div className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-lg border border-ig-border-subtle bg-ig-panel/40 px-4 py-3 text-xs">
+            <AccessField label="Convite enviado" value={fmtAccessDate(info.invitedAt)} />
+            <AccessField label="Expira em" value={info.status === 'pending' ? fmtAccessDate(info.expiresAt) : '—'} highlight={info.expiringSoon} />
+            <AccessField label="Último lembrete" value={info.lastReminderAt ? `${fmtAccessDate(info.lastReminderAt)} (${info.reminderCount})` : '—'} />
+            <AccessField label="Ativado em" value={fmtAccessDate(info.activatedAt)} />
+            <AccessField label="Origem" value={info.provisionSource ? PROVISION_SOURCE_LABELS[info.provisionSource] ?? info.provisionSource : '—'} />
+            <AccessField label="Convites enviados" value={String(info.inviteCount)} />
+          </div>
+        )}
 
         {!hasEmail && (
           <p className="rounded-lg bg-ig-panel-hover px-4 py-3 text-xs text-ig-warning">
