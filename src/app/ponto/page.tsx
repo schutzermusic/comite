@@ -5,23 +5,24 @@
  * colaborador. Reusa /api/mobile/* com o token da sessão web (geofence,
  * evidências, NSR fiscal). Ao dar ENTRADA, o colaborador escolhe o
  * projeto e a etapa do cronograma (WBS) — a jornada e o apontamento
- * começam juntos. Ponto exige biometria do aparelho (Face ID/Touch ID via
- * WebAuthn) quando suportada. Localização capturada só no evento.
+ * começam juntos.
+ *
+ * Prova de presença na WEB: como o navegador nem sempre oferece Face ID/
+ * Touch ID (WebAuthn), a marcação exige uma SELFIE tirada na hora — a foto
+ * vira uma authentication_evidence (facial_verification) anexada ao ponto.
+ * Localização capturada só no evento.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Briefcase, Clock, Fingerprint, LayoutList, LogOut, MapPin, Play, ShieldCheck, Square, X } from 'lucide-react';
+import { Briefcase, Camera, Clock, LayoutList, LogOut, MapPin, Play, RefreshCw, ShieldCheck, Square, X } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
 import {
-  biometricsSupported,
   captureLocation,
-  enrollBiometric,
   nextPunchOptions,
   pontoApi,
   PUNCH_LABEL,
   uuid,
-  verifyBiometric,
   type PontoBootstrap,
   type PunchType,
   type TimelineStage,
@@ -46,6 +47,8 @@ const SHORT_PUNCH: Record<PunchType, string> = {
 };
 type Tone = 'ok' | 'warn' | 'err';
 type Alloc = PontoBootstrap['allocations'][number];
+type Activity = { projectId: string; stageId: string | null };
+type PendingPunch = { type: PunchType; activity?: Activity };
 
 export default function PontoPage() {
   const router = useRouter();
@@ -54,7 +57,6 @@ export default function PontoPage() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ text: string; tone: Tone } | null>(null);
   const [now, setNow] = useState(Date.now());
-  const [needsEnroll, setNeedsEnroll] = useState(false);
 
   // folha de seleção de projeto/etapa ao dar entrada
   const [entryOpen, setEntryOpen] = useState(false);
@@ -63,7 +65,8 @@ export default function PontoPage() {
   const [entryStages, setEntryStages] = useState<TimelineStage[]>([]);
   const [stagesLoading, setStagesLoading] = useState(false);
 
-  const biometrics = useMemo(() => biometricsSupported(), []);
+  // captura de selfie (prova de presença)
+  const [pendingPunch, setPendingPunch] = useState<PendingPunch | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -94,47 +97,14 @@ export default function PontoPage() {
   const last = punches.length ? punches[punches.length - 1].type : null;
   const options = nextPunchOptions(last);
   const firstName = state?.person?.full_name?.split(' ')[0] ?? 'colaborador';
-  const runningAllocation = useMemo(
-    () => (running ? allocations.find((a) => a.project_id === running.project_id) : null),
-    [running, allocations],
-  );
+  const runningAllocation = running ? allocations.find((a) => a.project_id === running.project_id) : null;
 
-  /* ── biometria ── */
-  async function ensureBiometric(): Promise<string | undefined> {
-    if (!biometrics) return undefined;
-    try {
-      return await verifyBiometric();
-    } catch (e) {
-      if ((e as { needsEnroll?: boolean }).needsEnroll) {
-        setNeedsEnroll(true);
-        throw new Error('Cadastre o Face ID/Touch ID deste aparelho para bater o ponto.');
-      }
-      throw e instanceof Error ? e : new Error('Biometria não confirmada');
-    }
-  }
-
-  async function handleEnroll() {
+  /* ── marcação (jornada) + apontamento opcional (projeto/etapa) ──
+     `authenticationEvidenceId` vem da selfie tirada antes de chamar aqui. */
+  async function doPunch(type: PunchType, authenticationEvidenceId: string, activity?: Activity) {
     setBusy(true);
     setMessage(null);
     try {
-      await enrollBiometric();
-      setNeedsEnroll(false);
-      setMessage({ text: 'Biometria cadastrada neste aparelho. Já pode bater o ponto.', tone: 'ok' });
-    } catch (e) {
-      setMessage({ text: e instanceof Error ? e.message : 'Falha ao cadastrar biometria', tone: 'err' });
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  /* ── marcação (jornada) + apontamento opcional (projeto/etapa) ── */
-  async function doPunch(type: PunchType, activity?: { projectId: string; stageId: string | null }) {
-    setBusy(true);
-    setMessage(null);
-    try {
-      const authenticationEvidenceId = await ensureBiometric().catch((e) => {
-        throw e;
-      });
       const location = await captureLocation();
       const res = await pontoApi.punch({
         type,
@@ -161,7 +131,28 @@ export default function PontoPage() {
     }
   }
 
-  /** Entrada: se há alocações, abre a seleção de projeto/etapa; senão, bate direto. */
+  /** Abre a câmera para a selfie; ao capturar, envia a foto e bate o ponto. */
+  function requestSelfie(pending: PendingPunch) {
+    setMessage(null);
+    setPendingPunch(pending);
+  }
+
+  async function onSelfieCaptured(imageDataUrl: string) {
+    const pending = pendingPunch;
+    setPendingPunch(null);
+    if (!pending) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const { authenticationEvidenceId } = await pontoApi.selfie(imageDataUrl);
+      await doPunch(pending.type, authenticationEvidenceId, pending.activity);
+    } catch (e) {
+      setBusy(false);
+      setMessage({ text: e instanceof Error ? e.message : 'Falha ao enviar a foto', tone: 'err' });
+    }
+  }
+
+  /** Entrada: se há alocações, abre a seleção de projeto/etapa; senão, vai direto à selfie. */
   async function handlePunchButton(type: PunchType) {
     if (type === 'clock_in' && allocations.length > 0) {
       const first = allocations[0];
@@ -171,7 +162,7 @@ export default function PontoPage() {
       void loadStages(first.project_id);
       return;
     }
-    await doPunch(type);
+    requestSelfie({ type });
   }
 
   async function loadStages(projectId: string) {
@@ -187,12 +178,12 @@ export default function PontoPage() {
     }
   }
 
-  async function confirmEntry(withProject: boolean) {
+  function confirmEntry(withProject: boolean) {
     setEntryOpen(false);
     if (withProject && selProject) {
-      await doPunch('clock_in', { projectId: selProject, stageId: selStage });
+      requestSelfie({ type: 'clock_in', activity: { projectId: selProject, stageId: selStage } });
     } else {
-      await doPunch('clock_in');
+      requestSelfie({ type: 'clock_in' });
     }
   }
 
@@ -245,12 +236,6 @@ export default function PontoPage() {
           </div>
         )}
 
-        {biometrics && needsEnroll && (
-          <button type="button" onClick={handleEnroll} disabled={busy} className="mb-4 flex w-full items-center justify-center gap-2 rounded-xl border border-[rgba(34,192,141,0.4)] bg-[rgba(34,192,141,0.1)] py-3.5 text-sm font-bold text-[#22C08D] disabled:opacity-60">
-            <Fingerprint className="h-4 w-4" /> Cadastrar Face ID / Touch ID neste aparelho
-          </button>
-        )}
-
         {/* jornada de hoje */}
         <section className="rounded-2xl border border-[rgba(141,162,181,0.16)] bg-[#121A22] p-5">
           <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8DA2B5]">Jornada de hoje</p>
@@ -280,14 +265,13 @@ export default function PontoPage() {
               onClick={() => void handlePunchButton(type)}
               className={`flex w-full items-center justify-center gap-2 rounded-xl py-4 text-base font-bold transition-opacity disabled:opacity-60 ${type === 'clock_in' || type === 'break_end' ? 'bg-[#22C08D] text-[#07120E]' : 'border border-[rgba(141,162,181,0.3)] bg-[#121A22] text-[#E8EEF2]'}`}
             >
-              {biometrics && <Fingerprint className="h-4 w-4 opacity-70" />}
+              <Camera className="h-4 w-4 opacity-70" />
               {busy ? 'Confirmando…' : PUNCH_LABEL[type]}
               {type === 'clock_in' && allocations.length > 0 && <span className="text-xs font-medium opacity-70">· escolher projeto</span>}
             </button>
           ))}
           <p className="flex items-center justify-center gap-1.5 text-center text-[11px] text-[#5C7186]">
-            {biometrics ? <ShieldCheck className="h-3 w-3" /> : <MapPin className="h-3 w-3" />}
-            {biometrics ? 'Confirmação por Face ID/Touch ID + localização, ao registrar.' : 'A localização é capturada apenas ao registrar, para validar a área.'}
+            <ShieldCheck className="h-3 w-3" /> Foto (selfie) + localização são capturadas ao registrar, para validar a presença.
           </p>
           {allocations.length === 0 && (
             <p className="rounded-xl bg-[rgba(141,162,181,0.08)] px-4 py-3 text-center text-xs text-[#8DA2B5]">
@@ -384,18 +368,160 @@ export default function PontoPage() {
             <button
               type="button"
               disabled={busy}
-              onClick={() => void confirmEntry(true)}
+              onClick={() => confirmEntry(true)}
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#22C08D] py-4 text-base font-bold text-[#07120E] disabled:opacity-60"
             >
-              {biometrics && <Fingerprint className="h-4 w-4" />}
+              <Camera className="h-4 w-4" />
               <Play className="h-4 w-4" /> Registrar entrada{selectedAlloc ? ` · ${selectedAlloc.role_title ?? 'projeto'}` : ''}
             </button>
-            <button type="button" onClick={() => void confirmEntry(false)} className="mt-2 w-full py-2 text-center text-xs text-[#5C7186] hover:text-[#8DA2B5]">
+            <button type="button" onClick={() => confirmEntry(false)} className="mt-2 w-full py-2 text-center text-xs text-[#5C7186] hover:text-[#8DA2B5]">
               Entrar sem apontar projeto agora
             </button>
           </div>
         </div>
       )}
+
+      {/* captura de selfie (prova de presença) */}
+      {pendingPunch && (
+        <SelfieCapture
+          title={pendingPunch.type === 'clock_in' ? 'Selfie para a entrada' : `Selfie para ${SHORT_PUNCH[pendingPunch.type].toLowerCase()}`}
+          onCapture={(dataUrl) => void onSelfieCaptured(dataUrl)}
+          onCancel={() => setPendingPunch(null)}
+        />
+      )}
     </main>
+  );
+}
+
+/* ───────────────────── captura de selfie ───────────────────── */
+
+function SelfieCapture({ title, onCapture, onCancel }: { title: string; onCapture: (dataUrl: string) => void; onCancel: () => void }) {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [ready, setReady] = useState(false);
+  const [shot, setShot] = useState<string | null>(null);
+
+  const stop = useCallback(() => {
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+  }, []);
+
+  const start = useCallback(async () => {
+    setError(null);
+    setReady(false);
+    try {
+      if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+        throw new Error('Câmera não disponível neste navegador.');
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user', width: { ideal: 720 }, height: { ideal: 720 } },
+        audio: false,
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play().catch(() => {});
+      }
+      setReady(true);
+    } catch (e) {
+      const name = (e as { name?: string }).name;
+      setError(
+        name === 'NotAllowedError'
+          ? 'Permita o acesso à câmera para tirar a selfie e bater o ponto.'
+          : e instanceof Error ? e.message : 'Não foi possível abrir a câmera.',
+      );
+    }
+  }, []);
+
+  useEffect(() => {
+    void start();
+    return () => stop();
+  }, [start, stop]);
+
+  function takeShot() {
+    const video = videoRef.current;
+    if (!video || !video.videoWidth) return;
+    const size = Math.min(video.videoWidth, video.videoHeight);
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    // recorte central quadrado, espelhado (selfie)
+    const sx = (video.videoWidth - size) / 2;
+    const sy = (video.videoHeight - size) / 2;
+    ctx.translate(size, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(video, sx, sy, size, size, 0, 0, size, size);
+    setShot(canvas.toDataURL('image/jpeg', 0.82));
+    stop();
+  }
+
+  function retake() {
+    setShot(null);
+    void start();
+  }
+
+  function confirm() {
+    if (shot) onCapture(shot);
+  }
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/70">
+      <div className="w-full max-w-md rounded-t-3xl border-t border-[rgba(141,162,181,0.16)] bg-[#0F161D] p-6 pb-8">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="flex items-center gap-2 text-lg font-bold text-[#E8EEF2]">
+            <Camera className="h-4 w-4 text-[#22C08D]" /> {title}
+          </h2>
+          <button type="button" onClick={() => { stop(); onCancel(); }} className="rounded-lg p-1 text-[#5C7186] hover:text-[#8DA2B5]">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="relative mx-auto aspect-square w-full max-w-[300px] overflow-hidden rounded-2xl border border-[rgba(141,162,181,0.2)] bg-black">
+          {error ? (
+            <div className="flex h-full items-center justify-center px-6 text-center text-sm text-[#DB5C6E]">{error}</div>
+          ) : shot ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={shot} alt="Selfie" className="h-full w-full object-cover" />
+          ) : (
+            <>
+              <video ref={videoRef} playsInline muted className="h-full w-full -scale-x-100 object-cover" />
+              {!ready && (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="h-7 w-7 animate-spin rounded-full border-2 border-[rgba(141,162,181,0.3)] border-t-[#22C08D]" />
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        <p className="mt-3 text-center text-[11px] text-[#5C7186]">
+          Centralize o rosto, com boa iluminação. A foto fica anexada à marcação como prova de presença.
+        </p>
+
+        <div className="mt-4 space-y-3">
+          {error ? (
+            <button type="button" onClick={() => void start()} className="flex w-full items-center justify-center gap-2 rounded-xl border border-[rgba(141,162,181,0.3)] bg-[#121A22] py-3.5 text-sm font-bold text-[#E8EEF2]">
+              <RefreshCw className="h-4 w-4" /> Tentar novamente
+            </button>
+          ) : shot ? (
+            <>
+              <button type="button" onClick={confirm} className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#22C08D] py-4 text-base font-bold text-[#07120E]">
+                <ShieldCheck className="h-4 w-4" /> Usar esta foto e registrar
+              </button>
+              <button type="button" onClick={retake} className="flex w-full items-center justify-center gap-2 py-2 text-center text-xs text-[#5C7186] hover:text-[#8DA2B5]">
+                <RefreshCw className="h-3.5 w-3.5" /> Tirar outra
+              </button>
+            </>
+          ) : (
+            <button type="button" disabled={!ready} onClick={takeShot} className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#22C08D] py-4 text-base font-bold text-[#07120E] disabled:opacity-60">
+              <Camera className="h-4 w-4" /> Tirar foto
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }

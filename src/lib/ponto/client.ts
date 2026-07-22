@@ -101,6 +101,12 @@ export const pontoApi = {
     authFetch<{ ok: true; items: TimelineStage[] }>(
       `/api/mobile/timeline?projectId=${encodeURIComponent(projectId)}`,
     ),
+  /** Envia a selfie e devolve o id da evidência (facial_verification). */
+  selfie: (imageDataUrl: string) =>
+    authFetch<{ ok: true; authenticationEvidenceId: string; path: string }>(
+      '/api/mobile/selfie',
+      { method: 'POST', body: JSON.stringify({ imageDataUrl }) },
+    ),
 };
 
 /* ───────────────────── biometria (Face ID/Touch ID) ───────────────────── */

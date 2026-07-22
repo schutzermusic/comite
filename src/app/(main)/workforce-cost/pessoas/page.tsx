@@ -7,7 +7,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Home, Link2, Pencil, Plus, Trash2, Users } from 'lucide-react';
+import { Ban, CheckCircle2, Copy, Home, KeyRound, Link2, Pencil, Plus, RotateCcw, Send, Trash2, Users, XCircle } from 'lucide-react';
 import {
   HudBadge,
   HudButton,
@@ -40,11 +40,36 @@ import {
   createResidenceMunicipality,
   listResidenceMunicipalities,
 } from '@/lib/services/residence-municipalities';
+import { listPontoAccess, runPontoAccessAction } from '@/lib/ponto/access-client';
+import {
+  PONTO_ACCESS_LABELS,
+  allowedActions,
+  type PontoAccessAction,
+  type PontoAccessInfo,
+  type PontoAccessStatus,
+} from '@/lib/ponto/access-types';
 
 const SOURCE_LABELS: Record<Person['source'], string> = {
   payroll_import: 'Folha',
   profile: 'Login',
   manual: 'Manual',
+};
+
+const ACCESS_PILL: Record<PontoAccessStatus, 'neutral' | 'pending' | 'active' | 'warning' | 'error'> = {
+  no_access: 'neutral',
+  pending: 'pending',
+  active: 'active',
+  expired: 'warning',
+  blocked: 'error',
+};
+
+const ACCESS_ACTION_META: Record<PontoAccessAction, { label: string; icon: typeof Send; danger?: boolean }> = {
+  invite: { label: 'Enviar convite', icon: Send },
+  resend: { label: 'Reenviar convite', icon: RotateCcw },
+  copy_link: { label: 'Copiar link de ativação', icon: Copy },
+  block: { label: 'Bloquear acesso', icon: Ban, danger: true },
+  reactivate: { label: 'Reativar acesso', icon: CheckCircle2 },
+  revoke: { label: 'Revogar convite', icon: XCircle, danger: true },
 };
 
 export default function PessoasPage() {
@@ -62,6 +87,17 @@ export default function PessoasPage() {
   const [editing, setEditing] = useState<Person | null>(null);
   const [residences, setResidences] = useState<PersonResidenceMunicipality[]>([]);
   const [residencePerson, setResidencePerson] = useState<Person | null>(null);
+  const [accessMap, setAccessMap] = useState<Map<string, PontoAccessInfo>>(new Map());
+  const [accessPerson, setAccessPerson] = useState<Person | null>(null);
+
+  const reloadAccess = useCallback(async () => {
+    if (!canManage) return setAccessMap(new Map());
+    try {
+      setAccessMap(await listPontoAccess());
+    } catch {
+      setAccessMap(new Map());
+    }
+  }, [canManage]);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -70,6 +106,7 @@ export default function PessoasPage() {
       const [peopleRows, residenceRows] = await Promise.all([
         listPeople({ status: 'all' }),
         listResidenceMunicipalities().catch(() => []),
+        reloadAccess(),
       ]);
       setPeople(peopleRows);
       setResidences(residenceRows);
@@ -78,7 +115,7 @@ export default function PessoasPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [reloadAccess]);
 
   useEffect(() => {
     void reload();
@@ -186,6 +223,19 @@ export default function PessoasPage() {
       ),
     },
     {
+      key: 'ponto_access',
+      header: 'Acesso Ponto',
+      cell: (p) => {
+        const info = accessMap.get(p.id);
+        const status = info?.status ?? 'no_access';
+        return (
+          <HudStatusPill variant={ACCESS_PILL[status]} size="sm">
+            {PONTO_ACCESS_LABELS[status]}
+          </HudStatusPill>
+        );
+      },
+    },
+    {
       key: 'actions',
       header: '',
       align: 'right',
@@ -203,6 +253,14 @@ export default function PessoasPage() {
               </button>
             )}
             {canManage && <>
+              <button
+                type="button"
+                title="Acesso ao Ponto"
+                className="rounded-md p-1.5 text-ig-fg-muted transition-colors hover:bg-ig-panel-hover hover:text-ig-accent"
+                onClick={() => setAccessPerson(p)}
+              >
+                <KeyRound className="h-3.5 w-3.5" />
+              </button>
               <button
                 type="button"
                 title="Editar"
@@ -345,7 +403,127 @@ export default function PessoasPage() {
           await reload();
         }}
       />
+      <PontoAccessModal
+        person={accessPerson}
+        info={accessPerson ? accessMap.get(accessPerson.id) ?? null : null}
+        onClose={() => setAccessPerson(null)}
+        onChanged={reloadAccess}
+      />
     </HudPageLayout>
+  );
+}
+
+/* ─────────────────────── PontoAccessModal ─────────────────────────── */
+
+function PontoAccessModal({
+  person,
+  info,
+  onClose,
+  onChanged,
+}: {
+  person: Person | null;
+  info: PontoAccessInfo | null;
+  onClose: () => void;
+  onChanged: () => Promise<void>;
+}) {
+  const { notify } = useHudToast();
+  const [busy, setBusy] = useState<PontoAccessAction | null>(null);
+  const [status, setStatus] = useState<PontoAccessStatus>('no_access');
+  const [copiedLink, setCopiedLink] = useState<string | null>(null);
+
+  useEffect(() => {
+    setStatus(info?.status ?? 'no_access');
+    setCopiedLink(null);
+  }, [info, person]);
+
+  if (!person) return null;
+
+  const hasEmail = !!person.email?.trim();
+  const actions = allowedActions(status);
+
+  async function run(action: PontoAccessAction) {
+    if (!person) return;
+    if (action === 'revoke' && !window.confirm(`Revogar o convite de ${person.fullName}? A conta pendente será removida.`)) return;
+    if (action === 'block' && !window.confirm(`Bloquear o acesso de ${person.fullName} ao Ponto?`)) return;
+    setBusy(action);
+    setCopiedLink(null);
+    try {
+      const res = await runPontoAccessAction(person.id, action);
+      setStatus(res.status);
+      if (action === 'copy_link' && res.activationLink) {
+        try {
+          await navigator.clipboard.writeText(res.activationLink);
+          notify('Link de ativação copiado', { variant: 'success' });
+        } catch {
+          setCopiedLink(res.activationLink); // clipboard bloqueado — mostra para copiar manualmente
+        }
+      } else {
+        notify(res.message, { variant: 'success' });
+      }
+      await onChanged();
+    } catch (e) {
+      notify('Falha na ação de acesso', { description: e instanceof Error ? e.message : undefined, variant: 'error' });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <HudModal
+      isOpen
+      onClose={onClose}
+      title="Acesso ao app de Ponto"
+      subtitle={person.fullName}
+      footer={<div className="flex justify-end"><HudButton variant="ghost" onClick={onClose}>Fechar</HudButton></div>}
+    >
+      <div className="space-y-4">
+        <div className="flex items-center justify-between rounded-lg border border-ig-border-subtle bg-ig-panel/50 px-4 py-3">
+          <div>
+            <p className="text-xs text-ig-fg-muted">Status atual</p>
+            <p className="text-sm text-ig-fg-strong">{person.email ?? 'sem e-mail cadastrado'}</p>
+          </div>
+          <HudStatusPill variant={ACCESS_PILL[status]} size="md">{PONTO_ACCESS_LABELS[status]}</HudStatusPill>
+        </div>
+
+        {!hasEmail && (
+          <p className="rounded-lg bg-ig-panel-hover px-4 py-3 text-xs text-ig-warning">
+            Cadastre um e-mail para esta pessoa (em Editar) antes de enviar o convite.
+          </p>
+        )}
+
+        <div className="space-y-2">
+          {actions.map((action) => {
+            const meta = ACCESS_ACTION_META[action];
+            const Icon = meta.icon;
+            const disabled = busy !== null || ((action === 'invite' || action === 'resend' || action === 'copy_link') && !hasEmail);
+            return (
+              <HudButton
+                key={action}
+                variant={meta.danger ? 'danger' : action === 'invite' || action === 'resend' ? 'primary' : 'secondary'}
+                fullWidth
+                disabled={disabled}
+                isLoading={busy === action}
+                leftIcon={<Icon className="h-4 w-4" />}
+                onClick={() => void run(action)}
+              >
+                {meta.label}
+              </HudButton>
+            );
+          })}
+        </div>
+
+        {copiedLink && (
+          <div className="space-y-1.5 rounded-lg border border-ig-border-subtle bg-ig-panel/50 p-3">
+            <p className="text-[11px] text-ig-fg-muted">Copie o link de ativação (uso único, expira):</p>
+            <p className="break-all font-mono text-[11px] text-ig-fg-strong">{copiedLink}</p>
+          </div>
+        )}
+
+        <p className="text-[11px] text-ig-fg-subtle">
+          O colaborador recebe um link seguro de uso único para criar a senha. Nenhuma senha é enviada por e-mail.
+        </p>
+      </div>
+    </HudModal>
   );
 }
 
