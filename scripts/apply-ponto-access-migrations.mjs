@@ -28,6 +28,7 @@ const files = [
   'supabase/migrations/071_allocation_requires_ponto.sql',
   'supabase/migrations/072_ponto_job_runs.sql',
   'supabase/migrations/073_ponto_field_worker_timesheet.sql',
+  'supabase/migrations/074_ponto_session_use_permission.sql',
 ];
 
 const client = new pg.Client({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });

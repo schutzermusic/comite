@@ -175,6 +175,14 @@ test('Isolamento: colaborador comum não lê marcações de outro colaborador (R
     headers: { apikey: ANON!, Authorization: `Bearer ${token}` },
   });
   const rows = res.ok() ? await res.json() : [];
-  await ctx.dispose();
   expect(Array.isArray(rows) ? rows.length : 0, 'RLS deve impedir ler marcações de outra pessoa').toBe(0);
+
+  // menor privilégio (074): a role ponto_field_worker tem ponto_session_use,
+  // NÃO timesheet_use → não pode criar lançamento manual de horas (time_entries).
+  const te = await ctx.post(`${SUPA_URL}/rest/v1/time_entries`, {
+    headers: { apikey: ANON!, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+    data: { organization_id: qa!.orgId, person_id: worker.personId, project_id: qa!.projectId, work_date: '2026-07-22', minutes: 60 },
+  });
+  expect(te.status(), 'colaborador de campo NÃO pode criar time_entries (RLS)').not.toBe(201);
+  await ctx.dispose();
 });

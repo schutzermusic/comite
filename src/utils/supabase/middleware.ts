@@ -12,7 +12,10 @@ const PUBLIC_ROUTES = ['/login', '/forgot-password', '/reset-password', '/ponto/
 // "authenticated → /dashboard" redirect). Invite & OAuth callbacks land here
 // before the client-side session has been established from the URL hash, so
 // they must never be redirected — neither to /login nor to /dashboard.
-const AUTH_UTILITY_ROUTES = ['/auth', '/welcome', '/access-restricted']
+// /ponto/ativar é a landing do convite do colaborador (equivalente a /welcome):
+// o token chega na URL (hash/code) e é trocado por sessão no cliente, então
+// NÃO pode ser barrado pelo gate de sessão do servidor.
+const AUTH_UTILITY_ROUTES = ['/auth', '/welcome', '/ponto/ativar', '/access-restricted']
 const PROFILE_SETUP_ROUTES = ['/onboarding']
 const ACCESS_RESTRICTED_ROUTE = '/access-restricted'
 
