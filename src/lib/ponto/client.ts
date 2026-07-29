@@ -12,35 +12,49 @@ import {
   startAuthentication,
   browserSupportsWebAuthn,
 } from '@simplewebauthn/browser';
+import type {
+  AdjustmentInput,
+  AdjustmentRequest,
+  GeoPoint,
+  PontoBootstrap,
+  PunchInput,
+  PunchRecord,
+  PunchResponse,
+  TimelineStage,
+} from './attendance-types';
+import { type LocationStatusKind, mapGeolocationError } from './geolocation';
 
-export type PunchType = 'clock_in' | 'break_start' | 'break_end' | 'clock_out';
+export type {
+  AdjustmentInput,
+  AdjustmentRequest,
+  GeoPoint,
+  PontoBootstrap,
+  PunchInput,
+  PunchRecord,
+  PunchType,
+  TimelineStage,
+} from './attendance-types';
+export { PUNCH_LABEL, nextPunchOptions } from './attendance-state';
 
-export interface TimelineStage {
-  id: string;
-  wbs_code: string | null;
-  title: string;
-  type: string;
-  status: string;
-  percent_complete: number;
-  outline_level: number;
-}
+/** Erro de API com o suficiente para a UI escolher a recuperação certa. */
+export class PontoApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code?: string,
+  ) {
+    super(message);
+    this.name = 'PontoApiError';
+  }
 
-export interface PontoBootstrap {
-  person: { id: string; full_name: string; job_title: string | null } | null;
-  today: string;
-  punches: Array<{ id: string; type: PunchType; occurred_at: string; status: string }>;
-  runningSession: { id: string; project_id: string; started_at: string } | null;
-  allocations: Array<{ project_id: string; role_title: string | null; planned_percentage: number }>;
-  geofences: Array<{ id: string; project_id: string; name: string }>;
-  devices: Array<{ id: string; device_public_id: string; status: string }>;
-}
+  /** Sem rede (fetch nem saiu) — a marcação pode ir para a fila local. */
+  get isOffline(): boolean {
+    return this.status === 0;
+  }
 
-export interface PunchInput {
-  type: PunchType;
-  clientEventId: string;
-  occurredAt?: string;
-  location?: { lat: number; lng: number; accuracy?: number };
-  authenticationEvidenceId?: string;
+  get isSessionExpired(): boolean {
+    return this.status === 401 || /Sessão expirada|Token (ausente|inválido)/i.test(this.message);
+  }
 }
 
 async function authFetch<T>(path: string, init?: RequestInit): Promise<T> {
@@ -49,18 +63,30 @@ async function authFetch<T>(path: string, init?: RequestInit): Promise<T> {
     data: { session },
   } = await supabase.auth.getSession();
   const token = session?.access_token;
-  if (!token) throw new Error('Sessão expirada — entre novamente.');
+  if (!token) throw new PontoApiError('Sessão expirada — entre novamente.', 401);
 
-  const res = await fetch(path, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-      ...(init?.headers ?? {}),
-    },
-  });
-  const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string } & Record<string, unknown>;
-  if (!res.ok || json.ok === false) throw new Error(json.error || `Falha ${res.status}`);
+  let res: Response;
+  try {
+    res = await fetch(path, {
+      ...init,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+        ...(init?.headers ?? {}),
+      },
+    });
+  } catch {
+    throw new PontoApiError('Sem conexão com o servidor.', 0);
+  }
+
+  const json = (await res.json().catch(() => ({}))) as {
+    ok?: boolean;
+    error?: string;
+    code?: string;
+  } & Record<string, unknown>;
+  if (!res.ok || json.ok === false) {
+    throw new PontoApiError(json.error || `Falha ${res.status}`, res.status, json.code);
+  }
   return json as T;
 }
 
@@ -73,25 +99,63 @@ export function uuid(): string {
   });
 }
 
-/** Captura a localização só no evento (não rastreamento contínuo). */
-export function captureLocation(): Promise<{ lat: number; lng: number; accuracy?: number } | null> {
+export interface LocationCapture {
+  kind: LocationStatusKind;
+  point: GeoPoint | null;
+}
+
+/**
+ * Captura a localização só no evento (não rastreamento contínuo).
+ * Devolve o motivo da falha para a UI orientar a recuperação, em vez de
+ * simplesmente `null`.
+ */
+export function captureLocation(timeoutMs = 10_000): Promise<LocationCapture> {
   return new Promise((resolve) => {
-    if (typeof navigator === 'undefined' || !('geolocation' in navigator)) return resolve(null);
+    if (typeof navigator === 'undefined' || !('geolocation' in navigator)) {
+      return resolve({ kind: 'unsupported', point: null });
+    }
     navigator.geolocation.getCurrentPosition(
-      (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy ?? undefined }),
-      () => resolve(null),
-      { enableHighAccuracy: true, timeout: 10000 },
+      (pos) =>
+        resolve({
+          kind: 'granted',
+          point: {
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+            accuracy: pos.coords.accuracy ?? undefined,
+          },
+        }),
+      (err) => resolve({ kind: mapGeolocationError(err), point: null }),
+      { enableHighAccuracy: true, timeout: timeoutMs, maximumAge: 0 },
     );
   });
 }
 
+/**
+ * Estado da permissão de localização sem disparar o diálogo nativo —
+ * permite pedir a permissão de forma progressiva (§13) e detectar o
+ * bloqueio definitivo. Nem todo navegador implementa; nesse caso 'unknown'.
+ */
+export async function readLocationPermission(): Promise<PermissionState | 'unknown'> {
+  if (typeof navigator === 'undefined' || !navigator.permissions?.query) return 'unknown';
+  try {
+    const status = await navigator.permissions.query({ name: 'geolocation' as PermissionName });
+    return status.state;
+  } catch {
+    return 'unknown';
+  }
+}
+
 export const pontoApi = {
   bootstrap: () => authFetch<PontoBootstrap & { ok: true }>('/api/mobile/bootstrap'),
-  punch: (body: PunchInput) =>
-    authFetch<{ ok: true; needsReview?: boolean; biometricVerified?: boolean; geofence?: { inside: boolean; distanceMeters: number | null; geofenceName: string | null } | null }>(
-      '/api/mobile/punch',
-      { method: 'POST', body: JSON.stringify(body) },
-    ),
+  punch: (body: PunchInput) => authFetch<PunchResponse>('/api/mobile/punch', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  }),
+  undoPunch: (punchId: string) =>
+    authFetch<{ ok: true; warning?: string }>('/api/mobile/punch/undo', {
+      method: 'POST',
+      body: JSON.stringify({ punchId }),
+    }),
   activity: (body: { action: 'start' | 'stop'; projectId?: string; timelineItemId?: string }) =>
     authFetch<{ ok: true; running: unknown; stoppedSessionId?: string | null }>('/api/mobile/activity', {
       method: 'POST',
@@ -107,6 +171,16 @@ export const pontoApi = {
       '/api/mobile/selfie',
       { method: 'POST', body: JSON.stringify({ imageDataUrl }) },
     ),
+  history: (from: string, to: string) =>
+    authFetch<{ ok: true; from: string; to: string; punches: PunchRecord[] }>(
+      `/api/mobile/history?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+    ),
+  adjustments: () => authFetch<{ ok: true; requests: AdjustmentRequest[] }>('/api/mobile/adjustment'),
+  createAdjustment: (body: AdjustmentInput) =>
+    authFetch<{ ok: true; request: AdjustmentRequest }>('/api/mobile/adjustment', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
 };
 
 /* ───────────────────── biometria (Face ID/Touch ID) ───────────────────── */
@@ -154,26 +228,4 @@ export async function verifyBiometric(): Promise<string> {
     { method: 'POST', body: JSON.stringify({ response: asseResp }) },
   );
   return res.authenticationEvidenceId;
-}
-
-export const PUNCH_LABEL: Record<PunchType, string> = {
-  clock_in: 'Registrar entrada',
-  break_start: 'Iniciar intervalo',
-  break_end: 'Retornar do intervalo',
-  clock_out: 'Registrar saída',
-};
-
-export function nextPunchOptions(last: PunchType | null): PunchType[] {
-  switch (last) {
-    case null:
-    case 'clock_out':
-      return ['clock_in'];
-    case 'clock_in':
-    case 'break_end':
-      return ['break_start', 'clock_out'];
-    case 'break_start':
-      return ['break_end'];
-    default:
-      return ['clock_in'];
-  }
 }

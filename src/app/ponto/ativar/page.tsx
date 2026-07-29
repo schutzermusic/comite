@@ -10,8 +10,13 @@
 
 import { FormEvent, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Clock, KeyRound, ShieldCheck } from 'lucide-react';
+import { Clock, KeyRound, ShieldCheck, TriangleAlert } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
+import { InsightLogo } from '@/components/layout/insight-logo';
+import { PontoButton, PontoCard, Spinner } from '@/components/ponto';
+
+const FIELD_CLASS =
+  'min-h-[52px] w-full rounded-[var(--ig-radius-md)] border border-ig-border-strong bg-ig-base px-4 py-3 text-ig-body text-ig-fg-strong focus-visible:outline-none focus-visible:shadow-[var(--ig-focus-ring-outer)]';
 
 type BootState =
   | { kind: 'loading' }
@@ -104,97 +109,115 @@ export default function PontoActivatePage() {
   };
 
   return (
-    <main className="flex min-h-dvh items-center justify-center bg-[#0C1116] px-5 py-10 text-[#E8EEF2]">
+    <main
+      data-ponto-theme
+      data-ponto-canvas
+      className="flex min-h-[100dvh] items-center justify-center bg-ig-canvas px-5 py-10"
+    >
       <div className="w-full max-w-sm">
-        <div className="mb-6 flex items-center gap-2">
-          <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-[rgba(34,192,141,0.4)] bg-[rgba(34,192,141,0.1)] text-[#22C08D]">
-            <Clock className="h-4 w-4" />
-          </span>
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#22C08D]">Insight Ponto</p>
-            <h1 className="text-lg font-extrabold tracking-tight">Ativar seu acesso</h1>
-          </div>
+        <div className="mb-6">
+          <InsightLogo width={168} height={21} animated={false} priority alt="Insight Energy" />
+          <h1 className="mt-3 flex items-center gap-2 text-ig-h1 text-ig-fg-strong">
+            <Clock className="h-5 w-5 shrink-0 text-ig-accent" aria-hidden="true" />
+            Ativar seu acesso ao Ponto
+          </h1>
         </div>
 
         {boot.kind === 'loading' && (
-          <div className="flex items-center gap-3 rounded-2xl border border-[rgba(141,162,181,0.16)] bg-[#121A22] px-4 py-4 text-sm text-[#8DA2B5]">
-            <span className="h-4 w-4 animate-spin rounded-full border-2 border-[rgba(141,162,181,0.3)] border-t-[#22C08D]" />
+          <PontoCard className="flex items-center gap-3 px-4 py-4 text-ig-body-sm text-ig-fg-muted">
+            <Spinner className="h-4 w-4" />
             Validando convite…
-          </div>
+          </PontoCard>
         )}
 
         {boot.kind === 'no-session' && (
-          <div className="space-y-4 rounded-2xl border border-[rgba(219,92,110,0.3)] bg-[#121A22] p-5">
-            <p className="text-sm text-[#DB5C6E]">{boot.error}</p>
-            <button
-              type="button"
-              onClick={() => router.replace('/ponto/login')}
-              className="w-full rounded-xl border border-[rgba(141,162,181,0.3)] bg-[#0F161D] py-3 text-sm font-bold text-[#E8EEF2]"
-            >
+          <PontoCard className="space-y-4 border-[color-mix(in_oklab,var(--ig-danger)_32%,transparent)] p-5">
+            <p role="alert" className="flex items-start gap-2 text-ig-body-sm text-ig-danger">
+              <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+              {boot.error}
+            </p>
+            <PontoButton variant="secondary" onClick={() => router.replace('/ponto/login')}>
               Ir para o login
-            </button>
-          </div>
+            </PontoButton>
+          </PontoCard>
         )}
 
         {boot.kind === 'ready' && (
-          <form onSubmit={handleSubmit} className="space-y-4 rounded-2xl border border-[rgba(141,162,181,0.16)] bg-[#121A22] p-5">
-            <div className="rounded-xl bg-[rgba(141,162,181,0.08)] px-4 py-3 text-sm">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[#8DA2B5]">Confirme seus dados</p>
-              <p className="mt-1 font-semibold text-[#E8EEF2]">{boot.fullName ?? '—'}</p>
-              <p className="text-[#8DA2B5]">{boot.email ?? '—'}</p>
-              {boot.workspace && <p className="mt-1 text-xs text-[#5C7186]">{boot.workspace}</p>}
-            </div>
+          <form onSubmit={handleSubmit} noValidate>
+            <PontoCard className="space-y-4 p-5">
+              <div className="rounded-[var(--ig-radius-md)] bg-ig-panel px-4 py-3">
+                <p className="text-ig-label uppercase text-ig-fg-subtle">Confirme seus dados</p>
+                <p className="mt-1 text-ig-h3 text-ig-fg-strong">{boot.fullName ?? '—'}</p>
+                <p className="text-ig-body-sm text-ig-fg-muted">{boot.email ?? '—'}</p>
+                {boot.workspace && <p className="mt-1 text-ig-caption text-ig-fg-subtle">{boot.workspace}</p>}
+              </div>
 
-            <label className="block">
-              <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.1em] text-[#8DA2B5]">Criar senha</span>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete="new-password"
-                required
-                className="w-full rounded-xl border border-[rgba(141,162,181,0.24)] bg-[#0F161D] px-4 py-3 text-[15px] text-[#E8EEF2] outline-none focus:border-[#22C08D]"
-              />
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.1em] text-[#8DA2B5]">Confirmar senha</span>
-              <input
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                autoComplete="new-password"
-                required
-                className="w-full rounded-xl border border-[rgba(141,162,181,0.24)] bg-[#0F161D] px-4 py-3 text-[15px] text-[#E8EEF2] outline-none focus:border-[#22C08D]"
-              />
-            </label>
-            <p className="text-[11px] text-[#5C7186]">Mínimo de 8 caracteres.</p>
+              <div className="space-y-1.5">
+                <label htmlFor="ponto-nova-senha" className="block text-ig-body-sm font-semibold text-ig-fg-strong">
+                  Criar senha
+                </label>
+                <input
+                  id="ponto-nova-senha"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete="new-password"
+                  required
+                  aria-describedby="ponto-senha-regra"
+                  className={FIELD_CLASS}
+                />
+              </div>
 
-            <label className="flex items-start gap-2.5 text-xs text-[#8DA2B5]">
-              <input
-                type="checkbox"
-                checked={acceptTerms}
-                onChange={(e) => setAcceptTerms(e.target.checked)}
-                className="mt-0.5 h-4 w-4 shrink-0 accent-[#22C08D]"
-              />
-              <span>
-                Li e aceito os <span className="text-[#E8EEF2]">Termos de Uso</span> e o{' '}
-                <span className="text-[#E8EEF2]">Aviso de Privacidade</span>, incluindo o registro de ponto com
-                localização e foto (selfie) como prova de presença.
-              </span>
-            </label>
+              <div className="space-y-1.5">
+                <label htmlFor="ponto-confirmar-senha" className="block text-ig-body-sm font-semibold text-ig-fg-strong">
+                  Confirmar senha
+                </label>
+                <input
+                  id="ponto-confirmar-senha"
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  autoComplete="new-password"
+                  required
+                  className={FIELD_CLASS}
+                />
+              </div>
+              <p id="ponto-senha-regra" className="text-ig-caption text-ig-fg-subtle">
+                Mínimo de 8 caracteres.
+              </p>
 
-            {error && <p className="rounded-lg bg-[rgba(219,92,110,0.12)] px-3 py-2 text-sm text-[#DB5C6E]">{error}</p>}
+              <label className="flex items-start gap-2.5 text-ig-caption text-ig-fg-muted">
+                <input
+                  type="checkbox"
+                  checked={acceptTerms}
+                  onChange={(e) => setAcceptTerms(e.target.checked)}
+                  className="mt-0.5 h-5 w-5 shrink-0 accent-[var(--ig-accent)]"
+                />
+                <span>
+                  Li e aceito os <span className="text-ig-fg-strong">Termos de Uso</span> e o{' '}
+                  <span className="text-ig-fg-strong">Aviso de Privacidade</span>, incluindo o registro de
+                  ponto com localização e foto (selfie) como comprovante de presença.
+                </span>
+              </label>
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#22C08D] py-4 text-base font-bold text-[#07120E] disabled:opacity-60"
-            >
-              {loading ? 'Ativando…' : (<><KeyRound className="h-4 w-4" /> Ativar e entrar no Ponto</>)}
-            </button>
-            <p className="flex items-center justify-center gap-1.5 text-center text-[11px] text-[#5C7186]">
-              <ShieldCheck className="h-3 w-3" /> Sua senha é pessoal e nunca é enviada por e-mail.
-            </p>
+              {error && (
+                <p
+                  role="alert"
+                  className="flex items-start gap-2 rounded-[var(--ig-radius-sm)] bg-[color-mix(in_oklab,var(--ig-danger)_12%,transparent)] px-3 py-2.5 text-ig-body-sm text-ig-danger"
+                >
+                  <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                  {error}
+                </p>
+              )}
+
+              <PontoButton type="submit" variant="primary" icon={KeyRound} loading={loading}>
+                {loading ? 'Ativando…' : 'Ativar e entrar no Ponto'}
+              </PontoButton>
+              <p className="flex items-center justify-center gap-1.5 text-center text-ig-caption text-ig-fg-subtle">
+                <ShieldCheck className="h-3 w-3" aria-hidden="true" /> Sua senha é pessoal e nunca é
+                enviada por e-mail.
+              </p>
+            </PontoCard>
           </form>
         )}
       </div>

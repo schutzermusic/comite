@@ -87,9 +87,10 @@ async function signSelfie(service: SupabaseClient, path: string | null): Promise
 }
 
 /** Marcações pendentes de revisão da organização, com evidências. */
-export async function listReviewItems(orgId: string): Promise<ReviewItem[]> {
+export async function listReviewItems(orgId: string, personIds?: string[]): Promise<ReviewItem[]> {
+  if (personIds && personIds.length === 0) return [];
   const service = getServiceClient();
-  const { data, error } = await service
+  let query = service
     .from('attendance_punches')
     .select(
       `id, type, occurred_at, person_id,
@@ -102,7 +103,9 @@ export async function listReviewItems(orgId: string): Promise<ReviewItem[]> {
        authentication_evidence:authentication_evidence_id ( method, provider_reference, metadata )`,
     )
     .eq('organization_id', orgId)
-    .eq('status', 'under_review')
+    .eq('status', 'under_review');
+  if (personIds) query = query.in('person_id', personIds);
+  const { data, error } = await query
     .order('occurred_at', { ascending: false })
     .limit(200);
   if (error) throw new ReviewError(`Falha ao carregar revisões: ${error.message}`, 500, 'list_failed');

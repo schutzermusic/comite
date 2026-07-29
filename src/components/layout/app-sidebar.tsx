@@ -38,6 +38,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   PieChart,
+  Presentation,
   Receipt,
   Settings,
   Shield,
@@ -135,6 +136,7 @@ const navigationItems: MenuItem[] = [
     permission: "finance.view",
     subItems: [
       { href: "/financeiro/control-room", label: "Control Room", icon: Gauge },
+      { href: "/financeiro/projecao-financeira", label: "Projeção Financeira", icon: Presentation },
       { href: "/financeiro/analise-custos", label: "Análise de Custos", icon: Coins },
       { href: "/financeiro/dre-gerencial", label: "DRE / P&L Gerencial", icon: LineChart },
       { href: "/financeiro/forecast-cenarios", label: "Forecast & Cenários", icon: SlidersHorizontal },

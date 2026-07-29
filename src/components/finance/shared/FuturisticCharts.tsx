@@ -175,7 +175,7 @@ function Tooltip({ tip, theme }: { tip: TipState | null; theme: ReturnType<typeo
 /* LINE / AREA                                                      */
 /* --------------------------------------------------------------- */
 
-export interface LineSeries { name: string; data: number[]; tone?: Tone }
+export interface LineSeries { name: string; data: number[]; tone?: Tone; startIndex?: number }
 
 export function FinanceLineChart({
   categories, series, height = 240,
@@ -221,18 +221,23 @@ export function FinanceLineChart({
 
         {series.map((s, idx) => {
           const tone = s.tone || (['accent', 'info', 'success', 'warning'] as Tone[])[idx % 4];
-          const pts = s.data.map((v, i) => [padL + i * xStep, yScale(v)] as [number, number]);
+          const firstIndex = Math.max(0, Math.min(s.startIndex ?? 0, s.data.length));
+          const indexedPoints = s.data
+            .map((v, i) => [padL + i * xStep, yScale(v), i] as [number, number, number])
+            .slice(firstIndex);
+          const pts = indexedPoints.map(([x, y]) => [x, y] as [number, number]);
+          if (!pts.length) return null;
           const path = smoothPath(pts);
           const areaPath = `${path} L ${pts[pts.length - 1][0]},${H - padB} L ${pts[0][0]},${H - padB} Z`;
           return (
             <g key={s.name}>
               {idx === 0 && <path d={areaPath} fill={`url(#fill-${tone}-${uid})`} />}
               <path d={path} fill="none" stroke={`url(#stroke-${tone}-${uid})`} strokeWidth={1.8} strokeLinecap="round" filter={`url(#softglow-${uid})`} />
-              {pts.map(([px, py], i) => (
+              {indexedPoints.map(([px, py, pointIndex]) => (
                 <circle
-                  key={i} cx={px} cy={py} r={3.2}
+                  key={pointIndex} cx={px} cy={py} r={3.2}
                   fill={theme.palette[tone]} stroke="rgba(255,255,255,0.6)" strokeWidth={1}
-                  onMouseEnter={() => setTip({ x: px, y: py, html: <span><b>{s.name}</b> · {categories[i]} · <span style={{ fontFamily: FONT_FAMILY_SANS }}>{fmtBRL(s.data[i])}</span></span> })}
+                  onMouseEnter={() => setTip({ x: px, y: py, html: <span><b>{s.name}</b> · {categories[pointIndex]} · <span style={{ fontFamily: FONT_FAMILY_SANS }}>{fmtBRL(s.data[pointIndex])}</span></span> })}
                   onMouseLeave={() => setTip(null)}
                 />
               ))}
@@ -261,7 +266,14 @@ export function FinanceLineChart({
 /* S-CURVE — cumulative line                                        */
 /* --------------------------------------------------------------- */
 
-export interface SCurveSeries { name: string; values: number[]; tone?: Tone; dashed?: boolean; emphasized?: boolean }
+export interface SCurveSeries {
+  name: string;
+  values: number[];
+  tone?: Tone;
+  dashed?: boolean;
+  emphasized?: boolean;
+  startIndex?: number;
+}
 
 export function FinanceSCurveChart({
   categories, series, height = 280, showArea = true,
@@ -303,15 +315,15 @@ export function FinanceSCurveChart({
       html: (
         <div className="space-y-0.5 min-w-[160px]">
           <div className="text-[10.5px] uppercase tracking-[0.12em]" style={{ color: theme.text }}>{categories[i]}</div>
-          {series.map((s, idx) => (
-            <div key={s.name} className="flex items-center justify-between gap-3 text-[11px]">
-              <span className="inline-flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full" style={{ background: theme.palette[s.tone || 'accent'] }} />
-                {s.name}
-              </span>
-              <span style={{ fontFamily: FONT_FAMILY_SANS, color: theme.textStrong }}>{fmtBRL(cumulatives[idx][i])}</span>
-            </div>
-          ))}
+          {series.map((s, idx) => i < (s.startIndex ?? 0) ? null : (
+              <div key={s.name} className="flex items-center justify-between gap-3 text-[11px]">
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full" style={{ background: theme.palette[s.tone || 'accent'] }} />
+                  {s.name}
+                </span>
+                <span style={{ fontFamily: FONT_FAMILY_SANS, color: theme.textStrong }}>{fmtBRL(cumulatives[idx][i])}</span>
+              </div>
+            ))}
         </div>
       ),
     });
@@ -347,7 +359,11 @@ export function FinanceSCurveChart({
 
         {series.map((s, idx) => {
           const tone = s.tone || (['accent', 'info', 'success', 'warning', 'danger'] as Tone[])[idx % 5];
-          const pts = cumulatives[idx].map((v, i) => [padL + i * xStep, yScale(v)] as [number, number]);
+          const firstIndex = Math.max(0, Math.min(s.startIndex ?? 0, cumulatives[idx].length));
+          const pts = cumulatives[idx]
+            .map((v, i) => [padL + i * xStep, yScale(v)] as [number, number])
+            .slice(firstIndex);
+          if (!pts.length) return null;
           const path = smoothPath(pts);
           const areaPath = `${path} L ${pts[pts.length - 1][0]},${H - padB} L ${pts[0][0]},${H - padB} Z`;
           const isPrimary = s.emphasized || idx === 0;

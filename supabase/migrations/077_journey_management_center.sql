@@ -334,6 +334,7 @@ ALTER TABLE public.journey_balance_approvals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.journey_closing_periods ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.journey_manager_period_reviews ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS journey_shift_templates_select ON public.journey_shift_templates;
 CREATE POLICY journey_shift_templates_select ON public.journey_shift_templates
 FOR SELECT TO authenticated
 USING (
@@ -345,6 +346,7 @@ USING (
     OR current_user_is_admin()
   )
 );
+DROP POLICY IF EXISTS journey_shift_templates_write ON public.journey_shift_templates;
 CREATE POLICY journey_shift_templates_write ON public.journey_shift_templates
 FOR ALL TO authenticated
 USING (
@@ -356,12 +358,14 @@ WITH CHECK (
   AND (current_user_has_permission('people.attendance_schedule_manage') OR current_user_is_admin())
 );
 
+DROP POLICY IF EXISTS journey_shift_assignments_select ON public.journey_shift_assignments;
 CREATE POLICY journey_shift_assignments_select ON public.journey_shift_assignments
 FOR SELECT TO authenticated
 USING (
   organization_id = current_user_organization_id()
   AND current_user_can_access_journey_person(person_id, false)
 );
+DROP POLICY IF EXISTS journey_shift_assignments_write ON public.journey_shift_assignments;
 CREATE POLICY journey_shift_assignments_write ON public.journey_shift_assignments
 FOR ALL TO authenticated
 USING (
@@ -373,12 +377,14 @@ WITH CHECK (
   AND (current_user_has_permission('people.attendance_schedule_manage') OR current_user_is_admin())
 );
 
+DROP POLICY IF EXISTS journey_schedule_exceptions_select ON public.journey_schedule_exceptions;
 CREATE POLICY journey_schedule_exceptions_select ON public.journey_schedule_exceptions
 FOR SELECT TO authenticated
 USING (
   organization_id = current_user_organization_id()
   AND current_user_can_access_journey_person(person_id, false)
 );
+DROP POLICY IF EXISTS journey_schedule_exceptions_write ON public.journey_schedule_exceptions;
 CREATE POLICY journey_schedule_exceptions_write ON public.journey_schedule_exceptions
 FOR ALL TO authenticated
 USING (
@@ -390,6 +396,7 @@ WITH CHECK (
   AND (current_user_has_permission('people.attendance_schedule_manage') OR current_user_is_admin())
 );
 
+DROP POLICY IF EXISTS journey_manager_scopes_select ON public.journey_manager_scopes;
 CREATE POLICY journey_manager_scopes_select ON public.journey_manager_scopes
 FOR SELECT TO authenticated
 USING (
@@ -400,6 +407,7 @@ USING (
     OR current_user_has_global_journey_scope()
   )
 );
+DROP POLICY IF EXISTS journey_manager_scopes_write ON public.journey_manager_scopes;
 CREATE POLICY journey_manager_scopes_write ON public.journey_manager_scopes
 FOR ALL TO authenticated
 USING (
@@ -411,6 +419,7 @@ WITH CHECK (
   AND (current_user_has_permission('people.attendance_scope_admin') OR current_user_is_admin())
 );
 
+DROP POLICY IF EXISTS journey_manager_scope_projects_select ON public.journey_manager_scope_projects;
 CREATE POLICY journey_manager_scope_projects_select ON public.journey_manager_scope_projects
 FOR SELECT TO authenticated
 USING (
@@ -425,6 +434,7 @@ USING (
       )
   )
 );
+DROP POLICY IF EXISTS journey_manager_scope_projects_write ON public.journey_manager_scope_projects;
 CREATE POLICY journey_manager_scope_projects_write ON public.journey_manager_scope_projects
 FOR ALL TO authenticated
 USING (
@@ -436,12 +446,14 @@ WITH CHECK (
   OR current_user_is_admin()
 );
 
+DROP POLICY IF EXISTS journey_balance_approvals_select ON public.journey_balance_approvals;
 CREATE POLICY journey_balance_approvals_select ON public.journey_balance_approvals
 FOR SELECT TO authenticated
 USING (
   organization_id = current_user_organization_id()
   AND current_user_can_access_journey_person(person_id, false)
 );
+DROP POLICY IF EXISTS journey_balance_approvals_write ON public.journey_balance_approvals;
 CREATE POLICY journey_balance_approvals_write ON public.journey_balance_approvals
 FOR ALL TO authenticated
 USING (
@@ -455,6 +467,7 @@ WITH CHECK (
   AND current_user_can_access_journey_person(person_id, true)
 );
 
+DROP POLICY IF EXISTS journey_closing_periods_select ON public.journey_closing_periods;
 CREATE POLICY journey_closing_periods_select ON public.journey_closing_periods
 FOR SELECT TO authenticated
 USING (
@@ -467,6 +480,7 @@ USING (
   )
 );
 
+DROP POLICY IF EXISTS journey_manager_period_reviews_select ON public.journey_manager_period_reviews;
 CREATE POLICY journey_manager_period_reviews_select ON public.journey_manager_period_reviews
 FOR SELECT TO authenticated
 USING (
@@ -498,6 +512,24 @@ USING (
 WITH CHECK (
   organization_id = current_user_organization_id()
   AND current_user_can_access_journey_person(person_id, true)
+);
+
+DROP POLICY IF EXISTS attendance_insert ON public.attendance_punches;
+CREATE POLICY attendance_insert ON public.attendance_punches
+FOR INSERT TO authenticated
+WITH CHECK (
+  organization_id = current_user_organization_id()
+  AND (
+    (
+      person_id = current_user_person_id()
+      AND current_user_has_permission('people.attendance_use')
+    )
+    OR (
+      current_user_has_permission('people.attendance_manage')
+      AND current_user_can_access_journey_person(person_id, true)
+    )
+    OR current_user_is_admin()
+  )
 );
 
 DROP POLICY IF EXISTS attendance_delete ON public.attendance_punches;
@@ -782,6 +814,36 @@ BEGIN
       RAISE EXCEPTION 'Sem permissão para enviar o escopo';
     END IF;
     IF v_period.status <> 'manager_review' THEN RAISE EXCEPTION 'A competência não está em revisão dos gestores'; END IF;
+    IF EXISTS (
+      SELECT 1
+      FROM attendance_punches punch
+      WHERE punch.organization_id = v_period.organization_id
+        AND punch.status = 'under_review'
+        AND (punch.occurred_at AT TIME ZONE punch.timezone)::date
+            BETWEEN v_period.period_start AND v_period.period_end
+        AND current_user_can_access_journey_person(punch.person_id, true)
+    ) THEN
+      RAISE EXCEPTION 'Resolva as marcações em revisão antes de enviar o escopo';
+    END IF;
+    IF EXISTS (
+      SELECT 1
+      FROM attendance_punches punch
+      WHERE punch.organization_id = v_period.organization_id
+        AND punch.status IN ('accepted','under_review')
+        AND punch.type = 'clock_in'
+        AND (punch.occurred_at AT TIME ZONE punch.timezone)::date
+            BETWEEN v_period.period_start AND v_period.period_end
+        AND current_user_can_access_journey_person(punch.person_id, true)
+        AND NOT EXISTS (
+          SELECT 1 FROM journey_balance_approvals approval
+          WHERE approval.organization_id = punch.organization_id
+            AND approval.person_id = punch.person_id
+            AND approval.work_date = (punch.occurred_at AT TIME ZONE punch.timezone)::date
+            AND approval.status IN ('approved','rejected')
+        )
+    ) THEN
+      RAISE EXCEPTION 'Ainda há jornadas sem decisão de saldo no seu escopo';
+    END IF;
     UPDATE journey_manager_period_reviews
     SET status = 'submitted', submitted_by = auth.uid(), submitted_at = now()
     WHERE closing_period_id = v_period.id AND manager_person_id = v_me;
@@ -814,6 +876,25 @@ BEGIN
         AND status = 'pending'
     ) THEN
       RAISE EXCEPTION 'Ainda há saldos pendentes de aprovação';
+    END IF;
+    IF EXISTS (
+      SELECT 1
+      FROM attendance_punches punch
+      WHERE punch.organization_id = v_period.organization_id
+        AND punch.status IN ('accepted','under_review')
+        AND punch.type = 'clock_in'
+        AND (punch.occurred_at AT TIME ZONE punch.timezone)::date
+            BETWEEN v_period.period_start AND v_period.period_end
+        AND NOT EXISTS (
+          SELECT 1
+          FROM journey_balance_approvals approval
+          WHERE approval.organization_id = punch.organization_id
+            AND approval.person_id = punch.person_id
+            AND approval.work_date = (punch.occurred_at AT TIME ZONE punch.timezone)::date
+            AND approval.status IN ('approved','rejected')
+        )
+    ) THEN
+      RAISE EXCEPTION 'Ainda há jornadas com saldo provisório sem decisão';
     END IF;
     UPDATE journey_closing_periods
     SET status = 'closed', closed_at = now(), closed_by = auth.uid()

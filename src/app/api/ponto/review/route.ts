@@ -30,7 +30,11 @@ export async function GET() {
   try {
     const orgId = await actorOrg(guard.userId);
     if (!orgId) return NextResponse.json({ ok: false, error: 'Admin sem organização.' }, { status: 403 });
-    const items = await listReviewItems(orgId);
+    const supabase = await createClient();
+    const { data: people, error } = await supabase.rpc('list_accessible_journey_people');
+    if (error) throw error;
+    const personIds = (people ?? []).map((person: { id: string }) => person.id);
+    const items = await listReviewItems(orgId, personIds);
     return NextResponse.json({ ok: true, items });
   } catch (err) {
     return fail(err);
@@ -57,6 +61,19 @@ export async function POST(req: Request) {
     if (decision !== 'accept' && decision !== 'reject') {
       return NextResponse.json({ ok: false, error: 'decision deve ser accept ou reject.' }, { status: 400 });
     }
+    const supabase = await createClient();
+    const { data: target } = await supabase
+      .from('attendance_punches')
+      .select('person_id')
+      .eq('id', punchId)
+      .maybeSingle();
+    if (!target) return NextResponse.json({ ok: false, error: 'Marcação não encontrada ou fora do seu escopo.' }, { status: 404 });
+    const { data: inScope, error: scopeError } = await supabase.rpc('current_user_can_access_journey_person', {
+      p_person_id: target.person_id,
+      p_require_manage: true,
+    });
+    if (scopeError) throw scopeError;
+    if (!inScope) return NextResponse.json({ ok: false, error: 'Marcação fora do seu escopo gerencial.' }, { status: 403 });
     await resolvePunch(guard.userId, orgId, punchId, decision, body.note ?? null);
     return NextResponse.json({ ok: true });
   } catch (err) {

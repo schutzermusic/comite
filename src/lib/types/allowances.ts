@@ -16,6 +16,27 @@ export type TravelEligibilityMode = 'different_municipality' | 'not_required' | 
 
 export type AllowancePolicyStatus = 'draft' | 'active' | 'inactive';
 
+/**
+ * Faixa de valor por função (migration 078). A política tem um
+ * valor-base (fallback) e N faixas; o motor casa `matchJobTitles`
+ * contra `people.job_title` (sem acento, minúsculo, por substring)
+ * e aplica a de menor `priority` que casar.
+ */
+export interface AllowancePolicyTier {
+  id: string;
+  organizationId: string;
+  policyId: string;
+  /** rótulo da faixa, ex.: "Liderança" */
+  name: string;
+  amountCents: number;
+  /** palavras-chave de função, ex.: ['encarregado','supervisor'] */
+  matchJobTitles: string[];
+  /** menor primeiro */
+  priority: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface AllowancePolicy {
   id: string;
   organizationId: string;
@@ -47,6 +68,8 @@ export interface AllowancePolicy {
   notes: string | null;
   createdAt: string;
   updatedAt: string;
+  /** faixas por função; vazio = valor único (amountCents) */
+  tiers: AllowancePolicyTier[];
 }
 
 /* ──────────────────── Work schedule day ─────────────────────── */
@@ -201,6 +224,10 @@ export interface DailyAllowance {
   allowanceType: AllowanceType;
   amountCents: number;
   currency: 'BRL';
+  /** faixa aplicada (null = valor-base da política) */
+  policyTierId: string | null;
+  /** rótulo congelado da faixa no momento da geração */
+  tierLabel: string | null;
   status: DailyAllowanceStatus;
   eligibilityReason: EligibilityReason | null;
   blockingReason: string | null;

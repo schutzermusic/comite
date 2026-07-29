@@ -20,6 +20,7 @@ export interface HudSelectProps {
   size?: 'sm' | 'md' | 'lg';
   fullWidth?: boolean;
   className?: string;
+  disabled?: boolean;
 }
 
 export function HudSelect({
@@ -32,6 +33,7 @@ export function HudSelect({
   size = 'md',
   fullWidth = true,
   className,
+  disabled = false,
 }: HudSelectProps) {
   const sizeStyles = {
     sm: 'h-9 px-3 text-sm',
@@ -49,6 +51,7 @@ export function HudSelect({
       <div className="relative">
         <select
           value={value}
+          disabled={disabled}
           onChange={(e) => onChange(e.target.value)}
           className={cn(
             'rounded-lg appearance-none cursor-pointer',

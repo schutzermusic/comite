@@ -1,5 +1,5 @@
 /**
- * Aplica as migrations de Diárias de Campo (056–064) contra
+ * Aplica as migrations de Diárias de Campo (056–064 + 078) contra
  * SUPABASE_DB_URL. Todos os arquivos são idempotentes — reexecutar é
  * no-op. (Migrations 059/060 chegam nas Fases 3/4.)
  *
@@ -29,6 +29,7 @@ const files = [
   'supabase/migrations/062_allowance_municipalities.sql',
   'supabase/migrations/063_allowance_municipality_security.sql',
   'supabase/migrations/064_allowance_report_exports.sql',
+  'supabase/migrations/078_allowance_policy_tiers.sql',
 ];
 
 const client = new pg.Client({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
@@ -49,7 +50,7 @@ try {
                           'allowance_weeks','daily_allowances',
                           'person_residence_municipalities',
                           'allowance_eligibility_overrides',
-                          'allowance_report_exports')
+                          'allowance_report_exports','allowance_policy_tiers')
      order by table_name`,
   );
   console.log('Tabelas presentes:', rows.map((r) => r.table_name).join(', '));

@@ -177,6 +177,29 @@ export async function geocodeAddress(
   };
 }
 
+/** Resolve o identificador oficial sem expor o código técnico no formulário. */
+export async function resolveMunicipalityCode(
+  municipalityName: string,
+  stateCode: string,
+): Promise<string | null> {
+  const uf = stateCode.trim().toUpperCase();
+  const name = municipalityName.trim();
+  if (!name || !/^[A-Z]{2}$/.test(uf)) return null;
+
+  const url = `https://servicodados.ibge.gov.br/api/v1/localidades/estados/${encodeURIComponent(uf)}/municipios`;
+  const res = await fetch(url, { headers: { Accept: 'application/json' } });
+  if (!res.ok) throw new Error('Não foi possível validar o município informado');
+
+  const normalize = (value: string) => value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLocaleLowerCase('pt-BR');
+  const municipalities = (await res.json()) as Array<{ id: number; nome: string }>;
+  const match = municipalities.find((municipality) => normalize(municipality.nome) === normalize(name));
+  return match ? String(match.id) : null;
+}
+
 export async function deleteGeofence(id: string): Promise<void> {
   const supabase = createClient();
   const { orgId } = await getCurrentOrgAndUser(supabase);

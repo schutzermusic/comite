@@ -1,5 +1,6 @@
 @import "../styles/tokens.css";
 @import "../styles/glass.css";
+@import "../styles/ponto-theme.css";
 
 @tailwind base;
 @tailwind components;

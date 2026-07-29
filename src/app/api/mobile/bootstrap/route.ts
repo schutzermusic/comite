@@ -21,7 +21,7 @@ export async function GET(req: Request) {
       supabase.from('people').select('id, full_name, job_title, department, weekly_hours').eq('id', personId).maybeSingle(),
       supabase
         .from('attendance_punches')
-        .select('id, type, occurred_at, status')
+        .select('id, type, occurred_at, received_at, status')
         .eq('person_id', personId)
         .neq('status', 'cancelled')
         .gte('occurred_at', `${today}T00:00:00`)
@@ -54,11 +54,22 @@ export async function GET(req: Request) {
     geofences = gf ?? [];
   }
 
+  const visiblePunches = punches ?? [];
+  const latest = visiblePunches.at(-1);
+  const canUndoLatest = Boolean(
+    latest
+    && (latest.status === 'accepted' || latest.status === 'under_review')
+    && Date.now() - new Date(latest.received_at as string).getTime() <= 5 * 60_000,
+  );
+
   return json({
     ok: true,
     person,
     today,
-    punches: punches ?? [],
+    punches: visiblePunches.map((punch) => ({
+      ...punch,
+      can_undo: punch.id === latest?.id && canUndoLatest,
+    })),
     runningSession: running ?? null,
     allocations: allocations ?? [],
     geofences,

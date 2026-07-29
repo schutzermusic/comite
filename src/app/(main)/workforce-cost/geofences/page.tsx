@@ -32,6 +32,7 @@ import {
   deleteGeofence,
   geocodeAddress,
   listGeofences,
+  resolveMunicipalityCode,
   updateGeofence,
   type GeofenceInput,
 } from '@/lib/services/geofence';
@@ -121,10 +122,10 @@ export default function GeofencesPage() {
     {
       key: 'municipality',
       header: 'Município operacional',
-      cell: (g) => g.municipalityCode && g.municipalityVerifiedAt ? (
+      cell: (g) => g.municipalityName && g.stateCode ? (
         <div>
           <p className="text-sm text-ig-fg-strong">{g.municipalityName} - {g.stateCode}</p>
-          <p className="font-mono text-[11px] text-ig-fg-muted">IBGE {g.municipalityCode} - validado</p>
+          <p className="text-[11px] text-ig-fg-muted">Configurado</p>
         </div>
       ) : <HudBadge variant="warning">Município pendente</HudBadge>,
     },
@@ -296,10 +297,8 @@ function GeofenceModal({
   const [radius, setRadius] = useState('200');
   const [tolerance, setTolerance] = useState('50');
   const [active, setActive] = useState(true);
-  const [municipalityCode, setMunicipalityCode] = useState('');
   const [municipalityName, setMunicipalityName] = useState('');
   const [stateCode, setStateCode] = useState('');
-  const [verifyMunicipality, setVerifyMunicipality] = useState(false);
   const [saving, setSaving] = useState(false);
   const [locating, setLocating] = useState(false);
   const [geocoding, setGeocoding] = useState(false);
@@ -316,10 +315,8 @@ function GeofenceModal({
     setRadius(String(editing?.radiusMeters ?? 200));
     setTolerance(String(editing?.accuracyToleranceMeters ?? 50));
     setActive(editing?.active ?? true);
-    setMunicipalityCode(editing?.municipalityCode ?? '');
     setMunicipalityName(editing?.municipalityName ?? '');
     setStateCode(editing?.stateCode ?? '');
-    setVerifyMunicipality(Boolean(editing?.municipalityVerifiedAt));
   }, [open, editing, projects, prefillCoords]);
 
   /** Prefill center from the project's stored coordinate, when it has one. */
@@ -388,13 +385,29 @@ function GeofenceModal({
     if (!Number.isFinite(latN) || latN < -90 || latN > 90) return notify('Latitude inválida — use endereço, globo ou localização', { variant: 'warning' });
     if (!Number.isFinite(lngN) || lngN < -180 || lngN > 180) return notify('Longitude inválida', { variant: 'warning' });
     if (!Number.isFinite(radiusN) || radiusN <= 0) return notify('Raio inválido', { variant: 'warning' });
-    if (municipalityCode && !/^\d{7}$/.test(municipalityCode)) return notify('Código IBGE deve ter 7 dígitos', { variant: 'warning' });
-    if (verifyMunicipality && (!municipalityCode || !municipalityName.trim() || !/^[A-Za-z]{2}$/.test(stateCode))) {
-      return notify('Preencha código IBGE, município e UF para validar', { variant: 'warning' });
+    if ((municipalityName.trim() || stateCode) && (!municipalityName.trim() || !/^[A-Za-z]{2}$/.test(stateCode))) {
+      return notify('Preencha município e UF', { variant: 'warning' });
     }
 
     setSaving(true);
     try {
+      const normalizedMunicipalityName = municipalityName.trim();
+      const normalizedStateCode = stateCode.toUpperCase();
+      const municipalityUnchanged = Boolean(
+        editing?.municipalityCode
+        && editing.municipalityName === normalizedMunicipalityName
+        && editing.stateCode === normalizedStateCode,
+      );
+      const municipalityCode = normalizedMunicipalityName
+        ? municipalityUnchanged
+          ? editing?.municipalityCode ?? null
+          : await resolveMunicipalityCode(normalizedMunicipalityName, normalizedStateCode)
+        : null;
+      if (normalizedMunicipalityName && !municipalityCode) {
+        notify('Município não encontrado para a UF informada', { variant: 'warning' });
+        return;
+      }
+
       const input: GeofenceInput = {
         projectId,
         name: name.trim(),
@@ -403,11 +416,11 @@ function GeofenceModal({
         radiusMeters: Math.round(radiusN),
         accuracyToleranceMeters: Math.round(Number(tolerance) || 50),
         active,
-        municipalityCode: municipalityCode || null,
-        municipalityName: municipalityName.trim() || null,
-        stateCode: stateCode.toUpperCase() || null,
-        municipalitySource: municipalityCode ? 'manual' : null,
-        verifyMunicipality,
+        municipalityCode,
+        municipalityName: normalizedMunicipalityName || null,
+        stateCode: normalizedStateCode || null,
+        municipalitySource: normalizedMunicipalityName ? 'manual' : null,
+        verifyMunicipality: Boolean(normalizedMunicipalityName),
       };
       if (editing) await updateGeofence(editing.id, input);
       else await createGeofence(input);
@@ -489,15 +502,10 @@ function GeofenceModal({
 
       <div className="mt-4 rounded-lg border border-ig-border-subtle bg-ig-panel/50 p-3">
         <p className="mb-3 text-xs font-medium uppercase tracking-wider text-ig-fg-muted">Município do local operacional</p>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <HudInput label="Código IBGE" value={municipalityCode} onChange={(e) => setMunicipalityCode(e.target.value.replace(/\D/g, '').slice(0, 7))} placeholder="4113700" />
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <HudInput label="Município" value={municipalityName} onChange={(e) => setMunicipalityName(e.target.value)} placeholder="Londrina" />
           <HudInput label="UF" value={stateCode} onChange={(e) => setStateCode(e.target.value.toUpperCase().slice(0, 2))} placeholder="PR" />
         </div>
-        <label className="mt-3 flex items-center gap-2 text-sm text-ig-fg-muted">
-          <input type="checkbox" checked={verifyMunicipality} onChange={(e) => setVerifyMunicipality(e.target.checked)} className="h-4 w-4 accent-[var(--ig-accent)]" />
-          Dados municipais conferidos para elegibilidade automática
-        </label>
       </div>
 
       <div className="mt-4 flex items-center justify-between">
