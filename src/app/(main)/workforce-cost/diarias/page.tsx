@@ -17,6 +17,7 @@ import {
   Clock,
   Download,
   RefreshCw,
+  UserMinus,
   UtensilsCrossed,
   Users,
 } from 'lucide-react';
@@ -54,6 +55,7 @@ import {
   nextWeekBounds,
   performWeekAction,
   reconcileWeek,
+  removePersonFromAllowanceWeek,
   reviewException,
   setAllowancePolicyStatus,
   weekLabel,
@@ -181,8 +183,9 @@ function rowStatus(row: PersonRow): { label: string; variant: 'success' | 'warni
 /* ─────────────────────────── page ───────────────────────────── */
 
 export default function DiariasPage() {
-  const { hasPermission } = usePermissions();
+  const { hasPermission, roles } = usePermissions();
   const { notify } = useHudToast();
+  const isOwnerAdmin = roles.some((role) => role.key === 'owner_admin');
   const canManage = hasPermission('allowances.manage');
   const canReview = hasPermission('allowances.review_exception') || hasPermission('allowances.override_request') || canManage;
   const canApproveOverride = hasPermission('allowances.override_approve');
@@ -439,6 +442,44 @@ export default function DiariasPage() {
       }
     },
     [notify, bounds],
+  );
+
+  const handleRemovePerson = useCallback(
+    async (row: PersonRow) => {
+      if (!week || !isOwnerAdmin) return;
+      const reason = window.prompt(
+        `Informe o motivo para remover ${row.name} das diárias desta semana:`,
+      );
+      if (!reason?.trim()) return;
+
+      const approved = ['finance_approved', 'scheduled', 'processing', 'paid', 'reconciliation', 'closed']
+        .includes(week.status);
+      const warning = approved
+        ? 'As diárias serão estornadas, preservando a evidência aprovada. Se já houver processamento financeiro, será criada uma compensação.'
+        : 'As diárias desta pessoa serão removidas da semana.';
+      if (!window.confirm(`${warning}\n\nConfirmar remoção de ${row.name}?`)) return;
+
+      setActionBusy(true);
+      try {
+        const result = await removePersonFromAllowanceWeek(week.id, row.personId, reason);
+        await reload();
+        setSelected(null);
+        notify(result.mode === 'removed' ? 'Pessoa removida das diárias' : 'Diárias da pessoa estornadas', {
+          description: result.compensationCents > 0
+            ? `Compensação de ${formatCents(result.compensationCents)} criada e pendente de aprovação.`
+            : `${result.affectedRows} diária(s) afetada(s).`,
+          variant: result.compensationCents > 0 ? 'warning' : 'success',
+        });
+      } catch (e) {
+        notify('Erro ao remover pessoa das diárias', {
+          description: e instanceof Error ? e.message : undefined,
+          variant: 'error',
+        });
+      } finally {
+        setActionBusy(false);
+      }
+    },
+    [week, isOwnerAdmin, notify, reload],
   );
 
   const handleOverrideDecision = useCallback(async (id: string, decision: 'approved' | 'rejected') => {
@@ -735,6 +776,11 @@ export default function DiariasPage() {
                     <th className="px-3 py-3 text-center text-xs font-medium uppercase tracking-wider text-ig-fg-muted">
                       Status
                     </th>
+                    {isOwnerAdmin && (
+                      <th className="w-12 px-2 py-3 text-center text-xs font-medium uppercase tracking-wider text-ig-fg-muted">
+                        Ações
+                      </th>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
@@ -787,6 +833,19 @@ export default function DiariasPage() {
                         <td className="px-3 py-2.5 text-center">
                           <HudBadge variant={st.variant}>{st.label}</HudBadge>
                         </td>
+                        {isOwnerAdmin && (
+                          <td className="px-2 py-2.5 text-center">
+                            <button
+                              type="button"
+                              title="Remover pessoa das diárias da semana"
+                              disabled={actionBusy}
+                              onClick={() => void handleRemovePerson(row)}
+                              className="rounded-md p-1.5 text-ig-fg-muted transition-colors hover:bg-ig-panel-hover hover:text-ig-danger disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              <UserMinus className="h-4 w-4" />
+                            </button>
+                          </td>
+                        )}
                       </tr>
                     );
                   })}

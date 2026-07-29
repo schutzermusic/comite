@@ -195,7 +195,7 @@ const navigationItems: MenuItem[] = [
         href: "/workforce-cost/jornada",
         label: "Jornada",
         icon: Clock,
-        anyPermission: ["people.attendance_use", "people.attendance_view", "people.attendance_manage"],
+        anyPermission: ["people.attendance_view", "people.attendance_manage"],
       },
       {
         href: "/workforce-cost/diarias",

@@ -424,9 +424,51 @@ export async function listDailyAllowancesByWeek(weekId: string): Promise<DailyAl
     .from(DAILY_ALLOWANCES_TABLE)
     .select('*, people(*)')
     .eq('allowance_week_id', weekId)
+    .neq('status', 'reversed')
     .order('allowance_date');
   if (error) throw new Error(rlsFriendlyMessage('Erro ao carregar diárias', error));
   return (data ?? []).map((r) => mapDailyRow(r as unknown as DailyRow));
+}
+
+export interface RemovePersonFromAllowanceWeekResult {
+  mode: 'removed' | 'reversed';
+  affectedRows: number;
+  compensationCents: number;
+  adjustmentId: string | null;
+}
+
+export async function removePersonFromAllowanceWeek(
+  weekId: string,
+  personId: string,
+  reason: string,
+): Promise<RemovePersonFromAllowanceWeekResult> {
+  if (!reason.trim()) throw new Error('Informe o motivo da remoção.');
+  const supabase = createClient();
+  const { data, error } = await supabase.rpc('admin_remove_person_from_allowance_week', {
+    p_week_id: weekId,
+    p_person_id: personId,
+    p_reason: reason.trim(),
+  });
+
+  if (error) {
+    const message = /owner\s*\/\s*admin|apenas.*admin/i.test(error.message || '')
+      ? 'Somente o perfil Owner / Admin pode remover uma pessoa do lote de diárias.'
+      : error.message;
+    throw new Error(`Erro ao remover pessoa das diárias: ${message || 'erro desconhecido'}`);
+  }
+
+  const result = data as {
+    mode: 'removed' | 'reversed';
+    affected_rows: number;
+    compensation_cents: number | string;
+    adjustment_id: string | null;
+  };
+  return {
+    mode: result.mode,
+    affectedRows: Number(result.affected_rows),
+    compensationCents: Number(result.compensation_cents),
+    adjustmentId: result.adjustment_id,
+  };
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -680,6 +722,15 @@ export async function generateWeeklyAllowancePreview(
     week = mapWeekRow(weekRow as WeekRow);
   }
 
+  const { data: exclusionRows, error: exclusionErr } = await supabase
+    .from('allowance_week_person_exclusions')
+    .select('person_id')
+    .eq('allowance_week_id', week.id);
+  if (exclusionErr) {
+    throw new Error(rlsFriendlyMessage('Erro ao carregar exclusões da semana', exclusionErr));
+  }
+  const excludedPeople = new Set((exclusionRows ?? []).map((row) => row.person_id as string));
+
   // ── 3) Avaliar pessoa × dia e montar as linhas ─────────────
   const rowsToInsert: Record<string, unknown>[] = [];
   const seenKeys = new Set<string>();
@@ -687,6 +738,7 @@ export async function generateWeeklyAllowancePreview(
   let skippedNoAllocation = 0;
 
   for (const person of people) {
+    if (excludedPeople.has(person.id)) continue;
     const personAllocs = allocByPerson.get(person.id) ?? [];
     if (personAllocs.length === 0) {
       skippedNoAllocation += 1;

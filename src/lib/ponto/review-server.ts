@@ -35,6 +35,16 @@ export interface ReviewItem {
     accuracyMeters: number | null;
     distanceMeters: number | null;
     geofenceName: string | null;
+    /** Centro/raio da cerca, para plotar o ponto contra o limite no mapa. */
+    geofenceLat: number | null;
+    geofenceLng: number | null;
+    geofenceRadiusMeters: number | null;
+    geofenceProjectId: string | null;
+    /** Proveniência do fix — gps/network/unknown, offline e integridade. */
+    source: string | null;
+    capturedAtDevice: string | null;
+    offlineCapture: boolean;
+    integrityStatus: string | null;
   } | null;
   authMethod: string | null;
 }
@@ -50,7 +60,17 @@ type PunchRow = {
     longitude: number | null;
     accuracy_meters: number | null;
     distance_from_geofence_meters: number | null;
-    project_geofences: { name: string } | null;
+    source: string | null;
+    captured_at_device: string | null;
+    offline_capture: boolean | null;
+    integrity_status: string | null;
+    project_geofences: {
+      name: string;
+      center_lat: number | null;
+      center_lng: number | null;
+      radius_meters: number | null;
+      project_id: string | null;
+    } | null;
   } | null;
   authentication_evidence: {
     method: string | null;
@@ -74,7 +94,11 @@ export async function listReviewItems(orgId: string): Promise<ReviewItem[]> {
     .select(
       `id, type, occurred_at, person_id,
        people:person_id ( full_name ),
-       location_evidence:location_evidence_id ( latitude, longitude, accuracy_meters, distance_from_geofence_meters, project_geofences:geofence_id ( name ) ),
+       location_evidence:location_evidence_id (
+         latitude, longitude, accuracy_meters, distance_from_geofence_meters,
+         source, captured_at_device, offline_capture, integrity_status,
+         project_geofences:geofence_id ( name, center_lat, center_lng, radius_meters, project_id )
+       ),
        authentication_evidence:authentication_evidence_id ( method, provider_reference, metadata )`,
     )
     .eq('organization_id', orgId)
@@ -104,6 +128,14 @@ export async function listReviewItems(orgId: string): Promise<ReviewItem[]> {
             accuracyMeters: r.location_evidence.accuracy_meters,
             distanceMeters: r.location_evidence.distance_from_geofence_meters,
             geofenceName: r.location_evidence.project_geofences?.name ?? null,
+            geofenceLat: r.location_evidence.project_geofences?.center_lat ?? null,
+            geofenceLng: r.location_evidence.project_geofences?.center_lng ?? null,
+            geofenceRadiusMeters: r.location_evidence.project_geofences?.radius_meters ?? null,
+            geofenceProjectId: r.location_evidence.project_geofences?.project_id ?? null,
+            source: r.location_evidence.source,
+            capturedAtDevice: r.location_evidence.captured_at_device,
+            offlineCapture: r.location_evidence.offline_capture === true,
+            integrityStatus: r.location_evidence.integrity_status,
           }
         : null,
       authMethod: ae?.method ?? null,

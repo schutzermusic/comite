@@ -266,19 +266,37 @@ export async function updatePerson(id: string, patch: Partial<PersonInput>): Pro
   return person;
 }
 
-export async function deletePerson(id: string): Promise<void> {
+export async function inactivatePerson(id: string): Promise<void> {
   const supabase = createClient();
   const { orgId } = await getCurrentOrgAndUser(supabase);
+  const { error } = await supabase
+    .from(PEOPLE_TABLE)
+    .update({ status: 'inactive' })
+    .eq('id', id);
 
-  const { error } = await supabase.from(PEOPLE_TABLE).delete().eq('id', id);
-  if (error) throw new Error(rlsFriendlyMessage('Erro ao remover pessoa', error));
+  if (error) throw new Error(rlsFriendlyMessage('Erro ao inativar pessoa', error));
 
   void logAuditEvent({
     organizationId: orgId,
-    action: 'person.deleted',
+    action: 'person.inactivated',
     entityType: 'person',
     entityId: id,
+    metadata: { reason: 'manual' },
   });
+}
+
+export async function deletePersonHistory(id: string): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase.rpc('admin_delete_person_history', {
+    p_person_id: id,
+  });
+
+  if (error) {
+    const message = /owner\s*\/\s*admin|apenas.*admin/i.test(error.message || '')
+      ? 'Somente o perfil Owner / Admin pode excluir todo o histórico.'
+      : error.message;
+    throw new Error(`Erro ao excluir pessoa e histórico: ${message || 'erro desconhecido'}`);
+  }
 }
 
 /** Profiles of the org not yet linked to a person (for manual linking). */

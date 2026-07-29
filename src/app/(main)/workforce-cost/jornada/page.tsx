@@ -1,28 +1,21 @@
 'use client';
 
 /**
- * Jornada — registro de ponto + jornada derivada + regras CLT + banco
- * de horas + conciliação jornada × apontamento (Fase 5, spec §4/§6.3).
- * Live-first com demo fallback. Jornada é domínio separado do
- * apontamento por projeto; esta tela concilia os dois (D4).
+ * Jornada — visão gerencial derivada das marcações feitas no portal
+ * ponto.insightapex, com regras CLT, banco de horas e conciliação
+ * jornada × apontamento (Fase 5, spec §4/§6.3).
  */
 
-import type React from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   Clock,
-  Coffee,
-  LogIn,
-  LogOut,
   Moon,
-  Play,
   Scale,
   Timer,
 } from 'lucide-react';
 import {
   HudBadge,
-  HudButton,
   HudEmptyState,
   HudHeader,
   HudKpiStrip,
@@ -42,21 +35,15 @@ import type {
   DayJourney,
   JourneyReconciliation,
   Person,
-  PunchType,
 } from '@/lib/types/people';
-import { PUNCH_TYPE_LABELS } from '@/lib/types/people';
 import {
   buildJourneys,
   computeBancoHoras,
   getJourneyReconciliation,
   listPunches,
-  nextPunchOptions,
-  registerPunch,
 } from '@/lib/services/journey';
-import { listPeople, getCurrentPerson } from '@/lib/services/people';
+import { listPeople } from '@/lib/services/people';
 import { monthBounds } from '@/lib/services/capacity';
-import { buildDemoPunches } from '@/components/workforce/journey-demo-data';
-import { DEMO_PEOPLE } from '@/components/projects/team-demo-data';
 
 function currentMonth(): string {
   const now = new Date();
@@ -88,17 +75,9 @@ function fmtDate(date: string): string {
   return `${d}/${m}`;
 }
 
-const PUNCH_ICON: Record<PunchType, React.ReactNode> = {
-  clock_in: <LogIn className="h-4 w-4" />,
-  break_start: <Coffee className="h-4 w-4" />,
-  break_end: <Play className="h-4 w-4" />,
-  clock_out: <LogOut className="h-4 w-4" />,
-};
-
 export default function JornadaPage() {
   const { hasPermission } = usePermissions();
   const { notify } = useHudToast();
-  const canUse = hasPermission('people.attendance_use');
   const canView = hasPermission('people.attendance_view') || hasPermission('people.attendance_manage');
 
   const [month, setMonth] = useState(currentMonth());
@@ -106,81 +85,44 @@ export default function JornadaPage() {
   const [error, setError] = useState<string | null>(null);
   const [people, setPeople] = useState<Person[]>([]);
   const [punches, setPunches] = useState<AttendancePunch[]>([]);
-  const [myPerson, setMyPerson] = useState<Person | null>(null);
   const [reconPersonId, setReconPersonId] = useState<string>('');
   const [recon, setRecon] = useState<JourneyReconciliation[]>([]);
-  const [busy, setBusy] = useState(false);
 
   const reload = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const [start, end] = monthBounds(month);
-      const [peopleRes, punchesRes, me] = await Promise.all([
-        listPeople({ status: 'active' }).catch(() => [] as Person[]),
-        canView || canUse ? listPunches(start, end) : Promise.resolve([] as AttendancePunch[]),
-        getCurrentPerson().catch(() => null),
+      const [peopleRes, punchesRes] = await Promise.all([
+        canView ? listPeople({ status: 'active' }).catch(() => [] as Person[]) : Promise.resolve([] as Person[]),
+        canView ? listPunches(start, end) : Promise.resolve([] as AttendancePunch[]),
       ]);
       setPeople(peopleRes);
       setPunches(punchesRes);
-      setMyPerson(me);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Erro ao carregar jornada');
     } finally {
       setLoading(false);
     }
-  }, [month, canView, canUse]);
+  }, [month, canView]);
 
   useEffect(() => {
     void reload();
   }, [reload]);
 
-  const usingDemo = !loading && !error && punches.length === 0;
-  const sourcePunches = usingDemo ? buildDemoPunches() : punches;
-  const sourcePeople = usingDemo ? DEMO_PEOPLE : people;
-
   // journeys per person
   const journeys = useMemo(() => {
     const all: DayJourney[] = [];
-    for (const person of sourcePeople) {
-      all.push(...buildJourneys(person, sourcePunches));
+    for (const person of people) {
+      all.push(...buildJourneys(person, punches));
     }
     return all;
-  }, [sourcePeople, sourcePunches]);
+  }, [people, punches]);
 
   const peopleById = useMemo(
-    () => new Map(sourcePeople.map((p) => [p.id, p])),
-    [sourcePeople],
+    () => new Map(people.map((p) => [p.id, p])),
+    [people],
   );
-
-  // my journey today
-  const myTodayPunches = useMemo(() => {
-    if (!myPerson && !usingDemo) return [];
-    const pid = usingDemo ? DEMO_PEOPLE[0].id : myPerson?.id;
-    const today = new Date().toISOString().slice(0, 10);
-    return sourcePunches
-      .filter((p) => p.personId === pid && p.occurredAt.slice(0, 10) === today)
-      .sort((a, b) => a.occurredAt.localeCompare(b.occurredAt));
-  }, [myPerson, usingDemo, sourcePunches]);
-
-  const lastPunchType = myTodayPunches.length > 0 ? myTodayPunches[myTodayPunches.length - 1].type : null;
-  const nextOptions = nextPunchOptions(lastPunchType);
-
-  async function handlePunch(type: PunchType) {
-    setBusy(true);
-    try {
-      await registerPunch(type);
-      notify(`${PUNCH_TYPE_LABELS[type]} registrada`, { variant: 'success' });
-      await reload();
-    } catch (e) {
-      notify('Erro ao registrar ponto', {
-        description: e instanceof Error ? e.message : undefined,
-        variant: 'error',
-      });
-    } finally {
-      setBusy(false);
-    }
-  }
 
   // corporate KPIs
   const kpis: KpiItem[] = useMemo(() => {
@@ -216,21 +158,6 @@ export default function JornadaPage() {
     async (personId: string) => {
       const person = peopleById.get(personId);
       if (!person) return;
-      if (usingDemo) {
-        // derive demo reconciliation from demo journeys only (no timesheet)
-        const demoJourneys = buildJourneys(person, sourcePunches);
-        setRecon(
-          demoJourneys.map((j) => ({
-            personId,
-            date: j.date,
-            workedMinutes: j.workedMinutes,
-            reportedMinutes: 0,
-            unclassifiedMinutes: j.workedMinutes,
-            outsideJourneyMinutes: 0,
-          })),
-        );
-        return;
-      }
       try {
         setRecon(await getJourneyReconciliation(personId, month, person));
       } catch (e) {
@@ -240,17 +167,17 @@ export default function JornadaPage() {
         });
       }
     },
-    [peopleById, usingDemo, sourcePunches, month, notify],
+    [peopleById, month, notify],
   );
 
   useEffect(() => {
-    const pid = reconPersonId || (usingDemo ? DEMO_PEOPLE[0].id : myPerson?.id ?? '');
-    if (pid) {
-      setReconPersonId(pid);
-      void loadRecon(pid);
+    if (!canView || people.length === 0) return;
+    if (!reconPersonId || !peopleById.has(reconPersonId)) {
+      setReconPersonId(people[0].id);
+      return;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [usingDemo, myPerson, month]);
+    void loadRecon(reconPersonId);
+  }, [canView, people, peopleById, reconPersonId, month, loadRecon]);
 
   const journeyColumns: HudTableColumn<DayJourney>[] = [
     {
@@ -342,64 +269,18 @@ export default function JornadaPage() {
       <div className="space-y-6">
         <HudHeader
           title="Jornada"
-          subtitle={`Ponto, banco de horas e conciliação com apontamento · ${monthLabel(month)}`}
+          subtitle={`Gestão de ponto, banco de horas e conciliação · ${monthLabel(month)}`}
           icon={<Timer className="h-5 w-5" />}
           breadcrumbs={[{ label: 'Pessoas & Custos', href: '/workforce-cost' }, { label: 'Jornada' }]}
         />
 
-        {usingDemo && (
-          <div className="flex items-center gap-2">
-            <HudBadge variant="warning">dados demonstrativos</HudBadge>
-            <span className="text-xs text-ig-fg-muted">
-              Nenhuma marcação de ponto registrada — exibindo exemplo. Ações de escrita desativadas.
-            </span>
-          </div>
-        )}
         {error && (
           <HudPanel state="critical">
             <p className="text-sm text-ig-danger">{error}</p>
           </HudPanel>
         )}
 
-        {/* Minha jornada */}
-        {(canUse || usingDemo) && (
-          <HudPanel title="Minha jornada de hoje" accentColor="emerald">
-            <div className="flex flex-wrap items-center gap-3">
-              {nextOptions.map((type) => (
-                <HudButton
-                  key={type}
-                  variant={type === 'clock_in' || type === 'break_end' ? 'primary' : 'secondary'}
-                  leftIcon={PUNCH_ICON[type]}
-                  disabled={busy}
-                  onClick={() => void handlePunch(type)}
-                >
-                  {PUNCH_TYPE_LABELS[type]}
-                </HudButton>
-              ))}
-              {myTodayPunches.length > 0 && (
-                <div className="ml-auto flex flex-wrap items-center gap-2">
-                  {myTodayPunches.map((p) => (
-                    <span
-                      key={p.id}
-                      className="flex items-center gap-1.5 rounded-md border border-ig-border-subtle bg-ig-panel/60 px-2.5 py-1 text-xs tabular-nums text-ig-fg-muted"
-                    >
-                      {PUNCH_ICON[p.type]}
-                      <span className="font-medium text-ig-fg-strong">{fmtTime(p.occurredAt)}</span>
-                      {PUNCH_TYPE_LABELS[p.type]}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-            {myTodayPunches.length === 0 && (
-              <p className="mt-3 text-xs text-ig-fg-muted">
-                Nenhuma marcação hoje. Registre sua entrada para iniciar a jornada.
-              </p>
-            )}
-          </HudPanel>
-        )}
-
-        {canView || usingDemo ? (
+        {canView ? (
           <>
             <div className="flex items-center gap-3">
               <div className="w-56">
@@ -413,7 +294,8 @@ export default function JornadaPage() {
                   })}
                 />
               </div>
-              <HudBadge variant="info">jornada esperada = carga semanal ÷ 5 · noturno 22h–05h</HudBadge>
+              <HudBadge variant="info">marcações originadas em ponto.insightapex</HudBadge>
+              <HudBadge variant="default">jornada esperada = carga semanal ÷ 5 · noturno 22h–05h</HudBadge>
             </div>
 
             <HudKpiStrip kpis={kpis} columns={5} />
@@ -452,7 +334,7 @@ export default function JornadaPage() {
                             setReconPersonId(v);
                             void loadRecon(v);
                           }}
-                          options={sourcePeople.map((p) => ({ value: p.id, label: p.fullName }))}
+                          options={people.map((p) => ({ value: p.id, label: p.fullName }))}
                         />
                       </div>
                       <HudTable<JourneyReconciliation>
@@ -484,7 +366,7 @@ export default function JornadaPage() {
             <HudEmptyState
               icon="alert"
               title="Sem acesso à visão de equipe"
-              description="Você pode registrar seu próprio ponto acima. A visão consolidada requer people.attendance_view."
+              description="Esta área é exclusivamente gerencial e requer permissão para visualizar jornadas da equipe. O registro individual é feito em ponto.insightapex."
             />
           </HudPanel>
         )}

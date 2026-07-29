@@ -7,7 +7,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Ban, CheckCircle2, Copy, Eye, Home, KeyRound, Link2, Pencil, Plus, RotateCcw, Send, Trash2, Users, XCircle } from 'lucide-react';
+import { AlertTriangle, Ban, CheckCircle2, Copy, Eye, Home, KeyRound, Link2, Pencil, Plus, RotateCcw, Send, Trash2, Users, XCircle } from 'lucide-react';
 import {
   HudBadge,
   HudButton,
@@ -30,7 +30,8 @@ import type { Person, PersonResidenceMunicipality, ResidenceMunicipalitySource }
 import { CONTRACT_TYPE_LABELS } from '@/lib/types/people';
 import {
   createPerson,
-  deletePerson,
+  deletePersonHistory,
+  inactivatePerson,
   listPeople,
   listUnlinkedProfiles,
   updatePerson,
@@ -91,9 +92,10 @@ const ACCESS_ACTION_META: Record<PontoAccessAction, { label: string; icon: typeo
 };
 
 export default function PessoasPage() {
-  const { hasPermission } = usePermissions();
+  const { hasPermission, roles } = usePermissions();
   const { notify } = useHudToast();
   const canManage = hasPermission('people.manage');
+  const isOwnerAdmin = roles.some((role) => role.key === 'owner_admin');
   const canValidateResidence = hasPermission('allowances.residence_validate');
 
   const [loading, setLoading] = useState(true);
@@ -110,6 +112,7 @@ export default function PessoasPage() {
   const [batchOpen, setBatchOpen] = useState(false);
   const [rolloutOpen, setRolloutOpen] = useState(false);
   const [accessFilter, setAccessFilter] = useState<PontoAccessBucket | 'all'>('all');
+  const [deletingPerson, setDeletingPerson] = useState<Person | null>(null);
 
   const reloadAccess = useCallback(async () => {
     if (!canManage) return setAccessMap(new Map());
@@ -306,7 +309,7 @@ export default function PessoasPage() {
                 type="button"
                 title="Excluir"
                 className="rounded-md p-1.5 text-ig-fg-muted transition-colors hover:bg-ig-panel-hover hover:text-ig-danger"
-                onClick={() => void handleDelete(p)}
+                onClick={() => setDeletingPerson(p)}
               >
                 <Trash2 className="h-3.5 w-3.5" />
               </button>
@@ -315,25 +318,6 @@ export default function PessoasPage() {
         ) : null,
     },
   ];
-
-  async function handleDelete(person: Person) {
-    if (
-      !window.confirm(
-        `Excluir ${person.fullName}? Alocações e apontamentos vinculados serão removidos. Prefira inativar quando houver histórico.`,
-      )
-    )
-      return;
-    try {
-      await deletePerson(person.id);
-      notify('Pessoa removida', { variant: 'success' });
-      await reload();
-    } catch (e) {
-      notify('Erro ao remover pessoa', {
-        description: e instanceof Error ? e.message : undefined,
-        variant: 'error',
-      });
-    }
-  }
 
   return (
     <HudPageLayout>
@@ -483,7 +467,162 @@ export default function PessoasPage() {
         onClose={() => setRolloutOpen(false)}
         onDone={reloadAccess}
       />
+      <DeletePersonModal
+        person={deletingPerson}
+        canDeleteHistory={isOwnerAdmin}
+        onClose={() => setDeletingPerson(null)}
+        onDone={async () => {
+          setDeletingPerson(null);
+          await reload();
+        }}
+      />
     </HudPageLayout>
+  );
+}
+
+/* ─────────────────────── Exclusão / inativação ─────────────────────── */
+
+function DeletePersonModal({
+  person,
+  canDeleteHistory,
+  onClose,
+  onDone,
+}: {
+  person: Person | null;
+  canDeleteHistory: boolean;
+  onClose: () => void;
+  onDone: () => Promise<void>;
+}) {
+  const { notify } = useHudToast();
+  const [confirmation, setConfirmation] = useState('');
+  const [submitting, setSubmitting] = useState<'inactivate' | 'delete' | null>(null);
+
+  useEffect(() => {
+    if (!person) {
+      setConfirmation('');
+      setSubmitting(null);
+    }
+  }, [person]);
+
+  if (!person) return null;
+  const targetPerson = person;
+
+  async function inactivate() {
+    setSubmitting('inactivate');
+    try {
+      await inactivatePerson(targetPerson.id);
+      notify('Colaborador inativado', {
+        description: 'Todo o histórico foi preservado e o colaborador saiu dos fluxos ativos.',
+        variant: 'success',
+      });
+      await onDone();
+    } catch (e) {
+      notify('Erro ao inativar colaborador', {
+        description: e instanceof Error ? e.message : undefined,
+        variant: 'error',
+      });
+    } finally {
+      setSubmitting(null);
+    }
+  }
+
+  async function permanentlyDelete() {
+    if (!canDeleteHistory || confirmation !== targetPerson.fullName) return;
+    setSubmitting('delete');
+    try {
+      await deletePersonHistory(targetPerson.id);
+      notify('Colaborador e histórico excluídos', {
+        description: 'Os registros operacionais vinculados foram removidos definitivamente.',
+        variant: 'success',
+      });
+      await onDone();
+    } catch (e) {
+      notify('Erro ao excluir colaborador e histórico', {
+        description: e instanceof Error ? e.message : undefined,
+        variant: 'error',
+      });
+    } finally {
+      setSubmitting(null);
+    }
+  }
+
+  return (
+    <HudModal
+      isOpen
+      onClose={submitting ? () => undefined : onClose}
+      title={`Remover ${person.fullName}`}
+      subtitle="Escolha como o cadastro deve ser tratado."
+      size="md"
+    >
+      <div className="space-y-4">
+        <div className="rounded-lg border border-ig-border-subtle bg-ig-panel/40 p-4">
+          <div className="flex items-start gap-3">
+            <Ban className="mt-0.5 h-5 w-5 shrink-0 text-ig-warning" />
+            <div className="min-w-0">
+              <h3 className="text-sm font-semibold text-ig-fg-strong">Apenas inativar</h3>
+              <p className="mt-1 text-xs leading-relaxed text-ig-fg-muted">
+                Preserva diárias, alocações, apontamentos e custos. O colaborador deixa de aparecer
+                nos fluxos ativos e pode ser reativado depois.
+              </p>
+              <HudButton
+                className="mt-3"
+                variant="secondary"
+                isLoading={submitting === 'inactivate'}
+                disabled={submitting !== null}
+                onClick={() => void inactivate()}
+              >
+                Inativar colaborador
+              </HudButton>
+            </div>
+          </div>
+        </div>
+
+        {canDeleteHistory ? (
+          <div className="rounded-lg border border-[color-mix(in_oklab,var(--ig-danger)_38%,transparent)] bg-[color-mix(in_oklab,var(--ig-danger)_8%,transparent)] p-4">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-ig-danger" />
+              <div className="min-w-0 flex-1">
+                <h3 className="text-sm font-semibold text-ig-danger">Excluir todo o histórico</h3>
+                <p className="mt-1 text-xs leading-relaxed text-ig-fg-muted">
+                  Remove definitivamente o cadastro e o histórico operacional vinculado. Registros
+                  fiscais e de auditoria obrigatórios permanecem preservados e desvinculados.
+                </p>
+                <p className="mt-3 text-xs text-ig-fg-strong">
+                  Digite <strong>{person.fullName}</strong> para confirmar:
+                </p>
+                <HudInput
+                  className="mt-2"
+                  value={confirmation}
+                  onChange={(event) => setConfirmation(event.target.value)}
+                  placeholder={person.fullName}
+                  autoComplete="off"
+                />
+                <HudButton
+                  className="mt-3"
+                  variant="danger"
+                  leftIcon={<Trash2 className="h-4 w-4" />}
+                  isLoading={submitting === 'delete'}
+                  disabled={submitting !== null || confirmation !== person.fullName}
+                  onClick={() => void permanentlyDelete()}
+                >
+                  Excluir colaborador e histórico
+                </HudButton>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <p className="text-xs text-ig-fg-muted">
+            A exclusão permanente é exclusiva do perfil Owner / Admin.
+          </p>
+        )}
+
+        <div className="flex justify-end">
+          <HudButton variant="ghost" disabled={submitting !== null} onClick={onClose}>
+            Cancelar
+          </HudButton>
+        </div>
+      </div>
+    </HudModal>
   );
 }
 

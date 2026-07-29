@@ -8,12 +8,14 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Check, MapPin, ScanFace, ShieldAlert, X } from 'lucide-react';
+import dynamic from 'next/dynamic';
+import { Check, Copy, ExternalLink, Map as MapIcon, MapPin, ScanFace, ShieldAlert, X } from 'lucide-react';
 import {
   HudButton,
   HudEmptyState,
   HudHeader,
   HudKpiStrip,
+  HudModal,
   HudPageLayout,
   HudPanel,
   HudStatusPill,
@@ -21,7 +23,13 @@ import {
   type KpiItem,
 } from '@/components/hud';
 import { usePermissions } from '@/hooks/use-permissions';
-import { listReviewItems, resolvePunch, type ReviewItem } from '@/lib/ponto/review-client';
+import { listReviewItems, resolvePunch, type PunchLocation, type ReviewItem } from '@/lib/ponto/review-client';
+
+// deck.gl + maplibre só entram quando o gestor abre o mapa de uma marcação.
+const PunchLocationMap = dynamic(
+  () => import('@/components/workforce/PunchLocationMap').then((m) => m.PunchLocationMap),
+  { ssr: false, loading: () => <div className="h-[340px] rounded-xl border border-ig-border-subtle bg-ig-panel-hover" /> },
+);
 
 type JobRun = {
   id: string; job_type: string; started_at: string; status: string; dry_run: boolean;
@@ -36,8 +44,40 @@ const PUNCH_LABEL: Record<string, string> = {
   clock_out: 'Saída',
 };
 
+const SOURCE_LABEL: Record<string, string> = {
+  gps: 'GPS',
+  network: 'Rede (torre/Wi-Fi)',
+  unknown: 'Origem desconhecida',
+};
+
+const INTEGRITY_LABEL: Record<string, string> = {
+  trusted: 'Confiável',
+  limited: 'Limitada',
+  suspicious: 'Suspeita',
+  unverified: 'Não verificada',
+};
+
 function fmtDateTime(iso: string): string {
   return new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+/** Coordenadas com 6 casas (~0,1 m) — precisão suficiente para auditoria. */
+function fmtCoords(lat: number, lng: number): string {
+  return `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+}
+
+function fmtDistance(meters: number): string {
+  return meters >= 1000 ? `${(meters / 1000).toFixed(1)} km` : `${Math.round(meters)} m`;
+}
+
+/** Resumo textual da localização, usado no card da fila. */
+function locationSummary(loc: PunchLocation | null): string {
+  if (!loc) return 'Sem localização capturada';
+  const dist = loc.distanceMeters;
+  if (loc.geofenceName) {
+    return dist != null ? `${loc.geofenceName} · ${fmtDistance(dist)} do limite` : loc.geofenceName;
+  }
+  return dist != null ? `${fmtDistance(dist)} do geofence` : 'Sem geofence associado';
 }
 
 export default function PontoRevisaoPage() {
@@ -50,6 +90,7 @@ export default function PontoRevisaoPage() {
   const [error, setError] = useState<string | null>(null);
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
+  const [mapItem, setMapItem] = useState<ReviewItem | null>(null);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -83,6 +124,7 @@ export default function PontoRevisaoPage() {
       await resolvePunch(punchId, decision, notes[punchId]);
       notify(decision === 'accept' ? 'Marcação aprovada' : 'Marcação rejeitada', { variant: 'success' });
       setItems((prev) => prev.filter((i) => i.punchId !== punchId));
+      setMapItem((prev) => (prev?.punchId === punchId ? null : prev));
     } catch (e) {
       notify('Falha ao resolver', { description: e instanceof Error ? e.message : undefined, variant: 'error' });
     } finally {
@@ -129,7 +171,7 @@ export default function PontoRevisaoPage() {
         ) : (
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             {items.map((item) => {
-              const dist = item.location?.distanceMeters;
+              const hasCoords = item.location?.latitude != null && item.location?.longitude != null;
               return (
                 <HudPanel key={item.punchId}>
                   <div className="flex gap-4">
@@ -153,14 +195,26 @@ export default function PontoRevisaoPage() {
                       </div>
                       <div className="mt-2 space-y-1 text-xs text-ig-fg-muted">
                         <p className="flex items-center gap-1.5">
-                          <MapPin className="h-3.5 w-3.5" />
-                          {item.location
-                            ? item.location.geofenceName
-                              ? `${item.location.geofenceName}${dist != null ? ` · ${Math.round(dist)} m do limite` : ''}`
-                              : dist != null ? `${Math.round(dist)} m do geofence` : 'Sem geofence associado'
-                            : 'Sem localização capturada'}
-                          {item.location?.accuracyMeters != null && <span className="text-ig-fg-subtle"> (±{Math.round(item.location.accuracyMeters)} m)</span>}
+                          <MapPin className="h-3.5 w-3.5 shrink-0" />
+                          <span className="min-w-0 truncate">{locationSummary(item.location)}</span>
+                          {item.location?.accuracyMeters != null && (
+                            <span className="shrink-0 text-ig-fg-subtle">(±{Math.round(item.location.accuracyMeters)} m)</span>
+                          )}
                         </p>
+                        {hasCoords && (
+                          <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <span className="font-mono text-[11px] text-ig-fg-strong">
+                              {fmtCoords(item.location!.latitude!, item.location!.longitude!)}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setMapItem(item)}
+                              className="inline-flex items-center gap-1 text-[11px] font-medium text-ig-accent hover:underline"
+                            >
+                              <MapIcon className="h-3 w-3" /> Ver no mapa
+                            </button>
+                          </p>
+                        )}
                         {item.authMethod && <p>Autenticação: {item.authMethod === 'facial_verification' ? 'selfie' : item.authMethod}</p>}
                       </div>
                     </div>
@@ -188,7 +242,98 @@ export default function PontoRevisaoPage() {
           </div>
         )}
       </div>
+
+      <PunchLocationModal item={mapItem} onClose={() => setMapItem(null)} />
     </HudPageLayout>
+  );
+}
+
+/* ─────────────────── Mapa da marcação (evidência do "onde") ─────────────────── */
+
+function PunchLocationModal({ item, onClose }: { item: ReviewItem | null; onClose: () => void }) {
+  const { notify } = useHudToast();
+  const loc = item?.location ?? null;
+  const lat = loc?.latitude ?? null;
+  const lng = loc?.longitude ?? null;
+  const open = !!item && lat != null && lng != null;
+
+  async function copyCoords() {
+    if (lat == null || lng == null) return;
+    try {
+      await navigator.clipboard.writeText(`${lat},${lng}`);
+      notify('Coordenadas copiadas', { variant: 'success' });
+    } catch {
+      notify('Não foi possível copiar', { variant: 'error' });
+    }
+  }
+
+  return (
+    <HudModal
+      isOpen={open}
+      onClose={onClose}
+      size="xl"
+      title="Localização da marcação"
+      subtitle={item ? `${item.personName} · ${PUNCH_LABEL[item.type] ?? item.type} · ${fmtDateTime(item.occurredAt)}` : undefined}
+    >
+      {open && loc && (
+        <div className="space-y-4">
+          <PunchLocationMap
+            latitude={lat!}
+            longitude={lng!}
+            accuracyMeters={loc.accuracyMeters}
+            geofenceLat={loc.geofenceLat}
+            geofenceLng={loc.geofenceLng}
+            geofenceRadiusMeters={loc.geofenceRadiusMeters}
+          />
+
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <LocationFact label="Coordenadas" value={fmtCoords(lat!, lng!)} mono />
+            <LocationFact
+              label="Distância do limite"
+              value={loc.distanceMeters != null ? fmtDistance(loc.distanceMeters) : '—'}
+              tone={loc.distanceMeters != null && loc.distanceMeters > 0 ? 'danger' : undefined}
+            />
+            <LocationFact label="Precisão do GPS" value={loc.accuracyMeters != null ? `±${Math.round(loc.accuracyMeters)} m` : '—'} />
+            <LocationFact
+              label="Cerca"
+              value={loc.geofenceName ?? 'Sem cerca associada'}
+              sub={loc.geofenceRadiusMeters != null ? `raio ${fmtDistance(loc.geofenceRadiusMeters)}` : undefined}
+            />
+            <LocationFact label="Origem do sinal" value={loc.source ? SOURCE_LABEL[loc.source] ?? loc.source : '—'} />
+            <LocationFact label="Integridade" value={loc.integrityStatus ? INTEGRITY_LABEL[loc.integrityStatus] ?? loc.integrityStatus : '—'} />
+            <LocationFact label="Captura offline" value={loc.offlineCapture ? 'Sim' : 'Não'} tone={loc.offlineCapture ? 'danger' : undefined} />
+            <LocationFact label="Hora no aparelho" value={loc.capturedAtDevice ? fmtDateTime(loc.capturedAtDevice) : '—'} />
+          </div>
+
+          <div className="flex flex-wrap justify-end gap-2">
+            <HudButton variant="ghost" size="sm" leftIcon={<Copy className="h-4 w-4" />} onClick={() => void copyCoords()}>
+              Copiar coordenadas
+            </HudButton>
+            <a
+              href={`https://www.google.com/maps/search/?api=1&query=${lat},${lng}`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <HudButton variant="secondary" size="sm" leftIcon={<ExternalLink className="h-4 w-4" />}>
+                Abrir no Google Maps
+              </HudButton>
+            </a>
+          </div>
+        </div>
+      )}
+    </HudModal>
+  );
+}
+
+function LocationFact({ label, value, sub, mono, tone }: { label: string; value: string; sub?: string; mono?: boolean; tone?: 'danger' }) {
+  return (
+    <div className="rounded-lg border border-ig-border-subtle bg-ig-panel/40 px-3 py-2">
+      <p className="text-[10px] uppercase tracking-[0.08em] text-ig-fg-subtle">{label}</p>
+      <p className={`truncate text-sm font-semibold ${mono ? 'font-mono text-[12px]' : ''} ${tone === 'danger' ? 'text-ig-danger' : 'text-ig-fg-strong'}`} title={value}>
+        {value}
+      </p>
+      {sub && <p className="mt-0.5 truncate text-[11px] text-ig-fg-muted">{sub}</p>}
+    </div>
   );
 }
 

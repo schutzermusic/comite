@@ -160,6 +160,7 @@ export async function updateSession(request: NextRequest) {
     if (isPontoHost && !pathname.startsWith('/ponto') && !pathname.startsWith('/api')) {
         if (pathname === '/' || pathname === '') pontoRewrite = '/ponto'
         else if (pathname === '/login') pontoRewrite = '/ponto/login'
+        else if (pathname === '/ativar') pontoRewrite = '/ponto/ativar'
         if (pontoRewrite) pathname = pontoRewrite
     }
     // Endpoints de job agendado autenticam por CRON_SECRET (Bearer), sem

@@ -10,14 +10,25 @@ export interface ReviewItem {
   personName: string;
   selfieUrl: string | null;
   selfiePurged: boolean;
-  location: {
-    latitude: number | null;
-    longitude: number | null;
-    accuracyMeters: number | null;
-    distanceMeters: number | null;
-    geofenceName: string | null;
-  } | null;
+  location: PunchLocation | null;
   authMethod: string | null;
+}
+
+/** Evidência de localização de uma marcação (o "onde" que o gestor revisa). */
+export interface PunchLocation {
+  latitude: number | null;
+  longitude: number | null;
+  accuracyMeters: number | null;
+  distanceMeters: number | null;
+  geofenceName: string | null;
+  geofenceLat: number | null;
+  geofenceLng: number | null;
+  geofenceRadiusMeters: number | null;
+  geofenceProjectId: string | null;
+  source: string | null;
+  capturedAtDevice: string | null;
+  offlineCapture: boolean;
+  integrityStatus: string | null;
 }
 
 async function parse<T>(res: Response): Promise<T> {
