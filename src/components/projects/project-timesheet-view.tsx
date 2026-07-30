@@ -1,9 +1,15 @@
 'use client';
 
 /**
- * Apontamentos do projeto (spec seção 11) — timer web, entrada manual,
- * consolidação, submissão com aprovação por exceção e conciliação
- * planejado × apontado × aprovado do mês. Live-first + demo fallback.
+ * Apontamentos do projeto (spec seção 11) — consolidação, submissão com
+ * aprovação por exceção e conciliação planejado × apontado × aprovado do
+ * mês. Live-first + demo fallback.
+ *
+ * A MARCAÇÃO de horas não acontece aqui. Quem inicia e encerra a
+ * atividade — e escolhe a etapa do cronograma — é o app de Ponto
+ * (ponto.insightapex.co), que grava a `project_work_sessions` com o
+ * `timeline_item_id`. Este painel lê essas sessões, consolida em
+ * `time_entries` e envia para aprovação.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -11,10 +17,10 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock,
+  ExternalLink,
   Hourglass,
-  Play,
   Send,
-  Square,
+  Smartphone,
   Timer,
   Users,
 } from 'lucide-react';
@@ -22,7 +28,6 @@ import {
   HudBadge,
   HudButton,
   HudEmptyState,
-  HudInput,
   HudKpiStrip,
   HudPanel,
   HudStatusPill,
@@ -39,12 +44,9 @@ import {
 } from '@/lib/types/people';
 import {
   consolidateMySessions,
-  createManualEntry,
   getRunningSession,
   listEntriesByProject,
   listMyDraftSessions,
-  startSession,
-  stopSession,
   submitEntries,
 } from '@/lib/services/timesheet';
 import { listAllocationsByProject, LIVE_ALLOCATION_STATUSES } from '@/lib/services/allocations';
@@ -96,9 +98,6 @@ export function ProjectTimesheetView({ projectId }: ProjectTimesheetViewProps) {
   const [draftSessions, setDraftSessions] = useState<ProjectWorkSession[]>([]);
   const [now, setNow] = useState(Date.now());
 
-  const [manualDate, setManualDate] = useState(new Date().toISOString().slice(0, 10));
-  const [manualHours, setManualHours] = useState('8');
-  const [manualDescription, setManualDescription] = useState('');
   const [busy, setBusy] = useState(false);
 
   // ticking clock for the running timer
@@ -207,62 +206,10 @@ export function ProjectTimesheetView({ projectId }: ProjectTimesheetViewProps) {
     },
   ];
 
-  /* ── timer / manual actions ── */
-
-  async function handleStart() {
-    setBusy(true);
-    try {
-      const session = await startSession({ projectId });
-      setRunning(session);
-      notify('Cronômetro iniciado', { variant: 'success' });
-    } catch (e) {
-      notify('Erro ao iniciar', { description: e instanceof Error ? e.message : undefined, variant: 'error' });
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleStop() {
-    if (!running) return;
-    setBusy(true);
-    try {
-      await stopSession(running.id);
-      setRunning(null);
-      await reload();
-      notify('Sessão encerrada — pronta para consolidar', { variant: 'success' });
-    } catch (e) {
-      notify('Erro ao encerrar', { description: e instanceof Error ? e.message : undefined, variant: 'error' });
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleManual() {
-    const hours = Number(manualHours.replace(',', '.'));
-    if (!manualDate || !Number.isFinite(hours) || hours <= 0 || hours > 24) {
-      notify('Informe data e horas válidas (0–24)', { variant: 'warning' });
-      return;
-    }
-    setBusy(true);
-    try {
-      await createManualEntry({
-        projectId,
-        workDate: manualDate,
-        minutes: Math.round(hours * 60),
-        description: manualDescription.trim() || null,
-      });
-      setManualDescription('');
-      await reload();
-      notify('Apontamento criado como rascunho', { variant: 'success' });
-    } catch (e) {
-      notify('Erro ao criar apontamento', {
-        description: e instanceof Error ? e.message : undefined,
-        variant: 'error',
-      });
-    } finally {
-      setBusy(false);
-    }
-  }
+  /* ── envio dos apontamentos vindos do Ponto ──
+     A MARCAÇÃO de horas não acontece mais aqui: quem inicia e encerra a
+     atividade (e escolhe a etapa do cronograma) é o app de Ponto. Este
+     painel só consolida as sessões recebidas e as envia para aprovação. */
 
   async function handleConsolidateAndSubmit() {
     setBusy(true);
@@ -274,7 +221,7 @@ export function ProjectTimesheetView({ projectId }: ProjectTimesheetViewProps) {
       const ids = [...consolidated.map((e) => e.id), ...myDrafts.map((e) => e.id)];
       if (ids.length === 0) {
         notify('Nada para enviar', {
-          description: 'Encerre o cronômetro ou crie um apontamento manual primeiro.',
+          description: 'Encerre a atividade no app de Ponto para que ela apareça aqui.',
           variant: 'warning',
         });
         return;
@@ -411,6 +358,21 @@ export function ProjectTimesheetView({ projectId }: ProjectTimesheetViewProps) {
       cell: (e) => <span className="text-sm tabular-nums text-ig-fg-strong">{formatHours(e.minutes)}</span>,
     },
     {
+      key: 'stage',
+      header: 'Etapa do cronograma',
+      cell: (e) =>
+        e.timelineItem ? (
+          <span className="line-clamp-1 text-xs text-ig-fg-strong">
+            {e.timelineItem.wbsCode ? (
+              <span className="mr-1.5 font-mono text-ig-fg-muted">{e.timelineItem.wbsCode}</span>
+            ) : null}
+            {e.timelineItem.title}
+          </span>
+        ) : (
+          <span className="text-xs text-ig-fg-muted">Sem etapa</span>
+        ),
+    },
+    {
       key: 'description',
       header: 'Descrição',
       cell: (e) => (
@@ -474,7 +436,7 @@ export function ProjectTimesheetView({ projectId }: ProjectTimesheetViewProps) {
 
       <HudKpiStrip kpis={kpis} columns={6} />
 
-      {/* meu apontamento */}
+      {/* meu apontamento — leitura + envio; a marcação é feita no Ponto */}
       {canUse && (
         <HudPanel title="Meu apontamento" accentColor="emerald">
           {!hasPersonLink && !usingDemo && (
@@ -484,82 +446,47 @@ export function ProjectTimesheetView({ projectId }: ProjectTimesheetViewProps) {
               Pessoas.
             </p>
           )}
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            {/* timer */}
-            <div className="rounded-xl border border-ig-border-subtle bg-ig-panel/60 p-4">
-              <div className="flex items-center justify-between">
+
+          <div className="rounded-xl border border-ig-border-subtle bg-ig-panel/60 p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
                 <p className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-ig-fg-muted">
-                  <Timer className="h-4 w-4" /> Cronômetro
+                  <Smartphone className="h-4 w-4" /> Onde marcar as horas
                 </p>
-                {running && running.projectId !== projectId && (
-                  <HudBadge variant="info">rodando em outro projeto</HudBadge>
-                )}
-              </div>
-              <p className="mt-2 font-mono text-3xl font-semibold tabular-nums text-ig-fg-strong">
-                {running ? elapsedLabel(running.startedAt, now) : '00:00:00'}
-              </p>
-              <div className="mt-3 flex gap-2">
-                {running ? (
-                  <HudButton
-                    variant="secondary"
-                    leftIcon={<Square className="h-4 w-4" />}
-                    onClick={() => void handleStop()}
-                    disabled={busy}
-                  >
-                    Encerrar
-                  </HudButton>
-                ) : (
-                  <HudButton
-                    variant="primary"
-                    leftIcon={<Play className="h-4 w-4" />}
-                    onClick={() => void handleStart()}
-                    disabled={busy || (!hasPersonLink && !usingDemo)}
-                  >
-                    Iniciar atividade
-                  </HudButton>
-                )}
-              </div>
-              {draftSessions.length > 0 && (
-                <p className="mt-2 text-xs text-ig-fg-muted">
-                  {draftSessions.length} sessão(ões) encerrada(s) aguardando consolidação.
+                <p className="mt-2 text-sm text-ig-fg">
+                  As marcações são feitas no <strong className="text-ig-fg-strong">app de Ponto</strong>.
+                  Ao registrar a entrada, o colaborador escolhe o projeto e a etapa do cronograma —
+                  e as horas chegam aqui automaticamente.
                 </p>
-              )}
+              </div>
+              <a
+                href="https://ponto.insightapex.co"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-ig-border-strong px-3 py-2 text-xs font-semibold text-ig-fg-strong transition-colors hover:bg-ig-panel"
+              >
+                Abrir o Ponto <ExternalLink className="h-3.5 w-3.5" />
+              </a>
             </div>
 
-            {/* entrada manual */}
-            <div className="rounded-xl border border-ig-border-subtle bg-ig-panel/60 p-4">
-              <p className="text-xs font-medium uppercase tracking-wider text-ig-fg-muted">
-                Entrada manual
-              </p>
-              <div className="mt-2 grid grid-cols-2 gap-3">
-                <HudInput label="Data" type="date" value={manualDate} onChange={(e) => setManualDate(e.target.value)} />
-                <HudInput
-                  label="Horas"
-                  type="number"
-                  min={0.5}
-                  max={24}
-                  step={0.5}
-                  value={manualHours}
-                  onChange={(e) => setManualHours(e.target.value)}
-                />
-              </div>
-              <div className="mt-3">
-                <HudInput
-                  label="Descrição"
-                  value={manualDescription}
-                  onChange={(e) => setManualDescription(e.target.value)}
-                  placeholder="Atividade executada"
-                />
-              </div>
-              <div className="mt-3">
-                <HudButton
-                  variant="secondary"
-                  onClick={() => void handleManual()}
-                  disabled={busy || (!hasPersonLink && !usingDemo)}
-                >
-                  Adicionar rascunho
-                </HudButton>
-              </div>
+            <div className="mt-4 border-t border-ig-border-subtle pt-3">
+              {running ? (
+                <p className="flex items-center gap-2 text-sm text-ig-fg-strong">
+                  <Timer className="h-4 w-4 text-ig-success" />
+                  Atividade em andamento há{' '}
+                  <span className="font-mono tabular-nums">{elapsedLabel(running.startedAt, now)}</span>
+                  {running.projectId !== projectId && (
+                    <HudBadge variant="info">em outro projeto</HudBadge>
+                  )}
+                </p>
+              ) : (
+                <p className="text-xs text-ig-fg-muted">Nenhuma atividade em andamento.</p>
+              )}
+              {draftSessions.length > 0 && (
+                <p className="mt-1.5 text-xs text-ig-fg-muted">
+                  {draftSessions.length} sessão(ões) encerrada(s) no Ponto aguardando envio.
+                </p>
+              )}
             </div>
           </div>
 
@@ -574,7 +501,7 @@ export function ProjectTimesheetView({ projectId }: ProjectTimesheetViewProps) {
               onClick={() => void handleConsolidateAndSubmit()}
               disabled={busy || (!hasPersonLink && !usingDemo)}
             >
-              Consolidar e enviar
+              Enviar para aprovação
             </HudButton>
           </div>
         </HudPanel>

@@ -4,10 +4,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   CalendarRange,
+  ChevronRight,
   Download,
   FileDown,
   FileSpreadsheet,
   FileText,
+  Palette,
   Plus,
   Presentation,
   Save,
@@ -19,6 +21,7 @@ import {
   FinanceFilterBar,
   FinanceFilterDateField,
   FinanceFilterRange,
+  FinanceFilterSegment,
 } from '@/components/finance/shared';
 import {
   HudButton,
@@ -50,8 +53,10 @@ import {
   reaisToCents,
   validateInvestorPack,
 } from '@/lib/finance/investor-pack/calculations';
+import { hydratePortfolioProjection } from '@/lib/finance/investor-pack/portfolio-projection';
 import type { InvestorPack, InvestorPackMonth } from '@/lib/finance/investor-pack/types';
 import { openInvestorPackPdf } from '@/lib/reports/modules/investor-pack-report';
+import { REPORT_NAME, type ApexThemeMode } from '@/lib/finance/investor-pack/apex-theme';
 
 function periodOffset(period: string, delta: number): string {
   const [year, month] = period.split('-').map(Number);
@@ -76,7 +81,7 @@ function TextAreaField({ label, value, onChange, rows = 4, disabled, placeholder
         disabled={disabled}
         placeholder={placeholder}
         onChange={(event) => onChange(event.target.value)}
-        className="w-full resize-y rounded-lg border border-ig-border-default bg-ig-bg-raised/60 px-4 py-3 text-sm text-ig-fg-strong outline-none transition focus:border-ig-border-focus disabled:cursor-not-allowed disabled:opacity-60"
+        className="investor-projection-field w-full resize-y rounded-lg border px-4 py-3 text-sm outline-none"
       />
     </label>
   );
@@ -92,8 +97,11 @@ export default function FinancialProjectionPage() {
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState<string | null>(null);
   const [presentationHtml, setPresentationHtml] = useState('');
+  /** Tema do PDF exportado — escuro (tela/projeção) ou claro (impressão/anexo). */
+  const [pdfTheme, setPdfTheme] = useState<ApexThemeMode>('dark');
   const [dirty, setDirty] = useState(false);
   const [loadError, setLoadError] = useState('');
+  const [monthlyDataOpen, setMonthlyDataOpen] = useState(false);
 
   const isAdmin = current.roles.some((role) => role.key === 'owner_admin');
   const canEdit = isAdmin || current.permissions.includes('finance.edit_entry');
@@ -114,11 +122,11 @@ export default function FinancialProjectionPage() {
       .then((packs) => {
         if (!active) return;
         const existingDraft = packs.find((item) => item.status === 'draft');
-        const next = existingDraft ?? {
+        const next = hydratePortfolioProjection(existingDraft ?? {
           ...createInvestorPackDraft(actor),
-          title: 'Projeção Financeira',
+          title: REPORT_NAME,
           company: current.organization?.name ?? '',
-        };
+        });
         setProjection(next);
         setFilterStart(next.periodStart);
         setFilterEnd(next.periodEnd);
@@ -146,6 +154,10 @@ export default function FinancialProjectionPage() {
     () => projection ? periodOffset(projection.referenceDate.slice(0, 7), 1) : '',
     [projection],
   );
+  const revenueForecastStartPeriod = useMemo(
+    () => projection ? projection.referenceDate.slice(0, 7) : '',
+    [projection],
+  );
 
   const visibleProjection = useMemo(() => {
     if (!projection) return null;
@@ -157,13 +169,13 @@ export default function FinancialProjectionPage() {
       periodEnd: end,
       months: projection.months
         .filter((month) => month.period >= start && month.period <= end)
-        .map((month) => month.period < forecastStartPeriod ? {
+        .map((month) => ({
           ...month,
-          revenueForecastCents: 0,
-          payrollForecastCents: 0,
-        } : month),
+          revenueForecastCents: month.period < revenueForecastStartPeriod ? 0 : month.revenueForecastCents,
+          payrollForecastCents: month.period < forecastStartPeriod ? 0 : month.payrollForecastCents,
+        })),
     };
-  }, [filterEnd, filterStart, forecastStartPeriod, projection]);
+  }, [filterEnd, filterStart, forecastStartPeriod, projection, revenueForecastStartPeriod]);
 
   const editable = Boolean(projection?.status === 'draft' && canEdit);
 
@@ -189,14 +201,14 @@ export default function FinancialProjectionPage() {
       const periods = projection.months.map((month) => month.period).sort();
       const saved = await saveInvestorPack({
         ...projection,
-        title: projection.title.trim() || 'Projeção Financeira',
+        title: projection.title.trim() || REPORT_NAME,
         periodStart: periods[0] ?? projection.periodStart,
         periodEnd: periods[periods.length - 1] ?? projection.periodEnd,
-        months: projection.months.map((month) => month.period < forecastStartPeriod ? {
+        months: projection.months.map((month) => ({
           ...month,
-          revenueForecastCents: 0,
-          payrollForecastCents: 0,
-        } : month),
+          revenueForecastCents: month.period < revenueForecastStartPeriod ? 0 : month.revenueForecastCents,
+          payrollForecastCents: month.period < forecastStartPeriod ? 0 : month.payrollForecastCents,
+        })),
       }, actor);
       setProjection(saved);
       setDirty(false);
@@ -221,7 +233,7 @@ export default function FinancialProjectionPage() {
   const exportPdf = () => {
     const snapshot = ensureExportable();
     if (!snapshot) return;
-    const result = openInvestorPackPdf(snapshot);
+    const result = openInvestorPackPdf(snapshot, { theme: pdfTheme });
     if (!result.ok) notify('Falha ao gerar PDF', { variant: 'error', description: result.message });
   };
 
@@ -289,11 +301,18 @@ export default function FinancialProjectionPage() {
         iconTint="#35E6BB"
         breadcrumbs={[{ label: 'Financeiro', href: '/financeiro' }, { label: 'Projeção Financeira' }]}
         statusChips={[{ label: dirty ? 'Alterações não salvas' : projection.createdAt === projection.updatedAt ? 'Nova projeção' : 'Dados salvos', variant: dirty ? 'warning' : 'success' }]}
-        actions={editable ? (
-          <HudButton variant="primary" isLoading={saving} leftIcon={<Save className="h-4 w-4" />} onClick={() => void handleSave()}>
-            Salvar dados
-          </HudButton>
-        ) : undefined}
+        actions={(
+          <div className={`grid w-full gap-2 ${editable ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-1 sm:grid-cols-3'} lg:w-[27rem] lg:grid-cols-2 2xl:flex 2xl:w-auto [&_>_button]:w-full [&_>_button]:whitespace-nowrap 2xl:[&_>_button]:w-auto`}>
+            {editable && (
+              <HudButton variant="primary" isLoading={saving} leftIcon={<Save className="h-4 w-4" />} onClick={() => void handleSave()}>
+                Salvar dados
+              </HudButton>
+            )}
+            <HudButton variant="glass" leftIcon={<FileDown className="h-4 w-4" />} disabled={!canExport} onClick={exportPdf}>PDF {pdfTheme === 'light' ? 'claro' : 'escuro'}</HudButton>
+            <HudButton variant="glass" leftIcon={<FileText className="h-4 w-4" />} disabled={!canExport} isLoading={exporting === 'pptx'} onClick={() => void exportPptx()}>PowerPoint</HudButton>
+            <HudButton variant="primary" leftIcon={<Presentation className="h-4 w-4" />} disabled={!canExport} onClick={presentHtml}>HTML apresentação</HudButton>
+          </div>
+        )}
       />
 
       <FinanceFilterBar
@@ -309,19 +328,22 @@ export default function FinancialProjectionPage() {
               toValue={filterEnd}
               options={monthOptions}
               onChange={(from, to) => { setFilterStart(from); setFilterEnd(to); }}
+              className="sm:w-[22rem] sm:max-w-[22rem]"
             />
             <FinanceFilterDateField
               label="Data-base"
               value={projection.referenceDate}
               onChange={(value) => patch({ referenceDate: value })}
+              className="sm:w-[15rem] sm:max-w-[15rem] sm:shrink-0"
             />
-          </>
-        }
-        rightSlot={
-          <>
-            <HudButton variant="glass" leftIcon={<FileDown className="h-4 w-4" />} disabled={!canExport} onClick={exportPdf}>PDF</HudButton>
-            <HudButton variant="glass" leftIcon={<FileText className="h-4 w-4" />} disabled={!canExport} isLoading={exporting === 'pptx'} onClick={() => void exportPptx()}>PowerPoint</HudButton>
-            <HudButton variant="primary" leftIcon={<Presentation className="h-4 w-4" />} disabled={!canExport} onClick={presentHtml}>HTML apresentação</HudButton>
+            <FinanceFilterSegment<ApexThemeMode>
+              icon={<Palette className="h-3.5 w-3.5" />}
+              label="Tema do PDF"
+              value={pdfTheme}
+              options={[{ value: 'dark', label: 'Escuro' }, { value: 'light', label: 'Claro' }]}
+              onChange={setPdfTheme}
+              className="sm:w-[14rem] sm:max-w-[14rem] sm:shrink-0"
+            />
           </>
         }
       />
@@ -329,11 +351,82 @@ export default function FinancialProjectionPage() {
       <InvestorPackPreview pack={visibleProjection} />
 
       <HudCard>
+        <HudCardHeader>
+          <HudCardTitle>Carteira, faturamento, backlog e recebíveis</HudCardTitle>
+          <HudCardDescription>
+            Base contratual usada na projeção. “Saldo a receber” representa o valor informado na carteira, não necessariamente caixa já recebido.
+          </HudCardDescription>
+        </HudCardHeader>
+        <HudCardContent className="overflow-x-auto p-0">
+          <table className="w-full min-w-[1320px] text-xs">
+            <thead className="border-b border-ig-border-subtle bg-ig-raised text-[10px] uppercase tracking-wider text-ig-fg-muted">
+              <tr>
+                <th className="px-3 py-3 text-left">Cliente</th>
+                <th className="px-3 py-3 text-left">Status</th>
+                <th className="px-3 py-3 text-center">Contratos</th>
+                <th className="px-3 py-3 text-right">Carteira</th>
+                <th className="px-3 py-3 text-right">Faturado</th>
+                <th className="px-3 py-3 text-right">Backlog</th>
+                <th className="px-3 py-3 text-right">Saldo a receber</th>
+                <th className="px-3 py-3 text-right">Projetado até 2028</th>
+                <th className="px-3 py-3 text-right">Saldo pós-2028</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-ig-border-subtle">
+              {visibleProjection.narrative.portfolio.map((client) => (
+                <tr key={client.id} className="transition-colors hover:bg-ig-panel-hover">
+                  <td className="px-3 py-3 font-semibold text-ig-fg-strong">{client.client}</td>
+                  <td className="px-3 py-3 text-ig-fg-muted">{client.status}</td>
+                  <td className="px-3 py-3 text-center tabular-nums">{client.contractsCount}</td>
+                  <td className="px-3 py-3 text-right tabular-nums">{formatInvestorCurrency(client.portfolioCents)}</td>
+                  <td className="px-3 py-3 text-right tabular-nums text-ig-success">{formatInvestorCurrency(client.billedCents)}</td>
+                  <td className="px-3 py-3 text-right tabular-nums text-ig-info">{formatInvestorCurrency(client.backlogCents)}</td>
+                  <td className="px-3 py-3 text-right tabular-nums">{formatInvestorCurrency(client.receivableCents)}</td>
+                  <td className="px-3 py-3 text-right tabular-nums text-ig-accent">{formatInvestorCurrency(client.projectedThrough2028Cents)}</td>
+                  <td className="px-3 py-3 text-right tabular-nums">{formatInvestorCurrency(client.remainingAfter2028Cents)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot className="border-t border-ig-border-default bg-ig-raised font-semibold text-ig-fg-strong">
+              <tr>
+                <td className="px-3 py-3" colSpan={2}>Total da carteira</td>
+                <td className="px-3 py-3 text-center tabular-nums">{visibleProjection.narrative.portfolio.reduce((sum, client) => sum + client.contractsCount, 0)}</td>
+                {(['portfolioCents', 'billedCents', 'backlogCents', 'receivableCents', 'projectedThrough2028Cents', 'remainingAfter2028Cents'] as const).map((key) => (
+                  <td key={key} className="px-3 py-3 text-right tabular-nums">
+                    {formatInvestorCurrency(visibleProjection.narrative.portfolio.reduce((sum, client) => sum + client[key], 0))}
+                  </td>
+                ))}
+              </tr>
+            </tfoot>
+          </table>
+        </HudCardContent>
+      </HudCard>
+
+      <HudCard>
         <HudCardHeader className="flex-row items-center justify-between gap-3">
-          <div>
-            <HudCardTitle>Dados mensais</HudCardTitle>
-            <HudCardDescription>Preencha diretamente os valores em reais. KPIs e gráficos são atualizados em tempo real.</HudCardDescription>
-          </div>
+          <button
+            type="button"
+            onClick={() => setMonthlyDataOpen((open) => !open)}
+            aria-expanded={monthlyDataOpen}
+            aria-controls="monthly-financial-data"
+            className="group flex min-w-0 flex-1 items-center gap-3 text-left"
+          >
+            <ChevronRight
+              className={`h-4 w-4 shrink-0 text-ig-fg-muted transition-transform group-hover:text-ig-accent ${monthlyDataOpen ? 'rotate-90 text-ig-accent' : ''}`}
+            />
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <HudCardTitle>Dados mensais</HudCardTitle>
+                <span className="rounded-full bg-ig-raised px-2 py-0.5 text-[10px] tabular-nums text-ig-fg-muted">
+                  {visibleProjection.months.length} {visibleProjection.months.length === 1 ? 'mês' : 'meses'}
+                </span>
+                <span className="text-[10px] text-ig-fg-muted">
+                  {monthlyDataOpen ? 'recolher' : 'expandir'}
+                </span>
+              </div>
+              <HudCardDescription>Preencha diretamente os valores em reais. KPIs e gráficos são atualizados em tempo real.</HudCardDescription>
+            </div>
+          </button>
           {editable && (
             <HudButton
               variant="glass"
@@ -349,19 +442,19 @@ export default function FinancialProjectionPage() {
             </HudButton>
           )}
         </HudCardHeader>
-        <HudCardContent className="overflow-x-auto p-0">
+        {monthlyDataOpen && <HudCardContent id="monthly-financial-data" className="overflow-x-auto p-0">
           <table className="w-full min-w-[1120px] text-sm">
-            <thead className="border-b border-ig-border-subtle bg-ig-bg-raised/40 text-[10px] uppercase tracking-wider text-ig-fg-muted">
+            <thead className="border-b border-ig-border-subtle bg-ig-raised text-[10px] uppercase tracking-wider text-ig-fg-muted">
               <tr>
                 <th className="px-3 py-3 text-left">Competência</th>
                 <th className="px-3 py-3 text-right">Faturamento realizado</th>
                 <th className="px-3 py-3 text-right">
                   Previsão de faturamento
                   <span className="block text-[9px] font-normal normal-case tracking-normal">
-                    a partir de {formatInvestorPeriod(forecastStartPeriod)}
+                    a partir de {formatInvestorPeriod(revenueForecastStartPeriod)}
                   </span>
                 </th>
-                <th className="px-3 py-3 text-right">Folha fechada</th>
+                <th className="px-3 py-3 text-right">Folha fechada + encargos</th>
                 <th className="px-3 py-3 text-right">
                   Projeção da folha
                   <span className="block text-[9px] font-normal normal-case tracking-normal">
@@ -374,18 +467,19 @@ export default function FinancialProjectionPage() {
             </thead>
             <tbody className="divide-y divide-ig-border-subtle">
               {[...visibleProjection.months].sort((a, b) => a.period.localeCompare(b.period)).map((month) => (
-                <tr key={month.id} className="hover:bg-ig-bg-raised/25">
+                <tr key={month.id} className="transition-colors hover:bg-ig-panel-hover">
                   <td className="px-3 py-2">
-                    <input type="month" value={month.period} disabled={!editable} onChange={(event) => patchMonth(month.id, { period: event.target.value })} className="w-36 rounded-md border border-ig-border-subtle bg-ig-bg-raised/40 px-2 py-2 text-xs text-ig-fg-strong" />
+                    <input type="month" value={month.period} disabled={!editable} onChange={(event) => patchMonth(month.id, { period: event.target.value })} className="investor-projection-field w-36 rounded-md border px-2 py-2 text-xs" />
                   </td>
                   {([
                     ['revenueActualCents', month.revenueActualCents, 'Faturamento realizado'],
                     ['revenueForecastCents', month.revenueForecastCents, 'Previsão de faturamento'],
-                    ['payrollActualCents', month.payrollActualCents, 'Folha fechada'],
+                    ['payrollActualCents', month.payrollActualCents, 'Folha fechada + encargos'],
                     ['payrollForecastCents', month.payrollForecastCents, 'Projeção da folha'],
                   ] as const).map(([key, value, label]) => {
                     const forecastOnly = key === 'revenueForecastCents' || key === 'payrollForecastCents';
-                    const forecastLocked = forecastOnly && month.period < forecastStartPeriod;
+                    const allowedFrom = key === 'revenueForecastCents' ? revenueForecastStartPeriod : forecastStartPeriod;
+                    const forecastLocked = forecastOnly && month.period < allowedFrom;
                     return (
                       <td key={key} className="px-3 py-2">
                         <input
@@ -395,15 +489,15 @@ export default function FinancialProjectionPage() {
                           value={value / 100 || ''}
                           disabled={!editable || forecastLocked}
                           aria-label={`${label} ${month.period}`}
-                          title={forecastLocked ? `Previsões disponíveis a partir de ${formatInvestorPeriod(forecastStartPeriod)}` : undefined}
+                          title={forecastLocked ? `Previsões disponíveis a partir de ${formatInvestorPeriod(allowedFrom)}` : undefined}
                           onChange={(event) => patchMonth(month.id, { [key]: reaisToCents(event.target.value) })}
-                          className="w-full min-w-40 rounded-md border border-ig-border-subtle bg-ig-bg-raised/40 px-2 py-2 text-right text-xs tabular-nums text-ig-fg-strong disabled:bg-ig-bg-base/50 disabled:text-ig-fg-subtle"
+                          className="investor-projection-field w-full min-w-40 rounded-md border px-2 py-2 text-right text-xs tabular-nums"
                         />
                       </td>
                     );
                   })}
                   <td className="px-3 py-2">
-                    <input value={month.note} disabled={!editable} onChange={(event) => patchMonth(month.id, { note: event.target.value })} className="w-full min-w-56 rounded-md border border-ig-border-subtle bg-ig-bg-raised/40 px-2 py-2 text-xs text-ig-fg-strong" placeholder="Contexto do mês" />
+                    <input value={month.note} disabled={!editable} onChange={(event) => patchMonth(month.id, { note: event.target.value })} className="investor-projection-field w-full min-w-56 rounded-md border px-2 py-2 text-xs" placeholder="Contexto do mês" />
                   </td>
                   <td className="px-2 py-2">
                     {editable && <button type="button" aria-label={`Remover ${month.period}`} onClick={() => patch({ months: projection.months.filter((item) => item.id !== month.id) })} className="rounded-md p-2 text-ig-fg-muted hover:bg-ig-danger/10 hover:text-ig-danger"><Trash2 className="h-4 w-4" /></button>}
@@ -411,7 +505,7 @@ export default function FinancialProjectionPage() {
                 </tr>
               ))}
             </tbody>
-            <tfoot className="border-t border-ig-border-default bg-ig-bg-raised/35 text-xs font-semibold text-ig-fg-strong">
+            <tfoot className="border-t border-ig-border-default bg-ig-raised text-xs font-semibold text-ig-fg-strong">
               <tr>
                 <td className="px-3 py-3">Totais do filtro</td>
                 <td className="px-3 py-3 text-right tabular-nums">{formatInvestorCurrency(visibleProjection.months.reduce((sum, month) => sum + month.revenueActualCents, 0))}</td>
@@ -422,7 +516,7 @@ export default function FinancialProjectionPage() {
               </tr>
             </tfoot>
           </table>
-        </HudCardContent>
+        </HudCardContent>}
       </HudCard>
 
       <HudCard>
@@ -444,7 +538,7 @@ export default function FinancialProjectionPage() {
       </HudCard>
 
       <div className="flex flex-wrap items-center justify-end gap-2">
-        <HudButton variant="ghost" leftIcon={<Download className="h-4 w-4" />} disabled={!canExport} onClick={exportPdf}>Exportar PDF</HudButton>
+        <HudButton variant="ghost" leftIcon={<Download className="h-4 w-4" />} disabled={!canExport} onClick={exportPdf}>Exportar PDF ({pdfTheme === 'light' ? 'claro' : 'escuro'})</HudButton>
         <HudButton variant="ghost" leftIcon={<FileText className="h-4 w-4" />} disabled={!canExport} isLoading={exporting === 'pptx'} onClick={() => void exportPptx()}>Exportar PowerPoint</HudButton>
         <HudButton variant="primary" leftIcon={<Presentation className="h-4 w-4" />} disabled={!canExport} onClick={presentHtml}>Abrir apresentação HTML</HudButton>
       </div>

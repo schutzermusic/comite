@@ -16,7 +16,16 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { Briefcase, Clock3, LocateFixed, RotateCcw, Square, TriangleAlert } from 'lucide-react';
+import {
+  Briefcase,
+  Clock3,
+  LayoutList,
+  LocateFixed,
+  Replace,
+  RotateCcw,
+  Square,
+  TriangleAlert,
+} from 'lucide-react';
 import { pontoApi } from '@/lib/ponto/client';
 import type { ActivitySelection } from '@/hooks/use-ponto-session';
 import type { PunchType, TimelineStage } from '@/lib/ponto/attendance-types';
@@ -90,6 +99,8 @@ export default function PontoHomePage() {
   const [selStage, setSelStage] = React.useState<string | null>(null);
   const [stages, setStages] = React.useState<TimelineStage[]>([]);
   const [stagesLoading, setStagesLoading] = React.useState(false);
+  /** Troca de etapa com a atividade já rodando. */
+  const [switchOpen, setSwitchOpen] = React.useState(false);
 
   const allocations = React.useMemo(() => bootstrap?.allocations ?? [], [bootstrap]);
   const geofences = React.useMemo(() => bootstrap?.geofences ?? [], [bootstrap]);
@@ -151,6 +162,55 @@ export default function PontoHomePage() {
       void requestLocation();
     }
   }, [geo.permission, locationKind, requestLocation]);
+
+  /* ── etapa da atividade em andamento ──
+     O bootstrap devolve só o id da etapa; carregamos o cronograma do
+     projeto corrente para poder mostrar o nome e permitir a troca. */
+  const runningProjectId = running?.project_id ?? null;
+  React.useEffect(() => {
+    if (runningProjectId) void loadStages(runningProjectId);
+  }, [runningProjectId, loadStages]);
+
+  const runningStage = React.useMemo(
+    () =>
+      running?.timeline_item_id
+        ? (stages.find((stage) => stage.id === running.timeline_item_id) ?? null)
+        : null,
+    [running?.timeline_item_id, stages],
+  );
+
+  function openStageSwitch() {
+    if (!running) return;
+    setNotice(null);
+    setSelProject(running.project_id);
+    setSelStage(running.timeline_item_id ?? null);
+    void loadStages(running.project_id);
+    setSwitchOpen(true);
+  }
+
+  /**
+   * Fecha a etapa anterior e abre a nova. O próprio /api/mobile/activity
+   * encerra a sessão corrente antes de iniciar — as horas já trabalhadas
+   * ficam consolidadas na etapa antiga, e não migram para a nova.
+   */
+  async function handleStageSwitch(confirmed: boolean) {
+    setSwitchOpen(false);
+    if (!confirmed || !selProject) return;
+    setSubmitting(true);
+    try {
+      await pontoApi.activity({
+        action: 'start',
+        projectId: selProject,
+        timelineItemId: selStage ?? undefined,
+      });
+      await reload();
+      setNotice('Etapa atualizada. As horas da etapa anterior foram fechadas e já contam no projeto.');
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : 'Não foi possível trocar a etapa.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   /* ── "Bater ponto" acionado pela navegação ── */
   React.useEffect(() => {
@@ -421,15 +481,37 @@ export default function PontoHomePage() {
             <p className="ig-tabular mt-0.5 text-ig-caption text-ig-fg-muted">
               {running.project_id} · iniciada às {formatTime(running.started_at)}
             </p>
-            <PontoButton
-              variant="secondary"
-              icon={Square}
-              disabled={busy || submitting}
-              onClick={() => void stopActivity()}
-              className="mt-3.5"
-            >
-              Encerrar atividade
-            </PontoButton>
+            <p className="mt-2 flex items-start gap-1.5 text-ig-body-sm text-ig-fg">
+              <LayoutList className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ig-accent" aria-hidden="true" />
+              {runningStage ? (
+                <span>
+                  {runningStage.wbs_code ? (
+                    <span className="mr-1.5 text-ig-fg-subtle">{runningStage.wbs_code}</span>
+                  ) : null}
+                  {runningStage.title}
+                </span>
+              ) : (
+                <span className="text-ig-fg-muted">Sem etapa do cronograma selecionada.</span>
+              )}
+            </p>
+            <div className="mt-3.5 space-y-2">
+              <PontoButton
+                variant="secondary"
+                icon={Replace}
+                disabled={busy || submitting}
+                onClick={openStageSwitch}
+              >
+                Mudei de etapa
+              </PontoButton>
+              <PontoButton
+                variant="ghost"
+                icon={Square}
+                disabled={busy || submitting}
+                onClick={() => void stopActivity()}
+              >
+                Encerrar atividade
+              </PontoButton>
+            </div>
           </PontoCard>
         </section>
       ) : null}
@@ -460,6 +542,26 @@ export default function PontoHomePage() {
         onConfirm={confirmAssignment}
         onOpenChange={(open) => {
           if (!open) setFlow(null);
+        }}
+      />
+
+      <WorkAssignmentSheet
+        open={switchOpen}
+        mode="switch"
+        allocations={allocations}
+        stages={stages}
+        stagesLoading={stagesLoading}
+        selectedProject={selProject}
+        selectedStage={selStage}
+        onSelectProject={(projectId) => {
+          setSelProject(projectId);
+          setSelStage(null);
+          void loadStages(projectId);
+        }}
+        onSelectStage={setSelStage}
+        onConfirm={(confirmed) => void handleStageSwitch(confirmed)}
+        onOpenChange={(open) => {
+          if (!open) setSwitchOpen(false);
         }}
       />
 

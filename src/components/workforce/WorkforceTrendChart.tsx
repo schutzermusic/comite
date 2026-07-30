@@ -162,7 +162,7 @@ export function WorkforceTrendChart({ data, currency = 'BRL', className }: Workf
           <TrendingUp className="w-3.5 h-3.5 text-ig-accent" />
         </div>
         <div>
-          <span className="text-xs font-semibold text-ig-fg-strong">Tendências 12 Meses</span>
+          <span className="text-xs font-semibold text-ig-fg-strong">Tendências 2 Meses</span>
           <p className="text-[10px] text-ig-fg-subtle leading-none mt-0.5">
             Evolução de Folha, Headcount e Custo Médio
           </p>

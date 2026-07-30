@@ -11,12 +11,42 @@ export interface InvestorPackMonth {
   note: string;
 }
 
+export type InvestorForecastSource = 'eventogram' | 'backlog_allocation' | 'management_adjustment';
+
+export interface InvestorClientForecast {
+  period: string;
+  clientId: string;
+  client: string;
+  amountCents: number;
+  source: InvestorForecastSource;
+  note: string;
+}
+
+export interface InvestorPortfolioClient {
+  id: string;
+  client: string;
+  status: string;
+  contractsCount: number;
+  portfolioCents: number;
+  billedCents: number;
+  backlogCents: number;
+  receivableCents: number;
+  blockedCents: number;
+  pipeline90Cents: number;
+  maturationCents: number;
+  projectedThrough2028Cents: number;
+  remainingAfter2028Cents: number;
+}
+
 export interface InvestorPackNarrative {
   executiveSummary: string;
   highlights: string[];
   risks: string[];
   assumptions: string[];
   closingMessage: string;
+  portfolio: InvestorPortfolioClient[];
+  clientForecasts: InvestorClientForecast[];
+  projectionVersion: string;
 }
 
 export interface InvestorPack {

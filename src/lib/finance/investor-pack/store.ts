@@ -1,6 +1,7 @@
 'use client';
 
 import { createClient } from '@/utils/supabase/client';
+import { REPORT_NAME } from './apex-theme';
 import type { InvestorPack, InvestorPackMonth, InvestorPackNarrative, InvestorPackStatus } from './types';
 
 const STORAGE_KEY = 'insight-investor-report-packs-v1';
@@ -54,7 +55,16 @@ function uuid(): string {
 }
 
 function emptyNarrative(): InvestorPackNarrative {
-  return { executiveSummary: '', highlights: [''], risks: [''], assumptions: [''], closingMessage: '' };
+  return {
+    executiveSummary: '',
+    highlights: [''],
+    risks: [''],
+    assumptions: [''],
+    closingMessage: '',
+    portfolio: [],
+    clientForecasts: [],
+    projectionVersion: '',
+  };
 }
 
 function periodOffset(period: string, delta: number): string {
@@ -70,7 +80,7 @@ export function createInvestorPackDraft(actor: InvestorPackActor, now = new Date
   return {
     id: uuid(),
     organizationId: actor.organizationId,
-    title: 'Projeção Financeira',
+    title: REPORT_NAME,
     company: '',
     recipient: '',
     periodStart: periodOffset(currentPeriod, -5),

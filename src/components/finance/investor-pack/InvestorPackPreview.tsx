@@ -6,6 +6,7 @@ import {
   FinanceChartContainer,
   FinanceLineChart,
   FinanceSCurveChart,
+  FinanceStackedBarChart,
 } from '@/components/finance/shared';
 import {
   HudCard,
@@ -17,11 +18,13 @@ import {
   type KpiItem,
 } from '@/components/hud';
 import { calculateInvestorPack, centsToReais, formatInvestorPeriod } from '@/lib/finance/investor-pack/calculations';
+import { clientForecastColor } from '@/lib/finance/investor-pack/apex-charts';
 import type { InvestorPack } from '@/lib/finance/investor-pack/types';
 
 export function InvestorPackPreview({ pack }: { pack: InvestorPack }) {
   const snapshot = calculateInvestorPack(pack);
   const { metrics, points } = snapshot;
+  const chartHeight = 440;
   const kpis: KpiItem[] = [
     { id: 'actual', label: 'Faturamento realizado', value: centsToReais(metrics.revenueActualCents), format: 'compactCurrency', variant: 'success', icon: <CircleDollarSign className="h-4 w-4" /> },
     { id: 'forecast', label: 'Previsão de faturamento', value: centsToReais(metrics.revenueForecastCents), format: 'compactCurrency', variant: 'info', icon: <TrendingUp className="h-4 w-4" /> },
@@ -34,6 +37,30 @@ export function InvestorPackPreview({ pack }: { pack: InvestorPack }) {
   const firstForecastIndex = points.findIndex((point) => point.period > pack.referenceDate.slice(0, 7));
   const forecastStartIndex = firstForecastIndex >= 0 ? firstForecastIndex : points.length;
   const projectionStartIndex = forecastStartIndex > 0 ? forecastStartIndex - 1 : 0;
+  const visiblePeriods = new Set(points.map((point) => point.period));
+  const clientForecasts = pack.narrative.clientForecasts.filter(
+    (forecast) => visiblePeriods.has(forecast.period) && forecast.amountCents > 0,
+  );
+  const firstClientForecastPeriod = clientForecasts.reduce<string | null>(
+    (first, forecast) => first === null || forecast.period < first ? forecast.period : first,
+    null,
+  );
+  const clientForecastPoints = firstClientForecastPeriod
+    ? points.filter((point) => point.period >= firstClientForecastPeriod)
+    : [];
+  const clientForecastLabels = clientForecastPoints.map((point) => formatInvestorPeriod(point.period).replace(' de ', '/'));
+  const forecastClients = [...new Map(clientForecasts.map((forecast) => [forecast.clientId, forecast.client])).entries()];
+  const forecastByClient = new Map(
+    forecastClients.map(([clientId]) => [
+      clientId,
+      clientForecasts
+        .filter((forecast) => forecast.clientId === clientId)
+        .reduce((totals, forecast) => {
+          totals.set(forecast.period, (totals.get(forecast.period) ?? 0) + forecast.amountCents);
+          return totals;
+        }, new Map<string, number>()),
+    ]),
+  );
 
   return (
     <div className="space-y-4">
@@ -52,23 +79,50 @@ export function InvestorPackPreview({ pack }: { pack: InvestorPack }) {
       )}
 
       <div className="space-y-4">
+        {clientForecasts.length > 0 && (
+          <HudCard>
+            <HudCardHeader>
+              <HudCardTitle>Projeção de faturamento por cliente</HudCardTitle>
+              <HudCardDescription>
+                ENEL antecipada para set–nov/26; desde 2027, junho–agosto têm baixa sazonal e novembro–fevereiro aceleram.
+              </HudCardDescription>
+            </HudCardHeader>
+            <HudCardContent className="p-3">
+              <FinanceChartContainer scrollX minHeight={536} className="pb-4">
+                <div style={{ minWidth: Math.max(960, clientForecastPoints.length * 54) }}>
+                  <FinanceStackedBarChart
+                    categories={clientForecastLabels}
+                    series={forecastClients.map(([clientId, client], index) => ({
+                      name: client,
+                      data: clientForecastPoints.map((point) => centsToReais(forecastByClient.get(clientId)?.get(point.period) ?? 0)),
+                      tone: (['accent', 'info', 'success', 'warning', 'danger', 'budget'][index % 6]) as 'accent' | 'info' | 'success' | 'warning' | 'danger' | 'budget',
+                      color: clientForecastColor(clientId, index),
+                    }))}
+                    height={520}
+                  />
+                </div>
+              </FinanceChartContainer>
+            </HudCardContent>
+          </HudCard>
+        )}
+
         <HudCard>
           <HudCardHeader>
             <HudCardTitle>Realizado x projeção por competência</HudCardTitle>
-            <HudCardDescription>Faturamento e folha fechados comparados às previsões mensais.</HudCardDescription>
+            <HudCardDescription>Faturamento e folha comparados à projeção sazonal, com vales no meio do ano e picos no início e no fim.</HudCardDescription>
           </HudCardHeader>
           <HudCardContent className="p-3">
-            <FinanceChartContainer scrollX>
+            <FinanceChartContainer scrollX minHeight={chartHeight + 16} className="pb-4">
               <div style={{ minWidth: chartMinWidth }}>
                 <FinanceBarChart
                   categories={labels}
                   series={[
                     { name: 'Receita realizada', data: points.map((point) => centsToReais(point.revenueActualCents)), tone: 'success' },
                     { name: 'Receita prevista', data: points.map((point) => centsToReais(point.revenueForecastCents)), tone: 'info' },
-                    { name: 'Folha realizada', data: points.map((point) => centsToReais(point.payrollActualCents)), tone: 'danger' },
+                    { name: 'Folha fechada + encargos', data: points.map((point) => centsToReais(point.payrollActualCents)), tone: 'danger' },
                     { name: 'Folha prevista', data: points.map((point) => centsToReais(point.payrollForecastCents)), tone: 'warning' },
                   ]}
-                  height={320}
+                  height={chartHeight}
                 />
               </div>
             </FinanceChartContainer>
@@ -81,7 +135,7 @@ export function InvestorPackPreview({ pack }: { pack: InvestorPack }) {
             <HudCardDescription>Valores fechados e trajetórias projetadas acumuladas no período.</HudCardDescription>
           </HudCardHeader>
           <HudCardContent className="p-3">
-            <FinanceChartContainer scrollX>
+            <FinanceChartContainer scrollX minHeight={chartHeight + 16} className="pb-4">
               <div style={{ minWidth: chartMinWidth }}>
                 <FinanceSCurveChart
                   categories={labels}
@@ -91,7 +145,7 @@ export function InvestorPackPreview({ pack }: { pack: InvestorPack }) {
                     { name: 'Projeção folha', values: points.map((point) => centsToReais(point.payrollTotalCents)), tone: 'warning', dashed: true, startIndex: projectionStartIndex },
                     { name: 'Folha já fechada', values: points.map((point) => centsToReais(point.payrollActualCents)), tone: 'danger' },
                   ]}
-                  height={320}
+                  height={chartHeight}
                 />
               </div>
             </FinanceChartContainer>
@@ -104,7 +158,7 @@ export function InvestorPackPreview({ pack }: { pack: InvestorPack }) {
             <HudCardDescription>Valores de cada competência, sem acumulação entre os meses.</HudCardDescription>
           </HudCardHeader>
           <HudCardContent className="p-3">
-            <FinanceChartContainer scrollX>
+            <FinanceChartContainer scrollX minHeight={chartHeight + 16} className="pb-4">
               <div style={{ minWidth: chartMinWidth }}>
                 <FinanceLineChart
                   categories={labels}
@@ -114,7 +168,7 @@ export function InvestorPackPreview({ pack }: { pack: InvestorPack }) {
                     { name: 'Folha prevista', data: points.map((point) => centsToReais(point.payrollForecastCents)), tone: 'warning', startIndex: forecastStartIndex },
                     { name: 'Folha já fechada', data: points.map((point) => centsToReais(point.payrollActualCents)), tone: 'danger' },
                   ]}
-                  height={320}
+                  height={chartHeight}
                 />
               </div>
             </FinanceChartContainer>

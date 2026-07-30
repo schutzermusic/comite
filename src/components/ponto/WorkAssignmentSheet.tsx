@@ -17,6 +17,12 @@ import { PontoSheet } from './PontoSheet';
 
 export interface WorkAssignmentSheetProps {
   open: boolean;
+  /**
+   * `entry` = escolha na entrada da jornada.
+   * `switch` = troca de etapa com a atividade já em andamento (fecha as
+   * horas da etapa anterior e abre a nova).
+   */
+  mode?: 'entry' | 'switch';
   allocations: readonly AllocationRecord[];
   stages: readonly TimelineStage[];
   stagesLoading: boolean;
@@ -30,6 +36,7 @@ export interface WorkAssignmentSheetProps {
 
 export function WorkAssignmentSheet({
   open,
+  mode = 'entry',
   allocations,
   stages,
   stagesLoading,
@@ -41,21 +48,30 @@ export function WorkAssignmentSheet({
   onOpenChange,
 }: WorkAssignmentSheetProps) {
   const selected = allocations.find((a) => a.project_id === selectedProject);
+  const switching = mode === 'switch';
 
   return (
     <PontoSheet
       open={open}
       onOpenChange={onOpenChange}
-      title="Onde você vai trabalhar?"
-      description="A entrada registra sua jornada e já inicia o apontamento no projeto."
+      title={switching ? 'Onde você está trabalhando agora?' : 'Onde você vai trabalhar?'}
+      description={
+        switching
+          ? 'As horas da etapa anterior são fechadas e o apontamento continua na nova etapa.'
+          : 'A entrada registra sua jornada e já inicia o apontamento no projeto.'
+      }
       footer={
         <div className="space-y-2">
           <PontoButton variant="primary" icon={Briefcase} onClick={() => onConfirm(true)}>
-            Continuar{selected?.role_title ? ` · ${selected.role_title}` : ''}
+            {switching
+              ? 'Atualizar etapa'
+              : `Continuar${selected?.role_title ? ` · ${selected.role_title}` : ''}`}
           </PontoButton>
-          <PontoButton variant="ghost" onClick={() => onConfirm(false)}>
-            Entrar sem apontar projeto agora
-          </PontoButton>
+          {switching ? null : (
+            <PontoButton variant="ghost" onClick={() => onConfirm(false)}>
+              Entrar sem apontar projeto agora
+            </PontoButton>
+          )}
         </div>
       }
     >

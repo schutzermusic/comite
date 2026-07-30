@@ -3,12 +3,13 @@ import path from 'node:path';
 import { chromium } from '@playwright/test';
 import { buildInvestorPackPresentationHtml } from '@/lib/finance/investor-pack/html-presentation';
 import { generateInvestorPackPptx } from '@/lib/finance/investor-pack/pptx-server';
+import { hydratePortfolioProjection } from '@/lib/finance/investor-pack/portfolio-projection';
 import type { InvestorPack } from '@/lib/finance/investor-pack/types';
 import { buildInvestorPackPdfHtml } from '@/lib/reports/modules/investor-pack-report';
 
 const outputDir = process.argv[2] || path.join(process.cwd(), 'tmp', 'investor-pack-qa');
 
-const pack: InvestorPack = {
+const seedPack: InvestorPack = {
   id: 'qa-pack',
   organizationId: null,
   parentPackId: null,
@@ -45,8 +46,12 @@ const pack: InvestorPack = {
     risks: ['Concentração de faturamento em contratos relevantes', 'Deslocamento de marcos pode afetar o calendário'],
     assumptions: ['Manutenção do quadro atual', 'Eventos previstos realizados nas competências informadas', 'Valores apresentados em BRL'],
     closingMessage: 'A prioridade é converter a carteira prevista em faturamento mantendo disciplina sobre o principal custo recorrente: a folha.',
+    portfolio: [],
+    clientForecasts: [],
+    projectionVersion: '',
   },
 };
+const pack = hydratePortfolioProjection(seedPack);
 
 async function main() {
   await fs.mkdir(outputDir, { recursive: true });

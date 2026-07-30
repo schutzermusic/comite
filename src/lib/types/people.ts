@@ -193,6 +193,8 @@ export interface TimeEntry {
   createdAt: string;
   updatedAt: string;
   person?: Person;
+  /** Etapa do cronograma escolhida pelo colaborador no app de Ponto. */
+  timelineItem?: { title: string; wbsCode: string | null };
 }
 
 /* ──────────────── Geofence (migration 050) ──────────────────── */
