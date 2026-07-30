@@ -19,6 +19,7 @@ import {
 } from '@/components/hud';
 import { calculateInvestorPack, centsToReais, formatInvestorPeriod } from '@/lib/finance/investor-pack/calculations';
 import { clientForecastColor } from '@/lib/finance/investor-pack/apex-charts';
+import { APEX_CLIENT_FORECAST_DESCRIPTION } from '@/lib/finance/investor-pack/apex-theme';
 import type { InvestorPack } from '@/lib/finance/investor-pack/types';
 
 export function InvestorPackPreview({ pack }: { pack: InvestorPack }) {
@@ -37,6 +38,12 @@ export function InvestorPackPreview({ pack }: { pack: InvestorPack }) {
   const firstForecastIndex = points.findIndex((point) => point.period > pack.referenceDate.slice(0, 7));
   const forecastStartIndex = firstForecastIndex >= 0 ? firstForecastIndex : points.length;
   const projectionStartIndex = forecastStartIndex > 0 ? forecastStartIndex - 1 : 0;
+  const revenueForecastBridge = points.map((point, index) =>
+    centsToReais(index === projectionStartIndex ? point.revenueActualCents : point.revenueForecastCents),
+  );
+  const payrollForecastBridge = points.map((point, index) =>
+    centsToReais(index === projectionStartIndex ? point.payrollActualCents : point.payrollForecastCents),
+  );
   const visiblePeriods = new Set(points.map((point) => point.period));
   const clientForecasts = pack.narrative.clientForecasts.filter(
     (forecast) => visiblePeriods.has(forecast.period) && forecast.amountCents > 0,
@@ -79,33 +86,6 @@ export function InvestorPackPreview({ pack }: { pack: InvestorPack }) {
       )}
 
       <div className="space-y-4">
-        {clientForecasts.length > 0 && (
-          <HudCard>
-            <HudCardHeader>
-              <HudCardTitle>Projeção de faturamento por cliente</HudCardTitle>
-              <HudCardDescription>
-                ENEL antecipada para set–nov/26; desde 2027, junho–agosto têm baixa sazonal e novembro–fevereiro aceleram.
-              </HudCardDescription>
-            </HudCardHeader>
-            <HudCardContent className="p-3">
-              <FinanceChartContainer scrollX minHeight={536} className="pb-4">
-                <div style={{ minWidth: Math.max(960, clientForecastPoints.length * 54) }}>
-                  <FinanceStackedBarChart
-                    categories={clientForecastLabels}
-                    series={forecastClients.map(([clientId, client], index) => ({
-                      name: client,
-                      data: clientForecastPoints.map((point) => centsToReais(forecastByClient.get(clientId)?.get(point.period) ?? 0)),
-                      tone: (['accent', 'info', 'success', 'warning', 'danger', 'budget'][index % 6]) as 'accent' | 'info' | 'success' | 'warning' | 'danger' | 'budget',
-                      color: clientForecastColor(clientId, index),
-                    }))}
-                    height={520}
-                  />
-                </div>
-              </FinanceChartContainer>
-            </HudCardContent>
-          </HudCard>
-        )}
-
         <HudCard>
           <HudCardHeader>
             <HudCardTitle>Realizado x projeção por competência</HudCardTitle>
@@ -163,10 +143,10 @@ export function InvestorPackPreview({ pack }: { pack: InvestorPack }) {
                 <FinanceLineChart
                   categories={labels}
                   series={[
-                    { name: 'Receita prevista', data: points.map((point) => centsToReais(point.revenueForecastCents)), tone: 'success', startIndex: forecastStartIndex },
-                    { name: 'Receita já faturada', data: points.map((point) => centsToReais(point.revenueActualCents)), tone: 'info' },
-                    { name: 'Folha prevista', data: points.map((point) => centsToReais(point.payrollForecastCents)), tone: 'warning', startIndex: forecastStartIndex },
-                    { name: 'Folha já fechada', data: points.map((point) => centsToReais(point.payrollActualCents)), tone: 'danger' },
+                    { name: 'Receita prevista', data: revenueForecastBridge, tone: 'success', startIndex: projectionStartIndex },
+                    { name: 'Receita já faturada', data: points.map((point) => centsToReais(point.revenueActualCents)), tone: 'info', endIndex: projectionStartIndex },
+                    { name: 'Folha prevista', data: payrollForecastBridge, tone: 'warning', startIndex: projectionStartIndex },
+                    { name: 'Folha já fechada', data: points.map((point) => centsToReais(point.payrollActualCents)), tone: 'danger', endIndex: projectionStartIndex },
                   ]}
                   height={chartHeight}
                 />
@@ -174,6 +154,31 @@ export function InvestorPackPreview({ pack }: { pack: InvestorPack }) {
             </FinanceChartContainer>
           </HudCardContent>
         </HudCard>
+
+        {clientForecasts.length > 0 && (
+          <HudCard>
+            <HudCardHeader>
+              <HudCardTitle>Projeção de faturamento por cliente</HudCardTitle>
+              <HudCardDescription>{APEX_CLIENT_FORECAST_DESCRIPTION}</HudCardDescription>
+            </HudCardHeader>
+            <HudCardContent className="p-3">
+              <FinanceChartContainer scrollX minHeight={536} className="pb-4">
+                <div style={{ minWidth: Math.max(960, clientForecastPoints.length * 54) }}>
+                  <FinanceStackedBarChart
+                    categories={clientForecastLabels}
+                    series={forecastClients.map(([clientId, client], index) => ({
+                      name: client,
+                      data: clientForecastPoints.map((point) => centsToReais(forecastByClient.get(clientId)?.get(point.period) ?? 0)),
+                      tone: (['accent', 'info', 'success', 'warning', 'danger', 'budget'][index % 6]) as 'accent' | 'info' | 'success' | 'warning' | 'danger' | 'budget',
+                      color: clientForecastColor(clientId, index),
+                    }))}
+                    height={520}
+                  />
+                </div>
+              </FinanceChartContainer>
+            </HudCardContent>
+          </HudCard>
+        )}
       </div>
     </div>
   );

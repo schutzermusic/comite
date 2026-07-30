@@ -42,6 +42,8 @@ import {
 } from './apex-insights';
 import { APEX_LOGO_ALT, APEX_LOGO_DATA_URI, APEX_LOGO_SMALL_DATA_URI } from './apex-logo';
 import {
+  APEX_CLIENT_FORECAST_DESCRIPTION,
+  APEX_CLOSING_TITLE,
   APEX_FONT,
   APEX_SOURCE,
   REPORT_FILE_SLUG,
@@ -51,6 +53,7 @@ import {
   confidentialityLabel,
   dashIfZero,
   formatInvestorRatio,
+  investorClosingMessage,
   type ApexPalette,
   type ApexThemeMode,
 } from './apex-theme';
@@ -59,9 +62,6 @@ import type { InvestorPack, InvestorPackSnapshot } from './types';
 
 /** Linhas da base mensal por página impressa (A4 paisagem, corpo 10px). */
 const TABLE_ROWS_PER_PAGE = 15;
-/** Itens por coluna na página de premissas antes de continuar na página seguinte. */
-const LIST_ITEMS_PER_PAGE = 8;
-
 interface PageSpec {
   /** Sobrelinha da seção (canto superior esquerdo). */
   eyebrow: string;
@@ -69,10 +69,6 @@ interface PageSpec {
   html: string;
   /** Capa recebe tratamento full-bleed sem cabeçalho de seção. */
   cover?: boolean;
-}
-
-function clean(items: string[]): string[] {
-  return items.map((item) => item.trim()).filter(Boolean);
 }
 
 function sectionHead(title: string, sub?: string): string {
@@ -105,16 +101,6 @@ function panel(chartSvg: string, legendHtml: string, caption?: string): string {
   return `<div class="panel">${chartSvg}${legendHtml}${caption ? `<p class="panel-cap">${esc(caption)}</p>` : ''}</div>`;
 }
 
-function bulletColumn(title: string, items: string[], accent: string, empty: string, continued: boolean): string {
-  const body = items.length
-    ? `<ul>${items.map((item) => `<li>${esc(item)}</li>`).join('')}</ul>`
-    : `<p class="empty">${esc(continued ? '—' : empty)}</p>`;
-  return `<section class="col" style="--accent:${accent}">
-    <h3>${esc(title)}${continued ? ' <span class="cont">cont.</span>' : ''}</h3>
-    ${body}
-  </section>`;
-}
-
 function monthlyTableChunk(
   points: InvestorPackSnapshot['points'],
   snapshot: InvestorPackSnapshot,
@@ -131,7 +117,6 @@ function monthlyTableChunk(
     <td class="num fc">${esc(dashIfZero(point.payrollForecastCents, formatInvestorCurrency(point.payrollForecastCents)))}</td>
     <td class="num" style="color:${point.balanceCents >= 0 ? P.positive : P.negative}">${esc(formatInvestorCurrency(point.balanceCents))}</td>
     <td class="num">${esc(formatInvestorCurrency(point.balanceCumulativeCents))}</td>
-    <td class="note">${esc(point.note || '—')}</td>
   </tr>`).join('');
 
   const m = snapshot.metrics;
@@ -143,7 +128,6 @@ function monthlyTableChunk(
     <td class="num">${esc(formatInvestorCurrency(m.payrollForecastCents))}</td>
     <td class="num">${esc(formatInvestorCurrency(m.balanceCents))}</td>
     <td class="num">${esc(formatInvestorCurrency(points.length ? points[points.length - 1].balanceCumulativeCents : 0))}</td>
-    <td></td>
   </tr></tfoot>` : '';
 
   const cont = from > 0
@@ -153,8 +137,8 @@ function monthlyTableChunk(
   return `${cont}<table class="data">
     <thead><tr>
       <th>Competência</th><th class="num">Fat. realizado</th><th class="num">Fat. previsto</th>
-      <th class="num">Folha fechada</th><th class="num">Folha projetada</th>
-      <th class="num">Saldo</th><th class="num">Acumulado</th><th>Observação</th>
+      <th class="num">Folha + encargos</th><th class="num">Folha projetada</th>
+      <th class="num">Saldo</th><th class="num">Acumulado</th>
     </tr></thead>
     <tbody>${rows}</tbody>${foot}
   </table>`;
@@ -215,7 +199,6 @@ function buildPages(pack: InvestorPack, snapshot: InvestorPackSnapshot, insights
       <div class="cover-meta">
         <span><em>Período</em><strong>${esc(period)}</strong></span>
         <span><em>Data-base</em><strong>${esc(pack.referenceDate)}</strong></span>
-        <span><em>Destinatário</em><strong>${esc(pack.recipient || 'Investidor')}</strong></span>
         <span><em>Versão</em><strong>${pack.version} · ${esc(pack.status === 'published' ? 'Publicado' : pack.status === 'archived' ? 'Arquivado' : 'Rascunho')}</strong></span>
         <span><em>Preparado por</em><strong>${esc(pack.authorName || 'Financeiro')}</strong></span>
         <span><em>Gerado em</em><strong>${esc(new Date().toLocaleString('pt-BR'))}</strong></span>
@@ -247,19 +230,6 @@ function buildPages(pack: InvestorPack, snapshot: InvestorPackSnapshot, insights
     </div>
     <div class="ins-grid">${insights.cards.slice(0, 4).map((card) => insight(card, P)).join('')}</div>`,
   });
-
-  /* 03 — Evolução mensal */
-  if (pack.narrative.clientForecasts.length) {
-    const clientIds = [...new Map(pack.narrative.clientForecasts.map((item) => [item.clientId, item.client])).entries()];
-    pages.push({
-      eyebrow: 'Projeção por cliente',
-      html: `${sectionHead('Quem compõe o faturamento projetado', 'Desde 2027, junho–agosto refletem a baixa sazonal e novembro–fevereiro concentram a aceleração.')}
-      ${panel(
-        apexClientForecastChart(pack.narrative.clientForecasts, points.map((point) => point.period), { width: 1180, height: 370, palette: P }),
-        apexLegend(clientIds.map(([clientId, client], index) => ({ label: client, color: clientForecastColor(clientId, index, P) }))),
-      )}`,
-    });
-  }
 
   /* 04 — Evolução mensal */
   pages.push({
@@ -304,6 +274,19 @@ function buildPages(pack: InvestorPack, snapshot: InvestorPackSnapshot, insights
     </div>`,
   });
 
+  /* Último gráfico — projeção por cliente */
+  if (pack.narrative.clientForecasts.length) {
+    const clientIds = [...new Map(pack.narrative.clientForecasts.map((item) => [item.clientId, item.client])).entries()];
+    pages.push({
+      eyebrow: 'Projeção por cliente',
+      html: `${sectionHead('Quem compõe o faturamento projetado', APEX_CLIENT_FORECAST_DESCRIPTION)}
+      ${panel(
+        apexClientForecastChart(pack.narrative.clientForecasts, points.map((point) => point.period), { width: 1180, height: 370, palette: P }),
+        apexLegend(clientIds.map(([clientId, client], index) => ({ label: client, color: clientForecastColor(clientId, index, P) }))),
+      )}`,
+    });
+  }
+
   /* 06+ — Base mensal informada (paginada) */
   const tablePages = Math.max(1, Math.ceil(points.length / TABLE_ROWS_PER_PAGE));
   for (let i = 0; i < tablePages; i += 1) {
@@ -329,41 +312,14 @@ function buildPages(pack: InvestorPack, snapshot: InvestorPackSnapshot, insights
     }
   }
 
-  /* 07+ — Premissas, riscos e destaques (paginado por coluna mais longa) */
-  const highlights = clean(pack.narrative.highlights);
-  const risks = clean(pack.narrative.risks);
-  const assumptions = clean(pack.narrative.assumptions);
-  const listPages = Math.max(1, Math.ceil(
-    Math.max(highlights.length, risks.length, assumptions.length) / LIST_ITEMS_PER_PAGE,
-  ));
-  for (let i = 0; i < listPages; i += 1) {
-    const from = i * LIST_ITEMS_PER_PAGE;
-    const to = from + LIST_ITEMS_PER_PAGE;
-    pages.push({
-      eyebrow: 'Premissas e leitura de risco',
-      html: `${i === 0 ? sectionHead('O que sustenta a projeção e o que merece acompanhamento') : ''}
-      <div class="cols">
-        ${bulletColumn('Destaques', highlights.slice(from, to), P.revenue, 'Nenhum destaque informado.', i > 0)}
-        ${bulletColumn('Riscos', risks.slice(from, to), P.negative, 'Nenhum risco informado.', i > 0)}
-        ${bulletColumn('Premissas', assumptions.slice(from, to), P.revenueForecast, 'Nenhuma premissa informada.', i > 0)}
-      </div>
-      ${i === listPages - 1 ? `<div class="dq ${snapshot.warnings.length ? 'warn' : 'ok'}">
-        <b>Qualidade dos dados</b>
-        <ul>${(snapshot.warnings.length ? snapshot.warnings : ['Sem inconsistências detectadas neste recorte.'])
-          .map((item) => `<li>${esc(item)}</li>`).join('')}</ul>
-      </div>` : ''}`,
-    });
-  }
-
   /* Último — Fecho */
   pages.push({
     eyebrow: 'Perspectiva e próximos passos',
     html: `<div class="closing">
-      ${sectionHead('A disciplina de atualização transforma projeção em confiança')}
-      <blockquote>${esc(pack.narrative.closingMessage || 'Atualizar as premissas e os valores mensais à medida que novas informações forem consolidadas.')}</blockquote>
+      ${sectionHead(APEX_CLOSING_TITLE)}
+      <blockquote>${esc(investorClosingMessage(pack.narrative.closingMessage))}</blockquote>
       <div class="sign">
         <span><em>Preparado por</em><strong>${esc(pack.authorName || 'Financeiro')}</strong></span>
-        <span><em>Para</em><strong>${esc(pack.recipient || 'Investidor')}</strong></span>
         <span><em>Data-base</em><strong>${esc(pack.referenceDate)}</strong></span>
         <span><em>Classificação</em><strong>${esc(confidential)}</strong></span>
       </div>

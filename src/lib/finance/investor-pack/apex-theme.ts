@@ -130,7 +130,16 @@ export const SERIES_LABEL = {
 } as const;
 
 /** Fonte do dado — exibida em todo rodapé, em todos os destinos. */
-export const APEX_SOURCE = 'Dados informados manualmente na Projeção Financeira';
+export const APEX_SOURCE = 'Dados informados do sistema na Projeção Financeira';
+export const APEX_CLIENT_FORECAST_DESCRIPTION = 'A composição mensal reflete o cronograma contratual e a evolução prevista da carteira de clientes.';
+export const APEX_CLOSING_TITLE = 'Confiança para investir, clareza para crescer';
+export const APEX_CLOSING_MESSAGE = 'Seguimos comprometidos com uma execução disciplinada, crescimento sustentável e geração consistente de valor para nossos investidores.';
+const LEGACY_CLOSING_MESSAGE = 'Atualizar as premissas e os valores mensais à medida que novas informações forem consolidadas.';
+
+export function investorClosingMessage(message?: string | null): string {
+  const normalized = message?.trim();
+  return !normalized || normalized === LEGACY_CLOSING_MESSAGE ? APEX_CLOSING_MESSAGE : normalized;
+}
 
 /** Marca institucional do material (a logo embutida em `apex-logo.ts`). */
 export const APEX_BRAND = 'Insight Energy';

@@ -162,17 +162,6 @@ export function buildApexInsights(snapshot: InvestorPackSnapshot): ApexInsights 
     detail: `Diferença acumulada entre receita e folha ao fim de ${points.length} ${points.length === 1 ? 'competência' : 'competências'}.`,
   });
 
-  if (forecastShare != null) {
-    cards.push({
-      kind: forecastShare > 0.5 ? 'watch' : 'signal',
-      label: 'Peso do previsto na receita',
-      value: `${(forecastShare * 100).toFixed(0)}%`,
-      detail: forecastShare > 0.5
-        ? 'Mais da metade da receita do recorte ainda depende de previsão — leia junto às premissas.'
-        : 'Participação da receita prevista sobre a receita total do recorte.',
-    });
-  }
-
   if (tightestCoverage) {
     cards.push({
       kind: tightestCoverage.ratio < 1 ? 'alert' : 'watch',

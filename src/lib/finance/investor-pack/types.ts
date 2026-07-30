@@ -97,7 +97,7 @@ export interface InvestorPackSnapshot {
   points: InvestorPackCurvePoint[];
   metrics: InvestorPackMetrics;
   warnings: string[];
-  sourceLabel: 'Dados informados manualmente na Projeção Financeira';
+  sourceLabel: 'Dados informados do sistema na Projeção Financeira';
 }
 
 export interface InvestorPackValidation {

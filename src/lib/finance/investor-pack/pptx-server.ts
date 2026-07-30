@@ -25,11 +25,14 @@ import { APEX_LOGO_ALT, APEX_LOGO_ASPECT, APEX_LOGO_DATA_URI, APEX_LOGO_SMALL_DA
 import { clientForecastColor } from './apex-charts';
 import {
   APEX,
+  APEX_CLIENT_FORECAST_DESCRIPTION,
+  APEX_CLOSING_TITLE,
   APEX_SOURCE,
   REPORT_NAME,
   REPORT_NAME_SHORT,
   SERIES_LABEL,
   confidentialityLabel,
+  investorClosingMessage,
 } from './apex-theme';
 import { calculateInvestorPack, centsToReais, formatInvestorCurrency, formatInvestorPeriod } from './calculations';
 import type { InvestorPack, InvestorPackCurvePoint, InvestorPackSnapshot, InvestorPortfolioClient } from './types';
@@ -225,11 +228,6 @@ function addInsightCard(slide: any, position: Pos, card: ApexInsightCard) {
     { fontSize: 10, color: APEX.subtle });
 }
 
-function bulletText(items: string[], fallback: string): string {
-  const values = items.map((item) => item.trim()).filter(Boolean);
-  return (values.length ? values : [fallback]).map((item) => `• ${item}`).join('\n');
-}
-
 /** Estilo comum dos eixos/legenda para os gráficos nativos. */
 function chartChrome() {
   return {
@@ -252,7 +250,7 @@ function addBaseTable(slide: any, points: InvestorPackCurvePoint[], top: number)
     { label: 'Competência', width: 150, align: 'left' as const },
     { label: 'Fat. realizado', width: 175, align: 'right' as const },
     { label: 'Fat. previsto', width: 175, align: 'right' as const },
-    { label: 'Folha fechada', width: 175, align: 'right' as const },
+    { label: 'Folha + encargos', width: 175, align: 'right' as const },
     { label: 'Folha projetada', width: 175, align: 'right' as const },
     { label: 'Saldo', width: 160, align: 'right' as const },
     { label: 'Acumulado', width: 142, align: 'right' as const },
@@ -346,8 +344,8 @@ function countSlides(snapshot: InvestorPackSnapshot): number {
   const tableSlides = Math.max(1, Math.ceil(snapshot.points.length / TABLE_ROWS_PER_SLIDE));
   const clientSlide = snapshot.pack.narrative.clientForecasts.length ? 1 : 0;
   const portfolioSlides = Math.ceil(snapshot.pack.narrative.portfolio.length / 10);
-  // capa + roteiro + síntese + leitura + mensal + curva S + saldo + base(n) + premissas + fecho
-  return 9 + tableSlides + clientSlide + portfolioSlides;
+  // capa + roteiro + síntese + leitura + mensal + curva S + saldo + base(n) + fecho
+  return 8 + tableSlides + clientSlide + portfolioSlides;
 }
 
 export async function generateInvestorPackPptx(pack: InvestorPack): Promise<Uint8Array> {
@@ -406,7 +404,6 @@ export async function generateInvestorPackPptx(pack: InvestorPack): Promise<Uint
     const meta: Array<[string, string]> = [
       ['Período', period],
       ['Data-base', pack.referenceDate],
-      ['Destinatário', pack.recipient || 'Investidor'],
       ['Versão', `${pack.version} · ${pack.status === 'published' ? 'Publicado' : pack.status === 'archived' ? 'Arquivado' : 'Rascunho'}`],
       ['Preparado por', pack.authorName || 'Financeiro'],
       ['Competências', String(points.length)],
@@ -429,8 +426,8 @@ export async function generateInvestorPackPptx(pack: InvestorPack): Promise<Uint
       ['Evolução mensal', 'Receita e folha competência a competência'],
       ['Curva S acumulada', 'Trajetória e zona de previsão'],
       ['Saldo e acumulado', 'Onde o período gera e onde consome resultado'],
+      ['Projeção por cliente', 'Composição do faturamento projetado'],
       ['Base informada', 'Todos os valores que sustentam os gráficos'],
-      ['Premissas e riscos', 'O que precisa se confirmar'],
       ['Perspectiva', 'Mensagem de fecho e próximos passos'],
     ];
     agenda.forEach(([title, sub], index) => {
@@ -489,30 +486,6 @@ export async function generateInvestorPackPptx(pack: InvestorPack): Promise<Uint
         addInsightCard(slide, { left: M + index * (cardW * 2 + 14), top: BODY_Y + 252, width: cardW * 2, height: 148 }, card);
       });
     }
-  }
-
-  /* 05 — Evolução mensal */
-  if (pack.narrative.clientForecasts.length) {
-    const slide = baseSlide(presentation, ctx, 'Projeção por cliente', 'Cada série identifica o cliente que compõe o faturamento previsto.');
-    addSectionTitle(slide, 'Quem compõe o faturamento projetado', 'Desde 2027, junho–agosto recuam e novembro–fevereiro aceleram.');
-    const forecastPeriods = points.filter((point) => point.period >= '2026-07').map((point) => point.period);
-    const clients = [...new Map(pack.narrative.clientForecasts.map((item) => [item.clientId, item.client])).entries()]
-      .filter(([id]) => pack.narrative.clientForecasts.some((item) => item.clientId === id && forecastPeriods.includes(item.period)));
-    slide.charts.add('bar', {
-      position: { left: M, top: BODY_Y + 50, width: CONTENT_W, height: 378 },
-      categories: forecastPeriods.map(formatInvestorPeriod),
-      series: clients.map(([clientId, client], index) => ({
-        name: client,
-        values: forecastPeriods.map((period) => centsToReais(
-          pack.narrative.clientForecasts
-            .filter((item) => item.clientId === clientId && item.period === period)
-            .reduce((sum, item) => sum + item.amountCents, 0),
-        )),
-        fill: clientForecastColor(clientId, index, APEX),
-      })),
-      barOptions: { direction: 'column', grouping: 'stacked', gapWidth: 34 },
-      ...chartChrome(),
-    });
   }
 
   /* 06 — Evolução mensal */
@@ -601,6 +574,30 @@ export async function generateInvestorPackPptx(pack: InvestorPack): Promise<Uint
     });
   }
 
+  /* Último gráfico — projeção por cliente */
+  if (pack.narrative.clientForecasts.length) {
+    const slide = baseSlide(presentation, ctx, 'Projeção por cliente', 'Cada série identifica o cliente que compõe o faturamento previsto.');
+    addSectionTitle(slide, 'Quem compõe o faturamento projetado', APEX_CLIENT_FORECAST_DESCRIPTION);
+    const forecastPeriods = points.filter((point) => point.period >= '2026-07').map((point) => point.period);
+    const clients = [...new Map(pack.narrative.clientForecasts.map((item) => [item.clientId, item.client])).entries()]
+      .filter(([id]) => pack.narrative.clientForecasts.some((item) => item.clientId === id && forecastPeriods.includes(item.period)));
+    slide.charts.add('bar', {
+      position: { left: M, top: BODY_Y + 50, width: CONTENT_W, height: 378 },
+      categories: forecastPeriods.map(formatInvestorPeriod),
+      series: clients.map(([clientId, client], index) => ({
+        name: client,
+        values: forecastPeriods.map((period) => centsToReais(
+          pack.narrative.clientForecasts
+            .filter((item) => item.clientId === clientId && item.period === period)
+            .reduce((sum, item) => sum + item.amountCents, 0),
+        )),
+        fill: clientForecastColor(clientId, index, APEX),
+      })),
+      barOptions: { direction: 'column', grouping: 'stacked', gapWidth: 34 },
+      ...chartChrome(),
+    });
+  }
+
   /* 08+ — Base mensal informada */
   {
     const slices = Math.max(1, Math.ceil(points.length / TABLE_ROWS_PER_SLIDE));
@@ -633,48 +630,19 @@ export async function generateInvestorPackPptx(pack: InvestorPack): Promise<Uint
     }
   }
 
-  /* 11 — Premissas, riscos e destaques */
-  {
-    const slide = baseSlide(presentation, ctx, 'Premissas e riscos', 'Riscos e premissas são o contraponto obrigatório dos números previstos.');
-    addSectionTitle(slide, 'O que sustenta a projeção e o que merece acompanhamento');
-    const columns: Array<[string, string, string]> = [
-      ['Destaques', bulletText(pack.narrative.highlights, 'Nenhum destaque informado.'), APEX.revenue],
-      ['Riscos', bulletText(pack.narrative.risks, 'Nenhum risco informado.'), APEX.negative],
-      ['Premissas', bulletText(pack.narrative.assumptions, 'Nenhuma premissa informada.'), APEX.revenueForecast],
-    ];
-    const colW = (CONTENT_W - 2 * 24) / 3;
-    columns.forEach(([title, body, accent], index) => {
-      const left = M + index * (colW + 24);
-      addRect(slide, { left, top: BODY_Y + 20, width: colW, height: 2 }, accent);
-      addText(slide, title.toUpperCase(), { left, top: BODY_Y + 32, width: colW, height: 26 },
-        { fontSize: 12, bold: true, color: accent });
-      addText(slide, body, { left, top: BODY_Y + 64, width: colW, height: 254 },
-        { fontSize: 12, color: APEX.body });
-    });
-
-    const dqAccent = snapshot.warnings.length ? APEX.attention : APEX.revenue;
-    addPanel(slide, { left: M, top: 526, width: CONTENT_W, height: 110 }, dqAccent);
-    addText(slide, 'QUALIDADE DOS DADOS', { left: M + 16, top: 540, width: CONTENT_W - 32, height: 20 },
-      { fontSize: 9, bold: true, color: dqAccent });
-    addText(slide,
-      bulletText(snapshot.warnings, 'Sem inconsistências detectadas neste recorte.'),
-      { left: M + 16, top: 562, width: CONTENT_W - 32, height: 66 }, { fontSize: 11, color: APEX.body });
-  }
-
   /* 10 — Fecho */
   {
-    const slide = baseSlide(presentation, ctx, 'Perspectiva', pack.narrative.closingMessage || undefined);
+    const slide = baseSlide(presentation, ctx, 'Perspectiva', investorClosingMessage(pack.narrative.closingMessage));
     addRect(slide, { left: M + 2, top: 168, width: 160, height: 3 }, APEX.revenue);
-    addText(slide, 'A disciplina de atualização transforma projeção em confiança',
+    addText(slide, APEX_CLOSING_TITLE,
       { left: M, top: 192, width: 940, height: 140 }, { fontSize: 40, bold: true, color: APEX.ink });
     addRect(slide, { left: M, top: 360, width: 2, height: 120 }, APEX.revenue);
     addText(slide,
-      pack.narrative.closingMessage || 'Atualizar as premissas e os valores mensais à medida que novas informações forem consolidadas.',
+      investorClosingMessage(pack.narrative.closingMessage),
       { left: M + 22, top: 360, width: 880, height: 124 }, { fontSize: 20, color: APEX.body });
 
     const sign: Array<[string, string]> = [
       ['Preparado por', pack.authorName || 'Financeiro'],
-      ['Para', pack.recipient || 'Investidor'],
       ['Data-base', pack.referenceDate],
       ['Classificação', confidential],
     ];

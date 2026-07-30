@@ -114,7 +114,7 @@ export function calculateInvestorPack(pack: InvestorPack): InvestorPackSnapshot 
     points,
     metrics,
     warnings: validateInvestorPack(pack).warnings,
-    sourceLabel: 'Dados informados manualmente na Projeção Financeira',
+    sourceLabel: 'Dados informados do sistema na Projeção Financeira',
   };
 }
 

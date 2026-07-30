@@ -240,11 +240,30 @@ export async function saveInvestorPack(pack: InvestorPack, actor: InvestorPackAc
   const supabase = createClient();
   const { error: packError } = await supabase.from('investor_report_packs').upsert(packRow(next, actor));
   if (packError) throw new Error(packError.message);
-  const { error: deleteError } = await supabase.from('investor_report_pack_months').delete().eq('pack_id', next.id);
-  if (deleteError) throw new Error(deleteError.message);
+
+  const { data: existingMonths, error: existingMonthsError } = await supabase
+    .from('investor_report_pack_months')
+    .select('id, period_key')
+    .eq('pack_id', next.id);
+  if (existingMonthsError) throw new Error(existingMonthsError.message);
+
   if (next.months.length) {
-    const { error: monthError } = await supabase.from('investor_report_pack_months').insert(monthRows(next, actor));
+    const { error: monthError } = await supabase
+      .from('investor_report_pack_months')
+      .upsert(monthRows(next, actor), { onConflict: 'pack_id,period_key' });
     if (monthError) throw new Error(monthError.message);
+  }
+
+  const desiredPeriods = new Set(next.months.map((month) => month.period));
+  const staleIds = (existingMonths ?? [])
+    .filter((month) => !desiredPeriods.has(month.period_key))
+    .map((month) => month.id);
+  if (staleIds.length) {
+    const { error: deleteError } = await supabase
+      .from('investor_report_pack_months')
+      .delete()
+      .in('id', staleIds);
+    if (deleteError) throw new Error(deleteError.message);
   }
   return next;
 }

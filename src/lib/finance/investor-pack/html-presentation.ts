@@ -36,6 +36,8 @@ import {
 import { APEX_LOGO_ALT, APEX_LOGO_DATA_URI, APEX_LOGO_SMALL_DATA_URI } from './apex-logo';
 import {
   APEX,
+  APEX_CLIENT_FORECAST_DESCRIPTION,
+  APEX_CLOSING_TITLE,
   APEX_FONT,
   APEX_SOURCE,
   REPORT_FILE_SLUG,
@@ -44,15 +46,10 @@ import {
   apexBackdrop,
   confidentialityLabel,
   dashIfZero,
+  investorClosingMessage,
 } from './apex-theme';
 import { calculateInvestorPack, formatInvestorCurrency, formatInvestorPeriod } from './calculations';
 import type { InvestorPack, InvestorPackSnapshot } from './types';
-
-function list(items: string[], empty: string): string {
-  const values = items.map((item) => item.trim()).filter(Boolean);
-  if (!values.length) return `<li class="muted">${esc(empty)}</li>`;
-  return values.map((item) => `<li>${esc(item)}</li>`).join('');
-}
 
 function kpiTile(label: string, value: string, accent: string, helper?: string): string {
   return `<div class="tile" style="--accent:${accent}">
@@ -87,7 +84,7 @@ function monthlyTable(snapshot: InvestorPackSnapshot): string {
   return `<div class="table-wrap"><table class="deck-table">
     <thead><tr>
       <th>Competência</th><th class="num">Fat. realizado</th><th class="num">Fat. previsto</th>
-      <th class="num">Folha fechada</th><th class="num">Folha projetada</th><th class="num">Saldo</th><th class="num">Acumulado</th>
+      <th class="num">Folha + encargos</th><th class="num">Folha projetada</th><th class="num">Saldo</th><th class="num">Acumulado</th>
     </tr></thead>
     <tbody>${rows}</tbody>
     <tfoot><tr>
@@ -152,7 +149,6 @@ function buildSlides(pack: InvestorPack, snapshot: InvestorPackSnapshot, insight
       <div class="meta">
         <span><em>Período</em><strong>${esc(period)}</strong></span>
         <span><em>Data-base</em><strong>${esc(pack.referenceDate)}</strong></span>
-        <span><em>Destinatário</em><strong>${esc(pack.recipient || 'Investidor')}</strong></span>
         <span><em>Versão</em><strong>${pack.version}</strong></span>
       </div>
       <div class="hero-verdict" style="--accent:${insights.verdict === 'deficit' ? APEX.negative : insights.verdict === 'balanced' ? APEX.attention : APEX.revenue}">
@@ -174,8 +170,8 @@ function buildSlides(pack: InvestorPack, snapshot: InvestorPackSnapshot, insight
         <li><b>Evolução mensal</b><span>Receita e folha competência a competência</span></li>
         <li><b>Curva S acumulada</b><span>Trajetória e zona de previsão</span></li>
         <li><b>Saldo e acumulado</b><span>Onde o período gera e onde consome resultado</span></li>
+        <li><b>Projeção por cliente</b><span>Composição do faturamento projetado</span></li>
         <li><b>Base informada</b><span>Todos os valores que sustentam os gráficos</span></li>
-        <li><b>Premissas e riscos</b><span>O que precisa se confirmar</span></li>
       </ol>
     </div>`,
   });
@@ -215,22 +211,6 @@ function buildSlides(pack: InvestorPack, snapshot: InvestorPackSnapshot, insight
     </div>`,
   });
 
-  /* 05 — Evolução mensal */
-  if (pack.narrative.clientForecasts.length) {
-    const clientIds = [...new Map(pack.narrative.clientForecasts.map((item) => [item.clientId, item.client])).entries()];
-    slides.push({
-      nav: 'Clientes',
-      eyebrow: 'Projeção por cliente',
-      html: `<div class="stack">
-        <h2>Quem compõe o faturamento projetado</h2>
-        <p class="sub">Desde 2027, junho–agosto refletem a baixa sazonal e novembro–fevereiro concentram a aceleração.</p>
-        <div class="panel">${apexClientForecastChart(pack.narrative.clientForecasts, points.map((point) => point.period), { animate: true, width: 1180, height: 400 })}
-          ${apexLegend(clientIds.map(([clientId, client], index) => ({ label: client, color: clientForecastColor(clientId, index) })))}
-        </div>
-      </div>`,
-    });
-  }
-
   /* 06 — Evolução mensal */
   slides.push({
     nav: 'Mensal',
@@ -266,6 +246,22 @@ function buildSlides(pack: InvestorPack, snapshot: InvestorPackSnapshot, insight
     </div>`,
   });
 
+  /* Último gráfico — projeção por cliente */
+  if (pack.narrative.clientForecasts.length) {
+    const clientIds = [...new Map(pack.narrative.clientForecasts.map((item) => [item.clientId, item.client])).entries()];
+    slides.push({
+      nav: 'Clientes',
+      eyebrow: 'Projeção por cliente',
+      html: `<div class="stack">
+        <h2>Quem compõe o faturamento projetado</h2>
+        <p class="sub">${esc(APEX_CLIENT_FORECAST_DESCRIPTION)}</p>
+        <div class="panel">${apexClientForecastChart(pack.narrative.clientForecasts, points.map((point) => point.period), { animate: true, width: 1180, height: 400 })}
+          ${apexLegend(clientIds.map(([clientId, client], index) => ({ label: client, color: clientForecastColor(clientId, index) })))}
+        </div>
+      </div>`,
+    });
+  }
+
   /* 08 — Base informada */
   slides.push({
     nav: 'Base',
@@ -289,31 +285,15 @@ function buildSlides(pack: InvestorPack, snapshot: InvestorPackSnapshot, insight
     });
   }
 
-  /* 11 — Premissas, riscos e destaques */
-  slides.push({
-    nav: 'Premissas',
-    eyebrow: 'Premissas e leitura de risco',
-    html: `<div class="stack">
-      <h2>O que sustenta a projeção e o que merece acompanhamento</h2>
-      <div class="columns">
-        <section style="--accent:${APEX.revenue}"><h3>Destaques</h3><ul>${list(pack.narrative.highlights, 'Nenhum destaque informado.')}</ul></section>
-        <section style="--accent:${APEX.negative}"><h3>Riscos</h3><ul>${list(pack.narrative.risks, 'Nenhum risco informado.')}</ul></section>
-        <section style="--accent:${APEX.revenueForecast}"><h3>Premissas</h3><ul>${list(pack.narrative.assumptions, 'Nenhuma premissa informada.')}</ul></section>
-      </div>
-      ${snapshot.warnings.length ? `<div class="dq"><b>Qualidade dos dados</b><ul>${snapshot.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul></div>` : ''}
-    </div>`,
-  });
-
   /* 10 — Fecho */
   slides.push({
     nav: 'Fecho',
     eyebrow: 'Perspectiva e próximos passos',
     html: `<div class="closing">
-      <h2>A disciplina de atualização transforma projeção em confiança</h2>
-      <blockquote>${esc(pack.narrative.closingMessage || 'Atualizar as premissas e os valores mensais à medida que novas informações forem consolidadas.')}</blockquote>
+      <h2>${esc(APEX_CLOSING_TITLE)}</h2>
+      <blockquote>${esc(investorClosingMessage(pack.narrative.closingMessage))}</blockquote>
       <div class="sign">
         <span><em>Preparado por</em><strong>${esc(pack.authorName || 'Financeiro')}</strong></span>
-        <span><em>Para</em><strong>${esc(pack.recipient || 'Investidor')}</strong></span>
         <span><em>Classificação</em><strong>${esc(confidential)}</strong></span>
       </div>
     </div>`,

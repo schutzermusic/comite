@@ -180,7 +180,13 @@ function Tooltip({ tip, theme }: { tip: TipState | null; theme: ReturnType<typeo
 /* LINE / AREA                                                      */
 /* --------------------------------------------------------------- */
 
-export interface LineSeries { name: string; data: number[]; tone?: Tone; startIndex?: number }
+export interface LineSeries {
+  name: string;
+  data: number[];
+  tone?: Tone;
+  startIndex?: number;
+  endIndex?: number;
+}
 
 export function FinanceLineChart({
   categories, series, height = 240,
@@ -228,9 +234,10 @@ export function FinanceLineChart({
         {series.map((s, idx) => {
           const tone = s.tone || (['accent', 'info', 'success', 'warning'] as Tone[])[idx % 4];
           const firstIndex = Math.max(0, Math.min(s.startIndex ?? 0, s.data.length));
+          const lastIndex = Math.max(firstIndex, Math.min(s.endIndex ?? s.data.length - 1, s.data.length - 1));
           const indexedPoints = s.data
             .map((v, i) => [padL + i * xStep, yScale(v), i] as [number, number, number])
-            .slice(firstIndex);
+            .slice(firstIndex, lastIndex + 1);
           const pts = indexedPoints.map(([x, y]) => [x, y] as [number, number]);
           if (!pts.length) return null;
           const path = smoothPath(pts);

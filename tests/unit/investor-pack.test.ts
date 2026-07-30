@@ -21,6 +21,8 @@ import {
   buildInvestorPortfolio,
   clientForecastTotalsByPeriod,
   hydratePortfolioProjection,
+  PAYROLL_FORECAST_CENTS,
+  REVENUE_ACTUALS_CENTS,
 } from '@/lib/finance/investor-pack/portfolio-projection';
 import type { InvestorPack } from '@/lib/finance/investor-pack/types';
 
@@ -100,6 +102,33 @@ describe('Pack do Investidor', () => {
     expect(hydrated.months.find((month) => month.period === '2026-01')?.payrollActualCents).toBe(320_800_000);
     expect(hydrated.months.find((month) => month.period === '2026-06')?.payrollActualCents).toBe(310_800_000);
     expect(hydrated.months.find((month) => month.period === '2026-06')?.payrollForecastCents).toBe(0);
+  });
+
+  it('recupera o faturamento consolidado e gera identificadores aceitos pelo banco', () => {
+    const hydrated = hydratePortfolioProjection({ ...pack(), months: [] });
+    const revenueTotal = Object.values(REVENUE_ACTUALS_CENTS).reduce((sum, value) => sum + value, 0);
+    const hydratedRevenueTotal = hydrated.months.reduce((sum, month) => sum + month.revenueActualCents, 0);
+
+    expect(hydrated.periodStart).toBe('2024-01');
+    expect(hydratedRevenueTotal).toBe(revenueTotal);
+    expect(hydrated.months).toHaveLength(60);
+    hydrated.months.forEach((month) => {
+      expect(month.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+    });
+  });
+
+  it('projeta a folha reduzida e variável somente a partir de agosto de 2026', () => {
+    const hydrated = hydratePortfolioProjection(pack());
+    const projected = hydrated.months.filter((month) => month.period >= '2026-08');
+    const values = Object.values(PAYROLL_FORECAST_CENTS);
+
+    expect(hydrated.months.find((month) => month.period === '2026-07')?.payrollForecastCents).toBe(0);
+    expect(hydrated.months.find((month) => month.period === '2026-08')?.payrollForecastCents).toBe(151_243_000);
+    expect(hydrated.months.find((month) => month.period === '2028-12')?.payrollForecastCents).toBe(174_218_000);
+    expect(projected.every((month) =>
+      month.payrollForecastCents >= 130_000_000 && month.payrollForecastCents <= 175_000_000,
+    )).toBe(true);
+    expect(new Set(values).size).toBe(values.length);
   });
 
   it('limita a projeção ao backlog, preservada a divergência conhecida de Âmbar na planilha', () => {
@@ -250,10 +279,14 @@ describe('Pack do Investidor', () => {
     // Paginação resolvida em build time (Chromium renderiza counter(pages) como 0).
     expect(html).toContain(`Página 1 de ${pages.length}`);
     expect(html).toContain(`Página ${pages.length} de ${pages.length}`);
-    const sources = html.match(/Dados informados manualmente na Projeção Financeira/g) ?? [];
+    const sources = html.match(/Dados informados do sistema na Projeção Financeira/g) ?? [];
     expect(sources.length).toBeGreaterThanOrEqual(pages.length);
     expect(html).toContain('Curva S');
     expect(html).toContain('2,71x');
+    expect(html).not.toContain('<em>Destinatário</em>');
+    expect(html).not.toContain('Peso do previsto na receita');
+    expect(html).not.toContain('O que sustenta a projeção e o que merece acompanhamento');
+    expect(html).toContain('Confiança para investir, clareza para crescer');
     expect(html).not.toContain('user-secret-id');
   });
 
@@ -303,5 +336,9 @@ describe('Pack do Investidor', () => {
     expect(html).toContain(APEX_LOGO_DATA_URI);
     expect(html).toContain(REPORT_NAME);
     expect(html).not.toContain('Insight Apex');
+    expect(html).not.toContain('<em>Destinatário</em>');
+    expect(html).not.toContain('Peso do previsto na receita');
+    expect(html).not.toContain('O que sustenta a projeção e o que merece acompanhamento');
+    expect(html).toContain('Confiança para investir, clareza para crescer');
   });
 });

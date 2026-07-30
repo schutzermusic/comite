@@ -5,14 +5,66 @@ import type {
   InvestorPortfolioClient,
 } from './types';
 
-export const PORTFOLIO_PROJECTION_VERSION = 'carteira-eventogramas-v12-folha-com-encargos';
+export const PORTFOLIO_PROJECTION_VERSION = 'carteira-eventogramas-v13-projecao-folha-reduzida';
 export const MANAGEMENT_PROJECTION_START = '2026-10';
 export const MANAGEMENT_PROJECTION_END = '2028-12';
 
 const BRL = 100;
 const money = (value: number) => Math.round(value * BRL);
+const uuid = () => globalThis.crypto?.randomUUID?.()
+  ?? 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (char) => {
+    const random = Math.floor(Math.random() * 16);
+    const value = char === 'x' ? random : (random & 0x3) | 0x8;
+    return value.toString(16);
+  });
+
+/** Faturamento consolidado conforme as declarações assinadas de 2024, 2025 e jan-jun/2026. */
+export const REVENUE_ACTUALS_CENTS: Record<string, number> = {
+  '2024-01': money(6789213.81),
+  '2024-02': money(3817372.69),
+  '2024-03': money(4732792.38),
+  '2024-04': money(7231990.50),
+  '2024-05': money(5506503.71),
+  '2024-06': money(4380902.39),
+  '2024-07': money(6510910.49),
+  '2024-08': money(5421686.74),
+  '2024-09': money(5682241.80),
+  '2024-10': money(8541056.13),
+  '2024-11': money(7608873.04),
+  '2024-12': money(12158119.93),
+  '2025-01': money(6481505.36),
+  '2025-02': money(7218837.49),
+  '2025-03': money(7554012.04),
+  '2025-04': money(4739459.41),
+  '2025-05': money(6235104.42),
+  '2025-06': money(3511692.47),
+  '2025-07': money(3267455.46),
+  '2025-08': money(4042135.73),
+  '2025-09': money(5879203.03),
+  '2025-10': money(4431996.15),
+  '2025-11': money(10858257.81),
+  '2025-12': money(2904942.16),
+  '2026-01': money(10366331.04),
+  '2026-02': money(4700897.81),
+  '2026-03': money(5650881.81),
+  '2026-04': money(5897524.13),
+  '2026-05': money(7355196.27),
+  '2026-06': money(7178434.69),
+};
 
 export const PAYROLL_ACTUALS_WITH_CHARGES_CENTS: Record<string, number> = {
+  '2024-01': money(890704.19),
+  '2024-02': money(1020426.58),
+  '2024-03': money(1185267.32),
+  '2024-04': money(1174044.87),
+  '2024-05': money(1091167.43),
+  '2024-06': money(1133609.80),
+  '2024-07': money(1113424.01),
+  '2024-08': money(1040357.05),
+  '2024-09': money(859008.24),
+  '2024-10': money(897448.27),
+  '2024-11': money(1021448.72),
+  '2024-12': money(953973.58),
   '2025-01': money(1331022.91),
   '2025-02': money(1310101.05),
   '2025-03': money(1354501.90),
@@ -31,6 +83,43 @@ export const PAYROLL_ACTUALS_WITH_CHARGES_CENTS: Record<string, number> = {
   '2026-04': money(3360000),
   '2026-05': money(2953000),
   '2026-06': money(3108000),
+};
+
+/**
+ * Projeção gerencial do custo total de pessoal após a redução esperada.
+ * Começa em agosto/2026 próxima de R$ 1,5 mi e oscila sazonalmente
+ * entre R$ 1,3 mi e R$ 1,7 mi, sem repetir valores exatos.
+ */
+export const PAYROLL_FORECAST_CENTS: Record<string, number> = {
+  '2026-08': money(1512430),
+  '2026-09': money(1387850),
+  '2026-10': money(1634720),
+  '2026-11': money(1728940),
+  '2026-12': money(1596380),
+  '2027-01': money(1682510),
+  '2027-02': money(1574260),
+  '2027-03': money(1493870),
+  '2027-04': money(1421650),
+  '2027-05': money(1356420),
+  '2027-06': money(1318760),
+  '2027-07': money(1342590),
+  '2027-08': money(1397840),
+  '2027-09': money(1468230),
+  '2027-10': money(1559670),
+  '2027-11': money(1671480),
+  '2027-12': money(1739250),
+  '2028-01': money(1696840),
+  '2028-02': money(1612370),
+  '2028-03': money(1529680),
+  '2028-04': money(1447340),
+  '2028-05': money(1378920),
+  '2028-06': money(1326410),
+  '2028-07': money(1349870),
+  '2028-08': money(1408630),
+  '2028-09': money(1482760),
+  '2028-10': money(1578140),
+  '2028-11': money(1689630),
+  '2028-12': money(1742180),
 };
 
 type PortfolioSeed = Omit<InvestorPortfolioClient, 'projectedThrough2028Cents' | 'remainingAfter2028Cents'>;
@@ -291,14 +380,14 @@ export function buildInvestorPortfolio(): InvestorPortfolioClient[] {
 
 function generatedMonth(period: string, forecasts: InvestorClientForecast[]): InvestorPackMonth {
   return {
-    id: `portfolio-${period}`,
+    id: uuid(),
     period,
     revenueActualCents: 0,
     revenueForecastCents: forecasts
       .filter((forecast) => forecast.period === period)
       .reduce((sum, forecast) => sum + forecast.amountCents, 0),
     payrollActualCents: 0,
-    payrollForecastCents: 0,
+    payrollForecastCents: PAYROLL_FORECAST_CENTS[period] ?? 0,
     note: period >= MANAGEMENT_PROJECTION_START
       ? 'Curva sazonal: vales entre junho e agosto e aceleração no início e no fim do ano.'
       : 'Medições previstas conforme carteira e eventogramas informados.',
@@ -306,10 +395,33 @@ function generatedMonth(period: string, forecasts: InvestorClientForecast[]): In
 }
 
 export function hydratePortfolioProjection(pack: InvestorPack): InvestorPack {
-  if (pack.narrative.projectionVersion === PORTFOLIO_PROJECTION_VERSION) return pack;
+  const monthByPeriod = new Map(pack.months.map((month) => [month.period, month]));
+  const baseIsComplete = Object.entries(REVENUE_ACTUALS_CENTS).every(
+    ([period, value]) => monthByPeriod.get(period)?.revenueActualCents === value,
+  ) && Object.entries(PAYROLL_ACTUALS_WITH_CHARGES_CENTS).every(
+    ([period, value]) => monthByPeriod.get(period)?.payrollActualCents === value,
+  ) && Object.entries(PAYROLL_FORECAST_CENTS).every(
+    ([period, value]) => monthByPeriod.get(period)?.payrollForecastCents === value,
+  );
+  if (pack.narrative.projectionVersion === PORTFOLIO_PROJECTION_VERSION && baseIsComplete) return pack;
   const clientForecasts = buildGrowingClientForecasts();
   const generatedPeriods = periodsBetween('2026-07', MANAGEMENT_PROJECTION_END);
   const byPeriod = new Map(pack.months.map((month) => [month.period, month]));
+  Object.entries(REVENUE_ACTUALS_CENTS).forEach(([period, revenueActualCents]) => {
+    const existing = byPeriod.get(period);
+    byPeriod.set(period, existing ? {
+      ...existing,
+      revenueActualCents,
+    } : {
+      id: uuid(),
+      period,
+      revenueActualCents,
+      revenueForecastCents: 0,
+      payrollActualCents: 0,
+      payrollForecastCents: 0,
+      note: 'Faturamento consolidado conforme declaração de faturamento.',
+    });
+  });
   Object.entries(PAYROLL_ACTUALS_WITH_CHARGES_CENTS).forEach(([period, payrollActualCents]) => {
     const existing = byPeriod.get(period);
     byPeriod.set(period, existing ? {
@@ -317,13 +429,15 @@ export function hydratePortfolioProjection(pack: InvestorPack): InvestorPack {
       payrollActualCents,
       payrollForecastCents: 0,
     } : {
-      id: `payroll-${period}`,
+      id: uuid(),
       period,
       revenueActualCents: 0,
       revenueForecastCents: 0,
       payrollActualCents,
       payrollForecastCents: 0,
-      note: 'Custo de pessoal informado, incluindo benefícios e encargos.',
+      note: period >= '2025-01'
+        ? 'Custo de pessoal informado, incluindo benefícios e encargos.'
+        : 'Folha de pagamento fechada informada pelo Financeiro.',
     });
   });
   generatedPeriods.forEach((period) => {
@@ -332,28 +446,34 @@ export function hydratePortfolioProjection(pack: InvestorPack): InvestorPack {
     byPeriod.set(period, existing ? {
       ...existing,
       revenueForecastCents: generated.revenueForecastCents,
+      payrollForecastCents: generated.payrollForecastCents,
       note: existing.note || generated.note,
     } : generated);
   });
 
+  const months = [...byPeriod.values()].sort((a, b) => a.period.localeCompare(b.period));
+
   return {
     ...pack,
+    periodStart: months[0]?.period ?? pack.periodStart,
     periodEnd: MANAGEMENT_PROJECTION_END,
-    months: [...byPeriod.values()].sort((a, b) => a.period.localeCompare(b.period)),
+    months,
     narrative: {
       ...pack.narrative,
       projectionVersion: PORTFOLIO_PROJECTION_VERSION,
       portfolio: buildInvestorPortfolio(),
       clientForecasts,
-      assumptions: [
+      assumptions: [...new Set([
         ...pack.narrative.assumptions.filter(Boolean),
         'Valores de outubro/2026 a janeiro/2027 preservam os eventos cadastrados na planilha de recebíveis e recebem complementos identificados separadamente.',
+        'Faturamento realizado recuperado das declarações consolidadas de 2024, 2025 e janeiro-junho/2026.',
         'A partir de 2027, a curva segue a sazonalidade histórica: junho–agosto mais baixos e novembro–fevereiro mais fortes; 2028 permanece acima de 2027 na comparação anual.',
         'Folha fechada de janeiro/2025 a junho/2026 atualizada com custo de pessoal incluindo benefícios e encargos; jan–jun/2026 refletem valores apresentados em milhares.',
+        'A partir de agosto/2026, a projeção do custo total de pessoal considera a redução para cerca de R$ 1,5 milhão e variações sazonais entre aproximadamente R$ 1,3 milhão e R$ 1,7 milhão.',
         'Parcelas ENEL antes previstas para outubro–dezembro/2027 foram antecipadas para setembro–novembro/2026; o saldo após janeiro/2027 segue variável até setembro/2027.',
         'As 11 empresas ativas são exibidas conforme seus eventogramas; CEMIG inicia em outubro/2026 e os complementos respeitam backlog, prazo e perfil mensal.',
         'Valores de recebíveis representam saldo informado na carteira; não equivalem necessariamente a caixa recebido.',
-      ],
+      ])],
     },
   };
 }
