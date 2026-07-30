@@ -35,15 +35,36 @@ export function InvestorPackPreview({ pack }: { pack: InvestorPack }) {
   ];
   const labels = points.map((point) => formatInvestorPeriod(point.period).replace(' de ', '/'));
   const chartMinWidth = Math.max(960, points.length * 48);
-  const firstForecastIndex = points.findIndex((point) => point.period > pack.referenceDate.slice(0, 7));
-  const forecastStartIndex = firstForecastIndex >= 0 ? firstForecastIndex : points.length;
-  const projectionStartIndex = forecastStartIndex > 0 ? forecastStartIndex - 1 : 0;
-  const revenueForecastBridge = points.map((point, index) =>
-    centsToReais(index === projectionStartIndex ? point.revenueActualCents : point.revenueForecastCents),
-  );
-  const payrollForecastBridge = points.map((point, index) =>
-    centsToReais(index === projectionStartIndex ? point.payrollActualCents : point.payrollForecastCents),
-  );
+  // Receita e folha fecham em competências diferentes (a receita costuma ter o mês da
+  // data-base já faturado, a folha não), por isso cada métrica tem sua própria fronteira:
+  // o último mês com valor realizado lançado é onde a linha projetada se conecta à realizada.
+  const lastActualIndex = (key: 'revenueActualCents' | 'payrollActualCents') =>
+    points.reduce((last, point, index) => (point[key] > 0 ? index : last), 0);
+  const revenueBridgeIndex = lastActualIndex('revenueActualCents');
+  const payrollBridgeIndex = lastActualIndex('payrollActualCents');
+  /**
+   * Série projetada ancorada no último realizado. Competências sem valor lançado entre dois
+   * pontos conhecidos são interpoladas para a curva não despencar a zero num buraco de dados.
+   */
+  const forecastBridge = (
+    actualKey: 'revenueActualCents' | 'payrollActualCents',
+    forecastKey: 'revenueForecastCents' | 'payrollForecastCents',
+    anchorIndex: number,
+  ) => {
+    const values = points.map((point, index) => index === anchorIndex ? point[actualKey] : point[forecastKey]);
+    for (let index = anchorIndex + 1; index < values.length; index += 1) {
+      if (values[index] > 0) continue;
+      const next = values.findIndex((value, candidate) => candidate > index && value > 0);
+      if (next < 0) break;
+      const previous = values[index - 1];
+      const step = (values[next] - previous) / (next - index + 1);
+      for (let gap = index; gap < next; gap += 1) values[gap] = previous + step * (gap - index + 1);
+      index = next;
+    }
+    return values.map(centsToReais);
+  };
+  const revenueForecastBridge = forecastBridge('revenueActualCents', 'revenueForecastCents', revenueBridgeIndex);
+  const payrollForecastBridge = forecastBridge('payrollActualCents', 'payrollForecastCents', payrollBridgeIndex);
   const visiblePeriods = new Set(points.map((point) => point.period));
   const clientForecasts = pack.narrative.clientForecasts.filter(
     (forecast) => visiblePeriods.has(forecast.period) && forecast.amountCents > 0,
@@ -120,9 +141,9 @@ export function InvestorPackPreview({ pack }: { pack: InvestorPack }) {
                 <FinanceSCurveChart
                   categories={labels}
                   series={[
-                    { name: 'Projeção receita', values: points.map((point) => centsToReais(point.revenueTotalCents)), tone: 'success', emphasized: true, startIndex: projectionStartIndex },
+                    { name: 'Projeção receita', values: points.map((point) => centsToReais(point.revenueTotalCents)), tone: 'success', emphasized: true, startIndex: revenueBridgeIndex },
                     { name: 'Receita já faturada', values: points.map((point) => centsToReais(point.revenueActualCents)), tone: 'info' },
-                    { name: 'Projeção folha', values: points.map((point) => centsToReais(point.payrollTotalCents)), tone: 'warning', dashed: true, startIndex: projectionStartIndex },
+                    { name: 'Projeção folha', values: points.map((point) => centsToReais(point.payrollTotalCents)), tone: 'warning', dashed: true, startIndex: payrollBridgeIndex },
                     { name: 'Folha já fechada', values: points.map((point) => centsToReais(point.payrollActualCents)), tone: 'danger' },
                   ]}
                   height={chartHeight}
@@ -143,10 +164,10 @@ export function InvestorPackPreview({ pack }: { pack: InvestorPack }) {
                 <FinanceLineChart
                   categories={labels}
                   series={[
-                    { name: 'Receita prevista', data: revenueForecastBridge, tone: 'success', startIndex: projectionStartIndex },
-                    { name: 'Receita já faturada', data: points.map((point) => centsToReais(point.revenueActualCents)), tone: 'info', endIndex: projectionStartIndex },
-                    { name: 'Folha prevista', data: payrollForecastBridge, tone: 'warning', startIndex: projectionStartIndex },
-                    { name: 'Folha já fechada', data: points.map((point) => centsToReais(point.payrollActualCents)), tone: 'danger', endIndex: projectionStartIndex },
+                    { name: 'Receita prevista', data: revenueForecastBridge, tone: 'success', startIndex: revenueBridgeIndex },
+                    { name: 'Receita já faturada', data: points.map((point) => centsToReais(point.revenueActualCents)), tone: 'info', endIndex: revenueBridgeIndex },
+                    { name: 'Folha prevista', data: payrollForecastBridge, tone: 'warning', startIndex: payrollBridgeIndex },
+                    { name: 'Folha já fechada', data: points.map((point) => centsToReais(point.payrollActualCents)), tone: 'danger', endIndex: payrollBridgeIndex },
                   ]}
                   height={chartHeight}
                 />

@@ -5,7 +5,7 @@ import type {
   InvestorPortfolioClient,
 } from './types';
 
-export const PORTFOLIO_PROJECTION_VERSION = 'carteira-eventogramas-v13-projecao-folha-reduzida';
+export const PORTFOLIO_PROJECTION_VERSION = 'carteira-eventogramas-v14-julho-realizado';
 export const MANAGEMENT_PROJECTION_START = '2026-10';
 export const MANAGEMENT_PROJECTION_END = '2028-12';
 
@@ -50,6 +50,7 @@ export const REVENUE_ACTUALS_CENTS: Record<string, number> = {
   '2026-04': money(5897524.13),
   '2026-05': money(7355196.27),
   '2026-06': money(7178434.69),
+  '2026-07': money(4978967.55),
 };
 
 export const PAYROLL_ACTUALS_WITH_CHARGES_CENTS: Record<string, number> = {
@@ -383,9 +384,11 @@ function generatedMonth(period: string, forecasts: InvestorClientForecast[]): In
     id: uuid(),
     period,
     revenueActualCents: 0,
-    revenueForecastCents: forecasts
-      .filter((forecast) => forecast.period === period)
-      .reduce((sum, forecast) => sum + forecast.amountCents, 0),
+    revenueForecastCents: period < '2026-08'
+      ? 0
+      : forecasts
+        .filter((forecast) => forecast.period === period)
+        .reduce((sum, forecast) => sum + forecast.amountCents, 0),
     payrollActualCents: 0,
     payrollForecastCents: PAYROLL_FORECAST_CENTS[period] ?? 0,
     note: period >= MANAGEMENT_PROJECTION_START
@@ -467,6 +470,7 @@ export function hydratePortfolioProjection(pack: InvestorPack): InvestorPack {
         ...pack.narrative.assumptions.filter(Boolean),
         'Valores de outubro/2026 a janeiro/2027 preservam os eventos cadastrados na planilha de recebíveis e recebem complementos identificados separadamente.',
         'Faturamento realizado recuperado das declarações consolidadas de 2024, 2025 e janeiro-junho/2026.',
+        'Julho/2026 foi reclassificado como faturamento realizado em R$ 4.978.967,55; previsões de receita e folha começam em agosto/2026.',
         'A partir de 2027, a curva segue a sazonalidade histórica: junho–agosto mais baixos e novembro–fevereiro mais fortes; 2028 permanece acima de 2027 na comparação anual.',
         'Folha fechada de janeiro/2025 a junho/2026 atualizada com custo de pessoal incluindo benefícios e encargos; jan–jun/2026 refletem valores apresentados em milhares.',
         'A partir de agosto/2026, a projeção do custo total de pessoal considera a redução para cerca de R$ 1,5 milhão e variações sazonais entre aproximadamente R$ 1,3 milhão e R$ 1,7 milhão.',

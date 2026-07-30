@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   CalendarRange,
@@ -12,7 +12,6 @@ import {
   Palette,
   Plus,
   Presentation,
-  Save,
   Trash2,
   X,
 } from 'lucide-react';
@@ -95,6 +94,7 @@ export default function FinancialProjectionPage() {
   const [filterEnd, setFilterEnd] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [autoSaveError, setAutoSaveError] = useState('');
   const [exporting, setExporting] = useState<string | null>(null);
   const [presentationHtml, setPresentationHtml] = useState('');
   /** Tema do PDF exportado — escuro (tela/projeção) ou claro (impressão/anexo). */
@@ -102,6 +102,7 @@ export default function FinancialProjectionPage() {
   const [dirty, setDirty] = useState(false);
   const [loadError, setLoadError] = useState('');
   const [monthlyDataOpen, setMonthlyDataOpen] = useState(false);
+  const editRevisionRef = useRef(0);
 
   const isAdmin = current.roles.some((role) => role.key === 'owner_admin');
   const canEdit = isAdmin || current.permissions.includes('finance.edit_entry');
@@ -130,6 +131,10 @@ export default function FinancialProjectionPage() {
         setProjection(next);
         setFilterStart(next.periodStart);
         setFilterEnd(next.periodEnd);
+        setAutoSaveError('');
+        const needsPersistence = !existingDraft || next !== existingDraft;
+        if (needsPersistence) editRevisionRef.current += 1;
+        setDirty(needsPersistence);
       })
       .catch((error) => {
         if (active) setLoadError(error instanceof Error ? error.message : 'Não foi possível carregar a projeção.');
@@ -154,10 +159,7 @@ export default function FinancialProjectionPage() {
     () => projection ? periodOffset(projection.referenceDate.slice(0, 7), 1) : '',
     [projection],
   );
-  const revenueForecastStartPeriod = useMemo(
-    () => projection ? projection.referenceDate.slice(0, 7) : '',
-    [projection],
-  );
+  const revenueForecastStartPeriod = forecastStartPeriod;
 
   const visibleProjection = useMemo(() => {
     if (!projection) return null;
@@ -181,12 +183,16 @@ export default function FinancialProjectionPage() {
 
   const patch = (next: Partial<InvestorPack>) => {
     if (!editable) return;
+    editRevisionRef.current += 1;
+    setAutoSaveError('');
     setProjection((currentProjection) => currentProjection ? { ...currentProjection, ...next } : currentProjection);
     setDirty(true);
   };
 
   const patchMonth = (id: string, next: Partial<InvestorPackMonth>) => {
     if (!editable) return;
+    editRevisionRef.current += 1;
+    setAutoSaveError('');
     setProjection((currentProjection) => currentProjection ? {
       ...currentProjection,
       months: currentProjection.months.map((month) => month.id === id ? { ...month, ...next } : month),
@@ -194,31 +200,53 @@ export default function FinancialProjectionPage() {
     setDirty(true);
   };
 
-  const handleSave = async () => {
-    if (!projection || !editable) return;
-    setSaving(true);
-    try {
-      const periods = projection.months.map((month) => month.period).sort();
-      const saved = await saveInvestorPack({
-        ...projection,
-        title: projection.title.trim() || REPORT_NAME,
-        periodStart: periods[0] ?? projection.periodStart,
-        periodEnd: periods[periods.length - 1] ?? projection.periodEnd,
-        months: projection.months.map((month) => ({
+  useEffect(() => {
+    if (!projection || !editable || !dirty || saving || autoSaveError) return;
+    const revision = editRevisionRef.current;
+    const snapshot = projection;
+    const timer = window.setTimeout(() => {
+      setSaving(true);
+      const periods = snapshot.months.map((month) => month.period).sort();
+      void saveInvestorPack({
+        ...snapshot,
+        title: snapshot.title.trim() || REPORT_NAME,
+        periodStart: periods[0] ?? snapshot.periodStart,
+        periodEnd: periods[periods.length - 1] ?? snapshot.periodEnd,
+        months: snapshot.months.map((month) => ({
           ...month,
           revenueForecastCents: month.period < revenueForecastStartPeriod ? 0 : month.revenueForecastCents,
           payrollForecastCents: month.period < forecastStartPeriod ? 0 : month.payrollForecastCents,
         })),
-      }, actor);
-      setProjection(saved);
-      setDirty(false);
-      notify('Projeção financeira salva', { variant: 'success' });
-    } catch (error) {
-      notify('Falha ao salvar', { variant: 'error', description: error instanceof Error ? error.message : 'Erro inesperado.' });
-    } finally {
-      setSaving(false);
-    }
-  };
+      }, actor)
+        .then((saved) => {
+          if (editRevisionRef.current !== revision) return;
+          setProjection(saved);
+          setDirty(false);
+          setAutoSaveError('');
+        })
+        .catch((error) => {
+          if (editRevisionRef.current !== revision) return;
+          const message = error instanceof Error ? error.message : 'Erro inesperado.';
+          setAutoSaveError(message);
+          notify('Falha no salvamento automático', {
+            variant: 'error',
+            description: 'Os dados continuam na tela. Faça uma nova alteração para tentar novamente.',
+          });
+        })
+        .finally(() => setSaving(false));
+    }, 900);
+    return () => window.clearTimeout(timer);
+  }, [
+    actor,
+    autoSaveError,
+    dirty,
+    editable,
+    forecastStartPeriod,
+    notify,
+    projection,
+    revenueForecastStartPeriod,
+    saving,
+  ]);
 
   const ensureExportable = (): InvestorPack | null => {
     if (!visibleProjection) return null;
@@ -300,14 +328,15 @@ export default function FinancialProjectionPage() {
         icon={<FileSpreadsheet className="h-5 w-5" />}
         iconTint="#35E6BB"
         breadcrumbs={[{ label: 'Financeiro', href: '/financeiro' }, { label: 'Projeção Financeira' }]}
-        statusChips={[{ label: dirty ? 'Alterações não salvas' : projection.createdAt === projection.updatedAt ? 'Nova projeção' : 'Dados salvos', variant: dirty ? 'warning' : 'success' }]}
+        statusChips={[autoSaveError
+          ? { label: 'Falha ao salvar automaticamente', variant: 'critical' }
+          : saving
+            ? { label: 'Salvando automaticamente...', variant: 'live' }
+            : dirty
+              ? { label: 'Aguardando salvamento automático', variant: 'warning' }
+              : { label: 'Dados salvos automaticamente', variant: 'success' }]}
         actions={(
-          <div className={`grid w-full gap-2 ${editable ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-1 sm:grid-cols-3'} lg:w-[27rem] lg:grid-cols-2 2xl:flex 2xl:w-auto [&_>_button]:w-full [&_>_button]:whitespace-nowrap 2xl:[&_>_button]:w-auto`}>
-            {editable && (
-              <HudButton variant="primary" isLoading={saving} leftIcon={<Save className="h-4 w-4" />} onClick={() => void handleSave()}>
-                Salvar dados
-              </HudButton>
-            )}
+          <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-3 lg:w-auto [&_>_button]:w-full [&_>_button]:whitespace-nowrap">
             <HudButton variant="glass" leftIcon={<FileDown className="h-4 w-4" />} disabled={!canExport} onClick={exportPdf}>PDF {pdfTheme === 'light' ? 'claro' : 'escuro'}</HudButton>
             <HudButton variant="glass" leftIcon={<FileText className="h-4 w-4" />} disabled={!canExport} isLoading={exporting === 'pptx'} onClick={() => void exportPptx()}>PowerPoint</HudButton>
             <HudButton variant="primary" leftIcon={<Presentation className="h-4 w-4" />} disabled={!canExport} onClick={presentHtml}>HTML apresentação</HudButton>
@@ -424,7 +453,9 @@ export default function FinancialProjectionPage() {
                   {monthlyDataOpen ? 'recolher' : 'expandir'}
                 </span>
               </div>
-              <HudCardDescription>Preencha diretamente os valores em reais. KPIs e gráficos são atualizados em tempo real.</HudCardDescription>
+              <HudCardDescription>
+                Preencha diretamente os valores em reais. KPIs e gráficos são atualizados em tempo real. Valores realizados aparecem em cor neutra e os <span className="font-semibold text-ig-accent">projetados em destaque</span>, na mesma coluna.
+              </HudCardDescription>
             </div>
           </button>
           {editable && (
@@ -443,22 +474,20 @@ export default function FinancialProjectionPage() {
           )}
         </HudCardHeader>
         {monthlyDataOpen && <HudCardContent id="monthly-financial-data" className="overflow-x-auto p-0">
-          <table className="w-full min-w-[1120px] text-sm">
+          <table className="w-full min-w-[880px] text-sm">
             <thead className="border-b border-ig-border-subtle bg-ig-raised text-[10px] uppercase tracking-wider text-ig-fg-muted">
               <tr>
                 <th className="px-3 py-3 text-left">Competência</th>
-                <th className="px-3 py-3 text-right">Faturamento realizado</th>
                 <th className="px-3 py-3 text-right">
-                  Previsão de faturamento
+                  Faturamento
                   <span className="block text-[9px] font-normal normal-case tracking-normal">
-                    a partir de {formatInvestorPeriod(revenueForecastStartPeriod)}
+                    realizado até {formatInvestorPeriod(periodOffset(revenueForecastStartPeriod, -1))} · projetado a partir de {formatInvestorPeriod(revenueForecastStartPeriod)}
                   </span>
                 </th>
-                <th className="px-3 py-3 text-right">Folha fechada + encargos</th>
                 <th className="px-3 py-3 text-right">
-                  Projeção da folha
+                  Folha + encargos
                   <span className="block text-[9px] font-normal normal-case tracking-normal">
-                    a partir de {formatInvestorPeriod(forecastStartPeriod)}
+                    fechada até {formatInvestorPeriod(periodOffset(forecastStartPeriod, -1))} · projetada a partir de {formatInvestorPeriod(forecastStartPeriod)}
                   </span>
                 </th>
                 <th className="px-3 py-3 text-left">Observação</th>
@@ -472,26 +501,26 @@ export default function FinancialProjectionPage() {
                     <input type="month" value={month.period} disabled={!editable} onChange={(event) => patchMonth(month.id, { period: event.target.value })} className="investor-projection-field w-36 rounded-md border px-2 py-2 text-xs" />
                   </td>
                   {([
-                    ['revenueActualCents', month.revenueActualCents, 'Faturamento realizado'],
-                    ['revenueForecastCents', month.revenueForecastCents, 'Previsão de faturamento'],
-                    ['payrollActualCents', month.payrollActualCents, 'Folha fechada + encargos'],
-                    ['payrollForecastCents', month.payrollForecastCents, 'Projeção da folha'],
-                  ] as const).map(([key, value, label]) => {
-                    const forecastOnly = key === 'revenueForecastCents' || key === 'payrollForecastCents';
-                    const allowedFrom = key === 'revenueForecastCents' ? revenueForecastStartPeriod : forecastStartPeriod;
-                    const forecastLocked = forecastOnly && month.period < allowedFrom;
+                    ['revenueActualCents', 'revenueForecastCents', revenueForecastStartPeriod, 'Faturamento'],
+                    ['payrollActualCents', 'payrollForecastCents', forecastStartPeriod, 'Folha + encargos'],
+                  ] as const).map(([actualKey, forecastKey, forecastFrom, label]) => {
+                    // O realizado sempre prevalece: só cai para a projeção quando a competência
+                    // está no horizonte projetado e ainda não tem valor fechado lançado.
+                    const isForecast = Boolean(forecastFrom) && month.period >= forecastFrom && month[actualKey] === 0;
+                    const key = isForecast ? forecastKey : actualKey;
+                    const value = month[key];
                     return (
-                      <td key={key} className="px-3 py-2">
+                      <td key={actualKey} className="px-3 py-2">
                         <input
                           type="number"
                           min={0}
                           step="0.01"
                           value={value / 100 || ''}
-                          disabled={!editable || forecastLocked}
-                          aria-label={`${label} ${month.period}`}
-                          title={forecastLocked ? `Previsões disponíveis a partir de ${formatInvestorPeriod(allowedFrom)}` : undefined}
+                          disabled={!editable}
+                          aria-label={`${label} ${isForecast ? 'projetado' : 'realizado'} ${month.period}`}
+                          title={isForecast ? `Valor projetado (a partir de ${formatInvestorPeriod(forecastFrom)})` : 'Valor realizado'}
                           onChange={(event) => patchMonth(month.id, { [key]: reaisToCents(event.target.value) })}
-                          className="investor-projection-field w-full min-w-40 rounded-md border px-2 py-2 text-right text-xs tabular-nums"
+                          className={`investor-projection-field w-full min-w-40 rounded-md border px-2 py-2 text-right text-xs tabular-nums${isForecast ? ' investor-projection-field--forecast' : ''}`}
                         />
                       </td>
                     );
@@ -508,10 +537,19 @@ export default function FinancialProjectionPage() {
             <tfoot className="border-t border-ig-border-default bg-ig-raised text-xs font-semibold text-ig-fg-strong">
               <tr>
                 <td className="px-3 py-3">Totais do filtro</td>
-                <td className="px-3 py-3 text-right tabular-nums">{formatInvestorCurrency(visibleProjection.months.reduce((sum, month) => sum + month.revenueActualCents, 0))}</td>
-                <td className="px-3 py-3 text-right tabular-nums">{formatInvestorCurrency(visibleProjection.months.reduce((sum, month) => sum + month.revenueForecastCents, 0))}</td>
-                <td className="px-3 py-3 text-right tabular-nums">{formatInvestorCurrency(visibleProjection.months.reduce((sum, month) => sum + month.payrollActualCents, 0))}</td>
-                <td className="px-3 py-3 text-right tabular-nums">{formatInvestorCurrency(visibleProjection.months.reduce((sum, month) => sum + month.payrollForecastCents, 0))}</td>
+                {([
+                  ['revenueActualCents', 'revenueForecastCents'],
+                  ['payrollActualCents', 'payrollForecastCents'],
+                ] as const).map(([actualKey, forecastKey]) => (
+                  <td key={actualKey} className="px-3 py-3 text-right tabular-nums">
+                    {formatInvestorCurrency(visibleProjection.months.reduce((sum, month) => sum + month[actualKey] + month[forecastKey], 0))}
+                    <span className="block text-[9px] font-normal text-ig-fg-muted">
+                      realizado {formatInvestorCurrency(visibleProjection.months.reduce((sum, month) => sum + month[actualKey], 0))}
+                      {' · '}
+                      <span className="text-ig-accent">projetado {formatInvestorCurrency(visibleProjection.months.reduce((sum, month) => sum + month[forecastKey], 0))}</span>
+                    </span>
+                  </td>
+                ))}
                 <td colSpan={2} />
               </tr>
             </tfoot>

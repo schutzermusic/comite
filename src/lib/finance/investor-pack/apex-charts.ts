@@ -74,6 +74,81 @@ function gridLines(
   }).join('');
 }
 
+const AXIS_MONTH_FMT = new Intl.DateTimeFormat('pt-BR', { month: 'short', timeZone: 'UTC' });
+
+function periodParts(period: string): { month: string; year: string } {
+  const match = /^(\d{4})-(\d{2})$/.exec(period);
+  if (!match) return { month: period, year: '' };
+  const [, year, month] = match;
+  return {
+    month: AXIS_MONTH_FMT.format(new Date(Date.UTC(Number(year), Number(month) - 1, 1))).replace('.', ''),
+    year,
+  };
+}
+
+/**
+ * Eixo de tempo em dois níveis, como o eixo de categoria multinível do
+ * PowerPoint: mês na primeira linha, ano numa faixa abaixo, com separador entre
+ * blocos de ano. O rótulo por marca cai de "jan 25" para "jan" — ~60% mais
+ * estreito —, que é o que elimina a sobreposição em recortes longos.
+ *
+ * `step` só é aplicado à linha dos meses; a faixa de ano é sempre completa,
+ * então o leitor nunca perde a referência temporal mesmo quando meses são
+ * omitidos por densidade.
+ */
+function timeAxis(
+  periods: string[],
+  xFor: (index: number) => number,
+  axisY: number,
+  P: ApexPalette,
+  opts?: { forecastFrom?: number; spacing?: number },
+): string {
+  if (!periods.length) return '';
+  /** Largura mínima confortável para "set" no viewBox do gráfico. */
+  const minGap = 26;
+  const spacing = Math.max(1, opts?.spacing ?? minGap);
+  const step = Math.max(1, Math.ceil(minGap / spacing));
+
+  // A última competência é sempre desejável (fecha a leitura do recorte), mas só
+  // entra se não colidir com o rótulo anterior — senão sai o "nodez" que o
+  // "sempre mostrar a última" produzia quando o passo não divide o recorte.
+  const shown: number[] = [];
+  periods.forEach((_, index) => { if (index % step === 0) shown.push(index); });
+  const lastIndex = periods.length - 1;
+  if (shown[shown.length - 1] !== lastIndex) {
+    if ((lastIndex - shown[shown.length - 1]) * spacing >= minGap) shown.push(lastIndex);
+    else shown[shown.length - 1] = lastIndex;
+  }
+
+  const monthY = axisY + 24;
+  const yearY = axisY + 50;
+
+  const months = shown.map((index) => {
+    const forecast = opts?.forecastFrom != null && opts.forecastFrom >= 0 && index >= opts.forecastFrom;
+    return `<text x="${xFor(index).toFixed(1)}" y="${monthY.toFixed(1)}" text-anchor="middle" `
+      + `class="apex-axis apex-axis-month${forecast ? ' apex-axis-forecast' : ''}">${esc(periodParts(periods[index]).month)}</text>`;
+  }).join('');
+
+  const groups: Array<{ year: string; from: number; to: number }> = [];
+  periods.forEach((period, index) => {
+    const { year } = periodParts(period);
+    const last = groups[groups.length - 1];
+    if (last && last.year === year) last.to = index;
+    else groups.push({ year, from: index, to: index });
+  });
+
+  const years = groups.map((group, groupIndex) => {
+    const center = (xFor(group.from) + xFor(group.to)) / 2;
+    const divider = groupIndex === 0
+      ? ''
+      : `<line x1="${((xFor(group.from) + xFor(group.from - 1)) / 2).toFixed(1)}" x2="${((xFor(group.from) + xFor(group.from - 1)) / 2).toFixed(1)}" `
+        + `y1="${(monthY + 8).toFixed(1)}" y2="${(yearY + 6).toFixed(1)}" stroke="${P.lineSoft}" stroke-width="1"/>`;
+    return `${divider}<text x="${center.toFixed(1)}" y="${yearY.toFixed(1)}" text-anchor="middle" class="apex-axis apex-axis-year">${esc(group.year)}</text>`;
+  }).join('');
+
+  return `${months}${years}`;
+}
+
 /** Hachura diagonal usada para toda marca "prevista" — legenda visual constante. */
 function hatchDef(id: string, color: string): string {
   return `<pattern id="${id}" width="7" height="7" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
@@ -185,7 +260,7 @@ export function apexClientForecastChart(
   const chartPeriods = periods.filter((period) => period >= firstForecastPeriod);
   const w = opts?.width ?? 1120;
   const h = opts?.height ?? 400;
-  const pad = { left: 82, right: 30, top: 28, bottom: 54 };
+  const pad = { left: 82, right: 30, top: 28, bottom: 80 };
   const iw = w - pad.left - pad.right;
   const ih = h - pad.top - pad.bottom;
   const u = uid('acl');
@@ -215,10 +290,13 @@ export function apexClientForecastChart(
       </rect>`;
     }).join('');
   }).join('');
-  const every = Math.max(1, Math.ceil(chartPeriods.length / 12));
-  const labels = chartPeriods.map((period, index) => index % every === 0 || index === chartPeriods.length - 1
-    ? `<text x="${(pad.left + groupW * index + groupW / 2).toFixed(1)}" y="${h - 25}" text-anchor="middle" class="apex-axis">${esc(formatInvestorPeriod(period))}</text>`
-    : '').join('');
+  const labels = timeAxis(
+    chartPeriods,
+    (index) => pad.left + groupW * index + groupW / 2,
+    pad.top + ih,
+    P,
+    { spacing: groupW },
+  );
   const shell = plotShell(u, w, h, P);
   return `<svg viewBox="0 0 ${w} ${h}" class="apex-chart" role="img" aria-label="Faturamento previsto por cliente">
     <defs>${shell.defs}</defs>${shell.body}
@@ -239,7 +317,7 @@ export function apexMonthlyChart(points: InvestorPackCurvePoint[], opts?: ApexCh
 
   const w = opts?.width ?? 1120;
   const h = opts?.height ?? 400;
-  const pad = { left: 78, right: 30, top: 26, bottom: 54 };
+  const pad = { left: 78, right: 30, top: 26, bottom: 80 };
   const iw = w - pad.left - pad.right;
   const ih = h - pad.top - pad.bottom;
   const u = uid('am');
@@ -290,11 +368,16 @@ export function apexMonthlyChart(points: InvestorPackCurvePoint[], opts?: ApexCh
     }).join('');
   }).join('');
 
-  const labels = points.map((point, index) => {
-    const x = pad.left + groupW * index + groupW / 2;
-    const isForecast = point.revenueForecastCents > 0 || point.payrollForecastCents > 0;
-    return `<text x="${x.toFixed(1)}" y="${h - 26}" text-anchor="middle" class="apex-axis${isForecast ? ' apex-axis-forecast' : ''}">${esc(formatInvestorPeriod(point.period))}</text>`;
-  }).join('');
+  const labels = timeAxis(
+    points.map((point) => point.period),
+    (index) => pad.left + groupW * index + groupW / 2,
+    pad.top + ih,
+    P,
+    {
+      spacing: groupW,
+      forecastFrom: points.findIndex((point) => point.revenueForecastCents > 0 || point.payrollForecastCents > 0),
+    },
+  );
 
   const shell = plotShell(u, w, h, P);
 
@@ -322,7 +405,7 @@ export function apexCurveChart(points: InvestorPackCurvePoint[], opts?: ApexChar
 
   const w = opts?.width ?? 1120;
   const h = opts?.height ?? 400;
-  const pad = { left: 82, right: 34, top: 26, bottom: 54 };
+  const pad = { left: 82, right: 34, top: 26, bottom: 80 };
   const iw = w - pad.left - pad.right;
   const ih = h - pad.top - pad.bottom;
   const u = uid('ac');
@@ -351,9 +434,10 @@ export function apexCurveChart(points: InvestorPackCurvePoint[], opts?: ApexChar
     .map((value, index) => `<circle cx="${x(index).toFixed(1)}" cy="${y(value).toFixed(1)}" r="${r}" fill="${P.void}" stroke="${color}" stroke-width="2.5"><title>${esc(formatInvestorPeriod(points[index].period))} · ${esc(formatInvestorCurrency(value))}</title></circle>`)
     .join('');
 
-  const labels = points.map((point, index) =>
-    `<text x="${x(index).toFixed(1)}" y="${h - 26}" text-anchor="middle" class="apex-axis">${esc(formatInvestorPeriod(point.period))}</text>`,
-  ).join('');
+  const labels = timeAxis(points.map((point) => point.period), x, pad.top + ih, P, {
+    spacing: points.length > 1 ? iw / (points.length - 1) : iw,
+    forecastFrom: forecastIndex,
+  });
 
   const last = points.length - 1;
   const closing = points[last].balanceCumulativeCents;
@@ -394,7 +478,7 @@ export function apexBalanceChart(points: InvestorPackCurvePoint[], opts?: ApexCh
 
   const w = opts?.width ?? 1120;
   const h = opts?.height ?? 340;
-  const pad = { left: 82, right: 86, top: 26, bottom: 52 };
+  const pad = { left: 82, right: 86, top: 26, bottom: 80 };
   const iw = w - pad.left - pad.right;
   const ih = h - pad.top - pad.bottom;
   const u = uid('ab');
@@ -434,9 +518,16 @@ export function apexBalanceChart(points: InvestorPackCurvePoint[], opts?: ApexCh
     `<circle cx="${xc(index).toFixed(1)}" cy="${yLine(value).toFixed(1)}" r="3.5" fill="${P.void}" stroke="${P.balance}" stroke-width="2"><title>${esc(formatInvestorPeriod(points[index].period))} · ${esc(SERIES_LABEL.balanceCumulative)}: ${esc(formatInvestorCurrency(value))}</title></circle>`,
   ).join('');
 
-  const labels = points.map((point, index) =>
-    `<text x="${xc(index).toFixed(1)}" y="${h - 24}" text-anchor="middle" class="apex-axis">${esc(formatInvestorPeriod(point.period))}</text>`,
-  ).join('');
+  // Rótulos vão sob a moldura do plot, não sob a linha do zero: com saldos
+  // negativos a linha do zero flutua no meio do gráfico e o eixo de tempo
+  // colidiria com as colunas.
+  const labels = timeAxis(
+    points.map((point) => point.period),
+    xc,
+    pad.top + ih,
+    P,
+    { spacing: groupW },
+  );
 
   // Eixo direito: escala do acumulado, rotulada para não confundir com as colunas.
   const rightAxis = ticks(cMin, cMaxAbs).map((value) => {
@@ -536,7 +627,9 @@ export function apexChartCss(palette: ApexPalette = APEX): string {
   .apex-chart { display: block; width: 100%; }
   .apex-grid { stroke: ${palette.grid}; stroke-dasharray: 3 7; }
   .apex-axisline { stroke: ${palette.axisLine}; }
-  .apex-axis { fill: ${palette.muted}; font-size: 12px; letter-spacing: .02em; }
+  .apex-axis { fill: ${palette.muted}; font-size: 14px; letter-spacing: .02em; }
+  .apex-axis-month { font-size: 15px; }
+  .apex-axis-year { font-size: 14px; font-weight: 700; letter-spacing: .18em; fill: ${palette.ink}; }
   .apex-axis-forecast { fill: ${palette.revenueForecast}; }
   .apex-bar { transform-origin: center bottom; }
   .apex-spark { display: block; }

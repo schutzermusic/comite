@@ -6770,3 +6770,24 @@ html.light .investor-projection-field:disabled {
 html.light .investor-projection-field[type="month"]::-webkit-calendar-picker-indicator {
   filter: none;
 }
+
+/* Mesma coluna, cor distinta: valores projetados (não realizados) */
+.investor-projection-field--forecast,
+.investor-projection-field--forecast:disabled,
+html.light .investor-projection-field--forecast,
+html.light .investor-projection-field--forecast:disabled {
+  color: var(--ig-accent);
+  -webkit-text-fill-color: var(--ig-accent);
+  border-color: color-mix(in srgb, var(--ig-accent) 45%, transparent);
+  background-color: color-mix(in srgb, var(--ig-accent) 8%, transparent);
+}
+
+html.light .investor-projection-field--forecast,
+html.light .investor-projection-field--forecast:disabled {
+  background-color: color-mix(in srgb, var(--ig-accent) 6%, #fff);
+}
+
+.investor-projection-field--forecast:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--ig-accent) 70%, transparent);
+  background-color: color-mix(in srgb, var(--ig-accent) 14%, transparent);
+}

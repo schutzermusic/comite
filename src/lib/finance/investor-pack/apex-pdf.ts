@@ -60,8 +60,14 @@ import {
 import { calculateInvestorPack, formatInvestorCurrency, formatInvestorPeriod } from './calculations';
 import type { InvestorPack, InvestorPackSnapshot } from './types';
 
-/** Linhas da base mensal por página impressa (A4 paisagem, corpo 10px). */
+/** Linhas da base mensal por página impressa (A4 paisagem, corpo 10,5px). */
 const TABLE_ROWS_PER_PAGE = 15;
+/**
+ * Carteira cabe inteira numa página: o backlog é lido como um bloco só — quebrá-lo
+ * obrigava a comparar clientes virando a página. 18 é o teto que a altura útil
+ * comporta na densidade compacta.
+ */
+const PORTFOLIO_ROWS_PER_PAGE = 18;
 interface PageSpec {
   /** Sobrelinha da seção (canto superior esquerdo). */
   eyebrow: string;
@@ -101,6 +107,17 @@ function panel(chartSvg: string, legendHtml: string, caption?: string): string {
   return `<div class="panel">${chartSvg}${legendHtml}${caption ? `<p class="panel-cap">${esc(caption)}</p>` : ''}</div>`;
 }
 
+/** Competência ainda não fechada — vira linha de projeção na base mensal. */
+function isForecastPoint(point: InvestorPackSnapshot['points'][number]): boolean {
+  return point.revenueForecastCents > 0 || point.payrollForecastCents > 0;
+}
+
+/**
+ * Base mensal em uma única série de colunas (faturamento, folha, saldo,
+ * acumulado). Realizado e projeção não disputam colunas paralelas: a projeção
+ * entra na sequência cronológica, abaixo, marcada por cor — a leitura passa a
+ * ser uma linha do tempo só, e não duas tabelas sobrepostas.
+ */
 function monthlyTableChunk(
   points: InvestorPackSnapshot['points'],
   snapshot: InvestorPackSnapshot,
@@ -109,44 +126,65 @@ function monthlyTableChunk(
   P: ApexPalette,
 ): string {
   const slice = points.slice(from, from + TABLE_ROWS_PER_PAGE);
-  const rows = slice.map((point) => `<tr>
-    <td>${esc(formatInvestorPeriod(point.period))}</td>
-    <td class="num">${esc(dashIfZero(point.revenueActualCents, formatInvestorCurrency(point.revenueActualCents)))}</td>
-    <td class="num fc">${esc(dashIfZero(point.revenueForecastCents, formatInvestorCurrency(point.revenueForecastCents)))}</td>
-    <td class="num">${esc(dashIfZero(point.payrollActualCents, formatInvestorCurrency(point.payrollActualCents)))}</td>
-    <td class="num fc">${esc(dashIfZero(point.payrollForecastCents, formatInvestorCurrency(point.payrollForecastCents)))}</td>
-    <td class="num" style="color:${point.balanceCents >= 0 ? P.positive : P.negative}">${esc(formatInvestorCurrency(point.balanceCents))}</td>
-    <td class="num">${esc(formatInvestorCurrency(point.balanceCumulativeCents))}</td>
-  </tr>`).join('');
+  const rows = slice.map((point, index) => {
+    const forecast = isForecastPoint(point);
+    const globalIndex = from + index;
+    const opensForecast = forecast && (globalIndex === 0 || !isForecastPoint(points[globalIndex - 1]));
+    const split = opensForecast
+      ? '<tr class="split"><td colspan="5">Projeção — competências ainda não fechadas</td></tr>'
+      : '';
+    const balanceColor = point.balanceCents < 0 ? P.negative : forecast ? P.revenueForecast : P.positive;
+    return `${split}<tr${forecast ? ' class="fr"' : ''}>
+      <td>${esc(formatInvestorPeriod(point.period))}</td>
+      <td class="num">${esc(dashIfZero(point.revenueTotalCents, formatInvestorCurrency(point.revenueTotalCents)))}</td>
+      <td class="num">${esc(dashIfZero(point.payrollTotalCents, formatInvestorCurrency(point.payrollTotalCents)))}</td>
+      <td class="num" style="color:${balanceColor}">${esc(formatInvestorCurrency(point.balanceCents))}</td>
+      <td class="num">${esc(formatInvestorCurrency(point.balanceCumulativeCents))}</td>
+    </tr>`;
+  }).join('');
 
   const m = snapshot.metrics;
-  const foot = isLast ? `<tfoot><tr>
-    <td>Total do recorte</td>
-    <td class="num">${esc(formatInvestorCurrency(m.revenueActualCents))}</td>
-    <td class="num">${esc(formatInvestorCurrency(m.revenueForecastCents))}</td>
-    <td class="num">${esc(formatInvestorCurrency(m.payrollActualCents))}</td>
-    <td class="num">${esc(formatInvestorCurrency(m.payrollForecastCents))}</td>
-    <td class="num">${esc(formatInvestorCurrency(m.balanceCents))}</td>
-    <td class="num">${esc(formatInvestorCurrency(points.length ? points[points.length - 1].balanceCumulativeCents : 0))}</td>
-  </tr></tfoot>` : '';
+  const foot = isLast ? `<tfoot>
+    <tr class="sub">
+      <td>Subtotal realizado</td>
+      <td class="num">${esc(formatInvestorCurrency(m.revenueActualCents))}</td>
+      <td class="num">${esc(formatInvestorCurrency(m.payrollActualCents))}</td>
+      <td class="num">${esc(formatInvestorCurrency(m.revenueActualCents - m.payrollActualCents))}</td>
+      <td class="num">—</td>
+    </tr>
+    <tr class="sub fr">
+      <td>Subtotal projetado</td>
+      <td class="num">${esc(formatInvestorCurrency(m.revenueForecastCents))}</td>
+      <td class="num">${esc(formatInvestorCurrency(m.payrollForecastCents))}</td>
+      <td class="num">${esc(formatInvestorCurrency(m.revenueForecastCents - m.payrollForecastCents))}</td>
+      <td class="num">—</td>
+    </tr>
+    <tr>
+      <td>Total do recorte</td>
+      <td class="num">${esc(formatInvestorCurrency(m.revenueTotalCents))}</td>
+      <td class="num">${esc(formatInvestorCurrency(m.payrollTotalCents))}</td>
+      <td class="num">${esc(formatInvestorCurrency(m.balanceCents))}</td>
+      <td class="num">${esc(formatInvestorCurrency(points.length ? points[points.length - 1].balanceCumulativeCents : 0))}</td>
+    </tr>
+  </tfoot>` : '';
 
   const cont = from > 0
     ? `<p class="cont-note">continuação — competências ${from + 1} a ${from + slice.length} de ${points.length}</p>`
     : '';
 
-  return `${cont}<table class="data">
+  return `${cont}<table class="data wide">
     <thead><tr>
-      <th>Competência</th><th class="num">Fat. realizado</th><th class="num">Fat. previsto</th>
-      <th class="num">Folha + encargos</th><th class="num">Folha projetada</th>
+      <th>Competência</th><th class="num">Faturamento</th>
+      <th class="num">Folha + encargos</th>
       <th class="num">Saldo</th><th class="num">Acumulado</th>
     </tr></thead>
     <tbody>${rows}</tbody>${foot}
   </table>`;
 }
 
-function portfolioTableChunk(pack: InvestorPack, from: number, size = 10): string {
+function portfolioTableChunk(pack: InvestorPack, from: number, size = PORTFOLIO_ROWS_PER_PAGE): string {
   const clients = pack.narrative.portfolio.slice(from, from + size);
-  return `<table class="data">
+  return `<table class="data${clients.length > 12 ? ' dense' : ''}">
     <thead><tr><th>Cliente</th><th>Status</th><th class="num">Carteira</th><th class="num">Faturado</th>
       <th class="num">Backlog</th><th class="num">A receber</th><th class="num">Até 2028</th><th class="num">Pós-2028</th></tr></thead>
     <tbody>${clients.map((client) => `<tr>
@@ -235,7 +273,7 @@ function buildPages(pack: InvestorPack, snapshot: InvestorPackSnapshot, insights
   pages.push({
     eyebrow: 'Evolução mensal',
     html: `${sectionHead('Receita e folha, competência a competência', monthlyReading(insights))}
-    ${panel(apexMonthlyChart(points, { width: 1180, height: 380, palette: P }), apexLegend(monthlyLegend(P)))}
+    ${panel(apexMonthlyChart(points, { width: 1180, height: 505, palette: P }), apexLegend(monthlyLegend(P)))}
     <div class="read">
       ${insights.peakRevenue && insights.peakRevenue.valueCents > 0 ? `<span><em>Pico de receita</em><strong>${esc(insights.peakRevenue.label)} · ${esc(formatInvestorCurrency(insights.peakRevenue.valueCents, true))}</strong></span>` : ''}
       ${insights.peakPayroll && insights.peakPayroll.valueCents > 0 ? `<span><em>Pico de folha</em><strong>${esc(insights.peakPayroll.label)} · ${esc(formatInvestorCurrency(insights.peakPayroll.valueCents, true))}</strong></span>` : ''}
@@ -248,7 +286,7 @@ function buildPages(pack: InvestorPack, snapshot: InvestorPackSnapshot, insights
   pages.push({
     eyebrow: 'Curva S acumulada',
     html: `${sectionHead('A trajetória acumulada do período', curveReading(insights))}
-    ${panel(apexCurveChart(points, { width: 1180, height: 380, palette: P }), apexLegend(curveLegend(P)))}
+    ${panel(apexCurveChart(points, { width: 1180, height: 505, palette: P }), apexLegend(curveLegend(P)))}
     <div class="read">
       <span><em>Receita acumulada</em><strong>${esc(formatInvestorCurrency(metrics.revenueTotalCents, true))}</strong></span>
       <span><em>Folha acumulada</em><strong>${esc(formatInvestorCurrency(metrics.payrollTotalCents, true))}</strong></span>
@@ -266,7 +304,7 @@ function buildPages(pack: InvestorPack, snapshot: InvestorPackSnapshot, insights
         ? `${insights.deficitMonths.length} competência(s) com saldo mensal negativo: ${insights.deficitMonths.map((m) => m.label).join(', ')}.`
         : 'Nenhuma competência do recorte fecha com saldo mensal negativo.',
     )}
-    ${panel(apexBalanceChart(points, { width: 1180, height: 330, palette: P }), apexLegend(balanceLegend(P)), 'Colunas: saldo do mês (eixo esquerdo). Linha: saldo acumulado (eixo direito).')}
+    ${panel(apexBalanceChart(points, { width: 1180, height: 475, palette: P }), apexLegend(balanceLegend(P)), 'Colunas: saldo do mês (eixo esquerdo). Linha: saldo acumulado (eixo direito).')}
     <div class="read">
       ${insights.bestBalance ? `<span><em>Melhor mês</em><strong style="color:${P.positive}">${esc(insights.bestBalance.label)} · ${esc(formatInvestorCurrency(insights.bestBalance.valueCents, true))}</strong></span>` : ''}
       ${insights.worstBalance ? `<span><em>Pior mês</em><strong style="color:${insights.worstBalance.valueCents < 0 ? P.negative : P.body}">${esc(insights.worstBalance.label)} · ${esc(formatInvestorCurrency(insights.worstBalance.valueCents, true))}</strong></span>` : ''}
@@ -281,7 +319,7 @@ function buildPages(pack: InvestorPack, snapshot: InvestorPackSnapshot, insights
       eyebrow: 'Projeção por cliente',
       html: `${sectionHead('Quem compõe o faturamento projetado', APEX_CLIENT_FORECAST_DESCRIPTION)}
       ${panel(
-        apexClientForecastChart(pack.narrative.clientForecasts, points.map((point) => point.period), { width: 1180, height: 370, palette: P }),
+        apexClientForecastChart(pack.narrative.clientForecasts, points.map((point) => point.period), { width: 1180, height: 525, palette: P }),
         apexLegend(clientIds.map(([clientId, client], index) => ({ label: client, color: clientForecastColor(clientId, index, P) }))),
       )}`,
     });
@@ -293,13 +331,13 @@ function buildPages(pack: InvestorPack, snapshot: InvestorPackSnapshot, insights
     const from = i * TABLE_ROWS_PER_PAGE;
     pages.push({
       eyebrow: 'Base mensal informada',
-      html: `${i === 0 ? sectionHead('Todos os valores por trás dos gráficos', `${APEX_SOURCE}. Colunas de previsão destacadas.`) : ''}
+      html: `${i === 0 ? sectionHead('Todos os valores por trás dos gráficos', `${APEX_SOURCE}. As competências projetadas seguem na sequência cronológica, destacadas em cor.`) : ''}
       ${monthlyTableChunk(points, snapshot, from, i === tablePages - 1, P)}`,
     });
   }
 
   if (pack.narrative.portfolio.length) {
-    const portfolioPages = Math.ceil(pack.narrative.portfolio.length / 10);
+    const portfolioPages = Math.ceil(pack.narrative.portfolio.length / PORTFOLIO_ROWS_PER_PAGE);
     for (let i = 0; i < portfolioPages; i += 1) {
       pages.push({
         eyebrow: 'Carteira e recebíveis',
@@ -307,7 +345,7 @@ function buildPages(pack: InvestorPack, snapshot: InvestorPackSnapshot, insights
           i === 0 ? 'Backlog que sustenta a projeção' : 'Carteira e recebíveis — continuação',
           i === 0 ? 'Saldo a receber conforme informado na planilha de carteira; não equivale necessariamente a caixa recebido.' : undefined,
         )}
-        ${portfolioTableChunk(pack, i * 10)}`,
+        ${portfolioTableChunk(pack, i * PORTFOLIO_ROWS_PER_PAGE)}`,
       });
     }
   }
@@ -343,7 +381,7 @@ function documentCss(P: ApexPalette): string {
   return `
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; background: ${P.void}; color: ${P.ink};
-    font-family: ${APEX_FONT}; font-size: 12px; line-height: 1.5;
+    font-family: ${APEX_FONT}; font-size: 13.5px; line-height: 1.5;
     -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 
   .page { position: relative; display: flex; flex-direction: column; gap: 10px;
@@ -353,51 +391,51 @@ function documentCss(P: ApexPalette): string {
   .page::before { content: ''; position: absolute; inset: 0; border: 1px solid ${P.lineSoft};
     border-radius: 14px; pointer-events: none; }
   .page-inner { position: relative; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column;
-    gap: 9px; padding: 9mm 10mm 0; }
+    gap: 8px; padding: 8mm 8mm 0; }
 
   .phead { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; }
-  .eyebrow { font-size: 8px; font-weight: 700; letter-spacing: .2em; text-transform: uppercase; color: ${P.revenue}; }
-  .phead .no { font-size: 8px; letter-spacing: .16em; color: ${P.subtle}; font-variant-numeric: tabular-nums; }
+  .eyebrow { font-size: 9px; font-weight: 700; letter-spacing: .2em; text-transform: uppercase; color: ${P.revenue}; }
+  .phead .no { font-size: 9px; letter-spacing: .16em; color: ${P.subtle}; font-variant-numeric: tabular-nums; }
   .pfoot { display: flex; justify-content: space-between; align-items: center; gap: 14px;
-    margin: 0 10mm; padding: 4px 0 6mm; border-top: 1px solid ${P.lineSoft};
-    font-size: 7.5px; color: ${P.subtle}; }
+    margin: 0 8mm; padding: 4px 0 5mm; border-top: 1px solid ${P.lineSoft};
+    font-size: 8.5px; color: ${P.subtle}; }
   .pfoot b { color: ${P.muted}; font-weight: 600; }
   .pf-brand { display: inline-flex; align-items: center; gap: 7px; }
   .pf-logo { display: inline-block; width: 79px; height: 10px; flex: 0 0 auto;
     background: url('${APEX_LOGO_SMALL_DATA_URI}') left center / contain no-repeat; }
 
-  .sec h2 { margin: 0; font-size: 17px; font-weight: 700; letter-spacing: -.02em; color: ${P.ink}; max-width: 62ch; }
-  .sec-sub { margin: 3px 0 0; font-size: 9.5px; color: ${P.muted}; max-width: 96ch; }
-  .copy { margin: 0 0 9px; font-size: 10.5px; line-height: 1.55; color: ${P.body}; max-width: 60ch; }
-  .empty { font-size: 9.5px; color: ${P.subtle}; font-style: italic; margin: 0; }
+  .sec h2 { margin: 0; font-size: 19px; font-weight: 700; letter-spacing: -.02em; color: ${P.ink}; max-width: 62ch; }
+  .sec-sub { margin: 3px 0 0; font-size: 11px; color: ${P.muted}; max-width: 96ch; }
+  .copy { margin: 0 0 9px; font-size: 12px; line-height: 1.55; color: ${P.body}; max-width: 60ch; }
+  .empty { font-size: 11px; color: ${P.subtle}; font-style: italic; margin: 0; }
 
   /* Capa */
   .cover { flex: 1 1 auto; display: flex; flex-direction: column; padding: 12mm 12mm 0; }
   .cover-top { display: flex; justify-content: space-between; align-items: center; }
   .cover-logo { display: block; height: 15mm; width: 118mm;
     background: url('${APEX_LOGO_DATA_URI}') left center / contain no-repeat; }
-  .cover-kicker { display: block; margin-bottom: 7px; font-size: 9px; font-weight: 700; letter-spacing: .2em;
+  .cover-kicker { display: block; margin-bottom: 7px; font-size: 10px; font-weight: 700; letter-spacing: .2em;
     text-transform: uppercase; color: ${P.revenue}; }
-  .brand { display: inline-flex; align-items: center; gap: 7px; font-size: 9px; font-weight: 700;
+  .brand { display: inline-flex; align-items: center; gap: 7px; font-size: 10px; font-weight: 700;
     letter-spacing: .2em; text-transform: uppercase; color: ${P.muted}; }
   .brand-dot { width: 7px; height: 7px; border-radius: 50%; background: ${P.revenue};
     box-shadow: 0 0 0 3px rgba(53, 230, 187, .16); }
-  .conf { font-size: 8.5px; font-weight: 700; letter-spacing: .18em; color: ${P.revenue};
+  .conf { font-size: 9.5px; font-weight: 700; letter-spacing: .18em; color: ${P.revenue};
     border: 1px solid ${P.line}; border-radius: 999px; padding: 3px 11px; }
   .cover-mid { margin-top: auto; }
-  .cover h1 { margin: 0; font-size: 42px; line-height: .98; letter-spacing: -.045em; max-width: 22ch; }
-  .cover-company { margin: 10px 0 0; font-size: 14px; color: ${P.muted}; }
+  .cover h1 { margin: 0; font-size: 45px; line-height: .98; letter-spacing: -.045em; max-width: 22ch; }
+  .cover-company { margin: 10px 0 0; font-size: 15.5px; color: ${P.muted}; }
   .cover-verdict { display: inline-flex; align-items: center; gap: 12px; margin-top: 18px;
     padding: 8px 16px; border-radius: 12px; border: 1px solid var(--accent);
     background: ${light ? P.panelTop : 'linear-gradient(135deg, rgba(255, 255, 255, .05), transparent)'}; }
-  .cover-verdict b { font-size: 30px; letter-spacing: -.04em; color: var(--accent); font-variant-numeric: tabular-nums; }
-  .cover-verdict span { display: flex; flex-direction: column; font-size: 10.5px; font-weight: 600; color: ${P.ink}; }
-  .cover-verdict em { font-style: normal; font-size: 8px; letter-spacing: .14em; text-transform: uppercase; color: ${P.subtle}; }
+  .cover-verdict b { font-size: 32px; letter-spacing: -.04em; color: var(--accent); font-variant-numeric: tabular-nums; }
+  .cover-verdict span { display: flex; flex-direction: column; font-size: 12px; font-weight: 600; color: ${P.ink}; }
+  .cover-verdict em { font-style: normal; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: ${P.subtle}; }
   .cover-tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 22px; }
   .cover-meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 26px; margin: 18px 0 4mm; }
   .cover-meta span { display: flex; flex-direction: column; gap: 2px; }
-  .cover-meta em { font-style: normal; font-size: 7.5px; letter-spacing: .15em; text-transform: uppercase; color: ${P.subtle}; }
-  .cover-meta strong { font-size: 10.5px; font-weight: 600; color: ${P.body}; }
+  .cover-meta em { font-style: normal; font-size: 8.5px; letter-spacing: .15em; text-transform: uppercase; color: ${P.subtle}; }
+  .cover-meta strong { font-size: 12px; font-weight: 600; color: ${P.body}; }
 
   /* Cartões de valor */
   .tiles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
@@ -405,79 +443,91 @@ function documentCss(P: ApexPalette): string {
   .tile { position: relative; padding: 9px 11px 8px; border-radius: 10px; border: 1px solid ${P.lineSoft};
     background: ${surface()}; overflow: hidden; }
   .tile::before { content: ''; position: absolute; inset: 0 0 auto 0; height: 2px; background: var(--accent); }
-  .tile-l { display: block; font-size: 7.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: ${P.subtle}; }
-  .tile-v { display: block; margin-top: 4px; font-size: 16px; letter-spacing: -.03em; color: var(--accent);
+  .tile-l { display: block; font-size: 8.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: ${P.subtle}; }
+  .tile-v { display: block; margin-top: 4px; font-size: 18px; letter-spacing: -.03em; color: var(--accent);
     font-variant-numeric: tabular-nums; }
-  .tile-h { display: block; margin-top: 3px; font-size: 8px; color: ${P.subtle}; }
+  .tile-h { display: block; margin-top: 3px; font-size: 9px; color: ${P.subtle}; }
 
   /* Síntese */
   .exec { flex: 1 1 auto; display: grid; grid-template-columns: 1.5fr .5fr; gap: 18px; align-items: center; }
   .dial { display: flex; flex-direction: column; align-items: center; gap: 2px; }
   .apex-dial { width: 100%; max-width: 190px; height: auto; }
-  .dial-label { margin: 0; font-size: 8px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase;
+  .dial-label { margin: 0; font-size: 9px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase;
     color: ${P.muted}; text-align: center; }
-  .dial-note { margin: 3px 0 0; font-size: 8px; line-height: 1.4; color: ${P.subtle}; text-align: center; max-width: 34ch; }
+  .dial-note { margin: 3px 0 0; font-size: 9px; line-height: 1.4; color: ${P.subtle}; text-align: center; max-width: 34ch; }
 
   .ins-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: auto; }
   .ins { padding: 9px 11px; border-radius: 11px; border: 1px solid ${P.lineSoft}; border-left: 2px solid var(--accent);
     background: ${surface(0.92, 0.5)}; }
-  .ins-k { font-size: 7px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); }
-  .ins-v { display: block; margin: 4px 0 1px; font-size: 14px; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
-  .ins-l { display: block; font-size: 8px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: ${P.muted}; }
-  .ins-d { margin: 5px 0 0; font-size: 8.5px; line-height: 1.4; color: ${P.subtle}; }
+  .ins-k { font-size: 8px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); }
+  .ins-v { display: block; margin: 4px 0 1px; font-size: 16px; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+  .ins-l { display: block; font-size: 9px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: ${P.muted}; }
+  .ins-d { margin: 5px 0 0; font-size: 9.5px; line-height: 1.4; color: ${P.subtle}; }
 
   /* Painéis de gráfico */
-  .panel { border: 1px solid ${P.lineSoft}; border-radius: 14px; padding: 10px 13px 9px;
+  .panel { border: 1px solid ${P.lineSoft}; border-radius: 14px; padding: 9px 11px 8px;
     background: ${surface(0.7, 0.4)}; }
-  .panel-cap { margin: 6px 0 0; font-size: 8px; color: ${P.subtle}; }
+  .panel-cap { margin: 6px 0 0; font-size: 9px; color: ${P.subtle}; }
   .read { display: flex; flex-wrap: wrap; gap: 6px 28px; margin-top: auto; padding-top: 6px;
     border-top: 1px solid ${P.lineSoft}; }
   .read span { display: flex; flex-direction: column; gap: 1px; }
-  .read em { font-style: normal; font-size: 7.5px; letter-spacing: .14em; text-transform: uppercase; color: ${P.subtle}; }
-  .read strong { font-size: 11px; font-weight: 700; color: ${P.ink}; font-variant-numeric: tabular-nums; }
+  .read em { font-style: normal; font-size: 8.5px; letter-spacing: .14em; text-transform: uppercase; color: ${P.subtle}; }
+  .read strong { font-size: 12.5px; font-weight: 700; color: ${P.ink}; font-variant-numeric: tabular-nums; }
 
   /* Tabela */
-  table.data { width: 100%; border-collapse: collapse; font-size: 9px; font-variant-numeric: tabular-nums; }
-  table.data thead th { text-align: left; padding: 6px 7px; font-size: 7.5px; font-weight: 700;
+  table.data { width: 100%; border-collapse: collapse; font-size: 10.5px; font-variant-numeric: tabular-nums; }
+  table.data thead th { text-align: left; padding: 7px 8px; font-size: 8.5px; font-weight: 700;
     letter-spacing: .1em; text-transform: uppercase; color: ${P.muted};
     background: ${P.raised}; border-bottom: 1px solid ${P.line}; }
   table.data thead th.num { text-align: right; }
-  table.data tbody td { padding: 5.5px 7px; border-bottom: 1px solid ${P.lineSoft}; color: ${P.body}; }
+  table.data tbody td { padding: 6px 8px; border-bottom: 1px solid ${P.lineSoft}; color: ${P.body}; }
   table.data tbody td.num { text-align: right; }
   table.data tbody td.fc { color: ${P.revenueForecast}; }
   table.data tbody tr:nth-child(even) td { background: ${light ? 'rgba(11, 26, 32, .02)' : 'rgba(255, 255, 255, .018)'}; }
-  table.data td.note { color: ${P.subtle}; font-size: 8.5px; max-width: 46mm; overflow: hidden;
+  table.data td.note { color: ${P.subtle}; font-size: 9.5px; max-width: 46mm; overflow: hidden;
     text-overflow: ellipsis; white-space: nowrap; }
-  table.data tfoot td { padding: 6.5px 7px; border-top: 1px solid ${P.line}; font-weight: 700; color: ${P.ink};
+  table.data tfoot td { padding: 7px 8px; border-top: 1px solid ${P.line}; font-weight: 700; color: ${P.ink};
     background: ${P.raised}; }
   table.data tfoot td.num { text-align: right; }
-  .cont-note { margin: 0 0 4px; font-size: 7.5px; letter-spacing: .1em; text-transform: uppercase; color: ${P.subtle}; }
+  table.data tfoot tr.sub td { font-weight: 600; color: ${P.muted}; background: transparent;
+    border-top: 1px solid ${P.lineSoft}; }
+  /* Base mensal: menos colunas, então a competência ganha respiro. */
+  table.data.wide tbody td, table.data.wide tfoot td { padding-top: 7px; padding-bottom: 7px; }
+  /* Densidade compacta para a carteira caber inteira em uma página. */
+  table.data.dense tbody td { padding: 4px 7px; font-size: 10px; }
+
+  /* Linhas de projeção: mesma sequência cronológica, cor distinta. */
+  table.data tbody tr.fr td, table.data tfoot tr.fr td { color: ${P.revenueForecast}; }
+  table.data tbody tr.split td { padding: 7px 8px 4px; border-bottom: 1px solid ${P.revenueForecast};
+    background: transparent !important; color: ${P.revenueForecast};
+    font-size: 8.5px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
+  .cont-note { margin: 0 0 4px; font-size: 8.5px; letter-spacing: .1em; text-transform: uppercase; color: ${P.subtle}; }
 
   /* Colunas de premissas */
   .cols { flex: 1 1 auto; display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; align-content: center; }
   .col { border-top: 2px solid var(--accent); padding-top: 9px; }
-  .col h3 { margin: 0 0 7px; font-size: 9px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); }
+  .col h3 { margin: 0 0 7px; font-size: 10px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); }
   .col .cont { font-weight: 400; letter-spacing: .06em; color: ${P.subtle}; }
   .col ul { margin: 0; padding-left: 15px; }
-  .col li { font-size: 10px; line-height: 1.45; color: ${P.body}; margin-bottom: 6px; }
+  .col li { font-size: 11.5px; line-height: 1.45; color: ${P.body}; margin-bottom: 6px; }
   .dq { margin-top: auto; border-radius: 12px; padding: 9px 13px; border: 1px solid; }
   .dq.warn { border-color: rgba(255, 183, 77, .38); background: rgba(255, 183, 77, .07); }
   .dq.ok { border-color: rgba(53, 230, 187, .32); background: rgba(53, 230, 187, .06); }
-  .dq b { font-size: 8px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
+  .dq b { font-size: 9px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
   .dq.warn b { color: ${P.attention}; }
   .dq.ok b { color: ${P.revenue}; }
   .dq ul { margin: 5px 0 0; padding-left: 15px; }
-  .dq li { font-size: 9.5px; color: ${P.body}; margin-bottom: 3px; }
+  .dq li { font-size: 11px; color: ${P.body}; margin-bottom: 3px; }
 
   /* Fecho */
   .closing { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: center; }
   .closing blockquote { margin: 18px 0 0; padding-left: 18px; border-left: 2px solid ${P.revenue};
-    font-size: 19px; line-height: 1.35; color: ${P.quote}; max-width: 44ch; }
+    font-size: 21px; line-height: 1.35; color: ${P.quote}; max-width: 44ch; }
   .sign { display: flex; flex-wrap: wrap; gap: 10px 34px; margin-top: 28px; }
   .sign span { display: flex; flex-direction: column; gap: 2px; }
-  .sign em { font-style: normal; font-size: 7.5px; letter-spacing: .15em; text-transform: uppercase; color: ${P.subtle}; }
-  .sign strong { font-size: 11px; font-weight: 600; color: ${P.body}; }
-  .fine { margin: 26px 0 0; font-size: 8px; color: ${P.subtle}; max-width: 100ch; }
+  .sign em { font-style: normal; font-size: 8.5px; letter-spacing: .15em; text-transform: uppercase; color: ${P.subtle}; }
+  .sign strong { font-size: 12.5px; font-weight: 600; color: ${P.body}; }
+  .fine { margin: 26px 0 0; font-size: 9px; color: ${P.subtle}; max-width: 100ch; }
 
 ${apexChartCss(P)}
 ${apexLegendCss(P)}

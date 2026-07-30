@@ -88,11 +88,12 @@ describe('Pack do Investidor', () => {
     }
   });
 
-  it('preserva a projeção de faturamento de julho/2026', () => {
-    const july = buildGrowingClientForecasts()
-      .filter((forecast) => forecast.period === '2026-07')
-      .reduce((sum, forecast) => sum + forecast.amountCents, 0);
-    expect(july).toBe(497_896_755);
+  it('classifica julho/2026 como realizado e inicia a previsão em agosto', () => {
+    const hydrated = hydratePortfolioProjection(pack());
+    const july = hydrated.months.find((month) => month.period === '2026-07');
+    expect(july?.revenueActualCents).toBe(497_896_755);
+    expect(july?.revenueForecastCents).toBe(0);
+    expect(hydrated.months.find((month) => month.period === '2026-08')?.revenueForecastCents).toBeGreaterThan(0);
   });
 
   it('atualiza a folha fechada com benefícios e encargos de jan/25 a jun/26', () => {

@@ -218,7 +218,7 @@ function buildSlides(pack: InvestorPack, snapshot: InvestorPackSnapshot, insight
     html: `<div class="stack">
       <h2>Receita e folha, competência a competência</h2>
       <p class="sub">${esc(monthlyReading(insights))}</p>
-      <div class="panel">${apexMonthlyChart(points, { animate: true, width: 1180, height: 400 })}${apexLegend(MONTHLY_LEGEND)}</div>
+      <div class="panel">${apexMonthlyChart(points, { animate: true, width: 1180, height: 426 })}${apexLegend(MONTHLY_LEGEND)}</div>
     </div>`,
   });
 
@@ -229,7 +229,7 @@ function buildSlides(pack: InvestorPack, snapshot: InvestorPackSnapshot, insight
     html: `<div class="stack">
       <h2>A trajetória acumulada do período</h2>
       <p class="sub">${esc(curveReading(insights))}</p>
-      <div class="panel">${apexCurveChart(points, { animate: true, width: 1180, height: 400 })}${apexLegend(CURVE_LEGEND)}</div>
+      <div class="panel">${apexCurveChart(points, { animate: true, width: 1180, height: 426 })}${apexLegend(CURVE_LEGEND)}</div>
     </div>`,
   });
 
@@ -242,7 +242,7 @@ function buildSlides(pack: InvestorPack, snapshot: InvestorPackSnapshot, insight
       <p class="sub">${insights.deficitMonths.length
         ? esc(`${insights.deficitMonths.length} competência(s) com saldo mensal negativo: ${insights.deficitMonths.map((m) => m.label).join(', ')}.`)
         : 'Nenhuma competência do recorte fecha com saldo mensal negativo.'}</p>
-      <div class="panel">${apexBalanceChart(points, { animate: true, width: 1180, height: 340 })}${apexLegend(BALANCE_LEGEND)}</div>
+      <div class="panel">${apexBalanceChart(points, { animate: true, width: 1180, height: 366 })}${apexLegend(BALANCE_LEGEND)}</div>
     </div>`,
   });
 
@@ -255,7 +255,7 @@ function buildSlides(pack: InvestorPack, snapshot: InvestorPackSnapshot, insight
       html: `<div class="stack">
         <h2>Quem compõe o faturamento projetado</h2>
         <p class="sub">${esc(APEX_CLIENT_FORECAST_DESCRIPTION)}</p>
-        <div class="panel">${apexClientForecastChart(pack.narrative.clientForecasts, points.map((point) => point.period), { animate: true, width: 1180, height: 400 })}
+        <div class="panel">${apexClientForecastChart(pack.narrative.clientForecasts, points.map((point) => point.period), { animate: true, width: 1180, height: 426 })}
           ${apexLegend(clientIds.map(([clientId, client], index) => ({ label: client, color: clientForecastColor(clientId, index) })))}
         </div>
       </div>`,
