@@ -7,6 +7,9 @@ import {
   APEX_LOGO_SMALL_DATA_URI,
 } from '@/lib/finance/investor-pack/apex-logo';
 import {
+  APEX_CLOSING_CERTIFICATIONS,
+  APEX_CLOSING_STATEMENT,
+  APEX_CLOSING_TITLE,
   APEX_DARK,
   APEX_LIGHT,
   REPORT_FILE_SLUG,
@@ -287,7 +290,10 @@ describe('Pack do Investidor', () => {
     expect(html).not.toContain('<em>Destinatário</em>');
     expect(html).not.toContain('Peso do previsto na receita');
     expect(html).not.toContain('O que sustenta a projeção e o que merece acompanhamento');
-    expect(html).toContain('Confiança para investir, clareza para crescer');
+    // Última página: só a marca centralizada, sem frase institucional nem selo ISO.
+    expect(html).toContain('class="closing-logo"');
+    expect(html).not.toContain(APEX_CLOSING_STATEMENT);
+    expect(html).not.toContain(APEX_CLOSING_CERTIFICATIONS);
     expect(html).not.toContain('user-secret-id');
   });
 
@@ -340,6 +346,7 @@ describe('Pack do Investidor', () => {
     expect(html).not.toContain('<em>Destinatário</em>');
     expect(html).not.toContain('Peso do previsto na receita');
     expect(html).not.toContain('O que sustenta a projeção e o que merece acompanhamento');
-    expect(html).toContain('Confiança para investir, clareza para crescer');
+    // O deck HTML mantém o fecho narrativo; só o PDF virou credencial institucional.
+    expect(html).toContain(APEX_CLOSING_TITLE);
   });
 });

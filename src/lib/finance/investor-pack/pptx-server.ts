@@ -22,7 +22,7 @@ import {
   type ApexInsights,
 } from './apex-insights';
 import { APEX_LOGO_ALT, APEX_LOGO_ASPECT, APEX_LOGO_DATA_URI, APEX_LOGO_SMALL_DATA_URI } from './apex-logo';
-import { clientForecastColor } from './apex-charts';
+import { clientForecastColor, forecastBridge, lastActualIndex } from './apex-charts';
 import {
   APEX,
   APEX_CLIENT_FORECAST_DESCRIPTION,
@@ -344,8 +344,8 @@ function countSlides(snapshot: InvestorPackSnapshot): number {
   const tableSlides = Math.max(1, Math.ceil(snapshot.points.length / TABLE_ROWS_PER_SLIDE));
   const clientSlide = snapshot.pack.narrative.clientForecasts.length ? 1 : 0;
   const portfolioSlides = Math.ceil(snapshot.pack.narrative.portfolio.length / 10);
-  // capa + roteiro + síntese + leitura + mensal + curva S + saldo + base(n) + fecho
-  return 8 + tableSlides + clientSlide + portfolioSlides;
+  // capa + roteiro + síntese + leitura + mensal + curva mensal + curva S + saldo + base(n) + fecho
+  return 9 + tableSlides + clientSlide + portfolioSlides;
 }
 
 export async function generateInvestorPackPptx(pack: InvestorPack): Promise<Uint8Array> {
@@ -356,7 +356,13 @@ export async function generateInvestorPackPptx(pack: InvestorPack): Promise<Uint
   const insights = buildApexInsights(snapshot);
   const { metrics, points } = snapshot;
   const labels = points.map((point) => formatInvestorPeriod(point.period));
-  const period = `${formatInvestorPeriod(pack.periodStart)} — ${formatInvestorPeriod(pack.periodEnd)}`;
+  // Fronteiras realizado/previsto da curva mensal — receita e folha fecham em
+  // competências diferentes, por isso cada uma tem a sua.
+  const revenueAnchor = lastActualIndex(points, 'revenueActualCents');
+  const payrollAnchor = lastActualIndex(points, 'payrollActualCents');
+  const revenueBridge = forecastBridge(points, 'revenueActualCents', 'revenueForecastCents', revenueAnchor);
+  const payrollBridge = forecastBridge(points, 'payrollActualCents', 'payrollForecastCents', payrollAnchor);
+  const period =`${formatInvestorPeriod(pack.periodStart)} — ${formatInvestorPeriod(pack.periodEnd)}`;
   const confidential = confidentialityLabel(pack.confidentiality);
   const verdictAccent = insights.verdict === 'deficit'
     ? APEX.negative
@@ -424,6 +430,7 @@ export async function generateInvestorPackPptx(pack: InvestorPack): Promise<Uint
       ['Síntese executiva', 'Cobertura, saldo e o número que resume o período'],
       ['Leitura do período', 'Sinais, pontos de atenção e concentrações'],
       ['Evolução mensal', 'Receita e folha competência a competência'],
+      ['Curva mensal', 'Valores de cada competência, sem acumulação'],
       ['Curva S acumulada', 'Trajetória e zona de previsão'],
       ['Saldo e acumulado', 'Onde o período gera e onde consome resultado'],
       ['Projeção por cliente', 'Composição do faturamento projetado'],
@@ -506,7 +513,40 @@ export async function generateInvestorPackPptx(pack: InvestorPack): Promise<Uint
     });
   }
 
-  /* 06 — Curva S */
+  /* 07 — Curva mensal */
+  {
+    // Uma linha contínua por métrica: realizado até a fronteira, projeção depois.
+    // O gerador de PPTX converte lacunas (null) em zero, então séries recortadas
+    // despencariam a zero fora do seu trecho — no PDF e no deck HTML, onde o SVG
+    // é nosso, o par realizado/previsto aparece separado por traço e tracejado.
+    const merged = (actualKey: 'revenueActualCents' | 'payrollActualCents', bridge: number[], anchor: number) =>
+      points.map((point, index) => centsToReais(index <= anchor ? point[actualKey] : bridge[index]));
+    const forecastFrom = points[Math.min(revenueAnchor, payrollAnchor) + 1];
+    const boundary = forecastFrom
+      ? `Valores fechados até ${formatInvestorPeriod(points[Math.min(revenueAnchor, payrollAnchor)].period)}; a partir de ${formatInvestorPeriod(forecastFrom.period)} a linha é projeção.`
+      : 'Todas as competências do recorte estão fechadas.';
+    const slide = baseSlide(presentation, ctx, 'Curva mensal', boundary);
+    addSectionTitle(slide, 'Valores de cada competência, sem acumulação', boundary);
+    slide.charts.add('line', {
+      position: { left: M, top: BODY_Y + 56, width: CONTENT_W, height: 372 },
+      categories: labels,
+      series: [
+        {
+          name: 'Faturamento',
+          values: merged('revenueActualCents', revenueBridge, revenueAnchor),
+          line: { style: 'solid', fill: APEX.revenue, width: 4 },
+        },
+        {
+          name: 'Folha + encargos',
+          values: merged('payrollActualCents', payrollBridge, payrollAnchor),
+          line: { style: 'solid', fill: APEX.payroll, width: 3 },
+        },
+      ],
+      ...chartChrome(),
+    });
+  }
+
+  /* 08 — Curva S */
   {
     const slide = baseSlide(presentation, ctx, 'Curva S acumulada', curveReading(insights));
     addSectionTitle(slide, 'A trajetória acumulada do período', curveReading(insights));

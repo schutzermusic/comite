@@ -133,6 +133,12 @@ export const SERIES_LABEL = {
 export const APEX_SOURCE = 'Dados informados do sistema na Projeção Financeira';
 export const APEX_CLIENT_FORECAST_DESCRIPTION = 'A composição mensal reflete o cronograma contratual e a evolução prevista da carteira de clientes.';
 export const APEX_CLOSING_TITLE = 'Confiança para investir, clareza para crescer';
+/**
+ * Fecho institucional do PDF — a credencial da empresa, não um recado sobre os
+ * números. É a única coisa na última folha, por decisão editorial.
+ */
+export const APEX_CLOSING_STATEMENT = 'Mais de 25 anos de experiência na área de reparo e manutenção de grandes máquinas da indústria e concessionárias de energia elétrica.';
+export const APEX_CLOSING_CERTIFICATIONS = 'ISO 9001 e ISO 45001';
 export const APEX_CLOSING_MESSAGE = 'Seguimos comprometidos com uma execução disciplinada, crescimento sustentável e geração consistente de valor para nossos investidores.';
 const LEGACY_CLOSING_MESSAGE = 'Atualizar as premissas e os valores mensais à medida que novas informações forem consolidadas.';
 

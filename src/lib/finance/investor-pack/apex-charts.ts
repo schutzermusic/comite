@@ -104,10 +104,20 @@ function timeAxis(
   opts?: { forecastFrom?: number; spacing?: number },
 ): string {
   if (!periods.length) return '';
-  /** Largura mínima confortável para "set" no viewBox do gráfico. */
-  const minGap = 26;
-  const spacing = Math.max(1, opts?.spacing ?? minGap);
-  const step = Math.max(1, Math.ceil(minGap / spacing));
+  /** Largura de um rótulo de mês ("set") no viewBox, na fonte de 11px do eixo. */
+  const labelWidth = 19;
+  const spacing = Math.max(1, opts?.spacing ?? labelWidth);
+
+  /**
+   * Recortes longos (60 competências) não têm largura para 60 rótulos numa
+   * linha só — a 8px eles até caberiam, mas "nov" e "dez" encostam e a régua
+   * vira uma mancha. Em vez de omitir meses, alternamos duas linhas de base
+   * (o mesmo recurso do eixo de categoria do PowerPoint): cada rótulo passa a
+   * ter o dobro do espaço e o mês a mês se mantém legível.
+   */
+  const stagger = spacing < labelWidth + 7;
+  const effective = spacing * (stagger ? 2 : 1);
+  const step = Math.max(1, Math.ceil(labelWidth / effective));
 
   // A última competência é sempre desejável (fecha a leitura do recorte), mas só
   // entra se não colidir com o rótulo anterior — senão sai o "nodez" que o
@@ -116,16 +126,17 @@ function timeAxis(
   periods.forEach((_, index) => { if (index % step === 0) shown.push(index); });
   const lastIndex = periods.length - 1;
   if (shown[shown.length - 1] !== lastIndex) {
-    if ((lastIndex - shown[shown.length - 1]) * spacing >= minGap) shown.push(lastIndex);
+    if ((lastIndex - shown[shown.length - 1]) * effective >= labelWidth) shown.push(lastIndex);
     else shown[shown.length - 1] = lastIndex;
   }
 
-  const monthY = axisY + 24;
-  const yearY = axisY + 50;
+  const monthY = axisY + 18;
+  const yearY = axisY + (stagger ? 50 : 40);
 
-  const months = shown.map((index) => {
+  const months = shown.map((index, order) => {
     const forecast = opts?.forecastFrom != null && opts.forecastFrom >= 0 && index >= opts.forecastFrom;
-    return `<text x="${xFor(index).toFixed(1)}" y="${monthY.toFixed(1)}" text-anchor="middle" `
+    const y = monthY + (stagger && order % 2 === 1 ? 13 : 0);
+    return `<text x="${xFor(index).toFixed(1)}" y="${y.toFixed(1)}" text-anchor="middle" `
       + `class="apex-axis apex-axis-month${forecast ? ' apex-axis-forecast' : ''}">${esc(periodParts(periods[index]).month)}</text>`;
   }).join('');
 
@@ -142,7 +153,7 @@ function timeAxis(
     const divider = groupIndex === 0
       ? ''
       : `<line x1="${((xFor(group.from) + xFor(group.from - 1)) / 2).toFixed(1)}" x2="${((xFor(group.from) + xFor(group.from - 1)) / 2).toFixed(1)}" `
-        + `y1="${(monthY + 8).toFixed(1)}" y2="${(yearY + 6).toFixed(1)}" stroke="${P.lineSoft}" stroke-width="1"/>`;
+        + `y1="${(yearY - 12).toFixed(1)}" y2="${(yearY + 6).toFixed(1)}" stroke="${P.lineSoft}" stroke-width="1"/>`;
     return `${divider}<text x="${center.toFixed(1)}" y="${yearY.toFixed(1)}" text-anchor="middle" class="apex-axis apex-axis-year">${esc(group.year)}</text>`;
   }).join('');
 
@@ -260,7 +271,7 @@ export function apexClientForecastChart(
   const chartPeriods = periods.filter((period) => period >= firstForecastPeriod);
   const w = opts?.width ?? 1120;
   const h = opts?.height ?? 400;
-  const pad = { left: 82, right: 30, top: 28, bottom: 80 };
+  const pad = { left: 74, right: 22, top: 28, bottom: 72 };
   const iw = w - pad.left - pad.right;
   const ih = h - pad.top - pad.bottom;
   const u = uid('acl');
@@ -317,7 +328,7 @@ export function apexMonthlyChart(points: InvestorPackCurvePoint[], opts?: ApexCh
 
   const w = opts?.width ?? 1120;
   const h = opts?.height ?? 400;
-  const pad = { left: 78, right: 30, top: 26, bottom: 80 };
+  const pad = { left: 70, right: 20, top: 26, bottom: 72 };
   const iw = w - pad.left - pad.right;
   const ih = h - pad.top - pad.bottom;
   const u = uid('am');
@@ -398,14 +409,147 @@ export function apexMonthlyChart(points: InvestorPackCurvePoint[], opts?: ApexCh
 }
 
 /* ─────────────────────────────────────────────────────────────
- * 2. Curva S acumulada — receita vs folha, com zona de previsão
+ * 2. Curva mensal — receita e folha, sem acumulação
+ * Quatro linhas em onda (Catmull-Rom): realizado sólido, previsto
+ * tracejado, cada par se encontrando na competência de fronteira.
+ * ───────────────────────────────────────────────────────────── */
+
+/** Última competência com valor realizado lançado — fronteira realizado/previsto. */
+export function lastActualIndex(
+  points: InvestorPackCurvePoint[],
+  key: 'revenueActualCents' | 'payrollActualCents',
+): number {
+  return points.reduce((last, point, index) => (point[key] > 0 ? index : last), 0);
+}
+
+/**
+ * Série prevista ancorada no último realizado: a competência de fronteira recebe
+ * o valor realizado (é onde as duas linhas se encontram) e competências sem valor
+ * lançado entre dois pontos conhecidos são interpoladas — senão a curva despenca
+ * a zero num buraco de dados.
+ *
+ * Receita e folha fecham em competências diferentes (a receita costuma ter o mês
+ * da data-base já faturado, a folha não), por isso cada métrica tem sua fronteira.
+ */
+export function forecastBridge(
+  points: InvestorPackCurvePoint[],
+  actualKey: 'revenueActualCents' | 'payrollActualCents',
+  forecastKey: 'revenueForecastCents' | 'payrollForecastCents',
+  anchorIndex: number,
+): number[] {
+  const values = points.map((point, index) => (index === anchorIndex ? point[actualKey] : point[forecastKey]));
+  for (let index = anchorIndex + 1; index < values.length; index += 1) {
+    if (values[index] > 0) continue;
+    const next = values.findIndex((value, candidate) => candidate > index && value > 0);
+    if (next < 0) break;
+    const previous = values[index - 1];
+    const step = (values[next] - previous) / (next - index + 1);
+    for (let gap = index; gap < next; gap += 1) values[gap] = previous + step * (gap - index + 1);
+    index = next;
+  }
+  return values;
+}
+
+/** Catmull-Rom convertido em cúbicas — é o que dá a leitura "em ondas" da tela. */
+function wavePath(pts: Array<[number, number]>): string {
+  if (!pts.length) return '';
+  if (pts.length === 1) return `M ${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}`;
+  const out = [`M ${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}`];
+  for (let i = 0; i < pts.length - 1; i += 1) {
+    const p0 = pts[i - 1] ?? pts[i];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = pts[i + 2] ?? p2;
+    const c1x = p1[0] + (p2[0] - p0[0]) / 6;
+    const c1y = p1[1] + (p2[1] - p0[1]) / 6;
+    const c2x = p2[0] - (p3[0] - p1[0]) / 6;
+    const c2y = p2[1] - (p3[1] - p1[1]) / 6;
+    out.push(`C ${c1x.toFixed(1)} ${c1y.toFixed(1)} ${c2x.toFixed(1)} ${c2y.toFixed(1)} ${p2[0].toFixed(1)} ${p2[1].toFixed(1)}`);
+  }
+  return out.join(' ');
+}
+
+export function apexMonthlyLineChart(points: InvestorPackCurvePoint[], opts?: ApexChartOptions): string {
+  if (!points.length) return apexEmptyChart('Informe ao menos uma competência para ver a curva mensal.', opts);
+
+  const w = opts?.width ?? 1120;
+  const h = opts?.height ?? 400;
+  const pad = { left: 74, right: 24, top: 26, bottom: 72 };
+  const iw = w - pad.left - pad.right;
+  const ih = h - pad.top - pad.bottom;
+  const u = uid('ml');
+  const P = opts?.palette ?? APEX;
+
+  const revenueAnchor = lastActualIndex(points, 'revenueActualCents');
+  const payrollAnchor = lastActualIndex(points, 'payrollActualCents');
+  const revenueForecast = forecastBridge(points, 'revenueActualCents', 'revenueForecastCents', revenueAnchor);
+  const payrollForecast = forecastBridge(points, 'payrollActualCents', 'payrollForecastCents', payrollAnchor);
+  const revenueActual = points.map((point) => point.revenueActualCents);
+  const payrollActual = points.map((point) => point.payrollActualCents);
+
+  const max = niceMax(Math.max(1, ...revenueActual, ...payrollActual, ...revenueForecast, ...payrollForecast));
+  const x = (index: number) => pad.left + (points.length === 1 ? iw / 2 : (index / (points.length - 1)) * iw);
+  const y = (value: number) => pad.top + ih - (value / max) * ih;
+
+  /** Recorta a série na fronteira: realizado até a âncora, previsto a partir dela. */
+  const segment = (values: number[], from: number, to: number): Array<[number, number]> =>
+    values.slice(from, to + 1).map((value, offset) => [x(from + offset), y(value)] as [number, number]);
+
+  const series = [
+    { label: SERIES_LABEL.revenueActual, pts: segment(revenueActual, 0, revenueAnchor), color: P.revenue, width: 4, dashed: false },
+    { label: SERIES_LABEL.revenueForecast, pts: segment(revenueForecast, revenueAnchor, points.length - 1), color: P.revenueForecast, width: 3.5, dashed: true },
+    { label: SERIES_LABEL.payrollActual, pts: segment(payrollActual, 0, payrollAnchor), color: P.payroll, width: 3, dashed: false },
+    { label: SERIES_LABEL.payrollForecast, pts: segment(payrollForecast, payrollAnchor, points.length - 1), color: P.payrollForecast, width: 2.6, dashed: true },
+  ];
+
+  const draw = opts?.animate ? ' apex-draw' : '';
+  const lines = series.map((s) => (s.pts.length < 2 ? '' : `<path d="${wavePath(s.pts)}" fill="none" stroke="${s.color}" `
+    + `stroke-width="${s.width}" stroke-linecap="round" stroke-linejoin="round"`
+    + `${s.dashed ? ' stroke-dasharray="8 7"' : ''} class="apex-line${draw}"/>`)).join('');
+
+  const dots = series.map((s, sIdx) => {
+    const from = sIdx === 0 ? 0 : sIdx === 1 ? revenueAnchor : sIdx === 2 ? 0 : payrollAnchor;
+    const values = sIdx === 0 ? revenueActual : sIdx === 1 ? revenueForecast : sIdx === 2 ? payrollActual : payrollForecast;
+    return s.pts.map(([cx, cy], offset) => `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="3" fill="${P.void}" `
+      + `stroke="${s.color}" stroke-width="2"><title>${esc(formatInvestorPeriod(points[from + offset].period))} · `
+      + `${esc(s.label)}: ${esc(formatInvestorCurrency(values[from + offset]))}</title></circle>`).join('');
+  }).join('');
+
+  // A zona de previsão começa na primeira competência sem realizado das duas métricas.
+  const forecastIndex = Math.min(revenueAnchor, payrollAnchor) + 1;
+  const forecastBand = forecastIndex > 0 && forecastIndex < points.length
+    ? `<rect x="${x(forecastIndex).toFixed(1)}" y="${pad.top}" width="${(w - pad.right - x(forecastIndex)).toFixed(1)}" height="${ih}" fill="${P.revenueForecast}" fill-opacity=".05"/>
+      <line x1="${x(forecastIndex).toFixed(1)}" x2="${x(forecastIndex).toFixed(1)}" y1="${pad.top}" y2="${pad.top + ih}" stroke="${P.revenueForecast}" stroke-opacity=".45" stroke-width="1" stroke-dasharray="4 5"/>
+      <text x="${(x(forecastIndex) + 10).toFixed(1)}" y="${pad.top + 16}" class="apex-axis" fill="${P.revenueForecast}">Zona de previsão</text>`
+    : '';
+
+  const labels = timeAxis(points.map((point) => point.period), x, pad.top + ih, P, {
+    spacing: points.length > 1 ? iw / (points.length - 1) : iw,
+    forecastFrom: forecastIndex,
+  });
+
+  const shell = plotShell(u, w, h, P);
+
+  return `<svg viewBox="0 0 ${w} ${h}" class="apex-chart" role="img" aria-label="Curva mensal de receita e folha, sem acumulação">
+  <defs>${shell.defs}</defs>
+  ${shell.body}
+  ${forecastBand}
+  ${gridLines(pad.left, w - pad.right, y, ticks(0, max))}
+  ${lines}
+  ${dots}
+  ${labels}
+</svg>`;
+}
+
+/* ─────────────────────────────────────────────────────────────
+ * 3. Curva S acumulada — receita vs folha, com zona de previsão
  * ───────────────────────────────────────────────────────────── */
 export function apexCurveChart(points: InvestorPackCurvePoint[], opts?: ApexChartOptions): string {
   if (!points.length) return apexEmptyChart('Informe ao menos uma competência para ver a Curva S.', opts);
 
   const w = opts?.width ?? 1120;
   const h = opts?.height ?? 400;
-  const pad = { left: 82, right: 34, top: 26, bottom: 80 };
+  const pad = { left: 74, right: 24, top: 26, bottom: 72 };
   const iw = w - pad.left - pad.right;
   const ih = h - pad.top - pad.bottom;
   const u = uid('ac');
@@ -471,14 +615,14 @@ export function apexCurveChart(points: InvestorPackCurvePoint[], opts?: ApexChar
 }
 
 /* ─────────────────────────────────────────────────────────────
- * 3. Saldo mensal (± colunas) com saldo acumulado sobreposto
+ * 4. Saldo mensal (± colunas) com saldo acumulado sobreposto
  * ───────────────────────────────────────────────────────────── */
 export function apexBalanceChart(points: InvestorPackCurvePoint[], opts?: ApexChartOptions): string {
   if (!points.length) return apexEmptyChart('Informe ao menos uma competência para ver o saldo.', opts);
 
   const w = opts?.width ?? 1120;
   const h = opts?.height ?? 340;
-  const pad = { left: 82, right: 86, top: 26, bottom: 80 };
+  const pad = { left: 72, right: 66, top: 26, bottom: 72 };
   const iw = w - pad.left - pad.right;
   const ih = h - pad.top - pad.bottom;
   const u = uid('ab');
@@ -555,7 +699,7 @@ export function apexBalanceChart(points: InvestorPackCurvePoint[], opts?: ApexCh
 }
 
 /* ─────────────────────────────────────────────────────────────
- * 4. Mostrador de cobertura (arco radial)
+ * 5. Mostrador de cobertura (arco radial)
  * ───────────────────────────────────────────────────────────── */
 export function apexCoverageDial(
   ratio: number | null,
@@ -601,7 +745,7 @@ export function apexCoverageDial(
 }
 
 /* ─────────────────────────────────────────────────────────────
- * 5. Sparkline para cartões de KPI
+ * 6. Sparkline para cartões de KPI
  * ───────────────────────────────────────────────────────────── */
 export function apexSparkline(values: number[], color: string, opts?: { width?: number; height?: number }): string {
   if (values.length < 2) return '';
@@ -628,7 +772,7 @@ export function apexChartCss(palette: ApexPalette = APEX): string {
   .apex-grid { stroke: ${palette.grid}; stroke-dasharray: 3 7; }
   .apex-axisline { stroke: ${palette.axisLine}; }
   .apex-axis { fill: ${palette.muted}; font-size: 14px; letter-spacing: .02em; }
-  .apex-axis-month { font-size: 15px; }
+  .apex-axis-month { font-size: 11px; letter-spacing: 0; }
   .apex-axis-year { font-size: 14px; font-weight: 700; letter-spacing: .18em; fill: ${palette.ink}; }
   .apex-axis-forecast { fill: ${palette.revenueForecast}; }
   .apex-bar { transform-origin: center bottom; }
@@ -680,6 +824,15 @@ export function monthlyLegend(P: ApexPalette = APEX): ApexLegendItem[] {
   ];
 }
 
+export function monthlyLineLegend(P: ApexPalette = APEX): ApexLegendItem[] {
+  return [
+    { label: SERIES_LABEL.revenueActual, color: P.revenue, shape: 'line' },
+    { label: SERIES_LABEL.revenueForecast, color: P.revenueForecast, shape: 'dash' },
+    { label: SERIES_LABEL.payrollActual, color: P.payroll, shape: 'line' },
+    { label: SERIES_LABEL.payrollForecast, color: P.payrollForecast, shape: 'dash' },
+  ];
+}
+
 export function curveLegend(P: ApexPalette = APEX): ApexLegendItem[] {
   return [
     { label: SERIES_LABEL.revenueCumulative, color: P.revenue, shape: 'line' },
@@ -697,6 +850,7 @@ export function balanceLegend(P: ApexPalette = APEX): ApexLegendItem[] {
 }
 
 export const MONTHLY_LEGEND: ApexLegendItem[] = monthlyLegend(APEX);
+export const MONTHLY_LINE_LEGEND: ApexLegendItem[] = monthlyLineLegend(APEX);
 export const CURVE_LEGEND: ApexLegendItem[] = curveLegend(APEX);
 export const BALANCE_LEGEND: ApexLegendItem[] = balanceLegend(APEX);
 

@@ -18,12 +18,14 @@ import {
   BALANCE_LEGEND,
   CURVE_LEGEND,
   MONTHLY_LEGEND,
+  MONTHLY_LINE_LEGEND,
   apexBalanceChart,
   apexClientForecastChart,
   apexCoverageDial,
   apexCurveChart,
   apexLegend,
   apexMonthlyChart,
+  apexMonthlyLineChart,
   clientForecastColor,
 } from './apex-charts';
 import {
@@ -168,6 +170,7 @@ function buildSlides(pack: InvestorPack, snapshot: InvestorPackSnapshot, insight
         <li><b>Síntese executiva</b><span>Cobertura, saldo e o número que resume o período</span></li>
         <li><b>Leitura do período</b><span>Sinais, pontos de atenção e concentrações</span></li>
         <li><b>Evolução mensal</b><span>Receita e folha competência a competência</span></li>
+        <li><b>Curva mensal</b><span>Valores de cada competência, sem acumulação</span></li>
         <li><b>Curva S acumulada</b><span>Trajetória e zona de previsão</span></li>
         <li><b>Saldo e acumulado</b><span>Onde o período gera e onde consome resultado</span></li>
         <li><b>Projeção por cliente</b><span>Composição do faturamento projetado</span></li>
@@ -222,7 +225,18 @@ function buildSlides(pack: InvestorPack, snapshot: InvestorPackSnapshot, insight
     </div>`,
   });
 
-  /* 06 — Curva S */
+  /* 07 — Curva mensal */
+  slides.push({
+    nav: 'Curva mensal',
+    eyebrow: 'Curva mensal',
+    html: `<div class="stack">
+      <h2>Valores de cada competência, sem acumulação</h2>
+      <p class="sub">A leitura mês a mês da receita e da folha: traço contínuo para o que está fechado, tracejado para a projeção, ancorada na última competência realizada.</p>
+      <div class="panel">${apexMonthlyLineChart(points, { animate: true, width: 1180, height: 426 })}${apexLegend(MONTHLY_LINE_LEGEND)}</div>
+    </div>`,
+  });
+
+  /* 08 — Curva S */
   slides.push({
     nav: 'Curva S',
     eyebrow: 'Curva S acumulada',
@@ -371,7 +385,7 @@ body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:3;
 /* Reserva a faixa inferior direita para o HUD de navegação (posição fixa). */
 .slide-foot span:last-child{padding-right:230px;text-align:right}
 .foot-brand{display:inline-flex;align-items:center;gap:9px}
-.foot-logo{display:inline-block;width:95px;height:12px;flex:0 0 auto;opacity:.9;
+.foot-logo{display:inline-block;width:90px;height:12px;flex:0 0 auto;opacity:.9;
   background:url('${APEX_LOGO_SMALL_DATA_URI}') left center/contain no-repeat}
 
 h1{font-size:clamp(44px,6.4vw,90px);line-height:.94;letter-spacing:-.05em;margin:0;max-width:16ch}
@@ -384,7 +398,7 @@ h3{font-size:clamp(15px,1.3vw,20px);margin:0 0 12px;letter-spacing:.01em;color:v
 .stack{display:flex;flex-direction:column;gap:clamp(12px,1.4vw,20px)}
 
 /* Capa */
-.hero-logo{display:block;height:clamp(30px,3.2vw,46px);width:clamp(237px,25vw,364px);
+.hero-logo{display:block;height:clamp(30px,3.2vw,46px);width:clamp(226px,24vw,347px);
   background:url('${APEX_LOGO_DATA_URI}') left center/contain no-repeat;margin-bottom:clamp(18px,2.2vw,30px)}
 .hero-mark{display:inline-flex;align-items:center;gap:9px;font-size:11px;font-weight:700;letter-spacing:.2em;
   text-transform:uppercase;color:var(--muted);margin-bottom:18px}
@@ -516,7 +530,7 @@ ${APEX_CHART_ANIM_CSS}
   .dots{display:none}
   .slide-foot{font-size:9px}
   .slide-foot span:first-child{max-width:100%}
-  .foot-logo{width:79px;height:10px}
+  .foot-logo{width:75px;height:10px}
   .slide-foot span:last-child{display:none}
   .hud{left:22px;right:22px;justify-content:center}
 }

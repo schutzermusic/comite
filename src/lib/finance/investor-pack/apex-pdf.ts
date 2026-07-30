@@ -28,10 +28,12 @@ import {
   apexLegend,
   apexLegendCss,
   apexMonthlyChart,
+  apexMonthlyLineChart,
   balanceLegend,
   clientForecastColor,
   curveLegend,
   monthlyLegend,
+  monthlyLineLegend,
 } from './apex-charts';
 import {
   buildApexInsights,
@@ -43,7 +45,6 @@ import {
 import { APEX_LOGO_ALT, APEX_LOGO_DATA_URI, APEX_LOGO_SMALL_DATA_URI } from './apex-logo';
 import {
   APEX_CLIENT_FORECAST_DESCRIPTION,
-  APEX_CLOSING_TITLE,
   APEX_FONT,
   APEX_SOURCE,
   REPORT_FILE_SLUG,
@@ -53,7 +54,6 @@ import {
   confidentialityLabel,
   dashIfZero,
   formatInvestorRatio,
-  investorClosingMessage,
   type ApexPalette,
   type ApexThemeMode,
 } from './apex-theme';
@@ -84,22 +84,38 @@ function sectionHead(title: string, sub?: string): string {
   </div>`;
 }
 
+/**
+ * Faixa executiva — a mesma anatomia do `HudKpiStrip` (padrão Executive Band de
+ * Contratos) portada para CSS de impressão: um contêiner de vidro com trilhos
+ * nas bordas agrupando células de 1px de gap, em vez de cartões soltos de borda
+ * uniforme. É a linguagem que o app já usa no topo de todo módulo, então o
+ * relatório lê como o mesmo produto.
+ */
+function band(cells: string, columns = 4, extraClass = ''): string {
+  return `<div class="band${extraClass ? ` ${extraClass}` : ''}">
+    <div class="band-grid" style="--cols:${columns}">${cells}</div>
+  </div>`;
+}
+
+/** Célula da faixa: ponto de acento + rótulo, valor tabular, sublinha discreta. */
 function tile(label: string, value: string, accent: string, helper?: string): string {
-  return `<div class="tile" style="--accent:${accent}">
-    <span class="tile-l">${esc(label)}</span>
-    <b class="tile-v">${esc(value)}</b>
-    ${helper ? `<span class="tile-h">${esc(helper)}</span>` : ''}
+  return `<div class="cell" style="--accent:${accent}">
+    <span class="cell-top"><i class="cell-dot"></i><span class="cell-l">${esc(label)}</span></span>
+    <b class="cell-v">${esc(value)}</b>
+    ${helper ? `<span class="cell-h">${esc(helper)}</span>` : ''}
   </div>`;
 }
 
 function insight(card: ApexInsightCard, P: ApexPalette): string {
   const accent = card.kind === 'alert' ? P.negative : card.kind === 'watch' ? P.attention : P.revenue;
   const kindLabel = card.kind === 'alert' ? 'Atenção' : card.kind === 'watch' ? 'Monitorar' : 'Sinal';
-  return `<div class="ins" style="--accent:${accent}">
-    <span class="ins-k">${esc(kindLabel)}</span>
-    <b class="ins-v">${esc(card.value)}</b>
-    <span class="ins-l">${esc(card.label)}</span>
-    <p class="ins-d">${esc(card.detail)}</p>
+  return `<div class="cell" style="--accent:${accent}">
+    <span class="cell-top">
+      <i class="cell-dot"></i><span class="cell-l">${esc(card.label)}</span>
+      <span class="cell-tag">${esc(kindLabel)}</span>
+    </span>
+    <b class="cell-v">${esc(card.value)}</b>
+    <p class="cell-d">${esc(card.detail)}</p>
   </div>`;
 }
 
@@ -133,12 +149,15 @@ function monthlyTableChunk(
     const split = opensForecast
       ? '<tr class="split"><td colspan="5">Projeção — competências ainda não fechadas</td></tr>'
       : '';
-    const balanceColor = point.balanceCents < 0 ? P.negative : forecast ? P.revenueForecast : P.positive;
-    return `${split}<tr${forecast ? ' class="fr"' : ''}>
+    // Só faturamento e folha mudam de cor na projeção: competência, saldo e
+    // acumulado seguem a leitura normal da coluna (o saldo continua sendo lido
+    // pelo sinal, não pela origem do dado).
+    const fc = forecast ? ' fc' : '';
+    return `${split}<tr>
       <td>${esc(formatInvestorPeriod(point.period))}</td>
-      <td class="num">${esc(dashIfZero(point.revenueTotalCents, formatInvestorCurrency(point.revenueTotalCents)))}</td>
-      <td class="num">${esc(dashIfZero(point.payrollTotalCents, formatInvestorCurrency(point.payrollTotalCents)))}</td>
-      <td class="num" style="color:${balanceColor}">${esc(formatInvestorCurrency(point.balanceCents))}</td>
+      <td class="num${fc}">${esc(dashIfZero(point.revenueTotalCents, formatInvestorCurrency(point.revenueTotalCents)))}</td>
+      <td class="num${fc}">${esc(dashIfZero(point.payrollTotalCents, formatInvestorCurrency(point.payrollTotalCents)))}</td>
+      <td class="num" style="color:${point.balanceCents < 0 ? P.negative : P.positive}">${esc(formatInvestorCurrency(point.balanceCents))}</td>
       <td class="num">${esc(formatInvestorCurrency(point.balanceCumulativeCents))}</td>
     </tr>`;
   }).join('');
@@ -152,10 +171,10 @@ function monthlyTableChunk(
       <td class="num">${esc(formatInvestorCurrency(m.revenueActualCents - m.payrollActualCents))}</td>
       <td class="num">—</td>
     </tr>
-    <tr class="sub fr">
+    <tr class="sub">
       <td>Subtotal projetado</td>
-      <td class="num">${esc(formatInvestorCurrency(m.revenueForecastCents))}</td>
-      <td class="num">${esc(formatInvestorCurrency(m.payrollForecastCents))}</td>
+      <td class="num fc">${esc(formatInvestorCurrency(m.revenueForecastCents))}</td>
+      <td class="num fc">${esc(formatInvestorCurrency(m.payrollForecastCents))}</td>
       <td class="num">${esc(formatInvestorCurrency(m.revenueForecastCents - m.payrollForecastCents))}</td>
       <td class="num">—</td>
     </tr>
@@ -228,12 +247,14 @@ function buildPages(pack: InvestorPack, snapshot: InvestorPackSnapshot, insights
           <span>${esc(insights.verdictLabel)}<em>cobertura receita / folha</em></span>
         </div>
       </div>
-      <div class="cover-tiles">
-        ${tile('Faturamento realizado', formatInvestorCurrency(metrics.revenueActualCents, true), P.revenue)}
+      ${band(
+        `${tile('Faturamento realizado', formatInvestorCurrency(metrics.revenueActualCents, true), P.revenue)}
         ${tile('Faturamento previsto', formatInvestorCurrency(metrics.revenueForecastCents, true), P.revenueForecast)}
         ${tile('Folha total', formatInvestorCurrency(metrics.payrollTotalCents, true), P.payrollForecast)}
-        ${tile('Saldo acumulado', formatInvestorCurrency(insights.closingBalanceCents, true), insights.closingBalanceCents >= 0 ? P.positive : P.negative)}
-      </div>
+        ${tile('Saldo acumulado', formatInvestorCurrency(insights.closingBalanceCents, true), insights.closingBalanceCents >= 0 ? P.positive : P.negative)}`,
+        4,
+        'cover-band',
+      )}
       <div class="cover-meta">
         <span><em>Período</em><strong>${esc(period)}</strong></span>
         <span><em>Data-base</em><strong>${esc(pack.referenceDate)}</strong></span>
@@ -251,12 +272,13 @@ function buildPages(pack: InvestorPack, snapshot: InvestorPackSnapshot, insights
     <div class="exec">
       <div>
         <p class="copy">${esc(pack.narrative.executiveSummary || 'Resumo executivo não informado.')}</p>
-        <div class="tiles four">
-          ${tile('Faturamento realizado', formatInvestorCurrency(metrics.revenueActualCents, true), P.revenue, `${insights.realizedMonths} competência(s)`)}
+        ${band(
+          `${tile('Faturamento realizado', formatInvestorCurrency(metrics.revenueActualCents, true), P.revenue, `${insights.realizedMonths} competência(s)`)}
           ${tile('Faturamento previsto', formatInvestorCurrency(metrics.revenueForecastCents, true), P.revenueForecast, insights.forecastShare == null ? undefined : `${(insights.forecastShare * 100).toFixed(0)}% da receita`)}
           ${tile('Folha total', formatInvestorCurrency(metrics.payrollTotalCents, true), P.payrollForecast, 'fechada + projetada')}
-          ${tile('Saldo acumulado', formatInvestorCurrency(insights.closingBalanceCents, true), insights.closingBalanceCents >= 0 ? P.positive : P.negative, 'no fecho do recorte')}
-        </div>
+          ${tile('Saldo acumulado', formatInvestorCurrency(insights.closingBalanceCents, true), insights.closingBalanceCents >= 0 ? P.positive : P.negative, 'no fecho do recorte')}`,
+          4,
+        )}
       </div>
       <div class="dial">
         ${apexCoverageDial(metrics.coverageRatio, { size: 210, palette: P })}
@@ -266,7 +288,7 @@ function buildPages(pack: InvestorPack, snapshot: InvestorPackSnapshot, insights
           : `${insights.coverageMarginPct >= 0 ? '+' : ''}${insights.coverageMarginPct.toFixed(0)} p.p. em relação ao equilíbrio.`}</p>
       </div>
     </div>
-    <div class="ins-grid">${insights.cards.slice(0, 4).map((card) => insight(card, P)).join('')}</div>`,
+    ${band(insights.cards.slice(0, 4).map((card) => insight(card, P)).join(''), 4, 'ins-band')}`,
   });
 
   /* 04 — Evolução mensal */
@@ -282,7 +304,20 @@ function buildPages(pack: InvestorPack, snapshot: InvestorPackSnapshot, insights
     </div>`,
   });
 
-  /* 04 — Curva S */
+  /* 05 — Curva mensal */
+  pages.push({
+    eyebrow: 'Curva mensal',
+    html: `${sectionHead('Valores de cada competência, sem acumulação', 'A leitura mês a mês da receita e da folha: onde cada uma sobe, onde recua e a partir de quando passam a ser projeção.')}
+    ${panel(apexMonthlyLineChart(points, { width: 1180, height: 505, palette: P }), apexLegend(monthlyLineLegend(P)), 'Traço contínuo: valores fechados. Traço tracejado: projeção, ancorada na última competência realizada.')}
+    <div class="read">
+      ${insights.peakRevenue && insights.peakRevenue.valueCents > 0 ? `<span><em>Pico de receita</em><strong>${esc(insights.peakRevenue.label)} · ${esc(formatInvestorCurrency(insights.peakRevenue.valueCents, true))}</strong></span>` : ''}
+      ${insights.peakPayroll && insights.peakPayroll.valueCents > 0 ? `<span><em>Pico de folha</em><strong>${esc(insights.peakPayroll.label)} · ${esc(formatInvestorCurrency(insights.peakPayroll.valueCents, true))}</strong></span>` : ''}
+      <span><em>Competências realizadas</em><strong>${insights.realizedMonths}</strong></span>
+      <span><em>Competências projetadas</em><strong>${insights.forecastMonths}</strong></span>
+    </div>`,
+  });
+
+  /* 06 — Curva S */
   pages.push({
     eyebrow: 'Curva S acumulada',
     html: `${sectionHead('A trajetória acumulada do período', curveReading(insights))}
@@ -350,18 +385,11 @@ function buildPages(pack: InvestorPack, snapshot: InvestorPackSnapshot, insights
     }
   }
 
-  /* Último — Fecho */
+  /* Último — Fecho institucional (só a marca, centralizada, sem texto) */
   pages.push({
-    eyebrow: 'Perspectiva e próximos passos',
+    eyebrow: '',
     html: `<div class="closing">
-      ${sectionHead(APEX_CLOSING_TITLE)}
-      <blockquote>${esc(investorClosingMessage(pack.narrative.closingMessage))}</blockquote>
-      <div class="sign">
-        <span><em>Preparado por</em><strong>${esc(pack.authorName || 'Financeiro')}</strong></span>
-        <span><em>Data-base</em><strong>${esc(pack.referenceDate)}</strong></span>
-        <span><em>Classificação</em><strong>${esc(confidential)}</strong></span>
-      </div>
-      <p class="fine">${esc(APEX_SOURCE)}. Valores em BRL. Este documento reflete o recorte de período selecionado na Projeção Financeira no momento da geração.</p>
+      <span class="closing-logo" role="img" aria-label="${esc(APEX_LOGO_ALT)}"></span>
     </div>`,
   });
 
@@ -401,7 +429,7 @@ function documentCss(P: ApexPalette): string {
     font-size: 8.5px; color: ${P.subtle}; }
   .pfoot b { color: ${P.muted}; font-weight: 600; }
   .pf-brand { display: inline-flex; align-items: center; gap: 7px; }
-  .pf-logo { display: inline-block; width: 79px; height: 10px; flex: 0 0 auto;
+  .pf-logo { display: inline-block; width: 75px; height: 10px; flex: 0 0 auto;
     background: url('${APEX_LOGO_SMALL_DATA_URI}') left center / contain no-repeat; }
 
   .sec h2 { margin: 0; font-size: 19px; font-weight: 700; letter-spacing: -.02em; color: ${P.ink}; max-width: 62ch; }
@@ -412,7 +440,7 @@ function documentCss(P: ApexPalette): string {
   /* Capa */
   .cover { flex: 1 1 auto; display: flex; flex-direction: column; padding: 12mm 12mm 0; }
   .cover-top { display: flex; justify-content: space-between; align-items: center; }
-  .cover-logo { display: block; height: 15mm; width: 118mm;
+  .cover-logo { display: block; height: 15mm; width: 113mm;
     background: url('${APEX_LOGO_DATA_URI}') left center / contain no-repeat; }
   .cover-kicker { display: block; margin-bottom: 7px; font-size: 10px; font-weight: 700; letter-spacing: .2em;
     text-transform: uppercase; color: ${P.revenue}; }
@@ -431,22 +459,40 @@ function documentCss(P: ApexPalette): string {
   .cover-verdict b { font-size: 32px; letter-spacing: -.04em; color: var(--accent); font-variant-numeric: tabular-nums; }
   .cover-verdict span { display: flex; flex-direction: column; font-size: 12px; font-weight: 600; color: ${P.ink}; }
   .cover-verdict em { font-style: normal; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: ${P.subtle}; }
-  .cover-tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 22px; }
+  .cover-band { margin-top: 22px; }
   .cover-meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 26px; margin: 18px 0 4mm; }
   .cover-meta span { display: flex; flex-direction: column; gap: 2px; }
   .cover-meta em { font-style: normal; font-size: 8.5px; letter-spacing: .15em; text-transform: uppercase; color: ${P.subtle}; }
   .cover-meta strong { font-size: 12px; font-weight: 600; color: ${P.body}; }
 
-  /* Cartões de valor */
-  .tiles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
-  .tiles.four { grid-template-columns: repeat(4, 1fr); }
-  .tile { position: relative; padding: 9px 11px 8px; border-radius: 10px; border: 1px solid ${P.lineSoft};
-    background: ${surface()}; overflow: hidden; }
-  .tile::before { content: ''; position: absolute; inset: 0 0 auto 0; height: 2px; background: var(--accent); }
-  .tile-l { display: block; font-size: 8.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: ${P.subtle}; }
-  .tile-v { display: block; margin-top: 4px; font-size: 18px; letter-spacing: -.03em; color: var(--accent);
-    font-variant-numeric: tabular-nums; }
-  .tile-h { display: block; margin-top: 3px; font-size: 9px; color: ${P.subtle}; }
+  /* Faixa executiva (padrão HudKpiStrip / Executive Band) */
+  .band { position: relative; overflow: hidden; border-radius: 18px; padding: 4px;
+    border: 1px solid ${light ? P.line : 'rgba(53, 230, 187, .18)'};
+    background: linear-gradient(180deg, ${P.panelTop} 0%, ${P.panelBottom} 100%);
+    box-shadow: ${light ? '0 1px 2px rgba(11, 26, 32, .05)' : 'inset 0 0 0 1px rgba(53, 230, 187, .06)'}; }
+  /* Trilhos de borda — a assinatura contida da Executive Band. */
+  .band::before, .band::after { content: ''; position: absolute; top: 9px; bottom: 9px; width: 1px; }
+  .band::before { left: 9px; background: ${P.revenue}; }
+  .band::after { right: 9px; background: ${P.line}; }
+  .band-grid { position: relative; display: grid; grid-template-columns: repeat(var(--cols, 4), 1fr); gap: 4px; }
+
+  .cell { position: relative; overflow: hidden; padding: 9px 12px 10px; border-radius: 12px;
+    border: 1px solid ${P.lineSoft}; background: ${surface(0.88, 0.42)};
+    box-shadow: inset 0 1px 0 ${light ? 'rgba(255, 255, 255, .9)' : 'rgba(255, 255, 255, .05)'}; }
+  /* Fio de acento no topo, esmaecido nas pontas (não a barra sólida de borda). */
+  .cell::before { content: ''; position: absolute; top: 0; left: 24%; right: 24%; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent); }
+  .cell-top { display: flex; align-items: center; gap: 6px; }
+  .cell-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); flex: 0 0 auto; }
+  .cell-l { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 8.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: ${P.muted}; }
+  .cell-tag { margin-left: auto; flex: 0 0 auto; padding: 1px 6px; border: 1px solid var(--accent);
+    border-radius: 999px; font-size: 7px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--accent); }
+  .cell-v { display: block; margin-top: 5px; font-size: 18px; font-weight: 700; letter-spacing: -.03em;
+    color: var(--accent); font-variant-numeric: tabular-nums; }
+  .cell-h { display: block; margin-top: 3px; font-size: 9px; color: ${P.subtle}; }
+  .cell-d { margin: 5px 0 0; font-size: 9.5px; line-height: 1.4; color: ${P.subtle}; }
 
   /* Síntese */
   .exec { flex: 1 1 auto; display: grid; grid-template-columns: 1.5fr .5fr; gap: 18px; align-items: center; }
@@ -456,13 +502,8 @@ function documentCss(P: ApexPalette): string {
     color: ${P.muted}; text-align: center; }
   .dial-note { margin: 3px 0 0; font-size: 9px; line-height: 1.4; color: ${P.subtle}; text-align: center; max-width: 34ch; }
 
-  .ins-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: auto; }
-  .ins { padding: 9px 11px; border-radius: 11px; border: 1px solid ${P.lineSoft}; border-left: 2px solid var(--accent);
-    background: ${surface(0.92, 0.5)}; }
-  .ins-k { font-size: 8px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); }
-  .ins-v { display: block; margin: 4px 0 1px; font-size: 16px; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
-  .ins-l { display: block; font-size: 9px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: ${P.muted}; }
-  .ins-d { margin: 5px 0 0; font-size: 9.5px; line-height: 1.4; color: ${P.subtle}; }
+  .ins-band { margin-top: auto; }
+  .ins-band .cell-v { font-size: 16px; }
 
   /* Painéis de gráfico */
   .panel { border: 1px solid ${P.lineSoft}; border-radius: 14px; padding: 9px 11px 8px;
@@ -496,8 +537,8 @@ function documentCss(P: ApexPalette): string {
   /* Densidade compacta para a carteira caber inteira em uma página. */
   table.data.dense tbody td { padding: 4px 7px; font-size: 10px; }
 
-  /* Linhas de projeção: mesma sequência cronológica, cor distinta. */
-  table.data tbody tr.fr td, table.data tfoot tr.fr td { color: ${P.revenueForecast}; }
+  /* Projeção: só as colunas de valor mudam de cor. */
+  table.data tfoot td.fc { color: ${P.revenueForecast}; }
   table.data tbody tr.split td { padding: 7px 8px 4px; border-bottom: 1px solid ${P.revenueForecast};
     background: transparent !important; color: ${P.revenueForecast};
     font-size: 8.5px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
@@ -519,15 +560,11 @@ function documentCss(P: ApexPalette): string {
   .dq ul { margin: 5px 0 0; padding-left: 15px; }
   .dq li { font-size: 11px; color: ${P.body}; margin-bottom: 3px; }
 
-  /* Fecho */
-  .closing { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: center; }
-  .closing blockquote { margin: 18px 0 0; padding-left: 18px; border-left: 2px solid ${P.revenue};
-    font-size: 21px; line-height: 1.35; color: ${P.quote}; max-width: 44ch; }
-  .sign { display: flex; flex-wrap: wrap; gap: 10px 34px; margin-top: 28px; }
-  .sign span { display: flex; flex-direction: column; gap: 2px; }
-  .sign em { font-style: normal; font-size: 8.5px; letter-spacing: .15em; text-transform: uppercase; color: ${P.subtle}; }
-  .sign strong { font-size: 12.5px; font-weight: 600; color: ${P.body}; }
-  .fine { margin: 26px 0 0; font-size: 9px; color: ${P.subtle}; max-width: 100ch; }
+  /* Fecho institucional — apenas a marca centralizada */
+  .closing { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: center; align-items: center;
+    text-align: center; padding: 0 14mm; }
+  .closing-logo { display: block; height: 18mm; width: 136mm;
+    background: url('${APEX_LOGO_DATA_URI}') center center / contain no-repeat; }
 
 ${apexChartCss(P)}
 ${apexLegendCss(P)}
