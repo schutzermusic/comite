@@ -15,24 +15,23 @@ function Item({
   return (
     <div className="group flex min-w-0 items-start gap-3 px-4 py-3.5 transition-colors duration-150 hover:bg-ig-bg-overlay/40">
       <span
-        className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] transition-transform duration-200 group-hover:scale-105"
+        className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px]"
         style={{
-          backgroundColor: `color-mix(in oklab, ${tint} 14%, transparent)`,
+          backgroundColor: `color-mix(in oklab, ${tint} 12%, transparent)`,
           color: tint,
-          boxShadow: `inset 0 1px 0 rgba(255,255,255,0.08), 0 2px 8px color-mix(in oklab, ${tint} 20%, transparent)`,
         }}
       >
         {icon}
       </span>
       <div className="min-w-0">
-        <p className="text-[9.5px] font-semibold uppercase tracking-[0.1em] text-ig-fg-subtle">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-ig-fg-subtle">
           {label}
         </p>
-        <p className="mt-0.5 truncate text-[12px] font-semibold text-ig-fg-strong" title={value}>
+        <p className="mt-1 truncate text-[13px] font-semibold leading-tight text-ig-fg-strong" title={value}>
           {value}
         </p>
         {hint && (
-          <p className="truncate text-[10px] text-ig-fg-muted">{hint}</p>
+          <p className="mt-0.5 truncate text-[11px] font-medium text-ig-fg-muted">{hint}</p>
         )}
       </div>
     </div>
@@ -53,7 +52,6 @@ export function RiskInsightStrip({ insights }: Props) {
     <div
       className="grid grid-cols-1 divide-y divide-ig-border-subtle overflow-hidden rounded-2xl border border-ig-border bg-ig-bg-panel/50 sm:grid-cols-2 sm:divide-y-0 lg:grid-cols-5 sm:[&>*]:border-r sm:[&>*]:border-ig-border-subtle sm:[&>*:last-child]:border-r-0"
       style={{
-        boxShadow: "inset 0 0 0 1px var(--ig-edge-e2), 0 4px 24px rgba(0,0,0,0.10)",
         backdropFilter: "blur(8px)",
         WebkitBackdropFilter: "blur(8px)",
       }}

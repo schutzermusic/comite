@@ -31,36 +31,32 @@ function cellZone(level: number): Zone {
   return "low";
 }
 
-const ZONE_STYLES: Record<Zone, {
-  bg: string; border: string; glow: string; dot: string; dotGlow: string;
-}> = {
+/* Fundo chapado (sem gradiente/glow) — a intensidade da zona é lida pela
+   opacidade da cor, não por sombras coloridas. */
+const ZONE_STYLES: Record<Zone, { bg: string; bgHi: string; border: string; dot: string }> = {
   critical: {
-    bg: "linear-gradient(145deg, rgba(239,75,85,0.22) 0%, rgba(239,75,85,0.08) 60%, rgba(239,75,85,0.04) 100%)",
-    border: "rgba(239,75,85,0.30)",
-    glow: "rgba(239,75,85,0.15)",
+    bg: "rgba(239,75,85,0.14)",
+    bgHi: "rgba(239,75,85,0.26)",
+    border: "rgba(239,75,85,0.28)",
     dot: "var(--ig-danger)",
-    dotGlow: "rgba(239,75,85,0.60)",
   },
   high: {
-    bg: "linear-gradient(145deg, rgba(245,165,36,0.20) 0%, rgba(245,165,36,0.07) 60%, rgba(245,165,36,0.03) 100%)",
-    border: "rgba(245,165,36,0.26)",
-    glow: "rgba(245,165,36,0.12)",
+    bg: "rgba(245,165,36,0.12)",
+    bgHi: "rgba(245,165,36,0.24)",
+    border: "rgba(245,165,36,0.24)",
     dot: "var(--ig-warning)",
-    dotGlow: "rgba(245,165,36,0.60)",
   },
   medium: {
-    bg: "linear-gradient(145deg, rgba(59,130,246,0.18) 0%, rgba(59,130,246,0.06) 60%, rgba(59,130,246,0.03) 100%)",
-    border: "rgba(59,130,246,0.22)",
-    glow: "rgba(59,130,246,0.10)",
+    bg: "rgba(59,130,246,0.10)",
+    bgHi: "rgba(59,130,246,0.22)",
+    border: "rgba(59,130,246,0.20)",
     dot: "var(--ig-info)",
-    dotGlow: "rgba(59,130,246,0.60)",
   },
   low: {
-    bg: "linear-gradient(145deg, rgba(16,185,129,0.14) 0%, rgba(16,185,129,0.05) 60%, rgba(16,185,129,0.02) 100%)",
-    border: "rgba(16,185,129,0.18)",
-    glow: "rgba(16,185,129,0.08)",
+    bg: "rgba(16,185,129,0.08)",
+    bgHi: "rgba(16,185,129,0.18)",
+    border: "rgba(16,185,129,0.16)",
     dot: "var(--ig-success)",
-    dotGlow: "rgba(16,185,129,0.55)",
   },
 };
 
@@ -155,21 +151,19 @@ export function RiskMatrix5x5({ risks, onCellClick, highlightedCell }: Props) {
                     onClick={() => onCellClick(prob, imp)}
                     aria-pressed={isHighlighted}
                     className={cn(
-                      "group relative m-[2px] flex h-[calc(100%-4px)] w-[calc(100%-4px)] flex-col items-center justify-center rounded-[8px] border transition-all duration-200",
-                      "hover:scale-[1.06] hover:z-10",
-                      isHighlighted && "ring-2 ring-ig-accent scale-[1.06] z-10",
-                      dimmed && "opacity-35",
+                      "group relative m-[2px] flex h-[calc(100%-4px)] w-[calc(100%-4px)] flex-col items-center justify-center rounded-[8px] border",
+                      "transition-[background-color,border-color,transform] duration-150",
+                      "hover:z-10 hover:scale-[1.04]",
+                      isHighlighted && "z-10 scale-[1.04] ring-1 ring-ig-accent",
+                      dimmed && "opacity-30",
                     )}
                     style={{
-                      background: cellGradientWithHighlight(zone, isHighlighted),
+                      backgroundColor: isHighlighted ? zs.bgHi : zs.bg,
                       borderColor: isHighlighted ? "var(--ig-accent)" : zs.border,
-                      boxShadow: isHighlighted
-                        ? `0 0 0 1px var(--ig-accent), 0 4px 16px ${zs.glow}, inset 0 1px 0 rgba(255,255,255,0.08)`
-                        : `0 2px 8px ${zs.glow}, inset 0 1px 0 rgba(255,255,255,0.06)`,
                     }}
                     title={tooltip}
                   >
-                    <span className="relative z-10 text-[clamp(10px,3cqw,20px)] font-bold tabular-nums text-ig-fg-strong opacity-75 transition-opacity group-hover:opacity-100">
+                    <span className="relative z-10 text-[clamp(10px,3cqw,20px)] font-bold tabular-nums text-ig-fg-strong opacity-70 transition-opacity group-hover:opacity-100">
                       {level}
                     </span>
 
@@ -181,22 +175,16 @@ export function RiskMatrix5x5({ risks, onCellClick, highlightedCell }: Props) {
 
                     {count > 0 && (
                       <span
-                        className="absolute -top-1.5 -right-1.5 z-20 flex h-[clamp(14px,3cqw,22px)] min-w-[clamp(14px,3cqw,22px)] items-center justify-center rounded-full border-2 px-0.5 text-[clamp(7px,1.6cqw,11px)] font-bold shadow-md"
+                        className="absolute -top-1.5 -right-1.5 z-20 flex h-[clamp(14px,3cqw,22px)] min-w-[clamp(14px,3cqw,22px)] items-center justify-center rounded-full border-2 px-0.5 text-[clamp(7px,1.6cqw,11px)] font-bold tabular-nums"
                         style={{
                           backgroundColor: zs.dot,
                           borderColor: "var(--ig-bg-canvas)",
                           color: "#fff",
-                          boxShadow: `0 0 8px ${zs.dotGlow}`,
                         }}
                       >
                         {count}
                       </span>
                     )}
-
-                    <div
-                      className="pointer-events-none absolute inset-0 rounded-[8px] opacity-0 transition-opacity group-hover:opacity-100"
-                      style={{ background: `radial-gradient(ellipse 80% 80% at 50% 50%, ${zs.glow}, transparent 75%)` }}
-                    />
                   </button>
                 );
               })}
@@ -212,12 +200,12 @@ export function RiskMatrix5x5({ risks, onCellClick, highlightedCell }: Props) {
           return (
             <span
               key={zone}
-              className="inline-flex items-center gap-1 rounded-full border px-2 py-[3px] text-[9.5px] font-semibold"
+              className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-[3px] text-[10px] font-semibold"
               style={{ color: b.color, backgroundColor: b.bg, borderColor: b.border }}
             >
-              <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: b.color, boxShadow: `0 0 5px ${b.color}` }} />
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: b.color }} />
               {b.label}
-              <span className="opacity-55 font-normal">{b.range}</span>
+              <span className="font-medium tabular-nums opacity-60">{b.range}</span>
             </span>
           );
         })}
@@ -232,15 +220,4 @@ export function RiskMatrix5x5({ risks, onCellClick, highlightedCell }: Props) {
       </div>
     </div>
   );
-}
-
-function cellGradientWithHighlight(zone: Zone, highlighted: boolean): string {
-  const zs = ZONE_STYLES[zone];
-  if (highlighted) {
-    return zs.bg.replace(/rgba/g, "rgba").replace(
-      /0\.(22|20|18|14)\)/,
-      (_, n) => `${(parseFloat(n) * 1.6).toFixed(2)})`
-    );
-  }
-  return zs.bg;
 }

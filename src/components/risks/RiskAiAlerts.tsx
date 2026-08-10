@@ -98,8 +98,8 @@ export function RiskAiAlerts({ risks, onSelect, onAnalyze, limit = 6 }: Props) {
               )}
             >
               <span
-                className="mt-1 h-2 w-2 shrink-0 rounded-full"
-                style={{ backgroundColor: color, boxShadow: `0 0 6px ${color}` }}
+                className="mt-[3px] h-8 w-[3px] shrink-0 rounded-full"
+                style={{ backgroundColor: color }}
               />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center justify-between gap-2">

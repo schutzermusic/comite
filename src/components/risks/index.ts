@@ -16,6 +16,8 @@ export { RiskKpiGrid } from "./RiskKpiGrid";
 export type { RiskKpiCardData, KpiTone } from "./RiskKpiGrid";
 export { RiskInsightStrip } from "./RiskInsightStrip";
 export { RiskAiAlerts } from "./RiskAiAlerts";
+export { RiskMap, RISK_MAP_PLOT_HEIGHT, RISK_MAP_TOTAL_HEIGHT } from "./RiskMap";
+export type { RiskMapPoint } from "./RiskMap";
 
 // Charts
 export {
@@ -27,7 +29,6 @@ export {
   TopRiskOwnersChart,
   RiskAreaExposureChart,
   RiskWaterfallChart,
-  RiskBubbleChart,
   RiskHeatmapChart,
   MitigationFunnelChart,
   RiskHeatByAreaChart,
