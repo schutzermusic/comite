@@ -6,6 +6,7 @@ import { getLocale, getMessages } from 'next-intl/server';
 import { NextIntlClientProvider } from 'next-intl';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import { AuthHashRouter } from '@/components/auth/AuthHashRouter';
+import { SpeedInsights } from '@vercel/speed-insights/next';
 
 export const metadata: Metadata = {
   title: 'Insight Apex Board — Executive Governance Control Room',
@@ -60,6 +61,7 @@ export default async function RootLayout({
             <HudToaster />
           </ThemeProvider>
         </NextIntlClientProvider>
+        <SpeedInsights />
       </body>
     </html>
   );
