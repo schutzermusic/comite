@@ -10,6 +10,7 @@
     "start": "next start",
     "sync:contracts": "node scripts/sync-contracts-from-excel.mjs",
     "supabase:seed-projects": "tsx scripts/seed-projects-to-supabase.ts",
+    "supabase:apply-investor-pack": "node scripts/apply-investor-pack-migration.mjs",
     "i18n:scan": "node scripts/scan-english-strings.mjs",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",

@@ -12,6 +12,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   CalendarRange,
+  Info,
   Coins,
   History,
   LayoutGrid,
@@ -868,6 +869,7 @@ function AllocationModal({
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [justification, setJustification] = useState('');
+  const [requiresPonto, setRequiresPonto] = useState(false);
   const [overloadWarning, setOverloadWarning] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -881,6 +883,7 @@ function AllocationModal({
       setStartDate(editing.startDate);
       setEndDate(editing.endDate ?? '');
       setJustification(editing.justification ?? '');
+      setRequiresPonto(editing.requiresPonto ?? false);
     } else {
       setPersonId('');
       setRoleTitle('');
@@ -889,6 +892,7 @@ function AllocationModal({
       setStartDate(new Date().toISOString().slice(0, 10));
       setEndDate('');
       setJustification('');
+      setRequiresPonto(false);
     }
     setOverloadWarning(null);
   }, [open, editing]);
@@ -955,10 +959,30 @@ function AllocationModal({
         endDate: endDate || null,
         plannedPercentage: pct,
         justification: justification.trim() || null,
+        requiresPonto,
       };
-      if (editing) await updateAllocation(editing.id, input);
-      else await createAllocation(input);
+      const saved = editing ? await updateAllocation(editing.id, input) : await createAllocation(input);
       notify(editing ? 'Alocação atualizada' : 'Pessoa alocada', { variant: 'success' });
+
+      // Provisionamento IMEDIATO do acesso ao Ponto quando a alocação exige e
+      // está viva. Best-effort: NÃO bloqueia a alocação nem falha se o e-mail
+      // não sair — o cron horário reconcilia. Reusa o motor server-side.
+      if (requiresPonto && (saved.status === 'active' || saved.status === 'pending_approval')) {
+        try {
+          const res = await fetch('/api/ponto/provision', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ personId, source: 'allocation' }),
+          });
+          const json = (await res.json().catch(() => ({}))) as { ok?: boolean; action?: string; error?: string };
+          if (json.ok && json.action === 'provisioned') notify('Convite de acesso ao Ponto enviado', { variant: 'success' });
+          else if (json.ok && json.action === 'skipped_no_email') notify('Acesso ao Ponto pendente: cadastre um e-mail para o colaborador', { variant: 'warning' });
+          else if (json.ok && (json.action === 'skipped_active' || json.action === 'skipped_pending')) notify('Colaborador já tem acesso/convite ao Ponto', { variant: 'info' });
+          else if (!json.ok) notify('Alocação salva; provisionamento do Ponto será reconciliado pelo cron', { description: json.error, variant: 'warning' });
+        } catch {
+          notify('Alocação salva; provisionamento do Ponto será reconciliado pelo cron', { variant: 'warning' });
+        }
+      }
       await onSaved();
     } catch (e) {
       notify('Erro ao salvar alocação', {
@@ -1048,6 +1072,26 @@ function AllocationModal({
           placeholder="Ex.: pico de comissionamento aprovado pela diretoria"
         />
       </div>
+
+      <label className="mt-4 flex cursor-pointer items-start gap-2.5 rounded-lg border border-ig-border-subtle bg-ig-panel/40 px-3 py-3">
+        <input
+          type="checkbox"
+          checked={requiresPonto}
+          onChange={(e) => setRequiresPonto(e.target.checked)}
+          className="mt-0.5 h-4 w-4 shrink-0 accent-ig-accent"
+        />
+        <span className="min-w-0">
+          <span className="flex items-center gap-1.5 text-sm font-medium text-ig-fg-strong">
+            Exige registro de ponto
+            <span title="Ao salvar uma alocação ativa marcada assim, o colaborador é automaticamente convidado a ativar o acesso ao app de Ponto (se ainda não tiver). Nada é enviado sem e-mail cadastrado; o cron horário reconcilia.">
+              <Info className="h-3.5 w-3.5 text-ig-fg-subtle" />
+            </span>
+          </span>
+          <span className="mt-0.5 block text-[11px] text-ig-fg-muted">
+            Dispara o provisionamento de acesso ao Ponto para este colaborador.
+          </span>
+        </span>
+      </label>
 
       <p className="mt-3 flex items-center gap-1.5 text-[11px] text-ig-fg-muted">
         <CalendarRange className="h-3.5 w-3.5" />

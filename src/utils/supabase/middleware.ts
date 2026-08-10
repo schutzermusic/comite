@@ -12,7 +12,10 @@ const PUBLIC_ROUTES = ['/login', '/forgot-password', '/reset-password', '/ponto/
 // "authenticated → /dashboard" redirect). Invite & OAuth callbacks land here
 // before the client-side session has been established from the URL hash, so
 // they must never be redirected — neither to /login nor to /dashboard.
-const AUTH_UTILITY_ROUTES = ['/auth', '/welcome', '/access-restricted']
+// /ponto/ativar é a landing do convite do colaborador (equivalente a /welcome):
+// o token chega na URL (hash/code) e é trocado por sessão no cliente, então
+// NÃO pode ser barrado pelo gate de sessão do servidor.
+const AUTH_UTILITY_ROUTES = ['/auth', '/welcome', '/ponto/ativar', '/access-restricted']
 const PROFILE_SETUP_ROUTES = ['/onboarding']
 const ACCESS_RESTRICTED_ROUTE = '/access-restricted'
 
@@ -157,8 +160,16 @@ export async function updateSession(request: NextRequest) {
     if (isPontoHost && !pathname.startsWith('/ponto') && !pathname.startsWith('/api')) {
         if (pathname === '/' || pathname === '') pontoRewrite = '/ponto'
         else if (pathname === '/login') pontoRewrite = '/ponto/login'
+        else if (pathname === '/ativar') pontoRewrite = '/ponto/ativar'
         if (pontoRewrite) pathname = pontoRewrite
     }
+    // Endpoints de job agendado autenticam por CRON_SECRET (Bearer), sem
+    // sessão de usuário — o Vercel Cron não envia cookie. Nunca podem ser
+    // redirecionados para /login; o próprio handler valida o segredo.
+    if (pathname.startsWith('/api/ponto/cron') || pathname.startsWith('/api/ponto/retention')) {
+        return supabaseResponse
+    }
+
     const isPublicRoute = isRoute(pathname, PUBLIC_ROUTES) || isRoute(pathname, AUTH_UTILITY_ROUTES)
     const isSetupRoute = isRoute(pathname, PROFILE_SETUP_ROUTES)
     const isAccessRestricted = pathname === ACCESS_RESTRICTED_ROUTE

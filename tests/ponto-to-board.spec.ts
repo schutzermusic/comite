@@ -58,7 +58,10 @@ test.afterAll(async () => {
 
 test.setTimeout(180_000);
 
-test('portal (Face ID) → apontamento no board → Jornada em Pessoas & Custos', async ({ page, context }) => {
+// OBSOLETO: o portal WEB substituiu Face ID/WebAuthn por SELFIE (fase 1). A
+// cobertura ponta-a-ponta atual está em ponto-selfie-lifecycle / ponto-review /
+// ponto-activation. Mantido como referência do fluxo nativo (app mobile).
+test.skip('portal (Face ID) → apontamento no board → Jornada em Pessoas & Custos (fluxo legado)', async ({ page, context }) => {
   // ── autenticador virtual de plataforma (Face ID/Touch ID) ──
   const client = await context.newCDPSession(page);
   await client.send('WebAuthn.enable');

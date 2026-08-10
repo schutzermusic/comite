@@ -9,8 +9,13 @@
 
 import { FormEvent, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Clock } from 'lucide-react';
+import { Clock, TriangleAlert } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
+import { InsightLogo } from '@/components/layout/insight-logo';
+import { PontoButton } from '@/components/ponto';
+
+const FIELD_CLASS =
+  'min-h-[52px] w-full rounded-[var(--ig-radius-md)] border border-ig-border-strong bg-ig-raised px-4 py-3 text-ig-body text-ig-fg-strong placeholder:text-ig-fg-subtle focus-visible:outline-none focus-visible:shadow-[var(--ig-focus-ring-outer)]';
 
 export default function PontoLoginPage() {
   const router = useRouter();
@@ -29,7 +34,9 @@ export default function PontoLoginPage() {
       setError(
         /invalid/i.test(signInError.message)
           ? 'E-mail ou senha incorretos.'
-          : signInError.message,
+          : /network|fetch|failed/i.test(signInError.message)
+            ? 'Sem conexão com o servidor. Verifique sua internet e tente de novo.'
+            : signInError.message,
       );
       setLoading(false);
       return;
@@ -38,52 +45,73 @@ export default function PontoLoginPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#0C1116] px-6">
+    <main
+      data-ponto-theme
+      data-ponto-canvas
+      className="flex min-h-[100dvh] items-center justify-center bg-ig-canvas px-5 py-10"
+    >
       <div className="w-full max-w-sm">
         <div className="mb-8">
-          <div className="mb-3 inline-flex h-11 w-11 items-center justify-center rounded-xl bg-[rgba(34,192,141,0.14)]">
-            <Clock className="h-5 w-5 text-[#22C08D]" />
-          </div>
-          <h1 className="text-3xl font-extrabold tracking-tight text-[#E8EEF2]">
-            Insight <span className="text-[#22C08D]">Ponto</span>
+          <InsightLogo width={196} height={25} animated={false} priority alt="Insight Energy" />
+          <h1 className="mt-4 flex items-center gap-2 text-ig-display text-ig-fg-strong">
+            <Clock className="h-6 w-6 shrink-0 text-ig-accent" aria-hidden="true" />
+            Ponto
           </h1>
-          <p className="mt-1 text-sm text-[#8DA2B5]">
+          <p className="mt-1.5 text-ig-body-sm text-ig-fg-muted">
             Registre sua jornada pelo navegador — sem instalar nada.
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-3">
-          <input
-            type="email"
-            required
-            autoComplete="email"
-            placeholder="E-mail"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="w-full rounded-xl border border-[rgba(141,162,181,0.2)] bg-[#121A22] px-4 py-3.5 text-[15px] text-[#E8EEF2] placeholder-[#5C7186] outline-none focus:border-[rgba(34,192,141,0.5)]"
-          />
-          <input
-            type="password"
-            required
-            autoComplete="current-password"
-            placeholder="Senha"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="w-full rounded-xl border border-[rgba(141,162,181,0.2)] bg-[#121A22] px-4 py-3.5 text-[15px] text-[#E8EEF2] placeholder-[#5C7186] outline-none focus:border-[rgba(34,192,141,0.5)]"
-          />
+        <form onSubmit={handleSubmit} className="space-y-3.5" noValidate>
+          <div className="space-y-1.5">
+            <label htmlFor="ponto-email" className="block text-ig-body-sm font-semibold text-ig-fg-strong">
+              E-mail
+            </label>
+            <input
+              id="ponto-email"
+              type="email"
+              required
+              autoComplete="email"
+              inputMode="email"
+              placeholder="seu.nome@empresa.com.br"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className={FIELD_CLASS}
+            />
+          </div>
 
-          {error ? <p className="text-sm text-[#DB5C6E]">{error}</p> : null}
+          <div className="space-y-1.5">
+            <label htmlFor="ponto-senha" className="block text-ig-body-sm font-semibold text-ig-fg-strong">
+              Senha
+            </label>
+            <input
+              id="ponto-senha"
+              type="password"
+              required
+              autoComplete="current-password"
+              placeholder="Sua senha"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className={FIELD_CLASS}
+            />
+          </div>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full rounded-xl bg-[#22C08D] py-4 text-base font-bold text-[#07120E] transition-opacity disabled:opacity-60"
-          >
+          {error ? (
+            <p
+              role="alert"
+              className="flex items-start gap-2 rounded-[var(--ig-radius-sm)] bg-[color-mix(in_oklab,var(--ig-danger)_12%,transparent)] px-3 py-2.5 text-ig-body-sm text-ig-danger"
+            >
+              <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+              {error}
+            </p>
+          ) : null}
+
+          <PontoButton type="submit" variant="primary" loading={loading} className="mt-1">
             {loading ? 'Entrando…' : 'Entrar'}
-          </button>
+          </PontoButton>
         </form>
 
-        <p className="mt-6 text-center text-xs text-[#5C7186]">
+        <p className="mt-6 text-center text-ig-caption text-ig-fg-subtle">
           Mesmo login do Insight Apex. Problemas de acesso? Fale com o RH.
         </p>
       </div>

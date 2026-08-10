@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -59,7 +60,12 @@ export function HudModal({
     return () => window.removeEventListener('keydown', handleEscape);
   }, [isOpen, onClose]);
 
-  return (
+  // Portal para o body: um ancestral com backdrop-filter/transform
+  // (ig-glass, HudPanel) vira containing block do `fixed` e recorta o
+  // overlay. No SSR não há document — o modal só existe no cliente.
+  if (typeof document === 'undefined') return null;
+
+  return createPortal(
     <AnimatePresence>
       {isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -129,6 +135,7 @@ export function HudModal({
           </motion.div>
         </div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body
   );
 }

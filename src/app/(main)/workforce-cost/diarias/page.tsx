@@ -17,6 +17,7 @@ import {
   Clock,
   Download,
   RefreshCw,
+  UserMinus,
   UtensilsCrossed,
   Users,
 } from 'lucide-react';
@@ -49,11 +50,13 @@ import {
   generateWeeklyAllowancePreview,
   getLatestWeek,
   listAllowancePolicies,
+  replaceAllowancePolicyTiers,
   listDailyAllowancesByWeek,
   listPaymentBatchesByWeek,
   nextWeekBounds,
   performWeekAction,
   reconcileWeek,
+  removePersonFromAllowanceWeek,
   reviewException,
   setAllowancePolicyStatus,
   weekLabel,
@@ -69,6 +72,10 @@ import {
   requestAllowanceOverride,
 } from '@/lib/services/allowance-overrides';
 import { WEEK_ACTIONS, type WeekAction } from '@/lib/services/allowance-workflow';
+import {
+  DEFAULT_LEADERSHIP_JOB_TITLES,
+  LEADERSHIP_TIER_NAME,
+} from '@/lib/services/allowance-tiers';
 import type { PermissionKey } from '@/lib/auth/types';
 import {
   ALLOWANCE_WEEK_STATUS_LABELS,
@@ -146,6 +153,10 @@ interface PersonRow {
   byDate: Record<string, DailyAllowance>;
   totalCents: number;
   counts: Record<DayClassification, number>;
+  /** faixa aplicada pelo motor (função do colaborador) */
+  tierLabel: string | null;
+  /** função cadastrada em Pessoas */
+  jobTitle: string | null;
 }
 
 function buildRows(items: DailyAllowance[]): PersonRow[] {
@@ -160,6 +171,8 @@ function buildRows(items: DailyAllowance[]): PersonRow[] {
         byDate: {},
         totalCents: 0,
         counts: { eligible: 0, review: 0, blocked: 0 },
+        tierLabel: it.tierLabel,
+        jobTitle: it.person?.jobTitle ?? null,
       };
       map.set(it.personId, row);
     }
@@ -181,8 +194,9 @@ function rowStatus(row: PersonRow): { label: string; variant: 'success' | 'warni
 /* ─────────────────────────── page ───────────────────────────── */
 
 export default function DiariasPage() {
-  const { hasPermission } = usePermissions();
+  const { hasPermission, roles } = usePermissions();
   const { notify } = useHudToast();
+  const isOwnerAdmin = roles.some((role) => role.key === 'owner_admin');
   const canManage = hasPermission('allowances.manage');
   const canReview = hasPermission('allowances.review_exception') || hasPermission('allowances.override_request') || canManage;
   const canApproveOverride = hasPermission('allowances.override_approve');
@@ -439,6 +453,44 @@ export default function DiariasPage() {
       }
     },
     [notify, bounds],
+  );
+
+  const handleRemovePerson = useCallback(
+    async (row: PersonRow) => {
+      if (!week || !isOwnerAdmin) return;
+      const reason = window.prompt(
+        `Informe o motivo para remover ${row.name} das diárias desta semana:`,
+      );
+      if (!reason?.trim()) return;
+
+      const approved = ['finance_approved', 'scheduled', 'processing', 'paid', 'reconciliation', 'closed']
+        .includes(week.status);
+      const warning = approved
+        ? 'As diárias serão estornadas, preservando a evidência aprovada. Se já houver processamento financeiro, será criada uma compensação.'
+        : 'As diárias desta pessoa serão removidas da semana.';
+      if (!window.confirm(`${warning}\n\nConfirmar remoção de ${row.name}?`)) return;
+
+      setActionBusy(true);
+      try {
+        const result = await removePersonFromAllowanceWeek(week.id, row.personId, reason);
+        await reload();
+        setSelected(null);
+        notify(result.mode === 'removed' ? 'Pessoa removida das diárias' : 'Diárias da pessoa estornadas', {
+          description: result.compensationCents > 0
+            ? `Compensação de ${formatCents(result.compensationCents)} criada e pendente de aprovação.`
+            : `${result.affectedRows} diária(s) afetada(s).`,
+          variant: result.compensationCents > 0 ? 'warning' : 'success',
+        });
+      } catch (e) {
+        notify('Erro ao remover pessoa das diárias', {
+          description: e instanceof Error ? e.message : undefined,
+          variant: 'error',
+        });
+      } finally {
+        setActionBusy(false);
+      }
+    },
+    [week, isOwnerAdmin, notify, reload],
   );
 
   const handleOverrideDecision = useCallback(async (id: string, decision: 'approved' | 'rejected') => {
@@ -735,6 +787,11 @@ export default function DiariasPage() {
                     <th className="px-3 py-3 text-center text-xs font-medium uppercase tracking-wider text-ig-fg-muted">
                       Status
                     </th>
+                    {isOwnerAdmin && (
+                      <th className="w-12 px-2 py-3 text-center text-xs font-medium uppercase tracking-wider text-ig-fg-muted">
+                        Ações
+                      </th>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
@@ -747,6 +804,12 @@ export default function DiariasPage() {
                       >
                         <td className="px-4 py-2.5">
                           <p className="text-sm font-medium text-ig-fg-strong">{row.name}</p>
+                          {(row.jobTitle || row.tierLabel) && (
+                            <p className="text-[11px] text-ig-fg-muted">
+                              {row.jobTitle ?? 'Sem função cadastrada'}
+                              {row.tierLabel ? ` · faixa ${row.tierLabel}` : ''}
+                            </p>
+                          )}
                         </td>
                         <td className="px-3 py-2.5 text-xs text-ig-fg-muted">
                           {projectNames[row.projectId] ?? row.projectId}
@@ -787,6 +850,19 @@ export default function DiariasPage() {
                         <td className="px-3 py-2.5 text-center">
                           <HudBadge variant={st.variant}>{st.label}</HudBadge>
                         </td>
+                        {isOwnerAdmin && (
+                          <td className="px-2 py-2.5 text-center">
+                            <button
+                              type="button"
+                              title="Remover pessoa das diárias da semana"
+                              disabled={actionBusy}
+                              onClick={() => void handleRemovePerson(row)}
+                              className="rounded-md p-1.5 text-ig-fg-muted transition-colors hover:bg-ig-panel-hover hover:text-ig-danger disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              <UserMinus className="h-4 w-4" />
+                            </button>
+                          </td>
+                        )}
                       </tr>
                     );
                   })}
@@ -1055,6 +1131,7 @@ function PoliciesPanel() {
   const [projects, setProjects] = useState<Array<{ id: string; label: string }>>([]);
   const [geofences, setGeofences] = useState<ProjectGeofence[]>([]);
   const [showCreate, setShowCreate] = useState(false);
+  const [tiersPolicy, setTiersPolicy] = useState<AllowancePolicy | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
@@ -1129,7 +1206,7 @@ function PoliciesPanel() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-ig-border">
-                {['Política', 'Projeto', 'Valor', 'Escala', 'Deslocamento', 'Vigência', 'Status', ''].map((h) => (
+                {['Política', 'Projeto', 'Valor-base', 'Faixas por função', 'Escala', 'Deslocamento', 'Vigência', 'Status', ''].map((h) => (
                   <th
                     key={h}
                     className="px-3 py-3 text-left text-xs font-medium uppercase tracking-wider text-ig-fg-muted"
@@ -1150,6 +1227,19 @@ function PoliciesPanel() {
                       {formatCents(p.amountCents)}
                     </td>
                     <td className="px-3 py-2.5 text-xs text-ig-fg-muted">
+                      {p.tiers.length === 0 ? (
+                        <span className="text-ig-fg-subtle">Valor único</span>
+                      ) : (
+                        <div className="flex flex-wrap gap-1">
+                          {p.tiers.map((t) => (
+                            <HudBadge key={t.id} variant="info">
+                              {t.name} · {formatCents(t.amountCents)}
+                            </HudBadge>
+                          ))}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5 text-xs text-ig-fg-muted">
                       {SCHEDULE_MODE_LABELS[p.scheduleMode]}
                     </td>
                     <td className="px-3 py-2.5 text-xs text-ig-fg-muted">
@@ -1166,14 +1256,19 @@ function PoliciesPanel() {
                     </td>
                     <td className="px-3 py-2.5 text-right">
                       {canManage && (
-                        <HudButton
-                          size="sm"
-                          variant="ghost"
-                          disabled={busyId === p.id}
-                          onClick={() => void toggleStatus(p)}
-                        >
-                          {p.status === 'active' ? 'Desativar' : 'Ativar'}
-                        </HudButton>
+                        <div className="flex justify-end gap-1">
+                          <HudButton size="sm" variant="ghost" onClick={() => setTiersPolicy(p)}>
+                            Faixas
+                          </HudButton>
+                          <HudButton
+                            size="sm"
+                            variant="ghost"
+                            disabled={busyId === p.id}
+                            onClick={() => void toggleStatus(p)}
+                          >
+                            {p.status === 'active' ? 'Desativar' : 'Ativar'}
+                          </HudButton>
+                        </div>
                       )}
                     </td>
                   </tr>
@@ -1195,7 +1290,267 @@ function PoliciesPanel() {
           }}
         />
       )}
+
+      {tiersPolicy && (
+        <PolicyTiersModal
+          policy={tiersPolicy}
+          onClose={() => setTiersPolicy(null)}
+          onSaved={async () => {
+            setTiersPolicy(null);
+            await reload();
+          }}
+        />
+      )}
     </HudPanel>
+  );
+}
+
+/* ───────────────── faixas de valor por função ────────────────── */
+
+/** "120,00" → 12000; NaN quando inválido. */
+function parseAmountCents(value: string): number {
+  const n = Number(value.replace(/\./g, '').replace(',', '.'));
+  return Number.isFinite(n) ? Math.round(n * 100) : NaN;
+}
+function centsToInput(cents: number): string {
+  return (cents / 100).toFixed(2).replace('.', ',');
+}
+
+interface TierDraft {
+  key: string;
+  name: string;
+  /** valor em texto pt-BR ("120,00") */
+  amount: string;
+  /** funções separadas por vírgula */
+  keywords: string;
+}
+
+let tierKeySeq = 0;
+function newTierDraft(partial: Partial<TierDraft> = {}): TierDraft {
+  tierKeySeq += 1;
+  return {
+    key: `tier-${tierKeySeq}`,
+    name: '',
+    amount: '',
+    keywords: '',
+    ...partial,
+  };
+}
+
+/** Faixa de liderança sugerida: R$120 para cargos de chefia de campo. */
+function leadershipTierDraft(): TierDraft {
+  return newTierDraft({
+    name: LEADERSHIP_TIER_NAME,
+    amount: '120,00',
+    keywords: DEFAULT_LEADERSHIP_JOB_TITLES.join(', '),
+  });
+}
+
+function tierDraftsToInput(drafts: TierDraft[]) {
+  return drafts
+    .filter((t) => t.name.trim() && Number.isFinite(parseAmountCents(t.amount)))
+    .map((t, i) => ({
+      name: t.name.trim(),
+      amountCents: parseAmountCents(t.amount),
+      matchJobTitles: t.keywords.split(',').map((k) => k.trim()).filter(Boolean),
+      priority: (i + 1) * 10,
+    }));
+}
+
+/** Primeiro problema encontrado nas faixas, ou null. */
+function validateTierDrafts(drafts: TierDraft[]): string | null {
+  const seen = new Set<string>();
+  for (const t of drafts) {
+    if (!t.name.trim()) return 'Toda faixa precisa de um nome.';
+    const key = t.name.trim().toLowerCase();
+    if (seen.has(key)) return `Faixa duplicada: “${t.name.trim()}”.`;
+    seen.add(key);
+    const cents = parseAmountCents(t.amount);
+    if (!Number.isFinite(cents) || cents <= 0) return `Valor inválido na faixa “${t.name.trim()}”.`;
+    if (t.keywords.split(',').every((k) => !k.trim()))
+      return `Informe ao menos uma função para a faixa “${t.name.trim()}”.`;
+  }
+  return null;
+}
+
+/**
+ * Editor de faixas: cada faixa tem valor próprio e as funções
+ * (people.job_title) que a acionam. O motor casa por trecho, sem
+ * acento e sem caixa — "Encarregado de Turma" casa com "encarregado".
+ */
+function TierEditor({
+  tiers,
+  onChange,
+  baseAmountLabel,
+  disabled,
+}: {
+  tiers: TierDraft[];
+  onChange: (next: TierDraft[]) => void;
+  baseAmountLabel: string;
+  disabled?: boolean;
+}) {
+  function update(key: string, patch: Partial<TierDraft>) {
+    onChange(tiers.map((t) => (t.key === key ? { ...t, ...patch } : t)));
+  }
+
+  return (
+    <div className="space-y-3">
+      {tiers.length === 0 ? (
+        <p className="rounded-xl border border-dashed border-ig-border px-4 py-3 text-xs text-ig-fg-muted">
+          Sem faixas: todos recebem {baseAmountLabel}.
+        </p>
+      ) : (
+        tiers.map((tier, index) => (
+          <div
+            key={tier.key}
+            className="space-y-3 rounded-xl border border-ig-border bg-ig-panel/60 p-3"
+          >
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_10rem_auto] sm:items-end">
+              <HudInput
+                label={`Faixa ${index + 1}`}
+                placeholder="Ex.: Liderança"
+                value={tier.name}
+                disabled={disabled}
+                onChange={(e) => update(tier.key, { name: e.target.value })}
+              />
+              <HudInput
+                label="Valor"
+                inputMode="decimal"
+                leftIcon={<span className="text-xs font-semibold text-ig-fg-muted">R$</span>}
+                placeholder="120,00"
+                value={tier.amount}
+                disabled={disabled}
+                onChange={(e) => update(tier.key, { amount: e.target.value })}
+                error={
+                  tier.amount && !(parseAmountCents(tier.amount) > 0) ? 'Inválido' : undefined
+                }
+              />
+              <HudButton
+                size="sm"
+                variant="ghost"
+                disabled={disabled}
+                onClick={() => onChange(tiers.filter((t) => t.key !== tier.key))}
+              >
+                Remover
+              </HudButton>
+            </div>
+            <HudInput
+              label="Funções que recebem esta faixa"
+              placeholder="encarregado, supervisor, coordenador"
+              value={tier.keywords}
+              disabled={disabled}
+              onChange={(e) => update(tier.key, { keywords: e.target.value })}
+            />
+            <p className="text-[11px] text-ig-fg-muted">
+              Separe por vírgula. Casa por trecho da função cadastrada em Pessoas, ignorando
+              acentos e maiúsculas.
+            </p>
+          </div>
+        ))
+      )}
+
+      <div className="flex flex-wrap gap-2">
+        <HudButton
+          size="sm"
+          variant="ghost"
+          disabled={disabled}
+          onClick={() => onChange([...tiers, newTierDraft()])}
+        >
+          + Adicionar faixa
+        </HudButton>
+        {!tiers.some((t) => t.name.trim().toLowerCase() === LEADERSHIP_TIER_NAME.toLowerCase()) && (
+          <HudButton
+            size="sm"
+            variant="ghost"
+            disabled={disabled}
+            onClick={() => onChange([...tiers, leadershipTierDraft()])}
+          >
+            + Faixa de liderança (R$ 120,00)
+          </HudButton>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Edita as faixas de uma política já criada. */
+function PolicyTiersModal({
+  policy,
+  onClose,
+  onSaved,
+}: {
+  policy: AllowancePolicy;
+  onClose: () => void;
+  onSaved: () => Promise<void>;
+}) {
+  const { notify } = useHudToast();
+  const [tiers, setTiers] = useState<TierDraft[]>(() =>
+    policy.tiers.length > 0
+      ? policy.tiers.map((t) =>
+          newTierDraft({
+            name: t.name,
+            amount: centsToInput(t.amountCents),
+            keywords: t.matchJobTitles.join(', '),
+          }),
+        )
+      : [leadershipTierDraft()],
+  );
+  const [saving, setSaving] = useState(false);
+
+  async function handleSave() {
+    const problem = validateTierDrafts(tiers);
+    if (problem) {
+      notify(problem, { variant: 'warning' });
+      return;
+    }
+    setSaving(true);
+    try {
+      await replaceAllowancePolicyTiers(policy.id, tierDraftsToInput(tiers));
+      notify('Faixas atualizadas — recalcule a prévia para aplicar', { variant: 'success' });
+      await onSaved();
+    } catch (e) {
+      notify(e instanceof Error ? e.message : 'Erro ao salvar faixas', { variant: 'error' });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <HudModal
+      isOpen
+      onClose={onClose}
+      title={`Faixas · ${policy.name}`}
+      subtitle="Valor por função do colaborador"
+      size="lg"
+      footer={
+        <div className="flex w-full items-center justify-between gap-2">
+          <span className="text-xs text-ig-fg-muted">
+            Demais funções: {formatCents(policy.amountCents)}
+          </span>
+          <div className="flex gap-2">
+            <HudButton variant="ghost" onClick={onClose}>
+              Cancelar
+            </HudButton>
+            <HudButton variant="primary" onClick={() => void handleSave()} disabled={saving}>
+              {saving ? 'Salvando…' : 'Salvar faixas'}
+            </HudButton>
+          </div>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        <p className="text-xs text-ig-fg-muted">
+          A diária é resolvida automaticamente pela função cadastrada da pessoa. Quem não casar com
+          nenhuma faixa recebe o valor-base da política ({formatCents(policy.amountCents)}).
+        </p>
+        <TierEditor
+          tiers={tiers}
+          onChange={setTiers}
+          baseAmountLabel={formatCents(policy.amountCents)}
+          disabled={saving}
+        />
+      </div>
+    </HudModal>
   );
 }
 
@@ -1217,7 +1572,8 @@ function PolicyCreateModal({
   const [name, setName] = useState('');
   const [projectId, setProjectId] = useState(ALL_PROJECTS);
   const [geofenceId, setGeofenceId] = useState(NO_GEOFENCE);
-  const [amount, setAmount] = useState('45,00');
+  const [amount, setAmount] = useState('90,00');
+  const [tiers, setTiers] = useState<TierDraft[]>(() => [leadershipTierDraft()]);
   const [effectiveFrom, setEffectiveFrom] = useState(today);
   const [scheduleMode, setScheduleMode] = useState<ScheduleMode>('derived');
   const [travelEligibilityMode, setTravelEligibilityMode] = useState<TravelEligibilityMode>('different_municipality');
@@ -1227,10 +1583,7 @@ function PolicyCreateModal({
   const [saving, setSaving] = useState(false);
 
   const projectGeofences = geofences.filter((g) => g.projectId === projectId);
-  const amountCents = (() => {
-    const n = Number(amount.replace(/\./g, '').replace(',', '.'));
-    return Number.isFinite(n) ? Math.round(n * 100) : NaN;
-  })();
+  const amountCents = parseAmountCents(amount);
   const amountValid = Number.isFinite(amountCents) && amountCents > 0;
 
   async function handleSave() {
@@ -1242,6 +1595,11 @@ function PolicyCreateModal({
       notify('Valor inválido', { variant: 'warning' });
       return;
     }
+    const tierProblem = validateTierDrafts(tiers);
+    if (tierProblem) {
+      notify(tierProblem, { variant: 'warning' });
+      return;
+    }
     setSaving(true);
     try {
       await createAllowancePolicy({
@@ -1249,6 +1607,7 @@ function PolicyCreateModal({
         projectId: projectId === ALL_PROJECTS ? null : projectId,
         geofenceId: geofenceId === NO_GEOFENCE ? null : geofenceId,
         amountCents,
+        tiers: tierDraftsToInput(tiers),
         effectiveFrom,
         scheduleMode,
         travelEligibilityMode,
@@ -1276,6 +1635,7 @@ function PolicyCreateModal({
         <div className="flex w-full items-center justify-between gap-2">
           <span className="text-xs text-ig-fg-muted">
             {amountValid ? formatCents(amountCents) : '—'} · {SCHEDULE_MODE_LABELS[scheduleMode]}
+            {tiers.length > 0 ? ` · ${tiers.length} faixa(s)` : ''}
           </span>
           <div className="flex gap-2">
             <HudButton variant="ghost" onClick={onClose}>
@@ -1346,9 +1706,25 @@ function PolicyCreateModal({
             onChange={(v) => setTravelEligibilityMode(v as TravelEligibilityMode)}
             options={Object.entries(TRAVEL_ELIGIBILITY_MODE_LABELS).map(([value, label]) => ({ value, label }))}
           />
-          <div className="flex flex-wrap gap-5 text-sm text-ig-fg-muted">
-            <label className="flex items-center gap-2"><input type="checkbox" checked={residenceRequired} onChange={(e) => setResidenceRequired(e.target.checked)} /> Residência validada obrigatória</label>
-            <label className="flex items-center gap-2"><input type="checkbox" checked={serviceRequired} onChange={(e) => setServiceRequired(e.target.checked)} /> Município do serviço obrigatório</label>
+          <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm text-ig-fg-muted">
+            <label className="flex cursor-pointer items-center gap-2">
+              <input
+                type="checkbox"
+                className="h-4 w-4 shrink-0 cursor-pointer accent-[var(--ig-accent)]"
+                checked={residenceRequired}
+                onChange={(e) => setResidenceRequired(e.target.checked)}
+              />
+              Residência validada obrigatória
+            </label>
+            <label className="flex cursor-pointer items-center gap-2">
+              <input
+                type="checkbox"
+                className="h-4 w-4 shrink-0 cursor-pointer accent-[var(--ig-accent)]"
+                checked={serviceRequired}
+                onChange={(e) => setServiceRequired(e.target.checked)}
+              />
+              Município do serviço obrigatório
+            </label>
           </div>
         </section>
 
@@ -1359,12 +1735,12 @@ function PolicyCreateModal({
           </p>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <HudInput
-              label="Valor da diária"
+              label="Valor-base (demais funções)"
               inputMode="decimal"
               leftIcon={<span className="text-xs font-semibold text-ig-fg-muted">R$</span>}
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
-              placeholder="45,00"
+              placeholder="90,00"
               error={amount && !amountValid ? 'Valor inválido' : undefined}
             />
             <HudInput
@@ -1374,6 +1750,23 @@ function PolicyCreateModal({
               onChange={(e) => setEffectiveFrom(e.target.value)}
             />
           </div>
+        </section>
+
+        {/* Faixas por função */}
+        <section className="space-y-3">
+          <p className="text-[11px] font-medium uppercase tracking-wider text-ig-fg-muted">
+            Faixas por função
+          </p>
+          <p className="text-xs text-ig-fg-muted">
+            O valor de cada dia é resolvido automaticamente pela função cadastrada do colaborador
+            em Pessoas. Sem faixa correspondente, vale o valor-base.
+          </p>
+          <TierEditor
+            tiers={tiers}
+            onChange={setTiers}
+            baseAmountLabel={amountValid ? formatCents(amountCents) : 'o valor-base'}
+            disabled={saving}
+          />
         </section>
 
         {/* Regras */}

@@ -54,8 +54,8 @@ export function FinanceFilterBar({
         <span data-ig-specular="" />
         <span data-ig-sweep="" />
         <div data-ig-content="" className="px-3 py-2.5 sm:px-4 sm:py-3">
-          <div className="flex w-full min-w-0 flex-col gap-2.5 sm:flex-row sm:items-start sm:gap-2">
-            <div className="flex min-w-0 w-full flex-1 flex-wrap items-stretch gap-2">
+          <div className="flex w-full min-w-0 flex-col gap-2.5 2xl:flex-row 2xl:items-center 2xl:gap-3">
+            <div className="flex w-full min-w-0 flex-1 flex-wrap items-stretch gap-2">
               {renderPeriod && (
                 <FinanceFilterChip
                   icon={<CalendarRange className="h-3.5 w-3.5 shrink-0" />}
@@ -82,7 +82,7 @@ export function FinanceFilterBar({
             </div>
 
             {rightSlot && (
-              <div className="flex w-full shrink-0 flex-wrap items-center gap-2 lg:w-auto lg:justify-end [&_>_button]:h-9 [&_>_button]:min-w-0 [&_>_button]:flex-1 sm:[&_>_button]:flex-none">
+              <div className="grid w-full shrink-0 grid-cols-1 items-center gap-2 sm:grid-cols-3 2xl:flex 2xl:w-auto 2xl:justify-end [&_>_button]:h-9 [&_>_button]:min-w-0 [&_>_button]:w-full [&_>_button]:whitespace-nowrap 2xl:[&_>_button]:w-auto">
                 {rightSlot}
               </div>
             )}
@@ -199,13 +199,14 @@ export interface FinanceFilterDateFieldProps {
   label: string;
   value: string;
   onChange: (value: string) => void;
+  className?: string;
 }
 
 export function FinanceFilterDateField({
-  icon, label, value, onChange,
+  icon, label, value, onChange, className,
 }: FinanceFilterDateFieldProps) {
   return (
-    <label className={cn(FILTER_CHIP_SHELL, 'cursor-pointer')}>
+    <label className={cn(FILTER_CHIP_SHELL, 'cursor-pointer', className)}>
       <span className={FILTER_CHIP_LABEL}>
         {icon}
         {label}

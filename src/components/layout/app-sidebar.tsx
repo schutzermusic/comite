@@ -20,6 +20,7 @@ import {
   CreditCard,
   Cuboid,
   FileBadge,
+  ScanFace,
   FileCheck,
   FileSpreadsheet,
   FileText,
@@ -37,6 +38,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   PieChart,
+  Presentation,
   Receipt,
   Settings,
   Shield,
@@ -134,6 +136,7 @@ const navigationItems: MenuItem[] = [
     permission: "finance.view",
     subItems: [
       { href: "/financeiro/control-room", label: "Control Room", icon: Gauge },
+      { href: "/financeiro/projecao-financeira", label: "Projeção Financeira", icon: Presentation },
       { href: "/financeiro/analise-custos", label: "Análise de Custos", icon: Coins },
       { href: "/financeiro/dre-gerencial", label: "DRE / P&L Gerencial", icon: LineChart },
       { href: "/financeiro/forecast-cenarios", label: "Forecast & Cenários", icon: SlidersHorizontal },
@@ -171,19 +174,9 @@ const navigationItems: MenuItem[] = [
     section: "main",
     permission: "people.view",
     subItems: [
+      // 1. Panorama
       { href: "/workforce-cost", label: "Visão Geral", icon: Users },
-      {
-        href: "/workforce-cost/fechamento-folha",
-        label: "Fechamento da Folha",
-        icon: FileSpreadsheet,
-        anyPermission: ["people.payroll_close", "people.payroll_send", "people.payroll_send_sensitive"],
-      },
-      {
-        href: "/workforce-cost/capacidade",
-        label: "Capacidade e Alocação",
-        icon: Gauge,
-        anyPermission: ["people.allocations_view", "people.allocations_manage"],
-      },
+      // 2. Cadastro e planejamento da força de trabalho
       {
         href: "/workforce-cost/pessoas",
         label: "Pessoas",
@@ -191,10 +184,36 @@ const navigationItems: MenuItem[] = [
         anyPermission: ["people.manage", "people.allocations_view"],
       },
       {
+        href: "/workforce-cost/capacidade",
+        label: "Capacidade e Alocação",
+        icon: Gauge,
+        anyPermission: ["people.allocations_view", "people.allocations_manage"],
+      },
+      // 3. Execução: jornada e captura de ponto
+      {
         href: "/workforce-cost/jornada",
         label: "Jornada",
         icon: Clock,
-        anyPermission: ["people.attendance_use", "people.attendance_view", "people.attendance_manage"],
+        anyPermission: ["people.attendance_view", "people.attendance_manage"],
+      },
+      {
+        href: "/workforce-cost/geofences",
+        label: "Geofences",
+        icon: MapPin,
+        anyPermission: ["people.geofence_manage", "people.attendance_view"],
+      },
+      {
+        href: "/workforce-cost/ponto-revisao",
+        label: "Revisão de Ponto",
+        icon: ScanFace,
+        permission: "people.attendance_manage",
+      },
+      // 4. Validação e apuração
+      {
+        href: "/workforce-cost/aprovacoes",
+        label: "Aprovações de Horas",
+        icon: CheckSquare,
+        permission: "people.timesheet_approve",
       },
       {
         href: "/workforce-cost/diarias",
@@ -202,12 +221,7 @@ const navigationItems: MenuItem[] = [
         icon: UtensilsCrossed,
         anyPermission: ["allowances.view", "allowances.manage"],
       },
-      {
-        href: "/workforce-cost/aprovacoes",
-        label: "Aprovações de Horas",
-        icon: CheckSquare,
-        permission: "people.timesheet_approve",
-      },
+      // 5. Custo, controle e análise
       {
         href: "/workforce-cost/custos",
         label: "Custo de MO",
@@ -226,17 +240,18 @@ const navigationItems: MenuItem[] = [
         icon: BrainCircuit,
         anyPermission: ["people.allocations_view", "people.ai_insights"],
       },
-      {
-        href: "/workforce-cost/geofences",
-        label: "Geofences",
-        icon: MapPin,
-        anyPermission: ["people.geofence_manage", "people.attendance_view"],
-      },
+      // 6. Conformidade legal e fechamento (fim do ciclo)
       {
         href: "/workforce-cost/ponto-oficial",
         label: "Ponto Oficial (REP-P)",
         icon: FileBadge,
         permission: "people.rep_manage",
+      },
+      {
+        href: "/workforce-cost/fechamento-folha",
+        label: "Fechamento da Folha",
+        icon: FileSpreadsheet,
+        anyPermission: ["people.payroll_close", "people.payroll_send", "people.payroll_send_sensitive"],
       },
     ],
   },

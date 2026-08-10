@@ -99,6 +99,8 @@ export interface PersonProjectAllocation {
   source: AllocationSource;
   costCenterId: string | null;
   justification: string | null;
+  /** exige registro de ponto (dispara provisionamento de acesso) */
+  requiresPonto: boolean;
   requestedBy: string | null;
   approvedBy: string | null;
   approvedAt: string | null;
@@ -191,6 +193,8 @@ export interface TimeEntry {
   createdAt: string;
   updatedAt: string;
   person?: Person;
+  /** Etapa do cronograma escolhida pelo colaborador no app de Ponto. */
+  timelineItem?: { title: string; wbsCode: string | null };
 }
 
 /* ──────────────── Geofence (migration 050) ──────────────────── */

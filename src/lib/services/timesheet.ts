@@ -96,6 +96,7 @@ type EntryRow = {
   created_at: string;
   updated_at: string;
   people?: PersonRow | null;
+  project_timeline_items?: { title: string; wbs_code: string | null } | null;
 };
 
 function mapEntryRow(row: EntryRow): TimeEntry {
@@ -122,10 +123,14 @@ function mapEntryRow(row: EntryRow): TimeEntry {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     person: row.people ? mapPersonRow(row.people) : undefined,
+    timelineItem: row.project_timeline_items
+      ? { title: row.project_timeline_items.title, wbsCode: row.project_timeline_items.wbs_code }
+      : undefined,
   };
 }
 
-const ENTRY_SELECT_WITH_PERSON = '*, people(*)';
+const ENTRY_SELECT_WITH_PERSON =
+  '*, people(*), project_timeline_items:timeline_item_id ( title, wbs_code )';
 
 /* ─────────────────────────────────────────────────────────────
    Timer (work sessions)
@@ -259,8 +264,8 @@ export async function listMyDraftSessions(): Promise<ProjectWorkSession[]> {
 
 /* ─────────────────────────────────────────────────────────────
    Consolidation — draft sessions -> one time_entry per
-   person/project/local day. Sessions crossing midnight are
-   attributed to the day they STARTED (local), documented behavior.
+   person/project/local day/timeline item. Sessions crossing midnight
+   are attributed to the day they STARTED (local), documented behavior.
    ───────────────────────────────────────────────────────────── */
 
 function localDateOf(isoTimestamp: string): string {
@@ -271,6 +276,40 @@ function localDateOf(isoTimestamp: string): string {
   return `${y}-${m}-${day}`;
 }
 
+export interface ConsolidationGroup {
+  projectId: string;
+  workDate: string;
+  /** Etapa do cronograma escolhida no app de Ponto; null = sem etapa. */
+  timelineItemId: string | null;
+  sessions: ProjectWorkSession[];
+}
+
+/**
+ * Agrupa as sessões por projeto + dia local + ETAPA do cronograma.
+ *
+ * A etapa faz parte da chave de propósito: sem ela, duas etapas
+ * trabalhadas no mesmo dia colapsariam num único apontamento atribuído à
+ * primeira — e o projeto perderia a informação de onde as horas foram
+ * realmente aplicadas, que é justamente o que o colaborador escolheu no
+ * app de Ponto.
+ *
+ * Função pura, exportada para teste.
+ */
+export function groupSessionsForConsolidation(
+  sessions: readonly ProjectWorkSession[],
+): ConsolidationGroup[] {
+  const groups = new Map<string, ConsolidationGroup>();
+  for (const session of sessions) {
+    const workDate = localDateOf(session.startedAt);
+    const timelineItemId = session.timelineItemId ?? null;
+    const key = `${session.projectId}|${workDate}|${timelineItemId ?? ''}`;
+    const existing = groups.get(key);
+    if (existing) existing.sessions.push(session);
+    else groups.set(key, { projectId: session.projectId, workDate, timelineItemId, sessions: [session] });
+  }
+  return Array.from(groups.values());
+}
+
 export async function consolidateMySessions(): Promise<TimeEntry[]> {
   const supabase = createClient();
   const { userId, orgId } = await getCurrentOrgAndUser(supabase);
@@ -278,18 +317,8 @@ export async function consolidateMySessions(): Promise<TimeEntry[]> {
   const sessions = await listMyDraftSessions();
   if (sessions.length === 0) return [];
 
-  // group by project + local start day
-  const groups = new Map<string, ProjectWorkSession[]>();
-  for (const s of sessions) {
-    const key = `${s.projectId}|${localDateOf(s.startedAt)}`;
-    const list = groups.get(key) ?? [];
-    list.push(s);
-    groups.set(key, list);
-  }
-
   const entries: TimeEntry[] = [];
-  for (const [key, group] of groups) {
-    const [projectId, workDate] = key.split('|');
+  for (const { projectId, workDate, timelineItemId, sessions: group } of groupSessionsForConsolidation(sessions)) {
     const minutes = Math.min(
       1440,
       group.reduce((sum, s) => sum + (s.durationMinutes ?? 0), 0),
@@ -308,7 +337,7 @@ export async function consolidateMySessions(): Promise<TimeEntry[]> {
         person_id: person.id,
         project_id: projectId,
         allocation_id: group[0].allocationId,
-        timeline_item_id: group[0].timelineItemId,
+        timeline_item_id: timelineItemId,
         work_date: workDate,
         minutes,
         description: description || null,

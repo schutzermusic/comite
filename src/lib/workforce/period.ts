@@ -625,17 +625,31 @@ export interface WorkforceTrendPoint {
   avgCost: number;
 }
 
+const WORKFORCE_CHART_MONTHS = 2;
+
+/**
+ * Keep every time-series chart aligned to the two most recent competence
+ * months ending at the selected period. A single-month selection therefore
+ * includes its immediately preceding month, while longer ranges are capped.
+ */
+function selectRecentChartRows(
+  selection: WorkforcePeriodSelection,
+  seriesOverride?: WorkforceMonthlyRecord[],
+): WorkforceMonthlyRecord[] {
+  const series = seriesOverride ?? getWorkforceMonthlySeries();
+  const range = resolvePeriodRange(selection, series);
+  const anchor = range.current[range.current.length - 1] ?? series[series.length - 1];
+  const endIdx = series.findIndex((r) => r.competenceMonth === anchor.competenceMonth);
+  const safeEndIdx = endIdx >= 0 ? endIdx : series.length - 1;
+  return series.slice(
+    Math.max(0, safeEndIdx - (WORKFORCE_CHART_MONTHS - 1)),
+    safeEndIdx + 1,
+  );
+}
+
 /** Trend chart series scoped to the selected window. */
 export function selectWorkforceTrend(selection: WorkforcePeriodSelection, seriesOverride?: WorkforceMonthlyRecord[]): WorkforceTrendPoint[] {
-  const range = resolvePeriodRange(selection, seriesOverride);
-  // For a single-month selection the chart is uninformative; show the trailing
-  // 12 months ending at that month instead so the trend stays meaningful.
-  let rows = range.current;
-  if (rows.length < 2) {
-    const series = seriesOverride ?? getWorkforceMonthlySeries();
-    const endIdx = series.findIndex((r) => r.competenceMonth === rows[0].competenceMonth);
-    rows = series.slice(Math.max(0, endIdx - 11), endIdx + 1);
-  }
+  const rows = selectRecentChartRows(selection, seriesOverride);
   return rows.map((r) => ({
     period: monthLabel(r.competenceMonth),
     payroll: r.payroll,
@@ -668,13 +682,7 @@ export function selectPayrollComposition(
   selection: WorkforcePeriodSelection,
   seriesOverride?: WorkforceMonthlyRecord[],
 ): PayrollCompositionPoint[] {
-  const range = resolvePeriodRange(selection, seriesOverride);
-  const series = seriesOverride ?? getWorkforceMonthlySeries();
-  let rows = range.current;
-  if (rows.length < 2) {
-    const endIdx = series.findIndex((r) => r.competenceMonth === rows[0].competenceMonth);
-    rows = series.slice(Math.max(0, endIdx - 11), endIdx + 1);
-  }
+  const rows = selectRecentChartRows(selection, seriesOverride);
   return rows.map((r, i) => {
     const { salaryPct, benefitsPct, chargesPct } = compositionFactors(i);
     return {
@@ -698,10 +706,13 @@ export function selectPayrollSCurve(
   selection: WorkforcePeriodSelection,
   seriesOverride?: WorkforceMonthlyRecord[],
 ): SCurvePoint[] {
-  const range = resolvePeriodRange(selection, seriesOverride);
-  const curRows = range.current;
-  const prevRows = range.previous;
-  const maxLen = Math.max(curRows.length, prevRows.length);
+  const series = seriesOverride ?? getWorkforceMonthlySeries();
+  const curRows = selectRecentChartRows(selection, series);
+  const firstIdx = series.findIndex((r) => r.competenceMonth === curRows[0]?.competenceMonth);
+  const prevRows = firstIdx > 0
+    ? series.slice(Math.max(0, firstIdx - WORKFORCE_CHART_MONTHS), firstIdx)
+    : [];
+  const maxLen = curRows.length;
   let cumCur = 0;
   let cumPrev = 0;
   const result: SCurvePoint[] = [];
@@ -733,13 +744,7 @@ export function selectPayrollVsRevenue(
   selection: WorkforcePeriodSelection,
   seriesOverride?: WorkforceMonthlyRecord[],
 ): PayrollVsRevenuePoint[] {
-  const range = resolvePeriodRange(selection, seriesOverride);
-  const series = seriesOverride ?? getWorkforceMonthlySeries();
-  let rows = range.current;
-  if (rows.length < 2) {
-    const endIdx = series.findIndex((r) => r.competenceMonth === rows[0].competenceMonth);
-    rows = series.slice(Math.max(0, endIdx - 11), endIdx + 1);
-  }
+  const rows = selectRecentChartRows(selection, seriesOverride);
   return rows.map((r) => ({
     period: monthLabel(r.competenceMonth),
     payroll: r.payroll,
@@ -776,13 +781,7 @@ export function selectBenefitsByType(
   selection: WorkforcePeriodSelection,
   seriesOverride?: WorkforceMonthlyRecord[],
 ): BenefitTypePoint[] {
-  const range = resolvePeriodRange(selection, seriesOverride);
-  const series = seriesOverride ?? getWorkforceMonthlySeries();
-  let rows = range.current;
-  if (rows.length < 2) {
-    const endIdx = series.findIndex((r) => r.competenceMonth === rows[0].competenceMonth);
-    rows = series.slice(Math.max(0, endIdx - 11), endIdx + 1);
-  }
+  const rows = selectRecentChartRows(selection, seriesOverride);
   return rows.map((r, i) => {
     const { benefitsPct } = compositionFactors(i);
     return { period: monthLabel(r.competenceMonth), ...benefitSplit(r.payroll * benefitsPct, i) };
@@ -802,13 +801,8 @@ export function selectAdmissionsVsDismissals(
   selection: WorkforcePeriodSelection,
   seriesOverride?: WorkforceMonthlyRecord[],
 ): AdmissionDismissalPoint[] {
-  const range = resolvePeriodRange(selection, seriesOverride);
   const series = seriesOverride ?? getWorkforceMonthlySeries();
-  let rows = range.current;
-  if (rows.length < 2) {
-    const endIdx = series.findIndex((r) => r.competenceMonth === rows[0].competenceMonth);
-    rows = series.slice(Math.max(0, endIdx - 11), endIdx + 1);
-  }
+  const rows = selectRecentChartRows(selection, series);
   return rows.map((r, i) => {
     const globalIdx = series.findIndex((s) => s.competenceMonth === r.competenceMonth);
     const prev = globalIdx > 0 ? series[globalIdx - 1] : null;
@@ -831,13 +825,8 @@ export function selectTurnoverTrend(
   selection: WorkforcePeriodSelection,
   seriesOverride?: WorkforceMonthlyRecord[],
 ): TurnoverPoint[] {
-  const range = resolvePeriodRange(selection, seriesOverride);
   const series = seriesOverride ?? getWorkforceMonthlySeries();
-  let rows = range.current;
-  if (rows.length < 2) {
-    const endIdx = series.findIndex((r) => r.competenceMonth === rows[0].competenceMonth);
-    rows = series.slice(Math.max(0, endIdx - 11), endIdx + 1);
-  }
+  const rows = selectRecentChartRows(selection, series);
   const adm = selectAdmissionsVsDismissals(selection, seriesOverride);
   return adm.map((d, i) => {
     const headcount = i < rows.length ? rows[i].headcount : 0;
@@ -887,13 +876,7 @@ export function selectOvertimeTrend(
   selection: WorkforcePeriodSelection,
   seriesOverride?: WorkforceMonthlyRecord[],
 ): OvertimePoint[] {
-  const range = resolvePeriodRange(selection, seriesOverride);
-  const series = seriesOverride ?? getWorkforceMonthlySeries();
-  let rows = range.current;
-  if (rows.length < 2) {
-    const endIdx = series.findIndex((r) => r.competenceMonth === rows[0].competenceMonth);
-    rows = series.slice(Math.max(0, endIdx - 11), endIdx + 1);
-  }
+  const rows = selectRecentChartRows(selection, seriesOverride);
   return rows.map((r, i) => ({
     period: monthLabel(r.competenceMonth),
     overtimePct: Number((8.5 + 3.2 * Math.sin(i * 0.7) + 1.5 * Math.cos(i * 1.1)).toFixed(1)),
@@ -915,13 +898,7 @@ export function selectWorkforceEfficiency(
   selection: WorkforcePeriodSelection,
   seriesOverride?: WorkforceMonthlyRecord[],
 ): EfficiencyPoint[] {
-  const range = resolvePeriodRange(selection, seriesOverride);
-  const series = seriesOverride ?? getWorkforceMonthlySeries();
-  let rows = range.current;
-  if (rows.length < 2) {
-    const endIdx = series.findIndex((r) => r.competenceMonth === rows[0].competenceMonth);
-    rows = series.slice(Math.max(0, endIdx - 11), endIdx + 1);
-  }
+  const rows = selectRecentChartRows(selection, seriesOverride);
   return rows.map((r) => ({
     period: monthLabel(r.competenceMonth),
     revenuePerEmployee: r.headcount > 0 && r.revenue > 0 ? Math.round(r.revenue / r.headcount) : 0,

@@ -190,7 +190,15 @@ export function buildAllowanceReportHtml(payload: AllowanceReportPayload): strin
   }
 
   // ── diárias por colaborador ──
-  type Agg = { name: string; projectId: string; days: number; cents: number; klass: string };
+  type Agg = {
+    name: string;
+    projectId: string;
+    days: number;
+    cents: number;
+    klass: string;
+    /** faixa de valor aplicada pelo motor (função do colaborador) */
+    tier: string;
+  };
   const byPerson = new Map<string, Agg>();
   for (const d of counted) {
     const agg = byPerson.get(d.personId) ?? {
@@ -199,6 +207,7 @@ export function buildAllowanceReportHtml(payload: AllowanceReportPayload): strin
       days: 0,
       cents: 0,
       klass: 'eligible',
+      tier: d.tierLabel ?? 'Base',
     };
     agg.days += 1;
     agg.cents += d.amountCents;
@@ -213,6 +222,7 @@ export function buildAllowanceReportHtml(payload: AllowanceReportPayload): strin
           [
             { key: 'name', label: 'Colaborador' },
             { key: 'proj', label: 'Projeto' },
+            { key: 'tier', label: 'Faixa' },
             { key: 'days', label: 'Diárias', num: true },
             { key: 'value', label: 'Valor', num: true },
             { key: 'status', label: 'Situação' },
@@ -220,6 +230,7 @@ export function buildAllowanceReportHtml(payload: AllowanceReportPayload): strin
           personRows.map((r) => ({
             name: r.name,
             proj: proj(r.projectId),
+            tier: r.tier,
             days: { html: `<span class="mono">${fmtInt(r.days)}</span>` },
             value: { html: `<span class="mono">${esc(BRL(cents(r.cents)))}</span>` },
             status: {

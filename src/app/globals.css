@@ -1,5 +1,6 @@
 @import "../styles/tokens.css";
 @import "../styles/glass.css";
+@import "../styles/ponto-theme.css";
 
 @tailwind base;
 @tailwind components;
@@ -6693,4 +6694,100 @@ html.light .orgchart-stage-surface::before {
 }
 .light .client-logo-img {
   mix-blend-mode: multiply;
+}
+/* ── Projeção financeira: campos da grade mensal ── */
+.investor-projection-field {
+  color-scheme: dark;
+  background-color: color-mix(in srgb, var(--ig-bg-overlay) 86%, transparent);
+  border-color: var(--ig-border-default);
+  color: var(--ig-fg-strong);
+  -webkit-text-fill-color: var(--ig-fg-strong);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 3.5%),
+    0 1px 2px rgb(0 0 0 / 18%);
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.investor-projection-field::placeholder {
+  color: var(--ig-fg-subtle);
+  opacity: 1;
+}
+
+.investor-projection-field:hover:not(:disabled) {
+  background-color: color-mix(in srgb, var(--ig-bg-overlay) 96%, var(--ig-accent-weak));
+  border-color: var(--ig-border-strong);
+}
+
+.investor-projection-field:focus {
+  outline: none;
+  background-color: var(--ig-bg-overlay);
+  border-color: var(--ig-border-focus);
+  box-shadow: var(--ig-focus-ring-outer), var(--ig-focus-ring-inner);
+}
+
+.investor-projection-field:disabled {
+  cursor: not-allowed;
+  background-color: color-mix(in srgb, var(--ig-bg-base) 82%, transparent);
+  border-color: var(--ig-border-subtle);
+  color: var(--ig-fg-muted);
+  -webkit-text-fill-color: var(--ig-fg-muted);
+  opacity: 1;
+}
+
+.investor-projection-field[type="month"]::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+  opacity: 0.65;
+}
+
+html.light .investor-projection-field {
+  color-scheme: light;
+  background-color: #fff;
+  border-color: var(--ig-border-default);
+  color: var(--ig-fg-strong);
+  -webkit-text-fill-color: var(--ig-fg-strong);
+  box-shadow: 0 1px 2px rgb(15 23 42 / 4%);
+}
+
+html.light .investor-projection-field:hover:not(:disabled) {
+  background-color: #f8fafc;
+  border-color: var(--ig-border-strong);
+}
+
+html.light .investor-projection-field:focus {
+  background-color: #fff;
+}
+
+html.light .investor-projection-field:disabled {
+  background-color: #eef2f6;
+  border-color: var(--ig-border-subtle);
+  color: var(--ig-fg-muted);
+  -webkit-text-fill-color: var(--ig-fg-muted);
+}
+
+html.light .investor-projection-field[type="month"]::-webkit-calendar-picker-indicator {
+  filter: none;
+}
+
+/* Mesma coluna, cor distinta: valores projetados (não realizados) */
+.investor-projection-field--forecast,
+.investor-projection-field--forecast:disabled,
+html.light .investor-projection-field--forecast,
+html.light .investor-projection-field--forecast:disabled {
+  color: var(--ig-accent);
+  -webkit-text-fill-color: var(--ig-accent);
+  border-color: color-mix(in srgb, var(--ig-accent) 45%, transparent);
+  background-color: color-mix(in srgb, var(--ig-accent) 8%, transparent);
+}
+
+html.light .investor-projection-field--forecast,
+html.light .investor-projection-field--forecast:disabled {
+  background-color: color-mix(in srgb, var(--ig-accent) 6%, #fff);
+}
+
+.investor-projection-field--forecast:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--ig-accent) 70%, transparent);
+  background-color: color-mix(in srgb, var(--ig-accent) 14%, transparent);
 }

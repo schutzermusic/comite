@@ -156,11 +156,16 @@ interface TipState { x: number; y: number; html: React.ReactNode }
 
 function Tooltip({ tip, theme }: { tip: TipState | null; theme: ReturnType<typeof useChartTheme> }) {
   if (!tip) return null;
+  const placeBelow = tip.y < 72;
   return (
     <div
       className="pointer-events-none absolute z-30 px-2.5 py-1.5 rounded-lg border text-[11px] backdrop-blur-md"
       style={{
-        left: tip.x, top: tip.y, transform: 'translate(-50%, calc(-100% - 8px))',
+        left: tip.x,
+        top: tip.y,
+        transform: placeBelow
+          ? 'translate(-50%, 10px)'
+          : 'translate(-50%, calc(-100% - 8px))',
         background: theme.panelTip, borderColor: 'rgba(255,255,255,0.10)',
         boxShadow: '0 18px 40px -20px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.04) inset',
         color: theme.textStrong,
@@ -175,7 +180,13 @@ function Tooltip({ tip, theme }: { tip: TipState | null; theme: ReturnType<typeo
 /* LINE / AREA                                                      */
 /* --------------------------------------------------------------- */
 
-export interface LineSeries { name: string; data: number[]; tone?: Tone }
+export interface LineSeries {
+  name: string;
+  data: number[];
+  tone?: Tone;
+  startIndex?: number;
+  endIndex?: number;
+}
 
 export function FinanceLineChart({
   categories, series, height = 240,
@@ -192,7 +203,8 @@ export function FinanceLineChart({
 
   const allValues = series.flatMap((s) => s.data);
   const min = Math.min(0, ...allValues);
-  const max = Math.max(...allValues, 1);
+  const dataMax = Math.max(...allValues, 1);
+  const max = dataMax * 1.08;
   const range = max - min || 1;
   const xStep = innerW / Math.max(1, categories.length - 1);
   const yScale = (v: number) => padT + innerH - ((v - min) / range) * innerH;
@@ -221,18 +233,24 @@ export function FinanceLineChart({
 
         {series.map((s, idx) => {
           const tone = s.tone || (['accent', 'info', 'success', 'warning'] as Tone[])[idx % 4];
-          const pts = s.data.map((v, i) => [padL + i * xStep, yScale(v)] as [number, number]);
+          const firstIndex = Math.max(0, Math.min(s.startIndex ?? 0, s.data.length));
+          const lastIndex = Math.max(firstIndex, Math.min(s.endIndex ?? s.data.length - 1, s.data.length - 1));
+          const indexedPoints = s.data
+            .map((v, i) => [padL + i * xStep, yScale(v), i] as [number, number, number])
+            .slice(firstIndex, lastIndex + 1);
+          const pts = indexedPoints.map(([x, y]) => [x, y] as [number, number]);
+          if (!pts.length) return null;
           const path = smoothPath(pts);
           const areaPath = `${path} L ${pts[pts.length - 1][0]},${H - padB} L ${pts[0][0]},${H - padB} Z`;
           return (
             <g key={s.name}>
               {idx === 0 && <path d={areaPath} fill={`url(#fill-${tone}-${uid})`} />}
               <path d={path} fill="none" stroke={`url(#stroke-${tone}-${uid})`} strokeWidth={1.8} strokeLinecap="round" filter={`url(#softglow-${uid})`} />
-              {pts.map(([px, py], i) => (
+              {indexedPoints.map(([px, py, pointIndex]) => (
                 <circle
-                  key={i} cx={px} cy={py} r={3.2}
+                  key={pointIndex} cx={px} cy={py} r={3.2}
                   fill={theme.palette[tone]} stroke="rgba(255,255,255,0.6)" strokeWidth={1}
-                  onMouseEnter={() => setTip({ x: px, y: py, html: <span><b>{s.name}</b> · {categories[i]} · <span style={{ fontFamily: FONT_FAMILY_SANS }}>{fmtBRL(s.data[i])}</span></span> })}
+                  onMouseEnter={() => setTip({ x: px, y: py, html: <span><b>{s.name}</b> · {categories[pointIndex]} · <span style={{ fontFamily: FONT_FAMILY_SANS }}>{fmtBRL(s.data[pointIndex])}</span></span> })}
                   onMouseLeave={() => setTip(null)}
                 />
               ))}
@@ -261,7 +279,14 @@ export function FinanceLineChart({
 /* S-CURVE — cumulative line                                        */
 /* --------------------------------------------------------------- */
 
-export interface SCurveSeries { name: string; values: number[]; tone?: Tone; dashed?: boolean; emphasized?: boolean }
+export interface SCurveSeries {
+  name: string;
+  values: number[];
+  tone?: Tone;
+  dashed?: boolean;
+  emphasized?: boolean;
+  startIndex?: number;
+}
 
 export function FinanceSCurveChart({
   categories, series, height = 280, showArea = true,
@@ -284,7 +309,8 @@ export function FinanceSCurveChart({
   });
   const allValues = cumulatives.flat();
   const min = Math.min(0, ...allValues);
-  const max = Math.max(...allValues, 1);
+  const dataMax = Math.max(...allValues, 1);
+  const max = dataMax * 1.08;
   const range = max - min || 1;
   const xStep = innerW / Math.max(1, categories.length - 1);
   const yScale = (v: number) => padT + innerH - ((v - min) / range) * innerH;
@@ -303,15 +329,15 @@ export function FinanceSCurveChart({
       html: (
         <div className="space-y-0.5 min-w-[160px]">
           <div className="text-[10.5px] uppercase tracking-[0.12em]" style={{ color: theme.text }}>{categories[i]}</div>
-          {series.map((s, idx) => (
-            <div key={s.name} className="flex items-center justify-between gap-3 text-[11px]">
-              <span className="inline-flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full" style={{ background: theme.palette[s.tone || 'accent'] }} />
-                {s.name}
-              </span>
-              <span style={{ fontFamily: FONT_FAMILY_SANS, color: theme.textStrong }}>{fmtBRL(cumulatives[idx][i])}</span>
-            </div>
-          ))}
+          {series.map((s, idx) => i < (s.startIndex ?? 0) ? null : (
+              <div key={s.name} className="flex items-center justify-between gap-3 text-[11px]">
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full" style={{ background: theme.palette[s.tone || 'accent'] }} />
+                  {s.name}
+                </span>
+                <span style={{ fontFamily: FONT_FAMILY_SANS, color: theme.textStrong }}>{fmtBRL(cumulatives[idx][i])}</span>
+              </div>
+            ))}
         </div>
       ),
     });
@@ -347,7 +373,11 @@ export function FinanceSCurveChart({
 
         {series.map((s, idx) => {
           const tone = s.tone || (['accent', 'info', 'success', 'warning', 'danger'] as Tone[])[idx % 5];
-          const pts = cumulatives[idx].map((v, i) => [padL + i * xStep, yScale(v)] as [number, number]);
+          const firstIndex = Math.max(0, Math.min(s.startIndex ?? 0, cumulatives[idx].length));
+          const pts = cumulatives[idx]
+            .map((v, i) => [padL + i * xStep, yScale(v)] as [number, number])
+            .slice(firstIndex);
+          if (!pts.length) return null;
           const path = smoothPath(pts);
           const areaPath = `${path} L ${pts[pts.length - 1][0]},${H - padB} L ${pts[0][0]},${H - padB} Z`;
           const isPrimary = s.emphasized || idx === 0;
@@ -440,7 +470,8 @@ export function FinanceBarChart({
 
   const allValues = series.flatMap((s) => s.data);
   const min = Math.min(0, ...allValues);
-  const max = Math.max(...allValues, 1);
+  const dataMax = Math.max(...allValues, 1);
+  const max = dataMax * 1.08;
   const range = max - min || 1;
 
   const groupCount = categories.length;
@@ -538,7 +569,7 @@ export function FinanceBarChart({
 /* STACKED BAR                                                      */
 /* --------------------------------------------------------------- */
 
-export interface StackedBarSeries { name: string; data: number[]; tone?: Tone }
+export interface StackedBarSeries { name: string; data: number[]; tone?: Tone; color?: string }
 
 export function FinanceStackedBarChart({
   categories, series, horizontal = false, percent = false, height = 280,
@@ -548,7 +579,7 @@ export function FinanceStackedBarChart({
   const [ref, width] = useContainerWidth();
   const [tip, setTip] = useState<TipState | null>(null);
   const W = width, H = height;
-  const padL = horizontal ? 120 : 56, padR = 18, padT = 28, padB = 32;
+  const padL = horizontal ? 120 : 56, padR = 18, padT = series.length > 4 ? 72 : 44, padB = 38;
   const innerW = Math.max(50, W - padL - padR);
   const innerH = Math.max(50, H - padT - padB);
 
@@ -592,6 +623,7 @@ export function FinanceStackedBarChart({
             const portion = percent ? (v / total) * 100 : v;
             const lenAxis = (portion / max) * (horizontal ? innerW : innerH);
             const tone = s.tone || (['accent', 'info', 'success', 'warning', 'danger', 'budget'] as Tone[])[sIdx % 6];
+            const seriesColor = s.color ?? theme.palette[tone];
             const isFirst = sIdx === 0;
             const isLast = sIdx === series.length - 1;
             let rx = 0;
@@ -603,8 +635,8 @@ export function FinanceStackedBarChart({
                 <rect key={s.name}
                   x={x} y={y} width={Math.max(0, lenAxis)} height={barW}
                   rx={isLast ? 5 : isFirst ? 5 : 0}
-                  fill={`url(#bar-${tone}-${uid})`}
-                  stroke={theme.palette[tone]} strokeOpacity={0.45} strokeWidth={0.6}
+                  fill={s.color ?? `url(#bar-${tone}-${uid})`}
+                  stroke={seriesColor} strokeOpacity={0.45} strokeWidth={0.6}
                   filter={`url(#softglow-${uid})`}
                   onMouseEnter={() => setTip({ x: x + lenAxis / 2, y, html: <span><b>{s.name}</b> · {cat} · <span style={{ fontFamily: FONT_FAMILY_SANS }}>{percent ? `${portion.toFixed(1)}%` : fmtBRL(v)}</span></span> })}
                   onMouseLeave={() => setTip(null)}
@@ -618,8 +650,8 @@ export function FinanceStackedBarChart({
               <rect key={s.name}
                 x={x} y={y} width={barW} height={Math.max(0, lenAxis)}
                 rx={isLast ? 5 : 0}
-                fill={`url(#bar-${tone}-${uid})`}
-                stroke={theme.palette[tone]} strokeOpacity={0.45} strokeWidth={0.6}
+                fill={s.color ?? `url(#bar-${tone}-${uid})`}
+                stroke={seriesColor} strokeOpacity={0.45} strokeWidth={0.6}
                 filter={`url(#softglow-${uid})`}
                 onMouseEnter={() => setTip({ x: x + barW / 2, y, html: <span><b>{s.name}</b> · {cat} · <span style={{ fontFamily: FONT_FAMILY_SANS }}>{percent ? `${portion.toFixed(1)}%` : fmtBRL(v)}</span></span> })}
                 onMouseLeave={() => setTip(null)}
@@ -632,9 +664,10 @@ export function FinanceStackedBarChart({
       <div className="absolute top-0 right-0 flex flex-wrap gap-3 text-[11px]">
         {series.map((s, idx) => {
           const tone = s.tone || (['accent', 'info', 'success', 'warning', 'danger', 'budget'] as Tone[])[idx % 6];
+          const seriesColor = s.color ?? theme.palette[tone];
           return (
             <div key={s.name} className="inline-flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-sm" style={{ background: theme.palette[tone], boxShadow: `0 0 6px ${theme.palette[tone]}` }} />
+              <span className="w-2.5 h-2.5 rounded-sm" style={{ background: seriesColor, boxShadow: `0 0 6px ${seriesColor}` }} />
               <span style={{ color: theme.text }}>{s.name}</span>
             </div>
           );

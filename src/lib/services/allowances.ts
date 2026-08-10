@@ -23,6 +23,7 @@ import type {
 import type {
   AllowancePolicy,
   AllowancePolicyStatus,
+  AllowancePolicyTier,
   AllowanceWeek,
   DailyAllowance,
   EligibilityReason,
@@ -48,6 +49,7 @@ import {
   type WeekAction,
 } from './allowance-workflow';
 import { reconcileDaily, type ReconciliationInput } from './allowance-reconciliation';
+import { resolveAllowanceTier } from './allowance-tiers';
 import {
   computeAlerts,
   costByProject as computeCostByProject,
@@ -56,8 +58,15 @@ import {
 } from './allowance-intelligence';
 import { getCurrentOrgAndUser, rlsFriendlyMessage, mapPersonRow, type PersonRow } from './people';
 import { getProjectsAsync } from './projects';
+import { resolveJourneySchedule } from './journey-engine';
+import type {
+  JourneyScheduleException,
+  JourneyShiftAssignment,
+  JourneyShiftTemplate,
+} from '@/lib/types/journey-management';
 
 export const ALLOWANCE_POLICIES_TABLE = 'allowance_policies';
+export const ALLOWANCE_POLICY_TIERS_TABLE = 'allowance_policy_tiers';
 export const ALLOWANCE_WEEKS_TABLE = 'allowance_weeks';
 export const DAILY_ALLOWANCES_TABLE = 'daily_allowances';
 export const WORK_SCHEDULE_DAYS_TABLE = 'work_schedule_days';
@@ -149,8 +158,35 @@ type PolicyRow = {
   updated_at: string;
 };
 
-function mapPolicyRow(row: PolicyRow): AllowancePolicy {
+type PolicyTierRow = {
+  id: string;
+  organization_id: string;
+  policy_id: string;
+  name: string;
+  amount_cents: number | string;
+  match_job_titles: string[] | null;
+  priority: number;
+  created_at: string;
+  updated_at: string;
+};
+
+function mapPolicyTierRow(row: PolicyTierRow): AllowancePolicyTier {
   return {
+    id: row.id,
+    organizationId: row.organization_id,
+    policyId: row.policy_id,
+    name: row.name,
+    amountCents: Number(row.amount_cents),
+    matchJobTitles: row.match_job_titles ?? [],
+    priority: row.priority,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapPolicyRow(row: PolicyRow, tiers: AllowancePolicyTier[] = []): AllowancePolicy {
+  return {
+    tiers,
     id: row.id,
     organizationId: row.organization_id,
     name: row.name,
@@ -246,6 +282,8 @@ type DailyRow = {
   allowance_type: 'meal';
   amount_cents: number | string;
   currency: 'BRL';
+  policy_tier_id: string | null;
+  tier_label: string | null;
   status: DailyAllowance['status'];
   eligibility_reason: EligibilityReason | null;
   blocking_reason: string | null;
@@ -277,6 +315,8 @@ function mapDailyRow(row: DailyRow): DailyAllowance {
     allowanceType: row.allowance_type,
     amountCents: Number(row.amount_cents),
     currency: row.currency,
+    policyTierId: row.policy_tier_id ?? null,
+    tierLabel: row.tier_label ?? null,
     status: row.status,
     eligibilityReason: row.eligibility_reason,
     blockingReason: row.blocking_reason,
@@ -303,16 +343,117 @@ export async function listAllowancePolicies(activeOnly = false): Promise<Allowan
   const supabase = createClient();
   let query = supabase.from(ALLOWANCE_POLICIES_TABLE).select('*').order('name');
   if (activeOnly) query = query.eq('status', 'active');
-  const { data, error } = await query;
+  const [{ data, error }, { data: tierRows, error: tierErr }] = await Promise.all([
+    query,
+    supabase.from(ALLOWANCE_POLICY_TIERS_TABLE).select('*').order('priority'),
+  ]);
   if (error) throw new Error(rlsFriendlyMessage('Erro ao carregar políticas de diária', error));
-  return (data ?? []).map((r) => mapPolicyRow(r as PolicyRow));
+  if (tierErr) throw new Error(rlsFriendlyMessage('Erro ao carregar faixas de diária', tierErr));
+
+  const tiersByPolicy = new Map<string, AllowancePolicyTier[]>();
+  for (const row of (tierRows ?? []) as PolicyTierRow[]) {
+    const tier = mapPolicyTierRow(row);
+    const list = tiersByPolicy.get(tier.policyId);
+    if (list) list.push(tier);
+    else tiersByPolicy.set(tier.policyId, [tier]);
+  }
+  return (data ?? []).map((r) =>
+    mapPolicyRow(r as PolicyRow, tiersByPolicy.get((r as PolicyRow).id) ?? []),
+  );
+}
+
+/* ── Faixas por função ─────────────────────────────────────── */
+
+export interface AllowancePolicyTierInput {
+  name: string;
+  amountCents: number;
+  matchJobTitles: string[];
+  priority?: number;
+}
+
+/** Normaliza a entrada da UI: sem vazios, sem duplicatas, trim. */
+function sanitizeTierInput(input: AllowancePolicyTierInput, index: number) {
+  const keywords = Array.from(
+    new Set(input.matchJobTitles.map((k) => k.trim()).filter(Boolean)),
+  );
+  return {
+    name: input.name.trim(),
+    amount_cents: input.amountCents,
+    match_job_titles: keywords,
+    priority: input.priority ?? (index + 1) * 10,
+  };
+}
+
+export async function listAllowancePolicyTiers(policyId: string): Promise<AllowancePolicyTier[]> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from(ALLOWANCE_POLICY_TIERS_TABLE)
+    .select('*')
+    .eq('policy_id', policyId)
+    .order('priority');
+  if (error) throw new Error(rlsFriendlyMessage('Erro ao carregar faixas de diária', error));
+  return (data ?? []).map((r) => mapPolicyTierRow(r as PolicyTierRow));
+}
+
+/**
+ * Substitui o conjunto de faixas da política (apaga e recria).
+ * O banco recusa a operação quando já existem diárias consolidadas
+ * (trigger de imutabilidade da migration 078).
+ */
+export async function replaceAllowancePolicyTiers(
+  policyId: string,
+  tiers: AllowancePolicyTierInput[],
+): Promise<AllowancePolicyTier[]> {
+  const supabase = createClient();
+  const { userId, orgId } = await getCurrentOrgAndUser(supabase);
+
+  const { error: delErr } = await supabase
+    .from(ALLOWANCE_POLICY_TIERS_TABLE)
+    .delete()
+    .eq('policy_id', policyId);
+  if (delErr) throw new Error(rlsFriendlyMessage('Erro ao limpar faixas da política', delErr));
+
+  let saved: AllowancePolicyTier[] = [];
+  if (tiers.length > 0) {
+    const { data, error } = await supabase
+      .from(ALLOWANCE_POLICY_TIERS_TABLE)
+      .insert(
+        tiers.map((t, i) => ({
+          organization_id: orgId,
+          policy_id: policyId,
+          created_by: userId,
+          ...sanitizeTierInput(t, i),
+        })),
+      )
+      .select('*');
+    if (error) throw new Error(rlsFriendlyMessage('Erro ao gravar faixas da política', error));
+    saved = (data ?? []).map((r) => mapPolicyTierRow(r as PolicyTierRow));
+  }
+
+  void logAuditEvent({
+    organizationId: orgId,
+    action: 'allowance_policy.tiers_changed',
+    entityType: 'allowance_policy',
+    entityId: policyId,
+    metadata: {
+      tiers: saved.map((t) => ({
+        name: t.name,
+        amount_cents: t.amountCents,
+        match_job_titles: t.matchJobTitles,
+      })),
+    },
+  });
+  return saved;
 }
 
 export interface AllowancePolicyInput {
   name: string;
   projectId?: string | null;
   geofenceId?: string | null;
+  /** valor-base: vale para quem não casar com nenhuma faixa */
   amountCents: number;
+  /** faixas por função (ex.: Liderança R$120) — opcional */
+  tiers?: AllowancePolicyTierInput[];
   effectiveFrom: string;
   effectiveUntil?: string | null;
   scheduleMode?: AllowancePolicy['scheduleMode'];
@@ -351,13 +492,24 @@ export async function createAllowancePolicy(input: AllowancePolicyInput): Promis
     .select('*')
     .single();
   if (error) throw new Error(rlsFriendlyMessage('Erro ao criar política de diária', error));
-  const policy = mapPolicyRow(data as PolicyRow);
+  const created = mapPolicyRow(data as PolicyRow);
+
+  const tiers = input.tiers?.length
+    ? await replaceAllowancePolicyTiers(created.id, input.tiers)
+    : [];
+  const policy: AllowancePolicy = { ...created, tiers };
+
   void logAuditEvent({
     organizationId: orgId,
     action: 'allowance_policy.created',
     entityType: 'allowance_policy',
     entityId: policy.id,
-    metadata: { name: policy.name, project_id: policy.projectId, amount_cents: policy.amountCents },
+    metadata: {
+      name: policy.name,
+      project_id: policy.projectId,
+      amount_cents: policy.amountCents,
+      tier_count: tiers.length,
+    },
   });
   return policy;
 }
@@ -424,9 +576,51 @@ export async function listDailyAllowancesByWeek(weekId: string): Promise<DailyAl
     .from(DAILY_ALLOWANCES_TABLE)
     .select('*, people(*)')
     .eq('allowance_week_id', weekId)
+    .neq('status', 'reversed')
     .order('allowance_date');
   if (error) throw new Error(rlsFriendlyMessage('Erro ao carregar diárias', error));
   return (data ?? []).map((r) => mapDailyRow(r as unknown as DailyRow));
+}
+
+export interface RemovePersonFromAllowanceWeekResult {
+  mode: 'removed' | 'reversed';
+  affectedRows: number;
+  compensationCents: number;
+  adjustmentId: string | null;
+}
+
+export async function removePersonFromAllowanceWeek(
+  weekId: string,
+  personId: string,
+  reason: string,
+): Promise<RemovePersonFromAllowanceWeekResult> {
+  if (!reason.trim()) throw new Error('Informe o motivo da remoção.');
+  const supabase = createClient();
+  const { data, error } = await supabase.rpc('admin_remove_person_from_allowance_week', {
+    p_week_id: weekId,
+    p_person_id: personId,
+    p_reason: reason.trim(),
+  });
+
+  if (error) {
+    const message = /owner\s*\/\s*admin|apenas.*admin/i.test(error.message || '')
+      ? 'Somente o perfil Owner / Admin pode remover uma pessoa do lote de diárias.'
+      : error.message;
+    throw new Error(`Erro ao remover pessoa das diárias: ${message || 'erro desconhecido'}`);
+  }
+
+  const result = data as {
+    mode: 'removed' | 'reversed';
+    affected_rows: number;
+    compensation_cents: number | string;
+    adjustment_id: string | null;
+  };
+  return {
+    mode: result.mode,
+    affectedRows: Number(result.affected_rows),
+    compensationCents: Number(result.compensation_cents),
+    adjustmentId: result.adjustment_id,
+  };
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -497,6 +691,9 @@ export async function generateWeeklyAllowancePreview(
     { data: scheduleRows, error: schedErr },
     { data: residenceRows, error: residenceErr },
     { data: overrideRows, error: overrideErr },
+    { data: journeyTemplateRows, error: journeyTemplateErr },
+    { data: journeyAssignmentRows, error: journeyAssignmentErr },
+    { data: journeyExceptionRows, error: journeyExceptionErr },
   ] = await Promise.all([
     listAllowancePolicies(true),
     supabase.from('people').select('*').eq('status', 'active'),
@@ -532,6 +729,18 @@ export async function generateWeeklyAllowancePreview(
       .eq('status', 'approved')
       .gte('allowance_date', weekStart)
       .lte('allowance_date', weekEnd),
+    supabase.from('journey_shift_templates').select('*').eq('active', true),
+    supabase
+      .from('journey_shift_assignments')
+      .select('*')
+      .eq('active', true)
+      .lte('valid_from', weekEnd)
+      .or(`valid_until.is.null,valid_until.gte.${weekStart}`),
+    supabase
+      .from('journey_schedule_exceptions')
+      .select('*')
+      .gte('work_date', weekStart)
+      .lte('work_date', weekEnd),
   ]);
 
   if (peopleErr) throw new Error(rlsFriendlyMessage('Erro ao carregar pessoas', peopleErr));
@@ -541,6 +750,9 @@ export async function generateWeeklyAllowancePreview(
   if (schedErr) throw new Error(rlsFriendlyMessage('Erro ao carregar escala', schedErr));
   if (residenceErr) throw new Error(rlsFriendlyMessage('Erro ao carregar municípios residenciais', residenceErr));
   if (overrideErr) throw new Error(rlsFriendlyMessage('Erro ao carregar exceções de elegibilidade', overrideErr));
+  if (journeyTemplateErr) throw new Error(rlsFriendlyMessage('Erro ao carregar modelos de jornada', journeyTemplateErr));
+  if (journeyAssignmentErr) throw new Error(rlsFriendlyMessage('Erro ao carregar atribuições de jornada', journeyAssignmentErr));
+  if (journeyExceptionErr) throw new Error(rlsFriendlyMessage('Erro ao carregar exceções de jornada', journeyExceptionErr));
 
   const people = (peopleRows ?? []).map((r) => mapPersonRow(r as PersonRow));
   const allocations: ConsideredAllocation[] = (allocRows ?? []).map((r) => ({
@@ -625,6 +837,42 @@ export async function generateWeeklyAllowancePreview(
       geofenceId: (s.geofence_id as string | null) ?? null,
     });
   }
+  const journeyTemplates: JourneyShiftTemplate[] = (journeyTemplateRows ?? []).map((row) => ({
+    id: row.id as string,
+    organizationId: row.organization_id as string,
+    name: row.name as string,
+    weekdays: (row.weekdays as number[]) ?? [],
+    startTime: String(row.start_time).slice(0, 5),
+    endTime: String(row.end_time).slice(0, 5),
+    breakMinutes: Number(row.break_minutes),
+    toleranceBeforeMinutes: Number(row.tolerance_before_minutes),
+    toleranceAfterMinutes: Number(row.tolerance_after_minutes),
+    timezone: row.timezone as string,
+    active: Boolean(row.active),
+  }));
+  const journeyAssignments: JourneyShiftAssignment[] = (journeyAssignmentRows ?? []).map((row) => ({
+    id: row.id as string,
+    organizationId: row.organization_id as string,
+    personId: row.person_id as string,
+    shiftTemplateId: row.shift_template_id as string,
+    projectId: (row.project_id as string | null) ?? null,
+    validFrom: row.valid_from as string,
+    validUntil: (row.valid_until as string | null) ?? null,
+    active: Boolean(row.active),
+  }));
+  const journeyExceptions: JourneyScheduleException[] = (journeyExceptionRows ?? []).map((row) => ({
+    id: row.id as string,
+    organizationId: row.organization_id as string,
+    personId: row.person_id as string,
+    workDate: row.work_date as string,
+    type: row.type as JourneyScheduleException['type'],
+    startTime: row.start_time ? String(row.start_time).slice(0, 5) : null,
+    endTime: row.end_time ? String(row.end_time).slice(0, 5) : null,
+    breakMinutes: row.break_minutes == null ? null : Number(row.break_minutes),
+    toleranceBeforeMinutes: row.tolerance_before_minutes == null ? null : Number(row.tolerance_before_minutes),
+    toleranceAfterMinutes: row.tolerance_after_minutes == null ? null : Number(row.tolerance_after_minutes),
+    reason: row.reason as string,
+  }));
 
   // alocações por pessoa
   const allocByPerson = new Map<string, ConsideredAllocation[]>();
@@ -680,6 +928,15 @@ export async function generateWeeklyAllowancePreview(
     week = mapWeekRow(weekRow as WeekRow);
   }
 
+  const { data: exclusionRows, error: exclusionErr } = await supabase
+    .from('allowance_week_person_exclusions')
+    .select('person_id')
+    .eq('allowance_week_id', week.id);
+  if (exclusionErr) {
+    throw new Error(rlsFriendlyMessage('Erro ao carregar exclusões da semana', exclusionErr));
+  }
+  const excludedPeople = new Set((exclusionRows ?? []).map((row) => row.person_id as string));
+
   // ── 3) Avaliar pessoa × dia e montar as linhas ─────────────
   const rowsToInsert: Record<string, unknown>[] = [];
   const seenKeys = new Set<string>();
@@ -687,6 +944,7 @@ export async function generateWeeklyAllowancePreview(
   let skippedNoAllocation = 0;
 
   for (const person of people) {
+    if (excludedPeople.has(person.id)) continue;
     const personAllocs = allocByPerson.get(person.id) ?? [];
     if (personAllocs.length === 0) {
       skippedNoAllocation += 1;
@@ -725,8 +983,19 @@ export async function generateWeeklyAllowancePreview(
         continue;
       }
 
+      // valor do dia: faixa por função cadastrada (people.job_title),
+      // com o valor-base da política como fallback.
+      const resolvedTier = resolveAllowanceTier(policy, person.jobTitle);
+
       const onLeave = personLeaves.some((l) => l.start <= date && l.end >= date);
       const sched = scheduleByKey.get(`${person.id}|${date}`);
+      const resolvedJourneySchedule = resolveJourneySchedule(
+        person.id,
+        date,
+        journeyTemplates,
+        journeyAssignments,
+        journeyExceptions,
+      );
       const geofenceId = policy.geofenceId ?? sched?.geofenceId ?? null;
       const serviceMunicipality = geofenceId ? geofences.get(geofenceId) ?? null : null;
       const eligibleWorksite = geofenceId == null ? true : serviceMunicipality?.active === true;
@@ -748,10 +1017,10 @@ export async function generateWeeklyAllowancePreview(
         alreadyHasAllowance,
         hasApplicablePolicy: true,
         scheduleMode: policy.scheduleMode,
-        hasExplicitSchedule: sched?.status === 'planned',
+        hasExplicitSchedule: sched?.status === 'planned' || resolvedJourneySchedule != null,
         explicitlyIncluded: sched?.status === 'planned' && sched.source === 'override',
         explicitlyExcluded: sched?.status === 'excluded',
-        isCalendarWorkday: isWeekday(date),
+        isCalendarWorkday: sched?.status === 'planned' || resolvedJourneySchedule != null,
         travelEligibilityMode: policy.travelEligibilityMode,
         residenceMunicipalityRequired: policy.residenceMunicipalityRequired,
         serviceMunicipalityRequired: policy.serviceMunicipalityRequired,
@@ -791,6 +1060,15 @@ export async function generateWeeklyAllowancePreview(
           travel_eligibility_mode: policy.travelEligibilityMode,
           residence_municipality_required: policy.residenceMunicipalityRequired,
           service_municipality_required: policy.serviceMunicipalityRequired,
+          base_amount_cents: policy.amountCents,
+        },
+        // por que este valor: função cadastrada → faixa → valor
+        tier: {
+          id: resolvedTier.tier?.id ?? null,
+          label: resolvedTier.label,
+          amount_cents: resolvedTier.amountCents,
+          job_title: person.jobTitle ?? null,
+          matched_keyword: resolvedTier.matchedKeyword,
         },
         municipality: {
           residence: residence ? {
@@ -825,7 +1103,9 @@ export async function generateWeeklyAllowancePreview(
         geofence_id: geofenceId ?? sched?.geofenceId ?? null,
         allowance_date: date,
         allowance_type: policy.allowanceType,
-        amount_cents: policy.amountCents,
+        amount_cents: resolvedTier.amountCents,
+        policy_tier_id: resolvedTier.tier?.id ?? null,
+        tier_label: resolvedTier.label,
         status,
         eligibility_reason: finalReason,
         blocking_reason: status === 'blocked' ? (approvedOverride?.reason ?? finalReason) : null,
