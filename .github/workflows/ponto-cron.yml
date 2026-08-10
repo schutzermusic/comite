@@ -1,0 +1,57 @@
+name: Ponto — cron horário
+
+# O plano Hobby da Vercel só permite crons diários. O vercel.json mantém uma
+# execução diária como rede de segurança; este workflow dá a cadência horária
+# real (auto-provisionamento por alocação, lembretes de convite e detecção de
+# ativações). A rota autentica via Authorization: Bearer <CRON_SECRET>.
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Rodar em dry-run (não envia nem muta)'
+        type: boolean
+        default: false
+
+concurrency:
+  group: ponto-cron
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Disparar /api/ponto/cron
+        env:
+          SITE_URL: ${{ vars.PONTO_SITE_URL || 'https://ponto.insightapex.co' }}
+          CRON_SECRET: ${{ secrets.PONTO_CRON_SECRET }}
+          DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::secret PONTO_CRON_SECRET ausente no repositório"
+            exit 1
+          fi
+
+          url="$SITE_URL/api/ponto/cron"
+          if [ "$DRY_RUN" = "true" ]; then
+            url="$url?dryRun=1"
+          fi
+
+          # maxDuration da rota é 300s; damos folga acima disso.
+          status=$(curl -sS -X POST "$url" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            --max-time 330 \
+            -o response.json \
+            -w '%{http_code}')
+
+          echo "HTTP $status"
+          # A resposta não contém segredos — só contadores do job.
+          cat response.json
+          echo
+
+          if [ "$status" != "200" ]; then
+            echo "::error::cron do Ponto falhou com HTTP $status"
+            exit 1
+          fi
