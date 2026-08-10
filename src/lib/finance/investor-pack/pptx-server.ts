@@ -2,10 +2,17 @@
  * Apex PPTX — Relatório de Faturamento vs Folha de Pagamento em PowerPoint
  * (execução no servidor).
  *
- * Mesma direção visual e mesma narrativa do deck HTML e do PDF (tokens de
- * `apex-theme`, leitura de `apex-insights`), com uma diferença deliberada: os
- * gráficos são objetos de gráfico nativos do PowerPoint, editáveis por quem
- * recebe o arquivo — é isso que um material de board precisa.
+ * Mesmo material do PDF e do deck HTML: mesma sequência de seções, mesmos
+ * títulos (de `apex-insights`), mesma paleta e a MESMA anatomia visual — capa
+ * sem cartões, faixa executiva no padrão Executive Band, mostrador radial de
+ * cobertura, faixa de leitura sob cada gráfico e fecho só com a marca.
+ *
+ * Os gráficos são os mesmos SVGs de `apex-charts` que o PDF imprime, embutidos
+ * como imagem vetorial. Antes eram objetos de gráfico nativos do PowerPoint —
+ * editáveis, mas com outro desenho (sem hachura de previsão, sem eixo de tempo
+ * em dois níveis, sem zona de projeção), o que fazia o mesmo relatório chegar
+ * ao board com duas caras. A identidade visual venceu a edição do gráfico; a
+ * base numérica continua no arquivo, na seção "Base mensal informada".
  *
  * Camada de apresentação apenas: os números vêm de `calculateInvestorPack`.
  */
@@ -22,19 +29,37 @@ import {
   type ApexInsights,
 } from './apex-insights';
 import { APEX_LOGO_ALT, APEX_LOGO_ASPECT, APEX_LOGO_DATA_URI, APEX_LOGO_SMALL_DATA_URI } from './apex-logo';
-import { clientForecastColor, forecastBridge, lastActualIndex } from './apex-charts';
 import {
-  APEX,
+  apexBalanceChart,
+  apexClientForecastChart,
+  apexCoverageDial,
+  apexCurveChart,
+  apexMonthlyChart,
+  apexMonthlyLineChart,
+  balanceLegend,
+  clientForecastColor,
+  curveLegend,
+  monthlyLegend,
+  monthlyLineLegend,
+  type ApexLegendItem,
+} from './apex-charts';
+import {
   APEX_CLIENT_FORECAST_DESCRIPTION,
-  APEX_CLOSING_TITLE,
+  APEX_PREPARED_BY,
   APEX_SOURCE,
-  REPORT_NAME,
   REPORT_NAME_SHORT,
-  SERIES_LABEL,
+  apexAgenda,
   confidentialityLabel,
+  dashIfZero,
+  formatInvestorRatio,
   investorClosingMessage,
+  investorCoverTitle,
+  investorExecutiveSummary,
+  apexPalette,
+  type ApexPalette,
+  type ApexThemeMode,
 } from './apex-theme';
-import { calculateInvestorPack, centsToReais, formatInvestorCurrency, formatInvestorPeriod } from './calculations';
+import { calculateInvestorPack, formatInvestorCurrency, formatInvestorDate, formatInvestorPeriod } from './calculations';
 import type { InvestorPack, InvestorPackCurvePoint, InvestorPackSnapshot, InvestorPortfolioClient } from './types';
 
 if (typeof window !== 'undefined') {
@@ -71,14 +96,17 @@ const H = 720;
 const M = 64;            // margem lateral
 const CONTENT_W = W - M * 2;
 const HEAD_Y = 44;       // sobrelinha
-const TITLE_Y = 88;      // título da seção
-const BODY_Y = 190;      // início do corpo
+const TITLE_Y = 84;      // título da seção
 const FOOT_Y = 664;      // rodapé
+/** Base do corpo em slides de conteúdo (abaixo do título + sublinha). */
+const BODY_Y = 172;
 const FONT = 'Aptos';
 
 type Pos = { left: number; top: number; width: number; height: number };
 
-function addText(slide: any, text: string, position: Pos, style: Record<string, unknown> = {}) {
+/* ── Primitivas ──────────────────────────────────────────────── */
+
+function addText(slide: any, P: ApexPalette, text: string, position: Pos, style: Record<string, unknown> = {}) {
   const shape = slide.shapes.add({
     geometry: 'textbox',
     position,
@@ -89,7 +117,7 @@ function addText(slide: any, text: string, position: Pos, style: Record<string, 
   shape.text.style = {
     fontFamily: FONT,
     fontSize: 18,
-    color: APEX.ink,
+    color: P.ink,
     autoFit: 'shrinkText',
     verticalAlignment: 'top',
     ...style,
@@ -109,6 +137,123 @@ function addRect(slide: any, position: Pos, fill: string, opts?: { radius?: bool
   });
 }
 
+/**
+ * Superfície de vidro dos painéis, equivalente ao gradiente do PDF e do deck.
+ *
+ * `offset` é a chave que o gerador converte no atributo `pos` da parada de
+ * gradiente, e `pos` é obrigatório em OOXML: com qualquer outro nome o XML sai
+ * sem ele e o PowerPoint abre o arquivo pedindo reparo. A escala é a do formato
+ * (0 a 100000 = 0% a 100%). O ângulo não tem equivalente na API, então a
+ * transição sai reta — entre dois tons vizinhos, imperceptível.
+ */
+const GRADIENT_END = 100_000;
+
+function addGlass(slide: any, P: ApexPalette, position: Pos, opts?: { stroke?: string; from?: string; to?: string }) {
+  return slide.shapes.add({
+    geometry: 'roundRect',
+    position,
+    borderRadius: 'rounded-xl',
+    fill: {
+      type: 'gradient',
+      stops: [
+        { offset: 0, color: opts?.from ?? P.panelTop },
+        { offset: GRADIENT_END, color: opts?.to ?? P.panelBottom },
+      ],
+    },
+    line: { style: 'solid', fill: opts?.stroke ?? P.lineSoft, width: 1 },
+  });
+}
+
+function addDot(slide: any, left: number, top: number, size: number, color: string) {
+  return slide.shapes.add({
+    geometry: 'ellipse',
+    position: { left, top, width: size, height: size },
+    fill: color,
+    line: { style: 'solid', fill: 'none', width: 0 },
+  });
+}
+
+function channels(color: string): [number, number, number] {
+  const hex = color.replace('#', '');
+  const full = hex.length === 3 ? hex.split('').map((part) => part + part).join('') : hex;
+  return [0, 2, 4].map((offset) => parseInt(full.slice(offset, offset + 2), 16)) as [number, number, number];
+}
+
+/**
+ * `rgba()` não vale como atributo de apresentação em SVG e o rasterizador do
+ * gerador de PPTX também ignora `*-opacity` — a grade sairia em traço cheio, o
+ * que no tema claro vira uma pauta preta sobre o papel. A saída é achatar a
+ * transparência contra o fundo do painel e entregar uma cor sólida já mesclada.
+ */
+function alphaAttrs(value: string, prop: 'stroke' | 'fill', background: string): Record<string, string> {
+  const match = /rgba?\(([^)]+)\)/.exec(value);
+  if (!match) return { [prop]: value };
+  const parts = match[1].split(',').map((part) => part.trim());
+  const alpha = Number(parts[3] ?? '1');
+  const [br, bg, bb] = channels(background);
+  const blended = [Number(parts[0]), Number(parts[1]), Number(parts[2])]
+    .map((channel, index) => Math.round(channel * alpha + [br, bg, bb][index] * (1 - alpha)))
+    .map((channel) => channel.toString(16).padStart(2, '0'))
+    .join('');
+  return { [prop]: `#${blended}` };
+}
+
+/**
+ * O rasterizador de SVG do gerador de PPTX ignora `<style>`: o que o PDF
+ * resolve por classe (`apex-axis`, `apex-grid`…) precisa virar atributo no
+ * próprio elemento. Os valores abaixo são a transcrição literal de
+ * `apexChartCss` — é o mesmo desenho, escrito de outro jeito.
+ */
+function chartClassAttrs(P: ApexPalette): Record<string, Record<string, string>> {
+  return {
+    'apex-grid': { ...alphaAttrs(P.grid, 'stroke', P.panelTop), 'stroke-dasharray': '3 7' },
+    'apex-axisline': alphaAttrs(P.axisLine, 'stroke', P.panelTop),
+    'apex-axis': {
+      fill: P.muted,
+      'font-family': `${FONT}, Arial, Helvetica, sans-serif`,
+      'font-size': '14',
+      'letter-spacing': '.02em',
+    },
+    'apex-axis-month': { 'font-size': '11', 'letter-spacing': '0' },
+    'apex-axis-year': { 'font-size': '14', 'font-weight': '700', 'letter-spacing': '.18em', fill: P.ink },
+    'apex-axis-forecast': { fill: P.revenueForecast },
+  };
+}
+
+/**
+ * Aplica as classes em cascata, elemento a elemento. O que o elemento já traz
+ * escrito à mão vence a classe (é assim que o `fill` da "Zona de previsão"
+ * sobrepõe a cor de eixo) — e, sobretudo, atributo repetido é XML inválido: o
+ * rasterizador descarta o gráfico inteiro e devolve um retângulo branco.
+ */
+function inlineChartStyles(svg: string, P: ApexPalette): string {
+  return svg.replace(/<[a-zA-Z][^>]*>/g, (tag) => {
+    const classMatch = / class="([^"]*)"/.exec(tag);
+    if (!classMatch) return tag;
+    const attrs: Record<string, string> = {};
+    const definitions = chartClassAttrs(P);
+    classMatch[1].split(/\s+/).forEach((name) => Object.assign(attrs, definitions[name] ?? {}));
+    const rest = tag.replace(/ class="[^"]*"/, '');
+    const existing = new Set([...rest.matchAll(/[\s]([a-zA-Z-]+)=/g)].map((entry) => entry[1]));
+    const additions = Object.entries(attrs).filter(([key]) => !existing.has(key));
+    if (!additions.length) return rest;
+    const close = rest.endsWith('/>') ? '/>' : '>';
+    return `${rest.slice(0, rest.length - close.length).trimEnd()} ${additions.map(([key, value]) => `${key}="${value}"`).join(' ')}${close}`;
+  });
+}
+
+/** SVG do `apex-charts` embutido como imagem vetorial do slide. */
+function addSvg(slide: any, P: ApexPalette, svg: string, position: Pos, alt: string) {
+  const open = svg.indexOf('>');
+  const doc = `${svg.slice(0, open)} xmlns="http://www.w3.org/2000/svg">${inlineChartStyles(svg.slice(open + 1), P)}`;
+  slide.images.add({
+    dataUrl: `data:image/svg+xml;base64,${Buffer.from(doc, 'utf8').toString('base64')}`,
+    position,
+    fit: 'contain',
+    alt,
+  });
+}
+
 /** Logo Insight Energy — a marca institucional de todo slide. */
 function addLogo(slide: any, position: { left: number; top: number; height: number; small?: boolean }) {
   slide.images.add({
@@ -125,40 +270,361 @@ function addLogo(slide: any, position: { left: number; top: number; height: numb
   });
 }
 
-/** Painel de vidro: retângulo tintado com contorno sutil + faixa de acento. */
-function addPanel(slide: any, position: Pos, accent?: string) {
-  addRect(slide, position, APEX.panelTop, { radius: true, stroke: APEX.line, strokeWidth: 1 });
-  if (accent) {
-    addRect(slide, { left: position.left, top: position.top, width: position.width, height: 3 }, accent);
-  }
+/* ── Faixa executiva (padrão HudKpiStrip / Executive Band) ────── */
+
+interface BandCell {
+  label: string;
+  value: string;
+  accent: string;
+  /** Linha de apoio sob o valor (faixa de KPI). */
+  helper?: string;
+  /** Parágrafo de leitura (cartões de sinal). */
+  detail?: string;
+  /** Etiqueta no canto do cartão ("Sinal", "Monitorar", "Atenção"). */
+  tag?: string;
+}
+
+/**
+ * Contêiner de vidro com trilhos nas bordas agrupando células de gap mínimo —
+ * a mesma anatomia do PDF e do deck, e não cartões soltos.
+ */
+function addBand(slide: any, P: ApexPalette, position: Pos, cells: BandCell[], opts?: { valueSize?: number }) {
+  addGlass(slide, P, position, { stroke: P.line });
+  // Trilhos: acento à esquerda, linha neutra à direita.
+  addRect(slide, { left: position.left + 9, top: position.top + 9, width: 1, height: position.height - 18 }, P.revenue);
+  addRect(slide, { left: position.left + position.width - 10, top: position.top + 9, width: 1, height: position.height - 18 }, P.line);
+
+  const pad = 5;
+  const gap = 5;
+  const inner = position.width - pad * 2;
+  const cellW = (inner - gap * (cells.length - 1)) / cells.length;
+  const cellH = position.height - pad * 2;
+
+  cells.forEach((cell, index) => {
+    const left = position.left + pad + index * (cellW + gap);
+    const top = position.top + pad;
+    addGlass(slide, P, { left, top, width: cellW, height: cellH }, { stroke: P.lineSoft, from: P.panelTop, to: P.void });
+    // Fio de acento no topo da célula (o equivalente ao gradiente do CSS).
+    addRect(slide, { left: left + cellW * 0.26, top, width: cellW * 0.48, height: 1 }, cell.accent);
+
+    addDot(slide, left + 14, top + 17, 5, cell.accent);
+    addText(slide, P, cell.label.toUpperCase(), { left: left + 25, top: top + 11, width: cellW - 39 - (cell.tag ? 82 : 0), height: 32 },
+      { fontSize: 11, bold: true, color: P.muted, autoFit: 'none' });
+    if (cell.tag) {
+      addRect(slide, { left: left + cellW - 92, top: top + 11, width: 78, height: 18 }, 'none',
+        { radius: true, stroke: cell.accent, strokeWidth: 1 });
+      addText(slide, P, cell.tag.toUpperCase(), { left: left + cellW - 92, top: top + 12, width: 78, height: 18 },
+        { fontSize: 9, bold: true, color: cell.accent, alignment: 'center', autoFit: 'none' });
+    }
+    addText(slide, P, cell.value, { left: left + 14, top: top + 44, width: cellW - 28, height: 38 },
+      { fontSize: opts?.valueSize ?? 26, bold: true, color: cell.accent });
+    if (cell.helper) {
+      addText(slide, P, cell.helper, { left: left + 14, top: top + 84, width: cellW - 28, height: 24 },
+        { fontSize: 11.5, color: P.subtle, autoFit: 'none' });
+    }
+    if (cell.detail) {
+      addText(slide, P, cell.detail, { left: left + 14, top: top + 86, width: cellW - 28, height: cellH - 96 },
+        { fontSize: 12, color: P.subtle });
+    }
+  });
+}
+
+function insightCell(card: ApexInsightCard, P: ApexPalette): BandCell {
+  const accent = card.kind === 'alert' ? P.negative : card.kind === 'watch' ? P.attention : P.revenue;
+  const tag = card.kind === 'alert' ? 'Atenção' : card.kind === 'watch' ? 'Monitorar' : 'Sinal';
+  return { label: card.label, value: card.value, accent, detail: card.detail, tag };
+}
+
+/**
+ * Faixa de leitura do pé do slide — os mesmos pares rótulo/valor que fecham as
+ * páginas de gráfico do PDF.
+ */
+function addReadStrip(slide: any, P: ApexPalette, items: Array<{ label: string; value: string; color?: string }>, top: number) {
+  if (!items.length) return;
+  addRect(slide, { left: M, top, width: CONTENT_W, height: 1 }, P.lineSoft);
+  const colW = CONTENT_W / items.length;
+  items.forEach((item, index) => {
+    const left = M + index * colW;
+    addText(slide, P, item.label.toUpperCase(), { left, top: top + 10, width: colW - 20, height: 20 },
+      { fontSize: 11, bold: true, color: P.subtle, autoFit: 'none' });
+    addText(slide, P, item.value, { left, top: top + 30, width: colW - 20, height: 28 },
+      { fontSize: 18, bold: true, color: item.color ?? P.ink, autoFit: 'none' });
+  });
+}
+
+/* ── Legenda (as mesmas marcas do PDF, em formas nativas) ─────── */
+
+/** Largura estimada de um item (marca + rótulo + respiro), em px de slide. */
+const LEGEND_ROW_H = 22;
+function legendItemWidth(item: ApexLegendItem): number {
+  return 27 + item.label.length * 7.6 + 34;
+}
+
+/** Quantas linhas a legenda ocupa na largura disponível. */
+function legendRows(items: ApexLegendItem[], maxWidth: number): number {
+  let rows = 1;
+  let x = 0;
+  items.forEach((item) => {
+    const width = legendItemWidth(item);
+    if (x > 0 && x + width > maxWidth) {
+      rows += 1;
+      x = 0;
+    }
+    x += width;
+  });
+  return rows;
+}
+
+function addLegend(slide: any, P: ApexPalette, items: ApexLegendItem[], left: number, top: number, maxWidth: number) {
+  let x = left;
+  let y = top;
+  items.forEach((item) => {
+    const width = legendItemWidth(item);
+    if (x > left && x + width > left + maxWidth) {
+      x = left;
+      y += LEGEND_ROW_H;
+    }
+    const shape = item.shape ?? 'solid';
+    if (shape === 'line') {
+      addRect(slide, { left: x, top: y + 8, width: 18, height: 3 }, item.color, { radius: true });
+    } else if (shape === 'dash') {
+      addRect(slide, { left: x, top: y + 8, width: 7, height: 3 }, item.color);
+      addRect(slide, { left: x + 11, top: y + 8, width: 7, height: 3 }, item.color);
+    } else if (shape === 'hatch') {
+      // Sem hachura confiável em OOXML: a marca vazada distingue o previsto.
+      addRect(slide, { left: x, top: y + 4, width: 18, height: 10 }, 'none', { radius: true, stroke: item.color, strokeWidth: 1.5 });
+    } else {
+      addRect(slide, { left: x, top: y + 4, width: 18, height: 10 }, item.color, { radius: true });
+    }
+    addText(slide, P, item.label, { left: x + 25, top: y, width: width - 25, height: 20 },
+      { fontSize: 13, color: P.muted, autoFit: 'none' });
+    x += width;
+  });
+}
+
+/* ── Tabelas (formas: o objeto de tabela não aceita a nossa grade) ─ */
+
+type TableAlign = 'left' | 'right';
+interface TableColumn {
+  label: string;
+  width: number;
+  align: TableAlign;
+}
+interface TableRow {
+  kind: 'data' | 'split' | 'sub' | 'total';
+  cells: Array<{ text: string; color?: string }>;
+  /** Faixa zebrada — só linhas de dado. */
+  zebra?: boolean;
+}
+
+function addTable(slide: any, P: ApexPalette, columns: TableColumn[], rows: TableRow[], top: number, rowH: number, fontSize: number) {
+  addRect(slide, { left: M, top, width: CONTENT_W, height: rowH }, P.panelTop);
+  addRect(slide, { left: M, top: top + rowH - 1, width: CONTENT_W, height: 1 }, P.line);
+  let x = M;
+  columns.forEach((column) => {
+    addText(slide, P, column.label.toUpperCase(), { left: x + 9, top: top + (rowH - 20) / 2, width: column.width - 18, height: 20 },
+      { fontSize: 11, bold: true, color: P.muted, alignment: column.align, autoFit: 'none' });
+    x += column.width;
+  });
+
+  rows.forEach((row, index) => {
+    const y = top + rowH + index * rowH;
+    if (row.kind === 'split') {
+      addText(slide, P, row.cells[0].text.toUpperCase(), { left: M + 9, top: y + (rowH - 20) / 2, width: CONTENT_W - 18, height: 20 },
+        { fontSize: 11, bold: true, color: P.revenueForecast, autoFit: 'none' });
+      addRect(slide, { left: M, top: y + rowH - 1, width: CONTENT_W, height: 1 }, P.revenueForecast);
+      return;
+    }
+    if (row.kind === 'total') {
+      addRect(slide, { left: M, top: y, width: CONTENT_W, height: rowH }, P.panelTop);
+      addRect(slide, { left: M, top: y, width: CONTENT_W, height: 1 }, P.line);
+    } else if (row.kind === 'sub') {
+      addRect(slide, { left: M, top: y, width: CONTENT_W, height: 1 }, P.lineSoft);
+    } else {
+      if (row.zebra) addRect(slide, { left: M, top: y, width: CONTENT_W, height: rowH }, P.panelBottom);
+      addRect(slide, { left: M, top: y + rowH - 1, width: CONTENT_W, height: 1 }, P.lineSoft);
+    }
+    let cx = M;
+    row.cells.forEach((cell, cellIndex) => {
+      const column = columns[cellIndex];
+      addText(slide, P, cell.text, { left: cx + 9, top: y + (rowH - 22) / 2, width: column.width - 18, height: 22 }, {
+        fontSize,
+        autoFit: 'none',
+        bold: row.kind !== 'data',
+        color: cell.color ?? (row.kind === 'total' ? P.ink : row.kind === 'sub' ? P.muted : P.body),
+        alignment: column.align,
+      });
+      cx += column.width;
+    });
+  });
+}
+
+/** Competência ainda não fechada — vira linha de projeção na base mensal. */
+function isForecastPoint(point: InvestorPackCurvePoint): boolean {
+  return point.revenueForecastCents > 0 || point.payrollForecastCents > 0;
+}
+
+const BASE_COLUMNS: TableColumn[] = [
+  { label: 'Competência', width: 224, align: 'left' },
+  { label: 'Faturamento', width: 248, align: 'right' },
+  { label: 'Folha + encargos', width: 248, align: 'right' },
+  { label: 'Saldo', width: 216, align: 'right' },
+  { label: 'Acumulado', width: 216, align: 'right' },
+];
+
+const PORTFOLIO_COLUMNS: TableColumn[] = [
+  { label: 'Cliente', width: 152, align: 'left' },
+  { label: 'Status', width: 112, align: 'left' },
+  { label: 'Carteira', width: 148, align: 'right' },
+  { label: 'Faturado', width: 148, align: 'right' },
+  { label: 'Backlog', width: 148, align: 'right' },
+  { label: 'A receber', width: 148, align: 'right' },
+  { label: 'Até 2028', width: 148, align: 'right' },
+  { label: 'Pós-2028', width: 148, align: 'right' },
+];
+
+/**
+ * Base mensal em uma única linha do tempo: a projeção entra na sequência
+ * cronológica, aberta por uma faixa de corte e destacada por cor — a mesma
+ * leitura do PDF, e não duas tabelas sobrepostas.
+ */
+function baseTableRows(snapshot: InvestorPackSnapshot, P: ApexPalette): TableRow[] {
+  const rows: TableRow[] = [];
+  let zebra = false;
+  snapshot.points.forEach((point, index) => {
+    const forecast = isForecastPoint(point);
+    if (forecast && (index === 0 || !isForecastPoint(snapshot.points[index - 1]))) {
+      rows.push({ kind: 'split', cells: [{ text: 'Projeção — competências ainda não fechadas' }] });
+    }
+    const fc = forecast ? P.revenueForecast : undefined;
+    rows.push({
+      kind: 'data',
+      zebra,
+      cells: [
+        { text: formatInvestorPeriod(point.period) },
+        { text: dashIfZero(point.revenueTotalCents, formatInvestorCurrency(point.revenueTotalCents)), color: fc },
+        { text: dashIfZero(point.payrollTotalCents, formatInvestorCurrency(point.payrollTotalCents)), color: fc },
+        { text: formatInvestorCurrency(point.balanceCents), color: point.balanceCents < 0 ? P.negative : P.positive },
+        { text: formatInvestorCurrency(point.balanceCumulativeCents) },
+      ],
+    });
+    zebra = !zebra;
+  });
+
+  const m = snapshot.metrics;
+  const last = snapshot.points.length ? snapshot.points[snapshot.points.length - 1].balanceCumulativeCents : 0;
+  rows.push({
+    kind: 'sub',
+    cells: [
+      { text: 'Subtotal realizado' },
+      { text: formatInvestorCurrency(m.revenueActualCents) },
+      { text: formatInvestorCurrency(m.payrollActualCents) },
+      { text: formatInvestorCurrency(m.revenueActualCents - m.payrollActualCents) },
+      { text: '—' },
+    ],
+  });
+  rows.push({
+    kind: 'sub',
+    cells: [
+      { text: 'Subtotal projetado' },
+      { text: formatInvestorCurrency(m.revenueForecastCents), color: P.revenueForecast },
+      { text: formatInvestorCurrency(m.payrollForecastCents), color: P.revenueForecast },
+      { text: formatInvestorCurrency(m.revenueForecastCents - m.payrollForecastCents) },
+      { text: '—' },
+    ],
+  });
+  rows.push({
+    kind: 'total',
+    cells: [
+      { text: 'Total do recorte' },
+      { text: formatInvestorCurrency(m.revenueTotalCents) },
+      { text: formatInvestorCurrency(m.payrollTotalCents) },
+      { text: formatInvestorCurrency(m.balanceCents) },
+      { text: formatInvestorCurrency(last) },
+    ],
+  });
+  return rows;
+}
+
+function portfolioTableRows(clients: InvestorPortfolioClient[], all: InvestorPortfolioClient[], isLast: boolean, offset: number, P: ApexPalette): TableRow[] {
+  const rows: TableRow[] = clients.map((client, index) => ({
+    kind: 'data' as const,
+    zebra: (offset + index) % 2 === 1,
+    cells: [
+      { text: client.client },
+      { text: client.status },
+      { text: formatInvestorCurrency(client.portfolioCents) },
+      { text: formatInvestorCurrency(client.billedCents) },
+      { text: formatInvestorCurrency(client.backlogCents), color: P.revenueForecast },
+      { text: formatInvestorCurrency(client.receivableCents) },
+      { text: formatInvestorCurrency(client.projectedThrough2028Cents) },
+      { text: formatInvestorCurrency(client.remainingAfter2028Cents) },
+    ],
+  }));
+  if (!isLast) return rows;
+  const sum = (pick: (client: InvestorPortfolioClient) => number) => all.reduce((total, client) => total + pick(client), 0);
+  rows.push({
+    kind: 'total',
+    cells: [
+      { text: 'Total da carteira' },
+      { text: `${all.length} cliente(s)` },
+      { text: formatInvestorCurrency(sum((c) => c.portfolioCents)) },
+      { text: formatInvestorCurrency(sum((c) => c.billedCents)) },
+      { text: formatInvestorCurrency(sum((c) => c.backlogCents)), color: P.revenueForecast },
+      { text: formatInvestorCurrency(sum((c) => c.receivableCents)) },
+      { text: formatInvestorCurrency(sum((c) => c.projectedThrough2028Cents)) },
+      { text: formatInvestorCurrency(sum((c) => c.remainingAfter2028Cents)) },
+    ],
+  });
+  return rows;
+}
+
+/** Reparte N itens em folhas de no máximo `max` linhas, com folhas iguais. */
+function chunkEvenly<T>(items: T[], max: number): T[][] {
+  const slices = Math.max(1, Math.ceil(items.length / max));
+  const size = Math.ceil(items.length / slices);
+  const out: T[][] = [];
+  for (let i = 0; i < slices; i += 1) out.push(items.slice(i * size, (i + 1) * size));
+  return out;
+}
+
+/* ── Chrome do slide ─────────────────────────────────────────── */
+
+interface DeckContext {
+  /** Paleta do material — escura (projeção) ou clara (impressão/anexo). */
+  palette: ApexPalette;
+  footer: string;
+  /** Contadores "NN / TT": o total só é conhecido quando o deck termina. */
+  counters: any[];
 }
 
 /** Base de todo slide: fundo, moldura, sobrelinha, fonte do dado e paginação. */
-function baseSlide(presentation: any, ctx: DeckContext, eyebrow: string, notes?: string) {
+function baseSlide(presentation: any, ctx: DeckContext, eyebrow: string, notes?: string, opts?: { counter?: boolean }) {
+  const P = ctx.palette;
   const slide = presentation.slides.add();
-  slide.background.fill = APEX.void;
+  slide.background.fill = P.void;
 
   // Moldura de cockpit + acento superior esquerdo.
   addRect(slide, { left: 22, top: 22, width: W - 44, height: H - 44 }, 'none', {
-    radius: true, stroke: APEX.lineSoft, strokeWidth: 1,
+    radius: true, stroke: P.lineSoft, strokeWidth: 1,
   });
-  addRect(slide, { left: 40, top: 40, width: 92, height: 2 }, APEX.revenue);
+  addRect(slide, { left: 40, top: 40, width: 92, height: 2 }, P.revenue);
 
-  ctx.number += 1;
   if (eyebrow) {
-    addText(slide, eyebrow.toUpperCase(), { left: M, top: HEAD_Y, width: 760, height: 24 },
-      { fontSize: 11, bold: true, color: APEX.revenue });
+    addText(slide, P, eyebrow.toUpperCase(), { left: M, top: HEAD_Y, width: 760, height: 24 },
+      { fontSize: 13, bold: true, color: P.revenue, autoFit: 'none' });
   }
-  addText(slide, `${String(ctx.number).padStart(2, '0')} / ${String(ctx.total).padStart(2, '0')}`,
-    { left: W - M - 120, top: HEAD_Y, width: 120, height: 24 },
-    { fontSize: 11, color: APEX.subtle, alignment: 'right' });
+  if (opts?.counter !== false) {
+    ctx.counters.push(addText(slide, P, '', { left: W - M - 120, top: HEAD_Y, width: 120, height: 24 },
+      { fontSize: 12, color: P.subtle, alignment: 'right' }));
+  }
 
   // Rodapé: marca + fonte do dado à esquerda, identificação do material à direita.
-  addRect(slide, { left: M, top: FOOT_Y - 10, width: CONTENT_W, height: 1 }, APEX.lineSoft);
+  addRect(slide, { left: M, top: FOOT_Y - 10, width: CONTENT_W, height: 1 }, P.lineSoft);
   addLogo(slide, { left: M, top: FOOT_Y + 1, height: 13, small: true });
-  addText(slide, APEX_SOURCE, { left: M + 118, top: FOOT_Y, width: 520, height: 22 }, { fontSize: 9, color: APEX.subtle });
-  addText(slide, ctx.footer, { left: W - M - 560, top: FOOT_Y, width: 560, height: 22 },
-    { fontSize: 9, color: APEX.subtle, alignment: 'right' });
+  addText(slide, P, APEX_SOURCE, { left: M + 118, top: FOOT_Y, width: 520, height: 22 }, { fontSize: 10.5, color: P.subtle, autoFit: 'none' });
+  addText(slide, P, ctx.footer, { left: W - M - 560, top: FOOT_Y, width: 560, height: 22 },
+    { fontSize: 10.5, color: P.subtle, alignment: 'right', autoFit: 'none' });
 
   slide.speakerNotes.textFrame.setText(
     `[Fonte]\n- ${APEX_SOURCE}.\n${notes ? `\n[Leitura]\n- ${notes}\n` : ''}`,
@@ -166,534 +632,353 @@ function baseSlide(presentation: any, ctx: DeckContext, eyebrow: string, notes?:
   return slide;
 }
 
-function addSectionTitle(slide: any, title: string, sub?: string) {
-  addText(slide, title, { left: M, top: TITLE_Y, width: CONTENT_W, height: 76 },
-    { fontSize: 34, bold: true, color: APEX.ink });
+function addSectionTitle(slide: any, P: ApexPalette, title: string, sub?: string) {
+  addText(slide, P, title, { left: M, top: TITLE_Y, width: CONTENT_W, height: 52 },
+    { fontSize: 34, bold: true, color: P.ink });
   if (sub) {
-    addText(slide, sub, { left: M, top: TITLE_Y + 74, width: CONTENT_W - 40, height: 40 },
-      { fontSize: 14, color: APEX.muted });
+    addText(slide, P, sub, { left: M, top: TITLE_Y + 50, width: CONTENT_W - 40, height: 40 },
+      { fontSize: 15, color: P.muted });
   }
 }
 
-/** Cartão de valor (KPI) — acento no topo, valor colorido, rótulo em caixa alta. */
-function addTile(slide: any, position: Pos, label: string, value: string, accent: string, helper?: string) {
-  addPanel(slide, position, accent);
-  addText(slide, label.toUpperCase(), { left: position.left + 14, top: position.top + 14, width: position.width - 28, height: 20 },
-    { fontSize: 9, bold: true, color: APEX.subtle });
-  addText(slide, value, { left: position.left + 14, top: position.top + 36, width: position.width - 28, height: 40 },
-    { fontSize: 24, bold: true, color: accent });
-  if (helper) {
-    addText(slide, helper, { left: position.left + 14, top: position.top + 78, width: position.width - 28, height: 20 },
-      { fontSize: 9, color: APEX.subtle });
-  }
-}
+/**
+ * Fator de desenho do gráfico dentro do quadro. Abaixo de 1 tudo — marcas,
+ * eixos, meses e anos — chega maior no slide, que é lido a metros de distância
+ * e não a um palmo, como a folha impressa.
+ */
+const CHART_SCALE = 0.78;
 
-/** Medidor linear de cobertura (o equivalente PPTX do mostrador radial). */
-function addCoverageMeter(slide: any, position: Pos, insights: ApexInsights, ratio: number | null) {
-  const accent = ratio == null ? APEX.muted : ratio >= 1.15 ? APEX.positive : ratio >= 1 ? APEX.attention : APEX.negative;
-  addPanel(slide, position, accent);
-
-  addText(slide, 'COBERTURA RECEITA / FOLHA', { left: position.left + 18, top: position.top + 16, width: position.width - 36, height: 20 },
-    { fontSize: 9, bold: true, color: APEX.subtle });
-  addText(slide, insights.coverageLabel, { left: position.left + 18, top: position.top + 38, width: position.width - 36, height: 60 },
-    { fontSize: 44, bold: true, color: accent });
-  addText(slide, insights.verdictLabel, { left: position.left + 18, top: position.top + 100, width: position.width - 36, height: 24 },
-    { fontSize: 12, bold: true, color: APEX.body });
-
-  // Trilha 0–2,00x com marca do ponto de equilíbrio (1,00x) no meio.
-  const trackY = position.top + 138;
-  const trackW = position.width - 36;
-  addRect(slide, { left: position.left + 18, top: trackY, width: trackW, height: 8 }, APEX.lineSoft, { radius: true });
-  const fill = ratio == null ? 0 : Math.max(0, Math.min(1, ratio / 2));
-  if (fill > 0) {
-    addRect(slide, { left: position.left + 18, top: trackY, width: Math.max(6, trackW * fill), height: 8 }, accent, { radius: true });
-  }
-  addRect(slide, { left: position.left + 18 + trackW / 2 - 1, top: trackY - 5, width: 2, height: 18 }, APEX.ink);
-  addText(slide, 'escala 0 — 2,00x · marca central = ponto de equilíbrio (1,00x)',
-    { left: position.left + 18, top: trackY + 18, width: trackW, height: 30 },
-    { fontSize: 9, color: APEX.subtle });
-}
-
-function addInsightCard(slide: any, position: Pos, card: ApexInsightCard) {
-  const accent = card.kind === 'alert' ? APEX.negative : card.kind === 'watch' ? APEX.attention : APEX.revenue;
-  const kindLabel = card.kind === 'alert' ? 'ATENÇÃO' : card.kind === 'watch' ? 'MONITORAR' : 'SINAL';
-  addPanel(slide, position, accent);
-  addText(slide, kindLabel, { left: position.left + 14, top: position.top + 14, width: position.width - 28, height: 18 },
-    { fontSize: 8, bold: true, color: accent });
-  addText(slide, card.value, { left: position.left + 14, top: position.top + 34, width: position.width - 28, height: 42 },
-    { fontSize: 21, bold: true, color: APEX.ink });
-  addText(slide, card.label.toUpperCase(), { left: position.left + 14, top: position.top + 76, width: position.width - 28, height: 22 },
-    { fontSize: 9, bold: true, color: APEX.muted });
-  addText(slide, card.detail, { left: position.left + 14, top: position.top + 100, width: position.width - 28, height: 76 },
-    { fontSize: 10, color: APEX.subtle });
-}
-
-/** Estilo comum dos eixos/legenda para os gráficos nativos. */
-function chartChrome() {
-  return {
-    legend: { position: 'bottom', overlay: false, textStyle: { fill: APEX.muted, fontSize: 12 } },
-    xAxis: { textStyle: { fill: APEX.muted, fontSize: 11 }, line: { style: 'solid', fill: APEX.line, width: 1 } },
-    yAxis: {
-      numberFormatCode: 'R$ #,##0,," mi"',
-      textStyle: { fill: APEX.muted, fontSize: 11 },
-      majorGridlines: { style: 'solid', fill: APEX.lineSoft, width: 1 },
-    },
-    chartFill: APEX.void,
-    chartLine: { style: 'solid', fill: APEX.void, width: 0 },
-    plotAreaFill: { type: 'none' },
+/** Painel de gráfico: vidro + SVG do PDF + legenda + nota opcional. */
+function addChartPanel(
+  slide: any,
+  P: ApexPalette,
+  svg: (opts: { width: number; height: number; palette: ApexPalette }) => string,
+  legend: ApexLegendItem[],
+  panel: Pos,
+  caption?: string,
+) {
+  addGlass(slide, P, panel, { stroke: P.lineSoft });
+  const legendWidth = panel.width - 32;
+  const legendHeight = legendRows(legend, legendWidth) * LEGEND_ROW_H;
+  const footer = legendHeight + 14 + (caption ? 24 : 0);
+  const chart = {
+    left: panel.left + 14,
+    top: panel.top + 12,
+    width: panel.width - 28,
+    height: panel.height - 12 - footer,
   };
+  // O SVG é desenhado numa viewBox menor que o quadro e sobe ao ocupá-lo: é o
+  // que aumenta a fonte de eixo, mês e ano na projeção sem mexer no motor de
+  // gráficos (que dimensiona rótulos a partir da própria largura, e por isso
+  // não aceita só um "aumente a fonte" — as marcas do eixo colidiriam).
+  addSvg(
+    slide,
+    P,
+    svg({
+      width: Math.round(chart.width * CHART_SCALE),
+      height: Math.round(chart.height * CHART_SCALE),
+      palette: P,
+    }),
+    chart,
+    'Gráfico do relatório',
+  );
+  addLegend(slide, P, legend, panel.left + 16, chart.top + chart.height + 6, legendWidth);
+  if (caption) {
+    addText(slide, P, caption, { left: panel.left + 16, top: panel.top + panel.height - 28, width: panel.width - 32, height: 22 },
+      { fontSize: 11.5, color: P.subtle, autoFit: 'none' });
+  }
 }
 
-/** Tabela leve construída com formas — o artifact-tool não tem objeto de tabela. */
-function addBaseTable(slide: any, points: InvestorPackCurvePoint[], top: number) {
-  const cols = [
-    { label: 'Competência', width: 150, align: 'left' as const },
-    { label: 'Fat. realizado', width: 175, align: 'right' as const },
-    { label: 'Fat. previsto', width: 175, align: 'right' as const },
-    { label: 'Folha + encargos', width: 175, align: 'right' as const },
-    { label: 'Folha projetada', width: 175, align: 'right' as const },
-    { label: 'Saldo', width: 160, align: 'right' as const },
-    { label: 'Acumulado', width: 142, align: 'right' as const },
-  ];
-  const rowH = 30;
+/* ── Deck ────────────────────────────────────────────────────── */
 
-  addRect(slide, { left: M, top, width: CONTENT_W, height: rowH }, APEX.panelTop, { stroke: APEX.line, strokeWidth: 1 });
-  let x = M;
-  cols.forEach((col) => {
-    addText(slide, col.label.toUpperCase(), { left: x + 8, top: top + 8, width: col.width - 16, height: 18 },
-      { fontSize: 8, bold: true, color: APEX.muted, alignment: col.align });
-    x += col.width;
-  });
+/** Linhas de tabela por slide (altura útil do corpo na densidade padrão). */
+const BASE_ROWS_PER_SLIDE = 13;
+const PORTFOLIO_ROWS_PER_SLIDE = 11;
 
-  points.forEach((point, index) => {
-    const rowY = top + rowH + index * rowH;
-    if (index % 2 === 1) {
-      addRect(slide, { left: M, top: rowY, width: CONTENT_W, height: rowH }, APEX.panelBottom);
-    }
-    const cells: Array<[string, string]> = [
-      [formatInvestorPeriod(point.period), APEX.ink],
-      [formatInvestorCurrency(point.revenueActualCents), APEX.body],
-      [formatInvestorCurrency(point.revenueForecastCents), APEX.revenueForecast],
-      [formatInvestorCurrency(point.payrollActualCents), APEX.body],
-      [formatInvestorCurrency(point.payrollForecastCents), APEX.payrollForecast],
-      [formatInvestorCurrency(point.balanceCents), point.balanceCents >= 0 ? APEX.positive : APEX.negative],
-      [formatInvestorCurrency(point.balanceCumulativeCents), APEX.body],
-    ];
-    let cx = M;
-    cells.forEach(([value, color], cellIndex) => {
-      const col = cols[cellIndex];
-      addText(slide, value, { left: cx + 8, top: rowY + 7, width: col.width - 16, height: 18 },
-        { fontSize: 10, color, alignment: col.align });
-      cx += col.width;
-    });
-  });
+export interface InvestorPackPptxOptions {
+  /** Tema do deck. Omitido = escuro, o mesmo padrão do PDF e da apresentação. */
+  theme?: ApexThemeMode;
 }
 
-function addPortfolioTable(slide: any, clients: InvestorPortfolioClient[], top: number) {
-  const cols = [
-    { label: 'Cliente', width: 150, align: 'left' as const },
-    { label: 'Status', width: 180, align: 'left' as const },
-    { label: 'Carteira', width: 135, align: 'right' as const },
-    { label: 'Faturado', width: 135, align: 'right' as const },
-    { label: 'Backlog', width: 135, align: 'right' as const },
-    { label: 'A receber', width: 135, align: 'right' as const },
-    { label: 'Até 2028', width: 135, align: 'right' as const },
-    { label: 'Pós-2028', width: 147, align: 'right' as const },
-  ];
-  const rowH = 32;
-  addRect(slide, { left: M, top, width: CONTENT_W, height: rowH }, APEX.panelTop, { stroke: APEX.line, strokeWidth: 1 });
-  let x = M;
-  cols.forEach((col) => {
-    addText(slide, col.label.toUpperCase(), { left: x + 6, top: top + 9, width: col.width - 12, height: 18 },
-      { fontSize: 7.5, bold: true, color: APEX.muted, alignment: col.align });
-    x += col.width;
-  });
-  clients.forEach((client, index) => {
-    const rowY = top + rowH + index * rowH;
-    if (index % 2 === 1) addRect(slide, { left: M, top: rowY, width: CONTENT_W, height: rowH }, APEX.panelBottom);
-    const values = [
-      client.client,
-      client.status,
-      formatInvestorCurrency(client.portfolioCents, true),
-      formatInvestorCurrency(client.billedCents, true),
-      formatInvestorCurrency(client.backlogCents, true),
-      formatInvestorCurrency(client.receivableCents, true),
-      formatInvestorCurrency(client.projectedThrough2028Cents, true),
-      formatInvestorCurrency(client.remainingAfter2028Cents, true),
-    ];
-    let cx = M;
-    values.forEach((value, cellIndex) => {
-      const col = cols[cellIndex];
-      addText(slide, value, { left: cx + 6, top: rowY + 8, width: col.width - 12, height: 18 },
-        { fontSize: 8.5, color: cellIndex === 4 ? APEX.revenueForecast : APEX.body, alignment: col.align });
-      cx += col.width;
-    });
-  });
-}
-
-interface DeckContext {
-  number: number;
-  total: number;
-  footer: string;
-}
-
-/** Linhas da base por slide — acima disso a tabela continua no slide seguinte. */
-const TABLE_ROWS_PER_SLIDE = 12;
-
-function countSlides(snapshot: InvestorPackSnapshot): number {
-  const tableSlides = Math.max(1, Math.ceil(snapshot.points.length / TABLE_ROWS_PER_SLIDE));
-  const clientSlide = snapshot.pack.narrative.clientForecasts.length ? 1 : 0;
-  const portfolioSlides = Math.ceil(snapshot.pack.narrative.portfolio.length / 10);
-  // capa + roteiro + síntese + leitura + mensal + curva mensal + curva S + saldo + base(n) + fecho
-  return 9 + tableSlides + clientSlide + portfolioSlides;
-}
-
-export async function generateInvestorPackPptx(pack: InvestorPack): Promise<Uint8Array> {
-  const { Presentation, PresentationFile } = await loadArtifactTool();
-  const presentation = Presentation.create({ slideSize: { width: W, height: H } });
-
+/**
+ * Monta o deck no objeto `Presentation` recebido. Exportado para o harness de
+ * pré-visualização, que renderiza slide a slide sem escrever o .pptx.
+ */
+export function buildInvestorPackDeck(presentation: any, pack: InvestorPack, options?: InvestorPackPptxOptions): void {
+  const P = apexPalette(options?.theme ?? 'dark');
   const snapshot = calculateInvestorPack(pack);
   const insights = buildApexInsights(snapshot);
   const { metrics, points } = snapshot;
-  const labels = points.map((point) => formatInvestorPeriod(point.period));
-  // Fronteiras realizado/previsto da curva mensal — receita e folha fecham em
-  // competências diferentes, por isso cada uma tem a sua.
-  const revenueAnchor = lastActualIndex(points, 'revenueActualCents');
-  const payrollAnchor = lastActualIndex(points, 'payrollActualCents');
-  const revenueBridge = forecastBridge(points, 'revenueActualCents', 'revenueForecastCents', revenueAnchor);
-  const payrollBridge = forecastBridge(points, 'payrollActualCents', 'payrollForecastCents', payrollAnchor);
-  const period =`${formatInvestorPeriod(pack.periodStart)} — ${formatInvestorPeriod(pack.periodEnd)}`;
+  const period = `${formatInvestorPeriod(pack.periodStart)} — ${formatInvestorPeriod(pack.periodEnd)}`;
   const confidential = confidentialityLabel(pack.confidentiality);
-  const verdictAccent = insights.verdict === 'deficit'
-    ? APEX.negative
-    : insights.verdict === 'balanced' ? APEX.attention : APEX.revenue;
+  const coverTitle = investorCoverTitle(pack.title);
 
   const ctx: DeckContext = {
-    number: 0,
-    total: countSlides(snapshot),
-    footer: `${REPORT_NAME_SHORT} · ${pack.title} · v${pack.version} · ${confidential}`,
+    palette: P,
+    footer: `${REPORT_NAME_SHORT} · v${pack.version} · ${confidential}`,
+    counters: [],
   };
 
   /* 01 — Capa */
   {
-    const slide = baseSlide(presentation, ctx, '', insights.verdictHeadline);
-    addLogo(slide, { left: M, top: HEAD_Y - 8, height: 40 });
-    addText(slide, confidential, { left: W - M - 260, top: HEAD_Y - 2, width: 260, height: 26 },
-      { fontSize: 10, bold: true, color: APEX.revenue, alignment: 'right' });
+    const slide = baseSlide(presentation, ctx, '', insights.verdictHeadline, { counter: false });
+    addLogo(slide, { left: M, top: 72, height: 46 });
+    addRect(slide, { left: W - M - 196, top: 80, width: 196, height: 30 }, 'none',
+      { radius: true, stroke: P.line, strokeWidth: 1 });
+    addText(slide, P, confidential, { left: W - M - 196, top: 87, width: 196, height: 20 },
+      { fontSize: 12, bold: true, color: P.revenue, alignment: 'center' });
 
-    addRect(slide, { left: M + 2, top: 168, width: 150, height: 3 }, APEX.revenue);
-    addText(slide, REPORT_NAME.toUpperCase(), { left: M, top: 180, width: 900, height: 22 },
-      { fontSize: 11, bold: true, color: APEX.revenue });
-    addText(slide, pack.title, { left: M, top: 206, width: 900, height: 136 },
-      { fontSize: 48, bold: true, color: APEX.ink });
-    addText(slide, pack.company || 'Visão financeira executiva', { left: M + 2, top: 340, width: 800, height: 44 },
-      { fontSize: 22, color: APEX.muted });
-
-    // Bloco de veredito: o número que resume o material.
-    addPanel(slide, { left: M, top: 400, width: 360, height: 108 }, verdictAccent);
-    addText(slide, insights.coverageLabel, { left: M + 20, top: 416, width: 200, height: 60 },
-      { fontSize: 40, bold: true, color: verdictAccent });
-    addText(slide, `${insights.verdictLabel}\nCOBERTURA RECEITA / FOLHA`, { left: M + 190, top: 424, width: 158, height: 66 },
-      { fontSize: 10, bold: true, color: APEX.body });
-
-    const tileW = 176;
-    const tiles: Array<[string, string, string]> = [
-      ['Fat. realizado', formatInvestorCurrency(metrics.revenueActualCents, true), APEX.revenue],
-      ['Fat. previsto', formatInvestorCurrency(metrics.revenueForecastCents, true), APEX.revenueForecast],
-      ['Folha total', formatInvestorCurrency(metrics.payrollTotalCents, true), APEX.payrollForecast],
-      ['Saldo acumulado', formatInvestorCurrency(insights.closingBalanceCents, true), insights.closingBalanceCents >= 0 ? APEX.positive : APEX.negative],
-    ];
-    tiles.forEach(([label, value, accent], index) => {
-      addTile(slide, { left: 464 + index * (tileW + 12), top: 400, width: tileW, height: 108 }, label, value, accent);
-    });
+    // Sem sobrelinha repetindo o nome do relatório: o título da capa já é o nome.
+    addText(slide, P, coverTitle, { left: M, top: 396, width: 1000, height: 150 },
+      { fontSize: 52, bold: true, color: P.ink });
 
     const meta: Array<[string, string]> = [
       ['Período', period],
-      ['Data-base', pack.referenceDate],
-      ['Versão', `${pack.version} · ${pack.status === 'published' ? 'Publicado' : pack.status === 'archived' ? 'Arquivado' : 'Rascunho'}`],
-      ['Preparado por', pack.authorName || 'Financeiro'],
-      ['Competências', String(points.length)],
+      ['Data', formatInvestorDate(pack.referenceDate)],
+      ['Preparado por', APEX_PREPARED_BY],
     ];
     meta.forEach(([label, value], index) => {
-      const left = M + (index % 3) * 384;
-      const top = 546 + Math.floor(index / 3) * 46;
-      addText(slide, label.toUpperCase(), { left, top, width: 360, height: 16 }, { fontSize: 8, bold: true, color: APEX.subtle });
-      addText(slide, value, { left, top: top + 16, width: 360, height: 24 }, { fontSize: 12, bold: true, color: APEX.body });
+      const left = M + index * 384;
+      addText(slide, P, label.toUpperCase(), { left, top: 566, width: 360, height: 20 },
+        { fontSize: 11, bold: true, color: P.subtle, autoFit: 'none' });
+      addText(slide, P, value, { left, top: 590, width: 360, height: 26 },
+        { fontSize: 17, bold: true, color: P.body });
     });
   }
 
   /* 02 — Roteiro */
   {
-    const slide = baseSlide(presentation, ctx, 'Roteiro', 'Use o roteiro para combinar o tempo de cada bloco antes de entrar nos números.');
-    addSectionTitle(slide, 'O que esta leitura cobre');
-    const agenda: Array<[string, string]> = [
-      ['Síntese executiva', 'Cobertura, saldo e o número que resume o período'],
-      ['Leitura do período', 'Sinais, pontos de atenção e concentrações'],
-      ['Evolução mensal', 'Receita e folha competência a competência'],
-      ['Curva mensal', 'Valores de cada competência, sem acumulação'],
-      ['Curva S acumulada', 'Trajetória e zona de previsão'],
-      ['Saldo e acumulado', 'Onde o período gera e onde consome resultado'],
-      ['Projeção por cliente', 'Composição do faturamento projetado'],
-      ['Base informada', 'Todos os valores que sustentam os gráficos'],
-      ['Perspectiva', 'Mensagem de fecho e próximos passos'],
-    ];
-    agenda.forEach(([title, sub], index) => {
-      const left = M + (index % 2) * (CONTENT_W / 2 + 12);
-      const top = BODY_Y + Math.floor(index / 2) * 96;
-      addRect(slide, { left, top, width: CONTENT_W / 2 - 12, height: 1 }, APEX.lineSoft);
-      addText(slide, String(index + 1).padStart(2, '0'), { left, top: top + 14, width: 40, height: 24 },
-        { fontSize: 11, bold: true, color: APEX.revenue });
-      addText(slide, title, { left: left + 44, top: top + 12, width: CONTENT_W / 2 - 70, height: 28 },
-        { fontSize: 17, bold: true, color: APEX.ink });
-      addText(slide, sub, { left: left + 44, top: top + 40, width: CONTENT_W / 2 - 70, height: 34 },
-        { fontSize: 11, color: APEX.subtle });
+    const slide = baseSlide(presentation, ctx, 'Roteiro da apresentação',
+      'Use o roteiro para combinar o tempo de cada bloco antes de entrar nos números.');
+    addSectionTitle(slide, P, 'O que esta leitura cobre');
+    const agenda = apexAgenda({
+      clientForecasts: pack.narrative.clientForecasts.length > 0,
+      portfolio: pack.narrative.portfolio.length > 0,
+    });
+    const rows = Math.ceil(agenda.length / 2);
+    const colW = CONTENT_W / 2 - 16;
+    // Bloco centrado no corpo do slide, como o roteiro do PDF.
+    const areaFrom = TITLE_Y + 74;
+    const areaTo = FOOT_Y - 26;
+    const rowH = Math.min(96, (areaTo - areaFrom) / rows);
+    const areaTop = areaFrom + (areaTo - areaFrom - rowH * rows) / 2;
+    agenda.forEach((item, index) => {
+      const left = M + (index % 2) * (CONTENT_W / 2 + 16);
+      const top = areaTop + Math.floor(index / 2) * rowH;
+      addRect(slide, { left, top, width: colW, height: 1 }, P.lineSoft);
+      addText(slide, P, String(index + 1).padStart(2, '0'), { left, top: top + 14, width: 40, height: 24 },
+        { fontSize: 13, bold: true, color: P.revenue, autoFit: 'none' });
+      addText(slide, P, item.title, { left: left + 42, top: top + 12, width: colW - 52, height: 28 },
+        { fontSize: 19, bold: true, color: P.ink });
+      addText(slide, P, item.sub, { left: left + 42, top: top + 42, width: colW - 52, height: 36 },
+        { fontSize: 13.5, color: P.subtle });
     });
   }
 
   /* 03 — Síntese executiva */
   {
     const slide = baseSlide(presentation, ctx, 'Síntese executiva', insights.verdictHeadline);
-    addSectionTitle(slide, insights.verdictHeadline);
-    addText(slide, pack.narrative.executiveSummary || 'Resumo executivo não informado.',
-      { left: M, top: BODY_Y + 6, width: 700, height: 120 }, { fontSize: 14, color: APEX.body });
+    addText(slide, P, insights.verdictHeadline, { left: M, top: TITLE_Y, width: 792, height: 84 },
+      { fontSize: 32, bold: true, color: P.ink });
+    addText(slide, P, investorExecutiveSummary(pack.narrative.executiveSummary),
+      { left: M, top: 182, width: 760, height: 76 }, { fontSize: 16, color: P.body });
 
-    const tileW = 168;
-    const tiles: Array<[string, string, string, string | undefined]> = [
-      ['Fat. realizado', formatInvestorCurrency(metrics.revenueActualCents, true), APEX.revenue, `${insights.realizedMonths} competência(s)`],
-      ['Fat. previsto', formatInvestorCurrency(metrics.revenueForecastCents, true), APEX.revenueForecast,
-        insights.forecastShare == null ? undefined : `${(insights.forecastShare * 100).toFixed(0)}% da receita`],
-      ['Folha total', formatInvestorCurrency(metrics.payrollTotalCents, true), APEX.payrollForecast, 'fechada + projetada'],
-      ['Saldo acumulado', formatInvestorCurrency(insights.closingBalanceCents, true),
-        insights.closingBalanceCents >= 0 ? APEX.positive : APEX.negative, 'no fecho do recorte'],
-    ];
-    tiles.forEach(([label, value, accent, helper], index) => {
-      addTile(slide, { left: M + index * (tileW + 12), top: 356, width: tileW, height: 116 }, label, value, accent, helper);
-    });
+    addBand(slide, P, { left: M, top: 262, width: 792, height: 146 }, [
+      {
+        label: 'Faturamento realizado',
+        value: formatInvestorCurrency(metrics.revenueActualCents, true),
+        accent: P.revenue,
+        helper: `${insights.realizedMonths} competência(s)`,
+      },
+      {
+        label: 'Faturamento previsto',
+        value: formatInvestorCurrency(metrics.revenueForecastCents, true),
+        accent: P.revenueForecast,
+        helper: insights.forecastShare == null ? undefined : `${(insights.forecastShare * 100).toFixed(0)}% da receita`,
+      },
+      {
+        label: 'Folha total',
+        value: formatInvestorCurrency(metrics.payrollTotalCents, true),
+        accent: P.payrollForecast,
+        helper: 'fechada + projetada',
+      },
+      {
+        label: 'Saldo acumulado',
+        value: formatInvestorCurrency(insights.closingBalanceCents, true),
+        accent: insights.closingBalanceCents >= 0 ? P.positive : P.negative,
+        helper: 'no fecho do recorte',
+      },
+    ]);
 
-    addCoverageMeter(slide, { left: 792, top: BODY_Y + 6, width: 424, height: 260 }, insights, metrics.coverageRatio);
-    addText(slide,
-      insights.coverageMarginPct == null
+    // Mostrador radial — o mesmo SVG do PDF e do deck.
+    addSvg(slide, P, apexCoverageDial(metrics.coverageRatio, { size: 240, palette: P }),
+      { left: 916, top: 150, width: 240, height: 240 }, 'Cobertura receita sobre folha');
+    addText(slide, P, 'COBERTURA RECEITA / FOLHA', { left: 880, top: 392, width: 312, height: 24 },
+      { fontSize: 11, bold: true, color: P.muted, alignment: 'center', autoFit: 'none' });
+    addText(slide, P,
+      `Marca central do arco = ponto de equilíbrio (1,00x). ${insights.coverageMarginPct == null
         ? 'Sem folha informada no recorte.'
-        : `${insights.coverageMarginPct >= 0 ? '+' : ''}${insights.coverageMarginPct.toFixed(0)} p.p. em relação ao ponto de equilíbrio.`,
-      { left: 792, top: 480, width: 424, height: 40 }, { fontSize: 11, color: APEX.muted });
+        : `${insights.coverageMarginPct >= 0 ? '+' : ''}${insights.coverageMarginPct.toFixed(0)} p.p. em relação ao equilíbrio.`}`,
+      { left: 880, top: 414, width: 312, height: 48 }, { fontSize: 12, color: P.subtle, alignment: 'center' });
+
+    addBand(slide, P, { left: M, top: 464, width: CONTENT_W, height: 176 },
+      insights.cards.slice(0, 4).map((card) => insightCell(card, P)), { valueSize: 19 });
   }
 
-  /* 04 — Leitura do período */
-  {
-    const slide = baseSlide(presentation, ctx, 'Leitura do período', 'Cada cartão é leitura direta dos valores informados — nada é estimado.');
-    addSectionTitle(slide, 'Os sinais que sustentam a conversa');
-    const cards = insights.cards.slice(0, 4);
-    const cardW = (CONTENT_W - 3 * 14) / 4;
-    cards.forEach((card, index) => {
-      addInsightCard(slide, { left: M + index * (cardW + 14), top: BODY_Y + 20, width: cardW, height: 216 }, card);
-    });
-    if (insights.cards.length > 4) {
-      const extra = insights.cards.slice(4, 6);
-      extra.forEach((card, index) => {
-        addInsightCard(slide, { left: M + index * (cardW * 2 + 14), top: BODY_Y + 252, width: cardW * 2, height: 148 }, card);
-      });
-    }
-  }
-
-  /* 06 — Evolução mensal */
+  /* 04 — Evolução mensal */
   {
     const slide = baseSlide(presentation, ctx, 'Evolução mensal', monthlyReading(insights));
-    addSectionTitle(slide, 'Receita e folha, competência a competência', monthlyReading(insights));
-    slide.charts.add('bar', {
-      position: { left: M, top: BODY_Y + 56, width: CONTENT_W, height: 372 },
-      categories: labels,
-      series: [
-        { name: SERIES_LABEL.revenueActual, values: points.map((p) => centsToReais(p.revenueActualCents)), fill: APEX.revenue },
-        { name: SERIES_LABEL.revenueForecast, values: points.map((p) => centsToReais(p.revenueForecastCents)), fill: APEX.revenueForecast },
-        { name: SERIES_LABEL.payrollActual, values: points.map((p) => centsToReais(p.payrollActualCents)), fill: APEX.payroll },
-        { name: SERIES_LABEL.payrollForecast, values: points.map((p) => centsToReais(p.payrollForecastCents)), fill: APEX.payrollForecast },
-      ],
-      barOptions: { direction: 'column', grouping: 'clustered', gapWidth: 42 },
-      ...chartChrome(),
-    });
+    addSectionTitle(slide, P, 'Receita e folha, competência a competência', monthlyReading(insights));
+    addChartPanel(slide, P, (opts) => apexMonthlyChart(points, opts), monthlyLegend(P),
+      { left: M, top: BODY_Y, width: CONTENT_W, height: 372 });
+    addReadStrip(slide, P, [
+      ...(insights.peakRevenue && insights.peakRevenue.valueCents > 0
+        ? [{ label: 'Pico de receita', value: `${insights.peakRevenue.label} · ${formatInvestorCurrency(insights.peakRevenue.valueCents, true)}` }] : []),
+      ...(insights.peakPayroll && insights.peakPayroll.valueCents > 0
+        ? [{ label: 'Pico de folha', value: `${insights.peakPayroll.label} · ${formatInvestorCurrency(insights.peakPayroll.valueCents, true)}` }] : []),
+      ...(insights.tightestCoverage
+        ? [{ label: 'Mês mais apertado', value: `${insights.tightestCoverage.label} · ${formatInvestorRatio(insights.tightestCoverage.ratio)}` }] : []),
+      ...(insights.averageBalanceCents == null
+        ? [] : [{ label: 'Saldo mensal médio', value: formatInvestorCurrency(insights.averageBalanceCents, true) }]),
+    ], 566);
   }
 
-  /* 07 — Curva mensal */
+  /* 05 — Curva mensal */
   {
-    // Uma linha contínua por métrica: realizado até a fronteira, projeção depois.
-    // O gerador de PPTX converte lacunas (null) em zero, então séries recortadas
-    // despencariam a zero fora do seu trecho — no PDF e no deck HTML, onde o SVG
-    // é nosso, o par realizado/previsto aparece separado por traço e tracejado.
-    const merged = (actualKey: 'revenueActualCents' | 'payrollActualCents', bridge: number[], anchor: number) =>
-      points.map((point, index) => centsToReais(index <= anchor ? point[actualKey] : bridge[index]));
-    const forecastFrom = points[Math.min(revenueAnchor, payrollAnchor) + 1];
-    const boundary = forecastFrom
-      ? `Valores fechados até ${formatInvestorPeriod(points[Math.min(revenueAnchor, payrollAnchor)].period)}; a partir de ${formatInvestorPeriod(forecastFrom.period)} a linha é projeção.`
-      : 'Todas as competências do recorte estão fechadas.';
-    const slide = baseSlide(presentation, ctx, 'Curva mensal', boundary);
-    addSectionTitle(slide, 'Valores de cada competência, sem acumulação', boundary);
-    slide.charts.add('line', {
-      position: { left: M, top: BODY_Y + 56, width: CONTENT_W, height: 372 },
-      categories: labels,
-      series: [
-        {
-          name: 'Faturamento',
-          values: merged('revenueActualCents', revenueBridge, revenueAnchor),
-          line: { style: 'solid', fill: APEX.revenue, width: 4 },
-        },
-        {
-          name: 'Folha + encargos',
-          values: merged('payrollActualCents', payrollBridge, payrollAnchor),
-          line: { style: 'solid', fill: APEX.payroll, width: 3 },
-        },
-      ],
-      ...chartChrome(),
-    });
+    const slide = baseSlide(presentation, ctx, 'Curva mensal',
+      'Traço contínuo: valores fechados. Traço tracejado: projeção ancorada na última competência realizada.');
+    addSectionTitle(slide, P, 'Valores de cada competência, sem acumulação',
+      'A leitura mês a mês da receita e da folha: onde cada uma sobe, onde recua e a partir de quando passam a ser projeção.');
+    addChartPanel(slide, P, (opts) => apexMonthlyLineChart(points, opts), monthlyLineLegend(P),
+      { left: M, top: BODY_Y, width: CONTENT_W, height: 372 },
+      'Traço contínuo: valores fechados. Traço tracejado: projeção, ancorada na última competência realizada.');
+    addReadStrip(slide, P, [
+      ...(insights.peakRevenue && insights.peakRevenue.valueCents > 0
+        ? [{ label: 'Pico de receita', value: `${insights.peakRevenue.label} · ${formatInvestorCurrency(insights.peakRevenue.valueCents, true)}` }] : []),
+      ...(insights.peakPayroll && insights.peakPayroll.valueCents > 0
+        ? [{ label: 'Pico de folha', value: `${insights.peakPayroll.label} · ${formatInvestorCurrency(insights.peakPayroll.valueCents, true)}` }] : []),
+      { label: 'Competências realizadas', value: String(insights.realizedMonths) },
+      { label: 'Competências projetadas', value: String(insights.forecastMonths) },
+    ], 566);
   }
 
-  /* 08 — Curva S */
+  /* 06 — Curva S */
   {
     const slide = baseSlide(presentation, ctx, 'Curva S acumulada', curveReading(insights));
-    addSectionTitle(slide, 'A trajetória acumulada do período', curveReading(insights));
-    slide.charts.add('line', {
-      position: { left: M, top: BODY_Y + 56, width: CONTENT_W, height: 372 },
-      categories: labels,
-      series: [
-        {
-          name: SERIES_LABEL.revenueCumulative,
-          values: points.map((p) => centsToReais(p.revenueCumulativeCents)),
-          line: { style: 'solid', fill: APEX.revenue, width: 4 },
-        },
-        {
-          name: SERIES_LABEL.payrollCumulative,
-          values: points.map((p) => centsToReais(p.payrollCumulativeCents)),
-          line: { style: 'solid', fill: APEX.payroll, width: 3 },
-        },
-        {
-          name: SERIES_LABEL.balanceCumulative,
-          values: points.map((p) => centsToReais(p.balanceCumulativeCents)),
-          line: { style: 'dash', fill: APEX.balance, width: 3 },
-        },
-      ],
-      ...chartChrome(),
-    });
+    addSectionTitle(slide, P, 'A trajetória acumulada do período', curveReading(insights));
+    addChartPanel(slide, P, (opts) => apexCurveChart(points, opts), curveLegend(P),
+      { left: M, top: BODY_Y, width: CONTENT_W, height: 372 });
+    addReadStrip(slide, P, [
+      { label: 'Receita acumulada', value: formatInvestorCurrency(metrics.revenueTotalCents, true) },
+      { label: 'Folha acumulada', value: formatInvestorCurrency(metrics.payrollTotalCents, true) },
+      {
+        label: 'Saldo no fecho',
+        value: formatInvestorCurrency(insights.closingBalanceCents, true),
+        color: insights.closingBalanceCents >= 0 ? P.positive : P.negative,
+      },
+      ...(insights.firstCumulativeDeficit
+        ? [{ label: 'Acumulado negativo desde', value: insights.firstCumulativeDeficit.label, color: P.negative }] : []),
+    ], 566);
   }
 
-  /* 07 — Saldo mensal */
+  /* 07 — Saldo mensal e acumulado */
   {
-    const slide = baseSlide(presentation, ctx, 'Saldo mensal', 'Colunas acima de zero geram resultado; abaixo, consomem.');
     const sub = insights.deficitMonths.length
       ? `${insights.deficitMonths.length} competência(s) com saldo mensal negativo: ${insights.deficitMonths.map((m) => m.label).join(', ')}.`
       : 'Nenhuma competência do recorte fecha com saldo mensal negativo.';
-    addSectionTitle(slide, 'Onde o período gera e onde consome resultado', sub);
-    slide.charts.add('bar', {
-      position: { left: M, top: BODY_Y + 56, width: 840, height: 340 },
-      categories: labels,
-      series: [
-        { name: SERIES_LABEL.balance, values: points.map((p) => centsToReais(p.balanceCents)), fill: APEX.balance },
-      ],
-      barOptions: { direction: 'column', grouping: 'clustered', gapWidth: 60 },
-      ...chartChrome(),
-    });
-
-    const reads: Array<[string, string, string]> = [];
-    if (insights.bestBalance) {
-      reads.push(['Melhor mês', `${insights.bestBalance.label} · ${formatInvestorCurrency(insights.bestBalance.valueCents, true)}`, APEX.positive]);
-    }
-    if (insights.worstBalance) {
-      reads.push(['Pior mês', `${insights.worstBalance.label} · ${formatInvestorCurrency(insights.worstBalance.valueCents, true)}`,
-        insights.worstBalance.valueCents < 0 ? APEX.negative : APEX.body]);
-    }
-    reads.push(['Saldo acumulado no fecho', formatInvestorCurrency(insights.closingBalanceCents, true),
-      insights.closingBalanceCents >= 0 ? APEX.positive : APEX.negative]);
-    if (insights.averageBalanceCents != null) {
-      reads.push(['Saldo mensal médio', formatInvestorCurrency(insights.averageBalanceCents, true), APEX.body]);
-    }
-    reads.slice(0, 4).forEach(([label, value, color], index) => {
-      const top = BODY_Y + 56 + index * 86;
-      addPanel(slide, { left: 940, top, width: 276, height: 74 }, color);
-      addText(slide, label.toUpperCase(), { left: 956, top: top + 14, width: 244, height: 18 },
-        { fontSize: 8, bold: true, color: APEX.subtle });
-      addText(slide, value, { left: 956, top: top + 34, width: 244, height: 28 },
-        { fontSize: 15, bold: true, color });
-    });
+    const slide = baseSlide(presentation, ctx, 'Saldo mensal e acumulado', sub);
+    addSectionTitle(slide, P, 'Onde o período gera e onde consome resultado', sub);
+    addChartPanel(slide, P, (opts) => apexBalanceChart(points, opts), balanceLegend(P),
+      { left: M, top: BODY_Y, width: CONTENT_W, height: 372 },
+      'Colunas: saldo do mês (eixo esquerdo). Linha: saldo acumulado (eixo direito).');
+    addReadStrip(slide, P, [
+      ...(insights.bestBalance
+        ? [{ label: 'Melhor mês', value: `${insights.bestBalance.label} · ${formatInvestorCurrency(insights.bestBalance.valueCents, true)}`, color: P.positive }] : []),
+      ...(insights.worstBalance
+        ? [{
+          label: 'Pior mês',
+          value: `${insights.worstBalance.label} · ${formatInvestorCurrency(insights.worstBalance.valueCents, true)}`,
+          color: insights.worstBalance.valueCents < 0 ? P.negative : P.body,
+        }] : []),
+      { label: 'Competências no recorte', value: String(points.length) },
+    ], 566);
   }
 
-  /* Último gráfico — projeção por cliente */
+  /* 08 — Projeção por cliente */
   if (pack.narrative.clientForecasts.length) {
-    const slide = baseSlide(presentation, ctx, 'Projeção por cliente', 'Cada série identifica o cliente que compõe o faturamento previsto.');
-    addSectionTitle(slide, 'Quem compõe o faturamento projetado', APEX_CLIENT_FORECAST_DESCRIPTION);
-    const forecastPeriods = points.filter((point) => point.period >= '2026-07').map((point) => point.period);
-    const clients = [...new Map(pack.narrative.clientForecasts.map((item) => [item.clientId, item.client])).entries()]
-      .filter(([id]) => pack.narrative.clientForecasts.some((item) => item.clientId === id && forecastPeriods.includes(item.period)));
-    slide.charts.add('bar', {
-      position: { left: M, top: BODY_Y + 50, width: CONTENT_W, height: 378 },
-      categories: forecastPeriods.map(formatInvestorPeriod),
-      series: clients.map(([clientId, client], index) => ({
-        name: client,
-        values: forecastPeriods.map((period) => centsToReais(
-          pack.narrative.clientForecasts
-            .filter((item) => item.clientId === clientId && item.period === period)
-            .reduce((sum, item) => sum + item.amountCents, 0),
-        )),
-        fill: clientForecastColor(clientId, index, APEX),
-      })),
-      barOptions: { direction: 'column', grouping: 'stacked', gapWidth: 34 },
-      ...chartChrome(),
+    const slide = baseSlide(presentation, ctx, 'Projeção por cliente',
+      'Cada série identifica o cliente que compõe o faturamento previsto.');
+    addSectionTitle(slide, P, 'Quem compõe o faturamento projetado', APEX_CLIENT_FORECAST_DESCRIPTION);
+    const clientIds = [...new Map(pack.narrative.clientForecasts.map((item) => [item.clientId, item.client])).entries()];
+    addChartPanel(
+      slide,
+      P,
+      (opts) => apexClientForecastChart(pack.narrative.clientForecasts, points.map((point) => point.period), opts),
+      clientIds.map(([clientId, client], index) => ({ label: client, color: clientForecastColor(clientId, index, P) })),
+      { left: M, top: BODY_Y, width: CONTENT_W, height: 468 },
+    );
+  }
+
+  /* 09+ — Base mensal informada */
+  {
+    const slices = chunkEvenly(baseTableRows(snapshot, P), BASE_ROWS_PER_SLIDE);
+    slices.forEach((rows, index) => {
+      const slide = baseSlide(presentation, ctx, 'Base mensal informada',
+        'Todos os valores que sustentam os gráficos anteriores.');
+      addSectionTitle(
+        slide,
+        P,
+        index === 0 ? 'Todos os valores por trás dos gráficos' : 'Base mensal informada — continuação',
+        index === 0
+          ? `${APEX_SOURCE}. As competências projetadas seguem na sequência cronológica, destacadas em cor.`
+          : `Continuação da base: folha ${index + 1} de ${slices.length}.`,
+      );
+      addTable(slide, P, BASE_COLUMNS, rows, BODY_Y + 4, 33, 14);
     });
   }
 
-  /* 08+ — Base mensal informada */
-  {
-    const slices = Math.max(1, Math.ceil(points.length / TABLE_ROWS_PER_SLIDE));
-    for (let i = 0; i < slices; i += 1) {
-      const slice = points.slice(i * TABLE_ROWS_PER_SLIDE, (i + 1) * TABLE_ROWS_PER_SLIDE);
-      const slide = baseSlide(presentation, ctx, 'Base mensal informada', 'Todos os valores que sustentam os gráficos anteriores.');
-      addSectionTitle(
-        slide,
-        i === 0 ? 'Todos os valores por trás dos gráficos' : 'Base mensal informada (continuação)',
-        i === 0
-          ? 'Previsões destacadas em azul e âmbar. Valores em BRL.'
-          : `Competências ${i * TABLE_ROWS_PER_SLIDE + 1} a ${i * TABLE_ROWS_PER_SLIDE + slice.length} de ${points.length}.`,
-      );
-      addBaseTable(slide, slice, BODY_Y + 56);
-    }
-  }
-
-  /* 09 — Premissas, riscos e destaques */
+  /* 10+ — Carteira e recebíveis */
   if (pack.narrative.portfolio.length) {
-    const slices = Math.ceil(pack.narrative.portfolio.length / 10);
-    for (let index = 0; index < slices; index += 1) {
-      const slice = pack.narrative.portfolio.slice(index * 10, (index + 1) * 10);
-      const slide = baseSlide(presentation, ctx, 'Carteira e recebíveis', 'Base contratual usada para limitar e distribuir a projeção.');
+    const slices = chunkEvenly(pack.narrative.portfolio, PORTFOLIO_ROWS_PER_SLIDE);
+    slices.forEach((clients, index) => {
+      const isLast = index === slices.length - 1;
+      const slide = baseSlide(presentation, ctx, 'Carteira e recebíveis',
+        'Base contratual usada para limitar e distribuir a projeção.');
       addSectionTitle(
         slide,
-        index === 0 ? 'Backlog que sustenta a projeção' : 'Carteira e recebíveis (continuação)',
+        P,
+        index === 0 ? 'Backlog que sustenta a projeção' : 'Carteira e recebíveis — continuação',
         'Saldo a receber conforme informado na carteira; não equivale necessariamente a caixa recebido.',
       );
-      addPortfolioTable(slide, slice, BODY_Y + 52);
-    }
-  }
-
-  /* 10 — Fecho */
-  {
-    const slide = baseSlide(presentation, ctx, 'Perspectiva', investorClosingMessage(pack.narrative.closingMessage));
-    addRect(slide, { left: M + 2, top: 168, width: 160, height: 3 }, APEX.revenue);
-    addText(slide, APEX_CLOSING_TITLE,
-      { left: M, top: 192, width: 940, height: 140 }, { fontSize: 40, bold: true, color: APEX.ink });
-    addRect(slide, { left: M, top: 360, width: 2, height: 120 }, APEX.revenue);
-    addText(slide,
-      investorClosingMessage(pack.narrative.closingMessage),
-      { left: M + 22, top: 360, width: 880, height: 124 }, { fontSize: 20, color: APEX.body });
-
-    const sign: Array<[string, string]> = [
-      ['Preparado por', pack.authorName || 'Financeiro'],
-      ['Data-base', pack.referenceDate],
-      ['Classificação', confidential],
-    ];
-    sign.forEach(([label, value], index) => {
-      const left = M + index * 288;
-      addText(slide, label.toUpperCase(), { left, top: 528, width: 270, height: 16 },
-        { fontSize: 8, bold: true, color: APEX.subtle });
-      addText(slide, value, { left, top: 546, width: 270, height: 24 },
-        { fontSize: 13, bold: true, color: APEX.body });
+      addTable(
+        slide,
+        P,
+        PORTFOLIO_COLUMNS,
+        portfolioTableRows(clients, pack.narrative.portfolio, isLast, index * PORTFOLIO_ROWS_PER_SLIDE, P),
+        BODY_Y + 4,
+        36,
+        12.5,
+      );
     });
   }
+
+  /* Último — Fecho institucional (só a marca centralizada, igual ao PDF) */
+  {
+    const slide = baseSlide(presentation, ctx, '', investorClosingMessage(pack.narrative.closingMessage));
+    addLogo(slide, { left: (W - 620) / 2, top: (H - 620 / APEX_LOGO_ASPECT) / 2, height: 620 / APEX_LOGO_ASPECT });
+  }
+
+  const total = ctx.counters.length + 1; // a capa não numera, mas conta no total
+  ctx.counters.forEach((shape, index) => {
+    shape.text = `${String(index + 2).padStart(2, '0')} / ${String(total).padStart(2, '0')}`;
+    shape.text.style = { fontFamily: FONT, fontSize: 12, color: P.subtle, alignment: 'right', autoFit: 'shrinkText' };
+  });
+}
+
+export async function generateInvestorPackPptx(pack: InvestorPack, options?: InvestorPackPptxOptions): Promise<Uint8Array> {
+  const { Presentation, PresentationFile } = await loadArtifactTool();
+  const presentation = Presentation.create({ slideSize: { width: W, height: H } });
+  buildInvestorPackDeck(presentation, pack, options);
 
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'financial-projection-'));
   const output = path.join(tempDir, 'projecao-financeira.pptx');

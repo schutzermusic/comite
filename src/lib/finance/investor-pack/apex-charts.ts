@@ -337,12 +337,17 @@ export function apexMonthlyChart(points: InvestorPackCurvePoint[], opts?: ApexCh
   const max = niceMax(Math.max(1, ...points.map((p) => Math.max(p.revenueTotalCents, p.payrollTotalCents))));
   const y = (value: number) => pad.top + ih - (value / max) * ih;
   const groupW = iw / points.length;
-  const barW = Math.max(8, Math.min(44, (groupW - 14) / 2));
+  /**
+   * Par receita/folha sempre dentro da própria competência: em recortes longos
+   * (60 competências) uma largura mínima fixa fazia as colunas invadirem o mês
+   * vizinho. Coluna fina e com respiro lê melhor que coluna larga sobreposta.
+   */
+  const gap = Math.max(2, groupW * 0.16);
+  const barW = Math.min(44, Math.max(2.5, (groupW - gap) / 2 - 1));
   const anim = opts?.animate ? ' apex-rise' : '';
 
   const columns = points.map((point, index) => {
     const center = pad.left + groupW * index + groupW / 2;
-    const gap = 5;
     const stacks: Array<{ x: number; actual: number; forecast: number; solid: string; hatch: string; label: string }> = [
       {
         x: center - barW - gap / 2,
@@ -640,7 +645,8 @@ export function apexBalanceChart(points: InvestorPackCurvePoint[], opts?: ApexCh
   const yLine = (value: number) => pad.top + ih - ((value - cMin) / (cMaxAbs - cMin)) * ih;
 
   const groupW = iw / points.length;
-  const barW = Math.max(10, Math.min(52, groupW * 0.5));
+  /** Nunca mais larga que a própria competência — ver nota em `apexMonthlyChart`. */
+  const barW = Math.min(52, Math.max(2.5, groupW * 0.56));
   const anim = opts?.animate ? ' apex-rise' : '';
 
   const bars = points.map((point, index) => {

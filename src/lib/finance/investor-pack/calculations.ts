@@ -136,6 +136,12 @@ export function formatInvestorCurrency(cents: number, compact = false): string {
   }).format(cents / 100);
 }
 
+/** Data-base em dd-mm-aaaa: 2026-07-30 → "30-07-2026". */
+export function formatInvestorDate(date: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date.trim());
+  return match ? `${match[3]}-${match[2]}-${match[1]}` : date;
+}
+
 export function formatInvestorPeriod(period: string): string {
   if (!PERIOD_RE.test(period)) return period;
   const [year, month] = period.split('-').map(Number);

@@ -287,6 +287,10 @@ describe('Pack do Investidor', () => {
     expect(sources.length).toBeGreaterThanOrEqual(pages.length);
     expect(html).toContain('Curva S');
     expect(html).toContain('2,71x');
+    // Página 02: o roteiro promete as seções; a capa não repete os KPIs.
+    expect(html).toContain('Roteiro da apresentação');
+    expect(html).toContain('O que esta leitura cobre');
+    expect(html).not.toContain('cover-band');
     expect(html).not.toContain('<em>Destinatário</em>');
     expect(html).not.toContain('Peso do previsto na receita');
     expect(html).not.toContain('O que sustenta a projeção e o que merece acompanhamento');
@@ -346,7 +350,11 @@ describe('Pack do Investidor', () => {
     expect(html).not.toContain('<em>Destinatário</em>');
     expect(html).not.toContain('Peso do previsto na receita');
     expect(html).not.toContain('O que sustenta a projeção e o que merece acompanhamento');
-    // O deck HTML mantém o fecho narrativo; só o PDF virou credencial institucional.
-    expect(html).toContain(APEX_CLOSING_TITLE);
+    // Roteiro e capa: a mesma promessa de seções do PDF, sem a página de sinais.
+    expect(html).toContain('O que esta leitura cobre');
+    expect(html).not.toContain('Os sinais que sustentam a conversa');
+    // Fecho institucional: só a marca centralizada, igual ao PDF.
+    expect(html).not.toContain(APEX_CLOSING_TITLE);
+    expect(html).toContain('closing-logo');
   });
 });

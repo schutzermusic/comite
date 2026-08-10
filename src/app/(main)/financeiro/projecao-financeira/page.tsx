@@ -30,7 +30,6 @@ import {
   HudCardHeader,
   HudCardTitle,
   HudHeader,
-  HudInput,
   HudPageLayout,
   useHudToast,
 } from '@/components/hud';
@@ -63,29 +62,6 @@ function periodOffset(period: string, delta: number): string {
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
-function TextAreaField({ label, value, onChange, rows = 4, disabled, placeholder }: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  rows?: number;
-  disabled?: boolean;
-  placeholder?: string;
-}) {
-  return (
-    <label className="flex flex-col gap-1.5">
-      <span className="text-[11px] font-medium uppercase tracking-wider text-ig-fg-muted">{label}</span>
-      <textarea
-        rows={rows}
-        value={value}
-        disabled={disabled}
-        placeholder={placeholder}
-        onChange={(event) => onChange(event.target.value)}
-        className="investor-projection-field w-full resize-y rounded-lg border px-4 py-3 text-sm outline-none"
-      />
-    </label>
-  );
-}
-
 export default function FinancialProjectionPage() {
   const current = useCurrentUser();
   const { notify } = useHudToast();
@@ -97,7 +73,7 @@ export default function FinancialProjectionPage() {
   const [autoSaveError, setAutoSaveError] = useState('');
   const [exporting, setExporting] = useState<string | null>(null);
   const [presentationHtml, setPresentationHtml] = useState('');
-  /** Tema do PDF exportado — escuro (tela/projeção) ou claro (impressão/anexo). */
+  /** Tema dos exports PDF e PowerPoint — escuro (tela/projeção) ou claro (impressão/anexo). */
   const [pdfTheme, setPdfTheme] = useState<ApexThemeMode>('dark');
   const [dirty, setDirty] = useState(false);
   const [loadError, setLoadError] = useState('');
@@ -279,7 +255,7 @@ export default function FinancialProjectionPage() {
       const response = await fetch('/api/finance/investor-pack/pptx', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pack: snapshot }),
+        body: JSON.stringify({ pack: snapshot, theme: pdfTheme }),
       });
       if (!response.ok) {
         const data = await response.json().catch(() => ({})) as { error?: string };
@@ -338,7 +314,7 @@ export default function FinancialProjectionPage() {
         actions={(
           <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-3 lg:w-auto [&_>_button]:w-full [&_>_button]:whitespace-nowrap">
             <HudButton variant="glass" leftIcon={<FileDown className="h-4 w-4" />} disabled={!canExport} onClick={exportPdf}>PDF {pdfTheme === 'light' ? 'claro' : 'escuro'}</HudButton>
-            <HudButton variant="glass" leftIcon={<FileText className="h-4 w-4" />} disabled={!canExport} isLoading={exporting === 'pptx'} onClick={() => void exportPptx()}>PowerPoint</HudButton>
+            <HudButton variant="glass" leftIcon={<FileText className="h-4 w-4" />} disabled={!canExport} isLoading={exporting === 'pptx'} onClick={() => void exportPptx()}>PowerPoint {pdfTheme === 'light' ? 'claro' : 'escuro'}</HudButton>
             <HudButton variant="primary" leftIcon={<Presentation className="h-4 w-4" />} disabled={!canExport} onClick={presentHtml}>HTML apresentação</HudButton>
           </div>
         )}
@@ -367,11 +343,10 @@ export default function FinancialProjectionPage() {
             />
             <FinanceFilterSegment<ApexThemeMode>
               icon={<Palette className="h-3.5 w-3.5" />}
-              label="Tema do PDF"
+              label="Tema do relatório"
               value={pdfTheme}
               options={[{ value: 'dark', label: 'Escuro' }, { value: 'light', label: 'Claro' }]}
               onChange={setPdfTheme}
-              className="sm:w-[14rem] sm:max-w-[14rem] sm:shrink-0"
             />
           </>
         }
@@ -557,27 +532,9 @@ export default function FinancialProjectionPage() {
         </HudCardContent>}
       </HudCard>
 
-      <HudCard>
-        <HudCardHeader>
-          <HudCardTitle>Contexto da apresentação</HudCardTitle>
-          <HudCardDescription>Informações usadas no PDF, PowerPoint e HTML. Não há etapas: edite quando necessário.</HudCardDescription>
-        </HudCardHeader>
-        <HudCardContent className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <HudInput label="Empresa" value={projection.company} disabled={!editable} onChange={(event) => patch({ company: event.target.value })} />
-          <HudInput label="Destinatário" value={projection.recipient} disabled={!editable} onChange={(event) => patch({ recipient: event.target.value })} />
-          <div className="lg:col-span-2">
-            <TextAreaField label="Resumo executivo" value={projection.narrative.executiveSummary} disabled={!editable} onChange={(value) => patch({ narrative: { ...projection.narrative, executiveSummary: value } })} placeholder="Síntese do cenário financeiro e da trajetória projetada." />
-          </div>
-          <TextAreaField label="Destaques - uma linha por item" value={projection.narrative.highlights.join('\n')} disabled={!editable} onChange={(value) => patch({ narrative: { ...projection.narrative, highlights: value.split('\n') } })} />
-          <TextAreaField label="Riscos - uma linha por item" value={projection.narrative.risks.join('\n')} disabled={!editable} onChange={(value) => patch({ narrative: { ...projection.narrative, risks: value.split('\n') } })} />
-          <TextAreaField label="Premissas - uma linha por item" value={projection.narrative.assumptions.join('\n')} disabled={!editable} onChange={(value) => patch({ narrative: { ...projection.narrative, assumptions: value.split('\n') } })} />
-          <TextAreaField label="Mensagem final" value={projection.narrative.closingMessage} disabled={!editable} onChange={(value) => patch({ narrative: { ...projection.narrative, closingMessage: value } })} />
-        </HudCardContent>
-      </HudCard>
-
       <div className="flex flex-wrap items-center justify-end gap-2">
         <HudButton variant="ghost" leftIcon={<Download className="h-4 w-4" />} disabled={!canExport} onClick={exportPdf}>Exportar PDF ({pdfTheme === 'light' ? 'claro' : 'escuro'})</HudButton>
-        <HudButton variant="ghost" leftIcon={<FileText className="h-4 w-4" />} disabled={!canExport} isLoading={exporting === 'pptx'} onClick={() => void exportPptx()}>Exportar PowerPoint</HudButton>
+        <HudButton variant="ghost" leftIcon={<FileText className="h-4 w-4" />} disabled={!canExport} isLoading={exporting === 'pptx'} onClick={() => void exportPptx()}>Exportar PowerPoint ({pdfTheme === 'light' ? 'claro' : 'escuro'})</HudButton>
         <HudButton variant="primary" leftIcon={<Presentation className="h-4 w-4" />} disabled={!canExport} onClick={presentHtml}>Abrir apresentação HTML</HudButton>
       </div>
 

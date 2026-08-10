@@ -142,6 +142,15 @@ export const APEX_CLOSING_CERTIFICATIONS = 'ISO 9001 e ISO 45001';
 export const APEX_CLOSING_MESSAGE = 'Seguimos comprometidos com uma execução disciplinada, crescimento sustentável e geração consistente de valor para nossos investidores.';
 const LEGACY_CLOSING_MESSAGE = 'Atualizar as premissas e os valores mensais à medida que novas informações forem consolidadas.';
 
+/**
+ * Resumo executivo do material. Sem texto informado o material não pede
+ * preenchimento nem anuncia ausência de dado — quem está na sala não tem o que
+ * fazer com esse aviso; fica apenas o rótulo da seção.
+ */
+export function investorExecutiveSummary(summary?: string | null): string {
+  return summary?.trim() || 'Resumo executivo';
+}
+
 export function investorClosingMessage(message?: string | null): string {
   const normalized = message?.trim();
   return !normalized || normalized === LEGACY_CLOSING_MESSAGE ? APEX_CLOSING_MESSAGE : normalized;
@@ -151,6 +160,8 @@ export function investorClosingMessage(message?: string | null): string {
 export const APEX_BRAND = 'Insight Energy';
 /** Nome curto do módulo exibido nas capas e sobrelinhas das apresentações. */
 export const APEX_MODULE = 'Projeção Financeira';
+/** Assinatura da capa — quem responde pelo material perante o board. */
+export const APEX_PREPARED_BY = 'Sergio Fagundes';
 
 /** Nome do relatório — o mesmo em PDF, PPTX, HTML e nos nomes de arquivo. */
 export const REPORT_NAME = 'Relatório de Faturamento vs Folha de Pagamento';
@@ -158,6 +169,46 @@ export const REPORT_NAME = 'Relatório de Faturamento vs Folha de Pagamento';
 export const REPORT_NAME_SHORT = 'Faturamento vs Folha de Pagamento';
 /** Segmento de nome de arquivo. */
 export const REPORT_FILE_SLUG = 'relatorio-faturamento-vs-folha';
+
+/** Chave de comparação: sem acento, sem caixa e sem espaço duplicado. */
+function titleKey(value: string): string {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+/**
+ * Packs criados antes da renomeação guardaram o título como "Relatório de
+ * Faturamento e Recebíveis", muitas vezes em caixa alta. Na capa isso aparece
+ * gritado e com o nome fora de uso, então qualquer variante do nome antigo (ou
+ * do atual) volta para a forma canônica de `REPORT_NAME`.
+ */
+const LEGACY_REPORT_TITLE_RE = /faturamento.*receb|receb.*faturamento/;
+
+/** Título de capa — o nome do relatório, ou o título próprio do pack se houver. */
+export function investorCoverTitle(title?: string | null): string {
+  const trimmed = title?.replace(/\s+/g, ' ').trim();
+  if (!trimmed) return REPORT_NAME;
+  const key = titleKey(trimmed);
+  if (key === titleKey(REPORT_NAME) || LEGACY_REPORT_TITLE_RE.test(key)) return REPORT_NAME;
+  return trimmed;
+}
+
+/**
+ * Roteiro do material — a mesma sequência de seções no PDF e na apresentação
+ * HTML, para que a página 02 prometa exatamente o que vem depois. As seções
+ * condicionais entram só quando o pack traz o dado que as sustenta.
+ */
+export function apexAgenda(opts: { clientForecasts: boolean; portfolio: boolean }): Array<{ title: string; sub: string }> {
+  return [
+    { title: 'Síntese executiva', sub: 'Cobertura, saldo e os sinais que resumem o período' },
+    { title: 'Evolução mensal', sub: 'Receita e folha competência a competência' },
+    { title: 'Curva mensal', sub: 'Valores de cada competência, sem acumulação' },
+    { title: 'Curva S acumulada', sub: 'Trajetória acumulada e zona de previsão' },
+    { title: 'Saldo e acumulado', sub: 'Onde o período gera e onde consome resultado' },
+    ...(opts.clientForecasts ? [{ title: 'Projeção por cliente', sub: 'Composição do faturamento projetado' }] : []),
+    { title: 'Base mensal informada', sub: 'Todos os valores por trás dos gráficos' },
+    ...(opts.portfolio ? [{ title: 'Carteira e recebíveis', sub: 'Backlog que sustenta a projeção' }] : []),
+  ];
+}
 
 export function confidentialityLabel(value: InvestorPackConfidentiality): string {
   if (value === 'confidential') return 'CONFIDENCIAL';

@@ -3,6 +3,7 @@ import { createClient } from '@/utils/supabase/server';
 import { validateInvestorPack } from '@/lib/finance/investor-pack/calculations';
 import { investorPackFileStem } from '@/lib/finance/investor-pack/html-presentation';
 import { generateInvestorPackPptx } from '@/lib/finance/investor-pack/pptx-server';
+import type { ApexThemeMode } from '@/lib/finance/investor-pack/apex-theme';
 import type { InvestorPack, InvestorPackNarrative } from '@/lib/finance/investor-pack/types';
 
 export const runtime = 'nodejs';
@@ -59,7 +60,9 @@ async function loadSavedProjection(id: string): Promise<InvestorPack | null> {
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json() as { id?: string; pack?: InvestorPack };
+    const body = await request.json() as { id?: string; pack?: InvestorPack; theme?: string };
+    // Mesmo par de temas do PDF; qualquer outro valor cai no escuro.
+    const theme: ApexThemeMode = body.theme === 'light' ? 'light' : 'dark';
     let pack: InvestorPack | null = null;
     if (SUPABASE_CONFIGURED) {
       await ensureExportPermission();
@@ -78,7 +81,7 @@ export async function POST(request: Request) {
     if (!validation.valid) {
       return NextResponse.json({ error: validation.errors.join(' ') }, { status: 422 });
     }
-    const bytes = await generateInvestorPackPptx(pack);
+    const bytes = await generateInvestorPackPptx(pack, { theme });
     const fileName = `${investorPackFileStem(pack)}.pptx`;
     const responseBody = new Uint8Array(bytes).buffer as ArrayBuffer;
     return new Response(responseBody, {

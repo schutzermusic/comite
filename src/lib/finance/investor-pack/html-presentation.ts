@@ -32,44 +32,45 @@ import {
   buildApexInsights,
   curveReading,
   monthlyReading,
-  type ApexInsightCard,
   type ApexInsights,
 } from './apex-insights';
 import { APEX_LOGO_ALT, APEX_LOGO_DATA_URI, APEX_LOGO_SMALL_DATA_URI } from './apex-logo';
 import {
   APEX,
   APEX_CLIENT_FORECAST_DESCRIPTION,
-  APEX_CLOSING_TITLE,
   APEX_FONT,
+  APEX_PREPARED_BY,
   APEX_SOURCE,
   REPORT_FILE_SLUG,
   REPORT_NAME,
   REPORT_NAME_SHORT,
+  apexAgenda,
   apexBackdrop,
   confidentialityLabel,
   dashIfZero,
-  investorClosingMessage,
+  investorCoverTitle,
+  investorExecutiveSummary,
 } from './apex-theme';
-import { calculateInvestorPack, formatInvestorCurrency, formatInvestorPeriod } from './calculations';
+import { calculateInvestorPack, formatInvestorCurrency, formatInvestorDate, formatInvestorPeriod } from './calculations';
 import type { InvestorPack, InvestorPackSnapshot } from './types';
 
-function kpiTile(label: string, value: string, accent: string, helper?: string): string {
-  return `<div class="tile" style="--accent:${accent}">
-    <span class="tile-l">${esc(label)}</span>
-    <b class="tile-v">${esc(value)}</b>
-    ${helper ? `<span class="tile-h">${esc(helper)}</span>` : ''}
-  </div>`;
+/**
+ * Faixa executiva — a mesma anatomia do PDF (padrão HudKpiStrip / Executive
+ * Band): um contêiner de vidro com trilhos nas bordas agrupando células de gap
+ * mínimo, em vez de cartões soltos. É a linguagem que o app já usa no topo de
+ * todo módulo, então o deck lê como o mesmo produto.
+ */
+function band(cells: string, columns = 4): string {
+  return `<div class="band"><div class="band-grid" style="--cols:${columns}">${cells}</div></div>`;
 }
 
-function insightCard(card: ApexInsightCard): string {
-  const accent = card.kind === 'alert' ? APEX.negative : card.kind === 'watch' ? APEX.attention : APEX.revenue;
-  const kindLabel = card.kind === 'alert' ? 'Atenção' : card.kind === 'watch' ? 'Monitorar' : 'Sinal';
-  return `<article class="ins" style="--accent:${accent}">
-    <span class="ins-k">${esc(kindLabel)}</span>
-    <b class="ins-v">${esc(card.value)}</b>
-    <span class="ins-l">${esc(card.label)}</span>
-    <p class="ins-d">${esc(card.detail)}</p>
-  </article>`;
+/** Célula da faixa: ponto de acento + rótulo, valor tabular, sublinha discreta. */
+function kpiTile(label: string, value: string, accent: string, helper?: string): string {
+  return `<div class="cell" style="--accent:${accent}">
+    <span class="cell-top"><i class="cell-dot"></i><span class="cell-l">${esc(label)}</span></span>
+    <b class="cell-v">${esc(value)}</b>
+    ${helper ? `<span class="cell-h">${esc(helper)}</span>` : ''}
+  </div>`;
 }
 
 function monthlyTable(snapshot: InvestorPackSnapshot): string {
@@ -119,7 +120,10 @@ function portfolioTable(pack: InvestorPack): string {
 }
 
 export function investorPackFileStem(pack: InvestorPack): string {
-  const slug = pack.title.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '').toLowerCase();
+  const title = investorCoverTitle(pack.title);
+  // Título canônico não entra no nome do arquivo: repetiria o próprio slug.
+  if (title === REPORT_NAME) return `${REPORT_FILE_SLUG}-${pack.referenceDate}`;
+  const slug = title.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '').toLowerCase();
   return `${REPORT_FILE_SLUG}-${slug || 'relatorio'}-${pack.referenceDate}`;
 }
 
@@ -143,19 +147,11 @@ function buildSlides(pack: InvestorPack, snapshot: InvestorPackSnapshot, insight
     eyebrow: `${REPORT_NAME_SHORT} · ${confidential}`,
     html: `<div class="hero">
       <span class="hero-logo" role="img" aria-label="${esc(APEX_LOGO_ALT)}"></span>
-      ${pack.title.trim().toLowerCase() === REPORT_NAME.toLowerCase()
-        ? ''
-        : `<div class="hero-mark"><span class="hero-dot"></span>${esc(REPORT_NAME)}</div>`}
-      <h1>${esc(pack.title)}</h1>
-      <p class="lede">${esc(pack.company || 'Visão financeira executiva')}</p>
+      <h1>${esc(investorCoverTitle(pack.title))}</h1>
       <div class="meta">
         <span><em>Período</em><strong>${esc(period)}</strong></span>
-        <span><em>Data-base</em><strong>${esc(pack.referenceDate)}</strong></span>
-        <span><em>Versão</em><strong>${pack.version}</strong></span>
-      </div>
-      <div class="hero-verdict" style="--accent:${insights.verdict === 'deficit' ? APEX.negative : insights.verdict === 'balanced' ? APEX.attention : APEX.revenue}">
-        <b>${esc(insights.coverageLabel)}</b>
-        <span>${esc(insights.verdictLabel)} · cobertura receita / folha</span>
+        <span><em>Data</em><strong>${esc(formatInvestorDate(pack.referenceDate))}</strong></span>
+        <span><em>Preparado por</em><strong>${esc(APEX_PREPARED_BY)}</strong></span>
       </div>
     </div>`,
   });
@@ -166,16 +162,10 @@ function buildSlides(pack: InvestorPack, snapshot: InvestorPackSnapshot, insight
     eyebrow: 'Roteiro da apresentação',
     html: `<div class="stack">
       <h2>O que esta leitura cobre</h2>
-      <ol class="agenda">
-        <li><b>Síntese executiva</b><span>Cobertura, saldo e o número que resume o período</span></li>
-        <li><b>Leitura do período</b><span>Sinais, pontos de atenção e concentrações</span></li>
-        <li><b>Evolução mensal</b><span>Receita e folha competência a competência</span></li>
-        <li><b>Curva mensal</b><span>Valores de cada competência, sem acumulação</span></li>
-        <li><b>Curva S acumulada</b><span>Trajetória e zona de previsão</span></li>
-        <li><b>Saldo e acumulado</b><span>Onde o período gera e onde consome resultado</span></li>
-        <li><b>Projeção por cliente</b><span>Composição do faturamento projetado</span></li>
-        <li><b>Base informada</b><span>Todos os valores que sustentam os gráficos</span></li>
-      </ol>
+      <ol class="agenda">${apexAgenda({
+        clientForecasts: pack.narrative.clientForecasts.length > 0,
+        portfolio: pack.narrative.portfolio.length > 0,
+      }).map((item) => `<li><b>${esc(item.title)}</b><span>${esc(item.sub)}</span></li>`).join('')}</ol>
     </div>`,
   });
 
@@ -187,13 +177,14 @@ function buildSlides(pack: InvestorPack, snapshot: InvestorPackSnapshot, insight
       <h2>${esc(insights.verdictHeadline)}</h2>
       <div class="split">
         <div>
-          <p class="copy">${esc(pack.narrative.executiveSummary || 'Preencha o resumo executivo para contextualizar a trajetória financeira apresentada.')}</p>
-          <div class="tiles">
-            ${kpiTile('Faturamento realizado', formatInvestorCurrency(metrics.revenueActualCents, true), APEX.revenue, `${insights.realizedMonths} competência(s)`)}
+          <p class="copy">${esc(investorExecutiveSummary(pack.narrative.executiveSummary))}</p>
+          ${band(
+            `${kpiTile('Faturamento realizado', formatInvestorCurrency(metrics.revenueActualCents, true), APEX.revenue, `${insights.realizedMonths} competência(s)`)}
             ${kpiTile('Faturamento previsto', formatInvestorCurrency(metrics.revenueForecastCents, true), APEX.revenueForecast, insights.forecastShare == null ? undefined : `${(insights.forecastShare * 100).toFixed(0)}% da receita`)}
             ${kpiTile('Folha total', formatInvestorCurrency(metrics.payrollTotalCents, true), APEX.payrollForecast, 'fechada + projetada')}
-            ${kpiTile('Saldo acumulado', formatInvestorCurrency(insights.closingBalanceCents, true), insights.closingBalanceCents >= 0 ? APEX.positive : APEX.negative, 'no fecho do recorte')}
-          </div>
+            ${kpiTile('Saldo acumulado', formatInvestorCurrency(insights.closingBalanceCents, true), insights.closingBalanceCents >= 0 ? APEX.positive : APEX.negative, 'no fecho do recorte')}`,
+            4,
+          )}
         </div>
         <div class="dial-wrap">
           ${apexCoverageDial(metrics.coverageRatio, { size: 280, animate: true })}
@@ -204,17 +195,7 @@ function buildSlides(pack: InvestorPack, snapshot: InvestorPackSnapshot, insight
     </div>`,
   });
 
-  /* 04 — Leitura do período */
-  slides.push({
-    nav: 'Leitura',
-    eyebrow: 'Leitura do período',
-    html: `<div class="stack">
-      <h2>Os sinais que sustentam a conversa</h2>
-      <div class="ins-grid">${insights.cards.slice(0, 6).map(insightCard).join('')}</div>
-    </div>`,
-  });
-
-  /* 06 — Evolução mensal */
+  /* 04 — Evolução mensal */
   slides.push({
     nav: 'Mensal',
     eyebrow: 'Evolução mensal',
@@ -299,17 +280,12 @@ function buildSlides(pack: InvestorPack, snapshot: InvestorPackSnapshot, insight
     });
   }
 
-  /* 10 — Fecho */
+  /* Último — Fecho institucional (só a marca, centralizada, igual ao PDF) */
   slides.push({
     nav: 'Fecho',
-    eyebrow: 'Perspectiva e próximos passos',
+    eyebrow: '',
     html: `<div class="closing">
-      <h2>${esc(APEX_CLOSING_TITLE)}</h2>
-      <blockquote>${esc(investorClosingMessage(pack.narrative.closingMessage))}</blockquote>
-      <div class="sign">
-        <span><em>Preparado por</em><strong>${esc(pack.authorName || 'Financeiro')}</strong></span>
-        <span><em>Classificação</em><strong>${esc(confidential)}</strong></span>
-      </div>
+      <span class="closing-logo" role="img" aria-label="${esc(APEX_LOGO_ALT)}"></span>
     </div>`,
   });
 
@@ -323,6 +299,8 @@ export function buildInvestorPackPresentationHtml(pack: InvestorPack): string {
   const total = slides.length;
   const backdrop = apexBackdrop();
   const confidential = confidentialityLabel(pack.confidentiality);
+  const coverTitle = investorCoverTitle(pack.title);
+  const documentTitle = coverTitle === REPORT_NAME ? REPORT_NAME : `${REPORT_NAME} · ${coverTitle}`;
 
   const slidesHtml = slides.map((slide, index) => `
   <section class="slide" aria-label="${esc(`${index + 1} de ${total} — ${slide.nav}`)}">
@@ -353,7 +331,7 @@ export function buildInvestorPackPresentationHtml(pack: InvestorPack): string {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="dark">
-<title>${esc(REPORT_NAME)} · ${esc(pack.title)} · v${pack.version}</title>
+<title>${esc(documentTitle)} · v${pack.version}</title>
 <style>
 :root{
   --void:${APEX.void};--panel-top:${APEX.panelTop};--panel-bottom:${APEX.panelBottom};
@@ -369,9 +347,27 @@ body::before{content:"";position:fixed;inset:0;background-image:${backdrop.image
 body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:3;
   background:radial-gradient(120% 90% at 50% 50%,transparent 55%,rgba(0,0,0,.42) 100%)}
 
-.deck{position:relative;z-index:1;height:100%;display:flex;transition:transform .68s cubic-bezier(.22,1,.36,1);will-change:transform}
+.deck{position:relative;z-index:1;height:100%;display:flex;transition:transform .72s cubic-bezier(.76,0,.24,1);will-change:transform}
 .slide{position:relative;min-width:100vw;height:100vh;padding:clamp(26px,3.4vw,54px) clamp(28px,4vw,72px) clamp(40px,4vw,64px);
   display:grid;grid-template-rows:auto 1fr auto;gap:clamp(16px,2vw,28px);overflow:hidden}
+/* Profundidade na troca: o slide que sai recua e desfoca, o que entra volta ao plano. */
+.slide{--enter-x:34px;opacity:.16;transform:scale(.94);filter:blur(7px);
+  transition:opacity .5s ease,transform .62s cubic-bezier(.22,1,.36,1),filter .5s ease}
+.slide.is-active{opacity:1;transform:none;filter:none}
+.deck[data-dir="back"] .slide{--enter-x:-34px}
+/* Entrada em cascata: cabeçalho, conteúdo e rodapé chegam em sequência, não em bloco. */
+@keyframes apexEnter{from{opacity:0;transform:translate3d(var(--enter-x),14px,0)}to{opacity:1;transform:none}}
+.slide.is-active .slide-head,
+.slide.is-active .slide-foot,
+.slide.is-active .hero>*,
+.slide.is-active .stack>*,
+.slide.is-active .closing>*{animation:apexEnter .62s cubic-bezier(.22,1,.36,1) both}
+.slide.is-active .slide-head{animation-delay:.04s}
+.slide.is-active .hero>*:nth-child(1),.slide.is-active .stack>*:nth-child(1),.slide.is-active .closing>*{animation-delay:.1s}
+.slide.is-active .hero>*:nth-child(2),.slide.is-active .stack>*:nth-child(2){animation-delay:.17s}
+.slide.is-active .hero>*:nth-child(3),.slide.is-active .stack>*:nth-child(3){animation-delay:.24s}
+.slide.is-active .hero>*:nth-child(4),.slide.is-active .stack>*:nth-child(4){animation-delay:.31s}
+.slide.is-active .slide-foot{animation-delay:.36s}
 .slide::before{content:"";position:absolute;inset:clamp(14px,1.5vw,22px);border:1px solid var(--line-soft);border-radius:26px;pointer-events:none}
 .slide::after{content:"";position:absolute;left:clamp(14px,1.5vw,22px);top:clamp(14px,1.5vw,22px);width:96px;height:2px;
   background:linear-gradient(90deg,var(--revenue),transparent);border-radius:2px}
@@ -391,7 +387,6 @@ body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:3;
 h1{font-size:clamp(44px,6.4vw,90px);line-height:.94;letter-spacing:-.05em;margin:0;max-width:16ch}
 h2{font-size:clamp(28px,3.4vw,52px);line-height:1.06;letter-spacing:-.035em;margin:0;max-width:26ch}
 h3{font-size:clamp(15px,1.3vw,20px);margin:0 0 12px;letter-spacing:.01em;color:var(--ink)}
-.lede{font-size:clamp(16px,1.7vw,25px);line-height:1.4;color:var(--muted);margin:18px 0 0;max-width:44ch}
 .sub{font-size:clamp(13px,1.15vw,17px);line-height:1.5;color:var(--muted);margin:10px 0 0;max-width:78ch}
 .copy{font-size:clamp(15px,1.3vw,21px);line-height:1.55;color:var(--body);margin:0 0 26px;max-width:52ch}
 .muted{color:var(--subtle)}
@@ -400,19 +395,10 @@ h3{font-size:clamp(15px,1.3vw,20px);margin:0 0 12px;letter-spacing:.01em;color:v
 /* Capa */
 .hero-logo{display:block;height:clamp(30px,3.2vw,46px);width:clamp(226px,24vw,347px);
   background:url('${APEX_LOGO_DATA_URI}') left center/contain no-repeat;margin-bottom:clamp(18px,2.2vw,30px)}
-.hero-mark{display:inline-flex;align-items:center;gap:9px;font-size:11px;font-weight:700;letter-spacing:.2em;
-  text-transform:uppercase;color:var(--muted);margin-bottom:18px}
-.hero-dot{width:8px;height:8px;border-radius:50%;background:var(--revenue);box-shadow:0 0 0 4px rgba(53,230,187,.16)}
 .meta{display:flex;gap:34px;flex-wrap:wrap;margin-top:34px}
 .meta span{display:flex;flex-direction:column;gap:3px}
 .meta em{font-style:normal;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--subtle)}
 .meta strong{font-size:15px;font-weight:600;color:var(--ink)}
-.hero-verdict{display:inline-flex;align-items:baseline;gap:14px;margin-top:32px;padding:12px 20px;border-radius:14px;
-  border:1px solid color-mix(in srgb,var(--accent) 38%,transparent);
-  background:linear-gradient(135deg,color-mix(in srgb,var(--accent) 14%,transparent),transparent)}
-.hero-verdict b{font-size:clamp(30px,3vw,46px);letter-spacing:-.04em;color:var(--accent);font-variant-numeric:tabular-nums}
-.hero-verdict span{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
-
 /* Roteiro */
 .agenda{list-style:none;counter-reset:ag;margin:8px 0 0;padding:0;display:grid;grid-template-columns:1fr 1fr;gap:12px 40px}
 .agenda li{counter-increment:ag;display:grid;grid-template-columns:auto 1fr;gap:14px;align-items:baseline;
@@ -424,29 +410,37 @@ h3{font-size:clamp(15px,1.3vw,20px);margin:0 0 12px;letter-spacing:.01em;color:v
 
 /* Síntese */
 .split{display:grid;grid-template-columns:1.35fr .65fr;gap:clamp(22px,3vw,54px);align-items:center}
-.tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
-.tile{position:relative;padding:14px 14px 13px;border-radius:14px;border:1px solid var(--line-soft);
-  background:linear-gradient(160deg,rgba(12,28,36,.9),rgba(6,18,26,.55));overflow:hidden}
-.tile::before{content:"";position:absolute;inset:0 0 auto 0;height:2px;background:var(--accent)}
-.tile-l{display:block;font-size:9.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--subtle)}
-.tile-v{display:block;margin-top:7px;font-size:clamp(19px,2vw,30px);letter-spacing:-.035em;color:var(--accent);font-variant-numeric:tabular-nums}
-.tile-h{display:block;margin-top:5px;font-size:10.5px;color:var(--subtle)}
+
+/* Faixa executiva (padrão HudKpiStrip / Executive Band) */
+.band{position:relative;overflow:hidden;border-radius:20px;padding:5px;
+  border:1px solid rgba(53,230,187,.18);
+  background:linear-gradient(180deg,var(--panel-top) 0%,var(--panel-bottom) 100%);
+  box-shadow:0 22px 60px rgba(0,0,0,.38),inset 0 0 0 1px rgba(53,230,187,.06)}
+/* Trilhos de borda — a assinatura contida da Executive Band. */
+.band::before,.band::after{content:"";position:absolute;top:12px;bottom:12px;width:1px}
+.band::before{left:11px;background:var(--revenue)}
+.band::after{right:11px;background:var(--line)}
+.band-grid{position:relative;display:grid;grid-template-columns:repeat(var(--cols,4),1fr);gap:5px}
+.cell{position:relative;overflow:hidden;padding:13px 15px 14px;border-radius:15px;border:1px solid var(--line-soft);
+  background:linear-gradient(160deg,rgba(12,28,36,.88),rgba(6,18,26,.42));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}
+/* Fio de acento no topo, esmaecido nas pontas (não a barra sólida de borda). */
+.cell::before{content:"";position:absolute;top:0;left:24%;right:24%;height:1px;
+  background:linear-gradient(90deg,transparent,var(--accent),transparent)}
+.cell-top{display:flex;align-items:flex-start;gap:7px}
+.cell-dot{width:6px;height:6px;border-radius:50%;background:var(--accent);flex:0 0 auto;margin-top:4px;
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 16%,transparent)}
+/* Duas linhas reservadas: o rótulo quebra em vez de truncar (reticências viram dúvida
+   em projeção) e os valores da faixa seguem alinhados entre si. */
+.cell-l{flex:1 1 auto;min-height:2.7em;font-size:9.5px;line-height:1.35;font-weight:700;letter-spacing:.13em;
+  text-transform:uppercase;color:var(--muted)}
+.cell-v{display:block;margin-top:7px;font-size:clamp(19px,2vw,30px);font-weight:700;letter-spacing:-.035em;
+  color:var(--accent);font-variant-numeric:tabular-nums}
+.cell-h{display:block;margin-top:5px;font-size:10.5px;color:var(--subtle)}
 .dial-wrap{display:flex;flex-direction:column;align-items:center;gap:4px}
 .apex-dial{width:100%;max-width:300px;height:auto}
 .dial-label{margin:0;font-size:10.5px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);text-align:center}
 .dial-note{font-size:11px;color:var(--subtle);text-align:center;margin:4px 0 0;max-width:30ch;line-height:1.45}
-
-/* Leitura */
-.ins-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
-/* Evita cartão órfão na última linha: o último item ocupa a sobra da grade. */
-.ins-grid>:last-child:nth-child(3n+1){grid-column:span 3}
-.ins-grid>:last-child:nth-child(3n+2){grid-column:span 2}
-.ins{position:relative;padding:16px 18px;border-radius:16px;border:1px solid var(--line-soft);border-left:2px solid var(--accent);
-  background:linear-gradient(150deg,rgba(12,28,36,.92),rgba(6,18,26,.5))}
-.ins-k{font-size:9px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
-.ins-v{display:block;margin:8px 0 2px;font-size:clamp(20px,1.9vw,28px);letter-spacing:-.03em;font-variant-numeric:tabular-nums}
-.ins-l{display:block;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
-.ins-d{margin:9px 0 0;font-size:12px;line-height:1.45;color:var(--subtle)}
 
 /* Painéis de gráfico */
 .panel{border:1px solid var(--line-soft);border-radius:20px;padding:16px 20px 14px;
@@ -480,13 +474,10 @@ h3{font-size:clamp(15px,1.3vw,20px);margin:0 0 12px;letter-spacing:.01em;color:v
 .dq b{font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:${APEX.attention}}
 .dq ul{margin:6px 0 0;padding-left:18px;font-size:12.5px;color:var(--body)}
 
-/* Fecho */
-.closing blockquote{margin:26px 0 0;border-left:2px solid var(--revenue);padding-left:26px;
-  font-size:clamp(18px,2.2vw,34px);line-height:1.34;color:#DFF9F3;max-width:34ch}
-.sign{display:flex;gap:40px;flex-wrap:wrap;margin-top:44px}
-.sign span{display:flex;flex-direction:column;gap:3px}
-.sign em{font-style:normal;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--subtle)}
-.sign strong{font-size:14px;font-weight:600}
+/* Fecho institucional — apenas a marca centralizada */
+.closing{display:flex;justify-content:center;align-items:center}
+.closing-logo{display:block;width:min(52vw,620px);height:clamp(52px,7vw,104px);
+  background:url('${APEX_LOGO_DATA_URI}') center center/contain no-repeat}
 
 ${APEX_CHART_CSS}
 ${APEX_LEGEND_CSS}
@@ -523,9 +514,9 @@ ${APEX_CHART_ANIM_CSS}
   .slide{padding:24px 22px 104px;gap:14px}
   h1{font-size:clamp(32px,9vw,50px)}
   h2{font-size:clamp(22px,6vw,32px)}
-  .split,.columns,.ins-grid,.agenda{grid-template-columns:1fr;gap:16px}
-  .tiles{grid-template-columns:1fr 1fr}
-  .meta,.sign{gap:18px}
+  .split,.columns,.agenda{grid-template-columns:1fr;gap:16px}
+  .band-grid{grid-template-columns:1fr 1fr}
+  .meta{gap:18px}
   .panel .apex-chart{height:38vh}
   .dots{display:none}
   .slide-foot{font-size:9px}
@@ -534,14 +525,41 @@ ${APEX_CHART_ANIM_CSS}
   .slide-foot span:last-child{display:none}
   .hud{left:22px;right:22px;justify-content:center}
 }
+/* Janela baixa (pré-visualização em painel lateral, não projeção): o gráfico e os
+   títulos encolhem para o corpo do slide não invadir o cabeçalho e o rodapé. */
+@media (max-height:660px){
+  .slide{padding:16px 20px 88px;gap:10px}
+  h1{font-size:clamp(26px,7vw,42px)}
+  h2{font-size:clamp(18px,3.4vw,26px)}
+  .sub{font-size:12.5px;margin-top:6px}
+  .copy{font-size:13px;margin-bottom:14px}
+  .panel{padding:10px 13px 8px}
+  .panel .apex-chart{height:min(36vh,250px)}
+  .table-wrap{max-height:42vh}
+  .cell-v{font-size:17px}
+  .cell-l{min-height:0}
+  .apex-dial{max-width:150px}
+  /* Duas colunas voltam: numa janela baixa a altura é o recurso escasso, não a largura. */
+  .agenda{grid-template-columns:1fr 1fr;gap:0 20px}
+  .agenda li{padding:6px 0}
+  .agenda b{font-size:13.5px}
+  .agenda span{font-size:10.5px}
+  .split{grid-template-columns:1.35fr .65fr;gap:18px}
+  .meta{gap:16px;margin-top:18px}
+  .dial-note{display:none}
+}
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation:none!important;transition:none!important}
+  /* Sem movimento, o slide inativo não pode ficar apagado: só a rolagem muda. */
+  .slide{opacity:1;transform:none;filter:none}
 }
 @media print{
   html,body{overflow:visible;height:auto}
   body::after{display:none}
   .deck{display:block;transform:none!important}
-  .slide{page-break-after:always;width:100%;height:100vh}
+  .slide{page-break-after:always;width:100%;height:100vh;
+    opacity:1!important;transform:none!important;filter:none!important;animation:none!important}
+  .slide *{animation:none!important}
   .hud,.rail,.dots,.index{display:none!important}
 }
 </style>
@@ -560,7 +578,7 @@ ${APEX_CHART_ANIM_CSS}
 <div class="rail"><div class="rail-fill" id="rail"></div></div>
 
 <div class="index" id="overlay" role="dialog" aria-label="Índice da apresentação">
-  <h4>${esc(REPORT_NAME)} · ${esc(pack.title)}</h4>
+  <h4>${esc(documentTitle)}</h4>
   <div class="idx-grid">${indexHtml}</div>
 </div>
 
@@ -572,16 +590,32 @@ ${APEX_CHART_ANIM_CSS}
   var rail = document.getElementById('rail');
   var overlay = document.getElementById('overlay');
   var dots = Array.prototype.slice.call(document.querySelectorAll('#dots i'));
+  var sections = Array.prototype.slice.call(document.querySelectorAll('.slide'));
   var index = 0, startX = 0, startY = 0;
 
   function pad(n){ return n < 10 ? '0' + n : '' + n; }
 
+  // As marcas dos gráficos reanimam a cada chegada: o slide se desenha na frente
+  // de quem assiste, em vez de já estar pronto desde o carregamento.
+  function replayCharts(slide){
+    var marks = slide.querySelectorAll('.apex-rise, .apex-draw');
+    for (var i = 0; i < marks.length; i++) {
+      marks[i].style.animation = 'none';
+      void marks[i].offsetWidth;
+      marks[i].style.animation = '';
+    }
+  }
+
   function show(next){
-    index = Math.max(0, Math.min(total - 1, next));
-    deck.style.transform = 'translateX(-' + (index * 100) + 'vw)';
+    var target = Math.max(0, Math.min(total - 1, next));
+    deck.setAttribute('data-dir', target < index ? 'back' : 'fwd');
+    index = target;
+    deck.style.transform = 'translate3d(-' + (index * 100) + 'vw, 0, 0)';
     count.textContent = pad(index + 1) + ' / ' + pad(total);
     rail.style.width = (((index + 1) / total) * 100) + '%';
     dots.forEach(function(dot, i){ dot.className = i === index ? 'on' : ''; });
+    sections.forEach(function(slide, i){ slide.classList.toggle('is-active', i === index); });
+    replayCharts(sections[index]);
   }
 
   function toggleIndex(force){
