@@ -42,6 +42,8 @@ import {
   listResidenceMunicipalities,
 } from '@/lib/services/residence-municipalities';
 import { batchInvitePonto, confirmRolloutSend, listPontoAccess, previewProvisioning, runPontoAccessAction } from '@/lib/ponto/access-client';
+import { PersonProfileDrawer } from '@/components/workforce/PersonProfileDrawer';
+import type { PersonSalaryHistory, SalaryHistoryResult } from '@/lib/workforce/salary-history';
 import type { PontoPreviewItem, PontoPreviewTotals } from '@/lib/ponto/access-types';
 import {
   PONTO_ACCESS_LABELS,
@@ -105,6 +107,10 @@ export default function PessoasPage() {
   const [statusFilter, setStatusFilter] = useState('active');
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Person | null>(null);
+  /** Ficha do colaborador — leitura, separada do modal de edição. */
+  const [profilePerson, setProfilePerson] = useState<Person | null>(null);
+  const [salaryByPerson, setSalaryByPerson] = useState<Record<string, PersonSalaryHistory>>({});
+  const [salaryBlocked, setSalaryBlocked] = useState<string | undefined>(undefined);
   const [residences, setResidences] = useState<PersonResidenceMunicipality[]>([]);
   const [residencePerson, setResidencePerson] = useState<Person | null>(null);
   const [accessMap, setAccessMap] = useState<Map<string, PontoAccessInfo>>(new Map());
@@ -144,6 +150,35 @@ export default function PessoasPage() {
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  /**
+   * Série salarial de todo o cadastro, buscada uma vez e indexada por pessoa.
+   *
+   * Fica no pai, e não dentro da gaveta, porque a rota tem permissão própria:
+   * quem não tem `people.view_salary` precisa abrir a ficha normalmente, só sem
+   * o bloco de salário — e não encontrar uma gaveta que falha ao abrir.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch('/api/workforce/salary-history');
+        if (cancelled) return;
+        if (res.status === 403) {
+          setSalaryBlocked('Histórico salarial exige a permissão people.view_salary.');
+          return;
+        }
+        const json = (await res.json()) as { ok: boolean; history?: SalaryHistoryResult };
+        if (!json.ok || !json.history) return;
+        const byPerson: Record<string, PersonSalaryHistory> = {};
+        for (const p of json.history.people) byPerson[p.personId] = p;
+        setSalaryByPerson(byPerson);
+      } catch {
+        // Silêncio proposital: a ficha continua útil sem o bloco salarial.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const filtered = useMemo(
     () =>
@@ -407,6 +442,7 @@ export default function PessoasPage() {
             data={filtered}
             keyExtractor={(p) => p.id}
             loading={loading}
+            onRowClick={(p) => setProfilePerson(p)}
             emptyState={
               <HudEmptyState
                 icon="inbox"
@@ -466,6 +502,12 @@ export default function PessoasPage() {
         open={rolloutOpen}
         onClose={() => setRolloutOpen(false)}
         onDone={reloadAccess}
+      />
+      <PersonProfileDrawer
+        person={profilePerson}
+        onClose={() => setProfilePerson(null)}
+        salary={profilePerson ? salaryByPerson[profilePerson.id] : undefined}
+        salaryUnavailableReason={salaryBlocked}
       />
       <DeletePersonModal
         person={deletingPerson}

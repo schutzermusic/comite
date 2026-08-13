@@ -2,7 +2,7 @@
 
 import {
   Users, DollarSign, TrendingUp, Percent,
-  Activity, Clock,
+  Activity, Clock, HeartPulse, ShieldAlert,
 } from 'lucide-react';
 import { formatWorkforceCurrency, WorkforceMetrics } from '@/lib/workforce-data';
 import type { WorkforcePeriodMeta } from '@/lib/workforce/period';
@@ -19,10 +19,35 @@ interface ExtendedKpiProps {
   indirectPayrollPct?: number;
 }
 
+/**
+ * Terceira linha — conformidade e pessoas.
+ *
+ * Cada campo é opcional porque cada um tem uma fonte diferente, com permissão
+ * diferente, e qualquer uma pode faltar sozinha. `undefined` significa "sem
+ * fonte" e sai como `–` sem tom semântico; um zero aqui afirmaria que não há
+ * CAT, não há ASO vencido e ninguém está sem reajuste — três coisas que
+ * ninguém mediu.
+ */
+export interface ComplianceKpiProps {
+  admissions?: number;
+  terminations?: number;
+  activeAbsences?: number;
+  catsInMonth?: number;
+  asoExpired?: number;
+  asoExpiring?: number;
+  workersWithoutAso?: number;
+  withoutRaise12m?: number;
+  /** Estado da competência corrente: importada, parcial ou faltante. */
+  competenceState?: 'complete' | 'partial' | 'missing';
+  competenceLabel?: string;
+}
+
 interface WorkforceOverviewCardsProps {
   data: WorkforceMetrics;
   meta?: WorkforcePeriodMeta;
   extended?: ExtendedKpiProps;
+  /** Linha 3 — omitida por inteiro quando não há nenhuma fonte de conformidade. */
+  compliance?: ComplianceKpiProps;
   className?: string;
   /** Torna cada KPI clicável (padrão Contratos) — o pai decide a ação por id. */
   onKpiClick?: (id: string) => void;
@@ -56,14 +81,17 @@ function KpiGroupDivider({ label }: { label: string }) {
   );
 }
 
-export function WorkforceOverviewCards({ data, meta, extended = {}, className, onKpiClick }: WorkforceOverviewCardsProps) {
+export function WorkforceOverviewCards({ data, meta, extended = {}, compliance, className, onKpiClick }: WorkforceOverviewCardsProps) {
   const hasComparison = meta ? meta.hasComparison : true;
   const comparisonLabel = meta?.comparisonLabel || 'vs mês anterior';
 
   const payrollValue   = data.monthlyPayroll.value;
   const folhaRevPct    = data.payrollAsRevenuePercent.value;
-  const turnover       = extended.turnoverPct ?? 0;
-  const overtime       = extended.overtimePct ?? 0;
+  // Indicador ausente não recebe tom semântico: verde por falta de dado
+  // afirma "está bem" sobre algo que não foi medido.
+  const turnover       = extended.turnoverPct;
+  const overtime       = extended.overtimePct;
+  const hasRevenueRatio = folhaRevPct > 0;
   const headcountDelta = hasComparison && data.headcount.delta !== 0 ? data.headcount.delta : undefined;
   const payrollDelta   = hasComparison ? Math.round(data.monthlyPayroll.trend * 10) / 10 : undefined;
   const avgCostDelta   = hasComparison ? Math.round(data.avgCostPerEmployee.trend * 10) / 10 : undefined;
@@ -100,9 +128,9 @@ export function WorkforceOverviewCards({ data, meta, extended = {}, className, o
       id: 'rev-per-emp',
       label: 'Receita / Colaborador',
       value: extended.revenuePerEmployee ? formatWorkforceCurrency(extended.revenuePerEmployee) : '–',
-      variant: 'success',
+      variant: extended.revenuePerEmployee ? 'success' : 'default',
       icon: <TrendingUp className="w-5 h-5" />,
-      deltaLabel: 'Eficiência produtiva',
+      deltaLabel: extended.revenuePerEmployee ? 'Eficiência produtiva' : 'Sem receita lançada no período',
     },
   ];
 
@@ -110,11 +138,17 @@ export function WorkforceOverviewCards({ data, meta, extended = {}, className, o
   const riskKpis: KpiItem[] = [
     {
       id: 'payroll-rev',
+      // Razão só existe com as duas pontas. Sem receita lançada no contas a
+      // receber, "0,0%" seria lido como folha irrisória diante do faturamento.
       label: 'Folha / Receita',
-      value: `${folhaRevPct.toFixed(1)}%`,
-      variant: folhaRevPct >= 35 ? 'danger' : folhaRevPct >= 30 ? 'warning' : 'success',
+      value: hasRevenueRatio ? `${folhaRevPct.toFixed(1)}%` : '–',
+      variant: !hasRevenueRatio
+        ? 'default'
+        : folhaRevPct >= 35 ? 'danger' : folhaRevPct >= 30 ? 'warning' : 'success',
       icon: <Percent className="w-5 h-5" />,
-      deltaLabel: `Meta: ≤ ${data.payrollAsRevenuePercent.threshold}%`,
+      deltaLabel: hasRevenueRatio
+        ? `Meta: ≤ ${data.payrollAsRevenuePercent.threshold}%`
+        : 'Sem receita lançada no período',
     },
     {
       id: 'clt-pj',
@@ -127,18 +161,106 @@ export function WorkforceOverviewCards({ data, meta, extended = {}, className, o
     {
       id: 'turnover',
       label: 'Turnover',
-      value: extended.turnoverPct !== undefined ? `${extended.turnoverPct.toFixed(2)}%` : '–',
-      variant: turnover > 3 ? 'danger' : turnover > 2 ? 'warning' : 'success',
+      value: turnover !== undefined ? `${turnover.toFixed(2)}%` : '–',
+      variant: turnover === undefined
+        ? 'default'
+        : turnover > 3 ? 'danger' : turnover > 2 ? 'warning' : 'success',
       icon: <Activity className="w-5 h-5" />,
       deltaLabel: 'Rotatividade mensal',
     },
     {
       id: 'overtime',
       label: 'Horas Extras',
-      value: extended.overtimePct !== undefined ? `${extended.overtimePct.toFixed(1)}%` : '–',
-      variant: overtime > 12 ? 'warning' : 'info',
+      value: overtime !== undefined ? `${overtime.toFixed(1)}%` : '–',
+      variant: overtime === undefined ? 'default' : overtime > 12 ? 'warning' : 'info',
       icon: <Clock className="w-5 h-5" />,
       deltaLabel: '% do total trabalhado',
+    },
+  ];
+
+  // ── Row 3: Conformidade & Pessoas ─────────────────────────────────────
+  //
+  // A linha inteira some quando NENHUMA das fontes respondeu. Meia dúzia de
+  // traços não é informação: é ruído que ensina a ignorar a faixa.
+  const c = compliance ?? {};
+  const hasCompliance = Object.entries(c).some(
+    ([key, value]) => key !== 'competenceLabel' && value !== undefined,
+  );
+
+  /** `–` sem tom semântico quando a fonte não respondeu. */
+  const abs = (value: number | undefined) => (value === undefined ? '–' : value);
+  const tone = (value: number | undefined, threshold = 0): KpiItem['variant'] =>
+    value === undefined ? 'default' : value > threshold ? 'warning' : 'default';
+
+  const COMPETENCE_META: Record<
+    NonNullable<ComplianceKpiProps['competenceState']>,
+    { label: string; variant: KpiItem['variant'] }
+  > = {
+    complete: { label: 'Importada', variant: 'success' },
+    partial: { label: 'Parcial', variant: 'warning' },
+    missing: { label: 'Faltante', variant: 'danger' },
+  };
+
+  const complianceKpis: KpiItem[] = [
+    {
+      id: 'movement',
+      label: 'Admissões · Desligamentos',
+      value:
+        c.admissions === undefined && c.terminations === undefined
+          ? '–'
+          : `${abs(c.admissions)} · ${abs(c.terminations)}`,
+      variant: 'default',
+      icon: <Users className="w-5 h-5" />,
+      deltaLabel: 'Na competência apurada',
+    },
+    {
+      id: 'absences',
+      label: 'Afastamentos no mês',
+      value: abs(c.activeAbsences),
+      variant: 'default',
+      icon: <Activity className="w-5 h-5" />,
+      deltaLabel: c.activeAbsences === undefined ? 'Sem apuração de afastamento' : 'Eventos S-2230',
+    },
+    {
+      id: 'cats',
+      label: 'CATs no mês',
+      value: abs(c.catsInMonth),
+      variant: c.catsInMonth === undefined ? 'default' : c.catsInMonth > 0 ? 'danger' : 'default',
+      icon: <ShieldAlert className="w-5 h-5" />,
+      deltaLabel: c.catsInMonth === undefined ? 'Sem eventos de SST no acervo' : 'Acidentes comunicados',
+    },
+    {
+      id: 'aso',
+      label: 'ASOs vencidos · a vencer',
+      value:
+        c.asoExpired === undefined && c.asoExpiring === undefined
+          ? '–'
+          : `${abs(c.asoExpired)} · ${abs(c.asoExpiring)}`,
+      variant: tone(c.asoExpired),
+      icon: <HeartPulse className="w-5 h-5" />,
+      deltaLabel:
+        c.workersWithoutAso !== undefined && c.workersWithoutAso > 0
+          ? `${c.workersWithoutAso} sem ASO no acervo`
+          : 'Vencimento apurável apenas no periódico',
+    },
+    {
+      id: 'raise',
+      label: 'Sem reajuste há +12 meses',
+      value: abs(c.withoutRaise12m),
+      variant: tone(c.withoutRaise12m),
+      icon: <TrendingUp className="w-5 h-5" />,
+      deltaLabel:
+        c.withoutRaise12m === undefined
+          ? 'Série salarial indisponível'
+          : 'Comprovado pela série de folha',
+    },
+    {
+      id: 'competence',
+      label: 'Competência eSocial',
+      value: c.competenceState ? COMPETENCE_META[c.competenceState].label : '–',
+      variant: c.competenceState ? COMPETENCE_META[c.competenceState].variant : 'default',
+      icon: <Percent className="w-5 h-5" />,
+      deltaLabel: c.competenceLabel ?? 'Sem competência apurada',
     },
   ];
 
@@ -175,6 +297,14 @@ export function WorkforceOverviewCards({ data, meta, extended = {}, className, o
         <KpiGroupDivider label="Risco & Composição" />
         <HudKpiStrip kpis={withKpiClick(riskKpis, onKpiClick)} columns={4} />
       </div>
+
+      {/* Row 3 — Compliance & People. Ausente quando nenhuma fonte respondeu. */}
+      {hasCompliance && (
+        <div className="space-y-1.5">
+          <KpiGroupDivider label="Conformidade & Pessoas" />
+          <HudKpiStrip kpis={withKpiClick(complianceKpis, onKpiClick)} columns={3} />
+        </div>
+      )}
     </div>
   );
 }

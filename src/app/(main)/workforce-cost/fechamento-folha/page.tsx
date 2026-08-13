@@ -1,7 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import {
   FileSpreadsheet, Upload, ScanLine, Sparkles, Paperclip, Send, Banknote,
   CheckCircle, AlertTriangle, ShieldAlert, Info, ArrowRight, Loader2,
@@ -33,6 +34,7 @@ import type {
   PayrollCostCenterMapping, CostCenterMatchMethod,
 } from '@/lib/types/payroll-closing';
 import { ExportReportButton } from '@/components/reports/ExportReportButton';
+import { EsocialControlPanel } from '@/components/workforce/EsocialControlPanel';
 import { openPayrollClosingReport } from '@/lib/reports/modules/payroll-closing-report';
 
 const STEPS = [
@@ -96,8 +98,23 @@ interface ConfirmConfig {
   onConfirm: (reason: string) => Promise<void> | void;
 }
 
-export default function FechamentoFolhaPage() {
+/**
+ * Duas visões na mesma rota.
+ *
+ * O wizard de fechamento é o fluxo operacional e continua exatamente como
+ * estava. "Controle eSocial" é a leitura técnica do acervo que o alimenta —
+ * mora aqui, e não numa entrada nova de sidebar, porque é justamente a pergunta
+ * que se faz ANTES de fechar ("a competência veio inteira?") e DEPOIS ("o que
+ * eu mandei bate com o que o governo apurou?").
+ */
+type FechamentoView = 'fechamento' | 'esocial';
+
+function FechamentoFolhaPageInner() {
   const { notify } = useHudToast();
+  const searchParams = useSearchParams();
+  const [view, setView] = useState<FechamentoView>(
+    searchParams.get('tab') === 'esocial' ? 'esocial' : 'fechamento',
+  );
   const [step, setStep] = useState(1);
 
   const [batch, setBatch] = useState<PayrollClosingBatch | null>(null);
@@ -697,7 +714,7 @@ export default function FechamentoFolhaPage() {
         icon={<FileSpreadsheet className="w-5 h-5" />}
         breadcrumbs={[{ label: 'Pessoas & Custos', href: '/workforce-cost' }, { label: 'Fechamento da Folha' }]}
         statusChips={batch ? [{ label: batch.status, variant: 'info' }] : undefined}
-        actions={batch ? (
+        actions={batch && view === 'fechamento' ? (
           <ExportReportButton
             size="md"
             variant="glass"
@@ -716,6 +733,34 @@ export default function FechamentoFolhaPage() {
         ) : undefined}
       />
 
+      {/* Alternador de visão. O wizard abaixo é o mesmo de sempre. */}
+      <div className="flex gap-1 border-b border-ig-border">
+        {([
+          { id: 'fechamento' as const, label: 'Fechamento' },
+          { id: 'esocial' as const, label: 'Controle eSocial' },
+        ]).map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setView(t.id)}
+            aria-current={view === t.id ? 'page' : undefined}
+            className={`-mb-px border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
+              view === t.id
+                ? 'border-ig-accent text-ig-fg-strong'
+                : 'border-transparent text-ig-fg-muted hover:text-ig-fg-strong'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {view === 'esocial' && (
+        <EsocialControlPanel onGoToCostCenterMapping={() => { setView('fechamento'); setStep(2); }} />
+      )}
+
+      {view === 'fechamento' && (
+      <>
       {/* Stepper */}
       <div className="flex flex-wrap gap-2">
         {STEPS.map((s) => {
@@ -1213,6 +1258,8 @@ export default function FechamentoFolhaPage() {
           )}
         </HudPanel>
       )}
+      </>
+      )}
 
       {/* Edit modal — competence / deadline / notes (only when editable) */}
       <HudModal isOpen={editOpen} onClose={() => setEditOpen(false)} title="Editar fechamento" subtitle="Competência, prazo e observações" size="md">
@@ -1256,6 +1303,27 @@ export default function FechamentoFolhaPage() {
         )}
       </HudModal>
     </HudPageLayout>
+  );
+}
+
+/**
+ * `useSearchParams` obriga a fronteira de Suspense — mesmo desenho da Visão
+ * Geral. É o preço de aceitar `?tab=esocial` como deep link, e ele vale: sem o
+ * parâmetro, os cards da Visão Geral não conseguiriam abrir direto no controle.
+ */
+export default function FechamentoFolhaPage() {
+  return (
+    <Suspense
+      fallback={
+        <HudPageLayout>
+          <div className="flex min-h-[60vh] items-center justify-center">
+            <p className="text-sm text-ig-fg-muted">Carregando fechamento…</p>
+          </div>
+        </HudPageLayout>
+      }
+    >
+      <FechamentoFolhaPageInner />
+    </Suspense>
   );
 }
 

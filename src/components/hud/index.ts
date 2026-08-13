@@ -16,6 +16,12 @@ export {
 export { HudHeader } from './HudHeader';
 export type { HudHeaderProps, BreadcrumbItem, StatusChip } from './HudHeader';
 export { HudChip, type HudChipVariant } from './HudChip';
+export {
+  HudSignal,
+  signalToneStyle,
+  type HudSignalProps,
+  type HudSignalTone,
+} from './HudSignal';
 export { HudKpi } from './HudKpi';
 export type { HudKpiProps, HudKpiVariant, HudKpiSize } from './HudKpi';
 export { HudTable } from './HudTable';

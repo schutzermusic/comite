@@ -1,30 +1,28 @@
 "use client";
 
 import React from "react";
-import { cva, type VariantProps } from "class-variance-authority";
-import { cn } from "@/lib/utils";
+import { HudSignal } from "@/components/hud/HudSignal";
+import type { HudSignalTone } from "@/components/hud/HudSignal";
 
-const statusPillVariants = cva(
-  "inline-flex items-center px-2 py-0.5 text-[10px] uppercase tracking-wide rounded-full font-medium transition-all",
-  {
-    variants: {
-      variant: {
-        active: "text-[#00FFB4] bg-[rgba(0,255,180,0.12)] border border-[rgba(0,255,180,0.25)]",
-        at_risk: "text-[#FFB04D] bg-[rgba(255,176,77,0.12)] border border-[rgba(255,176,77,0.25)]",
-        critical: "text-[#FF5860] bg-[rgba(255,88,96,0.12)] border border-[rgba(255,88,96,0.25)]",
-        completed: "text-[#00C8FF] bg-[rgba(0,200,255,0.12)] border border-[rgba(0,200,255,0.25)]",
-        success: "text-[#00FFB4] bg-[rgba(0,255,180,0.12)] border border-[rgba(0,255,180,0.25)]",
-        warning: "text-[#FFB04D] bg-[rgba(255,176,77,0.12)] border border-[rgba(255,176,77,0.25)]",
-        error: "text-[#FF5860] bg-[rgba(255,88,96,0.12)] border border-[rgba(255,88,96,0.25)]",
-        info: "text-[#00C8FF] bg-[rgba(0,200,255,0.12)] border border-[rgba(0,200,255,0.25)]",
-        neutral: "text-[rgba(255,255,255,0.65)] bg-[rgba(255,255,255,0.08)] border border-[rgba(255,255,255,0.12)]",
-      },
-    },
-    defaultVariants: {
-      variant: "neutral",
-    },
-  }
-);
+/**
+ * Pill legada. Hoje delega ao Signal Chip para que exista uma única linguagem
+ * de status no produto — a inferência de variante a partir do texto, que várias
+ * telas dependem, foi preservada.
+ *
+ * As cores neon fixas (#00FFB4 / #FF5860 / …) foram removidas: elas ignoravam
+ * os tokens --ig-* e quebravam no tema claro.
+ */
+const VARIANT_TONE: Record<string, HudSignalTone> = {
+  active: "success",
+  at_risk: "warning",
+  critical: "critical",
+  completed: "accent",
+  success: "success",
+  warning: "warning",
+  error: "danger",
+  info: "info",
+  neutral: "neutral",
+};
 
 export interface StatusPillProps
   extends Omit<React.HTMLAttributes<HTMLSpanElement>, 'variant'> {
@@ -87,11 +85,12 @@ export function StatusPill({
   };
 
   return (
-    <span
-      className={cn(statusPillVariants({ variant: getVariant() }), className)}
-      {...props}
-    >
-      {label || children}
-    </span>
+    <HudSignal
+      label={label || children}
+      tone={VARIANT_TONE[getVariant()]}
+      size="sm"
+      title={props.title}
+      className={className}
+    />
   );
 }

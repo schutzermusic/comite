@@ -109,6 +109,12 @@ export interface PayrollRiskData {
   status: RiskStatus;
   riskScore: number; // 0-100, feeds into Governance Health
   message: string;
+  /**
+   * O risco compara CRESCIMENTO DA FOLHA contra CRESCIMENTO DA RECEITA. Sem
+   * receita lançada não existe o segundo termo, e o veredito ("Atenção 70/100")
+   * seria apenas a folha comparada a zero. Falso desliga o diagnóstico.
+   */
+  comparable: boolean;
 }
 
 // ============================================
@@ -177,141 +183,13 @@ export function calculatePayrollRiskScore(
 // MOCK DATA SERVICE
 // ============================================
 
-export function getMockWorkforceData(): WorkforcePayload {
-  const payrollGrowth = 8.5;
-  const revenueGrowth = 6.2;
-  const riskStatus = determinePayrollRiskStatus(payrollGrowth, revenueGrowth);
-  const riskScore = calculatePayrollRiskScore(payrollGrowth, revenueGrowth);
-
-  return {
-    metrics: {
-      headcount: {
-        total: 847,
-        trend: 3.2,
-        delta: 26,
-        sparkline: [795, 802, 810, 818, 825, 832, 847],
-      },
-      monthlyPayroll: {
-        value: 12850000,
-        currency: 'BRL',
-        trend: 4.8,
-        sparkline: [11200000, 11450000, 11800000, 12100000, 12350000, 12600000, 12850000],
-      },
-      avgCostPerEmployee: {
-        value: 15171,
-        trend: 1.5,
-        currency: 'BRL',
-      },
-      payrollAsRevenuePercent: {
-        value: 28.4,
-        threshold: 30,
-        status: 'healthy',
-        previousValue: 27.8,
-      },
-      contractDistribution: {
-        pj: 312,
-        clt: 535,
-        pjPercent: 36.8,
-        cltPercent: 63.2,
-        pjCost: 5460000,
-        cltCost: 7390000,
-      },
-    },
-    costConcentration: {
-      costCenters: [
-        {
-          id: 'cc-001',
-          name: 'Engenharia',
-          payrollValue: 3850000,
-          headcount: 185,
-          growthVsPrevious: 12.5,
-          isAbnormal: false,
-          department: 'Tecnologia',
-          manager: 'Carlos Silva',
-        },
-        {
-          id: 'cc-002',
-          name: 'Operações',
-          payrollValue: 2950000,
-          headcount: 245,
-          growthVsPrevious: 8.2,
-          isAbnormal: false,
-          department: 'Operações',
-          manager: 'Ana Costa',
-        },
-        {
-          id: 'cc-003',
-          name: 'Comercial',
-          payrollValue: 2180000,
-          headcount: 120,
-          growthVsPrevious: 18.5,
-          isAbnormal: true,
-          department: 'Vendas',
-          manager: 'Roberto Mendes',
-        },
-        {
-          id: 'cc-004',
-          name: 'Administrativo',
-          payrollValue: 1420000,
-          headcount: 95,
-          growthVsPrevious: 3.2,
-          isAbnormal: false,
-          department: 'Corporativo',
-          manager: 'Maria Santos',
-        },
-        {
-          id: 'cc-005',
-          name: 'P&D',
-          payrollValue: 1250000,
-          headcount: 65,
-          growthVsPrevious: 22.8,
-          isAbnormal: true,
-          department: 'Inovação',
-          manager: 'Paulo Lima',
-        },
-        {
-          id: 'cc-006',
-          name: 'Marketing',
-          payrollValue: 720000,
-          headcount: 42,
-          growthVsPrevious: 5.5,
-          isAbnormal: false,
-          department: 'Marketing',
-          manager: 'Fernanda Rocha',
-        },
-        {
-          id: 'cc-007',
-          name: 'RH',
-          payrollValue: 480000,
-          headcount: 35,
-          growthVsPrevious: 2.1,
-          isAbnormal: false,
-          department: 'Pessoas',
-          manager: 'Juliana Alves',
-        },
-      ],
-      totalPayroll: 12850000,
-      top3Concentration: 69.8,
-      currency: 'BRL',
-    },
-    payrollRisk: {
-      payrollGrowth,
-      revenueGrowth,
-      status: riskStatus,
-      riskScore,
-      message: riskStatus === 'healthy' 
-        ? 'Crescimento da folha alinhado com receita'
-        : riskStatus === 'attention'
-        ? 'Folha crescendo ligeiramente acima da receita'
-        : 'Alerta: Folha crescendo significativamente acima da receita',
-    },
-    lastUpdated: new Date(),
-  };
-}
-
-// ============================================
-// FORMAT HELPERS
-// ============================================
+/**
+ * O payload de demonstração que existia aqui (847 funcionários, R$ 12,85 mi de
+ * folha, centros de custo "Engenharia"/"Operações" com gerentes nomeados) foi
+ * removido junto com a série sintética de `workforce/period`. Ele não tinha
+ * mais nenhum consumidor, e manter dado fabricado exportado é convite para que
+ * volte a ter.
+ */
 
 export function formatWorkforceCurrency(value: number, currency: string = 'BRL'): string {
   if (value >= 1000000) {

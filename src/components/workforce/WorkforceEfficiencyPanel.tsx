@@ -110,6 +110,8 @@ export function WorkforceEfficiencyPanel({ data, currency = 'BRL', className }: 
     ? (((latest.costPerEmployee - first.costPerEmployee) / first.costPerEmployee) * 100).toFixed(1)
     : null;
 
+  const hasRevenue = (latest?.revenue ?? 0) > 0;
+
   return (
     <div className={cn('space-y-4', className)}>
       {/* Summary KPIs */}
@@ -119,10 +121,14 @@ export function WorkforceEfficiencyPanel({ data, currency = 'BRL', className }: 
             {
               icon: TrendingUp,
               label: 'Receita por colaborador',
-              value: formatWorkforceCurrency(latest.revenuePerEmployee, currency),
-              delta: revPerEmpDelta ? `${Number(revPerEmpDelta) > 0 ? '+' : ''}${revPerEmpDelta}%` : undefined,
-              positive: revPerEmpDelta ? Number(revPerEmpDelta) > 0 : undefined,
-              color: 'text-ig-success',
+              // Sem receita lançada não há eficiência a medir. "R$ 0" seria
+              // lido como faturamento nulo por colaborador.
+              value: hasRevenue ? formatWorkforceCurrency(latest.revenuePerEmployee, currency) : '–',
+              delta: hasRevenue && revPerEmpDelta
+                ? `${Number(revPerEmpDelta) > 0 ? '+' : ''}${revPerEmpDelta}%`
+                : hasRevenue ? undefined : 'Sem receita lançada',
+              positive: hasRevenue && revPerEmpDelta ? Number(revPerEmpDelta) > 0 : undefined,
+              color: hasRevenue ? 'text-ig-success' : 'text-ig-fg-subtle',
             },
             {
               icon: Zap,
@@ -135,10 +141,12 @@ export function WorkforceEfficiencyPanel({ data, currency = 'BRL', className }: 
             {
               icon: Percent,
               label: 'Folha / Receita',
-              value: `${latest.payrollAsRevenuePct.toFixed(1)}%`,
-              delta: `Limite 30%`,
-              positive: latest.payrollAsRevenuePct < 30,
-              color: latest.payrollAsRevenuePct >= 35 ? 'text-ig-danger' : latest.payrollAsRevenuePct >= 30 ? 'text-ig-warning' : 'text-ig-success',
+              value: hasRevenue ? `${latest.payrollAsRevenuePct.toFixed(1)}%` : '–',
+              delta: hasRevenue ? 'Limite 30%' : 'Sem receita lançada',
+              positive: hasRevenue ? latest.payrollAsRevenuePct < 30 : undefined,
+              color: !hasRevenue
+                ? 'text-ig-fg-subtle'
+                : latest.payrollAsRevenuePct >= 35 ? 'text-ig-danger' : latest.payrollAsRevenuePct >= 30 ? 'text-ig-warning' : 'text-ig-success',
             },
           ].map((kpi) => {
             const Icon = kpi.icon;

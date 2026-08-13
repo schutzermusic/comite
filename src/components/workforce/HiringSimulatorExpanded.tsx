@@ -120,7 +120,7 @@ export function HiringSimulatorExpanded({
       revenueNeededForHires, revenueCurrentGap,
       breakEvens, exceedsThreshold, nearThreshold,
     };
-  }, [totalCostPerHire, hires, currentPayroll, currentRevenue, currentHeadcount, payrollRevenueThreshold]);
+  }, [totalCostPerHire, hires, currentPayroll, currentRevenue, currentHeadcount, payrollRevenueThreshold, hasRealData]);
 
   const activeBreakEven = sim.breakEvens[activeScenario];
   const activeCfg       = SCENARIO_CONFIGS[activeScenario];
@@ -159,10 +159,14 @@ export function HiringSimulatorExpanded({
         <p className="flex-1 text-xs text-ig-fg-muted min-w-0">
           {hasRealData
             ? `Base atual: ${currentHeadcount} func. · folha ${formatWorkforceCurrency(currentPayroll)}/mês · receita ${formatWorkforceCurrency(currentRevenue)}/mês`
-            : 'Dados demonstrativos — importe folha e AR para projeções reais'}
+            : currentPayroll > 0
+              ? `Base atual: ${currentHeadcount} func. · folha ${formatWorkforceCurrency(currentPayroll)}/mês · sem receita lançada — a projeção de faturamento necessário fica indisponível`
+              : 'Sem competência apurada — importe a folha para simular sobre a base real'}
         </p>
         {!hasRealData && (
-          <span className="text-[10px] px-2 py-0.5 rounded-full bg-ig-warning/10 text-ig-warning border border-ig-warning/20 shrink-0">demo</span>
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-ig-warning/10 text-ig-warning border border-ig-warning/20 shrink-0">
+            sem receita
+          </span>
         )}
       </div>
 

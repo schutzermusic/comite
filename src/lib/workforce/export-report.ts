@@ -226,13 +226,10 @@ export function buildWorkforceReportHtml(payload: WorkforceReportPayload): strin
       detail: `${fmtInt(abnormal.length)} centro(s) de custo com crescimento anômalo: ${abnormal.slice(0, 3).map((c) => c.name).join(', ')}${abnormal.length > 3 ? '…' : ''}.`,
     });
   }
-  if (meta.source !== 'Supabase' && meta.source?.toLowerCase().includes('mock')) {
-    insights.push({
-      kind: 'data-quality',
-      title: 'Dados estimados',
-      detail: `Série mensal em modo demonstração (${meta.source}) — números não refletem fechamentos aprovados.`,
-    });
-  }
+  // O aviso de "dados demonstrativos" saiu junto com a série sintética: o
+  // relatório só é gerado sobre competência apurada, então não há o que
+  // ressalvar quanto à origem. A ressalva que sobrou é a de COBERTURA, que a
+  // Visão Geral mostra por competência (ver `esocial-coverage`).
   const shownInsights = insights.slice(0, 6);
   if (shownInsights.length) {
     blocks.push(block(insightPanel(shownInsights, { cols: 2 }), mmForInsightPanel(shownInsights.length, 2)));

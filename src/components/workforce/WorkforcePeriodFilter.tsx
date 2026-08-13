@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils';
 import {
   WORKFORCE_PERIOD_OPTIONS,
   getAvailableCompetenceMonths,
+  type WorkforceMonthlyRecord,
   type WorkforcePeriodKey,
   type WorkforcePeriodSelection,
 } from '@/lib/workforce/period';
@@ -20,6 +21,8 @@ import {
 interface WorkforcePeriodFilterProps {
   value: WorkforcePeriodSelection;
   onChange: (next: WorkforcePeriodSelection) => void;
+  /** Série apurada — define quais competências o intervalo pode oferecer. */
+  series?: WorkforceMonthlyRecord[];
   className?: string;
 }
 
@@ -29,8 +32,11 @@ function monthOptionLabel(competenceMonth: string): string {
   return `${names[m - 1]}/${y}`;
 }
 
-export function WorkforcePeriodFilter({ value, onChange, className }: WorkforcePeriodFilterProps) {
-  const months = getAvailableCompetenceMonths();
+export function WorkforcePeriodFilter({ value, onChange, series, className }: WorkforcePeriodFilterProps) {
+  // As competências oferecidas são as que EXISTEM na série apurada. Antes vinham
+  // de uma lista sintética de 24 meses, e escolher um desses meses levava a uma
+  // tela de zeros sem explicação.
+  const months = getAvailableCompetenceMonths(series);
   const isCustom = value.key === 'custom';
   const customStart = value.customStart ?? months[Math.max(0, months.length - 3)];
   const customEnd = value.customEnd ?? months[months.length - 1];

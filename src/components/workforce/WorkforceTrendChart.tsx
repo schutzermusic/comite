@@ -215,15 +215,3 @@ export function WorkforceTrendChart({ data, currency = 'BRL', className }: Workf
     </div>
   );
 }
-
-export function generateMockTrendData(): TrendDataPoint[] {
-  const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-  const basePayroll = 10500000;
-  const baseHeadcount = 780;
-
-  return months.map((month, idx) => {
-    const payroll = Math.round(basePayroll * (1 + idx * 0.018));
-    const headcount = Math.round(baseHeadcount * (1 + idx * 0.008));
-    return { period: month, payroll, headcount, avgCost: Math.round(payroll / headcount) };
-  });
-}

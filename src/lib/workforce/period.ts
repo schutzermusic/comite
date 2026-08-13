@@ -1,24 +1,32 @@
 /**
- * Workforce Period Data Layer
+ * Camada de período de Pessoas & Custos
  * ───────────────────────────────────────────────────────────────────────────
- * Single source of truth for the Pessoas & Custos overview when filtered by a
- * period. Everything the overview renders (KPIs, cost concentration, alerts,
- * payroll risk, trend chart, PDF payload) is DERIVED from a monthly time-series
- * of workforce records through pure selectors — no component hardcodes numbers.
+ * Fonte única da Visão Geral quando filtrada por período. Tudo o que a tela
+ * mostra — KPIs, concentração de custo, alertas, risco de folha, gráficos, PDF
+ * — é DERIVADO de uma série mensal por seletores puros. Nenhum componente
+ * carrega número próprio.
  *
- * The monthly series below is a MOCK that intentionally reproduces the existing
- * dashboard numbers for the latest competence month, so the default view
- * ("Mês atual") is identical to what shipped before this filter existed.
+ * SOMENTE DADO REAL
  *
- * Replacing the mock with Supabase later only requires swapping
- * `getWorkforceMonthlySeries()` for a query that returns the same
- * `WorkforceMonthlyRecord[]`. When approved `PayrollClosingBatch` rows exist,
- * they become the payroll source: map each batch's `competence_month` +
- * `total_amount_cents` (and cost-center / contract splits from the parse
- * result) onto a `WorkforceMonthlyRecord`. "Todo período" then aggregates every
- * available batch. See [[payroll-closing]].
+ * A série tem exatamente duas fontes, e nenhuma terceira:
+ *   • lotes de fechamento da folha APROVADOS — valor e centro de custo;
+ *   • métricas apuradas do eSocial — quadro, movimentação, afastamento, guias.
+ *
+ * A série sintética de demonstração que existia aqui foi removida, junto com
+ * todo modelo derivado que preenchia lacuna (composição da folha por senoide,
+ * absenteísmo por hash do id, churn estimado sobre a variação de headcount).
+ * O motivo é simples: depois de formatado na tela, um número modelado é
+ * indistinguível de um número apurado, e quem lê não tem como saber a
+ * diferença. Onde não há fonte, o seletor devolve `null` ou lista vazia, e a
+ * interface diz que a competência não foi apurada.
+ *
+ * Em consequência, indicadores que dependem de base ausente ficam AUSENTES:
+ * receita por colaborador sem receita lançada, horas extras sem a tabela de
+ * rubricas do eSocial (S-1010), composição da folha sem classificação de verba.
+ * Ver `esocial-coverage` para a regra de procedência. [[payroll-closing]]
  */
 
+import { competenceCoverage, type CompetenceCoverage } from './esocial-coverage';
 import {
   type WorkforceMetrics,
   type CostConcentrationData,
@@ -73,9 +81,67 @@ export interface WorkforceMonthlyCostCenter {
   headcount: number;
 }
 
+/**
+ * Números APURADOS da competência, vindos do eSocial. Quando presentes, os
+ * selectors os preferem aos modelos derivados: um desligamento declarado no
+ * S-2299 vale mais que uma estimativa de churn sobre a variação de headcount.
+ */
+export interface WorkforceActuals {
+  admissions: number;
+  terminations: number;
+  absenceDays: number;
+  absenceEvents: number;
+  /**
+   * Horas extras como % da massa bruta.
+   *
+   * `undefined` quando a tabela de rubricas não cobre a folha: sem ela as
+   * verbas não são classificáveis, e um `0` seria lido como "não houve hora
+   * extra" — afirmação que o dado não sustenta.
+   */
+  overtimePct?: number;
+  /** O que dá e o que não dá para afirmar sobre esta competência. */
+  coverage?: CompetenceCoverage;
+  /**
+   * De onde veio o quadro do mês.
+   *
+   * `manual` quando um administrador informou o número porque o eSocial não
+   * entregou o detalhe por trabalhador. É afirmação assinada, não apuração —
+   * e a interface precisa poder dizer isso.
+   */
+  headcountSource?: 'esocial' | 'manual';
+  /** Origem declarada no lançamento manual (documento de referência). */
+  headcountNote?: string;
+  /**
+   * Composição da folha, em reais. Presente só quando as verbas foram
+   * classificadas pela tabela de rubricas: encargos vêm das guias apuradas
+   * (INSS + FGTS), não de um percentual sobre a massa.
+   */
+  composition?: { salary: number; benefits: number; charges: number };
+  /** Benefícios por tipo, agrupados pela natureza declarada da rubrica. */
+  benefitsByType?: {
+    va: number;
+    vr: number;
+    health: number;
+    dental: number;
+    transport: number;
+    other: number;
+  };
+  areas: {
+    code: string;
+    label: string;
+    headcount: number;
+    admissions: number;
+    terminations: number;
+    absenceDays: number;
+    payroll: number;
+  }[];
+}
+
 export interface WorkforceMonthlyRecord {
   /** Competence month, 'YYYY-MM'. Matches PayrollClosingBatch.competence_month. */
   competenceMonth: string;
+  /** Presente apenas nas competências já sincronizadas do eSocial. */
+  actuals?: WorkforceActuals;
   headcount: number;
   /** Total monthly payroll (equals the sum of costCenters.payrollValue). */
   payroll: number;
@@ -88,45 +154,6 @@ export interface WorkforceMonthlyRecord {
   costCenters: WorkforceMonthlyCostCenter[];
 }
 
-interface CostCenterSeed {
-  id: string;
-  name: string;
-  department: string;
-  manager: string;
-  /** Latest-month payroll value (BRL). */
-  baseValue: number;
-  /** Latest-month headcount. */
-  baseHeadcount: number;
-  /** Month-over-month growth rate (e.g. 0.125 = +12.5%/mo). Drives history + alerts. */
-  growth: number;
-}
-
-// Latest-month seeds reproduce the previously hardcoded dashboard exactly:
-// Σ baseValue = 12_850_000, top-3 (Eng+Ops+Com) ≈ 69.8% concentration.
-const COST_CENTER_SEEDS: CostCenterSeed[] = [
-  { id: 'cc-001', name: 'Engenharia', department: 'Tecnologia', manager: 'Carlos Silva', baseValue: 3_850_000, baseHeadcount: 185, growth: 0.125 },
-  { id: 'cc-002', name: 'Operações', department: 'Operações', manager: 'Ana Costa', baseValue: 2_950_000, baseHeadcount: 245, growth: 0.082 },
-  { id: 'cc-003', name: 'Comercial', department: 'Vendas', manager: 'Roberto Mendes', baseValue: 2_180_000, baseHeadcount: 120, growth: 0.185 },
-  { id: 'cc-004', name: 'Administrativo', department: 'Corporativo', manager: 'Maria Santos', baseValue: 1_420_000, baseHeadcount: 95, growth: 0.032 },
-  { id: 'cc-005', name: 'P&D', department: 'Inovação', manager: 'Paulo Lima', baseValue: 1_250_000, baseHeadcount: 65, growth: 0.228 },
-  { id: 'cc-006', name: 'Marketing', department: 'Marketing', manager: 'Fernanda Rocha', baseValue: 720_000, baseHeadcount: 42, growth: 0.055 },
-  { id: 'cc-007', name: 'RH', department: 'Pessoas', manager: 'Juliana Alves', baseValue: 480_000, baseHeadcount: 35, growth: 0.021 },
-];
-
-// Latest-month aggregate seeds (also matching the prior dashboard).
-const LATEST_SEED = {
-  competenceMonth: '2025-12',
-  headcount: 847,
-  pj: 312,
-  clt: 535,
-  pjCost: 5_460_000,
-  cltCost: 7_390_000,
-  // revenue chosen so payroll(12.85M) / revenue = 28.4% → matches prior ratio.
-  revenue: 12_850_000 / 0.284,
-};
-
-const MONTHS_OF_HISTORY = 24; // 2024-01 … 2025-12 → enables MoM, QoQ, YoY, all.
-
 function shiftCompetenceMonth(latest: string, monthsBack: number): string {
   const [y, m] = latest.split('-').map(Number);
   const d = new Date(Date.UTC(y, m - 1 - monthsBack, 1));
@@ -136,62 +163,25 @@ function shiftCompetenceMonth(latest: string, monthsBack: number): string {
 }
 
 /**
- * Build the deterministic monthly series. The latest record reproduces the
- * existing dashboard; earlier months are derived by discounting each series by
- * its growth rate so every comparison window (month/quarter/year) has data.
+ * Série vazia — o módulo não tem dado próprio.
+ *
+ * Antes existia aqui uma série sintética de 24 meses que reproduzia um
+ * dashboard de demonstração. Ela foi removida por decisão de produto: um número
+ * derivado de seed é indistinguível de um número apurado depois de formatado na
+ * tela, e a única defesa contra isso é não produzi-lo.
+ *
+ * Toda leitura passa a vir de duas fontes reais, e só delas:
+ *   • lotes de fechamento da folha aprovados (valor, centro de custo);
+ *   • métricas apuradas do eSocial (quadro, movimentação, afastamento, guias).
+ *
+ * Sem nenhuma das duas, os seletores devolvem vazio e a interface diz que não
+ * há competência apurada — que é a informação correta.
  */
-function buildWorkforceMonthlySeries(): WorkforceMonthlyRecord[] {
-  const records: WorkforceMonthlyRecord[] = [];
+const EMPTY_SERIES: WorkforceMonthlyRecord[] = [];
 
-  for (let i = MONTHS_OF_HISTORY - 1; i >= 0; i--) {
-    // k = months before the latest record (0 = latest).
-    const k = i;
-    const competenceMonth = shiftCompetenceMonth(LATEST_SEED.competenceMonth, k);
-
-    const costCenters: WorkforceMonthlyCostCenter[] = COST_CENTER_SEEDS.map((cc) => ({
-      id: cc.id,
-      name: cc.name,
-      department: cc.department,
-      manager: cc.manager,
-      payrollValue: Math.round(cc.baseValue / Math.pow(1 + cc.growth, k)),
-      headcount: Math.round(cc.baseHeadcount / Math.pow(1.004, k)),
-    }));
-
-    const payroll = costCenters.reduce((s, c) => s + c.payrollValue, 0);
-    const headcount = Math.round(LATEST_SEED.headcount / Math.pow(1.004, k));
-    const pj = Math.round(LATEST_SEED.pj / Math.pow(1.005, k));
-    const clt = Math.round(LATEST_SEED.clt / Math.pow(1.0035, k));
-    const pjCost = Math.round(LATEST_SEED.pjCost / Math.pow(1.015, k));
-    const cltCost = Math.round(LATEST_SEED.cltCost / Math.pow(1.013, k));
-    const revenue = Math.round(LATEST_SEED.revenue / Math.pow(1.012, k));
-
-    records.push({
-      competenceMonth,
-      headcount,
-      payroll,
-      revenue,
-      pj,
-      clt,
-      pjCost,
-      cltCost,
-      costCenters,
-    });
-  }
-
-  // Oldest → newest.
-  return records;
-}
-
-let _series: WorkforceMonthlyRecord[] | null = null;
-
-export function getWorkforceMonthlySeries(): WorkforceMonthlyRecord[] {
-  if (!_series) _series = buildWorkforceMonthlySeries();
-  return _series;
-}
-
-/** Available competence months (oldest → newest) for the custom-range picker. */
-export function getAvailableCompetenceMonths(): string[] {
-  return getWorkforceMonthlySeries().map((r) => r.competenceMonth);
+/** Competências disponíveis (mais antiga → mais recente) para o seletor de período. */
+export function getAvailableCompetenceMonths(series: WorkforceMonthlyRecord[] = EMPTY_SERIES): string[] {
+  return series.map((r) => r.competenceMonth);
 }
 
 // ============================================
@@ -218,15 +208,21 @@ function monthLabel(competenceMonth: string): string {
 }
 
 /**
- * Resolve a period selection into current + comparison windows over the series.
- * Resolution is index/competence based (not wall-clock) because the data is a
- * fixed mock; the latest record is treated as the "current month".
- * Pass `seriesOverride` to use an effective merged series instead of the cached mock.
+ * Resolve o período em janela atual + janela de comparação sobre a série.
+ *
+ * A resolução é por competência, não por calendário: "mês atual" significa a
+ * competência mais recente APURADA. Um mês de calendário sem fechamento nem
+ * eventos do eSocial não existe na série, e apontar para ele mostraria zeros
+ * onde a resposta certa é "ainda não apurado".
  */
 export function resolvePeriodRange(selection: WorkforcePeriodSelection, seriesOverride?: WorkforceMonthlyRecord[]): ResolvedRange {
-  const series = seriesOverride ?? getWorkforceMonthlySeries();
+  const series = seriesOverride ?? EMPTY_SERIES;
   const latestIdx = series.length - 1;
   const latest = series[latestIdx];
+
+  // Sem competência apurada não há janela a resolver. Os seletores adiante
+  // tratam a janela vazia devolvendo vazio, em vez de dividir por zero.
+  if (!latest) return { current: [], previous: [], label: 'Sem competência apurada' };
 
   switch (selection.key) {
     case 'current-month': {
@@ -328,6 +324,31 @@ function aggregateRange(records: WorkforceMonthlyRecord[]): RangeAggregate | nul
   };
 }
 
+/**
+ * Agregado neutro para janela sem competência.
+ *
+ * Enquanto existia a série de demonstração, `range.current` nunca vinha vazio e
+ * o código a jusante assumia isso com um `!`. Sem mock, o primeiro render (antes
+ * de o eSocial responder) e a instalação sem nada importado passam por aqui.
+ *
+ * Os zeros daqui NÃO são exibidos como fato: a tela troca o cockpit inteiro pelo
+ * estado vazio quando não há competência (`hasData`). Este objeto existe para
+ * manter os seletores puros e totais, não para preencher a interface.
+ */
+const EMPTY_AGGREGATE: RangeAggregate = {
+  headcount: 0,
+  avgPayroll: 0,
+  totalPayroll: 0,
+  avgRevenue: 0,
+  avgCost: 0,
+  pj: 0,
+  clt: 0,
+  pjCost: 0,
+  cltCost: 0,
+  payrollAsRevenue: 0,
+  months: 0,
+};
+
 function pctChange(current: number, previous: number): number {
   if (!previous) return 0;
   return ((current - previous) / previous) * 100;
@@ -413,7 +434,7 @@ export interface WorkforceOverviewResult {
 /** KPI cards + PJ vs CLT, period-aware. */
 export function selectWorkforceOverview(selection: WorkforcePeriodSelection, seriesOverride?: WorkforceMonthlyRecord[]): WorkforceOverviewResult {
   const range = resolvePeriodRange(selection, seriesOverride);
-  const agg = aggregateRange(range.current)!;
+  const agg = aggregateRange(range.current) ?? EMPTY_AGGREGATE;
   const prev = aggregateRange(range.previous);
   const meta = buildMeta(selection, range, agg);
 
@@ -464,73 +485,34 @@ export function selectWorkforceOverview(selection: WorkforcePeriodSelection, ser
 /** Alias for the KPI surface — same payload as the overview. */
 export const selectPayrollKpis = selectWorkforceOverview;
 
-/** Cost-center concentration, period-aware (accumulated payroll across window). */
+/**
+ * Concentração por centro de custo, acumulada na janela do período.
+ *
+ * Os centros vêm dos próprios registros — do rateio do lote de folha aprovado
+ * ou da lotação tributária apurada no eSocial. Não há mais catálogo fixo de
+ * áreas ("Engenharia", "Comercial"…) nem crescimento por seed quando falta
+ * comparativo: sem mês anterior, a variação é 0, que é o que se sabe.
+ */
 export function selectCostCenterConcentration(selection: WorkforcePeriodSelection, seriesOverride?: WorkforceMonthlyRecord[]): CostConcentrationData {
   const range = resolvePeriodRange(selection, seriesOverride);
 
-  // When imported records supply their own CCs (non-empty costCenters on the
-  // latest record in the window), use those directly instead of the mock seeds.
-  const latestRecord = range.current[range.current.length - 1];
-  const useImportedCCs = (latestRecord?.costCenters.length ?? 0) > 0 &&
-    latestRecord.costCenters.some((c) => c.id.startsWith('cc-imported-'));
-
-  if (useImportedCCs) {
-    const allIds = [...new Set(range.current.flatMap((r) => r.costCenters.map((c) => c.id)))];
-    const costCenters: CostCenter[] = allIds.map((id) => {
-      const curRows = range.current.map((r) => r.costCenters.find((c) => c.id === id)!).filter(Boolean);
-      const prevRows = range.previous.map((r) => r.costCenters.find((c) => c.id === id)!).filter(Boolean);
-      const payrollValue = curRows.reduce((s, c) => s + c.payrollValue, 0);
-      const latestCC = curRows[curRows.length - 1];
-      const prevSum = prevRows.reduce((s, c) => s + c.payrollValue, 0);
-      const growthVsPrevious = prevSum > 0 ? Number(pctChange(payrollValue, prevSum).toFixed(1)) : 0;
-      return {
-        id,
-        name: latestCC?.name ?? id,
-        payrollValue,
-        headcount: latestCC?.headcount ?? 0,
-        growthVsPrevious,
-        isAbnormal: Math.abs(growthVsPrevious) > 15,
-        department: latestCC?.department ?? '',
-        manager: latestCC?.manager ?? '',
-      };
-    });
-    const totalPayroll = costCenters.reduce((s, c) => s + c.payrollValue, 0);
-    const sorted = [...costCenters].sort((a, b) => b.payrollValue - a.payrollValue);
-    const top3 = sorted.slice(0, 3).reduce((s, c) => s + c.payrollValue, 0);
-    const top3Concentration = totalPayroll > 0 ? Number(((top3 / totalPayroll) * 100).toFixed(1)) : 0;
-    return { costCenters: sorted, totalPayroll, top3Concentration, currency: 'BRL' };
-  }
-
-  // Original mock path — uses COST_CENTER_SEEDS.
-  const ids = COST_CENTER_SEEDS.map((s) => s.id);
-  const costCenters: CostCenter[] = ids.map((id) => {
-    const seed = COST_CENTER_SEEDS.find((s) => s.id === id)!;
-    const curRows = range.current.map((r) => r.costCenters.find((c) => c.id === id)!).filter(Boolean);
-    const prevRows = range.previous.map((r) => r.costCenters.find((c) => c.id === id)!).filter(Boolean);
-
+  const allIds = [...new Set(range.current.flatMap((r) => r.costCenters.map((c) => c.id)))];
+  const costCenters: CostCenter[] = allIds.map((id) => {
+    const curRows = range.current.flatMap((r) => r.costCenters.filter((c) => c.id === id));
+    const prevRows = range.previous.flatMap((r) => r.costCenters.filter((c) => c.id === id));
     const payrollValue = curRows.reduce((s, c) => s + c.payrollValue, 0);
-    const latestRow = curRows[curRows.length - 1];
-    const headcount = latestRow ? latestRow.headcount : 0;
-
-    let growthVsPrevious: number;
-    if (prevRows.length > 0) {
-      const prevSum = prevRows.reduce((s, c) => s + c.payrollValue, 0);
-      growthVsPrevious = pctChange(payrollValue, prevSum);
-    } else if (curRows.length > 1) {
-      growthVsPrevious = pctChange(curRows[curRows.length - 1].payrollValue, curRows[0].payrollValue);
-    } else {
-      growthVsPrevious = seed.growth * 100;
-    }
-
+    const latestCC = curRows[curRows.length - 1];
+    const prevSum = prevRows.reduce((s, c) => s + c.payrollValue, 0);
+    const growthVsPrevious = prevSum > 0 ? Number(pctChange(payrollValue, prevSum).toFixed(1)) : 0;
     return {
-      id: seed.id,
-      name: seed.name,
+      id,
+      name: latestCC?.name ?? id,
       payrollValue,
-      headcount,
-      growthVsPrevious: Number(growthVsPrevious.toFixed(1)),
-      isAbnormal: growthVsPrevious > 15,
-      department: seed.department,
-      manager: seed.manager,
+      headcount: latestCC?.headcount ?? 0,
+      growthVsPrevious,
+      isAbnormal: Math.abs(growthVsPrevious) > 15,
+      department: latestCC?.department ?? '',
+      manager: latestCC?.manager ?? '',
     };
   });
 
@@ -539,7 +521,7 @@ export function selectCostCenterConcentration(selection: WorkforcePeriodSelectio
   const top3 = sorted.slice(0, 3).reduce((s, c) => s + c.payrollValue, 0);
   const top3Concentration = totalPayroll > 0 ? Number(((top3 / totalPayroll) * 100).toFixed(1)) : 0;
 
-  return { costCenters, totalPayroll, top3Concentration, currency: 'BRL' };
+  return { costCenters: sorted, totalPayroll, top3Concentration, currency: 'BRL' };
 }
 
 export interface WorkforceAlert {
@@ -590,27 +572,34 @@ export function selectWorkforceAlerts(selection: WorkforcePeriodSelection, serie
 /** Payroll risk indicator, period-aware (payroll growth vs revenue growth). */
 export function selectPayrollRisk(selection: WorkforcePeriodSelection, seriesOverride?: WorkforceMonthlyRecord[]): PayrollRiskData {
   const range = resolvePeriodRange(selection, seriesOverride);
-  const agg = aggregateRange(range.current)!;
+  const agg = aggregateRange(range.current) ?? EMPTY_AGGREGATE;
   const prev = aggregateRange(range.previous);
 
-  // With no baseline (e.g. "Todo período") fall back to first-vs-last within range.
+  // Sem linha de base (ex.: "Todo período"), compara primeiro contra último
+  // dentro da janela. Janela vazia não tem crescimento a medir: 0.
+  const first = range.current[0];
+  const last = range.current[range.current.length - 1];
   const payrollGrowth = prev
     ? pctChange(agg.avgPayroll, prev.avgPayroll)
-    : pctChange(range.current[range.current.length - 1].payroll, range.current[0].payroll);
+    : first && last ? pctChange(last.payroll, first.payroll) : 0;
   const revenueGrowth = prev
     ? pctChange(agg.avgRevenue, prev.avgRevenue)
-    : pctChange(range.current[range.current.length - 1].revenue, range.current[0].revenue);
+    : first && last ? pctChange(last.revenue, first.revenue) : 0;
 
+  // O diagnóstico só existe com as duas pontas medidas.
+  const comparable = agg.avgRevenue > 0 && (prev ? prev.avgRevenue > 0 : true);
   const status = determinePayrollRiskStatus(payrollGrowth, revenueGrowth);
   const riskScore = calculatePayrollRiskScore(payrollGrowth, revenueGrowth);
 
   return {
     payrollGrowth: Number(payrollGrowth.toFixed(1)),
     revenueGrowth: Number(revenueGrowth.toFixed(1)),
-    status,
-    riskScore,
-    message:
-      status === 'healthy'
+    comparable,
+    status: comparable ? status : 'healthy',
+    riskScore: comparable ? riskScore : 0,
+    message: !comparable
+      ? 'Sem receita lançada no período — o risco de folha compara o crescimento da folha com o da receita e não pode ser apurado.'
+      : status === 'healthy'
         ? 'Crescimento da folha alinhado com receita'
         : status === 'attention'
         ? 'Folha crescendo ligeiramente acima da receita'
@@ -636,9 +625,10 @@ function selectRecentChartRows(
   selection: WorkforcePeriodSelection,
   seriesOverride?: WorkforceMonthlyRecord[],
 ): WorkforceMonthlyRecord[] {
-  const series = seriesOverride ?? getWorkforceMonthlySeries();
+  const series = seriesOverride ?? EMPTY_SERIES;
   const range = resolvePeriodRange(selection, series);
   const anchor = range.current[range.current.length - 1] ?? series[series.length - 1];
+  if (!anchor) return [];
   const endIdx = series.findIndex((r) => r.competenceMonth === anchor.competenceMonth);
   const safeEndIdx = endIdx >= 0 ? endIdx : series.length - 1;
   return series.slice(
@@ -671,27 +661,29 @@ export interface PayrollCompositionPoint {
   charges: number;
 }
 
-function compositionFactors(idx: number): { salaryPct: number; benefitsPct: number; chargesPct: number } {
-  const salaryPct = 0.685 + 0.018 * Math.sin(idx * 0.4);
-  const chargesPct = 0.148 - 0.005 * Math.cos(idx * 0.6);
-  const benefitsPct = 1 - salaryPct - chargesPct;
-  return { salaryPct, benefitsPct, chargesPct };
-}
-
+/**
+ * Composição da folha: salário, benefícios e encargos.
+ *
+ * Só existe onde as verbas foram CLASSIFICADAS pela tabela de rubricas do
+ * eSocial (S-1010) — é ela que diz se uma rubrica é provento, benefício ou
+ * desconto. Antes havia aqui um rateio por senoide (68,5% salário, 14,8%
+ * encargos…) que produzia um gráfico plausível e inteiramente inventado.
+ *
+ * Competência sem classificação não entra: o gráfico mostra apenas os meses
+ * apurados, e vazio quando não há nenhum.
+ */
 export function selectPayrollComposition(
   selection: WorkforcePeriodSelection,
   seriesOverride?: WorkforceMonthlyRecord[],
 ): PayrollCompositionPoint[] {
-  const rows = selectRecentChartRows(selection, seriesOverride);
-  return rows.map((r, i) => {
-    const { salaryPct, benefitsPct, chargesPct } = compositionFactors(i);
-    return {
+  return selectRecentChartRows(selection, seriesOverride)
+    .filter((r) => r.actuals?.coverage?.compositionReliable && r.actuals.composition)
+    .map((r) => ({
       period: monthLabel(r.competenceMonth),
-      salary: Math.round(r.payroll * salaryPct),
-      benefits: Math.round(r.payroll * benefitsPct),
-      charges: Math.round(r.payroll * chargesPct),
-    };
-  });
+      salary: r.actuals!.composition!.salary,
+      benefits: r.actuals!.composition!.benefits,
+      charges: r.actuals!.composition!.charges,
+    }));
 }
 
 // --- S-Curve (cumulative payroll, current vs previous period) ---
@@ -706,7 +698,7 @@ export function selectPayrollSCurve(
   selection: WorkforcePeriodSelection,
   seriesOverride?: WorkforceMonthlyRecord[],
 ): SCurvePoint[] {
-  const series = seriesOverride ?? getWorkforceMonthlySeries();
+  const series = seriesOverride ?? EMPTY_SERIES;
   const curRows = selectRecentChartRows(selection, series);
   const firstIdx = series.findIndex((r) => r.competenceMonth === curRows[0]?.competenceMonth);
   const prevRows = firstIdx > 0
@@ -765,27 +757,23 @@ export interface BenefitTypePoint {
   other: number;
 }
 
-function benefitSplit(total: number, idx: number): Omit<BenefitTypePoint, 'period'> {
-  const n = (phase: number) => 1 + 0.04 * Math.sin(idx * 0.7 + phase);
-  return {
-    va: Math.round(total * 0.22 * n(0)),
-    vr: Math.round(total * 0.18 * n(1)),
-    health: Math.round(total * 0.35 * n(2)),
-    dental: Math.round(total * 0.12 * n(3)),
-    transport: Math.round(total * 0.08 * n(4)),
-    other: Math.round(total * 0.05 * n(5)),
-  };
-}
-
+/**
+ * Benefícios abertos por tipo.
+ *
+ * Cada tipo vem da NATUREZA da rubrica declarada na tabela do eSocial — é o
+ * único lugar onde "vale alimentação" e "plano de saúde" são distinguíveis. O
+ * rateio anterior (22% VA, 35% saúde…) desenhava uma composição que ninguém
+ * havia declarado.
+ *
+ * Meses sem classificação de verba não entram.
+ */
 export function selectBenefitsByType(
   selection: WorkforcePeriodSelection,
   seriesOverride?: WorkforceMonthlyRecord[],
 ): BenefitTypePoint[] {
-  const rows = selectRecentChartRows(selection, seriesOverride);
-  return rows.map((r, i) => {
-    const { benefitsPct } = compositionFactors(i);
-    return { period: monthLabel(r.competenceMonth), ...benefitSplit(r.payroll * benefitsPct, i) };
-  });
+  return selectRecentChartRows(selection, seriesOverride)
+    .filter((r) => r.actuals?.coverage?.compositionReliable && r.actuals.benefitsByType)
+    .map((r) => ({ period: monthLabel(r.competenceMonth), ...r.actuals!.benefitsByType! }));
 }
 
 // --- Admissions vs Dismissals ---
@@ -797,21 +785,26 @@ export interface AdmissionDismissalPoint {
   net: number;
 }
 
+/**
+ * Admissões e desligamentos declarados (S-2200 / S-2299).
+ *
+ * Só competências apuradas pelo eSocial. Antes, os meses sem apuração ganhavam
+ * um churn sintético — `headcount × 1,5% × (1 + 0,3·sen(i))` — somado à variação
+ * de quadro. Movimentação de pessoal é um fato registrado, não uma estimativa:
+ * onde o evento não existe, a resposta é ausência.
+ */
 export function selectAdmissionsVsDismissals(
   selection: WorkforcePeriodSelection,
   seriesOverride?: WorkforceMonthlyRecord[],
 ): AdmissionDismissalPoint[] {
-  const series = seriesOverride ?? getWorkforceMonthlySeries();
-  const rows = selectRecentChartRows(selection, series);
-  return rows.map((r, i) => {
-    const globalIdx = series.findIndex((s) => s.competenceMonth === r.competenceMonth);
-    const prev = globalIdx > 0 ? series[globalIdx - 1] : null;
-    const net = prev ? r.headcount - prev.headcount : 0;
-    const churn = Math.round(r.headcount * 0.015 * (1 + 0.3 * Math.sin(i * 0.8)));
-    const admissions = Math.max(net, 0) + churn;
-    const dismissals = Math.max(-net, 0) + churn;
-    return { period: monthLabel(r.competenceMonth), admissions, dismissals, net };
-  });
+  return selectRecentChartRows(selection, seriesOverride)
+    .filter((r) => r.actuals)
+    .map((r) => ({
+      period: monthLabel(r.competenceMonth),
+      admissions: r.actuals!.admissions,
+      dismissals: r.actuals!.terminations,
+      net: r.actuals!.admissions - r.actuals!.terminations,
+    }));
 }
 
 // --- Turnover Trend ---
@@ -825,16 +818,20 @@ export function selectTurnoverTrend(
   selection: WorkforcePeriodSelection,
   seriesOverride?: WorkforceMonthlyRecord[],
 ): TurnoverPoint[] {
-  const series = seriesOverride ?? getWorkforceMonthlySeries();
-  const rows = selectRecentChartRows(selection, series);
-  const adm = selectAdmissionsVsDismissals(selection, seriesOverride);
-  return adm.map((d, i) => {
-    const headcount = i < rows.length ? rows[i].headcount : 0;
-    const turnoverPct = headcount > 0
-      ? Number(((d.dismissals / headcount) * 100).toFixed(2))
-      : 0;
-    return { period: d.period, turnoverPct };
-  });
+  // Casado por competência, não por índice: as duas listas agora só contêm
+  // meses apurados, e parear por posição trocaria o mês do denominador.
+  const headcountByPeriod = new Map(
+    selectRecentChartRows(selection, seriesOverride).map((r) => [
+      monthLabel(r.competenceMonth),
+      r.headcount,
+    ]),
+  );
+  return selectAdmissionsVsDismissals(selection, seriesOverride)
+    .filter((d) => (headcountByPeriod.get(d.period) ?? 0) > 0)
+    .map((d) => ({
+      period: d.period,
+      turnoverPct: Number(((d.dismissals / headcountByPeriod.get(d.period)!) * 100).toFixed(2)),
+    }));
 }
 
 // --- Absenteeism by Area ---
@@ -845,24 +842,164 @@ export interface AbsenteeismPoint {
   headcount: number;
 }
 
-const ABSENTEEISM_DEMO: Record<string, number> = {
-  'cc-001': 3.2,
-  'cc-002': 5.8,
-  'cc-003': 4.1,
-  'cc-004': 2.9,
-  'cc-005': 3.5,
-  'cc-006': 3.8,
-  'cc-007': 2.4,
-};
+/** Áreas exibidas nos gráficos de distribuição; o excedente vira "Outras áreas". */
+const MAX_AREAS_IN_CHARTS = 8;
+const OTHER_AREA_LABEL = 'Outras áreas';
 
+/** Dias úteis usados como base do absenteísmo — convenção do módulo. */
+const WORKDAYS_PER_MONTH = 21;
+
+/**
+ * Absenteísmo por área, dos afastamentos declarados no S-2230.
+ *
+ * Vem por lotação real, evento a evento. A versão anterior atribuía uma taxa
+ * fixa por centro de custo (3,2%, 5,8%…) e, para os centros importados da
+ * folha, derivava uma taxa do HASH DO ID — um número estável, plausível e sem
+ * relação nenhuma com afastamento algum.
+ */
 export function selectAbsenteeismByArea(
   selection: WorkforcePeriodSelection,
   seriesOverride?: WorkforceMonthlyRecord[],
 ): AbsenteeismPoint[] {
-  const { costCenters } = selectCostCenterConcentration(selection, seriesOverride);
-  return costCenters
-    .map((cc) => ({ area: cc.name, pct: ABSENTEEISM_DEMO[cc.id] ?? 4.0, headcount: cc.headcount }))
-    .sort((a, b) => b.pct - a.pct);
+  const rows = selectRecentChartRows(selection, seriesOverride).filter(
+    (r) => r.actuals && r.actuals.areas.length > 0,
+  );
+  if (rows.length === 0) return [];
+
+  const acc = new Map<string, { label: string; days: number; headcount: number }>();
+  for (const r of rows) {
+    for (const a of r.actuals!.areas) {
+      const cur = acc.get(a.code) ?? { label: a.label, days: 0, headcount: 0 };
+      cur.days += a.absenceDays;
+      // Headcount é estoque: vale o da competência mais recente da janela.
+      cur.headcount = a.headcount;
+      acc.set(a.code, cur);
+    }
+  }
+
+  return [...acc.values()]
+    .map((v) => ({
+      area: v.label,
+      pct:
+        v.headcount > 0
+          ? Number(((v.days / (v.headcount * WORKDAYS_PER_MONTH * rows.length)) * 100).toFixed(1))
+          : 0,
+      headcount: v.headcount,
+    }))
+    .filter((a) => a.headcount > 0)
+    .sort((a, b) => b.pct - a.pct)
+    .slice(0, MAX_AREAS_IN_CHARTS);
+}
+
+// --- Absenteeism by Area × Month (stacked) ---
+
+export interface AbsenteeismMonthlyPoint {
+  period: string;
+  /** Faltas (dias-homem) por área no mês. */
+  areas: { area: string; days: number }[];
+  totalDays: number;
+}
+
+/**
+ * Absenteísmo mensal aberto por área — equivalente ao "Absenteísmo por Projeto"
+ * do BI legado, porém ancorado nos centros de custo, que são a dimensão canônica
+ * de área no INSIGHT.
+ */
+export function selectAbsenteeismMonthlyByArea(
+  selection: WorkforcePeriodSelection,
+  seriesOverride?: WorkforceMonthlyRecord[],
+): AbsenteeismMonthlyPoint[] {
+  // Só afastamentos declarados no S-2230: dias reais, por lotação real. Meses
+  // sem apuração do eSocial não entram — não há de onde tirar dia de falta.
+  const rows = selectRecentChartRows(selection, seriesOverride).filter(
+    (r) => r.actuals && r.actuals.areas.length > 0,
+  );
+  if (rows.length === 0) return [];
+
+  // As áreas exibidas são fixadas pelo período inteiro (as de mais faltas), para
+  // que a mesma área ocupe a mesma faixa da pilha em todos os meses.
+  const totalByArea = new Map<string, number>();
+  for (const r of rows) {
+    for (const a of r.actuals!.areas) {
+      totalByArea.set(a.code, (totalByArea.get(a.code) ?? 0) + a.absenceDays);
+    }
+  }
+  const visible = new Set(
+    [...totalByArea.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, MAX_AREAS_IN_CHARTS)
+      .map(([code]) => code),
+  );
+
+  return rows.map((r) => {
+    const byArea = new Map<string, number>();
+    for (const a of r.actuals!.areas) {
+      const label = visible.has(a.code) ? a.label : OTHER_AREA_LABEL;
+      byArea.set(label, (byArea.get(label) ?? 0) + a.absenceDays);
+    }
+    const areas = [...byArea.entries()].map(([area, days]) => ({ area, days }));
+    return {
+      period: monthLabel(r.competenceMonth),
+      areas,
+      totalDays: areas.reduce((s, a) => s + a.days, 0),
+    };
+  });
+}
+
+// --- Turnover / Dismissals by Area ---
+
+export interface AreaTurnoverPoint {
+  id: string;
+  area: string;
+  headcount: number;
+  dismissals: number;
+  turnoverPct: number;
+  /** Participação nos desligamentos do período (%). */
+  sharePct: number;
+}
+
+/**
+ * Turnover e desligamentos por área no período.
+ *
+ * Vem dos S-2299 declarados, que já trazem a lotação — não há o que ratear. A
+ * versão anterior distribuía os desligamentos agregados por um peso combinando
+ * headcount e absenteísmo da área, "reproduzindo o padrão observado no BI": o
+ * gráfico resultante era uma hipótese desenhada com cara de apuração.
+ */
+export function selectTurnoverByArea(
+  selection: WorkforcePeriodSelection,
+  seriesOverride?: WorkforceMonthlyRecord[],
+): AreaTurnoverPoint[] {
+  const rows = selectRecentChartRows(selection, seriesOverride).filter(
+    (r) => r.actuals && r.actuals.areas.length > 0,
+  );
+  if (rows.length === 0) return [];
+
+  const acc = new Map<string, { label: string; headcount: number; dismissals: number }>();
+  for (const r of rows) {
+    for (const a of r.actuals!.areas) {
+      const cur = acc.get(a.code) ?? { label: a.label, headcount: 0, dismissals: 0 };
+      // Headcount é estoque, não fluxo: vale o do mês mais recente da janela.
+      cur.headcount = a.headcount;
+      cur.dismissals += a.terminations;
+      acc.set(a.code, cur);
+    }
+  }
+
+  const areas = [...acc.entries()].map(([code, v]) => ({
+    id: code,
+    area: v.label,
+    headcount: v.headcount,
+    dismissals: v.dismissals,
+    turnoverPct: v.headcount > 0 ? Number(((v.dismissals / v.headcount) * 100).toFixed(2)) : 0,
+    sharePct: 0,
+  }));
+
+  const total = areas.reduce((s, r) => s + r.dismissals, 0) || 1;
+  return areas
+    .map((r) => ({ ...r, sharePct: Number(((r.dismissals / total) * 100).toFixed(1)) }))
+    .sort((a, b) => b.dismissals - a.dismissals)
+    .slice(0, MAX_AREAS_IN_CHARTS);
 }
 
 // --- Overtime Trend ---
@@ -872,15 +1009,24 @@ export interface OvertimePoint {
   overtimePct: number;
 }
 
+/**
+ * Horas extras como % da massa, apurado sobre as rubricas do S-1200.
+ *
+ * Depende da tabela de rubricas (S-1010) estar classificando a folha: sem ela
+ * não se sabe qual verba é hora extra. Antes, a lacuna era preenchida por
+ * `8,5 + 3,2·sen(i) + 1,5·cos(i)` — o "11,2%" que a tela exibia para meses sem
+ * folha nenhuma vinha daí.
+ */
 export function selectOvertimeTrend(
   selection: WorkforcePeriodSelection,
   seriesOverride?: WorkforceMonthlyRecord[],
 ): OvertimePoint[] {
-  const rows = selectRecentChartRows(selection, seriesOverride);
-  return rows.map((r, i) => ({
-    period: monthLabel(r.competenceMonth),
-    overtimePct: Number((8.5 + 3.2 * Math.sin(i * 0.7) + 1.5 * Math.cos(i * 1.1)).toFixed(1)),
-  }));
+  return selectRecentChartRows(selection, seriesOverride)
+    .filter((r) => r.actuals?.overtimePct !== undefined)
+    .map((r) => ({
+      period: monthLabel(r.competenceMonth),
+      overtimePct: r.actuals!.overtimePct!,
+    }));
 }
 
 // --- Workforce Efficiency ---
@@ -907,6 +1053,111 @@ export function selectWorkforceEfficiency(
     headcount: r.headcount,
     revenue: r.revenue,
   }));
+}
+
+// --- Monthly indicator matrix (tabela consolidada da competência) ---
+
+/**
+ * Linha da matriz. Indicadores que dependem de uma base ausente na competência
+ * (headcount ou receita) vêm como `null` — "não apurado" é informação; um zero
+ * ou um 100% derivado de divisão por base vazia seria ruído apresentado como fato.
+ */
+export interface MonthlyIndicatorRow {
+  competenceMonth: string;
+  period: string;
+  headcount: number;
+  admissions: number;
+  dismissals: number;
+  turnoverPct: number | null;
+  absenteeismPct: number | null;
+  overtimePct: number;
+  payroll: number;
+  /** Custo de pessoal como % da receita. */
+  payrollAsRevenuePct: number | null;
+  revenuePerEmployee: number | null;
+}
+
+export interface MonthlyIndicatorMatrix {
+  rows: MonthlyIndicatorRow[];
+  /** Linha de totais/médias do período (médias para percentuais, soma para volumes). */
+  total: Omit<MonthlyIndicatorRow, 'competenceMonth' | 'period'>;
+}
+
+/**
+ * Matriz consolidada mês a mês — headcount, turnover, absenteísmo, horas extras,
+ * custo de pessoal e receita por colaborador na mesma linha da competência.
+ * É a tabela que fecha a leitura dos gráficos do cockpit.
+ */
+export function selectMonthlyIndicatorMatrix(
+  selection: WorkforcePeriodSelection,
+  seriesOverride?: WorkforceMonthlyRecord[],
+): MonthlyIndicatorMatrix {
+  const rows0 = selectRecentChartRows(selection, seriesOverride);
+  const adm = selectAdmissionsVsDismissals(selection, seriesOverride);
+  const turnover = selectTurnoverTrend(selection, seriesOverride);
+  const overtime = selectOvertimeTrend(selection, seriesOverride);
+  const efficiency = selectWorkforceEfficiency(selection, seriesOverride);
+  const absMonthly = selectAbsenteeismMonthlyByArea(selection, seriesOverride);
+
+  // Casado por COMPETÊNCIA, nunca por índice. Os seletores acima agora
+  // devolvem apenas os meses que têm fonte, então as listas têm comprimentos
+  // diferentes entre si e diferentes de `rows0` — parear por posição atribuiria
+  // o absenteísmo de um mês ao headcount de outro.
+  const byPeriod = <T extends { period: string }>(list: T[]) =>
+    new Map(list.map((item) => [item.period, item]));
+  const admBy = byPeriod(adm);
+  const turnoverBy = byPeriod(turnover);
+  const overtimeBy = byPeriod(overtime);
+  const efficiencyBy = byPeriod(efficiency);
+  const absBy = byPeriod(absMonthly);
+
+  const rows: MonthlyIndicatorRow[] = rows0.map((r) => {
+    const period = monthLabel(r.competenceMonth);
+    const hasHeadcount = r.headcount > 0;
+    const hasRevenue = r.revenue > 0;
+    const eff = efficiencyBy.get(period);
+    // Absenteísmo % = dias de falta ÷ dias-homem disponíveis (21 dias úteis).
+    const absenteeismPct = hasHeadcount
+      ? Number((((absBy.get(period)?.totalDays ?? 0) / (r.headcount * 21)) * 100).toFixed(2))
+      : null;
+    return {
+      competenceMonth: r.competenceMonth,
+      period,
+      headcount: r.headcount,
+      admissions: admBy.get(period)?.admissions ?? 0,
+      dismissals: admBy.get(period)?.dismissals ?? 0,
+      turnoverPct: hasHeadcount ? turnoverBy.get(period)?.turnoverPct ?? null : null,
+      absenteeismPct,
+      overtimePct: overtimeBy.get(period)?.overtimePct ?? 0,
+      payroll: r.payroll,
+      payrollAsRevenuePct: hasRevenue ? eff?.payrollAsRevenuePct ?? null : null,
+      revenuePerEmployee: hasRevenue && hasHeadcount ? eff?.revenuePerEmployee ?? null : null,
+    };
+  });
+
+  /** Média apenas sobre as competências apuradas — meses sem base não entram. */
+  const avg = (pick: (r: MonthlyIndicatorRow) => number | null): number | null => {
+    const vals = rows.map(pick).filter((v): v is number => v !== null);
+    if (vals.length === 0) return null;
+    return Number((vals.reduce((s, v) => s + v, 0) / vals.length).toFixed(2));
+  };
+  const sum = (pick: (r: MonthlyIndicatorRow) => number) => rows.reduce((s, r) => s + pick(r), 0);
+  const avgRevPerEmp = avg((r) => r.revenuePerEmployee);
+
+  return {
+    rows,
+    total: {
+      headcount: rows.length ? rows[rows.length - 1].headcount : 0,
+      admissions: sum((r) => r.admissions),
+      dismissals: sum((r) => r.dismissals),
+      turnoverPct: avg((r) => r.turnoverPct),
+      absenteeismPct: avg((r) => r.absenteeismPct),
+      overtimePct: avg((r) => r.overtimePct) ?? 0,
+      payroll: sum((r) => r.payroll),
+      payrollAsRevenuePct: avg((r) => r.payrollAsRevenuePct),
+      revenuePerEmployee: avgRevPerEmp === null ? null : Math.round(avgRevPerEmp),
+    },
+  };
 }
 
 // ============================================
@@ -970,28 +1221,26 @@ export function mapPayrollClosingBatchToWorkforceMonth(
 }
 
 /**
- * Merge approved PayrollClosingBatch records into the base mock series.
- * Imported months replace the corresponding mock record (or extend beyond it).
- * Returns a sorted series (oldest → newest).
+ * Série efetiva a partir dos lotes de fechamento APROVADOS.
+ *
+ * Não há série de base: o que não foi importado não existe. Antes, os lotes
+ * eram sobrepostos a 24 meses sintéticos, e bastava um mês sem lote para a tela
+ * mostrar o número do seed como se fosse a folha da empresa.
  */
 export function buildEffectiveSeries(approvedBatches: PayrollClosingBatchApproved[]): WorkforceMonthlyRecord[] {
-  if (approvedBatches.length === 0) return getWorkforceMonthlySeries();
-  const base = getWorkforceMonthlySeries();
-  const overrides = new Map(
+  const records = new Map(
     approvedBatches.map((b) => [b.competence_month, mapPayrollClosingBatchToWorkforceMonth(b)]),
   );
 
-  // The mock series ends well before an imported competence (e.g. 2026-04), so a
-  // batch may have no preceding record for the month-over-month comparison. When
-  // the batch carries its own previous_month_amount_cents and no real record
-  // exists for that prior month, synthesize a minimal previous-month record so
-  // the overview shows the imported variation exactly (not a mock baseline).
+  // `previous_month_amount_cents` é declarado pelo próprio lote: é o valor da
+  // folha anterior conforme o arquivo do escritório, não uma estimativa. Quando
+  // o mês anterior não foi importado, ele sustenta a variação mês a mês.
   for (const b of approvedBatches) {
     if (b.previous_month_amount_cents == null) continue;
     const prevMonth = shiftCompetenceMonth(b.competence_month, 1);
-    if (overrides.has(prevMonth)) continue;
+    if (records.has(prevMonth)) continue;
     const prevPayroll = b.previous_month_amount_cents / 100;
-    overrides.set(prevMonth, {
+    records.set(prevMonth, {
       competenceMonth: prevMonth,
       headcount: 0,
       payroll: prevPayroll,
@@ -1004,11 +1253,217 @@ export function buildEffectiveSeries(approvedBatches: PayrollClosingBatchApprove
     });
   }
 
-  const merged = base.map((r) => overrides.get(r.competenceMonth) ?? r);
-  for (const [month, record] of overrides) {
-    if (!merged.find((r) => r.competenceMonth === month)) merged.push(record);
+  return [...records.values()].sort((a, b) => a.competenceMonth.localeCompare(b.competenceMonth));
+}
+
+/**
+ * Sobrepõe as métricas apuradas do eSocial na série efetiva.
+ *
+ * O eSocial é a fonte mais forte que existe para quadro e movimentação: são os
+ * eventos que a própria empresa declarou ao governo. Onde ele tem dado, ele
+ * manda — headcount, admissões, desligamentos, afastamentos e a abertura por
+ * lotação. A folha importada continua mandando no VALOR, que é a competência
+ * dela, exceto quando não há lote para o mês.
+ */
+/** Linha de `esocial_competence_metrics`, no recorte que a série consome. */
+export interface EsocialCompetenceMetric {
+  competence: string;
+  gross_payroll_cents: number;
+  overtime_cents: number;
+  benefits_cents?: number;
+  benefits_by_nature?: Record<string, number> | null;
+  inss_cents?: number | null;
+  fgts_cents?: number | null;
+  headcount: number;
+  admissions: number;
+  terminations: number;
+  absence_days: number;
+  absence_events: number;
+  /** Colunas da migration 081 — ausentes em bases ainda não migradas. */
+  rubric_total_cents?: number | null;
+  rubric_mapped_cents?: number | null;
+  cp_base_cents?: number | null;
+  fgts_base_cents?: number | null;
+}
+
+/** Algum totalizador do eSocial chegou para a competência? */
+function hasAnyTotalizer(m: EsocialCompetenceMetric): boolean {
+  return (
+    (m.inss_cents ?? 0) > 0 ||
+    (m.fgts_cents ?? 0) > 0 ||
+    (m.cp_base_cents ?? 0) > 0 ||
+    (m.fgts_base_cents ?? 0) > 0
+  );
+}
+
+/** Centavos por tipo de benefício → reais, no formato que o gráfico consome. */
+function benefitsByType(byNature: Record<string, number> | null | undefined) {
+  const cents = byNature ?? {};
+  const brl = (k: string) => (cents[k] ?? 0) / 100;
+  return {
+    va: brl('va'),
+    vr: brl('vr'),
+    health: brl('health'),
+    dental: brl('dental'),
+    transport: brl('transport'),
+    other: brl('other'),
+  };
+}
+
+export interface EsocialAreaMetric {
+  competence: string;
+  area_code: string;
+  area_label: string;
+  headcount: number;
+  admissions: number;
+  terminations: number;
+  absence_days: number;
+  gross_cents: number;
+  base_cents?: number | null;
+}
+
+/** Quadro informado manualmente, por competência. */
+export interface ManualHeadcountByCompetence {
+  [competence: string]: { headcount: number; sourceNote: string };
+}
+
+export function enrichSeriesWithEsocial(
+  series: WorkforceMonthlyRecord[],
+  metrics: EsocialCompetenceMetric[],
+  areaMetrics: EsocialAreaMetric[] = [],
+  manualHeadcount: ManualHeadcountByCompetence = {},
+): WorkforceMonthlyRecord[] {
+  if (metrics.length === 0) return series;
+
+  // O 13º chega como 'AAAA-13' e não é um mês: entra no banco, mas fora da
+  // série mensal, para não distorcer comparações de mês contra mês.
+  const isMonthly = (c: string) => /^\d{4}-(0[1-9]|1[0-2])$/.test(c);
+  const monthly = metrics.filter((m) => isMonthly(m.competence));
+  const monthlyAreas = areaMetrics.filter((a) => isMonthly(a.competence));
+  if (monthly.length === 0) return series;
+
+  const byCompetence = new Map(monthly.map((m) => [m.competence, m]));
+  const areasByCompetence = new Map<string, typeof areaMetrics>();
+  for (const a of monthlyAreas) {
+    const list = areasByCompetence.get(a.competence) ?? [];
+    list.push(a);
+    areasByCompetence.set(a.competence, list);
   }
+
+  const merged = series.map((record) => {
+    const m = byCompetence.get(record.competenceMonth);
+    if (!m) return record;
+    return applyEsocial(
+      record,
+      m,
+      areasByCompetence.get(m.competence) ?? [],
+      manualHeadcount[record.competenceMonth],
+    );
+  });
+
+  // Competências que o eSocial conhece e a série ainda não tinha.
+  for (const m of monthly) {
+    if (merged.some((r) => r.competenceMonth === m.competence)) continue;
+    // Mesma regra do merge: massa pela cobertura, não pela soma crua.
+    const gross = competenceCoverage(m).payroll;
+
+    // Uma competência só entra na série quando tem SUBSTÂNCIA. Há linhas de
+    // métrica que existem apenas por efeito colateral: um afastamento em aberto
+    // lança dias nos meses seguintes, e o mês corrente passava a existir sem
+    // folha, sem quadro e sem guia. Como "mês atual" é a competência mais
+    // recente da série, a tela abria justamente nesse mês oco, com tudo zerado.
+    if (m.headcount === 0 && gross === 0 && !hasAnyTotalizer(m)) continue;
+    merged.push(
+      applyEsocial(
+        {
+          competenceMonth: m.competence,
+          headcount: m.headcount,
+          payroll: gross,
+          revenue: 0,
+          pj: 0,
+          clt: m.headcount,
+          pjCost: 0,
+          cltCost: gross,
+          costCenters: [],
+        },
+        m,
+        areasByCompetence.get(m.competence) ?? [],
+        manualHeadcount[m.competence],
+      ),
+    );
+  }
+
   return merged.sort((a, b) => a.competenceMonth.localeCompare(b.competenceMonth));
+}
+
+function applyEsocial(
+  record: WorkforceMonthlyRecord,
+  m: EsocialCompetenceMetric,
+  areas: EsocialAreaMetric[],
+  manual?: { headcount: number; sourceNote: string },
+): WorkforceMonthlyRecord {
+  const coverage = competenceCoverage({ ...m, competence: record.competenceMonth });
+  // A massa vem da cobertura, não da soma crua das rubricas: num mês em que só
+  // os totalizadores sobreviveram à janela de retenção, a soma das rubricas é
+  // um resíduo, e a base apurada pelo eSocial é o número real.
+  const gross = coverage.payroll;
+  const hasPayroll = record.payroll > 0;
+
+  return {
+    ...record,
+    // O quadro informado manualmente vence o apurado: ele existe justamente
+    // para os meses em que o eSocial não entregou o detalhe por trabalhador, e
+    // é uma afirmação assinada por um administrador. Fica marcado como manual
+    // para que a tela nunca o apresente como apuração.
+    headcount: manual ? manual.headcount : m.headcount > 0 ? m.headcount : record.headcount,
+    payroll: hasPayroll ? record.payroll : gross,
+    cltCost: hasPayroll ? record.cltCost : gross,
+    // Sem lote de folha, a abertura por lotação do eSocial vira o centro de custo.
+    costCenters:
+      record.costCenters.length > 0
+        ? record.costCenters
+        : areas.map((a) => ({
+            id: `esocial-${a.area_code}`,
+            name: a.area_label,
+            payrollValue: a.gross_cents / 100,
+            headcount: a.headcount,
+          })),
+    actuals: {
+      admissions: m.admissions,
+      terminations: m.terminations,
+      absenceDays: m.absence_days,
+      absenceEvents: m.absence_events,
+      coverage,
+      headcountSource: manual ? 'manual' : 'esocial',
+      headcountNote: manual?.sourceNote,
+      // Só quando as rubricas foram de fato classificadas. Fora disso o
+      // indicador fica ausente, e não zerado.
+      overtimePct:
+        coverage.compositionReliable && m.gross_payroll_cents > 0
+          ? Number(((m.overtime_cents / m.gross_payroll_cents) * 100).toFixed(1))
+          : undefined,
+      composition: coverage.compositionReliable
+        ? {
+            salary: (m.gross_payroll_cents - (m.benefits_cents ?? 0)) / 100,
+            benefits: (m.benefits_cents ?? 0) / 100,
+            // Encargos = o que a empresa recolhe, direto das guias apuradas.
+            charges: ((m.inss_cents ?? 0) + (m.fgts_cents ?? 0)) / 100,
+          }
+        : undefined,
+      benefitsByType: coverage.compositionReliable ? benefitsByType(m.benefits_by_nature) : undefined,
+      areas: areas.map((a) => ({
+        code: a.area_code,
+        label: a.area_label,
+        headcount: a.headcount,
+        admissions: a.admissions,
+        terminations: a.terminations,
+        absenceDays: a.absence_days,
+        // Mesma regra da competência: a base apurada por lotação sustenta o
+        // recorte por área mesmo sem a tabela de rubricas.
+        payroll: (coverage.payrollSource === 'rubricas' ? a.gross_cents : (a.base_cents ?? a.gross_cents)) / 100,
+      })),
+    },
+  };
 }
 
 /**
@@ -1028,15 +1483,16 @@ export function enrichSeriesWithRevenue(
 }
 
 /**
- * Drop-in replacement for selectWorkforceView that feeds approved
- * PayrollClosingBatch records as the primary payroll source.
- * Falls back to the mock series when approvedBatches is empty.
+ * Visão consolidada a partir dos lotes de folha aprovados.
+ *
+ * `hasData` é falso quando nenhuma fonte real produziu competência — e nesse
+ * caso a tela mostra o estado vazio, não uma série de demonstração.
  */
 export function selectWorkforceViewWithClosings(
   selection: WorkforcePeriodSelection,
   approvedBatches: PayrollClosingBatchApproved[],
   seriesOverride?: WorkforceMonthlyRecord[],
-): WorkforceViewModel & { hasMockFallback: boolean } {
+): WorkforceViewModel & { hasData: boolean } {
   const series = seriesOverride ?? buildEffectiveSeries(approvedBatches);
   const { metrics, meta } = selectWorkforceOverview(selection, series);
   return {
@@ -1046,6 +1502,6 @@ export function selectWorkforceViewWithClosings(
     alerts: selectWorkforceAlerts(selection, series),
     trend: selectWorkforceTrend(selection, series),
     meta,
-    hasMockFallback: approvedBatches.length === 0,
+    hasData: series.length > 0,
   };
 }

@@ -4101,79 +4101,6 @@ html.dark [data-state="collapsed"] .hud-nav-item[data-active="true"] {
   background: rgba(0, 0, 0, 0.06);
 }
 
-/* ── Badge variants — light mode overrides ── */
-.light .hud-badge-default {
-  background: rgba(0, 0, 0, 0.04);
-  color: var(--orion-text-secondary);
-  border-color: rgba(0, 0, 0, 0.08);
-}
-.light .hud-badge-neutral {
-  background: rgba(0, 0, 0, 0.02);
-  color: var(--orion-text-tertiary);
-  border-color: rgba(0, 0, 0, 0.06);
-}
-.light .hud-badge-outline {
-  color: var(--orion-text-secondary);
-  border-color: rgba(0, 0, 0, 0.12);
-}
-.light .hud-badge-subtle {
-  color: var(--orion-text-muted);
-}
-
-/* Light-mode semantic badge colors — slightly stronger for contrast */
-.light .hud-badge-primary {
-  background: rgba(132, 204, 22, 0.08);
-  color: #65A30D;
-  border-color: rgba(132, 204, 22, 0.18);
-}
-.light .hud-badge-success {
-  background: rgba(132, 204, 22, 0.08);
-  color: #4D7C0F;
-  border-color: rgba(132, 204, 22, 0.18);
-}
-.light .hud-badge-warning {
-  background: rgba(245, 158, 11, 0.08);
-  color: #b45309;
-  border-color: rgba(245, 158, 11, 0.18);
-}
-.light .hud-badge-danger {
-  background: rgba(239, 68, 68, 0.08);
-  color: #b91c1c;
-  border-color: rgba(239, 68, 68, 0.18);
-}
-.light .hud-badge-info {
-  background: rgba(59, 130, 246, 0.08);
-  color: #1d4ed8;
-  border-color: rgba(59, 130, 246, 0.18);
-}
-
-/* ── Chip variants — light mode overrides ── */
-.light .hud-chip-critical {
-  background: rgba(239, 68, 68, 0.06);
-  border-color: rgba(239, 68, 68, 0.15);
-  color: #b91c1c;
-}
-.light .hud-chip-warning {
-  background: rgba(245, 158, 11, 0.06);
-  border-color: rgba(245, 158, 11, 0.15);
-  color: #b45309;
-}
-.light .hud-chip-info {
-  background: rgba(132, 204, 22, 0.06);
-  border-color: rgba(132, 204, 22, 0.15);
-  color: #65A30D;
-}
-.light .hud-chip-success {
-  background: rgba(132, 204, 22, 0.06);
-  border-color: rgba(132, 204, 22, 0.15);
-  color: #4D7C0F;
-}
-.light .hud-chip-neutral {
-  background: rgba(0, 0, 0, 0.03);
-  border-color: rgba(0, 0, 0, 0.08);
-  color: var(--orion-text-tertiary);
-}
-
 /* ── Globe — light mode color overrides ── */
 .light .globe-focus-panel {
   background: rgba(255, 255, 255, 0.92);
@@ -4227,17 +4154,6 @@ html.dark [data-state="collapsed"] .hud-nav-item[data-active="true"] {
 .light table .text-cyan-300 { color: #65A30D; }
 .light table .text-indigo-400 { color: #4f46e5; }
 .light table .text-pink-400 { color: #db2777; }
-
-/* ── Standalone HudStatusPill light mode ── */
-.light .hud-status-pill-active { background: rgba(101, 163, 13, 0.08); color: #4D7C0F; border-color: rgba(101, 163, 13, 0.18); }
-.light .hud-status-pill-completed { background: rgba(132, 204, 22, 0.08); color: #65A30D; border-color: rgba(132, 204, 22, 0.18); }
-.light .hud-status-pill-pending { background: rgba(245, 158, 11, 0.08); color: #b45309; border-color: rgba(245, 158, 11, 0.18); }
-.light .hud-status-pill-warning { background: rgba(245, 158, 11, 0.08); color: #b45309; border-color: rgba(245, 158, 11, 0.18); }
-.light .hud-status-pill-error { background: rgba(239, 68, 68, 0.08); color: #b91c1c; border-color: rgba(239, 68, 68, 0.18); }
-.light .hud-status-pill-neutral { background: rgba(0, 0, 0, 0.04); color: var(--orion-text-secondary); border-color: rgba(0, 0, 0, 0.08); }
-.light .hud-status-pill-info { background: rgba(59, 130, 246, 0.08); color: #1d4ed8; border-color: rgba(59, 130, 246, 0.18); }
-.light .hud-status-pill-critical { background: rgba(239, 68, 68, 0.10); color: #b91c1c; border-color: rgba(239, 68, 68, 0.22); }
-.light .hud-status-pill-at_risk { background: rgba(249, 115, 22, 0.08); color: #c2410c; border-color: rgba(249, 115, 22, 0.18); }
 
 /* ── Tab pill buttons — light mode ── */
 .light .finance-tab-active {
@@ -5910,17 +5826,6 @@ html.dark [data-state="collapsed"] .hud-nav-item[data-active="true"] {
   color: #16A34A !important;
 }
 
-/* ── Status pills ── */
-.light .hud-status-pill-active { background: rgba(22, 163, 74, 0.07); color: #15803D; border-color: rgba(22, 163, 74, 0.18); }
-.light .hud-status-pill-completed { background: rgba(22, 163, 74, 0.07); color: #16A34A; border-color: rgba(22, 163, 74, 0.18); }
-
-/* ── Badges ── */
-.light .hud-badge-primary { background: rgba(22, 163, 74, 0.07); color: #15803D; border-color: rgba(22, 163, 74, 0.18); }
-.light .hud-badge-success { background: rgba(22, 163, 74, 0.07); color: #15803D; border-color: rgba(22, 163, 74, 0.18); }
-
-/* ── Severity chips ── */
-.light .hud-chip-info { background: rgba(22, 163, 74, 0.06); border-color: rgba(22, 163, 74, 0.15); color: #16A34A; }
-.light .hud-chip-success { background: rgba(22, 163, 74, 0.06); border-color: rgba(22, 163, 74, 0.15); color: #15803D; }
 .light .intel-severity-medium { background: rgba(22, 163, 74, 0.06); color: #16A34A; border-color: rgba(22, 163, 74, 0.15); }
 
 /* ── CR alert chip info — forest green ── */
@@ -6165,14 +6070,6 @@ html.dark [data-state="collapsed"] .hud-nav-item[data-active="true"] {
 
 /* ── HudPanel deeplink hover ── */
 .light .hover\:text-cyan-200:hover { color: #16A34A !important; }
-
-/* ── HudBadge neutral + subtle ── */
-.light .hud-badge-neutral { background: rgba(0,0,0,0.03); color: #475569; border-color: rgba(0,0,0,0.08); }
-.light .hud-badge-subtle { color: #64748B; }
-
-/* ── HudChip neutral ── */
-.light .hud-chip-neutral { background: rgba(0,0,0,0.02); border-color: rgba(0,0,0,0.06); color: #475569; }
-.light .hud-chip-neutral:hover { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.10); }
 
 /* ── HudToast info ── */
 .light .hud-toast-info { background: #ffffff !important; border-color: rgba(22,163,74,0.20) !important; }

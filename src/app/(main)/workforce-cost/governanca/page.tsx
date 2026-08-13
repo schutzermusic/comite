@@ -50,7 +50,6 @@ import {
   scanExceptions,
   startReview,
 } from '@/lib/services/governance';
-import { DEMO_EXCEPTIONS } from '@/components/workforce/governance-demo-data';
 
 const SEVERITY_ORDER: Record<GovernanceSeverity, number> = {
   critical: 0,
@@ -111,8 +110,16 @@ export default function GovernancaPage() {
     void reload();
   }, [reload]);
 
-  const usingDemo = !loading && !error && exceptions.length === 0;
-  const source = usingDemo ? DEMO_EXCEPTIONS : exceptions;
+  /**
+   * Zero exceções é um RESULTADO, não uma tela vazia a preencher.
+   *
+   * Antes, uma varredura sem achados exibia cinco violações de exemplo
+   * ("Carlos Santos com 140% de comprometimento") atrás de um selo discreto.
+   * Numa tela de governança isso é o pior lugar possível para dado fabricado:
+   * quem abre está procurando irregularidade, e encontrava uma inventada.
+   */
+  const noFindings = !loading && !error && exceptions.length === 0;
+  const source = exceptions;
 
   async function handleScan() {
     setBusy(true);
@@ -209,12 +216,12 @@ export default function GovernancaPage() {
           }
         />
 
-        {usingDemo && (
+        {noFindings && (
           <div className="flex items-center gap-2">
-            <HudBadge variant="warning">dados demonstrativos</HudBadge>
+            <HudBadge variant="success">sem exceções</HudBadge>
             <span className="text-xs text-ig-fg-muted">
-              Nenhuma exceção registrada — exibindo exemplo. Execute a varredura para classificar os
-              dados reais.
+              Nenhuma exceção registrada no período. Execute a varredura para reclassificar após
+              novas alocações, apontamentos ou fechamentos.
             </span>
           </div>
         )}
@@ -300,7 +307,6 @@ export default function GovernancaPage() {
                           size="sm"
                           leftIcon={<Eye className="h-3.5 w-3.5" />}
                           onClick={() => {
-                            if (usingDemo) return notify('Indisponível em modo demo', { variant: 'warning' });
                             void handleReview(ex);
                           }}
                         >
@@ -311,10 +317,7 @@ export default function GovernancaPage() {
                         variant="secondary"
                         size="sm"
                         leftIcon={<CheckCircle2 className="h-3.5 w-3.5" />}
-                        onClick={() => {
-                          if (usingDemo) return notify('Indisponível em modo demo', { variant: 'warning' });
-                          setResolving({ ex, mode: 'resolve' });
-                        }}
+                        onClick={() => setResolving({ ex, mode: 'resolve' })}
                       >
                         Resolver
                       </HudButton>
@@ -322,10 +325,7 @@ export default function GovernancaPage() {
                         variant="ghost"
                         size="sm"
                         leftIcon={<XCircle className="h-3.5 w-3.5" />}
-                        onClick={() => {
-                          if (usingDemo) return notify('Indisponível em modo demo', { variant: 'warning' });
-                          setResolving({ ex, mode: 'dismiss' });
-                        }}
+                        onClick={() => setResolving({ ex, mode: 'dismiss' })}
                       >
                         Dispensar
                       </HudButton>

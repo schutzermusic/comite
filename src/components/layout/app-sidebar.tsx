@@ -28,6 +28,7 @@ import {
   Gavel,
   GitCompare,
   Handshake,
+  HeartPulse,
   History,
   LayoutDashboard,
   LineChart,
@@ -223,8 +224,11 @@ const navigationItems: MenuItem[] = [
       },
       // 5. Custo, controle e análise
       {
+        // A rota continua /custos de propósito: o rótulo mudou porque a seção
+        // passou a ser a casa dos relatórios de folha e encargos, mas trocar a
+        // URL quebraria links salvos, permissões de rota e o histórico.
         href: "/workforce-cost/custos",
-        label: "Custo de MO",
+        label: "Folha & Encargos",
         icon: Coins,
         anyPermission: ["people.cost_view", "people.cost_manage"],
       },
@@ -240,7 +244,14 @@ const navigationItems: MenuItem[] = [
         icon: BrainCircuit,
         anyPermission: ["people.allocations_view", "people.ai_insights"],
       },
-      // 6. Conformidade legal e fechamento (fim do ciclo)
+      // 6. Saúde e segurança do trabalho
+      {
+        href: "/workforce-cost/sst",
+        label: "SST / ASO & CAT",
+        icon: HeartPulse,
+        anyPermission: ["people.view", "people.attendance_view"],
+      },
+      // 7. Conformidade legal e fechamento (fim do ciclo)
       {
         href: "/workforce-cost/ponto-oficial",
         label: "Ponto Oficial (REP-P)",

@@ -1,7 +1,8 @@
 'use client';
 
 import React from 'react';
-import { cn } from '@/lib/utils';
+import { HudSignal } from './HudSignal';
+import type { HudSignalTone } from './HudSignal';
 
 export type HudStatusPillVariant =
   | 'active'
@@ -22,23 +23,22 @@ export interface HudStatusPillProps {
   pulse?: boolean;
 }
 
-const VARIANT_STYLES: Record<HudStatusPillVariant, string> = {
-  active: 'bg-[color-mix(in_oklab,var(--ig-success)_14%,transparent)] text-ig-success border-[color-mix(in_oklab,var(--ig-success)_32%,transparent)] hud-status-pill-active',
-  completed: 'bg-ig-accent-weak text-ig-accent border-ig-border-focus hud-status-pill-completed',
-  pending: 'bg-[color-mix(in_oklab,var(--ig-warning)_14%,transparent)] text-ig-warning border-[color-mix(in_oklab,var(--ig-warning)_32%,transparent)] hud-status-pill-pending',
-  warning: 'bg-[color-mix(in_oklab,var(--ig-warning)_14%,transparent)] text-ig-warning border-[color-mix(in_oklab,var(--ig-warning)_32%,transparent)] hud-status-pill-warning',
-  error: 'bg-[color-mix(in_oklab,var(--ig-danger)_14%,transparent)] text-ig-danger border-[color-mix(in_oklab,var(--ig-danger)_32%,transparent)] hud-status-pill-error',
-  neutral: 'bg-ig-panel-hover text-ig-fg-muted border-ig-border-strong hud-status-pill-neutral',
-  info: 'bg-[color-mix(in_oklab,var(--ig-info)_14%,transparent)] text-ig-info border-[color-mix(in_oklab,var(--ig-info)_32%,transparent)] hud-status-pill-info',
-  critical: 'bg-[color-mix(in_oklab,var(--ig-danger)_20%,transparent)] text-ig-danger border-[color-mix(in_oklab,var(--ig-danger)_40%,transparent)] hud-status-pill-critical',
-  at_risk: 'bg-[color-mix(in_oklab,var(--ig-warning)_14%,transparent)] text-ig-warning border-[color-mix(in_oklab,var(--ig-warning)_32%,transparent)] hud-status-pill-at_risk',
+const VARIANT_TONE: Record<HudStatusPillVariant, HudSignalTone> = {
+  active: 'success',
+  completed: 'accent',
+  pending: 'warning',
+  warning: 'warning',
+  error: 'danger',
+  neutral: 'neutral',
+  info: 'info',
+  critical: 'critical',
+  at_risk: 'warning',
 };
 
-const SIZE_STYLES = {
-  sm: 'text-[10px] px-2 py-0.5',
-  md: 'text-xs px-2.5 py-1',
-};
-
+/**
+ * Indicador de estado — hoje um Signal Chip sem dado numérico (ver `HudSignal`).
+ * Nome e API preservados: é o componente de status mais usado do produto.
+ */
 export function HudStatusPill({
   children,
   variant = 'neutral',
@@ -47,16 +47,12 @@ export function HudStatusPill({
   pulse = false,
 }: HudStatusPillProps) {
   return (
-    <span
-      className={cn(
-        'inline-flex items-center rounded-full font-medium border',
-        VARIANT_STYLES[variant],
-        SIZE_STYLES[size],
-        pulse && 'animate-pulse',
-        className
-      )}
-    >
-      {children}
-    </span>
+    <HudSignal
+      label={children}
+      tone={VARIANT_TONE[variant]}
+      size={size}
+      pulse={pulse}
+      className={className}
+    />
   );
 }
