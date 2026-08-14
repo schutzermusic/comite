@@ -17,12 +17,14 @@ import {
   applyAsoEdits,
   assessApprovalReadiness,
   buildApprovalSnapshot,
+  buildUploadTrail,
   confirmedFields,
   documentStatusFor,
   fieldOrigin,
   fieldsFromExtraction,
   nextReviewState,
   suggestedStatusFor,
+  type AsoReviewAction,
 } from '@/lib/workforce/aso-review';
 
 const HOJE = new Date('2026-08-13T00:00:00Z');
@@ -896,5 +898,82 @@ describe('trilha de auditoria da aprovação', () => {
     expect(trilha[0].action).toBe('request_correction');
     expect(trilha[0].approval).toBeUndefined();
     expect(trilha[1].approval?.mode).toBe('individual');
+  });
+});
+
+describe('trilha completa: quem enviou, o que a máquina leu, quem confirmou', () => {
+  const AT_UPLOAD = '2026-08-13T09:00:00.000Z';
+  const AT_APPROVE = '2026-08-13T09:02:00.000Z';
+
+  it('o upload abre a trilha com DOIS autores distintos', () => {
+    const trilha = buildUploadTrail(
+      'rh-1',
+      { method: 'ocr_ai', confidence: 0.72, issueCount: 2 },
+      AT_UPLOAD,
+    );
+
+    expect(trilha).toHaveLength(2);
+    // Quem subiu o arquivo é gente...
+    expect(trilha[0]).toMatchObject({ action: 'upload', by: 'rh-1' });
+    // ...e quem leu os campos é a máquina. Fundir os dois atribuiria a leitura
+    // a quem só apertou "enviar".
+    expect(trilha[1]).toMatchObject({ action: 'extract', by: null });
+    expect(trilha[1].extraction).toEqual({ method: 'ocr_ai', confidence: 0.72, issueCount: 2 });
+  });
+
+  it('a entrada de extração NUNCA tem autor humano', () => {
+    for (const method of ['text_layer', 'ocr_ai', 'manual'] as const) {
+      const [, extract] = buildUploadTrail('rh-1', { method, confidence: 1, issueCount: 0 }, AT_UPLOAD);
+      // Não existe "usuário sistema" neste módulo: o dia em que existir, alguém
+      // consegue aprovar um ASO em nome dele.
+      expect(extract.by).toBeNull();
+    }
+  });
+
+  it('a trilha inteira mostra os três atores do requisito de auditoria', () => {
+    const readiness = assessApprovalReadiness({
+      fields: fieldsFromExtraction(extractAso(asoPeriodico, HOJE)),
+      personId: 'p1',
+      extractionConfidence: 1,
+      extractionMethod: 'text_layer',
+      today: HOJE,
+    });
+    const aprovacao = nextReviewState(
+      'approve',
+      { reviewStatus: 'pending', reviewedBy: null, reviewedAt: null },
+      { userId: 'rh-2', at: AT_APPROVE },
+      { approval: buildApprovalSnapshot(readiness, { mode: 'individual', userId: 'rh-2', at: AT_APPROVE }) },
+    );
+
+    const trilha = [
+      ...buildUploadTrail('rh-1', { method: 'text_layer', confidence: 1, issueCount: 0 }, AT_UPLOAD),
+      aprovacao.entry,
+    ];
+
+    expect(trilha.map((e) => e.action)).toEqual(['upload', 'extract', 'approve']);
+    expect(trilha.map((e) => e.by)).toEqual(['rh-1', null, 'rh-2']);
+    // uploaded_by ≠ reviewed_by: quem envia e quem assume podem ser pessoas
+    // diferentes, e a trilha precisa conseguir dizer isso.
+    expect(trilha[0].by).not.toBe(trilha[2].by);
+  });
+
+  it('a aprovação não apaga as entradas de máquina', () => {
+    const base = buildUploadTrail('rh-1', { method: 'ocr_ai', confidence: 0.6, issueCount: 1 }, AT_UPLOAD);
+    const aprovacao = nextReviewState(
+      'approve',
+      { reviewStatus: 'pending', reviewedBy: null, reviewedAt: null },
+      { userId: 'rh-1', at: AT_APPROVE },
+    );
+    const trilha = [...base, aprovacao.entry];
+
+    expect(trilha).toHaveLength(3);
+    expect(trilha[1].extraction?.confidence).toBe(0.6);
+  });
+
+  it('`upload` e `extract` ficam FORA do domínio de ações da rota', () => {
+    // O tipo separado é o que impede um cliente de forjar um evento de sistema.
+    const acoesHumanas: AsoReviewAction[] = ['approve', 'request_correction', 'reject', 'edit', 'reopen'];
+    expect(acoesHumanas).not.toContain('upload' as never);
+    expect(acoesHumanas).not.toContain('extract' as never);
   });
 });

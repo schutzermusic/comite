@@ -14,7 +14,11 @@ import {
   type EsocialAsoFacts,
 } from '@/lib/workforce/aso-extractor';
 import { AsoAiUnavailableError, extractAsoWithAi } from '@/lib/workforce/aso-ai-extractor';
-import { fieldsFromExtraction, type AsoReviewStatus } from '@/lib/workforce/aso-review';
+import {
+  buildUploadTrail,
+  fieldsFromExtraction,
+  type AsoReviewStatus,
+} from '@/lib/workforce/aso-review';
 import {
   buildAsoReviewSummary,
   siblingsByPerson,
@@ -297,7 +301,15 @@ export async function POST(req: Request) {
           divergence_summary: reconciliation.summary,
 
           review_status: reviewStatus,
-          review_history: [],
+          // A trilha abre com os DOIS autores do que existe até aqui: quem
+          // enviou e a máquina que leu. Sem isso, uma auditoria abriria o
+          // histórico de um ASO aprovado e veria só a confirmação humana, como
+          // se os campos tivessem surgido do nada.
+          review_history: buildUploadTrail(userId, {
+            method,
+            confidence: extraction.confidence,
+            issueCount: issues.length,
+          }),
           reviewed_by: null,
           reviewed_at: null,
           notes: null,

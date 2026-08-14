@@ -129,6 +129,43 @@ function dateLabel(value: string | null | undefined): string {
 }
 
 /**
+ * Trilha legível: quem enviou, o que a máquina leu, quem confirmou.
+ *
+ * `by: null` é a máquina, e a frase diz isso em palavras — "o sistema" —
+ * porque um traço ou um id vazio na coluna de autor seria lido como dado
+ * faltando, e não como "aqui não houve pessoa nenhuma", que é o fato.
+ */
+function trailLine(entry: AsoReviewEntry): string {
+  const quando = entry.at.slice(0, 10).split('-').reverse().join('/');
+  const quem = entry.by ? `usuário ${entry.by.slice(0, 8)}` : 'o sistema';
+
+  switch (entry.action) {
+    case 'upload':
+      return `${quando} — enviado por ${quem}`;
+    case 'extract': {
+      const m = entry.extraction?.method;
+      const como = m === 'ocr_ai' ? 'IA / OCR' : m === 'manual' ? 'entrada manual' : 'camada de texto';
+      const conf = entry.extraction?.confidence;
+      const pct = conf !== null && conf !== undefined ? ` · ${(conf * 100).toFixed(0)}% de confiança` : '';
+      const ress = entry.extraction?.issueCount ? ` · ${entry.extraction.issueCount} ressalva(s)` : '';
+      return `${quando} — campos extraídos por ${quem} (${como}${pct}${ress})`;
+    }
+    case 'approve':
+      return `${quando} — confirmado por ${quem}${entry.approval?.mode === 'bulk' ? ' (em lote)' : ''}`;
+    case 'reject':
+      return `${quando} — rejeitado por ${quem}`;
+    case 'request_correction':
+      return `${quando} — devolvido para correção por ${quem}`;
+    case 'edit':
+      return `${quando} — campos corrigidos por ${quem}${entry.fields?.length ? `: ${entry.fields.join(', ')}` : ''}`;
+    case 'reopen':
+      return `${quando} — reaberto por ${quem}`;
+    default:
+      return `${quando} — ${entry.action}`;
+  }
+}
+
+/**
  * Ressalvas que alguém reconheceu na aprovação vigente.
  *
  * Lê a ÚLTIMA entrada de `approve` da trilha — e não todas: reabrir e aprovar
@@ -522,6 +559,16 @@ export function AsoDocumentsPanel({ onChanged }: { onChanged?: () => void }) {
                 ressalva aceita: {c.code === 'missing_validity' ? 'sem validade apurável' : c.code}
               </p>
             ))}
+            {(d.review_history ?? []).length > 0 && (
+              <details className="text-[11px] text-ig-fg-muted">
+                <summary className="cursor-pointer select-none">trilha</summary>
+                <ul className="mt-1 space-y-0.5">
+                  {d.review_history.map((e, i) => (
+                    <li key={`${e.at}-${e.action}-${i}`}>• {trailLine(e)}</li>
+                  ))}
+                </ul>
+              </details>
+            )}
             {d.document_status === 'pending_review' && d.review?.readiness.blockers[0] && (
               <p className="text-[11px] text-ig-warning" title={d.review.readiness.blockers[0].detail}>
                 {d.review.readiness.blockers[0].label}

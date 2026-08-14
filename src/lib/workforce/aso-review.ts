@@ -54,7 +54,18 @@ export type AsoReviewStatus = 'pending' | 'approved' | 'rejected' | 'correction_
 /** Projeção de leitura de `AsoReviewStatus`, usada por indicadores e telas. */
 export type AsoDocumentStatus = 'pending_review' | 'approved' | 'rejected' | 'needs_correction';
 
+/** Ações que uma PESSOA pode pedir. É o domínio aceito pela rota. */
 export type AsoReviewAction = 'approve' | 'request_correction' | 'reject' | 'edit' | 'reopen';
+
+/**
+ * Tudo que a trilha registra — inclusive o que a máquina fez.
+ *
+ * `upload` e `extract` NÃO estão em `AsoReviewAction` de propósito: a rota só
+ * aceita ações humanas, e um cliente não pode forjar um evento de sistema. A
+ * separação de tipos é o que mantém essa porta fechada por construção, em vez
+ * de por uma validação que alguém pode esquecer de replicar.
+ */
+export type AsoTrailAction = AsoReviewAction | 'upload' | 'extract';
 
 /**
  * Campos do ASO, no vocabulário que atravessa extração, revisão e tela.
@@ -137,16 +148,53 @@ export interface AsoApprovalSnapshot {
   eligibleForBulk: boolean;
 }
 
-/** Uma entrada da trilha de revisão. Append-only. */
+/**
+ * Uma entrada da trilha. Append-only.
+ *
+ * `by` é o autor: um `uuid` quando foi gente, e `null` quando foi a MÁQUINA.
+ * A distinção é o ponto da trilha — "o sistema leu isto do PDF" e "uma pessoa
+ * aceitou isto" são afirmações de peso completamente diferente numa auditoria,
+ * e um trilha que as escrevesse igual não serviria para nada.
+ */
 export interface AsoReviewEntry {
   at: string;
   by: string | null;
-  action: AsoReviewAction;
+  action: AsoTrailAction;
   /** Campos alterados nesta entrada, quando a ação mexeu em valores. */
   fields?: AsoEditableField[];
   note?: string | null;
   /** Presente apenas em `approve`. */
   approval?: AsoApprovalSnapshot;
+  /** Presente apenas em `extract` — como a máquina leu, e com que confiança. */
+  extraction?: {
+    method: AsoExtractionMethod;
+    confidence: number | null;
+    /** Quantos campos a leitura não conseguiu resolver. */
+    issueCount: number;
+  };
+}
+
+/**
+ * Abre a trilha de um documento recém-enviado.
+ *
+ * Duas entradas, e não uma, porque são dois autores: a pessoa que subiu o
+ * arquivo e a máquina que o leu. Fundir as duas atribuiria a leitura a quem só
+ * apertou "enviar" — e é exatamente essa confusão que o requisito de auditoria
+ * existe para impedir.
+ *
+ * A entrada de `extract` sai com `by: null`. Não existe um "usuário sistema"
+ * neste módulo: o dia em que existir, alguém vai conseguir aprovar um ASO em
+ * nome dele.
+ */
+export function buildUploadTrail(
+  uploadedBy: string | null,
+  extraction: { method: AsoExtractionMethod; confidence: number | null; issueCount: number },
+  at: string = new Date().toISOString(),
+): AsoReviewEntry[] {
+  return [
+    { at, by: uploadedBy, action: 'upload' },
+    { at, by: null, action: 'extract', extraction },
+  ];
 }
 
 const EXAM_KINDS: AsoExamKind[] = ['0', '1', '2', '3', '4', '9'];
