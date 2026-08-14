@@ -101,13 +101,33 @@ CREATE INDEX IF NOT EXISTS aso_documents_worker_idx
 
 -- Consulta de vencimento: só interessa onde há data apurada e o documento
 -- não foi rejeitado.
-CREATE INDEX IF NOT EXISTS aso_documents_validity_idx
-  ON public.aso_documents (organization_id, valid_until)
-  WHERE valid_until IS NOT NULL AND status <> 'rejected';
-
-CREATE INDEX IF NOT EXISTS aso_documents_review_idx
-  ON public.aso_documents (organization_id, status)
-  WHERE status = 'pending_review';
+--
+-- Os dois índices abaixo ficam dentro de um guarda porque a migration 089
+-- RENOMEIA `valid_until` → `validity_date` e `status` → `review_status`, e
+-- recria os índices com os nomes novos. `CREATE INDEX IF NOT EXISTS` não
+-- salvaria: o Postgres resolve as colunas na análise sintática, antes de olhar
+-- se o índice já existe — então, numa base pós-089, a 085 falharia ao ser
+-- reexecutada. E reexecutar tudo é o modo NORMAL de uso do runner, não uma
+-- exceção; uma migration antiga que só roda uma vez quebra o runner inteiro.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'aso_documents' AND column_name = 'valid_until'
+  ) THEN
+    EXECUTE $ix$
+      CREATE INDEX IF NOT EXISTS aso_documents_validity_idx
+        ON public.aso_documents (organization_id, valid_until)
+        WHERE valid_until IS NOT NULL AND status <> 'rejected'
+    $ix$;
+    EXECUTE $ix$
+      CREATE INDEX IF NOT EXISTS aso_documents_review_idx
+        ON public.aso_documents (organization_id, status)
+        WHERE status = 'pending_review'
+    $ix$;
+  END IF;
+END;
+$$;
 
 -- Mesmo arquivo enviado duas vezes não vira dois ASOs.
 CREATE UNIQUE INDEX IF NOT EXISTS aso_documents_checksum_uq

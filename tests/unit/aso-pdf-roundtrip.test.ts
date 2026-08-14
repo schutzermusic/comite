@@ -90,7 +90,7 @@ describe('ASO: PDF → pdfjs → extrator', () => {
     expect(r.examDate).toBe('2026-03-10');
     expect(r.examKind).toBe('1');
     expect(r.result).toBe('1');
-    expect(r.validUntil).toBe('2027-03-10');
+    expect(r.validityDate).toBe('2027-03-10');
     // Estava escrito no papel: fato do documento, não premissa nossa.
     expect(r.validityBasis).toBe('declared_document');
     expect(r.cpf).toBe('12345678901');
@@ -109,7 +109,7 @@ describe('ASO: PDF → pdfjs → extrator', () => {
       ]),
     );
     const r = extractAso(text, HOJE);
-    expect(r.validUntil).toBe('2027-02-05');
+    expect(r.validityDate).toBe('2027-02-05');
     expect(r.validityBasis).toBe('inferred_periodicity');
   }, 30_000);
 
@@ -124,7 +124,7 @@ describe('ASO: PDF → pdfjs → extrator', () => {
       ]),
     );
     const r = extractAso(text, HOJE);
-    expect(r.validUntil).toBeUndefined();
+    expect(r.validityDate).toBeUndefined();
     expect(r.validityBasis).toBe('undetermined');
   }, 30_000);
 

@@ -51,6 +51,12 @@ const FILES = [
   '084_esocial_sst.sql',
   '085_aso_documents.sql',
   '086_esocial_audit_counts.sql',
+  // 089 reordena o ASO em torno do DOCUMENTO ORIGINAL. Diferente das
+  // anteriores, ela RENOMEIA colunas (status → review_status, valid_until →
+  // validity_date, match_status → esocial_match_status); os renames são
+  // guardados por checks de information_schema, então reexecutar continua
+  // sendo seguro, mas ela precisa rodar DEPOIS da 085 e antes de o app subir.
+  '089_aso_document_first.sql',
 ];
 
 const dryRun = process.argv.includes('--dry');
@@ -85,15 +91,41 @@ try {
        to_regclass('public.aso_documents')                AS aso_docs,
        (SELECT count(*) FROM pg_proc WHERE proname = 'esocial_audit_counts')      AS audit_fn,
        (SELECT count(*) FROM storage.buckets WHERE id = 'esocial-certificates')   AS cert_bucket,
-       (SELECT count(*) FROM storage.buckets WHERE id = 'aso-documents')          AS aso_bucket`,
+       (SELECT count(*) FROM storage.buckets WHERE id = 'aso-documents')          AS aso_bucket,
+       -- 089: sem estas colunas o módulo de ASO sobe contra o esquema antigo e
+       -- falha na primeira consulta, que é o pior modo de descobrir. A conta
+       -- cobre TODO o conjunto que a rota de upload escreve — uma coluna a
+       -- menos aqui vira erro só no primeiro PDF enviado.
+       (SELECT count(*) FROM information_schema.columns
+         WHERE table_schema = 'public' AND table_name = 'aso_documents'
+           AND column_name IN ('validity_date', 'document_status', 'review_status',
+                               'extracted_fields_json', 'reviewed_fields_json',
+                               'review_history', 'original_file_url', 'divergence_summary',
+                               'esocial_match_status', 'occupational_risks',
+                               'clinic_name', 'company_cnpj', 'worker_registration'))
+                                                                                  AS aso_089_cols,
+       -- E nenhum nome antigo pode ter sobrado ao lado do novo.
+       (SELECT count(*) FROM information_schema.columns
+         WHERE table_schema = 'public' AND table_name = 'aso_documents'
+           AND column_name IN ('status', 'valid_until', 'match_status'))           AS aso_legacy_cols`,
   );
   console.log('\nVerificação:', rows[0]);
 
   // Falha alto: uma migration "OK" que não criou o objeto é pior que um erro,
   // porque o app degrada em silêncio e ninguém procura a causa.
-  const missing = Object.entries(rows[0]).filter(([, v]) => v === null || v === 0 || v === '0');
+  //
+  // `aso_legacy_cols` é invertida — ali o valor BOM é zero — e por isso sai da
+  // varredura genérica antes dela rodar.
+  const { aso_legacy_cols: legacy, aso_089_cols: cols089, ...presence } = rows[0];
+  const missing = Object.entries(presence).filter(([, v]) => v === null || v === 0 || v === '0');
   if (!dryRun && missing.length > 0) {
     throw new Error(`objetos ausentes após aplicar: ${missing.map(([k]) => k).join(', ')}`);
+  }
+  if (!dryRun && Number(cols089) !== 13) {
+    throw new Error(`089 incompleta: ${cols089}/13 colunas do modelo de ASO presentes`);
+  }
+  if (!dryRun && Number(legacy) > 0) {
+    throw new Error(`089 incompleta: ${legacy} coluna(s) com nome antigo ainda em aso_documents`);
   }
 
   // O PostgREST serve a partir de um cache de schema; sem recarregar, a API

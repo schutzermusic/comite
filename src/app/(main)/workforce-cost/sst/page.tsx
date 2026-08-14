@@ -1,18 +1,23 @@
 'use client';
 
 /**
- * SST / ASO & CAT — saúde e segurança do trabalho a partir do eSocial.
+ * SST / ASO & CAT — saúde e segurança do trabalho.
  *
- * Cobre três eventos que o conector já ingeria e nunca mostrava: S-2210 (CAT),
- * S-2220 (ASO) e S-2240 (agentes nocivos). Seção própria, e não uma aba dentro
- * de Folha & Encargos, porque acidente e exame ocupacional não são custo — e
- * porque a pergunta aqui é sobre PESSOA ("quem está sem ASO válido"), não sobre
- * competência.
+ * DUAS FONTES, COM PAPÉIS DIFERENTES E DECLARADOS
  *
- * O ASO tem QUATRO estados nesta tela, e não dois. O leiaute do S-2220 não
- * declara vencimento, então ele só é apurável para o exame periódico; o resto
- * aparece em "sem vencimento apurável" em vez de aparecer, falsamente, como
- * "em dia". Ver `src/lib/esocial/connector/sst.ts`.
+ * O controle de ASO é feito pelo DOCUMENTO ORIGINAL: o PDF do atestado, enviado
+ * pelo RH e aprovado na revisão. Ele é a fonte primária, funciona sozinho e não
+ * depende de importação nenhuma — os indicadores de vencimento no topo saem
+ * dele.
+ *
+ * O eSocial entra ao lado, e só onde tem o que dizer: CAT (S-2210), exposição a
+ * agentes nocivos (S-2240) e, para o ASO, uma CONFERÊNCIA OPCIONAL contra o
+ * S-2220. O leiaute do S-2220 não declara vencimento — ele nunca poderia
+ * sustentar este controle sozinho, e é por isso que a ordem é essa.
+ *
+ * A tela mostra os dois eixos separados por colaborador: situação do DOCUMENTO
+ * e situação do eSOCIAL. Nenhum estado do segundo bloqueia o primeiro, e
+ * "documento não enviado" é pendência de acervo — nunca irregularidade.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -21,6 +26,7 @@ import {
   AlertTriangle,
   Biohazard,
   CalendarClock,
+  FileUp,
   HeartPulse,
   RefreshCw,
   Stethoscope,
@@ -64,19 +70,28 @@ import {
   type SstWorker,
   type WorkerAsoStatus,
 } from '@/lib/workforce/sst';
+import { ASO_CONTROL_NOTICE, type AsoAlertSummary } from '@/lib/workforce/aso-alerts';
 import { openSstReport } from '@/lib/reports/modules/sst-report';
 import { AsoDocumentsPanel } from '@/components/workforce/AsoDocumentsPanel';
 import { AsoAlertsPanel } from '@/components/workforce/AsoAlertsPanel';
 
 const NA = '—';
 
+/**
+ * Estados do ASO apurados SÓ pelo eSocial.
+ *
+ * Este mapa vale apenas para a aba de conferência do S-2220, e não para o
+ * controle. `absent` aqui significa "não há evento importado" — jamais "o
+ * colaborador está sem ASO", que é uma afirmação que só o acervo de documentos
+ * pode fazer.
+ */
 const ASO_STATUS_META: Record<AsoStatus, { label: string; pill: 'active' | 'warning' | 'error' | 'neutral' }> = {
-  valid: { label: 'Em dia', pill: 'active' },
-  expiring: { label: 'A vencer', pill: 'warning' },
-  expired: { label: 'Vencido', pill: 'error' },
+  valid: { label: 'Em dia (pelo eSocial)', pill: 'active' },
+  expiring: { label: 'A vencer (pelo eSocial)', pill: 'warning' },
+  expired: { label: 'Vencido (pelo eSocial)', pill: 'error' },
   // Deliberadamente neutro: não é bom nem ruim, é desconhecido.
   undetermined: { label: 'Sem vencimento apurável', pill: 'neutral' },
-  absent: { label: 'Sem ASO no acervo', pill: 'neutral' },
+  absent: { label: 'Sem evento S-2220', pill: 'neutral' },
 };
 
 function competenceLabel(competence: string): string {
@@ -113,6 +128,8 @@ export default function SstPage() {
   const [competence, setCompetence] = useState<string>('all');
   /** Sobe quando um ASO é enviado ou revisado, para a fila recarregar. */
   const [asoVersion, setAsoVersion] = useState(0);
+  /** Resumo do acervo de documentos — a fonte dos KPIs de ASO no topo. */
+  const [asoSummary, setAsoSummary] = useState<AsoAlertSummary | null>(null);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -129,9 +146,28 @@ export default function SstPage() {
     }
   }, []);
 
+  /**
+   * Os indicadores de ASO vêm da fila de documentos, e não do acervo do
+   * eSocial. Falha aqui NÃO derruba a página: a seção continua servindo CAT e
+   * exposição, e os KPIs de ASO ficam ausentes em vez de zerados.
+   */
+  const reloadAso = useCallback(async () => {
+    try {
+      const res = await fetch('/api/workforce/aso-alerts');
+      const json = (await res.json()) as { ok: boolean; summary?: AsoAlertSummary };
+      setAsoSummary(res.ok && json.ok ? (json.summary ?? null) : null);
+    } catch {
+      setAsoSummary(null);
+    }
+  }, []);
+
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  useEffect(() => {
+    void reloadAso();
+  }, [reloadAso, asoVersion]);
 
   const allEvents = useMemo(() => data?.events ?? [], [data]);
   const workers = useMemo(() => data?.workers ?? [], [data]);
@@ -181,42 +217,55 @@ export default function SstPage() {
             ? `${summary.catsWithLeaveUndeclared} não declararam`
             : 'Declarado no atestado',
       },
-      {
-        id: 'asos',
-        label: 'ASOs realizados',
-        value: n(summary.asosInPeriod),
-        icon: <Stethoscope className="h-4 w-4" />,
-        deltaLabel: periodLabel,
-      },
+      // ── ASO: apurado sobre o ACERVO DE DOCUMENTOS, não sobre o eSocial ──
+      // Enquanto a fila não carrega, o valor é ausente ('–') e não zero: zero
+      // afirmaria que não há nenhum ASO vencido, que é o oposto de "não sei".
       {
         id: 'aso-expired',
         label: 'ASOs vencidos',
-        value: n(summary.asoExpired),
+        value: asoSummary ? asoSummary.expired : '–',
         icon: <CalendarClock className="h-4 w-4" />,
-        variant: tone(summary.asoExpired, true),
-        deltaLabel: 'Vencimento apurado e no passado',
+        variant: asoSummary && asoSummary.expired > 0 ? 'danger' : 'default',
+        deltaLabel: 'Sobre documento aprovado',
       },
       {
         id: 'aso-expiring',
-        label: 'ASOs a vencer (60d)',
-        value: n(summary.asoExpiring),
-        variant: summary.asoExpiring && summary.asoExpiring > 0 ? 'warning' : 'default',
+        label: 'ASOs a vencer (30d)',
+        value: asoSummary ? asoSummary.expiring30 : '–',
+        variant: asoSummary && asoSummary.expiring30 > 0 ? 'warning' : 'default',
       },
       {
-        id: 'aso-absent',
-        label: 'Sem ASO no acervo',
-        value: n(summary.workersWithoutAso),
-        icon: <Users className="h-4 w-4" />,
-        variant: tone(summary.workersWithoutAso, true),
-        deltaLabel: `De ${summary.activeWorkers} vínculo(s) ativo(s)`,
+        id: 'aso-missing',
+        label: 'Documento não enviado',
+        value: asoSummary ? asoSummary.noDocument : '–',
+        icon: <FileUp className="h-4 w-4" />,
+        // Nunca semântico: é pendência de acervo, não irregularidade.
+        variant: 'default',
+        deltaLabel: 'Anexe o PDF do atestado',
+      },
+      {
+        id: 'aso-pending',
+        label: 'ASOs aguardando revisão',
+        value: asoSummary ? asoSummary.pendingReview : '–',
+        icon: <Stethoscope className="h-4 w-4" />,
+        variant: asoSummary && asoSummary.pendingReview > 0 ? 'warning' : 'default',
+        deltaLabel: 'Nenhum é aprovado automaticamente',
       },
       {
         id: 'aso-undetermined',
         label: 'Sem vencimento apurável',
-        value: n(summary.asoUndetermined),
-        // Nunca semântico: é uma lacuna de leiaute, não uma infração.
+        value: asoSummary ? asoSummary.noValidity : '–',
+        // Nunca semântico: é lacuna do papel, não uma infração.
         variant: 'default',
-        deltaLabel: 'Tipo de exame não estabelece periodicidade',
+        deltaLabel: 'O documento não declarou validade',
+      },
+      {
+        id: 'aso-divergent',
+        label: 'Divergem do S-2220',
+        value: asoSummary ? asoSummary.esocialDivergent : '–',
+        icon: <Users className="h-4 w-4" />,
+        variant: 'default',
+        deltaLabel: 'Conferência opcional com o eSocial',
       },
       {
         id: 'exposed',
@@ -227,7 +276,7 @@ export default function SstPage() {
           summary.distinctAgents !== null ? `${summary.distinctAgents} agente(s) distinto(s)` : undefined,
       },
     ];
-  }, [summary, hasArchive, periodLabel]);
+  }, [summary, hasArchive, periodLabel, asoSummary]);
 
   // ── Colunas ──────────────────────────────────────────────────────────────
   const catColumns: HudTableColumn<SstEvent>[] = [
@@ -413,20 +462,34 @@ export default function SstPage() {
       ),
     },
     {
+      id: 'documents',
+      label: 'ASO — acervo de documentos',
+      content: <AsoDocumentsPanel onChanged={() => setAsoVersion((v) => v + 1)} />,
+    },
+    {
+      id: 'alerts',
+      label: 'ASO — vencimentos',
+      badge: asoSummary && asoSummary.actionable > 0 ? asoSummary.actionable : undefined,
+      content: <AsoAlertsPanel refreshKey={asoVersion} />,
+    },
+    {
       id: 'aso',
-      label: 'ASO (S-2220)',
+      label: 'Conferência S-2220 (opcional)',
       badge: asosInPeriod.length || undefined,
       content: (
         <div className="space-y-6">
           <HudPanel
-            title="Situação do ASO por trabalhador"
-            subtitle="Sempre sobre o acervo inteiro — o exame que vale hoje pode ter sido feito fora do período filtrado"
+            title="O que o eSocial diz sobre os exames"
+            subtitle="Conferência opcional — não é esta aba que controla o vencimento"
           >
             <p className="mb-4 text-[11px] leading-relaxed text-ig-fg-muted">
-              O leiaute do S-2220 não declara data de vencimento. Ela é apurada apenas para o exame{' '}
-              <strong className="text-ig-fg-strong">periódico</strong>, pela periodicidade anual da NR-7.
-              Admissional, retorno ao trabalho, mudança de risco e demissional aparecem como{' '}
-              <strong className="text-ig-fg-strong">sem vencimento apurável</strong> — nunca como &ldquo;em dia&rdquo;.
+              O leiaute do S-2220 <strong className="text-ig-fg-strong">não declara data de
+              vencimento</strong>. O que se vê aqui é uma dedução: apurada só para o exame{' '}
+              <strong className="text-ig-fg-strong">periódico</strong>, pela periodicidade anual da
+              NR-7. Admissional, retorno ao trabalho, mudança de risco e demissional aparecem como{' '}
+              <strong className="text-ig-fg-strong">sem vencimento apurável</strong> — nunca como
+              &ldquo;em dia&rdquo;. Por isso o controle de verdade fica nas duas abas anteriores, sobre
+              o documento original; esta serve para achar erro de transmissão.
             </p>
             <HudTable<WorkerAsoStatus>
               columns={asoColumns}
@@ -440,24 +503,14 @@ export default function SstPage() {
                 <HudEmptyState
                   icon="inbox"
                   compact
-                  title="Nenhum vínculo ativo apurado"
-                  description="A situação do ASO é calculada sobre os vínculos ativos vindos do eSocial."
+                  title="Nenhum evento S-2220 importado"
+                  description="Esta aba só existe quando há pacote do eSocial no acervo. O controle de ASO não depende dela."
                 />
               }
             />
           </HudPanel>
         </div>
       ),
-    },
-    {
-      id: 'alerts',
-      label: 'Alertas de vencimento',
-      content: <AsoAlertsPanel refreshKey={asoVersion} />,
-    },
-    {
-      id: 'documents',
-      label: 'Documentos (ASO)',
-      content: <AsoDocumentsPanel onChanged={() => setAsoVersion((v) => v + 1)} />,
     },
     {
       id: 'exposure',
@@ -511,14 +564,15 @@ export default function SstPage() {
     <HudPageLayout>
       <HudHeader
         title="SST / ASO & CAT"
-        subtitle="Saúde e segurança do trabalho apurada dos eventos S-2210, S-2220 e S-2240 do eSocial"
+        subtitle={ASO_CONTROL_NOTICE}
         icon={<HeartPulse className="h-5 w-5" />}
         breadcrumbs={[{ label: 'Pessoas & Custos', href: '/workforce-cost' }, { label: 'SST / ASO & CAT' }]}
         statusChips={[
           { label: periodLabel, variant: 'info' },
+          { label: 'ASO pelo documento original', variant: 'success' as const },
           hasArchive
-            ? { label: `${allEvents.length} evento(s) de SST`, variant: 'success' as const }
-            : { label: 'sem acervo de SST', variant: 'neutral' as const },
+            ? { label: `${allEvents.length} evento(s) de SST no eSocial`, variant: 'info' as const }
+            : { label: 'eSocial não importado (opcional)', variant: 'neutral' as const },
           ...(data && !data.identified
             ? [{ label: 'identificação restrita', variant: 'warning' as const }]
             : []),
@@ -577,18 +631,19 @@ export default function SstPage() {
         </HudPanel>
       )}
 
-      {/* Acervo vazio é um AVISO, e não uma parede.
-          Enviar os PDFs dos ASOs não depende do eSocial — e é justamente o
-          caminho mais curto para a seção ficar útil antes da primeira
-          importação. Trocar as abas por um estado vazio esconderia o upload
-          exatamente de quem mais precisa dele. */}
+      {/* eSocial ausente é INFORMAÇÃO, não alerta.
+          O controle de ASO não depende dele: os PDFs sustentam a seção inteira.
+          O que a importação acrescenta é CAT, exposição a agentes nocivos e a
+          conferência do S-2220 — coisas que faltam, e não coisas que quebraram.
+          Pintar isso de aviso ensinaria que a seção está incompleta quando ela
+          está funcionando exatamente como deve. */}
       {!loading && !error && !hasArchive && (
-        <HudPanel elevation={2} state="warning">
+        <HudPanel elevation={2}>
           <HudEmptyState
             icon="package"
             compact
-            title="Nenhum evento de SST no acervo do eSocial"
-            description="CAT, exames e agentes nocivos chegam pelo pacote do eSocial Download. Enquanto ele não vem, os ASOs em PDF já podem ser enviados na aba Documentos — a validade escrita no papel vale mais que a inferida."
+            title="eSocial não importado — o ASO funciona sem ele"
+            description="O controle de saúde ocupacional é feito pelos PDFs dos atestados, na aba de acervo. A importação do eSocial acrescenta CAT (S-2210), exposição a agentes nocivos (S-2240) e a conferência opcional do S-2220 contra os documentos."
             action={
               canManageIntegrations
                 ? { label: 'Ir para Integrações', onClick: () => { window.location.href = '/configuracoes/integracoes'; } }
@@ -610,7 +665,10 @@ export default function SstPage() {
         </HudPanel>
       )}
 
-      <HudTabs tabs={tabs} variant="underline" defaultTab={hasArchive ? undefined : 'documents'} contentClassName="mt-5" />
+      {/* Abre no acervo de documentos: é a fonte primária, e é o que o RH vem
+          fazer aqui todo dia. A aba de CAT continua a primeira da lista porque
+          o evento é o mais grave, mas não é a mais usada. */}
+      <HudTabs tabs={tabs} variant="underline" defaultTab="documents" contentClassName="mt-5" />
 
       <p className="text-[11px] text-ig-fg-muted">
         Precisa do controle técnico do acervo (competências faltantes, eventos por tipo, exclusões)?

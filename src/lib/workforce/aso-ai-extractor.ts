@@ -22,7 +22,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { AI_MODEL } from '@/lib/ai/server-clients';
 import {
-  addMonths,
+  inferValidityDate,
   parsePtBrDate,
   type AsoExamKind,
   type AsoExtraction,
@@ -49,11 +49,15 @@ estes campos:
 {
   "worker_name": "<nome do trabalhador, ou \\"\\">",
   "cpf": "<somente dígitos, ou \\"\\">",
+  "worker_registration": "<matrícula/registro do empregado, ou \\"\\">",
   "company_name": "<razão social da empresa, ou \\"\\">",
+  "company_cnpj": "<somente dígitos do CNPJ do empregador, ou \\"\\">",
+  "clinic_name": "<clínica, laboratório ou prestador que fez o exame, ou \\"\\">",
   "exam_kind": "<um de: admissional | periodico | retorno | mudanca_risco | monitoracao | demissional | \\"\\">",
   "exam_date_raw": "<data do exame exatamente como impressa, ex: \\"10/03/2026\\", ou \\"\\">",
   "result": "<apto | inapto | \\"\\">",
   "valid_until_raw": "<data de validade SE ESTIVER ESCRITA no documento, ou \\"\\">",
+  "occupational_risks": ["<risco ocupacional como impresso>", "..."],
   "doctor_name": "<nome do médico examinador, ou \\"\\">",
   "doctor_crm": "<somente os dígitos do CRM, ou \\"\\">"
 }
@@ -64,6 +68,10 @@ Regras OBRIGATÓRIAS:
 - "valid_until_raw" SÓ pode ser preenchido se houver no papel uma data explícita de
   validade/vencimento/próximo exame. NÃO calcule validade a partir da data do exame,
   nem a partir do tipo do exame. Se não houver data escrita, devolva "".
+- "occupational_risks": copie apenas os riscos LISTADOS no documento. Lista vazia []
+  se o ASO não listar nenhum. Não deduza riscos a partir da função do trabalhador.
+- "clinic_name" é quem REALIZOU o exame; "company_name" é o EMPREGADOR. Não troque
+  um pelo outro nem repita o mesmo valor nos dois se o papel só traz um deles.
 - Atenção a "INAPTO": não confunda com "APTO".
 - Se o documento não for um ASO, devolva todos os campos vazios.`;
 
@@ -79,17 +87,18 @@ const KIND_MAP: Record<string, AsoExamKind> = {
 interface AiPayload {
   worker_name?: string;
   cpf?: string;
+  worker_registration?: string;
   company_name?: string;
+  company_cnpj?: string;
+  clinic_name?: string;
   exam_kind?: string;
   exam_date_raw?: string;
   result?: string;
   valid_until_raw?: string;
+  occupational_risks?: unknown;
   doctor_name?: string;
   doctor_crm?: string;
 }
-
-/** Periodicidade assumida quando o papel não declara — só o periódico. */
-const INFERRED_PERIOD_MONTHS: Partial<Record<AsoExamKind, number>> = { '1': 12 };
 
 export async function extractAsoWithAi(pdf: Buffer, today: Date = new Date()): Promise<AsoExtraction> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -154,31 +163,31 @@ export function normalizeAiPayload(payload: AiPayload, today: Date = new Date())
   if (!result) issues.push({ field: 'result', reason: 'Resultado não lido pela IA.' });
 
   // Só é "declarada" se a IA copiou uma data do papel.
-  let validUntil = parsePtBrDate(clean(payload.valid_until_raw));
-  let validityBasis: AsoValidityBasis = validUntil ? 'declared_document' : 'undetermined';
+  let validityDate = parsePtBrDate(clean(payload.valid_until_raw));
+  let validityBasis: AsoValidityBasis = validityDate ? 'declared_document' : 'undetermined';
 
-  if (validUntil && examDate && validUntil < examDate) {
+  if (validityDate && examDate && validityDate < examDate) {
     issues.push({
-      field: 'validUntil',
-      reason: `Validade lida (${validUntil}) é anterior à data do exame (${examDate}) — descartada.`,
+      field: 'validityDate',
+      reason: `Validade lida (${validityDate}) é anterior à data do exame (${examDate}) — descartada.`,
     });
-    validUntil = undefined;
+    validityDate = undefined;
     validityBasis = 'undetermined';
   }
 
   // A inferência acontece AQUI, no nosso código, e não no prompt — para que a
   // origem da data fique registrada como premissa e não como fato do papel.
-  if (!validUntil && examDate && examKind) {
-    const months = INFERRED_PERIOD_MONTHS[examKind];
-    if (months) {
-      validUntil = addMonths(examDate, months);
+  if (!validityDate && examDate && examKind) {
+    const inferred = inferValidityDate(examDate, examKind);
+    if (inferred) {
+      validityDate = inferred;
       validityBasis = 'inferred_periodicity';
       issues.push({
-        field: 'validUntil',
+        field: 'validityDate',
         reason: 'Validade não declarada no documento; inferida pela periodicidade anual da NR-7.',
       });
     } else {
-      issues.push({ field: 'validUntil', reason: 'Validade não declarada e não inferível para este tipo de exame.' });
+      issues.push({ field: 'validityDate', reason: 'Validade não declarada e não inferível para este tipo de exame.' });
     }
   }
 
@@ -206,17 +215,29 @@ export function normalizeAiPayload(payload: AiPayload, today: Date = new Date())
     (weights.reduce((sum, [ok, w]) => sum + (ok ? w : 0), 0) * 0.9).toFixed(3),
   );
 
+  const risks = Array.isArray(payload.occupational_risks)
+    ? payload.occupational_risks
+        .map((r) => (typeof r === 'string' ? r.trim() : ''))
+        .filter((r) => r.length >= 2 && r.length <= 80)
+    : [];
+
+  const cnpj = clean(payload.company_cnpj)?.replace(/\D/g, '');
+
   return {
     examDate,
     examKind,
     result,
-    validUntil,
+    validityDate,
     validityBasis,
     doctorName: clean(payload.doctor_name),
     doctorCrm: clean(payload.doctor_crm)?.replace(/\D/g, ''),
     workerName,
     cpf,
+    workerRegistration: clean(payload.worker_registration),
     companyName: clean(payload.company_name),
+    companyCnpj: cnpj && cnpj.length === 14 ? cnpj : undefined,
+    clinicName: clean(payload.clinic_name),
+    occupationalRisks: risks.length > 0 ? risks : undefined,
     confidence,
     issues,
   };

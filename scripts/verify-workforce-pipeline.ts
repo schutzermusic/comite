@@ -58,14 +58,19 @@ async function main() {
   info(`CAT ${cat} · ASO ${aso} · exposição a risco ${risco}`);
   if (sst.length === 0) gap('acervo sem eventos de SST — a seção abre vazia, e é o estado correto');
 
-  console.log('\n── 2. Documentos de ASO (migration 085) ──');
+  console.log('\n── 2. Documentos de ASO (migrations 085 + 089) ──');
   const docs = await asoStore.listAsoDocuments(ORG);
   ok(`listAsoDocuments responde: ${docs.length} documento(s)`);
-  const autoApproved = docs.filter((d) => d.status === 'confirmed' && !d.reviewed_by);
+  const autoApproved = docs.filter((d) => d.review_status === 'approved' && !d.reviewed_by);
   if (autoApproved.length > 0) {
-    throw new Error(`${autoApproved.length} documento(s) confirmados sem revisor — auto-aprovação detectada`);
+    throw new Error(`${autoApproved.length} documento(s) aprovados sem revisor — auto-aprovação detectada`);
   }
-  ok('nenhum documento confirmado sem revisor humano');
+  ok('nenhum documento aprovado sem revisor humano');
+  const lostOriginal = docs.filter((d) => !d.object_path);
+  if (lostOriginal.length > 0) {
+    throw new Error(`${lostOriginal.length} documento(s) sem arquivo original — o PDF precisa ser preservado`);
+  }
+  ok('todos os documentos apontam para o PDF original preservado');
   const basis = new Set(docs.map((d) => d.validity_basis));
   info(`validity_basis em uso: ${basis.size ? [...basis].join(', ') : '(nenhum documento ainda)'}`);
 
@@ -120,23 +125,29 @@ async function main() {
       personId: d.person_id,
       examDate: d.exam_date,
       examKind: d.exam_kind,
-      validUntil: d.valid_until,
+      validityDate: d.validity_date,
       validityBasis: d.validity_basis,
-      status: d.status,
+      documentStatus: d.document_status,
+      esocialMatchStatus: d.esocial_match_status,
+      esocialEventId: d.esocial_event_id,
+      divergenceSummary: d.divergence_summary,
     })),
     esocialExams: s2220.map((r) => ({
       workerKey: r.worker_cpf_hash ?? r.matricula,
       examDate: r.event_date,
       examKind: r.exam_kind,
-      validUntil: r.aso_valid_until,
+      validityDate: r.aso_valid_until,
+      eventId: r.esocial_event_id,
     })),
   });
   const summary = asoAlerts.summarizeAsoAlerts(queue);
-  ok(`fila montada sobre ${summary.total} vínculo(s) ativo(s)`);
-  info(`vencidos ${summary.expired} · críticos ${summary.critical} · a vencer ${summary.warning}`);
-  info(`sem vencimento apurável ${summary.undetermined} · sem ASO no acervo ${summary.absent}`);
-  if (summary.absent === summary.total && summary.total > 0) {
-    gap('todos sem ASO no acervo: nem S-2220 importado, nem PDF enviado');
+  ok(`fila montada sobre ${summary.total} colaborador(es)`);
+  info(`vencidos ${summary.expired} · vencem em 30d ${summary.expiring30} · em 60d ${summary.expiring60}`);
+  info(`aguardando revisão ${summary.pendingReview} · rejeitados/a corrigir ${summary.needsCorrection}`);
+  info(`sem vencimento apurável ${summary.noValidity} · documento não enviado ${summary.noDocument}`);
+  info(`divergentes do S-2220 ${summary.esocialDivergent} — aviso, nunca bloqueio`);
+  if (summary.noDocument === summary.total && summary.total > 0) {
+    gap('nenhum ASO em PDF no acervo — o controle só começa quando os documentos originais sobem');
   }
 
   console.log('\n── 6. Série salarial e normalização do 13º ──');

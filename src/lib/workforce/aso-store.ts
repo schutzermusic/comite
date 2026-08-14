@@ -10,13 +10,21 @@ if (typeof window !== 'undefined') {
 }
 
 import { createClient as createServiceClient, type SupabaseClient } from '@supabase/supabase-js';
-import type { AsoDivergence } from './aso-extractor';
+import type { AsoDivergence, AsoEsocialMatchStatus, AsoExtractionMethod } from './aso-extractor';
+import type {
+  AsoDocumentStatus,
+  AsoFields,
+  AsoReviewEntry,
+  AsoReviewStatus,
+} from './aso-review';
 
 export const ASO_BUCKET = 'aso-documents';
 
 export class AsoSchemaMissingError extends Error {
   constructor() {
-    super('A tabela de documentos de ASO ainda não foi provisionada nesta base (migration 085).');
+    super(
+      'A tabela de documentos de ASO ainda não foi provisionada nesta base (migrations 085 e 089).',
+    );
     this.name = 'AsoSchemaMissingError';
   }
 }
@@ -52,36 +60,69 @@ export interface AsoDocumentRow {
   person_id: string | null;
   worker_cpf_hash: string | null;
   worker_name_raw: string | null;
+
+  // ── Arquivo ORIGINAL, preservado sem transformação ──
   file_name: string;
   storage_bucket: string;
   object_path: string;
+  /** `bucket/caminho` do PDF como ele subiu. Nunca reescrito. */
+  original_file_url: string | null;
   mime_type: string | null;
   file_size: number | null;
   checksum: string | null;
+
+  // ── Campos vigentes = leitura sobreposta pela revisão ──
   exam_date: string | null;
   exam_kind: string | null;
   exam_result: string | null;
-  valid_until: string | null;
+  validity_date: string | null;
   validity_basis: 'declared_document' | 'inferred_periodicity' | 'undetermined';
   doctor_name: string | null;
   doctor_crm: string | null;
   company_name: string | null;
-  extraction_method: 'deterministic' | 'ai' | 'manual';
+  company_cnpj: string | null;
+  clinic_name: string | null;
+  worker_registration: string | null;
+  occupational_risks: string[];
+
+  // ── As duas camadas, separadas ──
+  /** O que a máquina leu, congelado. */
+  extracted_fields_json: AsoFields;
+  /** Só o que uma pessoa corrigiu. */
+  reviewed_fields_json: AsoFields;
+
+  extraction_method: AsoExtractionMethod;
   extraction_confidence: number | null;
   extraction_issues: { field: string; reason: string }[];
+
+  // ── Conferência OPCIONAL com o eSocial ──
   esocial_event_id: string | null;
-  match_status: 'pending' | 'matched' | 'divergent' | 'no_esocial_event';
+  esocial_match_status: AsoEsocialMatchStatus;
   divergences: AsoDivergence[];
-  status: 'pending_review' | 'confirmed' | 'rejected';
+  divergence_summary: string | null;
+
+  // ── Curadoria humana ──
+  review_status: AsoReviewStatus;
+  /** Projeção de `review_status`, mantida por trigger. Nunca escrever. */
+  document_status: AsoDocumentStatus;
+  review_history: AsoReviewEntry[];
   reviewed_by: string | null;
   reviewed_at: string | null;
   notes: string | null;
+
   uploaded_by: string | null;
   created_at: string;
   updated_at: string;
 }
 
-export type AsoDocumentInsert = Omit<AsoDocumentRow, 'id' | 'created_at' | 'updated_at'>;
+/**
+ * `document_status` fica de fora: é derivado por trigger. Enviá-lo daqui
+ * criaria uma segunda fonte para o mesmo valor, e uma delas estaria errada.
+ */
+export type AsoDocumentInsert = Omit<
+  AsoDocumentRow,
+  'id' | 'created_at' | 'updated_at' | 'document_status'
+>;
 
 export async function uploadAsoFile(
   organizationId: string,
@@ -163,7 +204,7 @@ export async function insertAsoDocument(row: AsoDocumentInsert): Promise<AsoDocu
 export async function updateAsoDocument(
   organizationId: string,
   id: string,
-  patch: Partial<AsoDocumentRow>,
+  patch: Partial<Omit<AsoDocumentRow, 'document_status'>>,
 ): Promise<AsoDocumentRow> {
   const { data, error } = await getAsoServiceClient()
     .from('aso_documents')
