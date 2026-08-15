@@ -3,15 +3,25 @@
 /**
  * Fila de vencimento de ASO — a tela que o RH abre para saber o que fazer hoje.
  *
- * Ordenada por urgência real: vencido, depois o que vence na janela crítica,
- * depois quem não tem ASO nenhum no acervo. Os dois baldes do fim da lista —
- * "sem vencimento apurável" e "em dia" — existem separados de propósito, e a
- * distinção é o ponto inteiro desta tela: quem não tem data apurável NÃO está
- * irregular, está por conferir.
+ * A fila é montada sobre o ACERVO DE PDFs. Quem decide o nível de cada linha é
+ * o documento aprovado; o eSocial aparece numa coluna própria e no máximo
+ * acusa divergência.
+ *
+ * A ordem é de urgência real: vencido, o que vence na janela crítica, quem está
+ * sem documento enviado, o que voltou para correção, o que espera revisão. Os
+ * dois baldes do fim — "sem vencimento apurável" e "em dia" — existem separados
+ * de propósito.
+ *
+ * A DISTINÇÃO QUE ESTA TELA EXISTE PARA PRESERVAR
+ *
+ * Nem "documento não enviado" nem "sem vencimento apurável" são irregularidade.
+ * O primeiro é pendência de acervo; o segundo é uma data que ninguém escreveu.
+ * Pintar os dois de vermelho junto com "vencido" ensinaria o RH, em dois meses,
+ * a ignorar a lista inteira — e o vencido de verdade sumiria no meio.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { BellRing, CalendarClock, Loader2, Send, ShieldAlert } from 'lucide-react';
+import { BellRing, CalendarClock, FileUp, Loader2, Send, ShieldAlert } from 'lucide-react';
 import {
   HudBadge,
   HudButton,
@@ -26,22 +36,24 @@ import {
   type HudTableColumn,
   type KpiItem,
 } from '@/components/hud';
-import { DEFAULT_ASO_WINDOWS, type AsoAlert, type AsoAlertLevel, type AsoAlertSummary } from '@/lib/workforce/aso-alerts';
+import {
+  ASO_CONTROL_NOTICE,
+  DEFAULT_ASO_WINDOWS,
+  type AsoAlert,
+  type AsoAlertSummary,
+} from '@/lib/workforce/aso-alerts';
+import {
+  ASO_ALERT_LEVEL_LABELS,
+  ASO_ESOCIAL_STATUS_LABELS,
+} from '@/lib/workforce/aso-labels';
 import { ASO_KIND_FROM_DOCUMENT_LABEL } from '@/lib/workforce/aso-extractor';
 
 const NA = '—';
 
-const LEVEL_META: Record<
-  AsoAlertLevel,
-  { label: string; variant: 'error' | 'warning' | 'active' | 'neutral'; order: string }
-> = {
-  expired: { label: 'Vencido', variant: 'error', order: '1' },
-  critical: { label: 'Vence em breve', variant: 'warning', order: '2' },
-  absent: { label: 'Sem ASO no acervo', variant: 'warning', order: '3' },
-  warning: { label: 'A vencer', variant: 'warning', order: '4' },
-  undetermined: { label: 'Sem vencimento apurável', variant: 'neutral', order: '5' },
-  ok: { label: 'Em dia', variant: 'active', order: '6' },
-};
+// Rótulos e tons vêm de `aso-labels`: a mesma frase precisa aparecer aqui, no
+// acervo e no cartão de conferência, senão o mesmo estado ganha dois nomes.
+const LEVEL_META = ASO_ALERT_LEVEL_LABELS;
+const ESOCIAL_META = ASO_ESOCIAL_STATUS_LABELS;
 
 function dateLabel(value: string | null): string {
   return value ? value.split('-').reverse().join('/') : NA;
@@ -54,6 +66,7 @@ interface AlertsResponse {
   alerts: AsoAlert[];
   summary: AsoAlertSummary;
   documentsAvailable: boolean;
+  esocialAvailable: boolean;
   error?: string;
 }
 
@@ -131,28 +144,42 @@ export function AsoAlertsPanel({ refreshKey }: { refreshKey?: number }) {
         value: summary?.expired ?? '–',
         icon: <ShieldAlert className="h-4 w-4" />,
         variant: summary && summary.expired > 0 ? 'danger' : 'default',
+        deltaLabel: 'Sobre documento aprovado',
       },
       {
-        id: 'critical',
+        id: 'expiring30',
         label: `Vencem em ${windows.critical} dias`,
-        value: summary?.critical ?? '–',
+        value: summary?.expiring30 ?? '–',
         icon: <CalendarClock className="h-4 w-4" />,
-        variant: summary && summary.critical > 0 ? 'warning' : 'default',
+        variant: summary && summary.expiring30 > 0 ? 'warning' : 'default',
       },
       {
-        id: 'absent',
-        label: 'Sem ASO no acervo',
-        value: summary?.absent ?? '–',
-        variant: summary && summary.absent > 0 ? 'warning' : 'default',
-        deltaLabel: 'Nem documento, nem evento',
-      },
-      {
-        id: 'undetermined',
-        label: 'Sem vencimento apurável',
-        value: summary?.undetermined ?? '–',
-        // Nunca semântico: é lacuna de leiaute, não irregularidade.
+        id: 'expiring60',
+        label: `Vencem em ${windows.warning} dias`,
+        value: summary?.expiring60 ?? '–',
         variant: 'default',
-        deltaLabel: 'Envie o PDF para obter a data declarada',
+      },
+      {
+        id: 'noDocument',
+        label: 'Documento não enviado',
+        value: summary?.noDocument ?? '–',
+        icon: <FileUp className="h-4 w-4" />,
+        // Nunca semântico: falta de PDF é pendência de acervo, não irregularidade.
+        variant: 'default',
+        deltaLabel: 'Pendência de acervo, não infração',
+      },
+      {
+        id: 'pending',
+        label: 'Aguardando revisão',
+        value: summary?.pendingReview ?? '–',
+        variant: summary && summary.pendingReview > 0 ? 'warning' : 'default',
+      },
+      {
+        id: 'noValidity',
+        label: 'Sem vencimento apurável',
+        value: summary?.noValidity ?? '–',
+        variant: 'default',
+        deltaLabel: 'O papel não declarou data',
       },
     ],
     [summary, windows],
@@ -184,10 +211,10 @@ export function AsoAlertsPanel({ refreshKey }: { refreshKey?: number }) {
       ),
     },
     {
-      key: 'validUntil',
+      key: 'validityDate',
       header: 'Vence em',
       align: 'right',
-      cell: (a) => <span className="text-sm tabular-nums text-ig-fg-strong">{dateLabel(a.validUntil)}</span>,
+      cell: (a) => <span className="text-sm tabular-nums text-ig-fg-strong">{dateLabel(a.validityDate)}</span>,
     },
     {
       key: 'days',
@@ -204,27 +231,38 @@ export function AsoAlertsPanel({ refreshKey }: { refreshKey?: number }) {
       ),
     },
     {
-      key: 'source',
-      header: 'Origem',
-      cell: (a) =>
-        a.source === 'none' ? (
-          <span className="text-sm text-ig-fg-subtle">{NA}</span>
-        ) : (
+      key: 'level',
+      header: 'Documento',
+      cell: (a) => (
+        <div className="space-y-1">
           <span title={a.reason}>
-            <HudBadge size="sm" variant={a.source === 'document' ? 'success' : 'subtle'}>
-              {a.source === 'document' ? 'documento' : 'eSocial'}
-            </HudBadge>
+            <HudStatusPill size="sm" variant={LEVEL_META[a.level].tone}>
+              {LEVEL_META[a.level].label}
+            </HudStatusPill>
           </span>
-        ),
+          {a.validityBasis === 'inferred_periodicity' && (
+            <HudBadge size="sm" variant="warning">validade inferida</HudBadge>
+          )}
+        </div>
+      ),
     },
     {
-      key: 'level',
-      header: 'Situação',
+      key: 'esocial',
+      header: 'eSocial (opcional)',
       cell: (a) => (
-        <span title={a.reason}>
-          <HudStatusPill size="sm" variant={LEVEL_META[a.level].variant}>
-            {LEVEL_META[a.level].label}
-          </HudStatusPill>
+        <span title={a.esocial.summary ?? ESOCIAL_META[a.esocial.status].hint}>
+          <HudBadge
+            size="sm"
+            variant={
+              a.esocial.status === 'divergent'
+                ? 'warning'
+                : a.esocial.status === 'matched'
+                  ? 'success'
+                  : 'subtle'
+            }
+          >
+            {ESOCIAL_META[a.esocial.status].label}
+          </HudBadge>
         </span>
       ),
     },
@@ -234,11 +272,11 @@ export function AsoAlertsPanel({ refreshKey }: { refreshKey?: number }) {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="max-w-3xl text-[11px] leading-relaxed text-ig-fg-muted">
-          Quando existem as duas fontes, vale o <strong className="text-ig-fg-strong">documento</strong>:
-          ele declara a validade, o eSocial só permite deduzi-la. Quem aparece em{' '}
-          <strong className="text-ig-fg-strong">sem vencimento apurável</strong> ou{' '}
-          <strong className="text-ig-fg-strong">sem ASO no acervo</strong> não está irregular — está
-          por conferir, e o caminho mais curto é enviar o PDF do atestado.
+          <strong className="text-ig-fg-strong">{ASO_CONTROL_NOTICE}</strong> O vencimento é apurado
+          a partir do PDF aprovado pelo RH. Quem aparece em{' '}
+          <strong className="text-ig-fg-strong">documento não enviado</strong> ou{' '}
+          <strong className="text-ig-fg-strong">sem vencimento apurável</strong> não está irregular —
+          o primeiro é pendência de acervo, o segundo é uma data que o papel não trouxe.
         </p>
         <HudButton
           variant="secondary"
@@ -251,13 +289,22 @@ export function AsoAlertsPanel({ refreshKey }: { refreshKey?: number }) {
         </HudButton>
       </div>
 
-      <HudKpiStrip kpis={kpis} columns={4} size="sm" />
+      <HudKpiStrip kpis={kpis} columns={3} size="sm" />
 
       {data && !data.documentsAvailable && (
         <HudPanel state="warning">
           <p className="text-sm text-ig-warning">
-            A tabela de documentos de ASO ainda não foi provisionada (migration 085). A fila abaixo usa
-            apenas a validade inferida do eSocial, que só existe para o exame periódico.
+            O acervo de documentos de ASO ainda não foi provisionado (migrations 085 e 089). Sem ele
+            não há como controlar vencimento: o evento S-2220 do eSocial não declara data de validade.
+          </p>
+        </HudPanel>
+      )}
+
+      {data && summary && summary.esocialDivergent > 0 && (
+        <HudPanel state="warning">
+          <p className="text-sm text-ig-warning">
+            {summary.esocialDivergent} documento(s) divergem do S-2220 transmitido. É provável erro de
+            transmissão — confira qual das duas fontes está certa. O ASO continua valendo.
           </p>
         </HudPanel>
       )}
@@ -271,8 +318,8 @@ export function AsoAlertsPanel({ refreshKey }: { refreshKey?: number }) {
           emptyState={
             <HudEmptyState
               icon="inbox"
-              title="Nenhum vínculo ativo apurado"
-              description="A fila é montada sobre os vínculos ativos vindos do eSocial."
+              title="Nenhum colaborador na fila"
+              description="A fila cobre as pessoas do cadastro e os ASOs já enviados. Cadastre colaboradores ou envie os PDFs dos atestados para que ela seja montada."
             />
           }
         />
@@ -284,7 +331,7 @@ export function AsoAlertsPanel({ refreshKey }: { refreshKey?: number }) {
         title="Enviar alerta de vencimento ao RH"
         subtitle={
           summary
-            ? `${summary.expired} vencido(s), ${summary.critical} em até ${windows.critical} dias, ${summary.absent} sem ASO`
+            ? `${summary.expired} vencido(s), ${summary.expiring30} em até ${windows.critical} dias, ${summary.noDocument} sem documento`
             : undefined
         }
         size="md"
@@ -298,9 +345,10 @@ export function AsoAlertsPanel({ refreshKey }: { refreshKey?: number }) {
           />
           <p className="text-[11px] leading-relaxed text-ig-fg-muted">
             O e-mail lista os vencidos e os que vencem na janela crítica, e informa à parte quantos
-            estão sem vencimento apurável — para que a ausência de data não seja lida como
-            conformidade. Sem <code className="font-mono">RESEND_API_KEY</code> configurada o envio é
-            simulado e dito como tal.
+            estão sem documento enviado e quantos estão sem vencimento apurável — para que nenhuma das
+            duas lacunas seja lida como conformidade nem como infração. Sem{' '}
+            <code className="font-mono">RESEND_API_KEY</code> configurada o envio é simulado e dito
+            como tal.
           </p>
           <div className="flex justify-end gap-2 pt-1">
             <HudButton variant="secondary" onClick={() => setDigestOpen(false)}>Cancelar</HudButton>

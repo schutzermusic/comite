@@ -12,7 +12,8 @@
  * As abas novas leem o que o eSocial já apurava e a Visão Geral não tinha onde
  * detalhar: composição da folha por competência, recorte por centro de custo e
  * por lotação, e variação salarial. Onde a tabela de rubricas não cobre a
- * folha, a composição fica INDISPONÍVEL e a tela diz por quê — nunca zerada.
+ * folha, a composição usa o contracheque provisório quando disponível; sem
+ * nenhuma das duas fontes, fica INDISPONÍVEL — nunca zerada.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -104,6 +105,15 @@ export default function CustosMOPage() {
   const activeCompetence = competence ?? esocialCompetences[0] ?? null;
   const metric = activeCompetence ? esocial.metricsByCompetence[activeCompetence] : undefined;
   const coverage = activeCompetence ? esocial.coverageByCompetence[activeCompetence] : undefined;
+  const provisional = coverage?.classificationBasis === 'payslip_pdf';
+  const compositionMetric = metric ? {
+    gross: provisional ? metric.payslip_gross_cents : metric.gross_payroll_cents,
+    overtime: provisional ? metric.payslip_overtime_cents : metric.overtime_cents,
+    overtimeHours: provisional ? metric.payslip_overtime_hours : metric.overtime_hours,
+    benefits: provisional ? metric.payslip_benefits_cents : metric.benefits_cents,
+    deductions: provisional ? metric.payslip_deductions_cents : metric.deductions_cents,
+    net: provisional ? metric.payslip_net_cents : metric.net_paid_cents,
+  } : undefined;
 
   // ── Histórico salarial ──────────────────────────────────────────────────
   const [salary, setSalary] = useState<SalaryHistoryResult | null>(null);
@@ -382,7 +392,11 @@ export default function CustosMOPage() {
             </div>
             {coverage && (
               <HudBadge variant={coverage.payrollSource === 'rubricas' ? 'success' : 'warning'}>
-                fonte: {coverage.payrollSource === 'rubricas' ? 'rubricas classificadas' : 'base apurada pelo eSocial'}
+                fonte: {coverage.payrollSource === 'rubricas'
+                  ? 'rubricas S-1010'
+                  : coverage.payrollSource === 'payslip_pdf'
+                    ? 'contracheque PDF (provisório)'
+                    : 'base apurada pelo eSocial'}
               </HudBadge>
             )}
           </div>
@@ -394,11 +408,14 @@ export default function CustosMOPage() {
             <HudPanel title="Composição da folha" subtitle={activeCompetence ? shortMonth(activeCompetence) : undefined}>
               {compositionReliable ? (
                 <div className="space-y-2">
-                  <Line label="Proventos (folha bruta)" value={brl(metric?.gross_payroll_cents)} strong />
-                  <Line label="Horas extras" value={brl(metric?.overtime_cents)} sub={metric?.overtime_hours ? `${metric.overtime_hours.toFixed(0)} h` : undefined} />
-                  <Line label="Benefícios" value={brl(metric?.benefits_cents)} />
-                  <Line label="Descontos" value={brl(metric?.deductions_cents)} />
-                  <Line label="Líquido pago" value={brl(metric?.net_paid_cents)} strong />
+                  <Line label="Proventos (folha bruta)" value={brl(compositionMetric?.gross)} strong />
+                  <Line label="Horas extras" value={brl(compositionMetric?.overtime)} sub={compositionMetric?.overtimeHours ? `${compositionMetric.overtimeHours.toFixed(2)} h` : undefined} />
+                  <Line label="Benefícios" value={brl(compositionMetric?.benefits)} />
+                  <Line label="Descontos" value={brl(compositionMetric?.deductions)} />
+                  {provisional && (
+                    <Line label="Descontos por faltas" value={brl(metric?.payslip_absence_deductions_cents)} />
+                  )}
+                  <Line label="Líquido pago" value={brl(compositionMetric?.net)} strong />
                 </div>
               ) : (
                 <div className="space-y-3">

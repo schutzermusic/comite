@@ -212,13 +212,16 @@ export function EsocialCommandCenter() {
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [importingPayslips, setImportingPayslips] = useState(false);
   const [packageFiles, setPackageFiles] = useState<File[]>([]);
+  const [payslipFiles, setPayslipFiles] = useState<File[]>([]);
   const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
   const [feedback, setFeedback] = useState<
     { tone: 'ok' | 'error'; message: string; details?: string[] } | null
   >(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const packageRef = useRef<HTMLInputElement>(null);
+  const payslipRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -393,6 +396,41 @@ export function EsocialCommandCenter() {
     } finally {
       setImporting(false);
       setProgress(null);
+    }
+  };
+
+  const importPayslips = async () => {
+    if (payslipFiles.length === 0) return;
+    setImportingPayslips(true);
+    setFeedback(null);
+    try {
+      const body = new FormData();
+      payslipFiles.forEach((file) => body.append('files', file));
+      const res = await fetch('/api/integrations/esocial/payslips', { method: 'POST', body });
+      const json = await readJson<{
+        ok: boolean;
+        results?: { fileName: string; pages: number; lines: number; duplicated: boolean; competences: string[] }[];
+      }>(res);
+      if (!res.ok || !json.ok || !json.results) throw new Error(json.error ?? 'Falha ao importar contracheques.');
+      const fresh = json.results.filter((result) => !result.duplicated);
+      const lines = fresh.reduce((sum, result) => sum + result.lines, 0);
+      const duplicated = json.results.length - fresh.length;
+      const competences = [...new Set(fresh.flatMap((result) => result.competences))].sort();
+      setFeedback({
+        tone: 'ok',
+        message: [
+          `${lines} rubrica(s) provisória(s) importada(s)`,
+          duplicated ? `${duplicated} PDF(s) já importado(s)` : null,
+          competences.length ? `competência(s): ${competences.join(', ')}` : null,
+        ].filter(Boolean).join(' · '),
+      });
+      setPayslipFiles([]);
+      if (payslipRef.current) payslipRef.current.value = '';
+      await load();
+    } catch (err) {
+      setFeedback({ tone: 'error', message: err instanceof Error ? err.message : 'Falha ao importar contracheques.' });
+    } finally {
+      setImportingPayslips(false);
     }
   };
 
@@ -598,6 +636,48 @@ export function EsocialCommandCenter() {
           O eSocial não oferece webservice para recuperar eventos já transmitidos por competência — o eSocial
           Download é exclusivo do portal web. Por isso esta etapa é manual; tudo depois dela é automático.
         </p>
+      </HudPanel>
+
+      <HudPanel
+        elevation={3}
+        title="Fallback por contracheque PDF"
+        subtitle="Use enquanto a tabela completa S-1010 não estiver disponível"
+        icon={<FileCode2 size={16} />}
+        iconTint="#F59E0B"
+      >
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.2fr_1fr]">
+          <div>
+            <input
+              ref={payslipRef}
+              type="file"
+              multiple
+              accept=".pdf,application/pdf"
+              className={cn(
+                inputCls,
+                'h-auto w-full py-2 file:mr-2 file:rounded-md file:border-0 file:bg-ig-panel-hover file:px-2 file:py-1 file:text-[11px] file:text-ig-fg-default',
+              )}
+              onChange={(event) => setPayslipFiles(Array.from(event.target.files ?? []))}
+            />
+            <HudButton
+              className="mt-3"
+              variant="secondary"
+              size="sm"
+              leftIcon={importingPayslips ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+              onClick={importPayslips}
+              disabled={importingPayslips || payslipFiles.length === 0}
+            >
+              {importingPayslips ? 'Classificando…' : `Importar ${payslipFiles.length || ''} PDF(s)`}
+            </HudButton>
+          </div>
+          <div className="rounded-xl border border-ig-warning/30 bg-ig-warning/[0.06] p-3 text-[11px] leading-relaxed text-ig-fg-muted">
+            <p className="font-semibold text-ig-fg-default">
+              Classificação provisória por holerite/PDF. A tabela oficial S-1010 segue pendente.
+            </p>
+            <p className="mt-1">
+              Vencimentos e descontos vêm das colunas impressas. natRubr, incidências de INSS/FGTS/IRRF e vigência continuam nulos.
+            </p>
+          </div>
+        </div>
       </HudPanel>
 
       {/* ── Configuração ── */}

@@ -65,6 +65,7 @@ function ImpostosContent() {
   const focusTaxId = searchParams.get('taxId');
 
   const [refreshKey, setRefreshKey] = useState(0);
+  const [liveTaxes, setLiveTaxes] = useState<TaxObligation[] | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [filterType, setFilterType] = useState<TaxType | 'all'>('all');
@@ -78,7 +79,21 @@ function ImpostosContent() {
   const [deepLinkMissing, setDeepLinkMissing] = useState<string | null>(null);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const allTaxes = useMemo(() => getTaxObligations(), [refreshKey]);
+  useEffect(() => {
+    let active = true;
+    fetch('/api/fiscal/tax-obligations')
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Fiscal persistence unavailable');
+        return response.json() as Promise<{ ok: boolean; obligations?: TaxObligation[] }>;
+      })
+      .then((payload) => { if (active && payload.ok) setLiveTaxes(payload.obligations ?? []); })
+      .catch(() => { if (active) setLiveTaxes(null); });
+    return () => { active = false; };
+  }, [refreshKey]);
+
+  // Supabase is authoritative when migration 090 is available. The existing
+  // in-memory dataset remains a local/demo fallback only.
+  const allTaxes = useMemo(() => liveTaxes ?? getTaxObligations(), [liveTaxes, refreshKey]);
 
   useEffect(() => {
     if (!focusTaxId) return;
@@ -105,7 +120,7 @@ function ImpostosContent() {
   const projected = useMemo(() => selectProjectedTaxCashOut(filtered), [filtered]);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const detail = useMemo(() => (detailId ? getTaxObligation(detailId) : undefined), [detailId, refreshKey]);
+  const detail = useMemo(() => (detailId ? (liveTaxes?.find((tax) => tax.id === detailId) ?? getTaxObligation(detailId)) : undefined), [detailId, liveTaxes, refreshKey]);
   const settlementEntries: LedgerEntry[] = useMemo(() => {
     if (!detail?.settlement_entry_ids?.length) return [];
     return detail.settlement_entry_ids
@@ -130,19 +145,29 @@ function ImpostosContent() {
     setFilterDueFrom(''); setFilterDueTo('');
   };
 
-  const handleSettle = useCallback((obligation: TaxObligation, amountCents?: number) => {
+  const handleSettle = useCallback(async (obligation: TaxObligation, amountCents?: number) => {
     if (processing) return;
     if (obligation.status === 'paid' || obligation.status === 'cancelled') return;
     if (amountCents !== undefined && amountCents <= 0) return;
     setProcessing(true);
     try {
-      recordTaxPayment(obligation.id, amountCents, settleDate);
+      if (liveTaxes !== null) {
+        const response = await fetch('/api/fiscal/tax-obligations', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id: obligation.id, amountCents, paidDate: settleDate }),
+        });
+        const payload = await response.json().catch(() => ({ error: 'Falha ao liquidar obrigação.' }));
+        if (!response.ok) throw new Error(payload.error ?? 'Falha ao liquidar obrigação.');
+      } else {
+        recordTaxPayment(obligation.id, amountCents, settleDate);
+      }
       setSettleAmount('');
       setRefreshKey(k => k + 1);
     } finally {
       setProcessing(false);
     }
-  }, [processing, settleDate]);
+  }, [processing, settleDate, liveTaxes]);
 
   const goToLedgerEntry = useCallback((entryId: string) => {
     router.push(`/financeiro/lancamentos?entryId=${encodeURIComponent(entryId)}`);

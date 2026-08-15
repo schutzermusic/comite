@@ -55,6 +55,15 @@ function brl(cents: number | null | undefined): string {
   return (cents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
 }
 
+function compositionCents(metric: EsocialCompetenceMetrics | undefined, coverage: CompetenceCoverage | undefined) {
+  const provisional = coverage?.classificationBasis === 'payslip_pdf';
+  return {
+    overtime: provisional ? metric?.payslip_overtime_cents : metric?.overtime_cents,
+    benefits: provisional ? metric?.payslip_benefits_cents : metric?.benefits_cents,
+    headcount: metric ? (metric.headcount || (provisional ? metric.payslip_headcount : 0)) : 0,
+  };
+}
+
 export function buildPayrollCostReportHtml(payload: PayrollCostReportPayload): string {
   const { competences, coverageByCompetence, areas, snapshots, snapshotMonth, salary } = payload;
 
@@ -64,6 +73,8 @@ export function buildPayrollCostReportHtml(payload: PayrollCostReportPayload): s
   const ordered = [...competences].sort((a, b) => a.competence.localeCompare(b.competence));
   const latest = ordered[ordered.length - 1];
   const latestCoverage = latest ? coverageByCompetence[latest.competence] : undefined;
+  const latestComposition = compositionCents(latest, latestCoverage);
+  const hasPayslipFallback = ordered.some((c) => coverageByCompetence[c.competence]?.classificationBasis === 'payslip_pdf');
   const range = ordered.length
     ? `${shortMonth(ordered[0].competence)} – ${shortMonth(ordered[ordered.length - 1].competence)}`
     : 'sem competência apurada';
@@ -71,7 +82,9 @@ export function buildPayrollCostReportHtml(payload: PayrollCostReportPayload): s
   const meta = buildReportMeta({
     brand,
     periodLabel: range,
-    source: 'eSocial + fechamentos de folha aprovados',
+    source: hasPayslipFallback
+      ? 'eSocial + fechamentos aprovados + contracheque PDF provisório'
+      : 'eSocial + fechamentos de folha aprovados',
     generatedBy: payload.generatedBy,
   });
 
@@ -86,7 +99,7 @@ export function buildPayrollCostReportHtml(payload: PayrollCostReportPayload): s
       coverKpis: [
         { label: 'Massa (última competência)', value: latestCoverage ? brl(Math.round(latestCoverage.payroll * 100)) : NA },
         { label: 'INSS (última)', value: brl(latest?.inss_cents) },
-        { label: 'Quadro (última)', value: latest ? fmtInt(latest.headcount) : NA },
+        { label: 'Quadro (última)', value: latest ? fmtInt(latestComposition.headcount) : NA },
       ],
     }),
     mmForCover(true),
@@ -106,6 +119,8 @@ export function buildPayrollCostReportHtml(payload: PayrollCostReportPayload): s
       narrative.push(
         'A composição da folha da competência mais recente NÃO está disponível: a tabela de rubricas (S-1010) não cobre a folha declarada, então proventos, horas extras, benefícios e descontos não puderam ser separados. A massa exibida vem da base apurada pelo próprio eSocial, que é completa.',
       );
+    } else if (latestCoverage?.classificationBasis === 'payslip_pdf') {
+      narrative.push('Classificação provisória por holerite/PDF. A tabela oficial S-1010 segue pendente.');
     }
   }
 
@@ -118,25 +133,29 @@ export function buildPayrollCostReportHtml(payload: PayrollCostReportPayload): s
       value: latestCoverage ? brl(Math.round(latestCoverage.payroll * 100)) : NA,
       missing: !latestCoverage,
       color: C.primary,
-      helper: latestCoverage?.payrollSource === 'rubricas' ? 'rubricas classificadas' : 'base apurada pelo eSocial',
+      helper: latestCoverage?.payrollSource === 'rubricas'
+        ? 'rubricas S-1010'
+        : latestCoverage?.payrollSource === 'payslip_pdf'
+          ? 'contracheque PDF (provisório)'
+          : 'base apurada pelo eSocial',
     },
     { label: 'INSS (guia)', value: brl(latest?.inss_cents), missing: latest?.inss_cents == null, color: C.primary },
     { label: 'FGTS (guia)', value: brl(latest?.fgts_cents), missing: latest?.fgts_cents == null, color: C.primary },
     { label: 'IRRF (guia)', value: brl(latest?.irrf_cents), missing: latest?.irrf_cents == null, color: C.primary },
     {
       label: 'Horas extras',
-      value: latestCoverage?.compositionReliable ? brl(latest?.overtime_cents) : NA,
+      value: latestCoverage?.compositionReliable ? brl(latestComposition.overtime) : NA,
       missing: !latestCoverage?.compositionReliable,
       color: C.warning,
       helper: latestCoverage?.compositionReliable ? undefined : 'rubricas não classificadas',
     },
     {
       label: 'Benefícios',
-      value: latestCoverage?.compositionReliable ? brl(latest?.benefits_cents) : NA,
+      value: latestCoverage?.compositionReliable ? brl(latestComposition.benefits) : NA,
       missing: !latestCoverage?.compositionReliable,
       color: C.primary,
     },
-    { label: 'Quadro apurado', value: latest ? fmtInt(latest.headcount) : NA, missing: !latest, color: C.primary },
+    { label: 'Quadro apurado', value: latest ? fmtInt(latestComposition.headcount) : NA, missing: !latest, color: C.primary },
     {
       label: 'Sem reajuste há +12 meses',
       value: salary ? fmtInt(salary.counts.withoutRaise12m) : NA,
@@ -191,8 +210,12 @@ export function buildPayrollCostReportHtml(payload: PayrollCostReportPayload): s
             inss: brl(c.inss_cents),
             fgts: brl(c.fgts_cents),
             irrf: brl(c.irrf_cents),
-            head: c.headcount ? fmtInt(c.headcount) : NA,
-            cov: cov && cov.rubricCoverage > 0
+            head: (c.headcount || (cov?.classificationBasis === 'payslip_pdf' ? c.payslip_headcount : 0))
+              ? fmtInt(c.headcount || c.payslip_headcount || 0)
+              : NA,
+            cov: cov?.classificationBasis === 'payslip_pdf'
+              ? { html: `<span style="color:${C.warning}">PDF</span>` }
+              : cov && cov.rubricCoverage > 0
               ? { html: `<span style="color:${cov.compositionReliable ? C.success : C.warning}">${(cov.rubricCoverage * 100).toFixed(0)}%</span>` }
               : NA,
           };
@@ -317,11 +340,15 @@ export function buildPayrollCostReportHtml(payload: PayrollCostReportPayload): s
   // ── 6. Qualidade dos dados ──
   const issues: string[] = [];
   const unreliable = ordered.filter((c) => !coverageByCompetence[c.competence]?.compositionReliable);
+  const provisional = ordered.filter((c) => coverageByCompetence[c.competence]?.classificationBasis === 'payslip_pdf');
   if (!latest) {
     issues.push('Nenhuma competência apurada pelo eSocial: massa, encargos e composição estão ausentes.');
   }
   if (unreliable.length > 0) {
     issues.push(`${fmtInt(unreliable.length)} competência(s) sem composição publicável — a tabela de rubricas (S-1010) não cobre a folha. Horas extras, benefícios e descontos ficam indisponíveis nessas competências, e não zerados.`);
+  }
+  if (provisional.length > 0) {
+    issues.push(`Classificação provisória por holerite/PDF. A tabela oficial S-1010 segue pendente. ${fmtInt(provisional.length)} competência(s) usam o fallback provisório.`);
   }
   const noTotalizers = ordered.filter((c) => c.inss_cents == null && c.fgts_cents == null);
   if (noTotalizers.length > 0) {

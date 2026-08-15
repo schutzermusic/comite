@@ -69,6 +69,18 @@ export interface CompetenceMetricsRow {
   rat_fap_rate: number | null;
   totalizers: Record<string, boolean>;
   source_event_count: number;
+  /** Fallback provisório, isolado dos campos oficiais do eSocial. */
+  payslip_gross_cents?: number;
+  payslip_deductions_cents?: number;
+  payslip_net_cents?: number;
+  payslip_overtime_cents?: number;
+  payslip_overtime_hours?: number;
+  payslip_benefits_cents?: number;
+  payslip_benefits_by_nature?: Record<string, number> | null;
+  payslip_absence_deductions_cents?: number;
+  payslip_headcount?: number;
+  payslip_line_count?: number;
+  payslip_updated_at?: string | null;
 }
 
 export interface AreaMetricsRow {
@@ -475,14 +487,24 @@ export async function pruneMetrics(
 
   // Competências que deixaram de existir por completo.
   if (competences.length > 0) {
-    for (const table of ['esocial_competence_metrics', 'esocial_area_metrics']) {
-      const { error } = await db
-        .from(table)
-        .delete()
-        .eq('organization_id', organizationId)
-        .not('competence', 'in', `(${competences.map((c) => `"${c}"`).join(',')})`);
-      if (error) console.warn(`[esocial] falha ao limpar ${table}:`, error.message);
-    }
+    const keep = `(${competences.map((c) => `"${c}"`).join(',')})`;
+    // Uma competência sustentada apenas pelo contracheque não pode sumir
+    // quando o acervo oficial é reapurado: ela é uma fonte paralela e
+    // provisória, não um resíduo de evento removido.
+    const { error: competenceError } = await db
+      .from('esocial_competence_metrics')
+      .delete()
+      .eq('organization_id', organizationId)
+      .eq('payslip_line_count', 0)
+      .not('competence', 'in', keep);
+    if (competenceError) console.warn('[esocial] falha ao limpar esocial_competence_metrics:', competenceError.message);
+
+    const { error: areaError } = await db
+      .from('esocial_area_metrics')
+      .delete()
+      .eq('organization_id', organizationId)
+      .not('competence', 'in', keep);
+    if (areaError) console.warn('[esocial] falha ao limpar esocial_area_metrics:', areaError.message);
   }
 
   // Áreas que deixaram de existir dentro de uma competência que permanece.

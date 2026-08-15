@@ -73,6 +73,21 @@ describe('competenceCoverage', () => {
     expect(c.note).toContain('S-1010');
   });
 
+  it('usa o contracheque como fallback provisório sem se passar pelo S-1010', () => {
+    const c = competenceCoverage({
+      ...semTabelaDeRubricas,
+      payslip_gross_cents: 157_000_000,
+      payslip_line_count: 2_535,
+    });
+    expect(c.payrollSource).toBe('payslip_pdf');
+    expect(c.payroll).toBe(1_570_000);
+    expect(c.compositionReliable).toBe(true);
+    expect(c.classificationBasis).toBe('payslip_pdf');
+    expect(c.note).toBe('Classificação provisória por holerite/PDF. A tabela oficial S-1010 segue pendente.');
+    // A cobertura continua sendo a cobertura OFICIAL, sem promoção artificial.
+    expect(c.rubricCoverage).toBeLessThan(0.01);
+  });
+
   it('competência sem nada não inventa massa', () => {
     const c = competenceCoverage({
       competence: '2024-01',

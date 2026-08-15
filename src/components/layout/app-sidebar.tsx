@@ -90,6 +90,7 @@ const SUPABASE_CONFIGURED = Boolean(
 
 const ADMIN_STORAGE_KEY = "ig-sidebar-admin-open";
 const FINANCE_STORAGE_KEY = "ig-sidebar-finance-open";
+const FISCAL_STORAGE_KEY = "ig-sidebar-fiscal-open";
 const PROJECTS_STORAGE_KEY = "ig-sidebar-projects-open";
 const WORKFORCE_STORAGE_KEY = "ig-sidebar-workforce-open";
 
@@ -151,6 +152,20 @@ const navigationItems: MenuItem[] = [
       { href: "/financeiro/impostos", label: "Impostos & Retenções", icon: Wallet },
       { href: "/financeiro/fechamento", label: "Fechamento Mensal", icon: Lock },
       { href: "/financeiro/relatorios-diretoria", label: "Relatórios da Diretoria", icon: FileText },
+    ],
+  },
+  {
+    href: "/fiscal",
+    labelKey: "fiscal",
+    icon: Calculator,
+    section: "main",
+    permission: "fiscal.view",
+    subItems: [
+      { href: "/fiscal", label: "Visão Fiscal", icon: Gauge },
+      { href: "/fiscal/notas", label: "Notas de Serviço", icon: Receipt },
+      { href: "/fiscal/notas/nova", label: "Nova NFS-e", icon: FileText, permission: "fiscal.create" },
+      { href: "/fiscal/cadastros", label: "Cadastros Fiscais", icon: Building2 },
+      { href: "/fiscal/configuracoes", label: "Configuração e Integração", icon: Settings, permission: "fiscal.configure" },
     ],
   },
   {
@@ -298,6 +313,7 @@ export function AppSidebar() {
   const isCollapsed = state === "collapsed" && !isMobile;
   const [adminOpen, setAdminOpen] = useState(false);
   const [financeOpen, setFinanceOpen] = useState(false);
+  const [fiscalOpen, setFiscalOpen] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [workforceOpen, setWorkforceOpen] = useState(false);
 
@@ -309,6 +325,12 @@ export function AppSidebar() {
       setFinanceOpen(storedFinance === "true");
     } else if (pathname.startsWith("/financeiro")) {
       setFinanceOpen(true);
+    }
+    const storedFiscal = localStorage.getItem(FISCAL_STORAGE_KEY);
+    if (storedFiscal !== null) {
+      setFiscalOpen(storedFiscal === "true");
+    } else if (pathname.startsWith("/fiscal")) {
+      setFiscalOpen(true);
     }
     const storedProjects = localStorage.getItem(PROJECTS_STORAGE_KEY);
     if (storedProjects !== null) {
@@ -340,6 +362,14 @@ export function AppSidebar() {
     });
   };
 
+  const toggleFiscal = () => {
+    setFiscalOpen((previous) => {
+      const next = !previous;
+      localStorage.setItem(FISCAL_STORAGE_KEY, String(next));
+      return next;
+    });
+  };
+
   const toggleProjects = () => {
     setProjectsOpen((previous) => {
       const next = !previous;
@@ -358,6 +388,7 @@ export function AppSidebar() {
 
   const getSubmenuState = (href: string) => {
     if (href === "/financeiro") return { isOpen: financeOpen, onToggle: toggleFinance };
+    if (href === "/fiscal") return { isOpen: fiscalOpen, onToggle: toggleFiscal };
     if (href === "/projetos") return { isOpen: projectsOpen, onToggle: toggleProjects };
     if (href === "/workforce-cost") return { isOpen: workforceOpen, onToggle: toggleWorkforce };
     return { isOpen: false, onToggle: () => undefined };

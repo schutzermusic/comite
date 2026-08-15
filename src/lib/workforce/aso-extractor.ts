@@ -23,6 +23,19 @@ export type AsoExamKind = '0' | '1' | '2' | '3' | '4' | '9';
 
 export type AsoValidityBasis = 'declared_document' | 'inferred_periodicity' | 'undetermined';
 
+/**
+ * Como o conteúdo saiu do PDF.
+ *
+ * `text_layer` — o PDF tinha camada de texto e o parser leu direto.
+ * `ocr_ai`     — não tinha (escaneado); o documento foi lido por IA.
+ * `manual`     — uma pessoa digitou ou corrigiu o campo.
+ *
+ * O valor acompanha o documento até a tela porque muda o peso da revisão: uma
+ * leitura de camada de texto erra por layout, uma de OCR erra por caractere, e
+ * um campo manual não deve ser sobrescrito por nenhuma das duas.
+ */
+export type AsoExtractionMethod = 'text_layer' | 'ocr_ai' | 'manual';
+
 export interface AsoExtractionIssue {
   field: string;
   reason: string;
@@ -33,13 +46,21 @@ export interface AsoExtraction {
   examKind?: AsoExamKind;
   /** '1' apto | '2' inapto — mesmo domínio do `resAso`. */
   result?: '1' | '2';
-  validUntil?: string;
+  validityDate?: string;
   validityBasis: AsoValidityBasis;
   doctorName?: string;
   doctorCrm?: string;
   workerName?: string;
   cpf?: string;
+  /** Matrícula/registro do empregado, quando o ASO traz. */
+  workerRegistration?: string;
   companyName?: string;
+  /** CNPJ do empregador, somente dígitos. */
+  companyCnpj?: string;
+  /** Clínica, laboratório ou prestador que realizou o exame. */
+  clinicName?: string;
+  /** Riscos ocupacionais como impressos no documento. */
+  occupationalRisks?: string[];
   /** 0..1 — quanto do que importa foi lido. */
   confidence: number;
   issues: AsoExtractionIssue[];
@@ -64,8 +85,32 @@ export const ASO_KIND_FROM_DOCUMENT_LABEL: Record<AsoExamKind, string> = {
   '9': 'Demissional',
 };
 
-/** Periodicidade assumida quando o documento NÃO declara validade. */
-const INFERRED_PERIOD_MONTHS: Partial<Record<AsoExamKind, number>> = { '1': 12 };
+/**
+ * Periodicidade assumida quando o documento NÃO declara validade.
+ *
+ * Só o exame periódico entra: a NR-7 estabelece o intervalo anual para ele, e
+ * nenhum outro tipo tem periodicidade que se possa deduzir do próprio tipo.
+ * Preencher os demais por analogia produziria uma data de vencimento que não
+ * existe em lugar nenhum — e ela seria indistinguível, na tela, de uma data
+ * escrita no papel.
+ */
+export const ASO_INFERRED_PERIOD_MONTHS: Partial<Record<AsoExamKind, number>> = { '1': 12 };
+
+/**
+ * A ÚNICA inferência de validade do módulo.
+ *
+ * Determinística, sem IA e sem exceções: a data inferida é sempre função de
+ * (data do exame, tipo do exame). Toda camada que precisar inferir chama daqui,
+ * para que a regra não exista em duas versões que possam divergir.
+ */
+export function inferValidityDate(
+  examDate: string | undefined | null,
+  examKind: AsoExamKind | undefined | null,
+): string | undefined {
+  if (!examDate || !examKind) return undefined;
+  const months = ASO_INFERRED_PERIOD_MONTHS[examKind];
+  return months ? addMonths(examDate, months) : undefined;
+}
 
 /** Converte dd/mm/aaaa (ou dd-mm-aaaa) para ISO. Ano de 2 dígitos → 20xx. */
 export function parsePtBrDate(raw: string | undefined): string | undefined {
@@ -131,7 +176,7 @@ const LABELS = {
     /realizado\s+em\s*:?/i,
     /data\s+d[oa]\s+avalia[çc][ãa]o\s*:?/i,
   ],
-  validUntil: [
+  validityDate: [
     /v[áa]lid[oa]\s+at[ée]\s*:?/i,
     /validade\s*(?:do\s+aso)?\s*:?/i,
     /vencimento\s*:?/i,
@@ -139,6 +184,33 @@ const LABELS = {
     /data\s+d[oa]\s+pr[óo]xim[oa]\s+exame\s*:?/i,
   ],
 };
+
+/**
+ * Lê a lista de riscos ocupacionais.
+ *
+ * Vem em linha única separada por vírgula ou ponto-e-vírgula na maioria dos
+ * modelos ("Riscos: ruído; poeira mineral"). Itens vazios e ruído de pontuação
+ * saem fora; o que sobra é copiado como está — traduzir "ruído" para um código
+ * do eSocial aqui seria interpretar, e interpretação é trabalho da revisão.
+ */
+function extractRisks(text: string): string[] | undefined {
+  const match = text.match(
+    /(?:riscos?\s+ocupacionais?|riscos?\s+(?:identificados|ambientais)|agentes?\s+de\s+risco|exposi[çc][ãa]o\s+a\s+riscos?)\s*[:\-]\s*([^\n]{2,240})/i,
+  );
+  if (!match) return undefined;
+  const items = match[1]
+    .split(/[;,•·]|\s\/\s/)
+    .map((s) => s.replace(/\.$/, '').trim())
+    .filter((s) => s.length >= 2 && s.length <= 80);
+  return items.length > 0 ? items : undefined;
+}
+
+/** Normaliza CNPJ para dígitos; devolve `undefined` se não tiver 14. */
+function extractCnpj(text: string): string | undefined {
+  const match = text.match(/cnpj\s*[:\-]?\s*(\d{2}\.?\d{3}\.?\d{3}\/?\d{4}\-?\d{2})/i);
+  const digits = match?.[1]?.replace(/\D/g, '');
+  return digits && digits.length === 14 ? digits : undefined;
+}
 
 /**
  * Interpreta o texto de um ASO.
@@ -172,7 +244,7 @@ export function extractAso(rawText: string, today: Date = new Date()): AsoExtrac
 
   // ── Datas ──
   let examDate = dateAfterLabel(text, LABELS.examDate);
-  const declaredValidUntil = dateAfterLabel(text, LABELS.validUntil);
+  const declaredValidityDate = dateAfterLabel(text, LABELS.validityDate);
 
   if (!examDate) {
     // Último recurso: a data por extenso do fecho ("São Paulo, 12 de março de
@@ -191,32 +263,32 @@ export function extractAso(rawText: string, today: Date = new Date()): AsoExtrac
   }
 
   // ── Validade: declarada > inferida > ausente ──
-  let validUntil = declaredValidUntil;
-  let validityBasis: AsoValidityBasis = declaredValidUntil ? 'declared_document' : 'undetermined';
+  let validityDate = declaredValidityDate;
+  let validityBasis: AsoValidityBasis = declaredValidityDate ? 'declared_document' : 'undetermined';
 
   // Validade anterior ao exame é leitura errada de campo, não um ASO vencido
   // na origem. Descartar é mais seguro que publicar a inversão.
-  if (validUntil && examDate && validUntil < examDate) {
+  if (validityDate && examDate && validityDate < examDate) {
     issues.push({
-      field: 'validUntil',
-      reason: `Validade lida (${validUntil}) é anterior à data do exame (${examDate}) — descartada.`,
+      field: 'validityDate',
+      reason: `Validade lida (${validityDate}) é anterior à data do exame (${examDate}) — descartada.`,
     });
-    validUntil = undefined;
+    validityDate = undefined;
     validityBasis = 'undetermined';
   }
 
-  if (!validUntil && examDate && examKind) {
-    const months = INFERRED_PERIOD_MONTHS[examKind];
-    if (months) {
-      validUntil = addMonths(examDate, months);
+  if (!validityDate && examDate && examKind) {
+    const inferred = inferValidityDate(examDate, examKind);
+    if (inferred) {
+      validityDate = inferred;
       validityBasis = 'inferred_periodicity';
       issues.push({
-        field: 'validUntil',
+        field: 'validityDate',
         reason: 'Validade não declarada no documento; inferida pela periodicidade anual da NR-7 para exame periódico.',
       });
     } else {
       issues.push({
-        field: 'validUntil',
+        field: 'validityDate',
         reason: `Validade não declarada e não inferível para exame ${ASO_KIND_FROM_DOCUMENT_LABEL[examKind].toLowerCase()}.`,
       });
     }
@@ -237,7 +309,17 @@ export function extractAso(rawText: string, today: Date = new Date()): AsoExtrac
     issues.push({ field: 'worker', reason: 'Nem nome nem CPF do trabalhador foram encontrados.' });
   }
 
+  const registrationMatch = text.match(
+    /(?:matr[íi]cula|registro\s+d[oe]\s+empregado|n[ºo°]?\s*de\s+registro|re)\s*[:\-]\s*([\w.\-/]{2,20})/i,
+  );
+
   const companyMatch = text.match(/(?:empresa|empregador[a]?|raz[ãa]o\s+social)\s*[:\-]\s*([^\n]{3,80})/i);
+
+  // Clínica ≠ empresa. São dois rótulos distintos no papel e confundi-los faria
+  // o ASO parecer emitido pelo próprio empregador.
+  const clinicMatch = text.match(
+    /(?:cl[íi]nica|laborat[óo]rio|prestador(?:\s+de\s+servi[çc]o)?|credenciad[oa]|unidade\s+de\s+sa[úu]de)\s*[:\-]\s*([^\n]{3,80})/i,
+  );
 
   // ── Confiança ──
   //
@@ -267,13 +349,17 @@ export function extractAso(rawText: string, today: Date = new Date()): AsoExtrac
     examDate,
     examKind,
     result,
-    validUntil,
+    validityDate,
     validityBasis,
     doctorName,
     doctorCrm,
     workerName,
     cpf,
+    workerRegistration: registrationMatch?.[1]?.trim(),
     companyName: companyMatch?.[1]?.trim(),
+    companyCnpj: extractCnpj(text),
+    clinicName: clinicMatch?.[1]?.trim(),
+    occupationalRisks: extractRisks(text),
     confidence,
     issues,
   };
@@ -294,20 +380,35 @@ export function isWeakExtraction(extraction: AsoExtraction): boolean {
   return extraction.confidence < ASO_MIN_CONFIDENCE || !extraction.examDate;
 }
 
-// ── Conferência com o evento S-2220 ─────────────────────────────────────────
+// ── Conferência OPCIONAL com o evento S-2220 ────────────────────────────────
+//
+// Nada nesta seção participa da decisão de aceitar ou usar o ASO. Ela só
+// responde a uma pergunta secundária: quando o RH transmitiu o S-2220 a partir
+// deste mesmo papel, os dois contam a mesma história? Divergência aqui é ERRO
+// DE TRANSMISSÃO — vira alerta, nunca impedimento. E a ausência de evento é o
+// estado normal de quem ainda não importou nada, não uma pendência.
 
 export interface AsoDivergence {
-  field: 'examDate' | 'examKind' | 'result';
+  field: 'examDate' | 'examKind' | 'result' | 'worker';
   label: string;
   document: string | null;
   esocial: string | null;
 }
+
+/**
+ * `not_imported`   — não há S-2220 com que comparar. Estado neutro.
+ * `not_applicable` — há evento, mas falta no papel o dado a comparar.
+ * `matched`        — papel e evento concordam.
+ * `divergent`      — discordam; alerta, nunca bloqueio.
+ */
+export type AsoEsocialMatchStatus = 'not_imported' | 'not_applicable' | 'matched' | 'divergent';
 
 export interface EsocialAsoFacts {
   eventId: string;
   examDate: string | null;
   examKind: string | null;
   result: string | null;
+  workerName?: string | null;
 }
 
 /** Tolerância entre a data do papel e a do evento, em dias. */
@@ -327,14 +428,32 @@ function daysApart(a: string, b: string): number {
  * divergente.
  */
 export function reconcileWithEsocial(
-  extraction: Pick<AsoExtraction, 'examDate' | 'examKind' | 'result'>,
+  extraction: Pick<AsoExtraction, 'examDate' | 'examKind' | 'result' | 'workerName'>,
   candidates: EsocialAsoFacts[],
-): { eventId: string | null; matchStatus: 'matched' | 'divergent' | 'no_esocial_event'; divergences: AsoDivergence[] } {
-  if (candidates.length === 0 || !extraction.examDate) {
-    return { eventId: null, matchStatus: 'no_esocial_event', divergences: [] };
+): {
+  eventId: string | null;
+  matchStatus: AsoEsocialMatchStatus;
+  divergences: AsoDivergence[];
+  summary: string | null;
+} {
+  // Sem evento não há nada a conferir — e isso não é uma falha do documento.
+  if (candidates.length === 0) {
+    return { eventId: null, matchStatus: 'not_imported', divergences: [], summary: null };
   }
 
   const dated = candidates.filter((c) => c.examDate);
+
+  // Há evento, mas o papel não tem data para ancorar a comparação. Escolher um
+  // evento arbitrário produziria uma divergência inventada.
+  if (!extraction.examDate) {
+    return {
+      eventId: null,
+      matchStatus: 'not_applicable',
+      divergences: [],
+      summary: 'Há evento S-2220 para este trabalhador, mas o documento não trouxe data de exame para comparar.',
+    };
+  }
+
   const best = dated.length
     ? dated.reduce((a, b) =>
         daysApart(extraction.examDate!, a.examDate!) <= daysApart(extraction.examDate!, b.examDate!) ? a : b,
@@ -367,10 +486,48 @@ export function reconcileWithEsocial(
       esocial: best.result,
     });
   }
+  // Nome: comparado por chave normalizada, porque acento e ordem de sobrenome
+  // variam entre o papel e o cadastro sem que ninguém esteja errado.
+  if (extraction.workerName && best.workerName && !sameWorkerName(extraction.workerName, best.workerName)) {
+    divergences.push({
+      field: 'worker',
+      label: 'Trabalhador',
+      document: extraction.workerName,
+      esocial: best.workerName,
+    });
+  }
 
   return {
     eventId: best.eventId,
     matchStatus: divergences.length > 0 ? 'divergent' : 'matched',
     divergences,
+    summary: divergences.length > 0 ? summarizeDivergences(divergences) : null,
   };
+}
+
+/** Frase curta para a tela e para o e-mail — o detalhe fica em `divergences`. */
+export function summarizeDivergences(divergences: AsoDivergence[]): string {
+  if (divergences.length === 0) return '';
+  const fields = divergences.map((d) => d.label.toLowerCase()).join(', ');
+  return `O S-2220 transmitido diverge do documento em: ${fields}. Confira qual dos dois está certo — o papel não perde validade por causa disso.`;
+}
+
+function nameKey(value: string): string {
+  return value
+    .normalize('NFD')
+    // remove os diacríticos combinantes (U+0300–U+036F)
+    .replace(/[̀-ͯ]/g, '')
+    .toUpperCase()
+    .replace(/[^A-Z ]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    // Ordenar os tokens tolera "SILVA, JOSE DA" contra "JOSE DA SILVA": é a
+    // mesma pessoa escrita em duas convenções, e apontar divergência aí seria
+    // ruído que ensina o RH a ignorar o alerta.
+    .sort()
+    .join(' ');
+}
+
+function sameWorkerName(a: string, b: string): boolean {
+  return nameKey(a) === nameKey(b);
 }

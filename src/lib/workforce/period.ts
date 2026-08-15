@@ -8,9 +8,10 @@
  *
  * SOMENTE DADO REAL
  *
- * A série tem exatamente duas fontes, e nenhuma terceira:
+ * A série tem duas fontes oficiais e um fallback explicitamente provisório:
  *   • lotes de fechamento da folha APROVADOS — valor e centro de custo;
  *   • métricas apuradas do eSocial — quadro, movimentação, afastamento, guias.
+ *   • contracheque PDF — apenas composição provisória quando falta o S-1010.
  *
  * A série sintética de demonstração que existia aqui foi removida, junto com
  * todo modelo derivado que preenchia lacuna (composição da folha por senoide,
@@ -20,7 +21,8 @@
  * diferença. Onde não há fonte, o seletor devolve `null` ou lista vazia, e a
  * interface diz que a competência não foi apurada.
  *
- * Em consequência, indicadores que dependem de base ausente ficam AUSENTES:
+ * Em consequência, indicadores que dependem de base ausente ficam AUSENTES,
+ * salvo quando o contracheque fornece a classificação provisória marcada:
  * receita por colaborador sem receita lançada, horas extras sem a tabela de
  * rubricas do eSocial (S-1010), composição da folha sem classificação de verba.
  * Ver `esocial-coverage` para a regra de procedência. [[payroll-closing]]
@@ -1284,6 +1286,16 @@ export interface EsocialCompetenceMetric {
   rubric_mapped_cents?: number | null;
   cp_base_cents?: number | null;
   fgts_base_cents?: number | null;
+  payslip_gross_cents?: number | null;
+  payslip_deductions_cents?: number | null;
+  payslip_net_cents?: number | null;
+  payslip_overtime_cents?: number | null;
+  payslip_overtime_hours?: number | null;
+  payslip_benefits_cents?: number | null;
+  payslip_benefits_by_nature?: Record<string, number> | null;
+  payslip_absence_deductions_cents?: number | null;
+  payslip_headcount?: number | null;
+  payslip_line_count?: number | null;
 }
 
 /** Algum totalizador do eSocial chegou para a competência? */
@@ -1403,6 +1415,12 @@ function applyEsocial(
   manual?: { headcount: number; sourceNote: string },
 ): WorkforceMonthlyRecord {
   const coverage = competenceCoverage({ ...m, competence: record.competenceMonth });
+  const provisional = coverage.classificationBasis === 'payslip_pdf';
+  const compositionGross = provisional ? (m.payslip_gross_cents ?? 0) : m.gross_payroll_cents;
+  const compositionOvertime = provisional ? (m.payslip_overtime_cents ?? 0) : m.overtime_cents;
+  const compositionBenefits = provisional ? (m.payslip_benefits_cents ?? 0) : (m.benefits_cents ?? 0);
+  const compositionBenefitsByNature = provisional ? m.payslip_benefits_by_nature : m.benefits_by_nature;
+  const effectiveHeadcount = m.headcount > 0 ? m.headcount : (m.payslip_headcount ?? 0);
   // A massa vem da cobertura, não da soma crua das rubricas: num mês em que só
   // os totalizadores sobreviveram à janela de retenção, a soma das rubricas é
   // um resíduo, e a base apurada pelo eSocial é o número real.
@@ -1415,7 +1433,7 @@ function applyEsocial(
     // para os meses em que o eSocial não entregou o detalhe por trabalhador, e
     // é uma afirmação assinada por um administrador. Fica marcado como manual
     // para que a tela nunca o apresente como apuração.
-    headcount: manual ? manual.headcount : m.headcount > 0 ? m.headcount : record.headcount,
+    headcount: manual ? manual.headcount : effectiveHeadcount > 0 ? effectiveHeadcount : record.headcount,
     payroll: hasPayroll ? record.payroll : gross,
     cltCost: hasPayroll ? record.cltCost : gross,
     // Sem lote de folha, a abertura por lotação do eSocial vira o centro de custo.
@@ -1439,18 +1457,18 @@ function applyEsocial(
       // Só quando as rubricas foram de fato classificadas. Fora disso o
       // indicador fica ausente, e não zerado.
       overtimePct:
-        coverage.compositionReliable && m.gross_payroll_cents > 0
-          ? Number(((m.overtime_cents / m.gross_payroll_cents) * 100).toFixed(1))
+        coverage.compositionReliable && compositionGross > 0
+          ? Number(((compositionOvertime / compositionGross) * 100).toFixed(1))
           : undefined,
       composition: coverage.compositionReliable
         ? {
-            salary: (m.gross_payroll_cents - (m.benefits_cents ?? 0)) / 100,
-            benefits: (m.benefits_cents ?? 0) / 100,
+            salary: (compositionGross - compositionBenefits) / 100,
+            benefits: compositionBenefits / 100,
             // Encargos = o que a empresa recolhe, direto das guias apuradas.
             charges: ((m.inss_cents ?? 0) + (m.fgts_cents ?? 0)) / 100,
           }
         : undefined,
-      benefitsByType: coverage.compositionReliable ? benefitsByType(m.benefits_by_nature) : undefined,
+      benefitsByType: coverage.compositionReliable ? benefitsByType(compositionBenefitsByNature) : undefined,
       areas: areas.map((a) => ({
         code: a.area_code,
         label: a.area_label,

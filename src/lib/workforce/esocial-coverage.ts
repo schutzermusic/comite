@@ -36,11 +36,15 @@ export interface CompetenceMetricsLike {
   cp_base_cents?: number | null;
   fgts_base_cents?: number | null;
   headcount: number;
+  payslip_gross_cents?: number | null;
+  payslip_line_count?: number | null;
 }
 
 export type PayrollSource =
   /** Soma das rubricas classificadas como provento pela tabela S-1010. */
   | 'rubricas'
+  /** Rubricas provisórias inferidas das colunas do contracheque. */
+  | 'payslip_pdf'
   /** Base de cálculo apurada pelo eSocial — completa, porém sem composição. */
   | 'base_esocial'
   | 'indisponivel';
@@ -61,6 +65,8 @@ export interface CompetenceCoverage {
    * rubricas cobre a folha. Fora disso, zero não é ausência: é desconhecimento.
    */
   compositionReliable: boolean;
+  /** Origem da classificação da composição, nunca confundida com S-1010. */
+  classificationBasis: 's1010' | 'payslip_pdf' | null;
   /** Frase pronta para a interface. Vazia quando o mês está completo. */
   note?: string;
 }
@@ -73,7 +79,8 @@ export function competenceCoverage(m: CompetenceMetricsLike): CompetenceCoverage
   const baseCents = m.cp_base_cents ?? m.fgts_base_cents ?? 0;
 
   const rubricCoverage = rubricTotal > 0 ? rubricMapped / rubricTotal : 0;
-  const compositionReliable = rubricTotal > 0 && rubricCoverage >= MIN_RUBRIC_COVERAGE;
+  const officialCompositionReliable = rubricTotal > 0 && rubricCoverage >= MIN_RUBRIC_COVERAGE;
+  const hasPayslipFallback = (m.payslip_line_count ?? 0) > 0 && (m.payslip_gross_cents ?? 0) > 0;
 
   const detail: DetailLevel =
     rubricTotal === 0
@@ -84,17 +91,22 @@ export function competenceCoverage(m: CompetenceMetricsLike): CompetenceCoverage
 
   // A folha só sai das rubricas quando elas estão classificadas E representam o
   // mês. Caso contrário vale a base apurada, que nunca está pela metade.
-  const useRubricas = compositionReliable && detail === 'complete' && m.gross_payroll_cents > 0;
-  const payrollCents = useRubricas ? m.gross_payroll_cents : baseCents;
+  const useRubricas = officialCompositionReliable && detail === 'complete' && m.gross_payroll_cents > 0;
+  const usePayslip = !useRubricas && hasPayslipFallback;
+  const payrollCents = useRubricas ? m.gross_payroll_cents : usePayslip ? (m.payslip_gross_cents ?? 0) : baseCents;
+  const compositionReliable = useRubricas || usePayslip;
 
   return {
     competence: m.competence,
     payroll: payrollCents / 100,
-    payrollSource: useRubricas ? 'rubricas' : payrollCents > 0 ? 'base_esocial' : 'indisponivel',
+    payrollSource: useRubricas ? 'rubricas' : usePayslip ? 'payslip_pdf' : payrollCents > 0 ? 'base_esocial' : 'indisponivel',
     rubricCoverage,
     detail,
     compositionReliable,
-    note: coverageNote(detail, compositionReliable, payrollCents > 0),
+    classificationBasis: useRubricas ? 's1010' : usePayslip ? 'payslip_pdf' : null,
+    note: usePayslip
+      ? 'Classificação provisória por holerite/PDF. A tabela oficial S-1010 segue pendente.'
+      : coverageNote(detail, officialCompositionReliable, payrollCents > 0),
   };
 }
 

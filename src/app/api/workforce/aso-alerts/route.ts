@@ -7,11 +7,14 @@ import {
   buildAsoAlerts,
   buildAsoDigest,
   summarizeAsoAlerts,
+  workersFromUnmatchedDocuments,
   DEFAULT_ASO_WINDOWS,
+  ASO_CONTROL_NOTICE,
   type AsoAlertDocument,
   type AsoAlertEsocialExam,
   type AsoAlertWorker,
 } from '@/lib/workforce/aso-alerts';
+import { normalizePayrollName } from '@/lib/workforce/salary-history';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -19,10 +22,14 @@ export const dynamic = 'force-dynamic';
 /**
  * GET — fila de vencimento de ASO para o RH.
  *
- * Junta as duas fontes (documento enviado e evento S-2220) e devolve uma linha
- * por trabalhador ativo. `people.view` basta para ver a fila; os NOMES só saem
- * para quem tem dado sensível, porque a fila em si — quantos vencidos, em que
- * lotação — é informação de gestão, e a identificação é que é de saúde.
+ * A fila é montada sobre os ASOs EM PDF: é o documento aprovado que decide o
+ * nível de cada linha. O evento S-2220 entra ao lado, como conferência
+ * opcional, e nunca é exigido para nada — uma organização que nunca importou
+ * pacote nenhum do eSocial vê a fila inteira funcionando.
+ *
+ * `people.view` basta para ver a fila; os NOMES só saem para quem tem dado
+ * sensível, porque a fila em si — quantos vencidos, em que lotação — é
+ * informação de gestão, e a identificação é que é de saúde.
  */
 export async function GET(req: Request) {
   const r = await resolvePayrollActor('people.view');
@@ -55,6 +62,8 @@ export async function GET(req: Request) {
     alerts,
     summary: summarizeAsoAlerts(alerts),
     documentsAvailable: payload.documentsAvailable,
+    esocialAvailable: payload.esocialAvailable,
+    notice: ASO_CONTROL_NOTICE,
   });
 }
 
@@ -93,7 +102,8 @@ export async function POST(req: Request) {
       ok: true,
       sent: false,
       summary,
-      message: 'Nenhum ASO vencido, crítico ou ausente — nada a comunicar.',
+      message:
+        'Nenhum ASO vencido, a vencer na janela crítica, pendente de revisão ou sem documento — nada a comunicar.',
     });
   }
 
@@ -146,20 +156,66 @@ export async function POST(req: Request) {
 }
 
 /**
- * Carrega as três entradas da fila.
+ * Carrega as entradas da fila.
  *
- * Cada fonte falha por conta própria: sem a migration 084 ainda há documentos,
- * e sem a 085 ainda há eventos. O que não pode acontecer é a fila inteira
- * sumir porque uma das duas não foi provisionada.
+ * O QUADRO DE COLABORADORES vem de `people`, que é o cadastro canônico e existe
+ * independentemente de qualquer importação. Os vínculos do eSocial COMPLETAM
+ * essa lista, e só entram quando não casam com ninguém já cadastrado — antes,
+ * o quadro vinha só do eSocial, e por isso a fila inteira ficava vazia em quem
+ * ainda não tinha importado pacote nenhum, por mais ASOs que tivesse enviado.
+ *
+ * Cada fonte falha por conta própria. O que não pode acontecer é a fila sumir
+ * porque uma delas não foi provisionada.
  */
 async function loadAlertInputs(organizationId: string): Promise<{
   workers: AsoAlertWorker[];
   documents: AsoAlertDocument[];
   esocialExams: AsoAlertEsocialExam[];
   documentsAvailable: boolean;
+  esocialAvailable: boolean;
 }> {
-  const employments = await readEmployments(organizationId, { status: 'active' }).catch(() => []);
+  const supabase = await createClient();
 
+  const [{ data: peopleRows }, employments] = await Promise.all([
+    supabase
+      .from('people')
+      .select('id, full_name, payroll_name_key, department')
+      .eq('organization_id', organizationId)
+      .eq('status', 'active'),
+    readEmployments(organizationId, { status: 'active' }).catch(() => []),
+  ]);
+
+  const people = peopleRows ?? [];
+
+  const workers: AsoAlertWorker[] = people.map((p) => ({
+    // Chave estável e independente do eSocial. Os documentos são indexados
+    // também por `person:<id>`, então o encontro acontece sem CPF.
+    workerKey: `person:${String(p.id)}`,
+    personId: String(p.id),
+    name: p.full_name ? String(p.full_name) : null,
+    areaLabel: p.department ? String(p.department) : null,
+  }));
+
+  const knownNameKeys = new Set(
+    people
+      .map((p) => (p.payroll_name_key ? String(p.payroll_name_key) : normalizePayrollName(String(p.full_name ?? ''))))
+      .filter((k): k is string => Boolean(k)),
+  );
+
+  for (const e of employments) {
+    const nameKey = normalizePayrollName(e.worker_name ?? null);
+    // Já coberto por uma pessoa do cadastro: adicionar de novo duplicaria a
+    // linha e faria o mesmo colaborador aparecer duas vezes na fila.
+    if (nameKey && knownNameKeys.has(nameKey)) continue;
+    workers.push({
+      workerKey: e.worker_cpf_hash ?? e.matricula,
+      personId: null,
+      name: e.worker_name ?? null,
+      areaLabel: e.area_label ?? null,
+    });
+  }
+
+  let esocialAvailable = true;
   const esocialExams: AsoAlertEsocialExam[] = await readSstEvents(organizationId, {
     eventType: 'S-2220',
   })
@@ -168,34 +224,44 @@ async function loadAlertInputs(organizationId: string): Promise<{
         workerKey: row.worker_cpf_hash ?? row.matricula,
         examDate: row.event_date,
         examKind: row.exam_kind,
-        validUntil: row.aso_valid_until,
+        validityDate: row.aso_valid_until,
+        eventId: row.esocial_event_id,
       })),
     )
-    .catch(() => []);
+    .catch(() => {
+      esocialAvailable = false;
+      return [];
+    });
 
   let documents: AsoAlertDocument[] = [];
   let documentsAvailable = true;
+  let documentNames = new Map<string, string | null>();
   try {
-    documents = (await listAsoDocuments(organizationId)).map((d) => ({
+    const rows = await listAsoDocuments(organizationId);
+    documentNames = new Map(rows.map((d) => [d.id, d.worker_name_raw]));
+    documents = rows.map((d) => ({
       id: d.id,
       workerKey: d.worker_cpf_hash,
       personId: d.person_id,
       examDate: d.exam_date,
       examKind: d.exam_kind,
-      validUntil: d.valid_until,
+      validityDate: d.validity_date,
       validityBasis: d.validity_basis,
-      status: d.status,
+      documentStatus: d.document_status,
+      esocialMatchStatus: d.esocial_match_status,
+      esocialEventId: d.esocial_event_id,
+      divergenceSummary: d.divergence_summary,
     }));
   } catch (err) {
     if (err instanceof AsoSchemaMissingError) documentsAvailable = false;
     else throw err;
   }
 
-  const workers: AsoAlertWorker[] = employments.map((e) => ({
-    workerKey: e.worker_cpf_hash ?? e.matricula,
-    name: e.worker_name ?? null,
-    areaLabel: e.area_label ?? null,
-  }));
+  // ASOs de quem ainda não está em lugar nenhum entram por conta própria, para
+  // poderem ser revisados e vinculados em vez de desaparecerem.
+  workers.push(
+    ...workersFromUnmatchedDocuments(documents, workers, (d) => documentNames.get(d.id) ?? null),
+  );
 
-  return { workers, documents, esocialExams, documentsAvailable };
+  return { workers, documents, esocialExams, documentsAvailable, esocialAvailable };
 }

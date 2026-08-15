@@ -66,6 +66,8 @@ export function EsocialCoverageNotice({
               value={
                 coverage.payrollSource === 'rubricas'
                   ? 'folha detalhada'
+                  : coverage.payrollSource === 'payslip_pdf'
+                    ? 'PDF provisório'
                   : coverage.payrollSource === 'base_esocial'
                     ? 'base apurada'
                     : 'sem massa'
