@@ -59,6 +59,7 @@ function actuals(overrides: Partial<WorkforceActuals> = {}): WorkforceActuals {
       rubricCoverage: 1,
       detail: 'complete',
       compositionReliable: true,
+      classificationBasis: 's1010',
     },
     composition: { salary: 90, benefits: 15, charges: 25 },
     benefitsByType: { va: 8, vr: 3, health: 2, dental: 1, transport: 1, other: 0 },

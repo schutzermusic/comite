@@ -33,7 +33,8 @@ export async function GET(req: Request) {
 
   // Com ingestão por importação, o que define "ligado" é haver evento
   // ingerido — não haver certificado, que no desenho somente-leitura é opcional.
-  const metrics = config ? await readCompetenceMetrics(r.actor.organizationId, from) : [];
+  // O contracheque PDF funciona sem certificado/configuração do eSocial.
+  const metrics = await readCompetenceMetrics(r.actor.organizationId, from);
 
   if (metrics.length === 0) {
     const link: EsocialLinkState = {
@@ -74,7 +75,7 @@ export async function GET(req: Request) {
         ? 'expiring'
         : 'valid';
 
-  const totalEvents = competences.reduce((s, c) => s + c.source_event_count, 0);
+  const totalEvents = competences.reduce((s, c) => s + c.source_event_count + (c.payslip_line_count ?? 0), 0);
   const failedRuns = runs.filter((run) => (run as { status: string }).status === 'failed').length;
 
   const link: EsocialLinkState = {
@@ -91,7 +92,7 @@ export async function GET(req: Request) {
     safeMessage:
       config?.last_sync_status === 'failed'
         ? 'A última importação falhou — verifique o histórico na tela de integrações.'
-        : `${competences.length} competência(s) apurada(s) a partir do eSocial.`,
+        : `${competences.length} competência(s) apurada(s) a partir do eSocial/contracheques.`,
   };
 
   return NextResponse.json({

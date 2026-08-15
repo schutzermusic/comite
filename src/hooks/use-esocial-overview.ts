@@ -38,6 +38,16 @@ export interface EsocialCompetenceMetrics {
   rat_fap_rate: number | null;
   totalizers: Record<string, boolean>;
   source_event_count: number;
+  payslip_gross_cents?: number;
+  payslip_deductions_cents?: number;
+  payslip_net_cents?: number;
+  payslip_overtime_cents?: number;
+  payslip_overtime_hours?: number;
+  payslip_benefits_cents?: number;
+  payslip_benefits_by_nature?: Record<string, number> | null;
+  payslip_absence_deductions_cents?: number;
+  payslip_headcount?: number;
+  payslip_line_count?: number;
 }
 
 export interface EsocialAreaMetrics {
