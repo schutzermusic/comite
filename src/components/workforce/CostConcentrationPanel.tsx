@@ -1,331 +1,177 @@
 'use client';
 
+/**
+ * Concentração da folha por centro de custo — leitura de Pareto.
+ *
+ * O ranking usa `FinanceRankMatrix`, que já traz a barra proporcional, o valor
+ * formatado e a coluna secundária. Ao lado, a curva acumulada responde a
+ * pergunta que o ranking sozinho não responde: quantos centros são necessários
+ * para explicar a maior parte da folha.
+ *
+ * Treemap ficou de fora de propósito — ele esconderia justamente a acumulada,
+ * que é o que torna o Top-3 legível como risco de dependência.
+ */
+
 import { useMemo } from 'react';
-import ReactEChartsCore from 'echarts-for-react/lib/core';
-import * as echarts from 'echarts/core';
-import { BarChart } from 'echarts/charts';
+import { AlertTriangle, Building2 } from 'lucide-react';
 import {
-  TooltipComponent,
-  GridComponent,
-} from 'echarts/components';
-import { CanvasRenderer } from 'echarts/renderers';
-import { Building2, AlertTriangle, TrendingUp, TrendingDown } from 'lucide-react';
-import { OrionCard } from '@/components/orion';
-import {
-  CostConcentrationData,
-  formatWorkforceCurrency,
-  formatWorkforcePercentage,
-} from '@/lib/workforce-data';
-
+  FinanceLineChart,
+  FinanceRankMatrix,
+  PALETTE_DARK,
+  PALETTE_LIGHT,
+  useChartTheme,
+  type RankRow,
+} from '@/components/finance/shared';
+import { formatWorkforceCurrency, type CostConcentrationData } from '@/lib/workforce-data';
 import { cn } from '@/lib/utils';
-import { useTheme } from '@/contexts/ThemeContext';
-
-echarts.use([BarChart, TooltipComponent, GridComponent, CanvasRenderer]);
+import { WorkforceChartCard } from './overview/WorkforceChartCard';
 
 interface CostConcentrationPanelProps {
   data: CostConcentrationData;
+  /**
+   * Se o período tem janela anterior. Sem ela, `growthVsPrevious` vem `0` do
+   * seletor, e exibir "0,0%" afirmaria estabilidade onde não houve comparação.
+   */
+  hasBaseline?: boolean;
   className?: string;
 }
 
-const PALETTE = ['#14B8A6', '#3B82F6', '#8B5CF6', '#F59E0B', '#EC4899', '#22C55E', '#94A3B8'];
-const PALETTE_FADE = [
-  'rgba(20,184,166,0.42)', 'rgba(59,130,246,0.42)', 'rgba(139,92,246,0.42)',
-  'rgba(245,158,11,0.38)', 'rgba(236,72,153,0.38)', 'rgba(34,197,94,0.38)',
-  'rgba(148,163,184,0.28)',
-];
+/** Acima disso a folha depende de poucos centros a ponto de virar risco. */
+const TOP3_WARN = 70;
+const TOP3_CRITICAL = 80;
 
-export function CostConcentrationPanel({ data, className }: CostConcentrationPanelProps) {
-  const { theme } = useTheme();
-  const isLight = theme === 'light';
+export function CostConcentrationPanel({
+  data,
+  hasBaseline = true,
+  className,
+}: CostConcentrationPanelProps) {
+  const { isLight } = useChartTheme();
+  const palette = isLight ? PALETTE_LIGHT : PALETTE_DARK;
 
-  const sortedCenters = useMemo(
+  const sorted = useMemo(
     () => [...data.costCenters].sort((a, b) => b.payrollValue - a.payrollValue),
     [data.costCenters],
   );
 
-  const abnormalCount = sortedCenters.filter((c) => c.isAbnormal).length;
-  const top1 = sortedCenters[0];
+  const rows = useMemo<RankRow[]>(
+    () =>
+      sorted.map((c) => ({
+        id: c.id,
+        label: c.name,
+        value: c.payrollValue,
+        meta:
+          c.headcount > 0
+            ? `${c.headcount} colaborador${c.headcount === 1 ? '' : 'es'}`
+            : 'quadro não apurado',
+        secondaryLabel: 'variação',
+        secondary: hasBaseline
+          ? `${c.growthVsPrevious > 0 ? '+' : ''}${c.growthVsPrevious.toFixed(1).replace('.', ',')}%`
+          : '–',
+        tone: c.isAbnormal ? 'danger' : 'accent',
+      })),
+    [sorted, hasBaseline],
+  );
 
-  // Cumulative percentages for Pareto labels
-  const { values, cumulativePcts } = useMemo(() => {
-    const vals = sortedCenters.map((c) => c.payrollValue);
-    const cumPcts: number[] = [];
-    let running = 0;
-    for (const v of vals) {
-      running += data.totalPayroll > 0 ? (v / data.totalPayroll) * 100 : 0;
-      cumPcts.push(Math.min(Math.round(running), 100));
-    }
-    return { values: vals, cumulativePcts: cumPcts };
-  }, [sortedCenters, data.totalPayroll]);
+  /** Curva acumulada: o eixo do Pareto. */
+  const cumulative = useMemo(() => {
+    const total = data.totalPayroll || 1;
+    let acc = 0;
+    return sorted.map((c) => {
+      acc += c.payrollValue;
+      return Number(((acc / total) * 100).toFixed(1));
+    });
+  }, [sorted, data.totalPayroll]);
 
-  const chartOptions = useMemo(() => {
-    const maxVal = values[0] || 1;
-    const axisColor    = isLight ? 'rgba(51,65,85,0.45)'    : 'rgba(242,245,247,0.32)';
-    const splitColor   = isLight ? 'rgba(15,118,110,0.08)'  : 'rgba(170,200,190,0.05)';
-    const tooltipBg    = isLight ? '#ffffff'                 : '#141B24';
-    const tooltipBd    = isLight ? 'rgba(15,118,110,0.2)'   : 'rgba(170,200,190,0.18)';
-    const strongColor  = isLight ? '#0f172a'                 : '#F2F5F7';
-    const mutedColor   = isLight ? 'rgba(15,23,42,0.65)'    : 'rgba(242,245,247,0.55)';
-    const warnColor    = isLight ? '#b45309'                 : '#F5A524';
-    const labelStrong  = isLight ? 'rgba(15,23,42,0.85)'    : 'rgba(242,245,247,0.80)';
-    const labelMuted   = isLight ? 'rgba(100,116,139,0.65)' : 'rgba(148,163,184,0.55)';
-    const ghostColor   = isLight ? 'rgba(0,0,0,0.05)'       : 'rgba(255,255,255,0.05)';
+  const abnormal = sorted.filter((c) => c.isAbnormal);
+  const top3 = data.top3Concentration;
+  const top3Tone =
+    top3 >= TOP3_CRITICAL ? 'text-ig-danger' : top3 >= TOP3_WARN ? 'text-ig-warning' : 'text-ig-fg-strong';
 
-    const categories      = [...sortedCenters].reverse().map((c) => c.name);
-    const reversedValues  = [...values].reverse();
-    const reversedCumPcts = [...cumulativePcts].reverse();
-    const reversedCenters = [...sortedCenters].reverse();
-
-    return {
-      backgroundColor: 'transparent',
-      tooltip: {
-        trigger: 'item',
-        backgroundColor: tooltipBg,
-        borderColor: tooltipBd,
-        borderWidth: 1,
-        textStyle: { color: strongColor, fontSize: 12 },
-        formatter: (params: { dataIndex: number; seriesName: string; value: number }) => {
-          if (params.seriesName === '__ghost') return '';
-          const idx = reversedCenters.length - 1 - params.dataIndex;
-          const center = sortedCenters[idx];
-          if (!center) return '';
-          const pct = data.totalPayroll > 0 ? ((center.payrollValue / data.totalPayroll) * 100).toFixed(1) : '0';
-          const cum = cumulativePcts[idx] ?? 0;
-          return [
-            `<div style="font-weight:700;margin-bottom:6px;color:${strongColor}">${center.name}</div>`,
-            `<div style="color:${mutedColor};font-size:11px;line-height:1.7">`,
-            `Folha: <b style="color:${strongColor}">${formatWorkforceCurrency(center.payrollValue, data.currency)}</b><br/>`,
-            `Headcount: <b>${center.headcount}</b><br/>`,
-            `Participação: <b>${pct}%</b> &nbsp;·&nbsp; Acumulado: <b>${cum}%</b><br/>`,
-            `Crescimento: <b style="color:${center.growthVsPrevious > 15 ? warnColor : strongColor}">${formatWorkforcePercentage(center.growthVsPrevious)}</b>`,
-            center.isAbnormal ? `<br/><span style="color:${warnColor}">⚠ Crescimento anormal</span>` : '',
-            `</div>`,
-          ].join('');
-        },
-      },
-      grid: { left: '2%', right: '14%', top: '3%', bottom: '3%', containLabel: true },
-      xAxis: {
-        type: 'value',
-        axisLabel: { show: false },
-        axisLine: { show: false },
-        axisTick: { show: false },
-        splitLine: { lineStyle: { color: splitColor } },
-      },
-      yAxis: {
-        type: 'category',
-        data: categories,
-        axisLine: { show: false },
-        axisTick: { show: false },
-        axisLabel: {
-          color: axisColor,
-          fontSize: 10,
-          formatter: (value: string, i: number) => {
-            const rank = categories.length - i;
-            return rank <= 3 ? `{top|#${rank}} ${value}` : value;
-          },
-          rich: {
-            top: { color: isLight ? '#0d9488' : '#14B8A6', fontWeight: 700, fontSize: 10 },
-          },
-        },
-      },
-      series: [
-        // Ghost background bar
-        {
-          name: '__ghost',
-          type: 'bar',
-          silent: true,
-          barWidth: 16,
-          z: 0,
-          data: reversedValues.map(() => ({
-            value: maxVal,
-            itemStyle: { color: ghostColor, borderRadius: [0, 4, 4, 0] },
-          })),
-          label: { show: false },
-        },
-        // Value bar with gradient
-        {
-          name: 'Folha',
-          type: 'bar',
-          barGap: '-100%',
-          barWidth: 16,
-          z: 1,
-          data: reversedValues.map((v, i) => {
-            const rank = categories.length - 1 - i;
-            const colorIdx = rank < PALETTE.length ? rank : PALETTE.length - 1;
-            return {
-              value: v,
-              itemStyle: {
-                color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
-                  { offset: 0, color: PALETTE[colorIdx] },
-                  { offset: 1, color: PALETTE_FADE[colorIdx] },
-                ]),
-                borderRadius: [0, 4, 4, 0],
-              },
-            };
-          }),
-          label: {
-            show: true,
-            position: 'right',
-            formatter: ({ dataIndex, value }: { dataIndex: number; value: number }) => {
-              const pct = data.totalPayroll > 0
-                ? ((value / data.totalPayroll) * 100).toFixed(1)
-                : '0';
-              const cum = reversedCumPcts[dataIndex] ?? 0;
-              return `{pct|${pct}%}  {cum|∑${cum}%}`;
-            },
-            rich: {
-              pct: { color: labelStrong, fontSize: 10, fontWeight: 700 },
-              cum: { color: labelMuted, fontSize: 9 },
-            },
-          },
-        },
-      ],
-    };
-  }, [sortedCenters, values, cumulativePcts, data, isLight]);
-
-  const chartHeight = Math.max(180, sortedCenters.length * 38);
-
-  const top3Pct = data.top3Concentration;
-  const top3Tone = top3Pct > 80 ? 'text-ig-danger' : top3Pct > 70 ? 'text-ig-warning' : 'text-ig-success';
-  const top3Sub  = top3Pct > 80 ? 'crítica' : top3Pct > 70 ? 'atenção' : 'saudável';
+  const isEmpty = sorted.length === 0;
 
   return (
-    <OrionCard variant="elevated" className={cn('', className)} disableHover>
-      {/* Header */}
-      <div className="flex items-start justify-between mb-5">
-        <div>
-          <h3 className="text-sm font-semibold text-ig-fg-strong tracking-tight">
-            Concentração de Custos
-          </h3>
-          <p className="text-xs text-ig-fg-muted mt-0.5">
-            Centros de custo · ranking por folha com acumulado Pareto
-          </p>
+    <div className={cn('space-y-4', className)}>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="flex items-center gap-3 rounded-xl border border-ig-border-subtle bg-ig-panel px-4 py-3">
+          <span className="shrink-0 rounded-lg bg-ig-accent-weak p-2">
+            <Building2 className="h-4 w-4 text-ig-accent" />
+          </span>
+          <div className="min-w-0">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ig-fg-subtle">
+              Centros de custo
+            </p>
+            <p className="ig-tabular text-lg font-semibold text-ig-fg-strong">{sorted.length}</p>
+          </div>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          {abnormalCount > 0 && (
-            <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-ig-warning/10 border border-ig-warning/25">
-              <AlertTriangle className="w-3 h-3 text-ig-warning" />
-              <span className="text-[11px] text-ig-warning font-semibold ig-tabular">
-                {abnormalCount} anormal{abnormalCount > 1 ? 'is' : ''}
-              </span>
-            </div>
-          )}
-          <div className="p-1.5 rounded-lg bg-ig-panel border border-ig-border-subtle">
-            <Building2 className="w-3.5 h-3.5 text-ig-fg-muted" />
+
+        <div className="flex items-center gap-3 rounded-xl border border-ig-border-subtle bg-ig-panel px-4 py-3">
+          <div className="min-w-0">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ig-fg-subtle">
+              Concentração Top-3
+            </p>
+            <p className={cn('ig-tabular text-lg font-semibold', top3Tone)}>
+              {isEmpty ? '–' : `${top3.toFixed(1).replace('.', ',')}%`}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 rounded-xl border border-ig-border-subtle bg-ig-panel px-4 py-3">
+          <span
+            className={cn(
+              'shrink-0 rounded-lg p-2',
+              abnormal.length > 0 ? 'bg-ig-danger/10' : 'bg-ig-bg-raised',
+            )}
+          >
+            <AlertTriangle
+              className={cn(
+                'h-4 w-4',
+                abnormal.length > 0 ? 'text-ig-danger' : 'text-ig-fg-subtle',
+              )}
+            />
+          </span>
+          <div className="min-w-0">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ig-fg-subtle">
+              Crescimento atípico
+            </p>
+            <p className="ig-tabular text-lg font-semibold text-ig-fg-strong">{abnormal.length}</p>
           </div>
         </div>
       </div>
 
-      {/* Premium stat blocks */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
-        {/* Total Folha */}
-        <div className="flex flex-col gap-0.5 px-3 py-2.5 rounded-xl bg-ig-panel border border-ig-border-subtle">
-          <span className="text-[9.5px] font-bold uppercase tracking-[0.12em] text-ig-fg-subtle">
-            Total Folha
-          </span>
-          <span className="text-sm font-bold ig-tabular text-ig-fg-strong truncate">
-            {formatWorkforceCurrency(data.totalPayroll, data.currency)}
-          </span>
-          <span className="text-[10px] text-ig-fg-muted">
-            {data.costCenters.length} centros
-          </span>
-        </div>
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.35fr_1fr]">
+        <WorkforceChartCard
+          title="Folha por centro de custo"
+          subtitle={`Total de ${formatWorkforceCurrency(data.totalPayroll, data.currency)} no período`}
+          height={Math.max(220, Math.min(sorted.length, 10) * 44)}
+          isEmpty={isEmpty}
+          emptyTitle="Sem abertura por centro de custo"
+          emptyDescription="A concentração vem do rateio do lote de folha aprovado ou da lotação tributária apurada no eSocial. Nenhuma das duas trouxe abertura no período."
+        >
+          <FinanceRankMatrix
+            rows={rows}
+            mode="progress"
+            valueFormatter={(v) => formatWorkforceCurrency(v, data.currency)}
+            headers={{ label: 'Centro de custo', bar: 'Participação na folha', secondary: 'Variação' }}
+            axisFormatter={(v) => formatWorkforceCurrency(v, data.currency)}
+          />
+        </WorkforceChartCard>
 
-        {/* Concentração Top-3 */}
-        <div className="flex flex-col gap-0.5 px-3 py-2.5 rounded-xl bg-ig-panel border border-ig-border-subtle">
-          <span className="text-[9.5px] font-bold uppercase tracking-[0.12em] text-ig-fg-subtle">
-            Top-3
-          </span>
-          <span className={cn('text-sm font-bold ig-tabular', top3Tone)}>
-            {top3Pct.toFixed(1)}%
-          </span>
-          <span className={cn('text-[10px]', top3Tone)}>{top3Sub}</span>
-        </div>
-
-        {/* Maior Centro */}
-        {top1 && (
-          <div className="flex flex-col gap-0.5 px-3 py-2.5 rounded-xl bg-ig-panel border border-ig-border-subtle col-span-1 sm:col-span-2">
-            <span className="text-[9.5px] font-bold uppercase tracking-[0.12em] text-ig-fg-subtle">
-              Maior Centro
-            </span>
-            <span className="text-sm font-bold text-ig-accent truncate">{top1.name}</span>
-            <span className="text-[10px] text-ig-fg-muted">
-              {formatWorkforceCurrency(top1.payrollValue, data.currency)} · {top1.headcount} pessoas
-            </span>
-          </div>
-        )}
+        <WorkforceChartCard
+          title="Curva acumulada"
+          subtitle="Quantos centros explicam a maior parte da folha"
+          height={260}
+          isEmpty={isEmpty}
+          emptyTitle="Curva indisponível"
+          emptyDescription="Sem centros de custo apurados não há concentração a acumular."
+          legend={[{ label: '% acumulado da folha', color: palette.accent }]}
+        >
+          <FinanceLineChart
+            categories={sorted.map((c) => c.name)}
+            series={[{ name: '% acumulado', data: cumulative, tone: 'accent' }]}
+            height={252}
+          />
+        </WorkforceChartCard>
       </div>
-
-      {/* Pareto chart */}
-      <div style={{ height: `${chartHeight}px` }}>
-        <ReactEChartsCore
-          echarts={echarts}
-          option={chartOptions}
-          style={{ height: '100%', width: '100%' }}
-          opts={{ renderer: 'canvas' }}
-        />
-      </div>
-
-      {/* Top-3 rank strip */}
-      {sortedCenters.length > 0 && (
-        <div className="mt-5 pt-4 border-t border-ig-border-subtle">
-          <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-ig-fg-subtle mb-3">
-            Ranking Top-3
-          </p>
-          <div className="flex flex-wrap gap-3">
-            {sortedCenters.slice(0, 3).map((center, idx) => {
-              const colorIdx = idx < PALETTE.length ? idx : PALETTE.length - 1;
-              const GrowthIcon = center.growthVsPrevious >= 0 ? TrendingUp : TrendingDown;
-              const growthCls = center.growthVsPrevious > 15
-                ? 'text-ig-warning'
-                : center.growthVsPrevious > 0
-                  ? 'text-ig-success'
-                  : 'text-ig-danger';
-              return (
-                <div
-                  key={center.id}
-                  className={cn(
-                    'flex-1 min-w-[140px] p-3.5 rounded-xl border',
-                    center.isAbnormal
-                      ? 'bg-ig-warning/8 border-ig-warning/20'
-                      : 'bg-ig-panel border-ig-border-subtle',
-                  )}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span
-                      className="text-xs font-black ig-tabular"
-                      style={{ color: PALETTE[colorIdx] }}
-                    >
-                      #{idx + 1}
-                    </span>
-                    {center.isAbnormal && (
-                      <AlertTriangle className="w-3 h-3 text-ig-warning" />
-                    )}
-                  </div>
-                  <p className="text-xs font-semibold text-ig-fg-strong truncate mb-1.5">
-                    {center.name}
-                  </p>
-                  <p className="text-base font-bold text-ig-fg-strong ig-tabular leading-none mb-2">
-                    {formatWorkforceCurrency(center.payrollValue, data.currency)}
-                  </p>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] text-ig-fg-muted">
-                      {center.headcount} pessoas
-                    </span>
-                    <span className="text-ig-border-subtle">·</span>
-                    <div className="flex items-center gap-0.5">
-                      <GrowthIcon className={cn('w-3 h-3', growthCls)} />
-                      <span className={cn('text-[10px] ig-tabular font-semibold', growthCls)}>
-                        {formatWorkforcePercentage(center.growthVsPrevious)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-    </OrionCard>
+    </div>
   );
 }

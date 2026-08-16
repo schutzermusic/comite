@@ -101,6 +101,7 @@
     "react-map-gl": "^8.1.0",
     "recharts": "^2.15.1",
     "resend": "^6.12.4",
+    "sharp": "^0.34.5",
     "tailwind-merge": "^3.0.1",
     "tailwindcss-animate": "^1.0.7",
     "three": "^0.181.2",

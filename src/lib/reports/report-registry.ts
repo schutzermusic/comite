@@ -85,7 +85,7 @@ export const reportRegistry: Record<ReportModuleKey, ReportRegistryEntry> = {
     title: 'Pessoas & Custos',
     subtitle: 'Headcount, folha, concentração de custos e risco de folha',
     permission: 'people.view_costs',
-    builder: '@/lib/workforce/export-report#openWorkforceReport',
+    builder: '@/lib/reports/modules/workforce-overview-report#openWorkforceOverviewPdf',
     variants: [
       {
         fileContext: 'folha-encargos',

@@ -1,194 +1,166 @@
 'use client';
 
+/**
+ * Eficiência & produtividade, no kit SVG compartilhado.
+ *
+ * Migrado de ECharts: o mesmo renderizador que desenha aqui desenha no PDF, no
+ * deck e no PowerPoint, com a mesma paleta. Enquanto a tela usava canvas e o
+ * relatório usava SVG-string, eram dois desenhos do mesmo número — e bastava
+ * uma cor mudar de um lado para a comparação entre tela e documento denunciar
+ * a divergência.
+ */
+
 import { useMemo } from 'react';
-import ReactEChartsCore from 'echarts-for-react/lib/core';
-import * as echarts from 'echarts/core';
-import { LineChart, BarChart } from 'echarts/charts';
-import { TooltipComponent, GridComponent, LegendComponent } from 'echarts/components';
-import { CanvasRenderer } from 'echarts/renderers';
-import { Zap, TrendingUp, Percent } from 'lucide-react';
-import { OrionCard } from '@/components/orion';
-import { useTheme } from '@/contexts/ThemeContext';
+import { Percent, TrendingUp, Zap } from 'lucide-react';
+import {
+  FinanceLineChart,
+  PALETTE_DARK,
+  PALETTE_LIGHT,
+  useChartTheme,
+} from '@/components/finance/shared';
 import { formatWorkforceCurrency } from '@/lib/workforce-data';
 import { cn } from '@/lib/utils';
+import { WorkforceChartCard } from './overview/WorkforceChartCard';
 import type { EfficiencyPoint } from '@/lib/workforce/period';
-
-echarts.use([LineChart, BarChart, TooltipComponent, GridComponent, LegendComponent, CanvasRenderer]);
 
 interface WorkforceEfficiencyPanelProps {
   data: EfficiencyPoint[];
   currency?: string;
   className?: string;
+  /** Limite de política para a razão folha/receita. */
+  threshold?: number;
 }
 
-export function WorkforceEfficiencyPanel({ data, currency = 'BRL', className }: WorkforceEfficiencyPanelProps) {
-  const { theme } = useTheme();
-  const isLight = theme === 'light';
+export function WorkforceEfficiencyPanel({
+  data,
+  currency = 'BRL',
+  className,
+  threshold = 30,
+}: WorkforceEfficiencyPanelProps) {
+  const { isLight } = useChartTheme();
+  const palette = isLight ? PALETTE_LIGHT : PALETTE_DARK;
 
-  const muted = isLight ? 'rgba(51,65,85,0.72)' : 'rgba(242,245,247,0.60)';
-  const strong = isLight ? '#0f172a' : '#F2F5F7';
-  const axis = isLight ? 'rgba(51,65,85,0.45)' : 'rgba(242,245,247,0.32)';
-  const split = isLight ? 'rgba(15,118,110,0.10)' : 'rgba(170,200,190,0.06)';
-  const tooltipBg = isLight ? '#ffffff' : '#141B24';
-  const tooltipBorder = isLight ? 'rgba(15,118,110,0.2)' : 'rgba(170,200,190,0.18)';
+  const periods = useMemo(() => data.map((d) => d.period), [data]);
 
-  const periods = data.map((d) => d.period);
-
-  // Revenue per employee + cost per employee combo
-  const revPerEmpOption = useMemo(() => ({
-    backgroundColor: 'transparent',
-    tooltip: {
-      trigger: 'axis',
-      backgroundColor: tooltipBg, borderColor: tooltipBorder, borderWidth: 1,
-      textStyle: { color: strong, fontSize: 12 },
-      formatter: (params: { axisValue: string; seriesName: string; value: number; color: string }[]) => {
-        let html = `<div style="font-weight:600;color:${strong};margin-bottom:4px">${params[0].axisValue}</div>`;
-        params.forEach((p) => {
-          html += `<div style="display:flex;align-items:center;gap:6px"><span style="width:7px;height:7px;border-radius:50%;background:${p.color};display:inline-block"></span><span style="color:${muted};flex:1">${p.seriesName}:</span><b style="color:${strong}">${formatWorkforceCurrency(p.value, currency)}</b></div>`;
-        });
-        return html;
-      },
-    },
-    legend: { show: true, bottom: 0, textStyle: { color: muted, fontSize: 10 }, itemWidth: 10, itemHeight: 7 },
-    grid: { left: '2%', right: '2%', top: '8%', bottom: '16%', containLabel: true },
-    xAxis: { type: 'category', data: periods, axisLine: { show: false }, axisTick: { show: false }, axisLabel: { color: axis, fontSize: 9 } },
-    yAxis: { type: 'value', axisLine: { show: false }, axisTick: { show: false }, axisLabel: { show: false }, splitLine: { lineStyle: { color: split } } },
-    series: [
-      {
-        name: 'Receita/func.', type: 'line', data: data.map((d) => d.revenuePerEmployee),
-        smooth: true, lineStyle: { color: '#22C55E', width: 2 }, itemStyle: { color: '#22C55E' },
-        symbol: 'circle', symbolSize: 5,
-        areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: 'rgba(34,197,94,0.16)' }, { offset: 1, color: 'rgba(34,197,94,0)' }]) },
-      },
-      {
-        name: 'Custo/func.', type: 'line', data: data.map((d) => d.costPerEmployee),
-        smooth: true, lineStyle: { color: '#F59E0B', width: 2 }, itemStyle: { color: '#F59E0B' },
-        symbol: 'circle', symbolSize: 5,
-        areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: 'rgba(245,158,11,0.12)' }, { offset: 1, color: 'rgba(245,158,11,0)' }]) },
-      },
-    ],
-  }), [data, periods, strong, muted, axis, split, tooltipBg, tooltipBorder, currency]);
-
-  // Payroll % of revenue line
-  const payrollPctOption = useMemo(() => ({
-    backgroundColor: 'transparent',
-    tooltip: {
-      trigger: 'axis',
-      backgroundColor: tooltipBg, borderColor: tooltipBorder, borderWidth: 1,
-      textStyle: { color: strong, fontSize: 12 },
-      formatter: (params: { axisValue: string; value: number }[]) => {
-        const p = params[0];
-        return `<div style="font-weight:600;color:${strong}">${p.axisValue}</div><div style="color:${muted}">Folha/Receita: <b>${p.value.toFixed(1)}%</b></div>`;
-      },
-    },
-    grid: { left: '2%', right: '2%', top: '8%', bottom: '10%', containLabel: true },
-    xAxis: { type: 'category', data: periods, axisLine: { show: false }, axisTick: { show: false }, axisLabel: { color: axis, fontSize: 9 } },
-    yAxis: { type: 'value', axisLine: { show: false }, axisTick: { show: false }, axisLabel: { show: false }, splitLine: { lineStyle: { color: split } } },
-    visualMap: {
-      show: false, type: 'continuous', seriesIndex: 0, min: 0, max: 40,
-      color: ['#EF4444', '#F59E0B', '#14B8A6'],
-    },
-    series: [{
-      type: 'line', data: data.map((d) => d.payrollAsRevenuePct), smooth: true,
-      lineStyle: { width: 2.5 }, symbol: 'circle', symbolSize: 5,
-      areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: 'rgba(20,184,166,0.15)' }, { offset: 1, color: 'rgba(20,184,166,0)' }]) },
-      markLine: {
-        silent: true,
-        lineStyle: { color: '#EF4444', type: 'dashed', width: 1 },
-        data: [{ yAxis: 30, label: { formatter: 'Limite 30%', color: '#EF4444', fontSize: 9 } }],
-      },
-    }],
-  }), [data, periods, strong, muted, axis, split, tooltipBg, tooltipBorder]);
-
-  // Latest period KPIs
+  // Receita por colaborador só existe onde houve receita lançada. Um ponto em
+  // zero afirmaria faturamento nulo, que é diferente de faturamento ausente.
+  const hasRevenue = data.some((d) => d.revenuePerEmployee > 0);
   const latest = data[data.length - 1];
-  const first = data[0];
-  const revPerEmpDelta = first && latest && first.revenuePerEmployee > 0
-    ? (((latest.revenuePerEmployee - first.revenuePerEmployee) / first.revenuePerEmployee) * 100).toFixed(1)
-    : null;
-  const costPerEmpDelta = first && latest && first.costPerEmployee > 0
-    ? (((latest.costPerEmployee - first.costPerEmployee) / first.costPerEmployee) * 100).toFixed(1)
-    : null;
 
-  const hasRevenue = (latest?.revenue ?? 0) > 0;
+  const summary = [
+    {
+      icon: Zap,
+      label: 'Receita / colaborador',
+      value: latest && latest.revenuePerEmployee > 0
+        ? formatWorkforceCurrency(latest.revenuePerEmployee, currency)
+        : '–',
+      tone: 'text-ig-success',
+    },
+    {
+      icon: TrendingUp,
+      label: 'Custo médio / colaborador',
+      value: latest && latest.costPerEmployee > 0
+        ? formatWorkforceCurrency(latest.costPerEmployee, currency)
+        : '–',
+      tone: 'text-ig-info',
+    },
+    {
+      icon: Percent,
+      label: 'Folha / receita',
+      value: latest && latest.payrollAsRevenuePct > 0
+        ? `${latest.payrollAsRevenuePct.toFixed(1).replace('.', ',')}%`
+        : '–',
+      tone:
+        latest && latest.payrollAsRevenuePct >= threshold ? 'text-ig-warning' : 'text-ig-fg-strong',
+    },
+  ];
 
   return (
     <div className={cn('space-y-4', className)}>
-      {/* Summary KPIs */}
-      {latest && (
-        <div className="grid grid-cols-3 gap-3">
-          {[
-            {
-              icon: TrendingUp,
-              label: 'Receita por colaborador',
-              // Sem receita lançada não há eficiência a medir. "R$ 0" seria
-              // lido como faturamento nulo por colaborador.
-              value: hasRevenue ? formatWorkforceCurrency(latest.revenuePerEmployee, currency) : '–',
-              delta: hasRevenue && revPerEmpDelta
-                ? `${Number(revPerEmpDelta) > 0 ? '+' : ''}${revPerEmpDelta}%`
-                : hasRevenue ? undefined : 'Sem receita lançada',
-              positive: hasRevenue && revPerEmpDelta ? Number(revPerEmpDelta) > 0 : undefined,
-              color: hasRevenue ? 'text-ig-success' : 'text-ig-fg-subtle',
-            },
-            {
-              icon: Zap,
-              label: 'Custo por colaborador',
-              value: formatWorkforceCurrency(latest.costPerEmployee, currency),
-              delta: costPerEmpDelta ? `${Number(costPerEmpDelta) > 0 ? '+' : ''}${costPerEmpDelta}%` : undefined,
-              positive: costPerEmpDelta ? Number(costPerEmpDelta) <= 0 : undefined,
-              color: 'text-ig-warning',
-            },
-            {
-              icon: Percent,
-              label: 'Folha / Receita',
-              value: hasRevenue ? `${latest.payrollAsRevenuePct.toFixed(1)}%` : '–',
-              delta: hasRevenue ? 'Limite 30%' : 'Sem receita lançada',
-              positive: hasRevenue ? latest.payrollAsRevenuePct < 30 : undefined,
-              color: !hasRevenue
-                ? 'text-ig-fg-subtle'
-                : latest.payrollAsRevenuePct >= 35 ? 'text-ig-danger' : latest.payrollAsRevenuePct >= 30 ? 'text-ig-warning' : 'text-ig-success',
-            },
-          ].map((kpi) => {
-            const Icon = kpi.icon;
-            return (
-              <div key={kpi.label} className="p-3 rounded-xl bg-ig-panel border border-ig-border-subtle">
-                <div className="flex items-center gap-1.5 mb-1.5">
-                  <Icon className={cn('w-3.5 h-3.5', kpi.color)} />
-                  <span className="text-[10px] text-ig-fg-muted truncate">{kpi.label}</span>
-                </div>
-                <p className={cn('text-lg font-semibold ig-tabular', kpi.color)}>{kpi.value}</p>
-                {kpi.delta && (
-                  <p className={cn(
-                    'text-[10px] mt-0.5',
-                    kpi.positive === true ? 'text-ig-success' : kpi.positive === false ? 'text-ig-danger' : 'text-ig-fg-subtle',
-                  )}>{kpi.delta}</p>
-                )}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        {summary.map((s) => {
+          const Icon = s.icon;
+          return (
+            <div
+              key={s.label}
+              className="flex items-center gap-3 rounded-xl border border-ig-border-subtle bg-ig-panel px-4 py-3"
+            >
+              <span className="shrink-0 rounded-lg bg-ig-accent-weak p-2">
+                <Icon className="h-4 w-4 text-ig-accent" />
+              </span>
+              <div className="min-w-0">
+                <p className="truncate text-[10px] font-semibold uppercase tracking-[0.12em] text-ig-fg-subtle">
+                  {s.label}
+                </p>
+                <p className={cn('ig-tabular text-lg font-semibold', s.tone)}>{s.value}</p>
               </div>
-            );
-          })}
-        </div>
-      )}
+            </div>
+          );
+        })}
+      </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <OrionCard variant="elevated">
-          <div className="flex items-center gap-2 mb-3">
-            <TrendingUp className="w-3.5 h-3.5 text-ig-success" />
-            <span className="text-xs font-semibold text-ig-fg-strong">Receita vs Custo por Colaborador</span>
-          </div>
-          <div className="h-[200px]">
-            <ReactEChartsCore echarts={echarts} option={revPerEmpOption} style={{ height: '100%', width: '100%' }} opts={{ renderer: 'canvas' }} />
-          </div>
-        </OrionCard>
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <WorkforceChartCard
+          title="Receita e custo por colaborador"
+          subtitle="Quanto cada pessoa produz e quanto custa, mês a mês"
+          height={260}
+          isEmpty={!hasRevenue}
+          emptyTitle="Receita não lançada no período"
+          emptyDescription="A produtividade por colaborador precisa da receita do contas a receber. Sem ela, só o custo médio é apurável — e ele já aparece acima."
+          legend={[
+            { label: 'Receita / colaborador', color: palette.success },
+            { label: 'Custo / colaborador', color: palette.info },
+          ]}
+        >
+          <FinanceLineChart
+            categories={periods}
+            series={[
+              {
+                name: 'Receita / colaborador',
+                data: data.map((d) => d.revenuePerEmployee),
+                tone: 'success',
+              },
+              {
+                name: 'Custo / colaborador',
+                data: data.map((d) => d.costPerEmployee),
+                tone: 'info',
+              },
+            ]}
+            height={252}
+          />
+        </WorkforceChartCard>
 
-        <OrionCard variant="elevated">
-          <div className="flex items-center gap-2 mb-3">
-            <Percent className="w-3.5 h-3.5 text-ig-info" />
-            <span className="text-xs font-semibold text-ig-fg-strong">Folha / Receita (%)</span>
-          </div>
-          <div className="h-[200px]">
-            <ReactEChartsCore echarts={echarts} option={payrollPctOption} style={{ height: '100%', width: '100%' }} opts={{ renderer: 'canvas' }} />
-          </div>
-        </OrionCard>
+        <WorkforceChartCard
+          title="Folha sobre receita"
+          subtitle={`Parcela da receita comprometida com a folha — limite de política em ${threshold}%`}
+          height={260}
+          isEmpty={!data.some((d) => d.payrollAsRevenuePct > 0)}
+          emptyTitle="Razão não apurável"
+          emptyDescription="A razão folha/receita precisa das duas pontas. Sem receita lançada, exibir 0% seria ler a folha como irrisória diante do faturamento — o oposto do que se sabe."
+          legend={[
+            { label: 'Folha / receita', color: palette.warning },
+            { label: `Limite (${threshold}%)`, color: palette.danger },
+          ]}
+        >
+          <FinanceLineChart
+            categories={periods}
+            series={[
+              {
+                name: 'Folha / receita',
+                data: data.map((d) => d.payrollAsRevenuePct),
+                tone: 'warning',
+              },
+              // A linha de limite é constante de propósito: ela é a régua, e ver
+              // a série cruzá-la é a leitura inteira deste gráfico.
+              {
+                name: `Limite (${threshold}%)`,
+                data: data.map(() => threshold),
+                tone: 'danger',
+              },
+            ]}
+            height={252}
+          />
+        </WorkforceChartCard>
       </div>
     </div>
   );

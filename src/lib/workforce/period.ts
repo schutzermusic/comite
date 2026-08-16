@@ -156,7 +156,8 @@ export interface WorkforceMonthlyRecord {
   costCenters: WorkforceMonthlyCostCenter[];
 }
 
-function shiftCompetenceMonth(latest: string, monthsBack: number): string {
+/** Desloca uma competência 'YYYY-MM' N meses para trás. Não consulta a série. */
+export function shiftCompetenceMonth(latest: string, monthsBack: number): string {
   const [y, m] = latest.split('-').map(Number);
   const d = new Date(Date.UTC(y, m - 1 - monthsBack, 1));
   const yy = d.getUTCFullYear();
@@ -616,12 +617,31 @@ export interface WorkforceTrendPoint {
   avgCost: number;
 }
 
-const WORKFORCE_CHART_MONTHS = 2;
+/**
+ * Piso da janela: uma série temporal de um ponto só não é leitura, é um número
+ * com eixo em volta. Selecionar um único mês traz o mês anterior junto para que
+ * o gráfico mostre ao menos uma variação.
+ */
+export const WORKFORCE_CHART_MIN_MONTHS = 2;
 
 /**
- * Keep every time-series chart aligned to the two most recent competence
- * months ending at the selected period. A single-month selection therefore
- * includes its immediately preceding month, while longer ranges are capped.
+ * Teto da janela. Acima disso os rótulos do eixo deixam de ser legíveis na
+ * largura de um painel — e o recorte que interessa ao board raramente passa de
+ * dois anos. Quem precisa de mais usa a matriz mensal, que é tabela.
+ */
+export const WORKFORCE_CHART_MAX_MONTHS = 24;
+
+/**
+ * Janela das séries temporais, ancorada no fim do período selecionado.
+ *
+ * A janela ACOMPANHA o período: "Ano atual" desenha os meses do ano, "3º Tri"
+ * desenha o trimestre. Antes havia aqui um teto fixo de dois meses, e toda
+ * Curva S, tendência e matriz mensal saía com dois pontos por mais largo que
+ * fosse o filtro — o gráfico dizia menos que o próprio KPI.
+ *
+ * O recorte é sempre um `slice` da série apurada: a janela pode ser menor que o
+ * período pedido quando a série não vai tão longe, mas nunca inventa a
+ * competência que falta.
  */
 function selectRecentChartRows(
   selection: WorkforcePeriodSelection,
@@ -633,10 +653,11 @@ function selectRecentChartRows(
   if (!anchor) return [];
   const endIdx = series.findIndex((r) => r.competenceMonth === anchor.competenceMonth);
   const safeEndIdx = endIdx >= 0 ? endIdx : series.length - 1;
-  return series.slice(
-    Math.max(0, safeEndIdx - (WORKFORCE_CHART_MONTHS - 1)),
-    safeEndIdx + 1,
+  const windowMonths = Math.min(
+    WORKFORCE_CHART_MAX_MONTHS,
+    Math.max(WORKFORCE_CHART_MIN_MONTHS, range.current.length),
   );
+  return series.slice(Math.max(0, safeEndIdx - (windowMonths - 1)), safeEndIdx + 1);
 }
 
 /** Trend chart series scoped to the selected window. */
@@ -703,8 +724,11 @@ export function selectPayrollSCurve(
   const series = seriesOverride ?? EMPTY_SERIES;
   const curRows = selectRecentChartRows(selection, series);
   const firstIdx = series.findIndex((r) => r.competenceMonth === curRows[0]?.competenceMonth);
+  // A curva de comparação tem o mesmo comprimento da atual: é o que torna as
+  // duas acumuladas legíveis ponto a ponto. Com um teto fixo aqui, um período
+  // largo se compararia contra dois meses.
   const prevRows = firstIdx > 0
-    ? series.slice(Math.max(0, firstIdx - WORKFORCE_CHART_MONTHS), firstIdx)
+    ? series.slice(Math.max(0, firstIdx - curRows.length), firstIdx)
     : [];
   const maxLen = curRows.length;
   let cumCur = 0;

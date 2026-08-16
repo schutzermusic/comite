@@ -20,8 +20,13 @@ import { enrichContractsForGovernance } from '@/components/contracts/contract-go
 import { buildContractReportHtml } from '@/lib/reports/modules/contract-report';
 import { DEMO_RISKS } from '@/components/risks/risk-demo-data';
 import { buildRiskReportHtml } from '@/lib/reports/modules/risk-report';
-import { selectWorkforceView, DEFAULT_WORKFORCE_PERIOD } from '@/lib/workforce/period';
-import { buildWorkforceReportHtml } from '@/lib/workforce/export-report';
+import { buildWorkforceOverviewPdfHtml } from '@/lib/reports/modules/workforce-overview-report';
+import { buildWorkforceOverviewModel } from '@/lib/workforce/overview/model';
+import { EMPTY_ESOCIAL_LINK } from '@/lib/workforce/compliance';
+import {
+  WORKFORCE_DEMO_SERIES,
+  WORKFORCE_SPARSE_SERIES,
+} from './fixtures/workforce-demo-series';
 import { buildProjectOverviewReportHtml, type ProjectOverviewPayload } from '@/lib/reports/modules/project-overview-report';
 import { buildFinanceControlRoomReportHtml } from '@/lib/reports/modules/finance-control-room-report';
 import { buildDeliberationReportHtml } from '@/lib/reports/modules/deliberation-report';
@@ -73,6 +78,22 @@ const contracts: Contract[] = Array.from({ length: 18 }, (_, i) => {
 
 /* ── Reports to render ── */
 
+/**
+ * O documento de Pessoas & Custos é montado a partir do MESMO modelo que
+ * alimenta a tela — é isso que garante que o preview mostre o que o usuário
+ * veria, e não uma segunda montagem só do harness.
+ */
+function workforceModel(series: Parameters<typeof buildWorkforceOverviewModel>[0]['rawSeries']) {
+  return buildWorkforceOverviewModel({
+    period: { key: 'current-year' },
+    comparison: 'previous-period',
+    rawSeries: series,
+    approvedBatches: [],
+    esocialLink: EMPTY_ESOCIAL_LINK,
+    generatedAt: '2026-07-01T12:00:00.000Z',
+  });
+}
+
 const reports: { name: string; html: () => string }[] = [
   {
     name: 'contratos-portfolio',
@@ -93,9 +114,20 @@ const reports: { name: string; html: () => string }[] = [
       generatedBy: 'preview-reports.ts',
     }),
   },
+  // Três entradas de propósito: os dois temas do documento, mais o caso de
+  // série incompleta — que é onde se revisa se a ausência está desenhada como
+  // ausência e não como zero.
   {
     name: 'pessoas-custos',
-    html: () => buildWorkforceReportHtml(selectWorkforceView({ ...DEFAULT_WORKFORCE_PERIOD, key: 'current-year' })),
+    html: () => buildWorkforceOverviewPdfHtml(workforceModel(WORKFORCE_DEMO_SERIES), { theme: 'dark' }),
+  },
+  {
+    name: 'pessoas-custos-claro',
+    html: () => buildWorkforceOverviewPdfHtml(workforceModel(WORKFORCE_DEMO_SERIES), { theme: 'light' }),
+  },
+  {
+    name: 'pessoas-custos-sem-apuracao',
+    html: () => buildWorkforceOverviewPdfHtml(workforceModel(WORKFORCE_SPARSE_SERIES), { theme: 'light' }),
   },
   {
     name: 'projeto-overview',

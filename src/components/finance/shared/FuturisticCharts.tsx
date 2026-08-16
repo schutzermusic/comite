@@ -17,9 +17,15 @@ import { useTheme } from '@/contexts/ThemeContext';
 /* Tokens                                                           */
 /* --------------------------------------------------------------- */
 
-type Tone = 'accent' | 'success' | 'danger' | 'warning' | 'info' | 'budget' | 'textStrong';
+export type Tone = 'accent' | 'success' | 'danger' | 'warning' | 'info' | 'budget' | 'textStrong';
 
-const PALETTE_DARK: Record<Tone, string> = {
+/**
+ * Exportadas para que a camada de relatório possa desenhar em SVG-string a
+ * MESMA série que a tela desenha em SVG-DOM. Um documento gerado com paleta
+ * própria diverge da tela na primeira mudança de cor, e a divergência aparece
+ * justamente na reunião em que alguém compara as duas.
+ */
+export const PALETTE_DARK: Record<Tone, string> = {
   accent: '#22D3EE',
   success: '#34D399',
   danger: '#F87171',
@@ -28,7 +34,7 @@ const PALETTE_DARK: Record<Tone, string> = {
   budget: '#A78BFA',
   textStrong: '#E6E9EE',
 };
-const PALETTE_LIGHT: Record<Tone, string> = {
+export const PALETTE_LIGHT: Record<Tone, string> = {
   accent: '#0891B2',
   success: '#059669',
   danger: '#DC2626',
@@ -45,7 +51,7 @@ const GRID_LIGHT = 'rgba(15,23,42,0.05)';
 const TEXT_DARK = '#A8B0BD';
 const TEXT_LIGHT = '#5B6473';
 
-function useChartTheme() {
+export function useChartTheme() {
   const { theme } = useTheme();
   const isLight = theme === 'light';
   return useMemo(() => ({
@@ -92,6 +98,24 @@ function useContainerWidth() {
 }
 
 // Smooth a polyline using Catmull-Rom -> cubic Bezier
+/**
+ * Área sob a curva.
+ *
+ * Devolve `null` quando não há curva: com um ponto só, `smoothPath` retorna
+ * string vazia e concatenar o fechamento produzia um `d` começando em `L`, sem
+ * `moveto`. O navegador rejeitava o atributo inteiro e registrava
+ * "Expected moveto path command" no console — série de uma competência só é
+ * exatamente o caso de uma base recém-importada.
+ */
+function areaUnder(
+  path: string,
+  pts: [number, number][],
+  baselineY: number,
+): string | null {
+  if (!path || pts.length < 2) return null;
+  return `${path} L ${pts[pts.length - 1][0]},${baselineY} L ${pts[0][0]},${baselineY} Z`;
+}
+
 function smoothPath(points: [number, number][]) {
   if (points.length < 2) return '';
   const path: string[] = [`M ${points[0][0]},${points[0][1]}`];
@@ -241,10 +265,10 @@ export function FinanceLineChart({
           const pts = indexedPoints.map(([x, y]) => [x, y] as [number, number]);
           if (!pts.length) return null;
           const path = smoothPath(pts);
-          const areaPath = `${path} L ${pts[pts.length - 1][0]},${H - padB} L ${pts[0][0]},${H - padB} Z`;
+          const areaPath = areaUnder(path, pts, H - padB);
           return (
             <g key={s.name}>
-              {idx === 0 && <path d={areaPath} fill={`url(#fill-${tone}-${uid})`} />}
+              {idx === 0 && areaPath && <path d={areaPath} fill={`url(#fill-${tone}-${uid})`} />}
               <path d={path} fill="none" stroke={`url(#stroke-${tone}-${uid})`} strokeWidth={1.8} strokeLinecap="round" filter={`url(#softglow-${uid})`} />
               {indexedPoints.map(([px, py, pointIndex]) => (
                 <circle
@@ -379,11 +403,11 @@ export function FinanceSCurveChart({
             .slice(firstIndex);
           if (!pts.length) return null;
           const path = smoothPath(pts);
-          const areaPath = `${path} L ${pts[pts.length - 1][0]},${H - padB} L ${pts[0][0]},${H - padB} Z`;
+          const areaPath = areaUnder(path, pts, H - padB);
           const isPrimary = s.emphasized || idx === 0;
           return (
             <g key={s.name}>
-              {showArea && isPrimary && <path d={areaPath} fill={`url(#fill-${tone}-${uid})`} />}
+              {showArea && isPrimary && areaPath && <path d={areaPath} fill={`url(#fill-${tone}-${uid})`} />}
               <path
                 d={path}
                 fill="none"
@@ -437,13 +461,13 @@ export function FinanceSparkline({
   const yScale = (v: number) => 4 + (H - 8) - ((v - min) / range) * (H - 8);
   const pts = values.map((v, i) => [i * xStep, yScale(v)] as [number, number]);
   const path = smoothPath(pts);
-  const areaPath = `${path} L ${pts[pts.length - 1][0]},${H - 1} L ${pts[0][0]},${H - 1} Z`;
+  const areaPath = areaUnder(path, pts, H - 1);
 
   return (
     <div ref={ref} className="relative w-full" style={{ height }}>
       <svg width={W} height={H} className="overflow-visible">
         <ChartDefs uid={uid} palette={theme.palette} tones={[tone]} />
-        {area && <path d={areaPath} fill={`url(#fill-${tone}-${uid})`} />}
+        {area && areaPath && <path d={areaPath} fill={`url(#fill-${tone}-${uid})`} />}
         <path d={path} fill="none" stroke={theme.palette[tone]} strokeWidth={1.6} filter={`url(#softglow-${uid})`} />
       </svg>
     </div>

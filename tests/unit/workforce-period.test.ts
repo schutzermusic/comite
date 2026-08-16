@@ -85,7 +85,7 @@ const apurada: WorkforceMonthlyRecord[] = series.map((r) =>
 );
 
 describe('recorte de janela dos gráficos', () => {
-  it('limita aos dois meses mais recentes as séries que só dependem da folha', () => {
+  it('acompanha o período selecionado nas séries que só dependem da folha', () => {
     const selection = { key: 'all' as const };
     const chartSeries = [
       selectWorkforceTrend(selection, series),
@@ -95,8 +95,13 @@ describe('recorte de janela dos gráficos', () => {
     ];
 
     chartSeries.forEach((points) => {
-      expect(points).toHaveLength(2);
-      expect(points.map((point) => point.period)).toEqual(['Mar/2026', 'Abr/2026']);
+      expect(points).toHaveLength(4);
+      expect(points.map((point) => point.period)).toEqual([
+        'Jan/2026',
+        'Fev/2026',
+        'Mar/2026',
+        'Abr/2026',
+      ]);
     });
   });
 
@@ -106,6 +111,42 @@ describe('recorte de janela dos gráficos', () => {
       'Fev/2026',
       'Mar/2026',
     ]);
+  });
+
+  it('não inventa competência que a série não tem', () => {
+    // O ano de 2026 tem 12 meses de calendário; a série tem 4. A janela é o
+    // recorte do que existe — nunca um eixo preenchido com meses vazios.
+    const points = selectWorkforceTrend({ key: 'current-year' }, series);
+    expect(points).toHaveLength(4);
+    expect(points.map((p) => p.period)).toEqual(['Jan/2026', 'Fev/2026', 'Mar/2026', 'Abr/2026']);
+  });
+
+  it('respeita o teto de 24 meses em séries longas', () => {
+    const longa: WorkforceMonthlyRecord[] = Array.from({ length: 30 }, (_, i) => {
+      const month = String((i % 12) + 1).padStart(2, '0');
+      const year = 2024 + Math.floor(i / 12);
+      return {
+        competenceMonth: `${year}-${month}`,
+        headcount: 10,
+        payroll: 100,
+        revenue: 400,
+        pj: 0,
+        clt: 10,
+        pjCost: 0,
+        cltCost: 100,
+        costCenters: [],
+      };
+    });
+
+    const points = selectWorkforceTrend({ key: 'all' }, longa);
+    expect(points).toHaveLength(24);
+    // Ancorada no fim da série, não no começo.
+    expect(points[points.length - 1].period).toBe('Jun/2026');
+  });
+
+  it('devolve vazio quando não há competência apurada', () => {
+    expect(selectWorkforceTrend({ key: 'all' }, [])).toEqual([]);
+    expect(selectPayrollSCurve({ key: 'current-year' }, [])).toEqual([]);
   });
 });
 

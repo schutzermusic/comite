@@ -228,7 +228,13 @@ export interface FinanceFilterSegmentProps<T extends string> {
   icon?: React.ReactNode;
   label: string;
   value: T;
-  options: { value: T; label: string }[];
+  /**
+   * `disabled` é opcional e existe para a opção que não se aplica ao estado
+   * atual — comparação sem linha de base, por exemplo. Some-la seria mais
+   * limpo e pior: a opção reaparecendo ao trocar de filtro lê como bug.
+   * Desabilitada, com o motivo em `disabledReason`, ela ensina a relação.
+   */
+  options: { value: T; label: string; disabled?: boolean; disabledReason?: string }[];
   onChange: (value: T) => void;
   className?: string;
   layout?: Extract<FinanceFilterChipLayout, 'scenarioSegment'>;
@@ -252,12 +258,16 @@ export function FinanceFilterSegment<T extends string>({
             <button
               key={o.value}
               type="button"
+              disabled={o.disabled}
+              title={o.disabled ? o.disabledReason : undefined}
               onClick={() => onChange(o.value)}
               className={cn(
                 'shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-semibold transition-colors whitespace-nowrap',
-                active
-                  ? 'bg-[color:var(--ig-accent-weak)] text-[color:var(--ig-accent)] border border-[color:var(--ig-border-focus)]'
-                  : 'text-[color:var(--ig-fg-muted)] hover:text-[color:var(--ig-fg-strong)] border border-transparent',
+                o.disabled
+                  ? 'cursor-not-allowed border border-transparent text-[color:var(--ig-fg-disabled)] opacity-60'
+                  : active
+                    ? 'bg-[color:var(--ig-accent-weak)] text-[color:var(--ig-accent)] border border-[color:var(--ig-border-focus)]'
+                    : 'text-[color:var(--ig-fg-muted)] hover:text-[color:var(--ig-fg-strong)] border border-transparent',
               )}
             >
               {o.label}
