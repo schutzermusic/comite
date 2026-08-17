@@ -9,6 +9,11 @@
  * conformidade explica o quanto disso já está fechado; o simulador é o único
  * bloco que projeta.
  *
+ * Depois do simulador vem só manutenção: o ajuste manual de quadro, que é
+ * ferramenta de administrador e só aparece para quem pode executá-la. Ele
+ * ficava dentro da conformidade, o que empurrava o simulador para o fim e
+ * encerrava a leitura do board num formulário.
+ *
  * Toda a composição de dados vive em `useWorkforceOverview`, que devolve UM
  * modelo — o mesmo consumido pelo PDF, pelo deck HTML e pelo PowerPoint. Esta
  * página não calcula indicador nenhum; ela dispõe seções.
@@ -32,6 +37,7 @@ import {
   CostStructureSection,
   EfficiencySection,
   ExecutiveSummarySection,
+  ManualHeadcountSection,
   RiskConcentrationSection,
   SectionNavStrip,
   SimulatorSection,
@@ -265,22 +271,21 @@ function WorkforceCostPageInner() {
 
       <RiskConcentrationSection model={model} />
 
-      <ComplianceSection
-        model={model}
-        loading={loading}
-        onSyncEsocial={reloadEsocial}
-        manualHeadcount={
-          canManageIntegrations && hasData
-            ? {
-                competences: adjustableCompetences,
-                onSave: saveManualHeadcount,
-                onRemove: removeManualHeadcount,
-              }
-            : undefined
-        }
-      />
+      <ComplianceSection model={model} loading={loading} onSyncEsocial={reloadEsocial} />
 
       <SimulatorSection model={model} />
+
+      {/* A manutenção da base fecha a página, depois da leitura: o ajuste manual
+          é ferramenta de administrador, não conteúdo de board. */}
+      {canManageIntegrations && hasData && (
+        <ManualHeadcountSection
+          manualHeadcount={{
+            competences: adjustableCompetences,
+            onSave: saveManualHeadcount,
+            onRemove: removeManualHeadcount,
+          }}
+        />
+      )}
 
       {hasData && (
         <section className="space-y-3">

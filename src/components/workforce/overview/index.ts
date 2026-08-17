@@ -26,3 +26,4 @@ export { CostStructureSection } from './sections/CostStructureSection';
 export { RiskConcentrationSection } from './sections/RiskConcentrationSection';
 export { ComplianceSection } from './sections/ComplianceSection';
 export { SimulatorSection } from './sections/SimulatorSection';
+export { ManualHeadcountSection } from './sections/ManualHeadcountSection';

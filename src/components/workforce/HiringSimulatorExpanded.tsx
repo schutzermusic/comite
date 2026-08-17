@@ -3,7 +3,6 @@
 import { useState, useMemo, useCallback } from 'react';
 import {
   UserPlus,
-  Calculator,
   DollarSign,
   Target,
   Users,
@@ -15,7 +14,6 @@ import {
   CheckCircle,
   Percent,
 } from 'lucide-react';
-import { OrionCard } from '@/components/orion';
 import { Slider } from '@/components/ui/slider';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { formatWorkforceCurrency } from '@/lib/workforce-data';
@@ -38,10 +36,18 @@ interface HiringSimulatorExpandedProps {
 
 type Scenario = 'conservative' | 'moderate' | 'aggressive';
 
+/**
+ * Os três cenários são OPÇÕES, não vereditos.
+ *
+ * O conservador vinha em verde e o moderado em azul, o que lia como
+ * "conservador = bom". A rampa agora acompanha o risco da premissa: neutro,
+ * acento, âmbar — a mesma direção que o resto do cockpit usa para dizer
+ * "quanto mais colorido, mais atenção".
+ */
 const SCENARIO_CONFIGS: Record<Scenario, { revenueGrowth: number; label: string; icon: typeof Shield; color: string; desc: string }> = {
-  conservative: { revenueGrowth: 0.02, label: 'Conservador', icon: Shield, color: 'text-ig-success', desc: '+2% receita/mês' },
-  moderate:     { revenueGrowth: 0.05, label: 'Moderado',    icon: Zap,    color: 'text-ig-info',    desc: '+5% receita/mês' },
-  aggressive:   { revenueGrowth: 0.10, label: 'Agressivo',   icon: Flame,  color: 'text-ig-warning', desc: '+10% receita/mês' },
+  conservative: { revenueGrowth: 0.02, label: 'Conservador', icon: Shield, color: 'text-ig-fg-default', desc: '+2% receita/mês' },
+  moderate:     { revenueGrowth: 0.05, label: 'Moderado',    icon: Zap,    color: 'text-ig-accent',     desc: '+5% receita/mês' },
+  aggressive:   { revenueGrowth: 0.10, label: 'Agressivo',   icon: Flame,  color: 'text-ig-warning',    desc: '+10% receita/mês' },
 };
 
 // Typical CLT Brazil encargos breakdown (shown in tooltip)
@@ -150,26 +156,36 @@ export function HiringSimulatorExpanded({
   }, [sim, hires, baseSalary, encargosPct, totalCostPerHire, hasRealData, payrollRevenueThreshold, activeCfg, activeBreakEven]);
 
   return (
-    <OrionCard variant="elevated" className={cn('space-y-5', className)}>
-      {/* Context bar */}
-      <div className="flex items-center gap-3">
-        <div className="p-2 rounded-xl bg-ig-info/10 border border-ig-info/20">
-          <Calculator className="w-4 h-4 text-ig-info" />
+    <div
+      className={cn(
+        'flex min-w-0 flex-col overflow-hidden rounded-2xl border border-ig-border-subtle',
+        'bg-gradient-to-br from-ig-panel to-ig-bg-raised/30',
+        className,
+      )}
+    >
+      {/* Cabeçalho na mesma anatomia de `WorkforceChartCard`: título, sublinha
+          e nenhum cromo de acento — o painel não compete com o conteúdo. */}
+      <div className="flex flex-wrap items-start justify-between gap-2 border-b border-ig-border-subtle/60 px-4 py-3">
+        <div className="min-w-0">
+          <h3 className="truncate text-[12.5px] font-semibold tracking-tight text-ig-fg-strong">
+            Base da simulação
+          </h3>
+          <p className="mt-0.5 text-[10.5px] leading-relaxed text-ig-fg-muted">
+            {hasRealData
+              ? `Base atual: ${currentHeadcount} colaboradores · folha ${formatWorkforceCurrency(currentPayroll)}/mês · receita ${formatWorkforceCurrency(currentRevenue)}/mês`
+              : currentPayroll > 0
+                ? `Base atual: ${currentHeadcount} colaboradores · folha ${formatWorkforceCurrency(currentPayroll)}/mês · sem receita lançada, o faturamento necessário fica indisponível`
+                : 'Sem competência apurada — importe a folha para simular sobre a base real'}
+          </p>
         </div>
-        <p className="flex-1 text-xs text-ig-fg-muted min-w-0">
-          {hasRealData
-            ? `Base atual: ${currentHeadcount} func. · folha ${formatWorkforceCurrency(currentPayroll)}/mês · receita ${formatWorkforceCurrency(currentRevenue)}/mês`
-            : currentPayroll > 0
-              ? `Base atual: ${currentHeadcount} func. · folha ${formatWorkforceCurrency(currentPayroll)}/mês · sem receita lançada — a projeção de faturamento necessário fica indisponível`
-              : 'Sem competência apurada — importe a folha para simular sobre a base real'}
-        </p>
         {!hasRealData && (
-          <span className="text-[10px] px-2 py-0.5 rounded-full bg-ig-warning/10 text-ig-warning border border-ig-warning/20 shrink-0">
+          <span className="shrink-0 rounded-full border border-ig-warning/20 bg-ig-warning/10 px-2 py-0.5 text-[10px] font-semibold text-ig-warning">
             sem receita
           </span>
         )}
       </div>
 
+      <div className="space-y-5 p-4">
       {/* ── Controls ────────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
         {/* Salário base */}
@@ -271,14 +287,24 @@ export function HiringSimulatorExpanded({
           {/* Folha/Receita badge — só com dados reais */}
           {hasRealData && (
             <div className={cn(
-              'ml-auto shrink-0 flex flex-col items-center p-2.5 rounded-xl border',
-              sim.exceedsThreshold ? 'bg-ig-danger/10 border-ig-danger/20' : 'bg-ig-success/10 border-ig-success/20',
+              'ml-auto shrink-0 flex flex-col items-center gap-0.5 p-2.5 rounded-xl border',
+              sim.exceedsThreshold
+                ? 'bg-ig-danger/10 border-ig-danger/20'
+                : sim.nearThreshold
+                  ? 'bg-ig-warning/10 border-ig-warning/20'
+                  : 'bg-ig-panel border-ig-border-subtle',
             )}>
-              <p className="text-[10px] text-ig-fg-muted">Folha/Rec. projetada</p>
-              <p className={cn('text-xl font-bold ig-tabular', sim.exceedsThreshold ? 'text-ig-danger' : sim.nearThreshold ? 'text-ig-warning' : 'text-ig-success')}>
+              <p className="text-[10px] uppercase tracking-wider text-ig-fg-muted">Folha/Rec. projetada</p>
+              <p className={cn(
+                'text-xl font-bold ig-tabular',
+                sim.exceedsThreshold ? 'text-ig-danger' : sim.nearThreshold ? 'text-ig-warning' : 'text-ig-fg-strong',
+              )}>
                 {sim.projectedRatio.toFixed(1)}%
               </p>
-              <p className={cn('text-[10px] font-semibold', sim.ratioDelta > 0 ? 'text-ig-danger' : 'text-ig-success')}>
+              <p className={cn(
+                'text-[10px] font-semibold ig-tabular',
+                sim.ratioDelta > 0 ? 'text-ig-danger' : 'text-ig-fg-muted',
+              )}>
                 {sim.ratioDelta > 0 ? '+' : ''}{sim.ratioDelta.toFixed(1)} p.p.
               </p>
               <p className="text-[10px] text-ig-fg-subtle">atual: {sim.currentRatio.toFixed(1)}%</p>
@@ -298,7 +324,7 @@ export function HiringSimulatorExpanded({
         )}
         {hasRealData && !sim.exceedsThreshold && (
           <div className="mt-3 flex items-center gap-2 text-xs">
-            <CheckCircle className="w-3.5 h-3.5 text-ig-success shrink-0" />
+            <CheckCircle className="w-3.5 h-3.5 text-ig-accent shrink-0" />
             <span className="text-ig-fg-muted">
               Com a receita atual de{' '}
               <span className="font-semibold text-ig-fg-strong">{formatWorkforceCurrency(currentRevenue)}</span>
@@ -327,7 +353,7 @@ export function HiringSimulatorExpanded({
         </div>
         <div className="p-3 rounded-xl bg-ig-panel border border-ig-border-subtle">
           <p className="text-[10px] uppercase tracking-wider text-ig-fg-muted mb-1">Folha/Rec. atual</p>
-          <p className={cn('text-base font-bold ig-tabular', sim.currentRatio > payrollRevenueThreshold ? 'text-ig-danger' : 'text-ig-success')}>
+          <p className={cn('text-base font-bold ig-tabular', sim.currentRatio > payrollRevenueThreshold ? 'text-ig-danger' : 'text-ig-fg-strong')}>
             {hasRealData ? `${sim.currentRatio.toFixed(1)}%` : '–'}
           </p>
           <p className="text-[10px] text-ig-fg-subtle">limite: {payrollRevenueThreshold}%</p>
@@ -391,15 +417,15 @@ export function HiringSimulatorExpanded({
       {/* Board summary */}
       <div className={cn(
         'p-3.5 rounded-xl border flex items-start gap-3',
-        sim.exceedsThreshold ? 'bg-ig-danger/5 border-ig-danger/20' : 'bg-ig-info/5 border-ig-info/20',
+        sim.exceedsThreshold ? 'bg-ig-danger/5 border-ig-danger/20' : 'bg-ig-accent/5 border-ig-accent/20',
       )}>
         {sim.exceedsThreshold
           ? <AlertTriangle className="w-4 h-4 text-ig-danger mt-0.5 shrink-0" />
-          : <CheckCircle   className="w-4 h-4 text-ig-info   mt-0.5 shrink-0" />
+          : <CheckCircle   className="w-4 h-4 text-ig-accent mt-0.5 shrink-0" />
         }
         <div className="min-w-0">
-          <p className={cn('text-[10px] font-semibold uppercase tracking-wider mb-1', sim.exceedsThreshold ? 'text-ig-danger' : 'text-ig-info')}>
-            Resumo para o Board
+          <p className={cn('text-[10px] font-semibold uppercase tracking-wider mb-1', sim.exceedsThreshold ? 'text-ig-danger' : 'text-ig-accent')}>
+            Resumo para o board
           </p>
           <p className="text-xs leading-relaxed text-ig-fg-default">{boardSummary}</p>
         </div>
@@ -425,6 +451,7 @@ export function HiringSimulatorExpanded({
           })}
         </div>
       )}
-    </OrionCard>
+      </div>
+    </div>
   );
 }

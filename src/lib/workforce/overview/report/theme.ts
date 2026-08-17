@@ -95,18 +95,31 @@ export const WF_DARK: WorkforcePalette = {
  *
  * Séries em variantes de tinta, não nos neons da tela: sobre papel branco o
  * ciano de tela vira quase invisível. São os mesmos hex de `PALETTE_LIGHT`.
+ *
+ * ─── Por que os cinzas são mais escuros que os do tema de tela ─────────────
+ *
+ * Num monitor retroiluminado um cinza claro ainda se lê. No papel ele
+ * desaparece: a impressora reticula o tom, o contraste real cai e rótulo de
+ * eixo, texto de apoio e legenda somem. Os tons de texto do claro são
+ * calibrados para contraste sobre branco, não para elegância em tela —
+ * `muted` fica em ~8:1 e `subtle` em ~5,6:1, ambos acima do mínimo de AA para
+ * corpo pequeno.
+ *
+ * `unmeasured` é o único que fica deliberadamente mais leve: ele precisa ser
+ * legível E parecer ausente. Abaixo dele o traço vira sujeira; acima, o "não
+ * apurado" compete com o dado que existe.
  */
 export const WF_LIGHT: WorkforcePalette = {
   mode: 'light',
   void: '#FFFFFF',
   panelTop: '#F7FAFB',
   panelBottom: '#FFFFFF',
-  line: '#CBD8DE',
-  lineSoft: '#E4EBEF',
+  line: '#C2D1D8',
+  lineSoft: '#DFE7EB',
   ink: '#0B1A20',
-  body: '#26383F',
-  muted: '#5B7078',
-  subtle: '#7E939C',
+  body: '#1E2E35',
+  muted: '#3F5159',
+  subtle: '#5A6C75',
   accent: '#0891B2',
   success: '#059669',
   info: '#4F46E5',
@@ -116,10 +129,10 @@ export const WF_LIGHT: WorkforcePalette = {
   positive: '#059669',
   attention: '#B45309',
   negative: '#DC2626',
-  grid: 'rgba(11, 26, 32, .09)',
-  axisLine: 'rgba(11, 26, 32, .30)',
-  raised: 'rgba(11, 26, 32, .035)',
-  unmeasured: '#7E939C',
+  grid: 'rgba(11, 26, 32, .12)',
+  axisLine: 'rgba(11, 26, 32, .38)',
+  raised: 'rgba(11, 26, 32, .04)',
+  unmeasured: '#6E8089',
 };
 
 export function wfPalette(mode: WorkforceReportTheme): WorkforcePalette {
@@ -128,42 +141,117 @@ export function wfPalette(mode: WorkforceReportTheme): WorkforcePalette {
 
 export const WF_FONT = FONT_FAMILY_SANS;
 
-/** Escala tipográfica dos documentos, em px sobre a grade de 1280×720. */
+/**
+ * Escala tipográfica dos documentos, em px sobre a grade de 1280×720.
+ *
+ * São os MESMOS degraus de `APEX_TYPE` (Projeção Financeira). Os dois materiais
+ * saem para o mesmo board, muitas vezes na mesma reunião: uma escala própria
+ * aqui faria o título de um slide chegar maior que o do outro sem nenhuma razão
+ * editorial.
+ */
 export const WF_TYPE = {
-  displayXl: 46,
-  display: 34,
-  title: 24,
-  section: 18,
-  body: 13.5,
-  small: 11.5,
+  eyebrow: 12,
+  display: 58,
+  h1: 44,
+  h2: 30,
+  h3: 20,
+  body: 17,
+  small: 13,
   micro: 10,
-  kpi: 30,
-  kpiSmall: 22,
 } as const;
 
+/**
+ * Sombras/elevações, por tema.
+ *
+ * No escuro a profundidade vem da sombra densa sobre o fundo preto — é o
+ * tratamento de vidro do cockpit.
+ *
+ * No claro ela vem de sombras curtas e de baixa opacidade, em duas camadas
+ * (um contato de 1–2px e um halo difuso). É o que a folha impressa aguenta:
+ * sombra pesada sobre papel branco vira mancha cinza na impressora, e sombra
+ * nenhuma deixa o painel indistinguível do fundo.
+ */
 export const WF_ELEV = {
-  panel: '0 1px 0 rgba(255,255,255,.04) inset, 0 12px 32px rgba(0,0,0,.28)',
-  panelLight: '0 1px 0 rgba(255,255,255,.9) inset, 0 8px 24px rgba(11,26,32,.08)',
-  card: '0 6px 18px rgba(0,0,0,.22)',
-  cardLight: '0 4px 14px rgba(11,26,32,.07)',
+  panel: '0 24px 60px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.06)',
+  card: '0 10px 26px rgba(0, 0, 0, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.05)',
+  band: '0 22px 60px rgba(0, 0, 0, 0.38)',
+  panelLight: '0 1px 2px rgba(11, 26, 32, .05), 0 10px 26px -8px rgba(11, 26, 32, .12)',
+  cardLight: '0 1px 2px rgba(11, 26, 32, .05), 0 5px 14px -5px rgba(11, 26, 32, .10)',
+  bandLight: '0 2px 4px rgba(11, 26, 32, .04), 0 14px 34px -12px rgba(11, 26, 32, .14)',
 } as const;
+
+const isLight = (p: WorkforcePalette) => p.mode === 'light';
 
 export function wfPanelShadow(p: WorkforcePalette): string {
-  return p.mode === 'light' ? WF_ELEV.panelLight : WF_ELEV.panel;
+  return isLight(p) ? WF_ELEV.panelLight : WF_ELEV.panel;
 }
 
+export function wfCardShadow(p: WorkforcePalette): string {
+  return isLight(p) ? WF_ELEV.cardLight : WF_ELEV.card;
+}
+
+export function wfBandShadow(p: WorkforcePalette): string {
+  return isLight(p) ? WF_ELEV.bandLight : WF_ELEV.band;
+}
+
+/** Gradiente de vidro de painel (CSS). */
 export function wfGlass(p: WorkforcePalette): string {
-  return `background:linear-gradient(160deg, ${p.panelTop}, ${p.panelBottom});border:1px solid ${p.line};box-shadow:${wfPanelShadow(p)};`;
+  return `linear-gradient(160deg, ${p.panelTop} 0%, ${p.panelBottom} 100%)`;
 }
 
-/** Malha de fundo — a mesma textura do estado vazio da tela. */
-export function wfBackdrop(p: WorkforcePalette, opts?: { grid?: number }): string {
-  const step = opts?.grid ?? 34;
-  return (
-    `background-color:${p.void};` +
-    `background-image:linear-gradient(${p.grid} 1px, transparent 1px),linear-gradient(90deg, ${p.grid} 1px, transparent 1px);` +
-    `background-size:${step}px ${step}px;`
-  );
+/**
+ * Superfície de cartão/painel.
+ *
+ * No escuro é vidro translúcido — deixa a malha do fundo atravessar, que é o
+ * que dá profundidade ao cockpit. No claro é papel opaco levemente tingido:
+ * translucidez sobre branco não produz nada além de cinza sujo.
+ */
+export function wfSurface(p: WorkforcePalette, from = 0.92, to = 0.55): string {
+  return p.mode === 'light'
+    ? `linear-gradient(160deg, ${p.panelTop} 0%, ${p.panelBottom} 100%)`
+    : `linear-gradient(160deg, rgba(13, 26, 36, ${from}), rgba(7, 18, 26, ${to}))`;
+}
+
+/**
+ * Fundo do documento.
+ *
+ * ─── Escuro: o "cockpit" ───────────────────────────────────────────────────
+ *
+ * Duas auras radiais nos cantos opostos sobre uma malha fina, exatamente como
+ * `apexBackdrop`. É o que separa o material de board de uma folha preta com
+ * gráficos: sem as auras a malha sozinha lê como papel milimetrado.
+ *
+ * ─── Claro: papel ──────────────────────────────────────────────────────────
+ *
+ * NENHUMA malha, nenhuma aura. O tema claro existe para ser impresso e
+ * anexado, e ali a textura de fundo é só custo: quadriculado de 34px vira
+ * moiré na resolução da impressora, come toner e disputa atenção com a grade
+ * dos próprios gráficos, que é a única grade que significa alguma coisa.
+ *
+ * A profundidade no claro vem inteiramente das sombras dos painéis
+ * (`wfPanelShadow`, `wfCardShadow`, `wfBandShadow`) — que sobrevivem à
+ * impressão porque são curtas e de baixa opacidade.
+ */
+export function wfBackdrop(
+  p: WorkforcePalette,
+  opts?: { grid?: number; intensity?: number },
+): { image: string; size: string } {
+  if (isLight(p)) return { image: 'none', size: 'auto' };
+
+  const grid = opts?.grid ?? 34;
+  const k = opts?.intensity ?? 1;
+  const glowA = `rgba(34, 211, 238, ${0.13 * k})`;
+  const glowB = `rgba(129, 140, 248, ${0.11 * k})`;
+  const mesh = `rgba(255, 255, 255, ${0.016 * k})`;
+  return {
+    image: [
+      `radial-gradient(circle at 84% 6%, ${glowA}, transparent 34%)`,
+      `radial-gradient(circle at 8% 92%, ${glowB}, transparent 36%)`,
+      `linear-gradient(${mesh} 1px, transparent 1px)`,
+      `linear-gradient(90deg, ${mesh} 1px, transparent 1px)`,
+    ].join(', '),
+    size: `auto, auto, ${grid}px ${grid}px, ${grid}px ${grid}px`,
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -198,6 +286,16 @@ export const REPORT_NAME = 'Relatório Executivo de Pessoas & Custos';
 export const REPORT_NAME_SHORT = 'Pessoas & Custos';
 export const REPORT_FILE_SLUG = 'relatorio-pessoas-e-custos';
 export const WF_SOURCE = 'Folha de pagamento aprovada e eventos apurados do eSocial';
+
+/*
+ * Não há selo de confidencialidade neste material.
+ *
+ * Existiu um `WF_CONFIDENTIALITY = 'USO INTERNO'` na capa e nos rodapés, por
+ * analogia com o `confidentialityLabel` da Projeção Financeira. Lá o rótulo é
+ * escolhido pelo autor do pack e carrega decisão; aqui era carimbo fixo, e
+ * carimbo que nunca muda não informa nada — só ocupa a linha em que a marca e
+ * o período precisam aparecer.
+ */
 
 /**
  * Roteiro dos documentos — a MESMA ordem no PDF, no deck e no PowerPoint.
@@ -262,6 +360,23 @@ export function wfPct(value: number, digits = 1): string {
 
 export function wfSignedPct(value: number, digits = 1): string {
   return `${value > 0 ? '+' : ''}${value.toFixed(digits).replace('.', ',')}%`;
+}
+
+/**
+ * Data de vencimento em pt-BR.
+ *
+ * As obrigações chegam em ISO (`2026-07-03`), que é a forma certa para
+ * ordenar e a errada para ler: num documento em português `2026-07-03` obriga
+ * o leitor a decidir se o mês vem antes ou depois do dia.
+ *
+ * Parse manual em vez de `new Date(iso)` — a string sem fuso é interpretada
+ * como UTC, e no horário de Brasília isso devolve o dia anterior.
+ */
+export function wfDueDate(iso: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  if (!match) return iso;
+  const [, year, month, day] = match;
+  return `${day}/${month}/${year}`;
 }
 
 /** Cor do sinal de uma variação, respeitando se subir é bom. */

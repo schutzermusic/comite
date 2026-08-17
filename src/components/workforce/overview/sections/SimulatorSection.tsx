@@ -32,7 +32,7 @@ export function SimulatorSection({ model }: SimulatorSectionProps) {
     <section id="wf-simulador" className="space-y-3">
       <WorkforceSectionHeader
         eyebrow="Seção 07"
-        title="Simulador de Contratação"
+        title="Simulador de contratação"
         subtitle="Impacto de novas contratações sobre folha, margem e o limite de folha sobre receita"
       />
 

@@ -37,13 +37,76 @@ export interface WfChartOptions {
   fmt?: (v: number) => string;
   /** Título curto impresso dentro do quadro. */
   caption?: string;
+  /**
+   * Anima as marcas na entrada (barras sobem, linhas se desenham).
+   *
+   * Só a apresentação HTML liga isto. No PDF e no PowerPoint a marca precisa
+   * existir no primeiro quadro renderizado — animação em documento estático
+   * significa gráfico em branco na impressão.
+   */
+  animate?: boolean;
 }
 
 const DEFAULT_W = 980;
 const DEFAULT_H = 380;
 
+/**
+ * Escala tipográfica dos gráficos — os mesmos degraus de `apexChartCss`.
+ *
+ * O material é lido a metros de distância numa projeção e a um palmo no papel;
+ * a Projeção Financeira resolveu isso subindo o eixo para 14px e ancorando os
+ * demais nele. Repetir os valores aqui é o que impede um gráfico de Pessoas &
+ * Custos de chegar à mesma reunião com rótulo menor que o do outro relatório.
+ */
+const AXIS = {
+  /** Rótulo do eixo de valor. */
+  value: 13,
+  /** Rótulo de competência / categoria. */
+  category: 11.5,
+  /** Título dentro do quadro. */
+  caption: 13.5,
+  /** Rótulo de valor sobre a marca. */
+  mark: 10,
+} as const;
+
+/**
+ * Recuo do eixo de valor.
+ *
+ * Sobe junto com `AXIS.value`: com rótulo a 13px, `R$ 1,2 mi` ocupa ~62px e o
+ * recuo antigo (78) encostava o texto na primeira grade.
+ */
+const PAD_L = 92;
+
 /** Teto de caracteres do rótulo girado do Pareto — define também o padding. */
 const LABEL_MAX_CHARS = 22;
+
+/* ─── Animação ───────────────────────────────────────────────────────────── */
+
+/** Classe de entrada de uma marca sólida (barra, fatia). */
+const RISE = 'wf-rise';
+/** Classe de entrada de um traço (linha, arco). */
+const DRAW = 'wf-draw';
+
+const riseAttr = (on?: boolean) => (on ? ` class="wf-bar ${RISE}"` : '');
+const drawAttr = (on?: boolean) => (on ? ` class="${DRAW}"` : '');
+
+/**
+ * CSS das animações — só o deck HTML injeta.
+ *
+ * Transcrição de `APEX_CHART_ANIM_CSS`: mesmas curvas, mesmas durações. É o que
+ * faz os dois materiais se desenharem no mesmo ritmo quando projetados em
+ * sequência.
+ */
+export const WF_CHART_ANIM_CSS = `
+  @keyframes wfRise { from { transform: scaleY(.02); opacity: 0 } to { transform: scaleY(1); opacity: 1 } }
+  @keyframes wfDraw { from { stroke-dasharray: 1 2400; } to { stroke-dasharray: 2400 0; } }
+  .wf-bar { transform-origin: center bottom; }
+  .${RISE} { animation: wfRise .85s cubic-bezier(.22, 1, .36, 1) both; }
+  .${DRAW} { animation: wfDraw 1.5s ease-out both; }
+  @media (prefers-reduced-motion: reduce) {
+    .${RISE}, .${DRAW} { animation: none !important; }
+  }
+`;
 
 /* ─── Primitivas ─────────────────────────────────────────────────────────── */
 
@@ -75,11 +138,20 @@ function text(
   );
 }
 
-function frame(w: number, h: number, p: WorkforcePalette): string {
-  return (
-    `<rect x="0.5" y="0.5" width="${w - 1}" height="${h - 1}" rx="14" ` +
-    `fill="${p.mode === 'light' ? p.panelTop : p.panelBottom}" stroke="${p.lineSoft}"/>`
-  );
+/**
+ * O gráfico NÃO desenha moldura própria.
+ *
+ * Todo destino já embrulha o SVG num painel de vidro (`.panel` no PDF e no
+ * deck, `addGlass` no PowerPoint), exatamente como a Projeção Financeira faz.
+ * Uma segunda borda dentro do painel produzia moldura dupla e uma faixa morta
+ * entre as duas — e, pior, um fundo opaco que apagava a malha do cockpit por
+ * baixo do gráfico.
+ *
+ * A função continua existindo como ponto único caso um consumidor futuro
+ * precise de um quadro solto; hoje o desenho certo é nenhum.
+ */
+function frame(_w: number, _h: number, _p: WorkforcePalette): string {
+  return '';
 }
 
 /** Gradiente vertical por série — a profundidade é decoração, não geometria. */
@@ -139,8 +211,11 @@ export function wfEmptyChart(
 
   const startY = h / 2 - (lines.length * 17) / 2 + 6;
 
+  // `data-empty` deixa o quadro do "não apurado" reconhecível por quem monta o
+  // painel: sem isso, o PDF e o deck imprimiriam a legenda de séries que este
+  // gráfico justamente declara não existirem.
   return (
-    `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg" role="img">` +
+    `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" data-empty="1" xmlns="http://www.w3.org/2000/svg" role="img">` +
     `<rect x="0.5" y="0.5" width="${w - 1}" height="${h - 1}" rx="14" fill="none" ` +
     `stroke="${p.line}" stroke-dasharray="6 5"/>` +
     text(cx, startY - 26, UNMEASURED_DASH, { fill: p.unmeasured, size: 30, anchor: 'middle', weight: 400 }) +
@@ -182,7 +257,7 @@ export function wfLineChart(
   const fmt = opts.fmt ?? wfCompactCurrency;
   const id = uid('wfl');
 
-  const padL = 78;
+  const padL = PAD_L;
   const padR = 26;
   const padT = opts.caption ? 34 : 22;
   const padB = 42;
@@ -202,8 +277,8 @@ export function wfLineChart(
   const grid = ticks
     .map(
       (t) =>
-        `<line x1="${padL}" x2="${w - padR}" y1="${y(t)}" y2="${y(t)}" stroke="${p.grid}"/>` +
-        text(padL - 10, y(t) + 4, fmt(t), { fill: p.subtle, size: 10.5, anchor: 'end' }),
+        `<line x1="${padL}" x2="${w - padR}" y1="${y(t)}" y2="${y(t)}" stroke="${p.grid}" stroke-dasharray="3 7"/>` +
+        text(padL - 12, y(t) + 4, fmt(t), { fill: p.muted, size: AXIS.value, anchor: 'end' }),
     )
     .join('');
 
@@ -212,7 +287,7 @@ export function wfLineChart(
   const xLabels = categories
     .map((c, i) =>
       i % labelStep === 0 || i === categories.length - 1
-        ? text(x(i), h - padB + 20, c, { fill: p.muted, size: 10.5, anchor: 'middle' })
+        ? text(x(i), h - padB + 21, c, { fill: p.muted, size: AXIS.category, anchor: 'middle' })
         : '',
     )
     .join('');
@@ -235,7 +310,7 @@ export function wfLineChart(
         areaPath +
         `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="2.4" ` +
         `stroke-linejoin="round" stroke-linecap="round"` +
-        `${s.dashed ? ' stroke-dasharray="7 5"' : ''}/>` +
+        `${s.dashed ? ' stroke-dasharray="7 5"' : ''}${s.dashed ? '' : drawAttr(opts.animate)}/>` +
         dots
       );
     })
@@ -245,7 +320,7 @@ export function wfLineChart(
     `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg" role="img">` +
     gradientDefs(id, series.map((s) => s.color)) +
     frame(w, h, p) +
-    (opts.caption ? text(padL, 22, opts.caption, { fill: p.body, size: 12.5, weight: 700 }) : '') +
+    (opts.caption ? text(padL, 22, opts.caption, { fill: p.body, size: AXIS.caption, weight: 700 }) : '') +
     grid +
     `<line x1="${padL}" x2="${w - padR}" y1="${padT + innerH}" y2="${padT + innerH}" stroke="${p.axisLine}"/>` +
     paths +
@@ -281,7 +356,7 @@ export function wfGroupedBars(
   const fmt = opts.fmt ?? ((v: number) => String(Math.round(v)));
   const id = uid('wfb');
 
-  const padL = 68;
+  const padL = PAD_L;
   const padR = 26;
   const padT = opts.caption ? 34 : 22;
   const padB = 42;
@@ -299,8 +374,8 @@ export function wfGroupedBars(
   const grid = ticks
     .map(
       (t) =>
-        `<line x1="${padL}" x2="${w - padR}" y1="${y(t)}" y2="${y(t)}" stroke="${p.grid}"/>` +
-        text(padL - 10, y(t) + 4, fmt(t), { fill: p.subtle, size: 10.5, anchor: 'end' }),
+        `<line x1="${padL}" x2="${w - padR}" y1="${y(t)}" y2="${y(t)}" stroke="${p.grid}" stroke-dasharray="3 7"/>` +
+        text(padL - 12, y(t) + 4, fmt(t), { fill: p.muted, size: AXIS.value, anchor: 'end' }),
     )
     .join('');
 
@@ -315,9 +390,9 @@ export function wfGroupedBars(
           const by = y(v);
           const bh = Math.max(1, padT + innerH - by);
           return (
-            `<rect x="${bx}" y="${by}" width="${barW}" height="${bh}" rx="3" fill="url(#${id}-g${si})"/>` +
+            `<rect x="${bx}" y="${by}" width="${barW}" height="${bh}" rx="3" fill="url(#${id}-g${si})"${riseAttr(opts.animate)}/>` +
             (v > 0 && categories.length <= 8
-              ? text(bx + barW / 2, by - 5, fmt(v), { fill: p.muted, size: 9.5, anchor: 'middle' })
+              ? text(bx + barW / 2, by - 5, fmt(v), { fill: p.muted, size: AXIS.mark, anchor: 'middle' })
               : '')
           );
         })
@@ -329,9 +404,9 @@ export function wfGroupedBars(
   const xLabels = categories
     .map((c, i) =>
       i % labelStep === 0 || i === categories.length - 1
-        ? text(padL + groupW * i + groupW / 2, h - padB + 20, c, {
+        ? text(padL + groupW * i + groupW / 2, h - padB + 21, c, {
             fill: p.muted,
-            size: 10.5,
+            size: AXIS.category,
             anchor: 'middle',
           })
         : '',
@@ -342,7 +417,7 @@ export function wfGroupedBars(
     `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg" role="img">` +
     gradientDefs(id, series.map((s) => s.color)) +
     frame(w, h, p) +
-    (opts.caption ? text(padL, 22, opts.caption, { fill: p.body, size: 12.5, weight: 700 }) : '') +
+    (opts.caption ? text(padL, 22, opts.caption, { fill: p.body, size: AXIS.caption, weight: 700 }) : '') +
     grid +
     `<line x1="${padL}" x2="${w - padR}" y1="${padT + innerH}" y2="${padT + innerH}" stroke="${p.axisLine}"/>` +
     bars +
@@ -372,7 +447,7 @@ export function wfStackedBars(
   const fmt = opts.fmt ?? wfCompactCurrency;
   const id = uid('wfs');
 
-  const padL = 78;
+  const padL = PAD_L;
   const padR = 26;
   const padT = opts.caption ? 34 : 22;
   const padB = 42;
@@ -390,8 +465,8 @@ export function wfStackedBars(
   const grid = ticks
     .map(
       (t) =>
-        `<line x1="${padL}" x2="${w - padR}" y1="${y(t)}" y2="${y(t)}" stroke="${p.grid}"/>` +
-        text(padL - 10, y(t) + 4, fmt(t), { fill: p.subtle, size: 10.5, anchor: 'end' }),
+        `<line x1="${padL}" x2="${w - padR}" y1="${y(t)}" y2="${y(t)}" stroke="${p.grid}" stroke-dasharray="3 7"/>` +
+        text(padL - 12, y(t) + 4, fmt(t), { fill: p.muted, size: AXIS.value, anchor: 'end' }),
     )
     .join('');
 
@@ -406,7 +481,7 @@ export function wfStackedBars(
           const top = y(acc + v);
           const bottom = y(acc);
           acc += v;
-          return `<rect x="${bx}" y="${top}" width="${barW}" height="${Math.max(1, bottom - top)}" fill="url(#${id}-g${si})"/>`;
+          return `<rect x="${bx}" y="${top}" width="${barW}" height="${Math.max(1, bottom - top)}" fill="url(#${id}-g${si})"${riseAttr(opts.animate)}/>`;
         })
         .join('');
     })
@@ -416,9 +491,9 @@ export function wfStackedBars(
   const xLabels = categories
     .map((c, i) =>
       i % labelStep === 0 || i === categories.length - 1
-        ? text(padL + groupW * i + groupW / 2, h - padB + 20, c, {
+        ? text(padL + groupW * i + groupW / 2, h - padB + 21, c, {
             fill: p.muted,
-            size: 10.5,
+            size: AXIS.category,
             anchor: 'middle',
           })
         : '',
@@ -429,7 +504,7 @@ export function wfStackedBars(
     `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg" role="img">` +
     gradientDefs(id, series.map((s) => s.color)) +
     frame(w, h, p) +
-    (opts.caption ? text(padL, 22, opts.caption, { fill: p.body, size: 12.5, weight: 700 }) : '') +
+    (opts.caption ? text(padL, 22, opts.caption, { fill: p.body, size: AXIS.caption, weight: 700 }) : '') +
     grid +
     `<line x1="${padL}" x2="${w - padR}" y1="${padT + innerH}" y2="${padT + innerH}" stroke="${p.axisLine}"/>` +
     bars +
@@ -475,18 +550,21 @@ export function wfParetoChart(
   const sorted = [...rows].sort((a, b) => b.value - a.value).slice(0, 12);
   const total = rows.reduce((s, r) => s + r.value, 0) || 1;
 
-  const padL = 78;
-  const padR = 56;
+  const padL = PAD_L;
+  const padR = 60;
   const padT = opts.caption ? 34 : 22;
   /**
    * Espaço para os rótulos girados.
    *
    * Nome de centro de custo não cabe na horizontal, então gira -32°. A queda
-   * vertical de um rótulo é `largura × sen(32°)`; com 22 caracteres a ~5,6px
-   * isso passa de 60px, e o padding de 62 cortava a base do texto — visível na
-   * página de concentração do PDF e no slide correspondente.
+   * vertical de um rótulo é `largura × sen(32°)`; com 22 caracteres isso passa
+   * de 60px, e um padding fixo cortava a base do texto — visível na página de
+   * concentração do PDF e no slide correspondente.
+   *
+   * A largura por caractere acompanha `AXIS.category`: subir a fonte do eixo
+   * sem subir o padding traria o corte de volta.
    */
-  const padB = Math.ceil(LABEL_MAX_CHARS * 5.6 * Math.sin((32 * Math.PI) / 180)) + 30;
+  const padB = Math.ceil(LABEL_MAX_CHARS * AXIS.category * 0.56 * Math.sin((32 * Math.PI) / 180)) + 30;
   const innerW = w - padL - padR;
   const innerH = h - padT - padB;
 
@@ -501,8 +579,8 @@ export function wfParetoChart(
   const grid = ticks
     .map(
       (t) =>
-        `<line x1="${padL}" x2="${w - padR}" y1="${y(t)}" y2="${y(t)}" stroke="${p.grid}"/>` +
-        text(padL - 10, y(t) + 4, fmt(t), { fill: p.subtle, size: 10.5, anchor: 'end' }),
+        `<line x1="${padL}" x2="${w - padR}" y1="${y(t)}" y2="${y(t)}" stroke="${p.grid}" stroke-dasharray="3 7"/>` +
+        text(padL - 12, y(t) + 4, fmt(t), { fill: p.muted, size: AXIS.value, anchor: 'end' }),
     )
     .join('');
 
@@ -510,7 +588,7 @@ export function wfParetoChart(
     .map((r, i) => {
       const bx = padL + groupW * i + groupW / 2 - barW / 2;
       const by = y(r.value);
-      return `<rect x="${bx}" y="${by}" width="${barW}" height="${Math.max(1, padT + innerH - by)}" rx="3" fill="url(#${id}-g${r.highlight ? 1 : 0})"/>`;
+      return `<rect x="${bx}" y="${by}" width="${barW}" height="${Math.max(1, padT + innerH - by)}" rx="3" fill="url(#${id}-g${r.highlight ? 1 : 0})"${riseAttr(opts.animate)}/>`;
     })
     .join('');
 
@@ -520,7 +598,7 @@ export function wfParetoChart(
     return `${padL + groupW * i + groupW / 2},${yPct((acc / total) * 100)}`;
   });
   const cumulativeLine =
-    `<path d="M ${cumulativePts.join(' L ')}" fill="none" stroke="${p.warning}" stroke-width="2.2" stroke-linejoin="round"/>` +
+    `<path d="M ${cumulativePts.join(' L ')}" fill="none" stroke="${p.warning}" stroke-width="2.2" stroke-linejoin="round"${drawAttr(opts.animate)}/>` +
     cumulativePts
       .map((pt) => {
         const [cx, cy] = pt.split(',');
@@ -531,7 +609,11 @@ export function wfParetoChart(
   // Eixo direito: a escala da acumulada.
   const pctAxis = [0, 25, 50, 75, 100]
     .map((pct) =>
-      text(w - padR + 10, yPct(pct) + 4, `${pct}%`, { fill: p.subtle, size: 10, anchor: 'start' }),
+      text(w - padR + 10, yPct(pct) + 4, `${pct}%`, {
+        fill: p.muted,
+        size: AXIS.category,
+        anchor: 'start',
+      }),
     )
     .join('');
 
@@ -543,7 +625,7 @@ export function wfParetoChart(
         r.label.length > LABEL_MAX_CHARS ? `${r.label.slice(0, LABEL_MAX_CHARS - 1)}…` : r.label;
       return (
         `<g transform="translate(${lx}, ${h - padB + 16}) rotate(-32)">` +
-        text(0, 0, label, { fill: p.muted, size: 10, anchor: 'end' }) +
+        text(0, 0, label, { fill: p.muted, size: AXIS.category, anchor: 'end' }) +
         `</g>`
       );
     })
@@ -553,7 +635,7 @@ export function wfParetoChart(
     `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg" role="img">` +
     gradientDefs(id, [p.accent, p.danger]) +
     frame(w, h, p) +
-    (opts.caption ? text(padL, 22, opts.caption, { fill: p.body, size: 12.5, weight: 700 }) : '') +
+    (opts.caption ? text(padL, 22, opts.caption, { fill: p.body, size: AXIS.caption, weight: 700 }) : '') +
     grid +
     `<line x1="${padL}" x2="${w - padR}" y1="${padT + innerH}" y2="${padT + innerH}" stroke="${p.axisLine}"/>` +
     bars +
@@ -598,10 +680,10 @@ export function wfHorizontalBars(
       const bw = Math.max(2, (r.value / max) * innerW);
       const label = r.label.length > 26 ? `${r.label.slice(0, 25)}…` : r.label;
       return (
-        text(padL - 12, ry + 15, label, { fill: p.body, size: 11, anchor: 'end' }) +
+        text(padL - 12, ry + 15, label, { fill: p.muted, size: AXIS.category, anchor: 'end' }) +
         `<rect x="${padL}" y="${ry + 5}" width="${innerW}" height="15" rx="4" fill="${p.raised}"/>` +
         `<rect x="${padL}" y="${ry + 5}" width="${bw}" height="15" rx="4" fill="${r.color ?? p.accent}"/>` +
-        text(padL + innerW + 10, ry + 16, fmt(r.value), { fill: p.body, size: 10.5, weight: 700 })
+        text(padL + innerW + 10, ry + 16, fmt(r.value), { fill: p.body, size: AXIS.value, weight: 700 })
       );
     })
     .join('');
@@ -610,7 +692,7 @@ export function wfHorizontalBars(
     `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg" role="img">` +
     gradientDefs(id, [p.accent]) +
     frame(w, h, p) +
-    (opts.caption ? text(20, 24, opts.caption, { fill: p.body, size: 12.5, weight: 700 }) : '') +
+    (opts.caption ? text(20, 24, opts.caption, { fill: p.body, size: AXIS.caption, weight: 700 }) : '') +
     bars +
     `</svg>`
   );
@@ -662,12 +744,12 @@ export function wfDonut(
   const legendX = cx + r + 34;
   const legend = usable
     .map((s, i) => {
-      const ly = cy - (usable.length * 22) / 2 + i * 22 + 8;
+      const ly = cy - (usable.length * 24) / 2 + i * 24 + 8;
       const pct = ((s.value / total) * 100).toFixed(1).replace('.', ',');
       return (
-        `<rect x="${legendX}" y="${ly - 8}" width="9" height="9" rx="2" fill="${s.color}"/>` +
-        text(legendX + 15, ly, `${s.name}`, { fill: p.body, size: 11 }) +
-        text(w - 20, ly, `${pct}%`, { fill: p.muted, size: 10.5, anchor: 'end', weight: 700 })
+        `<rect x="${legendX}" y="${ly - 9}" width="16" height="9" rx="3" fill="${s.color}"/>` +
+        text(legendX + 25, ly, `${s.name}`, { fill: p.muted, size: 12 }) +
+        text(w - 20, ly, `${pct}%`, { fill: p.body, size: 12, anchor: 'end', weight: 700 })
       );
     })
     .join('');
@@ -677,10 +759,10 @@ export function wfDonut(
     frame(w, h, p) +
     arcs +
     (opts.centerValue
-      ? text(cx, cy + 2, opts.centerValue, { fill: p.ink, size: 15, anchor: 'middle', weight: 800 })
+      ? text(cx, cy + 2, opts.centerValue, { fill: p.ink, size: 17, anchor: 'middle', weight: 800 })
       : '') +
     (opts.centerLabel
-      ? text(cx, cy + 19, opts.centerLabel, { fill: p.subtle, size: 10, anchor: 'middle' })
+      ? text(cx, cy + 21, opts.centerLabel, { fill: p.subtle, size: 11, anchor: 'middle' })
       : '') +
     legend +
     `</svg>`
@@ -692,9 +774,33 @@ export function wfDonut(
 /**
  * Medidor semicircular.
  *
- * `value` nulo desenha o arco vazio com o traço no centro: um score ausente
- * precisa parecer ausente, não zero — "0/100" e "não apurado" são vereditos
- * opostos sobre a mesma folha.
+ * ─── Anatomia ──────────────────────────────────────────────────────────────
+ *
+ * Três camadas concêntricas, de dentro para fora:
+ *
+ *   1. **Trilha** — o semicírculo completo, em tom de linha. Dá a extensão da
+ *      escala mesmo quando o valor é baixo.
+ *   2. **Arco do valor** — sobre a trilha, na cor da faixa em que o valor caiu,
+ *      com gradiente da base para a ponta e um botão sólido no fim. É a única
+ *      marca que o olho persegue.
+ *   3. **Rail dos limiares** — um fio FINO por fora, segmentado, mostrando onde
+ *      começa cada faixa de política.
+ *
+ * A versão anterior pintava os limiares sobre o MESMO anel a 30% de opacidade.
+ * Sobre papel branco isso virava pastel indistinguível, e o arco do valor
+ * cobria justamente a faixa que deveria contextualizá-lo. Separar em dois raios
+ * resolve os dois problemas de uma vez.
+ *
+ * ─── A armadilha do `large-arc-flag` ───────────────────────────────────────
+ *
+ * `t` percorre o semicírculo SUPERIOR (`π → 2π`; o eixo Y do SVG cresce para
+ * baixo, então o arco de cima é onde `sin` é negativo). Como o domínio inteiro
+ * vale meia volta, NENHUM sub-arco daqui passa de 180° — e portanto
+ * `large-arc-flag` é sempre `0`.
+ *
+ * Derivá-lo de `|t1 - t0| > 0.5` era o bug: uma faixa de 0 a 60 (108°) pedia ao
+ * SVG o arco COMPLEMENTAR de 252°, que saía como um laço solto por cima do
+ * medidor.
  */
 export function wfGauge(
   value: number | null,
@@ -707,65 +813,104 @@ export function wfGauge(
 ): string {
   const p = opts.palette;
   const w = opts.width ?? 420;
-  const h = opts.height ?? 210;
+  const h = opts.height ?? 240;
   const max = opts.max ?? 100;
+  const bands = opts.bands ?? [];
+  const id = uid('wfg');
+  const light = p.mode === 'light';
+
+  const PAD = 16;
+  const RING_W = 15;
+  const RAIL_W = 4;
+  const RAIL_GAP = 8;
+  const labelH = opts.label ? 28 : 10;
+
   const cx = w / 2;
-  const cy = h - 36;
-  const r = Math.min(w / 2 - 30, h - 62);
+  // O raio é o menor entre o que a largura e o que a altura comportam; o bloco
+  // inteiro (arco + rótulo) é então centrado verticalmente, para o medidor não
+  // grudar no topo quando o painel é mais alto do que largo.
+  const outer = Math.max(24, Math.min(w / 2 - PAD, h - PAD * 2 - labelH));
+  const cy = PAD + outer + (h - PAD * 2 - outer - labelH) / 2;
+  const r = Math.max(14, outer - RING_W / 2 - RAIL_GAP - RAIL_W);
+  const rRail = r + RING_W / 2 + RAIL_GAP + RAIL_W / 2;
 
-  /**
-   * Semicírculo SUPERIOR, parametrizado por fração `t` de 0 (esquerda) a 1
-   * (direita).
-   *
-   * O eixo Y do SVG cresce para BAIXO, então o arco de cima é o intervalo
-   * `π → 2π` — é onde `sin` é negativo. Parametrizar por `t` em vez de somar
-   * e subtrair ângulos evita o erro clássico aqui: usar `π → 0` desenha o
-   * semicírculo de baixo, e o arco do valor sai pelo lado errado do medidor.
-   */
-  const pointAt = (t: number): [number, number] => {
+  const pointAt = (t: number, radius: number): [number, number] => {
     const angle = Math.PI + Math.max(0, Math.min(1, t)) * Math.PI;
-    return [cx + Math.cos(angle) * r, cy + Math.sin(angle) * r];
+    return [cx + Math.cos(angle) * radius, cy + Math.sin(angle) * radius];
   };
 
-  const arcBetween = (t0: number, t1: number) => {
-    const [x0, y0] = pointAt(t0);
-    const [x1, y1] = pointAt(t1);
-    const large = Math.abs(t1 - t0) > 0.5 ? 1 : 0;
-    // sweep=1: sentido horário sobre o topo, de esquerda para direita.
-    return `M ${x0},${y0} A ${r},${r} 0 ${large} 1 ${x1},${y1}`;
+  const arc = (t0: number, t1: number, radius: number) => {
+    const [x0, y0] = pointAt(t0, radius);
+    const [x1, y1] = pointAt(t1, radius);
+    // large-arc-flag = 0 SEMPRE (ver cabeçalho); sweep = 1 percorre o topo da
+    // esquerda para a direita.
+    return `M ${x0.toFixed(2)},${y0.toFixed(2)} A ${radius},${radius} 0 0 1 ${x1.toFixed(2)},${y1.toFixed(2)}`;
   };
 
-  const track = `<path d="${arcBetween(0, 1)}" fill="none" stroke="${p.raised}" stroke-width="13" stroke-linecap="round"/>`;
+  const t = value === null ? 0 : Math.max(0, Math.min(1, value / max));
+  const active =
+    value === null
+      ? p.unmeasured
+      : (bands.find(([from, to]) => value >= from && value <= to)?.[2] ?? p.accent);
 
-  const bands = (opts.bands ?? [])
-    .map(
-      ([from, to, color]) =>
-        `<path d="${arcBetween(from / max, to / max)}" fill="none" stroke="${color}" ` +
-        `stroke-width="13" opacity="0.3" stroke-linecap="butt"/>`,
-    )
+  /** Fio externo dos limiares, com um respiro entre segmentos. */
+  const rail = bands
+    .map(([from, to, color]) => {
+      const gap = 0.014;
+      const s = from / max + (from === 0 ? 0 : gap);
+      const e = to / max - (to === max ? 0 : gap);
+      if (e <= s) return '';
+      return (
+        `<path d="${arc(s, e, rRail)}" fill="none" stroke="${color}" stroke-width="${RAIL_W}" ` +
+        `stroke-linecap="round" opacity="${light ? 0.7 : 0.55}"/>`
+      );
+    })
     .join('');
 
+  const track =
+    `<path d="${arc(0, 1, r)}" fill="none" stroke="${p.lineSoft}" ` +
+    `stroke-width="${RING_W}" stroke-linecap="round"/>`;
+
+  const gradient =
+    `<defs><linearGradient id="${id}" x1="0" y1="1" x2="1" y2="0">` +
+    `<stop offset="0%" stop-color="${active}" stop-opacity="0.5"/>` +
+    `<stop offset="100%" stop-color="${active}" stop-opacity="1"/>` +
+    `</linearGradient></defs>`;
+
   const valueArc =
+    value === null || t <= 0
+      ? ''
+      : `<path d="${arc(0, t, r)}" fill="none" stroke="url(#${id})" ` +
+        `stroke-width="${RING_W}" stroke-linecap="round"${drawAttr(opts.animate)}/>`;
+
+  // Botão na ponta: vazado na cor do fundo e miolo na cor da faixa. É o que dá
+  // a leitura exata da posição quando o arco é curto.
+  const [kx, ky] = pointAt(t, r);
+  const knob =
     value === null
       ? ''
-      : `<path d="${arcBetween(0, Math.min(value, max) / max)}" fill="none" stroke="${
-          (opts.bands ?? []).find(([f, t]) => value >= f && value <= t)?.[2] ?? p.accent
-        }" stroke-width="13" stroke-linecap="round"/>`;
+      : `<circle cx="${kx.toFixed(2)}" cy="${ky.toFixed(2)}" r="${(RING_W / 2 + 2).toFixed(1)}" ` +
+        `fill="${light ? '#FFFFFF' : p.void}"/>` +
+        `<circle cx="${kx.toFixed(2)}" cy="${ky.toFixed(2)}" r="${(RING_W / 2 - 2.5).toFixed(1)}" ` +
+        `fill="${active}"/>`;
+
+  const valueSize = Math.max(18, Math.min(40, r * 0.44));
 
   return (
     `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg" role="img">` +
-    frame(w, h, p) +
+    gradient +
+    rail +
     track +
-    bands +
     valueArc +
-    text(cx, cy - 12, value === null ? UNMEASURED_DASH : (opts.valueText ?? String(value)), {
+    knob +
+    text(cx, cy - valueSize * 0.22, value === null ? UNMEASURED_DASH : (opts.valueText ?? String(value)), {
       fill: value === null ? p.unmeasured : p.ink,
-      size: value === null ? 30 : 26,
+      size: valueSize,
       anchor: 'middle',
       weight: value === null ? 400 : 800,
     }) +
     (opts.label
-      ? text(cx, cy + 14, opts.label, { fill: p.muted, size: 11, anchor: 'middle' })
+      ? text(cx, cy + 20, opts.label, { fill: p.muted, size: 12, anchor: 'middle', weight: 700 })
       : '') +
     `</svg>`
   );
@@ -830,6 +975,20 @@ export function wfSparkline(
 export interface WfLegendItem {
   label: string;
   color: string;
+  /**
+   * Marca da série.
+   *
+   * As mesmas quatro de `apexLegend`: bloco sólido para área/barra, traço para
+   * linha, tracejado para projeção e vazado para o previsto. A marca precisa
+   * repetir o desenho do gráfico — legenda com bloco sólido ao lado de uma
+   * linha tracejada obriga o leitor a adivinhar a correspondência.
+   */
+  shape?: 'solid' | 'line' | 'dash' | 'hollow';
+}
+
+/** Verdadeiro para o SVG devolvido por `wfEmptyChart`. */
+export function isEmptyChart(svg: string): boolean {
+  return svg.includes('data-empty="1"');
 }
 
 export function wfLegend(items: WfLegendItem[]): string {
@@ -837,19 +996,28 @@ export function wfLegend(items: WfLegendItem[]): string {
   return (
     `<div class="wf-legend">` +
     items
-      .map(
-        (i) =>
-          `<span class="wf-legend-item"><i style="background:${i.color}"></i>${esc(i.label)}</span>`,
-      )
+      .map((i) => {
+        const shape = i.shape ?? 'solid';
+        const style =
+          shape === 'line'
+            ? `background:${i.color};height:3px;border-radius:2px;`
+            : shape === 'dash'
+              ? `background:repeating-linear-gradient(90deg, ${i.color} 0 5px, transparent 5px 9px);height:3px;`
+              : shape === 'hollow'
+                ? `background:transparent;border:1px solid ${i.color};`
+                : `background:${i.color};`;
+        return `<span class="wf-lg"><i class="wf-sw" style="${style}"></i>${esc(i.label)}</span>`;
+      })
       .join('') +
     `</div>`
   );
 }
 
+/** Métricas transcritas de `apexLegendCss` — mesmo respiro, mesma marca. */
 export function wfLegendCss(p: WorkforcePalette): string {
   return `
-.wf-legend{display:flex;flex-wrap:wrap;gap:6px 18px;margin-top:8px;font-family:${WF_FONT};}
-.wf-legend-item{display:inline-flex;align-items:center;gap:7px;font-size:11px;color:${p.muted};font-weight:600;}
-.wf-legend-item i{width:9px;height:9px;border-radius:3px;display:inline-block;}
+  .wf-legend{display:flex;flex-wrap:wrap;gap:6px 20px;margin-top:10px;font-family:${WF_FONT};}
+  .wf-lg{display:inline-flex;align-items:center;gap:7px;font-size:12px;color:${p.muted};}
+  .wf-sw{display:inline-block;width:16px;height:9px;border-radius:3px;flex:0 0 auto;}
 `;
 }

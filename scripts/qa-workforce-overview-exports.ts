@@ -149,12 +149,33 @@ async function main() {
       await page.goto(`file://${path.join(OUT, `${stem}.html`)}`);
       await page.waitForTimeout(500);
 
+      /**
+       * Duas checagens, porque uma só não pega o defeito real.
+       *
+       * `scrollHeight` acusa a folha que cresceu. Mas `.page` é
+       * `overflow:hidden` e `.page-inner` é um item flex com `min-height:0`:
+       * o conteúdo que não cabe VAZA por cima do rodapé sem que a folha
+       * cresça um pixel. Foi assim que a faixa de leitura da página de
+       * Eficiência passou a cobrir a marca sem o harness reclamar.
+       *
+       * A segunda checagem mede o que importa: o filho mais baixo do corpo
+       * contra o topo do rodapé.
+       */
       const overflow: string[] = await page.evaluate(() => {
         const out: string[] = [];
         document.querySelectorAll('.page').forEach((el, i) => {
           if (el.scrollHeight > el.clientHeight + 2) {
-            out.push(`p${i + 1} (${el.scrollHeight}>${el.clientHeight})`);
+            out.push(`p${i + 1} cresceu (${el.scrollHeight}>${el.clientHeight})`);
           }
+          const inner = el.querySelector('.page-inner');
+          const foot = el.querySelector('.pfoot');
+          if (!inner || !foot) return;
+          const footTop = foot.getBoundingClientRect().top;
+          let worst = 0;
+          inner.querySelectorAll(':scope > *').forEach((child) => {
+            worst = Math.max(worst, child.getBoundingClientRect().bottom - footTop);
+          });
+          if (worst > 2) out.push(`p${i + 1} invade o rodapé (${Math.round(worst)}px)`);
         });
         return out;
       });
@@ -197,7 +218,10 @@ async function main() {
     const pageErrors: string[] = [];
     dp.on('pageerror', (e) => pageErrors.push(e.message));
     await dp.goto(`file://${deckPath}`);
-    await dp.waitForTimeout(400);
+    // A cascata de entrada do slide leva ~1s (o último degrau abre em .38s e
+    // dura .62s). Fotografar antes disso captura o slide pela metade — o que
+    // já fez a capa parecer sem a linha de meta.
+    await dp.waitForTimeout(1200);
 
     const slides = await dp.evaluate(() => document.querySelectorAll('.slide').length);
     // Navega o deck inteiro e captura cada slide.
@@ -205,16 +229,19 @@ async function main() {
       await dp.screenshot({ path: path.join(OUT, `deck-${fixture.name}-s${i + 1}.png`) });
       if (i < slides - 1) {
         await dp.keyboard.press('ArrowRight');
-        await dp.waitForTimeout(260);
+        await dp.waitForTimeout(900);
       }
     }
     const counter = await dp.textContent('#counter');
     await dp.close();
 
+    // O contador é zero-padded ("03 / 12"), como no deck da Projeção Financeira.
+    const pad = (n: number) => String(n).padStart(2, '0');
+
     if (pageErrors.length) {
       problems += 1;
       console.error(`✗ deck-${fixture.name}: erro de página — ${pageErrors[0]}`);
-    } else if (counter !== `${slides} / ${slides}`) {
+    } else if (counter !== `${pad(slides)} / ${pad(slides)}`) {
       problems += 1;
       console.error(`✗ deck-${fixture.name}: navegação parou em "${counter}" de ${slides}`);
     } else {

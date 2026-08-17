@@ -58,11 +58,9 @@ export function CostStructureSection({ model }: CostStructureSectionProps) {
       )}
 
       {costStructure.matrix.rows.length > 0 && (
-        <div className="space-y-2 pt-1">
-          <WorkforceSectionHeader
-            title="Matriz mensal de indicadores"
-            subtitle="Uma linha por competência — indicadores do cockpit e estado do envio da folha e das guias"
-          />
+        <div className="pt-1">
+          {/* O cartão traz o próprio título, como os demais painéis da seção —
+              um cabeçalho extra aqui repetiria o nome duas vezes seguidas. */}
           <WorkforceIndicatorMatrix
             matrix={costStructure.matrix}
             compliance={model.compliance.byCompetence}

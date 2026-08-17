@@ -1,8 +1,6 @@
 'use client';
 
-import { Table2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { OrionCard } from '@/components/orion';
 import { PAYROLL_STATUS_LABEL } from '@/lib/workforce/compliance';
 import type { PayrollClosingStatus } from '@/lib/types/payroll-closing';
 import type { MonthlyIndicatorMatrix } from '@/lib/workforce/period';
@@ -13,6 +11,18 @@ import type { MonthlyIndicatorMatrix } from '@/lib/workforce/period';
  * Fecha a leitura dos gráficos: cada competência em uma linha, com os mesmos
  * indicadores do cockpit e — na última coluna — o estado do envio da folha e
  * das guias daquele mês. Um indicador só é confiável se a competência fechou.
+ *
+ * ─── Cor marca desvio, não normalidade ─────────────────────────────────────
+ *
+ * É a regra do cockpit, e `toneFor` abaixo é a sua expressão: uma célula só
+ * ganha cor quando cruza um limiar. As colunas de admissões e desligamentos
+ * vinham pintadas de verde e vermelho em TODA linha, independentemente do
+ * valor — o que dava à tabela inteira um banho de cor que não distinguia nada
+ * e destoava dos demais painéis. Num gráfico a cor identifica a SÉRIE; numa
+ * tabela o cabeçalho da coluna já faz isso.
+ *
+ * A moldura também é a do cockpit (`WorkforceChartCard`), e não um cartão com
+ * ícone de acento: painel de dado não tem cromo próprio nesta página.
  */
 
 interface CompetenceCompliance {
@@ -37,7 +47,7 @@ const brl = (v: number) =>
 
 const int = (v: number) => new Intl.NumberFormat('pt-BR').format(v);
 
-/** Escala tonal: verde no saudável, âmbar na atenção, vermelho no risco. */
+/** Escala tonal: neutro no saudável, âmbar na atenção, vermelho no risco. */
 function toneFor(value: number | null, warn: number, danger: number) {
   if (value === null) return 'text-ig-fg-subtle';
   if (value >= danger) return 'text-ig-danger';
@@ -87,15 +97,20 @@ export function WorkforceIndicatorMatrix({
   const cellCls = 'px-3 py-2 text-[11.5px] tabular-nums whitespace-nowrap';
 
   return (
-    <OrionCard variant="elevated" noPadding className={className}>
-      <div className="flex items-center gap-2 border-b border-ig-border-subtle px-4 py-3">
-        <Table2 className="h-3.5 w-3.5 text-ig-accent" />
-        <span className="text-xs font-semibold text-ig-fg-strong">
-          Matriz Mensal de Indicadores
-        </span>
-        <span className="text-[10.5px] text-ig-fg-muted">
-          — indicadores por competência e estado do envio
-        </span>
+    <div
+      className={cn(
+        'flex min-w-0 flex-col overflow-hidden rounded-2xl border border-ig-border-subtle',
+        'bg-gradient-to-br from-ig-panel to-ig-bg-raised/30',
+        className,
+      )}
+    >
+      <div className="border-b border-ig-border-subtle/60 px-4 py-3">
+        <h3 className="truncate text-[12.5px] font-semibold tracking-tight text-ig-fg-strong">
+          Matriz mensal de indicadores
+        </h3>
+        <p className="mt-0.5 text-[10.5px] leading-relaxed text-ig-fg-muted">
+          Indicadores por competência e o estado do envio da folha e das guias
+        </p>
       </div>
 
       <div className="overflow-x-auto">
@@ -123,8 +138,8 @@ export function WorkforceIndicatorMatrix({
               >
                 <td className={cn(cellCls, 'text-left font-semibold text-ig-fg-strong')}>{r.period}</td>
                 <td className={cn(cellCls, 'text-right text-ig-fg-default')}>{int(r.headcount)}</td>
-                <td className={cn(cellCls, 'text-right text-ig-success')}>{int(r.admissions)}</td>
-                <td className={cn(cellCls, 'text-right text-ig-danger')}>{int(r.dismissals)}</td>
+                <td className={cn(cellCls, 'text-right text-ig-fg-default')}>{int(r.admissions)}</td>
+                <td className={cn(cellCls, 'text-right text-ig-fg-default')}>{int(r.dismissals)}</td>
                 <td className={cn(cellCls, 'text-right', toneFor(r.turnoverPct, 2, 3))}>
                   {pct(r.turnoverPct)}
                 </td>
@@ -166,6 +181,6 @@ export function WorkforceIndicatorMatrix({
           </tfoot>
         </table>
       </div>
-    </OrionCard>
+    </div>
   );
 }

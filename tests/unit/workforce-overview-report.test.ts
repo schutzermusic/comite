@@ -133,29 +133,109 @@ describe('gráficos com série apurada', () => {
     expect(svg).toContain('100%'); // eixo direito da acumulada
   });
 
+  /** Todos os arcos do medidor, com a bandeira de arco longo. */
+  const gaugeArcs = (svg: string) =>
+    [
+      ...svg.matchAll(
+        /d="M ([\d.-]+),([\d.-]+) A ([\d.-]+),[\d.-]+ 0 (\d) 1 ([\d.-]+),([\d.-]+)"/g,
+      ),
+    ].map((m) => ({
+      startX: Number(m[1]),
+      startY: Number(m[2]),
+      radius: Number(m[3]),
+      large: Number(m[4]),
+      endX: Number(m[5]),
+      endY: Number(m[6]),
+    }));
+
   it('o medidor desenha o semicírculo SUPERIOR', () => {
     // O eixo Y do SVG cresce para baixo: o arco de cima é `π → 2π`, onde `sin`
     // é negativo. Usar `π → 0` desenha o semicírculo de baixo e o arco do valor
     // sai pelo lado errado — foi exatamente o que aconteceu na primeira versão.
-    const svg = wfGauge(50, { palette: P, width: 400, height: 200, max: 100 });
-    const paths = [...svg.matchAll(/d="M ([\d.-]+),([\d.-]+) A [\d.-]+,[\d.-]+ 0 \d 1 ([\d.-]+),([\d.-]+)"/g)];
-    expect(paths.length).toBeGreaterThan(0);
+    const svg = wfGauge(50, { palette: P, width: 400, height: 240, max: 100 });
+    const arcs = gaugeArcs(svg);
+    expect(arcs.length).toBeGreaterThan(0);
 
-    const [, , , endX, endY] = paths[paths.length - 1].map(Number) as unknown as number[];
-    const cy = 200 - 36;
+    // O arco da trilha é o de meia volta: começa e termina na mesma altura.
+    const track = arcs.find((a) => Math.abs(a.endY - a.startY) < 0.01 && a.endX > a.startX);
+    expect(track).toBeDefined();
+    const cy = track!.startY;
+    const cx = (track!.startX + track!.endX) / 2;
+
     // 50% de 100 termina no TOPO do arco: acima do centro, e alinhado em x.
-    expect(endY).toBeLessThan(cy);
-    expect(Math.abs(endX - 200)).toBeLessThan(2);
+    const value = arcs.find((a) => Math.abs(a.startX - track!.startX) < 0.01 && a !== track);
+    expect(value).toBeDefined();
+    expect(value!.endY).toBeLessThan(cy - 1);
+    expect(Math.abs(value!.endX - cx)).toBeLessThan(2);
   });
 
   it('o medidor no máximo fecha à direita, no mesmo eixo do início', () => {
-    const svg = wfGauge(100, { palette: P, width: 400, height: 200, max: 100 });
-    const paths = [...svg.matchAll(/d="M ([\d.-]+),([\d.-]+) A [\d.-]+,[\d.-]+ 0 \d 1 ([\d.-]+),([\d.-]+)"/g)];
-    const last = paths[paths.length - 1].map(Number) as unknown as number[];
-    const [, startX, startY, endX, endY] = last;
+    const svg = wfGauge(100, { palette: P, width: 400, height: 240, max: 100 });
+    const arcs = gaugeArcs(svg);
+    const last = arcs[arcs.length - 1];
     // Começa à esquerda e termina à direita, na mesma altura.
-    expect(endX).toBeGreaterThan(startX);
-    expect(Math.abs(endY - startY)).toBeLessThan(0.01);
+    expect(last.endX).toBeGreaterThan(last.startX);
+    expect(Math.abs(last.endY - last.startY)).toBeLessThan(0.01);
+  });
+
+  it('nenhum arco do medidor pede o arco longo', () => {
+    /**
+     * `t` percorre meia volta, então NENHUM sub-arco passa de 180° e
+     * `large-arc-flag` tem de ser 0 em todos eles.
+     *
+     * Derivar a bandeira de `|t1 - t0| > 0.5` fazia a faixa de 0 a 60 (108°)
+     * pedir ao SVG o arco COMPLEMENTAR de 252° — que saía como um laço solto
+     * por cima do medidor na página de Conformidade.
+     *
+     * A faixa 0–60 é o caso do bug e está de propósito nas duas fixtures.
+     */
+    for (const value of [0, 12, 44, 60, 61, 85, 99, 100]) {
+      const svg = wfGauge(value, {
+        palette: P,
+        width: 400,
+        height: 240,
+        max: 100,
+        bands: [
+          [0, 60, P.negative],
+          [60, 85, P.attention],
+          [85, 100, P.positive],
+        ],
+      });
+      const arcs = gaugeArcs(svg);
+      expect(arcs.length, `valor ${value} não desenhou arco`).toBeGreaterThan(0);
+      for (const a of arcs) {
+        expect(a.large, `valor ${value}: arco com large-arc-flag=1`).toBe(0);
+      }
+    }
+  });
+
+  it('o medidor mantém o arco dentro do quadro', () => {
+    // O bloco é centrado verticalmente, então nenhum traço pode escapar pelas
+    // bordas — nem no painel largo e baixo, nem no estreito e alto.
+    for (const [w, h] of [
+      [400, 240],
+      [560, 300],
+      [260, 320],
+    ]) {
+      const svg = wfGauge(72, {
+        palette: P,
+        width: w,
+        height: h,
+        max: 100,
+        bands: [[0, 100, P.accent]],
+      });
+      for (const a of gaugeArcs(svg)) {
+        for (const [x, y] of [
+          [a.startX, a.startY],
+          [a.endX, a.endY],
+        ]) {
+          expect(x, `${w}×${h}: x fora do quadro`).toBeGreaterThanOrEqual(0);
+          expect(x, `${w}×${h}: x fora do quadro`).toBeLessThanOrEqual(w);
+          expect(y, `${w}×${h}: y fora do quadro`).toBeGreaterThanOrEqual(0);
+          expect(y, `${w}×${h}: y fora do quadro`).toBeLessThanOrEqual(h);
+        }
+      }
+    }
   });
 
   it('os rótulos girados do Pareto cabem dentro do quadro', () => {

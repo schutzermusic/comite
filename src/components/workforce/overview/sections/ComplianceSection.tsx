@@ -9,25 +9,16 @@
  */
 
 import { PayrollCompliancePanel } from '../../PayrollCompliancePanel';
-import { ManualHeadcountPanel } from '../../ManualHeadcountPanel';
 import { WorkforceSectionHeader } from '../WorkforceSectionHeader';
-import type { ManualHeadcountPanelProps } from '../../ManualHeadcountPanel';
 import type { WorkforceOverviewModel } from '@/lib/workforce/overview/types';
 
 interface ComplianceSectionProps {
   model: WorkforceOverviewModel;
   loading?: boolean;
   onSyncEsocial?: () => void;
-  /** Ajuste manual de quadro — só administrador, e só quando há competência. */
-  manualHeadcount?: ManualHeadcountPanelProps;
 }
 
-export function ComplianceSection({
-  model,
-  loading,
-  onSyncEsocial,
-  manualHeadcount,
-}: ComplianceSectionProps) {
+export function ComplianceSection({ model, loading, onSyncEsocial }: ComplianceSectionProps) {
   return (
     <section id="wf-conformidade" className="space-y-3">
       <WorkforceSectionHeader
@@ -41,16 +32,6 @@ export function ComplianceSection({
         loading={loading}
         onSyncEsocial={onSyncEsocial}
       />
-
-      {manualHeadcount && (
-        <div id="wf-ajuste-quadro" className="space-y-2 pt-1">
-          <WorkforceSectionHeader
-            title="Ajuste manual de quadro"
-            subtitle="Para competências em que o eSocial não entregou o detalhe por trabalhador — restrito a administradores"
-          />
-          <ManualHeadcountPanel {...manualHeadcount} />
-        </div>
-      )}
     </section>
   );
 }
