@@ -26,7 +26,9 @@ import {
   TopRiskOwnersChart,
   RiskAreaExposureChart,
   RiskWaterfallChart,
-  RiskBubbleChart,
+  RiskMap,
+  RISK_MAP_PLOT_HEIGHT,
+  RISK_MAP_TOTAL_HEIGHT,
   RiskHeatmapChart,
   DEMO_RISKS,
   DEMO_TREND,
@@ -493,13 +495,13 @@ function RiscosCockpit() {
   }
 
   const chipToneClass = (tone: Chip["tone"], active: boolean) => {
-    const base = "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-semibold transition-all";
+    const base = "inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[11.5px] font-semibold transition-colors duration-150";
     if (!active) return `${base} border-ig-border-subtle bg-ig-raised text-ig-fg-muted hover:border-ig-border-strong hover:text-ig-fg-strong`;
     const map: Record<Chip["tone"], string> = {
-      danger: "border-[color-mix(in_oklab,var(--ig-danger)_40%,transparent)] bg-[color-mix(in_oklab,var(--ig-danger)_14%,transparent)] text-ig-danger",
-      warning: "border-[color-mix(in_oklab,var(--ig-warning)_40%,transparent)] bg-[color-mix(in_oklab,var(--ig-warning)_14%,transparent)] text-ig-warning",
-      info: "border-[color-mix(in_oklab,var(--ig-info)_40%,transparent)] bg-[color-mix(in_oklab,var(--ig-info)_14%,transparent)] text-ig-info",
-      success: "border-[color-mix(in_oklab,var(--ig-success)_40%,transparent)] bg-[color-mix(in_oklab,var(--ig-success)_14%,transparent)] text-ig-success",
+      danger: "border-[color-mix(in_oklab,var(--ig-danger)_35%,transparent)] bg-[color-mix(in_oklab,var(--ig-danger)_12%,transparent)] text-ig-danger",
+      warning: "border-[color-mix(in_oklab,var(--ig-warning)_35%,transparent)] bg-[color-mix(in_oklab,var(--ig-warning)_12%,transparent)] text-ig-warning",
+      info: "border-[color-mix(in_oklab,var(--ig-info)_35%,transparent)] bg-[color-mix(in_oklab,var(--ig-info)_12%,transparent)] text-ig-info",
+      success: "border-[color-mix(in_oklab,var(--ig-success)_35%,transparent)] bg-[color-mix(in_oklab,var(--ig-success)_12%,transparent)] text-ig-success",
       accent: "border-ig-accent bg-ig-accent-weak text-ig-accent",
     };
     return `${base} ${map[tone]}`;
@@ -565,7 +567,7 @@ function RiscosCockpit() {
 
       {/* ── QUICK CHIPS ── */}
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-ig-fg-subtle">Recortes rápidos</span>
+        <span className="mr-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-ig-fg-subtle">Recortes rápidos</span>
         {chips.map((chip) => (
           <button key={chip.id} type="button" onClick={chip.onClick} className={chipToneClass(chip.tone, chip.active)}>
             {chip.label}
@@ -575,7 +577,7 @@ function RiscosCockpit() {
           <button
             type="button"
             onClick={() => { setShowArchived((v) => !v); setAiFilter(false); setTableOpen(true); }}
-            className={"inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-semibold transition-all " + (showArchived ? "border-ig-border-strong bg-ig-raised text-ig-fg-strong" : "border-ig-border-subtle bg-ig-raised text-ig-fg-subtle hover:border-ig-border-strong hover:text-ig-fg-muted")}
+            className={"inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[11.5px] font-semibold transition-colors duration-150 " + (showArchived ? "border-ig-border-strong bg-ig-raised text-ig-fg-strong" : "border-ig-border-subtle bg-ig-raised text-ig-fg-subtle hover:border-ig-border-strong hover:text-ig-fg-muted")}
           >
             {showArchived ? "← Painel principal" : `Arquivados (${archivedCount})`}
           </button>
@@ -589,7 +591,6 @@ function RiscosCockpit() {
         {/* Matriz: sem fullHeight — a própria matriz carrega seu aspect-ratio */}
         <HudPanel
           elevation={3}
-          sweep
           title="Matriz 5×5 — Probabilidade × Impacto"
           subtitle="Clique em uma célula para ver os riscos"
           icon={<ShieldCheck className="h-4 w-4" />}
@@ -636,17 +637,17 @@ function RiscosCockpit() {
       </div>
 
       {/* ══════ ROW 3: BUBBLE + HEATMAP ══════ */}
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        <HudPanel elevation={2} title="Mapa de Risco" subtitle="Clique em um ponto para abrir o risco" icon={<Disc3 className="h-4 w-4" />} iconTint="#3B82F6" watermark="BUBBLE · MAP">
-          <RiskBubbleChart data={bubbleData} height={300} onSelect={handleBubbleSelect} />
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:items-stretch">
+        <HudPanel elevation={2} fullHeight title="Mapa de Risco" subtitle="Plano iso-risco · o corpo representa a exposição" icon={<Disc3 className="h-4 w-4" />} iconTint="#3B82F6" watermark="ISO · RISK · MAP">
+          <RiskMap data={bubbleData} height={RISK_MAP_PLOT_HEIGHT} onSelect={handleBubbleSelect} />
         </HudPanel>
-        <HudPanel elevation={2} title="Concentração por Área" subtitle="Clique em uma célula para ver os riscos" icon={<Boxes className="h-4 w-4" />} iconTint="#14B8A6" watermark="HEATMAP">
+        <HudPanel elevation={2} fullHeight title="Concentração por Área" subtitle="Clique em uma célula para ver os riscos" icon={<Boxes className="h-4 w-4" />} iconTint="#14B8A6" watermark="HEATMAP">
           <RiskHeatmapChart
             rows={heatmapData.rows}
             cols={heatmapData.cols}
             cells={heatmapData.cells}
             max={heatmapData.max}
-            height={300}
+            height={RISK_MAP_TOTAL_HEIGHT}
             onSelect={(area, severityKey) => setDrilldown({ kind: "heatmap", area, severity: severityKey as ExtendedRisk["severity"] })}
           />
         </HudPanel>

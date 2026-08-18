@@ -22,6 +22,26 @@ export interface ReportRegistryEntry {
   builder: string;
   /** Phase 2 placeholder — builder wired but module content pending. */
   pending?: boolean;
+  /**
+   * Additional reports belonging to the same module.
+   *
+   * A module is not one report. Pessoas & Custos alone answers to the board
+   * (cockpit), to the accountant (folha e encargos), to an audit (cobertura do
+   * eSocial) and to occupational-safety compliance (SST) — four documents with
+   * different readers and different permissions. Modelling them as variants
+   * keeps `ReportModuleKey` about MODULES and stops the key list from turning
+   * into a report list.
+   */
+  variants?: ReportVariant[];
+}
+
+export interface ReportVariant {
+  /** Filename context segment — must be unique within the module. */
+  fileContext: string;
+  title: string;
+  subtitle: string;
+  permission: string;
+  builder: string;
 }
 
 export const reportRegistry: Record<ReportModuleKey, ReportRegistryEntry> = {
@@ -65,7 +85,30 @@ export const reportRegistry: Record<ReportModuleKey, ReportRegistryEntry> = {
     title: 'Pessoas & Custos',
     subtitle: 'Headcount, folha, concentração de custos e risco de folha',
     permission: 'people.view_costs',
-    builder: '@/lib/workforce/export-report#openWorkforceReport',
+    builder: '@/lib/reports/modules/workforce-overview-report#openWorkforceOverviewPdf',
+    variants: [
+      {
+        fileContext: 'folha-encargos',
+        title: 'Folha & Encargos',
+        subtitle: 'Massa salarial, INSS/FGTS/IRRF, custo por lotação e variação salarial',
+        permission: 'people.cost_view',
+        builder: '@/lib/reports/modules/payroll-cost-report#openPayrollCostReport',
+      },
+      {
+        fileContext: 'esocial',
+        title: 'Controle eSocial',
+        subtitle: 'Cobertura do acervo, competências faltantes, mapeamentos pendentes e divergências',
+        permission: 'people.view',
+        builder: '@/lib/reports/modules/esocial-coverage-report#openEsocialCoverageReport',
+      },
+      {
+        fileContext: 'sst',
+        title: 'SST / ASO & CAT',
+        subtitle: 'Acidentes (S-2210), saúde ocupacional (S-2220) e agentes nocivos (S-2240)',
+        permission: 'people.view',
+        builder: '@/lib/reports/modules/sst-report#openSstReport',
+      },
+    ],
   },
   organograma: {
     title: 'Organograma',

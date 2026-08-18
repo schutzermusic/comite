@@ -77,6 +77,20 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     ],
   },
   {
+    module: 'fiscal',
+    label: 'Fiscal',
+    permissions: [
+      { key: 'fiscal.view', label: 'Visualizar' },
+      { key: 'fiscal.create', label: 'Criar NFS-e' },
+      { key: 'fiscal.approve', label: 'Aprovar NFS-e' },
+      { key: 'fiscal.transmit', label: 'Transmitir' },
+      { key: 'fiscal.cancel', label: 'Cancelar e substituir' },
+      { key: 'fiscal.configure', label: 'Configurar módulo' },
+      { key: 'fiscal.export', label: 'Exportar XML e DANFSe' },
+      { key: 'fiscal.audit', label: 'Auditoria fiscal' },
+    ],
+  },
+  {
     module: 'contracts',
     label: 'Contratos',
     permissions: [

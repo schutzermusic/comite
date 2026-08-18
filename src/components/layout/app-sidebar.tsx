@@ -28,6 +28,7 @@ import {
   Gavel,
   GitCompare,
   Handshake,
+  HeartPulse,
   History,
   LayoutDashboard,
   LineChart,
@@ -77,6 +78,7 @@ import {
 import { Avatar, AvatarFallback } from "../ui/avatar";
 import { cn } from "@/lib/utils";
 import { hasAnyPermission, hasPermission } from "@/lib/auth/permissions";
+import { isModuleEnabled, type AppModule } from "@/lib/modules/registry";
 import { createClient } from "@/utils/supabase/client";
 import { useCurrentUser } from "@/hooks/use-current-user";
 import { useMyCommittees } from "@/hooks/use-my-committees";
@@ -89,6 +91,7 @@ const SUPABASE_CONFIGURED = Boolean(
 
 const ADMIN_STORAGE_KEY = "ig-sidebar-admin-open";
 const FINANCE_STORAGE_KEY = "ig-sidebar-finance-open";
+const FISCAL_STORAGE_KEY = "ig-sidebar-fiscal-open";
 const PROJECTS_STORAGE_KEY = "ig-sidebar-projects-open";
 const WORKFORCE_STORAGE_KEY = "ig-sidebar-workforce-open";
 
@@ -124,6 +127,11 @@ type MenuItem = {
   anyPermission?: string[];
   alwaysVisibleWhenAuthenticated?: boolean;
   subItems?: SubMenuItem[];
+  /**
+   * Módulo que sustenta o item. Desligado no registry, o item some para TODO
+   * mundo — inclusive owner_admin. Ver `canSeeItem`.
+   */
+  module?: AppModule;
 };
 
 const navigationItems: MenuItem[] = [
@@ -150,6 +158,21 @@ const navigationItems: MenuItem[] = [
       { href: "/financeiro/impostos", label: "Impostos & Retenções", icon: Wallet },
       { href: "/financeiro/fechamento", label: "Fechamento Mensal", icon: Lock },
       { href: "/financeiro/relatorios-diretoria", label: "Relatórios da Diretoria", icon: FileText },
+    ],
+  },
+  {
+    href: "/fiscal",
+    labelKey: "fiscal",
+    icon: Calculator,
+    section: "main",
+    permission: "fiscal.view",
+    module: "fiscal",
+    subItems: [
+      { href: "/fiscal", label: "Visão Fiscal", icon: Gauge },
+      { href: "/fiscal/notas", label: "Notas de Serviço", icon: Receipt },
+      { href: "/fiscal/notas/nova", label: "Nova NFS-e", icon: FileText, permission: "fiscal.create" },
+      { href: "/fiscal/cadastros", label: "Cadastros Fiscais", icon: Building2 },
+      { href: "/fiscal/configuracoes", label: "Configuração e Integração", icon: Settings, permission: "fiscal.configure" },
     ],
   },
   {
@@ -223,8 +246,11 @@ const navigationItems: MenuItem[] = [
       },
       // 5. Custo, controle e análise
       {
+        // A rota continua /custos de propósito: o rótulo mudou porque a seção
+        // passou a ser a casa dos relatórios de folha e encargos, mas trocar a
+        // URL quebraria links salvos, permissões de rota e o histórico.
         href: "/workforce-cost/custos",
-        label: "Custo de MO",
+        label: "Folha & Encargos",
         icon: Coins,
         anyPermission: ["people.cost_view", "people.cost_manage"],
       },
@@ -240,7 +266,14 @@ const navigationItems: MenuItem[] = [
         icon: BrainCircuit,
         anyPermission: ["people.allocations_view", "people.ai_insights"],
       },
-      // 6. Conformidade legal e fechamento (fim do ciclo)
+      // 6. Saúde e segurança do trabalho
+      {
+        href: "/workforce-cost/sst",
+        label: "SST / ASO & CAT",
+        icon: HeartPulse,
+        anyPermission: ["people.view", "people.attendance_view"],
+      },
+      // 7. Conformidade legal e fechamento (fim do ciclo)
       {
         href: "/workforce-cost/ponto-oficial",
         label: "Ponto Oficial (REP-P)",
@@ -287,6 +320,7 @@ export function AppSidebar() {
   const isCollapsed = state === "collapsed" && !isMobile;
   const [adminOpen, setAdminOpen] = useState(false);
   const [financeOpen, setFinanceOpen] = useState(false);
+  const [fiscalOpen, setFiscalOpen] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [workforceOpen, setWorkforceOpen] = useState(false);
 
@@ -298,6 +332,12 @@ export function AppSidebar() {
       setFinanceOpen(storedFinance === "true");
     } else if (pathname.startsWith("/financeiro")) {
       setFinanceOpen(true);
+    }
+    const storedFiscal = localStorage.getItem(FISCAL_STORAGE_KEY);
+    if (storedFiscal !== null) {
+      setFiscalOpen(storedFiscal === "true");
+    } else if (pathname.startsWith("/fiscal")) {
+      setFiscalOpen(true);
     }
     const storedProjects = localStorage.getItem(PROJECTS_STORAGE_KEY);
     if (storedProjects !== null) {
@@ -329,6 +369,14 @@ export function AppSidebar() {
     });
   };
 
+  const toggleFiscal = () => {
+    setFiscalOpen((previous) => {
+      const next = !previous;
+      localStorage.setItem(FISCAL_STORAGE_KEY, String(next));
+      return next;
+    });
+  };
+
   const toggleProjects = () => {
     setProjectsOpen((previous) => {
       const next = !previous;
@@ -347,6 +395,7 @@ export function AppSidebar() {
 
   const getSubmenuState = (href: string) => {
     if (href === "/financeiro") return { isOpen: financeOpen, onToggle: toggleFinance };
+    if (href === "/fiscal") return { isOpen: fiscalOpen, onToggle: toggleFiscal };
     if (href === "/projetos") return { isOpen: projectsOpen, onToggle: toggleProjects };
     if (href === "/workforce-cost") return { isOpen: workforceOpen, onToggle: toggleWorkforce };
     return { isOpen: false, onToggle: () => undefined };
@@ -373,6 +422,15 @@ export function AppSidebar() {
   };
 
   const canSeeItem = (item: MenuItem) => {
+    /**
+     * PRIMEIRA regra, antes de qualquer bypass.
+     *
+     * Módulo desligado não é questão de permissão: a tela não tem como
+     * funcionar (falta migration, credencial ou homologação). Se esta checagem
+     * viesse depois do `isOwnerAdmin` abaixo, o administrador — justamente
+     * quem o bypass existe para atender — veria os links quebrados.
+     */
+    if (item.module && !isModuleEnabled(item.module)) return false;
     if (item.alwaysVisibleWhenAuthenticated && authUser) return true;
     if (isOwnerAdmin) return true;
     // Deliberações é restrito a membros de comitê: sem vínculo, oculta o item.
@@ -392,6 +450,8 @@ export function AppSidebar() {
 
   const filterSubItems = (item: MenuItem) => {
     if (!item.subItems) return undefined;
+    // Herda o módulo do pai: um submenu não sobrevive ao módulo que o sustenta.
+    if (item.module && !isModuleEnabled(item.module)) return [];
     return item.subItems.filter((subItem) => {
       if (isOwnerAdmin) return true;
       if (subItem.anyPermission) return hasAnyPermission(permissions, subItem.anyPermission);

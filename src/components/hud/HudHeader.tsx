@@ -5,8 +5,18 @@ import { motion } from 'motion/react';
 import Link from 'next/link';
 import { ChevronRight, Home } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { HudChip } from './HudChip';
+import { HudSignal } from './HudSignal';
+import type { HudSignalTone } from './HudSignal';
 import type { HudChipVariant } from './HudChip';
+
+const CHIP_TONE: Record<HudChipVariant, HudSignalTone> = {
+  critical: 'critical',
+  warning: 'warning',
+  info: 'accent',
+  success: 'success',
+  live: 'live',
+  neutral: 'neutral',
+};
 
 export interface BreadcrumbItem {
   label: string;
@@ -106,15 +116,16 @@ export function HudHeader({
             </div>
           </div>
 
-          {/* Status chips */}
+          {/* Signal chips — status do módulo */}
           {statusChips && statusChips.length > 0 && (
-            <div className="flex items-center gap-2 mt-3 flex-wrap">
+            <div className="mt-3 flex flex-wrap items-center gap-2">
               {statusChips.map((chip, index) => (
-                <HudChip
-                  key={index}
+                <HudSignal
+                  key={`${chip.label}-${index}`}
                   label={chip.label}
-                  variant={chip.variant}
-                  count={chip.count}
+                  value={chip.count}
+                  tone={CHIP_TONE[chip.variant] ?? 'accent'}
+                  pulse={chip.variant === 'live'}
                 />
               ))}
             </div>

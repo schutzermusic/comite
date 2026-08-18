@@ -508,98 +508,11 @@ export function getMockDashboardData(): DashboardPayload {
         inactive: 15,
       },
     },
-    workforceData: getWorkforceDataForDashboard(),
     lastUpdated: new Date(),
   };
 }
 
 // Import workforce mock data for dashboard integration
-function getWorkforceDataForDashboard() {
-  // Inline the workforce data to avoid circular dependency
-  const payrollGrowth = 8.5;
-  const revenueGrowth = 6.2;
-  const delta = payrollGrowth - revenueGrowth;
-  
-  const determineStatus = (d: number): 'healthy' | 'attention' | 'risk' => {
-    if (d <= 0) return 'healthy';
-    if (d <= 5) return 'attention';
-    return 'risk';
-  };
-  
-  const calculateScore = (d: number): number => {
-    if (d <= 0) return 100;
-    if (d <= 2) return 85;
-    if (d <= 5) return 70;
-    if (d <= 10) return 50;
-    if (d <= 15) return 30;
-    return 10;
-  };
-  
-  const riskStatus = determineStatus(delta);
-  const riskScore = calculateScore(delta);
-
-  return {
-    metrics: {
-      headcount: {
-        total: 847,
-        trend: 3.2,
-        delta: 26,
-        sparkline: [795, 802, 810, 818, 825, 832, 847],
-      },
-      monthlyPayroll: {
-        value: 12850000,
-        currency: 'BRL',
-        trend: 4.8,
-        sparkline: [11200000, 11450000, 11800000, 12100000, 12350000, 12600000, 12850000],
-      },
-      avgCostPerEmployee: {
-        value: 15171,
-        trend: 1.5,
-        currency: 'BRL',
-      },
-      payrollAsRevenuePercent: {
-        value: 28.4,
-        threshold: 30,
-        status: 'healthy' as const,
-        previousValue: 27.8,
-      },
-      contractDistribution: {
-        pj: 312,
-        clt: 535,
-        pjPercent: 36.8,
-        cltPercent: 63.2,
-        pjCost: 5460000,
-        cltCost: 7390000,
-      },
-    },
-    costConcentration: {
-      costCenters: [
-        { id: 'cc-001', name: 'Engenharia', payrollValue: 3850000, headcount: 185, growthVsPrevious: 12.5, isAbnormal: false },
-        { id: 'cc-002', name: 'Operações', payrollValue: 2950000, headcount: 245, growthVsPrevious: 8.2, isAbnormal: false },
-        { id: 'cc-003', name: 'Comercial', payrollValue: 2180000, headcount: 120, growthVsPrevious: 18.5, isAbnormal: true },
-        { id: 'cc-004', name: 'Administrativo', payrollValue: 1420000, headcount: 95, growthVsPrevious: 3.2, isAbnormal: false },
-        { id: 'cc-005', name: 'P&D', payrollValue: 1250000, headcount: 65, growthVsPrevious: 22.8, isAbnormal: true },
-        { id: 'cc-006', name: 'Marketing', payrollValue: 720000, headcount: 42, growthVsPrevious: 5.5, isAbnormal: false },
-        { id: 'cc-007', name: 'RH', payrollValue: 480000, headcount: 35, growthVsPrevious: 2.1, isAbnormal: false },
-      ],
-      totalPayroll: 12850000,
-      top3Concentration: 69.8,
-      currency: 'BRL',
-    },
-    payrollRisk: {
-      payrollGrowth,
-      revenueGrowth,
-      status: riskStatus,
-      riskScore,
-      message: riskStatus === 'healthy' 
-        ? 'Crescimento da folha alinhado com receita'
-        : riskStatus === 'attention'
-        ? 'Folha crescendo ligeiramente acima da receita'
-        : 'Alerta: Folha crescendo significativamente acima da receita',
-    },
-    lastUpdated: new Date(),
-  };
-}
 
 // Helper functions
 export function formatCurrency(value: number, currency: string = 'BRL'): string {

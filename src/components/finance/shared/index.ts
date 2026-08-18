@@ -43,6 +43,9 @@ export {
   FinanceSparkline,
   FinanceRadialProgress,
   FinanceRankMatrix, type RankRow, type FinanceRankMatrixProps,
+  // Paleta e hook de tema: a camada de relatório desenha a mesma série em
+  // SVG-string e precisa das mesmas cores da tela.
+  PALETTE_DARK, PALETTE_LIGHT, useChartTheme, type Tone,
 } from './FuturisticCharts';
 
 export { Finance3DMetricCard, type Finance3DMetricCardProps, type Finance3DTone } from './Finance3DMetricCard';

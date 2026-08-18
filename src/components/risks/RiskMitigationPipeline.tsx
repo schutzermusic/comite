@@ -2,7 +2,7 @@
 
 import React from "react";
 import { cn } from "@/lib/utils";
-import { Search, ClipboardCheck, Shield, BadgeCheck, CheckCircle2, ChevronRight } from "lucide-react";
+import { Search, ClipboardCheck, Shield, BadgeCheck, CheckCircle2 } from "lucide-react";
 import type { FunnelStage } from "./risk-types";
 import type { PipelineStageStat } from "./risk-analytics";
 
@@ -12,128 +12,103 @@ interface Props {
   onStageClick: (stage: FunnelStage) => void;
 }
 
-/* ── Per-stage color + glow rgba prefix (no CSS-var interpolation in rgba) ── */
-const STAGE_META: Record<FunnelStage, {
-  icon: typeof Search;
-  color: string;
-  glowColor: string;
-}> = {
-  identified: { icon: Search,        color: "var(--ig-info)",    glowColor: "rgba(59,130,246,"   },
-  assessed:   { icon: ClipboardCheck, color: "var(--ig-chart-3)", glowColor: "rgba(168,85,247,"   },
-  mitigating: { icon: Shield,         color: "var(--ig-warning)", glowColor: "rgba(245,165,36,"   },
-  validating: { icon: BadgeCheck,     color: "var(--ig-accent)",  glowColor: "rgba(20,184,166,"   },
-  resolved:   { icon: CheckCircle2,   color: "var(--ig-success)", glowColor: "rgba(16,185,129,"   },
+/* ── Per-stage icon + token color. Tints derivam via color-mix, sem rgba manual. ── */
+const STAGE_META: Record<FunnelStage, { icon: typeof Search; color: string }> = {
+  identified: { icon: Search, color: "var(--ig-info)" },
+  assessed: { icon: ClipboardCheck, color: "var(--ig-chart-3)" },
+  mitigating: { icon: Shield, color: "var(--ig-warning)" },
+  validating: { icon: BadgeCheck, color: "var(--ig-accent)" },
+  resolved: { icon: CheckCircle2, color: "var(--ig-success)" },
 };
+
+const tint = (color: string, pct: number) => `color-mix(in oklab, ${color} ${pct}%, transparent)`;
 
 export function RiskMitigationPipeline({ stages, activeStage, onStageClick }: Props) {
   return (
-    <div className="flex flex-col gap-1.5 sm:flex-row sm:items-stretch sm:gap-2">
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
       {stages.map((s, idx) => {
-        const { icon: Icon, color, glowColor } = STAGE_META[s.stage];
+        const { icon: Icon, color } = STAGE_META[s.stage];
         const isActive = activeStage === s.stage;
-        const isLast = idx === stages.length - 1;
 
         return (
-          <React.Fragment key={s.stage}>
-            <button
-              type="button"
-              onClick={() => onStageClick(s.stage)}
-              aria-pressed={isActive}
-              className={cn(
-                "group relative flex flex-1 flex-col gap-2 overflow-hidden rounded-xl border p-3 text-left transition-all duration-200",
-                "hover:-translate-y-px",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ig-accent",
-                isActive
-                  ? "border-ig-accent ring-1 ring-ig-accent/40 scale-[1.02]"
-                  : "border-ig-border-subtle bg-ig-raised hover:border-ig-border-strong",
-              )}
-              style={
-                isActive
-                  ? { backgroundColor: `${glowColor}10)` }
-                  : undefined
-              }
-            >
-              {/* Ambient bottom glow — fades in on hover, persists on active */}
-              <span
-                className="pointer-events-none absolute bottom-0 left-1/2 h-16 w-full -translate-x-1/2 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
-                style={{ background: `radial-gradient(ellipse 90% 55% at 50% 100%, ${glowColor}16), transparent)` }}
-              />
-              {isActive && (
-                <span
-                  className="pointer-events-none absolute bottom-0 left-1/2 h-16 w-full -translate-x-1/2"
-                  style={{ background: `radial-gradient(ellipse 90% 55% at 50% 100%, ${glowColor}22), transparent)` }}
-                />
-              )}
+          <button
+            key={s.stage}
+            type="button"
+            onClick={() => onStageClick(s.stage)}
+            aria-pressed={isActive}
+            className={cn(
+              "group relative flex flex-col gap-3 overflow-hidden rounded-xl border p-3.5 text-left",
+              "transition-colors duration-150",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ig-accent focus-visible:ring-offset-1 focus-visible:ring-offset-ig-bg-panel",
+              isActive
+                ? "border-ig-border-strong bg-ig-bg-overlay"
+                : "border-ig-border-subtle bg-ig-raised hover:border-ig-border-strong hover:bg-ig-bg-overlay/50",
+            )}
+          >
+            {/* Top accent rail — o único uso de cor forte, 2px, sem blur */}
+            <span
+              className="pointer-events-none absolute inset-x-0 top-0 h-[2px] transition-opacity duration-150"
+              style={{ backgroundColor: color, opacity: isActive ? 1 : 0.35 }}
+            />
 
-              {/* Header row: icon + conversion badge */}
-              <div className="relative flex items-center justify-between gap-2">
+            {/* Header: índice da etapa + conversão */}
+            <div className="flex items-center justify-between gap-2">
+              <span className="flex items-center gap-2">
                 <span
-                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[10px] transition-transform duration-200 group-hover:scale-105"
-                  style={{
-                    backgroundColor: `${glowColor}15)`,
-                    color,
-                    boxShadow: `inset 0 1px 0 rgba(255,255,255,0.10), 0 2px 8px ${glowColor}20)`,
-                  }}
+                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg"
+                  style={{ backgroundColor: tint(color, 12), color }}
                 >
                   <Icon className="h-3.5 w-3.5" />
                 </span>
-
-                {idx > 0 && (
-                  <span
-                    className="rounded-full border px-1.5 py-0.5 text-[9px] font-semibold tabular-nums text-ig-fg-muted"
-                    style={{ borderColor: `${glowColor}25)`, backgroundColor: `${glowColor}08)` }}
-                    title="Conversão da etapa anterior"
-                  >
-                    {s.conversion}%
-                  </span>
-                )}
-              </div>
-
-              {/* Stage label + count */}
-              <div className="relative">
-                <span className="block text-[10px] font-semibold uppercase tracking-[0.07em] text-ig-fg-muted">
-                  {s.label}
+                <span className="text-[10px] font-semibold tabular-nums text-ig-fg-subtle">
+                  {String(idx + 1).padStart(2, "0")}
                 </span>
+              </span>
+
+              {idx > 0 && (
                 <span
-                  className="mt-0.5 block text-[clamp(20px,2.2vw,26px)] font-extrabold leading-none tabular-nums"
-                  style={{
-                    color,
-                    textShadow: `0 0 20px ${glowColor}40)`,
-                  }}
+                  className="rounded-md px-1.5 py-0.5 text-[10px] font-semibold tabular-nums"
+                  style={{ backgroundColor: tint(color, 10), color }}
+                  title="Conversão da etapa anterior"
                 >
+                  {s.conversion}%
+                </span>
+              )}
+            </div>
+
+            {/* Etapa + contagem */}
+            <div>
+              <span className="block truncate text-[11px] font-semibold uppercase tracking-[0.08em] text-ig-fg-muted">
+                {s.label}
+              </span>
+              <span className="mt-1 flex items-baseline gap-1.5">
+                <span className="text-[28px] font-semibold leading-none tracking-[-0.02em] tabular-nums text-ig-fg-strong">
                   {s.count}
                 </span>
-              </div>
+                <span className="text-[11px] font-medium tabular-nums text-ig-fg-subtle">
+                  {s.pct}%
+                </span>
+              </span>
+            </div>
 
-              {/* Share bar */}
-              <div className="relative h-[3px] w-full overflow-hidden rounded-full bg-ig-bg-canvas">
-                <div
-                  className="h-full rounded-full transition-all duration-500"
-                  style={{
-                    width: `${s.pct}%`,
-                    backgroundColor: color,
-                    boxShadow: `0 0 6px ${glowColor}50)`,
-                  }}
-                />
-              </div>
+            {/* Share bar */}
+            <div className="h-[3px] w-full overflow-hidden rounded-full bg-ig-bg-canvas">
+              <div
+                className="h-full rounded-full transition-[width] duration-500"
+                style={{ width: `${s.pct}%`, backgroundColor: color }}
+              />
+            </div>
 
-              {/* Footer: avg aging + overdue */}
-              <div className="relative flex items-center justify-between text-[9.5px] text-ig-fg-subtle">
-                <span title="Aging médio">{s.avgAging}d médio</span>
-                {s.overdue > 0 && (
-                  <span className="font-semibold text-ig-danger" title="Mitigações em atraso">
-                    {s.overdue} atras.
-                  </span>
-                )}
-              </div>
-            </button>
-
-            {!isLast && (
-              <div className="hidden items-center justify-center sm:flex">
-                <ChevronRight className="h-4 w-4 text-ig-fg-subtle" />
-              </div>
-            )}
-          </React.Fragment>
+            {/* Footer: aging médio + atrasos */}
+            <div className="flex items-center justify-between text-[10.5px] font-medium text-ig-fg-subtle">
+              <span title="Aging médio">{s.avgAging}d médio</span>
+              {s.overdue > 0 && (
+                <span className="font-semibold text-ig-danger" title="Mitigações em atraso">
+                  {s.overdue} em atraso
+                </span>
+              )}
+            </div>
+          </button>
         );
       })}
     </div>

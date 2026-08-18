@@ -46,7 +46,10 @@ BEGIN
       daterange(valid_from, COALESCE(valid_until, 'infinity'::date), '[]') WITH &&
     ) WHERE (status = 'validated');
 EXCEPTION
-  WHEN duplicate_object THEN NULL;
+  -- Constraints backed by an exclusion index can surface as either 42710
+  -- (duplicate_object) or 42P07 (duplicate_table/relation), depending on the
+  -- PostgreSQL version and whether the schema was provisioned manually.
+  WHEN duplicate_object OR duplicate_table THEN NULL;
 END $$;
 
 DROP TRIGGER IF EXISTS trg_person_residence_municipalities_updated_at

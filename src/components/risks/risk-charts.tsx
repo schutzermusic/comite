@@ -38,9 +38,25 @@ function tip(c: Palette) {
   return {
     backgroundColor: c.pnl, borderColor: c.bd, borderWidth: 1, borderRadius: 10,
     padding: [10, 14],
-    textStyle: { color: c.fg, fontSize: 11, fontFamily: FONT_FAMILY_SANS },
-    extraCssText: "backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);box-shadow:0 8px 32px rgba(0,0,0,.35);",
+    textStyle: { color: c.fg, fontSize: 12, fontFamily: FONT_FAMILY_SANS },
+    extraCssText: "backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);box-shadow:0 6px 20px rgba(0,0,0,.22);",
   };
+}
+
+/* ── Typography scale (single source for every ECharts text node) ──
+   Gilroy em todos os nós de texto: ECharts não herda a fonte do CSS. */
+const AXIS_LABEL_SIZE = 11;
+const AXIS_NAME_SIZE = 10;
+const VALUE_LABEL_SIZE = 11;
+
+function axisLabel(color: string, extra: Record<string, unknown> = {}) {
+  return { color, fontSize: AXIS_LABEL_SIZE, fontFamily: FONT_FAMILY_SANS, fontWeight: 500 as const, ...extra };
+}
+function axisName(color: string, extra: Record<string, unknown> = {}) {
+  return { color, fontSize: AXIS_NAME_SIZE, fontFamily: FONT_FAMILY_SANS, fontWeight: 600 as const, ...extra };
+}
+function valueLabel(color: string, extra: Record<string, unknown> = {}) {
+  return { color, fontSize: VALUE_LABEL_SIZE, fontFamily: FONT_FAMILY_SANS, fontWeight: 700 as const, ...extra };
 }
 
 /* ── Severity → color (module-level so chart useMemo deps stay stable). ── */
@@ -75,13 +91,13 @@ export function SeverityDistributionChart({ critical, high, medium, low, height 
   const opt = useMemo(() => ({
     backgroundColor: "transparent",
     tooltip: { ...tip(c), trigger: "item" as const },
-    legend: { bottom: 4, textStyle: { color: c.fgM, fontSize: 10, fontFamily: FONT_FAMILY_SANS }, itemWidth: 8, itemHeight: 8, itemGap: 14, icon: "circle" },
+    legend: { bottom: 4, textStyle: { color: c.fgM, fontSize: 11, fontFamily: FONT_FAMILY_SANS, fontWeight: 500 }, itemWidth: 8, itemHeight: 8, itemGap: 14, icon: "circle" },
     series: [{
-      type: "pie", radius: ["52%", "78%"], center: ["50%", "44%"],
+      type: "pie", radius: ["58%", "78%"], center: ["50%", "44%"],
       avoidLabelOverlap: false,
-      itemStyle: { borderRadius: 6, borderColor: c.cvs, borderWidth: 3 },
+      itemStyle: { borderRadius: 4, borderColor: c.cvs, borderWidth: 3 },
       label: { show: false },
-      emphasis: { scale: true, scaleSize: 6, itemStyle: { shadowBlur: 20, shadowColor: "rgba(20,184,166,.25)" } },
+      emphasis: { scale: true, scaleSize: 4 },
       data: [
         { value: critical, name: "Crítico", itemStyle: { color: c.err } },
         { value: high, name: "Alto", itemStyle: { color: c.warn } },
@@ -93,8 +109,8 @@ export function SeverityDistributionChart({ critical, high, medium, low, height 
     graphic: [{
       type: "group", left: "center", top: "37%",
       children: [
-        { type: "text", style: { text: String(total), textAlign: "center", fill: c.fg, fontSize: 28, fontWeight: 700, fontFamily: FONT_FAMILY_SANS }, left: "center", top: -10 },
-        { type: "text", style: { text: "Riscos", textAlign: "center", fill: c.fgM, fontSize: 10, fontFamily: FONT_FAMILY_SANS }, left: "center", top: 20 },
+        { type: "text", style: { text: String(total), textAlign: "center", fill: c.fg, fontSize: 30, fontWeight: 800, fontFamily: FONT_FAMILY_SANS }, left: "center", top: -12 },
+        { type: "text", style: { text: "RISCOS", textAlign: "center", fill: c.fgS, fontSize: 9, fontWeight: 600, fontFamily: FONT_FAMILY_SANS }, left: "center", top: 20 },
       ],
     }],
   }), [c, critical, high, medium, low, total]);
@@ -113,22 +129,22 @@ export function StatusBreakdownChart({ open, mitigating, resolved, height = 200,
     backgroundColor: "transparent",
     tooltip: { ...tip(c), trigger: "axis" as const, axisPointer: { type: "shadow" as const } },
     grid: { left: 4, right: 32, top: 8, bottom: 8, containLabel: true },
-    xAxis: { type: "value" as const, axisLabel: { color: c.fgS, fontSize: 10 }, splitLine: { lineStyle: { color: c.bd, type: "dashed" as const } }, axisLine: { show: false } },
+    xAxis: { type: "value" as const, axisLabel: axisLabel(c.fgS, { fontWeight: 400 }), splitLine: { lineStyle: { color: c.bd, type: "dashed" as const } }, axisLine: { show: false } },
     yAxis: {
       type: "category" as const, data: ["Resolvido", "Mitigando", "Aberto"],
-      axisLabel: { color: c.fgM, fontSize: 11, fontFamily: FONT_FAMILY_SANS, fontWeight: 500 },
+      axisLabel: axisLabel(c.fgM),
       axisLine: { show: false }, axisTick: { show: false },
     },
     series: [{
       type: "bar",
       data: [
-        { value: resolved, itemStyle: { color: { type: "linear", x: 0, y: 0, x2: 1, y2: 0, colorStops: [{ offset: 0, color: `${c.ok}cc` }, { offset: 1, color: c.ok }] } } },
-        { value: mitigating, itemStyle: { color: { type: "linear", x: 0, y: 0, x2: 1, y2: 0, colorStops: [{ offset: 0, color: `${c.warn}cc` }, { offset: 1, color: c.warn }] } } },
-        { value: open, itemStyle: { color: { type: "linear", x: 0, y: 0, x2: 1, y2: 0, colorStops: [{ offset: 0, color: `${c.err}cc` }, { offset: 1, color: c.err }] } } },
+        { value: resolved, itemStyle: { color: c.ok } },
+        { value: mitigating, itemStyle: { color: c.warn } },
+        { value: open, itemStyle: { color: c.err } },
       ],
-      barWidth: 20,
-      itemStyle: { borderRadius: [0, 5, 5, 0] },
-      label: { show: true, position: "right" as const, color: c.fgM, fontSize: 12, fontWeight: 700, fontFamily: FONT_FAMILY_SANS },
+      barWidth: 18,
+      itemStyle: { borderRadius: [0, 4, 4, 0] },
+      label: { show: true, position: "right" as const, ...valueLabel(c.fgM) },
       animationDuration: 700,
     }],
   }), [c, open, mitigating, resolved]);
@@ -159,21 +175,16 @@ export function RiskExposureTrendChart({ data, height = 280, onSelect }: TrendPr
 
   const opt = useMemo(() => {
     const mkSeries = (name: string, key: "critical" | "high" | "medium", color: string) => ({
-      name, type: "line" as const, data: data.map((d) => d[key]), smooth: 0.4,
-      showSymbol: false, symbol: "circle", symbolSize: 7,
-      lineStyle: {
-        width: 3, color,
-        shadowColor: `${color}66`, shadowBlur: 12, shadowOffsetY: 4,
-        cap: "round" as const,
-      },
+      name, type: "line" as const, data: data.map((d) => d[key]), smooth: 0.35,
+      showSymbol: false, symbol: "circle", symbolSize: 6,
+      lineStyle: { width: 2, color, cap: "round" as const },
       itemStyle: { color, borderColor: c.cvs, borderWidth: 2 },
-      emphasis: { focus: "series" as const, scale: 1.4 },
+      emphasis: { focus: "series" as const, scale: 1.2 },
       areaStyle: {
         color: {
           type: "linear" as const, x: 0, y: 0, x2: 0, y2: 1,
           colorStops: [
-            { offset: 0, color: `${color}55` },
-            { offset: 0.55, color: `${color}1f` },
+            { offset: 0, color: `${color}24` },
             { offset: 1, color: `${color}00` },
           ],
         },
@@ -191,14 +202,14 @@ export function RiskExposureTrendChart({ data, height = 280, onSelect }: TrendPr
     },
     legend: {
       top: 2, right: 2,
-      textStyle: { color: c.fgM, fontSize: 11, fontFamily: FONT_FAMILY_SANS },
-      itemWidth: 16, itemHeight: 4, icon: "roundRect", itemGap: 16,
+      textStyle: { color: c.fgM, fontSize: 11, fontFamily: FONT_FAMILY_SANS, fontWeight: 500 },
+      itemWidth: 14, itemHeight: 3, icon: "roundRect", itemGap: 16,
       inactiveColor: c.fgS,
     },
     grid: { left: 2, right: hasScore ? 22 : 6, top: 40, bottom: 2, containLabel: true },
     xAxis: {
       type: "category" as const, data: data.map((d) => d.month),
-      axisLabel: { color: c.fgM, fontSize: 11, fontWeight: 500, margin: 12 },
+      axisLabel: axisLabel(c.fgM, { margin: 12 }),
       axisLine: { show: false },
       axisTick: { show: false },
       boundaryGap: false,
@@ -207,16 +218,16 @@ export function RiskExposureTrendChart({ data, height = 280, onSelect }: TrendPr
     yAxis: [
       {
         type: "value" as const, name: "Riscos",
-        nameTextStyle: { color: c.fgS, fontSize: 9, fontWeight: 600, padding: [0, 0, 4, 0] },
+        nameTextStyle: axisName(c.fgS, { padding: [0, 0, 4, 0] }),
         nameGap: 14,
-        axisLabel: { color: c.fgS, fontSize: 10 },
+        axisLabel: axisLabel(c.fgS, { fontWeight: 400 }),
         splitLine: { lineStyle: { color: c.bd, type: "dashed" as const, opacity: 0.5 } },
         axisLine: { show: false }, axisTick: { show: false },
       },
       ...(hasScore ? [{
         type: "value" as const, name: "Score", min: 0, max: 10, position: "right" as const,
-        nameTextStyle: { color: c.fgS, fontSize: 9, fontWeight: 600 },
-        axisLabel: { color: c.fgS, fontSize: 10 }, splitLine: { show: false },
+        nameTextStyle: axisName(c.fgS),
+        axisLabel: axisLabel(c.fgS, { fontWeight: 400 }), splitLine: { show: false },
         axisLine: { show: false }, axisTick: { show: false },
       }] : []),
     ],
@@ -226,11 +237,11 @@ export function RiskExposureTrendChart({ data, height = 280, onSelect }: TrendPr
       mkSeries("Médio", "medium", c.info),
       ...(hasScore ? [{
         name: "Score corporativo", type: "line" as const, yAxisIndex: 1,
-        data: data.map((d) => d.score ?? null), smooth: 0.4,
-        showSymbol: false, symbol: "circle", symbolSize: 7,
-        lineStyle: { width: 2.5, color: c.acc, type: "dashed" as const, shadowColor: `${c.acc}55`, shadowBlur: 10 },
+        data: data.map((d) => d.score ?? null), smooth: 0.35,
+        showSymbol: false, symbol: "circle", symbolSize: 6,
+        lineStyle: { width: 1.75, color: c.acc, type: "dashed" as const },
         itemStyle: { color: c.acc, borderColor: c.cvs, borderWidth: 2 },
-        emphasis: { focus: "series" as const, scale: 1.4 },
+        emphasis: { focus: "series" as const, scale: 1.2 },
         z: 5,
       }] : []),
     ],
@@ -301,10 +312,9 @@ export function SeverityDonutWithLegend({ slices, height = 240, onSelect }: Donu
                   strokeDasharray={`0 ${CIRC}`}
                   transform={`rotate(${s.rot} 100 100)`}
                   style={{
-                    opacity: dim ? 0.22 : 1,
+                    opacity: dim ? 0.3 : 1,
                     cursor: onSelect ? "pointer" : "default",
-                    filter: on ? `drop-shadow(0 0 7px color-mix(in oklab, ${s.color} 70%, transparent))` : "none",
-                    transition: "opacity .2s ease, stroke-width .2s ease, filter .2s ease",
+                    transition: "opacity .2s ease, stroke-width .2s ease",
                   }}
                   onMouseEnter={() => setHover(s.key)}
                   onMouseLeave={() => setHover(null)}
@@ -317,10 +327,10 @@ export function SeverityDonutWithLegend({ slices, height = 240, onSelect }: Donu
             })}
 
             {/* center readout */}
-            <text x="100" y="98" textAnchor="middle" style={{ fontFamily: FONT_FAMILY_SANS, fontSize: 30, fontWeight: 700, fill: activeColor, transition: "fill .2s ease" }}>
+            <text x="100" y="98" textAnchor="middle" style={{ fontFamily: FONT_FAMILY_SANS, fontSize: 32, fontWeight: 800, fill: activeColor, transition: "fill .2s ease" }}>
               {active ? active.value : total}
             </text>
-            <text x="100" y="118" textAnchor="middle" style={{ fontFamily: FONT_FAMILY_SANS, fontSize: 9, fontWeight: 600, letterSpacing: 1, fill: c.fgM }}>
+            <text x="100" y="118" textAnchor="middle" style={{ fontFamily: FONT_FAMILY_SANS, fontSize: 9, fontWeight: 600, letterSpacing: 1.2, fill: c.fgS }}>
               {active ? active.label.toUpperCase() : "RISCOS"}
             </text>
           </svg>
@@ -342,29 +352,23 @@ export function SeverityDonutWithLegend({ slices, height = 240, onSelect }: Donu
             >
               {/* progress fill track */}
               <span
-                className="pointer-events-none absolute inset-y-0 left-0 rounded-l-lg opacity-10 transition-opacity group-hover/sev:opacity-20"
-                style={{ width: `${s.pct}%`, background: `linear-gradient(90deg, ${color}cc, transparent)` }}
-              />
-              {/* bottom accent line */}
-              <span
-                className="pointer-events-none absolute bottom-0 left-0 h-[2px] rounded-full opacity-0 transition-opacity group-hover/sev:opacity-100"
+                className="pointer-events-none absolute inset-y-0 left-0 opacity-[0.08] transition-opacity group-hover/sev:opacity-[0.16]"
                 style={{ width: `${s.pct}%`, backgroundColor: color }}
               />
-              <span className="relative flex items-center justify-between gap-2">
+              {/* left rail */}
+              <span
+                className="pointer-events-none absolute inset-y-0 left-0 w-[2px] rounded-full"
+                style={{ backgroundColor: color }}
+              />
+              <span className="relative flex items-center justify-between gap-2 pl-1.5">
                 <span className="flex min-w-0 items-center gap-2">
-                  <span
-                    className="h-2 w-2 shrink-0 rounded-full"
-                    style={{ backgroundColor: color, boxShadow: `0 0 7px ${color}` }}
-                  />
-                  <span className="truncate text-[11px] font-medium text-ig-fg-muted">
+                  <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: color }} />
+                  <span className="truncate text-[11.5px] font-medium text-ig-fg-muted">
                     {s.label}
                   </span>
                 </span>
                 <span className="flex shrink-0 items-baseline gap-1.5">
-                  <span
-                    className="text-[13px] font-bold tabular-nums text-ig-fg-strong"
-                    style={{ textShadow: `0 0 16px ${color}55` }}
-                  >
+                  <span className="text-[14px] font-bold tabular-nums text-ig-fg-strong">
                     {s.value}
                   </span>
                   <span className="text-[10px] font-medium tabular-nums text-ig-fg-subtle">
@@ -422,19 +426,19 @@ export function RiskWaterfallChart({ data, height = 260, onSelect }: WaterfallPr
         const i = params[0]?.dataIndex ?? 0;
         const step = data[i];
         const sign = step.kind === "inc" ? "+" : step.kind === "dec" ? "−" : "";
-        return `<div style="font-size:11px;color:${c.fg}"><b>${step.name}</b></div><div style="font-size:11px;color:${c.fgM}">${sign}${Math.abs(step.value)} pts de exposição</div>`;
+        return `<div style="font-size:12px;font-weight:700;color:${c.fg}">${step.name}</div><div style="font-size:11px;color:${c.fgM};margin-top:2px">${sign}${Math.abs(step.value)} pts de exposição</div>`;
       },
     },
     grid: { left: 8, right: 16, top: 18, bottom: 12, containLabel: true },
-    xAxis: { type: "category" as const, data: data.map((d) => d.name), axisLabel: { color: c.fgM, fontSize: 10, interval: 0 }, axisLine: { lineStyle: { color: c.bd } }, axisTick: { show: false } },
-    yAxis: { type: "value" as const, axisLabel: { color: c.fgS, fontSize: 10 }, splitLine: { lineStyle: { color: c.bd, type: "dashed" as const } }, axisLine: { show: false } },
+    xAxis: { type: "category" as const, data: data.map((d) => d.name), axisLabel: axisLabel(c.fgM, { interval: 0 }), axisLine: { lineStyle: { color: c.bd } }, axisTick: { show: false } },
+    yAxis: { type: "value" as const, axisLabel: axisLabel(c.fgS, { fontWeight: 400 }), splitLine: { lineStyle: { color: c.bd, type: "dashed" as const } }, axisLine: { show: false } },
     series: [
-      { type: "bar", stack: "wf", silent: true, itemStyle: { color: "transparent" }, data: bases, barWidth: "52%", emphasis: { itemStyle: { color: "transparent" } } },
+      { type: "bar", stack: "wf", silent: true, itemStyle: { color: "transparent" }, data: bases, barWidth: "48%", emphasis: { itemStyle: { color: "transparent" } } },
       {
-        type: "bar", stack: "wf", barWidth: "52%",
+        type: "bar", stack: "wf", barWidth: "48%",
         cursor: onSelect ? "pointer" : "default",
-        data: values.map((v, i) => ({ value: v, itemStyle: { color: colorFor(data[i]), borderRadius: [4, 4, 0, 0] } })),
-        label: { show: true, position: "top" as const, color: c.fgM, fontSize: 10, fontWeight: 700, formatter: (p: { dataIndex: number }) => { const s = data[p.dataIndex]; return `${s.kind === "inc" ? "+" : s.kind === "dec" ? "−" : ""}${Math.abs(s.value)}`; } },
+        data: values.map((v, i) => ({ value: v, itemStyle: { color: colorFor(data[i]), borderRadius: [3, 3, 0, 0] } })),
+        label: { show: true, position: "top" as const, ...valueLabel(c.fgM, { fontSize: 10 }), formatter: (p: { dataIndex: number }) => { const s = data[p.dataIndex]; return `${s.kind === "inc" ? "+" : s.kind === "dec" ? "−" : ""}${Math.abs(s.value)}`; } },
         animationDuration: 700,
       },
     ],
@@ -443,56 +447,6 @@ export function RiskWaterfallChart({ data, height = 260, onSelect }: WaterfallPr
 
   const events = onSelect
     ? { click: (p: { dataIndex?: number }) => { const s = data[p.dataIndex ?? -1]; const b = s ? WATERFALL_NAME_BUCKET[s.name] : undefined; if (b) onSelect(b); } }
-    : undefined;
-
-  if (data.length === 0) return <ChartEmpty height={height} />;
-  return <ReactECharts option={opt} style={{ height, width: "100%" }} opts={{ renderer: "canvas" }} onEvents={events} />;
-}
-
-/* ════════════════════════════════════════════════
-   BUBBLE — Probability × Impact × Exposure
-   ════════════════════════════════════════════════ */
-interface BubblePoint { id: string; title: string; probability: number; impact: number; exposure: number; severity: string }
-interface BubbleProps { data: BubblePoint[]; height?: number | string; onSelect?: (riskId: string) => void }
-
-export function RiskBubbleChart({ data, height = 300, onSelect }: BubbleProps) {
-  const c = useC();
-
-  const opt = useMemo(() => {
-    const maxExp = Math.max(...data.map((d) => d.exposure), 1);
-    return {
-    backgroundColor: "transparent",
-    tooltip: {
-      ...tip(c), trigger: "item" as const,
-      formatter: (p: { data: { raw: BubblePoint } }) => {
-        const r = p.data.raw;
-        const exp = new Intl.NumberFormat("pt-BR", { notation: "compact", style: "currency", currency: "BRL", maximumFractionDigits: 1 }).format(r.exposure);
-        return `<div style="max-width:220px"><div style="font-size:11px;font-weight:700;color:${c.fg}">${r.title}</div><div style="font-size:10px;color:${c.fgM};margin-top:4px">P${r.probability} × I${r.impact} · Score ${r.probability * r.impact}</div><div style="font-size:10px;color:${c.fgS}">Exposição ${exp}</div></div>`;
-      },
-    },
-    grid: { left: 8, right: 20, top: 20, bottom: 30, containLabel: true },
-    xAxis: { type: "value" as const, name: "Probabilidade", nameLocation: "middle" as const, nameGap: 26, min: 0.5, max: 5.5, interval: 1, nameTextStyle: { color: c.fgM, fontSize: 10 }, axisLabel: { color: c.fgS, fontSize: 10 }, splitLine: { lineStyle: { color: c.bd, type: "dashed" as const } }, axisLine: { show: false } },
-    yAxis: { type: "value" as const, name: "Impacto", nameLocation: "middle" as const, nameGap: 22, min: 0.5, max: 5.5, interval: 1, nameTextStyle: { color: c.fgM, fontSize: 10 }, axisLabel: { color: c.fgS, fontSize: 10 }, splitLine: { lineStyle: { color: c.bd, type: "dashed" as const } }, axisLine: { show: false } },
-    series: [{
-      type: "scatter",
-      cursor: onSelect ? "pointer" : "default",
-      symbolSize: (val: number[]) => 12 + Math.sqrt((val[2] ?? 0) / maxExp) * 34,
-      data: data.map((d) => {
-        const color = sevColor(d.severity, c);
-        return {
-          value: [d.probability, d.impact, d.exposure],
-          raw: d,
-          itemStyle: { color: `${color}cc`, borderColor: color, borderWidth: 1.5, shadowBlur: 8, shadowColor: `${color}55` },
-        };
-      }),
-      emphasis: { itemStyle: { shadowBlur: 16 } },
-      animationDuration: 700,
-    }],
-    };
-  }, [c, data, onSelect]);
-
-  const events = onSelect
-    ? { click: (p: { data?: { raw?: { id: string } } }) => { if (p.data?.raw?.id) onSelect(p.data.raw.id); } }
     : undefined;
 
   if (data.length === 0) return <ChartEmpty height={height} />;
@@ -519,22 +473,22 @@ export function RiskHeatmapChart({ rows, cols, cells, max, height = 300, onSelec
       ...tip(c), position: "top" as const,
       formatter: (p: { data: [number, number, number] }) => {
         const [x, y, v] = p.data;
-        return `<div style="font-size:11px;color:${c.fg}">${rows[y]} · ${cols[x].label}</div><div style="font-size:13px;font-weight:700;color:${c.fg}">${v} risco(s)</div>`;
+        return `<div style="font-size:11px;color:${c.fgM}">${rows[y]} · ${cols[x].label}</div><div style="font-size:14px;font-weight:700;color:${c.fg}">${v} risco(s)</div>`;
       },
     },
     grid: { left: 8, right: 12, top: 8, bottom: 22, containLabel: true },
-    xAxis: { type: "category" as const, data: cols.map((cc) => cc.label), splitArea: { show: true }, axisLabel: { color: c.fgM, fontSize: 10 }, axisLine: { lineStyle: { color: c.bd } }, axisTick: { show: false } },
-    yAxis: { type: "category" as const, data: rows, splitArea: { show: true }, axisLabel: { color: c.fgM, fontSize: 10 }, axisLine: { lineStyle: { color: c.bd } }, axisTick: { show: false } },
+    xAxis: { type: "category" as const, data: cols.map((cc) => cc.label), splitArea: { show: false }, axisLabel: axisLabel(c.fgM), axisLine: { lineStyle: { color: c.bd } }, axisTick: { show: false } },
+    yAxis: { type: "category" as const, data: rows, splitArea: { show: false }, axisLabel: axisLabel(c.fgM), axisLine: { lineStyle: { color: c.bd } }, axisTick: { show: false } },
     visualMap: {
       min: 0, max, calculable: false, show: false,
-      inRange: { color: [`${c.acc}10`, `${c.info}99`, c.warn, c.err] },
+      inRange: { color: [`${c.acc}0d`, `${c.info}66`, `${c.warn}cc`, c.err] },
     },
     series: [{
       type: "heatmap", data: cells,
       cursor: onSelect ? "pointer" : "default",
-      label: { show: true, color: c.fg, fontSize: 10, fontWeight: 600, formatter: (p: { data: [number, number, number] }) => (p.data[2] > 0 ? String(p.data[2]) : "") },
-      itemStyle: { borderColor: c.cvs, borderWidth: 2, borderRadius: 4 },
-      emphasis: { itemStyle: { shadowBlur: 12, shadowColor: `${c.acc}55` } },
+      label: { show: true, ...valueLabel(c.fg, { fontSize: 11 }), formatter: (p: { data: [number, number, number] }) => (p.data[2] > 0 ? String(p.data[2]) : "") },
+      itemStyle: { borderColor: c.cvs, borderWidth: 3, borderRadius: 4 },
+      emphasis: { itemStyle: { borderColor: c.acc, borderWidth: 2 } },
       animationDuration: 700,
     }],
   }), [c, rows, cols, cells, max, onSelect]);
@@ -557,22 +511,23 @@ export function CategoryDistributionChart({ data, height = 280, onSelect }: CatP
   const c = useC();
   const opt = useMemo(() => ({
     backgroundColor: "transparent",
-    tooltip: { ...tip(c), trigger: "axis" as const, axisPointer: { type: "shadow" as const, shadowStyle: { color: `${c.acc}08` } } },
+    tooltip: { ...tip(c), trigger: "axis" as const, axisPointer: { type: "shadow" as const, shadowStyle: { color: `${c.acc}0a` } } },
     grid: { left: 8, right: 16, top: 12, bottom: 24, containLabel: true },
     xAxis: {
       type: "category" as const, data: data.map((d) => d.name),
-      axisLabel: { color: c.fgM, fontSize: 10, fontFamily: FONT_FAMILY_SANS, interval: 0, rotate: data.length > 5 ? 20 : 0 },
+      axisLabel: axisLabel(c.fgM, { interval: 0, rotate: data.length > 5 ? 20 : 0 }),
       axisLine: { lineStyle: { color: c.bd } }, axisTick: { show: false },
     },
-    yAxis: { type: "value" as const, axisLabel: { color: c.fgS, fontSize: 10 }, splitLine: { lineStyle: { color: c.bd, type: "dashed" as const } }, axisLine: { show: false } },
+    yAxis: { type: "value" as const, axisLabel: axisLabel(c.fgS, { fontWeight: 400 }), splitLine: { lineStyle: { color: c.bd, type: "dashed" as const } }, axisLine: { show: false } },
     series: [{
-      type: "bar", data: data.map((d) => d.value), barWidth: "44%",
+      type: "bar", data: data.map((d) => d.value), barWidth: "42%",
       cursor: onSelect ? "pointer" : "default",
       itemStyle: {
-        borderRadius: [5, 5, 0, 0],
-        color: { type: "linear", x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: c.c1 }, { offset: 1, color: `${c.c1}55` }] },
+        borderRadius: [4, 4, 0, 0],
+        color: { type: "linear", x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: c.c1 }, { offset: 1, color: `${c.c1}66` }] },
       },
-      emphasis: { itemStyle: { shadowBlur: 14, shadowColor: `${c.acc}44` } },
+      emphasis: { itemStyle: { color: c.c1 } },
+      label: { show: true, position: "top" as const, ...valueLabel(c.fgM, { fontSize: 10 }) },
       animationDuration: 700,
     }],
   }), [c, data, onSelect]);
@@ -598,10 +553,10 @@ export function TopRiskOwnersChart({ data, height = 280, onSelect }: OwnersProps
     backgroundColor: "transparent",
     tooltip: { ...tip(c), trigger: "axis" as const, axisPointer: { type: "shadow" as const } },
     grid: { left: 4, right: 32, top: 8, bottom: 8, containLabel: true },
-    xAxis: { type: "value" as const, axisLabel: { color: c.fgS, fontSize: 10 }, splitLine: { lineStyle: { color: c.bd, type: "dashed" as const } }, axisLine: { show: false } },
+    xAxis: { type: "value" as const, axisLabel: axisLabel(c.fgS, { fontWeight: 400 }), splitLine: { lineStyle: { color: c.bd, type: "dashed" as const } }, axisLine: { show: false } },
     yAxis: {
       type: "category" as const, data: sorted.map((d) => d.name),
-      axisLabel: { color: c.fgM, fontSize: 10, fontFamily: FONT_FAMILY_SANS },
+      axisLabel: axisLabel(c.fgM),
       axisLine: { show: false }, axisTick: { show: false },
     },
     series: [{
@@ -609,13 +564,10 @@ export function TopRiskOwnersChart({ data, height = 280, onSelect }: OwnersProps
       cursor: onSelect ? "pointer" : "default",
       data: sorted.map((d, i) => ({
         value: d.count,
-        itemStyle: {
-          borderRadius: [0, 5, 5, 0],
-          color: { type: "linear", x: 0, y: 0, x2: 1, y2: 0, colorStops: [{ offset: 0, color: palette[i % 5] }, { offset: 1, color: `${palette[i % 5]}88` }] },
-        },
+        itemStyle: { borderRadius: [0, 4, 4, 0], color: palette[i % 5] },
       })),
-      barWidth: 14,
-      label: { show: true, position: "right" as const, color: c.fgM, fontSize: 10, fontWeight: 700 },
+      barWidth: 12,
+      label: { show: true, position: "right" as const, ...valueLabel(c.fgM, { fontSize: 10 }) },
       animationDuration: 700,
     }],
   }), [c, sorted, palette, onSelect]);
@@ -642,15 +594,15 @@ export function RiskAreaExposureChart({ data, height = 300 }: AreaProps) {
       ...tip(c), trigger: "item" as const,
       formatter: (p: { name: string; value: number[] }) => {
         const item = data.find((d) => d.area === p.name);
-        return `<div style="font-size:10px;color:${c.fgM}">${p.name}</div><div style="font-size:16px;font-weight:700;color:${c.fg}">Score ${item?.score ?? "—"}</div><div style="font-size:10px;color:${c.fgS}">${item?.count ?? 0} risco(s)</div>`;
+        return `<div style="font-size:11px;color:${c.fgM}">${p.name}</div><div style="font-size:16px;font-weight:700;color:${c.fg}">Score ${item?.score ?? "—"}</div><div style="font-size:11px;color:${c.fgS}">${item?.count ?? 0} risco(s)</div>`;
       },
     },
     radar: {
       indicator: data.map((d) => ({ name: `${d.area}\n(${d.count})`, max: maxVal })),
       shape: "polygon" as const, splitNumber: 4,
-      axisName: { color: c.fgM, fontSize: 10, fontFamily: FONT_FAMILY_SANS, lineHeight: 14 },
+      axisName: { color: c.fgM, fontSize: 11, fontFamily: FONT_FAMILY_SANS, fontWeight: 500, lineHeight: 14 },
       splitLine: { lineStyle: { color: c.bd } },
-      splitArea: { areaStyle: { color: ["transparent", `${c.acc}06`, "transparent", `${c.acc}04`] } },
+      splitArea: { show: false },
       axisLine: { lineStyle: { color: c.bd } },
       center: ["50%", "50%"],
       radius: "63%",
@@ -659,15 +611,12 @@ export function RiskAreaExposureChart({ data, height = 300 }: AreaProps) {
       type: "radar",
       data: [{
         value: data.map((d) => d.score), name: "Exposição",
-        areaStyle: {
-          color: { type: "linear" as const, x: 0, y: 0, x2: 0, y2: 1,
-            colorStops: [{ offset: 0, color: `${c.err}38` }, { offset: 1, color: `${c.acc}10` }] },
-        },
+        areaStyle: { color: `${c.err}1f` },
       }],
-      symbol: "circle", symbolSize: 7,
-      lineStyle: { width: 2.5, color: c.err },
+      symbol: "circle", symbolSize: 5,
+      lineStyle: { width: 2, color: c.err },
       itemStyle: { color: c.err, borderColor: c.cvs, borderWidth: 2 },
-      emphasis: { lineStyle: { width: 3 }, areaStyle: { color: `${c.err}48` } },
+      emphasis: { areaStyle: { color: `${c.err}2e` } },
       animationDuration: 800,
     }],
   }), [c, data, maxVal]);
@@ -706,7 +655,7 @@ export function MitigationFunnelChart({ identified, assessed, mitigating, resolv
       maxSize: "100%",
       sort: "none" as const,
       gap: 4,
-      label: { color: c.fg, fontSize: 11, fontWeight: 600 },
+      label: { color: c.fg, fontSize: 11, fontWeight: 600, fontFamily: FONT_FAMILY_SANS },
       labelLine: { lineStyle: { color: c.bd } },
       itemStyle: { borderColor: c.cvs, borderWidth: 2, borderRadius: 4 },
       data: data.map((item) => ({

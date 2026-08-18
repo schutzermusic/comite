@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils';
 import {
   WORKFORCE_PERIOD_OPTIONS,
   getAvailableCompetenceMonths,
+  type WorkforceMonthlyRecord,
   type WorkforcePeriodKey,
   type WorkforcePeriodSelection,
 } from '@/lib/workforce/period';
@@ -20,7 +21,15 @@ import {
 interface WorkforcePeriodFilterProps {
   value: WorkforcePeriodSelection;
   onChange: (next: WorkforcePeriodSelection) => void;
+  /** Série apurada — define quais competências o intervalo pode oferecer. */
+  series?: WorkforceMonthlyRecord[];
   className?: string;
+  /**
+   * `bare` remove a moldura própria: o componente passa a ser só os selects,
+   * para viver dentro de um chip da barra de comando, que já traz a moldura de
+   * vidro e o rótulo. `chip` (padrão) mantém o visual autônomo do cabeçalho.
+   */
+  variant?: 'chip' | 'bare';
 }
 
 function monthOptionLabel(competenceMonth: string): string {
@@ -29,8 +38,17 @@ function monthOptionLabel(competenceMonth: string): string {
   return `${names[m - 1]}/${y}`;
 }
 
-export function WorkforcePeriodFilter({ value, onChange, className }: WorkforcePeriodFilterProps) {
-  const months = getAvailableCompetenceMonths();
+export function WorkforcePeriodFilter({
+  value,
+  onChange,
+  series,
+  className,
+  variant = 'chip',
+}: WorkforcePeriodFilterProps) {
+  // As competências oferecidas são as que EXISTEM na série apurada. Antes vinham
+  // de uma lista sintética de 24 meses, e escolher um desses meses levava a uma
+  // tela de zeros sem explicação.
+  const months = getAvailableCompetenceMonths(series);
   const isCustom = value.key === 'custom';
   const customStart = value.customStart ?? months[Math.max(0, months.length - 3)];
   const customEnd = value.customEnd ?? months[months.length - 1];
@@ -43,6 +61,42 @@ export function WorkforcePeriodFilter({ value, onChange, className }: WorkforceP
     }
   };
 
+  const periodSelect = (
+    <BareSelect
+      value={value.key}
+      onChange={(v) => handleKeyChange(v as WorkforcePeriodKey)}
+      options={WORKFORCE_PERIOD_OPTIONS}
+      ariaLabel="Selecionar período"
+    />
+  );
+
+  const rangeSelects = isCustom && (
+    <>
+      <BareSelect
+        value={customStart}
+        onChange={(v) => onChange({ key: 'custom', customStart: v, customEnd })}
+        options={months.map((m) => ({ value: m, label: monthOptionLabel(m) }))}
+        ariaLabel="Início do período personalizado"
+      />
+      <span className="text-ig-fg-subtle">→</span>
+      <BareSelect
+        value={customEnd}
+        onChange={(v) => onChange({ key: 'custom', customStart, customEnd: v })}
+        options={months.map((m) => ({ value: m, label: monthOptionLabel(m) }))}
+        ariaLabel="Fim do período personalizado"
+      />
+    </>
+  );
+
+  if (variant === 'bare') {
+    return (
+      <div className={cn('flex min-w-0 flex-1 items-center gap-1', className)}>
+        {periodSelect}
+        {rangeSelects}
+      </div>
+    );
+  }
+
   return (
     <div className={cn('flex flex-wrap items-center gap-2', className)}>
       <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-ig-panel border border-ig-border-subtle text-sm text-ig-fg-muted">
@@ -50,29 +104,12 @@ export function WorkforcePeriodFilter({ value, onChange, className }: WorkforceP
         <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ig-fg-subtle">
           Período
         </span>
-        <BareSelect
-          value={value.key}
-          onChange={(v) => handleKeyChange(v as WorkforcePeriodKey)}
-          options={WORKFORCE_PERIOD_OPTIONS}
-          ariaLabel="Selecionar período"
-        />
+        {periodSelect}
       </div>
 
       {isCustom && (
         <div className="flex flex-wrap items-center gap-2 px-3 py-2 rounded-lg bg-ig-panel border border-ig-border-subtle text-sm text-ig-fg-muted">
-          <BareSelect
-            value={customStart}
-            onChange={(v) => onChange({ key: 'custom', customStart: v, customEnd })}
-            options={months.map((m) => ({ value: m, label: monthOptionLabel(m) }))}
-            ariaLabel="Início do período personalizado"
-          />
-          <span className="text-ig-fg-subtle">→</span>
-          <BareSelect
-            value={customEnd}
-            onChange={(v) => onChange({ key: 'custom', customStart, customEnd: v })}
-            options={months.map((m) => ({ value: m, label: monthOptionLabel(m) }))}
-            ariaLabel="Fim do período personalizado"
-          />
+          {rangeSelects}
         </div>
       )}
     </div>

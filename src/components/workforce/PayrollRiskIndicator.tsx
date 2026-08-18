@@ -3,7 +3,7 @@
 import { useMemo } from 'react';
 import {
   Shield, TrendingUp, TrendingDown,
-  AlertTriangle, CheckCircle, AlertCircle,
+  AlertTriangle, CheckCircle, AlertCircle, MinusCircle,
 } from 'lucide-react';
 import { PayrollRiskData, RiskStatus, formatWorkforcePercentage } from '@/lib/workforce-data';
 import { cn } from '@/lib/utils';
@@ -64,6 +64,33 @@ export function PayrollRiskIndicator({ data, className, compact = false }: Payro
     () => data.payrollGrowth - data.revenueGrowth,
     [data.payrollGrowth, data.revenueGrowth],
   );
+
+  /**
+   * O indicador compara crescimento da folha com crescimento da receita. Sem
+   * receita lançada, o segundo termo é zero e o veredito passa a ser apenas
+   * "a folha cresceu" — vestido de diagnóstico de risco. Nesse caso o painel
+   * explica o que falta em vez de pontuar.
+   */
+  if (!data.comparable) {
+    return (
+      <div
+        className={cn(
+          'flex items-start gap-3 rounded-2xl border border-ig-border-subtle bg-ig-panel p-4',
+          className,
+        )}
+      >
+        <MinusCircle className="mt-0.5 h-5 w-5 shrink-0 text-ig-fg-subtle" aria-hidden />
+        <div className="space-y-1">
+          <p className="text-sm font-semibold text-ig-fg-strong">Risco de folha não apurado</p>
+          <p className="text-xs leading-relaxed text-ig-fg-muted">{data.message}</p>
+          <p className="text-xs text-ig-fg-subtle">
+            Crescimento da folha no período: {data.payrollGrowth > 0 ? '+' : ''}
+            {data.payrollGrowth.toFixed(1)}%.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   if (compact) {
     return (

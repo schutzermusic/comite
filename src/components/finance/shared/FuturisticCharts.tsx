@@ -11,15 +11,22 @@
 
 import { FONT_FAMILY_SANS } from '@/lib/fonts';
 import React, { useId, useMemo, useState, useRef, useLayoutEffect } from 'react';
+import { visibleCategoryTicks } from './chart-axis';
 import { useTheme } from '@/contexts/ThemeContext';
 
 /* --------------------------------------------------------------- */
 /* Tokens                                                           */
 /* --------------------------------------------------------------- */
 
-type Tone = 'accent' | 'success' | 'danger' | 'warning' | 'info' | 'budget' | 'textStrong';
+export type Tone = 'accent' | 'success' | 'danger' | 'warning' | 'info' | 'budget' | 'textStrong';
 
-const PALETTE_DARK: Record<Tone, string> = {
+/**
+ * Exportadas para que a camada de relatório possa desenhar em SVG-string a
+ * MESMA série que a tela desenha em SVG-DOM. Um documento gerado com paleta
+ * própria diverge da tela na primeira mudança de cor, e a divergência aparece
+ * justamente na reunião em que alguém compara as duas.
+ */
+export const PALETTE_DARK: Record<Tone, string> = {
   accent: '#22D3EE',
   success: '#34D399',
   danger: '#F87171',
@@ -28,7 +35,7 @@ const PALETTE_DARK: Record<Tone, string> = {
   budget: '#A78BFA',
   textStrong: '#E6E9EE',
 };
-const PALETTE_LIGHT: Record<Tone, string> = {
+export const PALETTE_LIGHT: Record<Tone, string> = {
   accent: '#0891B2',
   success: '#059669',
   danger: '#DC2626',
@@ -45,7 +52,7 @@ const GRID_LIGHT = 'rgba(15,23,42,0.05)';
 const TEXT_DARK = '#A8B0BD';
 const TEXT_LIGHT = '#5B6473';
 
-function useChartTheme() {
+export function useChartTheme() {
   const { theme } = useTheme();
   const isLight = theme === 'light';
   return useMemo(() => ({
@@ -77,6 +84,8 @@ const fmtCompact = (v: number) => {
 const fmtBRL = (v: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(v);
 
+export { visibleCategoryTicks } from './chart-axis';
+
 function useContainerWidth() {
   const ref = useRef<HTMLDivElement>(null);
   const [w, setW] = useState(640);
@@ -92,6 +101,24 @@ function useContainerWidth() {
 }
 
 // Smooth a polyline using Catmull-Rom -> cubic Bezier
+/**
+ * Área sob a curva.
+ *
+ * Devolve `null` quando não há curva: com um ponto só, `smoothPath` retorna
+ * string vazia e concatenar o fechamento produzia um `d` começando em `L`, sem
+ * `moveto`. O navegador rejeitava o atributo inteiro e registrava
+ * "Expected moveto path command" no console — série de uma competência só é
+ * exatamente o caso de uma base recém-importada.
+ */
+function areaUnder(
+  path: string,
+  pts: [number, number][],
+  baselineY: number,
+): string | null {
+  if (!path || pts.length < 2) return null;
+  return `${path} L ${pts[pts.length - 1][0]},${baselineY} L ${pts[0][0]},${baselineY} Z`;
+}
+
 function smoothPath(points: [number, number][]) {
   if (points.length < 2) return '';
   const path: string[] = [`M ${points[0][0]},${points[0][1]}`];
@@ -207,6 +234,7 @@ export function FinanceLineChart({
   const max = dataMax * 1.08;
   const range = max - min || 1;
   const xStep = innerW / Math.max(1, categories.length - 1);
+  const categoryTicks = visibleCategoryTicks(categories, innerW);
   const yScale = (v: number) => padT + innerH - ((v - min) / range) * innerH;
 
   const yTicks = 4;
@@ -227,9 +255,11 @@ export function FinanceLineChart({
           <text key={i} x={padL - 8} y={yScale(v) + 3} textAnchor="end" fontSize="10" fill={theme.text}>{fmtCompact(v)}</text>
         ))}
         {/* x labels */}
-        {categories.map((c, i) => (
-          <text key={i} x={padL + i * xStep} y={H - padB + 14} textAnchor="middle" fontSize="10" fill={theme.text}>{c}</text>
-        ))}
+        {categories.map((c, i) =>
+          categoryTicks.has(i) ? (
+            <text key={i} x={padL + i * xStep} y={H - padB + 14} textAnchor="middle" fontSize="10" fill={theme.text}>{c}</text>
+          ) : null,
+        )}
 
         {series.map((s, idx) => {
           const tone = s.tone || (['accent', 'info', 'success', 'warning'] as Tone[])[idx % 4];
@@ -241,10 +271,10 @@ export function FinanceLineChart({
           const pts = indexedPoints.map(([x, y]) => [x, y] as [number, number]);
           if (!pts.length) return null;
           const path = smoothPath(pts);
-          const areaPath = `${path} L ${pts[pts.length - 1][0]},${H - padB} L ${pts[0][0]},${H - padB} Z`;
+          const areaPath = areaUnder(path, pts, H - padB);
           return (
             <g key={s.name}>
-              {idx === 0 && <path d={areaPath} fill={`url(#fill-${tone}-${uid})`} />}
+              {idx === 0 && areaPath && <path d={areaPath} fill={`url(#fill-${tone}-${uid})`} />}
               <path d={path} fill="none" stroke={`url(#stroke-${tone}-${uid})`} strokeWidth={1.8} strokeLinecap="round" filter={`url(#softglow-${uid})`} />
               {indexedPoints.map(([px, py, pointIndex]) => (
                 <circle
@@ -313,6 +343,7 @@ export function FinanceSCurveChart({
   const max = dataMax * 1.08;
   const range = max - min || 1;
   const xStep = innerW / Math.max(1, categories.length - 1);
+  const categoryTicks = visibleCategoryTicks(categories, innerW);
   const yScale = (v: number) => padT + innerH - ((v - min) / range) * innerH;
 
   const yTicks = 4;
@@ -361,9 +392,11 @@ export function FinanceSCurveChart({
         {tickVals.map((v, i) => (
           <text key={i} x={padL - 8} y={yScale(v) + 3} textAnchor="end" fontSize="10" fill={theme.text}>{fmtCompact(v)}</text>
         ))}
-        {categories.map((c, i) => (
-          <text key={i} x={padL + i * xStep} y={H - padB + 14} textAnchor="middle" fontSize="10" fill={theme.text}>{c}</text>
-        ))}
+        {categories.map((c, i) =>
+          categoryTicks.has(i) ? (
+            <text key={i} x={padL + i * xStep} y={H - padB + 14} textAnchor="middle" fontSize="10" fill={theme.text}>{c}</text>
+          ) : null,
+        )}
 
         {/* vertical guideline */}
         {hoverIdx !== null && (
@@ -379,11 +412,11 @@ export function FinanceSCurveChart({
             .slice(firstIndex);
           if (!pts.length) return null;
           const path = smoothPath(pts);
-          const areaPath = `${path} L ${pts[pts.length - 1][0]},${H - padB} L ${pts[0][0]},${H - padB} Z`;
+          const areaPath = areaUnder(path, pts, H - padB);
           const isPrimary = s.emphasized || idx === 0;
           return (
             <g key={s.name}>
-              {showArea && isPrimary && <path d={areaPath} fill={`url(#fill-${tone}-${uid})`} />}
+              {showArea && isPrimary && areaPath && <path d={areaPath} fill={`url(#fill-${tone}-${uid})`} />}
               <path
                 d={path}
                 fill="none"
@@ -437,13 +470,13 @@ export function FinanceSparkline({
   const yScale = (v: number) => 4 + (H - 8) - ((v - min) / range) * (H - 8);
   const pts = values.map((v, i) => [i * xStep, yScale(v)] as [number, number]);
   const path = smoothPath(pts);
-  const areaPath = `${path} L ${pts[pts.length - 1][0]},${H - 1} L ${pts[0][0]},${H - 1} Z`;
+  const areaPath = areaUnder(path, pts, H - 1);
 
   return (
     <div ref={ref} className="relative w-full" style={{ height }}>
       <svg width={W} height={H} className="overflow-visible">
         <ChartDefs uid={uid} palette={theme.palette} tones={[tone]} />
-        {area && <path d={areaPath} fill={`url(#fill-${tone}-${uid})`} />}
+        {area && areaPath && <path d={areaPath} fill={`url(#fill-${tone}-${uid})`} />}
         <path d={path} fill="none" stroke={theme.palette[tone]} strokeWidth={1.6} filter={`url(#softglow-${uid})`} />
       </svg>
     </div>
@@ -477,6 +510,7 @@ export function FinanceBarChart({
   const groupCount = categories.length;
   const seriesCount = series.length;
   const groupSize = (horizontal ? innerH : innerW) / Math.max(1, groupCount);
+  const categoryTicks = visibleCategoryTicks(categories, innerW);
   const barW = Math.min(22, (groupSize * 0.7) / seriesCount);
 
   const valScale = (v: number) => ((v - min) / range) * (horizontal ? innerW : innerH);
@@ -501,9 +535,11 @@ export function FinanceBarChart({
         {horizontal && tickVals.map((v, i) => (
           <text key={i} x={padL + valScale(v)} y={H - padB + 14} textAnchor="middle" fontSize="10" fill={theme.text}>{fmtCompact(v)}</text>
         ))}
-        {!horizontal && categories.map((c, i) => (
-          <text key={i} x={padL + i * groupSize + groupSize / 2} y={H - padB + 14} textAnchor="middle" fontSize="10" fill={theme.text}>{c}</text>
-        ))}
+        {!horizontal && categories.map((c, i) =>
+          categoryTicks.has(i) ? (
+            <text key={i} x={padL + i * groupSize + groupSize / 2} y={H - padB + 14} textAnchor="middle" fontSize="10" fill={theme.text}>{c}</text>
+          ) : null,
+        )}
         {horizontal && categories.map((c, i) => (
           <text key={i} x={padL - 8} y={padT + i * groupSize + groupSize / 2 + 3} textAnchor="end" fontSize="11" fill={theme.text}>{c}</text>
         ))}
@@ -587,6 +623,7 @@ export function FinanceStackedBarChart({
   const max = percent ? 100 : Math.max(...totals, 1);
   const groupCount = categories.length;
   const groupSize = (horizontal ? innerH : innerW) / Math.max(1, groupCount);
+  const categoryTicks = visibleCategoryTicks(categories, innerW);
   const barW = Math.min(28, groupSize * 0.65);
 
   const yTicks = 4;
@@ -608,9 +645,11 @@ export function FinanceStackedBarChart({
         {horizontal && tickVals.map((v, i) => (
           <text key={i} x={padL + (v / max) * innerW} y={H - padB + 14} textAnchor="middle" fontSize="10" fill={theme.text}>{percent ? `${v.toFixed(0)}%` : fmtCompact(v)}</text>
         ))}
-        {!horizontal && categories.map((c, i) => (
-          <text key={i} x={padL + i * groupSize + groupSize / 2} y={H - padB + 14} textAnchor="middle" fontSize="10" fill={theme.text}>{c}</text>
-        ))}
+        {!horizontal && categories.map((c, i) =>
+          categoryTicks.has(i) ? (
+            <text key={i} x={padL + i * groupSize + groupSize / 2} y={H - padB + 14} textAnchor="middle" fontSize="10" fill={theme.text}>{c}</text>
+          ) : null,
+        )}
         {horizontal && categories.map((c, i) => (
           <text key={i} x={padL - 8} y={padT + i * groupSize + groupSize / 2 + 3} textAnchor="end" fontSize="11" fill={theme.text}>{c}</text>
         ))}
