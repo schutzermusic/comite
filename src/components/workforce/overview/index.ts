@@ -10,6 +10,7 @@ export { WorkforceUnitFilter } from './WorkforceUnitFilter';
 export { WorkforceExportMenu } from './WorkforceExportMenu';
 export { WorkforceScopeNotice } from './WorkforceScopeNotice';
 export { WorkforceSectionHeader } from './WorkforceSectionHeader';
+export { WorkforceCollapsible } from './WorkforceCollapsible';
 export { WorkforceEmptyPanel } from './WorkforceEmptyPanel';
 export { SectionNavStrip } from './SectionNavStrip';
 export {

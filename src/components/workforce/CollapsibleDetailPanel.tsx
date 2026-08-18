@@ -1,9 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { ChevronDown, ChevronRight, Table2 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
-import { OrionCard } from '@/components/orion';
+import { Table2 } from 'lucide-react';
+import { WorkforceCollapsible } from './overview/WorkforceCollapsible';
 import { formatWorkforceCurrency } from '@/lib/workforce-data';
 import type { CostConcentrationData } from '@/lib/workforce-data';
 import type { WorkforceTrendPoint } from '@/lib/workforce/period';
@@ -15,51 +13,13 @@ interface CollapsibleDetailPanelProps {
   className?: string;
 }
 
-function Section({ title, count, children }: { title: string; count?: number; children: React.ReactNode }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="border border-ig-border-subtle rounded-xl overflow-hidden">
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center justify-between px-4 py-3 bg-ig-panel hover:bg-ig-panel-hover transition-colors text-left"
-      >
-        <div className="flex items-center gap-2">
-          <Table2 className="w-3.5 h-3.5 text-ig-fg-muted" />
-          <span className="text-sm font-medium text-ig-fg-strong">{title}</span>
-          {count !== undefined && (
-            <span className="text-xs text-ig-fg-subtle px-1.5 py-0.5 rounded bg-ig-panel-hover border border-ig-border-subtle">
-              {count}
-            </span>
-          )}
-        </div>
-        {open ? <ChevronDown className="w-4 h-4 text-ig-fg-muted" /> : <ChevronRight className="w-4 h-4 text-ig-fg-muted" />}
-      </button>
-      <AnimatePresence initial={false}>
-        {open && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2, ease: 'easeInOut' }}
-            className="overflow-hidden"
-          >
-            <div className="px-4 pb-4 pt-2 bg-ig-bg border-t border-ig-border-subtle">
-              {children}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
-
 export function CollapsibleDetailPanel({ costConcentration, trend, className }: CollapsibleDetailPanelProps) {
   const sorted = [...costConcentration.costCenters].sort((a, b) => b.payrollValue - a.payrollValue);
 
   return (
     <div className={cn('space-y-3', className)}>
       {/* Cost centers table */}
-      <Section title="Centros de Custo" count={sorted.length}>
+      <WorkforceCollapsible title="Centros de Custo" count={sorted.length} icon={<Table2 className="h-3.5 w-3.5 text-ig-fg-muted" />}>
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
@@ -107,10 +67,10 @@ export function CollapsibleDetailPanel({ costConcentration, trend, className }: 
             </tfoot>
           </table>
         </div>
-      </Section>
+      </WorkforceCollapsible>
 
       {/* Monthly history table */}
-      <Section title="Histórico Mensal" count={trend.length}>
+      <WorkforceCollapsible title="Histórico Mensal" count={trend.length} icon={<Table2 className="h-3.5 w-3.5 text-ig-fg-muted" />}>
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
@@ -133,7 +93,7 @@ export function CollapsibleDetailPanel({ costConcentration, trend, className }: 
             </tbody>
           </table>
         </div>
-      </Section>
+      </WorkforceCollapsible>
     </div>
   );
 }

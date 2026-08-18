@@ -15,8 +15,10 @@
  * para quem pode executá-la.
  */
 
+import { SlidersHorizontal } from 'lucide-react';
+
 import { ManualHeadcountPanel } from '../../ManualHeadcountPanel';
-import { WorkforceSectionHeader } from '../WorkforceSectionHeader';
+import { WorkforceCollapsible } from '../WorkforceCollapsible';
 import type { ManualHeadcountPanelProps } from '../../ManualHeadcountPanel';
 
 interface ManualHeadcountSectionProps {
@@ -26,12 +28,19 @@ interface ManualHeadcountSectionProps {
 
 export function ManualHeadcountSection({ manualHeadcount }: ManualHeadcountSectionProps) {
   return (
-    <section id="wf-ajuste-quadro" className="space-y-3">
-      <WorkforceSectionHeader
+    <section id="wf-ajuste-quadro">
+      {/* Recolhido como o Detalhamento, e pelo mesmo motivo: é conteúdo de
+          consulta ocasional, não de leitura corrida. Aberto por padrão, um
+          formulário de administrador seria a última coisa que todo mundo vê ao
+          rolar a página até o fim. */}
+      <WorkforceCollapsible
         title="Ajuste manual de quadro"
-        subtitle="Para competências em que o eSocial não entregou o detalhe por trabalhador — restrito a administradores"
-      />
-      <ManualHeadcountPanel {...manualHeadcount} />
+        icon={<SlidersHorizontal className="h-3.5 w-3.5 text-ig-fg-muted" />}
+        count={manualHeadcount.competences.length}
+        hint="competências sem detalhe por trabalhador no eSocial · restrito a administradores"
+      >
+        <ManualHeadcountPanel {...manualHeadcount} />
+      </WorkforceCollapsible>
     </section>
   );
 }

@@ -31,6 +31,22 @@ A rota continua existindo e drenável:
 - `GET /api/fiscal/jobs` — `Authorization: Bearer <CRON_SECRET>`, pronto para
   qualquer agendador externo.
 
+## Critérios para reavaliar
+
+Decisão registrada em 18/08/2026: o módulo fiscal **segue pré-go-live** e a
+ausência de cron está aprovada. A fila só volta a precisar de agendamento
+quando a emissão real de NFS-e em produção entrar na mesa — e aí a reavaliação
+cobre os cinco pontos, nesta ordem:
+
+1. provedor fiscal homologado;
+2. credenciais oficiais;
+3. piloto fiscal aprovado;
+4. rotina automática da fila;
+5. cron/worker adequado ao plano da Vercel em vigor.
+
+Os três primeiros são pré-requisito de negócio; os dois últimos são a parte de
+infraestrutura descrita abaixo.
+
 ## Quando religar
 
 Ao habilitar o primeiro adaptador de provedor real, a fila precisa de cadência

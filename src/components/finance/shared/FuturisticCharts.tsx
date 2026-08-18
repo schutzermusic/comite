@@ -11,6 +11,7 @@
 
 import { FONT_FAMILY_SANS } from '@/lib/fonts';
 import React, { useId, useMemo, useState, useRef, useLayoutEffect } from 'react';
+import { visibleCategoryTicks } from './chart-axis';
 import { useTheme } from '@/contexts/ThemeContext';
 
 /* --------------------------------------------------------------- */
@@ -82,6 +83,8 @@ const fmtCompact = (v: number) => {
 };
 const fmtBRL = (v: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(v);
+
+export { visibleCategoryTicks } from './chart-axis';
 
 function useContainerWidth() {
   const ref = useRef<HTMLDivElement>(null);
@@ -231,6 +234,7 @@ export function FinanceLineChart({
   const max = dataMax * 1.08;
   const range = max - min || 1;
   const xStep = innerW / Math.max(1, categories.length - 1);
+  const categoryTicks = visibleCategoryTicks(categories, innerW);
   const yScale = (v: number) => padT + innerH - ((v - min) / range) * innerH;
 
   const yTicks = 4;
@@ -251,9 +255,11 @@ export function FinanceLineChart({
           <text key={i} x={padL - 8} y={yScale(v) + 3} textAnchor="end" fontSize="10" fill={theme.text}>{fmtCompact(v)}</text>
         ))}
         {/* x labels */}
-        {categories.map((c, i) => (
-          <text key={i} x={padL + i * xStep} y={H - padB + 14} textAnchor="middle" fontSize="10" fill={theme.text}>{c}</text>
-        ))}
+        {categories.map((c, i) =>
+          categoryTicks.has(i) ? (
+            <text key={i} x={padL + i * xStep} y={H - padB + 14} textAnchor="middle" fontSize="10" fill={theme.text}>{c}</text>
+          ) : null,
+        )}
 
         {series.map((s, idx) => {
           const tone = s.tone || (['accent', 'info', 'success', 'warning'] as Tone[])[idx % 4];
@@ -337,6 +343,7 @@ export function FinanceSCurveChart({
   const max = dataMax * 1.08;
   const range = max - min || 1;
   const xStep = innerW / Math.max(1, categories.length - 1);
+  const categoryTicks = visibleCategoryTicks(categories, innerW);
   const yScale = (v: number) => padT + innerH - ((v - min) / range) * innerH;
 
   const yTicks = 4;
@@ -385,9 +392,11 @@ export function FinanceSCurveChart({
         {tickVals.map((v, i) => (
           <text key={i} x={padL - 8} y={yScale(v) + 3} textAnchor="end" fontSize="10" fill={theme.text}>{fmtCompact(v)}</text>
         ))}
-        {categories.map((c, i) => (
-          <text key={i} x={padL + i * xStep} y={H - padB + 14} textAnchor="middle" fontSize="10" fill={theme.text}>{c}</text>
-        ))}
+        {categories.map((c, i) =>
+          categoryTicks.has(i) ? (
+            <text key={i} x={padL + i * xStep} y={H - padB + 14} textAnchor="middle" fontSize="10" fill={theme.text}>{c}</text>
+          ) : null,
+        )}
 
         {/* vertical guideline */}
         {hoverIdx !== null && (
@@ -501,6 +510,7 @@ export function FinanceBarChart({
   const groupCount = categories.length;
   const seriesCount = series.length;
   const groupSize = (horizontal ? innerH : innerW) / Math.max(1, groupCount);
+  const categoryTicks = visibleCategoryTicks(categories, innerW);
   const barW = Math.min(22, (groupSize * 0.7) / seriesCount);
 
   const valScale = (v: number) => ((v - min) / range) * (horizontal ? innerW : innerH);
@@ -525,9 +535,11 @@ export function FinanceBarChart({
         {horizontal && tickVals.map((v, i) => (
           <text key={i} x={padL + valScale(v)} y={H - padB + 14} textAnchor="middle" fontSize="10" fill={theme.text}>{fmtCompact(v)}</text>
         ))}
-        {!horizontal && categories.map((c, i) => (
-          <text key={i} x={padL + i * groupSize + groupSize / 2} y={H - padB + 14} textAnchor="middle" fontSize="10" fill={theme.text}>{c}</text>
-        ))}
+        {!horizontal && categories.map((c, i) =>
+          categoryTicks.has(i) ? (
+            <text key={i} x={padL + i * groupSize + groupSize / 2} y={H - padB + 14} textAnchor="middle" fontSize="10" fill={theme.text}>{c}</text>
+          ) : null,
+        )}
         {horizontal && categories.map((c, i) => (
           <text key={i} x={padL - 8} y={padT + i * groupSize + groupSize / 2 + 3} textAnchor="end" fontSize="11" fill={theme.text}>{c}</text>
         ))}
@@ -611,6 +623,7 @@ export function FinanceStackedBarChart({
   const max = percent ? 100 : Math.max(...totals, 1);
   const groupCount = categories.length;
   const groupSize = (horizontal ? innerH : innerW) / Math.max(1, groupCount);
+  const categoryTicks = visibleCategoryTicks(categories, innerW);
   const barW = Math.min(28, groupSize * 0.65);
 
   const yTicks = 4;
@@ -632,9 +645,11 @@ export function FinanceStackedBarChart({
         {horizontal && tickVals.map((v, i) => (
           <text key={i} x={padL + (v / max) * innerW} y={H - padB + 14} textAnchor="middle" fontSize="10" fill={theme.text}>{percent ? `${v.toFixed(0)}%` : fmtCompact(v)}</text>
         ))}
-        {!horizontal && categories.map((c, i) => (
-          <text key={i} x={padL + i * groupSize + groupSize / 2} y={H - padB + 14} textAnchor="middle" fontSize="10" fill={theme.text}>{c}</text>
-        ))}
+        {!horizontal && categories.map((c, i) =>
+          categoryTicks.has(i) ? (
+            <text key={i} x={padL + i * groupSize + groupSize / 2} y={H - padB + 14} textAnchor="middle" fontSize="10" fill={theme.text}>{c}</text>
+          ) : null,
+        )}
         {horizontal && categories.map((c, i) => (
           <text key={i} x={padL - 8} y={padT + i * groupSize + groupSize / 2 + 3} textAnchor="end" fontSize="11" fill={theme.text}>{c}</text>
         ))}
