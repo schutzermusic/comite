@@ -78,6 +78,7 @@ import {
 import { Avatar, AvatarFallback } from "../ui/avatar";
 import { cn } from "@/lib/utils";
 import { hasAnyPermission, hasPermission } from "@/lib/auth/permissions";
+import { isModuleEnabled, type AppModule } from "@/lib/modules/registry";
 import { createClient } from "@/utils/supabase/client";
 import { useCurrentUser } from "@/hooks/use-current-user";
 import { useMyCommittees } from "@/hooks/use-my-committees";
@@ -126,6 +127,11 @@ type MenuItem = {
   anyPermission?: string[];
   alwaysVisibleWhenAuthenticated?: boolean;
   subItems?: SubMenuItem[];
+  /**
+   * Módulo que sustenta o item. Desligado no registry, o item some para TODO
+   * mundo — inclusive owner_admin. Ver `canSeeItem`.
+   */
+  module?: AppModule;
 };
 
 const navigationItems: MenuItem[] = [
@@ -160,6 +166,7 @@ const navigationItems: MenuItem[] = [
     icon: Calculator,
     section: "main",
     permission: "fiscal.view",
+    module: "fiscal",
     subItems: [
       { href: "/fiscal", label: "Visão Fiscal", icon: Gauge },
       { href: "/fiscal/notas", label: "Notas de Serviço", icon: Receipt },
@@ -415,6 +422,15 @@ export function AppSidebar() {
   };
 
   const canSeeItem = (item: MenuItem) => {
+    /**
+     * PRIMEIRA regra, antes de qualquer bypass.
+     *
+     * Módulo desligado não é questão de permissão: a tela não tem como
+     * funcionar (falta migration, credencial ou homologação). Se esta checagem
+     * viesse depois do `isOwnerAdmin` abaixo, o administrador — justamente
+     * quem o bypass existe para atender — veria os links quebrados.
+     */
+    if (item.module && !isModuleEnabled(item.module)) return false;
     if (item.alwaysVisibleWhenAuthenticated && authUser) return true;
     if (isOwnerAdmin) return true;
     // Deliberações é restrito a membros de comitê: sem vínculo, oculta o item.
@@ -434,6 +450,8 @@ export function AppSidebar() {
 
   const filterSubItems = (item: MenuItem) => {
     if (!item.subItems) return undefined;
+    // Herda o módulo do pai: um submenu não sobrevive ao módulo que o sustenta.
+    if (item.module && !isModuleEnabled(item.module)) return [];
     return item.subItems.filter((subItem) => {
       if (isOwnerAdmin) return true;
       if (subItem.anyPermission) return hasAnyPermission(permissions, subItem.anyPermission);
