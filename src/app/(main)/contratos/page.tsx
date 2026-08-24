@@ -16,6 +16,7 @@ import { useContractCreateModals } from '@/components/contracts/useContractCreat
 import { useContractItemModals } from '@/components/contracts/useContractItemModals';
 import {
   enrichContractsForGovernance,
+  DEMO_PREVIEW_INTENT,
   formatCurrencyCompact,
   isBillingEventRealized,
   countOverdueBillingEvents,
@@ -24,7 +25,31 @@ import {
 import { computeContractPortfolioStats } from '@/components/contracts/contract-portfolio-stats';
 import { applyLiveGovernanceData, countLiveSections } from '@/components/contracts/contract-governance-live';
 import { ContractExecutiveBand } from '@/components/contracts/ContractExecutiveBand';
-import { computeApprovalSla, contractRowToLegacyContract, createProjectFromContract, createTaskFromObligation, fetchContractRelationsBatch, submitContractApproval, updateContractDocumentStatus } from '@/lib/contracts/contract-service';
+import { computeApprovalSla, contractRowToLegacyContract, createProjectFromContract, createTaskFromObligation, describeRelationErrors, fetchContractRelationsBatch, fetchPortfolioLinkCounts, listContractAuditEvents, submitContractApproval, updateContractDocumentStatus, type ContractRelationsBatch } from '@/lib/contracts/contract-service';
+import { buildTrustedPortfolio, type TrustedContract } from '@/lib/contracts/trust/read-model';
+import { computeTrustedPortfolioStats, type TrustedPortfolioStats } from '@/lib/contracts/trust/portfolio';
+import { approvalSla } from '@/lib/contracts/trust/signals';
+import { portfolioToCash } from '@/lib/contracts/trust/contract-to-cash';
+import { buildObligationsTower } from '@/lib/contracts/trust/obligations-tower';
+import { buildRenewalHorizon } from '@/lib/contracts/trust/renewal-horizon';
+import { buildPortfolioApprovals } from '@/lib/contracts/trust/approval-intelligence';
+import { buildClauseRiskIntelligence } from '@/lib/contracts/trust/clause-risk-intelligence';
+import { ContractToCashFlow } from '@/components/contracts/intelligence/ContractToCashFlow';
+import { ObligationsControlTower } from '@/components/contracts/intelligence/ObligationsControlTower';
+import { RenewalHorizonPanel } from '@/components/contracts/intelligence/RenewalHorizonPanel';
+import { ApprovalIntelligencePanel } from '@/components/contracts/intelligence/ApprovalIntelligencePanel';
+import { ClauseRiskIntelligencePanel } from '@/components/contracts/intelligence/ClauseRiskIntelligencePanel';
+import { ScopeOriginNotice } from '@/components/contracts/intelligence/ScopeOriginNotice';
+import {
+  PortfolioScopeBar, matchesScope, type PortfolioScopeKey,
+  PortfolioHero, ModuleConnections, PortfolioHorizon, PortfolioAttention,
+  ContractInstrumentCard, ContractSmartTable,
+} from '@/components/contracts/cockpit';
+import {
+  portfolioAttention, portfolioConnections, portfolioHorizon,
+  type ModuleKey, type ModuleConnection, type PortfolioAttentionItem, type HorizonEvent,
+} from '@/lib/contracts/trust/command-center';
+import { contractHealth } from '@/lib/contracts/trust/signals';
 import { ExportReportButton } from '@/components/reports/ExportReportButton';
 import { openContractReport } from '@/lib/reports/modules/contract-report';
 import { openContractDossierReport } from '@/lib/reports/modules/contract-dossier-report';
@@ -86,6 +111,13 @@ const sectionLabels: Record<SectionId, string> = {
 const riskLabels = { high: 'Alto', medium: 'Médio', low: 'Baixo' } as const;
 
 /**
+ * As abas operacionais leem o recorte escolhido, não só a carteira oficial —
+ * e rotulam a origem na tela. Constante de módulo para não recriar o objeto a
+ * cada render e invalidar os memos.
+ */
+const SCOPED = { officialOnly: false } as const;
+
+/**
  * Single-select KPI filters — the Executive Band (and the Sinais operacionais
  * headers) are the only filtering system of this screen. Predicates mirror the
  * KPI counts shown in the band so "click the number → see those contracts".
@@ -127,6 +159,11 @@ export default function ContratosPage() {
   const [notice, setNotice] = useState<string | null>(null);
   // Single-select KPI filter driven by the Executive Band (null = full portfolio).
   const [activeKpiFilter, setActiveKpiFilter] = useState<string | null>(null);
+  /**
+   * Escopo da carteira. Default `live`: a pergunta normal do usuário é sobre a
+   * carteira real, e nenhuma métrica oficial pode nascer de outra coisa.
+   */
+  const [scope, setScope] = useState<PortfolioScopeKey>('live');
   const { notify } = useHudToast();
 
   useEffect(() => {
@@ -152,9 +189,21 @@ export default function ContratosPage() {
   }, [contractRows]);
 
   // Mock preview: fabricated from each contract's own columns (dev/instant paint).
-  const mockRecords = useMemo(() => enrichContractsForGovernance(contracts, projects), [contracts, projects]);
+  // Preview SINTÉTICO: alimenta apenas abas/drawer ainda não migrados. A
+  // Executive Band e o PDF leem de `trustedStats`/`trustedPortfolio`.
+  const mockRecords = useMemo(
+    () => enrichContractsForGovernance(contracts, projects, { intent: DEMO_PREVIEW_INTENT }),
+    [contracts, projects],
+  );
   // Live merge: real migration-034 relation rows override the mock per section.
   const [liveRecords, setLiveRecords] = useState<ContractGovernanceRecord[] | null>(null);
+  // O batch cru é guardado porque o read model confiável (P0.3) é construído a
+  // partir DELE e das linhas de `contracts` — nunca do preview do enricher.
+  const [relationsBatch, setRelationsBatch] = useState<ContractRelationsBatch | null>(null);
+  /** Contagens dos módulos donos (agenda e auditoria) para o Command Center. */
+  const [linkCounts, setLinkCounts] = useState<{ linkedTasks: number | null; auditEvents: number | null }>(
+    { linkedTasks: null, auditEvents: null },
+  );
   const [governance, setGovernance] = useState<{ error: string | null; live: number; total: number }>({ error: null, live: 0, total: 0 });
 
   useEffect(() => {
@@ -166,13 +215,20 @@ export default function ContratosPage() {
     fetchContractRelationsBatch(ids)
       .then((batch) => {
         if (!active) return;
+        setRelationsBatch(batch);
+        void fetchPortfolioLinkCounts(ids)
+          .then((counts) => { if (active) setLinkCounts(counts); })
+          .catch(() => { if (active) setLinkCounts({ linkedTasks: null, auditEvents: null }); });
         setLiveRecords(applyLiveGovernanceData(mockRecords, batch, projects));
         const { live, total } = countLiveSections(batch);
-        setGovernance({ error: null, live, total });
+        // Uma seção que FALHOU não é uma seção vazia: sem isto, uma negativa de
+        // RLS ou uma queda de rede caía no preview sintético sem nenhum aviso.
+        setGovernance({ error: describeRelationErrors(batch), live, total });
       })
       .catch((err) => {
         if (!active) return;
         // Non-blocking: fall back to the mock preview if the live read fails.
+        setRelationsBatch(null);
         setLiveRecords(null);
         setGovernance({ error: err instanceof Error ? err.message : 'Falha ao carregar governança ao vivo', live: 0, total: 0 });
       });
@@ -181,7 +237,81 @@ export default function ContratosPage() {
     };
   }, [mockRecords, projects]);
 
-  const records = useMemo(() => (mockRecords.length === 0 ? mockRecords : liveRecords ?? mockRecords), [liveRecords, mockRecords]);
+  /**
+   * Read model CONFIÁVEL — a fonte única da Executive Band e dos dois PDFs.
+   *
+   * Construído a partir das linhas de `contracts` e do batch de relações reais.
+   * Não passa pelo enricher: nenhum valor aqui pode ter vindo de
+   * `hash(id + nome)`. Enquanto o batch não chegou, a carteira confiável é
+   * vazia e a band exibe "não apurado" — que é a verdade naquele instante —
+   * em vez de um número de preview.
+   */
+  const trustedPortfolio = useMemo(
+    () => (relationsBatch ? buildTrustedPortfolio(contractRows, relationsBatch, projects) : []),
+    [contractRows, relationsBatch, projects],
+  );
+
+  // Compartilhado com o PDF (contract-report.ts) para que tela e export não
+  // possam divergir: os dois leem deste mesmo objeto.
+  /**
+   * As MÉTRICAS sempre agregam a carteira inteira — `computeTrustedPortfolioStats`
+   * aplica a fronteira de origem internamente e conta apenas `live`. O escopo
+   * abaixo governa o que a LISTA exibe, não o que a band soma: mudar o recorte
+   * visual nunca deve mudar a exposição oficial da empresa.
+   */
+  const trustedStats = useMemo(() => computeTrustedPortfolioStats(trustedPortfolio), [trustedPortfolio]);
+
+
+  /**
+   * Inteligência de carteira do Command Center. Toda ela deriva do portfólio
+   * confiável e respeita a fronteira de origem: contrato de demonstração não
+   * gera sinal nem entra em conexão.
+   */
+  const attention = useMemo(() => portfolioAttention(trustedPortfolio), [trustedPortfolio]);
+  const connections = useMemo(
+    () => portfolioConnections({
+      contracts: trustedPortfolio,
+      linkedTaskCount: linkCounts.linkedTasks,
+      auditEventCount: linkCounts.auditEvents,
+    }),
+    [trustedPortfolio, linkCounts],
+  );
+  const horizon = useMemo(() => portfolioHorizon(trustedPortfolio, 90), [trustedPortfolio]);
+
+  /** Cobertura de saúde somada sobre a carteira oficial. */
+  const healthCoverage = useMemo(() => {
+    const live = trustedPortfolio.filter((c) => c.dataClass === 'live');
+    if (live.length === 0) return { assessed: 0, total: 6 };
+    const per = live.map((c) => contractHealth(c).coverage);
+    return {
+      assessed: per.reduce((sum, c) => sum + c.assessed, 0),
+      total: per.reduce((sum, c) => sum + c.total, 0),
+    };
+  }, [trustedPortfolio]);
+
+  /** Índice por id — card e tabela leem daqui, e não do record sintético. */
+  const trustedById = useMemo(
+    () => new Map(trustedPortfolio.map((c) => [c.id, c])),
+    [trustedPortfolio],
+  );
+
+  /** Origem por id, para filtrar a listagem e marcar as linhas. */
+  const dataClassById = useMemo(
+    () => new Map(trustedPortfolio.map((c) => [c.id, c.dataClass])),
+    [trustedPortfolio],
+  );
+
+  const allRecords = useMemo(() => (mockRecords.length === 0 ? mockRecords : liveRecords ?? mockRecords), [liveRecords, mockRecords]);
+
+  /**
+   * A listagem respeita o escopo. Enquanto o batch não chegou, `dataClassById`
+   * está vazio e nada é filtrado — melhor mostrar tudo por um instante do que
+   * esconder a carteira real por não saber ainda a origem de ninguém.
+   */
+  const records = useMemo(() => {
+    if (dataClassById.size === 0) return allRecords;
+    return allRecords.filter((r) => matchesScope(dataClassById.get(r.contract.id) ?? 'unclassified', scope));
+  }, [allRecords, dataClassById, scope]);
   const governanceLoading = mockRecords.length > 0 && liveRecords === null && governance.error === null;
   const companies = useMemo(() => Array.from(new Set(records.map((record) => record.companyName))).sort(), [records]);
 
@@ -201,12 +331,29 @@ export default function ContratosPage() {
     onRefresh: refreshContractsAndProjects,
   });
 
-  const handleExportPdf = (record: ContractGovernanceRecord) => {
-    const approvalSla = computeApprovalSla(record.liveApprovals ?? []);
+  /**
+   * PDF do dossiê a partir do contrato CONFIÁVEL, o mesmo que alimenta a tela.
+   *
+   * Se o batch de relações ainda não chegou, o contrato confiável não existe e
+   * o export é recusado — melhor não gerar do que gerar um dossiê que não
+   * corresponde ao que o usuário está vendo.
+   */
+  const handleExportPdf = async (record: ContractGovernanceRecord) => {
+    const trusted = trustedPortfolio.find((c) => c.id === record.contract.id);
+    if (!trusted) {
+      notify('Dossiê indisponível', {
+        description: 'As relações do contrato ainda não foram lidas. Tente novamente em instantes.',
+        variant: 'error',
+      });
+      return;
+    }
+    const auditResult = await listContractAuditEvents(record.contract.id).catch(() => ({ rows: [], error: 'Falha ao ler o histórico.' }));
     const result = openContractDossierReport({
-      record,
-      source: records.length ? 'Supabase' : 'demonstração',
-      sla: { avgHours: approvalSla.avgHours, quality: approvalSla.quality, overdueSteps: approvalSla.overdueSteps },
+      contract: trusted,
+      sla: approvalSla(trusted, computeApprovalSla),
+      auditEvents: auditResult.rows,
+      auditError: auditResult.error,
+      source: 'Supabase',
     });
     if (!result.ok) {
       notify('Não foi possível gerar o PDF', {
@@ -242,6 +389,39 @@ export default function ContratosPage() {
     if (!filter) return records;
     return records.filter(filter.predicate);
   }, [records, activeKpiFilter]);
+
+  /**
+   * A carteira CONFIÁVEL correspondente ao recorte atual da tela.
+   *
+   * As abas operacionais (renovações, obrigações, faturamento, aprovações,
+   * riscos) leem daqui — nunca de `filteredRecords`, que carrega o preview
+   * sintético do enricher. O recorte visual muda o que se vê; a proveniência
+   * do que se vê não muda com ele.
+   */
+  const filteredTrusted = useMemo(
+    () => filteredRecords
+      .map((record) => trustedById.get(record.contract.id))
+      .filter((c): c is NonNullable<typeof c> => Boolean(c)),
+    [filteredRecords, trustedById],
+  );
+
+  /** Inteligência operacional de P2A, toda derivada da carteira confiável. */
+  //
+  // As abas OPERACIONAIS respeitam o escopo escolhido (`officialOnly: false`) e
+  // rotulam a origem do recorte com `ScopeOriginNotice`. Quem protege a métrica
+  // oficial da empresa é a Executive Band e o PDF, que aplicam a fronteira
+  // dentro do próprio agregador e não mudam com o recorte visual.
+  const cashFlow = useMemo(() => portfolioToCash(filteredTrusted, SCOPED), [filteredTrusted]);
+  const obligationsTower = useMemo(() => buildObligationsTower(filteredTrusted), [filteredTrusted]);
+  const renewalHorizon = useMemo(() => buildRenewalHorizon(filteredTrusted, new Date(), SCOPED), [filteredTrusted]);
+  const portfolioApprovals = useMemo(() => buildPortfolioApprovals(filteredTrusted, new Date(), SCOPED), [filteredTrusted]);
+  const clauseRiskIntel = useMemo(
+    () => buildClauseRiskIntelligence(filteredTrusted, [], { ...SCOPED, riskDetails: relationsBatch?.riskDetails }),
+    [filteredTrusted, relationsBatch],
+  );
+
+  /** Origem dos contratos do recorte — alimenta o aviso das abas operacionais. */
+  const scopeOrigins = useMemo(() => filteredTrusted.map((c) => c.dataClass), [filteredTrusted]);
 
   const selectedRecord = useMemo(() => {
     return filteredRecords.find((record) => record.contract.id === selectedId)
@@ -284,9 +464,6 @@ export default function ContratosPage() {
     }
   };
 
-  // Shared with the PDF report (contract-report.ts) so screen and export can
-  // never diverge.
-  const stats = useMemo(() => computeContractPortfolioStats(records), [records]);
 
   // Badge counts for the tabs follow the active KPI recorte (band stays global).
   const tabCounts = useMemo(() => ({
@@ -350,6 +527,12 @@ export default function ContratosPage() {
     metadata?: { file?: File | null; projectId?: string | null; contractType?: string; status?: string; aiPlaceholderRequested?: boolean },
   ) => {
     const row = await persistContract({
+      /**
+       * Criação pela interface operacional → o contrato nasce OFICIAL.
+       * Seeds e fixtures usam 'demo'; importações sem classificação explícita
+       * permanecem 'unclassified'. O tipo exige a declaração em todo caminho.
+       */
+      dataClass: 'live',
       title: contract.name,
       counterpartyName: contract.vendorOrParty,
       contractType: metadata?.contractType || null,
@@ -403,12 +586,27 @@ export default function ContratosPage() {
       content: (
         <OverviewSection
           records={filteredRecords}
+          trustedById={trustedById}
+          stats={trustedStats}
+          attention={attention}
+          connections={connections}
+          horizon={horizon}
+          healthCoverage={healthCoverage}
+          onOpenContractById={(id) => {
+            const target = records.find((r) => r.contract.id === id);
+            if (target) openDossierDrawer(target);
+          }}
+          onModuleNavigate={(key: ModuleKey) => {
+            if (key === 'faturamento') setActiveSection('faturamento');
+            else if (key === 'obrigacoes') setActiveSection('obligations');
+            else if (key === 'documentos') setActiveSection('documents');
+            else if (key === 'aprovacoes') setActiveSection('aprovacoes');
+            else if (key === 'auditoria') setActiveSection('audit');
+          }}
           selectedRecord={selectedRecord}
           onSelect={openDossierDrawer}
           onView={handleViewContract}
           onOpenPortfolio={() => setActiveSection('contracts')}
-          activeKpiFilter={activeKpiFilter}
-          onToggleKpiFilter={toggleKpiFilter}
         />
       ),
     },
@@ -420,6 +618,7 @@ export default function ContratosPage() {
       content: (
         <ContractsSection
           records={filteredRecords}
+          trustedById={trustedById}
           selectedId={selectedRecord?.contract.id || null}
           viewMode={viewMode}
           onViewModeChange={setViewMode}
@@ -443,7 +642,18 @@ export default function ContratosPage() {
       label: sectionLabels.renewals,
       icon: <CalendarClock className="h-4 w-4" />,
       badge: tabCounts.expiring,
-      content: <RenewalsSection records={filteredRecords} />,
+      content: (
+        <div className="space-y-4">
+          <ScopeOriginNotice dataClasses={scopeOrigins} />
+        <RenewalHorizonPanel
+          horizon={renewalHorizon}
+          onSelectContract={(contractId) => {
+            const record = records.find((r) => r.contract.id === contractId);
+            if (record) openDossierDrawer(record);
+          }}
+        />
+        </div>
+      ),
     },
     {
       id: 'obligations',
@@ -451,13 +661,16 @@ export default function ContratosPage() {
       icon: <ClipboardCheck className="h-4 w-4" />,
       badge: tabCounts.overdue,
       content: (
-        <ObligationsSection
-          records={filteredRecords}
+        <div className="space-y-4">
+          <ScopeOriginNotice dataClasses={scopeOrigins} />
+        <ObligationsControlTower
+          tower={obligationsTower}
           canEdit={contractPermissions.edit}
           busyId={tabBusyId}
           onComplete={(item) => pageItemModals.openCompleteObligation(item)}
           onCreateTask={(contractId, title, dueAt, ownerUserId, key) => runTabAction(key, () => createTaskFromObligation(contractId, title, dueAt, ownerUserId), 'Tarefa criada na agenda')}
         />
+        </div>
       ),
     },
     {
@@ -465,13 +678,30 @@ export default function ContratosPage() {
       label: sectionLabels.faturamento,
       icon: <Receipt className="h-4 w-4" />,
       content: (
-        <FaturamentoSection
-          records={filteredRecords}
-          canEdit={contractPermissions.edit}
-          busyId={tabBusyId}
-          onRealize={(event) => pageItemModals.openRealizeBilling(event)}
-          onFollowUp={(record) => contractActions.createTask(record)}
-        />
+        <div className="space-y-5">
+          <ScopeOriginNotice dataClasses={scopeOrigins} />
+          {/*
+            A cadeia vem antes da lista: ela responde "até onde este sistema
+            enxerga o caminho até o caixa", que é a pergunta que a lista de
+            eventos, sozinha, deixa o usuário responder por conta própria.
+          */}
+          <HudPanel
+            title="Contract-to-Cash"
+            subtitle="Contratado → Medido → Aprovado → Faturado → Recebido"
+            icon={<Receipt className="h-4 w-4" />}
+            interactive={false}
+          >
+            <ContractToCashFlow stages={cashFlow} />
+          </HudPanel>
+
+          <FaturamentoSection
+            records={filteredRecords}
+            canEdit={contractPermissions.edit}
+            busyId={tabBusyId}
+            onRealize={(event) => pageItemModals.openRealizeBilling(event)}
+            onFollowUp={(record) => contractActions.createTask(record)}
+          />
+        </div>
       ),
     },
     {
@@ -479,13 +709,17 @@ export default function ContratosPage() {
       label: sectionLabels.aprovacoes,
       icon: <ShieldCheck className="h-4 w-4" />,
       content: (
-        <AprovacoesSection
-          records={filteredRecords}
+        <div className="space-y-4">
+          <ScopeOriginNotice dataClasses={scopeOrigins} />
+        <ApprovalIntelligencePanel
+          approvals={portfolioApprovals}
           canApprove={contractPermissions.approve}
-          busyId={tabBusyId}
-          onApproveStep={(contractId, step, key) => runTabAction(key, () => submitContractApproval(contractId, step, 'approved'), 'Etapa aprovada')}
-          onReview={(record) => contractActions.reviewApproval(record)}
+          onReview={(contractId) => {
+            const record = records.find((r) => r.contract.id === contractId);
+            if (record) contractActions.reviewApproval(record);
+          }}
         />
+        </div>
       ),
     },
     {
@@ -493,7 +727,18 @@ export default function ContratosPage() {
       label: sectionLabels.risks,
       icon: <ShieldAlert className="h-4 w-4" />,
       badge: tabCounts.highRisk,
-      content: <RisksSection records={filteredRecords} />,
+      content: (
+        <div className="space-y-5">
+          <ScopeOriginNotice dataClasses={scopeOrigins} />
+          <RisksSection records={filteredRecords} />
+          <ClauseRiskIntelligencePanel
+            intelligence={clauseRiskIntel}
+            canEdit={contractPermissions.edit}
+            onCreateRisk={() => selectedRecord && contractActions.createRisk(selectedRecord)}
+            onLinkRisk={() => selectedRecord && contractActions.linkExistingRisk(selectedRecord)}
+          />
+        </div>
+      ),
     },
     {
       id: 'documents',
@@ -531,7 +776,7 @@ export default function ContratosPage() {
             <span
               className={`hidden items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-medium md:inline-flex ${
                 governance.error
-                  ? 'border-[color-mix(in_oklab,var(--ig-warning)_34%,transparent)] text-ig-warning'
+                  ? 'border-[color-mix(in_oklab,var(--ig-danger)_34%,transparent)] text-ig-danger'
                   : governance.live > 0
                     ? 'border-[color-mix(in_oklab,var(--ig-success)_30%,transparent)] text-ig-success'
                     : 'border-ig-border-subtle text-ig-fg-muted'
@@ -540,16 +785,21 @@ export default function ContratosPage() {
             >
               <span
                 className={`h-1.5 w-1.5 rounded-full ${
-                  governanceLoading ? 'animate-pulse bg-ig-fg-subtle' : governance.error ? 'bg-ig-warning' : governance.live > 0 ? 'bg-ig-success' : 'bg-ig-fg-subtle'
+                  governanceLoading ? 'animate-pulse bg-ig-fg-subtle' : governance.error ? 'bg-ig-danger' : governance.live > 0 ? 'bg-ig-success' : 'bg-ig-fg-subtle'
                 }`}
               />
+              {/*
+                Correção semântica de P0.3: uma FALHA de leitura não é uma
+                estimativa. "Estimado" sugere um número aproximado; aqui não há
+                número nenhum. Erro e demonstração nunca compartilham rótulo.
+              */}
               {governanceLoading
                 ? 'Sincronizando…'
                 : governance.error
-                  ? 'Dados estimados'
+                  ? 'Dados indisponíveis'
                   : governance.live > 0
                     ? `Ao vivo · ${governance.live}/${governance.total}`
-                    : 'Estimado'}
+                    : 'Sem dado apurado'}
             </span>
             <ExportReportButton
               size="md"
@@ -557,8 +807,13 @@ export default function ContratosPage() {
               permission="contracts.export"
               fallbackPermission="contracts.view"
               build={() => openContractReport({
-                records,
-                source: records.length ? 'Supabase' : 'demonstração',
+                // As tabelas de detalhe seguem listando os records; as MÉTRICAS
+                // vêm do mesmo agregado confiável que a Executive Band, então
+                // tela e PDF não podem divergir.
+                records: filteredRecords,
+                trusted: trustedStats,
+                trustedContracts: trustedPortfolio,
+                source: relationsBatch ? 'Supabase' : 'sem leitura de relações',
               })}
             />
             {hasPermission('contracts.create') && !permissionsLoading ? (
@@ -592,13 +847,33 @@ export default function ContratosPage() {
         </HudPanel>
       )}
 
+      {/*
+        Escopo da carteira acima da band: o usuário precisa saber QUE recorte
+        está vendo antes de ler qualquer número. A composição
+        "N ao vivo · N demonstração · N não classificados" fica sempre visível.
+      */}
+      <PortfolioScopeBar
+        scope={scope}
+        onScopeChange={setScope}
+        counts={trustedStats.scope}
+        className="mb-3"
+      />
+
+      {/*
+        Header CONTEXTUAL (MD §10): a band não se repete no Command Center,
+        onde o hero já responde a mesma pergunta com mais hierarquia. Ela
+        permanece nas demais abas, onde é o único resumo — e onde suas células
+        seguem servindo de filtro da carteira.
+      */}
+      {activeSection !== 'overview' && (
       <ContractExecutiveBand
-        stats={stats}
-        contractCount={records.length}
+        stats={trustedStats}
+        contractCount={contractRows.length}
         activeFilter={activeKpiFilter}
         onToggleFilter={toggleKpiFilter}
         className="mb-5"
       />
+      )}
 
       {/* Active-filter indicator — the band is the filter; this is just the receipt */}
       {activeKpiFilter && KPI_FILTERS[activeKpiFilter] && (
@@ -666,43 +941,109 @@ export default function ContratosPage() {
   );
 }
 
+/**
+ * Command Center da carteira.
+ *
+ * Composição assimétrica e deliberada (MD §37): o hero ocupa a largura inteira
+ * porque exposição é a mensagem primária; abaixo, atenção domina a coluna
+ * esquerda — é o que exige ação — e o horizonte acompanha à direita. As
+ * conexões com o resto do Insight fecham a leitura, porque respondem "a que
+ * este contrato está ligado", que é uma pergunta de contexto, não de urgência.
+ */
 function OverviewSection({
   records,
+  trustedById,
+  stats,
+  attention,
+  connections,
+  horizon,
+  healthCoverage,
   selectedRecord,
   onSelect,
   onView,
   onOpenPortfolio,
-  activeKpiFilter,
-  onToggleKpiFilter,
+  onOpenContractById,
+  onModuleNavigate,
 }: {
   records: ContractGovernanceRecord[];
+  trustedById: Map<string, TrustedContract>;
+  stats: TrustedPortfolioStats;
+  attention: PortfolioAttentionItem[];
+  connections: ModuleConnection[];
+  horizon: HorizonEvent[];
+  healthCoverage: { assessed: number; total: number };
   selectedRecord: ContractGovernanceRecord | null;
   onSelect: (record: ContractGovernanceRecord) => void;
   onView: (record: ContractGovernanceRecord) => void;
   onOpenPortfolio: () => void;
-  activeKpiFilter: string | null;
-  onToggleKpiFilter: (key: string) => void;
+  onOpenContractById: (id: string) => void;
+  onModuleNavigate: (key: ModuleKey) => void;
 }) {
   return (
-    <div className="space-y-5">
-      {/* Control-room composition: portfolio commands the left, signals stack on the right */}
-      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+    <div className="space-y-6">
+      <PortfolioHero stats={stats} healthCoverage={healthCoverage} />
+
+      <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
+        <section>
+          <SectionHeading
+            title="Requer atenção"
+            hint="sinais operacionais da carteira oficial"
+            count={attention.length}
+          />
+          <PortfolioAttention
+            items={attention}
+            liveContractCount={stats.contractCount}
+            max={4}
+            onOpenContract={onOpenContractById}
+          />
+        </section>
+
+        <section>
+          <SectionHeading title="Próximos 90 dias" hint="marcos, prazos e vigências reais" count={horizon.length} />
+          <PortfolioHorizon
+            events={horizon}
+            liveContractCount={stats.contractCount}
+            onOpenContract={onOpenContractById}
+          />
+        </section>
+      </div>
+
+      <section>
+        <SectionHeading
+          title="Operações conectadas"
+          hint="o contrato como objeto central da operação"
+        />
+        <ModuleConnections connections={connections} onNavigate={onModuleNavigate} />
+      </section>
+
+      <section>
+        <SectionHeading title="Carteira em destaque" hint="contratos por prioridade operacional" />
         <PriorityContracts
           records={records}
+          trustedById={trustedById}
           selectedId={selectedRecord?.contract.id || null}
           onSelect={onSelect}
           onView={onView}
           onOpenAll={onOpenPortfolio}
         />
-        <ExecutiveSignals
-          records={records}
-          onSelect={onSelect}
-          activeKpiFilter={activeKpiFilter}
-          onToggleKpiFilter={onToggleKpiFilter}
-        />
-      </div>
-      <AnalyticsBand records={records} />
+      </section>
     </div>
+  );
+}
+
+/** Cabeçalho de seção do Command Center — hierarquia sem card extra (MD §5). */
+function SectionHeading({ title, hint, count }: { title: string; hint?: string; count?: number }) {
+  return (
+    <header className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+      <h3 className="text-ig-h3 font-semibold text-ig-fg-strong">{title}</h3>
+      {count !== undefined && count > 0 && (
+        <span className="ig-tabular rounded-[6px] border border-ig-border-subtle px-1.5 py-px text-ig-caption font-semibold text-ig-fg-muted">
+          {count}
+        </span>
+      )}
+      {hint && <span className="text-ig-caption text-ig-fg-subtle">{hint}</span>}
+      <span className="h-px flex-1 bg-ig-border-subtle" aria-hidden />
+    </header>
   );
 }
 
@@ -762,7 +1103,7 @@ function SignalGroup({
       >
         <div className={`flex min-w-0 items-center gap-2 ${filterActive ? 'text-ig-accent' : 'text-ig-fg-muted'}`}>
           <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md border ${iconChipClass}`}>{icon}</span>
-          <span className="min-w-0 truncate text-[10px] font-semibold uppercase tracking-[0.12em]">{title}</span>
+          <span className="min-w-0 truncate text-ig-label font-semibold uppercase tracking-[0.12em]">{title}</span>
           {/* Non-color active indication (a11y) */}
           {filterActive && <ListFilter className="h-3 w-3 shrink-0 text-ig-accent" aria-hidden />}
         </div>
@@ -925,12 +1266,14 @@ function priorityScore(record: ContractGovernanceRecord) {
 
 function PriorityContracts({
   records,
+  trustedById,
   selectedId,
   onSelect,
   onView,
   onOpenAll,
 }: {
   records: ContractGovernanceRecord[];
+  trustedById: Map<string, TrustedContract>;
   selectedId: string | null;
   onSelect: (record: ContractGovernanceRecord) => void;
   onView: (record: ContractGovernanceRecord) => void;
@@ -971,15 +1314,19 @@ function PriorityContracts({
       }
     >
       <div className="grid gap-4 sm:grid-cols-2">
-        {top.map((record) => (
-          <ContractCard
-            key={record.contract.id}
-            record={record}
-            active={record.contract.id === selectedId}
-            onSelect={onSelect}
-            onView={onView}
-          />
-        ))}
+        {top.map((record) => {
+          const trusted = trustedById.get(record.contract.id);
+          if (!trusted) return null;
+          return (
+            <ContractInstrumentCard
+              key={record.contract.id}
+              contract={trusted}
+              active={record.contract.id === selectedId}
+              onSelect={() => onSelect(record)}
+              onOpen={() => onView(record)}
+            />
+          );
+        })}
       </div>
     </HudPanel>
   );
@@ -987,6 +1334,7 @@ function PriorityContracts({
 
 function ContractsSection({
   records,
+  trustedById,
   selectedId,
   viewMode,
   onViewModeChange,
@@ -998,6 +1346,7 @@ function ContractsSection({
   onDeleteContract,
 }: {
   records: ContractGovernanceRecord[];
+  trustedById: Map<string, TrustedContract>;
   selectedId: string | null;
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
@@ -1038,20 +1387,21 @@ function ContractsSection({
       </div>
 
       {viewMode === 'table' && (
-        <ContractList
-          records={records}
-          selectedRecordId={selectedId}
-          onSelectRecord={onSelect}
-          onViewContract={onView}
-          canDeleteLinkedProject={canDeleteLinkedProject}
-          canDeleteContract={canDeleteContract}
-          onDeleteLinkedProject={onDeleteLinkedProject}
-          onDeleteContract={onDeleteContract}
+        <ContractSmartTable
+          contracts={records
+            .map((r) => trustedById.get(r.contract.id))
+            .filter((c): c is TrustedContract => Boolean(c))}
+          selectedId={selectedId}
+          onSelect={(c) => {
+            const target = records.find((r) => r.contract.id === c.id);
+            if (target) onSelect(target);
+          }}
         />
       )}
       {viewMode === 'cards' && (
         <ContractCards
           records={records}
+          trustedById={trustedById}
           selectedId={selectedId}
           onSelect={onSelect}
           onView={onView}
@@ -1065,12 +1415,14 @@ function ContractsSection({
 
 function ContractCards({
   records,
+  trustedById,
   selectedId,
   onSelect,
   onView,
   onDelete,
 }: {
   records: ContractGovernanceRecord[];
+  trustedById: Map<string, TrustedContract>;
   selectedId: string | null;
   onSelect: (record: ContractGovernanceRecord) => void;
   onView: (record: ContractGovernanceRecord) => void;
@@ -1078,16 +1430,20 @@ function ContractCards({
 }) {
   return (
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-      {records.map((record) => (
-        <ContractCard
-          key={record.contract.id}
-          record={record}
-          active={record.contract.id === selectedId}
-          onSelect={onSelect}
-          onView={onView}
-          onDelete={onDelete}
-        />
-      ))}
+      {records.map((record) => {
+        const trusted = trustedById.get(record.contract.id);
+        if (!trusted) return null;
+        return (
+          <ContractInstrumentCard
+            key={record.contract.id}
+            contract={trusted}
+            active={record.contract.id === selectedId}
+            onSelect={() => onSelect(record)}
+            onOpen={() => onView(record)}
+            onDelete={onDelete ? () => onDelete(record) : undefined}
+          />
+        );
+      })}
     </div>
   );
 }
@@ -1191,7 +1547,7 @@ function AnalyticsBand({ records }: { records: ContractGovernanceRecord[] }) {
             const toneClass = item.tone === 'danger' ? 'text-ig-danger' : item.tone === 'warning' ? 'text-ig-warning' : item.tone === 'success' ? 'text-ig-success' : 'text-ig-fg-strong';
             return (
               <div key={item.key} className="rounded-lg border border-ig-border-subtle bg-ig-panel/45 px-3 py-2.5">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ig-fg-subtle">{item.label}</p>
+                <p className="text-ig-label font-semibold uppercase tracking-[0.12em] text-ig-fg-subtle">{item.label}</p>
                 <p className={`mt-0.5 text-xl font-semibold tabular-nums ${toneClass}`}>{item.value}</p>
               </div>
             );
@@ -1259,135 +1615,38 @@ function AiAnalysisSection({ selectedRecord }: { selectedRecord: ContractGoverna
   );
 }
 
-function RenewalsSection({ records }: { records: ContractGovernanceRecord[] }) {
-  const renewalRecords = [...records].sort((a, b) => (a.daysUntilExpiration ?? 9999) - (b.daysUntilExpiration ?? 9999)).slice(0, 18);
+/**
+ * Distribuição de risco da carteira.
+ *
+ * `contracts.risk_level` é coluna REAL — esta é a única parte do antigo painel
+ * de riscos que se sustentava. O painel "Cláusulas monitoradas" que ficava ao
+ * lado saiu: as três cláusulas que ele exibia ("Renovação e denúncia",
+ * "Condições de pagamento", "SLA e penalidades") eram fabricadas pelo enricher
+ * e vinham com o próprio texto denunciando a origem ("Prévia mock", "sem API
+ * ativa"). Elas contradiziam, na mesma tela, o painel de capacidades que
+ * declara `contract_clauses` como não instrumentada.
+ */
+function RisksSection({ records }: { records: ContractGovernanceRecord[] }) {
   return (
-    <HudPanel title="Radar de renovações" icon={<CalendarClock className="h-4 w-4" />} interactive={false}>
-      <div className="space-y-2">
-        {renewalRecords.map((record) => (
-          <div key={record.contract.id} className="grid gap-3 rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3 md:grid-cols-[1fr_150px_150px_170px] md:items-center">
-            <div className="min-w-0">
-              <p className="truncate text-ig-body-sm font-semibold text-ig-fg-strong">{record.contract.name}</p>
-              <p className="truncate text-ig-caption text-ig-fg-muted">{record.companyName} · {record.projectReference}</p>
-            </div>
-            <HudStatusPill variant={renewalVariant(record.renewalStatus)} size="sm">
-              {record.daysUntilExpiration !== null && record.daysUntilExpiration < 0 ? 'Vencido' : `${record.daysUntilExpiration ?? '-'} dias`}
-            </HudStatusPill>
-            <span className="text-ig-caption text-ig-fg-muted">
-              {record.contract.expirationDate ? format(new Date(record.contract.expirationDate), 'dd/MM/yyyy', { locale: pt }) : 'Sem data'}
-            </span>
-            <span className="text-ig-caption font-semibold text-ig-fg-strong">{record.approvalRoute}</span>
-          </div>
-        ))}
-      </div>
-    </HudPanel>
-  );
-}
-
-function ObligationsSection({
-  records,
-  canEdit,
-  busyId,
-  onComplete,
-  onCreateTask,
-}: {
-  records: ContractGovernanceRecord[];
-  canEdit: boolean;
-  busyId: string | null;
-  onComplete: (item: { id: string; title: string; contract_id: string; owner_user_id: string | null; due_date: string | null }) => void;
-  onCreateTask: (contractId: string, title: string, dueAt: string, ownerUserId: string | null, key: string) => void;
-}) {
-  const obligations = records.flatMap((record) => record.obligations.map((obligation) => ({ ...obligation, record })));
-  return (
-    <HudPanel title="Obrigações contratuais" icon={<ClipboardCheck className="h-4 w-4" />} interactive={false}>
-      <div className="space-y-2">
-        {obligations.slice(0, 36).map((item) => {
-          // Item-level actions require a real Supabase row (live merge), never the mock preview.
-          const isLive = item.record.dataQuality?.obligations === 'live';
-          const done = item.status === 'done';
-          const dueStr = format(new Date(item.dueDate), 'yyyy-MM-dd');
+    <HudPanel title="Mapa de risco" subtitle="Classificação registrada em contracts.risk_level" icon={<ShieldAlert className="h-4 w-4" />} interactive={false}>
+      <div className="grid gap-4 md:grid-cols-3">
+        {['high', 'medium', 'low'].map((risk) => {
+          const count = records.filter((record) => record.contract.riskClassification === risk).length;
           return (
-            <div key={item.id} className="grid gap-3 rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3 md:grid-cols-[1fr_150px_100px_120px_auto] md:items-center">
-              <div className="min-w-0">
-                <p className="truncate text-ig-body-sm font-semibold text-ig-fg-strong">{item.title}</p>
-                <p className="truncate text-ig-caption text-ig-fg-muted">{item.record.code} · {item.evidence}</p>
+            <div key={risk}>
+              <div className="mb-1 flex justify-between text-ig-caption">
+                <span className="text-ig-fg-muted">{riskLabels[risk as keyof typeof riskLabels]}</span>
+                <span className="ig-tabular font-semibold text-ig-fg-strong">{count}</span>
               </div>
-              <span className="truncate text-ig-body-sm text-ig-fg-muted">{item.owner}</span>
-              <HudStatusPill
-                variant={item.status === 'overdue' ? 'critical' : item.status === 'due_soon' ? 'warning' : item.status === 'done' ? 'active' : 'neutral'}
-                size="sm"
-              >
-                {item.status === 'overdue' ? 'Atrasada' : item.status === 'due_soon' ? 'Próxima' : item.status === 'done' ? 'Concluída' : 'Aberta'}
-              </HudStatusPill>
-              <span className="text-ig-caption text-ig-fg-muted">{format(new Date(item.dueDate), 'dd/MM/yyyy', { locale: pt })}</span>
-              <div className="flex items-center justify-end gap-1.5">
-                {canEdit && isLive && !done && (
-                  <button
-                    type="button"
-                    title="Concluir obrigação"
-                    onClick={() => onComplete({ id: item.id, title: item.title, contract_id: item.record.contract.id, owner_user_id: item.record.contract.responsibleId ?? null, due_date: dueStr })}
-                    className="inline-flex h-9 items-center gap-1 rounded-md border border-ig-border-subtle px-2 text-ig-label font-semibold text-ig-fg-muted transition-colors sm:h-7 hover:border-ig-border-focus hover:text-ig-success"
-                  >
-                    <CheckCircle2 className="h-3.5 w-3.5" /> Concluir
-                  </button>
-                )}
-                {canEdit && isLive && (
-                  <button
-                    type="button"
-                    title="Criar tarefa na agenda"
-                    disabled={busyId === `tab-obltask-${item.id}`}
-                    onClick={() => onCreateTask(item.record.contract.id, item.title, `${dueStr}T23:59:59`, item.record.contract.responsibleId ?? null, `tab-obltask-${item.id}`)}
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-ig-border-subtle text-ig-fg-muted transition-colors sm:h-7 sm:w-7 hover:border-ig-border-focus hover:text-ig-fg-strong disabled:opacity-50"
-                  >
-                    <CalendarClock className="h-3.5 w-3.5" />
-                  </button>
-                )}
-              </div>
+              <HudProgressBar
+                value={Math.round((count / Math.max(records.length, 1)) * 100)}
+                variant={risk === 'high' ? 'danger' : risk === 'medium' ? 'warning' : 'success'}
+              />
             </div>
           );
         })}
       </div>
     </HudPanel>
-  );
-}
-
-function RisksSection({ records }: { records: ContractGovernanceRecord[] }) {
-  const clauses = records.flatMap((record) => record.clauses.map((clause) => ({ ...clause, record })));
-  return (
-    <div className="grid gap-5 xl:grid-cols-[340px_minmax(0,1fr)]">
-      <HudPanel title="Mapa de risco" icon={<ShieldAlert className="h-4 w-4" />} interactive={false}>
-        <div className="space-y-4">
-          {['high', 'medium', 'low'].map((risk) => {
-            const count = records.filter((record) => record.contract.riskClassification === risk).length;
-            return (
-              <div key={risk}>
-                <div className="mb-1 flex justify-between text-ig-caption">
-                  <span className="text-ig-fg-muted">{riskLabels[risk as keyof typeof riskLabels]}</span>
-                  <span className="ig-tabular font-semibold text-ig-fg-strong">{count}</span>
-                </div>
-                <HudProgressBar value={Math.round((count / Math.max(records.length, 1)) * 100)} variant={risk === 'high' ? 'danger' : risk === 'medium' ? 'warning' : 'success'} />
-              </div>
-            );
-          })}
-        </div>
-      </HudPanel>
-      <HudPanel title="Cláusulas monitoradas" icon={<Scale className="h-4 w-4" />} interactive={false}>
-        <div className="grid gap-3 md:grid-cols-2">
-          {clauses.slice(0, 18).map((clause) => (
-            <div key={clause.id} className="rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="truncate text-ig-body-sm font-semibold text-ig-fg-strong">{clause.title}</p>
-                  <p className="mt-1 text-ig-caption text-ig-fg-muted">{clause.record.code} · {clause.category}</p>
-                </div>
-                <HudStatusPill variant={riskVariant(clause.risk)} size="sm">{riskLabels[clause.risk]}</HudStatusPill>
-              </div>
-              <p className="mt-2 text-ig-caption text-ig-fg-muted">{clause.note}</p>
-            </div>
-          ))}
-        </div>
-      </HudPanel>
-    </div>
   );
 }
 
@@ -1515,7 +1774,7 @@ function FaturamentoSection({
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {cards.map((card) => (
           <div key={card.label} className="rounded-lg border border-ig-border-subtle bg-ig-panel/45 px-3 py-2.5">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ig-fg-subtle">{card.label}</p>
+            <p className="text-ig-label font-semibold uppercase tracking-[0.12em] text-ig-fg-subtle">{card.label}</p>
             <p className={`mt-0.5 text-lg font-semibold tabular-nums ${card.tone}`}>{card.value}</p>
           </div>
         ))}
@@ -1559,85 +1818,6 @@ function FaturamentoSection({
 
 const APPROVAL_STEP_LABELS: Record<string, string> = { juridico: 'Jurídico', financeiro: 'Financeiro', comite: 'Comitê', diretoria: 'Diretoria' };
 
-function AprovacoesSection({
-  records,
-  canApprove,
-  busyId,
-  onApproveStep,
-  onReview,
-}: {
-  records: ContractGovernanceRecord[];
-  canApprove: boolean;
-  busyId: string | null;
-  onApproveStep: (contractId: string, step: string, key: string) => void;
-  onReview: (record: ContractGovernanceRecord) => void;
-}) {
-  const rows = records.filter((record) => (record.liveApprovals?.length ?? 0) > 0);
-  if (rows.length === 0) {
-    return (
-      <HudPanel title="Fluxos de aprovação" icon={<ShieldCheck className="h-4 w-4" />} interactive={false}>
-        <div className="py-12 text-center">
-          <ShieldCheck className="mx-auto mb-3 h-10 w-10 text-ig-fg-muted" />
-          <p className="text-ig-body-sm text-ig-fg-muted">Nenhum fluxo de aprovação ao vivo. Envie contratos para revisão para popular as etapas.</p>
-        </div>
-      </HudPanel>
-    );
-  }
-  return (
-    <div className="space-y-4">
-      {rows.map((record) => {
-        const sla = computeApprovalSla(record.liveApprovals ?? []);
-        return (
-          <HudPanel
-            key={record.contract.id}
-            title={`${record.code} · ${record.companyName}`}
-            subtitle={`Rota: ${record.approvalRoute}`}
-            icon={<ShieldCheck className="h-4 w-4" />}
-            interactive={false}
-          >
-            <div className="mb-3 flex flex-wrap items-center gap-2">
-              <HudBadge variant={sla.quality === 'live' ? 'success' : 'subtle'} size="sm">{sla.quality === 'live' ? 'SLA ao vivo' : 'SLA estimado'}</HudBadge>
-              {sla.avgHours != null && <HudBadge variant="info" size="sm">Média {sla.avgHours}h</HudBadge>}
-              {sla.overdueSteps > 0 && <HudBadge variant="warning" size="sm">{sla.overdueSteps} em atraso</HudBadge>}
-              {sla.rejectedSteps > 0 && <HudBadge variant="danger" size="sm">{sla.rejectedSteps} rejeitada(s)</HudBadge>}
-            </div>
-            <div className="space-y-1.5">
-              {(record.liveApprovals ?? []).map((step) => {
-                const terminal = step.status === 'approved' || step.status === 'rejected';
-                const hours = sla.byStep[step.step_name];
-                const isOpen = sla.openStepName === step.step_name;
-                return (
-                  <div key={step.id} className="grid gap-3 rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-2.5 md:grid-cols-[1fr_120px_100px_auto] md:items-center">
-                    <span className="text-ig-body-sm font-semibold text-ig-fg-strong">{APPROVAL_STEP_LABELS[step.step_name] ?? step.step_name}</span>
-                    <HudStatusPill variant={step.status === 'approved' ? 'active' : step.status === 'rejected' ? 'critical' : step.status === 'under_review' ? 'warning' : 'neutral'} size="sm">
-                      {step.status === 'approved' ? 'Aprovada' : step.status === 'rejected' ? 'Rejeitada' : step.status === 'under_review' ? 'Em análise' : 'Pendente'}
-                    </HudStatusPill>
-                    <span className={`text-ig-caption tabular-nums ${isOpen ? 'text-ig-warning' : 'text-ig-fg-muted'}`}>
-                      {hours != null ? `${hours}h` : isOpen && sla.openStepHours != null ? `${sla.openStepHours}h aberto` : '—'}
-                    </span>
-                    <div className="flex items-center justify-end">
-                      {canApprove && !terminal && (
-                        <button type="button" title="Aprovar etapa" disabled={busyId === `tab-apr-${step.id}`} onClick={() => onApproveStep(record.contract.id, step.step_name, `tab-apr-${step.id}`)} className="inline-flex h-9 items-center gap-1 rounded-md border border-ig-border-subtle px-2 text-ig-label font-semibold text-ig-fg-muted transition-colors sm:h-7 hover:border-ig-border-focus hover:text-ig-success disabled:opacity-50">
-                          <CheckCircle2 className="h-3.5 w-3.5" /> Aprovar
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            {canApprove && (
-              <HudButton variant="glass" size="sm" className="mt-3" leftIcon={<Scale className="h-4 w-4" />} onClick={() => onReview(record)}>
-                Rejeitar / solicitar ajustes
-              </HudButton>
-            )}
-          </HudPanel>
-        );
-      })}
-    </div>
-  );
-}
-
 function AuditSection({ records }: { records: ContractGovernanceRecord[] }) {
   const events = records.flatMap((record) => record.auditEvents.map((event) => ({ ...event, record })))
     .sort((a, b) => b.at.getTime() - a.at.getTime())
@@ -1668,7 +1848,7 @@ function AuditSection({ records }: { records: ContractGovernanceRecord[] }) {
 function Metric({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="min-w-0 rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3">
-      <p className="truncate text-[10px] font-semibold uppercase tracking-[0.14em] text-ig-fg-subtle">{label}</p>
+      <p className="truncate text-ig-label font-semibold uppercase tracking-[0.14em] text-ig-fg-subtle">{label}</p>
       <p className="mt-1 truncate text-base font-semibold tabular-nums text-ig-fg-strong">{value}</p>
     </div>
   );

@@ -65,10 +65,15 @@ export function HudModal({
   // overlay. No SSR não há document — o modal só existe no cliente.
   if (typeof document === 'undefined') return null;
 
+  // z-[85]: acima do HudDrawer (z-80/81) e abaixo do tooltip (z-90).
+  // Com z-50, um modal aberto a partir do Quick Dossier era desenhado ATRÁS do
+  // drawer: o painel aparecia, mas os botões do rodapé caíam sob a faixa de
+  // 600px do drawer e ficavam inclicáveis a 1440px — Vincular projeto, Anexar
+  // documento e Aprovar/Rejeitar entre eles.
   return createPortal(
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[85] flex items-center justify-center p-4">
           {/* Backdrop */}
           <motion.div
             initial={{ opacity: 0 }}

@@ -37,11 +37,13 @@ try {
 
   // §1 — contrato alvo [QA].
   await client.query(
+    // `data_class = 'demo'` é explícito: este contrato é fixture e NUNCA pode
+    // alimentar exposição, saúde ou PDF oficiais (migration 091).
     `insert into public.contracts (organization_id, title, contract_number, counterparty_name,
                                    contract_type, status, currency, total_value, risk_level,
-                                   owner_user_id, created_by, updated_by)
+                                   owner_user_id, created_by, updated_by, data_class)
      select $1, '[QA] Contrato de Serviços', 'QA-0001', 'Fornecedor QA Ltda.',
-            'Prestação de serviços', 'active', 'BRL', 1200000, 'medium', $2, $2, $2
+            'Prestação de serviços', 'active', 'BRL', 1200000, 'medium', $2, $2, $2, 'demo'
      where not exists (
        select 1 from public.contracts c
        where c.organization_id = $1 and c.title = '[QA] Contrato de Serviços')`,
@@ -184,6 +186,67 @@ try {
     [target.contract_id],
   );
   console.log('SLA por etapa (036):', sla);
+
+  // ── §7b — instrumentação operacional (P2B, migration 092) ────────────────
+  //
+  // Marcos, cláusulas e penalidades passaram a ter caminho de escrita. A
+  // fixture cobre os três estados que o Contract-to-Cash precisa distinguir:
+  // marco MEDIDO (entra na soma), marco PREVISTO (não entra), e cláusula
+  // REGISTRADA mas não validada.
+  await client.query(
+    `insert into public.contract_milestones
+       (organization_id, contract_id, title, milestone_type, status, due_date,
+        completed_at, billing_amount, measured_amount, owner_user_id, evidence,
+        created_by, updated_by)
+     select $1, $2, '[QA] Medição física fase 1', 'Medição', 'measured', '2026-07-01',
+            '2026-07-05T00:00:00Z', 480000, 455000, $3, 'Boletim de medição 01', $3, $3
+     where not exists (
+       select 1 from public.contract_milestones m
+       where m.contract_id = $2 and m.title = '[QA] Medição física fase 1')`,
+    T,
+  );
+  await client.query(
+    `insert into public.contract_milestones
+       (organization_id, contract_id, title, milestone_type, status, due_date,
+        billing_amount, created_by, updated_by)
+     select $1, $2, '[QA] Encerramento', 'Medição', 'pending', '2026-12-01', 600000, $3, $3
+     where not exists (
+       select 1 from public.contract_milestones m
+       where m.contract_id = $2 and m.title = '[QA] Encerramento')`,
+    T,
+  );
+  await client.query(
+    `insert into public.contract_clauses
+       (organization_id, contract_id, title, clause_type, risk_level, percentage,
+        source_page, review_status, ai_flagged, created_by, updated_by)
+     select $1, $2, '[QA] Multa por atraso de entrega', 'penalidade', 'high', 2, 12,
+            'draft', false, $3, $3
+     where not exists (
+       select 1 from public.contract_clauses c
+       where c.contract_id = $2 and c.title = '[QA] Multa por atraso de entrega')`,
+    T,
+  );
+  await client.query(
+    `insert into public.contract_penalties
+       (organization_id, contract_id, clause_id, title, penalty_type, percentage,
+        trigger_condition, status, created_by, updated_by)
+     select $1, $2,
+            (select id from public.contract_clauses
+              where contract_id = $2 and title = '[QA] Multa por atraso de entrega' limit 1),
+            '[QA] Multa 2% sobre o saldo', 'contratual', 2,
+            'Atraso superior a 5 dias na entrega', 'active', $3, $3
+     where not exists (
+       select 1 from public.contract_penalties p
+       where p.contract_id = $2 and p.title = '[QA] Multa 2% sobre o saldo')`,
+    T,
+  );
+  console.log('Instrumentação (092):', await q(
+    `select
+       (select count(*) from public.contract_milestones where contract_id = $1) as marcos,
+       (select count(*) from public.contract_clauses where contract_id = $1) as clausulas,
+       (select count(*) from public.contract_penalties where contract_id = $1) as penalidades`,
+    [target.contract_id],
+  ));
 
   const policies = await q(
     `select tablename, count(*) as policies from pg_policies

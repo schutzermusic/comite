@@ -289,7 +289,48 @@ function buildAuditEvents(contract: Contract, seed: number): ContractAuditEvent[
   ];
 }
 
-export function enrichContractsForGovernance(contracts: Contract[], projects: Project[], now = new Date()): ContractGovernanceRecord[] {
+/**
+ * Selo de intenção exigido por `enrichContractsForGovernance`.
+ *
+ * Não protege contra um desenvolvedor determinado — protege contra o acidente,
+ * que é o risco real. Nenhuma chamada a este enricher pode mais acontecer sem
+ * que o autor escreva `DEMO_PREVIEW_INTENT` na linha, e sem que todo revisor
+ * do diff veja que ali entra dado SINTÉTICO.
+ *
+ * Foi assim que o vazamento aconteceu da primeira vez: a função tinha nome
+ * neutro ("enrich"), assinatura inocente, e o resultado subia para a Executive
+ * Band e para o PDF oficial sem que nada no call site denunciasse a natureza
+ * do dado.
+ */
+export const DEMO_PREVIEW_INTENT = Symbol('contract-governance-demo-preview');
+export type DemoPreviewIntent = typeof DEMO_PREVIEW_INTENT;
+
+/**
+ * Preview SINTÉTICO de governança — dado de DEMONSTRAÇÃO, não medição.
+ *
+ * Fabrica obrigações, cláusulas, auditoria, faturamento (escada fixa
+ * 10/40/50%), riscos, tarefas, deliberações e margem a partir de
+ * `hash(contract.id + contract.name)`.
+ *
+ * ⚠️ NADA que sai daqui pode alimentar:
+ *      · a Executive Band
+ *      · Contract Health
+ *      · Revenue at Risk
+ *      · recomendações operacionais
+ *      · o PDF oficial
+ *
+ * Para qualquer uma dessas, use `src/lib/contracts/trust/read-model.ts`, que
+ * lê exclusivamente linhas reais e devolve `Official<T>`.
+ *
+ * O uso legítimo que resta é listagem de abas ainda não migradas, o drawer
+ * (com selo "Demonstração" por seção) e o harness de preview de relatórios.
+ */
+export function enrichContractsForGovernance(
+  contracts: Contract[],
+  projects: Project[],
+  options: { intent: DemoPreviewIntent; now?: Date },
+): ContractGovernanceRecord[] {
+  const now = options.now ?? new Date();
   return contracts.map((contract) => {
     const seed = hash(contract.id + contract.name);
     const project = resolveProject(contract, projects);

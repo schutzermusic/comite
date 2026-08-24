@@ -5,6 +5,11 @@ import { Button } from '@/components/ui/button';
 import { HudBadge, HudPanel, HudProgressBar, HudStatusPill, HudTable, type HudTableColumn } from '@/components/hud';
 import type { ContractGovernanceRecord } from '@/components/contracts/contract-governance-data';
 import { formatCurrencyCompact } from '@/components/contracts/contract-governance-data';
+import type { TrustedContract } from '@/lib/contracts/trust/read-model';
+import { officialCurrencyCompact } from '@/lib/contracts/trust/format';
+import { hasOfficialValue, ratioTrusted } from '@/lib/contracts/trust/trusted';
+import { missingDocuments as trustedMissingDocs } from '@/lib/contracts/trust/signals';
+import { DataClassBadge } from '@/components/contracts/cockpit/PortfolioScope';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,6 +34,8 @@ import { format } from 'date-fns';
 import { pt } from 'date-fns/locale';
 
 interface ContractListProps {
+  /** Contratos confiáveis por id — fonte de todo valor monetário e operacional. */
+  trustedById?: Map<string, TrustedContract>;
   records: ContractGovernanceRecord[];
   selectedRecordId?: string | null;
   onSelectRecord?: (record: ContractGovernanceRecord) => void;
@@ -82,6 +89,7 @@ const aiVariant = {
 
 export function ContractList({
   records,
+  trustedById,
   selectedRecordId,
   onSelectRecord,
   onViewContract,
@@ -134,7 +142,15 @@ export function ContractList({
                 {record.contract.name}
               </p>
               <p className="truncate text-ig-caption text-ig-fg-muted">
-                Resp: {record.owner}
+                {(() => {
+                  const t = trustedById?.get(record.contract.id);
+                  return (
+                    <span className="flex items-center gap-1.5">
+                      {t && <DataClassBadge dataClass={t.dataClass} />}
+                      {t && hasOfficialValue(t.contractType) ? t.contractType.value : '—'}
+                    </span>
+                  );
+                })()}
               </p>
             </div>
           </div>
@@ -178,27 +194,32 @@ export function ContractList({
       header: 'Exposição',
       width: '210px',
       cell: (record) => {
-        const pct = record.totalValue ? Math.round((record.billedValue / record.totalValue) * 100) : 0;
-        const noBilling = record.billedValue === 0 && record.totalValue > 0;
+        // Valores confiáveis; "—" enquanto o batch não chegou ou sem apuração.
+        const t = trustedById?.get(record.contract.id);
+        const exec = t ? ratioTrusted(t.billedValue, t.totalValue, 'faturado sobre total', ['contracts', 'contract_billing_events']) : null;
+        const pct = exec && hasOfficialValue(exec) ? Math.round(exec.value * 100) : null;
+        const noBilling = Boolean(t && hasOfficialValue(t.billingEvents) && t.billingEvents.value.length === 0);
+        const money = (v: Parameters<typeof officialCurrencyCompact>[0] | undefined) => (v ? officialCurrencyCompact(v) : '—');
         return (
           <div className="min-w-[180px] space-y-1.5">
             <div className="flex items-baseline justify-between gap-3">
               <span className="text-ig-caption text-ig-fg-muted">Total</span>
               <span className="ig-tabular text-ig-body-sm font-semibold text-ig-fg-strong">
-                {formatCurrencyCompact(record.totalValue, record.contract.currency)}
+                {money(t?.totalValue)}
               </span>
             </div>
             <HudProgressBar
-              value={pct}
+              value={pct ?? 0}
               size="sm"
-              variant={record.financialStatus === 'blocked' ? 'danger' : record.financialStatus === 'attention' ? 'warning' : 'success'}
+              showLabel={false}
+              variant={pct === null ? 'default' : 'success'}
             />
             <div className="flex justify-between gap-3 text-ig-caption text-ig-fg-muted">
-              <span>Faturado {formatCurrencyCompact(record.billedValue, record.contract.currency)}</span>
+              <span>Faturado {money(t?.billedValue)}</span>
               {noBilling ? (
-                <span className="text-ig-warning font-semibold">Sem faturamento</span>
+                <span className="text-ig-warning font-semibold">Sem evento registrado</span>
               ) : (
-                <span>Saldo {formatCurrencyCompact(record.remainingValue, record.contract.currency)}</span>
+                <span>Saldo {money(t?.remainingValue)}</span>
               )}
             </div>
           </div>
@@ -243,12 +264,8 @@ export function ContractList({
           <HudStatusPill variant={riskVariant[record.contract.riskClassification]} size="sm" pulse={record.contract.riskClassification === 'high'}>
             Risco {riskLabel[record.contract.riskClassification]}
           </HudStatusPill>
-          <div className="flex items-center gap-2">
-            <ShieldCheck className="h-3.5 w-3.5 text-ig-fg-subtle" />
-            <span className="ig-tabular text-ig-caption font-semibold text-ig-fg-strong">
-              {record.riskScore}/100
-            </span>
-          </div>
+          {/* "riskScore NN/100" saiu: vinha de hash(id+nome). A classificação
+              real (coluna `risk_level`) já está no pill acima. */}
         </div>
       ),
     },
@@ -257,21 +274,27 @@ export function ContractList({
       header: 'IA / Docs',
       width: '190px',
       cell: (record) => {
-        const isPendingAi = record.aiStatus === 'mock_pending';
+        /* O chip de estado de IA e a "confiança NN%" saíram: `aiStatus` e
+           `confidenceScore` vinham do enricher e rotulavam contratos sobre os
+           quais nenhuma análise foi solicitada. Restam as análises REAIS e os
+           documentos faltantes apurados. */
+        const t = trustedById?.get(record.contract.id);
+        const docs = t ? trustedMissingDocs(t) : null;
+        const faltantes = docs && hasOfficialValue(docs) ? docs.value.length : null;
+        const analises = t && hasOfficialValue(t.aiAnalyses) ? t.aiAnalyses.value.length : null;
         return (
           <div className="min-w-[160px] space-y-1.5">
-            <HudBadge variant={aiVariant[record.aiStatus]} size="sm" dot={!isPendingAi}>
-              {isPendingAi ? 'IA Pendente Backend' : aiLabel[record.aiStatus]}
-            </HudBadge>
             <div className="flex items-center gap-1.5 text-ig-caption text-ig-fg-muted">
               <BrainCircuit className="h-3.5 w-3.5" />
-              IA Confiança {record.confidenceScore}%
+              {analises === null ? 'Análises —' : `${analises} análise(s)`}
             </div>
             <div className="flex items-center gap-1.5 text-ig-caption">
-              {record.missingDocuments.length > 0 ? (
+              {faltantes === null ? (
+                <span className="text-ig-fg-muted">Documentos —</span>
+              ) : faltantes > 0 ? (
                 <span className="flex items-center gap-1 text-ig-warning font-semibold">
                   <AlertTriangle className="h-3 w-3 shrink-0" />
-                  {record.missingDocuments.length} docs faltantes
+                  {faltantes} docs faltantes
                 </span>
               ) : (
                 <span className="flex items-center gap-1 text-ig-success">

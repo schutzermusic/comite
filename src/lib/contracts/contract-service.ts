@@ -39,7 +39,26 @@ export type ContractRow = {
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
+  /**
+   * Origem da linha (migration 091): `live` | `demo` | `unclassified`.
+   * Só `live` é elegível a métrica de carteira. Nunca inferir de nome/valor.
+   */
+  data_class?: 'live' | 'demo' | 'unclassified';
 };
+
+/** Estado de revisão humana da cláusula — CHECK na migration 092. */
+export type ClauseReviewStatus = 'draft' | 'in_review' | 'validated' | 'rejected' | 'superseded';
+
+export const CLAUSE_REVIEW_LABEL: Record<ClauseReviewStatus, string> = {
+  draft: 'Registrada',
+  in_review: 'Em revisão',
+  validated: 'Validada',
+  rejected: 'Rejeitada',
+  superseded: 'Substituída',
+};
+
+/** Uma cláusula ainda pendente de decisão humana. */
+export const PENDING_REVIEW: readonly ClauseReviewStatus[] = ['draft', 'in_review'];
 
 export type ContractClauseRow = {
   id: string;
@@ -49,7 +68,33 @@ export type ContractClauseRow = {
   title: string;
   content: string | null;
   risk_level: RiskLevel;
+  /**
+   * Marca que a cláusula veio de extração automática. Continua `false` em todo
+   * registro manual — é o campo que, quando a extração por IA existir,
+   * separará o que a máquina propôs do que uma pessoa registrou.
+   */
   ai_flagged: boolean;
+  // 092: proveniência documental, efeito contratual e revisão humana.
+  source_document_id: string | null;
+  source_page: number | null;
+  source_excerpt: string | null;
+  amount: number | string | null;
+  percentage: number | string | null;
+  term_days: number | null;
+  review_status: ClauseReviewStatus;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  // 093: proveniência da proposta de IA. Todos nulos em registro manual.
+  ai_confidence: number | string | null;
+  ai_model: string | null;
+  ai_analysis_id: string | null;
+  ai_proposed_at: string | null;
+  /** Título/texto ORIGINAIS propostos, congelados para comparação. */
+  ai_proposed_title: string | null;
+  ai_proposed_content: string | null;
+  superseded_by_clause_id: string | null;
+  created_by: string | null;
+  updated_by: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -62,12 +107,32 @@ export type ContractPenaltyRow = {
   description: string | null;
   penalty_type: string | null;
   amount: number | string | null;
+  percentage: number | string | null;
   trigger_condition: string | null;
   deadline_date: string | null;
+  /** Cláusula que origina a penalidade, quando registrada. */
+  clause_id: string | null;
+  created_by: string | null;
+  updated_by: string | null;
   status: string;
   created_at: string;
   updated_at: string;
 };
+
+/** Vocabulário de status do marco — travado por CHECK na migration 092. */
+export type ContractMilestoneStatus =
+  | 'pending' | 'in_progress' | 'measured' | 'approved' | 'cancelled';
+
+export const MILESTONE_STATUS_LABEL: Record<ContractMilestoneStatus, string> = {
+  pending: 'Previsto',
+  in_progress: 'Em execução',
+  measured: 'Medido',
+  approved: 'Aprovado',
+  cancelled: 'Cancelado',
+};
+
+/** Um marco só conta como medido quando a própria linha o afirma. */
+export const MEASURED_STATUSES: readonly ContractMilestoneStatus[] = ['measured', 'approved'];
 
 export type ContractMilestoneRow = {
   id: string;
@@ -80,7 +145,14 @@ export type ContractMilestoneRow = {
   due_date: string | null;
   completed_at: string | null;
   billing_amount: number | string | null;
-  status: string;
+  status: ContractMilestoneStatus;
+  // 092: instrumentação operacional.
+  owner_user_id: string | null;
+  evidence: string | null;
+  evidence_document_id: string | null;
+  measured_amount: number | string | null;
+  created_by: string | null;
+  updated_by: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -134,11 +206,27 @@ export type ContractFileRow = {
   created_at: string;
 };
 
+/**
+ * Ciclo de vida da análise documental — CHECK na migration 094.
+ *
+ * `pending` cobre as linhas de placeholder de P0 e a análise enfileirada;
+ * `superseded` é a análise que uma reanálise substituiu.
+ */
+export type AiAnalysisStatus = 'pending' | 'running' | 'completed' | 'failed' | 'superseded';
+
+export const AI_ANALYSIS_STATUS_LABEL: Record<AiAnalysisStatus, string> = {
+  pending: 'Aguardando',
+  running: 'Analisando',
+  completed: 'Concluída',
+  failed: 'Falhou',
+  superseded: 'Substituída',
+};
+
 export type ContractAiAnalysisRow = {
   id: string;
   organization_id: string;
   contract_id: string;
-  status: string;
+  status: AiAnalysisStatus;
   summary: string | null;
   risk_summary: string | null;
   extracted_data: Record<string, unknown>;
@@ -146,6 +234,13 @@ export type ContractAiAnalysisRow = {
   created_by: string | null;
   created_at: string;
   completed_at: string | null;
+  // 094: ciclo de vida e linhagem.
+  document_id: string | null;
+  started_at: string | null;
+  error_message: string | null;
+  model: string | null;
+  extractor_version: string | null;
+  superseded_by_analysis_id: string | null;
 };
 
 export type ContractObligationRow = {
@@ -197,6 +292,8 @@ export type ContractRiskLinkRow = {
   id: string;
   organization_id: string;
   contract_id: string;
+  /** Cláusula que originou o risco, quando o vínculo nasceu de uma. */
+  clause_id?: string | null;
   risk_id: string;
   created_at: string;
 };
@@ -215,6 +312,11 @@ export type ContractDocumentRow = {
   approved_at: string | null;
   approved_by: string | null;
   rejection_reason: string | null;
+  // 094: linhagem de versão. `superseded_by_document_id` nulo = documento vigente.
+  version: number;
+  supersedes_document_id: string | null;
+  superseded_by_document_id: string | null;
+  superseded_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -257,9 +359,29 @@ export type CreateContractInput = {
   ownerUserId?: string | null;
   file?: File | null;
   aiPlaceholderRequested?: boolean;
+  /**
+   * Origem do contrato (migration 091). OBRIGATÓRIA e sem valor padrão neste
+   * tipo, de propósito: quem cria um contrato precisa declarar se ele é
+   * operacional ou de demonstração, e o compilador cobra essa declaração em
+   * cada caminho de criação.
+   *
+   *   'live'          criação normal pela interface operacional
+   *   'demo'          seeds, fixtures e caminhos de demonstração
+   *   'unclassified'  importações sem classificação explícita
+   */
+  dataClass: 'live' | 'demo' | 'unclassified';
 };
 
-export type UpdateContractInput = Partial<Omit<CreateContractInput, 'file' | 'aiPlaceholderRequested'>>;
+/**
+ * `dataClass` está fora do update genérico DE PROPÓSITO.
+ *
+ * Reclassificar a origem de um contrato muda o que a empresa considera sua
+ * carteira oficial — é ato de governança, não efeito colateral de "salvar o
+ * formulário". Um `updateContract` distraído nunca deve poder promover um
+ * fixture a operacional. Use `reclassifyContract`, que exige justificativa e
+ * registra a mudança na auditoria.
+ */
+export type UpdateContractInput = Partial<Omit<CreateContractInput, 'file' | 'aiPlaceholderRequested' | 'dataClass'>>;
 
 function toNumber(value: number | string | null | undefined) {
   if (value === null || value === undefined) return 0;
@@ -472,6 +594,7 @@ export async function createContract(input: CreateContractInput): Promise<Contra
       scope_summary: input.scopeSummary || null,
       risk_level: input.riskLevel || 'medium',
       health_score: input.healthScore ?? null,
+      data_class: input.dataClass,
       owner_user_id: input.ownerUserId || user.id,
       created_by: user.id,
       updated_by: user.id,
@@ -500,32 +623,79 @@ export async function createContract(input: CreateContractInput): Promise<Contra
   return data;
 }
 
+/**
+ * Mapa campo-do-input → coluna do banco, usado para montar um PATCH parcial.
+ *
+ * Existe para que `updateContract` grave APENAS o que o chamador realmente
+ * passou. Antes, o objeto era montado com as 19 colunas sempre presentes e a
+ * correção dependia de um detalhe implícito três camadas abaixo:
+ * `postgrest-js` serializa o body com `JSON.stringify`, que descarta chaves
+ * `undefined`. Funcionava — por acidente, não por desenho, sem teste que o
+ * garantisse. Um dia em que o transporte deixe de usar JSON.stringify (ou passe
+ * um replacer) transformaria `sendToLegal` — que envia só 2 dos 19 campos — em
+ * um apagador de contrato: `title`, `currency` e `risk_level` são NOT NULL, e o
+ * resto viraria NULL silenciosamente.
+ *
+ * Agora a omissão é explícita e coberta por teste.
+ */
+const CONTRACT_UPDATE_COLUMNS = {
+  projectId: 'project_id',
+  title: 'title',
+  contractNumber: 'contract_number',
+  counterpartyName: 'counterparty_name',
+  contractType: 'contract_type',
+  status: 'status',
+  lifecycleStage: 'lifecycle_stage',
+  startDate: 'start_date',
+  endDate: 'end_date',
+  signedDate: 'signed_date',
+  renewalDate: 'renewal_date',
+  currency: 'currency',
+  totalValue: 'total_value',
+  monthlyValue: 'monthly_value',
+  paymentTerms: 'payment_terms',
+  scopeSummary: 'scope_summary',
+  riskLevel: 'risk_level',
+  healthScore: 'health_score',
+  ownerUserId: 'owner_user_id',
+} as const satisfies Record<keyof UpdateContractInput, string>;
+
+/**
+ * Monta o PATCH de `contracts` a partir de um input parcial.
+ *
+ * Regra: uma chave só entra no payload se o chamador a forneceu com valor
+ * diferente de `undefined`. `null` É um valor legítimo — é como se limpa uma
+ * coluna nullable (desvincular projeto, remover data de renovação) — e portanto
+ * passa. `updated_by` é sempre gravado.
+ *
+ * Função pura, sem I/O: é o ponto testável da correção.
+ */
+export function buildContractUpdatePayload(
+  input: UpdateContractInput,
+  updatedBy: string,
+): Record<string, unknown> {
+  const payload: Record<string, unknown> = { updated_by: updatedBy };
+
+  for (const [inputKey, column] of Object.entries(CONTRACT_UPDATE_COLUMNS)) {
+    const value = (input as Record<string, unknown>)[inputKey];
+    if (value !== undefined) payload[column] = value;
+  }
+
+  return payload;
+}
+
+/** Campos efetivamente enviados, para a metadata de auditoria. */
+export function providedContractUpdateFields(input: UpdateContractInput): string[] {
+  return Object.keys(CONTRACT_UPDATE_COLUMNS).filter(
+    (key) => (input as Record<string, unknown>)[key] !== undefined,
+  );
+}
+
 export async function updateContract(contractId: string, input: UpdateContractInput): Promise<ContractRow> {
   const { supabase, user, organizationId } = await getCurrentIdentity();
   const { data, error } = await supabase
     .from('contracts')
-    .update({
-      project_id: input.projectId,
-      title: input.title,
-      contract_number: input.contractNumber,
-      counterparty_name: input.counterpartyName,
-      contract_type: input.contractType,
-      status: input.status,
-      lifecycle_stage: input.lifecycleStage,
-      start_date: input.startDate,
-      end_date: input.endDate,
-      signed_date: input.signedDate,
-      renewal_date: input.renewalDate,
-      currency: input.currency,
-      total_value: input.totalValue,
-      monthly_value: input.monthlyValue,
-      payment_terms: input.paymentTerms,
-      scope_summary: input.scopeSummary,
-      risk_level: input.riskLevel,
-      health_score: input.healthScore,
-      owner_user_id: input.ownerUserId,
-      updated_by: user.id,
-    })
+    .update(buildContractUpdatePayload(input, user.id))
     .eq('id', contractId)
     .select('*')
     .single<ContractRow>();
@@ -537,18 +707,87 @@ export async function updateContract(contractId: string, input: UpdateContractIn
     action: 'contract.updated',
     entityType: 'contract',
     entityId: contractId,
-    metadata: { fields: Object.keys(input) },
+    metadata: { fields: providedContractUpdateFields(input) },
   });
 
   return data;
 }
 
-export async function softDeleteContract(contractId: string): Promise<void> {
-  const { supabase, organizationId } = await getCurrentIdentity();
+/**
+ * Patch de exclusão lógica. Puro, para ser testável.
+ */
+export function buildContractSoftDeletePatch(
+  userId: string,
+  now: Date = new Date(),
+): { deleted_at: string; updated_by: string } {
+  return { deleted_at: now.toISOString(), updated_by: userId };
+}
+
+/**
+ * Marca o contrato como excluído gravando `deleted_at` — não apaga a linha.
+ *
+ * Até 18/08/2026 esta função chamava `.delete()`: um DELETE FÍSICO que levava em
+ * CASCADE obrigações, faturamento, documentos, aprovações, vínculos de projeto e
+ * risco, arquivos e análises — irrecuperável — apesar do nome da função e da
+ * coluna `deleted_at`, que existe desde a migration 006 e nunca era escrita.
+ *
+ * A troca é invisível para quem lê: `listContracts` e `getContractById` já
+ * filtram `deleted_at IS NULL`.
+ *
+ * RLS: passa por `contracts_update_permissioned` (007:470), cujo USING aceita
+ * `contracts.edit` OR `contracts.delete` — logo quem podia excluir continua
+ * podendo — e cujo WITH CHECK não reimpõe `deleted_at IS NULL`, então gravar o
+ * timestamp é permitido. Nenhuma migration é necessária.
+ *
+ * O `.is('deleted_at', null)` mantém a idempotência: reexcluir afeta 0 linhas e
+ * não erra, mesmo comportamento observável do DELETE anterior.
+ */
+/**
+ * Reclassifica a origem de um contrato, com justificativa obrigatória.
+ *
+ * Separada de `updateContract` porque a consequência é diferente em espécie:
+ * promover um contrato a `live` o faz entrar na exposição, na saúde e no PDF
+ * oficiais da empresa. Isso precisa de intenção explícita e de rastro.
+ */
+export async function reclassifyContract(
+  contractId: string,
+  dataClass: 'live' | 'demo' | 'unclassified',
+  reason: string,
+): Promise<void> {
+  if (!reason.trim()) {
+    throw new Error('Justificativa é obrigatória para reclassificar a origem de um contrato.');
+  }
+
+  const { supabase, user, organizationId } = await getCurrentIdentity();
+  const { data: before } = await supabase
+    .from('contracts')
+    .select('data_class')
+    .eq('id', contractId)
+    .maybeSingle<{ data_class: string | null }>();
+
   const { error } = await supabase
     .from('contracts')
-    .delete()
+    .update({ data_class: dataClass, updated_by: user.id })
     .eq('id', contractId);
+
+  if (error) throw new Error(`Erro ao reclassificar contrato: ${error.message}`);
+
+  await logAuditEvent({
+    organizationId,
+    action: 'contract.reclassified',
+    entityType: 'contract',
+    entityId: contractId,
+    metadata: { from: before?.data_class ?? null, to: dataClass, reason },
+  });
+}
+
+export async function softDeleteContract(contractId: string): Promise<void> {
+  const { supabase, user, organizationId } = await getCurrentIdentity();
+  const { error } = await supabase
+    .from('contracts')
+    .update(buildContractSoftDeletePatch(user.id))
+    .eq('id', contractId)
+    .is('deleted_at', null);
 
   if (error) throw new Error(`Erro ao excluir contrato: ${error.message}`);
 
@@ -620,6 +859,260 @@ export async function listContractMilestones(contractId: string): Promise<Contra
   const { data, error } = await supabase.from('contract_milestones').select('*').eq('contract_id', contractId).order('due_date');
   if (error) throw new Error(`Erro ao carregar marcos: ${error.message}`);
   return (data ?? []) as ContractMilestoneRow[];
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Marcos / Medição — instrumentação P2B
+//
+// `contract_milestones` existia desde a migration 006 e nunca recebeu uma
+// linha: era lida em três pontos do produto e escrita em nenhum. As funções
+// abaixo abrem o caminho de escrita, sempre passando por RLS (que exige
+// `contracts.edit`) e sempre registrando em `audit_logs`.
+//
+// Não há domínio novo: `contract_billing_events.milestone_id` já existia e
+// continua sendo a ponte para faturamento.
+// ═══════════════════════════════════════════════════════════════════════════
+
+export type OrganizationMember = { userId: string; name: string };
+
+/**
+ * Membros da organização, para os seletores de responsável.
+ *
+ * Lê `profiles` — a mesma fonte que Agenda, Deliberações e Projetos já
+ * consultam para o mesmo fim. Contratos não mantém cópia de gente: referencia
+ * `user_id` e pede o nome a quem o guarda.
+ *
+ * Best-effort: falha devolve lista vazia, e o seletor cai em "não atribuído" —
+ * que é honesto, porque a alternativa seria bloquear o registro do marco por
+ * causa do picker.
+ */
+export async function listOrganizationMembers(): Promise<OrganizationMember[]> {
+  try {
+    const { supabase, organizationId } = await getCurrentIdentity();
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('user_id, full_name')
+      .eq('organization_id', organizationId)
+      .order('full_name');
+    if (error) return [];
+    return (data ?? [])
+      .filter((row): row is { user_id: string; full_name: string | null } => Boolean(row.user_id))
+      .map((row) => ({ userId: row.user_id, name: row.full_name ?? 'Sem nome' }));
+  } catch {
+    return [];
+  }
+}
+
+export type CreateContractMilestoneInput = {
+  contractId: string;
+  title: string;
+  description?: string | null;
+  milestoneType?: string | null;
+  dueDate?: string | null;
+  billingAmount?: number | null;
+  ownerUserId?: string | null;
+  evidence?: string | null;
+  evidenceDocumentId?: string | null;
+  projectId?: string | null;
+};
+
+/**
+ * Monta o payload de criação de marco.
+ *
+ * Pura e exportada para teste: é aqui que se garante que um marco nasce
+ * `pending` e SEM valor medido. `measured_amount` nulo é a afirmação de que
+ * ninguém mediu ainda — zero diria que a medição aconteceu e deu zero.
+ */
+export function buildMilestoneCreatePayload(
+  input: CreateContractMilestoneInput,
+  organizationId: string,
+  userId: string,
+): Record<string, unknown> {
+  return {
+    organization_id: organizationId,
+    contract_id: input.contractId,
+    project_id: input.projectId ?? null,
+    title: input.title.trim(),
+    description: input.description?.trim() || null,
+    milestone_type: input.milestoneType?.trim() || null,
+    due_date: input.dueDate || null,
+    billing_amount: input.billingAmount ?? null,
+    owner_user_id: input.ownerUserId || null,
+    evidence: input.evidence?.trim() || null,
+    evidence_document_id: input.evidenceDocumentId || null,
+    status: 'pending' as ContractMilestoneStatus,
+    measured_amount: null,
+    completed_at: null,
+    created_by: userId,
+    updated_by: userId,
+  };
+}
+
+export async function createContractMilestone(
+  input: CreateContractMilestoneInput,
+): Promise<ContractMilestoneRow> {
+  const { supabase, user, organizationId } = await getCurrentIdentity();
+  const { data, error } = await supabase
+    .from('contract_milestones')
+    .insert(buildMilestoneCreatePayload(input, organizationId, user.id))
+    .select('*')
+    .single<ContractMilestoneRow>();
+  if (error) throw new Error(`Erro ao criar marco: ${error.message}`);
+
+  await logAuditEvent({
+    organizationId,
+    action: 'contract.milestone_created',
+    entityType: 'contract',
+    entityId: input.contractId,
+    metadata: {
+      milestone_id: data.id,
+      title: data.title,
+      due_date: data.due_date,
+      billing_amount: data.billing_amount,
+    },
+  });
+
+  await notifyContractRecipient(
+    supabase,
+    input.ownerUserId ?? null,
+    'contract_milestone_assigned',
+    'Novo marco contratual',
+    `Você é responsável pelo marco "${input.title}".`,
+    input.contractId,
+  );
+
+  return data;
+}
+
+export type UpdateContractMilestoneInput = {
+  title?: string;
+  description?: string | null;
+  milestoneType?: string | null;
+  dueDate?: string | null;
+  billingAmount?: number | null;
+  ownerUserId?: string | null;
+  evidence?: string | null;
+  evidenceDocumentId?: string | null;
+  status?: ContractMilestoneStatus;
+  measuredAmount?: number | null;
+};
+
+/**
+ * Patch parcial de marco — só as chaves informadas.
+ *
+ * Mesma decisão de `buildContractUpdatePayload` (P0.2): a omissão é explícita
+ * e testada, em vez de depender do `JSON.stringify` do postgrest descartar
+ * `undefined` três camadas abaixo.
+ *
+ * A regra de negócio embutida: ao entrar em `measured`/`approved` o marco
+ * carimba `completed_at`; ao sair, o carimbo é limpo. Sem isso um marco
+ * revertido continuaria "medido em" uma data que já não vale.
+ */
+export function buildMilestoneUpdatePayload(
+  input: UpdateContractMilestoneInput,
+  userId: string,
+  now: Date = new Date(),
+): Record<string, unknown> {
+  const payload: Record<string, unknown> = { updated_by: userId };
+  if (input.title !== undefined) payload.title = input.title.trim();
+  if (input.description !== undefined) payload.description = input.description?.trim() || null;
+  if (input.milestoneType !== undefined) payload.milestone_type = input.milestoneType?.trim() || null;
+  if (input.dueDate !== undefined) payload.due_date = input.dueDate || null;
+  if (input.billingAmount !== undefined) payload.billing_amount = input.billingAmount;
+  if (input.ownerUserId !== undefined) payload.owner_user_id = input.ownerUserId || null;
+  if (input.evidence !== undefined) payload.evidence = input.evidence?.trim() || null;
+  if (input.evidenceDocumentId !== undefined) payload.evidence_document_id = input.evidenceDocumentId || null;
+  if (input.measuredAmount !== undefined) payload.measured_amount = input.measuredAmount;
+  if (input.status !== undefined) {
+    payload.status = input.status;
+    payload.completed_at = MEASURED_STATUSES.includes(input.status) ? now.toISOString() : null;
+  }
+  return payload;
+}
+
+export async function updateContractMilestone(
+  milestoneId: string,
+  input: UpdateContractMilestoneInput,
+): Promise<ContractMilestoneRow> {
+  const { supabase, user, organizationId } = await getCurrentIdentity();
+  const { data, error } = await supabase
+    .from('contract_milestones')
+    .update(buildMilestoneUpdatePayload(input, user.id))
+    .eq('id', milestoneId)
+    .select('*')
+    .single<ContractMilestoneRow>();
+  if (error) throw new Error(`Erro ao atualizar marco: ${error.message}`);
+
+  await logAuditEvent({
+    organizationId,
+    action: 'contract.milestone_updated',
+    entityType: 'contract',
+    entityId: data.contract_id,
+    metadata: {
+      milestone_id: milestoneId,
+      changed: Object.keys(input),
+      status: data.status,
+      measured_amount: data.measured_amount,
+    },
+  });
+
+  return data;
+}
+
+/**
+ * Gera o evento de faturamento a partir de um marco medido.
+ *
+ * É a ponte marco → faturamento, e ela é explícita por escolha: medir não
+ * fatura. O evento nasce pendente, com `milestone_id` preenchido, e o
+ * faturamento continua sendo realizado pelo fluxo que já existia.
+ */
+export async function createBillingEventFromMilestone(
+  milestone: ContractMilestoneRow,
+): Promise<ContractBillingEventRow> {
+  const { supabase, organizationId } = await getCurrentIdentity();
+
+  const amount = milestone.measured_amount ?? milestone.billing_amount;
+  if (amount === null || amount === undefined) {
+    throw new Error('O marco não tem valor medido nem previsto: não há o que faturar.');
+  }
+
+  const { data, error } = await supabase
+    .from('contract_billing_events')
+    .insert({
+      organization_id: organizationId,
+      contract_id: milestone.contract_id,
+      milestone_id: milestone.id,
+      title: milestone.title,
+      amount,
+      due_date: milestone.due_date,
+      status: 'pendente',
+    })
+    .select('*')
+    .single<ContractBillingEventRow>();
+  if (error) throw new Error(`Erro ao gerar faturamento do marco: ${error.message}`);
+
+  await logAuditEvent({
+    organizationId,
+    action: 'contract.billing_created_from_milestone',
+    entityType: 'contract',
+    entityId: milestone.contract_id,
+    metadata: { milestone_id: milestone.id, billing_event_id: data.id, amount },
+  });
+
+  return data;
+}
+
+export async function deleteContractMilestone(milestoneId: string, contractId: string): Promise<void> {
+  const { supabase, organizationId } = await getCurrentIdentity();
+  const { error } = await supabase.from('contract_milestones').delete().eq('id', milestoneId);
+  if (error) throw new Error(`Erro ao remover marco: ${error.message}`);
+  await logAuditEvent({
+    organizationId,
+    action: 'contract.milestone_deleted',
+    entityType: 'contract',
+    entityId: contractId,
+    metadata: { milestone_id: milestoneId },
+  });
 }
 
 export async function listContractBillingEvents(contractId: string): Promise<ContractBillingEventRow[]> {
@@ -731,6 +1224,420 @@ export async function markBillingEventRealized(
     `Evento "${data.title}" marcado como faturado.`,
     data.contract_id,
   );
+
+  return data;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Cláusulas e penalidades — instrumentação P2B
+//
+// Mesma história de `contract_milestones`: tabelas de 006, RLS correta, zero
+// linhas, zero caminhos de escrita. As funções abaixo permitem REGISTRO
+// MANUAL ESTRUTURADO.
+//
+// `ai_flagged` continua `false` em todo registro manual. É deliberado: no dia
+// em que houver extração automática, o campo já separa o que a máquina propôs
+// do que uma pessoa afirmou, e `review_status` já separa registrado de
+// validado. Nada aqui fabrica cláusula extraída.
+// ═══════════════════════════════════════════════════════════════════════════
+
+export type CreateContractClauseInput = {
+  contractId: string;
+  title: string;
+  clauseType?: string | null;
+  content?: string | null;
+  riskLevel?: RiskLevel;
+  sourceDocumentId?: string | null;
+  sourcePage?: number | null;
+  sourceExcerpt?: string | null;
+  amount?: number | null;
+  percentage?: number | null;
+  termDays?: number | null;
+};
+
+/**
+ * Payload de criação de cláusula. Puro e exportado para teste.
+ *
+ * Duas garantias travadas aqui: registro manual nasce `ai_flagged: false` e
+ * `review_status: 'draft'`. Registrar não é validar — quem registra afirma que
+ * transcreveu, não que conferiu.
+ */
+export function buildClauseCreatePayload(
+  input: CreateContractClauseInput,
+  organizationId: string,
+  userId: string,
+): Record<string, unknown> {
+  return {
+    organization_id: organizationId,
+    contract_id: input.contractId,
+    title: input.title.trim(),
+    clause_type: input.clauseType?.trim() || null,
+    content: input.content?.trim() || null,
+    risk_level: input.riskLevel ?? 'medium',
+    source_document_id: input.sourceDocumentId || null,
+    source_page: input.sourcePage ?? null,
+    source_excerpt: input.sourceExcerpt?.trim() || null,
+    amount: input.amount ?? null,
+    percentage: input.percentage ?? null,
+    term_days: input.termDays ?? null,
+    ai_flagged: false,
+    review_status: 'draft' as ClauseReviewStatus,
+    created_by: userId,
+    updated_by: userId,
+  };
+}
+
+export async function createContractClause(
+  input: CreateContractClauseInput,
+): Promise<ContractClauseRow> {
+  const { supabase, user, organizationId } = await getCurrentIdentity();
+  const { data, error } = await supabase
+    .from('contract_clauses')
+    .insert(buildClauseCreatePayload(input, organizationId, user.id))
+    .select('*')
+    .single<ContractClauseRow>();
+  if (error) throw new Error(`Erro ao registrar cláusula: ${error.message}`);
+
+  await logAuditEvent({
+    organizationId,
+    action: 'contract.clause_created',
+    entityType: 'contract',
+    entityId: input.contractId,
+    metadata: {
+      clause_id: data.id,
+      title: data.title,
+      clause_type: data.clause_type,
+      risk_level: data.risk_level,
+      source_page: data.source_page,
+    },
+  });
+
+  return data;
+}
+
+export type UpdateContractClauseInput = {
+  title?: string;
+  clauseType?: string | null;
+  content?: string | null;
+  riskLevel?: RiskLevel;
+  sourceDocumentId?: string | null;
+  sourcePage?: number | null;
+  sourceExcerpt?: string | null;
+  amount?: number | null;
+  percentage?: number | null;
+  termDays?: number | null;
+};
+
+export function buildClauseUpdatePayload(
+  input: UpdateContractClauseInput,
+  userId: string,
+): Record<string, unknown> {
+  const payload: Record<string, unknown> = { updated_by: userId };
+  if (input.title !== undefined) payload.title = input.title.trim();
+  if (input.clauseType !== undefined) payload.clause_type = input.clauseType?.trim() || null;
+  if (input.content !== undefined) payload.content = input.content?.trim() || null;
+  if (input.riskLevel !== undefined) payload.risk_level = input.riskLevel;
+  if (input.sourceDocumentId !== undefined) payload.source_document_id = input.sourceDocumentId || null;
+  if (input.sourcePage !== undefined) payload.source_page = input.sourcePage;
+  if (input.sourceExcerpt !== undefined) payload.source_excerpt = input.sourceExcerpt?.trim() || null;
+  if (input.amount !== undefined) payload.amount = input.amount;
+  if (input.percentage !== undefined) payload.percentage = input.percentage;
+  if (input.termDays !== undefined) payload.term_days = input.termDays;
+  return payload;
+}
+
+export async function updateContractClause(
+  clauseId: string,
+  input: UpdateContractClauseInput,
+): Promise<ContractClauseRow> {
+  const { supabase, user, organizationId } = await getCurrentIdentity();
+  const { data, error } = await supabase
+    .from('contract_clauses')
+    .update(buildClauseUpdatePayload(input, user.id))
+    .eq('id', clauseId)
+    .select('*')
+    .single<ContractClauseRow>();
+  if (error) throw new Error(`Erro ao atualizar cláusula: ${error.message}`);
+
+  await logAuditEvent({
+    organizationId,
+    action: 'contract.clause_updated',
+    entityType: 'contract',
+    entityId: data.contract_id,
+    metadata: { clause_id: clauseId, changed: Object.keys(input) },
+  });
+
+  return data;
+}
+
+/**
+ * Revisão humana da cláusula.
+ *
+ * Sai do update genérico de propósito, como `reclassifyContract`: mudar o
+ * estado de revisão é uma AFIRMAÇÃO de alguém sobre a cláusula, e carimba
+ * quem e quando. Rejeitar exige motivo.
+ */
+export async function reviewContractClause(
+  clauseId: string,
+  reviewStatus: ClauseReviewStatus,
+  note?: string | null,
+): Promise<ContractClauseRow> {
+  const { supabase, user, organizationId } = await getCurrentIdentity();
+  if (reviewStatus === 'rejected' && !note?.trim()) {
+    throw new Error('Rejeitar uma cláusula exige justificativa.');
+  }
+
+  const decided = reviewStatus === 'validated' || reviewStatus === 'rejected';
+  const { data, error } = await supabase
+    .from('contract_clauses')
+    .update({
+      review_status: reviewStatus,
+      reviewed_by: decided ? user.id : null,
+      reviewed_at: decided ? new Date().toISOString() : null,
+      updated_by: user.id,
+    })
+    .eq('id', clauseId)
+    .select('*')
+    .single<ContractClauseRow>();
+  if (error) throw new Error(`Erro ao revisar cláusula: ${error.message}`);
+
+  await logAuditEvent({
+    organizationId,
+    action: 'contract.clause_reviewed',
+    entityType: 'contract',
+    entityId: data.contract_id,
+    metadata: { clause_id: clauseId, review_status: reviewStatus, note: note?.trim() || null },
+  });
+
+  return data;
+}
+
+export async function deleteContractClause(clauseId: string, contractId: string): Promise<void> {
+  const { supabase, organizationId } = await getCurrentIdentity();
+  const { error } = await supabase.from('contract_clauses').delete().eq('id', clauseId);
+  if (error) throw new Error(`Erro ao remover cláusula: ${error.message}`);
+  await logAuditEvent({
+    organizationId,
+    action: 'contract.clause_deleted',
+    entityType: 'contract',
+    entityId: contractId,
+    metadata: { clause_id: clauseId },
+  });
+}
+
+/**
+ * Substitui uma proposta por uma cláusula corrigida.
+ *
+ * A proposta original NÃO é apagada: vira `superseded` e aponta para a
+ * sucessora. É o que mantém a trilha completa proposta-de-IA → decisão-humana
+ * auditável — apagar a proposta destruiria a evidência de que a máquina leu
+ * diferente do que a pessoa concluiu.
+ */
+export async function supersedeContractClause(
+  clauseId: string,
+  replacement: CreateContractClauseInput,
+): Promise<ContractClauseRow> {
+  const { supabase, user, organizationId } = await getCurrentIdentity();
+
+  const created = await createContractClause(replacement);
+
+  const { error } = await supabase
+    .from('contract_clauses')
+    .update({
+      review_status: 'superseded' as ClauseReviewStatus,
+      superseded_by_clause_id: created.id,
+      reviewed_by: user.id,
+      reviewed_at: new Date().toISOString(),
+      updated_by: user.id,
+    })
+    .eq('id', clauseId);
+  if (error) throw new Error(`Erro ao substituir cláusula: ${error.message}`);
+
+  await logAuditEvent({
+    organizationId,
+    action: 'contract.clause_superseded',
+    entityType: 'contract',
+    entityId: replacement.contractId,
+    metadata: { superseded_clause_id: clauseId, replacement_clause_id: created.id },
+  });
+
+  return created;
+}
+
+/**
+ * Marca um documento como substituído por outro.
+ *
+ * O efeito colateral que importa: as propostas PENDENTES originadas do
+ * documento antigo deixam de valer, porque foram lidas de um papel que não é
+ * mais o vigente. Cláusulas já VALIDADAS não são tocadas — elas são afirmação
+ * humana sobre o que o contrato dizia, e continuam sendo verdade histórica.
+ */
+export async function supersedeContractDocument(
+  oldDocumentId: string,
+  newDocumentId: string,
+  contractId: string,
+): Promise<{ supersededProposals: number }> {
+  const { supabase, user, organizationId } = await getCurrentIdentity();
+  const now = new Date().toISOString();
+
+  const { error: oldError } = await supabase
+    .from('contract_documents')
+    .update({ superseded_by_document_id: newDocumentId, superseded_at: now })
+    .eq('id', oldDocumentId);
+  if (oldError) throw new Error(`Erro ao substituir documento: ${oldError.message}`);
+
+  const { data: previous } = await supabase
+    .from('contract_documents').select('version').eq('id', oldDocumentId).maybeSingle<{ version: number }>();
+
+  const { error: newError } = await supabase
+    .from('contract_documents')
+    .update({ supersedes_document_id: oldDocumentId, version: (previous?.version ?? 1) + 1 })
+    .eq('id', newDocumentId);
+  if (newError) throw new Error(`Erro ao versionar documento: ${newError.message}`);
+
+  // Propostas pendentes do documento antigo saem da fila: não podem seguir
+  // "vigentes" apontando para um papel superado.
+  const { data: staled, error: staleError } = await supabase
+    .from('contract_clauses')
+    .update({ review_status: 'superseded' as ClauseReviewStatus, updated_by: user.id })
+    .eq('source_document_id', oldDocumentId)
+    .eq('ai_flagged', true)
+    .in('review_status', ['draft', 'in_review'])
+    .select('id');
+  if (staleError) throw new Error(`Erro ao encerrar propostas do documento anterior: ${staleError.message}`);
+
+  await logAuditEvent({
+    organizationId,
+    action: 'contract.document_superseded',
+    entityType: 'contract',
+    entityId: contractId,
+    metadata: {
+      superseded_document_id: oldDocumentId,
+      replacement_document_id: newDocumentId,
+      stale_proposals: staled?.length ?? 0,
+    },
+  });
+
+  return { supersededProposals: staled?.length ?? 0 };
+}
+
+export type ClauseExtractionResult = {
+  ok: boolean;
+  analysisId?: string;
+  proposedCount?: number;
+  rejectedCount?: number;
+  /** Leituras idênticas às já registradas — puladas pela reanálise. */
+  duplicateCount?: number;
+  supersededAnalysisId?: string | null;
+  error?: string;
+};
+
+/**
+ * Dispara a extração assistida a partir de um documento do contrato.
+ *
+ * A análise roda no servidor (a chave da Anthropic nunca chega ao browser) e
+ * grava as propostas já marcadas como proposta.
+ */
+export async function requestClauseExtraction(
+  contractId: string,
+  documentId: string,
+): Promise<ClauseExtractionResult> {
+  const response = await fetch(`/api/ai/clause-extraction/${contractId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ documentId }),
+  });
+  const payload = (await response.json()) as ClauseExtractionResult;
+  if (!response.ok || !payload.ok) {
+    throw new Error(payload.error ?? 'Falha na análise documental.');
+  }
+  return payload;
+}
+
+export type CreateContractPenaltyInput = {
+  contractId: string;
+  title: string;
+  description?: string | null;
+  penaltyType?: string | null;
+  amount?: number | null;
+  percentage?: number | null;
+  triggerCondition?: string | null;
+  deadlineDate?: string | null;
+  /** Cláusula que origina a penalidade. */
+  clauseId?: string | null;
+};
+
+export async function createContractPenalty(
+  input: CreateContractPenaltyInput,
+): Promise<ContractPenaltyRow> {
+  const { supabase, user, organizationId } = await getCurrentIdentity();
+  const { data, error } = await supabase
+    .from('contract_penalties')
+    .insert({
+      organization_id: organizationId,
+      contract_id: input.contractId,
+      clause_id: input.clauseId || null,
+      title: input.title.trim(),
+      description: input.description?.trim() || null,
+      penalty_type: input.penaltyType?.trim() || null,
+      amount: input.amount ?? null,
+      percentage: input.percentage ?? null,
+      trigger_condition: input.triggerCondition?.trim() || null,
+      deadline_date: input.deadlineDate || null,
+      status: 'active',
+      created_by: user.id,
+      updated_by: user.id,
+    })
+    .select('*')
+    .single<ContractPenaltyRow>();
+  if (error) throw new Error(`Erro ao registrar penalidade: ${error.message}`);
+
+  await logAuditEvent({
+    organizationId,
+    action: 'contract.penalty_created',
+    entityType: 'contract',
+    entityId: input.contractId,
+    metadata: {
+      penalty_id: data.id,
+      title: data.title,
+      clause_id: data.clause_id,
+      amount: data.amount,
+      percentage: data.percentage,
+    },
+  });
+
+  return data;
+}
+
+/**
+ * Vincula um risco EXISTENTE à cláusula que o origina.
+ *
+ * O risco continua vivendo no módulo de Riscos — aqui só se registra que
+ * aquela cláusula é a origem contratual dele.
+ */
+export async function linkClauseToRisk(
+  contractId: string,
+  clauseId: string,
+  riskId: string,
+): Promise<ContractRiskLinkRow> {
+  const { supabase, organizationId } = await getCurrentIdentity();
+  const { data, error } = await supabase
+    .from('contract_risks_links')
+    .upsert(
+      { organization_id: organizationId, contract_id: contractId, risk_id: riskId, clause_id: clauseId },
+      { onConflict: 'contract_id,risk_id' },
+    )
+    .select('*')
+    .single<ContractRiskLinkRow>();
+  if (error) throw new Error(`Erro ao vincular cláusula ao risco: ${error.message}`);
+
+  await logAuditEvent({
+    organizationId,
+    action: 'contract.clause_linked_risk',
+    entityType: 'contract',
+    entityId: contractId,
+    metadata: { clause_id: clauseId, risk_id: riskId },
+  });
 
   return data;
 }
@@ -974,10 +1881,16 @@ export type ContractRelatedTask = {
 
 /**
  * Agenda read-side: tasks linked to this contract via tasks.related_contract_id
- * (migration 031). Best-effort — returns [] if the column/table is unavailable
- * so the drawer never breaks when agenda linking is not present.
+ * (migration 031).
+ *
+ * Devolve `error` em vez de engolir a falha num `[]`: "nenhuma tarefa" e "não
+ * consegui ler as tarefas" são afirmações diferentes, e a segunda não pode se
+ * apresentar como a primeira na linha de operações conectadas. Mesma correção
+ * aplicada a `fetchContractRelationsBatch` em P0.2.
  */
-export async function listContractRelatedTasks(contractId: string): Promise<ContractRelatedTask[]> {
+export async function listContractRelatedTasks(
+  contractId: string,
+): Promise<{ rows: ContractRelatedTask[]; error: string | null }> {
   const supabase = createClient();
   try {
     const { data, error } = await supabase
@@ -985,10 +1898,10 @@ export async function listContractRelatedTasks(contractId: string): Promise<Cont
       .select('id,title,due_at,status,priority')
       .eq('related_contract_id', contractId)
       .order('due_at', { ascending: true });
-    if (error) return [];
-    return (data ?? []) as ContractRelatedTask[];
-  } catch {
-    return [];
+    if (error) return { rows: [], error: error.message };
+    return { rows: (data ?? []) as ContractRelatedTask[], error: null };
+  } catch (err) {
+    return { rows: [], error: err instanceof Error ? err.message : 'Falha ao ler as tarefas vinculadas.' };
   }
 }
 
@@ -1441,6 +2354,10 @@ export type ContractRelationsBatch = {
   projectLinks: Map<string, ContractProjectLinkRow[]>;
   riskLinks: Map<string, ContractRiskLinkRow[]>;
   aiAnalyses: Map<string, ContractAiAnalysisRow[]>;
+  // P2B: os dois domínios que passaram a ter caminho de escrita.
+  milestones: Map<string, ContractMilestoneRow[]>;
+  clauses: Map<string, ContractClauseRow[]>;
+  penalties: Map<string, ContractPenaltyRow[]>;
   riskDetails: Map<string, ContractRiskDetail>;
   /** True when at least one live row was returned for that relation across all contracts. */
   sectionsWithData: {
@@ -1451,8 +2368,92 @@ export type ContractRelationsBatch = {
     projectLinks: boolean;
     risks: boolean;
     ai: boolean;
+    milestones: boolean;
+    clauses: boolean;
+    penalties: boolean;
   };
+  /**
+   * Mensagem de erro por seção, ou `null` quando a consulta teve sucesso.
+   *
+   * Existe porque `sectionsWithData: false` é ambíguo: significa tanto "a
+   * consulta rodou e o contrato não tem linhas" quanto "a consulta falhou".
+   * `applyLiveGovernanceData` trata os dois como `'estimated'` e substitui por
+   * dado sintético — ou seja, uma negativa de RLS ou uma queda de rede fazia a
+   * tela e o PDF apresentarem números fabricados como se fossem apurados.
+   *
+   * Uma seção com erro NÃO é uma seção vazia. Quem consome deve distinguir.
+   */
+  sectionErrors: ContractRelationErrors;
 };
+
+export type ContractRelationSectionKey =
+  | 'obligations'
+  | 'billing'
+  | 'documents'
+  | 'approvals'
+  | 'projectLinks'
+  | 'risks'
+  | 'ai'
+  | 'milestones'
+  | 'clauses'
+  | 'penalties';
+
+export type ContractRelationErrors = Record<ContractRelationSectionKey, string | null>;
+
+/** Rótulos em pt-BR das seções, para as mensagens de erro. */
+const RELATION_SECTION_LABELS: Record<ContractRelationSectionKey, string> = {
+  obligations: 'obrigações',
+  billing: 'faturamento',
+  documents: 'documentos',
+  approvals: 'aprovações',
+  projectLinks: 'vínculos de projeto',
+  risks: 'riscos',
+  ai: 'análises de IA',
+  milestones: 'marcos',
+  clauses: 'cláusulas',
+  penalties: 'penalidades',
+};
+
+function noRelationErrors(): ContractRelationErrors {
+  return {
+    obligations: null,
+    billing: null,
+    documents: null,
+    approvals: null,
+    projectLinks: null,
+    risks: null,
+    ai: null,
+    milestones: null,
+    clauses: null,
+    penalties: null,
+  };
+}
+
+/**
+ * Nomes das seções cuja consulta falhou. Função pura — ponto testável.
+ */
+export function failedRelationSections(errors: ContractRelationErrors): ContractRelationSectionKey[] {
+  return (Object.keys(RELATION_SECTION_LABELS) as ContractRelationSectionKey[]).filter(
+    (key) => errors[key] !== null,
+  );
+}
+
+/**
+ * Mensagem única descrevendo as falhas de leitura, ou `null` se tudo leu bem.
+ *
+ * O indicador de fonte da página já sabe renderizar `governance.error` como
+ * "Dados estimados"; até agora esse estado era inalcançável em falha parcial,
+ * porque cada consulta engolia o próprio erro e devolvia `[]`.
+ */
+export function describeRelationErrors(batch: ContractRelationsBatch): string | null {
+  const failed = failedRelationSections(batch.sectionErrors);
+  if (failed.length === 0) return null;
+
+  const labels = failed.map((key) => RELATION_SECTION_LABELS[key]).join(', ');
+  return failed.length === 1
+    ? `Falha ao ler ${labels} no Supabase — a seção não pode ser considerada apurada.`
+    : `Falha ao ler ${failed.length} seções no Supabase (${labels}) — não podem ser consideradas apuradas.`;
+}
 
 function groupByContract<T extends { contract_id: string }>(rows: T[]): Map<string, T[]> {
   const map = new Map<string, T[]>();
@@ -1473,6 +2474,9 @@ function emptyRelationsBatch(): ContractRelationsBatch {
     projectLinks: new Map(),
     riskLinks: new Map(),
     aiAnalyses: new Map(),
+    milestones: new Map(),
+    clauses: new Map(),
+    penalties: new Map(),
     riskDetails: new Map(),
     sectionsWithData: {
       obligations: false,
@@ -1482,8 +2486,80 @@ function emptyRelationsBatch(): ContractRelationsBatch {
       projectLinks: false,
       risks: false,
       ai: false,
+      milestones: false,
+      clauses: false,
+      penalties: false,
     },
+    sectionErrors: noRelationErrors(),
   };
+}
+
+export type ContractAuditEventRow = {
+  id: string;
+  action: string;
+  actor_user_id: string | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+};
+
+/**
+ * Histórico real do contrato, lido de `audit_logs`.
+ *
+ * `logAuditEvent` grava ali desde a Fase 3 — 23 ações distintas de contrato —
+ * e até agora NINGUÉM lia: a aba "Auditoria" e o dossiê mostravam três eventos
+ * fabricados pelo enricher, incluindo um ator chamado "INSIGHT AI" que nunca
+ * existiu.
+ *
+ * Devolve `null` em falha para que o chamador distinga erro de ausência, em vez
+ * de um `[]` ambíguo.
+ */
+export async function listContractAuditEvents(
+  contractId: string,
+  limit = 50,
+): Promise<{ rows: ContractAuditEventRow[]; error: string | null }> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from('audit_logs')
+    .select('id,action,actor_user_id,metadata,created_at')
+    .eq('entity_type', 'contract')
+    .eq('entity_id', contractId)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (error) return { rows: [], error: error.message };
+  return { rows: (data ?? []) as ContractAuditEventRow[], error: null };
+}
+
+/**
+ * Contagens cross-módulo da carteira, para o Command Center.
+ *
+ * Consulta os módulos DONOS de cada domínio — `tasks` e `audit_logs` — em vez
+ * de manter cópia dentro de Contratos. Devolve `null` em falha para que o
+ * painel distinga "não foi possível ler" de "não há".
+ */
+export async function fetchPortfolioLinkCounts(
+  contractIds: string[],
+): Promise<{ linkedTasks: number | null; auditEvents: number | null }> {
+  const ids = Array.from(new Set(contractIds)).filter(Boolean);
+  if (ids.length === 0) return { linkedTasks: 0, auditEvents: 0 };
+
+  const supabase = createClient();
+
+  const [tasks, audit] = await Promise.all([
+    supabase
+      .from('tasks')
+      .select('id', { count: 'exact', head: true })
+      .in('related_contract_id', ids)
+      .then((r) => (r.error ? null : r.count ?? 0), () => null),
+    supabase
+      .from('audit_logs')
+      .select('id', { count: 'exact', head: true })
+      .eq('entity_type', 'contract')
+      .in('entity_id', ids)
+      .then((r) => (r.error ? null : r.count ?? 0), () => null),
+  ]);
+
+  return { linkedTasks: tasks, auditEvents: audit };
 }
 
 export async function fetchContractRelationsBatch(contractIds: string[]): Promise<ContractRelationsBatch> {
@@ -1491,18 +2567,28 @@ export async function fetchContractRelationsBatch(contractIds: string[]): Promis
   if (ids.length === 0) return emptyRelationsBatch();
 
   const supabase = createClient();
-  // Each query returns [] on error/absent table so one failure never blanks the page.
-  const safe = async <T>(builder: PromiseLike<{ data: unknown; error: unknown }>): Promise<T[]> => {
+  // Uma falha isolada nunca deixa a página em branco — mas TAMBÉM não pode se
+  // disfarçar de "sem dado". `safe` devolve as linhas e o erro separadamente;
+  // quem chama decide o que fazer com cada caso.
+  const safe = async <T>(
+    builder: PromiseLike<{ data: unknown; error: unknown }>,
+  ): Promise<{ rows: T[]; error: string | null }> => {
     try {
       const { data, error } = await builder;
-      if (error) return [];
-      return (data ?? []) as T[];
-    } catch {
-      return [];
+      if (error) {
+        const message =
+          typeof error === 'object' && error !== null && 'message' in error
+            ? String((error as { message: unknown }).message)
+            : 'erro desconhecido';
+        return { rows: [], error: message };
+      }
+      return { rows: (data ?? []) as T[], error: null };
+    } catch (err) {
+      return { rows: [], error: err instanceof Error ? err.message : 'erro desconhecido' };
     }
   };
 
-  const [obligations, billingEvents, documents, approvals, projectLinks, riskLinks, aiAnalyses] = await Promise.all([
+  const [obligations, billingEvents, documents, approvals, projectLinks, riskLinks, aiAnalyses, milestones, clauses, penalties] = await Promise.all([
     safe<ContractObligationRow>(supabase.from('contract_obligations').select('*').in('contract_id', ids)),
     safe<ContractBillingEventRow>(supabase.from('contract_billing_events').select('*').in('contract_id', ids)),
     safe<ContractDocumentRow>(supabase.from('contract_documents').select('*').in('contract_id', ids)),
@@ -1510,14 +2596,23 @@ export async function fetchContractRelationsBatch(contractIds: string[]): Promis
     safe<ContractProjectLinkRow>(supabase.from('contract_project_links').select('*').in('contract_id', ids)),
     safe<ContractRiskLinkRow>(supabase.from('contract_risks_links').select('*').in('contract_id', ids)),
     safe<ContractAiAnalysisRow>(supabase.from('contract_ai_analyses').select('*').in('contract_id', ids)),
+    // P2B: marcos e cláusulas entram no batch porque agora têm caminho de
+    // escrita — antes, buscá-los era custo de rede para confirmar um vazio.
+    safe<ContractMilestoneRow>(supabase.from('contract_milestones').select('*').in('contract_id', ids)),
+    safe<ContractClauseRow>(supabase.from('contract_clauses').select('*').in('contract_id', ids)),
+    // Penalidades: a RLS de 006 exige `contracts.view_penalties` para LER.
+    // Sem a permissão o retorno é vazio e sem erro — indistinguível de "não
+    // há penalidade". Quem consome precisa dizer isso ao usuário.
+    safe<ContractPenaltyRow>(supabase.from('contract_penalties').select('*').in('contract_id', ids)),
   ]);
 
-  const riskIds = Array.from(new Set(riskLinks.map((link) => link.risk_id))).filter(Boolean);
-  const riskRows = riskIds.length
+  const riskIds = Array.from(new Set(riskLinks.rows.map((link) => link.risk_id))).filter(Boolean);
+  const riskDetailFetch = riskIds.length
     ? await safe<{ id: string; title: string | null; category: string | null; severity: string | null; status: string | null; level: number | string | null; mitigation_plan: string | null }>(
         supabase.from('risks').select('id,title,category,severity,status,level,mitigation_plan').in('id', riskIds),
       )
-    : [];
+    : { rows: [], error: null };
+  const riskRows = riskDetailFetch.rows;
 
   const riskDetails = new Map<string, ContractRiskDetail>();
   for (const row of riskRows) {
@@ -1536,22 +2631,42 @@ export async function fetchContractRelationsBatch(contractIds: string[]): Promis
   }
 
   return {
-    obligations: groupByContract(obligations),
-    billingEvents: groupByContract(billingEvents),
-    documents: groupByContract(documents),
-    approvals: groupByContract(approvals),
-    projectLinks: groupByContract(projectLinks),
-    riskLinks: groupByContract(riskLinks),
-    aiAnalyses: groupByContract(aiAnalyses),
+    obligations: groupByContract(obligations.rows),
+    billingEvents: groupByContract(billingEvents.rows),
+    documents: groupByContract(documents.rows),
+    approvals: groupByContract(approvals.rows),
+    projectLinks: groupByContract(projectLinks.rows),
+    riskLinks: groupByContract(riskLinks.rows),
+    aiAnalyses: groupByContract(aiAnalyses.rows),
+    milestones: groupByContract(milestones.rows),
+    clauses: groupByContract(clauses.rows),
+    penalties: groupByContract(penalties.rows),
     riskDetails,
     sectionsWithData: {
-      obligations: obligations.length > 0,
-      billing: billingEvents.length > 0,
-      documents: documents.length > 0,
-      approvals: approvals.length > 0,
-      projectLinks: projectLinks.length > 0,
-      risks: riskLinks.length > 0,
-      ai: aiAnalyses.length > 0,
+      obligations: obligations.rows.length > 0,
+      billing: billingEvents.rows.length > 0,
+      documents: documents.rows.length > 0,
+      approvals: approvals.rows.length > 0,
+      projectLinks: projectLinks.rows.length > 0,
+      risks: riskLinks.rows.length > 0,
+      ai: aiAnalyses.rows.length > 0,
+      milestones: milestones.rows.length > 0,
+      clauses: clauses.rows.length > 0,
+      penalties: penalties.rows.length > 0,
+    },
+    sectionErrors: {
+      obligations: obligations.error,
+      billing: billingEvents.error,
+      documents: documents.error,
+      approvals: approvals.error,
+      projectLinks: projectLinks.error,
+      // A seção de riscos depende de duas consultas: os vínculos e o detalhe em
+      // `risks`. Falha em qualquer uma torna a seção não apurada.
+      risks: riskLinks.error ?? riskDetailFetch.error,
+      ai: aiAnalyses.error,
+      milestones: milestones.error,
+      clauses: clauses.error,
+      penalties: penalties.error,
     },
   };
 }

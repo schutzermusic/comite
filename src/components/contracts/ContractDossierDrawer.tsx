@@ -30,6 +30,22 @@ import {
   type ContractRelatedTask,
 } from '@/lib/contracts/contract-service';
 import { useContractItemModals } from '@/components/contracts/useContractItemModals';
+import { trustedContractFromDetail } from '@/lib/contracts/trust/read-model';
+import {
+  ContractIdentity, ProjectRelation, FinancialPulse, RequiresAttention,
+  ConnectedOperations, ContractHealthDrivers, RecommendedActionPanel, RecentActivity,
+  type ConnectedOperationKey,
+} from '@/components/contracts/cockpit';
+import { attentionItems, recommendedAction, type AttentionActionKey } from '@/lib/contracts/trust/attention';
+import { listContractAuditEvents, type ContractAuditEventRow } from '@/lib/contracts/contract-service';
+import { useContractInstrumentationModals } from './useContractInstrumentationModals';
+import { ChevronDown, Ruler
+} from 'lucide-react';
+import {
+  approvalRoute, approvalStepOutcome, missingDocuments as trustedMissingDocs,
+  obligationBreakdown, contractHealth,
+} from '@/lib/contracts/trust/signals';
+import { hasOfficialValue } from '@/lib/contracts/trust/trusted';
 import {
   AlertTriangle,
   Archive,
@@ -93,12 +109,20 @@ export interface ContractDossierDrawerProps {
   onDataChanged?: () => Promise<void> | void;
 }
 
+/**
+ * Selo de proveniência da seção.
+ *
+ * "Estimado" era um eufemismo: a seção não traz uma estimativa, traz um
+ * preview SINTÉTICO gerado por `hash(id + nome)`. P0.3 exige que dado de
+ * demonstração seja sempre identificado como tal — e o tom `warning` impede
+ * que ele passe por resultado neutro.
+ */
 function QualityBadge({ quality }: { quality?: GovernanceSectionQuality }) {
   if (!quality) return null;
   const live = quality === 'live';
   return (
-    <HudBadge variant={live ? 'success' : 'subtle'} size="sm">
-      {live ? 'Ao vivo' : 'Estimado'}
+    <HudBadge variant={live ? 'success' : 'warning'} size="sm">
+      {live ? 'Ao vivo' : 'Demonstração'}
     </HudBadge>
   );
 }
@@ -131,7 +155,7 @@ function Stat({ label, value, tone }: { label: string; value: React.ReactNode; t
   const toneClass = tone === 'success' ? 'text-ig-success' : tone === 'warning' ? 'text-ig-warning' : tone === 'danger' ? 'text-ig-danger' : 'text-ig-fg-strong';
   return (
     <div className="min-w-0 rounded-lg border border-ig-border-subtle bg-ig-panel/45 px-3 py-2.5">
-      <p className="truncate text-[10px] font-semibold uppercase tracking-[0.1em] text-ig-fg-subtle">{label}</p>
+      <p className="truncate text-ig-label font-semibold uppercase tracking-[0.1em] text-ig-fg-subtle">{label}</p>
       <p className={`mt-1 truncate text-sm font-semibold tabular-nums ${toneClass}`}>{value}</p>
     </div>
   );
@@ -158,7 +182,7 @@ function LinkRow({
         {icon}
       </span>
       <div className="min-w-0 flex-1">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-ig-fg-subtle">{label}</p>
+        <p className="text-ig-label font-semibold uppercase tracking-[0.1em] text-ig-fg-subtle">{label}</p>
         <p className={`truncate text-[12px] font-semibold ${muted ? 'text-ig-fg-muted' : href ? 'text-ig-accent' : 'text-ig-fg-strong'}`}>{value}</p>
       </div>
       {badge}
@@ -199,7 +223,10 @@ export function ContractDossierDrawer({
   const contractId = record?.contract.id ?? null;
   const [detail, setDetail] = useState<ContractDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
-  const [relatedTasks, setRelatedTasks] = useState<ContractRelatedTask[]>([]);
+  /** Tarefas da Agenda; `error` distingue "nenhuma" de "não consegui ler". */
+  const [tasks, setTasks] = useState<{ rows: ContractRelatedTask[]; error: string | null }>({ rows: [], error: null });
+  /** Histórico real de `audit_logs`, para a seção de atividade recente. */
+  const [audit, setAudit] = useState<{ rows: ContractAuditEventRow[]; error: string | null }>({ rows: [], error: null });
   const [busyId, setBusyId] = useState<string | null>(null);
 
   // All state writes happen inside this callback (not lexically in the effect),
@@ -207,12 +234,18 @@ export function ContractDossierDrawer({
   const loadDetail = useCallback(async (id: string) => {
     setDetailLoading(true);
     try {
-      const [nextDetail, tasks] = await Promise.all([getContractById(id), listContractRelatedTasks(id)]);
+      const [nextDetail, tasksResult, auditResult] = await Promise.all([
+        getContractById(id),
+        listContractRelatedTasks(id).catch(() => ({ rows: [] as ContractRelatedTask[], error: 'Falha ao ler as tarefas vinculadas.' })),
+        listContractAuditEvents(id).catch(() => ({ rows: [] as ContractAuditEventRow[], error: 'Falha ao ler o histórico.' })),
+      ]);
       setDetail(nextDetail);
-      setRelatedTasks(tasks);
+      setTasks(tasksResult);
+      setAudit(auditResult);
     } catch {
       setDetail(null);
-      setRelatedTasks([]);
+      setTasks({ rows: [], error: null });
+      setAudit({ rows: [], error: null });
     } finally {
       setDetailLoading(false);
     }
@@ -229,6 +262,21 @@ export function ContractDossierDrawer({
   }, [contractId, loadDetail, onDataChanged]);
 
   const itemModals = useContractItemModals({ onSuccess: refreshAfterMutation });
+
+  /**
+   * P2B — registro de marco e cláusula direto do cockpit.
+   *
+   * Os dois formulários são estruturados (evidência, origem documental, efeito
+   * contratual), mas a AÇÃO de registrar pertence ao cockpit: é aqui que o
+   * usuário descobre que a medição está vazia, e mandá-lo ao dossiê completo só
+   * para clicar num botão quebraria o fluxo que P1A montou.
+   */
+  const instrumentation = useContractInstrumentationModals({
+    contractId: contractId ?? '',
+    documents: detail?.documents ?? [],
+    clauses: detail?.clauses ?? [],
+    onRefresh: refreshAfterMutation,
+  });
 
   const runItemAction = useCallback(
     async (key: string, action: () => Promise<unknown>, successMsg: string) => {
@@ -255,12 +303,99 @@ export function ContractDossierDrawer({
   const slaHours = sla?.avgHours ?? null;
   const STEP_LABELS: Record<string, string> = { juridico: 'Jurídico', financeiro: 'Financeiro', comite: 'Comitê', diretoria: 'Diretoria' };
 
-  const billedPercent = record.totalValue ? Math.round((record.billedValue / record.totalValue) * 100) : 0;
-  const legalLabel = record.legalStatus === 'approved' ? 'Aprovado' : record.legalStatus === 'review' ? 'Em revisão' : 'Pendente';
-  const financialLabel = record.financialStatus === 'ok' ? 'Liberado' : record.financialStatus === 'attention' ? 'Atenção' : 'Bloqueado';
+  /**
+   * Contrato CONFIÁVEL do Quick Dossier.
+   *
+   * Deriva do `detail` que o drawer já carregava, passando pelo MESMO
+   * `buildTrustedContract` da listagem e da página de detalhe — as três
+   * superfícies não podem discordar sobre o mesmo contrato.
+   *
+   * Enquanto `detail` não chega, `trusted` é nulo e os indicadores exibem "—",
+   * que é a verdade naquele instante. Antes o drawer pintava imediatamente
+   * valores do enricher, e o usuário via números fabricados que mudavam
+   * sozinhos alguns instantes depois.
+   */
+  const trusted = detail ? trustedContractFromDetail(detail, record.project ? [record.project] : []) : null;
+
+  /**
+   * Derivações que o cockpit ainda consome diretamente. As demais (execução,
+   * percentuais, contagens de documento) migraram para dentro dos componentes
+   * de `cockpit/`, que recebem o `TrustedContract` inteiro e resolvem o próprio
+   * estado — evitando uma camada de props já achatada em `number | null`, que é
+   * justamente por onde o dado perde a proveniência.
+   */
+  const legalOutcome = trusted ? approvalStepOutcome(trusted, 'juridico') : null;
+  const legalApproved = Boolean(legalOutcome && hasOfficialValue(legalOutcome) && legalOutcome.value === 'approved');
   const statusLabel = statusLabels[record.contract.status] ?? record.contract.status;
-  const openObligations = record.obligations.filter((o) => o.status !== 'done').length;
-  const overdueObligations = record.obligations.filter((o) => o.status === 'overdue').length;
+  const obligationStats = trusted ? obligationBreakdown(trusted) : null;
+  const overdueObligations = obligationStats && hasOfficialValue(obligationStats) ? obligationStats.value.overdue : null;
+  const docsMissingT = trusted ? trustedMissingDocs(trusted) : null;
+  const trustedRoute = trusted ? approvalRoute(trusted) : null;
+  const health = trusted ? contractHealth(trusted) : null;
+
+  /**
+   * Itens de atenção e ação recomendada — determinísticos, do modelo confiável.
+   * Sem `trusted` não há sinal: preferimos silêncio a um alerta sobre dado que
+   * ainda não foi lido.
+   */
+  const attention = trusted ? attentionItems(trusted) : [];
+  const recommendation = trusted ? recommendedAction(trusted) : null;
+
+  /** Empty state com inteligência: aponta o próximo marco real (MD §40). */
+  const attentionEmptyHint = (() => {
+    if (!trusted || !hasOfficialValue(trusted.billingEvents)) return null;
+    const next = trusted.billingEvents.value
+      .filter((e) => !e.paid_at && e.due_date)
+      .sort((a, b) => (a.due_date ?? '').localeCompare(b.due_date ?? ''))[0];
+    if (!next?.due_date) return null;
+    return `Próximo marco financeiro: ${next.title} em ${new Date(next.due_date).toLocaleDateString('pt-BR')}.`;
+  })();
+
+  /** Uma ação de atenção despacha para a operação já existente do drawer. */
+  const runAttentionAction = (key: AttentionActionKey) => {
+    switch (key) {
+      case 'linkProject': onLinkProject(record); break;
+      case 'reviewApproval': onReviewApproval(record); break;
+      case 'createObligation': onCreateObligation(); break;
+      case 'createBilling': onCreateBilling(); break;
+      case 'attachDocument': onAttachDocument(record); break;
+      case 'openDocuments': onViewDocuments(record); break;
+      case 'openBilling': onOpenBilling(record); break;
+      case 'openObligations': onView(record); break;
+      // A revisão de proposta exige a comparação lado a lado, que só cabe no
+      // dossiê completo.
+      case 'reviewClauseProposals': onView(record); break;
+    }
+  };
+
+  /** Connected Operations leva ao módulo dono do domínio. */
+  const navigateToOperation = (key: ConnectedOperationKey) => {
+    switch (key) {
+      case 'project':
+        if (trusted && hasOfficialValue(trusted.project)) {
+          window.location.assign(`/projetos/${trusted.project.value.id}`);
+        } else if (permissions.edit) {
+          onLinkProject(record);
+        }
+        break;
+      case 'billing': onOpenBilling(record); break;
+      case 'documents': onViewDocuments(record); break;
+      case 'obligations': onView(record); break;
+      case 'risks': onView(record); break;
+      case 'approvals':
+        if (permissions.approve) onReviewApproval(record);
+        else onView(record);
+        break;
+      // Os três abaixo entregam o assunto ao módulo DONO, sem cópia local.
+      case 'tasks': window.location.assign('/reunioes'); break;
+      // Medição e cláusulas moram no dossiê completo, onde há espaço para o
+      // formulário estruturado que os dois exigem.
+      case 'measurement': onView(record); break;
+      case 'clauses': onView(record); break;
+      case 'audit': onView(record); break;
+      case 'finance': onOpenFinance(record); break;
+    }
+  };
   const dq = record.dataQuality;
   const linksQuality: GovernanceSectionQuality | undefined = dq
     ? (dq.projectLink === 'live' || dq.risks === 'live' || dq.billing === 'live' || dq.documents === 'live' ? 'live' : 'estimated')
@@ -285,7 +420,7 @@ export function ContractDossierDrawer({
       {/* Ações de governança — gated por RBAC (RLS reforça no servidor) */}
       {canGovern && (
         <div className="border-t border-ig-border-subtle pt-2.5">
-          <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-ig-fg-subtle">Ações</p>
+          <p className="mb-1.5 text-ig-label font-semibold uppercase tracking-[0.12em] text-ig-fg-subtle">Ações</p>
           <div className="grid grid-cols-2 gap-2">
             {permissions.edit && (
               <HudButton variant="secondary" size="sm" leftIcon={<Workflow className="h-4 w-4" />} onClick={() => onLinkProject(record)}>
@@ -295,6 +430,16 @@ export function ContractDossierDrawer({
             {permissions.edit && (
               <HudButton variant="secondary" size="sm" leftIcon={<ClipboardCheck className="h-4 w-4" />} onClick={onCreateObligation}>
                 Criar obrigação
+              </HudButton>
+            )}
+            {permissions.edit && (
+              <HudButton variant="secondary" size="sm" leftIcon={<Ruler className="h-4 w-4" />} onClick={() => instrumentation.openMilestone()}>
+                Registrar marco
+              </HudButton>
+            )}
+            {permissions.edit && (
+              <HudButton variant="secondary" size="sm" leftIcon={<Scale className="h-4 w-4" />} onClick={() => instrumentation.openClause()}>
+                Registrar cláusula
               </HudButton>
             )}
             {permissions.edit && (
@@ -327,7 +472,7 @@ export function ContractDossierDrawer({
                 Aprovar / rejeitar
               </HudButton>
             )}
-            {permissions.edit && record.legalStatus !== 'approved' && (
+            {permissions.edit && !legalApproved && (
               <HudButton variant="secondary" size="sm" leftIcon={<Scale className="h-4 w-4" />} onClick={() => onSendToLegal(record)}>
                 Rev. jurídica
               </HudButton>
@@ -350,202 +495,145 @@ export function ContractDossierDrawer({
 
   return (
     <>
-    <HudDrawer isOpen={isOpen} onClose={onClose} title={record.contract.name} subtitle={`${record.code} · ${record.contractType}`} width="520px" footer={footer}>
-      <div className="space-y-6">
-        {/* Hero identity band — echoes the Projetos drawer hero */}
-        <div className="relative overflow-hidden rounded-xl border border-ig-border-focus/40 bg-[linear-gradient(135deg,color-mix(in_oklab,var(--ig-bg-panel)_92%,transparent),color-mix(in_oklab,var(--ig-bg-raised)_45%,transparent))] px-4 py-3.5">
-          <div className="pointer-events-none absolute inset-y-0 left-0 w-px bg-ig-accent shadow-[0_0_18px_var(--ig-accent)]" />
-          <div className="flex items-end justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ig-fg-subtle">Exposição total</p>
-              <p className="mt-0.5 ig-tabular truncate text-2xl font-semibold text-ig-fg-strong">{formatCurrencyCompact(record.totalValue, record.contract.currency)}</p>
-            </div>
-            <div className="shrink-0 text-right">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ig-fg-subtle">Execução</p>
-              <p className="mt-0.5 ig-tabular text-lg font-semibold text-ig-fg-strong">{billedPercent}%</p>
-            </div>
-          </div>
-          <div className="mt-2.5">
-            <HudProgressBar value={billedPercent} size="sm" variant={record.financialStatus === 'blocked' ? 'danger' : record.financialStatus === 'attention' ? 'warning' : 'success'} />
-            <div className="mt-1.5 flex items-center justify-between text-[11px] text-ig-fg-muted">
-              <span className="truncate">Faturado {formatCurrencyCompact(record.billedValue, record.contract.currency)}</span>
-              <span className="truncate">Saldo {formatCurrencyCompact(record.remainingValue, record.contract.currency)}</span>
-            </div>
-          </div>
-          <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-ig-border-subtle pt-3">
-            <HudStatusPill variant={riskVariant(record.contract.riskClassification)} size="sm" pulse={record.contract.riskClassification === 'high'}>
-              Risco {riskLabels[record.contract.riskClassification]}
-            </HudStatusPill>
-            <HudStatusPill
-              variant={record.contract.status === 'cancelled' || record.contract.status === 'expired' ? 'critical' : record.contract.status.includes('review') || record.contract.status === 'negotiation' ? 'warning' : 'active'}
-              size="sm"
-            >
-              {statusLabel}
-            </HudStatusPill>
-            {record.aiStatus === 'mock_pending' && <HudStatusPill variant="neutral" size="sm">IA pendente</HudStatusPill>}
-            {record.missingDocuments.length > 0 && <HudStatusPill variant="warning" size="sm">{record.missingDocuments.length} docs</HudStatusPill>}
-            {record.daysUntilExpiration !== null && record.daysUntilExpiration < 0 ? (
-              <HudStatusPill variant="critical" size="sm">{Math.abs(record.daysUntilExpiration)}d vencido</HudStatusPill>
-            ) : record.daysUntilExpiration !== null && record.daysUntilExpiration <= 30 ? (
-              <HudStatusPill variant="warning" size="sm">{record.daysUntilExpiration}d p/ vencer</HudStatusPill>
-            ) : null}
-          </div>
-        </div>
+    <HudDrawer
+      isOpen={isOpen}
+      onClose={onClose}
+      title={record.contract.name}
+      subtitle={`${record.code} · cockpit operacional`}
+      width="600px"
+      footer={footer}
+    >
+      {/*
+        ─── Quick Dossier = cockpit operacional ────────────────────────────
 
-        {/* A. Identidade */}
-        <Section title="A · Identidade" icon={<FileText className="h-4 w-4" />}>
-          <div className="rounded-xl border border-ig-border-subtle bg-ig-panel/40 px-3.5 py-1">
-            <KV label="Código">{record.code}</KV>
-            <KV label="Tipo">{record.contractType}</KV>
-            <KV label="Status">{statusLabel}</KV>
-            <KV label="Contraparte">{record.companyName}</KV>
-            <KV label="Responsável">{record.owner}</KV>
-            <KV label="Início">{record.contract.signingDate ? format(new Date(record.contract.signingDate), 'dd/MM/yyyy', { locale: pt }) : '—'}</KV>
-            <KV label="Vigência">{record.contract.expirationDate ? format(new Date(record.contract.expirationDate), 'dd/MM/yyyy', { locale: pt }) : '—'}</KV>
-          </div>
-        </Section>
+        A ordem das seções responde, nesta sequência: que contrato é este? a
+        que está ligado? quanto está exposto? o que exige atenção? o que posso
+        fazer agora? — e só então o detalhe operacional.
 
-        {/* B. Vínculos e relacionamentos */}
-        <Section title="B · Vínculos e relacionamentos" icon={<Workflow className="h-4 w-4" />} quality={linksQuality}>
-          <div className="space-y-2">
-            <LinkRow icon={<Building2 className="h-3.5 w-3.5" />} label="Contraparte" value={record.companyName} />
-            {record.project ? (
-              <LinkRow icon={<Workflow className="h-3.5 w-3.5" />} label="Projeto" value={record.projectReference} href={`/projetos/${record.project.id}`} />
-            ) : (
-              <button onClick={() => onLinkProject(record)} className="w-full text-left">
-                <LinkRow
-                  icon={<AlertTriangle className="h-3.5 w-3.5" />}
-                  label="Projeto"
-                  value="Sem projeto — clique para vincular"
-                  muted
-                  badge={<HudBadge variant="warning" size="sm">vincular</HudBadge>}
-                />
-              </button>
-            )}
-            <div className="grid grid-cols-2 gap-2">
-              <LinkRow icon={<ShieldAlert className="h-3.5 w-3.5" />} label="Riscos" value={`${record.linkedRisks.length} vinculado(s)`} muted={record.linkedRisks.length === 0} />
-              <LinkRow icon={<ClipboardCheck className="h-3.5 w-3.5" />} label="Tarefas" value={`${record.linkedTasks.length} na agenda`} muted={record.linkedTasks.length === 0} />
-              <LinkRow icon={<Scale className="h-3.5 w-3.5" />} label="Deliberações" value={`${record.linkedDeliberations.length} no comitê`} muted={record.linkedDeliberations.length === 0} />
-              <LinkRow icon={<Receipt className="h-3.5 w-3.5" />} label="Faturamento" value={`${record.billingEvents.length} evento(s)`} muted={record.billingEvents.length === 0} />
-              <LinkRow icon={<Archive className="h-3.5 w-3.5" />} label="Documentos" value={record.missingDocuments.length ? `${record.missingDocuments.length} pendente(s)` : 'Completos'} muted={record.missingDocuments.length === 0} />
-              <LinkRow icon={<FileText className="h-3.5 w-3.5" />} label="Reconhecimento" value={record.revenueRecognitionStatus} />
-            </div>
+        Não é uma miniatura do dossiê completo: aqui mora a DECISÃO; lá, o
+        workspace de consulta.
+      */}
+      <div className="space-y-5">
+        {/* ── 1 · Identidade ─────────────────────────────────────────────── */}
+        {trusted ? (
+          <ContractIdentity contract={trusted} />
+        ) : (
+          /* Enquanto as relações não chegam, a identidade não é inventada a
+             partir do record sintético: mostra-se o esqueleto. */
+          <div className="space-y-2" aria-busy="true">
+            <div className="h-3 w-28 rounded bg-ig-border-subtle/60" />
+            <div className="h-6 w-56 rounded bg-ig-border-subtle/50" />
+            <div className="h-3 w-40 rounded bg-ig-border-subtle/40" />
           </div>
-        </Section>
+        )}
 
-        {/* C. Exposição financeira */}
-        <Section title="C · Exposição financeira" icon={<Receipt className="h-4 w-4" />} quality={dq?.billing}>
-          <div className="grid grid-cols-3 gap-2">
-            <Stat label="Total" value={formatCurrencyCompact(record.totalValue)} />
-            <Stat label="Faturado" value={formatCurrencyCompact(record.billedValue)} tone="success" />
-            <Stat label="Saldo" value={formatCurrencyCompact(record.remainingValue)} tone="warning" />
-          </div>
-          <div className="rounded-lg border border-ig-border-subtle bg-ig-panel/45 px-3 py-2.5">
-            <div className="mb-1.5 flex items-center justify-between text-[11px]">
-              <span className="text-ig-fg-muted">Execução financeira</span>
-              <span className="font-semibold tabular-nums text-ig-fg-strong">{billedPercent}%</span>
-            </div>
-            <HudProgressBar value={billedPercent} size="sm" variant={record.financialStatus === 'blocked' ? 'danger' : record.financialStatus === 'attention' ? 'warning' : 'success'} />
-          </div>
-          <div className="grid grid-cols-3 gap-2">
-            <Stat label="Margem est." value={`${record.margin}%`} />
-            <Stat label="Adimplência" value={record.paymentStatus} tone={record.paymentStatus === 'Atrasado' ? 'danger' : record.paymentStatus === 'Suspenso' ? 'warning' : 'success'} />
-            <Stat label="Valor total" value={formatCurrencyFull(record.totalValue, record.contract.currency)} />
-          </div>
-        </Section>
+        {/* ── 2 · Relação com projeto (primeira classe, nunca em overflow) ── */}
+        {trusted && (
+          <ProjectRelation
+            project={trusted.project}
+            onLink={permissions.edit ? () => onLinkProject(record) : undefined}
+          />
+        )}
 
-        {/* D. Governança / Workflow */}
-        <Section title="D · Governança & workflow" icon={<ShieldCheck className="h-4 w-4" />} quality={dq?.approvals}>
-          <div className="space-y-2">
-            {[
-              { label: 'Rota de aprovação', value: record.approvalRoute, variant: 'neutral' as const, icon: <ShieldCheck className="h-3.5 w-3.5" /> },
-              { label: 'Jurídico', value: legalLabel, variant: record.legalStatus === 'approved' ? 'active' as const : record.legalStatus === 'review' ? 'warning' as const : 'neutral' as const, icon: <Scale className="h-3.5 w-3.5" /> },
-              { label: 'Financeiro', value: financialLabel, variant: record.financialStatus === 'ok' ? 'active' as const : record.financialStatus === 'attention' ? 'warning' as const : 'critical' as const, icon: <GanttChartSquare className="h-3.5 w-3.5" /> },
-              { label: 'SLA médio', value: slaHours != null ? `${slaHours}h` : (record.contract.riskClassification === 'high' ? '~26h' : '~18h'), variant: 'info' as const, icon: <CalendarClock className="h-3.5 w-3.5" /> },
-            ].map((item) => (
-              <div key={item.label} className="flex items-center justify-between gap-3 rounded-lg border border-ig-border-subtle bg-ig-panel/45 px-3 py-2">
-                <span className="flex min-w-0 items-center gap-2 text-[12px] text-ig-fg-muted">
-                  <span className="text-ig-fg-subtle">{item.icon}</span>
-                  {item.label}
+        {/* ── 3 · Financial Pulse ────────────────────────────────────────── */}
+        {trusted && (
+          <div className="relative overflow-hidden rounded-[18px] border border-ig-border-focus/35 bg-[linear-gradient(160deg,color-mix(in_oklab,var(--ig-bg-panel)_94%,transparent),color-mix(in_oklab,var(--ig-bg-raised)_50%,transparent))] px-4 py-4 shadow-[var(--ig-shadow-e2)]">
+            <span className="pointer-events-none absolute inset-y-4 left-0 w-px bg-ig-accent shadow-[0_0_14px_color-mix(in_oklab,var(--ig-accent)_70%,transparent)]" aria-hidden />
+            <FinancialPulse contract={trusted} />
+          </div>
+        )}
+
+        {/* ── 4 · Requires Attention ─────────────────────────────────────── */}
+        {trusted && (
+          <section>
+            <div className="mb-2.5 flex items-baseline justify-between gap-3">
+              <h3 className="text-ig-label uppercase tracking-[0.14em] text-ig-fg-muted">
+                Requer atenção
+              </h3>
+              {attention.length > 0 && (
+                <span className="ig-tabular text-ig-body-sm font-semibold text-ig-fg-strong">
+                  {attention.length}
                 </span>
-                <HudStatusPill variant={item.variant} size="sm">{item.value}</HudStatusPill>
-              </div>
-            ))}
-            {sla && detail && detail.approvals.length > 0 && (
-              <div className="rounded-lg border border-ig-border-subtle bg-ig-panel/45 px-3 py-2.5">
-                <div className="mb-2 flex items-center justify-between">
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ig-fg-subtle">SLA por etapa</span>
-                  <HudBadge variant={sla.quality === 'live' ? 'success' : 'subtle'} size="sm">{sla.quality === 'live' ? 'Ao vivo' : 'Estimado'}</HudBadge>
-                </div>
-                <div className="grid grid-cols-2 gap-1.5">
-                  {(['juridico', 'financeiro', 'comite', 'diretoria'] as const).map((step) => {
-                    const hours = sla.byStep[step];
-                    const isOpen = sla.openStepName === step;
-                    return (
-                      <div key={step} className="flex items-center justify-between rounded-md border border-ig-border-subtle bg-ig-panel/40 px-2 py-1">
-                        <span className="text-[11px] text-ig-fg-muted">{STEP_LABELS[step]}</span>
-                        <span className={`text-[11px] font-semibold tabular-nums ${isOpen ? 'text-ig-warning' : 'text-ig-fg-strong'}`}>
-                          {hours != null ? `${hours}h` : isOpen && sla.openStepHours != null ? `${sla.openStepHours}h aberto` : '—'}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-                {(sla.overdueSteps > 0 || sla.rejectedSteps > 0) && (
-                  <p className="mt-2 flex items-center gap-1.5 text-[11px] font-semibold text-ig-warning">
-                    <AlertTriangle className="h-3.5 w-3.5" />
-                    {[sla.overdueSteps > 0 ? `${sla.overdueSteps} etapa(s) em atraso` : null, sla.rejectedSteps > 0 ? `${sla.rejectedSteps} rejeitada(s)` : null].filter(Boolean).join(' · ')}
-                  </p>
-                )}
-              </div>
-            )}
-            {permissions.edit && record.legalStatus !== 'approved' && (
-              <HudButton variant="glass" size="sm" fullWidth leftIcon={<Scale className="h-4 w-4" />} onClick={() => onSendToLegal(record)}>
-                Enviar para revisão jurídica
-              </HudButton>
-            )}
-            {(overdueObligations > 0 || record.financialAllocationsPending) && (
-              <div className="rounded-lg border border-[color-mix(in_oklab,var(--ig-warning)_34%,transparent)] bg-[color-mix(in_oklab,var(--ig-warning)_10%,transparent)] px-3 py-2">
-                <p className="flex items-center gap-1.5 text-[11px] font-semibold text-ig-fg-strong">
-                  <AlertTriangle className="h-3.5 w-3.5 text-ig-warning" />
-                  Bloqueios de governança
-                </p>
-                <p className="mt-1 text-[11px] text-ig-fg-muted">
-                  {[overdueObligations > 0 ? `${overdueObligations} obrigação(ões) atrasada(s)` : null, record.financialAllocationsPending ? 'alocação financeira pendente de projeto' : null].filter(Boolean).join(' · ')}
-                </p>
-              </div>
-            )}
-          </div>
-        </Section>
-
-        {/* E. Inteligência de IA */}
-        <Section title="E · Inteligência de IA" icon={<BrainCircuit className="h-4 w-4" />} quality={dq?.ai}>
-          {record.aiStatus === 'mock_pending' && (
-            <div className="rounded-lg border border-[color-mix(in_oklab,var(--ig-warning)_34%,transparent)] bg-[color-mix(in_oklab,var(--ig-warning)_10%,transparent)] px-3 py-2.5">
-              <p className="text-[12px] font-semibold text-ig-fg-strong">Análise IA pendente de backend</p>
-              <p className="mt-1 text-[11px] text-ig-fg-muted">Nenhuma cláusula foi lida por motor de IA. Score abaixo é heurístico cadastral.</p>
+              )}
             </div>
-          )}
-          <div className="grid grid-cols-2 gap-2">
-            <Stat label="Risk score" value={`${record.riskScore}/100`} tone={record.riskScore >= 70 ? 'danger' : record.riskScore >= 50 ? 'warning' : 'success'} />
-            <Stat label="Confiança IA" value={`${record.confidenceScore}%`} />
-            <Stat label="Obrigações abertas" value={openObligations} tone={overdueObligations ? 'warning' : 'default'} />
-            <Stat label="Docs faltantes" value={record.missingDocuments.length} tone={record.missingDocuments.length ? 'warning' : 'success'} />
-          </div>
-          {record.missingDocuments.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {record.missingDocuments.map((doc) => (
-                <HudBadge key={doc} variant="warning" size="sm">{doc}</HudBadge>
-              ))}
-            </div>
-          )}
-        </Section>
+            <RequiresAttention
+              items={attention}
+              max={3}
+              onAction={runAttentionAction}
+              emptyHint={attentionEmptyHint}
+            />
+          </section>
+        )}
 
-        {/* Operação — itens ao vivo do contrato selecionado (lazy getContractById) */}
-        <div className="flex items-center justify-between border-t border-ig-border-subtle pt-5">
-          <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ig-fg-subtle">Operação · itens ao vivo</span>
-          {detailLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-ig-fg-subtle" />}
-        </div>
+        {/* ── 5 · Ação recomendada ───────────────────────────────────────── */}
+        {trusted && recommendation && (
+          <RecommendedActionPanel
+            action={recommendation}
+            attentionCount={attention.length}
+            onRun={() => runAttentionAction(recommendation.key)}
+          />
+        )}
+
+        {/* ── 6 · Connected Operations ───────────────────────────────────── */}
+        {trusted && (
+          <section>
+            <h3 className="mb-2.5 text-ig-label uppercase tracking-[0.14em] text-ig-fg-muted">
+              Operações conectadas
+            </h3>
+            <ConnectedOperations
+              contract={trusted}
+              context={{
+                tasks: { count: tasks.error ? null : tasks.rows.length, errored: Boolean(tasks.error) },
+                auditEvents: { count: audit.error ? null : audit.rows.length, errored: Boolean(audit.error) },
+              }}
+              onNavigate={navigateToOperation}
+            />
+          </section>
+        )}
+
+        {/* ── 7 · Saúde por dimensão (sem score) ─────────────────────────── */}
+        {trusted && health && (
+          <div className="rounded-[16px] border border-ig-border-subtle bg-[color-mix(in_oklab,var(--ig-bg-raised)_45%,transparent)] px-4 py-4">
+            <ContractHealthDrivers health={health} />
+          </div>
+        )}
+
+        {/* ── 8 · Detalhes do contrato (progressive disclosure) ──────────── */}
+        {trusted && (
+          <details className="group rounded-[14px] border border-ig-border-subtle px-4 py-3">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-ig-label uppercase tracking-[0.14em] text-ig-fg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_oklab,var(--ig-accent)_45%,transparent)]">
+              Detalhes do contrato
+              <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" aria-hidden />
+            </summary>
+            <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2.5">
+              <Detail label="Código" value={trusted.code} />
+              <Detail label="Status" value={statusLabel} />
+              <Detail label="Tipo" value={hasOfficialValue(trusted.contractType) ? trusted.contractType.value : 'Não informado'} />
+              <Detail label="Contraparte" value={hasOfficialValue(trusted.counterparty) ? trusted.counterparty.value : 'Não informada'} />
+              <Detail label="Início" value={hasOfficialValue(trusted.startDate) ? trusted.startDate.value.toLocaleDateString('pt-BR') : 'Não informado'} />
+              <Detail label="Término" value={hasOfficialValue(trusted.endDate) ? trusted.endDate.value.toLocaleDateString('pt-BR') : 'Não informado'} />
+              <Detail label="Rota de aprovação" value={trustedRoute && hasOfficialValue(trustedRoute) ? trustedRoute.value : 'Nenhuma etapa'} wide />
+            </dl>
+          </details>
+        )}
+
+        {/* ── 9 · Atividade recente (audit_logs real) ────────────────────── */}
+        <section>
+          <div className="mb-2.5 flex items-baseline justify-between gap-3">
+            <h3 className="text-ig-label uppercase tracking-[0.14em] text-ig-fg-muted">
+              Atividade recente
+            </h3>
+          </div>
+          <RecentActivity
+            events={audit.rows}
+            error={audit.error}
+            max={4}
+            onViewAll={() => onView(record)}
+          />
+        </section>
+
+        <div className="border-t border-ig-border-subtle pt-1" />
+
 
         {/* F. Obrigações */}
         <Section title="F · Obrigações" icon={<ClipboardCheck className="h-4 w-4" />}>
@@ -678,9 +766,13 @@ export function ContractDossierDrawer({
 
         {/* I. Tarefas na agenda (leitura) */}
         <Section title="I · Tarefas na agenda" icon={<CalendarClock className="h-4 w-4" />}>
-          {relatedTasks.length > 0 ? (
+          {tasks.error ? (
+            <p className="rounded-lg border border-ig-danger/30 bg-ig-danger/5 px-3 py-2 text-ig-caption text-ig-danger">
+              Não foi possível ler as tarefas vinculadas. A ausência de itens aqui não significa que não existam.
+            </p>
+          ) : tasks.rows.length > 0 ? (
             <div className="space-y-1.5">
-              {relatedTasks.slice(0, 8).map((task) => (
+              {tasks.rows.slice(0, 8).map((task) => (
                 <div key={task.id} className="flex items-center justify-between gap-2 rounded-lg border border-ig-border-subtle bg-ig-panel/45 px-3 py-2">
                   <div className="min-w-0">
                     <p className="truncate text-[12px] font-semibold text-ig-fg-strong">{task.title}</p>
@@ -697,7 +789,18 @@ export function ContractDossierDrawer({
       </div>
     </HudDrawer>
     {itemModals.modals}
+    {instrumentation.modals}
     </>
+  );
+}
+
+/** Par rótulo/valor da lista de detalhes, em progressive disclosure. */
+function Detail({ label, value, wide = false }: { label: string; value: string; wide?: boolean }) {
+  return (
+    <div className={wide ? 'col-span-2' : undefined}>
+      <dt className="text-ig-caption text-ig-fg-muted">{label}</dt>
+      <dd className="mt-0.5 truncate text-ig-body-sm font-medium text-ig-fg-strong">{value}</dd>
+    </div>
   );
 }
 

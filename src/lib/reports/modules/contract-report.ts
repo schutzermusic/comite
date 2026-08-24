@@ -14,7 +14,11 @@
  */
 
 import type { ContractGovernanceRecord } from '@/components/contracts/contract-governance-data';
-import { computeContractPortfolioStats } from '@/components/contracts/contract-portfolio-stats';
+import { resolveForDisplay, type DisplayPortfolioStats } from '@/lib/contracts/trust/display';
+import type { TrustedPortfolioStats } from '@/lib/contracts/trust/portfolio';
+import type { TrustedContract } from '@/lib/contracts/trust/read-model';
+import { officialCurrencyCompact, officialCurrencyFull, officialPercent } from '@/lib/contracts/trust/format';
+import { hasOfficialValue, missing, ratioTrusted, isOfficialOrigin } from '@/lib/contracts/trust/trusted';
 import { BRL, compactBRL, esc, fmtDate, fmtInt } from '@/lib/reports/report-formatters';
 import { C, REPORT_BRAND_NAME } from '@/lib/reports/report-theme';
 import {
@@ -35,7 +39,35 @@ import { openReport, buildReportMeta, buildReportFileName } from '@/lib/reports/
 import type { ReportExportResult } from '@/lib/reports/report-types';
 
 export interface ContractReportPayload {
+  /**
+   * Linhas para as tabelas de detalhe por contrato. Continuam vindo do record
+   * legado nesta fase — as TABELAS são listagem, não métrica executiva.
+   */
   records: ContractGovernanceRecord[];
+  /**
+   * Contratos confiáveis, por id. É a fonte de TODA quantia por contrato nas
+   * tabelas: sem isto, as colunas Faturado/Saldo voltariam a imprimir os
+   * valores do enricher, e dado de demonstração estaria de novo num PDF
+   * oficial — exatamente o que P0.3 proíbe.
+   */
+  trustedContracts: readonly TrustedContract[];
+  /**
+   * Instante de referência da timeline de renovações.
+   *
+   * Injetável porque o documento embute os rótulos dos próximos 12 meses: sem
+   * isto o HTML muda sozinho quando o dia vira, e o teste de caracterização
+   * que fixa a estrutura do documento passa a falhar por calendário, não por
+   * regressão. Padrão continua sendo agora.
+   */
+  now?: Date;
+  /**
+   * Agregado CONFIÁVEL — a fonte de toda métrica executiva do relatório.
+   *
+   * É o mesmo objeto que alimenta a Executive Band na tela, então os dois não
+   * podem divergir. Métrica sem apuração imprime "Não apurado"; leitura que
+   * falhou imprime "Dados indisponíveis"; nenhuma das duas vira R$ 0.
+   */
+  trusted: TrustedPortfolioStats;
   brandName?: string;
   periodLabel?: string;
   filtersLabel?: string;
@@ -68,7 +100,7 @@ const renewalPill = (s: ContractGovernanceRecord['renewalStatus']): string =>
   `<span class="pill ${s === 'expired' || s === 'critical' ? 'crit' : s === 'attention' ? 'warn' : 'ok'}">${esc(RENEWAL_LABEL[s])}</span>`;
 
 export function buildContractReportHtml(payload: ContractReportPayload): string {
-  const records = payload.records ?? [];
+  const allRecords = payload.records ?? [];
   const brand = payload.brandName ?? REPORT_BRAND_NAME;
   const fileName = buildReportFileName({ module: 'contratos' });
   const meta = buildReportMeta({
@@ -79,7 +111,49 @@ export function buildContractReportHtml(payload: ContractReportPayload): string 
     generatedBy: payload.generatedBy,
   });
 
-  const stats = computeContractPortfolioStats(records);
+  // Resolução ÚNICA e auditável do agregado confiável para exibição.
+  const stats: DisplayPortfolioStats = resolveForDisplay(payload.trusted);
+
+  /**
+   * Índice dos contratos confiáveis. As tabelas cruzam por id para imprimir
+   * quantias apuradas; um contrato ausente do índice imprime "Não apurado" em
+   * vez de herdar o número do record.
+   */
+  /**
+   * Índice APENAS dos contratos de origem validada.
+   *
+   * O relatório de carteira é documento oficial. Antes desta guarda, as tabelas
+   * por contrato liam o índice inteiro e imprimiam as quantias de contratos de
+   * demonstração — os KPIs executivos já os excluíam, mas as tabelas logo
+   * abaixo os mostravam, o que é pior do que não filtrar nada: o documento
+   * ficava internamente contraditório, e o leitor tenderia a acreditar na
+   * tabela, que parece mais detalhada.
+   */
+  const officialContracts = payload.trustedContracts.filter((c) => isOfficialOrigin(c.dataClass));
+  const trustedById = new Map(officialContracts.map((c) => [c.id, c]));
+  const excludedByOrigin = payload.trustedContracts.length - officialContracts.length;
+
+  /** Linhas do relatório: só contratos de origem validada. */
+  const records = allRecords.filter((r) => trustedById.has(r.contract.id));
+  const money = (id: string, pick: (c: TrustedContract) => Parameters<typeof officialCurrencyCompact>[0]): string => {
+    const t = trustedById.get(id);
+    return t ? officialCurrencyCompact(pick(t)) : 'Não apurado';
+  };
+  const moneyFull = (id: string, pick: (c: TrustedContract) => Parameters<typeof officialCurrencyFull>[0]): string => {
+    const t = trustedById.get(id);
+    return t ? officialCurrencyFull(pick(t)) : 'Não apurado';
+  };
+  /** Soma de coluna por extenso, contando somente o apurado. */
+  const sumFull = (rowsIn: readonly ContractGovernanceRecord[], pick: (c: TrustedContract) => Parameters<typeof hasOfficialValue>[0]): string => {
+    const vals = rowsIn
+      .map((r) => trustedById.get(r.contract.id))
+      .filter((c): c is TrustedContract => Boolean(c))
+      .map(pick)
+      .filter(hasOfficialValue);
+    return vals.length
+      ? officialCurrencyFull({ trust: 'derived', value: vals.reduce((sum, v) => sum + (v.value as number), 0), derivation: { rule: 'soma da tabela', from: [] } })
+      : officialCurrencyFull(missing<number>('no-rows'));
+  };
   const allObligations = records.flatMap((r) => r.obligations);
   const blocks: ReportBlock[] = [];
 
@@ -89,44 +163,75 @@ export function buildContractReportHtml(payload: ContractReportPayload): string 
     meta,
     kicker: 'Relatório Executivo · Contratos',
     title: 'Carteira de Contratos',
-    context: `<b>${fmtInt(records.length)}</b> contratos<span class="sep">·</span>valor total <b>${esc(compactBRL(stats.totalValue))}</b>`,
+    context: `<b>${fmtInt(stats.contractCount)}</b> contratos<span class="sep">·</span>valor total <b>${esc(stats.totalValue.text)}</b>`,
     coverKpis: [
-      { label: 'Valor total', value: compactBRL(stats.totalValue) },
-      { label: 'Execução financeira', value: `${stats.billedPct}%` },
-      { label: 'Contratos', value: fmtInt(records.length) },
-      { label: 'Alto risco', value: fmtInt(stats.highRisk) },
+      { label: 'Valor total', value: stats.totalValue.text },
+      { label: 'Execução financeira', value: stats.billedPct.text },
+      { label: 'Contratos', value: fmtInt(stats.contractCount) },
+      { label: 'Alto risco', value: stats.highRisk.text },
     ],
   });
   blocks.push(block(cover, mmForCover(true)));
 
+  /**
+   * Cor de uma métrica: cinza quando não apurada, vermelho quando a leitura
+   * falhou. Uma métrica ausente jamais herda o verde de "está tudo bem".
+   */
+  const toneOf = (m: DisplayPortfolioStats[keyof DisplayPortfolioStats & string], bad: string, good: string): string => {
+    const metric = m as { available: boolean; failed: boolean; value: number | null };
+    if (metric.failed) return C.critical;
+    if (!metric.available) return C.muted ?? C.info;
+    return metric.value ? bad : good;
+  };
+
   const kpiCards: KpiCardSpec[] = [
-    { label: 'Valor total contratado', value: compactBRL(stats.totalValue), color: C.info, helper: `${fmtInt(records.length)} contratos` },
-    { label: 'Faturado', value: compactBRL(stats.billedValue), color: C.success, helper: `${stats.billedPct}% do total` },
-    { label: 'Saldo a faturar', value: compactBRL(stats.remainingValue), color: C.cost, helper: `${stats.backlogPct}% · ${fmtInt(stats.contractsWithBalance)} contratos com saldo` },
-    { label: 'Exposição alto risco', value: compactBRL(stats.highRiskExposure), color: stats.highRisk ? C.critical : C.success, helper: `${fmtInt(stats.highRisk)} contratos` },
-    { label: 'Vencendo ≤90d', value: fmtInt(stats.expiring), color: stats.expiring ? C.warning : C.success, helper: `${fmtInt(stats.within30)} em ≤30d`, chip: stats.within30 ? { label: 'urgente', cls: 'crit' } : undefined },
-    { label: 'Obrigações atrasadas', value: fmtInt(stats.overdue), color: stats.overdue ? C.critical : C.success, helper: `${fmtInt(stats.contractsWithOverdue)} contratos` },
-    { label: 'SLA médio de aprovação', value: `${fmtInt(stats.avgSla)}h`, color: C.primary, chip: { label: stats.slaLive ? 'ao vivo' : 'estimado', cls: stats.slaLive ? 'ok' : 'info' } },
-    { label: 'Docs pendentes', value: fmtInt(stats.missingDocs), color: stats.missingDocs ? C.warning : C.success, helper: `${fmtInt(stats.contractsWithMissing)} contratos` },
+    { label: 'Valor total contratado', value: stats.totalValue.text, color: C.info, helper: `${fmtInt(stats.contractCount)} contratos` },
+    { label: 'Faturado', value: stats.billedValue.text, color: stats.billedValue.available ? C.success : C.info, helper: stats.billedPct.available ? `${stats.billedPct.text} do total` : 'sem execução apurada' },
+    { label: 'Saldo a faturar', value: stats.remainingValue.text, color: stats.remainingValue.available ? C.cost : C.info, helper: stats.backlogPct.available ? `${stats.backlogPct.text} da exposição` : 'sem saldo apurado' },
+    { label: 'Exposição alto risco', value: stats.highRiskExposure.text, color: toneOf(stats.highRisk, C.critical, C.success), helper: `${stats.highRisk.text} contratos` },
+    { label: 'Vencendo ≤90d', value: stats.expiring90.text, color: toneOf(stats.expiring90, C.warning, C.success), helper: `${stats.within30.text} em ≤30d`, chip: stats.within30.value ? { label: 'urgente', cls: 'crit' } : undefined },
+    { label: 'Obrigações atrasadas', value: stats.overdueObligations.text, color: toneOf(stats.overdueObligations, C.critical, C.success), helper: `${stats.contractsWithOverdue.text} contratos` },
+    { label: 'Contratos sem projeto', value: stats.contractsWithoutProject.text, color: toneOf(stats.contractsWithoutProject, C.warning, C.success), helper: 'vínculo operacional ausente' },
+    { label: 'Docs pendentes', value: stats.pendingDocuments.text, color: toneOf(stats.pendingDocuments, C.warning, C.success), helper: `${stats.contractsWithPendingDocs.text} contratos` },
   ];
   blocks.push(block(sectionTitle('Visão Executiva', 'indicadores consolidados da carteira', 1), mmForSectionTitle(true), { keepWithNext: true }));
   blocks.push(block(kpiGrid(kpiCards, 4), mmForKpiGrid(8, 4)));
 
-  const gaugeBlock = chartBlock({
-    title: 'Execução Financeira da Carteira',
-    sub: `faturado ${compactBRL(stats.billedValue)} de ${compactBRL(stats.totalValue)}`,
-    svg: svgGauge(stats.billedPct, { width: 490, height: 132, label: 'Faturado', sublabel: `${fmtInt(stats.contractsWithBalance)} contratos com saldo` }),
-  });
-  const compositionBlock = chartBlock({
-    title: 'Composição Financeira',
-    svg: svgDonut(
-      [
-        { label: 'Faturado', value: stats.billedValue, color: C.success },
-        { label: 'A faturar', value: stats.remainingValue, color: C.cost },
-      ],
-      { width: 490, height: 132, centerLabel: compactBRL(stats.totalValue), fmtValue: compactBRL },
-    ),
-  });
+  /**
+   * Gráficos financeiros só existem se houver execução apurada.
+   *
+   * Um gauge em 0% e um donut com fatia vazia parecem medição — comunicam
+   * "nada foi faturado" quando a verdade é "não sabemos". Sem apuração, o
+   * espaço traz a declaração da lacuna em vez do desenho.
+   */
+  const gaugeBlock = stats.billedPct.available
+    ? chartBlock({
+        title: 'Execução Financeira da Carteira',
+        sub: `faturado ${stats.billedValue.text} de ${stats.totalValue.text}`,
+        svg: svgGauge(stats.billedPct.value ?? 0, { width: 490, height: 132, label: 'Faturado', sublabel: `${fmtInt(stats.contractCount)} contratos` }),
+      })
+    : chartBlock({
+        title: 'Execução Financeira da Carteira',
+        sub: stats.billedPct.failed ? 'leitura de faturamento indisponível' : 'sem faturamento apurado',
+        svg: `<div style="height:132px;display:flex;align-items:center;justify-content:center;color:${C.info};font-size:13px">${stats.billedPct.text}</div>`,
+      });
+
+  const compositionBlock = stats.billedValue.available && stats.remainingValue.available
+    ? chartBlock({
+        title: 'Composição Financeira',
+        svg: svgDonut(
+          [
+            { label: 'Faturado', value: stats.billedValue.value ?? 0, color: C.success },
+            { label: 'A faturar', value: stats.remainingValue.value ?? 0, color: C.cost },
+          ],
+          { width: 490, height: 132, centerLabel: stats.totalValue.text, fmtValue: compactBRL },
+        ),
+      })
+    : chartBlock({
+        title: 'Composição Financeira',
+        sub: 'exige faturado e saldo apurados',
+        svg: `<div style="height:132px;display:flex;align-items:center;justify-content:center;color:${C.info};font-size:13px">${stats.billedValue.text}</div>`,
+      });
   blocks.push(block(
     `<div class="two-col">${gaugeBlock}${compositionBlock}</div>`,
     mmForColumns(
@@ -135,39 +240,79 @@ export function buildContractReportHtml(payload: ContractReportPayload): string 
     ),
   ));
 
+  // Alertas só a partir de métrica apurada: alarmar sobre número inexistente
+  // é pior do que não alarmar.
   const alerts: string[] = [];
-  if (stats.within30) alerts.push(`${fmtInt(stats.within30)} contrato(s) vencem em até 30 dias.`);
-  if (stats.overdue) alerts.push(`${fmtInt(stats.overdue)} obrigação(ões) contratual(is) em atraso em ${fmtInt(stats.contractsWithOverdue)} contrato(s).`);
-  const blocked = records.filter((r) => r.financialStatus === 'blocked');
-  if (blocked.length) alerts.push(`${fmtInt(blocked.length)} contrato(s) com status financeiro bloqueado (${blocked.slice(0, 3).map((r) => r.code).join(', ')}${blocked.length > 3 ? '…' : ''}).`);
-  if (stats.highRisk) alerts.push(`Exposição de ${compactBRL(stats.highRiskExposure)} em ${fmtInt(stats.highRisk)} contrato(s) de alto risco.`);
+  if (stats.within30.value) alerts.push(`${stats.within30.text} contrato(s) vencem em até 30 dias.`);
+  if (stats.overdueObligations.value) alerts.push(`${stats.overdueObligations.text} obrigação(ões) contratual(is) em atraso em ${stats.contractsWithOverdue.text} contrato(s).`);
+  if (stats.highRisk.value) alerts.push(`Exposição de ${stats.highRiskExposure.text} em ${stats.highRisk.text} contrato(s) de alto risco.`);
   if (alerts.length) blocks.push(block(warningBox('Principais alertas', alerts, 'crit'), mmForWarningBox(alerts.length)));
+
+  /**
+   * O relatório oficial DECLARA suas lacunas. Um PDF que omite o que não
+   * conseguiu apurar engana tanto quanto um que preenche com ficção.
+   */
+  /**
+   * O relatório declara o próprio recorte. Um documento que exclui contratos
+   * sem dizer quantos deixa o leitor supor que viu a base inteira.
+   */
+  if (excludedByOrigin > 0) {
+    blocks.push(block(
+      warningBox('Recorte da carteira oficial', [
+        `${fmtInt(excludedByOrigin)} contrato(s) foram excluídos deste relatório por não terem origem validada como operacional (demonstração ou não classificados).`,
+        'Métrica oficial de carteira deriva exclusivamente de contratos classificados como operacionais.',
+      ], 'warn'),
+      mmForWarningBox(2),
+    ));
+  }
+
+  if (stats.unavailable.length) {
+    const gaps = stats.unavailable.map((item) =>
+      item.reason === 'error'
+        ? `${item.label}: falha na leitura da fonte — não apresentado.`
+        : `${item.label}: sem dado apurado na base — não apresentado.`,
+    );
+    blocks.push(block(warningBox('Cobertura da apuração', gaps, 'warn'), mmForWarningBox(gaps.length)));
+  }
 
   /* ── 02 · Carteira & Exposição Financeira ── */
 
   blocks.push(block(sectionTitle('Carteira & Exposição Financeira', 'concentração, execução e saldo por contrato', 2), mmForSectionTitle(true), { breakBefore: true, keepWithNext: true }));
 
   const byCompany: Record<string, number> = {};
-  records.forEach((r) => { byCompany[r.companyName] = (byCompany[r.companyName] || 0) + r.totalValue; });
+  // Concentração por empresa a partir do valor APURADO; contratos sem valor
+  // apurado não inflam nem esvaziam a barra de ninguém.
+  records.forEach((r) => {
+    const t = trustedById.get(r.contract.id);
+    if (t && hasOfficialValue(t.totalValue)) {
+      byCompany[r.companyName] = (byCompany[r.companyName] || 0) + t.totalValue.value;
+    }
+  });
   const companyRows = Object.entries(byCompany).map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value).slice(0, 8);
-  const topShare = stats.totalValue ? Math.round(((companyRows[0]?.value ?? 0) / stats.totalValue) * 100) : 0;
+  const topShare = stats.totalValue.value ? Math.round(((companyRows[0]?.value ?? 0) / stats.totalValue.value) * 100) : 0;
   const companyBlock = chartBlock({
     title: 'Valor por Empresa / Fornecedor',
     sub: `top ${companyRows.length} · maior concentração: ${companyRows[0] ? `${esc(companyRows[0].label)} (${topShare}%)` : '—'}`,
     svg: svgHorizontalBar(companyRows, { width: 490, fmtValue: compactBRL }),
   });
-  const waterfallBlock = chartBlock({
-    title: 'Do Contratado ao Saldo',
-    sub: 'ponte financeira da carteira',
-    svg: svgWaterfall(
-      [
-        { label: 'Contratado', value: stats.totalValue, type: 'total', color: C.info },
-        { label: 'Faturado', value: -stats.billedValue },
-        { label: 'Saldo a faturar', value: 0, type: 'total', color: C.cost },
-      ],
-      { width: 490, height: 170 },
-    ),
-  });
+  const waterfallBlock = stats.totalValue.available && stats.billedValue.available
+    ? chartBlock({
+        title: 'Do Contratado ao Saldo',
+        sub: 'ponte financeira da carteira',
+        svg: svgWaterfall(
+          [
+            { label: 'Contratado', value: stats.totalValue.value ?? 0, type: 'total', color: C.info },
+            { label: 'Faturado', value: -(stats.billedValue.value ?? 0) },
+            { label: 'Saldo a faturar', value: 0, type: 'total', color: C.cost },
+          ],
+          { width: 490, height: 170 },
+        ),
+      })
+    : chartBlock({
+        title: 'Do Contratado ao Saldo',
+        sub: 'exige contratado e faturado apurados',
+        svg: `<div style="height:170px;display:flex;align-items:center;justify-content:center;color:${C.info};font-size:13px">${stats.billedValue.text}</div>`,
+      });
   blocks.push(block(
     `<div class="two-col">${companyBlock}${waterfallBlock}</div>`,
     mmForColumns(
@@ -176,7 +321,16 @@ export function buildContractReportHtml(payload: ContractReportPayload): string 
     ),
   ));
 
-  const topExposure = [...records].sort((a, b) => b.remainingValue - a.remainingValue).slice(0, 10);
+  /**
+   * Ordenação por saldo APURADO. Contratos sem saldo apurado vão para o fim —
+   * não podem disputar o topo de um ranking de exposição com um número que
+   * ninguém mediu.
+   */
+  const saldoDe = (r: ContractGovernanceRecord): number => {
+    const t = trustedById.get(r.contract.id);
+    return t && hasOfficialValue(t.remainingValue) ? t.remainingValue.value : -1;
+  };
+  const topExposure = [...records].sort((a, b) => saldoDe(b) - saldoDe(a)).slice(0, 10);
   const exposureTable = dataTable(
     [
       { key: 'code', label: 'Contrato' },
@@ -190,16 +344,33 @@ export function buildContractReportHtml(payload: ContractReportPayload): string 
     topExposure.map((r) => ({
       code: r.code,
       company: r.companyName,
-      total: { html: `<span class="mono">${esc(compactBRL(r.totalValue))}</span>` },
-      billed: { html: `<span class="mono">${esc(compactBRL(r.billedValue))}</span>` },
-      saldo: { html: `<span class="mono" style="font-weight:700">${esc(compactBRL(r.remainingValue))}</span>` },
-      exec: r.totalValue ? `${Math.round((r.billedValue / r.totalValue) * 100)}%` : '—',
+      total: { html: `<span class="mono">${esc(money(r.contract.id, (c) => c.totalValue))}</span>` },
+      billed: { html: `<span class="mono">${esc(money(r.contract.id, (c) => c.billedValue))}</span>` },
+      saldo: { html: `<span class="mono" style="font-weight:700">${esc(money(r.contract.id, (c) => c.remainingValue))}</span>` },
+      exec: (() => {
+        const t = trustedById.get(r.contract.id);
+        if (!t) return '—';
+        return officialPercent(ratioTrusted(t.billedValue, t.totalValue, 'execução', ['contracts', 'contract_billing_events']));
+      })(),
       renewal: { html: renewalPill(r.renewalStatus) },
     })),
-  ).replace('</table>', `<tfoot><tr><td>Total (top ${topExposure.length})</td><td></td>` +
-    `<td class="num">${esc(compactBRL(topExposure.reduce((s, r) => s + r.totalValue, 0)))}</td>` +
-    `<td class="num">${esc(compactBRL(topExposure.reduce((s, r) => s + r.billedValue, 0)))}</td>` +
-    `<td class="num">${esc(compactBRL(topExposure.reduce((s, r) => s + r.remainingValue, 0)))}</td><td></td><td></td></tr></tfoot></table>`);
+  ).replace('</table>', (() => {
+    // O rodapé só soma o que está apurado — e diz quantos contratos entraram.
+    const somaDe = (pick: (c: TrustedContract) => Parameters<typeof hasOfficialValue>[0]) => {
+      const vals = topExposure
+        .map((r) => trustedById.get(r.contract.id))
+        .filter((c): c is TrustedContract => Boolean(c))
+        .map(pick)
+        .filter(hasOfficialValue);
+      return vals.length
+        ? officialCurrencyCompact({ trust: 'derived', value: vals.reduce((sum, v) => sum + (v.value as number), 0), derivation: { rule: 'soma da tabela', from: [] } })
+        : officialCurrencyCompact(missing<number>('no-rows'));
+    };
+    return `<tfoot><tr><td>Total (top ${topExposure.length})</td><td></td>` +
+      `<td class="num">${esc(somaDe((c) => c.totalValue))}</td>` +
+      `<td class="num">${esc(somaDe((c) => c.billedValue))}</td>` +
+      `<td class="num">${esc(somaDe((c) => c.remainingValue))}</td><td></td><td></td></tr></tfoot></table>`;
+  })());
   blocks.push(block(
     `<p class="chart-title">Maiores Exposições — Saldo a Faturar</p>${exposureTable}`,
     mmForTable(topExposure.length + 1, { rowMm: 5.6 }) + 5,
@@ -308,7 +479,7 @@ export function buildContractReportHtml(payload: ContractReportPayload): string 
 
   blocks.push(block(sectionTitle('Renovações & Timeline', 'vencimentos dos próximos 12 meses', 4), mmForSectionTitle(true), { breakBefore: true, keepWithNext: true }));
 
-  const now = new Date();
+  const now = payload.now ?? new Date();
   const monthLabels: string[] = [];
   for (let i = 0; i < 12; i++) {
     const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
@@ -319,13 +490,19 @@ export function buildContractReportHtml(payload: ContractReportPayload): string 
   const monthIdxFor = (days: number) => Math.min(11, Math.floor(days / 30.44));
   const expCounts = Array.from({ length: 12 }, () => 0);
   expiring12.forEach((r) => { expCounts[monthIdxFor(r.daysUntilExpiration as number)] += 1; });
+  // Marcadores ordenados e rotulados pelo valor APURADO — nenhuma quantia do
+  // relatório oficial passa mais pelo record de demonstração.
+  const valorDe = (r: ContractGovernanceRecord): number => {
+    const t = trustedById.get(r.contract.id);
+    return t && hasOfficialValue(t.totalValue) ? t.totalValue.value : -1;
+  };
   const expMarkers: TimelineMarker[] = [...expiring12]
-    .sort((a, b) => b.totalValue - a.totalValue)
+    .sort((a, b) => valorDe(b) - valorDe(a))
     .slice(0, 6)
     .map((r) => ({
       monthIdx: monthIdxFor(r.daysUntilExpiration as number),
       label: r.code,
-      value: compactBRL(r.totalValue),
+      value: money(r.contract.id, (c) => c.totalValue),
       color: RENEWAL_COLOR[r.renewalStatus],
     }));
   const expirationStrip = chartBlock({
@@ -381,8 +558,8 @@ export function buildContractReportHtml(payload: ContractReportPayload): string 
       expiring180.map((r) => ({
         code: r.code,
         company: r.companyName,
-        valor: { html: `<span class="mono">${esc(compactBRL(r.totalValue))}</span>` },
-        saldo: { html: `<span class="mono">${esc(compactBRL(r.remainingValue))}</span>` },
+        valor: { html: `<span class="mono">${esc(money(r.contract.id, (c) => c.totalValue))}</span>` },
+        saldo: { html: `<span class="mono">${esc(money(r.contract.id, (c) => c.remainingValue))}</span>` },
         dias: { html: `<span class="mono" style="${(r.daysUntilExpiration as number) <= 30 ? `color:${C.critical};font-weight:700` : ''}">${fmtInt(r.daysUntilExpiration as number)}d</span>` },
         renewal: { html: renewalPill(r.renewalStatus) },
         owner: r.owner,
@@ -402,21 +579,21 @@ export function buildContractReportHtml(payload: ContractReportPayload): string 
       value: `${topShare}%`,
     });
   }
-  if (stats.totalValue) {
+  if (stats.totalValue.available && stats.billedValue.available) {
     insights.push({
       kind: 'fact',
       title: 'Execução financeira',
-      detail: `${compactBRL(stats.billedValue)} faturados de ${compactBRL(stats.totalValue)} contratados; saldo de ${compactBRL(stats.remainingValue)}.`,
-      value: `${stats.billedPct}%`,
+      detail: `${stats.billedValue.text} faturados de ${stats.totalValue.text} contratados; saldo de ${stats.remainingValue.text}.`,
+      value: stats.billedPct.text,
     });
   }
-  const largestBalance = [...records].sort((a, b) => b.remainingValue - a.remainingValue)[0];
-  if (largestBalance && largestBalance.remainingValue > 0) {
+  const largestBalance = [...records].sort((a, b) => saldoDe(b) - saldoDe(a))[0];
+  if (largestBalance && saldoDe(largestBalance) > 0) {
     insights.push({
       kind: 'fact',
       title: 'Maior saldo a faturar',
-      detail: `${largestBalance.code} · ${largestBalance.companyName} concentra o maior saldo em aberto da carteira.`,
-      value: compactBRL(largestBalance.remainingValue),
+      detail: `${largestBalance.code} · ${largestBalance.companyName} concentra o maior saldo apurado da carteira.`,
+      value: money(largestBalance.contract.id, (c) => c.remainingValue),
     });
   }
   const expiredCritical = records.filter((r) => r.renewalStatus === 'expired' || r.renewalStatus === 'critical');
@@ -428,33 +605,34 @@ export function buildContractReportHtml(payload: ContractReportPayload): string 
       value: fmtInt(expiredCritical.length),
     });
   }
-  if (stats.overdue) {
+  if (stats.overdueObligations.value) {
     insights.push({
       kind: 'alert',
       title: 'Obrigações contratuais em atraso',
-      detail: `${fmtInt(stats.overdue)} obrigação(ões) vencida(s) em ${fmtInt(stats.contractsWithOverdue)} contrato(s) exigem regularização.`,
-      value: fmtInt(stats.overdue),
+      detail: `${stats.overdueObligations.text} obrigação(ões) vencida(s) em ${stats.contractsWithOverdue.text} contrato(s) exigem regularização.`,
+      value: stats.overdueObligations.text,
     });
   }
-  if (blocked.length) {
+  if (stats.contractsWithoutBilling.value) {
     insights.push({
       kind: 'alert',
-      title: 'Faturamento bloqueado',
-      detail: `${fmtInt(blocked.length)} contrato(s) com pendência financeira bloqueante (${compactBRL(blocked.reduce((s, r) => s + r.remainingValue, 0))} de saldo represado).`,
+      title: 'Contratos sem faturamento registrado',
+      detail: `${stats.contractsWithoutBilling.text} contrato(s) não possuem nenhum evento de faturamento na base — a exposição desses contratos não pode ser apurada.`,
+      value: stats.contractsWithoutBilling.text,
     });
   }
-  if (stats.expiring) {
+  if (stats.expiring90.value) {
     insights.push({
       kind: 'recommendation',
       title: 'Priorizar pipeline de renovação',
-      detail: `Iniciar tratativas para os ${fmtInt(stats.expiring)} contrato(s) que vencem em ≤90 dias antes da janela crítica de 30 dias.`,
+      detail: `Iniciar tratativas para os ${stats.expiring90.text} contrato(s) que vencem em ≤90 dias antes da janela crítica de 30 dias.`,
     });
   }
-  if (stats.missingDocs) {
+  if (stats.pendingDocuments.value) {
     insights.push({
       kind: 'recommendation',
       title: 'Regularizar documentação',
-      detail: `${fmtInt(stats.missingDocs)} documento(s) pendente(s) em ${fmtInt(stats.contractsWithMissing)} contrato(s) — condição para aprovação jurídica plena.`,
+      detail: `${stats.pendingDocuments.text} documento(s) pendente(s) em ${stats.contractsWithPendingDocs.text} contrato(s) — condição para aprovação jurídica plena.`,
     });
   }
   const noExpiration = records.filter((r) => r.daysUntilExpiration == null).length;
@@ -465,11 +643,11 @@ export function buildContractReportHtml(payload: ContractReportPayload): string 
       detail: `${fmtInt(noExpiration)} contrato(s) sem data de expiração — janela de renovação não monitorável.`,
     });
   }
-  if (stats.semProjeto) {
+  if (stats.contractsWithoutProject.value) {
     insights.push({
       kind: 'data-quality',
       title: 'Contratos sem projeto vinculado',
-      detail: `${fmtInt(stats.semProjeto)} contrato(s) sem vínculo com projeto, fora da visão consolidada de portfólio.`,
+      detail: `${stats.contractsWithoutProject.text} contrato(s) sem vínculo com projeto, fora da visão consolidada de portfólio.`,
     });
   }
 
@@ -500,8 +678,8 @@ export function buildContractReportHtml(payload: ContractReportPayload): string 
       company: r.companyName,
       project: r.project ? `${r.project.codigo}` : '—',
       type: r.contractType,
-      total: { html: `<span class="mono">${esc(BRL(r.totalValue))}</span>` },
-      billed: { html: `<span class="mono">${esc(BRL(r.billedValue))}</span>` },
+      total: { html: `<span class="mono">${esc(moneyFull(r.contract.id, (c) => c.totalValue))}</span>` },
+      billed: { html: `<span class="mono">${esc(moneyFull(r.contract.id, (c) => c.billedValue))}</span>` },
       expira: r.daysUntilExpiration == null ? '—' : `${fmtInt(r.daysUntilExpiration)}d`,
       renewal: { html: renewalPill(r.renewalStatus) },
       risk: fmtInt(r.riskScore),
@@ -511,8 +689,8 @@ export function buildContractReportHtml(payload: ContractReportPayload): string 
       rowMm: 4.6,
       totalsRow: {
         code: `Total (${fmtInt(appendixRows.length)})`,
-        total: { html: `<span class="mono">${esc(BRL(appendixRows.reduce((s, r) => s + r.totalValue, 0)))}</span>` },
-        billed: { html: `<span class="mono">${esc(BRL(appendixRows.reduce((s, r) => s + r.billedValue, 0)))}</span>` },
+        total: { html: `<span class="mono">${esc(sumFull(appendixRows, (c) => c.totalValue))}</span>` },
+        billed: { html: `<span class="mono">${esc(sumFull(appendixRows, (c) => c.billedValue))}</span>` },
       },
     },
   ));
@@ -565,11 +743,17 @@ export function buildContractReportHtml(payload: ContractReportPayload): string 
   }
 
   const issues: string[] = [];
-  if (!records.length) issues.push('Nenhum contrato no recorte selecionado.');
+  if (!stats.contractCount) issues.push('Nenhum contrato no recorte selecionado.');
   if (noExpiration) issues.push(`${fmtInt(noExpiration)} contrato(s) sem data de expiração cadastrada.`);
-  if (stats.contractsWithMissing) issues.push(`${fmtInt(stats.contractsWithMissing)} contrato(s) com documentos pendentes.`);
-  if (stats.semProjeto) issues.push(`${fmtInt(stats.semProjeto)} contrato(s) sem projeto vinculado.`);
-  if (stats.semIa) issues.push(`${fmtInt(stats.semIa)} contrato(s) com análise de IA pendente.`);
+  if (stats.contractsWithPendingDocs.value) issues.push(`${stats.contractsWithPendingDocs.text} contrato(s) com documentos pendentes.`);
+  if (stats.contractsWithoutProject.value) issues.push(`${stats.contractsWithoutProject.text} contrato(s) sem projeto vinculado.`);
+  if (stats.contractsWithoutAi.value) issues.push(`${stats.contractsWithoutAi.text} contrato(s) sem análise de IA registrada.`);
+  // Lacunas de apuração entram na qualidade dos dados, não são escondidas.
+  for (const gap of stats.unavailable) {
+    issues.push(gap.reason === 'error'
+      ? `${gap.label}: falha ao ler a fonte.`
+      : `${gap.label}: sem dado apurado na base.`);
+  }
   blocks.push(block(sectionTitle('Qualidade dos Dados'), mmForSectionTitle(), { keepWithNext: true }));
   blocks.push(block(dataQualityBox(issues), mmForWarningBox(Math.max(1, issues.length))));
 

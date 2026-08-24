@@ -16,6 +16,11 @@ import {
   type ContractGovernanceRecord,
 } from '@/components/contracts/contract-governance-data';
 import { AlertTriangle, ArrowRight, Building2, ShieldCheck, Workflow, X } from 'lucide-react';
+import type { TrustedContract } from '@/lib/contracts/trust/read-model';
+import { officialCurrencyCompact } from '@/lib/contracts/trust/format';
+import { hasOfficialValue, ratioTrusted } from '@/lib/contracts/trust/trusted';
+import { missingDocuments as trustedMissingDocs } from '@/lib/contracts/trust/signals';
+import { DataClassBadge } from '@/components/contracts/cockpit/PortfolioScope';
 
 const riskLabels = { high: 'Alto', medium: 'Médio', low: 'Baixo' } as const;
 function riskVariant(risk: ContractGovernanceRecord['contract']['riskClassification']) {
@@ -44,6 +49,8 @@ const aiStatusMeta: Record<ContractGovernanceRecord['aiStatus'], { label: string
 };
 
 export interface ContractCardProps {
+  /** Contrato confiável correspondente, quando o batch de relações já foi lido. */
+  trusted?: TrustedContract;
   record: ContractGovernanceRecord;
   active?: boolean;
   onSelect: (record: ContractGovernanceRecord) => void;
@@ -51,9 +58,25 @@ export interface ContractCardProps {
   onDelete?: (record: ContractGovernanceRecord) => void;
 }
 
-export function ContractCard({ record, active = false, onSelect, onView, onDelete }: ContractCardProps) {
-  const pct = record.totalValue ? Math.round((record.billedValue / record.totalValue) * 100) : 0;
-  const noBilling = record.billedValue === 0 && record.totalValue > 0;
+export function ContractCard({ record, trusted, active = false, onSelect, onView, onDelete }: ContractCardProps) {
+  /**
+   * Valores CONFIÁVEIS quando disponíveis.
+   *
+   * `trusted` chega da listagem depois que o batch de relações é lido; até lá,
+   * e para qualquer indicador sem apuração, o card mostra "—" em vez do valor
+   * que o enricher fabricava.
+   */
+  const execution = trusted
+    ? ratioTrusted(trusted.billedValue, trusted.totalValue, 'faturado sobre total', ['contracts', 'contract_billing_events'])
+    : null;
+  const pct = execution && hasOfficialValue(execution) ? Math.round(execution.value * 100) : null;
+  /** "Sem evento registrado" só se afirma sobre ausência REAL de evento. */
+  const noBilling = Boolean(
+    trusted && hasOfficialValue(trusted.billingEvents) && trusted.billingEvents.value.length === 0,
+  );
+  const docsMissing = trusted ? trustedMissingDocs(trusted) : null;
+  const missingCount = docsMissing && hasOfficialValue(docsMissing) ? docsMissing.value.length : null;
+  const money = (t: Parameters<typeof officialCurrencyCompact>[0] | undefined) => (t ? officialCurrencyCompact(t) : '—');
   const expiringSoon = record.daysUntilExpiration !== null && record.daysUntilExpiration >= 0 && record.daysUntilExpiration <= 30;
   const expired = record.daysUntilExpiration !== null && record.daysUntilExpiration < 0;
 
@@ -109,19 +132,21 @@ export function ContractCard({ record, active = false, onSelect, onView, onDelet
           </HudStatusPill>
         </div>
 
+        {/* Selo de origem: contrato de demonstração nunca deve parecer carteira. */}
+        {trusted && <DataClassBadge dataClass={trusted.dataClass} className="mt-2.5" />}
         <p className="mt-2.5 line-clamp-2 text-[15px] font-semibold leading-snug text-ig-fg-strong">{record.contract.name}</p>
         <div className="mt-1 flex min-w-0 items-center gap-2 text-ig-caption text-ig-fg-muted">
           <Building2 className="h-3.5 w-3.5 shrink-0 text-ig-fg-subtle" />
-          <span className="truncate">{record.companyName}</span>
+          <span className="truncate">{trusted && hasOfficialValue(trusted.counterparty) ? trusted.counterparty.value : record.companyName}</span>
           <span className="text-ig-fg-subtle">·</span>
-          <span className="truncate">{record.owner}</span>
+          <span className="truncate">{trusted && hasOfficialValue(trusted.contractType) ? trusted.contractType.value : '—'}</span>
         </div>
 
         {/* Linked project */}
         <div className="mt-3 border-t border-ig-border-subtle pt-3">
-          {record.project ? (
+          {trusted && hasOfficialValue(trusted.project) ? (
             <Link
-              href={`/projetos/${record.project.id}`}
+              href={`/projetos/${trusted.project.value.id}`}
               onClick={(event) => event.stopPropagation()}
               className="flex min-w-0 items-center gap-2 text-ig-caption font-medium text-ig-accent transition-colors hover:text-ig-accent-strong"
             >
@@ -140,23 +165,26 @@ export function ContractCard({ record, active = false, onSelect, onView, onDelet
         <div className="mt-3 space-y-1.5">
           <div className="flex items-baseline justify-between gap-3">
             <span className="text-ig-caption text-ig-fg-muted">Exposição total</span>
-            <span className="ig-tabular text-ig-body-sm font-semibold text-ig-fg-strong">{formatCurrencyCompact(record.totalValue, record.contract.currency)}</span>
+            <span className="ig-tabular text-ig-body-sm font-semibold text-ig-fg-strong">{money(trusted?.totalValue)}</span>
           </div>
           <div className="flex items-center gap-2">
+            {/* Sem execução apurada a barra fica neutra: 0% seria lido como
+                "nada executado", que é diferente de "não sabemos". */}
             <HudProgressBar
-              value={pct}
+              value={pct ?? 0}
               size="sm"
+              showLabel={false}
               className="flex-1"
-              variant={record.financialStatus === 'blocked' ? 'danger' : record.financialStatus === 'attention' ? 'warning' : 'success'}
+              variant={pct === null ? 'default' : 'success'}
             />
-            <span className="ig-tabular shrink-0 text-ig-caption font-semibold text-ig-fg-strong">{pct}%</span>
+            <span className="ig-tabular shrink-0 text-ig-caption font-semibold text-ig-fg-strong">{pct === null ? '—' : `${pct}%`}</span>
           </div>
           <div className="flex justify-between gap-3 text-ig-caption text-ig-fg-muted">
-            <span className="truncate">Faturado {formatCurrencyCompact(record.billedValue, record.contract.currency)}</span>
+            <span className="truncate">Faturado {money(trusted?.billedValue)}</span>
             {noBilling ? (
-              <span className="shrink-0 font-semibold text-ig-warning">Sem faturamento</span>
+              <span className="shrink-0 font-semibold text-ig-warning">Sem evento registrado</span>
             ) : (
-              <span className="shrink-0">Saldo {formatCurrencyCompact(record.remainingValue, record.contract.currency)}</span>
+              <span className="shrink-0">Saldo {money(trusted?.remainingValue)}</span>
             )}
           </div>
         </div>
@@ -167,11 +195,11 @@ export function ContractCard({ record, active = false, onSelect, onView, onDelet
             <HudStatusPill variant={statusVariant(record.contract.status)} size="sm">
               {statusLabels[record.contract.status] ?? record.contract.status}
             </HudStatusPill>
-            <HudBadge variant={aiStatusMeta[record.aiStatus].variant} size="sm">
-              {aiStatusMeta[record.aiStatus].label}
-            </HudBadge>
-            {record.missingDocuments.length > 0 && (
-              <HudBadge variant="warning" size="sm">{record.missingDocuments.length} docs</HudBadge>
+            {/* O chip de estado de IA saiu: `aiStatus` vinha do enricher e
+                rotulava como "Prévia mock"/"IA pendente" contratos sobre os
+                quais nenhuma análise foi sequer solicitada. */}
+            {(missingCount ?? 0) > 0 && (
+              <HudBadge variant="warning" size="sm">{missingCount} docs</HudBadge>
             )}
             {expired ? (
               <HudBadge variant="danger" size="sm" dot>
@@ -184,9 +212,12 @@ export function ContractCard({ record, active = false, onSelect, onView, onDelet
             ) : null}
           </div>
           <div className="flex items-center gap-2">
+            {/* "riskScore NN/100" saiu: era hash(id+nome) exibido ao lado de um
+                escudo, o que o fazia parecer avaliação de risco. O risco
+                cadastral real já aparece no topo do card. */}
             <span className="hidden items-center gap-1 text-ig-caption text-ig-fg-subtle sm:flex">
               <ShieldCheck className="h-3.5 w-3.5" />
-              {record.riskScore}/100
+              {riskLabels[record.contract.riskClassification]}
             </span>
             {onView && (
               <button

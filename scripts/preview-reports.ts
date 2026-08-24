@@ -16,8 +16,11 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import type { Contract, Project } from '@/lib/types';
-import { enrichContractsForGovernance } from '@/components/contracts/contract-governance-data';
+import { enrichContractsForGovernance, DEMO_PREVIEW_INTENT } from '@/components/contracts/contract-governance-data';
 import { buildContractReportHtml } from '@/lib/reports/modules/contract-report';
+import { buildTrustedPortfolio } from '@/lib/contracts/trust/read-model';
+import { computeTrustedPortfolioStats } from '@/lib/contracts/trust/portfolio';
+import type { ContractRelationsBatch, ContractRow } from '@/lib/contracts/contract-service';
 import { DEMO_RISKS } from '@/components/risks/risk-demo-data';
 import { buildRiskReportHtml } from '@/lib/reports/modules/risk-report';
 import { buildWorkforceOverviewPdfHtml } from '@/lib/reports/modules/workforce-overview-report';
@@ -94,11 +97,91 @@ function workforceModel(series: Parameters<typeof buildWorkforceOverviewModel>[0
   });
 }
 
+/**
+ * O harness passa pelo pipeline CONFIÁVEL real, não por um atalho.
+ *
+ * Linhas sintéticas de `contracts` e um batch sintético de relações entram em
+ * `buildTrustedPortfolio` exatamente como em produção. Assim o preview exercita
+ * o caminho verdadeiro — inclusive os estados "não apurado" — em vez de
+ * desenhar um relatório que o app nunca produziria.
+ */
+const previewContractRows: ContractRow[] = contracts.map((c, i) => ({
+  id: c.id,
+  organization_id: 'org-preview',
+  project_id: (c as Contract & { projectId?: string }).projectId ?? null,
+  client_id: null,
+  supplier_id: null,
+  title: c.name,
+  contract_number: `CTR-${String(i + 1).padStart(4, '0')}`,
+  counterparty_name: c.vendorOrParty,
+  contract_type: 'Prestação de serviços',
+  status: c.status,
+  lifecycle_stage: null,
+  start_date: c.signingDate ? c.signingDate.toISOString().slice(0, 10) : null,
+  end_date: c.expirationDate ? c.expirationDate.toISOString().slice(0, 10) : null,
+  signed_date: c.signingDate ? c.signingDate.toISOString().slice(0, 10) : null,
+  renewal_date: null,
+  currency: 'BRL',
+  total_value: c.value,
+  monthly_value: null,
+  payment_terms: null,
+  scope_summary: null,
+  risk_level: c.riskClassification,
+  health_score: null,
+  owner_user_id: null,
+  created_by: null,
+  updated_by: null,
+  created_at: new Date().toISOString(),
+  updated_at: new Date().toISOString(),
+  deleted_at: null,
+} as ContractRow));
+
+/** Faturamento sintético em ~2/3 da carteira, para o preview exibir os dois estados. */
+const previewBatch: ContractRelationsBatch = {
+  obligations: new Map(),
+  billingEvents: new Map(
+    previewContractRows
+      .filter((_, i) => i % 3 !== 2)
+      .map((row) => [row.id, [
+        { id: `${row.id}-b1`, contract_id: row.id, milestone_id: null, title: 'Medição 01',
+          amount: Number(row.total_value ?? 0) * 0.35, due_date: null, paid_at: new Date().toISOString(),
+          status: 'pago' } as never,
+        { id: `${row.id}-b2`, contract_id: row.id, milestone_id: null, title: 'Medição 02',
+          amount: Number(row.total_value ?? 0) * 0.65, due_date: null, paid_at: null,
+          status: 'pendente' } as never,
+      ]]),
+  ),
+  documents: new Map(),
+  approvals: new Map(),
+  projectLinks: new Map(),
+  riskLinks: new Map(),
+  aiAnalyses: new Map(),
+  milestones: new Map(),
+  clauses: new Map(),
+  penalties: new Map(),
+  riskDetails: new Map(),
+  sectionsWithData: {
+    obligations: false, billing: true, documents: false,
+    approvals: false, projectLinks: false, risks: false, ai: false,
+    milestones: false, clauses: false, penalties: false,
+  },
+  sectionErrors: {
+    obligations: null, billing: null, documents: null,
+    approvals: null, projectLinks: null, risks: null, ai: null,
+    milestones: null, clauses: null, penalties: null,
+  },
+};
+
+const previewTrustedContracts = buildTrustedPortfolio(previewContractRows, previewBatch, projects);
+const previewTrustedStats = computeTrustedPortfolioStats(previewTrustedContracts);
+
 const reports: { name: string; html: () => string }[] = [
   {
     name: 'contratos-portfolio',
     html: () => buildContractReportHtml({
-      records: enrichContractsForGovernance(contracts, projects),
+      records: enrichContractsForGovernance(contracts, projects, { intent: DEMO_PREVIEW_INTENT }),
+      trusted: previewTrustedStats,
+      trustedContracts: previewTrustedContracts,
       periodLabel: 'Carteira ativa',
       filtersLabel: 'Todos os contratos',
       source: 'Preview sintético (harness)',
