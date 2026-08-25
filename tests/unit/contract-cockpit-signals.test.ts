@@ -238,7 +238,7 @@ describe('buildConnectedRows', () => {
 
   it('mostra o código do projeto quando vinculado', () => {
     const row0 = buildConnectedRows(build(full))[0];
-    expect(row0.state).toBe('CEMIG-MOD-01');
+    expect(row0.state).toBe('CEMIG - 2450.07/2024');
     expect(row0.tone).toBe('success');
   });
 

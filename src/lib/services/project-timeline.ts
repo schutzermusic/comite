@@ -22,7 +22,10 @@ import {
   type AssignmentRole,
   type DelayLog,
   type DelayReportInput,
+  type DependencyType,
+  type NewDependencyInput,
   type NewTimelineItemInput,
+  type TimelineDependency,
   type ScheduleImport,
   type TimelineAssignment,
   type TimelineComment,
@@ -36,6 +39,7 @@ type SupabaseLike = ReturnType<typeof createClient>;
 const ITEMS = 'project_timeline_items';
 const ASSIGNMENTS = 'project_timeline_assignments';
 const COMMENTS = 'project_timeline_comments';
+const DEPENDENCIES = 'project_timeline_dependencies';
 const DELAY_LOGS = 'project_delay_logs';
 const IMPORTS = 'project_schedule_imports';
 
@@ -881,4 +885,135 @@ export async function listImports(projectId: string): Promise<ScheduleImport[]> 
     parseSummary: (row.parse_summary as Record<string, unknown>) ?? {},
     warnings: Array.isArray(row.warnings) ? (row.warnings as string[]) : [],
   }));
+}
+
+/* ───────────── Dependencies (migration 032) ───────────── */
+
+/**
+ * Lê as dependências do projeto. NUNCA lança: uma falha de RLS aqui não pode
+ * apagar o Gantt inteiro — as setas são um enriquecimento, não o dado
+ * principal. Mesmo contrato da hidratação de assignments em listTimelineItems.
+ */
+export async function listTimelineDependencies(projectId: string): Promise<TimelineDependency[]> {
+  try {
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from(DEPENDENCIES)
+      .select('*')
+      .eq('project_id', projectId);
+    if (error) return [];
+    return (data ?? []).map((row: Record<string, unknown>) => ({
+      id: row.id as string,
+      organizationId: row.organization_id as string,
+      projectId: row.project_id as string,
+      predecessorId: row.predecessor_id as string,
+      successorId: row.successor_id as string,
+      type: (row.type as DependencyType) ?? 'FS',
+      lagMinutes: (row.lag_minutes as number | null) ?? 0,
+      createdAt: toDate(row.created_at as string) ?? new Date(),
+    }));
+  } catch {
+    return [];
+  }
+}
+
+export async function createDependency(input: NewDependencyInput): Promise<TimelineDependency> {
+  if (input.predecessorId === input.successorId) {
+    throw new Error('Uma atividade não pode depender de si mesma.');
+  }
+  const supabase = createClient();
+  const { orgId } = await getCurrentOrgAndUser(supabase);
+
+  const { data, error } = await supabase
+    .from(DEPENDENCIES)
+    .insert({
+      organization_id: orgId,
+      project_id: input.projectId,
+      predecessor_id: input.predecessorId,
+      successor_id: input.successorId,
+      type: input.type ?? 'FS',
+      lag_minutes: input.lagMinutes ?? 0,
+    })
+    .select('*')
+    .single();
+
+  // 23505 = unique_violation: o par predecessora/sucessora já existe.
+  if (error?.code === '23505') throw new Error('Essa dependência já existe.');
+  if (error || !data) throw new Error(friendlyError('Falha ao criar dependência', error ?? {}));
+
+  return {
+    id: data.id as string,
+    organizationId: data.organization_id as string,
+    projectId: data.project_id as string,
+    predecessorId: data.predecessor_id as string,
+    successorId: data.successor_id as string,
+    type: (data.type as DependencyType) ?? 'FS',
+    lagMinutes: (data.lag_minutes as number | null) ?? 0,
+    createdAt: toDate(data.created_at as string) ?? new Date(),
+  };
+}
+
+export async function updateDependency(
+  id: string,
+  patch: { type?: DependencyType; lagMinutes?: number },
+): Promise<void> {
+  const supabase = createClient();
+  const payload: Record<string, unknown> = {};
+  if (patch.type !== undefined) payload.type = patch.type;
+  if (patch.lagMinutes !== undefined) payload.lag_minutes = patch.lagMinutes;
+  if (Object.keys(payload).length === 0) return;
+
+  const { error } = await supabase.from(DEPENDENCIES).update(payload).eq('id', id);
+  if (error) throw new Error(friendlyError('Falha ao atualizar dependência', error));
+}
+
+export async function deleteDependency(id: string): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase.from(DEPENDENCIES).delete().eq('id', id);
+  if (error) throw new Error(friendlyError('Falha ao remover dependência', error));
+}
+
+/**
+ * Últimos atrasos do PROJETO inteiro, para o feed de eventos.
+ * Uma query só — o feed nunca faz fan-out por item (seria N+1).
+ */
+export async function listDelayLogsByProject(projectId: string, limit = 30): Promise<DelayLog[]> {
+  try {
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from(DELAY_LOGS)
+      .select('*')
+      .eq('project_id', projectId)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (error) return [];
+
+    let members: OrgMember[] = [];
+    try {
+      members = await listOrgMembers();
+    } catch {
+      /* names only */
+    }
+    return (data ?? []).map((row: Record<string, unknown>) => ({
+      id: row.id as string,
+      organizationId: row.organization_id as string,
+      projectId: row.project_id as string,
+      timelineItemId: row.timeline_item_id as string,
+      reportedBy: (row.reported_by as string | null) ?? null,
+      oldStatus: (row.old_status as string | null) ?? null,
+      newStatus: (row.new_status as string | null) ?? null,
+      reasonCategory: (row.reason_category as DelayLog['reasonCategory']) ?? null,
+      reasonText: (row.reason_text as string | null) ?? null,
+      impactText: (row.impact_text as string | null) ?? null,
+      recoveryPlanText: (row.recovery_plan_text as string | null) ?? null,
+      supportNeededText: (row.support_needed_text as string | null) ?? null,
+      contractImpact: Boolean(row.contract_impact),
+      oldForecastFinish: (row.old_forecast_finish as string | null) ?? null,
+      newForecastFinish: (row.new_forecast_finish as string | null) ?? null,
+      createdAt: toDate(row.created_at as string) ?? new Date(),
+      reporterName: members.find((m) => m.userId === row.reported_by)?.fullName ?? null,
+    }));
+  } catch {
+    return [];
+  }
 }

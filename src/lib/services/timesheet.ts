@@ -669,6 +669,27 @@ export async function listEntriesByProject(
   return (data ?? []).map((row) => mapEntryRow(row as unknown as EntryRow));
 }
 
+/**
+ * Sessões de trabalho do projeto a partir de uma data — usadas pelo cronograma
+ * para os sinais de "ativo agora" e "trabalhado hoje". Descartadas ficam de
+ * fora: não são apontamento, são ruído.
+ */
+export async function listSessionsByProject(
+  projectId: string,
+  sinceIso: string,
+): Promise<ProjectWorkSession[]> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from(SESSIONS_TABLE)
+    .select('*')
+    .eq('project_id', projectId)
+    .in('status', ['running', 'draft', 'consolidated'])
+    .gte('started_at', sinceIso)
+    .order('started_at', { ascending: false });
+  if (error) throw new Error(rlsFriendlyMessage('Erro ao carregar sessões do projeto', error));
+  return (data ?? []).map((row) => mapSessionRow(row as SessionRow));
+}
+
 export async function listMyEntries(month?: string): Promise<TimeEntry[]> {
   const person = await getCurrentPerson();
   if (!person) return [];

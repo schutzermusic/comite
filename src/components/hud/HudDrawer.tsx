@@ -19,6 +19,8 @@ export interface HudDrawerProps {
   hideMainContent?: boolean;
   /** Sticky footer rendered below the scroll area (action buttons). */
   footer?: React.ReactNode;
+  /** Extra buttons rendered in the header, to the left of the close button. */
+  headerActions?: React.ReactNode;
 }
 
 export function HudDrawer({
@@ -32,6 +34,7 @@ export function HudDrawer({
   className,
   showCloseButton = true,
   footer,
+  headerActions,
 }: HudDrawerProps) {
   const [mounted, setMounted] = useState(false);
 
@@ -112,13 +115,18 @@ export function HudDrawer({
                     <p className="text-sm text-ig-fg-muted mt-0.5">{subtitle}</p>
                   )}
                 </div>
-                {showCloseButton && (
-                  <button
-                    onClick={onClose}
-                    className="flex items-center justify-center w-8 h-8 rounded-lg bg-ig-panel border border-ig-border text-ig-fg-muted hover:text-ig-fg-strong hover:bg-ig-panel-hover transition-colors ml-3 flex-shrink-0"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
+                {(headerActions || showCloseButton) && (
+                  <div className="ml-3 flex flex-shrink-0 items-center gap-2">
+                    {headerActions}
+                    {showCloseButton && (
+                      <button
+                        onClick={onClose}
+                        className="flex items-center justify-center w-8 h-8 rounded-lg bg-ig-panel border border-ig-border text-ig-fg-muted hover:text-ig-fg-strong hover:bg-ig-panel-hover transition-colors flex-shrink-0"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
 

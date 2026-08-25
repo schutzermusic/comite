@@ -225,11 +225,6 @@ export function ProjectDetailDrawer({
                 <HudStatusPill variant={STATUS_VARIANT[project.status] ?? 'neutral'} size="sm">
                   {formatStatus(project.status)}
                 </HudStatusPill>
-                {project.sankhya_integrado && (
-                  <HudStatusPill variant="info" size="sm">
-                    Sankhya
-                  </HudStatusPill>
-                )}
               </div>
               <h2 className="mt-2 text-lg font-semibold drawer-v2-title leading-tight">
                 {project.nome}

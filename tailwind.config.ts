@@ -216,6 +216,7 @@ export default {
             muted:    'var(--ig-fg-muted)',
             subtle:   'var(--ig-fg-subtle)',
             disabled: 'var(--ig-fg-disabled)',
+            numeric:  'var(--ig-fg-numeric)',
           },
           border: {
             subtle:  'var(--ig-border-subtle)',

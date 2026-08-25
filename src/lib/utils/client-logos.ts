@@ -35,6 +35,17 @@ const DEMO_REGISTRY: Record<string, string> = {
 };
 
 /**
+ * Per-client logo scale overrides (1.0 = no change).
+ * Use when a client's logo has excessive whitespace or is visually smaller
+ * than peer logos rendered at the same container size.
+ * Keys are slugs of the client name.
+ */
+const LOGO_SCALE_REGISTRY: Record<string, number> = {
+  enel: 1.2,
+  'enel-green-power': 1.2,
+};
+
+/**
  * Resolve a logo URL for a project's client.
  *
  * @param client       Client display name (e.g. "PETROBRAS")
@@ -51,9 +62,25 @@ export function getClientLogoUrl(
 }
 
 /**
+ * Resolve the visual scale multiplier for a client's logo.
+ * Returns 1.0 when no override is registered.
+ */
+export function getClientLogoScale(client: string | null | undefined): number {
+  if (!client) return 1;
+  return LOGO_SCALE_REGISTRY[slugify(client)] ?? 1;
+}
+
+/**
  * Public registry helper: register a logo URL for a client at runtime
  * (useful for tests, Storybook, or wiring backend data on app boot).
  */
 export function registerClientLogo(client: string, url: string): void {
   DEMO_REGISTRY[slugify(client)] = url;
+}
+
+/**
+ * Public registry helper: register a scale override for a client's logo.
+ */
+export function registerClientLogoScale(client: string, scale: number): void {
+  LOGO_SCALE_REGISTRY[slugify(client)] = scale;
 }

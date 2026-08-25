@@ -27,7 +27,7 @@ const qa = JSON.parse(readFileSync('tests/.qa-env.json', 'utf8')) as {
 
 const CONTRACT_NUMBER = 'QA-0001';
 const CONTRACT_TITLE = '[QA] Contrato de Serviços';
-const PROJECT_CODE = 'CEMIG-MOD-01';
+const PROJECT_CODE = 'CEMIG - 2450.07/2024';
 /** Sufixo único por execução: nenhum teste depende de estado deixado por outro. */
 const RUN = Date.now().toString(36).slice(-5);
 

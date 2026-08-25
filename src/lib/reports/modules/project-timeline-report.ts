@@ -23,15 +23,48 @@ import { renderReportDocument } from '@/lib/reports/report-shell';
 import { openReport, buildReportMeta, buildReportFileName } from '@/lib/reports/report-export';
 import type { ReportExportResult } from '@/lib/reports/report-types';
 
+/**
+ * Execução por atividade, vinda do apontamento do colaborador.
+ *
+ * SOMENTE HORAS — nunca custo. O relatório não tem como sondar
+ * `people.cost_view`, e a regra do módulo é que custo só sai de
+ * project_labor_cost_periods / employee_cost_snapshots, que são RLS-gated.
+ */
+export interface ExecutionReportRow {
+  itemId: string;
+  plannedHours: number | null;
+  loggedHours: number | null;
+  variance: number | null;
+  lastActivityAt: string | null;
+  collaborators: string[];
+}
+
 export interface ProjectTimelineReportPayload {
   projectName: string;
   projectCode?: string;
   items: TimelineItem[];
   /** Resolve a responsible user id to a display name. */
   resolveUserName?: (userId: string | null) => string;
+  /**
+   * Presente apenas quando o gerador tinha permissão de leitura do timesheet.
+   * Ausente ⇒ a seção some e o box de qualidade de dados diz por quê.
+   */
+  execution?: ExecutionReportRow[];
   brandName?: string;
   source?: string;
   generatedBy?: string;
+}
+
+/** Horas em pt-BR; `null` vira travessão — ausente nunca é impresso como zero. */
+function fmtHoursCell(hours: number | null): string {
+  if (hours == null) return '—';
+  return `${hours.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} h`;
+}
+
+function fmtVarianceCell(variance: number | null): string {
+  if (variance == null) return '—';
+  const sign = variance > 0 ? '+' : '';
+  return `${sign}${variance.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} h`;
 }
 
 const DELAY_LABEL: Record<string, string> = { on_track: 'No prazo', at_risk: 'Em risco', delayed: 'Atrasada', blocked: 'Bloqueada' };
@@ -213,12 +246,66 @@ export function buildProjectTimelineReportHtml(payload: ProjectTimelineReportPay
   blocks.push(block(sectionTitle('Marcos', `${fmtInt(milestones.length)} marcos`), mmForSectionTitle(true), { keepWithNext: true }));
   blocks.push(block(milestones.length ? msTable : '<p class="empty">Sem marcos no cronograma.</p>', milestones.length ? mmForTable(milestones.length, { rowMm: 5.6 }) : 8));
 
+  // ── Execução × Planejamento (só quando o apontamento é legível) ──
+  const execRows = payload.execution ?? [];
+  const execById = new Map(execRows.map((r) => [r.itemId, r]));
+  // Só entram folhas com algum sinal de execução — listar o cronograma inteiro
+  // com "—" em todas as colunas não informa nada.
+  const execLeaves = leaves.filter((i) => {
+    const row = execById.get(i.id);
+    return row && ((row.loggedHours ?? 0) > 0 || row.plannedHours != null);
+  });
+
+  if (execRows.length > 0 && execLeaves.length > 0) {
+    const execTable = dataTableChunked(
+      [
+        { key: 'wbs', label: 'EDT' },
+        { key: 'title', label: 'Atividade' },
+        { key: 'who', label: 'Colaboradores' },
+        { key: 'planned', label: 'Plan.', num: true },
+        { key: 'logged', label: 'Apont.', num: true },
+        { key: 'delta', label: 'Δ', num: true },
+        { key: 'last', label: 'Últ. apontamento' },
+      ],
+      execLeaves.map((i) => {
+        const row = execById.get(i.id)!;
+        const over = (row.variance ?? 0) > 0;
+        return {
+          wbs: { html: `<span class="mono">${esc(i.wbsCode ?? '—')}</span>` },
+          title: i.title,
+          who: row.collaborators.length ? row.collaborators.join(', ') : '—',
+          planned: { html: `<span class="mono">${esc(fmtHoursCell(row.plannedHours))}</span>` },
+          logged: { html: `<span class="mono">${esc(fmtHoursCell(row.loggedHours))}</span>` },
+          delta: {
+            html: `<span class="mono"${over ? ` style="color:${C.warning}"` : ''}>${esc(fmtVarianceCell(row.variance))}</span>`,
+          },
+          last: { html: `<span class="mono">${esc(row.lastActivityAt ? fmtDate(row.lastActivityAt.slice(0, 10)) : '—')}</span>` },
+        };
+      }),
+    );
+    blocks.push(block(
+      sectionTitle('Execução × Planejamento', `${fmtInt(execLeaves.length)} atividades com apontamento`),
+      mmForSectionTitle(true),
+      { keepWithNext: true },
+    ));
+    // dataTableChunked já devolve blocos paginados — espalhar, não embrulhar.
+    blocks.push(...execTable);
+  }
+
   // ── Data quality ──
   const issues: string[] = [];
   if (!items.length) issues.push('Cronograma vazio — nenhuma atividade importada/cadastrada.');
   if (kpi.missingResponsible) issues.push(`${fmtInt(kpi.missingResponsible)} atividade(s) sem responsável.`);
   const noDates = leaves.filter((i) => !i.plannedFinish && !i.forecastFinish).length;
   if (noDates) issues.push(`${fmtInt(noDates)} atividade(s) sem data de término.`);
+  // A ausência das horas é declarada, não silenciada: o leitor precisa saber
+  // que a seção falta por permissão, não porque ninguém apontou.
+  if (!payload.execution) {
+    issues.push('Horas de apontamento não incluídas: sem permissão de leitura do timesheet.');
+  } else {
+    const noDuration = leaves.filter((i) => i.durationMinutes == null).length;
+    if (noDuration) issues.push(`${fmtInt(noDuration)} atividade(s) sem duração — horas planejadas ausentes.`);
+  }
   blocks.push(block(sectionTitle('Qualidade dos Dados'), mmForSectionTitle(), { keepWithNext: true }));
   blocks.push(block(dataQualityBox(issues), mmForWarningBox(Math.max(1, issues.length))));
 

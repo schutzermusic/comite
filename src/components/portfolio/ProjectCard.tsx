@@ -9,7 +9,7 @@ import { compactBRL } from '@/lib/utils/project-utils';
 import { useState } from 'react';
 import { HudStatusPill } from '@/components/hud';
 import { ProjectHealthIndicator } from './ProjectHealthIndicator';
-import { getClientLogoUrl } from '@/lib/utils/client-logos';
+import { getClientLogoUrl, getClientLogoScale } from '@/lib/utils/client-logos';
 
 interface ProjectCardProps {
   project: Project;
@@ -226,6 +226,7 @@ export function ProjectCard({ project, v2, onView, onDelete, delay = 0 }: Projec
 function ClientLogoTop({ client, logoUrl }: { client?: string | null; logoUrl?: string | null }) {
   const [errored, setErrored] = useState(false);
   const resolved = getClientLogoUrl(client, logoUrl);
+  const scale = getClientLogoScale(client);
 
   if (!resolved || errored) return null;
 
@@ -237,7 +238,7 @@ function ClientLogoTop({ client, logoUrl }: { client?: string | null; logoUrl?: 
         alt={client || 'Logo cliente'}
         onError={() => setErrored(true)}
         className="h-8 w-auto max-w-full object-contain client-logo-img"
-        style={{ opacity: 1 }}
+        style={{ opacity: 1, ...(scale !== 1 ? { transform: `scale(${scale})` } : {}) }}
         draggable={false}
       />
     </div>

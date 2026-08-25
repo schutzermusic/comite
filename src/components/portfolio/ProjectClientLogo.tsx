@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
-import { getClientLogoUrl } from '@/lib/utils/client-logos';
+import { getClientLogoUrl, getClientLogoScale } from '@/lib/utils/client-logos';
 
 interface ProjectClientLogoProps {
   client?: string | null;
@@ -53,6 +53,7 @@ export function ProjectClientLogo({
   const tint = useMemo(() => tintFor(name || 'Cliente'), [name]);
 
   const resolvedUrl = useMemo(() => getClientLogoUrl(name, logoUrl), [name, logoUrl]);
+  const logoScale = useMemo(() => getClientLogoScale(name), [name]);
   const showImage = !!resolvedUrl && !errored;
 
   return (
@@ -82,6 +83,7 @@ export function ProjectClientLogo({
           alt={name}
           onError={() => setErrored(true)}
           className="w-full h-full object-contain p-0.5"
+          style={logoScale !== 1 ? { transform: `scale(${logoScale})` } : undefined}
         />
       ) : (
         <span className="tracking-wide drop-shadow-sm">{initials}</span>

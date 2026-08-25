@@ -62,6 +62,7 @@ import {
   Scale,
   ShieldAlert,
   ShieldCheck,
+  Trash2,
   Wallet,
   Workflow,
 } from 'lucide-react';
@@ -103,8 +104,10 @@ export interface ContractDossierDrawerProps {
   onExportPdf: (record: ContractGovernanceRecord) => void;
   onOpenFinance: (record: ContractGovernanceRecord) => void;
   onOpenBilling: (record: ContractGovernanceRecord) => void;
+  /** Excluir o contrato — só é chamado quando `permissions.delete` é true. */
+  onDelete?: (record: ContractGovernanceRecord) => void;
   /** UI-level RBAC gating; Supabase RLS enforces server-side. */
-  permissions: { edit: boolean; approve: boolean; uploadDoc: boolean };
+  permissions: { edit: boolean; approve: boolean; uploadDoc: boolean; delete?: boolean };
   /** Called after an in-drawer item mutation so the page governance/KPIs refresh. */
   onDataChanged?: () => Promise<void> | void;
 }
@@ -216,6 +219,7 @@ export function ContractDossierDrawer({
   onExportPdf,
   onOpenFinance,
   onOpenBilling,
+  onDelete,
   permissions,
   onDataChanged,
 }: ContractDossierDrawerProps) {
@@ -502,6 +506,19 @@ export function ContractDossierDrawer({
       subtitle={`${record.code} · cockpit operacional`}
       width="600px"
       footer={footer}
+      headerActions={
+        permissions.delete && onDelete ? (
+          <button
+            type="button"
+            title="Excluir contrato"
+            aria-label="Excluir contrato"
+            onClick={() => onDelete(record)}
+            className="flex h-8 w-8 items-center justify-center rounded-lg border border-ig-border bg-ig-panel text-ig-fg-muted transition-colors hover:border-[color-mix(in_oklab,var(--ig-danger)_45%,transparent)] hover:bg-red-500/15 hover:text-ig-danger"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        ) : undefined
+      }
     >
       {/*
         ─── Quick Dossier = cockpit operacional ────────────────────────────

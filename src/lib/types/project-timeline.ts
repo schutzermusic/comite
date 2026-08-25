@@ -176,6 +176,48 @@ export interface NewTimelineItemInput {
   isMilestone?: boolean;
 }
 
+/* ───────────────────── Dependências (migration 032) ───────────────────── */
+
+export type DependencyType = 'FS' | 'SS' | 'FF' | 'SF';
+
+export const DEPENDENCY_TYPE_LABELS: Record<DependencyType, string> = {
+  FS: 'Término → Início',
+  SS: 'Início → Início',
+  FF: 'Término → Término',
+  SF: 'Início → Término',
+};
+
+/** Abreviação usada nos chips do drawer, no padrão MS Project. */
+export const DEPENDENCY_TYPE_SHORT: Record<DependencyType, string> = {
+  FS: 'TI',
+  SS: 'II',
+  FF: 'TT',
+  SF: 'IT',
+};
+
+/**
+ * Espelha project_timeline_dependencies. A tabela NÃO tem updated_at nem
+ * created_by — não inventar colunas aqui.
+ */
+export interface TimelineDependency {
+  id: string;
+  organizationId: string;
+  projectId: string;
+  predecessorId: string;
+  successorId: string;
+  type: DependencyType;
+  lagMinutes: number;
+  createdAt: Date;
+}
+
+export interface NewDependencyInput {
+  projectId: string;
+  predecessorId: string;
+  successorId: string;
+  type?: DependencyType;
+  lagMinutes?: number;
+}
+
 export interface TimelineComment {
   id: string;
   organizationId: string;

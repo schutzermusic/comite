@@ -75,7 +75,7 @@ describe('caracterização: enrichContractsForGovernance', () => {
       PROJECTS,
       { intent: DEMO_PREVIEW_INTENT, now: FIXED_NOW },
     );
-    expect(semFlag.every((r) => r.project?.codigo === 'CEMIG-MOD-01')).toBe(true);
+    expect(semFlag.every((r) => r.project?.codigo === 'CEMIG - 2450.07/2024')).toBe(true);
   });
 });
 

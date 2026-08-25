@@ -48,7 +48,7 @@ export function HudMetric({
                     className={cn(
                         s.value,
                         'font-bold tabular-nums tracking-[-0.025em] leading-none',
-                        valueColor || (isLight ? 'text-[#1C1F24]' : 'text-white')
+                        valueColor || 'text-ig-fg-numeric'
                     )}
                     style={isLight ? undefined : { textShadow: '0 0 18px rgba(125, 235, 255, 0.18)' }}
                 >

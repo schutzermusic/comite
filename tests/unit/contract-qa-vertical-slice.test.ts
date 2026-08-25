@@ -133,7 +133,7 @@ describe('[QA] vínculo de projeto', () => {
     // `source` — o compilador recusa ler a fonte de um valor derivado.
     expect(isLive(c.project)).toBe(true);
     if (isLive(c.project)) {
-      expect(c.project.value.codigo).toBe('CEMIG-MOD-01');
+      expect(c.project.value.codigo).toBe('CEMIG - 2450.07/2024');
       expect(c.project.source).toBe('contract_project_links');
     }
   });

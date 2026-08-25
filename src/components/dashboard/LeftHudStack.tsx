@@ -8,6 +8,7 @@ import { HudPanel, HudSparkline } from './hud';
 import type { DashboardPayload } from '@/lib/dashboard-data';
 import { formatCurrency } from '@/lib/dashboard-data';
 import type { StateAggregate } from '@/data/geo/globe-kpi-data';
+import { SignalChip } from '@/components/ui/signal-chip';
 import { FinanceSnapshotCharts } from './finance/FinanceSnapshotCharts';
 
 interface LeftHudStackProps {
@@ -84,9 +85,13 @@ export const LeftHudStack = React.memo(function LeftHudStack({ data, scopeMode =
                                 <span className="text-[9px] text-white/40 tabular-nums flex-shrink-0">
                                     {item.daysOpen}d
                                 </span>
-                                <span className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-emerald-500/[0.08] border border-emerald-500/15 text-emerald-400/70 group-hover:text-emerald-400 group-hover:border-emerald-400/30 transition-all flex-shrink-0">
-                                    {t('act')}
-                                </span>
+                                <SignalChip
+                                    tone="accent"
+                                    size="xs"
+                                    label={t('act')}
+                                    hideDot
+                                />
+
                             </Link>
                         ))}
                     </div>

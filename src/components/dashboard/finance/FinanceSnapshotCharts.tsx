@@ -81,7 +81,7 @@ export function FinanceSnapshotCharts({ financialPulse }: FinanceSnapshotChartsP
   const axisTick = isLight ? { fill: 'rgba(0,0,0,0.45)', fontSize: 9 } : { fill: 'rgba(255,255,255,0.45)', fontSize: 9 };
   const tooltipCursor = isLight ? { fill: 'rgba(0,0,0,0.04)' } : { fill: 'rgba(255,255,255,0.04)' };
   const tooltipStyle = isLight
-    ? { background: 'rgba(255,255,255,0.96)', border: '1px solid rgba(0,0,0,0.08)', borderRadius: 8, fontSize: 11, color: '#1C1F24' }
+    ? { background: 'rgba(255,255,255,0.96)', border: '1px solid rgba(0,0,0,0.08)', borderRadius: 8, fontSize: 11, color: 'var(--ig-fg-numeric)' }
     : { background: 'rgba(4,14,12,0.92)', border: '1px solid rgba(120,220,210,0.25)', borderRadius: 8, fontSize: 11 };
   const containerBorder = isLight ? 'border-black/[0.06] bg-black/[0.02]' : 'border-white/[0.08] bg-white/[0.02]';
   const waterfallBorder = isLight ? 'border-black/[0.06] bg-black/[0.02]' : 'border-white/[0.08] bg-white/[0.03]';
@@ -158,7 +158,7 @@ export function FinanceSnapshotCharts({ financialPulse }: FinanceSnapshotChartsP
       <div className="flex items-end justify-between">
         <div>
           <p className="cr-label">Receita no mês</p>
-          <p className={`text-lg font-bold tabular-nums ${isLight ? 'text-[#1C1F24]' : 'text-white'}`}>
+          <p className="text-lg font-bold tabular-nums tracking-[-0.01em] text-ig-fg-numeric">
             {formatCurrency(financialPulse.revenue.value, 'BRL')}
           </p>
         </div>
@@ -272,17 +272,19 @@ export function FinanceSnapshotCharts({ financialPulse }: FinanceSnapshotChartsP
         {showWaterfall && (
           <div className="mt-2 space-y-2">
             <div className="grid grid-cols-3 gap-2">
+              {/* Magnitude é tinta neutra forte; o sinal semântico fica no rótulo,
+                  no prefixo e nas barras abaixo. */}
               <div className={`rounded-md border px-2 py-1.5 ${waterfallBorder}`}>
                 <p className={`text-[8px] uppercase tracking-[0.1em] ${mutedText}`}>Receita</p>
-                <p className={`text-[11px] tabular-nums font-semibold ${isLight ? 'text-lime-700' : 'text-emerald-300'}`}>{compactCurrency(waterfallData.revenue)}</p>
+                <p className="text-[11px] tabular-nums font-bold text-ig-fg-numeric">{compactCurrency(waterfallData.revenue)}</p>
               </div>
               <div className={`rounded-md border px-2 py-1.5 ${waterfallBorder}`}>
                 <p className={`text-[8px] uppercase tracking-[0.1em] ${mutedText}`}>Custos</p>
-                <p className={`text-[11px] tabular-nums font-semibold ${isLight ? 'text-red-600' : 'text-red-300'}`}>-{compactCurrency(waterfallData.costs)}</p>
+                <p className="text-[11px] tabular-nums font-bold text-ig-fg-numeric">-{compactCurrency(waterfallData.costs)}</p>
               </div>
               <div className={`rounded-md border px-2 py-1.5 ${waterfallBorder}`}>
                 <p className={`text-[8px] uppercase tracking-[0.1em] ${mutedText}`}>Margem</p>
-                <p className={`text-[11px] tabular-nums font-semibold ${isLight ? 'text-lime-800' : 'text-cyan-300'}`}>{compactCurrency(waterfallData.margin)}</p>
+                <p className="text-[11px] tabular-nums font-bold text-ig-fg-numeric">{compactCurrency(waterfallData.margin)}</p>
               </div>
             </div>
 

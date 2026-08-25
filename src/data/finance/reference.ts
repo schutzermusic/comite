@@ -31,7 +31,7 @@ export const projects: ProjectRef[] = [
   { id: 'proj-3', code: 'PRJ-2025-003', name: 'Equinor Bacalhau',        client_id: 'cli-3', contract_id: 'ctr-3', status: 'at_risk' },
   { id: 'proj-4', code: 'PRJ-2026-001', name: 'Eneva GNL Parnaíba',      client_id: 'cli-4', contract_id: 'ctr-4', status: 'active'  },
   { id: 'proj-5', code: 'PRJ-2026-002', name: 'Mineração Vale Sul',                                              contract_id: 'ctr-5', status: 'active'  },
-  { id: 'proj-cemig', code: 'CEMIG-MOD-01', name: 'UHE São Clemente — CEMIG', client_id: 'cli-cemig', contract_id: 'ctr-cemig', status: 'at_risk' },
+  { id: 'proj-cemig', code: 'CEMIG - 2450.07/2024', name: 'UHE São Clemente — CEMIG', client_id: 'cli-cemig', contract_id: 'ctr-cemig', status: 'at_risk' },
 ];
 
 // ============================================================

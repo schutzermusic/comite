@@ -21,6 +21,20 @@ export interface HudRingGaugeProps {
     }>;
 }
 
+/**
+ * Cores neutras vindas do chamador não carregam informação — trocá-las pelo
+ * token numérico é o que mantém o valor quase preto no light e claro no dark.
+ * Tons semânticos (âmbar, vermelho) passam intactos.
+ */
+const NEUTRAL_METRIC_COLORS = new Set(['#fff', '#ffffff', '#94a3b8', '#64748b']);
+
+function resolveMetricColor(color?: string): string {
+    if (!color || NEUTRAL_METRIC_COLORS.has(color.toLowerCase())) {
+        return 'var(--ig-fg-numeric)';
+    }
+    return color;
+}
+
 export function HudRingGauge({
     value,
     max,
@@ -129,10 +143,7 @@ export function HudRingGauge({
                 {/* Center label */}
                 <div className="cr-ring-gauge-label">
                     <span
-                        className={cn(
-                            'text-[2rem] font-bold tabular-nums tracking-tight leading-none',
-                            isLight ? 'text-[#1C1F24]' : 'text-white'
-                        )}
+                        className="text-[2rem] font-bold tabular-nums tracking-tight leading-none text-ig-fg-numeric"
                         style={isLight ? undefined : { textShadow: '0 0 16px rgba(124, 232, 253, 0.24)' }}
                     >
                         {value}
@@ -153,7 +164,7 @@ export function HudRingGauge({
                         <div key={i}>
                             <p
                                 className="text-xl font-bold tabular-nums leading-none"
-                                style={{ color: isLight ? (m.color === '#fff' || m.color === '#ffffff' ? '#1C1F24' : m.color || '#1C1F24') : (m.color || '#fff') }}
+                                style={{ color: resolveMetricColor(m.color) }}
                             >
                                 {m.value}
                             </p>

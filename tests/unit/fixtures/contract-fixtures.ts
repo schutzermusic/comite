@@ -29,7 +29,7 @@ const user = (id: string, name: string): User =>
 export const PROJECT_CEMIG: Project = {
   id: 'proj-cemig-01',
   nome: 'Modernização UHE Salto Grande',
-  codigo: 'CEMIG-MOD-01',
+  codigo: 'CEMIG - 2450.07/2024',
   cliente: 'CEMIG',
   status: 'em_andamento',
   responsavel: user('u-1', 'João Silva'),
@@ -37,7 +37,7 @@ export const PROJECT_CEMIG: Project = {
   valor_total: 1_200_000,
   valor_executado: 300_000,
   progresso_percentual: 25,
-  codigoInterno: 'CEMIG-MOD-01',
+  codigoInterno: 'CEMIG - 2450.07/2024',
   comiteResponsavel: 'Comitê de Governança',
 };
 

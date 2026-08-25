@@ -168,7 +168,7 @@ describe('vínculo de projeto', () => {
       contractRow({ project_id: PROJECT_CEMIG.id }), emptyBatch(), [PROJECT_CEMIG], FIXED_NOW,
     ).project;
     expect(isLive(t)).toBe(true);
-    if (hasOfficialValue(t)) expect(t.value.codigo).toBe('CEMIG-MOD-01');
+    if (hasOfficialValue(t)) expect(t.value.codigo).toBe('CEMIG - 2450.07/2024');
   });
 
   it('resolve por contract_project_links', () => {

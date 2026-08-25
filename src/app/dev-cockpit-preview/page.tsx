@@ -36,11 +36,11 @@ const NOW = new Date('2026-08-18T12:00:00.000Z');
 const QA_ID = 'qa-contract-0001';
 
 const project: Project = {
-  id: 'proj-cemig-01', nome: 'Modernização UHE Salto Grande', codigo: 'CEMIG-MOD-01',
+  id: 'proj-cemig-01', nome: 'Modernização UHE Salto Grande', codigo: 'CEMIG - 2450.07/2024',
   cliente: 'CEMIG', status: 'em_andamento',
   responsavel: { id: 'u-1', nome: 'João Silva' } as unknown as User,
   impacto_financeiro: 'alto', valor_total: 1_200_000, valor_executado: 300_000,
-  progresso_percentual: 25, codigoInterno: 'CEMIG-MOD-01', comiteResponsavel: 'Comitê',
+  progresso_percentual: 25, codigoInterno: 'CEMIG - 2450.07/2024', comiteResponsavel: 'Comitê',
 };
 
 const row: ContractRow = {

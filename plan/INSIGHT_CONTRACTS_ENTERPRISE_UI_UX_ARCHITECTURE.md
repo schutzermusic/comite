@@ -685,7 +685,7 @@ Contrato de Serviços — Fornecedor QA Ltda.
 ACTIVE · Health 73 · Medium Risk
 
 Project
-CEMIG-MOD-01
+CEMIG - 2450.07/2024
 
 Value
 R$ 1.2M

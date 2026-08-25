@@ -16,7 +16,7 @@ export const projects: Project[] = [
   { 
     id: 'proj-001', 
     nome: 'Reforma e modernização da UHE Salto Grande e modernização e digitalização da SE UHE Salto Grande', 
-    codigo: 'CEMIG-MOD-01', 
+    codigo: 'CEMIG - 2450.07/2024', 
     cliente: 'CEMIG S.A',
     clientLogoUrl: 'https://picsum.photos/seed/cemig/64/64',
     status: 'em_andamento',
@@ -30,7 +30,7 @@ export const projects: Project[] = [
     progresso_percentual: 5,
     sankhya_integrado: true,
     sankhya_projeto_id: 'SK-CEMIG-001',
-    codigoInterno: 'CEMIG-MOD-01',
+    codigoInterno: 'CEMIG - 2450.07/2024',
     comiteResponsavel: 'Comitê Estratégico',
     data_inicio: '2024-06-01',
     created_date: '2024-06-01',

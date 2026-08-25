@@ -5,6 +5,7 @@ import { motion, useReducedMotion } from 'motion/react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { GlassPanel } from '@/components/dashboard/GlassPanel';
+import { SignalChip } from '@/components/ui/signal-chip';
 import { useParallaxGlass } from '@/hooks/useParallaxGlass';
 
 export interface HudPanelProps {
@@ -95,17 +96,13 @@ export const HudPanel = React.memo(function HudPanel({
                             )}
                             <span className="cr-panel-title truncate">{title}</span>
                             {badge !== undefined && (
-                                <span
-                                    className={cn(
-                                        'ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[9px] font-semibold tabular-nums border',
-                                        /* Light: âmbar vivo + número escuro */
-                                        'bg-amber-400/35 border-amber-600/55 text-amber-950',
-                                        /* Dark HUD */
-                                        'dark:bg-amber-500/15 dark:border-amber-400/25 dark:text-amber-300'
-                                    )}
-                                >
-                                    {badge}
-                                </span>
+                                <SignalChip
+                                    tone="warning"
+                                    size="xs"
+                                    label={badge}
+                                    hideDot
+                                    className="ml-1 min-w-[18px] justify-center tracking-normal"
+                                />
                             )}
                         </div>
                         {deepLinkHref && (

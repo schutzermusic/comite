@@ -19,6 +19,13 @@
   --ig-fg-subtle:   rgba(242, 245, 247, 0.38);
   --ig-fg-disabled: rgba(242, 245, 247, 0.22);
 
+  /* Números executivos (KPI, moeda, contagens). Sempre opaco — nunca alpha,
+     porque valor financeiro é o topo da hierarquia de leitura. */
+  --ig-fg-numeric:  #F2F5F7;
+  /* Tom neutro sólido para sinais: --ig-fg-subtle carrega alpha e degrada em
+     color-mix(). */
+  --ig-tone-neutral: #94A3B8;
+
   /* ── Borders ── */
   --ig-border-subtle:  rgba(170, 200, 190, 0.06);
   --ig-border-default: rgba(170, 200, 190, 0.10);
@@ -118,6 +125,9 @@ html.light {
   --ig-fg-muted:    #475569;
   --ig-fg-subtle:   #64748B;
   --ig-fg-disabled: #94A3B8;
+
+  --ig-fg-numeric:  #05070B;
+  --ig-tone-neutral: #64748B;
 
   --ig-border-subtle:  rgba(15,23,42,0.04);
   --ig-border-default: rgba(15,23,42,0.08);
@@ -249,13 +259,22 @@ html.dark .ig-dashboard-kpi-scope > div > div:first-child p:last-child {
   background-image: linear-gradient(180deg, var(--ig-fg-strong) 0%, color-mix(in oklab, var(--ig-accent) 36%, var(--ig-fg-strong)) 96%);
   text-shadow: 0 0 18px color-mix(in oklab, var(--ig-accent) 8%, transparent);
 }
+/* Light mode não usa acabamento metálico: o gradiente com tinta de accent
+   rebaixava o número para cinza-esverdeado. Aqui o valor volta a ser tinta
+   sólida quase preta — é o elemento de maior contraste do painel. */
 html.light .ig-dashboard-kpi-primary,
 html.light .ig-dashboard-kpi-secondary,
 html.light .ig-dashboard-kpi-scope .ig-text-metal-accent,
 html.light .ig-dashboard-kpi-scope > div > div:first-child p:last-child {
-  background-image: linear-gradient(180deg, color-mix(in oklab, var(--ig-fg-strong) 86%, var(--ig-accent)) 0%, color-mix(in oklab, var(--ig-accent) 28%, var(--ig-fg-default)) 56%, var(--ig-fg-strong) 100%);
-  text-shadow: 0 1px 0 color-mix(in oklab, var(--ig-bg-raised) 74%, transparent);
+  background-image: none;
+  color: var(--ig-fg-numeric);
+  -webkit-text-fill-color: var(--ig-fg-numeric);
+  text-shadow: none;
 }
+html.light .ig-dashboard-kpi-primary { font-weight: 700; }
+html.light .ig-dashboard-kpi-secondary,
+html.light .ig-dashboard-kpi-scope .ig-text-metal-accent,
+html.light .ig-dashboard-kpi-scope > div > div:first-child p:last-child { font-weight: 680; }
 
 /* ── Utilitários tipográficos ── */
 .ig-tabular {

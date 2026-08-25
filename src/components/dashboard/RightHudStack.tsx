@@ -16,7 +16,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { HudPanel, HudRingGauge } from './hud';
 import type { DashboardPayload } from '@/lib/dashboard-data';
-import { cn } from '@/lib/utils';
+import { SignalChip } from '@/components/ui/signal-chip';
 import type { StateAggregate } from '@/data/geo/globe-kpi-data';
 
 interface RightHudStackProps {
@@ -132,12 +132,13 @@ export const RightHudStack = React.memo(function RightHudStack({ data, scopeMode
                             {
                                 value: data.votingStatus.endingIn72h,
                                 label: '<72h',
-                                color: '#fbbf24',
+                                /* Token em vez de hex: o âmbar de dark mode não
+                                   tem contraste sobre o glass claro. */
+                                color: 'var(--ig-warning)',
                             },
                             {
                                 value: `${data.performanceMetrics.avgDecisionTime}d`,
                                 label: t('avgTimeMedium'),
-                                color: '#94a3b8',
                             },
                         ]}
                     />
@@ -188,19 +189,13 @@ export const RightHudStack = React.memo(function RightHudStack({ data, scopeMode
                             </p>
                             <div className="flex gap-1 overflow-x-auto scrollbar-hide pb-0.5">
                                 {topRiskKeys.slice(1).map((key) => (
-                                    <Link
+                                    <SignalChip
                                         key={key}
+                                        tone="critical"
+                                        size="xs"
+                                        label={t(key)}
                                         href="/riscos"
-                                        className={cn(
-                                            'text-[9px] px-2 py-0.5 rounded-full border transition-all duration-150 whitespace-nowrap flex-shrink-0',
-                                            /* Light: vermelho escuro + texto quase preto (legível no glass claro) */
-                                            'bg-red-500/[0.14] border-red-700/35 text-red-950 hover:bg-red-500/20 hover:border-red-800/50 hover:text-black',
-                                            /* Dark HUD: tons suaves sobre fundo escuro */
-                                            'dark:bg-red-500/[0.07] dark:border-red-400/20 dark:text-red-200/90 dark:hover:border-red-300/40 dark:hover:text-red-100 dark:hover:bg-red-500/[0.12]'
-                                        )}
-                                    >
-                                        {t(key)}
-                                    </Link>
+                                    />
                                 ))}
                             </div>
                         </div>
@@ -222,7 +217,7 @@ export const RightHudStack = React.memo(function RightHudStack({ data, scopeMode
                         {/* Header controls */}
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-1.5">
-                                <span className="cr-live-indicator text-[8px] font-bold text-emerald-300 uppercase tracking-[0.14em]">Live</span>
+                                <SignalChip tone="live" size="xs" label="Live" />
                                 <span className="text-[9px] text-white/30 tabular-nums">
                                     {filteredEvents.length}
                                 </span>
@@ -240,18 +235,17 @@ export const RightHudStack = React.memo(function RightHudStack({ data, scopeMode
                         </div>
 
                         {/* Category filters */}
-                        <div className="flex flex-wrap gap-0.5">
+                        <div className="flex flex-wrap gap-[3px]">
                             {CATEGORY_FILTER_KEYS.map(({ key, labelKey }) => (
-                                <button
+                                <SignalChip
                                     key={key}
+                                    size="xs"
+                                    label={t(labelKey)}
+                                    tone={eventFilter === key ? 'accent' : 'neutral'}
+                                    active={eventFilter === key}
+                                    hideDot
                                     onClick={() => setEventFilter(key)}
-                                    className={cn(
-                                        'hud-filter-pill',
-                                        eventFilter === key && 'hud-filter-pill-active'
-                                    )}
-                                >
-                                    {t(labelKey)}
-                                </button>
+                                />
                             ))}
                         </div>
 
