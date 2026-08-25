@@ -161,6 +161,25 @@ export const pontoApi = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+  /**
+   * P3A — "trabalho atual" resolvido pelo Apex a partir da evidência que já
+   * existe. Serve para o colaborador NÃO ter de escolher a etapa do Gantt.
+   * Pode responder AMBIGUOUS/UNMATCHED/NO_EVIDENCE: nesses casos o app não
+   * deve afirmar nada.
+   */
+  context: () =>
+    authFetch<{
+      ok: true;
+      status: 'MATCHED' | 'AMBIGUOUS' | 'UNMATCHED' | 'NO_EVIDENCE';
+      project: string | null;
+      phase: string | null;
+      activity: string | null;
+      activityId: string | null;
+      team: string | null;
+      confidence: number | null;
+      reasonCodes: string[];
+      candidates: { timelineItemId: string; title: string }[];
+    }>('/api/mobile/context'),
   timeline: (projectId: string) =>
     authFetch<{ ok: true; items: TimelineStage[] }>(
       `/api/mobile/timeline?projectId=${encodeURIComponent(projectId)}`,

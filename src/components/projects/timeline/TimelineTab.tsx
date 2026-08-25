@@ -15,7 +15,8 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { CalendarClock, Crosshair, FileUp, GanttChartSquare, Info, Loader2, Plus, Workflow } from 'lucide-react';
+import { Bot, CalendarClock, Crosshair, FileUp, GanttChartSquare, Info, Loader2, Plus, Users2, Workflow } from 'lucide-react';
+import { SignalChip } from '@/components/ui/signal-chip';
 import { HudButton, HudEmptyState, HudKpiStrip, HudPanel, useHudToast } from '@/components/hud';
 import { usePermissions } from '@/hooks/use-permissions';
 import {
@@ -39,6 +40,45 @@ import {
 } from '@/lib/projects/timeline-execution';
 import { buildTree } from '@/lib/projects/timeline-analytics';
 import { buildScheduleIntelligence, formatDays } from '@/lib/projects/timeline-intelligence';
+import {
+  computeAssignmentCoverage,
+  computeAutonomyMetrics,
+  formatRate,
+  matchAll,
+  EMPTY_AUTONOMY,
+  MATCHING_POLICY,
+  type EvidenceMatch,
+} from '@/lib/projects/execution-matching';
+import {
+  buildExecutionExceptions,
+  buildObservedExecution,
+  type ExecutionException,
+  type ObservedExecution,
+} from '@/lib/projects/execution-derivation';
+import {
+  loadProjectEvidence,
+  EMPTY_EVIDENCE_BUNDLE,
+  type ProjectEvidenceBundle,
+} from '@/lib/services/execution-evidence';
+import { ExecutionExceptionsPanel } from './ExecutionExceptionsPanel';
+import {
+  buildSessionCandidates,
+  autoApplicable,
+} from '@/lib/projects/execution-automation';
+import {
+  computeExecutionAutonomy,
+  EMPTY_EXECUTION_AUTONOMY,
+  type ApexSessionSummary,
+} from '@/lib/projects/execution-policy';
+import {
+  listApexSessions,
+  writeReconstructedSession,
+} from '@/lib/services/execution-writeback';
+import {
+  listProjectTeams,
+  listTimelineTeamAssignments,
+} from '@/lib/services/project-teams';
+import type { ProjectTeam, TimelineTeamAssignment } from '@/lib/types/project-timeline';
 import type { DelayLog, NewTimelineItemInput, TimelineDependency, TimelineItem } from '@/lib/types/project-timeline';
 import type { ProjectWorkSession, TimeEntry } from '@/lib/types/people';
 import { GanttView, type GanttViewHandle } from './GanttView';
@@ -80,6 +120,11 @@ export function TimelineTab({ projectId, projectName, projectManagerUserId }: Ti
   const [delayLogs, setDelayLogs] = useState<DelayLog[]>([]);
   const [links, setLinks] = useState<PersonUserLink[]>([]);
   const [availability, setAvailability] = useState<ExecutionAvailability>('unavailable');
+  const [evidenceBundle, setEvidenceBundle] = useState<ProjectEvidenceBundle>(EMPTY_EVIDENCE_BUNDLE);
+  const [teams, setTeams] = useState<ProjectTeam[]>([]);
+  const [teamAssignments, setTeamAssignments] = useState<TimelineTeamAssignment[]>([]);
+  const [apexSessions, setApexSessions] = useState<ApexSessionSummary[]>([]);
+  const [autoRunning, setAutoRunning] = useState(false);
   const [execution, setExecution] = useState<ProjectExecutionModel>(EMPTY_EXECUTION);
   const [counts, setCounts] = useState({ visible: 0, total: 0 });
 
@@ -133,19 +178,44 @@ export function TimelineTab({ projectId, projectName, projectManagerUserId }: Ti
     if (!isTimelineAvailable() || permissionsLoading) return;
     const now = new Date();
 
-    const [deps, logs, data] = await Promise.all([
+    const [deps, logs, data, bundle, projectTeams, itemTeams] = await Promise.all([
       listTimelineDependencies(projectId),
       listDelayLogsByProject(projectId),
       loadProjectExecutionData({ projectId, month: monthKeyOf(now), canReadTimesheet, now }),
+      // Cada fonte de evidência tem gate próprio: uma sem permissão não
+      // derruba as outras nem entra no denominador das métricas.
+      loadProjectEvidence({
+        projectId,
+        capabilities: {
+          timesheet: canReadTimesheet,
+          attendance:
+            hasPermission('people.attendance_view') || hasPermission('people.attendance_manage'),
+          allocations: hasPermission('people.allocations_view') || hasPermission('people.manage'),
+        },
+        now,
+      }),
+      listProjectTeams(projectId),
+      listTimelineTeamAssignments(projectId),
     ]);
 
+    setApexSessions(
+      (await listApexSessions(projectId)).map((r) => ({
+        id: r.id,
+        verificationStatus: r.verification_status,
+        correctedAt: r.corrected_at,
+        durationMinutes: r.duration_minutes,
+      })),
+    );
+    setTeams(projectTeams);
+    setTeamAssignments(itemTeams);
+    setEvidenceBundle(bundle);
     setDependencies(deps);
     setDelayLogs(logs);
     setEntries(data.entries);
     setSessions(data.sessions);
     setLinks(data.links);
     setAvailability(data.availability);
-  }, [projectId, canReadTimesheet, permissionsLoading]);
+  }, [projectId, canReadTimesheet, permissionsLoading, hasPermission]);
 
   useEffect(() => {
     if (items.length > 0) void reloadExecution();
@@ -181,6 +251,110 @@ export function TimelineTab({ projectId, projectName, projectManagerUserId }: Ti
     () => buildScheduleIntelligence({ items, dependencies, now: new Date() }),
     [items, dependencies],
   );
+
+  /* ─── P2: evidência → casamento → observação → exceções ─── */
+  const predecessorsByItem = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const dep of dependencies) {
+      const list = map.get(dep.successorId);
+      if (list) list.push(dep.predecessorId);
+      else map.set(dep.successorId, [dep.predecessorId]);
+    }
+    return map;
+  }, [dependencies]);
+
+  const acquisition = useMemo(() => {
+    if (items.length === 0) {
+      return {
+        matches: [] as EvidenceMatch[],
+        observed: new Map<string, ObservedExecution>(),
+        exceptions: [] as ExecutionException[],
+        candidates: [] as ReturnType<typeof buildSessionCandidates>,
+        executionAutonomy: EMPTY_EXECUTION_AUTONOMY,
+        autonomy: EMPTY_AUTONOMY,
+        coverage: { openLeaves: 0, withExplicitWorker: 0, withTeam: 0, withoutAnyAssignment: 0, workersWithProjectContext: 0 },
+      };
+    }
+    const now = new Date();
+    // A ponte pessoa→usuário é a mesma já usada pelo modelo de execução.
+    const userIdByPerson = new Map(
+      links.filter((l) => l.userId).map((l) => [l.personId, l.userId as string]),
+    );
+
+    /*
+      Intenção por EQUIPE resolvida para `people`: é o que permite atribuir a
+      turma a uma fase inteira sem duplicar cada membro em cada linha do Gantt,
+      e sem depender da ponte people↔auth.users.
+    */
+    const itemsByTeam = new Map<string, string[]>();
+    const teamNameByItem = new Map<string, string>();
+    for (const ta of teamAssignments) {
+      const list = itemsByTeam.get(ta.teamId);
+      if (list) list.push(ta.timelineItemId);
+      else itemsByTeam.set(ta.teamId, [ta.timelineItemId]);
+      if (ta.teamName) teamNameByItem.set(ta.timelineItemId, ta.teamName);
+    }
+    const teamItemsByPerson = new Map<string, Set<string>>();
+    for (const team of teams) {
+      const teamItems = itemsByTeam.get(team.id);
+      if (!teamItems) continue;
+      for (const member of team.members ?? []) {
+        const set = teamItemsByPerson.get(member.personId) ?? new Set<string>();
+        teamItems.forEach((id) => set.add(id));
+        teamItemsByPerson.set(member.personId, set);
+      }
+    }
+
+    const matches = matchAll(evidenceBundle.evidence, {
+      projectId,
+      items,
+      allocations: evidenceBundle.allocations,
+      geofences: evidenceBundle.geofences,
+      userIdByPerson,
+      teamItemsByPerson,
+      teamNameByItem,
+    });
+    const observed = buildObservedExecution({
+      items,
+      evidence: evidenceBundle.evidence,
+      matches,
+      now,
+      autoApplyMin: MATCHING_POLICY.autoApplyMin,
+    });
+    const exceptions = buildExecutionExceptions({
+      items,
+      evidence: evidenceBundle.evidence,
+      matches,
+      observed,
+      predecessorsByItem,
+      now,
+    });
+    // P3B — o que a automação escreveria a partir desta evidência.
+    const candidates = buildSessionCandidates({
+      projectId, items, evidence: evidenceBundle.evidence, matches,
+    });
+
+    return {
+      matches,
+      observed,
+      exceptions,
+      candidates,
+      executionAutonomy: computeExecutionAutonomy({
+        verdicts: candidates.map((c) => c.verdict),
+        sessions: apexSessions,
+      }),
+      autonomy: computeAutonomyMetrics(matches),
+      coverage: computeAssignmentCoverage({
+        items,
+        teamItemIds: new Set(teamAssignments.map((t) => t.timelineItemId)),
+        allocations: evidenceBundle.allocations,
+        now,
+      }),
+    };
+  }, [items, evidenceBundle, links, projectId, predecessorsByItem, teams, teamAssignments, apexSessions]);
+
+  /** Alguma fonte de evidência foi realmente lida? */
+  const anyEvidenceSource = Object.values(evidenceBundle.sourceStatus).some((s) => s === 'available');
   /** Projeto atrás do plano além da tolerância de 15 p.p. */
   const behindPlan =
     schedule.expectedProgressOverall != null &&
@@ -226,6 +400,43 @@ export function TimelineTab({ projectId, projectName, projectManagerUserId }: Ti
   const handleVisibleCountChange = useCallback((visible: number, total: number) => {
     setCounts((prev) => (prev.visible === visible && prev.total === total ? prev : { visible, total }));
   }, []);
+
+  /**
+   * Executa o writeback das sessões que a POLÍTICA liberou. Nada aqui decide
+   * confiança: `autoApplicable` já filtrou por AUTO_APPLY, e cada escrita
+   * passa de novo pela política dentro do serviço — defesa em profundidade.
+   */
+  const runAutomation = useCallback(async () => {
+    const ready = autoApplicable(acquisition.candidates);
+    if (ready.length === 0) return;
+    setAutoRunning(true);
+    let created = 0;
+    let unchanged = 0;
+    let failed = 0;
+    try {
+      for (const c of ready) {
+        const r = await writeReconstructedSession({
+          segment: c.segment, match: c.match, projectId: c.projectId,
+        });
+        if (r.outcome === 'created' || r.outcome === 'updated') created += 1;
+        else if (r.outcome === 'unchanged') unchanged += 1;
+        else if (r.outcome === 'verification_failed' || r.outcome === 'error') failed += 1;
+      }
+      await reloadExecution();
+      notify(
+        `${created} sessão(ões) registrada(s)` +
+          (unchanged > 0 ? ` · ${unchanged} já existia(m)` : '') +
+          (failed > 0 ? ` · ${failed} exigem revisão` : ''),
+        { variant: failed > 0 ? 'error' : 'success' },
+      );
+    } catch (e) {
+      notify('Falha ao registrar sessões', {
+        description: e instanceof Error ? e.message : undefined, variant: 'error',
+      });
+    } finally {
+      setAutoRunning(false);
+    }
+  }, [acquisition.candidates, reloadExecution, notify]);
 
   const handleDepsChanged = useCallback(async () => {
     setDependencies(await listTimelineDependencies(projectId));
@@ -465,6 +676,132 @@ export function TimelineTab({ projectId, projectName, projectManagerUserId }: Ti
             </>
           )}
 
+          {/*
+            P2 — aquisição autônoma. A faixa só existe quando ALGUMA fonte de
+            evidência foi realmente lida: taxa sobre denominador vazio seria
+            métrica fabricada.
+          */}
+          {anyEvidenceSource && acquisition.autonomy.totalEvidence > 0 && (
+            <HudKpiStrip
+              columns={5}
+              kpis={[
+                {
+                  id: 'evidence',
+                  label: 'Evidências lidas',
+                  value: acquisition.autonomy.totalEvidence,
+                },
+                {
+                  id: 'match-rate',
+                  label: 'Taxa de casamento',
+                  value: formatRate(acquisition.autonomy.matchRate),
+                },
+                {
+                  id: 'autonomy',
+                  label: 'Autonomia',
+                  value: formatRate(acquisition.autonomy.autonomyRate),
+                  variant: (acquisition.autonomy.autonomyRate ?? 0) > 0.5 ? 'success' : 'default',
+                  tintValue: (acquisition.autonomy.autonomyRate ?? 0) > 0.5,
+                },
+                {
+                  id: 'ambiguous',
+                  label: 'Ambíguas',
+                  value: formatRate(acquisition.autonomy.ambiguousRate),
+                  variant: (acquisition.autonomy.ambiguousRate ?? 0) > 0 ? 'warning' : 'default',
+                  tintValue: (acquisition.autonomy.ambiguousRate ?? 0) > 0,
+                },
+                {
+                  id: 'human',
+                  label: 'Exigem decisão',
+                  value: acquisition.autonomy.needingHuman,
+                  variant: acquisition.autonomy.needingHuman > 0 ? 'warning' : 'default',
+                  tintValue: acquisition.autonomy.needingHuman > 0,
+                },
+              ]}
+            />
+          )}
+
+          {/*
+            P3A — cobertura de INTENÇÃO. Diz ao gestor onde falta declarar
+            responsabilidade: é a alavanca direta para subir a autonomia, já
+            que atribuição nominal (0,92) e equipe (0,85) casam sozinhas,
+            enquanto contexto puro (janela, 0,55) não.
+          */}
+          {acquisition.coverage.openLeaves > 0 && (
+            <p className="flex flex-wrap items-center gap-x-2 gap-y-1 px-1 text-[11px] text-ig-fg-subtle">
+              <Users2 className="h-3.5 w-3.5 shrink-0" />
+              <span>
+                Intenção declarada: {acquisition.coverage.withExplicitWorker} com responsável ·{' '}
+                {acquisition.coverage.withTeam} com equipe ·{' '}
+                <span className={acquisition.coverage.withoutAnyAssignment > 0 ? 'text-ig-warning' : undefined}>
+                  {acquisition.coverage.withoutAnyAssignment} sem atribuição
+                </span>{' '}
+                (de {acquisition.coverage.openLeaves} atividades abertas)
+              </span>
+              {acquisition.coverage.workersWithProjectContext > 0 && (
+                <span>· {acquisition.coverage.workersWithProjectContext} pessoa(s) alocada(s) hoje</span>
+              )}
+            </p>
+          )}
+
+          {/*
+            P3B — reconciliação. Automação bem-sucedida é INVISÍVEL: esta linha
+            só existe quando há algo a fazer ou algo a relatar. O gestor deve
+            ver "2 decisões", nunca "73 sessões reconstruídas para revisar".
+          */}
+          {anyEvidenceSource && acquisition.candidates.length > 0 && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-1 text-[11px] text-ig-fg-subtle">
+              <Bot className="h-3.5 w-3.5 shrink-0" />
+              {acquisition.executionAutonomy.sessionsReconstructed > 0 && (
+                <SignalChip
+                  size="xs"
+                  tone="success"
+                  label={`${acquisition.executionAutonomy.sessionsReconstructed} sessão(ões) reconstruída(s)`}
+                />
+              )}
+              {acquisition.executionAutonomy.sessionsNeedingReview > 0 && (
+                <SignalChip
+                  size="xs"
+                  tone="critical"
+                  label={`${acquisition.executionAutonomy.sessionsNeedingReview} falharam na verificação`}
+                />
+              )}
+              {acquisition.executionAutonomy.sessionsCorrected > 0 && (
+                <SignalChip
+                  size="xs"
+                  tone="warning"
+                  label={`${acquisition.executionAutonomy.sessionsCorrected} corrigida(s) por pessoa`}
+                />
+              )}
+              <span>
+                {autoApplicable(acquisition.candidates).length} sessão(ões) pronta(s) para registro
+                automático · {acquisition.executionAutonomy.requireHuman} exigem decisão
+                {acquisition.executionAutonomy.executionAutonomyRate != null && (
+                  <> · autonomia de execução {formatRate(acquisition.executionAutonomy.executionAutonomyRate)}</>
+                )}
+              </span>
+              {canEdit && autoApplicable(acquisition.candidates).length > 0 && (
+                <HudButton
+                  variant="secondary"
+                  size="sm"
+                  isLoading={autoRunning}
+                  onClick={() => void runAutomation()}
+                >
+                  Registrar sessões
+                </HudButton>
+              )}
+            </div>
+          )}
+
+          {anyEvidenceSource && (
+            <ExecutionExceptionsPanel
+              exceptions={acquisition.exceptions}
+              onSelectItem={(id) => {
+                expandIds(ancestorIdsOf(items, id));
+                selectItem(id);
+              }}
+            />
+          )}
+
           <TimelineFilterRail
             items={items}
             executionKnown={executionKnown}
@@ -519,6 +856,10 @@ export function TimelineTab({ projectId, projectName, projectManagerUserId }: Ti
         dependencies={dependencies}
         execution={selectedItem ? execution.byItem.get(selectedItem.id) : undefined}
         schedule={selectedItem ? schedule.byItem.get(selectedItem.id) : undefined}
+        observed={selectedItem ? acquisition.observed.get(selectedItem.id) : undefined}
+        teams={teams}
+        teamAssignments={teamAssignments}
+        onTeamsChanged={reloadExecution}
         executionKnown={executionKnown}
         entries={entries}
         sessions={sessions}

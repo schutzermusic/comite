@@ -218,6 +218,49 @@ export interface NewDependencyInput {
   lagMinutes?: number;
 }
 
+/* ─────────────────── Equipes de projeto (migration 096) ─────────────────── */
+
+/**
+ * Turma de campo. Existe porque operação atribui EQUIPE, não pessoa-por-tarefa.
+ * Membros são `people` — o mesmo espaço de identidade da evidência operacional,
+ * ao contrário de `TimelineAssignment`, que é auth.users.
+ */
+export interface ProjectTeam {
+  id: string;
+  organizationId: string;
+  projectId: string;
+  name: string;
+  description: string | null;
+  active: boolean;
+  createdAt: Date;
+  /** Hidratado pelo serviço. */
+  members?: ProjectTeamMember[];
+}
+
+export interface ProjectTeamMember {
+  id: string;
+  organizationId: string;
+  teamId: string;
+  personId: string;
+  roleTitle: string | null;
+  addedAt: Date;
+  removedAt: Date | null;
+  /** Hidratado a partir de `people`. */
+  personName?: string | null;
+}
+
+export interface TimelineTeamAssignment {
+  id: string;
+  organizationId: string;
+  projectId: string;
+  timelineItemId: string;
+  teamId: string;
+  assignedAt: Date;
+  removedAt: Date | null;
+  /** Hidratado para exibição. */
+  teamName?: string | null;
+}
+
 export interface TimelineComment {
   id: string;
   organizationId: string;

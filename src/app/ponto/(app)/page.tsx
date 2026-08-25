@@ -171,6 +171,46 @@ export default function PontoHomePage() {
     if (runningProjectId) void loadStages(runningProjectId);
   }, [runningProjectId, loadStages]);
 
+  /**
+   * P3A — contexto resolvido pelo Apex. Carregado em segundo plano e sempre
+   * best-effort: se falhar, a tela segue exatamente como era antes, com o
+   * seletor manual de etapa como fallback.
+   */
+  const [resolvedContext, setResolvedContext] = React.useState<{
+    status: 'MATCHED' | 'AMBIGUOUS' | 'UNMATCHED' | 'NO_EVIDENCE';
+    phase: string | null;
+    activity: string | null;
+    activityId: string | null;
+    team: string | null;
+  } | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    // Só interessa quando há atividade rodando sem etapa escolhida.
+    if (!running || running.timeline_item_id) {
+      setResolvedContext(null);
+      return;
+    }
+    void pontoApi
+      .context()
+      .then((r) => {
+        if (cancelled) return;
+        setResolvedContext({
+          status: r.status,
+          phase: r.phase,
+          activity: r.activity,
+          activityId: r.activityId,
+          team: r.team,
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setResolvedContext(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [running]);
+
   const runningStage = React.useMemo(
     () =>
       running?.timeline_item_id
@@ -490,10 +530,38 @@ export default function PontoHomePage() {
                   ) : null}
                   {runningStage.title}
                 </span>
+              ) : resolvedContext?.status === 'MATCHED' && resolvedContext.activity ? (
+                /*
+                  P3A — o Apex resolveu a etapa a partir da evidência (ponto,
+                  localização, alocação, equipe). O colaborador não precisa
+                  escolher nada: só vê o que o sistema concluiu, e corrige se
+                  estiver errado.
+                */
+                <span>
+                  <span className="mr-1.5 text-ig-fg-subtle">Apex:</span>
+                  {resolvedContext.activity}
+                  {resolvedContext.team ? (
+                    <span className="ml-1.5 text-ig-fg-subtle">· {resolvedContext.team}</span>
+                  ) : null}
+                </span>
               ) : (
                 <span className="text-ig-fg-muted">Sem etapa do cronograma selecionada.</span>
               )}
             </p>
+
+            {/* Contexto resolvido, mas ainda não confirmado por ninguém. */}
+            {!runningStage && resolvedContext?.status === 'MATCHED' && resolvedContext.phase ? (
+              <p className="mt-1 pl-5 text-ig-caption text-ig-fg-subtle">
+                Fase: {resolvedContext.phase}
+              </p>
+            ) : null}
+
+            {/* Ambíguo: o sistema NÃO escolhe por conta própria. */}
+            {!runningStage && resolvedContext?.status === 'AMBIGUOUS' ? (
+              <p className="mt-1 pl-5 text-ig-caption text-ig-fg-muted">
+                Mais de uma atividade possível hoje — confirme em “Mudei de etapa”.
+              </p>
+            ) : null}
             <div className="mt-3.5 space-y-2">
               <PontoButton
                 variant="secondary"
@@ -501,7 +569,9 @@ export default function PontoHomePage() {
                 disabled={busy || submitting}
                 onClick={openStageSwitch}
               >
-                Mudei de etapa
+                {!runningStage && resolvedContext?.status === 'MATCHED'
+                  ? 'Não é isso que estou fazendo'
+                  : 'Mudei de etapa'}
               </PontoButton>
               <PontoButton
                 variant="ghost"

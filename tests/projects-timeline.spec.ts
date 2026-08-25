@@ -30,6 +30,8 @@ let page: Page;
 let projectId = '';
 let firstItemId = '';
 let firstItemTitle = '';
+/** Sufixo único por execução: nenhum teste depende de estado de outro. */
+const RUN = Date.now().toString(36).slice(-5);
 
 async function withDb<T>(fn: (q: (sql: string, params?: unknown[]) => Promise<any[]>) => Promise<T>): Promise<T> {
   const client = new pg.Client({
@@ -104,6 +106,21 @@ test.beforeAll(async ({ browser }) => {
 test.afterAll(async () => {
   test.setTimeout(120_000);
   await ctx?.close();
+
+  // Devolve o banco ao estado anterior: a equipe [E2E] e seus vínculos são
+  // INTENÇÃO de planejamento criada pelo teste, não evidência operacional —
+  // e mesmo assim não pode sobreviver à execução.
+  await withDb(async (q) => {
+    await q(
+      `delete from project_timeline_team_assignments
+        where team_id in (select id from project_teams where name like '[E2E] %')`,
+    );
+    await q(
+      `delete from project_team_members
+        where team_id in (select id from project_teams where name like '[E2E] %')`,
+    );
+    await q(`delete from project_teams where name like '[E2E] %'`);
+  });
 });
 
 test('monta o cronograma com cabeçalho, linhas e legenda', async () => {
@@ -259,6 +276,125 @@ test('o filtro "Atrás do plano" funciona sem permissão de timesheet', async ()
   await page.waitForTimeout(600);
   await expect(counter()).toHaveText(/^\d+ de \d+ atividades$/);
   await page.getByRole('button', { name: 'Limpar' }).click();
+});
+
+/* ──────────────── P2 — aquisição autônoma de evidência ──────────────── */
+
+/** Espera a fase de evidência: faixa de autonomia OU o veredito de exceções. */
+async function waitForEvidencePhase() {
+  const autonomy = page.getByText('Evidências lidas', { exact: true });
+  const verdict = page.getByText(/exceç(ão|ões)|Nenhuma exceção de execução pendente/);
+  await expect(async () => {
+    expect((await autonomy.count()) + (await verdict.count())).toBeGreaterThan(0);
+  }).toPass({ timeout: 45_000 });
+}
+
+test('a fila de exceções substitui a lista de tarefas a manter', async () => {
+  await gotoTimeline();
+  await waitForEvidencePhase();
+
+  // O produto promete "N exceções exigem decisão", não "83 para atualizar".
+  const painel = page.getByText(/exceç(ão|ões) requer(em)? sua decisão/);
+  const vazio = page.getByText('Nenhuma exceção de execução pendente.');
+  expect((await painel.count()) + (await vazio.count())).toBeGreaterThan(0);
+});
+
+test('métricas de autonomia só aparecem com evidência real', async () => {
+  await gotoTimeline();
+  await waitForEvidencePhase();
+
+  const lidas = page.getByText('Evidências lidas', { exact: true });
+  if ((await lidas.count()) === 0) {
+    // Sem fonte legível, a faixa inteira some — taxa sem denominador é ficção.
+    await expect(page.getByText('Taxa de casamento')).toHaveCount(0);
+    return;
+  }
+  await expect(page.getByText('Taxa de casamento')).toBeVisible();
+  await expect(page.getByText('Autonomia', { exact: true })).toBeVisible();
+  // Percentual inteiro ou travessão — nunca um número inventado.
+  await expect(page.getByText(/^(\d{1,3}%|—)$/).first()).toBeVisible();
+});
+
+test('exceção com candidatas abre a atividade escolhida', async () => {
+  await gotoTimeline();
+  await waitForEvidencePhase();
+
+  const linhas = page.locator('button', { hasText: /Decidir|Revisar|Observar/ });
+  const total = await linhas.count();
+  if (total === 0) {
+    test.info().annotations.push({ type: 'note', description: 'sem exceções no dado atual' });
+    return;
+  }
+
+  // Exceção de evidência ÓRFÃ (sem etapa) é deliberadamente não clicável:
+  // não há para onde navegar. Só as ligadas a uma etapa abrem o drawer.
+  const clicavel = linhas.locator('visible=true').and(page.locator('button:not([disabled])')).first();
+  if ((await clicavel.count()) === 0) {
+    await expect(linhas.first()).toBeDisabled();
+    return;
+  }
+
+  await clicavel.click();
+  await expect(page.getByRole('heading', { level: 2 })).toBeVisible({ timeout: 20_000 });
+});
+
+/* ──────────── P3A — atribuição de equipe e contexto resolvido ──────────── */
+
+test('a seção de Equipe existe no drawer e parte de "nenhuma atribuída"', async () => {
+  await gotoTimeline(`&item=${firstItemId}`);
+  await expect(page.getByRole('heading', { name: 'Equipe', exact: true })).toBeVisible({ timeout: 20_000 });
+  const vazio = page.getByText('Nenhuma equipe atribuída a esta atividade.');
+  const atribuida = page.getByRole('button', { name: 'Remover equipe da atividade' });
+  expect((await vazio.count()) + (await atribuida.count())).toBeGreaterThan(0);
+});
+
+test('criar equipe e atribuir a uma fase cobre a subárvore inteira', async () => {
+  // Escolhe uma FASE com filhos — é o caso que o P3A existe para resolver.
+  const phase = await withDb((q) =>
+    q(`select p.id, p.title, count(c.id)::int filhos
+         from project_timeline_items p
+         join project_timeline_items c
+           on c.parent_id = p.id and c.is_active and not c.is_summary
+        where p.project_id = $1 and p.is_summary and p.is_active
+        group by p.id, p.title having count(c.id) between 2 and 12
+        order by count(c.id) desc limit 1`, [projectId]),
+  );
+  expect(phase.length, 'projeto sem fase com filhos — cenário não aplicável').toBe(1);
+  const phaseId = phase[0].id as string;
+  const filhos = Number(phase[0].filhos);
+
+  await gotoTimeline(`&item=${phaseId}`);
+  await expect(page.getByRole('heading', { name: 'Equipe', exact: true })).toBeVisible({ timeout: 20_000 });
+
+  const teamName = `[E2E] Equipe ${RUN}`;
+  await page.getByRole('button', { name: 'Nova equipe' }).click();
+  await page.getByLabel('Nome da nova equipe').fill(teamName);
+  await page.getByRole('button', { name: 'Criar', exact: true }).click();
+
+  // A equipe nasce e já fica selecionada no seletor.
+  await expect
+    .poll(async () => (await withDb((q) =>
+      q(`select id from project_teams where project_id = $1 and name = $2`, [projectId, teamName]),
+    )).length, { timeout: 20_000 })
+    .toBe(1);
+
+  // Aplica à fase inteira: um clique, N atividades.
+  await page.getByLabel(/Aplicar às \d+ atividades desta fase/).check();
+  await page.getByRole('button', { name: 'Atribuir equipe' }).click();
+
+  await expect
+    .poll(async () => (await withDb((q) =>
+      q(`select a.timeline_item_id from project_timeline_team_assignments a
+           join project_teams t on t.id = a.team_id
+          where t.name = $1 and a.removed_at is null`, [teamName]),
+    )).length, { timeout: 25_000 })
+    .toBe(filhos);
+});
+
+test('a cobertura de intenção reflete as atribuições de equipe', async () => {
+  await gotoTimeline();
+  await waitForEvidencePhase();
+  await expect(page.getByText(/Intenção declarada:.*com equipe/)).toBeVisible({ timeout: 30_000 });
 });
 
 test('deep link ?item= abre o drawer da atividade', async () => {

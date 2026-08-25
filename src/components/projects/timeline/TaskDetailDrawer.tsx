@@ -7,7 +7,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { Activity, AlertTriangle, Clock, Gauge, History, Link2, MessageSquare, Send, Trash2, Users, Workflow } from 'lucide-react';
+import { Activity, AlertTriangle, Clock, Gauge, History, Link2, MessageSquare, Radar, Send, Trash2, Users, Workflow } from 'lucide-react';
 import { HudBadge, HudButton, HudDrawer, HudSignal, HudStatusPill, useHudToast } from '@/components/hud';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useCurrentUser } from '@/hooks/use-current-user';
@@ -33,6 +33,8 @@ import {
   type ItemExecution,
 } from '@/lib/projects/timeline-execution';
 import { formatDays, formatPct, type ScheduleSignal } from '@/lib/projects/timeline-intelligence';
+import { EVIDENCE_SOURCE_LABELS } from '@/lib/projects/execution-evidence';
+import type { ObservedExecution } from '@/lib/projects/execution-derivation';
 import { composeTimelineEvents, formatEventTime } from '@/lib/projects/timeline-events';
 import type { ProjectWorkSession, TimeEntry } from '@/lib/types/people';
 import {
@@ -46,11 +48,14 @@ import {
   type DelayReportInput,
   type DependencyType,
   type TimelineComment,
+  type ProjectTeam,
   type TimelineDependency,
   type TimelineItem,
   type TimelineItemStatus,
+  type TimelineTeamAssignment,
 } from '@/lib/types/project-timeline';
 import { DelayReasonDialog } from './DelayReasonDialog';
+import { TeamAssignmentSection } from './TeamAssignmentSection';
 
 /** Uma casa decimal, sem zeros à toa: 8 → "8", 7.5 → "7.5". */
 function round1(n: number): string {
@@ -97,6 +102,11 @@ export interface TaskDetailDrawerProps {
   execution?: ItemExecution;
   /** Sinal de prazo — independe de permissão de timesheet. */
   schedule?: ScheduleSignal;
+  /** Evidência observada e casada para esta etapa. */
+  observed?: ObservedExecution;
+  teams: ProjectTeam[];
+  teamAssignments: TimelineTeamAssignment[];
+  onTeamsChanged: () => void | Promise<void>;
   executionKnown: boolean;
   entries: TimeEntry[];
   sessions: ProjectWorkSession[];
@@ -114,6 +124,10 @@ export function TaskDetailDrawer({
   dependencies,
   execution,
   schedule,
+  observed,
+  teams,
+  teamAssignments,
+  onTeamsChanged,
   executionKnown,
   entries,
   sessions,
@@ -664,6 +678,85 @@ export function TaskDetailDrawer({
           </section>
         )}
 
+        {/* Evidência observada — de onde o sistema tirou o que sabe */}
+        {observed && (
+          <section>
+            <h4 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ig-fg-muted">
+              <Radar className="h-3.5 w-3.5" /> Evidência observada
+            </h4>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <HudBadge variant="neutral" size="sm">
+                {observed.evidenceCount} registro(s)
+              </HudBadge>
+              {observed.sources.map((s) => (
+                <HudBadge key={s} variant="neutral" size="sm">{EVIDENCE_SOURCE_LABELS[s]}</HudBadge>
+              ))}
+              {observed.activeToday && <HudSignal size="sm" tone="live" label="Evidência hoje" pulse />}
+              {observed.matchConfidence != null && (
+                <span className="text-[11px] text-ig-fg-subtle">
+                  Confiança do vínculo: {Math.round(observed.matchConfidence * 100)}%
+                </span>
+              )}
+            </div>
+
+            {observed.observedHours != null && (
+              <p className="mt-2 text-[11px] text-ig-fg-subtle">
+                Horas medidas por evidência: {formatHours(observed.observedHours)}
+              </p>
+            )}
+
+            {observed.unresolvedEvidence > 0 && (
+              <p className="mt-2 flex items-center gap-1.5 text-[11px] text-ig-warning">
+                <AlertTriangle className="h-3.5 w-3.5" />
+                {observed.unresolvedEvidence} evidência(s) abaixo do limiar automático — aguardam confirmação.
+              </p>
+            )}
+
+            {/* Propostas: o sistema sugere, o humano decide. Nada é gravado. */}
+            {(observed.proposedActualStart || observed.proposedActualFinish) && (
+              <div className="mt-2 rounded-lg border border-ig-border p-2.5">
+                <p className="text-[10px] uppercase tracking-wide text-ig-fg-subtle">Sugerido pela evidência</p>
+                {observed.proposedActualStart && (
+                  <div className="mt-1 flex items-center justify-between gap-2 text-xs">
+                    <span className="text-ig-fg">
+                      Início real: {observed.proposedActualStart.split('-').reverse().join('/')}
+                    </span>
+                    {canEdit && (
+                      <HudButton
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => void patch({ actualStart: observed.proposedActualStart })}
+                      >
+                        Confirmar
+                      </HudButton>
+                    )}
+                  </div>
+                )}
+                {observed.proposedActualFinish && (
+                  <div className="mt-1 flex items-center justify-between gap-2 text-xs">
+                    <span className="text-ig-fg">
+                      Término real: {observed.proposedActualFinish.split('-').reverse().join('/')}
+                    </span>
+                    {canEdit && (
+                      <HudButton
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => void patch({ actualFinish: observed.proposedActualFinish })}
+                      >
+                        Confirmar
+                      </HudButton>
+                    )}
+                  </div>
+                )}
+                <p className="mt-1.5 text-[10px] text-ig-fg-subtle">
+                  O progresso (%) nunca é inferido a partir de evidência — só você o define.
+                </p>
+              </div>
+            )}
+          </section>
+        )}
+
         {/* Dependências */}
         <section>
           <h4 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ig-fg-muted">
@@ -764,6 +857,15 @@ export function TaskDetailDrawer({
             </div>
           )}
         </section>
+
+        <TeamAssignmentSection
+          item={item}
+          items={items}
+          teams={teams}
+          teamAssignments={teamAssignments}
+          canAssign={canAssign}
+          onChanged={onTeamsChanged}
+        />
 
         {/* Responsible + team */}
         <section>
