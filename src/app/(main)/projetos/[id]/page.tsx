@@ -42,6 +42,7 @@ import type { ProjectV2 } from '@/lib/types/project-v2';
 import { projectSerial } from '@/lib/utils/serial';
 import { formatMoney } from '@/lib/utils/project-utils';
 import { getClientLogoUrl } from '@/lib/utils/client-logos';
+import { clientLogoSlotSize } from '@/lib/utils/client-logo-frame';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { ExportReportButton } from '@/components/reports/ExportReportButton';
@@ -178,7 +179,8 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
                   <img
                     src={clientLogoUrl}
                     alt={projeto.cliente || 'Logo cliente'}
-                    className="h-10 w-auto max-w-full object-contain client-logo-img"
+                    className="object-contain client-logo-img"
+                    style={clientLogoSlotSize(40)}
                     draggable={false}
                   />
                 </span>

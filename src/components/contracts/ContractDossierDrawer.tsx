@@ -41,6 +41,7 @@ import { listContractAuditEvents, type ContractAuditEventRow } from '@/lib/contr
 import { useContractInstrumentationModals } from './useContractInstrumentationModals';
 import { ChevronDown, Ruler
 } from 'lucide-react';
+import { ClientLogoUploadSlot } from '@/components/portfolio/ClientLogoUploadSlot';
 import {
   approvalRoute, approvalStepOutcome, missingDocuments as trustedMissingDocs,
   obligationBreakdown, contractHealth,
@@ -110,6 +111,11 @@ export interface ContractDossierDrawerProps {
   permissions: { edit: boolean; approve: boolean; uploadDoc: boolean; delete?: boolean };
   /** Called after an in-drawer item mutation so the page governance/KPIs refresh. */
   onDataChanged?: () => Promise<void> | void;
+  /** Upload/remoção da logo do cliente (gravada no projeto vinculado). */
+  onLogoUpload?: (
+    record: ContractGovernanceRecord,
+    file: File | null,
+  ) => Promise<string | null> | string | null;
 }
 
 /**
@@ -222,6 +228,7 @@ export function ContractDossierDrawer({
   onDelete,
   permissions,
   onDataChanged,
+  onLogoUpload,
 }: ContractDossierDrawerProps) {
   const { notify } = useHudToast();
   const contractId = record?.contract.id ?? null;
@@ -232,6 +239,7 @@ export function ContractDossierDrawer({
   /** Histórico real de `audit_logs`, para a seção de atividade recente. */
   const [audit, setAudit] = useState<{ rows: ContractAuditEventRow[]; error: string | null }>({ rows: [], error: null });
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [uploadedLogoUrl, setUploadedLogoUrl] = useState<string | null>(null);
 
   // All state writes happen inside this callback (not lexically in the effect),
   // so the effect body stays free of synchronous setState.
@@ -260,10 +268,28 @@ export function ContractDossierDrawer({
     void loadDetail(contractId);
   }, [isOpen, contractId, loadDetail]);
 
+  useEffect(() => {
+    setUploadedLogoUrl(null);
+  }, [contractId]);
+
   const refreshAfterMutation = useCallback(async () => {
     if (contractId) await loadDetail(contractId);
     if (onDataChanged) await onDataChanged();
   }, [contractId, loadDetail, onDataChanged]);
+
+  const handleLogoSelect = useCallback(
+    (file: File | null) => {
+      if (!record || !onLogoUpload) return;
+      const preview = file ? URL.createObjectURL(file) : null;
+      setUploadedLogoUrl(preview);
+      Promise.resolve(onLogoUpload(record, file))
+        .then((url) => setUploadedLogoUrl(url))
+        .finally(() => {
+          if (preview) URL.revokeObjectURL(preview);
+        });
+    },
+    [record, onLogoUpload],
+  );
 
   const itemModals = useContractItemModals({ onSuccess: refreshAfterMutation });
 
@@ -320,6 +346,15 @@ export function ContractDossierDrawer({
    * sozinhos alguns instantes depois.
    */
   const trusted = detail ? trustedContractFromDetail(detail, record.project ? [record.project] : []) : null;
+  const projectLogo =
+    trusted && hasOfficialValue(trusted.project)
+      ? trusted.project.value.clientLogoUrl
+      : record.project?.clientLogoUrl;
+  const displayLogoUrl = uploadedLogoUrl ?? projectLogo ?? null;
+  const logoAlt =
+    trusted && hasOfficialValue(trusted.counterparty)
+      ? trusted.counterparty.value
+      : record.companyName;
 
   /**
    * Derivações que o cockpit ainda consome diretamente. As demais (execução,
@@ -506,6 +541,16 @@ export function ContractDossierDrawer({
       subtitle={`${record.code} · cockpit operacional`}
       width="600px"
       footer={footer}
+      headerLeading={
+        onLogoUpload || displayLogoUrl ? (
+          <ClientLogoUploadSlot
+            logoUrl={displayLogoUrl}
+            alt={logoAlt || 'Logo do cliente'}
+            disabled={!onLogoUpload || !permissions.edit}
+            onSelect={handleLogoSelect}
+          />
+        ) : undefined
+      }
       headerActions={
         permissions.delete && onDelete ? (
           <button

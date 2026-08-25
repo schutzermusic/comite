@@ -6585,6 +6585,11 @@ html.light .orgchart-stage-surface::before {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 1);
 }
 
+/* Frame canônico 1280×337 — mesma proporção da logo CEMIG */
+.client-logo-frame {
+  aspect-ratio: 1280 / 337;
+}
+
 /* Logo img: multiply in light mode so white areas become transparent */
 .client-logo-img {
   mix-blend-mode: normal;

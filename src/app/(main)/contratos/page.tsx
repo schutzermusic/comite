@@ -3,7 +3,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { Contract, Project } from '@/lib/types';
-import { deleteProject, getProjectsAsync } from '@/lib/services/projects';
+import {
+  deleteProject,
+  getProjectsAsync,
+  updateProjectV2,
+  uploadProjectFile,
+} from '@/lib/services/projects';
+import { hasOfficialValue } from '@/lib/contracts/trust/trusted';
 import { listRisks } from '@/lib/services/risks';
 import { useContracts } from '@/hooks/use-contracts';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -505,6 +511,44 @@ export default function ContratosPage() {
     }
   };
 
+  const handleContractLogoUpload = async (
+    record: ContractGovernanceRecord,
+    file: File | null,
+  ): Promise<string | null> => {
+    const trusted = trustedById.get(record.contract.id);
+    const projectId =
+      trusted && hasOfficialValue(trusted.project)
+        ? trusted.project.value.id
+        : record.project?.id
+          ?? projects.find((project) => {
+              const client = (project.cliente || '').trim().toLowerCase();
+              const name = (record.companyName || '').trim().toLowerCase();
+              return Boolean(client && name && (client === name || client.includes(name) || name.includes(client)));
+            })?.id
+          ?? null;
+
+    if (!projectId) {
+      notify('Vincule um projeto para gravar a logo do cliente', {
+        description: 'A logo fica no projeto e aparece nos cards de contratos e de projetos.',
+        variant: 'warning',
+      });
+      return null;
+    }
+
+    try {
+      const url = file ? (await uploadProjectFile(projectId, file, 'logo')).publicUrl : null;
+      await updateProjectV2(projectId, { clientLogoUrl: url ?? undefined }, 'current_user');
+      await refreshContractsAndProjects();
+      return url;
+    } catch (error) {
+      notify('Não foi possível salvar a logo', {
+        description: error instanceof Error ? error.message : 'Tente enviar a imagem novamente.',
+        variant: 'error',
+      });
+      return null;
+    }
+  };
+
   const handleDeleteContract = async (record: ContractGovernanceRecord) => {
     const confirmed = window.confirm(
       `Excluir o contrato "${record.contract.name}"?\n\nEssa ação remove o contrato e ele deixará de aparecer na lista, independentemente do status atual.`,
@@ -934,6 +978,7 @@ export default function ContratosPage() {
         onDelete={handleDeleteContract}
         permissions={contractPermissions}
         onDataChanged={refreshContractsAndProjects}
+        onLogoUpload={handleContractLogoUpload}
       />
 
       {contractActionModals}

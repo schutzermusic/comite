@@ -25,6 +25,7 @@ import type { TrustedContract } from '@/lib/contracts/trust/read-model';
 import { obligationBreakdown, missingDocuments, renewalState, contractHealth, RENEWAL_LABEL } from '@/lib/contracts/trust/signals';
 import { attentionItems } from '@/lib/contracts/trust/attention';
 import { DataClassBadge } from './PortfolioScope';
+import { ClientLogoBanner } from '@/components/portfolio/ClientLogoBanner';
 
 const BRL = new Intl.NumberFormat('pt-BR', {
   style: 'currency', currency: 'BRL', notation: 'compact',
@@ -67,6 +68,8 @@ export function ContractInstrumentCard({
 
   const counterparty = text(c.counterparty, 'Contraparte não informada');
   const linked = hasOfficialValue(c.project);
+  const logoUrl = linked ? c.project.value.clientLogoUrl : undefined;
+  const logoClient = linked && c.project.value.cliente ? c.project.value.cliente : counterparty;
 
   return (
     <motion.article
@@ -99,6 +102,8 @@ export function ContractInstrumentCard({
         )}
         aria-hidden
       />
+
+      <ClientLogoBanner client={logoClient} logoUrl={logoUrl} />
 
       {/* ── Identidade ───────────────────────────────────────────────────── */}
       <header className="min-w-0">

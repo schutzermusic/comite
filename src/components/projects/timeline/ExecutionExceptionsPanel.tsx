@@ -74,49 +74,50 @@ export function ExecutionExceptionsPanel({
       state={decisions > 0 ? 'critical' : 'warning'}
       noPadding
     >
+      {/*
+        As candidatas são botões IRMÃOS do título, não filhos. `<button>` não
+        pode conter elemento interativo: aninhar quebra o HTML e o navegador
+        resolve isso de forma imprevisível.
+      */}
       <ul className="divide-y divide-ig-border-subtle">
         {shown.map((ex) => (
-          <li key={ex.id}>
-            <button
-              type="button"
-              onClick={() => ex.itemId && onSelectItem(ex.itemId)}
-              disabled={!ex.itemId}
-              className="flex w-full items-start gap-3 px-4 py-2 text-left enabled:hover:bg-ig-panel-hover disabled:cursor-default"
-            >
+          <li key={ex.id} className="px-4 py-2">
+            <div className="flex items-start gap-3">
               <SignalChip size="xs" tone={SEVERITY_TONE[ex.severity]} label={SEVERITY_LABEL[ex.severity]} />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-xs text-ig-fg">{ex.title}</span>
+              <div className="min-w-0 flex-1">
+                {ex.itemId ? (
+                  <button
+                    type="button"
+                    onClick={() => onSelectItem(ex.itemId!)}
+                    className="block w-full text-left hover:underline"
+                  >
+                    <span className="block truncate text-xs text-ig-fg">{ex.title}</span>
+                  </button>
+                ) : (
+                  <span className="block truncate text-xs text-ig-fg">{ex.title}</span>
+                )}
                 <span className="block truncate text-[11px] text-ig-fg-subtle">{ex.detail}</span>
+
                 {/* Candidatas: a decisão que o motor se recusou a tomar sozinho. */}
                 {ex.candidates.length > 0 && (
-                  <span className="mt-1 flex flex-wrap gap-1">
+                  <div className="mt-1 flex flex-wrap gap-1">
                     {ex.candidates.slice(0, 4).map((c) => (
-                      <span
+                      <button
                         key={c.timelineItemId}
-                        role="button"
-                        tabIndex={0}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onSelectItem(c.timelineItemId);
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.stopPropagation();
-                            onSelectItem(c.timelineItemId);
-                          }
-                        }}
-                        className="rounded border border-ig-border px-1.5 py-0.5 text-[10px] text-ig-fg-muted hover:border-ig-accent hover:text-ig-accent"
+                        type="button"
+                        onClick={() => onSelectItem(c.timelineItemId)}
+                        className="max-w-[220px] truncate rounded border border-ig-border px-1.5 py-0.5 text-[10px] text-ig-fg-muted hover:border-ig-accent hover:text-ig-accent"
                       >
                         {c.wbsCode ? `${c.wbsCode} · ` : ''}{c.title}
-                      </span>
+                      </button>
                     ))}
                     {ex.candidates.length > 4 && (
                       <span className="px-1 text-[10px] text-ig-fg-subtle">+{ex.candidates.length - 4}</span>
                     )}
-                  </span>
+                  </div>
                 )}
-              </span>
-            </button>
+              </div>
+            </div>
           </li>
         ))}
       </ul>

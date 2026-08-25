@@ -151,13 +151,13 @@ export const GanttRow = React.memo(function GanttRow({
         className={cn(
           // overflow-hidden é rede de segurança: o painel jamais pode vazar
           // sobre a faixa das barras, mesmo se uma célula crescer.
-          'sticky left-0 z-20 flex shrink-0 items-center overflow-hidden border-r border-ig-border text-[11px]',
+          'sticky left-0 z-20 flex shrink-0 items-center overflow-hidden border-r border-ig-border text-[12px]',
           selected ? 'bg-ig-accent-weak' : hovered ? 'bg-ig-panel-hover' : 'bg-ig-panel',
           dimmed && 'opacity-55',
         )}
         style={{ width: panelWidth }}
       >
-        <Cell width={COL_W.wbs} className="font-mono text-[10px] text-ig-fg-subtle">
+        <Cell width={COL_W.wbs} className="font-mono text-[11px] text-ig-fg-subtle">
           {item.wbsCode ?? ''}
         </Cell>
 
@@ -188,9 +188,15 @@ export const GanttRow = React.memo(function GanttRow({
             <Flag className="h-3 w-3 shrink-0 text-ig-fg-muted" aria-hidden />
           ) : null}
 
+          {/*
+            Duas linhas em vez de truncar: nomes de atividade importados do MS
+            Project passam de 40 caracteres e a versão anterior cortava quase
+            todos. `line-clamp-2` com leading-tight cabe exatamente em ROW_H;
+            o `title` continua cobrindo o caso raro que ainda estoura.
+          */}
           <span
             className={cn(
-              'truncate',
+              'line-clamp-2 break-words leading-tight',
               item.isSummary ? 'font-semibold text-ig-fg-strong' : 'text-ig-fg',
               item.status === 'completed' && 'text-ig-fg-muted',
             )}
@@ -288,7 +294,7 @@ export const GanttRow = React.memo(function GanttRow({
         )}
 
         {executionKnown && columns.lastActivity && (
-          <Cell width={COL_W.lastActivity} className="tabular-nums text-[10px] text-ig-fg-subtle">
+          <Cell width={COL_W.lastActivity} className="tabular-nums text-[11px] text-ig-fg-subtle">
             {execution?.lastActivityAt ? fmtDate(execution.lastActivityAt.slice(0, 10)) : '—'}
           </Cell>
         )}

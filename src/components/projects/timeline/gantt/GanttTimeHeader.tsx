@@ -63,7 +63,7 @@ export const GanttTimeHeader = React.memo(function GanttTimeHeader({
       <div
         className={cn(
           'sticky left-0 z-40 flex shrink-0 items-end overflow-hidden border-r border-ig-border bg-ig-raised',
-          'pb-1.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-ig-fg-subtle',
+          'pb-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-ig-fg-subtle',
         )}
         style={{ width: panelWidth }}
       >

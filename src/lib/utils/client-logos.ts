@@ -35,15 +35,10 @@ const DEMO_REGISTRY: Record<string, string> = {
 };
 
 /**
- * Per-client logo scale overrides (1.0 = no change).
- * Use when a client's logo has excessive whitespace or is visually smaller
- * than peer logos rendered at the same container size.
- * Keys are slugs of the client name.
+ * @deprecated Logos passam pelo frame 1280×337; o recorte substitui o scale.
+ * Mantido só para chamadas antigas de `registerClientLogoScale`.
  */
-const LOGO_SCALE_REGISTRY: Record<string, number> = {
-  enel: 1.2,
-  'enel-green-power': 1.2,
-};
+const LOGO_SCALE_REGISTRY: Record<string, number> = {};
 
 /**
  * Resolve a logo URL for a project's client.

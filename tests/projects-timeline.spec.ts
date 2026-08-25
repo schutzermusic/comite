@@ -409,3 +409,55 @@ test('deep link ?item= abre o drawer da atividade', async () => {
   // A seção de dependências existe mesmo sem nenhuma vinculada.
   await expect(page.getByRole('heading', { name: 'Dependências' })).toBeVisible();
 });
+
+/**
+ * Modo apresentação.
+ *
+ * As duas asserções de geometria são regressões concretas, não zelo: colocado
+ * no fluxo normal, o overlay (a) nascia 12px abaixo do topo, porque um
+ * ancestral animado com `transform` virava o bloco de contenção do `fixed`, e
+ * (b) era pintado POR BAIXO do cabeçalho do app, porque o container da página é
+ * `z-10` e o cabeçalho `z-40` no mesmo contexto de empilhamento — nenhum
+ * z-index meu resolveria. A correção foi portar para o <body>; se alguém
+ * desfizer isso, `top === 0` e o elemento no topo denunciam.
+ */
+test('apresentar expande o cronograma sobre a tela inteira e Esc volta', async () => {
+  await gotoTimeline();
+  const box = async () => (await gantt().boundingBox())!;
+  const normalHeight = (await box()).height;
+
+  await page.getByRole('button', { name: 'Apresentar' }).click();
+  await expect(page.getByRole('button', { name: 'Sair' })).toBeVisible();
+
+  const presented = await box();
+  expect(presented.height).toBeGreaterThan(normalHeight);
+
+  const geometry = await page.evaluate(() => {
+    const overlay = document.querySelector('.fixed.inset-0.z-\\[70\\]') as HTMLElement | null;
+    const r = overlay?.getBoundingClientRect();
+    return {
+      top: r?.top ?? null,
+      height: r?.height ?? null,
+      viewport: window.innerHeight,
+      parentIsBody: overlay?.parentElement === document.body,
+      // Quem pinta na faixa do cabeçalho do app.
+      topLayer: (document.elementFromPoint(700, 20) as HTMLElement | null)?.tagName ?? null,
+    };
+  });
+  expect(geometry.top).toBe(0);
+  expect(geometry.height).toBe(geometry.viewport);
+  expect(geometry.parentIsBody).toBe(true);
+  expect(geometry.topLayer).not.toBe('HEADER');
+
+  // Clicar numa atividade ainda abre o drawer — ele fica ACIMA da apresentação.
+  await rows().nth(1).click();
+  await expect(page.getByRole('heading', { name: 'Dependências' })).toBeVisible({ timeout: 20_000 });
+
+  // Esc com o drawer aberto pertence ao drawer; a apresentação continua.
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', { name: 'Sair' })).toBeVisible();
+
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', { name: 'Apresentar' })).toBeVisible();
+  expect((await box()).height).toBeCloseTo(normalHeight, 0);
+});

@@ -21,6 +21,7 @@ import { officialCurrencyCompact } from '@/lib/contracts/trust/format';
 import { hasOfficialValue, ratioTrusted } from '@/lib/contracts/trust/trusted';
 import { missingDocuments as trustedMissingDocs } from '@/lib/contracts/trust/signals';
 import { DataClassBadge } from '@/components/contracts/cockpit/PortfolioScope';
+import { ClientLogoBanner } from '@/components/portfolio/ClientLogoBanner';
 
 const riskLabels = { high: 'Alto', medium: 'Médio', low: 'Baixo' } as const;
 function riskVariant(risk: ContractGovernanceRecord['contract']['riskClassification']) {
@@ -121,6 +122,11 @@ export function ContractCard({ record, trusted, active = false, onSelect, onView
             : ''
         }`}
       >
+        <ClientLogoBanner
+          client={trusted && hasOfficialValue(trusted.counterparty) ? trusted.counterparty.value : record.companyName}
+          logoUrl={trusted && hasOfficialValue(trusted.project) ? trusted.project.value.clientLogoUrl : undefined}
+        />
+
         {/* Header */}
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 flex-wrap items-center gap-1.5">

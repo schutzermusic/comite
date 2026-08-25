@@ -34,6 +34,7 @@ import {
 import { cn } from '@/lib/utils';
 import { ProjectHealthIndicator } from './ProjectHealthIndicator';
 import { HudStatusPill, HudProgressBar, HudButton } from '@/components/hud';
+import { clientLogoSlotSize } from '@/lib/utils/client-logo-frame';
 
 interface ProjectDetailDrawerProps {
   project: Project | null;
@@ -92,6 +93,8 @@ export function ProjectDetailDrawer({
       .finally(() => URL.revokeObjectURL(previewUrl));
     e.target.value = '';
   }, [project, onLogoUpload]);
+
+  const logoSlot = clientLogoSlotSize(32);
 
   const handleEscape = useCallback(
     (e: KeyboardEvent) => {
@@ -165,13 +168,15 @@ export function ProjectDetailDrawer({
             {/* Client logo area — upload-enabled */}
             <div className="relative shrink-0 group/logo">
               {displayLogoUrl ? (
-                <div className="relative w-12 h-12 rounded-xl overflow-hidden flex items-center justify-center drawer-v2-kpi-card">
+                <div
+                  className="relative rounded-md overflow-hidden flex items-center justify-center drawer-v2-kpi-card"
+                  style={{ width: logoSlot.width, height: logoSlot.height }}
+                >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={displayLogoUrl}
                     alt={project.cliente || 'Logo'}
-                    className="h-8 w-auto max-w-full object-contain client-logo-img"
-                    style={{ opacity: 1 }}
+                    className="h-full w-full object-contain client-logo-img"
                   />
                   <button
                     onClick={() => {
@@ -188,11 +193,12 @@ export function ProjectDetailDrawer({
                 <button
                   onClick={() => fileInputRef.current?.click()}
                   className={cn(
-                    'w-12 h-12 rounded-xl flex flex-col items-center justify-center gap-1',
+                    'rounded-md flex flex-col items-center justify-center gap-1',
                     'drawer-v2-kpi-card drawer-v2-muted',
                     'border border-dashed opacity-60 hover:opacity-100 transition-opacity',
                   )}
-                  title="Upload logo do cliente"
+                  style={{ width: logoSlot.width, height: logoSlot.height }}
+                  title="Upload logo do cliente (padronizada em 1280×337)"
                   aria-label="Fazer upload do logo do cliente"
                 >
                   <Upload className="w-3.5 h-3.5" />
@@ -211,7 +217,7 @@ export function ProjectDetailDrawer({
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*"
+                accept="image/png,image/jpeg,image/webp,image/svg+xml"
                 className="sr-only"
                 onChange={handleLogoUpload}
               />

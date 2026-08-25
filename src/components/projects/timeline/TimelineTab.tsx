@@ -14,8 +14,10 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useSearchParams } from 'next/navigation';
-import { Bot, CalendarClock, Crosshair, FileUp, GanttChartSquare, Info, Loader2, Plus, Users2, Workflow } from 'lucide-react';
+import { Bot, CalendarClock, Crosshair, FileUp, GanttChartSquare, Info, Loader2, Maximize2, Minimize2, Plus, Users2, Workflow } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { SignalChip } from '@/components/ui/signal-chip';
 import { HudButton, HudEmptyState, HudKpiStrip, HudPanel, useHudToast } from '@/components/hud';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -132,6 +134,7 @@ export function TimelineTab({ projectId, projectName, projectManagerUserId }: Ti
   const [error, setError] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [newActivityOpen, setNewActivityOpen] = useState(false);
+  const [presenting, setPresenting] = useState(false);
 
   const ganttRef = useRef<GanttViewHandle>(null);
   const deepLinkHandled = useRef<string | null>(null);
@@ -145,6 +148,22 @@ export function TimelineTab({ projectId, projectName, projectManagerUserId }: Ti
   const canReadTimesheet =
     !permissionsLoading &&
     (hasPermission('people.timesheet_view') || hasPermission('people.timesheet_approve'));
+
+  /*
+    Capacidades como BOOLEANOS, não como closure.
+
+    `usePermissions()` devolve um `hasPermission` novo a cada render. Depender
+    da função dentro de um useCallback fazia `reloadExecution` mudar de
+    identidade em todo render, o efeito que o chama disparar de novo, e cada
+    disparo fazer setState — um laço infinito de fetch/render. Booleanos são
+    estáveis por valor e cortam o ciclo.
+  */
+  const canReadAttendance =
+    !permissionsLoading &&
+    (hasPermission('people.attendance_view') || hasPermission('people.attendance_manage'));
+  const canReadAllocations =
+    !permissionsLoading &&
+    (hasPermission('people.allocations_view') || hasPermission('people.manage'));
 
   // O store é global de módulo: sem isto, recolhimento/seleção/filtros do
   // projeto anterior vazam ao navegar entre projetos sem desmontar a aba.
@@ -188,9 +207,8 @@ export function TimelineTab({ projectId, projectName, projectManagerUserId }: Ti
         projectId,
         capabilities: {
           timesheet: canReadTimesheet,
-          attendance:
-            hasPermission('people.attendance_view') || hasPermission('people.attendance_manage'),
-          allocations: hasPermission('people.allocations_view') || hasPermission('people.manage'),
+          attendance: canReadAttendance,
+          allocations: canReadAllocations,
         },
         now,
       }),
@@ -215,7 +233,7 @@ export function TimelineTab({ projectId, projectName, projectManagerUserId }: Ti
     setSessions(data.sessions);
     setLinks(data.links);
     setAvailability(data.availability);
-  }, [projectId, canReadTimesheet, permissionsLoading, hasPermission]);
+  }, [projectId, canReadTimesheet, canReadAttendance, canReadAllocations, permissionsLoading]);
 
   useEffect(() => {
     if (items.length > 0) void reloadExecution();
@@ -401,6 +419,47 @@ export function TimelineTab({ projectId, projectName, projectManagerUserId }: Ti
     setCounts((prev) => (prev.visible === visible && prev.total === total ? prev : { visible, total }));
   }, []);
 
+  /* ─── Modo apresentação ───────────────────────────────────────────────────
+     O fullscreen nativo é pedido no `documentElement`, não no container do
+     Gantt. Elemento em fullscreen vai para a TOP LAYER e passa a esconder tudo
+     que está fora dele — o drawer da atividade, os modais e os toasts sumiriam
+     da tela. Com o documento inteiro em fullscreen, a sobreposição volta a ser
+     um simples `fixed` e a pilha de z-index continua valendo (overlay 70 fica
+     abaixo do drawer em 80, então clicar numa atividade ainda abre o detalhe).
+
+     O fullscreen é BEST-EFFORT: onde o navegador negar (iframe sem permissão,
+     iOS), a sobreposição sozinha já entrega a tela cheia do app.
+  */
+  const enterPresentation = useCallback(() => {
+    setPresenting(true);
+    void document.documentElement.requestFullscreen?.().catch(() => {});
+  }, []);
+
+  const exitPresentation = useCallback(() => {
+    setPresenting(false);
+    if (document.fullscreenElement) void document.exitFullscreen?.().catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!presenting) return;
+    // Sair do fullscreen por F11/Esc do navegador precisa desfazer a
+    // sobreposição também, senão a tela fica "presa" no modo apresentação.
+    const onFullscreenChange = () => {
+      if (!document.fullscreenElement) setPresenting(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      // Com o drawer aberto o Esc pertence a ele: fecha o detalhe, não a
+      // apresentação.
+      if (e.key === 'Escape' && !selectedItemId) exitPresentation();
+    };
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('fullscreenchange', onFullscreenChange);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [presenting, selectedItemId, exitPresentation]);
+
   /**
    * Executa o writeback das sessões que a POLÍTICA liberou. Nada aqui decide
    * confiança: `autoApplicable` já filtrou por AUTO_APPLY, e cada escrita
@@ -517,10 +576,23 @@ export function TimelineTab({ projectId, projectName, projectManagerUserId }: Ti
       >
         Dependências
       </HudButton>
+      <HudButton
+        variant="ghost"
+        size="sm"
+        leftIcon={presenting ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+        onClick={() => (presenting ? exitPresentation() : enterPresentation())}
+        title={presenting ? 'Sair da apresentação (Esc)' : 'Expandir o cronograma em tela cheia'}
+        className={presenting ? 'text-ig-accent' : undefined}
+      >
+        {presenting ? 'Sair' : 'Apresentar'}
+      </HudButton>
+      {presenting && <span className="text-[11px] text-ig-fg-subtle">Esc</span>}
 
       <span className="mx-1 hidden h-5 w-px bg-ig-border sm:block" />
 
-      {items.length > 0 && (
+      {/* Ações de edição saem de cena na apresentação: o comitê vê o
+          cronograma, não a barra de ferramentas de quem o mantém. */}
+      {items.length > 0 && !presenting && (
         <ExportReportButton
           size="sm"
           variant="secondary"
@@ -547,18 +619,105 @@ export function TimelineTab({ projectId, projectName, projectManagerUserId }: Ti
           })}
         />
       )}
-      {canEdit && (
+      {canEdit && !presenting && (
         <HudButton variant="secondary" size="sm" leftIcon={<Plus className="h-4 w-4" />} onClick={() => setNewActivityOpen(true)}>
           Nova atividade
         </HudButton>
       )}
-      {canImport && (
+      {canImport && !presenting && (
         <HudButton variant="primary" size="sm" leftIcon={<FileUp className="h-4 w-4" />} onClick={() => setImportOpen(true)}>
           Importar MS Project
         </HudButton>
       )}
     </div>
   );
+
+  /*
+    Filtros + gráfico. Em modo normal é um wrapper neutro; em apresentação vira
+    uma coluna flex que cobre a viewport, e o Gantt (`fill`) cresce até o rodapé
+    em vez de parar no teto de 62vh.
+  */
+  const ganttBlock = (
+    <div
+      className={cn(
+        presenting && 'fixed inset-0 z-[70] flex flex-col gap-2 overflow-hidden bg-ig-canvas p-3',
+      )}
+    >
+      <div className="flex-shrink-0">
+        <TimelineFilterRail
+          items={items}
+          executionKnown={executionKnown}
+          visibleCount={counts.visible}
+          totalCount={counts.total}
+        />
+      </div>
+
+      {/*
+        Na apresentação o próprio painel é o cabeçalho da tela: leva o nome do
+        projeto e o resumo de prazo. Um cabeçalho separado acima repetiria a
+        mesma informação e — medido numa viewport de 720px — comia altura
+        suficiente para o Gantt ficar MENOR em tela cheia do que no modo normal.
+      */}
+      <HudPanel
+        title={presenting ? projectName : 'Cronograma'}
+        subtitle={
+          presenting
+            ? `Cronograma · ${kpis.overallPercent}% concluído` +
+              (schedule.expectedProgressOverall != null
+                ? ` · esperado ${schedule.expectedProgressOverall}%`
+                : '') +
+              (schedule.forecastDelayDays != null && schedule.forecastDelayDays > 0
+                ? ` · atraso previsto ${formatDays(schedule.forecastDelayDays)}`
+                : '')
+            : executionKnown
+              ? 'Planejado × apontado por atividade'
+              : 'Planejamento e execução'
+        }
+        icon={<GanttChartSquare className="h-4 w-4" />}
+        headerActions={toolbar}
+        elevation={1}
+        interactive={false}
+        sweep={false}
+        parallax={false}
+        noPadding
+        fullHeight={presenting}
+        className={presenting ? 'min-h-0 flex-1' : undefined}
+      >
+        <div className={presenting ? 'flex h-full min-h-0 flex-col' : undefined}>
+          <GanttView
+            ref={ganttRef}
+            items={items}
+            execution={execution}
+            scheduleByItem={schedule.byItem}
+            dependencies={dependencies}
+            onVisibleCountChange={handleVisibleCountChange}
+            fill={presenting}
+          />
+          <GanttLegend className="m-2 flex-shrink-0" />
+        </div>
+      </HudPanel>
+    </div>
+  );
+
+  /*
+    Na apresentação o bloco é PORTADO para o <body>. Medido no navegador, ficar
+    no lugar não funciona por duas razões independentes:
+
+    1. Empilhamento — o container da página é `z-10` e o cabeçalho do app é
+       `z-40` no MESMO contexto. Qualquer z-index meu compete só DENTRO do z-10,
+       então o cabeçalho pintava por cima da apresentação por mais alto que eu
+       subisse.
+    2. Bloco de contenção — um ancestral animado (transform) fazia o `fixed`
+       resolver contra ele, não contra a viewport: a sobreposição nascia 12px
+       abaixo do topo e 12px mais curta que a tela.
+
+    No body, o overlay fica em z-70: acima da página e ABAIXO do HudDrawer
+    (z-80), então clicar numa atividade ainda abre o detalhe por cima.
+  */
+  const ganttSection =
+    presenting && typeof document !== 'undefined'
+      ? createPortal(ganttBlock, document.body)
+      : ganttBlock;
 
   return (
     <div className="space-y-3">
@@ -802,34 +961,7 @@ export function TimelineTab({ projectId, projectName, projectManagerUserId }: Ti
             />
           )}
 
-          <TimelineFilterRail
-            items={items}
-            executionKnown={executionKnown}
-            visibleCount={counts.visible}
-            totalCount={counts.total}
-          />
-
-          <HudPanel
-            title="Cronograma"
-            subtitle={executionKnown ? 'Planejado × apontado por atividade' : 'Planejamento e execução'}
-            icon={<GanttChartSquare className="h-4 w-4" />}
-            headerActions={toolbar}
-            elevation={1}
-            interactive={false}
-            sweep={false}
-            parallax={false}
-            noPadding
-          >
-            <GanttView
-              ref={ganttRef}
-              items={items}
-              execution={execution}
-              scheduleByItem={schedule.byItem}
-              dependencies={dependencies}
-              onVisibleCountChange={handleVisibleCountChange}
-            />
-            <GanttLegend className="m-2" />
-          </HudPanel>
+          {ganttSection}
 
           {executionKnown && (
             <ExecutionFeedPanel

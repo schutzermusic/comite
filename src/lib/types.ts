@@ -17,9 +17,9 @@ export type Project = {
   codigo: string;
   cliente?: string;
   /**
-   * Optional client logo URL. When present, ProjectClientLogo will display the image;
-   * otherwise it falls back to deterministic initials. Backend can populate this with
-   * a CDN URL, a signed asset URL, or a relative path under /public.
+   * Optional client logo URL. Uploads are normalized to 1280×337 PNG
+   * (same frame as the CEMIG wordmark) before storage. When missing,
+   * ProjectClientLogo falls back to deterministic initials.
    */
   clientLogoUrl?: string;
   status: 'planejamento' | 'em_andamento' | 'pausado' | 'concluido' | 'cancelado';

@@ -1,6 +1,14 @@
 /** Métricas compartilhadas entre cabeçalho, linhas, barras e camada de setas. */
 
-export const ROW_H = 34;
+/**
+ * 44px comporta DUAS linhas de título a 12px/16px sem estourar. Era 34px, que
+ * só cabia uma linha truncada — nomes vindos do MS Project são longos e o
+ * gestor não conseguia ler a atividade inteira sem abrir o drawer.
+ *
+ * Tudo que é vertical no gráfico deriva daqui (barras, marcos, setas, janela
+ * de virtualização), então mudar esta constante reposiciona o resto sozinho.
+ */
+export const ROW_H = 44;
 /** Altura das duas faixas do cabeçalho de datas (grupo + tick). */
 export const HEADER_H = 44;
 
@@ -12,8 +20,10 @@ export const OVERSCAN = 12;
 export const COL_W = {
   wbs: 64,
   progress: 52,
-  start: 58,
-  finish: 58,
+  // 68px cabe "25/05/26" inteiro a 12px + o padding da célula. Em 58px, que
+  // servia para a fonte antiga de 11px, a data virava "25/05/…".
+  start: 68,
+  finish: 68,
   responsible: 44,
   // Cabe "EM ANDAMENTO"/"NÃO INICIADA" inteiros — em 88px o chip truncava.
   status: 112,
@@ -23,8 +33,8 @@ export const COL_W = {
   signal: 26,
 } as const;
 
-/** Largura mínima da coluna de título antes de o texto começar a truncar. */
-export const TITLE_MIN_W = 180;
+/** Largura mínima da coluna de título antes de o texto começar a quebrar. */
+export const TITLE_MIN_W = 260;
 
 /**
  * Largura mínima que o painel esquerdo precisa para caber as colunas ligadas.

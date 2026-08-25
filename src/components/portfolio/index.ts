@@ -6,6 +6,8 @@ export { ProjectDetailDrawer } from './ProjectDetailDrawer';
 // Premium Project module — redesigned
 export { ProjectHeader } from './ProjectHeader';
 export { ProjectClientLogo } from './ProjectClientLogo';
+export { ClientLogoBanner } from './ClientLogoBanner';
+export { ClientLogoUploadSlot } from './ClientLogoUploadSlot';
 export { ProjectHealthIndicator } from './ProjectHealthIndicator';
 export { ProjectKpiGrid } from './ProjectKpiGrid';
 export type { ProjectKpiSummary } from './ProjectKpiGrid';

@@ -6,10 +6,9 @@ import { cn } from '@/lib/utils';
 import type { Project } from '@/lib/types';
 import type { ProjectV2 } from '@/lib/types/project-v2';
 import { compactBRL } from '@/lib/utils/project-utils';
-import { useState } from 'react';
 import { HudStatusPill } from '@/components/hud';
 import { ProjectHealthIndicator } from './ProjectHealthIndicator';
-import { getClientLogoUrl, getClientLogoScale } from '@/lib/utils/client-logos';
+import { ClientLogoBanner } from './ClientLogoBanner';
 
 interface ProjectCardProps {
   project: Project;
@@ -112,7 +111,7 @@ export function ProjectCard({ project, v2, onView, onDelete, delay = 0 }: Projec
       )}
 
       {/* ── Client logo — centered at top, only when a logo is set ── */}
-      <ClientLogoTop client={project.cliente} logoUrl={project.clientLogoUrl} />
+      <ClientLogoBanner client={project.cliente} logoUrl={project.clientLogoUrl} />
 
       {/* ── Title + status ────────────────────────────── */}
       <div className="relative flex items-start gap-3">
@@ -220,28 +219,6 @@ export function ProjectCard({ project, v2, onView, onDelete, delay = 0 }: Projec
         </span>
       </div>
     </motion.div>
-  );
-}
-
-function ClientLogoTop({ client, logoUrl }: { client?: string | null; logoUrl?: string | null }) {
-  const [errored, setErrored] = useState(false);
-  const resolved = getClientLogoUrl(client, logoUrl);
-  const scale = getClientLogoScale(client);
-
-  if (!resolved || errored) return null;
-
-  return (
-    <div className="flex items-center justify-center h-12 px-6">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={resolved}
-        alt={client || 'Logo cliente'}
-        onError={() => setErrored(true)}
-        className="h-8 w-auto max-w-full object-contain client-logo-img"
-        style={{ opacity: 1, ...(scale !== 1 ? { transform: `scale(${scale})` } : {}) }}
-        draggable={false}
-      />
-    </div>
   );
 }
 

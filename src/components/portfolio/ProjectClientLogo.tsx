@@ -2,7 +2,8 @@
 
 import { useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
-import { getClientLogoUrl, getClientLogoScale } from '@/lib/utils/client-logos';
+import { getClientLogoUrl } from '@/lib/utils/client-logos';
+import { clientLogoSlotSize } from '@/lib/utils/client-logo-frame';
 
 interface ProjectClientLogoProps {
   client?: string | null;
@@ -11,11 +12,18 @@ interface ProjectClientLogoProps {
   className?: string;
 }
 
-const SIZE_MAP = {
-  xs: { box: 'w-6 h-6', text: 'text-[9px]' },
-  sm: { box: 'w-8 h-8', text: 'text-[11px]' },
-  md: { box: 'w-10 h-10', text: 'text-xs' },
-  lg: { box: 'w-14 h-14', text: 'text-sm' },
+const SIZE_HEIGHT = {
+  xs: 16,
+  sm: 20,
+  md: 28,
+  lg: 36,
+} as const;
+
+const SIZE_TEXT = {
+  xs: 'text-[9px]',
+  sm: 'text-[11px]',
+  md: 'text-xs',
+  lg: 'text-sm',
 } as const;
 
 function initialsFor(name: string): string {
@@ -47,25 +55,25 @@ export function ProjectClientLogo({
   className,
 }: ProjectClientLogoProps) {
   const [errored, setErrored] = useState(false);
-  const sizing = SIZE_MAP[size];
+  const slot = clientLogoSlotSize(SIZE_HEIGHT[size]);
   const name = (client || '').trim();
   const initials = useMemo(() => initialsFor(name || '—'), [name]);
   const tint = useMemo(() => tintFor(name || 'Cliente'), [name]);
 
   const resolvedUrl = useMemo(() => getClientLogoUrl(name, logoUrl), [name, logoUrl]);
-  const logoScale = useMemo(() => getClientLogoScale(name), [name]);
   const showImage = !!resolvedUrl && !errored;
 
   return (
     <div
       className={cn(
-        'relative shrink-0 rounded-xl flex items-center justify-center font-semibold overflow-hidden',
+        'relative shrink-0 rounded-md flex items-center justify-center font-semibold overflow-hidden',
         'border ring-1 ring-inset',
-        sizing.box,
-        sizing.text,
+        SIZE_TEXT[size],
         className,
       )}
       style={{
+        width: slot.width,
+        height: slot.height,
         background: showImage
           ? 'rgba(255,255,255,0.04)'
           : `linear-gradient(135deg, ${tint.from} 0%, ${tint.to} 100%)`,
@@ -82,8 +90,7 @@ export function ProjectClientLogo({
           src={resolvedUrl}
           alt={name}
           onError={() => setErrored(true)}
-          className="w-full h-full object-contain p-0.5"
-          style={logoScale !== 1 ? { transform: `scale(${logoScale})` } : undefined}
+          className="h-full w-full object-contain client-logo-img"
         />
       ) : (
         <span className="tracking-wide drop-shadow-sm">{initials}</span>

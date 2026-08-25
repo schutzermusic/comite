@@ -24,6 +24,7 @@
  */
 
 import React, { useCallback, useImperativeHandle, useMemo, useRef } from 'react';
+import { cn } from '@/lib/utils';
 import {
   buildTree,
   deriveDelayStatus,
@@ -63,10 +64,17 @@ export interface GanttViewProps {
   dependencies?: TimelineDependency[];
   /** Informa ao pai quantas atividades sobraram do filtro. */
   onVisibleCountChange?: (visible: number, total: number) => void;
+  /**
+   * Ocupa toda a altura do container em vez do teto de 62vh.
+   *
+   * Existe para o modo apresentação: ali a altura é a do container flex, não
+   * uma fração da viewport — o painel precisa crescer até o rodapé da tela.
+   */
+  fill?: boolean;
 }
 
 export const GanttView = React.forwardRef<GanttViewHandle, GanttViewProps>(function GanttView(
-  { items, execution = EMPTY_EXECUTION, scheduleByItem, dependencies = [], onVisibleCountChange },
+  { items, execution = EMPTY_EXECUTION, scheduleByItem, dependencies = [], onVisibleCountChange, fill = false },
   ref,
 ) {
   const {
@@ -183,8 +191,11 @@ export const GanttView = React.forwardRef<GanttViewHandle, GanttViewProps>(funct
   return (
     <div
       ref={scrollRef}
-      className="relative overflow-auto rounded-xl border border-ig-border bg-ig-panel"
-      style={{ maxHeight: '62vh' }}
+      className={cn(
+        'relative overflow-auto rounded-xl border border-ig-border bg-ig-panel',
+        fill && 'min-h-0 flex-1',
+      )}
+      style={fill ? undefined : { maxHeight: '62vh' }}
       role="grid"
       aria-label="Cronograma do projeto"
     >

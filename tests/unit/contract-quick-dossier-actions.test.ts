@@ -120,6 +120,14 @@ describe('navegação cross-módulo preservada', () => {
     expect(page).toContain('handleExportPdf');
     expect(page).toContain('openContractDossierReport');
   });
+
+  it('o upload de logo do cliente continua no drawer', () => {
+    const drawerSrc = read(DRAWER);
+    expect(drawerSrc).toContain('onLogoUpload');
+    expect(drawerSrc).toContain('ClientLogoUploadSlot');
+    expect(page).toContain('handleContractLogoUpload');
+    expect(page).toContain('onLogoUpload={handleContractLogoUpload}');
+  });
 });
 
 describe('o matcher de projeto por hash não pode voltar', () => {

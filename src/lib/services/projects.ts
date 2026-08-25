@@ -5,6 +5,7 @@ import { applyLatestV2Overlay, loadV2Projects, STORAGE_KEY_V2 } from '@/lib/serv
 import { CEMIG_TOTAL_CONTRACTED, CEMIG_TOTALIZER_CUTOFF_BILLED } from '@/data/mock-projects-v2';
 import { computeHealthScore } from '@/lib/utils/project-utils';
 import { createClient } from '@/utils/supabase/client';
+import { normalizeClientLogoFile } from '@/lib/utils/normalize-client-logo';
 
 const STORAGE_KEY = 'insight_projects';
 const PROJECTS_TABLE = 'projects';
@@ -543,12 +544,13 @@ export async function uploadProjectFile(
 
   const supabase = createClient();
   const { userId, orgId } = await getCurrentOrgAndUser(supabase);
-  const safeName = sanitizeFileName(file.name);
+  const payload = category === 'logo' ? await normalizeClientLogoFile(file) : file;
+  const safeName = sanitizeFileName(payload.name);
   // Path convention required by storage RLS: {organization_id}/{project_id}/{filename}
   const path = `${orgId}/${projectId}/${Date.now()}-${category}-${safeName}`;
   const { error: uploadError } = await supabase.storage
     .from(PROJECT_FILES_BUCKET)
-    .upload(path, file, { cacheControl: '3600', upsert: true, contentType: file.type });
+    .upload(path, payload, { cacheControl: '3600', upsert: true, contentType: payload.type });
 
   if (uploadError) throw new Error(rlsFriendlyMessage('Erro ao enviar arquivo ao Supabase Storage', uploadError));
 
@@ -562,9 +564,9 @@ export async function uploadProjectFile(
     bucket_id: PROJECT_FILES_BUCKET,
     object_path: path,
     public_url: publicUrl,
-    file_name: file.name,
-    content_type: file.type || null,
-    file_size: file.size,
+    file_name: payload.name,
+    content_type: payload.type || null,
+    file_size: payload.size,
     category,
   });
 

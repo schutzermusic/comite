@@ -21,6 +21,8 @@ export interface HudDrawerProps {
   footer?: React.ReactNode;
   /** Extra buttons rendered in the header, to the left of the close button. */
   headerActions?: React.ReactNode;
+  /** Content to the left of the title (e.g. client logo upload). */
+  headerLeading?: React.ReactNode;
 }
 
 export function HudDrawer({
@@ -35,6 +37,7 @@ export function HudDrawer({
   showCloseButton = true,
   footer,
   headerActions,
+  headerLeading,
 }: HudDrawerProps) {
   const [mounted, setMounted] = useState(false);
 
@@ -105,15 +108,18 @@ export function HudDrawer({
             >
               {/* Header */}
               <div className="flex shrink-0 items-start justify-between border-b border-ig-border p-4">
-                <div className="flex-1 min-w-0">
-                  {title && (
-                    <h2 className="text-lg font-semibold text-ig-fg-strong tracking-wide">
-                      {title}
-                    </h2>
-                  )}
-                  {subtitle && (
-                    <p className="text-sm text-ig-fg-muted mt-0.5">{subtitle}</p>
-                  )}
+                <div className="flex min-w-0 flex-1 items-start gap-3">
+                  {headerLeading}
+                  <div className="min-w-0 flex-1">
+                    {title && (
+                      <h2 className="text-lg font-semibold text-ig-fg-strong tracking-wide">
+                        {title}
+                      </h2>
+                    )}
+                    {subtitle && (
+                      <p className="text-sm text-ig-fg-muted mt-0.5">{subtitle}</p>
+                    )}
+                  </div>
                 </div>
                 {(headerActions || showCloseButton) && (
                   <div className="ml-3 flex flex-shrink-0 items-center gap-2">
