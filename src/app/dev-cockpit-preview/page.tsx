@@ -57,6 +57,7 @@ const row: ContractRow = {
 
 const fullDetail: ContractDetail = {
   contract: row, clauses: [], penalties: [], milestones: [], risks: [], files: [], aiAnalyses: [],
+  amendments: [], amendmentClauses: [], amendmentsError: null,
   billingEvents: [
     { id: 'b1', contract_id: QA_ID, milestone_id: null, title: '[QA] Parcela 1 — mobilização', amount: 120_000, due_date: '2026-06-01', paid_at: '2026-06-02', status: 'pago' },
     { id: 'b2', contract_id: QA_ID, milestone_id: null, title: '[QA] Parcela 2 — medição', amount: 480_000, due_date: '2026-12-01', paid_at: null, status: 'pendente' },
@@ -85,7 +86,7 @@ const fullDetail: ContractDetail = {
 const emptyDetail: ContractDetail = {
   ...fullDetail,
   billingEvents: [] as never, obligations: [] as never, approvals: [] as never,
-  projectLinks: [] as never, riskLinks: [] as never, documents: [] as never,
+  projectLinks: [] as never, riskLinks: [] as never, documents: [] as never, amendments: [], amendmentClauses: [], amendmentsError: null
 };
 
 const audit: ContractAuditEventRow[] = [
@@ -114,7 +115,7 @@ const enelRow = (n: string) => ({
 const bare = (r: ContractRow): ContractDetail => ({
   contract: r, clauses: [], penalties: [], milestones: [], risks: [], files: [], aiAnalyses: [],
   billingEvents: [] as never, obligations: [] as never, approvals: [] as never,
-  projectLinks: [] as never, riskLinks: [] as never, documents: [] as never,
+  projectLinks: [] as never, riskLinks: [] as never, documents: [] as never, amendments: [], amendmentClauses: [], amendmentsError: null
 });
 
 const realPortfolio = [

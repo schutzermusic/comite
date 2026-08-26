@@ -39,7 +39,8 @@ import {
 import { attentionItems, recommendedAction, type AttentionActionKey } from '@/lib/contracts/trust/attention';
 import { listContractAuditEvents, type ContractAuditEventRow } from '@/lib/contracts/contract-service';
 import { useContractInstrumentationModals } from './useContractInstrumentationModals';
-import { ChevronDown, Ruler
+import {
+  FileDiff, ChevronDown, Ruler
 } from 'lucide-react';
 import { ClientLogoUploadSlot } from '@/components/portfolio/ClientLogoUploadSlot';
 import {
@@ -101,6 +102,8 @@ export interface ContractDossierDrawerProps {
   onReviewApproval: (record: ContractGovernanceRecord) => void;
   onCreateObligation: () => void;
   onCreateBilling: () => void;
+  /** Registrar aditivo. Ausente quando o usuário não pode editar. */
+  onAddAmendment?: () => void;
   onViewDocuments: (record: ContractGovernanceRecord) => void;
   onExportPdf: (record: ContractGovernanceRecord) => void;
   onOpenFinance: (record: ContractGovernanceRecord) => void;
@@ -221,6 +224,7 @@ export function ContractDossierDrawer({
   onReviewApproval,
   onCreateObligation,
   onCreateBilling,
+  onAddAmendment,
   onViewDocuments,
   onExportPdf,
   onOpenFinance,
@@ -484,6 +488,11 @@ export function ContractDossierDrawer({
             {permissions.edit && (
               <HudButton variant="secondary" size="sm" leftIcon={<Receipt className="h-4 w-4" />} onClick={onCreateBilling}>
                 Criar faturamento
+              </HudButton>
+            )}
+            {permissions.edit && onAddAmendment && (
+              <HudButton variant="secondary" size="sm" leftIcon={<FileDiff className="h-4 w-4" />} onClick={onAddAmendment}>
+                Adicionar aditivo
               </HudButton>
             )}
             {permissions.edit && (

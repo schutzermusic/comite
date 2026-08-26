@@ -17,7 +17,7 @@ export { ContractHealthDrivers } from './ContractHealthDrivers';
 export { RecommendedActionPanel } from './RecommendedAction';
 export { RecentActivity, AUDIT_ACTION_LABELS } from './RecentActivity';
 export {
-  PortfolioScopeBar, DataClassBadge, matchesScope, PORTFOLIO_SCOPES,
+  PortfolioScopeBar, PortfolioScopeNotice, DataClassBadge, matchesScope, PORTFOLIO_SCOPES,
   type PortfolioScopeKey,
 } from './PortfolioScope';
 export { PortfolioHero } from './PortfolioHero';
@@ -26,3 +26,5 @@ export { PortfolioHorizon } from './PortfolioHorizon';
 export { PortfolioAttention } from './PortfolioAttention';
 export { ContractInstrumentCard } from './ContractInstrumentCard';
 export { ContractSmartTable } from './ContractSmartTable';
+export { OnboardingReadinessPanel } from './OnboardingReadiness';
+export { PortfolioActivity } from './PortfolioActivity';

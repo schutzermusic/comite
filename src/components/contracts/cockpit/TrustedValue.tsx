@@ -23,20 +23,30 @@ import { officialProvenance } from '@/lib/contracts/trust/format';
 
 export type TrustedValueSize = 'hero' | 'lg' | 'md' | 'sm';
 
+/**
+ * Escala da métrica, alinhada à família do produto (P2G).
+ *
+ * Contratos vinha uma marcha acima dos demais módulos: herói em 38px contra os
+ * 32px de `ig-display`, que é o topo da escala executiva do sistema. Sofisticação
+ * aqui não vem de tamanho — vem de hierarquia, densidade e proveniência à vista.
+ * Um número maior que o do Dashboard não torna o módulo mais avançado; torna-o
+ * estrangeiro dentro do próprio produto.
+ *
+ * Os tokens do sistema (`ig-kpi-lg` 32px, `ig-kpi-md` 22px) cobrem a faixa, e usá-los
+ * faz esta escala acompanhar o design system em vez de divergir dele em silêncio.
+ */
 const SIZE_CLASS: Record<TrustedValueSize, string> = {
-  // Métrica herói: domina a superfície quando a importância de negócio é alta
-  // (MD §8). 36–44px conforme a spec.
-  hero: 'text-[38px] leading-[1.05] font-semibold',
-  lg: 'text-[28px] leading-[1.1] font-semibold',
-  md: 'text-[20px] leading-tight font-semibold',
+  hero: 'text-ig-kpi-lg',
+  lg: 'text-[26px] leading-[1.1] font-semibold',
+  md: 'text-ig-kpi-md',
   sm: 'text-ig-body-sm font-semibold',
 };
 
 const FALLBACK_SIZE_CLASS: Record<TrustedValueSize, string> = {
-  // O estado sem valor não herda o tamanho do número: um "Não apurado" em 38px
-  // grita mais alto que os dados que existem.
-  hero: 'text-[19px] leading-tight font-medium',
-  lg: 'text-[16px] leading-tight font-medium',
+  // O estado sem valor não herda o tamanho do número: um "Não apurado" no
+  // corpo do herói grita mais alto que os dados que de fato existem.
+  hero: 'text-ig-h3 leading-tight font-medium',
+  lg: 'text-ig-body leading-tight font-medium',
   md: 'text-ig-body-sm font-medium',
   sm: 'text-ig-caption font-medium',
 };

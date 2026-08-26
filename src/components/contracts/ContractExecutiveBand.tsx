@@ -191,7 +191,7 @@ export function ContractExecutiveBand({
           <div className="flex items-end justify-between gap-4">
             <div className="min-w-0">
               <p className="text-ig-label font-semibold uppercase tracking-[0.14em] text-ig-fg-muted">Exposição total</p>
-              <p className="ig-tabular mt-0.5 truncate text-2xl font-semibold leading-tight text-ig-fg-strong">
+              <p className="ig-tabular mt-0.5 truncate text-ig-kpi-md leading-tight text-ig-fg-strong">
                 {officialCurrencyCompact(stats.totalValue)}
               </p>
             </div>

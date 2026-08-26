@@ -261,7 +261,7 @@ export function ContractBriefPanel({
             Valor
           </h4>
           <div className="bg-[rgba(255,255,255,0.03)] rounded-lg p-3 border border-[rgba(255,255,255,0.05)]">
-            <p className="text-2xl font-semibold text-white tabular-nums">
+            <p className="text-ig-kpi-md text-white tabular-nums">
               {formatCurrency(contract.value)}
             </p>
             <p className="text-xs text-[rgba(255,255,255,0.50)] mt-1">

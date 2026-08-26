@@ -50,10 +50,18 @@ export interface ContractInstrumentCardProps {
   onDelete?: () => void;
   className?: string;
   now?: Date;
+  /**
+   * Composição LARGA, para quando o card é o único da carteira.
+   *
+   * Com um contrato, a grade de três colunas deixava dois terços da superfície
+   * vazios ao lado de um card estreito — e uma carteira de um contrato é o
+   * estado normal de quem começou agora, não uma exceção a tolerar.
+   */
+  wide?: boolean;
 }
 
 export function ContractInstrumentCard({
-  contract: c, active = false, onSelect, onOpen, onDelete, className, now = new Date(),
+  contract: c, active = false, onSelect, onOpen, onDelete, className, now = new Date(), wide = false,
 }: ContractInstrumentCardProps) {
   const reduced = useReducedMotion();
 
@@ -105,6 +113,14 @@ export function ContractInstrumentCard({
 
       <ClientLogoBanner client={logoClient} logoUrl={logoUrl} />
 
+      {/*
+        Em modo largo, identidade e exposição correm LADO A LADO: é a mesma
+        informação, redistribuída pela largura disponível em vez de empilhada
+        num sulco estreito com vazio à direita.
+      */}
+      <div className={cn(wide && 'lg:grid lg:grid-cols-[1.15fr_0.85fr] lg:items-start lg:gap-7')}>
+      <div className="min-w-0">
+
       {/* ── Identidade ───────────────────────────────────────────────────── */}
       <header className="min-w-0">
         <div className="flex items-center gap-2">
@@ -124,7 +140,7 @@ export function ContractInstrumentCard({
           )}
         </div>
 
-        <h3 className="mt-1.5 truncate text-[19px] font-semibold leading-tight text-ig-fg-strong">
+        <h3 className="mt-1.5 truncate text-ig-h2 leading-tight text-ig-fg-strong">
           {counterparty}
         </h3>
         <p className="mt-0.5 truncate text-ig-caption text-ig-fg-muted">{c.title}</p>
@@ -165,12 +181,14 @@ export function ContractInstrumentCard({
         )}
       </div>
 
+      </div>
+
       {/* ── Exposição ────────────────────────────────────────────────────── */}
-      <div className="mt-4">
+      <div className={cn('mt-4', wide && 'lg:mt-0')}>
         <div className="flex items-end justify-between gap-3">
           <div className="min-w-0">
             <p className="text-ig-label uppercase tracking-[0.13em] text-ig-fg-muted">Valor contratado</p>
-            <p className="ig-tabular mt-0.5 truncate text-[26px] font-semibold leading-none text-ig-fg-strong">
+            <p className="ig-tabular mt-0.5 truncate text-[24px] font-semibold leading-none text-ig-fg-strong">
               {hasOfficialValue(c.totalValue) ? BRL.format(c.totalValue.value) : (
                 <span className="text-[15px] font-medium text-ig-fg-subtle">Não apurado</span>
               )}
@@ -178,7 +196,7 @@ export function ContractInstrumentCard({
           </div>
           <div className="shrink-0 text-right">
             <p className="text-ig-label uppercase tracking-[0.13em] text-ig-fg-muted">Execução</p>
-            <p className="ig-tabular mt-0.5 text-[18px] font-semibold leading-none text-ig-fg-strong">
+            <p className="ig-tabular mt-0.5 text-ig-h2 leading-none text-ig-fg-strong">
               {pct === null ? <span className="text-[13px] font-medium text-ig-fg-subtle">—</span> : `${pct}%`}
             </p>
           </div>
@@ -203,6 +221,7 @@ export function ContractInstrumentCard({
             Backlog {hasOfficialValue(c.remainingValue) ? BRL.format(c.remainingValue.value) : '—'}
           </span>
         </div>
+      </div>
       </div>
 
       {/* ── Módulos conectados + saúde ───────────────────────────────────── */}

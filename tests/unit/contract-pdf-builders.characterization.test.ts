@@ -16,7 +16,8 @@ import { buildContractReportHtml } from '@/lib/reports/modules/contract-report';
 import { buildContractDossierHtml } from '@/lib/reports/modules/contract-dossier-report';
 import { buildTrustedPortfolio } from '@/lib/contracts/trust/read-model';
 import { computeTrustedPortfolioStats } from '@/lib/contracts/trust/portfolio';
-import type { ContractRelationsBatch, ContractRow } from '@/lib/contracts/contract-service';
+import type { ContractRelationsBatch, ContractRow, ContractAmendmentRow } from '@/lib/contracts/contract-service';
+import { live } from '@/lib/contracts/trust/trusted';
 import { CONTRACTS, PROJECTS, FIXED_NOW } from './fixtures/contract-fixtures';
 
 const records = () => enrichContractsForGovernance(CONTRACTS, PROJECTS, { intent: DEMO_PREVIEW_INTENT, now: FIXED_NOW });
@@ -366,7 +367,74 @@ describe('contract-dossier-report sobre o modelo confiável', () => {
     `);
   });
 
+  // ── Instrumentos contratuais (P2F.1) ──
+
+  it('sem aditivos consultados, o PDF ADMITE que não olhou', () => {
+    /*
+      A distinção que este teste protege: "não há aditivo" e "não consultei os
+      aditivos" são afirmações diferentes. Um dossiê que omite um aditivo de
+      milhões porque a consulta não foi feita é pior que um que admite a
+      lacuna — o primeiro parece completo.
+    */
+    const html = dossier(batch());
+    expect(html).toContain('Instrumentos Contratuais');
+    expect(html).toContain('Aditivos não consultados');
+  });
+
+  it('com aditivos lidos e vazios, diz que não há nenhum registrado', () => {
+    const html = buildContractDossierHtml({
+      contract: portfolioFrom(batch())[0],
+      source: 'teste',
+      amendments: live([], 'contracts'),
+    });
+    expect(html).toContain('Nenhum aditivo registrado');
+    expect(html).not.toContain('Aditivos não consultados');
+  });
+
+  it('imprime original E vigente lado a lado, nunca só um', () => {
+    const html = buildContractDossierHtml({
+      contract: portfolioFrom(batch())[0],
+      source: 'teste',
+      amendments: live([{
+        id: 'am-1', organization_id: 'org-1', contract_id: 'x',
+        amendment_number: 'TA-01', title: 'Reajuste', document_id: null,
+        status: 'active', signed_date: null, effective_date: '2027-01-01',
+        value_delta: 300_000, value_absolute: null,
+        new_end_date: null, term_extension_days: null,
+        scope_change: null, notes: null,
+        created_by: 'u', updated_by: 'u',
+        created_at: '2026-12-01T00:00:00Z', updated_at: '2026-12-01T00:00:00Z',
+        deleted_at: null,
+      }] as ContractAmendmentRow[], 'contracts'),
+    });
+    // O mestre não é sobrescrito: os dois valores aparecem.
+    expect(html).toContain('Valor original');
+    expect(html).toContain('valor vigente');
+    expect(html).toContain('TA-01');
+    expect(html).toContain('aplicado');
+  });
+
+  it('aditivo em vigor sem data de efeito NÃO produz total no PDF', () => {
+    const html = buildContractDossierHtml({
+      contract: portfolioFrom(batch())[0],
+      source: 'teste',
+      amendments: live([{
+        id: 'am-1', organization_id: 'org-1', contract_id: 'x',
+        amendment_number: 'TA-01', title: null, document_id: null,
+        status: 'active', signed_date: null, effective_date: null,
+        value_delta: 300_000, value_absolute: null,
+        new_end_date: null, term_extension_days: null,
+        scope_change: null, notes: null,
+        created_by: 'u', updated_by: 'u',
+        created_at: '2026-12-01T00:00:00Z', updated_at: '2026-12-01T00:00:00Z',
+        deleted_at: null,
+      }] as ContractAmendmentRow[], 'contracts'),
+    });
+    expect(html).toContain('sem data de efeito registrada');
+    expect(html).toContain('aparenta confiabilidade sem tê-la');
+  });
+
   it('fixa a estrutura do dossiê confiável', () => {
-    expect(stableHash(dossier(batch()))).toMatchInlineSnapshot(`"3f35c815d0d395be"`);
+    expect(stableHash(dossier(batch()))).toMatchInlineSnapshot(`"8696332faf2a98ad"`);
   });
 });

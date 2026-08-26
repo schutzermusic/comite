@@ -26,12 +26,16 @@ import {
 } from '@/lib/contracts/trust/signals';
 import { officialCurrencyCompact, officialCurrencyFull, officialProvenance } from '@/lib/contracts/trust/format';
 import {
-  ContractIdentity, ProjectRelation, FinancialPulse, ConnectedOperations,
+  ContractIdentity, ProjectRelation, FinancialPulse, ConnectedOperations, OnboardingReadinessPanel,
   ContractHealthDrivers, RequiresAttention, RecentActivity,
   type ConnectedOperationKey,
 } from '@/components/contracts/cockpit';
 import { attentionItems, type AttentionActionKey } from '@/lib/contracts/trust/attention';
-import { hasOfficialValue, isError, ratioTrusted, renderOfficial } from '@/lib/contracts/trust/trusted';
+import { live, failed, hasOfficialValue, type Official, isError, ratioTrusted, renderOfficial } from '@/lib/contracts/trust/trusted';
+import { buildOnboardingReadiness, type OnboardingStepKey } from '@/lib/contracts/trust/onboarding';
+import { effectiveContractState } from '@/lib/contracts/trust/amendments';
+import { ContractInstrumentsPanel } from '@/components/contracts/intelligence/ContractInstrumentsPanel';
+import { useContractAmendmentModals } from '@/components/contracts/useContractAmendmentModals';
 import { contractToCash } from '@/lib/contracts/trust/contract-to-cash';
 import { buildClauseRiskIntelligence } from '@/lib/contracts/trust/clause-risk-intelligence';
 import { ClauseRiskIntelligencePanel } from '@/components/contracts/intelligence/ClauseRiskIntelligencePanel';
@@ -42,7 +46,7 @@ import { MeasurementPanel } from '@/components/contracts/intelligence/Measuremen
 import { useContractInstrumentationModals } from '@/components/contracts/useContractInstrumentationModals';
 import { buildApprovalIntelligence, type ApprovalIntelligence } from '@/lib/contracts/trust/approval-intelligence';
 import { ContractToCashFlow } from '@/components/contracts/intelligence/ContractToCashFlow';
-import { createBillingEventFromMilestone, requestClauseExtraction, listContractAiAnalyses, type ContractAiAnalysisRow, type ContractMilestoneRow, listContractAuditEvents, listContractRelatedTasks, computeApprovalSla, type ContractAuditEventRow, type ContractRelatedTask } from '@/lib/contracts/contract-service';
+import { createBillingEventFromMilestone, requestClauseExtraction, type ContractAmendmentRow, type ContractDocumentRow, listContractAiAnalyses, type ContractAiAnalysisRow, type ContractMilestoneRow, listContractAuditEvents, listContractRelatedTasks, computeApprovalSla, type ContractAuditEventRow, type ContractRelatedTask } from '@/lib/contracts/contract-service';
 import {
   HudBadge,
   HudButton,
@@ -256,6 +260,11 @@ export default function ContractDossierPage() {
     onRefresh: async () => { await refresh(); },
   });
 
+  const { openAmendment, openReplaceDocument, modals: amendmentModals } = useContractAmendmentModals({
+    contractId,
+    onRefresh: async () => { await refresh(); },
+  });
+
   const { openObligation, openBilling, modals: contractCreateModals } = useContractCreateModals({
     contractId,
     ownerUserId: detail?.contract.owner_user_id ?? null,
@@ -264,14 +273,33 @@ export default function ContractDossierPage() {
     },
   });
 
+  /**
+   * Os aditivos como valor confiável — a MESMA leitura para tela e PDF.
+   *
+   * Uma falha de leitura vira `failed`, jamais lista vazia: "não consegui ler
+   * os aditivos" e "este contrato não tem aditivos" levam a decisões opostas, e
+   * um dossiê que confunde as duas afirma que o contrato vale o valor original
+   * quando na verdade não sabe.
+   */
+  const amendmentsOfficial: Official<readonly ContractAmendmentRow[]> =
+    detail?.amendmentsError
+      ? failed<readonly ContractAmendmentRow[]>(detail.amendmentsError, 'contracts')
+      : live((detail?.amendments ?? []) as readonly ContractAmendmentRow[], 'contracts');
+
   const handleExportPdf = () => {
-    if (!trusted) return;
+    if (!trusted || !detail) return;
     // O PDF lê do MESMO contrato confiável que a tela — não há segundo cálculo.
     const result = openContractDossierReport({
       contract: trusted,
       sla: approvalSla(trusted, computeApprovalSla),
       auditEvents: audit.rows,
       auditError: audit.error,
+      /*
+        Os aditivos vão explicitamente. Omitir o campo faria o PDF dizer
+        "não consultados" — o que seria verdade se não passássemos, e mentira
+        se passássemos vazio quando na verdade não olhamos.
+      */
+      amendments: amendmentsOfficial,
       source: 'Supabase',
     });
     if (!result.ok) {
@@ -375,7 +403,7 @@ export default function ContractDossierPage() {
       ),
     },
     { id: 'obligations', label: 'Obrigações', icon: <ClipboardCheck className="h-4 w-4" />, badge: detail.obligations.filter((item) => item.status !== 'done').length || undefined, content: <ObligationsTab trusted={trusted} detail={detail} onNewObligation={canEditContract ? openObligation : undefined} /> },
-    { id: 'documents', label: 'Documentos', icon: <Archive className="h-4 w-4" />, badge: (detail.files.length + detail.documents.length) || undefined, content: <DocumentsTab trusted={trusted} detail={detail} /> },
+    { id: 'documents', label: 'Documentos', icon: <Archive className="h-4 w-4" />, badge: (detail.files.length + detail.documents.length) || undefined, content: <DocumentsTab trusted={trusted} detail={detail} onReplace={canEditContract ? openReplaceDocument : undefined} /> },
     {
       id: 'risks', label: 'Riscos & Cláusulas', icon: <ShieldAlert className="h-4 w-4" />,
       badge: (detail.riskLinks.length + detail.clauses.length) || undefined,
@@ -585,6 +613,29 @@ export default function ContractDossierPage() {
               else setActiveTab('obligations');
             }}
           />
+          {/*
+            A prontidão vive na coluna ESQUERDA. Empilhada à direita junto de
+            operações conectadas, saúde e instrumentos, ela fazia a coluna
+            direita ficar muito mais alta que a esquerda — e o dossiê abria com
+            metade da tela em branco ao lado de uma pilha longa. Distribuir
+            equilibra as duas colunas sem tirar nada de ninguém.
+          */}
+          <div className="mt-4">
+            <OnboardingReadinessPanel
+              readiness={buildOnboardingReadiness(trusted)}
+              onNavigate={(key: OnboardingStepKey) => {
+                // Cada passo entrega o assunto ao lugar onde ele se resolve.
+                if (key === 'project' && hasOfficialValue(trusted.project)) router.push(`/projetos/${trusted.project.value.id}`);
+                else if (key === 'documents') setActiveTab('documents');
+                else if (key === 'clauses') setActiveTab('risks');
+                else if (key === 'obligations') setActiveTab('obligations');
+                else if (key === 'milestones') setActiveTab('finance');
+                else if (key === 'approvals') setActiveTab('approvals');
+                else if (key === 'risks') setActiveTab('risks');
+                else setActiveTab('summary');
+              }}
+            />
+          </div>
         </div>
         <div>
           <h3 className="mb-2.5 text-ig-label uppercase tracking-[0.14em] text-ig-fg-muted">Operações conectadas</h3>
@@ -614,6 +665,15 @@ export default function ContractDossierPage() {
           <div className="mt-4 rounded-[16px] border border-ig-border-subtle px-4 py-3.5">
             <ContractHealthDrivers health={contractHealth(trusted)} compact />
           </div>
+          <div className="mt-4">
+            <ContractInstrumentsPanel
+              masterTitle={record.contract.name}
+              masterNumber={record.code}
+              state={effectiveContractState(trusted.totalValue, trusted.endDate, amendmentsOfficial)}
+              onAddAmendment={canEditContract ? openAmendment : undefined}
+            />
+          </div>
+
         </div>
       </section>
 
@@ -631,6 +691,7 @@ export default function ContractDossierPage() {
 
       {contractActionModals}
       {instrumentation.modals}
+      {amendmentModals}
       {contractCreateModals}
     </HudPageLayout>
   );
@@ -819,7 +880,7 @@ function RisksTab({ trusted, detail }: { trusted: TrustedContract; detail: Contr
       <HudPanel title="Saúde do contrato" icon={<ShieldAlert className="h-4 w-4" />} interactive={false}>
         <div className="text-center">
           <div className="mx-auto flex h-28 w-28 flex-col items-center justify-center rounded-full border border-ig-border-focus bg-ig-accent-weak">
-            <span className="text-3xl font-semibold tabular-nums text-ig-accent">{health.coverage.assessed}/{health.coverage.total}</span>
+            <span className="text-ig-kpi-md tabular-nums text-ig-accent">{health.coverage.assessed}/{health.coverage.total}</span>
             <span className="text-ig-caption text-ig-fg-muted">dimensões</span>
           </div>
           <p className="mt-3 text-ig-body-sm font-semibold text-ig-fg-strong">
@@ -1033,19 +1094,26 @@ const DOC_STATUS: Record<string, { label: string; variant: 'success' | 'warning'
   rejected: { label: 'Rejeitado', variant: 'danger' },
 };
 
-function DocumentsTab({ trusted, detail }: { trusted: TrustedContract; detail: ContractDetail }) {
+function DocumentsTab({ trusted, detail, onReplace }: {
+  trusted: TrustedContract;
+  detail: ContractDetail;
+  /** Substituir por nova versão. Ausente quando o usuário não pode editar. */
+  onReplace?: (doc: ContractDocumentRow) => void;
+}) {
   const items = [
     ...detail.documents.map((doc) => ({
       id: doc.id,
       name: doc.title,
       kind: DOC_TYPE_LABELS[doc.document_type] ?? doc.document_type,
       status: DOC_STATUS[doc.status] ?? { label: doc.status, variant: 'neutral' as const },
+      doc,
     })),
     ...detail.files.map((file) => ({
       id: file.id,
       name: file.file_name,
       kind: 'Arquivo do contrato',
       status: { label: 'Disponível', variant: 'success' as const },
+      doc: null,
     })),
   ];
 
@@ -1065,10 +1133,28 @@ function DocumentsTab({ trusted, detail }: { trusted: TrustedContract; detail: C
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="truncate text-ig-body-sm font-semibold text-ig-fg-strong">{item.name}</p>
-                  <p className="mt-1 text-ig-caption text-ig-fg-muted">{item.kind}</p>
+                  <p className="mt-1 text-ig-caption text-ig-fg-muted">
+                    {item.kind}
+                    {item.doc && item.doc.version > 1 && ` · v${item.doc.version}`}
+                    {item.doc?.superseded_by_document_id && ' · substituído por versão mais recente'}
+                  </p>
                 </div>
                 <HudBadge variant={item.status.variant} size="sm">{item.status.label}</HudBadge>
               </div>
+              {/*
+                Só o documento VIGENTE é substituível. Substituir um já
+                substituído criaria duas versões apontando para o mesmo
+                antecessor, e a linhagem deixaria de ser uma linha.
+              */}
+              {onReplace && item.doc && !item.doc.superseded_by_document_id && (
+                <button
+                  type="button"
+                  onClick={() => onReplace(item.doc!)}
+                  className="mt-2.5 rounded-[8px] border border-ig-border-strong px-2.5 py-1 text-ig-caption font-semibold text-ig-fg-strong transition-colors hover:bg-ig-panel-hover/60"
+                >
+                  Substituir por nova versão
+                </button>
+              )}
             </div>
           ))}
         </div>

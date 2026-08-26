@@ -140,9 +140,24 @@ function toNumber(value: number | string | null | undefined): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+/**
+ * Coluna `date` do Postgres → `Date`.
+ *
+ * Data-só ('2027-08-31') é interpretada como meia-noite LOCAL, não UTC.
+ * `new Date('2027-08-31')` produz meia-noite UTC, e qualquer renderização em
+ * fuso a oeste de Greenwich — o Brasil inteiro — exibe o DIA ANTERIOR. Um
+ * contrato que vence em 31/08 aparecia vencendo em 30/08, e `daysUntilExpiration`
+ * contava um dia a menos.
+ *
+ * `end_date`, `start_date` e `signed_date` são datas de calendário: não têm
+ * hora nem fuso, e tratá-las como instantes UTC é o que produz o deslocamento.
+ * Timestamps completos continuam sendo interpretados como sempre.
+ */
 function toDate(value: string | null | undefined): Date | null {
   if (!value) return null;
-  const parsed = new Date(value);
+  const text = String(value);
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/.exec(text);
+  const parsed = dateOnly ? new Date(`${text}T00:00:00`) : new Date(text);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 

@@ -62,7 +62,7 @@ const enelRow = (): ContractRow => ({
 const emptyDetail = (row: ContractRow): ContractDetail => ({
   contract: row, clauses: [], penalties: [], milestones: [], risks: [], files: [], aiAnalyses: [],
   billingEvents: [] as never, obligations: [] as never, approvals: [] as never,
-  projectLinks: [] as never, riskLinks: [] as never, documents: [] as never,
+  projectLinks: [] as never, riskLinks: [] as never, documents: [] as never, amendments: [], amendmentClauses: [], amendmentsError: null
 });
 
 /** QA com faturamento — inclusive o evento REAL que um usuário inseriu pela UI. */

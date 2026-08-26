@@ -54,6 +54,9 @@ const qaContract: ContractRow = {
 
 const qaDetail: ContractDetail = {
   contract: qaContract,
+  amendments: [],
+  amendmentClauses: [],
+  amendmentsError: null,
   clauses: [],
   penalties: [],
   milestones: [],

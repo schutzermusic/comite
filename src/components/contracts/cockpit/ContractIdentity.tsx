@@ -76,7 +76,7 @@ export function ContractIdentity({ contract, className }: ContractIdentityProps)
         </span>
       </div>
 
-      <h2 className="mt-1.5 text-[22px] font-semibold leading-tight text-ig-fg-strong">
+      <h2 className="mt-1.5 text-ig-h1 leading-tight text-ig-fg-strong">
         {text(contract.counterparty, 'Contraparte não informada')}
       </h2>
       <p className="mt-0.5 truncate text-ig-body-sm text-ig-fg-muted">{contract.title}</p>

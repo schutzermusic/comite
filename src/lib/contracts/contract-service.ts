@@ -298,6 +298,59 @@ export type ContractRiskLinkRow = {
   created_at: string;
 };
 
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Aditivos contratuais (migration 098)
+// ═══════════════════════════════════════════════════════════════════════════
+
+export type ContractAmendmentStatus = 'draft' | 'signed' | 'active' | 'cancelled';
+
+/**
+ * Um aditivo é um INSTRUMENTO JURÍDICO, não uma versão de PDF.
+ *
+ * `contract_documents` guarda o arquivo; esta linha guarda a alteração
+ * contratual: o que muda, quando passa a valer e sobre quais cláusulas recai.
+ */
+export type ContractAmendmentRow = {
+  id: string;
+  organization_id: string;
+  contract_id: string;
+  amendment_number: string;
+  title: string | null;
+  document_id: string | null;
+  status: ContractAmendmentStatus;
+  signed_date: string | null;
+  /** A partir de quando produz efeito. Distinta da assinatura. */
+  effective_date: string | null;
+  /** Efeito sobre valor — uma forma OU outra, nunca as duas (CHECK em 098). */
+  value_delta: number | string | null;
+  value_absolute: number | string | null;
+  /** Efeito sobre prazo — uma forma OU outra. */
+  new_end_date: string | null;
+  term_extension_days: number | null;
+  scope_change: string | null;
+  notes: string | null;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+};
+
+export type AmendmentClauseEffect = 'altered' | 'added' | 'removed';
+
+export type ContractAmendmentClauseRow = {
+  id: string;
+  organization_id: string;
+  amendment_id: string;
+  clause_id: string | null;
+  replacement_clause_id: string | null;
+  effect: AmendmentClauseEffect;
+  note: string | null;
+  created_by: string | null;
+  created_at: string;
+};
+
 export type ContractDocumentStatus = 'uploaded' | 'missing' | 'expired' | 'expiring_soon' | 'pending_approval' | 'approved' | 'rejected';
 
 export type ContractDocumentRow = {
@@ -335,6 +388,25 @@ export type ContractDetail = {
   projectLinks: ContractProjectLinkRow[];
   riskLinks: ContractRiskLinkRow[];
   documents: ContractDocumentRow[];
+  /** Aditivos do contrato mestre (098). */
+  amendments: ContractAmendmentRow[];
+  /** Cláusulas atingidas pelos aditivos acima. */
+  amendmentClauses: ContractAmendmentClauseRow[];
+  /**
+   * A leitura dos aditivos falhou.
+   *
+   * Existe para que `amendments: []` NUNCA seja ambíguo. Sem este campo, uma
+   * falha de leitura e um contrato genuinamente sem aditivo produziriam a mesma
+   * lista vazia — e a tela diria "nenhum aditivo registrado" sobre um contrato
+   * que pode ter três. É a mesma distinção que `sectionErrors` faz para as
+   * demais relações.
+   *
+   * Também é o que impede um deploy fora de ordem de derrubar o dossiê: se o
+   * código chegar antes da migration 098, a tabela não existe, a leitura falha
+   * e o contrato continua abrindo — com a seção de instrumentos dizendo que não
+   * conseguiu ler, em vez de a página inteira quebrar.
+   */
+  amendmentsError: string | null;
 };
 
 export type CreateContractInput = {
@@ -358,7 +430,6 @@ export type CreateContractInput = {
   healthScore?: number | null;
   ownerUserId?: string | null;
   file?: File | null;
-  aiPlaceholderRequested?: boolean;
   /**
    * Origem do contrato (migration 091). OBRIGATÓRIA e sem valor padrão neste
    * tipo, de propósito: quem cria um contrato precisa declarar se ele é
@@ -381,7 +452,7 @@ export type CreateContractInput = {
  * fixture a operacional. Use `reclassifyContract`, que exige justificativa e
  * registra a mudança na auditoria.
  */
-export type UpdateContractInput = Partial<Omit<CreateContractInput, 'file' | 'aiPlaceholderRequested' | 'dataClass'>>;
+export type UpdateContractInput = Partial<Omit<CreateContractInput, 'file' | 'dataClass'>>;
 
 function toNumber(value: number | string | null | undefined) {
   if (value === null || value === undefined) return 0;
@@ -553,6 +624,28 @@ export async function getContractById(contractId: string): Promise<ContractDetai
     listContractDocuments(contractId),
   ]);
 
+  /*
+    Os aditivos saem de leitura TOLERANTE a falha, ao contrário das relações
+    acima. A razão é de implantação: se este código chegar a produção antes da
+    migration 098, `contract_amendments` não existe, e uma leitura que lança
+    derrubaria o dossiê inteiro de todo contrato — inclusive os que não têm
+    aditivo nenhum. O erro é capturado e PROPAGADO como erro, nunca convertido
+    em lista vazia.
+
+    As cláusulas atingidas dependem dos ids dos aditivos, então saem de uma
+    segunda consulta — encadeada, não paralela. Um contrato sem aditivo não
+    paga nada por isso: a função devolve `[]` sem tocar a rede.
+  */
+  let amendments: ContractAmendmentRow[] = [];
+  let amendmentClauses: ContractAmendmentClauseRow[] = [];
+  let amendmentsError: string | null = null;
+  try {
+    amendments = await listContractAmendments(contractId);
+    amendmentClauses = await listContractAmendmentClauses(amendments.map((a) => a.id));
+  } catch (err) {
+    amendmentsError = err instanceof Error ? err.message : 'Falha ao carregar aditivos.';
+  }
+
   return {
     contract,
     clauses,
@@ -566,7 +659,10 @@ export async function getContractById(contractId: string): Promise<ContractDetai
     approvals,
     projectLinks,
     riskLinks,
-    documents
+    documents,
+    amendments,
+    amendmentClauses,
+    amendmentsError
   };
 }
 
@@ -606,10 +702,6 @@ export async function createContract(input: CreateContractInput): Promise<Contra
 
   if (input.file) {
     await uploadContractFile(data.id, input.file);
-  }
-
-  if (input.aiPlaceholderRequested) {
-    await requestContractAiAnalysisPlaceholder(data.id);
   }
 
   await logAuditEvent({
@@ -1656,35 +1748,24 @@ export async function listContractAiAnalyses(contractId: string): Promise<Contra
   return (data ?? []) as ContractAiAnalysisRow[];
 }
 
-export async function requestContractAiAnalysisPlaceholder(contractId: string): Promise<ContractAiAnalysisRow> {
-  const { supabase, user, organizationId } = await getCurrentIdentity();
-  const { data, error } = await supabase
-    .from('contract_ai_analyses')
-    .insert({
-      organization_id: organizationId,
-      contract_id: contractId,
-      status: 'pending',
-      summary: 'Placeholder seguro: nenhuma analise documental real foi executada.',
-      risk_summary: 'Aguardando motor de IA e documento fonte.',
-      extracted_data: { foundation: true, source: 'manual_request' },
-      findings: [],
-      created_by: user.id,
-    })
-    .select('*')
-    .single<ContractAiAnalysisRow>();
+/*
+  `requestContractAiAnalysisPlaceholder` foi removida em P2F.
 
-  if (error) throw new Error(`Erro ao solicitar analise IA: ${error.message}`);
+  Ela inseria em `contract_ai_analyses` uma linha `status = 'pending'` com
+  `summary` anunciando que nenhuma análise fora executada — e nada, em lugar
+  algum, a concluía. O resultado era uma análise eternamente pendente por
+  contrato criado com a caixa marcada: aparecia como "tem análise de IA" no read
+  model, ocupava a posição de análise mais recente do contrato e sobrevivia a
+  qualquer reanálise real, porque a real grava uma linha nova.
 
-  await logAuditEvent({
-    organizationId,
-    action: 'contract.ai_analysis_requested',
-    entityType: 'contract',
-    entityId: contractId,
-    metadata: { status: 'pending_placeholder' },
-  });
+  Uma dessas linhas órfãs foi encontrada na base durante a verificação de P2E,
+  com `extracted_data = { confidence: 0 }`, e foi o que fez uma asserção
+  procurar proveniência onde não havia.
 
-  return data;
-}
+  A extração assistida real existe desde P2D/P2E — `requestClauseExtraction` —
+  roda no servidor, alcança estado terminal e registra modelo, versão e
+  documento de origem. É ela que o cadastro dispara agora, opcionalmente.
+*/
 
 export async function createProjectFromContract(contractId: string) {
   const detail = await getContractById(contractId);
@@ -2172,6 +2253,317 @@ export async function unlinkContractFromRisk(contractId: string, riskId: string)
   });
 }
 
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Substituição de documento e aditivos (P2F.1)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Substitui um documento por uma versão nova, preservando a anterior.
+ *
+ * Envia o arquivo novo e encadeia a linhagem numa operação só, que é o que a
+ * interface precisa. O documento antigo NÃO é apagado nem sobrescrito: ele
+ * continua legível, continua respondendo por qualquer cláusula validada que
+ * saiu dele, e passa a apontar para o sucessor.
+ *
+ * Se o encadeamento falhar depois do upload, o documento novo permanece — solto,
+ * porém visível — e o erro sobe. É preferível a apagá-lo: um arquivo enviado que
+ * some sem deixar rastro é pior que um arquivo enviado que precisa ser
+ * reencadeado, e o usuário consegue ver o que aconteceu.
+ */
+export async function replaceContractDocument(
+  contractId: string,
+  oldDocumentId: string,
+  file: File,
+  title: string,
+  documentType?: string,
+): Promise<{ document: ContractDocumentRow; supersededProposals: number }> {
+  const { supabase } = await getCurrentIdentity();
+
+  const { data: previous, error: prevError } = await supabase
+    .from('contract_documents')
+    .select('document_type, superseded_by_document_id')
+    .eq('id', oldDocumentId)
+    .maybeSingle<{ document_type: string; superseded_by_document_id: string | null }>();
+  if (prevError) throw new Error(`Erro ao ler documento anterior: ${prevError.message}`);
+  if (!previous) throw new Error('Documento anterior não encontrado.');
+  if (previous.superseded_by_document_id) {
+    // Substituir um documento já substituído criaria duas versões concorrentes
+    // apontando para o mesmo antecessor, e a linhagem deixaria de ser uma
+    // linha. A versão vigente é a única substituível.
+    throw new Error('Este documento já foi substituído. Substitua a versão vigente.');
+  }
+
+  const created = await uploadContractDocument(
+    contractId,
+    title,
+    file,
+    documentType ?? previous.document_type,
+  );
+
+  const { supersededProposals } = await supersedeContractDocument(
+    oldDocumentId,
+    created.id,
+    contractId,
+  );
+
+  return { document: created, supersededProposals };
+}
+
+export async function listContractAmendments(contractId: string): Promise<ContractAmendmentRow[]> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from('contract_amendments')
+    .select('*')
+    .eq('contract_id', contractId)
+    .is('deleted_at', null)
+    .order('effective_date', { ascending: true, nullsFirst: false });
+  if (error) throw new Error(`Erro ao carregar aditivos: ${error.message}`);
+  return (data ?? []) as ContractAmendmentRow[];
+}
+
+export async function listContractAmendmentClauses(
+  amendmentIds: readonly string[],
+): Promise<ContractAmendmentClauseRow[]> {
+  if (amendmentIds.length === 0) return [];
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from('contract_amendment_clauses')
+    .select('*')
+    .in('amendment_id', amendmentIds as string[]);
+  if (error) throw new Error(`Erro ao carregar cláusulas do aditivo: ${error.message}`);
+  return (data ?? []) as ContractAmendmentClauseRow[];
+}
+
+export type CreateContractAmendmentInput = {
+  contractId: string;
+  amendmentNumber: string;
+  title?: string | null;
+  status?: ContractAmendmentStatus;
+  signedDate?: string | null;
+  effectiveDate?: string | null;
+  /** Uma forma OU outra. Passar as duas viola o CHECK de 098. */
+  valueDelta?: number | null;
+  valueAbsolute?: number | null;
+  newEndDate?: string | null;
+  termExtensionDays?: number | null;
+  scopeChange?: string | null;
+  notes?: string | null;
+  /** PDF do aditivo. Entra em `contract_documents` com tipo 'amendment'. */
+  file?: File | null;
+};
+
+/**
+ * Registra um aditivo.
+ *
+ * O contrato mestre NÃO é tocado: `contracts.total_value` e `contracts.end_date`
+ * seguem sendo o que o contrato original dizia. O efeito do aditivo é derivado
+ * na leitura, por `effectiveContractState`.
+ */
+export async function createContractAmendment(
+  input: CreateContractAmendmentInput,
+): Promise<ContractAmendmentRow> {
+  const { supabase, user, organizationId } = await getCurrentIdentity();
+
+  if (input.valueDelta != null && input.valueAbsolute != null) {
+    throw new Error('Informe o acréscimo OU o novo valor total, não os dois.');
+  }
+  if (input.newEndDate && input.termExtensionDays != null) {
+    throw new Error('Informe a nova data de término OU a prorrogação em dias, não as duas.');
+  }
+
+  let documentId: string | null = null;
+  if (input.file) {
+    const doc = await uploadContractDocument(
+      input.contractId,
+      `${input.amendmentNumber} — ${input.title || 'Aditivo'}`,
+      input.file,
+      'amendment',
+    );
+    documentId = doc.id;
+  }
+
+  const { data, error } = await supabase
+    .from('contract_amendments')
+    .insert({
+      organization_id: organizationId,
+      contract_id: input.contractId,
+      amendment_number: input.amendmentNumber.trim(),
+      title: input.title?.trim() || null,
+      document_id: documentId,
+      status: input.status ?? 'draft',
+      signed_date: input.signedDate || null,
+      effective_date: input.effectiveDate || null,
+      value_delta: input.valueDelta ?? null,
+      value_absolute: input.valueAbsolute ?? null,
+      new_end_date: input.newEndDate || null,
+      term_extension_days: input.termExtensionDays ?? null,
+      scope_change: input.scopeChange?.trim() || null,
+      notes: input.notes?.trim() || null,
+      created_by: user.id,
+      updated_by: user.id,
+    })
+    .select('*')
+    .single<ContractAmendmentRow>();
+
+  if (error) throw new Error(`Erro ao registrar aditivo: ${error.message}`);
+
+  await logAuditEvent({
+    organizationId,
+    action: 'contract.amendment_created',
+    entityType: 'contract',
+    entityId: input.contractId,
+    metadata: {
+      amendment_id: data.id,
+      amendment_number: data.amendment_number,
+      status: data.status,
+      effective_date: data.effective_date,
+      value_delta: data.value_delta,
+      value_absolute: data.value_absolute,
+      new_end_date: data.new_end_date,
+      term_extension_days: data.term_extension_days,
+      document_id: documentId,
+    },
+  });
+
+  return data;
+}
+
+export type UpdateContractAmendmentInput = Partial<Omit<CreateContractAmendmentInput, 'contractId' | 'file'>>;
+
+const AMENDMENT_UPDATE_COLUMNS = {
+  amendmentNumber: 'amendment_number',
+  title: 'title',
+  status: 'status',
+  signedDate: 'signed_date',
+  effectiveDate: 'effective_date',
+  valueDelta: 'value_delta',
+  valueAbsolute: 'value_absolute',
+  newEndDate: 'new_end_date',
+  termExtensionDays: 'term_extension_days',
+  scopeChange: 'scope_change',
+  notes: 'notes',
+} as const satisfies Record<keyof UpdateContractAmendmentInput, string>;
+
+/**
+ * Monta o PATCH parcial de um aditivo.
+ *
+ * Mesma disciplina de `buildContractUpdatePayload`: uma chave só entra se o
+ * chamador a forneceu. `null` passa — é como se limpa um efeito registrado por
+ * engano; `undefined` não.
+ */
+export function buildAmendmentUpdatePayload(
+  input: UpdateContractAmendmentInput,
+  updatedBy: string,
+): Record<string, unknown> {
+  const payload: Record<string, unknown> = { updated_by: updatedBy };
+  for (const [key, column] of Object.entries(AMENDMENT_UPDATE_COLUMNS)) {
+    const value = (input as Record<string, unknown>)[key];
+    if (value !== undefined) payload[column] = value;
+  }
+  return payload;
+}
+
+export async function updateContractAmendment(
+  amendmentId: string,
+  contractId: string,
+  input: UpdateContractAmendmentInput,
+): Promise<ContractAmendmentRow> {
+  const { supabase, user, organizationId } = await getCurrentIdentity();
+  const { data, error } = await supabase
+    .from('contract_amendments')
+    .update(buildAmendmentUpdatePayload(input, user.id))
+    .eq('id', amendmentId)
+    .select('*')
+    .single<ContractAmendmentRow>();
+  if (error) throw new Error(`Erro ao atualizar aditivo: ${error.message}`);
+
+  await logAuditEvent({
+    organizationId,
+    action: 'contract.amendment_updated',
+    entityType: 'contract',
+    entityId: contractId,
+    metadata: { amendment_id: amendmentId, fields: Object.keys(buildAmendmentUpdatePayload(input, user.id)) },
+  });
+
+  return data;
+}
+
+/**
+ * Registra que um aditivo atinge uma cláusula.
+ *
+ * A cláusula original permanece intacta. Quando o aditivo dá nova redação,
+ * `replacementClauseId` aponta para a cláusula NOVA — as duas coexistem, e a
+ * sucessão fica explícita em vez de destruir o texto anterior.
+ */
+export async function linkAmendmentClause(input: {
+  amendmentId: string;
+  contractId: string;
+  clauseId?: string | null;
+  replacementClauseId?: string | null;
+  effect: AmendmentClauseEffect;
+  note?: string | null;
+}): Promise<ContractAmendmentClauseRow> {
+  const { supabase, user, organizationId } = await getCurrentIdentity();
+
+  if (input.effect !== 'added' && !input.clauseId) {
+    throw new Error('Alterar ou suprimir exige indicar a cláusula atingida.');
+  }
+
+  const { data, error } = await supabase
+    .from('contract_amendment_clauses')
+    .insert({
+      organization_id: organizationId,
+      amendment_id: input.amendmentId,
+      clause_id: input.clauseId ?? null,
+      replacement_clause_id: input.replacementClauseId ?? null,
+      effect: input.effect,
+      note: input.note?.trim() || null,
+      created_by: user.id,
+    })
+    .select('*')
+    .single<ContractAmendmentClauseRow>();
+
+  if (error) throw new Error(`Erro ao vincular cláusula ao aditivo: ${error.message}`);
+
+  await logAuditEvent({
+    organizationId,
+    action: 'contract.amendment_clause_linked',
+    entityType: 'contract',
+    entityId: input.contractId,
+    metadata: {
+      amendment_id: input.amendmentId,
+      clause_id: input.clauseId ?? null,
+      replacement_clause_id: input.replacementClauseId ?? null,
+      effect: input.effect,
+    },
+  });
+
+  return data;
+}
+
+/** Exclusão lógica: o instrumento sai de vigor sem sumir da história. */
+export async function softDeleteContractAmendment(
+  amendmentId: string,
+  contractId: string,
+): Promise<void> {
+  const { supabase, user, organizationId } = await getCurrentIdentity();
+  const { error } = await supabase
+    .from('contract_amendments')
+    .update({ deleted_at: new Date().toISOString(), updated_by: user.id })
+    .eq('id', amendmentId)
+    .is('deleted_at', null);
+  if (error) throw new Error(`Erro ao excluir aditivo: ${error.message}`);
+
+  await logAuditEvent({
+    organizationId,
+    action: 'contract.amendment_deleted',
+    entityType: 'contract',
+    entityId: contractId,
+    metadata: { amendment_id: amendmentId },
+  });
+}
+
 export async function listContractDocuments(contractId: string): Promise<ContractDocumentRow[]> {
   const supabase = createClient();
   const { data, error } = await supabase.from('contract_documents').select('*').eq('contract_id', contractId).order('created_at', { ascending: false });
@@ -2513,6 +2905,34 @@ export type ContractAuditEventRow = {
  * Devolve `null` em falha para que o chamador distinga erro de ausência, em vez
  * de um `[]` ambíguo.
  */
+/**
+ * Eventos de auditoria de VÁRIOS contratos, em ordem cronológica inversa.
+ *
+ * Serve a atividade recente da carteira. Lê a mesma `audit_logs` que a aba
+ * Auditoria de cada contrato — nenhum store paralelo de atividade — e devolve
+ * o `entity_id` para que a interface possa nomear o contrato de cada linha.
+ *
+ * `ids` vazio devolve lista vazia sem tocar a rede: uma carteira sem contrato
+ * não tem atividade a consultar.
+ */
+export async function listPortfolioAuditEvents(
+  contractIds: readonly string[],
+  limit = 12,
+): Promise<{ rows: (ContractAuditEventRow & { entity_id: string })[]; error: string | null }> {
+  if (contractIds.length === 0) return { rows: [], error: null };
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from('audit_logs')
+    .select('id,action,actor_user_id,metadata,created_at,entity_id')
+    .eq('entity_type', 'contract')
+    .in('entity_id', contractIds as string[])
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (error) return { rows: [], error: error.message };
+  return { rows: (data ?? []) as (ContractAuditEventRow & { entity_id: string })[], error: null };
+}
+
 export async function listContractAuditEvents(
   contractId: string,
   limit = 50,

@@ -8,6 +8,17 @@
  * contrato, há quantos dias, o que isso trava e o que fazer.
  *
  * Impacto financeiro só aparece onde o dado o sustenta.
+ *
+ * P2G — separação por PESO, não só por cor. Antes, as quatro severidades
+ * rendiam cards idênticos, e uma carteira recém-cadastrada virava uma coluna
+ * de quatro "Configuração pendente" visualmente iguais a um contrato vencido.
+ * Peso igual para coisas de urgência diferente é ruído: treina o olho a ignorar
+ * a coluna inteira, inclusive o que é crítico.
+ *
+ * Agora:
+ *   · crítico e atenção  → card próprio, com exposição e ação (é operação)
+ *   · configuração       → superfície CONSOLIDADA de prontidão (é cadastro)
+ *   · informativo        → linha compacta (é contexto)
  */
 
 import { cn } from '@/lib/utils';
@@ -91,6 +102,18 @@ export function PortfolioAttention({
     );
   }
 
+  /*
+    Operacional é o que exige decisão agora; configuração é o que falta
+    registrar. Misturar os dois na mesma pilha faz o segundo abafar o primeiro
+    — que é exatamente o inverso do que uma central de atenção deve fazer.
+  */
+  const operational = items.filter((i) => i.severity === 'critical' || i.severity === 'warning');
+  const setupItems = items.filter((i) => i.severity === 'setup');
+  const infoItems = items.filter((i) => i.severity === 'info');
+
+  const shownOperational = max ? operational.slice(0, max) : operational;
+  const hiddenOperational = operational.length - shownOperational.length;
+
   return (
     <div className={cn('space-y-3', className)}>
       {/* Cabeçalho com a contagem por severidade — o "quanto" antes do "o quê". */}
@@ -112,7 +135,7 @@ export function PortfolioAttention({
         })}
       </div>
 
-      {shown.map((item) => {
+      {shownOperational.map((item) => {
         const s = SEV[item.severity];
         return (
           <article
@@ -153,7 +176,7 @@ export function PortfolioAttention({
             {item.exposure && hasOfficialValue(item.exposure) && (
               <p className="mt-2.5 flex items-baseline gap-2">
                 <span className="text-ig-caption uppercase tracking-[0.1em] text-ig-fg-muted">Exposição</span>
-                <span className={cn('ig-tabular text-[17px] font-semibold', s.text)}>
+                <span className={cn('ig-tabular text-ig-h2', s.text)}>
                   {BRL.format(item.exposure.value)}
                 </span>
               </p>
@@ -178,12 +201,126 @@ export function PortfolioAttention({
         );
       })}
 
-      {hidden > 0 && (
+      {hiddenOperational > 0 && (
         <p className="flex items-center gap-1.5 px-1 text-ig-caption text-ig-fg-subtle">
           <ShieldCheck className="h-3.5 w-3.5" aria-hidden />
-          + {hidden} outro(s) sinal(is) na carteira
+          + {hiddenOperational} outro(s) sinal(is) operacional(is) na carteira
         </p>
       )}
+
+      {setupItems.length > 0 && (
+        <SetupReadinessSurface items={setupItems} onAction={onAction} onOpenContract={onOpenContract} />
+      )}
+
+      {infoItems.length > 0 && (
+        <ul className="space-y-1">
+          {infoItems.map((item) => (
+            <li
+              key={`${item.contractId}-${item.id}`}
+              className="flex items-start gap-2 rounded-[10px] border border-ig-border-subtle bg-ig-panel/40 px-3 py-2"
+            >
+              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ig-info" aria-hidden />
+              <span className="min-w-0 flex-1">
+                <span className="text-ig-body-sm text-ig-fg-strong">{item.title}</span>
+                <span className="mt-0.5 block text-ig-caption text-ig-fg-muted">{item.reason}</span>
+              </span>
+              <span className="shrink-0 font-mono text-ig-caption text-ig-fg-subtle">{item.contractCode}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
+  );
+}
+
+/**
+ * Prontidão operacional — o que falta REGISTRAR, num lugar só.
+ *
+ * Deliberadamente sem tom de alarme: nada aqui está irregular. São passos de
+ * cadastro que ainda não aconteceram, e um contrato pode viver sem vários
+ * deles. Agrupar por contrato — e não repetir o cabeçalho "Configuração
+ * pendente" a cada linha — devolve à coluna a leitura que a repetição tirava.
+ */
+function SetupReadinessSurface({
+  items,
+  onAction,
+  onOpenContract,
+}: {
+  items: readonly PortfolioAttentionItem[];
+  onAction?: (contractId: string, key: AttentionActionKey) => void;
+  onOpenContract?: (contractId: string) => void;
+}) {
+  const byContract = new Map<string, PortfolioAttentionItem[]>();
+  for (const item of items) {
+    const list = byContract.get(item.contractId) ?? [];
+    list.push(item);
+    byContract.set(item.contractId, list);
+  }
+
+  return (
+    <section className="rounded-[16px] border border-ig-border-subtle bg-[color-mix(in_oklab,var(--ig-accent)_4%,transparent)] px-4 py-3.5">
+      <header className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
+        <span className="flex items-center gap-1.5 text-ig-label font-semibold uppercase tracking-[0.12em] text-ig-accent">
+          <Settings2 className="h-3.5 w-3.5" aria-hidden />
+          Prontidão operacional
+        </span>
+        <span className="ig-tabular text-ig-caption font-semibold text-ig-fg-strong">{items.length}</span>
+        <span className="text-ig-caption text-ig-fg-muted">
+          {byContract.size === 1 ? 'passo de cadastro pendente' : `passos em ${byContract.size} contratos`}
+        </span>
+      </header>
+
+      <p className="mt-1 text-ig-caption text-ig-fg-muted">
+        Nada aqui está irregular — são registros que ainda não foram feitos.
+      </p>
+
+      <div className="mt-3 space-y-2.5">
+        {[...byContract.entries()].map(([contractId, list]) => (
+          <div key={contractId}>
+            <button
+              type="button"
+              onClick={onOpenContract ? () => onOpenContract(contractId) : undefined}
+              disabled={!onOpenContract}
+              className={cn(
+                'font-mono text-ig-caption font-semibold text-ig-fg-muted',
+                onOpenContract && 'rounded hover:text-ig-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_oklab,var(--ig-accent)_45%,transparent)]',
+              )}
+            >
+              {list[0].contractCode}
+            </button>
+            <span className="ml-2 text-ig-caption text-ig-fg-subtle">{list[0].counterparty}</span>
+
+            <ul className="mt-1.5 grid gap-1.5 sm:grid-cols-2">
+              {list.map((item) => (
+                <li
+                  key={item.id}
+                  className="flex items-start gap-2 rounded-[10px] border border-ig-border-subtle bg-ig-panel/45 px-3 py-2"
+                >
+                  <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-ig-accent/70" aria-hidden />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-ig-body-sm font-medium leading-snug text-ig-fg-strong">
+                      {item.title}
+                    </span>
+                    <span className="mt-0.5 block text-ig-caption leading-relaxed text-ig-fg-muted">
+                      {item.reason}
+                    </span>
+                    {onAction && (
+                      <button
+                        type="button"
+                        onClick={() => onAction(item.contractId, item.actionKey)}
+                        className="mt-1.5 inline-flex items-center gap-1 text-ig-caption font-medium text-ig-accent transition-colors hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_oklab,var(--ig-accent)_45%,transparent)] rounded"
+                      >
+                        {item.actionLabel}
+                        <ArrowRight className="h-3 w-3" aria-hidden />
+                      </button>
+                    )}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }

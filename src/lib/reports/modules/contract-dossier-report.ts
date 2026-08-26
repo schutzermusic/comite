@@ -36,12 +36,15 @@ import { renderReportDocument } from '@/lib/reports/report-shell';
 import { openReport, buildReportMeta, buildReportFileName } from '@/lib/reports/report-export';
 import type { ReportExportResult } from '@/lib/reports/report-types';
 import type { TrustedContract } from '@/lib/contracts/trust/read-model';
-import type { ContractAuditEventRow } from '@/lib/contracts/contract-service';
+import type { ContractAuditEventRow, ContractAmendmentRow } from '@/lib/contracts/contract-service';
+import {
+  effectiveContractState, SKIP_REASON_LABEL,
+} from '@/lib/contracts/trust/amendments';
 import {
   officialCurrencyCompact, officialCurrencyFull, officialPercent, officialProvenance,
 } from '@/lib/contracts/trust/format';
 import {
-  hasOfficialValue, isError, ratioTrusted, renderOfficial,
+  live, missing, hasOfficialValue, isError, ratioTrusted, renderOfficial,
   type Official,
 } from '@/lib/contracts/trust/trusted';
 import {
@@ -63,6 +66,15 @@ export interface ContractDossierPayload {
   auditEvents?: readonly ContractAuditEventRow[];
   /** Erro de leitura da auditoria, para distinguir falha de ausência. */
   auditError?: string | null;
+  /**
+   * Aditivos do contrato (098).
+   *
+   * Omitir o campo NÃO significa "não há aditivo" — significa que não foram
+   * lidos, e o documento diz isso em vez de afirmar que o contrato é o
+   * original. Um dossiê que omite um aditivo de R$ 2 milhões porque a consulta
+   * não foi feita é pior que um dossiê que admite não ter olhado.
+   */
+  amendments?: Official<readonly ContractAmendmentRow[]>;
 }
 
 const DOC_STATUS_PT: Record<string, string> = {
@@ -404,10 +416,73 @@ export function buildContractDossierHtml(payload: ContractDossierPayload): strin
     `Saúde: ${health.coverage.assessed}/${health.coverage.total} dimensões apuradas, ${health.drivers.filter((d) => d.adverse).length} em atenção.`,
   ])}`;
 
+  /* ── Instrumentos contratuais ── */
+  const amendmentState = effectiveContractState(
+    c.totalValue,
+    c.endDate,
+    payload.amendments ?? missing<readonly ContractAmendmentRow[]>('no-rows', 'aditivos não consultados'),
+  );
+
+  const instrumentRows = amendmentState.timeline.map((step: (typeof amendmentState.timeline)[number]) => {
+    const a = step.amendment;
+    const effects: string[] = [];
+    if (a.value_absolute !== null) effects.push(`valor passa a ${officialCurrencyFull(live(Number(a.value_absolute), 'contracts'))}`);
+    else if (a.value_delta !== null) effects.push(`${Number(a.value_delta) >= 0 ? '+' : ''}${officialCurrencyFull(live(Number(a.value_delta), 'contracts'))}`);
+    if (a.new_end_date) effects.push(`vigência até ${a.new_end_date}`);
+    else if (a.term_extension_days) effects.push(`+${a.term_extension_days} dias`);
+    if (a.scope_change) effects.push('altera escopo');
+
+    return {
+      instrumento: a.amendment_number,
+      titulo: a.title ?? '—',
+      efeito: a.effective_date ?? 'sem data',
+      alteracao: effects.length ? effects.join(' · ') : 'nenhuma alteração declarada',
+      situacao: {
+        html: step.applied
+          ? '<span class="pill ok">aplicado</span>'
+          : `<span class="pill warn">${esc(step.skipReason ? SKIP_REASON_LABEL[step.skipReason] : 'não aplicado')}</span>`,
+      },
+    };
+  });
+
+  const instrumentsTable = dataTable(
+    [
+      { key: 'instrumento', label: 'Instrumento' },
+      { key: 'titulo', label: 'Título' },
+      { key: 'efeito', label: 'Efeito em' },
+      { key: 'alteracao', label: 'Alteração declarada' },
+      { key: 'situacao', label: 'Situação' },
+    ],
+    instrumentRows,
+  );
+
+  /*
+    Original e vigente aparecem LADO A LADO, sempre. Imprimir só o vigente
+    apagaria a trilha; imprimir só o original mentiria sobre o presente. E
+    quando o vigente não pôde ser derivado, o documento diz "não apurado" em
+    vez de repetir o original como se nada tivesse mudado.
+  */
+  const effectiveBox = summaryBox([
+    `Valor original <b>${esc(officialCurrencyFull(amendmentState.originalValue))}</b> · valor vigente <b>${esc(officialCurrencyFull(amendmentState.currentValue))}</b>.`,
+    `Vigência original <b>${esc(dateText(amendmentState.originalEndDate))}</b> · vigência vigente <b>${esc(dateText(amendmentState.currentEndDate))}</b>.`,
+    ...(amendmentState.unapplied.some((x) => x.skipReason === 'undated')
+      ? ['Há aditivo em vigor sem data de efeito registrada: o valor ou o prazo vigente permanece não apurado, porque aplicá-lo em ordem arbitrária produziria um número que aparenta confiabilidade sem tê-la.']
+      : []),
+  ]);
+
+  const instrumentsSection = !payload.amendments
+    ? `${sectionTitle('Instrumentos Contratuais')}<p class="empty">Aditivos não consultados para este documento. A ausência de leitura não afirma que o contrato não tenha aditivos.</p>`
+    : isError(payload.amendments)
+      ? `${sectionTitle('Instrumentos Contratuais')}<p class="empty">Falha ao ler os aditivos do contrato.</p>`
+      : instrumentRows.length
+        ? `${sectionTitle('Instrumentos Contratuais', `contrato mestre + ${instrumentRows.length} aditivo(s)`)}${effectiveBox}${instrumentsTable}`
+        : `${sectionTitle('Instrumentos Contratuais')}${effectiveBox}<p class="empty">Nenhum aditivo registrado para este contrato.</p>`;
+
   const page1 = `<section class="section">${cover}</section><section class="section">${originBanner}${summary}${kpis}</section>`;
   const page2 = `<section class="section">${sectionA}${sectionB}</section>`;
   const page3 = `<section class="section">${sectionC}${sectionD}</section>`;
   const page4 = `<section class="section">${obligationsSection}${documentsSection}</section>`;
+  const pageInstruments = `<section class="section">${instrumentsSection}</section>`;
   const page5 = `<section class="section">${sectionE}${auditSection}</section>`;
 
   return renderReportDocument({
@@ -415,7 +490,7 @@ export function buildContractDossierHtml(payload: ContractDossierPayload): strin
     brand,
     logoUrl: meta.logoUrl,
     footerLabel: c.dataClass === 'live' ? `Dossiê — ${c.code}` : `DEMONSTRAÇÃO — ${c.code} — não é carteira da empresa`,
-    pages: [page1, page2, page3, page4, page5],
+    pages: [page1, page2, page3, page4, pageInstruments, page5],
     orientation: 'portrait',
   });
 }

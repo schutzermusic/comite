@@ -37,6 +37,17 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   'contract.agenda_task_created': 'Tarefa de agenda criada',
   'contract.ai_analysis_requested': 'Análise de IA solicitada',
   'contract.changes_requested': 'Ajustes solicitados',
+  // P2E / P2F.1 — linhagem de documento e aditivos.
+  'contract.document_superseded': 'Documento substituído',
+  'contract.amendment_created': 'Aditivo registrado',
+  'contract.amendment_updated': 'Aditivo atualizado',
+  'contract.amendment_deleted': 'Aditivo excluído',
+  'contract.amendment_clause_linked': 'Cláusula vinculada a aditivo',
+  'contract.clause_validated': 'Cláusula validada',
+  'contract.clause_rejected': 'Proposta de cláusula rejeitada',
+  'contract.milestone_created': 'Marco registrado',
+  'contract.milestone_measured': 'Marco medido',
+  'contract.approval_submitted': 'Etapa de aprovação decidida',
 };
 
 function relativeTime(iso: string, now: Date): string {

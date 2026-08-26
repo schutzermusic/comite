@@ -83,7 +83,7 @@ export function ObligationsControlTower({
               <span className="block truncate text-ig-label font-semibold uppercase tracking-[0.1em] text-ig-fg-muted">
                 {OBLIGATION_BUCKET_LABEL[bucket]}
               </span>
-              <span className={cn('mt-0.5 block text-[22px] font-semibold leading-none ig-tabular', tone.text)}>
+              <span className={cn('mt-0.5 block text-ig-kpi-md leading-none ig-tabular', tone.text)}>
                 {tower.counts[bucket]}
               </span>
             </button>

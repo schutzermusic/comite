@@ -10,15 +10,18 @@ import {
   uploadProjectFile,
 } from '@/lib/services/projects';
 import { hasOfficialValue } from '@/lib/contracts/trust/trusted';
+import { cn } from '@/lib/utils';
+import type { PortfolioActivityEvent } from '@/components/contracts/cockpit/PortfolioActivity';
 import { listRisks } from '@/lib/services/risks';
 import { useContracts } from '@/hooks/use-contracts';
 import { usePermissions } from '@/hooks/use-permissions';
 import { ContractList } from '@/components/contracts/contract-list';
-import { ContractUpload } from '@/components/contracts/contract-upload';
+import { ContractUpload, type ContractOnboardingDraft } from '@/components/contracts/contract-upload';
 import { ContractCard } from '@/components/contracts/ContractCard';
 import { ContractDossierDrawer } from '@/components/contracts/ContractDossierDrawer';
 import { useContractActionModals } from '@/components/contracts/useContractActionModals';
 import { useContractCreateModals } from '@/components/contracts/useContractCreateModals';
+import { useContractAmendmentModals } from '@/components/contracts/useContractAmendmentModals';
 import { useContractItemModals } from '@/components/contracts/useContractItemModals';
 import {
   enrichContractsForGovernance,
@@ -31,7 +34,7 @@ import {
 import { computeContractPortfolioStats } from '@/components/contracts/contract-portfolio-stats';
 import { applyLiveGovernanceData, countLiveSections } from '@/components/contracts/contract-governance-live';
 import { ContractExecutiveBand } from '@/components/contracts/ContractExecutiveBand';
-import { computeApprovalSla, contractRowToLegacyContract, createProjectFromContract, createTaskFromObligation, describeRelationErrors, fetchContractRelationsBatch, fetchPortfolioLinkCounts, listContractAuditEvents, submitContractApproval, updateContractDocumentStatus, type ContractRelationsBatch } from '@/lib/contracts/contract-service';
+import { computeApprovalSla, contractRowToLegacyContract, createTaskFromObligation, describeRelationErrors, fetchContractRelationsBatch, fetchPortfolioLinkCounts, listContractAuditEvents, listPortfolioAuditEvents, requestClauseExtraction, submitContractApproval, updateContractDocumentStatus, uploadContractDocument, type ContractRelationsBatch } from '@/lib/contracts/contract-service';
 import { buildTrustedPortfolio, type TrustedContract } from '@/lib/contracts/trust/read-model';
 import { computeTrustedPortfolioStats, type TrustedPortfolioStats } from '@/lib/contracts/trust/portfolio';
 import { approvalSla } from '@/lib/contracts/trust/signals';
@@ -47,7 +50,7 @@ import { ApprovalIntelligencePanel } from '@/components/contracts/intelligence/A
 import { ClauseRiskIntelligencePanel } from '@/components/contracts/intelligence/ClauseRiskIntelligencePanel';
 import { ScopeOriginNotice } from '@/components/contracts/intelligence/ScopeOriginNotice';
 import {
-  PortfolioScopeBar, matchesScope, type PortfolioScopeKey,
+  PortfolioScopeNotice, PortfolioActivity, matchesScope, type PortfolioScopeKey,
   PortfolioHero, ModuleConnections, PortfolioHorizon, PortfolioAttention,
   ContractInstrumentCard, ContractSmartTable,
 } from '@/components/contracts/cockpit';
@@ -267,13 +270,6 @@ export default function ContratosPage() {
    */
   const trustedStats = useMemo(() => computeTrustedPortfolioStats(trustedPortfolio), [trustedPortfolio]);
 
-
-  /**
-   * Inteligência de carteira do Command Center. Toda ela deriva do portfólio
-   * confiável e respeita a fronteira de origem: contrato de demonstração não
-   * gera sinal nem entra em conexão.
-   */
-  const attention = useMemo(() => portfolioAttention(trustedPortfolio), [trustedPortfolio]);
   const connections = useMemo(
     () => portfolioConnections({
       contracts: trustedPortfolio,
@@ -318,6 +314,48 @@ export default function ContratosPage() {
     if (dataClassById.size === 0) return allRecords;
     return allRecords.filter((r) => matchesScope(dataClassById.get(r.contract.id) ?? 'unclassified', scope));
   }, [allRecords, dataClassById, scope]);
+  /*
+    Atividade recente da carteira. Lida à parte porque `audit_logs` pertence ao
+    módulo Auditoria — Contratos consulta, não replica. Uma falha aqui não
+    derruba a página: vira `error` e o painel diz que não conseguiu ler, em vez
+    de exibir "nenhuma atividade" sobre uma carteira que pode ter dezenas.
+  */
+  const [activity, setActivity] = useState<{ rows: PortfolioActivityEvent[]; error: string | null }>(
+    { rows: [], error: null },
+  );
+
+  const visibleContractIds = useMemo(
+    () => records.map((r) => r.contract.id),
+    [records],
+  );
+
+  useEffect(() => {
+    let alive = true;
+    if (visibleContractIds.length === 0) {
+      setActivity({ rows: [], error: null });
+      return;
+    }
+    listPortfolioAuditEvents(visibleContractIds, 12)
+      .then((res) => { if (alive) setActivity(res); })
+      .catch((err: unknown) => {
+        if (alive) setActivity({ rows: [], error: err instanceof Error ? err.message : 'Falha ao ler auditoria.' });
+      });
+    return () => { alive = false; };
+  }, [visibleContractIds]);
+
+  const codeById = useMemo(
+    () => new Map(records.map((r) => [r.contract.id, trustedById.get(r.contract.id)?.code ?? r.contract.name])),
+    [records, trustedById],
+  );
+
+
+  /**
+   * Inteligência de carteira do Command Center. Toda ela deriva do portfólio
+   * confiável e respeita a fronteira de origem: contrato de demonstração não
+   * gera sinal nem entra em conexão.
+   */
+  const attention = useMemo(() => portfolioAttention(trustedPortfolio), [trustedPortfolio]);
+
   const governanceLoading = mockRecords.length > 0 && liveRecords === null && governance.error === null;
   const companies = useMemo(() => Array.from(new Set(records.map((record) => record.companyName))).sort(), [records]);
 
@@ -437,6 +475,15 @@ export default function ContratosPage() {
   }, [filteredRecords, records, selectedId]);
 
   // Create-obligation / create-billing modals, bound to the drawer's selected contract.
+  /*
+    Aditivo pelo dossiê rápido. `selectedId` é o contrato aberto no drawer —
+    o hook precisa de um id concreto, e sem seleção não há o que aditar.
+  */
+  const amendmentModals = useContractAmendmentModals({
+    contractId: selectedId ?? '',
+    onRefresh: refreshContractsAndProjects,
+  });
+
   const createModals = useContractCreateModals({
     contractId: selectedRecord?.contract.id ?? '',
     ownerUserId: selectedRecord?.contract.responsibleId ?? null,
@@ -565,11 +612,23 @@ export default function ContratosPage() {
     }
   };
 
-  const handleContractCreated = async (
-    contract: Contract,
-    autoGeneratedRisk?: unknown,
-    metadata?: { file?: File | null; projectId?: string | null; contractType?: string; status?: string; aiPlaceholderRequested?: boolean; osNumber?: string | null },
-  ) => {
+  /**
+   * Traz um contrato REAL para dentro do módulo.
+   *
+   * A ordem importa e é deliberada:
+   *
+   *   1. o contrato nasce — é o que dá identidade e id a tudo o mais;
+   *   2. o documento original entra em `contract_documents`, versionado;
+   *   3. a análise assistida roda por último, e SÓ se pedida.
+   *
+   * Cada etapa depois da primeira pode falhar sem levar junto o que já foi
+   * gravado: um upload que falha não desfaz o contrato, e uma análise que
+   * falha não desfaz o documento. O usuário é informado do que ficou pendente
+   * e conclui pelo dossiê — que é onde essas ações existem de qualquer forma.
+   * Desfazer tudo por causa do terceiro passo obrigaria a redigitar um cadastro
+   * inteiro por causa de uma indisponibilidade de rede.
+   */
+  const handleContractOnboarded = async (draft: ContractOnboardingDraft) => {
     const row = await persistContract({
       /**
        * Criação pela interface operacional → o contrato nasce OFICIAL.
@@ -577,50 +636,70 @@ export default function ContratosPage() {
        * permanecem 'unclassified'. O tipo exige a declaração em todo caminho.
        */
       dataClass: 'live',
-      title: contract.name,
-      counterpartyName: contract.vendorOrParty,
-      contractNumber: metadata?.osNumber || null,
-      contractType: metadata?.contractType || null,
-      projectId: metadata?.projectId || null,
-      status: metadata?.status || contract.status,
-      lifecycleStage: metadata?.status || 'created',
-      signedDate: contract.signingDate ? format(contract.signingDate, 'yyyy-MM-dd') : null,
-      endDate: contract.expirationDate ? format(contract.expirationDate, 'yyyy-MM-dd') : null,
-      renewalDate: contract.renewalDate ? format(contract.renewalDate, 'yyyy-MM-dd') : null,
-      currency: contract.currency,
-      totalValue: contract.value,
-      scopeSummary: contract.notes || null,
-      riskLevel: contract.riskClassification,
-      file: metadata?.file || null,
-      aiPlaceholderRequested: metadata?.aiPlaceholderRequested || false,
+      title: draft.title,
+      contractNumber: draft.contractNumber,
+      counterpartyName: draft.counterpartyName,
+      contractType: draft.contractType,
+      projectId: draft.projectId,
+      status: draft.status,
+      /*
+        `lifecycle_stage` NÃO recebe o `status`. São vocabulários distintos:
+        status é o estado comercial ('negotiation', 'active'), lifecycle_stage
+        marca o avanço da orquestração ('created', 'legal_review',
+        'project_created'). Copiar um no outro fazia o estágio de ciclo de vida
+        exibir "negotiation", que não é estágio nenhum. Omitido aqui de
+        propósito: `createContract` grava 'created', que é o estágio correto de
+        um contrato recém-cadastrado.
+      */
+      startDate: draft.startDate,
+      endDate: draft.endDate,
+      signedDate: draft.signedDate,
+      renewalDate: draft.renewalDate,
+      currency: draft.currency,
+      totalValue: draft.totalValue,
+      monthlyValue: draft.monthlyValue,
+      paymentTerms: draft.paymentTerms,
+      scopeSummary: draft.scopeSummary,
+      riskLevel: draft.riskLevel,
+      ownerUserId: draft.ownerUserId,
     });
-    const shouldAutoCreateProject =
-      !metadata?.projectId
-      && ['signed', 'active'].includes(metadata?.status || contract.status);
 
-    if (shouldAutoCreateProject) {
+    const pending: string[] = [];
+    let documentId: string | null = null;
+
+    if (draft.document) {
       try {
-        const project = await createProjectFromContract(row.id);
-        const [nextProjects] = await Promise.all([
-          getProjectsAsync(),
-          refresh(),
-        ]);
-        setProjects(nextProjects);
-        setSelectedId(row.id);
-        setActiveSection('contracts');
-        setNotice(`Contrato salvo e projeto "${project.codigo}" criado automaticamente.`);
-        return;
+        const doc = await uploadContractDocument(
+          row.id,
+          draft.document.title,
+          draft.document.file,
+          draft.document.documentType,
+        );
+        documentId = doc.id;
       } catch (err) {
-        setSelectedId(row.id);
-        setActiveSection('contracts');
-        setNotice(err instanceof Error ? `Contrato salvo, mas o projeto automático falhou: ${err.message}` : 'Contrato salvo, mas o projeto automático falhou.');
-        return;
+        pending.push(err instanceof Error ? `documento não anexado (${err.message})` : 'documento não anexado');
       }
     }
 
+    if (draft.runExtraction && documentId) {
+      try {
+        const result = await requestClauseExtraction(row.id, documentId);
+        if (result.proposedCount) {
+          pending.push(`${result.proposedCount} proposta(s) aguardando revisão`);
+        }
+      } catch (err) {
+        pending.push(err instanceof Error ? `análise não concluída (${err.message})` : 'análise não concluída');
+      }
+    }
+
+    await refresh();
     setSelectedId(row.id);
     setActiveSection('contracts');
-    setNotice(autoGeneratedRisk ? 'Contrato salvo no Supabase. Risco de triagem permanece pendente para o modulo Riscos.' : 'Contrato salvo no Supabase com analise IA em placeholder seguro.');
+    setNotice(
+      pending.length > 0
+        ? `Contrato "${row.title}" criado — ${pending.join('; ')}.`
+        : `Contrato "${row.title}" criado na carteira oficial.`,
+    );
   };
 
   const tabs: HudTab[] = [
@@ -652,6 +731,8 @@ export default function ContratosPage() {
           onSelect={openDossierDrawer}
           onView={handleViewContract}
           onOpenPortfolio={() => setActiveSection('contracts')}
+          activity={activity}
+          codeById={codeById}
         />
       ),
     },
@@ -893,11 +974,11 @@ export default function ContratosPage() {
       )}
 
       {/*
-        Escopo da carteira acima da band: o usuário precisa saber QUE recorte
-        está vendo antes de ler qualquer número. A composição
-        "N ao vivo · N demonstração · N não classificados" fica sempre visível.
+        O SELETOR de origem saiu do cabeçalho. No lugar, um aviso contextual que
+        só existe quando há registro fora da carteira oficial — e que abre o
+        controle avançado sob demanda. A área nobre volta a ser operação.
       */}
-      <PortfolioScopeBar
+      <PortfolioScopeNotice
         scope={scope}
         onScopeChange={setScope}
         counts={trustedStats.scope}
@@ -952,7 +1033,7 @@ export default function ContratosPage() {
       <ContractUpload
         open={uploadOpen}
         onOpenChange={setUploadOpen}
-        onContractCreated={handleContractCreated}
+        onSubmit={handleContractOnboarded}
         projects={projects}
         companies={companies}
       />
@@ -971,6 +1052,7 @@ export default function ContratosPage() {
         onReviewApproval={contractActions.reviewApproval}
         onCreateObligation={createModals.openObligation}
         onCreateBilling={createModals.openBilling}
+        onAddAmendment={selectedId && contractPermissions.edit ? amendmentModals.openAmendment : undefined}
         onViewDocuments={handleViewDocuments}
         onExportPdf={handleExportPdf}
         onOpenFinance={handleOpenFinance}
@@ -982,6 +1064,7 @@ export default function ContratosPage() {
       />
 
       {contractActionModals}
+      {amendmentModals.modals}
       {createModals.modals}
       {pageItemModals.modals}
     </HudPageLayout>
@@ -1011,6 +1094,8 @@ function OverviewSection({
   onOpenPortfolio,
   onOpenContractById,
   onModuleNavigate,
+  activity,
+  codeById,
 }: {
   records: ContractGovernanceRecord[];
   trustedById: Map<string, TrustedContract>;
@@ -1025,6 +1110,8 @@ function OverviewSection({
   onOpenPortfolio: () => void;
   onOpenContractById: (id: string) => void;
   onModuleNavigate: (key: ModuleKey) => void;
+  activity: { rows: PortfolioActivityEvent[]; error: string | null };
+  codeById: Map<string, string>;
 }) {
   return (
     <div className="space-y-6">
@@ -1043,25 +1130,51 @@ function OverviewSection({
             max={4}
             onOpenContract={onOpenContractById}
           />
-        </section>
 
-        <section>
-          <SectionHeading title="Próximos 90 dias" hint="marcos, prazos e vigências reais" count={horizon.length} />
-          <PortfolioHorizon
-            events={horizon}
-            liveContractCount={stats.contractCount}
+          {/*
+            Atividade recente fecha a coluna esquerda com REGISTRO REAL, não com
+            uma métrica inventada para ocupar altura: são as mesmas linhas de
+            `audit_logs` que a aba Auditoria mostra, recortadas.
+          */}
+          <PortfolioActivity
+            events={activity.rows}
+            error={activity.error}
+            codeById={codeById}
+            className="mt-3"
             onOpenContract={onOpenContractById}
+            onOpenAudit={onOpenContractById}
           />
         </section>
-      </div>
 
-      <section>
-        <SectionHeading
-          title="Operações conectadas"
-          hint="o contrato como objeto central da operação"
-        />
-        <ModuleConnections connections={connections} onNavigate={onModuleNavigate} />
-      </section>
+        {/*
+          O horizonte e as operações conectadas dividem a coluna estreita.
+
+          Antes, o horizonte ficava sozinho à direita e as operações abaixo, em
+          largura inteira: com uma carteira sem eventos na janela, a coluna
+          direita esvaziava depois de três linhas enquanto a esquerda seguia
+          longa, e sobrava um retângulo em branco do tamanho de meia tela. As
+          duas seções continuam distintas e nomeadas — só passaram a ocupar o
+          espaço que já existia.
+        */}
+        <div className="space-y-6">
+          <section>
+            <SectionHeading title="Próximos 90 dias" hint="marcos, prazos e vigências reais" count={horizon.length} />
+            <PortfolioHorizon
+              events={horizon}
+              liveContractCount={stats.contractCount}
+              onOpenContract={onOpenContractById}
+            />
+          </section>
+
+          <section>
+            <SectionHeading
+              title="Operações conectadas"
+              hint="o contrato como objeto central da operação"
+            />
+            <ModuleConnections connections={connections} onNavigate={onModuleNavigate} />
+          </section>
+        </div>
+      </div>
 
       <section>
         <SectionHeading title="Carteira em destaque" hint="contratos por prioridade operacional" />
@@ -1360,7 +1473,13 @@ function PriorityContracts({
         ) : undefined
       }
     >
-      <div className="grid gap-4 sm:grid-cols-2">
+      {/*
+        A grade acompanha a QUANTIDADE, como na aba Cards: com um contrato, a
+        composição editorial larga; com dois, meio a meio; a partir de três,
+        grade. Uma grade fixa de duas colunas com um único contrato deixava
+        metade do painel em branco ao lado dele.
+      */}
+      <div className={cn('grid gap-4', top.length === 1 ? 'grid-cols-1' : 'sm:grid-cols-2')}>
         {top.map((record) => {
           const trusted = trustedById.get(record.contract.id);
           if (!trusted) return null;
@@ -1371,6 +1490,7 @@ function PriorityContracts({
               active={record.contract.id === selectedId}
               onSelect={() => onSelect(record)}
               onOpen={() => onView(record)}
+              wide={top.length === 1}
             />
           );
         })}
@@ -1475,8 +1595,22 @@ function ContractCards({
   onView: (record: ContractGovernanceRecord) => void;
   onDelete?: (record: ContractGovernanceRecord) => void;
 }) {
+  /*
+    A grade acompanha a QUANTIDADE (P2G).
+
+    Uma grade fixa de três colunas com um contrato deixava dois terços da
+    superfície vazios ao lado de um card estreito — e uma carteira de um
+    contrato é o estado normal de quem acabou de começar, não uma exceção.
+    Com um, o card ocupa a largura editorial; com dois, divide ao meio; a
+    partir de três, vira grade.
+  */
+  const layout =
+    records.length === 1 ? 'grid-cols-1'
+      : records.length === 2 ? 'grid-cols-1 lg:grid-cols-2'
+        : 'grid gap-4 md:grid-cols-2 xl:grid-cols-3';
+
   return (
-    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+    <div className={cn('grid gap-4', layout)}>
       {records.map((record) => {
         const trusted = trustedById.get(record.contract.id);
         if (!trusted) return null;
@@ -1488,6 +1622,8 @@ function ContractCards({
             onSelect={() => onSelect(record)}
             onOpen={() => onView(record)}
             onDelete={onDelete ? () => onDelete(record) : undefined}
+            /* Com um único contrato o card ganha a composição larga. */
+            wide={records.length === 1}
           />
         );
       })}

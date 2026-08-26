@@ -63,7 +63,7 @@ export function RenewalHorizonPanel({ horizon, onSelectContract, className }: Re
               <p className="truncate text-ig-label font-semibold uppercase tracking-[0.1em] text-ig-fg-muted">
                 {HORIZON_LABEL[band.band]}
               </p>
-              <p className={cn('mt-0.5 text-[22px] font-semibold leading-none ig-tabular', band.count > 0 ? tone.text : 'text-ig-fg-subtle')}>
+              <p className={cn('mt-0.5 text-ig-kpi-md leading-none ig-tabular', band.count > 0 ? tone.text : 'text-ig-fg-subtle')}>
                 {band.count}
               </p>
               {/*
