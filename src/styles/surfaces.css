@@ -53,28 +53,107 @@
   background: var(--ig-bg-panel-hover);
 }
 
-/* ── Rail de navegação local do dossiê ────────────────────
-   Secundário à sidebar global: sem fundo próprio, ancorado por um fio
-   vertical à direita. Não pode competir com a navegação da aplicação. */
-.ig-rail-item {
-  position: relative;
-  transition: color 120ms ease, background-color 120ms ease;
+/* ── Subnav do dossiê ─────────────────────────────────────
+   Navegação de OBJETO, não de módulo. A sidebar do Apex é vertical,
+   persistente e tem fundo próprio; esta é horizontal, presa ao contrato e
+   sem superfície alguma — um fio embaixo e um sublinhado no item corrente.
+
+   O rail vertical anterior saiu: com a carteira já ocupando a sidebar, duas
+   colunas de navegação lado a lado empilhavam níveis laterais demais e
+   espremiam o espaço de trabalho do contrato.
+
+   Grudenta ao rolar (§7): contratos longos são longos, e trocar de seção não
+   pode exigir voltar ao topo. Sem sombra e sem vidro — só a tinta da
+   superfície de trabalho, para o conteúdo não vazar por baixo. */
+/*
+  Devolve a rolagem ao <main>, para o dossiê.
+
+  `HudPageLayout` fecha sua raiz com `overflow-x: hidden` — o ponto único onde
+  larguras rebeldes são cortadas. O efeito colateral: `overflow-x: hidden` faz
+  o `overflow-y` computar como `auto`, então aquela raiz vira o scrollport mais
+  próximo. Um `position: sticky` dentro dela passa a se prender a uma caixa tão
+  alta quanto o próprio conteúdo — ou seja, não gruda em lugar nenhum (medido:
+  a barra descia 900px junto com a rolagem).
+
+  Escopo de contratos, e não alteração do componente compartilhado: as demais
+  telas do Apex seguem com o clipe. Aqui a largura já é contida pelos próprios
+  filhos — a subnav rola na horizontal e as tabelas têm seu próprio overflow.
+*/
+/* Classe dobrada: a utilitária `overflow-x-hidden` do Tailwind vem depois
+   deste arquivo na cascata e venceria um seletor de especificidade igual. */
+.ig-dossier-page.ig-dossier-page {
+  overflow-x: visible;
 }
-.ig-rail-item[aria-current='page'] {
-  background: var(--ig-accent-weak);
+
+.ig-dossier-nav {
+  position: sticky;
+  /* Abaixo da casca superior da aplicação, não sobre ela. */
+  top: var(--ig-dossier-nav-top, 0px);
+  z-index: 20;
+  background: var(--ig-bg-base);
+  border-bottom: 1px solid var(--ig-border-subtle);
+  /* Cobre a folga que o `gap` do container deixaria aparecer sob a barra. */
+  margin-inline: -2px;
+  padding-inline: 2px;
+}
+
+.ig-dossier-nav-item {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.5rem 0.625rem 0.625rem;
+  white-space: nowrap;
+  color: var(--ig-fg-muted);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  transition: color 120ms ease;
+}
+.ig-dossier-nav-item:hover {
+  color: var(--ig-fg-strong);
+}
+.ig-dossier-nav-item:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--ig-border-focus);
+  border-radius: var(--ig-radius-sm);
+}
+.ig-dossier-nav-item.is-active {
   color: var(--ig-accent);
   font-weight: 600;
 }
-/* A marca do item ativo é uma barra sólida, não uma sombra ou um glow:
-   sobrevive ao teste de desligar sombras, e lê igual nos dois temas. */
-.ig-rail-item[aria-current='page']::before {
+/* Sublinhado de 2px: a marca do item corrente é geometria, não sombra —
+   sobrevive a `box-shadow: none` e não depende só da cor. */
+.ig-dossier-nav-item.is-active::after {
   content: '';
   position: absolute;
-  inset-block: 4px;
-  inset-inline-start: 0;
-  width: 2px;
+  inset-inline: 0.25rem;
+  bottom: -1px;
+  height: 2px;
   border-radius: 1px;
   background: var(--ig-accent);
+}
+
+.ig-dossier-nav-icon {
+  display: inline-flex;
+  color: var(--ig-fg-subtle);
+}
+.ig-dossier-nav-item.is-active .ig-dossier-nav-icon {
+  color: var(--ig-accent);
+}
+
+.ig-dossier-nav-badge {
+  min-width: 1.125rem;
+  padding: 0 0.25rem;
+  border-radius: 999px;
+  background: var(--ig-bg-panel-hover);
+  color: var(--ig-fg-muted);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-align: center;
+}
+.ig-dossier-nav-item.is-active .ig-dossier-nav-badge {
+  background: var(--ig-accent-weak);
+  color: var(--ig-accent);
 }
 
 /* ── Reset de flutuação em conteúdo estático ──────────────

@@ -104,7 +104,7 @@ import {
   Workflow,
   X,
 } from 'lucide-react';
-import { SectionHeader, HistoryDrawer, InlineEmpty } from '@/components/contracts/shell';
+import { SectionHeader, HistoryDrawer, InlineEmpty, PortfolioContextStrip } from '@/components/contracts/shell';
 import { format } from 'date-fns';
 import { pt } from 'date-fns/locale';
 
@@ -959,29 +959,17 @@ export default function ContratosPage() {
                     ? `Ao vivo · ${governance.live}/${governance.total}`
                     : 'Sem dado apurado'}
             </span>
-            <HudButton
-              variant="secondary"
-              size="md"
-              leftIcon={<FileClock className="h-4 w-4" />}
-              onClick={() => setHistoryOpen(true)}
-            >
-              Histórico
-            </HudButton>
-            <ExportReportButton
-              size="md"
-              variant="glass"
-              permission="contracts.export"
-              fallbackPermission="contracts.view"
-              build={() => openContractReport({
-                // As tabelas de detalhe seguem listando os records; as MÉTRICAS
-                // vêm do mesmo agregado confiável que a Executive Band, então
-                // tela e PDF não podem divergir.
-                records: filteredRecords,
-                trusted: trustedStats,
-                trustedContracts: trustedPortfolio,
-                source: relationsBatch ? 'Supabase' : 'sem leitura de relações',
-              })}
-            />
+            {/*
+              "Histórico" e "Exportar PDF" saíram do cabeçalho da CARTEIRA.
+
+              Ambos respondem a perguntas sobre um objeto, não sobre o módulo:
+              o histórico de auditoria e o dossiê em PDF são de um contrato.
+              No nível da carteira eram ambíguos — "histórico de quê?", "PDF de
+              qual recorte?" — e o PDF ainda dependia do filtro em vigor, de
+              modo que o mesmo botão gerava documentos diferentes conforme o
+              que estivesse selecionado. Ambos seguem no dossiê do contrato,
+              onde o sujeito é inequívoco.
+            */}
             {hasPermission('contracts.create') && !permissionsLoading ? (
               <HudButton variant="primary" size="md" leftIcon={<Plus className="h-4 w-4" />} onClick={() => setUploadOpen(true)}>
                 Novo Contrato
@@ -1035,19 +1023,31 @@ export default function ContratosPage() {
       </div>
 
       {/*
-        Header CONTEXTUAL (MD §10): a band não se repete no Command Center,
-        onde o hero já responde a mesma pergunta com mais hierarquia. Ela
-        permanece nas demais abas, onde é o único resumo — e onde suas células
-        seguem servindo de filtro da carteira.
+        O resumo executivo COMPLETO pertence à Visão Geral, e só a ela.
+
+        A faixa executiva vinha acima de todas as outras sete áreas: clicar em
+        "Faturamentos" mostrava, antes de qualquer coisa de faturamento, o
+        mesmo panorama que a Visão Geral já dá — e empurrava o conteúdo da área
+        escolhida para fora da primeira dobra. Nas áreas especializadas fica
+        apenas a tira de contexto: de que carteira estes números falam.
       */}
-      {activeSection !== 'overview' && (
-      <ContractExecutiveBand
-        stats={trustedStats}
-        contractCount={contractRows.length}
-        activeFilter={activeKpiFilter}
-        onToggleFilter={toggleKpiFilter}
-        className="mb-5"
-      />
+      {activeSection === 'overview' ? (
+        /*
+          Na Visão Geral a faixa entra SEM a célula de exposição: o hero logo
+          abaixo já dá exposição, execução, faturado e backlog. O que ela
+          acrescenta aqui são os oito sinais operacionais — que também são os
+          filtros da carteira, e por isso continuam clicáveis.
+        */
+        <ContractExecutiveBand
+          stats={trustedStats}
+          contractCount={contractRows.length}
+          activeFilter={activeKpiFilter}
+          onToggleFilter={toggleKpiFilter}
+          hideExposure
+          className="mb-5"
+        />
+      ) : (
+        <PortfolioContextStrip stats={trustedStats} className="mb-4" />
       )}
 
       {/* Active-filter indicator — the band is the filter; this is just the receipt */}

@@ -13,3 +13,4 @@ export { AuditTimeline, type AuditTimelineProps } from './AuditTimeline';
 export { HistoryDrawer, type HistoryDrawerProps } from './HistoryDrawer';
 export { DossierNav, type DossierNavProps, type DossierNavItem } from './DossierNav';
 export { MetricStrip, type MetricStripProps, type MetricStripItem } from './MetricStrip';
+export { PortfolioContextStrip, type PortfolioContextStripProps } from './PortfolioContextStrip';

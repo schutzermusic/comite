@@ -62,6 +62,15 @@ export interface ContractExecutiveBandProps {
   activeFilter: string | null;
   onToggleFilter: (key: string) => void;
   className?: string;
+  /**
+   * Omite a célula de exposição/execução.
+   *
+   * Na Visão Geral o `PortfolioHero` logo acima já responde exposição, execução,
+   * faturado e backlog. Repetir a mesma resposta duas vezes na mesma tela não
+   * acrescenta leitura — o que a faixa contribui ali são os OITO sinais
+   * operacionais, que também são os filtros da carteira.
+   */
+  hideExposure?: boolean;
 }
 
 type Tone = 'default' | 'success' | 'warning' | 'danger' | 'info';
@@ -161,6 +170,7 @@ export function ContractExecutiveBand({
   activeFilter,
   onToggleFilter,
   className,
+  hideExposure = false,
 }: ContractExecutiveBandProps) {
   const isActive = (key: string) => activeFilter === key;
 
@@ -188,6 +198,7 @@ export function ContractExecutiveBand({
 
       <div className="relative grid grid-cols-2 gap-x-5 gap-y-4 md:grid-cols-4 md:divide-x md:divide-ig-border-subtle">
         {/* Tier 1 — hero: exposição + execução */}
+        {!hideExposure && (
         <div className={cn(CELL_SURFACE, 'col-span-2 md:pr-5')}>
           <div className="flex items-end justify-between gap-4">
             <div className="min-w-0">
@@ -217,6 +228,7 @@ export function ContractExecutiveBand({
             </span>
           </div>
         </div>
+        )}
 
         <MetricCell
           icon={<CheckCircle2 className="h-3.5 w-3.5" />}

@@ -1069,23 +1069,86 @@ test('17 · Operações conectadas cobrem os módulos e o Financeiro segue não 
   distinguíveis, o outro que a tela não pode afirmar duas coisas contrárias
   sobre o mesmo vínculo.
 */
-test('19 · A navegação do dossiê é local e distinta da navegação do módulo', async () => {
+test('19 · A navegação do dossiê é do objeto, e não outra navegação de módulo', async () => {
   await gotoDossier();
 
-  // A barra da carteira é horizontal; o rail do dossiê é vertical. Se os dois
-  // voltarem a ser a mesma coisa, a hierarquia some — e este teste falha.
-  const rail = page.getByTestId('contract-dossier-tabs');
-  await expect(rail).toBeVisible({ timeout: 20_000 });
-  await expect(rail).toHaveAttribute('aria-orientation', 'vertical');
+  /*
+    Os dois níveis se distinguem por EIXO e por peso: a sidebar do Apex é
+    vertical e persistente; a do dossiê é horizontal e presa ao contrato. O
+    rail vertical anterior punha duas colunas de navegação lado a lado.
+  */
+  const subnav = page.getByTestId('contract-dossier-tabs');
+  await expect(subnav).toBeVisible({ timeout: 20_000 });
+  await expect(subnav).toHaveAttribute('aria-orientation', 'horizontal');
+  await expect(subnav).toHaveRole('tablist');
 
-  // Continua sendo um tablist de verdade: o rail troca painéis no lugar, e um
-  // leitor de tela precisa ouvir "aba N de M", não uma lista de links.
-  await expect(rail).toHaveRole('tablist');
-  const selected = rail.getByRole('tab', { selected: true });
+  // Uma navegação de dossiê só — nunca duas ao mesmo tempo.
+  await expect(page.getByRole('tablist')).toHaveCount(1);
+
+  const selected = subnav.getByRole('tab', { selected: true });
   await expect(selected).toHaveCount(1);
 
   // O painel é rotulado pela aba corrente.
   await expect(page.getByRole('tabpanel')).toHaveAttribute('aria-labelledby', /^dossier-tab-/);
+
+  // Ações de objeto vivem aqui, não na carteira.
+  await expect(page.getByRole('button', { name: 'Histórico' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Exportar/i }).first()).toBeVisible();
+});
+
+test('19.1 · A subnav do dossiê acompanha a rolagem', async () => {
+  await gotoDossier();
+  const subnav = page.getByTestId('contract-dossier-tabs');
+  await expect(subnav).toBeVisible({ timeout: 20_000 });
+
+  const before = await subnav.boundingBox();
+  await page.mouse.move(760, 500);
+  await page.mouse.wheel(0, 900);
+  await page.waitForTimeout(1000);
+  const after = await subnav.boundingBox();
+
+  /*
+    Contrato longo é longo: trocar de seção não pode exigir voltar ao topo.
+    O ancestral `HudPageLayout` fecha com `overflow-x: hidden`, o que faz o
+    `overflow-y` computar `auto` e transforma aquela raiz no scrollport mais
+    próximo — a barra grudava numa caixa tão alta quanto o conteúdo, ou seja,
+    não grudava. `.ig-dossier-page` devolve a rolagem ao <main>.
+  */
+  expect(before!.y).toBeGreaterThan(200);
+  expect(after!.y).toBeLessThan(200);
+  expect(after!.y).toBeGreaterThanOrEqual(0);
+});
+
+test('19.2 · A carteira não expõe ações que pertencem a um contrato', async () => {
+  await page.goto('/contratos');
+  await expect(page.getByRole('heading', { name: 'Gestão de Contratos' })).toBeVisible({ timeout: 30_000 });
+
+  // "Histórico de quê?" e "PDF de qual recorte?" não têm resposta no módulo.
+  await expect(page.getByRole('button', { name: 'Histórico' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /Exportar PDF/i })).toHaveCount(0);
+});
+
+test('19.3 · Área especializada começa pelo próprio conteúdo', async () => {
+  /*
+    O resumo executivo completo ocupava a primeira dobra das SETE áreas
+    especializadas. Clicar em "Faturamentos" mostrava, antes de faturamento, o
+    mesmo panorama da Visão Geral. Agora só a tira de contexto precede.
+  */
+  await page.goto('/contratos?view=faturamentos');
+  const strip = page.getByLabel('Contexto da carteira oficial');
+  await expect(strip).toBeVisible({ timeout: 30_000 });
+
+  const box = await strip.boundingBox();
+  expect(box!.height).toBeLessThan(96); // uma linha rasa, não um painel
+
+  // O conteúdo da área alcança a primeira dobra.
+  const chain = page.getByText('Contract-to-Cash').first();
+  await expect(chain).toBeVisible();
+  expect((await chain.boundingBox())!.y).toBeLessThan(760);
+
+  // Na Visão Geral o resumo completo continua existindo.
+  await page.goto('/contratos');
+  await expect(page.getByLabel(/Resumo executivo da carteira oficial/)).toBeVisible({ timeout: 20_000 });
 });
 
 test('20 · O dossiê nunca nega o vínculo de projeto que ele mesmo exibe', async () => {

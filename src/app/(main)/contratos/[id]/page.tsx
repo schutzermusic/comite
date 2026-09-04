@@ -606,7 +606,9 @@ export default function ContractDossierPage() {
   ];
 
   return (
-    <HudPageLayout>
+    // `ig-dossier-page`: sem isto o scrollport mais próximo é a raiz do layout,
+    // e a subnav grudenta não teria onde grudar. Ver surfaces.css.
+    <HudPageLayout className="ig-dossier-page">
       <HudHeader
         title={record.contract.name}
         /*
@@ -829,12 +831,16 @@ export default function ContractDossierPage() {
         gaveta abaixo, e o dossiê tem a largura que sempre precisou.
       */}
       {/*
-        Rail local + painel, não mais uma segunda barra de abas horizontal.
-        Ver DossierNav: a carteira já usa abas horizontais para trocar de área
-        do módulo, e repetir a linguagem aqui apagava a fronteira entre "estou
-        no módulo" e "estou dentro deste contrato".
+        Subnav horizontal, grudenta, logo abaixo da identidade do contrato.
+
+        O rail vertical saiu: depois que a carteira subiu para a sidebar do
+        Apex, havia DUAS colunas de navegação lado a lado — a do módulo e a do
+        objeto — e o dossiê ficava espremido entre elas. A distinção entre os
+        dois níveis passa a ser de eixo e de peso: a sidebar é vertical,
+        persistente, com fundo; esta é horizontal, presa ao contrato e sem
+        superfície nenhuma.
       */}
-      <div className="mt-5 grid min-w-0 gap-5 lg:grid-cols-[196px_minmax(0,1fr)]">
+      <div className="mt-4 min-w-0">
         <DossierNav
           items={tabs.map(({ id, label, icon, badge }) => ({ id, label, icon, badge }))}
           activeId={activeTab}
@@ -847,7 +853,7 @@ export default function ContractDossierPage() {
           role="tabpanel"
           aria-labelledby={`dossier-tab-${activeTab}`}
           tabIndex={0}
-          className="min-w-0 focus-visible:outline-none"
+          className="mt-5 min-w-0 focus-visible:outline-none"
         >
           {tabs.find((tab) => tab.id === activeTab)?.content}
         </div>
