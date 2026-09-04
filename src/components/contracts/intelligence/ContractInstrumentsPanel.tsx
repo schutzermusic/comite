@@ -168,11 +168,14 @@ export function ContractInstrumentsPanel({
         </p>
       )}
       {timeline.length === 0 && !state.readFailed && !state.notMeasured && (
-        <p
-          className="mt-3 text-ig-caption text-ig-fg-muted"
-          title="Ausência de registro não é ausência de aditivo: significa apenas que nenhum foi registrado até agora."
-        >
-          Nenhum aditivo registrado.
+        /*
+          A ressalva fica visível: "nenhum aditivo registrado" lido sozinho
+          afirma que não existem aditivos, que é justamente o que o dado não
+          diz. Um guarda contra leitura errada não pode viver em hover.
+        */
+        <p className="mt-3 text-ig-caption text-ig-fg-muted">
+          Nenhum aditivo registrado — o que não significa que não existam, e sim
+          que nenhum foi registrado até agora.
         </p>
       )}
     </HudPanel>

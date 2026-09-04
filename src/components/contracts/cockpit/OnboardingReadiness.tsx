@@ -48,7 +48,7 @@ export function OnboardingReadinessPanel({
   return (
     <HudPanel
       title="Prontidão do contrato"
-      subtitle="O que já está registrado"
+      subtitle="O que já está registrado. Ausência aqui não é irregularidade."
       interactive={false}
     >
       <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -59,14 +59,12 @@ export function OnboardingReadinessPanel({
           size="sm"
         />
         {/*
-          A frase inteira virou `title`. A regra que ela protege — ausência de
-          registro não é irregularidade — continua dita, sem ocupar duas linhas
-          em todo contrato da carteira.
+          A regra fica no subtítulo, como texto visível: "ausência de registro
+          não é irregularidade" governa a leitura do painel inteiro, e uma
+          regra dessas não pode depender de hover — no toque ela simplesmente
+          não existiria.
         */}
-        <span
-          className="text-ig-caption text-ig-fg-muted"
-          title="Ausência aqui não é irregularidade: indica registro pendente, não descumprimento."
-        >
+        <span className="text-ig-caption text-ig-fg-muted">
           {operable ? 'Essencial registrado — contrato plenamente operável' : 'Falta registrar o essencial'}
         </span>
       </div>

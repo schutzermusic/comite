@@ -127,17 +127,18 @@ export function ContractHealthDrivers({ health, className, compact = false }: Co
       </ul>
 
       {/*
-        A justificativa da ausência de score virou `title` em vez de parágrafo.
-        Ela continua verdadeira e continua acessível — só não repete a mesma
-        aula em toda renderização, em todo contrato da carteira.
+        O `title` guarda a justificativa longa; a frase curta que fica visível
+        já impede a leitura errada — que esta seção mediria desempenho, e não
+        cobertura de dado.
       */}
       <p
         className="mt-2.5 text-ig-caption text-ig-fg-subtle"
-        title="Não há índice numérico de saúde: um score exigiria pesos definidos pela área de negócio. Esta seção mede cobertura de dado, não desempenho."
+        title="Um score exigiria pesos definidos pela área de negócio; nenhum foi definido, e inventá-los aqui produziria um número sem dono."
       >
         {adverse === 0
           ? 'Nenhuma dimensão apurada está em atenção.'
           : `${adverse} dimensão(ões) em atenção.`}
+        {' '}Sem índice numérico: mede-se cobertura de dado, não desempenho.
       </p>
     </section>
   );
