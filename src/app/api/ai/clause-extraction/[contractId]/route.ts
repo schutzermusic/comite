@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { extractClausesFromDocument } from '@/lib/ai/contract-clause-extractor';
-import { logAuditEvent } from '@/lib/audit/log-audit-event';
+import { logAuditEventServer } from '@/lib/audit/log-audit-event-server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -70,26 +70,48 @@ export async function POST(
 
     const result = await extractClausesFromDocument(contractId, body.documentId, user.id);
 
+    /*
+      A auditoria da extração era escrita pelo cliente de NAVEGADOR dentro desta
+      rota Node: sem cookie, sem usuário, retorno silencioso. Nenhuma linha
+      `contract.clauses_extracted` jamais chegou ao banco. Agora ela é escrita
+      pelo servidor, com IP e user-agent, e a falha é reportada em vez de
+      desaparecer — a extração não é desfeita por causa dela, mas a resposta
+      deixa de afirmar que auditou quando não auditou.
+    */
     const { data: profile } = await supabase
       .from('profiles').select('organization_id').eq('user_id', user.id).maybeSingle<{ organization_id: string }>();
+
+    let audited: boolean | { error: string } = false;
     if (profile?.organization_id) {
-      await logAuditEvent({
-        organizationId: profile.organization_id,
-        action: 'contract.clauses_extracted',
-        entityType: 'contract',
-        entityId: contractId,
-        metadata: {
-          analysis_id: result.analysisId,
-          document_id: result.documentId,
-          proposed: result.proposedCount,
-          rejected_without_evidence: result.rejectedCount,
-          model: result.model,
-          version: result.version,
+      const write = await logAuditEventServer(
+        {
+          organizationId: profile.organization_id,
+          action: 'contract.clauses_extracted',
+          entityType: 'contract',
+          entityId: contractId,
+          metadata: {
+            analysis_id: result.analysisId,
+            document_id: result.documentId,
+            proposed: result.proposedCount,
+            rejected_without_evidence: result.rejectedCount,
+            model: result.model,
+            version: result.version,
+          },
         },
-      });
+        req.headers,
+      );
+      if (write.ok) {
+        audited = true;
+      } else {
+        audited = { error: write.error };
+        console.error(`[clause-extraction] auditoria não registrada: ${write.error}`);
+      }
+    } else {
+      audited = { error: 'Perfil sem organização: evento não auditado.' };
+      console.error('[clause-extraction] auditoria não registrada: perfil sem organização.');
     }
 
-    return NextResponse.json({ ok: true, ...result });
+    return NextResponse.json({ ok: true, ...result, audited });
   } catch (err) {
     return NextResponse.json(
       { ok: false, error: err instanceof Error ? err.message : 'Erro inesperado na análise.' },

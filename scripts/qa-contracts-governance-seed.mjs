@@ -49,6 +49,30 @@ try {
        where c.organization_id = $1 and c.title = '[QA] Contrato de Serviços')`,
     [me.organization_id, me.user_id],
   );
+
+  /*
+    A fixture precisa ESTAR utilizável, e não apenas existir.
+
+    O `where not exists` acima ignora `deleted_at`, de propósito — recriar um
+    segundo `[QA] Contrato de Serviços` ao lado de um excluído produziria duas
+    fixtures com o mesmo nome. Mas então uma exclusão anterior deixava a linha
+    presente e invisível, o SELECT com `deleted_at is null` não achava nada, e o
+    script quebrava com "Cannot read properties of undefined". Foi o que
+    aconteceu nesta base: o contrato QA estava excluído desde um teste anterior.
+
+    Reviver é o comportamento certo AQUI e só aqui: a linha é `data_class='demo'`,
+    foi criada por este mesmo script, e nunca entra em métrica oficial. Nenhum
+    contrato real é tocado.
+  */
+  const revived = await q(
+    `update public.contracts
+        set deleted_at = null, updated_by = $2, updated_at = now()
+      where organization_id = $1 and title = '[QA] Contrato de Serviços' and deleted_at is not null
+      returning id`,
+    [me.organization_id, me.user_id],
+  );
+  if (revived.length > 0) console.log(`Fixture QA reativada (${revived.length} linha).`);
+
   const [target] = await q(
     `select id as contract_id, organization_id, owner_user_id
      from public.contracts
@@ -56,6 +80,7 @@ try {
      limit 1`,
     [me.organization_id],
   );
+  if (!target) throw new Error('Fixture [QA] Contrato de Serviços não pôde ser criada nem reativada.');
   console.log('Contrato QA:', target.contract_id);
   const T = [target.organization_id, target.contract_id, target.owner_user_id];
 
@@ -105,18 +130,44 @@ try {
   );
 
   // §5 — workflow de aprovação com timestamps reais p/ SLA (036: started_at/completed_at).
+  //
+  // O revisor NÃO pode ser quem cadastrou o contrato: a migration 100 passou a
+  // exigir segregação de funções no banco, e o trigger vale também para a chave
+  // de serviço — inclusive para este script. Antes a fixture semeava
+  // `reviewer_user_id = owner_user_id` e gravava `approved`, ou seja, ela
+  // codificava exatamente o defeito que a Fase 0.2 corrigiu.
+  //
+  // Sem um segundo usuário na organização não existe aprovação legítima a
+  // semear, e a fixture diz isso em vez de inventar uma.
+  const [reviewer] = await q(
+    `select p.user_id from public.profiles p
+      where p.organization_id = $1 and p.user_id <> $2 limit 1`,
+    [me.organization_id, me.user_id],
+  );
+  if (!reviewer) {
+    console.warn(
+      'AVISO: nenhum segundo usuário na organização — a etapa `juridico` será semeada como `under_review`, ' +
+      'não como `approved`. Segregação de funções (migration 100) impede o autor de decidir o próprio contrato.',
+    );
+  }
+  const reviewerId = reviewer?.user_id ?? me.user_id;
+  const juridicoStatus = reviewer ? 'approved' : 'under_review';
+  // Parênteses obrigatórios: sem eles `::timestamptz` liga no literal do
+  // interval, e o Postgres recusa com "cannot cast type interval to timestamptz".
+  const juridicoApprovedAt = reviewer ? "(now() - interval '20 hours')" : 'null';
+
   await client.query(
     `insert into public.contract_approvals (organization_id, contract_id, step_name, status, reviewer_user_id, deadline_date, comments, approval_timestamp, created_at, started_at, completed_at)
      select $1, $2, x.step, x.status, $3, x.deadline, x.comments, x.appr_ts, x.created,
             x.created, x.appr_ts
      from (values
-       ('juridico',   'approved',     (now() + interval '2 days')::date, '[QA] parecer ok', now() - interval '20 hours', now() - interval '2 days'),
+       ('juridico',   '${juridicoStatus}', (now() + interval '2 days')::date, '[QA] parecer ok', ${juridicoApprovedAt}::timestamptz, now() - interval '2 days'),
        ('financeiro', 'under_review', (now() + interval '3 days')::date, '[QA] em análise', null::timestamptz,           now() - interval '1 day'),
        ('comite',     'pending',      (now() + interval '7 days')::date, null,              null::timestamptz,           now() - interval '6 hours')
      ) as x(step, status, deadline, comments, appr_ts, created)
      where not exists (
        select 1 from public.contract_approvals a where a.contract_id = $2 and a.step_name = x.step)`,
-    T,
+    [target.organization_id, target.contract_id, reviewerId],
   );
 
   // §6 — vínculos de projeto e risco (se existirem na org).

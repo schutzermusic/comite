@@ -348,9 +348,12 @@ describe('o assistente de cadastro não fabrica dado', () => {
     expect(page).toContain('uploadContractDocument');
   });
 
-  it('o contrato nasce oficial e a análise é opcional', () => {
+  it('o contrato nasce NÃO CLASSIFICADO e a análise é opcional', () => {
     const page = code('src/app/(main)/contratos/page.tsx');
-    expect(page).toContain("dataClass: 'live'");
+    // Promover a `live` é ato de governança (`reclassifyContract`), com
+    // justificativa e auditoria — não um literal no caminho de criação.
+    expect(page).toContain("dataClass: 'unclassified'");
+    expect(page).not.toContain("dataClass: 'live',");
     expect(page).toContain('draft.runExtraction && documentId');
   });
 

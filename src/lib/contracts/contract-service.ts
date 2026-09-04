@@ -8,7 +8,51 @@ import { createClient } from '@/utils/supabase/client';
 const CONTRACT_FILES_BUCKET = 'contract-files';
 
 export type RiskLevel = 'low' | 'medium' | 'high';
-export type ContractStatus = 'draft' | 'active' | 'expiring_soon' | 'expired' | 'archived' | string;
+/**
+ * Vocabulário canônico de `contracts.status`.
+ *
+ * Era uma união ABERTA (`... | string`): o compilador aceitava qualquer texto e
+ * o banco não tinha CHECK, então a coluna que decide o que aparece em cada
+ * recorte da carteira não tinha um só lugar onde seus valores válidos
+ * estivessem escritos. A união agora é fechada e espelha exatamente o
+ * `contracts_status_check` da migration 101 — mudar um lado sem o outro
+ * quebra, que é o ponto.
+ *
+ * O conjunto não foi inventado: é o que a aplicação já produzia e exibia
+ * (`CONTRACT_STATUSES` do cadastro, os mapas de rótulo do card, do dossiê e da
+ * identidade) somado ao que a produção já continha. Nada foi renomeado.
+ */
+export type ContractStatus =
+  | 'draft'
+  | 'negotiation'
+  | 'legal_review'
+  | 'commercial_review'
+  | 'signed'
+  | 'active'
+  | 'expiring_soon'
+  | 'expired'
+  | 'closed'
+  | 'cancelled'
+  | 'archived';
+
+/** O vocabulário como valor, para validação e para os testes que comparam com o CHECK. */
+export const CONTRACT_STATUS_VOCABULARY: readonly ContractStatus[] = [
+  'draft',
+  'negotiation',
+  'legal_review',
+  'commercial_review',
+  'signed',
+  'active',
+  'expiring_soon',
+  'expired',
+  'closed',
+  'cancelled',
+  'archived',
+] as const;
+
+export function isContractStatus(value: unknown): value is ContractStatus {
+  return typeof value === 'string' && (CONTRACT_STATUS_VOCABULARY as readonly string[]).includes(value);
+}
 
 export type ContractRow = {
   id: string;

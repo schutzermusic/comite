@@ -36,8 +36,15 @@ export type ContractGovernanceRecord = {
   daysUntilExpiration: number | null;
   renewalStatus: 'expired' | 'critical' | 'attention' | 'planned' | 'stable';
   riskScore: number;
-  confidenceScore: number;
-  aiStatus: 'mock_pending' | 'mock_ready' | 'manual_review';
+  /**
+   * Tem análise registrada em `contract_ai_analyses`.
+   *
+   * Substitui `aiStatus`/`confidenceScore`, que eram fabricados: o estado vinha
+   * de `contract.autoExtracted` e a "confiança" de `58 + (seed % 27)` — um
+   * número derivado do hash do id, exibido com aparência de medição. Aqui,
+   * `null` significa que a relação não foi lida, e não "nenhuma análise".
+   */
+  hasAiAnalysis: boolean | null;
   legalStatus: 'approved' | 'review' | 'pending';
   financialStatus: 'ok' | 'attention' | 'blocked';
   approvalRoute: string;
@@ -272,13 +279,13 @@ function buildAuditEvents(contract: Contract, seed: number): ContractAuditEvent[
       at: new Date(contract.uploadedAt),
       status: 'done',
     },
-    {
-      id: `${contract.id}-audit-ai`,
-      title: 'Análise IA mock preparada',
-      actor: 'INSIGHT AI',
-      at: addDays(new Date(contract.uploadedAt), 1),
-      status: 'warning',
-    },
+    /*
+      Havia aqui um evento de auditoria fabricado — "Análise IA mock preparada",
+      atribuído a um ator chamado "INSIGHT AI" que nunca existiu — misturado a
+      eventos reais numa lista chamada trilha de auditoria. Um registro inventado
+      dentro da trilha é pior que um painel vazio: ele é indistinguível do
+      registro verdadeiro exatamente onde a distinção é o produto.
+    */
     {
       id: `${contract.id}-audit-legal`,
       title: 'Revisão jurídica',
@@ -438,8 +445,9 @@ export function enrichContractsForGovernance(
       daysUntilExpiration,
       renewalStatus: getRenewalStatus(daysUntilExpiration),
       riskScore: Math.min(98, riskBase + expirationWeight + missingDocuments.length * 4 + (seed % 8)),
-      confidenceScore: 58 + (seed % 27),
-      aiStatus: contract.autoExtracted ? 'mock_ready' : contract.riskClassification === 'high' ? 'manual_review' : 'mock_pending',
+      // O enricher não lê `contract_ai_analyses`: ele não sabe, e dizer `false`
+      // seria afirmar ausência sem ter olhado. Quem sabe é a fusão com o vivo.
+      hasAiAnalysis: null,
       legalStatus: contract.riskClassification === 'high' ? 'review' : seed % 5 === 0 ? 'pending' : 'approved',
       financialStatus: contract.value <= 0 ? 'blocked' : seed % 4 === 0 ? 'attention' : 'ok',
       approvalRoute: contract.riskClassification === 'high' ? 'Jurídico + Financeiro + Comitê' : 'Jurídico + Gestor responsável',

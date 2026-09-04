@@ -83,7 +83,6 @@ import {
   ChevronDown,
   ChevronRight,
   ClipboardCheck,
-  FileSearch,
   FileSignature,
   FileText,
   LayoutGrid,
@@ -101,13 +100,12 @@ import {
 import { format } from 'date-fns';
 import { pt } from 'date-fns/locale';
 
-type SectionId = 'overview' | 'contracts' | 'ai' | 'renewals' | 'obligations' | 'faturamento' | 'aprovacoes' | 'risks' | 'documents' | 'audit';
+type SectionId = 'overview' | 'contracts' | 'renewals' | 'obligations' | 'faturamento' | 'aprovacoes' | 'risks' | 'documents' | 'audit';
 type ViewMode = 'table' | 'cards' | 'risk';
 
 const sectionLabels: Record<SectionId, string> = {
   overview: 'Visão Geral',
   contracts: 'Contratos',
-  ai: 'Análise IA',
   renewals: 'Renovações',
   obligations: 'Obrigações',
   faturamento: 'Faturamento',
@@ -139,7 +137,12 @@ const KPI_FILTERS: Record<string, { label: string; predicate: (record: ContractG
   revisao_juridica: { label: 'Revisão jurídica', predicate: (r) => r.contract.status === 'legal_review' || r.legalStatus !== 'approved' },
   sem_projeto: { label: 'Sem projeto', predicate: (r) => !r.project },
   sem_faturamento: { label: 'Sem faturamento', predicate: (r) => r.billedValue === 0 },
-  sem_ia: { label: 'Sem análise IA', predicate: (r) => r.aiStatus === 'mock_pending' },
+  // `aiStatus === 'mock_pending'` classificava como "sem análise" o contrato
+  // que o enricher tivesse marcado assim a partir de `autoExtracted` — nada a
+  // ver com o banco. Agora a pergunta é a real, e é a MESMA que alimenta o
+  // contador da faixa executiva (`contractsWithoutAi`): existe linha em
+  // `contract_ai_analyses`? `null` (relação não lida) não conta como ausência.
+  sem_ia: { label: 'Sem análise registrada', predicate: (r) => r.hasAiAnalysis === false },
   obrigacoes_atrasadas: { label: 'Obrigações atrasadas', predicate: (r) => r.obligations.some((o) => o.status === 'overdue') },
 };
 
@@ -493,11 +496,23 @@ export default function ContratosPage() {
   // RBAC gating for drawer + tab actions (UI-level; Supabase RLS enforces server-side).
   // Keys mirror the migration-034 RLS policies so UI gating == server enforcement:
   //  - documents manage: contracts.documents.upload OR contracts.edit
-  //  - approvals manage: contracts.approve OR contracts.edit
+  //  - approvals manage: contracts.approve  (Fase 0.2 — `contracts.edit` NÃO aprova)
   //  - obligations/links manage: contracts.edit
   const contractPermissions = {
     edit: hasPermission('contracts.edit'),
-    approve: hasPermission('contracts.approve') || hasPermission('contracts.edit'),
+    /*
+      `|| hasPermission('contracts.edit')` foi removido na Fase 0.2.
+
+      Nos papéis semeados, `juridico_contratos` tem `contracts.edit` e NÃO tem
+      `contracts.approve` — ou seja, o papel que cadastra o contrato via ficava
+      o botão de decidir sobre ele. A separação entre redigir e aprovar existia
+      no catálogo de permissões e não existia em lugar nenhum que a aplicasse.
+
+      Aqui é só a UX: quem manda é a RLS (`contract_approvals_insert` /
+      `_update`) e o trigger `trg_contract_approval_safety`, que também barram
+      autoaprovação e etapa fora de ordem — inclusive para a chave de serviço.
+    */
+    approve: hasPermission('contracts.approve'),
     uploadDoc: hasPermission('contracts.documents.upload') || hasPermission('contracts.edit'),
     delete: hasPermission('contracts.delete') || hasPermission('admin.manage_organization'),
   };
@@ -631,11 +646,23 @@ export default function ContratosPage() {
   const handleContractOnboarded = async (draft: ContractOnboardingDraft) => {
     const row = await persistContract({
       /**
-       * Criação pela interface operacional → o contrato nasce OFICIAL.
-       * Seeds e fixtures usam 'demo'; importações sem classificação explícita
-       * permanecem 'unclassified'. O tipo exige a declaração em todo caminho.
+       * O contrato nasce NÃO CLASSIFICADO. Sempre.
+       *
+       * Antes ele nascia `'live'` — a interface se autocertificava como origem
+       * oficial. Isso contradizia a regra que a própria migration 091 escreveu
+       * ao definir o default da coluna: "nenhum contrato nasce oficial: alguém
+       * precisa afirmar que é". Cadastrar não é afirmar procedência; é só
+       * cadastrar. Enquanto ninguém classifica, o contrato existe, é operável e
+       * fica FORA de toda métrica oficial da carteira — que é exatamente o
+       * comportamento seguro, porque o custo de um contrato de teste entrando
+       * na exposição oficial é muito maior que o de um contrato real esperando
+       * uma classificação explícita.
+       *
+       * Promover para `'live'` (ou marcar `'demo'`) é ato de governança, por
+       * `reclassifyContract`: exige justificativa, carimba autor e deixa
+       * `contract.reclassified` na auditoria com origem e destino.
        */
-      dataClass: 'live',
+      dataClass: 'unclassified',
       title: draft.title,
       contractNumber: draft.contractNumber,
       counterpartyName: draft.counterpartyName,
@@ -756,12 +783,6 @@ export default function ContratosPage() {
           onDeleteContract={handleDeleteContract}
         />
       ),
-    },
-    {
-      id: 'ai',
-      label: sectionLabels.ai,
-      icon: <BrainCircuit className="h-4 w-4" />,
-      content: <AiAnalysisSection selectedRecord={selectedRecord} />,
     },
     {
       id: 'renewals',
@@ -1741,62 +1762,20 @@ function AnalyticsBand({ records }: { records: ContractGovernanceRecord[] }) {
   );
 }
 
-function AiAnalysisSection({ selectedRecord }: { selectedRecord: ContractGovernanceRecord | null }) {
-  const sections = [
-    'Resumo executivo',
-    'Cláusulas-chave',
-    'Condições de pagamento',
-    'Renovação e rescisão',
-    'Penalidades e multas',
-    'Obrigações de SLA',
-    'Riscos legais',
-    'Riscos financeiros',
-    'Informações faltantes',
-    'Documentos requeridos',
-    'Ações de governança sugeridas',
-    'Rota de aprovação recomendada',
-  ];
+/*
+  `AiAnalysisSection` foi removida na Fase 0.6 junto com a aba "Análise IA".
 
-  return (
-    <div className="grid gap-5 xl:grid-cols-[420px_minmax(0,1fr)]">
-      <HudPanel title="Entrada de análise" subtitle="Fluxo seguro sem chamada real de IA" icon={<BrainCircuit className="h-4 w-4" />} interactive={false}>
-        <div className="space-y-4">
-          <div className="rounded-xl border border-dashed border-ig-border-focus bg-ig-accent-weak/20 p-5 text-center">
-            <Upload className="mx-auto mb-3 h-8 w-8 text-ig-accent" />
-            <p className="text-ig-body-sm font-semibold text-ig-fg-strong">Upload de contrato</p>
-            <p className="mt-1 text-ig-caption text-ig-fg-muted">Conecte um documento no fluxo Novo Contrato. Esta área está pronta para backend futuro.</p>
-          </div>
-          <div className="grid gap-3">
-            <Metric label="Contrato selecionado" value={selectedRecord?.code || 'Nenhum'} />
-            <Metric label="Empresa" value={selectedRecord?.companyName || 'Selecione na lista'} />
-            <Metric label="Projeto vinculado" value={selectedRecord?.project?.codigo || 'Referência opcional'} />
-          </div>
-          <HudButton fullWidth variant="primary" leftIcon={<BrainCircuit className="h-4 w-4" />}>
-            Iniciar análise mock
-          </HudButton>
-        </div>
-      </HudPanel>
+  Ela renderizava doze caixas com o rótulo "mock" e um botão "Iniciar análise
+  mock" que não tinha `onClick` — um workspace inteiro anunciando uma capacidade
+  que a tela não possuía, ao lado da capacidade real, que existe e funciona:
+  extração de cláusulas com evidência obrigatória (página + trecho), idempotência
+  por fingerprint e supersessão de documento e de análise.
 
-      <HudPanel title="Saída esperada da IA" subtitle="Estrutura de dossiê, atualmente mock/pendente" icon={<FileSearch className="h-4 w-4" />} interactive={false}>
-        <div className="mb-4 rounded-lg border border-[color-mix(in_oklab,var(--ig-warning)_34%,transparent)] bg-[color-mix(in_oklab,var(--ig-warning)_10%,transparent)] p-3">
-          <p className="text-ig-body-sm font-semibold text-ig-fg-strong">Análise simulada não conectada</p>
-          <p className="mt-1 text-ig-caption text-ig-fg-muted">Não há afirmações documentais nesta prévia. Os blocos abaixo são placeholders de produto para futura integração.</p>
-        </div>
-        <div className="grid gap-3 md:grid-cols-2">
-          {sections.map((section) => (
-            <div key={section} className="rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-ig-body-sm font-semibold text-ig-fg-strong">{section}</p>
-                <HudBadge variant="neutral" size="sm">mock</HudBadge>
-              </div>
-              <p className="mt-2 text-ig-caption text-ig-fg-muted">Aguardando motor de análise documental e fonte do contrato.</p>
-            </div>
-          ))}
-        </div>
-      </HudPanel>
-    </div>
-  );
-}
+  A inteligência deixa de ser uma etapa do ciclo de vida com aba própria e
+  passa a ser transversal: ela aparece onde produz consequência — na fila de
+  propostas de cláusula, na cobertura por documento, nos sinais de atenção.
+*/
+
 
 /**
  * Distribuição de risco da carteira.
@@ -2028,11 +2007,3 @@ function AuditSection({ records }: { records: ContractGovernanceRecord[] }) {
   );
 }
 
-function Metric({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="min-w-0 rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3">
-      <p className="truncate text-ig-label font-semibold uppercase tracking-[0.14em] text-ig-fg-subtle">{label}</p>
-      <p className="mt-1 truncate text-base font-semibold tabular-nums text-ig-fg-strong">{value}</p>
-    </div>
-  );
-}

@@ -21,7 +21,6 @@ export interface ContractPortfolioStats {
   legalReview: number;
   semProjeto: number;
   semFaturamento: number;
-  semIa: number;
   overdue: number;
   contractsWithOverdue: number;
   avgSla: number;
@@ -46,7 +45,6 @@ export function computeContractPortfolioStats(records: ContractGovernanceRecord[
   const legalReview = records.filter((record) => record.contract.status === 'legal_review' || record.legalStatus !== 'approved').length;
   const semProjeto = records.filter((record) => !record.project).length;
   const semFaturamento = records.filter((record) => record.billedValue === 0).length;
-  const semIa = records.filter((record) => record.aiStatus === 'mock_pending').length;
   const obligations = records.flatMap((record) => record.obligations);
   const overdue = obligations.filter((obligation) => obligation.status === 'overdue').length;
   const contractsWithOverdue = records.filter((record) => record.obligations.some((o) => o.status === 'overdue')).length;
@@ -60,7 +58,7 @@ export function computeContractPortfolioStats(records: ContractGovernanceRecord[
 
   return {
     totalValue, billedValue, remainingValue, expiring, within30, highRisk, highRiskExposure,
-    missingDocs, contractsWithMissing, contractsWithBalance, legalReview, semProjeto, semFaturamento, semIa,
+    missingDocs, contractsWithMissing, contractsWithBalance, legalReview, semProjeto, semFaturamento,
     overdue, contractsWithOverdue, avgSla, slaLive, billedPct, backlogPct,
   };
 }
