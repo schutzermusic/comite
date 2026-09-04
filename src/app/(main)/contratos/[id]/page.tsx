@@ -36,6 +36,8 @@ import { buildOnboardingReadiness, type OnboardingStepKey } from '@/lib/contract
 import { effectiveContractState } from '@/lib/contracts/trust/amendments';
 import { ContractInstrumentsPanel } from '@/components/contracts/intelligence/ContractInstrumentsPanel';
 import { useContractAmendmentModals } from '@/components/contracts/useContractAmendmentModals';
+import { useContractProvenanceModal } from '@/components/contracts/useContractProvenanceModal';
+import type { ContractDataClass } from '@/lib/contracts/trust/trusted';
 import { contractToCash } from '@/lib/contracts/trust/contract-to-cash';
 import { buildClauseRiskIntelligence } from '@/lib/contracts/trust/clause-risk-intelligence';
 import { ClauseRiskIntelligencePanel } from '@/components/contracts/intelligence/ClauseRiskIntelligencePanel';
@@ -64,6 +66,7 @@ import {
 import {
   ArrowLeft,
   Archive,
+  BadgeCheck,
   BrainCircuit,
   Building2,
   CalendarClock,
@@ -252,6 +255,16 @@ export default function ContractDossierPage() {
   });
 
   const canEditContract = hasPermission('contracts.edit') || hasPermission('admin.manage_organization');
+  /*
+    Classificar origem NÃO é a autoridade de quem cadastra.
+
+    `contracts.delete` / `admin.manage_organization` são, nos papéis semeados,
+    owner_admin — e deliberadamente não `juridico_contratos`, que é quem cria.
+    Autocertificação foi exatamente o defeito corrigido na Fase 0.7, e repeti-lo
+    aqui reintroduziria o problema por outra porta. É também a única autoridade
+    que a política de UPDATE de `contracts` já aceita para este tipo de ato.
+  */
+  const canClassifyProvenance = hasPermission('contracts.delete') || hasPermission('admin.manage_organization');
   /** P2B — registro de marcos, cláusulas e penalidades. */
   const instrumentation = useContractInstrumentationModals({
     contractId,
@@ -262,6 +275,13 @@ export default function ContractDossierPage() {
 
   const { openAmendment, openReplaceDocument, modals: amendmentModals } = useContractAmendmentModals({
     contractId,
+    onRefresh: async () => { await refresh(); },
+  });
+
+  const { open: openProvenance, modal: provenanceModal } = useContractProvenanceModal({
+    contractId,
+    contractTitle: detail?.contract.title ?? 'Contrato',
+    current: (detail?.contract.data_class as ContractDataClass | undefined) ?? 'unclassified',
     onRefresh: async () => { await refresh(); },
   });
 
@@ -528,6 +548,11 @@ export default function ContractDossierPage() {
                     <ShieldCheck className="mr-2 h-4 w-4" /> Aprovar / rejeitar
                   </DropdownMenuItem>
                 )}
+                {canClassifyProvenance && (
+                  <DropdownMenuItem onClick={openProvenance}>
+                    <BadgeCheck className="mr-2 h-4 w-4" /> Classificar origem
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuSeparator />
                 {canEditContract && (
                   <DropdownMenuItem onClick={openObligation}>
@@ -691,6 +716,7 @@ export default function ContractDossierPage() {
       {contractActionModals}
       {instrumentation.modals}
       {amendmentModals}
+      {provenanceModal}
       {contractCreateModals}
     </HudPageLayout>
   );

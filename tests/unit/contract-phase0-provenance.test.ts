@@ -51,6 +51,30 @@ describe('0.7 · proveniência na criação', () => {
     await expect(reclassifyContract('qualquer-id', 'live', '   ')).rejects.toThrow(/Justificativa/i);
   });
 
+  it('a promoção a oficial TEM onde ser feita — senão a regra vira beco sem saída', () => {
+    // Nascer `unclassified` só é defensável porque existe o ato que classifica.
+    // Sem esta tela, nenhum contrato novo entraria jamais na carteira oficial.
+    const ui = src('src/components/contracts/useContractProvenanceModal.tsx');
+    expect(ui).toContain('reclassifyContract');
+    expect(ui).toContain('Justificativa (obrigatória)');
+    // Sem justificativa, o botão não submete.
+    expect(ui).toContain('reason.trim().length > 0');
+    // E não há valor padrão de justificativa: resposta pré-preenchida não é resposta.
+    expect(ui).toContain("setReason('')");
+    expect(detailPage).toContain('useContractProvenanceModal');
+    expect(detailPage).toContain('Classificar origem');
+  });
+
+  it('classificar NÃO é a autoridade de quem cadastra', () => {
+    // `juridico_contratos` tem `contracts.edit` e é quem cria. Se ele pudesse
+    // classificar, a autocertificação corrigida em 0.7 voltaria por outra porta.
+    const gate = detailPage.slice(detailPage.indexOf('const canClassifyProvenance'));
+    const line = gate.slice(0, gate.indexOf(';') + 1);
+    expect(line).toContain("hasPermission('contracts.delete')");
+    expect(line).toContain("hasPermission('admin.manage_organization')");
+    expect(line).not.toContain("contracts.edit");
+  });
+
   it('a reclassificação deixa origem e destino na auditoria', () => {
     const service = src('src/lib/contracts/contract-service.ts');
     const fn = service.slice(service.indexOf('export async function reclassifyContract'));
