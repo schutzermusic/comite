@@ -2435,6 +2435,46 @@ html.dark .hud-nav-item[data-active="true"] {
   -webkit-backdrop-filter: var(--ig-blur-e2);
 }
 
+/*
+  Flyout do módulo com a sidebar recolhida.
+
+  Um módulo cuja navegação É a sidebar precisa continuar navegável quando ela
+  encolhe — e oito rótulos não cabem em modo ícone. O flyout reaproveita o
+  Tooltip que a casca já usa, então o comportamento (abrir no hover/foco,
+  fechar no Esc, posicionar à direita) vem de graça.
+*/
+.hud-sidebar-tooltip-title {
+  display: block;
+  font-weight: 600;
+}
+.hud-sidebar-flyout {
+  margin-top: 0.375rem;
+  padding-top: 0.375rem;
+  border-top: 1px solid var(--ig-border-subtle);
+  min-width: 11rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.hud-sidebar-flyout-item {
+  display: block;
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--ig-radius-sm);
+  color: var(--ig-fg-muted);
+  font-weight: 500;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.hud-sidebar-flyout-item:hover {
+  background: var(--ig-bg-panel-hover);
+  color: var(--ig-fg-strong);
+}
+/* Item corrente: tinta + peso, não só cor — sobrevive ao daltonismo. */
+.hud-sidebar-flyout-item[data-active="true"] {
+  background: var(--ig-accent-weak);
+  color: var(--ig-accent);
+  font-weight: 600;
+}
+
 /* Section divider used in collapsed mode (replaces section label) */
 .hud-sidebar-section-divider {
   display: block;

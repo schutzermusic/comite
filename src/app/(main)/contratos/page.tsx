@@ -1,7 +1,13 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import {
+  type SectionId,
+  sectionLabels,
+  SECTION_BY_SLUG,
+  sectionHref,
+} from '@/lib/contracts/portfolio-sections';
 import type { Contract, Project } from '@/lib/types';
 import {
   deleteProject,
@@ -112,19 +118,7 @@ import { pt } from 'date-fns/locale';
   é operado, não consultado. Nenhum workspace novo entra aqui só para casar com
   o roadmap — "Aditivos" espera a Fase 2, que é quem define o modelo final.
 */
-type SectionId = 'overview' | 'contracts' | 'renewals' | 'obligations' | 'faturamento' | 'aprovacoes' | 'risks' | 'documents';
 type ViewMode = 'table' | 'cards' | 'risk';
-
-const sectionLabels: Record<SectionId, string> = {
-  overview: 'Visão Geral',
-  contracts: 'Contratos',
-  renewals: 'Renovações',
-  obligations: 'Obrigações',
-  faturamento: 'Faturamento',
-  aprovacoes: 'Aprovações',
-  risks: 'Riscos & Cláusulas',
-  documents: 'Documentos',
-};
 
 const riskLabels = { high: 'Alto', medium: 'Médio', low: 'Baixo' } as const;
 
@@ -175,7 +169,20 @@ export default function ContratosPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [riskOptions, setRiskOptions] = useState<{ id: string; title: string }[]>([]);
   const [uploadOpen, setUploadOpen] = useState(false);
-  const [activeSection, setActiveSection] = useState<SectionId>('overview');
+  /*
+    A área ativa vive na URL, não no componente: é ela que a sidebar aponta,
+    que o voltar do navegador restaura e que um link compartilhado carrega.
+  */
+  const searchParams = useSearchParams();
+  const activeSection: SectionId = SECTION_BY_SLUG[searchParams.get('view') ?? ''] ?? 'overview';
+  const setActiveSection = useCallback(
+    (next: SectionId) => {
+      // `push` (não `replace`): trocar de área é navegação, e voltar tem de
+      // devolver a área anterior em vez de sair da carteira.
+      router.push(sectionHref(next), { scroll: false });
+    },
+    [router],
+  );
   const [viewMode, setViewMode] = useState<ViewMode>('table');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -1064,15 +1071,16 @@ export default function ContratosPage() {
         </div>
       )}
 
-      <HudTabs
-        tabs={tabs}
-        activeTab={activeSection}
-        onTabChange={(tabId) => setActiveSection(tabId as SectionId)}
-        variant="underline"
-        contentClassName="mt-5"
-        label="Áreas da carteira de contratos"
-        data-testid="portfolio-nav"
-      />
+      {/*
+        A navegação da carteira mora na sidebar da aplicação (§1/§2 do gate).
+        Havia duas formas de apresentar a MESMA hierarquia — a barra horizontal
+        aqui e o módulo na sidebar — e duas maneiras de dizer a mesma coisa
+        obrigam o usuário a descobrir que são a mesma coisa. A sidebar é a
+        canônica; aqui fica só o conteúdo da área ativa.
+      */}
+      <div className="mt-5 min-w-0" data-testid="portfolio-workspace" aria-live="polite">
+        {tabs.find((tab) => tab.id === activeSection)?.content}
+      </div>
 
       <HistoryDrawer
         isOpen={historyOpen}

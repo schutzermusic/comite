@@ -131,7 +131,8 @@ function MetricCell({
       />
       <div className={cn('flex items-center gap-1.5', active ? 'text-ig-accent' : 'text-ig-fg-muted')}>
         {icon && <span className={cn('shrink-0', active ? 'text-ig-accent' : 'text-ig-fg-subtle')}>{icon}</span>}
-        <span className="truncate text-ig-label font-semibold uppercase">{label}</span>
+        {/* Caixa de sentença: resto do §14, que a varredura por `tracking-` não pegou. */}
+        <span className="truncate text-ig-caption text-ig-fg-muted">{label}</span>
         {/* Non-color active indication (a11y): explicit "filtro" tag, not just tint */}
         {active && (
           <span className="ml-auto shrink-0 rounded-full border border-[color-mix(in_oklab,var(--ig-accent)_40%,transparent)] bg-[color-mix(in_oklab,var(--ig-accent)_14%,transparent)] px-1.5 py-px text-ig-label font-bold uppercase text-ig-accent">

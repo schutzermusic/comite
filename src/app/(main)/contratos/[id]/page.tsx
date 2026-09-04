@@ -387,7 +387,14 @@ export default function ContractDossierPage() {
     // O KPI "Risk score NN/100" saiu: vinha de hash(id+nome) e não existe modelo
     // de pontuação aprovado para contratos. No lugar, a cobertura apurada da
     // avaliação de saúde — um fato, não um palpite.
-    { id: 'health', label: 'Saúde apurada', value: `${health.coverage.assessed}/${health.coverage.total}`, variant: health.drivers.some((d) => d.adverse) ? 'warning' : 'default', icon: <ShieldAlert className="h-4 w-4" />, onClick: () => setActiveTab('risks'), active: activeTab === 'risks' },
+    /*
+      "Cobertura", não "Saúde": o número é `assessed/total` — quantas das seis
+      dimensões têm dado suficiente para serem avaliadas. Lido como "Saúde 5/6"
+      vira NOTA, e um contrato com 6/6 de cobertura pode estar péssimo, assim
+      como um 2/6 pode estar impecável e só mal cadastrado. O componente já
+      havia sido renomeado; o chip do cabeçalho tinha ficado para trás.
+    */
+    { id: 'health', label: 'Cobertura apurada', value: `${health.coverage.assessed}/${health.coverage.total}`, variant: health.drivers.some((d) => d.adverse) ? 'warning' : 'default', icon: <ShieldAlert className="h-4 w-4" />, onClick: () => setActiveTab('risks'), active: activeTab === 'risks' },
   ];
 
   const contractStatusLabel =
@@ -434,7 +441,7 @@ export default function ContractDossierPage() {
 
   /**
    * Abas na ordem operacional pedida: Visão Geral → Financeiro → Obrigações →
-   * Documentos → Riscos → Aprovações → Auditoria. Cláusulas e Análise IA ficam
+   * Documentos → Riscos → Aprovações. Cláusulas ficam
    * ao final, como superfícies ainda dependentes de extração documental.
    *
    * "Aprovações" ganha aba própria: até aqui o fluxo de alçada só existia no

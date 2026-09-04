@@ -209,6 +209,23 @@ test.afterAll(async () => {
 // 1 · Cadastro
 // ═══════════════════════════════════════════════════════════════════════════
 
+
+/**
+ * Vai a uma área da carteira pela SIDEBAR — a navegação canônica do módulo.
+ *
+ * A barra horizontal de abas da carteira não existe mais: havia duas formas de
+ * apresentar a mesma hierarquia. Clicar na sidebar (em vez de navegar pela URL)
+ * é o que prova que a navegação real funciona.
+ */
+async function gotoPortfolioSection(page: Page, label: string) {
+  const group = page.getByRole('button', { name: 'Contratos', exact: true });
+  if (await group.count()) {
+    const expanded = await group.first().getAttribute('aria-expanded');
+    if (expanded === 'false') await group.first().click();
+  }
+  await page.getByRole('link', { name: label, exact: true }).first().click();
+}
+
 test('1 · Cadastrar um contrato operacional pela interface', async () => {
   await page.goto('/contratos');
   await page.getByRole('button', { name: 'Novo Contrato' }).click();
@@ -943,7 +960,7 @@ test('15 · O contrato recém-criado NÃO entra na carteira oficial', async () =
     para "Não classificados", e é justamente isso que prova a fronteira.
   */
   await page.goto('/contratos');
-  await page.getByRole('tab', { name: /^Contratos/ }).click();
+  await gotoPortfolioSection(page, 'Contratos');
   await page.getByRole('button', { name: 'Tabela' }).click();
 
   const search = page.getByPlaceholder(/Buscar contrato/);
@@ -1008,7 +1025,7 @@ test('15.1 · Classificar a origem é um ato de governança, com justificativa',
 
 test('15.2 · Classificado, o contrato passa a compor a carteira oficial', async () => {
   await page.goto('/contratos');
-  await page.getByRole('tab', { name: /^Contratos/ }).click();
+  await gotoPortfolioSection(page, 'Contratos');
   await page.getByRole('button', { name: 'Tabela' }).click();
 
   const search = page.getByPlaceholder(/Buscar contrato/);
@@ -1021,7 +1038,7 @@ test('15.2 · Classificado, o contrato passa a compor a carteira oficial', async
 
 test('16 · Dossiê rápido abre a partir do card da carteira', async () => {
   await page.goto('/contratos');
-  await page.getByRole('tab', { name: /^Contratos/ }).click();
+  await gotoPortfolioSection(page, 'Contratos');
   await page.getByRole('button', { name: 'Cards' }).click();
 
   const card = page.getByRole('button').filter({ hasText: NUMBER }).first();
@@ -1087,6 +1104,73 @@ test('20 · O dossiê nunca nega o vínculo de projeto que ele mesmo exibe', asy
   const denies = await deniesProject.count();
   const shows = await showsProject.count();
   expect(denies === 0 || shows === 0, 'a tela afirma e nega o mesmo vínculo').toBeTruthy();
+});
+
+/*
+  Fechamento do UI Architecture Gate: a navegação do módulo é a sidebar.
+  Estes testes cobrem o que o §9 pede — rota por área, estado ativo, voltar do
+  navegador, deep link direto e sidebar recolhida.
+*/
+test('21 · Cada área da carteira tem rota própria, e a sidebar a marca', async () => {
+  await page.goto('/contratos');
+
+  // Não pode restar uma segunda forma de navegar o mesmo nível.
+  await expect(page.getByTestId('portfolio-nav')).toHaveCount(0);
+
+  const group = page.getByRole('button', { name: 'Contratos', exact: true }).first();
+  if ((await group.getAttribute('aria-expanded')) === 'false') await group.click();
+
+  for (const [label, slug] of [
+    ['Obrigações', 'obrigacoes'],
+    ['Faturamentos', 'faturamentos'],
+    ['Renovações', 'renovacoes'],
+  ] as const) {
+    await page.getByRole('link', { name: label, exact: true }).first().click();
+    await expect(page).toHaveURL(new RegExp(`\\?view=${slug}$`));
+    // O item corrente se anuncia — estado ativo é semântico, não só cor.
+    await expect(page.getByRole('link', { name: label, exact: true }).first())
+      .toHaveAttribute('aria-current', 'page');
+  }
+
+  // Voltar devolve a área anterior, não sai da carteira.
+  await page.goBack();
+  await expect(page).toHaveURL(/\?view=faturamentos$/);
+  await page.goForward();
+  await expect(page).toHaveURL(/\?view=renovacoes$/);
+});
+
+test('22 · A área da carteira abre por deep link direto', async () => {
+  await page.goto('/contratos?view=obrigacoes');
+  await expect(page.getByRole('link', { name: 'Obrigações', exact: true }).first())
+    .toHaveAttribute('aria-current', 'page');
+
+  // Slug desconhecido não quebra a página: cai na visão geral.
+  await page.goto('/contratos?view=nao-existe');
+  await expect(page.getByTestId('portfolio-workspace')).toBeVisible({ timeout: 20_000 });
+});
+
+test('23 · Recolhida, a sidebar continua dando acesso às áreas', async () => {
+  await page.goto('/contratos');
+  const collapse = page.getByRole('button', { name: /Recolher|Colapsar|Collapse/i }).first();
+  await collapse.click();
+  // A sidebar anima ao recolher; o alvo do hover só é estável depois disso.
+  await expect(page.getByRole('button', { name: /Expandir/i }).first()).toBeVisible({ timeout: 10_000 });
+
+  // Oito rótulos não cabem em modo ícone: eles vêm no flyout do módulo.
+  const trigger = page.getByRole('link', { name: 'Contratos', exact: true }).first();
+  await trigger.hover();
+  await trigger.focus(); // o Tooltip do Radix abre no foco também, e o teclado é caminho de primeira classe
+  /*
+    `.first()`: o Radix monta o conteúdo do tooltip duas vezes — o visível e uma
+    cópia oculta para leitor de tela. As duas são o mesmo grupo acessível, e
+    contar as duas quebraria o modo estrito sem indicar defeito algum.
+  */
+  const flyout = page.getByRole('group', { name: 'Contratos' }).first();
+  await expect(flyout).toBeVisible({ timeout: 15_000 });
+  await expect(flyout.getByRole('link')).toHaveCount(8);
+  await expect(flyout.getByRole('link', { name: 'Faturamentos' })).toBeVisible();
+
+  await page.getByRole('button', { name: /Expandir/i }).first().click();
 });
 
 test('18 · O dossiê oficial em PDF é gerado a partir do contrato live', async () => {
