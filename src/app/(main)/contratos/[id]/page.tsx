@@ -92,9 +92,9 @@ import {
 import { format } from 'date-fns';
 import { pt } from 'date-fns/locale';
 
-type DetailTab = 'summary' | 'clauses' | 'obligations' | 'risks' | 'finance' | 'documents' | 'approvals' | 'audit' | 'ai';
+type DetailTab = 'summary' | 'clauses' | 'obligations' | 'risks' | 'finance' | 'documents' | 'approvals' | 'audit';
 
-const DETAIL_TABS: DetailTab[] = ['summary', 'finance', 'obligations', 'documents', 'risks', 'approvals', 'audit', 'clauses', 'ai'];
+const DETAIL_TABS: DetailTab[] = ['summary', 'finance', 'obligations', 'documents', 'risks', 'approvals', 'audit', 'clauses'];
 
 const riskLabels = { high: 'Alto', medium: 'Médio', low: 'Baixo' } as const;
 
@@ -453,7 +453,6 @@ export default function ContractDossierPage() {
     { id: 'approvals', label: 'Aprovações', icon: <ShieldCheck className="h-4 w-4" />, badge: detail.approvals.filter((a) => a.status !== 'approved').length || undefined, content: <ApprovalsTab trusted={trusted} detail={detail} onReview={hasPermission('contracts.approve') ? () => contractActions.reviewApproval(record) : undefined} /> },
     { id: 'audit', label: 'Auditoria', icon: <FileClock className="h-4 w-4" />, badge: audit.rows.length || undefined, content: <AuditTab audit={audit} /> },
     { id: 'clauses', label: 'Cláusulas', icon: <Scale className="h-4 w-4" />, badge: detail.clauses.length || undefined, content: <ClausesTab detail={detail} /> },
-    { id: 'ai', label: 'Análise IA', icon: <BrainCircuit className="h-4 w-4" />, content: <AiTab detail={detail} /> },
   ];
 
   return (
@@ -1431,57 +1430,16 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   'contract.changes_requested': 'Ajustes solicitados',
 };
 
-/**
- * Estrutura de produto para a análise documental por IA — ainda não integrada.
- *
- * Saíram "Risk score NN/100" e "Confiança NN%": vinham de `hash(id+nome)` e
- * eram exibidos ao lado de rótulos de IA, o que os fazia parecer saída de
- * modelo. O painel agora informa apenas o que é apurado: quantas análises
- * existem em `contract_ai_analyses`.
- */
-function AiTab({ detail }: { detail: ContractDetail }) {
-  const output = [
-    'Resumo executivo',
-    'Cláusulas-chave',
-    'Pagamento',
-    'Renovação e rescisão',
-    'Penalidades e multas',
-    'SLA',
-    'Riscos legais',
-    'Riscos financeiros',
-    'Informações faltantes',
-    'Documentos requeridos',
-    'Ações sugeridas',
-    'Rota de aprovação',
-  ];
+/*
+  `AiTab` foi removida na Fase 0.6 junto com a aba "Análise IA".
 
-  return (
-    <HudPanel title="Análise IA assistida" subtitle="Estado mock/pendente, sem chamada de API" icon={<BrainCircuit className="h-4 w-4" />} interactive={false}>
-      <div className="mb-4 rounded-lg border border-[color-mix(in_oklab,var(--ig-warning)_34%,transparent)] bg-[color-mix(in_oklab,var(--ig-warning)_10%,transparent)] p-3">
-        <p className="text-ig-body-sm font-semibold text-ig-fg-strong">Análise IA pendente de backend</p>
-        <p className="mt-1 text-ig-caption text-ig-fg-muted">Os campos abaixo são estrutura de produto para integração futura. Nenhuma leitura documental real foi executada.</p>
-      </div>
-      <div className="grid gap-3 md:grid-cols-2">
-        <Metric label="Análises registradas" value={detail.aiAnalyses.length} />
-        <Metric
-          label="Situação"
-          value={detail.aiAnalyses.length === 0 ? 'Nenhuma solicitada' : (detail.aiAnalyses[0]?.status ?? 'pendente')}
-        />
-      </div>
-      <div className="mt-5 grid gap-3 md:grid-cols-2">
-        {output.map((item) => (
-          <div key={item} className="rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3">
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-ig-body-sm font-semibold text-ig-fg-strong">{item}</p>
-              <HudBadge variant="neutral" size="sm">mock pendente</HudBadge>
-            </div>
-            <p className="mt-2 text-ig-caption text-ig-fg-muted">Aguardando motor de IA e documento fonte.</p>
-          </div>
-        ))}
-      </div>
-    </HudPanel>
-  );
-}
+  O painel se anunciava como estado simulado, sem chamada de API, e listava doze
+  seções seladas como pendentes de backend. A capacidade REAL de leitura assistida
+  não estava ali e não foi tocada: ela vive na aba Cláusulas — extração por
+  documento, fila de propostas sob revisão humana, portão de evidência e
+  supersessão. É onde a inteligência tem consequência, e é onde ela fica.
+*/
+
 
 /**
  * Timeline auditável a partir de eventos REAIS.
