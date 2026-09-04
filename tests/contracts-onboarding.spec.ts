@@ -282,11 +282,19 @@ test('1 · Cadastrar um contrato operacional pela interface', async () => {
   contractId = rows[0].id;
 });
 
-test('2 · O contrato nasce OFICIAL, com identidade completa', async () => {
+test('2 · O contrato nasce NÃO CLASSIFICADO, com identidade completa', async () => {
   const [c] = await withDb((q) => q(`select * from contracts where id = $1`, [contractId]));
 
-  // Origem: criação pela interface operacional é sempre `live`.
-  expect(c.data_class).toBe('live');
+  /*
+    Fase 0.7: cadastrar não é afirmar procedência.
+
+    Antes a interface gravava `'live'` — ela se autocertificava como carteira
+    oficial —, o que contradizia o default que a própria migration 091 escolheu
+    para a coluna. Agora o contrato nasce `unclassified`: existe, é plenamente
+    operável, e fica fora de toda métrica oficial até que alguém afirme, com
+    justificativa e trilha, que ele é real.
+  */
+  expect(c.data_class).toBe('unclassified');
 
   expect(c.title).toBe(TITLE);
   expect(c.counterparty_name).toBe(COUNTERPARTY);
@@ -564,7 +572,20 @@ test('12d · Substituir o documento versiona e encerra as propostas pendentes', 
 // 4d · Aprovação
 // ═══════════════════════════════════════════════════════════════════════════
 
-test('12e · Percorrer o fluxo de aprovação', async () => {
+/*
+  Fase 0.2 mudou o que este cenário pode provar, e a mudança é o ponto.
+
+  Quem executa este E2E é o mesmo usuário que cadastrou o contrato alguns testes
+  atrás. Antes, ele aprovava a etapa jurídica do próprio contrato e o teste
+  registrava isso como o caminho feliz. Agora o banco recusa — segregação de
+  funções, trigger `trg_contract_approval_safety`, migration 100 — e a recusa é
+  o comportamento correto, não uma regressão.
+
+  O caminho feliz da aprovação por um SEGUNDO usuário é provado onde pode ser
+  provado de verdade, com dois usuários distintos e RLS ativa:
+  `tests/integration/contracts-phase0-live-rls.test.ts`.
+*/
+test('12e · O autor do contrato não decide a própria aprovação', async () => {
   await openDossierTab('Aprovações');
   await page.getByRole('button', { name: 'Registrar decisão' }).first().click();
   await expect(modal()).toBeVisible({ timeout: 20_000 });
@@ -572,21 +593,38 @@ test('12e · Percorrer o fluxo de aprovação', async () => {
   await byLabel(modal(), 'Etapa', 'select').selectOption('juridico');
   await byLabel(modal(), 'Decisão', 'select').selectOption('approved');
   await modal().locator('textarea').last().fill(`E2E parecer jurídico ${RUN}`);
-  // O rótulo do botão acompanha a decisão escolhida.
   await modal().getByRole('button', { name: 'Aprovar', exact: true }).click();
-  await expectToast(/aprova|registrad|decis/i, 40_000);
+
+  // A recusa vem do banco e chega ao usuário com o motivo, não como erro genérico.
+  await expectToast(/Segregação de funções/i, 40_000);
+
+  const decided = await withDb((q) => q(
+    `select step_name, status from contract_approvals
+      where contract_id = $1 and status in ('approved','rejected')`, [contractId]));
+  expect(decided, 'nenhuma decisão terminal pode ter sido gravada').toEqual([]);
+});
+
+test('12e.1 · O trâmite continua livre: solicitar ajustes é registrado', async () => {
+  // `under_review` não é decisão — recusar isso travaria o fluxo inteiro para
+  // quem cadastra, que é justamente quem conduz o contrato até a aprovação.
+  await byLabel(modal(), 'Decisão', 'select').selectOption('changes');
+  await modal().locator('textarea').last().fill(`E2E ajustes jurídicos ${RUN}`);
+  await modal().getByRole('button', { name: 'Solicitar', exact: true }).click();
+  await expectToast(/ajuste|registrad|solicitad/i, 40_000);
 
   const rows = await withDb((q) => q(
-    `select step_name, status, reviewer_user_id, completed_at, approval_timestamp, comments
+    `select step_name, status, reviewer_user_id, comments
        from contract_approvals where contract_id = $1`, [contractId]));
-  expect(rows.length, 'a etapa decidida deveria existir').toBeGreaterThan(0);
-
   const juridico = rows.find((r) => r.step_name === 'juridico');
-  expect(juridico?.status).toBe('approved');
-  // Quem decidiu e quando ficam carimbados: aprovação sem autor não é aprovação.
-  expect(juridico?.reviewer_user_id, 'a decisão precisa registrar quem decidiu').toBeTruthy();
-  expect(juridico?.completed_at, 'etapa terminal precisa de data de conclusão').toBeTruthy();
+  expect(juridico?.status).toBe('under_review');
+  // Quem agiu fica carimbado: etapa sem autor não é etapa.
+  expect(juridico?.reviewer_user_id, 'a etapa precisa registrar quem agiu').toBeTruthy();
   expect(juridico?.comments).toContain(RUN);
+
+  const audited = await withDb((q) => q(
+    `select id from audit_logs
+      where entity_type='contract' and entity_id=$1 and action='contract.changes_requested'`, [contractId]));
+  expect(audited.length, 'a solicitação de ajustes precisa estar na auditoria').toBeGreaterThan(0);
 });
 
 test('12f · A prontidão reflete a rota de aprovação registrada', async () => {

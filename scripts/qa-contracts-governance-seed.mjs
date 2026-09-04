@@ -105,18 +105,42 @@ try {
   );
 
   // §5 — workflow de aprovação com timestamps reais p/ SLA (036: started_at/completed_at).
+  //
+  // O revisor NÃO pode ser quem cadastrou o contrato: a migration 100 passou a
+  // exigir segregação de funções no banco, e o trigger vale também para a chave
+  // de serviço — inclusive para este script. Antes a fixture semeava
+  // `reviewer_user_id = owner_user_id` e gravava `approved`, ou seja, ela
+  // codificava exatamente o defeito que a Fase 0.2 corrigiu.
+  //
+  // Sem um segundo usuário na organização não existe aprovação legítima a
+  // semear, e a fixture diz isso em vez de inventar uma.
+  const [reviewer] = await q(
+    `select p.user_id from public.profiles p
+      where p.organization_id = $1 and p.user_id <> $2 limit 1`,
+    [me.organization_id, me.user_id],
+  );
+  if (!reviewer) {
+    console.warn(
+      'AVISO: nenhum segundo usuário na organização — a etapa `juridico` será semeada como `under_review`, ' +
+      'não como `approved`. Segregação de funções (migration 100) impede o autor de decidir o próprio contrato.',
+    );
+  }
+  const reviewerId = reviewer?.user_id ?? me.user_id;
+  const juridicoStatus = reviewer ? 'approved' : 'under_review';
+  const juridicoApprovedAt = reviewer ? "now() - interval '20 hours'" : 'null';
+
   await client.query(
     `insert into public.contract_approvals (organization_id, contract_id, step_name, status, reviewer_user_id, deadline_date, comments, approval_timestamp, created_at, started_at, completed_at)
      select $1, $2, x.step, x.status, $3, x.deadline, x.comments, x.appr_ts, x.created,
             x.created, x.appr_ts
      from (values
-       ('juridico',   'approved',     (now() + interval '2 days')::date, '[QA] parecer ok', now() - interval '20 hours', now() - interval '2 days'),
+       ('juridico',   '${juridicoStatus}', (now() + interval '2 days')::date, '[QA] parecer ok', ${juridicoApprovedAt}::timestamptz, now() - interval '2 days'),
        ('financeiro', 'under_review', (now() + interval '3 days')::date, '[QA] em análise', null::timestamptz,           now() - interval '1 day'),
        ('comite',     'pending',      (now() + interval '7 days')::date, null,              null::timestamptz,           now() - interval '6 hours')
      ) as x(step, status, deadline, comments, appr_ts, created)
      where not exists (
        select 1 from public.contract_approvals a where a.contract_id = $2 and a.step_name = x.step)`,
-    T,
+    [target.organization_id, target.contract_id, reviewerId],
   );
 
   // §6 — vínculos de projeto e risco (se existirem na org).
