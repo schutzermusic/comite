@@ -12,43 +12,11 @@
 import { cn } from '@/lib/utils';
 import { History, AlertTriangle, ArrowRight } from 'lucide-react';
 import type { ContractAuditEventRow } from '@/lib/contracts/contract-service';
+import { AUDIT_ACTION_LABELS, auditActionLabel } from '@/lib/contracts/audit-labels';
 
-/** Rótulos em pt-BR das ações gravadas por `logAuditEvent`. */
-export const AUDIT_ACTION_LABELS: Record<string, string> = {
-  'contract.created': 'Contrato criado',
-  'contract.updated': 'Contrato atualizado',
-  'contract.deleted': 'Contrato excluído',
-  'contract.file_uploaded': 'Arquivo anexado',
-  'contract.document_uploaded': 'Documento enviado',
-  'contract.document_approved': 'Documento aprovado',
-  'contract.document_rejected': 'Documento rejeitado',
-  'contract.document_status_changed': 'Situação de documento alterada',
-  'contract.obligation_created': 'Obrigação criada',
-  'contract.obligation_updated': 'Obrigação atualizada',
-  'contract.obligation_completed': 'Obrigação concluída',
-  'contract.billing_event_created': 'Evento de faturamento criado',
-  'contract.billing_event_updated': 'Evento de faturamento atualizado',
-  'contract.billing_event_realized': 'Faturamento realizado',
-  'contract.linked_project': 'Projeto vinculado',
-  'contract.unlinked_project': 'Projeto desvinculado',
-  'contract.linked_risk': 'Risco vinculado',
-  'contract.unlinked_risk': 'Risco desvinculado',
-  'contract.project_created': 'Projeto criado a partir do contrato',
-  'contract.agenda_task_created': 'Tarefa de agenda criada',
-  'contract.ai_analysis_requested': 'Análise de IA solicitada',
-  'contract.changes_requested': 'Ajustes solicitados',
-  // P2E / P2F.1 — linhagem de documento e aditivos.
-  'contract.document_superseded': 'Documento substituído',
-  'contract.amendment_created': 'Aditivo registrado',
-  'contract.amendment_updated': 'Aditivo atualizado',
-  'contract.amendment_deleted': 'Aditivo excluído',
-  'contract.amendment_clause_linked': 'Cláusula vinculada a aditivo',
-  'contract.clause_validated': 'Cláusula validada',
-  'contract.clause_rejected': 'Proposta de cláusula rejeitada',
-  'contract.milestone_created': 'Marco registrado',
-  'contract.milestone_measured': 'Marco medido',
-  'contract.approval_submitted': 'Etapa de aprovação decidida',
-};
+export { AUDIT_ACTION_LABELS };
+
+/* Mapa de rótulos: fonte única em `@/lib/contracts/audit-labels`. */
 
 function relativeTime(iso: string, now: Date): string {
   const then = new Date(iso);
@@ -107,7 +75,7 @@ export function RecentActivity({
             <span className="relative mt-1.5 h-[7px] w-[7px] shrink-0 rounded-full bg-ig-accent/70" aria-hidden />
             <div className="min-w-0 flex-1">
               <p className="truncate text-ig-body-sm text-ig-fg-strong">
-                {AUDIT_ACTION_LABELS[event.action] ?? event.action}
+                {auditActionLabel(event.action)}
               </p>
               <p className="text-ig-caption text-ig-fg-subtle">
                 {relativeTime(event.created_at, now)}

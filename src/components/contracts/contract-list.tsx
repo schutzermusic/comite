@@ -19,7 +19,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import {
   AlertTriangle,
-  BrainCircuit,
+  FileSearch,
   Building2,
   CalendarClock,
   Download,
@@ -75,17 +75,13 @@ const renewalLabel = {
   stable: 'Estável',
 } as const;
 
-const aiLabel = {
-  mock_pending: 'IA mock pendente',
-  mock_ready: 'Prévia mock',
-  manual_review: 'Revisão manual',
-} as const;
+/*
+  `aiLabel`/`aiVariant` foram removidos.
 
-const aiVariant = {
-  mock_pending: 'neutral',
-  mock_ready: 'info',
-  manual_review: 'warning',
-} as const;
+  Mapeavam `mock_pending` → "IA mock pendente" e `mock_ready` → "Prévia mock"
+  para um chip que a Fase 0 já havia tirado da tabela. Eram rótulos mortos
+  descrevendo um estado simulado, esperando alguém voltar a renderizá-los.
+*/
 
 export function ContractList({
   records,
@@ -271,7 +267,8 @@ export function ContractList({
     },
     {
       key: 'ai',
-      header: 'IA / Docs',
+      // Descreve o que a coluna mostra — leituras e documentos —, não o motor.
+      header: 'Leitura / Docs',
       width: '190px',
       cell: (record) => {
         /* O chip de estado de IA e a "confiança NN%" saíram: `aiStatus` e
@@ -285,8 +282,8 @@ export function ContractList({
         return (
           <div className="min-w-[160px] space-y-1.5">
             <div className="flex items-center gap-1.5 text-ig-caption text-ig-fg-muted">
-              <BrainCircuit className="h-3.5 w-3.5" />
-              {analises === null ? 'Análises —' : `${analises} análise(s)`}
+              <FileSearch className="h-3.5 w-3.5" />
+              {analises === null ? 'Leituras —' : `${analises} leitura(s)`}
             </div>
             <div className="flex items-center gap-1.5 text-ig-caption">
               {faltantes === null ? (
@@ -329,11 +326,13 @@ export function ContractList({
                 <Download className="mr-2 h-4 w-4" />
                 Baixar documento
               </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem>
-                <BrainCircuit className="mr-2 h-4 w-4" />
-                Solicitar análise IA
-              </DropdownMenuItem>
+              {/*
+                "Solicitar análise IA" saiu: era um item de menu SEM `onClick`
+                — clicar não fazia absolutamente nada. Além de quebrado, era
+                justamente a afordância manual de IA que o produto deixou de
+                oferecer. A leitura documental real é acionada no dossiê, por
+                documento, onde há evidência para revisar.
+              */}
               {canDeleteLinkedProject && (
                 <>
                   <DropdownMenuSeparator />

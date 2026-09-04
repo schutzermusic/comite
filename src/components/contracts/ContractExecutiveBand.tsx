@@ -41,6 +41,7 @@ import {
   CheckCircle2,
   ClipboardCheck,
   Clock3,
+  FileSearch,
   Receipt,
   Scale,
   ShieldAlert,
@@ -303,12 +304,19 @@ export function ContractExecutiveBand({
           onClick={() => onToggleFilter('sem_faturamento')}
           active={isActive('sem_faturamento')}
         />
+        {/*
+          "Sem análise IA" descrevia a TECNOLOGIA ausente; "Leitura documental
+          pendente" descreve o RESULTADO ausente, que é o que interessa a quem
+          opera a carteira. O contador é exatamente o mesmo campo
+          (`contractsWithoutAi`), a mesma consulta e o mesmo filtro `sem_ia` —
+          nenhum dado mudou, só parou de anunciar o motor.
+        */}
         <MetricCell
-          icon={<BrainCircuit className="h-3.5 w-3.5" />}
-          label="Sem análise IA"
+          icon={<FileSearch className="h-3.5 w-3.5" />}
+          label="Leitura documental pendente"
           value={officialCount(stats.contractsWithoutAi)}
           sub={hasOfficialValue(stats.contractsWithoutAi)
-            ? (stats.contractsWithoutAi.value ? 'aguardando análise' : 'cobertura completa')
+            ? (stats.contractsWithoutAi.value ? 'sem leitura registrada' : 'todos com leitura')
             : officialProvenance(stats.contractsWithoutAi)}
           tone={isError(stats.contractsWithoutAi) ? 'danger' : hasOfficialValue(stats.contractsWithoutAi) && stats.contractsWithoutAi.value ? 'info' : 'default'}
           onClick={() => onToggleFilter('sem_ia')}

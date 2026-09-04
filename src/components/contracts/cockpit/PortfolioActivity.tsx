@@ -16,7 +16,7 @@
 
 import { cn } from '@/lib/utils';
 import { History, ArrowRight, AlertTriangle } from 'lucide-react';
-import { AUDIT_ACTION_LABELS } from './RecentActivity';
+import { auditActionLabel } from '@/lib/contracts/audit-labels';
 import type { ContractAuditEventRow } from '@/lib/contracts/contract-service';
 
 export type PortfolioActivityEvent = ContractAuditEventRow & { entity_id: string };
@@ -103,7 +103,7 @@ export function PortfolioActivity({
 
             <span className="min-w-0 flex-1">
               <span className="block truncate text-ig-body-sm text-ig-fg-strong">
-                {AUDIT_ACTION_LABELS[e.action] ?? e.action}
+                {auditActionLabel(e.action)}
               </span>
               <span className="mt-0.5 flex flex-wrap items-baseline gap-x-2 text-ig-caption text-ig-fg-muted">
                 {onOpenContract ? (

@@ -662,7 +662,7 @@ export function ContractDossierDrawer({
           </section>
         )}
 
-        {/* ── 7 · Saúde por dimensão (sem score) ─────────────────────────── */}
+        {/* ── 7 · Cobertura por dimensão (sem score) ─────────────────────── */}
         {trusted && health && (
           <div className="rounded-[16px] border border-ig-border-subtle bg-[color-mix(in_oklab,var(--ig-bg-raised)_45%,transparent)] px-4 py-4">
             <ContractHealthDrivers health={health} />

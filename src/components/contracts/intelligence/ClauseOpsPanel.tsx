@@ -203,10 +203,11 @@ export function ClauseOpsPanel({
           é lacuna do contrato, pode ser lacuna de revisão — ou a categoria
           simplesmente não existir naquele contrato.
         */}
-        <p className="mt-3 border-t border-ig-border-subtle pt-2.5 text-ig-caption text-ig-fg-subtle">
-          O vocabulário é o mesmo para todos os contratos. Categoria sem cláusula validada pode
-          significar revisão pendente ou ausência real no contrato — este painel não distingue as duas,
-          porque distinguir exigiria um padrão de carteira que ainda não existe.
+        <p
+          className="mt-2.5 border-t border-ig-border-subtle pt-2 text-ig-caption text-ig-fg-subtle"
+          title="O vocabulário é o mesmo para todos os contratos. Categoria sem cláusula validada pode significar revisão pendente ou ausência real no contrato — este painel não distingue as duas, porque distinguir exigiria um padrão de carteira que ainda não existe."
+        >
+          Categoria sem cláusula validada pode ser revisão pendente ou ausência real.
         </p>
       </HudPanel>
     </div>

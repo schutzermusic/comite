@@ -168,9 +168,11 @@ export function ContractInstrumentsPanel({
         </p>
       )}
       {timeline.length === 0 && !state.readFailed && !state.notMeasured && (
-        <p className="mt-3 text-ig-caption text-ig-fg-muted">
-          Nenhum aditivo registrado. Isso não significa que não existam — significa que nenhum foi
-          registrado até agora.
+        <p
+          className="mt-3 text-ig-caption text-ig-fg-muted"
+          title="Ausência de registro não é ausência de aditivo: significa apenas que nenhum foi registrado até agora."
+        >
+          Nenhum aditivo registrado.
         </p>
       )}
     </HudPanel>

@@ -21,6 +21,7 @@ import { cn } from '@/lib/utils';
 import { Receipt, TrendingUp, CalendarClock } from 'lucide-react';
 import { HudProgressBar } from '@/components/hud';
 import { TrustedValue, TrustedCoverage } from './TrustedValue';
+import { MetricRow } from '../shell/MetricRow';
 import { hasOfficialValue, isError, ratioTrusted, type Official } from '@/lib/contracts/trust/trusted';
 import type { TrustedContract } from '@/lib/contracts/trust/read-model';
 import type { ContractBillingEventRow } from '@/lib/contracts/contract-service';
@@ -51,9 +52,19 @@ export interface FinancialPulseProps {
   contract: TrustedContract;
   now?: Date;
   className?: string;
+  /**
+   * Faixa horizontal de quatro métricas, para o topo do dossiê.
+   *
+   * A leitura completa (barra de execução, próximo marco, contagem de eventos)
+   * continua existindo — ela vive na aba Financeiro, que é onde alguém que
+   * quer detalhe financeiro vai. No topo, quatro números alinhados respondem
+   * "quanto vale e como está indo" em uma linha, em vez de ~320px de altura
+   * empurrando a navegação para baixo da dobra.
+   */
+  compact?: boolean;
 }
 
-export function FinancialPulse({ contract, now = new Date(), className }: FinancialPulseProps) {
+export function FinancialPulse({ contract, now = new Date(), className, compact = false }: FinancialPulseProps) {
   const execution = ratioTrusted(
     contract.billedValue,
     contract.totalValue,
@@ -70,6 +81,66 @@ export function FinancialPulse({ contract, now = new Date(), className }: Financ
   const paidCount = hasOfficialValue(contract.billingEvents)
     ? contract.billingEvents.value.filter(isPaid).length
     : null;
+
+  if (compact) {
+    return (
+      <MetricRow
+        label="Pulso financeiro do contrato"
+        className={className}
+        columns={4}
+        items={[
+          {
+            id: 'total',
+            label: 'Valor contratado',
+            value: <TrustedValue value={contract.totalValue} format={(v) => BRL_COMPACT.format(v)} size="md" metallic />,
+          },
+          {
+            id: 'billed',
+            label: 'Faturado',
+            value: <TrustedValue value={contract.billedValue} format={(v) => BRL_COMPACT.format(v)} size="md" />,
+            sub: eventCount === null ? undefined : `${paidCount} de ${eventCount} evento(s)`,
+          },
+          {
+            id: 'backlog',
+            label: 'Backlog',
+            value: <TrustedValue value={contract.remainingValue} format={(v) => BRL_COMPACT.format(v)} size="md" />,
+          },
+          {
+            id: 'execution',
+            label: 'Execução',
+            value: (
+              <TrustedValue
+                value={execution}
+                format={(v) => `${Math.round(v * 100)}%`}
+                size="md"
+                missingLabel="Não apurada"
+              />
+            ),
+            /*
+              Sem apuração NÃO vira 0%. A faixa compacta herda a mesma regra da
+              versão completa: o trilho tracejado diz "não há medição", uma
+              barra vazia diria "a medição deu quase nada".
+            */
+            sub:
+              pct === null ? (
+                <span
+                  className="mt-1 block h-1 w-full rounded-full border border-dashed border-ig-border-strong"
+                  role="img"
+                  aria-label="Execução financeira não apurada"
+                />
+              ) : (
+                <span className="mt-1 block h-1 w-full overflow-hidden rounded-full bg-ig-border-subtle">
+                  <span
+                    className="block h-full rounded-full bg-ig-success"
+                    style={{ width: `${Math.min(pct, 100)}%` }}
+                  />
+                </span>
+              ),
+          },
+        ]}
+      />
+    );
+  }
 
   return (
     <section className={cn('relative', className)} aria-label="Pulso financeiro do contrato">

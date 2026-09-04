@@ -45,13 +45,18 @@ export function ApprovalJourney({
         'rounded-[14px] border border-dashed border-ig-border-strong px-4 py-3.5',
         className,
       )}>
-        <p className="text-ig-body-sm font-semibold text-ig-fg-strong">
-          {intelligence.unavailable === 'error' ? 'Rota de aprovação indisponível' : 'Sem rota de alçada'}
-        </p>
-        <p className="mt-1 text-ig-caption text-ig-fg-muted">
-          {intelligence.unavailable === 'error'
+        {/*
+          Duas linhas viraram uma. O rótulo diz o estado; o `title` guarda a
+          consequência, que continua verdadeira e continua acessível.
+        */}
+        <p className="text-ig-body-sm font-semibold text-ig-fg-strong">Fluxo de aprovação</p>
+        <p
+          className="mt-0.5 text-ig-caption text-ig-fg-muted"
+          title={intelligence.unavailable === 'error'
             ? 'A leitura das etapas falhou. A ausência de etapas nesta tela não significa que não existam.'
-            : 'Nenhuma etapa de aprovação registrada: não há como afirmar que este contrato passou por alçada.'}
+            : 'Sem etapa registrada, não há como afirmar que este contrato passou por alçada.'}
+        >
+          {intelligence.unavailable === 'error' ? 'Leitura indisponível' : 'Não configurado'}
         </p>
       </div>
     );

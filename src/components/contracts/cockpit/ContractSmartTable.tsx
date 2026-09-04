@@ -55,7 +55,7 @@ const COLUMNS: { key: SmartColumnKey; label: string; align?: 'right'; width?: st
   { key: 'obligations', label: 'Obrigações', align: 'right', width: '110px' },
   { key: 'documents', label: 'Documentos', align: 'right', width: '112px', optional: true },
   { key: 'approvals', label: 'Aprovações', align: 'right', width: '110px', optional: true },
-  { key: 'health', label: 'Saúde', align: 'right', width: '84px' },
+  { key: 'health', label: 'Cobertura', align: 'right', width: '92px' },
 ];
 
 /** Uma linha já resolvida — ordenação e busca operam sobre valores, não JSX. */

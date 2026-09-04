@@ -48,7 +48,7 @@ export function OnboardingReadinessPanel({
   return (
     <HudPanel
       title="Prontidão do contrato"
-      subtitle="O que já está registrado. Ausência aqui não é irregularidade."
+      subtitle="O que já está registrado"
       interactive={false}
     >
       <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -58,16 +58,25 @@ export function OnboardingReadinessPanel({
           tone={operable ? 'success' : 'neutral'}
           size="sm"
         />
-        <span className="text-ig-caption text-ig-fg-muted">
-          {operable
-            ? 'Identidade, projeto e documento registrados — o contrato é plenamente operável.'
-            : 'Falta registrar o essencial para operar o contrato de ponta a ponta.'}
+        {/*
+          A frase inteira virou `title`. A regra que ela protege — ausência de
+          registro não é irregularidade — continua dita, sem ocupar duas linhas
+          em todo contrato da carteira.
+        */}
+        <span
+          className="text-ig-caption text-ig-fg-muted"
+          title="Ausência aqui não é irregularidade: indica registro pendente, não descumprimento."
+        >
+          {operable ? 'Essencial registrado — contrato plenamente operável' : 'Falta registrar o essencial'}
         </span>
       </div>
 
       {hasErrors && (
-        <p className="mb-3 text-ig-caption text-ig-warning">
-          Alguma relação não pôde ser lida. A lista está incompleta por falha de leitura, não por ausência de registro.
+        <p
+          className="mb-3 text-ig-caption text-ig-warning"
+          title="A lista está incompleta por falha de leitura, não por ausência de registro."
+        >
+          Alguma relação não pôde ser lida.
         </p>
       )}
 
