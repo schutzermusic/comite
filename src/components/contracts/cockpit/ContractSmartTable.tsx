@@ -287,7 +287,7 @@ export function ContractSmartTable({
                 type="button"
                 onClick={() => toggleSort(col.key)}
                 className={cn(
-                  'inline-flex items-center gap-1 text-ig-label uppercase tracking-[0.1em] transition-colors',
+                  'inline-flex items-center gap-1 text-ig-label transition-colors',
                   activeSort ? 'text-ig-accent' : 'text-ig-fg-muted hover:text-ig-fg-strong',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_oklab,var(--ig-accent)_45%,transparent)] rounded',
                 )}

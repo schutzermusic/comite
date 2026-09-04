@@ -109,15 +109,15 @@ function StepRow({
         <span className="flex flex-wrap items-baseline gap-x-2">
           <span className="text-ig-body-sm font-semibold text-ig-fg-strong">{step.label}</span>
           {step.essential && (
-            <span className="text-ig-label uppercase tracking-[0.12em] text-ig-fg-subtle">essencial</span>
+            <span className="text-ig-label text-ig-fg-subtle">essencial</span>
           )}
-          <span className="text-ig-label uppercase tracking-[0.12em] text-ig-fg-subtle">· {step.owner}</span>
+          <span className="text-ig-label text-ig-fg-subtle">· {step.owner}</span>
         </span>
         {step.detail && (
           <span className="mt-0.5 block text-ig-caption text-ig-fg-muted">{step.detail}</span>
         )}
       </span>
-      <span className="shrink-0 self-center text-ig-label uppercase tracking-[0.12em] text-ig-fg-subtle">
+      <span className="shrink-0 self-center text-ig-label text-ig-fg-subtle">
         {look.label}
       </span>
     </>

@@ -1,5 +1,6 @@
 @import "../styles/tokens.css";
 @import "../styles/glass.css";
+@import "../styles/surfaces.css";
 @import "../styles/ponto-theme.css";
 
 @tailwind base;
@@ -5930,8 +5931,13 @@ html.dark [data-state="collapsed"] .hud-nav-item[data-active="true"] {
 }
 
 /* ── HUD glass base ── */
-.light .hud-glass { background: #ffffff; border-color: #E2E8F0; box-shadow: 0 1px 3px rgba(0,0,0,0.06); backdrop-filter: none; }
-.light .hud-glass-strong { background: #ffffff; border-color: #CBD5E1; box-shadow: 0 1px 2px rgba(0,0,0,0.05); backdrop-filter: none; }
+/*
+  Separação por borda, não por sombra (§3/§15 do gate). Estas duas regras
+  vinham depois de tudo e devolviam a sombra a todo painel estático do claro,
+  anulando a escada de superfícies. As bordas assumem o trabalho.
+*/
+.light .hud-glass { background: var(--ig-bg-base); border-color: var(--ig-border-subtle); box-shadow: none; backdrop-filter: none; }
+.light .hud-glass-strong { background: var(--ig-bg-base); border-color: var(--ig-border-default); box-shadow: none; backdrop-filter: none; }
 
 /* ── Orion cards ── */
 .light .orion-card-premium {

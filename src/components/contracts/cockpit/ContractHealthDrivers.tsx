@@ -60,7 +60,7 @@ export function ContractHealthDrivers({ health, className, compact = false }: Co
   return (
     <section className={cn('relative', className)} aria-label="Cobertura do contrato por dimensão">
       <header className="flex items-baseline justify-between gap-3">
-        <p className="flex items-center gap-1.5 text-ig-label uppercase tracking-[0.14em] text-ig-fg-muted">
+        <p className="flex items-center gap-1.5 text-ig-label text-ig-fg-muted">
           <Activity className="h-3.5 w-3.5" aria-hidden />
           Cobertura do contrato
         </p>

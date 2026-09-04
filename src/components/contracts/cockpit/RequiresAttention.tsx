@@ -23,35 +23,31 @@ const BRL = new Intl.NumberFormat('pt-BR', {
 });
 
 const SEVERITY: Record<AttentionSeverity, {
-  label: string; icon: React.ReactNode; rail: string; text: string; tint: string;
+  label: string; icon: React.ReactNode; rail: string; text: string;
 }> = {
   critical: {
     label: 'Crítico',
     icon: <AlertOctagon className="h-3.5 w-3.5" aria-hidden />,
     rail: 'bg-ig-danger',
     text: 'text-ig-danger',
-    tint: 'bg-[color-mix(in_oklab,var(--ig-danger)_6%,transparent)]',
   },
   warning: {
     label: 'Atenção',
     icon: <AlertTriangle className="h-3.5 w-3.5" aria-hidden />,
     rail: 'bg-ig-warning',
     text: 'text-ig-warning',
-    tint: 'bg-[color-mix(in_oklab,var(--ig-warning)_6%,transparent)]',
   },
   setup: {
     label: 'Configuração pendente',
     icon: <Settings2 className="h-3.5 w-3.5" aria-hidden />,
     rail: 'bg-ig-accent',
     text: 'text-ig-accent',
-    tint: 'bg-[color-mix(in_oklab,var(--ig-accent)_6%,transparent)]',
   },
   info: {
     label: 'Monitorar',
     icon: <Info className="h-3.5 w-3.5" aria-hidden />,
     rail: 'bg-ig-info',
     text: 'text-ig-info',
-    tint: 'bg-transparent',
   },
 };
 
@@ -75,80 +71,74 @@ export function RequiresAttention({
   // registro" (MD §40).
   if (items.length === 0) {
     return (
-      <div
-        className={cn(
-          'rounded-[14px] border border-[color-mix(in_oklab,var(--ig-success)_26%,transparent)]',
-          'bg-[color-mix(in_oklab,var(--ig-success)_5%,transparent)] px-4 py-4',
-          className,
-        )}
-      >
+      <div className={cn('ig-section-plain py-3', className)}>
         <p className="flex items-center gap-2 text-ig-body-sm font-semibold text-ig-fg-strong">
           <CheckCircle2 className="h-4 w-4 text-ig-success" aria-hidden />
           Nada exige atenção agora
         </p>
-        <p className="mt-1.5 text-ig-body-sm leading-relaxed text-ig-fg-muted">
+        <p className="mt-1 text-ig-caption leading-relaxed text-ig-fg-muted">
           {emptyHint ?? 'Todas as dimensões apuradas deste contrato estão regulares.'}
         </p>
       </div>
     );
   }
 
+  /*
+    Fila priorizada, não uma pilha de cartões de alerta.
+    Cada item era um retângulo de 14px de raio com tinta própria e borda
+    própria; três alertas produziam três caixas grandes que empurravam o
+    resto do dossiê para fora da primeira tela — e o tamanho da caixa não
+    dizia nada sobre a urgência do item, já que todas tinham o mesmo tamanho.
+    Agora é uma superfície só, dividida: a severidade fica no trilho e no
+    rótulo, e a varredura vertical compara os itens em vez de folheá-los.
+  */
   return (
-    <div className={cn('space-y-2.5', className)}>
+    <div className={cn('ig-rows', className)}>
       {shown.map((item) => {
         const s = SEVERITY[item.severity];
         return (
           <article
             key={item.id}
             className={cn(
-              'group relative overflow-hidden rounded-[14px] border border-ig-border-subtle',
-              'pl-4 pr-3.5 py-3.5 transition-colors duration-200',
-              s.tint,
-              'hover:border-ig-border-focus',
+              'relative grid gap-x-4 gap-y-1 py-2.5 pl-4 pr-2',
+              'md:grid-cols-[110px_1fr_auto_auto] md:items-baseline',
             )}
           >
-            {/* Rail de severidade: indicação não-cromática acompanha o rótulo. */}
-            <span className={cn('pointer-events-none absolute inset-y-0 left-0 w-[3px]', s.rail)} aria-hidden />
+            {/* Trilho de severidade: indicação não-cromática acompanha o rótulo. */}
+            <span className={cn('pointer-events-none absolute inset-y-0 left-0 w-[2px]', s.rail)} aria-hidden />
 
-            <header className="flex items-center gap-2">
-              <span className={cn('flex items-center gap-1.5 text-ig-label font-semibold uppercase tracking-[0.12em]', s.text)}>
-                {s.icon}
-                {s.label}
-              </span>
-              {item.age && (
-                <span className="ml-auto shrink-0 text-ig-caption text-ig-fg-muted">{item.age}</span>
-              )}
-            </header>
+            <span className={cn('flex items-center gap-1.5 text-ig-caption font-semibold', s.text)}>
+              {s.icon}
+              {s.label}
+            </span>
 
-            <h4 className="mt-1.5 text-ig-body-sm font-semibold leading-snug text-ig-fg-strong">
-              {item.title}
-            </h4>
-            <p className="mt-1 text-ig-caption leading-relaxed text-ig-fg-muted">{item.reason}</p>
+            <div className="min-w-0">
+              <h4 className="truncate text-ig-body-sm font-medium text-ig-fg-strong">{item.title}</h4>
+              <p className="truncate text-ig-caption text-ig-fg-muted">{item.reason}</p>
+            </div>
 
-            {/* Impacto SÓ quando dedutível do dado. */}
-            {item.exposure && hasOfficialValue(item.exposure) && (
-              <p className="mt-2 flex items-baseline gap-1.5">
-                <span className="text-ig-caption text-ig-fg-muted">Exposição</span>
-                <span className={cn('ig-tabular text-ig-body-sm font-semibold', s.text)}>
-                  {BRL.format(item.exposure.value)}
-                </span>
-              </p>
-            )}
+            {/* A dimensão do item: idade, ou exposição quando o dado a sustenta. */}
+            <span className="ig-tabular shrink-0 text-ig-caption text-ig-fg-muted md:text-right">
+              {item.exposure && hasOfficialValue(item.exposure)
+                ? BRL.format(item.exposure.value)
+                : item.age ?? ''}
+            </span>
 
-            {onAction && (
+            {onAction ? (
               <button
                 type="button"
                 onClick={() => onAction(item.actionKey)}
                 className={cn(
-                  'mt-2.5 inline-flex items-center gap-1.5 rounded-[8px] border border-ig-border-subtle',
-                  'px-2.5 py-1 text-ig-caption font-medium text-ig-fg-strong transition-all',
-                  'hover:border-ig-border-focus hover:bg-[color-mix(in_oklab,var(--ig-accent)_8%,transparent)]',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_oklab,var(--ig-accent)_45%,transparent)]',
+                  'inline-flex shrink-0 items-center gap-1 justify-self-start text-ig-caption font-medium',
+                  'text-ig-accent transition-colors hover:text-ig-accent-strong md:justify-self-end',
+                  'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ig-border-focus',
                 )}
               >
                 {item.actionLabel}
                 <ArrowRight className="h-3 w-3" aria-hidden />
               </button>
+            ) : (
+              <span />
             )}
           </article>
         );

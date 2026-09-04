@@ -155,7 +155,7 @@ export function PortfolioAttention({
             <span className={cn('pointer-events-none absolute inset-y-0 left-0 w-[3px]', s.rail)} aria-hidden />
 
             <header className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
-              <span className={cn('flex items-center gap-1.5 text-ig-label font-semibold uppercase tracking-[0.12em]', s.text)}>
+              <span className={cn('flex items-center gap-1.5 text-ig-label font-semibold', s.text)}>
                 {s.icon}
                 {s.label}
               </span>
@@ -181,7 +181,7 @@ export function PortfolioAttention({
 
             {item.exposure && hasOfficialValue(item.exposure) && (
               <p className="mt-2.5 flex items-baseline gap-2">
-                <span className="text-ig-caption uppercase tracking-[0.1em] text-ig-fg-muted">Exposição</span>
+                <span className="text-ig-caption text-ig-fg-muted">Exposição</span>
                 <span className={cn('ig-tabular text-ig-h2', s.text)}>
                   {BRL.format(item.exposure.value)}
                 </span>
@@ -266,7 +266,7 @@ function SetupReadinessSurface({
   return (
     <section className="rounded-[16px] border border-ig-border-subtle bg-[color-mix(in_oklab,var(--ig-accent)_4%,transparent)] px-4 py-3.5">
       <header className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
-        <span className="flex items-center gap-1.5 text-ig-label font-semibold uppercase tracking-[0.12em] text-ig-accent">
+        <span className="flex items-center gap-1.5 text-ig-label font-semibold text-ig-accent">
           <Settings2 className="h-3.5 w-3.5" aria-hidden />
           Prontidão operacional
         </span>

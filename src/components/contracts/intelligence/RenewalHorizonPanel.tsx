@@ -60,7 +60,7 @@ export function RenewalHorizonPanel({ horizon, onSelectContract, className }: Re
               )}
             >
               <span className={cn('absolute inset-y-0 left-0 w-[2px]', band.count > 0 ? tone.rail : 'bg-transparent')} aria-hidden />
-              <p className="truncate text-ig-label font-semibold uppercase tracking-[0.1em] text-ig-fg-muted">
+              <p className="truncate text-ig-label font-semibold text-ig-fg-muted">
                 {HORIZON_LABEL[band.band]}
               </p>
               <p className={cn('mt-0.5 text-ig-kpi-md leading-none ig-tabular', band.count > 0 ? tone.text : 'text-ig-fg-subtle')}>

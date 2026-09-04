@@ -40,7 +40,7 @@ export function ProjectRelation({ project, onLink, className, compact = false }:
           className,
         )}
       >
-        <p className="flex items-center gap-2 text-ig-caption font-semibold uppercase tracking-[0.12em] text-ig-danger">
+        <p className="flex items-center gap-2 text-ig-caption font-semibold text-ig-danger">
           <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
           Vínculo indisponível
         </p>
@@ -65,7 +65,7 @@ export function ProjectRelation({ project, onLink, className, compact = false }:
           className="pointer-events-none absolute inset-y-0 left-0 w-[3px] bg-ig-warning"
           aria-hidden
         />
-        <p className="text-ig-caption font-semibold uppercase tracking-[0.12em] text-ig-warning">
+        <p className="text-ig-caption font-semibold text-ig-warning">
           Projeto não vinculado
         </p>
         <p className="mt-1.5 text-ig-body-sm leading-relaxed text-ig-fg-muted">
@@ -109,7 +109,7 @@ export function ProjectRelation({ project, onLink, className, compact = false }:
       />
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="flex items-center gap-1.5 text-ig-caption font-semibold uppercase tracking-[0.12em] text-ig-fg-muted">
+          <p className="flex items-center gap-1.5 text-ig-caption font-semibold text-ig-fg-muted">
             <Workflow className="h-3.5 w-3.5 text-ig-accent" aria-hidden />
             Projeto
           </p>

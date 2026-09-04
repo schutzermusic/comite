@@ -58,7 +58,6 @@ import {
   HudPanel,
   HudProgressBar,
   HudStatusPill,
-  HudTabs,
   useHudToast,
   type HudTab,
   type KpiItem,
@@ -91,7 +90,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { SectionHeader, HistoryDrawer, InlineEmpty } from '@/components/contracts/shell';
+import { SectionHeader, HistoryDrawer, InlineEmpty, DossierNav } from '@/components/contracts/shell';
 import { format } from 'date-fns';
 import { pt } from 'date-fns/locale';
 
@@ -401,8 +400,19 @@ export default function ContractDossierPage() {
                 : detail.contract.status === 'cancelled' ? 'Cancelado'
                   : detail.contract.status;
 
+  /*
+    UMA fonte para o vínculo de projeto (§20 do gate).
+    A faixa de ação e o botão do cabeçalho liam `contracts.project_id`; o
+    resumo lia `trusted.project`, que resolve `contracts.project_id` OU
+    `contract_project_links` — ambos vínculos reais. Um contrato ligado pela
+    tabela de vínculo aparecia então como "assinado sem projeto vinculado"
+    logo acima do projeto ao qual está ligado. Os dois passam a derivar da
+    mesma relação resolvida.
+  */
+  const hasLinkedProject = hasOfficialValue(trusted.project);
+
   const canCreateProjectFromContract =
-    !detail.contract.project_id
+    !hasLinkedProject
     && ['signed', 'active'].includes(detail.contract.status)
     && (hasPermission('contracts.edit') || hasPermission('projects.create'));
 
@@ -712,7 +722,7 @@ export default function ContractDossierPage() {
         }
       />
 
-      {!detail.contract.project_id && ['signed', 'active'].includes(detail.contract.status) && (
+      {!hasLinkedProject && ['signed', 'active'].includes(detail.contract.status) && (
         <HudPanel elevation={1} state="warning" interactive={false}>
           <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
             <div>
@@ -811,15 +821,29 @@ export default function ContractDossierPage() {
         da tela para um histórico que ninguém pediu. Agora o histórico é a
         gaveta abaixo, e o dossiê tem a largura que sempre precisou.
       */}
-      <div className="mt-5 min-w-0">
-        <HudTabs
-          tabs={tabs}
-          activeTab={activeTab}
-          onTabChange={(tabId) => setActiveTab(tabId as DetailTab)}
-          variant="underline"
-          label="Seções do dossiê"
+      {/*
+        Rail local + painel, não mais uma segunda barra de abas horizontal.
+        Ver DossierNav: a carteira já usa abas horizontais para trocar de área
+        do módulo, e repetir a linguagem aqui apagava a fronteira entre "estou
+        no módulo" e "estou dentro deste contrato".
+      */}
+      <div className="mt-5 grid min-w-0 gap-5 lg:grid-cols-[196px_minmax(0,1fr)]">
+        <DossierNav
+          items={tabs.map(({ id, label, icon, badge }) => ({ id, label, icon, badge }))}
+          activeId={activeTab}
+          onSelect={(tabId) => setActiveTab(tabId as DetailTab)}
+          panelId="dossier-panel"
           data-testid="contract-dossier-tabs"
         />
+        <div
+          id="dossier-panel"
+          role="tabpanel"
+          aria-labelledby={`dossier-tab-${activeTab}`}
+          tabIndex={0}
+          className="min-w-0 focus-visible:outline-none"
+        >
+          {tabs.find((tab) => tab.id === activeTab)?.content}
+        </div>
       </div>
 
       <HistoryDrawer
@@ -857,8 +881,8 @@ function SummaryTab({ trusted, contractNotes }: { trusted: TrustedContract; cont
       onError: () => 'Dados indisponíveis',
     });
   return (
-    <div className="grid gap-5 lg:grid-cols-[1fr_0.9fr]">
-      <section>
+    <div className="grid gap-x-8 gap-y-5 lg:grid-cols-2">
+      <section className="min-w-0">
         <SectionHeader title="Resumo executivo" />
         <div className="space-y-4">
           <p className="text-ig-body-sm leading-relaxed text-ig-fg-muted">
@@ -871,17 +895,17 @@ function SummaryTab({ trusted, contractNotes }: { trusted: TrustedContract; cont
             <Metric label="Valor total" value={officialCurrencyCompact(trusted.totalValue)} />
           </div>
           {contractNotes && (
-            <div className="rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3">
-              <p className="text-ig-label text-ig-fg-muted">Observações</p>
+            <div className="border-t border-ig-border-subtle pt-2">
+              <p className="text-ig-caption text-ig-fg-muted">Observações</p>
               <p className="mt-1 text-ig-body-sm text-ig-fg-strong">{contractNotes}</p>
             </div>
           )}
         </div>
       </section>
 
-      <section>
+      <section className="min-w-0">
         <SectionHeader title="Entidades relacionadas" />
-        <div className="space-y-3">
+        <div className="divide-y divide-ig-border-subtle border-y border-ig-border-subtle">
           <Relation icon={<Building2 className="h-4 w-4" />} label="Contraparte" value={text(trusted.counterparty, 'Não informada')} />
           {/* Vínculo de projeto SOMENTE de project_id ou contract_project_links. */}
           {hasOfficialValue(trusted.project) ? (
@@ -1251,33 +1275,42 @@ function DocumentsTab({ trusted, detail, onReplace }: {
     <section>
       <SectionHeader title="Repositório documental" hint={hasPersisted ? `${items.length} documento(s) no repositório` : 'Documentos obrigatórios pendentes'} />
       {hasPersisted ? (
-        <div className="grid gap-3 md:grid-cols-2">
+        /*
+          Documento é linha, não cartão (§7 do gate). Numa grade de dois, o
+          nome do arquivo, o status e a ação ficavam em posições diferentes a
+          cada célula; em lista, nome, versão, status e ação alinham em
+          colunas e o repositório se lê de cima a baixo.
+        */
+        <div className="ig-rows">
           {items.map((item) => (
-            <div key={item.id} className="rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="truncate text-ig-body-sm font-semibold text-ig-fg-strong">{item.name}</p>
-                  <p className="mt-1 text-ig-caption text-ig-fg-muted">
-                    {item.kind}
-                    {item.doc && item.doc.version > 1 && ` · v${item.doc.version}`}
-                    {item.doc?.superseded_by_document_id && ' · substituído por versão mais recente'}
-                  </p>
-                </div>
-                <HudBadge variant={item.status.variant} size="sm">{item.status.label}</HudBadge>
+            <div
+              key={item.id}
+              className="grid gap-x-4 gap-y-1 py-2.5 md:grid-cols-[minmax(0,1fr)_110px_auto] md:items-center"
+            >
+              <div className="min-w-0">
+                <p className="truncate text-ig-body-sm font-medium text-ig-fg-strong">{item.name}</p>
+                <p className="truncate text-ig-caption text-ig-fg-muted">
+                  {item.kind}
+                  {item.doc && item.doc.version > 1 && ` · v${item.doc.version}`}
+                  {item.doc?.superseded_by_document_id && ' · substituído por versão mais recente'}
+                </p>
               </div>
+              <HudBadge variant={item.status.variant} size="sm">{item.status.label}</HudBadge>
               {/*
                 Só o documento VIGENTE é substituível. Substituir um já
                 substituído criaria duas versões apontando para o mesmo
                 antecessor, e a linhagem deixaria de ser uma linha.
               */}
-              {onReplace && item.doc && !item.doc.superseded_by_document_id && (
+              {onReplace && item.doc && !item.doc.superseded_by_document_id ? (
                 <button
                   type="button"
                   onClick={() => onReplace(item.doc!)}
-                  className="mt-2.5 rounded-[8px] border border-ig-border-strong px-2.5 py-1 text-ig-caption font-semibold text-ig-fg-strong transition-colors hover:bg-ig-panel-hover/60"
+                  className="justify-self-start text-ig-caption font-medium text-ig-accent transition-colors hover:text-ig-accent-strong md:justify-self-end"
                 >
                   Substituir por nova versão
                 </button>
+              ) : (
+                <span />
               )}
             </div>
           ))}
@@ -1510,23 +1543,33 @@ function ApprovalsTab({
   antiga `SideTimeline` mostrava só as 8 primeiras.
 */
 
+/*
+  Relação como LINHA de lista de definição (§9 do gate).
+  Cada vínculo era um cartão com borda e um ícone dentro de outra caixa de
+  36px: seis relações produziam seis molduras e doze bordas para dizer seis
+  pares rótulo/valor. Rótulo à esquerda em largura fixa, valor à direita —
+  os valores alinham entre si, que é o que torna a lista varrível.
+*/
 function Relation({ icon, label, value, link = false }: { icon: React.ReactNode; label: string; value: string; link?: boolean }) {
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3">
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-ig-border-subtle bg-ig-panel text-ig-accent">{icon}</span>
-      <div className="min-w-0">
-        <p className="text-ig-label text-ig-fg-muted">{label}</p>
-        <p className={`truncate text-ig-body-sm font-semibold ${link ? 'text-ig-accent' : 'text-ig-fg-strong'}`}>{value}</p>
-      </div>
+    <div className="flex items-baseline gap-3 py-2">
+      <span className="flex w-28 shrink-0 items-center gap-1.5 text-ig-caption text-ig-fg-muted">
+        <span className="shrink-0 text-ig-fg-subtle" aria-hidden>{icon}</span>
+        <span className="truncate">{label}</span>
+      </span>
+      <span className={`min-w-0 flex-1 truncate text-ig-body-sm font-medium ${link ? 'text-ig-accent' : 'text-ig-fg-strong'}`}>
+        {value}
+      </span>
     </div>
   );
 }
 
+/* Campo de identidade: par rótulo/valor alinhado, sem moldura própria. */
 function Metric({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="min-w-0 rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3">
-      <p className="truncate text-ig-label font-semibold uppercase tracking-[0.14em] text-ig-fg-subtle">{label}</p>
-      <p className="mt-1 truncate text-base font-semibold tabular-nums text-ig-fg-strong">{value}</p>
+    <div className="min-w-0 border-t border-ig-border-subtle pt-2">
+      <p className="truncate text-ig-caption text-ig-fg-muted">{label}</p>
+      <p className="ig-tabular mt-0.5 truncate text-ig-body-sm font-semibold text-ig-fg-strong">{value}</p>
     </div>
   );
 }

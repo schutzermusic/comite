@@ -11,3 +11,5 @@ export { InlineEmpty, type InlineEmptyProps } from './InlineEmpty';
 export { StatusRow, type StatusRowProps } from './StatusRow';
 export { AuditTimeline, type AuditTimelineProps } from './AuditTimeline';
 export { HistoryDrawer, type HistoryDrawerProps } from './HistoryDrawer';
+export { DossierNav, type DossierNavProps, type DossierNavItem } from './DossierNav';
+export { MetricStrip, type MetricStripProps, type MetricStripItem } from './MetricStrip';

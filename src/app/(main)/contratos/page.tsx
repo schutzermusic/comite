@@ -1316,7 +1316,7 @@ function SignalGroup({
       >
         <div className={`flex min-w-0 items-center gap-2 ${filterActive ? 'text-ig-accent' : 'text-ig-fg-muted'}`}>
           <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md border ${iconChipClass}`}>{icon}</span>
-          <span className="min-w-0 truncate text-ig-label font-semibold uppercase tracking-[0.12em]">{title}</span>
+          <span className="min-w-0 truncate text-ig-label font-semibold">{title}</span>
           {/* Non-color active indication (a11y) */}
           {filterActive && <ListFilter className="h-3 w-3 shrink-0 text-ig-accent" aria-hidden />}
         </div>
@@ -1776,7 +1776,7 @@ function AnalyticsBand({ records }: { records: ContractGovernanceRecord[] }) {
             const toneClass = item.tone === 'danger' ? 'text-ig-danger' : item.tone === 'warning' ? 'text-ig-warning' : item.tone === 'success' ? 'text-ig-success' : 'text-ig-fg-strong';
             return (
               <div key={item.key} className="rounded-lg border border-ig-border-subtle bg-ig-panel/45 px-3 py-2.5">
-                <p className="text-ig-label font-semibold uppercase tracking-[0.12em] text-ig-fg-subtle">{item.label}</p>
+                <p className="text-ig-label font-semibold text-ig-fg-subtle">{item.label}</p>
                 <p className={`mt-0.5 text-xl font-semibold tabular-nums ${toneClass}`}>{item.value}</p>
               </div>
             );
@@ -1964,7 +1964,7 @@ function FaturamentoSection({
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {cards.map((card) => (
           <div key={card.label} className="rounded-lg border border-ig-border-subtle bg-ig-panel/45 px-3 py-2.5">
-            <p className="text-ig-label font-semibold uppercase tracking-[0.12em] text-ig-fg-subtle">{card.label}</p>
+            <p className="text-ig-label font-semibold text-ig-fg-subtle">{card.label}</p>
             <p className={`mt-0.5 text-lg font-semibold tabular-nums ${card.tone}`}>{card.value}</p>
           </div>
         ))}

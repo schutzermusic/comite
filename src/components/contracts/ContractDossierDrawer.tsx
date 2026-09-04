@@ -145,7 +145,7 @@ function Section({ title, icon, quality, children }: { title: string; icon: Reac
       <div className="flex items-center justify-between gap-2 text-ig-fg-muted">
         <div className="flex items-center gap-2">
           {icon}
-          <span className="text-[11px] font-semibold uppercase tracking-[0.12em]">{title}</span>
+          <span className="text-[11px] font-semibold">{title}</span>
         </div>
         <QualityBadge quality={quality} />
       </div>
@@ -167,7 +167,7 @@ function Stat({ label, value, tone }: { label: string; value: React.ReactNode; t
   const toneClass = tone === 'success' ? 'text-ig-success' : tone === 'warning' ? 'text-ig-warning' : tone === 'danger' ? 'text-ig-danger' : 'text-ig-fg-strong';
   return (
     <div className="min-w-0 rounded-lg border border-ig-border-subtle bg-ig-panel/45 px-3 py-2.5">
-      <p className="truncate text-ig-label font-semibold uppercase tracking-[0.1em] text-ig-fg-subtle">{label}</p>
+      <p className="truncate text-ig-label font-semibold text-ig-fg-subtle">{label}</p>
       <p className={`mt-1 truncate text-sm font-semibold tabular-nums ${toneClass}`}>{value}</p>
     </div>
   );
@@ -194,7 +194,7 @@ function LinkRow({
         {icon}
       </span>
       <div className="min-w-0 flex-1">
-        <p className="text-ig-label font-semibold uppercase tracking-[0.1em] text-ig-fg-subtle">{label}</p>
+        <p className="text-ig-label font-semibold text-ig-fg-subtle">{label}</p>
         <p className={`truncate text-[12px] font-semibold ${muted ? 'text-ig-fg-muted' : href ? 'text-ig-accent' : 'text-ig-fg-strong'}`}>{value}</p>
       </div>
       {badge}
@@ -463,7 +463,7 @@ export function ContractDossierDrawer({
       {/* Ações de governança — gated por RBAC (RLS reforça no servidor) */}
       {canGovern && (
         <div className="border-t border-ig-border-subtle pt-2.5">
-          <p className="mb-1.5 text-ig-label font-semibold uppercase tracking-[0.12em] text-ig-fg-subtle">Ações</p>
+          <p className="mb-1.5 text-ig-label font-semibold text-ig-fg-subtle">Ações</p>
           <div className="grid grid-cols-2 gap-2">
             {permissions.edit && (
               <HudButton variant="secondary" size="sm" leftIcon={<Workflow className="h-4 w-4" />} onClick={() => onLinkProject(record)}>
@@ -618,7 +618,7 @@ export function ContractDossierDrawer({
         {trusted && (
           <section>
             <div className="mb-2.5 flex items-baseline justify-between gap-3">
-              <h3 className="text-ig-label uppercase tracking-[0.14em] text-ig-fg-muted">
+              <h3 className="text-ig-label text-ig-fg-muted">
                 Requer atenção
               </h3>
               {attention.length > 0 && (
@@ -648,7 +648,7 @@ export function ContractDossierDrawer({
         {/* ── 6 · Connected Operations ───────────────────────────────────── */}
         {trusted && (
           <section>
-            <h3 className="mb-2.5 text-ig-label uppercase tracking-[0.14em] text-ig-fg-muted">
+            <h3 className="mb-2.5 text-ig-label text-ig-fg-muted">
               Operações conectadas
             </h3>
             <ConnectedOperations
@@ -672,7 +672,7 @@ export function ContractDossierDrawer({
         {/* ── 8 · Detalhes do contrato (progressive disclosure) ──────────── */}
         {trusted && (
           <details className="group rounded-[14px] border border-ig-border-subtle px-4 py-3">
-            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-ig-label uppercase tracking-[0.14em] text-ig-fg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_oklab,var(--ig-accent)_45%,transparent)]">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-ig-label text-ig-fg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_oklab,var(--ig-accent)_45%,transparent)]">
               Detalhes do contrato
               <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" aria-hidden />
             </summary>
@@ -691,7 +691,7 @@ export function ContractDossierDrawer({
         {/* ── 9 · Atividade recente (audit_logs real) ────────────────────── */}
         <section>
           <div className="mb-2.5 flex items-baseline justify-between gap-3">
-            <h3 className="text-ig-label uppercase tracking-[0.14em] text-ig-fg-muted">
+            <h3 className="text-ig-label text-ig-fg-muted">
               Atividade recente
             </h3>
           </div>

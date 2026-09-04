@@ -1046,6 +1046,49 @@ test('17 · Operações conectadas cobrem os módulos e o Financeiro segue não 
   await expect(page.getByText('Não integrado').first()).toBeVisible({ timeout: 20_000 });
 });
 
+/*
+  Os dois invariantes que a segunda passagem do UI Architecture Gate fixou.
+  São de ARQUITETURA, não de estética: um diz que os níveis de navegação são
+  distinguíveis, o outro que a tela não pode afirmar duas coisas contrárias
+  sobre o mesmo vínculo.
+*/
+test('19 · A navegação do dossiê é local e distinta da navegação do módulo', async () => {
+  await gotoDossier();
+
+  // A barra da carteira é horizontal; o rail do dossiê é vertical. Se os dois
+  // voltarem a ser a mesma coisa, a hierarquia some — e este teste falha.
+  const rail = page.getByTestId('contract-dossier-tabs');
+  await expect(rail).toBeVisible({ timeout: 20_000 });
+  await expect(rail).toHaveAttribute('aria-orientation', 'vertical');
+
+  // Continua sendo um tablist de verdade: o rail troca painéis no lugar, e um
+  // leitor de tela precisa ouvir "aba N de M", não uma lista de links.
+  await expect(rail).toHaveRole('tablist');
+  const selected = rail.getByRole('tab', { selected: true });
+  await expect(selected).toHaveCount(1);
+
+  // O painel é rotulado pela aba corrente.
+  await expect(page.getByRole('tabpanel')).toHaveAttribute('aria-labelledby', /^dossier-tab-/);
+});
+
+test('20 · O dossiê nunca nega o vínculo de projeto que ele mesmo exibe', async () => {
+  await gotoDossier();
+
+  /*
+    A faixa "assinado sem projeto vinculado" lia `contracts.project_id`; o
+    resumo lia o vínculo RESOLVIDO, que aceita também `contract_project_links`.
+    Um contrato ligado pela tabela de vínculo aparecia como sem projeto logo
+    acima do projeto ao qual está ligado. As duas leituras agora saem da mesma
+    relação — e não podem mais coexistir.
+  */
+  const deniesProject = page.getByText('sem projeto vinculado');
+  const showsProject = page.getByRole('link', { name: /Projeto|CEMIG/ });
+
+  const denies = await deniesProject.count();
+  const shows = await showsProject.count();
+  expect(denies === 0 || shows === 0, 'a tela afirma e nega o mesmo vínculo').toBeTruthy();
+});
+
 test('18 · O dossiê oficial em PDF é gerado a partir do contrato live', async () => {
   await gotoDossier();
   const popup = page.waitForEvent('popup', { timeout: 60_000 });

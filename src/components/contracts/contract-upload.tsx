@@ -313,7 +313,7 @@ export function ContractUpload({
                 onClick={() => setStep(index)}
                 className={`min-w-0 px-3 py-3 text-left transition-colors ${step === index ? 'bg-ig-accent-weak/50' : 'hover:bg-ig-panel-hover/50'}`}
               >
-                <span className="block text-ig-label font-semibold uppercase tracking-[0.14em] text-ig-fg-subtle">
+                <span className="block text-ig-label font-semibold text-ig-fg-subtle">
                   Etapa {index + 1}
                 </span>
                 <span className={`mt-1 block truncate text-xs font-semibold ${step === index ? 'text-ig-accent' : 'text-ig-fg-strong'}`}>

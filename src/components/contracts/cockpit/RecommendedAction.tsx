@@ -61,7 +61,7 @@ export function RecommendedActionPanel({
 
       <p
         className={cn(
-          'flex items-center gap-1.5 text-ig-label font-semibold uppercase tracking-[0.14em]',
+          'flex items-center gap-1.5 text-ig-label font-semibold',
           critical ? 'text-ig-danger' : 'text-ig-accent',
         )}
       >

@@ -113,12 +113,21 @@
 }
 
 html.light {
-  --ig-bg-canvas:      #F7F8FA;
+  /*
+    Escada de superfícies REAL (§3 do gate).
+    Antes, base/raised/overlay/panel eram os quatro #FFFFFF: quatro tokens,
+    uma cor só. Sem degrau de fundo, a separação entre níveis só podia vir de
+    sombra e do gradiente do vidro — e some a sombra, some a hierarquia.
+    Agora cada nível tem luminosidade própria, na ordem canvas < seção < base,
+    de modo que a superfície de trabalho é a MAIS clara e o canvas o mais
+    escuro: o papel sobre a mesa, não a mesa sobre o papel.
+  */
+  --ig-bg-canvas:      #EFF2F5;
   --ig-bg-base:        #FFFFFF;
-  --ig-bg-raised:      #FFFFFF;
+  --ig-bg-raised:      #F7F9FB;
   --ig-bg-overlay:     #FFFFFF;
   --ig-bg-panel:       #FFFFFF;
-  --ig-bg-panel-hover: #F2F4F7;
+  --ig-bg-panel-hover: #F1F4F8;
 
   --ig-fg-strong:   #0F172A;
   --ig-fg-default:  #1E293B;
@@ -129,10 +138,14 @@ html.light {
   --ig-fg-numeric:  #05070B;
   --ig-tone-neutral: #64748B;
 
-  --ig-border-subtle:  rgba(15,23,42,0.04);
-  --ig-border-default: rgba(15,23,42,0.08);
-  --ig-border-strong:  rgba(15,23,42,0.14);
-  --ig-border-focus:   rgba(15,118,110,0.40);
+  /*
+    Bordas que sustentam a separação SOZINHAS, sem sombra. A 4% sobre branco a
+    borda subtle era decorativa: existia no CSS e não na tela.
+  */
+  --ig-border-subtle:  rgba(15,23,42,0.10);
+  --ig-border-default: rgba(15,23,42,0.16);
+  --ig-border-strong:  rgba(15,23,42,0.26);
+  --ig-border-focus:   rgba(15,118,110,0.55);
 
   --ig-accent:        #0F766E;
   --ig-accent-weak:   rgba(15,118,110,0.10);
@@ -149,32 +162,49 @@ html.light {
   --ig-chart-5: #B91C1C;
   --ig-chart-6: #475569;
 
-  --ig-glass-e1: linear-gradient(160deg, rgba(255,255,255,0.82), rgba(248,250,252,0.74) 55%, rgba(244,247,250,0.78));
-  --ig-glass-e2: linear-gradient(160deg, rgba(255,255,255,0.92), rgba(249,251,253,0.88) 55%, rgba(246,249,252,0.90));
-  --ig-glass-e3: linear-gradient(165deg, rgba(255,255,255,0.96), rgba(252,253,255,0.94));
+  /*
+    Tinta chapada, não gradiente (§17). Dado operacional não fica sobre um
+    degradê: o wash diagonal fazia a mesma tabela ter dois tons de fundo entre
+    a primeira e a última linha.
+  */
+  --ig-glass-e1: #F7F9FB;
+  --ig-glass-e2: #FFFFFF;
+  --ig-glass-e3: #FFFFFF;
   --ig-glass-e4: #FFFFFF;
-  --ig-glass-e5: linear-gradient(175deg, rgba(240,253,250,0.98), rgba(236,253,245,0.96));
+  --ig-glass-e5: #F0FDFA;
 
-  --ig-blur-e1: blur(14px) saturate(160%);
-  --ig-blur-e2: blur(20px) saturate(170%);
-  --ig-blur-e3: blur(28px) saturate(180%);
-  --ig-blur-e4: blur(40px) saturate(190%);
-  --ig-blur-e5: blur(48px) saturate(200%);
+  /* e1/e2 são conteúdo estático: blur ali só custa GPU e lava o texto. */
+  --ig-blur-e1: none;
+  --ig-blur-e2: none;
+  --ig-blur-e3: blur(24px) saturate(150%);
+  --ig-blur-e4: blur(36px) saturate(160%);
+  --ig-blur-e5: blur(44px) saturate(170%);
 
-  --ig-edge-e1: linear-gradient(130deg, rgba(15,118,110,0.16), rgba(15,118,110,0.06) 40%, rgba(15,23,42,0.04));
-  --ig-edge-e2: linear-gradient(130deg, rgba(15,118,110,0.22), rgba(15,118,110,0.10) 40%, rgba(15,23,42,0.06));
+  /*
+    Fio neutro, não aro esverdeado. O edge lighting de marca em TODO painel
+    estático somava uma cor de acento a cada moldura — e acento repetido em
+    tudo deixa de apontar para alguma coisa.
+  */
+  --ig-edge-e1: rgba(15,23,42,0.10);
+  --ig-edge-e2: rgba(15,23,42,0.14);
   --ig-edge-e3: linear-gradient(130deg, rgba(15,118,110,0.32), rgba(15,118,110,0.16) 40%, rgba(15,23,42,0.08));
   --ig-edge-e4: linear-gradient(130deg, rgba(15,118,110,0.44), rgba(15,118,110,0.22) 40%, rgba(15,23,42,0.10));
   --ig-edge-e5: linear-gradient(130deg, rgba(15,118,110,0.60), rgba(15,118,110,0.34) 40%, rgba(15,23,42,0.14));
 
-  --ig-inner-e1: inset 0 1px 0 rgba(255,255,255,0.90), inset 0 0 0 1px rgba(15,23,42,0.025);
-  --ig-inner-e2: inset 0 1px 0 rgba(255,255,255,1.00), inset 0 -1px 0 rgba(15,23,42,0.04), inset 0 0 0 1px rgba(15,23,42,0.03);
+  --ig-inner-e1: none;
+  --ig-inner-e2: none;
   --ig-inner-e3: inset 0 1px 0 rgba(255,255,255,1.00), inset 0 -1px 0 rgba(15,23,42,0.06), inset 0 0 0 1px rgba(15,23,42,0.04);
   --ig-inner-e4: inset 0 1px 0 rgba(255,255,255,1.00), inset 0 -1px 0 rgba(15,23,42,0.08), inset 0 0 30px rgba(240,253,250,0.50);
   --ig-inner-e5: inset 0 1px 0 rgba(220,252,231,1.00), inset 0 -1px 0 rgba(15,23,42,0.10), inset 0 0 40px rgba(15,118,110,0.04);
 
-  --ig-shadow-e1: 0 1px 2px rgba(15,23,42,0.04), 0 2px 6px rgba(15,23,42,0.05), 0 12px 28px rgba(15,23,42,0.04);
-  --ig-shadow-e2: 0 1px 2px rgba(15,23,42,0.05), 0 4px 10px rgba(15,23,42,0.06), 0 20px 40px rgba(15,23,42,0.05);
+  /*
+    e1/e2 são conteúdo estático — não flutuam, logo não projetam sombra. A
+    separação deles vem da escada de fundo e da borda de 1px, que é o que o
+    teste "desligue todas as sombras" verifica. Sombra fica reservada a
+    elevação de verdade: modal, drawer, popover, menu (e3+).
+  */
+  --ig-shadow-e1: none;
+  --ig-shadow-e2: none;
   --ig-shadow-e3: 0 2px 4px rgba(15,23,42,0.06), 0 10px 24px rgba(15,23,42,0.08), 0 32px 64px rgba(15,23,42,0.07);
   --ig-shadow-e4: 0 4px 8px rgba(15,23,42,0.08), 0 16px 40px rgba(15,23,42,0.10), 0 40px 88px rgba(15,23,42,0.10);
   --ig-shadow-e5: 0 4px 8px rgba(15,23,42,0.08), 0 20px 48px rgba(15,23,42,0.12), 0 56px 112px rgba(15,23,42,0.12), 0 0 40px rgba(15,118,110,0.06);

@@ -80,7 +80,7 @@ export function ObligationsControlTower({
               )}
             >
               <span className={cn('absolute inset-y-0 left-0 w-[2px]', tone.rail)} aria-hidden />
-              <span className="block truncate text-ig-label font-semibold uppercase tracking-[0.1em] text-ig-fg-muted">
+              <span className="block truncate text-ig-label font-semibold text-ig-fg-muted">
                 {OBLIGATION_BUCKET_LABEL[bucket]}
               </span>
               <span className={cn('mt-0.5 block text-ig-kpi-md leading-none ig-tabular', tone.text)}>

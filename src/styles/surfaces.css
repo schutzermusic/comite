@@ -1,0 +1,90 @@
+/* ═════════════════════════════════════════════════════════
+   INSIGHT — ESCADA DE SUPERFÍCIES
+   Quatro níveis, quatro materiais. Nenhum deles usa sombra.
+
+   O problema que este arquivo resolve: havia UM material de superfície
+   (o vidro de cinco camadas do HudPanel) desenhando a tela inteira, cada
+   seção dentro dela e cada métrica dentro da seção. Material igual em
+   níveis diferentes não produz hierarquia — produz moldura repetida.
+
+   Sombra aqui não separa nada. Sombra significa uma coisa só, e em outro
+   lugar: "isto flutua sobre o resto" (modal, drawer, popover, menu).
+   Tudo abaixo tem de continuar legível com `box-shadow: none`.
+   ═════════════════════════════════════════════════════════ */
+
+/* ── L1 · superfície de trabalho ──────────────────────────
+   O papel sobre a mesa. Um por tela. Contrasta com o canvas e fecha com
+   uma borda de 1px — é o que responde "onde começa e termina esta tela". */
+.ig-workspace {
+  background: var(--ig-bg-base);
+  border: 1px solid var(--ig-border-subtle);
+  border-radius: var(--ig-radius-lg);
+}
+
+/* ── L2 · seção / grupo ───────────────────────────────────
+   Um bloco dentro do trabalho. Tinta levemente distinta do L1 e borda —
+   nunca sombra, nunca raio grande: não é um cartão flutuante, é uma área. */
+.ig-section {
+  background: var(--ig-bg-raised);
+  border: 1px solid var(--ig-border-subtle);
+  border-radius: var(--ig-radius-md);
+}
+
+/* Seção sem preenchimento: só o fio de separação. A forma mais leve de
+   agrupar, e a preferida quando o grupo já tem cabeçalho próprio. */
+.ig-section-plain {
+  border-top: 1px solid var(--ig-border-subtle);
+}
+
+/* ── L3 · linha operacional ───────────────────────────────
+   Linhas NÃO se emolduram uma a uma: dividem um contêiner só. O trilho
+   tonal à esquerda (quando há severidade) e o divisor inferior bastam. */
+.ig-rows {
+  border-top: 1px solid var(--ig-border-subtle);
+  border-bottom: 1px solid var(--ig-border-subtle);
+}
+.ig-rows > * + * {
+  border-top: 1px solid var(--ig-border-subtle);
+}
+.ig-row-hover {
+  transition: background-color 120ms ease;
+}
+.ig-row-hover:hover {
+  background: var(--ig-bg-panel-hover);
+}
+
+/* ── Rail de navegação local do dossiê ────────────────────
+   Secundário à sidebar global: sem fundo próprio, ancorado por um fio
+   vertical à direita. Não pode competir com a navegação da aplicação. */
+.ig-rail-item {
+  position: relative;
+  transition: color 120ms ease, background-color 120ms ease;
+}
+.ig-rail-item[aria-current='page'] {
+  background: var(--ig-accent-weak);
+  color: var(--ig-accent);
+  font-weight: 600;
+}
+/* A marca do item ativo é uma barra sólida, não uma sombra ou um glow:
+   sobrevive ao teste de desligar sombras, e lê igual nos dois temas. */
+.ig-rail-item[aria-current='page']::before {
+  content: '';
+  position: absolute;
+  inset-block: 4px;
+  inset-inline-start: 0;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--ig-accent);
+}
+
+/* ── Reset de flutuação em conteúdo estático ──────────────
+   Rede de segurança para o gate do §15: nada estático dentro do módulo de
+   contratos projeta sombra, mesmo que uma classe antiga peça. Elevação real
+   (modal, drawer, popover, menu) vive fora deste escopo. */
+[data-ig-flat] .ig-glass,
+[data-ig-flat] .hud-glass {
+  box-shadow: none !important;
+}
+[data-ig-flat] .ig-glass::after {
+  opacity: 0.9;
+}

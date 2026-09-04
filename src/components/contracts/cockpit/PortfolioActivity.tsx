@@ -74,7 +74,7 @@ export function PortfolioActivity({
   return (
     <div className={cn('rounded-[14px] border border-ig-border-subtle bg-ig-panel/40 px-3.5 py-3', className)}>
       <header className="mb-2 flex items-baseline gap-2">
-        <span className="flex items-center gap-1.5 text-ig-label uppercase tracking-[0.13em] text-ig-fg-muted">
+        <span className="flex items-center gap-1.5 text-ig-label text-ig-fg-muted">
           <History className="h-3.5 w-3.5 text-ig-fg-subtle" aria-hidden />
           Atividade recente
         </span>

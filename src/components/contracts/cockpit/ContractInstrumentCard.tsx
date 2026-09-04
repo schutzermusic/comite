@@ -187,7 +187,7 @@ export function ContractInstrumentCard({
       <div className={cn('mt-4', wide && 'lg:mt-0')}>
         <div className="flex items-end justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-ig-label uppercase tracking-[0.13em] text-ig-fg-muted">Valor contratado</p>
+            <p className="text-ig-label text-ig-fg-muted">Valor contratado</p>
             <p className="ig-tabular mt-0.5 truncate text-[24px] font-semibold leading-none text-ig-fg-strong">
               {hasOfficialValue(c.totalValue) ? BRL.format(c.totalValue.value) : (
                 <span className="text-[15px] font-medium text-ig-fg-subtle">Não apurado</span>
@@ -195,7 +195,7 @@ export function ContractInstrumentCard({
             </p>
           </div>
           <div className="shrink-0 text-right">
-            <p className="text-ig-label uppercase tracking-[0.13em] text-ig-fg-muted">Execução</p>
+            <p className="text-ig-label text-ig-fg-muted">Execução</p>
             <p className="ig-tabular mt-0.5 text-ig-h2 leading-none text-ig-fg-strong">
               {pct === null ? <span className="text-[13px] font-medium text-ig-fg-subtle">—</span> : `${pct}%`}
             </p>

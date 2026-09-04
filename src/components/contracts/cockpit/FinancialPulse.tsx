@@ -147,7 +147,7 @@ export function FinancialPulse({ contract, now = new Date(), className, compact 
       {/* Linha primária: exposição domina; execução responde em segunda voz. */}
       <div className="flex items-end justify-between gap-6">
         <div className="min-w-0 flex-1">
-          <p className="text-ig-label uppercase tracking-[0.14em] text-ig-fg-muted">Valor contratado</p>
+          <p className="text-ig-label text-ig-fg-muted">Valor contratado</p>
           <div className="mt-1">
             <TrustedValue
               value={contract.totalValue}
@@ -158,7 +158,7 @@ export function FinancialPulse({ contract, now = new Date(), className, compact 
           </div>
         </div>
         <div className="shrink-0 text-right">
-          <p className="text-ig-label uppercase tracking-[0.14em] text-ig-fg-muted">Execução</p>
+          <p className="text-ig-label text-ig-fg-muted">Execução</p>
           <div className="mt-1 flex items-baseline justify-end gap-1.5">
             <TrustedValue
               value={execution}
@@ -219,7 +219,7 @@ export function FinancialPulse({ contract, now = new Date(), className, compact 
 
       {/* Próximo marco REAL, ou a declaração de que não há. */}
       <div className="mt-3 rounded-[12px] border border-ig-border-subtle bg-[color-mix(in_oklab,var(--ig-bg-raised)_55%,transparent)] px-3.5 py-3">
-        <p className="flex items-center gap-1.5 text-ig-label uppercase tracking-[0.12em] text-ig-fg-muted">
+        <p className="flex items-center gap-1.5 text-ig-label text-ig-fg-muted">
           <CalendarClock className="h-3.5 w-3.5" aria-hidden />
           Próximo marco financeiro
         </p>
@@ -287,7 +287,7 @@ function PulseCell({
           aria-hidden
         />
       )}
-      <p className="flex items-center gap-1.5 text-ig-label uppercase tracking-[0.12em] text-ig-fg-muted">
+      <p className="flex items-center gap-1.5 text-ig-label text-ig-fg-muted">
         <span className="text-ig-fg-subtle">{icon}</span>
         {label}
       </p>
