@@ -94,7 +94,7 @@ async function gotoDemoPortfolio() {
   const scope = page.getByRole('group', { name: 'Escopo da carteira' });
   await expect(scope).toBeVisible({ timeout: 30_000 });
   await scope.getByRole('button', { name: /Demonstração/ }).click();
-  await page.getByRole('button', { name: /^Contratos/ }).first().click();
+  await page.getByRole('tab', { name: /^Contratos/ }).click();
 }
 
 async function openQuickDossier() {
@@ -334,8 +334,8 @@ test('9 · Aprovar / rejeitar etapa', async () => {
 async function openDossierTab(tab: 'Financeiro' | 'Riscos & Cláusulas') {
   await page.goto(`/contratos/${contractId}`);
   await page.getByText('Operações conectadas').first().waitFor({ timeout: 30_000 });
-  const tablist = page.locator('div').filter({ has: page.getByRole('button', { name: /^Visão geral/i }) }).last();
-  await tablist.getByRole('button', { name: new RegExp('^' + tab.split(' ')[0]) }).first().click();
+  const tablist = page.getByTestId('contract-dossier-tabs');
+  await tablist.getByRole('tab', { name: new RegExp('^' + tab.split(' ')[0]) }).click();
   await page.waitForTimeout(700);
 }
 

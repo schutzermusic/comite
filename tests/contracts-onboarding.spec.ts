@@ -123,16 +123,14 @@ async function gotoDossier() {
 /**
  * Abre uma aba do dossiê.
  *
- * `HudTabs` renderiza botões, não `role="tab"`: ancorar na faixa que contém
- * "Visão geral" é o que distingue a barra de abas de qualquer outro botão de
- * mesmo rótulo na página. Mesma abordagem do E2E de P1C.
+ * `HudTabs` é um `role="tablist"` de verdade, então a aba se pede por papel e
+ * a barra por `data-testid` — sem precisar deduzir a faixa a partir de um
+ * rótulo que ela contém. Mesma abordagem do E2E de P1C.
  */
 async function openDossierTab(name: string) {
   await gotoDossier();
-  const tablist = page.locator('div')
-    .filter({ has: page.getByRole('button', { name: /^Visão geral/i }) })
-    .last();
-  await tablist.getByRole('button', { name: new RegExp('^' + name.split(' ')[0]) }).first().click();
+  const tablist = page.getByTestId('contract-dossier-tabs');
+  await tablist.getByRole('tab', { name: new RegExp('^' + name.split(' ')[0]) }).click();
   await page.waitForTimeout(700);
 }
 
@@ -919,8 +917,15 @@ test('13 · A trilha de auditoria registra a entrada do contrato', async () => {
 });
 
 test('14 · A auditoria aparece no dossiê', async () => {
-  await openDossierTab('Auditoria');
-  // A aba traduz a ação para pt-BR; o nome cru só existe em `audit_logs`.
+  /*
+    A auditoria deixou de ser aba e virou a gaveta "Histórico" — ela aparecia
+    duas vezes no dossiê, na timeline lateral e na aba. O destino é o mesmo, e
+    `?tab=audit` continua abrindo a gaveta; o que este teste garante é que o
+    histórico siga alcançável a partir do dossiê.
+  */
+  await gotoDossier();
+  await page.getByRole('button', { name: 'Histórico' }).click();
+  // A gaveta traduz a ação para pt-BR; o nome cru só existe em `audit_logs`.
   await expect(page.getByText('Contrato criado').first()).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText('Documento enviado').first()).toBeVisible();
 });
@@ -938,7 +943,7 @@ test('15 · O contrato recém-criado NÃO entra na carteira oficial', async () =
     para "Não classificados", e é justamente isso que prova a fronteira.
   */
   await page.goto('/contratos');
-  await page.getByRole('button', { name: /^Contratos/ }).first().click();
+  await page.getByRole('tab', { name: /^Contratos/ }).click();
   await page.getByRole('button', { name: 'Tabela' }).click();
 
   const search = page.getByPlaceholder(/Buscar contrato/);
@@ -1003,7 +1008,7 @@ test('15.1 · Classificar a origem é um ato de governança, com justificativa',
 
 test('15.2 · Classificado, o contrato passa a compor a carteira oficial', async () => {
   await page.goto('/contratos');
-  await page.getByRole('button', { name: /^Contratos/ }).first().click();
+  await page.getByRole('tab', { name: /^Contratos/ }).click();
   await page.getByRole('button', { name: 'Tabela' }).click();
 
   const search = page.getByPlaceholder(/Buscar contrato/);
@@ -1016,7 +1021,7 @@ test('15.2 · Classificado, o contrato passa a compor a carteira oficial', async
 
 test('16 · Dossiê rápido abre a partir do card da carteira', async () => {
   await page.goto('/contratos');
-  await page.getByRole('button', { name: /^Contratos/ }).first().click();
+  await page.getByRole('tab', { name: /^Contratos/ }).click();
   await page.getByRole('button', { name: 'Cards' }).click();
 
   const card = page.getByRole('button').filter({ hasText: NUMBER }).first();
