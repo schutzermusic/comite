@@ -303,10 +303,21 @@ describe('7 · a exposição sintética do QA não alcança band nem PDF', () =>
 
 const read = (p: string) => readFileSync(resolve(process.cwd(), p), 'utf-8');
 
-describe('8 · criação pela interface persiste LIVE', () => {
-  it('a página de contratos declara dataClass: live', () => {
+describe('8 · criação pela interface persiste UNCLASSIFIED', () => {
+  /*
+    Este bloco afirmava o contrário até a Fase 0.7: "criação pela interface
+    persiste LIVE". A regra foi invertida de propósito.
+
+    O custo dos dois erros não é simétrico. Um contrato de teste classificado
+    como oficial contamina exposição, saúde e PDF sem produzir erro em lugar
+    nenhum — só um número confiante e errado. Um contrato real esperando
+    classificação aparece na tela, é operável, e apenas não entra nos agregados
+    até alguém afirmar que deve. A assimetria decide o default.
+  */
+  it('a página de contratos declara dataClass: unclassified', () => {
     const page = read('src/app/(main)/contratos/page.tsx');
-    expect(page).toContain("dataClass: 'live'");
+    expect(page).toContain("dataClass: 'unclassified'");
+    expect(page).not.toContain("dataClass: 'live',");
   });
 
   it('o serviço grava a coluna', () => {
