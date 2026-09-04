@@ -610,7 +610,20 @@ test('12e.1 · O trâmite continua livre: solicitar ajustes é registrado', asyn
   await byLabel(modal(), 'Decisão', 'select').selectOption('changes');
   await modal().locator('textarea').last().fill(`E2E ajustes jurídicos ${RUN}`);
   await modal().getByRole('button', { name: 'Solicitar', exact: true }).click();
-  await expectToast(/ajuste|registrad|solicitad/i, 40_000);
+
+  /*
+    Espera-se o FECHAMENTO do modal, não um texto de toast.
+
+    `expectToast` procura o texto em qualquer lugar da página, e com a decisão
+    "changes" selecionada o próprio modal exibe o rótulo "Ajustes solicitados
+    (obrigatório)" no textarea. Um matcher amplo casava com esse rótulo e
+    retornava ANTES do clique terminar, deixando a leitura do banco correr na
+    frente da escrita — o teste passava ou falhava conforme a latência.
+
+    O modal só fecha quando a operação inteira concluiu (`run()` fecha no
+    sucesso), então esperá-lo sumir é esperar o fato, não a aparência dele.
+  */
+  await expect(modal()).toBeHidden({ timeout: 40_000 });
 
   const rows = await withDb((q) => q(
     `select step_name, status, reviewer_user_id, comments
@@ -912,11 +925,17 @@ test('14 · A auditoria aparece no dossiê', async () => {
   await expect(page.getByText('Documento enviado').first()).toBeVisible();
 });
 
-test('15 · O contrato aparece na carteira OFICIAL', async () => {
+test('15 · O contrato recém-criado NÃO entra na carteira oficial', async () => {
   /*
-    Sem tocar em nenhum filtro: um contrato `live` pertence ao recorte oficial
-    por origem. Se fosse preciso revelar um escopo de demonstração para achá-lo,
-    ele não teria nascido oficial.
+    A inversão da Fase 0.7 vista da tela.
+
+    Este teste afirmava o contrário — "o contrato aparece na carteira OFICIAL"
+    sem tocar em filtro nenhum — porque a interface gravava `live` na criação.
+    Agora o contrato nasce `unclassified`: ele existe, é plenamente operável, e
+    fica fora do recorte oficial até que alguém afirme o contrário.
+
+    O escopo padrão da carteira é "Ao vivo". Encontrar o contrato exige mudar
+    para "Não classificados", e é justamente isso que prova a fronteira.
   */
   await page.goto('/contratos');
   await page.getByRole('button', { name: /^Contratos/ }).first().click();
@@ -925,6 +944,73 @@ test('15 · O contrato aparece na carteira OFICIAL', async () => {
   const search = page.getByPlaceholder(/Buscar contrato/);
   await expect(search).toBeVisible({ timeout: 30_000 });
   await search.fill(NUMBER);
+
+  /*
+    A ausência é afirmada pelo estado vazio, não por `getByText(NUMBER)` oculto.
+
+    A mensagem de "nenhum resultado" CONTÉM o termo buscado — `Nenhum contrato
+    corresponde a "E2E-xxxxxx"` —, então procurar o número e esperá-lo invisível
+    encontraria justamente a frase que prova a ausência e concluiria o oposto.
+    Afirmar o estado vazio é mais direto e não depende dessa coincidência.
+  */
+  await expect(page.getByText(/Nenhum contrato corresponde/)).toBeVisible({ timeout: 20_000 });
+
+  /*
+    E a carteira DIZ que ele existe, sem que ninguém precise procurar.
+
+    `PortfolioScopeNotice` só aparece quando há registro fora da oficial: o
+    contrato recém-criado faz surgir "N registro(s) fora da carteira oficial",
+    que abre o seletor de escopo sob demanda. Ausente da métrica, presente na
+    tela — que é exatamente a diferença que a Fase 0.7 quis criar.
+  */
+  await page.getByRole('button', { name: /registro\(s\) fora da carteira oficial/ }).click();
+
+  // Em "Não classificados", está — não sumiu da base, só não é oficial.
+  await page.getByRole('button', { name: /Não classificados/ }).click();
+  await expect(page.getByText(/Nenhum contrato corresponde/)).toBeHidden({ timeout: 20_000 });
+  await expect(page.getByText(NUMBER).first()).toBeVisible({ timeout: 20_000 });
+});
+
+test('15.1 · Classificar a origem é um ato de governança, com justificativa', async () => {
+  /*
+    O outro lado da regra: a afirmação precisa EXISTIR, ela só não pode ser
+    automática. Sem esta tela, nascer `unclassified` viraria um beco sem saída e
+    nenhum contrato novo entraria jamais na carteira oficial.
+  */
+  await gotoDossier();
+  await page.getByRole('button', { name: 'Mais ações' }).first().click();
+  await page.getByRole('menuitem', { name: /Classificar origem/ }).click();
+  await expect(modal()).toBeVisible({ timeout: 20_000 });
+
+  await byLabel(modal(), 'Nova origem', 'select').selectOption('live');
+  await modal().locator('textarea').last().fill(`Contrato operacional verificado no E2E ${RUN}`);
+  await modal().getByRole('button', { name: /Registrar classificação/ }).click();
+  await expectToast(/reclassificad|origem/i, 40_000);
+
+  const [c] = await withDb((q) => q(`select data_class from contracts where id = $1`, [contractId]));
+  expect(c.data_class).toBe('live');
+
+  // A decisão fica auditada com origem e destino — não basta o estado final.
+  const [audit] = await withDb((q) => q(
+    `select metadata from audit_logs
+      where entity_type='contract' and entity_id=$1 and action='contract.reclassified'
+      order by created_at desc limit 1`, [contractId]));
+  expect(audit, 'a reclassificação precisa estar na auditoria').toBeTruthy();
+  expect(audit.metadata.from).toBe('unclassified');
+  expect(audit.metadata.to).toBe('live');
+  expect(audit.metadata.reason).toContain(RUN);
+});
+
+test('15.2 · Classificado, o contrato passa a compor a carteira oficial', async () => {
+  await page.goto('/contratos');
+  await page.getByRole('button', { name: /^Contratos/ }).first().click();
+  await page.getByRole('button', { name: 'Tabela' }).click();
+
+  const search = page.getByPlaceholder(/Buscar contrato/);
+  await expect(search).toBeVisible({ timeout: 30_000 });
+  await search.fill(NUMBER);
+  // Agora sem tocar em escopo algum: ele pertence ao recorte oficial.
+  await expect(page.getByText(/Nenhum contrato corresponde/)).toBeHidden({ timeout: 20_000 });
   await expect(page.getByText(NUMBER).first()).toBeVisible({ timeout: 20_000 });
 });
 

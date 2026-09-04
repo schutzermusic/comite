@@ -74,9 +74,23 @@ async function withDb<T>(fn: (q: (sql: string, params?: unknown[]) => Promise<an
   }
 }
 
-/** Vai para a carteira e revela o recorte de demonstração, onde o [QA] vive. */
+/**
+ * Vai para a carteira e revela o recorte de demonstração, onde o [QA] vive.
+ *
+ * O seletor de escopo NÃO fica exposto no cabeçalho: `PortfolioScopeNotice` só
+ * mostra "N registro(s) fora da carteira oficial" quando existe algo fora dela,
+ * e o seletor abre a partir daí. A área nobre da tela é operação; escolher
+ * recorte é o caso incomum, e fica atrás de um clique deliberado.
+ *
+ * Este helper esperava o seletor já visível e falhava com "element(s) not
+ * found" — o que também significa que ele só funciona quando a fixture [QA]
+ * existe: sem nada fora da oficial, não há aviso nenhum para abrir.
+ */
 async function gotoDemoPortfolio() {
   await page.goto('/contratos');
+  await page
+    .getByRole('button', { name: /registro\(s\) fora da carteira oficial/ })
+    .click({ timeout: 30_000 });
   const scope = page.getByRole('group', { name: 'Escopo da carteira' });
   await expect(scope).toBeVisible({ timeout: 30_000 });
   await scope.getByRole('button', { name: /Demonstração/ }).click();

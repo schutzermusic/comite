@@ -49,6 +49,30 @@ try {
        where c.organization_id = $1 and c.title = '[QA] Contrato de Serviços')`,
     [me.organization_id, me.user_id],
   );
+
+  /*
+    A fixture precisa ESTAR utilizável, e não apenas existir.
+
+    O `where not exists` acima ignora `deleted_at`, de propósito — recriar um
+    segundo `[QA] Contrato de Serviços` ao lado de um excluído produziria duas
+    fixtures com o mesmo nome. Mas então uma exclusão anterior deixava a linha
+    presente e invisível, o SELECT com `deleted_at is null` não achava nada, e o
+    script quebrava com "Cannot read properties of undefined". Foi o que
+    aconteceu nesta base: o contrato QA estava excluído desde um teste anterior.
+
+    Reviver é o comportamento certo AQUI e só aqui: a linha é `data_class='demo'`,
+    foi criada por este mesmo script, e nunca entra em métrica oficial. Nenhum
+    contrato real é tocado.
+  */
+  const revived = await q(
+    `update public.contracts
+        set deleted_at = null, updated_by = $2, updated_at = now()
+      where organization_id = $1 and title = '[QA] Contrato de Serviços' and deleted_at is not null
+      returning id`,
+    [me.organization_id, me.user_id],
+  );
+  if (revived.length > 0) console.log(`Fixture QA reativada (${revived.length} linha).`);
+
   const [target] = await q(
     `select id as contract_id, organization_id, owner_user_id
      from public.contracts
@@ -56,6 +80,7 @@ try {
      limit 1`,
     [me.organization_id],
   );
+  if (!target) throw new Error('Fixture [QA] Contrato de Serviços não pôde ser criada nem reativada.');
   console.log('Contrato QA:', target.contract_id);
   const T = [target.organization_id, target.contract_id, target.owner_user_id];
 
@@ -127,7 +152,9 @@ try {
   }
   const reviewerId = reviewer?.user_id ?? me.user_id;
   const juridicoStatus = reviewer ? 'approved' : 'under_review';
-  const juridicoApprovedAt = reviewer ? "now() - interval '20 hours'" : 'null';
+  // Parênteses obrigatórios: sem eles `::timestamptz` liga no literal do
+  // interval, e o Postgres recusa com "cannot cast type interval to timestamptz".
+  const juridicoApprovedAt = reviewer ? "(now() - interval '20 hours')" : 'null';
 
   await client.query(
     `insert into public.contract_approvals (organization_id, contract_id, step_name, status, reviewer_user_id, deadline_date, comments, approval_timestamp, created_at, started_at, completed_at)
