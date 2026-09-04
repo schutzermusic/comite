@@ -93,30 +93,25 @@ function mapRiskStatus(status: string | undefined): LinkedRisk['status'] {
   return 'open';
 }
 
-function mapAiStatus(status: string | undefined, fallback: ContractGovernanceRecord['aiStatus']): ContractGovernanceRecord['aiStatus'] {
-  switch ((status ?? '').toLowerCase()) {
-    case 'completed':
-      return 'mock_ready';
-    case 'manual_review':
-    case 'failed':
-      return 'manual_review';
-    case 'pending':
-    case 'processing':
-    case 'not_started':
-      return 'mock_pending';
-    default:
-      return fallback;
-  }
-}
+/*
+  `mapAiStatus` e `extractConfidence` foram removidos na Fase 0.5.
 
-function extractConfidence(extracted: Record<string, unknown> | null | undefined): number | null {
-  if (!extracted) return null;
-  const raw = extracted.confidence ?? extracted.confidence_score;
-  const parsed = typeof raw === 'number' ? raw : Number(raw);
-  if (!Number.isFinite(parsed)) return null;
-  // Accept either 0–1 or 0–100 and normalize to a percentage.
-  return parsed <= 1 ? Math.round(parsed * 100) : Math.round(parsed);
-}
+  `mapAiStatus` traduzia o status REAL do banco (`completed`, `failed`,
+  `pending`) para o vocabulário do mock (`mock_ready`, `manual_review`,
+  `mock_pending`) — a informação verdadeira era convertida na falsa no caminho
+  para a tela.
+
+  `extractConfidence` lia `extracted_data.confidence` / `.confidence_score`.
+  O extrator nunca escreveu essas chaves: ele grava `kind`, `model`, `version`,
+  `document_id`, `proposed`, `page_count` e `usage`. A leitura portanto sempre
+  devolvia `null`, e o valor exibido caía no `58 + (seed % 27)` do enricher.
+  Era um número de aparência estatística sem nenhuma medição por trás.
+
+  A confiança real da IA existe e é levada a sério em outro lugar: a coluna
+  `contract_clauses.ai_confidence`, por proposta, com CHECK de 0 a 1 e portão
+  de evidência (migration 093). É a proposta que carrega confiança — o contrato
+  não tem uma "confiança" agregada, e inventar uma era o defeito.
+*/
 
 /**
  * Merge live relation rows into mock governance records. Pure and defensive:
@@ -209,17 +204,10 @@ export function applyLiveGovernanceData(
         })
       : record.linkedRisks;
 
-    // AI analysis
+    // Análise de IA: presença de registro, e nada além disso.
     const aiRows = batch.aiAnalyses.get(id) ?? [];
     const aiLive = aiRows.length > 0;
-    let aiStatus = record.aiStatus;
-    let confidenceScore = record.confidenceScore;
-    if (aiLive) {
-      const active = aiRows.find((row) => row.status === 'completed') ?? aiRows[0];
-      aiStatus = mapAiStatus(active.status, record.aiStatus);
-      const conf = extractConfidence(active.extracted_data);
-      if (conf != null) confidenceScore = conf;
-    }
+    const hasAiAnalysis = aiLive;
 
     const dataQuality: ContractGovernanceDataQuality = {
       obligations: obligationsLive ? 'live' : 'estimated',
@@ -245,8 +233,7 @@ export function applyLiveGovernanceData(
       legalStatus,
       financialStatus,
       approvalRoute,
-      aiStatus,
-      confidenceScore,
+      hasAiAnalysis,
       financialAllocationsPending,
       dataQuality,
       liveApprovals: approvalsLive ? aprRows : undefined,

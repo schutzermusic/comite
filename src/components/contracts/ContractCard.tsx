@@ -43,12 +43,6 @@ function statusVariant(status: string) {
   return status === 'active' || status === 'signed' ? 'active' : status === 'expired' || status === 'cancelled' ? 'critical' : 'warning';
 }
 
-const aiStatusMeta: Record<ContractGovernanceRecord['aiStatus'], { label: string; variant: 'neutral' | 'info' | 'warning' }> = {
-  mock_pending: { label: 'IA pendente', variant: 'neutral' },
-  mock_ready: { label: 'IA analisada', variant: 'info' },
-  manual_review: { label: 'Revisão manual', variant: 'warning' },
-};
-
 export interface ContractCardProps {
   /** Contrato confiável correspondente, quando o batch de relações já foi lido. */
   trusted?: TrustedContract;

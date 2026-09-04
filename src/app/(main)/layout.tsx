@@ -4,7 +4,6 @@ import { SidebarShell } from '@/components/layout/sidebar-shell';
 import { SidebarInset } from '@/components/ui/sidebar';
 import { AtmosphericBackground } from '@/components/system/AtmosphericBackground';
 import { GlobeControlProvider } from '@/contexts/GlobeControlContext';
-import { ContractAIProvider } from '@/lib/stores/contract-ai-store';
 
 /**
  * MainLayout - Dashboard Shell
@@ -26,8 +25,7 @@ export default function MainLayout({
 }) {
   return (
     <GlobeControlProvider>
-      <ContractAIProvider>
-        {/* Background layer - fixed, decorative only */}
+      {/* Background layer - fixed, decorative only */}
         <AtmosphericBackground />
 
         <SidebarShell>
@@ -45,7 +43,6 @@ export default function MainLayout({
             </SidebarInset>
           </div>
         </SidebarShell>
-      </ContractAIProvider>
     </GlobeControlProvider>
   );
 }

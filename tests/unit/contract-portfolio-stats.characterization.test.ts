@@ -51,9 +51,23 @@ describe('caracterização: enrichContractsForGovernance', () => {
   it('FABRICA cláusulas, auditoria, riscos, tarefas e deliberações', () => {
     const [alto] = records();
     expect(alto.clauses).toHaveLength(3);
-    expect(alto.auditEvents.map((e) => e.actor)).toContain('INSIGHT AI');
+    // Fase 0.5: o evento de auditoria atribuído a "INSIGHT AI" — um ator que
+    // nunca existiu, misturado a eventos reais — deixou de ser fabricado.
+    // O enricher segue fabricando o resto, e é isso que esta caracterização
+    // documenta; a trilha de auditoria é a única lista da qual ele saiu.
+    expect(alto.auditEvents.map((e) => e.actor)).not.toContain('INSIGHT AI');
+    expect(alto.auditEvents).toHaveLength(2);
     expect(alto.linkedTasks).toHaveLength(2);
     expect(alto.linkedDeliberations[0].committeeName).toBe('Comitê de Governança e Finanças');
+  });
+
+  it('sem o merge live, a presença de análise é DESCONHECIDA — não "nenhuma"', () => {
+    // `null` é a afirmação: o enricher não lê `contract_ai_analyses`, então não
+    // pode dizer que não há análise. Antes ele dizia `mock_pending`, que a tela
+    // lia como "sem análise IA" — ausência afirmada sem nunca ter olhado.
+    for (const record of records()) {
+      expect(record.hasAiAnalysis).toBeNull();
+    }
   });
 
   it('sem o merge live, nenhum registro carrega proveniência', () => {
@@ -98,7 +112,10 @@ describe('caracterização: computeContractPortfolioStats', () => {
       contractsWithMissing: 3,
       legalReview: 2,
       semFaturamento: 1,
-      semIa: 1,
+      // `semIa` saiu: era `aiStatus === 'mock_pending'`, um agregado sobre
+      // vocabulário de mock que nenhuma tela consumia. A contagem real de
+      // contratos sem análise vive em `contractsWithoutAi` (trust/portfolio),
+      // derivada de `contract_ai_analyses` e restrita à origem oficial.
       overdue: 1,
       contractsWithOverdue: 1,
       avgSla: 24,
