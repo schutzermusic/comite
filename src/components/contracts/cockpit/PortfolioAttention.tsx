@@ -141,9 +141,15 @@ export function PortfolioAttention({
           <article
             key={`${item.contractId}-${item.id}`}
             className={cn(
-              'relative overflow-hidden rounded-[16px] border border-ig-border-subtle py-4 pl-5 pr-4 transition-colors',
+              /*
+                Linha, não cartão. "Requer ação" numa carteira com dez sinais
+                desenhava dez caixas de 16px de raio empilhadas — dez molduras
+                para dizer dez frases. O trilho tonal à esquerda segue sendo o
+                portador da severidade.
+              */
+              'relative border-b border-ig-border-subtle py-3 pl-4 pr-2 transition-colors last:border-b-0',
               s.tint,
-              'hover:border-ig-border-focus',
+              'hover:bg-ig-bg-raised/40',
             )}
           >
             <span className={cn('pointer-events-none absolute inset-y-0 left-0 w-[3px]', s.rail)} aria-hidden />

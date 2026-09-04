@@ -110,13 +110,21 @@ export function ObligationsControlTower({
               : 'Sem obrigação registrada não há o que acompanhar; a ausência de atraso aqui não significa cumprimento.'}
           />
         ) : (
-          <div className="space-y-2">
+          <div className="divide-y divide-ig-border-subtle border-y border-ig-border-subtle">
             {shown.slice(0, 60).map((entry) => {
               const tone = BUCKET_TONE[entry.bucket];
               return (
+                /*
+                  Linha, não cartão. Numa lista de dezenas de itens, a moldura
+                  por item multiplica a contagem de contêineres visíveis pelo
+                  número de linhas e desalinha as colunas entre si: comparar o
+                  prazo de oito obrigações exigia ler oito caixas. O trilho
+                  tonal à esquerda continua marcando a severidade; o separador
+                  inferior faz o resto.
+                */
                 <div
                   key={entry.id}
-                  className="relative grid gap-3 overflow-hidden rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3 md:grid-cols-[1fr_140px_150px_auto] md:items-center"
+                  className="relative grid gap-3 py-2.5 pl-3 pr-1 md:grid-cols-[1fr_140px_150px_auto] md:items-center"
                 >
                   <span className={cn('absolute inset-y-0 left-0 w-[2px]', tone.rail)} aria-hidden />
 

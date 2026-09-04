@@ -99,7 +99,7 @@ export function AuditTimeline({ rows, error, max, codeById, className }: AuditTi
                 do rótulo humano — quem audita ainda encontra; quem opera não
                 tropeça.
               */}
-              <code className="mt-0.5 block truncate font-mono text-[10px] text-ig-fg-subtle">
+              <code className="mt-0.5 block truncate font-mono text-ig-caption text-ig-fg-subtle">
                 {row.action}
               </code>
             </div>

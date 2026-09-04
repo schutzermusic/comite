@@ -1683,7 +1683,7 @@ function RiskBoard({ records, selectedId, onSelect }: { records: ContractGoverna
   return (
     <div className="grid gap-4 lg:grid-cols-3">
       {lanes.map((lane) => (
-        <section>
+        <section key={lane.id}>
           <SectionHeader title={lane.label} count={records.filter((record) => record.contract.riskClassification === lane.id).length} />
           <div className="space-y-2">
             {records.filter((record) => record.contract.riskClassification === lane.id).slice(0, 12).map((record) => (

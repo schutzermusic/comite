@@ -94,7 +94,7 @@ function CashStage({ stage, index, total }: { stage: CashStage; index: number; t
       <p className="flex items-baseline gap-1.5">
         <span className="min-w-0 truncate text-ig-caption text-ig-fg-muted">{stage.label}</span>
         {/* A posição sobrevive à quebra de linha, sem virar um "3/5" grande. */}
-        <span className="ig-tabular shrink-0 text-[10px] text-ig-fg-subtle" aria-hidden>
+        <span className="ig-tabular shrink-0 text-ig-caption text-ig-fg-subtle" aria-hidden>
           {index + 1}/{total}
         </span>
       </p>
