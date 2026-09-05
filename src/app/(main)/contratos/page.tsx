@@ -691,6 +691,9 @@ export default function ContratosPage() {
       title: draft.title,
       contractNumber: draft.contractNumber,
       counterpartyName: draft.counterpartyName,
+      // `null` quando o texto digitado não corresponde a nenhuma entidade
+      // canônica — que é o caminho normal e continua criando o contrato.
+      counterpartyPartyId: draft.counterpartyPartyId,
       contractType: draft.contractType,
       projectId: draft.projectId,
       status: draft.status,

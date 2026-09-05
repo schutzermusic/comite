@@ -57,12 +57,22 @@ import {
 } from 'lucide-react';
 import { listOrgMembers } from '@/lib/services/agenda';
 import type { OrgMember } from '@/lib/types/agenda';
+import type { PartyRow } from '@/lib/parties/types';
+import { partyDisplayName } from '@/lib/parties/types';
+import { searchParties } from '@/lib/parties/party-service';
 
 /** O que o assistente entrega. Campos vazios chegam como `null`, nunca inventados. */
 export type ContractOnboardingDraft = {
   readonly title: string;
   readonly contractNumber: string;
   readonly counterpartyName: string;
+  /**
+   * Entidade canônica, quando o que foi digitado corresponde EXATAMENTE ao
+   * nome de uma `party` existente. `null` em todo o resto — inclusive quando o
+   * usuário digita uma empresa que ainda não está cadastrada, que segue sendo
+   * um caminho de criação de primeira classe.
+   */
+  readonly counterpartyPartyId: string | null;
   readonly contractType: string;
   readonly ownerUserId: string;
   readonly status: string;
@@ -175,6 +185,7 @@ export function ContractUpload({
   const [file, setFile] = useState<File | null>(null);
   const [form, setForm] = useState(blank);
   const [members, setMembers] = useState<OrgMember[]>([]);
+  const [partyOptions, setPartyOptions] = useState<PartyRow[]>([]);
   const [membersError, setMembersError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -194,6 +205,49 @@ export function ContractUpload({
       });
     return () => { alive = false; };
   }, [open]);
+
+  /*
+    Contrapartes já cadastradas como entidade canônica, oferecidas na MESMA
+    lista de sugestões do campo de texto. Não há combobox, modal nem passo
+    novo: quem digita um nome que não existe em `parties` cria o contrato
+    exatamente como antes, com o texto livre indo para `counterparty_name`.
+
+    Falhar aqui é silencioso de propósito — a sugestão é uma conveniência, e
+    perdê-la não pode impedir o cadastro de um contrato.
+  */
+  useEffect(() => {
+    if (!open) return;
+    const term = form.counterparty.trim();
+    if (term.length < 2) { setPartyOptions([]); return; }
+    let alive = true;
+    const timer = setTimeout(() => {
+      searchParties(term, 8)
+        .then((rows) => { if (alive) setPartyOptions(rows); })
+        .catch(() => { if (alive) setPartyOptions([]); });
+    }, 250);
+    return () => { alive = false; clearTimeout(timer); };
+  }, [open, form.counterparty]);
+
+  /**
+   * O vínculo canônico do rascunho.
+   *
+   * Só existe com correspondência EXATA (após `trim`) entre o que está no
+   * campo e o nome de exibição de uma party carregada. Nenhuma aproximação,
+   * nenhum "parecido com": editar uma letra desfaz o vínculo e o contrato
+   * volta a ser texto livre — que continua sendo um resultado correto.
+   */
+  const counterpartyPartyId = useMemo(() => {
+    const typed = form.counterparty.trim();
+    if (!typed) return null;
+    const match = partyOptions.find((party) => partyDisplayName(party) === typed);
+    return match ? match.id : null;
+  }, [form.counterparty, partyOptions]);
+
+  /** Nomes canônicos + os já usados na carteira, sem duplicar. */
+  const counterpartySuggestions = useMemo(
+    () => Array.from(new Set([...partyOptions.map(partyDisplayName), ...companies])),
+    [partyOptions, companies],
+  );
 
   const selectedProject = projects.find((p) => p.id === form.projectId) || null;
   const selectedOwner = members.find((m) => m.userId === form.ownerUserId) || null;
@@ -245,6 +299,7 @@ export function ContractUpload({
     setStep(0);
     setFile(null);
     setForm(blank());
+    setPartyOptions([]);
     onOpenChange(false);
   };
 
@@ -256,6 +311,7 @@ export function ContractUpload({
         title: form.title.trim(),
         contractNumber: form.contractNumber.trim(),
         counterpartyName: form.counterparty.trim(),
+        counterpartyPartyId,
         contractType: form.type,
         ownerUserId: form.ownerUserId,
         status: form.status,
@@ -341,7 +397,7 @@ export function ContractUpload({
                   placeholder="Digite a empresa"
                 />
                 <datalist id="contract-company-options">
-                  {companies.map((c) => <option key={c} value={c} />)}
+                  {counterpartySuggestions.map((c) => <option key={c} value={c} />)}
                 </datalist>
               </Field>
               <Field label="Tipo de contrato" required>
