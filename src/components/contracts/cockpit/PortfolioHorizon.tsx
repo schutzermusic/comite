@@ -91,7 +91,7 @@ export function PortfolioHorizon({
             <header className="mb-2 flex items-baseline gap-2">
               <h4
                 className={cn(
-                  'text-ig-label uppercase tracking-[0.14em]',
+                  'text-ig-label',
                   overdue ? 'text-ig-danger' : 'text-ig-fg-muted',
                 )}
               >

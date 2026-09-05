@@ -21,6 +21,7 @@ import { cn } from '@/lib/utils';
 import { Receipt, TrendingUp, CalendarClock } from 'lucide-react';
 import { HudProgressBar } from '@/components/hud';
 import { TrustedValue, TrustedCoverage } from './TrustedValue';
+import { MetricRow } from '../shell/MetricRow';
 import { hasOfficialValue, isError, ratioTrusted, type Official } from '@/lib/contracts/trust/trusted';
 import type { TrustedContract } from '@/lib/contracts/trust/read-model';
 import type { ContractBillingEventRow } from '@/lib/contracts/contract-service';
@@ -51,9 +52,19 @@ export interface FinancialPulseProps {
   contract: TrustedContract;
   now?: Date;
   className?: string;
+  /**
+   * Faixa horizontal de quatro métricas, para o topo do dossiê.
+   *
+   * A leitura completa (barra de execução, próximo marco, contagem de eventos)
+   * continua existindo — ela vive na aba Financeiro, que é onde alguém que
+   * quer detalhe financeiro vai. No topo, quatro números alinhados respondem
+   * "quanto vale e como está indo" em uma linha, em vez de ~320px de altura
+   * empurrando a navegação para baixo da dobra.
+   */
+  compact?: boolean;
 }
 
-export function FinancialPulse({ contract, now = new Date(), className }: FinancialPulseProps) {
+export function FinancialPulse({ contract, now = new Date(), className, compact = false }: FinancialPulseProps) {
   const execution = ratioTrusted(
     contract.billedValue,
     contract.totalValue,
@@ -71,12 +82,72 @@ export function FinancialPulse({ contract, now = new Date(), className }: Financ
     ? contract.billingEvents.value.filter(isPaid).length
     : null;
 
+  if (compact) {
+    return (
+      <MetricRow
+        label="Pulso financeiro do contrato"
+        className={className}
+        columns={4}
+        items={[
+          {
+            id: 'total',
+            label: 'Valor contratado',
+            value: <TrustedValue value={contract.totalValue} format={(v) => BRL_COMPACT.format(v)} size="md" metallic />,
+          },
+          {
+            id: 'billed',
+            label: 'Faturado',
+            value: <TrustedValue value={contract.billedValue} format={(v) => BRL_COMPACT.format(v)} size="md" />,
+            sub: eventCount === null ? undefined : `${paidCount} de ${eventCount} evento(s)`,
+          },
+          {
+            id: 'backlog',
+            label: 'Backlog',
+            value: <TrustedValue value={contract.remainingValue} format={(v) => BRL_COMPACT.format(v)} size="md" />,
+          },
+          {
+            id: 'execution',
+            label: 'Execução',
+            value: (
+              <TrustedValue
+                value={execution}
+                format={(v) => `${Math.round(v * 100)}%`}
+                size="md"
+                missingLabel="Não apurada"
+              />
+            ),
+            /*
+              Sem apuração NÃO vira 0%. A faixa compacta herda a mesma regra da
+              versão completa: o trilho tracejado diz "não há medição", uma
+              barra vazia diria "a medição deu quase nada".
+            */
+            sub:
+              pct === null ? (
+                <span
+                  className="mt-1 block h-1 w-full rounded-full border border-dashed border-ig-border-strong"
+                  role="img"
+                  aria-label="Execução financeira não apurada"
+                />
+              ) : (
+                <span className="mt-1 block h-1 w-full overflow-hidden rounded-full bg-ig-border-subtle">
+                  <span
+                    className="block h-full rounded-full bg-ig-success"
+                    style={{ width: `${Math.min(pct, 100)}%` }}
+                  />
+                </span>
+              ),
+          },
+        ]}
+      />
+    );
+  }
+
   return (
     <section className={cn('relative', className)} aria-label="Pulso financeiro do contrato">
       {/* Linha primária: exposição domina; execução responde em segunda voz. */}
       <div className="flex items-end justify-between gap-6">
         <div className="min-w-0 flex-1">
-          <p className="text-ig-label uppercase tracking-[0.14em] text-ig-fg-muted">Valor contratado</p>
+          <p className="text-ig-label text-ig-fg-muted">Valor contratado</p>
           <div className="mt-1">
             <TrustedValue
               value={contract.totalValue}
@@ -87,7 +158,7 @@ export function FinancialPulse({ contract, now = new Date(), className }: Financ
           </div>
         </div>
         <div className="shrink-0 text-right">
-          <p className="text-ig-label uppercase tracking-[0.14em] text-ig-fg-muted">Execução</p>
+          <p className="text-ig-label text-ig-fg-muted">Execução</p>
           <div className="mt-1 flex items-baseline justify-end gap-1.5">
             <TrustedValue
               value={execution}
@@ -148,7 +219,7 @@ export function FinancialPulse({ contract, now = new Date(), className }: Financ
 
       {/* Próximo marco REAL, ou a declaração de que não há. */}
       <div className="mt-3 rounded-[12px] border border-ig-border-subtle bg-[color-mix(in_oklab,var(--ig-bg-raised)_55%,transparent)] px-3.5 py-3">
-        <p className="flex items-center gap-1.5 text-ig-label uppercase tracking-[0.12em] text-ig-fg-muted">
+        <p className="flex items-center gap-1.5 text-ig-label text-ig-fg-muted">
           <CalendarClock className="h-3.5 w-3.5" aria-hidden />
           Próximo marco financeiro
         </p>
@@ -216,7 +287,7 @@ function PulseCell({
           aria-hidden
         />
       )}
-      <p className="flex items-center gap-1.5 text-ig-label uppercase tracking-[0.12em] text-ig-fg-muted">
+      <p className="flex items-center gap-1.5 text-ig-label text-ig-fg-muted">
         <span className="text-ig-fg-subtle">{icon}</span>
         {label}
       </p>

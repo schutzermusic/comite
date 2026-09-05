@@ -95,11 +95,12 @@ export function ClauseRiskIntelligencePanel({
           icon={<ShieldAlert className="h-4 w-4" />}
           interactive={false}
         >
-          <div className="space-y-2">
+          {/* Linhas divididas: ver ObligationsControlTower. */}
+          <div className="ig-rows">
             {intelligence.risks.slice(0, 30).map((risk) => (
               <div
                 key={`${risk.contractId}-${risk.riskId}`}
-                className="grid gap-3 rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3 md:grid-cols-[1fr_130px_120px] md:items-center"
+                className="grid gap-3 py-2.5 md:grid-cols-[1fr_130px_120px] md:items-center"
               >
                 <div className="min-w-0">
                   <p className="truncate text-ig-body-sm font-semibold text-ig-fg-strong">{risk.title}</p>
@@ -122,7 +123,7 @@ export function ClauseRiskIntelligencePanel({
           icon={<Scale className="h-4 w-4" />}
           interactive={false}
         >
-          <div className="space-y-2">
+          <div className="ig-rows">
             {intelligence.clauses.slice(0, 40).map((clause) => (
               <ClauseRow
                 key={clause.id}
@@ -143,13 +144,13 @@ export function ClauseRiskIntelligencePanel({
           icon={<Gavel className="h-4 w-4" />}
           interactive={false}
         >
-          <div className="space-y-2">
+          <div className="ig-rows">
             {intelligence.penalties.slice(0, 30).map((penalty) => {
               const origin = intelligence.clauses.find((c) => c.id === penalty.clause_id);
               return (
                 <div
                   key={penalty.id}
-                  className="grid gap-3 rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3 md:grid-cols-[1fr_140px_160px] md:items-center"
+                  className="grid gap-3 py-2.5 md:grid-cols-[1fr_140px_160px] md:items-center"
                 >
                   <div className="min-w-0">
                     <p className="truncate text-ig-body-sm font-semibold text-ig-fg-strong">{penalty.title}</p>
@@ -219,7 +220,7 @@ function ClauseRow({
       "origem documental não i…" — truncando justamente o que identifica a
       cláusula e de onde ela veio.
     */
-    <div className="space-y-2 rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3">
+    <div className="space-y-2 py-2.5">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <p className="text-ig-body-sm font-semibold text-ig-fg-strong">{clause.title}</p>

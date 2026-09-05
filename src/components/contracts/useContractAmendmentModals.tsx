@@ -225,7 +225,7 @@ export function useContractAmendmentModals({
           )}
 
           <div>
-            <p className="mb-2 text-ig-label uppercase tracking-[0.14em] text-ig-fg-muted">Efeito sobre o valor</p>
+            <p className="mb-2 text-ig-label text-ig-fg-muted">Efeito sobre o valor</p>
             <div className="space-y-2">
               {radio('valueMode', valueMode === 'none', () => setValueMode('none'), 'Não altera o valor')}
               {radio('valueMode', valueMode === 'delta', () => setValueMode('delta'),
@@ -245,7 +245,7 @@ export function useContractAmendmentModals({
           </div>
 
           <div>
-            <p className="mb-2 text-ig-label uppercase tracking-[0.14em] text-ig-fg-muted">Efeito sobre o prazo</p>
+            <p className="mb-2 text-ig-label text-ig-fg-muted">Efeito sobre o prazo</p>
             <div className="space-y-2">
               {radio('termMode', termMode === 'none', () => setTermMode('none'), 'Não altera o prazo')}
               {radio('termMode', termMode === 'newDate', () => setTermMode('newDate'), 'Nova data de término')}

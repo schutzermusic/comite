@@ -26,7 +26,7 @@ const BRL = new Intl.NumberFormat('pt-BR', {
 
 export interface PortfolioHeroProps {
   stats: TrustedPortfolioStats;
-  /** Dimensões de saúde apuradas na carteira, sobre o total possível. */
+  /** Dimensões apuradas na carteira, sobre o total possível (cobertura). */
   healthCoverage: { assessed: number; total: number };
   className?: string;
 }
@@ -71,7 +71,7 @@ export function PortfolioHero({ stats, healthCoverage, className }: PortfolioHer
       */}
       <div className="grid items-end gap-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.7fr)_minmax(0,1fr)]">
         <div className="min-w-0">
-          <p className="flex items-center gap-1.5 text-ig-label uppercase tracking-[0.16em] text-ig-fg-muted">
+          <p className="flex items-center gap-1.5 text-ig-label text-ig-fg-muted">
             <Landmark className="h-3.5 w-3.5 text-ig-accent" aria-hidden />
             Exposição contratada
           </p>
@@ -133,7 +133,7 @@ export function PortfolioHero({ stats, healthCoverage, className }: PortfolioHer
           de apagar o texto até o limite da legibilidade.
         */
         <p className="mt-4 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 border-l-2 border-ig-border-strong pl-2.5 text-ig-caption">
-          <span className="text-ig-label uppercase tracking-[0.14em] text-ig-fg-muted">
+          <span className="text-ig-label text-ig-fg-muted">
             Execução financeira
           </span>
           <span className="font-semibold text-ig-fg-strong">
@@ -144,7 +144,7 @@ export function PortfolioHero({ stats, healthCoverage, className }: PortfolioHer
       ) : (
         <div className="mt-5">
           <div className="mb-1.5 flex items-baseline justify-between gap-3">
-            <span className="text-ig-label uppercase tracking-[0.14em] text-ig-fg-muted">
+            <span className="text-ig-label text-ig-fg-muted">
               Execução financeira
             </span>
             <span className="ig-tabular text-ig-body-sm font-semibold text-ig-fg-strong">{pct}%</span>
@@ -187,26 +187,28 @@ function HeroCell({
 }) {
   const measured = hasOfficialValue(value);
   return (
+    /*
+      Coluna do herói, não caixa dentro da caixa. Faturado e backlog moravam em
+      dois retângulos com borda e tinta DENTRO do painel do herói, que já é uma
+      superfície — e o fio de acento no topo de cada um somava mais duas cores
+      à área mais nobre da tela. Um filete à esquerda basta para agrupar.
+    */
     <div
       className={cn(
-        'relative overflow-hidden rounded-[14px] border px-4 py-3.5',
-        measured
-          ? 'border-ig-border-subtle bg-[color-mix(in_oklab,var(--ig-bg-raised)_60%,transparent)]'
-          : 'border-dashed border-ig-border-subtle',
+        'relative min-w-0 border-l pl-3',
+        measured ? 'border-ig-border-subtle' : 'border-dashed border-ig-border-subtle',
       )}
     >
       {measured && (
         <span
           className={cn(
-            'pointer-events-none absolute inset-x-0 top-0 h-px',
-            accent === 'success'
-              ? 'bg-[linear-gradient(90deg,transparent,var(--ig-success),transparent)]'
-              : 'bg-[linear-gradient(90deg,transparent,var(--ig-warning),transparent)]',
+            'pointer-events-none absolute inset-y-0 left-0 w-px',
+            accent === 'success' ? 'bg-ig-success' : 'bg-ig-warning',
           )}
           aria-hidden
         />
       )}
-      <p className="flex items-center gap-1.5 text-ig-label uppercase tracking-[0.12em] text-ig-fg-muted">
+      <p className="flex items-center gap-1.5 text-ig-label text-ig-fg-muted">
         <span className="text-ig-fg-subtle">{icon}</span>
         {label}
       </p>
@@ -219,7 +221,10 @@ function HeroCell({
 }
 
 /**
- * Cobertura de apuração da saúde da carteira.
+ * Cobertura de apuração da carteira — quantas dimensões dão para avaliar.
+ *
+ * NÃO é uma nota de saúde: 5/6 significa que cinco dimensões têm dado, não que
+ * o contrato vai bem em cinco frentes.
  *
  * Segmentos, não porcentagem: `5/6` é uma contagem de DIMENSÕES avaliadas, e
  * transformá-la em "83%" sugeriria uma nota de saúde — que é outra coisa
@@ -230,9 +235,9 @@ function CoverageMeter({ assessed, total }: { assessed: number; total: number })
   const missing = Math.max(0, total - assessed);
   return (
     <div className="min-w-0">
-      <p className="flex items-center gap-1.5 text-ig-label uppercase tracking-[0.14em] text-ig-fg-muted">
+      <p className="flex items-center gap-1.5 text-ig-label text-ig-fg-muted">
         <Activity className="h-3.5 w-3.5 text-ig-fg-subtle" aria-hidden />
-        Saúde apurada
+        Cobertura apurada
       </p>
       <p className="ig-tabular mt-2 text-ig-kpi-md leading-none text-ig-fg-strong">
         {assessed}<span className="text-ig-h3 font-medium text-ig-fg-subtle">/{total}</span>
@@ -247,7 +252,7 @@ function CoverageMeter({ assessed, total }: { assessed: number; total: number })
       <div
         className="mt-2"
         role="img"
-        aria-label={`${assessed} de ${total} dimensões de saúde apuradas`}
+        aria-label={`${assessed} de ${total} dimensões apuradas`}
       >
         {total <= 12 ? (
           <div className="flex gap-1">

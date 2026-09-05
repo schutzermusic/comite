@@ -45,13 +45,18 @@ export function ApprovalJourney({
         'rounded-[14px] border border-dashed border-ig-border-strong px-4 py-3.5',
         className,
       )}>
-        <p className="text-ig-body-sm font-semibold text-ig-fg-strong">
-          {intelligence.unavailable === 'error' ? 'Rota de aprovação indisponível' : 'Sem rota de alçada'}
-        </p>
-        <p className="mt-1 text-ig-caption text-ig-fg-muted">
-          {intelligence.unavailable === 'error'
+        {/*
+          Duas linhas viraram uma. O rótulo diz o estado; o `title` guarda a
+          consequência, que continua verdadeira e continua acessível.
+        */}
+        <p className="text-ig-body-sm font-semibold text-ig-fg-strong">Fluxo de aprovação</p>
+        <p
+          className="mt-0.5 text-ig-caption text-ig-fg-muted"
+          title={intelligence.unavailable === 'error'
             ? 'A leitura das etapas falhou. A ausência de etapas nesta tela não significa que não existam.'
-            : 'Nenhuma etapa de aprovação registrada: não há como afirmar que este contrato passou por alçada.'}
+            : 'Sem etapa registrada, não há como afirmar que este contrato passou por alçada.'}
+        >
+          {intelligence.unavailable === 'error' ? 'Leitura indisponível' : 'Não configurado'}
         </p>
       </div>
     );
@@ -60,14 +65,14 @@ export function ApprovalJourney({
   return (
     <div className={cn('space-y-3', className)}>
       {/* A resposta principal primeiro: onde está parado. */}
-      <div className="grid gap-2 sm:grid-cols-3">
+      <div className="grid gap-x-6 gap-y-3 sm:grid-cols-3">
         <Metric
           label="Etapa corrente"
           value={intelligence.currentStage?.label ?? 'Rota concluída'}
           tone={intelligence.currentStage ? 'text-ig-warning' : 'text-ig-success'}
         />
-        <div className="rounded-[14px] border border-ig-border-subtle bg-ig-panel/45 px-3 py-2.5">
-          <p className="truncate text-ig-label font-semibold uppercase tracking-[0.1em] text-ig-fg-muted">
+        <div className="min-w-0 border-t border-ig-border-subtle pt-2">
+          <p className="truncate text-ig-caption text-ig-fg-muted">
             SLA médio por etapa
           </p>
           <TrustedValue
@@ -144,10 +149,15 @@ export function ApprovalJourney({
   );
 }
 
+/*
+  Métrica da jornada como coluna (§12 do gate): a moldura por métrica somava
+  uma caixa a cada número, e três caixas iguais lado a lado não dizem qual é a
+  etapa corrente e qual é o gargalo — o valor é que diz.
+*/
 function Metric({ label, value, tone, icon }: { label: string; value: string; tone: string; icon?: React.ReactNode }) {
   return (
-    <div className="rounded-[14px] border border-ig-border-subtle bg-ig-panel/45 px-3 py-2.5">
-      <p className="flex items-center gap-1 truncate text-ig-label font-semibold uppercase tracking-[0.1em] text-ig-fg-muted">
+    <div className="min-w-0 border-t border-ig-border-subtle pt-2">
+      <p className="flex items-center gap-1 truncate text-ig-caption text-ig-fg-muted">
         {icon}{label}
       </p>
       <p className={cn('mt-0.5 truncate text-ig-body-sm font-semibold', tone)}>{value}</p>
@@ -183,8 +193,8 @@ export function ApprovalIntelligencePanel({
           value={String(approvals.rejectedCount)}
           tone={approvals.rejectedCount > 0 ? 'text-ig-danger' : 'text-ig-fg-strong'}
         />
-        <div className="rounded-[14px] border border-ig-border-subtle bg-ig-panel/45 px-3 py-2.5">
-          <p className="truncate text-ig-label font-semibold uppercase tracking-[0.1em] text-ig-fg-muted">SLA da carteira</p>
+        <div className="min-w-0 border-t border-ig-border-subtle pt-2">
+          <p className="truncate text-ig-caption text-ig-fg-muted">SLA da carteira</p>
           <TrustedValue
             value={approvals.avgHours}
             format={(h) => hours(h)}

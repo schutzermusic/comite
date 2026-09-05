@@ -123,16 +123,14 @@ async function gotoDossier() {
 /**
  * Abre uma aba do dossiê.
  *
- * `HudTabs` renderiza botões, não `role="tab"`: ancorar na faixa que contém
- * "Visão geral" é o que distingue a barra de abas de qualquer outro botão de
- * mesmo rótulo na página. Mesma abordagem do E2E de P1C.
+ * `HudTabs` é um `role="tablist"` de verdade, então a aba se pede por papel e
+ * a barra por `data-testid` — sem precisar deduzir a faixa a partir de um
+ * rótulo que ela contém. Mesma abordagem do E2E de P1C.
  */
 async function openDossierTab(name: string) {
   await gotoDossier();
-  const tablist = page.locator('div')
-    .filter({ has: page.getByRole('button', { name: /^Visão geral/i }) })
-    .last();
-  await tablist.getByRole('button', { name: new RegExp('^' + name.split(' ')[0]) }).first().click();
+  const tablist = page.getByTestId('contract-dossier-tabs');
+  await tablist.getByRole('tab', { name: new RegExp('^' + name.split(' ')[0]) }).click();
   await page.waitForTimeout(700);
 }
 
@@ -210,6 +208,23 @@ test.afterAll(async () => {
 // ═══════════════════════════════════════════════════════════════════════════
 // 1 · Cadastro
 // ═══════════════════════════════════════════════════════════════════════════
+
+
+/**
+ * Vai a uma área da carteira pela SIDEBAR — a navegação canônica do módulo.
+ *
+ * A barra horizontal de abas da carteira não existe mais: havia duas formas de
+ * apresentar a mesma hierarquia. Clicar na sidebar (em vez de navegar pela URL)
+ * é o que prova que a navegação real funciona.
+ */
+async function gotoPortfolioSection(page: Page, label: string) {
+  const group = page.getByRole('button', { name: 'Contratos', exact: true });
+  if (await group.count()) {
+    const expanded = await group.first().getAttribute('aria-expanded');
+    if (expanded === 'false') await group.first().click();
+  }
+  await page.getByRole('link', { name: label, exact: true }).first().click();
+}
 
 test('1 · Cadastrar um contrato operacional pela interface', async () => {
   await page.goto('/contratos');
@@ -919,8 +934,15 @@ test('13 · A trilha de auditoria registra a entrada do contrato', async () => {
 });
 
 test('14 · A auditoria aparece no dossiê', async () => {
-  await openDossierTab('Auditoria');
-  // A aba traduz a ação para pt-BR; o nome cru só existe em `audit_logs`.
+  /*
+    A auditoria deixou de ser aba e virou a gaveta "Histórico" — ela aparecia
+    duas vezes no dossiê, na timeline lateral e na aba. O destino é o mesmo, e
+    `?tab=audit` continua abrindo a gaveta; o que este teste garante é que o
+    histórico siga alcançável a partir do dossiê.
+  */
+  await gotoDossier();
+  await page.getByRole('button', { name: 'Histórico' }).click();
+  // A gaveta traduz a ação para pt-BR; o nome cru só existe em `audit_logs`.
   await expect(page.getByText('Contrato criado').first()).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText('Documento enviado').first()).toBeVisible();
 });
@@ -938,7 +960,7 @@ test('15 · O contrato recém-criado NÃO entra na carteira oficial', async () =
     para "Não classificados", e é justamente isso que prova a fronteira.
   */
   await page.goto('/contratos');
-  await page.getByRole('button', { name: /^Contratos/ }).first().click();
+  await gotoPortfolioSection(page, 'Contratos');
   await page.getByRole('button', { name: 'Tabela' }).click();
 
   const search = page.getByPlaceholder(/Buscar contrato/);
@@ -1003,7 +1025,7 @@ test('15.1 · Classificar a origem é um ato de governança, com justificativa',
 
 test('15.2 · Classificado, o contrato passa a compor a carteira oficial', async () => {
   await page.goto('/contratos');
-  await page.getByRole('button', { name: /^Contratos/ }).first().click();
+  await gotoPortfolioSection(page, 'Contratos');
   await page.getByRole('button', { name: 'Tabela' }).click();
 
   const search = page.getByPlaceholder(/Buscar contrato/);
@@ -1016,7 +1038,7 @@ test('15.2 · Classificado, o contrato passa a compor a carteira oficial', async
 
 test('16 · Dossiê rápido abre a partir do card da carteira', async () => {
   await page.goto('/contratos');
-  await page.getByRole('button', { name: /^Contratos/ }).first().click();
+  await gotoPortfolioSection(page, 'Contratos');
   await page.getByRole('button', { name: 'Cards' }).click();
 
   const card = page.getByRole('button').filter({ hasText: NUMBER }).first();
@@ -1039,6 +1061,179 @@ test('17 · Operações conectadas cobrem os módulos e o Financeiro segue não 
     resultado zero.
   */
   await expect(page.getByText('Não integrado').first()).toBeVisible({ timeout: 20_000 });
+});
+
+/*
+  Os dois invariantes que a segunda passagem do UI Architecture Gate fixou.
+  São de ARQUITETURA, não de estética: um diz que os níveis de navegação são
+  distinguíveis, o outro que a tela não pode afirmar duas coisas contrárias
+  sobre o mesmo vínculo.
+*/
+test('19 · A navegação do dossiê é do objeto, e não outra navegação de módulo', async () => {
+  await gotoDossier();
+
+  /*
+    Os dois níveis se distinguem por EIXO e por peso: a sidebar do Apex é
+    vertical e persistente; a do dossiê é horizontal e presa ao contrato. O
+    rail vertical anterior punha duas colunas de navegação lado a lado.
+  */
+  const subnav = page.getByTestId('contract-dossier-tabs');
+  await expect(subnav).toBeVisible({ timeout: 20_000 });
+  await expect(subnav).toHaveAttribute('aria-orientation', 'horizontal');
+  await expect(subnav).toHaveRole('tablist');
+
+  // Uma navegação de dossiê só — nunca duas ao mesmo tempo.
+  await expect(page.getByRole('tablist')).toHaveCount(1);
+
+  const selected = subnav.getByRole('tab', { selected: true });
+  await expect(selected).toHaveCount(1);
+
+  // O painel é rotulado pela aba corrente.
+  await expect(page.getByRole('tabpanel')).toHaveAttribute('aria-labelledby', /^dossier-tab-/);
+
+  // Ações de objeto vivem aqui, não na carteira.
+  await expect(page.getByRole('button', { name: 'Histórico' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Exportar/i }).first()).toBeVisible();
+});
+
+test('19.1 · A subnav do dossiê acompanha a rolagem', async () => {
+  await gotoDossier();
+  const subnav = page.getByTestId('contract-dossier-tabs');
+  await expect(subnav).toBeVisible({ timeout: 20_000 });
+
+  const before = await subnav.boundingBox();
+  await page.mouse.move(760, 500);
+  await page.mouse.wheel(0, 900);
+  await page.waitForTimeout(1000);
+  const after = await subnav.boundingBox();
+
+  /*
+    Contrato longo é longo: trocar de seção não pode exigir voltar ao topo.
+    O ancestral `HudPageLayout` fecha com `overflow-x: hidden`, o que faz o
+    `overflow-y` computar `auto` e transforma aquela raiz no scrollport mais
+    próximo — a barra grudava numa caixa tão alta quanto o conteúdo, ou seja,
+    não grudava. `.ig-dossier-page` devolve a rolagem ao <main>.
+  */
+  expect(before!.y).toBeGreaterThan(200);
+  expect(after!.y).toBeLessThan(200);
+  expect(after!.y).toBeGreaterThanOrEqual(0);
+});
+
+test('19.2 · A carteira não expõe ações que pertencem a um contrato', async () => {
+  await page.goto('/contratos');
+  await expect(page.getByRole('heading', { name: 'Gestão de Contratos' })).toBeVisible({ timeout: 30_000 });
+
+  // "Histórico de quê?" e "PDF de qual recorte?" não têm resposta no módulo.
+  await expect(page.getByRole('button', { name: 'Histórico' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /Exportar PDF/i })).toHaveCount(0);
+});
+
+test('19.3 · Área especializada começa pelo próprio conteúdo', async () => {
+  /*
+    O resumo executivo completo ocupava a primeira dobra das SETE áreas
+    especializadas. Clicar em "Faturamentos" mostrava, antes de faturamento, o
+    mesmo panorama da Visão Geral. Agora só a tira de contexto precede.
+  */
+  await page.goto('/contratos?view=faturamentos');
+  const strip = page.getByLabel('Contexto da carteira oficial');
+  await expect(strip).toBeVisible({ timeout: 30_000 });
+
+  const box = await strip.boundingBox();
+  expect(box!.height).toBeLessThan(96); // uma linha rasa, não um painel
+
+  // O conteúdo da área alcança a primeira dobra.
+  const chain = page.getByText('Contract-to-Cash').first();
+  await expect(chain).toBeVisible();
+  expect((await chain.boundingBox())!.y).toBeLessThan(760);
+
+  // Na Visão Geral o resumo completo continua existindo.
+  await page.goto('/contratos');
+  await expect(page.getByLabel(/Resumo executivo da carteira oficial/)).toBeVisible({ timeout: 20_000 });
+});
+
+test('20 · O dossiê nunca nega o vínculo de projeto que ele mesmo exibe', async () => {
+  await gotoDossier();
+
+  /*
+    A faixa "assinado sem projeto vinculado" lia `contracts.project_id`; o
+    resumo lia o vínculo RESOLVIDO, que aceita também `contract_project_links`.
+    Um contrato ligado pela tabela de vínculo aparecia como sem projeto logo
+    acima do projeto ao qual está ligado. As duas leituras agora saem da mesma
+    relação — e não podem mais coexistir.
+  */
+  const deniesProject = page.getByText('sem projeto vinculado');
+  const showsProject = page.getByRole('link', { name: /Projeto|CEMIG/ });
+
+  const denies = await deniesProject.count();
+  const shows = await showsProject.count();
+  expect(denies === 0 || shows === 0, 'a tela afirma e nega o mesmo vínculo').toBeTruthy();
+});
+
+/*
+  Fechamento do UI Architecture Gate: a navegação do módulo é a sidebar.
+  Estes testes cobrem o que o §9 pede — rota por área, estado ativo, voltar do
+  navegador, deep link direto e sidebar recolhida.
+*/
+test('21 · Cada área da carteira tem rota própria, e a sidebar a marca', async () => {
+  await page.goto('/contratos');
+
+  // Não pode restar uma segunda forma de navegar o mesmo nível.
+  await expect(page.getByTestId('portfolio-nav')).toHaveCount(0);
+
+  const group = page.getByRole('button', { name: 'Contratos', exact: true }).first();
+  if ((await group.getAttribute('aria-expanded')) === 'false') await group.click();
+
+  for (const [label, slug] of [
+    ['Obrigações', 'obrigacoes'],
+    ['Faturamentos', 'faturamentos'],
+    ['Renovações', 'renovacoes'],
+  ] as const) {
+    await page.getByRole('link', { name: label, exact: true }).first().click();
+    await expect(page).toHaveURL(new RegExp(`\\?view=${slug}$`));
+    // O item corrente se anuncia — estado ativo é semântico, não só cor.
+    await expect(page.getByRole('link', { name: label, exact: true }).first())
+      .toHaveAttribute('aria-current', 'page');
+  }
+
+  // Voltar devolve a área anterior, não sai da carteira.
+  await page.goBack();
+  await expect(page).toHaveURL(/\?view=faturamentos$/);
+  await page.goForward();
+  await expect(page).toHaveURL(/\?view=renovacoes$/);
+});
+
+test('22 · A área da carteira abre por deep link direto', async () => {
+  await page.goto('/contratos?view=obrigacoes');
+  await expect(page.getByRole('link', { name: 'Obrigações', exact: true }).first())
+    .toHaveAttribute('aria-current', 'page');
+
+  // Slug desconhecido não quebra a página: cai na visão geral.
+  await page.goto('/contratos?view=nao-existe');
+  await expect(page.getByTestId('portfolio-workspace')).toBeVisible({ timeout: 20_000 });
+});
+
+test('23 · Recolhida, a sidebar continua dando acesso às áreas', async () => {
+  await page.goto('/contratos');
+  const collapse = page.getByRole('button', { name: /Recolher|Colapsar|Collapse/i }).first();
+  await collapse.click();
+  // A sidebar anima ao recolher; o alvo do hover só é estável depois disso.
+  await expect(page.getByRole('button', { name: /Expandir/i }).first()).toBeVisible({ timeout: 10_000 });
+
+  // Oito rótulos não cabem em modo ícone: eles vêm no flyout do módulo.
+  const trigger = page.getByRole('link', { name: 'Contratos', exact: true }).first();
+  await trigger.hover();
+  await trigger.focus(); // o Tooltip do Radix abre no foco também, e o teclado é caminho de primeira classe
+  /*
+    `.first()`: o Radix monta o conteúdo do tooltip duas vezes — o visível e uma
+    cópia oculta para leitor de tela. As duas são o mesmo grupo acessível, e
+    contar as duas quebraria o modo estrito sem indicar defeito algum.
+  */
+  const flyout = page.getByRole('group', { name: 'Contratos' }).first();
+  await expect(flyout).toBeVisible({ timeout: 15_000 });
+  await expect(flyout.getByRole('link')).toHaveCount(8);
+  await expect(flyout.getByRole('link', { name: 'Faturamentos' })).toBeVisible();
+
+  await page.getByRole('button', { name: /Expandir/i }).first().click();
 });
 
 test('18 · O dossiê oficial em PDF é gerado a partir do contrato live', async () => {

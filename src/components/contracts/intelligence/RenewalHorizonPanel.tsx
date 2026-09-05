@@ -60,7 +60,7 @@ export function RenewalHorizonPanel({ horizon, onSelectContract, className }: Re
               )}
             >
               <span className={cn('absolute inset-y-0 left-0 w-[2px]', band.count > 0 ? tone.rail : 'bg-transparent')} aria-hidden />
-              <p className="truncate text-ig-label font-semibold uppercase tracking-[0.1em] text-ig-fg-muted">
+              <p className="truncate text-ig-label font-semibold text-ig-fg-muted">
                 {HORIZON_LABEL[band.band]}
               </p>
               <p className={cn('mt-0.5 text-ig-kpi-md leading-none ig-tabular', band.count > 0 ? tone.text : 'text-ig-fg-subtle')}>
@@ -93,7 +93,7 @@ export function RenewalHorizonPanel({ horizon, onSelectContract, className }: Re
             {horizon.entries.length > 0 && ` ${horizon.entries.length} contrato(s) com vigência além dessa janela.`}
           </p>
         ) : (
-          <div className="space-y-2">
+          <div className="divide-y divide-ig-border-subtle border-y border-ig-border-subtle">
             {inWindow.slice(0, 40).map((entry) => {
               const tone = BAND_TONE[entry.band];
               const interactive = Boolean(onSelectContract);
@@ -104,8 +104,9 @@ export function RenewalHorizonPanel({ horizon, onSelectContract, className }: Re
                   type={interactive ? 'button' : undefined}
                   onClick={interactive ? () => onSelectContract?.(entry.contractId) : undefined}
                   className={cn(
-                    'relative grid w-full gap-3 overflow-hidden rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3 text-left md:grid-cols-[1fr_130px_130px_150px] md:items-center',
-                    interactive && 'transition-colors hover:border-ig-border-focus focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color-mix(in_oklab,var(--ig-accent)_45%,transparent)]',
+                    // Linha operacional, não cartão — ver ObligationsControlTower.
+                    'relative grid w-full gap-3 py-2.5 pl-3 pr-1 text-left md:grid-cols-[1fr_130px_130px_150px] md:items-center',
+                    interactive && 'transition-colors hover:bg-ig-bg-raised/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ig-border-focus',
                   )}
                 >
                   <span className={cn('absolute inset-y-0 left-0 w-[2px]', tone.rail)} aria-hidden />

@@ -21,6 +21,7 @@ import {
   type ContractMilestoneRow, type ContractMilestoneStatus,
 } from '@/lib/contracts/contract-service';
 import { hasOfficialValue, isError, type Official } from '@/lib/contracts/trust/trusted';
+import { InlineEmpty } from '../shell';
 
 const BRL = new Intl.NumberFormat('pt-BR', {
   style: 'currency', currency: 'BRL', maximumFractionDigits: 0,
@@ -84,13 +85,17 @@ export function MeasurementPanel({
           Não foi possível ler os marcos deste contrato. A ausência de itens aqui não significa que não existam.
         </p>
       ) : rows.length === 0 ? (
-        <div className="py-6 text-center">
-          <p className="text-ig-body-sm text-ig-fg-muted">Nenhum marco de medição registrado.</p>
-          <p className="mt-1 text-ig-caption text-ig-fg-subtle">
-            Sem marco, a etapa &ldquo;Medido&rdquo; da cadeia até o caixa não pode ser apurada — e o
-            faturamento não tem lastro de medição.
-          </p>
-        </div>
+        /*
+          O vazio ocupava ~90px centralizados para ensinar o modelo de dados.
+          A consequência continua dita — em `help`, disponível ao mouse e ao
+          leitor de tela — mas não é mais o elemento mais alto do painel numa
+          carteira recém-cadastrada.
+        */
+        <InlineEmpty
+          message="Nenhum marco de medição registrado."
+          help={'Sem marco, a etapa "Medido" da cadeia até o caixa não pode ser apurada, e o faturamento fica sem lastro de medição.'}
+          action={canEdit && onCreate ? { label: '+ Novo marco', onClick: onCreate } : undefined}
+        />
       ) : (
         <div className="space-y-2">
           {rows.map((milestone) => {

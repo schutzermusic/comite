@@ -55,7 +55,7 @@ const COLUMNS: { key: SmartColumnKey; label: string; align?: 'right'; width?: st
   { key: 'obligations', label: 'Obrigações', align: 'right', width: '110px' },
   { key: 'documents', label: 'Documentos', align: 'right', width: '112px', optional: true },
   { key: 'approvals', label: 'Aprovações', align: 'right', width: '110px', optional: true },
-  { key: 'health', label: 'Saúde', align: 'right', width: '84px' },
+  { key: 'health', label: 'Cobertura', align: 'right', width: '92px' },
 ];
 
 /** Uma linha já resolvida — ordenação e busca operam sobre valores, não JSX. */
@@ -287,7 +287,7 @@ export function ContractSmartTable({
                 type="button"
                 onClick={() => toggleSort(col.key)}
                 className={cn(
-                  'inline-flex items-center gap-1 text-ig-label uppercase tracking-[0.1em] transition-colors',
+                  'inline-flex items-center gap-1 text-ig-label transition-colors',
                   activeSort ? 'text-ig-accent' : 'text-ig-fg-muted hover:text-ig-fg-strong',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_oklab,var(--ig-accent)_45%,transparent)] rounded',
                 )}

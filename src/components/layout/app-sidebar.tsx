@@ -2,10 +2,20 @@
 
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
+import {
+  type SectionId,
+  SECTION_ORDER,
+  sectionHref,
+  sectionLabels,
+} from "@/lib/contracts/portfolio-sections";
 import { useTranslations } from "next-intl";
 import {
   BarChart3,
+  ShieldCheck,
+  Archive,
+  ClipboardCheck,
+  CalendarClock,
   Banknote,
   Bell,
   BrainCircuit,
@@ -94,6 +104,19 @@ const FINANCE_STORAGE_KEY = "ig-sidebar-finance-open";
 const FISCAL_STORAGE_KEY = "ig-sidebar-fiscal-open";
 const PROJECTS_STORAGE_KEY = "ig-sidebar-projects-open";
 const WORKFORCE_STORAGE_KEY = "ig-sidebar-workforce-open";
+const CONTRACTS_STORAGE_KEY = "ig-sidebar-contracts-open";
+
+/** Ícone por área da carteira — o mesmo vocabulário da página. */
+const SECTION_ICONS: Record<SectionId, LucideIcon> = {
+  overview: BarChart3,
+  contracts: FileCheck,
+  renewals: CalendarClock,
+  obligations: ClipboardCheck,
+  faturamento: Receipt,
+  aprovacoes: ShieldCheck,
+  risks: ShieldAlert,
+  documents: Archive,
+};
 
 type User = {
   fullName: string;
@@ -116,6 +139,13 @@ type SubMenuItem = {
   icon: LucideIcon;
   permission?: string;
   anyPermission?: string[];
+  /**
+   * Casa a URL INTEIRA, com query string, e não só o pathname.
+   *
+   * As áreas da carteira de contratos moram em `?view=`: pelo pathname as oito
+   * seriam a mesma rota, e "Visão Geral" ficaria acesa em todas elas.
+   */
+  exactUrl?: boolean;
 };
 
 type MenuItem = {
@@ -189,7 +219,26 @@ const navigationItems: MenuItem[] = [
   { href: "/reunioes", labelKey: "agenda", icon: Calendar, section: "main", permission: "meetings.view" },
   { href: "/deliberacoes", labelKey: "deliberations", icon: Gavel, section: "main", permission: "deliberations.view" },
   { href: "/riscos", labelKey: "risks", icon: ShieldAlert, section: "main", permission: "risks.view" },
-  { href: "/contratos", labelKey: "contracts", icon: FileCheck, section: "main", permission: "contracts.view" },
+  {
+    href: "/contratos",
+    labelKey: "contracts",
+    icon: FileCheck,
+    section: "main",
+    permission: "contracts.view",
+    /*
+      A navegação do módulo é ESTA — a carteira não tem mais barra horizontal
+      própria. Auditoria não entra: virou a gaveta "Histórico", contextual ao
+      contrato. Análise IA, Relatórios e Aditivos também não: nenhum é um
+      destino que exista hoje, e um menu que promete tela que não abre é pior
+      que um menu curto.
+    */
+    subItems: SECTION_ORDER.map((id) => ({
+      href: sectionHref(id),
+      label: sectionLabels[id],
+      icon: SECTION_ICONS[id],
+      exactUrl: true,
+    })),
+  },
   {
     href: "/workforce-cost",
     labelKey: "peopleAndCosts",
@@ -309,6 +358,14 @@ const isRouteActive = (pathname: string, href: string) => {
 
 export function AppSidebar() {
   const pathname = usePathname();
+  /*
+    Os filhos de Contratos se distinguem pela query (`?view=`), não pelo
+    pathname. Sem ela, as oito áreas são a mesma rota e o estado ativo não tem
+    como escolher entre elas.
+  */
+  const searchParams = useSearchParams();
+  const search = searchParams.toString();
+  const currentUrl = search ? `${pathname}?${search}` : pathname;
   const { user: authUser, profile, roles, permissions } = useCurrentUser();
   const { hasAny: hasCommittee, loading: committeesLoading } = useMyCommittees();
   const user: User = {
@@ -323,6 +380,7 @@ export function AppSidebar() {
   const [fiscalOpen, setFiscalOpen] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [workforceOpen, setWorkforceOpen] = useState(false);
+  const [contractsOpen, setContractsOpen] = useState(false);
 
   useEffect(() => {
     const storedAdmin = localStorage.getItem(ADMIN_STORAGE_KEY);
@@ -350,6 +408,17 @@ export function AppSidebar() {
       setWorkforceOpen(storedWorkforce === "true");
     } else if (pathname.startsWith("/workforce-cost")) {
       setWorkforceOpen(true);
+    }
+    /*
+      Dentro de Contratos o grupo nasce aberto — a navegação do módulo é a
+      sidebar agora, e um grupo fechado esconderia a única forma de trocar de
+      área. Uma escolha explícita do usuário (a chave gravada) continua valendo.
+    */
+    const storedContracts = localStorage.getItem(CONTRACTS_STORAGE_KEY);
+    if (storedContracts !== null) {
+      setContractsOpen(storedContracts === "true");
+    } else if (pathname.startsWith("/contratos")) {
+      setContractsOpen(true);
     }
   }, [pathname]);
 
@@ -385,6 +454,14 @@ export function AppSidebar() {
     });
   };
 
+  const toggleContracts = () => {
+    setContractsOpen((previous) => {
+      const next = !previous;
+      localStorage.setItem(CONTRACTS_STORAGE_KEY, String(next));
+      return next;
+    });
+  };
+
   const toggleWorkforce = () => {
     setWorkforceOpen((previous) => {
       const next = !previous;
@@ -398,6 +475,7 @@ export function AppSidebar() {
     if (href === "/fiscal") return { isOpen: fiscalOpen, onToggle: toggleFiscal };
     if (href === "/projetos") return { isOpen: projectsOpen, onToggle: toggleProjects };
     if (href === "/workforce-cost") return { isOpen: workforceOpen, onToggle: toggleWorkforce };
+    if (href === "/contratos") return { isOpen: contractsOpen, onToggle: toggleContracts };
     return { isOpen: false, onToggle: () => undefined };
   };
 
@@ -493,15 +571,17 @@ export function AppSidebar() {
             {isOpen && (
               <ul className="hud-nav-submenu" role="group">
                 {visibleSubItems.map((subItem) => {
-                  const isSubActive =
-                    pathname === subItem.href ||
-                    (subItem.href !== item.href && pathname.startsWith(`${subItem.href}/`));
+                  const isSubActive = subItem.exactUrl
+                    ? currentUrl === subItem.href
+                    : pathname === subItem.href ||
+                      (subItem.href !== item.href && pathname.startsWith(`${subItem.href}/`));
                   return (
                     <li key={subItem.href}>
                       <Link
                         href={subItem.href}
                         className="hud-nav-subitem"
                         data-active={isSubActive}
+                        aria-current={isSubActive ? "page" : undefined}
                       >
                         <span className="hud-nav-subitem-dot" aria-hidden="true" />
                         <span className="hud-nav-sublabel">{subItem.label}</span>
@@ -562,7 +642,34 @@ export function AppSidebar() {
             <Tooltip>
               <TooltipTrigger asChild>{button}</TooltipTrigger>
               <TooltipContent side="right" sideOffset={10} className="hud-sidebar-tooltip">
-                {label}
+                {/*
+                  Recolhida, a sidebar não empilha oito rótulos em modo ícone —
+                  eles vêm no flyout, que é o mesmo Tooltip que a casca já usa
+                  para o rótulo. Sem isto, um módulo cuja navegação É a sidebar
+                  ficaria inalcançável com a sidebar recolhida.
+                */}
+                <span className="hud-sidebar-tooltip-title">{label}</span>
+                {visibleSubItems && visibleSubItems.length > 0 && (
+                  <ul className="hud-sidebar-flyout" role="group" aria-label={label}>
+                    {visibleSubItems.map((subItem) => {
+                      const isSubActive = subItem.exactUrl
+                        ? currentUrl === subItem.href
+                        : pathname === subItem.href;
+                      return (
+                        <li key={subItem.href}>
+                          <Link
+                            href={subItem.href}
+                            className="hud-sidebar-flyout-item"
+                            data-active={isSubActive}
+                            aria-current={isSubActive ? "page" : undefined}
+                          >
+                            {subItem.label}
+                          </Link>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
               </TooltipContent>
             </Tooltip>
           ) : (

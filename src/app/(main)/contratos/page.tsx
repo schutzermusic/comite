@@ -1,7 +1,13 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import {
+  type SectionId,
+  sectionLabels,
+  SECTION_BY_SLUG,
+  sectionHref,
+} from '@/lib/contracts/portfolio-sections';
 import type { Contract, Project } from '@/lib/types';
 import {
   deleteProject,
@@ -76,6 +82,7 @@ import {
 } from '@/components/hud';
 import {
   Archive,
+  FileClock,
   BarChart3,
   BrainCircuit,
   CalendarClock,
@@ -97,23 +104,21 @@ import {
   Workflow,
   X,
 } from 'lucide-react';
+import { SectionHeader, HistoryDrawer, InlineEmpty, PortfolioContextStrip } from '@/components/contracts/shell';
 import { format } from 'date-fns';
 import { pt } from 'date-fns/locale';
 
-type SectionId = 'overview' | 'contracts' | 'renewals' | 'obligations' | 'faturamento' | 'aprovacoes' | 'risks' | 'documents' | 'audit';
-type ViewMode = 'table' | 'cards' | 'risk';
+/*
+  Oito destinos operacionais. "Auditoria" saiu da navegação primária: era o
+  único item que não é um domínio de trabalho — ninguém "vai à auditoria"
+  resolver algo, consulta-se o histórico a partir de onde já se está. Virou a
+  gaveta "Histórico", alcançável do cabeçalho em qualquer aba.
 
-const sectionLabels: Record<SectionId, string> = {
-  overview: 'Visão Geral',
-  contracts: 'Contratos',
-  renewals: 'Renovações',
-  obligations: 'Obrigações',
-  faturamento: 'Faturamento',
-  aprovacoes: 'Aprovações',
-  risks: 'Riscos & Cláusulas',
-  documents: 'Documentos',
-  audit: 'Auditoria',
-};
+  Documentos FICA: tem ciclo de vida próprio (versão, supersessão, aprovação) e
+  é operado, não consultado. Nenhum workspace novo entra aqui só para casar com
+  o roadmap — "Aditivos" espera a Fase 2, que é quem define o modelo final.
+*/
+type ViewMode = 'table' | 'cards' | 'risk';
 
 const riskLabels = { high: 'Alto', medium: 'Médio', low: 'Baixo' } as const;
 
@@ -142,7 +147,7 @@ const KPI_FILTERS: Record<string, { label: string; predicate: (record: ContractG
   // ver com o banco. Agora a pergunta é a real, e é a MESMA que alimenta o
   // contador da faixa executiva (`contractsWithoutAi`): existe linha em
   // `contract_ai_analyses`? `null` (relação não lida) não conta como ausência.
-  sem_ia: { label: 'Sem análise registrada', predicate: (r) => r.hasAiAnalysis === false },
+  sem_ia: { label: 'Leitura documental pendente', predicate: (r) => r.hasAiAnalysis === false },
   obrigacoes_atrasadas: { label: 'Obrigações atrasadas', predicate: (r) => r.obligations.some((o) => o.status === 'overdue') },
 };
 
@@ -164,7 +169,20 @@ export default function ContratosPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [riskOptions, setRiskOptions] = useState<{ id: string; title: string }[]>([]);
   const [uploadOpen, setUploadOpen] = useState(false);
-  const [activeSection, setActiveSection] = useState<SectionId>('overview');
+  /*
+    A área ativa vive na URL, não no componente: é ela que a sidebar aponta,
+    que o voltar do navegador restaura e que um link compartilhado carrega.
+  */
+  const searchParams = useSearchParams();
+  const activeSection: SectionId = SECTION_BY_SLUG[searchParams.get('view') ?? ''] ?? 'overview';
+  const setActiveSection = useCallback(
+    (next: SectionId) => {
+      // `push` (não `replace`): trocar de área é navegação, e voltar tem de
+      // devolver a área anterior em vez de sair da carteira.
+      router.push(sectionHref(next), { scroll: false });
+    },
+    [router],
+  );
   const [viewMode, setViewMode] = useState<ViewMode>('table');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -332,13 +350,20 @@ export default function ContratosPage() {
     [records],
   );
 
+  /*
+    Histórico da carteira é gaveta, não aba. Uma única leitura serve às duas
+    superfícies: "Atividade recente", na Visão geral, corta em 6; a gaveta
+    mostra a trilha inteira que veio.
+  */
+  const [historyOpen, setHistoryOpen] = useState(false);
+
   useEffect(() => {
     let alive = true;
     if (visibleContractIds.length === 0) {
       setActivity({ rows: [], error: null });
       return;
     }
-    listPortfolioAuditEvents(visibleContractIds, 12)
+    listPortfolioAuditEvents(visibleContractIds, 60)
       .then((res) => { if (alive) setActivity(res); })
       .catch((err: unknown) => {
         if (alive) setActivity({ rows: [], error: err instanceof Error ? err.message : 'Falha ao ler auditoria.' });
@@ -752,7 +777,8 @@ export default function ContratosPage() {
             else if (key === 'obrigacoes') setActiveSection('obligations');
             else if (key === 'documentos') setActiveSection('documents');
             else if (key === 'aprovacoes') setActiveSection('aprovacoes');
-            else if (key === 'auditoria') setActiveSection('audit');
+            // Auditoria deixou de ser aba: mesmo destino, agora gaveta.
+            else if (key === 'auditoria') setHistoryOpen(true);
           }}
           selectedRecord={selectedRecord}
           onSelect={openDossierDrawer}
@@ -791,7 +817,6 @@ export default function ContratosPage() {
       badge: tabCounts.expiring,
       content: (
         <div className="space-y-4">
-          <ScopeOriginNotice dataClasses={scopeOrigins} />
         <RenewalHorizonPanel
           horizon={renewalHorizon}
           onSelectContract={(contractId) => {
@@ -809,7 +834,6 @@ export default function ContratosPage() {
       badge: tabCounts.overdue,
       content: (
         <div className="space-y-4">
-          <ScopeOriginNotice dataClasses={scopeOrigins} />
         <ObligationsControlTower
           tower={obligationsTower}
           canEdit={contractPermissions.edit}
@@ -826,20 +850,15 @@ export default function ContratosPage() {
       icon: <Receipt className="h-4 w-4" />,
       content: (
         <div className="space-y-5">
-          <ScopeOriginNotice dataClasses={scopeOrigins} />
           {/*
             A cadeia vem antes da lista: ela responde "até onde este sistema
             enxerga o caminho até o caixa", que é a pergunta que a lista de
             eventos, sozinha, deixa o usuário responder por conta própria.
           */}
-          <HudPanel
-            title="Contract-to-Cash"
-            subtitle="Contratado → Medido → Aprovado → Faturado → Recebido"
-            icon={<Receipt className="h-4 w-4" />}
-            interactive={false}
-          >
+          <section>
+            <SectionHeader title="Contract-to-Cash" hint="Contratado → Medido → Aprovado → Faturado → Recebido" />
             <ContractToCashFlow stages={cashFlow} />
-          </HudPanel>
+          </section>
 
           <FaturamentoSection
             records={filteredRecords}
@@ -857,7 +876,6 @@ export default function ContratosPage() {
       icon: <ShieldCheck className="h-4 w-4" />,
       content: (
         <div className="space-y-4">
-          <ScopeOriginNotice dataClasses={scopeOrigins} />
         <ApprovalIntelligencePanel
           approvals={portfolioApprovals}
           canApprove={contractPermissions.approve}
@@ -876,7 +894,6 @@ export default function ContratosPage() {
       badge: tabCounts.highRisk,
       content: (
         <div className="space-y-5">
-          <ScopeOriginNotice dataClasses={scopeOrigins} />
           <RisksSection records={filteredRecords} />
           <ClauseRiskIntelligencePanel
             intelligence={clauseRiskIntel}
@@ -903,19 +920,13 @@ export default function ContratosPage() {
         />
       ),
     },
-    {
-      id: 'audit',
-      label: sectionLabels.audit,
-      icon: <ShieldCheck className="h-4 w-4" />,
-      content: <AuditSection records={filteredRecords} />,
-    },
   ];
 
   return (
     <HudPageLayout>
       <HudHeader
         title="Gestão de Contratos"
-        subtitle="Control room de governança contratual, documentos, obrigações, riscos, renovações e análise IA assistida."
+        subtitle="Carteira, obrigações, faturamento, riscos e renovações."
         icon={<FileSignature className="h-5 w-5" />}
         breadcrumbs={[{ label: 'Gestão de Contratos' }]}
         actions={
@@ -948,21 +959,17 @@ export default function ContratosPage() {
                     ? `Ao vivo · ${governance.live}/${governance.total}`
                     : 'Sem dado apurado'}
             </span>
-            <ExportReportButton
-              size="md"
-              variant="glass"
-              permission="contracts.export"
-              fallbackPermission="contracts.view"
-              build={() => openContractReport({
-                // As tabelas de detalhe seguem listando os records; as MÉTRICAS
-                // vêm do mesmo agregado confiável que a Executive Band, então
-                // tela e PDF não podem divergir.
-                records: filteredRecords,
-                trusted: trustedStats,
-                trustedContracts: trustedPortfolio,
-                source: relationsBatch ? 'Supabase' : 'sem leitura de relações',
-              })}
-            />
+            {/*
+              "Histórico" e "Exportar PDF" saíram do cabeçalho da CARTEIRA.
+
+              Ambos respondem a perguntas sobre um objeto, não sobre o módulo:
+              o histórico de auditoria e o dossiê em PDF são de um contrato.
+              No nível da carteira eram ambíguos — "histórico de quê?", "PDF de
+              qual recorte?" — e o PDF ainda dependia do filtro em vigor, de
+              modo que o mesmo botão gerava documentos diferentes conforme o
+              que estivesse selecionado. Ambos seguem no dossiê do contrato,
+              onde o sujeito é inequívoco.
+            */}
             {hasPermission('contracts.create') && !permissionsLoading ? (
               <HudButton variant="primary" size="md" leftIcon={<Plus className="h-4 w-4" />} onClick={() => setUploadOpen(true)}>
                 Novo Contrato
@@ -999,27 +1006,48 @@ export default function ContratosPage() {
         só existe quando há registro fora da carteira oficial — e que abre o
         controle avançado sob demanda. A área nobre volta a ser operação.
       */}
-      <PortfolioScopeNotice
-        scope={scope}
-        onScopeChange={setScope}
-        counts={trustedStats.scope}
-        className="mb-3"
-      />
+      {/*
+        Fronteira de origem em UM lugar persistente, não repetida em cinco abas.
+        O indicador compacto acompanha o controle de escopo logo abaixo do
+        cabeçalho e segue com o usuário por toda a navegação — mais difícil de
+        ignorar do que um bloco que o olho já aprendeu a pular.
+      */}
+      <div className="mb-3 flex flex-wrap items-center gap-2" data-testid="portfolio-scope">
+        <PortfolioScopeNotice
+          scope={scope}
+          onScopeChange={setScope}
+          counts={trustedStats.scope}
+          className="min-w-0 flex-1"
+        />
+        <ScopeOriginNotice dataClasses={scopeOrigins} compact />
+      </div>
 
       {/*
-        Header CONTEXTUAL (MD §10): a band não se repete no Command Center,
-        onde o hero já responde a mesma pergunta com mais hierarquia. Ela
-        permanece nas demais abas, onde é o único resumo — e onde suas células
-        seguem servindo de filtro da carteira.
+        O resumo executivo COMPLETO pertence à Visão Geral, e só a ela.
+
+        A faixa executiva vinha acima de todas as outras sete áreas: clicar em
+        "Faturamentos" mostrava, antes de qualquer coisa de faturamento, o
+        mesmo panorama que a Visão Geral já dá — e empurrava o conteúdo da área
+        escolhida para fora da primeira dobra. Nas áreas especializadas fica
+        apenas a tira de contexto: de que carteira estes números falam.
       */}
-      {activeSection !== 'overview' && (
-      <ContractExecutiveBand
-        stats={trustedStats}
-        contractCount={contractRows.length}
-        activeFilter={activeKpiFilter}
-        onToggleFilter={toggleKpiFilter}
-        className="mb-5"
-      />
+      {activeSection === 'overview' ? (
+        /*
+          Na Visão Geral a faixa entra SEM a célula de exposição: o hero logo
+          abaixo já dá exposição, execução, faturado e backlog. O que ela
+          acrescenta aqui são os oito sinais operacionais — que também são os
+          filtros da carteira, e por isso continuam clicáveis.
+        */
+        <ContractExecutiveBand
+          stats={trustedStats}
+          contractCount={contractRows.length}
+          activeFilter={activeKpiFilter}
+          onToggleFilter={toggleKpiFilter}
+          hideExposure
+          className="mb-5"
+        />
+      ) : (
+        <PortfolioContextStrip stats={trustedStats} className="mb-4" />
       )}
 
       {/* Active-filter indicator — the band is the filter; this is just the receipt */}
@@ -1043,12 +1071,24 @@ export default function ContratosPage() {
         </div>
       )}
 
-      <HudTabs
-        tabs={tabs}
-        activeTab={activeSection}
-        onTabChange={(tabId) => setActiveSection(tabId as SectionId)}
-        variant="underline"
-        contentClassName="mt-5"
+      {/*
+        A navegação da carteira mora na sidebar da aplicação (§1/§2 do gate).
+        Havia duas formas de apresentar a MESMA hierarquia — a barra horizontal
+        aqui e o módulo na sidebar — e duas maneiras de dizer a mesma coisa
+        obrigam o usuário a descobrir que são a mesma coisa. A sidebar é a
+        canônica; aqui fica só o conteúdo da área ativa.
+      */}
+      <div className="mt-5 min-w-0" data-testid="portfolio-workspace" aria-live="polite">
+        {tabs.find((tab) => tab.id === activeSection)?.content}
+      </div>
+
+      <HistoryDrawer
+        isOpen={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        subject="Carteira de contratos"
+        rows={activity.rows}
+        error={activity.error}
+        codeById={codeById}
       />
 
       <ContractUpload
@@ -1284,7 +1324,7 @@ function SignalGroup({
       >
         <div className={`flex min-w-0 items-center gap-2 ${filterActive ? 'text-ig-accent' : 'text-ig-fg-muted'}`}>
           <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md border ${iconChipClass}`}>{icon}</span>
-          <span className="min-w-0 truncate text-ig-label font-semibold uppercase tracking-[0.12em]">{title}</span>
+          <span className="min-w-0 truncate text-ig-label font-semibold">{title}</span>
           {/* Non-color active indication (a11y) */}
           {filterActive && <ListFilter className="h-3 w-3 shrink-0 text-ig-accent" aria-hidden />}
         </div>
@@ -1353,13 +1393,8 @@ function ExecutiveSignals({
   const missingDocsTotal = records.reduce((sum, record) => sum + record.missingDocuments.length, 0);
 
   return (
-    <HudPanel
-      title="Sinais operacionais"
-      subtitle="Pendências que exigem ação — clique no título para filtrar, no item para abrir"
-      icon={<ShieldAlert className="h-4 w-4" />}
-      interactive={false}
-      fullHeight
-    >
+    <section>
+      <SectionHeader title="Sinais operacionais" hint="Pendências que exigem ação — clique no título para filtrar, no item para abrir" />
       <div className="divide-y divide-ig-border-subtle">
         <SignalGroup
           icon={<Workflow className="h-3.5 w-3.5" />}
@@ -1429,7 +1464,7 @@ function ExecutiveSignals({
           }))}
         />
       </div>
-    </HudPanel>
+    </section>
   );
 }
 
@@ -1464,24 +1499,19 @@ function PriorityContracts({
 
   if (top.length === 0) {
     return (
-      <HudPanel title="Carteira em destaque" icon={<FileSignature className="h-4 w-4" />} interactive={false}>
+      <section>
+        <SectionHeader title="Carteira em destaque" />
         <div className="py-12 text-center">
           <FileText className="mx-auto mb-3 h-10 w-10 text-ig-fg-muted" />
           <p className="text-ig-body-sm text-ig-fg-muted">Nenhum contrato no recorte atual.</p>
         </div>
-      </HudPanel>
+      </section>
     );
   }
 
   return (
-    <HudPanel
-      title="Carteira em destaque"
-      subtitle="Contratos priorizados por risco, vencimento e pendências — clique para abrir o dossiê"
-      icon={<FileSignature className="h-4 w-4" />}
-      badge={top.length}
-      interactive={false}
-      fullHeight
-      headerActions={
+    <section>
+      <SectionHeader title="Carteira em destaque" hint="Contratos priorizados por risco, vencimento e pendências — clique para abrir o dossiê" count={top.length} action={
         onOpenAll ? (
           <button
             type="button"
@@ -1492,8 +1522,7 @@ function PriorityContracts({
             <ChevronRight className="h-3.5 w-3.5" />
           </button>
         ) : undefined
-      }
-    >
+      } />
       {/*
         A grade acompanha a QUANTIDADE, como na aba Cards: com um contrato, a
         composição editorial larga; com dois, meio a meio; a partir de três,
@@ -1516,7 +1545,7 @@ function PriorityContracts({
           );
         })}
       </div>
-    </HudPanel>
+    </section>
   );
 }
 
@@ -1662,7 +1691,8 @@ function RiskBoard({ records, selectedId, onSelect }: { records: ContractGoverna
   return (
     <div className="grid gap-4 lg:grid-cols-3">
       {lanes.map((lane) => (
-        <HudPanel key={lane.id} title={lane.label} badge={records.filter((record) => record.contract.riskClassification === lane.id).length} interactive={false}>
+        <section key={lane.id}>
+          <SectionHeader title={lane.label} count={records.filter((record) => record.contract.riskClassification === lane.id).length} />
           <div className="space-y-2">
             {records.filter((record) => record.contract.riskClassification === lane.id).slice(0, 12).map((record) => (
               <button
@@ -1678,7 +1708,7 @@ function RiskBoard({ records, selectedId, onSelect }: { records: ContractGoverna
               </button>
             ))}
           </div>
-        </HudPanel>
+        </section>
       ))}
     </div>
   );
@@ -1706,7 +1736,8 @@ function AnalyticsBand({ records }: { records: ContractGovernanceRecord[] }) {
 
   return (
     <div className="grid gap-4 lg:grid-cols-3">
-      <HudPanel title="Contratos por risco" subtitle="Distribuição e exposição" icon={<ShieldAlert className="h-4 w-4" />} interactive={false} elevation={1}>
+      <section>
+        <SectionHeader title="Contratos por risco" hint="Distribuição e exposição" />
         <div className="space-y-3.5">
           {byRisk.map((item) => (
             <div key={item.risk}>
@@ -1726,9 +1757,10 @@ function AnalyticsBand({ records }: { records: ContractGovernanceRecord[] }) {
             </div>
           ))}
         </div>
-      </HudPanel>
+      </section>
 
-      <HudPanel title="Próximas renovações" subtitle="Janela mais próxima de vencimento" icon={<CalendarClock className="h-4 w-4" />} interactive={false} elevation={1}>
+      <section>
+        <SectionHeader title="Próximas renovações" hint="Janela mais próxima de vencimento" />
         <div className="space-y-2">
           {upcoming.length === 0 && <p className="py-6 text-center text-ig-caption text-ig-fg-muted">Sem datas de vencimento no recorte.</p>}
           {upcoming.map((record) => (
@@ -1743,21 +1775,22 @@ function AnalyticsBand({ records }: { records: ContractGovernanceRecord[] }) {
             </div>
           ))}
         </div>
-      </HudPanel>
+      </section>
 
-      <HudPanel title="Obrigações por status" subtitle={`${obligations.length} obrigações mapeadas`} icon={<ClipboardCheck className="h-4 w-4" />} interactive={false} elevation={1}>
+      <section>
+        <SectionHeader title="Obrigações por status" hint={`${obligations.length} obrigações mapeadas`} />
         <div className="grid grid-cols-2 gap-2.5">
           {obligationStats.map((item) => {
             const toneClass = item.tone === 'danger' ? 'text-ig-danger' : item.tone === 'warning' ? 'text-ig-warning' : item.tone === 'success' ? 'text-ig-success' : 'text-ig-fg-strong';
             return (
               <div key={item.key} className="rounded-lg border border-ig-border-subtle bg-ig-panel/45 px-3 py-2.5">
-                <p className="text-ig-label font-semibold uppercase tracking-[0.12em] text-ig-fg-subtle">{item.label}</p>
+                <p className="text-ig-label font-semibold text-ig-fg-subtle">{item.label}</p>
                 <p className={`mt-0.5 text-xl font-semibold tabular-nums ${toneClass}`}>{item.value}</p>
               </div>
             );
           })}
         </div>
-      </HudPanel>
+      </section>
     </div>
   );
 }
@@ -1790,7 +1823,8 @@ function AnalyticsBand({ records }: { records: ContractGovernanceRecord[] }) {
  */
 function RisksSection({ records }: { records: ContractGovernanceRecord[] }) {
   return (
-    <HudPanel title="Mapa de risco" subtitle="Classificação registrada em contracts.risk_level" icon={<ShieldAlert className="h-4 w-4" />} interactive={false}>
+    <section>
+      <SectionHeader title="Mapa de risco" hint="Classificação registrada em contracts.risk_level" />
       <div className="grid gap-4 md:grid-cols-3">
         {['high', 'medium', 'low'].map((risk) => {
           const count = records.filter((record) => record.contract.riskClassification === risk).length;
@@ -1808,7 +1842,7 @@ function RisksSection({ records }: { records: ContractGovernanceRecord[] }) {
           );
         })}
       </div>
-    </HudPanel>
+    </section>
   );
 }
 
@@ -1844,7 +1878,8 @@ function DocumentsSection({
   return (
     <div className="space-y-5">
       {liveRows.length > 0 && (
-        <HudPanel title="Documentos ao vivo" subtitle="Ações por documento — aprovar, rejeitar, enviar para aprovação" icon={<FileText className="h-4 w-4" />} interactive={false}>
+        <section>
+          <SectionHeader title="Documentos ao vivo" hint="Ações por documento — aprovar, rejeitar, enviar para aprovação" />
           <div className="space-y-2">
             {liveRows.slice(0, 40).map(({ doc, record }) => {
               const meta = DOC_TAB_STATUS[doc.status] ?? { label: doc.status, variant: 'neutral' as const };
@@ -1876,10 +1911,11 @@ function DocumentsSection({
               );
             })}
           </div>
-        </HudPanel>
+        </section>
       )}
 
-      <HudPanel title="Documentos e pendências" subtitle="Visão de completude por contrato" icon={<Archive className="h-4 w-4" />} interactive={false}>
+      <section>
+        <SectionHeader title="Documentos e pendências" hint="Visão de completude por contrato" />
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {records.slice(0, 24).map((record) => (
             <div key={record.contract.id} className="rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3">
@@ -1902,7 +1938,7 @@ function DocumentsSection({
             </div>
           ))}
         </div>
-      </HudPanel>
+      </section>
     </div>
   );
 }
@@ -1936,12 +1972,13 @@ function FaturamentoSection({
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {cards.map((card) => (
           <div key={card.label} className="rounded-lg border border-ig-border-subtle bg-ig-panel/45 px-3 py-2.5">
-            <p className="text-ig-label font-semibold uppercase tracking-[0.12em] text-ig-fg-subtle">{card.label}</p>
+            <p className="text-ig-label font-semibold text-ig-fg-subtle">{card.label}</p>
             <p className={`mt-0.5 text-lg font-semibold tabular-nums ${card.tone}`}>{card.value}</p>
           </div>
         ))}
       </div>
-      <HudPanel title="Eventos de faturamento" subtitle="Eventograma consolidado — marque realizado nos eventos ao vivo" icon={<Receipt className="h-4 w-4" />} interactive={false}>
+      <section>
+        <SectionHeader title="Eventos de faturamento" hint="Eventograma consolidado — marque realizado nos eventos ao vivo" />
         <div className="space-y-2">
           {events.length === 0 && <p className="py-6 text-center text-ig-caption text-ig-fg-muted">Nenhum evento de faturamento no recorte.</p>}
           {events.slice(0, 40).map(({ event, record }) => {
@@ -1973,37 +2010,23 @@ function FaturamentoSection({
             );
           })}
         </div>
-      </HudPanel>
+      </section>
     </div>
   );
 }
 
 const APPROVAL_STEP_LABELS: Record<string, string> = { juridico: 'Jurídico', financeiro: 'Financeiro', comite: 'Comitê', diretoria: 'Diretoria' };
 
-function AuditSection({ records }: { records: ContractGovernanceRecord[] }) {
-  const events = records.flatMap((record) => record.auditEvents.map((event) => ({ ...event, record })))
-    .sort((a, b) => b.at.getTime() - a.at.getTime())
-    .slice(0, 30);
-  return (
-    <HudPanel title="Linha auditável" subtitle="Upload, revisão, IA mock, aprovações e pendências" icon={<ShieldCheck className="h-4 w-4" />} interactive={false}>
-      <div className="relative space-y-3">
-        <div className="absolute bottom-0 left-[15px] top-0 w-px bg-ig-border-subtle" />
-        {events.map((event) => (
-          <div key={event.id} className="relative flex gap-3">
-            <span className={`mt-1 h-8 w-8 shrink-0 rounded-full border bg-ig-panel ${event.status === 'done' ? 'border-[color-mix(in_oklab,var(--ig-success)_40%,transparent)]' : event.status === 'warning' ? 'border-[color-mix(in_oklab,var(--ig-warning)_40%,transparent)]' : 'border-[color-mix(in_oklab,var(--ig-danger)_40%,transparent)]'}`} />
-            <div className="min-w-0 flex-1 rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3">
-              <div className="flex flex-col justify-between gap-2 md:flex-row md:items-start">
-                <div className="min-w-0">
-                  <p className="truncate text-ig-body-sm font-semibold text-ig-fg-strong">{event.title}</p>
-                  <p className="truncate text-ig-caption text-ig-fg-muted">{event.record.code} · {event.actor}</p>
-                </div>
-                <span className="shrink-0 text-ig-caption text-ig-fg-muted">{format(new Date(event.at), 'dd/MM/yyyy HH:mm', { locale: pt })}</span>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </HudPanel>
-  );
-}
+/*
+  `AuditSection` foi removida junto com a aba "Auditoria".
+
+  Reimplementava à mão o mesmo trilho de timeline que o dossiê já desenhava em
+  outros dois lugares, sobre `record.auditEvents` (o enricher) em vez de
+  `audit_logs`, e trazia no subtítulo "Upload, revisão, IA mock, aprovações e
+  pendências" — anunciando ao usuário de negócio um estado mock que a Fase 0
+  havia eliminado.
+
+  O histórico da carteira agora é a gaveta `HistoryDrawer`, sobre as MESMAS
+  linhas de `listPortfolioAuditEvents` que alimentam "Atividade recente".
+*/
 

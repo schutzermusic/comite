@@ -77,7 +77,7 @@ export function ModuleConnections({ connections, onNavigate, className }: Module
         >
           <span className="h-1.5 w-1.5 rounded-full bg-ig-accent" />
         </span>
-        <span className="text-ig-label uppercase tracking-[0.14em] text-ig-fg-muted">
+        <span className="text-ig-label text-ig-fg-muted">
           Contrato
         </span>
         <span className="h-px flex-1 bg-[linear-gradient(90deg,color-mix(in_oklab,var(--ig-accent)_40%,transparent),transparent)]" aria-hidden />
@@ -155,7 +155,7 @@ function Band({
       />
       <header className="mb-1.5 flex items-baseline gap-2">
         <span className={cn(
-          'text-ig-label uppercase tracking-[0.14em]',
+          'text-ig-label',
           muted ? 'text-ig-fg-subtle' : 'text-ig-fg-muted',
         )}>
           {label}
@@ -192,9 +192,14 @@ function CompactRow({
       </span>
     </>
   );
+  /*
+    Linha, não ladrilho. "Operações conectadas" desenhava um retângulo por
+    módulo dentro de uma seção que já tem moldura — nove caixas aninhadas numa
+    caixa, e o olho lia nove objetos onde há uma lista só.
+  */
   const cls = cn(
-    'flex w-full items-start gap-2 rounded-[10px] border border-ig-border-subtle bg-ig-panel/40 px-3 py-2 text-left transition-colors',
-    interactive && 'hover:border-ig-border-focus hover:bg-ig-panel-hover/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_oklab,var(--ig-accent)_45%,transparent)]',
+    'ig-row-hover flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left',
+    interactive && 'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ig-border-focus',
   );
 
   return (
@@ -241,9 +246,9 @@ function ConnectionCard({
       </header>
 
       {/* Métrica principal, ou a declaração de que não há. */}
-      <div className="mt-2.5 min-h-[38px]">
+      <div className="mt-1.5 min-h-[34px]">
         {c.headline ? (
-          <p className={cn('ig-tabular text-ig-kpi-md leading-none', notIntegrated ? 'text-ig-fg-subtle' : 'text-ig-fg-strong')}>
+          <p className={cn('ig-tabular text-ig-h3 font-semibold leading-none', notIntegrated ? 'text-ig-fg-subtle' : 'text-ig-fg-strong')}>
             {c.headline}
           </p>
         ) : (
@@ -271,15 +276,18 @@ function ConnectionCard({
     </>
   );
 
+  /*
+    Célula de uma grade, não cartão flutuante. Nove módulos com raio de 16px,
+    borda, tinta e elevação no hover somavam nove objetos flutuando DENTRO de
+    uma seção que já tem moldura. O trilho tonal à esquerda continua marcando o
+    estado; o resto é alinhamento.
+  */
   const shell = cn(
-    'group relative flex flex-col overflow-hidden rounded-[16px] border px-4 py-3.5 text-left transition-all duration-200',
-    notIntegrated
-      ? 'border-dashed border-ig-border-subtle bg-transparent'
-      : 'border-ig-border-subtle bg-[color-mix(in_oklab,var(--ig-bg-raised)_50%,transparent)]',
+    'group relative flex flex-col overflow-hidden rounded-md px-3 py-2.5 text-left transition-colors duration-150',
+    notIntegrated && 'opacity-70',
     interactive && [
-      'cursor-pointer hover:-translate-y-px hover:border-ig-border-focus',
-      'hover:shadow-[0_10px_28px_-14px_color-mix(in_oklab,var(--ig-accent)_45%,transparent)]',
-      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_oklab,var(--ig-accent)_45%,transparent)]',
+      'ig-row-hover cursor-pointer',
+      'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ig-border-focus',
     ],
   );
 

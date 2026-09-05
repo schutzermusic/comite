@@ -197,7 +197,7 @@ function ProposalItem({
         trecho que a decisão é tomada, não contra o resumo da máquina.
       */}
       <div className="border-t border-ig-border-subtle bg-[color-mix(in_oklab,var(--ig-accent)_4%,transparent)] px-3.5 py-3">
-        <div className="flex items-center gap-2 text-ig-label font-semibold uppercase tracking-[0.1em] text-ig-fg-muted">
+        <div className="flex items-center gap-2 text-ig-label font-semibold text-ig-fg-muted">
           <Quote className="h-3 w-3" aria-hidden />
           Trecho do contrato
           <span className="ml-auto normal-case tracking-normal text-ig-fg-subtle">
@@ -236,7 +236,7 @@ function ProposalItem({
           {open && (
             <div className={cn('mt-2 grid gap-2', edited && 'md:grid-cols-2')}>
               <div className="rounded-lg border border-dashed border-ig-border-strong px-3 py-2">
-                <p className="text-ig-label font-semibold uppercase tracking-[0.1em] text-ig-fg-subtle">
+                <p className="text-ig-label font-semibold text-ig-fg-subtle">
                   Proposto pela leitura
                 </p>
                 <p className="mt-1 text-ig-caption text-ig-fg-muted">
@@ -248,7 +248,7 @@ function ProposalItem({
               </div>
               {edited && (
                 <div className="rounded-lg border border-ig-border-subtle px-3 py-2">
-                  <p className="text-ig-label font-semibold uppercase tracking-[0.1em] text-ig-fg-muted">
+                  <p className="text-ig-label font-semibold text-ig-fg-muted">
                     Estruturado vigente
                   </p>
                   <p className="mt-1 text-ig-caption text-ig-fg-strong">{clause.title}</p>

@@ -101,21 +101,21 @@ export function ContractInstrumentsPanel({
       {/* ── Estado original vs. vigente ── */}
       <div className="mb-4 grid gap-2 sm:grid-cols-2">
         <div className="rounded-lg border border-ig-border-subtle bg-ig-panel/55 p-3">
-          <p className="text-ig-label uppercase tracking-[0.12em] text-ig-fg-subtle">Valor original</p>
+          <p className="text-ig-label text-ig-fg-subtle">Valor original</p>
           <p className="mt-1 text-ig-body-sm font-semibold">
             <OfficialText official={state.originalValue} format={(v) => currency(v)} />
           </p>
-          <p className="mt-2 text-ig-label uppercase tracking-[0.12em] text-ig-fg-subtle">Valor vigente</p>
+          <p className="mt-2 text-ig-label text-ig-fg-subtle">Valor vigente</p>
           <p className="mt-1 text-ig-body-sm font-semibold">
             <OfficialText official={state.currentValue} format={(v) => currency(v)} />
           </p>
         </div>
         <div className="rounded-lg border border-ig-border-subtle bg-ig-panel/55 p-3">
-          <p className="text-ig-label uppercase tracking-[0.12em] text-ig-fg-subtle">Vigência original</p>
+          <p className="text-ig-label text-ig-fg-subtle">Vigência original</p>
           <p className="mt-1 text-ig-body-sm font-semibold">
             <OfficialText official={state.originalEndDate} format={(v) => dateLabel(v)} />
           </p>
-          <p className="mt-2 text-ig-label uppercase tracking-[0.12em] text-ig-fg-subtle">Vigência vigente</p>
+          <p className="mt-2 text-ig-label text-ig-fg-subtle">Vigência vigente</p>
           <p className="mt-1 text-ig-body-sm font-semibold">
             <OfficialText official={state.currentEndDate} format={(v) => dateLabel(v)} />
           </p>
@@ -137,7 +137,7 @@ export function ContractInstrumentsPanel({
           <span className="min-w-0 flex-1">
             <span className="flex flex-wrap items-baseline gap-x-2">
               <span className="text-ig-body-sm font-semibold text-ig-fg-strong">Contrato mestre</span>
-              <span className="text-ig-label uppercase tracking-[0.12em] text-ig-fg-subtle">{masterNumber}</span>
+              <span className="text-ig-label text-ig-fg-subtle">{masterNumber}</span>
             </span>
             <span className="mt-0.5 block truncate text-ig-caption text-ig-fg-muted">{masterTitle}</span>
           </span>
@@ -168,9 +168,14 @@ export function ContractInstrumentsPanel({
         </p>
       )}
       {timeline.length === 0 && !state.readFailed && !state.notMeasured && (
+        /*
+          A ressalva fica visível: "nenhum aditivo registrado" lido sozinho
+          afirma que não existem aditivos, que é justamente o que o dado não
+          diz. Um guarda contra leitura errada não pode viver em hover.
+        */
         <p className="mt-3 text-ig-caption text-ig-fg-muted">
-          Nenhum aditivo registrado. Isso não significa que não existam — significa que nenhum foi
-          registrado até agora.
+          Nenhum aditivo registrado — o que não significa que não existam, e sim
+          que nenhum foi registrado até agora.
         </p>
       )}
     </HudPanel>

@@ -41,6 +41,7 @@ import {
   CheckCircle2,
   ClipboardCheck,
   Clock3,
+  FileSearch,
   Receipt,
   Scale,
   ShieldAlert,
@@ -61,6 +62,15 @@ export interface ContractExecutiveBandProps {
   activeFilter: string | null;
   onToggleFilter: (key: string) => void;
   className?: string;
+  /**
+   * Omite a célula de exposição/execução.
+   *
+   * Na Visão Geral o `PortfolioHero` logo acima já responde exposição, execução,
+   * faturado e backlog. Repetir a mesma resposta duas vezes na mesma tela não
+   * acrescenta leitura — o que a faixa contribui ali são os OITO sinais
+   * operacionais, que também são os filtros da carteira.
+   */
+  hideExposure?: boolean;
 }
 
 type Tone = 'default' | 'success' | 'warning' | 'danger' | 'info';
@@ -73,10 +83,15 @@ const TONE_TEXT: Record<Tone, string> = {
   info: 'text-ig-accent',
 };
 
-const CELL_SURFACE =
-  'relative min-w-0 overflow-hidden rounded-xl border border-ig-border-subtle ' +
-  'bg-[linear-gradient(135deg,color-mix(in_oklab,var(--ig-bg-panel)_88%,transparent),color-mix(in_oklab,var(--ig-bg-raised)_42%,transparent))] ' +
-  'shadow-[inset_0_1px_0_color-mix(in_oklab,var(--ig-border-strong)_80%,transparent)]';
+/*
+  Coluna, não cartão (§4 do gate).
+  Cada célula tinha borda, gradiente diagonal próprio e sombra interna: oito
+  indicadores viravam oito retângulos flutuantes, com oito linhas de base
+  diferentes — e comparar "a vencer" com "alto risco" exigia pular de caixa em
+  caixa em vez de varrer uma coluna. Sem moldura, os rótulos alinham entre si e
+  os valores também; o divisor da grade faz a separação.
+*/
+const CELL_SURFACE = 'relative min-w-0';
 
 function MetricCell({
   icon,
@@ -107,28 +122,26 @@ function MetricCell({
       title={onClick ? (active ? 'Remover filtro deste sinal' : 'Filtrar carteira por este sinal') : undefined}
       className={cn(
         CELL_SURFACE,
-        'group px-4 py-3 text-left transition-all duration-200 ease-out',
+        'group -mx-1 rounded-md px-1 py-0.5 text-left transition-colors duration-150 md:pl-5',
         onClick && [
-          'cursor-pointer hover:-translate-y-px hover:border-ig-border-focus',
-          'hover:shadow-[0_8px_24px_-12px_color-mix(in_oklab,var(--ig-accent)_35%,transparent),inset_0_1px_0_color-mix(in_oklab,var(--ig-border-strong)_80%,transparent)]',
-          'focus-visible:outline-none focus-visible:border-ig-border-focus focus-visible:ring-2 focus-visible:ring-[color-mix(in_oklab,var(--ig-accent)_45%,transparent)]',
-          'active:translate-y-0',
+          'cursor-pointer hover:bg-ig-bg-panel-hover',
+          'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ig-border-focus',
         ],
-        // color-mix on the raw accent (not accent-weak) so the tint reads at ~10%
-        // in BOTH themes — accent-weak already carries its own low alpha and
-        // stacking an opacity modifier on it made light mode nearly invisible.
-        active && 'border-ig-accent/55 bg-[color-mix(in_oklab,var(--ig-accent)_10%,transparent)]',
+        // O filtro ativo se marca por tinta de acento — não por elevação, que
+        // faria um indicador filtrado parecer flutuar sobre os irmãos.
+        active && 'bg-[color-mix(in_oklab,var(--ig-accent)_10%,transparent)]',
       )}
     >
       <span
         className={cn(
-          'pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-ig-accent to-transparent transition-opacity',
-          active ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+          'pointer-events-none absolute inset-x-0 top-0 h-px bg-ig-accent transition-opacity',
+          active ? 'opacity-100' : 'opacity-0',
         )}
       />
       <div className={cn('flex items-center gap-1.5', active ? 'text-ig-accent' : 'text-ig-fg-muted')}>
         {icon && <span className={cn('shrink-0', active ? 'text-ig-accent' : 'text-ig-fg-subtle')}>{icon}</span>}
-        <span className="truncate text-ig-label font-semibold uppercase">{label}</span>
+        {/* Caixa de sentença: resto do §14, que a varredura por `tracking-` não pegou. */}
+        <span className="truncate text-ig-caption text-ig-fg-muted">{label}</span>
         {/* Non-color active indication (a11y): explicit "filtro" tag, not just tint */}
         {active && (
           <span className="ml-auto shrink-0 rounded-full border border-[color-mix(in_oklab,var(--ig-accent)_40%,transparent)] bg-[color-mix(in_oklab,var(--ig-accent)_14%,transparent)] px-1.5 py-px text-ig-label font-bold uppercase text-ig-accent">
@@ -157,6 +170,7 @@ export function ContractExecutiveBand({
   activeFilter,
   onToggleFilter,
   className,
+  hideExposure = false,
 }: ContractExecutiveBandProps) {
   const isActive = (key: string) => activeFilter === key;
 
@@ -164,15 +178,12 @@ export function ContractExecutiveBand({
     <section
       aria-label="Resumo executivo da carteira oficial — clique em um indicador para filtrar"
       className={cn(
-        'relative overflow-hidden rounded-[24px] border border-ig-border-focus/35',
-        'bg-[linear-gradient(180deg,color-mix(in_oklab,var(--ig-bg-panel)_92%,transparent),color-mix(in_oklab,var(--ig-bg-raised)_58%,transparent))]',
-        'p-1 shadow-[var(--ig-shadow-e2),inset_0_0_0_1px_color-mix(in_oklab,var(--ig-border-focus)_20%,transparent)]',
+        // Superfície de seção (L2): borda de 1px e tinta, sem sombra e sem
+        // gradiente. Os trilhos de glow nas laterais eram decoração pura.
+        'ig-section overflow-hidden px-4 py-3',
         className,
       )}
     >
-      {/* Edge glow rails — same signature as the HUD KPI strip, glow kept restrained */}
-      <div className="pointer-events-none absolute inset-y-3 left-3 w-px bg-ig-accent shadow-[0_0_12px_color-mix(in_oklab,var(--ig-accent)_70%,transparent)]" />
-      <div className="pointer-events-none absolute inset-y-3 right-3 w-px bg-ig-border-focus" />
 
       {/*
         A band SEMPRE descreve a carteira oficial, independentemente do recorte
@@ -181,22 +192,23 @@ export function ContractExecutiveBand({
         aparecem na mesma tela lendo como contradição, quando na verdade são
         duas perguntas diferentes.
       */}
-      <p className="px-4 pb-1 pt-2 text-ig-label font-semibold uppercase tracking-[0.14em] text-ig-fg-subtle">
+      <p className="pb-2 text-ig-caption font-semibold text-ig-fg-muted">
         Carteira oficial · origem validada
       </p>
 
-      <div className="relative grid grid-cols-2 gap-1 md:grid-cols-4">
+      <div className="relative grid grid-cols-2 gap-x-5 gap-y-4 md:grid-cols-4 md:divide-x md:divide-ig-border-subtle">
         {/* Tier 1 — hero: exposição + execução */}
-        <div className={cn(CELL_SURFACE, 'col-span-2 px-5 py-3.5')}>
+        {!hideExposure && (
+        <div className={cn(CELL_SURFACE, 'col-span-2 md:pr-5')}>
           <div className="flex items-end justify-between gap-4">
             <div className="min-w-0">
-              <p className="text-ig-label font-semibold uppercase tracking-[0.14em] text-ig-fg-muted">Exposição total</p>
+              <p className="text-ig-label font-semibold text-ig-fg-muted">Exposição total</p>
               <p className="ig-tabular mt-0.5 truncate text-ig-kpi-md leading-tight text-ig-fg-strong">
                 {officialCurrencyCompact(stats.totalValue)}
               </p>
             </div>
             <div className="shrink-0 text-right">
-              <p className="text-ig-label font-semibold uppercase tracking-[0.14em] text-ig-fg-muted">Execução</p>
+              <p className="text-ig-label font-semibold text-ig-fg-muted">Execução</p>
               <p className="ig-tabular mt-0.5 text-lg font-semibold leading-tight text-ig-fg-strong">{officialPercent(stats.billedPct)}</p>
             </div>
           </div>
@@ -216,6 +228,7 @@ export function ContractExecutiveBand({
             </span>
           </div>
         </div>
+        )}
 
         <MetricCell
           icon={<CheckCircle2 className="h-3.5 w-3.5" />}
@@ -303,12 +316,19 @@ export function ContractExecutiveBand({
           onClick={() => onToggleFilter('sem_faturamento')}
           active={isActive('sem_faturamento')}
         />
+        {/*
+          "Sem análise IA" descrevia a TECNOLOGIA ausente; "Leitura documental
+          pendente" descreve o RESULTADO ausente, que é o que interessa a quem
+          opera a carteira. O contador é exatamente o mesmo campo
+          (`contractsWithoutAi`), a mesma consulta e o mesmo filtro `sem_ia` —
+          nenhum dado mudou, só parou de anunciar o motor.
+        */}
         <MetricCell
-          icon={<BrainCircuit className="h-3.5 w-3.5" />}
-          label="Sem análise IA"
+          icon={<FileSearch className="h-3.5 w-3.5" />}
+          label="Leitura documental pendente"
           value={officialCount(stats.contractsWithoutAi)}
           sub={hasOfficialValue(stats.contractsWithoutAi)
-            ? (stats.contractsWithoutAi.value ? 'aguardando análise' : 'cobertura completa')
+            ? (stats.contractsWithoutAi.value ? 'sem leitura registrada' : 'todos com leitura')
             : officialProvenance(stats.contractsWithoutAi)}
           tone={isError(stats.contractsWithoutAi) ? 'danger' : hasOfficialValue(stats.contractsWithoutAi) && stats.contractsWithoutAi.value ? 'info' : 'default'}
           onClick={() => onToggleFilter('sem_ia')}

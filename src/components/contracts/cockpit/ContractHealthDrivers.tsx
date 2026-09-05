@@ -1,7 +1,18 @@
 'use client';
 
 /**
- * Contract Health — as seis dimensões apuradas, SEM pontuação.
+ * COBERTURA DO CONTRATO — as seis dimensões apuradas, SEM pontuação.
+ *
+ * O rótulo mudou de "Saúde do contrato" para "Cobertura do contrato" porque
+ * "Saúde 5/6" era lido como uma NOTA: cinco de seis pontos de saúde, um
+ * contrato quase são. O que o número sempre disse é outra coisa — quantas
+ * dimensões têm dado suficiente para serem avaliadas. Um contrato com 6/6 de
+ * cobertura pode estar em péssimo estado; um com 2/6 pode estar impecável e
+ * apenas mal cadastrado. Chamar cobertura de saúde inverte a conclusão.
+ *
+ * Saúde de verdade — que pondera obrigações, finanças e risco — pertence a uma
+ * fase em que essas três coisas estejam operacionalmente maduras. Até lá, a
+ * interface diz o que mede.
  *
  * A MD §13 pede um score de 0 a 100. Este componente deliberadamente não o
  * emite: não existe modelo de pontuação aprovado para contratos neste
@@ -47,14 +58,14 @@ export function ContractHealthDrivers({ health, className, compact = false }: Co
   const { assessed, total } = health.coverage;
 
   return (
-    <section className={cn('relative', className)} aria-label="Saúde do contrato por dimensão">
+    <section className={cn('relative', className)} aria-label="Cobertura do contrato por dimensão">
       <header className="flex items-baseline justify-between gap-3">
-        <p className="flex items-center gap-1.5 text-ig-label uppercase tracking-[0.14em] text-ig-fg-muted">
+        <p className="flex items-center gap-1.5 text-ig-label text-ig-fg-muted">
           <Activity className="h-3.5 w-3.5" aria-hidden />
-          Saúde do contrato
+          Cobertura do contrato
         </p>
         <p className="shrink-0 text-ig-caption text-ig-fg-muted">
-          <span className="ig-tabular font-semibold text-ig-fg-strong">{assessed}/{total}</span> dimensões apuradas
+          <span className="ig-tabular font-semibold text-ig-fg-strong">{assessed} de {total}</span> dimensões apuradas
         </p>
       </header>
 
@@ -91,7 +102,8 @@ export function ContractHealthDrivers({ health, className, compact = false }: Co
                 {DIMENSION_LABEL[dim]}
               </span>
               {!driver ? (
-                <span className="text-ig-body-sm text-ig-fg-subtle">Não apurada</span>
+                /* Ausência é NEUTRA (§19): não apurado não é irregularidade. */
+                <span className="text-ig-body-sm text-ig-fg-subtle">Não apurado</span>
               ) : (
                 <>
                   <span
@@ -100,7 +112,7 @@ export function ContractHealthDrivers({ health, className, compact = false }: Co
                       driver.adverse ? 'text-ig-warning' : 'text-ig-success',
                     )}
                   >
-                    {driver.adverse ? 'Atenção' : 'Regular'}
+                    {driver.adverse ? 'Atenção' : 'Apurado'}
                   </span>
                   {!compact && (
                     <span className="min-w-0 flex-1 truncate text-right text-ig-caption text-ig-fg-muted">
@@ -114,11 +126,19 @@ export function ContractHealthDrivers({ health, className, compact = false }: Co
         })}
       </ul>
 
-      <p className="mt-3 text-ig-caption leading-relaxed text-ig-fg-subtle">
+      {/*
+        O `title` guarda a justificativa longa; a frase curta que fica visível
+        já impede a leitura errada — que esta seção mediria desempenho, e não
+        cobertura de dado.
+      */}
+      <p
+        className="mt-2.5 text-ig-caption text-ig-fg-subtle"
+        title="Um score exigiria pesos definidos pela área de negócio; nenhum foi definido, e inventá-los aqui produziria um número sem dono."
+      >
         {adverse === 0
           ? 'Nenhuma dimensão apurada está em atenção.'
           : `${adverse} dimensão(ões) em atenção.`}
-        {' '}Não há índice numérico: um score exige pesos definidos pela área de negócio.
+        {' '}Sem índice numérico: mede-se cobertura de dado, não desempenho.
       </p>
     </section>
   );

@@ -58,16 +58,23 @@ export function OnboardingReadinessPanel({
           tone={operable ? 'success' : 'neutral'}
           size="sm"
         />
+        {/*
+          A regra fica no subtítulo, como texto visível: "ausência de registro
+          não é irregularidade" governa a leitura do painel inteiro, e uma
+          regra dessas não pode depender de hover — no toque ela simplesmente
+          não existiria.
+        */}
         <span className="text-ig-caption text-ig-fg-muted">
-          {operable
-            ? 'Identidade, projeto e documento registrados — o contrato é plenamente operável.'
-            : 'Falta registrar o essencial para operar o contrato de ponta a ponta.'}
+          {operable ? 'Essencial registrado — contrato plenamente operável' : 'Falta registrar o essencial'}
         </span>
       </div>
 
       {hasErrors && (
-        <p className="mb-3 text-ig-caption text-ig-warning">
-          Alguma relação não pôde ser lida. A lista está incompleta por falha de leitura, não por ausência de registro.
+        <p
+          className="mb-3 text-ig-caption text-ig-warning"
+          title="A lista está incompleta por falha de leitura, não por ausência de registro."
+        >
+          Alguma relação não pôde ser lida.
         </p>
       )}
 
@@ -102,15 +109,15 @@ function StepRow({
         <span className="flex flex-wrap items-baseline gap-x-2">
           <span className="text-ig-body-sm font-semibold text-ig-fg-strong">{step.label}</span>
           {step.essential && (
-            <span className="text-ig-label uppercase tracking-[0.12em] text-ig-fg-subtle">essencial</span>
+            <span className="text-ig-label text-ig-fg-subtle">essencial</span>
           )}
-          <span className="text-ig-label uppercase tracking-[0.12em] text-ig-fg-subtle">· {step.owner}</span>
+          <span className="text-ig-label text-ig-fg-subtle">· {step.owner}</span>
         </span>
         {step.detail && (
           <span className="mt-0.5 block text-ig-caption text-ig-fg-muted">{step.detail}</span>
         )}
       </span>
-      <span className="shrink-0 self-center text-ig-label uppercase tracking-[0.12em] text-ig-fg-subtle">
+      <span className="shrink-0 self-center text-ig-label text-ig-fg-subtle">
         {look.label}
       </span>
     </>

@@ -16,7 +16,7 @@
 
 import { cn } from '@/lib/utils';
 import { History, ArrowRight, AlertTriangle } from 'lucide-react';
-import { AUDIT_ACTION_LABELS } from './RecentActivity';
+import { auditActionLabel } from '@/lib/contracts/audit-labels';
 import type { ContractAuditEventRow } from '@/lib/contracts/contract-service';
 
 export type PortfolioActivityEvent = ContractAuditEventRow & { entity_id: string };
@@ -74,7 +74,7 @@ export function PortfolioActivity({
   return (
     <div className={cn('rounded-[14px] border border-ig-border-subtle bg-ig-panel/40 px-3.5 py-3', className)}>
       <header className="mb-2 flex items-baseline gap-2">
-        <span className="flex items-center gap-1.5 text-ig-label uppercase tracking-[0.13em] text-ig-fg-muted">
+        <span className="flex items-center gap-1.5 text-ig-label text-ig-fg-muted">
           <History className="h-3.5 w-3.5 text-ig-fg-subtle" aria-hidden />
           Atividade recente
         </span>
@@ -103,7 +103,7 @@ export function PortfolioActivity({
 
             <span className="min-w-0 flex-1">
               <span className="block truncate text-ig-body-sm text-ig-fg-strong">
-                {AUDIT_ACTION_LABELS[e.action] ?? e.action}
+                {auditActionLabel(e.action)}
               </span>
               <span className="mt-0.5 flex flex-wrap items-baseline gap-x-2 text-ig-caption text-ig-fg-muted">
                 {onOpenContract ? (

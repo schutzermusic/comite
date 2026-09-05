@@ -21,6 +21,10 @@ export interface HudTabsProps {
   size?: 'sm' | 'md';
   className?: string;
   contentClassName?: string;
+  /** Accessible name for the tablist (e.g. "Seções do dossiê"). */
+  label?: string;
+  /** Stable hook for tests. Applied to the tablist element. */
+  'data-testid'?: string;
 }
 
 export function HudTabs({
@@ -32,7 +36,10 @@ export function HudTabs({
   size = 'md',
   className,
   contentClassName,
+  label,
+  'data-testid': testId,
 }: HudTabsProps) {
+  const baseId = React.useId();
   const [internalActiveTab, setInternalActiveTab] = useState(defaultTab || tabs[0]?.id);
   const activeTab = controlledActiveTab ?? internalActiveTab;
 
@@ -87,6 +94,35 @@ export function HudTabs({
 
   const activeTabData = tabs.find((t) => t.id === activeTab);
 
+  /*
+    Navegação por teclado do padrão ARIA tabs: setas percorrem, Home/End vão às
+    pontas, abas desabilitadas são puladas. Antes, as abas eram <button> soltos
+    dentro de um <div> — funcionavam no clique, mas um leitor de tela não sabia
+    que eram um conjunto, e o Tab percorria as sete uma a uma.
+  */
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+    const enabled = tabs.filter((tab) => !tab.disabled);
+    if (enabled.length === 0) return;
+
+    let next: HudTab | undefined;
+    if (step !== 0) {
+      const current = enabled.findIndex((tab) => tab.id === activeTab);
+      next = enabled[(current + step + enabled.length) % enabled.length];
+    } else if (event.key === 'Home') {
+      next = enabled[0];
+    } else if (event.key === 'End') {
+      next = enabled[enabled.length - 1];
+    }
+    if (!next) return;
+
+    event.preventDefault();
+    handleTabChange(next.id);
+    listRef.current
+      ?.querySelector<HTMLElement>(`[data-tab-id="${CSS.escape(next.id)}"]`)
+      ?.focus();
+  };
+
   const variantStyles = {
     default: {
       list: 'hud-tabs-list-default p-1 rounded-lg',
@@ -116,6 +152,11 @@ export function HudTabs({
       {/* Tab List — scrolls horizontally instead of squishing when there are many tabs */}
       <div
         ref={listRef}
+        role="tablist"
+        aria-label={label}
+        aria-orientation="horizontal"
+        data-testid={testId}
+        onKeyDown={handleKeyDown}
         style={{ maskImage, WebkitMaskImage: maskImage }}
         className={cn(
           'flex items-center overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
@@ -125,6 +166,13 @@ export function HudTabs({
         {tabs.map((tab) => (
           <button
             key={tab.id}
+            type="button"
+            role="tab"
+            id={`${baseId}-tab-${tab.id}`}
+            aria-selected={activeTab === tab.id}
+            aria-controls={`${baseId}-panel-${tab.id}`}
+            tabIndex={activeTab === tab.id ? 0 : -1}
+            data-tab-id={tab.id}
             data-tab-active={activeTab === tab.id || undefined}
             onClick={() => !tab.disabled && handleTabChange(tab.id)}
             disabled={tab.disabled}
@@ -152,7 +200,13 @@ export function HudTabs({
       </div>
 
       {/* Tab Content */}
-      <div className={cn('mt-4', contentClassName)}>
+      <div
+        role="tabpanel"
+        id={activeTabData ? `${baseId}-panel-${activeTabData.id}` : undefined}
+        aria-labelledby={activeTabData ? `${baseId}-tab-${activeTabData.id}` : undefined}
+        tabIndex={0}
+        className={cn('mt-4 focus-visible:outline-none', contentClassName)}
+      >
         {activeTabData?.content}
       </div>
     </div>

@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import { AppSidebar } from '@/components/layout/app-sidebar';
 import { Header } from '@/components/layout/header';
 import { SidebarShell } from '@/components/layout/sidebar-shell';
@@ -32,7 +33,15 @@ export default function MainLayout({
           {/* UI Shell - Fixed Height (100dvh) for Control Room stability */}
           <div className="relative flex h-[100dvh] w-full overflow-hidden z-10">
             {/* Sidebar */}
-            <AppSidebar />
+            {/*
+              A sidebar lê a query string para marcar a área corrente da
+              carteira (`?view=`), e `useSearchParams` sem Suspense derruba a
+              pré-renderização estática de TODA página deste layout. O limite
+              isola o custo na sidebar: as páginas seguem estáticas.
+            */}
+            <Suspense fallback={<div className="w-[--sidebar-width]" aria-hidden />}>
+              <AppSidebar />
+            </Suspense>
 
             {/* Main Content Area - full height for dashboard canvas */}
             <SidebarInset className="flex flex-col flex-1 min-h-0 w-full bg-transparent overflow-hidden">

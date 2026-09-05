@@ -94,7 +94,7 @@ async function gotoDemoPortfolio() {
   const scope = page.getByRole('group', { name: 'Escopo da carteira' });
   await expect(scope).toBeVisible({ timeout: 30_000 });
   await scope.getByRole('button', { name: /Demonstração/ }).click();
-  await page.getByRole('button', { name: /^Contratos/ }).first().click();
+  await gotoPortfolioSection(page, 'Contratos');
 }
 
 async function openQuickDossier() {
@@ -168,6 +168,23 @@ test.afterAll(async () => {
 // ═══════════════════════════════════════════════════════════════════════════
 // 1–3 · Entrada no cockpit pelos dois caminhos, e a subida para o dossiê
 // ═══════════════════════════════════════════════════════════════════════════
+
+
+/**
+ * Vai a uma área da carteira pela SIDEBAR — a navegação canônica do módulo.
+ *
+ * A barra horizontal de abas da carteira não existe mais: havia duas formas de
+ * apresentar a mesma hierarquia. Clicar na sidebar (em vez de navegar pela URL)
+ * é o que prova que a navegação real funciona.
+ */
+async function gotoPortfolioSection(page: Page, label: string) {
+  const group = page.getByRole('button', { name: 'Contratos', exact: true });
+  if (await group.count()) {
+    const expanded = await group.first().getAttribute('aria-expanded');
+    if (expanded === 'false') await group.first().click();
+  }
+  await page.getByRole('link', { name: label, exact: true }).first().click();
+}
 
 test('1 · Card → Quick Dossier', async () => {
   await gotoDemoPortfolio();
@@ -334,8 +351,8 @@ test('9 · Aprovar / rejeitar etapa', async () => {
 async function openDossierTab(tab: 'Financeiro' | 'Riscos & Cláusulas') {
   await page.goto(`/contratos/${contractId}`);
   await page.getByText('Operações conectadas').first().waitFor({ timeout: 30_000 });
-  const tablist = page.locator('div').filter({ has: page.getByRole('button', { name: /^Visão geral/i }) }).last();
-  await tablist.getByRole('button', { name: new RegExp('^' + tab.split(' ')[0]) }).first().click();
+  const tablist = page.getByTestId('contract-dossier-tabs');
+  await tablist.getByRole('tab', { name: new RegExp('^' + tab.split(' ')[0]) }).click();
   await page.waitForTimeout(700);
 }
 

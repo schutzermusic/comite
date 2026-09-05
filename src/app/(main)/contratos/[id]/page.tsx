@@ -26,8 +26,8 @@ import {
 } from '@/lib/contracts/trust/signals';
 import { officialCurrencyCompact, officialCurrencyFull, officialProvenance } from '@/lib/contracts/trust/format';
 import {
-  ContractIdentity, ProjectRelation, FinancialPulse, ConnectedOperations, OnboardingReadinessPanel,
-  ContractHealthDrivers, RequiresAttention, RecentActivity,
+  ProjectRelation, FinancialPulse, ConnectedOperations, OnboardingReadinessPanel,
+  ContractHealthDrivers, RequiresAttention,
   type ConnectedOperationKey,
 } from '@/components/contracts/cockpit';
 import { attentionItems, type AttentionActionKey } from '@/lib/contracts/trust/attention';
@@ -58,16 +58,14 @@ import {
   HudPanel,
   HudProgressBar,
   HudStatusPill,
-  HudTabs,
   useHudToast,
   type HudTab,
   type KpiItem,
 } from '@/components/hud';
 import {
-  ArrowLeft,
   Archive,
+  ArrowLeft,
   BadgeCheck,
-  BrainCircuit,
   Building2,
   CalendarClock,
   ClipboardCheck,
@@ -92,12 +90,39 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { SectionHeader, HistoryDrawer, InlineEmpty, DossierNav } from '@/components/contracts/shell';
 import { format } from 'date-fns';
 import { pt } from 'date-fns/locale';
 
-type DetailTab = 'summary' | 'clauses' | 'obligations' | 'risks' | 'finance' | 'documents' | 'approvals' | 'audit';
+/*
+  Seis domínios de negócio, não oito superfícies técnicas.
 
-const DETAIL_TABS: DetailTab[] = ['summary', 'finance', 'obligations', 'documents', 'risks', 'approvals', 'audit', 'clauses'];
+  Saíram duas abas:
+
+  - `audit` — a auditoria virou a gaveta "Histórico". Ela aparecia DUAS vezes
+    ao mesmo tempo (aba + painel fixo de 360px à direita), dizendo a mesma
+    coisa e comprimindo a área de trabalho em toda sessão.
+  - `clauses` — competia de frente com "Riscos & Cláusulas". Duas abas
+    primárias disputando o mesmo assunto obrigavam o usuário a adivinhar em
+    qual delas a cláusula que ele procura foi parar. O inventário virou seção
+    interna de Riscos & Cláusulas: nada saiu do produto, só deixou de ser uma
+    escolha de navegação.
+
+  Links antigos com `?tab=audit` ou `?tab=clauses` continuam funcionando —
+  ver `resolveInitialTab`.
+*/
+type DetailTab = 'summary' | 'obligations' | 'risks' | 'finance' | 'documents' | 'approvals';
+
+const DETAIL_TABS: DetailTab[] = ['summary', 'finance', 'obligations', 'documents', 'risks', 'approvals'];
+
+/** Abas aposentadas -> onde o assunto vive agora. */
+const RETIRED_TAB_TARGET: Record<string, DetailTab> = { clauses: 'risks', audit: 'summary' };
+
+function resolveInitialTab(raw: string | null): DetailTab {
+  if (!raw) return 'summary';
+  if ((DETAIL_TABS as string[]).includes(raw)) return raw as DetailTab;
+  return RETIRED_TAB_TARGET[raw] ?? 'summary';
+}
 
 const riskLabels = { high: 'Alto', medium: 'Médio', low: 'Baixo' } as const;
 
@@ -114,24 +139,34 @@ export default function ContractDossierPage() {
   const { hasPermission } = usePermissions();
   const { notify } = useHudToast();
   const [projects, setProjects] = useState<Project[]>([]);
-  const initialTab = searchParams.get('tab') as DetailTab | null;
-  const [activeTab, setActiveTab] = useState<DetailTab>(initialTab && DETAIL_TABS.includes(initialTab) ? initialTab : 'summary');
+  const rawTab = searchParams.get('tab');
+  const [activeTab, setActiveTab] = useState<DetailTab>(() => resolveInitialTab(rawTab));
+  // `?tab=audit` continua levando ao histórico — que agora é gaveta, não aba.
+  const [historyOpen, setHistoryOpen] = useState(rawTab === 'audit');
   const [creatingProject, setCreatingProject] = useState(false);
   const [flowNotice, setFlowNotice] = useState<string | null>(null);
   const [scanningAi, setScanningAi] = useState(false);
 
   const canScanAi = hasPermission('risks.ai_scan');
 
-  const handleAiScan = async () => {
+  /*
+    A reavaliação de risco continua existindo — mesma rota, mesma permissão
+    (`risks.ai_scan`), mesmo efeito. O que mudou é o enquadramento: saiu do
+    header como "Analisar com IA", ação primária que anunciava a TECNOLOGIA, e
+    entrou em "Mais ações" como "Reavaliar riscos do contrato", que anuncia o
+    RESULTADO. A IA é transversal e automática; não é uma etapa do ciclo de
+    vida que o usuário dispara à mão.
+  */
+  const handleRiskReassessment = async () => {
     if (!contractId) return;
-    if (!window.confirm('Disparar análise de risco com IA? Isso pode levar até 1 minuto e consome tokens.')) return;
+    if (!window.confirm('Reavaliar os riscos deste contrato? A leitura pode levar até 1 minuto.')) return;
     setScanningAi(true);
     setFlowNotice(null);
     try {
       const { count } = await triggerContractAiScan(contractId);
-      setFlowNotice(`${count} risco(s) gerado(s) pela IA. Veja em /riscos.`);
+      setFlowNotice(`${count} risco(s) identificado(s). Veja em /riscos.`);
     } catch (err) {
-      setFlowNotice(err instanceof Error ? err.message : 'Erro na análise IA.');
+      setFlowNotice(err instanceof Error ? err.message : 'A reavaliação de riscos não pôde ser concluída.');
     } finally {
       setScanningAi(false);
     }
@@ -352,7 +387,14 @@ export default function ContractDossierPage() {
     // O KPI "Risk score NN/100" saiu: vinha de hash(id+nome) e não existe modelo
     // de pontuação aprovado para contratos. No lugar, a cobertura apurada da
     // avaliação de saúde — um fato, não um palpite.
-    { id: 'health', label: 'Saúde apurada', value: `${health.coverage.assessed}/${health.coverage.total}`, variant: health.drivers.some((d) => d.adverse) ? 'warning' : 'default', icon: <ShieldAlert className="h-4 w-4" />, onClick: () => setActiveTab('risks'), active: activeTab === 'risks' },
+    /*
+      "Cobertura", não "Saúde": o número é `assessed/total` — quantas das seis
+      dimensões têm dado suficiente para serem avaliadas. Lido como "Saúde 5/6"
+      vira NOTA, e um contrato com 6/6 de cobertura pode estar péssimo, assim
+      como um 2/6 pode estar impecável e só mal cadastrado. O componente já
+      havia sido renomeado; o chip do cabeçalho tinha ficado para trás.
+    */
+    { id: 'health', label: 'Cobertura apurada', value: `${health.coverage.assessed}/${health.coverage.total}`, variant: health.drivers.some((d) => d.adverse) ? 'warning' : 'default', icon: <ShieldAlert className="h-4 w-4" />, onClick: () => setActiveTab('risks'), active: activeTab === 'risks' },
   ];
 
   const contractStatusLabel =
@@ -365,8 +407,19 @@ export default function ContractDossierPage() {
                 : detail.contract.status === 'cancelled' ? 'Cancelado'
                   : detail.contract.status;
 
+  /*
+    UMA fonte para o vínculo de projeto (§20 do gate).
+    A faixa de ação e o botão do cabeçalho liam `contracts.project_id`; o
+    resumo lia `trusted.project`, que resolve `contracts.project_id` OU
+    `contract_project_links` — ambos vínculos reais. Um contrato ligado pela
+    tabela de vínculo aparecia então como "assinado sem projeto vinculado"
+    logo acima do projeto ao qual está ligado. Os dois passam a derivar da
+    mesma relação resolvida.
+  */
+  const hasLinkedProject = hasOfficialValue(trusted.project);
+
   const canCreateProjectFromContract =
-    !detail.contract.project_id
+    !hasLinkedProject
     && ['signed', 'active'].includes(detail.contract.status)
     && (hasPermission('contracts.edit') || hasPermission('projects.create'));
 
@@ -388,7 +441,7 @@ export default function ContractDossierPage() {
 
   /**
    * Abas na ordem operacional pedida: Visão Geral → Financeiro → Obrigações →
-   * Documentos → Riscos → Aprovações → Auditoria. Cláusulas e Análise IA ficam
+   * Documentos → Riscos → Aprovações. Cláusulas ficam
    * ao final, como superfícies ainda dependentes de extração documental.
    *
    * "Aprovações" ganha aba própria: até aqui o fluxo de alçada só existia no
@@ -396,7 +449,80 @@ export default function ContractDossierPage() {
    * que já estava aberto.
    */
   const tabs: HudTab[] = [
-    { id: 'summary', label: 'Visão geral', icon: <FileText className="h-4 w-4" />, content: <SummaryTab trusted={trusted} contractNotes={record.contract.notes ?? null} /> },
+    {
+      id: 'summary', label: 'Visão geral', icon: <FileText className="h-4 w-4" />,
+      /*
+        Prontidão, cobertura, operações conectadas e instrumentos desceram do
+        topo da página para cá. São quatro superfícies de LEITURA, não de
+        urgência: quem quer o panorama vem à Visão geral; quem quer faturamento
+        não deveria ter de rolar por elas para alcançar a aba Financeiro.
+        Nenhuma mudou de conteúdo.
+      */
+      content: (
+        <div className="space-y-6">
+          <SummaryTab trusted={trusted} contractNotes={record.contract.notes ?? null} />
+
+          <div className="grid gap-6 xl:grid-cols-2">
+            <div className="space-y-6">
+              <OnboardingReadinessPanel
+                readiness={buildOnboardingReadiness(trusted)}
+                onNavigate={(key: OnboardingStepKey) => {
+                  // Cada passo entrega o assunto ao lugar onde ele se resolve.
+                  if (key === 'project' && hasOfficialValue(trusted.project)) router.push(`/projetos/${trusted.project.value.id}`);
+                  else if (key === 'documents') setActiveTab('documents');
+                  else if (key === 'clauses') setActiveTab('risks');
+                  else if (key === 'obligations') setActiveTab('obligations');
+                  else if (key === 'milestones') setActiveTab('finance');
+                  else if (key === 'approvals') setActiveTab('approvals');
+                  else if (key === 'risks') setActiveTab('risks');
+                  else setActiveTab('summary');
+                }}
+              />
+              <section data-testid="contract-coverage">
+                <ContractHealthDrivers health={contractHealth(trusted)} />
+              </section>
+            </div>
+
+            <div className="space-y-6">
+              <section data-testid="contract-connected-ops">
+                <SectionHeader title="Operações conectadas" hint="o contrato como objeto central" />
+                <ConnectedOperations
+                  contract={trusted}
+                  context={{
+                    tasks: { count: tasks.error ? null : tasks.rows.length, errored: Boolean(tasks.error) },
+                    auditEvents: { count: audit.error ? null : audit.rows.length, errored: Boolean(audit.error) },
+                  }}
+                  onNavigate={(key: ConnectedOperationKey) => {
+                    if (key === 'project' && hasOfficialValue(trusted.project)) router.push(`/projetos/${trusted.project.value.id}`);
+                    else if (key === 'billing') setActiveTab('finance');
+                    else if (key === 'documents') setActiveTab('documents');
+                    else if (key === 'obligations') setActiveTab('obligations');
+                    else if (key === 'risks') setActiveTab('risks');
+                    else if (key === 'approvals') setActiveTab('approvals');
+                    // Auditoria deixou de ser aba: mesmo destino, agora gaveta.
+                    else if (key === 'audit') setHistoryOpen(true);
+                    // P2B: medição vive no Financeiro (lastro do faturamento);
+                    // cláusulas, junto de riscos.
+                    else if (key === 'measurement') setActiveTab('finance');
+                    else if (key === 'clauses') setActiveTab('risks');
+                    // Os dois abaixo saem de Contratos: o módulo dono é outro.
+                    else if (key === 'tasks') router.push('/reunioes');
+                    else if (key === 'finance') router.push('/financeiro');
+                  }}
+                />
+              </section>
+
+              <ContractInstrumentsPanel
+                masterTitle={record.contract.name}
+                masterNumber={record.code}
+                state={effectiveContractState(trusted.totalValue, trusted.endDate, amendmentsOfficial)}
+                onAddAmendment={canEditContract ? openAmendment : undefined}
+              />
+            </div>
+          </div>
+        </div>
+      ),
+    },
     {
       id: 'finance', label: 'Financeiro', icon: <Receipt className="h-4 w-4" />,
       badge: detail.billingEvents.length || undefined,
@@ -467,19 +593,34 @@ export default function ContractDossierPage() {
             onCreateRisk={() => contractActions.createRisk(record)}
             onLinkRisk={() => contractActions.linkExistingRisk(record)}
           />
+          {/*
+            O inventário fecha a aba: proposta pendente é trabalho de alguém,
+            cláusula validada é acervo. A antiga aba "Cláusulas" mostrava
+            exatamente isto — só que como um destino concorrente.
+          */}
+          <ClausesTab detail={detail} />
         </div>
       ),
     },
     { id: 'approvals', label: 'Aprovações', icon: <ShieldCheck className="h-4 w-4" />, badge: detail.approvals.filter((a) => a.status !== 'approved').length || undefined, content: <ApprovalsTab trusted={trusted} detail={detail} onReview={hasPermission('contracts.approve') ? () => contractActions.reviewApproval(record) : undefined} /> },
-    { id: 'audit', label: 'Auditoria', icon: <FileClock className="h-4 w-4" />, badge: audit.rows.length || undefined, content: <AuditTab audit={audit} /> },
-    { id: 'clauses', label: 'Cláusulas', icon: <Scale className="h-4 w-4" />, badge: detail.clauses.length || undefined, content: <ClausesTab detail={detail} /> },
   ];
 
   return (
-    <HudPageLayout>
+    // `ig-dossier-page`: sem isto o scrollport mais próximo é a raiz do layout,
+    // e a subnav grudenta não teria onde grudar. Ver surfaces.css.
+    <HudPageLayout className="ig-dossier-page">
       <HudHeader
         title={record.contract.name}
-        subtitle="Dossiê contratual com vínculos, exposição financeira, obrigações, riscos, documentos, auditoria e análise IA mock/pendente."
+        /*
+          O subtítulo agora IDENTIFICA o contrato — contraparte · código · tipo.
+          O texto anterior descrevia a arquitetura da página para um leitor de
+          negócio, e ainda citava um estado "mock/pendente" que já não existia.
+        */
+        subtitle={[
+          hasOfficialValue(trusted.counterparty) ? trusted.counterparty.value : null,
+          trusted.code,
+          hasOfficialValue(trusted.contractType) ? trusted.contractType.value : null,
+        ].filter(Boolean).join(' · ')}
         icon={<FileSignature className="h-5 w-5" />}
         breadcrumbs={[{ label: 'Contratos', href: '/contratos' }, { label: record.code }]}
         statusChips={[
@@ -497,18 +638,32 @@ export default function ContractDossierPage() {
             frequência de uso.
           */
           <div className="flex flex-wrap items-center justify-end gap-2">
-            <HudButton variant="secondary" size="md" leftIcon={<ArrowLeft className="h-4 w-4" />} onClick={() => router.push('/contratos')}>
-              Voltar
+            {/*
+              "Voltar" saiu: o breadcrumb acima já leva a /contratos, e dois
+              caminhos idênticos lado a lado gastavam a posição mais visível do
+              header com a ação menos importante da tela.
+
+              Sobram três afordâncias, em prioridade decrescente: exportar (ou
+              criar projeto, quando o contrato pede isso), histórico, e o menu
+              com TODO o resto — nenhuma operação saiu do dossiê, só foi
+              reordenada.
+            */}
+            <HudButton
+              variant={canCreateProjectFromContract ? 'glass' : 'primary'}
+              size="md"
+              leftIcon={<Download className="h-4 w-4" />}
+              onClick={handleExportPdf}
+            >
+              Exportar PDF
             </HudButton>
 
-            {canScanAi && (
-              <HudButton variant="glass" size="md" leftIcon={<BrainCircuit className="h-4 w-4" />} disabled={scanningAi} onClick={handleAiScan}>
-                {scanningAi ? 'Analisando...' : 'Analisar com IA'}
-              </HudButton>
-            )}
-
-            <HudButton variant="glass" size="md" leftIcon={<Download className="h-4 w-4" />} onClick={handleExportPdf}>
-              Exportar PDF
+            <HudButton
+              variant="secondary"
+              size="md"
+              leftIcon={<FileClock className="h-4 w-4" />}
+              onClick={() => setHistoryOpen(true)}
+            >
+              Histórico
             </HudButton>
 
             {canCreateProjectFromContract && (
@@ -536,6 +691,12 @@ export default function ContractDossierPage() {
                 <DropdownMenuItem onClick={() => contractActions.linkExistingRisk(record)}>
                   <ShieldCheck className="mr-2 h-4 w-4" /> Vincular risco
                 </DropdownMenuItem>
+                {canScanAi && (
+                  <DropdownMenuItem disabled={scanningAi} onClick={() => { void handleRiskReassessment(); }}>
+                    <ShieldAlert className="mr-2 h-4 w-4" />
+                    {scanningAi ? 'Reavaliando...' : 'Reavaliar riscos do contrato'}
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => contractActions.attachDocument(record)}>
                   <Archive className="mr-2 h-4 w-4" /> Anexar documento
@@ -570,7 +731,7 @@ export default function ContractDossierPage() {
         }
       />
 
-      {!detail.contract.project_id && ['signed', 'active'].includes(detail.contract.status) && (
+      {!hasLinkedProject && ['signed', 'active'].includes(detail.contract.status) && (
         <HudPanel elevation={1} state="warning" interactive={false}>
           <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
             <div>
@@ -602,116 +763,109 @@ export default function ContractDossierPage() {
         `HudKpiStrip` de 5 células saiu: repetia em miniatura o que estas duas
         superfícies dizem com hierarquia.
       */}
-      <section className="mb-5 grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
-        <div className="relative overflow-hidden rounded-[20px] border border-ig-border-focus/35 bg-[linear-gradient(160deg,color-mix(in_oklab,var(--ig-bg-panel)_94%,transparent),color-mix(in_oklab,var(--ig-bg-raised)_48%,transparent))] px-5 py-4 shadow-[var(--ig-shadow-e2)]">
-          <span className="pointer-events-none absolute inset-y-5 left-0 w-px bg-ig-accent shadow-[0_0_14px_color-mix(in_oklab,var(--ig-accent)_70%,transparent)]" aria-hidden />
-          <ContractIdentity contract={trusted} />
-          <ProjectRelation
-            project={trusted.project}
-            onLink={canEditContract ? () => contractActions.linkProject(record) : undefined}
-            className="mt-4"
-          />
-        </div>
+      {/*
+        ─── A DOBRA ─────────────────────────────────────────────────────────
 
-        <div className="rounded-[20px] border border-ig-border-subtle bg-[color-mix(in_oklab,var(--ig-bg-raised)_45%,transparent)] px-5 py-4">
-          <FinancialPulse contract={trusted} />
-        </div>
+        Entre o header e a barra de abas havia OITO painéis com borda:
+        identidade, projeto, pulso financeiro, requer atenção, prontidão,
+        operações conectadas, saúde e instrumentos. A navegação do dossiê só
+        aparecia depois de rolar — num contrato bem cadastrado, bem depois.
+        Quem abria o dossiê para conferir faturamento tinha de atravessar tudo
+        isso para achar a aba Financeiro.
+
+        Ficaram DUAS faixas, sem moldura própria:
+
+          1. o pulso financeiro em quatro métricas alinhadas, mais o projeto;
+          2. o que exige ação.
+
+        `ContractIdentity` saiu daqui porque o header passou a dizer a mesma
+        coisa (contraparte · código · tipo, mais os chips de status): eram dois
+        títulos do mesmo contrato, um em cima do outro. O componente segue vivo
+        e em uso no Quick Dossier, onde não há header de página.
+      */}
+      <section className="mb-5 border-y border-ig-border-subtle py-4" aria-label="Resumo do contrato">
+        <FinancialPulse contract={trusted} compact />
+        <ProjectRelation
+          project={trusted.project}
+          onLink={canEditContract ? () => contractActions.linkProject(record) : undefined}
+          className="mt-4 border-t border-ig-border-subtle pt-3"
+        />
       </section>
 
-      {/* Sinais e conexões: o dossiê responde "o que exige ação" e "a que se liga". */}
-      <section className="mb-5 grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <div>
-          <h3 className="mb-2.5 text-ig-label uppercase tracking-[0.14em] text-ig-fg-muted">Requer atenção</h3>
-          <RequiresAttention
-            items={attentionItems(trusted)}
-            max={3}
-            onAction={(key: AttentionActionKey) => {
-              if (key === 'linkProject') contractActions.linkProject(record);
-              else if (key === 'reviewApproval') contractActions.reviewApproval(record);
-              else if (key === 'createObligation') openObligation();
-              else if (key === 'createBilling') openBilling();
-              else if (key === 'attachDocument') contractActions.attachDocument(record);
-              else if (key === 'reviewClauseProposals') setActiveTab('risks');
-              else if (key === 'openDocuments') setActiveTab('documents');
-              else if (key === 'openBilling') setActiveTab('finance');
-              else setActiveTab('obligations');
-            }}
-          />
-          {/*
-            A prontidão vive na coluna ESQUERDA. Empilhada à direita junto de
-            operações conectadas, saúde e instrumentos, ela fazia a coluna
-            direita ficar muito mais alta que a esquerda — e o dossiê abria com
-            metade da tela em branco ao lado de uma pilha longa. Distribuir
-            equilibra as duas colunas sem tirar nada de ninguém.
-          */}
-          <div className="mt-4">
-            <OnboardingReadinessPanel
-              readiness={buildOnboardingReadiness(trusted)}
-              onNavigate={(key: OnboardingStepKey) => {
-                // Cada passo entrega o assunto ao lugar onde ele se resolve.
-                if (key === 'project' && hasOfficialValue(trusted.project)) router.push(`/projetos/${trusted.project.value.id}`);
-                else if (key === 'documents') setActiveTab('documents');
-                else if (key === 'clauses') setActiveTab('risks');
-                else if (key === 'obligations') setActiveTab('obligations');
-                else if (key === 'milestones') setActiveTab('finance');
-                else if (key === 'approvals') setActiveTab('approvals');
-                else if (key === 'risks') setActiveTab('risks');
-                else setActiveTab('summary');
-              }}
-            />
-          </div>
-        </div>
-        <div>
-          <h3 className="mb-2.5 text-ig-label uppercase tracking-[0.14em] text-ig-fg-muted">Operações conectadas</h3>
-          <ConnectedOperations
-            contract={trusted}
-            context={{
-              tasks: { count: tasks.error ? null : tasks.rows.length, errored: Boolean(tasks.error) },
-              auditEvents: { count: audit.error ? null : audit.rows.length, errored: Boolean(audit.error) },
-            }}
-            onNavigate={(key: ConnectedOperationKey) => {
-              if (key === 'project' && hasOfficialValue(trusted.project)) router.push(`/projetos/${trusted.project.value.id}`);
-              else if (key === 'billing') setActiveTab('finance');
-              else if (key === 'documents') setActiveTab('documents');
-              else if (key === 'obligations') setActiveTab('obligations');
-              else if (key === 'risks') setActiveTab('risks');
-              else if (key === 'approvals') setActiveTab('approvals');
-              else if (key === 'audit') setActiveTab('audit');
-              // P2B: medição vive no Financeiro (lastro do faturamento);
-              // cláusulas, junto de riscos.
-              else if (key === 'measurement') setActiveTab('finance');
-              else if (key === 'clauses') setActiveTab('risks');
-              // Os dois abaixo saem de Contratos: o módulo dono é outro.
-              else if (key === 'tasks') router.push('/reunioes');
-              else if (key === 'finance') router.push('/financeiro');
-            }}
-          />
-          <div className="mt-4 rounded-[16px] border border-ig-border-subtle px-4 py-3.5">
-            <ContractHealthDrivers health={contractHealth(trusted)} compact />
-          </div>
-          <div className="mt-4">
-            <ContractInstrumentsPanel
-              masterTitle={record.contract.name}
-              masterNumber={record.code}
-              state={effectiveContractState(trusted.totalValue, trusted.endDate, amendmentsOfficial)}
-              onAddAmendment={canEditContract ? openAmendment : undefined}
-            />
-          </div>
+      {/*
+        Três componentes disputavam a mesma frase — "requer atenção",
+        "prontidão" e "saúde do contrato". Agora são DOIS conceitos, separados
+        pela pergunta que respondem, não pelo componente:
 
-        </div>
+          · REQUER AÇÃO (aqui, na dobra) — o que precisa ser feito agora.
+          · PRONTIDÃO + COBERTURA (na Visão geral) — o que ainda não foi
+            registrado, e quantas dimensões já dá para avaliar.
+
+        O primeiro é urgente e cabe acima das abas; o segundo é panorama e cabe
+        onde se procura panorama.
+      */}
+      <section className="mb-5" data-testid="contract-attention" aria-label="Requer ação">
+        <h2 className="mb-2.5 text-ig-body-sm font-semibold text-ig-fg-strong">Requer ação</h2>
+        <RequiresAttention
+          items={attentionItems(trusted)}
+          max={3}
+          onAction={(key: AttentionActionKey) => {
+            if (key === 'linkProject') contractActions.linkProject(record);
+            else if (key === 'reviewApproval') contractActions.reviewApproval(record);
+            else if (key === 'createObligation') openObligation();
+            else if (key === 'createBilling') openBilling();
+            else if (key === 'attachDocument') contractActions.attachDocument(record);
+            else if (key === 'reviewClauseProposals') setActiveTab('risks');
+            else if (key === 'openDocuments') setActiveTab('documents');
+            else if (key === 'openBilling') setActiveTab('finance');
+            else setActiveTab('obligations');
+          }}
+        />
       </section>
 
-      <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <div className="min-w-0">
-          <HudTabs
-            tabs={tabs}
-            activeTab={activeTab}
-            onTabChange={(tabId) => setActiveTab(tabId as DetailTab)}
-            variant="underline"
-          />
+      {/*
+        Largura inteira. O painel "Timeline auditável" ocupava 360px fixos à
+        direita das abas — toda sessão, para todo mundo, dizendo o mesmo que a
+        aba "Auditoria" logo ao lado. Uma tabela de faturamento perdia um quarto
+        da tela para um histórico que ninguém pediu. Agora o histórico é a
+        gaveta abaixo, e o dossiê tem a largura que sempre precisou.
+      */}
+      {/*
+        Subnav horizontal, grudenta, logo abaixo da identidade do contrato.
+
+        O rail vertical saiu: depois que a carteira subiu para a sidebar do
+        Apex, havia DUAS colunas de navegação lado a lado — a do módulo e a do
+        objeto — e o dossiê ficava espremido entre elas. A distinção entre os
+        dois níveis passa a ser de eixo e de peso: a sidebar é vertical,
+        persistente, com fundo; esta é horizontal, presa ao contrato e sem
+        superfície nenhuma.
+      */}
+      <div className="mt-4 min-w-0">
+        <DossierNav
+          items={tabs.map(({ id, label, icon, badge }) => ({ id, label, icon, badge }))}
+          activeId={activeTab}
+          onSelect={(tabId) => setActiveTab(tabId as DetailTab)}
+          panelId="dossier-panel"
+          data-testid="contract-dossier-tabs"
+        />
+        <div
+          id="dossier-panel"
+          role="tabpanel"
+          aria-labelledby={`dossier-tab-${activeTab}`}
+          tabIndex={0}
+          className="mt-5 min-w-0 focus-visible:outline-none"
+        >
+          {tabs.find((tab) => tab.id === activeTab)?.content}
         </div>
-        <SideTimeline code={trusted.code} audit={audit} />
       </div>
+
+      <HistoryDrawer
+        isOpen={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        subject={trusted.code}
+        rows={audit.rows}
+        error={audit.error}
+      />
 
       {contractActionModals}
       {instrumentation.modals}
@@ -740,8 +894,9 @@ function SummaryTab({ trusted, contractNotes }: { trusted: TrustedContract; cont
       onError: () => 'Dados indisponíveis',
     });
   return (
-    <div className="grid gap-5 lg:grid-cols-[1fr_0.9fr]">
-      <HudPanel title="Resumo executivo" icon={<FileText className="h-4 w-4" />} interactive={false}>
+    <div className="grid gap-x-8 gap-y-5 lg:grid-cols-2">
+      <section className="min-w-0">
+        <SectionHeader title="Resumo executivo" />
         <div className="space-y-4">
           <p className="text-ig-body-sm leading-relaxed text-ig-fg-muted">
             Este dossiê centraliza o contrato como fonte de verdade documental e de governança. Empresas e projetos aparecem como vínculos de referência, sem duplicar seus cadastros.
@@ -753,16 +908,17 @@ function SummaryTab({ trusted, contractNotes }: { trusted: TrustedContract; cont
             <Metric label="Valor total" value={officialCurrencyCompact(trusted.totalValue)} />
           </div>
           {contractNotes && (
-            <div className="rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3">
-              <p className="text-ig-label text-ig-fg-muted">Observações</p>
+            <div className="border-t border-ig-border-subtle pt-2">
+              <p className="text-ig-caption text-ig-fg-muted">Observações</p>
               <p className="mt-1 text-ig-body-sm text-ig-fg-strong">{contractNotes}</p>
             </div>
           )}
         </div>
-      </HudPanel>
+      </section>
 
-      <HudPanel title="Entidades relacionadas" icon={<Workflow className="h-4 w-4" />} interactive={false}>
-        <div className="space-y-3">
+      <section className="min-w-0">
+        <SectionHeader title="Entidades relacionadas" />
+        <div className="divide-y divide-ig-border-subtle border-y border-ig-border-subtle">
           <Relation icon={<Building2 className="h-4 w-4" />} label="Contraparte" value={text(trusted.counterparty, 'Não informada')} />
           {/* Vínculo de projeto SOMENTE de project_id ou contract_project_links. */}
           {hasOfficialValue(trusted.project) ? (
@@ -775,7 +931,7 @@ function SummaryTab({ trusted, contractNotes }: { trusted: TrustedContract; cont
           <Relation icon={<Receipt className="h-4 w-4" />} label="Faturado" value={officialCurrencyCompact(trusted.billedValue)} />
           <Relation icon={<ShieldCheck className="h-4 w-4" />} label="Aprovação" value={text(route, 'Nenhuma etapa registrada')} />
         </div>
-      </HudPanel>
+      </section>
     </div>
   );
 }
@@ -800,17 +956,19 @@ function ClausesTab({ detail }: { detail: ContractDetail }) {
 
   if (clauses.length === 0) {
     return (
-      <HudPanel title="Cláusulas monitoradas" icon={<Scale className="h-4 w-4" />} interactive={false}>
+      <section>
+        <SectionHeader title="Cláusulas monitoradas" />
         <p className="text-ig-body-sm text-ig-fg-muted">
           Nenhuma cláusula extraída para este contrato. A extração documental por IA ainda não está
           integrada — quando estiver, as cláusulas aparecerão aqui com página e trecho de origem.
         </p>
-      </HudPanel>
+      </section>
     );
   }
 
   return (
-    <HudPanel title="Cláusulas monitoradas" subtitle={`${clauses.length} cláusula(s) em contract_clauses`} icon={<Scale className="h-4 w-4" />} interactive={false}>
+    <section>
+      <SectionHeader title="Cláusulas monitoradas" hint={`${clauses.length} cláusula(s) em contract_clauses`} />
       <div className="grid gap-3 md:grid-cols-2">
         {clauses.map((clause) => (
           <div key={clause.id} className="rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3">
@@ -825,7 +983,7 @@ function ClausesTab({ detail }: { detail: ContractDetail }) {
           </div>
         ))}
       </div>
-    </HudPanel>
+    </section>
   );
 }
 
@@ -856,12 +1014,8 @@ function ObligationsTab({ trusted, detail, onNewObligation }: { trusted: Trusted
       : 'Nenhuma obrigação mapeada';
 
   return (
-    <HudPanel
-      title="Obrigações por responsável"
-      subtitle={subtitle}
-      icon={<ClipboardCheck className="h-4 w-4" />}
-      interactive={false}
-    >
+    <section>
+      <SectionHeader title="Obrigações por responsável" hint={subtitle} />
       {onNewObligation && (
         <div className="mb-3 flex justify-end">
           <HudButton variant="secondary" size="sm" leftIcon={<Plus className="h-4 w-4" />} onClick={onNewObligation}>
@@ -884,69 +1038,62 @@ function ObligationsTab({ trusted, detail, onNewObligation }: { trusted: Trusted
           </div>
         ))}
       </div>
-    </HudPanel>
+    </section>
   );
 }
 
 /**
- * Riscos e saúde do contrato.
+ * Riscos do contrato.
  *
- * O círculo com "Risk score NN" saiu: o número vinha de `hash(id+nome)` e a
- * legenda afirmava ser "derivado de risco cadastral, vencimento e documentos
- * faltantes" — uma descrição de metodologia para um cálculo que não existia.
- * No lugar, os drivers apurados por dimensão.
+ * O círculo "Risk score NN" saiu na Fase 0: o número vinha de `hash(id+nome)`
+ * e a legenda dizia ser "derivado de risco cadastral, vencimento e documentos
+ * faltantes" — metodologia descrita para um cálculo que não existia.
+ *
+ * Agora sai também o que ficou no lugar dele: um SEGUNDO desenho de cobertura,
+ * um círculo "5/6 dimensões" reimplementado à mão aqui, ao lado do
+ * `ContractHealthDrivers` que a Visão geral já mostrava. O mesmo contrato
+ * exibia a mesma fração em duas abas, com dois desenhos e duas redações. A
+ * cobertura tem um dono — a Visão geral. Esta aba fala de risco.
  */
 function RisksTab({ trusted, detail }: { trusted: TrustedContract; detail: ContractDetail }) {
   const contractRisks = detail.risks;
   const health = contractHealth(trusted);
   const adverse = health.drivers.filter((d) => d.adverse);
   return (
-    <div className="grid gap-5 lg:grid-cols-[320px_1fr]">
-      <HudPanel title="Saúde do contrato" icon={<ShieldAlert className="h-4 w-4" />} interactive={false}>
-        <div className="text-center">
-          <div className="mx-auto flex h-28 w-28 flex-col items-center justify-center rounded-full border border-ig-border-focus bg-ig-accent-weak">
-            <span className="text-ig-kpi-md tabular-nums text-ig-accent">{health.coverage.assessed}/{health.coverage.total}</span>
-            <span className="text-ig-caption text-ig-fg-muted">dimensões</span>
-          </div>
-          <p className="mt-3 text-ig-body-sm font-semibold text-ig-fg-strong">
-            Risco cadastral {riskLabels[trusted.riskLevel]}
-          </p>
-          <p className="mt-1 text-ig-caption text-ig-fg-muted">
-            {adverse.length === 0
-              ? 'Nenhuma dimensão apurada em atenção.'
-              : `${adverse.length} dimensão(ões) em atenção.`}
-          </p>
-          <p className="mt-2 text-ig-caption text-ig-fg-subtle">
-            Não há modelo de pontuação aprovado para contratos; os drivers abaixo são fatos apurados.
-          </p>
+    <div className="grid gap-5 lg:grid-cols-[300px_1fr]">
+      <div>
+        <SectionHeader title="Risco cadastral" />
+        <p className="text-ig-kpi-md text-ig-fg-strong">{riskLabels[trusted.riskLevel]}</p>
+
+        <div className="mt-4">
+          <SectionHeader title="Dimensões em atenção" count={adverse.length} />
+          {adverse.length === 0 ? (
+            <InlineEmpty message="Nenhuma dimensão apurada em atenção." />
+          ) : (
+            <ul className="space-y-2">
+              {adverse.map((d) => (
+                <li key={d.dimension} className="border-l-2 border-ig-warning pl-2.5">
+                  <p className="text-ig-body-sm font-medium text-ig-fg-strong">{d.label}</p>
+                  <p className="mt-0.5 text-ig-caption text-ig-fg-muted">{d.detail}</p>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
-        {adverse.length > 0 && (
-          <div className="mt-4 space-y-2">
-            {adverse.map((d) => (
-              <div key={d.dimension} className="rounded-lg border border-[color-mix(in_oklab,var(--ig-warning)_30%,transparent)] bg-[color-mix(in_oklab,var(--ig-warning)_8%,transparent)] p-2.5">
-                <p className="text-ig-caption font-semibold text-ig-fg-strong">{d.label}</p>
-                <p className="mt-0.5 text-ig-caption text-ig-fg-muted">{d.detail}</p>
-              </div>
-            ))}
-          </div>
-        )}
-      </HudPanel>
+      </div>
       <div className="space-y-5">
-        <HudPanel title="Riscos legais e financeiros" icon={<Scale className="h-4 w-4" />} interactive={false}>
+        <section>
+          <SectionHeader title="Riscos legais e financeiros" />
           <div className="grid gap-3 md:grid-cols-2">
             <Metric label="Riscos persistidos" value={contractRisks.length} />
             <Metric label="Riscos abertos" value={contractRisks.filter((risk) => risk.status === 'open').length} />
             <Metric label="Cláusulas de alto risco" value={detail.clauses.filter((clause) => clause.risk_level === 'high').length} />
             <Metric label="Mitigações cadastradas" value={contractRisks.filter((risk) => risk.mitigation_plan).length} />
           </div>
-        </HudPanel>
+        </section>
 
-        <HudPanel
-          title="Riscos vinculados ao contrato"
-          subtitle={contractRisks.length ? `${contractRisks.length} risco(s) persistido(s)` : 'Nenhum risco persistido para este contrato'}
-          icon={<ShieldAlert className="h-4 w-4" />}
-          interactive={false}
-        >
+        <section>
+          <SectionHeader title="Riscos vinculados ao contrato" hint={contractRisks.length ? `${contractRisks.length} risco(s) persistido(s)` : 'Nenhum risco persistido para este contrato'} />
           <div className="space-y-2">
             {(contractRisks.length
               ? contractRisks.map((risk) => ({
@@ -973,7 +1120,7 @@ function RisksTab({ trusted, detail }: { trusted: TrustedContract; detail: Contr
               </div>
             ))}
           </div>
-        </HudPanel>
+        </section>
       </div>
     </div>
   );
@@ -1017,14 +1164,10 @@ function FinanceTab({
         termina — medição não instrumentada, recebimento não integrado — antes
         de qualquer número, para que o leitor não tome o "faturado" por "recebido".
       */}
-      <HudPanel
-        title="Contract-to-Cash"
-        subtitle="Contratado → Medido → Aprovado → Faturado → Recebido"
-        icon={<Receipt className="h-4 w-4" />}
-        interactive={false}
-      >
+      <section>
+        <SectionHeader title="Contract-to-Cash" hint="Contratado → Medido → Aprovado → Faturado → Recebido" />
         <ContractToCashFlow stages={contractToCash(trusted)} compact />
-      </HudPanel>
+      </section>
 
       {/*
         A medição vem logo depois da cadeia: é ela que dá lastro ao estágio
@@ -1039,7 +1182,8 @@ function FinanceTab({
         onGenerateBilling={onGenerateBilling}
       />
 
-      <HudPanel title="Exposição financeira" icon={<Receipt className="h-4 w-4" />} interactive={false}>
+      <section>
+        <SectionHeader title="Exposição financeira" />
         <div className="grid gap-4 lg:grid-cols-3">
           <Metric label="Valor total" value={officialCurrencyFull(trusted.totalValue)} />
           {/* "Margem estimada", "Adimplência" e "Reconhecimento" saíram: os três
@@ -1058,14 +1202,10 @@ function FinanceTab({
           </div>
           <HudProgressBar value={billedPercent ?? 0} showLabel={false} variant={billedPercent === null ? 'default' : 'success'} />
         </div>
-      </HudPanel>
+      </section>
 
-      <HudPanel
-        title="Cronograma de faturamento"
-        subtitle={persistedBilling ? `${detail.billingEvents.length} evento(s) · ${formatCurrencyFull(billingTotal)} cadastrados` : 'Nenhum evento de faturamento registrado'}
-        icon={<GanttChartSquare className="h-4 w-4" />}
-        interactive={false}
-      >
+      <section>
+        <SectionHeader title="Cronograma de faturamento" hint={persistedBilling ? `${detail.billingEvents.length} evento(s) · ${formatCurrencyFull(billingTotal)} cadastrados` : 'Nenhum evento de faturamento registrado'} />
         {onNewBilling && (
           <div className="mb-3 flex justify-end">
             <HudButton variant="secondary" size="sm" leftIcon={<Plus className="h-4 w-4" />} onClick={onNewBilling}>
@@ -1092,7 +1232,7 @@ function FinanceTab({
             faturada não pode ser apurada.
           </p>
         )}
-      </HudPanel>
+      </section>
     </div>
   );
 }
@@ -1145,40 +1285,45 @@ function DocumentsTab({ trusted, detail, onReplace }: {
   const hasPersisted = items.length > 0;
 
   return (
-    <HudPanel
-      title="Repositório documental"
-      subtitle={hasPersisted ? `${items.length} documento(s) no repositório` : 'Documentos obrigatórios pendentes'}
-      icon={<Archive className="h-4 w-4" />}
-      interactive={false}
-    >
+    <section>
+      <SectionHeader title="Repositório documental" hint={hasPersisted ? `${items.length} documento(s) no repositório` : 'Documentos obrigatórios pendentes'} />
       {hasPersisted ? (
-        <div className="grid gap-3 md:grid-cols-2">
+        /*
+          Documento é linha, não cartão (§7 do gate). Numa grade de dois, o
+          nome do arquivo, o status e a ação ficavam em posições diferentes a
+          cada célula; em lista, nome, versão, status e ação alinham em
+          colunas e o repositório se lê de cima a baixo.
+        */
+        <div className="ig-rows">
           {items.map((item) => (
-            <div key={item.id} className="rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="truncate text-ig-body-sm font-semibold text-ig-fg-strong">{item.name}</p>
-                  <p className="mt-1 text-ig-caption text-ig-fg-muted">
-                    {item.kind}
-                    {item.doc && item.doc.version > 1 && ` · v${item.doc.version}`}
-                    {item.doc?.superseded_by_document_id && ' · substituído por versão mais recente'}
-                  </p>
-                </div>
-                <HudBadge variant={item.status.variant} size="sm">{item.status.label}</HudBadge>
+            <div
+              key={item.id}
+              className="grid gap-x-4 gap-y-1 py-2.5 md:grid-cols-[minmax(0,1fr)_110px_auto] md:items-center"
+            >
+              <div className="min-w-0">
+                <p className="truncate text-ig-body-sm font-medium text-ig-fg-strong">{item.name}</p>
+                <p className="truncate text-ig-caption text-ig-fg-muted">
+                  {item.kind}
+                  {item.doc && item.doc.version > 1 && ` · v${item.doc.version}`}
+                  {item.doc?.superseded_by_document_id && ' · substituído por versão mais recente'}
+                </p>
               </div>
+              <HudBadge variant={item.status.variant} size="sm">{item.status.label}</HudBadge>
               {/*
                 Só o documento VIGENTE é substituível. Substituir um já
                 substituído criaria duas versões apontando para o mesmo
                 antecessor, e a linhagem deixaria de ser uma linha.
               */}
-              {onReplace && item.doc && !item.doc.superseded_by_document_id && (
+              {onReplace && item.doc && !item.doc.superseded_by_document_id ? (
                 <button
                   type="button"
                   onClick={() => onReplace(item.doc!)}
-                  className="mt-2.5 rounded-[8px] border border-ig-border-strong px-2.5 py-1 text-ig-caption font-semibold text-ig-fg-strong transition-colors hover:bg-ig-panel-hover/60"
+                  className="justify-self-start text-ig-caption font-medium text-ig-accent transition-colors hover:text-ig-accent-strong md:justify-self-end"
                 >
                   Substituir por nova versão
                 </button>
+              ) : (
+                <span />
               )}
             </div>
           ))}
@@ -1208,7 +1353,7 @@ function DocumentsTab({ trusted, detail, onReplace }: {
           })()}
         </div>
       )}
-    </HudPanel>
+    </section>
   );
 }
 
@@ -1290,7 +1435,8 @@ function ApprovalsTab({
 
   if (steps.length === 0) {
     return (
-      <HudPanel title="Fluxo de aprovação" icon={<ShieldCheck className="h-4 w-4" />} interactive={false}>
+      <section>
+        <SectionHeader title="Fluxo de aprovação" />
         <p className="text-ig-body-sm text-ig-fg-muted">
           Nenhuma etapa de aprovação registrada para este contrato. Sem etapa cadastrada não há
           rota nem SLA — o fluxo ainda não foi iniciado.
@@ -1300,7 +1446,7 @@ function ApprovalsTab({
             Registrar decisão
           </HudButton>
         )}
-      </HudPanel>
+      </section>
     );
   }
 
@@ -1312,15 +1458,10 @@ function ApprovalsTab({
       */}
       <ApprovalPulse intelligence={intelligence} />
 
-      <HudPanel
-        title="Jornada de aprovação"
-        subtitle={hasOfficialValue(route) ? route.value : undefined}
-        icon={<ShieldCheck className="h-4 w-4" />}
-        interactive={false}
-        headerActions={onReview ? (
+      <section>
+        <SectionHeader title="Jornada de aprovação" hint={hasOfficialValue(route) ? route.value : undefined} action={onReview ? (
           <HudButton variant="secondary" size="sm" onClick={onReview}>Registrar decisão</HudButton>
-        ) : undefined}
-      >
+        ) : undefined} />
         <ol className="space-y-0">
           {steps.map((step, index) => {
             const approved = step.status === 'approved';
@@ -1374,9 +1515,10 @@ function ApprovalsTab({
             );
           })}
         </ol>
-      </HudPanel>
+      </section>
 
-      <HudPanel title="SLA do fluxo" icon={<Clock3 className="h-4 w-4" />} interactive={false}>
+      <section>
+        <SectionHeader title="SLA do fluxo" />
         <div className="grid gap-3 md:grid-cols-3">
           <Metric
             label="Duração média"
@@ -1391,154 +1533,56 @@ function ApprovalsTab({
             value={hasOfficialValue(sla) ? sla.value.rejectedSteps : '—'}
           />
         </div>
-      </HudPanel>
+      </section>
     </div>
   );
 }
-
-function AuditTab({ audit }: { audit: { rows: ContractAuditEventRow[]; error: string | null } }) {
-  if (audit.error) {
-    return (
-      <HudPanel title="Auditoria do contrato" state="critical" icon={<ShieldCheck className="h-4 w-4" />} interactive={false}>
-        <p className="text-ig-body-sm text-ig-fg-strong">Falha ao ler o histórico de auditoria.</p>
-        <p className="mt-1 text-ig-caption text-ig-fg-muted">{audit.error}</p>
-      </HudPanel>
-    );
-  }
-
-  if (audit.rows.length === 0) {
-    return (
-      <HudPanel title="Auditoria do contrato" icon={<ShieldCheck className="h-4 w-4" />} interactive={false}>
-        <p className="text-ig-body-sm text-ig-fg-muted">
-          Nenhum evento de auditoria registrado para este contrato em `audit_logs`.
-        </p>
-      </HudPanel>
-    );
-  }
-
-  const events = audit.rows.map((row) => ({
-    title: AUDIT_ACTION_LABELS[row.action] ?? row.action,
-    actor: row.actor_user_id ? 'Usuário autenticado' : 'Sistema',
-    date: new Date(row.created_at),
-    status: row.action.includes('rejected') ? ('warning' as const) : ('done' as const),
-  }));
-
-  return (
-    <HudPanel title="Auditoria do contrato" subtitle={`${audit.rows.length} evento(s) em audit_logs`} icon={<ShieldCheck className="h-4 w-4" />} interactive={false}>
-      <Timeline events={events} />
-    </HudPanel>
-  );
-}
-
-/** Rótulos em pt-BR das ações gravadas por `logAuditEvent`. */
-const AUDIT_ACTION_LABELS: Record<string, string> = {
-  'contract.created': 'Contrato criado',
-  'contract.updated': 'Contrato atualizado',
-  'contract.deleted': 'Contrato excluído',
-  'contract.file_uploaded': 'Arquivo anexado',
-  'contract.document_uploaded': 'Documento enviado',
-  'contract.document_approved': 'Documento aprovado',
-  'contract.document_rejected': 'Documento rejeitado',
-  'contract.document_status_changed': 'Situação de documento alterada',
-  'contract.obligation_created': 'Obrigação criada',
-  'contract.obligation_updated': 'Obrigação atualizada',
-  'contract.obligation_completed': 'Obrigação concluída',
-  'contract.billing_event_created': 'Evento de faturamento criado',
-  'contract.billing_event_updated': 'Evento de faturamento atualizado',
-  'contract.billing_event_realized': 'Faturamento realizado',
-  'contract.linked_project': 'Projeto vinculado',
-  'contract.unlinked_project': 'Projeto desvinculado',
-  'contract.linked_risk': 'Risco vinculado',
-  'contract.unlinked_risk': 'Risco desvinculado',
-  'contract.project_created': 'Projeto criado a partir do contrato',
-  'contract.agenda_task_created': 'Tarefa de agenda criada',
-  'contract.ai_analysis_requested': 'Análise de IA solicitada',
-  'contract.changes_requested': 'Ajustes solicitados',
-};
 
 /*
-  `AiTab` foi removida na Fase 0.6 junto com a aba "Análise IA".
+  Saíram daqui `AuditTab`, `SideTimeline`, `Timeline` e uma cópia privada de
+  `AUDIT_ACTION_LABELS`.
 
-  O painel se anunciava como estado simulado, sem chamada de API, e listava doze
-  seções seladas como pendentes de backend. A capacidade REAL de leitura assistida
-  não estava ali e não foi tocada: ela vive na aba Cláusulas — extração por
-  documento, fila de propostas sob revisão humana, portão de evidência e
-  supersessão. É onde a inteligência tem consequência, e é onde ela fica.
+  Eram QUATRO peças para um assunto só. As três primeiras desenhavam a mesma
+  timeline em três marcações diferentes, já divergentes entre si; a quarta era
+  um mapa de rótulos que parava em `contract.changes_requested`, de modo que
+  eventos mais novos — `contract.reclassified`, por exemplo — chegavam crus ao
+  usuário de negócio.
+
+  Tudo isso virou `components/contracts/shell/AuditTimeline` sobre
+  `lib/contracts/audit-labels`, exibido pela gaveta `HistoryDrawer`.
+
+  Os DADOS não mudaram: seguem sendo as linhas de `audit_logs` lidas por
+  `listContractAuditEvents`, na mesma ordem — e agora sem corte, já que a
+  antiga `SideTimeline` mostrava só as 8 primeiras.
 */
 
-
-/**
- * Timeline auditável a partir de eventos REAIS.
- *
- * Antes eram seis estágios fixos — Uploaded/Analyzed/Reviewed/Approved/
- * Renewed/Expired — com datas caídas em `uploadedAt` quando não havia fonte, e
- * um ator literalmente chamado "INSIGHT AI mock". Num painel intitulado
- * "Timeline auditável", isso é o oposto de auditável.
- */
-function SideTimeline({ code, audit }: { code: string; audit: { rows: ContractAuditEventRow[]; error: string | null } }) {
-  if (audit.error || audit.rows.length === 0) {
-    return (
-      <HudPanel title="Timeline auditável" subtitle={code} icon={<CalendarClock className="h-4 w-4" />} interactive={false} className="xl:sticky xl:top-5">
-        <p className="text-ig-body-sm text-ig-fg-muted">
-          {audit.error ? 'Falha ao ler o histórico de auditoria.' : 'Nenhum evento registrado para este contrato.'}
-        </p>
-      </HudPanel>
-    );
-  }
-
-  const events = audit.rows.slice(0, 8).map((row) => ({
-    title: AUDIT_ACTION_LABELS[row.action] ?? row.action,
-    actor: row.actor_user_id ? 'Usuário autenticado' : 'Sistema',
-    date: new Date(row.created_at),
-    status: row.action.includes('rejected') ? ('warning' as const) : ('done' as const),
-  }));
-
-  return (
-    <HudPanel title="Timeline auditável" subtitle={`${code} · ${audit.rows.length} evento(s)`} icon={<CalendarClock className="h-4 w-4" />} interactive={false} className="xl:sticky xl:top-5">
-      <Timeline events={events} />
-    </HudPanel>
-  );
-}
-
-function Timeline({
-  events,
-}: {
-  events: Array<{ title: string; actor: string; date: Date; status: 'done' | 'warning' | 'pending' }>;
-}) {
-  return (
-    <div className="relative space-y-3">
-      <div className="absolute bottom-0 left-[15px] top-0 w-px bg-ig-border-subtle" />
-      {events.map((event) => (
-        <div key={`${event.title}-${event.actor}`} className="relative flex gap-3">
-          <span className={`mt-1 h-8 w-8 shrink-0 rounded-full border bg-ig-panel ${event.status === 'done' ? 'border-[color-mix(in_oklab,var(--ig-success)_40%,transparent)]' : event.status === 'warning' ? 'border-[color-mix(in_oklab,var(--ig-warning)_40%,transparent)]' : 'border-ig-border-strong'}`} />
-          <div className="min-w-0 flex-1 rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3">
-            <p className="truncate text-ig-body-sm font-semibold text-ig-fg-strong">{event.title}</p>
-            <p className="truncate text-ig-caption text-ig-fg-muted">{event.actor}</p>
-            <p className="mt-1 text-ig-caption text-ig-fg-subtle">{format(new Date(event.date), 'dd/MM/yyyy', { locale: pt })}</p>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
+/*
+  Relação como LINHA de lista de definição (§9 do gate).
+  Cada vínculo era um cartão com borda e um ícone dentro de outra caixa de
+  36px: seis relações produziam seis molduras e doze bordas para dizer seis
+  pares rótulo/valor. Rótulo à esquerda em largura fixa, valor à direita —
+  os valores alinham entre si, que é o que torna a lista varrível.
+*/
 function Relation({ icon, label, value, link = false }: { icon: React.ReactNode; label: string; value: string; link?: boolean }) {
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3">
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-ig-border-subtle bg-ig-panel text-ig-accent">{icon}</span>
-      <div className="min-w-0">
-        <p className="text-ig-label text-ig-fg-muted">{label}</p>
-        <p className={`truncate text-ig-body-sm font-semibold ${link ? 'text-ig-accent' : 'text-ig-fg-strong'}`}>{value}</p>
-      </div>
+    <div className="flex items-baseline gap-3 py-2">
+      <span className="flex w-28 shrink-0 items-center gap-1.5 text-ig-caption text-ig-fg-muted">
+        <span className="shrink-0 text-ig-fg-subtle" aria-hidden>{icon}</span>
+        <span className="truncate">{label}</span>
+      </span>
+      <span className={`min-w-0 flex-1 truncate text-ig-body-sm font-medium ${link ? 'text-ig-accent' : 'text-ig-fg-strong'}`}>
+        {value}
+      </span>
     </div>
   );
 }
 
+/* Campo de identidade: par rótulo/valor alinhado, sem moldura própria. */
 function Metric({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="min-w-0 rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3">
-      <p className="truncate text-ig-label font-semibold uppercase tracking-[0.14em] text-ig-fg-subtle">{label}</p>
-      <p className="mt-1 truncate text-base font-semibold tabular-nums text-ig-fg-strong">{value}</p>
+    <div className="min-w-0 border-t border-ig-border-subtle pt-2">
+      <p className="truncate text-ig-caption text-ig-fg-muted">{label}</p>
+      <p className="ig-tabular mt-0.5 truncate text-ig-body-sm font-semibold text-ig-fg-strong">{value}</p>
     </div>
   );
 }

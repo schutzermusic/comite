@@ -257,7 +257,13 @@ function buildClauses(contract: Contract, seed: number): ContractClause[] {
       category: 'Financeiro',
       risk: seed % 3 === 0 ? 'medium' : 'low',
       status: 'review',
-      note: 'Prévia mock: requer leitura documental conectada para confirmar condições.',
+      /*
+        A nota dizia "Prévia mock". Nomear o andaime técnico não informa quem
+        opera — e "prévia" ainda sugere que existe um resultado preliminar,
+        quando não há leitura nenhuma. O que é verdade: a cláusula não foi
+        verificada contra o documento.
+      */
+      note: 'Condição não verificada no documento: requer leitura documental registrada.',
     },
     {
       id: `${contract.id}-clause-sla`,
@@ -265,7 +271,12 @@ function buildClauses(contract: Contract, seed: number): ContractClause[] {
       category: 'SLA',
       risk: risk === 'low' ? 'medium' : 'high',
       status: 'review',
-      note: 'Interface preparada para extração de SLA por IA, sem API ativa.',
+      /*
+        "Interface preparada para extração por IA, sem API ativa" descrevia o
+        ESTADO DA ENGENHARIA para um leitor de negócio. O fato operacional é o
+        mesmo das demais: nada foi verificado contra o documento.
+      */
+      note: 'SLA não verificado no documento: requer leitura documental registrada.',
     },
   ];
 }
