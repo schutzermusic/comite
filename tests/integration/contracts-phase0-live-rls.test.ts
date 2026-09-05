@@ -137,10 +137,19 @@ suite('Fase 0 · invariantes vivos no Postgres', () => {
 
     // Segunda organização, com dados de referência próprios.
     await client.query(`INSERT INTO organizations (id, name, slug) VALUES ($1, '[PHASE0] Org B', 'phase0-org-b')`, [ORG_B]);
+    /*
+      `business_unit.organization_id` passou a ser NOT NULL na migration 104
+      (Fase 1). A unidade sempre foi "da Org B" — o comentário acima já dizia
+      isso —, só que o schema não exigia declará-lo. Agora exige, e declarar o
+      dono é a correção certa: inventar uma unidade sem inquilino para o teste
+      passar recriaria justamente o defeito que a 104 fechou.
+    */
     await client.query(
-      `INSERT INTO business_unit (id, code, name, uf) VALUES (gen_random_uuid(), 'PH0-BU', '[PHASE0] BU', 'SP')
-       ON CONFLICT DO NOTHING`);
-    const bu = (await client.query(`SELECT id FROM business_unit LIMIT 1`)).rows[0].id;
+      `INSERT INTO business_unit (id, code, name, uf, organization_id)
+       VALUES (gen_random_uuid(), 'PH0-BU', '[PHASE0] BU', 'SP', $1)
+       ON CONFLICT DO NOTHING`, [ORG_B]);
+    const bu = (await client.query(
+      `SELECT id FROM business_unit WHERE organization_id = $1 LIMIT 1`, [ORG_B])).rows[0].id;
     await client.query(
       `INSERT INTO cost_center (id, code, name, business_unit_id, type, organization_id)
        VALUES (gen_random_uuid(), 'PH0-B', '[PHASE0] CC da Org B', $1, 'direct', $2)`, [bu, ORG_B]);

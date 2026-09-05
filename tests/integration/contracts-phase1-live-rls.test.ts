@@ -92,6 +92,8 @@ const STOP_GATE = (() => {
 })();
 
 suite('Fase 1 · invariantes vivos no Postgres', () => {
+  /** A fase já estava aplicada nesta base quando a suíte começou. */
+  let jaAplicada = false;
   let client: pg.Client;
   let orgA: string;
   /** owner_admin da organização A. */
@@ -141,14 +143,32 @@ suite('Fase 1 · invariantes vivos no Postgres', () => {
     await client.query('SET SESSION default_transaction_read_only = off');
     await client.query('BEGIN');
 
+    /*
+      A fase já está aplicada nesta base?
+
+      Depois que a 106 passou a referenciar `parties_org_id_unique`, a 102
+      deixou de ser re-executável: seu `DROP CONSTRAINT IF EXISTS` não pode mais
+      cair, porque outros objetos dependem dele. Reaplicar aqui derrubaria a
+      suíte inteira num erro que não fala de nenhum invariante.
+
+      Então: numa base virgem as migrations são aplicadas e o teste 0 prova que
+      elas aplicam COMO ESTÃO ESCRITAS; numa base que já as recebeu, a suíte
+      roda as MESMAS provas contra o schema vivo, que é a prova mais forte das
+      duas. Nos dois casos tudo acontece dentro da transação e some no ROLLBACK.
+    */
+    jaAplicada = (await client.query(
+      `SELECT count(*)::int AS n FROM information_schema.tables
+        WHERE table_schema='public' AND table_name='parties'`)).rows[0].n > 0;
+
     // A ordem importa: 105 depende da 104 (business_unit precisa de inquilino
     // antes de virar alvo de FK do modelo canônico), e a 106 depende da 102.
-    for (const f of [
+    for (const f of jaAplicada ? [] : [
       '102_platform_parties.sql',
       '103_parties_perm_seeds.sql',
       '104_tenant_isolation_client_business_unit.sql',
       '105_canonical_cost_center.sql',
       '106_contracts_counterparty_party.sql',
+      '107_fcc_business_unit_tenant_fk.sql',
     ]) {
       const verbatim = inlineable(f);
       try {
@@ -235,7 +255,20 @@ suite('Fase 1 · invariantes vivos no Postgres', () => {
     // Uma migration que não aplica não protege nada. Enquanto esta lista não
     // estiver vazia, as provas abaixo descrevem o que o arquivo REMENDADO faz —
     // e o arquivo do repositório aborta antes da primeira política.
+    //
+    // Numa base que já recebeu a fase, nada é reaplicado (ver a guarda em
+    // beforeAll) e a lista fica vazia por construção: ali a prova de que o SQL
+    // vale é o próprio schema vivo, contra o qual as provas 1..N rodam.
     expect(quebradas).toEqual([]);
+  });
+
+  it('0.1 · a suíte declara contra o que está provando', () => {
+    // Não é asserção de comportamento: é o registro explícito do modo em que a
+    // suíte rodou, para que "passou" nunca seja ambíguo.
+    expect(typeof jaAplicada).toBe('boolean');
+    console.log(jaAplicada
+      ? '   [fase1-live] fase JÁ aplicada nesta base: provas rodam contra o schema vivo.'
+      : '   [fase1-live] base virgem: migrations aplicadas verbatim dentro da transação.');
   });
 
   // ── 1 · parties: identidade não atravessa inquilino ────────────────────────

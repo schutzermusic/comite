@@ -15,6 +15,12 @@
  *                                            dentro do modelo canônico)
  *   105  finance_cost_centers canônica      (depende de 104)
  *   106  contracts.counterparty_party_id    (depende de 102)
+ *   107  coerência de inquilino em          (depende de 104 e 105: a unidade
+ *        finance_cost_centers.business_unit_id  precisa já ter inquilino, e a
+ *                                            coluna precisa já existir)
+ *
+ * Reaplicar 102-106 numa base onde já entraram é seguro e proposital: as cinco
+ * são idempotentes, e o ensaio passa a provar isso a cada execução.
  *
  * O ensaio é o modo padrão de propósito: executa o mesmo SQL, roda as mesmas
  * provas contra os dados REAIS desta base, e desfaz tudo no fim. "Passou no
@@ -27,18 +33,43 @@ import pg from 'pg'; import dotenv from 'dotenv';
 dotenv.config({ path: '.env' }); dotenv.config({ path: '.env.local' });
 
 const APPLY = process.argv.includes('--apply');
-const FILES = [
+
+/**
+ * Subconjunto a aplicar: `node scripts/apply-contracts-v2-phase1.mjs 107`.
+ * Sem argumento numérico, roda a fase inteira.
+ *
+ * Existe porque a fase deixou de ser re-executável inteira, e é melhor dizer
+ * isso do que fingir: a 102 derruba e recria `parties_org_id_unique`, e depois
+ * que a 106 passou a referenciá-la esse DROP não é mais possível — o PostgreSQL
+ * recusa com "other objects depend on it". Numa base virgem a ordem 102→107
+ * funciona de ponta a ponta; numa base que já recebeu a fase, reaplicar a 102
+ * não é uma operação válida. Corrigir a 102 no lugar está fora de questão: ela
+ * já está aplicada em produção, e migration aplicada é registro, não rascunho.
+ */
+const ONLY = process.argv.filter(a => /^1\d\d$/.test(a));
+const ALL_FILES = [
   '102_platform_parties.sql',
   '103_parties_perm_seeds.sql',
   '104_tenant_isolation_client_business_unit.sql',
   '105_canonical_cost_center.sql',
   '106_contracts_counterparty_party.sql',
+  '107_fcc_business_unit_tenant_fk.sql',
 ];
+
+const FILES = ONLY.length
+  ? ALL_FILES.filter(f => ONLY.some(n => f.startsWith(n)))
+  : ALL_FILES;
+
+if (ONLY.length && FILES.length !== ONLY.length) {
+  console.error(`!!! Migration não encontrada entre ${ONLY.join(', ')}`);
+  process.exit(1);
+}
 
 const c = new pg.Client({ connectionString: process.env.SUPABASE_DB_URL, ssl: { rejectUnauthorized: false } });
 c.on('notice', n => console.log(`   NOTICE: ${n.message}`));
 await c.connect();
 console.log(APPLY ? '### MODO APLICAR (COMMIT) ###' : '### ENSAIO (ROLLBACK ao final) ###');
+console.log(`### migrations: ${FILES.map(f => f.slice(0, 3)).join(', ')} ###`);
 
 let ok = true;
 
@@ -63,7 +94,7 @@ async function preflight() {
   console.log(`   allocation_rule ......... ${ar}     [esperado 0 — PORTÃO]`);
   console.log(`   finance_cost_centers .... ${fcc}    [esperado 8]`);
   console.log(`   contracts ............... ${ct.total} (texto=${ct.texto}, client_id=${ct.cli}, supplier_id=${ct.sup})`);
-  console.log(`   parties/party_roles ..... ${parties} [esperado 0 = fase ainda não aplicada]`);
+  console.log(`   parties/party_roles ..... ${parties} ${ONLY.length ? '[fase já aplicada; rodando subconjunto]' : '[esperado 0 = fase ainda não aplicada]'}`);
 
   const stop = [];
   if (cc > 0) stop.push(`cost_center tem ${cc} linha(s): o repontamento estrutural não foi provado com dado real`);
@@ -145,6 +176,19 @@ try {
        AND table_name IN ('client','business_unit') AND column_name='organization_id'`, 2);
   await must('permissões parties.* registradas',
     `SELECT count(*) FROM permissions WHERE key LIKE 'parties.%'`, 4);
+  await must('business_unit tem o alvo composto (organization_id, id)',
+    `SELECT count(*) FROM pg_constraint WHERE conrelid='public.business_unit'::regclass
+       AND conname='business_unit_org_id_unique' AND contype='u'`, 1);
+  await must('finance_cost_centers.business_unit_id é coerente por inquilino',
+    `SELECT count(*) FROM pg_constraint WHERE conrelid='public.finance_cost_centers'::regclass
+       AND conname='fcc_business_unit_same_org' AND contype='f'
+       AND pg_get_constraintdef(oid) LIKE '%(organization_id, business_unit_id)%'
+       AND pg_get_constraintdef(oid) LIKE '%business_unit(organization_id, id)%'
+       AND pg_get_constraintdef(oid) LIKE '%ON DELETE RESTRICT%'`, 1);
+  await must('business_unit_id continua NULLABLE',
+    `SELECT count(*) FROM information_schema.columns WHERE table_schema='public'
+       AND table_name='finance_cost_centers' AND column_name='business_unit_id'
+       AND is_nullable='YES'`, 1);
 
   await v('políticas de parties/party_roles',
     `SELECT tablename, policyname, cmd FROM pg_policies WHERE schemaname='public'
@@ -203,6 +247,25 @@ try {
     const p = (await c.query(`INSERT INTO parties (organization_id, kind, legal_name)
                               VALUES ($1,'organization','Y') RETURNING id`, [orgA])).rows[0].id;
     await c.query(`INSERT INTO party_roles (organization_id, party_id, role) VALUES ($1,$2,'contractor')`, [orgA, p]);
+  });
+
+  // Unidade de negócio de OUTRO inquilino: recusada pela CHAVE, com RLS fora do
+  // caminho (esta conexão é a dona do banco). "Não vejo" seria prova fraca;
+  // "não pode existir" é a prova que interessa.
+  await expectFail('centro de custo da Org A com unidade de negócio da Org B', async () => {
+    await c.query(`INSERT INTO organizations (id, name, slug) VALUES ($1,'Org B','org-b-107fk')`, [orgB]);
+    const bu = (await c.query(`INSERT INTO business_unit (organization_id, code, name, uf)
+                               VALUES ($1,'BU-B','Unidade da B','SP') RETURNING id`, [orgB])).rows[0].id;
+    await c.query(`INSERT INTO finance_cost_centers (organization_id, code, name, business_unit_id)
+                   VALUES ($1,'CC-A-107','Centro da A',$2)`, [orgA, bu]);
+  });
+
+  // A mesma operação DENTRO do inquilino continua permitida.
+  await expectOk('centro de custo com unidade de negócio do MESMO inquilino', async () => {
+    const bu = (await c.query(`INSERT INTO business_unit (organization_id, code, name, uf)
+                               VALUES ($1,'BU-A','Unidade da A','MG') RETURNING id`, [orgA])).rows[0].id;
+    await c.query(`INSERT INTO finance_cost_centers (organization_id, code, name, business_unit_id)
+                   VALUES ($1,'CC-A-107-OK','Centro da A',$2)`, [orgA, bu]);
   });
 
   // Isolamento de leitura, com RLS realmente ligada.
