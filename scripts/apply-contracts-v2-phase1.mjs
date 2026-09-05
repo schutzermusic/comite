@@ -1,11 +1,12 @@
 /**
- * Aplicador das migrations da Fase 1 do Contracts V2 (102, 103, 104, 105, 106).
+ * Aplicador das migrations da Fase 1 do Contracts V2 (102, 103, 104, 105, 106, 107).
  *
  *   node scripts/apply-contracts-v2-phase1.mjs           # ENSAIO: aplica e faz ROLLBACK
  *   node scripts/apply-contracts-v2-phase1.mjs --apply   # aplica de verdade (COMMIT)
  *
- * As cinco vão numa transação só, pelo mesmo motivo da Fase 0: aplicar metade
- * deixa o banco num estado que nenhum teste descreve. A ordem importa e é fixa:
+ * Todas as migrations vão numa transação só quando executadas em conjunto, pelo mesmo
+ * motivo da Fase 0: aplicar metade deixa o banco num estado que nenhum teste descreve.
+ * A ordem importa e é fixa:
  *
  *   102  parties + party_roles              (identidade; não depende de nada)
  *   103  permissões parties.*               (depende de 102 só por coerência)
@@ -19,8 +20,11 @@
  *        finance_cost_centers.business_unit_id  precisa já ter inquilino, e a
  *                                            coluna precisa já existir)
  *
- * Reaplicar 102-106 numa base onde já entraram é seguro e proposital: as cinco
- * são idempotentes, e o ensaio passa a provar isso a cada execução.
+ * A execução completa (102–107) destina-se a uma base com schema virgem da Fase 1.
+ * Em bases onde a fase já foi aplicada, a 102 não pode ser reaplicada porque derruba
+ * e recria `parties_org_id_unique`, que após a 106 passa a ser referenciada por FK.
+ * Para bases já migradas, utiliza-se a seleção de subconjunto numérico (ex.:
+ * `node scripts/apply-contracts-v2-phase1.mjs 107`).
  *
  * O ensaio é o modo padrão de propósito: executa o mesmo SQL, roda as mesmas
  * provas contra os dados REAIS desta base, e desfaz tudo no fim. "Passou no
