@@ -45,7 +45,7 @@ const amend = (over: Partial<ContractAmendmentRow> = {}): ContractAmendmentRow =
 };
 
 const state = (rows: ContractAmendmentRow[]) =>
-  effectiveContractState(value, endDate, live(rows, 'contracts'));
+  effectiveContractState(value, endDate, live(rows, 'contracts'), '2030-01-01');
 
 // ═══════════════════════════════════════════════════════════════════
 // 1 · O mestre nunca é sobrescrito

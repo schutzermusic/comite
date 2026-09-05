@@ -9,7 +9,9 @@
  * Nenhum valor apurado foi alterado.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+
+afterEach(() => vi.useRealTimers());
 import { createHash } from 'node:crypto';
 import { enrichContractsForGovernance, DEMO_PREVIEW_INTENT } from '@/components/contracts/contract-governance-data';
 import { buildContractReportHtml } from '@/lib/reports/modules/contract-report';
@@ -392,6 +394,8 @@ describe('contract-dossier-report sobre o modelo confiável', () => {
   });
 
   it('imprime original E vigente lado a lado, nunca só um', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2028-01-01T12:00:00Z'));
     const html = buildContractDossierHtml({
       contract: portfolioFrom(batch())[0],
       source: 'teste',
