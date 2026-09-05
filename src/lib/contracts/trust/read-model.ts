@@ -29,6 +29,9 @@
  */
 
 import type { Project } from '@/lib/types';
+import type { PartyRow } from '@/lib/parties/types';
+import { partyDisplayName } from '@/lib/parties/types';
+import { partyFor } from '@/lib/parties/counterparty';
 import type {
   ContractRow,
   ContractDetail,
@@ -67,6 +70,20 @@ export type TrustedContract = {
   readonly id: string;
   readonly code: string;
   readonly title: string;
+  /**
+   * Nome da contraparte.
+   *
+   * O ESTADO de confiança não muda com a existência de vínculo canônico: com
+   * party é `live(..., 'parties')`, sem party e com texto é
+   * `live(..., 'contracts')`, sem nenhum dos dois é `missing('null-in-source')`
+   * — igual a antes. Ligar um contrato a uma `party` não promove nem rebaixa
+   * confiança, e JAMAIS transforma um `missing` em valor: só diz de qual
+   * tabela o nome veio.
+   *
+   * Não há campo `counterpartyIsCanonical`: seria redundante. O selo já está no
+   * rótulo de origem — `counterparty.trust === 'live' && counterparty.source
+   * === 'parties'`.
+   */
   readonly counterparty: Official<string>;
   readonly contractType: Official<string>;
   readonly status: string;
@@ -202,6 +219,25 @@ function contractCode(row: ContractRow): string {
   const match = row.title?.match(/\b(?:OS|OP|CT|CTR)\s*[0-9.-]+/i);
   if (match) return match[0].replace(/\s+/g, ' ');
   return `CTR-${row.id.slice(-6).toUpperCase()}`;
+}
+
+/**
+ * Contraparte: entidade canônica quando houver, texto do contrato quando não.
+ *
+ * A precedência é estrita e não tem terceiro caso: `parties` → texto →
+ * ausência. Nenhuma comparação de nome participa da decisão — só o vínculo
+ * explícito `counterparty_party_id`. `batch.parties` ausente (leitura que não
+ * resolveu parties, ou que tentou e falhou) é indistinguível, aqui, de
+ * contrato sem vínculo: nos dois casos o resultado é o texto livre, que é o
+ * comportamento histórico e continua verdadeiro.
+ */
+function counterpartyOf(
+  row: ContractRow,
+  parties: ReadonlyMap<string, PartyRow> | undefined,
+): Official<string> {
+  const party = partyFor(row.counterparty_party_id, parties);
+  if (party) return live(partyDisplayName(party), 'parties');
+  return fromColumn(row.counterparty_name, 'contracts');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -356,7 +392,7 @@ export function buildTrustedContract(
     id,
     code: contractCode(row),
     title: row.title,
-    counterparty: fromColumn(row.counterparty_name, 'contracts'),
+    counterparty: counterpartyOf(row, batch.parties),
     contractType: fromColumn(row.contract_type, 'contracts'),
     status: row.status,
     riskLevel: (row.risk_level === 'high' || row.risk_level === 'low' ? row.risk_level : 'medium'),
@@ -434,6 +470,9 @@ export function relationsBatchFromDetail(
     clauses: one(detail.clauses),
     penalties: one(detail.penalties),
     riskDetails: new Map(),
+    // Repassa o que `getContractById` conseguiu resolver. Ausente segue
+    // ausente: a ponte não inventa resolução que a leitura não fez.
+    parties: detail.parties,
     sectionsWithData: {
       obligations: detail.obligations.length > 0,
       billing: detail.billingEvents.length > 0,

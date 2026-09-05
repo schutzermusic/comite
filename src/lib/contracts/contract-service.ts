@@ -4,6 +4,9 @@ import type { Contract } from '@/lib/types';
 import { logAuditEvent } from '@/lib/audit/log-audit-event';
 import { createProject, getProjectsAsync } from '@/lib/services/projects';
 import { createClient } from '@/utils/supabase/client';
+import type { PartyRow } from '@/lib/parties/types';
+import { resolveCounterparty } from '@/lib/parties/counterparty';
+import { fetchPartiesByIds } from '@/lib/parties/party-service';
 
 const CONTRACT_FILES_BUCKET = 'contract-files';
 
@@ -58,11 +61,30 @@ export type ContractRow = {
   id: string;
   organization_id: string;
   project_id: string | null;
+  /**
+   * `client_id` e `supplier_id` são colunas MORTAS: nasceram em 006 sem
+   * FOREIGN KEY, nenhum caminho de escrita do produto as preenche e nenhuma
+   * leitura as consulta. Ficam intocadas — remover coluna de produção é ato
+   * separado, com sua própria migration e sua própria justificativa — e estão
+   * fora do escopo da Fase 1. A identidade da contraparte passa a viver em
+   * `counterparty_party_id`.
+   */
   client_id: string | null;
   supplier_id: string | null;
   title: string;
   contract_number: string | null;
   counterparty_name: string | null;
+  /**
+   * Vínculo OPCIONAL com a entidade canônica em `parties` (migration 106).
+   *
+   * `null` é estado normal e PERMANENTE: todo o acervo histórico nasceu antes
+   * de `parties` existir e nenhuma migration pode ligá-lo — ENEL e ENEL GREEN
+   * POWER são textos que um humano desconfia estarem relacionados e que
+   * nenhuma consulta consegue provar serem a mesma pessoa jurídica. Sem
+   * vínculo, a leitura cai em `counterparty_name`, que é o comportamento de
+   * hoje.
+   */
+  counterparty_party_id: string | null;
   contract_type: string | null;
   status: ContractStatus;
   lifecycle_stage: string | null;
@@ -451,11 +473,25 @@ export type ContractDetail = {
    * conseguiu ler, em vez de a página inteira quebrar.
    */
   amendmentsError: string | null;
+  /**
+   * Entidades canônicas resolvidas para este contrato, quando a leitura
+   * conseguiu carregá-las. Ausente ou vazio significa "ninguém resolveu
+   * party nesta leitura" — e a projeção cai no texto livre, nunca em erro.
+   */
+  parties?: Map<string, PartyRow>;
 };
 
 export type CreateContractInput = {
   title: string;
   counterpartyName?: string | null;
+  /**
+   * Entidade canônica escolhida para a contraparte, quando houve escolha.
+   *
+   * Opcional de propósito: texto livre continua sendo caminho de primeira
+   * classe. Digitar um nome que não corresponde a nenhuma `party` cria o
+   * contrato exatamente como antes, com `counterparty_party_id` nulo.
+   */
+  counterpartyPartyId?: string | null;
   contractNumber?: string | null;
   contractType?: string | null;
   projectId?: string | null;
@@ -593,12 +629,26 @@ function normalizeProjectKey(value: string): string {
     .replace(/[^a-z0-9]/g, '');
 }
 
-export function contractRowToLegacyContract(row: ContractRow, files: ContractFileRow[] = []): Contract {
+/**
+ * Projeção para o tipo legado `Contract`.
+ *
+ * `party` é opcional e a ausência dele NÃO é uma falha: significa apenas que
+ * quem chamou não resolveu entidades canônicas nesta leitura. `vendorOrParty`
+ * então cai no texto livre — o comportamento de sempre. Com a party presente,
+ * o nome exibido passa a ser o canônico. `resolveCounterparty` é o único lugar
+ * onde essa precedência é decidida.
+ */
+export function contractRowToLegacyContract(
+  row: ContractRow,
+  files: ContractFileRow[] = [],
+  party?: PartyRow | null,
+): Contract {
   const primaryFile = files[0];
+  const counterparty = resolveCounterparty(row.counterparty_name, party);
   return {
     id: row.id,
     name: row.title,
-    vendorOrParty: row.counterparty_name || 'Contraparte nao informada',
+    vendorOrParty: counterparty?.value || 'Contraparte nao informada',
     value: toNumber(row.total_value),
     currency: row.currency || 'BRL',
     signingDate: toDate(row.signed_date),
@@ -626,6 +676,33 @@ export async function listContracts(): Promise<ContractRow[]> {
 
   if (error) throw new Error(`Erro ao carregar contratos: ${error.message}`);
   return (data ?? []) as ContractRow[];
+}
+
+/**
+ * Carrega as entidades canônicas referenciadas por um conjunto de contratos.
+ *
+ * TOLERANTE A FALHA de propósito, pelo mesmo motivo que `contract_amendments`
+ * em `getContractById`: se a leitura de `parties` falhar — tabela ausente por
+ * deploy fora de ordem, RLS, rede — o contrato precisa continuar abrindo. A
+ * degradação é exata e visível: sem party, a contraparte é lida de
+ * `counterparty_name`, que é o que a tela mostra hoje. Falhar a página inteira
+ * para não conseguir exibir um nome canônico trocaria uma perda de precisão
+ * por uma perda de acesso.
+ *
+ * Ids nulos não tocam a rede: um acervo inteiramente sem vínculo custa zero.
+ */
+async function loadCounterpartyParties(
+  rows: readonly Pick<ContractRow, 'counterparty_party_id'>[],
+): Promise<Map<string, PartyRow>> {
+  const ids = Array.from(
+    new Set(rows.map((row) => row.counterparty_party_id).filter((id): id is string => Boolean(id))),
+  );
+  if (ids.length === 0) return new Map();
+  try {
+    return await fetchPartiesByIds(ids);
+  } catch {
+    return new Map();
+  }
 }
 
 export async function getContractById(contractId: string): Promise<ContractDetail | null> {
@@ -680,6 +757,8 @@ export async function getContractById(contractId: string): Promise<ContractDetai
     segunda consulta — encadeada, não paralela. Um contrato sem aditivo não
     paga nada por isso: a função devolve `[]` sem tocar a rede.
   */
+  const parties = await loadCounterpartyParties([contract]);
+
   let amendments: ContractAmendmentRow[] = [];
   let amendmentClauses: ContractAmendmentClauseRow[] = [];
   let amendmentsError: string | null = null;
@@ -706,7 +785,8 @@ export async function getContractById(contractId: string): Promise<ContractDetai
     documents,
     amendments,
     amendmentClauses,
-    amendmentsError
+    amendmentsError,
+    parties
   };
 }
 
@@ -720,6 +800,7 @@ export async function createContract(input: CreateContractInput): Promise<Contra
       title: input.title,
       contract_number: input.contractNumber || null,
       counterparty_name: input.counterpartyName || null,
+      counterparty_party_id: input.counterpartyPartyId || null,
       contract_type: input.contractType || null,
       status: input.status || 'active',
       lifecycle_stage: input.lifecycleStage || 'created',
@@ -779,6 +860,7 @@ const CONTRACT_UPDATE_COLUMNS = {
   title: 'title',
   contractNumber: 'contract_number',
   counterpartyName: 'counterparty_name',
+  counterpartyPartyId: 'counterparty_party_id',
   contractType: 'contract_type',
   status: 'status',
   lifecycleStage: 'lifecycle_stage',
@@ -2795,6 +2877,16 @@ export type ContractRelationsBatch = {
   clauses: Map<string, ContractClauseRow[]>;
   penalties: Map<string, ContractPenaltyRow[]>;
   riskDetails: Map<string, ContractRiskDetail>;
+  /**
+   * Entidades canônicas de `parties` referenciadas por `counterparty_party_id`.
+   *
+   * OPCIONAL, e a distinção importa: campo ausente significa "esta leitura não
+   * resolveu parties", e a projeção cai no texto livre — que é o comportamento
+   * histórico e continua correto. Não é `sectionErrors`: uma party que não
+   * carregou não torna o contrato não apurado, porque `counterparty_name`
+   * segue sendo uma leitura legítima da própria linha de `contracts`.
+   */
+  parties?: Map<string, PartyRow>;
   /** True when at least one live row was returned for that relation across all contracts. */
   sectionsWithData: {
     obligations: boolean;
@@ -3094,6 +3186,20 @@ export async function fetchContractRelationsBatch(contractIds: string[]): Promis
     });
   }
 
+  /*
+    Contrapartes canônicas. A consulta é separada e TOLERANTE: o batch é lido
+    por telas que já têm as linhas de `contracts` na mão, mas não as recebe
+    aqui — só os ids —, então o vínculo precisa ser relido. Uma falha em
+    qualquer das duas etapas devolve mapa vazio, e a projeção cai no texto
+    livre de `counterparty_name`. Não entra em `sectionErrors` de propósito:
+    não conseguir nomear canonicamente uma contraparte não torna o contrato
+    não apurado — o nome do papel continua sendo uma leitura legítima.
+  */
+  const counterpartyLinks = await safe<{ id: string; counterparty_party_id: string | null }>(
+    supabase.from('contracts').select('id,counterparty_party_id').in('id', ids),
+  );
+  const parties = await loadCounterpartyParties(counterpartyLinks.rows);
+
   return {
     obligations: groupByContract(obligations.rows),
     billingEvents: groupByContract(billingEvents.rows),
@@ -3106,6 +3212,7 @@ export async function fetchContractRelationsBatch(contractIds: string[]): Promis
     clauses: groupByContract(clauses.rows),
     penalties: groupByContract(penalties.rows),
     riskDetails,
+    parties,
     sectionsWithData: {
       obligations: obligations.rows.length > 0,
       billing: billingEvents.rows.length > 0,

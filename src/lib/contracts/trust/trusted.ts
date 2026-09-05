@@ -61,7 +61,22 @@ export type LiveSource =
   | 'contract_clauses'
   | 'contract_penalties'
   | 'audit_logs'
-  | 'risks';
+  | 'risks'
+  /**
+   * `parties` (migration 102): a entidade canônica da contraparte.
+   *
+   * A adição é exigida pela definição acima, não uma extensão dela.
+   * `LiveSource` responde "de onde este valor `live` foi lido" — é rótulo de
+   * origem FÍSICA, a serviço de explicabilidade e auditoria, não uma escala de
+   * confiança. Confiança já é dita pelo `TrustState`, e ali nada muda: uma
+   * contraparte vinda de `parties` e uma vinda do texto de `contracts` são
+   * ambas `live`; só a tabela difere.
+   *
+   * O contrário seria pior de forma concreta: rotular como `source:
+   * 'contracts'` um nome lido de `parties` faria o selo de proveniência
+   * afirmar algo falso — exatamente o que esta camada existe para impedir.
+   */
+  | 'parties';
 
 /**
  * Por que um indicador não pôde ser apurado.

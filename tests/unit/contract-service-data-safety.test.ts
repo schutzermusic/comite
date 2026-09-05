@@ -94,9 +94,10 @@ describe('buildContractUpdatePayload', () => {
     });
   });
 
-  it('mapeia todos os 19 campos para as colunas snake_case corretas', () => {
+  it('mapeia todos os 20 campos para as colunas snake_case corretas', () => {
     const full: UpdateContractInput = {
       projectId: 'p1', title: 't', contractNumber: 'n', counterpartyName: 'c',
+      counterpartyPartyId: 'party-1',
       contractType: 'ct', status: 'active', lifecycleStage: 'ls',
       startDate: '2026-01-01', endDate: '2026-12-31', signedDate: '2026-01-02',
       renewalDate: '2026-11-01', currency: 'BRL', totalValue: 10, monthlyValue: 1,
@@ -107,7 +108,8 @@ describe('buildContractUpdatePayload', () => {
     const payload = buildContractUpdatePayload(full, 'user-1');
 
     expect(Object.keys(payload).sort()).toEqual([
-      'contract_number', 'contract_type', 'counterparty_name', 'currency',
+      'contract_number', 'contract_type', 'counterparty_name',
+      'counterparty_party_id', 'currency',
       'end_date', 'health_score', 'lifecycle_stage', 'monthly_value',
       'owner_user_id', 'payment_terms', 'project_id', 'renewal_date',
       'risk_level', 'scope_summary', 'signed_date', 'start_date', 'status',
