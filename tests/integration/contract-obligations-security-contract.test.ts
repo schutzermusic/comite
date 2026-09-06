@@ -143,7 +143,9 @@ describe('registro de migrations', () => {
     const versions = readdirSync('supabase/migrations').filter((f) => f.endsWith('.sql')).map((f) => f.slice(0, 3)).sort();
     expect(versions.filter((v) => ['114', '115', '116', '117'].includes(v))).toEqual(['114', '115', '116', '117']);
     expect(new Set(versions).size).toBe(versions.length);
-    expect(versions.at(-1)).toBe('117');
+    // A ponta CRESCE com as fases seguintes; prendê-la a um número faria toda
+    // migration nova quebrar um teste da fase anterior.
+    expect(Number(versions.at(-1))).toBeGreaterThanOrEqual(117);
     expect(versions).not.toContain('090');
   });
 

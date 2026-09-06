@@ -6,6 +6,7 @@ const perms = readFileSync('supabase/migrations/113_fiscal_perm_seeds.sql', 'utf
 const store = readFileSync('src/lib/fiscal/server/store.ts', 'utf8');
 const sandbox = readFileSync('src/lib/fiscal/provider/sandbox.ts', 'utf8');
 const providerConfigRoute = readFileSync('src/app/api/fiscal/provider-config/route.ts', 'utf8');
+const truncateHardening = readFileSync('supabase/migrations/118_platform_truncate_privilege_hardening.sql', 'utf8');
 const engine = readFileSync('src/lib/fiscal/server/engine.ts', 'utf8');
 
 describe('fiscal storage and tenancy contract', () => {
@@ -20,6 +21,23 @@ describe('fiscal storage and tenancy contract', () => {
   it('scopes every tenant table by organization and denies browser writes', () => {
     expect(foundation).toContain('organization_id = public.current_user_organization_id()');
     expect(foundation).toContain('REVOKE INSERT, UPDATE, DELETE ON public.%I FROM authenticated, anon');
+  });
+
+  it('TRUNCATE das tabelas fiscais é coberto pelo endurecimento de plataforma', () => {
+    /*
+      A 112 revoga INSERT/UPDATE/DELETE e NÃO revoga TRUNCATE — o que deixava as
+      onze tabelas fiscais herdando TRUNCATE do DEFAULT ACL do schema. A correção
+      não foi editar a 112 (migration aplicada é registro, não rascunho): foi a
+      118, que revoga em TODA tabela de `public` e corrige o default para que
+      nenhuma tabela futura o herde. `platform-truncate-privilege.test.ts` prova
+      o efeito contra o banco; aqui fica registrado que a cobertura existe e de
+      onde ela vem.
+    */
+    expect(truncateHardening).toContain('REVOKE TRUNCATE ON ALL TABLES IN SCHEMA public FROM anon, authenticated');
+    expect(truncateHardening).toContain('ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA public REVOKE TRUNCATE ON TABLES FROM anon, authenticated');
+    // E não pode ter encostado no DML que a RLS governa.
+    expect(truncateHardening).not.toMatch(/REVOKE\s+(SELECT|INSERT|UPDATE|DELETE)\b/);
+    expect(truncateHardening).not.toMatch(/FROM\s+service_role|FROM\s+postgres\b/);
   });
 
   it('never exposes the credentials table to the browser at all', () => {

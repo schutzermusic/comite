@@ -63,20 +63,36 @@ contratual e avaliação de `blocks_billing`.
   Converter exigiria inventar a proveniência e a regra de prazo que nunca foram
   registradas. A tabela virou somente-leitura e se declara legado.
 
-### Achado de segurança fora do escopo desta fase
+### Achado de segurança — RESOLVIDO na migration 118
 
-O `public` deste projeto concede, por *default privileges* do Supabase,
-`arwdDxtm` a `anon` e `authenticated` em toda tabela nova — **147 tabelas**
-têm TRUNCATE concedido a `anon`. TRUNCATE **não é filtrado por RLS**.
+O schema `public` carregava DEFAULT PRIVILEGES concedendo `arwdDxtm` — todos os
+privilégios de tabela, TRUNCATE incluído — a `anon` e `authenticated` em toda
+tabela nova. Padrão instalado pelo Supabase, não escrito por ninguém aqui.
 
-Na prática o PostgREST não expõe TRUNCATE (o verbo não existe na sua API) e os
-verbos que ele expõe continuam barrados pela RLS, então não há porta aberta
-hoje. Ainda assim os grants são muito mais largos que o desenho pretende.
+TRUNCATE importa porque é o único privilégio de escrita que a **RLS não
+filtra**: SELECT/INSERT/UPDATE/DELETE passam pelas políticas e um papel sem
+organização não alcança linha nenhuma; TRUNCATE não olha para linha, esvazia a
+tabela.
 
-As tabelas das fases nova (112–117) revogam explicitamente
-`INSERT, UPDATE, DELETE, TRUNCATE`. Corrigir as outras ~140 e o
-`ALTER DEFAULT PRIVILEGES` do schema é mudança de plataforma, com o seu próprio
-preflight e a sua própria janela — não cabe dentro de uma fase de Contratos.
+Não havia porta aberta — o PostgREST não expõe o verbo, e nenhuma função
+`SECURITY INVOKER` o executava (verificado: zero funções em todo o banco com
+TRUNCATE no corpo, e o único TRUNCATE do repositório está na migration 005,
+sobre uma TEMP TABLE, executado como `postgres`). O que havia era um privilégio
+muito mais largo que o desenho.
+
+**Migration 118** revoga TRUNCATE de `anon` e `authenticated` em todas as
+tabelas de `public` e corrige o DEFAULT ACL de cada papel que realmente possui
+tabela ali, para que nenhuma tabela futura o herde. 146 tabelas antes, 0 depois.
+`service_role`, `postgres` e todo o DML governado por RLS ficaram intactos.
+
+Resíduo declarado, fora do nosso alcance: `supabase_admin` também tem um DEFAULT
+ACL concedendo TRUNCATE, e `postgres` não é membro dele — `ALTER DEFAULT
+PRIVILEGES FOR ROLE supabase_admin` responde *permission denied*. Aquele default
+só vale para tabela criada POR `supabase_admin`, e nenhuma das tabelas de
+`public` é dele: todas pertencem a `postgres`, que é sob quem as migrations
+rodam. Se um dia a plataforma criar tabela de aplicação em `public`, ela
+nasceria com o privilégio — `tests/integration/platform-truncate-privilege.test.ts`
+detecta isso, porque ele consulta o catálogo em vez de reler a migration.
 
 ## Phase 4 — Event Graph
 Deferred:
