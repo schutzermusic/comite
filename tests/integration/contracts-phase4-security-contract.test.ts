@@ -15,7 +15,9 @@ const m119 = read('supabase/migrations/119_platform_domain_events.sql');
 const m120 = read('supabase/migrations/120_platform_apex_jobs.sql');
 const m121 = read('supabase/migrations/121_contracts_event_bindings_and_emission.sql');
 const m122 = read('supabase/migrations/122_contracts_clause_extraction_queue.sql');
-const all4 = m119 + m120 + m121 + m122;
+const m123 = read('supabase/migrations/123_contracts_extraction_request_set_null_scope.sql');
+const m124 = read('supabase/migrations/124_platform_claim_batch_limit.sql');
+const all4 = m119 + m120 + m121 + m122 + m123 + m124;
 
 const worker = read('src/lib/platform/jobs/worker.ts');
 const handlers = read('src/lib/platform/jobs/handlers.ts');
@@ -103,6 +105,23 @@ describe('posse por concessão', () => {
     // SELECT primeiro e UPDATE depois seria uma corrida com nome de padrão.
     expect(m120).toContain('FOR UPDATE SKIP LOCKED');
     expect(m120).toMatch(/UPDATE public\.apex_jobs j[\s\S]*FROM \([\s\S]*FOR UPDATE SKIP LOCKED/);
+  });
+
+  it('a seleção limitada é MATERIALIZADA, e não pode ser reexecutada', () => {
+    /*
+      Sem `MATERIALIZED`, o planejador põe a subconsulta com LIMIT do lado
+      interno de um laço aninhado e a reexecuta por linha externa — cada
+      passada devolvendo OUTRAS n linhas, porque o SKIP LOCKED pula o que ela
+      mesma acabou de travar. Pedir 4 entregava 8.
+
+      A palavra é explícita de propósito: depender de o planejador "não
+      conseguir" embutir uma CTE com FOR UPDATE seria apoiar uma garantia de
+      execução num detalhe de implementação.
+    */
+    expect(m124).toContain('WITH due AS MATERIALIZED (');
+    expect(m124).toContain('WITH expired AS MATERIALIZED (');
+    // E o limite nulo não vira "sem limite".
+    expect(m124).toContain('IF p_limit IS NULL OR p_limit < 1');
   });
 
   it('a tentativa é contada na reivindicação, não na falha', () => {
@@ -257,6 +276,10 @@ describe('as fronteiras que esta fase NÃO cruza', () => {
       '120_platform_apex_jobs.sql',
       '121_contracts_event_bindings_and_emission.sql',
       '122_contracts_clause_extraction_queue.sql',
+      // 123 é correção provada em EXECUÇÃO, não redesenho: a 122 não foi
+      // editada, porque migration aplicada é registro.
+      '123_contracts_extraction_request_set_null_scope.sql',
+      '124_platform_claim_batch_limit.sql',
     ]);
     // A 090 continua arquivada como NUNCA aplicada.
     expect(existsSync('supabase/migrations/090_contract_obligations.sql')).toBe(false);
@@ -314,6 +337,22 @@ describe('extração enfileirada preserva o significado jurídico', () => {
 
   it('pedido e trabalho nascem na MESMA transação', () => {
     expect(m122).toMatch(/INSERT INTO public\.contract_clause_extraction_requests[\s\S]*apex_jobs_enqueue/);
+  });
+
+  it('o SET NULL do pedido anula a REFERÊNCIA, não o inquilino', () => {
+    /*
+      `ON DELETE SET NULL` sem lista de colunas anula TODAS as colunas da chave
+      composta, `organization_id` incluída — e ela é NOT NULL. O efeito não era
+      "a referência fica nula": era a transação inteira caindo. Pior, como
+      `organizations` apaga em cascata tanto `apex_jobs` quanto o pedido, o
+      apagamento do INQUILINO passava a depender da ORDEM em que o Postgres
+      percorre a cascata.
+    */
+    expect(m123).toContain('ON DELETE SET NULL (job_id)');
+    expect(m123).toContain('ON DELETE SET NULL (analysis_id)');
+    // A amarra composta continua inteira: a coluna do inquilino segue na chave.
+    expect(m123).toContain('FOREIGN KEY (organization_id, job_id)');
+    expect(m123).toContain('FOREIGN KEY (organization_id, analysis_id)');
   });
 
   it('o resultado continua no modelo que já existia', () => {

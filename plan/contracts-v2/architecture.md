@@ -226,7 +226,7 @@ Do not recreate the removed vertical dossier rail.
 - Phase 1 — Canonical Party & Tenant Foundation — complete
 - Phase 2 — Contract Structured Model — complete
 - Phase 3 — Obligations Engine — complete (migrations 114–117)
-- Phase 4 — Platform Event Graph / Durable Work Execution — complete (migrations 119–122)
+- Phase 4 — Platform Event Graph / Durable Work Execution — complete (migrations 119–124)
 - Phase 5 — Apex Approval Engine — next
 - Phase 6 — Contract ↔ Project / Measurement
 - Phase 7 — Billing ↔ Finance

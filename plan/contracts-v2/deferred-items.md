@@ -96,7 +96,9 @@ detecta isso, porque ele consulta o catálogo em vez de reler a migration.
 
 ## Phase 4 — Platform Event Graph / Durable Work Execution — ENTREGUE
 
-Migrations 119–122. O que estava listado como deferido foi implementado:
+Migrations 119–124 (119–122 desenho; 123–124 correções provadas em EXECUÇÃO —
+nenhuma migration aplicada foi editada). O que estava listado como deferido foi
+implementado:
 
 - `domain_events` (119) — fato durável, append-only, org-scoped, com
   idempotência de negócio, causação do mesmo inquilino e payload sem segredo;
@@ -119,6 +121,29 @@ para cá:
   (`contract_obligation_event_bindings`) entre definição de obrigação e tipo de
   evento. O descritor contratual (`activation_event_text`) continua sendo
   proveniência jurídica; nada é inferido dele.
+
+### Dois defeitos que só a execução revelou
+
+Nenhum dos dois seria encontrado lendo o SQL, e por isso os dois ganharam teste
+vivo permanente em `tests/integration/platform-event-graph-live.test.ts`.
+
+- **123 — `ON DELETE SET NULL` composto anulava o inquilino.** A 122 escreveu
+  `FOREIGN KEY (organization_id, job_id) ... ON DELETE SET NULL`, e sem lista de
+  colunas isso anula TODAS as colunas da chave, `organization_id` inclusive —
+  que é NOT NULL. Apagar um trabalho referenciado derrubava a transação. Pior:
+  como `organizations` apaga em cascata tanto `apex_jobs` quanto o pedido, o
+  apagamento do INQUILINO INTEIRO passava a depender da ORDEM da cascata. O
+  smoke passou por sorte de ordenação. Corrigido com `SET NULL (job_id)` /
+  `SET NULL (analysis_id)`.
+- **124 — o lote da reivindicação não valia.** `UPDATE ... FROM (SELECT ...
+  LIMIT n FOR UPDATE SKIP LOCKED)` colocava a subconsulta limitada do lado
+  INTERNO de um laço aninhado, e o lado interno é reexecutado por linha externa.
+  Cada reexecução respeitava o limite e, como o SKIP LOCKED pula o que ela mesma
+  travou, devolvia OUTRAS n. Pedir 4 entregava 8. Nada era executado duas vezes
+  — o que quebrava era a EXECUÇÃO LIMITADA, que é o que impede a hospedagem de
+  derrubar o trabalhador no meio. Corrigido com CTE `AS MATERIALIZED`. De
+  quebra, `LIMIT NULL` é "sem limite" no Postgres e a guarda antiga deixava NULL
+  passar; agora recusa.
 
 ### Deferido DENTRO da Fase 4
 

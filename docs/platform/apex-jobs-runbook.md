@@ -13,7 +13,7 @@ cabeçalhos das próprias migrations.
 | Fatos duráveis | `domain_events` (119) |
 | Registro estático de rotas | `apex_event_routes` (119) — hoje vazio |
 | Provedores dinâmicos de rota | `apex_dynamic_route_providers` (120) |
-| Fila de trabalho | `apex_jobs` (120) |
+| Fila de trabalho | `apex_jobs` (120), lote corrigido na 124 |
 | Vínculo de ativação de obrigação | `contract_obligation_event_bindings` (121) |
 | Pedido durável de extração | `contract_clause_extraction_requests` (122) |
 | Trabalhador | `src/lib/platform/jobs/worker.ts` |
@@ -137,6 +137,13 @@ na primeira tentativa, por desenho.
 **Um trabalho ficou `PROCESSING` para sempre.**
 Não fica: o ceifador o devolve quando a concessão vence (300s por padrão). Se
 persistir, `expired_leases` na saúde vai mostrar.
+
+**Um lote maior que o pedido.**
+Não acontece mais desde a 124, e a causa vale ser lembrada: uma subconsulta com
+`LIMIT` do lado interno de um laço aninhado é REEXECUTADA por linha externa, e
+com `SKIP LOCKED` cada reexecução devolve outras tantas. A seleção agora é uma
+CTE `AS MATERIALIZED`. Se algum dia o lote voltar a estourar, olhe o plano antes
+de olhar o código.
 
 **Duas batidas ao mesmo tempo.**
 Seguras. A reivindicação usa `FOR UPDATE SKIP LOCKED` e devolve conjuntos

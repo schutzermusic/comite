@@ -182,6 +182,46 @@ suite('Fase 4 · concorrência real, recuperação e fronteira do navegador', ()
     await b.query('ROLLBACK');
   }, 60_000);
 
+  it('1b · o lote pedido é o lote entregue — e o plano não pode reexecutar a seleção', async () => {
+    /*
+      Este teste existe por causa de um defeito que NENHUMA leitura pegaria.
+
+      A reivindicação era `UPDATE ... FROM (SELECT ... LIMIT n FOR UPDATE SKIP
+      LOCKED)`. O planejador pôs a subconsulta limitada do lado INTERNO de um
+      laço aninhado, e o lado interno é reexecutado por linha externa. Cada
+      reexecução respeitava o limite — mas, como as linhas já travadas passam a
+      ser puladas pelo SKIP LOCKED, cada passada devolvia OUTRAS n. Pedir 4
+      entregava 8.
+
+      Nada era executado duas vezes: o que quebrava era a EXECUÇÃO LIMITADA,
+      que é o que impede a hospedagem de derrubar o trabalhador no meio. A
+      migration 124 trocou por uma CTE `AS MATERIALIZED`.
+
+      O limite só se prova executando, contra dados de verdade e com um plano
+      de verdade. Por isso o teste vive aqui.
+    */
+    const seeded = await seedJobs(8, `lote:${Date.now()}`);
+
+    await a.query('BEGIN');
+    expect(mine(await claim(a, 'live-lote-4', 4), seeded).length).toBe(4);
+    await a.query('ROLLBACK');
+
+    await a.query('BEGIN');
+    expect(mine(await claim(a, 'live-lote-1', 1), seeded).length).toBe(1);
+    await a.query('ROLLBACK');
+
+    await a.query('BEGIN');
+    expect(mine(await claim(a, 'live-lote-8', 8), seeded).length).toBe(8);
+    await a.query('ROLLBACK');
+
+    // `LIMIT NULL` é "sem limite" no Postgres. Um lote nulo não pode virar
+    // "reivindique a fila inteira" por omissão da guarda.
+    await expect(claim(a, 'live-lote-nulo', null as unknown as number))
+      .rejects.toMatchObject({ code: '23514' });
+    await expect(claim(a, 'live-lote-zero', 0)).rejects.toMatchObject({ code: '23514' });
+    await expect(claim(a, 'live-lote-teto', 500)).rejects.toMatchObject({ code: '23514' });
+  }, 60_000);
+
   it('2 · a passagem perdida no meio devolve o trabalho, sem gastar tentativa fantasma', async () => {
     const prefix = `perdida:${Date.now()}`;
     const seeded = await seedJobs(1, prefix);
@@ -393,7 +433,43 @@ suite('Fase 4 · concorrência real, recuperação e fronteira do navegador', ()
     }
   }, 60_000);
 
-  it('8 · a leitura do vínculo de obrigação é escopada pela organização do chamador', async () => {
+  it('8 · apagar o inquilino alcança a fila, o grafo e o pedido de extração', async () => {
+    /*
+      O apagamento privilegiado de uma organização inteira precisa funcionar
+      SEMPRE — e a cascata do Postgres não garante ordem. Enquanto o pedido de
+      extração usou `ON DELETE SET NULL` sem lista de colunas, alcançar o
+      trabalho antes do pedido anulava `organization_id`, que é NOT NULL, e
+      derrubava o apagamento do inquilino inteiro. A 123 escopou o SET NULL.
+
+      Este teste roda a cascata de verdade, numa organização própria, na ordem
+      que o banco escolher.
+    */
+    const org = (await a.query<{ id: string }>(
+      `INSERT INTO organizations (name, slug) VALUES ('[PHASE4-LIVE] Erasure', $1) RETURNING id`,
+      [`phase4-erasure-${Date.now()}`])).rows[0].id;
+    const con = (await a.query<{ id: string }>(
+      `INSERT INTO contracts (organization_id, title) VALUES ($1, '[PHASE4-LIVE] Contrato') RETURNING id`,
+      [org])).rows[0].id;
+    const doc = (await a.query<{ id: string }>(
+      `INSERT INTO contract_documents (organization_id, contract_id, title, file_path, document_type)
+       VALUES ($1, $2, '[PHASE4-LIVE] Doc', 'phase4-live/erasure.pdf', 'contract') RETURNING id`,
+      [org, con])).rows[0].id;
+    await a.query('SELECT public.contract_clause_extraction_request($1,$2,$3,NULL)', [org, con, doc]);
+    await a.query(
+      `SELECT public.emit_domain_event($1, 'contracts.amendment.created', 1, 'contract_amendment',
+        gen_random_uuid(), $2)`, [org, `erasure:${Date.now()}`]);
+
+    await a.query('DELETE FROM organizations WHERE id = $1', [org]);
+
+    const left = await a.query<{ n: string }>(
+      `SELECT (SELECT count(*) FROM domain_events WHERE organization_id=$1)
+            + (SELECT count(*) FROM apex_jobs WHERE organization_id=$1)
+            + (SELECT count(*) FROM contract_clause_extraction_requests WHERE organization_id=$1) AS n`,
+      [org]);
+    expect(left.rows[0].n).toBe('0');
+  }, 60_000);
+
+  it('9 · a leitura do vínculo de obrigação é escopada pela organização do chamador', async () => {
     await a.query('BEGIN');
     await a.query('SET LOCAL ROLE authenticated');
     // Sem JWT não há organização; a política não casa nenhuma linha, e a
