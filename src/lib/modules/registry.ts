@@ -33,14 +33,22 @@ function envEnabled(raw: string | undefined): boolean {
 
 export const MODULE_ENABLED: Readonly<Record<AppModule, boolean>> = {
   /**
-   * Fiscal / NFS-e — pré-go-live.
+   * Fiscal / NFS-e — fundação ATIVA, emissão real ainda no portão de credencial.
    *
-   * A migration `090_fiscal_nfse.sql` NÃO está aplicada em produção (as tabelas
-   * `fiscal_*` não existem), não há permissões `fiscal.*` cadastradas e o único
-   * provedor registrado é o sandbox, que não transmite em produção.
+   * O que já está resolvido: a fundação (migrations 112 e 113) está aplicada em
+   * produção, as sete permissões `fiscal.*` estão cadastradas e atribuídas, e o
+   * caminho completo de homologação foi provado de ponta a ponta pelo adaptador
+   * sandbox — rascunho, aprovação, transmissão, autorização, XML arquivado,
+   * eventos, tentativas e cancelamento.
    *
-   * Ligar isto antes de resolver esses pontos deixa cinco links de menu levando
-   * a telas que consultam tabelas inexistentes. Ver `docs/plan/TASK-024`.
+   * O que ainda falta: o adaptador REAL (`nfse_nacional`) existe e transmite de
+   * verdade, mas exige certificado A1, senha, `FISCAL_CERT_KEY` no ambiente e
+   * endereço do ambiente nacional. Sem isso ele PARA no portão de credencial —
+   * de propósito, sem simular nada.
+   *
+   * Por isso a chave continua exigindo um "sim" explícito por ambiente: ligar o
+   * menu onde ainda não há emissão real possível levaria o usuário a uma tela
+   * que só sabe dizer o que falta. Ver `docs/plan/TASK-024`.
    */
   fiscal: envEnabled(process.env.NEXT_PUBLIC_FISCAL_MODULE_ENABLED),
 };

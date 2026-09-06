@@ -166,6 +166,9 @@ test.afterAll(async () => {
   */
   await withDb(async (q) => {
     await q(`update contract_clauses set superseded_by_clause_id = null where source_document_id = $1`, [documentId]);
+    // Fase 3 primeiro: a obrigação referencia a cláusula com RESTRICT.
+    await q(`delete from contract_obligation_definitions where source_clause_id in
+             (select id from contract_clauses where source_document_id = $1)`, [documentId]);
     await q(`delete from contract_clauses where source_document_id = $1`, [documentId]);
     await q(`delete from contract_ai_analyses where document_id = $1`, [documentId]);
     await q(`update contract_documents set superseded_by_document_id = null, supersedes_document_id = null

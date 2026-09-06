@@ -443,6 +443,8 @@ export type ContractDocumentRow = {
 export type ContractDetail = {
   contract: ContractRow;
   clauses: ContractClauseRow[];
+  /** Fase 3: definições estruturadas do contrato. */
+  obligationDefinitions: ContractObligationDefinitionRow[];
   penalties: ContractPenaltyRow[];
   milestones: ContractMilestoneRow[];
   billingEvents: ContractBillingEventRow[];
@@ -729,7 +731,8 @@ export async function getContractById(contractId: string): Promise<ContractDetai
     approvals,
     projectLinks,
     riskLinks,
-    documents
+    documents,
+    obligationDefinitions
   ] = await Promise.all([
     listContractClauses(contractId),
     listContractPenalties(contractId),
@@ -743,6 +746,7 @@ export async function getContractById(contractId: string): Promise<ContractDetai
     listContractProjectLinks(contractId),
     listContractRisksLinks(contractId),
     listContractDocuments(contractId),
+    listContractObligationDefinitions(contractId),
   ]);
 
   /*
@@ -773,6 +777,12 @@ export async function getContractById(contractId: string): Promise<ContractDetai
     contract,
     clauses,
     penalties,
+    // A LISTA de definições, sem resolver ocorrência nem bloqueio: é o que a
+    // prontidão do dossiê precisa para dizer "há obrigação estruturada". O
+    // agregado completo (`asOf`, ocorrências, bloqueio de faturamento) segue
+    // sendo de `/api/contracts/[id]/obligations` — quem quer a resposta pergunta
+    // ao resolvedor, e não recalcula por conta própria a partir daqui.
+    obligationDefinitions,
     milestones,
     billingEvents,
     risks,
@@ -1972,6 +1982,29 @@ export async function createProjectFromContract(contractId: string) {
   return createdProject;
 }
 
+/**
+ * Definições de obrigação estruturadas do contrato (Fase 3).
+ *
+ * Tolerante a falha de propósito: se este código alcançar um ambiente sem as
+ * migrations 114–117, `contract_obligation_definitions` não existe, e uma
+ * leitura que lança derrubaria o dossiê inteiro de todo contrato — inclusive
+ * os que não têm obrigação nenhuma. Ausência de tabela vira lista vazia; um
+ * erro real de leitura continua subindo.
+ */
+export async function listContractObligationDefinitions(contractId: string): Promise<ContractObligationDefinitionRow[]> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from('contract_obligation_definitions')
+    .select('id,contract_id,title,responsible_side,effective_from,effective_to,blocks_billing,status,source_clause_id,source_document_id,source_amendment_id')
+    .eq('contract_id', contractId)
+    .order('created_at');
+  if (error) {
+    if (['42P01', 'PGRST205'].includes(error.code ?? '')) return [];
+    throw new Error(`Erro ao carregar obrigações estruturadas: ${error.message}`);
+  }
+  return (data ?? []) as ContractObligationDefinitionRow[];
+}
+
 export async function listContractObligations(contractId: string): Promise<ContractObligationRow[]> {
   const supabase = createClient();
   const { data, error } = await supabase.from('contract_obligations').select('*').eq('contract_id', contractId).order('due_date');
@@ -1979,92 +2012,45 @@ export async function listContractObligations(contractId: string): Promise<Contr
   return (data ?? []) as ContractObligationRow[];
 }
 
-export async function createContractObligation(input: Omit<ContractObligationRow, 'id' | 'organization_id' | 'created_at' | 'updated_at' | 'completion_note' | 'completed_by' | 'completed_at'>): Promise<ContractObligationRow> {
-  const { supabase, organizationId } = await getCurrentIdentity();
-  const { data, error } = await supabase
-    .from('contract_obligations')
-    .insert({ ...input, organization_id: organizationId })
-    .select('*')
-    .single<ContractObligationRow>();
-  if (error) throw new Error(`Erro ao criar obrigação: ${error.message}`);
-
-  await logAuditEvent({
-    organizationId,
-    action: 'contract.obligation_created',
-    entityType: 'contract',
-    entityId: input.contract_id,
-    metadata: { title: input.title, status: data.status, due_date: input.due_date },
-  });
-
-  await notifyContractRecipient(
-    supabase,
-    input.owner_user_id,
-    'contract_obligation_assigned',
-    'Nova obrigação contratual',
-    `Você é responsável pela obrigação "${input.title}".`,
-    input.contract_id,
+/**
+ * ⚠️ LEGADO — `contract_obligations` é somente-leitura desde a Fase 3.
+ *
+ * A migration 116 revogou INSERT/UPDATE/DELETE do navegador nesta tabela: a
+ * verdade contratual passou a ser `contract_obligation_definitions` (o que o
+ * contrato exige, com origem e regra) mais `contract_obligation_instances`
+ * (cada ocorrência). Chamar qualquer uma das funções abaixo hoje resultaria
+ * numa negativa da RLS, e uma negativa de permissão é uma mensagem ruim para
+ * um caminho que simplesmente não existe mais.
+ *
+ * Elas não foram apagadas porque a LEITURA continua legítima — as linhas
+ * gravadas antes da Fase 3 seguem visíveis, rotuladas como legado. O que
+ * some é a escrita.
+ */
+function legacyObligationWriteRemoved(operation: string): never {
+  throw new Error(
+    `${operation} pertence à lista de tarefas anterior à Fase 3, que é somente-leitura. ` +
+    'Registre uma obrigação estruturada em POST /api/contracts/[id]/obligations, ' +
+    'ou uma transição em POST /api/contracts/obligations/[id]/transition.',
   );
-
-  return data;
 }
 
-export async function updateContractObligation(id: string, input: Partial<ContractObligationRow>): Promise<ContractObligationRow> {
-  const { supabase, organizationId } = await getCurrentIdentity();
-  const { data, error } = await supabase
-    .from('contract_obligations')
-    .update({ ...input, updated_at: new Date().toISOString() })
-    .eq('id', id)
-    .select('*')
-    .single<ContractObligationRow>();
-  if (error) throw new Error(`Erro ao atualizar obrigação: ${error.message}`);
-
-  await logAuditEvent({
-    organizationId,
-    action: 'contract.obligation_updated',
-    entityType: 'contract',
-    entityId: data.contract_id,
-    metadata: { obligation_id: id, status: data.status },
-  });
-
-  return data;
+export async function createContractObligation(
+  _input: Omit<ContractObligationRow, 'id' | 'organization_id' | 'created_at' | 'updated_at' | 'completion_note' | 'completed_by' | 'completed_at'>,
+): Promise<ContractObligationRow> {
+  return legacyObligationWriteRemoved('Criar obrigação nesta lista');
 }
 
-export async function completeContractObligation(id: string, note?: string | null): Promise<ContractObligationRow> {
-  const { supabase, user, organizationId } = await getCurrentIdentity();
-  const { data, error } = await supabase
-    .from('contract_obligations')
-    .update({
-      status: 'done',
-      completion_note: note ?? null,
-      completed_by: user.id,
-      completed_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', id)
-    .select('*')
-    .single<ContractObligationRow>();
-  if (error) throw new Error(`Erro ao concluir obrigação: ${error.message}`);
-
-  await logAuditEvent({
-    organizationId,
-    action: 'contract.obligation_completed',
-    entityType: 'contract',
-    entityId: data.contract_id,
-    metadata: { obligation_id: id, title: data.title, note: note ?? null },
-  });
-
-  await notifyContractRecipient(
-    supabase,
-    await getContractOwnerId(supabase, data.contract_id),
-    'contract_obligation_completed',
-    'Obrigação concluída',
-    `A obrigação "${data.title}" foi marcada como concluída.`,
-    data.contract_id,
-  );
-
-  return data;
+export async function updateContractObligation(
+  _id: string, _input: Partial<ContractObligationRow>,
+): Promise<ContractObligationRow> {
+  return legacyObligationWriteRemoved('Alterar obrigação desta lista');
 }
 
+export async function completeContractObligation(
+  _id: string, _note?: string | null,
+): Promise<ContractObligationRow> {
+  return legacyObligationWriteRemoved('Concluir obrigação desta lista');
+}
 export async function createTaskFromObligation(contractId: string, obligationTitle: string, dueAt: string, assigneeUserId: string | null) {
   // Reuses the audited agenda helper. Tasks link to the contract; there is no
   // obligation FK on the tasks table (migration 031), so the obligation is
@@ -2881,6 +2867,15 @@ export type ContractRelationsBatch = {
   milestones: Map<string, ContractMilestoneRow[]>;
   clauses: Map<string, ContractClauseRow[]>;
   penalties: Map<string, ContractPenaltyRow[]>;
+  /**
+   * Definições de obrigação ESTRUTURADAS (Fase 3, migrations 114–117).
+   *
+   * Separadas de `obligations` de propósito: aquela é a lista de tarefas
+   * anterior, hoje somente-leitura e rotulada como legado. Esta é a verdade
+   * contratual — o que o contrato exige, com origem, vigência e regra de prazo.
+   * Juntá-las numa lista só faria a tela somar duas coisas diferentes.
+   */
+  obligationDefinitions: Map<string, ContractObligationDefinitionRow[]>;
   riskDetails: Map<string, ContractRiskDetail>;
   /**
    * Entidades canônicas de `parties` referenciadas por `counterparty_party_id`.
@@ -2904,6 +2899,7 @@ export type ContractRelationsBatch = {
     milestones: boolean;
     clauses: boolean;
     penalties: boolean;
+    obligationDefinitions: boolean;
   };
   /**
    * Mensagem de erro por seção, ou `null` quando a consulta teve sucesso.
@@ -2929,7 +2925,8 @@ export type ContractRelationSectionKey =
   | 'ai'
   | 'milestones'
   | 'clauses'
-  | 'penalties';
+  | 'penalties'
+  | 'obligationDefinitions';
 
 export type ContractRelationErrors = Record<ContractRelationSectionKey, string | null>;
 
@@ -2945,6 +2942,7 @@ const RELATION_SECTION_LABELS: Record<ContractRelationSectionKey, string> = {
   milestones: 'marcos',
   clauses: 'cláusulas',
   penalties: 'penalidades',
+  obligationDefinitions: 'obrigações estruturadas',
 };
 
 function noRelationErrors(): ContractRelationErrors {
@@ -2959,6 +2957,7 @@ function noRelationErrors(): ContractRelationErrors {
     milestones: null,
     clauses: null,
     penalties: null,
+    obligationDefinitions: null,
   };
 }
 
@@ -3010,6 +3009,7 @@ function emptyRelationsBatch(): ContractRelationsBatch {
     milestones: new Map(),
     clauses: new Map(),
     penalties: new Map(),
+    obligationDefinitions: new Map(),
     riskDetails: new Map(),
     sectionsWithData: {
       obligations: false,
@@ -3022,10 +3022,27 @@ function emptyRelationsBatch(): ContractRelationsBatch {
       milestones: false,
       clauses: false,
       penalties: false,
+      obligationDefinitions: false,
     },
     sectionErrors: noRelationErrors(),
   };
 }
+
+/** Definição de obrigação estruturada — o subconjunto que a carteira lê. */
+export type ContractObligationDefinitionRow = {
+  id: string;
+  contract_id: string;
+  title: string;
+  responsible_side: string;
+  effective_from: string | null;
+  effective_to: string | null;
+  /** NULO = não apurado. Nunca interpretar como "não bloqueia". */
+  blocks_billing: boolean | null;
+  status: 'active' | 'superseded' | 'removed';
+  source_clause_id: string | null;
+  source_document_id: string | null;
+  source_amendment_id: string | null;
+};
 
 export type ContractAuditEventRow = {
   id: string;
@@ -3149,7 +3166,7 @@ export async function fetchContractRelationsBatch(contractIds: string[]): Promis
     }
   };
 
-  const [obligations, billingEvents, documents, approvals, projectLinks, riskLinks, aiAnalyses, milestones, clauses, penalties] = await Promise.all([
+  const [obligations, billingEvents, documents, approvals, projectLinks, riskLinks, aiAnalyses, milestones, clauses, penalties, obligationDefinitions] = await Promise.all([
     safe<ContractObligationRow>(supabase.from('contract_obligations').select('*').in('contract_id', ids)),
     safe<ContractBillingEventRow>(supabase.from('contract_billing_events').select('*').in('contract_id', ids)),
     safe<ContractDocumentRow>(supabase.from('contract_documents').select('*').in('contract_id', ids)),
@@ -3165,6 +3182,12 @@ export async function fetchContractRelationsBatch(contractIds: string[]): Promis
     // Sem a permissão o retorno é vazio e sem erro — indistinguível de "não
     // há penalidade". Quem consome precisa dizer isso ao usuário.
     safe<ContractPenaltyRow>(supabase.from('contract_penalties').select('*').in('contract_id', ids)),
+    // Fase 3: a verdade contratual. Só as colunas que a carteira precisa —
+    // o agregado completo (`asOf`, ocorrências, bloqueio) é do resolvedor.
+    safe<ContractObligationDefinitionRow>(
+      supabase.from('contract_obligation_definitions')
+        .select('id,contract_id,title,responsible_side,effective_from,effective_to,blocks_billing,status,source_clause_id,source_document_id,source_amendment_id')
+        .in('contract_id', ids)),
   ]);
 
   const riskIds = Array.from(new Set(riskLinks.rows.map((link) => link.risk_id))).filter(Boolean);
@@ -3216,6 +3239,7 @@ export async function fetchContractRelationsBatch(contractIds: string[]): Promis
     milestones: groupByContract(milestones.rows),
     clauses: groupByContract(clauses.rows),
     penalties: groupByContract(penalties.rows),
+    obligationDefinitions: groupByContract(obligationDefinitions.rows),
     riskDetails,
     parties,
     sectionsWithData: {
@@ -3229,6 +3253,7 @@ export async function fetchContractRelationsBatch(contractIds: string[]): Promis
       milestones: milestones.rows.length > 0,
       clauses: clauses.rows.length > 0,
       penalties: penalties.rows.length > 0,
+      obligationDefinitions: obligationDefinitions.rows.length > 0,
     },
     sectionErrors: {
       obligations: obligations.error,
@@ -3243,6 +3268,7 @@ export async function fetchContractRelationsBatch(contractIds: string[]): Promis
       milestones: milestones.error,
       clauses: clauses.error,
       penalties: penalties.error,
+      obligationDefinitions: obligationDefinitions.error,
     },
   };
 }

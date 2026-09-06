@@ -159,16 +159,19 @@ const previewBatch: ContractRelationsBatch = {
   milestones: new Map(),
   clauses: new Map(),
   penalties: new Map(),
+    obligationDefinitions: new Map(),
   riskDetails: new Map(),
   sectionsWithData: {
     obligations: false, billing: true, documents: false,
     approvals: false, projectLinks: false, risks: false, ai: false,
     milestones: false, clauses: false, penalties: false,
+    obligationDefinitions: false,
   },
   sectionErrors: {
     obligations: null, billing: null, documents: null,
     approvals: null, projectLinks: null, risks: null, ai: null,
     milestones: null, clauses: null, penalties: null,
+    obligationDefinitions: null,
   },
 };
 

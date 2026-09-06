@@ -1,7 +1,14 @@
 'use client';
 
 /**
- * Obligations Control Tower — as obrigações da carteira em cinco faixas.
+ * Obligations Control Tower — a LISTA DE TAREFAS ANTERIOR à Fase 3, em cinco
+ * faixas.
+ *
+ * A partir da Fase 3 este painel não é mais a verdade contratual: quem responde
+ * o que o contrato exige, de quem, desde quando e se bloqueia faturamento é
+ * `StructuredObligationsPanel`, alimentado pelo modelo canônico. Este continua
+ * na tela, abaixo e rotulado, porque as linhas de `contract_obligations` são
+ * reais e sumir com elas sem explicação seria pior que mantê-las no lugar certo.
  *
  * O painel é filtrável pelas faixas, no mesmo padrão single-select da Executive
  * Band: clicar numa faixa recorta a lista, clicar de novo desfaz. Nenhuma faixa
@@ -46,6 +53,10 @@ export interface ObligationsControlTowerProps {
   tower: ObligationsTower;
   canEdit?: boolean;
   busyId?: string | null;
+  /**
+   * @deprecated A lista legada é somente-leitura desde a Fase 3. Mantido para
+   * não quebrar chamadores antigos; nenhum caminho de tela o passa.
+   */
   onComplete?: (entry: { id: string; title: string; contract_id: string; owner_user_id: string | null; due_date: string | null }) => void;
   onCreateTask?: (contractId: string, title: string, dueAt: string, ownerUserId: string | null, key: string) => void;
   className?: string;
@@ -95,10 +106,10 @@ export function ObligationsControlTower({
       <CoverageNotes tower={tower} />
 
       <HudPanel
-        title="Obrigações contratuais"
+        title="Lista de tarefas anterior (legado)"
         subtitle={selected
           ? `${OBLIGATION_BUCKET_LABEL[selected]} · ${BUCKET_HINT[selected]}`
-          : 'Responsável, prazo e evidência de cada obrigação registrada'}
+          : 'Anotações operacionais anteriores à Fase 3, preservadas como histórico'}
         icon={<ClipboardCheck className="h-4 w-4" />}
         interactive={false}
       >

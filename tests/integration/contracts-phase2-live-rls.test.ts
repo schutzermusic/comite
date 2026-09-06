@@ -294,9 +294,17 @@ suite('Fase 2 · sondagem cross-tenant, apagamento privilegiado e reescrita', ()
             'contract_measurement_requirements')`)).rows[0].n;
     expect(semGrant).toBe(0);
 
-    const gatilhos = (await client.query(
+    // A barreira é COMPARTILHADA: a Fase 2 instalou nove gatilhos, e a Fase 3
+    // pendurou os dela na mesma função em vez de criar uma barreira paralela.
+    // Contar o total exato aqui faria toda fase seguinte quebrar um teste da
+    // fase anterior; o que importa é que as nove da Fase 2 continuem lá.
+    const daFase2 = (await client.query(
       `SELECT count(*)::int AS n FROM pg_trigger WHERE NOT tgisinternal
-         AND tgfoid='public.contracts_reject_history_erasure()'::regprocedure`)).rows[0].n;
-    expect(gatilhos).toBe(9);
+         AND tgfoid='public.contracts_reject_history_erasure()'::regprocedure
+         AND tgrelid::regclass::text IN ('contract_amendment_clauses','contract_amendment_revisions',
+           'contract_amendments','contract_instrument_lineage','contract_guarantees',
+           'contract_insurance_requirements','contract_indexation_rules','contract_billing_conditions',
+           'contract_measurement_requirements')`)).rows[0].n;
+    expect(daFase2).toBe(9);
   });
 });

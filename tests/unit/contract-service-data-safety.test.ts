@@ -137,7 +137,7 @@ describe('buildContractUpdatePayload', () => {
 const noErrors = (): ContractRelationErrors => ({
   obligations: null, billing: null, documents: null,
   approvals: null, projectLinks: null, risks: null, ai: null,
-  milestones: null, clauses: null, penalties: null,
+  milestones: null, clauses: null, penalties: null, obligationDefinitions: null,
 });
 
 const batchWith = (errors: ContractRelationErrors): ContractRelationsBatch =>

@@ -69,7 +69,7 @@ const row: ContractRow = {
 } as ContractRow;
 
 const base: ContractDetail = {
-  contract: row, clauses: [], penalties: [], milestones: [], risks: [], files: [], aiAnalyses: [],
+  contract: row, clauses: [], obligationDefinitions: [], penalties: [], milestones: [], risks: [], files: [], aiAnalyses: [],
   billingEvents: [] as never, obligations: [] as never, approvals: [] as never,
   projectLinks: [] as never, riskLinks: [] as never, documents: [] as never, amendments: [], amendmentClauses: [], amendmentsError: null
 };

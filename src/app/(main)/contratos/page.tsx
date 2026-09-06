@@ -51,6 +51,8 @@ import { buildPortfolioApprovals } from '@/lib/contracts/trust/approval-intellig
 import { buildClauseRiskIntelligence } from '@/lib/contracts/trust/clause-risk-intelligence';
 import { ContractToCashFlow } from '@/components/contracts/intelligence/ContractToCashFlow';
 import { ObligationsControlTower } from '@/components/contracts/intelligence/ObligationsControlTower';
+import { StructuredObligationsPanel } from '@/components/contracts/intelligence/StructuredObligationsPanel';
+import { useStructuredObligations } from '@/components/contracts/use-structured-obligations';
 import { RenewalHorizonPanel } from '@/components/contracts/intelligence/RenewalHorizonPanel';
 import { ApprovalIntelligencePanel } from '@/components/contracts/intelligence/ApprovalIntelligencePanel';
 import { ClauseRiskIntelligencePanel } from '@/components/contracts/intelligence/ClauseRiskIntelligencePanel';
@@ -485,6 +487,16 @@ export default function ContratosPage() {
   // dentro do próprio agregador e não mudam com o recorte visual.
   const cashFlow = useMemo(() => portfolioToCash(filteredTrusted, SCOPED), [filteredTrusted]);
   const obligationsTower = useMemo(() => buildObligationsTower(filteredTrusted), [filteredTrusted]);
+  /**
+   * O modelo canônico da Fase 3, resolvido no servidor.
+   *
+   * Vem por rota própria, e não do mesmo carregamento da carteira, porque a
+   * resolução `asOf` cruza definição, ocorrência, evidência, dispensa e
+   * dependência — trabalho de servidor, não de navegador. Sem `asOf` explícito,
+   * a rota usa a data de hoje e a devolve, para que a tela mostre a data que
+   * foi de fato usada.
+   */
+  const structuredObligations = useStructuredObligations();
   const renewalHorizon = useMemo(() => buildRenewalHorizon(filteredTrusted, new Date(), SCOPED), [filteredTrusted]);
   const portfolioApprovals = useMemo(() => buildPortfolioApprovals(filteredTrusted, new Date(), SCOPED), [filteredTrusted]);
   const clauseRiskIntel = useMemo(
@@ -502,6 +514,30 @@ export default function ContratosPage() {
       || null;
   }, [filteredRecords, records, selectedId]);
 
+  /**
+   * Origens possíveis para uma obrigação do contrato selecionado.
+   *
+   * A origem é obrigatória na Fase 3 — sem cláusula, aditivo ou documento o
+   * banco recusa a definição. Oferecer a lista aqui transforma a recusa numa
+   * escolha; deixá-la de fora transformaria em erro no fim do formulário.
+   */
+  const obligationOrigins = useMemo(() => {
+    const trusted = filteredTrusted.find((c) => c.id === selectedRecord?.contract.id);
+    if (!trusted) return [];
+    const clauses = hasOfficialValue(trusted.clauses) ? trusted.clauses.value : [];
+    const documents = hasOfficialValue(trusted.documents) ? trusted.documents.value : [];
+    return [
+      ...clauses.map((clause) => ({
+        value: `clause:${clause.id}`,
+        label: `Cláusula · ${clause.title}${clause.source_page ? ` (p. ${clause.source_page})` : ''}`,
+      })),
+      ...documents.map((document) => ({
+        value: `document:${document.id}`,
+        label: `Documento · ${document.title}`,
+      })),
+    ];
+  }, [filteredTrusted, selectedRecord?.contract.id]);
+
   // Create-obligation / create-billing modals, bound to the drawer's selected contract.
   /*
     Aditivo pelo dossiê rápido. `selectedId` é o contrato aberto no drawer —
@@ -515,6 +551,9 @@ export default function ContratosPage() {
   const createModals = useContractCreateModals({
     contractId: selectedRecord?.contract.id ?? '',
     ownerUserId: selectedRecord?.contract.responsibleId ?? null,
+    // A origem é obrigatória, e as cláusulas/documentos do contrato selecionado
+    // são o que a carteira tem à mão sem abrir o dossiê inteiro.
+    origins: obligationOrigins,
     onRefresh: refreshContractsAndProjects,
   });
 
@@ -837,11 +876,36 @@ export default function ContratosPage() {
       badge: tabCounts.overdue,
       content: (
         <div className="space-y-4">
+        {/*
+          O modelo canônico da Fase 3 vem PRIMEIRO: é ele que responde o que o
+          contrato exige, de quem, desde quando, com que evidência e se bloqueia
+          faturamento. A lista antiga fica abaixo, rotulada, porque as linhas
+          que existem nela são reais e sumir com elas sem explicação seria pior
+          que mantê-las visíveis no lugar certo.
+        */}
+        {structuredObligations.error ? (
+          <HudPanel state="warning" title="Obrigações estruturadas indisponíveis">
+            <p className="text-sm text-ig-warning">{structuredObligations.error}</p>
+          </HudPanel>
+        ) : (
+          <StructuredObligationsPanel
+            portfolio={structuredObligations.portfolio}
+            onOpenContract={(contractId) => {
+              const record = records.find((r) => r.contract.id === contractId);
+              if (record) openDossierDrawer(record);
+            }}
+          />
+        )}
+        {/*
+          Sem `onComplete`: a lista legada é somente-leitura desde a Fase 3, e
+          um botão que só sabe falhar é pior que a sua ausência. Concluir uma
+          obrigação passou a ser transição de OCORRÊNCIA, com base declarada e
+          histórico — não um `status` marcado à mão.
+        */}
         <ObligationsControlTower
           tower={obligationsTower}
           canEdit={contractPermissions.edit}
           busyId={tabBusyId}
-          onComplete={(item) => pageItemModals.openCompleteObligation(item)}
           onCreateTask={(contractId, title, dueAt, ownerUserId, key) => runTabAction(key, () => createTaskFromObligation(contractId, title, dueAt, ownerUserId), 'Tarefa criada na agenda')}
         />
         </div>

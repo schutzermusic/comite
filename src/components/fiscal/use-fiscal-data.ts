@@ -1,12 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import type { FiscalDocument, FiscalDocumentListResponse, FiscalEstablishment, FiscalParty, FiscalServiceCatalogEntry } from '@/lib/fiscal/types';
+import type { FiscalDocument, FiscalDocumentListResponse, FiscalEstablishment, FiscalRecipient, FiscalServiceCatalogEntry } from '@/lib/fiscal/types';
 import { fiscalFetch } from './fiscal-ui';
 
 export interface FiscalMasterData {
   establishments: FiscalEstablishment[];
-  parties: FiscalParty[];
+  /** Contrapartes canônicas com o perfil fiscal anexado quando existe. */
+  recipients: FiscalRecipient[];
   services: FiscalServiceCatalogEntry[];
   providerConfigs: Array<{
     id: string;
@@ -14,8 +15,13 @@ export interface FiscalMasterData {
     provider_key: string;
     environment: string;
     enabled: boolean;
+    base_url: string | null;
+    certificate_subject: string | null;
     certificate_expires_at: string | null;
+    certificate_fingerprint: string | null;
+    last_health_at: string | null;
     last_health_status: string | null;
+    last_health_message: string | null;
   }>;
 }
 
@@ -41,7 +47,7 @@ export function useFiscalDocuments() {
 }
 
 export function useFiscalMasterData() {
-  const [data, setData] = useState<FiscalMasterData>({ establishments: [], parties: [], services: [], providerConfigs: [] });
+  const [data, setData] = useState<FiscalMasterData>({ establishments: [], recipients: [], services: [], providerConfigs: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const refresh = useCallback(async () => {

@@ -49,7 +49,7 @@ const row = (over: Partial<ContractRow> = {}): ContractRow => ({
 } as ContractRow);
 
 const base = (contract: ContractRow): ContractDetail => ({
-  contract, clauses: [], penalties: [], milestones: [], risks: [], files: [], aiAnalyses: [],
+  contract, clauses: [], obligationDefinitions: [], penalties: [], milestones: [], risks: [], files: [], aiAnalyses: [],
   billingEvents: [] as never, obligations: [] as never, approvals: [] as never,
   projectLinks: [] as never, riskLinks: [] as never, documents: [] as never, amendments: [], amendmentClauses: [], amendmentsError: null
 });
@@ -182,7 +182,9 @@ describe('pendente e desconhecido são estados diferentes', () => {
   it('leitura que FALHOU é errored, distinto de vazia', () => {
     const t = {
       ...trusted(row()),
-      obligations: failed<readonly unknown[]>('timeout', 'contract_obligations'),
+      // A prontidão passou a contar a obrigação ESTRUTURADA (Fase 3), então é
+      // a leitura DELA que precisa falhar para a etapa ficar "não apurada".
+      obligationDefinitions: failed<readonly unknown[]>('timeout', 'contract_obligation_definitions'),
     } as unknown as Parameters<typeof buildOnboardingReadiness>[0];
     const r = buildOnboardingReadiness(t);
     expect(stepOf(r, 'obligations').state).toBe('errored');

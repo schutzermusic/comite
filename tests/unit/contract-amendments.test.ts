@@ -492,7 +492,7 @@ describe('coluna date do Postgres', () => {
     } as never;
 
     const detail = {
-      contract: row, clauses: [], penalties: [], milestones: [], risks: [], files: [],
+      contract: row, clauses: [], obligationDefinitions: [], penalties: [], milestones: [], risks: [], files: [],
       aiAnalyses: [], billingEvents: [], obligations: [], approvals: [],
       projectLinks: [], riskLinks: [], documents: [],
       amendments: [], amendmentClauses: [], amendmentsError: null,

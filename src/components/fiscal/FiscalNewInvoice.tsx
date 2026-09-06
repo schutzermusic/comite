@@ -62,7 +62,7 @@ export function FiscalNewInvoice() {
     finally { setSubmitting(false); }
   };
 
-  const ready = master.establishments.length > 0 && master.parties.length > 0 && master.services.length > 0;
+  const ready = master.establishments.length > 0 && master.recipients.length > 0 && master.services.length > 0;
 
   return (
     <HudPageLayout maxWidth="xl">
@@ -70,7 +70,7 @@ export function FiscalNewInvoice() {
       {master.error && <HudPanel state="warning"><p className="text-sm text-ig-warning">{master.error}</p></HudPanel>}
       {!master.loading && !ready ? (
         <HudPanel state="warning" title="Onboarding fiscal incompleto" icon={<ShieldAlert className="h-4 w-4" />}>
-          <p className="text-sm text-ig-fg-muted">Cadastre pelo menos um estabelecimento, um tomador e um serviço aprovado antes de preparar a nota.</p>
+          <p className="text-sm text-ig-fg-muted">Cadastre pelo menos um estabelecimento, uma contraparte canônica e um serviço aprovado antes de preparar a nota.</p>
           <HudButton className="mt-4" variant="primary" onClick={() => router.push('/fiscal/cadastros')}>Abrir cadastros fiscais</HudButton>
         </HudPanel>
       ) : (
@@ -79,7 +79,7 @@ export function FiscalNewInvoice() {
             <HudPanel title="Operação" subtitle="Emitente, tomador e competência">
               <div className="grid gap-4 md:grid-cols-2">
                 <HudSelect label="Estabelecimento emitente" value={establishmentId} onChange={chooseEstablishment} options={master.establishments.map((entry) => ({ value: entry.id, label: `${entry.legal_name} · ${entry.cnpj}` }))} />
-                <HudSelect label="Tomador" value={partyId} onChange={setPartyId} options={master.parties.map((entry) => ({ value: entry.id, label: `${entry.legal_name} · ${entry.document_number}` }))} />
+                <HudSelect label="Tomador" value={partyId} onChange={setPartyId} options={master.recipients.map((entry) => ({ value: entry.id, label: `${entry.legal_name} · ${entry.document_normalized ?? 'sem documento'}` }))} />
                 <HudInput label="Competência" type="date" value={competenceDate} onChange={(event) => setCompetenceDate(event.target.value)} required />
                 <HudInput label="Vencimento financeiro" type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} />
                 <HudInput label="Município da prestação · IBGE" value={locationIbge} onChange={(event) => setLocationIbge(event.target.value.replace(/\D/g, '').slice(0, 7))} required />

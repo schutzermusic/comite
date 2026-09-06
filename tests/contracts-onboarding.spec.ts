@@ -183,6 +183,19 @@ test.afterAll(async () => {
              (select id from contract_amendments where contract_id = $1)`, [contractId]);
     await q(`delete from contract_amendments where contract_id = $1`, [contractId]);
     await q(`delete from contract_penalties where contract_id = $1`, [contractId]);
+    /*
+      Fase 3 antes das cláusulas e documentos: uma definição de obrigação
+      referencia a sua ORIGEM com ON DELETE RESTRICT, e é isso que impede
+      apagar a cláusula que sustenta uma obrigação viva. A ordem aqui não é
+      detalhe de limpeza — é a mesma regra que protege o contrato em produção.
+    */
+    await q(`delete from contract_obligation_evidence where contract_id = $1`, [contractId]);
+    await q(`delete from contract_obligation_exceptions where contract_id = $1`, [contractId]);
+    await q(`delete from contract_obligation_financial_impacts where contract_id = $1`, [contractId]);
+    await q(`delete from contract_obligation_evidence_requirements where contract_id = $1`, [contractId]);
+    await q(`delete from contract_obligation_dependencies where contract_id = $1`, [contractId]);
+    await q(`delete from contract_obligation_instances where contract_id = $1`, [contractId]);
+    await q(`delete from contract_obligation_definitions where contract_id = $1`, [contractId]);
     await q(`update contract_clauses set superseded_by_clause_id = null where contract_id = $1`, [contractId]);
     await q(`delete from contract_clauses where contract_id = $1`, [contractId]);
     await q(`delete from contract_ai_analyses where contract_id = $1`, [contractId]);
@@ -404,18 +417,30 @@ test('7 · Ausência de instrumentação NÃO é tratada como irregularidade', a
 // 3 · Instrumentação
 // ═══════════════════════════════════════════════════════════════════════════
 
-test('8 · Registrar obrigação', async () => {
+test('8 · Registrar obrigação estruturada, com origem e prazo', async () => {
   await openDossierTab('Obrigações');
   await page.getByRole('button', { name: /Nova obrigação/ }).first().click();
   await byLabel(modal(), 'Título').fill(`E2E obrigação ${RUN}`);
   await byLabel(modal(), 'Prazo').fill('2026-12-15');
+
+  const origem = byLabel(modal(), 'Origem no contrato', 'select');
+  const opcao = await origem.locator('option').nth(1).getAttribute('value');
+  expect(opcao, 'o contrato precisa ter cláusula ou documento para originar a obrigação').toBeTruthy();
+  await origem.selectOption(opcao!);
   await modal().getByRole('button', { name: 'Registrar obrigação' }).click();
   await expectToast('Registro criado');
 
   const rows = await withDb((q) => q(
-    `select * from contract_obligations where contract_id = $1`, [contractId]));
+    `select title, due_kind, due_fixed_date, effective_from, recurrence_kind
+       from contract_obligation_definitions where contract_id = $1`, [contractId]));
   expect(rows.length).toBe(1);
   expect(rows[0].title).toBe(`E2E obrigação ${RUN}`);
+  // A data informada virou REGRA de prazo, não um campo solto.
+  expect(rows[0].due_kind).toBe('fixed_date');
+  expect(rows[0].recurrence_kind).toBe('one_time');
+  // O driver devolve `date` como Date; comparar o dia evita depender do fuso
+  // em que o teste roda.
+  expect(new Date(rows[0].due_fixed_date).toISOString().slice(0, 10)).toBe('2026-12-15');
 });
 
 test('9 · Registrar marco de medição', async () => {

@@ -43,6 +43,23 @@ if (rows.length === 0) {
          (select id from contract_amendments where contract_id = $1)`, [c.id]);
     await client.query(`delete from contract_amendments where contract_id = $1`, [c.id]);
     await client.query(`delete from contract_penalties where contract_id = $1`, [c.id]);
+    /*
+      Fase 3 antes das cláusulas e documentos: a definição de obrigação
+      referencia a sua ORIGEM com ON DELETE RESTRICT, e é isso que impede apagar
+      a cláusula que sustenta uma obrigação viva. A ordem aqui é a mesma regra
+      que protege o contrato de verdade, não um detalhe de limpeza.
+    */
+    for (const table of [
+      'contract_obligation_evidence',
+      'contract_obligation_exceptions',
+      'contract_obligation_financial_impacts',
+      'contract_obligation_evidence_requirements',
+      'contract_obligation_dependencies',
+      'contract_obligation_instances',
+      'contract_obligation_definitions',
+    ]) {
+      await client.query(`delete from ${table} where contract_id = $1`, [c.id]);
+    }
     await client.query(`update contract_clauses set superseded_by_clause_id = null where contract_id = $1`, [c.id]);
     await client.query(`delete from contract_clauses where contract_id = $1`, [c.id]);
     await client.query(`delete from contract_ai_analyses where contract_id = $1`, [c.id]);
