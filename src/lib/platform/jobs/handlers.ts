@@ -179,11 +179,64 @@ const approvalExpiration: JobHandler<'platform.approvals.expire'> = {
   },
 };
 
+/*
+  Materialização de candidatos de medição.
+
+  Vale registrar o que este handler NÃO faz, porque é a fronteira inteira da
+  Fase 6: ele não mede nada, não conclui execução e não aceita coisa alguma.
+  Ele cria medição PLANEJADA para a ocorrência que a regra contratual, o
+  vínculo Projeto↔Contrato e o mapeamento de cronograma GOVERNADO já tornam
+  determinística. Cadência desconhecida ou por evento não produz candidato —
+  a chave de ocorrência volta nula e a linha é contada como não resolvida, que
+  é informação, não falha.
+*/
+const measurementCandidates: JobHandler<'projects.measurements.reconcile_candidates'> = {
+  payloadVersion: 1,
+  idempotencyBasis:
+    'A chave de ocorrência é derivada da cadência e da etapa mapeada, e a unicidade '
+    + 'mora num índice parcial do banco. A segunda execução do mesmo dia cria zero.',
+  async run(payload, { job, supabase }) {
+    const { data, error } = await supabase.rpc('project_measurements_materialize', {
+      p_organization_id: job.organization_id,
+      p_as_of: payload.as_of,
+      p_horizon_days: payload.horizon_days,
+    });
+    if (error) throw rpcError(error);
+    return (data ?? {}) as Record<string, unknown>;
+  },
+};
+
+/*
+  Recomputo de prontidão.
+
+  Prontidão é DERIVADA: o que este handler atualiza é cache, e o cache carrega
+  `computed_at` justamente para que uma leitura velha seja reconhecível como
+  velha. Rodar de menos atrasa um rótulo; não corrompe verdade nenhuma, porque
+  o resolvedor canônico segue disponível para quem precisar do estado de agora.
+*/
+const measurementReadiness: JobHandler<'projects.measurements.recompute_readiness'> = {
+  payloadVersion: 1,
+  idempotencyBasis:
+    'Recomputar prontidão é função pura das entradas atuais: a segunda execução '
+    + 'grava o mesmo resultado por cima do mesmo resultado.',
+  async run(payload, { job, supabase }) {
+    const { data, error } = await supabase.rpc('projects_recompute_measurement_readiness', {
+      p_organization_id: job.organization_id,
+      p_changed_since: payload.changed_since ?? null,
+      p_limit: payload.limit,
+    });
+    if (error) throw rpcError(error);
+    return (data ?? {}) as Record<string, unknown>;
+  },
+};
+
 export const JOB_HANDLERS: HandlerRegistry = {
   'contracts.obligations.materialize': materialize,
   'contracts.obligation.external_activation.apply': externalActivation,
   'contracts.clause_extraction.execute': clauseExtraction,
   'platform.approvals.expire': approvalExpiration,
+  'projects.measurements.reconcile_candidates': measurementCandidates,
+  'projects.measurements.recompute_readiness': measurementReadiness,
 };
 
 export function handlerFor(jobType: JobType): JobHandler<JobType> {

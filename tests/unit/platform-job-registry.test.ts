@@ -28,13 +28,59 @@ describe('vocabulário de fatos', () => {
     for (const type of EVENT_TYPES) expect(type).not.toMatch(/_v\d+$/);
   });
 
+  /*
+    ATUALIZADO NA FASE 6.
+
+    A regra nunca foi "nada de `projects.`": era "nenhum fato sem produtor".
+    Quando este teste foi escrito, na Fase 4, `projects.measurement.*` não
+    tinha produtor nenhum — declará-lo teria prometido um fato que ninguém
+    podia emitir. A Fase 6 trouxe o produtor: as RPCs de transição da migration
+    133, que emitem dentro da MESMA transação da mutação.
+
+    `finance.` e `billing.` seguem proibidos, e pela razão original: a Fase 7
+    não existe. No dia em que existir, é esta linha que muda — junto com o
+    produtor, nunca antes dele.
+  */
   it('nenhum fato de fase futura foi declarado antes do produtor existir', () => {
     for (const type of EVENT_TYPES) {
-      expect(type.startsWith('projects.')).toBe(false);
       expect(type.startsWith('finance.')).toBe(false);
       expect(type.startsWith('billing.')).toBe(false);
+      expect(type.startsWith('fiscal.')).toBe(false);
       expect(type.startsWith('approvals.')).toBe(false);
     }
+  });
+
+  it('todo fato de medição da Fase 6 carrega a identidade da ocorrência', () => {
+    /*
+      A Fase 7 vai consumir `projects.measurement.accepted` para faturar. Sem
+      ocorrência e sem a regra que a rege no payload, o consumidor teria de
+      consultar o banco de Projetos para saber O QUE foi aceito — e um fato que
+      não se sustenta sozinho não é um fato, é um ponteiro.
+    */
+    const measurementEvents = EVENT_TYPES.filter((t) => t.startsWith('projects.measurement.'));
+    expect(measurementEvents.length).toBeGreaterThan(0);
+    for (const type of measurementEvents) {
+      const parsed = parseEventPayload(type, 1, {
+        project_id: 'proj-1',
+        contract_id: '11111111-1111-4111-8111-111111111111',
+        contract_measurement_rule_id: '22222222-2222-4222-8222-222222222222',
+        occurrence_key: '2026-03',
+        occurrence_state: 'resolved',
+        revision: 1,
+        status: 'ACCEPTED',
+        ...(type.endsWith('.accepted')
+          ? { accepted_at: '2026-03-31T00:00:00Z', acceptance_source: 'signed_bulletin',
+              measurement_basis: 'MONETARY', accumulation_mode: 'INCREMENTAL' }
+          : {}),
+      });
+      expect(parsed).toBeTruthy();
+    }
+  });
+
+  it('um fato de medição SEM a ocorrência é recusado', () => {
+    expect(() => parseEventPayload('projects.measurement.accepted', 1, {
+      project_id: 'proj-1', status: 'ACCEPTED',
+    })).toThrow();
   });
 
   it('telemetria de interface não é fato de negócio', () => {

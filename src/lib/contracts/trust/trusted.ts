@@ -70,6 +70,15 @@ export type LiveSource =
   | 'contract_instrument_lineage'
   /** Fase 3: a definição de obrigação estruturada — verdade contratual. */
   | 'contract_obligation_definitions'
+  /**
+   * Fase 6: a medição OPERACIONAL, de dono Projetos. Entra como origem
+   * separada de `contract_milestones` porque as duas afirmam coisas
+   * diferentes — o marco diz o que o contrato previu, a medição diz o que a
+   * operação apurou e alguém aceitou. Um selo só para as duas apagaria
+   * justamente a distinção que a precedência de valor medido existe para
+   * manter.
+   */
+  | 'project_measurements'
   | 'audit_logs'
   | 'risks'
   /**

@@ -119,13 +119,44 @@ describe('contractToCash', () => {
     expect(measured.note).toMatch(/não é R\$ 0 medido/i);
   });
 
-  it('MEDIDO soma só o marco que a linha AFIRMA medido', () => {
+  /*
+    ATUALIZADO NA FASE 6 — e a mudança é o conserto de um defeito, não um
+    ajuste de expectativa.
+
+    Antes, este teste esperava 500k: 200k do marco `measured` (que TEM valor
+    apurado) mais 300k do marco `approved` (que NÃO tem — o 300k era o
+    `billing_amount`, o previsto). O código somava `measured_amount ??
+    billing_amount`, e o teste caracterizava esse comportamento.
+
+    A §12 do plano da Fase 6 proíbe `billing_amount` como valor medido, em
+    qualquer posição da precedência. O marco sem apuração agora contribui com
+    NADA, e o total é 200k. A CONTAGEM segue 2, porque dois marcos de fato se
+    afirmam medidos — quantos foram medidos e quanto foi apurado são duas
+    perguntas, e o painel passa a responder as duas separadamente.
+  */
+  it('MEDIDO soma o valor APURADO, e nunca o previsto (§12)', () => {
     const measured = stage(contractToCash(build(withMilestones)), 'measured');
     expect(measured.state).toBe('measured');
     expect(hasOfficialValue(measured.amount)).toBe(true);
-    // 200k medido + 300k aprovado. O `pending` de 500k é previsão, não medição.
-    if (hasOfficialValue(measured.amount)) expect(measured.amount.value).toBe(500_000);
+    if (hasOfficialValue(measured.amount)) expect(measured.amount.value).toBe(200_000);
     if (hasOfficialValue(measured.count)) expect(measured.count.value).toBe(2);
+    // E a ausência é DITA, não escondida.
+    expect(measured.note).toMatch(/não têm valor apurado/i);
+  });
+
+  it('o previsto do marco sem apuração não entra na soma por via nenhuma', () => {
+    const soPrevisto: ContractDetail = {
+      ...base,
+      milestones: [
+        { id: 'm1', contract_id: ID, title: 'Medição sem apuração', status: 'measured',
+          due_date: '2026-06-01', completed_at: '2026-06-02T00:00:00Z',
+          billing_amount: 999_999, measured_amount: null,
+          owner_user_id: 'u-a', evidence: null, evidence_document_id: null },
+      ] as never,
+    };
+    const measured = stage(contractToCash(build(soPrevisto)), 'measured');
+    if (hasOfficialValue(measured.amount)) expect(measured.amount.value).toBe(0);
+    expect(JSON.stringify(measured)).not.toContain('999999');
   });
 
   it('valor medido vence o previsto quando os dois existem', () => {
@@ -229,11 +260,13 @@ describe('portfolioToCash', () => {
     expect(stages.find((s) => s.key === 'received')?.state).toBe('not-integrated');
   });
 
-  it('agrega a medição da carteira a partir dos marcos de cada contrato', () => {
+  it('agrega a medição da carteira pelo valor APURADO dos marcos (§12)', () => {
     const stages = portfolioToCash([build(withMilestones)], { officialOnly: false });
     const measured = stages.find((s) => s.key === 'measured')!;
     expect(measured.state).toBe('measured');
-    if (hasOfficialValue(measured.amount)) expect(measured.amount.value).toBe(500_000);
+    // 200k, e não 500k: o marco `approved` sem `measured_amount` não empresta
+    // o `billing_amount` dele para a carteira.
+    if (hasOfficialValue(measured.amount)) expect(measured.amount.value).toBe(200_000);
   });
 
   it('exclui contrato de demonstração da cadeia oficial', () => {
