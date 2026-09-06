@@ -790,7 +790,15 @@ test('12k · O aditivo permanece ligado ao contrato mestre', async () => {
   expect(doc.document_type).toBe('amendment');
 });
 
-test('12l · O efeito declarado se reflete no estado vigente', async () => {
+test('12l · O efeito declarado é registrado, datado, e ainda NÃO é o vigente', async () => {
+  /*
+    O TA-01 tem efeito em 01/02/2027, data que ainda não chegou. "Vigente" é o
+    estado do contrato HOJE, e antecipá-lo afirmaria como valor de contrato um
+    número que nenhuma cláusula ainda produz — um reajuste futuro apresentado
+    como faturável agora. O aditivo aparece inteiro na cadeia, com a data e o
+    efeito que declara; o valor e a vigência vigentes só mudam quando a data
+    chegar. Ver `effectiveContractState` e o motivo de omissão 'future'.
+  */
   await gotoDossier();
   const instruments = page.getByRole('list', { name: 'Instrumentos contratuais' });
   await expect(instruments).toBeVisible({ timeout: 30_000 });
@@ -799,6 +807,14 @@ test('12l · O efeito declarado se reflete no estado vigente', async () => {
   await expect(instruments.locator('li').first()).toContainText('Contrato mestre');
   await expect(instruments).toContainText(`TA-01-${RUN}`);
 
+  // O efeito declarado fica visível no próprio instrumento, com a data e a razão
+  // pela qual ainda não foi aplicado.
+  const step = instruments.locator('li').filter({ hasText: `TA-01-${RUN}` }).last();
+  await expect(step).toContainText('efeito em 01/02/2027');
+  await expect(step).toContainText('600.000');
+  await expect(step).toContainText('180 dias');
+  await expect(step).toContainText('efeito futuro');
+
   /*
     Valor e vigência vivem em CARDS IRMÃOS do painel. Um seletor ancorado em
     "Valor original" devolve só o primeiro — foi o que fez a asserção de data
@@ -806,12 +822,12 @@ test('12l · O efeito declarado se reflete no estado vigente', async () => {
   */
   const valueCard = page.locator('div').filter({ hasText: 'Valor original' }).last();
   await expect(valueCard).toContainText('2.400.000');
-  await expect(valueCard).toContainText('3.000.000');
+  await expect(valueCard).not.toContainText('3.000.000');
 
-  // Vigência prorrogada em 180 dias: 31/08/2027 → 27/02/2028.
+  // A prorrogação de 180 dias (31/08/2027 → 27/02/2028) também é futura.
   const termCard = page.locator('div').filter({ hasText: 'Vigência original' }).last();
   await expect(termCard).toContainText('31/08/2027');
-  await expect(termCard).toContainText('27/02/2028');
+  await expect(termCard).not.toContainText('27/02/2028');
 });
 
 test('12m · Aditivo em rascunho é registrado mas NÃO altera o vigente', async () => {
@@ -832,8 +848,9 @@ test('12m · Aditivo em rascunho é registrado mas NÃO altera o vigente', async
   // O rascunho aparece na lista…
   await expect(page.getByRole('list', { name: 'Instrumentos contratuais' }))
     .toContainText(`TA-02-${RUN}`);
-  // …e NÃO altera o valor vigente.
-  await expect(valueCard).toContainText('3.000.000');
+  // …e NÃO altera o valor vigente, que segue sendo o do mestre: nem o rascunho
+  // nem o TA-01 (efeito futuro) produzem efeito hoje.
+  await expect(valueCard).toContainText('2.400.000');
   await expect(valueCard).not.toContainText('9.999.999');
 });
 
@@ -916,7 +933,15 @@ test('12p · O dossiê em PDF preserva mestre e aditivos', async () => {
   // Original e vigente, os dois — nunca só um.
   expect(body).toContain('Valor original');
   expect(body).toContain('2.400.000');
-  expect(body).toContain('3.000.000');
+  /*
+    O TA-01 tem efeito em 01/02/2027 e o documento é emitido antes dessa data:
+    o acréscimo declarado é impresso como alteração do instrumento, com a
+    situação que explica por que ainda não entrou no vigente. Imprimir
+    3.000.000 como valor vigente seria antecipar um reajuste que nenhuma
+    cláusula ainda produziu.
+  */
+  expect(body).toContain('600.000');
+  expect(body).toContain('efeito futuro');
   await pdf.close();
 });
 

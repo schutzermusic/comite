@@ -2464,6 +2464,8 @@ export async function listContractAmendmentClauses(
 export type CreateContractAmendmentInput = {
   contractId: string;
   amendmentNumber: string;
+  /** Explicit predecessor; omitted means the known master contract, never inferred sequence. */
+  parentAmendmentId?: string | null;
   title?: string | null;
   status?: ContractAmendmentStatus;
   signedDate?: string | null;
@@ -2510,8 +2512,9 @@ export async function createContractAmendment(
   }
 
   const { data, error } = await supabase
-    .from('contract_amendments')
-    .insert({
+    .rpc('create_contract_amendment_with_lineage', {
+      p_parent_amendment_id: input.parentAmendmentId ?? null,
+      p_payload: {
       organization_id: organizationId,
       contract_id: input.contractId,
       amendment_number: input.amendmentNumber.trim(),
@@ -2528,8 +2531,8 @@ export async function createContractAmendment(
       notes: input.notes?.trim() || null,
       created_by: user.id,
       updated_by: user.id,
+      },
     })
-    .select('*')
     .single<ContractAmendmentRow>();
 
   if (error) throw new Error(`Erro ao registrar aditivo: ${error.message}`);
@@ -2555,7 +2558,7 @@ export async function createContractAmendment(
   return data;
 }
 
-export type UpdateContractAmendmentInput = Partial<Omit<CreateContractAmendmentInput, 'contractId' | 'file'>>;
+export type UpdateContractAmendmentInput = Partial<Omit<CreateContractAmendmentInput, 'contractId' | 'file' | 'parentAmendmentId'>>;
 
 const AMENDMENT_UPDATE_COLUMNS = {
   amendmentNumber: 'amendment_number',
@@ -2600,6 +2603,7 @@ export async function updateContractAmendment(
     .from('contract_amendments')
     .update(buildAmendmentUpdatePayload(input, user.id))
     .eq('id', amendmentId)
+    .eq('contract_id', contractId)
     .select('*')
     .single<ContractAmendmentRow>();
   if (error) throw new Error(`Erro ao atualizar aditivo: ${error.message}`);
@@ -2678,6 +2682,7 @@ export async function softDeleteContractAmendment(
     .from('contract_amendments')
     .update({ deleted_at: new Date().toISOString(), updated_by: user.id })
     .eq('id', amendmentId)
+    .eq('contract_id', contractId)
     .is('deleted_at', null);
   if (error) throw new Error(`Erro ao excluir aditivo: ${error.message}`);
 

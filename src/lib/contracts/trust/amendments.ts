@@ -37,7 +37,8 @@ export type AmendmentSkipReason =
   /** Não declara efeito sobre valor nem prazo — altera só escopo, ou nada. */
   | 'no-declared-effect'
   /** Em vigor e com efeito, mas sem data de efeito: não há como ordená-lo. */
-  | 'undated';
+  | 'undated'
+  | 'future';
 
 export type AmendmentStep = {
   readonly amendment: ContractAmendmentRow;
@@ -124,7 +125,7 @@ export function orderAmendments(
     if (da !== db) return da - db;
     const na = a.amendment_number.localeCompare(b.amendment_number, 'pt-BR', { numeric: true });
     if (na !== 0) return na;
-    return a.created_at.localeCompare(b.created_at);
+    return a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id);
   });
 }
 
@@ -140,7 +141,10 @@ export function effectiveContractState(
   originalValue: Official<number>,
   originalEndDate: Official<Date>,
   amendments: Official<readonly ContractAmendmentRow[]>,
+  asOf?: string,
 ): EffectiveContractState {
+  const cutoff = asOf === undefined ? new Date() : toDate(asOf);
+  if (!cutoff) throw new Error("Invalid Contracts asOf date");
   // Leitura falhou ou não houve: o vigente herda exatamente essa incerteza.
   if (isError(amendments) || !hasOfficialValue(amendments)) {
     const carry = <T>(o: Official<T>): Official<T> =>
@@ -186,6 +190,7 @@ export function effectiveContractState(
     if (!inForce) skipReason = 'not-in-force';
     else if (!hasValue && !hasTerm) skipReason = 'no-declared-effect';
     else if (!dated) skipReason = 'undated';
+    else if (toDate(a.effective_date)!.getTime() > cutoff.getTime()) skipReason = 'future';
 
     if (skipReason === 'undated') {
       if (hasValue) valueUndated = true;
@@ -290,6 +295,7 @@ export const SKIP_REASON_LABEL: Record<AmendmentSkipReason, string> = {
   'not-in-force': 'registrado, ainda não em vigor',
   'no-declared-effect': 'não altera valor nem prazo',
   'undated': 'sem data de efeito registrada',
+  'future': 'efeito futuro',
 };
 
 /**
@@ -364,6 +370,7 @@ type AmendmentClauseLink = {
  * entrada significa "nunca alterada", e criar entrada vazia para todas
  * confundiria "não foi tocada" com "foi analisada e nada mudou".
  */
+/** @deprecated Historical relationship summary only. Use resolveContractAsOf for effective clauses. */
 export function clauseLineages(
   amendments: readonly ContractAmendmentRow[],
   links: readonly AmendmentClauseLink[],
