@@ -37,6 +37,7 @@ import type {
   ContractDetail,
   ContractRelationsBatch,
   ContractObligationRow,
+  ContractObligationDefinitionRow,
   ContractBillingEventRow,
   ContractDocumentRow,
   ContractApprovalRow,
@@ -127,6 +128,15 @@ export type TrustedContract = {
   readonly clauses: Official<readonly ContractClauseRow[]>;
   readonly penalties: Official<readonly ContractPenaltyRow[]>;
 
+  /**
+   * Obrigações ESTRUTURADAS (Fase 3) — a verdade contratual.
+   *
+   * Separadas de `obligations`, que é a lista de tarefas anterior, hoje
+   * somente-leitura. Somá-las contaria a mesma obrigação duas vezes quando
+   * alguém registrar a estruturada de uma linha antiga.
+   */
+  readonly obligationDefinitions: Official<readonly ContractObligationDefinitionRow[]>;
+
   /** Projeto resolvido a partir de vínculo REAL — jamais por auto-match. */
   readonly project: Official<Project>;
 
@@ -212,6 +222,7 @@ const SECTION_SOURCE: Record<ContractRelationSectionKey, LiveSource> = {
   milestones: 'contract_milestones',
   clauses: 'contract_clauses',
   penalties: 'contract_penalties',
+  obligationDefinitions: 'contract_obligation_definitions',
 };
 
 function contractCode(row: ContractRow): string {
@@ -263,6 +274,8 @@ export function buildTrustedContract(
   const milestones = section<ContractMilestoneRow>(batch.milestones.get(id), err.milestones, SECTION_SOURCE.milestones);
   const clauses = section<ContractClauseRow>(batch.clauses.get(id), err.clauses, SECTION_SOURCE.clauses);
   const penalties = section<ContractPenaltyRow>(batch.penalties.get(id), err.penalties, SECTION_SOURCE.penalties);
+  const obligationDefinitions = section<ContractObligationDefinitionRow>(
+    batch.obligationDefinitions.get(id), err.obligationDefinitions, SECTION_SOURCE.obligationDefinitions);
 
   // ── Exposição ────────────────────────────────────────────────────────────
   const totalValue = fromColumn(toNumber(row.total_value), 'contracts');
@@ -413,6 +426,7 @@ export function buildTrustedContract(
     milestones,
     clauses,
     penalties,
+    obligationDefinitions,
     aiAnalyses,
     project,
     overdueObligations,
@@ -469,6 +483,7 @@ export function relationsBatchFromDetail(
     milestones: one(detail.milestones),
     clauses: one(detail.clauses),
     penalties: one(detail.penalties),
+    obligationDefinitions: one(detail.obligationDefinitions),
     riskDetails: new Map(),
     // Repassa o que `getContractById` conseguiu resolver. Ausente segue
     // ausente: a ponte não inventa resolução que a leitura não fez.
@@ -484,11 +499,12 @@ export function relationsBatchFromDetail(
       milestones: detail.milestones.length > 0,
       clauses: detail.clauses.length > 0,
       penalties: detail.penalties.length > 0,
+      obligationDefinitions: detail.obligationDefinitions.length > 0,
     },
     sectionErrors: {
       obligations: null, billing: null, documents: null,
       approvals: null, projectLinks: null, risks: null, ai: null,
-      milestones: null, clauses: null, penalties: null,
+      milestones: null, clauses: null, penalties: null, obligationDefinitions: null,
       ...errors,
     },
   };

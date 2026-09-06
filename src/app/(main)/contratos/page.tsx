@@ -514,6 +514,30 @@ export default function ContratosPage() {
       || null;
   }, [filteredRecords, records, selectedId]);
 
+  /**
+   * Origens possíveis para uma obrigação do contrato selecionado.
+   *
+   * A origem é obrigatória na Fase 3 — sem cláusula, aditivo ou documento o
+   * banco recusa a definição. Oferecer a lista aqui transforma a recusa numa
+   * escolha; deixá-la de fora transformaria em erro no fim do formulário.
+   */
+  const obligationOrigins = useMemo(() => {
+    const trusted = filteredTrusted.find((c) => c.id === selectedRecord?.contract.id);
+    if (!trusted) return [];
+    const clauses = hasOfficialValue(trusted.clauses) ? trusted.clauses.value : [];
+    const documents = hasOfficialValue(trusted.documents) ? trusted.documents.value : [];
+    return [
+      ...clauses.map((clause) => ({
+        value: `clause:${clause.id}`,
+        label: `Cláusula · ${clause.title}${clause.source_page ? ` (p. ${clause.source_page})` : ''}`,
+      })),
+      ...documents.map((document) => ({
+        value: `document:${document.id}`,
+        label: `Documento · ${document.title}`,
+      })),
+    ];
+  }, [filteredTrusted, selectedRecord?.contract.id]);
+
   // Create-obligation / create-billing modals, bound to the drawer's selected contract.
   /*
     Aditivo pelo dossiê rápido. `selectedId` é o contrato aberto no drawer —
@@ -527,6 +551,9 @@ export default function ContratosPage() {
   const createModals = useContractCreateModals({
     contractId: selectedRecord?.contract.id ?? '',
     ownerUserId: selectedRecord?.contract.responsibleId ?? null,
+    // A origem é obrigatória, e as cláusulas/documentos do contrato selecionado
+    // são o que a carteira tem à mão sem abrir o dossiê inteiro.
+    origins: obligationOrigins,
     onRefresh: refreshContractsAndProjects,
   });
 
@@ -869,11 +896,16 @@ export default function ContratosPage() {
             }}
           />
         )}
+        {/*
+          Sem `onComplete`: a lista legada é somente-leitura desde a Fase 3, e
+          um botão que só sabe falhar é pior que a sua ausência. Concluir uma
+          obrigação passou a ser transição de OCORRÊNCIA, com base declarada e
+          histórico — não um `status` marcado à mão.
+        */}
         <ObligationsControlTower
           tower={obligationsTower}
           canEdit={contractPermissions.edit}
           busyId={tabBusyId}
-          onComplete={(item) => pageItemModals.openCompleteObligation(item)}
           onCreateTask={(contractId, title, dueAt, ownerUserId, key) => runTabAction(key, () => createTaskFromObligation(contractId, title, dueAt, ownerUserId), 'Tarefa criada na agenda')}
         />
         </div>

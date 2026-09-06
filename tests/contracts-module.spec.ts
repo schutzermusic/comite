@@ -141,6 +141,19 @@ test.afterAll(async () => {
   await withDb(async (q) => {
     // As penalidades saem antes das cláusulas: `clause_id` referencia cláusula.
     await q(`delete from contract_penalties where contract_id = $1 and title like 'E2E %'`, [contractId]);
+    /*
+      Fase 3 antes das cláusulas: uma definição de obrigação referencia a sua
+      ORIGEM com ON DELETE RESTRICT, e é isso que impede apagar a cláusula que
+      sustenta uma obrigação viva. A ordem aqui é a mesma regra que protege o
+      contrato em produção, não um detalhe de limpeza.
+    */
+    await q(`delete from contract_obligation_evidence where contract_id = $1`, [contractId]);
+    await q(`delete from contract_obligation_exceptions where contract_id = $1`, [contractId]);
+    await q(`delete from contract_obligation_financial_impacts where contract_id = $1`, [contractId]);
+    await q(`delete from contract_obligation_evidence_requirements where contract_id = $1`, [contractId]);
+    await q(`delete from contract_obligation_dependencies where contract_id = $1`, [contractId]);
+    await q(`delete from contract_obligation_instances where contract_id = $1`, [contractId]);
+    await q(`delete from contract_obligation_definitions where contract_id = $1`, [contractId]);
     // Cláusulas substituídas apontam para a sucessora: solta o vínculo antes.
     await q(`update contract_clauses set superseded_by_clause_id = null where contract_id = $1`, [contractId]);
     await q(`delete from contract_clauses where contract_id = $1 and (title like 'E2E %' or ai_flagged = true)`, [contractId]);
@@ -260,17 +273,52 @@ test('4 · Vincular projeto (estado não vinculado → vinculado)', async () => 
 // 5–9 · Operações de governança a partir do cockpit
 // ═══════════════════════════════════════════════════════════════════════════
 
-test('5 · Criar obrigação', async () => {
+/**
+ * A obrigação passou a ser ESTRUTURADA (Fase 3): ela grava uma definição
+ * canônica, não uma linha na lista de tarefas antiga. A diferença que este
+ * teste cobra é a ORIGEM — sem cláusula ou documento que a sustente, o banco
+ * recusa a definição, e o formulário recusa antes.
+ */
+test('5 · Criar obrigação estruturada exige origem contratual', async () => {
   await drawer().getByRole('button', { name: 'Criar obrigação' }).click();
   await expect(modal().getByText('Nova obrigação contratual').first()).toBeVisible();
   await byLabel(modal(), 'Título').fill(`E2E obrigação ${RUN}`);
+
+  // Sem origem: recusa, e nada é gravado.
+  await modal().getByRole('button', { name: 'Registrar obrigação', exact: true }).click();
+  await expectToast('Origem obrigatória');
+  // O contrato de QA é reaproveitado entre execuções, então a prova é sobre
+  // ESTA obrigação: a de agora não pode ter sido gravada sem origem.
+  const semOrigem = await withDb((q) =>
+    q(`select id from contract_obligation_definitions where contract_id = $1 and title = $2`,
+      [contractId, `E2E obrigação ${RUN}`]));
+  expect(semOrigem.length, 'nada pode ser gravado sem origem').toBe(0);
+
+  // Com origem: grava a definição canônica, com proveniência.
+  const origem = byLabel(modal(), 'Origem no contrato', 'select');
+  const opcao = await origem.locator('option').nth(1).getAttribute('value');
+  expect(opcao, 'o contrato precisa ter cláusula ou documento para originar a obrigação').toBeTruthy();
+  await origem.selectOption(opcao!);
   await modal().getByRole('button', { name: 'Registrar obrigação', exact: true }).click();
   await expectToast('Registro criado');
 
   const rows = await withDb((q) =>
-    q(`select id from contract_obligations where contract_id = $1 and title = $2`, [contractId, `E2E obrigação ${RUN}`]),
+    q(`select title, source_clause_id, source_document_id, blocks_billing, responsible_side
+         from contract_obligation_definitions where contract_id = $1 and title = $2`,
+      [contractId, `E2E obrigação ${RUN}`]),
   );
   expect(rows.length).toBe(1);
+  // Proveniência gravada: ao menos um caminho de origem.
+  expect(Boolean(rows[0].source_clause_id || rows[0].source_document_id)).toBe(true);
+  // Não apurado permanece NULO — nunca um `false` por omissão.
+  expect(rows[0].blocks_billing).toBeNull();
+  expect(rows[0].responsible_side).toBe('unknown');
+
+  // A lista de tarefas legada NÃO recebeu nada: ela é somente-leitura.
+  const legado = await withDb((q) =>
+    q(`select id from contract_obligations where contract_id = $1 and title = $2`,
+      [contractId, `E2E obrigação ${RUN}`]));
+  expect(legado.length, 'a lista legada não pode mais receber escrita').toBe(0);
 });
 
 test('6 · Criar tarefa na agenda (módulo dono: tasks)', async () => {

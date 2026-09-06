@@ -183,7 +183,15 @@ export function buildOnboardingReadiness(contract: TrustedContract): OnboardingR
       .some((c) => !c.ai_flagged || c.review_status === 'validated'),
   );
 
-  const obligationsState = stateOfList(contract.obligations);
+  /**
+   * A prontidão conta a obrigação ESTRUTURADA, não a lista de tarefas antiga.
+   *
+   * A lista antiga virou somente-leitura na Fase 3, e continuar contando por
+   * ela faria a prontidão dizer "registrado" para um contrato que só tem
+   * anotações — e "nada registrado" para um que tem a obrigação contratual
+   * bem definida. As duas estão erradas, e em direções opostas.
+   */
+  const obligationsState = stateOfList(contract.obligationDefinitions);
   const milestonesState = stateOfList(contract.milestones);
   const approvalsState = stateOfList(contract.approvals);
 
@@ -198,7 +206,7 @@ export function buildOnboardingReadiness(contract: TrustedContract): OnboardingR
   const countOf = (o: Official<readonly unknown[]>) => (hasOfficialValue(o) ? o.value.length : null);
 
   const docCount = countOf(contract.documents);
-  const oblCount = countOf(contract.obligations);
+  const oblCount = countOf(contract.obligationDefinitions);
   const msCount = countOf(contract.milestones);
   const apprCount = countOf(contract.approvals);
   const riskCount = countOf(contract.riskLinks);

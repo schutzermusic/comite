@@ -14,10 +14,13 @@ const schema = z.object({ through: z.iso.date() });
  * então a segunda chamada devolve `created: 0`. Nenhum agendador é necessário;
  * a Fase 4 poderá invocá-la sozinha.
  */
-export async function POST(req: Request, { params }: { params: Promise<{ definitionId: string }> }) {
+// `[id]` aqui é a DEFINIÇÃO. O segmento é compartilhado com transition e
+// evidence, que recebem a OCORRÊNCIA — o Next exige um nome só por segmento, e
+// inventar `[definitionId]` ao lado de `[instanceId]` quebra o roteador.
+export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const auth = await resolveObligationActor('contracts.edit');
   if (!auth.ok) return auth.response;
-  const { definitionId } = await params;
+  const { id: definitionId } = await params;
   try {
     const { through } = schema.parse(await req.json());
     const created = await materializeObligation(auth.actor, definitionId, through);

@@ -103,7 +103,11 @@ describe('ações do hook de contrato preservadas', () => {
 
   it('criação de obrigação e faturamento continua ligada', () => {
     const create = read(CREATE_HOOK);
-    expect(create).toContain('createContractObligation');
+    // A obrigação passou a gravar a DEFINIÇÃO canônica pela rota da Fase 3;
+    // `createContractObligation` escrevia na lista de tarefas legada, que hoje
+    // é somente-leitura.
+    expect(create).toContain('/obligations');
+    expect(create).toContain('sourceClauseId');
     expect(create).toContain('createContractBillingEvent');
   });
 });

@@ -5,6 +5,8 @@ import { transitionObligationInstance } from '@/lib/contracts/obligations/server
 
 export const runtime = 'nodejs';
 
+// `[id]` aqui é a OCORRÊNCIA, não a definição.
+
 const schema = z.object({
   next: z.enum(['OPEN', 'SATISFIED', 'WAIVED', 'CANCELLED', 'EXCEPTION']),
   // Cumprir exige dizer COM BASE EM QUÊ. Sem isso, "cumprida" viraria opinião.
@@ -12,10 +14,10 @@ const schema = z.object({
   note: z.string().trim().max(1000).optional(),
 });
 
-export async function POST(req: Request, { params }: { params: Promise<{ instanceId: string }> }) {
+export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const auth = await resolveObligationActor('contracts.edit');
   if (!auth.ok) return auth.response;
-  const { instanceId } = await params;
+  const { id: instanceId } = await params;
   try {
     const input = schema.parse(await req.json());
     const instance = await transitionObligationInstance(auth.actor, instanceId, input.next, input);

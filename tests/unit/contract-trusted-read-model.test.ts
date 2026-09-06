@@ -20,14 +20,14 @@ import { PROJECT_CEMIG, FIXED_NOW } from './fixtures/contract-fixtures';
 const noErrors = () => ({
   obligations: null, billing: null, documents: null,
   approvals: null, projectLinks: null, risks: null, ai: null,
-  milestones: null, clauses: null, penalties: null,
+  milestones: null, clauses: null, penalties: null, obligationDefinitions: null,
 });
 
 function emptyBatch(overrides: Partial<ContractRelationsBatch> = {}): ContractRelationsBatch {
   return {
     obligations: new Map(), billingEvents: new Map(), documents: new Map(),
     approvals: new Map(), projectLinks: new Map(), riskLinks: new Map(),
-    aiAnalyses: new Map(), milestones: new Map(), clauses: new Map(), penalties: new Map(), riskDetails: new Map(),
+    aiAnalyses: new Map(), milestones: new Map(), clauses: new Map(), penalties: new Map(), obligationDefinitions: new Map(), riskDetails: new Map(),
     sectionsWithData: {
       obligations: false, billing: false, documents: false,
       approvals: false, projectLinks: false, risks: false, ai: false,

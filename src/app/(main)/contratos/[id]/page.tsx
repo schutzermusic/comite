@@ -321,9 +321,26 @@ export default function ContractDossierPage() {
     onRefresh: async () => { await refresh(); },
   });
 
+  /**
+   * As origens possíveis de uma obrigação: as cláusulas e os documentos DESTE
+   * contrato. A lista existe porque a origem é obrigatória — sem ela o banco
+   * recusa a definição, e é melhor oferecer a escolha do que explicar a recusa.
+   */
+  const obligationOrigins = useMemo(() => [
+    ...(detail?.clauses ?? []).map((clause) => ({
+      value: `clause:${clause.id}`,
+      label: `Cláusula · ${clause.title}${clause.source_page ? ` (p. ${clause.source_page})` : ''}`,
+    })),
+    ...(detail?.documents ?? []).map((document) => ({
+      value: `document:${document.id}`,
+      label: `Documento · ${document.title}`,
+    })),
+  ], [detail?.clauses, detail?.documents]);
+
   const { openObligation, openBilling, modals: contractCreateModals } = useContractCreateModals({
     contractId,
     ownerUserId: detail?.contract.owner_user_id ?? null,
+    origins: obligationOrigins,
     onRefresh: async () => {
       await refresh();
     },

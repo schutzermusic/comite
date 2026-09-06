@@ -5,6 +5,8 @@ import { recordObligationEvidence } from '@/lib/contracts/obligations/server/sto
 
 export const runtime = 'nodejs';
 
+// `[id]` aqui é a OCORRÊNCIA, não a definição.
+
 const schema = z.object({
   contractId: z.string().uuid(),
   requirementId: z.string().uuid().optional(),
@@ -19,10 +21,10 @@ const schema = z.object({
  * Registrar não aceita: quando a exigência pede aceite formal, a evidência
  * nasce pendente, e a obrigação continua em aberto até que o aceite exista.
  */
-export async function POST(req: Request, { params }: { params: Promise<{ instanceId: string }> }) {
+export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const auth = await resolveObligationActor('contracts.edit');
   if (!auth.ok) return auth.response;
-  const { instanceId } = await params;
+  const { id: instanceId } = await params;
   try {
     const input = schema.parse(await req.json());
     const evidence = await recordObligationEvidence(auth.actor, { ...input, instanceId });

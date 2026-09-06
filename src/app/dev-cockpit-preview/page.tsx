@@ -56,7 +56,7 @@ const row: ContractRow = {
 } as ContractRow;
 
 const fullDetail: ContractDetail = {
-  contract: row, clauses: [], penalties: [], milestones: [], risks: [], files: [], aiAnalyses: [],
+  contract: row, clauses: [], obligationDefinitions: [], penalties: [], milestones: [], risks: [], files: [], aiAnalyses: [],
   amendments: [], amendmentClauses: [], amendmentsError: null,
   billingEvents: [
     { id: 'b1', contract_id: QA_ID, milestone_id: null, title: '[QA] Parcela 1 — mobilização', amount: 120_000, due_date: '2026-06-01', paid_at: '2026-06-02', status: 'pago' },
@@ -113,7 +113,7 @@ const enelRow = (n: string) => ({
 } as ContractRow);
 
 const bare = (r: ContractRow): ContractDetail => ({
-  contract: r, clauses: [], penalties: [], milestones: [], risks: [], files: [], aiAnalyses: [],
+  contract: r, clauses: [], obligationDefinitions: [], penalties: [], milestones: [], risks: [], files: [], aiAnalyses: [],
   billingEvents: [] as never, obligations: [] as never, approvals: [] as never,
   projectLinks: [] as never, riskLinks: [] as never, documents: [] as never, amendments: [], amendmentClauses: [], amendmentsError: null
 });

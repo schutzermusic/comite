@@ -68,6 +68,8 @@ export type LiveSource =
   | 'contract_amendments'
   | 'contract_amendment_clauses'
   | 'contract_instrument_lineage'
+  /** Fase 3: a definição de obrigação estruturada — verdade contratual. */
+  | 'contract_obligation_definitions'
   | 'audit_logs'
   | 'risks'
   /**

@@ -53,6 +53,10 @@ export interface ObligationsControlTowerProps {
   tower: ObligationsTower;
   canEdit?: boolean;
   busyId?: string | null;
+  /**
+   * @deprecated A lista legada é somente-leitura desde a Fase 3. Mantido para
+   * não quebrar chamadores antigos; nenhum caminho de tela o passa.
+   */
   onComplete?: (entry: { id: string; title: string; contract_id: string; owner_user_id: string | null; due_date: string | null }) => void;
   onCreateTask?: (contractId: string, title: string, dueAt: string, ownerUserId: string | null, key: string) => void;
   className?: string;
