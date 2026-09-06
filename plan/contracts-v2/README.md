@@ -3,7 +3,7 @@
 Recommended repository path:
 
 ```text
-docs/contracts-v2/
+plan/contracts-v2/
 ├── README.md
 ├── architecture.md
 ├── phase-1.md
@@ -17,7 +17,7 @@ For Phase 2, give Codex only this short instruction:
 Execute Contracts V2 — Phase 2.
 
 Read and follow:
-docs/contracts-v2/phase-2-execution.md
+plan/contracts-v2/phase-2-execution.md
 
 Treat it as the approved Phase 2 execution specification.
 

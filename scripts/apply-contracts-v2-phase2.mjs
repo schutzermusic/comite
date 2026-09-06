@@ -19,6 +19,9 @@
  *                                            recusado a todo mundo; apagar um
  *                                            contrato inteiro volta a ser
  *                                            possível pelo caminho privilegiado)
+ *   111  escopo de inquilino na sondagem     (fecha o oráculo cross-tenant do
+ *                                            auxiliar SECURITY DEFINER de
+ *                                            referência de cláusula)
  *
  * O ensaio é o modo padrão de propósito: executa o mesmo SQL, roda as mesmas provas
  * contra os dados REAIS desta base, e desfaz tudo no fim. Se qualquer prova falhar,
@@ -42,7 +45,7 @@ const APPLY = process.argv.includes('--apply');
  */
 const ONLY = process.argv.filter(a => /^1\d\d$/.test(a));
 const ALL_FILES = ['108_contract_temporal_lineage.sql', '109_contract_structured_definitions.sql',
-  '110_contract_history_erasure_boundary.sql'];
+  '110_contract_history_erasure_boundary.sql', '111_clause_reference_probe_tenant_scope.sql'];
 const FILES = ONLY.length ? ALL_FILES.filter(f => ONLY.some(n => f.startsWith(n))) : ALL_FILES;
 if (ONLY.length && FILES.length !== ONLY.length) {
   console.error(`!!! Migration não encontrada entre ${ONLY.join(', ')}`);
@@ -159,6 +162,12 @@ try {
   await must('apagar história é recusado à aplicação em toda tabela contratual',
     `SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal
        AND tgfoid='public.contracts_reject_history_erasure()'::regprocedure`, 9);
+  await must('`anon` não pode perguntar se uma cláusula é referenciada',
+    `SELECT has_function_privilege('anon','public.contracts_clause_is_referenced(uuid)','EXECUTE')::int`, 0);
+  await must('a sondagem de cláusula decide o inquilino pelo JWT, não por current_user',
+    `SELECT count(*) FROM pg_proc WHERE proname='contracts_clause_is_referenced'
+       AND prosecdef AND prosrc LIKE '%current_user_organization_id%' AND prosrc LIKE '%auth.uid()%'
+       AND prosrc NOT LIKE '%current_user %'`, 1);
   await must('o apagamento privilegiado alcança toda linha da Fase 2',
     `SELECT count(*) FROM pg_constraint WHERE contype='f'
        AND conrelid::regclass::text IN ('contract_guarantees','contract_insurance_requirements',

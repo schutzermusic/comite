@@ -163,3 +163,38 @@ Do not fix inside a Contracts schema phase unless that logic is touched.
 
 ### Disk capacity
 Recent builds reached ENOSPC. Ensure adequate free space before large builds, Playwright runs or worktrees.
+
+## Mandatory pre-Phase-3 gate — migration registry drift
+
+`supabase_migrations.schema_migrations` in production ends at **088**, while the
+schema itself carries everything through **111**. Migrations 089–111 were applied
+through the controlled runners in `scripts/` (`apply-contracts-v2-phase0/1/2.mjs`
+and their siblings), which execute the files inside one transaction with real
+preflight and post-apply assertions — but do not write a registry row.
+
+Nothing is wrong with the schema: every applied migration is in the repository, in
+order, and the Phase 2 runner verifies the result structurally on each run. What is
+wrong is that the registry no longer describes the database, so `supabase db push`
+or any registry-driven tool would try to replay 089 onward against a database that
+already has them, and the first `CREATE TABLE` would fail — or worse, a partially
+idempotent one would not.
+
+**This was deliberately left out of the Phase 2 security fix.** Reconciling a
+migration registry is a write to migration history, and doing it inside a change
+whose subject is a cross-tenant leak would have mixed two unrelated risks in one
+reviewable diff.
+
+Before Phase 3 starts, decide and execute one of:
+
+1. **Backfill the registry** — insert rows 089–111 as already-applied, after
+   proving file-by-file that each is in fact present in the schema. Registry
+   becomes truthful; runners stay the apply path.
+2. **Adopt the registry as the apply path** — reconcile as above, then move the
+   phase runners' preflight/assertions into repeatable checks around
+   `supabase db push`, so one mechanism owns applying and the other owns proving.
+3. **Record the runners as the sole source of truth** — document that
+   `schema_migrations` is not used by this project, and remove or fence the tools
+   that would consult it, so no one later trusts a number that means nothing.
+
+Do not pick by default. Whichever is chosen, the gate closes only when the
+registry and the schema agree, or when the registry is provably out of the loop.
