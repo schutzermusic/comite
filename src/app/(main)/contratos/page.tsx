@@ -51,6 +51,8 @@ import { buildPortfolioApprovals } from '@/lib/contracts/trust/approval-intellig
 import { buildClauseRiskIntelligence } from '@/lib/contracts/trust/clause-risk-intelligence';
 import { ContractToCashFlow } from '@/components/contracts/intelligence/ContractToCashFlow';
 import { ObligationsControlTower } from '@/components/contracts/intelligence/ObligationsControlTower';
+import { StructuredObligationsPanel } from '@/components/contracts/intelligence/StructuredObligationsPanel';
+import { useStructuredObligations } from '@/components/contracts/use-structured-obligations';
 import { RenewalHorizonPanel } from '@/components/contracts/intelligence/RenewalHorizonPanel';
 import { ApprovalIntelligencePanel } from '@/components/contracts/intelligence/ApprovalIntelligencePanel';
 import { ClauseRiskIntelligencePanel } from '@/components/contracts/intelligence/ClauseRiskIntelligencePanel';
@@ -485,6 +487,16 @@ export default function ContratosPage() {
   // dentro do próprio agregador e não mudam com o recorte visual.
   const cashFlow = useMemo(() => portfolioToCash(filteredTrusted, SCOPED), [filteredTrusted]);
   const obligationsTower = useMemo(() => buildObligationsTower(filteredTrusted), [filteredTrusted]);
+  /**
+   * O modelo canônico da Fase 3, resolvido no servidor.
+   *
+   * Vem por rota própria, e não do mesmo carregamento da carteira, porque a
+   * resolução `asOf` cruza definição, ocorrência, evidência, dispensa e
+   * dependência — trabalho de servidor, não de navegador. Sem `asOf` explícito,
+   * a rota usa a data de hoje e a devolve, para que a tela mostre a data que
+   * foi de fato usada.
+   */
+  const structuredObligations = useStructuredObligations();
   const renewalHorizon = useMemo(() => buildRenewalHorizon(filteredTrusted, new Date(), SCOPED), [filteredTrusted]);
   const portfolioApprovals = useMemo(() => buildPortfolioApprovals(filteredTrusted, new Date(), SCOPED), [filteredTrusted]);
   const clauseRiskIntel = useMemo(
@@ -837,6 +849,26 @@ export default function ContratosPage() {
       badge: tabCounts.overdue,
       content: (
         <div className="space-y-4">
+        {/*
+          O modelo canônico da Fase 3 vem PRIMEIRO: é ele que responde o que o
+          contrato exige, de quem, desde quando, com que evidência e se bloqueia
+          faturamento. A lista antiga fica abaixo, rotulada, porque as linhas
+          que existem nela são reais e sumir com elas sem explicação seria pior
+          que mantê-las visíveis no lugar certo.
+        */}
+        {structuredObligations.error ? (
+          <HudPanel state="warning" title="Obrigações estruturadas indisponíveis">
+            <p className="text-sm text-ig-warning">{structuredObligations.error}</p>
+          </HudPanel>
+        ) : (
+          <StructuredObligationsPanel
+            portfolio={structuredObligations.portfolio}
+            onOpenContract={(contractId) => {
+              const record = records.find((r) => r.contract.id === contractId);
+              if (record) openDossierDrawer(record);
+            }}
+          />
+        )}
         <ObligationsControlTower
           tower={obligationsTower}
           canEdit={contractPermissions.edit}

@@ -30,18 +30,53 @@ Do not pull these items into an authorized phase as opportunistic cleanup.
 - ContractInstrumentCard project cliente fallback
 - unrelated sidebar lint issue
 
-## Phase 3 — Obligations Engine
-Deferred:
-- obligation instances
-- recurrence
-- activation events
-- due rules
-- dependencies
-- evidence completion
-- waiver/exception
-- escalation
-- operational financial impact
-- blocks_billing evaluation
+## Phase 3 — Obligations Engine — ENTREGUE
+
+Migrations 114–117. O que estava listado como deferido foi implementado:
+instâncias, recorrência idempotente, ativação, regras de prazo, dependências,
+completude de evidência, dispensa/exceção, escalonamento, impacto financeiro
+contratual e avaliação de `blocks_billing`.
+
+### Deferido DENTRO da Fase 3
+
+- **Extração automática de obrigação a partir de cláusula.** A proposta por IA
+  não foi adaptada. Ligá-la agora transformaria a fase num projeto de extração,
+  e uma obrigação proposta por modelo não pode virar oficial por ter sido
+  inferida. O caminho seguro continua sendo documento → proposta → proveniência
+  explícita → obrigação governada.
+- **Calendário oficial de dias úteis.** Sem ele, `calendar_basis =
+  'business_days'` mantém a regra conhecida e a data DESCONHECIDA. Contar dia
+  útil como dia corrido produziria prazo errado com cara de certo.
+- **Ativação por evento externo.** O descritor contratual é gravado
+  (`activation_event_text`), mas nada o consome: consumir evento é Fase 4.
+  Evento não observado não ativa nada.
+- **Aceite formal.** `requires_formal_acceptance` e `acceptance_state`
+  representam a exigência e o estado; o motor de aprovação é a Fase 5.
+- **Materialização automática.** `contract_obligations_materialize` é
+  determinística, idempotente e chamável por rota. Quem a chama sozinha é a
+  Fase 4 — a Fase 3 não traz agendador, e não precisa de um para estar completa.
+- **Interface de escrita das obrigações.** A API existe (criar definição,
+  materializar, transicionar, registrar evidência e dispensa) e é usada pelos
+  testes e pelo smoke; a tela de cadastro assistido ainda não foi desenhada.
+- **Migração da lista de tarefas legada.** As três linhas `[QA]` de
+  `contract_obligations` (todas num contrato `demo`) NÃO foram convertidas.
+  Converter exigiria inventar a proveniência e a regra de prazo que nunca foram
+  registradas. A tabela virou somente-leitura e se declara legado.
+
+### Achado de segurança fora do escopo desta fase
+
+O `public` deste projeto concede, por *default privileges* do Supabase,
+`arwdDxtm` a `anon` e `authenticated` em toda tabela nova — **147 tabelas**
+têm TRUNCATE concedido a `anon`. TRUNCATE **não é filtrado por RLS**.
+
+Na prática o PostgREST não expõe TRUNCATE (o verbo não existe na sua API) e os
+verbos que ele expõe continuam barrados pela RLS, então não há porta aberta
+hoje. Ainda assim os grants são muito mais largos que o desenho pretende.
+
+As tabelas das fases nova (112–117) revogam explicitamente
+`INSERT, UPDATE, DELETE, TRUNCATE`. Corrigir as outras ~140 e o
+`ALTER DEFAULT PRIVILEGES` do schema é mudança de plataforma, com o seu próprio
+preflight e a sua própria janela — não cabe dentro de uma fase de Contratos.
 
 ## Phase 4 — Event Graph
 Deferred:
@@ -163,6 +198,35 @@ Do not fix inside a Contracts schema phase unless that logic is touched.
 
 ### Disk capacity
 Recent builds reached ENOSPC. Ensure adequate free space before large builds, Playwright runs or worktrees.
+
+## Fiscal / NFS-e — fundação entregue, emissão real no portão de credencial
+
+Migrations 112 (fundação) e 113 (permissões). O rascunho `090_fiscal_nfse.sql`
+NUNCA foi aplicado e está arquivado em `supabase/migrations-superseded/`.
+
+Deferido:
+- **Emissão real em homologação** — depende de itens externos ao código:
+  certificado A1, senha, `FISCAL_CERT_KEY`, inscrição municipal ativa, adesão ao
+  ambiente nacional e `base_url` do ambiente. Ver `docs/plan/TASK-024`.
+- **Produção** — bloqueada estruturalmente por `fiscal_production_gates` e pelo
+  gatilho `fiscal_guard_production`, que roda para todos, service role incluído.
+- **Integração com Finanças** (razão, contas a receber, `tax_obligation`) —
+  Fase 7. O documento fiscal declara `finance_status = 'not_posted'`.
+- **DANFSe** — o pipeline existe e arquiva; a recuperação depende do provedor
+  real e não foi exercitada.
+- **Menu do módulo** — segue exigindo `NEXT_PUBLIC_FISCAL_MODULE_ENABLED`
+  explícito por ambiente.
+
+## Portão pré-Fase-3 — RESOLVIDO
+
+O registro foi reconciliado: as 22 versões provadas (089, 091–111) foram
+gravadas, e a 090 fica declaradamente FORA por nunca ter sido aplicada. A partir
+das migrations 112+, todo runner grava a linha do registro DENTRO da transação
+que aplica o arquivo (`scripts/lib/migration-registry.mjs`) — aplicar e
+registrar deixaram de ser dois eventos que podem divergir. O registro termina
+em 117.
+
+O texto original do portão fica abaixo, como registro do que foi decidido.
 
 ## Mandatory pre-Phase-3 gate — migration registry drift
 

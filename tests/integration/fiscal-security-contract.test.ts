@@ -111,7 +111,10 @@ describe('legacy migration 090', () => {
   it('left no gap that a tool would try to fill', () => {
     const versions = readdirSync('supabase/migrations').filter((f) => f.endsWith('.sql')).map((f) => f.slice(0, 3)).sort();
     expect(versions).not.toContain('090');
-    expect(versions.at(-1)).toBe('113');
+    // A fundação fiscal ocupa 112 e 113; a ponta cresce com as fases seguintes,
+    // e prendê-la a um número faria toda fase nova quebrar este teste.
+    expect(versions).toEqual(expect.arrayContaining(['112', '113']));
+    expect(Number(versions.at(-1))).toBeGreaterThanOrEqual(113);
     expect(new Set(versions).size).toBe(versions.length);
   });
 });

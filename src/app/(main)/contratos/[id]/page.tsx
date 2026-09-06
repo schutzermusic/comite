@@ -92,6 +92,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { SectionHeader, HistoryDrawer, InlineEmpty, DossierNav } from '@/components/contracts/shell';
 import { format } from 'date-fns';
+import { ContractStructuredObligations } from '@/components/contracts/ContractStructuredObligations';
 import { pt } from 'date-fns/locale';
 
 /*
@@ -988,13 +989,18 @@ function ClausesTab({ detail }: { detail: ContractDetail }) {
 }
 
 /**
- * Obrigações reais de `contract_obligations`.
+ * Obrigações do contrato.
  *
- * O fallback que exibia MARCOS como se fossem obrigações saiu. Eram dois
- * domínios diferentes desenhados na mesma lista, e o mapeamento de status
+ * Duas listas, e a ordem não é acidental. Primeiro o modelo ESTRUTURADO da
+ * Fase 3, que responde o que o contrato exige, de quem, desde quando, com que
+ * prazo e por qual cláusula. Depois a lista de tarefas anterior, rotulada como
+ * legado: as linhas que existem nela são reais, e fazê-las sumir sem explicação
+ * seria pior que mostrá-las no lugar certo.
+ *
+ * O fallback que exibia MARCOS como se fossem obrigações saiu na Fase 0. Eram
+ * dois domínios diferentes desenhados na mesma lista, e o mapeamento de status
  * comparava contra `'completed'`/`'overdue'` — valores que nunca existiram no
- * vocabulário de marco, o que o CHECK da migration 092 tornou demonstrável.
- * Marco agora tem superfície própria (Contract-to-Cash e painel de medição).
+ * vocabulário de marco.
  */
 function ObligationsTab({ trusted, detail, onNewObligation }: { trusted: TrustedContract; detail: ContractDetail; onNewObligation?: () => void }) {
   const obligationsErrored = isError(trusted.obligations);
@@ -1010,12 +1016,18 @@ function ObligationsTab({ trusted, detail, onNewObligation }: { trusted: Trusted
   const subtitle = obligationsErrored
     ? 'Falha ao ler as obrigações'
     : detail.obligations.length > 0
-      ? `${detail.obligations.length} obrigação(ões) em contract_obligations`
-      : 'Nenhuma obrigação mapeada';
+      ? `${detail.obligations.length} item(ns) da lista de tarefas anterior à Fase 3`
+      : 'A lista anterior está vazia';
 
   return (
-    <section>
-      <SectionHeader title="Obrigações por responsável" hint={subtitle} />
+    <section className="space-y-6">
+      <div>
+        <SectionHeader title="Obrigações contratuais" hint="O que o contrato exige, com origem e prazo" />
+        <ContractStructuredObligations contractId={detail.contract.id} />
+      </div>
+
+      <div>
+      <SectionHeader title="Lista anterior (legado)" hint={subtitle} />
       {onNewObligation && (
         <div className="mb-3 flex justify-end">
           <HudButton variant="secondary" size="sm" leftIcon={<Plus className="h-4 w-4" />} onClick={onNewObligation}>
@@ -1037,6 +1049,7 @@ function ObligationsTab({ trusted, detail, onNewObligation }: { trusted: Trusted
             <span className="text-ig-caption text-ig-fg-muted">{obligation.dueDate ? format(obligation.dueDate, 'dd/MM/yyyy', { locale: pt }) : 'sem prazo'}</span>
           </div>
         ))}
+      </div>
       </div>
     </section>
   );

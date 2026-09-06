@@ -1,0 +1,28 @@
+import { NextResponse } from 'next/server';
+import { z } from 'zod';
+import { resolveObligationActor, obligationApiError } from '@/lib/contracts/obligations/server/actor';
+import { materializeObligation } from '@/lib/contracts/obligations/server/store';
+
+export const runtime = 'nodejs';
+
+const schema = z.object({ through: z.iso.date() });
+
+/**
+ * Cria as ocorrências até o horizonte pedido.
+ *
+ * Chamar duas vezes é inofensivo: a chave de ocorrência é derivada do período,
+ * então a segunda chamada devolve `created: 0`. Nenhum agendador é necessário;
+ * a Fase 4 poderá invocá-la sozinha.
+ */
+export async function POST(req: Request, { params }: { params: Promise<{ definitionId: string }> }) {
+  const auth = await resolveObligationActor('contracts.edit');
+  if (!auth.ok) return auth.response;
+  const { definitionId } = await params;
+  try {
+    const { through } = schema.parse(await req.json());
+    const created = await materializeObligation(auth.actor, definitionId, through);
+    return NextResponse.json({ ok: true, created });
+  } catch (error) {
+    return obligationApiError(error, 'Falha ao materializar ocorrências.');
+  }
+}
