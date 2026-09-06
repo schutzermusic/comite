@@ -41,7 +41,33 @@ const obligationMaterialization: ScheduledProducer = {
   },
 };
 
-export const SCHEDULED_PRODUCERS: readonly ScheduledProducer[] = [obligationMaterialization];
+/*
+  Expiração de aprovação — o segundo produtor da plataforma, e o primeiro que
+  não pertence a Contratos. Está aqui, e não num agendador próprio do motor de
+  aprovação, porque a §29 é explícita: não se cria uma fila específica de
+  aprovação quando `apex_jobs` já existe.
+*/
+const approvalExpiration: ScheduledProducer = {
+  name: 'platform.approvals.expire',
+  ownerDomain: 'platform',
+  idempotencyBasis:
+    'A chave do trabalho é (organização, HORA): approval-expire:<org>:<YYYY-MM-DDTHH>. '
+    + 'O relógio como chave criaria 144 trabalhos por dia e por inquilino, quase todos '
+    + 'sem nada a fazer; o DIA deixaria a projeção parada por 24 horas. A exatidão do '
+    + 'prazo não depende desta cadência — quem recusa decisão vencida é a própria RPC.',
+  async produce(supabase, asOf) {
+    const { data, error } = await supabase.rpc('approval_enqueue_expiration', {
+      p_as_of: asOf.toISOString(),
+    });
+    if (error) throw new Error(`Produtor de expiração de aprovação falhou: ${error.message}`);
+    return Number(data ?? 0);
+  },
+};
+
+export const SCHEDULED_PRODUCERS: readonly ScheduledProducer[] = [
+  obligationMaterialization,
+  approvalExpiration,
+];
 
 /** Data em UTC. O dia do produtor tem de ser o mesmo em toda máquina que acordar. */
 export function isoDate(date: Date): string {

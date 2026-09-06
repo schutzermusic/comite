@@ -182,15 +182,103 @@ vivo permanente em `tests/integration/platform-event-graph-live.test.ts`.
   (`CRON_SECRET`), workflow próprio e cadência própria, e nenhuma linha dele foi
   tocada.
 
-## Phase 5 — Shared Approval Engine
-Deferred:
-- approval_policies
-- approval_requests
-- approval_steps
-- approval_decisions
-- approval_delegations
-- atomic decision RPC
-- migration from module-specific approval engines
+## Phase 5 — Motor de Aprovação da Plataforma — ENTREGUE (infraestrutura)
+
+Migrations 125–129 (125–128 desenho; 129 correção provada em EXECUÇÃO — nenhuma
+migration aplicada foi editada). Tudo o que estava listado como deferido foi
+implementado: `approval_policies` com versão imutável, `approval_requests` com
+plano de etapas COPIADO na criação, estágios ordenados, etapas paralelas com
+quórum declarado, `approval_decisions` append-only com uma decisão por etapa
+garantida pelo banco, `approval_delegations` com prazo obrigatório e escopo, e
+a RPC atômica `approval_decide`.
+
+Além da lista: segregação de funções (requerente, autor do objeto e etapas
+incompatíveis), limites de alçada com proveniência congelada na decisão,
+impressão digital do sujeito reconferida a CADA decisão, devolução para
+correção distinta de rejeição, cancelamento, expiração e sucessão — todos com
+fato durável emitido na MESMA transação, pelo Grafo de Eventos da Fase 4.
+
+### A auditoria que definiu o escopo, e o que ela encontrou
+
+`contract_approvals` tem TRÊS linhas. As três são do MESMO contrato, e esse
+contrato é `data_class = 'demo'` (`[QA] Contrato de Serviços`). **Não existe
+uma única aprovação de contrato real na base.**
+
+A única regra autoritativa PROVÁVEL é estrutural: o vocabulário de etapas
+(`juridico`, `financeiro`, `comite`, `diretoria`), a ordem entre elas
+(`contract_approval_step_order`, IMMUTABLE, em produção) e a segregação de
+funções da Fase 0 (quem cadastrou o contrato não decide etapa terminal).
+
+O que NÃO existe em lugar nenhum — nem no banco, nem no repositório, nem em
+documento: alçada, limite por valor, quórum, delegação e aprovador nomeado.
+Nenhuma linha, nenhuma constante.
+
+Outros motores mapeados e NÃO migrados (a §7 proíbe big-bang):
+`deliberations` + `deliberation_votes` (0 linhas), `journey_balance_approvals`
+(0 linhas), `time_entries.approved_by` (0 linhas), `allowance_weeks`,
+`payroll_batch`, `ledger_entry`, `fiscal_documents`, `project_allocations`,
+`contract_documents`. Todos intactos.
+
+### Deferido DENTRO da Fase 5
+
+- **O corte real de Contratos.** BLOQUEADO, e o bloqueio é a conclusão certa da
+  §34/§63, não uma tarefa pendente de código. Sem regra autoritativa provada,
+  ativar o corte exigiria inventar política, alçada ou aprovador — e uma alçada
+  inventada é indistinguível de uma real depois que alguém aprova por cima
+  dela. `approval_engine_cutover` está VAZIA em produção. O motor foi validado
+  ponta a ponta com política e organização DESCARTÁVEIS, apagadas ao final.
+  Para desbloquear é preciso o que o código não pode produzir: alguém com
+  autoridade declarando quais etapas cada contrato exige, sob que valor, e
+  quem decide.
+- **Interface de desenho de política.** As tabelas, a validação
+  (`approval_policy_version_problems`) e a ativação existem e são exercitadas
+  pelos testes e pela fumaça. Não há tela de cadastro de política — e não podia
+  haver antes de existir política real para cadastrar.
+- **Interface de decisão.** O modelo de leitura
+  (`approval_request_read_model`), a elegibilidade do espectador e o serviço de
+  cliente existem; a aba Aprovações já os consome e declara honestamente o
+  estado do motor. Os BOTÕES de aprovar/rejeitar/devolver não foram
+  construídos: enquanto a organização não é cortada, não há pedido para decidir,
+  e um botão sobre lista vazia sugeriria governança que não está em vigor.
+- **Migração dos demais módulos.** Fora de escopo por decisão da §7. Cada um
+  exigirá a mesma auditoria de regra real que Contratos exigiu.
+- **Reabertura de estágio após devolução.** `return_behavior` admite apenas
+  `TERMINATE_REQUEST`, e o CHECK diz isso. Reabrir exigiria mais de uma decisão
+  por etapa, e o histórico deixaria de ter uma linha por decisão. A correção
+  volta por SUCESSÃO, com impressão digital nova — que é o caminho honesto.
+- **`BLOCK_STAGE` na rejeição.** Mesma razão: o valor não foi declarado no
+  CHECK porque o runtime não o implementa. Estado de governança que existe no
+  vocabulário e não no comportamento é pior que estado ausente.
+- **Encadeamento de delegação.** Proibido por padrão (§20). O delegante precisa
+  satisfazer a etapa POR SI; permitir a cadeia tornaria impossível dizer de
+  onde a autoridade veio originalmente.
+- **Alçada por ATOR.** O limite mora na ETAPA, não na pessoa. Modelar alçada
+  pessoal exigiria conhecer as alçadas reais de pessoas reais, que é
+  exatamente o que a auditoria não encontrou. A delegação já limita pelo MENOR
+  entre o teto do delegante e o da etapa.
+- **Lembretes de prazo.** A §29 permite "se explicitamente necessário", e não
+  há evidência de que sejam.
+
+### Dois defeitos que só a execução revelou
+
+- **Sucessão depois da inserção nunca rodava.** `approval_request_create`
+  suprimia o pedido antigo DEPOIS de inserir o novo — e o índice parcial
+  `areq_one_active` recusava o sucessor enquanto o antecessor ainda estava
+  PENDING, corretamente. A ordem foi invertida: o id é gerado antes, a sucessão
+  acontece primeiro. Encontrado pela bateria, não pela leitura do SQL.
+- **`current_user` dentro de SECURITY DEFINER é o DONO, não quem chamou.** A
+  guarda que impedia consultar a elegibilidade de terceiros nunca disparava,
+  porque comparava um `current_user` que já valia `postgres`. O oráculo de
+  permissão estava aberto. Corrigido POR CONSTRUÇÃO e não por verificação:
+  `approval_step_eligibility_for_viewer` não tem o parâmetro de ator, e é a
+  única que `authenticated` alcança.
+
+### Resíduo confirmado, e agora com consequência medida
+
+`contract_amendment_revisions.organization_id` sem `ON DELETE CASCADE` — já
+registrado na Fase 4 — BLOQUEIA de fato a exclusão de um inquilino que tenha
+aditivo. A limpeza da bateria e a da fumaça precisam apagar a linhagem antes da
+organização. Continua fora do escopo desta fase; deixa de ser teórico.
 
 ## Phase 6 — Project Measurement
 Deferred:
