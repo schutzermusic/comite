@@ -1,0 +1,67 @@
+name: Apex — fila de trabalho durável
+
+# O agendador é um DESPERTADOR, não a verdade do sistema.
+#
+# A fila é durável: se esta execução atrasar, falhar ou não rodar, nenhum
+# trabalho se perde — ele continua PENDING e a próxima batida o pega. Nada aqui
+# depende de o cron ser pontual, e nenhuma correção depende de ele ter rodado.
+#
+# Por que Actions e não cron da Vercel: o plano Hobby só permite cron DIÁRIO,
+# e uma fila que acorda uma vez por dia não é uma fila. O vercel.json continua
+# com os crons do Ponto, que são outra coisa e não são tocados aqui.
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+# Duas batidas simultâneas seriam SEGURAS (a reivindicação usa SKIP LOCKED e a
+# idempotência de trabalho impede duplicata), mas não seriam úteis: a segunda
+# encontraria a fila já reivindicada pela primeira. `cancel-in-progress: false`
+# porque cancelar uma passagem no meio deixa concessões vivas até expirarem —
+# recuperável, e ainda assim desperdício.
+concurrency:
+  group: apex-jobs-drain
+  cancel-in-progress: false
+
+jobs:
+  drain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Drenar /api/platform/jobs/drain
+        env:
+          SITE_URL: ${{ vars.APEX_SITE_URL }}
+          APEX_JOBS_SECRET: ${{ secrets.APEX_JOBS_SECRET }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${SITE_URL:-}" ]; then
+            echo "::error::variável APEX_SITE_URL ausente no repositório"
+            exit 1
+          fi
+          if [ -z "${APEX_JOBS_SECRET:-}" ]; then
+            echo "::error::secret APEX_JOBS_SECRET ausente no repositório"
+            exit 1
+          fi
+
+          # O segredo vai no HEADER, nunca na URL: query string aparece em log
+          # de acesso, em referrer e no histórico do proxy.
+          # `-o` separa corpo de status para que o corpo possa ser impresso — ele
+          # só contém contadores — sem que o comando inteiro entre no log.
+          status=$(curl -sS -X POST "$SITE_URL/api/platform/jobs/drain" \
+            -H "Authorization: Bearer $APEX_JOBS_SECRET" \
+            -H "x-apex-trigger: github-actions" \
+            --max-time 150 \
+            -o response.json \
+            -w '%{http_code}')
+
+          echo "HTTP $status"
+          cat response.json
+          echo
+
+          # Um 2xx que ninguém confere é um agendador que "funciona" enquanto a
+          # fila apodrece. O passo falha alto.
+          if [ "$status" -lt 200 ] || [ "$status" -ge 300 ]; then
+            echo "::error::drain do Apex falhou com HTTP $status"
+            exit 1
+          fi

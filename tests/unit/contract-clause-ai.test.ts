@@ -215,8 +215,10 @@ describe('proposta nunca se apresenta como verdade contratual', () => {
     ]) {
       expect(service, `sem auditoria de ${action}`).toContain(action);
     }
+    // O pedido de extração é ato humano e é auditado como tal; a execução
+    // virou trabalho de fila e sua trilha é o pedido durável + a análise.
     const route = read('src/app/api/ai/clause-extraction/[contractId]/route.ts');
-    expect(route).toContain('contract.clauses_extracted');
+    expect(route).toContain('contract.clause_extraction_requested');
   });
 
   it('o documento não é truncado em silêncio', () => {

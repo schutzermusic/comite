@@ -49,6 +49,15 @@ if (rows.length === 0) {
       a cláusula que sustenta uma obrigação viva. A ordem aqui é a mesma regra
       que protege o contrato de verdade, não um detalhe de limpeza.
     */
+    /*
+      Fase 4 antes de tudo o mais do contrato: o pedido durável de extração
+      referencia documento, análise e trabalho, e o vínculo de evento referencia
+      a definição de obrigação. Nenhum dos dois é história contratual — são
+      execução — e por isso saem junto com o contrato de teste.
+    */
+    await client.query(`delete from contract_clause_extraction_requests where contract_id = $1`, [c.id]);
+    await client.query(`delete from contract_obligation_event_bindings where contract_id = $1`, [c.id]);
+
     for (const table of [
       'contract_obligation_evidence',
       'contract_obligation_exceptions',
@@ -83,5 +92,22 @@ if (rows.length === 0) {
     console.log(`  removido: ${c.contract_number}`);
   }
 }
+
+/*
+  Trabalho de fila deixado pelo E2E.
+
+  `domain_events` NÃO é varrido: fato registrado é história, e apagá-lo para
+  arrumar o banco é a mesma falsificação que apagar `audit_logs`. O que sai é a
+  FILA — trabalho que aponta para contrato que não existe mais e que, se ficasse,
+  o trabalhador tentaria executar cinco vezes antes de virar carta morta.
+*/
+const orphan = await client.query(
+  `delete from apex_jobs j
+    where j.job_type = 'contracts.clause_extraction.execute'
+      and not exists (
+        select 1 from contract_clause_extraction_requests r
+         where r.id = (j.payload->>'request_id')::uuid)
+    returning j.id`);
+if (orphan.rowCount > 0) console.log(`${orphan.rowCount} trabalho(s) de extração órfão(s) removido(s).`);
 
 await client.end();

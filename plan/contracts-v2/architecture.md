@@ -223,11 +223,11 @@ Do not recreate the removed vertical dossier rail.
 
 - Phase 0 — Truth & Security — complete
 - UI Architecture Gate — complete
-- Phase 1 — Canonical Party & Tenant Foundation — complete after merge
-- Phase 2 — Contract Structured Model — next
-- Phase 3 — Obligations Engine
-- Phase 4 — Contract Event Graph
-- Phase 5 — Apex Approval Engine
+- Phase 1 — Canonical Party & Tenant Foundation — complete
+- Phase 2 — Contract Structured Model — complete
+- Phase 3 — Obligations Engine — complete (migrations 114–117)
+- Phase 4 — Platform Event Graph / Durable Work Execution — complete (migrations 119–124)
+- Phase 5 — Apex Approval Engine — next
 - Phase 6 — Contract ↔ Project / Measurement
 - Phase 7 — Billing ↔ Finance
 - Phase 8 — Risks & Clauses Operationalization
@@ -243,6 +243,46 @@ accepted project measurement
 ```
 
 Never fallback to `billing_amount`.
+
+## 11.1 Platform execution substrate (Phase 4)
+
+Phase 4 stopped being a Contracts feature and became shared infrastructure. The
+chain, in order, is:
+
+```text
+authoritative mutation
+        ↓ (same transaction — never a second round-trip)
+domain_events
+        ↓
+apex_event_routes + registered dynamic route providers
+        ↓
+apex_jobs
+        ↓ (FOR UPDATE SKIP LOCKED + lease token)
+typed handler
+        ↓
+success · bounded retry · dead-letter
+        ↓
+new authoritative mutation + new causal event
+```
+
+Ownership, unchanged by later phases:
+
+- Platform owns `domain_events`, `apex_jobs`, routing, the worker runtime, the
+  scheduler entrypoint, retry/reaper and health.
+- Contracts owns its obligation model, its event bindings and its handlers.
+- Fiscal keeps `fiscal_jobs`. It was not replaced, renamed or absorbed.
+- Ponto keeps its own cron, its own secret and its own workflow.
+
+Two rules that later phases inherit rather than re-decide:
+
+1. **The event graph is not event sourcing.** Domain tables stay authoritative.
+   Deleting `domain_events` entirely would lose causality and pending work — not
+   a single contract.
+2. **Delivery is at-least-once.** Every handler is idempotent because a process
+   can die between the side effect and the `COMPLETED` write.
+
+Phase 4 did not implement Phase 5–10 decisions. No worker manufactures approval,
+measurement acceptance or billing release.
 
 ## 12. Engineering discipline
 

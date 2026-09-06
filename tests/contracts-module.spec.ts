@@ -776,13 +776,36 @@ test('25 · Documento sem cláusula contratual não produz proposta alguma', asy
 
   const select = page.getByLabel('Documento a analisar');
   await expect(select).toBeVisible({ timeout: 20_000 });
+  const documentId = await select.inputValue().then(async (v) => v
+    || (await select.locator('option').nth(1).getAttribute('value')) || '');
   await select.selectOption({ index: 1 });
   await page.getByRole('button', { name: 'Extrair cláusulas' }).click();
 
-  // A leitura de um PDF leva alguns segundos; a resposta é um toast.
+  /*
+    A Fase 4 enfileirou a extração. O toast confirma o PEDIDO — dizer "N
+    cláusulas propostas" no instante do clique afirmaria um número que o modelo
+    ainda não produziu.
+  */
   await expect(
-    page.getByText(/Nenhuma cláusula com evidência|cláusula\(s\) propostas|não pôde ser concluída/).first(),
-  ).toBeVisible({ timeout: 240_000 });
+    page.getByText(/Análise enfileirada|já está em andamento/).first(),
+  ).toBeVisible({ timeout: 60_000 });
+
+  // O sinal confiável passou a ser o PEDIDO DURÁVEL, que existe desde antes de
+  // o trabalhador começar e cujo estado terminal é a resposta real.
+  const deadline = Date.now() + 240_000;
+  let request: Record<string, unknown> | undefined;
+  while (Date.now() < deadline) {
+    const [row] = await withDb((q) => q(
+      `select status, analysis_id, proposed_count, error_safe
+         from contract_clause_extraction_requests
+        where contract_id = $1 and document_id = $2
+        order by requested_at desc limit 1`, [contractId, documentId]));
+    request = row;
+    if (row && ['COMPLETED', 'FAILED', 'CANCELLED'].includes(row.status)) break;
+    await new Promise((r) => setTimeout(r, 3_000));
+  }
+  expect(request, 'o pedido durável precisa existir').toBeTruthy();
+  expect(['COMPLETED', 'FAILED'], `pedido ficou em ${request?.status}`).toContain(request?.status);
 
   const after = await withDb((q) => q(
     `select count(*)::int n from contract_clauses where contract_id = $1 and ai_flagged = true`,
@@ -791,32 +814,48 @@ test('25 · Documento sem cláusula contratual não produz proposta alguma', asy
   expect(after[0].n).toBe(before[0].n);
 
   /*
+    "Nenhum documento fica eternamente analisando" era, antes da Fase 4, uma
+    promessa que dependia de o processo sobreviver ao pedido HTTP: se ele
+    morresse antes de a análise ser criada, não restava registro NENHUM, e o
+    documento ficava sem trilha alguma. Agora o pedido durável existe desde
+    ANTES da primeira chamada ao provedor, e é ele que garante o estado
+    terminal — inclusive quando a falha acontece antes de haver análise.
+  */
+  expect(request?.error_safe ?? '', 'a mensagem persistida não pode carregar segredo')
+    .not.toMatch(/sk-|Bearer |eyJ|postgres(ql)?:\/\//);
+  if (request?.status === 'FAILED') {
+    expect(request?.error_safe, 'uma falha precisa dizer o motivo').toBeTruthy();
+  }
+
+  /*
     A proveniência da análise mora em COLUNAS desde a migration 094 — antes
     vivia dentro de `extracted_data`, onde não dava para consultar. Ler o jsonb
     aqui passou a olhar o lugar errado: numa análise que falhou, o jsonb fica
     com o payload mínimo do início e o modelo só existe na coluna.
+
+    A análise só nasce quando o extrator chega a chamar o provedor. Uma falha
+    ANTERIOR a isso — documento sem objeto no bucket, por exemplo — não produz
+    análise, e exigir uma aqui faria o teste cobrar um registro que a execução
+    corretamente não criou.
   */
-  const analysis = await withDb((q) => q(
-    `select id, status, model, extractor_version, document_id, error_message, extracted_data
-       from contract_ai_analyses
-      where contract_id = $1 and extracted_data->>'kind' = 'clause_extraction'
-      order by created_at desc limit 1`, [contractId]));
-  expect(analysis.length, 'a análise deveria ter deixado registro').toBe(1);
+  if (request?.analysis_id) {
+    const [record] = await withDb((q) => q(
+      `select id, status, model, extractor_version, document_id, error_message, extracted_data
+         from contract_ai_analyses where id = $1`, [request.analysis_id]));
+    expect(record, 'o pedido aponta para uma análise que precisa existir').toBeTruthy();
+    // Independentemente do desfecho, o registro identifica modelo, versão e documento.
+    expect(record.model).toBeTruthy();
+    expect(record.extractor_version).toBeTruthy();
+    expect(record.document_id).toBeTruthy();
 
-  const [record] = analysis;
-  // Independentemente do desfecho, o registro identifica modelo, versão e documento.
-  expect(record.model).toBeTruthy();
-  expect(record.extractor_version).toBeTruthy();
-  expect(record.document_id).toBeTruthy();
-
-  if (record.status === 'completed') {
-    // Documento sem texto contratual: nada pôde ser proposto a partir dele.
-    expect(record.extracted_data.proposed).toBe(0);
-  } else {
-    // Falhou: então o estado é terminal e o motivo está registrado — um
-    // documento não pode ficar eternamente "analisando".
-    expect(record.status).toBe('failed');
-    expect(record.error_message).toBeTruthy();
+    if (record.status === 'completed') {
+      // Documento sem texto contratual: nada pôde ser proposto a partir dele.
+      expect(record.extracted_data.proposed).toBe(0);
+    } else {
+      // Falhou: então o estado é terminal e o motivo está registrado.
+      expect(record.status).toBe('failed');
+      expect(record.error_message).toBeTruthy();
+    }
   }
 });
 
@@ -984,9 +1023,17 @@ test('31 · Auditoria e métricas do ciclo de análise', async () => {
   expect(analyses[0].error_message).toBeTruthy();
   expect(analyses[0].document_id).toBeTruthy();
 
+  /*
+    `contract.clauses_extracted` continua na lista porque a trilha HISTÓRICA
+    dele existe e não foi apagada. O nome que a rota escreve desde a Fase 4 é
+    `contract.clause_extraction_requested`: com a extração enfileirada, o ato
+    do humano é PEDIR a análise — afirmar "extraiu" no instante do clique
+    dataria a leitura do modelo antes de ela acontecer.
+  */
   const audit = await withDb((q) => q(
     `select action from audit_logs where entity_type = 'contract' and entity_id = $1
-       and action in ('contract.clauses_extracted', 'contract.clause_reviewed', 'contract.clause_superseded')`,
+       and action in ('contract.clause_extraction_requested', 'contract.clause_reviewed',
+                      'contract.clause_superseded', 'contract.clauses_extracted')`,
     [contractId]));
   expect(audit.length).toBeGreaterThan(0);
 });

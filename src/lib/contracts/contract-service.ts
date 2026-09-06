@@ -1751,20 +1751,26 @@ export async function supersedeContractDocument(
 
 export type ClauseExtractionResult = {
   ok: boolean;
-  analysisId?: string;
-  proposedCount?: number;
-  rejectedCount?: number;
-  /** Leituras idênticas às já registradas — puladas pela reanálise. */
-  duplicateCount?: number;
-  supersededAnalysisId?: string | null;
+  /** Pedido DURÁVEL de extração. É por ele que a tela acompanha o andamento. */
+  requestId?: string;
+  status?: 'QUEUED' | 'RUNNING';
+  jobId?: string | null;
+  /** Um pedido já ABERTO para o mesmo documento foi reaproveitado. */
+  reused?: boolean;
   error?: string;
 };
 
 /**
- * Dispara a extração assistida a partir de um documento do contrato.
+ * Pede a extração assistida a partir de um documento do contrato.
  *
- * A análise roda no servidor (a chave da Anthropic nunca chega ao browser) e
- * grava as propostas já marcadas como proposta.
+ * A chamada ENFILEIRA e volta; ela não espera o modelo ler o PDF. Um contrato
+ * grande gasta minutos, e uma função serverless reciclada no meio deixava a
+ * análise presa em `running` sem quem a retomasse — o pedido parecia estar
+ * andando e não estava.
+ *
+ * O que volta é o pedido durável, não o resultado: as propostas aparecem na
+ * fila de revisão quando o trabalhador terminar. Pedir duas vezes o mesmo
+ * documento devolve o MESMO pedido — o provedor é chamado uma vez só.
  */
 export async function requestClauseExtraction(
   contractId: string,

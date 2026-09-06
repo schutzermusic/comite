@@ -222,7 +222,15 @@ describe('0.3 · integridade da auditoria', () => {
     expect(route).toContain('logAuditEventServer');
     expect(route).toContain('req.headers');
     expect(route).not.toMatch(/from '@\/lib\/audit\/log-audit-event'/);
-    expect(route).toContain("action: 'contract.clauses_extracted'");
+    /*
+      A Fase 4 enfileirou a extração, e o nome do evento acompanhou o FATO: o
+      humano pede a análise, ele não a executa. `contract.clauses_extracted`
+      afirmaria, no instante do clique, que o modelo já leu o documento — e
+      quem lesse a trilha um ano depois acreditaria nisso. O que a máquina fez
+      depois fica em `contract_clause_extraction_requests` e em
+      `contract_ai_analyses`, que carregam o ciclo inteiro com data e ator.
+    */
+    expect(route).toContain("action: 'contract.clause_extraction_requested'");
     // e a resposta não afirma ter auditado quando não auditou
     expect(route).toContain('audited');
   });

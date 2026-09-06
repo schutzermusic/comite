@@ -238,23 +238,52 @@ test('2 · A extração roda pela rota real e PROPÕE cláusulas', async () => {
   }
 });
 
-test('3 · A auditoria contract.clauses_extracted foi escrita, e é completa', async () => {
+test('3 · O PEDIDO de extração foi auditado, e a execução deixou trilha durável', async () => {
+  /*
+    O nome do evento mudou com a Fase 4, e mudou para acompanhar o fato. A
+    extração virou trabalho de fila: o humano PEDE a análise, e é isso que
+    `audit_logs` — que responde "quem fez o quê" — pode afirmar no instante do
+    clique. Escrever `contract.clauses_extracted` ali dataria a leitura do
+    modelo antes de ela ter acontecido.
+
+    A execução tem trilha própria e mais completa: o pedido durável
+    (`contract_clause_extraction_requests`) e a análise
+    (`contract_ai_analyses`), com estado, data e ator. Este teste confere as
+    duas metades.
+  */
   const [row] = await withDb((q) => q(
     `select action, actor_user_id, organization_id, entity_type, entity_id,
             ip_address, user_agent, metadata, created_at
        from audit_logs
-      where action = 'contract.clauses_extracted' and entity_id = $1
+      where action = 'contract.clause_extraction_requested' and entity_id = $1
       order by created_at desc limit 1`, [contractId]));
 
-  expect(row, 'a extração bem-sucedida precisa estar auditada').toBeTruthy();
+  expect(row, 'o pedido de extração precisa estar auditado').toBeTruthy();
   expect(row.actor_user_id).toBe(actorUserId);
   expect(row.organization_id).toBe(organizationId);
   expect(row.entity_type).toBe('contract');
   expect(row.entity_id).toBe(contractId);
   expect(row.metadata.document_id).toBe(documentId);
-  expect(row.metadata.model).toBeTruthy();
-  expect(row.metadata.version).toBeTruthy();
-  expect(Number(row.metadata.proposed)).toBeGreaterThan(0);
+  expect(row.metadata.request_id, 'o pedido durável precisa estar nomeado').toBeTruthy();
+  expect(row.metadata.job_id, 'o trabalho na fila precisa estar nomeado').toBeTruthy();
+
+  // A metade durável: o pedido chegou ao fim, e aponta para a análise real.
+  const [request] = await withDb((q) => q(
+    `select status, analysis_id, proposed_count, error_safe
+       from contract_clause_extraction_requests
+      where id = $1`, [row.metadata.request_id]));
+  expect(request, 'o pedido durável precisa existir').toBeTruthy();
+  expect(request.status, `pedido não concluiu: ${request?.error_safe ?? ''}`).toBe('COMPLETED');
+  expect(request.analysis_id).toBeTruthy();
+  expect(Number(request.proposed_count)).toBeGreaterThan(0);
+
+  // Nenhum segredo e nenhum trecho de contrato atravessaram para a fila.
+  const [job] = await withDb((q) => q(
+    `select payload::text as payload, last_error_safe from apex_jobs where id = $1`,
+    [row.metadata.job_id]));
+  if (job) {
+    expect(job.payload).not.toMatch(/sk-|Bearer |eyJ/);
+  }
 
   /*
     `user_agent` vem do cabeçalho da requisição e existe em qualquer ambiente:
