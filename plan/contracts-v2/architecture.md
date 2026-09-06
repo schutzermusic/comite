@@ -227,12 +227,49 @@ Do not recreate the removed vertical dossier rail.
 - Phase 2 — Contract Structured Model — complete
 - Phase 3 — Obligations Engine — complete (migrations 114–117)
 - Phase 4 — Platform Event Graph / Durable Work Execution — complete (migrations 119–124)
-- Phase 5 — Apex Approval Engine — next
+- Phase 5 — Apex Approval Engine — complete (migrations 125–129)
 - Phase 6 — Contract ↔ Project / Measurement
 - Phase 7 — Billing ↔ Finance
 - Phase 8 — Risks & Clauses Operationalization
 - Phase 9 — Contract Control Tower
 - Phase 10 — Autonomy
+
+### D5.1 — Approval Engine ownership, settled by Phase 5
+
+The engine is **Platform-owned**. Contracts is the pilot and owns only two
+things: why a Contract action needs governance, and how a final governed
+outcome affects Contracts. It does not own policy, request, step, decision or
+delegation.
+
+Two rules later phases inherit rather than re-decide:
+
+1. **The decision is one transaction.** Lock, validate, re-evaluate eligibility
+   / SoD / authority / delegation, re-check the subject fingerprint, write the
+   immutable decision, tally quorum, progress, finalize and emit the event —
+   together or not at all. There is no client-side multi-write path, and
+   `authenticated` has no INSERT on the decision tables at all.
+2. **The actor is never a parameter.** `approval_decide` reads `auth.uid()`
+   itself. AI may summarize or recommend; it cannot approve, reject, authorize,
+   accept or release.
+
+### Phase 5 cutover status — Contracts NOT cut over
+
+The engine is complete and proven; the **real Contracts cutover is blocked**,
+and the reason is evidence, not effort. The Phase 5 audit found that
+`contract_approvals` holds three rows, all on one `data_class = 'demo'`
+contract. There is no real contract approval in the database, and nowhere in
+the repository or the schema is there an authority limit, a quorum, a
+delegation or a named approver.
+
+Per Phase 5 §34/§63, that means: build the engine, prove it on a disposable
+policy and org, and stop before claiming cutover. Inventing "Legal approves up
+to R$ 100,000" would have been fabricated governance — and a fabricated
+threshold is indistinguishable from a real one once someone approves against it.
+
+`approval_engine_cutover` is the boundary, and it is **empty**. With no row,
+the legacy path keeps writing and the shared engine refuses to open a request
+for the same action; with a row, the two swap. There is never an instant where
+both write.
 
 Phase 6 invariant:
 

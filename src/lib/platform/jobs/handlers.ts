@@ -151,10 +151,39 @@ const clauseExtraction: JobHandler<'contracts.clause_extraction.execute'> = {
   },
 };
 
+/*
+  Expiração de aprovação.
+
+  Vale registrar o que este handler NÃO faz: ele não decide nada, não rejeita
+  nada e não pode transformar a ausência de parecer em parecer. Expirado e
+  rejeitado são estados distintos desde a migration 126, com eventos distintos,
+  justamente para que um relatório não possa apresentar um como o outro.
+
+  A EXATIDÃO do prazo também não depende dele. `approval_decide` recusa por
+  conta própria qualquer decisão depois do vencimento, sem consultar fila
+  nenhuma; o que roda aqui é a materialização da projeção. Um atraso de
+  agendador atrasa o rótulo, nunca concede autoridade.
+*/
+const approvalExpiration: JobHandler<'platform.approvals.expire'> = {
+  payloadVersion: 1,
+  idempotencyBasis:
+    'A função só toca pedido PENDING cujo prazo já passou, e um pedido já '
+    + 'EXPIRED devolve false. Rodar duas vezes expira zero na segunda.',
+  async run(_payload, { job, supabase }) {
+    const { data, error } = await supabase.rpc('approval_requests_expire_due_for_org', {
+      p_organization_id: job.organization_id,
+      p_limit: 500,
+    });
+    if (error) throw rpcError(error);
+    return { expired: Number(data ?? 0) };
+  },
+};
+
 export const JOB_HANDLERS: HandlerRegistry = {
   'contracts.obligations.materialize': materialize,
   'contracts.obligation.external_activation.apply': externalActivation,
   'contracts.clause_extraction.execute': clauseExtraction,
+  'platform.approvals.expire': approvalExpiration,
 };
 
 export function handlerFor(jobType: JobType): JobHandler<JobType> {

@@ -270,7 +270,13 @@ describe('as fronteiras que esta fase NÃO cruza', () => {
   it('as migrations 001–118 não foram editadas', () => {
     // Migration aplicada é registro, não rascunho.
     const files = readdirSync('supabase/migrations').filter((f) => /^\d{3}_/.test(f));
-    const phase4 = files.filter((f) => Number(f.slice(0, 3)) >= 119);
+    // A janela é a da FASE 4 (119–124). Fases posteriores acrescentam arquivos
+    // acima dela — o que este teste guarda é que os arquivos DESTA fase não
+    // mudaram de conjunto, não que a história tenha parado aqui.
+    const phase4 = files.filter((f) => {
+      const n = Number(f.slice(0, 3));
+      return n >= 119 && n <= 124;
+    });
     expect(phase4.sort()).toEqual([
       '119_platform_domain_events.sql',
       '120_platform_apex_jobs.sql',
@@ -311,7 +317,27 @@ describe('as fronteiras que esta fase NÃO cruza', () => {
   });
 
   it('nenhum handler manufatura aprovação, aceite de medição ou liberação de faturamento', () => {
-    expect(handlers).not.toMatch(/approv|measurement_accept|billing_release/i);
+    /*
+      A Fase 5 acrescentou um handler de EXPIRAÇÃO de aprovação, e ele não
+      contradiz esta fronteira: expirar é registrar que o prazo passou sem
+      parecer — o oposto de manufaturar um parecer. Por isso a asserção deixou
+      de proibir a PALAVRA "aprovação" e passou a proibir os VERBOS que
+      decidiriam: nenhum handler chama a RPC de decisão, abre pedido ou grava
+      um desfecho.
+
+      Proibir a palavra tinha virado uma prova de vocabulário; proibir o ato é
+      a prova que esta fronteira sempre quis ser.
+    */
+    // Sem os comentários: o handler de expiração EXPLICA que quem recusa
+    // decisão vencida é `approval_decide`, e citar a função na prosa não é
+    // chamá-la. Ler o arquivo inteiro faria a explicação reprovar a regra.
+    const code = handlers
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')
+      .replace(/\/\/[^\n]*/g, ' ');
+    expect(code).not.toContain('approval_decide');
+    expect(code).not.toContain('approval_request_create');
+    expect(code).not.toMatch(/'APPROVED'|'REJECTED'/);
+    expect(code).not.toMatch(/measurement_accept|billing_release/i);
   });
 
   it('nenhuma tela de Grafo de Eventos ou de Fila foi criada', () => {

@@ -47,6 +47,7 @@ import { documentAnalysisStates, contractCoverage } from '@/lib/contracts/trust/
 import { MeasurementPanel } from '@/components/contracts/intelligence/MeasurementPanel';
 import { useContractInstrumentationModals } from '@/components/contracts/useContractInstrumentationModals';
 import { buildApprovalIntelligence, type ApprovalIntelligence } from '@/lib/contracts/trust/approval-intelligence';
+import { SharedApprovalEnginePanel } from '@/components/contracts/intelligence/SharedApprovalEnginePanel';
 import { ContractToCashFlow } from '@/components/contracts/intelligence/ContractToCashFlow';
 import { createBillingEventFromMilestone, requestClauseExtraction, type ContractAmendmentRow, type ContractDocumentRow, listContractAiAnalyses, type ContractAiAnalysisRow, type ContractMilestoneRow, listContractAuditEvents, listContractRelatedTasks, computeApprovalSla, type ContractAuditEventRow, type ContractRelatedTask } from '@/lib/contracts/contract-service';
 import {
@@ -1479,6 +1480,12 @@ function ApprovalsTab({
             Registrar decisão
           </HudButton>
         )}
+        {/*
+          Mesmo sem etapa legada, o estado do MOTOR precisa aparecer: "nenhuma
+          etapa registrada" e "esta organização ainda não migrou" são coisas
+          diferentes, e quem lê a aba tem de conseguir distinguir as duas.
+        */}
+        <SharedApprovalEnginePanel contractId={detail.contract.id} className="mt-4" />
       </section>
     );
   }
@@ -1490,6 +1497,16 @@ function ApprovalsTab({
         história inteira, mas quem abre a aba quer saber onde está parado agora.
       */}
       <ApprovalPulse intelligence={intelligence} />
+
+      {/*
+        A governança do motor COMPARTILHADO fica no topo da aba, acima da
+        jornada legada. Enquanto a organização não foi cortada, é este bloco
+        que diz — com todas as letras — que a aprovação de contrato ainda é
+        governada pelo fluxo anterior. Sem ele, a jornada abaixo pareceria a
+        única governança que existe, e a distinção entre "migrado" e "não
+        migrado" desapareceria da tela.
+      */}
+      <SharedApprovalEnginePanel contractId={detail.contract.id} />
 
       <section>
         <SectionHeader title="Jornada de aprovação" hint={hasOfficialValue(route) ? route.value : undefined} action={onReview ? (

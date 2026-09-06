@@ -12,6 +12,7 @@ export const JOB_TYPES = [
   'contracts.obligations.materialize',
   'contracts.obligation.external_activation.apply',
   'contracts.clause_extraction.execute',
+  'platform.approvals.expire',
 ] as const;
 
 export type JobType = (typeof JOB_TYPES)[number];
@@ -40,6 +41,13 @@ export const JOB_SCHEMAS = {
   },
   'contracts.clause_extraction.execute': {
     1: z.object({ request_id: uuid, contract_id: uuid, document_id: uuid }),
+  },
+  // A expiração não carrega o pedido a expirar: carrega o INSTANTE. Listar os
+  // pedidos no payload congelaria, no momento de enfileirar, uma lista que
+  // pode mudar antes de o trabalho rodar — e o que expira é quem venceu, não
+  // quem alguém achou que ia vencer.
+  'platform.approvals.expire': {
+    1: z.object({ as_of: z.string() }),
   },
 } as const satisfies Record<JobType, Record<number, z.ZodType>>;
 

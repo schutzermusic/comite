@@ -55,6 +55,7 @@ import { StructuredObligationsPanel } from '@/components/contracts/intelligence/
 import { useStructuredObligations } from '@/components/contracts/use-structured-obligations';
 import { RenewalHorizonPanel } from '@/components/contracts/intelligence/RenewalHorizonPanel';
 import { ApprovalIntelligencePanel } from '@/components/contracts/intelligence/ApprovalIntelligencePanel';
+import { ApprovalEngineStatusBanner } from '@/components/contracts/intelligence/ApprovalEngineStatusBanner';
 import { ClauseRiskIntelligencePanel } from '@/components/contracts/intelligence/ClauseRiskIntelligencePanel';
 import { ScopeOriginNotice } from '@/components/contracts/intelligence/ScopeOriginNotice';
 import {
@@ -944,6 +945,12 @@ export default function ContratosPage() {
       icon: <ShieldCheck className="h-4 w-4" />,
       content: (
         <div className="space-y-4">
+        {/*
+          O estado do motor antes das rotas. Sem esta linha, a lista abaixo
+          pareceria a governança completa — e uma organização ainda não migrada
+          ficaria indistinguível de uma sem nada pendente.
+        */}
+        <ApprovalEngineStatusBanner />
         <ApprovalIntelligencePanel
           approvals={portfolioApprovals}
           canApprove={contractPermissions.approve}
