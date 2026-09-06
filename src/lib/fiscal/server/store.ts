@@ -9,7 +9,9 @@ import type {
   FiscalDocumentStatus,
   FiscalEstablishment,
   FiscalEvent,
-  FiscalParty,
+  FiscalPartyProfile,
+  FiscalRecipient,
+  FiscalRecipientParty,
   FiscalServiceCatalogEntry,
   FiscalTaxLine,
 } from '../types';
@@ -22,8 +24,11 @@ export const FISCAL_DOCUMENT_BUCKET = 'fiscal-documents';
 let serviceClient: SupabaseClient | null = null;
 
 export class FiscalSchemaMissingError extends Error {
-  constructor() {
-    super('As tabelas fiscais não existem neste ambiente. Aplique a migration 090_fiscal_nfse.sql.');
+  constructor(table?: string) {
+    super(
+      `A fundação fiscal não está aplicada neste ambiente${table ? ` (${table})` : ''}. ` +
+        'Aplique 112_fiscal_nfse_foundation.sql e 113_fiscal_perm_seeds.sql.',
+    );
     this.name = 'FiscalSchemaMissingError';
   }
 }
@@ -127,20 +132,62 @@ export async function getFiscalDocument(
   return { document: document as FiscalDocument, taxes: (taxes ?? []) as FiscalTaxLine[], events: (events ?? []) as FiscalEvent[] };
 }
 
+/**
+ * Resolve o tomador: Party canônica + extensão fiscal, se houver.
+ *
+ * Duas leituras de propósito. A identidade vem de `parties` — a única fonte —
+ * e o perfil fiscal é opcional. Juntá-las num join só esconderia qual das duas
+ * faltou quando faltar.
+ */
+export async function resolveFiscalRecipient(
+  organizationId: string,
+  partyId: string,
+): Promise<FiscalRecipient> {
+  const client = getFiscalServiceClient();
+  const [partyResult, profileResult] = await Promise.all([
+    client.from('parties')
+      .select('id,organization_id,legal_name,trade_name,document_type,document_normalized,active')
+      .eq('organization_id', organizationId).eq('id', partyId).maybeSingle(),
+    client.from('fiscal_party_profiles').select('*')
+      .eq('organization_id', organizationId).eq('party_id', partyId).maybeSingle(),
+  ]);
+  checkError(partyResult.error, 'Falha ao ler contraparte canônica');
+  checkError(profileResult.error, 'Falha ao ler perfil fiscal da contraparte');
+  if (!partyResult.data) throw new Error('Contraparte canônica não encontrada nesta organização.');
+  return {
+    ...(partyResult.data as FiscalRecipientParty),
+    profile: (profileResult.data as FiscalPartyProfile | null) ?? null,
+  };
+}
+
 export async function listFiscalMasterData(organizationId: string) {
   const client = getFiscalServiceClient();
-  const [establishments, parties, services, configs] = await Promise.all([
+  const [establishments, parties, profiles, services, configs] = await Promise.all([
     client.from('fiscal_establishments').select('*').eq('organization_id', organizationId).eq('active', true).order('legal_name'),
-    client.from('fiscal_parties').select('*').eq('organization_id', organizationId).eq('active', true).order('legal_name'),
+    // Tomador é Party canônica. O Fiscal lê o cadastro da plataforma; não mantém o seu.
+    client.from('parties')
+      .select('id,organization_id,legal_name,trade_name,document_type,document_normalized,active')
+      .eq('organization_id', organizationId).eq('active', true).order('legal_name'),
+    client.from('fiscal_party_profiles').select('*').eq('organization_id', organizationId).eq('active', true),
     client.from('fiscal_service_catalog').select('*').eq('organization_id', organizationId).eq('active', true).order('description'),
-    client.from('fiscal_provider_configs').select('id,establishment_id,provider_key,environment,enabled,certificate_subject,certificate_expires_at,last_health_at,last_health_status').eq('organization_id', organizationId),
+    // Nenhuma coluna `*_cipher` na projeção: segredo não trafega para a tela.
+    client.from('fiscal_provider_configs')
+      .select('id,establishment_id,provider_key,environment,enabled,base_url,certificate_subject,certificate_expires_at,certificate_fingerprint,last_health_at,last_health_status,last_health_message')
+      .eq('organization_id', organizationId),
   ]);
-  for (const [result, label] of [[establishments, 'estabelecimentos'], [parties, 'tomadores'], [services, 'serviços'], [configs, 'integrações']] as const) {
+  for (const [result, label] of [[establishments, 'estabelecimentos'], [parties, 'contrapartes'],
+    [profiles, 'perfis fiscais'], [services, 'serviços'], [configs, 'integrações']] as const) {
     checkError(result.error, `Falha ao listar ${label}`);
   }
+  const profileByParty = new Map(
+    ((profiles.data ?? []) as FiscalPartyProfile[]).map((profile) => [profile.party_id, profile]),
+  );
   return {
     establishments: (establishments.data ?? []) as FiscalEstablishment[],
-    parties: (parties.data ?? []) as FiscalParty[],
+    recipients: ((parties.data ?? []) as FiscalRecipientParty[]).map((party): FiscalRecipient => ({
+      ...party,
+      profile: profileByParty.get(party.id) ?? null,
+    })),
     services: (services.data ?? []).map((row) => normalizeService(row as Record<string, unknown>)),
     providerConfigs: configs.data ?? [],
   };
@@ -154,9 +201,9 @@ async function ownedRow<T>(table: string, organizationId: string, id: string): P
 }
 
 export async function createFiscalDocument(actor: FiscalActor, input: CreateFiscalDocumentInput): Promise<FiscalDocument> {
-  const [establishment, party, serviceRaw] = await Promise.all([
+  const [establishment, recipient, serviceRaw] = await Promise.all([
     ownedRow<FiscalEstablishment>('fiscal_establishments', actor.organizationId, input.establishmentId),
-    ownedRow<FiscalParty>('fiscal_parties', actor.organizationId, input.partyId),
+    resolveFiscalRecipient(actor.organizationId, input.partyId),
     ownedRow<FiscalServiceCatalogEntry>('fiscal_service_catalog', actor.organizationId, input.serviceCatalogId),
   ]);
   const service = normalizeService(serviceRaw as unknown as Record<string, unknown>);
@@ -164,6 +211,12 @@ export async function createFiscalDocument(actor: FiscalActor, input: CreateFisc
   if (!service.active) throw new Error('Serviço fiscal inativo.');
   if (input.competenceDate < service.effective_from || (service.effective_to && input.competenceDate > service.effective_to)) {
     throw new Error('Serviço fiscal fora da vigência para a competência informada.');
+  }
+  if (!recipient.active) throw new Error('Contraparte inativa não pode ser tomadora.');
+  // Sem documento não há tomador identificável, e o layout nacional exige um.
+  // Preferimos recusar aqui a descobrir na rejeição do fisco.
+  if (!recipient.document_normalized || !recipient.document_type) {
+    throw new Error('A contraparte não tem CNPJ/CPF canônico registrado — complete o cadastro antes de emitir.');
   }
 
   const preview = calculateTaxPreview({
@@ -179,13 +232,17 @@ export async function createFiscalDocument(actor: FiscalActor, input: CreateFisc
     id: documentId,
     organization_id: actor.organizationId,
     establishment_id: establishment.id,
-    party_id: party.id,
+    party_id: recipient.id,
+    party_profile_id: recipient.profile?.id ?? null,
     project_id: input.projectId ?? null,
     contract_id: input.contractId ?? null,
     business_unit_id: input.businessUnitId ?? null,
     cost_center_id: input.costCenterId ?? null,
-    revenue_category_id: input.revenueCategoryId ?? null,
     status: 'draft',
+    // O ambiente do documento é o do estabelecimento no momento em que ele
+    // nasce. Congelar aqui impede que um rascunho de homologação vire
+    // transmissão de produção porque o cadastro mudou no meio do caminho.
+    environment: establishment.environment,
     competence_date: input.competenceDate,
     due_date: input.dueDate ?? null,
     series: establishment.nfse_series,
@@ -200,7 +257,7 @@ export async function createFiscalDocument(actor: FiscalActor, input: CreateFisc
     description: input.description,
     additional_information: input.additionalInformation ?? null,
     issuer_snapshot: establishment,
-    recipient_snapshot: party,
+    recipient_snapshot: recipient,
     service_snapshot: service,
     tax_snapshot: { preview, calculatedAt: new Date().toISOString(), authoritative: false },
     idempotency_key: input.idempotencyKey,
@@ -239,6 +296,22 @@ export async function createFiscalDocument(actor: FiscalActor, input: CreateFisc
   return inserted as FiscalDocument;
 }
 
+/**
+ * Reserva o próximo número de DPS do estabelecimento.
+ *
+ * Numeração fiscal não pode repetir nem sofrer corrida entre duas transmissões
+ * simultâneas, então a reserva é um UPDATE ... RETURNING atômico no próprio
+ * estabelecimento, não um `SELECT max()+1` lido antes e gravado depois.
+ */
+export async function reserveDpsNumber(organizationId: string, establishmentId: string): Promise<number> {
+  const { data, error } = await getFiscalServiceClient()
+    .rpc('fiscal_reserve_dps_number', { p_organization_id: organizationId, p_establishment_id: establishmentId });
+  checkError(error, 'Falha ao reservar número de DPS');
+  const reserved = Number(data);
+  if (!Number.isInteger(reserved) || reserved <= 0) throw new Error('Numeração de DPS indisponível para o estabelecimento.');
+  return reserved;
+}
+
 export async function cloneFiscalDocumentForReplacement(
   actor: FiscalActor,
   originalId: string,
@@ -263,8 +336,8 @@ export async function cloneFiscalDocumentForReplacement(
     'id','status','issue_date','dps_number','provider_key','provider_document_id','access_key',
     'document_number','verification_code','provider_payload_sanitized','rejection_code',
     'rejection_message','authorized_at','cancelled_at','replacement_document_id','xml_storage_path',
-    'xml_sha256','danfse_storage_path','danfse_sha256','finance_status','ledger_entry_id',
-    'apar_title_id','idempotency_key','submitted_by','approved_by','approved_at','created_by',
+    'xml_sha256','danfse_storage_path','danfse_sha256','finance_status','cancellation_reason',
+    'idempotency_key','submitted_by','approved_by','approved_at','created_by',
     'updated_by','created_at','updated_at',
   ]);
   const cloned = Object.fromEntries(Object.entries(original).filter(([key]) => !resetFields.has(key)));
@@ -351,7 +424,7 @@ export async function transitionFiscalDocument(
 export async function enqueueFiscalJob(
   actor: FiscalActor,
   documentId: string,
-  operation: 'issue' | 'consult' | 'cancel' | 'replace' | 'artifact' | 'finance_post' | 'finance_reverse',
+  operation: 'issue' | 'consult' | 'cancel' | 'replace' | 'artifact',
   idempotencyKey: string,
   payload: Record<string, unknown> = {},
 ): Promise<string> {
@@ -401,14 +474,21 @@ export async function createEstablishment(actor: FiscalActor, input: Record<stri
   return data;
 }
 
-export async function createParty(actor: FiscalActor, input: Record<string, unknown>) {
+/**
+ * Cria ou atualiza a EXTENSÃO fiscal de uma Party canônica.
+ *
+ * Repare no que não está aqui: razão social, CNPJ, CPF. Criar contraparte é ato
+ * do cadastro canônico (`/api/parties`), não do Fiscal — se o Fiscal pudesse
+ * criar identidade jurídica, o Apex teria dois cadastros de contraparte e
+ * nenhuma forma de dizer qual está certo.
+ */
+export async function upsertFiscalPartyProfile(actor: FiscalActor, input: Record<string, unknown>) {
+  const partyId = String(input.partyId);
+  // Falha cedo e com mensagem clara se a Party não é desta organização.
+  await resolveFiscalRecipient(actor.organizationId, partyId);
   const row = Object.fromEntries(Object.entries({
     organization_id: actor.organizationId,
-    client_id: input.clientId ?? null,
-    legal_name: input.legalName,
-    trade_name: input.tradeName ?? null,
-    document_type: input.documentType,
-    document_number: input.documentNumber,
+    party_id: partyId,
     municipal_registration: input.municipalRegistration ?? null,
     state_registration: input.stateRegistration ?? null,
     email: input.email || null,
@@ -416,17 +496,19 @@ export async function createParty(actor: FiscalActor, input: Record<string, unkn
     municipality_ibge: input.municipalityIbge ?? null,
     municipality_name: input.municipalityName ?? null,
     uf: input.uf ?? null,
-    country_code: input.countryCode,
+    country_code: input.countryCode ?? 'BR',
     postal_code: input.postalCode ?? null,
     street: input.street ?? null,
     street_number: input.streetNumber ?? null,
     complement: input.complement ?? null,
     district: input.district ?? null,
-    created_by: actor.userId,
     updated_by: actor.userId,
   }).filter(([, value]) => value !== undefined));
-  const { data, error } = await getFiscalServiceClient().from('fiscal_parties').insert(row).select('*').single();
-  checkError(error, 'Falha ao cadastrar tomador');
+  const { data, error } = await getFiscalServiceClient()
+    .from('fiscal_party_profiles')
+    .upsert({ ...row, created_by: actor.userId }, { onConflict: 'organization_id,party_id' })
+    .select('*').single();
+  checkError(error, 'Falha ao gravar perfil fiscal da contraparte');
   return data;
 }
 

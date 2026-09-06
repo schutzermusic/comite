@@ -25,6 +25,19 @@
  * mesmas colunas que o próprio Supabase CLI usa (version, name), sem
  * `statements` — a lista de comandos serve para replay, e replay é exatamente
  * o que não deve acontecer com uma migration já aplicada.
+ *
+ * ─── A versão 090 ──────────────────────────────────────────────────────────
+ *
+ * A primeira execução deste script provou que `090_fiscal_nfse.sql` NÃO estava
+ * aplicada: nenhuma das onze tabelas fiscais existia, `ledger_entry` e
+ * `apar_title` nunca receberam `organization_id`, o bucket nunca foi criado e
+ * nenhuma permissão `fiscal.*` foi semeada. Ela foi então arquivada em
+ * `supabase/migrations-superseded/` e substituída pela 112/113, escritas para a
+ * arquitetura atual.
+ *
+ * Por isso 090 continua fora do registro, e o script CONFERE que ela continua
+ * fora. Marcá-la como aplicada seria afirmar sobre o banco algo que o banco
+ * desmente — e é justamente o que esta ferramenta existe para impedir.
  */
 import { readdirSync } from 'node:fs';
 import pg from 'pg'; import dotenv from 'dotenv';
@@ -73,19 +86,6 @@ const MIGRATIONS = {
     raw('coluna antiga aso_documents.status removida (rename ocorreu)',
       `SELECT NOT EXISTS(SELECT 1 FROM information_schema.columns
         WHERE table_schema='public' AND table_name='aso_documents' AND column_name='status')`),
-  ] },
-  '090': { name: 'fiscal_nfse', checks: [
-    tbl('fiscal_establishments'), tbl('fiscal_provider_configs'), tbl('fiscal_parties'),
-    tbl('fiscal_service_catalog'), tbl('fiscal_documents'), tbl('fiscal_document_items'),
-    tbl('fiscal_tax_lines'), tbl('fiscal_events'), tbl('fiscal_transmission_attempts'),
-    tbl('fiscal_jobs'), tbl('tax_obligation'),
-    fn('protect_fiscal_document_snapshot'),
-    trg('fiscal_documents', 'protect_fiscal_document_snapshot'),
-    col('ledger_entry', 'organization_id'), col('apar_title', 'organization_id'),
-    rls('ledger_entry'), rls('apar_title'),
-    pol('ledger_entry', 'le_select'), pol('apar_title', 'apar_select'),
-    perm('fiscal.view'),
-    raw('bucket de storage fiscal', `SELECT EXISTS(SELECT 1 FROM storage.buckets WHERE id='fiscal-documents')`),
   ] },
   '091': { name: 'contract_data_class', checks: [
     col('contracts', 'data_class'), idx('idx_contracts_data_class'),
@@ -283,6 +283,27 @@ const MIGRATIONS = {
   ] },
 };
 
+/**
+ * Versões que legitimamente NÃO estão no registro porque nunca foram aplicadas.
+ * Declarar é o que separa "arquivada de propósito" de "esquecida".
+ */
+const FENCED = {
+  '090': {
+    file: 'supabase/migrations-superseded/090_fiscal_nfse.sql.superseded',
+    supersededBy: '112, 113',
+    /** Objetos que a 090 teria criado. Se algum aparecer, ela foi aplicada por fora. */
+    absent: [
+      `SELECT to_regclass('public.fiscal_provider_configs_legacy') IS NULL`,
+      `SELECT NOT EXISTS(SELECT 1 FROM information_schema.columns
+         WHERE table_schema='public' AND table_name='ledger_entry' AND column_name='organization_id')`,
+      `SELECT NOT EXISTS(SELECT 1 FROM information_schema.columns
+         WHERE table_schema='public' AND table_name='apar_title' AND column_name='organization_id')`,
+      `SELECT to_regclass('public.tax_obligation') IS NULL`,
+      `SELECT to_regclass('public.fiscal_parties') IS NULL`,
+    ],
+  },
+};
+
 const c = new pg.Client({ connectionString: process.env.SUPABASE_DB_URL, ssl: { rejectUnauthorized: false } });
 await c.connect();
 console.log(APPLY ? '### RECONCILIAÇÃO (grava no registro) ###' : '### SOMENTE PROVA (nada é gravado) ###\n');
@@ -349,6 +370,26 @@ if (fatal) {
   await c.end(); process.exit(1);
 }
 
+// ---- 2b) versões arquivadas: provar que continuam NÃO aplicadas ------------
+console.log('\n=== VERSÕES ARQUIVADAS (nunca aplicadas) ===');
+for (const [version, fence] of Object.entries(FENCED)) {
+  const inDirectory = files.some(f => f.startsWith(version + '_'));
+  const inRegistry = registry.has(version);
+  const leaks = [];
+  for (const sql of fence.absent) {
+    let ok = false;
+    try { ok = Object.values((await c.query(sql)).rows[0])[0] === true; } catch { ok = false; }
+    if (!ok) leaks.push(sql.replace(/\s+/g, ' ').slice(0, 90));
+  }
+  const good = !inDirectory && !inRegistry && leaks.length === 0;
+  console.log(`${version}  ${good ? '✓' : '✗'} arquivada em ${fence.file}`);
+  console.log(`        fora do diretório de migrations: ${inDirectory ? 'NÃO — ferramenta poderia executá-la' : 'sim'}`);
+  console.log(`        fora do registro:                ${inRegistry ? 'NÃO — está marcada como aplicada' : 'sim'}`);
+  console.log(`        nenhum objeto seu no banco:      ${leaks.length === 0 ? 'sim' : `NÃO (${leaks.length})`}`);
+  console.log(`        substituída por:                 ${fence.supersededBy}`);
+  if (!good) fatal = true;
+}
+
 // ---- 3) reconciliação ------------------------------------------------------
 const missing = proven.filter(p => !registry.has(p.version));
 console.log(`\n=== RECONCILIAÇÃO ===\n   ${missing.length} versões provadas e fora do registro: ${
@@ -361,11 +402,14 @@ if (missing.length && APPLY) {
       VALUES ($1, $2) ON CONFLICT (version) DO NOTHING`, [m.version, m.name]);
   }
   const after = (await c.query('SELECT version FROM supabase_migrations.schema_migrations ORDER BY version DESC LIMIT 1')).rows[0];
-  const holes = (await c.query(`SELECT g::text FROM generate_series(1, 111) g
-    WHERE lpad(g::text, 3, '0') NOT IN (SELECT version FROM supabase_migrations.schema_migrations)`)).rows;
-  if (holes.length) { await c.query('ROLLBACK'); console.error(`!!! buracos remanescentes: ${holes.map(h => h.g).join(',')}`); await c.end(); process.exit(1); }
+  // Buraco esperado é buraco declarado. Qualquer outro é migration esquecida.
+  const fenced = Object.keys(FENCED);
+  const holes = (await c.query(`SELECT lpad(g::text, 3, '0') v FROM generate_series(1, 111) g
+    WHERE lpad(g::text, 3, '0') NOT IN (SELECT version FROM supabase_migrations.schema_migrations)`)).rows
+    .map(h => h.v).filter(v => !fenced.includes(v));
+  if (holes.length) { await c.query('ROLLBACK'); console.error(`!!! buracos não declarados: ${holes.join(',')}`); await c.end(); process.exit(1); }
   await c.query('COMMIT');
-  console.log(`   ✓ ${missing.length} linhas gravadas. Registro agora termina em ${after.version}, sem buracos de 001 a 111.`);
+  console.log(`   ✓ ${missing.length} linhas gravadas. Registro termina em ${after.version}; o único buraco de 001 a 111 é a 090, declarada como arquivada.`);
 } else if (missing.length) {
   console.log('   (ensaio) rode com --apply para gravar.');
 } else {

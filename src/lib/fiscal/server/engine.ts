@@ -1,20 +1,36 @@
-import { createHash, randomUUID } from 'node:crypto';
-import { getFiscalProvider } from '../provider';
+/**
+ * Motor de transmissão fiscal.
+ *
+ * Conduz uma operação com o provedor do começo ao fim: reivindica a tarefa,
+ * chama o adaptador, guarda o retorno REAL, registra a tentativa e o evento, e
+ * decide se a falha merece nova tentativa.
+ *
+ * ─── O que ele não faz ─────────────────────────────────────────────────────
+ *
+ * Não escreve no Financeiro. Razão, contas a receber e obrigações tributárias
+ * são de Finanças, e a integração é a Fase 7. Aqui a NFS-e autorizada apenas
+ * declara `finance_status = 'not_posted'`: ausência registrada, não silêncio.
+ *
+ * ─── Idempotência ──────────────────────────────────────────────────────────
+ *
+ * A chave de idempotência é da TAREFA, não da chamada. Reenviar a mesma
+ * transmissão devolve a tarefa já existente em vez de criar outra, e o número
+ * de DPS, uma vez reservado, fica gravado no documento — uma retentativa
+ * reaproveita o número em vez de queimar outro. É o que impede que instabilidade
+ * de rede vire duas NFS-e para o mesmo serviço.
+ */
+import { createHash } from 'node:crypto';
+import { FiscalCredentialsRequiredError, FiscalProviderProtocolError } from '../provider';
+import { NfseNacionalProvider } from '../provider/nfse-nacional';
 import type { FiscalProviderDocument, FiscalProviderResult } from '../provider';
-import type { FiscalDocument, FiscalTaxLine } from '../types';
-import type { FiscalActor } from './actor';
-import {
-  FISCAL_DOCUMENT_BUCKET,
-  appendFiscalEvent,
-  enqueueFiscalJob,
-  getFiscalServiceClient,
-} from './store';
+import { resolveDocumentProvider } from './provider-resolution';
+import { FISCAL_DOCUMENT_BUCKET, appendFiscalEvent, getFiscalServiceClient } from './store';
 
 interface FiscalJobRow {
   id: string;
   organization_id: string;
   document_id: string;
-  operation: 'issue' | 'consult' | 'cancel' | 'replace' | 'artifact' | 'finance_post' | 'finance_reverse';
+  operation: 'issue' | 'consult' | 'cancel' | 'replace' | 'artifact';
   status: 'pending' | 'processing' | 'completed' | 'failed' | 'dead_letter';
   idempotency_key: string;
   payload: Record<string, unknown>;
@@ -22,38 +38,32 @@ interface FiscalJobRow {
   max_attempts: number;
 }
 
+/** Mensagem de erro sem segredo dentro. Vai para o banco e para a tela. */
 function safeError(error: unknown): string {
   const message = error instanceof Error ? error.message : 'Falha desconhecida.';
-  return message.replace(/(token|secret|password|authorization)\s*[:=]\s*\S+/gi, '$1=[REDACTED]').slice(0, 500);
+  return message
+    .replace(/(token|secret|password|senha|authorization|passphrase)\s*[:=]\s*\S+/gi, '$1=[REDACTED]')
+    .replace(/-----BEGIN[\s\S]*?-----END[^-]*-----/g, '[CHAVE REMOVIDA]')
+    .slice(0, 500);
 }
 
-async function fetchDocumentBundle(job: FiscalJobRow) {
-  const client = getFiscalServiceClient();
-  const [documentResult, establishmentResult, configResult] = await Promise.all([
-    client.from('fiscal_documents').select('*').eq('organization_id', job.organization_id).eq('id', job.document_id).single(),
-    client.from('fiscal_documents').select('establishment_id').eq('id', job.document_id).single(),
-    client.from('fiscal_provider_configs').select('*').eq('organization_id', job.organization_id).eq('enabled', true).limit(1).maybeSingle(),
-  ]);
-  if (documentResult.error || !documentResult.data) throw new Error('Documento fiscal da tarefa não encontrado.');
-  if (establishmentResult.error || !establishmentResult.data) throw new Error('Estabelecimento da tarefa não encontrado.');
-  const { data: establishment, error } = await client
-    .from('fiscal_establishments')
-    .select('*')
-    .eq('organization_id', job.organization_id)
-    .eq('id', establishmentResult.data.establishment_id)
-    .single();
-  if (error || !establishment) throw new Error('Configuração do estabelecimento não encontrada.');
-  return {
-    document: documentResult.data as FiscalProviderDocument,
-    establishment: establishment as { id: string; environment: 'homologation' | 'production'; production_enabled: boolean },
-    config: configResult.data as { provider_key?: string; environment?: string } | null,
-  };
+/**
+ * Falta de credencial e ambiente indisponível são coisas diferentes.
+ * A primeira nenhuma retentativa resolve; a segunda quase sempre resolve.
+ */
+function isTerminal(error: unknown): boolean {
+  if (error instanceof FiscalCredentialsRequiredError) return true;
+  if (error instanceof FiscalProviderProtocolError) return false;
+  return /não possui adaptador|não pode transmitir em produção|não opera em|Produção fiscal bloqueada|imutável/i
+    .test(safeError(error));
 }
 
 async function claimJob(jobId: string): Promise<FiscalJobRow | null> {
   const client = getFiscalServiceClient();
   const { data: current, error } = await client.from('fiscal_jobs').select('*').eq('id', jobId).maybeSingle();
   if (error || !current || !['pending', 'failed'].includes(current.status)) return null;
+  // Reivindicação condicionada ao estado lido: dois workers na mesma tarefa,
+  // só um consegue a atualização.
   const { data, error: claimError } = await client
     .from('fiscal_jobs')
     .update({ status: 'processing', locked_at: new Date().toISOString(), locked_by: `fiscal-${process.pid}`, attempts: current.attempts + 1 })
@@ -66,13 +76,13 @@ async function claimJob(jobId: string): Promise<FiscalJobRow | null> {
 }
 
 async function finishJob(job: FiscalJobRow): Promise<void> {
-  await getFiscalServiceClient().from('fiscal_jobs').update({ status: 'completed', locked_at: null, locked_by: null, last_error: null }).eq('id', job.id);
+  await getFiscalServiceClient().from('fiscal_jobs')
+    .update({ status: 'completed', locked_at: null, locked_by: null, last_error: null }).eq('id', job.id);
 }
 
-async function failJob(job: FiscalJobRow, error: unknown, terminal = false): Promise<void> {
-  const attempts = job.attempts;
-  const dead = terminal || attempts >= job.max_attempts;
-  const delayMinutes = Math.min(60, 2 ** Math.max(0, attempts - 1));
+async function failJob(job: FiscalJobRow, error: unknown, terminal: boolean): Promise<void> {
+  const dead = terminal || job.attempts >= job.max_attempts;
+  const delayMinutes = Math.min(60, 2 ** Math.max(0, job.attempts - 1));
   await getFiscalServiceClient().from('fiscal_jobs').update({
     status: dead ? 'dead_letter' : 'failed',
     next_attempt_at: new Date(Date.now() + delayMinutes * 60_000).toISOString(),
@@ -84,267 +94,248 @@ async function failJob(job: FiscalJobRow, error: unknown, terminal = false): Pro
 
 async function recordAttempt(
   job: FiscalJobRow,
-  status: 'success' | 'retryable_error' | 'terminal_error',
-  startedAt: number,
-  result?: FiscalProviderResult,
-  message?: string,
+  input: {
+    status: 'success' | 'retryable_error' | 'terminal_error';
+    startedAt: number;
+    environment: string;
+    providerKey?: string;
+    httpStatus?: number;
+    code?: string | null;
+    message?: string | null;
+  },
 ): Promise<void> {
-  await getFiscalServiceClient().from('fiscal_transmission_attempts').insert({
+  const { error } = await getFiscalServiceClient().from('fiscal_transmission_attempts').insert({
     organization_id: job.organization_id,
     document_id: job.document_id,
-    operation: job.operation === 'finance_post' || job.operation === 'finance_reverse' ? 'consult' : job.operation,
+    operation: job.operation,
     attempt_number: job.attempts,
     request_id: `${job.id}:${job.attempts}`,
-    status,
-    provider_code: result?.rejectionCode ?? null,
-    safe_message: message ?? result?.rejectionMessage ?? null,
-    duration_ms: Date.now() - startedAt,
+    environment: input.environment,
+    provider_key: input.providerKey ?? null,
+    status: input.status,
+    http_status: input.httpStatus ?? null,
+    provider_code: input.code ?? null,
+    safe_message: input.message ? safeError(input.message) : null,
+    duration_ms: Date.now() - input.startedAt,
     finished_at: new Date().toISOString(),
   });
+  // A tentativa já foi registrada por uma execução anterior com o mesmo número:
+  // reexecutar não deve explodir, mas também não deve gravar duas linhas.
+  if (error && error.code !== '23505') {
+    throw new Error(`Falha ao registrar tentativa de transmissão: ${error.message}`);
+  }
 }
 
-async function storeXml(document: FiscalProviderDocument, xml: string): Promise<{ path: string; sha256: string }> {
-  const path = `${document.organization_id}/${document.id}/nfse.xml`;
-  const bytes = Buffer.from(xml, 'utf8');
+async function storeArtifact(
+  document: FiscalProviderDocument,
+  kind: 'xml' | 'danfse',
+  bytes: Buffer,
+): Promise<{ path: string; sha256: string }> {
+  const path = `${document.organization_id}/${document.id}/nfse.${kind === 'xml' ? 'xml' : 'pdf'}`;
   const { error } = await getFiscalServiceClient().storage
     .from(FISCAL_DOCUMENT_BUCKET)
-    .upload(path, bytes, { contentType: 'application/xml', upsert: true });
-  if (error) throw new Error(`Falha ao guardar XML fiscal: ${error.message}`);
+    .upload(path, bytes, { contentType: kind === 'xml' ? 'application/xml' : 'application/pdf', upsert: true });
+  if (error) throw new Error(`Falha ao guardar ${kind === 'xml' ? 'XML' : 'DANFSe'} fiscal: ${error.message}`);
   return { path, sha256: createHash('sha256').update(bytes).digest('hex') };
 }
 
-async function updateProviderResult(job: FiscalJobRow, document: FiscalProviderDocument, result: FiscalProviderResult): Promise<void> {
+async function updateProviderResult(
+  job: FiscalJobRow,
+  document: FiscalProviderDocument,
+  result: FiscalProviderResult,
+  providerKey: string,
+): Promise<void> {
   const client = getFiscalServiceClient();
   const previous = document.status;
   const patch: Record<string, unknown> = {
     status: result.status,
+    provider_key: providerKey,
     provider_document_id: result.providerDocumentId ?? document.provider_document_id,
     access_key: result.accessKey ?? document.access_key,
     document_number: result.documentNumber ?? document.document_number,
     verification_code: result.verificationCode ?? document.verification_code,
     rejection_code: result.rejectionCode ?? null,
-    rejection_message: result.rejectionMessage ?? null,
+    rejection_message: result.rejectionMessage ? safeError(result.rejectionMessage) : null,
     provider_payload_sanitized: result.safePayload ?? {},
     authorized_at: result.authorizedAt ?? document.authorized_at,
     cancelled_at: result.cancelledAt ?? document.cancelled_at,
   };
+  if (result.status === 'authorized' && !document.issue_date) {
+    patch.issue_date = (result.authorizedAt ?? new Date().toISOString()).slice(0, 10);
+  }
   if (result.artifacts?.xml) {
-    const artifact = await storeXml(document, result.artifacts.xml);
+    const artifact = await storeArtifact(document, 'xml', Buffer.from(result.artifacts.xml, 'utf8'));
     patch.xml_storage_path = artifact.path;
     patch.xml_sha256 = artifact.sha256;
   }
-  const { error } = await client.from('fiscal_documents').update(patch).eq('organization_id', job.organization_id).eq('id', job.document_id);
+  if (result.artifacts?.danfsePdf) {
+    const artifact = await storeArtifact(document, 'danfse', result.artifacts.danfsePdf);
+    patch.danfse_storage_path = artifact.path;
+    patch.danfse_sha256 = artifact.sha256;
+  }
+  const { error } = await client.from('fiscal_documents').update(patch)
+    .eq('organization_id', job.organization_id).eq('id', job.document_id);
   if (error) throw new Error(`Falha ao persistir retorno fiscal: ${error.message}`);
+
   await appendFiscalEvent(
     job.organization_id,
     job.document_id,
-    result.status === 'authorized' ? 'provider_authorized' : result.status === 'cancelled' ? 'provider_cancelled' : 'provider_response',
+    result.status === 'authorized' ? 'provider_authorized'
+      : result.status === 'cancelled' ? 'provider_cancelled'
+      : result.status === 'rejected' ? 'provider_rejected'
+      : 'provider_response',
     previous,
     result.status,
-    result.rejectionMessage ?? (result.status === 'authorized' ? 'NFS-e autorizada em homologação.' : `Retorno fiscal: ${result.status}.`),
+    result.rejectionMessage
+      ? safeError(result.rejectionMessage)
+      : result.status === 'authorized'
+        ? `NFS-e autorizada pelo provedor ${providerKey}.`
+        : `Retorno do provedor: ${result.status}.`,
     null,
     result.safePayload ?? {},
   );
 }
 
+/**
+ * Busca a DANFSe quando o provedor a oferece. A ausência do PDF NÃO invalida a
+ * NFS-e nem falha a transmissão: a nota já está autorizada, e o representante
+ * impresso é conveniência. Registrar a falta é o correto; abortar não seria.
+ */
+async function fetchDanfseIfAvailable(
+  job: FiscalJobRow,
+  document: FiscalProviderDocument,
+  resolved: Awaited<ReturnType<typeof resolveDocumentProvider>>,
+): Promise<void> {
+  const accessKey = document.access_key;
+  if (!accessKey || !(resolved.provider instanceof NfseNacionalProvider)) return;
+  try {
+    const pdf = await resolved.provider.fetchDanfse(accessKey, {
+      organizationId: job.organization_id,
+      establishmentId: resolved.establishment.id,
+      environment: resolved.environment,
+      requestId: `${job.id}:danfse`,
+    });
+    if (!pdf) {
+      await appendFiscalEvent(job.organization_id, job.document_id, 'danfse_unavailable', document.status, document.status,
+        'DANFSe ainda não disponível no provedor.', null);
+      return;
+    }
+    const artifact = await storeArtifact(document, 'danfse', pdf);
+    await getFiscalServiceClient().from('fiscal_documents')
+      .update({ danfse_storage_path: artifact.path, danfse_sha256: artifact.sha256 })
+      .eq('organization_id', job.organization_id).eq('id', job.document_id);
+    await appendFiscalEvent(job.organization_id, job.document_id, 'danfse_stored', document.status, document.status,
+      'DANFSe recebida e arquivada.', null);
+  } catch (error) {
+    await appendFiscalEvent(job.organization_id, job.document_id, 'danfse_failed', document.status, document.status,
+      safeError(error), null);
+  }
+}
+
 async function runProviderJob(job: FiscalJobRow): Promise<void> {
   const started = Date.now();
-  const { document, establishment, config } = await fetchDocumentBundle(job);
-  if (establishment.environment === 'production' && !establishment.production_enabled) {
-    throw new Error('Produção fiscal ainda não foi habilitada para o estabelecimento.');
+  const client = getFiscalServiceClient();
+  const { data: documentRow, error } = await client.from('fiscal_documents').select('*')
+    .eq('organization_id', job.organization_id).eq('id', job.document_id).single();
+  if (error || !documentRow) throw new Error('Documento fiscal da tarefa não encontrado.');
+  const document = documentRow as FiscalProviderDocument;
+
+  const resolved = await resolveDocumentProvider(document, { reserveDps: job.operation === 'issue' });
+  const context = {
+    organizationId: job.organization_id,
+    establishmentId: resolved.establishment.id,
+    environment: resolved.environment,
+    requestId: `${job.id}:${job.attempts}`,
+  };
+
+  // O número de DPS reservado é gravado ANTES da chamada. Se a transmissão
+  // falhar, a retentativa reencontra o mesmo número em vez de reservar outro —
+  // que é o que evita duas declarações para o mesmo serviço.
+  if (job.operation === 'issue' && resolved.dpsNumber && !document.dps_number) {
+    await client.from('fiscal_documents').update({ dps_number: resolved.dpsNumber })
+      .eq('organization_id', job.organization_id).eq('id', document.id);
+    document.dps_number = resolved.dpsNumber;
   }
-  const providerKey = config?.provider_key ?? 'sandbox';
-  const provider = getFiscalProvider(providerKey);
-  const requestId = `${job.id}:${job.attempts}`;
-  const context = { organizationId: job.organization_id, establishmentId: establishment.id, environment: establishment.environment, requestId };
 
   if (job.operation === 'issue' && document.status === 'queued') {
-    await getFiscalServiceClient().from('fiscal_documents').update({ status: 'processing', provider_key: providerKey }).eq('id', document.id).eq('status', 'queued');
-    await appendFiscalEvent(job.organization_id, document.id, 'provider_processing', 'queued', 'processing', 'Transmissão iniciada pelo worker fiscal.', null);
+    await client.from('fiscal_documents')
+      .update({ status: 'processing', provider_key: resolved.providerKey })
+      .eq('id', document.id).eq('status', 'queued');
+    await appendFiscalEvent(job.organization_id, document.id, 'provider_processing', 'queued', 'processing',
+      'Transmissão iniciada pelo worker fiscal.', null);
     document.status = 'processing';
   }
 
   let result: FiscalProviderResult;
-  if (job.operation === 'issue' && document.replaced_document_id) {
-    const { data: original, error } = await getFiscalServiceClient().from('fiscal_documents').select('*').eq('organization_id', job.organization_id).eq('id', document.replaced_document_id).single();
-    if (error || !original) throw new Error('NFS-e original da substituição não encontrada.');
-    result = await provider.replace(original as FiscalProviderDocument, document, context);
+  try {
+    if (job.operation === 'issue' && document.replaced_document_id) {
+      const { data: original, error: originalError } = await client.from('fiscal_documents').select('*')
+        .eq('organization_id', job.organization_id).eq('id', document.replaced_document_id).single();
+      if (originalError || !original) throw new Error('NFS-e original da substituição não encontrada.');
+      result = await resolved.provider.replace(original as FiscalProviderDocument, document, context);
+    } else if (job.operation === 'issue') {
+      result = await resolved.provider.issue(document, context);
+    } else if (job.operation === 'consult') {
+      result = await resolved.provider.consult(document, context);
+    } else if (job.operation === 'cancel') {
+      result = await resolved.provider.cancel(document, String(job.payload.reason ?? ''), context);
+    } else {
+      throw new Error(`Operação ${job.operation} não suportada pelo worker do provedor.`);
+    }
+  } catch (providerError) {
+    await recordAttempt(job, {
+      status: isTerminal(providerError) ? 'terminal_error' : 'retryable_error',
+      startedAt: started,
+      environment: resolved.environment,
+      providerKey: resolved.providerKey,
+      httpStatus: providerError instanceof FiscalProviderProtocolError ? providerError.httpStatus : undefined,
+      message: safeError(providerError),
+    });
+    throw providerError;
   }
-  else if (job.operation === 'issue') result = await provider.issue(document, context);
-  else if (job.operation === 'consult') result = await provider.consult(document, context);
-  else if (job.operation === 'cancel') result = await provider.cancel(document, String(job.payload.reason ?? ''), context);
-  else throw new Error(`Operação ${job.operation} não suportada pelo worker do provedor.`);
 
-  await updateProviderResult(job, document, result);
+  await updateProviderResult(job, document, result, resolved.providerKey);
   const terminalError = result.status === 'error';
-  await recordAttempt(job, terminalError ? 'terminal_error' : 'success', started, result);
+  await recordAttempt(job, {
+    status: terminalError ? 'terminal_error' : result.status === 'rejected' ? 'terminal_error' : 'success',
+    startedAt: started,
+    environment: resolved.environment,
+    providerKey: resolved.providerKey,
+    code: result.rejectionCode,
+    message: result.rejectionMessage,
+  });
   if (terminalError) throw new Error(result.rejectionMessage ?? 'Erro terminal do provedor.');
 
-  const actor: FiscalActor = { organizationId: job.organization_id, userId: String(job.payload.actorUserId ?? document.created_by ?? document.submitted_by) };
   if (result.status === 'authorized') {
+    document.access_key = result.accessKey ?? document.access_key;
+    await fetchDanfseIfAvailable(job, document, resolved);
     if (document.replaced_document_id) {
-      await getFiscalServiceClient().from('fiscal_documents').update({ status: 'replaced', replacement_document_id: document.id }).eq('organization_id', job.organization_id).eq('id', document.replaced_document_id).eq('status', 'authorized');
-      await appendFiscalEvent(job.organization_id, document.replaced_document_id, 'replaced', 'authorized', 'replaced', `NFS-e substituída pelo documento ${result.documentNumber ?? document.id}.`, null, { replacementDocumentId: document.id });
-      await enqueueFiscalJob(actor, document.replaced_document_id, 'finance_reverse', `finance-reverse:replacement:${document.replaced_document_id}`, { actorUserId: actor.userId });
-    }
-    await enqueueFiscalJob(actor, document.id, 'finance_post', `finance-post:${document.id}`, { actorUserId: actor.userId });
-  }
-  if (result.status === 'cancelled') {
-    await enqueueFiscalJob(actor, document.id, 'finance_reverse', `finance-reverse:${document.id}`, { actorUserId: actor.userId });
-  }
-}
-
-function dueDateFromRules(document: FiscalDocument): string | null {
-  const service = document.service_snapshot as { tax_rules?: { taxDueDay?: number; taxDueMonthOffset?: number } };
-  const dueDay = Number(service.tax_rules?.taxDueDay ?? 0);
-  if (!Number.isInteger(dueDay) || dueDay < 1 || dueDay > 28) return null;
-  const offset = Number(service.tax_rules?.taxDueMonthOffset ?? 1);
-  const date = new Date(`${document.competence_date.slice(0, 7)}-01T00:00:00Z`);
-  date.setUTCMonth(date.getUTCMonth() + offset);
-  date.setUTCDate(dueDay);
-  return date.toISOString().slice(0, 10);
-}
-
-async function postFinance(job: FiscalJobRow): Promise<void> {
-  const client = getFiscalServiceClient();
-  const { data: document, error } = await client.from('fiscal_documents').select('*').eq('organization_id', job.organization_id).eq('id', job.document_id).single();
-  if (error || !document) throw new Error('Documento autorizado não encontrado para contabilização.');
-  if (document.status !== 'authorized') throw new Error('Somente documento autorizado pode ser contabilizado.');
-  if (document.finance_status === 'posted' || document.finance_status === 'review_required') return;
-
-  const recipient = document.recipient_snapshot as { client_id?: string | null };
-  const configured = document.business_unit_id && document.cost_center_id && document.revenue_category_id && recipient.client_id;
-  if (!configured) {
-    await client.from('fiscal_documents').update({ finance_status: 'pending_configuration' }).eq('id', document.id);
-    await appendFiscalEvent(job.organization_id, document.id, 'finance_pending_configuration', 'authorized', 'authorized', 'NFS-e autorizada; configure cliente e mapeamentos financeiros para contabilizar.', null);
-    return;
-  }
-
-  const actorUserId = String(job.payload.actorUserId ?? document.created_by);
-  const externalKey = `fiscal:${document.id}`;
-  const existingLedger = await client.from('ledger_entry').select('id').eq('organization_id', job.organization_id).eq('source_system', 'fiscal').eq('external_key', externalKey).maybeSingle();
-  let ledgerId = existingLedger.data?.id as string | undefined;
-  if (!ledgerId) {
-    const issueDate = document.issue_date ?? document.authorized_at?.slice(0, 10) ?? new Date().toISOString().slice(0, 10);
-    const inserted = await client.from('ledger_entry').insert({
-      organization_id: job.organization_id,
-      entry_date: issueDate,
-      description: `Receita NFS-e ${document.document_number ?? document.id}`,
-      amount_cents: document.service_amount_cents,
-      category_id: document.revenue_category_id,
-      cost_center_id: document.cost_center_id,
-      project_id: document.project_id,
-      contract_id: document.contract_id,
-      client_id: recipient.client_id,
-      business_unit_id: document.business_unit_id,
-      period_key: document.competence_date.slice(0, 7),
-      entry_type: 'actual',
-      status: 'posted',
-      source_system: 'fiscal',
-      source_ref: document.access_key,
-      external_key: externalKey,
-      evidence_required: true,
-      evidence_provided: Boolean(document.xml_storage_path),
-      metadata: { fiscal_document_id: document.id, access_key: document.access_key, gross_revenue: true },
-      created_by: actorUserId,
-      posted_by: actorUserId,
-      posted_at: new Date().toISOString(),
-    }).select('id').single();
-    if (inserted.error) throw new Error(`Falha ao criar receita: ${inserted.error.message}`);
-    ledgerId = String(inserted.data.id);
-  }
-
-  const existingApar = await client.from('apar_title').select('id').eq('organization_id', job.organization_id).eq('source_system', 'fiscal').eq('external_key', externalKey).maybeSingle();
-  let aparId = existingApar.data?.id as string | undefined;
-  if (!aparId) {
-    const inserted = await client.from('apar_title').insert({
-      organization_id: job.organization_id,
-      type: 'receivable',
-      title_number: `NFS-${document.document_number ?? document.id.slice(0, 8)}`,
-      client_id: recipient.client_id,
-      contract_id: document.contract_id,
-      project_id: document.project_id,
-      issue_date: document.issue_date ?? document.authorized_at?.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
-      due_date: document.due_date ?? document.competence_date,
-      amount_cents: document.net_amount_cents,
-      status: 'open',
-      linked_entry_id: ledgerId,
-      source_system: 'fiscal',
-      external_key: externalKey,
-      notes: `Gerado automaticamente pela NFS-e ${document.document_number ?? ''}`,
-      created_by: actorUserId,
-    }).select('id').single();
-    if (inserted.error) throw new Error(`Falha ao criar conta a receber: ${inserted.error.message}`);
-    aparId = String(inserted.data.id);
-  }
-
-  const { data: taxes } = await client.from('fiscal_tax_lines').select('*').eq('document_id', document.id).eq('responsibility', 'issuer');
-  const taxDueDate = dueDateFromRules(document as FiscalDocument);
-  let reviewRequired = false;
-  if ((taxes ?? []).length && !taxDueDate) reviewRequired = true;
-  if (taxDueDate) {
-    for (const tax of (taxes ?? []) as FiscalTaxLine[]) {
-      const existing = await client.from('tax_obligation').select('id').eq('organization_id', job.organization_id).eq('fiscal_document_id', document.id).eq('tax_type', tax.tax_code).maybeSingle();
-      if (!existing.data) {
-        const inserted = await client.from('tax_obligation').insert({
-          organization_id: job.organization_id,
-          fiscal_document_id: document.id,
-          tax_type: tax.tax_code,
-          title: `${tax.tax_code} — NFS-e ${document.document_number ?? ''}`,
-          competence_month: document.competence_date.slice(0, 7),
-          due_date: taxDueDate,
-          amount_cents: tax.amount_cents,
-          client_id: recipient.client_id,
-          contract_id: document.contract_id,
-          project_id: document.project_id,
-          cost_center_id: document.cost_center_id,
-          accrual_entry_id: ledgerId,
-          linked_apar_title_id: aparId,
-          source_document: document.access_key,
-          invoice_number: document.document_number,
-          created_by: actorUserId,
-        });
-        if (inserted.error) throw new Error(`Falha ao criar obrigação de ${tax.tax_code}: ${inserted.error.message}`);
-      }
+      // A substituída só vira `replaced` DEPOIS que a substituta foi
+      // autorizada. Marcar antes deixaria a original inutilizada caso a nova
+      // fosse rejeitada.
+      await client.from('fiscal_documents')
+        .update({ status: 'replaced', replacement_document_id: document.id })
+        .eq('organization_id', job.organization_id).eq('id', document.replaced_document_id).eq('status', 'authorized');
+      await appendFiscalEvent(job.organization_id, document.replaced_document_id, 'replaced', 'authorized', 'replaced',
+        `NFS-e substituída pelo documento ${result.documentNumber ?? document.id}.`, null,
+        { replacementDocumentId: document.id });
     }
   }
-
-  const financeStatus = reviewRequired ? 'review_required' : 'posted';
-  await client.from('fiscal_documents').update({ finance_status: financeStatus, ledger_entry_id: ledgerId, apar_title_id: aparId }).eq('id', document.id);
-  await appendFiscalEvent(job.organization_id, document.id, 'finance_posted', 'authorized', 'authorized', reviewRequired
-    ? 'Receita e contas a receber contabilizadas; vencimentos tributários aguardam regra fiscal.'
-    : 'Receita, contas a receber e tributos integrados ao Financeiro.', null);
-}
-
-async function reverseFinance(job: FiscalJobRow): Promise<void> {
-  const client = getFiscalServiceClient();
-  const { data: document, error } = await client.from('fiscal_documents').select('*').eq('organization_id', job.organization_id).eq('id', job.document_id).single();
-  if (error || !document) throw new Error('Documento cancelado não encontrado para estorno.');
-  const actorUserId = String(job.payload.actorUserId ?? document.created_by);
-  if (document.ledger_entry_id) {
-    await client.from('ledger_entry').update({ status: 'void', voided_by: actorUserId, voided_at: new Date().toISOString(), void_reason: 'Cancelamento da NFS-e vinculada' }).eq('organization_id', job.organization_id).eq('id', document.ledger_entry_id);
-  }
-  if (document.apar_title_id) {
-    await client.from('apar_title').update({ status: 'cancelled' }).eq('organization_id', job.organization_id).eq('id', document.apar_title_id);
-  }
-  await client.from('tax_obligation').update({ status: 'cancelled' }).eq('organization_id', job.organization_id).eq('fiscal_document_id', document.id);
-  await client.from('fiscal_documents').update({ finance_status: 'reversed' }).eq('id', document.id);
-  await appendFiscalEvent(job.organization_id, document.id, 'finance_reversed', 'cancelled', 'cancelled', 'Vínculos financeiros estornados após cancelamento.', null);
 }
 
 export async function processFiscalJob(jobId: string): Promise<{ processed: boolean; error?: string }> {
   const job = await claimJob(jobId);
   if (!job) return { processed: false };
   try {
-    if (['issue', 'consult', 'cancel'].includes(job.operation)) await runProviderJob(job);
-    else if (job.operation === 'finance_post') await postFinance(job);
-    else if (job.operation === 'finance_reverse') await reverseFinance(job);
-    else throw new Error(`Operação fiscal ainda não implementada: ${job.operation}`);
+    await runProviderJob(job);
     await finishJob(job);
     return { processed: true };
   } catch (error) {
-    const terminal = /não possui adaptador|não pode transmitir em produção|Produção fiscal ainda não foi habilitada/i.test(safeError(error));
+    const terminal = isTerminal(error);
     await failJob(job, error, terminal);
+    await appendFiscalEvent(job.organization_id, job.document_id,
+      terminal ? 'transmission_blocked' : 'transmission_failed', null, null, safeError(error), null,
+      { terminal, attempt: job.attempts });
     return { processed: true, error: safeError(error) };
   }
 }

@@ -34,11 +34,11 @@ export const createFiscalDocumentSchema = z.object({
   unconditionalDiscountCents: z.number().int().min(0).default(0),
   conditionalDiscountCents: z.number().int().min(0).default(0),
   issWithheld: z.boolean().optional(),
-  projectId: optionalUuid,
+  // Identificador de projeto é texto neste domínio, não uuid.
+  projectId: z.string().trim().min(1).max(120).optional(),
   contractId: optionalUuid,
   businessUnitId: optionalUuid,
   costCenterId: optionalUuid,
-  revenueCategoryId: optionalUuid,
   additionalInformation: z.string().trim().max(2000).optional(),
   idempotencyKey: z.string().trim().min(8).max(120),
 }).superRefine((value, ctx) => {
@@ -76,11 +76,15 @@ export const fiscalEstablishmentSchema = z.object({
   nfseSeries: z.string().trim().min(1).max(20).default('1'),
 });
 
-export const fiscalPartySchema = z.object({
-  legalName: z.string().trim().min(3).max(300),
-  tradeName: z.string().trim().max(300).optional(),
-  documentType: z.enum(['cpf','cnpj','foreign']),
-  documentNumber: z.string().trim().min(3).max(30),
+/**
+ * Perfil fiscal de uma contraparte canônica.
+ *
+ * Sem `legalName`, sem `documentNumber`: identidade jurídica é da Party, e
+ * aceitá-la aqui criaria um segundo lugar onde o nome de um cliente pode estar
+ * escrito diferente.
+ */
+export const fiscalPartyProfileSchema = z.object({
+  partyId: z.string().uuid(),
   municipalRegistration: z.string().trim().max(50).optional(),
   stateRegistration: z.string().trim().max(50).optional(),
   email: z.email().optional().or(z.literal('')),
@@ -94,7 +98,6 @@ export const fiscalPartySchema = z.object({
   streetNumber: z.string().trim().max(30).optional(),
   complement: z.string().trim().max(100).optional(),
   district: z.string().trim().max(100).optional(),
-  clientId: optionalUuid,
 });
 
 export const fiscalServiceSchema = z.object({

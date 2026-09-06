@@ -42,14 +42,29 @@ export interface FiscalEstablishment {
   active: boolean;
 }
 
-export interface FiscalParty {
+/**
+ * Tomador: a Party CANÔNICA da plataforma (D1). Identidade jurídica mora aqui,
+ * uma vez só, e o Fiscal a lê — não a copia.
+ */
+export interface FiscalRecipientParty {
   id: string;
   organization_id: string;
-  client_id: string | null;
   legal_name: string;
   trade_name: string | null;
-  document_type: 'cpf' | 'cnpj' | 'foreign';
-  document_number: string;
+  document_type: 'cnpj' | 'cpf' | 'foreign' | null;
+  document_normalized: string | null;
+  active: boolean;
+}
+
+/**
+ * O que o layout da NFS-e exige do tomador e a Party canônica legitimamente
+ * não guarda. Opcional: uma Party sem inscrição municipal continua podendo
+ * ser tomadora.
+ */
+export interface FiscalPartyProfile {
+  id: string;
+  organization_id: string;
+  party_id: string;
   municipal_registration: string | null;
   state_registration: string | null;
   email: string | null;
@@ -64,6 +79,11 @@ export interface FiscalParty {
   complement: string | null;
   district: string | null;
   active: boolean;
+}
+
+/** Tomador resolvido: identidade canônica + extensão fiscal, quando existe. */
+export interface FiscalRecipient extends FiscalRecipientParty {
+  profile: FiscalPartyProfile | null;
 }
 
 export interface FiscalServiceCatalogEntry {
@@ -108,9 +128,14 @@ export interface FiscalDocument {
   organization_id: string;
   establishment_id: string;
   party_id: string;
+  party_profile_id: string | null;
   project_id: string | null;
   contract_id: string | null;
+  business_unit_id: string | null;
+  cost_center_id: string | null;
   status: FiscalDocumentStatus;
+  environment: FiscalEnvironment;
+  dps_number: number | null;
   competence_date: string;
   issue_date: string | null;
   due_date: string | null;
@@ -139,9 +164,16 @@ export interface FiscalDocument {
   cancelled_at: string | null;
   replaced_document_id?: string | null;
   replacement_document_id?: string | null;
+  /**
+   * Fase 7. Nada no Fiscal escreve no Financeiro hoje; o campo declara a
+   * ausência de contabilização em vez de deixá-la implícita.
+   */
   finance_status: 'not_posted' | 'pending_configuration' | 'posted' | 'reversed' | 'review_required' | 'error';
   xml_storage_path: string | null;
+  xml_sha256: string | null;
   danfse_storage_path: string | null;
+  danfse_sha256: string | null;
+  cancellation_reason: string | null;
   idempotency_key: string;
   created_by?: string | null;
   submitted_by?: string | null;
@@ -182,13 +214,13 @@ export interface CreateFiscalDocumentInput {
   contractId?: string;
   businessUnitId?: string;
   costCenterId?: string;
-  revenueCategoryId?: string;
   additionalInformation?: string;
   idempotencyKey: string;
 }
 
 export interface FiscalEvent {
   id: string;
+  organization_id: string;
   document_id: string;
   event_type: string;
   previous_status: FiscalDocumentStatus | null;

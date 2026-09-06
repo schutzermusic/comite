@@ -40,7 +40,7 @@ export function FiscalSettings() {
         <HudPanel title="Checklist de go-live" icon={<ShieldAlert className="h-4 w-4" />}>
           <Checklist ok={master.establishments.some((entry) => entry.environment === 'homologation')} label="Estabelecimento testado em homologação" />
           <Checklist ok={master.services.some((entry) => entry.approved_by_accountant)} label="Serviço e alíquotas aprovados pelo contador" />
-          <Checklist ok={master.parties.length > 0} label="Tomadores com dados fiscais" />
+          <Checklist ok={master.recipients.length > 0} label="Contrapartes disponíveis para emissão" />
           <Checklist ok={master.providerConfigs.some((entry) => entry.enabled)} label="Conector habilitado" />
           <Checklist ok={false} label="Credenciais oficiais e piloto aprovados" />
         </HudPanel>
