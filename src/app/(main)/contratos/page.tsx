@@ -777,12 +777,13 @@ export default function ContratosPage() {
 
     if (draft.runExtraction && documentId) {
       try {
-        const result = await requestClauseExtraction(row.id, documentId);
-        if (result.proposedCount) {
-          pending.push(`${result.proposedCount} proposta(s) aguardando revisão`);
-        }
+        // A extração agora é enfileirada: a resposta confirma o PEDIDO, não o
+        // resultado. Dizer "N propostas" aqui afirmaria um número que ainda
+        // não existe.
+        await requestClauseExtraction(row.id, documentId);
+        pending.push('análise de cláusulas enfileirada — as propostas aparecem na fila de revisão');
       } catch (err) {
-        pending.push(err instanceof Error ? `análise não concluída (${err.message})` : 'análise não concluída');
+        pending.push(err instanceof Error ? `análise não enfileirada (${err.message})` : 'análise não enfileirada');
       }
     }
 

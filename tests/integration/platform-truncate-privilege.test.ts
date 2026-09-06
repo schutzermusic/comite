@@ -171,6 +171,9 @@ suite('Plataforma · TRUNCATE não alcança anon nem authenticated', () => {
          FROM pg_class WHERE relnamespace = 'public'::regnamespace AND relkind = 'r'`,
     );
     expect(counts[0].fiscais).toBe(11);
-    expect(counts[0].obrigacoes).toBe(12); // 11 da Fase 3 + a lista legada
+    // 11 da Fase 3 + a lista legada + o vínculo de evento da Fase 4 (121). A
+    // contagem é literal de propósito: uma tabela nova de obrigação que
+    // aparecesse sem passar por aqui não teria sido conferida por ninguém.
+    expect(counts[0].obrigacoes).toBe(13);
   });
 });

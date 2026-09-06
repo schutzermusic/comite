@@ -1,17 +1,36 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
-import { extractClausesFromDocument } from '@/lib/ai/contract-clause-extractor';
+import { platformServiceClient } from '@/lib/platform/server-client';
+import { scheduleFastDrain } from '@/lib/platform/jobs/fast-path';
 import { logAuditEventServer } from '@/lib/audit/log-audit-event-server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 /**
- * Extração assistida de cláusulas a partir de um documento do contrato.
+ * Extração assistida de cláusulas — agora ENFILEIRADA.
  *
- * A permissão exigida é `contracts.analyze_with_ai` — a mesma que já existia
- * para análise documental. Registrar a cláusula proposta continua sob
- * `contracts.edit` pela RLS, e validar continua sendo ato humano.
+ * ─── O que mudou, e por quê ────────────────────────────────────────────────
+ *
+ * A leitura do PDF acontecia dentro deste pedido. Um contrato grande gasta
+ * minutos de modelo, e uma função serverless reciclada no meio deixava a
+ * análise presa em `running` sem ninguém para retomá-la — trabalho perdido em
+ * silêncio, com aparência de "ainda analisando".
+ *
+ * Agora o pedido cria uma linha DURÁVEL e um trabalho na fila, e responde 202.
+ * Se o processo cair, outro trabalhador pega. O `after()` logo abaixo é só
+ * latência: quando ele roda, a análise começa em segundos; quando não roda, o
+ * agendador a pega na próxima batida.
+ *
+ * ─── O que NÃO mudou ───────────────────────────────────────────────────────
+ *
+ * A permissão continua `contracts.analyze_with_ai`. O documento continua sendo
+ * exigido como origem — e agora o portão é verificado ANTES de enfileirar, para
+ * que "documento não é PDF" seja uma recusa imediata em vez de cinco
+ * tentativas do mesmo erro. Página e trecho continuam obrigatórios em cada
+ * proposta, a impressão digital continua impedindo fila de revisão duplicada, e
+ * a proposta continua nascendo rascunho. Enfileirar mudou a confiabilidade da
+ * execução; não mudou o que a máquina pode afirmar.
  */
 export async function POST(
   req: Request,
@@ -68,50 +87,77 @@ export async function POST(
       );
     }
 
-    const result = await extractClausesFromDocument(contractId, body.documentId, user.id);
-
-    /*
-      A auditoria da extração era escrita pelo cliente de NAVEGADOR dentro desta
-      rota Node: sem cookie, sem usuário, retorno silencioso. Nenhuma linha
-      `contract.clauses_extracted` jamais chegou ao banco. Agora ela é escrita
-      pelo servidor, com IP e user-agent, e a falha é reportada em vez de
-      desaparecer — a extração não é desfeita por causa dela, mas a resposta
-      deixa de afirmar que auditou quando não auditou.
-    */
+    // A organização vem do PERFIL, nunca do corpo do pedido.
     const { data: profile } = await supabase
-      .from('profiles').select('organization_id').eq('user_id', user.id).maybeSingle<{ organization_id: string }>();
-
-    let audited: boolean | { error: string } = false;
-    if (profile?.organization_id) {
-      const write = await logAuditEventServer(
-        {
-          organizationId: profile.organization_id,
-          action: 'contract.clauses_extracted',
-          entityType: 'contract',
-          entityId: contractId,
-          metadata: {
-            analysis_id: result.analysisId,
-            document_id: result.documentId,
-            proposed: result.proposedCount,
-            rejected_without_evidence: result.rejectedCount,
-            model: result.model,
-            version: result.version,
-          },
-        },
-        req.headers,
+      .from('profiles').select('organization_id').eq('user_id', user.id)
+      .maybeSingle<{ organization_id: string }>();
+    if (!profile?.organization_id) {
+      return NextResponse.json(
+        { ok: false, error: 'Perfil sem organização.' }, { status: 403 },
       );
-      if (write.ok) {
-        audited = true;
-      } else {
-        audited = { error: write.error };
-        console.error(`[clause-extraction] auditoria não registrada: ${write.error}`);
-      }
-    } else {
-      audited = { error: 'Perfil sem organização: evento não auditado.' };
-      console.error('[clause-extraction] auditoria não registrada: perfil sem organização.');
     }
 
-    return NextResponse.json({ ok: true, ...result, audited });
+    /*
+      Pedido e trabalho nascem na MESMA transação, dentro da função do banco.
+      Criar um e depois o outro deixaria, entre os dois, um pedido eternamente
+      QUEUED sem nada que o execute.
+    */
+    const { data: queued, error: queueError } = await platformServiceClient().rpc(
+      'contract_clause_extraction_request',
+      {
+        p_organization_id: profile.organization_id,
+        p_contract_id: contractId,
+        p_document_id: body.documentId,
+        p_requested_by: user.id,
+      },
+    );
+    if (queueError) {
+      // O portão de evidência recusa de forma DETERMINÍSTICA: documento
+      // inexistente, de outro contrato ou que não é PDF nunca vira trabalho.
+      const deterministic = ['P0002', '23514'].includes(queueError.code ?? '');
+      return NextResponse.json(
+        { ok: false, error: queueError.message },
+        { status: deterministic ? 400 : 500 },
+      );
+    }
+
+    const result = queued as {
+      request_id: string; status: string; job_id: string | null; reused: boolean;
+    };
+
+    const write = await logAuditEventServer(
+      {
+        organizationId: profile.organization_id,
+        action: 'contract.clause_extraction_requested',
+        entityType: 'contract',
+        entityId: contractId,
+        metadata: {
+          request_id: result.request_id,
+          document_id: body.documentId,
+          job_id: result.job_id,
+          reused: result.reused,
+        },
+      },
+      req.headers,
+    );
+    if (!write.ok) {
+      console.error(`[clause-extraction] auditoria não registrada: ${write.error}`);
+    }
+
+    // Depois da resposta, e apenas como latência.
+    scheduleFastDrain('clause-extraction');
+
+    return NextResponse.json(
+      {
+        ok: true,
+        requestId: result.request_id,
+        status: result.status,
+        jobId: result.job_id,
+        reused: result.reused,
+        audited: write.ok ? true : { error: write.error },
+      },
+      { status: 202 },
+    );
   } catch (err) {
     return NextResponse.json(
       { ok: false, error: err instanceof Error ? err.message : 'Erro inesperado na análise.' },

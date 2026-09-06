@@ -984,9 +984,17 @@ test('31 · Auditoria e métricas do ciclo de análise', async () => {
   expect(analyses[0].error_message).toBeTruthy();
   expect(analyses[0].document_id).toBeTruthy();
 
+  /*
+    `contract.clauses_extracted` continua na lista porque a trilha HISTÓRICA
+    dele existe e não foi apagada. O nome que a rota escreve desde a Fase 4 é
+    `contract.clause_extraction_requested`: com a extração enfileirada, o ato
+    do humano é PEDIR a análise — afirmar "extraiu" no instante do clique
+    dataria a leitura do modelo antes de ela acontecer.
+  */
   const audit = await withDb((q) => q(
     `select action from audit_logs where entity_type = 'contract' and entity_id = $1
-       and action in ('contract.clauses_extracted', 'contract.clause_reviewed', 'contract.clause_superseded')`,
+       and action in ('contract.clause_extraction_requested', 'contract.clause_reviewed',
+                      'contract.clause_superseded', 'contract.clauses_extracted')`,
     [contractId]));
   expect(audit.length).toBeGreaterThan(0);
 });

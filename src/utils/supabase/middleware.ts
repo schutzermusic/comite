@@ -163,10 +163,18 @@ export async function updateSession(request: NextRequest) {
         else if (pathname === '/ativar') pontoRewrite = '/ponto/ativar'
         if (pontoRewrite) pathname = pontoRewrite
     }
-    // Endpoints de job agendado autenticam por CRON_SECRET (Bearer), sem
-    // sessão de usuário — o Vercel Cron não envia cookie. Nunca podem ser
-    // redirecionados para /login; o próprio handler valida o segredo.
-    if (pathname.startsWith('/api/ponto/cron') || pathname.startsWith('/api/ponto/retention')) {
+    // Endpoints de job agendado autenticam por Bearer, sem sessão de usuário —
+    // nem o Vercel Cron nem o GitHub Actions enviam cookie. Nunca podem ser
+    // redirecionados para /login; o próprio handler valida o segredo, e um 307
+    // para a tela de login seria indistinguível, para quem chama, de uma fila
+    // que simplesmente não anda.
+    //
+    // A isenção é do REDIRECIONAMENTO, não da autorização: `/api/ponto/*`
+    // exige `CRON_SECRET` e `/api/platform/jobs/*` exige `APEX_JOBS_SECRET`,
+    // com comparação de tempo constante nos dois casos.
+    if (pathname.startsWith('/api/ponto/cron')
+        || pathname.startsWith('/api/ponto/retention')
+        || pathname.startsWith('/api/platform/jobs/')) {
         return supabaseResponse
     }
 

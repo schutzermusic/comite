@@ -234,21 +234,24 @@ export default function ContractDossierPage() {
     try {
       const result = await requestClauseExtraction(contractId, documentId);
       await refresh();
-      const parts = [
-        result.duplicateCount ? `${result.duplicateCount} leitura(s) idêntica(s) já registradas.` : null,
-        result.rejectedCount ? `${result.rejectedCount} descartada(s) por falta de evidência.` : null,
-      ].filter(Boolean).join(' ');
+      /*
+        A resposta confirma o PEDIDO, não o resultado. Anunciar "N cláusulas
+        propostas" agora seria inventar um número que o modelo ainda não
+        produziu — e o usuário o leria como leitura concluída.
+      */
       notify(
-        result.proposedCount === 0
-          ? 'Nenhuma cláusula nova com evidência foi encontrada'
-          : `${result.proposedCount} cláusula(s) propostas para revisão`,
+        result.reused
+          ? 'A análise deste documento já está em andamento'
+          : 'Análise enfileirada',
         {
-          description: parts || undefined,
-          variant: result.proposedCount === 0 ? 'info' : 'success',
+          description: result.reused
+            ? 'O pedido anterior ainda está na fila; nenhum trabalho foi duplicado.'
+            : 'As propostas aparecem na fila de revisão quando a leitura terminar.',
+          variant: 'info',
         },
       );
     } catch (err) {
-      notify('A análise não pôde ser concluída', {
+      notify('A análise não pôde ser enfileirada', {
         description: err instanceof Error ? err.message : 'Erro inesperado.',
         variant: 'error',
       });

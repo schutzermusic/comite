@@ -94,15 +94,68 @@ rodam. Se um dia a plataforma criar tabela de aplicação em `public`, ela
 nasceria com o privilégio — `tests/integration/platform-truncate-privilege.test.ts`
 detecta isso, porque ele consulta o catálogo em vez de reler a migration.
 
-## Phase 4 — Event Graph
-Deferred:
-- domain_events
-- transactional outbox
-- apex_jobs
-- SKIP LOCKED claim
-- lock expiry/reaper
-- scheduler
-- queued clause extraction
+## Phase 4 — Platform Event Graph / Durable Work Execution — ENTREGUE
+
+Migrations 119–122. O que estava listado como deferido foi implementado:
+
+- `domain_events` (119) — fato durável, append-only, org-scoped, com
+  idempotência de negócio, causação do mesmo inquilino e payload sem segredo;
+- caixa de saída transacional (121) — três gatilhos de emissão, na MESMA
+  transação da mutação autoritativa;
+- `apex_jobs` (120) — fila durável com posse por concessão;
+- reivindicação com `FOR UPDATE SKIP LOCKED`, num único comando;
+- concessão com token, expiração e ceifador;
+- retentativa com recuo exponencial limitado e carta morta;
+- agendador (GitHub Actions, `*/10`) + caminho rápido `after()`;
+- extração de cláusulas enfileirada (122).
+
+Além do que estava na lista, e porque a Fase 3 os havia deferido explicitamente
+para cá:
+
+- **Materialização automática de obrigações.** Produtor agendado + handler que
+  chama `contract_obligations_materialize` — a função da Fase 3, não uma
+  reescrita. Horizonte rolante de 180 dias.
+- **Ativação por evento externo.** Vínculo EXPLÍCITO
+  (`contract_obligation_event_bindings`) entre definição de obrigação e tipo de
+  evento. O descritor contratual (`activation_event_text`) continua sendo
+  proveniência jurídica; nada é inferido dele.
+
+### Deferido DENTRO da Fase 4
+
+- **Segredo do agendador em produção.** O workflow
+  `.github/workflows/apex-jobs.yml` existe e falha alto sem eles, mas
+  `APEX_JOBS_SECRET` (secret) e `APEX_SITE_URL` (variable) ainda NÃO estão
+  configurados no repositório, e `APEX_JOBS_SECRET` ainda não está na Vercel.
+  Enquanto isso não for feito, a cadência de dez minutos não roda: o que
+  funciona é o caminho rápido `after()` e o disparo manual autenticado. Isto é
+  configuração de credencial, não código, e não pode ser feito de dentro do
+  repositório.
+- **Registro ESTÁTICO de rotas vazio.** `apex_event_routes` nasce sem linha. Os
+  cinco fatos do vocabulário inicial não têm, hoje, consumidor automático que
+  não fosse especulação sobre as Fases 5–7. O primeiro consumidor real é
+  dinâmico (vínculo de ativação de obrigação).
+- **Estratégia de ocorrência para recorrência diária / intervalo fixo.** As
+  chaves dessas séries dependem da âncora e do passo; derivá-las da data do
+  evento acertaria por acaso. O resultado é `occurrence_unresolved`, e é o
+  resultado correto.
+- **Interface de operação da fila.** Carta morta, reprocessamento e saúde
+  existem como funções de banco (`apex_jobs_dead_letters`, `apex_jobs_replay`,
+  `apex_jobs_health`) e como rota interna autenticada por Bearer. Não há tela de
+  usuário, e a Fase 4 não precisa de uma — a Fase 9 é a Torre de Controle.
+- **Escalonamento justo entre inquilinos.** A reivindicação ordena por
+  `run_after`. Um inquilino com backlog enorme pode, em tese, ocupar lotes
+  seguidos. Não há evidência de que isso aconteça hoje, e construir um
+  escalonador justo sem evidência seria complexidade especulativa.
+- **`contract_amendment_revisions.organization_id` sem `ON DELETE CASCADE`.**
+  FK ANTERIOR à Fase 4, que bloqueia o apagamento privilegiado de um inquilino
+  que tenha aditivo. Não é escopo desta fase corrigi-la; está anotada aqui para
+  não ser redescoberta.
+- **Fila do Fiscal.** `fiscal_jobs` continua do Fiscal. Unificá-la com
+  `apex_jobs` exigiria migration destrutiva numa fila de transmissão a provedor,
+  e não há razão de correção para isso hoje.
+- **Cron do Ponto.** Não migrado. O Ponto tem segredo próprio
+  (`CRON_SECRET`), workflow próprio e cadência própria, e nenhuma linha dele foi
+  tocada.
 
 ## Phase 5 — Shared Approval Engine
 Deferred:
