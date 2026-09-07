@@ -9,9 +9,9 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  advisoryReasons, blockedByGovernance, blockerLabel, blockingReasons, canRelease, chainStage,
-  displayText, eligibleAmount, formatCents, openAmount, receivedAmount,
-  reconciliationPending,
+  advisoryReasons, blockedByGovernance, blockedByViewerAuthorization, blockerLabel,
+  blockingReasons, canRelease, chainStage, displayText, eligibleAmount, formatCents,
+  openAmount, receivedAmount, reconciliationPending,
 } from '@/lib/contracts/billing/contract-to-cash-display';
 import type { ContractToCashRow } from '@/lib/contracts/billing/contract-to-cash-service';
 
@@ -36,6 +36,7 @@ const base: ContractToCashRow = {
   // não são sobre governança, e deixá-la ausente faria todos eles falharem
   // pelo motivo errado. A governança tem os seus próprios testes abaixo.
   releaseGovernanceState: 'DECLARED_AUTHORITY',
+  releaseCapability: 'DIRECT_RELEASE',
 };
 
 const row = (patch: Partial<ContractToCashRow>): ContractToCashRow => ({ ...base, ...patch });
@@ -193,25 +194,37 @@ describe('precisão (§79)', () => {
 */
 describe('governança da liberação (§18)', () => {
   it('elegível SEM governança configurada não oferece o botão', () => {
-    const r = row({ releaseGovernanceState: 'NOT_CONFIGURED' });
+    const r = row({ releaseGovernanceState: 'NOT_CONFIGURED', releaseCapability: 'NOT_CONFIGURED' });
     expect(canRelease(r)).toBe(false);
     expect(blockedByGovernance(r)).toBe(true);
   });
 
   it('elegível COM política de aprovação oferece o botão', () => {
-    const r = row({ releaseGovernanceState: 'APPROVAL_POLICY' });
+    const r = row({ releaseGovernanceState: 'APPROVAL_POLICY', releaseCapability: 'REQUEST_APPROVAL' });
     expect(canRelease(r)).toBe(true);
     expect(blockedByGovernance(r)).toBe(false);
   });
 
   it('elegível COM autoridade declarada oferece o botão', () => {
-    expect(canRelease(row({ releaseGovernanceState: 'DECLARED_AUTHORITY' }))).toBe(true);
+    expect(canRelease(row({
+      releaseGovernanceState: 'DECLARED_AUTHORITY', releaseCapability: 'DIRECT_RELEASE',
+    }))).toBe(true);
+  });
+
+  it('governança configurada sem autorização do visualizador não oferece ação', () => {
+    const r = row({
+      releaseGovernanceState: 'DECLARED_AUTHORITY', releaseCapability: 'NOT_AUTHORIZED',
+    });
+    expect(canRelease(r)).toBe(false);
+    expect(blockedByGovernance(r)).toBe(false);
+    expect(blockedByViewerAuthorization(r)).toBe(true);
   });
 
   it('governança configurada NÃO substitui elegibilidade', () => {
     // Governança responde "quem pode liberar", nunca "há o que liberar".
     expect(canRelease(row({
       releaseGovernanceState: 'DECLARED_AUTHORITY',
+      releaseCapability: 'DIRECT_RELEASE',
       eligibilityState: 'BLOCKED', releaseState: 'NOT_ELIGIBLE',
     }))).toBe(false);
   });
@@ -219,6 +232,7 @@ describe('governança da liberação (§18)', () => {
   it('já liberado não volta a oferecer liberação, mesmo governado', () => {
     expect(canRelease(row({
       releaseGovernanceState: 'DECLARED_AUTHORITY',
+      releaseCapability: 'DIRECT_RELEASE',
       releaseState: 'RELEASED', releasedAt: '2026-02-02T00:00:00Z',
     }))).toBe(false);
   });

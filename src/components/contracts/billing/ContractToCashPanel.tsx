@@ -37,9 +37,9 @@ import {
 } from '@/lib/contracts/billing/contract-to-cash-service';
 import {
   AMOUNT_SOURCE_LABEL, ELIGIBILITY_LABEL, FINANCE_LINK_LABEL, RECEIVABLE_STATUS_LABEL,
-  RELEASE_GOVERNANCE_LABEL, RELEASE_LABEL, advisoryReasons, blockedByGovernance, blockerLabel,
-  blockingReasons, canRelease, chainStage, displayText, eligibleAmount, openAmount,
-  receivedAmount, reconciliationPending,
+  RELEASE_CAPABILITY_LABEL, RELEASE_LABEL, advisoryReasons, blockedByGovernance,
+  blockedByViewerAuthorization, blockerLabel, blockingReasons, canRelease, chainStage,
+  displayText, eligibleAmount, openAmount, receivedAmount, reconciliationPending,
 } from '@/lib/contracts/billing/contract-to-cash-display';
 
 interface Props {
@@ -207,14 +207,13 @@ function BillingEventCard({
         <div className="flex flex-wrap items-center gap-2 text-ig-caption">
           <HudBadge>{`Elegibilidade: ${row.eligibilityState ? ELIGIBILITY_LABEL[row.eligibilityState] : '—'}`}</HudBadge>
           <HudBadge>{`Liberação: ${row.releaseState ? RELEASE_LABEL[row.releaseState] : '—'}`}</HudBadge>
-          {/* Governança da liberação: dimensão própria, distinta da elegibilidade. */}
-          {row.releaseGovernanceState === 'NOT_CONFIGURED' ? (
-            <HudBadge className="text-ig-warning">
-              {RELEASE_GOVERNANCE_LABEL.NOT_CONFIGURED}
-            </HudBadge>
-          ) : (
-            <HudBadge>{RELEASE_GOVERNANCE_LABEL[row.releaseGovernanceState]}</HudBadge>
-          )}
+          {/* Capacidade do visualizador: configuração e autorização não se confundem. */}
+          <HudBadge className={cn(
+            (row.releaseCapability === 'NOT_CONFIGURED'
+              || row.releaseCapability === 'NOT_AUTHORIZED') && 'text-ig-warning',
+          )}>
+            {RELEASE_CAPABILITY_LABEL[row.releaseCapability]}
+          </HudBadge>
           {row.ledgerPostingState && row.ledgerPostingState !== 'NOT_POSTED' && (
             <HudBadge>{`Razão: ${row.ledgerPostingState === 'POSTED' ? 'lançado' : 'pendente de configuração'}`}</HudBadge>
           )}
@@ -285,6 +284,19 @@ function BillingEventCard({
           />
         )}
 
+        {blockedByViewerAuthorization(row) && (
+          <ReasonList
+            tone="muted"
+            title="Elegível, mas sem autorização para este visualizador"
+            reasons={[{
+              code: 'RELEASE_VIEWER_NOT_AUTHORIZED',
+              text: 'A governança existe, mas não autoriza sua conta para esta liberação.',
+              detail: 'Peça a um responsável autorizado; a interface não oferece uma ação que '
+                + 'a RPC recusaria.',
+            }]}
+          />
+        )}
+
         {/* ---- o único ato desta tela ---- */}
         <div className="flex items-center justify-between gap-2 pt-1">
           <p className="text-ig-caption text-ig-fg-subtle">
@@ -302,7 +314,9 @@ function BillingEventCard({
               className="inline-flex items-center gap-1.5 rounded-md border border-ig-border px-3 py-1.5 text-ig-caption text-ig-fg hover:bg-ig-bg-elevated disabled:opacity-50"
             >
               {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-              Liberar faturamento
+              {row.releaseCapability === 'REQUEST_APPROVAL'
+                ? 'Solicitar liberação'
+                : 'Liberar faturamento'}
             </button>
           )}
         </div>

@@ -63,6 +63,7 @@ export async function runPhase7CorrectionAssertions(c, { must, one }) {
     'finance_installments_conserve_total', 'finance_settlements_no_rewrite',
     'apex_caller_is_browser', 'apex_browser_organization',
     'contract_billing_release_authority_for', 'contract_billing_release_authority_guard',
+    'contract_billing_release_authority_immutable',
   ];
   for (const fn of INTERNAL) {
     const r = await one(
@@ -100,6 +101,8 @@ export async function runPhase7CorrectionAssertions(c, { must, one }) {
   // privilégio máximo do lado errado da fronteira.
   const attacker = await mkUser('attacker', attackerOrg, 'owner_admin');
   const victimAdmin = await mkUser('victim-admin', victimOrg, 'owner_admin');
+  const victimDeclarer = await mkUser('victim-declarer', victimOrg, 'owner_admin');
+  const victimViewer = await mkUser('victim-viewer', victimOrg, 'juridico_contratos');
 
   const mkWorld = async (orgId, tag) => {
     const project = `p7x-${tag}-${sfx}`;
@@ -376,17 +379,80 @@ export async function runPhase7CorrectionAssertions(c, { must, one }) {
                  WHERE billing_event_id=$1`, [eligibleBilling])).release_governance_state
       === 'NOT_CONFIGURED');
 
-  // Autoridade declarada COM evidência — o caminho legítimo.
-  await c.query(
-    `INSERT INTO contract_billing_release_authorities
-       (organization_id, grantee_kind, grantee_user_id, source_kind, source_reference,
-        justification, declared_by)
-     VALUES ($1,'USER',$2,'BOARD_RESOLUTION','Ata 12/2026 art. 3º',
-             '[P7X] delegação de alçada comercial', $2)`, [victimOrg, victimAdmin]);
+  const selfDeclaration = await refuses(c, asUser(victimAdmin,
+    `SELECT contract_billing_release_authority_declare(
+       '${victimOrg}',NULL,'USER',NULL,'${victimAdmin}','UNLIMITED',NULL,NULL,
+       'BOARD_RESOLUTION','Ata auto',NULL,'auto-outorga',current_date,NULL)`));
+  check('auto-outorga USER é recusada',
+    selfDeclaration !== null && /AUTHORITY_SELF_DECLARATION_FORBIDDEN/.test(selfDeclaration),
+    (selfDeclaration || 'AUTO-OUTORGOU').slice(0, 100));
+
+  const missingScope = await refuses(c, asUser(victimDeclarer,
+    `SELECT contract_billing_release_authority_declare(
+       '${victimOrg}',NULL,'USER',NULL,'${victimViewer}',NULL,NULL,NULL,
+       'BOARD_RESOLUTION','Ata sem escopo',NULL,'sem escopo',current_date,NULL)`));
+  check('escopo ausente nunca vira ilimitado', missingScope !== null,
+    (missingScope || 'ACEITOU NULL').slice(0, 100));
+
+  // Autoridade UNLIMITED declarada explicitamente por OUTRA pessoa.
+  const authorityId = (await oneAs(victimDeclarer,
+    `SELECT contract_billing_release_authority_declare(
+       '${victimOrg}',NULL,'USER',NULL,'${victimAdmin}','UNLIMITED',NULL,NULL,
+       'BOARD_RESOLUTION','Ata 12/2026 art. 3º',NULL,
+       '[P7X] delegação de alçada comercial',current_date,NULL) AS r`)).r;
+  const declared = await one(
+    `SELECT declared_by,amount_scope,max_amount,currency FROM contract_billing_release_authorities WHERE id=$1`,
+    [authorityId]);
+  check('declared_by é o auth.uid() da declaradora, nunca entrada do chamador',
+    declared.declared_by === victimDeclarer && declared.declared_by !== victimAdmin,
+    String(declared.declared_by));
+  check('UNLIMITED é explícito e não carrega teto/moeda',
+    declared.amount_scope === 'UNLIMITED' && declared.max_amount === null && declared.currency === null);
+
+  for (const [label, sql] of [
+    ['INSERT direto com declared_by forjado',
+      `INSERT INTO contract_billing_release_authorities
+         (organization_id,grantee_kind,grantee_user_id,amount_scope,source_kind,
+          source_reference,justification,declared_by)
+       VALUES ('${victimOrg}','USER','${victimViewer}','UNLIMITED','BOARD_RESOLUTION',
+               'forjada','forjada','${victimAdmin}')`],
+    ['UPDATE direto',
+      `UPDATE contract_billing_release_authorities SET justification='forjada'
+        WHERE id='${authorityId}'`],
+    ['DELETE direto',
+      `DELETE FROM contract_billing_release_authorities WHERE id='${authorityId}'`],
+  ]) {
+    const refused = await refuses(c, asUser(victimDeclarer, sql));
+    check(`${label} por navegador é recusado`, refused !== null,
+      (refused || 'ESCREVEU').slice(0, 100));
+  }
+
+  const ownerRole = (await one(
+    `SELECT id FROM roles WHERE key='owner_admin' AND organization_id IS NULL`)).id;
+  const roleSelf = await refuses(c, asUser(victimDeclarer,
+    `SELECT contract_billing_release_authority_declare(
+       '${victimOrg}',NULL,'ROLE','${ownerRole}',NULL,'UNLIMITED',NULL,NULL,
+       'BOARD_RESOLUTION','Ata papel',NULL,'auto-outorga indireta',current_date,NULL)`));
+  check('membro do papel não declara autoridade para o próprio papel',
+    roleSelf !== null && /AUTHORITY_ROLE_SELF_DECLARATION_FORBIDDEN/.test(roleSelf),
+    (roleSelf || 'AUTO-OUTORGOU PAPEL').slice(0, 100));
+
   check('o modelo de leitura passa a declarar autoridade configurada',
     (await one(`SELECT release_governance_state FROM contract_to_cash_read_model
                  WHERE billing_event_id=$1`, [eligibleBilling])).release_governance_state
       === 'DECLARED_AUTHORITY');
+
+  const viewerCapability = await oneAs(victimViewer,
+    `SELECT release_capability FROM contract_to_cash_read_model
+      WHERE billing_event_id='${eligibleBilling}'`);
+  check('visualizador não autorizado não recebe capacidade acionável',
+    viewerCapability.release_capability === 'NOT_AUTHORIZED', viewerCapability.release_capability);
+
+  const actorCapability = await oneAs(victimAdmin,
+    `SELECT release_capability FROM contract_to_cash_read_model
+      WHERE billing_event_id='${eligibleBilling}'`);
+  check('outorgado recebe capacidade DIRECT_RELEASE',
+    actorCapability.release_capability === 'DIRECT_RELEASE', actorCapability.release_capability);
 
   const released = (await oneAs(victimAdmin,
     `SELECT contract_billing_release('${eligibleBilling}', 'com autoridade') AS r`)).r;
@@ -394,6 +460,22 @@ export async function runPhase7CorrectionAssertions(c, { must, one }) {
     JSON.stringify(released.governance));
   check('a liberação registra POR QUAL autoridade se liberou',
     typeof released.release_authority_id === 'string' && released.governance === 'DECLARED_AUTHORITY');
+
+  const rewrite = await refuses(c,
+    `UPDATE contract_billing_release_authorities SET justification='reescrita' WHERE id='${authorityId}'`);
+  check('fatos centrais não podem ser reescritos depois de justificar liberação',
+    rewrite !== null && /AUTHORITY_CORE_IMMUTABLE/.test(rewrite),
+    (rewrite || 'REESCREVEU').slice(0, 100));
+
+  const revoked = (await oneAs(victimDeclarer,
+    `SELECT contract_billing_release_authority_revoke(
+       '${authorityId}','fim da delegação') AS r`)).r;
+  const preserved = await one(
+    `SELECT count(*)::int n, bool_and(NOT active AND revoked_at IS NOT NULL
+       AND revoked_by=$2 AND declared_by=$2 AND amount_scope='UNLIMITED') preserved
+       FROM contract_billing_release_authorities WHERE id=$1`, [authorityId, victimDeclarer]);
+  check('revogação governada preserva a declaração original',
+    revoked.status === 'REVOKED' && preserved.n === 1 && preserved.preserved === true);
 
   // ---- teto de valor DECLARADO ----
   /*
@@ -419,8 +501,10 @@ export async function runPhase7CorrectionAssertions(c, { must, one }) {
     `SELECT contract_billing_apply_measurement_accepted($1) AS r`, [accEvent2])).r;
   const cappedBilling = candidate2.billing_event_id;
 
-  await c.query(`UPDATE contract_billing_release_authorities
-                    SET max_amount = 50000, currency = 'BRL' WHERE organization_id=$1`, [victimOrg]);
+  const cappedLow = (await oneAs(victimDeclarer,
+    `SELECT contract_billing_release_authority_declare(
+       '${victimOrg}',NULL,'USER',NULL,'${victimAdmin}','CAPPED',50000,'BRL',
+       'BOARD_RESOLUTION','Ata 13/2026',NULL,'teto baixo',current_date,NULL) AS r`)).r;
   const overLimit = await refuses(c, asUser(victimAdmin,
     `SELECT contract_billing_release('${cappedBilling}', 'acima do teto')`));
   check('valor acima do TETO declarado não libera',
@@ -430,9 +514,13 @@ export async function runPhase7CorrectionAssertions(c, { must, one }) {
     (await one(`SELECT release_state FROM contract_billing_events WHERE id=$1`,
       [cappedBilling])).release_state !== 'RELEASED');
 
-  // Dentro do teto, a mesma autoridade libera — o teto é um limite, não um veto.
-  await c.query(`UPDATE contract_billing_release_authorities
-                    SET max_amount = 200000 WHERE organization_id=$1`, [victimOrg]);
+  await oneAs(victimDeclarer,
+    `SELECT contract_billing_release_authority_revoke('${cappedLow}','substituída') AS r`);
+  await oneAs(victimDeclarer,
+    `SELECT contract_billing_release_authority_declare(
+       '${victimOrg}',NULL,'USER',NULL,'${victimAdmin}','CAPPED',200000,'BRL',
+       'BOARD_RESOLUTION','Ata 14/2026',NULL,'teto suficiente',current_date,NULL) AS r`);
+  // Dentro do teto, uma nova declaração libera; a antiga não foi editada.
   const withinLimit = (await oneAs(victimAdmin,
     `SELECT contract_billing_release('${cappedBilling}', 'dentro do teto') AS r`)).r;
   check('dentro do teto declarado a liberação acontece',

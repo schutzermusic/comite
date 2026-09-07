@@ -28,11 +28,13 @@ const m136 = read('supabase/migrations/136_contracts_billing_entitlement.sql');
 const m137 = read('supabase/migrations/137_contracts_fiscal_bridge.sql');
 const m138 = read('supabase/migrations/138_finance_receivables_settlements.sql');
 const m139 = read('supabase/migrations/139_contract_to_cash_read_model.sql');
-// ---- correção (140–142) ----
+// ---- correção (140–143) ----
 const m140 = read('supabase/migrations/140_phase7_definer_tenant_boundary.sql');
 const m141 = read('supabase/migrations/141_billing_release_authority.sql');
 const m142 = read('supabase/migrations/142_release_governance_read_model.sql');
-const all7 = m135 + m136 + m137 + m138 + m139 + m140 + m141 + m142;
+const m143 = read('supabase/migrations/143_billing_release_authority_governance.sql');
+const m144 = read('supabase/migrations/144_release_capability_policy_selection.sql');
+const all7 = m135 + m136 + m137 + m138 + m139 + m140 + m141 + m142 + m143 + m144;
 
 /**
  * O SQL sem os comentários.
@@ -50,6 +52,8 @@ const code136 = stripSql(m136);
 const code138 = stripSql(m138);
 const code140 = stripSql(m140);
 const code141 = stripSql(m141);
+const code143 = stripSql(m143);
+const code144 = stripSql(m144);
 const code7 = stripSql(all7);
 
 /*
@@ -352,13 +356,13 @@ describe('Fase 7 · fronteiras de fase', () => {
 });
 
 describe('Fase 7 · migrations aplicadas não são editadas', () => {
-  it('o diretório só ganhou 135–142', () => {
+  it('o diretório só ganhou 135–144', () => {
     const versions = readdirSync('supabase/migrations')
       .filter((f) => /^\d{3}_.*\.sql$/.test(f))
       .map((f) => f.slice(0, 3))
       .sort();
-    expect(versions[versions.length - 1]).toBe('142');
-    for (const v of ['135', '136', '137', '138', '139', '140', '141', '142']) {
+    expect(versions[versions.length - 1]).toBe('144');
+    for (const v of ['135', '136', '137', '138', '139', '140', '141', '142', '143', '144']) {
       expect(versions).toContain(v);
     }
     // 090 continua arquivada, nunca aplicada.
@@ -450,7 +454,7 @@ describe('Fase 7 · correção · autoridade de liberação não é inventada', 
       arquivo dela, como registro do que foi feito. O que a correção precisa
       garantir é que nada de 140 em diante volte a conceder.
     */
-    expect(code140 + code141 + stripSql(m142)).not.toMatch(
+    expect(code140 + code141 + stripSql(m142) + code143).not.toMatch(
       /INSERT INTO public\.role_permissions[\s\S]{0,300}contracts\.billing\./);
   });
 
@@ -491,6 +495,54 @@ describe('Fase 7 · correção · autoridade de liberação não é inventada', 
 
   it('a interface não oferece liberar sem governança configurada', () => {
     expect(display).toContain('blockedByGovernance');
-    expect(display).toMatch(/releaseGovernanceState !== 'NOT_CONFIGURED'/);
+    expect(display).toContain("row.releaseCapability === 'DIRECT_RELEASE'");
+    expect(display).toContain("row.releaseCapability === 'REQUEST_APPROVAL'");
+  });
+
+  it('a declaração é RPC-only, prende o ator e recusa auto-outorga', () => {
+    expect(code143).toMatch(/REVOKE INSERT, UPDATE, DELETE[\s\S]{0,100}FROM anon, authenticated/);
+    expect(code143).toMatch(/actor uuid := auth\.uid\(\)/);
+    expect(code143).not.toMatch(/p_declared_by/);
+    expect(code143).toMatch(/AUTHORITY_SELF_DECLARATION_FORBIDDEN/);
+    expect(code143).toMatch(/AUTHORITY_ROLE_SELF_DECLARATION_FORBIDDEN/);
+    expect(code143).toMatch(/NEW\.declared_by IS DISTINCT FROM auth\.uid\(\)/);
+  });
+
+  it('os fatos centrais são imutáveis e a revogação preserva a linha', () => {
+    expect(code143).toMatch(/CREATE TRIGGER cbra_immutable[\s\S]{0,120}INSERT OR UPDATE OR DELETE/);
+    expect(code143).toMatch(/AUTHORITY_CORE_IMMUTABLE/);
+    expect(code143).toMatch(/AUTHORITY_HISTORY_IMMUTABLE/);
+    const revoke = functionBody(code143, 'contract_billing_release_authority_revoke');
+    expect(revoke).not.toBeNull();
+    expect(revoke!).toMatch(/SET active = false, revoked_at = now\(\), revoked_by = actor/);
+    expect(revoke!).not.toMatch(/DELETE FROM/);
+  });
+
+  it('escopo de valor é explícito e ausência nunca significa ilimitado', () => {
+    expect(code143).toMatch(/ALTER COLUMN amount_scope SET NOT NULL/);
+    expect(code143).toMatch(/amount_scope = 'CAPPED'[\s\S]{0,100}max_amount IS NOT NULL[\s\S]{0,100}currency IS NOT NULL/);
+    expect(code143).toMatch(/amount_scope = 'UNLIMITED'[\s\S]{0,100}max_amount IS NULL[\s\S]{0,100}currency IS NULL/);
+    expect(code143).not.toMatch(/amount_scope[^;]{0,80}DEFAULT/);
+    const resolver = functionBody(code143, 'contract_billing_release_authority_for');
+    expect(resolver).not.toBeNull();
+    expect(resolver!).toContain("a.amount_scope = 'UNLIMITED'");
+    expect(resolver!).not.toMatch(/a\.max_amount IS NULL\s+OR/);
+  });
+
+  it('o modelo canônico expõe capacidade específica do visualizador', () => {
+    expect(code143).toMatch(/contract_billing_release_capability\(e\.id\) AS release_capability/);
+    for (const state of ['NOT_CONFIGURED', 'NOT_AUTHORIZED', 'REQUEST_APPROVAL', 'DIRECT_RELEASE']) {
+      expect(code143).toContain(`'${state}'`);
+    }
+    expect(display).toContain('blockedByViewerAuthorization');
+  });
+
+  it('REQUEST_APPROVAL usa a mesma seleção determinística da RPC autoritativa', () => {
+    const capability = functionBody(code144, 'contract_billing_release_capability');
+    expect(capability).not.toBeNull();
+    expect(capability!).toContain('approval_subject_resolve');
+    expect(capability!).toContain('approval_policy_select');
+    expect(capability!).toMatch(/policy_version_id IS NOT NULL THEN RETURN 'REQUEST_APPROVAL'/);
+    expect(capability!).not.toMatch(/EXISTS\s*\([\s\S]{0,120}approval_policy_versions/);
   });
 });

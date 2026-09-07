@@ -45,6 +45,10 @@ export type BillingAmountSource =
 export type ReleaseGovernanceState =
   | 'APPROVAL_POLICY' | 'DECLARED_AUTHORITY' | 'NOT_CONFIGURED';
 
+/** O que o visualizador atual pode fazer, sem substituir a validação da RPC. */
+export type ReleaseCapability =
+  | 'NOT_CONFIGURED' | 'NOT_AUTHORIZED' | 'REQUEST_APPROVAL' | 'DIRECT_RELEASE';
+
 /** Estado do vínculo com Finanças. Consultado ANTES de exibir qualquer valor. */
 export type FinanceLinkState =
   | 'LINKED' | 'CLOSED' | 'PENDING_CONFIGURATION' | 'NOT_LINKED' | 'UNKNOWN';
@@ -127,6 +131,7 @@ export interface ContractToCashRow {
   readonly unreconciledSettlementCount: number | null;
 
   readonly releaseGovernanceState: ReleaseGovernanceState;
+  readonly releaseCapability: ReleaseCapability;
 }
 
 /** `numeric` do Postgres chega como string pelo driver; `null` sobrevive. */
@@ -197,6 +202,8 @@ export function toContractToCashRow(r: Record<string, unknown>): ContractToCashR
 
     releaseGovernanceState:
       (r.release_governance_state as ReleaseGovernanceState) ?? 'NOT_CONFIGURED',
+    releaseCapability:
+      (r.release_capability as ReleaseCapability) ?? 'NOT_CONFIGURED',
   };
 }
 

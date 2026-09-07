@@ -45,6 +45,7 @@ DO $sweep$
 DECLARE
   t text; remaining text[]; next_round text[]; pass integer := 0;
 BEGIN
+  PERFORM set_config('app.cbra_history_maintenance', 'on', true);
   SELECT array_agg(c.table_name ORDER BY c.table_name) INTO remaining
     FROM information_schema.columns c
     JOIN information_schema.tables tb
@@ -209,6 +210,7 @@ suite('Fase 7 · corrida, idempotência e atomicidade da cadeia contrato-a-caixa
     users.commercial2 = await mkUser('commercial2', 'juridico_contratos');
     users.finance = await mkUser('finance', 'financeiro');
     users.finance2 = await mkUser('finance2', 'financeiro');
+    users.authorityDeclarer = await mkUser('authority-declarer', 'owner_admin');
 
     projectId = `p7live-${sfx}`;
     await a.query(`INSERT INTO projects (id, organization_id, project) VALUES ($1,$2,$3)`,
@@ -283,13 +285,13 @@ suite('Fase 7 · corrida, idempotência e atomicidade da cadeia contrato-a-caixa
          SELECT $1, $2, p.id, 'grant', '[P7-LIVE] cenário descartável'
            FROM permissions p WHERE p.key = 'contracts.billing.release'`,
         [orgId, uid]);
-      await a.query(
-        `INSERT INTO contract_billing_release_authorities
-           (organization_id, grantee_kind, grantee_user_id, source_kind, source_reference,
-            justification, declared_by)
-         VALUES ($1,'USER',$2,'BOARD_RESOLUTION','[P7-LIVE] Ata do cenário',
-                 '[P7-LIVE] alçada comercial do cenário descartável', $2)`,
-        [orgId, uid]);
+      const declared = await call(a, users.authorityDeclarer,
+        `SELECT contract_billing_release_authority_declare(
+           $2::uuid,NULL,'USER',NULL,$3::uuid,'UNLIMITED',NULL,NULL,
+           'BOARD_RESOLUTION','[P7-LIVE] Ata do cenário',NULL,
+           '[P7-LIVE] alçada comercial do cenário descartável',current_date,NULL) AS r
+         FROM actor`, [orgId, uid]);
+      if (!declared.ok) throw new Error(`declaração de apoio falhou: ${declared.message}`);
     }
   }, 90_000);
 

@@ -10,7 +10,8 @@
  */
 import type {
   BillingAmountSource, BillingBlocker, BillingEligibilityState, BillingReleaseState,
-  ContractToCashRow, FinanceLinkState, ReceivableStatus, ReleaseGovernanceState,
+  ContractToCashRow, FinanceLinkState, ReceivableStatus, ReleaseCapability,
+  ReleaseGovernanceState,
 } from './contract-to-cash-service';
 
 /**
@@ -90,6 +91,13 @@ export const RELEASE_GOVERNANCE_LABEL: Record<ReleaseGovernanceState, string> = 
   APPROVAL_POLICY: 'Governada por política de aprovação',
   DECLARED_AUTHORITY: 'Autoridade de liberação declarada',
   NOT_CONFIGURED: 'Governança de liberação não configurada',
+};
+
+export const RELEASE_CAPABILITY_LABEL: Record<ReleaseCapability, string> = {
+  NOT_CONFIGURED: 'Governança de liberação não configurada',
+  NOT_AUTHORIZED: 'Governança configurada · você não está autorizado',
+  REQUEST_APPROVAL: 'Você pode solicitar aprovação',
+  DIRECT_RELEASE: 'Você pode liberar por autoridade declarada',
 };
 
 /** Rótulos dos motivos da §16. Código sem tradução é mostrado como código. */
@@ -199,7 +207,8 @@ export function openAmount(row: ContractToCashRow): Displayable {
 export function canRelease(row: ContractToCashRow): boolean {
   return row.eligibilityState === 'ELIGIBLE'
     && row.releaseState === 'ELIGIBLE'
-    && row.releaseGovernanceState !== 'NOT_CONFIGURED';
+    && (row.releaseCapability === 'DIRECT_RELEASE'
+      || row.releaseCapability === 'REQUEST_APPROVAL');
 }
 
 /**
@@ -211,7 +220,14 @@ export function canRelease(row: ContractToCashRow): boolean {
 export function blockedByGovernance(row: ContractToCashRow): boolean {
   return row.eligibilityState === 'ELIGIBLE'
     && row.releaseState === 'ELIGIBLE'
-    && row.releaseGovernanceState === 'NOT_CONFIGURED';
+    && row.releaseCapability === 'NOT_CONFIGURED';
+}
+
+/** Governança existe, mas não outorga uma ação a este visualizador. */
+export function blockedByViewerAuthorization(row: ContractToCashRow): boolean {
+  return row.eligibilityState === 'ELIGIBLE'
+    && row.releaseState === 'ELIGIBLE'
+    && row.releaseCapability === 'NOT_AUTHORIZED';
 }
 
 /**

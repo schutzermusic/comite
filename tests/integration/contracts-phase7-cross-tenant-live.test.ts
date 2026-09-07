@@ -45,6 +45,7 @@ const sweepOrgSql = (uuid: string) => {
 DO $sweep$
 DECLARE t text; remaining text[]; next_round text[]; pass integer := 0;
 BEGIN
+  PERFORM set_config('app.cbra_history_maintenance', 'on', true);
   SELECT array_agg(c.table_name ORDER BY c.table_name) INTO remaining
     FROM information_schema.columns c
     JOIN information_schema.tables tb
@@ -74,7 +75,7 @@ suite('Fase 7 · fronteira de inquilino das RPCs e autoridade de liberação', (
   const sfx = Math.random().toString(36).slice(2, 10);
 
   let victimOrg: string; let attackerOrg: string;
-  let attacker: string; let victimAdmin: string;
+  let attacker: string; let victimAdmin: string; let victimDeclarer: string; let victimViewer: string;
   let victimContract: string; let victimMilestone: string; let victimBilling: string;
   let victimReceivable: string; let victimSettlement: string;
   let victimPaymentSource: string; let victimReconciliation: string;
@@ -112,6 +113,19 @@ suite('Fase 7 · fronteira de inquilino das RPCs e autoridade de liberação', (
   const scalar = async (sql: string, params: unknown[] = []) =>
     (await db.query(sql, params)).rows[0];
 
+  const declareFor = async (
+    declarer: string, grantee: string, amountScope: 'CAPPED' | 'UNLIMITED',
+    maxAmount: number | null = null, currency: string | null = null,
+  ): Promise<string> => {
+    const row = await callAs(declarer,
+      `SELECT contract_billing_release_authority_declare(
+         '${victimOrg}',NULL,'USER',NULL,'${grantee}','${amountScope}',
+         ${maxAmount === null ? 'NULL' : maxAmount},${currency === null ? 'NULL' : `'${currency}'`},
+         'BOARD_RESOLUTION','Ata 12/2026 art. 3º',NULL,
+         '[P7XT] delegação de alçada comercial',current_date,NULL) AS id`);
+    return row.id as string;
+  };
+
   beforeAll(async () => {
     db = new pg.Client({ connectionString: DB_URL, ssl: { rejectUnauthorized: false } });
     await db.connect();
@@ -138,6 +152,8 @@ suite('Fase 7 · fronteira de inquilino das RPCs e autoridade de liberação', (
     // O atacante é ADMINISTRADOR da organização dele: pior caso realista.
     attacker = await mkUser('attacker', attackerOrg, 'owner_admin');
     victimAdmin = await mkUser('victim-admin', victimOrg, 'owner_admin');
+    victimDeclarer = await mkUser('victim-declarer', victimOrg, 'owner_admin');
+    victimViewer = await mkUser('victim-viewer', victimOrg, 'juridico_contratos');
 
     const project = `p7xt-${sfx}`;
     await db.query(`INSERT INTO projects (id, organization_id, project) VALUES ($1,$2,$3)`,
@@ -363,6 +379,14 @@ suite('Fase 7 · fronteira de inquilino das RPCs e autoridade de liberação', (
        VALUES ('${victimOrg}','${victimReceivable}','PAYMENT',1,'BRL',current_date,'MANUAL_ENTRY')`,
       `UPDATE finance_receivables SET lifecycle_state='CANCELLED' WHERE id='${victimReceivable}'`,
       `DELETE FROM finance_settlements WHERE id='${victimSettlement}'`,
+      `INSERT INTO contract_billing_release_authorities
+         (organization_id,grantee_kind,grantee_user_id,amount_scope,source_kind,
+          source_reference,justification,declared_by)
+       VALUES ('${victimOrg}','USER','${victimAdmin}','UNLIMITED','BOARD_RESOLUTION',
+               'forjada','forjada','${victimViewer}')`,
+      `UPDATE contract_billing_release_authorities SET justification='reescrita'
+        WHERE organization_id='${victimOrg}'`,
+      `DELETE FROM contract_billing_release_authorities WHERE organization_id='${victimOrg}'`,
     ]) {
       expect(await refusedAs(attacker, sql)).not.toBeNull();
     }
@@ -415,25 +439,112 @@ suite('Fase 7 · fronteira de inquilino das RPCs e autoridade de liberação', (
       .not.toBe('RELEASED');
 
     // E a tela tem como explicar sem tentar liberar.
-    expect((await scalar(
-      `SELECT release_governance_state g FROM contract_to_cash_read_model WHERE billing_event_id=$1`,
-      [billing])).g).toBe('NOT_CONFIGURED');
+    const read = await callAs(victimAdmin,
+      `SELECT release_governance_state g, release_capability c
+         FROM contract_to_cash_read_model WHERE billing_event_id='${billing}'`);
+    expect(read.g).toBe('NOT_CONFIGURED');
+    expect(read.c).toBe('NOT_CONFIGURED');
   }, 90_000);
 
-  it('com autoridade DECLARADA a liberação acontece, e registra qual', async () => {
+  it('auto-outorga é recusada e declared_by vem do ator autorizado', async () => {
+    const self = await refusedAs(victimAdmin,
+      `SELECT contract_billing_release_authority_declare(
+         '${victimOrg}',NULL,'USER',NULL,'${victimAdmin}','UNLIMITED',NULL,NULL,
+         'BOARD_RESOLUTION','Ata auto',NULL,'auto-outorga',current_date,NULL)`);
+    expect(self).toMatch(/AUTHORITY_SELF_DECLARATION_FORBIDDEN/);
+
+    const authority = await declareFor(victimDeclarer, victimAdmin, 'CAPPED', 50000, 'BRL');
+    const row = await scalar(
+      `SELECT declared_by,amount_scope,max_amount,currency FROM contract_billing_release_authorities WHERE id=$1`,
+      [authority]);
+    expect(row.declared_by).toBe(victimDeclarer);
+    expect(row.declared_by).not.toBe(victimAdmin);
+    expect(row.amount_scope).toBe('CAPPED');
+    expect(Number(row.max_amount)).toBe(50000);
+    expect(row.currency).toBe('BRL');
+  }, 90_000);
+
+  it('escopo ausente não é ilimitado e UNLIMITED precisa ser literal', async () => {
+    const missing = await refusedAs(victimDeclarer,
+      `SELECT contract_billing_release_authority_declare(
+         '${victimOrg}',NULL,'USER',NULL,'${victimViewer}',NULL,NULL,NULL,
+         'BOARD_RESOLUTION','Ata sem escopo',NULL,'sem escopo',current_date,NULL)`);
+    expect(missing).toMatch(/amount_scope|not-null|null value/i);
+
+    const accidentalCap = await refusedAs(victimDeclarer,
+      `SELECT contract_billing_release_authority_declare(
+         '${victimOrg}',NULL,'USER',NULL,'${victimViewer}','UNLIMITED',1,'BRL',
+         'BOARD_RESOLUTION','Ata ambígua',NULL,'ambígua',current_date,NULL)`);
+    expect(accidentalCap).toMatch(/cbra_amount_scope_explicit|check constraint/i);
+  }, 90_000);
+
+  it('visualizador sem outorga não recebe capacidade acionável', async () => {
+    const billing = await prepareEligibleBilling();
+    const viewer = await callAs(victimViewer,
+      `SELECT release_governance_state g, release_capability c
+         FROM contract_to_cash_read_model WHERE billing_event_id='${billing}'`);
+    expect(viewer.g).toBe('DECLARED_AUTHORITY');
+    expect(viewer.c).toBe('NOT_AUTHORIZED');
+  }, 90_000);
+
+  it('CAPPED barra acima do teto; outra declaradora concede UNLIMITED explicitamente', async () => {
+    const cappedBilling = await prepareEligibleBilling();
+    const capped = await refusedAs(victimAdmin,
+      `SELECT contract_billing_release('${cappedBilling}','acima do teto')`);
+    expect(capped).toMatch(/RELEASE_AUTHORITY_NOT_CONFIGURED/);
+
+    const authority = await declareFor(victimDeclarer, victimAdmin, 'UNLIMITED');
+    const capability = await callAs(victimAdmin,
+      `SELECT release_capability c FROM contract_to_cash_read_model
+        WHERE billing_event_id='${cappedBilling}'`);
+    expect(capability.c).toBe('DIRECT_RELEASE');
+
+    const out = await callAs(victimAdmin,
+      `SELECT contract_billing_release('${cappedBilling}','com autoridade') AS r`);
+    const body = out.r as Record<string, unknown>;
+    expect(body.release_state).toBe('RELEASED');
+    expect(body.release_authority_id).toBe(authority);
+
+    let rewriteMessage: string | null = null;
+    try {
+      await db.query(`UPDATE contract_billing_release_authorities SET justification='reescrita' WHERE id=$1`,
+        [authority]);
+    } catch (e) {
+      rewriteMessage = (e as Error).message;
+    }
+    expect(rewriteMessage).toMatch(/AUTHORITY_CORE_IMMUTABLE/);
+
+    const revoked = await callAs(victimDeclarer,
+      `SELECT contract_billing_release_authority_revoke('${authority}','fim da delegação') AS r`);
+    expect((revoked.r as Record<string, unknown>).status).toBe('REVOKED');
+    const history = await scalar(
+      `SELECT count(*)::int n,bool_and(NOT active AND revoked_at IS NOT NULL
+        AND revoked_by=$2 AND organization_id=$3 AND grantee_user_id=$4
+        AND amount_scope='UNLIMITED' AND declared_by=$2) preserved
+       FROM contract_billing_release_authorities WHERE id=$1`,
+      [authority, victimDeclarer, victimOrg, victimAdmin]);
+    expect(history.n).toBe(1);
+    expect(history.preserved).toBe(true);
+  }, 120_000);
+
+  it('papel do próprio declarador não pode virar auto-outorga indireta', async () => {
+    const ownerRole = (await scalar(
+      `SELECT id FROM roles WHERE key='owner_admin' AND organization_id IS NULL`)).id;
+    const msg = await refusedAs(victimDeclarer,
+      `SELECT contract_billing_release_authority_declare(
+         '${victimOrg}',NULL,'ROLE','${ownerRole}',NULL,'UNLIMITED',NULL,NULL,
+         'BOARD_RESOLUTION','Ata do papel',NULL,'auto-outorga indireta',current_date,NULL)`);
+    expect(msg).toMatch(/AUTHORITY_ROLE_SELF_DECLARATION_FORBIDDEN/);
+  }, 60_000);
+
+  it('com autoridade CAPPED suficiente a liberação acontece, e registra qual', async () => {
     const billing = await prepareEligibleBilling();
     await db.query(
       `INSERT INTO role_permissions (role_id, permission_id)
        SELECT r.id, p.id FROM roles r, permissions p
         WHERE r.key='owner_admin' AND r.organization_id IS NULL
           AND p.key='contracts.billing.release' ON CONFLICT DO NOTHING`);
-    const authority = (await scalar(
-      `INSERT INTO contract_billing_release_authorities
-         (organization_id, grantee_kind, grantee_user_id, source_kind, source_reference,
-          justification, declared_by)
-       VALUES ($1,'USER',$2,'BOARD_RESOLUTION','Ata 12/2026 art. 3º',
-               '[P7XT] delegação de alçada comercial',$2) RETURNING id`,
-      [victimOrg, victimAdmin])).id;
+    const authority = await declareFor(victimDeclarer, victimAdmin, 'CAPPED', 200000, 'BRL');
 
     expect((await scalar(
       `SELECT release_governance_state g FROM contract_to_cash_read_model WHERE billing_event_id=$1`,
@@ -446,6 +557,48 @@ suite('Fase 7 · fronteira de inquilino das RPCs e autoridade de liberação', (
     expect(body.governance).toBe('DECLARED_AUTHORITY');
     expect(body.release_authority_id).toBe(authority);
   }, 90_000);
+
+  it('política aplicável oferece PEDIDO e prevalece sobre liberação direta', async () => {
+    const billing = await prepareEligibleBilling();
+    const policy = (await scalar(
+      `INSERT INTO approval_policies
+         (organization_id,policy_key,name,business_domain,created_by)
+       VALUES ($1,$2,'[P7XT] Aprovação de liberação','contracts',$3) RETURNING id`,
+      [victimOrg, `p7xt.release.q${sfx}`, victimDeclarer])).id;
+    const version = (await scalar(
+      `INSERT INTO approval_policy_versions
+         (organization_id,policy_id,version_no,status,subject_type,action_type,
+          decision_purpose,min_amount,max_amount,currency,created_by)
+       VALUES ($1,$2,1,'DRAFT','contract_billing_event','release','RELEASE',
+               0,200000,'BRL',$3) RETURNING id`,
+      [victimOrg, policy, victimDeclarer])).id;
+    const stage = (await scalar(
+      `INSERT INTO approval_policy_stages
+         (organization_id,policy_version_id,stage_no,name,quorum_required)
+       VALUES ($1,$2,1,'Aprovação independente',1) RETURNING id`,
+      [victimOrg, version])).id;
+    await db.query(
+      `INSERT INTO approval_policy_steps
+         (organization_id,policy_version_id,policy_stage_id,step_key,name,
+          decision_purpose,eligibility_mode,named_user_id)
+       VALUES ($1,$2,$3,'independent_approval','Aprovação independente',
+               'RELEASE','NAMED',$4)`,
+      [victimOrg, version, stage, victimDeclarer]);
+    await db.query(
+      `UPDATE approval_policy_versions
+          SET status='ACTIVE',validated_at=now(),activated_at=now(),activated_by=$2
+        WHERE id=$1`, [version, victimDeclarer]);
+
+    const read = await callAs(victimAdmin,
+      `SELECT release_capability c FROM contract_to_cash_read_model
+        WHERE billing_event_id='${billing}'`);
+    expect(read.c).toBe('REQUEST_APPROVAL');
+
+    const out = await callAs(victimAdmin,
+      `SELECT contract_billing_release('${billing}','pedir aprovação') AS r`);
+    expect((out.r as Record<string, unknown>).release_state).toBe('PENDING_RELEASE');
+    expect((out.r as Record<string, unknown>).governance).toBe('APPROVAL_POLICY');
+  }, 120_000);
 
   it('autoridade declarada em outra organização não vale aqui', async () => {
     const row = await scalar(

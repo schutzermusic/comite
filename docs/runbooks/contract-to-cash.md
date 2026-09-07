@@ -130,38 +130,45 @@ dedução.
 
 ### Como configurar a autoridade
 
-Uma pessoa com administração da organização declara a linha:
+Uma pessoa com administração da organização usa a RPC governada. O ator
+não é parâmetro: `declared_by` vem exclusivamente de `auth.uid()`:
 
 ```sql
-INSERT INTO contract_billing_release_authorities
-  (organization_id, contract_id, grantee_kind, grantee_user_id,
-   max_amount, currency, source_kind, source_reference, justification, declared_by)
-VALUES
-  (:org, NULL, 'USER', :user_id,
-   500000.00, 'BRL', 'BOARD_RESOLUTION', 'Ata 12/2026, art. 3º',
-   'Delegação de alçada comercial até R$ 500 mil', :declared_by);
+SELECT contract_billing_release_authority_declare(
+  :org, NULL,                 -- organização e contrato opcional
+  'USER', NULL, :user_id,     -- tipo, papel, pessoa
+  'CAPPED', 500000.00, 'BRL', -- escopo de valor, teto, moeda
+  'BOARD_RESOLUTION', 'Ata 12/2026, art. 3º', NULL,
+  'Delegação de alçada comercial até R$ 500 mil',
+  current_date, NULL);
 ```
 
 - `contract_id` nulo vale para a organização inteira; preenchido restringe ao
   contrato. A declaração mais específica vence.
 - `grantee_kind` é `ROLE` **ou** `USER`, nunca os dois — para que revogar uma
   não revogue a outra.
-- `max_amount` nulo significa **não declarado**, e a resolução o trata como sem
-  teto porque a declaração é explícita e alguém a assinou. Com teto, a moeda
-  tem de bater: comparar 10.000 USD com um teto em BRL exigiria política de
-  câmbio, que a Fase 7 não inventa.
+- `amount_scope` não tem default. `CAPPED` exige `max_amount` e `currency`;
+  `UNLIMITED` precisa ser declarado literalmente e exige ambos nulos. Escopo
+  ausente nunca significa ilimitado. Com teto, a moeda tem de bater: comparar
+  10.000 USD com um teto em BRL exigiria política de câmbio, que a Fase 7 não
+  inventa.
 - `source_kind`, `source_reference` e `justification` são **obrigatórios**: a
   tabela existe para guardar a evidência, não a intenção.
-- Quem **declara** não é quem **exerce**: a escrita exige administração da
-  organização, e não `contracts.billing.release`. Um outorgado que pudesse
-  ampliar a própria autoridade tornaria a declaração prova de nada.
+- Quem **declara** não é quem **exerce**: a RPC exige administração da
+  organização, e não `contracts.billing.release`. Auto-outorga a uma pessoa
+  ou ao papel do qual o declarador participa é recusada. INSERT/UPDATE/DELETE
+  diretos do navegador são revogados.
 
-Revogar é `active = false` com `revoked_at`, `revoked_by` e
-`revocation_reason` — a linha permanece.
+Os fatos centrais nunca são atualizados. Revogar usa
+`contract_billing_release_authority_revoke(authority_id, reason)`: a transição
+grava `active = false`, `revoked_at`, `revoked_by` e `revocation_reason`, e a
+declaração original permanece.
 
 O modelo de leitura expõe `release_governance_state` por evento:
-`APPROVAL_POLICY`, `DECLARED_AUTHORITY` ou `NOT_CONFIGURED`. A interface
-consulta essa coluna **antes** de oferecer o botão de liberar.
+`APPROVAL_POLICY`, `DECLARED_AUTHORITY` ou `NOT_CONFIGURED`. Também expõe
+`release_capability` para o visualizador atual: `NOT_CONFIGURED`,
+`NOT_AUTHORIZED`, `REQUEST_APPROVAL` ou `DIRECT_RELEASE`. A interface só
+oferece a ação nos dois últimos casos; a RPC continua autoritativa.
 
 A liberação grava uma **impressão digital** dos fatos exatos. Mudança material
 depois disso não reescreve o valor: obriga supersessão
