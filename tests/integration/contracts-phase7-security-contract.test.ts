@@ -28,7 +28,11 @@ const m136 = read('supabase/migrations/136_contracts_billing_entitlement.sql');
 const m137 = read('supabase/migrations/137_contracts_fiscal_bridge.sql');
 const m138 = read('supabase/migrations/138_finance_receivables_settlements.sql');
 const m139 = read('supabase/migrations/139_contract_to_cash_read_model.sql');
-const all7 = m135 + m136 + m137 + m138 + m139;
+// ---- correção (140–142) ----
+const m140 = read('supabase/migrations/140_phase7_definer_tenant_boundary.sql');
+const m141 = read('supabase/migrations/141_billing_release_authority.sql');
+const m142 = read('supabase/migrations/142_release_governance_read_model.sql');
+const all7 = m135 + m136 + m137 + m138 + m139 + m140 + m141 + m142;
 
 /**
  * O SQL sem os comentários.
@@ -44,6 +48,8 @@ const stripSql = (sql: string) => sql
 
 const code136 = stripSql(m136);
 const code138 = stripSql(m138);
+const code140 = stripSql(m140);
+const code141 = stripSql(m141);
 const code7 = stripSql(all7);
 
 /*
@@ -54,6 +60,21 @@ const code7 = stripSql(all7);
 const stripTs = (ts: string) => ts
   .replace(/\/\*[\s\S]*?\*\//g, ' ')
   .replace(/^[^\n'"`]*\/\/[^\n]*/gm, ' ');
+
+/**
+ * Corpo de uma função, recortado por DECLARAÇÃO em vez de por regex de fim.
+ *
+ * Casar o `$$;` final com expressão regular erra: os corpos terminam em
+ * `END $$;` na mesma linha, e a variação de espaço entre as migrations tornava
+ * a asserção frágil de um jeito que reprovava código correto.
+ */
+function functionBody(sql: string, name: string): string | null {
+  const start = sql.search(
+    new RegExp(`(?:CREATE OR REPLACE|CREATE) FUNCTION public\\.${name}\\(`));
+  if (start < 0) return null;
+  const end = sql.indexOf('$$;', start);
+  return end < 0 ? sql.slice(start) : sql.slice(start, end);
+}
 
 const service = read('src/lib/contracts/billing/contract-to-cash-service.ts');
 const display = read('src/lib/contracts/billing/contract-to-cash-display.ts');
@@ -270,7 +291,13 @@ describe('Fase 7 · conciliação e liquidação', () => {
 
 describe('Fase 7 · SECURITY DEFINER e inquilino', () => {
   it('toda função nova SECURITY DEFINER fixa search_path', () => {
-    const definers = code7.match(/SECURITY DEFINER[^\n]*/g) ?? [];
+    /*
+      Só as DECLARAÇÕES. Os comentários das migrations explicam o que é
+      SECURITY DEFINER e por que `current_user` mente lá dentro — e um
+      `COMMENT ON` carrega esse texto num literal, que `stripSql` não remove.
+      Casar `LANGUAGE ... SECURITY DEFINER` prende a asserção à declaração.
+    */
+    const definers = code7.match(/LANGUAGE\s+\w+[^\n]*SECURITY DEFINER[^\n]*/g) ?? [];
     expect(definers.length).toBeGreaterThan(10);
     for (const line of definers) expect(line).toMatch(/SET search_path = public/);
   });
@@ -325,14 +352,145 @@ describe('Fase 7 · fronteiras de fase', () => {
 });
 
 describe('Fase 7 · migrations aplicadas não são editadas', () => {
-  it('o diretório só ganhou 135–139', () => {
+  it('o diretório só ganhou 135–142', () => {
     const versions = readdirSync('supabase/migrations')
       .filter((f) => /^\d{3}_.*\.sql$/.test(f))
       .map((f) => f.slice(0, 3))
       .sort();
-    expect(versions[versions.length - 1]).toBe('139');
-    for (const v of ['135', '136', '137', '138', '139']) expect(versions).toContain(v);
+    expect(versions[versions.length - 1]).toBe('142');
+    for (const v of ['135', '136', '137', '138', '139', '140', '141', '142']) {
+      expect(versions).toContain(v);
+    }
     // 090 continua arquivada, nunca aplicada.
     expect(versions).not.toContain('090');
+  });
+});
+
+/*
+  ══════════════════════════════════════════════════════════════════════════
+  CORREÇÃO DA FASE 7 — o que as migrations 140–142 fecharam
+  ══════════════════════════════════════════════════════════════════════════
+
+  Dois defeitos entregues pela fase, e as regras que impedem o retorno de cada
+  um. Provas VIVAS em `contracts-phase7-cross-tenant-live.test.ts`; aqui fica
+  o que nenhuma execução prova — que a decisão continua ESCRITA.
+*/
+describe('Fase 7 · correção · fronteira de inquilino em SECURITY DEFINER', () => {
+  /*
+    A lista é o contrato. Toda função SECURITY DEFINER alcançável pelo
+    navegador tem de resolver o inquilino do CHAMADOR antes de descrever a
+    linha — e `current_user` não serve para isso dentro de DEFINER, porque lá
+    ele é a dona da função.
+  */
+  const GUARDED = [
+    'contract_billing_eligibility_resolve', 'contract_billing_recompute_eligibility',
+    'contract_billing_fiscal_readiness', 'contract_billing_fingerprint',
+    'contract_billing_release', 'contract_billing_cancel', 'contract_billing_supersede',
+    'contract_billing_create_from_milestone', 'finance_receivable_reverse',
+    'finance_settlement_record', 'finance_settlement_reverse', 'finance_payment_source_import',
+    'finance_reconciliation_record', 'finance_reconciliation_reverse',
+    'approval_subject_resolve',
+  ];
+
+  it('toda função corrigida resolve o inquilino do chamador', () => {
+    const corrected = code140 + code141;
+    for (const fn of GUARDED) {
+      const body = functionBody(corrected, fn);
+      expect(body, `${fn} não foi corrigida`).not.toBeNull();
+      expect(body!, fn).toContain('apex_browser_organization()');
+    }
+  });
+
+  it('a guarda NÃO usa `current_user`, que mente dentro de DEFINER', () => {
+    // O predicado de chamador vive num lugar só, e é SECURITY INVOKER.
+    expect(code140).toMatch(
+      /CREATE FUNCTION public\.apex_caller_is_browser\(\)[\s\S]{0,200}SECURITY INVOKER/);
+    expect(code140).toContain("request.jwt.claims");
+  });
+
+  it('perfil ausente NEGA em vez de liberar', () => {
+    expect(code140).toMatch(/org IS NULL[\s\S]{0,120}TENANT_UNRESOLVED/);
+  });
+
+  it('a resposta de "não é seu" é a MESMA de "não existe"', () => {
+    expect(code140).toMatch(/not_found jsonb :=[\s\S]{0,200}BILLING_EVENT_NOT_FOUND/);
+    // Nenhuma mensagem distingue os dois casos.
+    expect(code140).not.toMatch(/outra organiza[çc][ãa]o'[\s]*USING ERRCODE/i);
+  });
+
+  it('as funções internas são revogadas de anon E authenticated, não só de PUBLIC', () => {
+    /*
+      `REVOKE ... FROM PUBLIC` não bastava: o projeto concede EXECUTE a `anon` e
+      `authenticated` por ALTER DEFAULT PRIVILEGES quando a função nasce. Duas
+      funções ficaram executáveis por `anon` em produção por causa disso.
+    */
+    for (const fn of ['contract_billing_fingerprint', 'contract_billing_recompute_eligibility',
+      'approval_subject_resolve', 'fiscal_documents_emit_lifecycle']) {
+      expect(code140, fn).toMatch(
+        new RegExp(`REVOKE ALL ON FUNCTION public\\.${fn}[\\s\\S]{0,80}FROM[^;]*anon, authenticated`));
+    }
+  });
+
+  it('o recomputo — que MUTA — sai do alcance do navegador', () => {
+    expect(code140).toMatch(
+      /REVOKE ALL ON FUNCTION public\.contract_billing_recompute_eligibility\(uuid\) FROM anon, authenticated/);
+    // E o serviço do navegador passa a LER, não a recomputar.
+    expect(service).toContain('readBillingEligibility');
+    // Sem comentários: o serviço EXPLICA por que deixou de chamar a função que
+    // muta, e a explicação cita o nome dela.
+    expect(stripTs(service)).not.toContain('contract_billing_recompute_eligibility');
+  });
+});
+
+describe('Fase 7 · correção · autoridade de liberação não é inventada', () => {
+  it('as concessões automáticas a papéis globais foram desfeitas', () => {
+    expect(code141).toMatch(/DELETE FROM public\.role_permissions[\s\S]{0,400}contracts\.billing\.release/);
+    /*
+      A 136 está APLICADA e não se reescreve — a concessão errada continua no
+      arquivo dela, como registro do que foi feito. O que a correção precisa
+      garantir é que nada de 140 em diante volte a conceder.
+    */
+    expect(code140 + code141 + stripSql(m142)).not.toMatch(
+      /INSERT INTO public\.role_permissions[\s\S]{0,300}contracts\.billing\./);
+  });
+
+  it('o vocabulário das permissões permanece — capacidade não é autoridade', () => {
+    expect(code136).toMatch(/INSERT INTO public\.permissions[\s\S]{0,300}'contracts\.billing\.release'/);
+    expect(code141).not.toMatch(/DELETE FROM public\.permissions/);
+  });
+
+  it('o desvio de administrador saiu da liberação', () => {
+    const release = functionBody(code141, 'contract_billing_release');
+    expect(release).not.toBeNull();
+    expect(release!).not.toContain('current_user_is_admin');
+  });
+
+  it('NO_POLICY sem autoridade declarada recusa, e recusa NOMEANDO o motivo', () => {
+    expect(code141).toMatch(/authority IS NULL[\s\S]{0,600}RELEASE_AUTHORITY_NOT_CONFIGURED/);
+    // A recusa vem ANTES de qualquer UPDATE de liberação.
+    const idxRefusal = code141.indexOf('RELEASE_AUTHORITY_NOT_CONFIGURED');
+    const idxRelease = code141.indexOf("SET release_state = 'RELEASED'");
+    expect(idxRefusal).toBeGreaterThan(0);
+    expect(idxRefusal).toBeLessThan(idxRelease);
+  });
+
+  it('a autoridade exige EVIDÊNCIA, e nasce vazia', () => {
+    expect(code141).toMatch(/source_kind\s+text NOT NULL CHECK/);
+    expect(code141).toMatch(/source_reference\s+text NOT NULL CHECK/);
+    expect(code141).toMatch(/justification\s+text NOT NULL CHECK/);
+    expect(code141).not.toMatch(/INSERT INTO public\.contract_billing_release_authorities/);
+  });
+
+  it('quem declara autoridade não é quem a exerce', () => {
+    // A escrita da tabela pede administração, não `contracts.billing.release`.
+    const policy = /CREATE POLICY cbra_write[\s\S]*?;/.exec(code141);
+    expect(policy).not.toBeNull();
+    expect(policy![0]).toContain('current_user_is_admin()');
+    expect(policy![0]).not.toContain('contracts.billing.release');
+  });
+
+  it('a interface não oferece liberar sem governança configurada', () => {
+    expect(display).toContain('blockedByGovernance');
+    expect(display).toMatch(/releaseGovernanceState !== 'NOT_CONFIGURED'/);
   });
 });

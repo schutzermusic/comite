@@ -167,3 +167,20 @@ test('nenhuma métrica inventada de caixa aparece na tela (§121)', async () => 
     await expect(page.getByText(forbidden, { exact: false })).toHaveCount(0);
   }
 });
+
+/*
+  A correção da Fase 7 (migration 141) tirou a autoridade de liberação que a
+  136 deduzia do nome de papéis globais. Em produção não há política de
+  aprovação nem autoridade declarada — e a tela precisa DIZER isso, em vez de
+  simplesmente não mostrar o botão e deixar o usuário achar que quebrou.
+*/
+test('governança de liberação ausente é dita por extenso, não escondida', async () => {
+  await page.goto(`/contratos/${contractId}`, { waitUntil: 'domcontentloaded' });
+  await page.getByRole('tab', { name: 'Financeiro' }).click();
+  await expect(page.getByText('Cadeia até o caixa')).toBeVisible({ timeout: 120_000 });
+
+  const chain = page.locator('section').filter({ hasText: 'Cadeia até o caixa' });
+  await expect(chain.getByText('Governança de liberação não configurada').first()).toBeVisible();
+  // E o botão de liberar não é oferecido sem governança.
+  await expect(chain.getByRole('button', { name: 'Liberar faturamento' })).toHaveCount(0);
+});

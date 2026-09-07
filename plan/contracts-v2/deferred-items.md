@@ -561,3 +561,47 @@ regra de medição cadastrada, mapeamento de cronograma, evidência de execuçã
 fonte de aceite autoritativa. Em produção existe UM vínculo Projeto↔Contrato, e
 ele aponta para um contrato `data_class = 'demo'`; `contract_measurement_requirements`
 tem zero linhas. Nenhuma dessas ausências é corrigível por código.
+
+## Fase 7 — correção (migrations 140–142)
+
+Dois defeitos entregues pela Fase 7 e corrigidos por cima, sem reescrever as
+migrations já aplicadas.
+
+### Fronteira de inquilino em SECURITY DEFINER — RESOLVIDO (140)
+
+Seis funções buscavam a linha pelo UUID sem resolver o inquilino do chamador.
+Dentro de `SECURITY DEFINER` a RLS não se aplica. Duas delas escreviam.
+Provado com duas organizações e chamadas como `authenticated`, e fechado com
+`apex_browser_organization()`, resposta uniforme de "não encontrado" e REVOKE
+explícito de `anon`/`authenticated`.
+
+Prova permanente: `tests/integration/contracts-phase7-cross-tenant-live.test.ts`.
+
+### Autoridade de liberação — RESOLVIDO (141, 142)
+
+A 136 concedia `contracts.billing.*` a papéis globais e liberava por permissão
+quando o Motor de Aprovação não tinha política. A 141 desfez as concessões,
+removeu o desvio de administrador e passou a exigir governança real.
+
+**Estado atual: `RELEASE GOVERNANCE = NOT_CONFIGURED` em produção.** Não há
+política de aprovação em inquilino nenhum e `contract_billing_release_authorities`
+está vazia. Isso NÃO é bloqueio de código: é a ausência de uma decisão de
+negócio, e ela é configurável a qualquer momento pelo caminho documentado no
+runbook `docs/runbooks/contract-to-cash.md`.
+
+Deferido, por depender de decisão do negócio e não de engenharia:
+
+- **Declaração da autoridade de liberação** — exige ata, procuração, carta de
+  delegação ou política interna que nomeie quem pode liberar faturamento, por
+  organização e por faixa de valor.
+- **Política de alçada no Motor de Aprovação** para
+  `(contract_billing_event, release, RELEASE)` — quórum, estágios e aprovadores
+  nomeados continuam inexistentes, e inventá-los é o que a §18 proíbe.
+
+### Defeito legado conhecido, não corrigido
+
+`apar_title.project_id` e `ledger_entry.project_id` são `uuid` enquanto
+`projects.id` é `text`: as colunas nunca puderam referenciar projeto nenhum. As
+duas tabelas seguem vazias e o caminho canônico (`finance_receivables`) tem FK
+composta de verdade. Converter o tipo mexeria em código de folha e rateio fora
+do escopo da fase.

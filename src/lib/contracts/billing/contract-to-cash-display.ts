@@ -10,7 +10,7 @@
  */
 import type {
   BillingAmountSource, BillingBlocker, BillingEligibilityState, BillingReleaseState,
-  ContractToCashRow, FinanceLinkState, ReceivableStatus,
+  ContractToCashRow, FinanceLinkState, ReceivableStatus, ReleaseGovernanceState,
 } from './contract-to-cash-service';
 
 /**
@@ -86,6 +86,12 @@ export const FINANCE_LINK_LABEL: Record<FinanceLinkState, string> = {
   UNKNOWN: 'Desconhecido',
 };
 
+export const RELEASE_GOVERNANCE_LABEL: Record<ReleaseGovernanceState, string> = {
+  APPROVAL_POLICY: 'Governada por política de aprovação',
+  DECLARED_AUTHORITY: 'Autoridade de liberação declarada',
+  NOT_CONFIGURED: 'Governança de liberação não configurada',
+};
+
 /** Rótulos dos motivos da §16. Código sem tradução é mostrado como código. */
 const BLOCKER_LABEL: Record<string, string> = {
   MEASUREMENT_NOT_ACCEPTED: 'Medição ainda não aceita',
@@ -113,6 +119,8 @@ const BLOCKER_LABEL: Record<string, string> = {
   CURRENCY_NOT_SUPPORTED_BY_FISCAL: 'Moeda fora do escopo da NFS-e',
   BILLING_NOT_RELEASED: 'Faturamento ainda não liberado',
   PERIOD_CLOSED: 'Período contábil fechado',
+  RELEASE_AUTHORITY_NOT_CONFIGURED:
+    'Ninguém tem autoridade declarada para liberar faturamento nesta organização',
 };
 
 export function blockerLabel(code: string): string {
@@ -176,12 +184,34 @@ export function openAmount(row: ContractToCashRow): Displayable {
 /**
  * O faturamento pode ser liberado agora?
  *
- * Elegível E ainda não liberado. Um `RELEASED` continua elegível, e oferecer o
- * botão de novo convidaria a uma segunda liberação que a RPC recusaria — o
- * usuário aprenderia a ignorar a recusa.
+ * Três condições, e a terceira é a que a Fase 7 tinha errado:
+ *
+ *   · elegível — o direito contratual existe;
+ *   · ainda não liberado — um `RELEASED` continua elegível, e oferecer o botão
+ *     de novo convidaria a uma segunda liberação que a RPC recusaria;
+ *   · GOVERNADO — alguém declarou, com evidência, quem pode liberar.
+ *
+ * A terceira condição não é cosmética. Antes da migration 141 a liberação
+ * acontecia por dedução do nome de um papel global; oferecer o botão sem
+ * governança configurada faria o usuário bater numa recusa que ele não tem
+ * como resolver sozinho.
  */
 export function canRelease(row: ContractToCashRow): boolean {
-  return row.eligibilityState === 'ELIGIBLE' && row.releaseState === 'ELIGIBLE';
+  return row.eligibilityState === 'ELIGIBLE'
+    && row.releaseState === 'ELIGIBLE'
+    && row.releaseGovernanceState !== 'NOT_CONFIGURED';
+}
+
+/**
+ * Elegível, mas sem ninguém autorizado a liberar.
+ *
+ * É o estado que a tela precisa NOMEAR: o cliente deve, o direito existe, e o
+ * que falta é uma decisão de governança — não um dado, não um documento.
+ */
+export function blockedByGovernance(row: ContractToCashRow): boolean {
+  return row.eligibilityState === 'ELIGIBLE'
+    && row.releaseState === 'ELIGIBLE'
+    && row.releaseGovernanceState === 'NOT_CONFIGURED';
 }
 
 /**

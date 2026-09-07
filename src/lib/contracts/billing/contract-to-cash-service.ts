@@ -34,6 +34,17 @@ export type BillingAmountSource =
   | 'ACCEPTED_MEASUREMENT' | 'LEGACY_MEASURED_AMOUNT' | 'FIXED_CONTRACT_ENTITLEMENT'
   | 'GOVERNED_ADJUSTMENT' | 'UNKNOWN' | 'LEGACY_UNKNOWN';
 
+/**
+ * Como a LIBERAÇÃO é governada nesta organização/contrato.
+ *
+ * `NOT_CONFIGURED` não é erro: é a verdade sobre uma organização que ainda não
+ * declarou quem pode liberar faturamento. A migration 141 tirou a dedução de
+ * autoridade a partir do nome de papéis globais, e esta coluna é o que permite
+ * à tela dizer isso em vez de deixar o usuário achar que o botão sumiu.
+ */
+export type ReleaseGovernanceState =
+  | 'APPROVAL_POLICY' | 'DECLARED_AUTHORITY' | 'NOT_CONFIGURED';
+
 /** Estado do vínculo com Finanças. Consultado ANTES de exibir qualquer valor. */
 export type FinanceLinkState =
   | 'LINKED' | 'CLOSED' | 'PENDING_CONFIGURATION' | 'NOT_LINKED' | 'UNKNOWN';
@@ -114,6 +125,8 @@ export interface ContractToCashRow {
   readonly financeLinkState: FinanceLinkState;
   readonly reconciledSettlementCount: number | null;
   readonly unreconciledSettlementCount: number | null;
+
+  readonly releaseGovernanceState: ReleaseGovernanceState;
 }
 
 /** `numeric` do Postgres chega como string pelo driver; `null` sobrevive. */
@@ -181,6 +194,9 @@ export function toContractToCashRow(r: Record<string, unknown>): ContractToCashR
     financeLinkState: (r.finance_link_state as FinanceLinkState) ?? 'UNKNOWN',
     reconciledSettlementCount: num(r.reconciled_settlement_count),
     unreconciledSettlementCount: num(r.unreconciled_settlement_count),
+
+    releaseGovernanceState:
+      (r.release_governance_state as ReleaseGovernanceState) ?? 'NOT_CONFIGURED',
   };
 }
 
@@ -211,25 +227,48 @@ export async function listContractToCashForContracts(
 }
 
 /**
- * Recomputa a elegibilidade de um faturamento.
+ * LÊ a elegibilidade de agora. Não escreve nada.
  *
- * Não decide nada: recalcular é função pura das entradas atuais, e a segunda
- * execução grava o mesmo resultado por cima do mesmo resultado.
+ * ─── Por que ler, e não recomputar ────────────────────────────────────────
+ *
+ * A primeira versão chamava `contract_billing_recompute_eligibility`, que
+ * MUTA: grava estado, história e fato. Ela é SECURITY DEFINER e, como toda
+ * função DEFINER, não passa por RLS — e não conferia o inquilino do chamador.
+ * Quem tivesse (ou adivinhasse) o UUID de um faturamento alheio escrevia nele.
+ *
+ * A migration 140 tirou essa função do alcance do navegador. Quem materializa
+ * a projeção são os caminhos governados: a liberação, que recomputa no ato
+ * dentro da própria transação, e o trabalho de fila que reage à medição
+ * aceita. A tela não precisa escrever para mostrar a verdade de agora — o
+ * resolvedor abaixo é somente-leitura e já respeita a fronteira de inquilino.
  */
-export async function recomputeBillingEligibility(billingEventId: string): Promise<{
-  state: BillingEligibilityState; reasons: readonly BillingBlocker[]; changed: boolean;
+export async function readBillingEligibility(billingEventId: string): Promise<{
+  state: BillingEligibilityState; reasons: readonly BillingBlocker[];
 }> {
   const supabase = createClient();
-  const { data, error } = await supabase.rpc('contract_billing_recompute_eligibility', {
+  const { data, error } = await supabase.rpc('contract_billing_eligibility_resolve', {
     p_billing_event_id: billingEventId,
   });
-  if (error) throw new Error(`Erro ao recalcular elegibilidade: ${error.message}`);
+  if (error) throw new Error(`Erro ao ler elegibilidade: ${error.message}`);
   const r = (data ?? {}) as Record<string, unknown>;
   return {
     state: (r.state as BillingEligibilityState) ?? 'UNKNOWN',
     reasons: list<BillingBlocker>(r.reasons),
-    changed: r.changed === true,
   };
+}
+
+/**
+ * A organização não declarou autoridade de liberação, e não há política no
+ * Motor de Aprovação. O faturamento pode estar ELEGÍVEL e mesmo assim não ser
+ * liberável — as duas coisas são distintas, e esta classe existe para que a
+ * tela não as confunda com um defeito.
+ */
+export class BillingReleaseNotGovernedError extends Error {
+  readonly code = 'RELEASE_AUTHORITY_NOT_CONFIGURED';
+  constructor(message: string) {
+    super(message);
+    this.name = 'BillingReleaseNotGovernedError';
+  }
 }
 
 /**
@@ -251,7 +290,18 @@ export async function releaseBillingEvent(
     p_billing_event_id: billingEventId,
     p_note: note ?? null,
   });
-  if (error) throw new Error(`Erro ao liberar faturamento: ${error.message}`);
+  if (error) {
+    /*
+      `RELEASE_AUTHORITY_NOT_CONFIGURED` não é falha técnica: é a resposta
+      correta de uma organização que não declarou quem pode liberar. Ela sobe
+      com o código intacto para a tela poder explicar em vez de dizer
+      "erro ao liberar".
+    */
+    if (error.message.includes('RELEASE_AUTHORITY_NOT_CONFIGURED')) {
+      throw new BillingReleaseNotGovernedError(error.message);
+    }
+    throw new Error(`Erro ao liberar faturamento: ${error.message}`);
+  }
   const r = (data ?? {}) as Record<string, unknown>;
   return {
     releaseState: (r.release_state as BillingReleaseState) ?? 'NOT_ELIGIBLE',

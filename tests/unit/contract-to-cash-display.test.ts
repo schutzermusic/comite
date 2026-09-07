@@ -9,7 +9,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  advisoryReasons, blockerLabel, blockingReasons, canRelease, chainStage,
+  advisoryReasons, blockedByGovernance, blockerLabel, blockingReasons, canRelease, chainStage,
   displayText, eligibleAmount, formatCents, openAmount, receivedAmount,
   reconciliationPending,
 } from '@/lib/contracts/billing/contract-to-cash-display';
@@ -32,6 +32,10 @@ const base: ContractToCashRow = {
   receivableLifecycleState: null, ledgerPostingState: null, ledgerBlockers: [],
   dueDate: null, paidAmountCents: null, openAmountCents: null, receivableStatus: null,
   financeLinkState: 'UNKNOWN', reconciledSettlementCount: null, unreconciledSettlementCount: null,
+  // O cenário-base tem governança DECLARADA: os testes de valor e de estágio
+  // não são sobre governança, e deixá-la ausente faria todos eles falharem
+  // pelo motivo errado. A governança tem os seus próprios testes abaixo.
+  releaseGovernanceState: 'DECLARED_AUTHORITY',
 };
 
 const row = (patch: Partial<ContractToCashRow>): ContractToCashRow => ({ ...base, ...patch });
@@ -173,5 +177,54 @@ describe('precisão (§79)', () => {
   it('formata centavos inteiros sem passar por ponto flutuante no valor', () => {
     expect(formatCents(45000000, 'BRL').replace(/ /g, ' ')).toBe('R$ 450.000,00');
     expect(formatCents(1, 'BRL').replace(/ /g, ' ')).toBe('R$ 0,01');
+  });
+});
+
+/*
+  ─── Correção da Fase 7 ────────────────────────────────────────────────────
+
+  A 136 concedia `contracts.billing.release` a três papéis globais na própria
+  migration e liberava por permissão quando o Motor de Aprovação respondia
+  NO_POLICY. Autoridade comercial passou a ser deduzida do NOME de um papel.
+
+  A 141 desfez isso. Estes testes guardam o lado da INTERFACE: um faturamento
+  elegível numa organização sem governança declarada não pode oferecer o botão
+  de liberar, e precisa dizer por quê.
+*/
+describe('governança da liberação (§18)', () => {
+  it('elegível SEM governança configurada não oferece o botão', () => {
+    const r = row({ releaseGovernanceState: 'NOT_CONFIGURED' });
+    expect(canRelease(r)).toBe(false);
+    expect(blockedByGovernance(r)).toBe(true);
+  });
+
+  it('elegível COM política de aprovação oferece o botão', () => {
+    const r = row({ releaseGovernanceState: 'APPROVAL_POLICY' });
+    expect(canRelease(r)).toBe(true);
+    expect(blockedByGovernance(r)).toBe(false);
+  });
+
+  it('elegível COM autoridade declarada oferece o botão', () => {
+    expect(canRelease(row({ releaseGovernanceState: 'DECLARED_AUTHORITY' }))).toBe(true);
+  });
+
+  it('governança configurada NÃO substitui elegibilidade', () => {
+    // Governança responde "quem pode liberar", nunca "há o que liberar".
+    expect(canRelease(row({
+      releaseGovernanceState: 'DECLARED_AUTHORITY',
+      eligibilityState: 'BLOCKED', releaseState: 'NOT_ELIGIBLE',
+    }))).toBe(false);
+  });
+
+  it('já liberado não volta a oferecer liberação, mesmo governado', () => {
+    expect(canRelease(row({
+      releaseGovernanceState: 'DECLARED_AUTHORITY',
+      releaseState: 'RELEASED', releasedAt: '2026-02-02T00:00:00Z',
+    }))).toBe(false);
+  });
+
+  it('o motivo da ausência de governança tem rótulo próprio', () => {
+    expect(blockerLabel('RELEASE_AUTHORITY_NOT_CONFIGURED'))
+      .toContain('autoridade declarada');
   });
 });

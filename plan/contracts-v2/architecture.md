@@ -229,7 +229,8 @@ Do not recreate the removed vertical dossier rail.
 - Phase 4 — Platform Event Graph / Durable Work Execution — complete (migrations 119–124)
 - Phase 5 — Apex Approval Engine — complete (migrations 125–129)
 - Phase 6 — Contract ↔ Project / Measurement — complete (migrations 130–134)
-- Phase 7 — Billing ↔ Fiscal ↔ Finance — complete (migrations 135–139)
+- Phase 7 — Billing ↔ Fiscal ↔ Finance — complete (migrations 135–139;
+  corrections 140–142: SECURITY DEFINER tenant boundary and release authority)
 - Phase 8 — Risks & Clauses Operationalization
 - Phase 9 — Contract Control Tower
 - Phase 10 — Autonomy
@@ -475,12 +476,68 @@ Payment and reconciliation are distinct tables because they answer distinct
 questions. Fuzzy matching lives in `finance_reconciliation_candidates` and can
 never finalize a reconciliation.
 
-Two rules later phases inherit rather than re-decide:
+### D7.6 — SECURITY DEFINER does not inherit RLS (correction, migration 140)
+
+Phase 7 shipped six `SECURITY DEFINER` functions that fetched rows by UUID
+without resolving the CALLER's tenant. Inside `SECURITY DEFINER` the function
+runs as the table owner, so RLS never applies. Two of the six also **wrote**.
+A live two-tenant probe returned another organization's contract title,
+billing title and exact amount, and mutated its row.
+
+The rules, now binding on every function in the chain:
+
+- resolve the caller's tenant with `apex_browser_organization()`;
+- **never** use `current_user` for that decision — inside `SECURITY DEFINER` it
+  is the function owner, not the caller. The identity that survives is the JWT
+  claim PostgREST writes from the verified token. This is why
+  `emit_domain_event` was deliberately `SECURITY INVOKER` in Phase 4;
+- answer a tenant mismatch with the SAME shape a genuine absence produces;
+- an unresolved profile DENIES; comparing against `NULL` and proceeding is how
+  the hole is born;
+- revoke EXECUTE from `anon` **and** `authenticated` explicitly —
+  `REVOKE ... FROM PUBLIC` does not remove the grants that
+  `ALTER DEFAULT PRIVILEGES` gives those two roles at creation time.
+
+Mutating derivations do not belong in the browser's reach:
+`contract_billing_recompute_eligibility` is now server-only, and the UI reads
+through the read-only resolver.
+
+### D7.7 — Capability is not authority (correction, migration 141)
+
+Migration 136 created `contracts.billing.release` / `.adjust` and granted them,
+in the same migration, to three global roles — then let `current_user_is_admin()`
+act as a bypass and released directly whenever the Approval Engine answered
+`NO_POLICY`. That inferred **commercial authority** from the names of roles a
+generic RBAC seed had created.
+
+Releasing billing tells a customer they owe money. Who may do that, for which
+organization and up to what amount, is governance — and the phase audit had
+already established it does not exist anywhere (zero policies, zero thresholds,
+zero named approvers). The correct conclusion was to declare governance ABSENT.
+
+Migration 141 removed the grants and the admin bypass, and made the absence a
+named blocker. Release now requires either a real Approval Engine policy or a
+row in `contract_billing_release_authorities` — which demands evidence (board
+resolution, power of attorney, delegation letter, clause, internal policy) and
+is written by organization administration, never by the grantee. Absent both,
+the call refuses with `RELEASE_AUTHORITY_NOT_CONFIGURED`, and the read model
+exposes `release_governance_state` so the UI explains rather than appearing
+broken.
+
+The permission vocabulary survives: capability remains a prerequisite. What
+stopped existing is authority by inference.
+
+Four rules later phases inherit rather than re-decide:
 
 1. **Invoice is not cash, and payment is not reconciliation.** The read model
    returns UNKNOWN — never `R$ 0` — when Finance has no title.
 2. **Financial truth is reversible, not erasable.** Cancellation, replacement,
    supersession and reversal preserve the prior record in every path.
+3. **`SECURITY DEFINER` carries no tenant.** Every such function resolves the
+   caller's organization itself, and answers mismatch exactly as it answers
+   absence.
+4. **A role name is not an authority.** Acts with external commercial effect
+   require declared governance with evidence, or they refuse.
 
 ## 12. Engineering discipline
 

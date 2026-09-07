@@ -37,8 +37,9 @@ import {
 } from '@/lib/contracts/billing/contract-to-cash-service';
 import {
   AMOUNT_SOURCE_LABEL, ELIGIBILITY_LABEL, FINANCE_LINK_LABEL, RECEIVABLE_STATUS_LABEL,
-  RELEASE_LABEL, advisoryReasons, blockerLabel, blockingReasons, canRelease, chainStage,
-  displayText, eligibleAmount, openAmount, receivedAmount, reconciliationPending,
+  RELEASE_GOVERNANCE_LABEL, RELEASE_LABEL, advisoryReasons, blockedByGovernance, blockerLabel,
+  blockingReasons, canRelease, chainStage, displayText, eligibleAmount, openAmount,
+  receivedAmount, reconciliationPending,
 } from '@/lib/contracts/billing/contract-to-cash-display';
 
 interface Props {
@@ -206,6 +207,14 @@ function BillingEventCard({
         <div className="flex flex-wrap items-center gap-2 text-ig-caption">
           <HudBadge>{`Elegibilidade: ${row.eligibilityState ? ELIGIBILITY_LABEL[row.eligibilityState] : '—'}`}</HudBadge>
           <HudBadge>{`Liberação: ${row.releaseState ? RELEASE_LABEL[row.releaseState] : '—'}`}</HudBadge>
+          {/* Governança da liberação: dimensão própria, distinta da elegibilidade. */}
+          {row.releaseGovernanceState === 'NOT_CONFIGURED' ? (
+            <HudBadge className="text-ig-warning">
+              {RELEASE_GOVERNANCE_LABEL.NOT_CONFIGURED}
+            </HudBadge>
+          ) : (
+            <HudBadge>{RELEASE_GOVERNANCE_LABEL[row.releaseGovernanceState]}</HudBadge>
+          )}
           {row.ledgerPostingState && row.ledgerPostingState !== 'NOT_POSTED' && (
             <HudBadge>{`Razão: ${row.ledgerPostingState === 'POSTED' ? 'lançado' : 'pendente de configuração'}`}</HudBadge>
           )}
@@ -254,6 +263,25 @@ function BillingEventCard({
             reasons={row.ledgerBlockers.map((b) => ({
               code: b.code, text: blockerLabel(b.code), detail: b.detail,
             }))}
+          />
+        )}
+
+        {/*
+          ELEGÍVEL e sem quem libere. A tela diz isso por extenso porque o
+          usuário não tem como descobrir sozinho: o direito existe, o valor
+          está apurado, e o que falta é uma decisão de governança que se toma
+          em outro lugar.
+        */}
+        {blockedByGovernance(row) && (
+          <ReasonList
+            tone="muted"
+            title="Elegível, sem autoridade de liberação declarada"
+            reasons={[{
+              code: 'RELEASE_AUTHORITY_NOT_CONFIGURED',
+              text: blockerLabel('RELEASE_AUTHORITY_NOT_CONFIGURED'),
+              detail: 'Cadastre a política no Motor de Aprovação ou declare a autoridade '
+                + 'de liberação, com a evidência que a sustenta.',
+            }]}
           />
         )}
 

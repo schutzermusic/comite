@@ -262,6 +262,35 @@ suite('Fase 7 · corrida, idempotência e atomicidade da cadeia contrato-a-caixa
          (organization_id, basis, justification, declared_by)
        VALUES ($1,'GROSS_SERVICE_AMOUNT','[P7-LIVE] cenário descartável', $2)`,
       [orgId, users.finance]);
+
+    /*
+      GOVERNANÇA DA LIBERAÇÃO, declarada para esta organização descartável.
+
+      A migration 141 tirou a autoridade que a 136 deduzia do nome de papéis
+      globais: liberar exige política do Motor de Aprovação ou autoridade
+      declarada com evidência. Este cenário declara a sua, porque as corridas
+      abaixo precisam de liberações que ACONTEÇAM — provar que a liberação é
+      recusada sem governança é assunto de
+      `contracts-phase7-cross-tenant-live.test.ts`.
+
+      As duas concessões são por ORGANIZAÇÃO e por PESSOA: nada aqui toca papel
+      global, e a varredura de inquilino leva as duas embora no final.
+    */
+    for (const uid of [users.commercial, users.commercial2]) {
+      await a.query(
+        `INSERT INTO user_permission_overrides
+           (organization_id, user_id, permission_id, effect, reason)
+         SELECT $1, $2, p.id, 'grant', '[P7-LIVE] cenário descartável'
+           FROM permissions p WHERE p.key = 'contracts.billing.release'`,
+        [orgId, uid]);
+      await a.query(
+        `INSERT INTO contract_billing_release_authorities
+           (organization_id, grantee_kind, grantee_user_id, source_kind, source_reference,
+            justification, declared_by)
+         VALUES ($1,'USER',$2,'BOARD_RESOLUTION','[P7-LIVE] Ata do cenário',
+                 '[P7-LIVE] alçada comercial do cenário descartável', $2)`,
+        [orgId, uid]);
+    }
   }, 90_000);
 
   afterAll(async () => {

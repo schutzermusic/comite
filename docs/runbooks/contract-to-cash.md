@@ -88,16 +88,88 @@ Modelá-los sem semântica real seria inventar.
 `contract_billing_release(billing_event_id, note)`:
 
 - exige **pessoa autenticada** (`auth.uid()`); sistema, rotina e IA não liberam;
-- exige a permissão `contracts.billing.release`;
+- exige a permissão `contracts.billing.release` — que é **capacidade**, não
+  autoridade;
+- exige que o faturamento seja do inquilino de quem chama (migration 140);
 - recomputa a elegibilidade NO ATO;
-- consulta o Motor de Aprovação compartilhado. **Sem política real** (é o caso
-  hoje, em todos os inquilinos), a liberação segue por permissão e o estado vai
-  direto a `RELEASED`. **Com política**, o estado vai a `PENDING_RELEASE` e a
-  decisão é aplicada por handler, conferindo a impressão digital.
+- exige **governança real**, por uma de duas vias:
+  1. **política do Motor de Aprovação** para
+     `(contract_billing_event, release, RELEASE)` → estado vai a
+     `PENDING_RELEASE` e a decisão é aplicada por handler, conferindo a
+     impressão digital;
+  2. **autoridade declarada** em `contract_billing_release_authorities`, com
+     evidência (ata, procuração, carta de delegação, cláusula, política
+     interna) → estado vai a `RELEASED`, e a linha de história registra **qual**
+     autoridade sustentou o ato.
+
+Sem nenhuma das duas, a chamada recusa com `RELEASE_AUTHORITY_NOT_CONFIGURED`.
+
+> **Estado atual em produção: governança de liberação NÃO CONFIGURADA.**
+> Não há política de aprovação em inquilino nenhum e a tabela de autoridade
+> está vazia. Um faturamento pode estar `ELIGIBLE` e continuar não liberável —
+> as duas coisas são distintas, e a tela diz isso por extenso.
+
+### Por que não basta ter a permissão
+
+A migration 136 concedia `contracts.billing.release` e `contracts.billing.adjust`
+a três papéis globais (`owner_admin`, `juridico_contratos`, `financeiro`) na
+própria migration, e aceitava `current_user_is_admin()` como caminho
+alternativo. Isso deduzia **autoridade comercial** do NOME de papéis criados por
+uma seed genérica de RBAC.
+
+Liberar faturamento é declarar a um cliente que ele deve. Quem pode fazer isso,
+em nome de qual organização e até que valor, é decisão de governança — e a
+auditoria da fase já tinha estabelecido que ela não existe em lugar nenhum
+(zero políticas, zero alçadas, zero aprovadores nomeados). A migration 141
+desfez as concessões, removeu o desvio de administrador e transformou a
+ausência num **bloqueio nomeado**.
+
+O vocabulário das permissões permanece: capacidade continua existindo e
+continua sendo pré-requisito. O que deixou de existir é a autoridade por
+dedução.
+
+### Como configurar a autoridade
+
+Uma pessoa com administração da organização declara a linha:
+
+```sql
+INSERT INTO contract_billing_release_authorities
+  (organization_id, contract_id, grantee_kind, grantee_user_id,
+   max_amount, currency, source_kind, source_reference, justification, declared_by)
+VALUES
+  (:org, NULL, 'USER', :user_id,
+   500000.00, 'BRL', 'BOARD_RESOLUTION', 'Ata 12/2026, art. 3º',
+   'Delegação de alçada comercial até R$ 500 mil', :declared_by);
+```
+
+- `contract_id` nulo vale para a organização inteira; preenchido restringe ao
+  contrato. A declaração mais específica vence.
+- `grantee_kind` é `ROLE` **ou** `USER`, nunca os dois — para que revogar uma
+  não revogue a outra.
+- `max_amount` nulo significa **não declarado**, e a resolução o trata como sem
+  teto porque a declaração é explícita e alguém a assinou. Com teto, a moeda
+  tem de bater: comparar 10.000 USD com um teto em BRL exigiria política de
+  câmbio, que a Fase 7 não inventa.
+- `source_kind`, `source_reference` e `justification` são **obrigatórios**: a
+  tabela existe para guardar a evidência, não a intenção.
+- Quem **declara** não é quem **exerce**: a escrita exige administração da
+  organização, e não `contracts.billing.release`. Um outorgado que pudesse
+  ampliar a própria autoridade tornaria a declaração prova de nada.
+
+Revogar é `active = false` com `revoked_at`, `revoked_by` e
+`revocation_reason` — a linha permanece.
+
+O modelo de leitura expõe `release_governance_state` por evento:
+`APPROVAL_POLICY`, `DECLARED_AUTHORITY` ou `NOT_CONFIGURED`. A interface
+consulta essa coluna **antes** de oferecer o botão de liberar.
 
 A liberação grava uma **impressão digital** dos fatos exatos. Mudança material
 depois disso não reescreve o valor: obriga supersessão
 (`contract_billing_supersede`), que preserva o direito antigo.
+
+Cancelar e superar um faturamento **já liberado** exigem a mesma autoridade
+declarada. Cancelar um candidato que nunca foi liberado exige só a permissão —
+não é ato comercial, é higiene de fila.
 
 ---
 
@@ -253,3 +325,39 @@ títulos vencidos e anomalia de saldo negativo.
 estão vazias, então converter seria seguro — e não foi feito porque a coluna é
 lida por código de folha e rateio fora do escopo auditado desta fase. O caminho
 canônico (`finance_receivables.project_id`) nasce `text`, com FK composta real.
+
+---
+
+## 15. Fronteira de inquilino das funções SECURITY DEFINER
+
+As migrations 136–138 criaram funções `SECURITY DEFINER` que buscavam a linha
+pelo UUID sem conferir o inquilino de quem chamava. Dentro de `SECURITY
+DEFINER` a RLS **não se aplica** — a função roda como dona da tabela. Seis
+funções vazavam dados entre organizações, e duas delas **escreviam**.
+
+A migration 140 fechou isso. As regras, para toda função nova da cadeia:
+
+- resolver o inquilino do chamador com `apex_browser_organization()`;
+- **nunca** usar `current_user` para isso — dentro de `SECURITY DEFINER` ele é
+  a dona da função, não quem chamou. A identidade que sobrevive é a
+  reivindicação JWT que o PostgREST grava do token verificado;
+- responder a divergência de inquilino com a **mesma forma** que a ausência
+  genuína produz — duas respostas distintas contariam, a quem tem um UUID na
+  mão, que aquele registro existe em algum lugar;
+- perfil ausente **nega** (`TENANT_UNRESOLVED`); comparar contra `NULL` e
+  seguir é como o furo nasce;
+- revogar EXECUTE de `anon` **e** `authenticated` explicitamente. `REVOKE ...
+  FROM PUBLIC` não basta: o projeto concede EXECUTE aos dois papéis por
+  `ALTER DEFAULT PRIVILEGES` quando a função nasce, e foi assim que
+  `contract_billing_fingerprint` e `fiscal_documents_emit_lifecycle` ficaram
+  executáveis por `anon` em produção.
+
+`contract_billing_recompute_eligibility` saiu inteiramente do alcance do
+navegador: ela **muta** (estado, história, fato). Quem materializa a projeção
+são os caminhos governados — a liberação, que recomputa dentro da própria
+transação, e o trabalho de fila que reage à medição aceita. A tela usa
+`contract_billing_eligibility_resolve`, que é somente-leitura.
+
+Prova permanente: `tests/integration/contracts-phase7-cross-tenant-live.test.ts`
+— duas organizações, chamadas emitidas como `authenticated` de verdade, e toda
+RPC exposta tentada com UUID alheio, em leitura e em escrita.
