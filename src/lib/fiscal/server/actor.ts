@@ -3,7 +3,16 @@ import { requireApiPermission } from '@/lib/auth/api-guard';
 import { createClient } from '@/utils/supabase/server';
 
 export interface FiscalActor {
-  userId: string;
+  /**
+   * `null` quando quem age é o SISTEMA — hoje, a recepção fiscal do
+   * faturamento liberado (`billing-intake.ts`). A §70 da Fase 7 proíbe que um
+   * caminho automático assine com o nome de uma pessoa: o rascunho nasce sem
+   * autor humano, e quem o lê depois sabe que ninguém o digitou.
+   *
+   * Toda origem de rota HTTP continua preenchendo, porque
+   * `resolveFiscalActor` só devolve ator com sessão autenticada.
+   */
+  userId: string | null;
   organizationId: string;
 }
 

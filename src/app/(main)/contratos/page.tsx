@@ -50,6 +50,7 @@ import { buildRenewalHorizon } from '@/lib/contracts/trust/renewal-horizon';
 import { buildPortfolioApprovals } from '@/lib/contracts/trust/approval-intelligence';
 import { buildClauseRiskIntelligence } from '@/lib/contracts/trust/clause-risk-intelligence';
 import { ContractToCashFlow } from '@/components/contracts/intelligence/ContractToCashFlow';
+import { ContractToCashPanel } from '@/components/contracts/billing/ContractToCashPanel';
 import { ObligationsControlTower } from '@/components/contracts/intelligence/ObligationsControlTower';
 import { StructuredObligationsPanel } from '@/components/contracts/intelligence/StructuredObligationsPanel';
 import { useStructuredObligations } from '@/components/contracts/use-structured-obligations';
@@ -927,6 +928,26 @@ export default function ContratosPage() {
           <section>
             <SectionHeader title="Contract-to-Cash" hint="Contratado → Medido → Aprovado → Faturado → Recebido" />
             <ContractToCashFlow stages={cashFlow} />
+          </section>
+
+          {/*
+            A CADEIA REAL, por evento de faturamento — o resolvedor canônico da
+            Fase 7. O dossiê do contrato usa este mesmo componente e este mesmo
+            serviço (§87): não há segundo cálculo em lugar nenhum da interface.
+          */}
+          <section>
+            <SectionHeader
+              title="Cadeia por evento"
+              hint="Origem do valor, elegibilidade, liberação, nota, recebido e conciliação"
+            />
+            <ContractToCashPanel
+              contractIds={filteredRecords.map((record) => record.contract.id)}
+              contractLabel={(id) => {
+                const found = filteredRecords.find((record) => record.contract.id === id);
+                return found ? `${found.code} · ${found.companyName}` : id;
+              }}
+              onNotify={(message, variant) => notify(message, { variant })}
+            />
           </section>
 
           <FaturamentoSection
@@ -2032,28 +2053,39 @@ function FaturamentoSection({
   onFollowUp: (record: ContractGovernanceRecord) => void;
 }) {
   const events = records.flatMap((record) => record.billingEvents.map((event) => ({ event, record })));
-  const totalPlanned = events.reduce((sum, { event }) => sum + event.amount, 0);
-  const totalRealized = events.filter(({ event }) => isBillingEventRealized(event)).reduce((sum, { event }) => sum + event.amount, 0);
   const overdue = countOverdueBillingEvents(events.map(({ event }) => event));
-  const cards = [
-    { label: 'Planejado', value: formatCurrencyCompact(totalPlanned), tone: 'text-ig-fg-strong' },
-    { label: 'Realizado', value: formatCurrencyCompact(totalRealized), tone: 'text-ig-success' },
-    { label: 'Saldo a faturar', value: formatCurrencyCompact(Math.max(totalPlanned - totalRealized, 0)), tone: 'text-ig-warning' },
-    { label: 'Vencidos', value: String(overdue), tone: overdue ? 'text-ig-danger' : 'text-ig-fg-strong' },
-  ];
 
+  /*
+    ─── Os cartões "Realizado" e "Saldo a faturar" foram REMOVIDOS na Fase 7 ──
+
+    Eles somavam `event.amount` filtrado por `isBillingEventRealized`, que lê
+    `paid_at` e o `status` em texto livre da própria linha de Contratos. Isso
+    afirmava RECEBIMENTO a partir de um campo que Contratos escrevia sozinho —
+    a §58 e a §59 tiram essa autoridade daqui: pago é verdade de Finanças,
+    derivada de liquidação com evidência.
+
+    Enquanto os dois números existirem lado a lado, o da esquerda ("Realizado")
+    é lido como caixa. A §121 proíbe R$ faturado e R$ recebido que não venham
+    só de dado oficial real, e o dado oficial agora está no painel canônico
+    acima, por evento, com o estado do vínculo financeiro ao lado de cada
+    valor. Somar aqui recriaria a segunda interpretação.
+
+    `Vencidos` permanece: é contagem de PRAZO, não afirmação de caixa.
+  */
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {cards.map((card) => (
-          <div key={card.label} className="rounded-lg border border-ig-border-subtle bg-ig-panel/45 px-3 py-2.5">
-            <p className="text-ig-label font-semibold text-ig-fg-subtle">{card.label}</p>
-            <p className={`mt-0.5 text-lg font-semibold tabular-nums ${card.tone}`}>{card.value}</p>
-          </div>
-        ))}
+      <div className="rounded-lg border border-ig-border-subtle bg-ig-panel/45 px-3 py-2.5">
+        <p className="text-ig-label font-semibold text-ig-fg-subtle">Eventos com vencimento passado</p>
+        <p className={`mt-0.5 text-lg font-semibold tabular-nums ${overdue ? 'text-ig-danger' : 'text-ig-fg-strong'}`}>
+          {overdue}
+        </p>
+        <p className="mt-1 text-ig-caption text-ig-fg-subtle">
+          Recebido e saldo em aberto vêm de Finanças, por evento, no painel acima —
+          Contratos não afirma caixa.
+        </p>
       </div>
       <section>
-        <SectionHeader title="Eventos de faturamento" hint="Eventograma consolidado — marque realizado nos eventos ao vivo" />
+        <SectionHeader title="Eventos de faturamento (registro histórico)" hint="Lista legada — a cadeia com procedência está no painel acima" />
         <div className="space-y-2">
           {events.length === 0 && <p className="py-6 text-center text-ig-caption text-ig-fg-muted">Nenhum evento de faturamento no recorte.</p>}
           {events.slice(0, 40).map(({ event, record }) => {

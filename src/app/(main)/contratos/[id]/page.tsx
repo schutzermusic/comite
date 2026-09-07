@@ -50,6 +50,7 @@ import { useContractInstrumentationModals } from '@/components/contracts/useCont
 import { buildApprovalIntelligence, type ApprovalIntelligence } from '@/lib/contracts/trust/approval-intelligence';
 import { SharedApprovalEnginePanel } from '@/components/contracts/intelligence/SharedApprovalEnginePanel';
 import { ContractToCashFlow } from '@/components/contracts/intelligence/ContractToCashFlow';
+import { ContractToCashPanel } from '@/components/contracts/billing/ContractToCashPanel';
 import { createBillingEventFromMilestone, requestClauseExtraction, type ContractAmendmentRow, type ContractDocumentRow, listContractAiAnalyses, type ContractAiAnalysisRow, type ContractMilestoneRow, listContractAuditEvents, listContractRelatedTasks, computeApprovalSla, type ContractAuditEventRow, type ContractRelatedTask } from '@/lib/contracts/contract-service';
 import {
   HudBadge,
@@ -1235,6 +1236,22 @@ function FinanceTab({
           hint="Instâncias em Projetos, com prontidão e aceite. Editar é lá."
         />
         <ContractMeasurementReadiness contractId={trusted.id} />
+      </section>
+
+      {/*
+        A CADEIA CONTRATO-A-CAIXA deste contrato — Fase 7.
+
+        Mesmo componente e mesmo serviço que a seção `Faturamentos` da carteira
+        usa (§87). O dossiê não recalcula nada: se o número diferir entre as
+        duas telas, a divergência é impossível por construção, e não por
+        disciplina de quem escreve a próxima.
+      */}
+      <section>
+        <SectionHeader
+          title="Cadeia até o caixa"
+          hint="Origem do valor, elegibilidade, liberação, nota, recebido e conciliação"
+        />
+        <ContractToCashPanel contractId={trusted.id} />
       </section>
 
       <section>

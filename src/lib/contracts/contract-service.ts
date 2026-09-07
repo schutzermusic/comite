@@ -1288,61 +1288,66 @@ export async function updateContractMilestone(
 }
 
 /**
- * Gera o evento de faturamento a partir de um marco medido.
+ * Gera o evento de faturamento a partir de um marco.
  *
- * É a ponte marco → faturamento, e ela é explícita por escolha: medir não
- * fatura. O evento nasce pendente, com `milestone_id` preenchido, e o
- * faturamento continua sendo realizado pelo fluxo que já existia.
+ * ─── O `??` foi embora, e com ele o resíduo da Fase 6 ─────────────────────
+ *
+ * Esta função montava o valor com `milestone.measured_amount ?? billing_amount`
+ * e gravava o resultado sem registrar qual das duas fontes tinha vencido. O
+ * comentário anterior defendia o `??` — e continua correto no ponto em que
+ * estava: `billing_amount` É o previsto em contrato, e faturar o previsto é
+ * legítimo quando há direito a ele. O defeito nunca foi a escolha; foi o
+ * SILÊNCIO depois dela, que deixava "faturado pelo previsto" e "faturado pelo
+ * medido" indistinguíveis no dia em que alguém perguntasse.
+ *
+ * A §12 da Fase 7 manda resolver isso, e a resolução é tirar a decisão daqui.
+ * Quem resolve valor e procedência agora é `contract_billing_create_from_milestone`,
+ * no banco, que chama o resolvedor de precedência da Fase 6 e grava
+ * `amount_source` junto do número. `billing_amount` continua sem degrau na
+ * precedência: previsto só vira valor faturável com regra de direito contratual
+ * cadastrada, com cláusula ou documento de origem.
+ *
+ * Quando não há medição aceita, nem `measured_amount`, nem direito cadastrado,
+ * o evento nasce com procedência UNKNOWN e elegibilidade INCOMPLETE. Ele
+ * aparece na tela dizendo `AMOUNT_UNKNOWN`, e não é liberável — que é a
+ * diferença entre não saber e afirmar zero.
  */
 export async function createBillingEventFromMilestone(
   milestone: ContractMilestoneRow,
 ): Promise<ContractBillingEventRow> {
   const { supabase, organizationId } = await getCurrentIdentity();
 
-  /*
-    ─── Este `??` NÃO é o fallback que a Fase 6 proíbe ──────────────────────
-
-    A §12 do plano da Fase 6 proíbe `billing_amount` como VALOR MEDIDO. Aqui o
-    que se está montando é o valor de um EVENTO DE FATURAMENTO, e `billing_amount`
-    é exatamente isso: o previsto em contrato para aquele marco. Usá-lo como
-    valor a faturar é o significado dele.
-
-    A distinção fica registrada porque as duas linhas se parecem e a diferença
-    é toda: quem quiser saber quanto foi MEDIDO chama
-    `contract_milestone_measured_amount` (ou `resolveMeasuredAmount`), que nunca
-    olha para `billing_amount` e devolve UNKNOWN quando não há apuração.
-
-    O risco residual reconhecido: o evento gerado não registra QUAL das duas
-    fontes deu o número, então "faturado pelo previsto" e "faturado pelo medido"
-    ficam indistinguíveis depois. Corrigir isso é mexer na cadeia de
-    faturamento, que é fronteira da Fase 7 — está no registro de deferidos.
-  */
-  const amount = milestone.measured_amount ?? milestone.billing_amount;
-  if (amount === null || amount === undefined) {
-    throw new Error('O marco não tem valor medido nem previsto: não há o que faturar.');
-  }
-
-  const { data, error } = await supabase
-    .from('contract_billing_events')
-    .insert({
-      organization_id: organizationId,
-      contract_id: milestone.contract_id,
-      milestone_id: milestone.id,
-      title: milestone.title,
-      amount,
-      due_date: milestone.due_date,
-      status: 'pendente',
-    })
-    .select('*')
-    .single<ContractBillingEventRow>();
+  const { data: result, error } = await supabase.rpc('contract_billing_create_from_milestone', {
+    p_milestone_id: milestone.id,
+    p_title: milestone.title,
+  });
   if (error) throw new Error(`Erro ao gerar faturamento do marco: ${error.message}`);
+
+  const outcome = (result ?? {}) as Record<string, unknown>;
+  const billingEventId = String(outcome.billing_event_id ?? '');
+  if (!billingEventId) throw new Error('O faturamento não foi criado: resposta sem identificador.');
+
+  const { data, error: readError } = await supabase
+    .from('contract_billing_events')
+    .select('*')
+    .eq('id', billingEventId)
+    .single<ContractBillingEventRow>();
+  if (readError) throw new Error(`Erro ao ler o faturamento gerado: ${readError.message}`);
 
   await logAuditEvent({
     organizationId,
     action: 'contract.billing_created_from_milestone',
     entityType: 'contract',
     entityId: milestone.contract_id,
-    metadata: { milestone_id: milestone.id, billing_event_id: data.id, amount },
+    metadata: {
+      milestone_id: milestone.id,
+      billing_event_id: billingEventId,
+      amount: outcome.amount ?? null,
+      // A procedência entra no registro de auditoria porque é ela que responde,
+      // meses depois, "com base em quê nós cobramos isso?".
+      amount_source: outcome.amount_source ?? null,
+      eligibility_state: outcome.eligibility_state ?? null,
+    },
   });
 
   return data;

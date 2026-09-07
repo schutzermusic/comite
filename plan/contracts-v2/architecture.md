@@ -229,7 +229,8 @@ Do not recreate the removed vertical dossier rail.
 - Phase 4 — Platform Event Graph / Durable Work Execution — complete (migrations 119–124)
 - Phase 5 — Apex Approval Engine — complete (migrations 125–129)
 - Phase 6 — Contract ↔ Project / Measurement — complete (migrations 130–134)
-- Phase 7 — Billing ↔ Finance
+- Phase 7 — Billing ↔ Fiscal ↔ Finance — complete (migrations 135–139;
+  corrections 140–142: SECURITY DEFINER tenant boundary and release authority)
 - Phase 8 — Risks & Clauses Operationalization
 - Phase 9 — Contract Control Tower
 - Phase 10 — Autonomy
@@ -406,6 +407,137 @@ Two rules that later phases inherit rather than re-decide:
 
 Phase 4 did not implement Phase 5–10 decisions. No worker manufactures approval,
 measurement acceptance or billing release.
+
+## 12. Phase 7 — Billing ↔ Fiscal ↔ Finance, settled
+
+Migrations 135–139. The chain the phase closed:
+
+```text
+accepted measurement / fixed contractual entitlement
+  → billing candidate with AMOUNT PROVENANCE
+    → eligibility with machine-readable reasons
+      → governed human release, bound to a fingerprint
+        → durable fiscal request (Fiscal decides)
+          → authorized NFS-e
+            → canonical Accounts Receivable (Finance decides)
+              → settlement → reconciliation
+                → contract_to_cash_read_model
+```
+
+### D7.1 — The Finance foundation predated the tenant model, and was hardened first
+
+The audit found `apar_title`, `ledger_entry`, `period_close` and
+`finance_audit_log` with **no `organization_id`**, RLS scoped by finance ROLE
+only, and `period_close.period_key` unique **globally** — one tenant closing a
+month closed it for everyone. All four were empty, which is why 135 could add
+the column `NOT NULL` without rewriting history.
+
+Role and tenant now apply together. Phase 7 did not redesign Finance
+authorization beyond the tables it touches.
+
+### D7.2 — Provenance travels with every amount
+
+`billing_amount` is the contractual FORECAST and has **no step** in the
+measured-amount precedence. The Phase 6 residual —
+`measured_amount ?? billing_amount` written without recording which source
+won — is resolved: `contract_billing_create_from_milestone` delegates to the
+provenance resolver, and `amount_source` is stored beside the number.
+
+A forecast becomes an entitlement only through
+`contract_billing_entitlement_rules`, which requires a clause, a document or a
+contractual reference. Column populated is not proof of right.
+
+### D7.3 — Seven dimensions, not one status
+
+Eligibility, release, fiscal, AR, payment, reconciliation and ledger posting
+are separate columns and separate states. One status string cannot represent
+them without lying about at least three.
+
+### D7.4 — Gross vs net was declared, never inferred
+
+`service_amount_cents` is not automatically the cash receivable: withholding,
+deductions and discounts change it. Rather than choose,
+`finance_receivable_basis_policies` makes the basis a **governed declaration**
+with justification and author. With no row, AR creation refuses with
+`AR_BASIS_UNCONFIGURED` and nothing is created.
+
+The same posture governs accounting mapping (`finance_posting_rules`) and
+fiscal service selection: absent configuration blocks the step and names the
+blocker, instead of guessing.
+
+### D7.5 — Paid is derived; settlement is append-only
+
+`finance_receivables` has no paid column. `finance_receivable_balances` derives
+paid, open and status from valid settlements. Settlements never update and
+never delete from the application; reversal is a new row pointing at the
+original. Overpayment is refused, not absorbed.
+
+Payment and reconciliation are distinct tables because they answer distinct
+questions. Fuzzy matching lives in `finance_reconciliation_candidates` and can
+never finalize a reconciliation.
+
+### D7.6 — SECURITY DEFINER does not inherit RLS (correction, migration 140)
+
+Phase 7 shipped six `SECURITY DEFINER` functions that fetched rows by UUID
+without resolving the CALLER's tenant. Inside `SECURITY DEFINER` the function
+runs as the table owner, so RLS never applies. Two of the six also **wrote**.
+A live two-tenant probe returned another organization's contract title,
+billing title and exact amount, and mutated its row.
+
+The rules, now binding on every function in the chain:
+
+- resolve the caller's tenant with `apex_browser_organization()`;
+- **never** use `current_user` for that decision — inside `SECURITY DEFINER` it
+  is the function owner, not the caller. The identity that survives is the JWT
+  claim PostgREST writes from the verified token. This is why
+  `emit_domain_event` was deliberately `SECURITY INVOKER` in Phase 4;
+- answer a tenant mismatch with the SAME shape a genuine absence produces;
+- an unresolved profile DENIES; comparing against `NULL` and proceeding is how
+  the hole is born;
+- revoke EXECUTE from `anon` **and** `authenticated` explicitly —
+  `REVOKE ... FROM PUBLIC` does not remove the grants that
+  `ALTER DEFAULT PRIVILEGES` gives those two roles at creation time.
+
+Mutating derivations do not belong in the browser's reach:
+`contract_billing_recompute_eligibility` is now server-only, and the UI reads
+through the read-only resolver.
+
+### D7.7 — Capability is not authority (correction, migration 141)
+
+Migration 136 created `contracts.billing.release` / `.adjust` and granted them,
+in the same migration, to three global roles — then let `current_user_is_admin()`
+act as a bypass and released directly whenever the Approval Engine answered
+`NO_POLICY`. That inferred **commercial authority** from the names of roles a
+generic RBAC seed had created.
+
+Releasing billing tells a customer they owe money. Who may do that, for which
+organization and up to what amount, is governance — and the phase audit had
+already established it does not exist anywhere (zero policies, zero thresholds,
+zero named approvers). The correct conclusion was to declare governance ABSENT.
+
+Migration 141 removed the grants and the admin bypass, and made the absence a
+named blocker. Release now requires either a real Approval Engine policy or a
+row in `contract_billing_release_authorities` — which demands evidence (board
+resolution, power of attorney, delegation letter, clause, internal policy) and
+is written by organization administration, never by the grantee. Absent both,
+the call refuses with `RELEASE_AUTHORITY_NOT_CONFIGURED`, and the read model
+exposes `release_governance_state` so the UI explains rather than appearing
+broken.
+
+The permission vocabulary survives: capability remains a prerequisite. What
+stopped existing is authority by inference.
+
+Four rules later phases inherit rather than re-decide:
+
+1. **Invoice is not cash, and payment is not reconciliation.** The read model
+   returns UNKNOWN — never `R$ 0` — when Finance has no title.
+2. **Financial truth is reversible, not erasable.** Cancellation, replacement,
+   supersession and reversal preserve the prior record in every path.
+3. **`SECURITY DEFINER` carries no tenant.** Every such function resolves the
+   caller's organization itself, and answers mismatch exactly as it answers
+   absence.
+4. **A role name is not an authority.** Acts with external commercial effect
+   require declared governance with evidence, or they refuse.
 
 ## 12. Engineering discipline
 

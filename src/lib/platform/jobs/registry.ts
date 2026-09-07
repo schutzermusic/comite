@@ -16,6 +16,12 @@ export const JOB_TYPES = [
   // ---- Fase 6 ----
   'projects.measurements.reconcile_candidates',
   'projects.measurements.recompute_readiness',
+  // ---- Fase 7 — cadeia contrato-a-caixa ----
+  'contracts.billing.candidate_from_measurement',
+  'contracts.billing.apply_approval',
+  'contracts.billing.request_fiscal_document',
+  'finance.receivable.create_from_fiscal',
+  'finance.receivable.apply_fiscal_cancellation',
 ] as const;
 
 export type JobType = (typeof JOB_TYPES)[number];
@@ -25,6 +31,17 @@ export function isJobType(value: string): value is JobType {
 }
 
 const uuid = z.string().uuid();
+
+/**
+ * Payload das rotas estáticas do Apex: `apex_route_pending_events` enfileira
+ * sempre `{event_id, event_type, schema_version}`. Declarar o formato uma vez
+ * evita que cada tipo novo o redigite com uma diferença silenciosa.
+ */
+const EVENT_REF = z.object({
+  event_id: uuid,
+  event_type: z.string(),
+  schema_version: z.number().int().positive(),
+});
 
 export const JOB_SCHEMAS = {
   'contracts.obligations.materialize': {
@@ -74,6 +91,19 @@ export const JOB_SCHEMAS = {
       limit: z.number().int().positive().max(2000),
     }),
   },
+  /*
+    Os cinco da Fase 7 carregam a mesma coisa: a IDENTIDADE DO FATO, e nada
+    mais. Copiar valor, moeda ou vencimento para o payload congelaria, no
+    instante de rotear, números que a transação a jusante precisa reler — e um
+    trabalho que age sobre a foto antiga cria título com o valor errado.
+
+    O handler relê a linha autoritativa. O payload só diz de qual fato falar.
+  */
+  'contracts.billing.candidate_from_measurement': { 1: EVENT_REF },
+  'contracts.billing.apply_approval':             { 1: EVENT_REF },
+  'contracts.billing.request_fiscal_document':    { 1: EVENT_REF },
+  'finance.receivable.create_from_fiscal':        { 1: EVENT_REF },
+  'finance.receivable.apply_fiscal_cancellation': { 1: EVENT_REF },
 } as const satisfies Record<JobType, Record<number, z.ZodType>>;
 
 export type JobPayloadByType = {
