@@ -28,6 +28,9 @@ import {
 } from './trusted';
 import type { TrustedContract } from './read-model';
 import { MEASURED_STATUSES } from '../contract-service';
+import {
+  resolveMeasuredAmount, type AcceptedMeasurementInput,
+} from '@/lib/projects/measurements/measured-amount';
 import type { ContractBillingEventRow, ContractMilestoneRow } from '../contract-service';
 
 export type CashStageKey = 'contracted' | 'measured' | 'approved' | 'billed' | 'received';
@@ -261,18 +264,49 @@ function measuredStageFor(
    */
   const measured = milestones.value.filter((m) => MEASURED_STATUSES.includes(m.status));
 
-  /**
-   * `measured_amount` quando existe; `billing_amount` como fallback.
-   *
-   * A ordem importa: o valor medido pode divergir do previsto, e é o medido
-   * que vale. O fallback só age quando ninguém informou valor medido — aí o
-   * previsto é o que a organização tem como referência.
-   */
-  const total = measured.reduce((sum, m) => sum + num(m.measured_amount ?? m.billing_amount), 0);
+  /*
+    ─── A PRECEDÊNCIA DO VALOR MEDIDO (Fase 6, §12 e §68) ───────────────────
+
+    Antes da Fase 6 esta linha era `m.measured_amount ?? m.billing_amount`, e
+    o `??` era o defeito: `billing_amount` é o valor PREVISTO no contrato.
+    Um marco marcado como medido mas sem valor apurado contribuía com o
+    previsto dele, e o painel apresentava previsão como apuração. A diferença
+    aparecia na conversa com o cliente sobre quanto já havia sido medido.
+
+    A regra agora mora em `resolveMeasuredAmount`, e é uma só: medição
+    canônica aceita → `measured_amount` legado → UNKNOWN. Nunca
+    `billing_amount`, nem como último recurso.
+
+    `accepted` vem vazio nesta leitura porque a soma de carteira ainda lê
+    apenas `contract_milestones`; a medição canônica entra por marco, via
+    `contract_milestone_measured_amount`. O que MUDOU aqui, e é o ponto, é que
+    marco sem valor apurado agora contribui com NADA em vez de contribuir com
+    o previsto — e o estágio informa quantos marcos ficaram sem apuração.
+  */
+  const noAccepted: readonly AcceptedMeasurementInput[] = [];
+  /*
+    Os valores vão CRUS. O `num` local deste arquivo coage ausência para 0, e
+    passá-lo aqui apagaria a distinção entre "medido e deu zero" e "não
+    apurado" logo na entrada do resolvedor — que é a distinção inteira.
+  */
+  const resolved = measured.map((m) => resolveMeasuredAmount({
+    accepted: noAccepted,
+    legacyMeasuredAmount: m.measured_amount ?? null,
+    billingAmount: m.billing_amount ?? null,
+  }));
+
+  const apurados = resolved.filter((r) => r.amount !== null);
+  const total = apurados.reduce((sum, r) => sum + (r.amount ?? 0), 0);
+  const semApuracao = measured.length - apurados.length;
+
+  /*
+    Cobertura conta os marcos APURADOS, não os marcados como medidos. Contar
+    os marcados apresentaria "8 de 10" para uma soma que só três sustentam.
+  */
   const amount = derived(total, {
-    rule: 'soma dos marcos com medição registrada',
+    rule: 'soma do valor APURADO dos marcos medidos (nunca o previsto)',
     from: ['contract_milestones'],
-    coverage: { counted: measured.length, total: milestones.value.length },
+    coverage: { counted: apurados.length, total: milestones.value.length },
   });
 
   return {
@@ -286,7 +320,10 @@ function measuredStageFor(
     state: 'measured',
     note: measured.length === 0
       ? `Nenhum dos ${milestones.value.length} marco(s) registrados foi medido ainda.`
-      : null,
+      : semApuracao > 0
+        ? `${semApuracao} marco(s) marcado(s) como medido(s) não têm valor apurado. `
+          + 'O previsto em contrato não entra nesta soma.'
+        : null,
     shareOfContracted: share(amount, contracted),
   };
 }

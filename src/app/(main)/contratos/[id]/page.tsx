@@ -45,6 +45,7 @@ import { ClauseProposalsPanel } from '@/components/contracts/intelligence/Clause
 import { ClauseOpsPanel } from '@/components/contracts/intelligence/ClauseOpsPanel';
 import { documentAnalysisStates, contractCoverage } from '@/lib/contracts/trust/clause-operations';
 import { MeasurementPanel } from '@/components/contracts/intelligence/MeasurementPanel';
+import { ContractMeasurementReadiness } from '@/components/contracts/intelligence/ContractMeasurementReadiness';
 import { useContractInstrumentationModals } from '@/components/contracts/useContractInstrumentationModals';
 import { buildApprovalIntelligence, type ApprovalIntelligence } from '@/lib/contracts/trust/approval-intelligence';
 import { SharedApprovalEnginePanel } from '@/components/contracts/intelligence/SharedApprovalEnginePanel';
@@ -1215,6 +1216,26 @@ function FinanceTab({
         onEdit={onEditMilestone}
         onGenerateBilling={onGenerateBilling}
       />
+
+      {/*
+        A MEDIÇÃO OPERACIONAL, em contexto — Fase 6.
+
+        O painel acima mostra os MARCOS do contrato: o que foi previsto medir.
+        Este mostra as MEDIÇÕES de projeto: o que a operação apurou, o que
+        falta para submeter e o que já foi aceito. São camadas diferentes, e
+        ficam separadas de propósito — misturá-las faria "marco previsto" e
+        "medição aceita" caberem na mesma linha.
+
+        Contratos não edita medição aqui. Cada linha leva ao projeto, que é
+        onde a instância mora e onde o trabalho acontece.
+      */}
+      <section>
+        <SectionHeader
+          title="Medição operacional"
+          hint="Instâncias em Projetos, com prontidão e aceite. Editar é lá."
+        />
+        <ContractMeasurementReadiness contractId={trusted.id} />
+      </section>
 
       <section>
         <SectionHeader title="Exposição financeira" />

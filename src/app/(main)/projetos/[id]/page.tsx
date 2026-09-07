@@ -16,6 +16,7 @@ import {
   FileText,
   Brain,
   GanttChart,
+  Ruler,
   UserCog,
   Activity,
   ShieldAlert,
@@ -33,6 +34,7 @@ import {
 import { getProjectByIdAsync, getProjectV2ByIdAsync } from '@/lib/services/projects';
 import { TimelineTab } from '@/components/projects/timeline/TimelineTab';
 import { ProjectContractTab } from '@/components/projects/ProjectContractTab';
+import { ProjectMeasurementsTab } from '@/components/projects/measurements/ProjectMeasurementsTab';
 import { ProjectRisksTab } from '@/components/projects/ProjectRisksTab';
 import { ProjectDocumentsView } from '@/components/projects/ProjectDocumentsView';
 import { TeamAllocationView } from '@/components/projects/team-allocation-view';
@@ -55,7 +57,7 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
   const searchParams = useSearchParams();
   const initialTab = (() => {
     const t = searchParams?.get('tab');
-    return t && ['timeline', 'contract', 'finance', 'risks', 'documents', 'team', 'timesheet'].includes(t) ? t : 'timeline';
+    return t && ['timeline', 'contract', 'measurements', 'finance', 'risks', 'documents', 'team', 'timesheet'].includes(t) ? t : 'timeline';
   })();
   const [projeto, setProjeto] = useState<Awaited<ReturnType<typeof getProjectByIdAsync>>>(undefined);
   const [projetoV2, setProjetoV2] = useState<ProjectV2 | undefined>(undefined);
@@ -351,6 +353,10 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
                 <FileText className="w-4 h-4 mr-2" />
                 Contrato
               </TabsTrigger>
+              <TabsTrigger value="measurements" className="hud-tab-trigger">
+                <Ruler className="w-4 h-4 mr-2" />
+                Medições
+              </TabsTrigger>
               <TabsTrigger value="timeline" className="hud-tab-trigger">
                 <GanttChart className="w-4 h-4 mr-2" />
                 Timeline
@@ -385,6 +391,16 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
 
               <TabsContent value="contract" className="mt-0">
                 <ProjectContractTab projectId={id} />
+              </TabsContent>
+
+              {/*
+                Medições é aba de PROJETOS, e não de Contratos, porque a
+                instância de medição é operacional: quem a prepara, submete e
+                vê aceitar é a operação. Contratos mostra a regra e a prontidão
+                em contexto, sem virar um segundo editor da mesma coisa.
+              */}
+              <TabsContent value="measurements" className="mt-0">
+                <ProjectMeasurementsTab projectId={id} />
               </TabsContent>
 
               <TabsContent value="risks" className="mt-0">

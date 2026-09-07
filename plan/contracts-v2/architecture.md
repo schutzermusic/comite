@@ -228,7 +228,7 @@ Do not recreate the removed vertical dossier rail.
 - Phase 3 — Obligations Engine — complete (migrations 114–117)
 - Phase 4 — Platform Event Graph / Durable Work Execution — complete (migrations 119–124)
 - Phase 5 — Apex Approval Engine — complete (migrations 125–129)
-- Phase 6 — Contract ↔ Project / Measurement
+- Phase 6 — Contract ↔ Project / Measurement — complete (migrations 130–134)
 - Phase 7 — Billing ↔ Finance
 - Phase 8 — Risks & Clauses Operationalization
 - Phase 9 — Contract Control Tower
@@ -271,15 +271,101 @@ the legacy path keeps writing and the shared engine refuses to open a request
 for the same action; with a row, the two swap. There is never an instant where
 both write.
 
-Phase 6 invariant:
+Phase 6 invariant, now implemented:
 
 ```text
 accepted project measurement
 → legacy milestone.measured_amount
-→ STOP
+→ UNKNOWN
 ```
 
 Never fallback to `billing_amount`.
+
+## 10.6 Phase 6 — Contract ↔ Project / Measurement (migrations 130–134)
+
+### Ownership, settled
+
+```text
+CONTRACTS  defines WHAT must be measured, WHAT evidence and acceptance are
+           required, with effective dates and amendment lineage
+PROJECTS   owns the measurement INSTANCE: where, when, what actually happened,
+           the evidence package, submission, acceptance and rejection
+PLATFORM   owns domain_events, apex_jobs, the Approval Engine
+```
+
+Contracts never writes a measurement instance. Projects never rewrites a
+contractual rule. Neither writes Finance or Fiscal — Phase 6 ends at
+authoritative acceptance.
+
+### The chain
+
+```text
+contract_measurement_requirements          (Phase 2, contractual truth)
+  → contract_measurement_rule_timeline_mappings   (governed, review_state='accepted')
+    → project_measurements                        (operational instance)
+      → project_measurement_evidence              (classed, provenanced)
+      → project_measurement_requirements          (resolved as-of the occurrence)
+        → project_measurement_readiness()         (canonical resolver)
+          → submission → authoritative acceptance
+            → projects.measurement.accepted       (Phase 7 input)
+```
+
+### Acceptance is NEVER_AUTOMATED
+
+This is structural, not a convention, and it is refused in four independent places:
+
+1. the state machine has no path to `ACCEPTED` except from `SUBMITTED` or
+   `UNDER_REVIEW` — execution evidence cannot reach acceptance;
+2. `project_measurement_accept` raises `ACCEPTANCE_NEVER_AUTOMATED` when there
+   is no `auth.uid()` and the source is internal;
+3. external acceptance requires provenance — a party, a document or an external
+   reference — so a system caller cannot impersonate the customer;
+4. `pm_accepted_coherent` and `pm_acceptance_actor` refuse an `ACCEPTED` row
+   without a source and without an actor, at the table level.
+
+The RPC takes no "who accepted" parameter. It reads `auth.uid()` itself.
+
+### Readiness
+
+One canonical resolver, consumed by both Projects and Contracts. It returns
+dimensions, not a boolean, and derives the overall state as:
+
+```text
+BLOCKED > UNKNOWN > INCOMPLETE > READY     (NOT_APPLICABLE only when all are)
+```
+
+`UNKNOWN` outranks `INCOMPLETE` deliberately. "The report is missing" is work
+someone knows how to do; "I don't know which rule governs this" is work nobody
+knows they have. Burying the second under the first is how a measurement
+reaches acceptance with an unnoticed hole.
+
+Missing information never becomes `READY`.
+
+### Evidence is not acceptance
+
+Four classes, and the boundaries are enforced by CHECK constraints:
+
+```text
+RAW_EVIDENCE         the record as captured
+DERIVED_EVIDENCE     inferred by the existing execution-matching resolver
+VALIDATED_EVIDENCE   a human checked it        (requires validated_by)
+ACCEPTANCE_EVIDENCE  a document or signed record (manual link only)
+```
+
+System-inferred evidence can never rise above `DERIVED_EVIDENCE`. Ponto and
+location data reuse the existing project attribution resolver and its declared
+thresholds (`AUTOMATION_POLICY`); Phase 6 invented no new threshold.
+
+### Approval Engine — mechanism, no invented policy
+
+`project_measurement` is registered as an approval subject with a real content
+fingerprint over the exact revision, so a material change invalidates a prior
+approval. `approval_engine_cutover` remains **empty** for measurement, and no
+acceptance policy was seeded. The Phase 6 audit found the same picture Phase 5
+found for Contracts: zero measurement rules, zero measurements, zero policies,
+no authority limit anywhere. Per §33/§100, that means mechanism and stop.
+
+Phase 6 does not depend on the Contracts cutover.
 
 ## 11.1 Platform execution substrate (Phase 4)
 

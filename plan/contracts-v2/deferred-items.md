@@ -444,3 +444,70 @@ Before Phase 3 starts, decide and execute one of:
 
 Do not pick by default. Whichever is chosen, the gate closes only when the
 registry and the schema agree, or when the registry is provably out of the loop.
+
+## Phase 6 — Contract ↔ Project / Measurement — ENTREGUE
+
+Migrations 130–134. Entregues: `project_measurements` canônica de dono
+Projetos, vínculo estrutural regra→medição, mapeamento governado regra↔etapa,
+histórico de transição imutável, materialização determinística e idempotente de
+candidatos, vinculação automática de evidência reusando o resolvedor existente,
+integração de evidência de Ponto/localização/projeto, pacote e rastreio de
+exigências, resolvedor canônico de prontidão com READY / BLOCKED / INCOMPLETE /
+NOT_APPLICABLE / UNKNOWN, submissão controlada, aceite/rejeição autoritativos,
+eventos transacionais pelo Grafo de Eventos, compatibilidade com o
+`measured_amount` legado e a proibição permanente de `billing_amount`.
+
+### Corrigido na Fase 6 (defeito que existia em `main`)
+
+`src/lib/contracts/trust/contract-to-cash.ts` somava
+`m.measured_amount ?? m.billing_amount` e apresentava o resultado como "medido".
+`billing_amount` é o valor PREVISTO: marco sem apuração contribuía com o
+previsto dele. A regra agora mora em
+`src/lib/projects/measurements/measured-amount.ts`, com regressão permanente em
+`tests/unit/project-measured-amount.test.ts`.
+
+### Deferido DENTRO da Fase 6
+
+- **Corte do Motor de Aprovação para aceite de medição.** Bloqueado por
+  governança, não por esforço: não existe política de aceite autoritativa em
+  lugar nenhum. `approval_engine_cutover` segue vazia para
+  `project_measurement`. O sujeito e a impressão digital já estão registrados —
+  falta a REGRA, e inventá-la seria fabricar governança.
+- **Aceite parcial / glosa.** A §72 manda só modelar com evidência de negócio
+  real. Não há nenhuma. `accepted_quantity` e `accepted_value` existem
+  congelados; a divisão entre submetido, aceito e glosado não foi criada.
+- **Semântica declarada nas regras reais.** `measurement_basis`,
+  `accumulation_mode`, `aggregation_mode` e `cadence` nascem `UNKNOWN` e a
+  prontidão devolve UNKNOWN enquanto assim estiverem. Preencher exige leitura
+  dos contratos reais — é trabalho de dado, não de código.
+- **Vinculação automática de evidência em produção.** O módulo
+  `evidence-acquisition.ts` está pronto e testado, mas nenhuma rota o executa
+  em lote ainda: falta projeto real com medição para acionar.
+- **Aba de propostas de mapeamento.** Propostas com `review_state='proposed'`
+  são gravadas e ficam inertes; não há tela para revisá-las.
+- **Recomputo agendado.** Os dois tipos de trabalho
+  (`projects.measurements.reconcile_candidates` e `...recompute_readiness`)
+  estão registrados com handler, mas não há entrada de cron chamando
+  `projects_enqueue_measurement_reconciliation`.
+- **Limpeza do legado.** `contract_milestones.measured_amount` e
+  `billing_amount` permanecem. A §70 proíbe removê-los antes de evidência de
+  produção provar que é seguro.
+- **Procedência do valor no evento de faturamento (Fase 7).**
+  `createBillingEventFromMilestone` monta o valor com
+  `measured_amount ?? billing_amount`. Isso NÃO viola a §12 — o que se está
+  compondo ali é o valor a FATURAR, e `billing_amount` é o previsto em
+  contrato, que é o significado dele. O que falta é registrar QUAL das duas
+  fontes deu o número: hoje "faturado pelo previsto" e "faturado pelo medido"
+  ficam indistinguíveis depois do fato. Corrigir exige mexer na cadeia de
+  faturamento, que é fronteira da Fase 7.
+
+### Prova de fluxo REAL — bloqueada por dado
+
+`REAL PRODUCTION MEASUREMENT FLOW PROVEN = BLOCKED_BY_REAL_DATA`.
+
+O motor está completo e provado ponta a ponta contra organização descartável.
+A prova REAL exige um projeto de produção com: vínculo explícito ao contrato,
+regra de medição cadastrada, mapeamento de cronograma, evidência de execução e
+fonte de aceite autoritativa. Em produção existe UM vínculo Projeto↔Contrato, e
+ele aponta para um contrato `data_class = 'demo'`; `contract_measurement_requirements`
+tem zero linhas. Nenhuma dessas ausências é corrigível por código.

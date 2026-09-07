@@ -1299,6 +1299,24 @@ export async function createBillingEventFromMilestone(
 ): Promise<ContractBillingEventRow> {
   const { supabase, organizationId } = await getCurrentIdentity();
 
+  /*
+    ─── Este `??` NÃO é o fallback que a Fase 6 proíbe ──────────────────────
+
+    A §12 do plano da Fase 6 proíbe `billing_amount` como VALOR MEDIDO. Aqui o
+    que se está montando é o valor de um EVENTO DE FATURAMENTO, e `billing_amount`
+    é exatamente isso: o previsto em contrato para aquele marco. Usá-lo como
+    valor a faturar é o significado dele.
+
+    A distinção fica registrada porque as duas linhas se parecem e a diferença
+    é toda: quem quiser saber quanto foi MEDIDO chama
+    `contract_milestone_measured_amount` (ou `resolveMeasuredAmount`), que nunca
+    olha para `billing_amount` e devolve UNKNOWN quando não há apuração.
+
+    O risco residual reconhecido: o evento gerado não registra QUAL das duas
+    fontes deu o número, então "faturado pelo previsto" e "faturado pelo medido"
+    ficam indistinguíveis depois. Corrigir isso é mexer na cadeia de
+    faturamento, que é fronteira da Fase 7 — está no registro de deferidos.
+  */
   const amount = milestone.measured_amount ?? milestone.billing_amount;
   if (amount === null || amount === undefined) {
     throw new Error('O marco não tem valor medido nem previsto: não há o que faturar.');

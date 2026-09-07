@@ -13,6 +13,9 @@ export const JOB_TYPES = [
   'contracts.obligation.external_activation.apply',
   'contracts.clause_extraction.execute',
   'platform.approvals.expire',
+  // ---- Fase 6 ----
+  'projects.measurements.reconcile_candidates',
+  'projects.measurements.recompute_readiness',
 ] as const;
 
 export type JobType = (typeof JOB_TYPES)[number];
@@ -48,6 +51,28 @@ export const JOB_SCHEMAS = {
   // quem alguém achou que ia vencer.
   'platform.approvals.expire': {
     1: z.object({ as_of: z.string() }),
+  },
+  /*
+    Materialização de candidatos de medição. Horizonte ROLANTE, pela mesma
+    razão da materialização de obrigações: criar ocorrências para dez anos à
+    frente encheria a base de medições de contratos que podem nem existir.
+  */
+  'projects.measurements.reconcile_candidates': {
+    1: z.object({
+      as_of: z.string(),
+      horizon_days: z.number().int().positive().max(730),
+    }),
+  },
+  /*
+    Recomputo INCREMENTAL de prontidão. `changed_since` é o que impede a
+    varredura da carteira inteira a cada tique — sem ele, o trabalho cresceria
+    com o tamanho do inquilino em vez de com o que mudou nele.
+  */
+  'projects.measurements.recompute_readiness': {
+    1: z.object({
+      changed_since: z.string().nullable().optional(),
+      limit: z.number().int().positive().max(2000),
+    }),
   },
 } as const satisfies Record<JobType, Record<number, z.ZodType>>;
 
