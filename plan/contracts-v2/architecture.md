@@ -229,7 +229,7 @@ Do not recreate the removed vertical dossier rail.
 - Phase 4 — Platform Event Graph / Durable Work Execution — complete (migrations 119–124)
 - Phase 5 — Apex Approval Engine — complete (migrations 125–129)
 - Phase 6 — Contract ↔ Project / Measurement — complete (migrations 130–134)
-- Phase 7 — Billing ↔ Finance
+- Phase 7 — Billing ↔ Fiscal ↔ Finance — complete (migrations 135–139)
 - Phase 8 — Risks & Clauses Operationalization
 - Phase 9 — Contract Control Tower
 - Phase 10 — Autonomy
@@ -406,6 +406,81 @@ Two rules that later phases inherit rather than re-decide:
 
 Phase 4 did not implement Phase 5–10 decisions. No worker manufactures approval,
 measurement acceptance or billing release.
+
+## 12. Phase 7 — Billing ↔ Fiscal ↔ Finance, settled
+
+Migrations 135–139. The chain the phase closed:
+
+```text
+accepted measurement / fixed contractual entitlement
+  → billing candidate with AMOUNT PROVENANCE
+    → eligibility with machine-readable reasons
+      → governed human release, bound to a fingerprint
+        → durable fiscal request (Fiscal decides)
+          → authorized NFS-e
+            → canonical Accounts Receivable (Finance decides)
+              → settlement → reconciliation
+                → contract_to_cash_read_model
+```
+
+### D7.1 — The Finance foundation predated the tenant model, and was hardened first
+
+The audit found `apar_title`, `ledger_entry`, `period_close` and
+`finance_audit_log` with **no `organization_id`**, RLS scoped by finance ROLE
+only, and `period_close.period_key` unique **globally** — one tenant closing a
+month closed it for everyone. All four were empty, which is why 135 could add
+the column `NOT NULL` without rewriting history.
+
+Role and tenant now apply together. Phase 7 did not redesign Finance
+authorization beyond the tables it touches.
+
+### D7.2 — Provenance travels with every amount
+
+`billing_amount` is the contractual FORECAST and has **no step** in the
+measured-amount precedence. The Phase 6 residual —
+`measured_amount ?? billing_amount` written without recording which source
+won — is resolved: `contract_billing_create_from_milestone` delegates to the
+provenance resolver, and `amount_source` is stored beside the number.
+
+A forecast becomes an entitlement only through
+`contract_billing_entitlement_rules`, which requires a clause, a document or a
+contractual reference. Column populated is not proof of right.
+
+### D7.3 — Seven dimensions, not one status
+
+Eligibility, release, fiscal, AR, payment, reconciliation and ledger posting
+are separate columns and separate states. One status string cannot represent
+them without lying about at least three.
+
+### D7.4 — Gross vs net was declared, never inferred
+
+`service_amount_cents` is not automatically the cash receivable: withholding,
+deductions and discounts change it. Rather than choose,
+`finance_receivable_basis_policies` makes the basis a **governed declaration**
+with justification and author. With no row, AR creation refuses with
+`AR_BASIS_UNCONFIGURED` and nothing is created.
+
+The same posture governs accounting mapping (`finance_posting_rules`) and
+fiscal service selection: absent configuration blocks the step and names the
+blocker, instead of guessing.
+
+### D7.5 — Paid is derived; settlement is append-only
+
+`finance_receivables` has no paid column. `finance_receivable_balances` derives
+paid, open and status from valid settlements. Settlements never update and
+never delete from the application; reversal is a new row pointing at the
+original. Overpayment is refused, not absorbed.
+
+Payment and reconciliation are distinct tables because they answer distinct
+questions. Fuzzy matching lives in `finance_reconciliation_candidates` and can
+never finalize a reconciliation.
+
+Two rules later phases inherit rather than re-decide:
+
+1. **Invoice is not cash, and payment is not reconciliation.** The read model
+   returns UNKNOWN — never `R$ 0` — when Finance has no title.
+2. **Financial truth is reversible, not erasable.** Cancellation, replacement,
+   supersession and reversal preserve the prior record in every path.
 
 ## 12. Engineering discipline
 

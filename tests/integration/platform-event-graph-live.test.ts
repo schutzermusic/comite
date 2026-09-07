@@ -308,12 +308,27 @@ suite('Fase 4 · concorrência real, recuperação e fronteira do navegador', ()
     const routed = Number(ra.rows[0].events_routed) + Number(rb.rows[0].events_routed);
     expect(routed).toBeGreaterThanOrEqual(1);
 
+    /*
+      A contagem esperada NÃO é uma constante.
+
+      Quando esta prova foi escrita, `projects.measurement.accepted` tinha um
+      consumidor só, e "1" descrevia o registro de rotas daquele dia. A Fase 7
+      acrescentou uma rota estática para o mesmo fato (o candidato de
+      faturamento), e um "1" fixo passaria a reprovar o roteamento CORRETO de
+      dois consumidores.
+
+      O invariante nunca foi o número: é que a corrida não DUPLICA. O que se
+      confere, então, é que cada tipo de trabalho aparece uma vez só e que o
+      contador do evento bate com o que foi criado.
+    */
     const jobs = await a.query(
-      'SELECT count(*)::int AS n FROM apex_jobs WHERE event_id = $1', [eventId]);
-    expect(jobs.rows[0].n).toBe(1);
+      `SELECT count(*)::int AS n, count(DISTINCT job_type)::int AS kinds
+         FROM apex_jobs WHERE event_id = $1`, [eventId]);
+    expect(jobs.rows[0].n).toBeGreaterThanOrEqual(1);
+    expect(jobs.rows[0].n).toBe(jobs.rows[0].kinds);
     const ev = await a.query('SELECT routing_state, route_count FROM domain_events WHERE id = $1', [eventId]);
     expect(ev.rows[0].routing_state).toBe('ROUTED');
-    expect(ev.rows[0].route_count).toBe(1);
+    expect(ev.rows[0].route_count).toBe(jobs.rows[0].n);
   }, 60_000);
 
   it('5 · queda entre inserir o trabalho e marcar roteado não perde nem duplica', async () => {
@@ -327,8 +342,13 @@ suite('Fase 4 · concorrência real, recuperação e fronteira do navegador', ()
     await a.query('BEGIN');
     await a.query('SELECT * FROM public.apex_route_pending_events(200)');
     const midFlight = await a.query(
-      'SELECT count(*)::int AS n FROM apex_jobs WHERE event_id = $1', [eventId]);
-    expect(midFlight.rows[0].n).toBe(1); // o trabalho existe DENTRO da transação
+      `SELECT count(*)::int AS n, count(DISTINCT job_type)::int AS kinds
+         FROM apex_jobs WHERE event_id = $1`, [eventId]);
+    // O trabalho existe DENTRO da transação — um por consumidor registrado,
+    // e nunca dois do mesmo tipo.
+    expect(midFlight.rows[0].n).toBeGreaterThanOrEqual(1);
+    expect(midFlight.rows[0].n).toBe(midFlight.rows[0].kinds);
+    const expectedJobs = midFlight.rows[0].n;
     await a.query('ROLLBACK');
 
     /*
@@ -346,8 +366,12 @@ suite('Fase 4 · concorrência real, recuperação e fronteira do navegador', ()
     await b.query('SELECT * FROM public.apex_route_pending_events(200)');
     const done = await b.query(
       `SELECT (SELECT count(*)::int FROM apex_jobs WHERE event_id = $1) AS jobs,
+              (SELECT count(DISTINCT job_type)::int FROM apex_jobs WHERE event_id = $1) AS kinds,
               (SELECT routing_state FROM domain_events WHERE id = $1) AS state`, [eventId]);
-    expect(done.rows[0].jobs).toBe(1);
+    // A batida seguinte refaz exatamente o que a queda desfez: nem a mais,
+    // nem a menos, e nunca dois trabalhos do mesmo tipo.
+    expect(done.rows[0].jobs).toBe(expectedJobs);
+    expect(done.rows[0].jobs).toBe(done.rows[0].kinds);
     expect(done.rows[0].state).toBe('ROUTED');
   }, 60_000);
 

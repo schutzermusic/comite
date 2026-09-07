@@ -299,18 +299,67 @@ accepted project measurement
 
 Never fallback to billing_amount.
 
-## Phase 7 — Finance Chain
-Deferred:
-- real Finance replacement where mock remains
-- billing event → fiscal document
-- AR titles
-- settlement
-- reversal
-- reconciliation
-- dispute
-- retention
-- glosa
-- real paid/received joins
+## Phase 7 — Finance Chain — ENTREGUE (migrations 135–139)
+
+Entregue: endurecimento de inquilino das Finanças, direito de faturar com
+procedência, elegibilidade com motivos, liberação governada, ponte Fiscal,
+Contas a Receber canônico, parcelas, liquidação append-only, saldos derivados,
+conciliação distinta de pagamento, cancelamento/reversão/supersessão e o
+modelo de leitura contrato-a-caixa. Ver `docs/runbooks/contract-to-cash.md`.
+
+### Continua deferido, por AUSÊNCIA DE SEMÂNTICA REAL
+
+- **Retenção contratual, glosa e disputa.** A auditoria não encontrou esquema
+  nenhum para as três em lugar algum do repositório. Os códigos
+  `RETENTION_APPLIES` e `DISPUTE_OPEN` existem no vocabulário da elegibilidade
+  e NUNCA são emitidos; o modelo de leitura devolve `NOT_APPLICABLE` para as
+  três. Modelá-las exige processo de negócio real, não código.
+- **Write-off.** Sem política e sem processo. Disfarçá-lo de cancelamento é o
+  que a §76 proíbe.
+- **Crédito não alocado.** Não existe modelo seguro no repositório, então
+  recebimento acima do saldo é RECUSADO (`OVERPAYMENT_REVIEW_REQUIRED`) em vez
+  de absorvido em silêncio.
+- **Parcelamento estruturado.** O esquema suporta N parcelas
+  (`finance_receivable_installments.sequence`, `STRUCTURED_PAYMENT_TERM`), e a
+  ponte cria UMA, com o vencimento do documento fiscal. `contracts.payment_terms`
+  é texto livre, e derivar data dele é o que a §39 proíbe.
+
+### Continua deferido, por AUSÊNCIA DE CONFIGURAÇÃO
+
+Nenhum destes é código: são decisões que precisam ser registradas por gente.
+
+- **Base do valor do recebível** (`finance_receivable_basis_policies`): ZERO
+  linhas. Sem ela, nenhum Contas a Receber é criado.
+- **Mapeamento contábil** (`finance_posting_rules`): ZERO linhas. Sem ele,
+  `ledger_posting_state = 'PENDING_CONFIGURATION'`.
+- **Política de aprovação de liberação**: ZERO linhas, em qualquer inquilino.
+  A liberação segue por permissão; o motor está integrado e aguarda regra real.
+- **Cadastro fiscal**: ZERO estabelecimento, ZERO perfil de parte, ZERO
+  catálogo de serviço, ZERO portão de produção.
+
+### Continua deferido, por AUSÊNCIA DE FONTE
+
+- **Conciliação bancária automática real.** O modelo existe e é provado com
+  evidência descartável; não há OFX, CNAB, API bancária nem provedor ligado.
+  `REAL AUTO-RECONCILIATION = BLOCKED_BY_SOURCE`.
+
+### Módulo de Finanças — a interface continua em memória
+
+`src/lib/finance/finance-store.ts` serve a interface de Finanças a partir de
+`mockLedgerEntries` / `mockAPARTitles`. A Fase 7 NÃO a reescreveu: a §88 proíbe
+redesenhar o produto de Finanças, e a §128 autoriza a coexistência. O caminho
+canônico novo (Contrato/Fiscal → Recebível) está ao lado, com tabelas próprias,
+e nada escreve em `apar_title`.
+
+### Defeito legado conhecido — `project_id` das tabelas de Finanças
+
+`apar_title.project_id` e `ledger_entry.project_id` são `uuid`; `projects.id` é
+`text`. As colunas nunca puderam referenciar projeto nenhum. As duas tabelas
+estão vazias, então a conversão seria segura — e não foi feita porque a coluna
+é lida por código de alocação de folha e rateio, fora do escopo auditado da
+fase. Trocar o tipo pareceria conserto e seria mudança de contrato em módulo
+não auditado. O caminho canônico (`finance_receivables.project_id`) nasce
+`text`, com FK composta de mesmo inquilino.
 
 ## Phase 8 — Risks
 Deferred:
@@ -492,14 +541,15 @@ previsto dele. A regra agora mora em
 - **Limpeza do legado.** `contract_milestones.measured_amount` e
   `billing_amount` permanecem. A §70 proíbe removê-los antes de evidência de
   produção provar que é seguro.
-- **Procedência do valor no evento de faturamento (Fase 7).**
-  `createBillingEventFromMilestone` monta o valor com
-  `measured_amount ?? billing_amount`. Isso NÃO viola a §12 — o que se está
-  compondo ali é o valor a FATURAR, e `billing_amount` é o previsto em
-  contrato, que é o significado dele. O que falta é registrar QUAL das duas
-  fontes deu o número: hoje "faturado pelo previsto" e "faturado pelo medido"
-  ficam indistinguíveis depois do fato. Corrigir exige mexer na cadeia de
-  faturamento, que é fronteira da Fase 7.
+- **Procedência do valor no evento de faturamento — RESOLVIDO na Fase 7.**
+  `createBillingEventFromMilestone` deixou de montar o valor com
+  `measured_amount ?? billing_amount` e passou a delegar a
+  `contract_billing_create_from_milestone`, que chama o resolvedor de
+  procedência e grava `amount_source` junto do número. "Faturado pelo previsto"
+  e "faturado pelo medido" deixaram de ser indistinguíveis. Sem medição aceita,
+  sem `measured_amount` e sem regra de direito contratual cadastrada, o evento
+  nasce `UNKNOWN` e visivelmente não faturável — que é a diferença entre não
+  saber e afirmar zero.
 
 ### Prova de fluxo REAL — bloqueada por dado
 

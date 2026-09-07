@@ -295,7 +295,20 @@ describe('as fronteiras que esta fase NÃO cruza', () => {
     expect(all4).not.toMatch(/ALTER TABLE public\.fiscal_jobs/);
     expect(all4).not.toMatch(/DROP TABLE[\s\S]*fiscal_jobs/);
     expect(all4).not.toMatch(/REFERENCES public\.fiscal_jobs/);
-    expect(worker + handlers).not.toContain('fiscal_jobs');
+    /*
+      Sem os comentários. A Fase 7 acrescentou um handler que EXPLICA, na prosa,
+      que a transmissão ao provedor continua em `fiscal_jobs` e não migra para
+      `apex_jobs` — que é esta mesma fronteira, escrita para quem for ler o
+      código depois. Ler o arquivo inteiro faria a explicação da regra reprovar
+      a regra.
+
+      O que a asserção guarda é o ATO: nenhum caminho do trabalhador do Apex
+      consulta, insere ou atualiza a fila do Fiscal.
+    */
+    const code = (worker + handlers)
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')
+      .replace(/^[^\n'"`]*\/\/[^\n]*/gm, ' ');
+    expect(code).not.toContain('fiscal_jobs');
   });
 
   it('o cron do Ponto ficou intacto', () => {
@@ -337,7 +350,20 @@ describe('as fronteiras que esta fase NÃO cruza', () => {
     expect(code).not.toContain('approval_decide');
     expect(code).not.toContain('approval_request_create');
     expect(code).not.toMatch(/'APPROVED'|'REJECTED'/);
-    expect(code).not.toMatch(/measurement_accept|billing_release/i);
+    /*
+      A Fase 7 acrescentou dois handlers que REAGEM a decisões já tomadas:
+      `contract_billing_apply_measurement_accepted` cria um candidato a partir
+      de uma medição que JÁ foi aceita, e `contract_billing_apply_approval`
+      aplica um desfecho que JÁ foi decidido. Nenhum dos dois decide nada.
+
+      Pela mesma razão que fez esta prova deixar de proibir a PALAVRA
+      "aprovação", ela não pode proibir a palavra "measurement_accept": o que
+      se proíbe são os ATOS, e os atos são as chamadas de decisão —
+      `project_measurement_accept(` e `contract_billing_release(`. Nenhum
+      handler as invoca, e é isso que se confere.
+    */
+    expect(code).not.toMatch(/project_measurement_accept\s*\(|'project_measurement_accept'/);
+    expect(code).not.toMatch(/contract_billing_release\s*\(|'contract_billing_release'/);
   });
 
   it('nenhuma tela de Grafo de Eventos ou de Fila foi criada', () => {

@@ -455,12 +455,15 @@ suite('Fase 1 · invariantes vivos no Postgres', () => {
     // A precondição do portão é justamente esta: com dado real, o repontamento
     // exigiria um mapeamento de código revisado por gente.
     await client.query(
+      // `organization_id` passou a ser obrigatório na 135 (Fase 7): a tabela
+      // nasceu sem inquilino e com RLS só por papel, e o endurecimento a
+      // trouxe para o modelo de inquilino do Contracts V2.
       `INSERT INTO ledger_entry
-         (entry_date, description, amount_cents, category_id, cost_center_id,
+         (organization_id, entry_date, description, amount_cents, category_id, cost_center_id,
           business_unit_id, period_key, created_by)
-       VALUES (current_date, '[PHASE1] lançamento que obriga a parar', 100,
+       VALUES ($4, current_date, '[PHASE1] lançamento que obriga a parar', 100,
                (SELECT id FROM management_category LIMIT 1), $1, $2, to_char(current_date, 'YYYY-MM'), $3)`,
-      [fccA, buA, userA]);
+      [fccA, buA, userA, orgA]);
 
     const msg = await refused(() => client.query(STOP_GATE));
     expect(msg).toContain('[105]');
