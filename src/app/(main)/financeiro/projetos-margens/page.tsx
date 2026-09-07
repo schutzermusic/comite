@@ -223,7 +223,7 @@ export default function ProjetosMargensPage() {
           title="Insights de portfólio"
           subtitle="Sinais financeiros e de risco entre projetos"
           insights={[
-            { id: '1', tone: 'positive', title: 'Insight Operations 3D lidera margem', detail: 'PRJ-2026-005 com margem 33.7%, principal contribuidor de EBITDA do trimestre.' },
+            { id: '1', tone: 'positive', title: 'Mapa de Operações lidera margem', detail: 'PRJ-2026-005 com margem 33.7%, principal contribuidor de EBITDA do trimestre.' },
             { id: '2', tone: 'negative', title: 'PRJ-2026-002 em risco', detail: 'Health 62 e mobilização adicional pressionam margem para 16.7%; reavaliar margem-alvo.' },
             { id: '3', tone: 'warning',  title: 'Squad Outsourcing Q4 com déficit', detail: 'PRJ-2025-098 fechou com margem negativa (–5.3%) — não renovar nesse formato.' },
             { id: '4', tone: 'neutral',  title: 'Forecast cost vs Realizado', detail: 'Variação média entre forecast e custo de +3.4%; cadência de reforecast quinzenal recomendada.' },

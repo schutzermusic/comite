@@ -6739,3 +6739,74 @@ html.light .investor-projection-field--forecast:disabled {
   border-color: color-mix(in srgb, var(--ig-accent) 70%, transparent);
   background-color: color-mix(in srgb, var(--ig-accent) 14%, transparent);
 }
+
+/* Login é canvas escuro permanente — não herda remap de .light .text-white */
+.login-screen .login-input,
+.login-screen .login-input:-webkit-autofill,
+.login-screen .login-input:-webkit-autofill:hover,
+.login-screen .login-input:-webkit-autofill:focus,
+html.light .login-screen .login-input,
+html.light .login-screen .login-input.text-white,
+html.light .login-screen .login-input:-webkit-autofill,
+html.light .login-screen .login-input:-webkit-autofill:hover,
+html.light .login-screen .login-input:-webkit-autofill:focus {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+  caret-color: #ffffff;
+}
+
+.login-screen .login-input::placeholder,
+html.light .login-screen .login-input::placeholder,
+html.light .login-screen .placeholder\:text-white\/30::placeholder {
+  color: rgb(255 255 255 / 0.45) !important;
+  -webkit-text-fill-color: rgb(255 255 255 / 0.45) !important;
+}
+
+/* Legenda do mapa 3D: frases brancas, inclusive no tema claro */
+.ig-ops-map .ig-ops-legend,
+.ig-ops-map .ig-ops-legend .ig-ops-legend-title,
+.ig-ops-map .ig-ops-legend .ig-ops-legend-item,
+html.light .ig-ops-map .ig-ops-legend,
+html.light .ig-ops-map .ig-ops-legend .ig-ops-legend-title,
+html.light .ig-ops-map .ig-ops-legend .ig-ops-legend-item {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
+/* Cards do inspetor 3D: ícones e textos brancos para leitura sobre o vidro */
+.ig-ops-inspector .ig-ops-hud-inner,
+.ig-ops-inspector .ig-ops-hud-inner .text-ig-fg-strong,
+.ig-ops-inspector .ig-ops-hud-inner .text-ig-fg-muted,
+.ig-ops-inspector .ig-ops-hud-inner .text-ig-caption,
+.ig-ops-inspector .ig-ops-hud-inner .text-ig-accent,
+.ig-ops-inspector .ig-ops-hud-inner .text-ig-danger,
+.ig-ops-inspector .ig-ops-hud-inner .text-ig-warning,
+.ig-ops-inspector .ig-ops-hud-inner svg,
+html.light .ig-ops-inspector .ig-ops-hud-inner,
+html.light .ig-ops-inspector .ig-ops-hud-inner .text-ig-fg-strong,
+html.light .ig-ops-inspector .ig-ops-hud-inner .text-ig-fg-muted,
+html.light .ig-ops-inspector .ig-ops-hud-inner .text-ig-caption,
+html.light .ig-ops-inspector .ig-ops-hud-inner .text-ig-accent,
+html.light .ig-ops-inspector .ig-ops-hud-inner .text-ig-danger,
+html.light .ig-ops-inspector .ig-ops-hud-inner .text-ig-warning,
+html.light .ig-ops-inspector .ig-ops-hud-inner svg {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
+/* Chips do mapa 3D: ícones e textos brancos */
+.ig-ops-map .ig-ops-hud-chip,
+.ig-ops-map .ig-ops-hud-chip svg,
+.ig-ops-map .ig-ops-hud-chip span,
+.ig-ops-map .ig-ops-hud-chip .text-ig-accent,
+.ig-ops-map .ig-ops-hud-chip .text-ig-fg-muted,
+.ig-ops-map .ig-ops-hud-chip .text-ig-fg-strong,
+html.light .ig-ops-map .ig-ops-hud-chip,
+html.light .ig-ops-map .ig-ops-hud-chip svg,
+html.light .ig-ops-map .ig-ops-hud-chip span,
+html.light .ig-ops-map .ig-ops-hud-chip .text-ig-accent,
+html.light .ig-ops-map .ig-ops-hud-chip .text-ig-fg-muted,
+html.light .ig-ops-map .ig-ops-hud-chip .text-ig-fg-strong {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}

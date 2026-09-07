@@ -269,7 +269,7 @@ export function renderReportToHtml(model: ReportModel): string {
     coverKpis: [
       { label: 'Projetos', value: fmtInt(kpis.total) },
       { label: 'Valor do portfólio', value: compactBRL(kpis.totalValue) },
-      { label: 'Health médio', value: `${kpis.avgHealth}%` },
+      { label: 'Saúde média', value: `${kpis.avgHealth}%` },
       { label: 'Críticos', value: fmtInt(kpis.critical) },
     ],
   }), mmForCover(true)));
@@ -279,7 +279,7 @@ export function renderReportToHtml(model: ReportModel): string {
     { label: 'Em andamento', value: fmtInt(kpis.inProgress), color: C.success, helper: `${fmtInt(kpis.completed)} concluídos` },
     { label: 'Valor do portfólio', value: compactBRL(kpis.totalValue), color: C.info },
     { label: 'Impacto alto/crítico', value: fmtInt(kpis.critical), color: kpis.critical ? C.critical : C.success },
-    { label: 'Health médio', value: `${kpis.avgHealth}%`, color: healthColor(kpis.avgHealth) },
+    { label: 'Saúde média', value: `${kpis.avgHealth}%`, color: healthColor(kpis.avgHealth) },
     { label: 'Riscos abertos', value: fmtInt(kpis.openRisks), color: kpis.openRisks ? C.critical : C.success, helper: 'altos/críticos' },
     { label: 'Progresso médio', value: `${kpis.avgProgress}%`, color: C.info },
     { label: 'Tarefas atrasadas', value: fmtInt(kpis.delayed), color: kpis.delayed ? C.warning : C.success },
@@ -288,12 +288,12 @@ export function renderReportToHtml(model: ReportModel): string {
   blocks.push(block(kpiGrid(kpiCards, 4), mmForKpiGrid(8, 4)));
 
   const healthGauge = chartBlock({
-    title: 'Health Médio do Portfólio',
+    title: 'Saúde média do portfólio',
     sub: `${fmtInt(kpis.inProgress)} projetos em andamento`,
     svg: svgGauge(kpis.avgHealth, {
       width: 490,
       height: 124,
-      label: 'Health',
+      label: 'Saúde',
       color: healthColor(kpis.avgHealth),
       bands: [[0, 40, C.critical], [40, 70, C.warning], [70, 100, C.success]],
     }),
@@ -341,7 +341,7 @@ export function renderReportToHtml(model: ReportModel): string {
   }
   if (kpis.openRisks) insights.push({ kind: 'alert', title: 'Riscos altos/críticos abertos', detail: `${fmtInt(kpis.openRisks)} risco(s) de severidade alta ou crítica sem resolução no portfólio.`, value: fmtInt(kpis.openRisks) });
   if (kpis.delayed) insights.push({ kind: 'alert', title: 'Tarefas atrasadas', detail: `${fmtInt(kpis.delayed)} tarefa(s) além do prazo nos projetos do recorte.`, value: fmtInt(kpis.delayed) });
-  if (kpis.avgHealth < 60) insights.push({ kind: 'recommendation', title: 'Revisar projetos de baixa saúde', detail: `Health médio de ${kpis.avgHealth}% — priorizar planos de recuperação nos projetos abaixo de 60.` });
+  if (kpis.avgHealth < 60) insights.push({ kind: 'recommendation', title: 'Revisar projetos de baixa saúde', detail: `Saúde média de ${kpis.avgHealth}% — priorizar planos de recuperação nos projetos abaixo de 60.` });
   if (insights.length) blocks.push(block(insightPanel(insights.slice(0, 4), { cols: 2 }), mmForInsightPanel(Math.min(insights.length, 4), 2)));
 
   /* ── 03 · Tabela do portfólio ── */
@@ -356,7 +356,7 @@ export function renderReportToHtml(model: ReportModel): string {
     [
       { key: 'proj', label: 'Projeto' },
       { key: 'status', label: 'Status' },
-      { key: 'health', label: 'Health', num: true },
+      { key: 'health', label: 'Saúde', num: true },
       { key: 'prog', label: 'Progresso' },
       { key: 'valor', label: 'Valor', num: true },
       { key: 'impacto', label: 'Impacto' },

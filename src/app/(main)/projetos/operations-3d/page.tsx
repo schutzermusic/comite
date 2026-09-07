@@ -11,7 +11,7 @@ import {
   BriefcaseBusiness,
   CalendarClock,
   Clock3,
-  Cuboid,
+  Globe,
   Download,
   Layers3,
   Link2,
@@ -61,7 +61,7 @@ export default function Operations3DPage() {
   const kpis: KpiItem[] = [
     {
       id: "projects-mapped",
-      label: "Projects mapped",
+      label: "Projetos mapeados",
       value: summary.totalProjects,
       deltaLabel: "Projetos conectados ao mapa",
       icon: <MapPinned className="w-5 h-5" />,
@@ -70,7 +70,7 @@ export default function Operations3DPage() {
     },
     {
       id: "active-fronts",
-      label: "Active operational fronts",
+      label: "Frentes operacionais ativas",
       value: summary.activeFronts,
       deltaLabel: "Frentes em execução ou atenção",
       icon: <Zap className="w-5 h-5" />,
@@ -79,7 +79,7 @@ export default function Operations3DPage() {
     },
     {
       id: "critical-alerts",
-      label: "Critical alerts",
+      label: "Alertas críticos",
       value: summary.criticalProjects,
       deltaLabel: `${summary.linkedRisks} riscos vinculados`,
       icon: <ShieldAlert className="w-5 h-5" />,
@@ -89,7 +89,7 @@ export default function Operations3DPage() {
     },
     {
       id: "assets-linked",
-      label: "Assets linked",
+      label: "Ativos vinculados",
       value: summary.assetsLinked,
       deltaLabel: "Ativos, evidências e marcos",
       icon: <Boxes className="w-5 h-5" />,
@@ -98,7 +98,7 @@ export default function Operations3DPage() {
     },
     {
       id: "last-sync",
-      label: "Last sync",
+      label: "Última sincronização",
       value: formatOperationsDate(summary.lastUpdate),
       deltaLabel: "Snapshot operacional",
       icon: <Clock3 className="w-5 h-5" />,
@@ -127,16 +127,16 @@ export default function Operations3DPage() {
 
       <div className="ig-ops3d-live space-y-5">
         <HudHeader
-          title="Insight Operations 3D"
-          subtitle="Digital twin operacional para projetos, ativos e frentes de serviço no território brasileiro."
-          icon={<Cuboid className="h-5 w-5" />}
+          title="Mapa de Operações"
+          subtitle="Operacional dos projetos ativos e frentes de serviço no território brasileiro."
+          icon={<Globe className="h-5 w-5" />}
           iconTint="var(--ig-accent)"
           breadcrumbs={[
             { label: "Projetos", href: "/projetos" },
-            { label: "Insight Operations 3D" },
+            { label: "Mapa de Operações" },
           ]}
           statusChips={[
-            { label: "Brasil focus", variant: "success" },
+            { label: "Foco Brasil", variant: "success" },
             { label: `${summary.totalProjects} projetos`, variant: "info" },
           ]}
           actions={
@@ -322,8 +322,11 @@ function ProjectInspector({
                     <Radar className="h-4 w-4" />
                   </span>
                   <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ig-accent">
-                      Executive overview
+                    <p
+                      className="text-[10px] font-semibold uppercase tracking-[0.12em]"
+                      style={{ color: "#ffffff" }}
+                    >
+                      Visão executiva
                     </p>
                     <h2 className="text-base font-semibold text-ig-fg-strong">Operação Brasil</h2>
                   </div>
@@ -376,7 +379,7 @@ function ProjectInspector({
 function InspectorShell({ children }: { children: React.ReactNode }) {
   return (
     <div
-      className="ig-ops-hud-surface h-full max-h-full overflow-hidden rounded-2xl border border-ig-border-subtle/70 shadow-2xl backdrop-blur-2xl"
+      className="ig-ops-inspector ig-ops-hud-surface h-full max-h-full overflow-hidden rounded-2xl border border-ig-border-subtle/70 shadow-2xl backdrop-blur-2xl"
       style={{
         background:
           "linear-gradient(145deg, color-mix(in oklab, var(--ig-panel) 84%, transparent), color-mix(in oklab, var(--ig-bg-raised) 62%, transparent))",
@@ -452,8 +455,8 @@ function PrintReport({
   return (
     <div className="ig-ops3d-print hidden bg-white p-8 text-slate-950">
       <div className="border-b border-slate-200 pb-5">
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Insight Operations 3D</p>
-        <h1 className="mt-2 text-2xl font-semibold">Relatório operacional do digital twin</h1>
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Mapa de Operações</p>
+        <h1 className="mt-2 text-2xl font-semibold">Relatório operacional do gêmeo digital</h1>
         <p className="mt-1 text-sm text-slate-600">Última atualização: {formatOperationsDate(summary.lastUpdate)}</p>
       </div>
 

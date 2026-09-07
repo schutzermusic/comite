@@ -42,14 +42,14 @@ export function ProjectKpiGrid({ summary, className, onKpiClick, activeKpiIds }:
   const baseKpis: KpiItem[] = [
     {
       id: 'total',
-      label: 'Total Projects',
+      label: 'Total de projetos',
       value: summary.total,
       icon: <Briefcase className="w-5 h-5" />,
       variant: 'info',
     },
     {
       id: 'in-progress',
-      label: 'In Progress',
+      label: 'Em andamento',
       value: summary.inProgress,
       icon: <Activity className="w-5 h-5" />,
       variant: 'success',
@@ -57,7 +57,7 @@ export function ProjectKpiGrid({ summary, className, onKpiClick, activeKpiIds }:
     },
     {
       id: 'value',
-      label: 'Portfolio Value',
+      label: 'Valor do portfólio',
       value: summary.totalValue,
       format: 'compactCurrency',
       icon: <DollarSign className="w-5 h-5" />,
@@ -65,14 +65,14 @@ export function ProjectKpiGrid({ summary, className, onKpiClick, activeKpiIds }:
     },
     {
       id: 'critical',
-      label: 'Critical Projects',
+      label: 'Projetos críticos',
       value: summary.critical,
       icon: <AlertTriangle className="w-5 h-5" />,
       variant: summary.critical > 0 ? 'danger' : 'default',
     },
     {
       id: 'health',
-      label: 'Avg Health',
+      label: 'Saúde média',
       value: summary.avgHealth,
       suffix: '%',
       icon: <Heart className="w-5 h-5" />,
@@ -80,14 +80,14 @@ export function ProjectKpiGrid({ summary, className, onKpiClick, activeKpiIds }:
     },
     {
       id: 'risks',
-      label: 'Open Risks',
+      label: 'Riscos abertos',
       value: summary.openRisks,
       icon: <ShieldAlert className="w-5 h-5" />,
       variant: summary.openRisks > 0 ? 'danger' : 'default',
     },
     {
       id: 'progress',
-      label: 'Avg Progress',
+      label: 'Progresso médio',
       value: summary.avgProgress,
       suffix: '%',
       icon: <TrendingUp className="w-5 h-5" />,
@@ -95,7 +95,7 @@ export function ProjectKpiGrid({ summary, className, onKpiClick, activeKpiIds }:
     },
     {
       id: 'delayed',
-      label: 'Delayed',
+      label: 'Tarefas atrasadas',
       value: summary.delayed,
       icon: <Clock className="w-5 h-5" />,
       variant: summary.delayed > 0 ? 'warning' : 'default',

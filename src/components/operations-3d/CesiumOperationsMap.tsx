@@ -752,6 +752,82 @@ export function CesiumOperationsMap({
         html.dark .ig-ops-map .ig-ops-hud-inner .text-ig-caption {
           color: rgba(226, 244, 248, 0.78) !important;
         }
+        .ig-ops-map .ig-ops-legend,
+        html.light .ig-ops-map .ig-ops-legend,
+        html.dark .ig-ops-map .ig-ops-legend {
+          border-color: color-mix(in oklab, var(--ig-border-subtle) 70%, transparent) !important;
+          background: linear-gradient(
+            145deg,
+            color-mix(in oklab, var(--ig-panel) 84%, transparent),
+            color-mix(in oklab, var(--ig-bg-raised) 62%, transparent)
+          ) !important;
+          box-shadow:
+            0 22px 58px -34px rgba(0, 0, 0, 0.7),
+            inset 0 1px 0 color-mix(in oklab, white 18%, transparent) !important;
+          backdrop-filter: blur(40px) saturate(160%);
+          -webkit-backdrop-filter: blur(40px) saturate(160%);
+        }
+        .ig-ops-map .ig-ops-legend,
+        .ig-ops-map .ig-ops-legend .ig-ops-legend-title,
+        .ig-ops-map .ig-ops-legend .ig-ops-legend-item,
+        html.light .ig-ops-map .ig-ops-legend,
+        html.light .ig-ops-map .ig-ops-legend .ig-ops-legend-title,
+        html.light .ig-ops-map .ig-ops-legend .ig-ops-legend-item,
+        html.dark .ig-ops-map .ig-ops-legend,
+        html.dark .ig-ops-map .ig-ops-legend .ig-ops-legend-title,
+        html.dark .ig-ops-map .ig-ops-legend .ig-ops-legend-item {
+          color: #ffffff !important;
+          -webkit-text-fill-color: #ffffff !important;
+          text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+        }
+        .ig-ops-map .ig-ops-inspector .ig-ops-hud-inner,
+        .ig-ops-map .ig-ops-inspector .ig-ops-hud-inner .text-ig-fg-strong,
+        .ig-ops-map .ig-ops-inspector .ig-ops-hud-inner .text-ig-fg-muted,
+        .ig-ops-map .ig-ops-inspector .ig-ops-hud-inner .text-ig-caption,
+        .ig-ops-map .ig-ops-inspector .ig-ops-hud-inner .text-ig-accent,
+        .ig-ops-map .ig-ops-inspector .ig-ops-hud-inner .text-ig-danger,
+        .ig-ops-map .ig-ops-inspector .ig-ops-hud-inner .text-ig-warning,
+        .ig-ops-map .ig-ops-inspector .ig-ops-hud-inner svg,
+        html.light .ig-ops-map .ig-ops-inspector .ig-ops-hud-inner,
+        html.light .ig-ops-map .ig-ops-inspector .ig-ops-hud-inner .text-ig-fg-strong,
+        html.light .ig-ops-map .ig-ops-inspector .ig-ops-hud-inner .text-ig-fg-muted,
+        html.light .ig-ops-map .ig-ops-inspector .ig-ops-hud-inner .text-ig-caption,
+        html.light .ig-ops-map .ig-ops-inspector .ig-ops-hud-inner .text-ig-accent,
+        html.light .ig-ops-map .ig-ops-inspector .ig-ops-hud-inner .text-ig-danger,
+        html.light .ig-ops-map .ig-ops-inspector .ig-ops-hud-inner .text-ig-warning,
+        html.light .ig-ops-map .ig-ops-inspector .ig-ops-hud-inner svg,
+        html.dark .ig-ops-map .ig-ops-inspector .ig-ops-hud-inner,
+        html.dark .ig-ops-map .ig-ops-inspector .ig-ops-hud-inner .text-ig-fg-strong,
+        html.dark .ig-ops-map .ig-ops-inspector .ig-ops-hud-inner .text-ig-fg-muted,
+        html.dark .ig-ops-map .ig-ops-inspector .ig-ops-hud-inner .text-ig-caption,
+        html.dark .ig-ops-map .ig-ops-inspector .ig-ops-hud-inner .text-ig-accent,
+        html.dark .ig-ops-map .ig-ops-inspector .ig-ops-hud-inner .text-ig-danger,
+        html.dark .ig-ops-map .ig-ops-inspector .ig-ops-hud-inner .text-ig-warning,
+        html.dark .ig-ops-map .ig-ops-inspector .ig-ops-hud-inner svg {
+          color: #ffffff !important;
+          -webkit-text-fill-color: #ffffff !important;
+        }
+        .ig-ops-map .ig-ops-hud-chip,
+        .ig-ops-map .ig-ops-hud-chip svg,
+        .ig-ops-map .ig-ops-hud-chip span,
+        .ig-ops-map .ig-ops-hud-chip .text-ig-accent,
+        .ig-ops-map .ig-ops-hud-chip .text-ig-fg-muted,
+        .ig-ops-map .ig-ops-hud-chip .text-ig-fg-strong,
+        html.light .ig-ops-map .ig-ops-hud-chip,
+        html.light .ig-ops-map .ig-ops-hud-chip svg,
+        html.light .ig-ops-map .ig-ops-hud-chip span,
+        html.light .ig-ops-map .ig-ops-hud-chip .text-ig-accent,
+        html.light .ig-ops-map .ig-ops-hud-chip .text-ig-fg-muted,
+        html.light .ig-ops-map .ig-ops-hud-chip .text-ig-fg-strong,
+        html.dark .ig-ops-map .ig-ops-hud-chip,
+        html.dark .ig-ops-map .ig-ops-hud-chip svg,
+        html.dark .ig-ops-map .ig-ops-hud-chip span,
+        html.dark .ig-ops-map .ig-ops-hud-chip .text-ig-accent,
+        html.dark .ig-ops-map .ig-ops-hud-chip .text-ig-fg-muted,
+        html.dark .ig-ops-map .ig-ops-hud-chip .text-ig-fg-strong {
+          color: #ffffff !important;
+          -webkit-text-fill-color: #ffffff !important;
+        }
       `}</style>
 
       <div ref={containerRef} className="ig-cesium-host absolute inset-0" />
@@ -860,10 +936,10 @@ export function CesiumOperationsMap({
         </button>
       </div>
 
-      <div className="ig-ops-hud-surface absolute bottom-3 left-3 z-30 hidden flex-col gap-1 rounded-lg border border-ig-border-subtle bg-ig-panel/70 px-3 py-2 shadow-xl backdrop-blur-md md:bottom-4 md:left-4 md:flex">
-        <span className="mb-1 text-ig-caption text-ig-fg-muted">Status dos marcadores</span>
+      <div className="ig-ops-hud-surface ig-ops-legend absolute bottom-3 left-3 z-30 hidden flex-col gap-1 rounded-xl border border-ig-border-subtle/70 px-3 py-2 shadow-2xl backdrop-blur-2xl md:bottom-4 md:left-4 md:flex">
+        <span className="ig-ops-legend-title mb-1 text-ig-caption">Status dos marcadores</span>
         {(Object.keys(STATUS_TOKEN) as OperationsProjectStatus[]).map((status) => (
-          <span key={status} className="flex items-center gap-2 text-ig-caption text-ig-fg-muted">
+          <span key={status} className="ig-ops-legend-item flex items-center gap-2 text-ig-caption">
             <span
               className="h-3 w-3"
               style={{

@@ -213,7 +213,7 @@ const navigationItems: MenuItem[] = [
     permission: "projects.view",
     subItems: [
       { href: "/projetos", label: "Visão Geral", icon: Briefcase },
-      { href: "/projetos/operations-3d", label: "Insight Operations 3D", icon: Cuboid },
+      { href: "/projetos/operations-3d", label: "Mapa de Operações", icon: Cuboid },
     ],
   },
   { href: "/reunioes", labelKey: "agenda", icon: Calendar, section: "main", permission: "meetings.view" },
