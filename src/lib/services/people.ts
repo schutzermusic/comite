@@ -5,6 +5,7 @@
  * helpers used by allocations/capacity/timesheet services.
  */
 import { createClient } from '@/utils/supabase/client';
+import { requireActiveOrganizationId } from '@/lib/auth/active-organization';
 import { logAuditEvent } from '@/lib/audit/log-audit-event';
 import type { Person, PersonContractType, PersonSource, PersonStatus } from '@/lib/types/people';
 
@@ -37,16 +38,8 @@ export async function getCurrentOrgAndUser(
   const user = userData?.user;
   if (!user) throw new Error('Não autenticado');
 
-  const { data: profile, error } = await supabase
-    .from('profiles')
-    .select('organization_id')
-    .eq('user_id', user.id)
-    .single();
-
-  if (error || !profile?.organization_id) {
-    throw new Error('Usuário sem organização ativa');
-  }
-  return { userId: user.id, orgId: profile.organization_id as string };
+  const orgId = await requireActiveOrganizationId(supabase);
+  return { userId: user.id, orgId };
 }
 
 /** Mirrors normalize_person_name() from migration 038. */

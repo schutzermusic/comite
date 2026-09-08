@@ -12,6 +12,7 @@ import { getDefaultRouteForRole, getHighestPriorityRole } from '@/lib/auth/roles
 import type { Role } from '@/lib/auth/types';
 import { PRODUCT_NAME, PRODUCT_TAGLINE, PRODUCT_SIGNATURE } from '@/lib/branding';
 import { cn } from '@/lib/utils';
+import { resolveActiveOrganization } from '@/lib/auth/active-organization';
 
 type UserRoleRow = {
   roles: Pick<Role, 'key'> | null;
@@ -110,11 +111,18 @@ export default function LoginPage() {
       return;
     }
 
+    const active = await resolveActiveOrganization(supabase);
+    if (active.kind !== 'ACTIVE') {
+      router.replace('/configuracoes/organizacoes');
+      router.refresh();
+      return;
+    }
+
     const { data: userRoles } = await supabase
       .from('user_roles')
       .select('roles(key)')
       .eq('user_id', data.user.id)
-      .eq('organization_id', profile.organization_id)
+      .eq('organization_id', active.organizationId)
       .returns<UserRoleRow[]>();
 
     const rawNextParam = new URLSearchParams(window.location.search).get('next');

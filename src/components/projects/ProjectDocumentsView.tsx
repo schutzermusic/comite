@@ -16,6 +16,8 @@ import { createClient } from '@/utils/supabase/client';
 
 interface ProjectFileRow {
   id: string;
+  bucket_id: string;
+  object_path: string;
   file_name: string;
   public_url: string | null;
   content_type: string | null;
@@ -24,6 +26,7 @@ interface ProjectFileRow {
   document_type: string | null;
   timeline_item_id: string | null;
   created_at: string;
+  download_url?: string | null;
 }
 
 function fmtSize(bytes: number | null): string {
@@ -48,12 +51,20 @@ export function ProjectDocumentsView({ projectId }: { projectId: string }) {
       const supabase = createClient();
       const { data, error } = await supabase
         .from('project_files')
-        .select('id, file_name, public_url, content_type, file_size, category, document_type, timeline_item_id, created_at')
+        .select('id, bucket_id, object_path, file_name, public_url, content_type, file_size, category, document_type, timeline_item_id, created_at')
         .eq('project_id', projectId)
         .neq('category', 'logo')
         .order('created_at', { ascending: false });
       if (error) throw new Error(error.message);
-      setFiles((data ?? []) as ProjectFileRow[]);
+      const rows = (data ?? []) as ProjectFileRow[];
+      const withUrls = await Promise.all(rows.map(async (row) => {
+        if (row.public_url) return { ...row, download_url: row.public_url };
+        const { data: signed } = await supabase.storage
+          .from(row.bucket_id)
+          .createSignedUrl(row.object_path, 300);
+        return { ...row, download_url: signed?.signedUrl ?? null };
+      }));
+      setFiles(withUrls);
     } catch (e) {
       console.error('[ProjectDocumentsView]', e instanceof Error ? e.message : e);
     } finally {
@@ -133,8 +144,8 @@ export function ProjectDocumentsView({ projectId }: { projectId: string }) {
                   <td className="px-4 py-2">
                     <span className="flex items-center gap-2">
                       <FileText className="h-4 w-4 shrink-0 text-ig-fg-muted" />
-                      {f.public_url ? (
-                        <a href={f.public_url} target="_blank" rel="noreferrer" className="text-ig-accent hover:underline">
+                      {f.download_url ? (
+                        <a href={f.download_url} target="_blank" rel="noreferrer" className="text-ig-accent hover:underline">
                           {f.file_name}
                         </a>
                       ) : (

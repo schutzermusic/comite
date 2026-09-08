@@ -18,7 +18,7 @@ const asRole=(uid,sql)=>`SET LOCAL ROLE authenticated; SELECT set_config('reques
 const q=async(uid,sql)=>{const r=await c.query(asRole(uid,sql));const l=Array.isArray(r)?r:[r];return l[l.length-2].rows;};
 
 console.log('=== FUMAÇA DE PRODUÇÃO — FASE 7.5 ===');
-must('ponta do registro é 148', (await one(`SELECT version FROM supabase_migrations.schema_migrations ORDER BY version::int DESC LIMIT 1`)).version==='148');
+must('ponta do registro é 150', (await one(`SELECT version FROM supabase_migrations.schema_migrations ORDER BY version::int DESC LIMIT 1`)).version==='150');
 const prod=await c.query(`SELECT id,name,slug,status,enterprise_account_id FROM organizations WHERE status='active'`);
 must('exatamente 1 organização ATIVA em produção', prod.rowCount===1, prod.rows.map(r=>r.name).join(', '));
 const org=prod.rows[0];
@@ -62,6 +62,14 @@ must('RPCs de tenancy fora do alcance de anon',
     WHERE ns.nspname='public' AND has_function_privilege('anon',p.oid,'EXECUTE')
       AND p.proname IN ('organization_switch','organization_provision','my_organizations',
         'organization_membership_set_status','organization_set_lifecycle_status','organization_readiness')`)).n)===0);
+must('nenhuma SECURITY DEFINER ao alcance de anon',
+  Number((await one(`SELECT count(*)::int n FROM pg_proc p JOIN pg_namespace ns ON ns.oid=p.pronamespace
+    WHERE ns.nspname='public' AND p.prosecdef AND has_function_privilege('anon',p.oid,'EXECUTE')`)).n)===0);
+must('documentos de projeto usam bucket privado',
+  (await one(`SELECT public FROM storage.buckets WHERE id='project-documents'`)).public===false);
+must('bucket público de logos não aceita PDF',
+  !(await one(`SELECT allowed_mime_types @> ARRAY['application/pdf']::text[] accepts_pdf
+    FROM storage.buckets WHERE id='project-files'`)).accepts_pdf);
 must('nenhuma organização de teste ATIVA sobrou',
   Number((await one(`SELECT count(*)::int n FROM organizations WHERE status='active' AND (name LIKE '[P75]%' OR name LIKE '[P7XT]%' OR name LIKE '[P148]%' OR name LIKE '[PB]%')`)).n)===0);
 must('nenhum fato operacional em organização não-produção',

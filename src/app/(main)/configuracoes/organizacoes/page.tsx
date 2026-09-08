@@ -105,6 +105,8 @@ export default function OrganizacoesPage() {
             <p className="text-ig-body-sm text-ig-fg-muted" data-testid="access-state">
               {accessState === "NO_ORGANIZATION" &&
                 "Você não tem vínculo com nenhuma organização. Peça um convite ao administrador do grupo."}
+              {accessState === "SELECTION_REQUIRED" &&
+                "Selecione explicitamente a organização em que deseja trabalhar."}
               {accessState === "NO_MEMBERSHIP" &&
                 "Nenhum vínculo ativo. Peça ao administrador do grupo para reativar seu acesso."}
               {accessState === "MEMBERSHIP_SUSPENDED" &&
@@ -149,6 +151,7 @@ export default function OrganizacoesPage() {
               return (
                 <li
                   key={option.organization_id}
+                  data-organization-id={option.organization_id}
                   className={cn(
                     "flex items-center gap-3 rounded-[var(--ig-radius-md)] border border-ig-border px-3 py-2.5",
                     active && "border-ig-accent bg-ig-accent-weak",

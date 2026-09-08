@@ -60,11 +60,13 @@ suite('Fase 7.5 · fronteira multi-organização', () => {
   let outsider: string;         // membro só de orgForeign
   let revoked: string;          // tinha vínculo em A; será revogado
   let suspended: string;        // vínculo em A; será suspenso
+  let failoverMember: string;   // vínculos em A+B; prova de no-silent-switch
 
   let contractA: string; let contractB: string;
   let milestoneA: string; let billingA: string; let receivableA: string;
   let projectA: string; let partyA: string;
   let storagePathA: string;
+  let projectDocumentPathA: string;
 
   const asRole = (uid: string, sql: string) =>
     `SET LOCAL ROLE authenticated;`
@@ -142,6 +144,7 @@ suite('Fase 7.5 · fronteira multi-organização', () => {
     outsider = await mkUser('outsider');         await link(outsider, orgForeign);   await grant(outsider, orgForeign, 'owner_admin');
     revoked = await mkUser('revoked');           await link(revoked, orgA);
     suspended = await mkUser('suspended');       await link(suspended, orgA);
+    failoverMember = await mkUser('failover');   await link(failoverMember, orgA); await link(failoverMember, orgB);
 
     await db.query(
       `INSERT INTO enterprise_account_memberships (enterprise_account_id, user_id, role, status, granted_basis)
@@ -186,6 +189,17 @@ suite('Fase 7.5 · fronteira multi-organização', () => {
     await db.query(
       `INSERT INTO contract_files (organization_id, contract_id, file_path, file_name, uploaded_by)
        VALUES ($1,$2,$3,$4,$5)`, [orgA, contractA, storagePathA, `${SECRET_MARK}.pdf`, memberA]);
+
+    projectDocumentPathA = `${orgA}/${projectA}/1700000000000-document-${SECRET_MARK}.pdf`;
+    await db.query(
+      `INSERT INTO storage.objects (bucket_id, name, owner)
+       VALUES ('project-documents', $1, $2)`, [projectDocumentPathA, memberA]);
+    await db.query(
+      `INSERT INTO project_files
+         (organization_id, project_id, bucket_id, object_path, public_url, file_name,
+          content_type, file_size, category, created_by)
+       VALUES ($1,$2,'project-documents',$3,NULL,$4,'application/pdf',128,'document',$5)`,
+      [orgA, projectA, projectDocumentPathA, `${SECRET_MARK}.pdf`, memberA]);
   }, 180_000);
 
   afterAll(async () => {
@@ -232,6 +246,9 @@ suite('Fase 7.5 · fronteira multi-organização', () => {
         [[eaHome, eaForeign]]);
       await db.query(`UPDATE organizations SET status='archived', archived_at=now()
                        WHERE id = ANY($1) AND status <> 'archived'`, [created]);
+      await db.query(
+        `DELETE FROM profiles p USING auth.users u
+          WHERE p.user_id=u.id AND u.email LIKE $1`, [`p75.%.${sfx}@example.test`]);
       /*
         Só saem as identidades que NÃO agiram. Quem agiu deixou linha em
         `audit_logs`, que é append-only e referencia o ator: apagar a pessoa
@@ -332,6 +349,13 @@ suite('Fase 7.5 · fronteira multi-organização', () => {
       expect(await countAs(multiMember, `SELECT count(*)::int n FROM contracts WHERE id='${contractB}'`)).toBe(0);
     });
 
+    it('sem seleção armazenada, múltiplos vínculos não escolhem um silenciosamente', async () => {
+      await db.query(`DELETE FROM user_active_organization WHERE user_id=$1`, [failoverMember]);
+      expect((await callAs(failoverMember, `SELECT current_user_organization_id() AS org`)).org).toBeNull();
+      await callAs(failoverMember, `SELECT organization_switch('${orgA}') AS r`);
+      expect((await callAs(failoverMember, `SELECT current_user_organization_id() AS org`)).org).toBe(orgA);
+    });
+
     it('trocar para organização sem vínculo é recusado com a MESMA resposta de inexistente', async () => {
       const foreign = await refusedAs(memberA, `SELECT organization_switch('${orgForeign}')`);
       const nonexistent = await refusedAs(memberA, `SELECT organization_switch(gen_random_uuid())`);
@@ -355,6 +379,61 @@ suite('Fase 7.5 · fronteira multi-organização', () => {
 
   // ══════════════════════════════════════════════════════════════════════
   describe('revogação e suspensão derrubam o acesso', () => {
+    it('perder A não promove B e uma mutação com contexto obsoleto não cai em B', async () => {
+      await callAs(failoverMember, `SELECT organization_switch('${orgA}') AS r`);
+      await callAs(memberA,
+        `SELECT organization_membership_set_status('${orgA}','${failoverMember}','REVOKED','[P149] red-team')`);
+
+      expect((await callAs(failoverMember, `SELECT current_user_organization_id() AS org`)).org).toBeNull();
+      const landed = await countAs(failoverMember,
+        `WITH i AS (
+           INSERT INTO contracts (organization_id,title,status,currency,data_class)
+           SELECT public.current_user_organization_id(),'[P149] stale','active','BRL','demo'
+            WHERE public.current_user_organization_id() IS NOT NULL
+           RETURNING organization_id
+         ) SELECT count(*)::int n FROM i WHERE organization_id='${orgB}'`);
+      expect(landed).toBe(0);
+
+      await callAs(failoverMember, `SELECT organization_switch('${orgB}') AS r`);
+      expect((await callAs(failoverMember, `SELECT current_user_organization_id() AS org`)).org).toBe(orgB);
+
+      // Restaura A explicitamente para as provas de suspensão/arquivo abaixo.
+      await callAs(memberA,
+        `SELECT organization_membership_set_status('${orgA}','${failoverMember}','ACTIVE','[P149] restore')`);
+    });
+
+    it('suspender o vínculo ativo exige switch explícito para B', async () => {
+      await callAs(failoverMember, `SELECT organization_switch('${orgA}') AS r`);
+      await callAs(memberA,
+        `SELECT organization_membership_set_status('${orgA}','${failoverMember}','SUSPENDED','[P149] red-team')`);
+      expect((await callAs(failoverMember, `SELECT current_user_organization_id() AS org`)).org).toBeNull();
+      await callAs(failoverMember, `SELECT organization_switch('${orgB}') AS r`);
+      expect((await callAs(failoverMember, `SELECT current_user_organization_id() AS org`)).org).toBe(orgB);
+      await callAs(memberA,
+        `SELECT organization_membership_set_status('${orgA}','${failoverMember}','ACTIVE','[P149] restore')`);
+    });
+
+    it('arquivar a organização ativa não promove B', async () => {
+      await callAs(failoverMember, `SELECT organization_switch('${orgA}') AS r`);
+      await callAs(enterpriseAdmin,
+        `SELECT organization_set_lifecycle_status('${orgA}','archived','[P149] red-team')`);
+      expect((await callAs(failoverMember, `SELECT current_user_organization_id() AS org`)).org).toBeNull();
+      await callAs(enterpriseAdmin,
+        `SELECT organization_set_lifecycle_status('${orgA}','active','[P149] restore')`);
+      await callAs(failoverMember, `SELECT organization_switch('${orgB}') AS r`);
+      expect((await callAs(failoverMember, `SELECT current_user_organization_id() AS org`)).org).toBe(orgB);
+    });
+
+    it('PROFILE_PROJECTION não ressuscita vínculo SUSPENDED', async () => {
+      await db.query(`UPDATE organization_memberships SET status='SUSPENDED', disabled_at=now()
+                       WHERE user_id=$1 AND organization_id=$2`, [failoverMember, orgA]);
+      await db.query(
+        `INSERT INTO profiles (user_id, organization_id, full_name, status)
+         VALUES ($1,$2,'[P149] Suspended','active')`, [failoverMember, orgA]);
+      expect((await scalar(
+        `SELECT status FROM organization_memberships WHERE user_id=$1 AND organization_id=$2`,
+        [failoverMember, orgA])).status).toBe('SUSPENDED');
+    });
     it('vínculo REVOGADO perde o contexto e os dados no ato', async () => {
       expect((await callAs(revoked, `SELECT current_user_organization_id() AS org`)).org).toBe(orgA);
       await db.query(`UPDATE organization_memberships SET status='REVOKED', disabled_at=now()
@@ -398,8 +477,9 @@ suite('Fase 7.5 · fronteira multi-organização', () => {
     });
 
     it('organização SUSPENSA deixa de render contexto e de aceitar escrita', async () => {
+      await callAs(multiMember, `SELECT organization_switch('${orgB}') AS r`);
       await db.query(`UPDATE organizations SET status='suspended', suspended_at=now() WHERE id=$1`, [orgB]);
-      expect((await callAs(multiMember, `SELECT current_user_organization_id() AS org`)).org).toBe(orgA);
+      expect((await callAs(multiMember, `SELECT current_user_organization_id() AS org`)).org).toBeNull();
       const inserted = await countAs(multiMember,
         `WITH i AS (INSERT INTO contracts (organization_id,title,status,currency)
                     SELECT '${orgB}','[P75] proibido','active','BRL'
@@ -407,6 +487,7 @@ suite('Fase 7.5 · fronteira multi-organização', () => {
          SELECT count(*)::int n FROM i`);
       expect(inserted).toBe(0);
       await db.query(`UPDATE organizations SET status='active', suspended_at=NULL WHERE id=$1`, [orgB]);
+      await callAs(multiMember, `SELECT organization_switch('${orgA}') AS r`);
     });
   });
 
@@ -506,10 +587,21 @@ suite('Fase 7.5 · fronteira multi-organização', () => {
 
     it('provisionamento concorrente com a mesma chave não cria duas organizações', async () => {
       const key = `p75-race-${sfx}`;
-      const call = () => db.query(asRole(enterpriseAdmin,
-        `SELECT organization_provision('[P75] Corrida ${sfx}',NULL,NULL,NULL,NULL,NULL,'${key}','${eaHome}') AS r`))
-        .then(() => 'ok').catch((e: Error) => e.message);
-      await Promise.all([call(), call(), call()]);
+      const call = async () => {
+        const connection = new pg.Client({ connectionString: DB_URL, ssl: { rejectUnauthorized: false } });
+        await connection.connect();
+        try {
+          const result = await connection.query(asRole(enterpriseAdmin,
+            `SELECT organization_provision('[P75] Corrida ${sfx}',NULL,NULL,NULL,NULL,NULL,'${key}','${eaHome}') AS r`));
+          const list = Array.isArray(result) ? result : [result];
+          return list[list.length - 2].rows[0].r as Record<string, unknown>;
+        } finally {
+          await connection.end();
+        }
+      };
+      const results = await Promise.all([call(), call(), call()]);
+      expect(new Set(results.map((result) => result.organization_id)).size).toBe(1);
+      expect(results.filter((result) => result.idempotent_replay === false)).toHaveLength(1);
       expect(Number((await scalar(
         `SELECT count(*)::int n FROM organizations WHERE provisioning_idempotency_key = $1`, [key])).n))
         .toBe(1);
@@ -539,6 +631,33 @@ suite('Fase 7.5 · fronteira multi-organização', () => {
 
   // ══════════════════════════════════════════════════════════════════════
   describe('Storage, Event Graph, jobs e Aprovação', () => {
+    it('documento de projeto fica no bucket privado e respeita RLS de A', async () => {
+      const bucket = await scalar(
+        `SELECT public FROM storage.buckets WHERE id='project-documents'`);
+      expect(bucket.public).toBe(false);
+      expect(await countAs(memberA,
+        `SELECT count(*)::int n FROM storage.objects
+          WHERE bucket_id='project-documents' AND name='${projectDocumentPathA}'`)).toBe(1);
+      expect(await countAs(outsider,
+        `SELECT count(*)::int n FROM storage.objects
+          WHERE bucket_id='project-documents' AND name='${projectDocumentPathA}'`)).toBe(0);
+      expect(await countAs(outsider,
+        `SELECT count(*)::int n FROM project_files WHERE object_path='${projectDocumentPathA}'`)).toBe(0);
+    });
+
+    it('documento não pode ser disfarçado no bucket público de logos', async () => {
+      const path = `${orgA}/${projectA}/1700000000001-document-forjado.pdf`;
+      expect(await refusedAs(memberA,
+        `INSERT INTO storage.objects (bucket_id,name,owner)
+         VALUES ('project-files','${path}','${memberA}')`)).toContain('row-level security');
+      expect(await refusedAs(memberA,
+        `INSERT INTO project_files
+           (organization_id,project_id,bucket_id,object_path,public_url,file_name,category,created_by)
+         VALUES ('${orgA}','${projectA}','project-files','${path}',
+                 'https://public.invalid/forjado.pdf','forjado.pdf','document','${memberA}')`))
+        .toContain('row-level security');
+    });
+
     it('objeto de Storage de A é invisível para quem não é de A', async () => {
       expect(await countAs(memberA,
         `SELECT count(*)::int n FROM storage.objects WHERE name='${storagePathA}'`)).toBe(1);
@@ -594,6 +713,51 @@ suite('Fase 7.5 · fronteira multi-organização', () => {
 
   // ══════════════════════════════════════════════════════════════════════
   describe('auditoria permanente da superfície SECURITY DEFINER', () => {
+    it('admin de A não altera papel nem permissão de papel de outra organização', async () => {
+      await db.query('BEGIN');
+      try {
+        const foreignRole = (await scalar(
+          `INSERT INTO roles (organization_id,key,name,is_system_role)
+           VALUES ($1,$2,'[P149] before',false) RETURNING id`,
+          [orgForeign, `p149-foreign-${sfx}`])).id;
+        const permission = (await scalar(`SELECT id FROM permissions ORDER BY key LIMIT 1`)).id;
+
+        expect(await countAs(memberA,
+          `WITH u AS (UPDATE roles SET name='[P149] after' WHERE id='${foreignRole}' RETURNING 1)
+           SELECT count(*)::int n FROM u`)).toBe(0);
+        expect(await refusedAs(memberA,
+          `INSERT INTO role_permissions(role_id,permission_id)
+           VALUES ('${foreignRole}','${permission}') ON CONFLICT DO NOTHING`)).toContain('row-level security');
+      } finally {
+        await db.query('ROLLBACK');
+      }
+    });
+
+    it('admin de A não lê nem apaga escopo de jornada derivado de outra organização', async () => {
+      await db.query('BEGIN');
+      try {
+        const person = (await scalar(
+          `INSERT INTO people(organization_id,full_name,status)
+           VALUES ($1,'[P149] Foreign Person','active') RETURNING id`, [orgForeign])).id;
+        const project = `p149-foreign-${sfx}`;
+        await db.query(`INSERT INTO projects(id,organization_id,project) VALUES($1,$2,'{}'::jsonb)`,
+          [project, orgForeign]);
+        const scope = (await scalar(
+          `INSERT INTO journey_manager_scopes(organization_id,manager_person_id,access_mode)
+           VALUES($1,$2,'projects') RETURNING id`, [orgForeign, person])).id;
+        await db.query(`INSERT INTO journey_manager_scope_projects(scope_id,project_id) VALUES($1,$2)`,
+          [scope, project]);
+
+        expect(await countAs(memberA,
+          `SELECT count(*)::int n FROM journey_manager_scope_projects WHERE scope_id='${scope}'`)).toBe(0);
+        expect(await countAs(memberA,
+          `WITH d AS (DELETE FROM journey_manager_scope_projects WHERE scope_id='${scope}' RETURNING 1)
+           SELECT count(*)::int n FROM d`)).toBe(0);
+      } finally {
+        await db.query('ROLLBACK');
+      }
+    });
+
     it('nenhuma função DEFINER alcançável pelo navegador sem search_path fixo', async () => {
       const { rows } = await db.query(
         `SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
@@ -604,16 +768,11 @@ suite('Fase 7.5 · fronteira multi-organização', () => {
       expect(rows.map((r) => r.proname)).toEqual([]);
     });
 
-    it('nenhuma RPC de tenancy da fase é alcançável por anon', async () => {
+    it('nenhuma função SECURITY DEFINER é alcançável por anon', async () => {
       const { rows } = await db.query(
         `SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
           WHERE n.nspname='public' AND has_function_privilege('anon',p.oid,'EXECUTE')
-            AND p.proname IN ('organization_switch','organization_provision','my_organizations',
-                              'organization_membership_set_status','organization_set_lifecycle_status',
-                              'organization_readiness','current_user_is_organization_member',
-                              'current_user_enterprise_admin_accounts',
-                              'current_user_can_provision_organizations',
-                              'current_user_enterprise_account_id')`);
+            AND p.prosecdef`);
       expect(rows.map((r) => r.proname)).toEqual([]);
     });
 

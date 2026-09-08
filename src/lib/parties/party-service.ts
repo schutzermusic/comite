@@ -24,6 +24,7 @@
  */
 
 import { createClient } from '@/utils/supabase/client';
+import { requireActiveOrganizationId } from '@/lib/auth/active-organization';
 import { logAuditEvent } from '@/lib/audit/log-audit-event';
 import {
   normalizeDocument,
@@ -57,16 +58,8 @@ async function getCurrentIdentity() {
   if (userError) throw new Error(`Erro ao carregar usuario autenticado: ${userError.message}`);
   if (!user) throw new Error('Usuario autenticado requerido para contrapartes.');
 
-  const { data: profile, error: profileError } = await supabase
-    .from('profiles')
-    .select('organization_id')
-    .eq('user_id', user.id)
-    .maybeSingle<{ organization_id: string | null }>();
-
-  if (profileError) throw new Error(`Erro ao carregar organizacao do usuario: ${profileError.message}`);
-  if (!profile?.organization_id) throw new Error('Usuario sem organizacao ativa.');
-
-  return { supabase, user, organizationId: profile.organization_id };
+  const organizationId = await requireActiveOrganizationId(supabase);
+  return { supabase, user, organizationId };
 }
 
 /** Contrapartes ativas do inquilino da sessão, em ordem de razão social. */

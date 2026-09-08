@@ -8,6 +8,7 @@
  */
 
 import { createClient } from '@/utils/supabase/client';
+import { requireActiveOrganizationId } from '@/lib/auth/active-organization';
 import type { AgendaAttachment } from '@/lib/types/agenda';
 
 const BUCKET = 'agenda-attachments';
@@ -46,13 +47,7 @@ async function getOrgId(): Promise<string> {
   const { data: userData } = await supabase.auth.getUser();
   const user = userData?.user;
   if (!user) throw new Error('Não autenticado');
-  const { data: profile, error } = await supabase
-    .from('profiles')
-    .select('organization_id')
-    .eq('user_id', user.id)
-    .single();
-  if (error || !profile?.organization_id) throw new Error('Usuário sem organização ativa');
-  return profile.organization_id as string;
+  return requireActiveOrganizationId(supabase);
 }
 
 export async function listAttachments(

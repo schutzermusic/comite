@@ -33,6 +33,18 @@ export async function resolveActiveOrganization(
 }
 
 /**
+ * Fonte única para serviços cliente que precisam gravar no tenant ativo.
+ * Nunca volta a `profiles.organization_id`: sem seleção segura, falha fechado.
+ */
+export async function requireActiveOrganizationId(
+  supabase: SupabaseClient,
+): Promise<string> {
+  const state = await resolveActiveOrganization(supabase);
+  if (state.kind !== 'ACTIVE') throw new Error('Usuário sem organização ativa');
+  return state.organizationId;
+}
+
+/**
  * Forma compatível com o que as rotas liam de `profiles`, para que a migração
  * dos 19 pontos de leitura fosse uma troca de fonte e não uma reescrita de
  * lógica em cada rota.
@@ -71,6 +83,7 @@ export async function listMyOrganizations(
  */
 export type OrganizationAccessState =
   | 'ACTIVE'
+  | 'SELECTION_REQUIRED'
   | 'NO_ORGANIZATION'
   | 'NO_MEMBERSHIP'
   | 'MEMBERSHIP_SUSPENDED'
@@ -83,6 +96,9 @@ export function deriveAccessState(
 ): OrganizationAccessState {
   if (activeOrganizationId) return 'ACTIVE';
   if (options.length === 0) return 'NO_ORGANIZATION';
+  if (options.some((o) => o.membership_status === 'ACTIVE' && o.status === 'active')) {
+    return 'SELECTION_REQUIRED';
+  }
   if (options.some((o) => o.membership_status === 'SUSPENDED')) return 'MEMBERSHIP_SUSPENDED';
   if (options.some((o) => o.status === 'archived')) return 'ORGANIZATION_ARCHIVED';
   if (options.some((o) => o.status === 'suspended')) return 'ORGANIZATION_SUSPENDED';

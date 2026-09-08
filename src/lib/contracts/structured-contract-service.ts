@@ -1,6 +1,7 @@
 'use client';
 
 import { createClient } from '@/utils/supabase/client';
+import { requireActiveOrganizationId } from '@/lib/auth/active-organization';
 import type { ContractRow } from './contract-service';
 import {
   assertContractDate, resolveContractAsOf,
@@ -20,10 +21,7 @@ export async function loadContractAsOf(contractId: string, date: string) {
   const client = createClient();
   const { data: { user }, error: authError } = await client.auth.getUser();
   if (authError || !user) throw new Error('Sessão autenticada necessária para consultar o contrato.');
-  const { data: profile, error: profileError } = await client.from('profiles')
-    .select('organization_id').eq('user_id', user.id).single();
-  if (profileError || !profile?.organization_id) throw new Error('Organização do contrato não determinada.');
-  const organizationId: string = profile.organization_id;
+  const organizationId = await requireActiveOrganizationId(client);
 
   const rows = async <T>(table: string, column: string, ids: string[]): Promise<T[]> => {
     if (!ids.length) return [];
@@ -84,10 +82,8 @@ export async function appendContractFact<T extends keyof import('./structured-co
   const client = createClient();
   const { data: { user }, error: authError } = await client.auth.getUser();
   if (authError || !user) throw new Error('Sessão autenticada necessária.');
-  const { data: profile, error: profileError } = await client.from('profiles').select('organization_id')
-    .eq('user_id', user.id).single();
-  if (profileError || !profile?.organization_id) throw new Error('Organização não determinada.');
-  const { data, error } = await client.from(table).insert({ ...input, organization_id: profile.organization_id, created_by: user.id })
+  const organizationId = await requireActiveOrganizationId(client);
+  const { data, error } = await client.from(table).insert({ ...input, organization_id: organizationId, created_by: user.id })
     .select('*').single();
   if (error || !data) throw new Error(`Falha ao registrar requisito contratual: ${error?.message ?? 'registro não retornado'}`);
   return data as import('./structured-contract-types').ContractStructuredTableRows[T];
