@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { getActiveOrganizationRow } from '@/lib/auth/active-organization';
 import { createClient } from '@/utils/supabase/server';
 import { getServiceClient } from '@/lib/ai/server-clients';
 import { requireApiPermission } from '@/lib/auth/api-guard';
@@ -44,11 +45,7 @@ async function handleDelete(
   const supabase = await createClient();
   const service = getServiceClient();
 
-  const { data: actorProfile } = await supabase
-    .from('profiles')
-    .select('organization_id')
-    .eq('user_id', guard.userId)
-    .maybeSingle();
+  const actorProfile = await getActiveOrganizationRow(supabase);
   if (!actorProfile?.organization_id) {
     return NextResponse.json({ ok: false, error: 'Perfil do admin sem organização' }, { status: 403 });
   }

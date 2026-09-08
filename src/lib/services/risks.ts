@@ -1,4 +1,5 @@
 import { createClient } from '@/utils/supabase/client';
+import { requireActiveOrganizationId } from '@/lib/auth/active-organization';
 import type {
   ExtendedRisk,
   RiskAction,
@@ -104,16 +105,8 @@ async function getCurrentOrgAndUser(
   const user = userData?.user;
   if (!user) throw new Error('Não autenticado');
 
-  const { data: profile, error } = await supabase
-    .from('profiles')
-    .select('organization_id')
-    .eq('user_id', user.id)
-    .single();
-
-  if (error || !profile?.organization_id) {
-    throw new Error('Usuário sem organização ativa');
-  }
-  return { userId: user.id, orgId: profile.organization_id as string };
+  const orgId = await requireActiveOrganizationId(supabase);
+  return { userId: user.id, orgId };
 }
 
 /**

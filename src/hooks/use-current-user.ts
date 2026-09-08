@@ -2,7 +2,15 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { createClient } from '@/utils/supabase/client';
+import {
+  deriveAccessState,
+  listMyOrganizations,
+  resolveActiveOrganization,
+} from '@/lib/auth/active-organization';
 import type { CurrentUserContext, Organization, PermissionKey, Profile, Role } from '@/lib/auth/types';
+
+const ORGANIZATION_COLUMNS =
+  'id,name,slug,status,workspace_name,logo_url,brand_color,email_from_name,notification_name,branding_enabled,enterprise_account_id,legal_name,country_code,default_currency,timezone,legal_identifier';
 
 type UserRoleRow = {
   role_id: string;
@@ -24,6 +32,9 @@ const EMPTY_CONTEXT: CurrentUserContext = {
   organization: null,
   roles: [],
   permissions: [],
+  organizations: [],
+  accessState: 'NO_ORGANIZATION',
+  canProvisionOrganizations: false,
 };
 
 export function useCurrentUser() {
@@ -52,11 +63,19 @@ export function useCurrentUser() {
     let roles: Role[] = [];
     let permissions: PermissionKey[] = [];
 
-    if (profile?.organization_id) {
+    /* Fase 7.5: organização ATIVA (vínculo provado no banco), não a do perfil. */
+    const active = await resolveActiveOrganization(supabase);
+    const activeOrganizationId = active.kind === 'ACTIVE' ? active.organizationId : null;
+    const [organizations, provision] = await Promise.all([
+      listMyOrganizations(supabase),
+      supabase.rpc('current_user_can_provision_organizations'),
+    ]);
+
+    if (activeOrganizationId) {
       const { data: organizationRow } = await supabase
         .from('organizations')
-        .select('id,name,slug,status,workspace_name,logo_url,brand_color,email_from_name,notification_name,branding_enabled')
-        .eq('id', profile.organization_id)
+        .select(ORGANIZATION_COLUMNS)
+        .eq('id', activeOrganizationId)
         .maybeSingle<Organization>();
 
       organization = organizationRow ?? null;
@@ -65,7 +84,7 @@ export function useCurrentUser() {
         .from('user_roles')
         .select('role_id, roles(id,organization_id,key,name,description,is_system_role)')
         .eq('user_id', user.id)
-        .eq('organization_id', profile.organization_id)
+        .eq('organization_id', activeOrganizationId)
         .returns<UserRoleRow[]>();
 
       roles = (userRoleRows ?? []).map((row) => row.roles).filter(Boolean) as Role[];
@@ -90,7 +109,7 @@ export function useCurrentUser() {
         .from('user_permission_overrides')
         .select('effect, permissions(key)')
         .eq('user_id', user.id)
-        .eq('organization_id', profile.organization_id)
+        .eq('organization_id', activeOrganizationId)
         .returns<OverrideRow[]>();
       for (const row of overrideRows ?? []) {
         const key = row.permissions?.key;
@@ -102,12 +121,15 @@ export function useCurrentUser() {
       permissions = Array.from(rolePermSet);
     }
 
-    const nextContext = {
+    const nextContext: CurrentUserContext = {
       user,
       profile: profile ?? null,
       organization,
       roles,
       permissions,
+      organizations,
+      accessState: deriveAccessState(activeOrganizationId, organizations),
+      canProvisionOrganizations: provision.data === true,
     };
 
     setContext(nextContext);

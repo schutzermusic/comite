@@ -4,6 +4,9 @@ import { loadContractAsOf } from '@/lib/contracts/structured-contract-service';
 const mock = vi.hoisted(() => ({ tables: {} as Record<string, Record<string, unknown>[]>, fail: '', filters: [] as string[] }));
 vi.mock('@/utils/supabase/client', () => ({ createClient: () => ({
   auth: { getUser: async () => ({ data: { user: { id: 'user-a' } }, error: null }) },
+  rpc: async (name: string) => name === 'current_user_organization_id'
+    ? ({ data: 'org-a', error: null })
+    : ({ data: null, error: { message: `unexpected rpc ${name}` } }),
   from: (table: string) => {
     let column = ''; let ids: string[] = [];
     const q = {

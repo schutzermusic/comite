@@ -31,8 +31,14 @@ describe('isolamento de inquilino', () => {
     expect(m116).toContain('organization_id = public.current_user_organization_id()');
   });
 
-  it('a organização vem do PERFIL, nunca do corpo do pedido', () => {
-    expect(actor).toContain("from('profiles')");
+  it('a organização vem do SERVIDOR, nunca do corpo do pedido', () => {
+    /*
+      Até a Fase 7 a fonte era `profiles`. A 145 moveu-a para
+      `current_user_organization_id()`, que exige vínculo ATIVO — o invariante
+      que este teste guarda nunca foi "leia da tabela profiles", e sim "a
+      organização não vem de quem faz o pedido".
+    */
+    expect(actor).toContain('getActiveOrganizationRow(supabase)');
     expect(actor).not.toMatch(/body\.organizationId|input\.organizationId/);
   });
 

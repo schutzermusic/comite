@@ -19,6 +19,7 @@ if (typeof window !== 'undefined') {
 }
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { requireActiveOrganizationId } from '@/lib/auth/active-organization';
 import { callAnthropicForRiskFindings } from '../anthropic-call';
 import { persistAiRiskFindings, type PersistFindingsResult } from '../risk-persistence';
 import { getServiceClient } from '../server-clients';
@@ -163,17 +164,9 @@ function buildPrompt(rows: LedgerRow[], periodLabel: string): string {
    ───────────────────────────────────────────────────────────── */
 async function resolveCallerOrg(
   supabase: SupabaseClient,
-  userId: string,
+  _userId: string,
 ): Promise<string> {
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('organization_id')
-    .eq('user_id', userId)
-    .single();
-  if (error || !data?.organization_id) {
-    throw new Error('Usuário sem organização ativa (profiles.organization_id).');
-  }
-  return data.organization_id as string;
+  return requireActiveOrganizationId(supabase);
 }
 
 /* ─────────────────────────────────────────────────────────────

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { getActiveOrganizationRow } from '@/lib/auth/active-organization';
 import { createClient } from '@/utils/supabase/server';
 import { requireApiPermission } from '@/lib/auth/api-guard';
 import { AccessError, confirmRolloutSend, listAccess, runAccessAction, runAccessBatch } from '@/lib/ponto/access-server';
@@ -12,7 +13,7 @@ const VALID_ACTIONS: PontoAccessAction[] = ['invite', 'resend', 'copy_link', 'bl
 
 async function actorOrg(userId: string): Promise<string | null> {
   const supabase = await createClient();
-  const { data } = await supabase.from('profiles').select('organization_id').eq('user_id', userId).maybeSingle();
+  const data = await getActiveOrganizationRow(supabase);
   return (data?.organization_id as string | undefined) ?? null;
 }
 

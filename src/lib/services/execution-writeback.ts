@@ -20,6 +20,7 @@
  */
 
 import { createClient } from '@/utils/supabase/client';
+import { requireActiveOrganizationId } from '@/lib/auth/active-organization';
 import { logAuditEvent } from '@/lib/audit/log-audit-event';
 import {
   automationKeyFor,
@@ -56,13 +57,8 @@ async function currentContext(supabase: ReturnType<typeof createClient>) {
   const { data: userData } = await supabase.auth.getUser();
   const user = userData?.user;
   if (!user) throw new Error('Não autenticado');
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('organization_id')
-    .eq('user_id', user.id)
-    .single();
-  if (error || !data?.organization_id) throw new Error('Usuário sem organização ativa');
-  return { userId: user.id, orgId: data.organization_id as string };
+  const orgId = await requireActiveOrganizationId(supabase);
+  return { userId: user.id, orgId };
 }
 
 /**

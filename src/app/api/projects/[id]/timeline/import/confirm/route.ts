@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { getActiveOrganizationRow } from '@/lib/auth/active-organization';
 import { createClient } from '@/utils/supabase/server';
 import { requireApiPermission } from '@/lib/auth/api-guard';
 import { matchRows } from '@/lib/projects/timeline-import-matcher';
@@ -36,11 +37,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   const mode = body.mode === 'update' ? 'update' : 'new';
 
   const supabase = await createClient();
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('organization_id')
-    .eq('user_id', guard.userId)
-    .maybeSingle();
+  const profile = await getActiveOrganizationRow(supabase);
   const orgId = profile?.organization_id as string | undefined;
   if (!orgId) return NextResponse.json({ ok: false, error: 'Usuário sem organização.' }, { status: 403 });
 

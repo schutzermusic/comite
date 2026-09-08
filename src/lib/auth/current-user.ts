@@ -1,7 +1,11 @@
 import { redirect } from 'next/navigation';
 import { createClient } from '@/utils/supabase/server';
+import { deriveAccessState, listMyOrganizations, resolveActiveOrganization } from './active-organization';
 import { getDefaultRouteForRole, getHighestPriorityRole } from './roles';
 import type { CurrentUserContext, Organization, PermissionKey, Profile, Role } from './types';
+
+const ORGANIZATION_COLUMNS =
+  'id,name,slug,status,workspace_name,logo_url,brand_color,email_from_name,notification_name,branding_enabled,enterprise_account_id,legal_name,country_code,default_currency,timezone,legal_identifier';
 
 type UserRoleRow = {
   role_id: string;
@@ -19,7 +23,10 @@ export async function getCurrentUserContext(): Promise<CurrentUserContext> {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    return { user: null, profile: null, organization: null, roles: [], permissions: [] };
+    return {
+      user: null, profile: null, organization: null, roles: [], permissions: [],
+      organizations: [], accessState: 'NO_ORGANIZATION', canProvisionOrganizations: false,
+    };
   }
 
   const { data: profile } = await supabase
@@ -32,11 +39,23 @@ export async function getCurrentUserContext(): Promise<CurrentUserContext> {
   let roles: Role[] = [];
   let permissions: PermissionKey[] = [];
 
-  if (profile?.organization_id) {
+  /*
+    A organização ATIVA vem do banco, não do perfil. É a mesma resposta que a
+    RLS vai usar na consulta seguinte — e é isso que faz o servidor e a
+    fronteira falarem da mesma organização depois de uma troca.
+  */
+  const active = await resolveActiveOrganization(supabase);
+  const activeOrganizationId = active.kind === 'ACTIVE' ? active.organizationId : null;
+  const [organizations, provision] = await Promise.all([
+    listMyOrganizations(supabase),
+    supabase.rpc('current_user_can_provision_organizations'),
+  ]);
+
+  if (activeOrganizationId) {
     const { data: organizationRow } = await supabase
       .from('organizations')
-      .select('id,name,slug,status,workspace_name,logo_url,brand_color,email_from_name,notification_name,branding_enabled')
-      .eq('id', profile.organization_id)
+      .select(ORGANIZATION_COLUMNS)
+      .eq('id', activeOrganizationId)
       .maybeSingle<Organization>();
 
     organization = organizationRow ?? null;
@@ -45,7 +64,7 @@ export async function getCurrentUserContext(): Promise<CurrentUserContext> {
       .from('user_roles')
       .select('role_id, roles(id,organization_id,key,name,description,is_system_role)')
       .eq('user_id', user.id)
-      .eq('organization_id', profile.organization_id)
+      .eq('organization_id', activeOrganizationId)
       .returns<UserRoleRow[]>();
 
     roles = (userRoleRows ?? []).map((row) => row.roles).filter(Boolean) as Role[];
@@ -74,6 +93,9 @@ export async function getCurrentUserContext(): Promise<CurrentUserContext> {
     organization,
     roles,
     permissions,
+    organizations,
+    accessState: deriveAccessState(activeOrganizationId, organizations),
+    canProvisionOrganizations: provision.data === true,
   };
 }
 

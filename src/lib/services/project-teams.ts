@@ -9,6 +9,7 @@
  */
 
 import { createClient } from '@/utils/supabase/client';
+import { requireActiveOrganizationId } from '@/lib/auth/active-organization';
 import { logAuditEvent } from '@/lib/audit/log-audit-event';
 import type {
   ProjectTeam,
@@ -30,13 +31,7 @@ async function currentOrg(supabase: ReturnType<typeof createClient>): Promise<st
   const { data: userData } = await supabase.auth.getUser();
   const user = userData?.user;
   if (!user) throw new Error('Não autenticado');
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('organization_id')
-    .eq('user_id', user.id)
-    .single();
-  if (error || !data?.organization_id) throw new Error('Usuário sem organização ativa');
-  return data.organization_id as string;
+  return requireActiveOrganizationId(supabase);
 }
 
 /** Equipes do projeto com os membros vivos já hidratados. */

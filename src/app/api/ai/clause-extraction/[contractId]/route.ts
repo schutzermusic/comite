@@ -3,6 +3,7 @@ import { createClient } from '@/utils/supabase/server';
 import { platformServiceClient } from '@/lib/platform/server-client';
 import { scheduleFastDrain } from '@/lib/platform/jobs/fast-path';
 import { logAuditEventServer } from '@/lib/audit/log-audit-event-server';
+import { requireActiveOrganizationId } from '@/lib/auth/active-organization';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -87,13 +88,13 @@ export async function POST(
       );
     }
 
-    // A organização vem do PERFIL, nunca do corpo do pedido.
-    const { data: profile } = await supabase
-      .from('profiles').select('organization_id').eq('user_id', user.id)
-      .maybeSingle<{ organization_id: string }>();
-    if (!profile?.organization_id) {
+    // A organização vem do contexto ativo validado, nunca do corpo/perfil.
+    let organizationId: string;
+    try {
+      organizationId = await requireActiveOrganizationId(supabase);
+    } catch {
       return NextResponse.json(
-        { ok: false, error: 'Perfil sem organização.' }, { status: 403 },
+        { ok: false, error: 'Nenhuma organização ativa selecionada.' }, { status: 403 },
       );
     }
 
@@ -105,7 +106,7 @@ export async function POST(
     const { data: queued, error: queueError } = await platformServiceClient().rpc(
       'contract_clause_extraction_request',
       {
-        p_organization_id: profile.organization_id,
+        p_organization_id: organizationId,
         p_contract_id: contractId,
         p_document_id: body.documentId,
         p_requested_by: user.id,
@@ -127,7 +128,7 @@ export async function POST(
 
     const write = await logAuditEventServer(
       {
-        organizationId: profile.organization_id,
+        organizationId,
         action: 'contract.clause_extraction_requested',
         entityType: 'contract',
         entityId: contractId,

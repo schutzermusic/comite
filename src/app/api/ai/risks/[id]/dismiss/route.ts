@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { getServiceClient } from '@/lib/ai/server-clients';
+import { requireActiveOrganizationId } from '@/lib/auth/active-organization';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -58,24 +59,24 @@ export async function POST(
       );
     }
 
+    let organizationId: string;
+    try {
+      organizationId = await requireActiveOrganizationId(supabase);
+    } catch {
+      return NextResponse.json({ ok: false, error: 'Nenhuma organização ativa selecionada' }, { status: 403 });
+    }
+
     const service = getServiceClient();
     // Verify org match server-side before mutating with service-role.
-    const [{ data: profile }, { data: risk }] = await Promise.all([
-      service
-        .from('profiles')
-        .select('organization_id')
-        .eq('user_id', user.id)
-        .maybeSingle(),
-      service
+    const { data: risk } = await service
         .from('risks')
         .select('id,organization_id,origin,ai_dismissed')
         .eq('id', riskId)
-        .maybeSingle(),
-    ]);
+        .maybeSingle();
     if (!risk) {
       return NextResponse.json({ ok: false, error: 'Risco não encontrado' }, { status: 404 });
     }
-    if (!profile?.organization_id || profile.organization_id !== risk.organization_id) {
+    if (organizationId !== risk.organization_id) {
       return NextResponse.json({ ok: false, error: 'Risco fora da sua organização' }, { status: 403 });
     }
     if (risk.origin !== 'ai') {

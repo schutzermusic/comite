@@ -5,12 +5,14 @@ import { applyLatestV2Overlay, loadV2Projects, STORAGE_KEY_V2 } from '@/lib/serv
 import { CEMIG_TOTAL_CONTRACTED, CEMIG_TOTALIZER_CUTOFF_BILLED } from '@/data/mock-projects-v2';
 import { computeHealthScore } from '@/lib/utils/project-utils';
 import { createClient } from '@/utils/supabase/client';
+import { requireActiveOrganizationId } from '@/lib/auth/active-organization';
 import { normalizeClientLogoFile } from '@/lib/utils/normalize-client-logo';
 
 const STORAGE_KEY = 'insight_projects';
 const PROJECTS_TABLE = 'projects';
 const PROJECT_FILES_TABLE = 'project_files';
-const PROJECT_FILES_BUCKET = 'project-files';
+const PROJECT_LOGOS_BUCKET = 'project-files';
+const PROJECT_DOCUMENTS_BUCKET = 'project-documents';
 
 type ProjectRow = {
   id: string;
@@ -200,7 +202,7 @@ function rlsFriendlyMessage(prefix: string, error: { code?: string; message?: st
 type SupabaseLike = ReturnType<typeof createClient>;
 
 /**
- * Resolves the current authenticated user's organization_id via the profiles table.
+ * Resolves the current authenticated user's explicit active organization.
  * Throws PT-BR errors when unauthenticated or without an active org.
  */
 async function getCurrentOrgAndUser(
@@ -210,16 +212,8 @@ async function getCurrentOrgAndUser(
   const user = userData?.user;
   if (!user) throw new Error('Não autenticado');
 
-  const { data: profile, error } = await supabase
-    .from('profiles')
-    .select('organization_id')
-    .eq('user_id', user.id)
-    .single();
-
-  if (error || !profile?.organization_id) {
-    throw new Error('Usuário sem organização ativa');
-  }
-  return { userId: user.id, orgId: profile.organization_id as string };
+  const orgId = await requireActiveOrganizationId(supabase);
+  return { userId: user.id, orgId };
 }
 
 // ─── V1 API (backward compatible) ────────────────────────────────
@@ -537,7 +531,7 @@ export async function uploadProjectFile(
   projectId: string,
   file: File,
   category: 'logo' | 'document' | 'cronograma' = 'document',
-): Promise<{ publicUrl: string; path: string }> {
+): Promise<{ publicUrl: string | null; path: string; bucketId: string }> {
   if (!isSupabaseConfigured()) {
     throw new Error('Supabase não está configurado. Defina NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY.');
   }
@@ -545,23 +539,25 @@ export async function uploadProjectFile(
   const supabase = createClient();
   const { userId, orgId } = await getCurrentOrgAndUser(supabase);
   const payload = category === 'logo' ? await normalizeClientLogoFile(file) : file;
+  const bucketId = category === 'logo' ? PROJECT_LOGOS_BUCKET : PROJECT_DOCUMENTS_BUCKET;
   const safeName = sanitizeFileName(payload.name);
   // Path convention required by storage RLS: {organization_id}/{project_id}/{filename}
   const path = `${orgId}/${projectId}/${Date.now()}-${category}-${safeName}`;
   const { error: uploadError } = await supabase.storage
-    .from(PROJECT_FILES_BUCKET)
+    .from(bucketId)
     .upload(path, payload, { cacheControl: '3600', upsert: true, contentType: payload.type });
 
   if (uploadError) throw new Error(rlsFriendlyMessage('Erro ao enviar arquivo ao Supabase Storage', uploadError));
 
-  const { data } = supabase.storage.from(PROJECT_FILES_BUCKET).getPublicUrl(path);
-  const publicUrl = data.publicUrl;
+  const publicUrl = category === 'logo'
+    ? supabase.storage.from(PROJECT_LOGOS_BUCKET).getPublicUrl(path).data.publicUrl
+    : null;
 
   const { error: insertError } = await supabase.from(PROJECT_FILES_TABLE).insert({
     project_id: projectId,
     organization_id: orgId,
     created_by: userId,
-    bucket_id: PROJECT_FILES_BUCKET,
+    bucket_id: bucketId,
     object_path: path,
     public_url: publicUrl,
     file_name: payload.name,
@@ -572,5 +568,5 @@ export async function uploadProjectFile(
 
   if (insertError) throw new Error(rlsFriendlyMessage('Erro ao registrar arquivo do projeto', insertError));
 
-  return { publicUrl, path };
+  return { publicUrl, path, bucketId };
 }
