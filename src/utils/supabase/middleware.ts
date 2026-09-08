@@ -8,6 +8,7 @@ export { isSafeInternalPath }
 type CookieToSet = { name: string; value: string; options: CookieOptions }
 
 const PUBLIC_ROUTES = ['/login', '/forgot-password', '/reset-password', '/ponto/login']
+const AUTH_ENTRY_ROUTES = ['/login', '/forgot-password', '/ponto/login']
 // Routes that must bypass *all* auth gating (including the
 // "authenticated → /dashboard" redirect). Invite & OAuth callbacks land here
 // before the client-side session has been established from the URL hash, so
@@ -107,8 +108,10 @@ function isRoute(pathname: string, routes: string[]) {
 
 function redirectWithCookies(request: NextRequest, response: NextResponse, pathname: string) {
     const url = request.nextUrl.clone()
-    url.pathname = pathname
-    url.search = ''
+    const destination = new URL(pathname, request.nextUrl.origin)
+    url.pathname = destination.pathname
+    url.search = destination.search
+    url.hash = ''
     const redirectResponse = NextResponse.redirect(url)
     response.cookies.getAll().forEach((cookie) => redirectResponse.cookies.set(cookie))
     return redirectResponse
@@ -184,16 +187,23 @@ export async function updateSession(request: NextRequest) {
 
     if (!user && !isPublicRoute) {
         const url = request.nextUrl.clone()
+        const requestedPath = `${pathname}${request.nextUrl.search}`
         url.pathname = '/login'
-        url.searchParams.set('next', pathname)
+        url.search = ''
+        url.searchParams.set('next', requestedPath)
         const redirectResponse = NextResponse.redirect(url)
         supabaseResponse.cookies.getAll().forEach((cookie) => redirectResponse.cookies.set(cookie))
         return redirectResponse
     }
 
-    if (user && isRoute(pathname, PUBLIC_ROUTES)) {
+    if (user && isRoute(pathname, AUTH_ENTRY_ROUTES)) {
         // Colaborador já autenticado no portal de ponto vai direto bater ponto
-        const target = isPontoHost || pathname.startsWith('/ponto') ? '/ponto' : '/dashboard'
+        const requestedNext = request.nextUrl.searchParams.get('next')
+        const target = isPontoHost || pathname.startsWith('/ponto')
+            ? '/ponto'
+            : isSafeInternalPath(requestedNext)
+                ? requestedNext
+                : '/dashboard'
         return redirectWithCookies(request, supabaseResponse, target)
     }
 

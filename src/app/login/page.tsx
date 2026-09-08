@@ -336,19 +336,22 @@ export default function LoginPage() {
                     <div className="absolute -inset-[0.5px] bg-gradient-to-r from-white/10 via-white/5 to-white/10 rounded-lg opacity-0 group-hover:opacity-100 transition-all duration-300" />
                     
                     <div className="relative flex items-center overflow-hidden rounded-lg">
-                      <Mail className={`absolute left-3 w-4 h-4 transition-all duration-300 ${
-                        focusedInput === "email" ? 'text-white' : 'text-white/40'
+                      <Mail className={`login-field-icon absolute left-3 w-4 h-4 transition-all duration-300 ${
+                        focusedInput === "email" ? 'is-focused text-white' : 'text-white/40'
                       }`} />
                       
                       <Input
                         type="email"
+                        name="email"
+                        autoComplete="email"
                         placeholder="Email"
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
+                        onInput={(e) => setEmail(e.currentTarget.value)}
                         onFocus={() => setFocusedInput("email")}
                         onBlur={() => setFocusedInput(null)}
                         required
-                        className="w-full bg-white/5 border-transparent focus:border-white/20 text-white placeholder:text-white/30 h-10 transition-all duration-300 pl-10 pr-3 focus:bg-white/10"
+                        className="w-full bg-white/5 border-transparent focus:border-white/20 text-white placeholder:text-white/30 h-10 transition-[border-color,box-shadow] duration-300 pl-10 pr-3 focus:bg-white/10"
                       />
                       
                       {focusedInput === "email" && (
@@ -373,24 +376,27 @@ export default function LoginPage() {
                     <div className="absolute -inset-[0.5px] bg-gradient-to-r from-white/10 via-white/5 to-white/10 rounded-lg opacity-0 group-hover:opacity-100 transition-all duration-300" />
                     
                     <div className="relative flex items-center overflow-hidden rounded-lg">
-                      <Lock className={`absolute left-3 w-4 h-4 transition-all duration-300 ${
-                        focusedInput === "password" ? 'text-white' : 'text-white/40'
+                      <Lock className={`login-field-icon absolute left-3 w-4 h-4 transition-all duration-300 ${
+                        focusedInput === "password" ? 'is-focused text-white' : 'text-white/40'
                       }`} />
                       
                       <Input
                         type={showPassword ? "text" : "password"}
+                        name="password"
+                        autoComplete="current-password"
                         placeholder="Senha"
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
+                        onInput={(e) => setPassword(e.currentTarget.value)}
                         onFocus={() => setFocusedInput("password")}
                         onBlur={() => setFocusedInput(null)}
                         required
-                        className="w-full bg-white/5 border-transparent focus:border-white/20 text-white placeholder:text-white/30 h-10 transition-all duration-300 pl-10 pr-10 focus:bg-white/10"
+                        className="w-full bg-white/5 border-transparent focus:border-white/20 text-white placeholder:text-white/30 h-10 transition-[border-color,box-shadow] duration-300 pl-10 pr-10 focus:bg-white/10"
                       />
                       
                       <div 
                         onClick={() => setShowPassword(!showPassword)} 
-                        className="absolute right-3 cursor-pointer"
+                        className="login-field-toggle absolute right-3 cursor-pointer"
                       >
                         {showPassword ? (
                           <Eye className="w-4 h-4 text-white/40 hover:text-white transition-colors duration-300" />

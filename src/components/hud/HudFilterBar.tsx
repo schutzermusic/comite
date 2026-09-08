@@ -81,116 +81,128 @@ export function HudFilterBar({
     >
       <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-ig-info to-transparent opacity-70" />
 
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-          {onSearchChange && (
-            <label className="flex h-12 min-w-0 items-center gap-2 rounded-xl border border-ig-border-subtle bg-ig-panel/70 px-4 shadow-[inset_0_1px_0_color-mix(in_oklab,var(--ig-border-strong)_45%,transparent)] transition-colors focus-within:border-ig-border-focus focus-within:shadow-[var(--ig-focus-ring-outer)] sm:w-[25rem]">
-              <Search className="h-4 w-4 shrink-0 text-ig-fg-muted" />
+      <div className="flex flex-wrap items-center gap-2">
+        {onSearchChange && (
+          <label className="flex h-12 min-w-[8rem] flex-1 basis-[8rem] flex-col justify-center rounded-xl border border-ig-border-subtle bg-ig-panel/70 px-3 shadow-[inset_0_1px_0_color-mix(in_oklab,var(--ig-border-strong)_45%,transparent)] transition-colors focus-within:border-ig-border-focus focus-within:shadow-[var(--ig-focus-ring-outer)]">
+            <span className="text-[9px] font-semibold uppercase tracking-[0.2em] text-ig-fg-subtle">
+              Busca
+            </span>
+            <span className="mt-0.5 flex min-w-0 items-center gap-1.5">
+              <Search className="h-3.5 w-3.5 shrink-0 text-ig-fg-muted" />
               <input
                 type="text"
                 value={searchValue}
                 onChange={(event) => onSearchChange(event.target.value)}
                 placeholder={searchPlaceholder}
-                className="min-w-0 flex-1 border-0 bg-transparent text-sm text-ig-fg-strong outline-none placeholder:text-ig-fg-subtle focus:ring-0"
+                className="min-w-0 flex-1 border-0 bg-transparent p-0 text-sm font-medium text-ig-fg-strong outline-none placeholder:text-ig-fg-subtle focus:ring-0"
               />
               {searchValue && (
                 <button
                   type="button"
                   onClick={() => onSearchChange('')}
                   aria-label="Limpar busca"
-                  className="rounded-md p-1 text-ig-fg-muted transition-colors hover:bg-ig-panel-hover hover:text-ig-fg-strong"
+                  className="rounded-md p-0.5 text-ig-fg-muted transition-colors hover:bg-ig-panel-hover hover:text-ig-fg-strong"
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>
               )}
-            </label>
-          )}
+            </span>
+          </label>
+        )}
 
-          {filterGroups.map((group) => (
+        {filterGroups.map((group) => {
+          const selectedLabel = group.options.find((option) => option.value === group.value)?.label ?? '';
+          return (
             <label
               key={group.id}
-              className="flex h-12 min-w-[13rem] flex-col justify-center rounded-xl border border-ig-border-subtle bg-ig-panel/70 px-4 shadow-[inset_0_1px_0_color-mix(in_oklab,var(--ig-border-strong)_45%,transparent)] transition-colors focus-within:border-ig-border-focus"
+              className="flex h-12 min-w-[6.75rem] flex-1 basis-[6.75rem] flex-col justify-center rounded-xl border border-ig-border-subtle bg-ig-panel/70 px-2.5 shadow-[inset_0_1px_0_color-mix(in_oklab,var(--ig-border-strong)_45%,transparent)] transition-colors focus-within:border-ig-border-focus"
             >
               <span className="text-[9px] font-semibold uppercase tracking-[0.2em] text-ig-fg-subtle">
                 {group.label}
               </span>
-              <select
-                value={group.value}
-                onChange={(event) => group.onChange(event.target.value)}
-                className="mt-0.5 cursor-pointer appearance-none border-0 bg-transparent p-0 text-sm font-medium text-ig-fg-strong outline-none focus:ring-0"
-              >
-                {group.options.map((option) => (
-                  <option
-                    key={option.value}
-                    value={option.value}
-                    className="bg-[color:var(--ig-bg-raised)] text-[color:var(--ig-fg-strong)]"
-                  >
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ))}
-        </div>
-
-        <div className="flex items-center gap-2">
-          {showViewToggle && (
-            <div className="flex h-12 items-center gap-1 rounded-xl border border-ig-border-subtle bg-ig-panel/70 p-1 shadow-[inset_0_1px_0_color-mix(in_oklab,var(--ig-border-strong)_45%,transparent)]">
-              {viewModes.map((mode) => {
-                const Icon = VIEW_ICON[mode];
-                const isActive = viewMode === mode;
-                return (
-                  <button
-                    key={mode}
-                    type="button"
-                    onClick={() => onViewModeChange!(mode)}
-                    aria-pressed={isActive}
-                    title={VIEW_LABEL[mode]}
-                    className={cn(
-                      'flex h-9 items-center justify-center gap-1.5 rounded-lg px-3 text-xs font-semibold transition-colors',
-                      isActive
-                        ? 'bg-ig-accent-weak text-ig-accent shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--ig-accent)_40%,transparent)]'
-                        : 'text-ig-fg-muted hover:bg-ig-panel-hover hover:text-ig-fg-strong',
-                    )}
-                  >
-                    <Icon className="h-3.5 w-3.5" />
-                    <span className="hidden sm:inline">{VIEW_LABEL[mode]}</span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-
-          {onAdvancedFilters && (
-            <button
-              type="button"
-              onClick={onAdvancedFilters}
-              className="flex h-12 w-12 items-center justify-center rounded-xl border border-ig-border-subtle bg-ig-panel/70 text-ig-accent shadow-[inset_0_1px_0_color-mix(in_oklab,var(--ig-border-strong)_45%,transparent)] transition-colors hover:border-ig-border-focus hover:bg-ig-accent-weak focus-visible:outline-none focus-visible:shadow-[var(--ig-focus-ring-outer)]"
-              aria-label="Filtros avançados"
-              title="Filtros avançados"
-            >
-              <SlidersHorizontal className="h-4 w-4" />
-            </button>
-          )}
-
-          {onClearFilters && (
-            <button
-              type="button"
-              onClick={onClearFilters}
-              className="flex h-12 items-center gap-2 rounded-xl border border-ig-border-subtle bg-ig-panel/70 px-5 text-sm font-semibold text-ig-fg-strong shadow-[inset_0_1px_0_color-mix(in_oklab,var(--ig-border-strong)_45%,transparent)] transition-colors hover:border-ig-border-focus hover:bg-ig-panel-hover focus-visible:outline-none focus-visible:shadow-[var(--ig-focus-ring-outer)]"
-            >
-              {activeFiltersCount > 0 && (
-                <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-ig-accent px-1.5 text-[10px] font-semibold text-ig-bg-canvas">
-                  {activeFiltersCount}
+              <span className="relative mt-0.5 block min-w-0">
+                <span
+                  aria-hidden
+                  className="invisible block truncate whitespace-nowrap text-sm font-medium"
+                >
+                  {selectedLabel}
                 </span>
-              )}
-              <X className="h-4 w-4 text-ig-fg-muted" />
-              Limpar filtros
-            </button>
-          )}
+                <select
+                  value={group.value}
+                  onChange={(event) => group.onChange(event.target.value)}
+                  className="absolute inset-0 w-full cursor-pointer appearance-none truncate border-0 bg-transparent p-0 text-sm font-medium text-ig-fg-strong outline-none focus:ring-0"
+                >
+                  {group.options.map((option) => (
+                    <option
+                      key={option.value}
+                      value={option.value}
+                      className="bg-[color:var(--ig-bg-raised)] text-[color:var(--ig-fg-strong)]"
+                    >
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </span>
+            </label>
+          );
+        })}
 
-          {rightContent}
-        </div>
+        {showViewToggle && (
+          <div className="flex h-12 shrink-0 items-center gap-0.5 rounded-xl border border-ig-border-subtle bg-ig-panel/70 p-1 shadow-[inset_0_1px_0_color-mix(in_oklab,var(--ig-border-strong)_45%,transparent)]">
+            {viewModes.map((mode) => {
+              const Icon = VIEW_ICON[mode];
+              const isActive = viewMode === mode;
+              return (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => onViewModeChange!(mode)}
+                  aria-pressed={isActive}
+                  title={VIEW_LABEL[mode]}
+                  className={cn(
+                    'flex h-10 items-center justify-center gap-1 rounded-lg px-2.5 text-xs font-semibold transition-colors',
+                    isActive
+                      ? 'bg-ig-accent-weak text-ig-accent shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--ig-accent)_40%,transparent)]'
+                      : 'text-ig-fg-muted hover:bg-ig-panel-hover hover:text-ig-fg-strong',
+                  )}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">{VIEW_LABEL[mode]}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {onAdvancedFilters && (
+          <button
+            type="button"
+            onClick={onAdvancedFilters}
+            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-ig-border-subtle bg-ig-panel/70 text-ig-accent shadow-[inset_0_1px_0_color-mix(in_oklab,var(--ig-border-strong)_45%,transparent)] transition-colors hover:border-ig-border-focus hover:bg-ig-accent-weak focus-visible:outline-none focus-visible:shadow-[var(--ig-focus-ring-outer)]"
+            aria-label="Filtros avançados"
+            title="Filtros avançados"
+          >
+            <SlidersHorizontal className="h-4 w-4" />
+          </button>
+        )}
+
+        {onClearFilters && (
+          <button
+            type="button"
+            onClick={onClearFilters}
+            className="flex h-12 shrink-0 items-center gap-1.5 rounded-xl border border-ig-border-subtle bg-ig-panel/70 px-3 text-sm font-semibold text-ig-fg-strong shadow-[inset_0_1px_0_color-mix(in_oklab,var(--ig-border-strong)_45%,transparent)] transition-colors hover:border-ig-border-focus hover:bg-ig-panel-hover focus-visible:outline-none focus-visible:shadow-[var(--ig-focus-ring-outer)]"
+          >
+            {activeFiltersCount > 0 && (
+              <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-ig-accent px-1.5 text-[10px] font-semibold text-ig-bg-canvas">
+                {activeFiltersCount}
+              </span>
+            )}
+            <X className="h-4 w-4 text-ig-fg-muted" />
+            Limpar filtros
+          </button>
+        )}
+
+        {rightContent}
       </div>
     </motion.section>
   );

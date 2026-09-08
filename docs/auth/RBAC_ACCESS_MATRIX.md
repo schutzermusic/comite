@@ -1210,10 +1210,12 @@ client. **This requires Supabase email delivery to be configured for the project
 | Dev / demo | Supabase's default SMTP works for low-volume manual testing (rate-limited; emails may land in spam). |
 | Production | A custom SMTP provider must be configured in Supabase Dashboard → Authentication → SMTP Settings. The default provider is not suitable for production volume. |
 
-**Optional environment variable:** `NEXT_PUBLIC_SITE_URL` — used to build the email
-redirect link (`${SITE_URL}/auth/callback?next=/welcome`). Falls back to the
-request origin if unset, which works for local dev but should be set explicitly in
-production so the link points at the canonical site URL.
+**Production environment variable:** `NEXT_PUBLIC_APP_URL` — used to build email
+redirect links. Set it to `https://insightapex.co` in production. The legacy
+`NEXT_PUBLIC_SITE_URL` remains a fallback and should use the same value. The
+dedicated Ponto origin belongs in `NEXT_PUBLIC_PONTO_URL` and must not be reused
+as the main application URL. If the main URL variables are unset, local and
+staging requests fall back to their request origin.
 
 **Supabase Dashboard → Authentication → URL Configuration** must list every origin
 the app is served from, otherwise Supabase strips the `redirectTo` and the invite
@@ -1221,14 +1223,14 @@ link drops the user on the project hosted-auth page instead of `/welcome`:
 
 | Field | Value |
 |---|---|
-| Site URL | The canonical production URL (e.g. `https://app.example.com`) |
-| Redirect URLs | `http://localhost:3000/**` (dev), `https://<vercel-preview>.vercel.app/**` (previews), `https://app.example.com/**` (prod) |
+| Site URL | `https://insightapex.co` |
+| Redirect URLs | `http://localhost:9002/**` (dev), the explicit staging/preview origins in use, `https://insightapex.co/**` (prod), and `https://ponto.insightapex.co/**` for Ponto activation |
 
 The wildcards cover both `/auth/callback` and `/welcome`. Recovery, magic-link and
 invite emails share the same allow-list.
 
 **Invite acceptance flow:**
-1. Admin sends invite → Supabase emails the user a link to `${SITE_URL}/auth/callback?code=…&next=/welcome`.
+1. Admin sends invite → Supabase emails the user a link allowed to return to `https://insightapex.co/welcome`.
 2. `/auth/callback` exchanges the code for a session, then 302s to `/welcome`.
 3. `/welcome` calls `supabase.auth.updateUser({ password })` and routes the user to `/dashboard`. The profile + roles already exist (created eagerly at invite time), so middleware doesn't bounce them to `/onboarding`.
 

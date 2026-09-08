@@ -6,8 +6,10 @@ import { getLocale, getMessages } from 'next-intl/server';
 import { NextIntlClientProvider } from 'next-intl';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import { AuthHashRouter } from '@/components/auth/AuthHashRouter';
+import { CANONICAL_PRODUCTION_ORIGIN } from '@/lib/config/app-url';
 
 export const metadata: Metadata = {
+  metadataBase: new URL(CANONICAL_PRODUCTION_ORIGIN),
   title: 'Insight Apex Board — Executive Governance Control Room',
   description: 'Insight Apex Board — Governança executiva em tempo real.',
 };

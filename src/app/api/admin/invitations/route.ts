@@ -3,6 +3,7 @@ import { createClient } from '@/utils/supabase/server';
 import { getServiceClient } from '@/lib/ai/server-clients';
 import { requireApiPermission } from '@/lib/auth/api-guard';
 import { getWorkspaceName } from '@/lib/branding';
+import { getPublicAppOrigin } from '@/lib/config/app-url';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -154,12 +155,8 @@ async function handlePost(req: Request) {
   // redirectTo ending in /welcome — otherwise Supabase falls back to the
   // dashboard-configured Site URL (which is the bare origin) and the invite
   // token lands on "/", where middleware bounces it to /login.
-  const siteUrl =
-    process.env.NEXT_PUBLIC_SITE_URL ||
-    process.env.NEXT_PUBLIC_APP_URL ||
-    new URL(req.url).origin;
-  const cleanSiteUrl = siteUrl.replace(/\/$/, '');
-  const redirectTo = `${cleanSiteUrl}/welcome`;
+  const appOrigin = getPublicAppOrigin(new URL(req.url).origin);
+  const redirectTo = `${appOrigin}/welcome`;
 
   // 1) Send the Supabase Auth invite email (admin API, service-role).
   //    NOTE: requires Supabase email provider configured for this project.

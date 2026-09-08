@@ -6740,20 +6740,81 @@ html.light .investor-projection-field--forecast:disabled {
   background-color: color-mix(in srgb, var(--ig-accent) 14%, transparent);
 }
 
-/* Login é canvas escuro permanente — não herda remap de .light .text-white */
+/* Login é canvas verde permanente — não herda remap light de .text-white / .bg-white.
+   Chrome autofill pinta o campo de branco; sem transition-all + color-scheme dark
+   o flash não vaza. O campo continua no vidro verde (bg-white/5), sem placa preta. */
+.login-screen {
+  color-scheme: dark;
+  isolation: isolate;
+}
+
+html:has(.login-screen),
+html:has(.login-screen) body {
+  color-scheme: dark;
+}
+
+.login-screen .login-field-icon {
+  z-index: 2;
+  pointer-events: none;
+  color: rgb(255 255 255 / 0.4);
+}
+
+.login-screen .login-field-icon.is-focused {
+  color: #ffffff;
+}
+
+.login-screen .login-field-toggle {
+  z-index: 2;
+  color: rgb(255 255 255 / 0.4);
+}
+
 .login-screen .login-input,
-.login-screen .login-input:-webkit-autofill,
-.login-screen .login-input:-webkit-autofill:hover,
-.login-screen .login-input:-webkit-autofill:focus,
 html.light .login-screen .login-input,
-html.light .login-screen .login-input.text-white,
-html.light .login-screen .login-input:-webkit-autofill,
-html.light .login-screen .login-input:-webkit-autofill:hover,
-html.light .login-screen .login-input:-webkit-autofill:focus {
+html.light .login-screen .login-input.text-white {
   color: #ffffff !important;
   -webkit-text-fill-color: #ffffff !important;
   caret-color: #ffffff;
+  color-scheme: dark;
+  background-color: rgb(255 255 255 / 0.05) !important;
 }
+
+.login-screen .login-input:focus,
+html.light .login-screen .login-input:focus {
+  background-color: rgb(255 255 255 / 0.10) !important;
+}
+
+.login-screen .login-input:-webkit-autofill,
+.login-screen .login-input:-webkit-autofill:hover,
+.login-screen .login-input:-webkit-autofill:focus,
+.login-screen .login-input:-webkit-autofill:active,
+html.light .login-screen .login-input:-webkit-autofill,
+html.light .login-screen .login-input:-webkit-autofill:hover,
+html.light .login-screen .login-input:-webkit-autofill:focus,
+html.light .login-screen .login-input:-webkit-autofill:active {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+  caret-color: #ffffff;
+  /* Mesmo vidro do preenchimento manual — verde do fundo aparece através */
+  background-color: rgb(255 255 255 / 0.05) !important;
+  background-image: none !important;
+  -webkit-box-shadow: none !important;
+  box-shadow: none !important;
+  /* Chrome anima o fundo do autofill; o atraso impede o flash branco */
+  transition: background-color 99999s ease-out 0s !important;
+}
+
+html.light .login-screen .text-white { color: #ffffff !important; }
+html.light .login-screen .text-white\/90 { color: rgb(255 255 255 / 0.9) !important; }
+html.light .login-screen .text-white\/80 { color: rgb(255 255 255 / 0.8) !important; }
+html.light .login-screen .text-white\/70 { color: rgb(255 255 255 / 0.7) !important; }
+html.light .login-screen .text-white\/60 { color: rgb(255 255 255 / 0.6) !important; }
+html.light .login-screen .text-white\/50 { color: rgb(255 255 255 / 0.5) !important; }
+html.light .login-screen .text-white\/40 { color: rgb(255 255 255 / 0.4) !important; }
+html.light .login-screen .text-white\/30 { color: rgb(255 255 255 / 0.3) !important; }
+html.light .login-screen .hover\:text-white:hover,
+html.light .login-screen .hover\:text-white\/80:hover { color: #ffffff !important; }
+html.light .login-screen .bg-white\/5 { background-color: rgb(255 255 255 / 0.05) !important; }
+html.light .login-screen .bg-white\/10 { background-color: rgb(255 255 255 / 0.10) !important; }
 
 .login-screen .login-input::placeholder,
 html.light .login-screen .login-input::placeholder,

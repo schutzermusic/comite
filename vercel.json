@@ -1,4 +1,18 @@
 {
+  "redirects": [
+    {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "board.insightapex.co" }],
+      "destination": "https://insightapex.co/:path*",
+      "permanent": true
+    },
+    {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "www.insightapex.co" }],
+      "destination": "https://insightapex.co/:path*",
+      "permanent": true
+    }
+  ],
   "crons": [
     {
       "path": "/api/ponto/cron",

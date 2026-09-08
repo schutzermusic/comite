@@ -19,7 +19,7 @@ Consome os endpoints `/api/mobile/*` do backend (Fase 4a) no repositório web.
 1. `cd mobile && npm install`
 2. Copie `.env.example` para `.env` e preencha:
    - `EXPO_PUBLIC_SUPABASE_URL` e `EXPO_PUBLIC_SUPABASE_ANON_KEY` (mesmos do web)
-   - `EXPO_PUBLIC_API_BASE_URL` — URL do app web (ex.: `https://seu-insight.vercel.app`)
+   - `EXPO_PUBLIC_API_BASE_URL` — URL do app web (`https://insightapex.co` em produção)
 3. `npx expo start` → abra no simulador/emulador ou no Expo Go.
 
 ## Arquitetura
