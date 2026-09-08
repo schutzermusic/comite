@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { getActiveOrganizationRow } from '@/lib/auth/active-organization';
 import { createClient } from '@/utils/supabase/server';
 import { getServiceClient } from '@/lib/ai/server-clients';
 import { requireApiPermission } from '@/lib/auth/api-guard';
@@ -19,11 +20,7 @@ export async function POST(req: Request) {
   if (!guard.ok) return guard.response;
 
   const supabase = await createClient();
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('organization_id')
-    .eq('user_id', guard.userId)
-    .maybeSingle();
+  const profile = await getActiveOrganizationRow(supabase);
   if (!profile?.organization_id) {
     return NextResponse.json({ ok: false, error: 'Sem organização.' }, { status: 403 });
   }

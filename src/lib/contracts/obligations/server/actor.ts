@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { getActiveOrganizationRow } from '@/lib/auth/active-organization';
 import { requireApiPermission } from '@/lib/auth/api-guard';
 import { createClient } from '@/utils/supabase/server';
 import type { ObligationActor } from './store';
@@ -19,8 +20,7 @@ export async function resolveObligationActor(permission: string): Promise<Obliga
   if (!guard.ok) return guard;
 
   const supabase = await createClient();
-  const { data: profile } = await supabase
-    .from('profiles').select('organization_id').eq('user_id', guard.userId).maybeSingle();
+  const profile = await getActiveOrganizationRow(supabase);
 
   if (!profile?.organization_id) {
     return { ok: false, response: NextResponse.json({ ok: false, error: 'Usuário sem organização ativa.' }, { status: 403 }) };

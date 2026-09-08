@@ -6,6 +6,7 @@ import {
   Bell,
   Building2,
   KeyRound,
+  Network,
   Palette,
   Puzzle,
   ScrollText,
@@ -18,6 +19,7 @@ import { cn } from "@/lib/utils";
 const SETTINGS_LINKS = [
   { href: "/configuracoes/conta", label: "Minha Conta", icon: User },
   { href: "/configuracoes/empresa", label: "Empresa", icon: Building2 },
+  { href: "/configuracoes/organizacoes", label: "Organizações", icon: Network },
   { href: "/configuracoes/branding", label: "Branding da Organização", icon: Sparkles },
   { href: "/configuracoes/notificacoes", label: "Notificações", icon: Bell },
   { href: "/configuracoes/integracoes", label: "Integrações", icon: Puzzle },

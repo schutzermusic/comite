@@ -9,6 +9,7 @@ if (typeof window !== 'undefined') {
 }
 
 import { NextResponse } from 'next/server';
+import { getActiveOrganizationRow } from '@/lib/auth/active-organization';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 export function getBearerToken(req: Request): string | null {
@@ -57,11 +58,7 @@ export async function authenticateMobile(
     return { ok: false, response: json({ ok: false, error: 'Token inválido' }, 401) };
   }
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('organization_id')
-    .eq('user_id', user.id)
-    .maybeSingle();
+  const profile = await getActiveOrganizationRow(supabase);
   if (!profile?.organization_id) {
     return { ok: false, response: json({ ok: false, error: 'Usuário sem organização' }, 403) };
   }

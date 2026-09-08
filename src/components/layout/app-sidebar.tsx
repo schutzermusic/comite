@@ -91,6 +91,7 @@ import { hasAnyPermission, hasPermission } from "@/lib/auth/permissions";
 import { isModuleEnabled, type AppModule } from "@/lib/modules/registry";
 import { createClient } from "@/utils/supabase/client";
 import { useCurrentUser } from "@/hooks/use-current-user";
+import { OrganizationSwitcher } from "@/components/organizations/OrganizationSwitcher";
 import { useMyCommittees } from "@/hooks/use-my-committees";
 import { useRiskBadge } from "@/hooks/use-risk-badge";
 
@@ -344,7 +345,6 @@ const navigationItems: MenuItem[] = [
   { href: "/workflows", labelKey: "automations", icon: Zap, section: "admin", permission: "admin.view" },
   { href: "/atas", labelKey: "minutes", icon: FileBadge, section: "admin", permission: "minutes.view" },
   { href: "/notificacoes", labelKey: "adminNotifications", icon: Bell, section: "admin", permission: "admin.view" },
-  { href: "/relatorios", labelKey: "reports", icon: BarChart3, section: "admin", anyPermission: ["dashboard.export", "finance.export", "projects.export", "audit.export"] },
   { href: "/admin/audit", labelKey: "history", icon: History, section: "admin", permission: "audit.view" },
 ];
 
@@ -705,8 +705,14 @@ export function AppSidebar() {
 
   return (
     <Sidebar className="hud-sidebar border-r-0" collapsible="icon">
-      <SidebarHeader className="h-11 min-h-11 shrink-0 p-0 gap-0 flex flex-row items-center justify-center hud-sidebar-header hud-sidebar-header--collapse-only">
-        <div className="hud-sidebar-collapse-slot">{collapseControl}</div>
+      <SidebarHeader className="shrink-0 p-0 gap-0 hud-sidebar-header">
+        <div className="h-11 min-h-11 flex flex-row items-center justify-center hud-sidebar-header--collapse-only">
+          <div className="hud-sidebar-collapse-slot">{collapseControl}</div>
+        </div>
+        {/* Fase 7.5 — o seletor global de organização (§8). */}
+        <div className="px-1.5 pb-1.5">
+          <OrganizationSwitcher collapsed={isCollapsed} />
+        </div>
       </SidebarHeader>
 
       <SidebarContent className="hud-sidebar-content flex-1 overflow-y-auto overflow-x-hidden">

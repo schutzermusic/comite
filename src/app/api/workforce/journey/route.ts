@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { getActiveOrganizationRow } from '@/lib/auth/active-organization';
 import { requireApiPermission } from '@/lib/auth/api-guard';
 import { buildJourneyDaySummary, eachDateBetween, resolveJourneySchedule } from '@/lib/services/journey-engine';
 import type {
@@ -377,7 +378,7 @@ export async function POST(req: Request) {
     if (!userId) return fail(new Error('Não autenticado'), 401);
     const body = await req.json() as Record<string, unknown>;
     const action = String(body.action ?? '');
-    const { data: profile } = await supabase.from('profiles').select('organization_id').eq('user_id', userId).maybeSingle();
+    const profile = await getActiveOrganizationRow(supabase);
     const organizationId = profile?.organization_id as string | undefined;
     if (!organizationId) return fail(new Error('Usuário sem organização'), 403);
 
