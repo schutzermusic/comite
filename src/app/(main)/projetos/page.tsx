@@ -7,13 +7,16 @@ import { Briefcase } from 'lucide-react';
 import { useHudToast } from '@/hooks/useHudToast';
 import {
   deleteProject,
+  getProjects,
   getProjectsAsync,
+  getProjectsV2,
   getProjectsV2Async,
   updateProjectV2,
   uploadProjectFile,
 } from '@/lib/services/projects';
 import type { Project } from '@/lib/types';
 import type { ProjectV2 } from '@/lib/types/project-v2';
+import { useCurrentUser } from '@/hooks/use-current-user';
 
 import { HudPageLayout, HudEmptyState } from '@/components/hud';
 import {
@@ -33,6 +36,7 @@ function PortfolioProjetosInner() {
   const { toast } = useHudToast();
   const t = useTranslations('projects');
   const tCommon = useTranslations('common');
+  const { organization } = useCurrentUser();
 
   const stateParam = searchParams.get('state');
   const ufParam = searchParams.get('uf');
@@ -62,8 +66,9 @@ function PortfolioProjetosInner() {
           getProjectsV2Async(),
         ]);
         if (!active) return;
-        setProjects(loadedProjects);
-        setProjectsV2(loadedProjectsV2);
+        const useDemoFixtures = organization?.is_demo === true && loadedProjects.length === 0;
+        setProjects(useDemoFixtures ? getProjects() : loadedProjects);
+        setProjectsV2(useDemoFixtures ? getProjectsV2() : loadedProjectsV2);
       } catch (error) {
         toast({
           title: 'Não foi possível carregar projetos',
@@ -76,7 +81,7 @@ function PortfolioProjetosInner() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [organization?.id, organization?.is_demo]);
 
   useEffect(() => {
     const stateFromParam = stateParam || ufParam;
@@ -185,7 +190,7 @@ function PortfolioProjetosInner() {
     const v2s = list.map((p) => v2Map.get(p.id)).filter(Boolean) as ProjectV2[];
     const avgHealth = v2s.length
       ? Math.round(v2s.reduce((s, p) => s + (p.health_score || 0), 0) / v2s.length)
-      : 100;
+      : 0;
     const avgProgress = total
       ? Math.round(list.reduce((s, p) => s + (p.progresso_percentual || 0), 0) / total)
       : 0;

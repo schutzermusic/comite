@@ -58,6 +58,32 @@ export const SWITCH_FAILURE_MESSAGE: Record<SwitchFailure, string> = {
   UNKNOWN: 'Não foi possível trocar de organização.',
 };
 
+/** Operational browser state must not survive a tenant boundary change. */
+export function clearTenantLocalPersistence(): void {
+  if (typeof window === 'undefined') return;
+  const exactKeys = new Set([
+    'insight_projects',
+    'insight_projects_v2_b',
+    'deliberation_drafts',
+    'insight-investor-report-packs-v1',
+    'insight:payroll-cc-mappings:org-insight-001',
+    'insight-ponto-fila-v1',
+  ]);
+  const scopedPrefixes = [
+    'insight_projects:',
+    'insight_projects_v2_b:',
+    'insight:payroll-cc-mappings:',
+    'deliberation_drafts:',
+    'insight-investor-report-packs-v1:',
+  ];
+  for (let index = window.localStorage.length - 1; index >= 0; index -= 1) {
+    const key = window.localStorage.key(index);
+    if (key && (exactKeys.has(key) || scopedPrefixes.some((prefix) => key.startsWith(prefix)))) {
+      window.localStorage.removeItem(key);
+    }
+  }
+}
+
 export async function switchOrganization(
   organizationId: string,
   destination: string = ORGANIZATION_SWITCH_FALLBACK,
@@ -72,6 +98,9 @@ export async function switchOrganization(
     return { ok: false, failure, message: SWITCH_FAILURE_MESSAGE[failure] };
   }
 
-  if (typeof window !== 'undefined') window.location.assign(destination);
+  if (typeof window !== 'undefined') {
+    clearTenantLocalPersistence();
+    window.location.assign(destination);
+  }
   return { ok: true };
 }

@@ -3,7 +3,7 @@
 /**
  * Apontamentos do projeto (spec seção 11) — consolidação, submissão com
  * aprovação por exceção e conciliação planejado × apontado × aprovado do
- * mês. Live-first + demo fallback.
+ * mês. Live-first; fixtures are restricted to an explicit demo organization.
  *
  * A MARCAÇÃO de horas não acontece aqui. Quem inicia e encerra a
  * atividade — e escolhe a etapa do cronograma — é o app de Ponto
@@ -53,6 +53,7 @@ import { listAllocationsByProject, LIVE_ALLOCATION_STATUSES } from '@/lib/servic
 import { countBusinessDays, monthBounds } from '@/lib/services/capacity';
 import { getCurrentPerson } from '@/lib/services/people';
 import { buildDemoTimeEntries } from './timesheet-demo-data';
+import { useCurrentUser } from '@/hooks/use-current-user';
 
 function currentMonth(): string {
   const now = new Date();
@@ -84,6 +85,7 @@ interface ProjectTimesheetViewProps {
 
 export function ProjectTimesheetView({ projectId }: ProjectTimesheetViewProps) {
   const { hasPermission } = usePermissions();
+  const { organization } = useCurrentUser();
   const { notify } = useHudToast();
   const canUse = hasPermission('people.timesheet_use');
 
@@ -145,7 +147,7 @@ export function ProjectTimesheetView({ projectId }: ProjectTimesheetViewProps) {
     void reload();
   }, [reload]);
 
-  const usingDemo = !loading && !error && entries.length === 0;
+  const usingDemo = organization?.is_demo === true && !loading && !error && entries.length === 0;
   const sourceEntries = usingDemo ? buildDemoTimeEntries(projectId) : entries;
 
   const blockDemo = useCallback((): boolean => {

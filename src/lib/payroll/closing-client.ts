@@ -27,7 +27,7 @@ import type {
 } from '@/lib/types/payroll-closing';
 
 export function repositoryMode(): 'mock' | 'supabase' {
-  return process.env.NEXT_PUBLIC_PAYROLL_CLOSING_REPOSITORY_MODE === 'supabase' ? 'supabase' : 'mock';
+  return process.env.NEXT_PUBLIC_PAYROLL_CLOSING_REPOSITORY_MODE === 'mock' ? 'mock' : 'supabase';
 }
 const isSupabase = () => repositoryMode() === 'supabase';
 
@@ -234,9 +234,9 @@ export async function listCostCenterMappings(): Promise<PayrollCostCenterMapping
     const r = await jsonFetch<{ ok: boolean; mappings?: PayrollCostCenterMapping[] }>('/api/payroll/cost-center-mappings');
     return r.ok && r.mappings ? r.mappings : [];
   } catch {
-    // Network/parse failure — fall back to any local aliases so the UI still
-    // auto-matches instead of showing everything as unmapped.
-    return getCostCenterMappings();
+    // Supabase mode fails closed. Local aliases may belong to another tenant
+    // and therefore can never be treated as production configuration.
+    return [];
   }
 }
 
@@ -268,8 +268,8 @@ export async function listFinanceCostCenters(): Promise<CostCenterLike[]> {
     const r = await jsonFetch<{ ok: boolean; costCenters?: CostCenterLike[] }>('/api/finance/cost-centers');
     return r.ok && r.costCenters ? r.costCenters : [];
   } catch {
-    // Fall back to the client seed so the dropdown isn't empty on a transient error.
-    return getCostCenters().filter((c) => c.active).map((c) => ({ id: c.id, code: c.code, name: c.name }));
+    // Empty is truthful on failure; demo/reference centers are local mode only.
+    return [];
   }
 }
 

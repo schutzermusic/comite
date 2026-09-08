@@ -23,7 +23,7 @@ import {
 import { Checkbox } from '@/components/ui/checkbox';
 import { useHudToast } from '@/hooks/useHudToast';
 import { ProjectTask } from '@/lib/types';
-import { users } from '@/lib/mock-data';
+import { useCurrentUser } from '@/hooks/use-current-user';
 
 interface AddTaskDialogProps {
   open: boolean;
@@ -41,6 +41,8 @@ export function AddTaskDialog({
   onAddTask,
 }: AddTaskDialogProps) {
   const { toast } = useHudToast();
+  const { user, profile } = useCurrentUser();
+  const users = user ? [{ id: user.id, nome: profile?.full_name || user.email || 'Usuário atual' }] : [];
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -306,4 +308,3 @@ export function AddTaskDialog({
     </Dialog>
   );
 }
-

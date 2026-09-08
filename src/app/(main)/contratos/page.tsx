@@ -21,6 +21,7 @@ import type { PortfolioActivityEvent } from '@/components/contracts/cockpit/Port
 import { listRisks } from '@/lib/services/risks';
 import { useContracts } from '@/hooks/use-contracts';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useCurrentUser } from '@/hooks/use-current-user';
 import { ContractList } from '@/components/contracts/contract-list';
 import { ContractUpload, type ContractOnboardingDraft } from '@/components/contracts/contract-upload';
 import { ContractCard } from '@/components/contracts/ContractCard';
@@ -170,6 +171,7 @@ export default function ContratosPage() {
   const router = useRouter();
   const { contracts: contractRows, loading, error, refresh, createContract: persistContract, deleteContract } = useContracts();
   const { hasPermission, loading: permissionsLoading } = usePermissions();
+  const { organization } = useCurrentUser();
   const [projects, setProjects] = useState<Project[]>([]);
   const [riskOptions, setRiskOptions] = useState<{ id: string; title: string }[]>([]);
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -253,7 +255,9 @@ export default function ContratosPage() {
         void fetchPortfolioLinkCounts(ids)
           .then((counts) => { if (active) setLinkCounts(counts); })
           .catch(() => { if (active) setLinkCounts({ linkedTasks: null, auditEvents: null }); });
-        setLiveRecords(applyLiveGovernanceData(mockRecords, batch, projects));
+        setLiveRecords(applyLiveGovernanceData(mockRecords, batch, projects, {
+          allowEstimated: organization?.is_demo === true,
+        }));
         const { live, total } = countLiveSections(batch);
         // Uma seção que FALHOU não é uma seção vazia: sem isto, uma negativa de
         // RLS ou uma queda de rede caía no preview sintético sem nenhum aviso.
@@ -269,7 +273,7 @@ export default function ContratosPage() {
     return () => {
       active = false;
     };
-  }, [mockRecords, projects]);
+  }, [mockRecords, organization?.is_demo, projects]);
 
   /**
    * Read model CONFIÁVEL — a fonte única da Executive Band e dos dois PDFs.
@@ -328,7 +332,12 @@ export default function ContratosPage() {
     [trustedPortfolio],
   );
 
-  const allRecords = useMemo(() => (mockRecords.length === 0 ? mockRecords : liveRecords ?? mockRecords), [liveRecords, mockRecords]);
+  const allRecords = useMemo(
+    () => (mockRecords.length === 0
+      ? []
+      : liveRecords ?? (organization?.is_demo === true ? mockRecords : [])),
+    [liveRecords, mockRecords, organization?.is_demo],
+  );
 
   /**
    * A listagem respeita o escopo. Enquanto o batch não chegou, `dataClassById`
@@ -2136,4 +2145,3 @@ const APPROVAL_STEP_LABELS: Record<string, string> = { juridico: 'Jurídico', fi
   O histórico da carteira agora é a gaveta `HistoryDrawer`, sobre as MESMAS
   linhas de `listPortfolioAuditEvents` que alimentam "Atividade recente".
 */
-

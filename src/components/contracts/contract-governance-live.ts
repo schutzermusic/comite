@@ -122,11 +122,39 @@ export function applyLiveGovernanceData(
   records: ContractGovernanceRecord[],
   batch: ContractRelationsBatch,
   projects: Project[],
-  now: Date = new Date(),
+  options: { allowEstimated?: boolean; now?: Date } = {},
 ): ContractGovernanceRecord[] {
+  const now = options.now ?? new Date();
+  const truthRecords = options.allowEstimated === false
+    ? records.map((record): ContractGovernanceRecord => ({
+        ...record,
+        project: null,
+        projectReference: '',
+        linkedProjects: [],
+        billedValue: 0,
+        remainingValue: record.totalValue,
+        riskScore: 0,
+        hasAiAnalysis: null,
+        legalStatus: 'pending',
+        financialStatus: 'attention',
+        approvalRoute: '',
+        missingDocuments: [],
+        obligations: [],
+        clauses: [],
+        auditEvents: [],
+        linkedRisks: [],
+        linkedTasks: [],
+        linkedDeliberations: [],
+        billingEvents: [],
+        revenueRecognitionStatus: 'not_configured',
+        margin: 0,
+        paymentStatus: 'not_configured',
+        financialAllocationsPending: false,
+      }))
+    : records;
   const projectMap = new Map(projects.map((project) => [project.id, project]));
 
-  return records.map((record) => {
+  return truthRecords.map((record) => {
     const id = record.contract.id;
 
     // Obligations

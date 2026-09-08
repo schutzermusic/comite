@@ -10,7 +10,7 @@ import {
 import type { CurrentUserContext, Organization, PermissionKey, Profile, Role } from '@/lib/auth/types';
 
 const ORGANIZATION_COLUMNS =
-  'id,name,slug,status,workspace_name,logo_url,brand_color,email_from_name,notification_name,branding_enabled,enterprise_account_id,legal_name,country_code,default_currency,timezone,legal_identifier';
+  'id,name,slug,status,is_demo,workspace_name,logo_url,brand_color,email_from_name,notification_name,branding_enabled,enterprise_account_id,legal_name,country_code,default_currency,timezone,legal_identifier';
 
 type UserRoleRow = {
   role_id: string;

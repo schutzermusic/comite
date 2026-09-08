@@ -41,6 +41,7 @@ import { LedgerCostBreakdown } from '@/components/finance/cost-analysis';
 import { FinanceInvestorCockpit, GlassPanel, PanelHeader } from '@/components/projects/FinanceInvestorCockpit';
 import { openProjectFinanceReport, type ReportSections } from '@/lib/projects/export-project-finance-report';
 import { EditDataButton, ProjectChartEditorHost, type ProjectChartEditorKind } from '@/components/projects/ProjectChartEditors';
+import { useCurrentUser } from '@/hooks/use-current-user';
 
 // ── Helpers ─────────────────────────────────────────────────────
 
@@ -213,6 +214,7 @@ interface FinanceViewProps {
 // ── Main Component ──────────────────────────────────────────────
 
 export function FinanceView({ project, onProjectChange }: FinanceViewProps) {
+    const { organization } = useCurrentUser();
     const router = useRouter();
     const { theme } = useTheme();
     const pal = useMemo(() => buildViewPalette(theme === 'light'), [theme]);
@@ -245,9 +247,11 @@ export function FinanceView({ project, onProjectChange }: FinanceViewProps) {
 
     // ── Ledger-derived financial view ────────────────────
     const view = useMemo(
-        () => (financeProjectId ? selectProjectFinanceView(getLedgerEntries(), financeProjectId) : undefined),
+        () => (financeProjectId
+            ? selectProjectFinanceView(organization?.is_demo === true ? getLedgerEntries() : [], financeProjectId)
+            : undefined),
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [financeProjectId, refreshKey],
+        [financeProjectId, organization?.is_demo, refreshKey],
     );
 
     const cutoffPeriod = view?.sCurve.cutoffPeriod ?? '';

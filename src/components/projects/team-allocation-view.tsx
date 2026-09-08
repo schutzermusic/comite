@@ -3,8 +3,8 @@
 /**
  * Equipe do projeto — enterprise allocation view (spec: plan/
  * INSIGHT_APEX_ALOCACAO_APONTAMENTO_ARQUITETURA.md, seção 9).
- * Live-first: project_allocations via Supabase RLS; read-only demo
- * fallback when the table is empty (risk-demo-data pattern).
+ * Live-first: project_allocations via Supabase RLS; read-only fixtures only
+ * for an organization explicitly marked as demo.
  * Individual cost is gated by people.cost_view (masked otherwise).
  */
 
@@ -61,6 +61,7 @@ import {
   DEMO_PEOPLE,
 } from './team-demo-data';
 import { ProjectLaborCostPanel } from './project-labor-cost-panel';
+import { useCurrentUser } from '@/hooks/use-current-user';
 
 /* ─────────────────────────── helpers ─────────────────────────── */
 
@@ -114,6 +115,7 @@ interface TeamAllocationViewProps {
 
 export function TeamAllocationView({ projectId }: TeamAllocationViewProps) {
   const { hasPermission } = usePermissions();
+  const { organization } = useCurrentUser();
   const { notify } = useHudToast();
 
   const canManage = hasPermission('people.allocations_manage');
@@ -155,7 +157,7 @@ export function TeamAllocationView({ projectId }: TeamAllocationViewProps) {
     void reload();
   }, [reload]);
 
-  const usingDemo = !loading && !error && allocations.length === 0;
+  const usingDemo = organization?.is_demo === true && !loading && !error && allocations.length === 0;
   const sourceAllocations = usingDemo ? buildDemoTeamAllocations(projectId) : allocations;
   const sourceCorporate = usingDemo ? buildDemoCorporateAllocations(projectId) : corporate;
   const sourcePeople = usingDemo ? DEMO_PEOPLE : people;

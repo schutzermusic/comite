@@ -36,8 +36,8 @@ export function isV2Migrated(): boolean {
  * Migrate a single v1 project to v2 shape.
  * Merges v2 overlay data if available, otherwise creates empty substructures.
  */
-function migrateProjectToV2(p: Project): ProjectV2 {
-    const overlay = v2Overlays[p.id];
+function migrateProjectToV2(p: Project, includeDemoOverlay = true): ProjectV2 {
+    const overlay = includeDemoOverlay ? v2Overlays[p.id] : undefined;
 
     // Map legacy finance fields to MoneyAmount
     const defaultFinance: ProjectFinance = {
@@ -55,7 +55,9 @@ function migrateProjectToV2(p: Project): ProjectV2 {
     // Map legacy revenue fields from valor_total / valor_executado
     const totalContracted = p.valor_total || 0;
     const billed = p.valor_executado || 0;
-    const received = billed * 0.8; // default assumption: 80% of billed is received
+    // A production migration must never invent cash receipt. The historical
+    // 80% assumption is retained only by the explicit local demo path.
+    const received = includeDemoOverlay ? billed * 0.8 : 0;
     const defaultRevenue: ProjectRevenue = {
         totalContracted: makeMoney(totalContracted),
         billed: makeMoney(billed),
@@ -131,7 +133,7 @@ function migrateProjectToV2(p: Project): ProjectV2 {
  * Returns the migrated projects.
  */
 export function migrateToV2(v1Projects: Project[]): ProjectV2[] {
-    const v2Projects = v1Projects.map(migrateProjectToV2);
+    const v2Projects = v1Projects.map((project) => migrateProjectToV2(project));
 
     if (typeof window !== 'undefined') {
         try {
@@ -142,6 +144,14 @@ export function migrateToV2(v1Projects: Project[]): ProjectV2[] {
     }
 
     return v2Projects;
+}
+
+/**
+ * Pure production migration. It neither reads/writes localStorage nor applies
+ * the CEMIG/demo overlay. Canonical tenant rows remain the only source of fact.
+ */
+export function migrateProjectsToV2Live(v1Projects: Project[]): ProjectV2[] {
+    return v1Projects.map((project) => migrateProjectToV2(project, false));
 }
 
 export function applyLatestV2Overlay(project: ProjectV2): ProjectV2 {
@@ -178,7 +188,7 @@ export function applyLatestV2Overlay(project: ProjectV2): ProjectV2 {
  */
 export function loadV2Projects(v1Projects: Project[]): ProjectV2[] {
     if (typeof window === 'undefined') {
-        return v1Projects.map(migrateProjectToV2);
+        return v1Projects.map((project) => migrateProjectToV2(project));
     }
 
     // Try to load existing v2 data

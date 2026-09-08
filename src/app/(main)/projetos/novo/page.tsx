@@ -4,10 +4,10 @@ import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Save, Briefcase, FolderPlus } from 'lucide-react';
 import { useHudToast } from '@/hooks/useHudToast';
-import { projects, users } from '@/lib/mock-data';
 import { createProject, updateProjectV2 } from '@/lib/services/projects';
-import { Project } from '@/lib/types';
+import { Project, User } from '@/lib/types';
 import { STATE_CENTROIDS } from '@/data/geo/brazil-operational-data';
+import { useCurrentUser } from '@/hooks/use-current-user';
 
 // Estados (UF) ordenados por nome — alimenta o seletor de localização e
 // garante que o projeto seja plotado no globo e no Operations 3D.
@@ -23,14 +23,22 @@ import {
   HudButton,
 } from '@/components/hud';
 
-const comites = projects
-  .map((p) => ({ id: p.comite_id, nome: p.comite_nome }))
-  .filter((v, i, a) => a.findIndex((t) => t.id === v.id) === i)
-  .filter((c) => c.id && c.nome) as { id: string; nome: string }[];
+// Committees are never inferred from demo projects. Until the canonical
+// committee registry supplies options, a production organization starts empty.
+const comites: { id: string; nome: string }[] = [];
 
 export default function NovoProjetoPage() {
   const router = useRouter();
   const { toast } = useHudToast();
+  const { user, profile } = useCurrentUser();
+  const users: User[] = user ? [{
+    id: user.id,
+    nome: profile?.full_name || user.email || 'Usuário atual',
+    full_name: profile?.full_name || undefined,
+    email: user.email || '',
+    avatarUrl: profile?.avatar_url || '',
+    papelPrincipal: 'admin',
+  }] : [];
 
   const [formData, setFormData] = useState({
     nome: '',
@@ -97,6 +105,7 @@ export default function NovoProjetoPage() {
     try {
       // Buscar responsável
       const responsavel = users.find(u => u.id === formData.responsavel_id) || users[0];
+      if (!responsavel) throw new Error('Usuário autenticado não disponível.');
 
       // Calcular progresso se houver valores
       const valorTotal = Number(formData.valor_total) || 0;

@@ -95,8 +95,9 @@ function normalizeDate(value?: string): string {
 }
 
 export function formatOperationsDate(value?: string): string {
-  const date = value ? new Date(value) : new Date();
-  if (Number.isNaN(date.getTime())) return "Hoje";
+  if (!value) return "Sem sincronização";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Data não informada";
   return new Intl.DateTimeFormat("pt-BR", {
     day: "2-digit",
     month: "short",
@@ -193,9 +194,12 @@ function getDeadline(project: Project, v2?: ProjectV2): string {
   return "Marco executivo a definir";
 }
 
-export function buildOperationsProjectRecords(): OperationsProjectRecord[] {
-  const projects = getProjects();
-  const projectsV2 = getProjectsV2();
+export function buildOperationsProjectRecords(
+  sourceProjects: Project[] = getProjects(),
+  sourceProjectsV2: ProjectV2[] = getProjectsV2(),
+): OperationsProjectRecord[] {
+  const projects = sourceProjects;
+  const projectsV2 = sourceProjectsV2;
   const v2ById = new Map(projectsV2.map((project) => [project.id, project]));
 
   return projects.map((project) => {
@@ -231,19 +235,20 @@ export function buildOperationsProjectRecords(): OperationsProjectRecord[] {
       mainRisk: chooseMainRisk(v2, project),
       responsibleManager: project.responsavel?.nome || project.responsavel?.full_name || "Gestor não definido",
       lastUpdate: normalizeDate(v2?.last_activity_at || project.created_date),
-      linkedRisks: unresolvedRisks || (project.impacto_financeiro === "baixo" ? 0 : 1),
+      linkedRisks: unresolvedRisks,
       linkedActions: actions,
-      linkedContracts: v2?.contract_id || project.sankhya_projeto_id ? 1 : project.codigo ? 1 : 0,
+      linkedContracts: v2?.contract_id || project.sankhya_projeto_id ? 1 : 0,
       linkedDocuments: v2?.documents?.length || 0,
-      linkedAssets: Math.max(1, Math.min(18, (v2?.documents?.length || 0) + (v2?.billing_eventogram?.length || 0) + 1)),
+      linkedAssets: v2?.documents?.length || 0,
     };
   });
 }
 
 export function buildOperationsSummary(projects: OperationsProjectRecord[]) {
-  const lastUpdate = projects.reduce((latest, project) => {
+  const lastUpdate = projects.reduce<string | undefined>((latest, project) => {
+    if (!latest) return project.lastUpdate;
     return latest > project.lastUpdate ? latest : project.lastUpdate;
-  }, "1970-01-01T00:00:00.000Z");
+  }, undefined);
 
   return {
     totalProjects: projects.length,

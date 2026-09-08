@@ -5,6 +5,8 @@ import { SidebarShell } from '@/components/layout/sidebar-shell';
 import { SidebarInset } from '@/components/ui/sidebar';
 import { AtmosphericBackground } from '@/components/system/AtmosphericBackground';
 import { GlobeControlProvider } from '@/contexts/GlobeControlContext';
+import { ProductionTruthBoundary } from '@/components/system/ProductionTruthBoundary';
+import { getCurrentUserContext } from '@/lib/auth/current-user';
 
 /**
  * MainLayout - Dashboard Shell
@@ -19,11 +21,13 @@ import { GlobeControlProvider } from '@/contexts/GlobeControlContext';
  * - It sits BESIDE the Saúde Financeira panel in a 2-column layout
  * - Globe is clipped to its container and does NOT pollute other areas
  */
-export default function MainLayout({
+export default async function MainLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const context = await getCurrentUserContext();
+  const isDemoOrganization = context.organization?.is_demo === true;
   return (
     <GlobeControlProvider>
       {/* Background layer - fixed, decorative only */}
@@ -47,7 +51,9 @@ export default function MainLayout({
             <SidebarInset className="flex flex-col flex-1 min-h-0 w-full bg-transparent overflow-hidden">
               <Header />
               <main className="flex-1 min-h-0 w-full relative overflow-auto">
-                {children}
+                <ProductionTruthBoundary isDemoOrganization={isDemoOrganization}>
+                  {children}
+                </ProductionTruthBoundary>
               </main>
             </SidebarInset>
           </div>

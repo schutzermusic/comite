@@ -66,6 +66,7 @@ import { listContracts } from "@/lib/contracts/contract-service";
 import { useRisks } from "@/hooks/use-risks";
 import { usePermissions } from "@/hooks/use-permissions";
 import { useHudToast } from "@/hooks/useHudToast";
+import { useCurrentUser } from "@/hooks/use-current-user";
 
 /* ═══════════════════════════════════════════════════════════════
    COCKPIT EXECUTIVO DE RISCOS
@@ -88,12 +89,13 @@ function RiscosCockpit() {
   const { risks: allRisks, loading, error, dismissAiRisk, createRisk, updateRisk, refresh } = useRisks();
   const { hasPermission, loading: permissionsLoading } = usePermissions();
   const toast = useHudToast();
+  const { organization } = useCurrentUser();
   const canView = hasPermission("risks.view");
   const canDismissAi = hasPermission("risks.ai_dismiss");
 
   /* ── Demo data fallback / preview ── */
   const [demoPreview, setDemoPreview] = useState(false);
-  const usingDemo = !loading && !error && (allRisks.length === 0 || demoPreview);
+  const usingDemo = !loading && !error && (demoPreview || (organization?.is_demo === true && allRisks.length === 0));
   const sourceRisks = usingDemo ? DEMO_RISKS : allRisks;
 
   /* ── Source filter (chip only — no top-level tab) ── */

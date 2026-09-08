@@ -18,7 +18,7 @@ import {
   fmtBRL, fmtCompactBRL,
 } from '@/components/finance/shared';
 import {
-  getTaxObligations, getTaxObligation, getLedgerEntry,
+  getTaxObligations, getLedgerEntry,
   recordTaxPayment, formatBRL, formatCompactBRL, reaisToCents, centsToReais,
 } from '@/lib/finance/finance-store';
 import {
@@ -29,6 +29,7 @@ import {
 import { ExportReportButton } from '@/components/reports/ExportReportButton';
 import { openFinanceReport, kpiFromHud } from '@/lib/reports/modules/finance-report';
 import type { TaxObligation, TaxStatus, TaxType, LedgerEntry } from '@/lib/types/finance';
+import { useCurrentUser } from '@/hooks/use-current-user';
 
 const STATUS_VARIANT: Record<TaxStatus, HudStatusPillVariant> = {
   open: 'info',
@@ -58,6 +59,7 @@ export default function ImpostosPage() {
 }
 
 function ImpostosContent() {
+  const { organization } = useCurrentUser();
   const t = useTranslations('finance');
   const router = useRouter();
   const pathname = usePathname();
@@ -93,16 +95,21 @@ function ImpostosContent() {
 
   // Supabase is authoritative when migration 090 is available. The existing
   // in-memory dataset remains a local/demo fallback only.
-  const allTaxes = useMemo(() => liveTaxes ?? getTaxObligations(), [liveTaxes, refreshKey]);
+  const allTaxes = useMemo(
+    () => (organization?.is_demo === true && (!liveTaxes || liveTaxes.length === 0)
+      ? getTaxObligations()
+      : liveTaxes ?? []),
+    [liveTaxes, organization?.is_demo, refreshKey],
+  );
 
   useEffect(() => {
     if (!focusTaxId) return;
-    const obligation = getTaxObligation(focusTaxId);
+    const obligation = allTaxes.find((tax) => tax.id === focusTaxId);
     if (obligation) { setDetailId(obligation.id); setDeepLinkMissing(null); }
     else setDeepLinkMissing(focusTaxId);
     router.replace(pathname, { scroll: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focusTaxId]);
+  }, [allTaxes, focusTaxId, pathname, router]);
 
   const filter: TaxFilter = useMemo(() => ({
     taxType: filterType,
@@ -120,18 +127,23 @@ function ImpostosContent() {
   const projected = useMemo(() => selectProjectedTaxCashOut(filtered), [filtered]);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const detail = useMemo(() => (detailId ? (liveTaxes?.find((tax) => tax.id === detailId) ?? getTaxObligation(detailId)) : undefined), [detailId, liveTaxes, refreshKey]);
+  const detail = useMemo(
+    () => (detailId ? allTaxes.find((tax) => tax.id === detailId) : undefined),
+    [allTaxes, detailId],
+  );
   const settlementEntries: LedgerEntry[] = useMemo(() => {
     if (!detail?.settlement_entry_ids?.length) return [];
     return detail.settlement_entry_ids
-      .map(id => getLedgerEntry(id))
+      .map(id => organization?.is_demo === true ? getLedgerEntry(id) : undefined)
       .filter((e): e is LedgerEntry => !!e)
       .sort((a, b) => b.entry_date.localeCompare(a.entry_date));
-  }, [detail]);
+  }, [detail, organization?.is_demo]);
   // P&L accrual (competence recognition) — distinct from the clearing cash legs.
   const accrualEntry: LedgerEntry | undefined = useMemo(
-    () => (detail?.accrual_entry_id ? getLedgerEntry(detail.accrual_entry_id) : undefined),
-    [detail],
+    () => (detail?.accrual_entry_id && organization?.is_demo === true
+      ? getLedgerEntry(detail.accrual_entry_id)
+      : undefined),
+    [detail, organization?.is_demo],
   );
 
   const competenceOptions = useMemo(() => {

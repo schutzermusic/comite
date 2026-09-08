@@ -744,7 +744,7 @@ export default function CommitteesPage() {
                   fallbackPermission="deliberations.view"
                   build={() => openDeliberationReport({
                     deliberations: items,
-                    source: deliberationsError ? 'demonstração' : (items.length ? 'Supabase' : 'demonstração'),
+                    source: deliberationsError ? 'indisponível' : 'Supabase',
                   })}
                 />
                 {!permissionsLoading && hasPermission('deliberations.create') && (

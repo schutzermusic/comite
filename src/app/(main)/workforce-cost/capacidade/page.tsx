@@ -39,6 +39,7 @@ import {
   buildDemoCorporateAllocations,
   DEMO_PEOPLE,
 } from '@/components/projects/team-demo-data';
+import { useCurrentUser } from '@/hooks/use-current-user';
 
 function currentMonth(): string {
   const now = new Date();
@@ -58,6 +59,7 @@ function monthLabel(month: string): string {
 
 export default function CapacidadePage() {
   const { hasPermission } = usePermissions();
+  const { organization } = useCurrentUser();
   const { notify } = useHudToast();
   const canManage = hasPermission('people.allocations_manage');
 
@@ -103,7 +105,7 @@ export default function CapacidadePage() {
     void reload();
   }, [reload]);
 
-  const usingDemo = !loading && !error && people.length === 0;
+  const usingDemo = organization?.is_demo === true && !loading && !error && people.length === 0;
   const sourcePeople = usingDemo ? DEMO_PEOPLE : people;
   const sourceAllocations = usingDemo ? buildDemoCorporateAllocations('demo-proj-uhe') : allocations;
   const sourceLeaves = usingDemo ? [] : leaves;

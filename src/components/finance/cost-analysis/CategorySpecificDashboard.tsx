@@ -46,6 +46,7 @@ import { monthAxis, previousWindow, alignToAxis, buildMoMWaterfall, buildHeatmap
 import { entriesToCsv, downloadCsv } from './cost-csv';
 import { openCostReport, type CostReportPayload } from './cost-pdf';
 import type { CategoryDashboardConfig } from './category-dashboards';
+import { useCurrentUser } from '@/hooks/use-current-user';
 
 const DONUT_TONES: DonutSlice['tone'][] = ['accent', 'info', 'success', 'warning', 'danger', 'budget'];
 const TREE_TONES: NonNullable<TreemapNode['tone']>[] = ['accent', 'info', 'success', 'warning', 'danger', 'budget'];
@@ -88,6 +89,7 @@ export function CategorySpecificDashboard({
   onSelectSub, onSelectProject, onSelectSupplier, onSelectCollaborator,
   periodFrom, periodTo,
 }: CategorySpecificDashboardProps) {
+  const { organization } = useCurrentUser();
   const categoryIds = useMemo(() => categoryIdsUnderCodes(config.scopeRootCodes), [config.scopeRootCodes]);
 
   // ── Demo fallback decision ────────────────────────────────────
@@ -107,7 +109,7 @@ export function CategorySpecificDashboard({
   }, [probe]);
   const hasDemo = useMemo(() => demoEntriesForScope(config.scopeRootCodes).length > 0, [config.scopeRootCodes]);
 
-  const autoDemo = realProbe.count === 0 && hasDemo;
+  const autoDemo = organization?.is_demo === true && realProbe.count === 0 && hasDemo;
   const isSparse = !autoDemo && hasDemo && (realProbe.count < 10 || realProbe.subs < 3);
 
   // Opt-in preview for sparse (but non-empty) categories. Resets per category

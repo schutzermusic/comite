@@ -9,6 +9,8 @@ import { getMockDashboardData } from '@/lib/dashboard-data';
 import type { DashboardPayload } from '@/lib/dashboard-data';
 import type { StateAggregate } from '@/data/geo/globe-kpi-data';
 import { cn } from '@/lib/utils';
+import { useCurrentUser } from '@/hooks/use-current-user';
+import { HudEmptyState, HudPageLayout, HudPanel } from '@/components/hud';
 
 const LeftHudStack = dynamic(
     () => import('@/components/dashboard/LeftHudStack').then(m => ({ default: m.LeftHudStack })),
@@ -20,6 +22,7 @@ const RightHudStack = dynamic(
 );
 
 export default function DashboardPage() {
+    const { organization, loading: organizationLoading } = useCurrentUser();
     const {
         layout, setSelectedUF,
         setActiveOverlay,
@@ -49,8 +52,8 @@ export default function DashboardPage() {
     }, [setSelectedUF]);
 
     useEffect(() => {
-        setData(getMockDashboardData());
-    }, []);
+        setData(organization?.is_demo === true ? getMockDashboardData() : null);
+    }, [organization?.id, organization?.is_demo]);
 
     const handleStateSelect = useCallback((state: StateAggregate | null) => {
         setSelectedState(state);
@@ -62,6 +65,22 @@ export default function DashboardPage() {
             setSelectedUF(null);
         }
     }, [setSelectedUF]);
+
+    if (organizationLoading) return null;
+
+    if (organization?.is_demo !== true) {
+        return (
+            <HudPageLayout>
+                <HudPanel>
+                    <HudEmptyState
+                        icon="inbox"
+                        title="Organização sem fatos operacionais"
+                        description="Os indicadores aparecerão após o cadastro de contratos, projetos, medições, faturamento, financeiro e riscos desta organização."
+                    />
+                </HudPanel>
+            </HudPageLayout>
+        );
+    }
 
     if (!data) return null;
 

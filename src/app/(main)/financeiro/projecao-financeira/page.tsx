@@ -51,7 +51,10 @@ import {
   reaisToCents,
   validateInvestorPack,
 } from '@/lib/finance/investor-pack/calculations';
-import { hydratePortfolioProjection } from '@/lib/finance/investor-pack/portfolio-projection';
+import {
+  hydratePortfolioProjection,
+  PORTFOLIO_PROJECTION_VERSION,
+} from '@/lib/finance/investor-pack/portfolio-projection';
 import type { InvestorPack, InvestorPackMonth } from '@/lib/finance/investor-pack/types';
 import { openInvestorPackPdf } from '@/lib/reports/modules/investor-pack-report';
 import { REPORT_NAME, type ApexThemeMode } from '@/lib/finance/investor-pack/apex-theme';
@@ -99,16 +102,28 @@ export default function FinancialProjectionPage() {
       .then((packs) => {
         if (!active) return;
         const existingDraft = packs.find((item) => item.status === 'draft');
-        const next = hydratePortfolioProjection(existingDraft ?? {
+        const isDemoOrganization = Boolean(current.organization?.is_demo);
+        // Historical portfolio fixtures are an explicit demo data set. If an
+        // old auto-hydrated draft exists in a production tenant, do not render
+        // it as operational truth. A production draft starts from zero and is
+        // saved only after an explicit edit.
+        const productionDraft = existingDraft?.narrative.projectionVersion === PORTFOLIO_PROJECTION_VERSION
+          ? undefined
+          : existingDraft;
+        const baseDraft = (isDemoOrganization ? existingDraft : productionDraft) ?? {
           ...createInvestorPackDraft(actor),
           title: REPORT_NAME,
           company: current.organization?.name ?? '',
-        });
+        };
+        const next = isDemoOrganization ? hydratePortfolioProjection(baseDraft) : baseDraft;
         setProjection(next);
         setFilterStart(next.periodStart);
         setFilterEnd(next.periodEnd);
         setAutoSaveError('');
-        const needsPersistence = !existingDraft || next !== existingDraft;
+        // Opening an empty production organization must not create a default
+        // operational record. A new in-memory draft is persisted only after
+        // an explicit user edit; existing drafts may still hydrate normally.
+        const needsPersistence = Boolean(isDemoOrganization && existingDraft && next !== existingDraft);
         if (needsPersistence) editRevisionRef.current += 1;
         setDirty(needsPersistence);
       })
@@ -119,7 +134,7 @@ export default function FinancialProjectionPage() {
         if (active) setLoading(false);
       });
     return () => { active = false; };
-  }, [actor, current.loading, current.organization?.name]);
+  }, [actor, current.loading, current.organization?.is_demo, current.organization?.name]);
 
   const monthOptions = useMemo(() => {
     if (!projection) return [];

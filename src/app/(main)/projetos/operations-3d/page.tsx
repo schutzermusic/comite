@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -34,6 +34,8 @@ import {
   type OperationsProjectStatus,
 } from "@/components/operations-3d/operations-projects";
 import { cn } from "@/lib/utils";
+import { useCurrentUser } from "@/hooks/use-current-user";
+import { getProjectsAsync, getProjectsV2Async } from "@/lib/services/projects";
 
 const STATUS_TOKEN: Record<OperationsProjectStatus, string> = {
   active: "var(--ig-success)",
@@ -44,7 +46,23 @@ const STATUS_TOKEN: Record<OperationsProjectStatus, string> = {
 
 export default function Operations3DPage() {
   const router = useRouter();
-  const projects = useMemo(() => buildOperationsProjectRecords(), []);
+  const { organization } = useCurrentUser();
+  const [projects, setProjects] = useState<OperationsProjectRecord[]>([]);
+  useEffect(() => {
+    let active = true;
+    if (organization?.is_demo === true) {
+      setProjects(buildOperationsProjectRecords());
+      return () => { active = false; };
+    }
+    void Promise.all([getProjectsAsync(), getProjectsV2Async()])
+      .then(([liveProjects, liveProjectsV2]) => {
+        if (active) setProjects(buildOperationsProjectRecords(liveProjects, liveProjectsV2));
+      })
+      .catch(() => {
+        if (active) setProjects([]);
+      });
+    return () => { active = false; };
+  }, [organization?.id, organization?.is_demo]);
   const summary = useMemo(() => buildOperationsSummary(projects), [projects]);
   const [selectedProject, setSelectedProject] = useState<OperationsProjectRecord | null>(null);
 

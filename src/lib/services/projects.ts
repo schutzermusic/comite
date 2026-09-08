@@ -1,7 +1,7 @@
 import { Project } from '@/lib/types';
 import type { ProjectV2, ProjectAuditEvent } from '@/lib/types/project-v2';
 import { projects as defaultProjects, users } from '@/lib/mock-data';
-import { applyLatestV2Overlay, loadV2Projects, STORAGE_KEY_V2 } from '@/lib/services/project-migration';
+import { loadV2Projects, migrateProjectsToV2Live, STORAGE_KEY_V2 } from '@/lib/services/project-migration';
 import { CEMIG_TOTAL_CONTRACTED, CEMIG_TOTALIZER_CUTOFF_BILLED } from '@/data/mock-projects-v2';
 import { computeHealthScore } from '@/lib/utils/project-utils';
 import { createClient } from '@/utils/supabase/client';
@@ -58,9 +58,9 @@ function resolveProjectResponsavel(project: Pick<Project, 'id' | 'responsavel'>)
   return users[0];
 }
 
-function normalizeProject(p: any): Project {
+function normalizeProject(p: any, demo = true): Project {
   const project = { ...p };
-  project.responsavel = resolveProjectResponsavel(project);
+  if (demo) project.responsavel = resolveProjectResponsavel(project);
   if (!project.codigoInterno) {
     project.codigoInterno = project.codigo || '';
   }
@@ -70,21 +70,35 @@ function normalizeProject(p: any): Project {
   if (typeof project.valor_total !== 'number') project.valor_total = 0;
   if (typeof project.valor_executado !== 'number') project.valor_executado = 0;
   if (typeof project.progresso_percentual !== 'number') project.progresso_percentual = 0;
-  if (project.id === 'proj-001') {
+  if (demo && project.id === 'proj-001') {
     project.valor_total = CEMIG_TOTAL_CONTRACTED;
     project.valor_executado = CEMIG_TOTALIZER_CUTOFF_BILLED;
   }
-  return applySeedCatalogFields(project);
+  return demo ? applySeedCatalogFields(project) : project;
 }
 
-function saveLocalProjects(projects: Project[]): void {
-  if (typeof window === 'undefined') return;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(projects));
+function scopedStorageKey(base: string, organizationId: string): string {
+  return `${base}:${organizationId}`;
 }
 
-function saveLocalV2Projects(projects: ProjectV2[]): void {
+function clearLegacyProjectStorage(): void {
   if (typeof window === 'undefined') return;
-  localStorage.setItem(STORAGE_KEY_V2, JSON.stringify(projects));
+  localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(STORAGE_KEY_V2);
+}
+
+function saveLocalProjects(projects: Project[], organizationId?: string): void {
+  if (typeof window === 'undefined') return;
+  const key = organizationId ? scopedStorageKey(STORAGE_KEY, organizationId) : STORAGE_KEY;
+  localStorage.setItem(key, JSON.stringify(projects));
+  if (organizationId) clearLegacyProjectStorage();
+}
+
+function saveLocalV2Projects(projects: ProjectV2[], organizationId?: string): void {
+  if (typeof window === 'undefined') return;
+  const key = organizationId ? scopedStorageKey(STORAGE_KEY_V2, organizationId) : STORAGE_KEY_V2;
+  localStorage.setItem(key, JSON.stringify(projects));
+  if (organizationId) clearLegacyProjectStorage();
 }
 
 function rowToProject(row: ProjectRow): Project {
@@ -92,16 +106,16 @@ function rowToProject(row: ProjectRow): Project {
     ...row.project,
     id: row.id,
     clientLogoUrl: row.client_logo_url || row.project.clientLogoUrl,
-  });
+  }, false);
 }
 
 function rowToProjectV2(row: ProjectRow): ProjectV2 | null {
   if (!row.project_v2) return null;
-  return applyLatestV2Overlay({
+  return {
     ...row.project_v2,
     id: row.id,
     clientLogoUrl: row.client_logo_url || row.project_v2.clientLogoUrl,
-  });
+  };
 }
 
 async function upsertProjectsToSupabase(projects: Project[], projectsV2?: ProjectV2[]): Promise<void> {
@@ -165,8 +179,8 @@ async function upsertProjectsToSupabase(projects: Project[], projectsV2?: Projec
     if (error) throw new Error(rlsFriendlyMessage('Erro ao atualizar projeto no Supabase', error));
   }
 
-  saveLocalProjects(projects);
-  if (projectsV2) saveLocalV2Projects(projectsV2);
+  saveLocalProjects(projects, orgId);
+  if (projectsV2) saveLocalV2Projects(projectsV2, orgId);
 }
 
 function sanitizeFileName(fileName: string): string {
@@ -242,32 +256,31 @@ export function getProjects(): Project[] {
 }
 
 /**
- * Obtém todos os projetos do Supabase. Se a tabela estiver vazia, faz seed dos
- * mocks atuais para manter a experiência existente e passa a persistir remoto.
+ * Obtém todos os projetos do tenant ativo. Em produção, vazio permanece vazio:
+ * mocks e localStorage existem somente no caminho local sem Supabase.
  */
 export async function getProjectsAsync(): Promise<Project[]> {
   if (!isSupabaseConfigured()) return getProjects();
 
   const supabase = createClient();
+  const { orgId } = await getCurrentOrgAndUser(supabase);
   const { data, error } = await supabase
     .from(PROJECTS_TABLE)
     .select('id, project, project_v2, client_logo_url')
     .order('updated_at', { ascending: false });
 
   if (error) {
-    if (isMissingProjectsTable(error)) return getProjects();
     throw new Error(`Erro ao carregar projetos do Supabase: ${error.message}`);
   }
 
   if (!data || data.length === 0) {
-    const seededProjects = getProjects().map(normalizeProject);
-    const seededV2 = loadV2Projects(seededProjects);
-    await upsertProjectsToSupabase(seededProjects, seededV2);
-    return seededProjects;
+    saveLocalProjects([], orgId);
+    saveLocalV2Projects([], orgId);
+    return [];
   }
 
   const projects = (data as ProjectRow[]).map(rowToProject);
-  saveLocalProjects(projects);
+  saveLocalProjects(projects, orgId);
   return projects;
 }
 
@@ -313,27 +326,28 @@ export async function getProjectsV2Async(): Promise<ProjectV2[]> {
   if (!isSupabaseConfigured()) return getProjectsV2();
 
   const supabase = createClient();
+  const { orgId } = await getCurrentOrgAndUser(supabase);
   const { data, error } = await supabase
     .from(PROJECTS_TABLE)
     .select('id, project, project_v2, client_logo_url')
     .order('updated_at', { ascending: false });
 
   if (error) {
-    if (isMissingProjectsTable(error)) return getProjectsV2();
     throw new Error(`Erro ao carregar projetos v2 do Supabase: ${error.message}`);
   }
 
   if (!data || data.length === 0) {
-    const projects = await getProjectsAsync();
-    return loadV2Projects(projects);
+    saveLocalProjects([], orgId);
+    saveLocalV2Projects([], orgId);
+    return [];
   }
 
   const rows = data as ProjectRow[];
   const projects = rows.map(rowToProject);
   const fromRows = rows.map(rowToProjectV2).filter(Boolean) as ProjectV2[];
-  const projectsV2 = fromRows.length === projects.length ? fromRows : loadV2Projects(projects);
-  saveLocalProjects(projects);
-  saveLocalV2Projects(projectsV2);
+  const projectsV2 = fromRows.length === projects.length ? fromRows : migrateProjectsToV2Live(projects);
+  saveLocalProjects(projects, orgId);
+  saveLocalV2Projects(projectsV2, orgId);
   return projectsV2;
 }
 
@@ -348,18 +362,6 @@ export function getProjectV2ById(projectId: string): ProjectV2 | undefined {
 export async function getProjectV2ByIdAsync(projectId: string): Promise<ProjectV2 | undefined> {
   const projects = await getProjectsV2Async();
   return projects.find((p) => p.id === projectId);
-}
-
-/**
- * Save V2 projects array to localStorage
- */
-function saveV2Projects(projects: ProjectV2[]): void {
-  if (typeof window === 'undefined') return;
-  try {
-    localStorage.setItem(STORAGE_KEY_V2, JSON.stringify(projects));
-  } catch (error) {
-    console.error('Erro ao salvar projetos v2:', error);
-  }
 }
 
 /**
@@ -429,8 +431,6 @@ export async function updateProjectV2(
     return p;
   });
 
-  saveV2Projects(updatedProjects);
-
   // Also update v1 storage for backward compat
   const v1Updates: Partial<Project> = {};
   if (updates.nome !== undefined) v1Updates.nome = updates.nome;
@@ -467,7 +467,9 @@ export async function createProject(projectData: Omit<Project, 'id'>): Promise<P
   const updatedProjects = [...currentProjects, newProject];
 
   try {
-    const updatedProjectsV2 = loadV2Projects(updatedProjects);
+    const updatedProjectsV2 = isSupabaseConfigured()
+      ? migrateProjectsToV2Live(updatedProjects)
+      : loadV2Projects(updatedProjects);
     await upsertProjectsToSupabase(updatedProjects, updatedProjectsV2);
   } catch (error) {
     console.error('Erro ao salvar projeto:', error);
@@ -519,8 +521,15 @@ export async function deleteProject(projectId: string): Promise<void> {
       const { error } = await supabase.from(PROJECTS_TABLE).delete().eq('id', projectId);
       if (error) throw new Error(rlsFriendlyMessage('Erro ao remover projeto no Supabase', error));
     }
-    saveLocalProjects(updatedProjects);
-    saveV2Projects(currentProjectsV2.filter(p => p.id !== projectId));
+    if (isSupabaseConfigured()) {
+      const supabase = createClient();
+      const { orgId } = await getCurrentOrgAndUser(supabase);
+      saveLocalProjects(updatedProjects, orgId);
+      saveLocalV2Projects(currentProjectsV2.filter(p => p.id !== projectId), orgId);
+    } else {
+      saveLocalProjects(updatedProjects);
+      saveLocalV2Projects(currentProjectsV2.filter(p => p.id !== projectId));
+    }
   } catch (error) {
     console.error('Erro ao remover projeto:', error);
     throw error;

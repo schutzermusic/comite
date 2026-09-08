@@ -1,7 +1,8 @@
 /**
  * Server-side payroll repository factory. SERVER ONLY — imports the Supabase
  * service client. Mode is chosen by PAYROLL_CLOSING_REPOSITORY_MODE
- * ('mock' | 'supabase'); defaults to 'mock' so the app runs without a DB.
+ * ('mock' | 'supabase'). Production-safe default is Supabase; mock mode must
+ * be selected explicitly by a demo/test environment.
  */
 
 import type { PayrollRepository, PayrollRepositoryMode } from './types';
@@ -11,7 +12,7 @@ import { SupabasePayrollRepository } from './supabase';
 export * from './types';
 
 export function getRepositoryMode(): PayrollRepositoryMode {
-  return process.env.PAYROLL_CLOSING_REPOSITORY_MODE === 'supabase' ? 'supabase' : 'mock';
+  return process.env.PAYROLL_CLOSING_REPOSITORY_MODE === 'mock' ? 'mock' : 'supabase';
 }
 
 let _instance: PayrollRepository | null = null;

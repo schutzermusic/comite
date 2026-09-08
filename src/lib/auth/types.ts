@@ -20,6 +20,8 @@ export type Organization = {
   name: string;
   slug: string;
   status: string;
+  /** Explicit opt-in for demo fixtures. Provisioned organizations default false. */
+  is_demo?: boolean;
   enterprise_account_id?: string | null;
   legal_name?: string | null;
   country_code?: string | null;

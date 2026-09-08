@@ -352,7 +352,7 @@ export default function DeliberacoesPage() {
       // Metric, not a condition — stays informational (no filter semantics).
       id: 'tempo_medio',
       label: 'Tempo Médio',
-      value: '4.2d',
+      value: items.length === 0 ? '0d' : 'Não apurado',
       variant: 'success',
       icon: <Timer className="w-4 h-4" />,
     },
