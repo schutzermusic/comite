@@ -116,8 +116,11 @@ export interface OperationalBillingCondition {
 export interface OperationalGuarantee {
   title: string;
   guarantee_type: string | null;
+  /** Valor fixo OU percentual — nunca os dois. Ver `normalizeGuarantee`. */
   required_amount: number | null;
   required_percentage: number | null;
+  /** DE QUE o percentual é percentual. Sem isto, o número não significa nada. */
+  percentage_basis: string | null;
   renewal_required: boolean | null;
   source_page: number;
   source_excerpt: string;
@@ -228,12 +231,22 @@ const OPERATIONALIZATION_SCHEMA = {
         type: 'object',
         additionalProperties: false,
         required: ['title', 'guarantee_type', 'required_amount', 'required_percentage',
-                   'renewal_required', 'source_page', 'source_excerpt', 'confidence'],
+                   'percentage_basis', 'renewal_required', 'source_page', 'source_excerpt', 'confidence'],
         properties: {
           title: { type: 'string' },
           guarantee_type: { type: ['string', 'null'] },
-          required_amount: { type: ['number', 'null'] },
-          required_percentage: { type: ['number', 'null'] },
+          required_amount: {
+            type: ['number', 'null'],
+            description: 'Valor fixo em reais. Use null se a garantia é percentual.',
+          },
+          required_percentage: {
+            type: ['number', 'null'],
+            description: 'Percentual entre 0 e 100. Use null se a garantia é um valor fixo.',
+          },
+          percentage_basis: {
+            type: ['string', 'null'],
+            description: 'Sobre o que o percentual incide (ex.: "valor total do contrato"). Obrigatório quando há percentual.',
+          },
           renewal_required: { type: ['boolean', 'null'] },
           ...evidenceFields,
         },
@@ -308,6 +321,9 @@ BLOQUEIO DE FATURAMENTO
 VALORES
 Preencha valor, percentual e prazo APENAS quando o número está escrito no trecho. Use null, nunca zero: zero significaria garantia de R$ 0,00 ou prazo de 0 dias.
 
+GARANTIA: VALOR OU PERCENTUAL, NUNCA OS DOIS
+Uma garantia é um valor fixo OU um percentual — não ambos. Se o contrato diz "5% do valor total", preencha required_percentage=5 e percentage_basis="valor total do contrato", com required_amount=null. Se diz "R$ 100.000,00", preencha required_amount e deixe os outros dois null. Percentual sem dizer sobre o que incide não significa nada: nesse caso não produza o item.
+
 CONFIANÇA
 "confidence" mede o quanto o trecho SUSTENTA a estruturação, não o quanto o item é importante. Trecho ambíguo ou cortado baixa a confiança mesmo quando a exigência parece óbvia.`;
 
@@ -355,6 +371,72 @@ const intOrNull = (v: unknown): number | null =>
 const numOrNull = (v: unknown): number | null =>
   typeof v === 'number' && Number.isFinite(v) ? v : null;
 const boolOrNull = (v: unknown): boolean | null => (typeof v === 'boolean' ? v : null);
+/*
+  Os CHECK das tabelas estruturadas (migration 109) recusam valor negativo,
+  período não positivo e percentual fora de 0..100. Normalizar AQUI é o que
+  permite gravar as linhas boas e reportar as ruins — deixar o banco recusar
+  derrubaria o INSERT em lote inteiro e perderia junto tudo que estava certo.
+
+  Um número fora de faixa vira AUSENTE, não corrigido: "5000%" não é 100%, e
+  arredondá-lo produziria um número que ninguém escreveu no contrato.
+*/
+const positiveIntOrNull = (v: unknown): number | null => {
+  const n = intOrNull(v);
+  return n !== null && n > 0 ? n : null;
+};
+const nonNegativeIntOrNull = (v: unknown): number | null => {
+  const n = intOrNull(v);
+  return n !== null && n >= 0 ? n : null;
+};
+const nonNegativeNumOrNull = (v: unknown): number | null => {
+  const n = numOrNull(v);
+  return n !== null && n >= 0 ? n : null;
+};
+const percentageOrNull = (v: unknown): number | null => {
+  const n = numOrNull(v);
+  return n !== null && n >= 0 && n <= 100 ? n : null;
+};
+
+/**
+ * Garantia: valor fixo OU percentual.
+ *
+ * O CHECK `contract_guarantees_check` recusa os dois preenchidos, e com razão:
+ * uma garantia de "R$ 100.000 e 5%" não é uma garantia — é uma leitura
+ * ambígua. Escolher um dos dois em silêncio inventaria a intenção do contrato,
+ * então a linha é recusada com o motivo dito.
+ *
+ * E percentual sem base é um número sem significado: 5% de quê? O CHECK
+ * `contract_guarantees_check1` exige a base, e nós não a inventamos.
+ */
+export function normalizeGuarantee(
+  raw: Record<string, unknown>,
+): { ok: true; value: OperationalGuarantee } | { ok: false; reason: string } {
+  const amount = nonNegativeNumOrNull(raw.required_amount);
+  const percentage = percentageOrNull(raw.required_percentage);
+  const basis = strOrNull(raw.percentage_basis);
+
+  if (amount !== null && percentage !== null) {
+    return { ok: false, reason: 'garantia com valor e percentual ao mesmo tempo: leitura ambígua' };
+  }
+  if (percentage !== null && basis === null) {
+    return { ok: false, reason: 'percentual de garantia sem dizer sobre o que incide' };
+  }
+
+  return {
+    ok: true,
+    value: {
+      title: String(raw.title).trim(),
+      guarantee_type: strOrNull(raw.guarantee_type),
+      required_amount: amount,
+      required_percentage: percentage,
+      percentage_basis: percentage === null ? null : basis,
+      renewal_required: boolOrNull(raw.renewal_required),
+      source_page: raw.source_page as number,
+      source_excerpt: String(raw.source_excerpt).trim(),
+      confidence: raw.confidence as number,
+    },
+  };
+}
 const strOrNull = (v: unknown): string | null =>
   typeof v === 'string' && v.trim() ? v.trim() : null;
 const isoDateOrNull = (v: unknown): string | null =>
@@ -471,7 +553,7 @@ export function assertOperationalEvidence(
       condition_type: oneOf(item.condition_type, BILLING_CONDITION_TYPES, 'contractual_event'),
       requirement_text: typeof item.requirement_text === 'string' ? item.requirement_text.trim() : '',
       required_document_type: strOrNull(item.required_document_type),
-      elapsed_period_days: intOrNull(item.elapsed_period_days),
+      elapsed_period_days: positiveIntOrNull(item.elapsed_period_days),
       source_page: item.source_page as number,
       source_excerpt: String(item.source_excerpt).trim(),
       confidence: item.confidence as number,
@@ -481,16 +563,12 @@ export function assertOperationalEvidence(
   for (const raw of parsed.guarantees ?? []) {
     const item = raw as Record<string, unknown>;
     if (!evidenceOk(item, 'guarantee', pageCount, rejected)) continue;
-    accepted.guarantees.push({
-      title: String(item.title).trim(),
-      guarantee_type: strOrNull(item.guarantee_type),
-      required_amount: numOrNull(item.required_amount),
-      required_percentage: numOrNull(item.required_percentage),
-      renewal_required: boolOrNull(item.renewal_required),
-      source_page: item.source_page as number,
-      source_excerpt: String(item.source_excerpt).trim(),
-      confidence: item.confidence as number,
-    });
+    const normalized = normalizeGuarantee(item);
+    if (!normalized.ok) {
+      rejected.push({ item: raw, family: 'guarantee', reason: normalized.reason });
+      continue;
+    }
+    accepted.guarantees.push(normalized.value);
   }
 
   for (const raw of parsed.insurance_requirements ?? []) {
@@ -499,7 +577,7 @@ export function assertOperationalEvidence(
     accepted.insurance_requirements.push({
       title: String(item.title).trim(),
       insurance_type: strOrNull(item.insurance_type),
-      required_coverage: numOrNull(item.required_coverage),
+      required_coverage: nonNegativeNumOrNull(item.required_coverage),
       policy_required: boolOrNull(item.policy_required),
       validity_requirement: strOrNull(item.validity_requirement),
       source_page: item.source_page as number,
@@ -514,9 +592,9 @@ export function assertOperationalEvidence(
     accepted.indexation_rules.push({
       title: String(item.title).trim(),
       indexer: strOrNull(item.indexer),
-      periodicity_months: intOrNull(item.periodicity_months),
+      periodicity_months: positiveIntOrNull(item.periodicity_months),
       anniversary_rule: strOrNull(item.anniversary_rule),
-      lag_months: intOrNull(item.lag_months),
+      lag_months: nonNegativeIntOrNull(item.lag_months),
       source_page: item.source_page as number,
       source_excerpt: String(item.source_excerpt).trim(),
       confidence: item.confidence as number,
@@ -778,6 +856,7 @@ export async function operationalizeContractDocument(
         guarantee_type: g.guarantee_type,
         required_amount: g.required_amount,
         required_percentage: g.required_percentage,
+        percentage_basis: g.percentage_basis,
         renewal_required: g.renewal_required,
       })));
     if (error) throw await failAnalysis(`Erro ao registrar garantias: ${error.message}`);

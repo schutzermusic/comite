@@ -25,7 +25,7 @@ import {
 } from '@/lib/platform/followups/state';
 import type { ApexFollowupRow } from '@/lib/platform/followups/types';
 import {
-  assertOperationalEvidence, normalizeObligation,
+  assertOperationalEvidence, normalizeObligation, normalizeGuarantee,
 } from '@/lib/ai/contract-operationalization';
 
 const read = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8');
@@ -444,6 +444,116 @@ describe('8 · condição contratual trava o faturamento', () => {
     const migration = read('supabase/migrations/114_contract_obligation_definitions.sql');
     expect(migration).toMatch(/blocks_billing\s+boolean,/);
     expect(migration).not.toMatch(/blocks_billing\s+boolean NOT NULL/);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 8b · A leitura respeita os CHECK das tabelas estruturadas
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('8b · nada é gravado numa forma que o banco recusaria', () => {
+  /*
+    Estes casos vieram de um ensaio do caminho de ingestão contra o schema
+    real, antes do primeiro contrato de verdade. Os CHECK da migration 109
+    recusam garantia com valor E percentual, percentual sem base, período não
+    positivo e valor negativo — e um INSERT em lote que trombasse num deles
+    derrubaria junto todas as linhas boas da mesma família.
+  */
+  const guaranteeEvidence = {
+    source_page: 9,
+    source_excerpt: 'a CONTRATADA prestará garantia de execução contratual em favor da CONTRATANTE',
+    confidence: 0.9,
+  };
+
+  it('garantia com valor E percentual é ambígua, e é recusada com o motivo', () => {
+    const outcome = normalizeGuarantee({
+      title: 'Garantia', guarantee_type: 'seguro_garantia',
+      required_amount: 100000, required_percentage: 5, percentage_basis: 'valor total',
+      renewal_required: true, ...guaranteeEvidence,
+    });
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) expect(outcome.reason).toMatch(/valor e percentual/);
+  });
+
+  it('percentual sem dizer sobre o que incide não significa nada', () => {
+    const outcome = normalizeGuarantee({
+      title: 'Garantia', guarantee_type: 'fianca',
+      required_amount: null, required_percentage: 5, percentage_basis: null,
+      renewal_required: true, ...guaranteeEvidence,
+    });
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) expect(outcome.reason).toMatch(/sobre o que incide/);
+  });
+
+  it('garantia por valor e garantia por percentual são as duas formas válidas', () => {
+    const byAmount = normalizeGuarantee({
+      title: 'Garantia', guarantee_type: 'seguro_garantia',
+      required_amount: 100000, required_percentage: null, percentage_basis: null,
+      renewal_required: true, ...guaranteeEvidence,
+    });
+    expect(byAmount.ok).toBe(true);
+    if (byAmount.ok) expect(byAmount.value.required_percentage).toBeNull();
+
+    const byPercentage = normalizeGuarantee({
+      title: 'Garantia', guarantee_type: 'fianca',
+      required_amount: null, required_percentage: 5,
+      percentage_basis: 'valor total do contrato',
+      renewal_required: true, ...guaranteeEvidence,
+    });
+    expect(byPercentage.ok).toBe(true);
+    if (byPercentage.ok) {
+      expect(byPercentage.value.required_amount).toBeNull();
+      expect(byPercentage.value.percentage_basis).toBe('valor total do contrato');
+    }
+  });
+
+  it('percentual fora de 0..100 vira AUSENTE, nunca arredondado', () => {
+    const outcome = normalizeGuarantee({
+      title: 'Garantia', guarantee_type: 'fianca',
+      required_amount: null, required_percentage: 5000, percentage_basis: 'valor total',
+      renewal_required: null, ...guaranteeEvidence,
+    });
+    // 5000% não é 100%: o número sai, e a garantia fica sem quantia declarada.
+    expect(outcome.ok).toBe(true);
+    if (outcome.ok) {
+      expect(outcome.value.required_percentage).toBeNull();
+      expect(outcome.value.percentage_basis).toBeNull();
+    }
+  });
+
+  it('período não positivo e cobertura negativa saem em vez de derrubar o lote', () => {
+    const { accepted } = assertOperationalEvidence({
+      billing_conditions: [{
+        title: 'Prazo decorrido', condition_type: 'elapsed_contractual_period',
+        requirement_text: 'após período', required_document_type: null,
+        elapsed_period_days: 0,
+        source_page: 3, source_excerpt: 'o faturamento ocorrerá após o período contratual',
+        confidence: 0.9,
+      }],
+      insurance_requirements: [{
+        title: 'Seguro', insurance_type: 'rc', required_coverage: -1,
+        policy_required: true, validity_requirement: null,
+        source_page: 5, source_excerpt: 'a CONTRATADA manterá seguro de responsabilidade civil',
+        confidence: 0.9,
+      }],
+      indexation_rules: [{
+        title: 'Reajuste', indexer: 'IPCA', periodicity_months: 0,
+        anniversary_rule: null, lag_months: -3,
+        source_page: 6, source_excerpt: 'os preços serão reajustados anualmente pelo IPCA',
+        confidence: 0.9,
+      }],
+    }, 100);
+
+    expect(accepted.billing_conditions[0].elapsed_period_days).toBeNull();
+    expect(accepted.insurance_requirements[0].required_coverage).toBeNull();
+    expect(accepted.indexation_rules[0].periodicity_months).toBeNull();
+    expect(accepted.indexation_rules[0].lag_months).toBeNull();
+  });
+
+  it('o prompt ensina a forma que o banco aceita', () => {
+    const source = read('src/lib/ai/contract-operationalization.ts');
+    expect(source).toMatch(/GARANTIA: VALOR OU PERCENTUAL, NUNCA OS DOIS/);
+    expect(source).toContain('percentage_basis');
   });
 });
 
