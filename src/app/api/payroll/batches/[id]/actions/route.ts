@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic';
 
 type ActionBody =
   | { action: 'save_parse'; parse: PayrollParseResult }
-  | { action: 'save_report'; report_type: string; generated_text: string; generated_html: string; generated_by_ai: boolean }
+  | { action: 'save_report'; report_type: string; generated_text: string; generated_html: string; generated_by_ai: boolean; ai_provider?: string; ai_model?: string; ai_input_tokens?: number; ai_output_tokens?: number }
   | { action: 'add_generated_attachment'; file_name: string; file_type: string; mime_type: string; content: string; encoding?: 'utf8' | 'base64'; security_level?: string }
   | { action: 'create_package'; audience: string; subject: string; html_body: string; attachment_ids: string[] }
   | { action: 'approve' }
@@ -45,10 +45,20 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         return NextResponse.json({ ok: true, batch });
       }
       case 'save_report': {
+        if (body.generated_by_ai && (!body.ai_provider || !body.ai_model)) {
+          return NextResponse.json(
+            { ok: false, error: 'Relatório de IA sem proveniência de provider/model.' },
+            { status: 400 },
+          );
+        }
         const report = await repo.saveGeneratedReport(r.actor, id, {
           report_type: body.report_type as never,
           generated_text: body.generated_text, generated_html: body.generated_html,
           generated_by_ai: body.generated_by_ai,
+          ai_provider: body.ai_provider,
+          ai_model: body.ai_model,
+          ai_input_tokens: body.ai_input_tokens,
+          ai_output_tokens: body.ai_output_tokens,
         });
         return NextResponse.json({ ok: true, report });
       }

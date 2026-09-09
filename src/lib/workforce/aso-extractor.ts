@@ -64,6 +64,7 @@ export interface AsoExtraction {
   /** 0..1 — quanto do que importa foi lido. */
   confidence: number;
   issues: AsoExtractionIssue[];
+  aiProvenance?: import('@/lib/ai/gateway/types').ApexAIProvenance;
 }
 
 /** Rótulos impressos → domínio do eSocial. Ordem importa: o mais específico primeiro. */

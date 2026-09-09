@@ -128,6 +128,7 @@ export function ImportWizard({ projectId, open, onClose, onImported }: ImportWiz
           filePath,
           mode,
           parserUsed: preview.parserUsed,
+          aiMetadata: preview.aiMetadata,
           warnings: preview.warnings,
         }),
       });

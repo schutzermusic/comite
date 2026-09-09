@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { scanProjectForRisks } from '@/lib/ai/projects/projects-risk-scanner';
+import { requireActiveOrganizationId } from '@/lib/auth/active-organization';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -45,7 +46,8 @@ export async function POST(
       return NextResponse.json({ ok: false, error: 'Sem permissão risks.ai_scan' }, { status: 403 });
     }
 
-    const { findings, persistence } = await scanProjectForRisks(projectId, user.id);
+    const organizationId = await requireActiveOrganizationId(supabase);
+    const { findings, persistence } = await scanProjectForRisks(projectId, user.id, organizationId);
 
     return NextResponse.json({
       ok: true,

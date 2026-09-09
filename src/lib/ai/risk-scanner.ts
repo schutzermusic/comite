@@ -1,17 +1,11 @@
 /**
  * AI Risk Scanner — server-only.
  *
- * Uses the Anthropic SDK to analyze a contract's textual data
+ * Uses the provider-agnostic Apex AI Gateway to analyze contract data
  * (clauses, penalties, milestones, billing events, metadata) and produce
  * a structured list of risk findings. Findings are inserted into the
  * `risks` table using a Supabase service-role client (bypasses RLS).
  *
- * Model: claude-sonnet-4-6
- *
- * SDK shape chosen: `output_config: { format: { type: 'json_schema', schema } }`.
- * Verified present in @anthropic-ai/sdk@0.96.0 (see messages.d.ts — `OutputConfig`
- * and `JSONOutputFormat`). The tool-use fallback (a single `record_risks` tool)
- * is therefore not needed in this version.
  */
 
 // NOTE: `server-only` is not installed in this repo, so we guard at runtime
@@ -20,10 +14,9 @@ if (typeof window !== 'undefined') {
   throw new Error('src/lib/ai/risk-scanner.ts must not be imported in the browser');
 }
 
-import Anthropic from '@anthropic-ai/sdk';
-import { createClient as createServiceClient, type SupabaseClient } from '@supabase/supabase-js';
-
-const AI_MODEL = 'claude-sonnet-4-6' as const;
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { callForRiskFindings } from './risk-call';
+import { getServiceClient } from './server-clients';
 
 /* ─────────────────────────────────────────────────────────────
    Public types
@@ -54,42 +47,13 @@ export interface AiRiskFinding {
 /* ─────────────────────────────────────────────────────────────
    Lazy clients
    ───────────────────────────────────────────────────────────── */
-let _anthropic: Anthropic | null = null;
-function getAnthropic(): Anthropic {
-  if (_anthropic) return _anthropic;
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    throw new Error(
-      'ANTHROPIC_API_KEY não está configurado. Adicione-o em .env / .env.local antes de disparar a análise IA.',
-    );
-  }
-  _anthropic = new Anthropic({ apiKey });
-  return _anthropic;
-}
-
-function getServiceClient(): SupabaseClient {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url) throw new Error('NEXT_PUBLIC_SUPABASE_URL não está configurado');
-  if (!serviceKey) {
-    throw new Error(
-      'SUPABASE_SERVICE_ROLE_KEY não está configurado. A análise IA precisa do service-role para bypass de RLS.',
-    );
-  }
-  return createServiceClient(url, serviceKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-}
-
 /* ─────────────────────────────────────────────────────────────
    Prompt building
    ───────────────────────────────────────────────────────────── */
 
 /**
- * System prompt — kept stable to maximize prompt-cache reuse across calls.
- * Marked with `cache_control: ephemeral` on the request. Note: Sonnet 4.6
- * requires ≥ 2048 tokens for an effective cache hit; this prompt is short
- * for v1, so the cache may not activate. That's intentional and acceptable.
+ * Stable system prompt; the gateway decides whether the selected provider can
+ * cache it.
  */
 const SYSTEM_PROMPT = `Você é um analista sênior de governança corporativa e gestão de riscos contratuais,
 especializado em contratos brasileiros (privados e públicos). Sua função é examinar os dados estruturados
@@ -126,47 +90,6 @@ Retorne exclusivamente o JSON solicitado, conforme o schema. Sem preâmbulos.`;
 /* ─────────────────────────────────────────────────────────────
    JSON schema for structured output
    ───────────────────────────────────────────────────────────── */
-const RISK_FINDING_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    findings: {
-      type: 'array',
-      maxItems: 8,
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        properties: {
-          title: { type: 'string' },
-          description: { type: 'string' },
-          category: {
-            type: 'string',
-            enum: ['Operational', 'Financial', 'Legal', 'Contractual', 'Compliance', 'Schedule'],
-          },
-          probability: { type: 'integer', enum: [1, 2, 3, 4, 5] },
-          impact: { type: 'integer', enum: [1, 2, 3, 4, 5] },
-          severity: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] },
-          rationale: { type: 'string' },
-          confidence: { type: 'number' },
-          mitigation: { type: 'string' },
-        },
-        required: [
-          'title',
-          'description',
-          'category',
-          'probability',
-          'impact',
-          'severity',
-          'rationale',
-          'confidence',
-          'mitigation',
-        ],
-      },
-    },
-  },
-  required: ['findings'],
-} as const;
-
 /* ─────────────────────────────────────────────────────────────
    Contract data fetcher
    ───────────────────────────────────────────────────────────── */
@@ -264,101 +187,35 @@ function computeSeverity(level: number): AiRiskSeverity {
 }
 
 /* ─────────────────────────────────────────────────────────────
-   Anthropic call + JSON parse
+   Gateway call + JSON parse
    ───────────────────────────────────────────────────────────── */
-async function callAnthropic(promptText: string): Promise<AiRiskFinding[]> {
-  const anthropic = getAnthropic();
-
-  const response = await anthropic.messages.create({
-    model: AI_MODEL,
-    max_tokens: 4096,
-    thinking: { type: 'adaptive' },
-    system: [
-      {
-        type: 'text',
-        text: SYSTEM_PROMPT,
-        cache_control: { type: 'ephemeral' },
-      },
-    ],
-    output_config: {
-      effort: 'medium',
-      format: {
-        type: 'json_schema',
-        schema: RISK_FINDING_SCHEMA,
-      },
-    },
-    messages: [
-      {
-        role: 'user',
-        content: [
-          {
-            type: 'text',
-            text:
-              'Analise o contrato abaixo e identifique riscos materiais conforme as regras do sistema.\n\n' +
-              promptText,
-          },
-        ],
-      },
-    ],
-  });
-
-  // Extract text payload (structured output is delivered as text content)
-  let raw = '';
-  for (const block of response.content) {
-    if (block.type === 'text') raw += block.text;
-  }
-  if (!raw.trim()) {
-    throw new Error('Resposta da IA veio vazia');
-  }
-
-  let parsed: { findings?: Array<Omit<AiRiskFinding, 'id'>> };
-  try {
-    parsed = JSON.parse(raw);
-  } catch (err) {
-    throw new Error(
-      `Não foi possível decodificar a resposta da IA como JSON: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
-
-  const findings = Array.isArray(parsed.findings) ? parsed.findings : [];
-  return findings.map((f, i) => ({
-    id: `${Date.now()}-${i}`,
-    title: String(f.title ?? '').slice(0, 200) || 'Risco identificado',
-    description: String(f.description ?? ''),
-    category: (f.category ?? 'Operational') as AiRiskCategory,
-    probability: clampInt(f.probability, 1, 5, 3),
-    impact: clampInt(f.impact, 1, 5, 3),
-    severity: (f.severity ?? 'medium') as AiRiskSeverity,
-    rationale: String(f.rationale ?? ''),
-    confidence: clampFloat(f.confidence, 0, 1, 0.5),
-    mitigation: String(f.mitigation ?? ''),
-  }));
-}
-
-function clampInt(v: unknown, min: number, max: number, fallback: number): number {
-  const n = Math.round(Number(v));
-  if (!Number.isFinite(n)) return fallback;
-  return Math.min(max, Math.max(min, n));
-}
-function clampFloat(v: unknown, min: number, max: number, fallback: number): number {
-  const n = Number(v);
-  if (!Number.isFinite(n)) return fallback;
-  return Math.min(max, Math.max(min, n));
-}
-
 /* ─────────────────────────────────────────────────────────────
    Public entrypoint
    ───────────────────────────────────────────────────────────── */
 export async function scanContractForRisks(
   contractId: string,
   userId: string,
+  organizationId: string,
 ): Promise<{ findings: AiRiskFinding[]; rows: Array<Record<string, unknown>> }> {
   if (!contractId) throw new Error('contractId é obrigatório');
   if (!userId) throw new Error('userId é obrigatório');
+  if (!organizationId) throw new Error('organizationId é obrigatório');
 
   const service = getServiceClient();
   const ctx = await loadContractContext(service, contractId);
-  const findings = await callAnthropic(ctx.promptText);
+  if (ctx.orgId !== organizationId) throw new Error('Contrato fora da organização ativa.');
+  const result = await callForRiskFindings({
+    organizationId,
+    task: 'CONTRACT_RISK_ANALYSIS',
+    systemPrompt: SYSTEM_PROMPT,
+    userPrompt:
+      'Analise o contrato abaixo e identifique riscos materiais conforme as regras do sistema.\n\n' +
+      ctx.promptText,
+  });
+  const findings: AiRiskFinding[] = result.findings.map((finding, index) => ({
+    ...finding,
+    id: `${Date.now()}-${index}`,
+  }));
 
   if (findings.length === 0) {
     console.info(`[ai/risk-scanner] contract=${contractId} no findings`);
@@ -386,7 +243,10 @@ export async function scanContractForRisks(
       mitigation_plan: f.mitigation || null,
       source_module: 'contracts',
       source_entity_id: contractId,
-      ai_model: AI_MODEL,
+      ai_provider: result.provenance.provider,
+      ai_model: result.provenance.model,
+      ai_input_tokens: result.provenance.usage.inputTokens,
+      ai_output_tokens: result.provenance.usage.outputTokens,
       ai_confidence: f.confidence,
       ai_rationale: f.rationale,
       ai_analyzed_at: now,

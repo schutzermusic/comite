@@ -175,7 +175,7 @@ export const DEMO_RISKS: ExtendedRisk[] = SEEDS.map((seed, idx) => {
     aiConfidence: seed.ai?.conf,
     aiRationale: seed.ai ? seed.d : undefined,
     aiRecommendation: seed.ai?.rec,
-    aiModel: seed.ai ? "claude-opus-4-8" : undefined,
+    aiModel: seed.ai ? "unknown_legacy" : undefined,
     aiAnalyzedAt: seed.ai ? daysAgo(Math.max(1, seed.age - 1)) : undefined,
     aiDismissed: false,
   } satisfies ExtendedRisk;

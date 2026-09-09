@@ -15,7 +15,7 @@ if (typeof window !== 'undefined') {
 }
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { callAnthropicForRiskFindings } from '../anthropic-call';
+import { callForRiskFindings } from '../risk-call';
 import { persistAiRiskFindings, type PersistFindingsResult } from '../risk-persistence';
 import { getServiceClient } from '../server-clients';
 import type { AiRiskFinding } from '../types';
@@ -106,14 +106,19 @@ export interface ProjectScanResult {
 export async function scanProjectForRisks(
   projectId: string,
   userId: string,
+  organizationId: string,
 ): Promise<ProjectScanResult> {
   if (!projectId) throw new Error('projectId é obrigatório');
   if (!userId) throw new Error('userId é obrigatório');
+  if (!organizationId) throw new Error('organizationId é obrigatório');
 
   const supabase = getServiceClient();
   const ctx = await loadProjectContext(supabase, projectId);
+  if (ctx.orgId !== organizationId) throw new Error('Projeto fora da organização ativa.');
 
-  const findings = await callAnthropicForRiskFindings({
+  const { findings, provenance } = await callForRiskFindings({
+    organizationId,
+    task: 'PROJECT_RISK_ANALYSIS',
     systemPrompt: PROJECTS_SYSTEM_PROMPT,
     userPrompt:
       'Analise o projeto abaixo e identifique riscos materiais conforme as regras do sistema.\n\n' +
@@ -128,6 +133,7 @@ export async function scanProjectForRisks(
     defaultEntityId: projectId,
     referenceName: ctx.projectName,
     area: 'Projetos',
+    provenance,
   });
 
   console.info(

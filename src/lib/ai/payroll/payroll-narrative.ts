@@ -1,13 +1,13 @@
 /**
  * Server-only payroll narrative generator. Receives the deterministic
  * `PayrollParseResult` (numbers already closed) and returns a `PayrollNarrative`
- * of text only. Reuses the shared Anthropic structured-output pattern.
+ * of text only. Uses the shared Apex AI Gateway structured-output contract.
  *
  * Hard rule enforced by the system prompt AND by the fallback: the model must
  * use exclusively the numbers provided, never invent values, and phrase any
  * cause not present in the structured data as a VALIDATION POINT.
  *
- * If `ANTHROPIC_API_KEY` is missing or the call fails, a deterministic template
+ * If the Apex AI Gateway is disabled or unavailable, a deterministic template
  * fallback runs so the workflow keeps working offline (dry-run friendly).
  */
 
@@ -15,7 +15,7 @@ if (typeof window !== 'undefined') {
   throw new Error('src/lib/ai/payroll/payroll-narrative.ts must not be imported in the browser');
 }
 
-import { AI_MODEL, getAnthropic } from '../server-clients';
+import { getApexAIGateway } from '../gateway';
 import { PAYROLL_NARRATIVE_SCHEMA } from '../schemas';
 import type {
   PayrollComparisonRow,
@@ -72,28 +72,19 @@ ${JSON.stringify(
 Gere a narrativa completa conforme o schema. Lembre: causas não comprovadas pelos dados devem ser pontos de validação.`;
 }
 
-export async function generatePayrollNarrative(parse: PayrollParseResult): Promise<PayrollNarrative> {
+export async function generatePayrollNarrative(
+  parse: PayrollParseResult,
+  organizationId: string,
+): Promise<PayrollNarrative> {
   try {
-    const anthropic = getAnthropic();
-    const response = await anthropic.messages.create({
-      model: AI_MODEL,
-      max_tokens: 4096,
-      thinking: { type: 'adaptive' },
-      system: [{ type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
-      output_config: {
-        effort: 'medium',
-        format: { type: 'json_schema', schema: PAYROLL_NARRATIVE_SCHEMA },
-      },
-      messages: [{ role: 'user', content: [{ type: 'text', text: buildUserPrompt(parse) }] }],
+    const response = await getApexAIGateway().generate<Partial<PayrollNarrative>>({
+      organizationId,
+      task: 'PAYROLL_NARRATIVE',
+      systemPrompt: SYSTEM_PROMPT,
+      userPrompt: buildUserPrompt(parse),
+      structuredOutput: { name: 'payroll_narrative', schema: PAYROLL_NARRATIVE_SCHEMA },
     });
-
-    let raw = '';
-    for (const block of response.content) {
-      if (block.type === 'text') raw += block.text;
-    }
-    if (!raw.trim()) throw new Error('Resposta da IA veio vazia');
-    const parsed = JSON.parse(raw) as Partial<PayrollNarrative>;
-    return normalizeNarrative(parsed, true);
+    return { ...normalizeNarrative(response.output, true), ai_metadata: response.provenance };
   } catch (err) {
     // Deterministic fallback — keeps the workflow usable without an API key.
     console.warn('[payroll-narrative] usando fallback determinístico:', err instanceof Error ? err.message : err);

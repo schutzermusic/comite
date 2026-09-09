@@ -154,6 +154,10 @@ export interface PayrollGeneratedReport {
   generated_html: string;
   status: PayrollReportStatus;
   generated_by_ai: boolean;
+  ai_provider?: string;
+  ai_model?: string;
+  ai_input_tokens?: number;
+  ai_output_tokens?: number;
   reviewed_by?: string;
   approved_by?: string;
   created_at: string;
@@ -337,8 +341,9 @@ export interface PayrollNarrative {
   attention_points: string[];
   recommendations: string[];
   conclusion: string;
-  /** True when produced by Claude; false when the deterministic fallback ran. */
+  /** True when produced by an Apex AI Gateway provider; false for deterministic fallback. */
   generated_by_ai: boolean;
+  ai_metadata?: import('@/lib/ai/gateway/types').ApexAIProvenance;
 }
 
 // ── Approved batch with summaries (used by Pessoas & Custos overview) ─────────

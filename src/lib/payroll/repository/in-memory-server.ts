@@ -133,6 +133,8 @@ export class InMemoryServerRepository implements PayrollRepository {
     const r: PayrollGeneratedReport = {
       id: uid('pgr'), batch_id: batchId, report_type: input.report_type, generated_text: input.generated_text,
       generated_html: input.generated_html, status: 'draft', generated_by_ai: input.generated_by_ai,
+      ai_provider: input.ai_provider, ai_model: input.ai_model,
+      ai_input_tokens: input.ai_input_tokens, ai_output_tokens: input.ai_output_tokens,
       created_at: now(), updated_at: now(),
     };
     reports = [r, ...reports];

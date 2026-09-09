@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { scanContractForRisks } from '@/lib/ai/risk-scanner';
+import { requireActiveOrganizationId } from '@/lib/auth/active-organization';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -49,7 +50,8 @@ export async function POST(
       );
     }
 
-    const { findings, rows } = await scanContractForRisks(contractId, user.id);
+    const organizationId = await requireActiveOrganizationId(supabase);
+    const { findings, rows } = await scanContractForRisks(contractId, user.id, organizationId);
 
     return NextResponse.json({
       ok: true,

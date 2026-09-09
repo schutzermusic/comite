@@ -94,6 +94,10 @@ export interface AsoDocumentRow {
   extraction_method: AsoExtractionMethod;
   extraction_confidence: number | null;
   extraction_issues: { field: string; reason: string }[];
+  ai_provider: string | null;
+  ai_model: string | null;
+  ai_input_tokens: number | null;
+  ai_output_tokens: number | null;
 
   // ── Conferência OPCIONAL com o eSocial ──
   esocial_event_id: string | null;

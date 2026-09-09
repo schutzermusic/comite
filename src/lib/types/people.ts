@@ -279,6 +279,7 @@ export interface WorkforceAdvice {
   headline: string;
   insights: WorkforceInsight[];
   recommendations: string[];
+  ai_metadata?: import('@/lib/ai/gateway/types').ApexAIProvenance;
 }
 
 /* ────────────────── Governança (migration 047) ──────────────── */

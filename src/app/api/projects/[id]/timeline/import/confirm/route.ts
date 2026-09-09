@@ -35,6 +35,9 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     return NextResponse.json({ ok: false, error: 'rows e fileHash são obrigatórios.' }, { status: 400 });
   }
   const mode = body.mode === 'update' ? 'update' : 'new';
+  if (body.parserUsed === 'ai' && (!body.aiMetadata?.provider || !body.aiMetadata?.model)) {
+    return NextResponse.json({ ok: false, error: 'Importação por IA sem proveniência.' }, { status: 400 });
+  }
 
   const supabase = await createClient();
   const profile = await getActiveOrganizationRow(supabase);
@@ -69,6 +72,10 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       imported_by: guard.userId,
       parse_status: validated.stats.rowsWithIssues > 0 ? 'completed_with_warnings' : 'completed',
       parser_used: body.parserUsed === 'ai' ? 'ai' : 'deterministic',
+      ai_provider: body.aiMetadata?.provider ?? null,
+      ai_model: body.aiMetadata?.model ?? null,
+      ai_input_tokens: body.aiMetadata?.usage.inputTokens ?? null,
+      ai_output_tokens: body.aiMetadata?.usage.outputTokens ?? null,
       parse_summary: validated.stats as unknown as Record<string, unknown>,
       warnings: [...validated.warnings, ...(body.warnings ?? [])],
     })

@@ -245,7 +245,7 @@ export function getParseResult(batchId: string): PayrollParseResult | undefined 
 
 export function saveGeneratedReport(
   batchId: string,
-  input: { report_type: PayrollGeneratedReport['report_type']; generated_text: string; generated_html: string; generated_by_ai: boolean },
+  input: { report_type: PayrollGeneratedReport['report_type']; generated_text: string; generated_html: string; generated_by_ai: boolean; ai_provider?: string; ai_model?: string; ai_input_tokens?: number; ai_output_tokens?: number },
 ): PayrollGeneratedReport {
   const now = new Date().toISOString();
   // One report per (batch, type): replace if it exists.
@@ -258,6 +258,10 @@ export function saveGeneratedReport(
     generated_html: input.generated_html,
     status: 'draft',
     generated_by_ai: input.generated_by_ai,
+    ai_provider: input.ai_provider,
+    ai_model: input.ai_model,
+    ai_input_tokens: input.ai_input_tokens,
+    ai_output_tokens: input.ai_output_tokens,
     created_at: now,
     updated_at: now,
   };

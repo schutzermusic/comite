@@ -369,7 +369,7 @@ export async function deleteRisk(id: string): Promise<void> {
 
 /* ─────────────────────────────────────────────────────────────
    AI Risk Engine — client trigger
-   Calls the server Route Handler that runs the Anthropic SDK
+   Calls the server Route Handler backed by the Apex AI Gateway.
    and inserts AI-origin risks via service-role.
    ───────────────────────────────────────────────────────────── */
 export async function triggerContractAiScan(

@@ -209,7 +209,7 @@ export async function POST(req: Request) {
       if (isWeakExtraction(extraction)) {
         // Escaneado ou layout fora do padrão: o PDF vai inteiro para a IA.
         try {
-          const aiResult = await extractAsoWithAi(bytes);
+          const aiResult = await extractAsoWithAi(bytes, organizationId);
           if (aiResult.confidence > extraction.confidence) {
             extraction = aiResult;
             method = 'ocr_ai';
@@ -217,7 +217,7 @@ export async function POST(req: Request) {
         } catch (err) {
           aiNote =
             err instanceof AsoAiUnavailableError
-              ? 'Leitura por IA indisponível (ANTHROPIC_API_KEY ausente); ficou o que o extrator conseguiu ler.'
+              ? 'Apex AI Gateway indisponível; ficou o que o extrator determinístico conseguiu ler.'
               : `Leitura por IA falhou: ${err instanceof Error ? err.message : 'erro'}`;
         }
       }
@@ -294,6 +294,10 @@ export async function POST(req: Request) {
           extraction_method: method,
           extraction_confidence: extraction.confidence,
           extraction_issues: issues,
+          ai_provider: extraction.aiProvenance?.provider ?? null,
+          ai_model: extraction.aiProvenance?.model ?? null,
+          ai_input_tokens: extraction.aiProvenance?.usage.inputTokens ?? null,
+          ai_output_tokens: extraction.aiProvenance?.usage.outputTokens ?? null,
 
           esocial_event_id: reconciliation.eventId,
           esocial_match_status: reconciliation.matchStatus,
@@ -400,4 +404,3 @@ async function loadEsocialExams(
     return [];
   }
 }
-

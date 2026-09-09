@@ -2,6 +2,7 @@ import { createHash } from 'crypto';
 import { NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { requireApiPermission } from '@/lib/auth/api-guard';
+import { requireActiveOrganizationId } from '@/lib/auth/active-organization';
 import {
   extractScheduleFromPages,
   isWeakExtraction,
@@ -92,6 +93,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   const guard = await requireApiPermission('projects.timeline.import', { allowAdmin: true });
   if (!guard.ok) return guard.response;
   const { id: projectId } = await context.params;
+  const organizationId = await requireActiveOrganizationId(await createClient());
 
   let file: File | null = null;
   try {
@@ -116,6 +118,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
 
   // 1) Deterministic positioned-text extraction.
   let parserUsed: 'deterministic' | 'ai' = 'deterministic';
+  let aiMetadata: ParsePreview['aiMetadata'];
   let result;
   const extraWarnings: string[] = [];
   try {
@@ -130,16 +133,17 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   // 2) AI fallback when the deterministic result is weak.
   if (isWeakExtraction(result)) {
     try {
-      const aiRows = await extractScheduleWithAi(buffer.toString('base64'));
-      const aiResult = validateParsedRows(aiRows);
+      const aiExtraction = await extractScheduleWithAi(buffer.toString('base64'), organizationId);
+      const aiResult = validateParsedRows(aiExtraction.rows);
       if (!isWeakExtraction(aiResult) || aiResult.rows.length > result.rows.length) {
         result = aiResult;
         parserUsed = 'ai';
+        aiMetadata = aiExtraction.provenance;
       }
     } catch (e) {
       if (e instanceof AiExtractionUnavailableError) {
         extraWarnings.push(
-          'Leitura determinística fraca e ANTHROPIC_API_KEY ausente — revise as linhas sinalizadas antes de importar.',
+          'Leitura determinística fraca e Apex AI Gateway indisponível — revise as linhas sinalizadas antes de importar.',
         );
       } else {
         const msg = e instanceof Error ? e.message : String(e);
@@ -167,6 +171,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     fileHash,
     fileName: file.name,
     parserUsed,
+    aiMetadata,
     diff: plan.diff,
   };
   return NextResponse.json({ ok: true, preview, hasExistingTimeline: existing.length > 0 });

@@ -69,6 +69,10 @@ export interface SaveReportInput {
   generated_text: string;
   generated_html: string;
   generated_by_ai: boolean;
+  ai_provider?: string;
+  ai_model?: string;
+  ai_input_tokens?: number;
+  ai_output_tokens?: number;
 }
 
 export interface CreatePackageInput {

@@ -3,15 +3,15 @@
  *
  * Used by the import parse route when the deterministic positioned-text
  * parser fails or produces a weak result (>30% rows with issues). Sends
- * the PDF as a document content block to Claude and demands a strict
+ * the PDF as a document capability request and demands a strict
  * JSON array of schedule rows. The same validateParsedRows() pass runs
  * on the output, and the prompt forbids inventing data (dependencies /
  * resources absent from the PDF stay absent).
  *
- * Never import this from client components — it reads ANTHROPIC_API_KEY.
+ * Never import this from client components — the gateway is server-only.
  */
 
-import Anthropic from '@anthropic-ai/sdk';
+import { ApexAIError, getApexAIGateway } from '@/lib/ai/gateway';
 import type { ParsedScheduleRow } from '@/lib/types/project-timeline';
 import {
   inferOutlineLevel,
@@ -25,8 +25,9 @@ const EXTRACTION_PROMPT = `Você é um extrator de cronogramas do Microsoft Proj
 O PDF anexado é um cronograma exportado do MS Project em português, com uma tabela
 com as colunas: Id, EDT (WBS), Nome da Tarefa, % concluída, Duração, Início, Término.
 
-Extraia TODAS as linhas da tabela, em ordem, e responda APENAS com um array JSON
-(sem markdown, sem comentários), onde cada elemento tem exatamente estes campos:
+Extraia TODAS as linhas da tabela, em ordem, e responda APENAS com um objeto JSON
+no formato {"rows": [...]} (sem markdown, sem comentários), onde cada elemento
+de rows tem exatamente estes campos:
 
 {
   "id": "<coluna Id, ex: \\"42\\">",
@@ -47,7 +48,7 @@ Regras OBRIGATÓRIAS:
 
 export class AiExtractionUnavailableError extends Error {
   constructor() {
-    super('ANTHROPIC_API_KEY ausente — fallback de IA indisponível.');
+    super('Apex AI Gateway indisponível — fallback de IA não executado.');
     this.name = 'AiExtractionUnavailableError';
   }
 }
@@ -62,51 +63,52 @@ interface AiRow {
   finish_raw?: string;
 }
 
-export async function extractScheduleWithAi(pdfBase64: string): Promise<ParsedScheduleRow[]> {
-  if (!process.env.ANTHROPIC_API_KEY) throw new AiExtractionUnavailableError();
-  const client = new Anthropic();
-
-  // Long output (~130 rows of JSON) → stream to avoid HTTP timeouts.
-  const stream = client.messages.stream({
-    model: 'claude-opus-4-8',
-    max_tokens: 64000,
-    thinking: { type: 'adaptive' },
-    messages: [
-      {
-        role: 'user',
-        content: [
-          {
-            type: 'document',
-            source: { type: 'base64', media_type: 'application/pdf', data: pdfBase64 },
-          },
-          { type: 'text', text: EXTRACTION_PROMPT },
-        ],
+const SCHEDULE_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    rows: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          id: { type: 'string' }, wbs: { type: 'string' }, name: { type: 'string' },
+          percent_raw: { type: 'string' }, duration_raw: { type: 'string' },
+          start_raw: { type: 'string' }, finish_raw: { type: 'string' },
+        },
+        required: ['id', 'wbs', 'name', 'percent_raw', 'duration_raw', 'start_raw', 'finish_raw'],
       },
-    ],
-  });
-  const message = await stream.finalMessage();
+    },
+  },
+  required: ['rows'],
+} as const;
 
-  const text = message.content
-    .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-    .map((b) => b.text)
-    .join('');
-
-  // Tolerate code fences and preamble/epilogue text: parse from the first
-  // "[" to the last "]" (the prompt demands a bare JSON array).
-  const firstBracket = text.indexOf('[');
-  const lastBracket = text.lastIndexOf(']');
-  if (firstBracket === -1 || lastBracket <= firstBracket) {
-    throw new Error('Resposta da IA não contém um array JSON — extração abortada.');
-  }
+export async function extractScheduleWithAi(
+  pdfBase64: string,
+  organizationId: string,
+): Promise<{ rows: ParsedScheduleRow[]; provenance: import('@/lib/ai/gateway/types').ApexAIProvenance }> {
   let rows: AiRow[];
+  let provenance: import('@/lib/ai/gateway/types').ApexAIProvenance;
   try {
-    rows = JSON.parse(text.slice(firstBracket, lastBracket + 1)) as AiRow[];
-  } catch {
-    throw new Error('Resposta da IA não é um JSON válido — extração abortada.');
+    const response = await getApexAIGateway().generate<{ rows?: AiRow[] }>({
+      organizationId,
+      task: 'PROJECT_SCHEDULE_EXTRACTION',
+      userPrompt: EXTRACTION_PROMPT,
+      document: { mediaType: 'application/pdf', base64: pdfBase64 },
+      structuredOutput: { name: 'project_schedule_rows', schema: SCHEDULE_SCHEMA },
+    });
+    rows = response.output.rows ?? [];
+    provenance = response.provenance;
+  } catch (err) {
+    if (err instanceof ApexAIError && ['AI_DISABLED', 'PROVIDER_NOT_CONFIGURED'].includes(err.code)) {
+      throw new AiExtractionUnavailableError();
+    }
+    throw err;
   }
   if (!Array.isArray(rows)) throw new Error('Resposta da IA não é um array de linhas.');
 
-  return rows.map((r, index) => {
+  return { rows: rows.map((r, index) => {
     const durationMinutes = parseDurationToMinutes(r.duration_raw ?? '');
     return {
       msProjectId: (r.id ?? '').trim(),
@@ -130,5 +132,5 @@ export async function extractScheduleWithAi(pdfBase64: string): Promise<ParsedSc
       },
       issues: [],
     };
-  });
+  }), provenance };
 }

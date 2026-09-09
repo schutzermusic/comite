@@ -3,7 +3,7 @@
  *
  * Entra quando o extrator determinístico falha ou lê pouco — o caso comum é o
  * ASO ESCANEADO, que não tem camada de texto nenhuma e do qual o pdfjs não
- * extrai um único caractere. Manda o PDF inteiro como documento para o Claude
+ * extrai um único caractere. Manda o PDF inteiro como documento ao gateway
  * e exige JSON estrito. Mesmo desenho do fallback de cronograma do MS Project.
  *
  * DUAS REGRAS QUE O PROMPT PRECISA CARREGAR, E O CÓDIGO REFORÇA DEPOIS
@@ -16,11 +16,10 @@
  *    origem como inferida. Confundir os dois apagaria a diferença entre fato e
  *    premissa, que é a coisa que este módulo inteiro existe para preservar.
  *
- * Nunca importar de componente cliente: lê ANTHROPIC_API_KEY.
+ * Nunca importar de componente cliente: o gateway é exclusivamente servidor.
  */
 
-import Anthropic from '@anthropic-ai/sdk';
-import { AI_MODEL } from '@/lib/ai/server-clients';
+import { ApexAIError, getApexAIGateway } from '@/lib/ai/gateway';
 import {
   inferValidityDate,
   parsePtBrDate,
@@ -36,7 +35,7 @@ if (typeof window !== 'undefined') {
 
 export class AsoAiUnavailableError extends Error {
   constructor() {
-    super('ANTHROPIC_API_KEY ausente — leitura por IA indisponível.');
+    super('Apex AI Gateway indisponível — leitura por IA não executada.');
     this.name = 'AsoAiUnavailableError';
   }
 }
@@ -100,45 +99,45 @@ interface AiPayload {
   doctor_crm?: string;
 }
 
-export async function extractAsoWithAi(pdf: Buffer, today: Date = new Date()): Promise<AsoExtraction> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new AsoAiUnavailableError();
+const ASO_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    worker_name: { type: 'string' }, cpf: { type: 'string' },
+    worker_registration: { type: 'string' }, company_name: { type: 'string' },
+    company_cnpj: { type: 'string' }, clinic_name: { type: 'string' },
+    exam_kind: { type: 'string' }, exam_date_raw: { type: 'string' },
+    result: { type: 'string' }, valid_until_raw: { type: 'string' },
+    occupational_risks: { type: 'array', items: { type: 'string' } },
+    doctor_name: { type: 'string' }, doctor_crm: { type: 'string' },
+  },
+  required: [
+    'worker_name', 'cpf', 'worker_registration', 'company_name', 'company_cnpj',
+    'clinic_name', 'exam_kind', 'exam_date_raw', 'result', 'valid_until_raw',
+    'occupational_risks', 'doctor_name', 'doctor_crm',
+  ],
+} as const;
 
-  const anthropic = new Anthropic({ apiKey });
-  const response = await anthropic.messages.create({
-    model: AI_MODEL,
-    max_tokens: 1500,
-    messages: [
-      {
-        role: 'user',
-        content: [
-          {
-            type: 'document',
-            source: { type: 'base64', media_type: 'application/pdf', data: pdf.toString('base64') },
-          },
-          { type: 'text', text: EXTRACTION_PROMPT },
-        ],
-      },
-    ],
-  });
-
-  let raw = '';
-  for (const block of response.content) {
-    if (block.type === 'text') raw += block.text;
-  }
-  // O modelo às vezes embrulha em cerca de markdown mesmo quando proibido.
-  const json = raw.trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
-
-  let payload: AiPayload;
+export async function extractAsoWithAi(
+  pdf: Buffer,
+  organizationId: string,
+  today: Date = new Date(),
+): Promise<AsoExtraction> {
   try {
-    payload = JSON.parse(json) as AiPayload;
+    const response = await getApexAIGateway().generate<AiPayload>({
+      organizationId,
+      task: 'ASO_EXTRACTION',
+      userPrompt: EXTRACTION_PROMPT,
+      document: { mediaType: 'application/pdf', base64: pdf.toString('base64') },
+      structuredOutput: { name: 'aso_extraction', schema: ASO_SCHEMA },
+    });
+    return { ...normalizeAiPayload(response.output, today), aiProvenance: response.provenance };
   } catch (err) {
-    throw new Error(
-      `A leitura por IA não devolveu JSON válido: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    if (err instanceof ApexAIError && ['AI_DISABLED', 'PROVIDER_NOT_CONFIGURED'].includes(err.code)) {
+      throw new AsoAiUnavailableError();
+    }
+    throw err;
   }
-
-  return normalizeAiPayload(payload, today);
 }
 
 /**

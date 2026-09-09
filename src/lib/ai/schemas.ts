@@ -1,5 +1,5 @@
 /**
- * Shared JSON schema for Anthropic structured output across AI risk scanners
+ * Shared JSON schema for structured output across AI risk scanners.
  * (contracts, finance, projects). `sourceEntityId` is optional so that scanners
  * which analyze a single entity can leave it blank, while batch scanners
  * (finance) can anchor each finding to a specific ledger_entry id.

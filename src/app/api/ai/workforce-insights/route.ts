@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { requireApiPermission } from '@/lib/auth/api-guard';
 import { generateWorkforceAdvice } from '@/lib/ai/workforce/workforce-advisor';
+import { requireActiveOrganizationId } from '@/lib/auth/active-organization';
+import { createClient } from '@/utils/supabase/server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -26,7 +28,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: 'Resumo ausente' }, { status: 400 });
     }
 
-    const advice = await generateWorkforceAdvice(body.summary);
+    const organizationId = await requireActiveOrganizationId(await createClient());
+    const advice = await generateWorkforceAdvice(body.summary, organizationId);
     return NextResponse.json({ ok: true, advice });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Erro inesperado';

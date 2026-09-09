@@ -14,7 +14,7 @@ if (typeof window !== 'undefined') {
 }
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { AI_MODEL } from './server-clients';
+import type { ApexAIProvenance } from './gateway';
 import type { AiRiskFinding, AiSourceModule } from './types';
 
 export interface PersistFindingsContext {
@@ -28,6 +28,7 @@ export interface PersistFindingsContext {
   referenceName: string;
   /** Free-form domain label shown under the risk card (e.g. "Financeiro / 2026-03"). */
   area: string;
+  provenance: ApexAIProvenance;
 }
 
 export interface PersistFindingsResult {
@@ -93,7 +94,10 @@ export async function persistAiRiskFindings(
       mitigation_plan: f.mitigation || null,
       source_module: ctx.sourceModule,
       source_entity_id: entityId,
-      ai_model: AI_MODEL,
+      ai_provider: ctx.provenance.provider,
+      ai_model: ctx.provenance.model,
+      ai_input_tokens: ctx.provenance.usage.inputTokens,
+      ai_output_tokens: ctx.provenance.usage.outputTokens,
       ai_confidence: f.confidence,
       ai_rationale: f.rationale,
       ai_analyzed_at: now,

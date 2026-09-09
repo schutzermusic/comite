@@ -107,7 +107,7 @@ export async function saveParse(batchId: string, parse: PayrollParseResult): Pro
   return r.batch;
 }
 
-export async function saveReport(batchId: string, input: { report_type: PayrollReportType; generated_text: string; generated_html: string; generated_by_ai: boolean }): Promise<void> {
+export async function saveReport(batchId: string, input: { report_type: PayrollReportType; generated_text: string; generated_html: string; generated_by_ai: boolean; ai_provider?: string; ai_model?: string; ai_input_tokens?: number; ai_output_tokens?: number }): Promise<void> {
   if (!isSupabase()) { store.saveGeneratedReport(batchId, input); return; }
   await jsonFetch(`/api/payroll/batches/${batchId}/actions`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save_report', ...input }),

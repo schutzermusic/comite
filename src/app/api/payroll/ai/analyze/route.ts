@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { requireApiPermission } from '@/lib/auth/api-guard';
+import { resolvePayrollActor } from '@/lib/payroll/repository/actor';
 import { generatePayrollNarrative } from '@/lib/ai/payroll/payroll-narrative';
 import type { PayrollParseResult } from '@/lib/types/payroll-closing';
 
@@ -9,10 +9,10 @@ export const dynamic = 'force-dynamic';
 /**
  * Generates the payroll closing narrative. Receives ONLY the already-parsed
  * numbers (PayrollParseResult) — never a raw spreadsheet — so the model cannot
- * invent values. Falls back to a deterministic template when no API key is set.
+ * invent values. Falls back to a deterministic template when AI is unavailable.
  */
 export async function POST(req: Request) {
-  const guard = await requireApiPermission('people.payroll_close');
+  const guard = await resolvePayrollActor('people.payroll_close');
   if (!guard.ok) return guard.response;
 
   let parse: PayrollParseResult;
@@ -27,7 +27,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    const narrative = await generatePayrollNarrative(parse);
+    const narrative = await generatePayrollNarrative(parse, guard.actor.organizationId);
     return NextResponse.json({ ok: true, narrative });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Erro inesperado';

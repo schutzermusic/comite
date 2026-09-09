@@ -2,14 +2,14 @@
  * Workforce advisor — LLM narrative + recommendations over the
  * deterministic intelligence summary (Fase 8, diferencial D2).
  * Server-only. Mirrors the structured-output pattern of the AI risk
- * scanners (src/lib/ai/anthropic-call.ts). The deterministic engine is
+ * scanners (src/lib/ai/risk-call.ts). The deterministic engine is
  * the source of truth; the model only interprets and recommends.
  */
 if (typeof window !== 'undefined') {
   throw new Error('workforce-advisor.ts must not be imported in the browser');
 }
 
-import { AI_MODEL, getAnthropic } from '../server-clients';
+import { getApexAIGateway } from '../gateway';
 import type { WorkforceAdvice, WorkforceInsight, GovernanceSeverity } from '@/lib/types/people';
 
 const ADVICE_SCHEMA = {
@@ -52,45 +52,18 @@ português do Brasil. Regras:
 
 const SEVERITIES: GovernanceSeverity[] = ['info', 'low', 'medium', 'high', 'critical'];
 
-export async function generateWorkforceAdvice(summary: unknown): Promise<WorkforceAdvice> {
-  const anthropic = getAnthropic();
-
-  const response = await anthropic.messages.create({
-    model: AI_MODEL,
-    max_tokens: 2048,
-    thinking: { type: 'adaptive' },
-    system: [{ type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
-    output_config: {
-      effort: 'medium',
-      format: { type: 'json_schema', schema: ADVICE_SCHEMA },
-    },
-    messages: [
-      {
-        role: 'user',
-        content: [
-          {
-            type: 'text',
-            text: `Resumo estruturado da força de trabalho (JSON):\n\n${JSON.stringify(summary, null, 2)}`,
-          },
-        ],
-      },
-    ],
+export async function generateWorkforceAdvice(
+  summary: unknown,
+  organizationId: string,
+): Promise<WorkforceAdvice> {
+  const response = await getApexAIGateway().generate<Partial<WorkforceAdvice>>({
+    organizationId,
+    task: 'WORKFORCE_ADVISOR',
+    systemPrompt: SYSTEM_PROMPT,
+    userPrompt: `Resumo estruturado da força de trabalho (JSON):\n\n${JSON.stringify(summary, null, 2)}`,
+    structuredOutput: { name: 'workforce_advice', schema: ADVICE_SCHEMA },
   });
-
-  let raw = '';
-  for (const block of response.content) {
-    if (block.type === 'text') raw += block.text;
-  }
-  if (!raw.trim()) throw new Error('Resposta da IA veio vazia');
-
-  let parsed: Partial<WorkforceAdvice>;
-  try {
-    parsed = JSON.parse(raw) as Partial<WorkforceAdvice>;
-  } catch (err) {
-    throw new Error(
-      `Não foi possível decodificar a resposta da IA: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
+  const parsed = response.output;
 
   const insights: WorkforceInsight[] = Array.isArray(parsed.insights)
     ? parsed.insights.map((i) => ({
@@ -108,5 +81,6 @@ export async function generateWorkforceAdvice(summary: unknown): Promise<Workfor
     recommendations: Array.isArray(parsed.recommendations)
       ? parsed.recommendations.map((r) => String(r)).filter(Boolean).slice(0, 6)
       : [],
+    ai_metadata: response.provenance,
   };
 }

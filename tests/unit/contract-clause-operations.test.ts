@@ -411,8 +411,9 @@ describe('reanálise', () => {
     expect(extractor).toContain("status: 'running'");
     expect(extractor).toContain('failAnalysis');
     expect(extractor).toContain("status: 'failed'");
-    // Rede caída não pode deixar o documento eternamente "analisando".
-    expect(extractor).toContain('Anthropic.APIError');
+    // Rede caída não pode deixar o documento eternamente "analisando";
+    // o erro agora chega normalizado pelo gateway, sem acoplamento ao SDK.
+    expect(extractor).toContain('getApexAIGateway().generate');
   });
 
   it('substituir documento encerra as propostas pendentes dele', () => {

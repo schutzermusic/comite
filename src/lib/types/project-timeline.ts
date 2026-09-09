@@ -318,6 +318,7 @@ export interface ScheduleImport {
   parserUsed: 'deterministic' | 'ai' | 'manual';
   parseSummary: Record<string, unknown>;
   warnings: string[];
+  aiMetadata?: import('@/lib/ai/gateway/types').ApexAIProvenance;
 }
 
 /* ───────────── Import pipeline (parser → preview → diff) ───────────── */
@@ -359,6 +360,7 @@ export interface ParsePreview {
   fileHash: string;
   fileName: string;
   parserUsed: 'deterministic' | 'ai';
+  aiMetadata?: import('@/lib/ai/gateway/types').ApexAIProvenance;
   /** Diff vs. the project's current timeline (empty timeline → all added). */
   diff: ImportDiffSummary;
 }
@@ -393,6 +395,7 @@ export interface ConfirmImportPayload {
   filePath: string | null;
   mode: 'new' | 'update';
   parserUsed: 'deterministic' | 'ai';
+  aiMetadata?: import('@/lib/ai/gateway/types').ApexAIProvenance;
   warnings: string[];
 }
 

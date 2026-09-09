@@ -19,8 +19,7 @@ if (typeof window !== 'undefined') {
 }
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { requireActiveOrganizationId } from '@/lib/auth/active-organization';
-import { callAnthropicForRiskFindings } from '../anthropic-call';
+import { callForRiskFindings } from '../risk-call';
 import { persistAiRiskFindings, type PersistFindingsResult } from '../risk-persistence';
 import { getServiceClient } from '../server-clients';
 import type { AiRiskFinding } from '../types';
@@ -95,6 +94,7 @@ interface LedgerRow {
 
 async function loadLedgerBatch(
   supabase: SupabaseClient,
+  organizationId: string,
   periodFrom?: string,
   periodTo?: string,
 ): Promise<{ rows: LedgerRow[]; periodLabel: string }> {
@@ -103,6 +103,7 @@ async function loadLedgerBatch(
     .select(
       'id,entry_date,description,amount_cents,currency,category_id,cost_center_id,project_id,contract_id,supplier_id,business_unit_id,period_key,entry_type,status,source_system,evidence_required,evidence_provided,created_at',
     )
+    .eq('organization_id', organizationId)
     .neq('status', 'void')
     .order('entry_date', { ascending: false })
     .limit(MAX_ENTRIES);
@@ -162,13 +163,6 @@ function buildPrompt(rows: LedgerRow[], periodLabel: string): string {
 /* ─────────────────────────────────────────────────────────────
    Caller's organization
    ───────────────────────────────────────────────────────────── */
-async function resolveCallerOrg(
-  supabase: SupabaseClient,
-  _userId: string,
-): Promise<string> {
-  return requireActiveOrganizationId(supabase);
-}
-
 /* ─────────────────────────────────────────────────────────────
    Public entrypoint
    ───────────────────────────────────────────────────────────── */
@@ -187,13 +181,14 @@ export interface FinanceScanResult {
 
 export async function scanFinanceForRisks(
   userId: string,
+  organizationId: string,
   opts: FinanceScanOptions = {},
 ): Promise<FinanceScanResult> {
   if (!userId) throw new Error('userId é obrigatório');
+  if (!organizationId) throw new Error('organizationId é obrigatório');
   const supabase = getServiceClient();
-  const orgId = await resolveCallerOrg(supabase, userId);
 
-  const { rows, periodLabel } = await loadLedgerBatch(supabase, opts.periodFrom, opts.periodTo);
+  const { rows, periodLabel } = await loadLedgerBatch(supabase, organizationId, opts.periodFrom, opts.periodTo);
   if (rows.length === 0) {
     return {
       findings: [],
@@ -204,7 +199,9 @@ export async function scanFinanceForRisks(
   }
 
   const userPrompt = buildPrompt(rows, periodLabel);
-  const findings = await callAnthropicForRiskFindings({
+  const { findings, provenance } = await callForRiskFindings({
+    organizationId,
+    task: 'FINANCE_RISK_ANALYSIS',
     systemPrompt: FINANCE_SYSTEM_PROMPT,
     userPrompt,
   });
@@ -215,16 +212,17 @@ export async function scanFinanceForRisks(
 
   const persistence = await persistAiRiskFindings(findings, {
     supabase,
-    orgId,
+    orgId: organizationId,
     userId,
     sourceModule: 'finance',
     defaultEntityId,
     referenceName: `Lote financeiro · ${periodLabel}`,
     area: 'Financeiro',
+    provenance,
   });
 
   console.info(
-    `[ai/finance-risk-scanner] org=${orgId} scanned=${rows.length} findings=${findings.length} inserted=${persistence.inserted.length} dup=${persistence.skippedDuplicates}`,
+    `[ai/finance-risk-scanner] org=${organizationId} scanned=${rows.length} findings=${findings.length} inserted=${persistence.inserted.length} dup=${persistence.skippedDuplicates}`,
   );
 
   return { findings, persistence, scanned: rows.length, periodLabel };

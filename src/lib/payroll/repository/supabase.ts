@@ -93,6 +93,9 @@ function mapReport(r: any): PayrollGeneratedReport {
   return {
     id: r.id, batch_id: r.batch_id, report_type: r.report_type, generated_text: r.generated_text ?? '',
     generated_html: r.generated_html ?? '', status: r.status, generated_by_ai: !!r.generated_by_ai,
+    ai_provider: r.ai_provider ?? undefined, ai_model: r.ai_model ?? undefined,
+    ai_input_tokens: r.ai_input_tokens == null ? undefined : Number(r.ai_input_tokens),
+    ai_output_tokens: r.ai_output_tokens == null ? undefined : Number(r.ai_output_tokens),
     reviewed_by: r.reviewed_by ?? undefined, approved_by: r.approved_by ?? undefined,
     created_at: r.created_at, updated_at: r.updated_at,
   };
@@ -347,6 +350,8 @@ export class SupabasePayrollRepository implements PayrollRepository {
       organization_id: actor.organizationId, batch_id: batchId, report_type: input.report_type,
       generated_text: input.generated_text, generated_html: input.generated_html,
       generated_by_ai: input.generated_by_ai, status: 'draft', created_by: actor.userId, updated_by: actor.userId,
+      ai_provider: input.ai_provider ?? null, ai_model: input.ai_model ?? null,
+      ai_input_tokens: input.ai_input_tokens ?? null, ai_output_tokens: input.ai_output_tokens ?? null,
     }, { onConflict: 'batch_id,report_type' }).select('*').single();
     if (error) throw new Error(`saveGeneratedReport: ${error.message}`);
     await this.writeAudit(actor, { entity_type: 'payroll_report', entity_id: data.id, action: 'generated', metadata: { report_type: input.report_type, by_ai: input.generated_by_ai } });

@@ -98,8 +98,8 @@ const clauseExtraction: JobHandler<'contracts.clause_extraction.execute'> = {
       .eq('id', request.id);
 
     /*
-      O extrator é carregado sob demanda. Ele importa o SDK da Anthropic e o
-      guarda de runtime de servidor; deixá-lo no topo faria todo caminho que
+      O extrator é carregado sob demanda. Ele alcança o gateway server-only;
+      deixá-lo no topo faria todo caminho que
       apenas MENCIONA o registro de handlers arrastar isso junto.
     */
     const { extractClausesFromDocument } = await import('@/lib/ai/contract-clause-extractor');

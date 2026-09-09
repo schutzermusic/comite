@@ -363,7 +363,8 @@ describe('Fase 7 · migrations aplicadas não são editadas', () => {
       .sort();
     /*
       A Fase 7.5 acrescentou 145–148, e o Production Clean-Slate Gate
-      acrescentou 151. O invariante desta prova nunca foi "a ponta é 144" — era
+      acrescentou 151, e o gateway de IA acrescentou 152. O invariante desta
+      prova nunca foi "a ponta é 144" — era
       que as migrations da Fase 7 continuam onde estavam e ninguém as editou. A
       ponta subir é esperado; um número da Fase 7 sumir, não.
     */
@@ -371,7 +372,7 @@ describe('Fase 7 · migrations aplicadas não são editadas', () => {
       expect(versions).toContain(v);
     }
     expect(versions.filter((v) => Number(v) > 144).sort())
-      .toEqual(['145', '146', '147', '148', '149', '150', '151']);
+      .toEqual(['145', '146', '147', '148', '149', '150', '151', '152']);
     // 090 continua arquivada, nunca aplicada.
     expect(versions).not.toContain('090');
   });

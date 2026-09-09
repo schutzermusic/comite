@@ -462,8 +462,14 @@ function FechamentoFolhaPageInner() {
 
       // Persist reports
       const html = buildEmailHtml({ parse, narrative: nar, audience: 'custom' });
-      await closing.saveReport(batch.id, { report_type: 'executive_email', generated_text: buildEmailText({ parse, narrative: nar, audience: 'custom' }), generated_html: html, generated_by_ai: nar.generated_by_ai });
-      await closing.saveReport(batch.id, { report_type: 'board_summary', generated_text: nar.board_summary, generated_html: '', generated_by_ai: nar.generated_by_ai });
+      const aiProvenance = nar.ai_metadata ? {
+        ai_provider: nar.ai_metadata.provider,
+        ai_model: nar.ai_metadata.model,
+        ai_input_tokens: nar.ai_metadata.usage.inputTokens,
+        ai_output_tokens: nar.ai_metadata.usage.outputTokens,
+      } : {};
+      await closing.saveReport(batch.id, { report_type: 'executive_email', generated_text: buildEmailText({ parse, narrative: nar, audience: 'custom' }), generated_html: html, generated_by_ai: nar.generated_by_ai, ...aiProvenance });
+      await closing.saveReport(batch.id, { report_type: 'board_summary', generated_text: nar.board_summary, generated_html: '', generated_by_ai: nar.generated_by_ai, ...aiProvenance });
 
       // Generate executive PDF (print-ready HTML) + dashboard snapshot as attachments
       const reportHtml = buildExecutiveReportHtml(parse, nar);
@@ -1047,7 +1053,7 @@ function FechamentoFolhaPageInner() {
             <div className="space-y-5">
               {!narrative.generated_by_ai && (
                 <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 px-3 py-2 text-sm text-amber-300">
-                  <Info className="w-4 h-4 mt-0.5" /> Rascunho automático (sem IA — ANTHROPIC_API_KEY ausente). Revise antes de enviar.
+                  <Info className="w-4 h-4 mt-0.5" /> Rascunho automático (sem IA — gateway indisponível). Revise antes de enviar.
                 </div>
               )}
               <div>

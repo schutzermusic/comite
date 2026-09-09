@@ -32,15 +32,14 @@ if (typeof window !== 'undefined') {
   throw new Error('contract-clause-extractor.ts não pode ser importado no browser');
 }
 
-import Anthropic from '@anthropic-ai/sdk';
 import { CLAUSE_CATEGORIES, isClauseCategory, type ClauseCategory } from '@/lib/contracts/clause-categories';
 import { createClient as createServiceClient, type SupabaseClient } from '@supabase/supabase-js';
+import { getApexAIGateway, getApexAITaskPolicy, type ApexAIResponse } from '@/lib/ai/gateway';
 
 /**
  * Extração de cláusula de contrato é trabalho sensível a inteligência: erro de
  * leitura vira registro jurídico errado. Não é lugar para modelo menor.
  */
-const AI_MODEL = 'claude-opus-5' as const;
 /** Versão do prompt/pipeline, gravada junto da análise para auditoria. */
 export const EXTRACTOR_VERSION = 'clause-extractor/1.0.0';
 
@@ -239,12 +238,6 @@ export function assertEvidence(
 // Execução
 // ═══════════════════════════════════════════════════════════════════════════
 
-function getAnthropic(): Anthropic {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY ausente: extração de cláusulas indisponível.');
-  return new Anthropic({ apiKey });
-}
-
 function getServiceClient(): SupabaseClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -280,6 +273,9 @@ export interface ExtractionResult {
   /** Análise anterior do mesmo documento, marcada como substituída. */
   supersededAnalysisId: string | null;
   model: string;
+  provider: string;
+  inputTokens: number;
+  outputTokens: number;
   version: string;
 }
 
@@ -318,6 +314,7 @@ export async function extractClausesFromDocument(
   }
 
   const startedAt = new Date().toISOString();
+  const taskPolicy = getApexAITaskPolicy('CONTRACT_EXTRACTION');
 
   /*
     A análise é registrada como `running` ANTES da chamada. Sem isso, uma
@@ -332,7 +329,8 @@ export async function extractClausesFromDocument(
       document_id: documentId,
       status: 'running',
       started_at: startedAt,
-      model: AI_MODEL,
+      provider: taskPolicy.provider,
+      model: taskPolicy.model,
       extractor_version: EXTRACTOR_VERSION,
       summary: `Analisando "${document.title}".`,
       extracted_data: { kind: 'clause_extraction', document_id: documentId, document_title: document.title },
@@ -358,59 +356,28 @@ export async function extractClausesFromDocument(
     return new Error(message);
   };
 
-  const anthropic = getAnthropic();
-
   /*
     A chamada é embrulhada porque uma falha de rede, um 429 ou um timeout
     deixariam a análise presa em `running` para sempre — e um documento
     eternamente "analisando" some da fila de trabalho sem nunca ter sido lido.
   */
-  let response: Anthropic.Message;
+  let response: ApexAIResponse<{ clauses?: unknown[] }>;
   try {
-    response = await anthropic.messages.create({
-    model: AI_MODEL,
-    max_tokens: 16000,
-    thinking: { type: 'adaptive' },
-    system: [{ type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
-    output_config: {
-      effort: 'high',
-      format: { type: 'json_schema', schema: CLAUSE_SCHEMA },
-    },
-    messages: [
-      {
-        role: 'user',
-        content: [
-          {
-            type: 'document',
-            source: { type: 'base64', media_type: 'application/pdf', data: bytes.toString('base64') },
-          },
-          {
-            type: 'text',
-            text: 'Extraia as cláusulas deste contrato conforme as regras do sistema. Se o documento não contiver cláusula de nenhuma das categorias, devolva a lista vazia.',
-          },
-        ],
-      },
-    ],
+    response = await getApexAIGateway().generate<{ clauses?: unknown[] }>({
+      organizationId: document.organization_id,
+      task: 'CONTRACT_EXTRACTION',
+      systemPrompt: SYSTEM_PROMPT,
+      userPrompt: 'Extraia as cláusulas deste contrato conforme as regras do sistema. Se o documento não contiver cláusula de nenhuma das categorias, devolva a lista vazia.',
+      document: { mediaType: 'application/pdf', base64: bytes.toString('base64') },
+      structuredOutput: { name: 'contract_clauses', schema: CLAUSE_SCHEMA },
     });
   } catch (err) {
     throw await failAnalysis(
-      err instanceof Anthropic.APIError
-        ? `A análise falhou (${err.status}): ${err.message}`
-        : `A análise falhou: ${err instanceof Error ? err.message : 'erro inesperado'}`,
+      `A análise falhou: ${err instanceof Error ? err.message : 'erro inesperado'}`,
     );
   }
 
-  if (response.stop_reason === 'refusal') {
-    throw await failAnalysis('A análise foi recusada por política de segurança do modelo.');
-  }
-
-  const textBlock = response.content.find((b): b is Anthropic.TextBlock => b.type === 'text');
-  let parsed: { clauses?: unknown[] } = {};
-  try {
-    parsed = JSON.parse(textBlock?.text ?? '{}') as { clauses?: unknown[] };
-  } catch {
-    throw await failAnalysis('A resposta da análise não pôde ser interpretada.');
-  }
+  const parsed = response.output as { clauses?: unknown[] };
 
   // A contagem de páginas fecha o cerco: uma proposta que cita página inexistente
   // é leitura fabricada, e agora é descartada em vez de registrada.
@@ -481,7 +448,8 @@ export async function extractClausesFromDocument(
         ai_flagged: true,
         review_status: 'draft',
         ai_confidence: clause.confidence,
-        ai_model: AI_MODEL,
+        ai_provider: response.provenance.provider,
+        ai_model: response.provenance.model,
         ai_analysis_id: analysis.id,
         ai_proposed_at: proposedAt,
         ai_proposed_title: clause.title,
@@ -497,6 +465,10 @@ export async function extractClausesFromDocument(
     .from('contract_ai_analyses')
     .update({
       status: 'completed',
+      provider: response.provenance.provider,
+      model: response.provenance.model,
+      input_tokens: response.provenance.usage.inputTokens,
+      output_tokens: response.provenance.usage.outputTokens,
       completed_at: new Date().toISOString(),
       summary: `${fresh.length} cláusula(s) propostas a partir de "${document.title}".`,
       risk_summary: fresh.length === 0
@@ -504,7 +476,8 @@ export async function extractClausesFromDocument(
         : `${fresh.filter((c) => c.risk_level === 'high').length} proposta(s) de risco alto.`,
       extracted_data: {
         kind: 'clause_extraction',
-        model: AI_MODEL,
+        provider: response.provenance.provider,
+        model: response.provenance.model,
         version: EXTRACTOR_VERSION,
         document_id: documentId,
         document_title: document.title,
@@ -514,8 +487,8 @@ export async function extractClausesFromDocument(
         rejected_without_evidence: rejected.length,
         page_count: countPdfPages(bytes),
         usage: {
-          input_tokens: response.usage.input_tokens,
-          output_tokens: response.usage.output_tokens,
+          input_tokens: response.provenance.usage.inputTokens,
+          output_tokens: response.provenance.usage.outputTokens,
         },
       },
       findings: rejected.map((r) => ({ reason: r.reason })),
@@ -530,7 +503,10 @@ export async function extractClausesFromDocument(
     duplicateCount,
     rejections: rejected,
     supersededAnalysisId,
-    model: AI_MODEL,
+    model: response.provenance.model,
+    provider: response.provenance.provider,
+    inputTokens: response.provenance.usage.inputTokens,
+    outputTokens: response.provenance.usage.outputTokens,
     version: EXTRACTOR_VERSION,
   };
 }
