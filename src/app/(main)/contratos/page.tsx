@@ -15,7 +15,7 @@ import {
   updateProjectV2,
   uploadProjectFile,
 } from '@/lib/services/projects';
-import { hasOfficialValue } from '@/lib/contracts/trust/trusted';
+import { hasOfficialValue, isError } from '@/lib/contracts/trust/trusted';
 import { cn } from '@/lib/utils';
 import type { PortfolioActivityEvent } from '@/components/contracts/cockpit/PortfolioActivity';
 import { listRisks } from '@/lib/services/risks';
@@ -24,6 +24,9 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { useCurrentUser } from '@/hooks/use-current-user';
 import { ContractList } from '@/components/contracts/contract-list';
 import { ContractUpload, type ContractOnboardingDraft } from '@/components/contracts/contract-upload';
+import { ApexMonitoringBand, type MonitoringCell } from '@/components/contracts/intelligence/ApexMonitoringBand';
+import { usePortfolioFollowups } from '@/components/contracts/use-portfolio-followups';
+import { isOpenFollowup } from '@/lib/platform/followups/types';
 import { ContractCard } from '@/components/contracts/ContractCard';
 import { ContractDossierDrawer } from '@/components/contracts/ContractDossierDrawer';
 import { useContractActionModals } from '@/components/contracts/useContractActionModals';
@@ -508,6 +511,7 @@ export default function ContratosPage() {
    * foi de fato usada.
    */
   const structuredObligations = useStructuredObligations();
+  const portfolioFollowups = usePortfolioFollowups();
   const renewalHorizon = useMemo(() => buildRenewalHorizon(filteredTrusted, new Date(), SCOPED), [filteredTrusted]);
   const portfolioApprovals = useMemo(() => buildPortfolioApprovals(filteredTrusted, new Date(), SCOPED), [filteredTrusted]);
   const clauseRiskIntel = useMemo(
@@ -807,6 +811,104 @@ export default function ContratosPage() {
         : `Contrato "${row.title}" criado na carteira oficial.`,
     );
   };
+
+  /*
+    ─── TORRE DE CONTROLE ───────────────────────────────────────────────────
+
+    Os números vêm todos de dado PERSISTIDO. Onde a leitura falhou, a célula
+    recebe `null` e a torre mostra "—": "0 obrigações em atraso" e "não
+    consegui ler as obrigações" levam a decisões opostas, e um zero
+    tranquilizador sobre uma consulta quebrada é o pior resultado possível.
+  */
+  const monitoringCells = useMemo(() => {
+    const obligationsFailed = Boolean(structuredObligations.error);
+    const followupsFailed = Boolean(portfolioFollowups.error);
+    const counts = structuredObligations.portfolio.counts;
+    const open = portfolioFollowups.followups.filter((f) => isOpenFollowup(f.state));
+
+    /*
+      Interpretações que exigem atenção, somadas dos contratos VISÍVEIS. O read
+      model confiável já carrega as cláusulas de cada contrato; contá-las aqui
+      evita uma consulta nova e mantém o número coerente com o recorte da tela.
+    */
+    let attentionInterpretations: number | null = 0;
+    for (const contract of trustedPortfolio) {
+      if (isError(contract.clauses)) { attentionInterpretations = null; break; }
+      if (!hasOfficialValue(contract.clauses)) continue;
+      attentionInterpretations = (attentionInterpretations ?? 0) + contract.clauses.value.filter(
+        (c) => (c as { interpretation_state?: string | null }).interpretation_state === 'requires_attention',
+      ).length;
+    }
+
+    const requiresYou: MonitoringCell[] = [
+      {
+        label: 'Interpretações a decidir',
+        value: attentionInterpretations,
+        hint: 'Exceções de política: exposição material, ambiguidade ou alçada.',
+        onClick: () => setActiveSection('risks'),
+      },
+      {
+        label: 'Obrigações em atraso',
+        value: obligationsFailed ? null : counts.OVERDUE,
+        hint: 'O prazo passou e nada foi registrado como cumprido.',
+        onClick: () => setActiveSection('obligations'),
+      },
+      {
+        label: 'Faturamento bloqueado',
+        value: obligationsFailed ? null : structuredObligations.portfolio.billingBlockedContracts.length,
+        hint: 'Contratos com faturamento contratualmente travado.',
+        onClick: () => setActiveSection('faturamento'),
+      },
+      {
+        label: 'Acompanhamentos escalados',
+        value: followupsFailed ? null : open.filter((f) => f.state === 'ESCALATED').length,
+        hint: 'O prazo estourou a política de acompanhamento.',
+        onClick: () => setActiveSection('obligations'),
+      },
+    ];
+
+    const monitoring: MonitoringCell[] = [
+      {
+        label: 'Acompanhamentos ativos',
+        value: followupsFailed ? null : open.filter((f) => f.state === 'ACTIVE').length,
+        hint: 'Com dono e prazo; o Apex cobra conforme a cadência.',
+      },
+      {
+        label: 'Aguardando a contraparte',
+        value: followupsFailed ? null : open.filter((f) => f.state === 'WAITING_EXTERNAL_PARTY').length,
+        hint: 'O Apex está calado de propósito até a data esperada.',
+      },
+      {
+        label: 'Obrigações no prazo',
+        value: obligationsFailed ? null : counts.UPCOMING,
+        hint: 'Exigências ativas cujo prazo ainda está por vir.',
+        onClick: () => setActiveSection('obligations'),
+      },
+      {
+        label: 'Renovações no horizonte',
+        value: tabCounts.expiring,
+        hint: 'Contratos com vencimento ou renovação próximos.',
+        onClick: () => setActiveSection('renewals'),
+      },
+    ];
+
+    const awaitingSchedule: MonitoringCell[] = [
+      {
+        label: 'Exigências sem agenda',
+        value: obligationsFailed ? null : counts.AWAITING_SCHEDULE_ANCHOR,
+        hint: 'O Apex entendeu a regra; o prazo aparece quando Projetos agendar o evento.',
+        onClick: () => setActiveSection('obligations'),
+      },
+      {
+        label: 'Prazo não apurado',
+        value: obligationsFailed ? null : counts.UNKNOWN,
+        hint: 'Falta a âncora de vigência ou o calendário de dias úteis da organização.',
+        onClick: () => setActiveSection('obligations'),
+      },
+    ];
+
+    return { requiresYou, monitoring, awaitingSchedule };
+  }, [structuredObligations, portfolioFollowups, trustedPortfolio, tabCounts.expiring, setActiveSection]);
 
   const tabs: HudTab[] = [
     {
@@ -1153,14 +1255,27 @@ export default function ContratosPage() {
           acrescenta aqui são os oito sinais operacionais — que também são os
           filtros da carteira, e por isso continuam clicáveis.
         */
-        <ContractExecutiveBand
-          stats={trustedStats}
-          contractCount={contractRows.length}
-          activeFilter={activeKpiFilter}
-          onToggleFilter={toggleKpiFilter}
-          hideExposure
-          className="mb-5"
-        />
+        <>
+          {/*
+            A torre vem ANTES da banda de KPIs. A banda diz o TAMANHO da
+            carteira; a torre diz o que está acontecendo nela e de quem é a
+            bola — e é essa a primeira pergunta de quem abre a Visão Geral.
+          */}
+          <ApexMonitoringBand
+            requiresYou={monitoringCells.requiresYou}
+            monitoring={monitoringCells.monitoring}
+            awaitingSchedule={monitoringCells.awaitingSchedule}
+            className="mb-5"
+          />
+          <ContractExecutiveBand
+            stats={trustedStats}
+            contractCount={contractRows.length}
+            activeFilter={activeKpiFilter}
+            onToggleFilter={toggleKpiFilter}
+            hideExposure
+            className="mb-5"
+          />
+        </>
       ) : (
         <PortfolioContextStrip stats={trustedStats} className="mb-4" />
       )}

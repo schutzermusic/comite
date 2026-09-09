@@ -27,6 +27,13 @@ import type { ApexFollowupRow } from '@/lib/platform/followups/types';
 import {
   assertOperationalEvidence, normalizeObligation, normalizeGuarantee,
 } from '@/lib/ai/contract-operationalization';
+import {
+  buildRiskExposure, riskSeverity, type RiskExposureInput,
+} from '@/lib/contracts/intelligence/risk-exposure';
+import {
+  buildDocumentOperations, documentCategory,
+  type MissingEvidence, type OperationalDocumentInput,
+} from '@/lib/contracts/intelligence/document-operations';
 
 const read = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8');
 
@@ -999,5 +1006,220 @@ describe('gatilhos de governança não são chamáveis de fora', () => {
       expect(definers, `${version} sem função DEFINER`).toBeGreaterThan(0);
       expect(scoped, `${version}: ${scoped}/${definers} com search_path`).toBe(definers);
     }
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Risco: exposição operacional, não redação contratual
+// ═══════════════════════════════════════════════════════════════════════════
+
+const risk = (over: Partial<RiskExposureInput> = {}): RiskExposureInput => ({
+  id: 'r1', title: 'Multa por atraso na entrega', description: 'Prazo apertado no lote 2',
+  category: 'operacional', riskScore: 16, status: 'open', mitigationPlan: null,
+  ownerUserId: null, sourceClauseId: 'c1', sourceClauseTitle: 'Cláusula 8.3 — penalidades',
+  sourceClausePage: 44, canonicalExposure: null, hasOpenFollowup: false,
+  ...over,
+});
+
+describe('risco é exposição operacional, com ações governadas', () => {
+  it('o cartão responde base contratual, o que se observa e impacto', () => {
+    const exposure = buildRiskExposure(risk());
+    expect(exposure.contractualBasis).toContain('Cláusula 8.3');
+    expect(exposure.contractualBasis).toContain('p. 44');
+    expect(exposure.hasSourceClause).toBe(true);
+    expect(exposure.observedIssue).toBe('Prazo apertado no lote 2');
+  });
+
+  it('risco sem cláusula de origem DIZ que não tem, em vez de escolher uma', () => {
+    const exposure = buildRiskExposure(risk({
+      sourceClauseId: null, sourceClauseTitle: null, sourceClausePage: null,
+    }));
+    expect(exposure.hasSourceClause).toBe(false);
+    expect(exposure.contractualBasis).toMatch(/Sem cláusula de origem/);
+    expect(exposure.actions).not.toContain('viewSourceClause');
+  });
+
+  it('exposição só existe quando a quantia é canônica — nunca estimada', () => {
+    expect(buildRiskExposure(risk()).exposure).toBeNull();
+    expect(buildRiskExposure(risk()).exposureNote).toMatch(/não apurada/);
+    expect(buildRiskExposure(risk({ canonicalExposure: 250000 })).exposure).toBe(250000);
+  });
+
+  it('score ausente é "não avaliada", nunca "baixa"', () => {
+    expect(riskSeverity(null)).toBe('unknown');
+    expect(riskSeverity(20)).toBe('critical');
+    expect(riskSeverity(3)).toBe('low');
+  });
+
+  it('a recomendação depende do que está registrado, e não é genérica', () => {
+    expect(buildRiskExposure(risk()).recommendation).toMatch(/Sem plano de tratamento/);
+    expect(buildRiskExposure(risk({ mitigationPlan: 'Antecipar compra' })).recommendation)
+      .toMatch(/ninguém responde por ele/);
+    expect(buildRiskExposure(risk({ mitigationPlan: 'Antecipar', hasOpenFollowup: true })).recommendation)
+      .toMatch(/já acompanha/);
+    expect(buildRiskExposure(risk({ status: 'accepted' })).recommendation)
+      .toMatch(/Risco aceito por decisão registrada/);
+  });
+
+  it('o Apex RECOMENDA aditivo; não existe ação que altere o contrato', () => {
+    const actions = buildRiskExposure(risk()).actions;
+    expect(actions).toContain('recommendAmendment');
+    // Nenhuma ação edita, reescreve ou substitui cláusula assinada.
+    for (const action of actions) {
+      expect(action).not.toMatch(/^(edit|rewrite|replace|amend)Clause$/);
+    }
+    const source = read('src/lib/contracts/intelligence/risk-exposure.ts');
+    expect(source).toMatch(/nunca alteração automática|nunca fazê-la|não se reescreve/);
+  });
+
+  it('risco aceito para de pedir tratativa', () => {
+    const actions = buildRiskExposure(risk({ status: 'accepted' })).actions;
+    expect(actions).not.toContain('acceptRisk');
+    expect(actions).not.toContain('createFollowup');
+  });
+
+  it('aceitar risco é a última ação da lista — é ato de autoridade', () => {
+    const actions = buildRiskExposure(risk()).actions;
+    expect(actions[actions.length - 1]).toBe('acceptRisk');
+  });
+
+  it('a tela envia a aceitação para Governança, não muda um status', () => {
+    const page = read('src/app/(main)/contratos/[id]/page.tsx');
+    expect(page).toMatch(/Aceitar risco é decisão de alçada/);
+    expect(page).toContain("setActiveTab('governance')");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Documentos: evidência operacional, não pasta de arquivos
+// ═══════════════════════════════════════════════════════════════════════════
+
+const doc = (over: Partial<OperationalDocumentInput> = {}): OperationalDocumentInput => ({
+  id: 'd1', title: 'CND Federal', documentType: 'certificate', status: 'uploaded',
+  version: 1, supersededBy: null, links: [], ...over,
+});
+
+describe('documento sabe a que exigência serve', () => {
+  it('cada tipo cai numa categoria operacional', () => {
+    expect(documentCategory('contract')).toBe('original_contract');
+    expect(documentCategory('amendment')).toBe('amendment');
+    expect(documentCategory('guarantee')).toBe('guarantee');
+    expect(documentCategory('insurance')).toBe('insurance');
+    expect(documentCategory('certificate')).toBe('certificate');
+    expect(documentCategory('approval')).toBe('acceptance_evidence');
+    // Tipo desconhecido não some: vira "outras evidências".
+    expect(documentCategory('coisa-nova')).toBe('other');
+  });
+
+  it('o contrato original é a verdade documental, e a tela diz isso', () => {
+    const ops = buildDocumentOperations([doc({ documentType: 'contract', title: 'Contrato assinado' })], []);
+    expect(ops.groups[0].category).toBe('original_contract');
+    expect(ops.groups[0].documents[0].purpose).toMatch(/Verdade documental/);
+  });
+
+  it('documento vinculado diz o que satisfaz e se houve aceite', () => {
+    const ops = buildDocumentOperations([doc({
+      links: [{
+        obligationTitle: 'Manter CND vigente',
+        requirementLabel: 'CND Federal válida',
+        occurrenceKey: '2026-09',
+        acceptanceState: 'accepted',
+      }],
+    })], []);
+    expect(ops.groups[0].documents[0].purpose).toMatch(/Satisfaz "CND Federal válida" — evidência aceita/);
+    expect(ops.linkedCount).toBe(1);
+  });
+
+  it('entregue sem aceite NÃO se apresenta como satisfeito', () => {
+    const ops = buildDocumentOperations([doc({
+      links: [{
+        obligationTitle: 'Manter CND vigente', requirementLabel: 'CND Federal válida',
+        occurrenceKey: '2026-09', acceptanceState: 'pending',
+      }],
+    })], []);
+    expect(ops.groups[0].documents[0].purpose).toMatch(/aceite ainda não registrado/);
+  });
+
+  it('documento sem vínculo é dito sem finalidade — não "tudo certo"', () => {
+    const ops = buildDocumentOperations([doc()], []);
+    expect(ops.groups[0].documents[0].purpose).toMatch(/Finalidade operacional não registrada/);
+    expect(ops.unlinkedCount).toBe(1);
+  });
+
+  it('o que FALTA faz parte do repositório', () => {
+    const missing: MissingEvidence[] = [{
+      obligationTitle: 'Entregar relatório de medição',
+      requirementLabel: 'Relatório técnico assinado',
+      occurrenceKey: '2026-09', dueDate: null, awaitingSchedule: true,
+    }];
+    const ops = buildDocumentOperations([], missing);
+    expect(ops.missing).toHaveLength(1);
+    // Aguardando agenda não é atraso de ninguém.
+    expect(ops.missing[0].awaitingSchedule).toBe(true);
+  });
+
+  it('categoria vazia não vira cabeçalho', () => {
+    const ops = buildDocumentOperations([doc({ documentType: 'certificate' })], []);
+    expect(ops.groups).toHaveLength(1);
+    expect(ops.groups.every((g) => g.documents.length > 0)).toBe(true);
+  });
+
+  it('a aba lê o grafo de evidência que já existia e ninguém usava', () => {
+    const page = read('src/app/(main)/contratos/[id]/page.tsx');
+    expect(page).toContain('buildDocumentOperations');
+    expect(page).toContain('instance.evidence');
+    expect(page).toContain('AWAITING_SCHEDULE_ANCHOR');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Torre de controle: nenhum contador inventado
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('a carteira responde o que o Apex está monitorando', () => {
+  it('leitura que falhou mostra ausência, nunca zero', () => {
+    const band = read('src/components/contracts/intelligence/ApexMonitoringBand.tsx');
+    // `null` é o estado de falha, e ele é renderizado como travessão.
+    expect(band).toMatch(/`null` = a leitura falhou/);
+    expect(band).toMatch(/cell\.value === null \? '—'/);
+
+    const page = read('src/app/(main)/contratos/page.tsx');
+    expect(page).toContain('obligationsFailed ? null');
+    expect(page).toContain('followupsFailed ? null');
+  });
+
+  it('a torre não afirma "resolvido pelo Apex" sem um contador real por trás', () => {
+    const band = read('src/components/contracts/intelligence/ApexMonitoringBand.tsx');
+    /*
+      Sem os comentários: o arquivo EXPLICA por que essa faixa não existe, e
+      procurar a frase no texto inteiro faria a justificativa da regra reprovar
+      a regra — o mesmo cuidado que as asserções de SQL já tomam.
+    */
+    const code = band.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ');
+    expect(code).not.toMatch(/resolvidos? pelo Apex/i);
+    // E a ausência é justificada por escrito, para não voltar por engano.
+    expect(band).toMatch(/NÃO existe aqui/);
+  });
+
+  it('as três faixas respondem de quem é a bola', () => {
+    const band = read('src/components/contracts/intelligence/ApexMonitoringBand.tsx');
+    expect(band).toContain('Requer você');
+    expect(band).toContain('O Apex está monitorando');
+    expect(band).toContain('Aguardando agenda');
+  });
+
+  it('a carteira só conta acompanhamento ABERTO', () => {
+    const hook = read('src/components/contracts/use-portfolio-followups.ts');
+    expect(hook).toContain('followups?open=1');
+    // A justificativa quebra linha no comentário; o que importa é que ela esteja lá.
+    expect(hook).toMatch(/contador que nunca baixa/);
+  });
+
+  it('a tabela diz o que exige uma pessoa e o que o Apex está fazendo', () => {
+    const table = read('src/components/contracts/cockpit/ContractSmartTable.tsx');
+    expect(table).toContain("{ key: 'attention', label: 'Requer você'");
+    expect(table).toContain("{ key: 'apexState', label: 'Apex'");
+    // Cláusula sem classificação não é promovida a pendência.
+    expect(table).toMatch(/ausência de classificação\s*\n?\s*não é pendência/);
   });
 });

@@ -50,7 +50,7 @@ import { buildApprovalIntelligence, type ApprovalIntelligence } from '@/lib/cont
 import { SharedApprovalEnginePanel } from '@/components/contracts/intelligence/SharedApprovalEnginePanel';
 import { ContractToCashFlow } from '@/components/contracts/intelligence/ContractToCashFlow';
 import { ContractToCashPanel } from '@/components/contracts/billing/ContractToCashPanel';
-import { createBillingEventFromMilestone, requestClauseExtraction, type ContractAmendmentRow, type ContractDocumentRow, listContractAiAnalyses, type ContractAiAnalysisRow, type ContractMilestoneRow, listContractAuditEvents, listContractRelatedTasks, computeApprovalSla, type ContractAuditEventRow, type ContractRelatedTask } from '@/lib/contracts/contract-service';
+import { createBillingEventFromMilestone, requestClauseExtraction, type ContractClauseRow, type ContractAmendmentRow, type ContractDocumentRow, listContractAiAnalyses, type ContractAiAnalysisRow, type ContractMilestoneRow, listContractAuditEvents, listContractRelatedTasks, computeApprovalSla, type ContractAuditEventRow, type ContractRelatedTask } from '@/lib/contracts/contract-service';
 import {
   HudBadge,
   HudButton,
@@ -94,8 +94,20 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { SectionHeader, HistoryDrawer, InlineEmpty, DossierNav } from '@/components/contracts/shell';
 import { ContractInterpretationPanel } from '@/components/contracts/intelligence/ContractInterpretationPanel';
+import {
+  buildRiskExposure, RISK_ACTION_LABEL, RISK_SEVERITY_LABEL,
+  type RiskActionKey, type RiskExposure, type RiskSeverity,
+} from '@/lib/contracts/intelligence/risk-exposure';
 import { ApexFollowupPanel } from '@/components/contracts/intelligence/ApexFollowupPanel';
 import { useApexFollowups } from '@/components/contracts/use-apex-followups';
+import { useContractObligations } from '@/components/contracts/use-contract-obligations';
+import type {
+  ContractObligationsAsOf, ObligationEvidenceRequirement,
+} from '@/lib/contracts/obligations/types';
+import {
+  buildDocumentOperations, DOCUMENT_CATEGORY_LABEL,
+  type DocumentLink, type MissingEvidence, type OperationalDocumentInput,
+} from '@/lib/contracts/intelligence/document-operations';
 import type { ApexFollowupRow } from '@/lib/platform/followups/types';
 import type { InterpretationDecision } from '@/lib/contracts/intelligence/session';
 import { format } from 'date-fns';
@@ -333,6 +345,16 @@ export default function ContractDossierPage() {
   /** Data de referência explícita: decisão que depende de "hoje" implícito não é testável. */
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
+  /*
+    As obrigações estruturadas sobem para o nível da página porque DUAS abas
+    precisam delas: Operação as lista, e Documentos as usa para saber qual
+    exigência cada papel satisfaz. Buscá-las duas vezes faria as duas telas
+    discordarem sobre a mesma data de referência.
+  */
+  const { obligations: obligationsAsOf, error: obligationsError } = useContractObligations(
+    contractId || null,
+  );
+
   /**
    * Quantos itens EXIGEM uma pessoa.
    *
@@ -487,6 +509,84 @@ export default function ContractDossierPage() {
     projects,
     onRefresh: refreshDetailAndProjects,
   });
+
+  /**
+   * As ações governadas sobre uma exposição de risco.
+   *
+   * Nenhuma delas altera o contrato. `recommendAmendment` registra a
+   * RECOMENDAÇÃO de aditivo como acompanhamento para uma pessoa decidir — o
+   * Apex pode sugerir uma mudança contratual, e nunca fazê-la.
+   *
+   * `acceptRisk` é ato de autoridade e vai para o motor de aprovação
+   * canônico, que é onde alçada mora; ele não é um botão que muda um status.
+   */
+  const handleRiskAction = useCallback((exposure: RiskExposure, action: RiskActionKey) => {
+    if (action === 'viewSourceClause') {
+      setActiveTab('intelligence');
+      return;
+    }
+    if (action === 'requestLegalReview') {
+      contractActions.sendToLegal(record);
+      return;
+    }
+    if (action === 'createCommercialAction') {
+      contractActions.createTask(record);
+      return;
+    }
+    if (action === 'acceptRisk') {
+      notify('Aceitar risco é decisão de alçada', {
+        description: 'A aceitação passa pelo motor de aprovação, em Governança — não por uma mudança de status aqui.',
+        variant: 'info',
+      });
+      setActiveTab('governance');
+      return;
+    }
+
+    // `assignResponsible`, `createFollowup` e `recommendAmendment` abrem um
+    // acompanhamento: é o Apex assumindo o seguimento do que foi decidido.
+    const goal = action === 'recommendAmendment'
+      ? `Avaliar aditivo para: ${exposure.title}`
+      : `Tratar exposição: ${exposure.title}`;
+    const responsible = window.prompt(
+      action === 'assignResponsible'
+        ? `Quem responde por "${exposure.title}"?`
+        : `Quem conduz "${goal}"?`,
+    );
+    if (!responsible?.trim()) return;
+
+    void (async () => {
+      try {
+        const response = await fetch('/api/platform/followups', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sourceKind: 'contract_risk',
+            sourceId: exposure.id,
+            contractId,
+            goal,
+            responsibleText: responsible.trim(),
+            expectedEvidence: action === 'recommendAmendment'
+              ? 'Decisão registrada sobre a necessidade de aditivo'
+              : 'Evidência de tratamento da exposição',
+            cadenceDays: 7,
+          }),
+        });
+        const body = await response.json();
+        if (!response.ok || !body.ok) throw new Error(body.error ?? 'Falha ao abrir acompanhamento.');
+        await refreshFollowups();
+        notify('O Apex assumiu o acompanhamento', {
+          description: 'Ele passa a cobrar, esperar e verificar conforme a política.',
+          variant: 'success',
+        });
+        setActiveTab('operation');
+      } catch (err) {
+        notify('O acompanhamento não pôde ser aberto', {
+          description: err instanceof Error ? err.message : 'Erro inesperado.',
+          variant: 'error',
+        });
+      }
+    })();
+  }, [contractId, contractActions, record, refreshFollowups, notify]);
 
   const canEditContract = hasPermission('contracts.edit') || hasPermission('admin.manage_organization');
   /*
@@ -793,7 +893,18 @@ export default function ContractDossierPage() {
         />
       ),
     },
-    { id: 'documents', label: 'Documentos', icon: <Archive className="h-4 w-4" />, badge: undefined, content: <DocumentsTab trusted={trusted} detail={detail} onReplace={canEditContract ? openReplaceDocument : undefined} /> },
+    {
+      id: 'documents', label: 'Documentos', icon: <Archive className="h-4 w-4" />,
+      badge: undefined,
+      content: (
+        <DocumentsTab
+          detail={detail}
+          obligations={obligationsAsOf}
+          obligationsError={obligationsError}
+          onReplace={canEditContract ? openReplaceDocument : undefined}
+        />
+      ),
+    },
     {
       id: 'intelligence', label: 'Inteligência Contratual', icon: <ShieldAlert className="h-4 w-4" />,
       /*
@@ -829,7 +940,12 @@ export default function ContractDossierPage() {
             analyzingId={analyzingDocId}
             onAnalyze={(documentId) => { void runExtraction(documentId); }}
           />
-          <RisksTab trusted={trusted} detail={detail} />
+          <RisksTab
+            trusted={trusted}
+            detail={detail}
+            canAct={canEditContract}
+            onRiskAction={handleRiskAction}
+          />
           <ClauseRiskIntelligencePanel
             intelligence={buildClauseRiskIntelligence([trusted], undefined, { officialOnly: false })}
             canEdit={canEditContract}
@@ -1501,74 +1617,203 @@ function ObligationsTab({ trusted, detail, onNewObligation, legacyOnly = false }
  * exibia a mesma fração em duas abas, com dois desenhos e duas redações. A
  * cobertura tem um dono — a Visão geral. Esta aba fala de risco.
  */
-function RisksTab({ trusted, detail }: { trusted: TrustedContract; detail: ContractDetail }) {
-  const contractRisks = detail.risks;
+/**
+ * EXPOSIÇÃO CONTRATUAL — o que este contrato pode custar, e o que fazer.
+ *
+ * ─── O que saiu ────────────────────────────────────────────────────────────
+ *
+ * Quatro contadores ("riscos persistidos", "riscos abertos", "cláusulas de
+ * alto risco", "mitigações cadastradas") e uma lista de títulos com um número
+ * de 1 a 25 num selo. Isso descreve o CADASTRO de riscos, não a exposição do
+ * contrato — e a pergunta que alguém abre esta tela para fazer nunca é "quantos
+ * riscos foram cadastrados".
+ *
+ * ─── O que entrou ──────────────────────────────────────────────────────────
+ *
+ * Cada risco vira uma exposição operacional com base contratual, o que se
+ * observa, impacto, exposição apurada (só quando canônica) e o que o Apex
+ * recomenda — mais as ações governadas que cabem NAQUELE estado.
+ *
+ * O que o Apex nunca faz, e a tela não oferece: alterar a cláusula. Ele pode
+ * RECOMENDAR um aditivo; a verdade assinada não se reescreve.
+ */
+function RisksTab({
+  trusted, detail, canAct, onRiskAction,
+}: {
+  trusted: TrustedContract;
+  detail: ContractDetail;
+  canAct?: boolean;
+  onRiskAction?: (exposure: RiskExposure, action: RiskActionKey) => void;
+}) {
   const health = contractHealth(trusted);
   const adverse = health.drivers.filter((d) => d.adverse);
+
+  /*
+    O vínculo risco→cláusula vive em `contract_risks_links`. Quando ele não
+    existe, a base contratual fica AUSENTE e o cartão diz isso — em vez de
+    escolher uma cláusula plausível, que seria atribuir a um texto assinado uma
+    responsabilidade que ninguém registrou.
+  */
+  const clauseById = new Map(detail.clauses.map((c) => [c.id, c]));
+  const clauseByRisk = new Map<string, ContractClauseRow>();
+  for (const link of detail.riskLinks) {
+    const clauseId = (link as { clause_id?: string | null }).clause_id ?? null;
+    const riskId = (link as { risk_id?: string | null }).risk_id ?? null;
+    if (!clauseId || !riskId) continue;
+    const clause = clauseById.get(clauseId);
+    if (clause) clauseByRisk.set(riskId, clause);
+  }
+
+  const exposures = detail.risks.map((risk) => {
+    const clause = clauseByRisk.get(risk.id) ?? null;
+    return buildRiskExposure({
+      id: risk.id,
+      title: risk.title,
+      description: risk.description ?? null,
+      category: risk.category ?? null,
+      riskScore: risk.risk_score ?? null,
+      status: risk.status ?? null,
+      mitigationPlan: risk.mitigation_plan ?? null,
+      ownerUserId: risk.owner_user_id ?? null,
+      sourceClauseId: clause?.id ?? null,
+      sourceClauseTitle: clause?.title ?? null,
+      sourceClausePage: clause?.source_page ?? null,
+      /*
+        Exposição só existe quando há quantia CANÔNICA. A cláusula de origem é
+        a única fonte dela hoje; estimar a partir do score e do valor do
+        contrato produziria um número com cara de apuração.
+      */
+      canonicalExposure: clause?.amount === null || clause?.amount === undefined
+        ? null : Number(clause.amount),
+      hasOpenFollowup: false,
+    });
+  });
+
   return (
-    <div className="grid gap-5 lg:grid-cols-[300px_1fr]">
-      <div>
-        <SectionHeader title="Risco cadastral" />
-        <p className="text-ig-kpi-md text-ig-fg-strong">{riskLabels[trusted.riskLevel]}</p>
-
-        <div className="mt-4">
-          <SectionHeader title="Dimensões em atenção" count={adverse.length} />
-          {adverse.length === 0 ? (
-            <InlineEmpty message="Nenhuma dimensão apurada em atenção." />
-          ) : (
-            <ul className="space-y-2">
-              {adverse.map((d) => (
-                <li key={d.dimension} className="border-l-2 border-ig-warning pl-2.5">
-                  <p className="text-ig-body-sm font-medium text-ig-fg-strong">{d.label}</p>
-                  <p className="mt-0.5 text-ig-caption text-ig-fg-muted">{d.detail}</p>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </div>
-      <div className="space-y-5">
-        <section>
-          <SectionHeader title="Riscos legais e financeiros" />
-          <div className="grid gap-3 md:grid-cols-2">
-            <Metric label="Riscos persistidos" value={contractRisks.length} />
-            <Metric label="Riscos abertos" value={contractRisks.filter((risk) => risk.status === 'open').length} />
-            <Metric label="Cláusulas de alto risco" value={detail.clauses.filter((clause) => clause.risk_level === 'high').length} />
-            <Metric label="Mitigações cadastradas" value={contractRisks.filter((risk) => risk.mitigation_plan).length} />
-          </div>
-        </section>
-
-        <section>
-          <SectionHeader title="Riscos vinculados ao contrato" hint={contractRisks.length ? `${contractRisks.length} risco(s) persistido(s)` : 'Nenhum risco persistido para este contrato'} />
-          <div className="space-y-2">
-            {(contractRisks.length
-              ? contractRisks.map((risk) => ({
-                  id: risk.id,
-                  title: risk.title,
-                  category: risk.category || 'Geral',
-                  score: risk.risk_score ?? 0,
-                  severity: (risk.risk_score ?? 0) >= 16 ? 'critical' : (risk.risk_score ?? 0) >= 12 ? 'high' : (risk.risk_score ?? 0) >= 6 ? 'medium' : 'low',
-                  mitigation: risk.mitigation_plan,
-                }))
-              : []
-            ).map((risk) => (
-              <div key={risk.id} className="rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-ig-body-sm font-semibold text-ig-fg-strong">{risk.title}</p>
-                    <p className="mt-1 text-ig-caption text-ig-fg-muted">{risk.category}</p>
-                  </div>
-                  <HudStatusPill variant={risk.severity === 'critical' || risk.severity === 'high' ? 'critical' : risk.severity === 'medium' ? 'warning' : 'active'} size="sm">
-                    {risk.score}
-                  </HudStatusPill>
-                </div>
-                {risk.mitigation && <p className="mt-2 text-ig-caption leading-relaxed text-ig-fg-muted">{risk.mitigation}</p>}
-              </div>
+    <div className="space-y-5" data-testid="contract-risk-exposure">
+      <section>
+        <SectionHeader
+          title="Exposição contratual"
+          hint="O que este contrato pode custar, e o que já está sendo feito a respeito"
+        />
+        {exposures.length === 0 ? (
+          <InlineEmpty message="Nenhum risco registrado para este contrato. Ausência de risco registrado não é ausência de risco — é ausência de apuração." />
+        ) : (
+          <div className="space-y-3">
+            {exposures.map((exposure) => (
+              <RiskExposureCard
+                key={exposure.id}
+                exposure={exposure}
+                canAct={Boolean(canAct)}
+                onAction={onRiskAction}
+              />
             ))}
           </div>
+        )}
+      </section>
+
+      {adverse.length > 0 && (
+        <section>
+          <SectionHeader
+            title="Dimensões do contrato em atenção"
+            count={adverse.length}
+            hint="Lacunas de apuração — não são riscos registrados"
+          />
+          <ul className="space-y-2">
+            {adverse.map((d) => (
+              <li key={d.dimension} className="border-l-2 border-ig-warning pl-2.5">
+                <p className="text-ig-body-sm font-medium text-ig-fg-strong">{d.label}</p>
+                <p className="mt-0.5 text-ig-caption text-ig-fg-muted">{d.detail}</p>
+              </li>
+            ))}
+          </ul>
         </section>
-      </div>
+      )}
     </div>
+  );
+}
+
+const RISK_SEVERITY_TONE: Record<RiskSeverity, string> = {
+  critical: 'border-ig-danger/45 text-ig-danger',
+  high: 'border-ig-danger/35 text-ig-danger',
+  medium: 'border-ig-warning/45 text-ig-warning',
+  low: 'border-ig-success/45 text-ig-success',
+  unknown: 'border-ig-border-strong text-ig-fg-muted',
+};
+
+function RiskExposureCard({
+  exposure, canAct, onAction,
+}: {
+  exposure: RiskExposure;
+  canAct: boolean;
+  onAction?: (exposure: RiskExposure, action: RiskActionKey) => void;
+}) {
+  return (
+    <article
+      className={cn(
+        'rounded-xl border bg-ig-panel/45 p-3',
+        exposure.severity === 'critical' || exposure.severity === 'high'
+          ? 'border-ig-danger/30' : 'border-ig-border-subtle',
+      )}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <p className="min-w-0 flex-1 truncate text-ig-body-sm font-semibold text-ig-fg-strong">
+          {exposure.title}
+        </p>
+        <span className={cn(
+          'shrink-0 rounded-full border px-2 py-0.5 text-[10px]',
+          RISK_SEVERITY_TONE[exposure.severity],
+        )}>
+          {RISK_SEVERITY_LABEL[exposure.severity]}
+        </span>
+      </div>
+
+      <dl className="mt-2 space-y-1.5 text-ig-caption">
+        <div>
+          <dt className="text-ig-label uppercase tracking-wide text-ig-fg-subtle">Base contratual</dt>
+          <dd className={exposure.hasSourceClause ? 'text-ig-fg-default' : 'text-ig-fg-muted'}>
+            {exposure.contractualBasis}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-ig-label uppercase tracking-wide text-ig-fg-subtle">O que se observa</dt>
+          <dd className="text-ig-fg-default">{exposure.observedIssue}</dd>
+        </div>
+        <div>
+          <dt className="text-ig-label uppercase tracking-wide text-ig-fg-subtle">Impacto potencial</dt>
+          <dd className="text-ig-fg-default">{exposure.potentialImpact}</dd>
+        </div>
+        <div>
+          <dt className="text-ig-label uppercase tracking-wide text-ig-fg-subtle">Exposição</dt>
+          {/* UNKNOWN continua UNKNOWN: nenhum número é estimado aqui. */}
+          <dd className={exposure.exposure === null ? 'text-ig-fg-muted' : 'text-ig-fg-strong ig-tabular'}>
+            {exposure.exposure === null
+              ? exposure.exposureNote
+              : formatCurrencyFull(exposure.exposure)}
+          </dd>
+        </div>
+      </dl>
+
+      <p className="mt-2 rounded-lg border border-ig-border-subtle bg-ig-bg-base/40 p-2 text-ig-caption text-ig-fg-default">
+        <span className="font-semibold text-ig-fg-strong">O Apex recomenda: </span>
+        {exposure.recommendation}
+      </p>
+
+      {canAct && onAction && exposure.actions.length > 0 && (
+        <div className="mt-2.5 flex flex-wrap gap-2">
+          {exposure.actions.map((action) => (
+            <HudButton
+              key={action}
+              variant={action === 'acceptRisk' ? 'ghost' : 'secondary'}
+              size="sm"
+              onClick={() => onAction(exposure, action)}
+            >
+              {RISK_ACTION_LABEL[action]}
+            </HudButton>
+          ))}
+        </div>
+      )}
+    </article>
   );
 }
 
@@ -1741,101 +1986,250 @@ const DOC_STATUS: Record<string, { label: string; variant: 'success' | 'warning'
   rejected: { label: 'Rejeitado', variant: 'danger' },
 };
 
-function DocumentsTab({ trusted, detail, onReplace }: {
-  trusted: TrustedContract;
+/**
+ * DOCUMENTOS — o papel que sustenta a operação, não uma pasta de arquivos.
+ *
+ * ─── O que saiu ────────────────────────────────────────────────────────────
+ *
+ * Uma lista plana de nomes com um selo de status. Ela respondia "o que foi
+ * anexado" e nenhuma das perguntas que trazem alguém a esta aba: este papel
+ * serve para quê? que exigência ele satisfaz? ainda vale? o que falta chegar?
+ *
+ * ─── O que entrou ──────────────────────────────────────────────────────────
+ *
+ * Categorias operacionais e, dentro delas, o VÍNCULO — qual obrigação aquele
+ * documento satisfaz e se o aceite foi registrado. O vínculo existe em
+ * `contract_obligation_evidence` desde a Fase 3 e nunca tinha sido lido aqui.
+ *
+ * E o que FALTA aparece junto com o que existe: um repositório que só mostra
+ * os papéis que chegaram esconde exatamente a informação que importa.
+ */
+function DocumentsTab({ detail, obligations, obligationsError, onReplace }: {
   detail: ContractDetail;
+  obligations: ContractObligationsAsOf | null;
+  obligationsError: string | null;
   /** Substituir por nova versão. Ausente quando o usuário não pode editar. */
   onReplace?: (doc: ContractDocumentRow) => void;
 }) {
-  const items = [
+  const docById = new Map(detail.documents.map((d) => [d.id, d]));
+
+  /*
+    O grafo de evidência, percorrido uma vez: para cada documento, o que ele
+    satisfaz; e para cada exigência sem documento, o que falta.
+  */
+  const linksByDocument = new Map<string, DocumentLink[]>();
+  const missing: MissingEvidence[] = [];
+
+  for (const obligation of obligations?.obligations ?? []) {
+    const requirementById = new Map<string, ObligationEvidenceRequirement>(
+      obligation.evidenceRequirements.map((r) => [r.id, r] as const),
+    );
+    for (const instance of obligation.instances) {
+      const satisfiedRequirements = new Set<string>();
+      for (const evidence of instance.evidence) {
+        if (evidence.requirementId) satisfiedRequirements.add(evidence.requirementId);
+        if (!evidence.documentId) continue;
+        const requirement = evidence.requirementId
+          ? requirementById.get(evidence.requirementId) ?? null : null;
+        const links = linksByDocument.get(evidence.documentId) ?? [];
+        links.push({
+          obligationTitle: obligation.definition.title,
+          requirementLabel: requirement?.requirementText ?? null,
+          occurrenceKey: instance.occurrenceKey,
+          acceptanceState:
+            evidence.acceptanceState === 'accepted' ? 'accepted'
+              : evidence.acceptanceState === 'rejected' ? 'rejected'
+                : evidence.acceptanceState === 'pending' ? 'pending' : 'unknown',
+        });
+        linksByDocument.set(evidence.documentId, links);
+      }
+
+      // Exigência obrigatória sem evidência: é o que falta chegar.
+      for (const requirement of obligation.evidenceRequirements) {
+        if (satisfiedRequirements.has(requirement.id)) continue;
+        if (requirement.mandatory === false) continue;
+        if (instance.state === 'SATISFIED' || instance.state === 'WAIVED'
+            || instance.state === 'CANCELLED') continue;
+        missing.push({
+          obligationTitle: obligation.definition.title,
+          requirementLabel: requirement.requirementText,
+          occurrenceKey: instance.occurrenceKey,
+          dueDate: instance.dueDate,
+          awaitingSchedule: instance.dateState === 'AWAITING_SCHEDULE_ANCHOR',
+        });
+      }
+    }
+  }
+
+  const inputs: OperationalDocumentInput[] = [
     ...detail.documents.map((doc) => ({
       id: doc.id,
-      name: doc.title,
-      kind: DOC_TYPE_LABELS[doc.document_type] ?? doc.document_type,
-      status: DOC_STATUS[doc.status] ?? { label: doc.status, variant: 'neutral' as const },
-      doc,
+      title: doc.title,
+      documentType: doc.document_type,
+      status: doc.status,
+      version: doc.version,
+      supersededBy: doc.superseded_by_document_id,
+      links: linksByDocument.get(doc.id) ?? [],
     })),
+    // Arquivos legados do contrato: são papéis reais e continuam visíveis, na
+    // categoria genérica, sem fingir vínculo que não existe.
     ...detail.files.map((file) => ({
       id: file.id,
-      name: file.file_name,
-      kind: 'Arquivo do contrato',
-      status: { label: 'Disponível', variant: 'success' as const },
-      doc: null,
+      title: file.file_name,
+      documentType: 'annex',
+      status: 'uploaded',
+      version: 1,
+      supersededBy: null,
+      links: [] as DocumentLink[],
     })),
   ];
 
-  const hasPersisted = items.length > 0;
+  const operations = buildDocumentOperations(inputs, missing);
 
   return (
-    <section>
-      <SectionHeader title="Repositório documental" hint={hasPersisted ? `${items.length} documento(s) no repositório` : 'Documentos obrigatórios pendentes'} />
-      {hasPersisted ? (
-        /*
-          Documento é linha, não cartão (§7 do gate). Numa grade de dois, o
-          nome do arquivo, o status e a ação ficavam em posições diferentes a
-          cada célula; em lista, nome, versão, status e ação alinham em
-          colunas e o repositório se lê de cima a baixo.
-        */
-        <div className="ig-rows">
-          {items.map((item) => (
-            <div
-              key={item.id}
-              className="grid gap-x-4 gap-y-1 py-2.5 md:grid-cols-[minmax(0,1fr)_110px_auto] md:items-center"
-            >
-              <div className="min-w-0">
-                <p className="truncate text-ig-body-sm font-medium text-ig-fg-strong">{item.name}</p>
-                <p className="truncate text-ig-caption text-ig-fg-muted">
-                  {item.kind}
-                  {item.doc && item.doc.version > 1 && ` · v${item.doc.version}`}
-                  {item.doc?.superseded_by_document_id && ' · substituído por versão mais recente'}
-                </p>
-              </div>
-              <HudBadge variant={item.status.variant} size="sm">{item.status.label}</HudBadge>
-              {/*
-                Só o documento VIGENTE é substituível. Substituir um já
-                substituído criaria duas versões apontando para o mesmo
-                antecessor, e a linhagem deixaria de ser uma linha.
-              */}
-              {onReplace && item.doc && !item.doc.superseded_by_document_id ? (
-                <button
-                  type="button"
-                  onClick={() => onReplace(item.doc!)}
-                  className="justify-self-start text-ig-caption font-medium text-ig-accent transition-colors hover:text-ig-accent-strong md:justify-self-end"
-                >
-                  Substituir por nova versão
-                </button>
-              ) : (
-                <span />
-              )}
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="grid gap-3 md:grid-cols-2">
-          {/* O fallback `['Documento assinado']` saiu: inventava um documento
-              faltante para todo contrato sem registro. */}
-          {(() => {
-            const docs = trustedMissingDocs(trusted);
-            const list = hasOfficialValue(docs) ? docs.value : [];
-            if (list.length === 0) {
-              return (
-                <p className="text-ig-body-sm text-ig-fg-muted md:col-span-2">
-                  {isError(docs) ? 'Falha ao ler os documentos do contrato.' : 'Nenhum documento registrado para este contrato.'}
-                </p>
-              );
-            }
-            return list.map((doc) => (
-              <div key={doc} className="rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3">
-                <div className="flex items-start justify-between gap-3">
-                  <p className="min-w-0 truncate text-ig-body-sm font-semibold text-ig-fg-strong">{doc}</p>
-                  <HudBadge variant="warning" size="sm">faltante</HudBadge>
-                </div>
-              </div>
-            ));
-          })()}
-        </div>
+    <div className="space-y-6" data-testid="contract-documents-tab">
+      {obligationsError && (
+        <p className="rounded-lg border border-ig-warning/35 p-3 text-ig-caption text-ig-warning">
+          {obligationsError} Os documentos aparecem abaixo, mas sem o vínculo com as exigências.
+        </p>
       )}
-    </section>
+
+      {operations.total === 0 ? (
+        <InlineEmpty message="Nenhum documento no repositório deste contrato." />
+      ) : (
+        <>
+          <SectionHeader
+            title="Repositório documental"
+            hint={
+              operations.unlinkedCount === 0
+                ? `${operations.total} documento(s), todos vinculados a uma exigência`
+                : `${operations.total} documento(s) · ${operations.unlinkedCount} sem finalidade operacional registrada`
+            }
+          />
+          {operations.groups.map((group) => (
+            <section key={group.category}>
+              <h3 className="mb-2 text-ig-body-sm font-semibold text-ig-fg-strong">
+                {DOCUMENT_CATEGORY_LABEL[group.category]}
+                <span className="ml-2 font-normal text-ig-caption text-ig-fg-muted">
+                  {group.documents.length}
+                </span>
+              </h3>
+              <div className="space-y-2">
+                {group.documents.map((doc) => {
+                  const row = docById.get(doc.id) ?? null;
+                  const badge = DOC_STATUS[doc.status] ?? { label: doc.status, variant: 'neutral' as const };
+                  return (
+                    <div
+                      key={doc.id}
+                      className="rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-ig-body-sm font-medium text-ig-fg-strong">
+                            {doc.title}
+                            {doc.version > 1 && (
+                              <span className="ml-1.5 text-ig-caption text-ig-fg-muted">v{doc.version}</span>
+                            )}
+                          </p>
+                          <p className="mt-0.5 text-ig-caption text-ig-fg-muted">{doc.purpose}</p>
+                        </div>
+                        <HudBadge variant={badge.variant} size="sm">{badge.label}</HudBadge>
+                      </div>
+
+                      {doc.links.length > 0 && (
+                        <ul className="mt-2 space-y-1">
+                          {doc.links.map((link, index) => (
+                            <li
+                              key={`${doc.id}-${index}`}
+                              className="flex flex-wrap items-center gap-1.5 text-[11px] text-ig-fg-muted"
+                            >
+                              <span className="text-ig-fg-default">{link.obligationTitle}</span>
+                              {link.occurrenceKey && <span>· {link.occurrenceKey}</span>}
+                              <span className={cn(
+                                'rounded-full border px-1.5 py-0.5',
+                                link.acceptanceState === 'accepted'
+                                  ? 'border-ig-success/45 text-ig-success'
+                                  : link.acceptanceState === 'rejected'
+                                    ? 'border-ig-danger/45 text-ig-danger'
+                                    : 'border-ig-border-strong text-ig-fg-muted',
+                              )}>
+                                {link.acceptanceState === 'accepted' ? 'aceite registrado'
+                                  : link.acceptanceState === 'rejected' ? 'recusada'
+                                    : 'sem aceite'}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+
+                      {doc.superseded && (
+                        <p className="mt-1.5 text-[11px] text-ig-fg-subtle">
+                          Substituído por versão mais recente — mantido como histórico.
+                        </p>
+                      )}
+
+                      {/*
+                        Só o documento VIGENTE é substituível. Substituir um já
+                        substituído criaria duas versões apontando para o mesmo
+                        antecessor, e a linhagem deixaria de ser uma linha.
+                      */}
+                      {onReplace && row && !row.superseded_by_document_id && (
+                        <button
+                          type="button"
+                          onClick={() => onReplace(row)}
+                          className="mt-2 text-ig-caption font-medium text-ig-accent transition-colors hover:text-ig-accent-strong"
+                        >
+                          Substituir por nova versão
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
+        </>
+      )}
+
+      {operations.missing.length > 0 && (
+        <section>
+          <SectionHeader
+            title="Evidência que o contrato exige e ainda não chegou"
+            count={operations.missing.length}
+            hint="O que falta é parte do repositório — esconder isso seria esconder o trabalho"
+          />
+          <div className="space-y-2">
+            {operations.missing.map((item, index) => (
+              <div
+                key={`${item.obligationTitle}-${index}`}
+                className="rounded-lg border border-ig-border-subtle p-3"
+              >
+                <p className="text-ig-body-sm font-medium text-ig-fg-strong">{item.requirementLabel}</p>
+                <p className="mt-0.5 text-ig-caption text-ig-fg-muted">
+                  {item.obligationTitle}
+                  {item.occurrenceKey && ` · ${item.occurrenceKey}`}
+                </p>
+                {/*
+                  Aguardando a agenda de Projetos NÃO é atraso de ninguém, e a
+                  cor tem de dizer isso: azul de informação, não alerta.
+                */}
+                <p className={cn(
+                  'mt-1 text-[11px]',
+                  item.awaitingSchedule ? 'text-ig-accent'
+                    : item.dueDate ? 'text-ig-fg-muted' : 'text-ig-fg-subtle',
+                )}>
+                  {item.awaitingSchedule
+                    ? 'Prazo será calculado quando Projetos agendar o evento.'
+                    : item.dueDate
+                      ? `Prazo: ${item.dueDate}`
+                      : 'Prazo não apurado.'}
+                </p>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+    </div>
   );
 }
 

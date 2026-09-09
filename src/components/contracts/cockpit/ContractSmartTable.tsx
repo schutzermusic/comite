@@ -42,7 +42,9 @@ const RISK_LABEL = { high: 'Alto', medium: 'Médio', low: 'Baixo' } as const;
 
 export type SmartColumnKey =
   | 'contract' | 'counterparty' | 'project' | 'status' | 'risk'
-  | 'value' | 'billing' | 'obligations' | 'documents' | 'approvals' | 'health';
+  | 'value' | 'billing' | 'obligations' | 'documents' | 'approvals' | 'health'
+  // ---- operacionalização: o que o Apex sabe e o que sobrou para você ----
+  | 'attention' | 'apexState';
 
 const COLUMNS: { key: SmartColumnKey; label: string; align?: 'right'; width?: string; optional?: boolean }[] = [
   { key: 'contract', label: 'Contrato', width: '200px' },
@@ -55,8 +57,46 @@ const COLUMNS: { key: SmartColumnKey; label: string; align?: 'right'; width?: st
   { key: 'obligations', label: 'Obrigações', align: 'right', width: '110px' },
   { key: 'documents', label: 'Documentos', align: 'right', width: '112px', optional: true },
   { key: 'approvals', label: 'Aprovações', align: 'right', width: '110px', optional: true },
-  { key: 'health', label: 'Cobertura', align: 'right', width: '92px' },
+  { key: 'health', label: 'Cobertura', align: 'right', width: '92px', optional: true },
+  /*
+    As duas colunas que respondem "em qual contrato eu preciso mexer?".
+
+    `attention` conta o que EXIGE uma pessoa — não o acervo. `apexState` diz o
+    que o Apex está fazendo por aquele contrato, e é a única coluna da tabela
+    que fala do sistema em vez de falar do cadastro.
+  */
+  { key: 'attention', label: 'Requer você', align: 'right', width: '104px' },
+  { key: 'apexState', label: 'Apex', width: '150px' },
 ];
+
+/**
+ * O que o Apex está fazendo por este contrato.
+ *
+ * A ordem das checagens é a ordem da urgência: um contrato bloqueado é
+ * bloqueado mesmo que também tenha obrigações em dia. `sem vínculo operacional`
+ * vem por último porque é uma lacuna de configuração, não um problema de
+ * execução — e reportá-la primeiro esconderia o que está pegando fogo.
+ */
+export type ApexContractState =
+  | 'blocked' | 'attention' | 'monitoring' | 'awaiting_schedule' | 'unlinked' | 'idle';
+
+const APEX_STATE_LABEL: Record<ApexContractState, string> = {
+  blocked: 'Faturamento bloqueado',
+  attention: 'Requer decisão',
+  monitoring: 'Monitorando',
+  awaiting_schedule: 'Aguardando agenda',
+  unlinked: 'Sem vínculo operacional',
+  idle: 'Sem exigência ativa',
+};
+
+const APEX_STATE_TONE: Record<ApexContractState, string> = {
+  blocked: 'border-ig-danger/45 text-ig-danger',
+  attention: 'border-ig-warning/45 text-ig-warning',
+  monitoring: 'border-ig-accent/45 text-ig-accent',
+  awaiting_schedule: 'border-ig-accent/35 text-ig-accent',
+  unlinked: 'border-ig-border-strong text-ig-fg-muted',
+  idle: 'border-ig-border text-ig-fg-muted',
+};
 
 /** Uma linha já resolvida — ordenação e busca operam sobre valores, não JSX. */
 type Row = {
@@ -80,6 +120,9 @@ type Row = {
   healthAssessed: number;
   healthTotal: number;
   criticalCount: number;
+  /** Itens que EXIGEM uma pessoa. Nunca o tamanho do acervo. */
+  attentionCount: number;
+  apexState: ApexContractState;
   searchBlob: string;
 };
 
@@ -93,6 +136,29 @@ function toRow(c: TrustedContract, now: Date): Row {
   const attention = attentionItems(c, now);
   const counterparty = val(c.counterparty) || c.title;
   const project = hasOfficialValue(c.project) ? c.project.value.codigo : null;
+
+  /*
+    Atenção humana é EXCEÇÃO (migration 154). Contamos as interpretações que a
+    política marcou, mais os itens críticos de operação. Cláusula sem
+    classificação — linha anterior à 154 — NÃO entra: ausência de classificação
+    não é pendência.
+  */
+  const interpretationsNeedingAttention = hasOfficialValue(c.clauses)
+    ? c.clauses.value.filter(
+        (clause) => (clause as { interpretation_state?: string | null }).interpretation_state
+          === 'requires_attention').length
+    : 0;
+  const attentionCount = interpretationsNeedingAttention
+    + attention.filter((a) => a.severity === 'critical' || a.severity === 'warning').length;
+
+  const overdue = hasOfficialValue(obl) ? obl.value.overdue : 0;
+  const activeObligations = hasOfficialValue(obl) ? obl.value.total : 0;
+  const apexState: ApexContractState =
+    overdue > 0 ? 'blocked'
+      : attentionCount > 0 ? 'attention'
+        : activeObligations > 0 ? 'monitoring'
+          : !hasOfficialValue(c.project) ? 'unlinked'
+            : 'idle';
 
   return {
     contract: c,
@@ -115,6 +181,8 @@ function toRow(c: TrustedContract, now: Date): Row {
     healthAssessed: health.coverage.assessed,
     healthTotal: health.coverage.total,
     criticalCount: attention.filter((a) => a.severity === 'critical').length,
+    attentionCount,
+    apexState,
     searchBlob: `${c.code} ${counterparty} ${c.title} ${project ?? ''} ${STATUS_LABEL[c.status] ?? c.status}`.toLowerCase(),
   };
 }
@@ -128,6 +196,7 @@ function compare(a: Row, b: Row, key: SmartColumnKey): number {
     documents: (r) => r.documentsTotal,
     approvals: (r) => r.approvalsTotal,
     health: (r) => r.healthAssessed,
+    attention: (r) => r.attentionCount,
   };
   const pickNum = nums[key];
   if (pickNum) {
@@ -430,6 +499,31 @@ function Cell({ col, align, row: r }: { col: SmartColumnKey; align?: 'right'; ro
       return (
         <span className={cn(base, 'ig-tabular text-ig-fg-muted')}>
           {r.healthAssessed}/{r.healthTotal}
+        </span>
+      );
+    case 'attention':
+      /*
+        Zero é um bom resultado, e a tabela precisa dizer isso sem gritar: o
+        traço discreto no lugar de um "0" evita treinar o olho a varrer uma
+        coluna de zeros.
+      */
+      return (
+        <span className={cn(
+          base, 'ig-tabular',
+          r.attentionCount > 0 ? 'font-semibold text-ig-warning' : 'text-ig-fg-subtle',
+        )}>
+          {r.attentionCount > 0 ? r.attentionCount : '—'}
+        </span>
+      );
+    case 'apexState':
+      return (
+        <span className={cn(base, 'flex items-center')}>
+          <span className={cn(
+            'truncate rounded-full border px-2 py-0.5 text-[10px]',
+            APEX_STATE_TONE[r.apexState],
+          )}>
+            {APEX_STATE_LABEL[r.apexState]}
+          </span>
         </span>
       );
   }
