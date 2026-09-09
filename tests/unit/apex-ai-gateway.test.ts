@@ -3,7 +3,12 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { ApexAIGateway } from '@/lib/ai/gateway/apex-ai-gateway';
 import { ApexAIError } from '@/lib/ai/gateway/errors';
-import { getApexAITaskPolicy } from '@/lib/ai/gateway/task-registry';
+import {
+  getApexAITaskPolicy,
+  CURRENT_PRODUCTION_TASKS,
+  DEFAULT_PRODUCTION_MODEL,
+  EXPLICIT_ESCALATION_MODEL,
+} from '@/lib/ai/gateway';
 import type {
   ApexAIAdapterRequest,
   ApexAIAdapterResponse,
@@ -63,13 +68,78 @@ describe('ApexAIGateway routing', () => {
     });
   });
 
-  it('keeps high-risk routing strong and fallback-free', () => {
-    const contract = getApexAITaskPolicy('CONTRACT_EXTRACTION');
+  it('routes ALL current production tasks to claude-sonnet-5 with 0 using Opus and zero automatic fallbacks', () => {
+    expect(DEFAULT_PRODUCTION_MODEL).toBe('claude-sonnet-5');
+    expect(CURRENT_PRODUCTION_TASKS).toHaveLength(11);
+
+    const tasksUsingSonnet: string[] = [];
+    const tasksUsingOpus: string[] = [];
+
+    for (const task of CURRENT_PRODUCTION_TASKS) {
+      const policy = getApexAITaskPolicy(task);
+      if (policy.model === 'claude-sonnet-5') tasksUsingSonnet.push(task);
+      if (policy.model.includes('opus')) tasksUsingOpus.push(task);
+
+      // Verify no automatic fallback to Opus or any other model
+      expect(policy.fallbacks).toEqual([]);
+      expect(policy.model).toBe('claude-sonnet-5');
+    }
+
+    expect(tasksUsingSonnet).toHaveLength(11);
+    expect(tasksUsingOpus).toHaveLength(0);
+  });
+
+  it('proves every specific production task routes to claude-sonnet-5', () => {
+    const expectedTasks = [
+      'CONTRACT_EXTRACTION',
+      'CONTRACT_RISK_ANALYSIS',
+      'FINANCE_RISK_ANALYSIS',
+      'PROJECT_RISK_ANALYSIS',
+      'WORKFORCE_ADVISOR',
+      'PAYROLL_NARRATIVE',
+      'EXECUTIVE_SYNTHESIS',
+      'MEETING_MINUTES',
+      'ASO_EXTRACTION',
+      'PROJECT_SCHEDULE_EXTRACTION',
+      'CONTRACT_OPERATIONALIZATION',
+    ] as const;
+
+    for (const task of expectedTasks) {
+      const policy = getApexAITaskPolicy(task);
+      expect(policy.provider).toBe('anthropic');
+      expect(policy.model).toBe('claude-sonnet-5');
+      expect(policy.fallbacks).toEqual([]);
+    }
+  });
+
+  it('keeps Opus available ONLY as explicit escalation, never as automatic fallback', () => {
     const escalation = getApexAITaskPolicy('COMPLEX_ESCALATION');
-    expect(contract.highRisk).toBe(true);
-    expect(contract.fallbacks).toEqual([]);
-    expect(contract.model).toBe('claude-opus-5');
+    expect(escalation.model).toBe('claude-opus-5');
     expect(escalation.fallbacks).toEqual([]);
+    expect(escalation.highRisk).toBe(true);
+
+    // Verify no production task has Opus as fallback
+    for (const task of CURRENT_PRODUCTION_TASKS) {
+      const policy = getApexAITaskPolicy(task);
+      expect(policy.model).not.toBe('claude-opus-5');
+      expect(policy.fallbacks.some(f => f.model.includes('opus'))).toBe(false);
+    }
+  });
+
+  it('routes CONTRACT_EXTRACTION via gateway to claude-sonnet-5', async () => {
+    const adapter = new FakeAdapter();
+    const gateway = new ApexAIGateway([adapter]);
+    const result = await gateway.generate<{ ok: boolean }>({
+      organizationId: 'org-test',
+      task: 'CONTRACT_EXTRACTION',
+      userPrompt: 'extract clauses',
+      document: { mediaType: 'application/pdf', base64: 'fake' },
+      structuredOutput: { name: 'clauses', schema: { type: 'object' } },
+    });
+
+    expect(adapter.calls[0].policy.model).toBe('claude-sonnet-5');
+    expect(result.provenance.model).toBe('claude-sonnet-5');
+    expect(result.provenance.task).toBe('CONTRACT_EXTRACTION');
   });
 
   it('requires explicit tenant context before provider access', async () => {

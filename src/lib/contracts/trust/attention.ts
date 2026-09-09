@@ -271,26 +271,40 @@ export function attentionItems(contract: TrustedContract, now: Date = new Date()
     });
   }
 
-  // ── Propostas de IA aguardando decisão ──────────────────────────────────
-  //
-  // `info`, não `warning`: nada está falhando. Mas precisa aparecer, porque
-  // uma proposta parada é uma leitura que ninguém conferiu — e ela não vale
-  // nada enquanto isso.
+  /*
+    ── Interpretações que EXIGEM uma decisão humana ────────────────────────
+
+    Antes, toda leitura de máquina em rascunho entrava aqui — o item dizia
+    "N cláusulas propostas por análise documental" e pedia que alguém as
+    revisasse uma a uma. Num contrato de 195 páginas isso é uma dívida que
+    ninguém paga, e é ela que faz o painel "Requer ação" perder a autoridade:
+    quando quase tudo aparece, nada aparece.
+
+    O critério agora é a política de exceção (migration 154): confiança baixa,
+    risco material, exposição financeira, compromisso jurídico. Estes têm
+    severidade `warning` porque, ao contrário da fila antiga, cada um é de
+    fato uma decisão parada — e a operação segue por uma regra que ninguém
+    confirmou enquanto isso.
+  */
   if (hasOfficialValue(contract.clauses)) {
-    const pending = contract.clauses.value.filter(
-      (c) => c.ai_flagged && (c.review_status === 'draft' || c.review_status === 'in_review'),
+    const needsAttention = contract.clauses.value.filter(
+      (c) => (c as { interpretation_state?: string | null }).interpretation_state === 'requires_attention',
     );
-    if (pending.length > 0) {
+    if (needsAttention.length > 0) {
       items.push({
-        id: 'clauses-ai-pending',
-        severity: 'info',
-        title: `${pending.length} cláusula(s) propostas por análise documental`,
-        reason: 'Proposta de IA não é cláusula: só passa a valer depois que uma pessoa valida o que foi lido no documento.',
+        id: 'interpretations-need-attention',
+        severity: 'warning',
+        title: needsAttention.length === 1
+          ? '1 interpretação contratual requer sua atenção'
+          : `${needsAttention.length} interpretações contratuais requerem sua atenção`,
+        reason:
+          'O Apex estruturou o restante do contrato sozinho. Estas exigem decisão humana antes de '
+          + 'produzirem efeito governado — por exposição material, ambiguidade ou alçada.',
         exposure: null,
         age: null,
-        actionLabel: 'Revisar propostas',
+        actionLabel: 'Ver em Inteligência Contratual',
         actionKey: 'reviewClauseProposals',
-        rank: 11,
+        rank: 5,
       });
     }
   }

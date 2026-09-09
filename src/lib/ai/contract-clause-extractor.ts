@@ -1,25 +1,44 @@
 /**
- * Extração assistida de cláusulas contratuais — server-only.
+ * Interpretação estruturada de cláusulas contratuais — server-only.
  *
- * Lê o PDF do documento contratual e propõe cláusulas ESTRUTURADAS. Três
- * decisões de desenho governam o arquivo inteiro:
+ * ─── O que este arquivo NÃO faz ────────────────────────────────────────────
+ *
+ * Ele não propõe cláusula. A cláusula já existe: foi escrita e assinada pela
+ * contraparte, e o PDF original continua sendo a verdade documental. O que a
+ * leitura produz é uma INTERPRETAÇÃO ESTRUTURADA daquele texto — derivada,
+ * rastreável até a página, e explicitamente separada da verdade contratual.
+ *
+ * A diferença não é de vocabulário. No modelo antigo cada leitura entrava numa
+ * fila esperando que alguém a "validasse", o que descrevia o Apex como um
+ * assistente redigindo contrato e o usuário como revisor de máquina. Num
+ * contrato de 195 páginas essa fila é o próprio motivo de ninguém olhar o que
+ * importava.
+ *
+ * ─── Quatro decisões de desenho ────────────────────────────────────────────
  *
  * 1. **O PDF vai nativo para o modelo**, como bloco `document`, em vez de ser
  *    convertido em texto antes. É o que dá número de página confiável: a
  *    página é o que o modelo viu, não o resultado de um extrator de texto que
  *    perde quebra de coluna e rodapé.
  *
- * 2. **Toda proposta carrega evidência ou é descartada.** O schema exige
+ * 2. **Toda interpretação carrega evidência ou é descartada.** O schema exige
  *    `source_page` e `source_excerpt`, e `assertEvidence()` derruba o que
  *    vier sem — antes do banco, que também recusa por CHECK
  *    (`contract_clauses_ai_needs_evidence_check`, migration 093). São duas
- *    barreiras para a mesma regra porque é A regra: cláusula que não se
- *    confere no papel não entra.
+ *    barreiras para a mesma regra porque é A regra: leitura que não se confere
+ *    no papel não entra.
  *
- * 3. **A saída é PROPOSTA, nunca verdade contratual.** Toda linha nasce
- *    `ai_flagged: true` + `review_status: 'draft'`, e o texto original fica
- *    congelado em `ai_proposed_*` para que a edição humana possa ser comparada
- *    com o que a máquina leu.
+ * 3. **A saída é INTERPRETAÇÃO, nunca verdade contratual.** Toda linha nasce
+ *    `ai_flagged: true`, com provedor, modelo, confiança e o texto original
+ *    congelado em `ai_proposed_*`. A proveniência é o que permite conferir a
+ *    leitura contra o papel meses depois.
+ *
+ * 4. **Atenção humana é EXCEÇÃO, e quem a decide é o banco.** A migration 154
+ *    classifica cada linha por política determinística: confiança baixa, risco
+ *    material, exposição financeira, compromisso jurídico. Este módulo não
+ *    escolhe o que entra na fila — ele grava a leitura e a proveniência, e a
+ *    política faz o resto. Uma política de autoridade que morasse aqui seria
+ *    uma política que o próximo script contorna.
  *
  * `citations: {enabled:true}` daria a proveniência pela API, mas é incompatível
  * com `output_config.format` (retorna 400) — por isso a evidência é campo do
@@ -62,6 +81,12 @@ export {
 // Contrato de saída
 // ═══════════════════════════════════════════════════════════════════════════
 
+/**
+ * Uma cláusula do contrato, lida e estruturada.
+ *
+ * O nome do tipo preserva o histórico do arquivo; o objeto NÃO é uma proposta
+ * de redação. Ele é a leitura de algo que já está escrito no documento.
+ */
 export interface ClauseProposal {
   category: ClauseCategory;
   title: string;
@@ -96,14 +121,13 @@ const CLAUSE_SCHEMA = {
           category: { type: 'string', enum: [...CLAUSE_CATEGORIES] },
           title: { type: 'string', description: 'Título curto e específico da cláusula.' },
           summary: { type: 'string', description: 'O que a cláusula determina, em linguagem de negócio.' },
-          source_page: { type: 'integer', minimum: 1, description: 'Página do PDF onde o trecho aparece.' },
+          source_page: { type: 'integer', description: 'Página do PDF onde o trecho aparece.' },
           source_excerpt: {
             type: 'string',
-            minLength: 20,
             description: 'Trecho LITERAL copiado do contrato, sem paráfrase.',
           },
           risk_level: { type: 'string', enum: ['low', 'medium', 'high'] },
-          confidence: { type: 'number', minimum: 0, maximum: 1 },
+          confidence: { type: 'number', description: 'Confiança na extração entre 0 e 1.' },
           amount: { type: ['number', 'null'], description: 'Valor em reais, quando a cláusula fixa um.' },
           percentage: { type: ['number', 'null'], description: 'Percentual, quando a cláusula fixa um.' },
           term_days: { type: ['integer', 'null'], description: 'Prazo em dias, quando a cláusula fixa um.' },
@@ -113,21 +137,24 @@ const CLAUSE_SCHEMA = {
   },
 } as const;
 
-const SYSTEM_PROMPT = `Você extrai cláusulas de contratos brasileiros para um sistema de governança corporativa.
+const SYSTEM_PROMPT = `Você interpreta cláusulas de contratos brasileiros para um sistema de governança corporativa.
+
+O CONTEXTO
+O contrato foi escrito e assinado pela contraparte. Ele já vale. Você não redige, não propõe e não altera cláusula nenhuma.
 
 O QUE VOCÊ PRODUZ
-Propostas estruturadas de cláusula, que um profissional humano vai revisar antes de virar registro. Você não decide nada: você lê e propõe.
+Interpretações ESTRUTURADAS das cláusulas que já existem no documento, para que o sistema possa monitorá-las. Você não decide nada: você lê e estrutura. A verdade contratual continua sendo o PDF assinado.
 
 REGRA ABSOLUTA — EVIDÊNCIA
 Toda cláusula proposta precisa de um trecho LITERAL do documento em "source_excerpt" e da página em "source_page".
 - Copie o trecho exatamente como está no contrato. Não parafraseie, não normalize, não corrija.
-- Se você não consegue apontar o trecho e a página, NÃO proponha a cláusula.
+- Se você não consegue apontar o trecho e a página, NÃO estruture a cláusula.
 - É correto e esperado devolver uma lista vazia quando o documento não contém cláusulas das categorias pedidas.
-- Nunca proponha uma cláusula "típica de contratos assim". Ausência de cláusula é uma informação valiosa; cláusula inventada é um defeito grave.
+- Nunca estruture uma cláusula "típica de contratos assim". Ausência de cláusula é uma informação valiosa; cláusula inventada é um defeito grave.
 
 CATEGORIAS
 pagamento, reajuste, sla, penalidade, rescisao, renovacao, garantia, responsabilidade, seguro, compliance.
-Uma cláusula que não se encaixa em nenhuma delas não deve ser proposta.
+Uma cláusula que não se encaixa em nenhuma delas não deve ser estruturada.
 
 EFEITO CONTRATUAL
 Preencha "amount", "percentage" e "term_days" APENAS quando o número estiver escrito no trecho. Os três são independentes e podem coexistir. Use null — nunca zero — quando o contrato não fixa aquele efeito: zero significaria multa de 0% ou prazo de 0 dias.
@@ -332,7 +359,7 @@ export async function extractClausesFromDocument(
       provider: taskPolicy.provider,
       model: taskPolicy.model,
       extractor_version: EXTRACTOR_VERSION,
-      summary: `Analisando "${document.title}".`,
+      summary: `Lendo "${document.title}".`,
       extracted_data: { kind: 'clause_extraction', document_id: documentId, document_title: document.title },
       findings: [],
       created_by: actorUserId,
@@ -444,7 +471,11 @@ export async function extractClausesFromDocument(
         amount: clause.amount,
         percentage: clause.percentage,
         term_days: clause.term_days,
-        // As duas marcas que impedem a proposta de se passar por verdade.
+        // `ai_flagged` é o que impede a interpretação de se passar por verdade
+        // contratual. `review_status: 'draft'` sobrevive como linhagem de
+        // fluxo — desde a migration 154 ele NÃO significa "esperando alguém
+        // validar": quem decide se este item pede atenção humana é a política
+        // de exceção, no gatilho `classify_interpretation`.
         ai_flagged: true,
         review_status: 'draft',
         ai_confidence: clause.confidence,
@@ -470,10 +501,10 @@ export async function extractClausesFromDocument(
       input_tokens: response.provenance.usage.inputTokens,
       output_tokens: response.provenance.usage.outputTokens,
       completed_at: new Date().toISOString(),
-      summary: `${fresh.length} cláusula(s) propostas a partir de "${document.title}".`,
+      summary: `${fresh.length} cláusula(s) interpretadas a partir de "${document.title}".`,
       risk_summary: fresh.length === 0
         ? 'Nenhuma cláusula nova com evidência suficiente foi encontrada no documento.'
-        : `${fresh.filter((c) => c.risk_level === 'high').length} proposta(s) de risco alto.`,
+        : `${fresh.filter((c) => c.risk_level === 'high').length} de risco alto.`,
       extracted_data: {
         kind: 'clause_extraction',
         provider: response.provenance.provider,
@@ -482,7 +513,7 @@ export async function extractClausesFromDocument(
         document_id: documentId,
         document_title: document.title,
         started_at: startedAt,
-        proposed: fresh.length,
+        structured: fresh.length,
         duplicates_skipped: duplicateCount,
         rejected_without_evidence: rejected.length,
         page_count: countPdfPages(bytes),

@@ -5,7 +5,7 @@ import type { ObligationPortfolio } from '@/lib/contracts/obligations/portfolio'
 
 const EMPTY: ObligationPortfolio = {
   rows: [],
-  counts: { OVERDUE: 0, DUE: 0, UPCOMING: 0, UNKNOWN: 0, NOT_APPLICABLE: 0 },
+  counts: { OVERDUE: 0, DUE: 0, UPCOMING: 0, AWAITING_SCHEDULE_ANCHOR: 0, UNKNOWN: 0, NOT_APPLICABLE: 0 },
   billingUnknownContracts: [],
   billingBlockedContracts: [],
   contractsWithoutObligations: [],

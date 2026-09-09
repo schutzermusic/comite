@@ -470,22 +470,62 @@ describe('risk & clause intelligence', () => {
     expect(byKey.penalties.limitation).toMatch(/contracts\.view_penalties/);
   });
 
-  it('cláusula registrada não é cláusula validada', () => {
-    const registrada = {
+  /*
+    A governança passou a ser por EXCEÇÃO (migration 154). Uma cláusula
+    estruturada e sem motivo de atenção NÃO é uma pendência — mesmo que
+    ninguém a tenha "validado". Fazê-la aparecer como dívida é o defeito que o
+    refactor de operacionalização foi escrito para eliminar.
+  */
+  it('cláusula estruturada sem exceção de política não vira fila', () => {
+    const estruturada = {
       id: 'c1', contract_id: ID, title: 'Multa por atraso', clause_type: 'penalidade',
       content: null, risk_level: 'high', ai_flagged: false, review_status: 'draft',
       amount: null, percentage: 2, term_days: null, source_document_id: null,
       source_page: 12, source_excerpt: null, reviewed_by: null, reviewed_at: null,
+      interpretation_state: 'structured', attention_reasons: null,
     } as never;
-    const comClausula: ContractDetail = { ...full, clauses: [registrada] };
-    const cap = buildClauseRiskIntelligence([build(comClausula)])
+    const cap = buildClauseRiskIntelligence([build({ ...full, clauses: [estruturada] })])
       .capabilities.find((c) => c.key === 'clauses')!;
 
     expect(cap.state).toBe('available');
     expect(cap.count).toBe(1);
-    // O painel precisa dizer que ninguém conferiu ainda.
-    expect(cap.summary).toMatch(/0 validada/);
-    expect(cap.limitation).toMatch(/registrar não é validar/i);
+    expect(cap.summary).toMatch(/1 regra\(s\) contratual\(is\) estruturada/);
+    // Nada a pedir de ninguém.
+    expect(cap.limitation).toBeNull();
+  });
+
+  it('só a exceção de política entra na fila de atenção humana', () => {
+    const exigeAtencao = {
+      id: 'c1', contract_id: ID, title: 'Multa por atraso', clause_type: 'penalidade',
+      content: null, risk_level: 'high', ai_flagged: true, review_status: 'draft',
+      amount: 500000, percentage: 2, term_days: null, source_document_id: null,
+      source_page: 12, source_excerpt: 'trecho literal do contrato aqui', reviewed_by: null,
+      reviewed_at: null,
+      interpretation_state: 'requires_attention',
+      attention_reasons: ['material_financial_exposure', 'possible_legal_commitment'],
+    } as never;
+    const intel = buildClauseRiskIntelligence([build({ ...full, clauses: [exigeAtencao] })]);
+    const cap = intel.capabilities.find((c) => c.key === 'clauses')!;
+
+    expect(intel.pendingProposals).toHaveLength(1);
+    expect(cap.summary).toMatch(/1 requer\(em\) atenção/);
+    expect(cap.limitation).toMatch(/requer\(em\) análise humana/i);
+  });
+
+  /*
+    Linha anterior à 154 tem `interpretation_state` nulo. Ausência de
+    classificação é ausência de classificação — nunca uma pendência inventada.
+  */
+  it('cláusula anterior à classificação não é promovida a pendência', () => {
+    const legada = {
+      id: 'c1', contract_id: ID, title: 'Reajuste anual', clause_type: 'reajuste',
+      content: null, risk_level: 'medium', ai_flagged: true, review_status: 'draft',
+      amount: null, percentage: null, term_days: 365, source_document_id: null,
+      source_page: 4, source_excerpt: 'trecho literal preservado do contrato', reviewed_by: null,
+      reviewed_at: null,
+    } as never;
+    const intel = buildClauseRiskIntelligence([build({ ...full, clauses: [legada] })]);
+    expect(intel.pendingProposals).toHaveLength(0);
   });
 
   it('registro manual nunca se apresenta como extração automática', () => {

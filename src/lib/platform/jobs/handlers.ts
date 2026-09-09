@@ -66,11 +66,28 @@ const externalActivation: JobHandler<'contracts.obligation.external_activation.a
   },
 };
 
+/**
+ * Uma leitura, duas saídas.
+ *
+ * O mesmo pedido durável executa a INTERPRETAÇÃO (o que o contrato diz, em
+ * `contract_clauses`) e a OPERACIONALIZAÇÃO (o que o contrato exige, em
+ * obrigações, condições de faturamento, garantias, seguros e reajuste).
+ *
+ * São duas chamadas ao modelo porque são duas perguntas — mas um pedido só,
+ * porque do ponto de vista de quem subiu o PDF é UM ato: "o cliente mandou o
+ * contrato; entenda". Pedir que a pessoa dispare duas análises seria devolver
+ * a ela um trabalho que o produto existe para fazer.
+ *
+ * A operacionalização roda DEPOIS e não derruba a extração: se ela falhar, as
+ * cláusulas lidas continuam gravadas e o erro fica no `findings` da análise.
+ * Perder as duas por causa de uma seria pior do que entregar metade — e a
+ * metade entregue é verificável, com página e trecho.
+ */
 const clauseExtraction: JobHandler<'contracts.clause_extraction.execute'> = {
   payloadVersion: 1,
   idempotencyBasis:
-    'O pedido durável tem no máximo uma execução ABERTA por documento, e o extrator '
-    + 'pula por impressão digital (documento, página, trecho) o que já foi proposto.',
+    'O pedido durável tem no máximo uma execução ABERTA por documento, e as duas leituras '
+    + 'pulam por impressão digital (família, página, trecho) o que já foi estruturado.',
   async run(payload, { job, supabase }) {
     const { data: request, error: reqError } = await supabase
       .from('contract_clause_extraction_requests')
@@ -108,6 +125,33 @@ const clauseExtraction: JobHandler<'contracts.clause_extraction.execute'> = {
       const result = await extractClausesFromDocument(
         request.contract_id, request.document_id, request.requested_by ?? job.organization_id,
       );
+
+      /*
+        A operacionalização é a segunda metade da leitura. Ela é isolada num
+        try próprio porque uma falha aqui NÃO deve desfazer o que já foi lido:
+        cláusula estruturada com evidência é resultado útil por si.
+      */
+      let operational: {
+        analysis_id: string; counts: Record<string, number>;
+        materialized: number; awaiting_schedule_anchor: number;
+      } | { error: string };
+      try {
+        const { operationalizeContractDocument } = await import('@/lib/ai/contract-operationalization');
+        const ops = await operationalizeContractDocument(
+          request.contract_id, request.document_id, request.requested_by ?? job.organization_id,
+        );
+        operational = {
+          analysis_id: ops.analysisId,
+          counts: ops.counts,
+          materialized: ops.materializedInstances,
+          awaiting_schedule_anchor: ops.awaitingScheduleAnchor,
+        };
+      } catch (opsError) {
+        operational = {
+          error: opsError instanceof Error ? opsError.message : 'erro inesperado na operacionalização',
+        };
+      }
+
       await supabase
         .from('contract_clause_extraction_requests')
         .update({
@@ -123,8 +167,9 @@ const clauseExtraction: JobHandler<'contracts.clause_extraction.execute'> = {
       return {
         request_id: request.id,
         analysis_id: result.analysisId,
-        proposed: result.proposedCount,
+        structured_interpretations: result.proposedCount,
         rejected_without_evidence: result.rejectedCount,
+        operational,
       };
     } catch (error) {
       // A classificação decide se o pedido volta à fila ou morre aqui. Só o

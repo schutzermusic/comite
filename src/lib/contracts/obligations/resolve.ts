@@ -69,10 +69,19 @@ export function definitionEffectiveAsOf(
  * nunca "no prazo".
  */
 export function urgencyOf(
-  instance: Pick<ObligationInstanceView, 'state' | 'dueDate' | 'dueConfidence' | 'activationState'>,
+  instance: Pick<ObligationInstanceView,
+    'state' | 'dueDate' | 'dueConfidence' | 'activationState' | 'dateState'>,
   asOf: string,
 ): ObligationUrgency {
   if (CLOSED.has(instance.state)) return 'NOT_APPLICABLE';
+  /*
+    A espera pela agenda vem ANTES da não-ativação, e antes do prazo. Uma
+    exigência ancorada em medição nasce NOT_ACTIVATED com prazo nulo — pelas
+    duas regras seguintes ela cairia em UNKNOWN e a tela pediria que alguém
+    "apurasse" um prazo que só Projetos pode publicar. O estado correto é o que
+    diz de quem se está esperando.
+  */
+  if (instance.dateState === 'AWAITING_SCHEDULE_ANCHOR') return 'AWAITING_SCHEDULE_ANCHOR';
   if (instance.state === 'NOT_ACTIVATED' && instance.activationState !== 'activated') return 'UNKNOWN';
   if (instance.dueConfidence !== 'known' || instance.dueDate === null) return 'UNKNOWN';
   const days = dayDiff(asOf, instance.dueDate);
@@ -218,7 +227,10 @@ export function resolveContractObligationsAsOf(input: ResolverInput): ContractOb
   const { asOf } = input;
   const blockingInstanceIds: string[] = [];
   const unknownDefinitionIds: string[] = [];
-  const counts = { definitions: 0, instances: 0, overdue: 0, due: 0, upcoming: 0, unknown: 0 };
+  const counts = {
+    definitions: 0, instances: 0, overdue: 0, due: 0, upcoming: 0, unknown: 0,
+    awaitingScheduleAnchor: 0,
+  };
 
   const obligations: ResolvedObligation[] = input.obligations.map((entry) => {
     const { definition } = entry;
@@ -258,6 +270,7 @@ export function resolveContractObligationsAsOf(input: ResolverInput): ContractOb
       if (urgency === 'OVERDUE') counts.overdue += 1;
       else if (urgency === 'DUE') counts.due += 1;
       else if (urgency === 'UPCOMING') counts.upcoming += 1;
+      else if (urgency === 'AWAITING_SCHEDULE_ANCHOR') counts.awaitingScheduleAnchor += 1;
       else if (urgency === 'UNKNOWN') counts.unknown += 1;
 
       return { ...instance, urgency, evidenceComplete, exceptions, escalations, blocksBilling: finalBlock };

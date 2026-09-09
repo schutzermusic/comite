@@ -31,6 +31,7 @@ import type { ObligationResponsibleSide, ObligationUrgency, Tristate } from '@/l
 const URGENCY_LABEL: Record<ObligationUrgency, string> = {
   OVERDUE: 'Em atraso',
   DUE: 'Vence hoje',
+  AWAITING_SCHEDULE_ANCHOR: 'Aguardando agenda',
   UNKNOWN: 'Prazo não apurado',
   UPCOMING: 'No prazo',
   NOT_APPLICABLE: 'Encerradas',
@@ -40,6 +41,8 @@ const URGENCY_LABEL: Record<ObligationUrgency, string> = {
 const URGENCY_HINT: Record<ObligationUrgency, string> = {
   OVERDUE: 'O prazo passou e nada foi registrado como cumprido.',
   DUE: 'Vence na data de referência.',
+  AWAITING_SCHEDULE_ANCHOR:
+    'O Apex já entendeu a exigência. O prazo aparece quando Projetos agendar o evento.',
   UNKNOWN: 'A regra é conhecida, a data não — falta a âncora ou o calendário.',
   UPCOMING: 'Prazo ainda por vir.',
   NOT_APPLICABLE: 'Cumpridas, dispensadas ou canceladas.',
@@ -48,12 +51,17 @@ const URGENCY_HINT: Record<ObligationUrgency, string> = {
 const URGENCY_TONE: Record<ObligationUrgency, { text: string; rail: string; chip: string }> = {
   OVERDUE: { text: 'text-ig-danger', rail: 'bg-ig-danger', chip: 'border-ig-danger/45 text-ig-danger' },
   DUE: { text: 'text-ig-warning', rail: 'bg-ig-warning', chip: 'border-ig-warning/45 text-ig-warning' },
+  // Azul de INFORMAÇÃO, não cinza de lacuna: esperar a agenda é o estado
+  // correto da exigência, e não uma pendência de quem está lendo a tela.
+  AWAITING_SCHEDULE_ANCHOR: { text: 'text-ig-accent', rail: 'bg-ig-accent', chip: 'border-ig-accent/45 text-ig-accent' },
   UNKNOWN: { text: 'text-ig-fg-muted', rail: 'bg-ig-border-strong', chip: 'border-ig-border-strong text-ig-fg-muted' },
   UPCOMING: { text: 'text-ig-success', rail: 'bg-ig-success', chip: 'border-ig-success/45 text-ig-success' },
   NOT_APPLICABLE: { text: 'text-ig-fg-muted', rail: 'bg-ig-border', chip: 'border-ig-border text-ig-fg-muted' },
 };
 
-const ORDER: ObligationUrgency[] = ['OVERDUE', 'DUE', 'UNKNOWN', 'UPCOMING', 'NOT_APPLICABLE'];
+const ORDER: ObligationUrgency[] = [
+  'OVERDUE', 'DUE', 'AWAITING_SCHEDULE_ANCHOR', 'UNKNOWN', 'UPCOMING', 'NOT_APPLICABLE',
+];
 
 const SIDE_LABEL: Record<ObligationResponsibleSide, string> = {
   contracting_organization: 'Nossa responsabilidade',

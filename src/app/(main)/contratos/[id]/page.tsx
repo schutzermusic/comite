@@ -41,7 +41,6 @@ import type { ContractDataClass } from '@/lib/contracts/trust/trusted';
 import { contractToCash } from '@/lib/contracts/trust/contract-to-cash';
 import { buildClauseRiskIntelligence } from '@/lib/contracts/trust/clause-risk-intelligence';
 import { ClauseRiskIntelligencePanel } from '@/components/contracts/intelligence/ClauseRiskIntelligencePanel';
-import { ClauseProposalsPanel } from '@/components/contracts/intelligence/ClauseProposalsPanel';
 import { ClauseOpsPanel } from '@/components/contracts/intelligence/ClauseOpsPanel';
 import { documentAnalysisStates, contractCoverage } from '@/lib/contracts/trust/clause-operations';
 import { MeasurementPanel } from '@/components/contracts/intelligence/MeasurementPanel';
@@ -94,33 +93,62 @@ import {
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { SectionHeader, HistoryDrawer, InlineEmpty, DossierNav } from '@/components/contracts/shell';
+import { ContractInterpretationPanel } from '@/components/contracts/intelligence/ContractInterpretationPanel';
+import { ApexFollowupPanel } from '@/components/contracts/intelligence/ApexFollowupPanel';
+import { useApexFollowups } from '@/components/contracts/use-apex-followups';
+import type { ApexFollowupRow } from '@/lib/platform/followups/types';
+import type { InterpretationDecision } from '@/lib/contracts/intelligence/session';
 import { format } from 'date-fns';
 import { ContractStructuredObligations } from '@/components/contracts/ContractStructuredObligations';
 import { pt } from 'date-fns/locale';
 
 /*
-  Seis domínios de negócio, não oito superfícies técnicas.
+  ─── A NAVEGAÇÃO DO DOSSIÊ DEIXA DE ECOAR A SIDEBAR ────────────────────────
 
-  Saíram duas abas:
+  As abas se chamavam "Visão geral", "Financeiro", "Obrigações", "Documentos",
+  "Riscos & Cláusulas" e "Aprovações" — quase os mesmos nomes das áreas da
+  carteira, na sidebar, a poucos centímetros de distância. Duas colunas de
+  navegação com o mesmo vocabulário fazem o usuário perguntar, toda vez, qual
+  das duas "Obrigações" ele quer; e o produto não tinha resposta, porque a
+  pergunta era mal-formada.
 
-  - `audit` — a auditoria virou a gaveta "Histórico". Ela aparecia DUAS vezes
-    ao mesmo tempo (aba + painel fixo de 360px à direita), dizendo a mesma
-    coisa e comprimindo a área de trabalho em toda sessão.
-  - `clauses` — competia de frente com "Riscos & Cláusulas". Duas abas
-    primárias disputando o mesmo assunto obrigavam o usuário a adivinhar em
-    qual delas a cláusula que ele procura foi parar. O inventário virou seção
-    interna de Riscos & Cláusulas: nada saiu do produto, só deixou de ser uma
-    escolha de navegação.
+  Os dois níveis respondem coisas diferentes, e agora os nomes dizem isso:
 
-  Links antigos com `?tab=audit` ou `?tab=clauses` continuam funcionando —
-  ver `resolveInitialTab`.
+      SIDEBAR   → onde há trabalho contratual acontecendo na empresa?
+      DOSSIÊ    → o que está acontecendo DENTRO deste contrato?
+
+  Os seis destinos locais são estados de um contrato em operação, não módulos:
+
+  · Resumo                 — o que impede o próximo resultado de negócio?
+  · Operação               — o que precisa acontecer, de quem, até quando.
+  · Medição & Faturamento  — este evento contratual pode ser faturado?
+  · Inteligência Contratual— o que o contrato exige e o que o Apex entendeu.
+  · Documentos             — o papel que sustenta tudo acima.
+  · Governança             — o que o Apex NÃO tem autoridade para decidir.
+
+  Todo link antigo continua funcionando — ver `RETIRED_TAB_TARGET`.
 */
-type DetailTab = 'summary' | 'obligations' | 'risks' | 'finance' | 'documents' | 'approvals';
+type DetailTab =
+  | 'summary' | 'operation' | 'billing' | 'intelligence' | 'documents' | 'governance';
 
-const DETAIL_TABS: DetailTab[] = ['summary', 'finance', 'obligations', 'documents', 'risks', 'approvals'];
+const DETAIL_TABS: DetailTab[] = [
+  'summary', 'operation', 'billing', 'intelligence', 'documents', 'governance',
+];
 
-/** Abas aposentadas -> onde o assunto vive agora. */
-const RETIRED_TAB_TARGET: Record<string, DetailTab> = { clauses: 'risks', audit: 'summary' };
+/**
+ * Abas aposentadas -> onde o assunto vive agora.
+ *
+ * A tabela é a promessa de que nenhum link salvo, favorito ou e-mail antigo
+ * cai numa tela vazia. Ela cresce quando a navegação muda; ela não encolhe.
+ */
+const RETIRED_TAB_TARGET: Record<string, DetailTab> = {
+  clauses: 'intelligence',
+  audit: 'summary',
+  risks: 'intelligence',
+  finance: 'billing',
+  obligations: 'operation',
+  approvals: 'governance',
+};
 
 function resolveInitialTab(raw: string | null): DetailTab {
   if (!raw) return 'summary';
@@ -291,6 +319,170 @@ export default function ContractDossierPage() {
     setProjects(nextProjects);
   };
 
+  /*
+    ─── ACOMPANHAMENTO DO APEX ──────────────────────────────────────────────
+
+    O que o Apex está seguindo neste contrato. Não é lista de tarefas do
+    usuário: cada linha tem objetivo, responsável, evidência esperada e o
+    próximo evento que o Apex aguarda.
+  */
+  const {
+    followups, loading: followupsLoading, error: followupsError, refresh: refreshFollowups,
+  } = useApexFollowups(contractId || null);
+
+  /** Data de referência explícita: decisão que depende de "hoje" implícito não é testável. */
+  const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
+
+  /**
+   * Quantos itens EXIGEM uma pessoa.
+   *
+   * Este é o único contador que o menu do dossiê mostra. Ele vem do estado
+   * persistido pela política de exceção (migration 154) — não de "quantas
+   * cláusulas a IA leu", que num contrato de 195 páginas seria um número
+   * grande, constante e inútil.
+   */
+  const attentionCount = useMemo(
+    () => (detail?.clauses ?? []).filter((c) => c.interpretation_state === 'requires_attention').length,
+    [detail],
+  );
+
+  /**
+   * A decisão humana sobre uma interpretação.
+   *
+   * Três verbos, e a diferença entre eles é deliberada: `acknowledge` baixa a
+   * atenção sem transformar a leitura da máquina em afirmação de uma pessoa;
+   * `confirm` é a pessoa respondendo por aquela leitura; `dismiss` descarta e
+   * exige justificativa. Nenhum dos três altera o texto do contrato.
+   */
+  const handleInterpretationDecision = useCallback(async (
+    clause: { id: string; title: string }, decision: InterpretationDecision,
+  ) => {
+    let note: string | null = null;
+    if (decision === 'dismiss') {
+      note = window.prompt(`Por que descartar a interpretação "${clause.title}"?`);
+      if (!note?.trim()) return;
+    }
+    try {
+      const response = await fetch(
+        `/api/contracts/${contractId}/interpretations/${clause.id}/attention`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ decision, note }),
+        },
+      );
+      const body = await response.json();
+      if (!response.ok || !body.ok) throw new Error(body.error ?? 'Falha ao registrar a decisão.');
+      await refresh();
+      notify(
+        decision === 'confirm' ? 'Interpretação confirmada'
+          : decision === 'dismiss' ? 'Interpretação descartada'
+            : 'Registrado — o Apex segue operando por esta regra',
+        { variant: 'success' },
+      );
+    } catch (err) {
+      notify('A decisão não pôde ser registrada', {
+        description: err instanceof Error ? err.message : 'Erro inesperado.',
+        variant: 'error',
+      });
+    }
+  }, [contractId, refresh, notify]);
+
+  const followupAction = useCallback(async (
+    path: string, payload: Record<string, unknown>, success: string,
+  ) => {
+    try {
+      const response = await fetch(path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const body = await response.json();
+      if (!response.ok || !body.ok) throw new Error(body.error ?? 'Falha na operação.');
+      await refreshFollowups();
+      notify(success, { variant: 'success' });
+    } catch (err) {
+      notify('A operação não pôde ser concluída', {
+        description: err instanceof Error ? err.message : 'Erro inesperado.',
+        variant: 'error',
+      });
+    }
+  }, [refreshFollowups, notify]);
+
+  /*
+    Designar é ato humano — e por isso vai pela rota que grava com o carimbo de
+    `auth.uid()`. O nome digitado aqui é a parte responsável quando ela é
+    externa; pessoa da organização passa a ser escolhida pelo mesmo caminho
+    quando o seletor de membros chegar a esta superfície.
+  */
+  const handleAssignFollowup = useCallback((followup: ApexFollowupRow) => {
+    const responsible = window.prompt('Quem responde por este acompanhamento?', followup.responsible_text ?? '');
+    if (!responsible?.trim()) return;
+    void followupAction(
+      `/api/platform/followups/${followup.id}/assign`,
+      { responsibleText: responsible.trim() },
+      'Responsável designado — o Apex assume o acompanhamento.',
+    );
+  }, [followupAction]);
+
+  /*
+    "O cliente está analisando. Resposta esperada em 15/09." Isso é ESTADO, e
+    é ele que cala a cobrança até a data informada.
+  */
+  const handleWaitFollowup = useCallback((followup: ApexFollowupRow) => {
+    const event = window.prompt('O que se está aguardando da contraparte?', followup.next_expected_event ?? '');
+    if (!event?.trim()) return;
+    const date = window.prompt('Quando a resposta é esperada? (AAAA-MM-DD)', followup.next_expected_event_at ?? '');
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date.trim())) {
+      notify('Aguardar a contraparte exige a data esperada', {
+        description: 'Sem data, o Apex não saberia quando voltar — e ficaria calado para sempre.',
+        variant: 'error',
+      });
+      return;
+    }
+    void followupAction(
+      `/api/platform/followups/${followup.id}/transition`,
+      {
+        next: 'WAITING_EXTERNAL_PARTY',
+        nextExpectedEvent: event.trim(),
+        nextExpectedEventAt: date.trim(),
+      },
+      `O Apex aguarda até ${date.trim()} sem cobrar.`,
+    );
+  }, [followupAction, notify]);
+
+  const handleEscalateFollowup = useCallback((followup: ApexFollowupRow) => {
+    const note = window.prompt('Por que escalar este acompanhamento?');
+    if (!note?.trim()) return;
+    void followupAction(
+      `/api/platform/followups/${followup.id}/transition`,
+      { next: 'ESCALATED', note: note.trim() },
+      'Acompanhamento escalado.',
+    );
+  }, [followupAction]);
+
+  /*
+    Concluir NUNCA é um clique de "feito". Quando existe regra determinística,
+    a conclusão é do Apex, contra a evidência. Quando não existe, é uma pessoa
+    confirmando — e assumindo a afirmação.
+  */
+  const handleCompleteFollowup = useCallback((followup: ApexFollowupRow) => {
+    if (followup.verification_mode === 'deterministic_evidence') {
+      notify('A verificação é automática', {
+        description: 'Este acompanhamento fecha quando o Apex conferir a evidência exigida.',
+        variant: 'info',
+      });
+      return;
+    }
+    const note = window.prompt('Confirmar a conclusão deste acompanhamento. O que foi verificado?');
+    if (!note?.trim()) return;
+    void followupAction(
+      `/api/platform/followups/${followup.id}/complete`,
+      { basis: 'human_confirmation', note: note.trim() },
+      'Conclusão confirmada.',
+    );
+  }, [followupAction, notify]);
+
   const { actions: contractActions, modals: contractActionModals } = useContractActionModals({
     projects,
     onRefresh: refreshDetailAndProjects,
@@ -404,10 +596,10 @@ export default function ContractDossierPage() {
   // KPIs clicáveis (padrão Contratos): atalhos para a aba do dossiê correspondente.
   const health = contractHealth(trusted);
   const kpis: KpiItem[] = [
-    { id: 'total', label: 'Valor total', value: officialCurrencyCompact(trusted.totalValue), variant: 'info', icon: <FileSignature className="h-4 w-4" />, onClick: () => setActiveTab('finance'), active: activeTab === 'finance' },
-    { id: 'billed', label: 'Faturado', value: officialCurrencyCompact(trusted.billedValue), variant: hasOfficialValue(trusted.billedValue) ? 'success' : 'default', icon: <Receipt className="h-4 w-4" />, onClick: () => setActiveTab('finance'), active: activeTab === 'finance' },
-    { id: 'remaining', label: 'Saldo', value: officialCurrencyCompact(trusted.remainingValue), variant: hasOfficialValue(trusted.remainingValue) ? 'warning' : 'default', icon: <GanttChartSquare className="h-4 w-4" />, onClick: () => setActiveTab('finance'), active: activeTab === 'finance' },
-    { id: 'renewal', label: 'Vencimento', value: renderOfficial(trusted.daysUntilExpiration, { onValue: (d) => (d < 0 ? 'vencido' : `${d}d`), onMissing: () => 'sem data', onError: () => 'indisponível' }), variant: hasOfficialValue(trusted.daysUntilExpiration) && trusted.daysUntilExpiration.value <= 90 ? 'warning' : 'default', icon: <CalendarClock className="h-4 w-4" />, onClick: () => setActiveTab('obligations'), active: activeTab === 'obligations' },
+    { id: 'total', label: 'Valor total', value: officialCurrencyCompact(trusted.totalValue), variant: 'info', icon: <FileSignature className="h-4 w-4" />, onClick: () => setActiveTab('billing'), active: activeTab === 'billing' },
+    { id: 'billed', label: 'Faturado', value: officialCurrencyCompact(trusted.billedValue), variant: hasOfficialValue(trusted.billedValue) ? 'success' : 'default', icon: <Receipt className="h-4 w-4" />, onClick: () => setActiveTab('billing'), active: activeTab === 'billing' },
+    { id: 'remaining', label: 'Saldo', value: officialCurrencyCompact(trusted.remainingValue), variant: hasOfficialValue(trusted.remainingValue) ? 'warning' : 'default', icon: <GanttChartSquare className="h-4 w-4" />, onClick: () => setActiveTab('billing'), active: activeTab === 'billing' },
+    { id: 'renewal', label: 'Vencimento', value: renderOfficial(trusted.daysUntilExpiration, { onValue: (d) => (d < 0 ? 'vencido' : `${d}d`), onMissing: () => 'sem data', onError: () => 'indisponível' }), variant: hasOfficialValue(trusted.daysUntilExpiration) && trusted.daysUntilExpiration.value <= 90 ? 'warning' : 'default', icon: <CalendarClock className="h-4 w-4" />, onClick: () => setActiveTab('operation'), active: activeTab === 'operation' },
     // O KPI "Risk score NN/100" saiu: vinha de hash(id+nome) e não existe modelo
     // de pontuação aprovado para contratos. No lugar, a cobertura apurada da
     // avaliação de saúde — um fato, não um palpite.
@@ -418,7 +610,7 @@ export default function ContractDossierPage() {
       como um 2/6 pode estar impecável e só mal cadastrado. O componente já
       havia sido renomeado; o chip do cabeçalho tinha ficado para trás.
     */
-    { id: 'health', label: 'Cobertura apurada', value: `${health.coverage.assessed}/${health.coverage.total}`, variant: health.drivers.some((d) => d.adverse) ? 'warning' : 'default', icon: <ShieldAlert className="h-4 w-4" />, onClick: () => setActiveTab('risks'), active: activeTab === 'risks' },
+    { id: 'health', label: 'Cobertura apurada', value: `${health.coverage.assessed}/${health.coverage.total}`, variant: health.drivers.some((d) => d.adverse) ? 'warning' : 'default', icon: <ShieldAlert className="h-4 w-4" />, onClick: () => setActiveTab('intelligence'), active: activeTab === 'intelligence' },
   ];
 
   const contractStatusLabel =
@@ -464,17 +656,18 @@ export default function ContractDossierPage() {
   };
 
   /**
-   * Abas na ordem operacional pedida: Visão Geral → Financeiro → Obrigações →
-   * Documentos → Riscos → Aprovações. Cláusulas ficam
-   * ao final, como superfícies ainda dependentes de extração documental.
+   * Os seis destinos do dossiê, na ordem em que um contrato é vivido:
    *
-   * "Aprovações" ganha aba própria: até aqui o fluxo de alçada só existia no
-   * drawer, o que obrigava a voltar à listagem para ver a rota de um contrato
-   * que já estava aberto.
+   *   Resumo → Operação → Medição & Faturamento → Inteligência → Documentos →
+   *   Governança.
+   *
+   * O crachá de cada aba conta o que EXIGE alguém, não o que existe. "43
+   * cláusulas" não é trabalho; "2 requerem atenção" é. Contadores de acervo no
+   * menu treinam o usuário a ignorar todos os contadores do menu.
    */
   const tabs: HudTab[] = [
     {
-      id: 'summary', label: 'Visão geral', icon: <FileText className="h-4 w-4" />,
+      id: 'summary', label: 'Resumo', icon: <FileText className="h-4 w-4" />,
       /*
         Prontidão, cobertura, operações conectadas e instrumentos desceram do
         topo da página para cá. São quatro superfícies de LEITURA, não de
@@ -494,11 +687,11 @@ export default function ContractDossierPage() {
                   // Cada passo entrega o assunto ao lugar onde ele se resolve.
                   if (key === 'project' && hasOfficialValue(trusted.project)) router.push(`/projetos/${trusted.project.value.id}`);
                   else if (key === 'documents') setActiveTab('documents');
-                  else if (key === 'clauses') setActiveTab('risks');
-                  else if (key === 'obligations') setActiveTab('obligations');
-                  else if (key === 'milestones') setActiveTab('finance');
-                  else if (key === 'approvals') setActiveTab('approvals');
-                  else if (key === 'risks') setActiveTab('risks');
+                  else if (key === 'clauses') setActiveTab('intelligence');
+                  else if (key === 'obligations') setActiveTab('operation');
+                  else if (key === 'milestones') setActiveTab('billing');
+                  else if (key === 'approvals') setActiveTab('governance');
+                  else if (key === 'risks') setActiveTab('intelligence');
                   else setActiveTab('summary');
                 }}
               />
@@ -518,17 +711,17 @@ export default function ContractDossierPage() {
                   }}
                   onNavigate={(key: ConnectedOperationKey) => {
                     if (key === 'project' && hasOfficialValue(trusted.project)) router.push(`/projetos/${trusted.project.value.id}`);
-                    else if (key === 'billing') setActiveTab('finance');
+                    else if (key === 'billing') setActiveTab('billing');
                     else if (key === 'documents') setActiveTab('documents');
-                    else if (key === 'obligations') setActiveTab('obligations');
-                    else if (key === 'risks') setActiveTab('risks');
-                    else if (key === 'approvals') setActiveTab('approvals');
+                    else if (key === 'obligations') setActiveTab('operation');
+                    else if (key === 'risks') setActiveTab('intelligence');
+                    else if (key === 'approvals') setActiveTab('governance');
                     // Auditoria deixou de ser aba: mesmo destino, agora gaveta.
                     else if (key === 'audit') setHistoryOpen(true);
                     // P2B: medição vive no Financeiro (lastro do faturamento);
                     // cláusulas, junto de riscos.
-                    else if (key === 'measurement') setActiveTab('finance');
-                    else if (key === 'clauses') setActiveTab('risks');
+                    else if (key === 'measurement') setActiveTab('billing');
+                    else if (key === 'clauses') setActiveTab('intelligence');
                     // Os dois abaixo saem de Contratos: o módulo dono é outro.
                     else if (key === 'tasks') router.push('/reunioes');
                     else if (key === 'finance') router.push('/financeiro');
@@ -547,9 +740,15 @@ export default function ContractDossierPage() {
         </div>
       ),
     },
+    /*
+      "Financeiro" saiu do dossiê. O nome prometia a cadeia inteira — AR,
+      pagamento, conciliação — e Contratos não é dono de nada disso: ele é dono
+      de saber se um evento contratual PODE ser faturado. O novo nome é a
+      pergunta que a aba responde.
+    */
     {
-      id: 'finance', label: 'Financeiro', icon: <Receipt className="h-4 w-4" />,
-      badge: detail.billingEvents.length || undefined,
+      id: 'billing', label: 'Medição & Faturamento', icon: <Receipt className="h-4 w-4" />,
+      badge: undefined,
       content: (
         <FinanceTab
           trusted={trusted}
@@ -572,22 +771,57 @@ export default function ContractDossierPage() {
         />
       ),
     },
-    { id: 'obligations', label: 'Obrigações', icon: <ClipboardCheck className="h-4 w-4" />, badge: detail.obligations.filter((item) => item.status !== 'done').length || undefined, content: <ObligationsTab trusted={trusted} detail={detail} onNewObligation={canEditContract ? openObligation : undefined} /> },
-    { id: 'documents', label: 'Documentos', icon: <Archive className="h-4 w-4" />, badge: (detail.files.length + detail.documents.length) || undefined, content: <DocumentsTab trusted={trusted} detail={detail} onReplace={canEditContract ? openReplaceDocument : undefined} /> },
     {
-      id: 'risks', label: 'Riscos & Cláusulas', icon: <ShieldAlert className="h-4 w-4" />,
-      badge: (detail.riskLinks.length + detail.clauses.length) || undefined,
+      id: 'operation', label: 'Operação', icon: <ClipboardCheck className="h-4 w-4" />,
+      // Só o que está em atraso conta como trabalho. Uma exigência aguardando
+      // a agenda de Projetos NÃO é pendência de quem lê esta tela.
+      badge: undefined,
+      content: (
+        <OperationTab
+          trusted={trusted}
+          detail={detail}
+          followups={followups}
+          followupsError={followupsError}
+          followupsLoading={followupsLoading}
+          asOf={today}
+          canAct={canEditContract}
+          onAssignFollowup={handleAssignFollowup}
+          onWaitFollowup={handleWaitFollowup}
+          onEscalateFollowup={handleEscalateFollowup}
+          onCompleteFollowup={handleCompleteFollowup}
+          onNewObligation={canEditContract ? openObligation : undefined}
+        />
+      ),
+    },
+    { id: 'documents', label: 'Documentos', icon: <Archive className="h-4 w-4" />, badge: undefined, content: <DocumentsTab trusted={trusted} detail={detail} onReplace={canEditContract ? openReplaceDocument : undefined} /> },
+    {
+      id: 'intelligence', label: 'Inteligência Contratual', icon: <ShieldAlert className="h-4 w-4" />,
+      /*
+        O crachá conta o que EXIGE uma pessoa, e nada mais. Antes ele somava
+        riscos e cláusulas — um acervo — e dizia "43" num contrato saudável.
+        Um número que nunca baixa deixa de ser sinal.
+      */
+      badge: attentionCount || undefined,
       content: (
         <div className="space-y-5">
-          <RisksTab trusted={trusted} detail={detail} />
           {/*
-            A fila de revisão vem ANTES do inventário de cláusulas: proposta
-            pendente é trabalho de alguém; cláusula validada é registro.
+            Ordem deliberada, de cima para baixo:
+
+            1. O que o Apex entendeu, com o que exige atenção primeiro.
+            2. O que ele ainda NÃO leu — porque confiar na ausência de uma
+               regra exige saber que o papel foi lido.
+            3. A exposição operacional que essas regras criam.
+            4. O acervo de cláusulas, que é registro e não trabalho.
           */}
-          {/*
-            O estado da leitura vem antes da fila: saber o que ainda não foi
-            lido é pré-requisito para confiar na ausência de propostas.
-          */}
+          <ContractInterpretationPanel
+            interpretations={detail.clauses}
+            documents={detail.documents}
+            canDecide={canEditContract}
+            canAnalyze={hasPermission('contracts.analyze_with_ai')}
+            analyzing={extracting}
+            onAnalyze={(documentId) => { void runExtraction(documentId); }}
+            onDecide={(clause, decision) => { void handleInterpretationDecision(clause, decision); }}
+          />
           <ClauseOpsPanel
             documents={documentAnalysisStates(detail.documents, analyses, detail.clauses)}
             coverage={contractCoverage(trusted, detail.documents, analyses)}
@@ -595,19 +829,7 @@ export default function ContractDossierPage() {
             analyzingId={analyzingDocId}
             onAnalyze={(documentId) => { void runExtraction(documentId); }}
           />
-          <ClauseProposalsPanel
-            proposals={detail.clauses.filter(
-              (c) => c.ai_flagged && (c.review_status === 'draft' || c.review_status === 'in_review'),
-            )}
-            documents={detail.documents}
-            canEdit={canEditContract}
-            canAnalyze={hasPermission('contracts.analyze_with_ai')}
-            analyzing={extracting}
-            onAnalyze={(documentId) => { void runExtraction(documentId); }}
-            onValidate={instrumentation.openReview}
-            onReject={instrumentation.openReview}
-            onEdit={instrumentation.openSupersede}
-          />
+          <RisksTab trusted={trusted} detail={detail} />
           <ClauseRiskIntelligencePanel
             intelligence={buildClauseRiskIntelligence([trusted], undefined, { officialOnly: false })}
             canEdit={canEditContract}
@@ -617,16 +839,29 @@ export default function ContractDossierPage() {
             onCreateRisk={() => contractActions.createRisk(record)}
             onLinkRisk={() => contractActions.linkExistingRisk(record)}
           />
-          {/*
-            O inventário fecha a aba: proposta pendente é trabalho de alguém,
-            cláusula validada é acervo. A antiga aba "Cláusulas" mostrava
-            exatamente isto — só que como um destino concorrente.
-          */}
           <ClausesTab detail={detail} />
         </div>
       ),
     },
-    { id: 'approvals', label: 'Aprovações', icon: <ShieldCheck className="h-4 w-4" />, badge: detail.approvals.filter((a) => a.status !== 'approved').length || undefined, content: <ApprovalsTab trusted={trusted} detail={detail} onReview={hasPermission('contracts.approve') ? () => contractActions.reviewApproval(record) : undefined} /> },
+    {
+      id: 'governance', label: 'Governança', icon: <ShieldCheck className="h-4 w-4" />,
+      /*
+        Governança conta apenas o que o Apex NÃO tem autoridade para decidir.
+        Aprovação já concedida é história e não pede nada de ninguém.
+      */
+      badge: detail.approvals.filter((a) => a.status !== 'approved').length || undefined,
+      content: (
+        <GovernanceTab
+          trusted={trusted}
+          detail={detail}
+          record={record}
+          attentionCount={attentionCount}
+          onReview={hasPermission('contracts.approve') ? () => contractActions.reviewApproval(record) : undefined}
+          onClassifyProvenance={canClassifyProvenance ? openProvenance : undefined}
+          onOpenHistory={() => setHistoryOpen(true)}
+        />
+      ),
+    },
   ];
 
   return (
@@ -839,10 +1074,10 @@ export default function ContractDossierPage() {
             else if (key === 'createObligation') openObligation();
             else if (key === 'createBilling') openBilling();
             else if (key === 'attachDocument') contractActions.attachDocument(record);
-            else if (key === 'reviewClauseProposals') setActiveTab('risks');
+            else if (key === 'reviewClauseProposals') setActiveTab('intelligence');
             else if (key === 'openDocuments') setActiveTab('documents');
-            else if (key === 'openBilling') setActiveTab('finance');
-            else setActiveTab('obligations');
+            else if (key === 'openBilling') setActiveTab('billing');
+            else setActiveTab('operation');
           }}
         />
       </section>
@@ -865,8 +1100,17 @@ export default function ContractDossierPage() {
         superfície nenhuma.
       */}
       <div className="mt-4 min-w-0">
+        {/*
+          A ordem do menu vem de `DETAIL_TABS`, não da ordem em que os objetos
+          foram escritos no array: a ordem de leitura de um contrato é uma
+          decisão de produto, e ela não pode depender de onde alguém colou o
+          próximo destino.
+        */}
         <DossierNav
-          items={tabs.map(({ id, label, icon, badge }) => ({ id, label, icon, badge }))}
+          items={DETAIL_TABS.flatMap((tabId) => {
+            const tab = tabs.find((candidate) => candidate.id === tabId);
+            return tab ? [{ id: tab.id, label: tab.label, icon: tab.icon, badge: tab.badge }] : [];
+          })}
           activeId={activeTab}
           onSelect={(tabId) => setActiveTab(tabId as DetailTab)}
           panelId="dossier-panel"
@@ -1025,7 +1269,167 @@ function ClausesTab({ detail }: { detail: ContractDetail }) {
  * comparava contra `'completed'`/`'overdue'` — valores que nunca existiram no
  * vocabulário de marco.
  */
-function ObligationsTab({ trusted, detail, onNewObligation }: { trusted: TrustedContract; detail: ContractDetail; onNewObligation?: () => void }) {
+/**
+ * OPERAÇÃO — o que o contrato faz a organização ter de fazer.
+ *
+ * ─── A pergunta que a aba responde ─────────────────────────────────────────
+ *
+ * Não "quais são as obrigações cadastradas", e sim "o que precisa acontecer,
+ * de quem, até quando, e o que o Apex já está seguindo".
+ *
+ * A ordem é a da urgência operacional:
+ *
+ *   1. O que o Apex está ACOMPANHANHO — porque isso já tem dono e prazo.
+ *   2. O que o contrato EXIGE, agrupado por quem responde.
+ *   3. A lista de tarefas anterior à Fase 3, rotulada como legado.
+ *
+ * O agrupamento por responsável não é cosmético: "o que NÓS temos que fazer" e
+ * "o que o CLIENTE tem que fazer" pedem ações opostas — a primeira é execução,
+ * a segunda é cobrança — e uma lista única obrigava a ler linha a linha para
+ * descobrir de quem era a bola.
+ */
+function OperationTab({
+  trusted, detail, followups, followupsError, followupsLoading, asOf, canAct,
+  onAssignFollowup, onWaitFollowup, onEscalateFollowup, onCompleteFollowup, onNewObligation,
+}: {
+  trusted: TrustedContract;
+  detail: ContractDetail;
+  followups: readonly ApexFollowupRow[];
+  followupsError: string | null;
+  followupsLoading: boolean;
+  asOf: string;
+  canAct: boolean;
+  onAssignFollowup: (followup: ApexFollowupRow) => void;
+  onWaitFollowup: (followup: ApexFollowupRow) => void;
+  onEscalateFollowup: (followup: ApexFollowupRow) => void;
+  onCompleteFollowup: (followup: ApexFollowupRow) => void;
+  onNewObligation?: () => void;
+}) {
+  return (
+    <section className="space-y-6" data-testid="contract-operation-tab">
+      <ApexFollowupPanel
+        followups={followups}
+        asOf={asOf}
+        error={followupsError}
+        loading={followupsLoading}
+        canAct={canAct}
+        onAssign={onAssignFollowup}
+        onWait={onWaitFollowup}
+        onEscalate={onEscalateFollowup}
+        onComplete={onCompleteFollowup}
+      />
+
+      <div>
+        <SectionHeader
+          title="O que este contrato exige"
+          hint="Estruturado a partir do documento original, com a cláusula de origem"
+        />
+        <ContractStructuredObligations contractId={detail.contract.id} />
+      </div>
+
+      <ObligationsTab trusted={trusted} detail={detail} onNewObligation={onNewObligation} legacyOnly />
+    </section>
+  );
+}
+
+/**
+ * GOVERNANÇA — o que o Apex NÃO tem autoridade para decidir.
+ *
+ * Ela consolida num lugar só o que estava espalhado: a rota de alçada (que era
+ * a aba "Aprovações"), a classificação de origem do contrato (que só existia
+ * enterrada em "Mais ações") e o contexto de auditoria.
+ *
+ * A gaveta "Histórico" do header NÃO é duplicada aqui: ela continua sendo a
+ * superfície de leitura da trilha completa, e esta aba só dá o caminho até
+ * ela. Dois lugares mostrando a mesma timeline foi exatamente o defeito que
+ * fez a auditoria deixar de ser aba.
+ */
+function GovernanceTab({
+  trusted, detail, record, attentionCount, onReview, onClassifyProvenance, onOpenHistory,
+}: {
+  trusted: TrustedContract;
+  detail: ContractDetail;
+  record: ContractGovernanceRecord;
+  attentionCount: number;
+  onReview?: () => void;
+  onClassifyProvenance?: () => void;
+  onOpenHistory: () => void;
+}) {
+  const dataClass = (detail.contract.data_class ?? 'unclassified') as ContractDataClass;
+  const DATA_CLASS_LABEL: Record<ContractDataClass, string> = {
+    live: 'Produção',
+    demo: 'Demonstração',
+    unclassified: 'Não classificado',
+  };
+
+  return (
+    <div className="space-y-6" data-testid="contract-governance-tab">
+      <section>
+        <SectionHeader
+          title="Decisões que exigem autoridade humana"
+          hint="O Apex monitora e executa o que a política permite; o que está aqui é o que ele não pode decidir"
+        />
+        {attentionCount > 0 ? (
+          <p className="rounded-lg border border-ig-warning/35 bg-ig-warning/5 p-3 text-ig-body-sm text-ig-warning">
+            {attentionCount === 1
+              ? '1 interpretação contratual requer análise humana.'
+              : `${attentionCount} interpretações contratuais requerem análise humana.`}
+            {' '}Elas estão em Inteligência Contratual.
+          </p>
+        ) : (
+          <p className="rounded-lg border border-ig-border-subtle p-3 text-ig-caption text-ig-fg-muted">
+            Nenhuma interpretação contratual pendente de decisão humana.
+          </p>
+        )}
+      </section>
+
+      <ApprovalsTab trusted={trusted} detail={detail} onReview={onReview} />
+
+      <section>
+        <SectionHeader
+          title="Classificação e procedência"
+          hint="Só contrato de produção entra em métrica de carteira — e classificar não é a autoridade de quem cadastra"
+        />
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-ig-border-subtle p-3">
+          <Metric label="Classe do dado" value={DATA_CLASS_LABEL[dataClass]} />
+          <Metric label="Contrato" value={record.code} />
+          {onClassifyProvenance && (
+            <HudButton
+              variant="secondary" size="sm" leftIcon={<BadgeCheck className="h-4 w-4" />}
+              onClick={onClassifyProvenance}
+            >
+              Classificar origem
+            </HudButton>
+          )}
+        </div>
+      </section>
+
+      <section>
+        <SectionHeader title="Trilha auditável" hint="Todo ato governado deste contrato, na ordem em que ocorreu" />
+        <div className="rounded-lg border border-ig-border-subtle p-3">
+          <HudButton
+            variant="secondary" size="sm" leftIcon={<FileClock className="h-4 w-4" />}
+            onClick={onOpenHistory}
+          >
+            Abrir histórico
+          </HudButton>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function ObligationsTab({ trusted, detail, onNewObligation, legacyOnly = false }: {
+  trusted: TrustedContract;
+  detail: ContractDetail;
+  onNewObligation?: () => void;
+  /**
+   * Dentro de `Operação`, o modelo estruturado já foi mostrado acima. Repetir
+   * a mesma lista duas vezes na mesma aba faria o usuário procurar a diferença
+   * entre elas — e não há diferença nenhuma.
+   */
+  legacyOnly?: boolean;
+}) {
   const obligationsErrored = isError(trusted.obligations);
   const items = detail.obligations.map((obligation) => ({
     id: obligation.id,
@@ -1042,12 +1446,18 @@ function ObligationsTab({ trusted, detail, onNewObligation }: { trusted: Trusted
       ? `${detail.obligations.length} item(ns) da lista de tarefas anterior à Fase 3`
       : 'A lista anterior está vazia';
 
+  // Sem linha nenhuma na lista antiga, a seção de legado não tem por que
+  // ocupar espaço anunciando que está vazia.
+  if (legacyOnly && detail.obligations.length === 0) return null;
+
   return (
     <section className="space-y-6">
-      <div>
-        <SectionHeader title="Obrigações contratuais" hint="O que o contrato exige, com origem e prazo" />
-        <ContractStructuredObligations contractId={detail.contract.id} />
-      </div>
+      {!legacyOnly && (
+        <div>
+          <SectionHeader title="Obrigações contratuais" hint="O que o contrato exige, com origem e prazo" />
+          <ContractStructuredObligations contractId={detail.contract.id} />
+        </div>
+      )}
 
       <div>
       <SectionHeader title="Lista anterior (legado)" hint={subtitle} />

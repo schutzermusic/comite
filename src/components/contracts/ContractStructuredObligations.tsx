@@ -19,6 +19,7 @@ import type { ContractObligationsAsOf } from '@/lib/contracts/obligations/types'
 
 const URGENCY_LABEL = {
   OVERDUE: 'Em atraso', DUE: 'Vence hoje', UPCOMING: 'No prazo',
+  AWAITING_SCHEDULE_ANCHOR: 'Aguardando agenda',
   UNKNOWN: 'Prazo não apurado', NOT_APPLICABLE: 'Encerrada',
 } as const;
 
@@ -26,6 +27,7 @@ const URGENCY_TONE = {
   OVERDUE: 'border-ig-danger/45 text-ig-danger',
   DUE: 'border-ig-warning/45 text-ig-warning',
   UPCOMING: 'border-ig-success/45 text-ig-success',
+  AWAITING_SCHEDULE_ANCHOR: 'border-ig-accent/45 text-ig-accent',
   UNKNOWN: 'border-ig-border-strong text-ig-fg-muted',
   NOT_APPLICABLE: 'border-ig-border text-ig-fg-muted',
 } as const;

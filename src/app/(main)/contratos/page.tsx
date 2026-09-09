@@ -1075,9 +1075,19 @@ export default function ContratosPage() {
               que estivesse selecionado. Ambos seguem no dossiê do contrato,
               onde o sujeito é inequívoco.
             */}
+            {/*
+              "Adicionar contrato", e não "Novo contrato".
+
+              A diferença não é de estilo. "Novo" descreve um contrato que
+              NASCE aqui — e não nasce: o cliente escreveu, assinou e mandou.
+              O que acontece nesta tela é a entrada daquele documento no Apex,
+              para que ele seja entendido e passe a ser monitorado. O rótulo
+              anterior treinava o usuário a pensar em cadastro manual; este
+              descreve o que o produto realmente faz.
+            */}
             {hasPermission('contracts.create') && !permissionsLoading ? (
               <HudButton variant="primary" size="md" leftIcon={<Plus className="h-4 w-4" />} onClick={() => setUploadOpen(true)}>
-                Novo Contrato
+                Adicionar contrato
               </HudButton>
             ) : null}
           </div>

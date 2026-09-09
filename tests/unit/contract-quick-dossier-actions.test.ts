@@ -518,7 +518,7 @@ describe('extração de cláusulas (P2D)', () => {
     expect(extractor).toContain("typeof window !== 'undefined'");
 
     for (const file of [
-      'src/components/contracts/intelligence/ClauseProposalsPanel.tsx',
+      'src/components/contracts/intelligence/ContractInterpretationPanel.tsx',
       'src/components/contracts/intelligence/ClauseRiskIntelligencePanel.tsx',
       'src/components/contracts/useContractInstrumentationModals.tsx',
     ]) {

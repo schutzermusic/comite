@@ -538,6 +538,15 @@ export function AppSidebar() {
     });
   };
 
+  /**
+   * Estamos DENTRO de um contrato?
+   *
+   * `/contratos/<id>` é dossiê; `/contratos` e `/contratos?view=…` são a
+   * carteira. A distinção é o segmento a mais — e é ela que decide qual dos
+   * dois níveis de navegação manda na tela.
+   */
+  const isContractDossierRoute = /^\/contratos\/[^/]+/.test(pathname);
+
   const mainItems = navigationItems.filter((item) => item.section === "main" && canSeeItem(item));
   const adminItems = navigationItems.filter((item) => item.section === "admin" && canSeeItem(item));
 
@@ -550,6 +559,24 @@ export function AppSidebar() {
 
       if (visibleSubItems && visibleSubItems.length > 0 && !isCollapsed) {
         const { isOpen, onToggle } = getSubmenuState(item.href);
+        /*
+          ─── DOSSIÊ ABERTO: A SIDEBAR RECUA ────────────────────────────────
+
+          Dentro de um contrato existem DOIS níveis de navegação na tela ao
+          mesmo tempo: as oito áreas da carteira, aqui, e os seis destinos do
+          dossiê, na barra horizontal do objeto. Com os dois no mesmo peso
+          visual, o olho não tem como saber qual deles é o contexto corrente —
+          e o usuário passa a escolher pelo nome, que é justamente o que a
+          renomeação do dossiê acabou de tornar desnecessário.
+
+          O grupo continua inteiro, clicável e acessível: nenhuma área some.
+          O que muda é a ÊNFASE — os sub-itens recuam para plano de fundo
+          enquanto o dossiê é o assunto. É a mesma regra de hierarquia que o
+          resto do produto já usa; ela só nunca tinha sido aplicada entre dois
+          níveis de navegação simultâneos.
+        */
+        const dossierIsOpen = isContractDossierRoute;
+        const submenuRecedes = dossierIsOpen && item.href === "/contratos";
         return (
           <SidebarMenuItem key={item.href}>
             <SidebarMenuButton
@@ -569,7 +596,11 @@ export function AppSidebar() {
               />
             </SidebarMenuButton>
             {isOpen && (
-              <ul className="hud-nav-submenu" role="group">
+              <ul
+                className={cn("hud-nav-submenu", submenuRecedes && "hud-nav-submenu-receded")}
+                role="group"
+                data-receded={submenuRecedes || undefined}
+              >
                 {visibleSubItems.map((subItem) => {
                   const isSubActive = subItem.exactUrl
                     ? currentUrl === subItem.href

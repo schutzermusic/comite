@@ -172,15 +172,21 @@ export function buildOnboardingReadiness(contract: TrustedContract): OnboardingR
   const documentsState = stateOfList(contract.documents);
 
   /*
-    Cláusulas: uma proposta de IA pendente NÃO conta como registrada. Ela é
-    leitura de máquina aguardando decisão humana, e contá-la como cláusula do
-    contrato daria por concluído justamente o passo — a revisão — que dá valor
-    à extração.
+    Cláusulas: o que conta como REGRA ENTENDIDA.
+
+    O critério anterior — "só vale a cláusula que uma pessoa validou" — foi
+    escrito quando toda leitura de máquina esperava aprovação individual. Com a
+    governança por exceção (migration 154), interpretação estruturada é regra em
+    operação e conta; o que NÃO conta é a que ficou parada exigindo uma decisão
+    humana, porque justamente essa ainda não produz efeito governado.
   */
   const clausesState = stateOfList(
     contract.clauses,
-    (rows) => (rows as readonly { review_status?: string | null; ai_flagged?: boolean | null }[])
-      .some((c) => !c.ai_flagged || c.review_status === 'validated'),
+    (rows) => (rows as readonly {
+      review_status?: string | null;
+      ai_flagged?: boolean | null;
+      interpretation_state?: string | null;
+    }[]).some((c) => c.interpretation_state !== 'requires_attention'),
   );
 
   /**
@@ -211,13 +217,27 @@ export function buildOnboardingReadiness(contract: TrustedContract): OnboardingR
   const apprCount = countOf(contract.approvals);
   const riskCount = countOf(contract.riskLinks);
 
-  const validatedClauses = hasOfficialValue(contract.clauses)
-    ? (contract.clauses.value as readonly { review_status?: string | null; ai_flagged?: boolean | null }[])
-        .filter((c) => !c.ai_flagged || c.review_status === 'validated').length
+  /*
+    Regras ENTENDIDAS versus regras que travaram numa decisão humana.
+
+    O par anterior era "validadas" versus "propostas aguardando revisão", e ele
+    media a fila de conferência manual — que deixou de existir com a governança
+    por exceção. Uma interpretação estruturada é regra em operação: ela conta.
+    O que não conta é a que ficou parada pedindo autoridade humana, porque essa
+    ainda não produz efeito governado nenhum.
+  */
+  type ClauseShape = {
+    review_status?: string | null;
+    ai_flagged?: boolean | null;
+    interpretation_state?: string | null;
+  };
+  const structuredClauses = hasOfficialValue(contract.clauses)
+    ? (contract.clauses.value as readonly ClauseShape[])
+        .filter((c) => c.interpretation_state !== 'requires_attention').length
     : null;
-  const pendingProposals = hasOfficialValue(contract.clauses)
-    ? (contract.clauses.value as readonly { review_status?: string | null; ai_flagged?: boolean | null }[])
-        .filter((c) => c.ai_flagged && (c.review_status === 'draft' || c.review_status === 'in_review')).length
+  const clausesNeedingAttention = hasOfficialValue(contract.clauses)
+    ? (contract.clauses.value as readonly ClauseShape[])
+        .filter((c) => c.interpretation_state === 'requires_attention').length
     : 0;
 
   const steps: readonly OnboardingStep[] = [
@@ -254,16 +274,16 @@ export function buildOnboardingReadiness(contract: TrustedContract): OnboardingR
     },
     {
       key: 'clauses',
-      label: 'Cláusulas revisadas',
+      label: 'Regras contratuais entendidas',
       owner: 'Contratos',
       state: clausesState,
-      detail: validatedClauses === null ? null
-        : validatedClauses === 0
-          ? (pendingProposals > 0
-            ? `${pendingProposals} ${plural(pendingProposals, 'proposta aguardando revisão', 'propostas aguardando revisão')}`
-            : 'Nenhuma cláusula registrada')
-          : `${validatedClauses} ${plural(validatedClauses, 'cláusula registrada', 'cláusulas registradas')}`
-            + (pendingProposals > 0 ? ` · ${pendingProposals} aguardando revisão` : ''),
+      detail: structuredClauses === null ? null
+        : structuredClauses === 0
+          ? (clausesNeedingAttention > 0
+            ? `${clausesNeedingAttention} ${plural(clausesNeedingAttention, 'interpretação requer atenção', 'interpretações requerem atenção')}`
+            : 'Nenhuma regra contratual estruturada')
+          : `${structuredClauses} ${plural(structuredClauses, 'regra estruturada', 'regras estruturadas')}`
+            + (clausesNeedingAttention > 0 ? ` · ${clausesNeedingAttention} requer(em) atenção` : ''),
       essential: false,
     },
     {

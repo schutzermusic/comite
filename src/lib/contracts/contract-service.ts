@@ -113,6 +113,10 @@ export type ContractRow = {
   data_class?: 'live' | 'demo' | 'unclassified';
 };
 
+import type {
+  AttentionReason, InterpretationState,
+} from '@/lib/contracts/intelligence/attention-policy';
+
 /** Estado de revisão humana da cláusula — CHECK na migration 092. */
 export type ClauseReviewStatus = 'draft' | 'in_review' | 'validated' | 'rejected' | 'superseded';
 
@@ -124,8 +128,29 @@ export const CLAUSE_REVIEW_LABEL: Record<ClauseReviewStatus, string> = {
   superseded: 'Substituída',
 };
 
-/** Uma cláusula ainda pendente de decisão humana. */
+/**
+ * LEGADO de fluxo.
+ *
+ * `draft` deixou de significar "esperando alguém validar": desde a migration
+ * 154 a fila é `interpretation_state = 'requires_attention'`, e uma leitura bem
+ * evidenciada nunca entra nela. Esta constante sobrevive porque decisão humana
+ * já registrada é história e continua legível — não porque ainda descreva uma
+ * fila de trabalho. Quem quer saber o que exige atenção usa
+ * `clauseRequiresAttention`.
+ */
 export const PENDING_REVIEW: readonly ClauseReviewStatus[] = ['draft', 'in_review'];
+
+/**
+ * A pergunta que substitui "está pendente de validação?".
+ *
+ * Uma cláusula sem `interpretation_state` é linha anterior à 154 — e a
+ * ausência do campo NÃO é "requer atenção": é "ainda não classificada". Tratar
+ * a ausência como fila reconstruiria exatamente o backlog que o refactor
+ * desmontou.
+ */
+export function clauseRequiresAttention(clause: Pick<ContractClauseRow, 'interpretation_state'>): boolean {
+  return clause.interpretation_state === 'requires_attention';
+}
 
 export type ContractClauseRow = {
   id: string;
@@ -164,6 +189,16 @@ export type ContractClauseRow = {
   updated_by: string | null;
   created_at: string;
   updated_at: string;
+  // 154: interpretação estruturada e governança por exceção. O contrato já
+  // existia assinado; o que estes campos descrevem é a LEITURA do Apex sobre
+  // ele, e quando essa leitura precisa de uma decisão humana.
+  interpretation_state: InterpretationState | null;
+  attention_reasons: AttentionReason[] | null;
+  attention_exposure: number | string | null;
+  attention_resolved_at: string | null;
+  attention_resolved_by: string | null;
+  attention_resolution_note: string | null;
+  attention_policy_version: string | null;
 };
 
 export type ContractPenaltyRow = {

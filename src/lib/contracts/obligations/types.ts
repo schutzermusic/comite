@@ -37,7 +37,32 @@ export type ObligationActivationState = 'not_activated' | 'activated' | 'unknown
  * gravá-la exigiria alguém rodando um job para mantê-la certa, e uma coluna
  * "atrasada" desatualizada é pior que nenhuma.
  */
-export type ObligationUrgency = 'UPCOMING' | 'DUE' | 'OVERDUE' | 'UNKNOWN' | 'NOT_APPLICABLE';
+export type ObligationUrgency =
+  | 'UPCOMING' | 'DUE' | 'OVERDUE'
+  /**
+   * A regra é conhecida, a âncora é conhecida, e a AGENDA ainda não existe.
+   *
+   * É um estado distinto de `UNKNOWN` de propósito. `UNKNOWN` é "não deu para
+   * apurar" — um problema de dado, que alguém precisa resolver. Este é "o Apex
+   * já entendeu; falta Projetos agendar a medição" — que não é problema de
+   * ninguém e não deve aparecer como pendência de cadastro. Confundir os dois
+   * faria a tela pedir trabalho onde não há trabalho a fazer.
+   */
+  | 'AWAITING_SCHEDULE_ANCHOR'
+  | 'UNKNOWN' | 'NOT_APPLICABLE';
+
+/**
+ * Estado da DATA de uma ocorrência — migration 155.
+ *
+ * Separado de `dueConfidence` porque responde outra pergunta: `dueConfidence`
+ * diz se dá para confiar no prazo; `dateState` diz POR QUE ele ainda não
+ * existe, quando não existe.
+ */
+export type ObligationDateState = 'RESOLVED' | 'AWAITING_SCHEDULE_ANCHOR' | 'UNKNOWN';
+
+export type ObligationScheduleAnchor =
+  | 'measurement' | 'measurement_acceptance'
+  | 'project_milestone' | 'project_start' | 'project_end';
 
 /** Resposta de três valores. `UNKNOWN` nunca degrada para `false`. */
 export type Tristate = 'TRUE' | 'FALSE' | 'UNKNOWN';
@@ -165,6 +190,11 @@ export interface ObligationInstanceView {
   readonly dueDate: string | null;
   readonly dueConfidence: 'known' | 'unknown';
   readonly dueBasis: string | null;
+  // ---- 155: prazo ancorado em agenda operacional ----
+  readonly dateState: ObligationDateState;
+  readonly scheduleAnchor: ObligationScheduleAnchor | null;
+  /** A data que Projetos publicou, quando já publicou. */
+  readonly scheduleAnchorDate: string | null;
   readonly state: ObligationInstanceState;
   readonly urgency: ObligationUrgency;
   readonly satisfiedAt: string | null;
@@ -205,5 +235,6 @@ export interface ContractObligationsAsOf {
     readonly due: number;
     readonly upcoming: number;
     readonly unknown: number;
+    readonly awaitingScheduleAnchor: number;
   };
 }

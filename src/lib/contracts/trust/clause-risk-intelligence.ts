@@ -71,12 +71,16 @@ export type ClauseRiskIntelligence = {
   readonly risks: readonly LinkedRiskEntry[];
   readonly clauses: readonly ContractClauseRow[];
   /**
-   * Propostas de IA aguardando decisão humana.
+   * Interpretações que EXIGEM atenção humana — por exceção de política, nunca
+   * por serem derivadas de máquina.
    *
-   * Subconjunto de `clauses` — não uma lista paralela: a proposta VIVE em
-   * `contract_clauses` desde que nasce, marcada por `ai_flagged` e
-   * `review_status`. Manter dois lugares faria a fila de revisão divergir do
-   * registro.
+   * Subconjunto de `clauses`, não lista paralela: a interpretação VIVE em
+   * `contract_clauses` desde que nasce, e quem a classifica é o gatilho da
+   * migration 154. Manter dois lugares faria a fila divergir do registro.
+   *
+   * O nome sobrevive por compatibilidade de chamadores; o CRITÉRIO mudou. Uma
+   * leitura bem evidenciada de baixa exposição não entra aqui, por mais que
+   * ninguém a tenha "validado".
    */
   readonly pendingProposals: readonly ContractClauseRow[];
   readonly penalties: readonly ContractPenaltyRow[];
@@ -145,12 +149,25 @@ export function buildClauseRiskIntelligence(
   );
   const penaltiesErrored = scope.some((c) => isError(c.penalties));
 
-  const validated = clauses.filter((c) => c.review_status === 'validated').length;
-  const pending = clauses.filter((c) => PENDING_REVIEW.includes(c.review_status));
-  const pendingReview = pending.length;
-  // Só a proposta de MÁQUINA entra na fila de revisão assistida: uma cláusula
-  // que uma pessoa transcreveu e ainda não validou é outro tipo de pendência.
-  const pendingProposals = pending.filter((c) => c.ai_flagged);
+  const humanConfirmed = clauses.filter(
+    (c) => c.interpretation_state === 'human_confirmed' || c.review_status === 'validated').length;
+  /*
+    A fila é a EXCEÇÃO, não a regra.
+
+    Antes, toda leitura de máquina em `draft` entrava aqui — o que num contrato
+    de 195 páginas produzia dezenas de "pendências" que ninguém ia tratar, e
+    escondia as duas que importavam. Agora quem entra é o que a política de
+    exceção marcou: confiança baixa, risco material, exposição financeira,
+    compromisso jurídico.
+
+    Cláusulas anteriores à migration 154 têm `interpretation_state` nulo. Elas
+    NÃO são tratadas como fila: ausência de classificação é ausência de
+    classificação, e transformá-la em pendência reconstruiria o backlog que
+    este refactor desmontou.
+  */
+  const requiringAttention = clauses.filter((c) => c.interpretation_state === 'requires_attention');
+  const pendingReview = requiringAttention.length;
+  const pendingProposals = requiringAttention;
 
   const capabilities: IntelligenceCapability[] = [
     {
@@ -175,14 +192,14 @@ export function buildClauseRiskIntelligence(
         ? 'error'
         : clauses.length > 0 ? 'available' : 'no-records',
       summary: clauses.length > 0
-        ? `${clauses.length} cláusula(s) registrada(s) · ${validated} validada(s) · ${pendingReview} aguardando revisão.`
+        ? `${clauses.length} regra(s) contratual(is) estruturada(s)`
+          + `${humanConfirmed > 0 ? ` · ${humanConfirmed} confirmada(s) por uma pessoa` : ''}`
+          + `${pendingReview > 0 ? ` · ${pendingReview} requer(em) atenção` : ''}.`
         : 'Nenhuma cláusula registrada até agora.',
       limitation: clauses.length > 0
-        ? (pendingProposals.length > 0
-            ? `${pendingProposals.length} proposta(s) de análise documental aguardando decisão humana. Proposta não é cláusula: nada aqui vale como verdade contratual antes de alguém validar.`
-            : pendingReview > 0
-              ? `${pendingReview} cláusula(s) ainda não passaram por revisão humana: registrar não é validar.`
-              : null)
+        ? (pendingReview > 0
+            ? `${pendingReview} interpretação(ões) requer(em) análise humana antes de produzir decisão governada.`
+            : null)
         : 'Sem cláusula registrada, não há como afirmar prazo de renovação, gatilho de multa ou condição de pagamento a partir do contrato.',
       // Instrumentada em P2B: existe caminho de registro manual estruturado.
       actionable: true,

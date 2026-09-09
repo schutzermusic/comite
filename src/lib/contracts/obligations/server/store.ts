@@ -13,7 +13,7 @@ import { resolveContractObligationsAsOf, type ResolverInput } from '../resolve';
 import type {
   ContractObligationsAsOf, ObligationDefinition, ObligationDependencyState,
   ObligationEvidence, ObligationEvidenceRequirement, ObligationException,
-  ObligationInstanceState, Tristate,
+  ObligationInstanceState, ObligationInstanceView, Tristate,
 } from '../types';
 
 if (typeof window !== 'undefined') {
@@ -214,6 +214,12 @@ export async function loadContractObligationsAsOf(
             dueDate: str(i.due_date),
             dueConfidence: i.due_confidence as 'known' | 'unknown',
             dueBasis: str(i.due_basis),
+            // 155: por que o prazo ainda não existe, quando não existe.
+            // `RESOLVED` como padrão descreve as linhas anteriores à migration,
+            // cujo prazo — quando havia — já estava calculado.
+            dateState: (str(i.date_state) ?? 'RESOLVED') as ObligationInstanceView['dateState'],
+            scheduleAnchor: str(i.schedule_anchor) as ObligationInstanceView['scheduleAnchor'],
+            scheduleAnchorDate: str(i.schedule_anchor_date),
             state: i.state as ObligationInstanceState,
             satisfiedAt: str(i.satisfied_at),
             satisfactionBasis: str(i.satisfaction_basis),

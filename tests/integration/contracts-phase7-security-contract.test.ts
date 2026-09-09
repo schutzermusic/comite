@@ -372,7 +372,11 @@ describe('Fase 7 · migrations aplicadas não são editadas', () => {
       expect(versions).toContain(v);
     }
     expect(versions.filter((v) => Number(v) > 144).sort())
-      .toEqual(['145', '146', '147', '148', '149', '150', '151', '152']);
+      .toEqual([
+        '145', '146', '147', '148', '149', '150', '151', '152', '153',
+        // ---- operacionalização de contratos ----
+        '154', '155', '156', '157', '158',
+      ]);
     // 090 continua arquivada, nunca aplicada.
     expect(versions).not.toContain('090');
   });

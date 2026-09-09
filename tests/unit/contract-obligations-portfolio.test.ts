@@ -19,6 +19,7 @@ const obligation = (over: Partial<ResolvedObligation> = {}): ResolvedObligation 
     id: 'i1', definitionId: 'def-1', occurrenceKey: '2026-03', periodStart: '2026-03-01',
     periodEnd: '2026-03-31', activationState: 'activated', activatedAt: '2026-03-01',
     dueDate: '2026-03-06', dueConfidence: 'known', dueBasis: 'days_after_activation',
+    dateState: 'RESOLVED', scheduleAnchor: null, scheduleAnchorDate: null,
     state: 'OPEN', urgency: 'OVERDUE', satisfiedAt: null, satisfactionBasis: null,
     evidence: [], evidenceComplete: 'UNKNOWN', dependencies: [], exceptions: [],
     escalations: [], financialImpacts: [], blocksBilling: 'TRUE',
@@ -30,7 +31,7 @@ const contract = (over: Partial<ContractObligationsAsOf & { contractTitle: strin
   contractId: 'ct-1', asOf: '2026-03-08', contractTitle: 'Contrato A',
   obligations: [obligation()],
   billingBlock: { state: 'TRUE' as const, blockingInstanceIds: ['i1'], unknownDefinitionIds: [] },
-  counts: { definitions: 1, instances: 1, overdue: 1, due: 0, upcoming: 0, unknown: 0 },
+  counts: { definitions: 1, instances: 1, overdue: 1, due: 0, upcoming: 0, unknown: 0, awaitingScheduleAnchor: 0 },
   ...over,
 });
 
@@ -85,7 +86,9 @@ describe('carteira de obrigações', () => {
 
   it('não fabrica contagem quando a carteira está vazia', () => {
     const result = buildObligationPortfolio([], '2026-03-08');
-    expect(result.counts).toEqual({ OVERDUE: 0, DUE: 0, UPCOMING: 0, UNKNOWN: 0, NOT_APPLICABLE: 0 });
+    expect(result.counts).toEqual({
+      OVERDUE: 0, DUE: 0, UPCOMING: 0, AWAITING_SCHEDULE_ANCHOR: 0, UNKNOWN: 0, NOT_APPLICABLE: 0,
+    });
     expect(result.asOf).toBe('2026-03-08');
   });
 

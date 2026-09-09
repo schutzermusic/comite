@@ -16,5 +16,11 @@ export { ApexAIGateway } from './apex-ai-gateway';
 export { AnthropicApexAdapter } from './anthropic-adapter';
 export { ApexAIError } from './errors';
 export { APEX_AI_TASKS } from './types';
-export { getApexAITaskPolicy } from './task-registry';
+export {
+  getApexAITaskPolicy,
+  CURRENT_PRODUCTION_TASKS,
+  DEFAULT_PRODUCTION_MODEL,
+  EXPLICIT_ESCALATION_MODEL,
+  type ApexAIProductionTask,
+} from './task-registry';
 export type * from './types';

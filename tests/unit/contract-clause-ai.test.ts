@@ -169,10 +169,16 @@ describe('vocabulário de categorias', () => {
 // Proposta nunca é verdade contratual
 // ═══════════════════════════════════════════════════════════════════
 
-describe('proposta nunca se apresenta como verdade contratual', () => {
+describe('interpretação nunca se apresenta como verdade contratual', () => {
   const extractor = read('src/lib/ai/contract-clause-extractor.ts');
 
-  it('toda proposta persistida nasce marcada e pendente', () => {
+  /*
+    `review_status: 'draft'` continua sendo gravado, mas deixou de significar
+    "esperando alguém validar" na migration 154: quem decide o que exige
+    atenção humana é a política de exceção. O que impede a leitura de se passar
+    por verdade contratual é `ai_flagged` mais a proveniência.
+  */
+  it('toda interpretação persistida nasce marcada como derivada', () => {
     expect(extractor).toContain('ai_flagged: true');
     expect(extractor).toContain("review_status: 'draft'");
   });
@@ -183,7 +189,7 @@ describe('proposta nunca se apresenta como verdade contratual', () => {
   });
 
   it('o prompt proíbe cláusula sem evidência e admite lista vazia', () => {
-    expect(extractor).toMatch(/NÃO proponha a cláusula/);
+    expect(extractor).toMatch(/NÃO estruture a cláusula/);
     expect(extractor).toMatch(/lista vazia/);
     expect(extractor).toMatch(/cláusula inventada é um defeito grave/i);
   });

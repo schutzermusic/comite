@@ -197,21 +197,38 @@ describe('pendente e desconhecido são estados diferentes', () => {
 // ═══════════════════════════════════════════════════════════════════
 
 describe('cláusulas', () => {
-  it('proposta de IA aguardando revisão NÃO conta como registrada', () => {
-    /*
-      Contá-la daria por concluído justamente o passo — a revisão humana — que
-      dá valor à extração.
-    */
+  /*
+    A governança passou a ser por EXCEÇÃO (migration 154). O que trava a
+    prontidão não é "ninguém validou": é a interpretação que a POLÍTICA marcou
+    como dependente de decisão humana — porque só essa ainda não produz efeito
+    governado.
+  */
+  it('interpretação que requer atenção NÃO conta como entendida', () => {
     const r = readiness(row(), {
-      clauses: [clause({ ai_flagged: true, review_status: 'draft' })],
+      clauses: [clause({
+        ai_flagged: true, review_status: 'draft',
+        interpretation_state: 'requires_attention',
+      })],
     });
     expect(stepOf(r, 'clauses').state).toBe('pending');
-    expect(stepOf(r, 'clauses').detail).toBe('1 proposta aguardando revisão');
+    expect(stepOf(r, 'clauses').detail).toBe('1 interpretação requer atenção');
   });
 
-  it('proposta VALIDADA conta', () => {
+  it('interpretação estruturada conta, sem exigir validação individual', () => {
     const r = readiness(row(), {
-      clauses: [clause({ ai_flagged: true, review_status: 'validated' })],
+      clauses: [clause({
+        ai_flagged: true, review_status: 'draft', interpretation_state: 'structured',
+      })],
+    });
+    expect(stepOf(r, 'clauses').state).toBe('complete');
+    expect(stepOf(r, 'clauses').detail).toBe('1 regra estruturada');
+  });
+
+  it('interpretação confirmada por uma pessoa conta', () => {
+    const r = readiness(row(), {
+      clauses: [clause({
+        ai_flagged: true, review_status: 'validated', interpretation_state: 'human_confirmed',
+      })],
     });
     expect(stepOf(r, 'clauses').state).toBe('complete');
   });

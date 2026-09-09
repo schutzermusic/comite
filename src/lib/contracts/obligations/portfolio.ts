@@ -46,7 +46,7 @@ export interface ObligationPortfolio {
 
 /** Atrasada antes de vencendo, vencendo antes de desconhecida, e assim por diante. */
 const URGENCY_RANK: Record<ObligationUrgency, number> = {
-  OVERDUE: 0, DUE: 1, UNKNOWN: 2, UPCOMING: 3, NOT_APPLICABLE: 4,
+  OVERDUE: 0, DUE: 1, UNKNOWN: 2, AWAITING_SCHEDULE_ANCHOR: 3, UPCOMING: 4, NOT_APPLICABLE: 5,
 };
 
 const SEVERITY_RANK = { critical: 0, high: 1, medium: 2, low: 3 } as const;
@@ -60,7 +60,7 @@ export function buildObligationPortfolio(
   const billingBlockedContracts: string[] = [];
   const contractsWithoutObligations: string[] = [];
   const counts: Record<ObligationUrgency, number> = {
-    OVERDUE: 0, DUE: 0, UPCOMING: 0, UNKNOWN: 0, NOT_APPLICABLE: 0,
+    OVERDUE: 0, DUE: 0, UPCOMING: 0, UNKNOWN: 0, AWAITING_SCHEDULE_ANCHOR: 0, NOT_APPLICABLE: 0,
   };
 
   for (const contract of resolved) {

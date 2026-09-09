@@ -27,6 +27,7 @@ const instance = (over: Partial<RawInstance> = {}): RawInstance => ({
   periodStart: '2026-03-01', periodEnd: '2026-03-31',
   activationState: 'activated', activatedAt: '2026-03-01',
   dueDate: '2026-03-06', dueConfidence: 'known', dueBasis: 'days_after_activation',
+  dateState: 'RESOLVED', scheduleAnchor: null, scheduleAnchorDate: null,
   state: 'OPEN', satisfiedAt: null, satisfactionBasis: null,
   evidence: [], dependencies: [], exceptions: [], escalations: [], financialImpacts: [], ...over,
 });
@@ -315,6 +316,9 @@ describe('resolveContractObligationsAsOf', () => {
   it('um contrato sem obrigação nenhuma não bloqueia e não inventa contagem', () => {
     const result = resolve([]);
     expect(result.billingBlock.state).toBe('FALSE');
-    expect(result.counts).toEqual({ definitions: 0, instances: 0, overdue: 0, due: 0, upcoming: 0, unknown: 0 });
+    expect(result.counts).toEqual({
+      definitions: 0, instances: 0, overdue: 0, due: 0, upcoming: 0, unknown: 0,
+      awaitingScheduleAnchor: 0,
+    });
   });
 });

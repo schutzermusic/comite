@@ -2161,6 +2161,34 @@ html.dark .hud-nav-item[data-active="true"] {
   background: var(--ig-accent);
 }
 
+/*
+  Submenu RECUADO — enquanto um dossiê de contrato está aberto.
+
+  Dois níveis de navegação simultâneos com o mesmo peso visual deixam o usuário
+  sem saber qual é o contexto corrente. Dentro de um contrato, o assunto é o
+  contrato: as áreas da carteira continuam ali, inteiras e clicáveis, mas em
+  segundo plano.
+
+  Recuo por OPACIDADE, e não por tamanho ou por remoção: a caixa de clique não
+  muda, o texto não reflui, e nada some da árvore de acessibilidade. Passar o
+  mouse (ou tabular até o grupo) devolve o peso normal na hora — o recuo é uma
+  dica de foco, não uma barreira.
+
+  `prefers-reduced-motion` mantém o efeito, só sem a transição: o recuo é
+  informação, e não decoração animada.
+*/
+.hud-nav-submenu-receded {
+  opacity: 0.55;
+  transition: opacity 180ms ease;
+}
+.hud-nav-submenu-receded:hover,
+.hud-nav-submenu-receded:focus-within {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .hud-nav-submenu-receded { transition: none; }
+}
+
 /* Submenu — integrated, slim rail on left */
 .hud-nav-submenu {
   position: relative;

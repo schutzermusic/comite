@@ -21,7 +21,8 @@ All production LLM access crosses the server-only `src/lib/ai/gateway` boundary.
 ## Routing and safety
 
 - Anthropic is the only implemented adapter and the initial production provider.
-- Normal tasks default to `claude-sonnet-5`; high-risk extraction defaults to `claude-opus-5`.
+- All current production tasks default to `claude-sonnet-5` (including contract extraction, project schedule extraction, and ASO extraction).
+- Opus (`claude-opus-5`) is never used automatically and is never an automatic fallback; it is reserved exclusively for explicit future escalation targets (`COMPLEX_ESCALATION`).
 - Domain code cannot pass model IDs.
 - OpenAI and Google have typed adapter interfaces but are not enabled until concrete adapters are implemented and registered.
 - High-risk policies have no fallback providers. A provider change can occur only when explicitly listed by task policy.
@@ -35,9 +36,10 @@ All production LLM access crosses the server-only `src/lib/ai/gateway` boundary.
 | --- | --- |
 | `APEX_AI_ENABLED` | Set to `false` to disable all LLM calls. Deterministic workflows continue. |
 | `ANTHROPIC_API_KEY` | Server-only Anthropic credential. |
-| `APEX_AI_ANTHROPIC_MODEL` | Normal-task model override. |
-| `APEX_AI_ANTHROPIC_HIGH_RISK_MODEL` | Contract/document extraction model override. |
-| `APEX_AI_ANTHROPIC_COMPLEX_MODEL` | Explicit complex-escalation model override. |
+| `APEX_AI_ANTHROPIC_MODEL` | Default production model override (defaults to `claude-sonnet-5`). |
+| `APEX_AI_ANTHROPIC_HIGH_RISK_MODEL` | Production high-risk task model override (defaults to `claude-sonnet-5`). |
+| `APEX_AI_ANTHROPIC_COMPLEX_MODEL` | Explicit complex-escalation model override (defaults to `claude-opus-5`). |
+| `APEX_AI_ANTHROPIC_ESCALATION_MODEL` | Explicit escalation target model override. |
 | `APEX_AI_TIMEOUT_MS` | Default request timeout. |
 | `APEX_AI_MAX_ATTEMPTS` | Maximum attempts for retryable failures. |
 

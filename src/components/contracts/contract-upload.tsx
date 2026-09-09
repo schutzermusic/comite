@@ -355,8 +355,17 @@ export function ContractUpload({
     <HudDrawer
       isOpen={open}
       onClose={handleClose}
-      title="Novo contrato"
-      subtitle="Cadastro operacional — o contrato nasce oficial na carteira"
+      title="Adicionar contrato"
+      /*
+        O subtítulo anterior dizia que "o contrato nasce oficial na carteira" —
+        e ele não nasce: desde a Fase 0.7 ele nasce NÃO CLASSIFICADO, fora de
+        toda métrica oficial, até que alguém com alçada afirme a procedência.
+        A frase descrevia um comportamento que o código já não tinha.
+
+        O que ela descreve agora é o que de fato acontece: o documento entra, o
+        Apex o lê e passa a monitorar o que ele exige.
+      */
+      subtitle="O contrato do cliente entra aqui. O Apex lê o documento e passa a monitorar o que ele exige."
       width="760px"
     >
       <div className="space-y-5">
