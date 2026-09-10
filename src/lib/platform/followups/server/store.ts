@@ -1,10 +1,8 @@
 /**
  * Escrita e leitura do acompanhamento do Apex — server-only.
  *
- * `apex_followups` não concede escrita ao navegador (migration 156): quem
- * grava é este módulo, pelo service role, depois que a rota já decidiu a
- * permissão. Isso mantém a autoridade num lugar só e deixa o gatilho do banco
- * como última barreira em vez de única.
+ * `apex_followups` não concede escrita direta ao navegador. Atos humanos vão
+ * pelos RPCs de sessão; este módulo fica reservado às ações autônomas do Apex.
  *
  * ─── O que este módulo NÃO faz ─────────────────────────────────────────────
  *
@@ -19,7 +17,10 @@ import type {
   ApexFollowupRow, ApexFollowupEventRow, FollowupSourceKind, FollowupState,
   VerificationMode,
 } from '../types';
-import { isValidTransition } from '../state';
+import {
+  isValidTransition, verifyEvidence,
+  type EvidenceCandidate, type EvidenceRequirement,
+} from '../state';
 
 if (typeof window !== 'undefined') {
   throw new Error('platform/followups/server/store.ts não pode ser importado no navegador.');
@@ -55,6 +56,8 @@ export interface FollowupActor {
 }
 
 export interface CreateFollowupInput {
+  /** Stable identity of the logical create request; retries must reuse it. */
+  idempotencyKey: string;
   sourceKind: FollowupSourceKind;
   sourceId: string;
   contractId?: string | null;
@@ -89,6 +92,7 @@ export async function createFollowup(
     .from('apex_followups')
     .insert({
       organization_id: actor.organizationId,
+      idempotency_key: input.idempotencyKey,
       source_kind: input.sourceKind,
       source_id: input.sourceId,
       contract_id: input.contractId ?? null,
@@ -108,6 +112,23 @@ export async function createFollowup(
     })
     .select('*')
     .single();
+  if (error?.code === '23505') {
+    const { data: existing, error: existingError } = await supabase
+      .from('apex_followups')
+      .select('*')
+      .eq('organization_id', actor.organizationId)
+      .eq('idempotency_key', input.idempotencyKey)
+      .maybeSingle();
+    check(existingError, 'Falha ao recuperar acompanhamento idempotente');
+    if (existing
+        && existing.source_kind === input.sourceKind
+        && existing.source_id === input.sourceId
+        && existing.contract_id === (input.contractId ?? null)
+        && existing.goal === input.goal) {
+      return existing as ApexFollowupRow;
+    }
+    throw new Error('A chave de idempotência já foi usada para outro acompanhamento.');
+  }
   check(error, 'Falha ao abrir acompanhamento');
   return data as ApexFollowupRow;
 }
@@ -226,13 +247,13 @@ export async function recordNudge(actor: FollowupActor, followupId: string): Pro
 /**
  * Conclusão por EVIDÊNCIA verificada — o caminho que o Apex pode percorrer
  * sozinho, e só quando a regra de verificação é determinística. O gatilho da
- * 156 recusa qualquer outra combinação.
+ * 159 recusa qualquer outra combinação e exige o registro atômico da prova.
  */
 export async function completeByVerifiedEvidence(
   actor: FollowupActor,
   followupId: string,
   evidenceId: string,
-  basis: string,
+  candidate: EvidenceCandidate,
 ): Promise<ApexFollowupRow> {
   const current = await loadOwned(actor, followupId);
   if (current.verification_mode !== 'deterministic_evidence') {
@@ -240,22 +261,26 @@ export async function completeByVerifiedEvidence(
       'Este acompanhamento não tem regra determinística de verificação: a conclusão exige confirmação humana.',
     );
   }
+  const rawRule = current.verification_rule ?? {};
+  const requirement: EvidenceRequirement = {
+    expectedTaxId: typeof rawRule.expectedTaxId === 'string'
+      ? rawRule.expectedTaxId
+      : (typeof rawRule.expected_tax_id === 'string' ? rawRule.expected_tax_id : null),
+    mustCoverDate: typeof rawRule.mustCoverDate === 'string'
+      ? rawRule.mustCoverDate
+      : (typeof rawRule.must_cover_date === 'string' ? rawRule.must_cover_date : null),
+  };
+  const verification = verifyEvidence(requirement, candidate);
+  if (verification.verified !== true) {
+    throw new Error(`A evidência não satisfez a regra determinística: ${verification.reason}`);
+  }
   const supabase = followupServiceClient();
-  const now = new Date().toISOString();
-  const { data, error } = await supabase
-    .from('apex_followups')
-    .update({
-      state: 'COMPLETED',
-      closure_basis: 'verified_evidence',
-      closed_at: now,
-      verified_at: now,
-      verification_evidence_id: evidenceId,
-      state_note: basis,
-    })
-    .eq('id', followupId)
-    .eq('organization_id', actor.organizationId)
-    .select('*')
-    .single();
+  const { data, error } = await supabase.rpc('apex_followup_complete_verified_evidence', {
+    p_followup_id: followupId,
+    p_evidence_document_id: evidenceId,
+    p_document_tax_id: candidate.documentTaxId,
+    p_valid_until: candidate.validUntil,
+  });
   check(error, 'Falha ao concluir por evidência verificada');
   return data as ApexFollowupRow;
 }

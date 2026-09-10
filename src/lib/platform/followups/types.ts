@@ -71,6 +71,7 @@ export const CLOSURE_BASIS_LABEL: Record<ClosureBasis, string> = {
 export interface ApexFollowupRow {
   id: string;
   organization_id: string;
+  idempotency_key?: string | null;
   source_kind: FollowupSourceKind;
   source_id: string;
   contract_id: string | null;

@@ -11,7 +11,73 @@
  * produto atribuir uma designação ou uma confirmação a outra pessoa.
  */
 import { createClient } from '@/utils/supabase/server';
-import type { ApexFollowupRow } from './types';
+import type { ApexFollowupRow, FollowupSourceKind, FollowupState, VerificationMode } from './types';
+
+export interface CreateSessionFollowupInput {
+  sourceKind: FollowupSourceKind;
+  sourceId: string;
+  contractId?: string | null;
+  goal: string;
+  expectedEvidence?: string | null;
+  responsibleUserId?: string | null;
+  responsiblePartyId?: string | null;
+  responsibleText?: string | null;
+  dueDate?: string | null;
+  cadenceDays?: number | null;
+  escalateAfterDays?: number | null;
+  escalationTargetUserId?: string | null;
+  verificationMode?: VerificationMode;
+  verificationRule?: Record<string, unknown> | null;
+}
+
+export async function createFollowupAsHuman(
+  idempotencyKey: string,
+  input: CreateSessionFollowupInput,
+): Promise<ApexFollowupRow> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('apex_followup_create', {
+    p_idempotency_key: idempotencyKey,
+    p_source_kind: input.sourceKind,
+    p_source_id: input.sourceId,
+    p_contract_id: input.contractId ?? null,
+    p_goal: input.goal,
+    p_expected_evidence: input.expectedEvidence ?? null,
+    p_responsible_user_id: input.responsibleUserId ?? null,
+    p_responsible_party_id: input.responsiblePartyId ?? null,
+    p_responsible_text: input.responsibleText ?? null,
+    p_due_date: input.dueDate ?? null,
+    p_cadence_days: input.cadenceDays ?? null,
+    p_escalate_after_days: input.escalateAfterDays ?? null,
+    p_escalation_target_user_id: input.escalationTargetUserId ?? null,
+    p_verification_mode: input.verificationMode ?? 'human_confirmation',
+    p_verification_rule: input.verificationRule ?? null,
+  });
+  if (error) throw new Error(`Erro ao abrir acompanhamento: ${error.message}`);
+  return data as ApexFollowupRow;
+}
+
+export interface TransitionSessionFollowupInput {
+  next: FollowupState;
+  note?: string | null;
+  nextExpectedEvent?: string | null;
+  nextExpectedEventAt?: string | null;
+}
+
+export async function transitionFollowupAsHuman(
+  followupId: string,
+  input: TransitionSessionFollowupInput,
+): Promise<ApexFollowupRow> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('apex_followup_transition', {
+    p_followup_id: followupId,
+    p_next: input.next,
+    p_note: input.note ?? null,
+    p_next_expected_event: input.nextExpectedEvent ?? null,
+    p_next_expected_event_at: input.nextExpectedEventAt ?? null,
+  });
+  if (error) throw new Error(`Erro ao mudar o estado do acompanhamento: ${error.message}`);
+  return data as ApexFollowupRow;
+}
 
 export interface AssignFollowupInput {
   responsibleUserId?: string | null;

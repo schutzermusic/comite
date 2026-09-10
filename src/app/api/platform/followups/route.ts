@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { resolveFollowupActor, followupApiError } from '@/lib/platform/followups/server/actor';
-import { createFollowup, listFollowups } from '@/lib/platform/followups/server/store';
+import { listFollowups } from '@/lib/platform/followups/server/store';
+import { createFollowupAsHuman } from '@/lib/platform/followups/session';
 
 export const runtime = 'nodejs';
 
@@ -48,8 +49,15 @@ export async function POST(req: Request) {
   const auth = await resolveFollowupActor('contracts.edit');
   if (!auth.ok) return auth.response;
   try {
+    const idempotencyKey = req.headers.get('Idempotency-Key')?.trim();
+    if (!idempotencyKey || idempotencyKey.length < 8 || idempotencyKey.length > 200) {
+      return NextResponse.json(
+        { ok: false, error: 'Idempotency-Key válido é obrigatório.' },
+        { status: 400 },
+      );
+    }
     const input = createSchema.parse(await req.json());
-    const followup = await createFollowup(auth.actor, input);
+    const followup = await createFollowupAsHuman(idempotencyKey, input);
     return NextResponse.json({ ok: true, followup });
   } catch (error) {
     return followupApiError(error, 'Falha ao abrir acompanhamento.');

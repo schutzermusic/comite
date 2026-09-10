@@ -25,7 +25,7 @@ const TERMINAL: readonly FollowupState[] = ['COMPLETED', 'CANCELLED'];
 
 /** Terminal é terminal: reabrir apagaria a razão do fechamento. */
 export function isValidTransition(from: FollowupState, to: FollowupState): boolean {
-  if (from === to) return true;
+  if (from === to) return !TERMINAL.includes(from);
   if (TERMINAL.includes(from)) return false;
   return (
     ['ACTIVE', 'WAITING_EXTERNAL_PARTY', 'BLOCKED', 'ESCALATED', 'COMPLETED', 'CANCELLED'] as FollowupState[]

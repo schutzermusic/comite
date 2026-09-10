@@ -39,6 +39,7 @@ if (typeof window !== 'undefined') {
 }
 
 import { createClient as createServiceClient, type SupabaseClient } from '@supabase/supabase-js';
+import { createHash } from 'node:crypto';
 import { getApexAIGateway, getApexAITaskPolicy, type ApexAIResponse } from '@/lib/ai/gateway';
 
 export const OPERATIONALIZATION_VERSION = 'contract-operationalization/1.0.0';
@@ -610,7 +611,9 @@ export function assertOperationalEvidence(
  * não pode produzir duas obrigações idênticas com prazos separados.
  */
 export function operationalFingerprint(family: string, page: number, excerpt: string): string {
-  return `${family}|${page}|${excerpt.trim()}`;
+  return createHash('sha256')
+    .update(`${family}\u0000${page}\u0000${excerpt.trim()}`, 'utf8')
+    .digest('hex');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -706,11 +709,32 @@ export async function operationalizeContractDocument(
     .select('id').single<{ id: string }>();
   if (analysisError) throw new Error(`Erro ao registrar a análise: ${analysisError.message}`);
 
+  const persisted = EMPTY_COUNTS();
+  let materializedInstances = 0;
+  let awaitingScheduleAnchor = 0;
   const failAnalysis = async (message: string): Promise<Error> => {
-    await supabase.from('contract_ai_analyses')
-      .update({ status: 'failed', error_message: message, completed_at: new Date().toISOString() })
+    const { error } = await supabase.from('contract_ai_analyses')
+      .update({
+        status: 'failed',
+        error_message: message,
+        completed_at: new Date().toISOString(),
+        extracted_data: {
+          kind: 'contract_operationalization',
+          version: OPERATIONALIZATION_VERSION,
+          document_id: documentId,
+          partial_failure: {
+            retryable: true,
+            persisted,
+            materialized_instances: materializedInstances,
+            awaiting_schedule_anchor: awaitingScheduleAnchor,
+            error: message,
+          },
+        },
+      })
       .eq('id', analysis.id);
-    return new Error(message);
+    return new Error(error
+      ? `${message} (e a análise não pôde ser marcada como failed: ${error.message})`
+      : message);
   };
 
   let response: ApexAIResponse<Partial<Record<keyof OperationalReading, unknown[]>>>;
@@ -729,26 +753,34 @@ export async function operationalizeContractDocument(
       `A operacionalização falhou: ${err instanceof Error ? err.message : 'erro inesperado'}`);
   }
 
-  const { accepted, rejected } = assertOperationalEvidence(response.output, pageCount);
+  let accepted: OperationalReading;
+  let rejected: OperationalRejection[];
+  try {
+    ({ accepted, rejected } = assertOperationalEvidence(response.output, pageCount));
+  } catch (error) {
+    throw await failAnalysis(`Resposta operacional inválida: ${error instanceof Error ? error.message : 'erro inesperado'}`);
+  }
 
   // ── idempotência ─────────────────────────────────────────────────────────
   const existingKeys = new Set<string>();
-  const loadExisting = async (table: string, family: string) => {
-    const { data } = await supabase.from(table)
-      .select('source_page, source_excerpt')
+  const loadExisting = async (table: string) => {
+    const { data, error } = await supabase.from(table)
+      .select('ai_fingerprint')
       .eq('contract_id', contractId).eq('source_document_id', documentId);
+    if (error) {
+      throw await failAnalysis(`Erro ao carregar fingerprints existentes de ${table}: ${error.message}`);
+    }
     for (const row of data ?? []) {
-      const page = row.source_page as number | null;
-      if (page === null) continue;
-      existingKeys.add(operationalFingerprint(family, page, String(row.source_excerpt ?? '')));
+      const fingerprint = row.ai_fingerprint as string | null;
+      if (fingerprint) existingKeys.add(fingerprint);
     }
   };
   await Promise.all([
-    loadExisting('contract_obligation_definitions', 'obligation'),
-    loadExisting('contract_billing_conditions', 'billing_condition'),
-    loadExisting('contract_guarantees', 'guarantee'),
-    loadExisting('contract_insurance_requirements', 'insurance'),
-    loadExisting('contract_indexation_rules', 'indexation'),
+    loadExisting('contract_obligation_definitions'),
+    loadExisting('contract_billing_conditions'),
+    loadExisting('contract_guarantees'),
+    loadExisting('contract_insurance_requirements'),
+    loadExisting('contract_indexation_rules'),
   ]);
 
   const counts = EMPTY_COUNTS();
@@ -758,8 +790,12 @@ export async function operationalizeContractDocument(
   const fresh = <T extends { source_page: number; source_excerpt: string }>(
     items: T[], family: string, key: keyof OperationalReading,
   ): T[] => {
-    const kept = items.filter(
-      (item) => !existingKeys.has(operationalFingerprint(family, item.source_page, item.source_excerpt)));
+    const kept = items.filter((item) => {
+      const fingerprint = operationalFingerprint(family, item.source_page, item.source_excerpt);
+      if (existingKeys.has(fingerprint)) return false;
+      existingKeys.add(fingerprint);
+      return true;
+    });
     duplicates[key] = items.length - kept.length;
     counts[key] = kept.length;
     return kept;
@@ -771,14 +807,27 @@ export async function operationalizeContractDocument(
   const freshInsurance = fresh(accepted.insurance_requirements, 'insurance', 'insurance_requirements');
   const freshIndexation = fresh(accepted.indexation_rules, 'indexation', 'indexation_rules');
 
-  let materializedInstances = 0;
-  let awaitingScheduleAnchor = 0;
+  const aiProvenance = (
+    family: string,
+    item: { source_page: number; source_excerpt: string; confidence: number },
+  ) => ({
+    ai_origin: 'apex_ai',
+    ai_analysis_id: analysis.id,
+    ai_provider: response.provenance.provider,
+    ai_model: response.provenance.model,
+    ai_confidence: item.confidence,
+    ai_pipeline_version: OPERATIONALIZATION_VERSION,
+    ai_requesting_user_id: actorUserId,
+    ai_evidence: { documentId, page: item.source_page, excerpt: item.source_excerpt },
+    ai_fingerprint: operationalFingerprint(family, item.source_page, item.source_excerpt),
+  });
 
   if (freshObligations.length > 0) {
     const { data: inserted, error } = await supabase
       .from('contract_obligation_definitions')
       .insert(freshObligations.map((o) => ({
         ...base,
+        ...aiProvenance('obligation', o),
         title: o.title,
         requirement_text: o.requirement_text,
         category: o.category,
@@ -805,6 +854,7 @@ export async function operationalizeContractDocument(
       })))
       .select('id');
     if (error) throw await failAnalysis(`Erro ao registrar as obrigações: ${error.message}`);
+    persisted.obligations = inserted?.length ?? 0;
 
     /*
       Materializar aqui, e não num job depois, é o que faz o contrato ENTRAR EM
@@ -814,45 +864,54 @@ export async function operationalizeContractDocument(
     const horizon = new Date();
     horizon.setUTCFullYear(horizon.getUTCFullYear() + 2);
     for (const row of inserted ?? []) {
-      const { data: created } = await supabase.rpc('contract_obligations_materialize', {
+      const { data: created, error: materializeError } = await supabase.rpc('contract_obligations_materialize', {
         p_definition_id: row.id,
         p_through: horizon.toISOString().slice(0, 10),
         p_organization_id: document.organization_id,
       });
+      if (materializeError) {
+        throw await failAnalysis(`Erro ao materializar obrigação ${row.id}: ${materializeError.message}`);
+      }
       materializedInstances += Number(created ?? 0);
     }
-    const { count } = await supabase
+    const { count, error: countError } = await supabase
       .from('contract_obligation_instances')
       .select('id', { count: 'exact', head: true })
       .eq('contract_id', contractId)
       .eq('date_state', 'AWAITING_SCHEDULE_ANCHOR');
+    if (countError) throw await failAnalysis(`Erro ao contar âncoras pendentes: ${countError.message}`);
     awaitingScheduleAnchor = count ?? 0;
   }
 
-  const factBase = (item: { title: string; source_page: number; source_excerpt: string }) => ({
+  const factBase = (
+    family: string,
+    item: { title: string; source_page: number; source_excerpt: string; confidence: number },
+  ) => ({
     ...base,
+    ...aiProvenance(family, item),
     title: item.title,
     source_document_id: documentId,
     source_page: item.source_page,
-    source_reference: item.source_excerpt.slice(0, 500),
+    source_reference: item.source_excerpt,
     created_by: actorUserId,
   });
 
   if (freshBilling.length > 0) {
     const { error } = await supabase.from('contract_billing_conditions').insert(
       freshBilling.map((b) => ({
-        ...factBase(b),
+        ...factBase('billing_condition', b),
         condition_type: b.condition_type,
         requirement_text: b.requirement_text,
         required_document_type: b.required_document_type,
         elapsed_period_days: b.elapsed_period_days,
       })));
     if (error) throw await failAnalysis(`Erro ao registrar condições de faturamento: ${error.message}`);
+    persisted.billing_conditions = freshBilling.length;
   }
   if (freshGuarantees.length > 0) {
     const { error } = await supabase.from('contract_guarantees').insert(
       freshGuarantees.map((g) => ({
-        ...factBase(g),
+        ...factBase('guarantee', g),
         guarantee_type: g.guarantee_type,
         required_amount: g.required_amount,
         required_percentage: g.required_percentage,
@@ -860,32 +919,35 @@ export async function operationalizeContractDocument(
         renewal_required: g.renewal_required,
       })));
     if (error) throw await failAnalysis(`Erro ao registrar garantias: ${error.message}`);
+    persisted.guarantees = freshGuarantees.length;
   }
   if (freshInsurance.length > 0) {
     const { error } = await supabase.from('contract_insurance_requirements').insert(
       freshInsurance.map((i) => ({
-        ...factBase(i),
+        ...factBase('insurance', i),
         insurance_type: i.insurance_type,
         required_coverage: i.required_coverage,
         policy_required: i.policy_required,
         validity_requirement: i.validity_requirement,
       })));
     if (error) throw await failAnalysis(`Erro ao registrar exigências de seguro: ${error.message}`);
+    persisted.insurance_requirements = freshInsurance.length;
   }
   if (freshIndexation.length > 0) {
     const { error } = await supabase.from('contract_indexation_rules').insert(
       freshIndexation.map((r) => ({
-        ...factBase(r),
+        ...factBase('indexation', r),
         indexer: r.indexer,
         periodicity_months: r.periodicity_months,
         anniversary_rule: r.anniversary_rule,
         lag_months: r.lag_months,
       })));
     if (error) throw await failAnalysis(`Erro ao registrar regras de reajuste: ${error.message}`);
+    persisted.indexation_rules = freshIndexation.length;
   }
 
   const total = Object.values(counts).reduce((sum, n) => sum + n, 0);
-  await supabase.from('contract_ai_analyses').update({
+  const { error: completionError } = await supabase.from('contract_ai_analyses').update({
     status: 'completed',
     provider: response.provenance.provider,
     model: response.provenance.model,
@@ -919,6 +981,9 @@ export async function operationalizeContractDocument(
     },
     findings: rejected.map((r) => ({ family: r.family, reason: r.reason })),
   }).eq('id', analysis.id);
+  if (completionError) {
+    throw await failAnalysis(`Erro ao finalizar a análise: ${completionError.message}`);
+  }
 
   return {
     analysisId: analysis.id,

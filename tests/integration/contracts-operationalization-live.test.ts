@@ -134,7 +134,7 @@ describe.skipIf(!!SKIP)('operacionalização de contratos — provas vivas', () 
       `SELECT id FROM public.contract_clauses WHERE contract_id = $1 LIMIT 1`, [contractId]);
     expect(await rejects(
       `SELECT public.contract_clause_resolve_attention($1, 'confirm')`, [clause.id],
-    )).toMatch(/sessão autenticada/);
+    )).toMatch(/authenticated tenant|sessão autenticada/);
   });
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -251,10 +251,10 @@ describe.skipIf(!!SKIP)('operacionalização de contratos — provas vivas', () 
 
     expect(await rejects(
       `SELECT public.apex_followup_assign($1, NULL, NULL, 'Fulano')`, [followup.id],
-    )).toMatch(/sessão autenticada/);
+    )).toMatch(/authenticated tenant|sessão autenticada/);
     expect(await rejects(
       `SELECT public.apex_followup_confirm_completion($1)`, [followup.id],
-    )).toMatch(/sessão autenticada/);
+    )).toMatch(/authenticated tenant|sessão autenticada/);
   });
 
   it('aguardando a contraparte, o Apex não cobra antes da data esperada', async () => {
@@ -308,7 +308,7 @@ describe.skipIf(!!SKIP)('operacionalização de contratos — provas vivas', () 
        VALUES ($1, 'contract', $2, $2, 'Meta', 'Fulano', 'COMPLETED', 'verified_evidence',
                now(), 'deterministic_evidence')`,
       [organizationId, contractId],
-    )).toMatch(/requires the evidence/);
+    )).toMatch(/requires verified evidence|requires the evidence/);
   });
 
   it('acompanhamento sem responsável não existe', async () => {

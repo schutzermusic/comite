@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { resolveFollowupActor, followupApiError } from '@/lib/platform/followups/server/actor';
-import { transitionFollowup } from '@/lib/platform/followups/server/store';
+import { transitionFollowupAsHuman } from '@/lib/platform/followups/session';
 
 export const runtime = 'nodejs';
 
@@ -24,7 +24,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const { id } = await params;
   try {
     const input = schema.parse(await req.json());
-    const followup = await transitionFollowup(auth.actor, id, input);
+    const followup = await transitionFollowupAsHuman(id, input);
     return NextResponse.json({ ok: true, followup });
   } catch (error) {
     return followupApiError(error, 'Falha ao mudar o estado do acompanhamento.');

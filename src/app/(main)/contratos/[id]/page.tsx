@@ -558,7 +558,10 @@ export default function ContractDossierPage() {
       try {
         const response = await fetch('/api/platform/followups', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'Idempotency-Key': crypto.randomUUID(),
+          },
           body: JSON.stringify({
             sourceKind: 'contract_risk',
             sourceId: exposure.id,

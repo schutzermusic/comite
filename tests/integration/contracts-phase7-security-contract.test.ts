@@ -376,6 +376,8 @@ describe('Fase 7 · migrations aplicadas não são editadas', () => {
         '145', '146', '147', '148', '149', '150', '151', '152', '153',
         // ---- operacionalização de contratos ----
         '154', '155', '156', '157', '158',
+        // ---- correções forward-only do red-team de release ----
+        '159', '160',
       ]);
     // 090 continua arquivada, nunca aplicada.
     expect(versions).not.toContain('090');
