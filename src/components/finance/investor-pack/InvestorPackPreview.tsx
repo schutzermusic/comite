@@ -1,5 +1,6 @@
 'use client';
 
+import { useMemo, useState } from 'react';
 import { AlertTriangle, CircleDollarSign, Gauge, TrendingUp, Users } from 'lucide-react';
 import {
   FinanceBarChart,
@@ -7,6 +8,7 @@ import {
   FinanceLineChart,
   FinanceSCurveChart,
   FinanceStackedBarChart,
+  type StackedBarSeries,
 } from '@/components/finance/shared';
 import {
   HudCard,
@@ -180,27 +182,58 @@ export function InvestorPackPreview({ pack }: { pack: InvestorPack }) {
           <HudCard>
             <HudCardHeader>
               <HudCardTitle>Projeção de faturamento por cliente</HudCardTitle>
-              <HudCardDescription>{APEX_CLIENT_FORECAST_DESCRIPTION}</HudCardDescription>
+              <HudCardDescription>
+                {APEX_CLIENT_FORECAST_DESCRIPTION} Clique em um cliente na legenda para incluí-lo ou removê-lo do empilhamento.
+              </HudCardDescription>
             </HudCardHeader>
             <HudCardContent className="p-3">
-              <FinanceChartContainer scrollX minHeight={536} className="pb-4">
-                <div style={{ minWidth: Math.max(960, clientForecastPoints.length * 54) }}>
-                  <FinanceStackedBarChart
-                    categories={clientForecastLabels}
-                    series={forecastClients.map(([clientId, client], index) => ({
-                      name: client,
-                      data: clientForecastPoints.map((point) => centsToReais(forecastByClient.get(clientId)?.get(point.period) ?? 0)),
-                      tone: (['accent', 'info', 'success', 'warning', 'danger', 'budget'][index % 6]) as 'accent' | 'info' | 'success' | 'warning' | 'danger' | 'budget',
-                      color: clientForecastColor(clientId, index),
-                    }))}
-                    height={520}
-                  />
-                </div>
-              </FinanceChartContainer>
+              <ClientForecastChart
+                categories={clientForecastLabels}
+                series={forecastClients.map(([clientId, client], index) => ({
+                  name: client,
+                  data: clientForecastPoints.map((point) => centsToReais(forecastByClient.get(clientId)?.get(point.period) ?? 0)),
+                  tone: (['accent', 'info', 'success', 'warning', 'danger', 'budget'][index % 6]) as 'accent' | 'info' | 'success' | 'warning' | 'danger' | 'budget',
+                  color: clientForecastColor(clientId, index),
+                }))}
+              />
             </HudCardContent>
           </HudCard>
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * Empilhado por cliente com legenda-filtro.
+ *
+ * O filtro é estado de tela: nada aqui altera o pack nem as competências
+ * canônicas — apenas quais séries entram no empilhamento, na escala do eixo e
+ * no total exibido acima de cada coluna.
+ */
+function ClientForecastChart({ categories, series }: { categories: string[]; series: StackedBarSeries[] }) {
+  const [hidden, setHidden] = useState<string[]>([]);
+  // Um cliente removido do pack não pode continuar oculto de forma invisível:
+  // o estado é reconciliado contra as séries que de fato existem.
+  const hiddenSeries = useMemo(() => {
+    const names = new Set(series.map((item) => item.name));
+    return hidden.filter((name) => names.has(name));
+  }, [hidden, series]);
+  const toggle = (name: string) =>
+    setHidden((current) => current.includes(name) ? current.filter((item) => item !== name) : [...current, name]);
+
+  return (
+    <FinanceChartContainer scrollX minHeight={536} className="pb-4">
+      <div style={{ minWidth: Math.max(960, categories.length * 54) }}>
+        <FinanceStackedBarChart
+          categories={categories}
+          series={series}
+          hiddenSeries={hiddenSeries}
+          onToggleSeries={toggle}
+          showTotals
+          height={520}
+        />
+      </div>
+    </FinanceChartContainer>
   );
 }

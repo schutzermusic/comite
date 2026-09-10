@@ -12,6 +12,7 @@
 import { FONT_FAMILY_SANS } from '@/lib/fonts';
 import React, { useId, useMemo, useState, useRef, useLayoutEffect } from 'react';
 import { visibleCategoryTicks } from './chart-axis';
+import { formatCompactBRL, visibleStackedSeries, visibleStackedTotals } from './stacked-bar-totals';
 import { useTheme } from '@/contexts/ThemeContext';
 
 /* --------------------------------------------------------------- */
@@ -607,24 +608,60 @@ export function FinanceBarChart({
 
 export interface StackedBarSeries { name: string; data: number[]; tone?: Tone; color?: string }
 
+const STACK_TONES: Tone[] = ['accent', 'info', 'success', 'warning', 'danger', 'budget'];
+
+export interface FinanceStackedBarChartProps {
+  categories: string[];
+  series: StackedBarSeries[];
+  horizontal?: boolean;
+  percent?: boolean;
+  height?: number;
+  /**
+   * Nomes de série ocultos pela legenda. A série continua sendo passada em
+   * `series` (a legenda precisa dela para poder ser reativada) — o que muda é
+   * que ela sai do empilhamento e da escala do eixo.
+   */
+  hiddenSeries?: string[];
+  /** Quando fornecido, a legenda vira controle: clique/Enter alterna a série. */
+  onToggleSeries?: (name: string) => void;
+  /** Rótulo com o total visível acima de cada coluna empilhada. */
+  showTotals?: boolean;
+}
+
 export function FinanceStackedBarChart({
   categories, series, horizontal = false, percent = false, height = 280,
-}: { categories: string[]; series: StackedBarSeries[]; horizontal?: boolean; percent?: boolean; height?: number }) {
+  hiddenSeries, onToggleSeries, showTotals = false,
+}: FinanceStackedBarChartProps) {
   const uid = useId();
   const theme = useChartTheme();
   const [ref, width] = useContainerWidth();
   const [tip, setTip] = useState<TipState | null>(null);
   const W = width, H = height;
-  const padL = horizontal ? 120 : 56, padR = 18, padT = series.length > 4 ? 72 : 44, padB = 38;
+
+  // O tom padrão é derivado do índice na lista COMPLETA: ocultar uma série pela
+  // legenda não pode remapear a cor das demais.
+  const resolved = series.map((s, idx) => ({ series: s, tone: s.tone || STACK_TONES[idx % 6] }));
+  const hidden = new Set(hiddenSeries ?? []);
+  const visible = visibleStackedSeries(
+    resolved.map((entry) => ({ ...entry, name: entry.series.name, data: entry.series.data })),
+    hiddenSeries ?? [],
+  );
+
+  const totalsLabelled = showTotals && !horizontal && !percent;
+  const padL = horizontal ? 120 : 56, padR = 18;
+  const padT = (series.length > 4 ? 72 : 44) + (totalsLabelled ? 18 : 0), padB = 38;
   const innerW = Math.max(50, W - padL - padR);
   const innerH = Math.max(50, H - padT - padB);
 
-  const totals = categories.map((_, i) => series.reduce((a, s) => a + Math.abs(s.data[i] || 0), 0));
+  const totals = visibleStackedTotals(visible, categories.length);
   const max = percent ? 100 : Math.max(...totals, 1);
   const groupCount = categories.length;
   const groupSize = (horizontal ? innerH : innerW) / Math.max(1, groupCount);
   const categoryTicks = visibleCategoryTicks(categories, innerW);
   const barW = Math.min(28, groupSize * 0.65);
+  // Rótulo de total ocupa ~50px; em colunas mais estreitas que isso, só os
+  // meses que já têm rótulo de eixo recebem total, para não sobrepor.
+  const totalTicks = groupSize >= 52 ? null : categoryTicks;
 
   const yTicks = 4;
   const tickVals = Array.from({ length: yTicks + 1 }, (_, i) => (max / yTicks) * i);
@@ -657,15 +694,15 @@ export function FinanceStackedBarChart({
         {categories.map((cat, i) => {
           let acc = 0;
           const total = totals[i];
-          return series.map((s, sIdx) => {
+          return visible.map((entry, sIdx) => {
+            const s = entry.series;
             const v = Math.abs(s.data[i] || 0);
-            const portion = percent ? (v / total) * 100 : v;
+            const portion = percent ? (total > 0 ? (v / total) * 100 : 0) : v;
             const lenAxis = (portion / max) * (horizontal ? innerW : innerH);
-            const tone = s.tone || (['accent', 'info', 'success', 'warning', 'danger', 'budget'] as Tone[])[sIdx % 6];
+            const tone = entry.tone;
             const seriesColor = s.color ?? theme.palette[tone];
             const isFirst = sIdx === 0;
-            const isLast = sIdx === series.length - 1;
-            let rx = 0;
+            const isLast = sIdx === visible.length - 1;
             if (horizontal) {
               const x = padL + (acc / max) * innerW;
               const y = padT + i * groupSize + (groupSize - barW) / 2;
@@ -698,17 +735,61 @@ export function FinanceStackedBarChart({
             );
           });
         })}
+
+        {totalsLabelled && categories.map((cat, i) => {
+          const total = totals[i];
+          if (total <= 0) return null;
+          if (totalTicks && !totalTicks.has(i)) return null;
+          return (
+            <text
+              key={`total-${cat}-${i}`}
+              x={padL + i * groupSize + groupSize / 2}
+              y={padT + innerH - (total / max) * innerH - 7}
+              textAnchor="middle"
+              fontSize="10"
+              fontWeight={600}
+              fill={theme.textStrong}
+              style={{ fontFamily: FONT_FAMILY_SANS }}
+            >
+              <title>{`${cat} · ${fmtBRL(total)}`}</title>
+              {formatCompactBRL(total)}
+            </text>
+          );
+        })}
       </svg>
 
       <div className="absolute top-0 right-0 flex flex-wrap gap-3 text-[11px]">
-        {series.map((s, idx) => {
-          const tone = s.tone || (['accent', 'info', 'success', 'warning', 'danger', 'budget'] as Tone[])[idx % 6];
-          const seriesColor = s.color ?? theme.palette[tone];
+        {resolved.map((entry) => {
+          const s = entry.series;
+          const seriesColor = s.color ?? theme.palette[entry.tone];
+          const isHidden = hidden.has(s.name);
+          const swatch = (
+            <span
+              className="w-2.5 h-2.5 rounded-sm transition-opacity"
+              style={{ background: seriesColor, boxShadow: isHidden ? 'none' : `0 0 6px ${seriesColor}`, opacity: isHidden ? 0.3 : 1 }}
+            />
+          );
+          if (!onToggleSeries) {
+            return (
+              <div key={s.name} className="inline-flex items-center gap-1.5">
+                {swatch}
+                <span style={{ color: theme.text }}>{s.name}</span>
+              </div>
+            );
+          }
           return (
-            <div key={s.name} className="inline-flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-sm" style={{ background: seriesColor, boxShadow: `0 0 6px ${seriesColor}` }} />
-              <span style={{ color: theme.text }}>{s.name}</span>
-            </div>
+            <button
+              key={s.name}
+              type="button"
+              onClick={() => onToggleSeries(s.name)}
+              aria-pressed={!isHidden}
+              title={isHidden ? `Mostrar ${s.name}` : `Ocultar ${s.name}`}
+              className="inline-flex cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-0.5 transition-colors hover:bg-ig-fg-default/10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ig-accent"
+              style={{ opacity: isHidden ? 0.45 : 1 }}
+            >
+              {swatch}
+              <span style={{ color: isHidden ? theme.text : theme.textStrong, textDecoration: isHidden ? 'line-through' : 'none' }}>{s.name}</span>
+            </button>
           );
         })}
       </div>
