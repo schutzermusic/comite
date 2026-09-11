@@ -64,9 +64,27 @@ const approvalExpiration: ScheduledProducer = {
   },
 };
 
+/** Bounded state-aware Follow-up pass on the existing Apex Jobs clock. */
+const followupExecution: ScheduledProducer = {
+  name: 'platform.followups.execute',
+  ownerDomain: 'platform',
+  idempotencyBasis:
+    'A chave do trabalho é (organização, dia). Dentro do trabalho, nudge e '
+    + 'escalonamento usam last_nudge_at/escalated_at sob bloqueio de linha.',
+  async produce(supabase, asOf) {
+    const { data, error } = await supabase.rpc('apex_followups_enqueue_execution', {
+      p_as_of: isoDate(asOf),
+      p_limit: 200,
+    });
+    if (error) throw new Error(`Produtor de Follow-up falhou: ${error.message}`);
+    return Number(data ?? 0);
+  },
+};
+
 export const SCHEDULED_PRODUCERS: readonly ScheduledProducer[] = [
   obligationMaterialization,
   approvalExpiration,
+  followupExecution,
 ];
 
 /** Data em UTC. O dia do produtor tem de ser o mesmo em toda máquina que acordar. */

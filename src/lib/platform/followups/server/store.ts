@@ -284,3 +284,28 @@ export async function completeByVerifiedEvidence(
   check(error, 'Falha ao concluir por evidência verificada');
   return data as ApexFollowupRow;
 }
+
+/**
+ * Hands facts produced by a trusted document pipeline to the bounded execution
+ * loop. Registration does not close anything; the worker reruns the persisted
+ * rule and only the database verifier may create the authoritative closure.
+ */
+export async function registerEvidenceCandidate(
+  actor: Pick<FollowupActor, 'organizationId'>,
+  followupId: string,
+  evidenceId: string,
+  candidate: EvidenceCandidate,
+  sourceReference: string,
+): Promise<string> {
+  const supabase = followupServiceClient();
+  const { data, error } = await supabase.rpc('apex_followup_register_evidence_candidate', {
+    p_organization_id: actor.organizationId,
+    p_followup_id: followupId,
+    p_evidence_document_id: evidenceId,
+    p_document_tax_id: candidate.documentTaxId,
+    p_valid_until: candidate.validUntil,
+    p_source_reference: sourceReference,
+  });
+  check(error, 'Falha ao registrar evidência para verificação');
+  return String(data);
+}

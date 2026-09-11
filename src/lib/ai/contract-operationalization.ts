@@ -43,6 +43,9 @@ import { createHash } from 'node:crypto';
 import { getApexAIGateway, getApexAITaskPolicy, type ApexAIResponse } from '@/lib/ai/gateway';
 
 export const OPERATIONALIZATION_VERSION = 'contract-operationalization/1.0.0';
+export const OPERATIONAL_TRUST_POLICY_VERSION = 'contract-operational-trust/1.0.0';
+export const MIN_OPERATIONAL_CONFIDENCE = 0.75;
+export const MATERIAL_OPERATIONAL_AMOUNT_BRL = 100_000;
 
 const CONTRACT_FILES_BUCKET = 'contract-files';
 const MAX_PDF_BYTES = 30 * 1024 * 1024;
@@ -156,6 +159,46 @@ export interface OperationalReading {
   guarantees: OperationalGuarantee[];
   insurance_requirements: OperationalInsurance[];
   indexation_rules: OperationalIndexation[];
+}
+
+export type OperationalFamily = keyof OperationalReading;
+export type OperationalTrustReason = 'low_confidence' | 'material_financial_exposure';
+
+export interface OperationalTrustDecision {
+  /** Only this state may be copied into authority-bearing operational tables. */
+  state: 'automatic' | 'requires_attention';
+  reasons: OperationalTrustReason[];
+  policyVersion: string;
+}
+
+/**
+ * Deterministic gate between an AI interpretation and operational authority.
+ *
+ * Every reading is retained in `contract_operational_interpretations`; only a
+ * reading that passes this policy is copied into obligation/billing/etc. fact
+ * tables. Confidence is about the reading, not importance. A material amount
+ * is therefore a separate exception even when confidence is high.
+ */
+export function evaluateOperationalTrust(
+  family: OperationalFamily,
+  item: { confidence: number } & Record<string, unknown>,
+): OperationalTrustDecision {
+  const reasons: OperationalTrustReason[] = [];
+  if (item.confidence < MIN_OPERATIONAL_CONFIDENCE) reasons.push('low_confidence');
+
+  const materialAmount = family === 'guarantees'
+    ? (typeof item.required_amount === 'number' ? item.required_amount : null)
+    : family === 'insurance_requirements'
+      ? (typeof item.required_coverage === 'number' ? item.required_coverage : null)
+      : null;
+  if (materialAmount !== null && Math.abs(materialAmount) >= MATERIAL_OPERATIONAL_AMOUNT_BRL) {
+    reasons.push('material_financial_exposure');
+  }
+  return {
+    state: reasons.length === 0 ? 'automatic' : 'requires_attention',
+    reasons,
+    policyVersion: OPERATIONAL_TRUST_POLICY_VERSION,
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -457,6 +500,7 @@ export function normalizeObligation(raw: Record<string, unknown>): OperationalOb
     || activationKind === 'schedule_anchor';
   const anchor = oneOf(raw.schedule_anchor, SCHEDULE_ANCHORS, 'measurement');
   const recurrenceKind = oneOf(raw.recurrence_kind, RECURRENCE_KINDS, 'one_time');
+  const recurrenceInterval = intOrNull(raw.recurrence_interval);
 
   const activationOffset = intOrNull(raw.activation_offset_days);
   const dueOffset = intOrNull(raw.due_offset_days);
@@ -482,6 +526,14 @@ export function normalizeObligation(raw: Record<string, unknown>): OperationalOb
   if (dueKind === 'fixed_date' && dueFixed === null) return null;
   // `cod_recurring_due`: série recorrente não tem data fixa única.
   if (recurrenceKind !== 'one_time' && dueKind === 'fixed_date') return null;
+  // `fixed_interval` is the only recurrence whose interval is authoritative.
+  // Missing/zero/negative values are rejected here so one malformed sibling
+  // never reaches (and aborts) the batch INSERT. Other kinds must not smuggle
+  // an interval that their semantics ignore.
+  if (recurrenceKind === 'fixed_interval' && (recurrenceInterval === null || recurrenceInterval <= 0)) {
+    return null;
+  }
+  if (recurrenceKind !== 'fixed_interval' && recurrenceInterval !== null) return null;
 
   return {
     title: String(raw.title).trim(),
@@ -506,7 +558,7 @@ export function normalizeObligation(raw: Record<string, unknown>): OperationalOb
         ? anchorOffset : null,
     schedule_anchor_text: anchored ? strOrNull(raw.schedule_anchor_text) : null,
     recurrence_kind: recurrenceKind,
-    recurrence_interval: recurrenceKind === 'fixed_interval' ? intOrNull(raw.recurrence_interval) : null,
+    recurrence_interval: recurrenceKind === 'fixed_interval' ? recurrenceInterval : null,
     blocks_billing: boolOrNull(raw.blocks_billing),
     source_page: raw.source_page as number,
     source_excerpt: String(raw.source_excerpt).trim(),
@@ -638,6 +690,8 @@ export interface OperationalizationResult {
   materializedInstances: number;
   /** Exigências que dependem de agenda que Projetos ainda não publicou. */
   awaitingScheduleAnchor: number;
+  /** AI readings retained for exception governance, without authoritative effect. */
+  requiresAttention: number;
   provider: string;
   model: string;
   version: string;
@@ -658,7 +712,7 @@ const EMPTY_COUNTS = (): Record<keyof OperationalReading, number> => ({
 export async function operationalizeContractDocument(
   contractId: string,
   documentId: string,
-  actorUserId: string,
+  actorUserId: string | null,
 ): Promise<OperationalizationResult> {
   const supabase = getServiceClient();
 
@@ -787,6 +841,56 @@ export async function operationalizeContractDocument(
   const duplicates = EMPTY_COUNTS();
   const base = { organization_id: document.organization_id, contract_id: contractId };
 
+  const families: { [K in OperationalFamily]: OperationalReading[K] } = {
+    obligations: accepted.obligations,
+    billing_conditions: accepted.billing_conditions,
+    guarantees: accepted.guarantees,
+    insurance_requirements: accepted.insurance_requirements,
+    indexation_rules: accepted.indexation_rules,
+  };
+  const trust = new Map<object, OperationalTrustDecision>();
+  const interpretationRows: Record<string, unknown>[] = [];
+  const interpretationKeys = new Set<string>();
+  for (const [family, items] of Object.entries(families) as [OperationalFamily, OperationalReading[OperationalFamily]][]) {
+    for (const item of items) {
+      const decision = evaluateOperationalTrust(
+        family,
+        item as unknown as { confidence: number } & Record<string, unknown>,
+      );
+      trust.set(item, decision);
+      const fingerprint = operationalFingerprint(family, item.source_page, item.source_excerpt);
+      const interpretationKey = `${family}:${fingerprint}`;
+      if (interpretationKeys.has(interpretationKey)) continue;
+      interpretationKeys.add(interpretationKey);
+      interpretationRows.push({
+        ...base,
+        analysis_id: analysis.id,
+        source_document_id: documentId,
+        family,
+        fingerprint,
+        normalized_payload: item,
+        source_page: item.source_page,
+        source_excerpt: item.source_excerpt,
+        confidence: item.confidence,
+        provider: response.provenance.provider,
+        model: response.provenance.model,
+        pipeline_version: OPERATIONALIZATION_VERSION,
+        requesting_user_id: actorUserId,
+        trust_state: decision.state,
+        trust_reasons: decision.reasons,
+        trust_policy_version: decision.policyVersion,
+      });
+    }
+  }
+  if (interpretationRows.length > 0) {
+    const { error } = await supabase.from('contract_operational_interpretations').insert(interpretationRows);
+    if (error) throw await failAnalysis(`Erro ao registrar interpretações operacionais: ${error.message}`);
+  }
+  const requiresAttention = interpretationRows
+    .filter((row) => row.trust_state === 'requires_attention').length;
+  const authoritative = <T extends object>(items: T[]): T[] =>
+    items.filter((item) => trust.get(item)?.state === 'automatic');
+
   const fresh = <T extends { source_page: number; source_excerpt: string }>(
     items: T[], family: string, key: keyof OperationalReading,
   ): T[] => {
@@ -801,11 +905,11 @@ export async function operationalizeContractDocument(
     return kept;
   };
 
-  const freshObligations = fresh(accepted.obligations, 'obligation', 'obligations');
-  const freshBilling = fresh(accepted.billing_conditions, 'billing_condition', 'billing_conditions');
-  const freshGuarantees = fresh(accepted.guarantees, 'guarantee', 'guarantees');
-  const freshInsurance = fresh(accepted.insurance_requirements, 'insurance', 'insurance_requirements');
-  const freshIndexation = fresh(accepted.indexation_rules, 'indexation', 'indexation_rules');
+  const freshObligations = fresh(authoritative(accepted.obligations), 'obligation', 'obligations');
+  const freshBilling = fresh(authoritative(accepted.billing_conditions), 'billing_condition', 'billing_conditions');
+  const freshGuarantees = fresh(authoritative(accepted.guarantees), 'guarantee', 'guarantees');
+  const freshInsurance = fresh(authoritative(accepted.insurance_requirements), 'insurance', 'insurance_requirements');
+  const freshIndexation = fresh(authoritative(accepted.indexation_rules), 'indexation', 'indexation_rules');
 
   const aiProvenance = (
     family: string,
@@ -972,6 +1076,8 @@ export async function operationalizeContractDocument(
       counts,
       duplicates_skipped: duplicates,
       rejected_without_evidence: rejected.length,
+      requires_attention: requiresAttention,
+      trust_policy_version: OPERATIONAL_TRUST_POLICY_VERSION,
       materialized_instances: materializedInstances,
       awaiting_schedule_anchor: awaitingScheduleAnchor,
       usage: {
@@ -979,7 +1085,17 @@ export async function operationalizeContractDocument(
         output_tokens: response.provenance.usage.outputTokens,
       },
     },
-    findings: rejected.map((r) => ({ family: r.family, reason: r.reason })),
+    findings: [
+      ...rejected.map((r) => ({ family: r.family, reason: r.reason })),
+      ...interpretationRows
+        .filter((row) => row.trust_state === 'requires_attention')
+        .map((row) => ({
+          family: row.family,
+          reason: 'requires_attention',
+          trust_reasons: row.trust_reasons,
+          fingerprint: row.fingerprint,
+        })),
+    ],
   }).eq('id', analysis.id);
   if (completionError) {
     throw await failAnalysis(`Erro ao finalizar a análise: ${completionError.message}`);
@@ -994,6 +1110,7 @@ export async function operationalizeContractDocument(
     rejections: rejected,
     materializedInstances,
     awaitingScheduleAnchor,
+    requiresAttention,
     provider: response.provenance.provider,
     model: response.provenance.model,
     version: OPERATIONALIZATION_VERSION,

@@ -64,6 +64,12 @@ export function nudgeDecision(followup: ApexFollowupRow, asOf: string): NudgeDec
   const quiet = (silenceReason: string): NudgeDecision => ({ shouldNudge: false, reason: null, silenceReason });
 
   if (TERMINAL.includes(followup.state)) return quiet('Acompanhamento encerrado.');
+  if (followup.state === 'BLOCKED') {
+    return quiet('Bloqueado; o Apex aguarda uma mudança determinística do estado relevante.');
+  }
+  if (followup.state === 'ESCALATED') {
+    return quiet('Já escalado; nenhuma nova cobrança automática será emitida.');
+  }
 
   // A bola está com o outro lado e a data esperada não chegou.
   if (followup.state === 'WAITING_EXTERNAL_PARTY') {
@@ -101,6 +107,7 @@ export function nudgeDecision(followup: ApexFollowupRow, asOf: string): NudgeDec
 /** Escalonamento por política, nunca por impaciência. */
 export function shouldEscalate(followup: ApexFollowupRow, asOf: string): boolean {
   if (TERMINAL.includes(followup.state)) return false;
+  if (followup.state === 'BLOCKED' || followup.state === 'ESCALATED') return false;
   if (followup.escalated_at) return false;
   if (followup.escalate_after_days === null || followup.due_date === null) return false;
   return civilDays(followup.due_date, asOf) >= followup.escalate_after_days;

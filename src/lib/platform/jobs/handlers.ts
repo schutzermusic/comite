@@ -66,6 +66,50 @@ const externalActivation: JobHandler<'contracts.obligation.external_activation.a
   },
 };
 
+const scheduleAnchor: JobHandler<'contracts.obligation.schedule_anchor.apply'> = {
+  payloadVersion: 1,
+  idempotencyBasis:
+    'A instância guarda a medição/data aplicada. Reentregar o mesmo evento '
+    + 'não cria instância nem nova materialização.',
+  async run(payload, { job, supabase }) {
+    await assertEventTenant(supabase, job, payload.event_id);
+    const { data: event, error: eventError } = await supabase
+      .from('domain_events')
+      .select('aggregate_id, aggregate_type, event_type')
+      .eq('id', payload.event_id)
+      .eq('organization_id', job.organization_id)
+      .maybeSingle<{ aggregate_id: string; aggregate_type: string; event_type: string }>();
+    if (eventError) throw rpcError(eventError);
+    if (!event || event.aggregate_type !== 'project_measurement'
+        || !['projects.measurement.schedule_changed', 'projects.measurement.accepted'].includes(event.event_type)) {
+      throw new TerminalJobError('invalid_schedule_anchor_event',
+        'O evento não representa agenda ou aceite de uma medição.');
+    }
+    const { data, error } = await supabase.rpc('contract_obligations_apply_schedule_anchor', {
+      p_measurement_id: event.aggregate_id,
+      p_organization_id: job.organization_id,
+    });
+    if (error) throw rpcError(error);
+    return { measurement_id: event.aggregate_id, obligations_resolved: Number(data ?? 0) };
+  },
+};
+
+const followupExecution: JobHandler<'platform.followups.execute'> = {
+  payloadVersion: 1,
+  idempotencyBasis:
+    'A RPC bloqueia cada acompanhamento e grava last_nudge_at/escalated_at ou '
+    + 'uma verificação única antes de liberar a linha.',
+  async run(payload, { job, supabase }) {
+    const { data, error } = await supabase.rpc('apex_followups_execute_due', {
+      p_organization_id: job.organization_id,
+      p_as_of: payload.as_of,
+      p_limit: payload.limit,
+    });
+    if (error) throw rpcError(error);
+    return (data ?? {}) as Record<string, unknown>;
+  },
+};
+
 /**
  * Uma leitura, duas saídas.
  *
@@ -78,10 +122,9 @@ const externalActivation: JobHandler<'contracts.obligation.external_activation.a
  * contrato; entenda". Pedir que a pessoa dispare duas análises seria devolver
  * a ela um trabalho que o produto existe para fazer.
  *
- * A operacionalização roda DEPOIS e não derruba a extração: se ela falhar, as
- * cláusulas lidas continuam gravadas e o erro fica no `findings` da análise.
- * Perder as duas por causa de uma seria pior do que entregar metade — e a
- * metade entregue é verificável, com página e trecho.
+ * A operacionalização roda DEPOIS. Uma falha não apaga as cláusulas já
+ * persistidas, mas FALHA o trabalho: sucesso parcial silencioso faria o
+ * documento parecer plenamente operacional quando a estrutura não existe.
  */
 const clauseExtraction: JobHandler<'contracts.clause_extraction.execute'> = {
   payloadVersion: 1,
@@ -123,34 +166,20 @@ const clauseExtraction: JobHandler<'contracts.clause_extraction.execute'> = {
 
     try {
       const result = await extractClausesFromDocument(
-        request.contract_id, request.document_id, request.requested_by ?? job.organization_id,
+        request.contract_id, request.document_id, request.requested_by,
       );
 
-      /*
-        A operacionalização é a segunda metade da leitura. Ela é isolada num
-        try próprio porque uma falha aqui NÃO deve desfazer o que já foi lido:
-        cláusula estruturada com evidência é resultado útil por si.
-      */
-      let operational: {
-        analysis_id: string; counts: Record<string, number>;
-        materialized: number; awaiting_schedule_anchor: number;
-      } | { error: string };
-      try {
-        const { operationalizeContractDocument } = await import('@/lib/ai/contract-operationalization');
-        const ops = await operationalizeContractDocument(
-          request.contract_id, request.document_id, request.requested_by ?? job.organization_id,
-        );
-        operational = {
-          analysis_id: ops.analysisId,
-          counts: ops.counts,
-          materialized: ops.materializedInstances,
-          awaiting_schedule_anchor: ops.awaitingScheduleAnchor,
-        };
-      } catch (opsError) {
-        operational = {
-          error: opsError instanceof Error ? opsError.message : 'erro inesperado na operacionalização',
-        };
-      }
+      const { operationalizeContractDocument } = await import('@/lib/ai/contract-operationalization');
+      const ops = await operationalizeContractDocument(
+        request.contract_id, request.document_id, request.requested_by,
+      );
+      const operational = {
+        analysis_id: ops.analysisId,
+        counts: ops.counts,
+        materialized: ops.materializedInstances,
+        awaiting_schedule_anchor: ops.awaitingScheduleAnchor,
+        requires_attention: ops.requiresAttention,
+      };
 
       await supabase
         .from('contract_clause_extraction_requests')
@@ -512,8 +541,10 @@ const fiscalCancellation: JobHandler<'finance.receivable.apply_fiscal_cancellati
 export const JOB_HANDLERS: HandlerRegistry = {
   'contracts.obligations.materialize': materialize,
   'contracts.obligation.external_activation.apply': externalActivation,
+  'contracts.obligation.schedule_anchor.apply': scheduleAnchor,
   'contracts.clause_extraction.execute': clauseExtraction,
   'platform.approvals.expire': approvalExpiration,
+  'platform.followups.execute': followupExecution,
   'projects.measurements.reconcile_candidates': measurementCandidates,
   'projects.measurements.recompute_readiness': measurementReadiness,
   'contracts.billing.candidate_from_measurement': billingCandidate,

@@ -309,7 +309,7 @@ export interface ExtractionResult {
 export async function extractClausesFromDocument(
   contractId: string,
   documentId: string,
-  actorUserId: string,
+  actorUserId: string | null,
 ): Promise<ExtractionResult> {
   const supabase = getServiceClient();
 

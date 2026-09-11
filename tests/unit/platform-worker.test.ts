@@ -80,6 +80,8 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks();
   vi.doUnmock('@/lib/platform/server-client');
+  vi.doUnmock('@/lib/ai/contract-clause-extractor');
+  vi.doUnmock('@/lib/ai/contract-operationalization');
   __resetPlatformServiceClient();
 });
 
@@ -167,6 +169,57 @@ describe('limites', () => {
 });
 
 describe('despacho tipado', () => {
+  it('falha canonicamente o trabalho quando a operacionalização falha', async () => {
+    const requestId = '00000000-0000-4000-8000-000000000101';
+    const contractId = '00000000-0000-4000-8000-000000000102';
+    const documentId = '00000000-0000-4000-8000-000000000103';
+    const client = fakeSupabase([[
+      job({
+        job_type: 'contracts.clause_extraction.execute',
+        payload: { request_id: requestId, contract_id: contractId, document_id: documentId },
+        max_attempts: 1,
+      }),
+    ], []], { apex_jobs_fail: 'DEAD_LETTER' });
+    const requestUpdates: Array<Record<string, unknown>> = [];
+    (client as unknown as { from: ReturnType<typeof vi.fn> }).from = vi.fn((table: string) => {
+      const builder = {
+        select: () => builder,
+        update: (value: Record<string, unknown>) => {
+          if (table === 'contract_clause_extraction_requests') requestUpdates.push(value);
+          return builder;
+        },
+        eq: () => builder,
+        maybeSingle: async () => ({
+          data: table === 'contract_clause_extraction_requests' ? {
+            id: requestId, organization_id: ORG, contract_id: contractId,
+            document_id: documentId, status: 'QUEUED', requested_by: null,
+          } : null,
+          error: null,
+        }),
+        then: (resolve: (value: { data: null; error: null }) => unknown) => resolve({ data: null, error: null }),
+      };
+      return builder;
+    });
+    vi.doMock('@/lib/ai/contract-clause-extractor', () => ({
+      extractClausesFromDocument: vi.fn(async () => ({
+        analysisId: crypto.randomUUID(), proposedCount: 2, rejectedCount: 0,
+      })),
+    }));
+    vi.doMock('@/lib/ai/contract-operationalization', () => ({
+      operationalizeContractDocument: vi.fn(async () => {
+        throw Object.assign(new Error('Falha operacional injetada.'), { status: 422 });
+      }),
+    }));
+
+    const counters = await runWith(client);
+    expect(counters.dead_letter).toBe(1);
+    expect(client.calls.some((call) => call.fn === 'apex_jobs_complete')).toBe(false);
+    expect(client.calls.find((call) => call.fn === 'apex_jobs_fail')?.args).toMatchObject({
+      p_retryable: false, p_error_code: 'http_422',
+    });
+    expect(requestUpdates).toContainEqual(expect.objectContaining({ status: 'FAILED' }));
+  });
+
   it('tipo de trabalho desconhecido é TERMINAL', async () => {
     const client = fakeSupabase([[job({ job_type: 'inventado.qualquer.coisa' })], []],
       { apex_jobs_fail: 'DEAD_LETTER' });

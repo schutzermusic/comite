@@ -11,8 +11,10 @@ import { z } from 'zod';
 export const JOB_TYPES = [
   'contracts.obligations.materialize',
   'contracts.obligation.external_activation.apply',
+  'contracts.obligation.schedule_anchor.apply',
   'contracts.clause_extraction.execute',
   'platform.approvals.expire',
+  'platform.followups.execute',
   // ---- Fase 6 ----
   'projects.measurements.reconcile_candidates',
   'projects.measurements.recompute_readiness',
@@ -59,6 +61,7 @@ export const JOB_SCHEMAS = {
       schema_version: z.number().int().positive(),
     }),
   },
+  'contracts.obligation.schedule_anchor.apply': { 1: EVENT_REF },
   'contracts.clause_extraction.execute': {
     1: z.object({ request_id: uuid, contract_id: uuid, document_id: uuid }),
   },
@@ -68,6 +71,12 @@ export const JOB_SCHEMAS = {
   // quem alguém achou que ia vencer.
   'platform.approvals.expire': {
     1: z.object({ as_of: z.string() }),
+  },
+  'platform.followups.execute': {
+    1: z.object({
+      as_of: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      limit: z.number().int().positive().max(500),
+    }),
   },
   /*
     Materialização de candidatos de medição. Horizonte ROLANTE, pela mesma
