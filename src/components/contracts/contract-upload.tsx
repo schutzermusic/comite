@@ -54,12 +54,21 @@ import {
   Upload,
   UserRound,
   Workflow,
+  LoaderCircle,
+  RotateCcw,
 } from 'lucide-react';
 import { listOrgMembers } from '@/lib/services/agenda';
 import type { OrgMember } from '@/lib/types/agenda';
 import type { PartyRow } from '@/lib/parties/types';
 import { partyDisplayName } from '@/lib/parties/types';
 import { searchParties } from '@/lib/parties/party-service';
+import {
+  getContractIntake,
+  retryContractIntake,
+  sendContractDocument,
+  type ContractIntakeView,
+} from '@/lib/contracts/onboarding/client';
+import type { ClassifiedIntakeField } from '@/lib/contracts/onboarding/document-first';
 
 /** O que o assistente entrega. Campos vazios chegam como `null`, nunca inventados. */
 export type ContractOnboardingDraft = {
@@ -91,6 +100,8 @@ export type ContractOnboardingDraft = {
   readonly document: { readonly file: File; readonly title: string; readonly documentType: string } | null;
   /** Rodar a extração assistida logo após criar. Jamais requisito. */
   readonly runExtraction: boolean;
+  /** Existing durable intake. Finalization promotes its stored PDF; it is never uploaded twice. */
+  readonly onboardingIntakeId: string | null;
 };
 
 export interface ContractUploadProps {
@@ -124,6 +135,8 @@ const CONTRACT_STATUSES = [
   { value: 'commercial_review', label: 'Revisão comercial' },
   { value: 'signed', label: 'Assinado' },
   { value: 'active', label: 'Ativo / em execução' },
+  { value: 'cancelled', label: 'Cancelado' },
+  { value: 'expired', label: 'Expirado' },
 ];
 
 const DOCUMENT_TYPES = [
@@ -169,6 +182,8 @@ const blank = () => ({
   runExtraction: false,
 });
 
+type OnboardingView = 'entry' | 'processing' | 'summary' | 'manual';
+
 const selectClass =
   'h-10 w-full rounded-lg border border-ig-border-strong bg-ig-panel px-3 text-sm text-ig-fg-strong outline-none transition-colors focus:border-ig-border-focus';
 const textareaClass =
@@ -181,9 +196,14 @@ export function ContractUpload({
   projects = [],
   companies = [],
 }: ContractUploadProps) {
+  const [view, setView] = useState<OnboardingView>('entry');
   const [step, setStep] = useState(0);
   const [file, setFile] = useState<File | null>(null);
   const [form, setForm] = useState(blank);
+  const [intake, setIntake] = useState<ContractIntakeView | null>(null);
+  const [intakeId, setIntakeId] = useState<string | null>(null);
+  const [intakeError, setIntakeError] = useState<string | null>(null);
+  const [duplicateMessage, setDuplicateMessage] = useState<string | null>(null);
   const [members, setMembers] = useState<OrgMember[]>([]);
   const [partyOptions, setPartyOptions] = useState<PartyRow[]>([]);
   const [membersError, setMembersError] = useState<string | null>(null);
@@ -228,6 +248,52 @@ export function ContractUpload({
     return () => { alive = false; clearTimeout(timer); };
   }, [open, form.counterparty]);
 
+  useEffect(() => {
+    if (!open || view !== 'processing' || !intakeId) return;
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const poll = async () => {
+      try {
+        const current = await getContractIntake(intakeId);
+        if (!alive) return;
+        setIntake(current);
+        if (current.status === 'READY' || current.status === 'REQUIRES_ATTENTION') {
+          const prefill = current.structured_result?.prefill ?? {};
+          setForm((previous) => ({
+            ...previous,
+            title: String(prefill.title ?? ''),
+            contractNumber: String(prefill.contractNumber ?? ''),
+            counterparty: String(prefill.counterparty ?? ''),
+            type: String(prefill.type ?? ''),
+            status: String(prefill.status ?? ''),
+            startDate: String(prefill.startDate ?? ''),
+            endDate: String(prefill.endDate ?? ''),
+            signedDate: String(prefill.signedDate ?? ''),
+            renewalDate: String(prefill.renewalDate ?? ''),
+            totalValue: prefill.totalValue == null ? '' : String(prefill.totalValue),
+            monthlyValue: prefill.monthlyValue == null ? '' : String(prefill.monthlyValue),
+            paymentTerms: String(prefill.paymentTerms ?? ''),
+            scopeSummary: String(prefill.scopeSummary ?? ''),
+            // Risk is a governed recommendation and is never silently accepted.
+            riskLevel: '',
+          }));
+          setView('summary');
+          return;
+        }
+        if (current.status === 'FAILED') {
+          setIntakeError(current.error_safe || 'Não foi possível concluir a leitura do documento.');
+          return;
+        }
+        timer = setTimeout(poll, 1500);
+      } catch (err) {
+        if (!alive) return;
+        setIntakeError(err instanceof Error ? err.message : 'Não foi possível acompanhar a leitura.');
+      }
+    };
+    void poll();
+    return () => { alive = false; if (timer) clearTimeout(timer); };
+  }, [open, view, intakeId]);
+
   /**
    * O vínculo canônico do rascunho.
    *
@@ -252,6 +318,7 @@ export function ContractUpload({
   const selectedProject = projects.find((p) => p.id === form.projectId) || null;
   const selectedOwner = members.find((m) => m.userId === form.ownerUserId) || null;
   const totalValue = parseAmount(form.totalValue);
+  const isDocumentFirst = Boolean(intakeId);
 
   /**
    * O que falta para o contrato poder ser criado.
@@ -270,8 +337,11 @@ export function ContractUpload({
     if (!form.type.trim()) out.push('Tipo de contrato');
     if (!form.ownerUserId) out.push('Responsável interno');
     if (totalValue === null) out.push('Valor contratual');
+    if (!form.status) out.push('Situação do contrato');
+    if (!form.riskLevel) out.push('Classificação de risco');
     return out;
-  }, [form.title, form.contractNumber, form.counterparty, form.type, form.ownerUserId, totalValue]);
+  }, [form.title, form.contractNumber, form.counterparty, form.type, form.ownerUserId,
+    form.status, form.riskLevel, totalValue]);
 
   /**
    * Incoerências de data. São BLOQUEIOS, não avisos: gravar um fim de vigência
@@ -294,12 +364,44 @@ export function ContractUpload({
   const setField = (key: keyof ReturnType<typeof blank>, value: string | boolean) =>
     setForm((current) => ({ ...current, [key]: value }));
 
+  const startDocumentFirst = async (selected: File) => {
+    setFile(selected);
+    setIntakeError(null);
+    setDuplicateMessage(null);
+    setForm({ ...blank(), type: '', status: '', riskLevel: '', runExtraction: false });
+    setView('processing');
+    try {
+      const result = await sendContractDocument(selected);
+      if (result.duplicate) {
+        setDuplicateMessage(result.message || 'Este documento parece já estar cadastrado.');
+        setView('entry');
+        return;
+      }
+      if (!result.intakeId) throw new Error('A entrada do documento não foi confirmada.');
+      setIntakeId(result.intakeId);
+    } catch (err) {
+      setIntakeError(err instanceof Error ? err.message : 'Não foi possível enviar o documento.');
+    }
+  };
+
+  const retryReading = async () => {
+    if (!intakeId) return;
+    setIntakeError(null);
+    await retryContractIntake(intakeId);
+    setView('processing');
+  };
+
   const handleClose = () => {
     if (submitting) return;
+    setView('entry');
     setStep(0);
     setFile(null);
     setForm(blank());
     setPartyOptions([]);
+    setIntake(null);
+    setIntakeId(null);
+    setIntakeError(null);
+    setDuplicateMessage(null);
     onOpenChange(false);
   };
 
@@ -330,7 +432,8 @@ export function ContractUpload({
         document: file
           ? { file, title: file.name, documentType: form.documentType }
           : null,
-        runExtraction: Boolean(file) && form.runExtraction,
+        runExtraction: Boolean(file) && !intakeId,
+        onboardingIntakeId: intakeId,
       });
       handleClose();
     } finally {
@@ -369,6 +472,110 @@ export function ContractUpload({
       width="760px"
     >
       <div className="space-y-5">
+        {view === 'entry' && (
+          <>
+            <HudPanel elevation={1} interactive={false}>
+              <div className="py-2 text-center">
+                <p className="text-lg font-semibold text-ig-fg-strong">O contrato do cliente entra aqui.</p>
+                <p className="mx-auto mt-2 max-w-xl text-ig-body-sm leading-relaxed text-ig-fg-muted">
+                  O Apex lê o documento, estrutura o cadastro e identifica o que precisa da sua atenção.
+                </p>
+              </div>
+              <label className="mt-5 flex cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-ig-border-focus bg-ig-accent-weak/20 px-6 py-10 text-center transition-colors hover:bg-ig-accent-weak/35">
+                <span className="flex h-11 w-11 items-center justify-center rounded-lg border border-ig-border-focus bg-ig-panel">
+                  <Upload className="h-5 w-5 text-ig-accent" />
+                </span>
+                <span className="mt-4 text-ig-body-sm font-semibold text-ig-fg-strong">Enviar contrato</span>
+                <span className="mt-1 text-ig-caption text-ig-fg-muted">Arraste o documento ou selecione o PDF</span>
+                <Input
+                  type="file"
+                  accept="application/pdf,.pdf"
+                  className="sr-only"
+                  aria-label="Enviar contrato em PDF"
+                  onChange={(event) => {
+                    const selected = event.target.files?.[0];
+                    if (selected) void startDocumentFirst(selected);
+                  }}
+                />
+              </label>
+              {duplicateMessage && (
+                <div className="mt-4 rounded-lg border border-[color-mix(in_oklab,var(--ig-warning)_34%,transparent)] bg-[color-mix(in_oklab,var(--ig-warning)_10%,transparent)] p-3 text-ig-body-sm text-ig-fg-strong">
+                  {duplicateMessage}
+                </div>
+              )}
+              {intakeError && !intakeId && <p className="mt-3 text-ig-caption text-ig-danger">{intakeError}</p>}
+            </HudPanel>
+            <button
+              type="button"
+              onClick={() => { setView('manual'); setForm(blank()); setFile(null); }}
+              className="inline-flex items-center gap-1 text-ig-body-sm font-semibold text-ig-fg-muted transition-colors hover:text-ig-accent"
+            >
+              Cadastrar manualmente <ChevronRight className="h-4 w-4" />
+            </button>
+          </>
+        )}
+
+        {view === 'processing' && (
+          <HudPanel title="Apex está lendo o contrato" icon={<LoaderCircle className="h-4 w-4 animate-spin" />} interactive={false}>
+            <div className="rounded-lg border border-ig-border-subtle bg-ig-panel/55 p-3">
+              <p className="truncate text-ig-body-sm font-semibold text-ig-fg-strong">{file?.name}</p>
+              <p className="mt-1 text-ig-caption text-ig-fg-muted">O documento original já foi preservado.</p>
+            </div>
+            <div className="mt-5 space-y-3 text-ig-body-sm">
+              <ProcessingLine done={Boolean(intakeId)} active={!intakeId} label="Documento recebido" />
+              <ProcessingLine done={['STRUCTURING', 'READY', 'REQUIRES_ATTENTION'].includes(intake?.status ?? '')}
+                active={intake?.status === 'READING' || intake?.status === 'QUEUED'} label="Apex está identificando as partes" />
+              <ProcessingLine done={['READY', 'REQUIRES_ATTENTION'].includes(intake?.status ?? '')}
+                active={intake?.status === 'STRUCTURING'} label="Apex está estruturando vigência e valores" />
+              <ProcessingLine done={['READY', 'REQUIRES_ATTENTION'].includes(intake?.status ?? '')}
+                active={intake?.status === 'STRUCTURING'} label="Apex está verificando regras contratuais" />
+              <ProcessingLine done={false} active={intake?.status === 'STRUCTURING'} label="Apex está preparando o cadastro" />
+            </div>
+            {intakeError && (
+              <div className="mt-5 rounded-lg border border-[color-mix(in_oklab,var(--ig-danger)_34%,transparent)] bg-[color-mix(in_oklab,var(--ig-danger)_10%,transparent)] p-4">
+                <p className="text-ig-body-sm font-semibold text-ig-fg-strong">Não foi possível concluir a leitura do documento.</p>
+                <p className="mt-1 text-ig-caption text-ig-fg-muted">
+                  {intakeId ? 'O arquivo foi preservado.' : 'O envio não foi concluído; você pode continuar manualmente.'}
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {intakeId && (
+                    <HudButton size="sm" variant="primary" leftIcon={<RotateCcw className="h-4 w-4" />} onClick={() => void retryReading()}>
+                      Tentar novamente
+                    </HudButton>
+                  )}
+                  <HudButton size="sm" variant="secondary" onClick={() => setView('manual')}>Continuar manualmente</HudButton>
+                </div>
+              </div>
+            )}
+          </HudPanel>
+        )}
+
+        {view === 'summary' && intake?.structured_result && (
+          <>
+            <HudPanel title="Cadastro preparado pelo Apex" subtitle={`${intake.structured_result.identifiedCount} informações identificadas · ${intake.structured_result.attentionCount} requerem sua atenção`} icon={<ShieldCheck className="h-4 w-4" />} interactive={false}>
+              <ResultGroup title="Identificado pelo Apex" tone="success"
+                fields={intake.structured_result.fields.filter((field) => field.state === 'identified')} />
+              <ResultGroup title="Requer sua atenção" tone="warning"
+                fields={intake.structured_result.fields.filter((field) => field.state === 'attention')} />
+              <ResultGroup title="Não identificado no documento" tone="muted"
+                fields={intake.structured_result.fields.filter((field) => field.state === 'unknown')} />
+              {intake.structured_result.riskFactors.length > 0 && (
+                <div className="mt-4 rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3">
+                  <p className="text-ig-label font-semibold text-ig-fg-muted">Principais fatores de risco identificados</p>
+                  <ul className="mt-2 space-y-1 text-ig-caption text-ig-fg-strong">
+                    {intake.structured_result.riskFactors.map((factor) => <li key={factor}>• {factor}</li>)}
+                  </ul>
+                </div>
+              )}
+            </HudPanel>
+            <div className="flex flex-wrap justify-end gap-2 border-t border-ig-border-subtle pt-4">
+              <HudButton variant="secondary" onClick={() => { setStep(0); setView('manual'); }}>Revisar cadastro completo</HudButton>
+              <HudButton variant="primary" onClick={() => { setStep(0); setView('manual'); }}>Resolver pendências</HudButton>
+            </div>
+          </>
+        )}
+
+        {view === 'manual' && <>
         <HudPanel elevation={1} noPadding interactive={false}>
           <div className="grid grid-cols-5 divide-x divide-ig-border-subtle">
             {STEPS.map((label, index) => (
@@ -411,6 +618,7 @@ export function ContractUpload({
               </Field>
               <Field label="Tipo de contrato" required>
                 <select value={form.type} onChange={(e) => setField('type', e.target.value)} className={selectClass}>
+                  {!form.type && <option value="">Selecione o tipo</option>}
                   {CONTRACT_TYPES.map((t) => <option key={t}>{t}</option>)}
                 </select>
               </Field>
@@ -430,11 +638,13 @@ export function ContractUpload({
               </Field>
               <Field label="Situação" required hint="Situação atual do contrato. Não exige documento anexado.">
                 <select value={form.status} onChange={(e) => setField('status', e.target.value)} className={selectClass}>
+                  {!form.status && <option value="">Selecione a situação</option>}
                   {CONTRACT_STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
                 </select>
               </Field>
               <Field label="Classificação de risco" required hint="Declarada por quem cadastra — não é calculada a partir do valor.">
                 <select value={form.riskLevel} onChange={(e) => setField('riskLevel', e.target.value)} className={selectClass}>
+                  {!form.riskLevel && <option value="">Confirme a classificação</option>}
                   {RISK_LEVELS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
                 </select>
               </Field>
@@ -535,17 +745,29 @@ export function ContractUpload({
             icon={<Upload className="h-4 w-4" />}
             interactive={false}
           >
-            <div className="rounded-xl border border-dashed border-ig-border-focus bg-ig-accent-weak/20 p-5">
-              <Input
-                type="file"
-                accept=".pdf,.doc,.docx"
-                onChange={(e) => setFile(e.target.files?.[0] || null)}
-                className="border-ig-border-strong bg-ig-panel text-ig-fg-strong file:text-ig-fg-strong"
-              />
-              <p className="mt-2 text-ig-caption text-ig-fg-muted">
-                Enviado ao bucket privado ao salvar. O anexo é opcional e pode vir depois.
-              </p>
-            </div>
+            {isDocumentFirst ? (
+              <div className="rounded-xl border border-ig-border-focus bg-ig-accent-weak/20 p-5">
+                <div className="flex items-center gap-3">
+                  <CheckCircle className="h-5 w-5 shrink-0 text-ig-success" />
+                  <div className="min-w-0">
+                    <p className="truncate text-ig-body-sm font-semibold text-ig-fg-strong">{file?.name || intake?.file_name}</p>
+                    <p className="mt-1 text-ig-caption text-ig-fg-muted">Documento original recebido e preservado. Não é necessário enviar novamente.</p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-dashed border-ig-border-focus bg-ig-accent-weak/20 p-5">
+                <Input
+                  type="file"
+                  accept=".pdf,.doc,.docx"
+                  onChange={(e) => setFile(e.target.files?.[0] || null)}
+                  className="border-ig-border-strong bg-ig-panel text-ig-fg-strong file:text-ig-fg-strong"
+                />
+                <p className="mt-2 text-ig-caption text-ig-fg-muted">
+                  Enviado ao repositório privado ao salvar. O anexo é opcional e pode vir depois.
+                </p>
+              </div>
+            )}
 
             {file && (
               <div className="mt-4 space-y-4">
@@ -563,24 +785,12 @@ export function ContractUpload({
                   </select>
                 </Field>
 
-                <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3">
-                  <input
-                    type="checkbox"
-                    checked={form.runExtraction}
-                    onChange={(e) => setField('runExtraction', e.target.checked)}
-                    className="mt-0.5 h-4 w-4 accent-[var(--ig-accent)]"
-                  />
-                  <span className="min-w-0">
-                    <span className="block text-ig-body-sm font-semibold text-ig-fg-strong">
-                      Analisar o documento após salvar
-                    </span>
-                    <span className="mt-1 block text-ig-caption text-ig-fg-muted">
-                      A leitura assistida propõe cláusulas com o trecho de origem à vista. Toda proposta
-                      aguarda revisão humana e nenhuma vira cláusula do contrato sem validação. O cadastro
-                      se completa normalmente sem esta etapa.
-                    </span>
-                  </span>
-                </label>
+                {!isDocumentFirst && (
+                  <div className="rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3">
+                    <span className="block text-ig-body-sm font-semibold text-ig-fg-strong">O Apex organizará as informações do documento</span>
+                    <span className="mt-1 block text-ig-caption text-ig-fg-muted">A leitura começa depois que o cadastro e o documento original forem preservados.</span>
+                  </div>
+                )}
               </div>
             )}
           </HudPanel>
@@ -601,8 +811,8 @@ export function ContractUpload({
                 { label: 'Projeto', value: selectedProject ? selectedProject.codigo : '' },
                 { label: 'Documento', value: file ? file.name : '' },
                 {
-                  label: 'Análise do documento',
-                  value: file ? (form.runExtraction ? 'Será executada após salvar' : 'Não solicitada') : '',
+                  label: 'Leitura do documento',
+                  value: file ? (isDocumentFirst ? 'Cadastro estruturado' : 'Começa após salvar') : '',
                 },
                 { label: 'Origem', value: 'Contrato oficial (live)' },
               ].map((item) => (
@@ -680,7 +890,41 @@ export function ContractUpload({
             )}
           </div>
         </div>
+        </>}
       </div>
     </HudDrawer>
+  );
+}
+
+function ProcessingLine({ done, active, label }: { done: boolean; active: boolean; label: string }) {
+  return (
+    <div className={`flex items-center gap-2 ${done ? 'text-ig-success' : active ? 'text-ig-fg-strong' : 'text-ig-fg-muted'}`}>
+      {done ? <CheckCircle className="h-4 w-4 shrink-0" />
+        : <span className={`h-2 w-2 shrink-0 rounded-full ${active ? 'animate-pulse bg-ig-accent' : 'bg-ig-fg-subtle'}`} />}
+      <span>{label}</span>
+    </div>
+  );
+}
+
+function ResultGroup({ title, tone, fields }: {
+  title: string; tone: 'success' | 'warning' | 'muted'; fields: ClassifiedIntakeField[];
+}) {
+  if (fields.length === 0) return null;
+  const color = tone === 'success' ? 'text-ig-success' : tone === 'warning' ? 'text-ig-warning' : 'text-ig-fg-muted';
+  return (
+    <section className="mt-4 first:mt-0">
+      <p className={`text-ig-label font-semibold uppercase tracking-[0.08em] ${color}`}>{title}</p>
+      <div className="mt-2 divide-y divide-ig-border-subtle rounded-lg border border-ig-border-subtle bg-ig-panel/45">
+        {fields.map((field) => (
+          <div key={field.key} className="grid gap-1 px-3 py-2.5 md:grid-cols-[180px_1fr]">
+            <p className="text-ig-caption font-semibold text-ig-fg-muted">{field.label}</p>
+            <div>
+              {field.value !== null && <p className="text-ig-body-sm font-semibold text-ig-fg-strong">{String(field.value)}</p>}
+              <p className="text-ig-caption text-ig-fg-muted">{field.explanation}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }

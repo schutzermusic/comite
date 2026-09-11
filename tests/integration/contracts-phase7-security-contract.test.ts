@@ -380,6 +380,8 @@ describe('Fase 7 · migrations aplicadas não são editadas', () => {
         '159', '160', '161', '162', '163', '164',
         // ---- onboarding AI-first de aditivos (pós-Fase 7) ----
         '165',
+        // ---- entrada de contrato orientada pelo documento (pós-Fase 7) ----
+        '166',
       ]);
     // 090 continua arquivada, nunca aplicada.
     expect(versions).not.toContain('090');

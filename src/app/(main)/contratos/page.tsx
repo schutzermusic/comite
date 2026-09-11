@@ -24,6 +24,7 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { useCurrentUser } from '@/hooks/use-current-user';
 import { ContractList } from '@/components/contracts/contract-list';
 import { ContractUpload, type ContractOnboardingDraft } from '@/components/contracts/contract-upload';
+import { finalizeContractIntake } from '@/lib/contracts/onboarding/client';
 import { ApexMonitoringBand, type MonitoringCell } from '@/components/contracts/intelligence/ApexMonitoringBand';
 import { usePortfolioFollowups } from '@/components/contracts/use-portfolio-followups';
 import { isOpenFollowup } from '@/lib/platform/followups/types';
@@ -723,6 +724,34 @@ export default function ContratosPage() {
    * inteiro por causa de uma indisponibilidade de rede.
    */
   const handleContractOnboarded = async (draft: ContractOnboardingDraft) => {
+    const creationPolicy = { dataClass: 'unclassified' as const };
+    if (draft.onboardingIntakeId) {
+      const result = await finalizeContractIntake(draft.onboardingIntakeId, {
+        title: draft.title,
+        contract_number: draft.contractNumber,
+        counterparty_name: draft.counterpartyName,
+        counterparty_party_id: draft.counterpartyPartyId,
+        contract_type: draft.contractType,
+        owner_user_id: draft.ownerUserId,
+        status: draft.status,
+        start_date: draft.startDate,
+        end_date: draft.endDate,
+        signed_date: draft.signedDate,
+        renewal_date: draft.renewalDate,
+        currency: draft.currency,
+        total_value: draft.totalValue,
+        monthly_value: draft.monthlyValue,
+        payment_terms: draft.paymentTerms,
+        scope_summary: draft.scopeSummary,
+        risk_level: draft.riskLevel,
+        project_id: draft.projectId,
+      });
+      await refresh();
+      setSelectedId(result.contractId);
+      setActiveSection('contracts');
+      setNotice(`Contrato "${draft.title}" criado. A operacionalização contratual continua em segundo plano.`);
+      return;
+    }
     const row = await persistContract({
       /**
        * O contrato nasce NÃO CLASSIFICADO. Sempre.
@@ -741,7 +770,7 @@ export default function ContratosPage() {
        * `reclassifyContract`: exige justificativa, carimba autor e deixa
        * `contract.reclassified` na auditoria com origem e destino.
        */
-      dataClass: 'unclassified',
+      dataClass: creationPolicy.dataClass,
       title: draft.title,
       contractNumber: draft.contractNumber,
       counterpartyName: draft.counterpartyName,

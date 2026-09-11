@@ -277,6 +277,43 @@ const amendmentExtraction: JobHandler<'contracts.amendment_extraction.execute'> 
   },
 };
 
+/**
+ * The PDF already exists in durable private storage before this handler runs.
+ * A failure changes only the intake state; it cannot create partial contract
+ * truth, and a retry reuses the same hash/intake identity.
+ */
+const onboardingExtraction: JobHandler<'contracts.onboarding_extraction.execute'> = {
+  payloadVersion: 1,
+  idempotencyBasis: 'One intake is unique per organization, uploader and document hash; ready results are never reapplied.',
+  async run(payload, { job, supabase }) {
+    const { data: intake, error } = await supabase.from('contract_onboarding_intakes')
+      .select('id,organization_id,status,contract_id').eq('id', payload.intake_id)
+      .eq('organization_id', job.organization_id)
+      .maybeSingle<{ id: string; organization_id: string; status: string; contract_id: string | null }>();
+    if (error) throw rpcError(error);
+    if (!intake) throw new TerminalJobError('intake_tenant_mismatch',
+      'A entrada de contrato não pertence à organização do trabalho.');
+    if (intake.contract_id || ['READY', 'REQUIRES_ATTENTION', 'REGISTERED', 'CANCELLED'].includes(intake.status)) {
+      return { intake_id: intake.id, status: intake.status, skipped: true };
+    }
+    try {
+      const { extractContractOnboarding } = await import('@/lib/ai/contract-onboarding-extractor');
+      return await extractContractOnboarding(intake.id) as Record<string, unknown>;
+    } catch (cause) {
+      const { classifyJobError } = await import('./errors');
+      const classified = classifyJobError(cause);
+      const exhausted = classified.retryable && job.attempt_count >= job.max_attempts;
+      await supabase.from('contract_onboarding_intakes').update({
+        status: classified.retryable && !exhausted ? 'QUEUED' : 'FAILED',
+        completed_at: classified.retryable && !exhausted ? null : new Date().toISOString(),
+        error_code: classified.code, error_safe: classified.safe,
+      }).eq('id', intake.id).eq('organization_id', job.organization_id);
+      if (classified.retryable) throw new RetryableJobError(classified.code, classified.safe);
+      throw new TerminalJobError(classified.code, classified.safe);
+    }
+  },
+};
+
 /*
   Expiração de aprovação.
 
@@ -595,6 +632,7 @@ export const JOB_HANDLERS: HandlerRegistry = {
   'contracts.obligation.external_activation.apply': externalActivation,
   'contracts.obligation.schedule_anchor.apply': scheduleAnchor,
   'contracts.clause_extraction.execute': clauseExtraction,
+  'contracts.onboarding_extraction.execute': onboardingExtraction,
   'contracts.amendment_extraction.execute': amendmentExtraction,
   'platform.approvals.expire': approvalExpiration,
   'platform.followups.execute': followupExecution,

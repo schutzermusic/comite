@@ -13,6 +13,7 @@ export const JOB_TYPES = [
   'contracts.obligation.external_activation.apply',
   'contracts.obligation.schedule_anchor.apply',
   'contracts.clause_extraction.execute',
+  'contracts.onboarding_extraction.execute',
   'contracts.amendment_extraction.execute',
   'platform.approvals.expire',
   'platform.followups.execute',
@@ -65,6 +66,9 @@ export const JOB_SCHEMAS = {
   'contracts.obligation.schedule_anchor.apply': { 1: EVENT_REF },
   'contracts.clause_extraction.execute': {
     1: z.object({ request_id: uuid, contract_id: uuid, document_id: uuid }),
+  },
+  'contracts.onboarding_extraction.execute': {
+    1: z.object({ intake_id: uuid }),
   },
   'contracts.amendment_extraction.execute': {
     1: z.object({ request_id: uuid, contract_id: uuid, document_id: uuid }),
