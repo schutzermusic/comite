@@ -406,6 +406,9 @@ export type ContractRiskLinkRow = {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export type ContractAmendmentStatus = 'draft' | 'signed' | 'active' | 'cancelled';
+export type ContractAmendmentAnalysisState =
+  | 'not_requested' | 'queued' | 'reading' | 'comparing' | 'structuring'
+  | 'completed' | 'requires_attention' | 'failed';
 
 /**
  * Um aditivo é um INSTRUMENTO JURÍDICO, não uma versão de PDF.
@@ -437,6 +440,29 @@ export type ContractAmendmentRow = {
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
+  /** 165: documentary facts and AI interpretation remain distinct from legal status. */
+  documentary_state?: 'draft' | 'signed' | 'unknown';
+  analysis_state?: ContractAmendmentAnalysisState;
+  attention_count?: number;
+  apex_summary?: string | null;
+  ai_extraction?: Record<string, unknown> | null;
+  ai_provider?: string | null;
+  ai_model?: string | null;
+  ai_pipeline_version?: string | null;
+};
+
+export type ContractAmendmentIngestionRequestRow = {
+  id: string;
+  organization_id: string;
+  contract_id: string;
+  document_id: string;
+  amendment_id: string | null;
+  status: 'QUEUED' | 'READING' | 'COMPARING' | 'STRUCTURING'
+    | 'COMPLETED' | 'REQUIRES_ATTENTION' | 'FAILED' | 'CANCELLED';
+  requested_at: string;
+  completed_at: string | null;
+  error_safe: string | null;
+  attention_count: number;
 };
 
 export type AmendmentClauseEffect = 'altered' | 'added' | 'removed';
@@ -474,6 +500,7 @@ export type ContractDocumentRow = {
   superseded_at: string | null;
   created_at: string;
   updated_at: string;
+  content_sha256?: string | null;
 };
 
 export type ContractDetail = {
@@ -494,6 +521,8 @@ export type ContractDetail = {
   documents: ContractDocumentRow[];
   /** Aditivos do contrato mestre (098). */
   amendments: ContractAmendmentRow[];
+  /** Durable PDF-first requests, including failed attempts whose document remains safe. */
+  amendmentIngestionRequests?: ContractAmendmentIngestionRequestRow[];
   /** Cláusulas atingidas pelos aditivos acima. */
   amendmentClauses: ContractAmendmentClauseRow[];
   /**
@@ -760,7 +789,8 @@ export async function getContractById(contractId: string): Promise<ContractDetai
     projectLinks,
     riskLinks,
     documents,
-    obligationDefinitions
+    obligationDefinitions,
+    amendmentIngestionRequests,
   ] = await Promise.all([
     listContractClauses(contractId),
     listContractPenalties(contractId),
@@ -775,6 +805,7 @@ export async function getContractById(contractId: string): Promise<ContractDetai
     listContractRisksLinks(contractId),
     listContractDocuments(contractId),
     listContractObligationDefinitions(contractId),
+    listContractAmendmentIngestionRequests(contractId),
   ]);
 
   /*
@@ -822,6 +853,7 @@ export async function getContractById(contractId: string): Promise<ContractDetai
     riskLinks,
     documents,
     amendments,
+    amendmentIngestionRequests,
     amendmentClauses,
     amendmentsError,
     parties
@@ -2491,6 +2523,18 @@ export async function listContractAmendments(contractId: string): Promise<Contra
   return (data ?? []) as ContractAmendmentRow[];
 }
 
+export async function listContractAmendmentIngestionRequests(
+  contractId: string,
+): Promise<ContractAmendmentIngestionRequestRow[]> {
+  const supabase = createClient();
+  const { data, error } = await supabase.from('contract_amendment_ingestion_requests')
+    .select('*').eq('contract_id', contractId).order('requested_at', { ascending: false });
+  // Deploy-order tolerant: migration 165 may arrive after the application.
+  if (error && ['42P01', 'PGRST205'].includes(error.code ?? '')) return [];
+  if (error) throw new Error(`Erro ao carregar análises de aditivos: ${error.message}`);
+  return (data ?? []) as ContractAmendmentIngestionRequestRow[];
+}
+
 export async function listContractAmendmentClauses(
   amendmentIds: readonly string[],
 ): Promise<ContractAmendmentClauseRow[]> {
@@ -2745,27 +2789,59 @@ export async function listContractDocuments(contractId: string): Promise<Contrac
   return (data ?? []) as ContractDocumentRow[];
 }
 
-export async function uploadContractDocument(contractId: string, title: string, file: File, documentType: string): Promise<ContractDocumentRow> {
+export async function uploadContractDocument(
+  contractId: string,
+  title: string,
+  file: File,
+  documentType: string,
+  contentSha256?: string | null,
+): Promise<ContractDocumentRow> {
   const { supabase, user, organizationId } = await getCurrentIdentity();
+  if (contentSha256) {
+    const { data: existing, error: existingError } = await supabase
+      .from('contract_documents').select('*')
+      .eq('organization_id', organizationId).eq('contract_id', contractId)
+      .eq('document_type', documentType).eq('content_sha256', contentSha256)
+      .is('superseded_by_document_id', null).maybeSingle<ContractDocumentRow>();
+    if (existingError) throw new Error(`Erro ao verificar documento: ${existingError.message}`);
+    if (existing) return existing;
+  }
   const safeName = sanitizeFileName(file.name);
-  const filePath = `${organizationId}/${contractId}/docs/${crypto.randomUUID()}-${safeName}`;
+  const identity = contentSha256 ?? crypto.randomUUID();
+  const filePath = `${organizationId}/${contractId}/docs/${identity}-${safeName}`;
   const { error: uploadError } = await supabase.storage.from(CONTRACT_FILES_BUCKET).upload(filePath, file, { upsert: false });
+  if (uploadError && contentSha256) {
+    const { data: raced } = await supabase.from('contract_documents').select('*')
+      .eq('organization_id', organizationId).eq('contract_id', contractId)
+      .eq('document_type', documentType).eq('content_sha256', contentSha256)
+      .is('superseded_by_document_id', null).maybeSingle<ContractDocumentRow>();
+    if (raced) return raced;
+  }
   if (uploadError) throw new Error(`Erro ao enviar documento: ${uploadError.message}`);
 
+  const documentPayload: Record<string, unknown> = {
+    organization_id: organizationId,
+    contract_id: contractId,
+    title,
+    file_path: filePath,
+    document_type: documentType,
+    status: 'uploaded',
+    uploaded_by: user.id,
+  };
+  if (contentSha256) documentPayload.content_sha256 = contentSha256;
   const { data, error } = await supabase
     .from('contract_documents')
-    .insert({
-      organization_id: organizationId,
-      contract_id: contractId,
-      title,
-      file_path: filePath,
-      document_type: documentType,
-      status: 'uploaded',
-      uploaded_by: user.id
-    })
+    .insert(documentPayload)
     .select('*')
     .single<ContractDocumentRow>();
 
+  if (error && contentSha256 && error.code === '23505') {
+    const { data: raced } = await supabase.from('contract_documents').select('*')
+      .eq('organization_id', organizationId).eq('contract_id', contractId)
+      .eq('document_type', documentType).eq('content_sha256', contentSha256)
+      .is('superseded_by_document_id', null).maybeSingle<ContractDocumentRow>();
+    if (raced) return raced;
+  }
   if (error) throw new Error(`Erro ao registrar documento: ${error.message}`);
 
   await logAuditEvent({
@@ -2786,6 +2862,20 @@ export async function uploadContractDocument(contractId: string, title: string, 
   );
 
   return data;
+}
+
+/** Stable content identity prevents upload/retry from creating a second amendment document. */
+export async function uploadAmendmentDocumentIdempotent(
+  contractId: string,
+  file: File,
+): Promise<ContractDocumentRow> {
+  if (file.type && file.type !== 'application/pdf') {
+    throw new Error('Selecione um documento PDF.');
+  }
+  const bytes = await file.arrayBuffer();
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  const sha256 = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+  return uploadContractDocument(contractId, file.name.replace(/\.pdf$/i, ''), file, 'amendment', sha256);
 }
 
 export async function updateContractDocumentStatus(

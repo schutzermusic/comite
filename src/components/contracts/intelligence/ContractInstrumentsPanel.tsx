@@ -16,6 +16,8 @@
 
 import { HudPanel, HudSignal } from '@/components/hud';
 import { FileText, FileDiff, CircleDashed } from 'lucide-react';
+import { deriveAmendmentEffectiveness } from '@/lib/contracts/amendments/ai-types';
+import type { ContractAmendmentIngestionRequestRow } from '@/lib/contracts/contract-service';
 import {
   SKIP_REASON_LABEL,
   declaresValueEffect,
@@ -65,6 +67,7 @@ export function ContractInstrumentsPanel({
   onAddAmendment,
   onOpenAmendment,
   className,
+  ingestionRequests = [],
 }: {
   masterTitle: string;
   masterNumber: string;
@@ -72,6 +75,7 @@ export function ContractInstrumentsPanel({
   onAddAmendment?: () => void;
   onOpenAmendment?: (step: AmendmentStep) => void;
   className?: string;
+  ingestionRequests?: readonly ContractAmendmentIngestionRequestRow[];
 }) {
   const { timeline, unapplied } = state;
   const changed =
@@ -149,6 +153,20 @@ export function ContractInstrumentsPanel({
         {timeline.map((step) => (
           <AmendmentRow key={step.amendment.id} step={step} onOpen={onOpenAmendment} />
         ))}
+        {ingestionRequests.filter((request) => !request.amendment_id).map((request) => (
+          <li key={request.id} className="ml-4 flex items-start gap-2.5 rounded-lg border border-ig-border-subtle bg-ig-panel/35 px-3 py-2.5">
+            <CircleDashed className={`mt-0.5 h-4 w-4 shrink-0 ${request.status === 'FAILED' ? 'text-ig-warning' : 'animate-pulse text-ig-accent'}`} />
+            <span className="min-w-0 flex-1">
+              <span className="text-ig-body-sm font-semibold text-ig-fg-strong">Aditivo em análise</span>
+              <span className="mt-0.5 block text-ig-caption text-ig-fg-muted">
+                {request.status === 'FAILED'
+                  ? `Leitura falhou · ${request.error_safe ?? 'o PDF permanece registrado para nova tentativa'}`
+                  : request.status === 'REQUIRES_ATTENTION' ? 'Requer atenção'
+                    : 'Apex processando o documento canônico'}
+              </span>
+            </span>
+          </li>
+        ))}
       </ol>
 
       {/*
@@ -167,7 +185,7 @@ export function ContractInstrumentsPanel({
           Aditivos não consultados neste contexto.
         </p>
       )}
-      {timeline.length === 0 && !state.readFailed && !state.notMeasured && (
+      {timeline.length === 0 && ingestionRequests.length === 0 && !state.readFailed && !state.notMeasured && (
         /*
           A ressalva fica visível: "nenhum aditivo registrado" lido sozinho
           afirma que não existem aditivos, que é justamente o que o dado não
@@ -203,6 +221,16 @@ function AmendmentRow({
     else if (a.term_extension_days) effects.push(`+${a.term_extension_days} dias`);
   }
   if (a.scope_change) effects.push('altera escopo');
+  const documentaryState = a.documentary_state ?? (a.status === 'signed' || a.status === 'active' ? 'signed' : a.status === 'draft' ? 'draft' : 'unknown');
+  const effectiveness = deriveAmendmentEffectiveness({
+    documentaryState,
+    effectiveDate: a.effective_date,
+    cancelled: a.status === 'cancelled',
+  });
+  const documentaryLabel = documentaryState === 'signed' ? 'assinado' : documentaryState === 'draft' ? 'rascunho' : 'estado documental desconhecido';
+  const effectivenessLabel = effectiveness === 'effective' ? 'em vigor'
+    : effectiveness === 'not_yet_effective' ? 'efeito futuro'
+      : effectiveness === 'cancelled' ? 'cancelado' : 'eficácia indeterminada';
 
   const body = (
     <>
@@ -220,6 +248,11 @@ function AmendmentRow({
             ? `efeito em ${dateLabel(new Date(`${a.effective_date}T00:00:00`))}`
             : 'sem data de efeito'}
           {effects.length > 0 && ` · ${effects.join(' · ')}`}
+        </span>
+        <span className="mt-0.5 block text-ig-label text-ig-fg-subtle">
+          {documentaryLabel} · {effectivenessLabel}
+          {a.analysis_state && ` · análise ${a.analysis_state.replace('_', ' ')}`}
+          {(a.attention_count ?? 0) > 0 && ` · ${a.attention_count} ponto(s) de atenção`}
         </span>
         {step.skipReason && (
           <span className="mt-0.5 block text-ig-caption text-ig-fg-subtle">

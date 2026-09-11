@@ -225,6 +225,58 @@ const clauseExtraction: JobHandler<'contracts.clause_extraction.execute'> = {
   },
 };
 
+/**
+ * Amendment onboarding keeps the PDF before AI runs. A failed model call only
+ * changes the durable request/amendment analysis state; it never publishes a
+ * partial effect. The final database RPC persists the interpretation and all
+ * effect rows atomically.
+ */
+const amendmentExtraction: JobHandler<'contracts.amendment_extraction.execute'> = {
+  payloadVersion: 1,
+  idempotencyBasis:
+    'One durable request and one amendment are keyed to the canonical document; effect fingerprints '
+    + 'are unique, and the final extraction is committed atomically.',
+  async run(payload, { job, supabase }) {
+    const { data: request, error } = await supabase
+      .from('contract_amendment_ingestion_requests')
+      .select('id, organization_id, status, amendment_id')
+      .eq('id', payload.request_id).eq('organization_id', job.organization_id)
+      .maybeSingle<{ id: string; organization_id: string; status: string; amendment_id: string | null }>();
+    if (error) throw rpcError(error);
+    if (!request) {
+      throw new TerminalJobError('request_tenant_mismatch',
+        'O pedido de aditivo não pertence à organização do trabalho.');
+    }
+    if (request.status === 'COMPLETED' || request.status === 'REQUIRES_ATTENTION'
+        || request.status === 'CANCELLED') {
+      return { request_id: request.id, status: request.status, skipped: true };
+    }
+
+    try {
+      const { extractContractAmendment } = await import('@/lib/ai/contract-amendment-extractor');
+      return await extractContractAmendment(payload.request_id, payload.contract_id,
+        payload.document_id) as unknown as Record<string, unknown>;
+    } catch (cause) {
+      const { classifyJobError } = await import('./errors');
+      const classified = classifyJobError(cause);
+      const exhausted = classified.retryable && job.attempt_count >= job.max_attempts;
+      await supabase.from('contract_amendment_ingestion_requests').update({
+        status: classified.retryable && !exhausted ? 'QUEUED' : 'FAILED',
+        completed_at: classified.retryable && !exhausted ? null : new Date().toISOString(),
+        error_code: classified.code,
+        error_safe: classified.safe,
+      }).eq('id', request.id).eq('organization_id', job.organization_id);
+      if (request.amendment_id) {
+        await supabase.from('contract_amendments').update({
+          analysis_state: classified.retryable && !exhausted ? 'queued' : 'failed',
+        }).eq('id', request.amendment_id).eq('organization_id', job.organization_id);
+      }
+      if (classified.retryable) throw new RetryableJobError(classified.code, classified.safe);
+      throw new TerminalJobError(classified.code, classified.safe);
+    }
+  },
+};
+
 /*
   Expiração de aprovação.
 
@@ -543,6 +595,7 @@ export const JOB_HANDLERS: HandlerRegistry = {
   'contracts.obligation.external_activation.apply': externalActivation,
   'contracts.obligation.schedule_anchor.apply': scheduleAnchor,
   'contracts.clause_extraction.execute': clauseExtraction,
+  'contracts.amendment_extraction.execute': amendmentExtraction,
   'platform.approvals.expire': approvalExpiration,
   'platform.followups.execute': followupExecution,
   'projects.measurements.reconcile_candidates': measurementCandidates,

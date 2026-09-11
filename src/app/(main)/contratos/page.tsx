@@ -1343,7 +1343,8 @@ export default function ContratosPage() {
         onReviewApproval={contractActions.reviewApproval}
         onCreateObligation={createModals.openObligation}
         onCreateBilling={createModals.openBilling}
-        onAddAmendment={selectedId && contractPermissions.edit ? amendmentModals.openAmendment : undefined}
+        onAddAmendment={selectedId && contractPermissions.edit && hasPermission('contracts.analyze_with_ai')
+          ? amendmentModals.openAmendment : undefined}
         onViewDocuments={handleViewDocuments}
         onExportPdf={handleExportPdf}
         onOpenFinance={handleOpenFinance}

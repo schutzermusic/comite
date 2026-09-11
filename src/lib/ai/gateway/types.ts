@@ -11,6 +11,7 @@ export const APEX_AI_TASKS = [
   'PROJECT_SCHEDULE_EXTRACTION',
   'ASO_EXTRACTION',
   'CONTRACT_OPERATIONALIZATION',
+  'CONTRACT_AMENDMENT_EXTRACTION',
 ] as const;
 
 export type ApexAITask = (typeof APEX_AI_TASKS)[number];

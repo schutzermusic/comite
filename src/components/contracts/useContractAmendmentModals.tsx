@@ -19,12 +19,15 @@
 import { useState } from 'react';
 import { HudModal, HudButton, HudInput, HudSelect } from '@/components/hud';
 import { Input } from '@/components/ui/input';
+import { AlertTriangle, Check, FileText, LoaderCircle, UploadCloud } from 'lucide-react';
 import { useHudToast } from '@/hooks/useHudToast';
 import {
   createContractAmendment,
   replaceContractDocument,
+  uploadAmendmentDocumentIdempotent,
   type ContractDocumentRow,
 } from '@/lib/contracts/contract-service';
+import { deriveAmendmentEffectiveness } from '@/lib/contracts/amendments/ai-types';
 
 type Kind = 'amendment' | 'replaceDoc';
 
@@ -39,6 +42,23 @@ const STATUS_OPTIONS = [
 type ValueMode = 'none' | 'delta' | 'absolute';
 /** Como declara a mudança de prazo. */
 type TermMode = 'none' | 'newDate' | 'extension';
+type AmendmentMode = 'ai' | 'manual';
+type AIStage = 'idle' | 'uploading' | 'queued' | 'reading' | 'comparing'
+  | 'structuring' | 'completed' | 'requires_attention' | 'failed';
+
+type AIResult = {
+  request: { id: string; status: string; error_safe: string | null; attention_count: number };
+  amendment: null | (Record<string, unknown> & {
+    amendment_number: string; title: string | null; signed_date: string | null;
+    effective_date: string | null; documentary_state: 'draft' | 'signed' | 'unknown';
+    status: string; apex_summary: string | null; attention_count: number;
+  });
+  effects: Array<Record<string, unknown> & {
+    id: string; category: string; operation: string; title: string; description: string;
+    source_page: number | null; trust_state: 'automatic' | 'requires_attention';
+    trust_reasons: string[]; currently_effective: boolean;
+  }>;
+};
 
 function parseAmount(v: string): number | null {
   const t = v.trim();
@@ -63,6 +83,11 @@ export function useContractAmendmentModals({
   const { notify } = useHudToast();
   const [kind, setKind] = useState<Kind | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [amendmentMode, setAmendmentMode] = useState<AmendmentMode>('ai');
+  const [aiStage, setAIStage] = useState<AIStage>('idle');
+  const [aiDocumentId, setAIDocumentId] = useState<string | null>(null);
+  const [aiError, setAIError] = useState<string | null>(null);
+  const [aiResult, setAIResult] = useState<AIResult | null>(null);
 
   // ── aditivo ──
   const [number, setNumber] = useState('');
@@ -94,8 +119,83 @@ export function useContractAmendmentModals({
     setValueMode('none'); setValueAmount('');
     setTermMode('none'); setNewEndDate(''); setExtensionDays('');
     setScopeChange(''); setNotes(''); setFile(null);
+    setAmendmentMode('ai'); setAIStage('idle');
+    setAIDocumentId(null); setAIError(null); setAIResult(null);
     setKind('amendment');
   };
+
+  const stageFromRequest = (status: string): AIStage => {
+    const normalized = status.toLowerCase();
+    const allowed: AIStage[] = ['queued', 'reading', 'comparing', 'structuring', 'completed',
+      'requires_attention', 'failed'];
+    return allowed.includes(normalized as AIStage)
+      ? normalized as AIStage : 'queued';
+  };
+
+  async function pollAmendment(requestId: string): Promise<void> {
+    for (let attempt = 0; attempt < 240; attempt += 1) {
+      const response = await fetch(
+        `/api/contracts/${contractId}/amendments/onboarding?requestId=${encodeURIComponent(requestId)}`,
+        { cache: 'no-store' },
+      );
+      const body = await response.json() as AIResult & { ok?: boolean; error?: string };
+      if (!response.ok) throw new Error(body.error ?? 'Não foi possível acompanhar a análise.');
+      const next = stageFromRequest(body.request.status);
+      setAIStage(next);
+      if (next === 'completed' || next === 'requires_attention') {
+        setAIResult(body);
+        await onRefresh();
+        return;
+      }
+      if (next === 'failed') {
+        setAIError(body.request.error_safe ?? 'A leitura falhou. O PDF continua registrado e pode ser reprocessado.');
+        await onRefresh();
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1_500));
+    }
+    setAIError('A análise continua na fila. Feche esta janela e acompanhe o instrumento no dossiê.');
+  }
+
+  async function queueDocument(documentId: string): Promise<void> {
+    const response = await fetch(`/api/contracts/${contractId}/amendments/onboarding`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ documentId }),
+    });
+    const body = await response.json() as { ok?: boolean; error?: string; requestId?: string; status?: string };
+    if (!response.ok || !body.requestId) throw new Error(body.error ?? 'Não foi possível iniciar a leitura.');
+    setAIStage(stageFromRequest(body.status ?? 'QUEUED'));
+    await pollAmendment(body.requestId);
+  }
+
+  async function handleAIFile(selected: File): Promise<void> {
+    if (!selected.name.toLowerCase().endsWith('.pdf')
+        || (selected.type && selected.type !== 'application/pdf')) {
+      setAIError('Selecione um arquivo PDF.');
+      setAIStage('failed');
+      return;
+    }
+    setFile(selected); setAIError(null); setAIResult(null); setAIStage('uploading');
+    try {
+      const document = await uploadAmendmentDocumentIdempotent(contractId, selected);
+      setAIDocumentId(document.id);
+      await queueDocument(document.id);
+    } catch (error) {
+      setAIStage('failed');
+      setAIError(error instanceof Error ? error.message : 'Falha inesperada ao registrar o PDF.');
+      await onRefresh();
+    }
+  }
+
+  async function retryAI(): Promise<void> {
+    if (!aiDocumentId) return;
+    setAIError(null); setAIStage('queued');
+    try { await queueDocument(aiDocumentId); }
+    catch (error) {
+      setAIStage('failed');
+      setAIError(error instanceof Error ? error.message : 'Não foi possível reprocessar o documento.');
+    }
+  }
 
   async function run(task: () => Promise<string>) {
     setSubmitting(true);
@@ -180,18 +280,25 @@ export function useContractAmendmentModals({
     <HudModal
       isOpen={kind !== null}
       onClose={close}
-      size={kind === 'amendment' ? 'lg' : 'md'}
-      title={kind === 'amendment' ? 'Adicionar aditivo contratual' : 'Substituir documento'}
+      size={kind === 'amendment' && amendmentMode === 'manual' ? 'lg' : 'md'}
+      title={kind === 'amendment' ? 'Adicionar aditivo' : 'Substituir documento'}
       footer={
         <>
-          <HudButton variant="ghost" size="sm" onClick={close} disabled={submitting}>Cancelar</HudButton>
-          {kind === 'amendment' ? (
+          <HudButton variant="ghost" size="sm" onClick={close} disabled={submitting}>
+            {kind === 'amendment' && ['completed', 'requires_attention', 'failed'].includes(aiStage)
+              ? 'Fechar' : 'Cancelar'}
+          </HudButton>
+          {kind === 'amendment' && amendmentMode === 'manual' ? (
             <HudButton variant="primary" size="sm" isLoading={submitting}
                        disabled={amendmentBlocked} onClick={submitAmendment}>
               Registrar aditivo
             </HudButton>
+          ) : kind === 'amendment' && aiStage === 'failed' && aiDocumentId ? (
+            <HudButton variant="primary" size="sm" onClick={() => void retryAI()}>
+              Tentar novamente
+            </HudButton>
           ) : (
-            <HudButton variant="primary" size="sm" isLoading={submitting}
+            kind === 'replaceDoc' && <HudButton variant="primary" size="sm" isLoading={submitting}
                        disabled={!file} onClick={submitReplace}>
               Registrar nova versão
             </HudButton>
@@ -199,8 +306,23 @@ export function useContractAmendmentModals({
         </>
       }
     >
-      {kind === 'amendment' && (
+      {kind === 'amendment' && amendmentMode === 'ai' && (
+        <AmendmentAIOnboarding
+          stage={aiStage}
+          file={file}
+          error={aiError}
+          result={aiResult}
+          onFile={(selected) => void handleAIFile(selected)}
+          onManual={() => setAmendmentMode('manual')}
+        />
+      )}
+
+      {kind === 'amendment' && amendmentMode === 'manual' && (
         <div className="space-y-5">
+          <button type="button" onClick={() => setAmendmentMode('ai')}
+                  className="text-ig-caption font-semibold text-ig-accent hover:underline">
+            ← Voltar para leitura do PDF pelo Apex
+          </button>
           <div className="grid gap-3 md:grid-cols-2">
             <HudInput label="Número do aditivo" value={number} onChange={(e) => setNumber(e.target.value)}
                       placeholder="Ex.: 1º Termo Aditivo" />
@@ -346,4 +468,171 @@ export function useContractAmendmentModals({
     },
     modals,
   };
+}
+
+const STAGE_ORDER: AIStage[] = ['queued', 'reading', 'comparing', 'structuring', 'completed'];
+const STAGE_LABEL: Record<AIStage, string> = {
+  idle: 'Aguardando documento', uploading: 'Enviando documento', queued: 'Documento recebido',
+  reading: 'Lendo o aditivo', comparing: 'Comparando com o histórico contratual',
+  structuring: 'Estruturando alterações', completed: 'Concluído',
+  requires_attention: 'Requer atenção', failed: 'Falhou',
+};
+
+function AmendmentAIOnboarding({
+  stage, file, error, result, onFile, onManual,
+}: {
+  stage: AIStage;
+  file: File | null;
+  error: string | null;
+  result: AIResult | null;
+  onFile: (file: File) => void;
+  onManual: () => void;
+}) {
+  const terminal = stage === 'completed' || stage === 'requires_attention';
+  const currentIndex = STAGE_ORDER.indexOf(stage === 'requires_attention' ? 'completed' : stage);
+  const formatDate = (value: string | null) => value
+    ? new Date(`${value}T00:00:00`).toLocaleDateString('pt-BR') : 'Não identificada';
+
+  if (terminal && result?.amendment) {
+    const amendment = result.amendment;
+    const effectiveness = deriveAmendmentEffectiveness({
+      documentaryState: amendment.documentary_state,
+      effectiveDate: amendment.effective_date,
+      cancelled: amendment.status === 'cancelled',
+    });
+    const attention = result.effects.filter((effect) => effect.trust_state === 'requires_attention');
+    const extraction = amendment.ai_extraction as {
+      precedence_conflicts?: Array<{ description: string; page: number | null }>;
+    } | null;
+    const conflicts = extraction?.precedence_conflicts ?? [];
+    const stateLabel = amendment.documentary_state === 'signed' ? 'Assinado'
+      : amendment.documentary_state === 'draft' ? 'Rascunho' : 'Não identificado';
+    const effectivenessLabel = {
+      effective: 'Em vigor', not_yet_effective: 'Efeito futuro', indeterminate: 'Indeterminada',
+      superseded: 'Superado', cancelled: 'Cancelado',
+    }[effectiveness];
+    return (
+      <div className="space-y-4" data-testid="amendment-ai-result">
+        <div className="flex items-start gap-3 rounded-lg border border-ig-border-strong bg-ig-panel/55 p-3">
+          {stage === 'completed'
+            ? <Check className="mt-0.5 h-5 w-5 text-ig-success" aria-hidden />
+            : <AlertTriangle className="mt-0.5 h-5 w-5 text-ig-warning" aria-hidden />}
+          <div>
+            <p className="text-ig-body-sm font-semibold text-ig-fg-strong">{amendment.amendment_number}</p>
+            <p className="text-ig-caption text-ig-fg-muted">{amendment.title ?? 'Título documental não identificado'}</p>
+            {amendment.apex_summary && <p className="mt-1 text-ig-caption text-ig-fg-muted">{amendment.apex_summary}</p>}
+          </div>
+        </div>
+
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-lg border border-ig-border-subtle p-3 text-ig-caption">
+          <div><dt className="text-ig-fg-subtle">Assinado em</dt><dd className="font-semibold text-ig-fg-strong">{formatDate(amendment.signed_date)}</dd></div>
+          <div><dt className="text-ig-fg-subtle">Produz efeito em</dt><dd className="font-semibold text-ig-fg-strong">{formatDate(amendment.effective_date)}</dd></div>
+          <div><dt className="text-ig-fg-subtle">Estado documental</dt><dd className="font-semibold text-ig-fg-strong">{stateLabel}</dd></div>
+          <div><dt className="text-ig-fg-subtle">Eficácia</dt><dd className="font-semibold text-ig-fg-strong">{effectivenessLabel}</dd></div>
+        </dl>
+
+        <section>
+          <p className="mb-2 text-ig-label text-ig-fg-muted">Alterações identificadas</p>
+          <div className="space-y-2">
+            {result.effects.map((effect) => (
+              <div key={effect.id} className="rounded-lg border border-ig-border-subtle bg-ig-panel/40 p-3">
+                <div className="flex items-baseline justify-between gap-3">
+                  <p className="text-ig-body-sm font-semibold text-ig-fg-strong">{effect.title}</p>
+                  <span className="text-ig-label text-ig-fg-subtle">{effect.operation}</span>
+                </div>
+                <p className="mt-1 text-ig-caption text-ig-fg-muted">{effect.description}</p>
+                <p className="mt-1 text-ig-label text-ig-fg-subtle">
+                  {effect.source_page ? `Fonte: pág. ${effect.source_page}` : 'Fonte não localizada'}
+                  {effect.currently_effective ? ' · vigente' : ''}
+                </p>
+              </div>
+            ))}
+            {result.effects.length === 0 && (
+              <p className="text-ig-caption text-ig-fg-muted">Nenhuma alteração pôde ser estruturada com segurança.</p>
+            )}
+          </div>
+        </section>
+
+        {(attention.length > 0 || conflicts.length > 0) && (
+          <section className="rounded-lg border border-[color-mix(in_oklab,var(--ig-warning)_35%,transparent)] bg-[color-mix(in_oklab,var(--ig-warning)_8%,transparent)] p-3">
+            <p className="text-ig-body-sm font-semibold text-ig-fg-strong">
+              {attention.length + conflicts.length} ponto(s) requer(em) sua atenção
+            </p>
+            <div className="mt-2 space-y-2">
+              {attention.map((effect) => (
+                <div key={effect.id} className="flex gap-2 text-ig-caption text-ig-fg-muted">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ig-warning" aria-hidden />
+                  <span><strong>{effect.title}.</strong> {effect.trust_reasons.join(', ') || 'A evidência não permite aplicação automática.'}</span>
+                </div>
+              ))}
+              {conflicts.map((conflict, index) => (
+                <div key={`${conflict.description}-${index}`} className="flex gap-2 text-ig-caption text-ig-fg-muted">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ig-warning" aria-hidden />
+                  <span><strong>Precedência ambígua.</strong> {conflict.description}{conflict.page ? ` (pág. ${conflict.page})` : ''}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+      </div>
+    );
+  }
+
+  if (stage === 'idle') {
+    return (
+      <div className="space-y-3">
+        <label
+          className="flex min-h-52 cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-ig-border-strong bg-ig-panel/35 p-8 text-center transition-colors hover:bg-ig-panel-hover/45"
+          onDragOver={(event) => event.preventDefault()}
+          onDrop={(event) => { event.preventDefault(); const selected = event.dataTransfer.files[0]; if (selected) onFile(selected); }}
+        >
+          <UploadCloud className="mb-3 h-8 w-8 text-ig-accent" aria-hidden />
+          <span className="text-ig-body-sm font-semibold text-ig-fg-strong">Solte o PDF do aditivo aqui</span>
+          <span className="mt-1 text-ig-caption text-ig-fg-muted">ou selecione o documento</span>
+          <Input type="file" accept="application/pdf,.pdf" className="sr-only"
+                 onChange={(event) => { const selected = event.target.files?.[0]; if (selected) onFile(selected); }} />
+        </label>
+        <button type="button" onClick={onManual}
+                className="w-full text-center text-ig-caption text-ig-fg-muted hover:text-ig-fg-strong">
+          Registrar manualmente
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4" aria-live="polite" data-testid="amendment-ai-progress">
+      <div className="flex items-center gap-3 rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3">
+        <FileText className="h-5 w-5 text-ig-accent" aria-hidden />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-ig-body-sm font-semibold text-ig-fg-strong">{file?.name ?? 'PDF do aditivo'}</p>
+          <p className="text-ig-caption text-ig-fg-muted">O original já registrado permanece como verdade documental.</p>
+        </div>
+      </div>
+      <div>
+        <div className="flex items-center gap-2">
+          {stage === 'failed' ? <AlertTriangle className="h-4 w-4 text-ig-warning" />
+            : <LoaderCircle className="h-4 w-4 animate-spin text-ig-accent" />}
+          <p className="text-ig-body-sm font-semibold text-ig-fg-strong">
+            {stage === 'failed' ? 'A análise não foi concluída' : `Apex está ${STAGE_LABEL[stage].toLowerCase()}`}
+          </p>
+        </div>
+        <ol className="mt-3 space-y-2">
+          {(['queued', 'reading', 'comparing', 'structuring'] as AIStage[]).map((item, index) => {
+            const done = currentIndex > index;
+            const active = currentIndex === index;
+            return (
+              <li key={item} className="flex items-center gap-2 text-ig-caption text-ig-fg-muted">
+                {done ? <Check className="h-3.5 w-3.5 text-ig-success" />
+                  : active ? <LoaderCircle className="h-3.5 w-3.5 animate-spin text-ig-accent" />
+                    : <span className="h-3.5 w-3.5 rounded-full border border-ig-border-strong" />}
+                {STAGE_LABEL[item]}
+              </li>
+            );
+          })}
+        </ol>
+      </div>
+      {error && <p className="rounded-lg border border-ig-border-subtle p-3 text-ig-caption text-ig-warning">{error}</p>}
+    </div>
+  );
 }

@@ -745,6 +745,7 @@ test('12h · O documento já substituído não oferece substituição', async ()
 test('12i · Registrar o Aditivo 01 pela interface', async () => {
   await gotoDossier();
   await page.getByRole('button', { name: 'Adicionar aditivo' }).first().click();
+  await page.getByRole('button', { name: 'Registrar manualmente' }).click();
   await expect(modal()).toBeVisible({ timeout: 20_000 });
 
   await byLabel(modal(), 'Número do aditivo').fill(`TA-01-${RUN}`);
@@ -858,6 +859,7 @@ test('12l · O efeito declarado é registrado, datado, e ainda NÃO é o vigente
 test('12m · Aditivo em rascunho é registrado mas NÃO altera o vigente', async () => {
   await gotoDossier();
   await page.getByRole('button', { name: 'Adicionar aditivo' }).first().click();
+  await page.getByRole('button', { name: 'Registrar manualmente' }).click();
   await expect(modal()).toBeVisible({ timeout: 20_000 });
 
   await byLabel(modal(), 'Número do aditivo').fill(`TA-02-${RUN}`);

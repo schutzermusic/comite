@@ -15,6 +15,7 @@ export const CURRENT_PRODUCTION_TASKS = [
   'ASO_EXTRACTION',
   'PROJECT_SCHEDULE_EXTRACTION',
   'CONTRACT_OPERATIONALIZATION',
+  'CONTRACT_AMENDMENT_EXTRACTION',
 ] as const;
 
 export type ApexAIProductionTask = (typeof CURRENT_PRODUCTION_TASKS)[number];
@@ -81,6 +82,9 @@ export function getApexAITaskPolicy(task: ApexAITask): ApexAITaskPolicy {
       truncá-la entregaria uma leitura parcial com cara de completa.
     */
     CONTRACT_OPERATIONALIZATION: highRisk({ maxTokens: 32_000, timeoutMs: 180_000 }),
+    // Amendment interpretation is legally material, but remains on the normal
+    // economical Sonnet route. There is deliberately no automatic Opus hop.
+    CONTRACT_AMENDMENT_EXTRACTION: highRisk({ maxTokens: 24_000, timeoutMs: 180_000 }),
     CONTRACT_RISK_ANALYSIS: normal(),
     FINANCE_RISK_ANALYSIS: normal(),
     PROJECT_RISK_ANALYSIS: normal(),

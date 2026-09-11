@@ -592,6 +592,7 @@ export default function ContractDossierPage() {
   }, [contractId, contractActions, record, refreshFollowups, notify]);
 
   const canEditContract = hasPermission('contracts.edit') || hasPermission('admin.manage_organization');
+  const canOnboardAmendment = canEditContract && hasPermission('contracts.analyze_with_ai');
   /*
     Classificar origem NÃO é a autoridade de quem cadastra.
 
@@ -836,7 +837,8 @@ export default function ContractDossierPage() {
                 masterTitle={record.contract.name}
                 masterNumber={record.code}
                 state={effectiveContractState(trusted.totalValue, trusted.endDate, amendmentsOfficial)}
-                onAddAmendment={canEditContract ? openAmendment : undefined}
+                ingestionRequests={detail.amendmentIngestionRequests}
+                onAddAmendment={canOnboardAmendment ? openAmendment : undefined}
               />
             </div>
           </div>
