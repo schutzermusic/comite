@@ -259,8 +259,11 @@ describe('Known separate finding untouched: OPERATIONALIZATION_SCHEMA complexity
 });
 
 describe('Regression: previous AI schema-complexity fixes remain intact', () => {
-  it('CONTRACT_ONBOARDING_EXTRACTION_SCHEMA union count is still 2', () => {
-    expect(countSchemaUnions(CONTRACT_ONBOARDING_EXTRACTION_SCHEMA)).toBe(2);
+  it('CONTRACT_ONBOARDING_EXTRACTION_SCHEMA union count is now 0', () => {
+    // Was 2 (total_value/monthly_value nullable numbers). The compact provider
+    // transport carries monetary values as canonical decimal strings, so no
+    // union remains anywhere in the schema.
+    expect(countSchemaUnions(CONTRACT_ONBOARDING_EXTRACTION_SCHEMA)).toBe(0);
   });
   it('schema still has no minimum/maximum', () => {
     const s = JSON.stringify(CONTRACT_ONBOARDING_EXTRACTION_SCHEMA);

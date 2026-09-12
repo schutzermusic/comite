@@ -83,3 +83,41 @@ export const ANTHROPIC_STRUCTURED_OUTPUT_LIMITS = {
   maxUnionTypedParameters: 16,
   maxOptionalParameters: 24,
 } as const;
+
+/**
+ * Every object-typed schema node, by path.
+ *
+ * Anthropic also enforces an INTERNAL limit on compiled-grammar size, separate
+ * from the union/optional caps above: a schema can pass both explicit limits and
+ * still be rejected with "The compiled grammar is too large". Counting distinct
+ * object schemas is the regression metric for that — an 18-times-repeated
+ * evidence object compiles to a far larger grammar than one generic item schema
+ * reused inside an array.
+ */
+export function findObjectSchemas(schema: unknown, rootPath = '$'): SchemaComplexityFinding[] {
+  const found: SchemaComplexityFinding[] = [];
+  walkSchema(schema, rootPath, (node, path) => {
+    if (node.type === 'object') found.push({ path });
+  });
+  return found;
+}
+
+export function countObjectSchemas(schema: unknown): number {
+  return findObjectSchemas(schema).length;
+}
+
+/** Deepest chain of nested object schemas (root object = 1). Shallow schemas compile smaller. */
+export function maxObjectNestingDepth(schema: unknown): number {
+  let max = 0;
+  walkSchema(schema, '$', (node, path) => {
+    if (node.type !== 'object') return;
+    const depth = (path.match(/\.properties\./g) ?? []).length + 1;
+    if (depth > max) max = depth;
+  });
+  return max;
+}
+
+/** Serialized byte length of the schema as it would travel to the provider. */
+export function schemaByteLength(schema: unknown): number {
+  return Buffer.byteLength(JSON.stringify(schema), 'utf8');
+}

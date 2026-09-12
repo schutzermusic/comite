@@ -101,16 +101,19 @@ describe('Provider schema: Anthropic structured-output compatibility', () => {
     expect(() => JSON.stringify(CONTRACT_ONBOARDING_EXTRACTION_SCHEMA)).not.toThrow();
   });
   it('schema preserves required fields, additionalProperties, enums, arrays', () => {
+    // The provider transport is now compact (one generic fact item in a `facts`
+    // array) after the grammar-size failure; the 18 documentary keys live in the
+    // fact `key` enum rather than as 18 field-specific evidence objects.
     const s = CONTRACT_ONBOARDING_EXTRACTION_SCHEMA as Record<string, unknown>;
     expect(s.type).toBe('object');
     expect(s.additionalProperties).toBe(false);
     const req = s.required as string[];
-    expect(req).toContain('contract_number');
-    expect(req).toContain('risk');
-    expect(req).toContain('effective_date');
+    expect(req).toEqual(['facts', 'effective_date_derivation', 'risk_factors']);
     const str = JSON.stringify(s);
     expect(str).toContain('"enum"');
-    expect(str).toContain('"draft"');
+    expect(str).toContain('"contract_number"');
+    expect(str).toContain('"risk"');
+    expect(str).toContain('"effective_date"');
     expect(str).toContain('"array"');
     expect(str).toContain('"items"');
   });

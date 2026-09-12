@@ -211,7 +211,17 @@ const evidenceFields = {
   confidence: { type: 'number', description: 'Confiança na leitura, entre 0 e 1.' },
 } as const;
 
-const OPERATIONALIZATION_SCHEMA = {
+// KNOWN DEFECT — NEXT REQUIRED FIX (not addressed in
+// fix/contracts-onboarding-compact-grammar, which is scoped to CONTRACT_EXTRACTION).
+//
+// This schema carries ~26 union-typed parameters, above Anthropic's documented
+// limit of 16, and is field-expanded in the same way the onboarding schema was
+// before the compiled-grammar failure (req_011CexwaB6XrwPFHY8ybZdYD). It must be
+// migrated to the same compact transport shape — one generic fact/item schema plus
+// deterministic reconstruction — BEFORE a human finalizes a real contract and
+// triggers full operationalization, or CONTRACT_OPERATIONALIZATION will fail the
+// same way in production.
+export const OPERATIONALIZATION_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   required: ['obligations', 'billing_conditions', 'guarantees', 'insurance_requirements', 'indexation_rules'],
