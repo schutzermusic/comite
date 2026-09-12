@@ -4,32 +4,65 @@ import { platformServiceClient } from '@/lib/platform/server-client';
 import { scheduleFastDrain } from '@/lib/platform/jobs/fast-path';
 import { logAuditEventServer } from '@/lib/audit/log-audit-event-server';
 import { requireContractOnboardingSession } from '@/lib/contracts/onboarding/server-auth';
+import {
+  MAX_ONBOARDING_PDF_BYTES, ONBOARDING_STORAGE_BUCKET, ownsOnboardingStoragePath,
+} from '@/lib/contracts/onboarding/upload-paths';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-const MAX_BYTES = 30 * 1024 * 1024;
-const safeName = (name: string) => name.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-  .replace(/[^a-zA-Z0-9._-]/g, '-').replace(/-+/g, '-').slice(0, 160);
 
+/** Best-effort cleanup of an object THIS request itself just confirmed is redundant. Never blocks the response. */
+async function removeRedundantUpload(service: ReturnType<typeof platformServiceClient>, path: string): Promise<void> {
+  try { await service.storage.from(ONBOARDING_STORAGE_BUCKET).remove([path]); } catch { /* best-effort only */ }
+}
+
+/**
+ * Step 2 of the direct-to-storage upload (see upload-paths.ts): the browser
+ * has already put the PDF directly into Storage using the signed token from
+ * /upload-authorize. This route receives only small JSON metadata — never
+ * PDF bytes — and does the finalize-time verification: the path must belong
+ * to THIS caller's org+user+uploadId (never trust a client-supplied path
+ * otherwise), the object must actually exist, and its real bytes (downloaded
+ * here — an outbound call this server makes to Storage, not an inbound
+ * request body, so the original Vercel 413 never applies) must be a PDF at
+ * or under the 30 MB product limit. The authoritative content_sha256 is
+ * computed from those downloaded bytes, never trusted from the client.
+ *
+ * Everything after that point — duplicate detection, intake creation,
+ * durable enqueue, audit log — is byte-for-byte the same document-first
+ * flow that existed before this fix.
+ */
 export async function POST(req: Request) {
   const auth = await requireContractOnboardingSession();
   if ('error' in auth) return auth.error;
-  let form: FormData;
-  try { form = await req.formData(); } catch {
+
+  let body: { uploadId?: unknown; path?: unknown; fileName?: unknown };
+  try { body = await req.json(); } catch {
     return NextResponse.json({ ok: false, error: 'Documento ausente.' }, { status: 400 });
   }
-  const file = form.get('document');
-  if (!(file instanceof File) || file.size === 0) {
+  const uploadId = typeof body.uploadId === 'string' ? body.uploadId : '';
+  const path = typeof body.path === 'string' ? body.path : '';
+  const fileName = typeof body.fileName === 'string' && body.fileName.trim() ? body.fileName.trim() : 'documento.pdf';
+
+  if (!uploadId || !path || !ownsOnboardingStoragePath(path, auth.organizationId, auth.user.id, uploadId)) {
+    return NextResponse.json({ ok: false, error: 'Não foi possível confirmar o envio do documento.' }, { status: 400 });
+  }
+
+  const service = platformServiceClient();
+  const download = await service.storage.from(ONBOARDING_STORAGE_BUCKET).download(path);
+  if (download.error || !download.data) {
+    return NextResponse.json({ ok: false, error: 'Não foi possível confirmar o envio do documento.' }, { status: 400 });
+  }
+  const bytes = Buffer.from(await download.data.arrayBuffer());
+  if (bytes.byteLength === 0) {
     return NextResponse.json({ ok: false, error: 'Selecione o contrato em PDF.' }, { status: 400 });
   }
-  if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
-    return NextResponse.json({ ok: false, error: 'O envio inicial aceita o contrato em PDF.' }, { status: 415 });
-  }
-  if (file.size > MAX_BYTES) {
+  if (bytes.byteLength > MAX_ONBOARDING_PDF_BYTES) {
+    await removeRedundantUpload(service, path);
     return NextResponse.json({ ok: false, error: 'O PDF deve ter no máximo 30 MB.' }, { status: 413 });
   }
-  const bytes = Buffer.from(await file.arrayBuffer());
   if (bytes.subarray(0, 5).toString('ascii') !== '%PDF-') {
+    await removeRedundantUpload(service, path);
     return NextResponse.json({ ok: false, error: 'O arquivo selecionado não é um PDF válido.' }, { status: 415 });
   }
   const hash = createHash('sha256').update(bytes).digest('hex');
@@ -39,14 +72,17 @@ export async function POST(req: Request) {
   const { data: existingDocument } = await auth.supabase.from('contract_documents')
     .select('id,contract_id').eq('content_sha256', hash).eq('document_type', 'contract')
     .is('superseded_by_document_id', null).maybeSingle<{ id: string; contract_id: string }>();
-  if (existingDocument) return NextResponse.json({ ok: true, duplicate: true,
-    contractId: existingDocument.contract_id, message: 'Este documento parece já estar cadastrado.' });
+  if (existingDocument) {
+    await removeRedundantUpload(service, path);
+    return NextResponse.json({ ok: true, duplicate: true,
+      contractId: existingDocument.contract_id, message: 'Este documento parece já estar cadastrado.' });
+  }
 
-  const service = platformServiceClient();
   const { data: existing } = await service.from('contract_onboarding_intakes').select('*')
     .eq('organization_id', auth.organizationId).eq('uploaded_by', auth.user.id)
     .eq('content_sha256', hash).maybeSingle<Record<string, unknown>>();
   if (existing) {
+    await removeRedundantUpload(service, path);
     if (existing.status === 'REGISTERED') return NextResponse.json({ ok: true, duplicate: true,
       contractId: existing.contract_id, message: 'Este documento parece já estar cadastrado.' });
     const { data, error } = await service.rpc('contract_onboarding_enqueue', {
@@ -59,14 +95,9 @@ export async function POST(req: Request) {
   }
 
   const intakeId = randomUUID();
-  const path = `${auth.organizationId}/onboarding/${auth.user.id}/${hash}-${safeName(file.name)}`;
-  const upload = await service.storage.from('contract-files').upload(path, bytes, {
-    contentType: 'application/pdf', upsert: false,
-  });
-  if (upload.error) return NextResponse.json({ ok: false, error: 'Não foi possível preservar o documento.' }, { status: 500 });
   const { error: insertError } = await service.from('contract_onboarding_intakes').insert({
     id: intakeId, organization_id: auth.organizationId, uploaded_by: auth.user.id,
-    file_name: file.name, file_path: path, file_size: file.size,
+    file_name: fileName, file_path: path, file_size: bytes.byteLength,
     mime_type: 'application/pdf', content_sha256: hash, status: 'RECEIVED',
   });
   if (insertError) return NextResponse.json({ ok: false,
@@ -82,7 +113,7 @@ export async function POST(req: Request) {
   }
   await logAuditEventServer({ organizationId: auth.organizationId,
     action: 'contract.onboarding_document_received', entityType: 'contract_onboarding_intake', entityId: intakeId,
-    metadata: { content_sha256: hash, file_name: file.name, job_id: (queued as { job_id?: string }).job_id },
+    metadata: { content_sha256: hash, file_name: fileName, job_id: (queued as { job_id?: string }).job_id },
   }, req.headers);
   scheduleFastDrain('contract-onboarding');
   return NextResponse.json({ ok: true, intakeId, status: 'QUEUED', reused: false }, { status: 202 });

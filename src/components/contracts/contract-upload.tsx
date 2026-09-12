@@ -519,7 +519,16 @@ export function ContractUpload({
           <HudPanel title="Apex está lendo o contrato" icon={<LoaderCircle className="h-4 w-4 animate-spin" />} interactive={false}>
             <div className="rounded-lg border border-ig-border-subtle bg-ig-panel/55 p-3">
               <p className="truncate text-ig-body-sm font-semibold text-ig-fg-strong">{file?.name}</p>
-              <p className="mt-1 text-ig-caption text-ig-fg-muted">O documento original já foi preservado.</p>
+              {/*
+                This must never claim preservation before Storage confirms it. `intakeId`
+                only exists once the direct upload succeeded AND the server finalized the
+                intake — before that (or on failure) it stays truthful about the sending
+                state instead of asserting something that may still be a 413 in disguise.
+              */}
+              <p className="mt-1 text-ig-caption text-ig-fg-muted">
+                {intakeId ? 'O documento original já foi preservado.'
+                  : intakeError ? 'Não foi possível enviar o documento.' : 'Enviando o documento…'}
+              </p>
             </div>
             <div className="mt-5 space-y-3 text-ig-body-sm">
               <ProcessingLine done={Boolean(intakeId)} active={!intakeId} label="Documento recebido" />
