@@ -236,6 +236,14 @@ function queryBuilder() {
   return builder;
 }
 
+/** Chama a rota e exige uma resposta: um handler que não responde é, por si só, um defeito. */
+async function callListEndpoint() {
+  const { GET } = await import('@/app/api/contracts/onboarding/route');
+  const response = await GET();
+  if (!response) throw new Error('GET /api/contracts/onboarding devolveu resposta vazia.');
+  return response;
+}
+
 const authorizedSession = () => ({
   organizationId: ORG_A,
   user: { id: USER_A },
@@ -255,8 +263,7 @@ describe('GET /api/contracts/onboarding — unfinished intakes', () => {
   it('scopes the read to the active organization, the caller and unfinished intakes', async () => {
     authState.value = authorizedSession();
     queryRows = [requiresAttentionRow()];
-    const { GET } = await import('@/app/api/contracts/onboarding/route');
-    const response = await GET();
+    const response = await callListEndpoint();
     const body = await response.json() as { ok: boolean; intakes: Array<{ id: string; kind: string }> };
 
     expect(response.status).toBe(200);
@@ -275,18 +282,16 @@ describe('GET /api/contracts/onboarding — unfinished intakes', () => {
 
   it('reads through the AUTHENTICATED client, never the service role', async () => {
     authState.value = authorizedSession();
-    const { GET } = await import('@/app/api/contracts/onboarding/route');
-    await GET();
+    await callListEndpoint();
     // O service role ignoraria a política de RLS; a listagem não pode usá-lo.
     expect(serviceRpc).not.toHaveBeenCalled();
   });
 
   it('mutates nothing: no enqueue, no finalize, no fast drain, no upload', async () => {
     authState.value = authorizedSession();
-    const { GET } = await import('@/app/api/contracts/onboarding/route');
-    await GET();
-    await GET();
-    await GET();
+    await callListEndpoint();
+    await callListEndpoint();
+    await callListEndpoint();
     expect(serviceRpc).not.toHaveBeenCalled();
     expect(fastDrain).not.toHaveBeenCalled();
     const writes = recorded.filters.filter(([name]) => ['insert', 'update', 'upsert', 'delete'].includes(name));
@@ -296,15 +301,13 @@ describe('GET /api/contracts/onboarding — unfinished intakes', () => {
   it('returns the session error untouched when the caller is not authorized', async () => {
     const denied = new Response(JSON.stringify({ ok: false, error: 'Não autenticado.' }), { status: 401 });
     authState.value = { error: denied };
-    const { GET } = await import('@/app/api/contracts/onboarding/route');
-    const response = await GET();
+    const response = await callListEndpoint();
     expect(response.status).toBe(401);
   });
 
   it('cannot return another organization: the query is bound to the caller session org', async () => {
     authState.value = { ...authorizedSession(), organizationId: ORG_B };
-    const { GET } = await import('@/app/api/contracts/onboarding/route');
-    await GET();
+    await callListEndpoint();
     expect(recorded.filters).toContainEqual(['eq', 'organization_id', ORG_B]);
     expect(recorded.filters).not.toContainEqual(['eq', 'organization_id', ORG_A]);
   });

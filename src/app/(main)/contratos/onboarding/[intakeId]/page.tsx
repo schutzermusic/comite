@@ -26,7 +26,7 @@
  * organização devolve "não encontrado", que é o que esta tela mostra.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, FileClock } from 'lucide-react';
@@ -68,14 +68,25 @@ export default function ContratoOnboardingRetomadaPage() {
     return () => { alive = false; };
   }, []);
 
-  /** Fechar o cadastro devolve a carteira; o cadastro continua onde estava. */
-  const leave = useCallback(() => { router.push('/contratos'); }, [router]);
+  /*
+    Para onde o assistente devolve o usuário ao se fechar.
+
+    O assistente fecha sozinho depois de salvar, e é ele quem dá a última
+    palavra sobre a navegação — por isso o destino é decidido aqui, e não
+    dentro do `onSubmit`: um `push` feito na finalização seria sobrescrito
+    pelo fechamento e o contrato recém-criado nunca apareceria. Fechar sem
+    finalizar devolve a carteira, e o cadastro continua exatamente onde está.
+  */
+  const createdContractId = useRef<string | null>(null);
+  const leave = useCallback(() => {
+    router.push(createdContractId.current ? `/contratos/${createdContractId.current}` : '/contratos');
+  }, [router]);
 
   const finalize = useCallback(async (draft: ContractOnboardingDraft) => {
     if (!draft.onboardingIntakeId) return;
     const result = await finalizeContractIntake(draft.onboardingIntakeId, buildIntakeFinalValues(draft));
-    router.push(`/contratos/${result.contractId}`);
-  }, [router]);
+    createdContractId.current = result.contractId;
+  }, []);
 
   const kind = intake ? intakeContinuityKind(intake) : null;
 
