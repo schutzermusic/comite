@@ -103,10 +103,25 @@ const STATUS_MAP: Record<string, string> = {
   draft: 'negotiation', signed: 'signed', active: 'active', cancelled: 'cancelled', expired: 'expired',
 };
 
+/**
+ * Deterministic trust gate for documentary evidence.
+ *
+ * Removing JSON Schema `minimum`/`maximum` from the provider schema does NOT
+ * weaken trust — those keywords shifted the constraint to this runtime check,
+ * which is stricter: it rejects non-finite values the JSON Schema range would
+ * never even see.
+ *
+ * Out-of-range model values (< 0, > 1, NaN, Infinity) are invalid evidence and
+ * must never become identified/trusted facts. Do NOT clamp — transform to zero
+ * or one hides a model misbehaviour that should trigger human attention instead.
+ */
 export function hasStrongEvidence(fact: DocumentaryFact<unknown>): boolean {
   return Number.isInteger(fact.page) && Number(fact.page) > 0
     && typeof fact.excerpt === 'string' && fact.excerpt.trim().length >= 8
-    && Number.isFinite(fact.confidence) && fact.confidence >= MIN_ONBOARDING_CONFIDENCE
+    && Number.isFinite(fact.confidence)
+    && fact.confidence >= 0
+    && fact.confidence <= 1
+    && fact.confidence >= MIN_ONBOARDING_CONFIDENCE
     && !fact.ambiguous && !fact.conflicting;
 }
 
@@ -180,7 +195,10 @@ const evidence = (value: Record<string, unknown> = {}) => ({
   required: ['value', 'page', 'excerpt', 'confidence', 'ambiguous', 'conflicting'],
   properties: {
     value, page: { type: ['integer', 'null'] }, excerpt: { type: ['string', 'null'] },
-    confidence: { type: 'number', minimum: 0, maximum: 1 },
+    // `minimum`/`maximum` are NOT used here: Anthropic's structured-output dialect
+    // rejects those keywords for 'number' type with HTTP 400. The 0..1 invariant
+    // is enforced deterministically by hasStrongEvidence() at runtime instead.
+    confidence: { type: 'number' },
     ambiguous: { type: 'boolean' }, conflicting: { type: 'boolean' },
   },
 });

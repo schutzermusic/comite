@@ -98,6 +98,22 @@ export function classifyJobError(error: unknown): Classified {
     return { retryable: false, code: `http_${status}`, safe };
   }
 
+  /*
+    ApexAIError tem `.code` (e.g. 'PROVIDER_ERROR') e `.retryable` já corretos.
+    Sem este guarda, o ramo de código Postgres abaixo capturaria esse `.code`
+    e produziria o rótulo espúrio `pg_PROVIDER_ERROR`. O erro HTTP 400 de
+    schema inválido (Anthropic invalid_request_error) NÃO é reprocessável —
+    `ApexAIError.retryable` já está `false` para esse caso.
+  */
+  if (
+    error instanceof Error
+    && error.name === 'ApexAIError'
+    && typeof (error as { code?: unknown }).code === 'string'
+  ) {
+    const apex = error as unknown as { code: string; retryable: boolean };
+    return { retryable: apex.retryable, code: `apex_${apex.code.toLowerCase()}`, safe };
+  }
+
   const pgCode = (error as { code?: unknown })?.code;
   if (typeof pgCode === 'string' && pgCode.length > 0) {
     if (RETRYABLE_PG_CODES.has(pgCode)) return { retryable: true, code: `pg_${pgCode}`, safe };
