@@ -8,10 +8,11 @@ import { platformServiceClient } from '@/lib/platform/server-client';
 import { getApexAIGateway } from '@/lib/ai/gateway';
 import {
   buildContractOnboardingResult,
+  normalizeContractOnboardingExtraction,
   CONTRACT_ONBOARDING_EXTRACTION_SCHEMA,
   CONTRACT_ONBOARDING_PIPELINE_VERSION,
   CONTRACT_ONBOARDING_TRUST_VERSION,
-  type ContractOnboardingExtraction,
+  type ContractOnboardingProviderExtraction,
 } from '@/lib/contracts/onboarding/document-first';
 
 const BUCKET = 'contract-files';
@@ -19,15 +20,28 @@ const MAX_BYTES = 30 * 1024 * 1024;
 
 const SYSTEM_PROMPT = `You structure contract onboarding facts for Insight Apex.
 The attached PDF is the only documentary source. Never invent a number, title, party, date, value,
-status, risk, project, responsible employee, approval or review. Return null/unknown when absent.
-Every non-null documentary value needs a one-based source page, a short literal excerpt and a
-confidence from 0 to 1. Mark ambiguous when two readings are possible and conflicting when the
-document contains incompatible evidence. Distinguish signature, start, effective and end dates.
-Effective-from-signature may use derivation=from_signature only when the document states that rule;
-do not copy a nearby signature date by assumption. Classify contract_type only when supported.
-Risk is a recommendation based only on material obligations, penalties, guarantees, liability,
-termination, payment, indexation, retention, insurance and performance conditions; list its factors.
-Do not output internal responsibility or project assignment. Do not claim human confirmation.`;
+status, risk, project, responsible employee, approval or review.
+
+Transport conventions for an absent fact (use exactly these, never null, except where noted):
+- MISSING STRING FACT: value = "", page = 0, excerpt = ""
+- MISSING ENUM FACT (contract_type, risk): value = "unknown", page = 0, excerpt = ""
+- MISSING NUMERIC FACT (total_value, monthly_value): value = null, page = 0, excerpt = ""
+documentary_state has no "missing" state: "unknown" there means the document's situation genuinely
+cannot be determined — it is a real answer, not an absence marker.
+
+When a documentary value exists: page must be a real one-based PDF page number greater than 0, never
+a fabricated positive page; excerpt must be a short literal quote from the document, never invented or
+paraphrased; confidence must be a number from 0 to 1 reflecting confidence in that specific value.
+
+Mark ambiguous when two readings are possible and conflicting when the document contains incompatible
+evidence. Distinguish signature, start, effective and end dates. Effective-from-signature may use
+derivation=from_signature only when the document states that rule; do not copy a nearby signature date
+by assumption. Classify contract_type only when supported, otherwise "unknown". Risk is a
+recommendation based only on material obligations, penalties, guarantees, liability, termination,
+payment, indexation, retention, insurance and performance conditions; list its factors, or "unknown"
+with an empty factors list when the document gives no basis. Never fabricate a value merely to avoid
+a sentinel. Do not output internal responsibility or project assignment. Do not claim human
+confirmation.`;
 
 export async function extractContractOnboarding(intakeId: string) {
   const supabase = platformServiceClient();
@@ -56,7 +70,7 @@ export async function extractContractOnboarding(intakeId: string) {
   const hash = createHash('sha256').update(bytes).digest('hex');
   if (hash !== intake.content_sha256) throw new Error('Contract PDF integrity check failed.');
 
-  const response = await getApexAIGateway().generate<ContractOnboardingExtraction>({
+  const response = await getApexAIGateway().generate<ContractOnboardingProviderExtraction>({
     organizationId: intake.organization_id,
     task: 'CONTRACT_EXTRACTION',
     systemPrompt: SYSTEM_PROMPT,
@@ -71,7 +85,9 @@ export async function extractContractOnboarding(intakeId: string) {
   if (!response.output || typeof response.output !== 'object') {
     throw new Error('Apex returned no structured contract result.');
   }
-  const extraction = response.output;
+  // Provider transport sentinels (page 0, "", "unknown") are resolved to canonical
+  // null here, before the trust gate, persistence or prefill ever see them.
+  const extraction = normalizeContractOnboardingExtraction(response.output);
   const result = buildContractOnboardingResult(extraction);
   const status = result.attentionCount > 0 ? 'REQUIRES_ATTENTION' : 'READY';
   const { error: updateError } = await supabase.from('contract_onboarding_intakes').update({
