@@ -69,6 +69,7 @@ import {
   type ContractIntakeView,
 } from '@/lib/contracts/onboarding/client';
 import type { ClassifiedIntakeField } from '@/lib/contracts/onboarding/document-first';
+import { formValuesFromIntakePrefill, resumedIntakeView } from '@/lib/contracts/onboarding/resume';
 
 /** O que o assistente entrega. Campos vazios chegam como `null`, nunca inventados. */
 export type ContractOnboardingDraft = {
@@ -110,6 +111,19 @@ export interface ContractUploadProps {
   onSubmit: (draft: ContractOnboardingDraft) => void | Promise<void>;
   projects?: Project[];
   companies?: string[];
+  /**
+   * Cadastro JÁ INICIADO sendo retomado.
+   *
+   * Quando presente, o assistente não abre pelo envio do documento: ele
+   * reconstrói a tela de resultado a partir do que foi persistido — os mesmos
+   * campos identificados, as mesmas pendências, a mesma evidência documental e
+   * o mesmo prefill que a pessoa viu quando a leitura terminou.
+   *
+   * Reconstruir é LER. Nada aqui reenvia o PDF, reenfileira a leitura ou
+   * reescreve `structured_result`: abrir o cadastro dez vezes deixa a entrada
+   * exatamente como estava.
+   */
+  resumeIntake?: ContractIntakeView | null;
 }
 
 const STEPS = ['Identidade', 'Vigência e valor', 'Projeto', 'Documento', 'Revisão'] as const;
@@ -195,6 +209,7 @@ export function ContractUpload({
   onSubmit,
   projects = [],
   companies = [],
+  resumeIntake = null,
 }: ContractUploadProps) {
   const [view, setView] = useState<OnboardingView>('entry');
   const [step, setStep] = useState(0);
@@ -248,6 +263,28 @@ export function ContractUpload({
     return () => { alive = false; clearTimeout(timer); };
   }, [open, form.counterparty]);
 
+  /*
+    Reconstrução de um cadastro em andamento.
+
+    O estado da tela vem da entrada persistida, não da memória de uma sessão
+    anterior do componente — é por isso que atualizar a página, voltar ou
+    compartilhar a URL continua funcionando. O formulário é preenchido pela
+    MESMA tradução usada logo após a leitura (`formValuesFromIntakePrefill`),
+    de modo que o cadastro retomado não possa divergir do que foi visto antes.
+  */
+  useEffect(() => {
+    if (!open || !resumeIntake) return;
+    setIntakeId(resumeIntake.id);
+    setIntake(resumeIntake);
+    // O PDF original continua anexado à entrada; não há arquivo local a
+    // recuperar e nenhum novo envio é oferecido.
+    setFile(null);
+    setForm((previous) => ({ ...previous, ...formValuesFromIntakePrefill(resumeIntake.structured_result?.prefill) }));
+    setIntakeError(resumeIntake.status === 'FAILED'
+      ? (resumeIntake.error_safe || 'Não foi possível concluir a leitura do documento.') : null);
+    setView(resumedIntakeView(resumeIntake));
+  }, [open, resumeIntake]);
+
   useEffect(() => {
     if (!open || view !== 'processing' || !intakeId) return;
     let alive = true;
@@ -258,24 +295,11 @@ export function ContractUpload({
         if (!alive) return;
         setIntake(current);
         if (current.status === 'READY' || current.status === 'REQUIRES_ATTENTION') {
-          const prefill = current.structured_result?.prefill ?? {};
+          // Uma única tradução prefill -> formulário, compartilhada com a
+          // retomada: o cadastro reaberto mostra exatamente o que foi visto aqui.
           setForm((previous) => ({
             ...previous,
-            title: String(prefill.title ?? ''),
-            contractNumber: String(prefill.contractNumber ?? ''),
-            counterparty: String(prefill.counterparty ?? ''),
-            type: String(prefill.type ?? ''),
-            status: String(prefill.status ?? ''),
-            startDate: String(prefill.startDate ?? ''),
-            endDate: String(prefill.endDate ?? ''),
-            signedDate: String(prefill.signedDate ?? ''),
-            renewalDate: String(prefill.renewalDate ?? ''),
-            totalValue: prefill.totalValue == null ? '' : String(prefill.totalValue),
-            monthlyValue: prefill.monthlyValue == null ? '' : String(prefill.monthlyValue),
-            paymentTerms: String(prefill.paymentTerms ?? ''),
-            scopeSummary: String(prefill.scopeSummary ?? ''),
-            // Risk is a governed recommendation and is never silently accepted.
-            riskLevel: '',
+            ...formValuesFromIntakePrefill(current.structured_result?.prefill),
           }));
           setView('summary');
           return;
@@ -518,7 +542,7 @@ export function ContractUpload({
         {view === 'processing' && (
           <HudPanel title="Apex está lendo o contrato" icon={<LoaderCircle className="h-4 w-4 animate-spin" />} interactive={false}>
             <div className="rounded-lg border border-ig-border-subtle bg-ig-panel/55 p-3">
-              <p className="truncate text-ig-body-sm font-semibold text-ig-fg-strong">{file?.name}</p>
+              <p className="truncate text-ig-body-sm font-semibold text-ig-fg-strong">{file?.name || intake?.file_name}</p>
               {/*
                 This must never claim preservation before Storage confirms it. `intakeId`
                 only exists once the direct upload succeeded AND the server finalized the
@@ -930,6 +954,17 @@ function ResultGroup({ title, tone, fields }: {
             <div>
               {field.value !== null && <p className="text-ig-body-sm font-semibold text-ig-fg-strong">{String(field.value)}</p>}
               <p className="text-ig-caption text-ig-fg-muted">{field.explanation}</p>
+              {/*
+                A evidência documental é parte do resultado e fica com ele: é o
+                que permite conferir a leitura contra o papel — na primeira vez
+                e em qualquer retomada — sem reabrir o PDF.
+              */}
+              {field.excerpt && (
+                <p className="mt-1 text-ig-caption italic text-ig-fg-subtle">
+                  {field.page !== null && <span className="not-italic font-semibold">Página {field.page} · </span>}
+                  “{field.excerpt}”
+                </p>
+              )}
             </div>
           </div>
         ))}

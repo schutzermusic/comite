@@ -7,9 +7,47 @@ import { requireContractOnboardingSession } from '@/lib/contracts/onboarding/ser
 import {
   MAX_ONBOARDING_PDF_BYTES, ONBOARDING_STORAGE_BUCKET, ownsOnboardingStoragePath,
 } from '@/lib/contracts/onboarding/upload-paths';
+import {
+  ACTIVE_INTAKE_STATUSES, selectActiveIntakes, type IntakeContinuityRow,
+} from '@/lib/contracts/onboarding/resume';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+/**
+ * Cadastros de contrato iniciados e ainda não concluídos, do usuário
+ * autenticado, na organização ativa.
+ *
+ * SOMENTE LEITURA. Não enfileira, não reprocessa, não finaliza e não toca em
+ * `structured_result`: abrir a carteira não pode alterar um cadastro em
+ * andamento. Por isso não existe fast-drain nem RPC aqui.
+ *
+ * A consulta usa o cliente AUTENTICADO (`auth.supabase`), nunca o service
+ * role: a política `coni_read_own` da migration 166 é quem decide o que esta
+ * pessoa pode ver — organização ativa, entradas que ela própria enviou e
+ * permissão `contracts.create`. O `.eq('organization_id', …)` explícito é
+ * defesa em profundidade sobre a mesma fronteira, não a fronteira em si.
+ *
+ * `contract_id IS NULL` é o filtro que impede um cadastro JÁ CONCLUÍDO de
+ * voltar a aparecer como rascunho: assim que o contrato canônico nasce, a
+ * entrada sai desta lista e passa a viver no dossiê e na auditoria.
+ */
+export async function GET() {
+  const auth = await requireContractOnboardingSession();
+  if ('error' in auth) return auth.error;
+
+  const { data, error } = await auth.supabase.from('contract_onboarding_intakes')
+    .select('id,file_name,status,structured_result,attention_count,contract_id,received_at,completed_at')
+    .eq('organization_id', auth.organizationId)
+    .is('contract_id', null)
+    .in('status', [...ACTIVE_INTAKE_STATUSES])
+    .order('received_at', { ascending: false })
+    .limit(20);
+  if (error) {
+    return NextResponse.json({ ok: false, error: 'Não foi possível consultar os cadastros em andamento.' }, { status: 500 });
+  }
+  return NextResponse.json({ ok: true, intakes: selectActiveIntakes((data ?? []) as unknown as IntakeContinuityRow[]) });
+}
 
 /** Best-effort cleanup of an object THIS request itself just confirmed is redundant. Never blocks the response. */
 async function removeRedundantUpload(service: ReturnType<typeof platformServiceClient>, path: string): Promise<void> {

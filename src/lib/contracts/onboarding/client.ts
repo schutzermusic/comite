@@ -2,10 +2,11 @@
 
 import { createClient } from '@/utils/supabase/client';
 import type { ContractOnboardingResult } from './document-first';
+import type { ContractIntakeContinuityItem, ContractIntakeStatus } from './resume';
 import { isPdfUpload, MAX_ONBOARDING_PDF_BYTES, ONBOARDING_STORAGE_BUCKET } from './upload-paths';
 
-export type ContractIntakeStatus = 'RECEIVED' | 'QUEUED' | 'READING' | 'STRUCTURING'
-  | 'READY' | 'REQUIRES_ATTENTION' | 'FAILED' | 'REGISTERED' | 'CANCELLED';
+/** Reexportado do módulo puro de continuidade, que é onde o estado canônico mora. */
+export type { ContractIntakeStatus } from './resume';
 
 export interface ContractIntakeView {
   id: string;
@@ -15,6 +16,8 @@ export interface ContractIntakeView {
   attention_count: number;
   error_safe: string | null;
   contract_id: string | null;
+  received_at?: string | null;
+  completed_at?: string | null;
 }
 
 async function json<T>(response: Response): Promise<T> {
@@ -54,6 +57,20 @@ export async function sendContractDocument(file: File): Promise<{
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ uploadId: authorized.uploadId, path: authorized.path, fileName: file.name }),
   }));
+}
+
+/**
+ * Cadastros de contrato iniciados e ainda não concluídos.
+ *
+ * Leitura pura: GET, `no-store`, nenhuma mutação, nenhum envio de documento e
+ * nenhuma nova leitura. Existe para que um cadastro interrompido continue
+ * visível na carteira em vez de só existir no banco.
+ */
+export async function listActiveContractIntakes(): Promise<ContractIntakeContinuityItem[]> {
+  const body = await json<{ intakes: ContractIntakeContinuityItem[] }>(
+    await fetch('/api/contracts/onboarding', { cache: 'no-store' }),
+  );
+  return body.intakes ?? [];
 }
 
 export async function getContractIntake(id: string): Promise<ContractIntakeView> {

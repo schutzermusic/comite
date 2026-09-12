@@ -25,6 +25,8 @@ import { useCurrentUser } from '@/hooks/use-current-user';
 import { ContractList } from '@/components/contracts/contract-list';
 import { ContractUpload, type ContractOnboardingDraft } from '@/components/contracts/contract-upload';
 import { finalizeContractIntake } from '@/lib/contracts/onboarding/client';
+import { buildIntakeFinalValues } from '@/lib/contracts/onboarding/finalize-values';
+import { ContractOnboardingContinuity } from '@/components/contracts/ContractOnboardingContinuity';
 import { ApexMonitoringBand, type MonitoringCell } from '@/components/contracts/intelligence/ApexMonitoringBand';
 import { usePortfolioFollowups } from '@/components/contracts/use-portfolio-followups';
 import { isOpenFollowup } from '@/lib/platform/followups/types';
@@ -726,26 +728,9 @@ export default function ContratosPage() {
   const handleContractOnboarded = async (draft: ContractOnboardingDraft) => {
     const creationPolicy = { dataClass: 'unclassified' as const };
     if (draft.onboardingIntakeId) {
-      const result = await finalizeContractIntake(draft.onboardingIntakeId, {
-        title: draft.title,
-        contract_number: draft.contractNumber,
-        counterparty_name: draft.counterpartyName,
-        counterparty_party_id: draft.counterpartyPartyId,
-        contract_type: draft.contractType,
-        owner_user_id: draft.ownerUserId,
-        status: draft.status,
-        start_date: draft.startDate,
-        end_date: draft.endDate,
-        signed_date: draft.signedDate,
-        renewal_date: draft.renewalDate,
-        currency: draft.currency,
-        total_value: draft.totalValue,
-        monthly_value: draft.monthlyValue,
-        payment_terms: draft.paymentTerms,
-        scope_summary: draft.scopeSummary,
-        risk_level: draft.riskLevel,
-        project_id: draft.projectId,
-      });
+      // A MESMA carga que a retomada envia — um cadastro concluído aqui ou por
+      // `/contratos/onboarding/[intakeId]` produz exatamente o mesmo contrato.
+      const result = await finalizeContractIntake(draft.onboardingIntakeId, buildIntakeFinalValues(draft));
       await refresh();
       setSelectedId(result.contractId);
       setActiveSection('contracts');
@@ -1337,6 +1322,14 @@ export default function ContratosPage() {
         obrigam o usuário a descobrir que são a mesma coisa. A sidebar é a
         canônica; aqui fica só o conteúdo da área ativa.
       */}
+      {/*
+        Cadastros que já entraram e ainda não terminaram ficam VISÍVEIS, acima
+        da área ativa: sem isto, um cadastro interrompido existia apenas no
+        banco e a única saída aparente era enviar o mesmo PDF outra vez. A
+        faixa some sozinha quando não há nada em andamento.
+      */}
+      <ContractOnboardingContinuity className="mt-5" />
+
       <div className="mt-5 min-w-0" data-testid="portfolio-workspace" aria-live="polite">
         {tabs.find((tab) => tab.id === activeSection)?.content}
       </div>
