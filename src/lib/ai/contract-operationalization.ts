@@ -205,143 +205,404 @@ export function evaluateOperationalTrust(
 // Schema de saída
 // ═══════════════════════════════════════════════════════════════════════════
 
-const evidenceFields = {
-  source_page: { type: 'integer', description: 'Página do PDF onde o trecho aparece.' },
-  source_excerpt: { type: 'string', description: 'Trecho LITERAL do contrato, sem paráfrase.' },
-  confidence: { type: 'number', description: 'Confiança na leitura, entre 0 e 1.' },
-} as const;
+/*
+ * PROVIDER TRANSPORT (compact) — CONTRACT_OPERATIONALIZATION
+ *
+ * Defeito corrigido aqui
+ * ----------------------
+ * O schema anterior era EXPANDIDO POR CAMPO: cinco objetos de item, um por
+ * família, cada um repetindo os três campos de evidência e os seus próprios
+ * campos anuláveis. Medição do schema removido:
+ *
+ *   26 parâmetros union-typed  (limite documentado da Anthropic: 16)
+ *    0 parâmetros opcionais
+ *    6 object schemas
+ *    5994 bytes serializados
+ *
+ * É o MESMO defeito que derrubou CONTRACT_EXTRACTION em produção (request
+ * req_011CexwaB6XrwPFHY8ybZdYD, HTTP 400 "The compiled grammar is too large"),
+ * agravado: aquele schema passava nos limites explícitos e ainda assim foi
+ * recusado pelo limite INTERNO de tamanho da gramática compilada. Este aqui
+ * estoura também o limite explícito de uniões, então falharia de forma ainda
+ * mais certa — na primeira operacionalização real, depois que um humano
+ * finalizasse o contrato. Por isso é corrigido ANTES.
+ *
+ * O que muda e o que não muda
+ * ---------------------------
+ * Muda APENAS a forma de transporte com o provedor. O modelo de domínio
+ * canônico (OperationalObligation, OperationalBillingCondition,
+ * OperationalGuarantee, OperationalInsurance, OperationalIndexation,
+ * OperationalReading), o gate de evidência, a política de confiança, a
+ * fronteira Contrato/Projeto e a persistência seguem exatamente iguais.
+ * Uma chamada Sonnet, um PDF, toda a evidência documental.
+ *
+ *   ANTES: 5 objetos de item específicos por família + 26 uniões.
+ *   AGORA: UM item genérico com `kind` fechado e uma lista plana de atributos
+ *          nome/valor — todo valor é `string`, sem nenhuma união.
+ *
+ * Ausência viaja em sentinelas que não podem ser confundidas com evidência:
+ * página 0, excerpt "", e atributo simplesmente NÃO enviado (ou value "").
+ * `normalizeCompactContractOperationalization()` valida e reconstrói o modelo
+ * canônico antes de qualquer gate de confiança ou escrita.
+ */
 
-// KNOWN DEFECT — NEXT REQUIRED FIX (not addressed in
-// fix/contracts-onboarding-compact-grammar, which is scoped to CONTRACT_EXTRACTION).
-//
-// This schema carries ~26 union-typed parameters, above Anthropic's documented
-// limit of 16, and is field-expanded in the same way the onboarding schema was
-// before the compiled-grammar failure (req_011CexwaB6XrwPFHY8ybZdYD). It must be
-// migrated to the same compact transport shape — one generic fact/item schema plus
-// deterministic reconstruction — BEFORE a human finalizes a real contract and
-// triggers full operationalization, or CONTRACT_OPERATIONALIZATION will fail the
-// same way in production.
-export const OPERATIONALIZATION_SCHEMA = {
+/** Famílias canônicas, como o provedor as nomeia. Nada fora desta lista existe. */
+export const OPERATIONAL_ITEM_KINDS = [
+  'obligation', 'billing_condition', 'guarantee', 'insurance_requirement', 'indexation_rule',
+] as const;
+export type OperationalItemKind = (typeof OPERATIONAL_ITEM_KINDS)[number];
+
+/** kind do transporte → família canônica de OperationalReading. */
+const KIND_TO_FAMILY: Record<OperationalItemKind, OperationalFamily> = {
+  obligation: 'obligations',
+  billing_condition: 'billing_conditions',
+  guarantee: 'guarantees',
+  insurance_requirement: 'insurance_requirements',
+  indexation_rule: 'indexation_rules',
+};
+
+/** kind do transporte → rótulo de família usado nas rejeições e fingerprints. */
+const KIND_TO_REJECTION_FAMILY: Record<OperationalItemKind, string> = {
+  obligation: 'obligation',
+  billing_condition: 'billing_condition',
+  guarantee: 'guarantee',
+  insurance_requirement: 'insurance',
+  indexation_rule: 'indexation',
+};
+
+/**
+ * Como cada atributo é lido de volta para o tipo canônico.
+ *
+ * `enum` referencia o vocabulário existente — um membro fora dele é transporte
+ * inválido, não um valor a ser "corrigido" em silêncio.
+ */
+type AttributeParser =
+  | { kind: 'text' }
+  | { kind: 'integer' }
+  | { kind: 'decimal' }
+  | { kind: 'boolean' }
+  | { kind: 'date' }
+  | { kind: 'enum'; values: readonly string[] };
+
+const ATTRIBUTE_SPEC = {
+  requirement_text: { kind: 'text' },
+  category: { kind: 'text' },
+  responsible_side: { kind: 'enum', values: RESPONSIBLE_SIDES },
+  activation_kind: { kind: 'enum', values: ACTIVATION_KINDS },
+  activation_offset_days: { kind: 'integer' },
+  activation_fixed_date: { kind: 'date' },
+  activation_event_text: { kind: 'text' },
+  due_kind: { kind: 'enum', values: DUE_KINDS },
+  due_offset_days: { kind: 'integer' },
+  due_fixed_date: { kind: 'date' },
+  calendar_basis: { kind: 'enum', values: CALENDAR_BASES },
+  schedule_anchor: { kind: 'enum', values: SCHEDULE_ANCHORS },
+  schedule_anchor_offset_days: { kind: 'integer' },
+  schedule_anchor_text: { kind: 'text' },
+  recurrence_kind: { kind: 'enum', values: RECURRENCE_KINDS },
+  recurrence_interval: { kind: 'integer' },
+  blocks_billing: { kind: 'boolean' },
+  condition_type: { kind: 'enum', values: BILLING_CONDITION_TYPES },
+  required_document_type: { kind: 'text' },
+  elapsed_period_days: { kind: 'integer' },
+  guarantee_type: { kind: 'text' },
+  required_amount: { kind: 'decimal' },
+  required_percentage: { kind: 'decimal' },
+  percentage_basis: { kind: 'text' },
+  renewal_required: { kind: 'boolean' },
+  insurance_type: { kind: 'text' },
+  required_coverage: { kind: 'decimal' },
+  policy_required: { kind: 'boolean' },
+  validity_requirement: { kind: 'text' },
+  indexer: { kind: 'text' },
+  periodicity_months: { kind: 'integer' },
+  anniversary_rule: { kind: 'text' },
+  lag_months: { kind: 'integer' },
+} as const satisfies Record<string, AttributeParser>;
+
+export type OperationalAttributeName = keyof typeof ATTRIBUTE_SPEC;
+
+export const OPERATIONAL_ATTRIBUTE_NAMES = Object.keys(ATTRIBUTE_SPEC) as OperationalAttributeName[];
+
+/**
+ * Que atributo pertence a que família.
+ *
+ * Um atributo enviado na família errada é transporte corrompido — por exemplo
+ * `blocks_billing` numa garantia, que sugeriria um efeito de faturamento que a
+ * tabela de garantias não tem. O item é recusado, não limpo.
+ */
+export const ATTRIBUTES_BY_KIND: Record<OperationalItemKind, readonly OperationalAttributeName[]> = {
+  obligation: [
+    'requirement_text', 'category', 'responsible_side',
+    'activation_kind', 'activation_offset_days', 'activation_fixed_date', 'activation_event_text',
+    'due_kind', 'due_offset_days', 'due_fixed_date', 'calendar_basis',
+    'schedule_anchor', 'schedule_anchor_offset_days', 'schedule_anchor_text',
+    'recurrence_kind', 'recurrence_interval', 'blocks_billing',
+  ],
+  billing_condition: ['condition_type', 'requirement_text', 'required_document_type', 'elapsed_period_days'],
+  guarantee: ['guarantee_type', 'required_amount', 'required_percentage', 'percentage_basis', 'renewal_required'],
+  insurance_requirement: ['insurance_type', 'required_coverage', 'policy_required', 'validity_requirement'],
+  indexation_rule: ['indexer', 'periodicity_months', 'anniversary_rule', 'lag_months'],
+};
+
+/**
+ * O ÚNICO objeto de atributo do schema — nome fechado, valor sempre string.
+ * Nenhum `minimum`/`maximum`: o dialeto da Anthropic os recusa, e a validação
+ * determinística em tempo de execução é mais estrita do que eles seriam.
+ */
+const providerAttributeItem = {
   type: 'object',
   additionalProperties: false,
-  required: ['obligations', 'billing_conditions', 'guarantees', 'insurance_requirements', 'indexation_rules'],
+  required: ['name', 'value'],
   properties: {
-    obligations: {
-      type: 'array',
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        required: [
-          'title', 'requirement_text', 'category', 'responsible_side',
-          'activation_kind', 'activation_offset_days', 'activation_fixed_date', 'activation_event_text',
-          'due_kind', 'due_offset_days', 'due_fixed_date', 'calendar_basis',
-          'schedule_anchor', 'schedule_anchor_offset_days', 'schedule_anchor_text',
-          'recurrence_kind', 'recurrence_interval', 'blocks_billing',
-          'source_page', 'source_excerpt', 'confidence',
-        ],
-        properties: {
-          title: { type: 'string' },
-          requirement_text: { type: 'string', description: 'O que precisa ser feito, em linguagem operacional.' },
-          category: { type: ['string', 'null'] },
-          responsible_side: { type: 'string', enum: [...RESPONSIBLE_SIDES] },
-          activation_kind: { type: 'string', enum: [...ACTIVATION_KINDS] },
-          activation_offset_days: { type: ['integer', 'null'] },
-          activation_fixed_date: { type: ['string', 'null'], description: 'YYYY-MM-DD, só se o contrato fixa.' },
-          activation_event_text: { type: ['string', 'null'] },
-          due_kind: { type: 'string', enum: [...DUE_KINDS] },
-          due_offset_days: { type: ['integer', 'null'] },
-          due_fixed_date: { type: ['string', 'null'] },
-          calendar_basis: { type: 'string', enum: [...CALENDAR_BASES] },
-          schedule_anchor: { type: ['string', 'null'], enum: [...SCHEDULE_ANCHORS, null] },
-          schedule_anchor_offset_days: { type: ['integer', 'null'] },
-          schedule_anchor_text: { type: ['string', 'null'] },
-          recurrence_kind: { type: 'string', enum: [...RECURRENCE_KINDS] },
-          recurrence_interval: { type: ['integer', 'null'] },
-          blocks_billing: { type: ['boolean', 'null'], description: 'null quando o contrato não diz.' },
-          ...evidenceFields,
-        },
-      },
-    },
-    billing_conditions: {
-      type: 'array',
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['title', 'condition_type', 'requirement_text', 'required_document_type',
-                   'elapsed_period_days', 'source_page', 'source_excerpt', 'confidence'],
-        properties: {
-          title: { type: 'string' },
-          condition_type: { type: 'string', enum: [...BILLING_CONDITION_TYPES] },
-          requirement_text: { type: 'string' },
-          required_document_type: { type: ['string', 'null'] },
-          elapsed_period_days: { type: ['integer', 'null'] },
-          ...evidenceFields,
-        },
-      },
-    },
-    guarantees: {
-      type: 'array',
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['title', 'guarantee_type', 'required_amount', 'required_percentage',
-                   'percentage_basis', 'renewal_required', 'source_page', 'source_excerpt', 'confidence'],
-        properties: {
-          title: { type: 'string' },
-          guarantee_type: { type: ['string', 'null'] },
-          required_amount: {
-            type: ['number', 'null'],
-            description: 'Valor fixo em reais. Use null se a garantia é percentual.',
-          },
-          required_percentage: {
-            type: ['number', 'null'],
-            description: 'Percentual entre 0 e 100. Use null se a garantia é um valor fixo.',
-          },
-          percentage_basis: {
-            type: ['string', 'null'],
-            description: 'Sobre o que o percentual incide (ex.: "valor total do contrato"). Obrigatório quando há percentual.',
-          },
-          renewal_required: { type: ['boolean', 'null'] },
-          ...evidenceFields,
-        },
-      },
-    },
-    insurance_requirements: {
-      type: 'array',
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['title', 'insurance_type', 'required_coverage', 'policy_required',
-                   'validity_requirement', 'source_page', 'source_excerpt', 'confidence'],
-        properties: {
-          title: { type: 'string' },
-          insurance_type: { type: ['string', 'null'] },
-          required_coverage: { type: ['number', 'null'] },
-          policy_required: { type: ['boolean', 'null'] },
-          validity_requirement: { type: ['string', 'null'] },
-          ...evidenceFields,
-        },
-      },
-    },
-    indexation_rules: {
-      type: 'array',
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['title', 'indexer', 'periodicity_months', 'anniversary_rule',
-                   'lag_months', 'source_page', 'source_excerpt', 'confidence'],
-        properties: {
-          title: { type: 'string' },
-          indexer: { type: ['string', 'null'] },
-          periodicity_months: { type: ['integer', 'null'] },
-          anniversary_rule: { type: ['string', 'null'] },
-          lag_months: { type: ['integer', 'null'] },
-          ...evidenceFields,
-        },
-      },
-    },
+    name: { type: 'string', enum: [...OPERATIONAL_ATTRIBUTE_NAMES] },
+    value: { type: 'string' },
   },
 } as const;
+
+/** O ÚNICO objeto de item do schema. É este reuso que mantém a gramática pequena. */
+const providerOperationalItem = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'title', 'attributes', 'page', 'excerpt', 'confidence', 'ambiguous', 'conflicting'],
+  properties: {
+    kind: { type: 'string', enum: [...OPERATIONAL_ITEM_KINDS] },
+    title: { type: 'string' },
+    attributes: { type: 'array', items: providerAttributeItem },
+    page: { type: 'integer' },
+    excerpt: { type: 'string' },
+    confidence: { type: 'number' },
+    ambiguous: { type: 'boolean' },
+    conflicting: { type: 'boolean' },
+  },
+} as const;
+
+export const OPERATIONALIZATION_SCHEMA: Record<string, unknown> = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['items'],
+  properties: {
+    items: { type: 'array', items: providerOperationalItem },
+  },
+};
+
+export interface OperationalProviderAttribute {
+  name: OperationalAttributeName;
+  value: string;
+}
+
+export interface OperationalProviderItem {
+  kind: OperationalItemKind;
+  title: string;
+  attributes: OperationalProviderAttribute[];
+  page: number;
+  excerpt: string;
+  confidence: number;
+  ambiguous: boolean;
+  conflicting: boolean;
+}
+
+/** Forma bruta devolvida pelo provedor — ver OPERATIONALIZATION_SCHEMA. */
+export interface OperationalProviderTransport {
+  items: OperationalProviderItem[];
+}
+
+/**
+ * Corrupção estrutural da resposta inteira (raiz sem `items`, `items` que não é
+ * lista). Não é um item ruim: é uma resposta que não honra o contrato de
+ * transporte, e a análise falha em vez de ser reparada.
+ */
+export class OperationalTransportError extends Error {
+  readonly code = 'CONTRACT_OPERATIONALIZATION_TRANSPORT_INVALID';
+  constructor(message: string) {
+    super(message);
+    this.name = 'OperationalTransportError';
+  }
+}
+
+const STRICT_INTEGER = /^-?(?:0|[1-9]\d*)$/;
+/** Decimal canônico, sem separador de milhar e sem símbolo de moeda. */
+const CANONICAL_DECIMAL = /^(?:0|[1-9]\d*)(?:\.\d{1,6})?$/;
+
+/**
+ * Data ISO canônica com verificação de calendário real: "2026-02-30" e
+ * "2026-99-99" são transporte inválido, nunca reinterpretados.
+ */
+export function isCanonicalOperationalDate(raw: string): boolean {
+  if (typeof raw !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(raw)) return false;
+  const [year, month, day] = raw.split('-').map(Number);
+  if (month < 1 || month > 12 || day < 1) return false;
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
+
+/**
+ * Um valor de atributo → o tipo canônico correspondente.
+ *
+ * `null` de retorno significa AUSÊNCIA legítima (o sentinela ""), e o atributo
+ * simplesmente não entra no registro reconstruído — o normalizador canônico
+ * então aplica a mesma semântica de omissão que sempre aplicou. `{ ok: false }`
+ * significa transporte malformado, e o ITEM inteiro é recusado.
+ */
+function parseAttributeValue(
+  name: OperationalAttributeName,
+  raw: string,
+): { ok: true; value: string | number | boolean | null } | { ok: false; reason: string } {
+  if (typeof raw !== 'string') return { ok: false, reason: `atributo "${name}" com valor não textual` };
+  const spec: AttributeParser = ATTRIBUTE_SPEC[name];
+  const value = raw.trim();
+  if (value === '') return { ok: true, value: null };
+
+  switch (spec.kind) {
+    case 'text':
+      return { ok: true, value };
+    case 'integer':
+      return STRICT_INTEGER.test(value)
+        ? { ok: true, value: Number(value) }
+        : { ok: false, reason: `atributo "${name}" não é um inteiro canônico: "${raw}"` };
+    case 'decimal': {
+      if (!CANONICAL_DECIMAL.test(value)) {
+        return { ok: false, reason: `atributo "${name}" não é um decimal canônico: "${raw}"` };
+      }
+      const parsed = Number(value);
+      // Inalcançável para uma string que casa com o padrão, mas um número não
+      // finito nunca chega ao domínio pela força de uma regex só.
+      if (!Number.isFinite(parsed)) {
+        return { ok: false, reason: `atributo "${name}" não é um número finito: "${raw}"` };
+      }
+      return { ok: true, value: parsed };
+    }
+    case 'boolean':
+      if (value === 'true') return { ok: true, value: true };
+      if (value === 'false') return { ok: true, value: false };
+      return { ok: false, reason: `atributo "${name}" não é "true" nem "false": "${raw}"` };
+    case 'date':
+      return isCanonicalOperationalDate(value)
+        ? { ok: true, value }
+        : { ok: false, reason: `atributo "${name}" não é uma data ISO válida: "${raw}"` };
+    case 'enum':
+      return spec.values.includes(value)
+        ? { ok: true, value }
+        : { ok: false, reason: `atributo "${name}" fora do vocabulário: "${raw}"` };
+  }
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Um item de transporte → o registro bruto que os normalizadores canônicos já
+ * consomem. Recusa (sem reparar) item malformado, kind desconhecido, atributo
+ * duplicado, atributo de outra família e valor impossível.
+ */
+function reconstructItem(
+  raw: unknown,
+  index: number,
+): { ok: true; kind: OperationalItemKind; record: Record<string, unknown> } | { ok: false; family: string; reason: string } {
+  if (!isPlainRecord(raw)) return { ok: false, family: 'transport', reason: `item #${index} não é um objeto` };
+
+  const kind = raw.kind;
+  if (typeof kind !== 'string' || !(OPERATIONAL_ITEM_KINDS as readonly string[]).includes(kind)) {
+    return { ok: false, family: 'transport', reason: `item #${index} com categoria desconhecida: ${JSON.stringify(kind)}` };
+  }
+  const itemKind = kind as OperationalItemKind;
+  const family = KIND_TO_REJECTION_FAMILY[itemKind];
+
+  if (typeof raw.title !== 'string') return { ok: false, family, reason: 'título ausente ou não textual' };
+  if (typeof raw.page !== 'number' || !Number.isInteger(raw.page)) {
+    return { ok: false, family, reason: 'página não inteira' };
+  }
+  if (typeof raw.excerpt !== 'string') return { ok: false, family, reason: 'trecho não textual' };
+  // Evidência forte é sempre limitada em runtime, nunca pelo schema do provedor.
+  if (typeof raw.confidence !== 'number' || !Number.isFinite(raw.confidence)
+      || raw.confidence < 0 || raw.confidence > 1) {
+    return { ok: false, family, reason: 'confiança fora de 0..1' };
+  }
+  if (typeof raw.ambiguous !== 'boolean' || typeof raw.conflicting !== 'boolean') {
+    return { ok: false, family, reason: 'marcadores de ambiguidade não booleanos' };
+  }
+  if (!Array.isArray(raw.attributes)) return { ok: false, family, reason: 'lista de atributos ausente' };
+
+  const allowed = new Set<string>(ATTRIBUTES_BY_KIND[itemKind]);
+  const seen = new Set<string>();
+  const record: Record<string, unknown> = {
+    title: raw.title,
+    source_page: raw.page,
+    source_excerpt: raw.excerpt,
+    /*
+      Leitura declarada ambígua ou conflitante NUNCA pode virar autoridade. Ela
+      não é descartada — continua registrada como interpretação para revisão
+      humana —, mas entra com confiança 0, abaixo de MIN_OPERATIONAL_CONFIDENCE,
+      então a política de confiança a classifica como requires_attention e ela
+      não é copiada para nenhuma tabela de fato operacional.
+    */
+    confidence: raw.ambiguous || raw.conflicting ? 0 : raw.confidence,
+  };
+
+  for (const attribute of raw.attributes) {
+    if (!isPlainRecord(attribute)) return { ok: false, family, reason: 'atributo que não é objeto' };
+    const name = attribute.name;
+    if (typeof name !== 'string' || !(name in ATTRIBUTE_SPEC)) {
+      return { ok: false, family, reason: `atributo desconhecido: ${JSON.stringify(name)}` };
+    }
+    if (!allowed.has(name)) {
+      return { ok: false, family, reason: `atributo "${name}" não pertence a ${itemKind}` };
+    }
+    if (seen.has(name)) return { ok: false, family, reason: `atributo duplicado: "${name}"` };
+    seen.add(name);
+    if (typeof attribute.value !== 'string') {
+      return { ok: false, family, reason: `atributo "${name}" com valor não textual` };
+    }
+    const parsed = parseAttributeValue(name as OperationalAttributeName, attribute.value);
+    if (!parsed.ok) return { ok: false, family, reason: parsed.reason };
+    // Ausência ("" ou atributo não enviado) deixa a chave FORA do registro: a
+    // omissão tem a mesma semântica que sempre teve nos normalizadores.
+    if (parsed.value !== null) record[name] = parsed.value;
+  }
+
+  return { ok: true, kind: itemKind, record };
+}
+
+/**
+ * FRONTEIRA DETERMINÍSTICA: transporte compacto → leitura operacional canônica.
+ *
+ * Valida a estrutura, reconstrói cada item na forma que os normalizadores
+ * canônicos já conhecem e devolve exatamente o mesmo `{ accepted, rejected }`
+ * que o resto do pipeline sempre consumiu. Nada a jusante enxerga sentinela de
+ * transporte; tudo a jusante enxerga `OperationalReading`.
+ *
+ * Puro e exportado: é testável sem rede, sem provedor e sem banco.
+ */
+export function normalizeCompactContractOperationalization(
+  output: unknown,
+  pageCount: number | null,
+): { accepted: OperationalReading; rejected: OperationalRejection[] } {
+  if (!isPlainRecord(output)) {
+    throw new OperationalTransportError('A operacionalização não devolveu um objeto estruturado.');
+  }
+  if (!Array.isArray(output.items)) {
+    throw new OperationalTransportError('A operacionalização não devolveu a lista de itens.');
+  }
+
+  const transportRejections: OperationalRejection[] = [];
+  const buckets: Record<OperationalFamily, Record<string, unknown>[]> = {
+    obligations: [], billing_conditions: [], guarantees: [],
+    insurance_requirements: [], indexation_rules: [],
+  };
+
+  output.items.forEach((raw, index) => {
+    const result = reconstructItem(raw, index);
+    if (!result.ok) {
+      transportRejections.push({ item: raw, family: result.family, reason: result.reason });
+      return;
+    }
+    buckets[KIND_TO_FAMILY[result.kind]].push(result.record);
+  });
+
+  const { accepted, rejected } = assertOperationalEvidence(buckets, pageCount);
+  return { accepted, rejected: [...transportRejections, ...rejected] };
+}
 
 const SYSTEM_PROMPT = `Você OPERACIONALIZA contratos brasileiros para um sistema de governança corporativa.
 
@@ -349,37 +610,72 @@ O CONTEXTO
 O contrato foi escrito e assinado pela contraparte. Ele já vale. Você não redige, não propõe e não corrige cláusula nenhuma: você LÊ o documento e traduz o que ele exige em regras operacionais que um sistema vai monitorar.
 
 O QUE VOCÊ PRODUZ
-Obrigações (de cada parte), condições de faturamento, garantias, seguros e regras de reajuste. Cada item é uma exigência que alguém tem de cumprir, não um resumo do texto.
+Uma lista única "items". Cada item é UMA exigência, com "kind" dizendo de que tipo ela é:
+- obligation: algo que alguma parte tem de fazer.
+- billing_condition: condição contratual que precisa estar cumprida para faturar.
+- guarantee: garantia exigida (caução, fiança, seguro-garantia).
+- insurance_requirement: seguro exigido.
+- indexation_rule: regra de reajuste.
+Não invente outro kind. Se uma família não existe no documento, simplesmente não devolva itens dela. Lista vazia é resposta correta e valiosa; item inventado é defeito grave.
+
+FORMA DE CADA ITEM
+"title" curto, "page", "excerpt", "confidence", "ambiguous", "conflicting", e "attributes": uma lista plana de pares {name, value}. TODO value é string. Não repita um mesmo "name" no mesmo item. Não envie um atributo que não pertença ao kind do item. Atributo que você não conseguiu determinar: NÃO envie, ou envie value "". Ausência é resposta; chute não é.
+
+ATRIBUTOS POR KIND
+obligation: requirement_text, category, responsible_side, activation_kind, activation_offset_days, activation_fixed_date, activation_event_text, due_kind, due_offset_days, due_fixed_date, calendar_basis, schedule_anchor, schedule_anchor_offset_days, schedule_anchor_text, recurrence_kind, recurrence_interval, blocks_billing.
+billing_condition: condition_type, requirement_text, required_document_type, elapsed_period_days.
+guarantee: guarantee_type, required_amount, required_percentage, percentage_basis, renewal_required.
+insurance_requirement: insurance_type, required_coverage, policy_required, validity_requirement.
+indexation_rule: indexer, periodicity_months, anniversary_rule, lag_months.
+
+FORMATO DOS VALORES (o transporte é string; o formato não é opcional)
+- números inteiros (qualquer *_days, *_months, recurrence_interval): só dígitos, ex. "5". Nunca "cinco", nunca "5 dias".
+- valores monetários e percentuais (required_amount, required_coverage, required_percentage): decimal canônico com "." e sem separador de milhar nem símbolo — "100000" ou "100000.50", nunca "R$ 100.000,00". Percentual em pontos, ex. "5" para 5%.
+- datas (activation_fixed_date, due_fixed_date): "YYYY-MM-DD" apenas.
+- booleanos (blocks_billing, renewal_required, policy_required): "true" ou "false". Não envie o atributo quando o contrato não disse.
+- vocabulários fechados, use exatamente um destes membros:
+  responsible_side: contracting_organization, counterparty, supplier, third_party, shared, unknown.
+  activation_kind: contract_start, days_after_contract_start, days_before_contract_end, fixed_date, manual, external_event, schedule_anchor, unspecified.
+  due_kind: fixed_date, days_after_activation, days_before_contract_end, same_day_as_activation, recurring, days_before_schedule_anchor, days_after_schedule_anchor, unspecified.
+  calendar_basis: calendar_days, business_days, unspecified.
+  recurrence_kind: one_time, daily, weekly, monthly, quarterly, yearly, fixed_interval, custom.
+  schedule_anchor: measurement, measurement_acceptance, project_milestone, project_start, project_end.
+  condition_type: milestone_reached, measurement_accepted, service_report_required, evidence_required, technical_acceptance_required, customer_approval_required, specific_document_required, elapsed_contractual_period, contractual_event.
 
 REGRA ABSOLUTA — EVIDÊNCIA
-Todo item precisa de "source_page" e de um "source_excerpt" LITERAL, copiado do contrato sem paráfrase. Sem os dois, NÃO produza o item. Lista vazia é resposta correta e valiosa; item inventado é defeito grave.
+Todo item precisa de "page" real (página do PDF, maior que zero) e de um "excerpt" LITERAL, copiado do contrato sem paráfrase. Sem os dois, NÃO produza o item. Nunca fabrique página nem trecho para um item parecer sustentado.
 
 REGRA ABSOLUTA — DATA QUE NÃO EXISTE
 Nunca converta uma regra relativa numa data.
 - "entregar até 15/10/2026" → due_kind="fixed_date", due_fixed_date="2026-10-15".
-- "5 dias úteis ANTES da medição" → due_kind="days_before_schedule_anchor", schedule_anchor="measurement", schedule_anchor_offset_days=5, calendar_basis="business_days". NÃO preencha due_fixed_date.
-- "30 dias após o início do contrato" → activation_kind="days_after_contract_start", activation_offset_days=30.
+- "5 dias úteis ANTES da medição" → due_kind="days_before_schedule_anchor", schedule_anchor="measurement", schedule_anchor_offset_days="5", calendar_basis="business_days". NÃO envie due_fixed_date.
+- "30 dias após o início do contrato" → activation_kind="days_after_contract_start", activation_offset_days="30".
 - "mensalmente" → recurrence_kind="monthly".
 - Se o contrato não diz quando, use "unspecified". Nunca chute.
+A agenda real (quando a medição acontece, quando o projeto começa) NÃO está neste documento e não é sua: você identifica a âncora, o sistema espera a data.
 
 RESPONSABILIDADE
 "responsible_side" diz QUEM o contrato obriga:
 - contracting_organization: a empresa que usa este sistema (a contratada/prestadora).
 - counterparty: o cliente que enviou o contrato.
 - supplier / third_party: terceiros nomeados (seguradora, banco garantidor, subcontratada).
-- unknown: o contrato exige, e não deu para determinar de quem. Use isto em vez de adivinhar.
+- shared: obrigação expressamente conjunta.
+- unknown: o contrato exige, e não deu para determinar de quem. Use isto em vez de adivinhar, e nunca atribua à contratada por padrão.
 
 BLOQUEIO DE FATURAMENTO
-"blocks_billing" só é true quando o contrato condiciona o pagamento/faturamento ao cumprimento. Só é false quando o contrato diz expressamente que não condiciona. Nos demais casos use null — null significa "o contrato não disse", e zero ou false afirmariam algo que ninguém leu.
+"blocks_billing" só é "true" quando o contrato condiciona o pagamento/faturamento ao cumprimento. Só é "false" quando o contrato diz expressamente que não condiciona. Nos demais casos NÃO envie o atributo — a omissão significa "o contrato não disse", e zero ou false afirmariam algo que ninguém leu.
+
+O QUE NUNCA ACONTECEU
+Você lê um contrato, não a execução dele. Nunca afirme que houve medição, aceite técnico, aprovação do cliente, emissão de nota, recebimento, conciliação ou pagamento. Nunca registre revisor, aprovador ou confirmação humana. Condição de faturamento é a EXIGÊNCIA, não o cumprimento dela.
 
 VALORES
-Preencha valor, percentual e prazo APENAS quando o número está escrito no trecho. Use null, nunca zero: zero significaria garantia de R$ 0,00 ou prazo de 0 dias.
+Preencha valor, percentual e prazo APENAS quando o número está escrito no trecho. Omita o atributo, nunca envie zero: zero significaria garantia de R$ 0,00 ou prazo de 0 dias.
 
 GARANTIA: VALOR OU PERCENTUAL, NUNCA OS DOIS
-Uma garantia é um valor fixo OU um percentual — não ambos. Se o contrato diz "5% do valor total", preencha required_percentage=5 e percentage_basis="valor total do contrato", com required_amount=null. Se diz "R$ 100.000,00", preencha required_amount e deixe os outros dois null. Percentual sem dizer sobre o que incide não significa nada: nesse caso não produza o item.
+Uma garantia é um valor fixo OU um percentual — não ambos. Se o contrato diz "5% do valor total", envie required_percentage="5" e percentage_basis="valor total do contrato", sem required_amount. Se diz "R$ 100.000,00", envie required_amount="100000" e nada dos outros dois. Percentual sem dizer sobre o que incide não significa nada: nesse caso não produza o item.
 
-CONFIANÇA
-"confidence" mede o quanto o trecho SUSTENTA a estruturação, não o quanto o item é importante. Trecho ambíguo ou cortado baixa a confiança mesmo quando a exigência parece óbvia.`;
+CONFIANÇA E DÚVIDA
+"confidence" é um número entre 0 e 1 e mede o quanto o trecho SUSTENTA a estruturação, não o quanto o item é importante. Trecho ambíguo ou cortado baixa a confiança mesmo quando a exigência parece óbvia. Marque "ambiguous" quando o texto permite mais de uma leitura e "conflicting" quando o documento traz evidências incompatíveis — item marcado assim vai para revisão humana em vez de virar regra automática, e isso é o comportamento desejado.`;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Gate de evidência
@@ -801,14 +1097,14 @@ export async function operationalizeContractDocument(
       : message);
   };
 
-  let response: ApexAIResponse<Partial<Record<keyof OperationalReading, unknown[]>>>;
+  let response: ApexAIResponse<OperationalProviderTransport>;
   try {
     response = await getApexAIGateway().generate({
       organizationId: document.organization_id,
       task: 'CONTRACT_OPERATIONALIZATION',
       systemPrompt: SYSTEM_PROMPT,
       userPrompt:
-        'Leia este contrato e devolva o que ele EXIGE em operação: obrigações de cada parte, condições de faturamento, garantias, seguros e regras de reajuste. Se alguma família não existir no documento, devolva a lista vazia dela.',
+        'Leia este contrato e devolva, em "items", o que ele EXIGE em operação: obrigações de cada parte, condições de faturamento, garantias, seguros e regras de reajuste. Se alguma família não existir no documento, simplesmente não devolva itens dela.',
       document: { mediaType: 'application/pdf', base64: bytes.toString('base64') },
       structuredOutput: { name: 'contract_operationalization', schema: OPERATIONALIZATION_SCHEMA },
     });
@@ -820,7 +1116,11 @@ export async function operationalizeContractDocument(
   let accepted: OperationalReading;
   let rejected: OperationalRejection[];
   try {
-    ({ accepted, rejected } = assertOperationalEvidence(response.output, pageCount));
+    // Fronteira determinística: o transporte compacto (uma lista genérica de
+    // itens com atributos nome/valor em string) é validado e reconstruído na
+    // leitura canônica AQUI, antes do gate de confiança, da materialização e de
+    // qualquer escrita. Nada a jusante enxerga sentinela de transporte.
+    ({ accepted, rejected } = normalizeCompactContractOperationalization(response.output, pageCount));
   } catch (error) {
     throw await failAnalysis(`Resposta operacional inválida: ${error instanceof Error ? error.message : 'erro inesperado'}`);
   }

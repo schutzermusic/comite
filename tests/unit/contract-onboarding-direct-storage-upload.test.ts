@@ -249,12 +249,16 @@ describe('UI: the false "document preserved" claim is fixed', () => {
   });
 });
 
-describe('Known separate finding untouched: OPERATIONALIZATION_SCHEMA complexity defect', () => {
-  it('this branch does not modify contract-operationalization.ts', () => {
+describe('Direct-to-Storage upload survives the operationalization compact-grammar fix', () => {
+  it('the union-expanded operationalization schema is gone, and upload is untouched', () => {
     const text = source('src/lib/ai/contract-operationalization.ts');
-    // Presence of the known union-heavy fields proves the file is unchanged from its
-    // pre-existing (already over-limit) shape — this fix does not touch that schema.
-    expect(text).toContain("category: { type: ['string', 'null'] }");
+    // The field-expanded shape that carried 26 unions no longer exists; the
+    // provider transport is now one generic item schema.
+    expect(text).not.toContain("category: { type: ['string', 'null'] }");
+    expect(text).toContain('normalizeCompactContractOperationalization');
+    // Onboarding upload path is a separate concern and stays exactly as shipped.
+    expect(source('src/lib/contracts/onboarding/document-first.ts'))
+      .toContain('CONTRACT_ONBOARDING_EXTRACTION_SCHEMA');
   });
 });
 

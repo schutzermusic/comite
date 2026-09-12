@@ -620,26 +620,28 @@ describe('Gateway / adapter: the compact schema travels unchanged, on one Sonnet
 });
 
 /**
- * Known-defect ledger.
+ * Known-defect ledger — NOW CLOSED.
  *
- * CONTRACT_OPERATIONALIZATION is a SEPARATE provider task with the same class of
- * defect, and is deliberately NOT fixed in this branch (which is scoped to
- * CONTRACT_EXTRACTION). These assertions record the measured defect so it cannot
- * be silently forgotten: if someone fixes OPERATIONALIZATION_SCHEMA, this block
- * fails and must be updated to the compact expectations.
+ * CONTRACT_OPERATIONALIZATION carried the same class of defect and was fixed in
+ * fix/contracts-operationalization-compact-grammar, before any real contract was
+ * finalized. It was worse than the CONTRACT_EXTRACTION defect: 26 union-typed
+ * parameters, above Anthropic's documented limit of 16, plus a 5994-byte
+ * field-expanded schema. These assertions keep the fix from being undone; the
+ * full proof lives in contracts-operationalization-compact-grammar.test.ts.
  */
-describe('KNOWN DEFECT (not fixed here): CONTRACT_OPERATIONALIZATION schema complexity', () => {
-  it('OPERATIONALIZATION_SCHEMA still exceeds the documented union limit', async () => {
+describe('FIXED: CONTRACT_OPERATIONALIZATION schema complexity', () => {
+  it('OPERATIONALIZATION_SCHEMA is now inside every documented limit', async () => {
     const { OPERATIONALIZATION_SCHEMA } = await import('@/lib/ai/contract-operationalization');
-    expect(countSchemaUnions(OPERATIONALIZATION_SCHEMA)).toBe(26);
+    expect(countSchemaUnions(OPERATIONALIZATION_SCHEMA)).toBe(0);
     expect(countSchemaUnions(OPERATIONALIZATION_SCHEMA))
-      .toBeGreaterThan(ANTHROPIC_STRUCTURED_OUTPUT_LIMITS.maxUnionTypedParameters);
+      .toBeLessThanOrEqual(ANTHROPIC_STRUCTURED_OUTPUT_LIMITS.maxUnionTypedParameters);
+    expect(countOptionalParameters(OPERATIONALIZATION_SCHEMA))
+      .toBeLessThanOrEqual(ANTHROPIC_STRUCTURED_OUTPUT_LIMITS.maxOptionalParameters);
   });
 
-  it('must be migrated to the compact transport BEFORE a real contract is finalized', () => {
-    // Recorded as the next required fix. Finalizing a contract triggers full
-    // operationalization, which will fail in production the same way
-    // CONTRACT_EXTRACTION did (req_011CexwaB6XrwPFHY8ybZdYD) until it is fixed.
-    expect(true).toBe(true);
+  it('compiles to a materially smaller grammar than the 5994-byte expanded schema', async () => {
+    const { OPERATIONALIZATION_SCHEMA } = await import('@/lib/ai/contract-operationalization');
+    expect(schemaByteLength(OPERATIONALIZATION_SCHEMA)).toBeLessThan(5994 / 2);
+    expect(countObjectSchemas(OPERATIONALIZATION_SCHEMA)).toBeLessThanOrEqual(3);
   });
 });

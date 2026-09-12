@@ -70,20 +70,27 @@ describe('operationalization persistence failures', () => {
       getApexAITaskPolicy: () => ({ provider: 'test-provider', model: 'test-model' }),
       getApexAIGateway: () => ({
         generate: async () => ({
+          // Compact provider transport: one generic item list with flat
+          // name/value string attributes, reconstructed deterministically by
+          // normalizeCompactContractOperationalization() before persistence.
           output: {
-            obligations: [{
+            items: [{
+              kind: 'obligation',
               title: 'Synthetic obligation',
-              requirement_text: 'Deliver the synthetic report.',
-              responsible_side: 'contracting_organization',
-              activation_kind: 'manual',
-              due_kind: 'unspecified',
-              calendar_basis: 'unspecified',
-              recurrence_kind: 'one_time',
-              source_page: 1,
-              source_excerpt: 'Deliver the synthetic report.',
+              attributes: [
+                { name: 'requirement_text', value: 'Deliver the synthetic report.' },
+                { name: 'responsible_side', value: 'contracting_organization' },
+                { name: 'activation_kind', value: 'manual' },
+                { name: 'due_kind', value: 'unspecified' },
+                { name: 'calendar_basis', value: 'unspecified' },
+                { name: 'recurrence_kind', value: 'one_time' },
+              ],
+              page: 1,
+              excerpt: 'Deliver the synthetic report.',
               confidence: 0.91,
+              ambiguous: false,
+              conflicting: false,
             }],
-            billing_conditions: [], guarantees: [], insurance_requirements: [], indexation_rules: [],
           },
           provenance: {
             provider: 'test-provider', model: 'test-model',
