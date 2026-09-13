@@ -38,7 +38,8 @@
  * entrega. Quem grava é a página, por `onSubmit`.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { HudBadge, HudButton, HudDrawer, HudInput, HudPanel } from '@/components/hud';
 import { Input } from '@/components/ui/input';
 import {
@@ -219,6 +220,301 @@ const selectClass =
 const textareaClass =
   'w-full rounded-lg border border-ig-border-strong bg-ig-panel p-3 text-sm leading-relaxed text-ig-fg-strong outline-none transition-colors focus:border-ig-border-focus';
 
+/**
+ * Rótulo + campo.
+ *
+ * Vive no MÓDULO, não dentro de `ContractUpload`. Declarado lá dentro, o React
+ * via um tipo de componente diferente a cada render, desmontava a `<label>` e
+ * remontava o `<input>`: o campo perdia o foco a cada tecla, e a tecla seguinte
+ * ia para o `document.body`, onde Enter/Espaço acionavam o botão em foco do
+ * assistente. Era essa a origem de "digitar um caractere confirma/avança".
+ */
+function Field({ label, required, hint, children, span }: {
+  label: string; required?: boolean; hint?: string; children: React.ReactNode; span?: boolean;
+}) {
+  return (
+    <label className={span ? 'md:col-span-2' : undefined}>
+      <span className="mb-1.5 block text-ig-label text-ig-fg-muted">
+        {label}
+        {required && <span className="ml-1 text-ig-accent">*</span>}
+      </span>
+      {children}
+      {hint && <p className="mt-1.5 text-ig-caption text-ig-fg-muted">{hint}</p>}
+    </label>
+  );
+}
+
+const FOCUSABLE_SELECTOR =
+  'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+
+export type PersonDraft = {
+  readonly fullName: string;
+  readonly jobTitle: string;
+  readonly department: string;
+  readonly email: string;
+  readonly phone: string;
+};
+
+/**
+ * Cadastro de Pessoa — diálogo PRÓPRIO, desenhado ACIMA do assistente.
+ *
+ * Antes isto era um bloco que se abria DENTRO do formulário do contrato, na
+ * mesma árvore e sem `<form>` próprio. Três consequências reais:
+ *
+ *  · Teclado vazando. Sem formulário próprio, nada isolava submit e teclas do
+ *    assistente: os botões do bloco (Cancelar, "Usar pessoa existente") são
+ *    `<button>` e, em um `<form>`, `type` ausente significa `submit`.
+ *
+ *  · Foco roubado. Ver o comentário de `Field`.
+ *
+ *  · O contrato continuava clicável atrás do cadastro em andamento.
+ *
+ * O diálogo é portado para o `body` acima do drawer (z-[81]) e do HudModal
+ * (z-[85]); o fundo escurecido e desfocado bloqueia o clique no assistente, o
+ * foco fica preso aqui dentro, e ao fechar volta para o gatilho que o abriu.
+ * Fechar NÃO fecha o assistente — nem pelo fundo, nem por Esc.
+ */
+function PersonCreatorDialog({
+  open,
+  draft,
+  duplicates,
+  error,
+  creating,
+  canCreate,
+  onDraftChange,
+  onClearDuplicates,
+  onSelectDuplicate,
+  onSubmit,
+  onClose,
+}: {
+  open: boolean;
+  draft: PersonDraft;
+  duplicates: ResponsiblePersonOption[];
+  error: string | null;
+  creating: boolean;
+  canCreate: boolean;
+  onDraftChange: (patch: Partial<PersonDraft>) => void;
+  onClearDuplicates: () => void;
+  onSelectDuplicate: (person: ResponsiblePersonOption) => void;
+  onSubmit: () => void;
+  onClose: () => void;
+}) {
+  const panelRef = useRef<HTMLDivElement | null>(null);
+
+  /*
+    Foco entra no diálogo ao abrir — uma única vez. Depender de `draft` aqui
+    devolveria o foco ao primeiro campo a cada tecla digitada, que é exatamente
+    o defeito que este diálogo existe para corrigir. A detecção de duplicatas
+    também não toca no foco: ela só roda no submit explícito.
+  */
+  useEffect(() => {
+    if (!open) return;
+    panelRef.current?.querySelector<HTMLInputElement>('input')?.focus();
+  }, [open]);
+
+  /*
+    Esc fecha SOMENTE este diálogo.
+
+    HudDrawer escuta `keydown` no `window` em fase de bolha; `stopPropagation`
+    de um evento sintético do React não impede isso, porque o evento nativo
+    segue subindo depois do container do React. Um ouvinte de CAPTURA no
+    `window` corre antes de qualquer ouvinte de bolha do `window` e encerra o
+    evento ali — sem o qual um Esc fechava o cadastro de contrato inteiro.
+  */
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDownCapture = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      onClose();
+    };
+    window.addEventListener('keydown', onKeyDownCapture, true);
+    return () => window.removeEventListener('keydown', onKeyDownCapture, true);
+  }, [open, onClose]);
+
+  /*
+    Rede de segurança do aprisionamento: qualquer foco que chegue fora do
+    diálogo enquanto ele está aberto é trazido de volta. Cobre o que o Tab
+    sozinho não cobre — clique no drawer atrás, foco programático do assistente
+    e a barra de endereços devolvendo o foco ao documento.
+  */
+  useEffect(() => {
+    if (!open) return;
+    const onFocusIn = (event: FocusEvent) => {
+      const panel = panelRef.current;
+      if (!panel) return;
+      const target = event.target as Node | null;
+      if (target && panel.contains(target)) return;
+      panel.querySelector<HTMLElement>(FOCUSABLE_SELECTOR)?.focus();
+    };
+    document.addEventListener('focusin', onFocusIn);
+    return () => document.removeEventListener('focusin', onFocusIn);
+  }, [open]);
+
+  /* Tab circula dentro do diálogo; o assistente atrás não recebe foco. */
+  const trapTab = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Tab') return;
+    const panel = panelRef.current;
+    if (!panel) return;
+    const focusable = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR))
+      .filter((node) => node.offsetParent !== null || node === document.activeElement);
+    if (focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = document.activeElement;
+    if (event.shiftKey && (active === first || !panel.contains(active))) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && active === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }, []);
+
+  /*
+    Enter dentro de um campo NÃO envia.
+
+    O submit implícito do navegador é o que transformava uma tecla comum em
+    confirmação. O cadastro da Pessoa só acontece por clique explícito em
+    "Cadastrar e vincular" — que também é o único `type="submit"` daqui. Enter
+    sobre um botão em foco continua funcionando normalmente (clique nativo),
+    então nada de acessibilidade de teclado se perde.
+  */
+  const blockImplicitSubmit = (event: React.KeyboardEvent<HTMLFormElement>) => {
+    if (event.key !== 'Enter') return;
+    const target = event.target as HTMLElement | null;
+    const tag = target?.tagName;
+    if (tag === 'INPUT' || tag === 'SELECT') {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  };
+
+  /*
+    `open` só vira verdadeiro por ação do usuário, já no cliente: servidor e
+    primeira renderização do cliente concordam em não desenhar nada, e não há
+    divergência de hidratação a compensar com estado de montagem.
+  */
+  if (!open || typeof document === 'undefined') return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[88] flex items-center justify-center p-4" data-testid="person-creator-layer">
+      {/*
+        Fundo: escurece e desfoca o assistente e intercepta todo clique. O
+        assistente continua montado — nenhum campo do contrato se perde — mas
+        não pode ser clicado nem editado enquanto a Pessoa está sendo cadastrada.
+      */}
+      <div className="absolute inset-0 ig-backdrop" aria-hidden="true" onMouseDown={onClose} />
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="person-creator-title"
+        aria-describedby="person-creator-description"
+        data-testid="person-creator-dialog"
+        onKeyDown={trapTab}
+        data-elev="4"
+        className="relative flex max-h-[calc(100dvh-2rem)] w-full max-w-lg flex-col overflow-hidden hud-modal-surface ig-glass"
+      >
+        <span data-ig-noise="" />
+        <span data-ig-specular="" />
+        <div data-ig-content="" className="flex min-h-0 flex-1 flex-col">
+          <div className="flex shrink-0 items-start justify-between gap-3 border-b border-ig-border p-5">
+            <div className="min-w-0">
+              <p id="person-creator-title" className="text-ig-body-sm font-semibold text-ig-fg-strong">Cadastrar nova pessoa</p>
+              <p id="person-creator-description" className="mt-1 text-ig-caption text-ig-fg-muted">
+                Cria somente uma Pessoa. Nenhum login ou acesso à plataforma será criado.
+              </p>
+            </div>
+            <button
+              type="button"
+              aria-label="Fechar cadastro de pessoa"
+              onClick={onClose}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-ig-border bg-ig-panel text-ig-fg-muted transition-colors hover:bg-ig-panel-hover hover:text-ig-fg-strong"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          {/*
+            Formulário PRÓPRIO. `stopPropagation` no submit mantém o evento
+            dentro deste diálogo: o assistente de contrato nunca o vê, e nada
+            aqui avança etapa, salva contrato ou fecha o drawer.
+          */}
+          <form
+            noValidate
+            onKeyDown={blockImplicitSubmit}
+            onSubmit={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onSubmit();
+            }}
+            className="flex min-h-0 flex-1 flex-col"
+          >
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain p-5">
+              <div className="grid gap-3 md:grid-cols-2">
+                <Field label="Nome completo" required span>
+                  <HudInput
+                    value={draft.fullName}
+                    autoComplete="off"
+                    onChange={(event) => { onDraftChange({ fullName: event.target.value }); onClearDuplicates(); }}
+                  />
+                </Field>
+                <Field label="Cargo / função">
+                  <HudInput value={draft.jobTitle} autoComplete="off"
+                    onChange={(event) => onDraftChange({ jobTitle: event.target.value })} />
+                </Field>
+                <Field label="Área / departamento">
+                  <HudInput value={draft.department} autoComplete="off"
+                    onChange={(event) => onDraftChange({ department: event.target.value })} />
+                </Field>
+                <Field label="E-mail">
+                  <HudInput type="email" value={draft.email} autoComplete="off"
+                    onChange={(event) => { onDraftChange({ email: event.target.value }); onClearDuplicates(); }} />
+                </Field>
+                <Field label="Telefone">
+                  <HudInput type="tel" value={draft.phone} autoComplete="off"
+                    onChange={(event) => onDraftChange({ phone: event.target.value })} />
+                </Field>
+              </div>
+
+              {/*
+                Duplicata provável fica DENTRO deste diálogo e é apenas uma
+                oferta: nada é escolhido automaticamente, e a verificação só
+                roda no envio explícito — jamais a cada caractere digitado.
+              */}
+              {duplicates.length > 0 && (
+                <div className="mt-4 rounded-lg border border-[color-mix(in_oklab,var(--ig-warning)_34%,transparent)] bg-[color-mix(in_oklab,var(--ig-warning)_10%,transparent)] p-3">
+                  <p className="text-ig-body-sm font-semibold text-ig-fg-strong">Encontramos uma pessoa parecida.</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {duplicates.map((person) => (
+                      <HudButton key={person.id} type="button" size="sm" variant="secondary"
+                        onClick={() => onSelectDuplicate(person)}>
+                        Usar pessoa existente: {person.fullName}
+                      </HudButton>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {error && <p className="mt-3 text-ig-caption text-ig-danger">{error}</p>}
+              {!canCreate && <p className="mt-3 text-ig-caption text-ig-fg-muted">Você não tem permissão para cadastrar uma nova pessoa.</p>}
+            </div>
+
+            <div className="flex shrink-0 items-center justify-end gap-2 border-t border-ig-border bg-ig-raised p-5">
+              <HudButton type="button" size="sm" variant="secondary" onClick={onClose}>Cancelar</HudButton>
+              <HudButton type="submit" size="sm" variant="primary" isLoading={creating}
+                disabled={!draft.fullName.trim() || !canCreate}>Cadastrar e vincular</HudButton>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 export function ContractUpload({
   open,
   onOpenChange,
@@ -249,6 +545,8 @@ export function ContractUpload({
   const [personDuplicates, setPersonDuplicates] = useState<ResponsiblePersonOption[]>([]);
   const [personCreateError, setPersonCreateError] = useState<string | null>(null);
   const [creatingPerson, setCreatingPerson] = useState(false);
+  /* Elemento que abriu o cadastro de Pessoa. O foco volta exatamente para ele. */
+  const personTriggerRef = useRef<HTMLElement | null>(null);
   const [projectCreatorOpen, setProjectCreatorOpen] = useState(false);
   const [projectDraft, setProjectDraft] = useState({ name: '', code: '', responsiblePersonId: '' });
   const [projectDuplicates, setProjectDuplicates] = useState<OnboardingProjectOption[]>([]);
@@ -461,7 +759,8 @@ export function ContractUpload({
     setView('processing');
   };
 
-  const openPersonCreator = (target: 'contract' | 'project') => {
+  const openPersonCreator = (target: 'contract' | 'project', trigger?: HTMLElement | null) => {
+    personTriggerRef.current = trigger ?? null;
     setPersonCreationTarget(target);
     setPersonDraft({ fullName: '', jobTitle: '', department: '', email: '', phone: '' });
     setPersonDuplicates([]);
@@ -469,11 +768,26 @@ export function ContractUpload({
     setPersonCreatorOpen(true);
   };
 
+  /*
+    Fecha SOMENTE o diálogo de Pessoa e devolve o foco ao gatilho. O assistente
+    de contrato permanece aberto, na mesma etapa, com todos os campos como
+    estavam — cancelar um cadastro de Pessoa nunca custa o contrato em digitação.
+  */
+  const closePersonCreator = useCallback(() => {
+    setPersonCreatorOpen(false);
+    setPersonDuplicates([]);
+    setPersonCreateError(null);
+    const trigger = personTriggerRef.current;
+    if (trigger && document.contains(trigger)) {
+      // Depois do desmonte do portal, para não disputar o foco com ele.
+      requestAnimationFrame(() => trigger.focus());
+    }
+  }, []);
+
   const selectCreatedOrExistingPerson = (person: ResponsiblePersonOption) => {
     if (personCreationTarget === 'contract') setField('ownerPersonId', person.id);
     else setProjectDraft((current) => ({ ...current, responsiblePersonId: person.id }));
-    setPersonCreatorOpen(false);
-    setPersonDuplicates([]);
+    closePersonCreator();
   };
 
   const createAndLinkPerson = async () => {
@@ -619,70 +933,10 @@ export function ContractUpload({
     }
   };
 
-  const Field = ({ label, required, hint, children, span }: {
-    label: string; required?: boolean; hint?: string; children: React.ReactNode; span?: boolean;
-  }) => (
-    <label className={span ? 'md:col-span-2' : undefined}>
-      <span className="mb-1.5 block text-ig-label text-ig-fg-muted">
-        {label}
-        {required && <span className="ml-1 text-ig-accent">*</span>}
-      </span>
-      {children}
-      {hint && <p className="mt-1.5 text-ig-caption text-ig-fg-muted">{hint}</p>}
-    </label>
-  );
-
   const counterpartyAttention = intake?.structured_result?.fields.find((field) =>
     field.key === 'counterparty' && field.state === 'attention') ?? null;
   const riskAttention = intake?.structured_result?.fields.find((field) =>
     field.key === 'risk' && field.state === 'attention') ?? null;
-
-  const renderPersonCreator = () => (
-    <div className="rounded-xl border border-ig-border-focus bg-ig-accent-weak/15 p-4 md:col-span-2">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="text-ig-body-sm font-semibold text-ig-fg-strong">Cadastrar nova pessoa</p>
-          <p className="mt-1 text-ig-caption text-ig-fg-muted">Cria somente uma Pessoa. Nenhum login ou acesso à plataforma será criado.</p>
-        </div>
-        <button type="button" aria-label="Fechar cadastro de pessoa" onClick={() => setPersonCreatorOpen(false)}>
-          <X className="h-4 w-4 text-ig-fg-muted" />
-        </button>
-      </div>
-      <div className="mt-4 grid gap-3 md:grid-cols-2">
-        <Field label="Nome completo" required>
-          <HudInput value={personDraft.fullName} onChange={(event) => {
-            setPersonDraft((current) => ({ ...current, fullName: event.target.value }));
-            setPersonDuplicates([]);
-          }} />
-        </Field>
-        <Field label="Cargo / função"><HudInput value={personDraft.jobTitle} onChange={(event) => setPersonDraft((current) => ({ ...current, jobTitle: event.target.value }))} /></Field>
-        <Field label="Área / departamento"><HudInput value={personDraft.department} onChange={(event) => setPersonDraft((current) => ({ ...current, department: event.target.value }))} /></Field>
-        <Field label="E-mail"><HudInput type="email" value={personDraft.email} onChange={(event) => {
-          setPersonDraft((current) => ({ ...current, email: event.target.value }));
-          setPersonDuplicates([]);
-        }} /></Field>
-        <Field label="Telefone"><HudInput type="tel" value={personDraft.phone} onChange={(event) => setPersonDraft((current) => ({ ...current, phone: event.target.value }))} /></Field>
-      </div>
-      {personDuplicates.length > 0 && (
-        <div className="mt-3 rounded-lg border border-[color-mix(in_oklab,var(--ig-warning)_34%,transparent)] bg-[color-mix(in_oklab,var(--ig-warning)_10%,transparent)] p-3">
-          <p className="text-ig-body-sm font-semibold text-ig-fg-strong">Encontramos uma pessoa parecida.</p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {personDuplicates.map((person) => (
-              <HudButton key={person.id} size="sm" variant="secondary" onClick={() => selectCreatedOrExistingPerson(person)}>
-                Usar pessoa existente: {person.fullName}
-              </HudButton>
-            ))}
-          </div>
-        </div>
-      )}
-      {personCreateError && <p className="mt-3 text-ig-caption text-ig-danger">{personCreateError}</p>}
-      <div className="mt-4 flex justify-end gap-2">
-        <HudButton size="sm" variant="secondary" onClick={() => setPersonCreatorOpen(false)}>Cancelar</HudButton>
-        <HudButton size="sm" variant="primary" isLoading={creatingPerson} disabled={!personDraft.fullName.trim() || !canCreatePeople}
-          onClick={() => void createAndLinkPerson()}>Cadastrar e vincular</HudButton>
-      </div>
-    </div>
-  );
 
   const renderProjectCreator = () => (
     <div className="rounded-xl border border-ig-border-focus bg-ig-accent-weak/15 p-4">
@@ -715,7 +969,7 @@ export function ContractUpload({
             <option value="">Sem responsável definido</option>
             {people.map((person) => <option key={person.id} value={person.id}>{person.fullName}{person.jobTitle ? ` · ${person.jobTitle}` : ''}</option>)}
           </select>
-          <button type="button" onClick={() => openPersonCreator('project')} disabled={!canCreatePeople}
+          <button type="button" onClick={(event) => openPersonCreator('project', event.currentTarget)} disabled={!canCreatePeople}
             className="mt-2 inline-flex items-center gap-1 text-ig-caption font-semibold text-ig-accent disabled:cursor-not-allowed disabled:text-ig-fg-subtle">
             <Plus className="h-3.5 w-3.5" /> Cadastrar nova pessoa
           </button>
@@ -726,7 +980,6 @@ export function ContractUpload({
         O contrato {form.contractNumber || 'ainda sem número'}, a contraparte e o resumo do objeto serão usados apenas como contexto.
         Datas de vigência não serão gravadas como datas de execução; progresso, medições, equipe e orçamento também permanecerão ausentes.
       </div>
-      {personCreatorOpen && personCreationTarget === 'project' && <div className="mt-3">{renderPersonCreator()}</div>}
       {projectDuplicates.length > 0 && (
         <div className="mt-3 rounded-lg border border-[color-mix(in_oklab,var(--ig-warning)_34%,transparent)] bg-[color-mix(in_oklab,var(--ig-warning)_10%,transparent)] p-3">
           <p className="text-ig-body-sm font-semibold text-ig-fg-strong">Encontramos um projeto parecido.</p>
@@ -768,6 +1021,19 @@ export function ContractUpload({
       width="760px"
     >
       <div className="space-y-5">
+        <PersonCreatorDialog
+          open={personCreatorOpen}
+          draft={personDraft}
+          duplicates={personDuplicates}
+          error={personCreateError}
+          creating={creatingPerson}
+          canCreate={canCreatePeople}
+          onDraftChange={(patch) => setPersonDraft((current) => ({ ...current, ...patch }))}
+          onClearDuplicates={() => setPersonDuplicates([])}
+          onSelectDuplicate={selectCreatedOrExistingPerson}
+          onSubmit={() => void createAndLinkPerson()}
+          onClose={closePersonCreator}
+        />
         {view === 'entry' && (
           <>
             <HudPanel elevation={1} interactive={false}>
@@ -898,7 +1164,7 @@ export function ContractUpload({
                 <p className="text-ig-caption text-ig-fg-muted">Defina quem acompanha obrigações, prazos, riscos e o relacionamento contratual.</p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <HudButton size="sm" variant="secondary" onClick={() => { setStep(0); setView('manual'); }}>Selecionar responsável</HudButton>
-                  <HudButton size="sm" variant="secondary" onClick={() => { setStep(0); setView('manual'); openPersonCreator('contract'); }}>Cadastrar nova pessoa</HudButton>
+                  <HudButton size="sm" variant="secondary" onClick={() => { setStep(0); setView('manual'); openPersonCreator('contract', null); }}>Cadastrar nova pessoa</HudButton>
                 </div>
               </HudPanel>
               <HudPanel title="Projeto relacionado não encontrado" interactive={false}>
@@ -987,7 +1253,7 @@ export function ContractUpload({
                     </option>
                   ))}
                 </select>
-                <button type="button" onClick={() => openPersonCreator('contract')}
+                <button type="button" onClick={(event) => openPersonCreator('contract', event.currentTarget)}
                   disabled={!canCreatePeople}
                   className="mt-2 inline-flex items-center gap-1 text-ig-caption font-semibold text-ig-accent disabled:cursor-not-allowed disabled:text-ig-fg-subtle">
                   <Plus className="h-3.5 w-3.5" /> Cadastrar nova pessoa
@@ -1022,7 +1288,6 @@ export function ContractUpload({
                   placeholder="Resumo do escopo contratado"
                 />
               </Field>
-              {personCreatorOpen && personCreationTarget === 'contract' && renderPersonCreator()}
             </div>
           </HudPanel>
         )}
