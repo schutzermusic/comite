@@ -258,9 +258,15 @@ describe('autorização do trabalhador', () => {
   });
 
   it('a resposta é contador, nunca payload', () => {
-    // O corpo de sucesso tem três campos, e nenhum deles carrega conteúdo de
-    // trabalho: quem lê esta rota está diagnosticando infraestrutura.
-    expect(drainRoute).toContain('NextResponse.json({ ok: true, triggeredBy, counters })');
+    /*
+      O corpo de sucesso carrega contadores e rótulos de diagnóstico, e nenhum
+      conteúdo de trabalho: quem lê esta rota está diagnosticando
+      infraestrutura. `caller` é a CLASSE de credencial que autenticou — um nome
+      fixo do código ('vercel_cron' | 'apex_jobs') —, jamais o valor do segredo.
+    */
+    expect(drainRoute).toContain(
+      'NextResponse.json({ ok: true, triggeredBy, caller: auth.caller, counters })');
+    expect(drainRoute).not.toMatch(/json\([^)]*(APEX_JOBS_SECRET|CRON_SECRET|process\.env)/);
     expect(drainRoute).not.toMatch(/json\([^)]*\bjobs\b/);
     expect(drainRoute).not.toMatch(/counters\.\w+\s*,\s*payload/);
   });

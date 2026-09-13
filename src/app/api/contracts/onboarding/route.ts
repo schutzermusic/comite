@@ -14,14 +14,18 @@ import {
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 /*
-  Tempo de vida EXPLÍCITO da função. 300s é o máximo suportado em todos os
-  planos da Vercel para funções Node.js, e tem de ser declarado aqui porque
+  Tempo de vida EXPLÍCITO da função, e tem de ser declarado aqui porque
   `after()` roda DENTRO desta invocação: a batida na fila herda este tempo de
   vida, e a operacionalização é uma etapa longa de provedor.
 
+  300s é o teto que ESTA aplicação configura, não um máximo da plataforma: é o
+  padrão da Vercel em todos os planos e o teto do Hobby, mas Pro e Enterprise
+  podem configurar mais. Mantemos 300s por decisão — o orçamento cabe aqui com
+  folga —, e não por impossibilidade.
+
   O valor é literal porque o Next exige que `maxDuration` seja estaticamente
   analisável — não dá para importar a constante. Ele é cruzado em teste com
-  HOST_MAX_DURATION_SECONDS (src/lib/platform/jobs/budget.ts), para que um
+  APEX_CONFIGURED_HOST_CEILING (src/lib/platform/jobs/budget.ts), para que um
   desvio apareça na suíte e não em produção.
 */
 export const maxDuration = 300;

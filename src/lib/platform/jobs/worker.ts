@@ -4,14 +4,21 @@
  * ─── Ordem, e por que ela é essa ───────────────────────────────────────────
  *
  *   1. ceifar concessões vencidas   trabalho abandonado volta a ser visível
- *   2. rodar produtores agendados   o que nasce do tempo entra na fila
- *   3. rotear eventos não roteados  o que nasce de fato vira trabalho
- *   4. reivindicar e executar       o que está na fila acontece
+ *   2. reconciliar execuções mortas  as linhas de domínio param de mentir
+ *   3. rodar produtores agendados   o que nasce do tempo entra na fila
+ *   4. rotear eventos não roteados  o que nasce de fato vira trabalho
+ *   5. reivindicar e executar       o que está na fila acontece
  *
  * Ceifar primeiro porque um trabalho preso em PROCESSING não aparece como
  * pendente: sem devolvê-lo antes da reivindicação, ele esperaria a próxima
  * volta inteira. Rotear antes de reivindicar porque o trabalho recém-criado
  * pelo roteamento pode ser executado nesta mesma passagem.
+ *
+ * Reconciliar logo depois de ceifar porque consertar SÓ `apex_jobs` conserta a
+ * tabela que ninguém olha. Quando a hospedagem mata a função, a análise fica
+ * `running` e o pedido durável fica `RUNNING` — e são esses dois que a tela do
+ * produto lê. Uma fila saudável com uma tela eternamente "analisando" é um
+ * conserto que não chegou a lugar nenhum.
  *
  * ─── Limites, e por que existem ────────────────────────────────────────────
  *
@@ -74,6 +81,8 @@ export const DEFAULT_LIMITS: DrainLimits = {
 export interface DrainCounters {
   reaped_released: number;
   reaped_dead_lettered: number;
+  analyses_reconciled: number;
+  requests_reconciled: number;
   producers_enqueued: number;
   events_routed: number;
   events_routing_failed: number;
@@ -95,7 +104,8 @@ export async function drainOnce(
   const remainingMs = () => limits.timeBudgetMs - (Date.now() - startedAt);
   const supabase = platformServiceClient();
   const counters: DrainCounters = {
-    reaped_released: 0, reaped_dead_lettered: 0, producers_enqueued: 0,
+    reaped_released: 0, reaped_dead_lettered: 0,
+    analyses_reconciled: 0, requests_reconciled: 0, producers_enqueued: 0,
     events_routed: 0, events_routing_failed: 0, jobs_created: 0,
     claimed: 0, completed: 0, retried: 0, dead_letter: 0, stale_completions: 0,
     duration_ms: 0, stopped_early: false,
@@ -108,7 +118,34 @@ export async function drainOnce(
   counters.reaped_released = Number(reapRow?.released ?? 0);
   counters.reaped_dead_lettered = Number(reapRow?.dead_lettered ?? 0);
 
-  // ---- 2 · produtores agendados ----
+  /*
+    ---- 2 · reconciliar execuções mortas ----
+
+    Em transação SEPARADA da ceifa, de propósito. A decisão desta função vem do
+    ESTADO DURÁVEL — "a análise está `running` e o trabalho que a iniciou não
+    está mais PROCESSING com concessão viva" —, e não do que a ceifa acabou de
+    devolver. Uma passagem que morra entre as duas não deixa nada inconsistente:
+    a passagem seguinte reconcilia exatamente o mesmo conjunto.
+
+    A falha aqui NÃO derruba a passagem. Reconciliar é conserto de estado
+    passado; a fila do presente continua sendo trabalho legítimo.
+  */
+  try {
+    const reconcile = await supabase.rpc('contracts_reconcile_orphaned_executions', {
+      p_limit: limits.reapBatch,
+    });
+    if (reconcile.error) throw new Error(reconcile.error.message);
+    const row = firstRow(reconcile.data) as
+      { analyses_reconciled?: number; requests_reconciled?: number } | null;
+    counters.analyses_reconciled = Number(row?.analyses_reconciled ?? 0);
+    counters.requests_reconciled = Number(row?.requests_reconciled ?? 0);
+  } catch (error) {
+    console.error('[apex-worker] reconciliação falhou', {
+      error: classifyJobError(error).safe,
+    });
+  }
+
+  // ---- 3 · produtores agendados ----
   for (const producer of SCHEDULED_PRODUCERS) {
     try {
       counters.producers_enqueued += await producer.produce(supabase, new Date());
@@ -124,7 +161,7 @@ export async function drainOnce(
     }
   }
 
-  // ---- 3 · rotear ----
+  // ---- 4 · rotear ----
   const route = await supabase.rpc('apex_route_pending_events', { p_limit: limits.maxRouteBatch });
   if (route.error) throw new Error(`Roteamento falhou: ${route.error.message}`);
   const routeRow = firstRow(route.data) as
@@ -133,7 +170,7 @@ export async function drainOnce(
   counters.jobs_created = Number(routeRow?.jobs_created ?? 0);
   counters.events_routing_failed = Number(routeRow?.events_failed ?? 0);
 
-  // ---- 4 · reivindicar e executar ----
+  // ---- 5 · reivindicar e executar ----
   let executed = 0;
   while (executed < limits.maxJobs) {
     if (remainingMs() < 5_000) { counters.stopped_early = true; break; }

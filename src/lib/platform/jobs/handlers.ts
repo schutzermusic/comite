@@ -14,6 +14,7 @@
  * nome de função a partir de payload: dado persistido é entrada, e executar
  * código nomeado por entrada é uma porta, não um mecanismo de extensão.
  */
+import { OPERATIONALIZATION_JOB_MAX_ATTEMPTS } from './budget';
 import { TerminalJobError, RetryableJobError } from './errors';
 import type { ClaimedJob, HandlerContext, HandlerRegistry, JobHandler } from './types';
 import type { JobType } from './registry';
@@ -174,8 +175,24 @@ const clauseExtraction: JobHandler<'contracts.clause_extraction.execute'> = {
     const { extractClausesFromDocument } = await import('@/lib/ai/contract-clause-extractor');
 
     try {
-      const result = await extractClausesFromDocument(
-        request.contract_id, request.document_id, request.requested_by,
+      /*
+        ─── Zero extração duplicada ──────────────────────────────────────────
+
+        A entrega é at-least-once, e a segunda entrega deste trabalho chega
+        depois de a PRIMEIRA já ter lido o documento inteiro. Reler seria uma
+        chamada longa e cara ao provedor para reproduzir, palavra por palavra,
+        um resultado que já está persistido.
+
+        A prova é EXATA: uma análise de extração concluída cuja `execution_job_id`
+        é esta execução. Não é "existem cláusulas" — cláusulas podem vir de uma
+        análise anterior, de importação ou de digitação humana, e nenhuma delas
+        diz que ESTA execução terminou a leitura. E não é "a análise mais
+        recente deste contrato", que reaproveitaria a leitura de um documento
+        para outro.
+      */
+      const done = await completedExtractionFor(supabase, job, request);
+      const result = done ?? await extractClausesFromDocument(
+        request.contract_id, request.document_id, request.requested_by, job.id,
       );
 
       await supabase
@@ -208,6 +225,7 @@ const clauseExtraction: JobHandler<'contracts.clause_extraction.execute'> = {
         analysis_id: result.analysisId,
         structured_interpretations: result.proposedCount,
         rejected_without_evidence: result.rejectedCount,
+        reused_persisted_extraction: done !== null,
         operationalization_job_id: operationalJobId,
       };
     } catch (error) {
@@ -234,6 +252,47 @@ const clauseExtraction: JobHandler<'contracts.clause_extraction.execute'> = {
     }
   },
 };
+
+/**
+ * A extração desta execução já concluiu e está persistida?
+ *
+ * Devolve o resultado PERSISTIDO, na forma que o handler já usa, ou null quando
+ * não há prova. A consulta é ancorada em `execution_job_id` — a proveniência
+ * exata que a migration 168 criou justamente para que esta pergunta tivesse uma
+ * resposta determinística em vez de uma heurística.
+ *
+ * Uma análise de OUTRA execução não conta, ainda que seja do mesmo documento:
+ * reanalisar um documento depois de uma revisão é legítimo, e tratar a leitura
+ * antiga como prova faria a reanálise devolver silenciosamente o resultado
+ * velho.
+ */
+async function completedExtractionFor(
+  supabase: HandlerContext['supabase'],
+  job: ClaimedJob,
+  request: ClauseExtractionRequestRow,
+): Promise<{ analysisId: string; proposedCount: number; rejectedCount: number } | null> {
+  const { data, error } = await supabase
+    .from('contract_ai_analyses')
+    .select('id, status, extracted_data')
+    .eq('organization_id', job.organization_id)
+    .eq('contract_id', request.contract_id)
+    .eq('document_id', request.document_id)
+    .eq('execution_job_id', job.id)
+    .eq('status', 'completed')
+    .order('completed_at', { ascending: false })
+    .limit(1);
+  if (error) throw rpcError(error);
+  const row = (data ?? [])[0] as
+    { id: string; extracted_data: Record<string, unknown> | null } | undefined;
+  if (!row) return null;
+  const extracted = row.extracted_data ?? {};
+  if (extracted.kind !== 'clause_extraction') return null;
+  return {
+    analysisId: row.id,
+    proposedCount: Number(extracted.structured ?? 0),
+    rejectedCount: Number(extracted.rejected_without_evidence ?? 0),
+  };
+}
 
 interface ClauseExtractionRequestRow {
   readonly id: string;
@@ -292,11 +351,13 @@ async function enqueueContractOperationalization(
     p_payload_version: 1,
     p_run_after: new Date().toISOString(),
     /*
-      Três tentativas de TRABALHO, cada uma com uma invocação e um tempo de vida
-      inteiros para si. É aqui que a repetição da etapa longa mora — e não
-      dentro de uma invocação, empilhada sobre outra tentativa longa.
+      UMA tentativa de trabalho, no primeiro Portão de Dado Real. Cada tentativa
+      é uma operação Sonnet potencialmente cara sobre um contrato inteiro, e três
+      delas gastariam três vezes antes de qualquer humano ver que algo está
+      errado. O que queremos agora é falha → estado terminal visível →
+      retentativa DELIBERADA. Ver OPERATIONALIZATION_JOB_MAX_ATTEMPTS.
     */
-    p_max_attempts: 3,
+    p_max_attempts: OPERATIONALIZATION_JOB_MAX_ATTEMPTS,
     p_event_id: null,
     p_correlation_id: job.correlation_id,
   });
@@ -353,7 +414,7 @@ const contractOperationalization: JobHandler<'contracts.contract_operationalizat
     const { operationalizeContractDocument } = await import('@/lib/ai/contract-operationalization');
     try {
       const ops = await operationalizeContractDocument(
-        payload.contract_id, payload.document_id, payload.requested_by,
+        payload.contract_id, payload.document_id, payload.requested_by, job.id,
       );
       return {
         request_id: payload.request_id,

@@ -467,10 +467,23 @@ describe('falha de leitura — mensagem de negócio, diagnóstico preservado', (
 
 describe('fronteiras preservadas', () => {
   it('nenhuma migration foi adicionada', () => {
-    const { readdirSync } = require('node:fs') as typeof import('node:fs');
-    const versions = readdirSync('supabase/migrations')
-      .filter((f) => /^\d{3}_.*\.sql$/.test(f)).map((f) => f.slice(0, 3)).sort();
-    expect(versions.at(-1)).toBe('167');
+    const { readdirSync, readFileSync: read } = require('node:fs') as typeof import('node:fs');
+    /*
+      A intenção aqui é "ESTA fase não criou migration", e fixar a PONTA global
+      só exprimia isso enquanto esta fase fosse a mais nova — qualquer migration
+      posterior, de qualquer outro assunto, quebrava um teste que não fala sobre
+      ela. O que se afirma agora é o que de fato importa: nenhuma migration
+      acima da 167 toca as tabelas desta fase.
+    */
+    const later = readdirSync('supabase/migrations')
+      .filter((f) => /^\d{3}_.*\.sql$/.test(f) && Number(f.slice(0, 3)) > 167);
+    for (const file of later) {
+      const sql = read(`supabase/migrations/${file}`, 'utf8');
+      // Mencionar a tabela não é mexer nela — uma migration pode declarar por
+      // escrito que PRESERVA as cláusulas. O que não pode é alterá-las.
+      expect(sql).not.toMatch(/(ALTER TABLE|INSERT INTO|UPDATE|DELETE FROM)\s+(public\.)?contract_clauses\b/i);
+      expect(sql).not.toContain('attention_policy');
+    }
   });
 
   it('a política de atenção humana não foi tocada', () => {

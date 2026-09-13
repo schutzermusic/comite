@@ -1019,6 +1019,12 @@ export async function operationalizeContractDocument(
   contractId: string,
   documentId: string,
   actorUserId: string | null,
+  /*
+    A execução de `apex_jobs` que iniciou esta operacionalização. Mesma razão do
+    extrator: é o que permite fechar DETERMINISTICAMENTE uma análise que a
+    hospedagem matou, sem adivinhar qual delas era.
+  */
+  executionJobId: string | null = null,
 ): Promise<OperationalizationResult> {
   const supabase = getServiceClient();
 
@@ -1058,6 +1064,7 @@ export async function operationalizeContractDocument(
       document_id: documentId,
       status: 'running',
       started_at: startedAt,
+      execution_job_id: executionJobId,
       provider: taskPolicy.provider,
       model: taskPolicy.model,
       extractor_version: OPERATIONALIZATION_VERSION,

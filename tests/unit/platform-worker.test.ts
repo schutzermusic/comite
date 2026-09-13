@@ -196,6 +196,9 @@ describe('despacho tipado', () => {
           return builder;
         },
         eq: () => builder,
+        order: () => builder,
+        // Nenhuma leitura persistida: a extração realmente roda, e falha.
+        limit: async () => ({ data: [], error: null }),
         maybeSingle: async () => ({
           data: table === 'contract_clause_extraction_requests' ? {
             id: requestId, organization_id: ORG, contract_id: contractId,

@@ -16,10 +16,20 @@ const migration = source('supabase/migrations/167_contract_onboarding_production
 const wizard = source('src/components/contracts/contract-upload.tsx');
 
 describe('migration 167 — canonical business responsibility', () => {
-  it('is the exact migration tip and is additive without responsibility backfill', () => {
-    const versions = readdirSync('supabase/migrations')
-      .filter((file) => /^\d{3}_.*\.sql$/.test(file)).map((file) => file.slice(0, 3)).sort();
-    expect(versions.at(-1)).toBe('167');
+  it('owns responsibility alone and is additive without responsibility backfill', () => {
+    /*
+      This used to pin the global migration tip, which only expressed "167 is
+      mine" while 167 happened to be the newest file. A later migration on an
+      unrelated subject broke a test that says nothing about it. What actually
+      matters is that no migration above 167 touches responsibility.
+    */
+    const later = readdirSync('supabase/migrations')
+      .filter((file) => /^\d{3}_.*\.sql$/.test(file) && Number(file.slice(0, 3)) > 167);
+    for (const file of later) {
+      const sql = readFileSync(`supabase/migrations/${file}`, 'utf8');
+      expect(sql).not.toContain('owner_person_id');
+      expect(sql).not.toContain('responsible_person_id');
+    }
     expect(migration).toContain('ALTER TABLE public.contracts\n  ADD COLUMN owner_person_id uuid');
     expect(migration).toContain('ALTER TABLE public.projects\n  ADD COLUMN responsible_person_id uuid');
     expect(migration).not.toMatch(/UPDATE\s+public\.(contracts|projects)\s+SET\s+(owner_person_id|responsible_person_id)/i);

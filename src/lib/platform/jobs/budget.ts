@@ -35,15 +35,37 @@
  */
 
 /**
- * Teto EFETIVO de duração da função, em segundos.
+ * Teto de duração que ESTA aplicação configura, em segundos.
  *
- * 300s é o máximo suportado em todos os planos da Vercel para funções Node.js,
- * e é declarado explicitamente em cada rota que pode acionar o trabalhador. A
- * aplicação não depende de um padrão não documentado da hospedagem: quando a
- * rota não diz o seu tempo de vida, ninguém consegue afirmar que o orçamento
- * cabe dentro dele.
+ * ─── O que este número é, e o que ele não é ────────────────────────────────
+ *
+ * É a nossa ESCOLHA, declarada explicitamente em cada rota que pode acionar o
+ * trabalhador. Não é um máximo da plataforma. A semântica da Vercel é:
+ *
+ *   · 300s é o PADRÃO em todos os planos;
+ *   · no Hobby, 300s é também o teto — não há configuração acima disso;
+ *   · Pro e Enterprise podem configurar limites MAIORES.
+ *
+ * Uma versão anterior deste arquivo afirmava que 300s era "o máximo suportado
+ * em todo plano da Vercel". Isso é falso para Pro e Enterprise, e um número
+ * errado com aparência de fato de plataforma é pior que nenhum: alguém o lê
+ * como limite físico e para de procurar a folga que existe.
+ *
+ * Mantemos 300s por decisão, e não por impossibilidade. Subir para um valor de
+ * plano superior é uma mudança de infraestrutura com custo próprio, e não se
+ * faz só porque o plano permitiria — o orçamento abaixo já cabe aqui com folga.
+ *
+ * O que a aplicação exige de si mesma é o resto: que NENHUMA rota dependa de um
+ * padrão não declarado. Quando a rota não diz o seu tempo de vida, ninguém
+ * consegue afirmar que o orçamento cabe dentro dele.
  */
-export const HOST_MAX_DURATION_SECONDS = 300;
+export const APEX_CONFIGURED_HOST_CEILING = 300;
+
+/**
+ * Nome anterior, preservado para não espalhar renomeação por todo o módulo.
+ * O nome novo é o que diz a verdade: é o teto que NÓS configuramos.
+ */
+export const HOST_MAX_DURATION_SECONDS = APEX_CONFIGURED_HOST_CEILING;
 
 /**
  * Tempo limite de UMA tentativa de provedor na etapa longa (operacionalização).
@@ -86,6 +108,22 @@ export const LONG_JOB_WORST_CASE_MS =
  * mais tempo depois de morto.
  */
 export const JOB_LEASE_SECONDS = 300;
+
+/**
+ * Tentativas de TRABALHO da operacionalização dedicada.
+ *
+ * Uma, no primeiro Portão de Dado Real. Cada tentativa é uma operação Sonnet
+ * potencialmente cara sobre um contrato inteiro; três tentativas automáticas
+ * gastariam três vezes antes de qualquer humano ver que algo está errado.
+ *
+ * O que queremos, enquanto não existe evidência real de latência e custo, é:
+ *
+ *   falha → estado terminal VISÍVEL → retentativa DELIBERADA
+ *
+ * Subir este número depois é barato e reversível. Descobrir o custo de três
+ * chamadas longas por uma falha sistemática, não.
+ */
+export const OPERATIONALIZATION_JOB_MAX_ATTEMPTS = 1;
 
 /**
  * O último instante, dentro da passagem, em que ainda é seguro reivindicar

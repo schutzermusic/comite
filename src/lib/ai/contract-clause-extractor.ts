@@ -310,6 +310,16 @@ export async function extractClausesFromDocument(
   contractId: string,
   documentId: string,
   actorUserId: string | null,
+  /*
+    A execução de `apex_jobs` que iniciou esta leitura, quando ela veio da fila.
+    É a proveniência que torna determinística a reconciliação de execuções
+    mortas: sem ela, fechar uma análise abortada exigiria adivinhar por horário
+    ou por "análise mais recente", e adivinhar aqui significa marcar como
+    abortada uma análise que outro trabalhador está escrevendo agora.
+
+    Anulável porque nem toda leitura nasce de um trabalho.
+  */
+  executionJobId: string | null = null,
 ): Promise<ExtractionResult> {
   const supabase = getServiceClient();
 
@@ -356,6 +366,7 @@ export async function extractClausesFromDocument(
       document_id: documentId,
       status: 'running',
       started_at: startedAt,
+      execution_job_id: executionJobId,
       provider: taskPolicy.provider,
       model: taskPolicy.model,
       extractor_version: EXTRACTOR_VERSION,

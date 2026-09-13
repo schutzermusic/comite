@@ -24,5 +24,6 @@ export async function GET(req: Request) {
     console.error('[api/platform/jobs/health] failed', { message: error.message });
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
-  return NextResponse.json({ ok: true, health: data });
+  // A classe que autenticou, jamais o valor da credencial.
+  return NextResponse.json({ ok: true, caller: auth.caller, health: data });
 }

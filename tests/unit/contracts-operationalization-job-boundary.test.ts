@@ -22,6 +22,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  APEX_CONFIGURED_HOST_CEILING,
   HOST_MAX_DURATION_SECONDS,
   JOB_LEASE_SECONDS,
   LATEST_SAFE_CLAIM_MS,
@@ -69,6 +70,14 @@ function fakeSupabase(requestRow: Record<string, unknown> | null, enqueuedId = '
         select: () => builder,
         update: (value: Record<string, unknown>) => { updates.push({ table, value }); return builder; },
         eq: () => builder,
+        order: () => builder,
+        /*
+          A guarda de extração pergunta "esta execução já concluiu a leitura?".
+          Aqui a resposta é sempre NÃO: estes testes são sobre a fronteira entre
+          as duas etapas, e a reutilização de leitura persistida tem a sua
+          própria suíte (contracts-job-recovery-plane.test.ts).
+        */
+        limit: async () => ({ data: [], error: null }),
         maybeSingle: async () => ({ data: requestRow, error: null }),
         then: (r: (v: { data: null; error: null }) => unknown) => r({ data: null, error: null }),
       });
@@ -431,10 +440,16 @@ describe('o orçamento cabe no tempo de vida da hospedagem', () => {
     }
   });
 
-  it('300s é o teto suportado em todo plano da Vercel para Node.js', () => {
-    // Valor máximo SEGURO: não se configura aqui um teto que só existe em
-    // planos superiores, porque o deploy o recusaria.
-    expect(HOST_MAX_DURATION_SECONDS).toBe(300);
+  it('300s é o teto que ESTA aplicação configura, não um máximo da plataforma', () => {
+    /*
+      A semântica da Vercel: 300s é o PADRÃO em todos os planos e o TETO do
+      Hobby; Pro e Enterprise podem configurar mais. Chamar 300s de "máximo da
+      plataforma" — como a versão anterior deste teste fazia — é falso, e um
+      número errado com cara de fato de plataforma faz alguém parar de procurar
+      a folga que existe. Mantemos 300s por decisão, e o teste guarda a decisão.
+    */
+    expect(APEX_CONFIGURED_HOST_CEILING).toBe(300);
+    expect(HOST_MAX_DURATION_SECONDS).toBe(APEX_CONFIGURED_HOST_CEILING);
   });
 });
 
