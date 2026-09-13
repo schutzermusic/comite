@@ -4,10 +4,19 @@ import { drainOnce, DEFAULT_LIMITS } from '@/lib/platform/jobs/worker';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-// O orçamento do trabalhador (50s) fica bem abaixo disto de propósito: a parada
-// tem de ser nossa, com o trabalho restante durável, e não uma queda da
-// hospedagem no meio de um handler.
-export const maxDuration = 120;
+/*
+  O orçamento do trabalhador (50s) fica bem abaixo disto de propósito: a parada
+  tem de ser nossa, com o trabalho restante durável, e não uma queda da
+  hospedagem no meio de um handler. 300s é o máximo suportado em todos os planos
+  da Vercel para funções Node.js; era 120s, curto demais para a etapa longa de
+  operacionalização (180s de provedor + persistência) que este trabalhador pode
+  reivindicar.
+
+  O valor é literal porque o Next exige que `maxDuration` seja estaticamente
+  analisável. Ele é cruzado em teste com HOST_MAX_DURATION_SECONDS
+  (src/lib/platform/jobs/budget.ts).
+*/
+export const maxDuration = 300;
 
 /**
  * Uma passagem LIMITADA da fila do Apex.

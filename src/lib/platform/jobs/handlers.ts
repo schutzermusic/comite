@@ -111,20 +111,29 @@ const followupExecution: JobHandler<'platform.followups.execute'> = {
 };
 
 /**
- * Uma leitura, duas saídas.
+ * Uma leitura, duas saídas — em DOIS trabalhos.
  *
- * O mesmo pedido durável executa a INTERPRETAÇÃO (o que o contrato diz, em
- * `contract_clauses`) e a OPERACIONALIZAÇÃO (o que o contrato exige, em
- * obrigações, condições de faturamento, garantias, seguros e reajuste).
+ * O mesmo pedido durável ainda produz a INTERPRETAÇÃO (o que o contrato diz,
+ * em `contract_clauses`) e a OPERACIONALIZAÇÃO (o que o contrato exige, em
+ * obrigações, condições de faturamento, garantias, seguros e reajuste). Do
+ * ponto de vista de quem subiu o PDF continua sendo UM ato: "o cliente mandou
+ * o contrato; entenda". Ninguém precisa disparar duas análises.
  *
- * São duas chamadas ao modelo porque são duas perguntas — mas um pedido só,
- * porque do ponto de vista de quem subiu o PDF é UM ato: "o cliente mandou o
- * contrato; entenda". Pedir que a pessoa dispare duas análises seria devolver
- * a ela um trabalho que o produto existe para fazer.
+ * O que mudou é ONDE cada etapa roda. As duas chamadas longas ao modelo viviam
+ * dentro da mesma invocação da hospedagem, em sequência. A primeira gastava o
+ * tempo de vida da função e a segunda era morta pelo host no meio — sem
+ * `catch`, sem estado terminal, sem diagnóstico, porque o processo que
+ * escreveria o diagnóstico é o que deixou de existir.
  *
- * A operacionalização roda DEPOIS. Uma falha não apaga as cláusulas já
- * persistidas, mas FALHA o trabalho: sucesso parcial silencioso faria o
- * documento parecer plenamente operacional quando a estrutura não existe.
+ * Agora: uma etapa longa de provedor por execução. A extração termina, o
+ * pedido durável é fechado e SÓ ENTÃO a operacionalização é ENFILEIRADA, para
+ * ganhar uma invocação inteira e um tempo de vida próprio. Ver
+ * `./budget.ts` para o invariante que isso preserva.
+ *
+ * O preço é explícito: as cláusulas ficam persistidas antes de a
+ * operacionalização existir. Não é sucesso parcial silencioso — o enfileiramento
+ * é parte da mesma execução e a sua falha falha o trabalho, e a operacionalização
+ * tem estado terminal próprio, visível na análise e no pedido.
  */
 const clauseExtraction: JobHandler<'contracts.clause_extraction.execute'> = {
   payloadVersion: 1,
@@ -169,18 +178,6 @@ const clauseExtraction: JobHandler<'contracts.clause_extraction.execute'> = {
         request.contract_id, request.document_id, request.requested_by,
       );
 
-      const { operationalizeContractDocument } = await import('@/lib/ai/contract-operationalization');
-      const ops = await operationalizeContractDocument(
-        request.contract_id, request.document_id, request.requested_by,
-      );
-      const operational = {
-        analysis_id: ops.analysisId,
-        counts: ops.counts,
-        materialized: ops.materializedInstances,
-        awaiting_schedule_anchor: ops.awaitingScheduleAnchor,
-        requires_attention: ops.requiresAttention,
-      };
-
       await supabase
         .from('contract_clause_extraction_requests')
         .update({
@@ -193,12 +190,25 @@ const clauseExtraction: JobHandler<'contracts.clause_extraction.execute'> = {
           error_safe: null,
         })
         .eq('id', request.id);
+
+      /*
+        A operacionalização é enfileirada DEPOIS de a persistência da extração
+        terminar. Na outra ordem, um enfileiramento bem-sucedido seguido de uma
+        escrita falha deixaria um trabalho a jusante apontando para um pedido
+        que ainda diz RUNNING.
+
+        A falha do enfileiramento é a falha DESTE trabalho, deliberadamente:
+        engoli-la deixaria o documento com cláusulas e sem estrutura
+        operacional, com aparência de plenamente lido.
+      */
+      const operationalJobId = await enqueueContractOperationalization(supabase, job, request);
+
       return {
         request_id: request.id,
         analysis_id: result.analysisId,
         structured_interpretations: result.proposedCount,
         rejected_without_evidence: result.rejectedCount,
-        operational,
+        operationalization_job_id: operationalJobId,
       };
     } catch (error) {
       // A classificação decide se o pedido volta à fila ou morre aqui. Só o
@@ -221,6 +231,149 @@ const clauseExtraction: JobHandler<'contracts.clause_extraction.execute'> = {
         .update({ status: 'QUEUED', error_code: classified.code, error_safe: classified.safe })
         .eq('id', request.id);
       throw new RetryableJobError(classified.code, classified.safe);
+    }
+  },
+};
+
+interface ClauseExtractionRequestRow {
+  readonly id: string;
+  readonly organization_id: string;
+  readonly contract_id: string;
+  readonly document_id: string;
+  readonly requested_by: string | null;
+}
+
+/**
+ * Enfileira a etapa longa seguinte, UMA vez.
+ *
+ * ─── A chave ───────────────────────────────────────────────────────────────
+ *
+ * Determinística e derivada só de identidade estável: organização (implícita na
+ * unicidade do `apex_jobs`), contrato, documento, pedido durável e versão do
+ * pipeline. Nada de relógio, nada de aleatório — uma chave com `now()` dentro
+ * faria cada nova tentativa da extração criar mais uma operacionalização do
+ * mesmo documento, e a fila viraria uma multiplicação de chamadas caras ao
+ * provedor sobre o mesmo PDF.
+ *
+ * A unicidade real é do banco: `aj_idempotent UNIQUE (organization_id,
+ * job_type, idempotency_key)` com `ON CONFLICT DO NOTHING`, que devolve o id do
+ * trabalho que JÁ existe. Duas execuções concorrentes da extração convergem
+ * para o mesmo trabalho em vez de correrem para criar dois.
+ *
+ * A versão do pipeline entra na chave de propósito: quando a operacionalização
+ * mudar de versão, o mesmo documento PODE ser reoperacionalizado — e essa é uma
+ * decisão de produto explícita, não um acidente de reentrega.
+ */
+async function enqueueContractOperationalization(
+  supabase: HandlerContext['supabase'],
+  job: ClaimedJob,
+  request: ClauseExtractionRequestRow,
+): Promise<string | null> {
+  /*
+    A versão vem do módulo de operacionalização, carregado sob demanda: ele
+    alcança o gateway server-only, e prendê-lo no topo faria todo caminho que
+    apenas MENCIONA o registro de handlers arrastar o provedor junto.
+  */
+  const { OPERATIONALIZATION_VERSION } = await import('@/lib/ai/contract-operationalization');
+  const idempotencyKey = `contract-operationalization:${request.contract_id}:`
+    + `${request.document_id}:${request.id}:${OPERATIONALIZATION_VERSION}`;
+
+  const { data, error } = await supabase.rpc('apex_jobs_enqueue', {
+    p_organization_id: job.organization_id,
+    p_job_type: 'contracts.contract_operationalization.execute',
+    p_idempotency_key: idempotencyKey,
+    p_payload: {
+      request_id: request.id,
+      contract_id: request.contract_id,
+      document_id: request.document_id,
+      requested_by: request.requested_by,
+      operationalization_version: OPERATIONALIZATION_VERSION,
+    },
+    p_payload_version: 1,
+    p_run_after: new Date().toISOString(),
+    /*
+      Três tentativas de TRABALHO, cada uma com uma invocação e um tempo de vida
+      inteiros para si. É aqui que a repetição da etapa longa mora — e não
+      dentro de uma invocação, empilhada sobre outra tentativa longa.
+    */
+    p_max_attempts: 3,
+    p_event_id: null,
+    p_correlation_id: job.correlation_id,
+  });
+  if (error) throw rpcError(error);
+  return (data as string | null) ?? null;
+}
+
+/**
+ * Operacionalização: UMA etapa longa de provedor, sozinha na sua invocação.
+ *
+ * ─── Por que ela não reexecuta a extração ──────────────────────────────────
+ *
+ * Este handler não conhece `extractClausesFromDocument` e não tem como chegar
+ * nele: a única importação de IA aqui é a da operacionalização. Uma repetição
+ * deste trabalho — por reentrega, por ceifa de concessão ou por tentativa nova
+ * — repete a operacionalização e nada mais. As cláusulas já estão persistidas e
+ * o pedido durável já está COMPLETED antes de este trabalho sequer existir.
+ *
+ * ─── Idempotência do EFEITO ────────────────────────────────────────────────
+ *
+ * A repetição é inofensiva porque `operationalizeContractDocument` pula, por
+ * impressão digital (família, página, trecho), tudo que já foi estruturado. O
+ * que a segunda execução acrescenta é uma linha de análise nova — o registro de
+ * que a leitura foi refeita — e nenhuma duplicata de obrigação, garantia,
+ * seguro, condição de faturamento ou regra de reajuste.
+ */
+const contractOperationalization: JobHandler<'contracts.contract_operationalization.execute'> = {
+  payloadVersion: 1,
+  idempotencyBasis:
+    'A operacionalização pula por impressão digital (família, página, trecho) o que já foi '
+    + 'estruturado, e o enfileiramento é único por contrato/documento/pedido/versão.',
+  async run(payload, { job, supabase }) {
+    /*
+      Coerência de inquilino ANTES de qualquer chamada ao provedor. Sem esta
+      leitura, um payload de outra organização gastaria minutos de modelo antes
+      de alguém descobrir que ele não deveria ter rodado.
+    */
+    const { data: request, error: reqError } = await supabase
+      .from('contract_clause_extraction_requests')
+      .select('id, organization_id, contract_id, document_id')
+      .eq('id', payload.request_id)
+      .eq('organization_id', job.organization_id)
+      .maybeSingle<{ id: string; organization_id: string; contract_id: string; document_id: string }>();
+    if (reqError) throw rpcError(reqError);
+    if (!request) {
+      throw new TerminalJobError('request_tenant_mismatch',
+        'O pedido de origem não pertence à organização do trabalho.');
+    }
+    if (request.contract_id !== payload.contract_id || request.document_id !== payload.document_id) {
+      throw new TerminalJobError('operationalization_payload_mismatch',
+        'O trabalho aponta para um contrato ou documento diferente do pedido de origem.');
+    }
+
+    const { operationalizeContractDocument } = await import('@/lib/ai/contract-operationalization');
+    try {
+      const ops = await operationalizeContractDocument(
+        payload.contract_id, payload.document_id, payload.requested_by,
+      );
+      return {
+        request_id: payload.request_id,
+        analysis_id: ops.analysisId,
+        counts: ops.counts,
+        materialized: ops.materializedInstances,
+        awaiting_schedule_anchor: ops.awaitingScheduleAnchor,
+        requires_attention: ops.requiresAttention,
+      };
+    } catch (error) {
+      /*
+        O caminho normal de falha, e ele PRECISA ser alcançável: o tempo limite
+        do provedor (180s) mais a margem de persistência cabem, com folga, no
+        tempo de vida da função. Quando o host mata a execução antes, nenhuma
+        destas linhas roda — e é exatamente isso que `./budget.ts` impede.
+      */
+      const { classifyJobError } = await import('./errors');
+      const classified = classifyJobError(error);
+      if (classified.retryable) throw new RetryableJobError(classified.code, classified.safe);
+      throw new TerminalJobError(classified.code, classified.safe);
     }
   },
 };
@@ -632,6 +785,7 @@ export const JOB_HANDLERS: HandlerRegistry = {
   'contracts.obligation.external_activation.apply': externalActivation,
   'contracts.obligation.schedule_anchor.apply': scheduleAnchor,
   'contracts.clause_extraction.execute': clauseExtraction,
+  'contracts.contract_operationalization.execute': contractOperationalization,
   'contracts.onboarding_extraction.execute': onboardingExtraction,
   'contracts.amendment_extraction.execute': amendmentExtraction,
   'platform.approvals.expire': approvalExpiration,

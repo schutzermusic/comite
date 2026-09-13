@@ -13,6 +13,7 @@ export const JOB_TYPES = [
   'contracts.obligation.external_activation.apply',
   'contracts.obligation.schedule_anchor.apply',
   'contracts.clause_extraction.execute',
+  'contracts.contract_operationalization.execute',
   'contracts.onboarding_extraction.execute',
   'contracts.amendment_extraction.execute',
   'platform.approvals.expire',
@@ -66,6 +67,27 @@ export const JOB_SCHEMAS = {
   'contracts.obligation.schedule_anchor.apply': { 1: EVENT_REF },
   'contracts.clause_extraction.execute': {
     1: z.object({ request_id: uuid, contract_id: uuid, document_id: uuid }),
+  },
+  /*
+    Operacionalização é UMA etapa longa de provedor, e por isso mora num
+    trabalho próprio. Empacotá-la junto da extração de cláusulas colocava duas
+    chamadas longas dentro da MESMA invocação da hospedagem: a primeira comia o
+    tempo de vida da função e a segunda era morta pelo host antes de qualquer
+    caminho de erro da aplicação — falha sem diagnóstico, porque o processo
+    deixa de existir antes de conseguir escrever por que falhou.
+
+    O payload carrega IDENTIDADE, nunca conteúdo: quem é o documento, de qual
+    contrato, sob qual pedido durável e sob qual versão do pipeline. O handler
+    relê as linhas autoritativas.
+  */
+  'contracts.contract_operationalization.execute': {
+    1: z.object({
+      request_id: uuid,
+      contract_id: uuid,
+      document_id: uuid,
+      requested_by: uuid.nullable(),
+      operationalization_version: z.string().min(1),
+    }),
   },
   'contracts.onboarding_extraction.execute': {
     1: z.object({ intake_id: uuid }),

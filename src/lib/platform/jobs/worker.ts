@@ -38,6 +38,7 @@ import { JOB_HANDLERS } from './handlers';
 import { classifyJobError, TerminalJobError } from './errors';
 import { isJobType, parseJobPayload, UnknownJobError } from './registry';
 import { SCHEDULED_PRODUCERS } from './producers';
+import { JOB_LEASE_SECONDS } from './budget';
 import type { ClaimedJob, HandlerContext } from './types';
 
 export interface DrainLimits {
@@ -52,12 +53,20 @@ export interface DrainLimits {
 export const DEFAULT_LIMITS: DrainLimits = {
   maxRouteBatch: 200,
   maxJobs: 25,
-  // A concessão (300s) é MAIOR que o orçamento da passagem (50s) de propósito:
-  // uma concessão mais curta que a execução seria ceifada debaixo de um
-  // trabalhador que ainda está trabalhando, e dois trabalhadores rodariam o
-  // mesmo handler ao mesmo tempo. O orçamento fica bem abaixo do maxDuration
-  // da rota para que a parada seja NOSSA, e não da hospedagem.
-  leaseSeconds: 300,
+  /*
+    A concessão é MAIOR que o orçamento da passagem de propósito: uma concessão
+    mais curta que a execução seria ceifada debaixo de um trabalhador que ainda
+    está trabalhando, e dois trabalhadores rodariam o mesmo handler ao mesmo
+    tempo. Ela cobre o pior caso da etapa longa inteiro — provedor, persistência
+    e limpeza.
+
+    O orçamento fica bem abaixo do `maxDuration` da rota para que a parada seja
+    NOSSA, e não da hospedagem. E não basta o orçamento caber: o trabalho
+    reivindicado NO LIMITE dele ainda roda o seu pior caso inteiro depois disso.
+    É a soma que precisa caber — ver `./budget.ts`, onde o invariante está
+    escrito e testado.
+  */
+  leaseSeconds: JOB_LEASE_SECONDS,
   timeBudgetMs: 50_000,
   reapBatch: 100,
 };

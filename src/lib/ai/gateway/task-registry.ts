@@ -84,7 +84,17 @@ export function getApexAITaskPolicy(task: ApexAITask): ApexAITaskPolicy {
     // O SDK da Anthropic recusa requisições não-stream cujo max_tokens
     // ultrapasse ~21.3k (128k tokens/hora => >10 min de execução estimada).
     // Com 32k de saída, streaming é obrigatório: sdk.messages.stream(...).finalMessage().
-    CONTRACT_OPERATIONALIZATION: highRisk({ maxTokens: 32_000, timeoutMs: 180_000, stream: true }),
+    //
+    // `maxAttempts: 1` é fixo, e não configurável por ambiente, porque é um
+    // limite de INFRAESTRUTURA e não de gosto: duas tentativas de 180s são 360s
+    // teóricos dentro de uma função que vive 300s, e a segunda seria morta pelo
+    // host antes de qualquer caminho de erro da aplicação. A repetição desta
+    // etapa existe no nível do TRABALHO (`contracts.contract_operationalization.execute`,
+    // `p_max_attempts: 3`), onde cada tentativa ganha uma invocação inteira.
+    // Ver src/lib/platform/jobs/budget.ts.
+    CONTRACT_OPERATIONALIZATION: highRisk({
+      maxTokens: 32_000, timeoutMs: 180_000, stream: true, maxAttempts: 1,
+    }),
     // Amendment interpretation is legally material, but remains on the normal
     // economical Sonnet route. There is deliberately no automatic Opus hop.
     // 24k também ultrapassa o limite não-stream do SDK; streaming pelo mesmo motivo.

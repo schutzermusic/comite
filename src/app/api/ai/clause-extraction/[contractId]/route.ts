@@ -7,6 +7,18 @@ import { requireActiveOrganizationId } from '@/lib/auth/active-organization';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+/*
+  Tempo de vida EXPLÍCITO da função. 300s é o máximo suportado em todos os
+  planos da Vercel para funções Node.js, e tem de ser declarado aqui porque
+  `after()` roda DENTRO desta invocação: a batida na fila herda este tempo de
+  vida, e a operacionalização é uma etapa longa de provedor.
+
+  O valor é literal porque o Next exige que `maxDuration` seja estaticamente
+  analisável — não dá para importar a constante. Ele é cruzado em teste com
+  HOST_MAX_DURATION_SECONDS (src/lib/platform/jobs/budget.ts), para que um
+  desvio apareça na suíte e não em produção.
+*/
+export const maxDuration = 300;
 
 /**
  * Extração assistida de cláusulas — agora ENFILEIRADA.

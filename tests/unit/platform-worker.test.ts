@@ -169,7 +169,14 @@ describe('limites', () => {
 });
 
 describe('despacho tipado', () => {
-  it('falha canonicamente o trabalho quando a operacionalização falha', async () => {
+  it('falha canonicamente o trabalho quando a extração de cláusulas falha', async () => {
+    /*
+      A operacionalização NÃO roda mais dentro deste trabalho: ela virou
+      `contracts.contract_operationalization.execute`, com invocação própria.
+      Duas etapas longas de provedor na mesma invocação faziam a segunda ser
+      morta pelo host antes de qualquer caminho de erro da aplicação.
+      A fronteira em si está em contracts-operationalization-job-boundary.test.ts.
+    */
     const requestId = '00000000-0000-4000-8000-000000000101';
     const contractId = '00000000-0000-4000-8000-000000000102';
     const documentId = '00000000-0000-4000-8000-000000000103';
@@ -200,15 +207,15 @@ describe('despacho tipado', () => {
       };
       return builder;
     });
+    const operationalize = vi.fn();
     vi.doMock('@/lib/ai/contract-clause-extractor', () => ({
-      extractClausesFromDocument: vi.fn(async () => ({
-        analysisId: crypto.randomUUID(), proposedCount: 2, rejectedCount: 0,
-      })),
+      extractClausesFromDocument: vi.fn(async () => {
+        throw Object.assign(new Error('Falha de extração injetada.'), { status: 422 });
+      }),
     }));
     vi.doMock('@/lib/ai/contract-operationalization', () => ({
-      operationalizeContractDocument: vi.fn(async () => {
-        throw Object.assign(new Error('Falha operacional injetada.'), { status: 422 });
-      }),
+      operationalizeContractDocument: operationalize,
+      OPERATIONALIZATION_VERSION: 'contract-operationalization/1.0.0',
     }));
 
     const counters = await runWith(client);
@@ -218,6 +225,9 @@ describe('despacho tipado', () => {
       p_retryable: false, p_error_code: 'http_422',
     });
     expect(requestUpdates).toContainEqual(expect.objectContaining({ status: 'FAILED' }));
+    // Extração falha não enfileira operacionalização, e não a chama em linha.
+    expect(client.calls.some((call) => call.fn === 'apex_jobs_enqueue')).toBe(false);
+    expect(operationalize).not.toHaveBeenCalled();
   });
 
   it('tipo de trabalho desconhecido é TERMINAL', async () => {

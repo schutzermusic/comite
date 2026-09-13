@@ -20,13 +20,14 @@
  * usuário falhar, depois de o trabalho já estar seguro.
  */
 import { after } from 'next/server';
+import { JOB_LEASE_SECONDS } from './budget';
 import { drainOnce, type DrainLimits } from './worker';
 
 /** Lote pequeno e orçamento curto: isto acontece DEPOIS da resposta. */
-const FAST_PATH_LIMITS: DrainLimits = {
+export const FAST_PATH_LIMITS: DrainLimits = {
   maxRouteBatch: 25,
   maxJobs: 3,
-  leaseSeconds: 300,
+  leaseSeconds: JOB_LEASE_SECONDS,
   timeBudgetMs: 20_000,
   reapBatch: 25,
 };
