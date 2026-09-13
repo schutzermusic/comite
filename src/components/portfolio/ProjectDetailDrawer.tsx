@@ -35,24 +35,15 @@ import { cn } from '@/lib/utils';
 import { ProjectHealthIndicator } from './ProjectHealthIndicator';
 import { HudStatusPill, HudProgressBar, HudButton } from '@/components/hud';
 import { clientLogoSlotSize } from '@/lib/utils/client-logo-frame';
+/* Status seguro para projeto real sem ciclo configurado. Ver @/lib/projects/status. */
+import { formatProjectStatus, projectStatusVariant } from '@/lib/projects/status';
+
 
 interface ProjectDetailDrawerProps {
   project: Project | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onLogoUpload?: (projectId: string, file: File | null) => Promise<string | null> | string | null;
-}
-
-const STATUS_VARIANT: Record<string, 'active' | 'completed' | 'warning' | 'error' | 'neutral'> = {
-  em_andamento: 'active',
-  concluido: 'completed',
-  pausado: 'warning',
-  cancelado: 'error',
-  planejamento: 'neutral',
-};
-
-function formatStatus(status: string) {
-  return status.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
 }
 
 function formatDate(iso?: string, withTime = false) {
@@ -228,8 +219,8 @@ export function ProjectDetailDrawer({
                 <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-semibold tabular-nums tracking-wide border drawer-v2-chip">
                   {project.codigo || '—'}
                 </span>
-                <HudStatusPill variant={STATUS_VARIANT[project.status] ?? 'neutral'} size="sm">
-                  {formatStatus(project.status)}
+                <HudStatusPill variant={projectStatusVariant(project.status)} size="sm">
+                  {formatProjectStatus(project.status)}
                 </HudStatusPill>
               </div>
               <h2 className="mt-2 text-lg font-semibold drawer-v2-title leading-tight">
@@ -341,7 +332,7 @@ export function ProjectDetailDrawer({
                     }
                     size="sm"
                   >
-                    {formatStatus(project.comite_status)}
+                    {formatProjectStatus(project.comite_status)}
                   </HudStatusPill>
                 }
               />

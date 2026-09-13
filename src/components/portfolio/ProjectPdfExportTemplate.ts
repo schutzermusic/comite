@@ -27,6 +27,7 @@ import {
 import { insightPanel, mmForInsightPanel, type InsightItem } from '@/lib/reports/report-insights';
 import { renderReportDocument } from '@/lib/reports/report-shell';
 import { openReport, buildReportMeta, buildReportFileName } from '@/lib/reports/report-export';
+import { formatProjectStatus } from '@/lib/projects/status';
 
 export type PdfExportMode = 'executive' | 'full';
 
@@ -95,14 +96,6 @@ export interface ReportModel {
   rows: ReportRow[];           // executive: top 10 by value; full: all rows
   totalProjectsInScope: number;
 }
-
-const STATUS_LABEL: Record<string, string> = {
-  em_andamento: 'Em Andamento',
-  concluido: 'Concluído',
-  pausado: 'Pausado',
-  cancelado: 'Cancelado',
-  planejamento: 'Planejamento',
-};
 
 const IMPACT_LABEL: Record<string, string> = {
   baixo: 'Baixo',
@@ -178,8 +171,10 @@ function buildRow(p: Project, v2: ProjectV2 | undefined): ReportRow {
     codigo: p.codigo || '',
     nome: p.nome,
     cliente: p.cliente || '—',
-    status: p.status,
-    statusLabel: STATUS_LABEL[p.status] || p.status,
+    // O relatório imprime o que o projeto TEM. Sem ciclo configurado, o campo
+    // canônico fica vazio e o rótulo diz isso — nenhuma fase é atribuída.
+    status: p.status ?? '',
+    statusLabel: formatProjectStatus(p.status),
     health,
     healthColor: healthColor(health),
     progress,

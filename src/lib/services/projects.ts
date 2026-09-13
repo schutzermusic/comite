@@ -70,6 +70,19 @@ function normalizeProject(p: any, demo = true): Project {
   if (!project.comiteResponsavel) {
     project.comiteResponsavel = project.comite_nome || '';
   }
+  /*
+    O status NÃO é normalizado, e isso é a decisão — não um esquecimento.
+
+    Ausência de fase é um fato do projeto: quem nasce do onboarding de contrato
+    existe antes de alguém configurar seu ciclo operacional. Escolher aqui um
+    `planejamento` de consolo gravaria verdade operacional que ninguém
+    declarou, e a tela passaria a afirmá-la com a mesma cara de dado apurado.
+
+    O que estava errado era a APRESENTAÇÃO assumir que a fase sempre existia.
+    Isso agora mora em `@/lib/projects/status`, que aceita a ausência. Os
+    campos abaixo continuam sendo normalizados porque zero é, para eles, uma
+    leitura legítima — um projeto sem valor executado executou zero.
+  */
   if (typeof project.valor_total !== 'number') project.valor_total = 0;
   if (typeof project.valor_executado !== 'number') project.valor_executado = 0;
   if (typeof project.progresso_percentual !== 'number') project.progresso_percentual = 0;

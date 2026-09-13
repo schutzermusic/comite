@@ -34,7 +34,8 @@ export interface ProjectOverviewPayload {
   name: string;
   code: string;
   client?: string;
-  status: string;
+  /** Valor canônico do ciclo, ou vazio/ausente quando ele não foi configurado. */
+  status: string | null;
   statusLabel: string;
   responsible?: string;
   description?: string;

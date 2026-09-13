@@ -14,6 +14,7 @@ import {
 } from '@/data/geo/globe-kpi-data';
 import { brStates } from '@/data/geo/br-states';
 import { StateHudPanel } from '@/components/globe/StateHudPanel';
+import { formatProjectStatus } from '@/lib/projects/status';
 
 const CESIUM_VERSION = '1.138.0';
 const CESIUM_BASE = `https://cdn.jsdelivr.net/npm/cesium@${CESIUM_VERSION}/Build/Cesium/`;
@@ -991,21 +992,16 @@ export default CesiumDashboardGlobe;
 // ProjectFocusPanel — premium HUD inspector for a focused project
 // ─────────────────────────────────────────────────────────────────
 
-const STATUS_LABEL: Record<GlobeProjectRecord['status'], string> = {
-  planejamento: 'Planejamento',
-  em_andamento: 'Em andamento',
-  pausado: 'Pausado',
-  concluido: 'Concluído',
-  cancelado: 'Cancelado',
-};
-
 function statusTone(status: GlobeProjectRecord['status']): { label: string; varName: string } {
+  // `default` cobre planejamento, desconhecido e AUSENTE — todos sem tom de
+  // estado, porque nenhum deles afirma uma fase em curso.
+  const label = formatProjectStatus(status);
   switch (status) {
-    case 'em_andamento': return { label: STATUS_LABEL[status], varName: '--ig-info' };
-    case 'concluido':    return { label: STATUS_LABEL[status], varName: '--ig-success' };
-    case 'pausado':      return { label: STATUS_LABEL[status], varName: '--ig-warning' };
-    case 'cancelado':    return { label: STATUS_LABEL[status], varName: '--ig-danger' };
-    default:             return { label: STATUS_LABEL[status] || status, varName: '--ig-fg-muted' };
+    case 'em_andamento': return { label, varName: '--ig-info' };
+    case 'concluido':    return { label, varName: '--ig-success' };
+    case 'pausado':      return { label, varName: '--ig-warning' };
+    case 'cancelado':    return { label, varName: '--ig-danger' };
+    default:             return { label, varName: '--ig-fg-muted' };
   }
 }
 

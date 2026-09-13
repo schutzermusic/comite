@@ -20,6 +20,7 @@ import { StateHudPanel } from './StateHudPanel';
 import { cn } from '@/lib/utils';
 import { useTheme } from '@/contexts/ThemeContext';
 import { brStates } from '@/data/geo/br-states';
+import { formatProjectStatus } from '@/lib/projects/status';
 
 const Globe = dynamic(() => import('react-globe.gl'), {
   ssr: false,
@@ -634,7 +635,7 @@ export function GlobeCanvas({
               </div>
               <div className="mt-3 flex items-center justify-between gap-2">
                 <div className="text-[11px] hud-text-tertiary">
-                  Status: <span className="font-medium hud-text-secondary">{focusedProject.project.status.replace(/_/g, ' ')}</span>
+                  Status: <span className="font-medium hud-text-secondary">{formatProjectStatus(focusedProject.project.status)}</span>
                 </div>
                 <button
                   onClick={() => handleProjectOpen(focusedProject.project.id, focusedProject.uf)}

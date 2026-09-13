@@ -8,6 +8,9 @@ import { compactBRL } from '@/lib/utils/project-utils';
 import { HudStatusPill, HudProgressBar, HudButton } from '@/components/hud';
 import { ProjectClientLogo } from './ProjectClientLogo';
 import { ProjectHealthIndicator } from './ProjectHealthIndicator';
+/* Status seguro para projeto real sem ciclo configurado. Ver @/lib/projects/status. */
+import { formatProjectStatus, projectStatusVariant } from '@/lib/projects/status';
+
 
 interface ProjectTableProps {
   projects: Project[];
@@ -17,24 +20,12 @@ interface ProjectTableProps {
   highlightedId?: string | null;
 }
 
-const STATUS_VARIANT: Record<string, 'active' | 'completed' | 'warning' | 'error' | 'neutral'> = {
-  em_andamento: 'active',
-  concluido: 'completed',
-  pausado: 'warning',
-  cancelado: 'error',
-  planejamento: 'neutral',
-};
-
 const IMPACT_COLOR: Record<string, string> = {
   baixo: '#94A3B8',
   medio: '#22D3EE',
   alto: '#F59E0B',
   critico: '#EF4444',
 };
-
-function formatStatus(status: string) {
-  return status.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
-}
 
 export function ProjectTable({
   projects,
@@ -95,8 +86,8 @@ export function ProjectTable({
                     </div>
                   </Td>
                   <Td>
-                    <HudStatusPill variant={STATUS_VARIANT[p.status] ?? 'neutral'} size="sm">
-                      {formatStatus(p.status)}
+                    <HudStatusPill variant={projectStatusVariant(p.status)} size="sm">
+                      {formatProjectStatus(p.status)}
                     </HudStatusPill>
                   </Td>
                   <Td align="center">

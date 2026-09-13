@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { ArrowLeft, ExternalLink, AlertTriangle, Landmark, Wallet, CircleDot } from 'lucide-react';
 import type { GlobeProjectRecord, StateAggregate } from '@/data/geo/globe-kpi-data';
 import { cn } from '@/lib/utils';
+import { formatProjectStatus } from '@/lib/projects/status';
 
 interface StateHudPanelProps {
   stateData: StateAggregate | null;
@@ -217,7 +218,7 @@ export function StateHudPanel({ stateData, onBackToBrazil, onProjectSelect, onPr
                       <div className="flex items-center justify-between gap-3">
                         <div className="min-w-0">
                           <div className="text-sm text-white font-medium truncate">{project.name}</div>
-                          <div className="text-[11px] text-white/55 mt-0.5">{project.status.replace(/_/g, ' ')}</div>
+                          <div className="text-[11px] text-white/55 mt-0.5">{formatProjectStatus(project.status)}</div>
                         </div>
                         <ExternalLink className="w-4 h-4 text-white/40 flex-shrink-0" />
                       </div>

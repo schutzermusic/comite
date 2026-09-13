@@ -49,6 +49,9 @@ import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { ExportReportButton } from '@/components/reports/ExportReportButton';
 import { openProjectOverviewReport } from '@/lib/reports/modules/project-overview-report';
+import {
+  formatProjectStatus, isProjectStatus, type ProjectStatus,
+} from '@/lib/projects/status';
 
 export default function DetalheProjetoPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
@@ -130,26 +133,35 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
     );
   }
 
-  const getStatusColor = (status: string) => {
-    const colors: Record<string, string> = {
+  /*
+    Esta é a tela em que o dossiê do contrato ATERRISSA. Um projeto sem ciclo
+    configurado chega aqui pelo link do contrato, e `status` pode não existir.
+  */
+  const NEUTRAL_STATUS_CLASS = 'bg-ig-panel text-ig-fg-muted border-ig-border';
+
+  const getStatusColor = (status: unknown) => {
+    const colors: Record<ProjectStatus, string> = {
       planejamento: 'bg-ig-accent-weak text-ig-accent border-ig-border-focus',
       em_andamento: 'bg-[color-mix(in_oklab,var(--ig-success)_12%,transparent)] text-ig-success border-[color-mix(in_oklab,var(--ig-success)_28%,transparent)]',
       pausado: 'bg-[color-mix(in_oklab,var(--ig-warning)_12%,transparent)] text-ig-warning border-[color-mix(in_oklab,var(--ig-warning)_28%,transparent)]',
       concluido: 'bg-ig-panel text-ig-fg-muted border-ig-border',
       cancelado: 'bg-[color-mix(in_oklab,var(--ig-danger)_12%,transparent)] text-ig-danger border-[color-mix(in_oklab,var(--ig-danger)_28%,transparent)]'
     };
-    return colors[status] || colors.planejamento;
+    // Ausente e desconhecido são NEUTROS. Cair em `planejamento`, como antes,
+    // pintaria de fase um projeto que não declarou nenhuma.
+    return isProjectStatus(status) ? colors[status] : NEUTRAL_STATUS_CLASS;
   };
 
-  const getStatusLabel = (status: string) => {
-    const labels: Record<string, string> = {
+  const getStatusLabel = (status: unknown) => {
+    if (!isProjectStatus(status)) return formatProjectStatus(status);
+    const labels: Record<ProjectStatus, string> = {
       planejamento: tProjects('planning'),
       em_andamento: tProjects('inProgress'),
       pausado: tProjects('paused'),
       concluido: tProjects('completed'),
       cancelado: tProjects('cancelled'),
     };
-    return labels[status] || status.replace(/_/g, ' ');
+    return labels[status];
   };
 
   const getImpactoColor = (impacto: string) => {
@@ -227,7 +239,7 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
                   name: projeto.nome,
                   code: projeto.codigo,
                   client: projeto.cliente,
-                  status: projeto.status,
+                  status: projeto.status ?? null,
                   statusLabel: getStatusLabel(projeto.status),
                   responsible: projeto.responsavel?.nome || projeto.responsavel?.full_name,
                   description: projeto.descricao,

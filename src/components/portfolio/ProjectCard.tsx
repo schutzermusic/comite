@@ -7,6 +7,14 @@ import type { Project } from '@/lib/types';
 import type { ProjectV2 } from '@/lib/types/project-v2';
 import { compactBRL } from '@/lib/utils/project-utils';
 import { HudStatusPill } from '@/components/hud';
+/*
+  Rótulo, tom e cor do status vêm de um lugar só, e esse lugar aceita ausência.
+  A versão anterior chamava `.replace()` direto no valor: um projeto real sem
+  ciclo configurado derrubava o cartão — e, com ele, a carteira inteira.
+*/
+import {
+  formatProjectStatus, projectStatusAccent, projectStatusVariant,
+} from '@/lib/projects/status';
 import { ProjectHealthIndicator } from './ProjectHealthIndicator';
 import { ClientLogoBanner } from './ClientLogoBanner';
 
@@ -18,22 +26,6 @@ interface ProjectCardProps {
   delay?: number;
 }
 
-const STATUS_VARIANT: Record<string, 'active' | 'completed' | 'warning' | 'error' | 'neutral'> = {
-  em_andamento: 'active',
-  concluido: 'completed',
-  pausado: 'warning',
-  cancelado: 'error',
-  planejamento: 'neutral',
-};
-
-const ACCENT: Record<string, string> = {
-  em_andamento: '#10B981',
-  concluido: '#22D3EE',
-  pausado: '#F59E0B',
-  cancelado: '#EF4444',
-  planejamento: '#94A3B8',
-};
-
 const IMPACT_LABEL: Record<string, { label: string; color: string }> = {
   baixo: { label: 'Baixo', color: '#94A3B8' },
   medio: { label: 'Médio', color: '#22D3EE' },
@@ -41,13 +33,9 @@ const IMPACT_LABEL: Record<string, { label: string; color: string }> = {
   critico: { label: 'Crítico', color: '#EF4444' },
 };
 
-function formatStatus(status: string) {
-  return status.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
-}
-
 export function ProjectCard({ project, v2, onView, onDelete, delay = 0 }: ProjectCardProps) {
   const reduce = useReducedMotion();
-  const accent = ACCENT[project.status] ?? '#94A3B8';
+  const accent = projectStatusAccent(project.status);
   const impact = IMPACT_LABEL[project.impacto_financeiro] ?? IMPACT_LABEL.baixo;
   const health = v2?.health_score ?? 100;
   const progress = Math.max(0, Math.min(100, project.progresso_percentual || 0));
@@ -116,8 +104,8 @@ export function ProjectCard({ project, v2, onView, onDelete, delay = 0 }: Projec
       {/* ── Title + status ────────────────────────────── */}
       <div className="relative flex items-start gap-3">
         <div className="flex-1 min-w-0">
-          <HudStatusPill variant={STATUS_VARIANT[project.status] ?? 'neutral'} size="sm">
-            {formatStatus(project.status)}
+          <HudStatusPill variant={projectStatusVariant(project.status)} size="sm">
+            {formatProjectStatus(project.status)}
           </HudStatusPill>
           <h3 className="mt-2 text-[15px] font-semibold hud-text leading-snug line-clamp-2 tracking-[-0.01em]">
             {project.nome}

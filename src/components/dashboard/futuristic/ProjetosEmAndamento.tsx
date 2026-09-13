@@ -40,6 +40,14 @@ const statusConfig = {
   },
 };
 
+/** Fase ausente ou desconhecida — sem cor de estado, porque não há estado. */
+const NEUTRAL_STATUS_CONFIG = {
+  label: 'Status não informado',
+  color: 'text-slate-400',
+  bg: 'bg-slate-500/10',
+  border: 'border-slate-500/30',
+};
+
 export function ProjetosEmAndamento() {
   const projetosAtivos = projects.filter(p => 
     p.status === 'em_andamento' || p.status === 'pausado' || p.status === 'planejamento'
@@ -70,7 +78,9 @@ export function ProjetosEmAndamento() {
       {/* Projects Grid */}
       <div className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-4">
         {projetosAtivos.map((projeto, index) => {
-          const config = statusConfig[projeto.status];
+          // O filtro acima já restringe às três fases conhecidas, mas a busca
+          // não se apoia nisso: projeto sem ciclo configurado cai no neutro.
+          const config = (projeto.status && statusConfig[projeto.status]) || NEUTRAL_STATUS_CONFIG;
           const isRisk = projeto.comite_status === 'atencao_necessaria';
 
           return (

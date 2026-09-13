@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useEffect, useCallback, type ReactNode } from 'react';
 import type { GlobeProjectRecord } from '@/data/geo/globe-kpi-data';
+import { formatProjectStatus } from '@/lib/projects/status';
 
 interface ProjectAnchorPoint {
   id: string;
@@ -63,7 +64,7 @@ function formatMoney(value: number): string {
 }
 
 function statusLabel(status: GlobeProjectRecord['status']): string {
-  return status.replace(/_/g, ' ');
+  return formatProjectStatus(status);
 }
 
 export function ProjectAnchorLayer({
@@ -162,7 +163,9 @@ export function ProjectAnchorLayer({
   }, [cameraAltitude, filteredProjects, selectedUF]);
 
   const pointColor = useCallback((point: ProjectAnchorPoint) => {
-    const [r, g, b] = STATUS_COLOR[point.status] || [90, 200, 220];
+    // Sem fase configurada não há cor de estado: cai no ciano neutro que já
+    // servia de padrão para qualquer valor fora do vocabulário.
+    const [r, g, b] = (point.status && STATUS_COLOR[point.status]) || [90, 200, 220];
     const isActive = !point.isCluster && (selectedProjectId === point.id || hoveredProjectId === point.id);
     const alpha = point.isCluster ? 0.72 : isActive ? 0.98 : 0.8;
     return `rgba(${r}, ${g}, ${b}, ${alpha})`;

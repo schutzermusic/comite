@@ -21,18 +21,9 @@ import { compactBRL } from '@/lib/utils/project-utils';
 import { HudStatusPill, HudProgressBar } from '@/components/hud';
 import { ProjectClientLogo } from './ProjectClientLogo';
 import { ProjectHealthIndicator } from './ProjectHealthIndicator';
+/* Status seguro para projeto real sem ciclo configurado. Ver @/lib/projects/status. */
+import { formatProjectStatus, projectStatusVariant } from '@/lib/projects/status';
 
-const STATUS_VARIANT: Record<string, 'active' | 'completed' | 'warning' | 'error' | 'neutral'> = {
-  em_andamento: 'active',
-  concluido: 'completed',
-  pausado: 'warning',
-  cancelado: 'error',
-  planejamento: 'neutral',
-};
-
-function formatStatus(status: string) {
-  return status.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
-}
 
 interface ProjectSummaryCardProps {
   project: Project;
@@ -81,8 +72,8 @@ export function ProjectSummaryCard({
             <span className="text-[10px] font-semibold tabular-nums tracking-wide hud-text-muted">
               {project.codigo || '—'}
             </span>
-            <HudStatusPill variant={STATUS_VARIANT[project.status] ?? 'neutral'} size="sm">
-              {formatStatus(project.status)}
+            <HudStatusPill variant={projectStatusVariant(project.status)} size="sm">
+              {formatProjectStatus(project.status)}
             </HudStatusPill>
           </div>
           <h4

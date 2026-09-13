@@ -345,7 +345,8 @@ function PortfolioProjetosInner() {
       p.codigo,
       p.nome,
       p.cliente,
-      p.status,
+      // Valor canônico, e vazio quando não há fase — nunca a string "undefined".
+      p.status ?? '',
       p.valor_total,
       `${p.progresso_percentual}%`,
       p.comite_nome || 'Sem supervisão',

@@ -1,3 +1,5 @@
+import type { ProjectStatus } from '@/lib/projects/status';
+
 export type User = {
   id: string;
   nome: string;
@@ -22,7 +24,22 @@ export type Project = {
    * ProjectClientLogo falls back to deterministic initials.
    */
   clientLogoUrl?: string;
-  status: 'planejamento' | 'em_andamento' | 'pausado' | 'concluido' | 'cancelado';
+  /**
+   * Fase do ciclo de vida — OPCIONAL, porque o acervo real a omite.
+   *
+   * Um projeto criado pelo onboarding de contrato existe antes de alguém
+   * configurar seu ciclo operacional, e o `status` só aparece quando essa
+   * decisão — humana — é tomada. O tipo dizia que a fase sempre existia; o
+   * dado persistido discordou e derrubou a carteira inteira em runtime.
+   *
+   * Marcar como opcional é a mudança mais estreita que faz o TypeScript
+   * descrever o read model de verdade. A alternativa seria inventar um estado
+   * canônico "não configurado" — fase falsa no enum, gravada em lugar nenhum,
+   * criada só para calar o compilador.
+   *
+   * Toda leitura passa por `@/lib/projects/status`, que nunca lança.
+   */
+  status?: ProjectStatus | null;
   comite_id?: string;
   comite_nome?: string;
   comite_status?: 'sem_supervisao' | 'ativo' | 'atencao_necessaria' | 'revisao_pendente';
