@@ -265,7 +265,9 @@ describe('autorização do trabalhador', () => {
       fixo do código ('vercel_cron' | 'apex_jobs') —, jamais o valor do segredo.
     */
     expect(drainRoute).toContain(
-      'NextResponse.json({ ok: true, triggeredBy, caller: auth.caller, counters })');
+      'NextResponse.json({ ok: true, paused: false, triggeredBy, caller: auth.caller, counters })');
+    // E a resposta da TRAVA: sucesso, sem contadores, sem conteúdo de trabalho.
+    expect(drainRoute).toContain('NextResponse.json({ ok: true, paused: true, triggeredBy })');
     expect(drainRoute).not.toMatch(/json\([^)]*(APEX_JOBS_SECRET|CRON_SECRET|process\.env)/);
     expect(drainRoute).not.toMatch(/json\([^)]*\bjobs\b/);
     expect(drainRoute).not.toMatch(/counters\.\w+\s*,\s*payload/);

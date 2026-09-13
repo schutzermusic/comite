@@ -294,7 +294,22 @@ CREATE OR REPLACE FUNCTION public.contracts_recover_legacy_extraction_job(
   p_job_id                      uuid,
   p_operationalization_version  text,
   p_job_max_attempts            integer DEFAULT 1,
-  p_dry_run                     boolean DEFAULT true
+  p_dry_run                     boolean DEFAULT true,
+  /*
+    As análises órfãs que quem autoriza LEU no plano e aprovou, uma a uma.
+
+    Existe porque a versão anterior fechava, por predicado, TODA análise
+    `running` do contrato/documento criada depois do trabalho legado. Esse
+    predicado não distingue um órfão desta execução de uma análise legítima que
+    outra pessoa começou cinco minutos atrás — e fechá-la como
+    WORKER_EXECUTION_TERMINATED mataria trabalho vivo, em silêncio.
+
+    Para linhas pré-168 não existe proveniência que desempate. Então não se
+    adivinha: o dry-run ENUMERA as candidatas com id, tipo e horários, e a
+    execução só toca exatamente os ids que voltarem aqui. NULL significa "não
+    aprovei nenhuma", e nenhuma é fechada.
+  */
+  p_approved_orphan_analysis_ids uuid[] DEFAULT NULL
 ) RETURNS jsonb
 LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_temp AS $$
 DECLARE
@@ -306,6 +321,10 @@ DECLARE
   v_orphan_ops   public.contract_ai_analyses%ROWTYPE;
   v_upper_bound  timestamptz;
   v_candidates   integer;
+  v_orphan_rows  jsonb := '[]'::jsonb;
+  v_orphan_ids   uuid[] := ARRAY[]::uuid[];
+  v_approved     uuid[] := COALESCE(p_approved_orphan_analysis_ids, ARRAY[]::uuid[]);
+  v_unknown      uuid[];
   v_orphans_closed integer := 0;
   v_idempotency  text;
   v_existing_job uuid;
@@ -508,17 +527,27 @@ BEGIN
                   ELSE 'Já existe: a chave determinística devolve o mesmo trabalho, sem duplicar.' END));
 
   /*
-    Toda análise ainda `running` da janela desta execução entra no plano — e não
-    só a operacionalização. O trabalho combinado legado pode ter sido tentado
-    mais de uma vez, e cada tentativa morta deixou a sua própria linha
-    `running`. Fechar uma e deixar as outras devolveria uma tela que continua
-    dizendo "analisando" depois da recuperação.
+    As análises ainda `running` são ENUMERADAS, nunca fechadas por predicado.
 
-    `execution_job_id IS NULL` mantém isto dentro do legado: linhas com
-    proveniência pertencem à reconciliação genérica, que sabe exatamente de quem
-    elas são.
+    O trabalho combinado legado pode ter sido tentado mais de uma vez, e cada
+    tentativa morta deixou a sua própria linha `running`; fechar só uma
+    devolveria uma tela que continua dizendo "analisando". Mas o predicado que
+    encontra essas linhas — mesmo contrato, mesmo documento, criada depois do
+    trabalho — também encontra uma análise LEGÍTIMA que alguém começou agora.
+    Para linhas pré-168 não há proveniência que separe as duas.
+
+    Então o plano LISTA cada candidata com id, tipo e horários, e quem autoriza
+    decide olhando. A execução fecha exatamente os ids aprovados, e mais nenhum.
   */
-  SELECT count(*)::integer INTO v_orphans_closed FROM public.contract_ai_analyses a
+  SELECT COALESCE(jsonb_agg(jsonb_build_object(
+           'id', a.id,
+           'kind', a.extracted_data->>'kind',
+           'status', a.status,
+           'created_at', to_jsonb(a.created_at),
+           'started_at', to_jsonb(a.started_at)) ORDER BY a.created_at), '[]'::jsonb),
+         COALESCE(array_agg(a.id ORDER BY a.created_at), ARRAY[]::uuid[])
+    INTO v_orphan_rows, v_orphan_ids
+    FROM public.contract_ai_analyses a
    WHERE a.organization_id = j.organization_id
      AND a.contract_id = v_contract
      AND a.document_id = v_document
@@ -526,15 +555,34 @@ BEGIN
      AND a.execution_job_id IS NULL
      AND a.created_at >= j.created_at;
 
-  IF v_orphans_closed > 0 THEN
+  /*
+    Um id aprovado que NÃO está entre as candidatas aborta tudo. Pode ser um
+    engano de digitação, um plano copiado de outro trabalho, ou uma linha que
+    mudou de estado entre a leitura e a execução — e nenhuma dessas hipóteses
+    justifica escrever. Falhar fechado.
+  */
+  v_unknown := ARRAY(SELECT x FROM unnest(v_approved) x WHERE NOT (x = ANY(v_orphan_ids)));
+  IF array_length(v_unknown, 1) > 0 THEN
+    RETURN jsonb_build_object('recoverable', false, 'reason', 'orphan_set_mismatch',
+                              'job_id', j.id,
+                              'approved_not_eligible', to_jsonb(v_unknown),
+                              'eligible_orphan_analyses', v_orphan_rows,
+                              'dry_run', p_dry_run);
+  END IF;
+
+  v_orphans_closed := COALESCE(array_length(v_approved, 1), 0);
+
+  IF jsonb_array_length(v_orphan_rows) > 0 THEN
     v_mutations := v_mutations || jsonb_build_array(jsonb_build_object(
-      'table', 'contract_ai_analyses', 'action', 'CLOSE_ORPHANS',
-      'count', v_orphans_closed,
-      'orphan_operationalization_analysis_id', v_orphan_ops.id,
+      'table', 'contract_ai_analyses', 'action', 'CLOSE_APPROVED_ORPHANS',
+      'eligible', v_orphan_rows,
+      'approved', to_jsonb(v_approved),
+      'approved_count', v_orphans_closed,
       'from', jsonb_build_object('status', 'running'),
       'to', jsonb_build_object('status', 'failed', 'error_message', 'WORKER_EXECUTION_TERMINATED'),
       'why', 'A execução foi encerrada antes de concluir e persistir o resultado. '
-          || 'Se o provedor respondeu é incognoscível; o que se sabe é que nada foi persistido.'));
+          || 'Se o provedor respondeu é incognoscível; o que se sabe é que nada foi persistido. '
+          || 'Só os ids aprovados são fechados; os demais permanecem como estão.'));
   END IF;
 
   -- As cláusulas e a análise de extração aparecem no plano como PRESERVADAS,
@@ -559,6 +607,9 @@ BEGIN
       'proof_window_lower', to_jsonb(j.created_at),
       'proof_window_upper', to_jsonb(v_upper_bound),
       'candidates', v_candidates,
+      -- As candidatas, UMA A UMA: é isto que quem autoriza lê antes de aprovar.
+      'eligible_orphan_analyses', v_orphan_rows,
+      'approved_orphan_analysis_ids', to_jsonb(v_approved),
       'orphan_analyses_to_close', v_orphans_closed,
       'operationalization_idempotency_key', v_idempotency,
       'operationalization_job_existing', v_existing_job,
@@ -575,27 +626,50 @@ BEGIN
                         || 'e a operacionalização foi enfileirada como trabalho dedicado.'
    WHERE id = j.id;
 
-  UPDATE public.contract_ai_analyses a
-     SET status = 'failed', completed_at = now(),
-         error_message = 'WORKER_EXECUTION_TERMINATED',
-         extracted_data = a.extracted_data || jsonb_build_object(
-           'reconciliation', jsonb_build_object(
-             'reason', 'WORKER_EXECUTION_TERMINATED',
-             'detail', 'A execução foi encerrada antes de concluir e persistir o resultado.',
-             'execution_job_id', j.id,
-             'legacy_recovery', true,
-             'reconciled_at', to_jsonb(now()),
-             -- Incognoscível depois de o processo morrer; nada é inventado, e
-             -- nenhum uso/token é fabricado.
-             'provider_response_state', 'unknown',
-             'provider_response_persisted', false,
-             'human_action', false))
-   WHERE a.organization_id = j.organization_id
-     AND a.contract_id = v_contract
-     AND a.document_id = v_document
-     AND a.status = 'running'
-     AND a.execution_job_id IS NULL
-     AND a.created_at >= j.created_at;
+  /*
+    Fecha SOMENTE os ids aprovados, e cada um deles só se AINDA for exatamente o
+    que o plano descreveu: mesma organização, mesmo contrato, mesmo documento,
+    ainda `running`, ainda sem proveniência.
+
+    Essa repetição do predicado é a checagem otimista de concorrência. Entre a
+    leitura do plano e esta escrita cabe outro processo: a análise pode ter
+    concluído sozinha, ou ganhado proveniência. Se qualquer id aprovado deixou
+    de casar, a contagem afetada não bate com a aprovada e a transação INTEIRA é
+    abortada — sem trabalho cancelado, sem pedido fechado, sem enfileiramento.
+  */
+  IF array_length(v_approved, 1) > 0 THEN
+    WITH closed AS (
+      UPDATE public.contract_ai_analyses a
+         SET status = 'failed', completed_at = now(),
+             error_message = 'WORKER_EXECUTION_TERMINATED',
+             extracted_data = a.extracted_data || jsonb_build_object(
+               'reconciliation', jsonb_build_object(
+                 'reason', 'WORKER_EXECUTION_TERMINATED',
+                 'detail', 'A execução foi encerrada antes de concluir e persistir o resultado.',
+                 'execution_job_id', j.id,
+                 'legacy_recovery', true,
+                 'reconciled_at', to_jsonb(now()),
+                 -- Incognoscível depois de o processo morrer; nada é inventado,
+                 -- e nenhum uso/token é fabricado.
+                 'provider_response_state', 'unknown',
+                 'provider_response_persisted', false,
+                 'human_action', false))
+       WHERE a.id = ANY(v_approved)
+         AND a.organization_id = j.organization_id
+         AND a.contract_id = v_contract
+         AND a.document_id = v_document
+         AND a.status = 'running'
+         AND a.execution_job_id IS NULL
+      RETURNING a.id
+    )
+    SELECT count(*)::integer INTO v_orphans_closed FROM closed;
+
+    IF v_orphans_closed <> array_length(v_approved, 1) THEN
+      RAISE EXCEPTION 'Conjunto de análises órfãs mudou desde o plano: % aprovadas, % elegíveis agora.',
+        array_length(v_approved, 1), v_orphans_closed
+        USING ERRCODE = 'serialization_failure';
+    END IF;
+  END IF;
 
   UPDATE public.contract_clause_extraction_requests
      SET status = 'COMPLETED', completed_at = now(),
@@ -623,6 +697,8 @@ BEGIN
     'proof_window_lower', to_jsonb(j.created_at),
     'proof_window_upper', to_jsonb(v_upper_bound),
     'candidates', v_candidates,
+    'eligible_orphan_analyses', v_orphan_rows,
+    'approved_orphan_analysis_ids', to_jsonb(v_approved),
     'orphan_analyses_closed', v_orphans_closed,
     'operationalization_idempotency_key', v_idempotency,
     'operationalization_job_id', v_enqueued,
@@ -630,15 +706,18 @@ BEGIN
     'clause_extraction_rerun', false,
     'mutations', v_mutations);
 END $$;
-REVOKE ALL ON FUNCTION public.contracts_recover_legacy_extraction_job(uuid, text, integer, boolean)
+REVOKE ALL ON FUNCTION public.contracts_recover_legacy_extraction_job(uuid, text, integer, boolean, uuid[])
   FROM PUBLIC, anon, authenticated;
 
-COMMENT ON FUNCTION public.contracts_recover_legacy_extraction_job(uuid, text, integer, boolean) IS
+COMMENT ON FUNCTION public.contracts_recover_legacy_extraction_job(uuid, text, integer, boolean, uuid[]) IS
   'Recupera um trabalho COMBINADO legado (extração + operacionalização) cuja '
   'extração já concluiu, sem rodar o extrator de novo. Dry-run por padrão. '
   'FALHA FECHADO: recusa com concessão viva, com trabalho já concluído, sem '
   'teto determinístico para a janela de prova, com zero candidatas '
   '(extraction_not_proven) e com mais de uma (extraction_ambiguous). Só um '
-  'conjunto de tamanho exatamente um é prova.';
+  'conjunto de tamanho exatamente um é prova. As análises órfãs NUNCA são '
+  'fechadas por predicado: o dry-run as enumera e só os ids explicitamente '
+  'aprovados são fechados, sob checagem otimista que aborta tudo se o conjunto '
+  'mudou desde o plano.';
 
 COMMIT;

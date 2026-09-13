@@ -22,6 +22,7 @@
 import { after } from 'next/server';
 import { JOB_LEASE_SECONDS } from './budget';
 import { drainOnce, type DrainLimits } from './worker';
+import { isDrainPaused } from './hold';
 
 /** Lote pequeno e orçamento curto: isto acontece DEPOIS da resposta. */
 export const FAST_PATH_LIMITS: DrainLimits = {
@@ -33,6 +34,19 @@ export const FAST_PATH_LIMITS: DrainLimits = {
 };
 
 export function scheduleFastDrain(tag: string): void {
+  /*
+    Sob trava operacional nem se agenda a batida. `drainOnce` já sairia sozinho
+    — ele é a guarda autoritativa —, mas agendar trabalho que sabidamente não
+    vai acontecer gasta uma tarefa de `after()` e um registro por ação de
+    produto, para nada.
+
+    O que NÃO muda: a ação do usuário que chamou isto já cometeu o seu trabalho
+    durável e já respondeu. Upload de contrato, finalização de onboarding,
+    aditivo e pedido de análise seguem funcionando e seguem ENFILEIRANDO
+    normalmente. O que a trava suspende é drenar a fila, não alimentá-la.
+  */
+  if (isDrainPaused()) return;
+
   after(async () => {
     try {
       const counters = await drainOnce(FAST_PATH_LIMITS, `apex-after-${tag}`);

@@ -524,6 +524,55 @@ describe('recuperação do trabalho combinado legado', () => {
     expect(recovery).toContain("'action', 'PRESERVE'");
   });
 
+  it('as órfãs são ENUMERADAS no plano, nunca fechadas por predicado', () => {
+    /*
+      O predicado que encontra os órfãos deste legado — mesmo contrato, mesmo
+      documento, criada depois do trabalho — também encontra uma análise
+      LEGÍTIMA que alguém começou agora. Para linhas pré-168 não há proveniência
+      que separe as duas, então não se adivinha: lista-se.
+    */
+    expect(recovery).toContain("'eligible_orphan_analyses', v_orphan_rows");
+    expect(recovery).toContain("'kind', a.extracted_data->>'kind'");
+    expect(recovery).toContain("'created_at', to_jsonb(a.created_at)");
+    expect(recovery).toContain("'started_at', to_jsonb(a.started_at)");
+  });
+
+  it('a execução fecha SOMENTE os ids aprovados', () => {
+    expect(recovery).toContain('p_approved_orphan_analysis_ids uuid[] DEFAULT NULL');
+    expect(recovery).toContain('WHERE a.id = ANY(v_approved)');
+    // Nenhum UPDATE de órfãs por predicado de janela sobrou.
+    expect(recovery).not.toMatch(
+      /SET status = 'failed'[\s\S]{0,900}WHERE a\.organization_id = j\.organization_id[\s\S]{0,300}a\.created_at >= j\.created_at/);
+  });
+
+  it('omitir a aprovação é aprovar NENHUMA', () => {
+    expect(recovery).toContain('v_approved     uuid[] := COALESCE(p_approved_orphan_analysis_ids, ARRAY[]::uuid[])');
+    expect(recovery).toContain('IF array_length(v_approved, 1) > 0 THEN');
+    const recoveryModule = source('src/lib/platform/jobs/legacy-recovery.ts');
+    expect(recoveryModule).toContain('p_approved_orphan_analysis_ids: options.approvedOrphanAnalysisIds ?? null');
+  });
+
+  it('um conjunto aprovado que não casa falha fechado, e o diz', () => {
+    expect(recovery).toContain("'reason', 'orphan_set_mismatch'");
+    expect(recovery).toContain("'approved_not_eligible', to_jsonb(v_unknown)");
+  });
+
+  it('a checagem otimista aborta a transação se o conjunto mudou', () => {
+    // Entre a enumeração e a escrita cabe outro processo: a análise pode ter
+    // concluído sozinha ou ganhado proveniência.
+    expect(recovery).toContain("AND a.status = 'running'");
+    expect(recovery).toContain('AND a.execution_job_id IS NULL');
+    expect(recovery).toContain('IF v_orphans_closed <> array_length(v_approved, 1) THEN');
+    expect(recovery).toContain("USING ERRCODE = 'serialization_failure'");
+  });
+
+  it('o único UUID literal da migration é a sentinela de "ausente"', () => {
+    // A recuperação é um MECANISMO, não um script para um contrato específico.
+    const literals = new Set(MIGRATION.match(
+      /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g) ?? []);
+    expect([...literals]).toEqual(['00000000-0000-0000-0000-000000000000']);
+  });
+
   it('o módulo de recuperação usa a MESMA guarda de custo do handler', async () => {
     const recoveryModule = source('src/lib/platform/jobs/legacy-recovery.ts');
     expect(recoveryModule).toContain('p_job_max_attempts: OPERATIONALIZATION_JOB_MAX_ATTEMPTS');
@@ -550,6 +599,26 @@ describe('cadência de recuperação e teto configurado', () => {
   const vercelConfig = JSON.parse(source('vercel.json')) as {
     crons: { path: string; schedule: string }[];
   };
+
+  it('a TRAVA operacional sobreviveu ao merge e ainda barra tudo', async () => {
+    /*
+      Este release é publicado com a fila AINDA segurada. A trava tem de sair
+      antes do cliente do banco, da ceifa, da reconciliação e da reivindicação —
+      ou o próprio deploy da recuperação soltaria a fila.
+    */
+    const worker = source('src/lib/platform/jobs/worker.ts');
+    const guard = worker.indexOf('if (isDrainPaused()) {');
+    expect(guard).toBeGreaterThan(-1);
+    for (const after of ['platformServiceClient()', "rpc('apex_jobs_reap'",
+      "rpc('contracts_reconcile_orphaned_executions'", "rpc('apex_jobs_claim'"]) {
+      expect(worker.indexOf(after)).toBeGreaterThan(guard);
+    }
+    expect(source('src/lib/platform/jobs/fast-path.ts')).toContain('if (isDrainPaused()) return;');
+    expect(source('src/app/api/platform/jobs/drain/route.ts'))
+      .toContain('return NextResponse.json({ ok: true, paused: true, triggeredBy });');
+    expect(source('src/app/api/platform/jobs/health/route.ts'))
+      .toContain('jobsDrainPaused: isDrainPaused()');
+  });
 
   it('a ordem de release é MIGRATION ANTES DO CÓDIGO, e está no código', () => {
     /*

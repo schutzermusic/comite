@@ -40,11 +40,20 @@
 import { OPERATIONALIZATION_JOB_MAX_ATTEMPTS } from './budget';
 import type { platformServiceClient } from '../server-client';
 
+/** Uma análise órfã candidata, como o plano a enumera. Identidade e horários. */
+export interface EligibleOrphanAnalysis {
+  readonly id: string;
+  readonly kind: string | null;
+  readonly status: string;
+  readonly created_at: string;
+  readonly started_at: string | null;
+}
+
 /** Uma transição planejada, como o banco a descreve. Nunca conteúdo de documento. */
 export interface PlannedMutation {
   readonly table: string;
   readonly id?: string;
-  readonly action?: 'PRESERVE';
+  readonly action?: 'PRESERVE' | 'CLOSE_APPROVED_ORPHANS';
   readonly from?: Record<string, unknown>;
   readonly to?: Record<string, unknown>;
   readonly why: string;
@@ -56,7 +65,7 @@ export type LegacyRecoveryPlan =
       readonly reason:
         | 'job_not_found' | 'not_a_legacy_extraction_job' | 'lease_still_live'
         | 'job_already_completed' | 'job_already_recovered' | 'payload_without_identity'
-        | 'request_not_found' | 'upper_boundary_unavailable'
+        | 'request_not_found' | 'upper_boundary_unavailable' | 'orphan_set_mismatch'
         // Zero candidatas e mais de uma são recusas DIFERENTES: a primeira diz
         // "talvez a leitura nunca tenha acontecido", a segunda diz "aconteceu,
         // mas não dá para saber qual". Ambas falham fechado, sem escrever.
@@ -78,6 +87,9 @@ export type LegacyRecoveryPlan =
       readonly proof_window_lower: string;
       readonly proof_window_upper: string;
       readonly candidates: number;
+      /** As órfãs elegíveis, UMA A UMA. É isto que se lê antes de aprovar. */
+      readonly eligible_orphan_analyses: readonly EligibleOrphanAnalysis[];
+      readonly approved_orphan_analysis_ids: readonly string[];
       readonly operationalization_idempotency_key: string;
       readonly operationalization_job_id?: string;
       readonly mutations: readonly PlannedMutation[];
@@ -87,6 +99,18 @@ export type LegacyRecoveryPlan =
 export interface LegacyRecoveryOptions {
   /** Falso por omissão: a chamada PLANEJA, e não escreve. */
   readonly execute?: boolean;
+  /**
+   * As análises órfãs que quem autoriza LEU no plano e aprovou, uma a uma.
+   *
+   * Omitir é aprovar NENHUMA — e isso é o padrão de propósito. A alternativa,
+   * fechar por predicado tudo que estivesse `running` no contrato/documento,
+   * não distingue um órfão desta execução de uma análise legítima que outra
+   * pessoa começou há cinco minutos; para linhas pré-168 não existe
+   * proveniência que desempate. Um id que não esteja entre as candidatas, ou
+   * uma candidata que mudou de estado desde o plano, aborta a transação
+   * inteira sem escrever nada.
+   */
+  readonly approvedOrphanAnalysisIds?: readonly string[];
 }
 
 /**
@@ -109,6 +133,7 @@ export async function recoverLegacyExtractionJob(
     p_operationalization_version: OPERATIONALIZATION_VERSION,
     p_job_max_attempts: OPERATIONALIZATION_JOB_MAX_ATTEMPTS,
     p_dry_run: options.execute !== true,
+    p_approved_orphan_analysis_ids: options.approvedOrphanAnalysisIds ?? null,
   });
   if (error) throw new Error(`Recuperação legada falhou: ${error.message}`);
   return data as LegacyRecoveryPlan;

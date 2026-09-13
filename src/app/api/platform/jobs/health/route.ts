@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { authorizePlatformCron } from '@/lib/platform/cron-auth';
 import { platformServiceClient } from '@/lib/platform/server-client';
+import { isDrainPaused } from '@/lib/platform/jobs/hold';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -24,6 +25,13 @@ export async function GET(req: Request) {
     console.error('[api/platform/jobs/health] failed', { message: error.message });
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
-  // A classe que autenticou, jamais o valor da credencial.
-  return NextResponse.json({ ok: true, caller: auth.caller, health: data });
+  /*
+    Duas verdades operacionais, nenhum segredo: a CLASSE de credencial que
+    autenticou (nome fixo do código, jamais o valor), e se a fila está sob
+    trava. Sem a segunda, uma fila parada sob trava parece idêntica a uma fila
+    parada por defeito.
+  */
+  return NextResponse.json({
+    ok: true, caller: auth.caller, jobsDrainPaused: isDrainPaused(), health: data,
+  });
 }
