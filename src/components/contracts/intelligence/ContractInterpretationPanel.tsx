@@ -38,8 +38,7 @@ import {
   ATTENTION_REASON_ASK, ATTENTION_REASON_LABEL, interpretationDisclosure,
   type AttentionReason, type InterpretationState,
 } from '@/lib/contracts/intelligence/attention-policy';
-
-const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
+import { formatContractCurrency } from '@/lib/contracts/trust/format';
 
 const categoryLabel = (type: string | null): string =>
   (type && CLAUSE_CATEGORY_LABEL[type as ClauseCategory]) || type || 'categoria não informada';
@@ -54,7 +53,7 @@ function operationalEffect(clause: ContractClauseRow): string[] {
   const parts: string[] = [];
   const amount = clause.amount === null ? null : Number(clause.amount);
   const pct = clause.percentage === null ? null : Number(clause.percentage);
-  if (amount !== null && Number.isFinite(amount)) parts.push(`Valor: ${BRL.format(amount)}`);
+  if (amount !== null && Number.isFinite(amount)) parts.push(`Valor: ${formatContractCurrency(amount)}`);
   if (pct !== null && Number.isFinite(pct)) parts.push(`Percentual: ${pct}%`);
   if (clause.term_days !== null) parts.push(`Prazo: ${clause.term_days} dia(s)`);
   return parts;

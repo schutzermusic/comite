@@ -547,6 +547,12 @@ export type ContractDetail = {
    * party nesta leitura" — e a projeção cai no texto livre, nunca em erro.
    */
   parties?: Map<string, PartyRow>;
+  /**
+   * Pessoa responsável pelo contrato, quando `owner_person_id` está preenchido
+   * e a leitura conseguiu resolvê-la. Ausente é "não resolvi nesta leitura",
+   * jamais "não há responsável" — quem responde isso é a própria coluna.
+   */
+  ownerPerson?: ContractOwnerPerson | null;
 };
 
 export type CreateContractInput = {
@@ -752,6 +758,48 @@ export async function listContracts(): Promise<ContractRow[]> {
  *
  * Ids nulos não tocam a rede: um acervo inteiramente sem vínculo custa zero.
  */
+/**
+ * A Pessoa canônica responsável pelo contrato (migration 167).
+ *
+ * Só o que a interface precisa: identidade e nome. `status` acompanha porque
+ * a responsabilidade de negócio exige Pessoa ATIVA — a migration garante isso
+ * na escrita, e o read model não pode afirmar "registrado" sobre uma Pessoa
+ * que foi inativada por fora.
+ */
+export type ContractOwnerPerson = {
+  id: string;
+  full_name: string;
+  status: string | null;
+};
+
+/**
+ * Resolve `contracts.owner_person_id` em Pessoa.
+ *
+ * TOLERANTE a falha, pelo mesmo motivo que `loadCounterpartyParties`: não
+ * conseguir ler o nome não torna a responsabilidade inexistente. O id
+ * continua na linha de `contracts` e o read model já basta para dizer
+ * REGISTRADO — o que se perde é só o nome na tela.
+ */
+async function loadOwnerPeople(
+  rows: readonly Pick<ContractRow, 'owner_person_id'>[],
+): Promise<Map<string, ContractOwnerPerson>> {
+  const ids = Array.from(
+    new Set(rows.map((row) => row.owner_person_id).filter((id): id is string => Boolean(id))),
+  );
+  if (ids.length === 0) return new Map();
+  try {
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from('people')
+      .select('id, full_name, status')
+      .in('id', ids);
+    if (error || !data) return new Map();
+    return new Map((data as ContractOwnerPerson[]).map((person) => [person.id, person]));
+  } catch {
+    return new Map();
+  }
+}
+
 async function loadCounterpartyParties(
   rows: readonly Pick<ContractRow, 'counterparty_party_id'>[],
 ): Promise<Map<string, PartyRow>> {
@@ -822,7 +870,10 @@ export async function getContractById(contractId: string): Promise<ContractDetai
     segunda consulta — encadeada, não paralela. Um contrato sem aditivo não
     paga nada por isso: a função devolve `[]` sem tocar a rede.
   */
-  const parties = await loadCounterpartyParties([contract]);
+  const [parties, ownerPeople] = await Promise.all([
+    loadCounterpartyParties([contract]),
+    loadOwnerPeople([contract]),
+  ]);
 
   let amendments: ContractAmendmentRow[] = [];
   let amendmentClauses: ContractAmendmentClauseRow[] = [];
@@ -858,7 +909,10 @@ export async function getContractById(contractId: string): Promise<ContractDetai
     amendmentIngestionRequests,
     amendmentClauses,
     amendmentsError,
-    parties
+    parties,
+    ownerPerson: contract.owner_person_id
+      ? (ownerPeople.get(contract.owner_person_id) ?? null)
+      : null,
   };
 }
 
@@ -3041,6 +3095,11 @@ export type ContractRelationsBatch = {
    * segue sendo uma leitura legítima da própria linha de `contracts`.
    */
   parties?: Map<string, PartyRow>;
+  /**
+   * Pessoas responsáveis (migration 167), resolvidas por `owner_person_id`.
+   * Opcional pela mesma razão que `parties`: ausência é leitura não feita.
+   */
+  ownerPeople?: Map<string, ContractOwnerPerson>;
   /** True when at least one live row was returned for that relation across all contracts. */
   sectionsWithData: {
     obligations: boolean;
@@ -3377,10 +3436,17 @@ export async function fetchContractRelationsBatch(contractIds: string[]): Promis
     não conseguir nomear canonicamente uma contraparte não torna o contrato
     não apurado — o nome do papel continua sendo uma leitura legítima.
   */
-  const counterpartyLinks = await safe<{ id: string; counterparty_party_id: string | null }>(
-    supabase.from('contracts').select('id,counterparty_party_id').in('id', ids),
+  const counterpartyLinks = await safe<{
+    id: string; counterparty_party_id: string | null; owner_person_id: string | null;
+  }>(
+    supabase.from('contracts').select('id,counterparty_party_id,owner_person_id').in('id', ids),
   );
-  const parties = await loadCounterpartyParties(counterpartyLinks.rows);
+  const [parties, ownerPeople] = await Promise.all([
+    loadCounterpartyParties(counterpartyLinks.rows),
+    // Mesma tolerância: o nome do responsável é enfeite da linha, o vínculo
+    // que decide prontidão é a coluna, e ela já veio.
+    loadOwnerPeople(counterpartyLinks.rows),
+  ]);
 
   return {
     obligations: groupByContract(obligations.rows),
@@ -3396,6 +3462,7 @@ export async function fetchContractRelationsBatch(contractIds: string[]): Promis
     obligationDefinitions: groupByContract(obligationDefinitions.rows),
     riskDetails,
     parties,
+    ownerPeople,
     sectionsWithData: {
       obligations: obligations.rows.length > 0,
       billing: billingEvents.rows.length > 0,

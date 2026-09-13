@@ -15,6 +15,7 @@
 import { hasOfficialValue, isError, isMissing, type Official } from './trusted';
 import type { TrustedContract } from './read-model';
 import { renewalState, missingDocuments, obligationBreakdown, approvalStepOutcome } from './signals';
+import { ANALYSIS_FAILURE_MESSAGE, ANALYSIS_FAILURE_RETRY } from './analysis-errors';
 
 /**
  * Quatro níveis, e a distinção entre os dois do meio é a que importa.
@@ -315,15 +316,39 @@ export function attentionItems(contract: TrustedContract, now: Date = new Date()
   // aconteceu — e um documento que parece analisado sem ter sido é pior do
   // que um documento não analisado.
   if (hasOfficialValue(contract.aiAnalyses)) {
-    const failed = contract.aiAnalyses.value.filter((a) => a.status === 'failed');
+    /*
+      Falha ainda EM ABERTO — não falha que já foi refeita com sucesso.
+
+      Uma releitura bem-sucedida do mesmo documento encerra o assunto: manter
+      o alerta depois disso pede uma ação que já foi tomada, e apresenta como
+      situação atual um incidente resolvido. O registro da tentativa que
+      falhou continua na persistência, para auditoria.
+    */
+    const at = (a: { completed_at: string | null; created_at: string }) => a.completed_at ?? a.created_at;
+    const succeededSince = new Map<string, string>();
+    for (const analysis of contract.aiAnalyses.value) {
+      if (analysis.status !== 'completed' || !analysis.document_id) continue;
+      const current = succeededSince.get(analysis.document_id);
+      const when = at(analysis);
+      if (!current || when > current) succeededSince.set(analysis.document_id, when);
+    }
+    const failed = contract.aiAnalyses.value.filter((a) => {
+      if (a.status !== 'failed') return false;
+      const success = a.document_id ? succeededSince.get(a.document_id) : undefined;
+      return !success || success < at(a);
+    });
     if (failed.length > 0) {
       items.push({
         id: 'clause-analysis-failed',
         severity: 'warning',
         title: `${failed.length} análise(s) documental(is) falharam`,
-        reason: failed[0].error_message
-          ? `Último erro: ${failed[0].error_message}`
-          : 'A leitura do documento não pôde ser concluída. Nenhuma cláusula foi proposta a partir dele.',
+        /*
+          O texto do provedor NUNCA chega aqui. Ver `analysis-errors.ts`: o
+          erro técnico permanece em `error_message`, legível por log e
+          auditoria, e a carteira lê a consequência de negócio.
+        */
+        reason: `${ANALYSIS_FAILURE_MESSAGE} Nenhuma cláusula foi proposta a partir dele. `
+          + ANALYSIS_FAILURE_RETRY,
         exposure: null,
         age: null,
         actionLabel: 'Revisar propostas',

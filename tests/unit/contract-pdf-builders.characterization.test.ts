@@ -175,16 +175,16 @@ describe('carteira SEM evento de faturamento registrado', () => {
         "R$ 1,2 mi",
         "R$ 480 mil",
         "R$ 1,2 mi",
-        "R$ 1.200.000",
-        "R$ 480.000",
-        "R$ 0",
-        "R$ 1.680.000",
+        "R$ 1.200.000,00",
+        "R$ 480.000,00",
+        "R$ 0,00",
+        "R$ 1.680.000,00",
       ]
     `);
   });
 
   it('fixa a estrutura do documento', () => {
-    expect(stableHash(html())).toMatchInlineSnapshot(`"bc2b3eab9ed27f64"`);
+    expect(stableHash(html())).toMatchInlineSnapshot(`"e6f225fc2a9bd069"`);
   });
 });
 
@@ -262,12 +262,12 @@ describe('carteira COM faturamento real', () => {
         "R$ 1,7 mi",
         "R$ 900 mil",
         "R$ 900 mil",
-        "R$ 1.200.000",
-        "R$ 300.000",
-        "R$ 480.000",
-        "R$ 0",
-        "R$ 1.680.000",
-        "R$ 300.000",
+        "R$ 1.200.000,00",
+        "R$ 300.000,00",
+        "R$ 480.000,00",
+        "R$ 0,00",
+        "R$ 1.680.000,00",
+        "R$ 300.000,00",
       ]
     `);
   });
@@ -363,7 +363,7 @@ describe('contract-dossier-report sobre o modelo confiável', () => {
     expect(currencies(dossier(batch()))).toMatchInlineSnapshot(`
       [
         "R$ 1,2 mi",
-        "R$ 1.200.000",
+        "R$ 1.200.000,00",
         "R$ 1,2 mi",
       ]
     `);
@@ -439,6 +439,6 @@ describe('contract-dossier-report sobre o modelo confiável', () => {
   });
 
   it('fixa a estrutura do dossiê confiável', () => {
-    expect(stableHash(dossier(batch()))).toMatchInlineSnapshot(`"8696332faf2a98ad"`);
+    expect(stableHash(dossier(batch()))).toMatchInlineSnapshot(`"70df976de82407f4"`);
   });
 });

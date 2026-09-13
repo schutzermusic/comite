@@ -134,7 +134,10 @@ describe('documentAnalysisStates', () => {
       [],
     );
     expect(states.map((s) => s.lifecycle)).toEqual(['failed', 'not-analyzed', 'reviewed']);
-    expect(states[0].errorMessage).toBe('timeout');
+    // A tela lê a consequência de negócio; o texto técnico segue disponível
+    // para log e auditoria, e não é o que se apresenta.
+    expect(states[0].errorMessage).toBe('A leitura do documento não foi concluída. Tente novamente.');
+    expect(states[0].errorDiagnostic).toBe('timeout');
   });
 
   it('análise substituída não define o estado — a viva define', () => {
@@ -442,11 +445,12 @@ describe('sinais de atenção da análise documental', () => {
     return buildTrustedContract(row, relationsBatchFromDetail(detail), [PROJECT_CEMIG], NOW);
   };
 
-  it('análise que falhou vira ATENÇÃO, com o motivo', () => {
+  it('análise que falhou vira ATENÇÃO, sem ecoar o erro técnico', () => {
     const items = attentionItems(withAnalyses([analysis({ status: 'failed', error_message: 'timeout na leitura' })]), NOW);
     const failed = items.find((i) => i.id === 'clause-analysis-failed');
     expect(failed?.severity).toBe('warning');
-    expect(failed?.reason).toContain('timeout na leitura');
+    expect(failed?.reason).toContain('A leitura do documento não foi concluída.');
+    expect(failed?.reason).not.toContain('timeout na leitura');
   });
 
   it('documento vigente nunca analisado é CONFIGURAÇÃO, não falha', () => {

@@ -113,9 +113,15 @@ export function ClauseOpsPanel({
                         <span className="text-ig-fg-subtle">· substituído por versão mais recente</span>
                       )}
                     </p>
-                    {/* Falha silenciosa é pior que falha: o motivo fica à vista. */}
+                    {/*
+                      Falha silenciosa é pior que falha — mas o texto do
+                      provedor não é o motivo, é o detalhe de implementação de
+                      quem lê o documento. A tela diz o que aconteceu para o
+                      negócio; o erro cru fica em `errorDiagnostic`, para log e
+                      auditoria, e NÃO é renderizado (nem em `title`).
+                    */}
                     {state.errorMessage && (
-                      <p className="mt-0.5 truncate text-ig-label text-ig-danger" title={state.errorMessage}>
+                      <p className="mt-0.5 text-ig-label text-ig-danger">
                         {state.errorMessage}
                       </p>
                     )}

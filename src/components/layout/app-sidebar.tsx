@@ -72,6 +72,7 @@ import {
   SidebarMenu,
   SidebarMenuItem,
   SidebarMenuButton,
+  SidebarMenuAction,
   useSidebar,
 } from "@/components/ui/sidebar";
 import {
@@ -577,24 +578,52 @@ export function AppSidebar() {
         */
         const dossierIsOpen = isContractDossierRoute;
         const submenuRecedes = dossierIsOpen && item.href === "/contratos";
+        /*
+          ─── DUAS AÇÕES, DOIS ALVOS ────────────────────────────────────────
+
+          A linha do módulo era um botão ÚNICO que só abria e fechava o
+          submenu. Quem clicava em "Projetos" — rótulo, ícone, a linha inteira
+          — não ia a lugar nenhum: a área simplesmente não abria, e a única
+          forma de chegar lá era descobrir que havia um "Visão Geral" escondido
+          um clique adiante. Para um item de navegação de topo, isso é a
+          navegação quebrada.
+
+          Agora o alvo diz o que faz: o rótulo e o ícone são um link para a
+          landing canônica do módulo (`item.href`, que é uma rota real em todos
+          eles), e a seta — e só ela — expande. São dois elementos IRMÃOS, não
+          aninhados: nenhum clique atravessa o outro, e navegar não fecha o
+          submenu nem abrir o submenu navega.
+
+          O estado aberto continua sendo do usuário: entrar no módulo pelo link
+          não força expansão, e a chave gravada segue mandando.
+        */
         return (
           <SidebarMenuItem key={item.href}>
             <SidebarMenuButton
-              type="button"
-              onClick={onToggle}
+              asChild
               className="hud-nav-item hud-nav-item-parent"
               data-active={isParentActive}
               data-open={isOpen}
-              aria-expanded={isOpen}
               isActive={isParentActive}
             >
-              <Icon className="hud-nav-icon" strokeWidth={1.6} />
-              <span className="hud-nav-label">{label}</span>
+              <Link href={item.href} data-nav-parent={item.href}>
+                <Icon className="hud-nav-icon" strokeWidth={1.6} />
+                <span className="hud-nav-label">{label}</span>
+              </Link>
+            </SidebarMenuButton>
+            <SidebarMenuAction
+              type="button"
+              onClick={onToggle}
+              aria-expanded={isOpen}
+              aria-label={isOpen ? `Recolher submenu de ${label}` : `Expandir submenu de ${label}`}
+              className="hud-nav-chevron-action"
+              data-open={isOpen}
+            >
               <ChevronDown
                 className={cn("hud-nav-chevron", isOpen && "hud-nav-chevron-open")}
                 strokeWidth={1.8}
               />
-            </SidebarMenuButton>
+            </SidebarMenuAction>
             {isOpen && (
               <ul
                 className={cn("hud-nav-submenu", submenuRecedes && "hud-nav-submenu-receded")}

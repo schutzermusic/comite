@@ -23,10 +23,35 @@ const CURRENCY_COMPACT = new Intl.NumberFormat('pt-BR', {
   minimumFractionDigits: 0, maximumFractionDigits: 1,
 });
 
+/**
+ * Quantia EXATA, com centavos.
+ *
+ * É o formatador canônico de todo valor documental — o que a tela afirma ser
+ * o valor do contrato. Arredondar aqui trocava R$ 8.032.339,76 por
+ * R$ 8.032.340: um número que NENHUM documento contém, apresentado com a
+ * mesma autoridade do que está assinado. Compactar é uma decisão de leitura
+ * executiva (`CURRENCY_COMPACT`, "R$ 8 mi"), e ela se anuncia como tal;
+ * esconder centavos num valor por extenso não se anuncia de forma alguma.
+ */
 const CURRENCY_FULL = new Intl.NumberFormat('pt-BR', {
   style: 'currency', currency: 'BRL',
-  minimumFractionDigits: 0, maximumFractionDigits: 0,
+  minimumFractionDigits: 2, maximumFractionDigits: 2,
 });
+
+/**
+ * Quantia exata a partir de um número cru.
+ *
+ * Para as superfícies que ainda não passam por `Official<number>` — linhas de
+ * cláusula, penalidade e instrumento — e que precisam da MESMA redação do
+ * valor por extenso. Existe para que não haja um segundo `Intl.NumberFormat`
+ * por arquivo, que foi exatamente como os centavos se perderam.
+ */
+export function formatContractCurrency(value: number | string | null | undefined): string {
+  if (value === null || value === undefined || value === '') return '';
+  const number = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(number)) return String(value);
+  return CURRENCY_FULL.format(number);
+}
 
 /** Texto curto usado dentro de células compactas da band. */
 export const SHORT_FALLBACK = {
@@ -43,7 +68,7 @@ export function officialCurrencyCompact(t: Official<number>): string {
   });
 }
 
-/** Quantia por extenso (R$ 1.200.000) ou o rótulo do estado. */
+/** Quantia por extenso, com centavos (R$ 1.200.000,00) ou o rótulo do estado. */
 export function officialCurrencyFull(t: Official<number>): string {
   return renderOfficial(t, {
     onValue: (v) => CURRENCY_FULL.format(v),

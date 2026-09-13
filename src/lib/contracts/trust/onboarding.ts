@@ -140,9 +140,44 @@ export function identityGaps(contract: TrustedContract): readonly IdentityGap[] 
   if (absent(contract.startDate)) gaps.push({ field: 'start_date', label: 'Início da vigência' });
   if (absent(contract.endDate)) gaps.push({ field: 'end_date', label: 'Fim da vigência' });
   if (absent(contract.totalValue)) gaps.push({ field: 'total_value', label: 'Valor contratual' });
-  if (absent(contract.ownerUserId)) gaps.push({ field: 'owner_user_id', label: 'Responsável pelo contrato' });
+  if (!hasInternalResponsible(contract)) {
+    gaps.push({ field: 'owner_person_id', label: 'Responsável pelo contrato' });
+  }
 
   return gaps;
+}
+
+/**
+ * O contrato tem responsável interno?
+ *
+ * A resposta é OU, nunca E. A migration 167 tornou `owner_person_id` o campo
+ * canônico da responsabilidade de NEGÓCIO: uma Pessoa, que pode não ter login
+ * algum. `owner_user_id` é o caminho legado — o usuário autenticado — e todo
+ * o acervo anterior à 167 só tem ele.
+ *
+ * Perguntar apenas por `owner_user_id`, como esta função fazia, dizia "falta
+ * registrar o responsável" sobre um contrato cuja revisão final tinha acabado
+ * de mostrar o nome da Pessoa responsável. Exigir os dois seria pior ainda:
+ * obrigaria a criar usuário autenticado para quem só precisa responder pelo
+ * contrato — e o produto não cria conta de acesso para representar identidade
+ * de negócio.
+ */
+export function hasInternalResponsible(contract: TrustedContract): boolean {
+  return hasOfficialValue(contract.ownerPersonId) || hasOfficialValue(contract.ownerUserId);
+}
+
+/**
+ * Como chamar o responsável na tela.
+ *
+ * A Pessoa canônica tem nome e ele é exibível; o usuário autenticado legado
+ * não é uma identidade de negócio e não tem nome a apresentar aqui — vira a
+ * afirmação genérica, que é tudo o que aquele vínculo sustenta.
+ */
+export function responsibleLabel(contract: TrustedContract): string | null {
+  if (hasOfficialValue(contract.ownerPersonName)) return contract.ownerPersonName.value;
+  if (hasOfficialValue(contract.ownerPersonId)) return 'Pessoa responsável registrada';
+  if (hasOfficialValue(contract.ownerUserId)) return 'Responsável registrado';
+  return null;
 }
 
 /**
@@ -155,6 +190,7 @@ export function identityGaps(contract: TrustedContract): readonly IdentityGap[] 
  */
 export function buildOnboardingReadiness(contract: TrustedContract): OnboardingReadiness {
   const gaps = identityGaps(contract);
+  const responsible = responsibleLabel(contract);
 
   const identityState: OnboardingStepState = gaps.length === 0 ? 'complete' : 'pending';
 
@@ -247,7 +283,8 @@ export function buildOnboardingReadiness(contract: TrustedContract): OnboardingR
       owner: 'Contratos',
       state: identityState,
       detail: gaps.length === 0
-        ? 'Contraparte, tipo, vigência, valor e responsável registrados'
+        ? `Contraparte, tipo, vigência, valor e responsável registrados${
+          responsible ? ` · Responsável: ${responsible}` : ''}`
         : `Falta registrar: ${gaps.map((g) => g.label).join(', ')}`,
       essential: true,
     },

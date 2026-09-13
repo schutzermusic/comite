@@ -89,7 +89,22 @@ export type TrustedContract = {
   readonly contractType: Official<string>;
   readonly status: string;
   readonly riskLevel: 'low' | 'medium' | 'high';
+  /**
+   * Responsabilidade pelo contrato — DUAS colunas, dois significados.
+   *
+   * `ownerPersonId` (migration 167) é a responsabilidade DE NEGÓCIO: uma
+   * Pessoa canônica, que pode não ter login nenhum. `ownerUserId` é o caminho
+   * legado, o usuário autenticado dono da linha.
+   *
+   * Não são redundantes e uma não substitui a outra: a Pessoa é a identidade
+   * de negócio, o usuário é apenas quem opera o sistema. Copiar uma na outra
+   * — ou exigir as duas — inventaria vínculo que ninguém declarou. Quem lê
+   * prontidão pergunta por `hasInternalResponsible`, abaixo.
+   */
   readonly ownerUserId: Official<string>;
+  readonly ownerPersonId: Official<string>;
+  /** Nome da Pessoa responsável, quando a leitura conseguiu resolvê-lo. */
+  readonly ownerPersonName: Official<string>;
 
   /** Vigência. */
   readonly startDate: Official<Date>;
@@ -386,6 +401,11 @@ export function buildTrustedContract(
         });
       })();
 
+  const ownerPerson = row.owner_person_id
+    ? batch.ownerPeople?.get(row.owner_person_id) ?? null
+    : null;
+  const ownerPersonName = ownerPerson?.full_name?.trim() || null;
+
   const hasAiAnalysis: Official<boolean> = isError(aiAnalyses)
     ? aiAnalyses
     : hasOfficialValue(aiAnalyses)
@@ -410,6 +430,13 @@ export function buildTrustedContract(
     status: row.status,
     riskLevel: (row.risk_level === 'high' || row.risk_level === 'low' ? row.risk_level : 'medium'),
     ownerUserId: fromColumn(row.owner_user_id, 'contracts'),
+    ownerPersonId: fromColumn(row.owner_person_id ?? null, 'contracts'),
+    /*
+      O nome vem de `people`, não de `contracts` — e sua ausência NÃO rebaixa
+      o vínculo: um responsável registrado cujo nome esta leitura não resolveu
+      continua registrado. É a mesma regra da contraparte canônica.
+    */
+    ownerPersonName: fromColumn(ownerPersonName, 'people'),
     startDate: fromColumn(toDate(row.start_date), 'contracts'),
     endDate,
     renewalDate: fromColumn(toDate(row.renewal_date), 'contracts'),

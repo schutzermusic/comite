@@ -17,6 +17,7 @@ import type {
 } from '../contract-service';
 import { CLAUSE_CATEGORIES, type ClauseCategory } from '../clause-categories';
 import { hasOfficialValue, isError, isOfficialOrigin } from './trusted';
+import { safeAnalysisFailureMessage } from './analysis-errors';
 import type { TrustedContract } from './read-model';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -66,7 +67,20 @@ export type DocumentAnalysisState = {
   /** Análise mais recente NÃO substituída deste documento. */
   readonly analysisId: string | null;
   readonly analysisAt: string | null;
+  /**
+   * Mensagem de NEGÓCIO da falha — o que a tela pode mostrar.
+   *
+   * Nunca é o texto do provedor. Ver `analysis-errors.ts`.
+   */
   readonly errorMessage: string | null;
+  /**
+   * O erro técnico cru, preservado para log, auditoria e diagnóstico.
+   *
+   * Existe justamente para que sanitizar a tela NÃO custe informação: quem
+   * investiga continua tendo o texto inteiro. Nenhuma superfície de negócio
+   * deve renderizá-lo.
+   */
+  readonly errorDiagnostic: string | null;
   readonly proposalsPending: number;
   readonly proposalsValidated: number;
   readonly proposalsRejected: number;
@@ -91,7 +105,28 @@ export function documentAnalysisStates(
     const own = analyses
       .filter((a) => a.document_id === document.id && a.status !== 'superseded')
       .sort((a, b) => b.created_at.localeCompare(a.created_at));
-    const latest = own[0] ?? null;
+
+    /*
+      ─── UMA TENTATIVA BEM-SUCEDIDA ENCERRA A FALHA ANTERIOR ──────────────
+
+      Uma leitura que falhou e foi REFEITA com sucesso é história, não estado.
+      Deixá-la governar a apresentação faz o dossiê anunciar como situação
+      atual um incidente já resolvido — e foi exatamente o que produção
+      mostrou: o erro da primeira tentativa continuava em tela depois de a
+      releitura ter concluído.
+
+      O critério é o relógio: se existe conclusão posterior à última falha, é
+      ela que descreve o documento. A falha continua na persistência e no
+      histórico de auditoria; o que ela perde é o direito de falar em nome do
+      presente.
+    */
+    const at = (a: ContractAiAnalysisRow) => a.completed_at ?? a.created_at;
+    const newestCompleted = own.find((a) => a.status === 'completed') ?? null;
+    const newestFailed = own.find((a) => a.status === 'failed') ?? null;
+    const successSupersedesFailure = Boolean(
+      newestCompleted && newestFailed && at(newestCompleted) >= at(newestFailed),
+    );
+    const latest = successSupersedesFailure ? newestCompleted : (own[0] ?? null);
 
     const fromDoc = clauses.filter((c) => c.source_document_id === document.id && c.ai_flagged);
     const pending = fromDoc.filter((c) => PENDING.includes(c.review_status)).length;
@@ -110,7 +145,8 @@ export function documentAnalysisStates(
       lifecycle,
       analysisId: latest?.id ?? null,
       analysisAt: latest?.completed_at ?? latest?.created_at ?? null,
-      errorMessage: latest?.error_message ?? null,
+      errorMessage: safeAnalysisFailureMessage(latest?.error_message, { withRetry: true }),
+      errorDiagnostic: latest?.error_message ?? null,
       proposalsPending: pending,
       proposalsValidated: validated,
       proposalsRejected: rejected,

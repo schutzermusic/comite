@@ -2091,6 +2091,42 @@ html.dark .hud-nav-item[data-active="true"] {
   color: var(--ig-fg-muted);
 }
 
+/*
+  A seta do módulo tem ALVO PRÓPRIO, irmão do link — ver `app-sidebar.tsx`.
+  Clicar no rótulo navega; clicar aqui expande. Por isso o link do pai reserva
+  o espaço à direita: sem essa reserva, o rótulo passaria por baixo da seta e
+  o usuário acertaria o alvo errado justamente na borda.
+*/
+.hud-nav-item-parent {
+  padding-right: 1.75rem;
+}
+.hud-nav-chevron-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: var(--ig-radius-sm);
+  color: var(--ig-fg-subtle);
+  background: transparent;
+  cursor: pointer;
+  transition: color 150ms ease, background 150ms ease;
+}
+.hud-nav-chevron-action:hover {
+  color: var(--ig-fg-strong);
+  background: color-mix(in oklab, var(--ig-bg-panel-hover) 40%, transparent);
+}
+.hud-nav-chevron-action .hud-nav-chevron {
+  width: 12px;
+  height: 12px;
+  color: inherit;
+  transition: transform 180ms ease;
+}
+.hud-nav-chevron-action .hud-nav-chevron-open {
+  transform: rotate(180deg);
+}
+
 /* Alert badge — live count pill on a nav item (e.g. Riscos) */
 .hud-nav-badge {
   display: inline-flex;
@@ -2353,6 +2389,7 @@ html.dark .hud-nav-item[data-active="true"] {
   .hud-sidebar-section-trigger,
   .hud-sidebar-dropdown-item,
   .hud-nav-chevron,
+  .hud-nav-chevron-action,
   .hud-sidebar-section-chevron {
     transition: none;
   }

@@ -26,9 +26,13 @@ import {
   type AmendmentStep,
 } from '@/lib/contracts/trust/amendments';
 import { hasOfficialValue, isError, type Official } from '@/lib/contracts/trust/trusted';
+import { formatContractCurrency } from '@/lib/contracts/trust/format';
 
-const currency = (n: number) =>
-  n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
+/*
+  Instrumentos são documentais: o valor exibido aqui É o valor do papel, e
+  arredondá-lo apresenta um número que o instrumento não contém.
+*/
+const currency = (n: number) => formatContractCurrency(n);
 
 const dateLabel = (d: Date) => d.toLocaleDateString('pt-BR');
 

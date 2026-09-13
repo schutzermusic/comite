@@ -1,3 +1,14 @@
+/*
+  Rótulo de risco e quantia por extenso são CANÔNICOS do módulo, não do
+  onboarding: o dossiê, a Inteligência Contratual e os relatórios precisam da
+  mesma redação. Ficam nos seus próprios módulos e são reexportados aqui para
+  não quebrar quem já importava daqui.
+*/
+import { CONTRACT_RISK_LABELS, contractRiskLabel } from '@/lib/contracts/risk-labels';
+import { formatContractCurrency } from '@/lib/contracts/trust/format';
+
+export { CONTRACT_RISK_LABELS, contractRiskLabel };
+
 export const CONTRACT_STATUS_LABELS: Readonly<Record<string, string>> = {
   draft: 'Rascunho',
   negotiation: 'Em negociação',
@@ -10,25 +21,13 @@ export const CONTRACT_STATUS_LABELS: Readonly<Record<string, string>> = {
   unknown: 'Não identificado',
 };
 
-export const CONTRACT_RISK_LABELS: Readonly<Record<string, string>> = {
-  low: 'Baixo',
-  medium: 'Médio',
-  high: 'Alto',
-};
 
 export function contractStatusLabel(value: unknown): string {
   return typeof value === 'string' ? (CONTRACT_STATUS_LABELS[value] ?? value) : String(value ?? '');
 }
 
-export function contractRiskLabel(value: unknown): string {
-  return typeof value === 'string' ? (CONTRACT_RISK_LABELS[value] ?? value) : String(value ?? '');
-}
-
 export function formatContractMoney(value: unknown): string {
-  if (value === null || value === undefined || value === '') return '';
-  const number = typeof value === 'number' ? value : Number(value);
-  if (!Number.isFinite(number)) return String(value);
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(number);
+  return formatContractCurrency(value as number | string | null | undefined);
 }
 
 export function formatContractDate(value: unknown): string {

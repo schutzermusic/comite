@@ -21,11 +21,9 @@ import {
   type ContractMilestoneRow, type ContractMilestoneStatus,
 } from '@/lib/contracts/contract-service';
 import { hasOfficialValue, isError, type Official } from '@/lib/contracts/trust/trusted';
+/* Medição é valor de negócio exato — os centavos são o que se fatura. */
+import { formatContractCurrency } from '@/lib/contracts/trust/format';
 import { InlineEmpty } from '../shell';
-
-const BRL = new Intl.NumberFormat('pt-BR', {
-  style: 'currency', currency: 'BRL', maximumFractionDigits: 0,
-});
 
 const STATUS_TONE: Record<ContractMilestoneStatus, { text: string; rail: string }> = {
   pending: { text: 'text-ig-fg-muted', rail: 'bg-ig-border-strong' },
@@ -70,7 +68,7 @@ export function MeasurementPanel({
         ? 'Falha ao ler os marcos'
         : rows.length === 0
           ? 'Nenhum marco registrado'
-          : `${measured.length} de ${rows.length} marco(s) medido(s) · ${BRL.format(measuredTotal)} de ${BRL.format(plannedTotal)}`}
+          : `${measured.length} de ${rows.length} marco(s) medido(s) · ${formatContractCurrency(measuredTotal)} de ${formatContractCurrency(plannedTotal)}`}
       icon={<Ruler className="h-4 w-4" />}
       interactive={false}
       headerActions={canEdit && onCreate ? (
@@ -135,7 +133,7 @@ export function MeasurementPanel({
                 <div className="min-w-0">
                   {/* Valor não apurado nunca vira R$ 0. */}
                   <p className="truncate text-ig-body-sm font-semibold ig-tabular text-ig-fg-strong">
-                    {value === null ? 'Valor não informado' : BRL.format(value)}
+                    {value === null ? 'Valor não informado' : formatContractCurrency(value)}
                   </p>
                   <div className="space-y-0.5">
                     {!milestone.owner_user_id && (

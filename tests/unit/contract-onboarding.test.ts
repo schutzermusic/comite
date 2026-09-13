@@ -96,11 +96,15 @@ describe('identityGaps', () => {
   it('aponta cada campo ausente pelo nome', () => {
     const gaps = identityGaps(trusted(row({
       counterparty_name: null, contract_type: null, start_date: null,
-      end_date: null, total_value: null, owner_user_id: null,
+      end_date: null, total_value: null,
+      // As DUAS pontas da responsabilidade: a Pessoa canônica (167) e o
+      // caminho legado do usuário autenticado. A lacuna só existe sem ambas,
+      // e é apontada pelo campo canônico a preencher.
+      owner_user_id: null, owner_person_id: null,
     })));
     expect(gaps.map((g) => g.field).sort()).toEqual([
       'contract_type', 'counterparty_name', 'end_date',
-      'owner_user_id', 'start_date', 'total_value',
+      'owner_person_id', 'start_date', 'total_value',
     ]);
   });
 

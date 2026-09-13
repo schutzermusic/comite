@@ -95,7 +95,13 @@ export type LiveSource =
    * 'contracts'` um nome lido de `parties` faria o selo de proveniência
    * afirmar algo falso — exatamente o que esta camada existe para impedir.
    */
-  | 'parties';
+  | 'parties'
+  /**
+   * A Pessoa responsável pelo contrato (migration 167). Mesmo raciocínio de
+   * `parties`: o nome do responsável é lido de `people`, e dizer
+   * `source: 'contracts'` sobre ele faria o selo de proveniência mentir.
+   */
+  | 'people';
 
 /**
  * Por que um indicador não pôde ser apurado.

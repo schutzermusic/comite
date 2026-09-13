@@ -22,10 +22,12 @@ import type {
 import {
   CLAUSE_REVIEW_LABEL, type ClauseReviewStatus, type ContractClauseRow,
 } from '@/lib/contracts/contract-service';
+import { contractRiskLabel } from '@/lib/contracts/risk-labels';
+import { formatContractCurrency } from '@/lib/contracts/trust/format';
+import {
+  clauseListProvenanceSubtitle, clauseProvenanceLabel,
+} from '@/lib/contracts/clause-provenance';
 
-const BRL = new Intl.NumberFormat('pt-BR', {
-  style: 'currency', currency: 'BRL', maximumFractionDigits: 0,
-});
 
 const CAP_ICON: Record<IntelligenceCapability['key'], React.ReactNode> = {
   risks: <ShieldAlert className="h-4 w-4" aria-hidden />,
@@ -119,7 +121,7 @@ export function ClauseRiskIntelligencePanel({
       {intelligence.clauses.length > 0 && (
         <HudPanel
           title="Cláusulas monitoradas"
-          subtitle="Registro manual estruturado — com origem documental e estado de revisão"
+          subtitle={clauseListProvenanceSubtitle(intelligence.clauses)}
           icon={<Scale className="h-4 w-4" />}
           interactive={false}
         >
@@ -189,7 +191,7 @@ function formatEffect(
   const parts: string[] = [];
   const a = amount === null ? null : Number(amount);
   const p = percentage === null ? null : Number(percentage);
-  if (a !== null && Number.isFinite(a)) parts.push(BRL.format(a));
+  if (a !== null && Number.isFinite(a)) parts.push(formatContractCurrency(a));
   if (p !== null && Number.isFinite(p)) parts.push(`${p}%`);
   if (termDays !== null) parts.push(`${termDays} dia(s)`);
   return parts.length > 0 ? parts.join(' · ') : 'Sem efeito quantificado';
@@ -225,7 +227,7 @@ function ClauseRow({
         <div className="min-w-0 flex-1">
           <p className="text-ig-body-sm font-semibold text-ig-fg-strong">{clause.title}</p>
           <p className="text-ig-caption text-ig-fg-muted">
-            {clause.clause_type ?? 'categoria não informada'} · risco {clause.risk_level}
+            {clause.clause_type ?? 'categoria não informada'} · risco {contractRiskLabel(clause.risk_level)}
           </p>
         </div>
         <span className={cn(
@@ -240,7 +242,16 @@ function ClauseRow({
         <span className="text-ig-caption ig-tabular text-ig-fg-strong">
           {formatEffect(clause.amount, clause.percentage, clause.term_days)}
         </span>
-        {/* Proveniência: de qual documento e página a cláusula foi transcrita. */}
+        {/*
+          Proveniência em duas metades, e as duas importam: QUEM estruturou a
+          cláusula (Apex a partir do documento, ou uma pessoa) e DE ONDE ela
+          foi transcrita (documento e página). O painel dizia a segunda e
+          afirmava a primeira errado — atribuindo a um humano o que o Apex
+          leu do contrato assinado.
+        */}
+        <span className="text-ig-caption text-ig-fg-muted">
+          {clauseProvenanceLabel(clause)}
+        </span>
         <span className="text-ig-caption text-ig-fg-muted">
           {clause.source_document_id
             ? `documento${clause.source_page ? ` · p. ${clause.source_page}` : ''}`
