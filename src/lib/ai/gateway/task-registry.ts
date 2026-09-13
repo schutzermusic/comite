@@ -81,10 +81,14 @@ export function getApexAITaskPolicy(task: ApexAITask): ApexAITaskPolicy {
       página e trecho literal. Um contrato de 195 páginas produz saída longa, e
       truncá-la entregaria uma leitura parcial com cara de completa.
     */
-    CONTRACT_OPERATIONALIZATION: highRisk({ maxTokens: 32_000, timeoutMs: 180_000 }),
+    // O SDK da Anthropic recusa requisições não-stream cujo max_tokens
+    // ultrapasse ~21.3k (128k tokens/hora => >10 min de execução estimada).
+    // Com 32k de saída, streaming é obrigatório: sdk.messages.stream(...).finalMessage().
+    CONTRACT_OPERATIONALIZATION: highRisk({ maxTokens: 32_000, timeoutMs: 180_000, stream: true }),
     // Amendment interpretation is legally material, but remains on the normal
     // economical Sonnet route. There is deliberately no automatic Opus hop.
-    CONTRACT_AMENDMENT_EXTRACTION: highRisk({ maxTokens: 24_000, timeoutMs: 180_000 }),
+    // 24k também ultrapassa o limite não-stream do SDK; streaming pelo mesmo motivo.
+    CONTRACT_AMENDMENT_EXTRACTION: highRisk({ maxTokens: 24_000, timeoutMs: 180_000, stream: true }),
     CONTRACT_RISK_ANALYSIS: normal(),
     FINANCE_RISK_ANALYSIS: normal(),
     PROJECT_RISK_ANALYSIS: normal(),

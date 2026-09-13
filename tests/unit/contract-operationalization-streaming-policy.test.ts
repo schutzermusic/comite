@@ -1,0 +1,87 @@
+/**
+ * Regression proof for the CONTRACT_OPERATIONALIZATION long-request failure.
+ *
+ * The task ran with maxTokens 32_000 and stream:false. The Anthropic
+ * TypeScript SDK refuses such a request before it ever leaves the process:
+ *
+ *   Client.calculateNonstreamingTimeout() estimates (60min * max_tokens)/128_000
+ *   and throws "Streaming is required for operations that may take longer than
+ *   10 minutes." as soon as that estimate passes 10 minutes — i.e. for any
+ *   max_tokens above ~21_333.
+ *
+ * The fix is a TRANSPORT flag only: stream:true, so the adapter takes the
+ * sdk.messages.stream(params, { signal }).finalMessage() branch it already
+ * implements. Model, budget, risk posture, fallbacks and the structured output
+ * contract are unchanged, and this file proves that.
+ *
+ * NO live Anthropic calls are made in this file.
+ */
+import { describe, expect, it } from 'vitest';
+import { getApexAITaskPolicy, DEFAULT_PRODUCTION_MODEL } from '@/lib/ai/gateway/task-registry';
+import { OPERATIONALIZATION_SCHEMA } from '@/lib/ai/contract-operationalization';
+
+/** Mirror of the SDK guard in @anthropic-ai/sdk/src/client.ts. */
+const SDK_NONSTREAMING_MAX_TOKENS = 128_000 / 6; // ≈ 21_333
+const requiresStreaming = (maxTokens: number): boolean => maxTokens > SDK_NONSTREAMING_MAX_TOKENS;
+
+describe('CONTRACT_OPERATIONALIZATION policy', () => {
+  const policy = getApexAITaskPolicy('CONTRACT_OPERATIONALIZATION');
+
+  it('streams, because 32k output exceeds the SDK non-streaming ceiling', () => {
+    expect(policy.maxTokens).toBe(32_000);
+    expect(requiresStreaming(policy.maxTokens)).toBe(true);
+    expect(policy.stream).toBe(true);
+  });
+
+  it('stays on Sonnet — streaming is not an excuse to change the model', () => {
+    expect(DEFAULT_PRODUCTION_MODEL).toBe('claude-sonnet-5');
+    expect(policy.model).toBe(DEFAULT_PRODUCTION_MODEL);
+    expect(policy.provider).toBe('anthropic');
+  });
+
+  it('never falls back and keeps its high-risk posture', () => {
+    expect(policy.fallbacks).toEqual([]);
+    expect(policy.highRisk).toBe(true);
+    expect(policy.reasoningEffort).toBe('high');
+    expect(policy.timeoutMs).toBe(180_000);
+  });
+
+  it('leaves the structured output contract untouched', () => {
+    expect(OPERATIONALIZATION_SCHEMA).toEqual({
+      type: 'object',
+      additionalProperties: false,
+      required: ['items'],
+      properties: { items: { type: 'array', items: expect.any(Object) } },
+    });
+  });
+});
+
+describe('CONTRACT_AMENDMENT_EXTRACTION policy', () => {
+  const policy = getApexAITaskPolicy('CONTRACT_AMENDMENT_EXTRACTION');
+
+  it('streams too: 24k output is also over the SDK ceiling', () => {
+    expect(policy.maxTokens).toBe(24_000);
+    expect(requiresStreaming(policy.maxTokens)).toBe(true);
+    expect(policy.stream).toBe(true);
+  });
+
+  it('is otherwise unchanged', () => {
+    expect(policy.model).toBe(DEFAULT_PRODUCTION_MODEL);
+    expect(policy.highRisk).toBe(true);
+    expect(policy.fallbacks).toEqual([]);
+    expect(policy.timeoutMs).toBe(180_000);
+  });
+});
+
+describe('tasks below the SDK ceiling', () => {
+  it.each([
+    ['CONTRACT_EXTRACTION', 16_000],
+    ['CONTRACT_RISK_ANALYSIS', 4096],
+    ['ASO_EXTRACTION', 1500],
+  ] as const)('%s keeps stream:false', (task, maxTokens) => {
+    const policy = getApexAITaskPolicy(task);
+    expect(policy.maxTokens).toBe(maxTokens);
+    expect(requiresStreaming(policy.maxTokens)).toBe(false);
+    expect(policy.stream).toBe(false);
+  });
+});
