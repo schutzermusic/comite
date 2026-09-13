@@ -39,7 +39,6 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import type { Project } from '@/lib/types';
 import { HudBadge, HudButton, HudDrawer, HudInput, HudPanel } from '@/components/hud';
 import { Input } from '@/components/ui/input';
 import {
@@ -56,9 +55,9 @@ import {
   Workflow,
   LoaderCircle,
   RotateCcw,
+  Plus,
+  X,
 } from 'lucide-react';
-import { listOrgMembers } from '@/lib/services/agenda';
-import type { OrgMember } from '@/lib/types/agenda';
 import type { PartyRow } from '@/lib/parties/types';
 import { partyDisplayName } from '@/lib/parties/types';
 import { searchParties } from '@/lib/parties/party-service';
@@ -70,6 +69,21 @@ import {
 } from '@/lib/contracts/onboarding/client';
 import type { ClassifiedIntakeField } from '@/lib/contracts/onboarding/document-first';
 import { formValuesFromIntakePrefill, resumedIntakeView } from '@/lib/contracts/onboarding/resume';
+import { createPerson, listResponsiblePeople } from '@/lib/services/people';
+import { createOnboardingProject, listOnboardingProjectOptions } from '@/lib/services/projects';
+import { usePermissions } from '@/hooks/use-permissions';
+import {
+  contractRiskLabel,
+  contractStatusLabel,
+  formatContractDate,
+  formatContractMoney,
+  formatDocumentaryField,
+  likelyDuplicatePeople,
+  likelyDuplicateProjects,
+  suggestOperationalProjectName,
+  type OnboardingProjectOption,
+  type ResponsiblePersonOption,
+} from '@/lib/contracts/onboarding/production-polish';
 
 /** O que o assistente entrega. Campos vazios chegam como `null`, nunca inventados. */
 export type ContractOnboardingDraft = {
@@ -84,7 +98,9 @@ export type ContractOnboardingDraft = {
    */
   readonly counterpartyPartyId: string | null;
   readonly contractType: string;
-  readonly ownerUserId: string;
+  readonly ownerPersonId: string;
+  /** Legacy field stays null in this Person-based flow. */
+  readonly ownerUserId: string | null;
   readonly status: string;
   readonly startDate: string | null;
   readonly endDate: string | null;
@@ -109,7 +125,7 @@ export interface ContractUploadProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSubmit: (draft: ContractOnboardingDraft) => void | Promise<void>;
-  projects?: Project[];
+  projects?: OnboardingProjectOption[];
   companies?: string[];
   /**
    * Cadastro JÁ INICIADO sendo retomado.
@@ -180,7 +196,7 @@ const blank = () => ({
   contractNumber: '',
   counterparty: '',
   type: CONTRACT_TYPES[0],
-  ownerUserId: '',
+  ownerPersonId: '',
   status: 'negotiation',
   startDate: '',
   endDate: '',
@@ -190,7 +206,7 @@ const blank = () => ({
   monthlyValue: '',
   paymentTerms: '',
   scopeSummary: '',
-  riskLevel: 'medium',
+  riskLevel: '',
   projectId: '',
   documentType: 'contract',
   runExtraction: false,
@@ -211,6 +227,9 @@ export function ContractUpload({
   companies = [],
   resumeIntake = null,
 }: ContractUploadProps) {
+  const { hasPermission } = usePermissions();
+  const canCreatePeople = hasPermission('people.manage');
+  const canCreateProjects = hasPermission('projects.create');
   const [view, setView] = useState<OnboardingView>('entry');
   const [step, setStep] = useState(0);
   const [file, setFile] = useState<File | null>(null);
@@ -219,25 +238,47 @@ export function ContractUpload({
   const [intakeId, setIntakeId] = useState<string | null>(null);
   const [intakeError, setIntakeError] = useState<string | null>(null);
   const [duplicateMessage, setDuplicateMessage] = useState<string | null>(null);
-  const [members, setMembers] = useState<OrgMember[]>([]);
+  const [people, setPeople] = useState<ResponsiblePersonOption[]>([]);
+  const [directoryProjects, setDirectoryProjects] = useState<OnboardingProjectOption[]>([]);
+  const [createdProjects, setCreatedProjects] = useState<OnboardingProjectOption[]>([]);
   const [partyOptions, setPartyOptions] = useState<PartyRow[]>([]);
-  const [membersError, setMembersError] = useState<string | null>(null);
+  const [peopleError, setPeopleError] = useState<string | null>(null);
+  const [personCreatorOpen, setPersonCreatorOpen] = useState(false);
+  const [personCreationTarget, setPersonCreationTarget] = useState<'contract' | 'project'>('contract');
+  const [personDraft, setPersonDraft] = useState({ fullName: '', jobTitle: '', department: '', email: '', phone: '' });
+  const [personDuplicates, setPersonDuplicates] = useState<ResponsiblePersonOption[]>([]);
+  const [personCreateError, setPersonCreateError] = useState<string | null>(null);
+  const [creatingPerson, setCreatingPerson] = useState(false);
+  const [projectCreatorOpen, setProjectCreatorOpen] = useState(false);
+  const [projectDraft, setProjectDraft] = useState({ name: '', code: '', responsiblePersonId: '' });
+  const [projectDuplicates, setProjectDuplicates] = useState<OnboardingProjectOption[]>([]);
+  const [projectCreateError, setProjectCreateError] = useState<string | null>(null);
+  const [creatingProject, setCreatingProject] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   /*
-    Membros reais da organização, via `list_organization_members` — a mesma
-    ponte SECURITY DEFINER que Agenda e Timeline usam. Falhar aqui não impede
-    o cadastro de prosseguir: impede apenas de atribuir responsável, e a tela
-    diz isso em vez de oferecer uma lista vazia sem explicação.
+    Diretório limitado de Pessoas canônicas. A função de banco da migration
+    167 devolve somente identidade profissional e mantém o escopo no tenant.
+    `profile_id`/auth não participa da escolha de responsabilidade.
   */
   useEffect(() => {
     if (!open) return;
     let alive = true;
-    listOrgMembers()
-      .then((rows) => { if (alive) { setMembers(rows); setMembersError(null); } })
+    listResponsiblePeople()
+      .then((rows) => { if (alive) { setPeople(rows); setPeopleError(null); } })
       .catch((err: unknown) => {
-        if (alive) setMembersError(err instanceof Error ? err.message : 'Falha ao listar responsáveis.');
+        if (alive) setPeopleError(err instanceof Error ? err.message : 'Falha ao listar responsáveis.');
       });
+    return () => { alive = false; };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    listOnboardingProjectOptions()
+      .then((rows) => { if (alive) setDirectoryProjects(rows); })
+      .catch(() => { if (alive) setDirectoryProjects([]); });
     return () => { alive = false; };
   }, [open]);
 
@@ -339,8 +380,13 @@ export function ContractUpload({
     [partyOptions, companies],
   );
 
-  const selectedProject = projects.find((p) => p.id === form.projectId) || null;
-  const selectedOwner = members.find((m) => m.userId === form.ownerUserId) || null;
+  const projectOptions = useMemo(() => {
+    const byId = new Map([...projects, ...directoryProjects, ...createdProjects].map((project) => [project.id, project]));
+    return [...byId.values()];
+  }, [projects, directoryProjects, createdProjects]);
+  const selectedProject = projectOptions.find((p) => p.id === form.projectId) || null;
+  const selectedOwner = people.find((person) => person.id === form.ownerPersonId) || null;
+  const selectedProjectOwner = people.find((person) => person.id === selectedProject?.responsiblePersonId) || null;
   const totalValue = parseAmount(form.totalValue);
   const isDocumentFirst = Boolean(intakeId);
 
@@ -359,12 +405,12 @@ export function ContractUpload({
     if (!form.contractNumber.trim()) out.push('Nº do contrato');
     if (!form.counterparty.trim()) out.push('Contraparte');
     if (!form.type.trim()) out.push('Tipo de contrato');
-    if (!form.ownerUserId) out.push('Responsável interno');
+    if (!form.ownerPersonId) out.push('Responsável pelo contrato');
     if (totalValue === null) out.push('Valor contratual');
     if (!form.status) out.push('Situação do contrato');
     if (!form.riskLevel) out.push('Classificação de risco');
     return out;
-  }, [form.title, form.contractNumber, form.counterparty, form.type, form.ownerUserId,
+  }, [form.title, form.contractNumber, form.counterparty, form.type, form.ownerPersonId,
     form.status, form.riskLevel, totalValue]);
 
   /**
@@ -415,6 +461,105 @@ export function ContractUpload({
     setView('processing');
   };
 
+  const openPersonCreator = (target: 'contract' | 'project') => {
+    setPersonCreationTarget(target);
+    setPersonDraft({ fullName: '', jobTitle: '', department: '', email: '', phone: '' });
+    setPersonDuplicates([]);
+    setPersonCreateError(null);
+    setPersonCreatorOpen(true);
+  };
+
+  const selectCreatedOrExistingPerson = (person: ResponsiblePersonOption) => {
+    if (personCreationTarget === 'contract') setField('ownerPersonId', person.id);
+    else setProjectDraft((current) => ({ ...current, responsiblePersonId: person.id }));
+    setPersonCreatorOpen(false);
+    setPersonDuplicates([]);
+  };
+
+  const createAndLinkPerson = async () => {
+    if (!personDraft.fullName.trim() || creatingPerson) return;
+    const duplicates = likelyDuplicatePeople(people, personDraft);
+    if (duplicates.length > 0) {
+      setPersonDuplicates(duplicates);
+      return;
+    }
+    setCreatingPerson(true);
+    setPersonCreateError(null);
+    try {
+      const created = await createPerson({
+        fullName: personDraft.fullName.trim(),
+        jobTitle: personDraft.jobTitle.trim() || null,
+        department: personDraft.department.trim() || null,
+        email: personDraft.email.trim() || null,
+        phone: personDraft.phone.trim() || null,
+        // Explicitly preserve Person != auth user.
+        profileId: null,
+      });
+      const option: ResponsiblePersonOption = {
+        id: created.id,
+        fullName: created.fullName,
+        jobTitle: created.jobTitle,
+        department: created.department,
+        email: created.email,
+        phone: created.phone,
+      };
+      setPeople((current) => [...current, option].sort((a, b) => a.fullName.localeCompare(b.fullName, 'pt-BR')));
+      selectCreatedOrExistingPerson(option);
+    } catch (error) {
+      setPersonCreateError(error instanceof Error ? error.message : 'Não foi possível cadastrar a pessoa.');
+    } finally {
+      setCreatingPerson(false);
+    }
+  };
+
+  const openProjectCreator = () => {
+    setProjectDraft({
+      name: suggestOperationalProjectName({
+        title: form.title,
+        scopeSummary: form.scopeSummary,
+        counterparty: form.counterparty,
+      }),
+      code: form.contractNumber,
+      responsiblePersonId: '',
+    });
+    setProjectDuplicates([]);
+    setProjectCreateError(null);
+    setProjectCreatorOpen(true);
+  };
+
+  const createAndLinkProject = async (allowDuplicate = false) => {
+    if (!projectDraft.name.trim() || !projectDraft.code.trim() || creatingProject) return;
+    const duplicates = likelyDuplicateProjects(projectOptions, {
+      name: projectDraft.name,
+      contractNumber: projectDraft.code,
+      counterparty: form.counterparty,
+      scopeSummary: form.scopeSummary,
+    });
+    if (!allowDuplicate && duplicates.length > 0) {
+      setProjectDuplicates(duplicates);
+      return;
+    }
+    setCreatingProject(true);
+    setProjectCreateError(null);
+    try {
+      const created = await createOnboardingProject({
+        name: projectDraft.name,
+        code: projectDraft.code,
+        counterparty: form.counterparty,
+        scopeSummary: form.scopeSummary,
+        responsiblePersonId: projectDraft.responsiblePersonId || null,
+      });
+      setCreatedProjects((current) => [...current, created]);
+      setField('projectId', created.id);
+      setProjectCreatorOpen(false);
+      setProjectDuplicates([]);
+    } catch (error) {
+      setProjectCreateError(error instanceof Error ? error.message : 'Não foi possível criar o projeto.');
+    } finally {
+      setCreatingProject(false);
+    }
+  };
+
   const handleClose = () => {
     if (submitting) return;
     setView('entry');
@@ -422,6 +567,12 @@ export function ContractUpload({
     setFile(null);
     setForm(blank());
     setPartyOptions([]);
+    setPeople([]);
+    setDirectoryProjects([]);
+    setCreatedProjects([]);
+    setPersonCreatorOpen(false);
+    setProjectCreatorOpen(false);
+    setSaveError(null);
     setIntake(null);
     setIntakeId(null);
     setIntakeError(null);
@@ -439,7 +590,8 @@ export function ContractUpload({
         counterpartyName: form.counterparty.trim(),
         counterpartyPartyId,
         contractType: form.type,
-        ownerUserId: form.ownerUserId,
+        ownerPersonId: form.ownerPersonId,
+        ownerUserId: null,
         status: form.status,
         // Datas em branco permanecem em branco. O banco aceita nulo em todas.
         startDate: form.startDate || null,
@@ -460,6 +612,8 @@ export function ContractUpload({
         onboardingIntakeId: intakeId,
       });
       handleClose();
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Não foi possível salvar o contrato.');
     } finally {
       setSubmitting(false);
     }
@@ -476,6 +630,124 @@ export function ContractUpload({
       {children}
       {hint && <p className="mt-1.5 text-ig-caption text-ig-fg-muted">{hint}</p>}
     </label>
+  );
+
+  const counterpartyAttention = intake?.structured_result?.fields.find((field) =>
+    field.key === 'counterparty' && field.state === 'attention') ?? null;
+  const riskAttention = intake?.structured_result?.fields.find((field) =>
+    field.key === 'risk' && field.state === 'attention') ?? null;
+
+  const renderPersonCreator = () => (
+    <div className="rounded-xl border border-ig-border-focus bg-ig-accent-weak/15 p-4 md:col-span-2">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-ig-body-sm font-semibold text-ig-fg-strong">Cadastrar nova pessoa</p>
+          <p className="mt-1 text-ig-caption text-ig-fg-muted">Cria somente uma Pessoa. Nenhum login ou acesso à plataforma será criado.</p>
+        </div>
+        <button type="button" aria-label="Fechar cadastro de pessoa" onClick={() => setPersonCreatorOpen(false)}>
+          <X className="h-4 w-4 text-ig-fg-muted" />
+        </button>
+      </div>
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <Field label="Nome completo" required>
+          <HudInput value={personDraft.fullName} onChange={(event) => {
+            setPersonDraft((current) => ({ ...current, fullName: event.target.value }));
+            setPersonDuplicates([]);
+          }} />
+        </Field>
+        <Field label="Cargo / função"><HudInput value={personDraft.jobTitle} onChange={(event) => setPersonDraft((current) => ({ ...current, jobTitle: event.target.value }))} /></Field>
+        <Field label="Área / departamento"><HudInput value={personDraft.department} onChange={(event) => setPersonDraft((current) => ({ ...current, department: event.target.value }))} /></Field>
+        <Field label="E-mail"><HudInput type="email" value={personDraft.email} onChange={(event) => {
+          setPersonDraft((current) => ({ ...current, email: event.target.value }));
+          setPersonDuplicates([]);
+        }} /></Field>
+        <Field label="Telefone"><HudInput type="tel" value={personDraft.phone} onChange={(event) => setPersonDraft((current) => ({ ...current, phone: event.target.value }))} /></Field>
+      </div>
+      {personDuplicates.length > 0 && (
+        <div className="mt-3 rounded-lg border border-[color-mix(in_oklab,var(--ig-warning)_34%,transparent)] bg-[color-mix(in_oklab,var(--ig-warning)_10%,transparent)] p-3">
+          <p className="text-ig-body-sm font-semibold text-ig-fg-strong">Encontramos uma pessoa parecida.</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {personDuplicates.map((person) => (
+              <HudButton key={person.id} size="sm" variant="secondary" onClick={() => selectCreatedOrExistingPerson(person)}>
+                Usar pessoa existente: {person.fullName}
+              </HudButton>
+            ))}
+          </div>
+        </div>
+      )}
+      {personCreateError && <p className="mt-3 text-ig-caption text-ig-danger">{personCreateError}</p>}
+      <div className="mt-4 flex justify-end gap-2">
+        <HudButton size="sm" variant="secondary" onClick={() => setPersonCreatorOpen(false)}>Cancelar</HudButton>
+        <HudButton size="sm" variant="primary" isLoading={creatingPerson} disabled={!personDraft.fullName.trim() || !canCreatePeople}
+          onClick={() => void createAndLinkPerson()}>Cadastrar e vincular</HudButton>
+      </div>
+    </div>
+  );
+
+  const renderProjectCreator = () => (
+    <div className="rounded-xl border border-ig-border-focus bg-ig-accent-weak/15 p-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-ig-body-sm font-semibold text-ig-fg-strong">Criar novo projeto</p>
+          <p className="mt-1 text-ig-caption text-ig-fg-muted">O nome abaixo é uma sugestão editável. O projeto só passa a existir após sua ação.</p>
+        </div>
+        <button type="button" aria-label="Fechar criação de projeto" onClick={() => setProjectCreatorOpen(false)}>
+          <X className="h-4 w-4 text-ig-fg-muted" />
+        </button>
+      </div>
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <Field label="Nome do projeto" required>
+          <HudInput value={projectDraft.name} onChange={(event) => {
+            setProjectDraft((current) => ({ ...current, name: event.target.value }));
+            setProjectDuplicates([]);
+          }} />
+        </Field>
+        <Field label="OP / referência" required>
+          <HudInput value={projectDraft.code} onChange={(event) => {
+            setProjectDraft((current) => ({ ...current, code: event.target.value }));
+            setProjectDuplicates([]);
+          }} />
+        </Field>
+        <Field label="Responsável pelo projeto" span hint="Responsabilidade operacional. Não é herdada do responsável pelo contrato.">
+          <select value={projectDraft.responsiblePersonId}
+            onChange={(event) => setProjectDraft((current) => ({ ...current, responsiblePersonId: event.target.value }))}
+            className={selectClass}>
+            <option value="">Sem responsável definido</option>
+            {people.map((person) => <option key={person.id} value={person.id}>{person.fullName}{person.jobTitle ? ` · ${person.jobTitle}` : ''}</option>)}
+          </select>
+          <button type="button" onClick={() => openPersonCreator('project')} disabled={!canCreatePeople}
+            className="mt-2 inline-flex items-center gap-1 text-ig-caption font-semibold text-ig-accent disabled:cursor-not-allowed disabled:text-ig-fg-subtle">
+            <Plus className="h-3.5 w-3.5" /> Cadastrar nova pessoa
+          </button>
+          {!canCreatePeople && <p className="mt-1 text-ig-caption text-ig-fg-muted">Você não tem permissão para cadastrar uma nova pessoa.</p>}
+        </Field>
+      </div>
+      <div className="mt-3 rounded-lg border border-ig-border-subtle bg-ig-panel/55 p-3 text-ig-caption text-ig-fg-muted">
+        O contrato {form.contractNumber || 'ainda sem número'}, a contraparte e o resumo do objeto serão usados apenas como contexto.
+        Datas de vigência não serão gravadas como datas de execução; progresso, medições, equipe e orçamento também permanecerão ausentes.
+      </div>
+      {personCreatorOpen && personCreationTarget === 'project' && <div className="mt-3">{renderPersonCreator()}</div>}
+      {projectDuplicates.length > 0 && (
+        <div className="mt-3 rounded-lg border border-[color-mix(in_oklab,var(--ig-warning)_34%,transparent)] bg-[color-mix(in_oklab,var(--ig-warning)_10%,transparent)] p-3">
+          <p className="text-ig-body-sm font-semibold text-ig-fg-strong">Encontramos um projeto parecido.</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {projectDuplicates.map((project) => (
+              <HudButton key={project.id} size="sm" variant="secondary" onClick={() => {
+                setField('projectId', project.id); setProjectCreatorOpen(false); setProjectDuplicates([]);
+              }}>Vincular projeto existente: {project.name}</HudButton>
+            ))}
+            <HudButton size="sm" variant="secondary" onClick={() => void createAndLinkProject(true)}>Criar novo mesmo assim</HudButton>
+          </div>
+        </div>
+      )}
+      {projectCreateError && <p className="mt-3 text-ig-caption text-ig-danger">{projectCreateError}</p>}
+      <div className="mt-4 flex justify-end gap-2">
+        <HudButton size="sm" variant="secondary" onClick={() => setProjectCreatorOpen(false)}>Cancelar</HudButton>
+        <HudButton size="sm" variant="primary" isLoading={creatingProject}
+          disabled={!canCreateProjects || !projectDraft.name.trim() || !projectDraft.code.trim()}
+          onClick={() => void createAndLinkProject()}>Criar e vincular</HudButton>
+      </div>
+    </div>
   );
 
   return (
@@ -601,6 +873,42 @@ export function ContractUpload({
                 </div>
               )}
             </HudPanel>
+            <div className="grid gap-3 md:grid-cols-2">
+              {counterpartyAttention && (
+                <HudPanel title="Contraparte sugerida" interactive={false}>
+                  <p className="text-ig-body-sm font-semibold text-ig-fg-strong">{String(counterpartyAttention.value)}</p>
+                  {counterpartyAttention.excerpt && <p className="mt-2 text-ig-caption text-ig-fg-muted">Fonte: Página {counterpartyAttention.page} · “{counterpartyAttention.excerpt}”</p>}
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <HudButton size="sm" variant="primary" onClick={() => {
+                      setField('counterparty', String(counterpartyAttention.value ?? ''));
+                      setStep(0); setView('manual');
+                    }}>Confirmar contraparte</HudButton>
+                    <HudButton size="sm" variant="secondary" onClick={() => { setStep(0); setView('manual'); }}>Alterar</HudButton>
+                  </div>
+                </HudPanel>
+              )}
+              {riskAttention && (
+                <HudPanel title="Classificação sugerida pelo Apex" interactive={false}>
+                  <p className="text-ig-body-sm font-semibold text-ig-fg-strong">{contractRiskLabel(riskAttention.value)}</p>
+                  <p className="mt-1 text-ig-caption text-ig-fg-muted">A sugestão não foi confirmada. Escolha a classificação de risco.</p>
+                  <div className="mt-3"><HudButton size="sm" variant="secondary" onClick={() => { setStep(0); setView('manual'); }}>Classificar risco</HudButton></div>
+                </HudPanel>
+              )}
+              <HudPanel title="Responsável pelo contrato" interactive={false}>
+                <p className="text-ig-caption text-ig-fg-muted">Defina quem acompanha obrigações, prazos, riscos e o relacionamento contratual.</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <HudButton size="sm" variant="secondary" onClick={() => { setStep(0); setView('manual'); }}>Selecionar responsável</HudButton>
+                  <HudButton size="sm" variant="secondary" onClick={() => { setStep(0); setView('manual'); openPersonCreator('contract'); }}>Cadastrar nova pessoa</HudButton>
+                </div>
+              </HudPanel>
+              <HudPanel title="Projeto relacionado não encontrado" interactive={false}>
+                <p className="text-ig-caption text-ig-fg-muted">Vincule um projeto existente ou crie um novo para este contrato.</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <HudButton size="sm" variant="secondary" onClick={() => { setStep(2); setView('manual'); }}>Selecionar projeto</HudButton>
+                  <HudButton size="sm" variant="secondary" onClick={() => { setStep(2); setView('manual'); openProjectCreator(); }}>Criar novo projeto</HudButton>
+                </div>
+              </HudPanel>
+            </div>
             <div className="flex flex-wrap justify-end gap-2 border-t border-ig-border-subtle pt-4">
               <HudButton variant="secondary" onClick={() => { setStep(0); setView('manual'); }}>Revisar cadastro completo</HudButton>
               <HudButton variant="primary" onClick={() => { setStep(0); setView('manual'); }}>Resolver pendências</HudButton>
@@ -648,6 +956,17 @@ export function ContractUpload({
                 <datalist id="contract-company-options">
                   {counterpartySuggestions.map((c) => <option key={c} value={c} />)}
                 </datalist>
+                {counterpartyAttention && (
+                  <div className="mt-2 rounded-lg border border-[color-mix(in_oklab,var(--ig-warning)_34%,transparent)] bg-[color-mix(in_oklab,var(--ig-warning)_10%,transparent)] p-3">
+                    <p className="text-ig-caption text-ig-fg-muted">Contraparte sugerida</p>
+                    <p className="mt-1 text-ig-body-sm font-semibold text-ig-fg-strong">{String(counterpartyAttention.value)}</p>
+                    {counterpartyAttention.excerpt && <p className="mt-1 text-ig-caption text-ig-fg-muted">Fonte: Página {counterpartyAttention.page} · “{counterpartyAttention.excerpt}”</p>}
+                    <div className="mt-2 flex gap-2">
+                      <HudButton size="sm" variant="secondary" onClick={() => setField('counterparty', String(counterpartyAttention.value ?? ''))}>Confirmar contraparte</HudButton>
+                      <HudButton size="sm" variant="ghost" onClick={() => setField('counterparty', '')}>Alterar</HudButton>
+                    </div>
+                  </div>
+                )}
               </Field>
               <Field label="Tipo de contrato" required>
                 <select value={form.type} onChange={(e) => setField('type', e.target.value)} className={selectClass}>
@@ -656,18 +975,24 @@ export function ContractUpload({
                 </select>
               </Field>
               <Field
-                label="Responsável interno"
+                label="Responsável pelo contrato"
                 required
-                hint={membersError ?? 'Quem responde pelo contrato dentro da organização.'}
+                hint={peopleError ?? 'Pessoa responsável internamente pelo acompanhamento deste contrato, obrigações, prazos, riscos e relacionamento contratual.'}
               >
-                <select value={form.ownerUserId} onChange={(e) => setField('ownerUserId', e.target.value)} className={selectClass}>
-                  <option value="">Selecione o responsável</option>
-                  {members.map((m) => (
-                    <option key={m.userId} value={m.userId}>
-                      {m.fullName || m.email || m.userId}{m.jobTitle ? ` · ${m.jobTitle}` : ''}
+                <select value={form.ownerPersonId} onChange={(e) => setField('ownerPersonId', e.target.value)} className={selectClass}>
+                  <option value="">Selecionar responsável existente</option>
+                  {people.map((person) => (
+                    <option key={person.id} value={person.id}>
+                      {person.fullName}{person.jobTitle ? ` · ${person.jobTitle}` : ''}
                     </option>
                   ))}
                 </select>
+                <button type="button" onClick={() => openPersonCreator('contract')}
+                  disabled={!canCreatePeople}
+                  className="mt-2 inline-flex items-center gap-1 text-ig-caption font-semibold text-ig-accent disabled:cursor-not-allowed disabled:text-ig-fg-subtle">
+                  <Plus className="h-3.5 w-3.5" /> Cadastrar nova pessoa
+                </button>
+                {!canCreatePeople && <p className="mt-1 text-ig-caption text-ig-fg-muted">Você não tem permissão para cadastrar uma nova pessoa.</p>}
               </Field>
               <Field label="Situação" required hint="Situação atual do contrato. Não exige documento anexado.">
                 <select value={form.status} onChange={(e) => setField('status', e.target.value)} className={selectClass}>
@@ -676,8 +1001,15 @@ export function ContractUpload({
                 </select>
               </Field>
               <Field label="Classificação de risco" required hint="Declarada por quem cadastra — não é calculada a partir do valor.">
+                {riskAttention && (
+                  <div className="mb-2 rounded-lg border border-[color-mix(in_oklab,var(--ig-warning)_34%,transparent)] bg-[color-mix(in_oklab,var(--ig-warning)_10%,transparent)] p-3">
+                    <p className="text-ig-caption text-ig-fg-muted">Classificação sugerida pelo Apex</p>
+                    <p className="mt-1 text-ig-body-sm font-semibold text-ig-fg-strong">{contractRiskLabel(riskAttention.value)}</p>
+                    <p className="mt-1 text-ig-caption text-ig-fg-muted">A recomendação não preenche o campo. A decisão é humana.</p>
+                  </div>
+                )}
                 <select value={form.riskLevel} onChange={(e) => setField('riskLevel', e.target.value)} className={selectClass}>
-                  {!form.riskLevel && <option value="">Confirme a classificação</option>}
+                  <option value="">Selecione</option>
                   {RISK_LEVELS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
                 </select>
               </Field>
@@ -690,6 +1022,7 @@ export function ContractUpload({
                   placeholder="Resumo do escopo contratado"
                 />
               </Field>
+              {personCreatorOpen && personCreationTarget === 'contract' && renderPersonCreator()}
             </div>
           </HudPanel>
         )}
@@ -737,20 +1070,32 @@ export function ContractUpload({
 
         {step === 2 && (
           <HudPanel
-            title="Projeto vinculado"
-            subtitle="Projetos é o dono do domínio — aqui apenas se registra a relação."
+            title="Projeto relacionado"
+            subtitle="Vincule um projeto existente ou crie um novo sem sair do cadastro do contrato."
             icon={<Workflow className="h-4 w-4" />}
             interactive={false}
           >
             <div className="grid gap-4">
-              <Field label="Projeto" hint="Pode ficar sem projeto agora e ser vinculado depois pelo dossiê.">
+              <Field label="Projeto" hint="O projeto é opcional e pode ser vinculado depois pelo dossiê.">
                 <select value={form.projectId} onChange={(e) => setField('projectId', e.target.value)} className={selectClass}>
                   <option value="">Sem projeto vinculado</option>
-                  {projects.slice(0, 200).map((p) => (
-                    <option key={p.id} value={p.id}>{p.codigo} · {p.nome}</option>
+                  {projectOptions.slice(0, 200).map((project) => (
+                    <option key={project.id} value={project.id}>{project.code} · {project.name}</option>
                   ))}
                 </select>
+                <button type="button" onClick={openProjectCreator} disabled={!canCreateProjects}
+                  className="mt-2 inline-flex items-center gap-1 text-ig-caption font-semibold text-ig-accent disabled:cursor-not-allowed disabled:text-ig-fg-subtle">
+                  <Plus className="h-3.5 w-3.5" /> Criar novo projeto
+                </button>
+                {!canCreateProjects && <p className="mt-1 text-ig-caption text-ig-fg-muted">Você não tem permissão para criar projetos.</p>}
               </Field>
+              {!selectedProject && !projectCreatorOpen && (
+                <div className="rounded-lg border border-ig-border-subtle bg-ig-panel/55 p-3">
+                  <p className="text-ig-body-sm font-semibold text-ig-fg-strong">Projeto relacionado não encontrado</p>
+                  <p className="mt-1 text-ig-caption text-ig-fg-muted">Selecione um projeto acima ou crie um novo para este contrato. Você também pode continuar sem projeto.</p>
+                </div>
+              )}
+              {projectCreatorOpen && renderProjectCreator()}
               <div className="grid gap-3 md:grid-cols-2">
                 <div className="rounded-lg border border-ig-border-subtle bg-ig-panel/55 p-3">
                   <div className="flex items-center gap-2 text-ig-body-sm font-semibold text-ig-fg-strong">
@@ -762,7 +1107,7 @@ export function ContractUpload({
                 <div className="rounded-lg border border-ig-border-subtle bg-ig-panel/55 p-3">
                   <div className="flex items-center gap-2 text-ig-body-sm font-semibold text-ig-fg-strong">
                     <Workflow className="h-4 w-4 text-ig-accent" />
-                    {selectedProject ? `${selectedProject.codigo} · ${selectedProject.nome}` : 'Projeto não vinculado'}
+                    {selectedProject ? `${selectedProject.code} · ${selectedProject.name}` : 'Projeto não vinculado'}
                   </div>
                   <p className="mt-1 text-ig-caption text-ig-fg-muted">O detalhe do projeto abre no módulo Projetos.</p>
                 </div>
@@ -835,24 +1180,32 @@ export function ContractUpload({
               {[
                 { label: 'Nº do contrato', value: form.contractNumber.trim() },
                 { label: 'Contraparte', value: form.counterparty.trim() },
-                { label: 'Responsável', value: selectedOwner?.fullName || selectedOwner?.email || '' },
+                { label: 'Responsável pelo contrato', value: selectedOwner?.fullName || '' },
+                { label: 'Situação', value: contractStatusLabel(form.status) },
+                { label: 'Classificação de risco', value: contractRiskLabel(form.riskLevel) },
                 {
                   label: 'Valor contratual',
-                  value: totalValue === null ? '' : totalValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }),
+                  value: formatContractMoney(totalValue),
                 },
-                { label: 'Vigência', value: form.startDate && form.endDate ? `${form.startDate} → ${form.endDate}` : '' },
-                { label: 'Projeto', value: selectedProject ? selectedProject.codigo : '' },
-                { label: 'Documento', value: file ? file.name : '' },
+                { label: 'Vigência', value: form.startDate || form.endDate
+                  ? `${form.startDate ? formatContractDate(form.startDate) : 'não definida'} → ${form.endDate ? formatContractDate(form.endDate) : 'não definida'}` : '' },
+                { label: 'Projeto', value: selectedProject ? selectedProject.name : '', emptyLabel: 'Não vinculado' },
+                ...(selectedProjectOwner ? [{ label: 'Responsável pelo projeto', value: selectedProjectOwner.fullName }] : []),
+                { label: 'Documento', value: file?.name || intake?.file_name || '',
+                  emptyLabel: isDocumentFirst ? 'Documento preservado' : 'Não informado' },
                 {
                   label: 'Leitura do documento',
-                  value: file ? (isDocumentFirst ? 'Cadastro estruturado' : 'Começa após salvar') : '',
+                  value: isDocumentFirst && intake?.structured_result
+                    ? `Concluída — ${intake.structured_result.identifiedCount} informações identificadas, ${intake.structured_result.attentionCount} requerem atenção`
+                    : file ? 'Começa após salvar' : '',
+                  emptyLabel: isDocumentFirst ? 'Concluída' : 'Não informada',
                 },
-                { label: 'Origem', value: 'Contrato oficial (live)' },
+                { label: 'Origem', value: 'Documento original preservado' },
               ].map((item) => (
                 <div key={item.label} className="rounded-lg border border-ig-border-subtle bg-ig-panel/55 p-3">
                   <p className="text-ig-label text-ig-fg-muted">{item.label}</p>
                   <p className="mt-2 truncate text-ig-body-sm font-semibold text-ig-fg-strong">
-                    {item.value || <span className="font-normal text-ig-fg-muted">Não informado</span>}
+                    {item.value || <span className="font-normal text-ig-fg-muted">{'emptyLabel' in item ? item.emptyLabel : 'Não informado'}</span>}
                   </p>
                 </div>
               ))}
@@ -888,6 +1241,7 @@ export function ContractUpload({
                 <p className="mt-1 text-ig-caption text-ig-fg-muted">{dateConflicts.join(' ')}</p>
               </div>
             )}
+            {saveError && <p className="mt-3 text-ig-caption text-ig-danger">{saveError}</p>}
           </HudPanel>
         )}
 
@@ -952,7 +1306,7 @@ function ResultGroup({ title, tone, fields }: {
           <div key={field.key} className="grid gap-1 px-3 py-2.5 md:grid-cols-[180px_1fr]">
             <p className="text-ig-caption font-semibold text-ig-fg-muted">{field.label}</p>
             <div>
-              {field.value !== null && <p className="text-ig-body-sm font-semibold text-ig-fg-strong">{String(field.value)}</p>}
+              {field.value !== null && <p className="text-ig-body-sm font-semibold text-ig-fg-strong">{formatDocumentaryField(field.key, field.value)}</p>}
               <p className="text-ig-caption text-ig-fg-muted">{field.explanation}</p>
               {/*
                 A evidência documental é parte do resultado e fica com ele: é o

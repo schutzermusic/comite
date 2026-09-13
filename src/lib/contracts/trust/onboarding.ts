@@ -140,7 +140,7 @@ export function identityGaps(contract: TrustedContract): readonly IdentityGap[] 
   if (absent(contract.startDate)) gaps.push({ field: 'start_date', label: 'Início da vigência' });
   if (absent(contract.endDate)) gaps.push({ field: 'end_date', label: 'Fim da vigência' });
   if (absent(contract.totalValue)) gaps.push({ field: 'total_value', label: 'Valor contratual' });
-  if (absent(contract.ownerUserId)) gaps.push({ field: 'owner_user_id', label: 'Responsável interno' });
+  if (absent(contract.ownerUserId)) gaps.push({ field: 'owner_user_id', label: 'Responsável pelo contrato' });
 
   return gaps;
 }

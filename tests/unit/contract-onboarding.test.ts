@@ -355,9 +355,10 @@ describe('o assistente de cadastro não fabrica dado', () => {
     expect(wizard).not.toMatch(/Jurídico \+ Financeiro \+ Comitê/);
   });
 
-  it('o responsável é um usuário real, não texto livre', () => {
-    expect(wizard).toContain('listOrgMembers');
-    expect(wizard).toContain('ownerUserId');
+  it('o responsável é uma Pessoa canônica, não texto livre nem usuário fabricado', () => {
+    expect(wizard).toContain('listResponsiblePeople');
+    expect(wizard).toContain('ownerPersonId');
+    expect(wizard).toContain('ownerUserId: null');
     expect(wizard).not.toContain("owner: 'Gestão de Contratos'");
   });
 

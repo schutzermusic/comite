@@ -27,6 +27,8 @@ export type Project = {
   comite_nome?: string;
   comite_status?: 'sem_supervisao' | 'ativo' | 'atencao_necessaria' | 'revisao_pendente';
   responsavel: User;
+  /** Canonical business owner. Independent from the legacy auth-user snapshot. */
+  responsiblePersonId?: string | null;
   impacto_financeiro: 'baixo' | 'medio' | 'alto' | 'critico';
   valor_total: number;
   valor_executado: number;

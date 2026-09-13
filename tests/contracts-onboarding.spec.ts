@@ -250,8 +250,8 @@ test('1 · Cadastrar um contrato operacional pela interface', async () => {
   await byLabel(drawer(), 'Contraparte').fill(COUNTERPARTY);
   await byLabel(drawer(), 'Tipo de contrato', 'select').selectOption('Prestação de serviços');
 
-  // O responsável é um usuário REAL da organização, não texto livre.
-  const owner = byLabel(drawer(), 'Responsável interno', 'select');
+  // O responsável é uma Pessoa canônica, independente de possuir login.
+  const owner = byLabel(drawer(), 'Responsável pelo contrato', 'select');
   await expect(owner.locator('option')).not.toHaveCount(1, { timeout: 20_000 });
   await owner.selectOption({ index: 1 });
 

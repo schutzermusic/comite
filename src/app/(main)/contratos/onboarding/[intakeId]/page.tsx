@@ -35,8 +35,8 @@ import { ContractUpload, type ContractOnboardingDraft } from '@/components/contr
 import { finalizeContractIntake, getContractIntake, type ContractIntakeView } from '@/lib/contracts/onboarding/client';
 import { intakeContinuityKind } from '@/lib/contracts/onboarding/resume';
 import { buildIntakeFinalValues } from '@/lib/contracts/onboarding/finalize-values';
-import { getProjectsAsync } from '@/lib/services/projects';
-import type { Project } from '@/lib/types';
+import { listOnboardingProjectOptions } from '@/lib/services/projects';
+import type { OnboardingProjectOption } from '@/lib/contracts/onboarding/production-polish';
 
 export default function ContratoOnboardingRetomadaPage() {
   const router = useRouter();
@@ -48,7 +48,7 @@ export default function ContratoOnboardingRetomadaPage() {
   // Começa carregando: a página só existe para abrir um cadastro, e o estado
   // inicial é sempre "buscando" — não há um passo anterior a sincronizar.
   const [loading, setLoading] = useState(true);
-  const [projects, setProjects] = useState<Project[]>([]);
+  const [projects, setProjects] = useState<OnboardingProjectOption[]>([]);
 
   useEffect(() => {
     if (!intakeId) return;
@@ -64,7 +64,7 @@ export default function ContratoOnboardingRetomadaPage() {
 
   useEffect(() => {
     let alive = true;
-    getProjectsAsync().then((rows) => { if (alive) setProjects(rows); }).catch(() => { if (alive) setProjects([]); });
+    listOnboardingProjectOptions().then((rows) => { if (alive) setProjects(rows); }).catch(() => { if (alive) setProjects([]); });
     return () => { alive = false; };
   }, []);
 

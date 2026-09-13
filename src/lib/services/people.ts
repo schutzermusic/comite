@@ -8,6 +8,7 @@ import { createClient } from '@/utils/supabase/client';
 import { requireActiveOrganizationId } from '@/lib/auth/active-organization';
 import { logAuditEvent } from '@/lib/audit/log-audit-event';
 import type { Person, PersonContractType, PersonSource, PersonStatus } from '@/lib/types/people';
+import type { ResponsiblePersonOption } from '@/lib/contracts/onboarding/production-polish';
 
 export const PEOPLE_TABLE = 'people';
 
@@ -67,6 +68,7 @@ export type PersonRow = {
   payroll_name_key: string | null;
   cpf: string | null;
   email: string | null;
+  phone: string | null;
   job_title: string | null;
   department: string | null;
   contract_type: PersonContractType | null;
@@ -91,6 +93,7 @@ export function mapPersonRow(row: PersonRow): Person {
     payrollNameKey: row.payroll_name_key,
     cpf: row.cpf ?? null,
     email: row.email,
+    phone: row.phone,
     jobTitle: row.job_title,
     department: row.department,
     contractType: row.contract_type,
@@ -132,6 +135,24 @@ export async function listPeople(options: ListPeopleOptions = {}): Promise<Perso
   return (data ?? []).map((row) => mapPersonRow(row as PersonRow));
 }
 
+/** Minimal, tenant-scoped directory used by contract/project responsibility. */
+export async function listResponsiblePeople(): Promise<ResponsiblePersonOption[]> {
+  const supabase = createClient();
+  const { data, error } = await supabase.rpc('contract_onboarding_responsible_people_directory');
+  if (error) throw new Error(rlsFriendlyMessage('Erro ao carregar responsáveis', error));
+  return ((data ?? []) as Array<{
+    id: string; full_name: string; email: string | null; phone: string | null;
+    job_title: string | null; department: string | null;
+  }>).map((row) => ({
+    id: row.id,
+    fullName: row.full_name,
+    email: row.email,
+    phone: row.phone,
+    jobTitle: row.job_title,
+    department: row.department,
+  }));
+}
+
 export async function getPerson(id: string): Promise<Person | null> {
   const supabase = createClient();
   const { data, error } = await supabase
@@ -170,6 +191,7 @@ export interface PersonInput {
   fullName: string;
   cpf?: string | null;
   email?: string | null;
+  phone?: string | null;
   jobTitle?: string | null;
   department?: string | null;
   contractType?: PersonContractType | null;
@@ -189,6 +211,7 @@ function mapInputToRow(input: Partial<PersonInput>): Record<string, unknown> {
     payroll_name_key: input.fullName !== undefined ? normalizePersonName(input.fullName) : undefined,
     cpf: input.cpf !== undefined ? (input.cpf ? input.cpf.replace(/\D/g, '') : null) : undefined,
     email: input.email,
+    phone: input.phone,
     job_title: input.jobTitle,
     department: input.department,
     contract_type: input.contractType,

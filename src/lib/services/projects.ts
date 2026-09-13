@@ -7,6 +7,8 @@ import { computeHealthScore } from '@/lib/utils/project-utils';
 import { createClient } from '@/utils/supabase/client';
 import { requireActiveOrganizationId } from '@/lib/auth/active-organization';
 import { normalizeClientLogoFile } from '@/lib/utils/normalize-client-logo';
+import { logAuditEvent } from '@/lib/audit/log-audit-event';
+import type { OnboardingProjectOption } from '@/lib/contracts/onboarding/production-polish';
 
 const STORAGE_KEY = 'insight_projects';
 const PROJECTS_TABLE = 'projects';
@@ -19,6 +21,7 @@ type ProjectRow = {
   project: Project;
   project_v2: ProjectV2 | null;
   client_logo_url: string | null;
+  responsible_person_id: string | null;
 };
 
 function isSupabaseConfigured(): boolean {
@@ -106,6 +109,7 @@ function rowToProject(row: ProjectRow): Project {
     ...row.project,
     id: row.id,
     clientLogoUrl: row.client_logo_url || row.project.clientLogoUrl,
+    responsiblePersonId: row.responsible_person_id,
   }, false);
 }
 
@@ -152,6 +156,7 @@ async function upsertProjectsToSupabase(projects: Project[], projectsV2?: Projec
       project: { ...project, clientLogoUrl: clientLogoUrl || undefined },
       project_v2: projectV2 ? { ...projectV2, clientLogoUrl: clientLogoUrl || undefined } : null,
       client_logo_url: clientLogoUrl,
+      responsible_person_id: project.responsiblePersonId ?? null,
     };
   };
 
@@ -174,6 +179,7 @@ async function upsertProjectsToSupabase(projects: Project[], projectsV2?: Projec
         project: row.project,
         project_v2: row.project_v2,
         client_logo_url: row.client_logo_url,
+        responsible_person_id: row.responsible_person_id,
       })
       .eq('id', row.id);
     if (error) throw new Error(rlsFriendlyMessage('Erro ao atualizar projeto no Supabase', error));
@@ -266,7 +272,7 @@ export async function getProjectsAsync(): Promise<Project[]> {
   const { orgId } = await getCurrentOrgAndUser(supabase);
   const { data, error } = await supabase
     .from(PROJECTS_TABLE)
-    .select('id, project, project_v2, client_logo_url')
+    .select('id, project, project_v2, client_logo_url, responsible_person_id')
     .order('updated_at', { ascending: false });
 
   if (error) {
@@ -282,6 +288,34 @@ export async function getProjectsAsync(): Promise<Project[]> {
   const projects = (data as ProjectRow[]).map(rowToProject);
   saveLocalProjects(projects, orgId);
   return projects;
+}
+
+/** Limited canonical directory for contract onboarding project selection. */
+export async function listOnboardingProjectOptions(): Promise<OnboardingProjectOption[]> {
+  if (!isSupabaseConfigured()) {
+    return getProjects().map((project) => ({
+      id: project.id,
+      name: project.nome,
+      code: project.codigo,
+      counterparty: project.cliente ?? null,
+      scopeSummary: project.descricao ?? null,
+      responsiblePersonId: project.responsiblePersonId ?? null,
+    }));
+  }
+  const supabase = createClient();
+  const { data, error } = await supabase.rpc('contract_onboarding_project_directory');
+  if (error) throw new Error(rlsFriendlyMessage('Erro ao carregar projetos', error));
+  return ((data ?? []) as Array<{
+    id: string; name: string; code: string; counterparty: string | null;
+    scope_summary: string | null; responsible_person_id: string | null;
+  }>).map((row) => ({
+    id: row.id,
+    name: row.name,
+    code: row.code,
+    counterparty: row.counterparty,
+    scopeSummary: row.scope_summary,
+    responsiblePersonId: row.responsible_person_id,
+  }));
 }
 
 /**
@@ -329,7 +363,7 @@ export async function getProjectsV2Async(): Promise<ProjectV2[]> {
   const { orgId } = await getCurrentOrgAndUser(supabase);
   const { data, error } = await supabase
     .from(PROJECTS_TABLE)
-    .select('id, project, project_v2, client_logo_url')
+    .select('id, project, project_v2, client_logo_url, responsible_person_id')
     .order('updated_at', { ascending: false });
 
   if (error) {
@@ -446,6 +480,85 @@ export async function updateProjectV2(
     p.id === projectId ? { ...p, ...v1Updates } : p,
   );
   await upsertProjectsToSupabase(v1Projects, updatedProjects);
+}
+
+export interface CreateOnboardingProjectInput {
+  name: string;
+  code: string;
+  counterparty?: string | null;
+  scopeSummary?: string | null;
+  responsiblePersonId?: string | null;
+}
+
+/**
+ * Minimal canonical Projects-domain creation used by contract onboarding.
+ *
+ * It intentionally does not persist execution dates, status, progress,
+ * measurement, team or budget fields. `created_by` records the authenticated
+ * actor while `responsible_person_id` identifies the independent business
+ * responsible Person enforced by migration 167.
+ */
+export async function createOnboardingProject(
+  input: CreateOnboardingProjectInput,
+): Promise<OnboardingProjectOption> {
+  const name = input.name.trim();
+  const code = input.code.trim();
+  if (!name || !code) throw new Error('Informe o nome e a OP/referência do projeto.');
+
+  const id = `proj-${crypto.randomUUID()}`;
+  const project = {
+    nome: name,
+    codigo: code,
+    codigoInterno: code,
+    ...(input.counterparty?.trim() ? { cliente: input.counterparty.trim() } : {}),
+    ...(input.scopeSummary?.trim() ? { descricao: input.scopeSummary.trim() } : {}),
+  };
+
+  if (!isSupabaseConfigured()) {
+    const option: OnboardingProjectOption = {
+      id, name, code,
+      counterparty: input.counterparty?.trim() || null,
+      scopeSummary: input.scopeSummary?.trim() || null,
+      responsiblePersonId: input.responsiblePersonId ?? null,
+    };
+    const current = getProjects();
+    // Local development only. The JSON remains minimal: absence is not turned
+    // into fabricated execution truth even in this fallback.
+    saveLocalProjects([...current, {
+      id, ...project, responsiblePersonId: option.responsiblePersonId,
+    } as unknown as Project]);
+    return option;
+  }
+
+  const supabase = createClient();
+  const { userId, orgId } = await getCurrentOrgAndUser(supabase);
+  const { data, error } = await supabase.from(PROJECTS_TABLE).insert({
+    id,
+    organization_id: orgId,
+    created_by: userId,
+    project,
+    project_v2: null,
+    responsible_person_id: input.responsiblePersonId ?? null,
+  }).select('id,project,responsible_person_id').single();
+  if (error) throw new Error(rlsFriendlyMessage('Erro ao criar projeto', error));
+
+  const row = data as { id: string; project: typeof project; responsible_person_id: string | null };
+  const option: OnboardingProjectOption = {
+    id: row.id,
+    name: row.project.nome,
+    code: row.project.codigo,
+    counterparty: row.project.cliente ?? null,
+    scopeSummary: row.project.descricao ?? null,
+    responsiblePersonId: row.responsible_person_id,
+  };
+  void logAuditEvent({
+    organizationId: orgId,
+    action: 'project.created',
+    entityType: 'project',
+    entityId: option.id,
+    metadata: { source: 'contract_onboarding', responsible_person_id: option.responsiblePersonId },
+  });
+  return option;
 }
 
 // ─── Legacy CRUD (unchanged) ─────────────────────────────────────

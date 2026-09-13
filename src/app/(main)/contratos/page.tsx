@@ -785,6 +785,7 @@ export default function ContratosPage() {
       scopeSummary: draft.scopeSummary,
       riskLevel: draft.riskLevel,
       ownerUserId: draft.ownerUserId,
+      ownerPersonId: draft.ownerPersonId,
     });
 
     const pending: string[] = [];
@@ -1347,7 +1348,14 @@ export default function ContratosPage() {
         open={uploadOpen}
         onOpenChange={setUploadOpen}
         onSubmit={handleContractOnboarded}
-        projects={projects}
+        projects={projects.map((project) => ({
+          id: project.id,
+          name: project.nome,
+          code: project.codigo,
+          counterparty: project.cliente ?? null,
+          scopeSummary: project.descricao ?? null,
+          responsiblePersonId: project.responsiblePersonId ?? null,
+        }))}
         companies={companies}
       />
 

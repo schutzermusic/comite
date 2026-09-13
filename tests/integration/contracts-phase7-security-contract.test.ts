@@ -382,6 +382,8 @@ describe('Fase 7 · migrations aplicadas não são editadas', () => {
         '165',
         // ---- entrada de contrato orientada pelo documento (pós-Fase 7) ----
         '166',
+        // ---- acabamento de produção + responsabilidade canônica de People ----
+        '167',
       ]);
     // 090 continua arquivada, nunca aplicada.
     expect(versions).not.toContain('090');

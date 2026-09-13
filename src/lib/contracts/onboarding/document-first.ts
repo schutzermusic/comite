@@ -163,12 +163,12 @@ export function buildContractOnboardingResult(raw: ContractOnboardingExtraction)
     .map((key) => classify(key, extraction[key] as DocumentaryFact));
 
   // These are organizational decisions. They are never part of the document schema.
-  fields.push({ key: 'responsible_internal', label: 'Responsável interno', value: null,
+  fields.push({ key: 'responsible_internal', label: 'Responsável pelo contrato', value: null,
     state: 'attention', reason: 'INTERNAL_DECISION_REQUIRED', page: null, excerpt: null,
-    explanation: 'O documento não determina quem será o responsável interno por este contrato.' });
+    explanation: 'O documento não determina quem será o responsável pelo contrato.' });
   fields.push({ key: 'project', label: 'Projeto relacionado', value: null,
     state: 'attention', reason: 'PROJECT_MAPPING_REQUIRED', page: null, excerpt: null,
-    explanation: 'Nenhum vínculo determinístico foi encontrado com um projeto existente.' });
+    explanation: 'Vincule um projeto existente ou crie um novo para este contrato.' });
 
   const prefill: Record<string, string | number | null> = {};
   for (const field of fields) {

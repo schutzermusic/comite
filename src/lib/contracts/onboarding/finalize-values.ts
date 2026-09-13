@@ -24,6 +24,9 @@ export function buildIntakeFinalValues(draft: ContractOnboardingDraft): Record<s
     counterparty_name: draft.counterpartyName,
     counterparty_party_id: draft.counterpartyPartyId,
     contract_type: draft.contractType,
+    owner_person_id: draft.ownerPersonId,
+    // Legacy compatibility only. The onboarding UI deliberately leaves this
+    // null: a business Person is not impersonated as an authenticated user.
     owner_user_id: draft.ownerUserId,
     status: draft.status,
     start_date: draft.startDate,

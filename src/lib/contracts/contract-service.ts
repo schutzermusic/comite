@@ -101,6 +101,7 @@ export type ContractRow = {
   risk_level: RiskLevel;
   health_score: number | string | null;
   owner_user_id: string | null;
+  owner_person_id?: string | null;
   created_by: string | null;
   updated_by: string | null;
   created_at: string;
@@ -576,6 +577,7 @@ export type CreateContractInput = {
   riskLevel?: RiskLevel;
   healthScore?: number | null;
   ownerUserId?: string | null;
+  ownerPersonId?: string | null;
   file?: File | null;
   /**
    * Origem do contrato (migration 091). OBRIGATÓRIA e sem valor padrão neste
@@ -886,7 +888,11 @@ export async function createContract(input: CreateContractInput): Promise<Contra
       risk_level: input.riskLevel || 'medium',
       health_score: input.healthScore ?? null,
       data_class: input.dataClass,
-      owner_user_id: input.ownerUserId || user.id,
+      // A canonical Person is business responsibility; the authenticated user
+      // remains only the actor. Legacy callers without a Person keep the old
+      // owner_user_id fallback for backwards compatibility.
+      owner_user_id: input.ownerPersonId ? (input.ownerUserId || null) : (input.ownerUserId || user.id),
+      owner_person_id: input.ownerPersonId || null,
       created_by: user.id,
       updated_by: user.id,
     })
@@ -946,6 +952,7 @@ const CONTRACT_UPDATE_COLUMNS = {
   riskLevel: 'risk_level',
   healthScore: 'health_score',
   ownerUserId: 'owner_user_id',
+  ownerPersonId: 'owner_person_id',
 } as const satisfies Record<keyof UpdateContractInput, string>;
 
 /**

@@ -24,6 +24,7 @@ export interface Person {
   /** CPF (11 dígitos) — chave legal do trabalhador (Portaria 671) */
   cpf: string | null;
   email: string | null;
+  phone?: string | null;
   jobTitle: string | null;
   department: string | null;
   contractType: PersonContractType | null;

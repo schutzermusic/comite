@@ -147,7 +147,7 @@ export function ProjetosEmAndamento() {
                   <div className="flex items-center justify-between">
                     <span className="text-slate-600 flex items-center gap-1">
                       <User className="w-3 h-3" />
-                      {projeto.responsavel.nome}
+                      {projeto.responsavel?.nome || 'Não definido'}
                     </span>
                     <span className="text-slate-600 flex items-center gap-1">
                       <TrendingUp className="w-3 h-3" />
@@ -197,4 +197,3 @@ export function ProjetosEmAndamento() {
     </GlassCard>
   );
 }
-
