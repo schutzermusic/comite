@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { authorizePlatformCron } from '@/lib/platform/cron-auth';
 import { drainOnce, DEFAULT_LIMITS } from '@/lib/platform/jobs/worker';
+import { isDrainPaused } from '@/lib/platform/jobs/hold';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -27,9 +28,28 @@ async function handle(req: Request) {
   const triggeredBy = req.headers.get('x-apex-trigger')
     ?? (req.headers.get('x-vercel-cron') ? 'vercel-cron' : 'manual');
 
+  /*
+    Sob trava, a resposta é SUCESSO com `paused: true`.
+
+    Não é erro de propósito: um 5xx faria o agendador da hospedagem registrar o
+    cron como quebrado, alertar sobre ele e eventualmente desabilitá-lo — e aí
+    a trava, que é temporária e deliberada, viraria um defeito de
+    infraestrutura que alguém teria de consertar depois de a trava sair.
+
+    E não relata trabalho processado. Devolver contadores zerados sem dizer
+    `paused` seria indistinguível de uma fila vazia, que é exatamente a leitura
+    errada: a fila NÃO está vazia, ela está segurada.
+
+    A autorização continua intacta: a trava é lida DEPOIS do portão, porque
+    quem não pode drenar também não precisa saber se a drenagem está pausada.
+  */
+  if (isDrainPaused()) {
+    return NextResponse.json({ ok: true, paused: true, triggeredBy });
+  }
+
   try {
     const counters = await drainOnce(DEFAULT_LIMITS);
-    return NextResponse.json({ ok: true, triggeredBy, counters });
+    return NextResponse.json({ ok: true, paused: false, triggeredBy, counters });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Erro inesperado.';
     console.error('[api/platform/jobs/drain] failed', { message });

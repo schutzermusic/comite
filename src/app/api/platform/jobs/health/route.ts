@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { authorizePlatformCron } from '@/lib/platform/cron-auth';
 import { platformServiceClient } from '@/lib/platform/server-client';
+import { isDrainPaused } from '@/lib/platform/jobs/hold';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -24,5 +25,11 @@ export async function GET(req: Request) {
     console.error('[api/platform/jobs/health] failed', { message: error.message });
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
-  return NextResponse.json({ ok: true, health: data });
+  /*
+    O BOOLEANO, e nada mais. Sem o nome da variável, sem o seu valor, sem quem
+    a ligou: quem diagnostica precisa saber se a fila está segurada, e isso é
+    uma resposta de uma palavra. Sem ela, uma fila parada sob trava parece
+    idêntica a uma fila parada por defeito.
+  */
+  return NextResponse.json({ ok: true, jobsDrainPaused: isDrainPaused(), health: data });
 }

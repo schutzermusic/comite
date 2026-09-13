@@ -38,6 +38,7 @@ import { JOB_HANDLERS } from './handlers';
 import { classifyJobError, TerminalJobError } from './errors';
 import { isJobType, parseJobPayload, UnknownJobError } from './registry';
 import { SCHEDULED_PRODUCERS } from './producers';
+import { isDrainPaused, DRAIN_PAUSE_ENV } from './hold';
 import type { ClaimedJob, HandlerContext } from './types';
 
 export interface DrainLimits {
@@ -76,6 +77,8 @@ export interface DrainCounters {
   stale_completions: number;
   duration_ms: number;
   stopped_early: boolean;
+  /** A passagem não aconteceu: há trava operacional. Ver `./hold.ts`. */
+  paused: boolean;
 }
 
 export async function drainOnce(
@@ -84,13 +87,38 @@ export async function drainOnce(
 ): Promise<DrainCounters> {
   const startedAt = Date.now();
   const remainingMs = () => limits.timeBudgetMs - (Date.now() - startedAt);
-  const supabase = platformServiceClient();
   const counters: DrainCounters = {
     reaped_released: 0, reaped_dead_lettered: 0, producers_enqueued: 0,
     events_routed: 0, events_routing_failed: 0, jobs_created: 0,
     claimed: 0, completed: 0, retried: 0, dead_letter: 0, stale_completions: 0,
-    duration_ms: 0, stopped_early: false,
+    duration_ms: 0, stopped_early: false, paused: false,
   };
+
+  /*
+    ---- 0 · a TRAVA OPERACIONAL ----
+
+    Antes de tudo, e deliberadamente antes até de abrir o cliente do banco: a
+    passagem inteira é ceifa, produção, roteamento e execução, e CADA uma
+    escreve. Sair aqui é a única forma de garantir que nenhuma delas começou.
+
+    O que a trava preserva é o estado da fila EXATAMENTE como está: nenhuma
+    concessão, nenhuma tentativa consumida, nenhum status alterado, nenhum
+    handler executado — e, por consequência, nenhuma chamada a provedor.
+
+    UM registro por passagem, e não um por trabalho na fila: uma trava que
+    gritasse o tamanho do backlog a cada batida afogaria o log justamente
+    quando alguém precisa lê-lo.
+  */
+  if (isDrainPaused()) {
+    counters.paused = true;
+    counters.duration_ms = Date.now() - startedAt;
+    console.info('[apex-jobs] drain paused by operational hold', {
+      worker: workerId, flag: DRAIN_PAUSE_ENV,
+    });
+    return counters;
+  }
+
+  const supabase = platformServiceClient();
 
   // ---- 1 · ceifar ----
   const reap = await supabase.rpc('apex_jobs_reap', { p_limit: limits.reapBatch });
