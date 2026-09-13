@@ -27,6 +27,22 @@
 -- reconciliação DETERMINÍSTICA. Não é redesenho: é uma coluna anulável, com a
 -- mesma FK composta de inquilino que o resto do módulo já usa.
 --
+-- ─── ORDEM DE RELEASE — não é opcional ──────────────────────────────────────
+--
+--   1. aplicar ESTA migration
+--   2. publicar o código novo
+--   3. só então recuperar o trabalho legado
+--
+-- O código novo ESCREVE `execution_job_id` ao inserir em `contract_ai_analyses`.
+-- Publicá-lo contra um banco sem esta coluna faz TODA leitura de contrato
+-- falhar na primeira escrita — a análise nem chega a nascer. Não existe "deploy
+-- primeiro, migra depois" aqui.
+--
+-- O contrário é seguro, e é por isso que esta migration é ADITIVA: a coluna é
+-- anulável e nenhum `NOT NULL`, `DEFAULT` ou gatilho a exige. O código ANTIGO,
+-- que insere sem mencioná-la, continua funcionando entre o passo 1 e o passo 2.
+-- Essa é a janela que torna a ordem segura executável sem downtime.
+--
 -- ─── O que esta migration NÃO faz ───────────────────────────────────────────
 --
 -- Não toca em nenhuma linha de produção. Não repara, não enfileira, não
@@ -123,23 +139,39 @@ BEGIN
        SET status = 'failed',
            completed_at = now(),
            /*
-             Motivo de MÁQUINA. Não é "o modelo falhou" — ninguém sabe se o
-             modelo falhou, e afirmar isso mandaria quem investiga olhar para o
-             provedor em vez de para a hospedagem. O que se sabe é que a
-             execução foi encerrada sem concluir.
+             Motivo de MÁQUINA, e só o que é DEMONSTRÁVEL.
+
+             Não é "o modelo falhou": ninguém sabe se o modelo falhou, e afirmar
+             isso mandaria quem investiga olhar para o provedor em vez de para a
+             hospedagem.
+
+             E também não é "nenhuma resposta chegou". Depois de o processo ser
+             morto, isso é INCOGNOSCÍVEL: a resposta pode ter chegado inteira,
+             ter sido consumida pelo stream e ter morrido antes da escrita — e
+             nesse caso o custo do provedor já foi pago. Dizer o contrário
+             esconderia gasto real.
+
+             O único fato determinístico é o da APLICAÇÃO: ela não persistiu um
+             resultado antes de a execução ser abandonada.
            */
            error_message = 'WORKER_EXECUTION_TERMINATED',
            extracted_data = a.extracted_data || jsonb_build_object(
              'reconciliation', jsonb_build_object(
                'reason', 'WORKER_EXECUTION_TERMINATED',
-               'detail', 'A execução que iniciou esta análise perdeu a concessão sem concluir.',
+               'detail', 'A execução foi encerrada antes de concluir e persistir o resultado.',
                'execution_job_id', o.job_id,
                'job_status_at_reconciliation', o.job_status,
                'attempt_count', o.attempt_count,
                'max_attempts', o.max_attempts,
                'reconciled_at', to_jsonb(now()),
-               -- Nenhuma resposta de provedor foi recebida, e nenhuma é inventada.
-               'provider_response_received', false,
+               /*
+                 O que se afirma é o que se pode provar. Se o provedor respondeu
+                 — e portanto se houve custo — é INCOGNOSCÍVEL depois de o
+                 processo morrer: por isso `unknown`, e não `false`.
+                 O que É determinístico é que nada foi persistido.
+               */
+               'provider_response_state', 'unknown',
+               'provider_response_persisted', false,
                -- Nenhum humano agiu. Registrar o contrário seria fabricar revisão.
                'human_action', false))
       FROM orphan o
@@ -172,7 +204,7 @@ BEGIN
            -- estados terminais.
            completed_at = CASE WHEN o.job_status = 'PENDING' THEN NULL ELSE now() END,
            error_code = 'worker_execution_terminated',
-           error_safe = 'A execução perdeu a concessão sem concluir; nenhuma resposta do provedor foi recebida.'
+           error_safe = 'A execução foi encerrada antes de concluir e persistir o resultado.'
       FROM orphan o
      WHERE r.id = o.id
     RETURNING r.id
@@ -216,15 +248,38 @@ COMMENT ON FUNCTION public.contracts_reconcile_orphaned_executions(integer) IS
 -- cláusulas": cláusulas podem vir de uma análise anterior, de importação ou de
 -- digitação humana, e nenhuma dessas diz que ESTA execução terminou a leitura.
 --
--- ─── A ponte legada, e por que ela é estreita ───────────────────────────────
+-- ─── A ponte legada, e por que ela é ESTREITA DOS DOIS LADOS ────────────────
 --
--- Daqui para a frente a prova é exata: `execution_job_id = j.id`. Para as
--- linhas anteriores a esta migration a coluna é nula, e a única âncora durável
--- que resta é a JANELA DA PRÓPRIA EXECUÇÃO: `a.created_at >= j.locked_at`, com
--- o mesmo contrato e documento do payload do trabalho. É por isso que a função
--- exige o trabalho ainda com `locked_at` preenchido — e outra razão para ela
--- aceitar um trabalho PROCESSING de concessão vencida, que é o estado em que o
--- órfão está antes de qualquer ceifa.
+-- Daqui para a frente a prova é exata: `execution_job_id = j.id`. Para as linhas
+-- anteriores a esta migration a coluna é nula, e é preciso uma JANELA — mas uma
+-- janela só é prova quando tem os dois lados.
+--
+-- Uma versão anterior desta função usava apenas `a.created_at >= j.locked_at`.
+-- Isso tem dois defeitos, e os dois são fatais:
+--
+--   1. SEM TETO. Qualquer extração posterior e INDEPENDENTE do mesmo documento
+--      cairia na janela, e o `ORDER BY completed_at DESC LIMIT 1` a adotaria
+--      como prova desta execução. Seria a heurística de "análise mais recente"
+--      entrando pela porta dos fundos.
+--
+--   2. ÂNCORA VOLÁTIL. A ceifa ZERA `locked_at`. Um trabalho já ceifado — que é
+--      exatamente o estado em que um órfão passa a maior parte do tempo — perde
+--      a âncora, e a ponte deixa de resolver para sempre.
+--
+-- A janela correta usa duas marcas DURÁVEIS, que nenhuma ceifa apaga:
+--
+--   piso  = `j.created_at`     — a extração do trabalho não pode ser anterior
+--                                ao próprio trabalho;
+--   teto  = o instante em que a operacionalização órfã COMEÇOU — porque, na
+--           forma combinada legada, a extração necessariamente terminou ANTES
+--           de a operacionalização começar.
+--
+-- Sem essa análise de operacionalização órfã não existe teto determinístico, e
+-- a função RECUSA em vez de inventar um. Falhar fechado.
+--
+-- E não se escolhe "a melhor" candidata: CONTA-SE. Zero é `extraction_not_proven`,
+-- mais de uma é `extraction_ambiguous`, e as duas escrevem nada. Só um conjunto
+-- de tamanho exatamente um é prova — porque só aí a identificação é inequívoca.
 --
 -- A ponte NÃO se aplica a análises que já têm proveniência: quando
 -- `execution_job_id` está preenchido e aponta para outra execução, a análise
@@ -249,6 +304,9 @@ DECLARE
   v_request      public.contract_clause_extraction_requests%ROWTYPE;
   v_extraction   public.contract_ai_analyses%ROWTYPE;
   v_orphan_ops   public.contract_ai_analyses%ROWTYPE;
+  v_upper_bound  timestamptz;
+  v_candidates   integer;
+  v_orphans_closed integer := 0;
   v_idempotency  text;
   v_existing_job uuid;
   v_enqueued     uuid;
@@ -293,6 +351,27 @@ BEGIN
                               'dry_run', p_dry_run);
   END IF;
 
+  /*
+    Já recuperado. Sai AQUI, e não mais adiante, porque a própria recuperação
+    fecha a operacionalização órfã — e sem ela a janela de prova perde o teto.
+    Uma segunda chamada cairia em `upper_boundary_unavailable`, que é seguro (não
+    escreve nada) mas MENTE sobre o motivo: sugere um defeito de dados onde o que
+    houve foi sucesso. Idempotência tem de devolver a verdade, não só o silêncio.
+  */
+  IF j.status = 'CANCELLED' AND j.last_error_code = 'recovered_without_extraction_rerun' THEN
+    SELECT id INTO v_existing_job FROM public.apex_jobs
+     WHERE organization_id = j.organization_id
+       AND job_type = 'contracts.contract_operationalization.execute'
+       AND idempotency_key = 'contract-operationalization:'
+         || (j.payload->>'contract_id') || ':' || (j.payload->>'document_id') || ':'
+         || (j.payload->>'request_id') || ':' || p_operationalization_version;
+    RETURN jsonb_build_object('recoverable', false, 'reason', 'job_already_recovered',
+                              'job_id', j.id,
+                              'operationalization_job_id', v_existing_job,
+                              'clause_extraction_rerun', false,
+                              'dry_run', p_dry_run);
+  END IF;
+
   v_contract := (j.payload->>'contract_id')::uuid;
   v_document := (j.payload->>'document_id')::uuid;
   IF v_contract IS NULL OR v_document IS NULL THEN
@@ -307,35 +386,16 @@ BEGIN
                               'dry_run', p_dry_run);
   END IF;
 
-  -- ── prova durável da extração ───────────────────────────────────────────
+  -- ── caminho EXATO: proveniência de execução (linhas pós-168) ────────────
   SELECT * INTO v_extraction FROM public.contract_ai_analyses a
    WHERE a.organization_id = j.organization_id
+     AND a.execution_job_id = j.id
      AND a.contract_id = v_contract
      AND a.document_id = v_document
      AND a.status = 'completed'
-     AND a.extracted_data->>'kind' = 'clause_extraction'
-     AND (a.execution_job_id = j.id
-          OR (a.execution_job_id IS NULL
-              AND j.locked_at IS NOT NULL
-              AND a.created_at >= j.locked_at))
-   ORDER BY a.completed_at DESC
-   LIMIT 1;
-  IF NOT FOUND THEN
-    /*
-      Sem prova, a recuperação NÃO acontece. O trabalho segue o caminho normal
-      da fila e roda a extração — que é o certo, porque não se sabe se ela
-      terminou. Inferir conclusão da mera existência de cláusulas seria pular
-      uma leitura que talvez nunca tenha sido feita.
-    */
-    RETURN jsonb_build_object('recoverable', false, 'reason', 'extraction_not_proven',
-                              'job_id', j.id, 'contract_id', v_contract,
-                              'document_id', v_document, 'dry_run', p_dry_run);
-  END IF;
+     AND a.extracted_data->>'kind' = 'clause_extraction';
 
-  v_structured := NULLIF(v_extraction.extracted_data->>'structured', '')::integer;
-  v_rejected := NULLIF(v_extraction.extracted_data->>'rejected_without_evidence', '')::integer;
-
-  -- ── a operacionalização órfã da MESMA execução ──────────────────────────
+  -- ── a operacionalização órfã: é ela quem dá o TETO da janela legada ─────
   SELECT * INTO v_orphan_ops FROM public.contract_ai_analyses a
    WHERE a.organization_id = j.organization_id
      AND a.contract_id = v_contract
@@ -343,11 +403,75 @@ BEGIN
      AND a.status = 'running'
      AND a.extracted_data->>'kind' = 'contract_operationalization'
      AND (a.execution_job_id = j.id
-          OR (a.execution_job_id IS NULL
-              AND j.locked_at IS NOT NULL
-              AND a.created_at >= j.locked_at))
-   ORDER BY a.created_at DESC
+          OR (a.execution_job_id IS NULL AND a.created_at >= j.created_at))
+   ORDER BY a.created_at
    LIMIT 1;
+  v_upper_bound := COALESCE(v_orphan_ops.started_at, v_orphan_ops.created_at);
+
+  IF v_extraction.id IS NULL THEN
+    -- ── ponte legada: janela LIMITADA DOS DOIS LADOS, e contagem ─────────
+    IF v_upper_bound IS NULL THEN
+      /*
+        Sem a operacionalização órfã não há teto determinístico para a janela, e
+        um piso sozinho adotaria como prova qualquer extração posterior e
+        independente do mesmo documento. Recusar é a resposta correta.
+      */
+      RETURN jsonb_build_object('recoverable', false, 'reason', 'upper_boundary_unavailable',
+                                'job_id', j.id, 'contract_id', v_contract,
+                                'document_id', v_document, 'dry_run', p_dry_run);
+    END IF;
+
+    SELECT count(*)::integer INTO v_candidates FROM public.contract_ai_analyses a
+     WHERE a.organization_id = j.organization_id
+       AND a.contract_id = v_contract
+       AND a.document_id = v_document
+       AND a.status = 'completed'
+       AND a.extracted_data->>'kind' = 'clause_extraction'
+       AND a.execution_job_id IS NULL
+       AND a.created_at >= j.created_at
+       AND a.completed_at IS NOT NULL
+       AND a.completed_at <= v_upper_bound;
+
+    IF v_candidates = 0 THEN
+      /*
+        Sem prova, a recuperação NÃO acontece. O trabalho segue o caminho normal
+        da fila e roda a extração — que é o certo, porque não se sabe se ela
+        terminou. Inferir conclusão da mera existência de cláusulas seria pular
+        uma leitura que talvez nunca tenha sido feita.
+      */
+      RETURN jsonb_build_object('recoverable', false, 'reason', 'extraction_not_proven',
+                                'job_id', j.id, 'contract_id', v_contract,
+                                'document_id', v_document,
+                                'candidates', 0, 'dry_run', p_dry_run);
+    END IF;
+    IF v_candidates > 1 THEN
+      /*
+        Mais de uma extração concluída na janela: não dá para dizer QUAL é a
+        desta execução. Escolher "a mais recente" seria exatamente a heurística
+        que esta função existe para não usar.
+      */
+      RETURN jsonb_build_object('recoverable', false, 'reason', 'extraction_ambiguous',
+                                'job_id', j.id, 'contract_id', v_contract,
+                                'document_id', v_document,
+                                'candidates', v_candidates, 'dry_run', p_dry_run);
+    END IF;
+
+    SELECT * INTO v_extraction FROM public.contract_ai_analyses a
+     WHERE a.organization_id = j.organization_id
+       AND a.contract_id = v_contract
+       AND a.document_id = v_document
+       AND a.status = 'completed'
+       AND a.extracted_data->>'kind' = 'clause_extraction'
+       AND a.execution_job_id IS NULL
+       AND a.created_at >= j.created_at
+       AND a.completed_at IS NOT NULL
+       AND a.completed_at <= v_upper_bound;
+  ELSE
+    v_candidates := 1;
+  END IF;
+
+  v_structured := NULLIF(v_extraction.extracted_data->>'structured', '')::integer;
+  v_rejected := NULLIF(v_extraction.extracted_data->>'rejected_without_evidence', '')::integer;
 
   -- ── a chave determinística, idêntica à que o handler produz ─────────────
   v_idempotency := 'contract-operationalization:' || v_contract::text || ':'
@@ -383,12 +507,34 @@ BEGIN
                   THEN 'Enfileira exatamente uma operacionalização dedicada.'
                   ELSE 'Já existe: a chave determinística devolve o mesmo trabalho, sem duplicar.' END));
 
-  IF v_orphan_ops.id IS NOT NULL THEN
+  /*
+    Toda análise ainda `running` da janela desta execução entra no plano — e não
+    só a operacionalização. O trabalho combinado legado pode ter sido tentado
+    mais de uma vez, e cada tentativa morta deixou a sua própria linha
+    `running`. Fechar uma e deixar as outras devolveria uma tela que continua
+    dizendo "analisando" depois da recuperação.
+
+    `execution_job_id IS NULL` mantém isto dentro do legado: linhas com
+    proveniência pertencem à reconciliação genérica, que sabe exatamente de quem
+    elas são.
+  */
+  SELECT count(*)::integer INTO v_orphans_closed FROM public.contract_ai_analyses a
+   WHERE a.organization_id = j.organization_id
+     AND a.contract_id = v_contract
+     AND a.document_id = v_document
+     AND a.status = 'running'
+     AND a.execution_job_id IS NULL
+     AND a.created_at >= j.created_at;
+
+  IF v_orphans_closed > 0 THEN
     v_mutations := v_mutations || jsonb_build_array(jsonb_build_object(
-      'table', 'contract_ai_analyses', 'id', v_orphan_ops.id,
+      'table', 'contract_ai_analyses', 'action', 'CLOSE_ORPHANS',
+      'count', v_orphans_closed,
+      'orphan_operationalization_analysis_id', v_orphan_ops.id,
       'from', jsonb_build_object('status', 'running'),
       'to', jsonb_build_object('status', 'failed', 'error_message', 'WORKER_EXECUTION_TERMINATED'),
-      'why', 'A execução foi encerrada pela hospedagem; nenhuma resposta do provedor chegou.'));
+      'why', 'A execução foi encerrada antes de concluir e persistir o resultado. '
+          || 'Se o provedor respondeu é incognoscível; o que se sabe é que nada foi persistido.'));
   END IF;
 
   -- As cláusulas e a análise de extração aparecem no plano como PRESERVADAS,
@@ -408,6 +554,12 @@ BEGIN
       'extraction_analysis_id', v_extraction.id,
       'extraction_completed_at', to_jsonb(v_extraction.completed_at),
       'orphan_operationalization_analysis_id', v_orphan_ops.id,
+      -- A janela inteira, por escrito: quem autoriza a execução vê em que
+      -- limites a prova foi procurada, e quantas candidatas havia.
+      'proof_window_lower', to_jsonb(j.created_at),
+      'proof_window_upper', to_jsonb(v_upper_bound),
+      'candidates', v_candidates,
+      'orphan_analyses_to_close', v_orphans_closed,
       'operationalization_idempotency_key', v_idempotency,
       'operationalization_job_existing', v_existing_job,
       'clause_extraction_would_rerun', false,
@@ -423,20 +575,27 @@ BEGIN
                         || 'e a operacionalização foi enfileirada como trabalho dedicado.'
    WHERE id = j.id;
 
-  IF v_orphan_ops.id IS NOT NULL THEN
-    UPDATE public.contract_ai_analyses a
-       SET status = 'failed', completed_at = now(),
-           error_message = 'WORKER_EXECUTION_TERMINATED',
-           extracted_data = a.extracted_data || jsonb_build_object(
-             'reconciliation', jsonb_build_object(
-               'reason', 'WORKER_EXECUTION_TERMINATED',
-               'detail', 'Execução combinada legada encerrada pela hospedagem antes de concluir.',
-               'execution_job_id', j.id,
-               'reconciled_at', to_jsonb(now()),
-               'provider_response_received', false,
-               'human_action', false))
-     WHERE a.id = v_orphan_ops.id AND a.status = 'running';
-  END IF;
+  UPDATE public.contract_ai_analyses a
+     SET status = 'failed', completed_at = now(),
+         error_message = 'WORKER_EXECUTION_TERMINATED',
+         extracted_data = a.extracted_data || jsonb_build_object(
+           'reconciliation', jsonb_build_object(
+             'reason', 'WORKER_EXECUTION_TERMINATED',
+             'detail', 'A execução foi encerrada antes de concluir e persistir o resultado.',
+             'execution_job_id', j.id,
+             'legacy_recovery', true,
+             'reconciled_at', to_jsonb(now()),
+             -- Incognoscível depois de o processo morrer; nada é inventado, e
+             -- nenhum uso/token é fabricado.
+             'provider_response_state', 'unknown',
+             'provider_response_persisted', false,
+             'human_action', false))
+   WHERE a.organization_id = j.organization_id
+     AND a.contract_id = v_contract
+     AND a.document_id = v_document
+     AND a.status = 'running'
+     AND a.execution_job_id IS NULL
+     AND a.created_at >= j.created_at;
 
   UPDATE public.contract_clause_extraction_requests
      SET status = 'COMPLETED', completed_at = now(),
@@ -461,6 +620,10 @@ BEGIN
     'document_id', v_document,
     'extraction_analysis_id', v_extraction.id,
     'orphan_operationalization_analysis_id', v_orphan_ops.id,
+    'proof_window_lower', to_jsonb(j.created_at),
+    'proof_window_upper', to_jsonb(v_upper_bound),
+    'candidates', v_candidates,
+    'orphan_analyses_closed', v_orphans_closed,
     'operationalization_idempotency_key', v_idempotency,
     'operationalization_job_id', v_enqueued,
     'operationalization_job_was_existing', v_existing_job IS NOT NULL,
@@ -473,7 +636,9 @@ REVOKE ALL ON FUNCTION public.contracts_recover_legacy_extraction_job(uuid, text
 COMMENT ON FUNCTION public.contracts_recover_legacy_extraction_job(uuid, text, integer, boolean) IS
   'Recupera um trabalho COMBINADO legado (extração + operacionalização) cuja '
   'extração já concluiu, sem rodar o extrator de novo. Dry-run por padrão. '
-  'Recusa quando a concessão ainda está viva, quando o trabalho já concluiu ou '
-  'quando não há prova durável de extração concluída.';
+  'FALHA FECHADO: recusa com concessão viva, com trabalho já concluído, sem '
+  'teto determinístico para a janela de prova, com zero candidatas '
+  '(extraction_not_proven) e com mais de uma (extraction_ambiguous). Só um '
+  'conjunto de tamanho exatamente um é prova.';
 
 COMMIT;

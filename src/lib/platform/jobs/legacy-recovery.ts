@@ -20,6 +20,16 @@
  * escrito, e o plano que a chamada devolve antes é o que torna essa decisão
  * informada: ele lista cada transição, com o motivo, sem escrever nada.
  *
+ * ─── ORDEM DE RELEASE ──────────────────────────────────────────────────────
+ *
+ *   1. aplicar a migration 168
+ *   2. publicar o código novo
+ *   3. só então chamar esta recuperação
+ *
+ * Não é preferência: o código novo escreve `execution_job_id`, coluna que a 168
+ * cria. Publicá-lo antes faz toda leitura de contrato falhar na primeira
+ * escrita. Ver o cabeçalho da migration.
+ *
  * ─── O que este módulo NÃO decide ──────────────────────────────────────────
  *
  * Se a extração concluiu. Isso é uma pergunta sobre EVIDÊNCIA DURÁVEL, e a
@@ -45,8 +55,12 @@ export type LegacyRecoveryPlan =
       readonly recoverable: false;
       readonly reason:
         | 'job_not_found' | 'not_a_legacy_extraction_job' | 'lease_still_live'
-        | 'job_already_completed' | 'payload_without_identity' | 'request_not_found'
-        | 'extraction_not_proven';
+        | 'job_already_completed' | 'job_already_recovered' | 'payload_without_identity'
+        | 'request_not_found' | 'upper_boundary_unavailable'
+        // Zero candidatas e mais de uma são recusas DIFERENTES: a primeira diz
+        // "talvez a leitura nunca tenha acontecido", a segunda diz "aconteceu,
+        // mas não dá para saber qual". Ambas falham fechado, sem escrever.
+        | 'extraction_not_proven' | 'extraction_ambiguous';
       readonly dry_run: boolean;
       readonly [key: string]: unknown;
     }
@@ -60,6 +74,10 @@ export type LegacyRecoveryPlan =
       readonly document_id: string;
       readonly extraction_analysis_id: string;
       readonly orphan_operationalization_analysis_id: string | null;
+      /** A janela em que a prova foi procurada, e quantas candidatas havia. */
+      readonly proof_window_lower: string;
+      readonly proof_window_upper: string;
+      readonly candidates: number;
       readonly operationalization_idempotency_key: string;
       readonly operationalization_job_id?: string;
       readonly mutations: readonly PlannedMutation[];

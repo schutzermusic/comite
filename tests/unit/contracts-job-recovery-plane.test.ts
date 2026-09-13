@@ -32,7 +32,9 @@ import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   APEX_CONFIGURED_HOST_CEILING,
+  DEPLOY_BEFORE_MIGRATION_SAFE,
   OPERATIONALIZATION_JOB_MAX_ATTEMPTS,
+  RELEASE_ORDER,
 } from '@/lib/platform/jobs/budget';
 import { getApexAITaskPolicy } from '@/lib/ai/gateway/task-registry';
 
@@ -370,10 +372,29 @@ describe('reconciliação de execuções órfãs', () => {
 
   it('o motivo é de MÁQUINA, e não uma falha de provedor inventada', () => {
     expect(MIGRATION).toContain("error_message = 'WORKER_EXECUTION_TERMINATED'");
-    expect(MIGRATION).toContain("'provider_response_received', false");
     // Nenhuma revisão humana é fabricada.
     expect(MIGRATION).toContain("'human_action', false");
     expect(MIGRATION).not.toMatch(/error_message = '.*provider_failed/i);
+  });
+
+  it('não afirma que a resposta do provedor NÃO chegou — isso é incognoscível', () => {
+    /*
+      Depois de o processo ser morto, ninguém sabe se a resposta chegou. Ela pode
+      ter chegado inteira, ter sido consumida pelo stream e ter morrido antes da
+      escrita — e nesse caso o custo do provedor JÁ FOI PAGO. Escrever "nenhuma
+      resposta foi recebida" esconderia gasto real.
+
+      O único fato determinístico é o da aplicação: ela não persistiu resultado.
+    */
+    expect(MIGRATION).toContain("'provider_response_state', 'unknown'");
+    expect(MIGRATION).toContain("'provider_response_persisted', false");
+    expect(MIGRATION).not.toContain('provider_response_received');
+    expect(MIGRATION).not.toContain('nenhuma resposta do provedor foi recebida');
+    // E a mensagem segura fala de PERSISTÊNCIA, não de recebimento.
+    expect(MIGRATION).toContain(
+      "error_safe = 'A execução foi encerrada antes de concluir e persistir o resultado.'");
+    // Nenhum uso/token é fabricado em lugar nenhum da reconciliação.
+    expect(MIGRATION).not.toMatch(/reconciliation[\s\S]{0,600}(input_tokens|output_tokens|'usage')/);
   });
 
   it('o destino do pedido segue o do TRABALHO, não o da análise', () => {
@@ -403,10 +424,47 @@ describe('recuperação do trabalho combinado legado', () => {
     expect(recovery).toContain("'reason', 'extraction_not_proven'");
   });
 
-  it('a ponte legada é estreita: janela da PRÓPRIA execução, só sem proveniência', () => {
+  it('a ponte legada tem os DOIS lados, e ambos são âncoras duráveis', () => {
     expect(recovery).toContain('a.execution_job_id = j.id');
     expect(recovery).toContain('a.execution_job_id IS NULL');
-    expect(recovery).toContain('a.created_at >= j.locked_at');
+    /*
+      Piso `j.created_at` e não `j.locked_at`: a ceifa ZERA `locked_at`, e um
+      órfão passa a maior parte da vida já ceifado — a âncora volátil deixaria
+      a ponte sem resolver para sempre. `created_at` nenhuma ceifa apaga.
+    */
+    expect(recovery).toContain('a.created_at >= j.created_at');
+    expect(recovery).not.toContain('a.created_at >= j.locked_at');
+    // Teto: a extração necessariamente terminou antes de a operacionalização começar.
+    expect(recovery).toContain('a.completed_at <= v_upper_bound');
+    expect(recovery).toContain(
+      'v_upper_bound := COALESCE(v_orphan_ops.started_at, v_orphan_ops.created_at)');
+  });
+
+  it('sem teto determinístico, RECUSA em vez de inventar um', () => {
+    expect(recovery).toContain("'reason', 'upper_boundary_unavailable'");
+    expect(recovery).toContain('IF v_upper_bound IS NULL THEN');
+  });
+
+  it('CONTA candidatas, e só um conjunto de tamanho um é prova', () => {
+    // Escolher "a melhor" seria a heurística de "análise mais recente" entrando
+    // pela porta dos fundos. Conta-se, e fora de exatamente 1 não se escreve.
+    expect(recovery).toContain('SELECT count(*)::integer INTO v_candidates');
+    expect(recovery).toContain('IF v_candidates = 0 THEN');
+    expect(recovery).toContain('IF v_candidates > 1 THEN');
+    expect(recovery).toContain("'reason', 'extraction_ambiguous'");
+    // E em nenhum ramo de prova sobrou um ORDER BY ... LIMIT 1 escolhendo.
+    expect(recovery).not.toMatch(/kind' = 'clause_extraction'[\s\S]{0,400}ORDER BY a\.completed_at DESC/);
+  });
+
+  it('já recuperado devolve a VERDADE, e não uma recusa enganosa', () => {
+    /*
+      A própria recuperação fecha a operacionalização órfã, e sem ela a janela
+      perde o teto. Sem esta saída, a segunda chamada cairia em
+      `upper_boundary_unavailable` — seguro, mas mentindo sobre o motivo.
+    */
+    expect(recovery).toContain("'reason', 'job_already_recovered'");
+    expect(recovery).toContain(
+      "IF j.status = 'CANCELLED' AND j.last_error_code = 'recovered_without_extraction_rerun' THEN");
   });
 
   it('concessão viva é recusada: há um trabalhador executando agora', () => {
@@ -492,6 +550,31 @@ describe('cadência de recuperação e teto configurado', () => {
   const vercelConfig = JSON.parse(source('vercel.json')) as {
     crons: { path: string; schedule: string }[];
   };
+
+  it('a ordem de release é MIGRATION ANTES DO CÓDIGO, e está no código', () => {
+    /*
+      O código novo escreve `execution_job_id`. Publicá-lo contra um banco sem a
+      168 faz toda leitura de contrato falhar na PRIMEIRA escrita — a análise nem
+      chega a nascer. Uma afirmação anterior de que dava para publicar antes
+      estava errada, e errado num runbook custa um incidente.
+    */
+    expect(DEPLOY_BEFORE_MIGRATION_SAFE).toBe(false);
+    expect(RELEASE_ORDER).toEqual([
+      'apply migration 168', 'deploy application code', 'run legacy recovery']);
+
+    // A ordem inversa só é segura porque a 168 é ADITIVA: nada exige a coluna.
+    const column = MIGRATION.slice(MIGRATION.indexOf('ADD COLUMN IF NOT EXISTS execution_job_id'));
+    expect(column.slice(0, 120)).toContain('execution_job_id uuid');
+    expect(column.slice(0, 120)).not.toContain('NOT NULL');
+    expect(column.slice(0, 120)).not.toContain('DEFAULT');
+    expect(MIGRATION).toContain('ORDEM DE RELEASE');
+
+    // E os dois escritores da coluna existem de fato — é o que torna a ordem obrigatória.
+    for (const file of ['src/lib/ai/contract-clause-extractor.ts',
+      'src/lib/ai/contract-operationalization.ts']) {
+      expect(source(file)).toContain('execution_job_id: executionJobId');
+    }
+  });
 
   it('o teto é a nossa CONFIGURAÇÃO, e não um máximo da plataforma', () => {
     expect(APEX_CONFIGURED_HOST_CEILING).toBe(300);

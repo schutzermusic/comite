@@ -62,6 +62,29 @@
 export const APEX_CONFIGURED_HOST_CEILING = 300;
 
 /**
+ * ORDEM DE RELEASE desta linha de trabalho — migration ANTES do código.
+ *
+ * O código novo escreve `contract_ai_analyses.execution_job_id`, coluna criada
+ * pela migration 168. Publicá-lo contra um banco sem a coluna faz toda leitura
+ * de contrato falhar na PRIMEIRA escrita: a análise nem chega a nascer.
+ *
+ * A ordem inversa é segura porque a 168 é aditiva — coluna anulável, sem
+ * `NOT NULL`, sem `DEFAULT`, sem gatilho que a exija. O código antigo continua
+ * funcionando entre os passos 1 e 2, e é essa janela que permite publicar sem
+ * downtime.
+ *
+ * Está aqui, e não só num runbook, porque runbook se perde e teste não.
+ */
+export const RELEASE_ORDER = [
+  'apply migration 168',
+  'deploy application code',
+  'run legacy recovery',
+] as const;
+
+/** Publicar o código novo contra um banco sem a 168 NUNCA é seguro. */
+export const DEPLOY_BEFORE_MIGRATION_SAFE = false;
+
+/**
  * Nome anterior, preservado para não espalhar renomeação por todo o módulo.
  * O nome novo é o que diz a verdade: é o teto que NÓS configuramos.
  */
