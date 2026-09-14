@@ -4,6 +4,7 @@ if (typeof window !== 'undefined') {
 
 import Anthropic from '@anthropic-ai/sdk';
 import { ApexAIError } from './errors';
+import { describeContentBlocks } from './response-diagnostics';
 import type {
   ApexAIAdapterRequest,
   ApexAIAdapterResponse,
@@ -80,11 +81,28 @@ export class AnthropicApexAdapter implements ApexAIProviderAdapter {
       ? await sdk.messages.stream(params, { signal }).finalMessage()
       : await sdk.messages.create(params, { signal });
 
+    const text = response.content
+      .filter((block): block is Anthropic.TextBlock => block.type === 'text')
+      .map((block) => block.text)
+      .join('');
+
     return {
-      text: response.content
-        .filter((block): block is Anthropic.TextBlock => block.type === 'text')
-        .map((block) => block.text)
-        .join(''),
+      text,
+      /*
+        A FORMA do que veio, para o caso de `text` estar vazio.
+
+        Uma operacionalização real respondeu com sucesso e sem nenhum bloco de
+        texto, e o portão só sabia dizer "veio vazia" — porque o `stop_reason`
+        e o consumo de tokens eram registrados apenas no caminho de sucesso.
+        Descrever os TIPOS de bloco aqui é o que permite distinguir "o
+        orçamento de saída acabou antes do texto" de "o texto veio num bloco
+        que este filtro não lê".
+
+        `describeContentBlocks` recebe os blocos e devolve só tipos e
+        contagens: nenhum conteúdo do modelo, do contrato ou do prompt
+        atravessa esta fronteira.
+      */
+      shape: describeContentBlocks(response.content, text),
       stopReason: response.stop_reason,
       usage: {
         inputTokens: response.usage.input_tokens,

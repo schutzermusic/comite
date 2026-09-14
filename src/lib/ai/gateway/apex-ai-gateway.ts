@@ -3,6 +3,11 @@ if (typeof window !== 'undefined') {
 }
 
 import { ApexAIError } from './errors';
+import {
+  UNKNOWN_RESPONSE_SHAPE,
+  describeResponseDiagnostics,
+  type ApexAIResponseDiagnostics,
+} from './response-diagnostics';
 import { getApexAITaskPolicy } from './task-registry';
 import type {
   ApexAICapabilities,
@@ -61,17 +66,56 @@ export class ApexAIGateway {
             ...request,
             policy: { ...policy, provider, model: route.model },
           }, controller.signal);
+
+          /*
+            ─── O QUE A RESPOSTA DIZ DE SI MESMA, ANTES DE JULGÁ-LA ──────────
+
+            Uma execução real de operacionalização durou 313s, o provedor
+            respondeu com sucesso, e o Apex recusou por texto vazio. A recusa
+            estava certa; o que estava errado é que o `stop_reason`, o consumo
+            de tokens e os tipos de bloco eram registrados só ADIANTE, no
+            caminho de sucesso — que aquela chamada nunca alcançou. Sobrou
+            "veio vazia", e nada com que explicar o vazio.
+
+            O diagnóstico nasce aqui, entre RECEBER e VALIDAR, porque é o único
+            ponto em que ele vale para os dois desfechos. Ele carrega formato e
+            contagem; conteúdo do modelo, do contrato ou do prompt não entra —
+            ver `./response-diagnostics.ts`.
+          */
+          const diagnostics: ApexAIResponseDiagnostics = {
+            stopReason: raw.stopReason,
+            usage: raw.usage,
+            durationMs: Date.now() - startedAt,
+            shape: raw.shape ?? UNKNOWN_RESPONSE_SHAPE,
+          };
+          const reject = (message: string, options?: ErrorOptions) => new ApexAIError(
+            'INVALID_RESPONSE',
+            `${message} [${describeResponseDiagnostics(diagnostics)}]`,
+            false,
+            { task: request.task, provider, diagnostics },
+            options,
+          );
+
           if (!raw.text.trim()) {
-            throw new ApexAIError('INVALID_RESPONSE', 'Resposta da IA veio vazia.', false, {
-              task: request.task,
-              provider,
-            });
+            /*
+              Falha FECHADA: resposta vazia nunca é sucesso, e nada aqui tenta
+              adivinhar o que o modelo queria dizer. O que mudou é só que a
+              recusa passa a ser explicável.
+
+              O diagnóstico vai junto na MENSAGEM, e não apenas no log, porque
+              log de hospedagem expira: o da execução que motivou isto já não
+              existia quando foram procurá-lo horas depois. Gravado ao lado da
+              falha, na linha da própria análise, ele sobrevive. A interface
+              nunca o exibe — ela mostra mensagem de negócio constante e deixa
+              o texto técnico na persistência.
+            */
+            console.warn('[apex-ai-gateway] resposta vazia', JSON.stringify({
+              task: request.task, provider, model: route.model, attempt, ...diagnostics,
+            }));
+            throw reject('Resposta da IA veio vazia.');
           }
           if (raw.stopReason === 'refusal') {
-            throw new ApexAIError('INVALID_RESPONSE', 'A análise foi recusada pela política do modelo.', false, {
-              task: request.task,
-              provider,
-            });
+            throw reject('A análise foi recusada pela política do modelo.');
           }
 
           let output: unknown = raw.text;
@@ -79,11 +123,10 @@ export class ApexAIGateway {
             try {
               output = JSON.parse(raw.text);
             } catch (error) {
-              throw new ApexAIError(
-                'INVALID_RESPONSE',
+              // Mesmo tratamento: a resposta CHEGOU, e o que ela dizia de si
+              // mesma é o que permite separar truncagem de saída malformada.
+              throw reject(
                 'A resposta estruturada da IA não é JSON válido.',
-                false,
-                { task: request.task, provider },
                 error instanceof Error ? { cause: error } : undefined,
               );
             }
@@ -94,10 +137,12 @@ export class ApexAIGateway {
             model: route.model,
             task: request.task,
             usage: raw.usage,
-            durationMs: Date.now() - startedAt,
+            durationMs: diagnostics.durationMs,
             attempts: attempt,
           } as const;
-          console.info('[apex-ai-gateway]', JSON.stringify(provenance));
+          // A forma vai junto no log de sucesso: é a linha de base contra a
+          // qual uma resposta vazia futura passa a ser comparável.
+          console.info('[apex-ai-gateway]', JSON.stringify({ ...provenance, shape: diagnostics.shape }));
           return { text: raw.text, output: output as T, stopReason: raw.stopReason, provenance };
         } catch (error) {
           lastError = error instanceof ApexAIError ? error : adapter.normalizeError(error);

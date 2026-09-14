@@ -99,8 +99,23 @@ export function getApexAITaskPolicy(task: ApexAITask): ApexAITaskPolicy {
     // exatamente ali: no relógio, não no fim da leitura. 450_000 é o valor
     // diagnóstico que cabe no teto de 600s do host preservando a margem de
     // persistência. Ver src/lib/platform/jobs/budget.ts.
+    //
+    // `reasoningEffort: 'medium'` — e SÓ para esta tarefa.
+    //
+    // A execução real de JA10182283 não estourou o tempo: rodou 313s, o
+    // provedor respondeu, e a resposta não trouxe nenhum bloco de texto. Num
+    // pedido com raciocínio adaptativo e teto de saída de 32k, o esforço alto é
+    // a variável que mais disputa esse mesmo teto com a resposta — e uma
+    // resposta que não chega a ser escrita não é uma leitura pior, é leitura
+    // nenhuma.
+    //
+    // Baixar o esforço NÃO baixa a postura: `highRisk` continua verdadeiro, o
+    // modelo continua Sonnet, o teto de saída continua 32k, o tempo limite
+    // continua 450s, e o raciocínio continua LIGADO — 'none' o desligaria, e
+    // não é isso que se quer. É o orçamento entre pensar e responder que muda.
     CONTRACT_OPERATIONALIZATION: highRisk({
       maxTokens: 32_000, timeoutMs: 450_000, stream: true, maxAttempts: 1,
+      reasoningEffort: 'medium',
     }),
     // Amendment interpretation is legally material, but remains on the normal
     // economical Sonnet route. There is deliberately no automatic Opus hop.

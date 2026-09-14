@@ -1,3 +1,4 @@
+import type { ApexAIResponseDiagnostics } from './response-diagnostics';
 import type { ApexAIProvider, ApexAITask } from './types';
 
 export type ApexAIErrorCode =
@@ -17,7 +18,20 @@ export class ApexAIError extends Error {
     public readonly code: ApexAIErrorCode,
     message: string,
     public readonly retryable: boolean,
-    public readonly context: { task?: ApexAITask; provider?: ApexAIProvider; status?: number } = {},
+    public readonly context: {
+      task?: ApexAITask;
+      provider?: ApexAIProvider;
+      status?: number;
+      /**
+       * O que a resposta dizia de si mesma, quando houve resposta.
+       *
+       * Presente exatamente nos casos em que o provedor RESPONDEU e o Apex
+       * recusou o resultado — os casos em que "falhou" sozinho não explica
+       * nada. Formato e contagem apenas; conteúdo nunca. Ver
+       * `./response-diagnostics.ts`.
+       */
+      diagnostics?: ApexAIResponseDiagnostics;
+    } = {},
     options?: ErrorOptions,
   ) {
     super(message, options);

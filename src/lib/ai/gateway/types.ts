@@ -14,6 +14,8 @@ export const APEX_AI_TASKS = [
   'CONTRACT_AMENDMENT_EXTRACTION',
 ] as const;
 
+import type { ApexAIResponseShape } from './response-diagnostics';
+
 export type ApexAITask = (typeof APEX_AI_TASKS)[number];
 export type ApexAIProvider = 'anthropic' | 'openai' | 'google';
 export type ApexAIReasoningEffort = 'none' | 'low' | 'medium' | 'high';
@@ -90,6 +92,14 @@ export interface ApexAIAdapterResponse {
   text: string;
   stopReason: string | null;
   usage: ApexAIUsage;
+  /**
+   * A FORMA da resposta — tipos de bloco e contagens, nunca conteúdo.
+   *
+   * Opcional porque o portão não pode depender de todo adaptador saber
+   * descrever-se: quando falta, o portão assume forma desconhecida em vez de
+   * falhar. Ver `./response-diagnostics.ts`.
+   */
+  shape?: ApexAIResponseShape;
 }
 
 export interface ApexAIProviderAdapter {

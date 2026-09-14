@@ -42,7 +42,19 @@ describe('CONTRACT_OPERATIONALIZATION policy', () => {
   it('never falls back and keeps its high-risk posture', () => {
     expect(policy.fallbacks).toEqual([]);
     expect(policy.highRisk).toBe(true);
-    expect(policy.reasoningEffort).toBe('high');
+    /*
+      'high' became 'medium' for this task alone. A real run returned
+      successfully with no text block at all: under adaptive reasoning and a
+      32k output ceiling, high effort is the variable competing hardest with
+      the answer for that same ceiling, and an answer that never gets written
+      is not a worse reading — it is no reading.
+
+      The posture did not move: highRisk stays true, the model stays Sonnet,
+      the output ceiling stays 32k, the timeout stays 450s, and reasoning stays
+      ON — 'none' would switch it off, which is not the intent.
+    */
+    expect(policy.reasoningEffort).toBe('medium');
+    expect(policy.reasoningEffort).not.toBe('none');
     /*
       180_000 became 450_000 when the verified Pro host ceiling moved from 300s
       to 600s. Only the clock changed: model, streaming, output ceiling,
