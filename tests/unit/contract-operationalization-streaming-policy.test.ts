@@ -43,7 +43,14 @@ describe('CONTRACT_OPERATIONALIZATION policy', () => {
     expect(policy.fallbacks).toEqual([]);
     expect(policy.highRisk).toBe(true);
     expect(policy.reasoningEffort).toBe('high');
-    expect(policy.timeoutMs).toBe(180_000);
+    /*
+      180_000 became 450_000 when the verified Pro host ceiling moved from 300s
+      to 600s. Only the clock changed: model, streaming, output ceiling,
+      attempts and fallbacks are the ones asserted above and below, untouched.
+      The budget that makes 450s safe lives in src/lib/platform/jobs/budget.ts,
+      which cross-checks this number against the routes' own maxDuration.
+    */
+    expect(policy.timeoutMs).toBe(450_000);
   });
 
   it('leaves the structured output contract untouched', () => {

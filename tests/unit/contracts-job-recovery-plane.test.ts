@@ -260,12 +260,16 @@ describe('guarda de custo', () => {
     expect(OPERATIONALIZATION_JOB_MAX_ATTEMPTS).toBe(1);
   });
 
-  it('o provedor continua intocado: Sonnet, 180s, streaming, sem fallback', () => {
+  it('o provedor continua intocado: Sonnet, 450s, streaming, sem fallback', () => {
     // A guarda é de RETENTATIVA DE TRABALHO. Mexer no transporte para economizar
     // seria trocar um problema de custo por uma leitura pior.
+    //
+    // O tempo limite subiu de 180s para 450s porque o teto do host subiu junto,
+    // e só ele. Modelo, streaming, teto de saída, tentativas e fallbacks são
+    // exatamente os de antes: a única variável desta mudança é o relógio.
     const policy = getApexAITaskPolicy('CONTRACT_OPERATIONALIZATION');
     expect(policy.maxAttempts).toBe(1);
-    expect(policy.timeoutMs).toBe(180_000);
+    expect(policy.timeoutMs).toBe(450_000);
     expect(policy.stream).toBe(true);
     expect(policy.model).toBe('claude-sonnet-5');
     expect(policy.fallbacks).toEqual([]);
@@ -646,18 +650,25 @@ describe('cadência de recuperação e teto configurado', () => {
   });
 
   it('o teto é a nossa CONFIGURAÇÃO, e não um máximo da plataforma', () => {
-    expect(APEX_CONFIGURED_HOST_CEILING).toBe(300);
+    expect(APEX_CONFIGURED_HOST_CEILING).toBe(600);
     const budget = source('src/lib/platform/jobs/budget.ts');
     // A afirmação antiga era falsa para Pro e Enterprise.
     expect(budget).not.toMatch(/300s é o máximo suportado em todos os planos/);
-    expect(budget).toContain('Pro e Enterprise podem configurar limites MAIORES');
+    // O plano foi VERIFICADO antes de o número mudar, e o máximo do plano
+    // continua escrito ao lado da nossa escolha — é a diferença entre os dois
+    // que prova que 600 é decisão, e não limite.
+    expect(budget).toContain('no Pro e no Enterprise, o teto configurável é 800s');
+    expect(APEX_CONFIGURED_HOST_CEILING).toBeLessThan(800);
   });
 
-  it('nenhuma cadência que o plano verificado (Hobby) não suporta', () => {
+  it('a cadência declarada continua sendo a que foi decidida, e não a máxima', () => {
     /*
-      Declarar aqui uma cadência de dez em dez minutos, que o Hobby não aceita,
-      faria o deploy falhar, ou o cron silenciosamente não rodar — trocar um bloqueio VISÍVEL
-      por um invisível. O bloqueio fica registrado como bloqueio.
+      Enquanto o plano era Hobby, a cadência diária era imposição: declarar dez
+      em dez minutos faria o deploy falhar, ou o cron silenciosamente não rodar.
+      No Pro ela deixou de ser imposição e passou a ser ESCOLHA — e mudá-la é
+      uma decisão de operação, não um efeito colateral da mudança de plano.
+      Este teste guarda a escolha que está em vigor; quem a mudar muda o teste
+      junto, deliberadamente.
     */
     for (const cron of vercelConfig.crons) {
       const [minute, hour] = cron.schedule.split(' ');

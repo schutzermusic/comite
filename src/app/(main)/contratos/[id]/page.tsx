@@ -42,6 +42,7 @@ import { contractToCash } from '@/lib/contracts/trust/contract-to-cash';
 import { buildClauseRiskIntelligence } from '@/lib/contracts/trust/clause-risk-intelligence';
 import { ClauseRiskIntelligencePanel } from '@/components/contracts/intelligence/ClauseRiskIntelligencePanel';
 import { ClauseOpsPanel } from '@/components/contracts/intelligence/ClauseOpsPanel';
+import { useContractAnalysisWatch } from '@/components/contracts/use-contract-analysis-watch';
 import { documentAnalysisStates, contractCoverage } from '@/lib/contracts/trust/clause-operations';
 import { MeasurementPanel } from '@/components/contracts/intelligence/MeasurementPanel';
 import { ContractMeasurementReadiness } from '@/components/contracts/intelligence/ContractMeasurementReadiness';
@@ -306,6 +307,27 @@ export default function ContractDossierPage() {
 
   /** Histórico de análises, para o ciclo de vida por documento. */
   const [analyses, setAnalyses] = useState<ContractAiAnalysisRow[]>([]);
+
+  /**
+   * Releitura do estado persistido das análises.
+   *
+   * É LEITURA, e é a única coisa que a observação de uma análise em curso faz.
+   * Nenhum caminho daqui enfileira trabalho: montar, remontar ou reabrir o
+   * dossiê nunca cria uma segunda análise. Quem enfileira é `runExtraction`, e
+   * só a partir de um clique.
+   *
+   * Uma falha de rede aqui NÃO esvazia a lista: descartar o que já se sabe por
+   * causa de uma batida perdida faria o dossiê piscar de "Analisando" para
+   * "Não analisado" e voltar. O estado anterior continua sendo a melhor
+   * verdade disponível até que uma leitura melhor chegue.
+   */
+  const reloadAnalyses = useCallback(() => {
+    if (!contractId) return;
+    listContractAiAnalyses(contractId)
+      .then(setAnalyses)
+      .catch(() => { /* mantém a última leitura boa */ });
+  }, [contractId]);
+
   useEffect(() => {
     if (!contractId) return;
     let active = true;
@@ -314,6 +336,28 @@ export default function ContractDossierPage() {
       .catch(() => { if (active) setAnalyses([]); });
     return () => { active = false; };
   }, [contractId, detail]);
+
+  /*
+    ─── A ANÁLISE EM CURSO, ACOMPANHADA ATÉ O ESTADO TERMINAL ───────────────
+
+    A leitura de um contrato leva minutos. Sem isto, o dossiê lia as análises
+    uma vez e ficava mostrando "Analisando" até alguém recarregar à mão — muito
+    depois de o trabalho ter concluído OU falhado.
+
+    `running` é o estado persistido, não uma suposição do cliente: quando o
+    backend escreve o desfecho, a próxima releitura o traz, `liveAnalysis` cai
+    para `null` e a observação se encerra sozinha. Sucesso e falha param o giro
+    pelo mesmo mecanismo, que é o que impede uma falha de virar giro eterno.
+  */
+  const liveAnalysis = useMemo(
+    () => analyses.find((row) => row.status === 'running') ?? null,
+    [analyses],
+  );
+  useContractAnalysisWatch({
+    active: liveAnalysis !== null,
+    analysisId: liveAnalysis?.id ?? null,
+    onPoll: reloadAnalyses,
+  });
 
   /** Tarefas da Agenda vinculadas — módulo dono, contagem sem cópia local. */
   const [tasks, setTasks] = useState<{ rows: ContractRelatedTask[]; error: string | null }>({ rows: [], error: null });

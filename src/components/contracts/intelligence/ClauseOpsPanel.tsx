@@ -25,6 +25,7 @@ import {
   LIFECYCLE_LABEL,
   type AnalysisLifecycle, type ContractCoverage, type DocumentAnalysisState,
 } from '@/lib/contracts/trust/clause-operations';
+import { ContractAnalysisProgress } from './ContractAnalysisProgress';
 
 const LIFECYCLE_STYLE: Record<AnalysisLifecycle, { icon: React.ReactNode; text: string; rail: string }> = {
   failed: {
@@ -124,6 +125,22 @@ export function ClauseOpsPanel({
                       <p className="mt-0.5 text-ig-label text-ig-danger">
                         {state.errorMessage}
                       </p>
+                    )}
+
+                    {/*
+                      Uma leitura em curso deixa de ser um ícone girando e passa
+                      a dizer o que está acontecendo, há quanto tempo, e que
+                      sair da página não interrompe nada. O estado terminal —
+                      concluído ou falho — faz este bloco desaparecer sozinho,
+                      porque `lifecycle` deixa de ser `analyzing`: não há aqui
+                      nenhum temporizador que precise ser cancelado à mão.
+                    */}
+                    {state.lifecycle === 'analyzing' && (
+                      <ContractAnalysisProgress
+                        className="mt-2"
+                        startedAt={state.startedAt}
+                        stage={state.stage}
+                      />
                     )}
                   </div>
 

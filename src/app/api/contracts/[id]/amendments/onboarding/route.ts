@@ -12,17 +12,18 @@ export const dynamic = 'force-dynamic';
   `after()` roda DENTRO desta invocação: a batida na fila herda este tempo de
   vida, e a operacionalização é uma etapa longa de provedor.
 
-  300s é o teto que ESTA aplicação configura, não um máximo da plataforma: é o
-  padrão da Vercel em todos os planos e o teto do Hobby, mas Pro e Enterprise
-  podem configurar mais. Mantemos 300s por decisão — o orçamento cabe aqui com
-  folga —, e não por impossibilidade.
+  600s é o teto que ESTA aplicação configura, não um máximo da plataforma: o
+  projeto está no Pro (verificado na API da Vercel), roda `nodejs24.x` com Fluid
+  Compute, e ali o máximo configurável é 800s. Paramos em 600 de propósito — o
+  orçamento inteiro cabe com 55s de sobra, e ainda restam 200s entre nós e o
+  limite do plano.
 
   O valor é literal porque o Next exige que `maxDuration` seja estaticamente
   analisável — não dá para importar a constante. Ele é cruzado em teste com
   APEX_CONFIGURED_HOST_CEILING (src/lib/platform/jobs/budget.ts), para que um
   desvio apareça na suíte e não em produção.
 */
-export const maxDuration = 300;
+export const maxDuration = 600;
 
 type PermShape = { roles?: { role_permissions?: Array<{ permissions?: { key?: string } }> } };
 

@@ -440,16 +440,55 @@ describe('o orçamento cabe no tempo de vida da hospedagem', () => {
     }
   });
 
-  it('300s é o teto que ESTA aplicação configura, não um máximo da plataforma', () => {
+  it('600s é o teto que ESTA aplicação configura, não um máximo da plataforma', () => {
     /*
       A semântica da Vercel: 300s é o PADRÃO em todos os planos e o TETO do
-      Hobby; Pro e Enterprise podem configurar mais. Chamar 300s de "máximo da
-      plataforma" — como a versão anterior deste teste fazia — é falso, e um
-      número errado com cara de fato de plataforma faz alguém parar de procurar
-      a folga que existe. Mantemos 300s por decisão, e o teste guarda a decisão.
+      Hobby; no Pro e no Enterprise o máximo configurável é 800s. Chamar o
+      nosso número de "máximo da plataforma" — como uma versão anterior deste
+      teste fazia — é falso, e um número errado com cara de fato de plataforma
+      faz alguém parar de procurar a folga que existe.
+
+      O plano foi verificado na API da Vercel (equipe no Pro, projeto `comite`
+      em `nodejs24.x` com Fluid Compute) ANTES de este número mudar. Ficamos em
+      600 por decisão, com 200s de distância do limite do plano, e o teste
+      guarda a decisão — não o limite.
     */
-    expect(APEX_CONFIGURED_HOST_CEILING).toBe(300);
+    expect(APEX_CONFIGURED_HOST_CEILING).toBe(600);
     expect(HOST_MAX_DURATION_SECONDS).toBe(APEX_CONFIGURED_HOST_CEILING);
+    // A folga que separa a nossa escolha do máximo do plano (800s no Pro).
+    expect(APEX_CONFIGURED_HOST_CEILING).toBeLessThan(800);
+  });
+
+  it('sobra margem de hospedagem DEPOIS do pior caso inteiro, e não só antes', async () => {
+    /*
+      O invariante que importa não é "o provedor cabe", é: reivindicar no último
+      instante do orçamento, gastar o provedor inteiro e AINDA ter tempo de
+      escrever o estado terminal. O que este teste mede é o que sobra depois
+      disso — a folga que pertence à hospedagem, e a ninguém mais.
+
+      Sem ela, o componente que mata o processo passa a ser o host, e um
+      processo morto pelo host não escreve estado terminal nenhum: a análise
+      fica `running` para sempre.
+    */
+    const { DEFAULT_LIMITS } = await import('@/lib/platform/jobs/worker');
+    const ceilingMs = HOST_MAX_DURATION_SECONDS * 1000;
+    const worstCaseEndMs = DEFAULT_LIMITS.timeBudgetMs + LONG_JOB_WORST_CASE_MS;
+
+    // 50s de reivindicação + 450s de provedor + 45s de persistência = 545s.
+    expect(worstCaseEndMs).toBe(545_000);
+    // ... dentro de 600s, deixando 55s que a aplicação nunca planeja gastar.
+    expect(ceilingMs - worstCaseEndMs).toBeGreaterThanOrEqual(50_000);
+  });
+
+  it('a APLICAÇÃO expira antes da hospedagem — nunca o contrário', () => {
+    /*
+      Quem interrompe tem de ser o nosso tempo limite, porque só o nosso deixa
+      um caminho de erro vivo para gravar o desfecho. Uma diferença estreita
+      demais aqui entrega a decisão ao host por acidente de latência.
+    */
+    expect(LONG_PROVIDER_TIMEOUT_MS).toBeLessThan(HOST_MAX_DURATION_SECONDS * 1000);
+    expect(HOST_MAX_DURATION_SECONDS * 1000 - LONG_PROVIDER_TIMEOUT_MS)
+      .toBeGreaterThanOrEqual(PERSISTENCE_MARGIN_MS);
   });
 });
 

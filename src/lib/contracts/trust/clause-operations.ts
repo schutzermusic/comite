@@ -38,6 +38,90 @@ export type AnalysisLifecycle =
   /** A análise falhou. */
   | 'failed';
 
+/**
+ * Que ETAPA da leitura está em curso, quando alguma está.
+ *
+ * Deriva de `contract_ai_analyses.extracted_data.kind`, que a própria execução
+ * grava. Não é uma barra de progresso: são as duas etapas que o backend sabe
+ * distinguir, e nada além delas. Inventar uma terceira — ou uma porcentagem —
+ * seria descrever um processo que ninguém está medindo.
+ */
+export type AnalysisStage = 'clause-extraction' | 'operationalization';
+
+/**
+ * O que a tela diz que o Apex está fazendo, por etapa.
+ *
+ * Vocabulário do domínio, e não do transporte: quem lê um contrato não precisa
+ * saber qual provedor, qual modelo ou qual fila está envolvida — precisa saber
+ * o que vai existir no dossiê quando isto terminar.
+ */
+export const STAGE_DESCRIPTION: Record<AnalysisStage, string> = {
+  'clause-extraction': 'Lendo o documento e identificando cláusulas...',
+  operationalization: 'Identificando obrigações, condições e garantias...',
+};
+
+/**
+ * As duas etapas que a tela consegue LASTREAR, com os rótulos de cada uma.
+ *
+ * `done` é uma etapa cuja conclusão está persistida; `active` é a que está
+ * viva. Não há uma terceira — "consolidando", "revisando", "quase lá" seriam
+ * decoração, porque não existe estado no banco que as sustente.
+ */
+export const STAGE_STEPS: Record<AnalysisStage, { readonly done: string; readonly active: string }> = {
+  'clause-extraction': {
+    done: 'Documento recebido',
+    active: 'Leitura do documento em andamento',
+  },
+  operationalization: {
+    done: 'Documento preparado',
+    active: 'Inteligência contratual em processamento',
+  },
+};
+
+/**
+ * A partir de quando a espera deixa de ser a esperada, por etapa.
+ *
+ * Não é limite nem prazo: passar daqui não é falha, e o texto muda justamente
+ * para dizer isso. O que ele evita é o silêncio — uma espera que excede a
+ * expectativa sem que a tela reconheça que excedeu parece abandono.
+ */
+export const LONGER_THAN_USUAL_MS: Record<AnalysisStage, number> = {
+  'clause-extraction': 240_000,
+  operationalization: 300_000,
+};
+
+/** Duração como MM:SS. Cresce sem teto de hora: é decorrido, não relógio. */
+export function formatElapsed(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
+/**
+ * Milissegundos decorridos desde o início PERSISTIDO.
+ *
+ * `null` quando não há início confiável — e, nesse caso, a tela não mostra
+ * relógio nenhum. Um "00:00" fabricado seria pior que a ausência: afirmaria
+ * que a análise acabou de começar.
+ *
+ * Relógios de cliente e servidor divergem, e um decorrido negativo é ruído de
+ * relógio, não informação: ele é achatado em zero.
+ */
+export function elapsedSince(startedAt: string | null, now: number): number | null {
+  if (!startedAt) return null;
+  const started = new Date(startedAt).getTime();
+  if (Number.isNaN(started)) return null;
+  return Math.max(0, now - started);
+}
+
+function stageOf(analysis: ContractAiAnalysisRow | null): AnalysisStage | null {
+  const kind = analysis?.extracted_data?.kind;
+  if (kind === 'contract_operationalization') return 'operationalization';
+  if (kind === 'clause_extraction') return 'clause-extraction';
+  return null;
+}
+
 export const LIFECYCLE_LABEL: Record<AnalysisLifecycle, string> = {
   'not-analyzed': 'Não analisado',
   analyzing: 'Analisando',
@@ -67,6 +151,17 @@ export type DocumentAnalysisState = {
   /** Análise mais recente NÃO substituída deste documento. */
   readonly analysisId: string | null;
   readonly analysisAt: string | null;
+  /**
+   * Início PERSISTIDO da análise viva — `started_at`, com `created_at` como
+   * segunda opção quando a linha nasceu antes de a execução começar.
+   *
+   * É daqui, e de nenhum relógio de componente, que o tempo decorrido em tela
+   * é calculado. Um cronômetro que começasse na montagem do React voltaria a
+   * zero a cada refresh e mentiria sobre uma execução que nunca parou.
+   */
+  readonly startedAt: string | null;
+  /** A etapa em curso, quando `lifecycle === 'analyzing'`. */
+  readonly stage: AnalysisStage | null;
   /**
    * Mensagem de NEGÓCIO da falha — o que a tela pode mostrar.
    *
@@ -145,6 +240,8 @@ export function documentAnalysisStates(
       lifecycle,
       analysisId: latest?.id ?? null,
       analysisAt: latest?.completed_at ?? latest?.created_at ?? null,
+      startedAt: latest?.started_at ?? latest?.created_at ?? null,
+      stage: lifecycle === 'analyzing' ? stageOf(latest) : null,
       errorMessage: safeAnalysisFailureMessage(latest?.error_message, { withRetry: true }),
       errorDiagnostic: latest?.error_message ?? null,
       proposalsPending: pending,

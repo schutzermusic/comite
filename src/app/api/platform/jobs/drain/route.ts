@@ -9,18 +9,20 @@ export const dynamic = 'force-dynamic';
   O orçamento do trabalhador (50s) fica bem abaixo disto de propósito: a parada
   tem de ser nossa, com o trabalho restante durável, e não uma queda da
   hospedagem no meio de um handler. Era 120s, curto demais para a etapa longa de
-  operacionalização (180s de provedor + persistência) que este trabalhador pode
+  operacionalização (450s de provedor + persistência) que este trabalhador pode
   reivindicar.
 
-  300s é o teto que ESTA aplicação configura, não um máximo da plataforma: é o
-  padrão da Vercel em todos os planos e o teto do Hobby, mas Pro e Enterprise
-  podem configurar mais. Mantemos 300s por decisão, e não por impossibilidade.
+  600s é o teto que ESTA aplicação configura, não um máximo da plataforma: o
+  projeto está no Pro (verificado na API da Vercel), roda `nodejs24.x` com Fluid
+  Compute, e ali o máximo configurável é 800s. Paramos em 600 de propósito — 50s
+  de reivindicação + 450s de provedor + 45s de persistência são 545s, o que
+  deixa 55s de folga de hospedagem e 200s entre nós e o limite do plano.
 
   O valor é literal porque o Next exige que `maxDuration` seja estaticamente
   analisável. Ele é cruzado em teste com APEX_CONFIGURED_HOST_CEILING
   (src/lib/platform/jobs/budget.ts).
 */
-export const maxDuration = 300;
+export const maxDuration = 600;
 
 /**
  * Uma passagem LIMITADA da fila do Apex.
@@ -42,17 +44,20 @@ export const maxDuration = 300;
  * às 06h05 fica invisível por quase 24 horas.
  *
  * O plano de produção verificado é HOBBY, e no Hobby o agendador nativo da
- * Vercel só aceita cadência DIÁRIA. Por isso `vercel.json` continua com
- * `0 6 * * *`: declarar ali uma cadência de dez em dez minutos, que o plano não
- * suporta, faria o
- * deploy falhar, ou o cron silenciosamente não rodar — trocar um bloqueio
- * visível por um invisível.
+ * No Hobby, a Vercel só aceitava cadência DIÁRIA, e era isso que prendia
+ * `vercel.json` em `0 6 * * *`: declarar ali uma cadência de dez em dez minutos
+ * que o plano não suportava faria o deploy falhar, ou o cron silenciosamente
+ * não rodar — trocar um bloqueio visível por um invisível.
  *
- * INFRA_BLOCKER: SUB_DAILY_SCHEDULER_REQUIRED. A solução limpa é subir o
- * projeto para Pro e então declarar a cadência aqui; um serviço de cron
- * terceiro resolveria o sintoma criando uma credencial a mais para vazar e mais
- * uma dependência fora do inventário. Nada é configurado nem comprado por este
- * código.
+ * INFRA_BLOCKER: SUB_DAILY_SCHEDULER_REQUIRED — a CAUSA caiu, a decisão não foi
+ * tomada. O projeto está agora no Pro (verificado na API da Vercel), e o Pro
+ * aceita cadência sub-diária: o que impedia declará-la aqui deixou de existir.
+ * Mudá-la continua sendo uma decisão de operação, com custo de execução próprio,
+ * e não um efeito colateral de o plano ter mudado — por isso `vercel.json`
+ * continua com `0 6 * * *` até que alguém decida o contrário por escrito. Um
+ * serviço de cron terceiro continua resolvendo o sintoma criando uma credencial
+ * a mais para vazar e mais uma dependência fora do inventário. Nada é
+ * configurado nem comprado por este código.
  *
  * A resposta é contador, jamais payload. Quem lê esta rota está diagnosticando
  * infraestrutura, e infraestrutura não precisa ver o conteúdo do trabalho.

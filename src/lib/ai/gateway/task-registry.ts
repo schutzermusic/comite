@@ -86,14 +86,21 @@ export function getApexAITaskPolicy(task: ApexAITask): ApexAITaskPolicy {
     // Com 32k de saída, streaming é obrigatório: sdk.messages.stream(...).finalMessage().
     //
     // `maxAttempts: 1` é fixo, e não configurável por ambiente, porque é um
-    // limite de INFRAESTRUTURA e não de gosto: duas tentativas de 180s são 360s
-    // teóricos dentro de uma função que vive 300s, e a segunda seria morta pelo
+    // limite de INFRAESTRUTURA e não de gosto: duas tentativas de 450s são 900s
+    // teóricos dentro de uma função que vive 600s, e a segunda seria morta pelo
     // host antes de qualquer caminho de erro da aplicação. A repetição desta
-    // etapa existe no nível do TRABALHO (`contracts.contract_operationalization.execute`,
-    // `p_max_attempts: 3`), onde cada tentativa ganha uma invocação inteira.
-    // Ver src/lib/platform/jobs/budget.ts.
+    // etapa existe no nível do TRABALHO
+    // (`contracts.contract_operationalization.execute`), e ali também é UMA:
+    // `OPERATIONALIZATION_JOB_MAX_ATTEMPTS` vale 1. Uma versão anterior deste
+    // comentário dizia `p_max_attempts: 3` — número que o runtime nunca teve, e
+    // que fazia esta linha prometer uma retentativa automática inexistente.
+    //
+    // `timeoutMs` era 180_000 e a operacionalização real de JA10182283 parou
+    // exatamente ali: no relógio, não no fim da leitura. 450_000 é o valor
+    // diagnóstico que cabe no teto de 600s do host preservando a margem de
+    // persistência. Ver src/lib/platform/jobs/budget.ts.
     CONTRACT_OPERATIONALIZATION: highRisk({
-      maxTokens: 32_000, timeoutMs: 180_000, stream: true, maxAttempts: 1,
+      maxTokens: 32_000, timeoutMs: 450_000, stream: true, maxAttempts: 1,
     }),
     // Amendment interpretation is legally material, but remains on the normal
     // economical Sonnet route. There is deliberately no automatic Opus hop.
