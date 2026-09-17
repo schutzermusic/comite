@@ -31,7 +31,7 @@ import { cn } from '@/lib/utils';
 import {
   Quote, ScanSearch, ChevronDown, ChevronRight, AlertTriangle, Check, X, Eye,
 } from 'lucide-react';
-import { HudPanel, HudButton } from '@/components/hud';
+import { HudPanel, HudButton, HudSignal } from '@/components/hud';
 import type { ContractClauseRow, ContractDocumentRow } from '@/lib/contracts/contract-service';
 import { CLAUSE_CATEGORY_LABEL, type ClauseCategory } from '@/lib/contracts/clause-categories';
 import {
@@ -248,9 +248,7 @@ function InterpretationCard({
           </span>
         </span>
         {needsAttention && (
-          <span className="shrink-0 rounded-full border border-ig-warning/45 px-2 py-0.5 text-[10px] text-ig-warning">
-            Requer atenção
-          </span>
+          <HudSignal size="sm" className="shrink-0" tone="warning" label="Requer atenção" />
         )}
       </button>
 
@@ -303,11 +301,8 @@ function InterpretationCard({
               </h4>
               <ul className="flex flex-wrap gap-1.5">
                 {effects.map((effect) => (
-                  <li
-                    key={effect}
-                    className="rounded-full border border-ig-border px-2 py-0.5 text-[11px] text-ig-fg-default"
-                  >
-                    {effect}
+                  <li key={effect}>
+                    <HudSignal size="sm" tone="neutral" label={effect} />
                   </li>
                 ))}
               </ul>

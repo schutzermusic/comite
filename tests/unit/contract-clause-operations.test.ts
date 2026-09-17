@@ -457,8 +457,10 @@ describe('sinais de atenção da análise documental', () => {
     const items = attentionItems(withAnalyses([], [doc()]), NOW);
     const notAnalyzed = items.find((i) => i.id === 'documents-not-analyzed');
     expect(notAnalyzed?.severity).toBe('setup');
-    // A frase que impede a leitura errada da ausência.
-    expect(notAnalyzed?.reason).toMatch(/não significa ausência de cláusula/);
+    // A frase que impede a leitura errada da ausência. O texto encurtou com o
+    // redesenho do painel; o que não pode sumir é a equação que ele nega —
+    // "cláusula registrada" ≠ "cláusula existente".
+    expect(notAnalyzed?.reason).toMatch(/ausência de cláusula registrada não é ausência de cláusula/);
   });
 
   it('documento substituído não cobra análise', () => {

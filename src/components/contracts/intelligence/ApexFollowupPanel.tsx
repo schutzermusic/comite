@@ -24,20 +24,20 @@ import { cn } from '@/lib/utils';
 import {
   Radar, UserPlus, PauseCircle, AlertOctagon, CheckCircle2, Clock,
 } from 'lucide-react';
-import { HudPanel, HudButton } from '@/components/hud';
+import { HudPanel, HudButton, HudSignal, type HudSignalTone } from '@/components/hud';
 import type { ApexFollowupRow } from '@/lib/platform/followups/types';
 import {
   CLOSURE_BASIS_LABEL, FOLLOWUP_STATE_LABEL, isOpenFollowup,
 } from '@/lib/platform/followups/types';
 import { followupNarrative, nudgeDecision } from '@/lib/platform/followups/state';
 
-const STATE_TONE: Record<string, string> = {
-  ACTIVE: 'border-ig-accent/45 text-ig-accent',
-  WAITING_EXTERNAL_PARTY: 'border-ig-border-strong text-ig-fg-muted',
-  BLOCKED: 'border-ig-danger/45 text-ig-danger',
-  ESCALATED: 'border-ig-danger/45 text-ig-danger',
-  COMPLETED: 'border-ig-success/45 text-ig-success',
-  CANCELLED: 'border-ig-border text-ig-fg-muted',
+const STATE_TONE: Record<string, HudSignalTone> = {
+  ACTIVE: 'accent',
+  WAITING_EXTERNAL_PARTY: 'neutral',
+  BLOCKED: 'danger',
+  ESCALATED: 'critical',
+  COMPLETED: 'success',
+  CANCELLED: 'neutral',
 };
 
 export interface ApexFollowupPanelProps {
@@ -108,12 +108,12 @@ export function ApexFollowupPanel({
                       {followupNarrative(followup, asOf)}
                     </p>
                   </div>
-                  <span className={cn(
-                    'shrink-0 rounded-full border px-2 py-0.5 text-[10px]',
-                    STATE_TONE[followup.state] ?? 'border-ig-border text-ig-fg-muted',
-                  )}>
-                    {FOLLOWUP_STATE_LABEL[followup.state]}
-                  </span>
+                  <HudSignal
+                    size="sm"
+                    className="shrink-0"
+                    label={FOLLOWUP_STATE_LABEL[followup.state]}
+                    tone={STATE_TONE[followup.state] ?? 'neutral'}
+                  />
                 </div>
 
                 <dl className="mt-2 grid gap-x-4 gap-y-1 text-ig-caption sm:grid-cols-2">

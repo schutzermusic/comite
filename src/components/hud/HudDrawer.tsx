@@ -10,7 +10,8 @@ export interface HudDrawerProps {
   isOpen: boolean;
   onClose: () => void;
   title?: string;
-  subtitle?: string;
+  /** Aceita nós para que o cabeçalho possa trazer código + chips de estado. */
+  subtitle?: React.ReactNode;
   children: React.ReactNode;
   position?: 'right' | 'left';
   width?: string;
@@ -23,6 +24,11 @@ export interface HudDrawerProps {
   headerActions?: React.ReactNode;
   /** Content to the left of the title (e.g. client logo upload). */
   headerLeading?: React.ReactNode;
+  /**
+   * `compact` aperta cabeçalho, corpo e rodapé. Painéis operacionais densos —
+   * onde a rolagem é o custo, não o respiro — usam esta densidade.
+   */
+  density?: 'comfortable' | 'compact';
 }
 
 export function HudDrawer({
@@ -38,7 +44,9 @@ export function HudDrawer({
   footer,
   headerActions,
   headerLeading,
+  density = 'comfortable',
 }: HudDrawerProps) {
+  const compact = density === 'compact';
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -107,17 +115,30 @@ export function HudDrawer({
               className="flex min-h-0 min-w-0 flex-1 flex-col"
             >
               {/* Header */}
-              <div className="flex shrink-0 items-start justify-between border-b border-ig-border p-4">
-                <div className="flex min-w-0 flex-1 items-start gap-3">
+              <div
+                className={cn(
+                  'flex shrink-0 items-start justify-between border-b border-ig-border',
+                  compact ? 'px-3.5 py-3' : 'p-4',
+                )}
+              >
+                <div className={cn('flex min-w-0 flex-1 items-start', compact ? 'gap-2.5' : 'gap-3')}>
                   {headerLeading}
                   <div className="min-w-0 flex-1">
                     {title && (
-                      <h2 className="text-lg font-semibold text-ig-fg-strong tracking-wide">
+                      <h2
+                        className={cn(
+                          'font-semibold tracking-wide text-ig-fg-strong',
+                          compact ? 'truncate text-[15px] leading-tight' : 'text-lg',
+                        )}
+                        title={compact && typeof title === 'string' ? title : undefined}
+                      >
                         {title}
                       </h2>
                     )}
                     {subtitle && (
-                      <p className="text-sm text-ig-fg-muted mt-0.5">{subtitle}</p>
+                      compact
+                        ? <div className="mt-1.5 min-w-0">{subtitle}</div>
+                        : <p className="text-sm text-ig-fg-muted mt-0.5">{subtitle}</p>
                     )}
                   </div>
                 </div>
@@ -136,12 +157,24 @@ export function HudDrawer({
                 )}
               </div>
 
-              <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain p-4 [-webkit-overflow-scrolling:touch]">
+              <div
+                className={cn(
+                  'min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain [-webkit-overflow-scrolling:touch]',
+                  compact ? 'px-3.5 py-3.5' : 'p-4',
+                )}
+              >
                 {children}
               </div>
 
               {footer && (
-                <div className="shrink-0 border-t border-ig-border p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+                <div
+                  className={cn(
+                    'shrink-0 border-t border-ig-border',
+                    compact
+                      ? 'px-3.5 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]'
+                      : 'p-4 pb-[max(1rem,env(safe-area-inset-bottom))]',
+                  )}
+                >
                   {footer}
                 </div>
               )}

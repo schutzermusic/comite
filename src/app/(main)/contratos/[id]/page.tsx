@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { getProjectsAsync } from '@/lib/services/projects';
+import { getProjectsAsync, uploadProjectFile, updateProjectV2 } from '@/lib/services/projects';
 import { useContractDetail } from '@/hooks/use-contract-detail';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useContractActionModals } from '@/components/contracts/useContractActionModals';
@@ -37,6 +37,7 @@ import { effectiveContractState } from '@/lib/contracts/trust/amendments';
 import { ContractInstrumentsPanel } from '@/components/contracts/intelligence/ContractInstrumentsPanel';
 import { useContractAmendmentModals } from '@/components/contracts/useContractAmendmentModals';
 import { useContractProvenanceModal } from '@/components/contracts/useContractProvenanceModal';
+import { useContractEditModal } from '@/components/contracts/useContractEditModal';
 import type { ContractDataClass } from '@/lib/contracts/trust/trusted';
 import { contractToCash } from '@/lib/contracts/trust/contract-to-cash';
 import { useContractAnalysisWatch } from '@/components/contracts/use-contract-analysis-watch';
@@ -55,8 +56,10 @@ import {
   HudPageLayout,
   HudPanel,
   HudProgressBar,
+  HudSignal,
   HudStatusPill,
   useHudToast,
+  type HudSignalTone,
   type HudTab,
   type KpiItem,
 } from '@/components/hud';
@@ -83,7 +86,7 @@ import {
   Clock3,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { MoreHorizontal, ScanSearch } from 'lucide-react';
+import { MoreHorizontal, ScanSearch, SquarePen } from 'lucide-react';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuSeparator, DropdownMenuTrigger,
@@ -703,6 +706,52 @@ export default function ContractDossierPage() {
     onRefresh: async () => { await refresh(); },
   });
 
+  /**
+   * Upload da logo do cliente a partir da tela de edição.
+   *
+   * A logo mora em `projects.client_logo_url`, não em `contracts` — é o mesmo
+   * lugar que `ClientLogoBanner` já lê nos cards e no cabeçalho do dossiê.
+   * Sem projeto vinculado não há onde gravar; a tela do formulário já
+   * desabilita o upload nesse caso, então chegar aqui sem `projectId` seria
+   * um estado que a UI deveria ter impedido.
+   */
+  const handleContractLogoUpload = async (file: File | null): Promise<string | null> => {
+    const projectId = trusted && hasOfficialValue(trusted.project) ? trusted.project.value.id : null;
+    if (!projectId) return null;
+    try {
+      const url = file ? (await uploadProjectFile(projectId, file, 'logo')).publicUrl : null;
+      await updateProjectV2(projectId, { clientLogoUrl: url ?? undefined }, 'current_user');
+      await refreshDetailAndProjects();
+      return url;
+    } catch (error) {
+      notify('Não foi possível salvar a logo', {
+        description: error instanceof Error ? error.message : 'Tente enviar a imagem novamente.',
+        variant: 'error',
+      });
+      return null;
+    }
+  };
+
+  /*
+    Edição do CADASTRO do contrato.
+
+    Todas as demais ações do dossiê criam registros filhos — obrigação,
+    faturamento, documento, aprovação. Nenhuma corrigia a linha do contrato em
+    si, então uma data de vigência digitada errada no cadastro só saía pelo
+    banco. A origem (`data_class`) continua fora desta tela: é governança, e
+    tem "Classificar origem" logo abaixo no mesmo menu.
+  */
+  const { open: openEditContract, modal: editContractModal } = useContractEditModal({
+    contract: detail?.contract ?? null,
+    logo: canEditContract ? {
+      url: trusted && hasOfficialValue(trusted.project) ? trusted.project.value.clientLogoUrl ?? null : null,
+      alt: trusted && hasOfficialValue(trusted.counterparty) ? trusted.counterparty.value : 'Logo do cliente',
+      projectId: trusted && hasOfficialValue(trusted.project) ? trusted.project.value.id : null,
+      onUpload: handleContractLogoUpload,
+    } : undefined,
+    onRefresh: async () => { await refresh(); },
+  });
+
   const { open: openProvenance, modal: provenanceModal } = useContractProvenanceModal({
     contractId,
     contractTitle: detail?.contract.title ?? 'Contrato',
@@ -1191,6 +1240,14 @@ export default function ContractDossierPage() {
                 </HudButton>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-[210px]">
+                {canEditContract && (
+                  <>
+                    <DropdownMenuItem onClick={openEditContract}>
+                      <SquarePen className="mr-2 h-4 w-4" /> Editar contrato
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                  </>
+                )}
                 <DropdownMenuItem onClick={() => contractActions.linkProject(record)}>
                   <Workflow className="mr-2 h-4 w-4" /> Vincular projeto
                 </DropdownMenuItem>
@@ -1425,6 +1482,7 @@ export default function ContractDossierPage() {
 
       {instrumentation.modals}
       {amendmentModals}
+      {editContractModal}
       {provenanceModal}
       {contractCreateModals}
     </HudPageLayout>
@@ -1779,12 +1837,12 @@ function contractRiskExposures(detail: ContractDetail): RiskExposure[] {
   });
 }
 
-const RISK_SEVERITY_TONE: Record<RiskSeverity, string> = {
-  critical: 'border-ig-danger/45 text-ig-danger',
-  high: 'border-ig-danger/35 text-ig-danger',
-  medium: 'border-ig-warning/45 text-ig-warning',
-  low: 'border-ig-success/45 text-ig-success',
-  unknown: 'border-ig-border-strong text-ig-fg-muted',
+const RISK_SEVERITY_TONE: Record<RiskSeverity, HudSignalTone> = {
+  critical: 'critical',
+  high: 'danger',
+  medium: 'warning',
+  low: 'success',
+  unknown: 'neutral',
 };
 
 function RiskExposureCard({
@@ -1806,12 +1864,12 @@ function RiskExposureCard({
         <p className="min-w-0 flex-1 truncate text-ig-body-sm font-semibold text-ig-fg-strong">
           {exposure.title}
         </p>
-        <span className={cn(
-          'shrink-0 rounded-full border px-2 py-0.5 text-[10px]',
-          RISK_SEVERITY_TONE[exposure.severity],
-        )}>
-          {RISK_SEVERITY_LABEL[exposure.severity]}
-        </span>
+        <HudSignal
+          size="sm"
+          className="shrink-0"
+          label={RISK_SEVERITY_LABEL[exposure.severity]}
+          tone={RISK_SEVERITY_TONE[exposure.severity]}
+        />
       </div>
 
       <dl className="mt-2 space-y-1.5 text-ig-caption">
@@ -2197,18 +2255,13 @@ function DocumentsTab({ detail, obligations, obligationsError, onReplace, onOpen
                             >
                               <span className="text-ig-fg-default">{link.obligationTitle}</span>
                               {link.occurrenceKey && <span>· {link.occurrenceKey}</span>}
-                              <span className={cn(
-                                'rounded-full border px-1.5 py-0.5',
-                                link.acceptanceState === 'accepted'
-                                  ? 'border-ig-success/45 text-ig-success'
-                                  : link.acceptanceState === 'rejected'
-                                    ? 'border-ig-danger/45 text-ig-danger'
-                                    : 'border-ig-border-strong text-ig-fg-muted',
-                              )}>
-                                {link.acceptanceState === 'accepted' ? 'aceite registrado'
-                                  : link.acceptanceState === 'rejected' ? 'recusada'
-                                    : 'sem aceite'}
-                              </span>
+                              <HudSignal
+                                size="sm"
+                                tone={link.acceptanceState === 'accepted' ? 'success'
+                                  : link.acceptanceState === 'rejected' ? 'danger' : 'neutral'}
+                                label={link.acceptanceState === 'accepted' ? 'aceite registrado'
+                                  : link.acceptanceState === 'rejected' ? 'recusada' : 'sem aceite'}
+                              />
                             </li>
                           ))}
                         </ul></DossierDisclosure>

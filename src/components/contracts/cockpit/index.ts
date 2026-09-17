@@ -17,6 +17,10 @@ export { ContractHealthDrivers } from './ContractHealthDrivers';
 export { RecommendedActionPanel } from './RecommendedAction';
 export { RecentActivity, AUDIT_ACTION_LABELS } from './RecentActivity';
 export {
+  DrawerAccordion, ActionGrid, ActionRow, SummaryTile,
+  type DrawerAccordionProps, type ActionRowProps, type AccordionTone,
+} from './DrawerAccordion';
+export {
   PortfolioScopeBar, PortfolioScopeNotice, DataClassBadge, matchesScope, PORTFOLIO_SCOPES,
   type PortfolioScopeKey,
 } from './PortfolioScope';

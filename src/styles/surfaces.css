@@ -793,6 +793,13 @@ html.light .ig-lp {
     inset 0 -1px 0 var(--ig-lp-gloss-faint);
 }
 
+/* A régua como ÚLTIMA dobra do painel — o degrau fecha a peça e o fio de
+   baixo seria uma segunda linha colada na borda do cartão. */
+.ig-lp-rule--tail {
+  border-bottom: 0;
+  border-radius: 0 0 16px 16px;
+}
+
 /* ── Lista de linhas ──────────────────────────────────────
    Um bloco dividido por fio. Sem borda por linha: doze caixas dentro
    de uma caixa leem-se como doze objetos onde há uma lista só. */

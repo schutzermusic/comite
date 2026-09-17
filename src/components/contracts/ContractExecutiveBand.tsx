@@ -27,6 +27,7 @@
  */
 
 import { cn } from '@/lib/utils';
+import { HudSignal } from '@/components/hud';
 import { HudProgressBar } from '@/components/hud';
 import type { TrustedPortfolioStats } from '@/lib/contracts/trust/portfolio';
 import {
@@ -143,11 +144,7 @@ function MetricCell({
         {/* Caixa de sentença: resto do §14, que a varredura por `tracking-` não pegou. */}
         <span className="truncate text-ig-caption text-ig-fg-muted">{label}</span>
         {/* Non-color active indication (a11y): explicit "filtro" tag, not just tint */}
-        {active && (
-          <span className="ml-auto shrink-0 rounded-full border border-[color-mix(in_oklab,var(--ig-accent)_40%,transparent)] bg-[color-mix(in_oklab,var(--ig-accent)_14%,transparent)] px-1.5 py-px text-ig-label font-bold uppercase text-ig-accent">
-            filtro
-          </span>
-        )}
+        {active && <HudSignal size="sm" tone="accent" label="filtro" className="ml-auto shrink-0" />}
       </div>
       <p
         className={cn(

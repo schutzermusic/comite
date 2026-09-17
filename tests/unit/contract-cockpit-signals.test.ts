@@ -97,7 +97,9 @@ describe('attentionItems', () => {
     const item = attentionItems(build(full), NOW).find((i) => i.id === 'obligations-overdue');
     expect(item).toBeDefined();
     expect(item?.severity).toBe('critical');
-    expect(item?.age).toMatch(/dia\(s\) em atraso/);
+    // A idade é impressa de forma compacta ("48d em atraso"): o painel lateral
+    // não tem largura para "dia(s)", e a unidade continua explícita.
+    expect(item?.age).toMatch(/^\d+d em atraso$/);
   });
 
   it('afirma exposição SOMENTE no faturamento vencido, onde o dado a sustenta', () => {

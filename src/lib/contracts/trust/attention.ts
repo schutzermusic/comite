@@ -86,6 +86,16 @@ function daysSince(iso: string | null | undefined, now: Date): number | null {
  * governança não pôde ser lida é um problema operacional, não um contrato sem
  * problemas. Era exatamente esse silêncio que o P0.2 fechou na origem.
  */
+/**
+ * Plural real.
+ *
+ * "3 obrigação(ões) contratual(is) em atraso" é o tipo de frase que um sistema
+ * escreve quando não quer decidir. Ela ocupa uma linha e meia, quebra no meio
+ * de um parêntese e faz o painel parecer um relatório gerado, não um produto.
+ * Aqui a contagem decide a flexão.
+ */
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
 export function attentionItems(contract: TrustedContract, now: Date = new Date()): AttentionItem[] {
   const items: AttentionItem[] = [];
 
@@ -126,10 +136,10 @@ export function attentionItems(contract: TrustedContract, now: Date = new Date()
     items.push({
       id: 'obligations-overdue',
       severity: 'critical',
-      title: `${obligations.value.overdue} obrigação(ões) contratual(is) em atraso`,
-      reason: 'Obrigação vencida sem evidência registrada bloqueia medição e aceite.',
+      title: plural(obligations.value.overdue, 'obrigação em atraso', 'obrigações em atraso'),
+      reason: 'Sem evidência registrada, medição e aceite ficam bloqueados.',
       exposure: null,
-      age: oldest != null ? `${oldest} dia(s) em atraso` : null,
+      age: oldest != null ? `${oldest}d em atraso` : null,
       actionLabel: 'Ver obrigações',
       actionKey: 'openObligations',
       rank: 1,
@@ -154,8 +164,8 @@ export function attentionItems(contract: TrustedContract, now: Date = new Date()
       items.push({
         id: 'billing-overdue',
         severity: 'critical',
-        title: `${overdueBilling.length} evento(s) de faturamento vencido(s)`,
-        reason: 'Marco de faturamento vencido sem realização represa a conversão em caixa.',
+        title: plural(overdueBilling.length, 'faturamento vencido', 'faturamentos vencidos'),
+        reason: 'Marco vencido sem realização represa a conversão em caixa.',
         // Aqui o impacto É dedutível: é a soma dos eventos vencidos registrados.
         exposure: {
           trust: 'derived',
@@ -165,7 +175,7 @@ export function attentionItems(contract: TrustedContract, now: Date = new Date()
             from: ['contract_billing_events'],
           },
         },
-        age: oldest != null ? `${oldest} dia(s) vencido` : null,
+        age: oldest != null ? `${oldest}d vencido` : null,
         actionLabel: 'Abrir faturamento',
         actionKey: 'openBilling',
         rank: 2,
@@ -179,8 +189,8 @@ export function attentionItems(contract: TrustedContract, now: Date = new Date()
     items.push({
       id: 'documents-blocking',
       severity: 'warning',
-      title: `${docs.value.length} documento(s) faltante(s), vencido(s) ou rejeitado(s)`,
-      reason: `Pendências: ${docs.value.slice(0, 3).join(', ')}${docs.value.length > 3 ? '…' : ''}.`,
+      title: plural(docs.value.length, 'documento pendente', 'documentos pendentes'),
+      reason: `Faltante, vencido ou rejeitado: ${docs.value.slice(0, 3).join(', ')}${docs.value.length > 3 ? '…' : ''}.`,
       exposure: null,
       age: null,
       actionLabel: 'Abrir documentos',
@@ -198,8 +208,8 @@ export function attentionItems(contract: TrustedContract, now: Date = new Date()
       items.push({
         id: 'approvals-rejected',
         severity: 'critical',
-        title: `${rejected.length} etapa(s) de aprovação rejeitada(s)`,
-        reason: 'Etapa rejeitada interrompe o fluxo até que os ajustes sejam tratados.',
+        title: plural(rejected.length, 'etapa de alçada rejeitada', 'etapas de alçada rejeitadas'),
+        reason: 'O fluxo fica interrompido até o ajuste ser tratado.',
         exposure: null,
         age: null,
         actionLabel: 'Revisar aprovação',
@@ -215,10 +225,10 @@ export function attentionItems(contract: TrustedContract, now: Date = new Date()
       items.push({
         id: 'approvals-pending',
         severity: 'warning',
-        title: `${pending.length} etapa(s) de aprovação em aberto`,
+        title: plural(pending.length, 'etapa de alçada em aberto', 'etapas de alçada em aberto'),
         reason: 'O contrato não avança enquanto a alçada não decidir.',
         exposure: null,
-        age: oldest != null ? `há ${oldest} dia(s)` : null,
+        age: oldest != null ? `há ${oldest}d` : null,
         actionLabel: 'Revisar aprovação',
         actionKey: 'reviewApproval',
         rank: 4,
@@ -231,8 +241,8 @@ export function attentionItems(contract: TrustedContract, now: Date = new Date()
     items.push({
       id: 'project-missing',
       severity: 'setup',
-      title: 'Contrato sem projeto vinculado',
-      reason: 'Sem vínculo operacional, o contrato fica fora da visão consolidada de portfólio e da rastreabilidade financeira.',
+      title: 'Sem projeto vinculado',
+      reason: 'Fica fora do portfólio consolidado e da rastreabilidade financeira.',
       exposure: null,
       age: null,
       actionLabel: 'Vincular projeto',
@@ -249,9 +259,9 @@ export function attentionItems(contract: TrustedContract, now: Date = new Date()
       id: 'renewal-window',
       severity: renewal.value === 'expired' ? 'critical' : 'warning',
       title: renewal.value === 'expired' ? 'Contrato vencido' : 'Vencimento em até 30 dias',
-      reason: 'A janela de decisão de renovação exige tratativa antes do término da vigência.',
+      reason: 'A janela de renovação exige tratativa antes do término.',
       exposure: null,
-      age: days != null ? (days < 0 ? `${Math.abs(days)} dia(s) vencido` : `${days} dia(s) restantes`) : null,
+      age: days != null ? (days < 0 ? `${Math.abs(days)}d vencido` : `${days}d restantes`) : null,
       actionLabel: 'Abrir dossiê',
       actionKey: 'openObligations',
       rank: 2,
@@ -263,8 +273,8 @@ export function attentionItems(contract: TrustedContract, now: Date = new Date()
     items.push({
       id: 'billing-unmeasured',
       severity: 'setup',
-      title: 'Exposição faturada não apurada',
-      reason: 'Não há evento de faturamento registrado, então o quanto já foi faturado não pode ser afirmado.',
+      title: 'Faturamento não apurado',
+      reason: 'Sem evento registrado, o valor faturado não pode ser afirmado.',
       exposure: null,
       age: null,
       actionLabel: 'Criar evento',
@@ -354,7 +364,7 @@ export function attentionItems(contract: TrustedContract, now: Date = new Date()
       items.push({
         id: 'clause-analysis-failed',
         severity: 'warning',
-        title: `${failed.length} análise(s) documental(is) falharam`,
+        title: plural(failed.length, 'análise documental falhou', 'análises documentais falharam'),
         /*
           O texto do provedor NUNCA chega aqui. Ver `analysis-errors.ts`: o
           erro técnico permanece em `error_message`, legível por log e
@@ -384,8 +394,8 @@ export function attentionItems(contract: TrustedContract, now: Date = new Date()
         items.push({
           id: 'documents-not-analyzed',
           severity: 'setup',
-          title: `${pendingDocs.length} documento(s) sem análise de cláusulas`,
-          reason: 'Sem leitura do documento, a ausência de cláusula registrada não significa ausência de cláusula no contrato.',
+          title: plural(pendingDocs.length, 'documento sem análise', 'documentos sem análise'),
+          reason: 'Sem leitura, ausência de cláusula registrada não é ausência de cláusula.',
           exposure: null,
           age: null,
           actionLabel: 'Analisar documentos',
@@ -405,7 +415,7 @@ export function attentionItems(contract: TrustedContract, now: Date = new Date()
       id: 'approvals-no-route',
       severity: 'setup',
       title: 'Sem rota de alçada',
-      reason: 'Nenhuma etapa de aprovação registrada: não há como afirmar que este contrato passou por aprovação.',
+      reason: 'Nenhuma etapa registrada: a aprovação não é verificável.',
       exposure: null,
       age: null,
       actionLabel: 'Revisar aprovação',
@@ -419,7 +429,7 @@ export function attentionItems(contract: TrustedContract, now: Date = new Date()
       id: 'obligations-unmapped',
       severity: 'setup',
       title: 'Nenhuma obrigação mapeada',
-      reason: 'Sem obrigação registrada, não há o que acompanhar — e a ausência de atraso não significa cumprimento.',
+      reason: 'Sem registro, ausência de atraso não significa cumprimento.',
       exposure: null,
       age: null,
       actionLabel: 'Criar obrigação',
@@ -433,7 +443,7 @@ export function attentionItems(contract: TrustedContract, now: Date = new Date()
       id: 'documents-none',
       severity: 'setup',
       title: 'Nenhum documento registrado',
-      reason: 'O repositório documental do contrato está vazio: não há evidência de assinatura, garantia ou aditivo.',
+      reason: 'Repositório vazio: sem evidência de assinatura, garantia ou aditivo.',
       exposure: null,
       age: null,
       actionLabel: 'Anexar documento',
@@ -449,7 +459,7 @@ export function attentionItems(contract: TrustedContract, now: Date = new Date()
       id: 'term-missing',
       severity: 'setup',
       title: 'Vigência não registrada',
-      reason: 'Sem data de término nem data de renovação, o contrato não entra em nenhuma janela de decisão.',
+      reason: 'Sem término nem renovação, não entra em janela de decisão.',
       exposure: null,
       age: null,
       actionLabel: 'Abrir dossiê',

@@ -31,6 +31,7 @@
 
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
+import { HudSignal } from '@/components/hud';
 import { CircleDot, FlaskConical, HelpCircle, Layers, ChevronDown } from 'lucide-react';
 import type { ContractDataClass } from '@/lib/contracts/trust/trusted';
 
@@ -120,22 +121,22 @@ export function DataClassBadge({ dataClass, className }: { dataClass: ContractDa
   if (dataClass === 'live') return null;
 
   const isDemo = dataClass === 'demo';
+  /*
+    Signal Chip do sistema, não mais uma cápsula outline local. O selo de
+    origem é status como qualquer outro: mesma altura, mesmo raio, mesmo
+    trilho tonal dos chips de estado e risco que ele acompanha.
+  */
   return (
-    <span
+    <HudSignal
+      size="sm"
+      className={cn('shrink-0', className)}
+      tone={isDemo ? 'warning' : 'neutral'}
+      icon={isDemo ? <FlaskConical aria-hidden /> : <HelpCircle aria-hidden />}
+      label={isDemo ? 'Demonstração' : 'Não classificado'}
       title={isDemo
         ? 'Contrato de demonstração — não compõe métrica oficial da carteira.'
         : 'Origem ainda não validada — não compõe métrica oficial da carteira.'}
-      className={cn(
-        'inline-flex shrink-0 items-center gap-1 rounded-[6px] border px-1.5 py-px text-[11px] font-semibold',
-        isDemo
-          ? 'border-[color-mix(in_oklab,var(--ig-warning)_38%,transparent)] text-ig-warning'
-          : 'border-ig-border-strong text-ig-fg-subtle',
-        className,
-      )}
-    >
-      {isDemo ? <FlaskConical className="h-3 w-3" aria-hidden /> : <HelpCircle className="h-3 w-3" aria-hidden />}
-      {isDemo ? 'Demonstração' : 'Não classificado'}
-    </span>
+    />
   );
 }
 

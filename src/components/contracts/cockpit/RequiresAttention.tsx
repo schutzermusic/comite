@@ -59,10 +59,20 @@ export interface RequiresAttentionProps {
   className?: string;
   /** Limita a lista; o Quick Dossier mostra menos que o dossiê completo. */
   max?: number;
+  /**
+   * `compact` é a densidade do painel lateral.
+   *
+   * A grade larga (coluna de 110px para o rótulo de severidade + título +
+   * dimensão + ação) foi desenhada para a largura do dossiê. Dentro de um
+   * drawer de 500px ela colapsa: o título perde metade da linha, a ação quebra
+   * e o bloco parece quebrado. Aqui a severidade volta a ser o ÍCONE sobre o
+   * trilho — a informação é a mesma, em um terço da largura.
+   */
+  compact?: boolean;
 }
 
 export function RequiresAttention({
-  items, onAction, emptyHint, className, max,
+  items, onAction, emptyHint, className, max, compact = false,
 }: RequiresAttentionProps) {
   const shown = max ? items.slice(0, max) : items;
   const hidden = items.length - shown.length;
@@ -71,14 +81,80 @@ export function RequiresAttention({
   // registro" (MD §40).
   if (items.length === 0) {
     return (
-      <div className={cn('ig-section-plain py-3', className)}>
+      <div className={cn('ig-section-plain', compact ? 'py-2' : 'py-3', className)}>
         <p className="flex items-center gap-2 text-ig-body-sm font-semibold text-ig-fg-strong">
           <CheckCircle2 className="h-4 w-4 text-ig-success" aria-hidden />
           Nada exige atenção agora
         </p>
-        <p className="mt-1 text-ig-caption leading-relaxed text-ig-fg-muted">
+        <p className={cn('mt-1 text-ig-caption text-ig-fg-muted', compact ? 'line-clamp-2' : 'leading-relaxed')}>
           {emptyHint ?? 'Todas as dimensões apuradas deste contrato estão regulares.'}
         </p>
+      </div>
+    );
+  }
+
+  /*
+    ── Densidade compacta ──────────────────────────────────────────────────
+    Uma linha de duas alturas: título curto e forte, razão menor e apagada em
+    UMA linha. A severidade é o ícone sobre o trilho (forma, não só cor) e a
+    ação é um botão fantasma alinhado ao centro da linha — presente, mas sem
+    disputar peso com o título.
+  */
+  if (compact) {
+    return (
+      <div className={cn('ig-rows', className)}>
+        {shown.map((item) => {
+          const s = SEVERITY[item.severity];
+          const dimension = item.exposure && hasOfficialValue(item.exposure)
+            ? BRL.format(item.exposure.value)
+            : item.age;
+          return (
+            <article key={item.id} className="relative flex items-center gap-2.5 py-2 pl-3 pr-1">
+              <span className={cn('pointer-events-none absolute inset-y-0 left-0 w-[2px]', s.rail)} aria-hidden />
+              <span className={cn('shrink-0', s.text)}>
+                {s.icon}
+                <span className="sr-only">{s.label}</span>
+              </span>
+
+              <div className="min-w-0 flex-1">
+                <div className="flex items-baseline gap-2">
+                  <h4 className="min-w-0 flex-1 truncate text-ig-body-sm font-semibold text-ig-fg-strong">
+                    {item.title}
+                  </h4>
+                  {dimension && (
+                    <span className="ig-tabular shrink-0 text-ig-caption text-ig-fg-subtle">{dimension}</span>
+                  )}
+                </div>
+                <p className="line-clamp-1 text-ig-caption text-ig-fg-muted" title={item.reason}>
+                  {item.reason}
+                </p>
+              </div>
+
+              {onAction && (
+                <button
+                  type="button"
+                  onClick={() => onAction(item.actionKey)}
+                  title={item.actionLabel}
+                  className={cn(
+                    'inline-flex h-7 max-w-[9.5rem] shrink-0 items-center gap-1 rounded-md px-2 text-ig-caption font-semibold',
+                    'text-ig-fg-muted transition-colors',
+                    'hover:bg-[color-mix(in_oklab,var(--ig-accent)_10%,transparent)] hover:text-ig-accent',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_oklab,var(--ig-accent)_45%,transparent)]',
+                  )}
+                >
+                  <span className="truncate">{item.actionLabel}</span>
+                  <ArrowRight className="h-3 w-3 shrink-0" aria-hidden />
+                </button>
+              )}
+            </article>
+          );
+        })}
+
+        {hidden > 0 && (
+          <p className="px-3 py-1.5 text-ig-caption text-ig-fg-subtle">
+            + {hidden} no dossiê completo
+          </p>
+        )}
       </div>
     );
   }

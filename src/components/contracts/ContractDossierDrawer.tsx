@@ -1,31 +1,36 @@
 'use client';
 
 /**
- * Contract Dossier — premium right-side drawer.
+ * Contract Dossier — painel lateral operacional.
  *
- * Mirrors the Projetos / Riscos drawer behavior (HudDrawer portal + structured
- * sections + sticky quick-action footer). Consumes the same enriched
- * ContractGovernanceRecord used across the contracts module, so no data is
- * duplicated — the contract stays the governance/legal source and the actions
- * link downstream execution modules.
+ * ─── O que este painel responde, nesta ordem ──────────────────────────────
+ *
+ *   1. Está tudo bem com este contrato?   → cartão de resumo + ação recomendada
+ *   2. O que eu faço agora?               → acordeões por domínio, FECHADOS
+ *   3. Preciso de tudo?                   → "Abrir dossiê completo"
+ *
+ * A versão anterior respondia as três ao mesmo tempo: nove seções abertas e um
+ * muro de vinte botões no rodapé, ~2.400px de rolagem. Tudo continua aqui —
+ * nenhuma operação foi removida —, mas agora agrupado por domínio e revelado
+ * sob demanda, com no máximo um grupo aberto por vez. O painel não cresce
+ * conforme o usuário explora: ele TROCA de conteúdo.
+ *
+ * Consome o mesmo `TrustedContract` das outras superfícies do módulo, então o
+ * contrato não pode dizer uma coisa aqui e outra na listagem ou no dossiê.
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
-import Link from 'next/link';
-import { HudDrawer, HudButton, HudStatusPill, HudProgressBar, HudBadge } from '@/components/hud';
+import { HudDrawer, HudButton, HudStatusPill } from '@/components/hud';
 import { useHudToast } from '@/hooks/useHudToast';
 import {
   formatCurrencyCompact,
-  formatCurrencyFull,
   type ContractGovernanceRecord,
-  type GovernanceSectionQuality,
 } from '@/components/contracts/contract-governance-data';
 import {
   getContractById,
   createTaskFromObligation,
   updateContractDocumentStatus,
   listContractRelatedTasks,
-  computeApprovalSla,
   type ContractDetail,
   type ContractRelatedTask,
 } from '@/lib/contracts/contract-service';
@@ -34,34 +39,34 @@ import { trustedContractFromDetail } from '@/lib/contracts/trust/read-model';
 import {
   ContractIdentity, ProjectRelation, FinancialPulse, RequiresAttention,
   ConnectedOperations, ContractHealthDrivers, RecommendedActionPanel, RecentActivity,
+  DrawerAccordion, ActionGrid, ActionRow, SummaryTile,
   type ConnectedOperationKey,
 } from '@/components/contracts/cockpit';
 import { attentionItems, recommendedAction, type AttentionActionKey } from '@/lib/contracts/trust/attention';
 import { listContractAuditEvents, type ContractAuditEventRow } from '@/lib/contracts/contract-service';
 import { useContractInstrumentationModals } from './useContractInstrumentationModals';
-import {
-  FileDiff, ChevronDown, Ruler
-} from 'lucide-react';
 import { ClientLogoUploadSlot } from '@/components/portfolio/ClientLogoUploadSlot';
 import {
   approvalRoute, approvalStepOutcome, missingDocuments as trustedMissingDocs,
   obligationBreakdown, contractHealth,
 } from '@/lib/contracts/trust/signals';
-import { hasOfficialValue } from '@/lib/contracts/trust/trusted';
+import { hasOfficialValue, isError } from '@/lib/contracts/trust/trusted';
 import {
   AlertTriangle,
   Archive,
-  BrainCircuit,
-  Building2,
   CalendarClock,
   CheckCircle2,
+  ChevronDown,
   ClipboardCheck,
+  FileDiff,
   FileSearch,
   FileText,
   GanttChartSquare,
-  Loader2,
+  Link2,
   Receipt,
+  Ruler,
   Scale,
+  Share2,
   ShieldAlert,
   ShieldCheck,
   Trash2,
@@ -70,11 +75,6 @@ import {
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { pt } from 'date-fns/locale';
-
-const riskLabels = { high: 'Alto', medium: 'Médio', low: 'Baixo' } as const;
-function riskVariant(risk: ContractGovernanceRecord['contract']['riskClassification']) {
-  return risk === 'high' ? 'critical' : risk === 'medium' ? 'warning' : 'active';
-}
 
 const statusLabels: Record<string, string> = {
   negotiation: 'Negociação',
@@ -87,6 +87,9 @@ const statusLabels: Record<string, string> = {
   closed: 'Encerrado',
   cancelled: 'Cancelado',
 };
+
+/** Os grupos do painel. Apenas um fica aberto por vez. */
+type SectionKey = 'attention' | 'operational' | 'financial' | 'governance' | 'documents' | 'connections';
 
 export interface ContractDossierDrawerProps {
   record: ContractGovernanceRecord | null;
@@ -119,95 +122,6 @@ export interface ContractDossierDrawerProps {
     record: ContractGovernanceRecord,
     file: File | null,
   ) => Promise<string | null> | string | null;
-}
-
-/**
- * Selo de proveniência da seção.
- *
- * "Estimado" era um eufemismo: a seção não traz uma estimativa, traz um
- * preview SINTÉTICO gerado por `hash(id + nome)`. P0.3 exige que dado de
- * demonstração seja sempre identificado como tal — e o tom `warning` impede
- * que ele passe por resultado neutro.
- */
-function QualityBadge({ quality }: { quality?: GovernanceSectionQuality }) {
-  if (!quality) return null;
-  const live = quality === 'live';
-  return (
-    <HudBadge variant={live ? 'success' : 'warning'} size="sm">
-      {live ? 'Ao vivo' : 'Demonstração'}
-    </HudBadge>
-  );
-}
-
-function Section({ title, icon, quality, children }: { title: string; icon: React.ReactNode; quality?: GovernanceSectionQuality; children: React.ReactNode }) {
-  return (
-    <div className="space-y-2.5">
-      <div className="flex items-center justify-between gap-2 text-ig-fg-muted">
-        <div className="flex items-center gap-2">
-          {icon}
-          <span className="text-[11px] font-semibold">{title}</span>
-        </div>
-        <QualityBadge quality={quality} />
-      </div>
-      {children}
-    </div>
-  );
-}
-
-function KV({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex items-start justify-between gap-3 py-1.5">
-      <span className="shrink-0 text-[11px] font-medium text-ig-fg-subtle">{label}</span>
-      <span className="min-w-0 truncate text-right text-[12px] font-semibold text-ig-fg-strong">{children}</span>
-    </div>
-  );
-}
-
-function Stat({ label, value, tone }: { label: string; value: React.ReactNode; tone?: 'default' | 'success' | 'warning' | 'danger' }) {
-  const toneClass = tone === 'success' ? 'text-ig-success' : tone === 'warning' ? 'text-ig-warning' : tone === 'danger' ? 'text-ig-danger' : 'text-ig-fg-strong';
-  return (
-    <div className="min-w-0 rounded-lg border border-ig-border-subtle bg-ig-panel/45 px-3 py-2.5">
-      <p className="truncate text-ig-label font-semibold text-ig-fg-subtle">{label}</p>
-      <p className={`mt-1 truncate text-sm font-semibold tabular-nums ${toneClass}`}>{value}</p>
-    </div>
-  );
-}
-
-function LinkRow({
-  icon,
-  label,
-  value,
-  href,
-  badge,
-  muted,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  href?: string;
-  badge?: React.ReactNode;
-  muted?: boolean;
-}) {
-  const body = (
-    <div className="flex items-center gap-2.5 rounded-lg border border-ig-border-subtle bg-ig-panel/45 px-3 py-2 transition-colors hover:border-ig-border-strong">
-      <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-ig-border-subtle bg-ig-panel ${muted ? 'text-ig-fg-subtle' : 'text-ig-accent'}`}>
-        {icon}
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="text-ig-label font-semibold text-ig-fg-subtle">{label}</p>
-        <p className={`truncate text-[12px] font-semibold ${muted ? 'text-ig-fg-muted' : href ? 'text-ig-accent' : 'text-ig-fg-strong'}`}>{value}</p>
-      </div>
-      {badge}
-    </div>
-  );
-  if (href) {
-    return (
-      <Link href={href} onClick={(event) => event.stopPropagation()}>
-        {body}
-      </Link>
-    );
-  }
-  return body;
 }
 
 export function ContractDossierDrawer({
@@ -244,6 +158,13 @@ export function ContractDossierDrawer({
   const [audit, setAudit] = useState<{ rows: ContractAuditEventRow[]; error: string | null }>({ rows: [], error: null });
   const [busyId, setBusyId] = useState<string | null>(null);
   const [uploadedLogoUrl, setUploadedLogoUrl] = useState<string | null>(null);
+  /**
+   * `null` = tudo fechado, que é o estado de ABERTURA do painel.
+   *
+   * Um acordeão aberto fecha o anterior: é o que garante que a altura do painel
+   * seja função do grupo mais alto, e não da soma de tudo que foi explorado.
+   */
+  const [openSection, setOpenSection] = useState<SectionKey | null>(null);
 
   // All state writes happen inside this callback (not lexically in the effect),
   // so the effect body stays free of synchronous setState.
@@ -274,6 +195,9 @@ export function ContractDossierDrawer({
 
   useEffect(() => {
     setUploadedLogoUrl(null);
+    // Trocar de contrato reabre o painel na visão, nunca no grupo que o
+    // contrato ANTERIOR deixou aberto.
+    setOpenSection(null);
   }, [contractId]);
 
   const refreshAfterMutation = useCallback(async () => {
@@ -303,7 +227,7 @@ export function ContractDossierDrawer({
    * Os dois formulários são estruturados (evidência, origem documental, efeito
    * contratual), mas a AÇÃO de registrar pertence ao cockpit: é aqui que o
    * usuário descobre que a medição está vazia, e mandá-lo ao dossiê completo só
-   * para clicar num botão quebraria o fluxo que P1A montou.
+   * para clicar num botão quebraria o fluxo.
    */
   const instrumentation = useContractInstrumentationModals({
     contractId: contractId ?? '',
@@ -333,21 +257,15 @@ export function ContractDossierDrawer({
 
   if (!record) return null;
 
-  const sla = detail ? computeApprovalSla(detail.approvals) : null;
-  const slaHours = sla?.avgHours ?? null;
-  const STEP_LABELS: Record<string, string> = { juridico: 'Jurídico', financeiro: 'Financeiro', comite: 'Comitê', diretoria: 'Diretoria' };
-
   /**
-   * Contrato CONFIÁVEL do Quick Dossier.
+   * Contrato CONFIÁVEL do painel.
    *
    * Deriva do `detail` que o drawer já carregava, passando pelo MESMO
    * `buildTrustedContract` da listagem e da página de detalhe — as três
    * superfícies não podem discordar sobre o mesmo contrato.
    *
    * Enquanto `detail` não chega, `trusted` é nulo e os indicadores exibem "—",
-   * que é a verdade naquele instante. Antes o drawer pintava imediatamente
-   * valores do enricher, e o usuário via números fabricados que mudavam
-   * sozinhos alguns instantes depois.
+   * que é a verdade naquele instante.
    */
   const trusted = detail ? trustedContractFromDetail(detail, record.project ? [record.project] : []) : null;
   const projectLogo =
@@ -360,21 +278,25 @@ export function ContractDossierDrawer({
       ? trusted.counterparty.value
       : record.companyName;
 
-  /**
-   * Derivações que o cockpit ainda consome diretamente. As demais (execução,
-   * percentuais, contagens de documento) migraram para dentro dos componentes
-   * de `cockpit/`, que recebem o `TrustedContract` inteiro e resolvem o próprio
-   * estado — evitando uma camada de props já achatada em `number | null`, que é
-   * justamente por onde o dado perde a proveniência.
-   */
   const legalOutcome = trusted ? approvalStepOutcome(trusted, 'juridico') : null;
   const legalApproved = Boolean(legalOutcome && hasOfficialValue(legalOutcome) && legalOutcome.value === 'approved');
   const statusLabel = statusLabels[record.contract.status] ?? record.contract.status;
   const obligationStats = trusted ? obligationBreakdown(trusted) : null;
   const overdueObligations = obligationStats && hasOfficialValue(obligationStats) ? obligationStats.value.overdue : null;
-  const docsMissingT = trusted ? trustedMissingDocs(trusted) : null;
+  const docsMissing = trusted ? trustedMissingDocs(trusted) : null;
+  const missingDocCount = docsMissing && hasOfficialValue(docsMissing) ? docsMissing.value.length : null;
   const trustedRoute = trusted ? approvalRoute(trusted) : null;
   const health = trusted ? contractHealth(trusted) : null;
+  const linkedProject = trusted && hasOfficialValue(trusted.project) ? trusted.project.value : null;
+  /**
+   * Falha de LEITURA não é ausência de vínculo.
+   *
+   * O tile do resumo só pode dizer "não vinculado" quando a consulta voltou e
+   * não havia vínculo. Se ela falhou, o painel diz que não sabe — e o cartão
+   * abaixo explica por quê.
+   */
+  const projectUnreadable = Boolean(trusted && isError(trusted.project));
+  const projectUnresolved = Boolean(trusted && !linkedProject);
 
   /**
    * Itens de atenção e ação recomendada — determinísticos, do modelo confiável.
@@ -383,6 +305,7 @@ export function ContractDossierDrawer({
    */
   const attention = trusted ? attentionItems(trusted) : [];
   const recommendation = trusted ? recommendedAction(trusted) : null;
+  const criticalAttention = attention.some((item) => item.severity === 'critical');
 
   /** Empty state com inteligência: aponta o próximo marco real (MD §40). */
   const attentionEmptyHint = (() => {
@@ -415,8 +338,8 @@ export function ContractDossierDrawer({
   const navigateToOperation = (key: ConnectedOperationKey) => {
     switch (key) {
       case 'project':
-        if (trusted && hasOfficialValue(trusted.project)) {
-          window.location.assign(`/projetos/${trusted.project.value.id}`);
+        if (linkedProject) {
+          window.location.assign(`/projetos/${linkedProject.id}`);
         } else if (permissions.edit) {
           onLinkProject(record);
         }
@@ -439,105 +362,52 @@ export function ContractDossierDrawer({
       case 'finance': onOpenFinance(record); break;
     }
   };
-  const dq = record.dataQuality;
-  const linksQuality: GovernanceSectionQuality | undefined = dq
-    ? (dq.projectLink === 'live' || dq.risks === 'live' || dq.billing === 'live' || dq.documents === 'live' ? 'live' : 'estimated')
-    : undefined;
 
-  const canGovern = permissions.edit || permissions.approve || permissions.uploadDoc;
+  const toggle = (key: SectionKey) => setOpenSection((current) => (current === key ? null : key));
+
+  // ── Contagens dos grupos ────────────────────────────────────────────────
+  const obligationCount = detail ? detail.obligations.length : null;
+  const billingCount = detail ? detail.billingEvents.length : null;
+  const documentCount = detail ? detail.documents.length : null;
+  const approvalCount = detail ? detail.approvals.length : null;
+  const taskCount = tasks.error ? null : tasks.rows.length;
+  const pendingBilling = detail
+    ? detail.billingEvents.filter((be) => !isRealized(be.paid_at, be.status)).length
+    : null;
+
+  /**
+   * Resumo factual do grupo fechado.
+   *
+   * O cabeçalho passou a ter dois papéis distintos: a linha de apoio diz O QUE
+   * HÁ (contagens), e o chip à direita diz O QUE PENDE. Antes os dois
+   * disputavam o mesmo lugar — um número sem assunto ao lado de um rótulo
+   * colorido sem anatomia.
+   */
+  const summarize = (...parts: (string | null)[]) =>
+    parts.filter(Boolean).join(' · ') || 'Carregando…';
+  const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  const countLabel = (n: number | null, one: string, many: string) =>
+    n === null ? null : plural(n, one, many);
+
+  /*
+    O rodapé perdeu as três linhas de navegação e o muro de doze botões: elas
+    viraram, respectivamente, o grupo "Conexões" e as ações dentro de cada
+    acordeão. Sobra a hierarquia real — um destino primário e uma saída.
+  */
   const footer = (
-    <div className="space-y-2.5">
-      {/* Navegação para módulos (leitura) */}
-      <div className="grid grid-cols-3 gap-2">
-        <HudButton variant="secondary" size="sm" leftIcon={<Wallet className="h-4 w-4" />} onClick={() => onOpenFinance(record)}>
-          Financeiro
-        </HudButton>
-        <HudButton variant="secondary" size="sm" leftIcon={<Receipt className="h-4 w-4" />} onClick={() => onOpenBilling(record)}>
-          Faturamento
-        </HudButton>
-        <HudButton variant="secondary" size="sm" leftIcon={<Archive className="h-4 w-4" />} onClick={() => onViewDocuments(record)}>
-          Documentos
-        </HudButton>
-      </div>
-
-      {/* Ações de governança — gated por RBAC (RLS reforça no servidor) */}
-      {canGovern && (
-        <div className="border-t border-ig-border-subtle pt-2.5">
-          <p className="mb-1.5 text-ig-label font-semibold text-ig-fg-subtle">Ações</p>
-          <div className="grid grid-cols-2 gap-2">
-            {permissions.edit && (
-              <HudButton variant="secondary" size="sm" leftIcon={<Workflow className="h-4 w-4" />} onClick={() => onLinkProject(record)}>
-                Vincular projeto
-              </HudButton>
-            )}
-            {permissions.edit && (
-              <HudButton variant="secondary" size="sm" leftIcon={<ClipboardCheck className="h-4 w-4" />} onClick={onCreateObligation}>
-                Criar obrigação
-              </HudButton>
-            )}
-            {permissions.edit && (
-              <HudButton variant="secondary" size="sm" leftIcon={<Ruler className="h-4 w-4" />} onClick={() => instrumentation.openMilestone()}>
-                Registrar marco
-              </HudButton>
-            )}
-            {permissions.edit && (
-              <HudButton variant="secondary" size="sm" leftIcon={<Scale className="h-4 w-4" />} onClick={() => instrumentation.openClause()}>
-                Registrar cláusula
-              </HudButton>
-            )}
-            {permissions.edit && (
-              <HudButton variant="secondary" size="sm" leftIcon={<Receipt className="h-4 w-4" />} onClick={onCreateBilling}>
-                Criar faturamento
-              </HudButton>
-            )}
-            {permissions.edit && onAddAmendment && (
-              <HudButton variant="secondary" size="sm" leftIcon={<FileDiff className="h-4 w-4" />} onClick={onAddAmendment}>
-                Adicionar aditivo
-              </HudButton>
-            )}
-            {permissions.edit && (
-              <HudButton variant="secondary" size="sm" leftIcon={<CalendarClock className="h-4 w-4" />} onClick={() => onCreateTask(record)}>
-                Criar tarefa
-              </HudButton>
-            )}
-            {permissions.edit && (
-              <HudButton variant="secondary" size="sm" leftIcon={<ShieldAlert className="h-4 w-4" />} onClick={() => onCreateRisk(record)}>
-                Criar risco
-              </HudButton>
-            )}
-            {permissions.edit && (
-              <HudButton variant="secondary" size="sm" leftIcon={<ShieldCheck className="h-4 w-4" />} onClick={() => onLinkExistingRisk(record)}>
-                Vincular risco
-              </HudButton>
-            )}
-            {permissions.uploadDoc && (
-              <HudButton variant="secondary" size="sm" leftIcon={<FileText className="h-4 w-4" />} onClick={() => onAttachDocument(record)}>
-                Anexar documento
-              </HudButton>
-            )}
-            {permissions.approve && (
-              <HudButton variant="secondary" size="sm" leftIcon={<GanttChartSquare className="h-4 w-4" />} onClick={() => onReviewApproval(record)}>
-                Aprovar / rejeitar
-              </HudButton>
-            )}
-            {permissions.edit && !legalApproved && (
-              <HudButton variant="secondary" size="sm" leftIcon={<Scale className="h-4 w-4" />} onClick={() => onSendToLegal(record)}>
-                Rev. jurídica
-              </HudButton>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Primário */}
-      <div className="grid grid-cols-[1fr_auto] gap-2 border-t border-ig-border-subtle pt-2.5">
-        <HudButton variant="primary" size="sm" leftIcon={<FileSearch className="h-4 w-4" />} onClick={() => onView(record)}>
-          Abrir dossiê completo
-        </HudButton>
-        <HudButton variant="glass" size="sm" leftIcon={<FileText className="h-4 w-4" />} onClick={() => onExportPdf(record)}>
-          PDF
-        </HudButton>
-      </div>
+    <div className="grid grid-cols-[1fr_auto] gap-2">
+      <HudButton variant="primary" size="sm" leftIcon={<FileSearch className="h-4 w-4" />} onClick={() => onView(record)}>
+        Abrir dossiê completo
+      </HudButton>
+      <HudButton
+        variant="glass"
+        size="sm"
+        leftIcon={<FileText className="h-4 w-4" />}
+        title="Exportar o dossiê em PDF"
+        onClick={() => onExportPdf(record)}
+      >
+        PDF
+      </HudButton>
     </div>
   );
 
@@ -547,9 +417,21 @@ export function ContractDossierDrawer({
       isOpen={isOpen}
       onClose={onClose}
       title={record.contract.name}
-      subtitle={`${record.code} · cockpit operacional`}
-      width="600px"
+      density="compact"
+      width="500px"
       footer={footer}
+      subtitle={
+        trusted ? (
+          /* Código + estado + risco + vigência numa faixa só: o cabeçalho
+             identifica, não descreve. */
+          <ContractIdentity contract={trusted} compact />
+        ) : (
+          <div className="flex items-center gap-1.5" aria-busy="true">
+            <span className="h-4 w-20 rounded bg-ig-border-subtle/60" />
+            <span className="h-4 w-16 rounded bg-ig-border-subtle/45" />
+          </div>
+        )
+      }
       headerLeading={
         onLogoUpload || displayLogoUrl ? (
           <ClientLogoUploadSlot
@@ -574,69 +456,69 @@ export function ContractDossierDrawer({
         ) : undefined
       }
     >
-      {/*
-        ─── Quick Dossier = cockpit operacional ────────────────────────────
-
-        A ordem das seções responde, nesta sequência: que contrato é este? a
-        que está ligado? quanto está exposto? o que exige atenção? o que posso
-        fazer agora? — e só então o detalhe operacional.
-
-        Não é uma miniatura do dossiê completo: aqui mora a DECISÃO; lá, o
-        workspace de consulta.
-      */}
-      <div className="space-y-5">
-        {/* ── 1 · Identidade ─────────────────────────────────────────────── */}
+      <div className="space-y-2.5">
+        {/* ── 1 · Resumo — o único bloco sempre visível ─────────────────────
+            Contraparte, projeto, valor e execução. Nada além disto compete
+            pelo primeiro olhar. */}
         {trusted ? (
-          <ContractIdentity contract={trusted} />
+          <section className="ig-lp overflow-hidden" aria-label="Resumo do contrato">
+            <div className="grid grid-cols-2 gap-x-1 px-1.5 py-2">
+              <SummaryTile
+                label="Contraparte"
+                value={hasOfficialValue(trusted.counterparty) ? trusted.counterparty.value : 'Não informada'}
+                sub={hasOfficialValue(trusted.contractType) ? trusted.contractType.value : undefined}
+              />
+              {linkedProject ? (
+                <SummaryTile
+                  label="Projeto vinculado"
+                  value={linkedProject.codigo}
+                  sub={linkedProject.nome}
+                  href={`/projetos/${linkedProject.id}`}
+                />
+              ) : projectUnreadable ? (
+                <SummaryTile
+                  label="Projeto vinculado"
+                  value="Não apurado"
+                  sub="Falha ao ler o vínculo"
+                  tone="warning"
+                />
+              ) : (
+                <SummaryTile
+                  label="Projeto vinculado"
+                  value="Não vinculado"
+                  sub={permissions.edit ? 'Vincular agora' : 'Fora da visão de portfólio'}
+                  tone="warning"
+                  onClick={permissions.edit ? () => onLinkProject(record) : undefined}
+                />
+              )}
+            </div>
+
+            {/* Valor, faturado, backlog e execução — a régua financeira do
+                painel, no degrau recuado da linguagem `.ig-lp`. */}
+            <div className="ig-lp-rule ig-lp-rule--tail px-3 py-2.5">
+              <FinancialPulse contract={trusted} compact />
+            </div>
+          </section>
         ) : (
-          /* Enquanto as relações não chegam, a identidade não é inventada a
-             partir do record sintético: mostra-se o esqueleto. */
-          <div className="space-y-2" aria-busy="true">
+          <div className="ig-lp space-y-2 p-3" aria-busy="true">
             <div className="h-3 w-28 rounded bg-ig-border-subtle/60" />
-            <div className="h-6 w-56 rounded bg-ig-border-subtle/50" />
-            <div className="h-3 w-40 rounded bg-ig-border-subtle/40" />
+            <div className="h-5 w-48 rounded bg-ig-border-subtle/50" />
+            <div className="h-3 w-36 rounded bg-ig-border-subtle/40" />
           </div>
         )}
 
-        {/* ── 2 · Relação com projeto (primeira classe, nunca em overflow) ── */}
-        {trusted && (
+        {/* ── 2 · Vínculo ausente: estado operacional, não campo vazio ──────
+            Só aparece quando FALTA. No caminho feliz o tile acima já disse o
+            que havia a dizer, e o cartão inteiro seria repetição. */}
+        {projectUnresolved && (
           <ProjectRelation
-            project={trusted.project}
+            project={trusted!.project}
+            compact
             onLink={permissions.edit ? () => onLinkProject(record) : undefined}
           />
         )}
 
-        {/* ── 3 · Financial Pulse ────────────────────────────────────────── */}
-        {trusted && (
-          <div className="relative overflow-hidden rounded-[18px] border border-ig-border-focus/35 bg-[linear-gradient(160deg,color-mix(in_oklab,var(--ig-bg-panel)_94%,transparent),color-mix(in_oklab,var(--ig-bg-raised)_50%,transparent))] px-4 py-4 shadow-[var(--ig-shadow-e2)]">
-            <span className="pointer-events-none absolute inset-y-4 left-0 w-px bg-ig-accent shadow-[0_0_14px_color-mix(in_oklab,var(--ig-accent)_70%,transparent)]" aria-hidden />
-            <FinancialPulse contract={trusted} />
-          </div>
-        )}
-
-        {/* ── 4 · Requires Attention ─────────────────────────────────────── */}
-        {trusted && (
-          <section>
-            <div className="mb-2.5 flex items-baseline justify-between gap-3">
-              <h3 className="text-ig-label text-ig-fg-muted">
-                Requer atenção
-              </h3>
-              {attention.length > 0 && (
-                <span className="ig-tabular text-ig-body-sm font-semibold text-ig-fg-strong">
-                  {attention.length}
-                </span>
-              )}
-            </div>
-            <RequiresAttention
-              items={attention}
-              max={3}
-              onAction={runAttentionAction}
-              emptyHint={attentionEmptyHint}
-            />
-          </section>
-        )}
-
-        {/* ── 5 · Ação recomendada ───────────────────────────────────────── */}
+        {/* ── 3 · Comece por aqui — uma decisão, não uma lista ──────────── */}
         {trusted && recommendation && (
           <RecommendedActionPanel
             action={recommendation}
@@ -645,220 +527,421 @@ export function ContractDossierDrawer({
           />
         )}
 
-        {/* ── 6 · Connected Operations ───────────────────────────────────── */}
+        {/* ── 4 · Grupos ────────────────────────────────────────────────────
+            Fechados por padrão, um aberto por vez. O cabeçalho de cada um
+            carrega a contagem e o sinal — quem só quer saber "quantas
+            obrigações, alguma atrasada?" lê sem abrir nada. */}
+
+        {trusted && attention.length > 0 && (
+          <DrawerAccordion
+            id="ig-cd-attention"
+            title="Requer atenção"
+            icon={<AlertTriangle className="h-4 w-4" />}
+            hint={criticalAttention ? 'Há item crítico neste contrato' : 'Pendências monitoradas'}
+            flag={criticalAttention ? 'crítico' : 'atenção'}
+            flagValue={attention.length}
+            tone={criticalAttention ? 'danger' : 'warning'}
+            open={openSection === 'attention'}
+            onToggle={() => toggle('attention')}
+          >
+            <RequiresAttention
+              items={attention}
+              max={4}
+              compact
+              onAction={runAttentionAction}
+              emptyHint={attentionEmptyHint}
+            />
+          </DrawerAccordion>
+        )}
+
+        {/* ── Operacional · obrigações, marcos e tarefas ──────────────────── */}
+        <DrawerAccordion
+          id="ig-cd-operational"
+          title="Operacional"
+          icon={<Workflow className="h-4 w-4" />}
+          hint={summarize(
+            countLabel(obligationCount, 'obrigação', 'obrigações'),
+            countLabel(taskCount, 'tarefa', 'tarefas'),
+          )}
+          count={obligationCount}
+          tone={overdueObligations ? 'danger' : 'neutral'}
+          flag={overdueObligations ? 'em atraso' : undefined}
+          flagValue={overdueObligations ?? undefined}
+          open={openSection === 'operational'}
+          onToggle={() => toggle('operational')}
+        >
+          {permissions.edit && (
+            <ActionGrid>
+              <ActionRow icon={<ClipboardCheck />} label="Criar obrigação" tone="accent" onClick={onCreateObligation} />
+              <ActionRow icon={<Ruler />} label="Registrar marco" onClick={() => instrumentation.openMilestone()} />
+              <ActionRow icon={<CalendarClock />} label="Criar tarefa" onClick={() => onCreateTask(record)} />
+              <ActionRow icon={<Link2 />} label="Vincular projeto" onClick={() => onLinkProject(record)} />
+            </ActionGrid>
+          )}
+
+          {/* F. Obrigações */}
+          <Group title="F · Obrigações" count={obligationCount}>
+            {detail && detail.obligations.length > 0 ? (
+              <ItemList>
+                {detail.obligations.slice(0, 6).map((ob) => {
+                  const overdue = ob.status === 'overdue';
+                  const done = ob.status === 'done';
+                  return (
+                    <ItemRow
+                      key={ob.id}
+                      title={ob.title}
+                      meta={ob.due_date ? format(new Date(ob.due_date), 'dd/MM/yyyy', { locale: pt }) : 'sem prazo'}
+                      pill={
+                        <HudStatusPill variant={overdue ? 'critical' : done ? 'active' : ob.status === 'due_soon' ? 'warning' : 'neutral'} size="sm">
+                          {done ? 'Concluída' : overdue ? 'Atrasada' : ob.status === 'due_soon' ? 'Próxima' : 'Aberta'}
+                        </HudStatusPill>
+                      }
+                      actions={
+                        <>
+                          {permissions.edit && !done && (
+                            <IconAction
+                              title="Concluir obrigação"
+                              tone="success"
+                              icon={<CheckCircle2 className="h-3.5 w-3.5" />}
+                              onClick={() => itemModals.openCompleteObligation(ob)}
+                            />
+                          )}
+                          {permissions.edit && (
+                            <IconAction
+                              title="Criar tarefa na agenda"
+                              icon={<CalendarClock className="h-3.5 w-3.5" />}
+                              disabled={busyId === `obltask-${ob.id}`}
+                              onClick={() =>
+                                runItemAction(
+                                  `obltask-${ob.id}`,
+                                  () => createTaskFromObligation(ob.contract_id, ob.title, `${ob.due_date ?? format(new Date(), 'yyyy-MM-dd')}T23:59:59`, ob.owner_user_id),
+                                  'Tarefa criada na agenda',
+                                )
+                              }
+                            />
+                          )}
+                        </>
+                      }
+                    />
+                  );
+                })}
+              </ItemList>
+            ) : (
+              <EmptyState loading={detailLoading} label="Nenhuma obrigação cadastrada" />
+            )}
+          </Group>
+
+          {/* I. Tarefas na agenda (leitura) */}
+          <Group title="I · Tarefas na agenda" count={taskCount}>
+            {tasks.error ? (
+              <p className="rounded-lg border border-ig-danger/30 bg-ig-danger/5 px-3 py-2 text-ig-caption text-ig-danger">
+                Não foi possível ler as tarefas vinculadas. A ausência de itens aqui não significa que não existam.
+              </p>
+            ) : tasks.rows.length > 0 ? (
+              <ItemList>
+                {tasks.rows.slice(0, 5).map((task) => (
+                  <ItemRow
+                    key={task.id}
+                    title={task.title}
+                    meta={task.due_at ? format(new Date(task.due_at), 'dd/MM/yyyy', { locale: pt }) : 'sem prazo'}
+                    pill={
+                      <HudStatusPill variant={task.status === 'done' ? 'active' : task.status === 'blocked' ? 'critical' : 'neutral'} size="sm">
+                        {task.status}
+                      </HudStatusPill>
+                    }
+                  />
+                ))}
+              </ItemList>
+            ) : (
+              <EmptyState loading={detailLoading} label="Nenhuma tarefa vinculada na agenda" />
+            )}
+          </Group>
+        </DrawerAccordion>
+
+        {/* ── Financeiro · faturamento e aditivos ─────────────────────────── */}
+        <DrawerAccordion
+          id="ig-cd-financial"
+          title="Financeiro"
+          icon={<Wallet className="h-4 w-4" />}
+          hint={summarize(countLabel(billingCount, 'evento', 'eventos de faturamento'))}
+          count={billingCount}
+          tone={pendingBilling ? 'warning' : 'neutral'}
+          flag={pendingBilling ? 'a faturar' : undefined}
+          flagValue={pendingBilling ?? undefined}
+          open={openSection === 'financial'}
+          onToggle={() => toggle('financial')}
+        >
+          <ActionGrid>
+            {permissions.edit && (
+              <ActionRow icon={<Receipt />} label="Criar faturamento" tone="accent" onClick={onCreateBilling} />
+            )}
+            {permissions.edit && onAddAmendment && (
+              <ActionRow icon={<FileDiff />} label="Adicionar aditivo" onClick={onAddAmendment} />
+            )}
+            <ActionRow icon={<Wallet />} label="Abrir Financeiro" onClick={() => onOpenFinance(record)} />
+            <ActionRow icon={<Receipt />} label="Abrir Faturamento" onClick={() => onOpenBilling(record)} />
+          </ActionGrid>
+
+          {/* G. Faturamento */}
+          <Group title="G · Faturamento" count={billingCount}>
+            {detail && detail.billingEvents.length > 0 ? (
+              <ItemList>
+                {detail.billingEvents.slice(0, 6).map((be) => {
+                  const realized = isRealized(be.paid_at, be.status);
+                  return (
+                    <ItemRow
+                      key={be.id}
+                      title={be.title}
+                      meta={`${formatCurrencyCompact(Number(be.amount) || 0)} · ${be.due_date ? format(new Date(be.due_date), 'dd/MM/yyyy', { locale: pt }) : 'sem data'}`}
+                      pill={
+                        <HudStatusPill variant={realized ? 'active' : 'warning'} size="sm">
+                          {realized ? 'Faturado' : 'Pendente'}
+                        </HudStatusPill>
+                      }
+                      actions={
+                        permissions.edit && !realized ? (
+                          <IconAction
+                            title="Marcar como faturado"
+                            tone="success"
+                            icon={<CheckCircle2 className="h-3.5 w-3.5" />}
+                            onClick={() => itemModals.openRealizeBilling(be)}
+                          />
+                        ) : null
+                      }
+                    />
+                  );
+                })}
+              </ItemList>
+            ) : (
+              <EmptyState loading={detailLoading} label="Nenhum evento de faturamento vinculado" />
+            )}
+          </Group>
+        </DrawerAccordion>
+
+        {/* ── Governança · aprovações, cláusulas, risco e cobertura ───────── */}
+        <DrawerAccordion
+          id="ig-cd-governance"
+          title="Governança"
+          icon={<ShieldCheck className="h-4 w-4" />}
+          hint={summarize(
+            countLabel(approvalCount, 'etapa de alçada', 'etapas de alçada'),
+            trusted && legalApproved ? 'jurídico aprovado' : null,
+          )}
+          count={approvalCount}
+          tone={trusted && !legalApproved ? 'warning' : 'neutral'}
+          flag={trusted && !legalApproved ? 'jurídico' : undefined}
+          open={openSection === 'governance'}
+          onToggle={() => toggle('governance')}
+        >
+          <ActionGrid>
+            {permissions.approve && (
+              <ActionRow icon={<GanttChartSquare />} label="Aprovar / rejeitar" tone="accent" onClick={() => onReviewApproval(record)} />
+            )}
+            {permissions.edit && !legalApproved && (
+              <ActionRow icon={<Scale />} label="Revisão jurídica" onClick={() => onSendToLegal(record)} />
+            )}
+            {permissions.edit && (
+              <ActionRow icon={<Scale />} label="Registrar cláusula" onClick={() => instrumentation.openClause()} />
+            )}
+            {permissions.edit && (
+              <ActionRow icon={<ShieldAlert />} label="Criar risco" onClick={() => onCreateRisk(record)} />
+            )}
+            {permissions.edit && (
+              <ActionRow icon={<ShieldCheck />} label="Vincular risco" onClick={() => onLinkExistingRisk(record)} />
+            )}
+          </ActionGrid>
+
+          {/* Cobertura por dimensão — sem score. */}
+          {health && <ContractHealthDrivers health={health} compact />}
+
+          {/* Detalhes do contrato, em nível 2 de revelação. */}
+          {trusted && (
+            <details className="group rounded-[12px] border border-ig-border-subtle px-3 py-2.5">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-ig-caption font-semibold text-ig-fg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_oklab,var(--ig-accent)_45%,transparent)]">
+                Detalhes do contrato
+                <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" aria-hidden />
+              </summary>
+              <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2.5">
+                <Detail label="Código" value={trusted.code} />
+                <Detail label="Status" value={statusLabel} />
+                <Detail label="Tipo" value={hasOfficialValue(trusted.contractType) ? trusted.contractType.value : 'Não informado'} />
+                <Detail label="Contraparte" value={hasOfficialValue(trusted.counterparty) ? trusted.counterparty.value : 'Não informada'} />
+                <Detail label="Início" value={hasOfficialValue(trusted.startDate) ? trusted.startDate.value.toLocaleDateString('pt-BR') : 'Não informado'} />
+                <Detail label="Término" value={hasOfficialValue(trusted.endDate) ? trusted.endDate.value.toLocaleDateString('pt-BR') : 'Não informado'} />
+                <Detail label="Rota de aprovação" value={trustedRoute && hasOfficialValue(trustedRoute) ? trustedRoute.value : 'Nenhuma etapa'} wide />
+              </dl>
+            </details>
+          )}
+        </DrawerAccordion>
+
+        {/* ── Documentos ──────────────────────────────────────────────────── */}
+        <DrawerAccordion
+          id="ig-cd-documents"
+          title="Documentos"
+          icon={<Archive className="h-4 w-4" />}
+          hint={summarize(countLabel(documentCount, 'documento', 'documentos'))}
+          count={documentCount}
+          tone={missingDocCount ? 'warning' : 'neutral'}
+          flag={missingDocCount ? 'pendentes' : undefined}
+          flagValue={missingDocCount ?? undefined}
+          open={openSection === 'documents'}
+          onToggle={() => toggle('documents')}
+        >
+          <ActionGrid>
+            {permissions.uploadDoc && (
+              <ActionRow icon={<FileText />} label="Anexar documento" tone="accent" onClick={() => onAttachDocument(record)} />
+            )}
+            <ActionRow icon={<Archive />} label="Abrir Documentos" onClick={() => onViewDocuments(record)} />
+          </ActionGrid>
+
+          {/* H. Documentos */}
+          <Group title="H · Documentos" count={documentCount}>
+            {detail && detail.documents.length > 0 ? (
+              <ItemList>
+                {detail.documents.slice(0, 8).map((doc) => (
+                  <ItemRow
+                    key={doc.id}
+                    title={doc.title}
+                    meta={DOC_STATUS_LABELS[doc.status] ?? doc.status}
+                    pill={
+                      <HudStatusPill variant={DOC_STATUS_VARIANT[doc.status] ?? 'neutral'} size="sm">
+                        {DOC_STATUS_LABELS[doc.status] ?? doc.status}
+                      </HudStatusPill>
+                    }
+                    actions={
+                      <>
+                        {permissions.uploadDoc && doc.status !== 'pending_approval' && doc.status !== 'approved' && doc.status !== 'rejected' && (
+                          <IconAction
+                            title="Enviar para aprovação"
+                            icon={<ClipboardCheck className="h-3.5 w-3.5" />}
+                            disabled={busyId === `docp-${doc.id}`}
+                            onClick={() => runItemAction(`docp-${doc.id}`, () => updateContractDocumentStatus(doc.id, 'pending_approval'), 'Documento enviado para aprovação')}
+                          />
+                        )}
+                        {permissions.uploadDoc && doc.status !== 'approved' && (
+                          <IconAction
+                            title="Aprovar documento"
+                            tone="success"
+                            icon={<CheckCircle2 className="h-3.5 w-3.5" />}
+                            disabled={busyId === `doca-${doc.id}`}
+                            onClick={() => runItemAction(`doca-${doc.id}`, () => updateContractDocumentStatus(doc.id, 'approved'), 'Documento aprovado')}
+                          />
+                        )}
+                        {permissions.uploadDoc && doc.status !== 'rejected' && (
+                          <IconAction
+                            title="Rejeitar documento"
+                            tone="danger"
+                            icon={<AlertTriangle className="h-3.5 w-3.5" />}
+                            onClick={() => itemModals.openRejectDoc(doc)}
+                          />
+                        )}
+                      </>
+                    }
+                  />
+                ))}
+              </ItemList>
+            ) : (
+              <EmptyState loading={detailLoading} label="Nenhum documento anexado" />
+            )}
+          </Group>
+        </DrawerAccordion>
+
+        {/* ── Conexões e atividade ────────────────────────────────────────── */}
         {trusted && (
-          /* O painel traz o próprio cabeçalho — um h3 aqui seria o segundo. */
-          <section>
+          <DrawerAccordion
+            id="ig-cd-connections"
+            title="Conexões e atividade"
+            icon={<Share2 className="h-4 w-4" />}
+            hint={summarize(
+              'Módulos relacionados',
+              audit.error ? 'histórico indisponível' : countLabel(audit.rows.length, 'evento', 'eventos'),
+            )}
+            count={audit.error ? null : audit.rows.length}
+            open={openSection === 'connections'}
+            onToggle={() => toggle('connections')}
+          >
             <ConnectedOperations
               contract={trusted}
               context={{
-                tasks: { count: tasks.error ? null : tasks.rows.length, errored: Boolean(tasks.error) },
+                tasks: { count: taskCount, errored: Boolean(tasks.error) },
                 auditEvents: { count: audit.error ? null : audit.rows.length, errored: Boolean(audit.error) },
               }}
               onNavigate={navigateToOperation}
             />
-          </section>
+
+            <Group title="Atividade recente">
+              <RecentActivity
+                events={audit.rows}
+                error={audit.error}
+                max={4}
+                onViewAll={() => onView(record)}
+              />
+            </Group>
+          </DrawerAccordion>
         )}
-
-        {/* ── 7 · Cobertura por dimensão (sem score) ─────────────────────── */}
-        {trusted && health && (
-          /* Sem moldura externa: `.ig-lp` já é a superfície do painel. */
-          <ContractHealthDrivers health={health} />
-        )}
-
-        {/* ── 8 · Detalhes do contrato (progressive disclosure) ──────────── */}
-        {trusted && (
-          <details className="group rounded-[14px] border border-ig-border-subtle px-4 py-3">
-            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-ig-label text-ig-fg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_oklab,var(--ig-accent)_45%,transparent)]">
-              Detalhes do contrato
-              <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" aria-hidden />
-            </summary>
-            <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2.5">
-              <Detail label="Código" value={trusted.code} />
-              <Detail label="Status" value={statusLabel} />
-              <Detail label="Tipo" value={hasOfficialValue(trusted.contractType) ? trusted.contractType.value : 'Não informado'} />
-              <Detail label="Contraparte" value={hasOfficialValue(trusted.counterparty) ? trusted.counterparty.value : 'Não informada'} />
-              <Detail label="Início" value={hasOfficialValue(trusted.startDate) ? trusted.startDate.value.toLocaleDateString('pt-BR') : 'Não informado'} />
-              <Detail label="Término" value={hasOfficialValue(trusted.endDate) ? trusted.endDate.value.toLocaleDateString('pt-BR') : 'Não informado'} />
-              <Detail label="Rota de aprovação" value={trustedRoute && hasOfficialValue(trustedRoute) ? trustedRoute.value : 'Nenhuma etapa'} wide />
-            </dl>
-          </details>
-        )}
-
-        {/* ── 9 · Atividade recente (audit_logs real) ────────────────────── */}
-        <section>
-          <div className="mb-2.5 flex items-baseline justify-between gap-3">
-            <h3 className="text-ig-label text-ig-fg-muted">
-              Atividade recente
-            </h3>
-          </div>
-          <RecentActivity
-            events={audit.rows}
-            error={audit.error}
-            max={4}
-            onViewAll={() => onView(record)}
-          />
-        </section>
-
-        <div className="border-t border-ig-border-subtle pt-1" />
-
-
-        {/* F. Obrigações */}
-        <Section title="F · Obrigações" icon={<ClipboardCheck className="h-4 w-4" />}>
-          {detail && detail.obligations.length > 0 ? (
-            <div className="space-y-1.5">
-              {detail.obligations.slice(0, 8).map((ob) => {
-                const overdue = ob.status === 'overdue';
-                const done = ob.status === 'done';
-                return (
-                  <div key={ob.id} className="flex items-center justify-between gap-2 rounded-lg border border-ig-border-subtle bg-ig-panel/45 px-3 py-2">
-                    <div className="min-w-0">
-                      <p className="truncate text-[12px] font-semibold text-ig-fg-strong">{ob.title}</p>
-                      <p className="truncate text-[11px] text-ig-fg-muted">{ob.due_date ? format(new Date(ob.due_date), 'dd/MM/yyyy', { locale: pt }) : 'sem prazo'}</p>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-1.5">
-                      <HudStatusPill variant={overdue ? 'critical' : done ? 'active' : ob.status === 'due_soon' ? 'warning' : 'neutral'} size="sm">
-                        {done ? 'Concluída' : overdue ? 'Atrasada' : ob.status === 'due_soon' ? 'Próxima' : 'Aberta'}
-                      </HudStatusPill>
-                      {permissions.edit && !done && (
-                        <IconAction
-                          title="Concluir obrigação"
-                          tone="success"
-                          icon={<CheckCircle2 className="h-3.5 w-3.5" />}
-                          onClick={() => itemModals.openCompleteObligation(ob)}
-                        />
-                      )}
-                      {permissions.edit && (
-                        <IconAction
-                          title="Criar tarefa na agenda"
-                          icon={<CalendarClock className="h-3.5 w-3.5" />}
-                          disabled={busyId === `obltask-${ob.id}`}
-                          onClick={() =>
-                            runItemAction(
-                              `obltask-${ob.id}`,
-                              () => createTaskFromObligation(ob.contract_id, ob.title, `${ob.due_date ?? format(new Date(), 'yyyy-MM-dd')}T23:59:59`, ob.owner_user_id),
-                              'Tarefa criada na agenda',
-                            )
-                          }
-                        />
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <EmptyState loading={detailLoading} label="Nenhuma obrigação cadastrada" />
-          )}
-        </Section>
-
-        {/* G. Faturamento */}
-        <Section title="G · Faturamento" icon={<Receipt className="h-4 w-4" />}>
-          {detail && detail.billingEvents.length > 0 ? (
-            <div className="space-y-1.5">
-              {detail.billingEvents.slice(0, 8).map((be) => {
-                const realized = Boolean(be.paid_at) || ['pago', 'paid', 'billed', 'realizado', 'realized'].includes((be.status ?? '').toLowerCase());
-                return (
-                  <div key={be.id} className="flex items-center justify-between gap-2 rounded-lg border border-ig-border-subtle bg-ig-panel/45 px-3 py-2">
-                    <div className="min-w-0">
-                      <p className="truncate text-[12px] font-semibold text-ig-fg-strong">{be.title}</p>
-                      <p className="truncate text-[11px] text-ig-fg-muted">
-                        {formatCurrencyCompact(Number(be.amount) || 0)} · {be.due_date ? format(new Date(be.due_date), 'dd/MM/yyyy', { locale: pt }) : 'sem data'}
-                      </p>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-1.5">
-                      <HudStatusPill variant={realized ? 'active' : 'warning'} size="sm">{realized ? 'Faturado' : 'Pendente'}</HudStatusPill>
-                      {permissions.edit && !realized && (
-                        <IconAction
-                          title="Marcar como faturado"
-                          tone="success"
-                          icon={<CheckCircle2 className="h-3.5 w-3.5" />}
-                          onClick={() => itemModals.openRealizeBilling(be)}
-                        />
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <EmptyState loading={detailLoading} label="Nenhum evento de faturamento vinculado" />
-          )}
-        </Section>
-
-        {/* H. Documentos */}
-        <Section title="H · Documentos" icon={<Archive className="h-4 w-4" />}>
-          {detail && detail.documents.length > 0 ? (
-            <div className="space-y-1.5">
-              {detail.documents.slice(0, 10).map((doc) => (
-                <div key={doc.id} className="flex items-center justify-between gap-2 rounded-lg border border-ig-border-subtle bg-ig-panel/45 px-3 py-2">
-                  <div className="min-w-0">
-                    <p className="truncate text-[12px] font-semibold text-ig-fg-strong">{doc.title}</p>
-                    <p className="truncate text-[11px] text-ig-fg-muted">{DOC_STATUS_LABELS[doc.status] ?? doc.status}</p>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-1.5">
-                    <HudStatusPill variant={DOC_STATUS_VARIANT[doc.status] ?? 'neutral'} size="sm">{DOC_STATUS_LABELS[doc.status] ?? doc.status}</HudStatusPill>
-                    {permissions.uploadDoc && doc.status !== 'pending_approval' && doc.status !== 'approved' && doc.status !== 'rejected' && (
-                      <IconAction
-                        title="Enviar para aprovação"
-                        icon={<ClipboardCheck className="h-3.5 w-3.5" />}
-                        disabled={busyId === `docp-${doc.id}`}
-                        onClick={() => runItemAction(`docp-${doc.id}`, () => updateContractDocumentStatus(doc.id, 'pending_approval'), 'Documento enviado para aprovação')}
-                      />
-                    )}
-                    {permissions.uploadDoc && doc.status !== 'approved' && (
-                      <IconAction
-                        title="Aprovar documento"
-                        tone="success"
-                        icon={<CheckCircle2 className="h-3.5 w-3.5" />}
-                        disabled={busyId === `doca-${doc.id}`}
-                        onClick={() => runItemAction(`doca-${doc.id}`, () => updateContractDocumentStatus(doc.id, 'approved'), 'Documento aprovado')}
-                      />
-                    )}
-                    {permissions.uploadDoc && doc.status !== 'rejected' && (
-                      <IconAction
-                        title="Rejeitar documento"
-                        tone="danger"
-                        icon={<AlertTriangle className="h-3.5 w-3.5" />}
-                        onClick={() => itemModals.openRejectDoc(doc)}
-                      />
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <EmptyState loading={detailLoading} label="Nenhum documento anexado" />
-          )}
-        </Section>
-
-        {/* I. Tarefas na agenda (leitura) */}
-        <Section title="I · Tarefas na agenda" icon={<CalendarClock className="h-4 w-4" />}>
-          {tasks.error ? (
-            <p className="rounded-lg border border-ig-danger/30 bg-ig-danger/5 px-3 py-2 text-ig-caption text-ig-danger">
-              Não foi possível ler as tarefas vinculadas. A ausência de itens aqui não significa que não existam.
-            </p>
-          ) : tasks.rows.length > 0 ? (
-            <div className="space-y-1.5">
-              {tasks.rows.slice(0, 8).map((task) => (
-                <div key={task.id} className="flex items-center justify-between gap-2 rounded-lg border border-ig-border-subtle bg-ig-panel/45 px-3 py-2">
-                  <div className="min-w-0">
-                    <p className="truncate text-[12px] font-semibold text-ig-fg-strong">{task.title}</p>
-                    <p className="truncate text-[11px] text-ig-fg-muted">{task.due_at ? format(new Date(task.due_at), 'dd/MM/yyyy', { locale: pt }) : 'sem prazo'}</p>
-                  </div>
-                  <HudStatusPill variant={task.status === 'done' ? 'active' : task.status === 'blocked' ? 'critical' : 'neutral'} size="sm">{task.status}</HudStatusPill>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <EmptyState loading={detailLoading} label="Nenhuma tarefa vinculada na agenda" />
-          )}
-        </Section>
       </div>
     </HudDrawer>
     {itemModals.modals}
     {instrumentation.modals}
     </>
+  );
+}
+
+const PAID_TOKENS = ['pago', 'paid', 'billed', 'realizado', 'realized', 'faturado'];
+/** Mesma regra do Financial Pulse: um evento faturado não pode divergir entre as duas leituras. */
+function isRealized(paidAt: string | null | undefined, status: string | null | undefined) {
+  return Boolean(paidAt) || PAID_TOKENS.includes((status ?? '').toLowerCase());
+}
+
+/** Subtítulo de bloco dentro de um acordeão — um degrau abaixo do grupo. */
+function Group({ title, count, children }: { title: string; count?: number | null; children: React.ReactNode }) {
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-baseline justify-between gap-2">
+        <h4 className="text-ig-caption font-semibold uppercase tracking-wide text-ig-fg-subtle">{title}</h4>
+        {count !== undefined && count !== null && count > 0 && (
+          <span className="ig-tabular text-ig-caption text-ig-fg-subtle">{count}</span>
+        )}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/** Lista de itens: divisórias de 1px em vez de uma borda por linha. */
+function ItemList({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="overflow-hidden rounded-[12px] border border-ig-border-subtle bg-[color-mix(in_oklab,var(--ig-bg-raised)_35%,transparent)] [&>*+*]:border-t [&>*+*]:border-ig-border-subtle">
+      {children}
+    </div>
+  );
+}
+
+/**
+ * Linha de item compacta.
+ *
+ * A moldura por item virou divisória: doze linhas emolduradas eram doze
+ * objetos disputando a mesma atenção, e ~30px de borda e respiro por linha.
+ */
+function ItemRow({
+  title, meta, pill, actions,
+}: {
+  title: string;
+  meta?: React.ReactNode;
+  pill?: React.ReactNode;
+  actions?: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 transition-colors hover:bg-[color-mix(in_oklab,var(--ig-accent)_5%,transparent)]">
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-ig-body-sm font-semibold text-ig-fg-strong">{title}</p>
+        {meta && <p className="truncate text-ig-caption text-ig-fg-muted">{meta}</p>}
+      </div>
+      <div className="flex shrink-0 items-center gap-1">
+        {pill}
+        {actions}
+      </div>
+    </div>
   );
 }
 
@@ -918,7 +1001,7 @@ function IconAction({
       aria-label={title}
       disabled={disabled}
       onClick={onClick}
-      className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-ig-border-subtle text-ig-fg-muted transition-colors disabled:cursor-not-allowed disabled:opacity-50 sm:h-7 sm:w-7 ${toneClass}`}
+      className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-ig-border-subtle text-ig-fg-muted transition-colors disabled:cursor-not-allowed disabled:opacity-50 sm:h-7 sm:w-7 ${toneClass}`}
     >
       {icon}
     </button>
@@ -927,7 +1010,7 @@ function IconAction({
 
 function EmptyState({ loading, label }: { loading: boolean; label: string }) {
   return (
-    <p className="rounded-lg border border-dashed border-ig-border-subtle bg-ig-panel/30 px-3 py-2.5 text-center text-[11px] text-ig-fg-muted">
+    <p className="rounded-[12px] border border-dashed border-ig-border-subtle bg-[color-mix(in_oklab,var(--ig-bg-raised)_25%,transparent)] px-3 py-2.5 text-center text-ig-caption text-ig-fg-muted">
       {loading ? 'Carregando…' : label}
     </p>
   );

@@ -162,15 +162,22 @@ describe('cockpit P1A: composição e integridade', () => {
   const drawer = read(DRAWER);
 
   it('as nove seções do cockpit estão montadas, na ordem especificada', () => {
+    /*
+      A ordem mudou com o redesenho do painel lateral (visão primeiro, ações em
+      acordeões fechados), mas as NOVE seções continuam montadas — nenhuma foi
+      trocada por uma reescrita local. Resumo (identidade, projeto, pulso) e a
+      ação recomendada ficam visíveis; atenção, cobertura, detalhes, conexões e
+      atividade vivem dentro dos grupos.
+    */
     const ordem = [
       'ContractIdentity',
       'ProjectRelation',
       'FinancialPulse',
-      'RequiresAttention',
       'RecommendedActionPanel',
-      'ConnectedOperations',
+      'RequiresAttention',
       'ContractHealthDrivers',
       'Detalhes do contrato',
+      'ConnectedOperations',
       'RecentActivity',
     ];
     let cursor = -1;
@@ -179,6 +186,25 @@ describe('cockpit P1A: composição e integridade', () => {
       expect(at, `seção "${secao}" ausente ou fora de ordem`).toBeGreaterThan(cursor);
       cursor = at;
     }
+  });
+
+  it('as ações vivem em grupos fechados por padrão, um aberto por vez', () => {
+    // O estado inicial `null` É o requisito: nada aberto quando o painel abre.
+    expect(drawer).toContain("useState<SectionKey | null>(null)");
+    // Abrir um grupo fecha o anterior — a altura do painel não acumula.
+    expect(drawer).toContain('setOpenSection((current) => (current === key ? null : key))');
+    for (const grupo of ['Operacional', 'Financeiro', 'Governança', 'Documentos']) {
+      expect(drawer, `grupo "${grupo}" ausente`).toContain(`title="${grupo}"`);
+    }
+  });
+
+  it('o rodapé ficou com a hierarquia, não com o muro de botões', () => {
+    const footer = drawer.slice(drawer.indexOf('const footer = ('), drawer.indexOf('return (\n    <>'));
+    expect(footer).toContain('Abrir dossiê completo');
+    expect(footer).toContain('PDF');
+    // As doze ações de governança saíram do rodapé para dentro dos grupos.
+    expect(footer).not.toContain('Criar obrigação');
+    expect(footer).not.toContain('Vincular projeto');
   });
 
   it('as seções operacionais F–I sobreviveram ao redesenho', () => {

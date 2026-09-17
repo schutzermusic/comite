@@ -18,7 +18,7 @@ import { PortfolioSearch, PortfolioFilters, PortfolioEmpty, matchesPortfolioSear
 import { DossierDisclosure } from '../shell/DossierPrimitives';
 import { cn } from '@/lib/utils';
 import { ShieldAlert, Scale, Gavel, PlugZap, AlertTriangle, CircleDashed } from 'lucide-react';
-import { HudPanel } from '@/components/hud';
+import { HudPanel, HudSignal, type HudSignalTone } from '@/components/hud';
 import type {
   CapabilityState, ClauseRiskIntelligence, IntelligenceCapability,
 } from '@/lib/contracts/trust/clause-risk-intelligence';
@@ -38,26 +38,26 @@ const CAP_ICON: Record<IntelligenceCapability['key'], React.ReactNode> = {
   penalties: <Gavel className="h-4 w-4" aria-hidden />,
 };
 
-const STATE_CHIP: Record<CapabilityState, { label: string; icon: React.ReactNode; tone: string; border: string }> = {
+const STATE_CHIP: Record<CapabilityState, { label: string; icon: React.ReactNode; tone: HudSignalTone }> = {
   available: {
     label: 'Disponível',
-    icon: <CircleDashed className="h-3 w-3" aria-hidden />,
-    tone: 'text-ig-success', border: 'border-ig-success/45',
+    icon: <CircleDashed aria-hidden />,
+    tone: 'success',
   },
   'no-records': {
     label: 'Sem registros',
-    icon: <CircleDashed className="h-3 w-3" aria-hidden />,
-    tone: 'text-ig-warning', border: 'border-ig-warning/45',
+    icon: <CircleDashed aria-hidden />,
+    tone: 'warning',
   },
   'not-instrumented': {
     label: 'Não instrumentado',
-    icon: <PlugZap className="h-3 w-3" aria-hidden />,
-    tone: 'text-ig-fg-subtle', border: 'border-ig-border-strong',
+    icon: <PlugZap aria-hidden />,
+    tone: 'neutral',
   },
   error: {
     label: 'Indisponível',
-    icon: <AlertTriangle className="h-3 w-3" aria-hidden />,
-    tone: 'text-ig-danger', border: 'border-ig-danger/45',
+    icon: <AlertTriangle aria-hidden />,
+    tone: 'danger',
   },
 };
 
@@ -212,14 +212,14 @@ function formatEffect(
   return parts.length > 0 ? parts.join(' · ') : 'Sem efeito quantificado';
 }
 
-const REVIEW_TONE: Record<ClauseReviewStatus, string> = {
-  draft: 'border-ig-border-strong text-ig-fg-muted',
-  in_review: 'border-ig-warning/45 text-ig-warning',
-  validated: 'border-ig-success/45 text-ig-success',
-  rejected: 'border-ig-danger/45 text-ig-danger',
+const REVIEW_TONE: Record<ClauseReviewStatus, HudSignalTone> = {
+  draft: 'neutral',
+  in_review: 'warning',
+  validated: 'success',
+  rejected: 'danger',
   // Substituída não é rejeitada: o conteúdo podia estar certo, outra versão é
   // que passou a valer. Tom neutro e apagado, sem carga de erro.
-  superseded: 'border-ig-border-subtle text-ig-fg-subtle',
+  superseded: 'neutral',
 };
 
 function ClauseRow({
@@ -245,12 +245,12 @@ function ClauseRow({
             {clause.clause_type ?? 'categoria não informada'} · risco {contractRiskLabel(clause.risk_level)}
           </p>
         </div>
-        <span className={cn(
-          'shrink-0 rounded-full border px-2 py-px text-ig-label font-semibold',
-          REVIEW_TONE[clause.review_status],
-        )}>
-          {CLAUSE_REVIEW_LABEL[clause.review_status]}
-        </span>
+        <HudSignal
+          size="sm"
+          className="shrink-0"
+          label={CLAUSE_REVIEW_LABEL[clause.review_status]}
+          tone={REVIEW_TONE[clause.review_status]}
+        />
       </div>
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
@@ -335,12 +335,7 @@ function CapabilityCard({
             {capability.label}
           </span>
         </div>
-        <span className={cn(
-          'inline-flex items-center gap-1 rounded-full border px-2 py-px text-ig-label font-semibold',
-          chip.border, chip.tone,
-        )}>
-          {chip.icon}{chip.label}
-        </span>
+        <HudSignal size="sm" icon={chip.icon} label={chip.label} tone={chip.tone} />
       </div>
 
       <p className="text-ig-caption text-ig-fg-muted">{capability.summary}</p>

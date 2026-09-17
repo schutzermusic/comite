@@ -26,7 +26,7 @@ import { PortfolioSearch, PortfolioEmpty, matchesPortfolioSearch } from '../port
 import { DossierDetailDrawer, DossierStatus } from '../shell/DossierPrimitives';
 import { cn } from '@/lib/utils';
 import { AlertTriangle, CalendarClock, CircleHelp, FileWarning, Landmark, ShieldOff } from 'lucide-react';
-import { HudPanel, HudEmptyState } from '@/components/hud';
+import { HudPanel, HudEmptyState, HudSignal, type HudSignalTone } from '@/components/hud';
 import type { ObligationAttentionRow, ObligationPortfolio } from '@/lib/contracts/obligations/portfolio';
 import type { ObligationResponsibleSide, ObligationUrgency, Tristate } from '@/lib/contracts/obligations/types';
 
@@ -50,15 +50,15 @@ const URGENCY_HINT: Record<ObligationUrgency, string> = {
   NOT_APPLICABLE: 'Cumpridas, dispensadas ou canceladas.',
 };
 
-const URGENCY_TONE: Record<ObligationUrgency, { text: string; rail: string; chip: string }> = {
-  OVERDUE: { text: 'text-ig-danger', rail: 'bg-ig-danger', chip: 'border-ig-danger/45 text-ig-danger' },
-  DUE: { text: 'text-ig-warning', rail: 'bg-ig-warning', chip: 'border-ig-warning/45 text-ig-warning' },
+const URGENCY_TONE: Record<ObligationUrgency, { text: string; rail: string; chip: HudSignalTone }> = {
+  OVERDUE: { text: 'text-ig-danger', rail: 'bg-ig-danger', chip: 'critical' },
+  DUE: { text: 'text-ig-warning', rail: 'bg-ig-warning', chip: 'warning' },
   // Azul de INFORMAÇÃO, não cinza de lacuna: esperar a agenda é o estado
   // correto da exigência, e não uma pendência de quem está lendo a tela.
-  AWAITING_SCHEDULE_ANCHOR: { text: 'text-ig-accent', rail: 'bg-ig-accent', chip: 'border-ig-accent/45 text-ig-accent' },
-  UNKNOWN: { text: 'text-ig-fg-muted', rail: 'bg-ig-border-strong', chip: 'border-ig-border-strong text-ig-fg-muted' },
-  UPCOMING: { text: 'text-ig-success', rail: 'bg-ig-success', chip: 'border-ig-success/45 text-ig-success' },
-  NOT_APPLICABLE: { text: 'text-ig-fg-muted', rail: 'bg-ig-border', chip: 'border-ig-border text-ig-fg-muted' },
+  AWAITING_SCHEDULE_ANCHOR: { text: 'text-ig-accent', rail: 'bg-ig-accent', chip: 'accent' },
+  UNKNOWN: { text: 'text-ig-fg-muted', rail: 'bg-ig-border-strong', chip: 'neutral' },
+  UPCOMING: { text: 'text-ig-success', rail: 'bg-ig-success', chip: 'success' },
+  NOT_APPLICABLE: { text: 'text-ig-fg-muted', rail: 'bg-ig-border', chip: 'neutral' },
 };
 
 const ORDER: ObligationUrgency[] = [
@@ -78,26 +78,24 @@ function BillingChip({ state }: { state: Tristate }) {
   if (state === 'FALSE') return null;
   const blocking = state === 'TRUE';
   return (
-    <span className={cn(
-      'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium',
-      blocking ? 'border-ig-danger/45 text-ig-danger' : 'border-ig-border-strong text-ig-fg-muted',
-    )}>
-      <Landmark className="h-3 w-3" />
-      {blocking ? 'Bloqueia faturamento' : 'Bloqueio não apurado'}
-    </span>
+    <HudSignal
+      size="sm"
+      tone={blocking ? 'danger' : 'neutral'}
+      icon={<Landmark aria-hidden />}
+      label={blocking ? 'Bloqueia faturamento' : 'Bloqueio não apurado'}
+    />
   );
 }
 
 function EvidenceChip({ state }: { state: Tristate }) {
   if (state === 'TRUE') return null;
   return (
-    <span className={cn(
-      'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px]',
-      state === 'FALSE' ? 'border-ig-warning/45 text-ig-warning' : 'border-ig-border-strong text-ig-fg-muted',
-    )}>
-      <FileWarning className="h-3 w-3" />
-      {state === 'FALSE' ? 'Evidência faltando' : 'Evidência sem aceite'}
-    </span>
+    <HudSignal
+      size="sm"
+      tone={state === 'FALSE' ? 'warning' : 'neutral'}
+      icon={<FileWarning aria-hidden />}
+      label={state === 'FALSE' ? 'Evidência faltando' : 'Evidência sem aceite'}
+    />
   );
 }
 
@@ -111,9 +109,7 @@ function Row({ row, onOpenContract }: { row: ObligationAttentionRow; onOpenContr
           <p className="truncate text-sm font-semibold text-ig-fg-strong">{row.title}</p>
           {onOpenContract ? <button type="button" onClick={() => onOpenContract(row.contractId)} className="mt-0.5 text-xs text-ig-fg-muted hover:text-ig-accent">{row.contractTitle} · {row.occurrenceKey}</button> : <p className="mt-0.5 text-xs text-ig-fg-muted">{row.contractTitle} · {row.occurrenceKey}</p>}
         </div>
-        <span className={cn('shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium', tone.chip)}>
-          {URGENCY_LABEL[row.urgency]}
-        </span>
+        <HudSignal size="sm" className="shrink-0" label={URGENCY_LABEL[row.urgency]} tone={tone.chip} />
       </div>
 
       <div className="flex flex-wrap items-center gap-2 text-[11px] text-ig-fg-muted">
@@ -134,14 +130,15 @@ function Row({ row, onOpenContract }: { row: ObligationAttentionRow; onOpenContr
         <BillingChip state={row.blocksBilling} />
         <EvidenceChip state={row.evidenceComplete} />
         {row.hasEffectiveException && (
-          <span className="inline-flex items-center gap-1 rounded-full border border-ig-border-strong px-2 py-0.5 text-[10px] text-ig-fg-muted">
-            <ShieldOff className="h-3 w-3" />Dispensa vigente
-          </span>
+          <HudSignal size="sm" tone="neutral" icon={<ShieldOff aria-hidden />} label="Dispensa vigente" />
         )}
         {row.escalationSeverity && (
-          <span className="inline-flex items-center gap-1 rounded-full border border-ig-warning/45 px-2 py-0.5 text-[10px] text-ig-warning">
-            <AlertTriangle className="h-3 w-3" />Escalonamento {row.escalationSeverity}
-          </span>
+          <HudSignal
+            size="sm"
+            tone="warning"
+            icon={<AlertTriangle aria-hidden />}
+            label={`Escalonamento ${row.escalationSeverity}`}
+          />
         )}
       </div>
     </li>

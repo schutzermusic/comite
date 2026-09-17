@@ -38,6 +38,7 @@
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { ArrowUpRight, Link2, Workflow, AlertTriangle } from 'lucide-react';
+import { HudSignal, type HudSignalTone } from '@/components/hud';
 import { TrustedValue } from './TrustedValue';
 import { hasOfficialValue, isError, ratioTrusted, type Official } from '@/lib/contracts/trust/trusted';
 import type { TrustedContract } from '@/lib/contracts/trust/read-model';
@@ -45,6 +46,15 @@ import type { Project } from '@/lib/types';
 import { compactContractCurrency, officialCurrencyFull } from '@/lib/contracts/trust/format';
 
 export type DeckChipTone = 'neutral' | 'success' | 'warning' | 'critical' | 'accent';
+
+/** O tom do deck resolve para o tom do Signal Chip — uma escala só. */
+const CHIP_TONE: Record<DeckChipTone, HudSignalTone> = {
+  neutral: 'neutral',
+  success: 'success',
+  warning: 'warning',
+  critical: 'critical',
+  accent: 'accent',
+};
 
 export interface DeckChip {
   readonly label: string;
@@ -138,15 +148,14 @@ export function ContractCommandDeck({
                   {contract.contractType.value}
                 </span>
               )}
+              {/*
+                Signal Chip do sistema. Era a cápsula outline legada — raio
+                999px com um ponto colorido de 5px —, a peça que o produto
+                aposentou: ponto não tem anatomia, e a pílula lia como tag de
+                blog ao lado dos chips de status do resto do módulo.
+              */}
               {chips.map((chip) => (
-                <span
-                  key={chip.label}
-                  className="ig-chip px-2 py-0.5 text-ig-label font-medium"
-                  data-tone={chip.tone === 'neutral' ? undefined : chip.tone}
-                >
-                  <i aria-hidden />
-                  {chip.label}
-                </span>
+                <HudSignal key={chip.label} size="sm" label={chip.label} tone={CHIP_TONE[chip.tone]} />
               ))}
             </div>
           </div>

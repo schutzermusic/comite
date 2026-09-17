@@ -18,6 +18,7 @@
 
 import { useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
+import { HudSignal, type HudSignalTone } from '@/components/hud';
 import {
   ArrowUpDown, ArrowUp, ArrowDown, Search, Workflow, AlertTriangle, Settings2, X,
 } from 'lucide-react';
@@ -89,13 +90,13 @@ const APEX_STATE_LABEL: Record<ApexContractState, string> = {
   idle: 'Sem exigência ativa',
 };
 
-const APEX_STATE_TONE: Record<ApexContractState, string> = {
-  blocked: 'border-ig-danger/45 text-ig-danger',
-  attention: 'border-ig-warning/45 text-ig-warning',
-  monitoring: 'border-ig-accent/45 text-ig-accent',
-  awaiting_schedule: 'border-ig-accent/35 text-ig-accent',
-  unlinked: 'border-ig-border-strong text-ig-fg-muted',
-  idle: 'border-ig-border text-ig-fg-muted',
+const APEX_STATE_TONE: Record<ApexContractState, HudSignalTone> = {
+  blocked: 'danger',
+  attention: 'warning',
+  monitoring: 'accent',
+  awaiting_schedule: 'accent',
+  unlinked: 'neutral',
+  idle: 'neutral',
 };
 
 /** Uma linha já resolvida — ordenação e busca operam sobre valores, não JSX. */
@@ -519,12 +520,7 @@ function Cell({ col, align, row: r }: { col: SmartColumnKey; align?: 'right'; ro
     case 'apexState':
       return (
         <span className={cn(base, 'flex items-center')}>
-          <span className={cn(
-            'truncate rounded-full border px-2 py-0.5 text-[10px]',
-            APEX_STATE_TONE[r.apexState],
-          )}>
-            {APEX_STATE_LABEL[r.apexState]}
-          </span>
+          <HudSignal size="sm" label={APEX_STATE_LABEL[r.apexState]} tone={APEX_STATE_TONE[r.apexState]} />
         </span>
       );
   }

@@ -77,6 +77,13 @@ export type ContractRow = {
   supplier_id: string | null;
   title: string;
   contract_number: string | null;
+  /**
+   * Número interno da Ordem de Serviço (migration 169). INDEPENDENTE de
+   * `contract_number`: o número do contrato costuma vir extraído do PDF
+   * assinado; a OS é atribuída DEPOIS, pela operação, para acompanhar a
+   * execução, e as duas numerações não têm por que coincidir.
+   */
+  os_number: string | null;
   counterparty_name: string | null;
   /**
    * Vínculo OPCIONAL com a entidade canônica em `parties` (migration 106).
@@ -583,6 +590,8 @@ export type CreateContractInput = {
    */
   counterpartyPartyId?: string | null;
   contractNumber?: string | null;
+  /** Número interno da OS — ver o comentário de `os_number` em `ContractRow`. */
+  osNumber?: string | null;
   contractType?: string | null;
   projectId?: string | null;
   status?: string;
@@ -959,6 +968,7 @@ export async function createContract(input: CreateContractInput): Promise<Contra
       project_id: input.projectId || null,
       title: input.title,
       contract_number: input.contractNumber || null,
+      os_number: input.osNumber || null,
       counterparty_name: input.counterpartyName || null,
       counterparty_party_id: input.counterpartyPartyId || null,
       contract_type: input.contractType || null,
@@ -1023,6 +1033,7 @@ const CONTRACT_UPDATE_COLUMNS = {
   projectId: 'project_id',
   title: 'title',
   contractNumber: 'contract_number',
+  osNumber: 'os_number',
   counterpartyName: 'counterparty_name',
   counterpartyPartyId: 'counterparty_party_id',
   contractType: 'contract_type',

@@ -254,7 +254,26 @@ const SECTION_SOURCE: Record<ContractRelationSectionKey, LiveSource> = {
   obligationDefinitions: 'contract_obligation_definitions',
 };
 
+/**
+ * Código exibido nas superfícies do módulo (cabeçalho do dossiê, cards,
+ * breadcrumb) — não é uma coluna, é uma escolha entre três.
+ *
+ * A ORDEM importa e reflete o ciclo de vida real do dado (migration 169):
+ *
+ *   1. `os_number`       — o identificador que a OPERAÇÃO usa no dia a dia,
+ *                           atribuído depois da criação do contrato. Quando
+ *                           existe, é o que a equipe reconhece — é o que
+ *                           aparece.
+ *   2. `contract_number` — o número OFICIAL, geralmente já extraído do PDF
+ *                           assinado. Serve enquanto a OS ainda não foi aberta.
+ *   3. regex no título   — resgata um "OS 123" ou "CTR 456" escrito à mão no
+ *                           título de contratos antigos, cadastrados antes de
+ *                           qualquer um dos dois campos existir.
+ *   4. `CTR-<id>`         — nunca inventa um número; identifica pela chave
+ *                           primária quando NENHUMA das três fontes existe.
+ */
 function contractCode(row: ContractRow): string {
+  if (row.os_number) return row.os_number;
   if (row.contract_number) return row.contract_number;
   const match = row.title?.match(/\b(?:OS|OP|CT|CTR)\s*[0-9.-]+/i);
   if (match) return match[0].replace(/\s+/g, ' ');
