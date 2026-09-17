@@ -166,8 +166,8 @@ export function ContractCommandDeck({
       </header>
 
       {/* ── Faixa operacional + relação ───────────────────────────────── */}
-      <div className="ig-deck-strip grid gap-x-0 gap-y-4 px-5 py-4 md:px-7 xl:grid-cols-[minmax(0,1fr)_300px] xl:gap-x-7">
-        <dl className="grid grid-cols-2 sm:grid-cols-4">
+      <div className="ig-deck-strip grid grid-cols-1 gap-x-0 gap-y-4 px-5 py-4 md:px-7 xl:grid-cols-[minmax(0,1fr)_300px] xl:gap-x-7">
+        <dl className="grid min-w-0 grid-cols-2 gap-y-3 sm:grid-cols-4">
           {/*
             O valor contratado é a voz dominante: o único metálico, e o único
             que carrega a moeda por extenso no `title`. Os outros três o
@@ -247,7 +247,7 @@ function DeckCell({
   title?: string;
 }) {
   return (
-    <div className={cn('ig-deck-cell px-4 py-1', first && 'pl-0')} title={title}>
+    <div className={cn('ig-deck-cell min-w-0 px-4 py-1', first && 'pl-0')} title={title}>
       <dd className="leading-none">{children}</dd>
       <dt className="mt-2 text-ig-caption text-ig-fg-muted">{label}</dt>
     </div>
@@ -307,7 +307,7 @@ function ProjectModule({
 
   const p = project.value;
   return (
-    <Link href={`/projetos/${p.id}`} className="ig-deck-link group px-4 py-3">
+    <Link href={`/projetos/${p.id}`} className="ig-deck-link group min-w-0 px-4 py-3">
       <span className="flex items-center justify-between gap-2">
         <span className="flex items-center gap-1.5 text-ig-label uppercase tracking-[0.12em] text-ig-fg-muted">
           <Workflow className="h-3.5 w-3.5 text-ig-accent" aria-hidden />
@@ -318,7 +318,7 @@ function ProjectModule({
       <span className="mt-1.5 block truncate ig-tabular text-ig-body-sm font-semibold text-ig-fg-strong">
         {p.codigo}
       </span>
-      <span className="mt-0.5 block truncate text-ig-caption text-ig-fg-muted">{p.nome}</span>
+      <span className="mt-0.5 block text-ig-caption text-ig-fg-muted">{p.nome}</span>
     </Link>
   );
 }

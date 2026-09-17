@@ -27,8 +27,10 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  AlertTriangle, CheckCircle2, CircleSlash, FileText, HelpCircle, Loader2, Send,
+  ChevronRight, AlertTriangle, CheckCircle2, CircleSlash, FileText, HelpCircle, Loader2, Send,
 } from 'lucide-react';
+import { PortfolioSearch, PortfolioFilters, PortfolioEmpty, matchesPortfolioSearch } from '../portfolio/PortfolioControls';
+import { DossierDetailDrawer, DossierStatus } from '../shell/DossierPrimitives';
 import { HudBadge, HudPanel } from '@/components/hud';
 import { cn } from '@/lib/utils';
 import {
@@ -45,13 +47,17 @@ import {
 interface Props {
   /** Um contrato (dossiê) ou vários (carteira). */
   readonly contractId?: string;
+  readonly compact?: boolean;
   readonly contractIds?: readonly string[];
   /** Rótulo do contrato, quando a lista mistura vários. */
   readonly contractLabel?: (contractId: string) => string;
   readonly onNotify?: (message: string, variant: 'success' | 'error') => void;
 }
 
-export function ContractToCashPanel({ contractId, contractIds, contractLabel, onNotify }: Props) {
+export function ContractToCashPanel({ contractId, contractIds, contractLabel, onNotify, compact = false }: Props) {
+  const [query, setQuery] = useState('');
+  const [stage, setStage] = useState('all');
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [rows, setRows] = useState<ContractToCashRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -106,6 +112,9 @@ export function ContractToCashPanel({ contractId, contractIds, contractLabel, on
     );
   }
 
+  const shown = rows.filter((row) => matchesPortfolioSearch(query, row.title, contractLabel?.(row.contractId)) && (stage === 'all' || chainStage(row) === stage));
+  const stages = Array.from(new Set(rows.map(chainStage)));
+  const selected = rows.find((row) => row.billingEventId === selectedId) ?? null;
   return (
     <div className="space-y-3">
       {error && (
@@ -118,21 +127,26 @@ export function ContractToCashPanel({ contractId, contractIds, contractLabel, on
       )}
 
       {rows.length === 0 && !error && (
-        <HudPanel>
-          <p className="p-6 text-center text-ig-caption text-ig-fg-muted">
-            Nenhum evento de faturamento neste recorte.
-          </p>
-        </HudPanel>
+        <p className="py-2 text-ig-caption text-ig-fg-muted">Nenhum evento de faturamento neste recorte.</p>
       )}
 
-      {rows.map((row) => (
-        <BillingEventCard
-          key={row.billingEventId}
-          row={row}
-          label={contractLabel?.(row.contractId)}
-          busy={busyId === row.billingEventId}
-          onRelease={() => release(row)}
-        />
+      {compact ? <>
+        {contractIds && <>
+          <PortfolioSearch value={query} onChange={setQuery} label="Buscar evento ou contrato" count={shown.length} />
+          <PortfolioFilters label="Etapa do faturamento" value={stage} onChange={setStage} options={[{ value: 'all', label: 'Todas as etapas', count: rows.length }, ...stages.map((value) => ({ value, label: value, count: rows.filter((r) => chainStage(r) === value).length }))]} />
+          {shown.length === 0 && rows.length > 0 && <PortfolioEmpty onReset={() => { setQuery(''); setStage('all'); }} />}
+        </>}
+        <div>{shown.map((row) => <button key={row.billingEventId} type="button" className="dossier-row" aria-haspopup="dialog" onClick={() => setSelectedId(row.billingEventId)}>
+          <div className="min-w-0 flex-1"><p className="dossier-row-title">{row.title}</p><p className="dossier-meta">{contractLabel && <>{contractLabel(row.contractId)} · </>}{row.amountSource ? AMOUNT_SOURCE_LABEL[row.amountSource] : 'Origem não registrada'}</p></div>
+          <div><p className="dossier-meta">Valor elegível</p><p className="text-xs font-semibold text-ig-fg-strong">{displayText(eligibleAmount(row))}</p></div>
+          <DossierStatus tone={row.eligibilityState === 'BLOCKED' ? 'attention' : row.releaseState === 'RELEASED' ? 'positive' : 'unknown'}>{chainStage(row)}</DossierStatus>
+          <ChevronRight className="h-4 w-4 shrink-0 text-ig-fg-muted" aria-hidden />
+        </button>)}</div>
+        <DossierDetailDrawer isOpen={!!selected} onClose={() => setSelectedId(null)} title={selected?.title ?? ''} subtitle="Faturamento · elegibilidade, liberação e lastro">
+          {selected && <BillingEventCard row={selected} label={contractLabel?.(selected.contractId)} busy={busyId === selected.billingEventId} onRelease={() => release(selected)} />}
+        </DossierDetailDrawer>
+      </> : rows.map((row) => (
+        <BillingEventCard key={row.billingEventId} row={row} label={contractLabel?.(row.contractId)} busy={busyId === row.billingEventId} onRelease={() => release(row)} />
       ))}
     </div>
   );
@@ -151,7 +165,7 @@ function BillingEventCard({
   const unreconciled = reconciliationPending(row);
 
   return (
-    <HudPanel>
+    <HudPanel className="dossier-billing-card">
       <div className="space-y-3 p-4">
         {/* ---- identidade e estágio ---- */}
         <div className="flex flex-wrap items-start justify-between gap-2">
@@ -169,7 +183,7 @@ function BillingEventCard({
         </div>
 
         {/* ---- os valores, cada um com o seu estado ---- */}
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <div className="dossier-billing-metrics grid grid-cols-2 gap-3 md:grid-cols-4">
           <Metric
             label="Elegível a faturar"
             value={displayText(eligible)}

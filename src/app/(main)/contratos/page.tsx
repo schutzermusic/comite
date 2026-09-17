@@ -1,6 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { DossierDisclosure, DossierSection } from '@/components/contracts/shell/DossierPrimitives';
+import { PortfolioSearch, PortfolioFilters, PortfolioEmpty, matchesPortfolioSearch } from '@/components/contracts/portfolio/PortfolioControls';
+import { PortfolioDocuments } from '@/components/contracts/portfolio/PortfolioDocuments';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   type SectionId,
@@ -131,6 +134,17 @@ import { pt } from 'date-fns/locale';
 */
 type ViewMode = 'table' | 'cards' | 'risk';
 
+const AREA_HINT: Record<SectionId, string> = {
+  overview: 'Prioridades, próximos prazos e desempenho da carteira em um só lugar.',
+  contracts: 'Encontre um contrato e abra seu dossiê para acompanhar a operação.',
+  renewals: 'Antecipe decisões e acompanhe os prazos de renovação e vigência.',
+  obligations: 'Acompanhe exigências, responsáveis, evidências e impedimentos.',
+  faturamento: 'Da origem contratual ao recebimento: acompanhe cada evento.',
+  aprovacoes: 'Veja onde cada decisão está, quem responde e quais prazos exigem atenção.',
+  risks: 'Explore riscos, cláusulas e penalidades com sua origem documental.',
+  documents: 'Encontre documentos, confira versões e acompanhe as aprovações.',
+};
+
 const riskLabels = { high: 'Alto', medium: 'Médio', low: 'Baixo' } as const;
 
 /**
@@ -195,6 +209,7 @@ export default function ContratosPage() {
     },
     [router],
   );
+  const [riskTargetId, setRiskTargetId] = useState('');
   const [viewMode, setViewMode] = useState<ViewMode>('table');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -1012,7 +1027,8 @@ export default function ContratosPage() {
           que existem nela são reais e sumir com elas sem explicação seria pior
           que mantê-las visíveis no lugar certo.
         */}
-        {structuredObligations.error ? (
+        <p className="dossier-meta rounded-lg border border-ig-border bg-ig-raised px-4 py-3">Obrigações estruturadas: visão de todos os contratos da organização, incluindo demonstração. Use a busca abaixo para localizar um contrato.</p>
+        {structuredObligations.loading ? <p role="status" className="dossier-meta p-4">Carregando obrigações estruturadas…</p> : structuredObligations.error ? (
           <HudPanel state="warning" title="Obrigações estruturadas indisponíveis">
             <p className="text-sm text-ig-warning">{structuredObligations.error}</p>
           </HudPanel>
@@ -1031,12 +1047,14 @@ export default function ContratosPage() {
           obrigação passou a ser transição de OCORRÊNCIA, com base declarada e
           histórico — não um `status` marcado à mão.
         */}
+        <DossierDisclosure title="Lista anterior de obrigações e tarefas">
         <ObligationsControlTower
           tower={obligationsTower}
           canEdit={contractPermissions.edit}
           busyId={tabBusyId}
           onCreateTask={(contractId, title, dueAt, ownerUserId, key) => runTabAction(key, () => createTaskFromObligation(contractId, title, dueAt, ownerUserId), 'Tarefa criada na agenda')}
         />
+        </DossierDisclosure>
         </div>
       ),
     },
@@ -1051,22 +1069,18 @@ export default function ContratosPage() {
             enxerga o caminho até o caixa", que é a pergunta que a lista de
             eventos, sozinha, deixa o usuário responder por conta própria.
           */}
-          <section>
-            <SectionHeader title="Contract-to-Cash" hint="Contratado → Medido → Aprovado → Faturado → Recebido" />
+          <DossierSection title="Do contrato ao caixa" hint="Acompanhe a origem e a disponibilidade dos valores em cada etapa.">
             <ContractToCashFlow stages={cashFlow} />
-          </section>
+          </DossierSection>
 
           {/*
             A CADEIA REAL, por evento de faturamento — o resolvedor canônico da
             Fase 7. O dossiê do contrato usa este mesmo componente e este mesmo
             serviço (§87): não há segundo cálculo em lugar nenhum da interface.
           */}
-          <section>
-            <SectionHeader
-              title="Cadeia por evento"
-              hint="Origem do valor, elegibilidade, liberação, nota, recebido e conciliação"
-            />
+          <DossierSection title="Eventos de faturamento" hint="Abra um evento para conferir elegibilidade, liberação e vínculo financeiro.">
             <ContractToCashPanel
+              compact
               contractIds={filteredRecords.map((record) => record.contract.id)}
               contractLabel={(id) => {
                 const found = filteredRecords.find((record) => record.contract.id === id);
@@ -1074,8 +1088,9 @@ export default function ContratosPage() {
               }}
               onNotify={(message, variant) => notify(message, { variant })}
             />
-          </section>
+          </DossierSection>
 
+          <DossierDisclosure title="Registros históricos de faturamento">
           <FaturamentoSection
             records={filteredRecords}
             canEdit={contractPermissions.edit}
@@ -1083,6 +1098,7 @@ export default function ContratosPage() {
             onRealize={(event) => pageItemModals.openRealizeBilling(event)}
             onFollowUp={(record) => contractActions.createTask(record)}
           />
+          </DossierDisclosure>
         </div>
       ),
     },
@@ -1117,11 +1133,20 @@ export default function ContratosPage() {
       content: (
         <div className="space-y-5">
           <RisksSection records={filteredRecords} />
+          {contractPermissions.edit && <DossierSection title="Gerenciar risco de um contrato" hint="Escolha o contrato que receberá o vínculo de risco.">
+            <div className="flex flex-wrap items-center gap-3">
+              <select className="portfolio-select" aria-label="Contrato para gerenciar riscos" value={filteredRecords.some((r) => r.contract.id === riskTargetId) ? riskTargetId : ''} onChange={(e) => setRiskTargetId(e.target.value)}>
+                <option value="">Selecione um contrato</option>{filteredRecords.map((r) => <option key={r.contract.id} value={r.contract.id}>{r.code} · {r.contract.name}</option>)}
+              </select>
+              {filteredRecords.some((r) => r.contract.id === riskTargetId) && <>
+                <button type="button" className="portfolio-action" onClick={() => { const target = filteredRecords.find((r) => r.contract.id === riskTargetId); if (target) contractActions.createRisk(target); }}>Criar risco</button>
+                <button type="button" className="portfolio-action" onClick={() => { const target = filteredRecords.find((r) => r.contract.id === riskTargetId); if (target) contractActions.linkExistingRisk(target); }}>Vincular existente</button>
+              </>}
+            </div>
+          </DossierSection>}
           <ClauseRiskIntelligencePanel
             intelligence={clauseRiskIntel}
-            canEdit={contractPermissions.edit}
-            onCreateRisk={() => selectedRecord && contractActions.createRisk(selectedRecord)}
-            onLinkRisk={() => selectedRecord && contractActions.linkExistingRisk(selectedRecord)}
+            onOpenContract={(id) => { const target = filteredRecords.find((r) => r.contract.id === id); if (target) handleViewContract(target); }}
           />
         </div>
       ),
@@ -1132,25 +1157,26 @@ export default function ContratosPage() {
       icon: <FileText className="h-4 w-4" />,
       badge: tabCounts.missingDocs,
       content: (
-        <DocumentsSection
+        <PortfolioDocuments
           records={filteredRecords}
           canUploadDoc={contractPermissions.uploadDoc}
           busyId={tabBusyId}
           onApprove={(docId, key) => runTabAction(key, () => updateContractDocumentStatus(docId, 'approved'), 'Documento aprovado')}
           onSendToApproval={(docId, key) => runTabAction(key, () => updateContractDocumentStatus(docId, 'pending_approval'), 'Documento enviado para aprovação')}
           onReject={(doc) => pageItemModals.openRejectDoc(doc)}
+          onOpenContract={handleViewContract}
         />
       ),
     },
   ];
 
   return (
-    <HudPageLayout>
+    <HudPageLayout className="ig-dossier-theme ig-portfolio-page">
       <HudHeader
-        title="Gestão de Contratos"
-        subtitle="Carteira, obrigações, faturamento, riscos e renovações."
+        title={sectionLabels[activeSection]}
+        subtitle={AREA_HINT[activeSection]}
         icon={<FileSignature className="h-5 w-5" />}
-        breadcrumbs={[{ label: 'Gestão de Contratos' }]}
+        breadcrumbs={[{ label: 'Gestão de Contratos' }, { label: sectionLabels[activeSection] }]}
         actions={
           <div className="flex flex-wrap items-center justify-end gap-2">
             <span
@@ -1211,6 +1237,11 @@ export default function ContratosPage() {
         }
       />
 
+      <label className="flex items-center gap-3 text-xs text-ig-fg-muted lg:hidden">Área de trabalho
+        <select className="portfolio-select flex-1" aria-label="Área de contratos" value={activeSection} onChange={(event) => setActiveSection(event.target.value as SectionId)}>
+          {Object.entries(sectionLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+        </select>
+      </label>
       {(loading || error) && (
         <HudPanel elevation={1} state={error ? 'critical' : 'default'} interactive={false}>
           <p className="text-ig-body-sm text-ig-fg-strong">
@@ -1282,14 +1313,15 @@ export default function ContratosPage() {
             awaitingSchedule={monitoringCells.awaitingSchedule}
             className="mb-5"
           />
+          <DossierDisclosure title="Indicadores e filtros da carteira" open={Boolean(activeKpiFilter)}>
           <ContractExecutiveBand
             stats={trustedStats}
             contractCount={contractRows.length}
             activeFilter={activeKpiFilter}
             onToggleFilter={toggleKpiFilter}
             hideExposure
-            className="mb-5"
           />
+          </DossierDisclosure>
         </>
       ) : (
         <PortfolioContextStrip stats={trustedStats} className="mb-4" />
@@ -1437,7 +1469,7 @@ function OverviewSection({
 }) {
   return (
     <div className="space-y-6">
-      <PortfolioHero stats={stats} healthCoverage={healthCoverage} />
+      <PortfolioHero stats={stats} healthCoverage={healthCoverage} className="portfolio-hero" />
 
       <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
         <section>
@@ -1499,7 +1531,6 @@ function OverviewSection({
       </div>
 
       <section>
-        <SectionHeading title="Carteira em destaque" hint="contratos por prioridade operacional" />
         <PriorityContracts
           records={records}
           trustedById={trustedById}
@@ -1835,12 +1866,15 @@ function ContractsSection({
   onDeleteLinkedProject: (record: ContractGovernanceRecord) => void;
   onDeleteContract: (record: ContractGovernanceRecord) => void;
 }) {
+  const [query, setQuery] = useState('');
+  const [risk, setRisk] = useState('all');
+  const visible = records.filter((r) => matchesPortfolioSearch(query, r.code, r.contract.name, r.companyName, r.owner, r.projectReference) && (risk === 'all' || r.contract.riskClassification === risk));
   return (
     <div className="space-y-4">
       <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
         <div>
-          <p className="text-ig-body-sm font-semibold text-ig-fg-strong">Fila de controle contratual</p>
-          <p className="text-ig-caption text-ig-fg-muted">Tabela, cartões e visão de risco usam os mesmos registros filtrados.</p>
+          <p className="text-ig-body-sm font-semibold text-ig-fg-strong">Carteira de contratos</p>
+          <p className="text-ig-caption text-ig-fg-muted">Alterne a visualização sem perder a busca e o filtro de risco.</p>
         </div>
         <div className="ig-glass inline-flex w-fit items-center gap-1 rounded-lg p-1" data-elev="1">
           <span data-ig-noise="" />
@@ -1848,11 +1882,12 @@ function ContractsSection({
           <div data-ig-content="" className="flex gap-1">
             {[
               { id: 'table', icon: Table2, label: 'Tabela' },
-              { id: 'cards', icon: LayoutGrid, label: 'Cards' },
+              { id: 'cards', icon: LayoutGrid, label: 'Cartões' },
               { id: 'risk', icon: ShieldAlert, label: 'Risco' },
             ].map((item) => (
               <button
                 key={item.id}
+                aria-pressed={viewMode === item.id}
                 onClick={() => onViewModeChange(item.id as ViewMode)}
                 className={`flex h-8 items-center gap-2 rounded-md px-3 text-xs font-semibold transition-colors ${viewMode === item.id ? 'bg-ig-accent-weak text-ig-accent' : 'text-ig-fg-muted hover:bg-ig-panel-hover hover:text-ig-fg-strong'}`}
               >
@@ -1864,9 +1899,12 @@ function ContractsSection({
         </div>
       </div>
 
-      {viewMode === 'table' && (
-        <ContractSmartTable
-          contracts={records
+      <PortfolioSearch value={query} onChange={setQuery} label="Buscar por contrato, contraparte ou responsável" count={visible.length} />
+      <PortfolioFilters label="Risco dos contratos" value={risk} onChange={setRisk} options={[{ value: 'all', label: 'Todos', count: records.length }, ...(['high', 'medium', 'low'] as const).map((key) => ({ value: key, label: `Risco ${riskLabels[key].toLowerCase()}`, count: records.filter((r) => r.contract.riskClassification === key).length }))]} />
+      {visible.length === 0 && <PortfolioEmpty title={records.length === 0 ? 'Nenhum contrato neste recorte' : undefined} description={records.length === 0 ? 'Ajuste a origem da carteira acima ou adicione um contrato.' : undefined} onReset={query || risk !== 'all' ? () => { setQuery(''); setRisk('all'); } : undefined} />}
+      {visible.length > 0 && viewMode === 'table' && (
+        <ContractSmartTable hideSearch
+          contracts={visible
             .map((r) => trustedById.get(r.contract.id))
             .filter((c): c is TrustedContract => Boolean(c))}
           selectedId={selectedId}
@@ -1876,9 +1914,9 @@ function ContractsSection({
           }}
         />
       )}
-      {viewMode === 'cards' && (
+      {visible.length > 0 && viewMode === 'cards' && (
         <ContractCards
-          records={records}
+          records={visible}
           trustedById={trustedById}
           selectedId={selectedId}
           onSelect={onSelect}
@@ -1886,7 +1924,7 @@ function ContractsSection({
           onDelete={canDeleteContract ? onDeleteContract : undefined}
         />
       )}
-      {viewMode === 'risk' && <RiskBoard records={records} selectedId={selectedId} onSelect={onSelect} />}
+      {visible.length > 0 && viewMode === 'risk' && <RiskBoard records={visible} selectedId={selectedId} onSelect={onSelect} />}
     </div>
   );
 }
@@ -1955,7 +1993,7 @@ function RiskBoard({ records, selectedId, onSelect }: { records: ContractGoverna
         <section key={lane.id}>
           <SectionHeader title={lane.label} count={records.filter((record) => record.contract.riskClassification === lane.id).length} />
           <div className="space-y-2">
-            {records.filter((record) => record.contract.riskClassification === lane.id).slice(0, 12).map((record) => (
+            {records.filter((record) => record.contract.riskClassification === lane.id).map((record) => (
               <button
                 key={record.contract.id}
                 onClick={() => onSelect(record)}
@@ -1963,7 +2001,7 @@ function RiskBoard({ records, selectedId, onSelect }: { records: ContractGoverna
               >
                 <div className="flex items-start justify-between gap-2">
                   <p className="line-clamp-2 text-ig-body-sm font-semibold text-ig-fg-strong">{record.contract.name}</p>
-                  <HudStatusPill variant={lane.variant} size="sm">{record.riskScore}</HudStatusPill>
+                  <HudStatusPill variant={lane.variant} size="sm">{riskLabels[lane.id]}</HudStatusPill>
                 </div>
                 <p className="mt-1 truncate text-ig-caption text-ig-fg-muted">{record.companyName} · {record.owner}</p>
               </button>
@@ -2085,7 +2123,7 @@ function AnalyticsBand({ records }: { records: ContractGovernanceRecord[] }) {
 function RisksSection({ records }: { records: ContractGovernanceRecord[] }) {
   return (
     <section>
-      <SectionHeader title="Mapa de risco" hint="Classificação registrada em contracts.risk_level" />
+      <SectionHeader title="Mapa de risco" hint="Distribuição por classificação de risco registrada" />
       <div className="grid gap-4 md:grid-cols-3">
         {['high', 'medium', 'low'].map((risk) => {
           const count = records.filter((record) => record.contract.riskClassification === risk).length;
@@ -2104,103 +2142,6 @@ function RisksSection({ records }: { records: ContractGovernanceRecord[] }) {
         })}
       </div>
     </section>
-  );
-}
-
-const DOC_TAB_STATUS: Record<string, { label: string; variant: 'active' | 'warning' | 'critical' | 'neutral' }> = {
-  uploaded: { label: 'Enviado', variant: 'active' },
-  missing: { label: 'Faltante', variant: 'warning' },
-  expired: { label: 'Vencido', variant: 'critical' },
-  expiring_soon: { label: 'A vencer', variant: 'warning' },
-  pending_approval: { label: 'Em aprovação', variant: 'warning' },
-  approved: { label: 'Aprovado', variant: 'active' },
-  rejected: { label: 'Rejeitado', variant: 'critical' },
-};
-
-function DocumentsSection({
-  records,
-  canUploadDoc,
-  busyId,
-  onApprove,
-  onSendToApproval,
-  onReject,
-}: {
-  records: ContractGovernanceRecord[];
-  canUploadDoc: boolean;
-  busyId: string | null;
-  onApprove: (docId: string, key: string) => void;
-  onSendToApproval: (docId: string, key: string) => void;
-  onReject: (doc: { id: string; title: string }) => void;
-}) {
-  // Live document rows (with real ids + status) come from the Phase-2 merge; records
-  // without them fall back to the estimated missing-docs preview.
-  const liveRows = records.flatMap((record) => (record.liveDocuments ?? []).map((doc) => ({ doc, record })));
-
-  return (
-    <div className="space-y-5">
-      {liveRows.length > 0 && (
-        <section>
-          <SectionHeader title="Documentos ao vivo" hint="Ações por documento — aprovar, rejeitar, enviar para aprovação" />
-          <div className="space-y-2">
-            {liveRows.slice(0, 40).map(({ doc, record }) => {
-              const meta = DOC_TAB_STATUS[doc.status] ?? { label: doc.status, variant: 'neutral' as const };
-              return (
-                <div key={doc.id} className="grid gap-3 rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3 md:grid-cols-[1fr_140px_auto] md:items-center">
-                  <div className="min-w-0">
-                    <p className="truncate text-ig-body-sm font-semibold text-ig-fg-strong">{doc.title}</p>
-                    <p className="truncate text-ig-caption text-ig-fg-muted">{record.code}{doc.rejection_reason ? ` · ${doc.rejection_reason}` : ''}</p>
-                  </div>
-                  <HudStatusPill variant={meta.variant} size="sm">{meta.label}</HudStatusPill>
-                  <div className="flex items-center justify-end gap-1.5">
-                    {canUploadDoc && doc.status !== 'pending_approval' && doc.status !== 'approved' && doc.status !== 'rejected' && (
-                      <button type="button" title="Enviar para aprovação" disabled={busyId === `tab-docp-${doc.id}`} onClick={() => onSendToApproval(doc.id, `tab-docp-${doc.id}`)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-ig-border-subtle text-ig-fg-muted transition-colors sm:h-7 sm:w-7 hover:border-ig-border-focus hover:text-ig-fg-strong disabled:opacity-50">
-                        <ClipboardCheck className="h-3.5 w-3.5" />
-                      </button>
-                    )}
-                    {canUploadDoc && doc.status !== 'approved' && (
-                      <button type="button" title="Aprovar documento" disabled={busyId === `tab-doca-${doc.id}`} onClick={() => onApprove(doc.id, `tab-doca-${doc.id}`)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-ig-border-subtle text-ig-fg-muted transition-colors sm:h-7 sm:w-7 hover:border-ig-border-focus hover:text-ig-success disabled:opacity-50">
-                        <CheckCircle2 className="h-3.5 w-3.5" />
-                      </button>
-                    )}
-                    {canUploadDoc && doc.status !== 'rejected' && (
-                      <button type="button" title="Rejeitar documento" onClick={() => onReject({ id: doc.id, title: doc.title })} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-ig-border-subtle text-ig-fg-muted transition-colors sm:h-7 sm:w-7 hover:border-ig-border-focus hover:text-ig-danger">
-                        <ShieldAlert className="h-3.5 w-3.5" />
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-      )}
-
-      <section>
-        <SectionHeader title="Documentos e pendências" hint="Visão de completude por contrato" />
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {records.slice(0, 24).map((record) => (
-            <div key={record.contract.id} className="rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="truncate text-ig-body-sm font-semibold text-ig-fg-strong">{record.code}</p>
-                  <p className="truncate text-ig-caption text-ig-fg-muted">{record.contract.fileName || record.contract.name}</p>
-                </div>
-                <HudBadge variant={record.missingDocuments.length ? 'warning' : 'success'} size="sm">
-                  {record.missingDocuments.length ? `${record.missingDocuments.length} faltando` : 'Completo'}
-                </HudBadge>
-              </div>
-              <div className="mt-3 flex flex-wrap gap-1.5">
-                {(record.missingDocuments.length ? record.missingDocuments : ['Documento assinado', 'Matriz de obrigações']).map((doc) => (
-                  <HudBadge key={doc} variant={record.missingDocuments.includes(doc) ? 'warning' : 'success'} size="sm">
-                    {doc}
-                  </HudBadge>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-    </div>
   );
 }
 
@@ -2253,7 +2194,7 @@ function FaturamentoSection({
         <SectionHeader title="Eventos de faturamento (registro histórico)" hint="Lista legada — a cadeia com procedência está no painel acima" />
         <div className="space-y-2">
           {events.length === 0 && <p className="py-6 text-center text-ig-caption text-ig-fg-muted">Nenhum evento de faturamento no recorte.</p>}
-          {events.slice(0, 40).map(({ event, record }) => {
+          {events.map(({ event, record }) => {
             const realized = isBillingEventRealized(event);
             const isLive = record.dataQuality?.billing === 'live';
             return (

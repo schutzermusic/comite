@@ -236,19 +236,17 @@ function portfolioTableChunk(pack: InvestorPack, from: number, isLast: boolean, 
       <td class="num">${esc(formatInvestorCurrency(sum((c) => c.portfolioCents)))}</td>
       <td class="num">${esc(formatInvestorCurrency(sum((c) => c.billedCents)))}</td>
       <td class="num fc">${esc(formatInvestorCurrency(sum((c) => c.backlogCents)))}</td>
-      <td class="num">${esc(formatInvestorCurrency(sum((c) => c.receivableCents)))}</td>
       <td class="num">${esc(formatInvestorCurrency(sum((c) => c.projectedThrough2028Cents)))}</td>
       <td class="num">${esc(formatInvestorCurrency(sum((c) => c.remainingAfter2028Cents)))}</td>
     </tr></tfoot>` : '';
   return `<table class="data wide${clients.length > 12 ? ' dense' : ''}">
     <thead><tr><th>Cliente</th><th>Status</th><th class="num">Carteira</th><th class="num">Faturado</th>
-      <th class="num">Backlog</th><th class="num">A receber</th><th class="num">Até 2028</th><th class="num">Pós-2028</th></tr></thead>
+      <th class="num">Backlog</th><th class="num">Até 2028</th><th class="num">Pós-2028</th></tr></thead>
     <tbody>${clients.map((client) => `<tr>
       <td>${esc(client.client)}</td><td>${esc(client.status)}</td>
       <td class="num">${esc(formatInvestorCurrency(client.portfolioCents))}</td>
       <td class="num">${esc(formatInvestorCurrency(client.billedCents))}</td>
       <td class="num fc">${esc(formatInvestorCurrency(client.backlogCents))}</td>
-      <td class="num">${esc(formatInvestorCurrency(client.receivableCents))}</td>
       <td class="num">${esc(formatInvestorCurrency(client.projectedThrough2028Cents))}</td>
       <td class="num">${esc(formatInvestorCurrency(client.remainingAfter2028Cents))}</td>
     </tr>`).join('')}</tbody>${foot}
@@ -321,7 +319,7 @@ function buildPages(pack: InvestorPack, snapshot: InvestorPackSnapshot, insights
   pages.push({
     eyebrow: 'Evolução mensal',
     html: `${sectionHead('Receita e folha, competência a competência', monthlyReading(insights))}
-    ${panel(apexMonthlyChart(points, { width: CHART_W, height: CHART_H, palette: P }), apexLegend(monthlyLegend(P)))}
+    ${panel(apexMonthlyChart(points, { width: CHART_W, height: CHART_H, palette: P, valueLabels: true }), apexLegend(monthlyLegend(P)))}
     <div class="read">
       ${insights.peakRevenue && insights.peakRevenue.valueCents > 0 ? `<span><em>Pico de receita</em><strong>${esc(insights.peakRevenue.label)} · ${esc(formatInvestorCurrency(insights.peakRevenue.valueCents, true))}</strong></span>` : ''}
       ${insights.peakPayroll && insights.peakPayroll.valueCents > 0 ? `<span><em>Pico de folha</em><strong>${esc(insights.peakPayroll.label)} · ${esc(formatInvestorCurrency(insights.peakPayroll.valueCents, true))}</strong></span>` : ''}
@@ -334,7 +332,7 @@ function buildPages(pack: InvestorPack, snapshot: InvestorPackSnapshot, insights
   pages.push({
     eyebrow: 'Curva mensal',
     html: `${sectionHead('Valores de cada competência, sem acumulação', 'A leitura mês a mês da receita e da folha: onde cada uma sobe, onde recua e a partir de quando passam a ser projeção.')}
-    ${panel(apexMonthlyLineChart(points, { width: CHART_W, height: CHART_H, palette: P }), apexLegend(monthlyLineLegend(P)), 'Traço contínuo: valores fechados. Traço tracejado: projeção, ancorada na última competência realizada.')}
+    ${panel(apexMonthlyLineChart(points, { width: CHART_W, height: CHART_H, palette: P, valueLabels: true }), apexLegend(monthlyLineLegend(P)), 'Traço contínuo: valores fechados. Traço tracejado: projeção, ancorada na última competência realizada.')}
     <div class="read">
       ${insights.peakRevenue && insights.peakRevenue.valueCents > 0 ? `<span><em>Pico de receita</em><strong>${esc(insights.peakRevenue.label)} · ${esc(formatInvestorCurrency(insights.peakRevenue.valueCents, true))}</strong></span>` : ''}
       ${insights.peakPayroll && insights.peakPayroll.valueCents > 0 ? `<span><em>Pico de folha</em><strong>${esc(insights.peakPayroll.label)} · ${esc(formatInvestorCurrency(insights.peakPayroll.valueCents, true))}</strong></span>` : ''}
@@ -347,7 +345,7 @@ function buildPages(pack: InvestorPack, snapshot: InvestorPackSnapshot, insights
   pages.push({
     eyebrow: 'Curva S acumulada',
     html: `${sectionHead('A trajetória acumulada do período', curveReading(insights))}
-    ${panel(apexCurveChart(points, { width: CHART_W, height: CHART_H, palette: P }), apexLegend(curveLegend(P)))}
+    ${panel(apexCurveChart(points, { width: CHART_W, height: CHART_H, palette: P, valueLabels: true }), apexLegend(curveLegend(P)))}
     <div class="read">
       <span><em>Receita acumulada</em><strong>${esc(formatInvestorCurrency(metrics.revenueTotalCents, true))}</strong></span>
       <span><em>Folha acumulada</em><strong>${esc(formatInvestorCurrency(metrics.payrollTotalCents, true))}</strong></span>
@@ -365,7 +363,7 @@ function buildPages(pack: InvestorPack, snapshot: InvestorPackSnapshot, insights
         ? `${insights.deficitMonths.length} competência(s) com saldo mensal negativo: ${insights.deficitMonths.map((m) => m.label).join(', ')}.`
         : 'Nenhuma competência do recorte fecha com saldo mensal negativo.',
     )}
-    ${panel(apexBalanceChart(points, { width: CHART_W, height: CHART_H_BALANCE, palette: P }), apexLegend(balanceLegend(P)), 'Colunas: saldo do mês (eixo esquerdo). Linha: saldo acumulado (eixo direito).')}
+    ${panel(apexBalanceChart(points, { width: CHART_W, height: CHART_H_BALANCE, palette: P, valueLabels: true }), apexLegend(balanceLegend(P)), 'Colunas: saldo do mês (eixo esquerdo). Linha: saldo acumulado (eixo direito).')}
     <div class="read">
       ${insights.bestBalance ? `<span><em>Melhor mês</em><strong style="color:${P.positive}">${esc(insights.bestBalance.label)} · ${esc(formatInvestorCurrency(insights.bestBalance.valueCents, true))}</strong></span>` : ''}
       ${insights.worstBalance ? `<span><em>Pior mês</em><strong style="color:${insights.worstBalance.valueCents < 0 ? P.negative : P.body}">${esc(insights.worstBalance.label)} · ${esc(formatInvestorCurrency(insights.worstBalance.valueCents, true))}</strong></span>` : ''}
@@ -380,7 +378,7 @@ function buildPages(pack: InvestorPack, snapshot: InvestorPackSnapshot, insights
       eyebrow: 'Projeção por cliente',
       html: `${sectionHead('Quem compõe o faturamento projetado', APEX_CLIENT_FORECAST_DESCRIPTION)}
       ${panel(
-        apexClientForecastChart(pack.narrative.clientForecasts, points.map((point) => point.period), { width: CHART_W, height: CHART_H_CLIENT, palette: P }),
+        apexClientForecastChart(pack.narrative.clientForecasts, points.map((point) => point.period), { width: CHART_W, height: CHART_H_CLIENT, palette: P, valueLabels: true }),
         apexLegend(clientIds.map(([clientId, client], index) => ({ label: client, color: clientForecastColor(clientId, index, P) }))),
       )}`,
     });
@@ -405,7 +403,7 @@ function buildPages(pack: InvestorPack, snapshot: InvestorPackSnapshot, insights
         eyebrow: 'Carteira e recebíveis',
         html: `${sectionHead(
           i === 0 ? 'Backlog que sustenta a projeção' : 'Carteira e recebíveis — continuação',
-          i === 0 ? 'Saldo a receber conforme informado na planilha de carteira; não equivale necessariamente a caixa recebido.' : undefined,
+          i === 0 ? 'Carteira, faturamento, backlog e parcelas projetadas por cliente.' : undefined,
         )}
         ${portfolioTableChunk(pack, i * PORTFOLIO_ROWS_PER_PAGE, i === portfolioPages - 1)}`,
       });

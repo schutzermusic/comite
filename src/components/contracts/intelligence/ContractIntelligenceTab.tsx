@@ -57,7 +57,8 @@ import {
 import { format } from 'date-fns';
 import { pt } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
-import { HudDrawer, HudButton } from '@/components/hud';
+import { DossierDetailDrawer, DossierDisclosure } from '../shell/DossierPrimitives';
+import { HudButton } from '@/components/hud';
 import type {
   ContractAiAnalysisRow, ContractClauseRow, ContractDocumentRow,
   ContractPenaltyRow, ContractRiskRow,
@@ -334,24 +335,23 @@ function CommandStrip({
   readAt: string | null;
 }) {
   return (
-    <header className="ig-ci-command px-5 pb-5 pt-6 md:px-7" data-testid="intelligence-summary">
+    <header className="ig-ci-command px-5 py-4 md:px-6" data-testid="intelligence-summary">
       <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-4">
         <div className="min-w-0">
           <p className="flex items-center gap-2 text-ig-label uppercase tracking-[0.2em] text-ig-fg-subtle">
             <ScanLine className="h-3.5 w-3.5" aria-hidden />
             Inteligência Contratual
           </p>
-          <h2 className="mt-2 text-ig-h1 font-normal text-ig-fg-default">
-            <span className="ig-tabular text-ig-kpi-lg font-semibold text-ig-fg-strong">{total}</span>
+          <h2 className="mt-2 text-lg font-normal text-ig-fg-default">
+            <span className="ig-tabular text-3xl font-semibold text-ig-fg-strong">{total}</span>
             {' '}
             {total === 1 ? 'interpretação operacional' : 'interpretações operacionais'}
           </h2>
         </div>
 
         {/*
-          O medidor é SEGMENTADO: uma barra por interpretação. Uma barra lisa
-          sugeriria uma porcentagem contínua, e estas são vinte e nove unidades
-          discretas — cada uma operada ou retida, sem meio-termo.
+          A largura representa a contagem de cada estado governado.
+          Os números continuam explícitos; o medidor não afirma desempenho.
         */}
         <div className="w-full max-w-[300px]">
           <div className="flex items-baseline justify-between text-ig-caption">
@@ -362,14 +362,14 @@ function CommandStrip({
           </div>
           <div className="ig-ci-meter mt-2" role="img"
             aria-label={`${structured} de ${total} interpretações operadas pelo Apex`}>
-            {Array.from({ length: total }, (_, i) => (
-              <i key={i} data-on={i < structured ? 'structured' : 'attention'} />
-            ))}
+            {structured > 0 && <i data-on="structured" style={{ flex: structured }} />}
+            {attention > 0 && <i data-on="attention" style={{ flex: attention }} />}
+            {total > structured + attention && <i style={{ flex: total - structured - attention }} />}
           </div>
         </div>
       </div>
 
-      <dl className="mt-6 grid grid-cols-2 gap-y-4 sm:grid-cols-3 lg:grid-cols-5">
+      <dl className="mt-4 grid grid-cols-2 gap-y-3 sm:grid-cols-3 lg:grid-cols-5">
         <Metric value={structured} label="estruturadas" hint="em operação" />
         <Metric value={attention} label="requerem atenção" hint="fila humana" tone="warning" />
         <Metric value={exposureCount} label="exposições" hint="com valor no papel" />
@@ -608,16 +608,7 @@ function StructuredZone({
         {balanceColumns(groups).map((column, columnIndex) => (
           <div key={columnIndex}>
         {column.map((group) => (
-          <div key={group.family} className="mb-7">
-            <div className="mb-1 flex items-baseline gap-2">
-              <h4 className="text-ig-label uppercase tracking-[0.14em] text-ig-fg-subtle">
-                {group.label}
-              </h4>
-              <span className="ig-tabular text-ig-label text-ig-fg-subtle">
-                {group.items.length}
-              </span>
-              <span className="ig-ci-zone-rule min-w-4 flex-1" aria-hidden />
-            </div>
+          <DossierDisclosure key={group.family} title={group.label} count={group.items.length} open={group.items.length <= 4}>
             <div>
               {group.items.map((item) => (
                 <OperationalRow
@@ -629,7 +620,7 @@ function StructuredZone({
                 />
               ))}
             </div>
-          </div>
+          </DossierDisclosure>
         ))}
           </div>
         ))}
@@ -685,7 +676,7 @@ function OperationalRow({
     >
       <span className="flex min-w-0 items-center gap-1.5">
         <ChevronRight className="ig-ci-chevron h-3 w-3 shrink-0 text-ig-accent" aria-hidden />
-        <span className="truncate text-ig-body-sm text-ig-fg-default" title={title}>{title}</span>
+        <span className="text-ig-body-sm text-ig-fg-default" title={title}>{title}</span>
       </span>
       {/*
         Teto do efeito em CARACTERES, não em porcentagem.
@@ -1084,12 +1075,11 @@ function EvidenceDrawer({
   const document = documentId ? documentById.get(documentId) ?? null : null;
 
   return (
-    <HudDrawer
+    <DossierDetailDrawer
       isOpen={target !== null}
       onClose={onClose}
       title={title}
       subtitle={subtitle}
-      width="480px"
       footer={document && onOpenDocument ? (
         <HudButton
           variant="secondary"
@@ -1114,7 +1104,7 @@ function EvidenceDrawer({
             : undefined}
         />
       )}
-    </HudDrawer>
+    </DossierDetailDrawer>
   );
 }
 

@@ -22,6 +22,8 @@
  */
 
 import { useState } from 'react';
+import { PortfolioSearch, PortfolioEmpty, matchesPortfolioSearch } from '../portfolio/PortfolioControls';
+import { DossierDetailDrawer, DossierStatus } from '../shell/DossierPrimitives';
 import { cn } from '@/lib/utils';
 import { AlertTriangle, CalendarClock, CircleHelp, FileWarning, Landmark, ShieldOff } from 'lucide-react';
 import { HudPanel, HudEmptyState } from '@/components/hud';
@@ -107,13 +109,7 @@ function Row({ row, onOpenContract }: { row: ObligationAttentionRow; onOpenContr
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-ig-fg-strong">{row.title}</p>
-          <button
-            type="button"
-            onClick={onOpenContract ? () => onOpenContract(row.contractId) : undefined}
-            className={cn('mt-0.5 truncate text-xs text-ig-fg-muted', onOpenContract && 'hover:text-ig-accent')}
-          >
-            {row.contractTitle} · {row.occurrenceKey}
-          </button>
+          {onOpenContract ? <button type="button" onClick={() => onOpenContract(row.contractId)} className="mt-0.5 text-xs text-ig-fg-muted hover:text-ig-accent">{row.contractTitle} · {row.occurrenceKey}</button> : <p className="mt-0.5 text-xs text-ig-fg-muted">{row.contractTitle} · {row.occurrenceKey}</p>}
         </div>
         <span className={cn('shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium', tone.chip)}>
           {URGENCY_LABEL[row.urgency]}
@@ -162,7 +158,10 @@ export function StructuredObligationsPanel({
   portfolio, onOpenContract, className,
 }: StructuredObligationsPanelProps) {
   const [selected, setSelected] = useState<ObligationUrgency | null>(null);
-  const shown = selected ? portfolio.rows.filter((r) => r.urgency === selected) : portfolio.rows;
+  const [query, setQuery] = useState('');
+  const [detailId, setDetailId] = useState<string | null>(null);
+  const detail = portfolio.rows.find((row) => row.instanceId === detailId);
+  const shown = portfolio.rows.filter((r) => (!selected || r.urgency === selected) && matchesPortfolioSearch(query, r.title, r.contractTitle, r.obligor));
   const total = portfolio.rows.length;
 
   return (
@@ -173,7 +172,7 @@ export function StructuredObligationsPanel({
       className={className}
     >
       {/* As faixas ficam sempre visíveis, inclusive zeradas. */}
-      <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
+      <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
         {ORDER.map((urgency) => {
           const active = selected === urgency;
           return (
@@ -181,6 +180,7 @@ export function StructuredObligationsPanel({
               key={urgency}
               type="button"
               title={URGENCY_HINT[urgency]}
+              aria-pressed={active}
               onClick={() => setSelected(active ? null : urgency)}
               className={cn(
                 'rounded-xl border p-3 text-left transition-colors',
@@ -216,20 +216,31 @@ export function StructuredObligationsPanel({
         </p>
       )}
 
-      {total === 0 ? (
+      <PortfolioSearch value={query} onChange={setQuery} label="Buscar obrigação, contrato ou responsável" count={shown.length}>
+        {selected && <button className="portfolio-action" type="button" onClick={() => setSelected(null)}>Todas as situações</button>}
+      </PortfolioSearch>
+      {selected === 'NOT_APPLICABLE' ? (
+        <PortfolioEmpty title={`${portfolio.counts.NOT_APPLICABLE} ocorrência(s) encerrada(s)`} description="Ocorrências encerradas não integram a fila de atenção. Consulte o histórico no dossiê do contrato." onReset={() => setSelected(null)} />
+      ) : total === 0 ? (
         <HudEmptyState
           icon="inbox"
-          title="Nenhuma obrigação estruturada registrada"
+          title="Nenhuma ocorrência na fila de atenção"
           description={
             portfolio.contractsWithoutObligations.length > 0
-              ? `Nenhum dos ${portfolio.contractsWithoutObligations.length} contrato(s) da carteira tem obrigação contratual estruturada. Registrar uma exige apontar a cláusula, o aditivo ou o documento que a origina — é isso que separa uma obrigação de uma anotação.`
-              : 'Registrar uma obrigação exige apontar a cláusula, o aditivo ou o documento que a origina.'
+              ? `Há ${portfolio.contractsWithoutObligations.length} contrato(s) sem obrigação estruturada. O registro deve indicar a cláusula, o aditivo ou o documento de origem.`
+              : 'Ocorrências encerradas ficam fora desta fila. Consulte o contrato para verificar obrigações, vigência e histórico.'
           }
         />
       ) : (
-        <ul className="space-y-2">
-          {shown.map((row) => <Row key={row.instanceId} row={row} onOpenContract={onOpenContract} />)}
-        </ul>
+        <div>
+          {shown.length === 0 && <PortfolioEmpty onReset={() => { setQuery(''); setSelected(null); }} />}
+          {shown.map((row) => <button type="button" className="dossier-row" key={row.instanceId} aria-haspopup="dialog" onClick={() => setDetailId(row.instanceId)}>
+            <div className="min-w-0 flex-1"><p className="dossier-row-title">{row.title}</p><p className="dossier-meta">{row.contractTitle} · {row.obligor ?? SIDE_LABEL[row.responsibleSide]}</p>
+              <div className="mt-2 flex flex-wrap gap-2"><BillingChip state={row.blocksBilling} /><EvidenceChip state={row.evidenceComplete} /></div>
+            </div>
+            <div className="space-y-1"><DossierStatus tone={row.urgency === 'OVERDUE' ? 'critical' : row.urgency === 'DUE' ? 'attention' : row.urgency === 'UPCOMING' ? 'positive' : 'unknown'}>{URGENCY_LABEL[row.urgency]}</DossierStatus><p className="dossier-meta">{row.dueDate ?? 'Prazo não definido'}</p></div>
+          </button>)}
+        </div>
       )}
 
       {portfolio.contractsWithoutObligations.length > 0 && total > 0 && (
@@ -238,6 +249,9 @@ export function StructuredObligationsPanel({
           de controle, não ausência de obrigação.
         </p>
       )}
+      <DossierDetailDrawer isOpen={Boolean(detail)} onClose={() => setDetailId(null)} title={detail?.title ?? 'Obrigação'} subtitle={detail?.contractTitle} footer={detail && onOpenContract ? <button type="button" className="portfolio-action" onClick={() => { setDetailId(null); onOpenContract(detail.contractId); }}>Abrir contrato</button> : undefined}>
+        {detail && <ul><Row row={detail} /></ul>}
+      </DossierDetailDrawer>
     </HudPanel>
   );
 }

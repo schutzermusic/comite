@@ -75,7 +75,7 @@ export function ContractHealthDrivers({ health, className, compact = false }: Co
             Cobertura do contrato
           </h3>
           <p className="mt-0.5 text-ig-caption leading-relaxed text-ig-fg-muted">
-            Quanto do contrato tem dado suficiente para ser avaliado.
+            Cobertura de dados · não mede desempenho contratual.
           </p>
         </div>
       </header>
@@ -147,7 +147,7 @@ export function ContractHealthDrivers({ health, className, compact = false }: Co
                 </span>
 
                 {!compact && (
-                  <span className="min-w-0 flex-1 truncate text-right text-ig-caption text-ig-fg-default">
+                  <span className="min-w-0 flex-1 text-right text-ig-caption text-ig-fg-default">
                     {driver ? driver.detail : 'Sem dado registrado para avaliar'}
                   </span>
                 )}

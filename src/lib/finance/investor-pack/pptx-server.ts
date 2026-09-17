@@ -473,14 +473,13 @@ const BASE_COLUMNS: TableColumn[] = [
 ];
 
 const PORTFOLIO_COLUMNS: TableColumn[] = [
-  { label: 'Cliente', width: 152, align: 'left' },
-  { label: 'Status', width: 112, align: 'left' },
-  { label: 'Carteira', width: 148, align: 'right' },
-  { label: 'Faturado', width: 148, align: 'right' },
-  { label: 'Backlog', width: 148, align: 'right' },
-  { label: 'A receber', width: 148, align: 'right' },
-  { label: 'Até 2028', width: 148, align: 'right' },
-  { label: 'Pós-2028', width: 148, align: 'right' },
+  { label: 'Cliente', width: 200, align: 'left' },
+  { label: 'Status', width: 132, align: 'left' },
+  { label: 'Carteira', width: 164, align: 'right' },
+  { label: 'Faturado', width: 164, align: 'right' },
+  { label: 'Backlog', width: 164, align: 'right' },
+  { label: 'Até 2028', width: 164, align: 'right' },
+  { label: 'Pós-2028', width: 164, align: 'right' },
 ];
 
 /**
@@ -556,7 +555,6 @@ function portfolioTableRows(clients: InvestorPortfolioClient[], all: InvestorPor
       { text: formatInvestorCurrency(client.portfolioCents) },
       { text: formatInvestorCurrency(client.billedCents) },
       { text: formatInvestorCurrency(client.backlogCents), color: P.revenueForecast },
-      { text: formatInvestorCurrency(client.receivableCents) },
       { text: formatInvestorCurrency(client.projectedThrough2028Cents) },
       { text: formatInvestorCurrency(client.remainingAfter2028Cents) },
     ],
@@ -571,7 +569,6 @@ function portfolioTableRows(clients: InvestorPortfolioClient[], all: InvestorPor
       { text: formatInvestorCurrency(sum((c) => c.portfolioCents)) },
       { text: formatInvestorCurrency(sum((c) => c.billedCents)) },
       { text: formatInvestorCurrency(sum((c) => c.backlogCents)), color: P.revenueForecast },
-      { text: formatInvestorCurrency(sum((c) => c.receivableCents)) },
       { text: formatInvestorCurrency(sum((c) => c.projectedThrough2028Cents)) },
       { text: formatInvestorCurrency(sum((c) => c.remainingAfter2028Cents)) },
     ],
@@ -948,7 +945,7 @@ export function buildInvestorPackDeck(presentation: any, pack: InvestorPack, opt
         slide,
         P,
         index === 0 ? 'Backlog que sustenta a projeção' : 'Carteira e recebíveis — continuação',
-        'Saldo a receber conforme informado na carteira; não equivale necessariamente a caixa recebido.',
+        'Carteira, faturamento, backlog e parcelas projetadas por cliente.',
       );
       addTable(
         slide,

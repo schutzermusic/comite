@@ -40,6 +40,7 @@
  * para que as duas superfícies se leiam como uma só.
  */
 
+import { DossierDisclosure } from '../shell/DossierPrimitives';
 import { cn } from '@/lib/utils';
 import {
   AlertOctagon, AlertTriangle, ArrowRight, CheckCircle2, Info, Settings2,
@@ -84,10 +85,11 @@ export interface ContractActionCenterProps {
    */
   readonly variant?: 'standalone' | 'band';
   readonly className?: string;
+  readonly visibleLimit?: number;
 }
 
 export function ContractActionCenter({
-  items, onAction, emptyHint, variant = 'standalone', className,
+  items, onAction, emptyHint, variant = 'standalone', className, visibleLimit,
 }: ContractActionCenterProps) {
   const ordered = [...items].sort(
     (a, b) => ATTENTION_SEVERITY_ORDER[a.severity] - ATTENTION_SEVERITY_ORDER[b.severity] || a.rank - b.rank,
@@ -134,9 +136,12 @@ export function ContractActionCenter({
         </div>
       ) : (
         <div>
-          {ordered.map((item) => (
+          {ordered.slice(0, visibleLimit ?? ordered.length).map((item) => (
             <ActionRow key={item.id} item={item} onAction={onAction} />
           ))}
+          {visibleLimit !== undefined && ordered.length > visibleLimit && <DossierDisclosure title="Demais ações e configurações" count={ordered.length - visibleLimit}>
+            {ordered.slice(visibleLimit).map((item) => <ActionRow key={item.id} item={item} onAction={onAction} />)}
+          </DossierDisclosure>}
         </div>
       )}
     </section>
@@ -181,10 +186,10 @@ function ActionRow({
       </span>
 
       <div className="min-w-0">
-        <h3 className="truncate text-ig-body-sm font-medium text-ig-fg-strong" title={item.title}>
+        <h3 className="text-ig-body-sm font-medium text-ig-fg-strong" title={item.title}>
           {item.title}
         </h3>
-        <p className="truncate text-ig-caption text-ig-fg-muted" title={item.reason}>
+        <p className="text-ig-caption text-ig-fg-muted" title={item.reason}>
           {item.reason}
         </p>
       </div>

@@ -1,38 +1,14 @@
 'use client';
 
 /**
- * Contract-to-Cash — a cadeia do contrato até o caixa, com as lacunas à vista.
- *
- * A decisão de desenho principal: os estágios SEM fonte não são escondidos nem
- * empurrados para uma nota de rodapé. Eles ocupam a mesma largura dos demais e
- * mostram a razão, porque a pergunta que o painel responde não é só "quanto já
- * foi faturado?" — é "até onde este sistema consegue enxergar?".
- *
- * Um estágio apurado tem barra sólida. Um estágio sem fonte tem trilho
- * tracejado e nenhum número: a mesma gramática que o resto do cockpit usa para
- * separar "medimos e deu zero" de "não medimos".
- *
- * ─── Desenho: cadeia, não cinco cartões ───────────────────────────────────
- *
- * Cada estágio tinha moldura própria, ícone, contador "3/5" e um trilho — cinco
- * caixas pesadas para uma coisa que é UMA: uma progressão. A moldura individual
- * competia com a barra pela atenção e ainda sugeria que os estágios eram
- * objetos independentes, quando o ponto inteiro do painel é que um alimenta o
- * outro.
- *
- * Agora é uma linha horizontal com divisórias finas: rótulo, valor, trilho. A
- * ênfase vai para a progressão e o estado, não para a decoração. A semântica
- * NÃO mudou — os mesmos cinco estados, os mesmos textos ("Sem registro",
- * "Indisponível", "Não instrumentado", "Não integrado", "Não apurado"), e
- * ausência continua não virando zero.
- *
- * A marcação segue `<ol>/<li>`: a ordem da cadeia é conteúdo, não estilo, e um
- * leitor de tela precisa dela tanto quanto o olho.
+ * Ordered contract-to-cash stages. Unknown amounts have no numeric fallback;
+ * dashed tracks distinguish absent measurements from a measured zero.
+ * Each stage retains its source, prerequisite details and existing action.
  */
 
 import { cn } from '@/lib/utils';
-import { Unplug, AlertTriangle, PlugZap } from 'lucide-react';
-import type { CashStage, CashStageState } from '@/lib/contracts/trust/contract-to-cash';
+import { ArrowRight, Unplug, AlertTriangle, PlugZap } from 'lucide-react';
+import type { CashStage, CashStageState, CashStageKey } from '@/lib/contracts/trust/contract-to-cash';
 import { TrustedValue } from '../cockpit/TrustedValue';
 import { hasOfficialValue } from '@/lib/contracts/trust/trusted';
 
@@ -45,7 +21,7 @@ const BRL = new Intl.NumberFormat('pt-BR', {
 /** Rótulo curto do estado, exibido no lugar do número quando não há número. */
 const STATE_CHIP: Record<CashStageState, { label: string; icon: React.ReactNode; tone: string } | null> = {
   measured: null,
-  unmeasured: { label: 'Sem registro', icon: null, tone: 'text-ig-fg-subtle' },
+  unmeasured: { label: 'Não apurado', icon: null, tone: 'text-ig-fg-subtle' },
   error: { label: 'Indisponível', icon: <AlertTriangle className="h-3 w-3" aria-hidden />, tone: 'text-ig-danger' },
   'not-instrumented': { label: 'Não instrumentado', icon: <PlugZap className="h-3 w-3" aria-hidden />, tone: 'text-ig-warning' },
   'not-integrated': { label: 'Não integrado', icon: <Unplug className="h-3 w-3" aria-hidden />, tone: 'text-ig-fg-subtle' },
@@ -53,44 +29,37 @@ const STATE_CHIP: Record<CashStageState, { label: string; icon: React.ReactNode;
 
 export interface ContractToCashFlowProps {
   stages: readonly CashStage[];
+  actions?: Partial<Record<CashStageKey, { label: string; onClick: () => void }>>;
   /** Densidade reduzida para o dossiê lateral. */
   compact?: boolean;
   className?: string;
 }
 
-export function ContractToCashFlow({ stages, compact = false, className }: ContractToCashFlowProps) {
+export function ContractToCashFlow({ stages, compact = false, className, actions }: ContractToCashFlowProps) {
   return (
     <div className={cn('space-y-3', className)}>
       <ol
         data-testid="contract-to-cash"
         className={cn(
-          'grid gap-x-0 gap-y-4 grid-cols-2',
-          compact ? 'sm:grid-cols-3 lg:grid-cols-5' : 'sm:grid-cols-3 lg:grid-cols-5',
-          // Divisória fina entre estágios, só onde há vizinho à esquerda.
-          '[&>li+li]:sm:border-l [&>li+li]:sm:border-ig-border-subtle',
+          'grid grid-cols-1 gap-5 lg:grid-cols-5',
+          compact ? 'sm:grid-cols-2' : 'sm:grid-cols-3',
         )}
       >
         {stages.map((stage, index) => (
-          <CashStage key={stage.key} stage={stage} index={index} total={stages.length} />
+          <CashStage key={stage.key} stage={stage} index={index} total={stages.length} action={actions?.[stage.key]} />
         ))}
       </ol>
-
-      {/*
-        As razões vêm agrupadas abaixo, e não dentro de cada estágio: lidas em
-        sequência, elas contam onde a cadeia se interrompe e por quê — que é
-        uma informação diferente da soma dos avisos isolados.
-      */}
-      <StageNotes stages={stages} />
     </div>
   );
 }
 
-function CashStage({ stage, index, total }: { stage: CashStage; index: number; total: number }) {
+function CashStage({ stage, index, total, action }: { stage: CashStage; index: number; total: number; action?: { label: string; onClick: () => void } }) {
   const chip = STATE_CHIP[stage.state];
   const pct = stage.shareOfContracted;
 
   return (
-    <li className="min-w-0 px-0 sm:px-3 sm:first:pl-0">
+    <li className="dossier-cash-stage" data-state={stage.state}>
+      {index < total - 1 && <ArrowRight className="dossier-cash-arrow h-3 w-3" aria-hidden />}
       <p className="flex items-baseline gap-1.5">
         <span className="min-w-0 truncate text-ig-caption text-ig-fg-muted">{stage.label}</span>
         {/* A posição sobrevive à quebra de linha, sem virar um "3/5" grande. */}
@@ -120,7 +89,7 @@ function CashStage({ stage, index, total }: { stage: CashStage; index: number; t
       ) : (
         <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-ig-border-subtle">
           <div
-            className="h-full rounded-full bg-ig-accent transition-[width] duration-500"
+            className="h-full rounded-full bg-ig-accent transition-[width] duration-150"
             style={{ width: `${Math.round(pct * 100)}%` }}
           />
         </div>
@@ -131,25 +100,18 @@ function CashStage({ stage, index, total }: { stage: CashStage; index: number; t
           {stage.count.value} registro(s)
         </span>
       )}
+      <p className="mt-3 text-[11px] leading-relaxed text-ig-fg-muted">{SOURCE_LABEL[stage.key]}</p>
+      {stage.note && stage.state !== 'not-integrated' && <details className="mt-2 text-xs text-ig-fg-muted"><summary className="cursor-pointer font-medium">{stage.state === 'error' ? 'Falha na consulta' : 'O que falta apurar'}</summary><p className="mt-2 leading-relaxed">{stage.note}</p></details>}
+      {action && stage.state !== 'measured' && <button type="button" className="mt-3 text-xs font-semibold text-ig-accent" onClick={action.onClick}>{action.label} →</button>}
+      {stage.state === 'not-integrated' && <details className="mt-3 text-xs text-ig-fg-muted"><summary className="cursor-pointer font-semibold">Estado da integração</summary><p className="mt-2">{stage.note ?? 'Recebimentos dependem do vínculo com o razão financeiro.'}</p></details>}
     </li>
   );
 }
 
-function StageNotes({ stages }: { stages: readonly CashStage[] }) {
-  const notes = stages.filter((s) => s.note);
-  if (notes.length === 0) return null;
-
-  return (
-    <ul className="space-y-1 border-t border-ig-border-subtle pt-2">
-      {notes.map((stage) => (
-        <li
-          key={stage.key}
-          className="flex gap-2 text-ig-caption text-ig-fg-muted"
-        >
-          <span className="shrink-0 font-semibold text-ig-fg-strong">{stage.label}</span>
-          <span className="min-w-0">{stage.note}</span>
-        </li>
-      ))}
-    </ul>
-  );
-}
+const SOURCE_LABEL: Record<CashStageKey, string> = {
+  contracted: 'Fonte: valor registrado do contrato.',
+  measured: 'Fonte: medição operacional ou marcos contratuais.',
+  approved: 'Fonte: rota de aprovação do contrato.',
+  billed: 'Fonte: eventos de faturamento realizados.',
+  received: 'Fonte: razão financeiro.',
+};

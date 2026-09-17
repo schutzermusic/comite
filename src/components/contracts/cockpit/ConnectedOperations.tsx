@@ -128,7 +128,7 @@ export function ConnectedOperations({
             Operações conectadas
           </h3>
           <p className="mt-0.5 text-ig-caption leading-relaxed text-ig-fg-muted">
-            O contrato como objeto central — cada linha leva ao módulo que governa o assunto.
+            Relações operacionais · acesse o módulo responsável.
           </p>
         </div>
       </header>
@@ -149,7 +149,8 @@ export function ConnectedOperations({
         </span>
       </div>
 
-      <ul className="px-1.5 py-1.5">
+      <div className="dossier-connection-root mx-4 mt-3"><Share2 className="h-3.5 w-3.5" aria-hidden />Contrato · {contract.code}</div>
+      <ul className="dossier-connections px-1.5 py-1.5">
         {rows.map((row) => (
           <ConnectedOperationRow key={row.key} row={row} onNavigate={onNavigate} />
         ))}
@@ -242,7 +243,7 @@ function ConnectedOperationRow({
             title={row.state}
           >
             <i aria-hidden />
-            <span className="truncate">{row.state}</span>
+            <span>{row.state}</span>
           </span>
         )}
 

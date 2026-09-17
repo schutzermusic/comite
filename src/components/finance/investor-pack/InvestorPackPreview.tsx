@@ -17,7 +17,7 @@ import {
   HudKpiStrip,
   type KpiItem,
 } from '@/components/hud';
-import { calculateInvestorPack, centsToReais, formatInvestorPeriod } from '@/lib/finance/investor-pack/calculations';
+import { calculateInvestorPack, centsToReais, formatInvestorPeriod, investorMonthlyForecastSeries } from '@/lib/finance/investor-pack/calculations';
 import { clientForecastColor } from '@/lib/finance/investor-pack/apex-charts';
 import { APEX_CLIENT_FORECAST_DESCRIPTION } from '@/lib/finance/investor-pack/apex-theme';
 import type { InvestorPack } from '@/lib/finance/investor-pack/types';
@@ -42,29 +42,8 @@ export function InvestorPackPreview({ pack }: { pack: InvestorPack }) {
     points.reduce((last, point, index) => (point[key] > 0 ? index : last), 0);
   const revenueBridgeIndex = lastActualIndex('revenueActualCents');
   const payrollBridgeIndex = lastActualIndex('payrollActualCents');
-  /**
-   * Série projetada ancorada no último realizado. Competências sem valor lançado entre dois
-   * pontos conhecidos são interpoladas para a curva não despencar a zero num buraco de dados.
-   */
-  const forecastBridge = (
-    actualKey: 'revenueActualCents' | 'payrollActualCents',
-    forecastKey: 'revenueForecastCents' | 'payrollForecastCents',
-    anchorIndex: number,
-  ) => {
-    const values = points.map((point, index) => index === anchorIndex ? point[actualKey] : point[forecastKey]);
-    for (let index = anchorIndex + 1; index < values.length; index += 1) {
-      if (values[index] > 0) continue;
-      const next = values.findIndex((value, candidate) => candidate > index && value > 0);
-      if (next < 0) break;
-      const previous = values[index - 1];
-      const step = (values[next] - previous) / (next - index + 1);
-      for (let gap = index; gap < next; gap += 1) values[gap] = previous + step * (gap - index + 1);
-      index = next;
-    }
-    return values.map(centsToReais);
-  };
-  const revenueForecastBridge = forecastBridge('revenueActualCents', 'revenueForecastCents', revenueBridgeIndex);
-  const payrollForecastBridge = forecastBridge('payrollActualCents', 'payrollForecastCents', payrollBridgeIndex);
+  const revenueForecastBridge = investorMonthlyForecastSeries(points, 'revenueActualCents', 'revenueForecastCents', revenueBridgeIndex);
+  const payrollForecastBridge = investorMonthlyForecastSeries(points, 'payrollActualCents', 'payrollForecastCents', payrollBridgeIndex);
   const visiblePeriods = new Set(points.map((point) => point.period));
   const clientForecasts = pack.narrative.clientForecasts.filter(
     (forecast) => visiblePeriods.has(forecast.period) && forecast.amountCents > 0,
@@ -110,7 +89,7 @@ export function InvestorPackPreview({ pack }: { pack: InvestorPack }) {
         <HudCard>
           <HudCardHeader>
             <HudCardTitle>Realizado x projeção por competência</HudCardTitle>
-            <HudCardDescription>Faturamento e folha comparados à projeção sazonal, com vales no meio do ano e picos no início e no fim.</HudCardDescription>
+            <HudCardDescription>Faturamento realizado e projetado por competência, com a mesma base da projeção por cliente, comparado à folha.</HudCardDescription>
           </HudCardHeader>
           <HudCardContent className="p-3">
             <FinanceChartContainer scrollX minHeight={chartHeight + 16} className="pb-4">

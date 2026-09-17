@@ -8,6 +8,37 @@ import type {
 
 const PERIOD_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 
+/** A report date does not close or erase a saved revenue/payroll forecast. */
+export function filterInvestorPackPeriod(pack: InvestorPack, start: string, end: string): InvestorPack {
+  return {
+    ...pack,
+    periodStart: start,
+    periodEnd: end,
+    months: pack.months.filter((month) => month.period >= start && month.period <= end),
+  };
+}
+
+export function investorForecastStartPeriod(pack: InvestorPack, metric: 'revenue' | 'payroll'): string {
+  const forecastKey = metric === 'revenue' ? 'revenueForecastCents' : 'payrollForecastCents';
+  const actualKey = metric === 'revenue' ? 'revenueActualCents' : 'payrollActualCents';
+  const periods = [...pack.months].sort((a, b) => a.period.localeCompare(b.period));
+  const firstForecast = periods.find((month) => month[forecastKey] > 0 && month[actualKey] === 0);
+  const lastActual = periods.filter((month) => month[actualKey] > 0).at(-1);
+  return firstForecast?.period ?? nextPeriod(lastActual?.period ?? pack.referenceDate.slice(0, 7));
+}
+
+/** The actual anchor connects the lines; all projected points retain their saved amounts. */
+export function investorMonthlyForecastSeries(
+  points: InvestorPackCurvePoint[],
+  actualKey: 'revenueActualCents' | 'payrollActualCents',
+  forecastKey: 'revenueForecastCents' | 'payrollForecastCents',
+  anchorIndex: number,
+): number[] {
+  return points.map((point, index) => centsToReais(
+    index === anchorIndex && point[actualKey] > 0 ? point[actualKey] : point[forecastKey],
+  ));
+}
+
 function nextPeriod(period: string): string {
   const [year, month] = period.split('-').map(Number);
   const date = new Date(Date.UTC(year, month, 1));

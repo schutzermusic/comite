@@ -110,6 +110,40 @@
   /* ── Focus ring cinemático ── */
   --ig-focus-ring-outer: 0 0 0 1px rgba(20,184,166,0.30), 0 0 0 5px rgba(20,184,166,0.12), 0 0 28px rgba(20,184,166,0.25);
   --ig-focus-ring-inner: inset 0 0 0 1px rgba(140,255,230,0.24);
+/* ── Painel LP: superfícies internas do dossiê ──────────
+     As peças pequenas do painel (nó, etiqueta, glifo, ação) eram
+     pintadas misturando o tom em #FFFFFF literal, e recebiam um
+     brilho superior branco a 90%. No claro isso é correto; no escuro
+     virava painel cinza lavado com uma tira branca em cima. Aqui a
+     base de mistura, o brilho e o contato viram token — a receita
+     continua a mesma, só o material troca com o tema. */
+  --ig-lp-wash:         var(--ig-bg-raised);
+  --ig-lp-wash-deep:    var(--ig-bg-canvas);
+  --ig-lp-wash-soft:    rgba(255, 255, 255, 0.05);
+  --ig-lp-wash-soft-2:  rgba(255, 255, 255, 0.03);
+  --ig-lp-gloss-hi:     rgba(255, 255, 255, 0.07);
+  --ig-lp-gloss:        rgba(255, 255, 255, 0.06);
+  --ig-lp-gloss-soft:   rgba(255, 255, 255, 0.05);
+  /* Âncora da tinta das etiquetas: no claro escurece o tom, no escuro
+     clareia — em ambos os casos, afasta o texto do fundo. */
+  --ig-lp-ink-anchor:   #FFFFFF;
+  --ig-lp-edge:         var(--ig-border-default);
+  --ig-lp-contact:      rgba(0, 0, 0, 0.30);
+  --ig-lp-contact-soft: rgba(0, 0, 0, 0.26);
+  --ig-lp-press:        rgba(0, 0, 0, 0.34);
+  --ig-lp-veil:         rgba(255, 255, 255, 0.06);
+  --ig-lp-veil-soft:    rgba(255, 255, 255, 0.05);
+  --ig-lp-edge-soft:    var(--ig-border-subtle);
+  /* A telha de indicador: no claro, papel levemente rebaixado; no escuro,
+     um veu translucido sobre o vidro do cartao — nunca uma tira branca. */
+  --ig-lp-tile-fill:    linear-gradient(180deg, rgba(255, 255, 255, 0.045) 0%, rgba(255, 255, 255, 0.025) 78%, rgba(255, 255, 255, 0.02) 100%);
+  --ig-lp-notice-a:     rgba(255, 255, 255, 0.05);
+  --ig-lp-notice-b:     rgba(255, 255, 255, 0.03);
+  --ig-lp-gloss-faint:  rgba(255, 255, 255, 0.05);
+  --ig-lp-notice-neutral: linear-gradient(90deg, rgba(255, 255, 255, 0.055) 0%, rgba(255, 255, 255, 0.02) 100%);
+  /* A regua: faixa de sintese sob o cabecalho do painel. No escuro e um
+     veu frio sobre o vidro, com um fio de acento — nunca uma tira clara. */
+  --ig-lp-rule-fill:    linear-gradient(180deg, rgba(20, 184, 166, 0.05) 0%, rgba(255, 255, 255, 0.018) 100%);
 }
 
 html.light {
@@ -224,6 +258,28 @@ html.light {
 
   --ig-focus-ring-outer: 0 0 0 1px rgba(15,118,110,0.35), 0 0 0 5px rgba(15,118,110,0.14), 0 0 24px rgba(15,118,110,0.18);
   --ig-focus-ring-inner: inset 0 0 0 1px rgba(15,118,110,0.20);
+/* ── Painel LP (ver bloco escuro) ── */
+  --ig-lp-wash:         #FFFFFF;
+  --ig-lp-wash-deep:    #F1F5F9;
+  --ig-lp-wash-soft:    rgba(255, 255, 255, 0.85);
+  --ig-lp-wash-soft-2:  rgba(255, 255, 255, 0.6);
+  --ig-lp-gloss-hi:     rgba(255, 255, 255, 0.95);
+  --ig-lp-gloss:        rgba(255, 255, 255, 0.9);
+  --ig-lp-gloss-soft:   rgba(255, 255, 255, 0.8);
+  --ig-lp-ink-anchor:   #000000;
+  --ig-lp-edge:         rgba(15, 23, 42, 0.14);
+  --ig-lp-contact:      rgba(15, 23, 42, 0.07);
+  --ig-lp-contact-soft: rgba(15, 23, 42, 0.06);
+  --ig-lp-press:        rgba(15, 23, 42, 0.12);
+  --ig-lp-veil:         rgba(255, 255, 255, 0.9);
+  --ig-lp-veil-soft:    rgba(255, 255, 255, 0.82);
+  --ig-lp-edge-soft:    rgba(15, 23, 42, 0.09);
+  --ig-lp-tile-fill:    linear-gradient(180deg, rgba(234, 242, 248, 0.82) 0%, rgba(252, 253, 255, 0.92) 78%, rgba(255, 255, 255, 0.95) 100%);
+  --ig-lp-notice-a:     rgba(255, 255, 255, 0.5);
+  --ig-lp-notice-b:     rgba(255, 255, 255, 0.4);
+  --ig-lp-gloss-faint:  rgba(255, 255, 255, 0.7);
+  --ig-lp-notice-neutral: linear-gradient(90deg, rgba(226, 236, 244, 0.78) 0%, rgba(240, 246, 250, 0.35) 100%);
+  --ig-lp-rule-fill:    linear-gradient(180deg, rgba(232, 240, 246, 0.72) 0%, rgba(243, 248, 251, 0.45) 100%);
 }
 
 /* ── Primary button text + gradient override per theme (TASK-006a) ── */

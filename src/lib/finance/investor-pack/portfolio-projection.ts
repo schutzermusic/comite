@@ -4,6 +4,7 @@ import type {
   InvestorPackMonth,
   InvestorPortfolioClient,
 } from './types';
+import { REVENUE_IMPORT_VERSION } from './rebase-projection';
 
 export const PORTFOLIO_PROJECTION_VERSION = 'carteira-eventogramas-v14-julho-realizado';
 export const MANAGEMENT_PROJECTION_START = '2026-10';
@@ -398,6 +399,8 @@ function generatedMonth(period: string, forecasts: InvestorClientForecast[]): In
 }
 
 export function hydratePortfolioProjection(pack: InvestorPack): InvestorPack {
+  // An explicitly imported operational projection owns its saved actuals and schedule.
+  if (pack.narrative.projectionVersion === REVENUE_IMPORT_VERSION) return pack;
   const monthByPeriod = new Map(pack.months.map((month) => [month.period, month]));
   const baseIsComplete = Object.entries(REVENUE_ACTUALS_CENTS).every(
     ([period, value]) => monthByPeriod.get(period)?.revenueActualCents === value,

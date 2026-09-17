@@ -13,6 +13,8 @@
  * 30 dias", que é diferente de "não olhei os próximos 30 dias".
  */
 
+import { useState } from 'react';
+import { PortfolioSearch, PortfolioEmpty, matchesPortfolioSearch } from '../portfolio/PortfolioControls';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { pt } from 'date-fns/locale';
@@ -44,7 +46,9 @@ export interface RenewalHorizonPanelProps {
 }
 
 export function RenewalHorizonPanel({ horizon, onSelectContract, className }: RenewalHorizonPanelProps) {
-  const inWindow = horizon.entries.filter((e) => e.band !== 'beyond');
+  const [bandFilter, setBandFilter] = useState<HorizonBand | null>(null);
+  const [query, setQuery] = useState('');
+  const inWindow = horizon.entries.filter((e) => (bandFilter === null || e.band === bandFilter) && matchesPortfolioSearch(query, e.title, e.code, e.counterparty));
 
   return (
     <div className={cn('space-y-4', className)}>
@@ -52,10 +56,14 @@ export function RenewalHorizonPanel({ horizon, onSelectContract, className }: Re
         {horizon.bands.map((band) => {
           const tone = BAND_TONE[band.band];
           return (
-            <div
+            <button
+              type="button"
+              aria-pressed={bandFilter === band.band}
+              onClick={() => setBandFilter(bandFilter === band.band ? null : band.band)}
               key={String(band.band)}
               className={cn(
-                'relative overflow-hidden rounded-[14px] border px-3 py-2.5',
+                'relative overflow-hidden rounded-[12px] border px-3 py-3 text-left transition-colors hover:bg-ig-accent-weak',
+                bandFilter === band.band && 'ring-2 ring-ig-accent',
                 band.count > 0 ? 'border-ig-border-subtle bg-ig-panel/45' : 'border-dashed border-ig-border-strong',
               )}
             >
@@ -74,7 +82,7 @@ export function RenewalHorizonPanel({ horizon, onSelectContract, className }: Re
               <p className="mt-0.5 truncate text-ig-label text-ig-fg-subtle">
                 {band.count === 0 ? '—' : band.exposure === null ? 'valor não apurado' : BRL.format(band.exposure)}
               </p>
-            </div>
+            </button>
           );
         })}
       </div>
@@ -83,18 +91,18 @@ export function RenewalHorizonPanel({ horizon, onSelectContract, className }: Re
 
       <HudPanel
         title="Janelas de decisão"
-        subtitle="Ordenadas pelo prazo — a origem da data fica declarada em cada linha"
+        subtitle="Selecione uma janela para filtrar. Abra o contrato para planejar a próxima decisão."
         icon={<CalendarClock className="h-4 w-4" />}
         interactive={false}
       >
+        <PortfolioSearch value={query} onChange={setQuery} label="Buscar renovação por contrato ou contraparte" count={inWindow.length}>
+          {bandFilter !== null && <button type="button" className="portfolio-action" onClick={() => setBandFilter(null)}>Todas as janelas</button>}
+        </PortfolioSearch>
         {inWindow.length === 0 ? (
-          <p className="py-6 text-center text-ig-caption text-ig-fg-muted">
-            Nenhum contrato dentro de 180 dias.
-            {horizon.entries.length > 0 && ` ${horizon.entries.length} contrato(s) com vigência além dessa janela.`}
-          </p>
+          <PortfolioEmpty title={horizon.entries.length === 0 ? 'Nenhuma vigência datada neste recorte' : undefined} onReset={query || bandFilter !== null ? () => { setQuery(''); setBandFilter(null); } : undefined} description={horizon.entries.length === 0 ? 'As lacunas de prazo aparecem acima. Consulte o contrato para verificar sua vigência.' : undefined} />
         ) : (
           <div className="divide-y divide-ig-border-subtle border-y border-ig-border-subtle">
-            {inWindow.slice(0, 40).map((entry) => {
+            {inWindow.map((entry) => {
               const tone = BAND_TONE[entry.band];
               const interactive = Boolean(onSelectContract);
               const Comp: React.ElementType = interactive ? 'button' : 'div';

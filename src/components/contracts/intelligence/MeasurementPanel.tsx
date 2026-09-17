@@ -76,7 +76,7 @@ export function MeasurementPanel({
           Novo marco
         </HudButton>
       ) : undefined}
-      className={className}
+      className={cn('dossier-measurements', className)}
     >
       {isError(milestones) ? (
         <p className="rounded-lg border border-ig-danger/30 bg-ig-danger/5 px-3 py-2 text-ig-caption text-ig-danger">
@@ -105,7 +105,7 @@ export function MeasurementPanel({
             return (
               <div
                 key={milestone.id}
-                className="relative grid gap-3 overflow-hidden rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3 md:grid-cols-[1fr_130px_140px_auto] md:items-center"
+                className="dossier-measurement-row relative grid gap-3 overflow-hidden rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3 md:grid-cols-[1fr_130px_140px_auto] md:items-center"
               >
                 <span className={cn('absolute inset-y-0 left-0 w-[2px]', tone.rail)} aria-hidden />
 

@@ -38,16 +38,16 @@ export function SectionHeader({
   className,
 }: SectionHeaderProps) {
   return (
-    <div className={cn('mb-2.5 flex items-baseline justify-between gap-3', className)}>
-      <div className="flex min-w-0 items-baseline gap-2">
-        <Heading className="truncate text-ig-body-sm font-semibold text-ig-fg-strong">
+    <div className={cn('mb-2.5 flex flex-wrap items-start justify-between gap-3', className)}>
+      <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
+        <Heading className="text-ig-body-sm font-semibold text-ig-fg-strong">
           {title}
         </Heading>
         {count !== undefined && (
           <span className="ig-tabular shrink-0 text-ig-caption text-ig-fg-muted">{count}</span>
         )}
         {hint && (
-          <span className="hidden truncate text-ig-caption text-ig-fg-subtle sm:inline">
+          <span className="text-ig-caption text-ig-fg-muted">
             {hint}
           </span>
         )}

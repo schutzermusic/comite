@@ -12,6 +12,9 @@
  *    "nada pendente".
  */
 
+import { useState } from 'react';
+import { PortfolioSearch, PortfolioFilters, PortfolioEmpty, matchesPortfolioSearch } from '../portfolio/PortfolioControls';
+import { DossierDetailDrawer, DossierStatus } from '../shell/DossierPrimitives';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { pt } from 'date-fns/locale';
@@ -68,8 +71,8 @@ export function ApprovalJourney({
       <div className="grid gap-x-6 gap-y-3 sm:grid-cols-3">
         <Metric
           label="Etapa corrente"
-          value={intelligence.currentStage?.label ?? 'Rota concluída'}
-          tone={intelligence.currentStage ? 'text-ig-warning' : 'text-ig-success'}
+          value={intelligence.currentStage?.label ?? (intelligence.rejectedSteps.length ? 'Rota com rejeição' : 'Rota concluída')}
+          tone={intelligence.rejectedSteps.length ? 'text-ig-danger' : intelligence.currentStage ? 'text-ig-warning' : 'text-ig-success'}
         />
         <div className="min-w-0 border-t border-ig-border-subtle pt-2">
           <p className="truncate text-ig-caption text-ig-fg-muted">
@@ -102,7 +105,7 @@ export function ApprovalJourney({
             <li
               key={step.step}
               className={cn(
-                'relative grid gap-3 overflow-hidden rounded-lg border bg-ig-panel/45 p-3 md:grid-cols-[1fr_120px_130px_120px] md:items-center',
+                'relative grid gap-3 overflow-hidden rounded-lg border bg-ig-panel/45 p-3 sm:grid-cols-2 md:items-center',
                 isCurrent ? 'border-ig-accent/45' : 'border-ig-border-subtle',
               )}
             >
@@ -179,9 +182,14 @@ export interface ApprovalIntelligencePanelProps {
 export function ApprovalIntelligencePanel({
   approvals, canApprove = false, onReview, className,
 }: ApprovalIntelligencePanelProps) {
+  const [query, setQuery] = useState('');
+  const [filter, setFilter] = useState('all');
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selected = approvals.rows.find((row) => row.contractId === selectedId);
+  const shown = approvals.rows.filter((row) => matchesPortfolioSearch(query, row.title, row.code, row.intelligence.currentStage?.label) && (filter === 'all' || (filter === 'overdue' ? row.intelligence.overdueSteps.length > 0 : filter === 'rejected' ? row.intelligence.rejectedSteps.length > 0 : Boolean(row.intelligence.currentStage))));
   return (
     <div className={cn('space-y-4', className)}>
-      <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+      <div className="portfolio-metrics">
         <Metric label="Contratos em alçada" value={String(approvals.rows.length)} tone="text-ig-fg-strong" />
         <Metric
           label="Etapas além do prazo"
@@ -218,34 +226,18 @@ export function ApprovalIntelligencePanel({
         icon={<ShieldCheck className="h-4 w-4" />}
         interactive={false}
       >
-        {approvals.rows.length === 0 ? (
-          <p className="py-6 text-center text-ig-caption text-ig-fg-muted">
-            Nenhum contrato com rota de alçada registrada no recorte.
-          </p>
-        ) : (
-          <div className="space-y-4">
-            {approvals.rows.slice(0, 12).map((row) => (
-              <div key={row.contractId} className="space-y-2">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-ig-body-sm font-semibold text-ig-fg-strong">{row.title}</p>
-                    <p className="truncate text-ig-caption text-ig-fg-muted">{row.code}</p>
-                  </div>
-                  {canApprove && onReview && (
-                    <button
-                      type="button"
-                      onClick={() => onReview(row.contractId)}
-                      className="shrink-0 rounded-md border border-ig-border-subtle px-2.5 py-1 text-ig-label font-semibold text-ig-fg-muted transition-colors hover:border-ig-border-focus hover:text-ig-fg-strong"
-                    >
-                      Revisar
-                    </button>
-                  )}
-                </div>
-                <ApprovalJourney intelligence={row.intelligence} />
-              </div>
-            ))}
-          </div>
-        )}
+        <PortfolioSearch value={query} onChange={setQuery} label="Buscar contrato ou etapa de aprovação" count={shown.length} />
+        <PortfolioFilters label="Situação da aprovação" value={filter} onChange={setFilter} options={[{ value: 'all', label: 'Todas as rotas' }, { value: 'open', label: 'Em andamento' }, { value: 'overdue', label: 'Com atraso' }, { value: 'rejected', label: 'Com rejeição' }]} />
+        {shown.length === 0 ? <PortfolioEmpty title={approvals.rows.length === 0 ? 'Nenhuma rota de alçada registrada' : undefined} description={approvals.rows.length === 0 ? 'Os contratos sem rota aparecem abaixo para acompanhamento.' : undefined} onReset={query || filter !== 'all' ? () => { setQuery(''); setFilter('all'); } : undefined} /> : <div>
+          {shown.map((row) => <button type="button" key={row.contractId} className="dossier-row" aria-haspopup="dialog" onClick={() => setSelectedId(row.contractId)}>
+            <div className="min-w-0 flex-1"><p className="dossier-row-title">{row.title}</p><p className="dossier-meta">{row.code} · {row.intelligence.currentStage?.label ?? (row.intelligence.rejectedSteps.length ? 'Rota com rejeição' : 'Rota concluída')}</p></div>
+            <DossierStatus tone={row.intelligence.overdueSteps.length || row.intelligence.rejectedSteps.length ? 'critical' : row.intelligence.currentStage ? 'attention' : 'positive'}>{row.intelligence.overdueSteps.length ? 'Prazo excedido' : row.intelligence.rejectedSteps.length ? 'Requer revisão' : row.intelligence.currentStage ? 'Em andamento' : 'Concluída'}</DossierStatus>
+            <span className="dossier-meta">Ver rota →</span>
+          </button>)}
+        </div>}
+        <DossierDetailDrawer isOpen={Boolean(selected)} onClose={() => setSelectedId(null)} title={selected?.title ?? 'Rota de aprovação'} subtitle={selected?.code} footer={selected && canApprove && onReview ? <button type="button" className="portfolio-action" onClick={() => { setSelectedId(null); onReview(selected.contractId); }}>Revisar aprovação</button> : undefined}>
+          {selected && <ApprovalJourney intelligence={selected.intelligence} />}
+        </DossierDetailDrawer>
       </HudPanel>
 
       {/*

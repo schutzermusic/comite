@@ -122,7 +122,7 @@ export function ObligationsControlTower({
           />
         ) : (
           <div className="divide-y divide-ig-border-subtle border-y border-ig-border-subtle">
-            {shown.slice(0, 60).map((entry) => {
+            {shown.map((entry) => {
               const tone = BUCKET_TONE[entry.bucket];
               return (
                 /*

@@ -1,34 +1,12 @@
 'use client';
 
 /**
- * Prontidão de entrada — o que já foi registrado neste contrato e o que falta.
- *
- * O painel é informativo, nunca acusatório. Nenhum passo pendente recebe tom
- * de perigo, nenhum aparece em vermelho e não há nota de conformidade: um
- * contrato sem obrigações registradas não está em falta com coisa alguma —
- * pode simplesmente não ter obrigações a acompanhar. A escolha de cor É a
- * decisão de produto aqui, e alarme sobre ausência legítima ensina a equipe a
- * registrar linha vazia só para apagar alerta.
- *
- * ─── O que mudou no desenho ────────────────────────────────────────────────
- *
- * Saiu o `HudPanel` (vidro de cinco camadas) com uma caixa `bg-ig-panel/45`
- * por linha. Aquela tinta era branco a 45% sobre branco — ou seja, nada: o
- * que a tela mostrava era uma borda cinza em volta de cada linha, oito
- * molduras do mesmo peso, e um painel inteiro que se lia como neblina.
- *
- * Entra a gramática de `.ig-lp`, a mesma da crista do dossiê: papel opaco,
- * cabeçalho com cantos de HUD, linhas divididas por FIO e uma coluna de
- * estado de largura fixa — a coluna que o olho desce para varrer o painel.
- *
- * O estado aparece três vezes e nunca só em cor: no contêiner do ícone, no
- * ponto da coluna de estado e no rótulo escrito. "A registrar" e "Não se
- * aplica" ganham ponto OCO, porque ausência de leitura não é severidade.
- *
- * Toda a lógica vive em `trust/onboarding.ts`, testável sem DOM. Este arquivo
- * só desenha.
+ * Readiness is registration coverage, not compliance. Pending setup is amber;
+ * unknown stays slate. Completed steps remain available in a compact disclosure.
+ * All states come from trust/onboarding.ts.
  */
 
+import { DossierDisclosure } from '../shell/DossierPrimitives';
 import { cn } from '@/lib/utils';
 import {
   Check, CircleDashed, Minus, TriangleAlert, HelpCircle, ChevronRight, ListChecks,
@@ -45,12 +23,12 @@ type StepTone = 'success' | 'warning' | 'idle' | 'off';
 
 const STATE_LOOK: Record<OnboardingStepState, {
   icon: React.ReactNode;
-  /** Pendente é NEUTRO de propósito — ausência não é alarme. */
+  /** Amber indicates setup to register; it never asserts a breach. */
   tone: StepTone;
   label: string;
 }> = {
   complete:       { icon: <Check className="h-3.5 w-3.5" />,         tone: 'success', label: 'Registrado' },
-  pending:        { icon: <CircleDashed className="h-3.5 w-3.5" />,  tone: 'idle',    label: 'A registrar' },
+  pending:        { icon: <CircleDashed className="h-3.5 w-3.5" />,  tone: 'warning', label: 'A registrar' },
   unknown:        { icon: <HelpCircle className="h-3.5 w-3.5" />,    tone: 'idle',    label: 'Não apurado' },
   errored:        { icon: <TriangleAlert className="h-3.5 w-3.5" />, tone: 'warning', label: 'Leitura falhou' },
   not_applicable: { icon: <Minus className="h-3.5 w-3.5" />,         tone: 'off',     label: 'Não se aplica' },
@@ -80,7 +58,7 @@ export function OnboardingReadinessPanel({
             Prontidão do contrato
           </h3>
           <p className="mt-0.5 text-ig-caption leading-relaxed text-ig-fg-muted">
-            O que já está registrado. Ausência aqui não é irregularidade.
+            Base documental e configuração operacional.
           </p>
         </div>
       </header>
@@ -162,10 +140,15 @@ export function OnboardingReadinessPanel({
         painel errado.
       */}
       <ul className="px-1.5 py-1.5" aria-label="Prontidão do contrato">
-        {steps.map((step) => (
+        {steps.filter((step) => step.state !== 'complete').map((step) => (
           <StepRow key={step.key} step={step} onNavigate={onNavigate} />
         ))}
       </ul>
+      {steps.some((step) => step.state === 'complete') && (
+        <DossierDisclosure title="Já registrado" count={steps.filter((step) => step.state === 'complete').length}>
+          <ul>{steps.filter((step) => step.state === 'complete').map((step) => <StepRow key={step.key} step={step} onNavigate={onNavigate} />)}</ul>
+        </DossierDisclosure>
+      )}
     </section>
   );
 }

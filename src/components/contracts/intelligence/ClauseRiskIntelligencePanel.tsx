@@ -13,6 +13,9 @@
  *                                  usuário procurar um botão inexistente.
  */
 
+import { useState } from 'react';
+import { PortfolioSearch, PortfolioFilters, PortfolioEmpty, matchesPortfolioSearch } from '../portfolio/PortfolioControls';
+import { DossierDisclosure } from '../shell/DossierPrimitives';
 import { cn } from '@/lib/utils';
 import { ShieldAlert, Scale, Gavel, PlugZap, AlertTriangle, CircleDashed } from 'lucide-react';
 import { HudPanel } from '@/components/hud';
@@ -67,13 +70,19 @@ export interface ClauseRiskIntelligencePanelProps {
   onRegisterClause?: () => void;
   onRegisterPenalty?: (clause?: ContractClauseRow) => void;
   onReviewClause?: (clause: ContractClauseRow) => void;
+  onOpenContract?: (id: string) => void;
   className?: string;
 }
 
 export function ClauseRiskIntelligencePanel({
   intelligence, canEdit = false, onCreateRisk, onLinkRisk,
-  onRegisterClause, onRegisterPenalty, onReviewClause, className,
+  onRegisterClause, onRegisterPenalty, onReviewClause, onOpenContract, className,
 }: ClauseRiskIntelligencePanelProps) {
+  const [query, setQuery] = useState('');
+  const [category, setCategory] = useState('all');
+  const risks = intelligence.risks.filter((r) => (category === 'all' || category === 'risks') && matchesPortfolioSearch(query, r.title, r.contractCode, r.category));
+  const clauses = intelligence.clauses.filter((c) => (category === 'all' || category === 'clauses') && matchesPortfolioSearch(query, c.title, c.clause_type));
+  const penalties = intelligence.penalties.filter((p) => (category === 'all' || category === 'penalties') && matchesPortfolioSearch(query, p.title, p.trigger_condition));
   return (
     <div className={cn('space-y-4', className)}>
       <div className="grid gap-2 lg:grid-cols-3">
@@ -90,7 +99,12 @@ export function ClauseRiskIntelligencePanel({
         ))}
       </div>
 
-      {intelligence.risks.length > 0 && (
+      {onOpenContract && <>
+        <PortfolioSearch value={query} onChange={setQuery} label="Buscar risco, cláusula ou penalidade" count={risks.length + clauses.length + penalties.length} />
+        <PortfolioFilters label="Tipo de registro" value={category} onChange={setCategory} options={[{ value: 'all', label: 'Todos' }, { value: 'risks', label: 'Riscos', count: intelligence.risks.length }, { value: 'clauses', label: 'Cláusulas', count: intelligence.clauses.length }, { value: 'penalties', label: 'Penalidades', count: intelligence.penalties.length }]} />
+        {risks.length + clauses.length + penalties.length === 0 && <PortfolioEmpty title="Nenhum registro disponível neste recorte" description="Consulte a cobertura acima ou abra um contrato para examinar suas fontes." onReset={query || category !== 'all' ? () => { setQuery(''); setCategory('all'); } : undefined} />}
+      </>}
+      {risks.length > 0 && (
         <HudPanel
           title="Riscos vinculados"
           subtitle="O vínculo é de Contratos; o conteúdo do risco continua no módulo de Riscos"
@@ -99,7 +113,7 @@ export function ClauseRiskIntelligencePanel({
         >
           {/* Linhas divididas: ver ObligationsControlTower. */}
           <div className="ig-rows">
-            {intelligence.risks.slice(0, 30).map((risk) => (
+            {risks.map((risk) => (
               <div
                 key={`${risk.contractId}-${risk.riskId}`}
                 className="grid gap-3 py-2.5 md:grid-cols-[1fr_130px_120px] md:items-center"
@@ -109,6 +123,7 @@ export function ClauseRiskIntelligencePanel({
                   <p className="truncate text-ig-caption text-ig-fg-muted">
                     {risk.contractCode}{risk.category ? ` · ${risk.category}` : ''}
                   </p>
+                  {onOpenContract && <button type="button" className="mt-2 text-xs font-semibold text-ig-accent" onClick={() => onOpenContract(risk.contractId)}>Abrir contrato →</button>}
                 </div>
                 <span className="truncate text-ig-caption text-ig-fg-muted">{risk.severity ?? 'severidade não lida'}</span>
                 <span className="truncate text-ig-caption text-ig-fg-muted">{risk.status ?? 'estado não lido'}</span>
@@ -118,7 +133,7 @@ export function ClauseRiskIntelligencePanel({
         </HudPanel>
       )}
 
-      {intelligence.clauses.length > 0 && (
+      {clauses.length > 0 && (
         <HudPanel
           title="Cláusulas monitoradas"
           subtitle={clauseListProvenanceSubtitle(intelligence.clauses)}
@@ -126,20 +141,19 @@ export function ClauseRiskIntelligencePanel({
           interactive={false}
         >
           <div className="ig-rows">
-            {intelligence.clauses.slice(0, 40).map((clause) => (
-              <ClauseRow
-                key={clause.id}
-                clause={clause}
-                canEdit={canEdit}
-                onReview={onReviewClause}
-                onRegisterPenalty={onRegisterPenalty}
-              />
+            {clauses.map((clause) => (
+              <DossierDisclosure key={clause.id} title={clause.title}>
+                <ClauseRow clause={clause} canEdit={canEdit} onReview={onReviewClause} onRegisterPenalty={onRegisterPenalty} />
+                {clause.content && <p className="dossier-meta mb-3 whitespace-pre-wrap">{clause.content}</p>}
+                {clause.source_excerpt && <blockquote className="dossier-meta mb-3 border-l-2 border-ig-border-strong pl-3">{clause.source_excerpt}</blockquote>}
+                {onOpenContract && <button type="button" className="portfolio-action" onClick={() => onOpenContract(clause.contract_id)}>Abrir contrato de origem</button>}
+              </DossierDisclosure>
             ))}
           </div>
         </HudPanel>
       )}
 
-      {intelligence.penalties.length > 0 && (
+      {penalties.length > 0 && (
         <HudPanel
           title="Penalidades monitoradas"
           subtitle="Gatilho, valor e cláusula de origem"
@@ -147,7 +161,7 @@ export function ClauseRiskIntelligencePanel({
           interactive={false}
         >
           <div className="ig-rows">
-            {intelligence.penalties.slice(0, 30).map((penalty) => {
+            {penalties.map((penalty) => {
               const origin = intelligence.clauses.find((c) => c.id === penalty.clause_id);
               return (
                 <div
@@ -159,6 +173,7 @@ export function ClauseRiskIntelligencePanel({
                     <p className="truncate text-ig-caption text-ig-fg-muted">
                       {origin ? `origem: ${origin.title}` : 'sem cláusula de origem registrada'}
                     </p>
+                    {onOpenContract && <button type="button" className="mt-2 text-xs font-semibold text-ig-accent" onClick={() => onOpenContract(penalty.contract_id)}>Abrir contrato →</button>}
                   </div>
                   <span className="truncate text-ig-body-sm font-semibold ig-tabular text-ig-fg-strong">
                     {formatEffect(penalty.amount, penalty.percentage, null)}

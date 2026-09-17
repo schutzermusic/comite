@@ -88,6 +88,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { DossierSection, DossierStatus, DossierDisclosure, DossierDetailDrawer } from '@/components/contracts/shell/DossierPrimitives';
 import { SectionHeader, HistoryDrawer, InlineEmpty, DossierNav } from '@/components/contracts/shell';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -992,6 +993,7 @@ export default function ContractDossierPage() {
           onEscalateFollowup={handleEscalateFollowup}
           onCompleteFollowup={handleCompleteFollowup}
           onNewObligation={canEditContract ? openObligation : undefined}
+          onOpenDocument={handleOpenDocument}
         />
       ),
     },
@@ -1004,6 +1006,7 @@ export default function ContractDossierPage() {
           obligations={obligationsAsOf}
           obligationsError={obligationsError}
           onReplace={canEditContract ? openReplaceDocument : undefined}
+          onOpenDocument={handleOpenDocument}
         />
       ),
     },
@@ -1069,6 +1072,7 @@ export default function ContractDossierPage() {
           onReview={hasPermission('contracts.approve') ? () => contractActions.reviewApproval(record) : undefined}
           onClassifyProvenance={canClassifyProvenance ? openProvenance : undefined}
           onOpenHistory={() => setHistoryOpen(true)}
+          onOpenIntelligence={() => setActiveTab('intelligence')}
         />
       ),
     },
@@ -1077,7 +1081,7 @@ export default function ContractDossierPage() {
   return (
     // `ig-dossier-page`: sem isto o scrollport mais próximo é a raiz do layout,
     // e a subnav grudenta não teria onde grudar. Ver surfaces.css.
-    <HudPageLayout className="ig-dossier-page">
+    <HudPageLayout className="ig-dossier-page ig-dossier-theme">
       {/*
         ─── A PLATAFORMA DE COMANDO ──────────────────────────────────────────
 
@@ -1115,15 +1119,12 @@ export default function ContractDossierPage() {
         onLinkProject={canEditContract ? () => contractActions.linkProject(record) : undefined}
         actionCenter={
           /*
-            A Central de Ação recebe a lista INTEIRA, sem `max={3}`.
-
-            O corte em três escondia pendências sem dizer quantas ficaram de
-            fora — e a linha passou a caber em uma altura, então sete cabem no
-            espaço que três cartões ocupavam. Esconder trabalho para economizar
-            altura é a troca errada numa tela cuja pergunta é "o que falta".
+            A contagem representa a fila inteira. As duas primeiras ações
+            ficam visíveis; as demais mantêm contagem e expansão explícitas.
           */
           <ContractActionCenter
             variant="band"
+            visibleLimit={2}
             items={attentionItems(trusted)}
             onAction={(key: AttentionActionKey) => {
               if (key === 'linkProject') contractActions.linkProject(record);
@@ -1449,12 +1450,8 @@ function SummaryTab({ trusted, contractNotes }: { trusted: TrustedContract; cont
     });
   return (
     <div className="grid gap-x-8 gap-y-5 lg:grid-cols-2">
-      <section className="min-w-0">
-        <SectionHeader title="Resumo executivo" />
+      <DossierSection title="Resumo executivo" className="min-w-0">
         <div className="space-y-4">
-          <p className="text-ig-body-sm leading-relaxed text-ig-fg-muted">
-            Este dossiê centraliza o contrato como fonte de verdade documental e de governança. Empresas e projetos aparecem como vínculos de referência, sem duplicar seus cadastros.
-          </p>
           <div className="grid gap-3 md:grid-cols-2">
             <Metric label="Código" value={trusted.code} />
             <Metric label="Tipo" value={text(trusted.contractType, 'Não informado')} />
@@ -1462,16 +1459,14 @@ function SummaryTab({ trusted, contractNotes }: { trusted: TrustedContract; cont
             <Metric label="Valor total" value={officialCurrencyCompact(trusted.totalValue)} />
           </div>
           {contractNotes && (
-            <div className="border-t border-ig-border-subtle pt-2">
-              <p className="text-ig-caption text-ig-fg-muted">Observações</p>
+            <DossierDisclosure title="Observações do contrato">
               <p className="mt-1 text-ig-body-sm text-ig-fg-strong">{contractNotes}</p>
-            </div>
+            </DossierDisclosure>
           )}
         </div>
-      </section>
+      </DossierSection>
 
-      <section className="min-w-0">
-        <SectionHeader title="Entidades relacionadas" />
+      <DossierSection title="Entidades relacionadas" className="min-w-0">
         <div className="divide-y divide-ig-border-subtle border-y border-ig-border-subtle">
           <Relation icon={<Building2 className="h-4 w-4" />} label="Contraparte" value={text(trusted.counterparty, 'Não informada')} />
           {/* Vínculo de projeto SOMENTE de project_id ou contract_project_links. */}
@@ -1485,7 +1480,7 @@ function SummaryTab({ trusted, contractNotes }: { trusted: TrustedContract; cont
           <Relation icon={<Receipt className="h-4 w-4" />} label="Faturado" value={officialCurrencyCompact(trusted.billedValue)} />
           <Relation icon={<ShieldCheck className="h-4 w-4" />} label="Aprovação" value={text(route, 'Nenhuma etapa registrada')} />
         </div>
-      </section>
+      </DossierSection>
     </div>
   );
 }
@@ -1533,7 +1528,7 @@ function SummaryTab({ trusted, contractNotes }: { trusted: TrustedContract; cont
  */
 function OperationTab({
   trusted, detail, followups, followupsError, followupsLoading, asOf, canAct,
-  onAssignFollowup, onWaitFollowup, onEscalateFollowup, onCompleteFollowup, onNewObligation,
+  onAssignFollowup, onWaitFollowup, onEscalateFollowup, onCompleteFollowup, onNewObligation, onOpenDocument,
 }: {
   trusted: TrustedContract;
   detail: ContractDetail;
@@ -1547,6 +1542,7 @@ function OperationTab({
   onEscalateFollowup: (followup: ApexFollowupRow) => void;
   onCompleteFollowup: (followup: ApexFollowupRow) => void;
   onNewObligation?: () => void;
+  onOpenDocument: (id: string, page: number | null) => void;
 }) {
   return (
     <section className="space-y-6" data-testid="contract-operation-tab">
@@ -1567,7 +1563,7 @@ function OperationTab({
           title="O que este contrato exige"
           hint="Estruturado a partir do documento original, com a cláusula de origem"
         />
-        <ContractStructuredObligations contractId={detail.contract.id} />
+        <ContractStructuredObligations contractId={detail.contract.id} onOpenDocument={onOpenDocument} />
       </div>
 
       <ObligationsTab trusted={trusted} detail={detail} onNewObligation={onNewObligation} legacyOnly />
@@ -1588,76 +1584,38 @@ function OperationTab({
  * fez a auditoria deixar de ser aba.
  */
 function GovernanceTab({
-  trusted, detail, record, attentionCount, onReview, onClassifyProvenance, onOpenHistory,
+  trusted, detail, record, attentionCount, onReview, onClassifyProvenance, onOpenHistory, onOpenIntelligence,
 }: {
-  trusted: TrustedContract;
-  detail: ContractDetail;
-  record: ContractGovernanceRecord;
-  attentionCount: number;
-  onReview?: () => void;
-  onClassifyProvenance?: () => void;
-  onOpenHistory: () => void;
+  trusted: TrustedContract; detail: ContractDetail; record: ContractGovernanceRecord;
+  attentionCount: number; onReview?: () => void; onClassifyProvenance?: () => void;
+  onOpenHistory: () => void; onOpenIntelligence: () => void;
 }) {
   const dataClass = (detail.contract.data_class ?? 'unclassified') as ContractDataClass;
-  const DATA_CLASS_LABEL: Record<ContractDataClass, string> = {
-    live: 'Produção',
-    demo: 'Demonstração',
-    unclassified: 'Não classificado',
-  };
-
+  const labels: Record<ContractDataClass, string> = { live: 'Produção', demo: 'Demonstração', unclassified: 'Não classificado' };
   return (
-    <div className="space-y-6" data-testid="contract-governance-tab">
-      <section>
-        <SectionHeader
-          title="Decisões que exigem autoridade humana"
-          hint="O Apex monitora e executa o que a política permite; o que está aqui é o que ele não pode decidir"
-        />
-        {attentionCount > 0 ? (
-          <p className="rounded-lg border border-ig-warning/35 bg-ig-warning/5 p-3 text-ig-body-sm text-ig-warning">
-            {attentionCount === 1
-              ? '1 interpretação contratual requer análise humana.'
-              : `${attentionCount} interpretações contratuais requerem análise humana.`}
-            {' '}Elas estão em Inteligência Contratual.
-          </p>
-        ) : (
-          <p className="rounded-lg border border-ig-border-subtle p-3 text-ig-caption text-ig-fg-muted">
-            Nenhuma interpretação contratual pendente de decisão humana.
-          </p>
-        )}
-      </section>
-
-      <ApprovalsTab trusted={trusted} detail={detail} onReview={onReview} />
-
-      <section>
-        <SectionHeader
-          title="Classificação e procedência"
-          hint="Só contrato de produção entra em métrica de carteira — e classificar não é a autoridade de quem cadastra"
-        />
-        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-ig-border-subtle p-3">
-          <Metric label="Classe do dado" value={DATA_CLASS_LABEL[dataClass]} />
-          <Metric label="Contrato" value={record.code} />
-          {onClassifyProvenance && (
-            <HudButton
-              variant="secondary" size="sm" leftIcon={<BadgeCheck className="h-4 w-4" />}
-              onClick={onClassifyProvenance}
-            >
-              Classificar origem
-            </HudButton>
-          )}
+    <div className="space-y-5" data-testid="contract-governance-tab">
+      <DossierSection title="Decisões que exigem autoridade humana" hint="Exceções contratuais e alçadas de aprovação."
+        action={attentionCount > 0 ? <HudButton variant="secondary" size="sm" onClick={onOpenIntelligence}>Examinar {attentionCount} interpretações</HudButton> : undefined}>
+        <div className="mb-4"><DossierStatus tone={attentionCount > 0 ? 'attention' : detail.operationalInterpretationsError ? 'unknown' : 'positive'}>
+          {detail.operationalInterpretationsError ? 'Fila de interpretações indisponível' : attentionCount > 0 ? `${attentionCount} interpretações requerem decisão` : 'Nenhuma interpretação pendente de decisão'}
+        </DossierStatus></div>
+        <div className="dossier-authority">
+          <div><h4 className="dossier-row-title">Apex · acompanhar e preparar</h4><p className="dossier-meta mt-1">Estrutura o contrato e acompanha a operação nos limites da política vigente.</p></div>
+          <div><h4 className="dossier-row-title">Autoridade humana · decidir</h4><p className="dossier-meta mt-1">Resolve exceções e aprova conforme a alçada registrada. Cada decisão preserva sua autoria.</p></div>
         </div>
-      </section>
-
-      <section>
-        <SectionHeader title="Trilha auditável" hint="Todo ato governado deste contrato, na ordem em que ocorreu" />
-        <div className="rounded-lg border border-ig-border-subtle p-3">
-          <HudButton
-            variant="secondary" size="sm" leftIcon={<FileClock className="h-4 w-4" />}
-            onClick={onOpenHistory}
-          >
-            Abrir histórico
-          </HudButton>
-        </div>
-      </section>
+      </DossierSection>
+      <div className="dossier-surface p-5"><ApprovalsTab trusted={trusted} detail={detail} onReview={onReview} /></div>
+      <div className="grid items-start gap-5 xl:grid-cols-2">
+        <DossierSection title="Classificação e procedência" hint="Origem e enquadramento do contrato."
+          action={onClassifyProvenance && <HudButton variant="secondary" size="sm" onClick={onClassifyProvenance}>Classificar origem</HudButton>}>
+          <div className="mb-3 flex items-center justify-between gap-3"><span className="dossier-meta">{record.code}</span><DossierStatus tone={dataClass === 'live' ? 'positive' : 'unknown'}>{labels[dataClass]}</DossierStatus></div>
+          <DossierDisclosure title="Política de classificação"><p className="dossier-meta">Somente contratos classificados como produção compõem as métricas da carteira. A classificação respeita a permissão de governança.</p></DossierDisclosure>
+        </DossierSection>
+        <DossierSection title="Trilha auditável" hint="Atos registrados, responsáveis e sequência temporal."
+          action={<HudButton variant="secondary" size="sm" onClick={onOpenHistory} leftIcon={<FileClock className="h-4 w-4" />}>Abrir histórico</HudButton>}>
+          <p className="dossier-meta">Consulte o que aconteceu e a origem de cada alteração no histórico do contrato.</p>
+        </DossierSection>
+      </div>
     </div>
   );
 }
@@ -1943,15 +1901,18 @@ function FinanceTab({
         termina — medição não instrumentada, recebimento não integrado — antes
         de qualquer número, para que o leitor não tome o "faturado" por "recebido".
       */}
-      <section>
-        <SectionHeader title="Contract-to-Cash" hint="Contratado → Medido → Aprovado → Faturado → Recebido" />
-        <ContractToCashFlow stages={contractToCash(trusted)} compact />
-      </section>
+      <DossierSection title="Contract-to-Cash" hint="Do valor contratado ao recebimento · cada etapa preserva sua fonte.">
+        <ContractToCashFlow stages={contractToCash(trusted)} compact actions={{
+          measured: onNewMilestone ? { label: 'Criar marco', onClick: onNewMilestone } : undefined,
+          billed: onNewBilling ? { label: 'Criar evento', onClick: onNewBilling } : undefined,
+        }} />
+      </DossierSection>
 
       {/*
         A medição vem logo depois da cadeia: é ela que dá lastro ao estágio
         "Medido" e ao faturamento que vem em seguida.
       */}
+      <div className="grid items-start gap-5 xl:grid-cols-2">
       <MeasurementPanel
         milestones={trusted.milestones}
         billedMilestoneIds={billedMilestoneIds}
@@ -1973,13 +1934,10 @@ function FinanceTab({
         Contratos não edita medição aqui. Cada linha leva ao projeto, que é
         onde a instância mora e onde o trabalho acontece.
       */}
-      <section>
-        <SectionHeader
-          title="Medição operacional"
-          hint="Instâncias em Projetos, com prontidão e aceite. Editar é lá."
-        />
+      <DossierSection title="Medição operacional" hint="Instâncias, prontidão e aceite registrados em Projetos.">
         <ContractMeasurementReadiness contractId={trusted.id} />
-      </section>
+      </DossierSection>
+      </div>
 
       {/*
         A CADEIA CONTRATO-A-CAIXA deste contrato — Fase 7.
@@ -1989,16 +1947,11 @@ function FinanceTab({
         duas telas, a divergência é impossível por construção, e não por
         disciplina de quem escreve a próxima.
       */}
-      <section>
-        <SectionHeader
-          title="Cadeia até o caixa"
-          hint="Origem do valor, elegibilidade, liberação, nota, recebido e conciliação"
-        />
-        <ContractToCashPanel contractId={trusted.id} />
-      </section>
+      <DossierSection title="Eventos e elegibilidade" hint="Lastro, liberação, nota fiscal e conciliação.">
+        <ContractToCashPanel contractId={trusted.id} compact />
+      </DossierSection>
 
-      <section>
-        <SectionHeader title="Exposição financeira" />
+      <div className="dossier-surface"><DossierDisclosure title="Exposição financeira · valores e execução">
         <div className="grid gap-4 lg:grid-cols-3">
           <Metric label="Valor total" value={officialCurrencyFull(trusted.totalValue)} />
           {/* "Margem estimada", "Adimplência" e "Reconhecimento" saíram: os três
@@ -2015,11 +1968,11 @@ function FinanceTab({
             <span className="text-ig-fg-muted">Execução financeira</span>
             <span className="font-semibold tabular-nums text-ig-fg-strong">{billedPercent === null ? 'Não apurada' : `${billedPercent}%`}</span>
           </div>
-          <HudProgressBar value={billedPercent ?? 0} showLabel={false} variant={billedPercent === null ? 'default' : 'success'} />
+          {billedPercent === null ? <div className="h-1 rounded border border-dashed border-ig-border-strong" role="img" aria-label="Execução financeira não apurada" /> : <HudProgressBar value={billedPercent} showLabel={false} variant="success" />}
         </div>
-      </section>
+      </DossierDisclosure></div>
 
-      <section>
+      <section className="dossier-surface p-5">
         <SectionHeader title="Cronograma de faturamento" hint={persistedBilling ? `${detail.billingEvents.length} evento(s) · ${formatCurrencyFull(billingTotal)} cadastrados` : 'Nenhum evento de faturamento registrado'} />
         {onNewBilling && (
           <div className="mb-3 flex justify-end">
@@ -2053,7 +2006,7 @@ function FinanceTab({
 }
 
 const DOC_TYPE_LABELS: Record<string, string> = {
-  contract: 'Contrato assinado',
+  contract: 'Contrato',
   amendment: 'Aditivo',
   invoice: 'Nota / fatura',
   guarantee: 'Garantia bancária',
@@ -2067,6 +2020,7 @@ const DOC_TYPE_LABELS: Record<string, string> = {
 
 const DOC_STATUS: Record<string, { label: string; variant: 'success' | 'warning' | 'danger' | 'info' | 'neutral' }> = {
   uploaded: { label: 'Disponível', variant: 'success' },
+  approved: { label: 'Aprovado', variant: 'success' },
   missing: { label: 'Faltante', variant: 'warning' },
   expired: { label: 'Expirado', variant: 'danger' },
   expiring_soon: { label: 'Expirando', variant: 'warning' },
@@ -2092,13 +2046,15 @@ const DOC_STATUS: Record<string, { label: string; variant: 'success' | 'warning'
  * E o que FALTA aparece junto com o que existe: um repositório que só mostra
  * os papéis que chegaram esconde exatamente a informação que importa.
  */
-function DocumentsTab({ detail, obligations, obligationsError, onReplace }: {
+function DocumentsTab({ detail, obligations, obligationsError, onReplace, onOpenDocument }: {
   detail: ContractDetail;
+  onOpenDocument: (id: string, page: number | null) => void;
   obligations: ContractObligationsAsOf | null;
   obligationsError: string | null;
   /** Substituir por nova versão. Ausente quando o usuário não pode editar. */
   onReplace?: (doc: ContractDocumentRow) => void;
 }) {
+  const [selectedDoc, setSelectedDoc] = useState<ContractDocumentRow | null>(null);
   const docById = new Map(detail.documents.map((d) => [d.id, d]));
 
   /*
@@ -2175,7 +2131,10 @@ function DocumentsTab({ detail, obligations, obligationsError, onReplace }: {
   const operations = buildDocumentOperations(inputs, missing);
 
   return (
-    <div className="space-y-6" data-testid="contract-documents-tab">
+    <div className="space-y-5" data-testid="contract-documents-tab">
+      <DossierSection title="Fonte documental do contrato" hint="O documento original sustenta a leitura contratual. Evidências e versões preservam a rastreabilidade.">
+        <div className="flex flex-wrap gap-3"><DossierStatus>{operations.total} documentos no repositório</DossierStatus><DossierStatus tone={obligations && !obligationsError && operations.missing.length ? 'attention' : 'unknown'}>{obligations && !obligationsError ? `${operations.missing.length} evidências aguardadas` : 'Exigências não apuradas'}</DossierStatus></div>
+      </DossierSection>
       {obligationsError && (
         <p className="rounded-lg border border-ig-warning/35 p-3 text-ig-caption text-ig-warning">
           {obligationsError} Os documentos aparecem abaixo, mas sem o vínculo com as exigências.
@@ -2194,6 +2153,7 @@ function DocumentsTab({ detail, obligations, obligationsError, onReplace }: {
                 : `${operations.total} documento(s) · ${operations.unlinkedCount} sem finalidade operacional registrada`
             }
           />
+          <div className="grid items-start gap-5 xl:grid-cols-2">
           {operations.groups.map((group) => (
             <section key={group.category}>
               <h3 className="mb-2 text-ig-body-sm font-semibold text-ig-fg-strong">
@@ -2202,30 +2162,34 @@ function DocumentsTab({ detail, obligations, obligationsError, onReplace }: {
                   {group.documents.length}
                 </span>
               </h3>
-              <div className="space-y-2">
+              <div className="space-y-3">
                 {group.documents.map((doc) => {
                   const row = docById.get(doc.id) ?? null;
                   const badge = DOC_STATUS[doc.status] ?? { label: doc.status, variant: 'neutral' as const };
                   return (
                     <div
                       key={doc.id}
-                      className="rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3"
+                      className="dossier-document"
+                      data-original={row?.document_type === 'contract'}
                     >
                       <div className="flex flex-wrap items-start justify-between gap-2">
+                        <span className="flex h-10 w-9 shrink-0 items-center justify-center rounded-lg border border-ig-border-default bg-ig-bg-raised text-ig-accent"><FileText className="h-5 w-5" aria-hidden /></span>
                         <div className="min-w-0 flex-1">
-                          <p className="truncate text-ig-body-sm font-medium text-ig-fg-strong">
+                          <p className="text-ig-body-sm font-semibold text-ig-fg-strong">
                             {doc.title}
-                            {doc.version > 1 && (
-                              <span className="ml-1.5 text-ig-caption text-ig-fg-muted">v{doc.version}</span>
-                            )}
+                            <span className="ml-1.5 text-ig-caption text-ig-fg-muted">v{doc.version}</span>
                           </p>
                           <p className="mt-0.5 text-ig-caption text-ig-fg-muted">{doc.purpose}</p>
                         </div>
-                        <HudBadge variant={badge.variant} size="sm">{badge.label}</HudBadge>
+                        <DossierStatus tone={badge.variant === 'success' ? 'positive' : badge.variant === 'danger' ? 'critical' : badge.variant === 'warning' ? 'attention' : 'unknown'}>{badge.label}</DossierStatus>
                       </div>
 
+                      {row && <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-ig-border-subtle pt-3">
+                        <button type="button" className="text-xs font-semibold text-ig-accent" onClick={() => setSelectedDoc(row)} aria-haspopup="dialog">Ver documento e proveniência</button>
+                        <span className="dossier-meta">{detail.operationalInterpretationsError ? 'Interpretações indisponíveis' : `${detail.operationalInterpretations.filter((item) => item.source_document_id === doc.id).length} interpretações vinculadas`}</span>
+                      </div>}
                       {doc.links.length > 0 && (
-                        <ul className="mt-2 space-y-1">
+                        <DossierDisclosure title="Vínculos com exigências" count={doc.links.length}><ul className="mt-2 space-y-1">
                           {doc.links.map((link, index) => (
                             <li
                               key={`${doc.id}-${index}`}
@@ -2247,7 +2211,7 @@ function DocumentsTab({ detail, obligations, obligationsError, onReplace }: {
                               </span>
                             </li>
                           ))}
-                        </ul>
+                        </ul></DossierDisclosure>
                       )}
 
                       {doc.superseded && (
@@ -2276,6 +2240,7 @@ function DocumentsTab({ detail, obligations, obligationsError, onReplace }: {
               </div>
             </section>
           ))}
+          </div>
         </>
       )}
 
@@ -2317,6 +2282,27 @@ function DocumentsTab({ detail, obligations, obligationsError, onReplace }: {
           </div>
         </section>
       )}
+      <DossierDetailDrawer isOpen={!!selectedDoc} onClose={() => setSelectedDoc(null)} title={selectedDoc?.title ?? ''} subtitle="Documento · identidade e proveniência"
+        footer={selectedDoc?.file_path ? <HudButton variant="secondary" onClick={() => onOpenDocument(selectedDoc.id, null)}>Abrir arquivo original</HudButton> : undefined}>
+        {selectedDoc && <div className="space-y-5">
+          <dl className="grid grid-cols-2 gap-4">
+            <div><dt className="dossier-meta">Tipo</dt><dd>{DOC_TYPE_LABELS[selectedDoc.document_type] ?? selectedDoc.document_type}</dd></div>
+            <div><dt className="dossier-meta">Versão</dt><dd>v{selectedDoc.version} · {selectedDoc.superseded_by_document_id ? 'Substituída' : 'Atual no repositório'}</dd></div>
+            <div><dt className="dossier-meta">Disponibilidade</dt><dd>{selectedDoc.file_path ? 'Arquivo vinculado' : 'Arquivo não disponível'}</dd></div>
+            <div><dt className="dossier-meta">Assinatura documental</dt><dd>Não apurada neste registro</dd></div>
+          </dl>
+          <p className="dossier-meta">O tipo do documento e a aprovação de seu cadastro não comprovam, por si, assinatura.</p>
+          <DossierDisclosure title="Interpretações vinculadas" count={detail.operationalInterpretationsError ? undefined : detail.operationalInterpretations.filter((item) => item.source_document_id === selectedDoc.id).length} open>
+            {detail.operationalInterpretationsError && <p className="dossier-meta">Leitura de interpretações indisponível.</p>}
+            {detail.operationalInterpretations.filter((item) => item.source_document_id === selectedDoc.id).map((item) => <p key={item.id} className="border-t border-ig-border-subtle py-2 dossier-meta">{typeof item.normalized_payload?.title === 'string' ? item.normalized_payload.title : 'Interpretação operacional'} · {item.source_page ? `p. ${item.source_page}` : 'Página não informada'}</p>)}
+          </DossierDisclosure>
+          <DossierDisclosure title="Histórico de versão e registro" open>
+            <p className="dossier-meta">Registrado em {format(new Date(selectedDoc.created_at), 'dd/MM/yyyy', { locale: pt })}</p>
+            <p className="dossier-meta mt-2">{selectedDoc.supersedes_document_id ? `Substitui: ${docById.get(selectedDoc.supersedes_document_id)?.title ?? selectedDoc.supersedes_document_id}` : 'Nenhuma versão anterior vinculada.'}</p>
+            {selectedDoc.superseded_by_document_id && <p className="dossier-meta mt-2">Substituído por: {docById.get(selectedDoc.superseded_by_document_id)?.title ?? selectedDoc.superseded_by_document_id}</p>}
+          </DossierDisclosure>
+        </div>}
+      </DossierDetailDrawer>
     </div>
   );
 }

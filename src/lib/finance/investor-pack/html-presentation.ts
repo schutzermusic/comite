@@ -108,13 +108,12 @@ function portfolioTable(pack: InvestorPack): string {
     <td class="num">${esc(formatInvestorCurrency(client.portfolioCents))}</td>
     <td class="num">${esc(formatInvestorCurrency(client.billedCents))}</td>
     <td class="num fc">${esc(formatInvestorCurrency(client.backlogCents))}</td>
-    <td class="num">${esc(formatInvestorCurrency(client.receivableCents))}</td>
     <td class="num">${esc(formatInvestorCurrency(client.projectedThrough2028Cents))}</td>
     <td class="num">${esc(formatInvestorCurrency(client.remainingAfter2028Cents))}</td>
   </tr>`).join('');
   return `<div class="table-wrap"><table class="deck-table">
     <thead><tr><th>Cliente</th><th>Status</th><th class="num">Carteira</th><th class="num">Faturado</th>
-      <th class="num">Backlog</th><th class="num">Saldo a receber</th><th class="num">Até 2028</th><th class="num">Pós-2028</th></tr></thead>
+      <th class="num">Backlog</th><th class="num">Até 2028</th><th class="num">Pós-2028</th></tr></thead>
     <tbody>${rows}</tbody>
   </table></div>`;
 }
@@ -274,7 +273,7 @@ function buildSlides(pack: InvestorPack, snapshot: InvestorPackSnapshot, insight
       eyebrow: 'Carteira e recebíveis',
       html: `<div class="stack">
         <h2>Backlog que sustenta a projeção</h2>
-        <p class="sub">Carteira, faturamento, backlog, saldo a receber e parcela projetada até 2028 por cliente.</p>
+        <p class="sub">Carteira, faturamento, backlog e parcelas projetadas por cliente.</p>
         ${portfolioTable(pack)}
       </div>`,
     });

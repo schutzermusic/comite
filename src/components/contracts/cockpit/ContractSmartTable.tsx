@@ -220,6 +220,7 @@ function compare(a: Row, b: Row, key: SmartColumnKey): number {
 }
 
 export interface ContractSmartTableProps {
+  hideSearch?: boolean;
   contracts: readonly TrustedContract[];
   selectedId?: string | null;
   onSelect: (contract: TrustedContract) => void;
@@ -228,7 +229,7 @@ export interface ContractSmartTableProps {
 }
 
 export function ContractSmartTable({
-  contracts, selectedId, onSelect, now = new Date(), className,
+  contracts, selectedId, onSelect, now = new Date(), className, hideSearch = false,
 }: ContractSmartTableProps) {
   const [sortKey, setSortKey] = useState<SmartColumnKey>('value');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
@@ -256,7 +257,7 @@ export function ContractSmartTable({
     <div className={cn('overflow-hidden rounded-[18px] border border-ig-border-subtle', className)}>
       {/* Barra de controle */}
       <div className="flex flex-wrap items-center gap-3 border-b border-ig-border-subtle px-4 py-2.5">
-        <label className="relative flex min-w-[220px] flex-1 items-center">
+        {!hideSearch && <label className="relative flex min-w-[220px] flex-1 items-center">
           <Search className="pointer-events-none absolute left-2.5 h-3.5 w-3.5 text-ig-fg-subtle" aria-hidden />
           <input
             value={query}
@@ -276,7 +277,7 @@ export function ContractSmartTable({
               <X className="h-3.5 w-3.5" aria-hidden />
             </button>
           )}
-        </label>
+        </label>}
 
         <span className="shrink-0 text-ig-caption text-ig-fg-muted">
           <span className="ig-tabular font-semibold text-ig-fg-strong">{shown.length}</span>

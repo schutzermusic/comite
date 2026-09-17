@@ -316,7 +316,7 @@ describe('5 · a arquitetura da tela', () => {
   });
 
   it('o detalhe mora numa gaveta lateral, não na página', () => {
-    expect(TAB).toContain('<HudDrawer');
+    expect(TAB).toContain('<DossierDetailDrawer');
     expect(TAB).toContain('function EvidenceDrawer(');
     // Trecho de origem e confiança são detalhe: só existem dentro da gaveta.
     const página = TAB.slice(0, TAB.indexOf('function EvidenceDrawer('));

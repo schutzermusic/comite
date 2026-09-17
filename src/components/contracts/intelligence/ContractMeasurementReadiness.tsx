@@ -124,8 +124,7 @@ export function ContractMeasurementReadiness({ contractId }: { contractId: strin
 
   if (summary.live.length === 0) {
     return (
-      <HudPanel>
-        <div className="p-4">
+      <div>
           {/*
             A ausência aponta para a CAUSA. Uma regra de medição sem projeto
             vinculado e sem etapa mapeada não gera candidato — e essa é a
@@ -139,8 +138,7 @@ export function ContractMeasurementReadiness({ contractId }: { contractId: strin
               + 'etapa do cronograma. O Apex não cria medição sem os dois.'
             }
           />
-        </div>
-      </HudPanel>
+      </div>
     );
   }
 

@@ -19,11 +19,12 @@
  * ficam visíveis e distintas no rodapé do item.
  */
 
+import { InlineEmpty } from '../shell';
 import { cn } from '@/lib/utils';
 import {
   Radar, UserPlus, PauseCircle, AlertOctagon, CheckCircle2, Clock,
 } from 'lucide-react';
-import { HudPanel, HudButton, HudEmptyState } from '@/components/hud';
+import { HudPanel, HudButton } from '@/components/hud';
 import type { ApexFollowupRow } from '@/lib/platform/followups/types';
 import {
   CLOSURE_BASIS_LABEL, FOLLOWUP_STATE_LABEL, isOpenFollowup,
@@ -81,12 +82,8 @@ export function ApexFollowupPanel({
         <p className="py-5 text-center text-ig-caption text-ig-fg-muted">Carregando acompanhamentos…</p>
       )}
       {!error && !loading && followups.length === 0 && (
-        <HudEmptyState
-          icon="inbox"
-          compact
-          title="Nenhum acompanhamento aberto"
-          description="Quando o Apex identificar algo material e alguém disser quem responde por aquilo, o acompanhamento aparece aqui e passa a ser dele."
-        />
+        <InlineEmpty message="Nenhum acompanhamento aberto."
+          help="Um acompanhamento reúne objetivo, responsável, prazo e evidência esperada. Ele aparece após identificação material e designação de quem responde." />
       )}
 
       {!error && !loading && followups.length > 0 && (

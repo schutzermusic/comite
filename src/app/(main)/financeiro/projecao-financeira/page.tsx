@@ -46,8 +46,10 @@ import {
   downloadInvestorPackHtml,
 } from '@/lib/finance/investor-pack/html-presentation';
 import {
+  filterInvestorPackPeriod,
   formatInvestorCurrency,
   formatInvestorPeriod,
+  investorForecastStartPeriod,
   reaisToCents,
   validateInvestorPack,
 } from '@/lib/finance/investor-pack/calculations';
@@ -147,28 +149,20 @@ export default function FinancialProjectionPage() {
   }, [projection]);
 
   const forecastStartPeriod = useMemo(
-    () => projection ? periodOffset(projection.referenceDate.slice(0, 7), 1) : '',
+    () => projection ? investorForecastStartPeriod(projection, 'payroll') : '',
     [projection],
   );
-  const revenueForecastStartPeriod = forecastStartPeriod;
+  const revenueForecastStartPeriod = useMemo(
+    () => projection ? investorForecastStartPeriod(projection, 'revenue') : '',
+    [projection],
+  );
 
   const visibleProjection = useMemo(() => {
     if (!projection) return null;
     const start = filterStart || projection.periodStart;
     const end = filterEnd || projection.periodEnd;
-    return {
-      ...projection,
-      periodStart: start,
-      periodEnd: end,
-      months: projection.months
-        .filter((month) => month.period >= start && month.period <= end)
-        .map((month) => ({
-          ...month,
-          revenueForecastCents: month.period < revenueForecastStartPeriod ? 0 : month.revenueForecastCents,
-          payrollForecastCents: month.period < forecastStartPeriod ? 0 : month.payrollForecastCents,
-        })),
-    };
-  }, [filterEnd, filterStart, forecastStartPeriod, projection, revenueForecastStartPeriod]);
+    return filterInvestorPackPeriod(projection, start, end);
+  }, [filterEnd, filterStart, projection]);
 
   const editable = Boolean(projection?.status === 'draft' && canEdit);
 
@@ -371,13 +365,13 @@ export default function FinancialProjectionPage() {
 
       <HudCard>
         <HudCardHeader>
-          <HudCardTitle>Carteira, faturamento, backlog e recebíveis</HudCardTitle>
+          <HudCardTitle>Carteira, faturamento e backlog</HudCardTitle>
           <HudCardDescription>
-            Base contratual usada na projeção. “Saldo a receber” representa o valor informado na carteira, não necessariamente caixa já recebido.
+            Base contratual usada na projeção por cliente.
           </HudCardDescription>
         </HudCardHeader>
         <HudCardContent className="overflow-x-auto p-0">
-          <table className="w-full min-w-[1320px] text-xs">
+          <table className="w-full min-w-[1160px] text-xs">
             <thead className="border-b border-ig-border-subtle bg-ig-raised text-[10px] uppercase tracking-wider text-ig-fg-muted">
               <tr>
                 <th className="px-3 py-3 text-left">Cliente</th>
@@ -386,7 +380,6 @@ export default function FinancialProjectionPage() {
                 <th className="px-3 py-3 text-right">Carteira</th>
                 <th className="px-3 py-3 text-right">Faturado</th>
                 <th className="px-3 py-3 text-right">Backlog</th>
-                <th className="px-3 py-3 text-right">Saldo a receber</th>
                 <th className="px-3 py-3 text-right">Projetado até 2028</th>
                 <th className="px-3 py-3 text-right">Saldo pós-2028</th>
               </tr>
@@ -400,7 +393,6 @@ export default function FinancialProjectionPage() {
                   <td className="px-3 py-3 text-right tabular-nums">{formatInvestorCurrency(client.portfolioCents)}</td>
                   <td className="px-3 py-3 text-right tabular-nums text-ig-success">{formatInvestorCurrency(client.billedCents)}</td>
                   <td className="px-3 py-3 text-right tabular-nums text-ig-info">{formatInvestorCurrency(client.backlogCents)}</td>
-                  <td className="px-3 py-3 text-right tabular-nums">{formatInvestorCurrency(client.receivableCents)}</td>
                   <td className="px-3 py-3 text-right tabular-nums text-ig-accent">{formatInvestorCurrency(client.projectedThrough2028Cents)}</td>
                   <td className="px-3 py-3 text-right tabular-nums">{formatInvestorCurrency(client.remainingAfter2028Cents)}</td>
                 </tr>
@@ -410,7 +402,7 @@ export default function FinancialProjectionPage() {
               <tr>
                 <td className="px-3 py-3" colSpan={2}>Total da carteira</td>
                 <td className="px-3 py-3 text-center tabular-nums">{visibleProjection.narrative.portfolio.reduce((sum, client) => sum + client.contractsCount, 0)}</td>
-                {(['portfolioCents', 'billedCents', 'backlogCents', 'receivableCents', 'projectedThrough2028Cents', 'remainingAfter2028Cents'] as const).map((key) => (
+                {(['portfolioCents', 'billedCents', 'backlogCents', 'projectedThrough2028Cents', 'remainingAfter2028Cents'] as const).map((key) => (
                   <td key={key} className="px-3 py-3 text-right tabular-nums">
                     {formatInvestorCurrency(visibleProjection.narrative.portfolio.reduce((sum, client) => sum + client[key], 0))}
                   </td>

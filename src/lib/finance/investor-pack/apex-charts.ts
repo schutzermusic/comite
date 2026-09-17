@@ -10,6 +10,7 @@
  * no mesmo documento e ids repetidos fazem gradientes/hachuras vazarem entre eles.
  */
 
+import { compactChartCurrency, renderChartValueLabels, type ChartValueLabel } from './chart-value-labels';
 import { esc } from '@/lib/reports/report-formatters';
 import { APEX, SERIES_LABEL, formatInvestorRatio, type ApexPalette } from './apex-theme';
 import { formatInvestorCurrency, formatInvestorPeriod } from './calculations';
@@ -26,6 +27,8 @@ export interface ApexChartOptions {
   height?: number;
   /** Anima a entrada das marcas (deck HTML). Desligado no PDF. */
   animate?: boolean;
+  /** Direct numeric references, enabled by the PDF builder only. */
+  valueLabels?: boolean;
   /** Última competência com valor realizado — separa a zona de previsão. */
   forecastFromPeriod?: string | null;
   /** Paleta de render. Omitida = escura (tela/projeção). */
@@ -271,12 +274,21 @@ export function apexClientForecastChart(
   const chartPeriods = periods.filter((period) => period >= firstForecastPeriod);
   const w = opts?.width ?? 1120;
   const h = opts?.height ?? 400;
-  const pad = { left: 74, right: 22, top: 28, bottom: 72 };
+  const showClientNames = chartPeriods.length <= 6;
+  const calloutWidth = Math.max(0, ...visible.map((forecast) => {
+    const name = showClientNames && forecast.client.length <= 18 ? `${forecast.client} · ` : '';
+    return Math.max(name ? forecast.client.length : 0, compactChartCurrency(forecast.amountCents).length) * 6.5 + 6;
+  }));
+  const rightSpace = opts?.valueLabels ? (chartPeriods.length > 24 ? 34 : calloutWidth + 26) : 22;
+  const pad = { left: 74, right: rightSpace, top: opts?.valueLabels ? (chartPeriods.length > 24 ? 172 : 52) : 28, bottom: 72 };
   const iw = w - pad.left - pad.right;
   const ih = h - pad.top - pad.bottom;
   const u = uid('acl');
   const P = opts?.palette ?? APEX;
   const clients = [...new Map(visible.map((item) => [item.clientId, item.client])).entries()];
+  // Keep fallback indices aligned with the report legend, including clients outside the time slice.
+  const legendIds = [...new Set(forecasts.map((item) => item.clientId))];
+  const clientColor = (clientId: string) => clientForecastColor(clientId, legendIds.indexOf(clientId), P);
   const values = new Map<string, number>();
   visible.forEach((item) => {
     const key = `${item.period}:${item.clientId}`;
@@ -286,17 +298,32 @@ export function apexClientForecastChart(
   const max = niceMax(Math.max(1, ...totals));
   const y = (value: number) => pad.top + ih - (value / max) * ih;
   const groupW = iw / chartPeriods.length;
-  const barW = Math.max(8, Math.min(38, groupW * 0.62));
+  const barW = Math.max(8, Math.min(38, groupW * 0.62,
+    opts?.valueLabels && showClientNames ? groupW - calloutWidth - 14 : Infinity));
+  const segmentValues: ChartValueLabel[] = [];
+  const totalValues: ChartValueLabel[] = [];
   const bars = chartPeriods.map((period, periodIndex) => {
     let acc = 0;
-    return clients.map(([clientId, client], clientIndex) => {
+    const center = pad.left + groupW * periodIndex + groupW / 2;
+    totalValues.push({ x: center, y: y(totals[periodIndex]), value: totals[periodIndex], color: P.ink,
+      title: `${formatInvestorPeriod(period)} · Total projetado`, above: true });
+    return clients.map(([clientId, client]) => {
       const value = values.get(`${period}:${clientId}`) ?? 0;
       if (!value) return '';
       const height = (value / max) * ih;
       const x = pad.left + groupW * periodIndex + (groupW - barW) / 2;
       const top = pad.top + ih - ((acc + value) / max) * ih;
       acc += value;
-      return `<rect x="${x.toFixed(1)}" y="${top.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(1, height).toFixed(1)}" rx="2" fill="${clientForecastColor(clientId, clientIndex, P)}"${opts?.animate ? ' class="apex-bar apex-rise"' : ''}>
+      if (value / totals[periodIndex] >= (chartPeriods.length > 24 ? .14 : .08) && height >= 16) {
+        segmentValues.push({ x: x + barW / 2, y: top + height / 2, value,
+          color: clientColor(clientId),
+          title: `${formatInvestorPeriod(period)} · ${client}`, leader: true,
+          minX: x + barW + (chartPeriods.length > 24 ? 4 : 8), centerY: true,
+          maxX: showClientNames && periodIndex < chartPeriods.length - 1 ? x + groupW - 6 : undefined,
+          ceiling: chartPeriods.length > 24 ? y(totals[periodIndex]) - 6 : undefined,
+          client: chartPeriods.length <= 6 && client.length <= 18 ? client : undefined });
+      }
+      return `<rect x="${x.toFixed(1)}" y="${top.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(1, height).toFixed(1)}" rx="2" fill="${clientColor(clientId)}"${opts?.animate ? ' class="apex-bar apex-rise"' : ''}>
         <title>${esc(formatInvestorPeriod(period))} · ${esc(client)} · ${esc(formatInvestorCurrency(value))}</title>
       </rect>`;
     }).join('');
@@ -313,6 +340,8 @@ export function apexClientForecastChart(
     <defs>${shell.defs}</defs>${shell.body}
     ${gridLines(pad.left, w - pad.right, y, ticks(0, max))}
     ${bars}
+    ${opts?.valueLabels ? renderChartValueLabels([...totalValues, ...segmentValues],
+      { x: pad.left + 2, y: 8, width: w - pad.left - 12, height: pad.top + ih - 16 }, P.panelBottom, chartPeriods.length > 24) : ''}
     <line x1="${pad.left}" x2="${w - pad.right}" y1="${pad.top + ih}" y2="${pad.top + ih}" class="apex-axisline"/>
     ${labels}
   </svg>`;
@@ -328,13 +357,15 @@ export function apexMonthlyChart(points: InvestorPackCurvePoint[], opts?: ApexCh
 
   const w = opts?.width ?? 1120;
   const h = opts?.height ?? 400;
-  const pad = { left: 70, right: 20, top: 26, bottom: 72 };
+  const pad = { left: 70, right: 20, top: opts?.valueLabels ? (points.length > 24 ? 172 : 52) : 26, bottom: 72 };
   const iw = w - pad.left - pad.right;
   const ih = h - pad.top - pad.bottom;
   const u = uid('am');
   const P = opts?.palette ?? APEX;
 
-  const max = niceMax(Math.max(1, ...points.map((p) => Math.max(p.revenueTotalCents, p.payrollTotalCents))));
+  // Reserve domain headroom for mandatory labels even when both series reach an exact tick.
+  const max = niceMax(Math.max(1, ...points.map((p) => Math.max(p.revenueTotalCents, p.payrollTotalCents)))
+    * (opts?.valueLabels ? 1.05 : 1));
   const y = (value: number) => pad.top + ih - (value / max) * ih;
   const groupW = iw / points.length;
   /**
@@ -346,6 +377,7 @@ export function apexMonthlyChart(points: InvestorPackCurvePoint[], opts?: ApexCh
   const barW = Math.min(44, Math.max(2.5, (groupW - gap) / 2 - 1));
   const anim = opts?.animate ? ' apex-rise' : '';
 
+  const numericValues: ChartValueLabel[] = [];
   const columns = points.map((point, index) => {
     const center = pad.left + groupW * index + groupW / 2;
     const stacks: Array<{ x: number; actual: number; forecast: number; solid: string; hatch: string; label: string }> = [
@@ -369,6 +401,10 @@ export function apexMonthlyChart(points: InvestorPackCurvePoint[], opts?: ApexCh
 
     return stacks.map((stack) => {
       const total = stack.actual + stack.forecast;
+      numericValues.push({ x: stack.x + barW / 2, y: y(total), value: total, above: true,
+        color: stack.label === 'Receita' ? (stack.forecast > 0 ? P.revenueForecast : P.revenue)
+          : (stack.forecast > 0 ? P.payrollForecast : P.payroll),
+        title: `${formatInvestorPeriod(point.period)} · ${stack.label}` });
       const actualH = (stack.actual / max) * ih;
       const forecastH = (stack.forecast / max) * ih;
       const baseY = pad.top + ih;
@@ -408,6 +444,8 @@ export function apexMonthlyChart(points: InvestorPackCurvePoint[], opts?: ApexCh
   ${shell.body}
   ${gridLines(pad.left, w - pad.right, y, ticks(0, max))}
   ${columns}
+  ${opts?.valueLabels ? renderChartValueLabels(numericValues,
+    { x: pad.left + 2, y: 8, width: iw - 4, height: pad.top + ih - 16 }, P.panelBottom, points.length > 24) : ''}
   <line x1="${pad.left}" x2="${w - pad.right}" y1="${pad.top + ih}" y2="${pad.top + ih}" class="apex-axisline"/>
   ${labels}
 </svg>`;
@@ -479,7 +517,7 @@ export function apexMonthlyLineChart(points: InvestorPackCurvePoint[], opts?: Ap
 
   const w = opts?.width ?? 1120;
   const h = opts?.height ?? 400;
-  const pad = { left: 74, right: 24, top: 26, bottom: 72 };
+  const pad = { left: 74, right: 24, top: opts?.valueLabels ? (points.length > 24 ? 172 : 52) : 26, bottom: 72 };
   const iw = w - pad.left - pad.right;
   const ih = h - pad.top - pad.bottom;
   const u = uid('ml');
@@ -512,12 +550,18 @@ export function apexMonthlyLineChart(points: InvestorPackCurvePoint[], opts?: Ap
     + `stroke-width="${s.width}" stroke-linecap="round" stroke-linejoin="round"`
     + `${s.dashed ? ' stroke-dasharray="8 7"' : ''} class="apex-line${draw}"/>`)).join('');
 
+  const numericValues: ChartValueLabel[] = [];
   const dots = series.map((s, sIdx) => {
     const from = sIdx === 0 ? 0 : sIdx === 1 ? revenueAnchor : sIdx === 2 ? 0 : payrollAnchor;
     const values = sIdx === 0 ? revenueActual : sIdx === 1 ? revenueForecast : sIdx === 2 ? payrollActual : payrollForecast;
-    return s.pts.map(([cx, cy], offset) => `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="3" fill="${P.void}" `
+    return s.pts.map(([cx, cy], offset) => {
+      if (!s.dashed || offset > 0) numericValues.push({ x: cx, y: cy,
+        value: values[from + offset], color: s.color,
+        title: `${formatInvestorPeriod(points[from + offset].period)} · ${s.label}` });
+      return `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="3" fill="${P.void}" `
       + `stroke="${s.color}" stroke-width="2"><title>${esc(formatInvestorPeriod(points[from + offset].period))} · `
-      + `${esc(s.label)}: ${esc(formatInvestorCurrency(values[from + offset]))}</title></circle>`).join('');
+      + `${esc(s.label)}: ${esc(formatInvestorCurrency(values[from + offset]))}</title></circle>`;
+    }).join('');
   }).join('');
 
   // A zona de previsão começa na primeira competência sem realizado das duas métricas.
@@ -525,7 +569,7 @@ export function apexMonthlyLineChart(points: InvestorPackCurvePoint[], opts?: Ap
   const forecastBand = forecastIndex > 0 && forecastIndex < points.length
     ? `<rect x="${x(forecastIndex).toFixed(1)}" y="${pad.top}" width="${(w - pad.right - x(forecastIndex)).toFixed(1)}" height="${ih}" fill="${P.revenueForecast}" fill-opacity=".05"/>
       <line x1="${x(forecastIndex).toFixed(1)}" x2="${x(forecastIndex).toFixed(1)}" y1="${pad.top}" y2="${pad.top + ih}" stroke="${P.revenueForecast}" stroke-opacity=".45" stroke-width="1" stroke-dasharray="4 5"/>
-      <text x="${(x(forecastIndex) + 10).toFixed(1)}" y="${pad.top + 16}" class="apex-axis" fill="${P.revenueForecast}">Zona de previsão</text>`
+      <text x="${(opts?.valueLabels ? Math.min(x(forecastIndex) + 10, w - pad.right - 140) : x(forecastIndex) + 10).toFixed(1)}" y="${pad.top + 16}" class="apex-axis" fill="${P.revenueForecast}">Zona de previsão</text>`
     : '';
 
   const labels = timeAxis(points.map((point) => point.period), x, pad.top + ih, P, {
@@ -542,6 +586,9 @@ export function apexMonthlyLineChart(points: InvestorPackCurvePoint[], opts?: Ap
   ${gridLines(pad.left, w - pad.right, y, ticks(0, max))}
   ${lines}
   ${dots}
+  ${opts?.valueLabels ? renderChartValueLabels(numericValues,
+    { x: pad.left + 2, y: 8, width: iw - 4, height: pad.top + ih - 16 }, P.panelBottom, points.length > 24,
+    forecastBand ? [{ x: Math.min(x(forecastIndex) + 8, w - pad.right - 142), y: pad.top + 2, width: 142, height: 20 }] : []) : ''}
   ${labels}
 </svg>`;
 }
@@ -554,7 +601,7 @@ export function apexCurveChart(points: InvestorPackCurvePoint[], opts?: ApexChar
 
   const w = opts?.width ?? 1120;
   const h = opts?.height ?? 400;
-  const pad = { left: 74, right: 24, top: 26, bottom: 72 };
+  const pad = { left: 74, right: 24, top: opts?.valueLabels ? (points.length > 24 ? 172 : 52) : 26, bottom: 72 };
   const iw = w - pad.left - pad.right;
   const ih = h - pad.top - pad.bottom;
   const u = uid('ac');
@@ -576,7 +623,7 @@ export function apexCurveChart(points: InvestorPackCurvePoint[], opts?: ApexChar
   const forecastBand = forecastIndex > 0
     ? `<rect x="${x(forecastIndex - 0.5 < 0 ? 0 : forecastIndex).toFixed(1)}" y="${pad.top}" width="${(w - pad.right - x(forecastIndex)).toFixed(1)}" height="${ih}" fill="${P.revenueForecast}" fill-opacity=".05"/>
       <line x1="${x(forecastIndex).toFixed(1)}" x2="${x(forecastIndex).toFixed(1)}" y1="${pad.top}" y2="${pad.top + ih}" stroke="${P.revenueForecast}" stroke-opacity=".45" stroke-width="1" stroke-dasharray="4 5"/>
-      <text x="${(x(forecastIndex) + 10).toFixed(1)}" y="${pad.top + 16}" class="apex-axis" fill="${P.revenueForecast}">Zona de previsão</text>`
+      <text x="${(opts?.valueLabels ? Math.min(x(forecastIndex) + 10, w - pad.right - 140) : x(forecastIndex) + 10).toFixed(1)}" y="${pad.top + 16}" class="apex-axis" fill="${P.revenueForecast}">Zona de previsão</text>`
     : '';
 
   const dots = (values: number[], color: string, r: number) => values
@@ -614,6 +661,13 @@ export function apexCurveChart(points: InvestorPackCurvePoint[], opts?: ApexChar
   ${callout}
   ${dots(payroll, P.payroll, 3.5)}
   ${dots(revenue, P.revenue, 4.5)}
+  ${opts?.valueLabels ? renderChartValueLabels(points.flatMap((point, index) => [
+    { x: x(index), y: y(revenue[index]), value: revenue[index], color: P.revenue,
+      title: `${formatInvestorPeriod(point.period)} · ${SERIES_LABEL.revenueCumulative}` },
+    { x: x(index), y: y(payroll[index]), value: payroll[index], color: P.payroll,
+      title: `${formatInvestorPeriod(point.period)} · ${SERIES_LABEL.payrollCumulative}` },
+  ]), { x: pad.left + 2, y: 8, width: iw - 4, height: pad.top + ih - 16 }, P.panelBottom, points.length > 24,
+    forecastBand ? [{ x: Math.min(x(forecastIndex) + 8, w - pad.right - 142), y: pad.top + 2, width: 142, height: 20 }] : []) : ''}
   <line x1="${pad.left}" x2="${w - pad.right}" y1="${pad.top + ih}" y2="${pad.top + ih}" class="apex-axisline"/>
   ${labels}
 </svg>`;
@@ -627,7 +681,7 @@ export function apexBalanceChart(points: InvestorPackCurvePoint[], opts?: ApexCh
 
   const w = opts?.width ?? 1120;
   const h = opts?.height ?? 340;
-  const pad = { left: 72, right: 66, top: 26, bottom: 72 };
+  const pad = { left: 72, right: 66, top: opts?.valueLabels ? (points.length > 24 ? 172 : 52) : 26, bottom: 72 };
   const iw = w - pad.left - pad.right;
   const ih = h - pad.top - pad.bottom;
   const u = uid('ab');
@@ -699,6 +753,13 @@ export function apexBalanceChart(points: InvestorPackCurvePoint[], opts?: ApexCh
   <line x1="${pad.left}" x2="${w - pad.right}" y1="${zeroY.toFixed(1)}" y2="${zeroY.toFixed(1)}" class="apex-axisline"/>
   <path d="${linePath}" fill="none" stroke="${P.balance}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
   ${lineDots}
+  ${opts?.valueLabels ? renderChartValueLabels(points.flatMap((point, index) => [
+    { x: xc(index), y: Math.min(yBar(monthly[index]), zeroY), value: monthly[index],
+      color: monthly[index] >= 0 ? P.positive : P.negative, above: true,
+      title: `${formatInvestorPeriod(point.period)} · ${SERIES_LABEL.balance} (eixo esquerdo)` },
+    { x: xc(index), y: yLine(cumulative[index]), value: cumulative[index], color: P.balance,
+      title: `${formatInvestorPeriod(point.period)} · ${SERIES_LABEL.balanceCumulative} (eixo direito)` },
+  ]), { x: pad.left + 2, y: 8, width: iw - 4, height: pad.top + ih - 16 }, P.panelBottom, points.length > 24) : ''}
   ${rightAxis}
   ${labels}
 </svg>`;
