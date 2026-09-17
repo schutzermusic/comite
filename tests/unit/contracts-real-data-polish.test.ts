@@ -298,6 +298,7 @@ describe('valor — o detalhe documental mostra os centavos', () => {
     for (const file of [
       'src/components/contracts/intelligence/ClauseRiskIntelligencePanel.tsx',
       'src/components/contracts/intelligence/ContractInterpretationPanel.tsx',
+      'src/components/contracts/intelligence/ContractIntelligenceTab.tsx',
       'src/components/contracts/intelligence/ContractInstrumentsPanel.tsx',
       'src/components/contracts/intelligence/MeasurementPanel.tsx',
     ]) {

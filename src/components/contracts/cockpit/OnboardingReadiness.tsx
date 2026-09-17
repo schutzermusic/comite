@@ -10,12 +10,29 @@
  * decisão de produto aqui, e alarme sobre ausência legítima ensina a equipe a
  * registrar linha vazia só para apagar alerta.
  *
+ * ─── O que mudou no desenho ────────────────────────────────────────────────
+ *
+ * Saiu o `HudPanel` (vidro de cinco camadas) com uma caixa `bg-ig-panel/45`
+ * por linha. Aquela tinta era branco a 45% sobre branco — ou seja, nada: o
+ * que a tela mostrava era uma borda cinza em volta de cada linha, oito
+ * molduras do mesmo peso, e um painel inteiro que se lia como neblina.
+ *
+ * Entra a gramática de `.ig-lp`, a mesma da crista do dossiê: papel opaco,
+ * cabeçalho com cantos de HUD, linhas divididas por FIO e uma coluna de
+ * estado de largura fixa — a coluna que o olho desce para varrer o painel.
+ *
+ * O estado aparece três vezes e nunca só em cor: no contêiner do ícone, no
+ * ponto da coluna de estado e no rótulo escrito. "A registrar" e "Não se
+ * aplica" ganham ponto OCO, porque ausência de leitura não é severidade.
+ *
  * Toda a lógica vive em `trust/onboarding.ts`, testável sem DOM. Este arquivo
  * só desenha.
  */
 
-import { HudPanel, HudSignal } from '@/components/hud';
-import { Check, CircleDashed, Minus, TriangleAlert, HelpCircle } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import {
+  Check, CircleDashed, Minus, TriangleAlert, HelpCircle, ChevronRight, ListChecks,
+} from 'lucide-react';
 import type {
   OnboardingReadiness as Readiness,
   OnboardingStep,
@@ -23,58 +40,119 @@ import type {
   OnboardingStepState,
 } from '@/lib/contracts/trust/onboarding';
 
+/** Tom da linha. `idle` = sem leitura, e sem severidade. */
+type StepTone = 'success' | 'warning' | 'idle' | 'off';
+
 const STATE_LOOK: Record<OnboardingStepState, {
   icon: React.ReactNode;
-  /** Cor do ícone. Pendente é NEUTRO de propósito — ausência não é alarme. */
-  className: string;
+  /** Pendente é NEUTRO de propósito — ausência não é alarme. */
+  tone: StepTone;
   label: string;
 }> = {
-  complete: { icon: <Check className="h-3.5 w-3.5" />, className: 'text-ig-success', label: 'Registrado' },
-  pending: { icon: <CircleDashed className="h-3.5 w-3.5" />, className: 'text-ig-fg-subtle', label: 'A registrar' },
-  unknown: { icon: <HelpCircle className="h-3.5 w-3.5" />, className: 'text-ig-fg-subtle', label: 'Não apurado' },
-  errored: { icon: <TriangleAlert className="h-3.5 w-3.5" />, className: 'text-ig-warning', label: 'Leitura falhou' },
-  not_applicable: { icon: <Minus className="h-3.5 w-3.5" />, className: 'text-ig-fg-subtle', label: 'Não se aplica' },
+  complete:       { icon: <Check className="h-3.5 w-3.5" />,         tone: 'success', label: 'Registrado' },
+  pending:        { icon: <CircleDashed className="h-3.5 w-3.5" />,  tone: 'idle',    label: 'A registrar' },
+  unknown:        { icon: <HelpCircle className="h-3.5 w-3.5" />,    tone: 'idle',    label: 'Não apurado' },
+  errored:        { icon: <TriangleAlert className="h-3.5 w-3.5" />, tone: 'warning', label: 'Leitura falhou' },
+  not_applicable: { icon: <Minus className="h-3.5 w-3.5" />,         tone: 'off',     label: 'Não se aplica' },
 };
 
 export function OnboardingReadinessPanel({
   readiness,
   onNavigate,
+  className,
 }: {
   readiness: Readiness;
   onNavigate?: (key: OnboardingStepKey) => void;
+  className?: string;
 }) {
   const { steps, essentialComplete, essentialTotal, operable, hasErrors } = readiness;
+  const essentials = steps.filter((s) => s.essential);
 
   return (
-    <HudPanel
-      title="Prontidão do contrato"
-      subtitle="O que já está registrado. Ausência aqui não é irregularidade."
-      interactive={false}
-    >
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <HudSignal
-          label="Essencial"
-          value={`${essentialComplete}/${essentialTotal}`}
-          tone={operable ? 'success' : 'neutral'}
-          size="sm"
-        />
-        {/*
-          A regra fica no subtítulo, como texto visível: "ausência de registro
-          não é irregularidade" governa a leitura do painel inteiro, e uma
-          regra dessas não pode depender de hover — no toque ela simplesmente
-          não existiria.
-        */}
-        <span className="text-ig-caption text-ig-fg-muted">
-          {operable ? 'Essencial registrado — contrato plenamente operável' : 'Falta registrar o essencial'}
+    <section className={cn('ig-lp', className)} aria-labelledby="ig-readiness-title">
+      {/* ── Cabeçalho ──────────────────────────────────────────────── */}
+      <header className="ig-lp-head flex items-start gap-3 px-4 pb-3 pt-4 sm:px-5">
+        <span className="ig-lp-mark" aria-hidden>
+          <ListChecks className="h-4 w-4" />
         </span>
+        <div className="min-w-0 flex-1">
+          <h3 id="ig-readiness-title" className="text-ig-body-sm font-semibold text-ig-fg-strong">
+            Prontidão do contrato
+          </h3>
+          <p className="mt-0.5 text-ig-caption leading-relaxed text-ig-fg-muted">
+            O que já está registrado. Ausência aqui não é irregularidade.
+          </p>
+        </div>
+      </header>
+
+      {/* ── Régua do essencial ─────────────────────────────────────────
+          O número é a resposta do painel, e por isso tem porte de métrica.
+          O medidor ao lado mostra QUAIS essenciais — um contador sozinho diz
+          "faltam dois" sem dizer dois de quê. */}
+      <div className="ig-lp-rule flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2.5 sm:px-5">
+        <div className="flex items-baseline gap-2">
+          <span className="text-ig-label uppercase tracking-[0.14em] text-ig-fg-muted">
+            Essencial
+          </span>
+          <span
+            className={cn(
+              'ig-tabular text-ig-h3 font-semibold leading-none',
+              operable ? 'text-ig-success' : 'text-ig-fg-strong',
+            )}
+          >
+            {essentialComplete}<span className="text-ig-fg-subtle">/{essentialTotal}</span>
+          </span>
+        </div>
+
+        {essentials.length > 0 && (
+          <div
+            className="ig-lp-meter w-[88px] shrink-0"
+            role="img"
+            aria-label={`${essentialComplete} de ${essentialTotal} passos essenciais registrados`}
+          >
+            {essentials.map((step) => (
+              <i
+                key={step.key}
+                data-on={
+                  step.state === 'complete' ? 'assessed'
+                    : step.state === 'errored' ? 'attention'
+                      : undefined
+                }
+              />
+            ))}
+          </div>
+        )}
+
+        {/*
+          A regra fica como texto visível: "ausência de registro não é
+          irregularidade" governa a leitura do painel inteiro, e uma regra
+          dessas não pode depender de hover — no toque ela não existiria.
+        */}
+        {/*
+          "Contrato plenamente operável" era um VEREDITO, e esta contagem não
+          o sustenta: ela mede três passos de cadastro — identidade, projeto,
+          documento — e nada sobre obrigações, faturamento ou risco. A frase
+          aparecia intacta ao lado de itens em atenção no mesmo painel, o que
+          é a contradição mais cara que uma tela de governança pode cometer:
+          afirmar saúde com a autoridade de um resumo.
+
+          O que os três passos atestam é a BASE. A frase agora diz isso e
+          para aí.
+        */}
+        <p className="min-w-0 flex-1 text-ig-caption font-medium text-ig-fg-default sm:text-right">
+          {operable
+            ? 'Base essencial do contrato registrada'
+            : 'Falta registrar a base essencial do contrato'}
+        </p>
       </div>
 
       {hasErrors && (
         <p
-          className="mb-3 text-ig-caption text-ig-warning"
+          className="ig-lp-notice mx-4 mt-3 px-3 py-2 text-ig-caption leading-relaxed text-ig-fg-muted sm:mx-5"
           title="A lista está incompleta por falha de leitura, não por ausência de registro."
         >
-          Alguma relação não pôde ser lida.
+          Alguma relação não pôde ser lida — a lista abaixo está incompleta por
+          incidente de leitura, não por ausência de registro.
         </p>
       )}
 
@@ -83,12 +161,12 @@ export function OnboardingReadinessPanel({
         conectadas, e sem esta âncora qualquer seletor por texto casa com o
         painel errado.
       */}
-      <ul className="space-y-1" aria-label="Prontidão do contrato">
+      <ul className="px-1.5 py-1.5" aria-label="Prontidão do contrato">
         {steps.map((step) => (
           <StepRow key={step.key} step={step} onNavigate={onNavigate} />
         ))}
       </ul>
-    </HudPanel>
+    </section>
   );
 }
 
@@ -104,39 +182,61 @@ function StepRow({
 
   const body = (
     <>
-      <span className={`mt-0.5 shrink-0 ${look.className}`} aria-hidden>{look.icon}</span>
+      <span className="ig-lp-glyph" data-tone={look.tone} aria-hidden>
+        {look.icon}
+      </span>
+
       <span className="min-w-0 flex-1">
         <span className="flex flex-wrap items-baseline gap-x-2">
           <span className="text-ig-body-sm font-semibold text-ig-fg-strong">{step.label}</span>
           {step.essential && (
-            <span className="text-ig-label text-ig-fg-subtle">essencial</span>
+            <span className="ig-lp-tag text-ig-label font-semibold" data-tone="accent">
+              essencial
+            </span>
           )}
-          <span className="text-ig-label text-ig-fg-subtle">· {step.owner}</span>
+          <span className="text-ig-label text-ig-fg-muted">{step.owner}</span>
         </span>
         {step.detail && (
-          <span className="mt-0.5 block text-ig-caption text-ig-fg-muted">{step.detail}</span>
+          <span className="mt-0.5 block text-ig-caption leading-relaxed text-ig-fg-default">
+            {step.detail}
+          </span>
         )}
       </span>
-      <span className="shrink-0 self-center text-ig-label text-ig-fg-subtle">
+
+      {/*
+        Largura fixa: sem ela a coluna de estado dança entre "Registrado" e
+        "Não se aplica", e a varredura vertical — que é o uso real deste
+        painel — deixa de existir.
+      */}
+      <span
+        className="ig-lp-state w-[92px] self-center text-ig-caption font-medium"
+        data-tone={look.tone}
+      >
+        <i aria-hidden />
         {look.label}
       </span>
+
+      {clickable && (
+        <ChevronRight className="ig-lp-go h-3.5 w-3.5 shrink-0 self-center" aria-hidden />
+      )}
     </>
   );
 
+  const shell = cn(
+    'flex w-full items-start gap-3 rounded-[9px] px-3 py-2.5 text-left',
+    clickable && 'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ig-border-focus',
+  );
+  /* O trilho de estado só aparece onde há estado a marcar. */
+  const rowTone = look.tone === 'success' ? 'success' : look.tone === 'warning' ? 'warning' : undefined;
+
   return (
-    <li>
+    <li className="ig-lp-row" data-tone={rowTone} data-interactive={clickable ? 'true' : undefined}>
       {clickable ? (
-        <button
-          type="button"
-          onClick={() => onNavigate?.(step.key)}
-          className="flex w-full items-start gap-2.5 rounded-lg border border-ig-border-subtle bg-ig-panel/45 px-3 py-2 text-left transition-colors hover:bg-ig-panel-hover/50"
-        >
+        <button type="button" onClick={() => onNavigate?.(step.key)} className={shell}>
           {body}
         </button>
       ) : (
-        <div className="flex w-full items-start gap-2.5 rounded-lg border border-ig-border-subtle bg-ig-panel/45 px-3 py-2">
-          {body}
-        </div>
+        <div className={shell}>{body}</div>
       )}
     </li>
   );

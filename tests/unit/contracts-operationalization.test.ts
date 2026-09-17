@@ -134,6 +134,7 @@ describe('2 · o Apex não finge ter escrito o contrato', () => {
       'src/lib/contracts/trust/attention.ts',
       'src/lib/contracts/trust/onboarding.ts',
       'src/components/contracts/intelligence/ContractInterpretationPanel.tsx',
+      'src/components/contracts/intelligence/ContractIntelligenceTab.tsx',
     ]) {
       expect(read(file), file).not.toMatch(/proposta não (é|vale)/i);
     }
@@ -835,6 +836,7 @@ describe('13 · nenhuma demonstração se disfarça de produção', () => {
       'src/lib/contracts/obligations/schedule-anchor.ts',
       'src/components/contracts/intelligence/ApexFollowupPanel.tsx',
       'src/components/contracts/intelligence/ContractInterpretationPanel.tsx',
+      'src/components/contracts/intelligence/ContractIntelligenceTab.tsx',
     ]) {
       const source = read(file);
       expect(source, file).not.toMatch(/\bMOCK_|\bDEMO_|mockData|sampleData|fakeRows/);

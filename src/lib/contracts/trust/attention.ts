@@ -16,6 +16,7 @@ import { hasOfficialValue, isError, isMissing, type Official } from './trusted';
 import type { TrustedContract } from './read-model';
 import { renewalState, missingDocuments, obligationBreakdown, approvalStepOutcome } from './signals';
 import { ANALYSIS_FAILURE_MESSAGE, ANALYSIS_FAILURE_RETRY } from './analysis-errors';
+import { buildContractIntelligence } from '@/lib/contracts/intelligence/operational-interpretations';
 
 /**
  * Quatro níveis, e a distinção entre os dois do meio é a que importa.
@@ -287,17 +288,29 @@ export function attentionItems(contract: TrustedContract, now: Date = new Date()
     fato uma decisão parada — e a operação segue por uma regra que ninguém
     confirmou enquanto isso.
   */
-  if (hasOfficialValue(contract.clauses)) {
-    const needsAttention = contract.clauses.value.filter(
-      (c) => (c as { interpretation_state?: string | null }).interpretation_state === 'requires_attention',
-    );
-    if (needsAttention.length > 0) {
+  if (hasOfficialValue(contract.operationalInterpretations)) {
+    /*
+      A MESMA função que a aba Inteligência Contratual usa, e de propósito.
+
+      Este bloco lia `contract.clauses` filtrando `interpretation_state` — o
+      selo da política de EXTRAÇÃO sobre o texto do PDF. Em JA10182283 isso
+      punha "21 interpretações contratuais requerem sua atenção" no topo do
+      dossiê, enquanto a aba dizia 7. Dois números para a mesma frase, na mesma
+      tela, e o maior deles no lugar mais visível.
+
+      `buildContractIntelligence` é a única implementação: ela também descarta
+      as gerações substituídas, coisa que um filtro solto sobre a lista não
+      fazia. Se a contagem mudar de regra, muda nos dois lugares de uma vez —
+      porque não há dois lugares.
+    */
+    const intelligence = buildContractIntelligence(contract.operationalInterpretations.value);
+    if (intelligence.attentionCount > 0) {
       items.push({
         id: 'interpretations-need-attention',
         severity: 'warning',
-        title: needsAttention.length === 1
+        title: intelligence.attentionCount === 1
           ? '1 interpretação contratual requer sua atenção'
-          : `${needsAttention.length} interpretações contratuais requerem sua atenção`,
+          : `${intelligence.attentionCount} interpretações contratuais requerem sua atenção`,
         reason:
           'O Apex estruturou o restante do contrato sozinho. Estas exigem decisão humana antes de '
           + 'produzirem efeito governado — por exposição material, ambiguidade ou alçada.',
@@ -485,4 +498,42 @@ export function recommendedAction(
     reason: first.reason,
     severity: first.severity,
   };
+}
+
+/**
+ * O resumo semântico do cabeçalho da Central de Ação.
+ *
+ * "3 pendências · 1 decisão · 2 configuração". Vive AQUI, e não no componente,
+ * pelo mesmo motivo que todo o resto deste arquivo: o vitest deste repositório
+ * roda em `node`, e uma regra que só possa ser verificada renderizando React é
+ * uma regra que não será verificada.
+ *
+ * Só aparecem as categorias que EXISTEM: um contrato com três configurações
+ * pendentes e nenhuma decisão lê "3 configuração", e não uma lista de quatro
+ * rótulos com três zeros. Uma categoria sozinha devolve `null` — ela já está
+ * dita pelo total, e repeti-la é a mesma informação duas vezes.
+ */
+export const ATTENTION_SEVERITY_ORDER: Record<AttentionSeverity, number> = {
+  critical: 0, warning: 1, setup: 2, info: 3,
+};
+
+const ATTENTION_SUMMARY_LABEL: Record<AttentionSeverity, string> = {
+  critical: 'crítico',
+  warning: 'decisão',
+  setup: 'configuração',
+  info: 'monitorar',
+};
+
+export function summarizeActions(
+  items: readonly Pick<AttentionItem, 'severity'>[],
+): string | null {
+  if (items.length === 0) return null;
+  const counts = new Map<AttentionSeverity, number>();
+  for (const item of items) counts.set(item.severity, (counts.get(item.severity) ?? 0) + 1);
+
+  const parts = (Object.keys(ATTENTION_SEVERITY_ORDER) as AttentionSeverity[])
+    .filter((severity) => (counts.get(severity) ?? 0) > 0)
+    .map((severity) => `${counts.get(severity)} ${ATTENTION_SUMMARY_LABEL[severity]}`);
+
+  return parts.length > 1 ? parts.join(' · ') : null;
 }

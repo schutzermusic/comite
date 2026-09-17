@@ -281,7 +281,14 @@ export function contractHealth(contract: TrustedContract): ContractHealth {
       adverse: b.overdue > 0,
       detail: b.total === 0
         ? 'nenhuma obrigação mapeada'
-        : `${b.overdue} atrasada(s), ${b.dueSoon} a vencer, ${b.open} aberta(s), ${b.done} concluída(s)`,
+        /* Sem "(s)". A forma entre parênteses é um formulário, não uma frase:
+           obriga o leitor a resolver a concordância que o código já sabe. */
+        : [
+          b.overdue > 0 ? `${b.overdue} ${b.overdue === 1 ? 'atrasada' : 'atrasadas'}` : null,
+          b.dueSoon > 0 ? `${b.dueSoon} a vencer` : null,
+          b.open > 0 ? `${b.open} ${b.open === 1 ? 'aberta' : 'abertas'}` : null,
+          b.done > 0 ? `${b.done} ${b.done === 1 ? 'concluída' : 'concluídas'}` : null,
+        ].filter(Boolean).join(' · ') || `${b.total} registradas`,
       from: ['contract_obligations'],
     });
   }
@@ -296,7 +303,7 @@ export function contractHealth(contract: TrustedContract): ContractHealth {
       adverse: docs.value.length > 0,
       detail: docs.value.length === 0
         ? 'sem documento faltante, vencido ou rejeitado'
-        : `${docs.value.length} documento(s) pendente(s): ${docs.value.slice(0, 3).join(', ')}`,
+        : `${docs.value.length} ${docs.value.length === 1 ? 'documento pendente' : 'documentos pendentes'}: ${docs.value.slice(0, 3).join(', ')}`,
       from: ['contract_documents'],
     });
   }
@@ -314,7 +321,8 @@ export function contractHealth(contract: TrustedContract): ContractHealth {
       adverse: rejected > 0 || pending > 0,
       detail: rows.length === 0
         ? 'nenhuma etapa registrada'
-        : `${hasOfficialValue(route) ? route.value : '—'} · ${pending} etapa(s) não aprovada(s)${rejected ? `, ${rejected} rejeitada(s)` : ''}`,
+        : `${hasOfficialValue(route) ? route.value : '—'} · ${pending} ${pending === 1 ? 'etapa não aprovada' : 'etapas não aprovadas'}${
+          rejected ? `, ${rejected} ${rejected === 1 ? 'rejeitada' : 'rejeitadas'}` : ''}`,
       from: ['contract_approvals'],
     });
   }

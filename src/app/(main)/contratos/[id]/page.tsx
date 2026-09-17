@@ -26,8 +26,8 @@ import {
 } from '@/lib/contracts/trust/signals';
 import { officialCurrencyCompact, officialCurrencyFull, officialProvenance } from '@/lib/contracts/trust/format';
 import {
-  ProjectRelation, FinancialPulse, ConnectedOperations, OnboardingReadinessPanel,
-  ContractHealthDrivers, RequiresAttention,
+  ConnectedOperations, OnboardingReadinessPanel,
+  ContractHealthDrivers,
   type ConnectedOperationKey,
 } from '@/components/contracts/cockpit';
 import { attentionItems, type AttentionActionKey } from '@/lib/contracts/trust/attention';
@@ -39,11 +39,7 @@ import { useContractAmendmentModals } from '@/components/contracts/useContractAm
 import { useContractProvenanceModal } from '@/components/contracts/useContractProvenanceModal';
 import type { ContractDataClass } from '@/lib/contracts/trust/trusted';
 import { contractToCash } from '@/lib/contracts/trust/contract-to-cash';
-import { buildClauseRiskIntelligence } from '@/lib/contracts/trust/clause-risk-intelligence';
-import { ClauseRiskIntelligencePanel } from '@/components/contracts/intelligence/ClauseRiskIntelligencePanel';
-import { ClauseOpsPanel } from '@/components/contracts/intelligence/ClauseOpsPanel';
 import { useContractAnalysisWatch } from '@/components/contracts/use-contract-analysis-watch';
-import { documentAnalysisStates, contractCoverage } from '@/lib/contracts/trust/clause-operations';
 import { MeasurementPanel } from '@/components/contracts/intelligence/MeasurementPanel';
 import { ContractMeasurementReadiness } from '@/components/contracts/intelligence/ContractMeasurementReadiness';
 import { useContractInstrumentationModals } from '@/components/contracts/useContractInstrumentationModals';
@@ -51,11 +47,10 @@ import { buildApprovalIntelligence, type ApprovalIntelligence } from '@/lib/cont
 import { SharedApprovalEnginePanel } from '@/components/contracts/intelligence/SharedApprovalEnginePanel';
 import { ContractToCashFlow } from '@/components/contracts/intelligence/ContractToCashFlow';
 import { ContractToCashPanel } from '@/components/contracts/billing/ContractToCashPanel';
-import { createBillingEventFromMilestone, requestClauseExtraction, type ContractClauseRow, type ContractAmendmentRow, type ContractDocumentRow, listContractAiAnalyses, type ContractAiAnalysisRow, type ContractMilestoneRow, listContractAuditEvents, listContractRelatedTasks, computeApprovalSla, type ContractAuditEventRow, type ContractRelatedTask } from '@/lib/contracts/contract-service';
+import { createBillingEventFromMilestone, getContractDocumentUrl, requestClauseExtraction, type ContractClauseRow, type ContractAmendmentRow, type ContractDocumentRow, listContractAiAnalyses, type ContractAiAnalysisRow, type ContractMilestoneRow, listContractAuditEvents, listContractRelatedTasks, computeApprovalSla, type ContractAuditEventRow, type ContractRelatedTask } from '@/lib/contracts/contract-service';
 import {
   HudBadge,
   HudButton,
-  HudHeader,
   HudKpiStrip,
   HudPageLayout,
   HudPanel,
@@ -88,13 +83,20 @@ import {
   Clock3,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { MoreHorizontal } from 'lucide-react';
+import { MoreHorizontal, ScanSearch } from 'lucide-react';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { SectionHeader, HistoryDrawer, InlineEmpty, DossierNav } from '@/components/contracts/shell';
-import { ContractInterpretationPanel } from '@/components/contracts/intelligence/ContractInterpretationPanel';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { ContractCommandDeck } from '@/components/contracts/cockpit/ContractCommandDeck';
+import { ContractActionCenter } from '@/components/contracts/cockpit/ContractActionCenter';
+import { ContractIntelligenceTab } from '@/components/contracts/intelligence/ContractIntelligenceTab';
+import { buildContractIntelligence } from '@/lib/contracts/intelligence/operational-interpretations';
 import {
   buildRiskExposure, RISK_ACTION_LABEL, RISK_SEVERITY_LABEL,
   type RiskActionKey, type RiskExposure, type RiskSeverity,
@@ -170,10 +172,6 @@ function resolveInitialTab(raw: string | null): DetailTab {
 }
 
 const riskLabels = { high: 'Alto', medium: 'Médio', low: 'Baixo' } as const;
-
-function riskVariant(risk: ContractGovernanceRecord['contract']['riskClassification']) {
-  return risk === 'high' ? 'critical' : risk === 'medium' ? 'warning' : 'active';
-}
 
 export default function ContractDossierPage() {
   const params = useParams();
@@ -262,9 +260,20 @@ export default function ContractDossierPage() {
     return () => { active = false; };
   }, [contractId]);
 
+  /**
+   * A releitura do contrato, e por que ela pede confirmação.
+   *
+   * "Reanalisar" era um botão por documento, no meio da aba de Inteligência
+   * Contratual — a posição de uma ação corriqueira, para uma operação que
+   * consome orçamento de execução, leva minutos e produz uma NOVA geração de
+   * interpretações que substitui a que está na tela. Ela saiu do fluxo
+   * primário para "Mais ações", e passa por uma confirmação que diz, antes do
+   * clique, o que vai acontecer com a leitura atual.
+   */
+  const [reanalysisTarget, setReanalysisTarget] = useState<string | null>(null);
+
   /** Análise documental em curso — a leitura de um PDF leva alguns segundos. */
   const [extracting, setExtracting] = useState(false);
-  const [analyzingDocId, setAnalyzingDocId] = useState<string | null>(null);
 
   /**
    * Dispara a análise de um documento.
@@ -274,7 +283,6 @@ export default function ContractDossierPage() {
    */
   const runExtraction = useCallback(async (documentId: string) => {
     setExtracting(true);
-    setAnalyzingDocId(documentId);
     try {
       const result = await requestClauseExtraction(contractId, documentId);
       await refresh();
@@ -301,7 +309,6 @@ export default function ContractDossierPage() {
       });
     } finally {
       setExtracting(false);
-      setAnalyzingDocId(null);
     }
   }, [contractId, refresh, notify]);
 
@@ -402,15 +409,50 @@ export default function ContractDossierPage() {
   /**
    * Quantos itens EXIGEM uma pessoa.
    *
-   * Este é o único contador que o menu do dossiê mostra. Ele vem do estado
-   * persistido pela política de exceção (migration 154) — não de "quantas
-   * cláusulas a IA leu", que num contrato de 195 páginas seria um número
-   * grande, constante e inútil.
+   * Este é o único contador que o menu do dossiê mostra, e ele conta a FILA
+   * OPERACIONAL: `contract_operational_interpretations` com `trust_state =
+   * 'requires_attention'` — as leituras que a governança reteve e das quais
+   * NENHUMA linha canônica foi escrita.
+   *
+   * Ele contava, antes, `contract_clauses.interpretation_state`. Aquilo é o
+   * selo da política de EXTRAÇÃO (migration 154) sobre o texto do contrato, e
+   * não uma fila: em JA10182283 dava 21 — três vezes o trabalho humano que
+   * existe de verdade, e o suficiente para um contrato operacionalizado com
+   * sucesso se apresentar como uma dívida de conferência manual.
+   *
+   * Só a análise mais recente conta; `buildContractIntelligence` cuida disso,
+   * para que uma releitura não some as suas exceções às da geração anterior.
    */
   const attentionCount = useMemo(
-    () => (detail?.clauses ?? []).filter((c) => c.interpretation_state === 'requires_attention').length,
+    () => buildContractIntelligence(detail?.operationalInterpretations ?? []).attentionCount,
     [detail],
   );
+
+  /**
+   * Abre o PDF de origem na página que serve de evidência.
+   *
+   * A URL é assinada e curta (5 min): o documento continua privado, e o link
+   * não sobrevive a um copiar-e-colar para fora da sessão.
+   */
+  const handleOpenDocument = useCallback(async (documentId: string, page: number | null) => {
+    const document = detail?.documents.find((d) => d.id === documentId) ?? null;
+    if (!document) {
+      notify('Documento não encontrado', {
+        description: 'O arquivo de origem não está mais vinculado a este contrato.',
+        variant: 'error',
+      });
+      return;
+    }
+    try {
+      const url = await getContractDocumentUrl(document.file_path, page);
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (err) {
+      notify('Não foi possível abrir o documento', {
+        description: err instanceof Error ? err.message : 'Erro inesperado.',
+        variant: 'error',
+      });
+    }
+  }, [detail, notify]);
 
   /**
    * A decisão humana sobre uma interpretação.
@@ -757,8 +799,15 @@ export default function ContractDossierPage() {
       vira NOTA, e um contrato com 6/6 de cobertura pode estar péssimo, assim
       como um 2/6 pode estar impecável e só mal cadastrado. O componente já
       havia sido renomeado; o chip do cabeçalho tinha ficado para trás.
+
+      O destino do clique também mudou: apontava para Inteligência Contratual,
+      onde vivia o painel "Cobertura por categoria". Aquele painel saiu — ele
+      dizia "0 de 10 com cláusula validada" comparando todo contrato contra um
+      vocabulário de dez categorias que nenhum contrato precisa ter. As
+      dimensões que este chip realmente resume estão no Resumo, em
+      `ContractHealthDrivers`, e é para lá que ele leva agora.
     */
-    { id: 'health', label: 'Cobertura apurada', value: `${health.coverage.assessed}/${health.coverage.total}`, variant: health.drivers.some((d) => d.adverse) ? 'warning' : 'default', icon: <ShieldAlert className="h-4 w-4" />, onClick: () => setActiveTab('intelligence'), active: activeTab === 'intelligence' },
+    { id: 'health', label: 'Cobertura apurada', value: `${health.coverage.assessed}/${health.coverage.total}`, variant: health.drivers.some((d) => d.adverse) ? 'warning' : 'default', icon: <ShieldAlert className="h-4 w-4" />, onClick: () => setActiveTab('summary'), active: activeTab === 'summary' },
   ];
 
   const contractStatusLabel =
@@ -849,8 +898,12 @@ export default function ContractDossierPage() {
             </div>
 
             <div className="space-y-6">
+              {/*
+                Sem `SectionHeader` acima: o painel traz o próprio cabeçalho,
+                com a mesma crista dos outros três. Um título fora da moldura e
+                outro dentro dela davam dois começos à mesma seção.
+              */}
               <section data-testid="contract-connected-ops">
-                <SectionHeader title="Operações conectadas" hint="o contrato como objeto central" />
                 <ConnectedOperations
                   contract={trusted}
                   context={{
@@ -961,51 +1014,43 @@ export default function ContractDossierPage() {
         riscos e cláusulas — um acervo — e dizia "43" num contrato saudável.
         Um número que nunca baixa deixa de ser sinal.
       */
+      /*
+        O crachá conta a FILA OPERACIONAL — `contract_operational_interpretations`
+        com `trust_state = 'requires_attention'`. Ele contava, antes, as
+        cláusulas com selo de exceção da extração: em JA10182283 isso dava 21
+        num contrato cuja fila humana real tem 7 itens.
+      */
       badge: attentionCount || undefined,
       content: (
-        <div className="space-y-5">
-          {/*
-            Ordem deliberada, de cima para baixo:
-
-            1. O que o Apex entendeu, com o que exige atenção primeiro.
-            2. O que ele ainda NÃO leu — porque confiar na ausência de uma
-               regra exige saber que o papel foi lido.
-            3. A exposição operacional que essas regras criam.
-            4. O acervo de cláusulas, que é registro e não trabalho.
-          */}
-          <ContractInterpretationPanel
-            interpretations={detail.clauses}
-            documents={detail.documents}
-            canDecide={canEditContract}
-            canAnalyze={hasPermission('contracts.analyze_with_ai')}
-            analyzing={extracting}
-            onAnalyze={(documentId) => { void runExtraction(documentId); }}
-            onDecide={(clause, decision) => { void handleInterpretationDecision(clause, decision); }}
-          />
-          <ClauseOpsPanel
-            documents={documentAnalysisStates(detail.documents, analyses, detail.clauses)}
-            coverage={contractCoverage(trusted, detail.documents, analyses)}
-            canAnalyze={hasPermission('contracts.analyze_with_ai')}
-            analyzingId={analyzingDocId}
-            onAnalyze={(documentId) => { void runExtraction(documentId); }}
-          />
-          <RisksTab
-            trusted={trusted}
-            detail={detail}
-            canAct={canEditContract}
-            onRiskAction={handleRiskAction}
-          />
-          <ClauseRiskIntelligencePanel
-            intelligence={buildClauseRiskIntelligence([trusted], undefined, { officialOnly: false })}
-            canEdit={canEditContract}
-            onRegisterClause={() => instrumentation.openClause()}
-            onRegisterPenalty={instrumentation.openPenalty}
-            onReviewClause={instrumentation.openReview}
-            onCreateRisk={() => contractActions.createRisk(record)}
-            onLinkRisk={() => contractActions.linkExistingRisk(record)}
-          />
-          <ClausesTab detail={detail} />
-        </div>
+        <ContractIntelligenceTab
+          interpretations={detail.operationalInterpretations}
+          interpretationsError={detail.operationalInterpretationsError}
+          clauses={detail.clauses}
+          documents={detail.documents}
+          analyses={analyses}
+          risks={detail.risks}
+          penalties={detail.penalties}
+          riskExposureDetail={
+            <div className="space-y-3" data-testid="contract-risk-exposure">
+              {contractRiskExposures(detail).map((exposure) => (
+                <RiskExposureCard
+                  key={exposure.id}
+                  exposure={exposure}
+                  canAct={canEditContract}
+                  onAction={handleRiskAction}
+                />
+              ))}
+            </div>
+          }
+          canAct={canEditContract}
+          onOpenDocument={handleOpenDocument}
+          onClauseDecision={(clause, decision) => {
+            void handleInterpretationDecision(clause, decision);
+          }}
+          onCreateRisk={() => contractActions.createRisk(record)}
+          onLinkRisk={() => contractActions.linkExistingRisk(record)}
+          onRegisterPenalty={canEditContract ? () => instrumentation.openPenalty() : undefined}
+        />
       ),
     },
     {
@@ -1033,24 +1078,66 @@ export default function ContractDossierPage() {
     // `ig-dossier-page`: sem isto o scrollport mais próximo é a raiz do layout,
     // e a subnav grudenta não teria onde grudar. Ver surfaces.css.
     <HudPageLayout className="ig-dossier-page">
-      <HudHeader
+      {/*
+        ─── A PLATAFORMA DE COMANDO ──────────────────────────────────────────
+
+        `HudHeader` saiu DESTA página — e só desta. Ele continua sendo o
+        cabeçalho do resto do produto; o que ele não dava conta era de reunir
+        identidade, pulso financeiro e vínculo de projeto numa superfície só.
+        Eram três blocos de mesmo peso, sem relação visual entre si, sobre o
+        fundo bege do app: o título do contrato competia com os botões, e os
+        quatro números ficavam abaixo, soltos entre dois fios.
+
+        Agora há papel — opaco, que corta a névoa do fundo imersivo — com a
+        mesma gramática da aba Inteligência Contratual: crista com cantos de
+        HUD, células divididas por fio e um acento por significado.
+      */}
+      <ContractCommandDeck
+        contract={trusted}
         title={record.contract.name}
-        /*
-          O subtítulo agora IDENTIFICA o contrato — contraparte · código · tipo.
-          O texto anterior descrevia a arquitetura da página para um leitor de
-          negócio, e ainda citava um estado "mock/pendente" que já não existia.
-        */
-        subtitle={[
-          hasOfficialValue(trusted.counterparty) ? trusted.counterparty.value : null,
-          trusted.code,
-          hasOfficialValue(trusted.contractType) ? trusted.contractType.value : null,
-        ].filter(Boolean).join(' · ')}
-        icon={<FileSignature className="h-5 w-5" />}
-        breadcrumbs={[{ label: 'Contratos', href: '/contratos' }, { label: record.code }]}
-        statusChips={[
-          { label: `Risco ${riskLabels[record.contract.riskClassification]}`, variant: record.contract.riskClassification === 'high' ? 'critical' : record.contract.riskClassification === 'medium' ? 'warning' : 'success' },
-          { label: contractStatusLabel, variant: detail.contract.status === 'cancelled' || detail.contract.status === 'expired' ? 'critical' : detail.contract.status.includes('review') || detail.contract.status === 'negotiation' ? 'warning' : 'success' },
+        code={record.code}
+        chips={[
+          {
+            label: contractStatusLabel,
+            tone: detail.contract.status === 'cancelled' || detail.contract.status === 'expired'
+              ? 'critical'
+              : detail.contract.status.includes('review') || detail.contract.status === 'negotiation'
+                ? 'warning'
+                : 'success',
+          },
+          {
+            label: `Risco ${riskLabels[record.contract.riskClassification]}`,
+            tone: record.contract.riskClassification === 'high'
+              ? 'critical'
+              : record.contract.riskClassification === 'medium' ? 'warning' : 'success',
+          },
         ]}
+        onLinkProject={canEditContract ? () => contractActions.linkProject(record) : undefined}
+        actionCenter={
+          /*
+            A Central de Ação recebe a lista INTEIRA, sem `max={3}`.
+
+            O corte em três escondia pendências sem dizer quantas ficaram de
+            fora — e a linha passou a caber em uma altura, então sete cabem no
+            espaço que três cartões ocupavam. Esconder trabalho para economizar
+            altura é a troca errada numa tela cuja pergunta é "o que falta".
+          */
+          <ContractActionCenter
+            variant="band"
+            items={attentionItems(trusted)}
+            onAction={(key: AttentionActionKey) => {
+              if (key === 'linkProject') contractActions.linkProject(record);
+              else if (key === 'reviewApproval') contractActions.reviewApproval(record);
+              else if (key === 'createObligation') openObligation();
+              else if (key === 'createBilling') openBilling();
+              else if (key === 'attachDocument') contractActions.attachDocument(record);
+              else if (key === 'reviewClauseProposals') setActiveTab('intelligence');
+              else if (key === 'openDocuments') setActiveTab('documents');
+              else if (key === 'openBilling') setActiveTab('billing');
+              else setActiveTab('operation');
+            }}
+          />
+        }
         actions={
           /*
             Hierarquia no lugar de nove botões iguais (MD §12 do adendo).
@@ -1115,6 +1202,27 @@ export default function ContractDossierPage() {
                 <DropdownMenuItem onClick={() => contractActions.linkExistingRisk(record)}>
                   <ShieldCheck className="mr-2 h-4 w-4" /> Vincular risco
                 </DropdownMenuItem>
+                {hasPermission('contracts.analyze_with_ai') && (
+                  <DropdownMenuItem
+                    disabled={extracting}
+                    onClick={() => {
+                      const vigente = detail.documents.find(
+                        (d) => !d.superseded_by_document_id && d.file_path.toLowerCase().endsWith('.pdf'),
+                      ) ?? null;
+                      if (!vigente) {
+                        notify('Nenhum documento para reler', {
+                          description: 'Anexe o PDF do contrato antes de pedir uma nova leitura.',
+                          variant: 'info',
+                        });
+                        return;
+                      }
+                      setReanalysisTarget(vigente.id);
+                    }}
+                  >
+                    <ScanSearch className="mr-2 h-4 w-4" />
+                    {extracting ? 'Relendo...' : 'Reanalisar documento contratual'}
+                  </DropdownMenuItem>
+                )}
                 {canScanAi && (
                   <DropdownMenuItem disabled={scanningAi} onClick={() => { void handleRiskReassessment(); }}>
                     <ShieldAlert className="mr-2 h-4 w-4" />
@@ -1155,21 +1263,15 @@ export default function ContractDossierPage() {
         }
       />
 
-      {!hasLinkedProject && ['signed', 'active'].includes(detail.contract.status) && (
-        <HudPanel elevation={1} state="warning" interactive={false}>
-          <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
-            <div>
-              <p className="text-ig-body-sm font-semibold text-ig-fg-strong">Contrato assinado sem projeto vinculado</p>
-              <p className="mt-1 text-ig-caption text-ig-fg-muted">O contrato ja pode abrir projeto de execucao. O projeto herdara cliente, valor, escopo e datas principais.</p>
-            </div>
-            {canCreateProjectFromContract && (
-              <HudButton variant="primary" size="sm" leftIcon={<Workflow className="h-4 w-4" />} disabled={creatingProject} onClick={handleCreateProject}>
-                Criar projeto
-              </HudButton>
-            )}
-          </div>
-        </HudPanel>
-      )}
+      {/*
+        O aviso "contrato assinado sem projeto vinculado" saiu daqui.
+
+        Ele dizia, num painel de largura inteira, exatamente o que o módulo de
+        relação do deck já diz ("Projeto não vinculado") e oferecia o botão que
+        o header já oferece como ação primária quando o contrato é elegível.
+        Três superfícies para uma pendência — e a pendência continua listada,
+        com as demais, na Central de Ação logo abaixo.
+      */}
 
       {flowNotice && (
         <HudPanel elevation={1} state={flowNotice.includes('Erro') || flowNotice.includes('nao') || flowNotice.includes('não') ? 'critical' : 'success'} interactive={false}>
@@ -1207,14 +1309,7 @@ export default function ContractDossierPage() {
         títulos do mesmo contrato, um em cima do outro. O componente segue vivo
         e em uso no Quick Dossier, onde não há header de página.
       */}
-      <section className="mb-5 border-y border-ig-border-subtle py-4" aria-label="Resumo do contrato">
-        <FinancialPulse contract={trusted} compact />
-        <ProjectRelation
-          project={trusted.project}
-          onLink={canEditContract ? () => contractActions.linkProject(record) : undefined}
-          className="mt-4 border-t border-ig-border-subtle pt-3"
-        />
-      </section>
+
 
       {/*
         Três componentes disputavam a mesma frase — "requer atenção",
@@ -1228,24 +1323,7 @@ export default function ContractDossierPage() {
         O primeiro é urgente e cabe acima das abas; o segundo é panorama e cabe
         onde se procura panorama.
       */}
-      <section className="mb-5" data-testid="contract-attention" aria-label="Requer ação">
-        <h2 className="mb-2.5 text-ig-body-sm font-semibold text-ig-fg-strong">Requer ação</h2>
-        <RequiresAttention
-          items={attentionItems(trusted)}
-          max={3}
-          onAction={(key: AttentionActionKey) => {
-            if (key === 'linkProject') contractActions.linkProject(record);
-            else if (key === 'reviewApproval') contractActions.reviewApproval(record);
-            else if (key === 'createObligation') openObligation();
-            else if (key === 'createBilling') openBilling();
-            else if (key === 'attachDocument') contractActions.attachDocument(record);
-            else if (key === 'reviewClauseProposals') setActiveTab('intelligence');
-            else if (key === 'openDocuments') setActiveTab('documents');
-            else if (key === 'openBilling') setActiveTab('billing');
-            else setActiveTab('operation');
-          }}
-        />
-      </section>
+
 
       {/*
         Largura inteira. O painel "Timeline auditável" ocupava 360px fixos à
@@ -1301,6 +1379,49 @@ export default function ContractDossierPage() {
       />
 
       {contractActionModals}
+      {/*
+        A confirmação da releitura. Ela diz as três coisas que o usuário não
+        pode descobrir DEPOIS: que a leitura atual será substituída, que o
+        documento assinado não é tocado, e que nada do que está retido some.
+      */}
+      <AlertDialog
+        open={reanalysisTarget !== null}
+        onOpenChange={(open) => { if (!open) setReanalysisTarget(null); }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reler o documento contratual?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-ig-body-sm">
+                <p>
+                  O Apex lê o PDF assinado outra vez e produz uma nova geração de interpretações
+                  operacionais, que passa a substituir a atual na tela.
+                </p>
+                <p>
+                  O documento assinado não é alterado em nenhuma hipótese, e as exigências já
+                  materializadas continuam valendo — a releitura não apaga o que foi operacionalizado.
+                </p>
+                <p>
+                  A leitura leva alguns minutos e você pode sair da página: ela continua no servidor.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                const documentId = reanalysisTarget;
+                setReanalysisTarget(null);
+                if (documentId) void runExtraction(documentId);
+              }}
+            >
+              Reler documento
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {instrumentation.modals}
       {amendmentModals}
       {provenanceModal}
@@ -1377,49 +1498,6 @@ function SummaryTab({ trusted, contractNotes }: { trusted: TrustedContract; cont
  * classificação de risco derivada de hash — num painel intitulado "Cláusulas
  * monitoradas". Sem extração documental, o correto é dizer que não há.
  */
-function ClausesTab({ detail }: { detail: ContractDetail }) {
-  const clauses = detail.clauses.map((clause) => ({
-    id: clause.id,
-    title: clause.title,
-    category: clause.clause_type || 'Cláusula',
-    risk: clause.risk_level,
-    status: clause.ai_flagged ? 'Em revisão' : 'Mapeada',
-    note: clause.content || 'Cláusula cadastrada sem conteúdo detalhado.',
-  }));
-
-  if (clauses.length === 0) {
-    return (
-      <section>
-        <SectionHeader title="Cláusulas monitoradas" />
-        <p className="text-ig-body-sm text-ig-fg-muted">
-          Nenhuma cláusula extraída para este contrato. A extração documental por IA ainda não está
-          integrada — quando estiver, as cláusulas aparecerão aqui com página e trecho de origem.
-        </p>
-      </section>
-    );
-  }
-
-  return (
-    <section>
-      <SectionHeader title="Cláusulas monitoradas" hint={`${clauses.length} cláusula(s) em contract_clauses`} />
-      <div className="grid gap-3 md:grid-cols-2">
-        {clauses.map((clause) => (
-          <div key={clause.id} className="rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="truncate text-ig-body-sm font-semibold text-ig-fg-strong">{clause.title}</p>
-                <p className="mt-1 text-ig-caption text-ig-fg-muted">{clause.category} · {clause.status}</p>
-              </div>
-              <HudStatusPill variant={riskVariant(clause.risk)} size="sm">{riskLabels[clause.risk]}</HudStatusPill>
-            </div>
-            <p className="mt-3 text-ig-caption leading-relaxed text-ig-fg-muted">{clause.note}</p>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
 /**
  * Obrigações do contrato.
  *
@@ -1686,17 +1764,21 @@ function ObligationsTab({ trusted, detail, onNewObligation, legacyOnly = false }
  * O que o Apex nunca faz, e a tela não oferece: alterar a cláusula. Ele pode
  * RECOMENDAR um aditivo; a verdade assinada não se reescreve.
  */
-function RisksTab({
-  trusted, detail, canAct, onRiskAction,
-}: {
-  trusted: TrustedContract;
-  detail: ContractDetail;
-  canAct?: boolean;
-  onRiskAction?: (exposure: RiskExposure, action: RiskActionKey) => void;
-}) {
-  const health = contractHealth(trusted);
-  const adverse = health.drivers.filter((d) => d.adverse);
-
+/**
+ * As exposições dos riscos FORMAIS deste contrato.
+ *
+ * Antes isto era a aba `RisksTab`, que juntava três coisas sob um mesmo
+ * título: a exposição dos riscos registrados, as dimensões adversas do health
+ * score e um convite a registrar. A segunda já vivia no Resumo
+ * (`ContractHealthDrivers`) e foi retirada daqui — a mesma lista em dois
+ * lugares não é redundância inofensiva: ela faz o leitor procurar a diferença
+ * que não existe.
+ *
+ * O que sobrou é o que só existe aqui: a exposição apurada de cada risco e as
+ * ações de alçada sobre ela. `ContractIntelligenceTab` decide onde elas
+ * aparecem; o dossiê continua dono das ações.
+ */
+function contractRiskExposures(detail: ContractDetail): RiskExposure[] {
   /*
     O vínculo risco→cláusula vive em `contract_risks_links`. Quando ele não
     existe, a base contratual fica AUSENTE e o cartão diz isso — em vez de
@@ -1713,7 +1795,7 @@ function RisksTab({
     if (clause) clauseByRisk.set(riskId, clause);
   }
 
-  const exposures = detail.risks.map((risk) => {
+  return detail.risks.map((risk) => {
     const clause = clauseByRisk.get(risk.id) ?? null;
     return buildRiskExposure({
       id: risk.id,
@@ -1737,49 +1819,6 @@ function RisksTab({
       hasOpenFollowup: false,
     });
   });
-
-  return (
-    <div className="space-y-5" data-testid="contract-risk-exposure">
-      <section>
-        <SectionHeader
-          title="Exposição contratual"
-          hint="O que este contrato pode custar, e o que já está sendo feito a respeito"
-        />
-        {exposures.length === 0 ? (
-          <InlineEmpty message="Nenhum risco registrado para este contrato. Ausência de risco registrado não é ausência de risco — é ausência de apuração." />
-        ) : (
-          <div className="space-y-3">
-            {exposures.map((exposure) => (
-              <RiskExposureCard
-                key={exposure.id}
-                exposure={exposure}
-                canAct={Boolean(canAct)}
-                onAction={onRiskAction}
-              />
-            ))}
-          </div>
-        )}
-      </section>
-
-      {adverse.length > 0 && (
-        <section>
-          <SectionHeader
-            title="Dimensões do contrato em atenção"
-            count={adverse.length}
-            hint="Lacunas de apuração — não são riscos registrados"
-          />
-          <ul className="space-y-2">
-            {adverse.map((d) => (
-              <li key={d.dimension} className="border-l-2 border-ig-warning pl-2.5">
-                <p className="text-ig-body-sm font-medium text-ig-fg-strong">{d.label}</p>
-                <p className="mt-0.5 text-ig-caption text-ig-fg-muted">{d.detail}</p>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-    </div>
-  );
 }
 
 const RISK_SEVERITY_TONE: Record<RiskSeverity, string> = {

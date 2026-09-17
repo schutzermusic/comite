@@ -33,7 +33,7 @@ const row: ContractRow = {
 } as ContractRow;
 
 const base: ContractDetail = {
-  contract: row, clauses: [], obligationDefinitions: [], penalties: [], milestones: [], risks: [], files: [], aiAnalyses: [],
+  contract: row, operationalInterpretations: [], operationalInterpretationsError: null, clauses: [], obligationDefinitions: [], penalties: [], milestones: [], risks: [], files: [], aiAnalyses: [],
   billingEvents: [] as never, obligations: [] as never, approvals: [] as never,
   projectLinks: [] as never, riskLinks: [] as never, documents: [] as never, amendments: [], amendmentClauses: [], amendmentsError: null
 };
@@ -232,7 +232,9 @@ describe('buildConnectedRows', () => {
     const rows = buildConnectedRows(build(full));
     expect(rows.find((r) => r.key === 'measurement')?.state).toBe('Nenhum marco');
     expect(rows.find((r) => r.key === 'measurement')?.notIntegrated).toBe(false);
-    expect(rows.find((r) => r.key === 'clauses')?.state).toBe('Nenhuma registrada');
+    /* Acervo de origem, não fila de validação: "0 de N validadas" media uma
+       conferência manual que a governança por exceção aposentou. */
+    expect(rows.find((r) => r.key === 'clauses')?.state).toBe('Nenhuma extraída');
     expect(rows.find((r) => r.key === 'clauses')?.notIntegrated).toBe(false);
   });
 
@@ -369,5 +371,67 @@ describe('cobertura de saúde na interface', () => {
       const h = contractHealth(build(detail));
       expect(isMissing(h.score)).toBe(true);
     }
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// Operações conectadas — nenhuma linha contradiz outra tela
+// ═══════════════════════════════════════════════════════════════════
+
+describe('a linha declara de que nível está falando', () => {
+  const rowsOf = (d: ContractDetail) => {
+    const all = buildConnectedRows(build(d));
+    return (key: string) => all.find((r) => r.key === key)!;
+  };
+
+  /*
+    "0 de 38 validadas" media uma fila de conferência manual que a governança
+    por exceção (migration 154) aposentou. Mantido, o texto acusava a equipe de
+    38 pendências inexistentes — e pintava a linha de âmbar por causa delas.
+  */
+  it('cláusula é acervo extraído, não fila de validação', () => {
+    const at = rowsOf({
+      ...base,
+      clauses: Array.from({ length: 38 }, (_, i) => ({
+        id: `c${i}`, contract_id: ID, organization_id: 'org-1', review_status: 'draft',
+      })) as never,
+    });
+    const clauses = at('clauses');
+    expect(clauses.state).toBe('38 cláusulas extraídas');
+    expect(clauses.state).not.toMatch(/validad/i);
+    // Fato apurado não é alerta.
+    expect(clauses.tone).toBe('neutral');
+  });
+
+  /*
+    A Prontidão lê `contract_obligation_definitions` e dizia "11 obrigações
+    registradas"; esta linha lia `contract_obligations` e dizia "Nenhuma
+    mapeada". Ambas verdadeiras, e juntas na mesma tela pareciam um defeito.
+  */
+  it('obrigação separa o que o contrato exige do que está em acompanhamento', () => {
+    const at = rowsOf({
+      ...base,
+      obligationDefinitions: Array.from({ length: 11 }, (_, i) => ({
+        id: `od${i}`, contract_id: ID, organization_id: 'org-1',
+      })) as never,
+      obligations: [] as never,
+    });
+    const obligations = at('obligations');
+    expect(obligations.state).toBe('11 definidas · 0 acompanhadas');
+    expect(obligations.state).not.toBe('Nenhuma mapeada');
+    // Trabalho a montar, jamais irregularidade.
+    expect(obligations.tone).toBe('warning');
+    expect(obligations.note).toMatch(/acompanhamento operacional ainda não foi montado/);
+  });
+
+  it('atraso real continua vencendo qualquer outra leitura', () => {
+    const at = rowsOf({
+      ...base,
+      obligationDefinitions: [{ id: 'od', contract_id: ID, organization_id: 'org-1' }] as never,
+      obligations: [
+        { id: 'o1', contract_id: ID, title: 'Atrasada', status: 'overdue', due_date: '2026-07-01', owner_user_id: null, evidence: null },
+      ] as never,
+    });
+    expect(at('obligations').tone).toBe('danger');
   });
 });

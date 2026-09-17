@@ -99,9 +99,8 @@ export function buildConnectedRows(
   const measuredCount = hasOfficialValue(contract.milestones)
     ? contract.milestones.value.filter((m) => MEASURED_STATUSES.includes(m.status)).length
     : 0;
-  const validatedClauses = hasOfficialValue(contract.clauses)
-    ? contract.clauses.value.filter((c) => c.review_status === 'validated').length
-    : 0;
+  const definedObligations = countOf(contract.obligationDefinitions);
+  const trackedObligations = countOf(contract.obligations);
 
   return [
     {
@@ -136,15 +135,44 @@ export function buildConnectedRows(
       key: 'obligations',
       label: 'Obrigações',
       owner: 'Contratos',
-      state: hasOfficialValue(obligations)
-        ? obligations.value.total === 0
-          ? 'Nenhuma mapeada'
-          : `${obligations.value.overdue} atrasada(s) · ${obligations.value.open + obligations.value.dueSoon} aberta(s)`
-        : null,
-      errored: isError(contract.obligations),
+      /*
+        Dois níveis, e a linha diz qual está falando.
+
+        `contract_obligation_definitions` é o que o contrato EXIGE;
+        `contract_obligations` é o que está em acompanhamento operacional. Esta
+        linha lia só a segunda e escrevia "Nenhuma mapeada" — enquanto a
+        Prontidão, lendo a primeira, dizia "11 obrigações registradas" a três
+        centímetros dali. As duas frases eram verdadeiras e a tela parecia
+        mentir, porque nenhuma delas dizia de que nível estava falando.
+
+        Quando há definição sem acompanhamento, o estado nomeia exatamente
+        isso: o contrato está lido, a operação ainda não foi montada. É
+        trabalho pendente, não irregularidade — daí o tom de atenção contido, e
+        nunca `danger`.
+      */
+      state: definedObligations === null
+        ? (hasOfficialValue(obligations)
+          ? obligations.value.total === 0
+            ? 'Nenhuma registrada'
+            : `${obligations.value.overdue} ${plural(obligations.value.overdue, 'atrasada', 'atrasadas')} · ${obligations.value.open + obligations.value.dueSoon} ${plural(obligations.value.open + obligations.value.dueSoon, 'aberta', 'abertas')}`
+          : null)
+        : trackedObligations === null || trackedObligations === 0
+          ? definedObligations === 0
+            ? 'Nenhuma registrada'
+            : `${definedObligations} ${plural(definedObligations, 'definida', 'definidas')} · 0 acompanhadas`
+          : `${hasOfficialValue(obligations) ? obligations.value.overdue : 0} ${plural(hasOfficialValue(obligations) ? obligations.value.overdue : 0, 'atrasada', 'atrasadas')} · ${trackedObligations} ${plural(trackedObligations, 'acompanhada', 'acompanhadas')}`,
+      errored: isError(contract.obligations) || isError(contract.obligationDefinitions),
       notIntegrated: false,
-      note: isError(contract.obligations) ? 'Falha ao ler as obrigações.' : null,
-      tone: hasOfficialValue(obligations) && obligations.value.overdue > 0 ? 'danger' : 'neutral',
+      note: isError(contract.obligations) || isError(contract.obligationDefinitions)
+        ? 'Falha ao ler as obrigações.'
+        : definedObligations !== null && definedObligations > 0 && (trackedObligations ?? 0) === 0
+          ? 'As exigências do contrato estão definidas; o acompanhamento operacional ainda não foi montado.'
+          : null,
+      tone: hasOfficialValue(obligations) && obligations.value.overdue > 0
+        ? 'danger'
+        : definedObligations !== null && definedObligations > 0 && (trackedObligations ?? 0) === 0
+          ? 'warning'
+          : 'neutral',
     },
     {
       key: 'measurement',
@@ -154,7 +182,7 @@ export function buildConnectedRows(
       state: hasOfficialValue(contract.milestones)
         ? contract.milestones.value.length === 0
           ? 'Nenhum marco'
-          : `${measuredCount} de ${contract.milestones.value.length} medido(s)`
+          : `${measuredCount} de ${contract.milestones.value.length} ${plural(contract.milestones.value.length, 'medido', 'medidos')}`
         : null,
       errored: isError(contract.milestones),
       notIntegrated: false,
@@ -168,7 +196,8 @@ export function buildConnectedRows(
       label: 'Faturamento',
       owner: 'Contratos',
       // "Nenhum evento" é um estado APURADO — diferente de "Não apurado".
-      state: billingCount === null ? null : billingCount === 0 ? 'Nenhum evento' : `${billingCount} evento(s)`,
+      state: billingCount === null ? null : billingCount === 0 ? 'Nenhum evento'
+        : `${billingCount} ${plural(billingCount, 'evento', 'eventos')}`,
       errored: isError(contract.billingEvents),
       notIntegrated: false,
       note: isError(contract.billingEvents) ? 'Falha ao ler os eventos de faturamento.' : null,
@@ -183,7 +212,7 @@ export function buildConnectedRows(
         : docCount === 0
           ? 'Nenhum registrado'
           : pendingDocs && pendingDocs > 0
-            ? `${pendingDocs} pendente(s) de ${docCount}`
+            ? `${pendingDocs} ${plural(pendingDocs, 'pendente', 'pendentes')} de ${docCount}`
             : `${docCount} em conformidade`,
       errored: isError(contract.documents),
       notIntegrated: false,
@@ -194,7 +223,8 @@ export function buildConnectedRows(
       key: 'risks',
       label: 'Riscos',
       owner: 'Riscos',
-      state: riskCount === null ? null : riskCount === 0 ? 'Nenhum vinculado' : `${riskCount} monitorado(s)`,
+      state: riskCount === null ? null : riskCount === 0 ? 'Nenhum vinculado'
+        : `${riskCount} ${plural(riskCount, 'monitorado', 'monitorados')}`,
       errored: isError(contract.riskLinks),
       notIntegrated: false,
       note: isError(contract.riskLinks) ? 'Falha ao ler os riscos vinculados.' : null,
@@ -204,17 +234,32 @@ export function buildConnectedRows(
       key: 'clauses',
       label: 'Cláusulas',
       owner: 'Contratos',
+      /*
+        "0 de 38 validadas" media uma fila que não existe mais.
+
+        O par validada/não-validada nasceu quando toda leitura de máquina
+        esperava aprovação individual. Com a governança por exceção (migration
+        154) o normal é a cláusula extraída entrar em operação sem passar por
+        ninguém; só a exceção marcada pela política pede decisão humana, e essa
+        fila é a da aba Inteligência, não esta. Mantido, o texto acusava a
+        equipe de 38 pendências inexistentes e pintava a linha de âmbar por
+        isso.
+
+        O que esta linha tem a dizer sobre cláusulas é quantas foram extraídas
+        do documento — o acervo de origem. É um fato apurado, e fato apurado
+        não é alerta.
+      */
       state: hasOfficialValue(contract.clauses)
         ? contract.clauses.value.length === 0
-          ? 'Nenhuma registrada'
-          : `${validatedClauses} de ${contract.clauses.value.length} validada(s)`
+          ? 'Nenhuma extraída'
+          : `${contract.clauses.value.length} ${plural(contract.clauses.value.length, 'cláusula extraída', 'cláusulas extraídas')}`
         : null,
       errored: isError(contract.clauses),
       notIntegrated: false,
-      note: isError(contract.clauses) ? 'Falha ao ler as cláusulas.' : null,
-      tone: hasOfficialValue(contract.clauses) && contract.clauses.value.length > 0 && validatedClauses === 0
-        ? 'warning'
-        : 'neutral',
+      note: isError(contract.clauses)
+        ? 'Falha ao ler as cláusulas.'
+        : 'Acervo de origem extraído do documento. O que exige decisão humana fica em Inteligência Contratual.',
+      tone: 'neutral',
     },
     {
       key: 'approvals',

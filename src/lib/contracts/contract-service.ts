@@ -8,6 +8,9 @@ import { requireActiveOrganizationId } from '@/lib/auth/active-organization';
 import type { PartyRow } from '@/lib/parties/types';
 import { resolveCounterparty } from '@/lib/parties/counterparty';
 import { fetchPartiesByIds } from '@/lib/parties/party-service';
+import type {
+  ContractOperationalInterpretationRow,
+} from '@/lib/contracts/intelligence/operational-interpretations';
 
 const CONTRACT_FILES_BUCKET = 'contract-files';
 
@@ -506,7 +509,20 @@ export type ContractDocumentRow = {
 
 export type ContractDetail = {
   contract: ContractRow;
+  /**
+   * O texto extraído do PDF assinado. RASTREAMENTO — não é fila de trabalho.
+   * A fila é `operationalInterpretations`.
+   */
   clauses: ContractClauseRow[];
+  /**
+   * O que o Apex passou a operar a partir do documento (161). É daqui que sai
+   * a contagem de exceções da aba Inteligência Contratual, e não das
+   * cláusulas: ver o cabeçalho de
+   * `src/lib/contracts/intelligence/operational-interpretations.ts`.
+   */
+  operationalInterpretations: ContractOperationalInterpretationRow[];
+  /** A leitura acima falhou. `null` = leu (ainda que vazia). */
+  operationalInterpretationsError: string | null;
   /** Fase 3: definições estruturadas do contrato. */
   obligationDefinitions: ContractObligationDefinitionRow[];
   penalties: ContractPenaltyRow[];
@@ -875,6 +891,22 @@ export async function getContractById(contractId: string): Promise<ContractDetai
     loadOwnerPeople([contract]),
   ]);
 
+  /*
+    As interpretações operacionais saem de leitura TOLERANTE, pela mesma razão
+    dos aditivos: se este código chegar a produção antes da migration 161,
+    `contract_operational_interpretations` não existe, e uma leitura que lança
+    derrubaria o dossiê inteiro de TODO contrato. O erro é propagado como erro
+    — nunca convertido em lista vazia, que a tela leria como "nada a operar".
+  */
+  let operationalInterpretations: ContractOperationalInterpretationRow[] = [];
+  let operationalInterpretationsError: string | null = null;
+  try {
+    operationalInterpretations = await listContractOperationalInterpretations(contractId);
+  } catch (err) {
+    operationalInterpretationsError = err instanceof Error
+      ? err.message : 'Falha ao carregar as interpretações operacionais.';
+  }
+
   let amendments: ContractAmendmentRow[] = [];
   let amendmentClauses: ContractAmendmentClauseRow[] = [];
   let amendmentsError: string | null = null;
@@ -888,6 +920,8 @@ export async function getContractById(contractId: string): Promise<ContractDetai
   return {
     contract,
     clauses,
+    operationalInterpretations,
+    operationalInterpretationsError,
     penalties,
     // A LISTA de definições, sem resolver ocorrência nem bloqueio: é o que a
     // prontidão do dossiê precisa para dizer "há obrigação estruturada". O
@@ -1194,6 +1228,31 @@ export async function listContractClauses(contractId: string): Promise<ContractC
   const { data, error } = await supabase.from('contract_clauses').select('*').eq('contract_id', contractId).order('created_at');
   if (error) throw new Error(`Erro ao carregar clausulas: ${error.message}`);
   return (data ?? []) as ContractClauseRow[];
+}
+
+/**
+ * As interpretações OPERACIONAIS — a fila de trabalho do contrato.
+ *
+ * Não confundir com `listContractClauses`, que devolve o texto extraído do
+ * PDF. Esta tabela guarda o que o Apex passou a OPERAR, e o `trust_state` de
+ * cada linha diz se ele opera sozinho (`automatic`) ou se a interpretação
+ * ficou retida à espera de uma pessoa (`requires_attention`). Ver
+ * `src/lib/contracts/intelligence/operational-interpretations.ts`.
+ *
+ * `SELECT` é o único verbo disponível a `authenticated` (migration 161): não
+ * há, e não deve haver aqui, caminho de escrita.
+ */
+export async function listContractOperationalInterpretations(
+  contractId: string,
+): Promise<ContractOperationalInterpretationRow[]> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from('contract_operational_interpretations')
+    .select('*')
+    .eq('contract_id', contractId)
+    .order('created_at');
+  if (error) throw new Error(`Erro ao carregar interpretações operacionais: ${error.message}`);
+  return (data ?? []) as ContractOperationalInterpretationRow[];
 }
 
 export async function listContractPenalties(contractId: string): Promise<ContractPenaltyRow[]> {
@@ -2850,6 +2909,29 @@ export async function listContractDocuments(contractId: string): Promise<Contrac
   return (data ?? []) as ContractDocumentRow[];
 }
 
+/**
+ * URL assinada do PDF, ancorada na página que serve de evidência.
+ *
+ * A âncora `#page=N` é do visualizador de PDF do navegador — quando ele a
+ * ignora, o documento abre na primeira página, e nada se perde: a página de
+ * origem continua escrita na tela que gerou o link. Sem página, abre o
+ * documento inteiro.
+ */
+export async function getContractDocumentUrl(
+  filePath: string,
+  page?: number | null,
+  expiresInSeconds = 300,
+): Promise<string> {
+  const supabase = createClient();
+  const { data, error } = await supabase.storage
+    .from(CONTRACT_FILES_BUCKET)
+    .createSignedUrl(filePath, expiresInSeconds);
+  if (error || !data?.signedUrl) {
+    throw new Error(`Erro ao abrir o documento: ${error?.message ?? 'URL indisponível.'}`);
+  }
+  return page && page > 0 ? `${data.signedUrl}#page=${page}` : data.signedUrl;
+}
+
 export async function uploadContractDocument(
   contractId: string,
   title: string,
@@ -3074,6 +3156,16 @@ export type ContractRelationsBatch = {
   // P2B: os dois domínios que passaram a ter caminho de escrita.
   milestones: Map<string, ContractMilestoneRow[]>;
   clauses: Map<string, ContractClauseRow[]>;
+  /**
+   * As interpretações OPERACIONAIS (migration 161).
+   *
+   * Entram no batch — e não só no detalhe de um contrato — porque a fila de
+   * exceções é lida em quatro superfícies (dossiê, carteira, gaveta rápida,
+   * command center) e todas precisam do MESMO número. Enquanto elas saíam de
+   * `clauses.interpretation_state`, JA10182283 dizia 21 em todas as quatro; a
+   * fila real tem 7.
+   */
+  operationalInterpretations: Map<string, ContractOperationalInterpretationRow[]>;
   penalties: Map<string, ContractPenaltyRow[]>;
   /**
    * Definições de obrigação ESTRUTURADAS (Fase 3, migrations 114–117).
@@ -3111,6 +3203,7 @@ export type ContractRelationsBatch = {
     ai: boolean;
     milestones: boolean;
     clauses: boolean;
+    operationalInterpretations: boolean;
     penalties: boolean;
     obligationDefinitions: boolean;
   };
@@ -3138,6 +3231,7 @@ export type ContractRelationSectionKey =
   | 'ai'
   | 'milestones'
   | 'clauses'
+  | 'operationalInterpretations'
   | 'penalties'
   | 'obligationDefinitions';
 
@@ -3154,6 +3248,7 @@ const RELATION_SECTION_LABELS: Record<ContractRelationSectionKey, string> = {
   ai: 'análises de IA',
   milestones: 'marcos',
   clauses: 'cláusulas',
+  operationalInterpretations: 'interpretações operacionais',
   penalties: 'penalidades',
   obligationDefinitions: 'obrigações estruturadas',
 };
@@ -3169,6 +3264,7 @@ function noRelationErrors(): ContractRelationErrors {
     ai: null,
     milestones: null,
     clauses: null,
+    operationalInterpretations: null,
     penalties: null,
     obligationDefinitions: null,
   };
@@ -3221,6 +3317,7 @@ function emptyRelationsBatch(): ContractRelationsBatch {
     aiAnalyses: new Map(),
     milestones: new Map(),
     clauses: new Map(),
+    operationalInterpretations: new Map(),
     penalties: new Map(),
     obligationDefinitions: new Map(),
     riskDetails: new Map(),
@@ -3234,6 +3331,7 @@ function emptyRelationsBatch(): ContractRelationsBatch {
       ai: false,
       milestones: false,
       clauses: false,
+      operationalInterpretations: false,
       penalties: false,
       obligationDefinitions: false,
     },
@@ -3379,7 +3477,7 @@ export async function fetchContractRelationsBatch(contractIds: string[]): Promis
     }
   };
 
-  const [obligations, billingEvents, documents, approvals, projectLinks, riskLinks, aiAnalyses, milestones, clauses, penalties, obligationDefinitions] = await Promise.all([
+  const [obligations, billingEvents, documents, approvals, projectLinks, riskLinks, aiAnalyses, milestones, clauses, operationalInterpretations, penalties, obligationDefinitions] = await Promise.all([
     safe<ContractObligationRow>(supabase.from('contract_obligations').select('*').in('contract_id', ids)),
     safe<ContractBillingEventRow>(supabase.from('contract_billing_events').select('*').in('contract_id', ids)),
     safe<ContractDocumentRow>(supabase.from('contract_documents').select('*').in('contract_id', ids)),
@@ -3391,6 +3489,8 @@ export async function fetchContractRelationsBatch(contractIds: string[]): Promis
     // escrita — antes, buscá-los era custo de rede para confirmar um vazio.
     safe<ContractMilestoneRow>(supabase.from('contract_milestones').select('*').in('contract_id', ids)),
     safe<ContractClauseRow>(supabase.from('contract_clauses').select('*').in('contract_id', ids)),
+    safe<ContractOperationalInterpretationRow>(
+      supabase.from('contract_operational_interpretations').select('*').in('contract_id', ids)),
     // Penalidades: a RLS de 006 exige `contracts.view_penalties` para LER.
     // Sem a permissão o retorno é vazio e sem erro — indistinguível de "não
     // há penalidade". Quem consome precisa dizer isso ao usuário.
@@ -3458,6 +3558,7 @@ export async function fetchContractRelationsBatch(contractIds: string[]): Promis
     aiAnalyses: groupByContract(aiAnalyses.rows),
     milestones: groupByContract(milestones.rows),
     clauses: groupByContract(clauses.rows),
+    operationalInterpretations: groupByContract(operationalInterpretations.rows),
     penalties: groupByContract(penalties.rows),
     obligationDefinitions: groupByContract(obligationDefinitions.rows),
     riskDetails,
@@ -3473,6 +3574,7 @@ export async function fetchContractRelationsBatch(contractIds: string[]): Promis
       ai: aiAnalyses.rows.length > 0,
       milestones: milestones.rows.length > 0,
       clauses: clauses.rows.length > 0,
+      operationalInterpretations: operationalInterpretations.rows.length > 0,
       penalties: penalties.rows.length > 0,
       obligationDefinitions: obligationDefinitions.rows.length > 0,
     },
@@ -3488,6 +3590,7 @@ export async function fetchContractRelationsBatch(contractIds: string[]): Promis
       ai: aiAnalyses.error,
       milestones: milestones.error,
       clauses: clauses.error,
+      operationalInterpretations: operationalInterpretations.error,
       penalties: penalties.error,
       obligationDefinitions: obligationDefinitions.error,
     },

@@ -59,6 +59,8 @@ export type LiveSource =
   | 'contract_ai_analyses'
   | 'contract_milestones'
   | 'contract_clauses'
+  /** A fila de exceções operacionais (161) — não confundir com as cláusulas. */
+  | 'contract_operational_interpretations'
   | 'contract_penalties'
   | 'contract_guarantees'
   | 'contract_insurance_requirements'

@@ -647,10 +647,8 @@ export function ContractDossierDrawer({
 
         {/* ── 6 · Connected Operations ───────────────────────────────────── */}
         {trusted && (
+          /* O painel traz o próprio cabeçalho — um h3 aqui seria o segundo. */
           <section>
-            <h3 className="mb-2.5 text-ig-label text-ig-fg-muted">
-              Operações conectadas
-            </h3>
             <ConnectedOperations
               contract={trusted}
               context={{
@@ -664,9 +662,8 @@ export function ContractDossierDrawer({
 
         {/* ── 7 · Cobertura por dimensão (sem score) ─────────────────────── */}
         {trusted && health && (
-          <div className="rounded-[16px] border border-ig-border-subtle bg-[color-mix(in_oklab,var(--ig-bg-raised)_45%,transparent)] px-4 py-4">
-            <ContractHealthDrivers health={health} />
-          </div>
+          /* Sem moldura externa: `.ig-lp` já é a superfície do painel. */
+          <ContractHealthDrivers health={health} />
         )}
 
         {/* ── 8 · Detalhes do contrato (progressive disclosure) ──────────── */}

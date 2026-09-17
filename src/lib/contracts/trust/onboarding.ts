@@ -25,6 +25,7 @@
 
 import { hasOfficialValue, isError, type Official } from './trusted';
 import type { TrustedContract } from './read-model';
+import { buildContractIntelligence } from '@/lib/contracts/intelligence/operational-interpretations';
 
 export type OnboardingStepKey =
   | 'identity'
@@ -216,14 +217,44 @@ export function buildOnboardingReadiness(contract: TrustedContract): OnboardingR
     operação e conta; o que NÃO conta é a que ficou parada exigindo uma decisão
     humana, porque justamente essa ainda não produz efeito governado.
   */
-  const clausesState = stateOfList(
-    contract.clauses,
-    (rows) => (rows as readonly {
-      review_status?: string | null;
-      ai_flagged?: boolean | null;
-      interpretation_state?: string | null;
-    }[]).some((c) => c.interpretation_state !== 'requires_attention'),
-  );
+  /*
+    E de ONDE se conta.
+
+    `contract.clauses` é o TEXTO extraído do PDF, com o selo da política de
+    EXTRAÇÃO. `contract.operationalInterpretations` é o que o Apex passou a
+    OPERAR, com o selo da política de confiança OPERACIONAL. São conjuntos
+    diferentes com marcações diferentes, e ler o primeiro para responder
+    "quantas regras estão em operação?" produzia o número errado: em
+    JA10182283 o texto tem 38 linhas com 21 marcadas, e a operação tem 29
+    interpretações com 7 retidas. A tela mostrava "17 estruturadas · 21
+    requerem atenção" enquanto a aba Inteligência — que já lia a fonte certa —
+    mostrava 22 e 7 para o mesmo contrato, no mesmo instante.
+
+    `buildContractIntelligence` é a MESMA função que a aba usa, e é ela que
+    isola a análise mais recente: contar as linhas cruas somaria leituras
+    antigas do mesmo documento. Duas telas que discordam sobre um número não
+    têm duas opiniões — têm um defeito.
+
+    A contagem por cláusula continua valendo como recurso quando o contrato
+    ainda não foi operacionalizado: aí não há interpretação alguma a ler, e o
+    selo de extração é o único sinal que existe.
+  */
+  const operationalized = hasOfficialValue(contract.operationalInterpretations)
+    && contract.operationalInterpretations.value.length > 0;
+  const intelligence = operationalized
+    ? buildContractIntelligence(contract.operationalInterpretations.value)
+    : null;
+
+  const clausesState: OnboardingStepState = intelligence
+    ? (intelligence.structuredCount > 0 ? 'complete' : 'pending')
+    : stateOfList(
+      contract.clauses,
+      (rows) => (rows as readonly {
+        review_status?: string | null;
+        ai_flagged?: boolean | null;
+        interpretation_state?: string | null;
+      }[]).some((c) => c.interpretation_state !== 'requires_attention'),
+    );
 
   /**
    * A prontidão conta a obrigação ESTRUTURADA, não a lista de tarefas antiga.
@@ -249,6 +280,9 @@ export function buildOnboardingReadiness(contract: TrustedContract): OnboardingR
 
   const docCount = countOf(contract.documents);
   const oblCount = countOf(contract.obligationDefinitions);
+  /* A lista de acompanhamento anterior — hoje somente-leitura, e por isso
+     contada à parte da definição contratual, nunca somada a ela. */
+  const trackedObligations = countOf(contract.obligations);
   const msCount = countOf(contract.milestones);
   const apprCount = countOf(contract.approvals);
   const riskCount = countOf(contract.riskLinks);
@@ -267,14 +301,18 @@ export function buildOnboardingReadiness(contract: TrustedContract): OnboardingR
     ai_flagged?: boolean | null;
     interpretation_state?: string | null;
   };
-  const structuredClauses = hasOfficialValue(contract.clauses)
-    ? (contract.clauses.value as readonly ClauseShape[])
-        .filter((c) => c.interpretation_state !== 'requires_attention').length
-    : null;
-  const clausesNeedingAttention = hasOfficialValue(contract.clauses)
-    ? (contract.clauses.value as readonly ClauseShape[])
-        .filter((c) => c.interpretation_state === 'requires_attention').length
-    : 0;
+  const structuredClauses = intelligence
+    ? intelligence.structuredCount
+    : hasOfficialValue(contract.clauses)
+      ? (contract.clauses.value as readonly ClauseShape[])
+          .filter((c) => c.interpretation_state !== 'requires_attention').length
+      : null;
+  const clausesNeedingAttention = intelligence
+    ? intelligence.attentionCount
+    : hasOfficialValue(contract.clauses)
+      ? (contract.clauses.value as readonly ClauseShape[])
+          .filter((c) => c.interpretation_state === 'requires_attention').length
+      : 0;
 
   const steps: readonly OnboardingStep[] = [
     {
@@ -320,7 +358,9 @@ export function buildOnboardingReadiness(contract: TrustedContract): OnboardingR
             ? `${clausesNeedingAttention} ${plural(clausesNeedingAttention, 'interpretação requer atenção', 'interpretações requerem atenção')}`
             : 'Nenhuma regra contratual estruturada')
           : `${structuredClauses} ${plural(structuredClauses, 'regra estruturada', 'regras estruturadas')}`
-            + (clausesNeedingAttention > 0 ? ` · ${clausesNeedingAttention} requer(em) atenção` : ''),
+            + (clausesNeedingAttention > 0
+              ? ` · ${clausesNeedingAttention} ${plural(clausesNeedingAttention, 'requer atenção', 'requerem atenção')}`
+              : ''),
       essential: false,
     },
     {
@@ -328,9 +368,28 @@ export function buildOnboardingReadiness(contract: TrustedContract): OnboardingR
       label: 'Obrigações',
       owner: 'Contratos',
       state: obligationsState,
+      /*
+        DEFINIDA no contrato ≠ EM ACOMPANHAMENTO.
+
+        As duas contagens vêm de tabelas diferentes e respondem a perguntas
+        diferentes: `contract_obligation_definitions` é o que o contrato
+        EXIGE, `contract_obligations` é o que alguém pôs em acompanhamento
+        operacional. Dizer só "11 obrigações registradas" aqui, enquanto
+        Operações conectadas dizia "Nenhuma mapeada" lendo a outra tabela,
+        punha duas afirmações contrárias sobre o mesmo contrato na mesma
+        tela — e a conclusão que o leitor tirava era que a tela está errada,
+        não que existem dois níveis.
+
+        Agora a linha declara os dois níveis. Sem alarme: definição sem
+        acompanhamento é trabalho a fazer, não irregularidade.
+      */
       detail: oblCount === null ? null
-        : oblCount === 0 ? 'Nenhuma obrigação registrada'
-          : `${oblCount} ${plural(oblCount, 'obrigação registrada', 'obrigações registradas')}`,
+        : oblCount === 0 ? 'Nenhuma obrigação definida no contrato'
+          : `${oblCount} ${plural(oblCount, 'obrigação definida no contrato', 'obrigações definidas no contrato')}`
+            + (trackedObligations === null ? ''
+              : trackedObligations === 0
+                ? ' · nenhuma em acompanhamento operacional'
+                : ` · ${trackedObligations} em acompanhamento`),
       essential: false,
     },
     {

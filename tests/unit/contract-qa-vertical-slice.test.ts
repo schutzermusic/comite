@@ -57,7 +57,7 @@ const qaDetail: ContractDetail = {
   amendments: [],
   amendmentClauses: [],
   amendmentsError: null,
-  clauses: [], obligationDefinitions: [],
+  operationalInterpretations: [], operationalInterpretationsError: null, clauses: [], obligationDefinitions: [],
   penalties: [],
   milestones: [],
   billingEvents: [

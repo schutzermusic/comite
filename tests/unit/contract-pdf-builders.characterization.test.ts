@@ -27,7 +27,7 @@ const records = () => enrichContractsForGovernance(CONTRACTS, PROJECTS, { intent
 const noErrors = () => ({
   obligations: null, billing: null, documents: null,
   approvals: null, projectLinks: null, risks: null, ai: null,
-  milestones: null, clauses: null, penalties: null, obligationDefinitions: null,
+  milestones: null, clauses: null, operationalInterpretations: null, penalties: null, obligationDefinitions: null,
 });
 
 function batch(over: Partial<ContractRelationsBatch> = {}): ContractRelationsBatch {

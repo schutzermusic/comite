@@ -12,10 +12,27 @@
  * há aditivo em vigor cujo efeito não pôde ser aplicado — tipicamente por falta
  * de data de efeito —, o painel diz que não sabe, e diz por quê. Um total
  * calculado ignorando um aditivo pareceria correto e estaria errado.
+ *
+ * ─── O desenho ─────────────────────────────────────────────────────────────
+ *
+ * Três dobras, na ordem em que a pergunta é feita:
+ *
+ *   1 · SÍNTESE — original → vigente, lado a lado, com a seta entre os dois.
+ *       O par é a informação; dois números soltos em linhas diferentes
+ *       obrigavam o leitor a fazer a comparação de cabeça.
+ *   2 · CADEIA — o mestre como PRIMEIRO ELO de uma linhagem governada, e cada
+ *       aditivo pendurado nele por um fio. A hierarquia do documento vira
+ *       geometria: um nó preenchido no mestre, nós menores nos instrumentos
+ *       que o modificam.
+ *   3 · RESSALVAS — o que a lista não afirma, em texto, fora de hover.
+ *
+ * O que saiu: o `HudPanel` de vidro com caixas `bg-ig-panel/45` por linha —
+ * branco a 45% sobre branco, uma moldura cinza por instrumento e nenhuma
+ * indicação de que um deles governa os outros.
  */
 
-import { HudPanel, HudSignal } from '@/components/hud';
-import { FileText, FileDiff, CircleDashed } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { FileText, FileDiff, CircleDashed, Plus, ArrowRight, Check } from 'lucide-react';
 import { deriveAmendmentEffectiveness } from '@/lib/contracts/amendments/ai-types';
 import type { ContractAmendmentIngestionRequestRow } from '@/lib/contracts/contract-service';
 import {
@@ -47,9 +64,12 @@ const dateLabel = (d: Date) => d.toLocaleDateString('pt-BR');
 function OfficialText<T>({
   official,
   format,
+  strong = false,
 }: {
   official: Official<T>;
   format: (v: T) => string;
+  /** O vigente é a resposta do painel; o original é a referência. */
+  strong?: boolean;
 }) {
   if (isError(official)) {
     return <span className="text-ig-warning">indisponível</span>;
@@ -61,7 +81,70 @@ function OfficialText<T>({
       </span>
     );
   }
-  return <span className="text-ig-fg-strong">{format(official.value)}</span>;
+  return (
+    <span className={cn('ig-tabular', strong ? 'text-ig-fg-strong' : 'text-ig-fg-default')}>
+      {format(official.value)}
+    </span>
+  );
+}
+
+/**
+ * Uma dobra da síntese: o que o papel original dizia → o que vale hoje.
+ *
+ * Os dois ficam na MESMA célula, separados por um fio tracejado e ligados por
+ * uma seta. Quando o vigente difere do original, a seta acende em acento — é
+ * a única marca de que um aditivo produziu efeito, e ela precisa estar onde a
+ * comparação acontece.
+ */
+function EffectPair<T>({
+  title,
+  originalLabel,
+  currentLabel,
+  original,
+  current,
+  format,
+  changed,
+}: {
+  title: string;
+  originalLabel: string;
+  currentLabel: string;
+  original: Official<T>;
+  current: Official<T>;
+  format: (v: T) => string;
+  changed: boolean;
+}) {
+  return (
+    <div className="ig-lp-tile px-3.5 py-3">
+      <p className="flex items-center gap-2 text-ig-label uppercase tracking-[0.12em] text-ig-fg-muted">
+        {title}
+        {changed && (
+          <span className="ig-lp-tag text-ig-label font-semibold" data-tone="accent">
+            alterado por aditivo
+          </span>
+        )}
+      </p>
+
+      <div className="mt-2 flex items-baseline justify-between gap-2">
+        <span className="text-ig-caption text-ig-fg-muted">{originalLabel}</span>
+        <span className="text-ig-body-sm font-medium">
+          <OfficialText official={original} format={format} />
+        </span>
+      </div>
+
+      <div className="ig-lp-tile-split mt-2 flex items-baseline justify-between gap-2 pt-2">
+        <span className="flex items-center gap-1.5 text-ig-caption text-ig-fg-muted">
+          <ArrowRight
+            className={cn('h-3 w-3 shrink-0', changed ? 'text-ig-accent' : 'text-ig-fg-subtle')}
+            aria-hidden
+          />
+          {currentLabel}
+        </span>
+        <span className="text-ig-body-sm font-semibold">
+          <OfficialText official={current} format={format} strong />
+        </span>
+      </div>
+    </div>
+  );
 }
 
 export function ContractInstrumentsPanel({
@@ -86,83 +169,108 @@ export function ContractInstrumentsPanel({
     hasOfficialValue(state.currentValue) && hasOfficialValue(state.originalValue)
       ? state.currentValue.value !== state.originalValue.value
       : false;
+  const termChanged =
+    hasOfficialValue(state.currentEndDate) && hasOfficialValue(state.originalEndDate)
+      ? state.currentEndDate.value.getTime() !== state.originalEndDate.value.getTime()
+      : false;
+
+  const pending = ingestionRequests.filter((request) => !request.amendment_id);
 
   return (
-    <HudPanel
-      title="Instrumentos contratuais"
-      subtitle="Contrato mestre e aditivos, na ordem em que produzem efeito"
-      icon={<FileDiff className="h-4 w-4" />}
-      interactive={false}
-      className={className}
-      headerActions={
-        onAddAmendment ? (
+    <section className={cn('ig-lp', className)} aria-labelledby="ig-instruments-title">
+      <header className="ig-lp-head flex flex-wrap items-start gap-3 px-4 pb-3 pt-4 sm:px-5">
+        <span className="ig-lp-mark" aria-hidden>
+          <FileDiff className="h-4 w-4" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h3 id="ig-instruments-title" className="text-ig-body-sm font-semibold text-ig-fg-strong">
+            Instrumentos contratuais
+          </h3>
+          <p className="mt-0.5 text-ig-caption leading-relaxed text-ig-fg-muted">
+            Contrato mestre e aditivos, na ordem de efeito.
+          </p>
+        </div>
+        {onAddAmendment && (
           <button
             type="button"
             onClick={onAddAmendment}
-            className="rounded-[8px] border border-ig-border-strong px-2.5 py-1 text-ig-caption font-semibold text-ig-fg-strong transition-colors hover:bg-ig-panel-hover/60"
+            className="ig-lp-action px-2.5 py-1 text-ig-caption font-semibold"
           >
+            <Plus className="h-3.5 w-3.5" aria-hidden />
             Adicionar aditivo
           </button>
-        ) : undefined
-      }
-    >
-      {/* ── Estado original vs. vigente ── */}
-      <div className="mb-4 grid gap-2 sm:grid-cols-2">
-        <div className="rounded-lg border border-ig-border-subtle bg-ig-panel/55 p-3">
-          <p className="text-ig-label text-ig-fg-subtle">Valor original</p>
-          <p className="mt-1 text-ig-body-sm font-semibold">
-            <OfficialText official={state.originalValue} format={(v) => currency(v)} />
-          </p>
-          <p className="mt-2 text-ig-label text-ig-fg-subtle">Valor vigente</p>
-          <p className="mt-1 text-ig-body-sm font-semibold">
-            <OfficialText official={state.currentValue} format={(v) => currency(v)} />
-          </p>
-        </div>
-        <div className="rounded-lg border border-ig-border-subtle bg-ig-panel/55 p-3">
-          <p className="text-ig-label text-ig-fg-subtle">Vigência original</p>
-          <p className="mt-1 text-ig-body-sm font-semibold">
-            <OfficialText official={state.originalEndDate} format={(v) => dateLabel(v)} />
-          </p>
-          <p className="mt-2 text-ig-label text-ig-fg-subtle">Vigência vigente</p>
-          <p className="mt-1 text-ig-body-sm font-semibold">
-            <OfficialText official={state.currentEndDate} format={(v) => dateLabel(v)} />
-          </p>
-        </div>
+        )}
+      </header>
+
+      {/* ── 1 · Síntese: o que o papel dizia → o que vale hoje ─────────── */}
+      <div className="ig-lp-rule grid gap-2.5 px-4 py-3.5 sm:grid-cols-2 sm:px-5">
+        <EffectPair
+          title="Valor"
+          originalLabel="Valor original"
+          currentLabel="Valor vigente"
+          original={state.originalValue}
+          current={state.currentValue}
+          format={(v: number) => currency(v)}
+          changed={changed}
+        />
+        <EffectPair
+          title="Vigência"
+          originalLabel="Vigência original"
+          currentLabel="Vigência vigente"
+          original={state.originalEndDate}
+          current={state.currentEndDate}
+          format={(v: Date) => dateLabel(v)}
+          changed={termChanged}
+        />
       </div>
 
       {unapplied.some((s) => s.skipReason === 'undated') && (
-        <p className="mb-3 rounded-lg border border-[color-mix(in_oklab,var(--ig-warning)_30%,transparent)] bg-[color-mix(in_oklab,var(--ig-warning)_9%,transparent)] p-3 text-ig-caption text-ig-fg-muted">
+        <p className="ig-lp-notice mx-4 mt-3 px-3 py-2.5 text-ig-caption leading-relaxed text-ig-fg-muted sm:mx-5">
           Há aditivo em vigor sem data de efeito registrada. Enquanto isso durar, o valor ou o prazo
-          vigente permanece <strong>não apurado</strong>: aplicá-lo em ordem arbitrária produziria um
-          número que parece confiável e não é.
+          vigente permanece <strong className="font-semibold text-ig-fg-strong">não apurado</strong>:
+          aplicá-lo em ordem arbitrária produziria um número que parece confiável e não é.
         </p>
       )}
 
-      {/* ── A cadeia ── */}
-      <ol className="space-y-1.5" aria-label="Instrumentos contratuais">
-        <li className="flex items-start gap-2.5 rounded-lg border border-ig-border-subtle bg-ig-panel/45 px-3 py-2.5">
-          <FileText className="mt-0.5 h-4 w-4 shrink-0 text-ig-accent" aria-hidden />
-          <span className="min-w-0 flex-1">
+      {/* ── 2 · A cadeia ───────────────────────────────────────────────── */}
+      <ol className="ig-lp-chain px-3 py-2.5 sm:px-4" aria-label="Instrumentos contratuais">
+        <li className="flex items-start gap-3 px-1 py-2">
+          <span className="ig-lp-node" data-tone="master" aria-hidden>
+            <FileText className="h-3.5 w-3.5" />
+          </span>
+          <span className="min-w-0 flex-1 pt-0.5">
             <span className="flex flex-wrap items-baseline gap-x-2">
               <span className="text-ig-body-sm font-semibold text-ig-fg-strong">Contrato mestre</span>
-              <span className="text-ig-label text-ig-fg-subtle">{masterNumber}</span>
+              <span className="ig-tabular text-ig-caption font-medium text-ig-accent">{masterNumber}</span>
+              <span className="ig-lp-tag text-ig-label font-semibold" data-tone="accent">instrumento base</span>
             </span>
-            <span className="mt-0.5 block truncate text-ig-caption text-ig-fg-muted">{masterTitle}</span>
+            <span className="mt-0.5 block truncate text-ig-caption text-ig-fg-default">{masterTitle}</span>
           </span>
           {changed && (
-            <HudSignal label="alterado" value="por aditivo" tone="info" size="sm" />
+            <span className="ig-lp-tag shrink-0 self-center text-ig-label font-semibold">
+              alterado por aditivo
+            </span>
           )}
         </li>
 
         {timeline.map((step) => (
           <AmendmentRow key={step.amendment.id} step={step} onOpen={onOpenAmendment} />
         ))}
-        {ingestionRequests.filter((request) => !request.amendment_id).map((request) => (
-          <li key={request.id} className="ml-4 flex items-start gap-2.5 rounded-lg border border-ig-border-subtle bg-ig-panel/35 px-3 py-2.5">
-            <CircleDashed className={`mt-0.5 h-4 w-4 shrink-0 ${request.status === 'FAILED' ? 'text-ig-warning' : 'animate-pulse text-ig-accent'}`} />
-            <span className="min-w-0 flex-1">
+
+        {pending.map((request) => (
+          <li key={request.id} className="flex items-start gap-3 px-1 py-2">
+            <span
+              className="ig-lp-node"
+              data-tone={request.status === 'FAILED' ? 'warning' : undefined}
+              aria-hidden
+            >
+              <CircleDashed
+                className={cn('h-3.5 w-3.5', request.status !== 'FAILED' && 'animate-pulse text-ig-accent')}
+              />
+            </span>
+            <span className="min-w-0 flex-1 pt-0.5">
               <span className="text-ig-body-sm font-semibold text-ig-fg-strong">Aditivo em análise</span>
-              <span className="mt-0.5 block text-ig-caption text-ig-fg-muted">
+              <span className="mt-0.5 block text-ig-caption leading-relaxed text-ig-fg-muted">
                 {request.status === 'FAILED'
                   ? `Leitura falhou · ${request.error_safe ?? 'o PDF permanece registrado para nova tentativa'}`
                   : request.status === 'REQUIRES_ATTENTION' ? 'Requer atenção'
@@ -173,19 +281,23 @@ export function ContractInstrumentsPanel({
         ))}
       </ol>
 
+      {/* ── 3 · O que a lista NÃO afirma ───────────────────────────────── */}
       {/*
         Três ausências distintas, três frases distintas. Dizer "nenhum aditivo
         registrado" quando a leitura falhou afirmaria sobre o contrato algo que
         ninguém verificou.
       */}
       {timeline.length === 0 && state.readFailed && (
-        <p className="mt-3 text-ig-caption text-ig-warning">
+        <p className="ig-lp-notice mx-4 mb-3.5 px-3 py-2.5 text-ig-caption leading-relaxed text-ig-fg-muted sm:mx-5">
           Falha ao ler os aditivos deste contrato. A lista está incompleta por incidente de leitura —
           não porque o contrato não tenha aditivos.
         </p>
       )}
       {timeline.length === 0 && state.notMeasured && (
-        <p className="mt-3 text-ig-caption text-ig-fg-muted">
+        <p
+          className="ig-lp-notice mx-4 mb-3.5 px-3 py-2.5 text-ig-caption leading-relaxed text-ig-fg-muted sm:mx-5"
+          data-tone="neutral"
+        >
           Aditivos não consultados neste contexto.
         </p>
       )}
@@ -195,12 +307,15 @@ export function ContractInstrumentsPanel({
           afirma que não existem aditivos, que é justamente o que o dado não
           diz. Um guarda contra leitura errada não pode viver em hover.
         */
-        <p className="mt-3 text-ig-caption text-ig-fg-muted">
+        <p
+          className="ig-lp-notice mx-4 mb-3.5 px-3 py-2.5 text-ig-caption leading-relaxed text-ig-fg-muted sm:mx-5"
+          data-tone="neutral"
+        >
           Nenhum aditivo registrado — o que não significa que não existam, e sim
           que nenhum foi registrado até agora.
         </p>
       )}
-    </HudPanel>
+    </section>
   );
 }
 
@@ -236,36 +351,66 @@ function AmendmentRow({
     : effectiveness === 'not_yet_effective' ? 'efeito futuro'
       : effectiveness === 'cancelled' ? 'cancelado' : 'eficácia indeterminada';
 
+  /*
+    O nó carrega o estado do ELO, não o do documento: aplicado (o efeito já
+    entrou no vigente) contra ainda não aplicado. É a única coisa que o olho
+    precisa distinguir ao descer a cadeia.
+  */
+  const nodeTone = step.applied ? 'applied' : undefined;
+  const effectivenessTone = effectiveness === 'effective' ? 'success'
+    : effectiveness === 'cancelled' ? undefined
+      : 'warning';
+
   const body = (
     <>
-      <CircleDashed
-        className={`mt-0.5 h-4 w-4 shrink-0 ${step.applied ? 'text-ig-success' : 'text-ig-fg-subtle'}`}
-        aria-hidden
-      />
-      <span className="min-w-0 flex-1">
+      <span className="ig-lp-node" data-tone={nodeTone} aria-hidden>
+        {step.applied
+          ? <Check className="h-3.5 w-3.5" />
+          : <CircleDashed className="h-3.5 w-3.5" />}
+      </span>
+
+      <span className="min-w-0 flex-1 pt-0.5">
         <span className="flex flex-wrap items-baseline gap-x-2">
-          <span className="text-ig-body-sm font-semibold text-ig-fg-strong">{a.amendment_number}</span>
+          <span className="ig-tabular text-ig-body-sm font-semibold text-ig-fg-strong">
+            {a.amendment_number}
+          </span>
           {a.title && <span className="truncate text-ig-caption text-ig-fg-muted">{a.title}</span>}
         </span>
-        <span className="mt-0.5 block text-ig-caption text-ig-fg-muted">
+
+        <span className="mt-0.5 block text-ig-caption leading-relaxed text-ig-fg-default">
           {a.effective_date
             ? `efeito em ${dateLabel(new Date(`${a.effective_date}T00:00:00`))}`
             : 'sem data de efeito'}
           {effects.length > 0 && ` · ${effects.join(' · ')}`}
         </span>
-        <span className="mt-0.5 block text-ig-label text-ig-fg-subtle">
-          {documentaryLabel} · {effectivenessLabel}
-          {a.analysis_state && ` · análise ${a.analysis_state.replace('_', ' ')}`}
-          {(a.attention_count ?? 0) > 0 && ` · ${a.attention_count} ponto(s) de atenção`}
+
+        {/* Metadado documental como carimbo: lê-se de relance, não como frase. */}
+        <span className="mt-1 flex flex-wrap items-center gap-1">
+          <span className="ig-lp-tag text-ig-label font-semibold">{documentaryLabel}</span>
+          <span className="ig-lp-tag text-ig-label font-semibold" data-tone={effectivenessTone}>
+            {effectivenessLabel}
+          </span>
+          {a.analysis_state && (
+            <span className="ig-lp-tag text-ig-label font-semibold">
+              análise {a.analysis_state.replace('_', ' ')}
+            </span>
+          )}
+          {(a.attention_count ?? 0) > 0 && (
+            <span className="ig-lp-tag text-ig-label font-semibold" data-tone="warning">
+              {a.attention_count} ponto(s) de atenção
+            </span>
+          )}
         </span>
+
         {step.skipReason && (
-          <span className="mt-0.5 block text-ig-caption text-ig-fg-subtle">
+          <span className="mt-1 block text-ig-caption text-ig-fg-muted">
             {SKIP_REASON_LABEL[step.skipReason]}
           </span>
         )}
       </span>
+
       {step.applied && step.valueAfter !== null && (
-        <span className="shrink-0 self-center text-ig-caption font-semibold text-ig-fg-strong">
+        <span className="ig-tabular shrink-0 self-center text-ig-caption font-semibold text-ig-fg-strong">
           {currency(step.valueAfter)}
         </span>
       )}
@@ -273,19 +418,18 @@ function AmendmentRow({
   );
 
   return (
-    <li className="ml-4">
+    <li>
       {onOpen ? (
         <button
           type="button"
           onClick={() => onOpen(step)}
-          className="flex w-full items-start gap-2.5 rounded-lg border border-ig-border-subtle bg-ig-panel/45 px-3 py-2.5 text-left transition-colors hover:bg-ig-panel-hover/50"
+          className="ig-lp-row flex w-full items-start gap-3 rounded-[9px] px-1 py-2 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ig-border-focus"
+          data-interactive="true"
         >
           {body}
         </button>
       ) : (
-        <div className="flex w-full items-start gap-2.5 rounded-lg border border-ig-border-subtle bg-ig-panel/45 px-3 py-2.5">
-          {body}
-        </div>
+        <div className="flex w-full items-start gap-3 px-1 py-2">{body}</div>
       )}
     </li>
   );

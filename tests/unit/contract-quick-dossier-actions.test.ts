@@ -519,6 +519,7 @@ describe('extração de cláusulas (P2D)', () => {
 
     for (const file of [
       'src/components/contracts/intelligence/ContractInterpretationPanel.tsx',
+      'src/components/contracts/intelligence/ContractIntelligenceTab.tsx',
       'src/components/contracts/intelligence/ClauseRiskIntelligencePanel.tsx',
       'src/components/contracts/useContractInstrumentationModals.tsx',
     ]) {

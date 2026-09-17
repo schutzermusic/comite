@@ -398,8 +398,15 @@ test('6 · A lista de prontidão mostra o que existe e o que falta', async () =>
   await expect(readinessStep('Projeto vinculado')).toContainText('Registrado');
   await expect(readinessStep('Documento original')).toContainText('Registrado');
 
-  // Identidade + projeto + documento ⇒ operável.
-  await expect(page.getByText(/plenamente operável/)).toBeVisible();
+  /*
+    Identidade + projeto + documento ⇒ base essencial registrada.
+
+    A frase deixou de ser "contrato plenamente operável": ela era lida como um
+    veredito sobre o contrato inteiro e aparecia intacta ao lado de itens em
+    atenção, afirmando saúde a partir de uma contagem de cadastro. O que os
+    três passos essenciais atestam é a BASE, e a frase agora diz só isso.
+  */
+  await expect(page.getByText(/[Bb]ase essencial do contrato registrada/)).toBeVisible();
 });
 
 test('7 · Ausência de instrumentação NÃO é tratada como irregularidade', async () => {
@@ -492,7 +499,7 @@ test('12 · O contrato é plenamente operável sem nenhuma análise de IA', asyn
   expect(rows[0].n).toBe(0);
 
   await gotoDossier();
-  await expect(page.getByText(/plenamente operável/)).toBeVisible();
+  await expect(page.getByText(/[Bb]ase essencial do contrato registrada/)).toBeVisible();
 
   // E as cláusulas aparecem como não registradas — jamais como violação.
   await expect(readinessStep('Cláusulas revisadas')).toContainText('A registrar');

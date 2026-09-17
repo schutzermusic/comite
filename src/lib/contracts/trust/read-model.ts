@@ -29,6 +29,9 @@
  */
 
 import type { Project } from '@/lib/types';
+import type {
+  ContractOperationalInterpretationRow,
+} from '@/lib/contracts/intelligence/operational-interpretations';
 import type { PartyRow } from '@/lib/parties/types';
 import { partyDisplayName } from '@/lib/parties/types';
 import { partyFor } from '@/lib/parties/counterparty';
@@ -141,6 +144,16 @@ export type TrustedContract = {
    */
   readonly milestones: Official<readonly ContractMilestoneRow[]>;
   readonly clauses: Official<readonly ContractClauseRow[]>;
+  /**
+   * A fila de exceções OPERACIONAIS (migration 161).
+   *
+   * Distinta de `clauses`, e a distinção é a que este read model mais erra
+   * quando alguém a esquece: `clauses` é o TEXTO extraído do PDF, com o selo
+   * da política de extração; isto é o que o Apex passou a OPERAR, com o selo
+   * da política de confiança operacional. Em JA10182283 a primeira tem 21
+   * marcadas e a segunda tem 7 — e só a segunda é trabalho humano.
+   */
+  readonly operationalInterpretations: Official<readonly ContractOperationalInterpretationRow[]>;
   readonly penalties: Official<readonly ContractPenaltyRow[]>;
 
   /**
@@ -236,6 +249,7 @@ const SECTION_SOURCE: Record<ContractRelationSectionKey, LiveSource> = {
   ai: 'contract_ai_analyses',
   milestones: 'contract_milestones',
   clauses: 'contract_clauses',
+  operationalInterpretations: 'contract_operational_interpretations',
   penalties: 'contract_penalties',
   obligationDefinitions: 'contract_obligation_definitions',
 };
@@ -288,6 +302,11 @@ export function buildTrustedContract(
   const aiAnalyses = section<ContractAiAnalysisRow>(batch.aiAnalyses.get(id), err.ai, SECTION_SOURCE.ai);
   const milestones = section<ContractMilestoneRow>(batch.milestones.get(id), err.milestones, SECTION_SOURCE.milestones);
   const clauses = section<ContractClauseRow>(batch.clauses.get(id), err.clauses, SECTION_SOURCE.clauses);
+  const operationalInterpretations = section<ContractOperationalInterpretationRow>(
+    batch.operationalInterpretations?.get(id),
+    err.operationalInterpretations,
+    SECTION_SOURCE.operationalInterpretations,
+  );
   const penalties = section<ContractPenaltyRow>(batch.penalties.get(id), err.penalties, SECTION_SOURCE.penalties);
   const obligationDefinitions = section<ContractObligationDefinitionRow>(
     batch.obligationDefinitions.get(id), err.obligationDefinitions, SECTION_SOURCE.obligationDefinitions);
@@ -452,6 +471,7 @@ export function buildTrustedContract(
     riskLinks,
     milestones,
     clauses,
+    operationalInterpretations,
     penalties,
     obligationDefinitions,
     aiAnalyses,
@@ -509,6 +529,7 @@ export function relationsBatchFromDetail(
     aiAnalyses: one(detail.aiAnalyses),
     milestones: one(detail.milestones),
     clauses: one(detail.clauses),
+    operationalInterpretations: one(detail.operationalInterpretations ?? []),
     penalties: one(detail.penalties),
     obligationDefinitions: one(detail.obligationDefinitions),
     riskDetails: new Map(),
@@ -525,13 +546,15 @@ export function relationsBatchFromDetail(
       ai: detail.aiAnalyses.length > 0,
       milestones: detail.milestones.length > 0,
       clauses: detail.clauses.length > 0,
+      operationalInterpretations: (detail.operationalInterpretations ?? []).length > 0,
       penalties: detail.penalties.length > 0,
       obligationDefinitions: detail.obligationDefinitions.length > 0,
     },
     sectionErrors: {
       obligations: null, billing: null, documents: null,
       approvals: null, projectLinks: null, risks: null, ai: null,
-      milestones: null, clauses: null, penalties: null, obligationDefinitions: null,
+      milestones: null, clauses: null, operationalInterpretations: null,
+      penalties: null, obligationDefinitions: null,
       ...errors,
     },
   };
@@ -543,5 +566,15 @@ export function trustedContractFromDetail(
   projects: readonly Project[],
   now: Date = new Date(),
 ): TrustedContract {
-  return buildTrustedContract(detail.contract, relationsBatchFromDetail(detail), projects, now);
+  /*
+    A falha de leitura das interpretações atravessa como ERRO de seção.
+
+    Sem isso, uma consulta que falhou entraria como lista vazia e o dossiê
+    anunciaria "nada requer sua atenção" sobre um contrato cuja fila ninguém
+    conseguiu ler — a pior das três respostas possíveis.
+  */
+  const batch = relationsBatchFromDetail(detail, {
+    operationalInterpretations: detail.operationalInterpretationsError ?? null,
+  });
+  return buildTrustedContract(detail.contract, batch, projects, now);
 }

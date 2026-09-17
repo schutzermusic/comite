@@ -49,7 +49,7 @@ const row = (over: Partial<ContractRow> = {}): ContractRow => ({
 } as ContractRow);
 
 const base = (contract: ContractRow): ContractDetail => ({
-  contract, clauses: [], obligationDefinitions: [], penalties: [], milestones: [], risks: [], files: [], aiAnalyses: [],
+  contract, operationalInterpretations: [], operationalInterpretationsError: null, clauses: [], obligationDefinitions: [], penalties: [], milestones: [], risks: [], files: [], aiAnalyses: [],
   billingEvents: [] as never, obligations: [] as never, approvals: [] as never,
   projectLinks: [] as never, riskLinks: [] as never, documents: [] as never, amendments: [], amendmentClauses: [], amendmentsError: null
 });
@@ -129,7 +129,10 @@ describe('a prontidão nunca acusa', () => {
   it('lista vazia lida é PENDENTE — ausência apurada que convida a registrar', () => {
     const r = readiness(row(), { obligations: [] as never });
     expect(stepOf(r, 'obligations').state).toBe('pending');
-    expect(stepOf(r, 'obligations').detail).toBe('Nenhuma obrigação registrada');
+    /* "definida no contrato" nomeia o NÍVEL: a exigência contratual, distinta
+       do acompanhamento operacional que Operações conectadas reporta. Sem essa
+       palavra as duas telas pareciam discordar sobre o mesmo contrato. */
+    expect(stepOf(r, 'obligations').detail).toBe('Nenhuma obrigação definida no contrato');
   });
 
   it('obrigações, marcos, aprovações e cláusulas NÃO são essenciais', () => {
@@ -390,5 +393,124 @@ describe('o assistente de cadastro não fabrica dado', () => {
     const service = code('src/lib/contracts/contract-service.ts');
     expect(service).not.toContain('export async function requestContractAiAnalysisPlaceholder');
     expect(service).not.toContain('aiPlaceholderRequested');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// 9 · Duas telas, um número — a fonte das regras em operação
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * O defeito que esta seção tranca.
+ *
+ * `contract_clauses` é o TEXTO extraído do PDF, com o selo da política de
+ * EXTRAÇÃO. `contract_operational_interpretations` é o que o Apex passou a
+ * OPERAR, com o selo da política de confiança OPERACIONAL. Em JA10182283 o
+ * primeiro tem 38 linhas com 21 marcadas; o segundo tem 29 com 7 retidas.
+ *
+ * A Prontidão lia o primeiro e escrevia "17 regras estruturadas · 21 requerem
+ * atenção" enquanto a aba Inteligência, lendo o segundo, mostrava 22 e 7 para
+ * o mesmo contrato no mesmo instante. Duas telas que discordam sobre um número
+ * não têm duas opiniões: têm um defeito, e quem lê perde a confiança nas duas.
+ */
+describe('regras em operação vêm da interpretação operacional', () => {
+  const interpretation = (
+    id: string,
+    trust_state: 'automatic' | 'requires_attention',
+    over: Record<string, unknown> = {},
+  ) => ({
+    id, organization_id: 'org-1', contract_id: ID, analysis_id: 'an-recent',
+    source_document_id: 'doc-1', family: 'obligations', fingerprint: id,
+    normalized_payload: null, source_page: 1, source_excerpt: 'trecho',
+    confidence: 0.9, provider: 'p', model: 'm', pipeline_version: '1',
+    requesting_user_id: null, trust_state, trust_reasons: null,
+    trust_policy_version: '1', created_at: '2026-08-25T11:00:00Z',
+    ...over,
+  }) as never;
+
+  /* 29 interpretações: 22 operadas, 7 retidas — o contrato real. */
+  const twentyNine = [
+    ...Array.from({ length: 22 }, (_, i) => interpretation(`ok-${i}`, 'automatic')),
+    ...Array.from({ length: 7 }, (_, i) => interpretation(`att-${i}`, 'requires_attention')),
+  ];
+
+  /* 38 cláusulas com 21 marcadas — a leitura ANTIGA, que não pode vencer. */
+  const thirtyEight = [
+    ...Array.from({ length: 17 }, (_, i) =>
+      clause({ id: `c-ok-${i}`, interpretation_state: 'structured' })),
+    ...Array.from({ length: 21 }, (_, i) =>
+      clause({ id: `c-att-${i}`, interpretation_state: 'requires_attention' })),
+  ];
+
+  it('conta a interpretação operacional, não a cláusula extraída', () => {
+    const r = readiness(row(), {
+      clauses: thirtyEight,
+      operationalInterpretations: twentyNine,
+    });
+    const step = stepOf(r, 'clauses');
+    expect(step.detail).toBe('22 regras estruturadas · 7 requerem atenção');
+    // O par antigo não pode reaparecer por nenhum caminho.
+    expect(step.detail).not.toContain('17');
+    expect(step.detail).not.toContain('21');
+    expect(step.state).toBe('complete');
+  });
+
+  it('usa a análise MAIS RECENTE, como a aba Inteligência', () => {
+    /* Somar as linhas cruas contaria duas leituras do mesmo documento e
+       devolveria 29 + 2 — um número que nenhuma das duas análises produziu. */
+    const r = readiness(row(), {
+      operationalInterpretations: [
+        interpretation('velha-1', 'automatic', {
+          analysis_id: 'an-antiga', created_at: '2026-07-01T10:00:00Z',
+        }),
+        interpretation('velha-2', 'requires_attention', {
+          analysis_id: 'an-antiga', created_at: '2026-07-01T10:00:00Z',
+        }),
+        ...twentyNine,
+      ],
+    });
+    expect(stepOf(r, 'clauses').detail).toBe('22 regras estruturadas · 7 requerem atenção');
+  });
+
+  it('sem operacionalização, o selo de extração ainda responde', () => {
+    /* Um contrato lido mas não operacionalizado não tem interpretação alguma.
+       Aí a cláusula é o único sinal existente, e apagá-la deixaria a linha
+       muda sobre um contrato que TEM leitura registrada. */
+    const r = readiness(row(), {
+      clauses: [clause({ interpretation_state: 'structured' })],
+      operationalInterpretations: [],
+    });
+    expect(stepOf(r, 'clauses').detail).toBe('1 regra estruturada');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// 10 · Definição contratual × acompanhamento operacional
+// ═══════════════════════════════════════════════════════════════════
+
+describe('obrigações declaram de que nível estão falando', () => {
+  /*
+    `contract_obligation_definitions` é o que o contrato EXIGE;
+    `contract_obligations` é o que está em acompanhamento. A Prontidão lia a
+    primeira ("11 obrigações registradas") e Operações conectadas lia a segunda
+    ("Nenhuma mapeada"), a três centímetros de distância. As duas frases eram
+    verdadeiras e a tela parecia mentir, porque nenhuma dizia de qual nível
+    falava.
+  */
+  it('definição sem acompanhamento nomeia os dois níveis', () => {
+    const r = readiness(row(), {
+      obligationDefinitions: [
+        { id: 'od-1', contract_id: ID, organization_id: 'org-1' },
+      ] as never,
+      obligations: [] as never,
+    });
+    const detail = stepOf(r, 'obligations').detail!;
+    expect(detail).toContain('definida no contrato');
+    expect(detail).toContain('nenhuma em acompanhamento operacional');
+  });
+
+  it('nunca afirma ausência de exigência a partir da lista de acompanhamento', () => {
+    const detail = stepOf(readiness(row()), 'obligations').detail;
+    expect(detail).toBe('Nenhuma obrigação definida no contrato');
   });
 });

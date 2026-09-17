@@ -219,9 +219,19 @@ describe('observar não é agir', () => {
     expect(DOSSIER).toContain('const reloadAnalyses = useCallback(');
     expect(DOSSIER).toMatch(/reloadAnalyses = useCallback\(\(\) => \{[\s\S]*?listContractAiAnalyses/);
     expect(DOSSIER).not.toMatch(/reloadAnalyses = useCallback\(\(\) => \{[\s\S]*?requestClauseExtraction/);
-    // A montagem NUNCA dispara extração: `runExtraction` só sai de onAnalyze.
-    expect(DOSSIER).toMatch(/onAnalyze=\{\(documentId\) => \{ void runExtraction\(documentId\); \}\}/);
+    /*
+      A montagem NUNCA dispara extração. O clique que enfileira saiu da aba de
+      Inteligência Contratual (onde era um botão "Reanalisar" por documento, no
+      meio do fluxo primário) e passou a viver em "Mais ações", atrás de uma
+      confirmação — a operação consome orçamento de execução e substitui a
+      leitura que está na tela. A invariante é a mesma; o ponto de partida é
+      um só, e agora é explícito.
+    */
+    expect(DOSSIER).toMatch(/if \(documentId\) void runExtraction\(documentId\);/);
     expect(DOSSIER).not.toMatch(/useEffect\(\(\) => \{\s*(void )?runExtraction/);
+    // E o clique passa por um portão que diz o que vai acontecer, antes.
+    expect(DOSSIER).toContain('setReanalysisTarget(');
+    expect(DOSSIER).toContain('<AlertDialogAction');
   });
 
   it('a observação termina no estado terminal, e não por contagem de tentativas', () => {

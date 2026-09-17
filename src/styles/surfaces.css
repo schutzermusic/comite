@@ -167,3 +167,1092 @@
 [data-ig-flat] .ig-glass::after {
   opacity: 0.9;
 }
+
+/* ═════════════════════════════════════════════════════════
+   INTELIGÊNCIA CONTRATUAL — o cockpit
+
+   Uma folha, cinco zonas, um acento por estado. O que este bloco
+   resolve, em ordem de gravidade:
+
+   1 · A NÉVOA. `ImmersiveSpatialBackground` pinta o app inteiro, no
+       claro, com `#F8F7F4 → #edeee9 → #f0f1ed`, mais um tinte lima a
+       3% e uma vinheta `rgba(237,238,233,.4)` nas bordas. Conteúdo
+       sem superfície própria — que era o caso desta aba — lê-se
+       direto sobre bege acinzentado. Nada aqui altera aquele fundo:
+       a aba passa a ter PAPEL, opaco, e a névoa fica embaixo dele.
+
+   2 · A OPACIDADE QUE NÃO EXISTE. As utilitárias do Tailwind não
+       funcionam sobre os tokens `ig-*` — eles são cores inteiras
+       (`var(--ig-warning)`), não canais, e `bg-ig-warning/70` compila
+       para transparente, em silêncio. Medido: o trilho âmbar
+       renderizava `rgba(0,0,0,0)`. `color-mix` faz o que aquelas
+       prometiam, e faz visivelmente.
+
+   3 · A FADIGA. Trinta linhas iguais cansam porque nada nelas
+       hierarquiza. O remédio não é menos informação: é ritmo — zona,
+       grupo, linha — e um só acento por significado.
+   ═════════════════════════════════════════════════════════ */
+
+/* ── A folha ──────────────────────────────────────────────
+   O papel sobre a mesa. Opaco de propósito: é ele que corta a névoa
+   do fundo imersivo. Sombra curta e fria, não difusa — sombra larga
+   sobre fundo claro vira exatamente o halo cinza que queremos tirar. */
+.ig-ci-sheet {
+  position: relative;
+  background: var(--ig-bg-base);
+  border: 1px solid var(--ig-border-subtle);
+  border-radius: 18px;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 8px 24px -12px rgba(15, 23, 42, 0.10);
+}
+html.light .ig-ci-sheet {
+  /* Branco puro contra o canvas bege: o degrau que faltava. */
+  background: #FFFFFF;
+  border-color: rgba(15, 23, 42, 0.09);
+}
+
+/* ── A faixa de comando ───────────────────────────────────
+   O topo da folha, com tinta própria. Duas dobras: a leitura (título
+   + número) e a medição (as células). O fio inferior fecha a faixa. */
+.ig-ci-command {
+  position: relative;
+  border-bottom: 1px solid var(--ig-border-subtle);
+  border-radius: 18px 18px 0 0;
+  background:
+    linear-gradient(180deg,
+      color-mix(in oklab, var(--ig-accent) 3.5%, var(--ig-bg-base)) 0%,
+      var(--ig-bg-base) 100%);
+}
+/* Cantos de HUD: a assinatura futurista da marca, em 1px e só no topo.
+   Dois traços em L, não uma moldura — moldura é ruído, traço é índice. */
+.ig-ci-command::before,
+.ig-ci-command::after {
+  content: '';
+  position: absolute;
+  top: 10px;
+  width: 14px;
+  height: 14px;
+  pointer-events: none;
+  border-color: color-mix(in oklab, var(--ig-accent) 38%, transparent);
+}
+.ig-ci-command::before {
+  left: 10px;
+  border-top: 1px solid;
+  border-left: 1px solid;
+  border-top-left-radius: 5px;
+}
+.ig-ci-command::after {
+  right: 10px;
+  border-top: 1px solid;
+  border-right: 1px solid;
+  border-top-right-radius: 5px;
+}
+
+/* ── Célula de métrica ────────────────────────────────────
+   Divide por fio, não por cartão. Cinco cartões lado a lado no topo
+   competiriam entre si e com a zona que vem logo abaixo. */
+.ig-ci-metric + .ig-ci-metric {
+  border-left: 1px solid var(--ig-border-subtle);
+}
+
+/* ── Medidor segmentado ───────────────────────────────────
+   Barras discretas, não uma barra contínua: a leitura é "22 de 29
+   unidades", e uma barra lisa sugere uma porcentagem contínua que
+   estas interpretações não são. */
+.ig-ci-meter {
+  display: flex;
+  gap: 2px;
+  height: 4px;
+}
+.ig-ci-meter > i {
+  flex: 1 1 0;
+  border-radius: 1px;
+  background: var(--ig-border-subtle);
+}
+.ig-ci-meter > i[data-on='structured'] {
+  background: color-mix(in oklab, var(--ig-accent) 78%, transparent);
+}
+.ig-ci-meter > i[data-on='attention'] {
+  background: color-mix(in oklab, var(--ig-warning) 82%, transparent);
+}
+
+/* ── Cabeçalho de zona ────────────────────────────────────
+   Índice, título, contagem e um fio que se apaga à direita. É o que
+   substitui a moldura: separa sem desenhar caixa. */
+.ig-ci-zone-rule {
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    var(--ig-border-default) 0%,
+    var(--ig-border-subtle) 42%,
+    transparent 100%);
+}
+.ig-ci-index {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.14em;
+  color: var(--ig-fg-subtle);
+}
+
+/* ── Zona de atenção ──────────────────────────────────────
+   O âmbar aparece na espinha da ZONA e no motivo do grupo — não em
+   cada linha. Sete linhas emolduradas de âmbar viram sete paredes;
+   uma espinha diz a mesma coisa uma vez só. */
+.ig-ci-spine {
+  border-left: 2px solid color-mix(in oklab, var(--ig-warning) 62%, transparent);
+}
+.ig-ci-reason {
+  color: color-mix(in oklab, var(--ig-warning) 84%, var(--ig-fg-muted));
+}
+.ig-ci-action {
+  border: 1px solid color-mix(in oklab, var(--ig-warning) 40%, transparent);
+  color: var(--ig-warning);
+  background: transparent;
+  transition: border-color 120ms ease, background-color 120ms ease, color 120ms ease;
+}
+.ig-ci-action:hover {
+  border-color: color-mix(in oklab, var(--ig-warning) 82%, transparent);
+  background: color-mix(in oklab, var(--ig-warning) 8%, transparent);
+}
+.ig-ci-attention-box {
+  border: 1px solid color-mix(in oklab, var(--ig-warning) 30%, transparent);
+  background: color-mix(in oklab, var(--ig-warning) 5%, transparent);
+}
+.ig-ci-attention-divider {
+  border-top: 1px solid color-mix(in oklab, var(--ig-warning) 18%, transparent);
+}
+
+/* ── Linha operacional ────────────────────────────────────
+   Faixa de acerto generosa, divisor de 1px e realce no hover. Sem
+   borda por linha: a lista é um bloco, não trinta cartões. */
+.ig-ci-row + .ig-ci-row {
+  border-top: 1px solid var(--ig-border-subtle);
+}
+.ig-ci-row {
+  transition: background-color 110ms ease;
+}
+.ig-ci-row:hover {
+  background: color-mix(in oklab, var(--ig-accent) 3.5%, transparent);
+}
+.ig-ci-row:hover .ig-ci-chevron {
+  opacity: 1;
+  transform: translateX(0);
+}
+.ig-ci-chevron {
+  opacity: 0;
+  transform: translateX(-3px);
+  transition: opacity 110ms ease, transform 110ms ease;
+}
+
+/* ── Pílula de página ─────────────────────────────────────
+   A referência documental é a prova, e prova merece forma própria:
+   tabular, em caixa, sempre no mesmo lugar da linha. */
+.ig-ci-page {
+  font-variant-numeric: tabular-nums;
+  border: 1px solid var(--ig-border-subtle);
+  border-radius: 5px;
+  color: var(--ig-fg-subtle);
+  background: color-mix(in oklab, var(--ig-fg-subtle) 4%, transparent);
+}
+
+/* ── Chip de grupo ────────────────────────────────────────
+   Categoria + contagem, em uma peça só. */
+.ig-ci-count {
+  font-variant-numeric: tabular-nums;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--ig-fg-subtle) 10%, transparent);
+  color: var(--ig-fg-muted);
+}
+
+/* ── Cartão de registro formal ────────────────────────────
+   Os três tipos de registro têm a MESMA forma e tintas diferentes,
+   porque a pergunta que o usuário faz é "são a mesma coisa?" — e a
+   resposta é não. */
+.ig-ci-record {
+  border: 1px solid var(--ig-border-subtle);
+  border-radius: 12px;
+  background: var(--ig-bg-base);
+}
+.ig-ci-record[data-kind='document'] {
+  border-top: 2px solid color-mix(in oklab, var(--ig-accent) 55%, transparent);
+}
+.ig-ci-record[data-kind='risk'] {
+  border-top: 2px solid color-mix(in oklab, var(--ig-info) 45%, transparent);
+}
+.ig-ci-record[data-kind='penalty'] {
+  border-top: 2px solid color-mix(in oklab, var(--ig-danger) 40%, transparent);
+}
+
+/* ── Zona de rastreamento ─────────────────────────────────
+   Mais silenciosa que as outras, e de propósito: é auditoria, não
+   trabalho. Tinta um degrau abaixo do papel. */
+.ig-ci-audit {
+  background: var(--ig-bg-raised);
+  border-top: 1px solid var(--ig-border-subtle);
+  border-radius: 0 0 18px 18px;
+}
+
+/* ── Citação da evidência, na gaveta ──────────────────────*/
+.ig-ci-quote {
+  border-left: 2px solid color-mix(in oklab, var(--ig-accent) 58%, transparent);
+  background: color-mix(in oklab, var(--ig-accent) 4%, transparent);
+}
+
+/* ── Fios de aviso ────────────────────────────────────────*/
+.ig-ci-notice-warning { border-left: 2px solid color-mix(in oklab, var(--ig-warning) 65%, transparent); }
+.ig-ci-notice-danger  { border-left: 2px solid color-mix(in oklab, var(--ig-danger)  65%, transparent); }
+
+/* ═════════════════════════════════════════════════════════
+   DOSSIÊ DO CONTRATO — a plataforma de comando
+
+   Mesma folha e mesma gramática da Inteligência Contratual: papel
+   opaco (a névoa do fundo imersivo fica embaixo), faixa de comando
+   com cantos de HUD, células divididas por fio, e um acento por
+   significado. Duas telas do mesmo produto não podem ter dois
+   sistemas visuais.
+   ═════════════════════════════════════════════════════════ */
+
+.ig-deck {
+  position: relative;
+  background: var(--ig-bg-base);
+  border: 1px solid var(--ig-border-subtle);
+  border-radius: 18px;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 8px 24px -12px rgba(15, 23, 42, 0.10);
+}
+html.light .ig-deck {
+  background: #FFFFFF;
+  border-color: rgba(15, 23, 42, 0.09);
+}
+
+/* A crista: tinta de acento levaníssima no topo, que morre no branco. */
+.ig-deck-crest {
+  border-radius: 18px 18px 0 0;
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--ig-accent) 4%, var(--ig-bg-base)) 0%,
+    var(--ig-bg-base) 100%);
+}
+.ig-deck-crest::before,
+.ig-deck-crest::after {
+  content: '';
+  position: absolute;
+  top: 10px;
+  width: 14px;
+  height: 14px;
+  pointer-events: none;
+  border-color: color-mix(in oklab, var(--ig-accent) 38%, transparent);
+}
+.ig-deck-crest::before {
+  left: 10px;
+  border-top: 1px solid;
+  border-left: 1px solid;
+  border-top-left-radius: 5px;
+}
+.ig-deck-crest::after {
+  right: 10px;
+  border-top: 1px solid;
+  border-right: 1px solid;
+  border-top-right-radius: 5px;
+}
+
+/* ── Chips de estado ──────────────────────────────────────
+   Ponto + rótulo. O ponto carrega a cor, o rótulo carrega o texto:
+   quem não distingue a cor continua lendo o estado. */
+.ig-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--ig-border-subtle);
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--ig-fg-subtle) 4%, transparent);
+  color: var(--ig-fg-default);
+  white-space: nowrap;
+}
+.ig-chip > i {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--ig-fg-subtle);
+}
+.ig-chip[data-tone='success'] > i { background: var(--ig-success); }
+.ig-chip[data-tone='warning'] > i { background: var(--ig-warning); }
+.ig-chip[data-tone='critical'] > i { background: var(--ig-danger); }
+.ig-chip[data-tone='accent']   > i { background: var(--ig-accent); }
+.ig-chip[data-tone='warning']  { border-color: color-mix(in oklab, var(--ig-warning) 28%, transparent); }
+.ig-chip[data-tone='critical'] { border-color: color-mix(in oklab, var(--ig-danger) 28%, transparent); }
+
+/* ── Faixa operacional ────────────────────────────────────
+   UMA superfície contínua, dividida por fio. Quatro cartões de KPI
+   lado a lado dariam quatro molduras do mesmo peso para um número
+   que domina (o valor contratado) e três que o qualificam. */
+.ig-deck-strip {
+  border-top: 1px solid var(--ig-border-subtle);
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--ig-bg-raised) 42%, transparent) 0%,
+    transparent 100%);
+}
+.ig-deck-cell + .ig-deck-cell {
+  border-left: 1px solid var(--ig-border-subtle);
+}
+
+/* Trilho de execução: cheio quando apurado, tracejado quando não.
+   Uma barra vazia de borda sólida lê-se como "mediram e deu quase
+   nada"; o tracejado diz "não há medição". */
+.ig-deck-rail {
+  height: 3px;
+  border-radius: 999px;
+  background: var(--ig-border-subtle);
+  overflow: hidden;
+}
+.ig-deck-rail > i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--ig-success);
+}
+.ig-deck-rail[data-unmeasured='true'] {
+  background: transparent;
+  border-top: 1px dashed var(--ig-border-strong);
+  height: 0;
+}
+
+/* ── Módulo de relação ────────────────────────────────────
+   O contrato apontando para outro objeto governado. Teal contido, e
+   a seta que só aparece no hover — afordância sem ruído. */
+.ig-deck-link {
+  display: block;
+  border: 1px solid var(--ig-border-subtle);
+  border-radius: 12px;
+  background: linear-gradient(
+    135deg,
+    color-mix(in oklab, var(--ig-accent) 5%, transparent),
+    transparent 70%);
+  transition: border-color 140ms ease, background-color 140ms ease;
+}
+.ig-deck-link:hover {
+  border-color: color-mix(in oklab, var(--ig-accent) 45%, transparent);
+  background: color-mix(in oklab, var(--ig-accent) 7%, transparent);
+}
+.ig-deck-link:hover .ig-deck-link-go {
+  opacity: 1;
+  transform: translate(0, 0);
+}
+.ig-deck-link-go {
+  opacity: 0;
+  transform: translate(-3px, 3px);
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+.ig-deck-link[data-state='missing'] {
+  border-style: dashed;
+  border-color: color-mix(in oklab, var(--ig-warning) 40%, transparent);
+  background: color-mix(in oklab, var(--ig-warning) 4%, transparent);
+}
+.ig-deck-link[data-state='error'] {
+  border-color: color-mix(in oklab, var(--ig-danger) 35%, transparent);
+  background: color-mix(in oklab, var(--ig-danger) 4%, transparent);
+}
+
+/* ── Central de ação ──────────────────────────────────────
+   Uma pilha densa, não uma tabela e não cartões de alerta. A
+   severidade vive no trilho de 2px e no rótulo; o resto da linha é
+   neutro, para que sete pendências não virem sete paredes. */
+.ig-act-row {
+  position: relative;
+  transition: background-color 110ms ease;
+}
+.ig-act-row + .ig-act-row {
+  border-top: 1px solid var(--ig-border-subtle);
+}
+.ig-act-row:hover {
+  background: color-mix(in oklab, var(--ig-fg-subtle) 3.5%, transparent);
+}
+.ig-act-rail {
+  position: absolute;
+  inset-block: 8px;
+  left: 0;
+  width: 2px;
+  border-radius: 999px;
+}
+.ig-act-row[data-severity='critical'] .ig-act-rail { background: var(--ig-danger); }
+.ig-act-row[data-severity='warning']  .ig-act-rail { background: var(--ig-warning); }
+.ig-act-row[data-severity='setup']    .ig-act-rail { background: color-mix(in oklab, var(--ig-accent) 70%, transparent); }
+.ig-act-row[data-severity='info']     .ig-act-rail { background: color-mix(in oklab, var(--ig-info) 60%, transparent); }
+
+.ig-act-tag { letter-spacing: 0.1em; text-transform: uppercase; }
+.ig-act-row[data-severity='critical'] .ig-act-tag { color: var(--ig-danger); }
+.ig-act-row[data-severity='warning']  .ig-act-tag { color: var(--ig-warning); }
+.ig-act-row[data-severity='setup']    .ig-act-tag { color: var(--ig-accent); }
+.ig-act-row[data-severity='info']     .ig-act-tag { color: var(--ig-info); }
+
+/* CTA da linha: fantasma até o hover, para a coluna de ações não
+   competir com o conteúdo das sete linhas ao mesmo tempo. */
+.ig-act-cta {
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: var(--ig-fg-muted);
+  transition: border-color 120ms ease, color 120ms ease, background-color 120ms ease;
+  white-space: nowrap;
+}
+.ig-act-row:hover .ig-act-cta,
+.ig-act-cta:focus-visible {
+  border-color: var(--ig-border-default);
+  color: var(--ig-fg-strong);
+  background: var(--ig-bg-base);
+}
+
+/* ═════════════════════════════════════════════════════════
+   DOSSIÊ — PAINÉIS DE LEITURA (a metade inferior do Resumo)
+
+   Prontidão, Cobertura, Operações conectadas e Instrumentos são
+   quatro superfícies de LEITURA. Elas vinham do `HudPanel`: vidro de
+   cinco camadas por painel, e dentro dele uma caixa `bg-ig-panel/45`
+   por linha — branco a 45% sobre branco, ou seja, nada. O resultado
+   era o halo cinza: molduras que não separam e tinta que não aparece.
+
+   A gramática aqui é a mesma da crista (`.ig-deck`) e da folha da
+   Inteligência (`.ig-ci-sheet`), estendida para baixo:
+
+     · papel OPACO, que corta a névoa do fundo imersivo;
+     · cabeçalho com tinta de acento levíssima e cantos de HUD em 1px;
+     · linhas divididas por fio, nunca emolduradas uma a uma;
+     · o estado mora no ponto, no contêiner do ícone e no rótulo —
+       três sinais redundantes, nenhum deles só cor;
+     · ausência é NEUTRA. Âmbar só quando alguém precisa agir, e
+       jamais para dizer "não apurado".
+
+   Nada aqui usa opacidade sobre token `ig-*`: as utilitárias do
+   Tailwind compilam `bg-ig-panel/45` para transparente em silêncio,
+   porque os tokens são cores inteiras e não canais. `color-mix`.
+   ═════════════════════════════════════════════════════════ */
+
+/* ── O painel ─────────────────────────────────────────────
+   VIDRO, e não mais papel chapado.
+
+   A versão anterior era opaca e sem elevação: quatro retângulos
+   brancos encostados no canvas bege, corretos e sem presença. O que
+   faltava não era mais borda — era MATERIAL. Um painel de comando
+   precisa parecer estar sobre a mesa, não impresso nela.
+
+   A receita tem quatro camadas, e cada uma faz uma coisa só:
+
+     1 · tinta translúcida clara (não cinza) a ~88%, que deixa o
+         fundo atravessar o suficiente para o vidro existir e pouco
+         o bastante para o texto nunca disputar com ele;
+     2 · `backdrop-filter` com SATURAÇÃO acima de 1 — é ela que
+         impede o efeito névoa: desfoque sem saturar devolve
+         exatamente o cinza sujo que este redesenho veio tirar;
+     3 · realce interno de 1px no topo, a luz batendo na quina
+         superior do vidro — é o que dá o milímetro de 3D;
+     4 · duas sombras: uma de CONTATO, curta e quase opaca, que cola
+         a peça na superfície, e uma AMBIENTE, larga e fraca, que
+         diz a que altura ela está. Sombra única sempre escolhe uma
+         das duas e perde a outra.
+
+   Sombra aqui é elevação real, e não separação de conteúdo — a
+   regra do topo deste arquivo continua valendo: o painel tem de
+   permanecer legível se as sombras sumirem, e permanece, porque a
+   borda e a tinta já o fecham. */
+.ig-lp {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: var(--ig-bg-base);
+  border: 1px solid var(--ig-border-subtle);
+  border-radius: 16px;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.05),
+    0 10px 28px -16px rgba(15, 23, 42, 0.12);
+}
+html.light .ig-lp {
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.94) 0%,
+      rgba(252, 253, 255, 0.88) 46%,
+      rgba(248, 251, 253, 0.90) 100%);
+  /* Fria e nítida: borda neutra sobre vidro claro apaga; um traço de
+     slate azulado sustenta a quina sem escurecer a peça. */
+  border-color: rgba(15, 23, 42, 0.10);
+  backdrop-filter: blur(22px) saturate(1.45);
+  -webkit-backdrop-filter: blur(22px) saturate(1.45);
+  box-shadow:
+    /* realce da quina superior — a luz vem de cima */
+    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    /* fio interno frio, que dá espessura ao vidro */
+    inset 0 0 0 1px rgba(255, 255, 255, 0.45),
+    /* contato */
+    0 1px 2px rgba(15, 23, 42, 0.06),
+    0 2px 6px -2px rgba(15, 23, 42, 0.07),
+    /* ambiente */
+    0 18px 40px -22px rgba(15, 23, 42, 0.22),
+    /* halo frio, que descola a peça do bege do canvas */
+    0 0 0 1px rgba(148, 178, 194, 0.07);
+}
+/* Sem suporte a `backdrop-filter`, o vidro vira papel opaco — nunca um
+   retângulo semitransparente com texto por cima do fundo. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  html.light .ig-lp { background: #FFFFFF; }
+}
+
+/* ── Cabeçalho ────────────────────────────────────────────
+   A dobra de identificação do painel. Tinta de acento levíssima que
+   morre no vidro, fio embaixo e os dois cantos em L que assinam a
+   superfície instrumentada. */
+/*
+  Duas camadas de fundo numa declaração só, e a de cima é o FIO.
+
+  O fio que fecha o cabeçalho é um degradê que apaga nas pontas: um
+  traço reto de ponta a ponta reinstala a moldura que o vidro acabou
+  de dissolver. Ele vai como camada de `background` e não como
+  pseudo-elemento porque `::before` e `::after` já carregam os dois
+  cantos de HUD — e cantos são a assinatura, não decoração removível.
+*/
+.ig-lp-head {
+  position: relative;
+  border-radius: 16px 16px 0 0;
+  background:
+    linear-gradient(
+      90deg,
+      transparent 0%,
+      color-mix(in oklab, var(--ig-accent) 24%, var(--ig-border-default)) 16%,
+      color-mix(in oklab, var(--ig-accent) 24%, var(--ig-border-default)) 84%,
+      transparent 100%)
+      bottom left / 100% 1px no-repeat,
+    linear-gradient(
+      180deg,
+      color-mix(in oklab, var(--ig-accent) 6%, transparent) 0%,
+      color-mix(in oklab, var(--ig-accent) 1.5%, transparent) 62%,
+      transparent 100%);
+}
+.ig-lp-head::before,
+.ig-lp-head::after {
+  content: '';
+  position: absolute;
+  top: 8px;
+  width: 12px;
+  height: 12px;
+  pointer-events: none;
+  border-color: color-mix(in oklab, var(--ig-accent) 34%, transparent);
+}
+.ig-lp-head::before {
+  left: 8px;
+  border-top: 1px solid;
+  border-left: 1px solid;
+  border-top-left-radius: 4px;
+}
+.ig-lp-head::after {
+  right: 8px;
+  border-top: 1px solid;
+  border-right: 1px solid;
+  border-top-right-radius: 4px;
+}
+
+/* Marca do painel: quadrado de 26px com o glifo do assunto. Realce
+   interno no topo — a luz vem de cima, como no resto do produto. */
+/* Pastilha de vidro: degradê de cima para baixo, realce na quina
+   superior e uma sombra de contato de 1px. São três linhas de CSS
+   para um objeto de 28px, e são elas que o tiram do plano. */
+.ig-lp-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 9px;
+  color: var(--ig-accent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--ig-accent) 14%, #FFFFFF) 0%,
+    color-mix(in oklab, var(--ig-accent) 7%, #FFFFFF) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    inset 0 0 0 1px color-mix(in oklab, var(--ig-accent) 26%, transparent),
+    0 1px 2px rgba(15, 23, 42, 0.07);
+}
+
+/* ── Régua de resumo ──────────────────────────────────────
+   A faixa logo abaixo do cabeçalho onde vive o número do painel
+   (3/3, 5 de 6). Gelo levíssimo: um degrau de tinta, não uma caixa. */
+/* Faixa RECUADA, não elevada: a métrica do painel fica num degrau de
+   gelo abaixo do vidro, com a sombra interna curta no topo que
+   produz a leitura de "escavado". É o contraponto de profundidade do
+   cabeçalho, que é a parte alta da peça.
+
+   Gelo azulado, e não o cinza de `bg-raised`: cinza sobre vidro
+   translúcido é exatamente a névoa que este redesenho veio remover. */
+.ig-lp-rule {
+  position: relative;
+  border-bottom: 1px solid var(--ig-border-subtle);
+  background: linear-gradient(
+    180deg,
+    rgba(232, 240, 246, 0.72) 0%,
+    rgba(243, 248, 251, 0.45) 100%);
+  box-shadow:
+    inset 0 1px 2px rgba(15, 23, 42, 0.05),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.7);
+}
+
+/* ── Lista de linhas ──────────────────────────────────────
+   Um bloco dividido por fio. Sem borda por linha: doze caixas dentro
+   de uma caixa leem-se como doze objetos onde há uma lista só. */
+.ig-lp-row {
+  position: relative;
+  transition: background-color 140ms ease;
+}
+/* Divisor com contraste real. A 78% do subtle o fio existia no CSS e
+   não na tela — e uma lista sem divisor visível é uma parede de texto,
+   que é metade da sensação de "lavado" que o painel tinha. */
+.ig-lp-row + .ig-lp-row {
+  border-top: 1px solid color-mix(in oklab, var(--ig-fg-subtle) 15%, transparent);
+}
+/* Hover: a linha ACENDE e sobe um fio. O realce interno no topo com a
+   sombra curta embaixo é o mesmo truque do vidro, em escala de linha —
+   custa duas sombras e substitui qualquer animação. */
+.ig-lp-row[data-interactive='true']:hover {
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--ig-accent) 11%, rgba(255, 255, 255, 0.82)) 0%,
+    color-mix(in oklab, var(--ig-accent) 5%, rgba(255, 255, 255, 0.6)) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 1px 3px -1px rgba(15, 23, 42, 0.10);
+}
+.ig-lp-row[data-interactive='true']:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--ig-border-focus);
+}
+/* O trilho de 2px marca o estado sem tingir a linha inteira. Só
+   quando há estado a marcar — ausência não ganha trilho. */
+.ig-lp-row::before {
+  content: '';
+  position: absolute;
+  inset-block: 7px;
+  left: 0;
+  width: 2px;
+  border-radius: 999px;
+  background: transparent;
+}
+.ig-lp-row[data-tone='success']::before { background: color-mix(in oklab, var(--ig-success) 62%, transparent); }
+.ig-lp-row[data-tone='warning']::before { background: color-mix(in oklab, var(--ig-warning) 70%, transparent); }
+.ig-lp-row[data-tone='danger']::before  { background: var(--ig-danger); }
+.ig-lp-row[data-tone='accent']::before  { background: color-mix(in oklab, var(--ig-accent) 62%, transparent); }
+
+/* Contêiner de ícone da linha: 24px, tingido pelo estado. É o que
+   substitui o ícone solto de 14px que sumia no branco. */
+.ig-lp-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  color: var(--ig-fg-default);
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.9) 0%,
+    color-mix(in oklab, var(--ig-fg-subtle) 9%, rgba(255, 255, 255, 0.6)) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    inset 0 0 0 1px color-mix(in oklab, var(--ig-fg-subtle) 20%, transparent),
+    0 1px 1.5px rgba(15, 23, 42, 0.05);
+  transition: color 140ms ease, background 140ms ease, box-shadow 140ms ease;
+}
+.ig-lp-glyph[data-tone='success'] {
+  color: var(--ig-success);
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--ig-success) 8%, #FFFFFF) 0%,
+    color-mix(in oklab, var(--ig-success) 15%, #FFFFFF) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    inset 0 0 0 1px color-mix(in oklab, var(--ig-success) 34%, transparent),
+    0 1px 2px color-mix(in oklab, var(--ig-success) 14%, transparent);
+}
+.ig-lp-glyph[data-tone='warning'] {
+  color: var(--ig-warning);
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--ig-warning) 8%, #FFFFFF) 0%,
+    color-mix(in oklab, var(--ig-warning) 15%, #FFFFFF) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    inset 0 0 0 1px color-mix(in oklab, var(--ig-warning) 34%, transparent),
+    0 1px 2px color-mix(in oklab, var(--ig-warning) 14%, transparent);
+}
+.ig-lp-glyph[data-tone='danger'] {
+  color: var(--ig-danger);
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--ig-danger) 8%, #FFFFFF) 0%,
+    color-mix(in oklab, var(--ig-danger) 15%, #FFFFFF) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    inset 0 0 0 1px color-mix(in oklab, var(--ig-danger) 34%, transparent),
+    0 1px 2px color-mix(in oklab, var(--ig-danger) 14%, transparent);
+}
+.ig-lp-glyph[data-tone='accent'] {
+  color: var(--ig-accent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--ig-accent) 8%, #FFFFFF) 0%,
+    color-mix(in oklab, var(--ig-accent) 15%, #FFFFFF) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    inset 0 0 0 1px color-mix(in oklab, var(--ig-accent) 34%, transparent),
+    0 1px 2px color-mix(in oklab, var(--ig-accent) 14%, transparent);
+}
+/* Desligado: o módulo não existe no produto. Tracejado, não apagado —
+   apagar diria "sem importância"; tracejado diz "sem ligação". */
+.ig-lp-glyph[data-tone='off'] {
+  color: var(--ig-fg-muted);
+  background: transparent;
+  box-shadow: none;
+  border: 1px dashed color-mix(in oklab, var(--ig-fg-subtle) 42%, transparent);
+}
+.ig-lp-row[data-interactive='true']:hover .ig-lp-glyph[data-tone='idle'] {
+  color: var(--ig-accent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--ig-accent) 6%, #FFFFFF) 0%,
+    color-mix(in oklab, var(--ig-accent) 13%, #FFFFFF) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    inset 0 0 0 1px color-mix(in oklab, var(--ig-accent) 30%, transparent),
+    0 1px 2px color-mix(in oklab, var(--ig-accent) 14%, transparent);
+}
+
+/* ── Coluna de estado ─────────────────────────────────────
+   Largura fixa e alinhamento constante: é a coluna que o olho desce
+   para varrer o painel, e ela não pode dançar de linha em linha.
+   Ponto + rótulo — quem não distingue a cor continua lendo o estado. */
+.ig-lp-state {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  color: var(--ig-fg-muted);
+}
+.ig-lp-state > i {
+  width: 5px;
+  height: 5px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--ig-fg-subtle) 55%, transparent);
+}
+.ig-lp-state[data-tone='success'] { color: var(--ig-success); }
+.ig-lp-state[data-tone='success'] > i { background: var(--ig-success); }
+.ig-lp-state[data-tone='warning'] { color: var(--ig-warning); }
+.ig-lp-state[data-tone='warning'] > i { background: var(--ig-warning); }
+.ig-lp-state[data-tone='danger']  { color: var(--ig-danger); }
+.ig-lp-state[data-tone='danger']  > i { background: var(--ig-danger); }
+.ig-lp-state[data-tone='accent']  { color: var(--ig-accent); }
+.ig-lp-state[data-tone='accent']  > i { background: var(--ig-accent); }
+/* Não apurado / não se aplica: cinza legível, ponto OCO. O anel vazio
+   é a forma de dizer "não há leitura" sem inventar severidade. */
+.ig-lp-state[data-tone='idle'] > i,
+.ig-lp-state[data-tone='off'] > i {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px color-mix(in oklab, var(--ig-fg-subtle) 80%, transparent);
+}
+/* Cinza LEGÍVEL. `fg-subtle` sobre vidro claro é o cinza lavado que
+   fazia "Não integrado" desaparecer; `fg-muted` mantém o estado num
+   degrau abaixo do dado sem apagá-lo. */
+.ig-lp-state[data-tone='off'] { color: var(--ig-fg-muted); }
+
+/* Seta da linha: fantasma até o hover. Doze setas acesas ao mesmo
+   tempo competem com o conteúdo que elas deveriam servir. */
+.ig-lp-go {
+  opacity: 0;
+  transform: translateX(-3px);
+  transition: opacity 140ms ease, transform 140ms ease, color 140ms ease;
+  color: var(--ig-fg-subtle);
+}
+.ig-lp-row[data-interactive='true']:hover .ig-lp-go,
+.ig-lp-row[data-interactive='true']:focus-visible .ig-lp-go {
+  opacity: 1;
+  transform: translateX(0);
+  color: var(--ig-accent);
+}
+
+/* ── Medidor segmentado ───────────────────────────────────
+   Uma barra por dimensão, não uma barra contínua: a leitura é "5 de 6
+   dimensões", e uma barra lisa sugeriria uma porcentagem contínua que
+   cobertura não é. O segmento não apurado fica VAZIO com contorno —
+   cinza chapado leria como "medido e deu zero". */
+.ig-lp-meter {
+  display: flex;
+  gap: 3px;
+  height: 6px;
+}
+/* Segmento não apurado: canaleta ESCAVADA e vazia — sombra interna,
+   sem preenchimento. Cinza chapado leria como "medido e deu zero", e
+   contorno de 1px sozinho sumia sobre o vidro. */
+.ig-lp-meter > i {
+  flex: 1 1 0;
+  border-radius: 3px;
+  background: rgba(15, 23, 42, 0.035);
+  box-shadow:
+    inset 0 1px 1.5px rgba(15, 23, 42, 0.12),
+    inset 0 0 0 1px rgba(15, 23, 42, 0.06);
+  transition: background 160ms ease, box-shadow 160ms ease;
+}
+/* Apurado: pastilha cheia, com brilho no topo e sombra própria. */
+.ig-lp-meter > i[data-on='assessed'] {
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--ig-accent) 76%, #FFFFFF) 0%,
+    var(--ig-accent) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.45),
+    0 1px 2px color-mix(in oklab, var(--ig-accent) 30%, transparent);
+}
+.ig-lp-meter > i[data-on='attention'] {
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--ig-warning) 74%, #FFFFFF) 0%,
+    var(--ig-warning) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.45),
+    0 1px 2px color-mix(in oklab, var(--ig-warning) 30%, transparent);
+}
+
+/* ── Célula interna ───────────────────────────────────────
+   O degrau de gelo para blocos DENTRO do painel (valor original vs.
+   vigente). Tinta e fio; nunca sombra — isto não flutua. */
+/* A célula é ESCAVADA no painel, não empilhada sobre ele. Um cartão
+   dentro de um cartão dá dois objetos flutuando; um recuo dá dois
+   níveis. Gelo azulado no topo, branco embaixo, sombra interna curta
+   na quina superior e um realce de 1px na inferior — a luz de cima
+   bate na borda de baixo do recuo, e é isso que fecha a ilusão. */
+.ig-lp-tile {
+  border: 1px solid rgba(15, 23, 42, 0.09);
+  border-radius: 12px;
+  background: linear-gradient(
+    180deg,
+    rgba(234, 242, 248, 0.82) 0%,
+    rgba(252, 253, 255, 0.92) 78%,
+    rgba(255, 255, 255, 0.95) 100%);
+  box-shadow:
+    inset 0 1px 2px rgba(15, 23, 42, 0.055),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.9);
+}
+/* A dobra entre "original" e "vigente" dentro da célula. */
+.ig-lp-tile-split {
+  border-top: 1px dashed color-mix(in oklab, var(--ig-fg-subtle) 26%, transparent);
+}
+
+/* ── Cadeia de instrumentos ───────────────────────────────
+   O mestre é o primeiro elo; cada aditivo pendura-se nele. A linhagem
+   é desenhada com um fio vertical e um nó por instrumento — é a forma
+   mais barata de dizer "este documento modifica aquele". */
+.ig-lp-chain {
+  position: relative;
+}
+.ig-lp-chain > li {
+  position: relative;
+}
+/* Fio descendo do nó de cada elo até o próximo. O último não desce. */
+.ig-lp-chain > li:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  /* Centro do nó: 4px de recuo da linha + metade dos 26px do anel. */
+  left: 16px;
+  top: 30px;
+  bottom: -2px;
+  width: 1px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--ig-accent) 34%, transparent),
+    color-mix(in oklab, var(--ig-fg-subtle) 22%, transparent));
+  pointer-events: none;
+}
+/* O nó: anel preenchido no mestre, anel oco no aditivo ainda sem
+   efeito. A geometria carrega o estado junto com a cor. */
+.ig-lp-node {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #FFFFFF 0%, #F1F5F9 100%);
+  color: var(--ig-fg-muted);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    inset 0 0 0 1px color-mix(in oklab, var(--ig-fg-subtle) 34%, transparent),
+    0 1px 2px rgba(15, 23, 42, 0.06);
+}
+.ig-lp-node[data-tone='master'] {
+  color: var(--ig-accent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--ig-accent) 7%, #FFFFFF) 0%,
+    color-mix(in oklab, var(--ig-accent) 16%, #FFFFFF) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    inset 0 0 0 1px color-mix(in oklab, var(--ig-accent) 44%, transparent),
+    0 1px 3px color-mix(in oklab, var(--ig-accent) 22%, transparent);
+}
+.ig-lp-node[data-tone='applied'] {
+  color: var(--ig-success);
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--ig-success) 7%, #FFFFFF) 0%,
+    color-mix(in oklab, var(--ig-success) 16%, #FFFFFF) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    inset 0 0 0 1px color-mix(in oklab, var(--ig-success) 44%, transparent),
+    0 1px 3px color-mix(in oklab, var(--ig-success) 22%, transparent);
+}
+.ig-lp-node[data-tone='warning'] {
+  color: var(--ig-warning);
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--ig-warning) 7%, #FFFFFF) 0%,
+    color-mix(in oklab, var(--ig-warning) 16%, #FFFFFF) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    inset 0 0 0 1px color-mix(in oklab, var(--ig-warning) 44%, transparent),
+    0 1px 3px color-mix(in oklab, var(--ig-warning) 22%, transparent);
+}
+
+/* ── Etiqueta técnica ─────────────────────────────────────
+   Metadado documental (assinado · em vigor · análise). Caixa alta
+   curta e tracking aberto: lê-se como carimbo, não como frase. */
+.ig-lp-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 5px;
+  padding: 1.5px 6px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ig-fg-muted);
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.85) 0%,
+    color-mix(in oklab, var(--ig-fg-subtle) 10%, rgba(255, 255, 255, 0.6)) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    inset 0 0 0 1px color-mix(in oklab, var(--ig-fg-subtle) 20%, transparent);
+}
+.ig-lp-tag[data-tone='success'] {
+  color: color-mix(in oklab, var(--ig-success) 88%, #000000);
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--ig-success) 6%, #FFFFFF) 0%,
+    color-mix(in oklab, var(--ig-success) 13%, #FFFFFF) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    inset 0 0 0 1px color-mix(in oklab, var(--ig-success) 32%, transparent);
+}
+.ig-lp-tag[data-tone='warning'] {
+  color: color-mix(in oklab, var(--ig-warning) 88%, #000000);
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--ig-warning) 6%, #FFFFFF) 0%,
+    color-mix(in oklab, var(--ig-warning) 13%, #FFFFFF) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    inset 0 0 0 1px color-mix(in oklab, var(--ig-warning) 32%, transparent);
+}
+.ig-lp-tag[data-tone='accent'] {
+  color: color-mix(in oklab, var(--ig-accent) 88%, #000000);
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--ig-accent) 6%, #FFFFFF) 0%,
+    color-mix(in oklab, var(--ig-accent) 13%, #FFFFFF) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    inset 0 0 0 1px color-mix(in oklab, var(--ig-accent) 32%, transparent);
+}
+
+/* ── Botão secundário do cabeçalho ────────────────────────*/
+.ig-lp-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid rgba(15, 23, 42, 0.14);
+  border-radius: 9px;
+  background: linear-gradient(180deg, #FFFFFF 0%, #F4F7FA 100%);
+  color: var(--ig-fg-strong);
+  white-space: nowrap;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 1px 2px rgba(15, 23, 42, 0.07);
+  transition: border-color 140ms ease, background 140ms ease, color 140ms ease,
+    box-shadow 140ms ease, transform 140ms ease;
+}
+.ig-lp-action:hover {
+  border-color: color-mix(in oklab, var(--ig-accent) 52%, transparent);
+  background: linear-gradient(
+    180deg,
+    #FFFFFF 0%,
+    color-mix(in oklab, var(--ig-accent) 9%, #FFFFFF) 100%);
+  color: var(--ig-accent);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 2px 6px -1px color-mix(in oklab, var(--ig-accent) 26%, transparent);
+}
+/* O clique afunda 1px. É o único deslocamento da peça, e ele responde
+   a um ato do usuário — não decora estado nenhum. */
+.ig-lp-action:active {
+  transform: translateY(1px);
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.12);
+}
+
+/* ── Aviso dentro do painel ───────────────────────────────
+   Fio âmbar à esquerda e tinta a 5%. Caixa inteira em âmbar dentro de
+   um painel branco vira parede; o fio diz o mesmo com 2px. */
+/* Atenção com compostura: o âmbar vive no fio de 2px e numa tinta
+   que mal existe. Caixa inteira em âmbar dentro de um painel claro
+   vira parede, e sete paredes numa tela ensinam a ignorar a oitava. */
+.ig-lp-notice {
+  border-left: 2px solid var(--ig-warning);
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklab, var(--ig-warning) 9%, rgba(255, 255, 255, 0.5)) 0%,
+    color-mix(in oklab, var(--ig-warning) 3%, rgba(255, 255, 255, 0.4)) 100%);
+  border-radius: 0 9px 9px 0;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+/* Ardósia FRIA, e não preto diluído: alfa de preto sobre vidro claro é
+   literalmente o cinza sujo que este redesenho veio remover. */
+.ig-lp-notice[data-tone='neutral'] {
+  border-left-color: color-mix(in oklab, var(--ig-fg-subtle) 58%, transparent);
+  background: linear-gradient(
+    90deg,
+    rgba(226, 236, 244, 0.78) 0%,
+    rgba(240, 246, 250, 0.35) 100%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ig-lp-row,
+  .ig-lp-glyph,
+  .ig-lp-go,
+  .ig-lp-meter > i,
+  .ig-lp-action {
+    transition: none;
+  }
+  .ig-lp-action:active { transform: none; }
+}
+
+/* Estado APURADO sem severidade: ponto cheio neutro e texto forte. É o
+   degrau que faltava entre "não apurado" (ponto oco, cinza) e os tons
+   semânticos — "12 documentos em conformidade" é um dado, não um alerta,
+   mas também não é uma ausência, e lê-se com o peso de dado. */
+.ig-lp-state[data-tone='measured'] { color: var(--ig-fg-strong); font-weight: 600; }
+.ig-lp-state[data-tone='measured'] > i {
+  background: color-mix(in oklab, var(--ig-fg-subtle) 70%, transparent);
+}

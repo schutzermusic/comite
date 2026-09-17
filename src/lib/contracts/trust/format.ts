@@ -59,6 +59,18 @@ export const SHORT_FALLBACK = {
   error: 'indisponível',
 } as const;
 
+/**
+ * Quantia compacta a partir de um número cru.
+ *
+ * Existe para que nenhuma superfície precise (ou consiga) declarar o seu
+ * próprio `Intl.NumberFormat` compacto. Já houve três cópias idênticas destas
+ * opções no módulo de Contratos, e três cópias é a distância exata entre o
+ * produto e o dia em que duas telas arredondam o mesmo contrato diferente.
+ */
+export function compactContractCurrency(value: number): string {
+  return CURRENCY_COMPACT.format(value);
+}
+
 /** Quantia compacta (R$ 1,2 mi) ou o rótulo do estado. */
 export function officialCurrencyCompact(t: Official<number>): string {
   return renderOfficial(t, {
