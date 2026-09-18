@@ -3,6 +3,7 @@ import { platformServiceClient } from '@/lib/platform/server-client';
 import { scheduleFastDrain } from '@/lib/platform/jobs/fast-path';
 import { logAuditEventServer } from '@/lib/audit/log-audit-event-server';
 import { requireContractOnboardingSession } from '@/lib/contracts/onboarding/server-auth';
+import { ONBOARDING_STORAGE_BUCKET } from '@/lib/contracts/onboarding/upload-paths';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -46,6 +47,41 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   if (error) return NextResponse.json({ ok: false, error: 'Não foi possível tentar novamente.' }, { status: 400 });
   scheduleFastDrain('contract-onboarding-retry');
   return NextResponse.json({ ok: true, ...(data as object) }, { status: 202 });
+}
+
+/**
+ * Exclui de verdade um cadastro em andamento: apaga a linha, encerra o job
+ * pendente e remove o PDF do Storage. Não deixa rastro CANCELLED.
+ */
+export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireContractOnboardingSession();
+  if ('error' in auth) return auth.error;
+  const { id } = await params;
+  const service = platformServiceClient();
+  const { data, error } = await service.rpc('contract_onboarding_cancel', {
+    p_organization_id: auth.organizationId, p_intake_id: id, p_actor: auth.user.id,
+  });
+  if (error) {
+    const denied = /not found|denied|can no longer/i.test(error.message);
+    return NextResponse.json(
+      { ok: false, error: denied ? 'Não foi possível excluir este cadastro.' : error.message },
+      { status: denied ? 404 : 400 },
+    );
+  }
+  const result = data as { intake_id?: string; deleted?: boolean; file_path?: string };
+  if (typeof result.file_path === 'string' && result.file_path.trim()) {
+    try {
+      await service.storage.from(ONBOARDING_STORAGE_BUCKET).remove([result.file_path]);
+    } catch { /* best-effort: a linha já foi apagada */ }
+  }
+  await logAuditEventServer({
+    organizationId: auth.organizationId,
+    action: 'contract.onboarding_deleted',
+    entityType: 'contract_onboarding_intake',
+    entityId: id,
+    metadata: { deleted: true, file_path: result.file_path ?? null },
+  }, req.headers);
+  return NextResponse.json({ ok: true, deleted: true, intakeId: result.intake_id ?? id });
 }
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {

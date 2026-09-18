@@ -384,6 +384,14 @@ describe('Fase 7 · migrations aplicadas não são editadas', () => {
         '166',
         // ---- acabamento de produção + responsabilidade canônica de People ----
         '167',
+        // ---- procedência de execução e recuperação do Apex ----
+        '168',
+        // ---- número de OS, leitura de documentos, bancada de marcos ----
+        '169', '170', '171', '172',
+        // ---- cancelamento de onboarding ----
+        '173',
+        // ---- read-models sem DML; projeção contrato↔projeto; local canônico ----
+        '174', '175', '176', '177', '178',
       ]);
     // 090 continua arquivada, nunca aplicada.
     expect(versions).not.toContain('090');

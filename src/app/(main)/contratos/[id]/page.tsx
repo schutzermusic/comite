@@ -1521,7 +1521,6 @@ function SummaryTab({ trusted, contractNotes }: { trusted: TrustedContract; cont
           <div className="grid gap-3 md:grid-cols-2">
             <Metric label="Código" value={trusted.code} />
             <Metric label="Tipo" value={text(trusted.contractType, 'Não informado')} />
-            <Metric label="Contraparte" value={text(trusted.counterparty, 'Não informada')} />
             <Metric label="Valor total" value={officialCurrencyCompact(trusted.totalValue)} />
           </div>
           {contractNotes && (

@@ -13,7 +13,7 @@
  * ─── A pergunta que ela responde, em uma tela ──────────────────────────────
  *
  *   Que contrato é este?          → identidade, com o número como âncora
- *   Com quem?                     → contraparte, ao lado do número
+ *   De que tipo?                  → tipo do contrato, sob o título
  *   Em que estado?                → chips de assinatura e risco
  *   Quanto vale?                  → valor contratado, a voz dominante
  *   Como está indo?               → faturado, backlog, execução
@@ -129,25 +129,18 @@ export function ContractCommandDeck({
             <h1 className="mt-0.5 text-ig-h1 font-semibold text-ig-fg-strong">{title}</h1>
 
             <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-2">
+              {/*
+                Tipo no lugar da contraparte: o título já identifica o
+                instrumento; repetir a parte contrária competia com ele.
+              */}
               <span className="truncate text-ig-body-sm text-ig-fg-muted">
                 <TrustedValue
-                  value={contract.counterparty}
+                  value={contract.contractType}
                   format={(v) => v}
                   size="sm"
-                  missingLabel="Contraparte não informada"
+                  missingLabel="Tipo não informado"
                 />
               </span>
-              {/*
-                O ponto separador anda GRUDADO no que ele separa. Solto entre
-                dois spans, ele quebrava linha sozinho no telefone e a segunda
-                linha começava com "· Prestação de serviços".
-              */}
-              {hasOfficialValue(contract.contractType) && (
-                <span className="truncate text-ig-body-sm text-ig-fg-muted">
-                  <span className="text-ig-fg-subtle" aria-hidden>· </span>
-                  {contract.contractType.value}
-                </span>
-              )}
               {/*
                 Signal Chip do sistema. Era a cápsula outline legada — raio
                 999px com um ponto colorido de 5px —, a peça que o produto

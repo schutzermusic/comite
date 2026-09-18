@@ -96,8 +96,8 @@ export function ControlCanvas({
     onStateContextChange(state);
   }, [onStateContextChange]);
 
-  const handleProjectOpen = useCallback((projectId: string, uf: string) => {
-    router.push(`/projects?projectId=${projectId}&state=${uf}`);
+  const handleProjectOpen = useCallback((projectId: string, _uf: string) => {
+    router.push(`/projetos/${projectId}`);
   }, [router]);
 
   return (

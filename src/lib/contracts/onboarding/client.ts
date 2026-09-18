@@ -82,6 +82,11 @@ export async function retryContractIntake(id: string): Promise<void> {
   await json(await fetch(`/api/contracts/onboarding/${id}`, { method: 'POST' }));
 }
 
+/** Exclui de verdade um cadastro em andamento (linha + PDF no Storage). */
+export async function cancelContractIntake(id: string): Promise<void> {
+  await json(await fetch(`/api/contracts/onboarding/${id}`, { method: 'DELETE' }));
+}
+
 export async function finalizeContractIntake(id: string, values: Record<string, unknown>): Promise<{ contractId: string }> {
   return json(await fetch(`/api/contracts/onboarding/${id}`, {
     method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(values),

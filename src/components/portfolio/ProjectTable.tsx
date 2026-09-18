@@ -15,6 +15,8 @@ import { formatProjectStatus, projectStatusVariant } from '@/lib/projects/status
 interface ProjectTableProps {
   projects: Project[];
   v2Map: Map<string, ProjectV2>;
+  /** Valor contratual governado por projectId (quando o JSONB está zerado). */
+  contractValuesByProjectId?: ReadonlyMap<string, number>;
   onView: (p: Project) => void;
   onDelete: (id: string) => void;
   highlightedId?: string | null;
@@ -30,10 +32,16 @@ const IMPACT_COLOR: Record<string, string> = {
 export function ProjectTable({
   projects,
   v2Map,
+  contractValuesByProjectId,
   onView,
   onDelete,
   highlightedId,
 }: ProjectTableProps) {
+  const displayValue = (p: Project) => {
+    const stored = Math.max(0, p.valor_total || 0);
+    if (stored > 0) return stored;
+    return Math.max(0, contractValuesByProjectId?.get(p.id) ?? 0);
+  };
   return (
     <div className="glass-tile glass-tile-elevated glass-tile-sheen overflow-hidden">
       <div className="max-h-[70vh] overflow-auto">
@@ -100,7 +108,7 @@ export function ProjectTable({
                   </Td>
                   <Td align="right">
                     <span className="font-semibold tabular-nums hud-text">
-                      {compactBRL(p.valor_total || 0)}
+                      {compactBRL(displayValue(p))}
                     </span>
                   </Td>
                   <Td>

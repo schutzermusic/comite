@@ -17,6 +17,10 @@ import {
 import type { Project } from '@/lib/types';
 import type { ProjectV2 } from '@/lib/types/project-v2';
 import { useCurrentUser } from '@/hooks/use-current-user';
+import {
+  listProjectContractValues,
+  resolveProjectContractValue,
+} from '@/lib/projects/contract/project-contract-service';
 
 import { HudPageLayout, HudEmptyState } from '@/components/hud';
 import {
@@ -54,6 +58,9 @@ function PortfolioProjetosInner() {
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectsV2, setProjectsV2] = useState<ProjectV2[]>([]);
+  const [contractValuesByProjectId, setContractValuesByProjectId] = useState<ReadonlyMap<string, number>>(
+    () => new Map(),
+  );
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [projectDrawerOpen, setProjectDrawerOpen] = useState(false);
 
@@ -61,14 +68,20 @@ function PortfolioProjetosInner() {
     let active = true;
     async function loadProjects() {
       try {
-        const [loadedProjects, loadedProjectsV2] = await Promise.all([
+        const [loadedProjects, loadedProjectsV2, contractValues] = await Promise.all([
           getProjectsAsync(),
           getProjectsV2Async(),
+          listProjectContractValues().catch(
+            () => new Map<string, { contractValue: number; currency: string | null }>(),
+          ),
         ]);
         if (!active) return;
         const useDemoFixtures = organization?.is_demo === true && loadedProjects.length === 0;
         setProjects(useDemoFixtures ? getProjects() : loadedProjects);
         setProjectsV2(useDemoFixtures ? getProjectsV2() : loadedProjectsV2);
+        const values = new Map<string, number>();
+        contractValues.forEach((v, id) => values.set(id, v.contractValue));
+        setContractValuesByProjectId(values);
       } catch (error) {
         toast({
           title: 'Não foi possível carregar projetos',
@@ -81,7 +94,7 @@ function PortfolioProjetosInner() {
     return () => {
       active = false;
     };
-  }, [organization?.id, organization?.is_demo]);
+  }, [organization?.id, organization?.is_demo, toast]);
 
   useEffect(() => {
     const stateFromParam = stateParam || ufParam;
@@ -182,7 +195,10 @@ function PortfolioProjetosInner() {
     const total = list.length;
     const inProgress = list.filter((p) => p.status === 'em_andamento').length;
     const completed = list.filter((p) => p.status === 'concluido').length;
-    const totalValue = list.reduce((s, p) => s + (p.valor_total || 0), 0);
+    const totalValue = list.reduce(
+      (s, p) => s + resolveProjectContractValue(p.id, p.valor_total, contractValuesByProjectId),
+      0,
+    );
     const critical = list.filter(
       (p) => p.impacto_financeiro === 'alto' || p.impacto_financeiro === 'critico',
     ).length;
@@ -211,7 +227,7 @@ function PortfolioProjetosInner() {
     );
 
     return { total, inProgress, completed, delayed, critical, totalValue, avgHealth, avgProgress, openRisks };
-  }, [filteredProjects, v2Map]);
+  }, [filteredProjects, v2Map, contractValuesByProjectId]);
 
   const filterGroups: ProjectFilterGroup[] = useMemo(
     () => [
@@ -347,7 +363,7 @@ function PortfolioProjetosInner() {
       p.cliente,
       // Valor canônico, e vazio quando não há fase — nunca a string "undefined".
       p.status ?? '',
-      p.valor_total,
+      resolveProjectContractValue(p.id, p.valor_total, contractValuesByProjectId),
       `${p.progresso_percentual}%`,
       p.comite_nome || 'Sem supervisão',
     ]);
@@ -440,6 +456,7 @@ function PortfolioProjetosInner() {
               key={p.id}
               project={p}
               v2={v2Map.get(p.id)}
+              contractValue={contractValuesByProjectId.get(p.id) ?? null}
               onView={handleOpenProject}
               onDelete={handleDeleteClick}
               delay={Math.min(i * 0.04, 0.4)}
@@ -450,6 +467,7 @@ function PortfolioProjetosInner() {
         <ProjectTable
           projects={filteredProjects}
           v2Map={v2Map}
+          contractValuesByProjectId={contractValuesByProjectId}
           onView={handleOpenProject}
           onDelete={handleDeleteClick}
           highlightedId={highlightedProjectId}
@@ -460,6 +478,15 @@ function PortfolioProjetosInner() {
         project={selectedProject}
         open={projectDrawerOpen}
         onOpenChange={setProjectDrawerOpen}
+        contractValue={
+          selectedProject
+            ? resolveProjectContractValue(
+                selectedProject.id,
+                selectedProject.valor_total,
+                contractValuesByProjectId,
+              )
+            : null
+        }
         onLogoUpload={async (projectId, file) => {
           try {
             const url = file ? (await uploadProjectFile(projectId, file, 'logo')).publicUrl : null;

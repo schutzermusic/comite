@@ -5,7 +5,7 @@
  *
  * Três dobras, não cinco:
  *
- *   IDENTIDADE   contraparte, código e os sinais (status, risco, projeto)
+ *   IDENTIDADE   título, tipo, código e os sinais (status, risco, projeto)
  *   EXPOSIÇÃO    valor, execução, faturado/backlog
  *   RODAPÉ       módulos conectados, saúde, atenção e a saída
  *
@@ -90,10 +90,14 @@ export function ContractInstrumentCard({
   const attention = attentionItems(c, now);
   const critical = attention.filter((a) => a.severity === 'critical').length;
 
-  const counterparty = text(c.counterparty, 'Contraparte não informada');
+  const contractType = text(c.contractType, 'Tipo não informado');
   const linked = hasOfficialValue(c.project);
   const logoUrl = linked ? c.project.value.clientLogoUrl : undefined;
-  const logoClient = linked && c.project.value.cliente ? c.project.value.cliente : counterparty;
+  // Logo ainda usa a contraparte (ou cliente do projeto) só como âncora visual —
+  // o nome não é impresso no card para não competir com o título.
+  const logoClient = linked && c.project.value.cliente
+    ? c.project.value.cliente
+    : text(c.counterparty, c.title);
 
   return (
     <motion.article
@@ -179,9 +183,9 @@ export function ContractInstrumentCard({
             </div>
 
             <h3 className="mt-1 truncate text-ig-h2 leading-tight text-ig-fg-strong">
-              {counterparty}
+              {c.title}
             </h3>
-            <p className="mt-0.5 truncate text-ig-caption text-ig-fg-muted">{c.title}</p>
+            <p className="mt-0.5 truncate text-ig-caption text-ig-fg-muted">{contractType}</p>
 
             {/*
               Status, risco, vigência e PROJETO na mesma régua de sinais, todos

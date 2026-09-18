@@ -458,15 +458,14 @@ export function ContractDossierDrawer({
     >
       <div className="space-y-2.5">
         {/* ── 1 · Resumo — o único bloco sempre visível ─────────────────────
-            Contraparte, projeto, valor e execução. Nada além disto compete
-            pelo primeiro olhar. */}
+            Tipo, projeto, valor e execução. Nada além disto compete pelo
+            primeiro olhar. Contraparte permanece nos formulários e na ficha. */}
         {trusted ? (
           <section className="ig-lp overflow-hidden" aria-label="Resumo do contrato">
             <div className="grid grid-cols-2 gap-x-1 px-1.5 py-2">
               <SummaryTile
-                label="Contraparte"
-                value={hasOfficialValue(trusted.counterparty) ? trusted.counterparty.value : 'Não informada'}
-                sub={hasOfficialValue(trusted.contractType) ? trusted.contractType.value : undefined}
+                label="Tipo"
+                value={hasOfficialValue(trusted.contractType) ? trusted.contractType.value : 'Não informado'}
               />
               {linkedProject ? (
                 <SummaryTile

@@ -52,6 +52,8 @@ import { openProjectOverviewReport } from '@/lib/reports/modules/project-overvie
 import {
   formatProjectStatus, isProjectStatus, type ProjectStatus,
 } from '@/lib/projects/status';
+import { getProjectContractProjection } from '@/lib/projects/contract/project-contract-service';
+import type { ProjectContractFinancial } from '@/lib/projects/contract/project-contract-types';
 
 export default function DetalheProjetoPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
@@ -64,6 +66,7 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
   })();
   const [projeto, setProjeto] = useState<Awaited<ReturnType<typeof getProjectByIdAsync>>>(undefined);
   const [projetoV2, setProjetoV2] = useState<ProjectV2 | undefined>(undefined);
+  const [contractFinancial, setContractFinancial] = useState<ProjectContractFinancial | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState(initialTab);
   const [scanningAdvanced, setScanningAdvanced] = useState(false);
@@ -86,15 +89,18 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
 
   const reloadProject = useCallback(async () => {
     try {
-      const [loadedProjeto, v2] = await Promise.all([
+      const [loadedProjeto, v2, projection] = await Promise.all([
         getProjectByIdAsync(id),
         getProjectV2ByIdAsync(id),
+        getProjectContractProjection(id).catch(() => ({ financial: null, milestones: [] })),
       ]);
       setProjeto(loadedProjeto);
       setProjetoV2(v2);
+      setContractFinancial(projection.financial);
     } catch (error) {
       console.error('Erro ao carregar projeto:', error);
       setProjeto(undefined);
+      setContractFinancial(null);
     } finally {
       setLoading(false);
     }
@@ -180,6 +186,53 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
     : null;
   const clientLogoUrl = getClientLogoUrl(projeto.cliente, projeto.clientLogoUrl);
 
+  /*
+    KPIs de receita: preferir a projeção governada do contrato quando a cópia
+    em `project_v2.revenue` está zerada. Não gravamos o valor no JSONB — só
+    lemos a visão. Faturado permanece o que Finanças registrou (ou zero).
+  */
+  const copiedContractCents = projetoV2?.revenue?.totalContracted?.amountCents ?? 0;
+  const governedContractValue = contractFinancial?.contractValue ?? null;
+  const displayContractTotal =
+    copiedContractCents > 0
+      ? formatMoney(projetoV2!.revenue!.totalContracted, true)
+      : governedContractValue != null
+        ? new Intl.NumberFormat('pt-BR', {
+            style: 'currency',
+            currency: contractFinancial?.currency || 'BRL',
+          }).format(governedContractValue)
+        : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(
+            projeto.valor_total || 0,
+          );
+  const displayBilled = projetoV2?.revenue
+    ? formatMoney(projetoV2.revenue.billed, true)
+    : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(
+        projeto.valor_executado || 0,
+      );
+  const billedAmount = (projetoV2?.revenue?.billed?.amountCents ?? 0) / 100;
+  const toBillAmount =
+    copiedContractCents > 0
+      ? (projetoV2?.revenue?.toBill?.amountCents ?? 0) / 100
+      : governedContractValue != null
+        ? Math.max(governedContractValue - billedAmount, 0)
+        : Math.max((projeto.valor_total || 0) - (projeto.valor_executado || 0), 0);
+  const displayToBill =
+    copiedContractCents > 0 && projetoV2?.revenue
+      ? formatMoney(projetoV2.revenue.toBill, true)
+      : new Intl.NumberFormat('pt-BR', {
+          style: 'currency',
+          currency: contractFinancial?.currency || 'BRL',
+        }).format(toBillAmount);
+  const contractSourceLabel = contractFinancial
+    ? `Fonte: Contrato ${contractFinancial.contractNumber}`
+    : projetoV2?.revenue?.updatedAt
+      ? `Fonte: Contrato · ${new Date(projetoV2.revenue.updatedAt).toLocaleDateString('pt-BR', {
+          day: '2-digit',
+          month: '2-digit',
+          year: '2-digit',
+        })}`
+      : 'Fonte: Contrato · —';
+
   return (
     <HudPageLayout maxWidth="full">
       <div className="w-full max-w-none space-y-6">
@@ -248,9 +301,25 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
                   progressPercent: projeto.progresso_percentual ?? 0,
                   healthScore: projetoV2?.health_score,
                   healthReasons: projetoV2?.health_reasons,
-                  revenue: projetoV2?.revenue
-                    ? { totalContracted: projetoV2.revenue.totalContracted, billed: projetoV2.revenue.billed, toBill: projetoV2.revenue.toBill }
-                    : undefined,
+                  revenue: (() => {
+                    if (copiedContractCents > 0 && projetoV2?.revenue) {
+                      return {
+                        totalContracted: projetoV2.revenue.totalContracted,
+                        billed: projetoV2.revenue.billed,
+                        toBill: projetoV2.revenue.toBill,
+                      };
+                    }
+                    if (governedContractValue != null) {
+                      const currency = contractFinancial?.currency || 'BRL';
+                      const toCents = (v: number) => Math.round(v * 100);
+                      return {
+                        totalContracted: { amountCents: toCents(governedContractValue), currency },
+                        billed: { amountCents: toCents(billedAmount), currency },
+                        toBill: { amountCents: toCents(toBillAmount), currency },
+                      };
+                    }
+                    return undefined;
+                  })(),
                   finance: projetoV2?.finance
                     ? { bac: projetoV2.finance.bac, ac: projetoV2.finance.ac, eac: projetoV2.finance.eac, variancePercent: projetoV2.finance.variancePercent }
                     : undefined,
@@ -311,25 +380,15 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
                       <DollarSign className="mb-2 h-4 w-4 text-ig-accent" />
                       <p className="text-ig-caption font-medium text-ig-fg-muted">Contrato Total (Receita)</p>
                       <p className="mt-1 text-ig-kpi-md font-semibold text-ig-fg-strong tabular-nums">
-                        {projetoV2?.revenue
-                          ? formatMoney(projetoV2.revenue.totalContracted, true)
-                          : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(projeto.valor_total || 0)
-                        }
+                        {displayContractTotal}
                       </p>
-                      <p className="mt-1 text-[10px] text-ig-fg-muted">
-                        Fonte: Contrato · {projetoV2?.revenue?.updatedAt
-                          ? new Date(projetoV2.revenue.updatedAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' })
-                          : '—'}
-                      </p>
+                      <p className="mt-1 text-[10px] text-ig-fg-muted">{contractSourceLabel}</p>
                     </div>
                     <div className="rounded-lg border border-ig-border-subtle bg-ig-panel/70 p-4">
                       <TrendingUp className="mb-2 h-4 w-4 text-ig-success" />
                       <p className="text-ig-caption font-medium text-ig-fg-muted">Faturado (Receita)</p>
                       <p className="mt-1 text-ig-kpi-md font-semibold text-ig-success tabular-nums">
-                        {projetoV2?.revenue
-                          ? formatMoney(projetoV2.revenue.billed, true)
-                          : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(projeto.valor_executado || 0)
-                        }
+                        {displayBilled}
                       </p>
                       <p className="mt-1 text-[10px] text-ig-fg-muted">
                         Fonte: Financeiro · {projetoV2?.revenue?.updatedAt
@@ -341,10 +400,7 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
                       <ArrowUpRight className="mb-2 h-4 w-4 text-ig-warning" />
                       <p className="text-ig-caption font-medium text-ig-fg-muted">A Faturar (Receita)</p>
                       <p className="mt-1 text-ig-kpi-md font-semibold text-ig-warning tabular-nums">
-                        {projetoV2?.revenue
-                          ? formatMoney(projetoV2.revenue.toBill, true)
-                          : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format((projeto.valor_total || 0) - (projeto.valor_executado || 0))
-                        }
+                        {displayToBill}
                       </p>
                     </div>
                   </div>

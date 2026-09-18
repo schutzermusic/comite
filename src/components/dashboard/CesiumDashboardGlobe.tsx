@@ -5,7 +5,7 @@ import type { FeatureCollection, Feature, Polygon, MultiPolygon } from 'geojson'
 import { ArrowLeft } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTheme } from '@/contexts/ThemeContext';
-import { getProjects, getProjectsV2 } from '@/lib/services/projects';
+import { getProjectsAsync, getProjectsV2Async } from '@/lib/services/projects';
 import {
   aggregateStateKpis,
   buildGlobeProjectRecords,
@@ -14,9 +14,12 @@ import {
   type StateAggregate,
 } from '@/data/geo/globe-kpi-data';
 import { listProjectGlobeMarkers } from '@/lib/projects/location/project-globe-service';
+import { listProjectContractValues } from '@/lib/projects/contract/project-contract-service';
 import { brStates } from '@/data/geo/br-states';
 import { StateHudPanel } from '@/components/globe/StateHudPanel';
 import { formatProjectStatus } from '@/lib/projects/status';
+import type { Project } from '@/lib/types';
+import type { ProjectV2 } from '@/lib/types/project-v2';
 
 const CESIUM_VERSION = '1.138.0';
 const CESIUM_BASE = `https://cdn.jsdelivr.net/npm/cesium@${CESIUM_VERSION}/Build/Cesium/`;
@@ -348,41 +351,56 @@ export function CesiumDashboardGlobe({
     apurada. O globo nunca consulta contrato: o contrato chega até aqui pela
     resolução governada, que deixou documento e página como proveniência.
 
-    O carregamento é assíncrono e o estado começa vazio, então na primeira
-    pintura nenhum projeto tem coordenada canônica — e nenhum marcador é
-    desenhado. Isso é intencional: é melhor o mapa aparecer vazio por um
-    instante do que aparecer povoado de estimativas que o usuário vai ler
-    como localizações.
+    Projetos e valor contratual vêm do Supabase (async). Marcador canônico
+    aparece mesmo quando o ciclo de vida ainda não foi configurado (`status`
+    ausente) — filtrar só `em_andamento` escondia 2774.08/2025 no dashboard.
   */
   const [canonicalCoordinates, setCanonicalCoordinates] = useState<CanonicalProjectCoordinate[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [projectsV2, setProjectsV2] = useState<ProjectV2[]>([]);
+  const [contractValuesByProjectId, setContractValuesByProjectId] = useState<ReadonlyMap<string, number>>(
+    () => new Map(),
+  );
 
   useEffect(() => {
     let active = true;
-    void listProjectGlobeMarkers()
-      .then((markers) => {
-        if (!active) return;
-        setCanonicalCoordinates(markers.map((m) => ({
-          projectId: m.projectId, latitude: m.latitude, longitude: m.longitude,
-        })));
-      })
-      // Falha ao ler a localização canônica NÃO cai para estimativa: cai para
-      // nenhum marcador. Mapa vazio é uma informação correta; mapa com pontos
-      // inventados não é.
-      .catch(() => { if (active) setCanonicalCoordinates([]); });
+    void Promise.all([
+      listProjectGlobeMarkers().catch(() => [] as const),
+      getProjectsAsync().catch(() => [] as Project[]),
+      getProjectsV2Async().catch(() => [] as ProjectV2[]),
+      listProjectContractValues().catch(() => new Map<string, { contractValue: number; currency: string | null }>()),
+    ]).then(([markers, loadedProjects, loadedV2, contractValues]) => {
+      if (!active) return;
+      setCanonicalCoordinates(markers.map((m) => ({
+        projectId: m.projectId, latitude: m.latitude, longitude: m.longitude,
+      })));
+      setProjects(loadedProjects);
+      setProjectsV2(loadedV2);
+      const values = new Map<string, number>();
+      contractValues.forEach((v, id) => values.set(id, v.contractValue));
+      setContractValuesByProjectId(values);
+    });
     return () => { active = false; };
   }, []);
 
   const projectRecords = useMemo<GlobeProjectRecord[]>(() => {
     try {
-      const projects = getProjects();
-      const projectsV2 = getProjectsV2();
-      return buildGlobeProjectRecords(projects, projectsV2, canonicalCoordinates).filter(
-        (p) => p.status === 'em_andamento',
+      const records = buildGlobeProjectRecords(
+        projects,
+        projectsV2,
+        canonicalCoordinates,
+        contractValuesByProjectId,
+      );
+      // Em andamento OU com coordenada canônica (status ainda não informado).
+      // Cancelado nunca entra.
+      return records.filter(
+        (p) => p.status !== 'cancelado'
+          && (p.status === 'em_andamento' || p.coordinateSource === 'canonical'),
       );
     } catch {
       return [];
     }
-  }, [canonicalCoordinates]);
+  }, [canonicalCoordinates, contractValuesByProjectId, projects, projectsV2]);
 
   /**
    * Os projetos que podem virar MARCADOR.

@@ -21,6 +21,11 @@ import { ClientLogoBanner } from './ClientLogoBanner';
 interface ProjectCardProps {
   project: Project;
   v2?: ProjectV2;
+  /**
+   * Valor contratual governado (visão 175 / contracts.total_value).
+   * Quando o JSONB do projeto está zerado, é isto que o card mostra.
+   */
+  contractValue?: number | null;
   onView: (p: Project) => void;
   onDelete?: (projectId: string) => void;
   delay?: number;
@@ -33,12 +38,14 @@ const IMPACT_LABEL: Record<string, { label: string; color: string }> = {
   critico: { label: 'Crítico', color: '#EF4444' },
 };
 
-export function ProjectCard({ project, v2, onView, onDelete, delay = 0 }: ProjectCardProps) {
+export function ProjectCard({ project, v2, contractValue, onView, onDelete, delay = 0 }: ProjectCardProps) {
   const reduce = useReducedMotion();
   const accent = projectStatusAccent(project.status);
   const impact = IMPACT_LABEL[project.impacto_financeiro] ?? IMPACT_LABEL.baixo;
   const health = v2?.health_score ?? 100;
   const progress = Math.max(0, Math.min(100, project.progresso_percentual || 0));
+  const stored = Math.max(0, project.valor_total || 0);
+  const displayValue = stored > 0 ? stored : Math.max(0, contractValue ?? 0);
 
   const openHighRisks = (v2?.risks || []).filter(
     (r) => r.status !== 'resolved' && (r.severity === 'high' || r.severity === 'critical'),
@@ -168,7 +175,7 @@ export function ProjectCard({ project, v2, onView, onDelete, delay = 0 }: Projec
 
       {/* ── Stats grid (premium inset) ───────────────── */}
       <div className="relative grid grid-cols-3 gap-2 p-2.5 glass-inset">
-        <Stat label="Valor" value={compactBRL(project.valor_total || 0)} />
+        <Stat label="Valor" value={compactBRL(displayValue)} />
         <Stat label="Impacto" value={impact.label} valueStyle={{ color: impact.color }} />
         <Stat
           label="Riscos"

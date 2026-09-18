@@ -3,8 +3,8 @@
 /**
  * Identidade do contrato — o cabeçalho contextual do cockpit.
  *
- * Responde "que contrato é este?" numa leitura: contraparte em destaque, código
- * e tipo como metadado, status e risco como sinais. É a única superfície do
+ * Responde "que contrato é este?" numa leitura: título em destaque, código e
+ * tipo como metadado, status e risco como sinais. É a única superfície do
  * cockpit onde tudo é apurado por construção — vem das colunas de `contracts`.
  */
 
@@ -61,9 +61,9 @@ export interface ContractIdentityProps {
   className?: string;
   /**
    * Faixa de uma linha para o CABEÇALHO do drawer: código e sinais, sem o
-   * título nem a contraparte — ambos já são impressos pelo cabeçalho (o nome
-   * do contrato) e pelo cartão de resumo (a contraparte). Repeti-los era boa
-   * parte do peso vertical que o painel lateral carregava.
+   * título nem o tipo — ambos já são impressos pelo cabeçalho (o nome do
+   * contrato) e pela linha de metadado. Repeti-los era boa parte do peso
+   * vertical que o painel lateral carregava.
    */
   compact?: boolean;
 }
@@ -126,9 +126,8 @@ export function ContractIdentity({ contract, className, compact = false }: Contr
       </div>
 
       <h2 className="mt-1.5 text-ig-h1 leading-tight text-ig-fg-strong">
-        {text(contract.counterparty, 'Contraparte não informada')}
+        {contract.title}
       </h2>
-      <p className="mt-0.5 truncate text-ig-body-sm text-ig-fg-muted">{contract.title}</p>
 
       <div className="mt-3 flex flex-wrap items-center gap-1.5">
         {statusSignal}

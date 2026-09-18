@@ -43,6 +43,8 @@ interface ProjectDetailDrawerProps {
   project: Project | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Valor contratual governado quando o JSONB do projeto está zerado. */
+  contractValue?: number | null;
   onLogoUpload?: (projectId: string, file: File | null) => Promise<string | null> | string | null;
 }
 
@@ -64,6 +66,7 @@ export function ProjectDetailDrawer({
   project,
   open,
   onOpenChange,
+  contractValue,
   onLogoUpload,
 }: ProjectDetailDrawerProps) {
   const [uploadedLogoUrl, setUploadedLogoUrl] = useState<string | null>(null);
@@ -131,7 +134,9 @@ export function ProjectDetailDrawer({
 
   const healthScore = v2?.health_score ?? 100;
   const healthColor = getHealthScoreColor(healthScore);
-  const valorRestante = (project.valor_total || 0) - (project.valor_executado || 0);
+  const storedTotal = Math.max(0, project.valor_total || 0);
+  const displayTotal = storedTotal > 0 ? storedTotal : Math.max(0, contractValue ?? 0);
+  const valorRestante = displayTotal - (project.valor_executado || 0);
   const progress = Math.max(0, Math.min(100, project.progresso_percentual || 0));
 
   return (
@@ -251,7 +256,7 @@ export function ProjectDetailDrawer({
             <HeaderMetric label="Progresso" value={`${progress}%`} accent={healthColor} />
             <HeaderMetric
               label="Valor Total"
-              value={formatMoney(project.valor_total || 0)}
+              value={formatMoney(displayTotal)}
               compact
             />
           </div>
@@ -389,7 +394,7 @@ export function ProjectDetailDrawer({
                 <TrendingUp className="w-3.5 h-3.5 drawer-v2-accent" />
               </div>
               <p className="text-xl font-bold drawer-v2-title mt-1.5 tabular-nums">
-                {formatMoney(project.valor_total)}
+                {formatMoney(displayTotal)}
               </p>
             </div>
             <div className="grid grid-cols-2 gap-3 mt-3">

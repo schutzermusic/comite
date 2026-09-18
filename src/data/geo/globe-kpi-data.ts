@@ -192,6 +192,11 @@ export function buildGlobeProjectRecords(
   projects: Project[],
   projectsV2: ProjectV2[],
   canonicalCoordinates: readonly CanonicalProjectCoordinate[] = [],
+  /**
+   * Valor contratual da visão governada (`project_contract_financial_read_model`).
+   * Usado quando `project.valor_total` está zerado — sem copiar para o JSONB.
+   */
+  contractValuesByProjectId: ReadonlyMap<string, number> = new Map(),
 ): GlobeProjectRecord[] {
   const v2ById = new Map<string, ProjectV2>();
   projectsV2.forEach((project) => {
@@ -206,7 +211,9 @@ export function buildGlobeProjectRecords(
     const v2 = v2ById.get(project.id);
     const stateUF = buildStateUF(project, v2);
     const coordinates = buildCoordinates(project.id, stateUF, v2, canonicalById.get(project.id));
-    const contractTotal = Math.max(0, project.valor_total || 0);
+    const storedTotal = Math.max(0, project.valor_total || 0);
+    const governedTotal = contractValuesByProjectId.get(project.id) ?? 0;
+    const contractTotal = storedTotal > 0 ? storedTotal : Math.max(0, governedTotal);
     const invoiced = Math.max(0, project.valor_executado || 0);
     const riskCount = buildRiskCount(project, v2);
     const decisionCount = buildDecisionCount(v2);

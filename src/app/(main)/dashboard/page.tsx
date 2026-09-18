@@ -10,7 +10,6 @@ import type { DashboardPayload } from '@/lib/dashboard-data';
 import type { StateAggregate } from '@/data/geo/globe-kpi-data';
 import { cn } from '@/lib/utils';
 import { useCurrentUser } from '@/hooks/use-current-user';
-import { HudEmptyState, HudPageLayout, HudPanel } from '@/components/hud';
 
 const LeftHudStack = dynamic(
     () => import('@/components/dashboard/LeftHudStack').then(m => ({ default: m.LeftHudStack })),
@@ -35,7 +34,8 @@ export default function DashboardPage() {
     const [uiMode, setUiMode] = useState<'default' | 'projectFocus'>('default');
     const [isSidebarVisible, setIsSidebarVisible] = useState(true);
 
-    const isRightSidebarActive = isSidebarVisible && selectedState === null;
+    const isDemo = organization?.is_demo === true;
+    const isRightSidebarActive = isSidebarVisible && selectedState === null && isDemo;
     const isFocusMode = uiMode === 'projectFocus' || selectedState !== null;
 
     const handleProjectFocusChange = useCallback((active: boolean) => {
@@ -52,8 +52,14 @@ export default function DashboardPage() {
     }, [setSelectedUF]);
 
     useEffect(() => {
-        setData(organization?.is_demo === true ? getMockDashboardData() : null);
-    }, [organization?.id, organization?.is_demo]);
+        /*
+          O globo lê fatos reais (marcadores canônicos, projetos). Os painéis
+          laterais ainda são payload de demonstração — só entram em org demo.
+          Org ao vivo NÃO pode mais cair num empty state que esconde o mapa:
+          isso apagava o único sinal operacional que já existe (o marcador).
+        */
+        setData(isDemo ? getMockDashboardData() : null);
+    }, [organization?.id, isDemo]);
 
     const handleStateSelect = useCallback((state: StateAggregate | null) => {
         setSelectedState(state);
@@ -67,22 +73,6 @@ export default function DashboardPage() {
     }, [setSelectedUF]);
 
     if (organizationLoading) return null;
-
-    if (organization?.is_demo !== true) {
-        return (
-            <HudPageLayout>
-                <HudPanel>
-                    <HudEmptyState
-                        icon="inbox"
-                        title="Organização sem fatos operacionais"
-                        description="Os indicadores aparecerão após o cadastro de contratos, projetos, medições, faturamento, financeiro e riscos desta organização."
-                    />
-                </HudPanel>
-            </HudPageLayout>
-        );
-    }
-
-    if (!data) return null;
 
     return (
         <div className="cr-viewport bg-ig-canvas text-ig-fg-strong">
@@ -107,40 +97,37 @@ export default function DashboardPage() {
             <div className="cr-vignette z-[4]" />
             <div className="cr-hud-frame" />
 
-            {/* ═══ Layer 10: HUD Interface ═══ */}
-            <div className="relative z-10 w-full h-full pointer-events-none flex flex-col">
-                {/* Main content: overlapping panel stacks */}
-                <div className="flex-1 relative min-h-0 px-0 pb-0 h-full">
-                    {/* ── Left Stack ── */}
-                    <div
-                        className={cn(
-                            "absolute top-0 left-0 bottom-0 pointer-events-auto z-40 overflow-y-auto scrollbar-hide",
-                            isFocusMode
-                                ? "-translate-x-[120%] opacity-0 pointer-events-none transition-all duration-300 ease-out"
-                                : "translate-x-0 opacity-100 transition-all duration-300 ease-out",
-                        )}
-                        style={{ width: '364px' }}
-                    >
-                        <LeftHudStack data={data} scopeMode={scopeMode} stateScope={selectedState} />
-                    </div>
+            {/* ═══ Layer 10: HUD Interface (demo only — live org uses the globe) ═══ */}
+            {isDemo && data ? (
+                <div className="relative z-10 w-full h-full pointer-events-none flex flex-col">
+                    <div className="flex-1 relative min-h-0 px-0 pb-0 h-full">
+                        <div
+                            className={cn(
+                                "absolute top-0 left-0 bottom-0 pointer-events-auto z-40 overflow-y-auto scrollbar-hide",
+                                isFocusMode
+                                    ? "-translate-x-[120%] opacity-0 pointer-events-none transition-all duration-300 ease-out"
+                                    : "translate-x-0 opacity-100 transition-all duration-300 ease-out",
+                            )}
+                            style={{ width: '364px' }}
+                        >
+                            <LeftHudStack data={data} scopeMode={scopeMode} stateScope={selectedState} />
+                        </div>
 
-                    {/* ── Right Stack ── */}
-                    <div
-                        className={cn(
-                            "absolute top-0 right-0 bottom-0 pointer-events-auto z-40 overflow-y-auto scrollbar-hide",
-                            isRightSidebarActive
-                                ? "translate-x-0 opacity-100 transition-all duration-300 ease-out"
-                                : "translate-x-[120%] opacity-0 pointer-events-none transition-all duration-300 ease-out"
-                        )}
-                        style={{ width: '344px' }}
-                    >
-                        <RightHudStack data={data} scopeMode={scopeMode} stateScope={selectedState} />
+                        <div
+                            className={cn(
+                                "absolute top-0 right-0 bottom-0 pointer-events-auto z-40 overflow-y-auto scrollbar-hide",
+                                isRightSidebarActive
+                                    ? "translate-x-0 opacity-100 transition-all duration-300 ease-out"
+                                    : "translate-x-[120%] opacity-0 pointer-events-none transition-all duration-300 ease-out"
+                            )}
+                            style={{ width: '344px' }}
+                        >
+                            <RightHudStack data={data} scopeMode={scopeMode} stateScope={selectedState} />
+                        </div>
                     </div>
-
                 </div>
-            </div>
+            ) : null}
 
-            {/* Drawer */}
             <ContextDrawer
                 context={drawerContext}
                 onClose={() => setDrawerContext(null)}

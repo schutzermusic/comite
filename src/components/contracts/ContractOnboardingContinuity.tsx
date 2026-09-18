@@ -24,9 +24,9 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { ChevronRight, FileClock } from 'lucide-react';
+import { ChevronRight, FileClock, X } from 'lucide-react';
 import { HudBadge, HudPanel } from '@/components/hud';
-import { listActiveContractIntakes } from '@/lib/contracts/onboarding/client';
+import { cancelContractIntake, listActiveContractIntakes } from '@/lib/contracts/onboarding/client';
 import type { ContractIntakeContinuityItem } from '@/lib/contracts/onboarding/resume';
 
 /** Data curta e local; sem hora, porque o que importa é "de quando é este cadastro". */
@@ -49,6 +49,7 @@ function itemHeadline(item: ContractIntakeContinuityItem): string {
 
 export function ContractOnboardingContinuity({ className }: { className?: string }) {
   const [items, setItems] = useState<ContractIntakeContinuityItem[]>([]);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
 
   /*
     Leitura única na montagem. Um cadastro em andamento é estado durável, não
@@ -63,6 +64,23 @@ export function ContractOnboardingContinuity({ className }: { className?: string
       .catch(() => { if (alive) setItems([]); });
     return () => { alive = false; };
   }, []);
+
+  const handleCancel = async (item: ContractIntakeContinuityItem) => {
+    const confirmed = window.confirm(
+      `Excluir o cadastro de "${itemHeadline(item)}"?\n\nEssa ação remove o cadastro e o documento enviado. Não dá para desfazer.`,
+    );
+    if (!confirmed) return;
+
+    setCancellingId(item.id);
+    try {
+      await cancelContractIntake(item.id);
+      setItems((previous) => previous.filter((row) => row.id !== item.id));
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Não foi possível excluir este cadastro. Tente novamente.');
+    } finally {
+      setCancellingId(null);
+    }
+  };
 
   if (items.length === 0) return null;
 
@@ -79,11 +97,12 @@ export function ContractOnboardingContinuity({ className }: { className?: string
         <ul className="divide-y divide-ig-border-subtle">
           {items.map((item) => {
             const received = formatReceived(item.receivedAt);
+            const busy = cancellingId === item.id;
             return (
-              <li key={item.id}>
+              <li key={item.id} className="group/row flex items-stretch">
                 <Link
                   href={item.href}
-                  className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-ig-panel-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_oklab,var(--ig-accent)_45%,transparent)]"
+                  className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3 transition-colors hover:bg-ig-panel-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_oklab,var(--ig-accent)_45%,transparent)]"
                 >
                   <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-ig-border-subtle bg-ig-panel">
                     <FileClock className="h-4 w-4 text-ig-accent" />
@@ -113,6 +132,18 @@ export function ContractOnboardingContinuity({ className }: { className?: string
                     <ChevronRight className="h-3.5 w-3.5" />
                   </span>
                 </Link>
+
+                <button
+                  type="button"
+                  data-testid="cancel-onboarding-intake"
+                  aria-label={`Excluir cadastro de ${itemHeadline(item)}`}
+                  title="Excluir cadastro"
+                  disabled={busy}
+                  onClick={() => { void handleCancel(item); }}
+                  className="shrink-0 self-center rounded p-2 mr-2 text-ig-fg-subtle opacity-70 transition-opacity hover:bg-ig-panel-hover/50 hover:text-ig-danger hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_oklab,var(--ig-danger)_45%,transparent)] disabled:pointer-events-none disabled:opacity-40 md:opacity-0 md:group-hover/row:opacity-100"
+                >
+                  <X className="h-3.5 w-3.5" aria-hidden />
+                </button>
               </li>
             );
           })}

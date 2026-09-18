@@ -198,6 +198,16 @@ describe('continuity item presentation', () => {
     expect(item.href).toBe(`/contratos/onboarding/${INTAKE_A}`);
     expect(onboardingResumeHref(INTAKE_A)).toBe(item.href);
   });
+
+  it('offers an explicit cancel control beside the resume link', () => {
+    const component = source('src/components/contracts/ContractOnboardingContinuity.tsx');
+    const client = source('src/lib/contracts/onboarding/client.ts');
+    expect(component).toContain('cancelContractIntake');
+    expect(component).toContain('data-testid="cancel-onboarding-intake"');
+    expect(component).toContain('Excluir cadastro');
+    expect(client).toContain("method: 'DELETE'");
+    expect(client).toContain('cancelContractIntake');
+  });
 });
 
 /* ------------------------------------------------------------------ *
@@ -330,6 +340,22 @@ describe('tenancy is enforced in the database, not only in the route', () => {
     expect(byId).toContain("eq('organization_id', auth.organizationId)");
     expect(byId).toContain("eq('uploaded_by', auth.user.id)");
     expect(byId).toContain('Entrada de contrato não encontrada.');
+  });
+
+  it('cancels through a service-role RPC bound to the authenticated actor', () => {
+    const byId = source('src/app/api/contracts/onboarding/[id]/route.ts');
+    const cancelMigration = source('supabase/migrations/173_contract_onboarding_cancel.sql');
+    expect(byId).toContain("rpc('contract_onboarding_cancel'");
+    expect(byId).toContain('p_actor: auth.user.id');
+    expect(byId).toContain('export async function DELETE');
+    expect(byId).toContain('ONBOARDING_STORAGE_BUCKET');
+    expect(byId).toContain('.remove([');
+    expect(cancelMigration).toContain('CREATE OR REPLACE FUNCTION public.contract_onboarding_cancel');
+    expect(cancelMigration).toContain('r.uploaded_by<>p_actor');
+    expect(cancelMigration).toContain('DELETE FROM public.contract_onboarding_intakes');
+    expect(cancelMigration).toContain("'deleted', true");
+    expect(cancelMigration).toContain('GRANT EXECUTE ON FUNCTION public.contract_onboarding_cancel');
+    expect(cancelMigration).toContain('TO service_role');
   });
 
   it('requires contract permissions for every onboarding session, list included', () => {

@@ -15,7 +15,7 @@ import {
   formatCurrencyCompact,
   type ContractGovernanceRecord,
 } from '@/components/contracts/contract-governance-data';
-import { AlertTriangle, ArrowRight, Building2, ShieldCheck, Workflow, X } from 'lucide-react';
+import { AlertTriangle, ArrowRight, ShieldCheck, Workflow, X } from 'lucide-react';
 import type { TrustedContract } from '@/lib/contracts/trust/read-model';
 import { officialCurrencyCompact } from '@/lib/contracts/trust/format';
 import { hasOfficialValue, ratioTrusted } from '@/lib/contracts/trust/trusted';
@@ -136,10 +136,11 @@ export function ContractCard({ record, trusted, active = false, onSelect, onView
         {trusted && <DataClassBadge dataClass={trusted.dataClass} className="mt-2.5" />}
         <p className="mt-2.5 line-clamp-2 text-[15px] font-semibold leading-snug text-ig-fg-strong">{record.contract.name}</p>
         <div className="mt-1 flex min-w-0 items-center gap-2 text-ig-caption text-ig-fg-muted">
-          <Building2 className="h-3.5 w-3.5 shrink-0 text-ig-fg-subtle" />
-          <span className="truncate">{trusted && hasOfficialValue(trusted.counterparty) ? trusted.counterparty.value : record.companyName}</span>
-          <span className="text-ig-fg-subtle">·</span>
-          <span className="truncate">{trusted && hasOfficialValue(trusted.contractType) ? trusted.contractType.value : '—'}</span>
+          <span className="truncate">
+            {trusted && hasOfficialValue(trusted.contractType)
+              ? trusted.contractType.value
+              : (record.contractType || 'Tipo não informado')}
+          </span>
         </div>
 
         {/* Linked project */}
