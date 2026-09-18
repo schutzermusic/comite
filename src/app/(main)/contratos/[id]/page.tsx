@@ -41,13 +41,21 @@ import { useContractEditModal } from '@/components/contracts/useContractEditModa
 import type { ContractDataClass } from '@/lib/contracts/trust/trusted';
 import { contractToCash } from '@/lib/contracts/trust/contract-to-cash';
 import { useContractAnalysisWatch } from '@/components/contracts/use-contract-analysis-watch';
-import { MeasurementPanel } from '@/components/contracts/intelligence/MeasurementPanel';
 import { ContractMeasurementReadiness } from '@/components/contracts/intelligence/ContractMeasurementReadiness';
 import { useContractInstrumentationModals } from '@/components/contracts/useContractInstrumentationModals';
 import { buildApprovalIntelligence, type ApprovalIntelligence } from '@/lib/contracts/trust/approval-intelligence';
 import { SharedApprovalEnginePanel } from '@/components/contracts/intelligence/SharedApprovalEnginePanel';
-import { ContractToCashFlow } from '@/components/contracts/intelligence/ContractToCashFlow';
 import { ContractToCashPanel } from '@/components/contracts/billing/ContractToCashPanel';
+import { CashPipeline } from '@/components/contracts/billing/CashPipeline';
+import { ExposureRail, type ExposureMetric } from '@/components/contracts/billing/ExposureRail';
+import { MilestoneBoard } from '@/components/contracts/measurement/MilestoneBoard';
+import { GuidedEmpty } from '@/components/contracts/shell/GuidedEmpty';
+import { useMilestoneWorkbench } from '@/components/contracts/measurement/use-milestone-workbench';
+import {
+  computeExposure, computeRevenueBlock, diagnoseBottleneck, reconcileEntitlement,
+} from '@/lib/contracts/measurement/milestone-exposure';
+import { deriveAction, type MilestoneAssessment } from '@/lib/contracts/measurement/milestone-stage';
+import type { MilestoneWorkbenchRow } from '@/lib/contracts/measurement/milestone-workbench-types';
 import { createBillingEventFromMilestone, getContractDocumentUrl, requestClauseExtraction, type ContractClauseRow, type ContractAmendmentRow, type ContractDocumentRow, listContractAiAnalyses, type ContractAiAnalysisRow, type ContractMilestoneRow, listContractAuditEvents, listContractRelatedTasks, computeApprovalSla, type ContractAuditEventRow, type ContractRelatedTask } from '@/lib/contracts/contract-service';
 import {
   HudBadge,
@@ -1921,6 +1929,34 @@ function RiskExposureCard({
   );
 }
 
+/**
+ * MEDIÇÃO & FATURAMENTO — três camadas de peso desigual.
+ *
+ * ─── O defeito que esta recomposição corrige ───────────────────────────────
+ *
+ * A aba tinha cinco seções irmãs de peso visual igual, e por isso não tinha
+ * ponto de entrada: esteira, marcos, medição operacional, eventos e exposição
+ * disputavam a mesma atenção. Pior, marcos e medição operacional ficavam LADO A
+ * LADO em `xl:grid-cols-2`, o que os fazia parecer pares — quando um é a
+ * montante do outro. A relação contratual→operacional virou invisível
+ * justamente por causa do layout que tentava mostrá-la.
+ *
+ * Agora:
+ *
+ *   TIER 1 · COCKPIT  — esteira com gargalo + exposição. Lê-se em 3 segundos.
+ *   TIER 2 · QUADRO   — os marcos, agrupados por bloqueio. O centro de gravidade.
+ *   TIER 3 · RAZÃO    — eventos/elegibilidade e medição operacional, para quem desce.
+ *
+ * A relação contratual↔operacional saiu do layout e entrou na GRAMÁTICA: cada
+ * marco carrega seu próprio trilho de quatro elos, com a fonte de cada um.
+ *
+ * ─── O que saiu ───────────────────────────────────────────────────────────
+ *
+ * `Cronograma de faturamento` foi removido. Ele listava `detail.billingEvents`
+ * com uma pílula Pago/Pendente — uma visão estritamente pior do que
+ * `ContractToCashPanel` já mostra, com elegibilidade, liberação, estado fiscal
+ * e título a receber. Duas listas do mesmo fato é como duas verdades começam.
+ */
 function FinanceTab({
   trusted, detail, onNewBilling, onNewMilestone, onEditMilestone, onGenerateBilling,
 }: {
@@ -1931,136 +1967,194 @@ function FinanceTab({
   onEditMilestone?: (milestone: ContractMilestoneRow) => void;
   onGenerateBilling?: (milestone: ContractMilestoneRow) => void;
 }) {
-  /** Marcos que já geraram evento — a ponte não pode ser atravessada duas vezes. */
+  const workbench = useMilestoneWorkbench(trusted.id);
+  const router = useRouter();
+
+  const contractTotal = hasOfficialValue(trusted.totalValue) ? trusted.totalValue.value : null;
+  const projectId = detail.contract.project_id ?? null;
+
+  const exposure = useMemo(() => computeExposure(workbench.rows), [workbench.rows]);
+  const reconciliation = useMemo(
+    () => reconcileEntitlement(contractTotal, exposure.entitlementTotal),
+    [contractTotal, exposure.entitlementTotal],
+  );
+  /*
+    Há cronograma no projeto? A pergunta muda a CAUSA que o diagnóstico nomeia:
+    "importe o cronograma" e "mapeie a exigência à etapa" são trabalhos
+    diferentes, e dizer o errado manda o usuário ao lugar errado.
+  */
+  const hasTimeline = workbench.rows.some((r) => r.timelineItemId !== null);
+  const diagnosis = useMemo(
+    () => diagnoseBottleneck(workbench.rows, projectId, hasTimeline),
+    [workbench.rows, projectId, hasTimeline],
+  );
+  const block = useMemo(
+    () => computeRevenueBlock(workbench.rows, contractTotal),
+    [workbench.rows, contractTotal],
+  );
+
+  /*
+    A esteira recebe os marcos do dossiê — a mesma leitura que o quadro usa.
+    Sem isso, "Medido" seria somado de uma consulta e o quadro de outra, e as
+    duas poderiam discordar na mesma tela.
+  */
+  const stages = useMemo(() => contractToCash(trusted, trusted.milestones), [trusted]);
+
   const billedMilestoneIds = new Set(
     detail.billingEvents.map((e) => e.milestone_id).filter((id): id is string => Boolean(id)),
   );
-  const execution = ratioTrusted(trusted.billedValue, trusted.totalValue, 'faturado sobre total', ['contracts', 'contract_billing_events']);
-  const billedPercent = hasOfficialValue(execution) ? Math.round(execution.value * 100) : null;
-  const persistedBilling = detail.billingEvents.length > 0;
-  const billingTotal = detail.billingEvents.reduce((sum, event) => sum + Number(event.amount || 0), 0);
-  const schedule = persistedBilling
-    ? detail.billingEvents.map((event) => ({
-        id: event.id,
-        title: event.title,
-        amount: Number(event.amount || 0),
-        dueDate: event.due_date ? new Date(`${event.due_date}T00:00:00`) : null,
-        status: event.status,
-        paid: !!event.paid_at,
-      }))
-    // Sem evento persistido não há cronograma: o "eventograma do dossiê" era
-    // a escada fixa 10/40/50% do enricher, exibida como se fosse plano real.
-    : [];
+
+  /** A ação do marco. Nenhuma delas escreve aqui: ou navega, ou devolve ao dossiê. */
+  const handleAction = (assessment: MilestoneAssessment) => {
+    const action = deriveAction(assessment);
+    const target = action.projectId;
+    switch (action.kind) {
+      case 'map_timeline':
+      case 'view_timeline':
+        if (target) router.push(`/projetos/${target}?tab=timeline`);
+        break;
+      case 'open_measurement':
+      case 'attach_evidence':
+        if (target) router.push(`/projetos/${target}?tab=measurements`);
+        break;
+      case 'configure_requirement':
+        onEditMilestone?.(toMilestoneRow(assessment.row, detail));
+        break;
+      case 'generate_billing':
+        // Continua sendo ato humano e continua passando pelo serviço governado.
+        onGenerateBilling?.(toMilestoneRow(assessment.row, detail));
+        break;
+      case 'view_billing':
+        document.getElementById('dossier-ledger')?.scrollIntoView({ behavior: 'smooth' });
+        break;
+      default:
+        break;
+    }
+  };
+
+  const exposureMetrics: ExposureMetric[] = [
+    {
+      key: 'contracted', label: 'Contratado', value: contractTotal,
+      source: 'contracts.total_value', emphasis: true,
+    },
+    {
+      key: 'entitlement', label: 'Direito contratual', value: exposure.entitlementTotal,
+      source: 'entitlement_rules', absentLabel: 'Sem registro', emphasis: true,
+    },
+    { key: 'measured', label: 'Medido', value: exposure.measuredTotal, source: 'marcos apurados' },
+    { key: 'accepted', label: 'Aceito', value: exposure.acceptedTotal, source: 'medição aceita' },
+    { key: 'billed', label: 'Faturado', value: exposure.billedTotal, source: 'billing_events' },
+    {
+      key: 'received', label: 'Recebido', value: null,
+      source: 'razão financeiro', absentLabel: 'Não integrado',
+    },
+  ];
 
   return (
     <div className="space-y-5">
-      {/*
-        A cadeia até o caixa abre a aba: ela mostra onde a rastreabilidade
-        termina — medição não instrumentada, recebimento não integrado — antes
-        de qualquer número, para que o leitor não tome o "faturado" por "recebido".
-      */}
-      <DossierSection title="Contract-to-Cash" hint="Do valor contratado ao recebimento · cada etapa preserva sua fonte.">
-        <ContractToCashFlow stages={contractToCash(trusted)} compact actions={{
-          measured: onNewMilestone ? { label: 'Criar marco', onClick: onNewMilestone } : undefined,
-          billed: onNewBilling ? { label: 'Criar evento', onClick: onNewBilling } : undefined,
-        }} />
-      </DossierSection>
-
-      {/*
-        A medição vem logo depois da cadeia: é ela que dá lastro ao estágio
-        "Medido" e ao faturamento que vem em seguida.
-      */}
-      <div className="grid items-start gap-5 xl:grid-cols-2">
-      <MeasurementPanel
-        milestones={trusted.milestones}
-        billedMilestoneIds={billedMilestoneIds}
-        canEdit={Boolean(onNewMilestone)}
-        onCreate={onNewMilestone}
-        onEdit={onEditMilestone}
-        onGenerateBilling={onGenerateBilling}
+      {/* ══ TIER 1 · COCKPIT ══════════════════════════════════════════════ */}
+      <CashPipeline
+        stages={stages}
+        bottleneckNote={diagnosis?.note ?? null}
+        action={diagnosis?.actionLabel && diagnosis.projectId
+          ? {
+              label: diagnosis.actionLabel,
+              onClick: () => router.push(`/projetos/${diagnosis.projectId}?tab=timeline`),
+            }
+          : null}
       />
 
-      {/*
-        A MEDIÇÃO OPERACIONAL, em contexto — Fase 6.
+      <ExposureRail
+        metrics={exposureMetrics}
+        segments={[
+          { key: 'accepted', label: 'Aceito', amount: block.accepted },
+          { key: 'measured_pending', label: 'Apurado, aguardando aceite', amount: block.measuredPending },
+          { key: 'unassessed', label: 'Não apurado', amount: block.unassessed, absent: true },
+        ]}
+        base={contractTotal}
+        reconciliation={reconciliation}
+      />
 
-        O painel acima mostra os MARCOS do contrato: o que foi previsto medir.
-        Este mostra as MEDIÇÕES de projeto: o que a operação apurou, o que
-        falta para submeter e o que já foi aceito. São camadas diferentes, e
-        ficam separadas de propósito — misturá-las faria "marco previsto" e
-        "medição aceita" caberem na mesma linha.
+      {/* ══ TIER 2 · QUADRO ═══════════════════════════════════════════════ */}
+      <MilestoneBoard
+        rows={workbench.rows}
+        contractTotal={contractTotal}
+        projectId={projectId}
+        error={workbench.error}
+        loading={workbench.loading}
+        canEdit={Boolean(onNewMilestone)}
+        onCreate={onNewMilestone}
+        onAction={handleAction}
+        onEdit={(a) => onEditMilestone?.(toMilestoneRow(a.row, detail))}
+      />
 
-        Contratos não edita medição aqui. Cada linha leva ao projeto, que é
-        onde a instância mora e onde o trabalho acontece.
-      */}
-      <DossierSection title="Medição operacional" hint="Instâncias, prontidão e aceite registrados em Projetos.">
-        <ContractMeasurementReadiness contractId={trusted.id} />
-      </DossierSection>
+      {/* ══ TIER 3 · RAZÃO ════════════════════════════════════════════════ */}
+      <div id="dossier-ledger" className="space-y-5">
+        <DossierSection title="Eventos e elegibilidade" hint="Lastro, liberação, nota fiscal e conciliação.">
+          {detail.billingEvents.length === 0 ? (
+            <GuidedEmpty
+              title="Nenhum evento de faturamento registrado"
+              cause={
+                exposure.counts.readyToBill > 0
+                  ? `${exposure.counts.readyToBill} marco(s) já estão elegíveis, mas nenhum evento foi gerado ainda.`
+                  : `Nenhum dos ${exposure.counts.total} marco(s) atingiu estado elegível: `
+                    + `${exposure.counts.triggerAssessed} com gatilho apurado.`
+              }
+              consequence="Faturamento exige medição aceita. Sem evento, a exposição faturada não pode ser apurada — e zero eventos não é R$ 0 faturado."
+              chain={[
+                'Contratual ✓',
+                exposure.counts.triggerAssessed > 0 ? 'Execução ✓' : 'Execução ✗',
+                'Aceite —', 'Faturamento —',
+              ]}
+              primary={onNewBilling ? { label: 'Criar evento', onClick: onNewBilling } : undefined}
+            />
+          ) : (
+            <ContractToCashPanel contractId={trusted.id} compact />
+          )}
+        </DossierSection>
+
+        {/*
+          A medição operacional desce para o terceiro nível — e continua sendo
+          de PROJETOS. Contratos mostra a consequência e leva ao lugar onde se
+          resolve; não ganha um segundo editor da mesma coisa.
+        */}
+        <DossierSection title="Medição operacional" hint="Instâncias, prontidão e aceite registrados em Projetos.">
+          <ContractMeasurementReadiness contractId={trusted.id} />
+        </DossierSection>
       </div>
 
-      {/*
-        A CADEIA CONTRATO-A-CAIXA deste contrato — Fase 7.
-
-        Mesmo componente e mesmo serviço que a seção `Faturamentos` da carteira
-        usa (§87). O dossiê não recalcula nada: se o número diferir entre as
-        duas telas, a divergência é impossível por construção, e não por
-        disciplina de quem escreve a próxima.
-      */}
-      <DossierSection title="Eventos e elegibilidade" hint="Lastro, liberação, nota fiscal e conciliação.">
-        <ContractToCashPanel contractId={trusted.id} compact />
-      </DossierSection>
-
-      <div className="dossier-surface"><DossierDisclosure title="Exposição financeira · valores e execução">
-        <div className="grid gap-4 lg:grid-cols-3">
-          <Metric label="Valor total" value={officialCurrencyFull(trusted.totalValue)} />
-          {/* "Margem estimada", "Adimplência" e "Reconhecimento" saíram: os três
-              vinham do enricher (20+seed%25, seed%4, seed%3). Não há custo por
-              contrato na base para margem, nem status de pagamento além dos
-              eventos de faturamento. */}
-          <Metric label="Faturado" value={officialCurrencyFull(trusted.billedValue)} />
-          <Metric label="Saldo a faturar" value={officialCurrencyFull(trusted.remainingValue)} />
-          <Metric label="Execução" value={billedPercent === null ? 'Não apurada' : `${billedPercent}%`} />
-          <Metric label="Eventos registrados" value={hasOfficialValue(trusted.billingEvents) ? trusted.billingEvents.value.length : '—'} />
-        </div>
-        <div className="mt-5 rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-4">
-          <div className="mb-2 flex justify-between text-ig-body-sm">
-            <span className="text-ig-fg-muted">Execução financeira</span>
-            <span className="font-semibold tabular-nums text-ig-fg-strong">{billedPercent === null ? 'Não apurada' : `${billedPercent}%`}</span>
-          </div>
-          {billedPercent === null ? <div className="h-1 rounded border border-dashed border-ig-border-strong" role="img" aria-label="Execução financeira não apurada" /> : <HudProgressBar value={billedPercent} showLabel={false} variant="success" />}
-        </div>
-      </DossierDisclosure></div>
-
-      <section className="dossier-surface p-5">
-        <SectionHeader title="Cronograma de faturamento" hint={persistedBilling ? `${detail.billingEvents.length} evento(s) · ${formatCurrencyFull(billingTotal)} cadastrados` : 'Nenhum evento de faturamento registrado'} />
-        {onNewBilling && (
-          <div className="mb-3 flex justify-end">
-            <HudButton variant="secondary" size="sm" leftIcon={<Plus className="h-4 w-4" />} onClick={onNewBilling}>
-              Novo evento
-            </HudButton>
-          </div>
-        )}
-        <div className="space-y-2">
-          {schedule.map((event) => {
-            const paid = event.paid || event.status === 'pago' || event.status === 'paid';
-            return (
-              <div key={event.id} className="grid gap-3 rounded-lg border border-ig-border-subtle bg-ig-panel/45 p-3 md:grid-cols-[1fr_160px_120px_120px] md:items-center">
-                <p className="truncate text-ig-body-sm font-semibold text-ig-fg-strong">{event.title}</p>
-                <span className="text-ig-body-sm font-semibold tabular-nums text-ig-fg-strong">{formatCurrencyFull(event.amount)}</span>
-                <span className="text-ig-caption text-ig-fg-muted">{event.dueDate ? format(new Date(event.dueDate), 'dd/MM/yyyy', { locale: pt }) : 'Sem data'}</span>
-                <HudStatusPill variant={paid ? 'active' : 'warning'} size="sm">{paid ? 'Pago' : 'Pendente'}</HudStatusPill>
-              </div>
-            );
-          })}
-        </div>
-        {!persistedBilling && (
-          <p className="mt-3 text-ig-caption text-ig-fg-muted">
-            Nenhum evento de faturamento registrado para este contrato. Sem eventos, a exposição
-            faturada não pode ser apurada.
-          </p>
-        )}
-      </section>
+      {/* Marcos já faturados continuam visíveis para quem audita a ponte. */}
+      {billedMilestoneIds.size > 0 && (
+        <p className="text-ig-caption text-ig-fg-subtle">
+          {billedMilestoneIds.size} marco(s) já geraram evento de faturamento.
+        </p>
+      )}
     </div>
   );
+}
+
+/**
+ * A linha da bancada de volta ao formato que os modais de instrumentação
+ * esperam.
+ *
+ * A bancada é uma VISÃO: não tem `created_at`/`updated_at` de escrita nem os
+ * campos de auditoria que `contract_milestones` guarda. Para editar, o dossiê
+ * precisa da linha real — então ela é procurada em `detail.milestones`, e a
+ * conversão só serve de ponte quando a linha real não estiver carregada.
+ */
+function toMilestoneRow(row: MilestoneWorkbenchRow, detail: ContractDetail): ContractMilestoneRow {
+  const real = detail.milestones.find((m) => m.id === row.id);
+  if (real) return real;
+  return {
+    id: row.id, organization_id: row.organizationId, contract_id: row.contractId,
+    project_id: row.projectId, title: row.title, description: row.description,
+    milestone_type: row.milestoneType, due_date: row.dueDate, completed_at: row.completedAt,
+    billing_amount: row.billingAmount, status: row.status,
+    owner_user_id: row.ownerUserId, evidence: row.evidence,
+    evidence_document_id: row.evidenceDocumentId, measured_amount: row.measuredAmount,
+    created_by: null, updated_by: null,
+    created_at: new Date(0).toISOString(), updated_at: new Date(0).toISOString(),
+  };
 }
 
 const DOC_TYPE_LABELS: Record<string, string> = {

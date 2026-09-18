@@ -357,6 +357,7 @@ describe('orquestração cross-módulo (P1C)', () => {
 describe('inteligência operacional (P2A)', () => {
   const PANELS = [
     'src/components/contracts/intelligence/ContractToCashFlow.tsx',
+    'src/components/contracts/billing/CashPipeline.tsx',
     'src/components/contracts/intelligence/ObligationsControlTower.tsx',
     'src/components/contracts/intelligence/RenewalHorizonPanel.tsx',
     'src/components/contracts/intelligence/ApprovalIntelligencePanel.tsx',
@@ -486,7 +487,8 @@ describe('instrumentação operacional (P2B)', () => {
 
   it('nenhum painel de instrumentação achata ausência em zero', () => {
     for (const file of [
-      'src/components/contracts/intelligence/MeasurementPanel.tsx',
+      'src/components/contracts/measurement/MilestoneCard.tsx',
+      'src/components/contracts/measurement/MilestoneBoard.tsx',
       'src/components/contracts/useContractInstrumentationModals.tsx',
     ]) {
       const suspeitos = read(file).split('\n').filter((l) => {

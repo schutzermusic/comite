@@ -718,3 +718,501 @@ html.light .ig-portfolio-page .portfolio-hero {
   .ig-dossier-theme *, .ig-dossier-theme *::before, .ig-dossier-theme *::after,
   .dossier-detail-overlay { animation: none !important; transition: none !important; }
 }
+
+/* ═════════════════════════════════════════════════════════
+   17. MEDIÇÃO & FATURAMENTO — cockpit, quadro e cadeia
+   
+   Nenhuma cor nova nasce aqui. Tudo sai dos tokens da §1,
+   que já têm paridade claro/escuro — por isso não há um só
+   rgba() literal abaixo, e o tema claro não precisa de
+   sobrescrita por regra.
+   
+   VOCABULÁRIO RESERVADO: tracejado = NÃO APURADO. Vale para
+   chip, trilho, nó de cadeia e medidor, sem exceção. É como
+   a tela distingue ausência de zero sem escrever a palavra.
+   ═════════════════════════════════════════════════════════ */
+
+/* ── Chip de sinal: acento e tracejado sobre .dossier-status ── */
+.dossier-status[data-tone=accent] {
+  color: var(--dossier-accent-ink);
+  border-color: var(--dossier-accent-edge);
+  background: var(--dossier-accent-wash);
+}
+.dossier-status[data-tone=accent] i { background: currentColor; }
+.dossier-status[data-dashed] { border-style: dashed; }
+.dossier-status[data-dashed] i { background: transparent; }
+.dossier-status > svg { width: 12px; height: 12px; flex-shrink: 0; }
+
+/* ─────────────────────────────────────────────────────────
+   17.1 ESTEIRA — gargalo levantado, jusante recuada
+   ───────────────────────────────────────────────────────── */
+.dossier-pipeline-summary { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.dossier-pipeline-bottleneck-tag {
+  font-size: 11px; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--dossier-accent-ink);
+  border: 1px solid var(--dossier-accent-edge);
+  background: var(--dossier-accent-wash);
+  border-radius: 999px; padding: 3px 10px;
+}
+.dossier-pipeline-bottleneck-tag strong { font-weight: 600; }
+.dossier-pipeline-progress { font-size: 11px; color: var(--ig-fg-subtle); }
+
+.dossier-pipeline-track {
+  display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 18px;
+}
+.dossier-pipeline-stage {
+  position: relative; min-width: 0; padding: 14px;
+  border-radius: 11px;
+  background: var(--dossier-inset);
+  box-shadow: inset 0 0 0 1px var(--dossier-border-subtle);
+  transition: opacity 160ms, box-shadow 160ms, background 160ms;
+}
+/* O gargalo: levantado e com borda de acento. */
+.dossier-pipeline-stage[data-bottleneck] {
+  background: var(--dossier-accent-wash);
+  box-shadow: var(--dossier-shadow-raised), inset 0 0 0 1px var(--dossier-accent-edge);
+}
+/* A jusante não falhou — ainda não é alcançável. Recuar diz isso sem texto. */
+.dossier-pipeline-stage[data-downstream] { opacity: .68; }
+.dossier-pipeline-stage[data-state=measured]:not([data-bottleneck]) {
+  box-shadow: inset 0 0 0 1px var(--dossier-border);
+}
+.dossier-pipeline-stage[data-state=not-integrated] {
+  background: transparent; box-shadow: none;
+  border: 1px dashed var(--dossier-border-strong);
+}
+
+.dossier-pipeline-link {
+  position: absolute; left: -18px; top: 50%; width: 18px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--ig-fg-subtle); z-index: 1;
+}
+.dossier-pipeline-link::before {
+  content: ''; position: absolute; inset-inline: 0; top: 50%; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--dossier-border-strong));
+}
+.dossier-pipeline-link[data-reached=false]::before {
+  background: none; border-top: 1px dashed var(--dossier-border);
+}
+
+.dossier-pipeline-label {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 6px;
+  font-size: 10px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase;
+  color: var(--ig-fg-muted);
+}
+.dossier-pipeline-index { font-size: 10px; color: var(--ig-fg-subtle); flex-shrink: 0; }
+.dossier-pipeline-value { margin-top: 6px; min-height: 26px; }
+.dossier-pipeline-absent {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 13px; font-weight: 500; color: var(--ig-fg-subtle);
+}
+.dossier-pipeline-stage[data-state=error] .dossier-pipeline-absent { color: var(--dossier-critical-ink); }
+.dossier-pipeline-stage[data-state=not-instrumented] .dossier-pipeline-absent { color: var(--dossier-attention-ink); }
+
+.dossier-pipeline-meter {
+  margin-top: 9px; height: 4px; border-radius: 3px; overflow: hidden;
+  background: var(--dossier-inset-strong);
+}
+.dossier-pipeline-meter > i {
+  display: block; height: 100%; border-radius: 3px;
+  background: var(--dossier-accent); transition: width 160ms;
+}
+.dossier-pipeline-meter.is-absent {
+  background: none; border: 1px dashed var(--dossier-border-strong); height: 4px;
+}
+.dossier-pipeline-meta {
+  margin-top: 8px; display: flex; justify-content: space-between; gap: 8px;
+  font-size: 10px; color: var(--ig-fg-subtle);
+}
+.dossier-pipeline-state { text-transform: uppercase; letter-spacing: .05em; }
+.dossier-pipeline-source {
+  margin-top: 2px; font-size: 10px; color: var(--ig-fg-subtle); opacity: .8;
+  font-variant-numeric: tabular-nums; overflow-wrap: anywhere;
+}
+.dossier-pipeline-note { margin-top: 8px; font-size: 11px; color: var(--ig-fg-muted); }
+.dossier-pipeline-note > summary { cursor: pointer; font-weight: 500; }
+.dossier-pipeline-note > summary::-webkit-details-marker { display: none; }
+.dossier-pipeline-note > p { margin-top: 6px; line-height: 1.55; }
+
+/* A frase que faz a esteira valer o espaço. */
+.dossier-pipeline-callout {
+  margin-top: 16px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 11px 14px; border-radius: 10px;
+  border: 1px solid var(--dossier-accent-edge);
+  background: var(--dossier-accent-wash);
+}
+.dossier-pipeline-callout-mark {
+  width: 6px; height: 6px; flex-shrink: 0; border-radius: 50%;
+  background: var(--dossier-accent);
+  box-shadow: 0 0 0 3px var(--dossier-accent-wash);
+}
+.dossier-pipeline-callout > p {
+  flex: 1; min-width: 200px; font-size: 12.5px; line-height: 1.55;
+  color: var(--ig-fg-default);
+}
+
+/* ─────────────────────────────────────────────────────────
+   17.2 EXPOSIÇÃO — régua e decomposição
+   ───────────────────────────────────────────────────────── */
+.dossier-exposure-metrics {
+  display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 1px;
+  background: var(--dossier-border-subtle);
+  border-radius: 10px; overflow: hidden;
+}
+.dossier-exposure-metric {
+  display: flex; flex-direction: column; gap: 3px;
+  padding: 12px 13px; background: var(--dossier-inset); min-width: 0;
+}
+.dossier-exposure-metric[data-emphasis] { background: var(--dossier-inset-strong); }
+.dossier-exposure-label {
+  font-size: 10px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase;
+  color: var(--ig-fg-muted);
+}
+.dossier-exposure-value { font-size: 15px; font-weight: 600; color: var(--ig-fg-strong); }
+.dossier-exposure-value.is-absent {
+  font-size: 12.5px; font-weight: 500; color: var(--ig-fg-subtle);
+}
+.dossier-exposure-source { font-size: 10px; color: var(--ig-fg-subtle); overflow-wrap: anywhere; }
+
+.dossier-exposure-block { margin-top: 16px; }
+.dossier-exposure-block-head {
+  display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+  font-size: 11.5px; color: var(--ig-fg-muted); margin-bottom: 8px;
+}
+.dossier-exposure-meter {
+  display: flex; gap: 2px; height: 8px; border-radius: 5px; overflow: hidden;
+  background: var(--dossier-inset-strong);
+}
+.dossier-exposure-meter > i { display: block; height: 100%; min-width: 0; }
+.dossier-exposure-meter > i[data-segment=accepted] { background: var(--dossier-accent); }
+.dossier-exposure-meter > i[data-segment=measured_pending] { background: var(--dossier-attention-ink); }
+/* NÃO APURADO: tracejado, nunca uma barra sólida cinza que se leia como zero. */
+.dossier-exposure-meter > i[data-absent] {
+  background: none;
+  border: 1px dashed var(--dossier-border-strong);
+  border-radius: 4px;
+}
+
+.dossier-exposure-legend {
+  margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px 20px;
+  font-size: 11.5px; color: var(--ig-fg-muted);
+}
+.dossier-exposure-legend > li { display: flex; align-items: center; gap: 7px; }
+.dossier-exposure-legend > li > i {
+  width: 9px; height: 9px; border-radius: 3px; flex-shrink: 0;
+}
+.dossier-exposure-legend > li[data-segment=accepted] > i { background: var(--dossier-accent); }
+.dossier-exposure-legend > li[data-segment=measured_pending] > i { background: var(--dossier-attention-ink); }
+.dossier-exposure-legend > li[data-absent] > i {
+  background: none; border: 1px dashed var(--dossier-border-strong);
+}
+.dossier-exposure-legend-label { color: var(--ig-fg-default); }
+.dossier-exposure-legend-pct { color: var(--ig-fg-subtle); }
+
+/* ─────────────────────────────────────────────────────────
+   17.3 QUADRO DE MARCOS
+   ───────────────────────────────────────────────────────── */
+.dossier-board-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.dossier-viewtoggle {
+  display: inline-flex; padding: 2px; gap: 2px; border-radius: 8px;
+  border: 1px solid var(--dossier-border-subtle); background: var(--dossier-inset);
+}
+.dossier-viewtoggle > button {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 10px; border-radius: 6px;
+  font-size: 11.5px; font-weight: 500; color: var(--ig-fg-muted);
+  transition: background 160ms, color 160ms;
+}
+.dossier-viewtoggle > button:hover { color: var(--ig-fg-strong); background: var(--dossier-hover); }
+.dossier-viewtoggle > button[data-active] {
+  background: var(--dossier-accent-wash); color: var(--dossier-accent-ink);
+  box-shadow: inset 0 0 0 1px var(--dossier-accent-edge);
+}
+
+.dossier-board-groups { display: flex; flex-direction: column; gap: 10px; }
+.dossier-board-group-head {
+  width: 100%; display: flex; align-items: center; gap: 9px;
+  padding: 8px 10px; border-radius: 8px; text-align: left;
+  color: var(--ig-fg-default); transition: background 160ms;
+}
+.dossier-board-group-head:hover:not(:disabled) { background: var(--dossier-hover); }
+.dossier-board-group-head:disabled { cursor: default; }
+.dossier-board-group[data-empty] .dossier-board-group-head { opacity: .55; }
+.dossier-board-group-label {
+  font-size: 11px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase;
+}
+.dossier-board-group-count { font-size: 11px; color: var(--ig-fg-subtle); }
+.dossier-board-group-total {
+  margin-left: auto; font-size: 12px; font-weight: 600; color: var(--ig-fg-strong);
+}
+.dossier-board-cards {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 10px; padding: 4px 0 8px;
+}
+.dossier-board-boundary {
+  margin-top: 14px; padding-top: 12px;
+  border-top: 1px solid var(--dossier-border-subtle);
+  font-size: 11.5px; line-height: 1.6; color: var(--ig-fg-muted);
+}
+.dossier-board-boundary strong { color: var(--ig-fg-default); font-weight: 600; }
+
+/* ── O marco ── */
+.dossier-milestone {
+  position: relative; overflow: hidden; min-width: 0;
+  /* Coluna flex + `margin-top:auto` no rodapé: numa fileira de cards de
+     alturas diferentes, as AÇÕES ficam na mesma linha. Sem isso o olho
+     precisa caçar o botão card a card. */
+  display: flex; flex-direction: column;
+  padding: 13px 14px 11px 16px; border-radius: 10px;
+  background: var(--dossier-inset);
+  box-shadow: inset 0 0 0 1px var(--dossier-border-subtle);
+  transition: background 160ms, box-shadow 160ms;
+}
+.dossier-milestone:hover { background: var(--dossier-hover); }
+.dossier-milestone[data-selected] {
+  background: var(--dossier-inset-strong);
+  box-shadow: inset 0 0 0 1px var(--dossier-accent-edge);
+}
+.dossier-milestone-rail {
+  position: absolute; inset-block: 0; left: 0; width: 2px;
+  background: var(--dossier-border-strong);
+}
+.dossier-milestone[data-tone=accent]   > .dossier-milestone-rail { background: var(--dossier-accent); }
+.dossier-milestone[data-tone=positive] > .dossier-milestone-rail { background: var(--dossier-positive-ink); }
+.dossier-milestone[data-tone=attention]> .dossier-milestone-rail { background: var(--dossier-attention-ink); }
+.dossier-milestone[data-tone=critical] > .dossier-milestone-rail { background: var(--dossier-critical-ink); }
+/* NÃO APURADO: trilho tracejado, o mesmo vocabulário do resto da aba. */
+.dossier-milestone[data-dashed] > .dossier-milestone-rail {
+  background: none; border-left: 2px dashed var(--dossier-border-strong);
+}
+/* Atraso é sobreposição: pinta o trilho sem apagar o estágio. */
+.dossier-milestone[data-overdue] > .dossier-milestone-rail {
+  background: var(--dossier-critical-ink); border: 0;
+}
+
+.dossier-milestone-head { display: flex; align-items: flex-start; gap: 9px; }
+.dossier-milestone-ordinal {
+  flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; border-radius: 6px;
+  font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums;
+  color: var(--ig-fg-muted);
+  background: var(--dossier-inset-strong);
+  box-shadow: inset 0 0 0 1px var(--dossier-border-subtle);
+}
+.dossier-milestone-title {
+  flex: 1; min-width: 0; text-align: left;
+  font-size: 13px; font-weight: 600; line-height: 1.4; color: var(--ig-fg-strong);
+  overflow-wrap: anywhere;
+}
+.dossier-milestone-title:hover { color: var(--dossier-accent-ink); }
+.dossier-milestone-money {
+  flex-shrink: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 1px;
+}
+.dossier-milestone-amount { font-size: 14px; font-weight: 700; color: var(--ig-fg-strong); }
+.dossier-milestone-amount-label {
+  font-size: 9.5px; letter-spacing: .05em; text-transform: uppercase; color: var(--ig-fg-subtle);
+}
+.dossier-milestone-amount-missing {
+  font-size: 11.5px; color: var(--dossier-attention-ink);
+}
+
+.dossier-milestone-signals {
+  margin-top: 9px; display: flex; flex-wrap: wrap; align-items: center; gap: 5px;
+}
+.dossier-milestone-meta { font-size: 10.5px; color: var(--ig-fg-subtle); }
+.dossier-milestone-values {
+  margin-top: 7px; display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 11.5px;
+}
+.dossier-milestone-values em {
+  font-style: normal; color: var(--ig-fg-subtle); margin-right: 5px;
+  font-size: 10px; letter-spacing: .05em; text-transform: uppercase;
+}
+.dossier-milestone-values b { font-weight: 600; color: var(--ig-fg-strong); }
+
+.dossier-milestone-foot {
+  margin-top: auto; padding-top: 9px; display: flex; align-items: center; gap: 6px;
+  border-top: 1px solid var(--dossier-border-subtle);
+}
+.dossier-milestone-action {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 10px; border-radius: 7px;
+  font-size: 11.5px; font-weight: 600; color: var(--ig-fg-muted);
+  border: 1px solid var(--dossier-border-subtle);
+  transition: color 160ms, border-color 160ms, background 160ms;
+}
+.dossier-milestone-action:hover {
+  color: var(--ig-fg-strong); border-color: var(--dossier-border-strong);
+  background: var(--dossier-hover);
+}
+/* A ÚNICA ação preenchida do quadro — e é a que move dinheiro. */
+.dossier-milestone-action.is-primary {
+  color: var(--dossier-accent-ink);
+  border-color: var(--dossier-accent-edge);
+  background: var(--dossier-accent-wash);
+}
+.dossier-milestone-action.is-primary:hover { box-shadow: var(--dossier-shadow); }
+.dossier-milestone-action:disabled { opacity: .5; cursor: not-allowed; }
+.dossier-milestone-more {
+  margin-left: auto; display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 7px; color: var(--ig-fg-subtle);
+  opacity: 0; transition: opacity 160ms, color 160ms, background 160ms;
+}
+.dossier-milestone:hover .dossier-milestone-more,
+.dossier-milestone-more:focus-visible { opacity: 1; }
+.dossier-milestone-more:hover { color: var(--ig-fg-strong); background: var(--dossier-hover); }
+
+/* ─────────────────────────────────────────────────────────
+   17.4 TRILHO DA CADEIA — quatro autoridades, quatro nós
+   ───────────────────────────────────────────────────────── */
+.dossier-chain {
+  margin-top: 14px; margin-bottom: 12px;
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0;
+}
+.dossier-chain-step {
+  position: relative; display: flex; flex-direction: column; gap: 4px; min-width: 0;
+  /* A folga à direita impede que dois rótulos truncados encostem
+     ("CONTRATUALEXECUÇÃO") quando o card estreita. */
+  padding-left: 1px; padding-right: 8px;
+}
+.dossier-chain-node {
+  width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+  border: 1px solid var(--dossier-border-strong);
+  background: transparent;
+}
+.dossier-chain-node[data-fact=true] {
+  background: var(--dossier-accent); border-color: var(--dossier-accent);
+  box-shadow: 0 0 0 3px var(--dossier-accent-wash);
+}
+.dossier-chain-node[data-blocked] {
+  background: var(--dossier-critical-ink); border-color: var(--dossier-critical-edge);
+  box-shadow: 0 0 0 3px var(--dossier-critical-wash);
+}
+.dossier-chain-link {
+  position: absolute; left: -50%; top: 3px; width: 50%; height: 1px;
+  background: var(--dossier-accent);
+}
+.dossier-chain-link[data-reached=false] {
+  background: none; border-top: 1px dashed var(--dossier-border-strong);
+}
+.dossier-chain-text { display: flex; flex-direction: column; min-width: 0; }
+.dossier-chain-label {
+  font-size: 9px; font-weight: 600; letter-spacing: .03em; text-transform: uppercase;
+  color: var(--ig-fg-muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dossier-chain-source {
+  font-size: 10px; color: var(--ig-fg-subtle);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dossier-chain-compact { margin: 0; width: 84px; gap: 0; }
+.dossier-chain-compact .dossier-chain-step { padding: 0; }
+
+/* ─────────────────────────────────────────────────────────
+   17.5 VISÃO COMPACTA
+   ───────────────────────────────────────────────────────── */
+.dossier-compact-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.dossier-compact-table thead th {
+  padding: 6px 10px; text-align: left; font-size: 10px; font-weight: 600;
+  letter-spacing: .07em; text-transform: uppercase; color: var(--ig-fg-subtle);
+  border-bottom: 1px solid var(--dossier-border-subtle);
+}
+.dossier-compact-table tbody tr {
+  border-bottom: 1px solid var(--dossier-border-subtle);
+  transition: background 160ms; cursor: pointer;
+}
+.dossier-compact-table tbody tr:hover { background: var(--dossier-hover); }
+.dossier-compact-table tbody tr[data-selected] {
+  background: var(--dossier-inset-strong);
+  box-shadow: inset 2px 0 0 var(--dossier-accent);
+}
+.dossier-compact-table tbody tr[data-overdue] { box-shadow: inset 2px 0 0 var(--dossier-critical-ink); }
+.dossier-compact-table td, .dossier-compact-table tbody th {
+  padding: 8px 10px; vertical-align: middle; font-weight: 400; text-align: left;
+}
+.dossier-compact-title {
+  display: block; font-weight: 600; color: var(--ig-fg-strong);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 34ch;
+}
+.dossier-compact-overlays { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
+
+/* ─────────────────────────────────────────────────────────
+   17.6 VAZIO GUIADO
+   ───────────────────────────────────────────────────────── */
+.dossier-empty {
+  padding: 18px; border-radius: 11px;
+  border: 1px dashed var(--dossier-border-strong);
+  background: var(--dossier-inset);
+}
+.dossier-empty-head { display: flex; align-items: center; gap: 9px; }
+.dossier-empty-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: 8px; flex-shrink: 0;
+  color: var(--dossier-accent-ink);
+  background: var(--dossier-accent-wash);
+  box-shadow: inset 0 0 0 1px var(--dossier-accent-edge);
+}
+.dossier-empty-title { font-size: 13px; font-weight: 600; color: var(--ig-fg-strong); }
+.dossier-empty-cause {
+  margin-top: 9px; font-size: 12.5px; line-height: 1.6; color: var(--ig-fg-default);
+}
+.dossier-empty-consequence {
+  margin-top: 6px; font-size: 12px; line-height: 1.6; color: var(--ig-fg-muted);
+}
+.dossier-empty-chain {
+  margin-top: 11px; display: flex; flex-wrap: wrap; gap: 6px;
+}
+.dossier-empty-chain > li {
+  font-size: 10.5px; padding: 3px 9px; border-radius: 999px;
+  border: 1px solid var(--dossier-border-subtle);
+  color: var(--ig-fg-subtle);
+}
+.dossier-empty-chain > li[data-state=fact] {
+  color: var(--dossier-accent-ink); border-color: var(--dossier-accent-edge);
+  background: var(--dossier-accent-wash);
+}
+.dossier-empty-chain > li[data-state=missing] {
+  color: var(--dossier-attention-ink); border-color: var(--dossier-attention-edge);
+  background: var(--dossier-attention-wash);
+}
+.dossier-empty-chain > li[data-state=pending] { border-style: dashed; }
+.dossier-empty-actions { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px; }
+.dossier-empty-action {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 6px 12px; border-radius: 8px;
+  font-size: 12px; font-weight: 600; color: var(--ig-fg-muted);
+  border: 1px solid var(--dossier-border-subtle);
+  transition: color 160ms, border-color 160ms, background 160ms;
+}
+.dossier-empty-action:hover {
+  color: var(--ig-fg-strong); border-color: var(--dossier-border-strong);
+  background: var(--dossier-hover);
+}
+.dossier-empty-action.is-primary {
+  color: var(--dossier-accent-ink);
+  border-color: var(--dossier-accent-edge);
+  background: var(--dossier-accent-wash);
+}
+
+/* ─────────────────────────────────────────────────────────
+   17.7 RESPONSIVO
+   ───────────────────────────────────────────────────────── */
+@media (max-width: 1279px) {
+  .dossier-exposure-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 1023px) {
+  .dossier-pipeline-track { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .dossier-pipeline-link { display: none; }
+  .dossier-board-cards { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 767px) {
+  .dossier-exposure-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dossier-compact-title { max-width: 20ch; }
+  /* Numa coluna só, fonte e procedência disputam a largura com o rótulo. */
+  .dossier-chain-source { display: none; }
+}
+@media (max-width: 639px) {
+  .dossier-pipeline-track { grid-template-columns: minmax(0, 1fr); }
+  .dossier-milestone-head { flex-wrap: wrap; }
+  .dossier-milestone-money { align-items: flex-start; width: 100%; }
+  .dossier-milestone-more { opacity: 1; }
+}

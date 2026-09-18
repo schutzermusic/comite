@@ -300,7 +300,9 @@ describe('valor — o detalhe documental mostra os centavos', () => {
       'src/components/contracts/intelligence/ContractInterpretationPanel.tsx',
       'src/components/contracts/intelligence/ContractIntelligenceTab.tsx',
       'src/components/contracts/intelligence/ContractInstrumentsPanel.tsx',
-      'src/components/contracts/intelligence/MeasurementPanel.tsx',
+      'src/components/contracts/measurement/MilestoneCard.tsx',
+      'src/components/contracts/measurement/MilestoneBoard.tsx',
+      'src/components/contracts/billing/ExposureRail.tsx',
     ]) {
       const text = source(file);
       expect(text, file).toContain('formatContractCurrency');

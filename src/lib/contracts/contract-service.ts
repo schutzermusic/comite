@@ -2938,7 +2938,22 @@ export async function getContractDocumentUrl(
     .from(CONTRACT_FILES_BUCKET)
     .createSignedUrl(filePath, expiresInSeconds);
   if (error || !data?.signedUrl) {
-    throw new Error(`Erro ao abrir o documento: ${error?.message ?? 'URL indisponível.'}`);
+    /*
+      O Storage responde 404 ("Object not found") a duas situações que o
+      usuário vive de formas muito diferentes: o arquivo não está mais no
+      repositório, ou ele existe e a RLS não o revela a quem pediu. Repassar o
+      texto cru do provedor fazia a segunda parecer a primeira — foi assim que
+      a leitura bloqueada pela política da migration 006 passou anos se
+      anunciando como arquivo perdido. A mensagem agora nomeia as duas.
+    */
+    const raw = error?.message ?? 'URL indisponível.';
+    if (/not\s*found/i.test(raw)) {
+      throw new Error(
+        'O arquivo original não está acessível: ele pode ter sido removido do '
+        + 'repositório, ou seu acesso a este contrato não o alcança.',
+      );
+    }
+    throw new Error(`Erro ao abrir o documento: ${raw}`);
   }
   return page && page > 0 ? `${data.signedUrl}#page=${page}` : data.signedUrl;
 }

@@ -17,10 +17,20 @@ const TYPE: Record<ContractDocumentRow['document_type'], string> = {
   contract: 'Contrato', amendment: 'Aditivo', invoice: 'Nota fiscal', guarantee: 'Garantia', insurance: 'Seguro', annex: 'Anexo', purchase_order: 'Pedido de compra', certificate: 'Certificado', approval: 'Aprovação', minutes: 'Ata',
 };
 
-export function PortfolioDocuments({ records, canUploadDoc, busyId, onApprove, onSendToApproval, onReject, onOpenContract }: {
+export function PortfolioDocuments({ records, canUploadDoc, busyId, onApprove, onSendToApproval, onReject, onOpenContract, onOpenDocumentFile }: {
   records: ContractGovernanceRecord[]; canUploadDoc: boolean; busyId: string | null;
   onApprove: (docId: string, key: string) => void; onSendToApproval: (docId: string, key: string) => void;
   onReject: (doc: { id: string; title: string }) => void; onOpenContract: (record: ContractGovernanceRecord) => void;
+  /**
+   * Abre o ARQUIVO ORIGINAL do documento selecionado.
+   *
+   * O acervo existe para chegar ao papel. Quem escolheu um documento aqui já
+   * disse qual arquivo quer ver: mandá-lo ao dossiê do contrato — como esta
+   * gaveta fazia — era pedir mais dois cliques para chegar ao mesmo PDF. A
+   * navegação para o contrato continua existindo, na cobertura por contrato,
+   * que é onde ela responde à pergunta de quem a faz.
+   */
+  onOpenDocumentFile: (doc: ContractDocumentRow) => void;
 }) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
@@ -54,7 +64,10 @@ export function PortfolioDocuments({ records, canUploadDoc, busyId, onApprove, o
         <DossierStatus tone={record.liveDocuments?.some(pending) ? 'attention' : 'unknown'}>{record.liveDocuments?.some(pending) ? `${record.liveDocuments.filter(pending).length} documento(s) requer(em) atenção` : 'Completude não atestada'}</DossierStatus>
       </button>)}
     </DossierDisclosure>
-    <DossierDetailDrawer isOpen={Boolean(selected)} onClose={() => setSelectedId(null)} title={doc?.title ?? 'Documento'} subtitle={selected ? `${selected.record.code} · ${TYPE[selected.doc.document_type]}` : undefined} footer={selected ? <button type="button" className="portfolio-action" onClick={() => { setSelectedId(null); onOpenContract(selected.record); }}>Abrir contrato e documentos <ArrowUpRight size={14} /></button> : undefined}>
+    <DossierDetailDrawer isOpen={Boolean(selected)} onClose={() => setSelectedId(null)} title={doc?.title ?? 'Documento'} subtitle={selected ? `${selected.record.code} · ${TYPE[selected.doc.document_type]}` : undefined} footer={selected ? (selected.doc.file_path
+      ? <button type="button" className="portfolio-action" onClick={() => onOpenDocumentFile(selected.doc)}>{selected.doc.document_type === 'contract' ? 'Abrir contrato' : 'Abrir arquivo original'} <ArrowUpRight size={14} /></button>
+      /* Sem arquivo vinculado não há o que abrir, e o registro diz isso — em vez de um botão que falharia. */
+      : <span className="dossier-meta">Arquivo original não vinculado a este registro.</span>) : undefined}>
       {doc && <div className="space-y-6">
         <DossierStatus tone={STATUS[doc.status].tone}>{STATUS[doc.status].label}</DossierStatus>
         <dl className="grid grid-cols-2 gap-4"><div><dt className="dossier-meta">Versão</dt><dd>v{doc.version ?? 1}{doc.superseded_by_document_id ? ' · substituída' : ' · atual'}</dd></div><div><dt className="dossier-meta">Assinatura</dt><dd>Não apurada neste registro</dd></div><div><dt className="dossier-meta">Adicionado em</dt><dd>{new Date(doc.created_at).toLocaleDateString('pt-BR')}</dd></div><div><dt className="dossier-meta">Aprovação</dt><dd>{doc.approved_at ? new Date(doc.approved_at).toLocaleDateString('pt-BR') : 'Sem data registrada'}</dd></div></dl>

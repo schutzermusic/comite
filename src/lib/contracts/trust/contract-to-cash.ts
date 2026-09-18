@@ -498,3 +498,28 @@ export function portfolioToCash(
     RECEIVED_STAGE,
   ];
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GARGALO
+// ═══════════════════════════════════════════════════════════════════════════
+
+export interface PipelineBottleneck {
+  readonly stage: CashStage;
+  readonly index: number;
+}
+
+/**
+ * O GARGALO: o primeiro estágio da cadeia que ainda não é fato.
+ *
+ * `not-integrated` NÃO é gargalo, e a exceção é deliberada. Recebido sem razão
+ * financeiro conciliado não é trabalho parado de quem lê Contratos — é ausência
+ * de integração. Apontá-lo como gargalo mandaria o usuário resolver o que não
+ * está ao alcance dele, e esconderia o gargalo real atrás dele.
+ *
+ * Mora aqui, e não no componente, porque é lógica pura: o vitest deste
+ * repositório roda em `node` e não transforma JSX.
+ */
+export function findBottleneck(stages: readonly CashStage[]): PipelineBottleneck | null {
+  const index = stages.findIndex((s) => s.state !== 'measured' && s.state !== 'not-integrated');
+  return index === -1 ? null : { stage: stages[index], index };
+}

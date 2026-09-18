@@ -50,7 +50,7 @@ import {
 import { computeContractPortfolioStats } from '@/components/contracts/contract-portfolio-stats';
 import { applyLiveGovernanceData, countLiveSections } from '@/components/contracts/contract-governance-live';
 import { ContractExecutiveBand } from '@/components/contracts/ContractExecutiveBand';
-import { computeApprovalSla, contractRowToLegacyContract, createTaskFromObligation, describeRelationErrors, fetchContractRelationsBatch, fetchPortfolioLinkCounts, listContractAuditEvents, listPortfolioAuditEvents, requestClauseExtraction, submitContractApproval, updateContractDocumentStatus, uploadContractDocument, type ContractRelationsBatch } from '@/lib/contracts/contract-service';
+import { computeApprovalSla, contractRowToLegacyContract, createTaskFromObligation, describeRelationErrors, fetchContractRelationsBatch, fetchPortfolioLinkCounts, getContractDocumentUrl, listContractAuditEvents, listPortfolioAuditEvents, requestClauseExtraction, submitContractApproval, updateContractDocumentStatus, uploadContractDocument, type ContractDocumentRow, type ContractRelationsBatch } from '@/lib/contracts/contract-service';
 import { buildTrustedPortfolio, type TrustedContract } from '@/lib/contracts/trust/read-model';
 import { computeTrustedPortfolioStats, type TrustedPortfolioStats } from '@/lib/contracts/trust/portfolio';
 import { approvalSla } from '@/lib/contracts/trust/signals';
@@ -464,6 +464,34 @@ export default function ContratosPage() {
     if (!result.ok) {
       notify('Não foi possível gerar o PDF', {
         description: result.message ?? 'Falha ao montar o dossiê do contrato.',
+        variant: 'error',
+      });
+    }
+  };
+
+  /**
+   * Abre o ARQUIVO ORIGINAL de um documento do acervo.
+   *
+   * A mesma mecânica do dossiê (`getContractDocumentUrl`): URL assinada e
+   * curta sobre o bucket privado, de modo que o RLS do armazenamento continue
+   * sendo quem autoriza e o link não sobreviva a um copiar-e-colar para fora
+   * da sessão. Nada é gerado, reconstruído ou reenviado — o que abre é o PDF
+   * que foi recebido, com a proveniência que o registro já guarda.
+   */
+  const handleOpenDocumentFile = async (doc: ContractDocumentRow) => {
+    if (!doc.file_path) {
+      notify('Arquivo original indisponível', {
+        description: 'Este registro não tem arquivo vinculado no repositório.',
+        variant: 'error',
+      });
+      return;
+    }
+    try {
+      const url = await getContractDocumentUrl(doc.file_path);
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (err) {
+      notify('Não foi possível abrir o arquivo original', {
+        description: err instanceof Error ? err.message : 'Erro inesperado.',
         variant: 'error',
       });
     }
@@ -1165,6 +1193,7 @@ export default function ContratosPage() {
           onSendToApproval={(docId, key) => runTabAction(key, () => updateContractDocumentStatus(docId, 'pending_approval'), 'Documento enviado para aprovação')}
           onReject={(doc) => pageItemModals.openRejectDoc(doc)}
           onOpenContract={handleViewContract}
+          onOpenDocumentFile={handleOpenDocumentFile}
         />
       ),
     },
