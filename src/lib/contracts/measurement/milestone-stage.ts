@@ -30,6 +30,11 @@
  *     `governedMappingCount` só conta aceitos — mas a checagem de
  *     `timelineItemId` mantém a garantia mesmo se alguém trocar a fonte.
  *   · Não deriva faturado, aceito ou recebido de progresso de projeto.
+ *
+ *   · Não lê `status = 'measured'` como aceite. Medir é ato de quem executa;
+ *     aceitar é ato da Contratante. Onde o contrato exige aprovação de Boletim
+ *     de Medição, medir sozinho para em `AWAITING_ACCEPTANCE` — nunca em
+ *     `READY_TO_BILL`.
  */
 
 import type { MilestoneWorkbenchRow } from './milestone-workbench-types';
@@ -169,8 +174,73 @@ export const OVERLAY_TONE: Record<MilestoneOverlay, StageTone> = {
   ENTITLEMENT_MISSING: 'attention',
 };
 
-/** Marco que a própria linha afirma medido — o mesmo vocabulário da migration 092. */
-const MEASURED = ['measured', 'approved'] as const;
+/**
+ * Marco que a própria linha afirma MEDIDO — e nada além disso.
+ *
+ * `measured` é afirmação de QUEM EXECUTOU: apurei a quantidade. Não é o aceite
+ * da Contratante. Manter os dois no mesmo array, como estava antes, fazia a
+ * medição da própria Contratada liberar faturamento em contrato que exige
+ * aprovação de Boletim de Medição — que é o caso de JA10182283/2025.
+ */
+const MEASURED_ONLY = ['measured'] as const;
+
+/**
+ * Marco que a própria linha afirma APROVADO por quem tem autoridade de aceite.
+ *
+ * Vocabulário da migration 092: `approved` é o ato de aceitação registrado no
+ * marco, distinto de `measured`.
+ */
+const ACCEPTED_STATUS = ['approved'] as const;
+
+/** A linha afirma que a operação apurou o marco (sem dizer nada sobre aceite). */
+function claimsMeasured(row: MilestoneWorkbenchRow): boolean {
+  return MEASURED_ONLY.includes(row.status as (typeof MEASURED_ONLY)[number]);
+}
+
+/**
+ * O CONTRATO exige aceite da Contratante para este marco?
+ *
+ * Só `true` explícito exige. `null` é exigência NÃO REGISTRADA, e tratá-la como
+ * exigente travaria todo marco sem instrumentação; tratá-la como dispensa é o
+ * que o estágio já diz por outro caminho (`UNINSTRUMENTED`/`UNMAPPED`).
+ */
+function acceptanceRequired(row: MilestoneWorkbenchRow): boolean {
+  return row.customerAcceptanceRequired === true;
+}
+
+/**
+ * ALGUÉM COM AUTORIDADE DE ACEITE disse sim?
+ *
+ * Três fatos, todos vindos de fonte de aceite — nunca de execução e nunca de
+ * apuração própria:
+ *
+ *   · `status = 'approved'` — aceite registrado no próprio marco;
+ *   · `measurementStatus = 'ACCEPTED'` — medição aceita em Projetos;
+ *   · `measurementAcceptedAt` — o carimbo do ato de aceite.
+ */
+function acceptanceSatisfied(row: MilestoneWorkbenchRow): boolean {
+  return ACCEPTED_STATUS.includes(row.status as (typeof ACCEPTED_STATUS)[number])
+    || row.measurementStatus === 'ACCEPTED'
+    || row.measurementAcceptedAt !== null;
+}
+
+/** A exigência documental do marco está satisfeita por algum registro real? */
+function evidenceSatisfied(row: MilestoneWorkbenchRow): boolean {
+  return row.evidenceDocumentId !== null
+    || (row.evidence !== null && row.evidence.trim() !== '')
+    || (row.measurementEvidenceCount ?? 0) > 0;
+}
+
+/**
+ * As CONDIÇÕES RESTANTES do marco — o que ainda falta depois do aceite.
+ *
+ * Hoje é a evidência exigida. Fica isolado numa função porque a lista cresce
+ * com o contrato, e crescer dentro do `switch` é como a regra de aceite se
+ * perdeu da primeira vez.
+ */
+function remainingConditionsSatisfied(row: MilestoneWorkbenchRow): boolean {
+  return row.evidenceRequired !== true || evidenceSatisfied(row);
+}
 
 /**
  * A etapa de cronograma TERMINOU?
@@ -202,13 +272,32 @@ export function deriveStage(row: MilestoneWorkbenchRow): StageDescriptor {
   // Não afirma pago nem recebido — só que o evento foi criado por alguém.
   if (row.billingEventId !== null) return STAGE.BILLED;
 
-  // ── Medido/aprovado pela própria linha do marco, e ainda sem evento ────
-  if (MEASURED.includes(row.status as (typeof MEASURED)[number])) return STAGE.READY_TO_BILL;
+  // ── Bloqueio operacional vence qualquer sinal a jusante ────────────────
+  // Prontidão BLOCKED junto de aceite é contradição de dado. Diante dela a
+  // derivação fecha, não abre: o bloqueio é o fato que alguém precisa resolver.
+  if (row.measurementReadiness === 'BLOCKED') return STAGE.BLOCKED;
+
+  // ── ACEITE REGISTRADO: a autoridade do aceite já se pronunciou ─────────
+  // Só aqui o marco pode virar elegível — e ainda assim as condições
+  // restantes precisam estar satisfeitas.
+  if (acceptanceSatisfied(row)) {
+    return remainingConditionsSatisfied(row) ? STAGE.READY_TO_BILL : STAGE.AWAITING_EVIDENCE;
+  }
+
+  // ── MEDIDO PELA PRÓPRIA LINHA, SEM ACEITE ──────────────────────────────
+  //
+  // Este é o ponto que o desenho anterior errava. `measured` é a afirmação de
+  // quem executou — "apurei" — e não o "aceito" da Contratante. Quando o
+  // contrato exige aceite (JA10182283/2025 exige aprovação de Boletim de
+  // Medição nos seis eventos), medir sozinho NÃO libera faturamento: libera,
+  // no máximo, o direito de submeter o BM.
+  if (claimsMeasured(row)) {
+    if (acceptanceRequired(row)) return STAGE.AWAITING_ACCEPTANCE;
+    return remainingConditionsSatisfied(row) ? STAGE.READY_TO_BILL : STAGE.AWAITING_EVIDENCE;
+  }
 
   // ── Medição operacional em curso ───────────────────────────────────────
   if (row.measurementId !== null) {
-    if (row.measurementReadiness === 'BLOCKED') return STAGE.BLOCKED;
-    if (row.measurementStatus === 'ACCEPTED') return STAGE.READY_TO_BILL;
     if (row.measurementStatus === 'SUBMITTED' || row.measurementStatus === 'UNDER_REVIEW') {
       return STAGE.AWAITING_ACCEPTANCE;
     }
@@ -240,7 +329,6 @@ export function deriveOverlays(
   asOf: Date = new Date(),
 ): readonly MilestoneOverlay[] {
   const out: MilestoneOverlay[] = [];
-  const stage = deriveStage(row);
 
   // ATRASO é sobre PRAZO, e só existe quando há prazo registrado. Sem
   // `due_date` não há atraso — há ausência de prazo, que é outra coisa e não
@@ -255,14 +343,18 @@ export function deriveOverlays(
   // Só cobra evidência de quem a exige. Um marco sem exigência registrada não
   // está "sem evidência": está sem exigência, e isso já aparece no estágio.
   const needsEvidence = row.evidenceRequired === true || row.requirementId !== null;
-  const hasEvidence = row.evidenceDocumentId !== null
-    || (row.evidence !== null && row.evidence.trim() !== '')
-    || (row.measurementEvidenceCount ?? 0) > 0;
-  if (needsEvidence && !hasEvidence && row.status !== 'cancelled') out.push('NO_EVIDENCE');
+  if (needsEvidence && !evidenceSatisfied(row) && row.status !== 'cancelled') out.push('NO_EVIDENCE');
 
-  // Marco que a linha diz medido mas cujo valor ninguém apurou. O previsto do
-  // contrato NÃO preenche essa lacuna.
-  if (stage.stage === 'READY_TO_BILL' && row.measuredAmount === null && row.acceptedValue === null) {
+  // Marco que alguém AFIRMA apurado ou aceito, mas cujo valor ninguém apurou.
+  //
+  // A condição se ancora na AFIRMAÇÃO, não no estágio: um marco medido que
+  // esbarra no aceite pendente continua sendo um marco sem valor apurado, e
+  // amarrar a sobreposição a `READY_TO_BILL` a fazia sumir exatamente quando o
+  // aceite passou a ser exigido. O previsto do contrato NÃO preenche a lacuna.
+  const claimsApuration = claimsMeasured(row) || acceptanceSatisfied(row)
+    || row.measurementStatus === 'SUBMITTED' || row.measurementStatus === 'UNDER_REVIEW';
+  if (claimsApuration && row.measuredAmount === null && row.acceptedValue === null
+      && row.status !== 'cancelled') {
     out.push('VALUE_UNVERIFIED');
   }
 
@@ -312,8 +404,9 @@ export interface ChainLink {
 export function deriveChain(row: MilestoneWorkbenchRow): readonly ChainLink[] {
   const contractual = row.entitlementRuleCount > 0;
   const execution = hasGovernedMapping(row) && timelineFinished(row);
-  const acceptance = row.measurementStatus === 'ACCEPTED'
-    || MEASURED.includes(row.status as (typeof MEASURED)[number]);
+  // O elo de ACEITE só acende com ato da autoridade de aceite. `measured` é a
+  // apuração de quem executou e acendia este nó por engano.
+  const acceptance = acceptanceSatisfied(row);
   const billing = row.billingEventId !== null;
 
   const contractualSource = row.entitlementSourcePage !== null

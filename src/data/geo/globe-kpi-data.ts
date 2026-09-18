@@ -23,6 +23,27 @@ export interface GlobeProjectRecord {
   code?: string;
   progressPercent?: number;
   type?: string;
+  /**
+   * DE ONDE VEIO `lat`/`lon`.
+   *
+   * `canonical`  — localização apurada do projeto, com proveniência
+   *                documental (`project_globe_marker`, migration 176).
+   * `estimated`  — centroide do estado mais um jitter determinístico. É um
+   *                lugar PLAUSÍVEL, não um lugar apurado.
+   *
+   * O campo existe porque as duas coordenadas sempre tiveram exatamente a
+   * mesma aparência no mapa. Um ponto estimado desenhado como ponto apurado
+   * é uma afirmação que o produto nunca teve como sustentar, e o marcador do
+   * globo passa a exigir `canonical`.
+   */
+  coordinateSource: 'canonical' | 'estimated';
+}
+
+/** O mínimo que `buildGlobeProjectRecords` precisa de um marcador canônico. */
+export interface CanonicalProjectCoordinate {
+  projectId: string;
+  latitude: number;
+  longitude: number;
 }
 
 export interface StateAggregate {
@@ -130,9 +151,30 @@ function buildStateUF(project: Project, v2?: ProjectV2): string {
   return STATE_CENTROIDS[fallback] ? fallback : 'SP';
 }
 
-function buildCoordinates(projectId: string, uf: string, v2?: ProjectV2): { lat: number; lon: number } {
+/**
+ * A coordenada do projeto, e a honestidade sobre a origem dela.
+ *
+ * A precedência tem uma ordem, e ela é a ordem da confiança:
+ *
+ *   1. marcador CANÔNICO — resolvido e com proveniência documental (176);
+ *   2. `project_v2.location` — coordenada gravada no JSONB do projeto;
+ *   3. centroide do estado + jitter — ESTIMATIVA, marcada como tal.
+ *
+ * O terceiro caso continua existindo porque o mapa de calor por estado
+ * depende de todo projeto ter posição. O que muda é que ele passa a se
+ * declarar `estimated`, e o marcador do globo não desenha estimativa.
+ */
+function buildCoordinates(
+  projectId: string,
+  uf: string,
+  v2?: ProjectV2,
+  canonical?: CanonicalProjectCoordinate,
+): { lat: number; lon: number; source: 'canonical' | 'estimated' } {
+  if (canonical) {
+    return { lat: canonical.latitude, lon: canonical.longitude, source: 'canonical' };
+  }
   if (typeof v2?.location?.lat === 'number' && typeof v2?.location?.lng === 'number') {
-    return { lat: v2.location.lat, lon: v2.location.lng };
+    return { lat: v2.location.lat, lon: v2.location.lng, source: 'canonical' };
   }
 
   const centroid = STATE_CENTROIDS[uf] || STATE_CENTROIDS.SP;
@@ -142,19 +184,28 @@ function buildCoordinates(projectId: string, uf: string, v2?: ProjectV2): { lat:
   return {
     lat: centroid.lat + latJitter,
     lon: centroid.lng + lonJitter,
+    source: 'estimated',
   };
 }
 
-export function buildGlobeProjectRecords(projects: Project[], projectsV2: ProjectV2[]): GlobeProjectRecord[] {
+export function buildGlobeProjectRecords(
+  projects: Project[],
+  projectsV2: ProjectV2[],
+  canonicalCoordinates: readonly CanonicalProjectCoordinate[] = [],
+): GlobeProjectRecord[] {
   const v2ById = new Map<string, ProjectV2>();
   projectsV2.forEach((project) => {
     v2ById.set(project.id, project);
   });
+  // O índice parcial `pcl_one_live_per_project` já garante unicidade na
+  // origem; o Map é só a forma de consultar por projeto.
+  const canonicalById = new Map<string, CanonicalProjectCoordinate>();
+  canonicalCoordinates.forEach((c) => canonicalById.set(c.projectId, c));
 
   return projects.map((project) => {
     const v2 = v2ById.get(project.id);
     const stateUF = buildStateUF(project, v2);
-    const coordinates = buildCoordinates(project.id, stateUF, v2);
+    const coordinates = buildCoordinates(project.id, stateUF, v2, canonicalById.get(project.id));
     const contractTotal = Math.max(0, project.valor_total || 0);
     const invoiced = Math.max(0, project.valor_executado || 0);
     const riskCount = buildRiskCount(project, v2);
@@ -179,6 +230,7 @@ export function buildGlobeProjectRecords(projects: Project[], projectsV2: Projec
       code: project.codigo || project.codigoInterno,
       progressPercent: typeof project.progresso_percentual === 'number' ? project.progresso_percentual : undefined,
       type: project.tipo,
+      coordinateSource: coordinates.source,
     };
   });
 }

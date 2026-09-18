@@ -9,9 +9,11 @@ import { getProjects, getProjectsV2 } from '@/lib/services/projects';
 import {
   aggregateStateKpis,
   buildGlobeProjectRecords,
+  type CanonicalProjectCoordinate,
   type GlobeProjectRecord,
   type StateAggregate,
 } from '@/data/geo/globe-kpi-data';
+import { listProjectGlobeMarkers } from '@/lib/projects/location/project-globe-service';
 import { brStates } from '@/data/geo/br-states';
 import { StateHudPanel } from '@/components/globe/StateHudPanel';
 import { formatProjectStatus } from '@/lib/projects/status';
@@ -339,17 +341,60 @@ export function CesiumDashboardGlobe({
   const [geojson, setGeojson] = useState<FeatureCollection>(brStates);
 
   // ── Data (mirrors the Globe.GL flow) ────────────────────────────────
+  /*
+    A VERDADE GEOGRÁFICA É DO PROJETO.
+
+    `project_globe_marker` (migration 176) é a única fonte de coordenada
+    apurada. O globo nunca consulta contrato: o contrato chega até aqui pela
+    resolução governada, que deixou documento e página como proveniência.
+
+    O carregamento é assíncrono e o estado começa vazio, então na primeira
+    pintura nenhum projeto tem coordenada canônica — e nenhum marcador é
+    desenhado. Isso é intencional: é melhor o mapa aparecer vazio por um
+    instante do que aparecer povoado de estimativas que o usuário vai ler
+    como localizações.
+  */
+  const [canonicalCoordinates, setCanonicalCoordinates] = useState<CanonicalProjectCoordinate[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    void listProjectGlobeMarkers()
+      .then((markers) => {
+        if (!active) return;
+        setCanonicalCoordinates(markers.map((m) => ({
+          projectId: m.projectId, latitude: m.latitude, longitude: m.longitude,
+        })));
+      })
+      // Falha ao ler a localização canônica NÃO cai para estimativa: cai para
+      // nenhum marcador. Mapa vazio é uma informação correta; mapa com pontos
+      // inventados não é.
+      .catch(() => { if (active) setCanonicalCoordinates([]); });
+    return () => { active = false; };
+  }, []);
+
   const projectRecords = useMemo<GlobeProjectRecord[]>(() => {
     try {
       const projects = getProjects();
       const projectsV2 = getProjectsV2();
-      return buildGlobeProjectRecords(projects, projectsV2).filter(
+      return buildGlobeProjectRecords(projects, projectsV2, canonicalCoordinates).filter(
         (p) => p.status === 'em_andamento',
       );
     } catch {
       return [];
     }
-  }, []);
+  }, [canonicalCoordinates]);
+
+  /**
+   * Os projetos que podem virar MARCADOR.
+   *
+   * Só coordenada apurada. `projectRecords` continua inteiro porque o mapa de
+   * calor por estado agrega todos os projetos — a estimativa serve para
+   * colorir um estado, jamais para cravar um ponto.
+   */
+  const markerRecords = useMemo(
+    () => projectRecords.filter((p) => p.coordinateSource === 'canonical'),
+    [projectRecords],
+  );
 
   const stateAggregates = useMemo(
     () => aggregateStateKpis(projectRecords),
@@ -832,7 +877,7 @@ export function CesiumDashboardGlobe({
 
     const focusedId = focusedProject?.project.id ?? null;
 
-    projectRecords.forEach((p) => {
+    markerRecords.forEach((p) => {
       const id = `proj:${p.id}`;
       const status = classifyProjectStatus(p);
       const state: MarkerState = focusedId === p.id
@@ -863,7 +908,7 @@ export function CesiumDashboardGlobe({
       });
       projectEntitiesRef.current.set(id, entity);
     });
-  }, [projectRecords, ready, hoveredProjectId, focusedProject]);
+  }, [markerRecords, ready, hoveredProjectId, focusedProject]);
 
   // Hover detection: update hovered marker + cursor
   useEffect(() => {

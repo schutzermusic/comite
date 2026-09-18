@@ -48,6 +48,16 @@ const mapped = (over: Partial<MilestoneWorkbenchRow> = {}) => base({
   timelineStatus: 'in_progress', ...over,
 });
 
+/**
+ * Marco genuinamente elegível: aceite REGISTRADO e evidência anexada.
+ *
+ * Existe para que nenhum teste volte a usar `status: 'measured'` como atalho
+ * para "pronto para faturar" — foi esse atalho que virou defeito.
+ */
+const billable = (over: Partial<MilestoneWorkbenchRow> = {}) => base({
+  status: 'approved', evidenceDocumentId: 'd1', measuredAmount: 803233.98, ...over,
+});
+
 describe('deriveStage — matriz de estágios', () => {
   it('sem exigência registrada → UNINSTRUMENTED', () => {
     expect(deriveStage(base({ requirementId: null, requirementCount: 0 })).stage)
@@ -87,13 +97,30 @@ describe('deriveStage — matriz de estágios', () => {
   });
 
   it('medição ACEITA → READY_TO_BILL', () => {
-    expect(deriveStage(mapped({ measurementId: 'x', measurementStatus: 'ACCEPTED' })).stage)
+    expect(deriveStage(mapped({
+      measurementId: 'x', measurementStatus: 'ACCEPTED', measurementEvidenceCount: 1,
+    })).stage).toBe('READY_TO_BILL');
+  });
+
+  it('marco medido com aceite exigido → AWAITING_ACCEPTANCE, não READY_TO_BILL', () => {
+    expect(deriveStage(base({ status: 'measured', customerAcceptanceRequired: true })).stage)
+      .toBe('AWAITING_ACCEPTANCE');
+  });
+
+  it('marco medido SEM aceite exigido e com evidência → READY_TO_BILL', () => {
+    expect(deriveStage(base({
+      status: 'measured', customerAcceptanceRequired: false, evidenceDocumentId: 'd1',
+    })).stage).toBe('READY_TO_BILL');
+  });
+
+  it('marco aprovado com condições restantes satisfeitas → READY_TO_BILL', () => {
+    expect(deriveStage(base({ status: 'approved', evidenceDocumentId: 'd1' })).stage)
       .toBe('READY_TO_BILL');
   });
 
-  it('marco medido/aprovado pela própria linha → READY_TO_BILL', () => {
-    expect(deriveStage(base({ status: 'measured' })).stage).toBe('READY_TO_BILL');
-    expect(deriveStage(base({ status: 'approved' })).stage).toBe('READY_TO_BILL');
+  it('marco aprovado sem a evidência exigida → AWAITING_EVIDENCE', () => {
+    expect(deriveStage(base({ status: 'approved', evidenceRequired: true })).stage)
+      .toBe('AWAITING_EVIDENCE');
   });
 
   it('evento de faturamento existente → BILLED', () => {
@@ -132,7 +159,9 @@ describe('recusas — o que a derivação NUNCA faz', () => {
   });
 
   it('não deriva faturamento de medição aceita', () => {
-    const row = mapped({ measurementId: 'x', measurementStatus: 'ACCEPTED' });
+    const row = mapped({
+      measurementId: 'x', measurementStatus: 'ACCEPTED', measurementEvidenceCount: 1,
+    });
     expect(deriveStage(row).stage).toBe('READY_TO_BILL');
     expect(row.billingEventId).toBeNull();
     expect(deriveChain(row).find((l) => l.key === 'billing')?.fact).toBe(false);
@@ -145,6 +174,15 @@ describe('recusas — o que a derivação NUNCA faz', () => {
     expect(deriveOverlays(base(), futuro)).not.toContain('OVERDUE');
   });
 
+  it('não deriva aceite de medição própria', () => {
+    // `measured` é a afirmação de quem EXECUTOU. O nó de aceite pertence à
+    // Contratante, e acendê-lo aqui era o mesmo erro que liberava o estágio.
+    const row = base({ status: 'measured' });
+    expect(deriveChain(row).find((l) => l.key === 'acceptance')?.fact).toBe(false);
+    expect(deriveChain(base({ status: 'approved' })).find((l) => l.key === 'acceptance')?.fact)
+      .toBe(true);
+  });
+
   it('triggerAssessed é falso em todo estágio anterior a READY_TO_MEASURE', () => {
     for (const row of [
       base({ requirementId: null }), base(), mapped(),
@@ -152,6 +190,105 @@ describe('recusas — o que a derivação NUNCA faz', () => {
     ]) {
       expect(deriveStage(row).triggerAssessed).toBe(false);
     }
+  });
+});
+
+describe('autoridade do aceite — medir sozinho NUNCA libera faturamento', () => {
+  /*
+    A regressão que este bloco existe para impedir.
+
+    Antes, `status IN ('measured','approved')` caía direto em READY_TO_BILL. Num
+    contrato que exige aprovação de Boletim de Medição — JA10182283/2025 exige
+    nos seis eventos — isso deixava a própria Contratada destravar o botão
+    "Gerar faturamento" apurando a si mesma. O aceite é ato da Contratante, e é
+    ele, e não a medição, que abre o caminho do dinheiro.
+  */
+
+  /** Toda combinação de exigência de aceite, para não testar só o caso feliz. */
+  const cases = [
+    { label: 'aceite exigido, nada aceito', over: { customerAcceptanceRequired: true } },
+    {
+      label: 'aceite exigido, medição apenas submetida',
+      over: { customerAcceptanceRequired: true, measurementId: 'x', measurementStatus: 'SUBMITTED' as const },
+    },
+    {
+      label: 'aceite exigido, medição em revisão',
+      over: { customerAcceptanceRequired: true, measurementId: 'x', measurementStatus: 'UNDER_REVIEW' as const },
+    },
+    {
+      label: 'aceite exigido, evidência anexada e etapa concluída',
+      over: {
+        customerAcceptanceRequired: true, evidenceDocumentId: 'd1',
+        governedMappingCount: 1, timelineItemId: 't1', timelineStatus: 'completed' as const,
+      },
+    },
+    {
+      label: 'aceite exigido, valor já apurado',
+      over: { customerAcceptanceRequired: true, measuredAmount: 803233.98 },
+    },
+  ];
+
+  for (const { label, over } of cases) {
+    it(`medido + ${label} → AWAITING_ACCEPTANCE`, () => {
+      const stage = deriveStage(base({ status: 'measured', ...over }));
+      expect(stage.stage).toBe('AWAITING_ACCEPTANCE');
+      expect(stage.group).toBe('AWAITING_EVIDENCE_OR_ACCEPTANCE');
+      expect(stage.group).not.toBe('READY_TO_BILL');
+    });
+  }
+
+  it('medido + aceite exigido não oferece a ação de gerar faturamento', () => {
+    const action = deriveAction(assessMilestone(base({ status: 'measured' })));
+    expect(action.kind).not.toBe('generate_billing');
+    expect(action.primary).toBe(false);
+  });
+
+  it('a exigência de aceite só cede diante de um ATO de aceite, não do tempo', () => {
+    const medido = base({ status: 'measured', customerAcceptanceRequired: true });
+    expect(deriveStage(medido).stage).toBe('AWAITING_ACCEPTANCE');
+
+    // Um aceite registrado em Projetos destrava — e só ele.
+    expect(deriveStage({
+      ...medido, measurementId: 'x', measurementStatus: 'ACCEPTED',
+      measurementAcceptedAt: '2026-04-01T00:00:00Z', evidenceDocumentId: 'd1',
+    }).stage).toBe('READY_TO_BILL');
+  });
+
+  it('aceite dispensado pelo contrato não é o mesmo que aceite não registrado', () => {
+    // `false` é dispensa explícita do contrato: medir basta.
+    expect(deriveStage(base({
+      status: 'measured', customerAcceptanceRequired: false, evidenceRequired: false,
+    })).stage).toBe('READY_TO_BILL');
+
+    // `null` é exigência NÃO REGISTRADA — e também não trava o marco, porque a
+    // lacuna de instrumentação já aparece em outro lugar da tela.
+    expect(deriveStage(base({
+      status: 'measured', customerAcceptanceRequired: null, evidenceRequired: false,
+    })).stage).toBe('READY_TO_BILL');
+  });
+
+  it('bloqueio operacional vence até o aceite registrado', () => {
+    expect(deriveStage(base({
+      status: 'approved', measurementId: 'x', measurementReadiness: 'BLOCKED',
+    })).stage).toBe('BLOCKED');
+  });
+
+  it('evento de faturamento existente continua vencendo o aceite pendente', () => {
+    expect(deriveStage(base({ status: 'measured', billingEventId: 'b1' })).stage).toBe('BILLED');
+  });
+
+  it('JA10182283/2025: nenhum dos 6 eventos pode ser liberado só medindo', () => {
+    // A bancada viva traz `customer_acceptance_required = true` e
+    // `required_document_type = 'boletim_medicao'` nos seis.
+    const eventos = ['e1', 'e2', 'e3', 'e4', 'e5', 'e6'].map((id) => base({
+      id, status: 'measured', customerAcceptanceRequired: true,
+      evidenceRequired: true, requiredDocumentType: 'boletim_medicao',
+    }));
+    for (const row of eventos) {
+      expect(deriveStage(row).stage).toBe('AWAITING_ACCEPTANCE');
+    }
+    const buckets = groupMilestones(eventos.map((r) => assessMilestone(r)));
+    expect(buckets.find((b) => b.group === 'READY_TO_BILL')?.items).toHaveLength(0);
   });
 });
 
@@ -199,6 +336,14 @@ describe('deriveOverlays — matriz de sobreposições', () => {
       .not.toContain('VALUE_UNVERIFIED');
   });
 
+  it('VALUE_UNVERIFIED sobrevive ao aceite pendente', () => {
+    // Amarrada ao estágio READY_TO_BILL, a sobreposição sumia justamente nos
+    // contratos que exigem aceite — que são os que mais precisam dela.
+    const row = base({ status: 'measured', customerAcceptanceRequired: true });
+    expect(deriveStage(row).stage).toBe('AWAITING_ACCEPTANCE');
+    expect(deriveOverlays(row, hoje)).toContain('VALUE_UNVERIFIED');
+  });
+
   it('ENTITLEMENT_MISSING quando não há regra de direito', () => {
     expect(deriveOverlays(base({ entitlementRuleCount: 0 }), hoje)).toContain('ENTITLEMENT_MISSING');
     expect(deriveOverlays(base(), hoje)).not.toContain('ENTITLEMENT_MISSING');
@@ -233,13 +378,14 @@ describe('deriveAction — uma ação por marco, primária só quando move dinhe
     expect(kind(base())).toBe('map_timeline');
     expect(kind(mapped())).toBe('view_timeline');
     expect(kind(mapped({ timelineStatus: 'completed' }))).toBe('open_measurement');
-    expect(kind(base({ status: 'measured' }))).toBe('generate_billing');
+    expect(kind(base({ status: 'measured' }))).toBe('open_measurement');   // aceite pendente
+    expect(kind(billable())).toBe('generate_billing');
     expect(kind(base({ billingEventId: 'b' }))).toBe('view_billing');
   });
 
   it('só READY_TO_BILL é primária', () => {
-    expect(deriveAction(assessMilestone(base({ status: 'measured' }))).primary).toBe(true);
-    for (const row of [base(), mapped(), base({ billingEventId: 'b' })]) {
+    expect(deriveAction(assessMilestone(billable())).primary).toBe(true);
+    for (const row of [base(), mapped(), base({ status: 'measured' }), base({ billingEventId: 'b' })]) {
       expect(deriveAction(assessMilestone(row)).primary).toBe(false);
     }
   });

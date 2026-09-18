@@ -55,10 +55,21 @@ describe('computeExposure — três verdades somadas em separado', () => {
   });
 
   it('contagens distinguem gatilho apurado de marco existente', () => {
-    const e = computeExposure([row(), row({ id: 'm2' }), row({ id: 'm3', status: 'approved' })]);
+    // O marco elegível precisa de aceite REGISTRADO e da evidência exigida.
+    // `status: 'measured'` sozinho não serve mais: medir é ato de quem
+    // executa, e este contrato exige aprovação de Boletim de Medição.
+    const e = computeExposure([
+      row(), row({ id: 'm2' }),
+      row({ id: 'm3', status: 'approved', evidenceDocumentId: 'bm-03' }),
+    ]);
     expect(e.counts.total).toBe(3);
     expect(e.counts.triggerAssessed).toBe(1);
     expect(e.counts.readyToBill).toBe(1);
+  });
+
+  it('marco apenas MEDIDO não entra na contagem de elegíveis', () => {
+    const e = computeExposure([row({ status: 'measured', customerAcceptanceRequired: true })]);
+    expect(e.counts.readyToBill).toBe(0);
   });
 });
 
@@ -147,9 +158,18 @@ describe('diagnoseBottleneck — causa lida do dado', () => {
   });
 
   it('elegível para faturar não oferece ação automática', () => {
-    const d = diagnoseBottleneck([row({ status: 'measured', measuredAmount: 100 })], 'p', true);
+    const d = diagnoseBottleneck([row({
+      status: 'approved', measuredAmount: 100, evidenceDocumentId: 'bm-01',
+    })], 'p', true);
     expect(d?.note).toContain('ato humano');
     expect(d?.actionLabel).toBeNull();
+  });
+
+  it('medido sem aceite aponta o ACEITE como gargalo, não o faturamento', () => {
+    const d = diagnoseBottleneck([row({
+      status: 'measured', measuredAmount: 100, customerAcceptanceRequired: true,
+    })], 'p', true);
+    expect(d?.note).not.toContain('ato humano');
   });
 
   it('sem marcos, diz que falta lastro contratual', () => {
