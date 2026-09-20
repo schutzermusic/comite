@@ -15,7 +15,7 @@
  */
 
 import { cn } from '@/lib/utils';
-import { History, ArrowRight, AlertTriangle } from 'lucide-react';
+import { History, AlertTriangle } from 'lucide-react';
 import { auditActionLabel } from '@/lib/contracts/audit-labels';
 import type { ContractAuditEventRow } from '@/lib/contracts/contract-service';
 
@@ -40,19 +40,27 @@ export interface PortfolioActivityProps {
   /** Código do contrato por id, para nomear cada linha. */
   codeById: Map<string, string>;
   onOpenContract?: (contractId: string) => void;
-  /** Abre a trilha completa do contrato mais recente, quando há um. */
-  onOpenAudit?: (contractId: string) => void;
+  /**
+   * A saída para a trilha completa passou a ser a AÇÃO DO BLOCO, no cabeçalho
+   * da seção, junto com todas as outras saídas da Visão Geral. Aqui dentro ela
+   * era um segundo botão numa lista que já é clicável linha a linha.
+   */
+  /**
+   * Quatro eventos. A trilha inteira mora atrás de "Trilha completa": uma
+   * coluna de recado recente não precisa competir em altura com a área de
+   * ação, e a partir do sexto item ninguém está mais lendo — está rolando.
+   */
   max?: number;
   className?: string;
   now?: Date;
 }
 
 export function PortfolioActivity({
-  events, error, codeById, onOpenContract, onOpenAudit, max = 6, className, now = new Date(),
+  events, error, codeById, onOpenContract, max = 4, className, now = new Date(),
 }: PortfolioActivityProps) {
   if (error) {
     return (
-      <p className={cn('flex items-start gap-2 rounded-[12px] border border-ig-border-subtle bg-ig-panel/40 px-3 py-2.5 text-ig-caption text-ig-warning', className)}>
+      <p className={cn('flex items-start gap-2 py-2 text-ig-caption text-ig-warning', className)}>
         <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
         Falha ao ler a trilha de auditoria. A ausência de linhas aqui é incidente de leitura, não ausência de atividade.
       </p>
@@ -61,7 +69,7 @@ export function PortfolioActivity({
 
   if (events.length === 0) {
     return (
-      <p className={cn('flex items-center gap-2 rounded-[12px] border border-ig-border-subtle bg-ig-panel/40 px-3 py-2.5 text-ig-caption text-ig-fg-subtle', className)}>
+      <p className={cn('flex items-center gap-2 py-2 text-ig-caption text-ig-fg-subtle', className)}>
         <History className="h-3.5 w-3.5 shrink-0" aria-hidden />
         Nenhuma atividade registrada ainda nesta carteira.
       </p>
@@ -69,57 +77,52 @@ export function PortfolioActivity({
   }
 
   const shown = events.slice(0, max);
-  const latest = shown[0]?.entity_id;
 
+  /*
+    Sem moldura e sem cabeçalho próprios: o bloco da Visão Geral já nomeia a
+    seção e já é a superfície. Antes havia um retângulo com borda e um segundo
+    título dentro de uma seção que tinha os dois — duas molduras e dois títulos
+    para uma lista de seis linhas.
+  */
   return (
-    <div className={cn('rounded-[14px] border border-ig-border-subtle bg-ig-panel/40 px-3.5 py-3', className)}>
-      <header className="mb-2 flex items-baseline gap-2">
-        <span className="flex items-center gap-1.5 text-ig-label text-ig-fg-muted">
-          <History className="h-3.5 w-3.5 text-ig-fg-subtle" aria-hidden />
-          Atividade recente
-        </span>
-        {onOpenAudit && latest && (
-          <button
-            type="button"
-            onClick={() => onOpenAudit(latest)}
-            className="ml-auto inline-flex items-center gap-1 rounded text-ig-caption font-medium text-ig-accent transition-transform hover:translate-x-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_oklab,var(--ig-accent)_45%,transparent)]"
-          >
-            Trilha completa
-            <ArrowRight className="h-3 w-3" aria-hidden />
-          </button>
-        )}
-      </header>
-
+    <div className={className}>
       <ol className="space-y-0" aria-label="Atividade recente da carteira">
         {shown.map((e, i) => (
-          <li key={e.id} className="relative flex items-start gap-2.5 py-1.5">
+          /*
+            `py-1.5` — a MESMA altura de linha de "Operações conectadas", que
+            divide a linha da grade com este bloco. Duas listas lado a lado com
+            ritmos diferentes fazem a dupla parecer desalinhada mesmo quando as
+            bordas coincidem.
+          */
+          <li key={e.id} className="relative flex items-baseline gap-2.5 py-1.5">
             {/* Trilho de tempo: liga os eventos, some no último. */}
-            <span className="relative flex w-3 shrink-0 justify-center" aria-hidden>
-              <span className="mt-[7px] h-1.5 w-1.5 rounded-full bg-ig-accent/70" />
+            <span className="relative flex w-2 shrink-0 justify-center self-stretch" aria-hidden>
+              <span className="mt-[7px] h-1 w-1 shrink-0 rounded-full bg-ig-accent/70" />
               {i < shown.length - 1 && (
-                <span className="absolute left-1/2 top-[13px] h-[calc(100%+6px)] w-px -translate-x-1/2 bg-ig-border-subtle" />
+                <span className="absolute left-1/2 top-[11px] h-[calc(100%+6px)] w-px -translate-x-1/2 bg-ig-border-subtle" />
               )}
             </span>
 
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-ig-body-sm text-ig-fg-strong">
-                {auditActionLabel(e.action)}
-              </span>
-              <span className="mt-0.5 flex flex-wrap items-baseline gap-x-2 text-ig-caption text-ig-fg-muted">
-                {onOpenContract ? (
-                  <button
-                    type="button"
-                    onClick={() => onOpenContract(e.entity_id)}
-                    className="rounded font-mono text-ig-fg-muted hover:text-ig-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_oklab,var(--ig-accent)_45%,transparent)]"
-                  >
-                    {codeById.get(e.entity_id) ?? '—'}
-                  </button>
-                ) : (
-                  <span className="font-mono">{codeById.get(e.entity_id) ?? '—'}</span>
-                )}
-                <span className="text-ig-fg-subtle">{ago(e.created_at, now)}</span>
-              </span>
+            {/*
+              UMA linha por evento: o que aconteceu, em que contrato e quando.
+              O código do contrato ocupava uma segunda altura por evento, e
+              seis eventos viravam doze linhas de texto numa coluna de apoio.
+            */}
+            <span className="min-w-0 flex-1 truncate text-ig-caption text-ig-fg-default">
+              {auditActionLabel(e.action)}
+              {onOpenContract ? (
+                <button
+                  type="button"
+                  onClick={() => onOpenContract(e.entity_id)}
+                  className="ig-code ig-code-quiet ml-1.5 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_oklab,var(--ig-accent)_45%,transparent)]"
+                >
+                  {codeById.get(e.entity_id) ?? '—'}
+                </button>
+              ) : (
+                <span className="ig-code ig-code-quiet ml-1.5">{codeById.get(e.entity_id) ?? '—'}</span>
+              )}
             </span>
+            <span className="shrink-0 text-ig-caption text-ig-fg-subtle">{ago(e.created_at, now)}</span>
           </li>
         ))}
       </ol>

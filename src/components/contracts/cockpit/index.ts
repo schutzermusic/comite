@@ -32,3 +32,4 @@ export { ContractInstrumentCard } from './ContractInstrumentCard';
 export { ContractSmartTable } from './ContractSmartTable';
 export { OnboardingReadinessPanel } from './OnboardingReadiness';
 export { PortfolioActivity } from './PortfolioActivity';
+export { OverviewBlock, OverviewBlockAction, type OverviewBlockProps } from './OverviewBlock';

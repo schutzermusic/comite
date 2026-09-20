@@ -5,7 +5,7 @@ import { motion, useReducedMotion } from 'motion/react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { GlassPanel } from '@/components/dashboard/GlassPanel';
-import { SignalChip } from '@/components/ui/signal-chip';
+import { HudSignal } from '@/components/hud';
 import { useParallaxGlass } from '@/hooks/useParallaxGlass';
 
 export interface HudPanelProps {
@@ -96,12 +96,11 @@ export const HudPanel = React.memo(function HudPanel({
                             )}
                             <span className="cr-panel-title truncate">{title}</span>
                             {badge !== undefined && (
-                                <SignalChip
+                                <HudSignal
                                     tone="warning"
-                                    size="xs"
+                                    size="sm"
                                     label={badge}
-                                    hideDot
-                                    className="ml-1 min-w-[18px] justify-center tracking-normal"
+                                    className="ml-1"
                                 />
                             )}
                         </div>

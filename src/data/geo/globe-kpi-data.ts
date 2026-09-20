@@ -44,6 +44,8 @@ export interface CanonicalProjectCoordinate {
   projectId: string;
   latitude: number;
   longitude: number;
+  /** UF da resolução canônica, quando o gazeteer devolveu. */
+  stateCode?: string | null;
 }
 
 export interface StateAggregate {
@@ -85,7 +87,8 @@ export const HEAT_INTENSITY_WEIGHTS: HeatIntensityWeights = {
 const CLIENT_STATE_HINTS: Record<string, string> = {
   CEMIG: 'MG',
   PETROBRAS: 'RJ',
-  ENEL: 'PE',
+  // ENEL não entra aqui: há ENEL em vários estados (PE, RJ, CE…).
+  // Atribuir PE por nome de cliente colocava UHE Cachoeira Dourada em Pernambuco.
   EQUATORIAL: 'PA',
   CHESF: 'PE',
   CPFL: 'SP',
@@ -114,6 +117,25 @@ function fallbackUF(project: Project): string {
     if (clientName.includes(hint)) return uf;
   }
   return 'SP';
+}
+
+/**
+ * UF mais próxima do ponto entre os centroides — só quando já há coordenada
+ * apurada e o gazeteer não trouxe `state_code`. Melhor que inventar SP.
+ */
+function nearestCentroidUF(lat: number, lon: number): string | null {
+  let best: string | null = null;
+  let bestDist = Number.POSITIVE_INFINITY;
+  for (const [uf, c] of Object.entries(STATE_CENTROIDS)) {
+    const dLat = lat - c.lat;
+    const dLon = lon - c.lng;
+    const d = dLat * dLat + dLon * dLon;
+    if (d < bestDist) {
+      bestDist = d;
+      best = uf;
+    }
+  }
+  return best;
 }
 
 function normalizeDate(input?: string): string {
@@ -145,8 +167,31 @@ function estimateProjectHeadcount(contractTotal: number, riskCount: number, v2?:
   return Math.max(4, Math.round(4 + tasksSignal + revenueSignal + riskSignal));
 }
 
-function buildStateUF(project: Project, v2?: ProjectV2): string {
-  if (v2?.uf && STATE_CENTROIDS[v2.uf]) return v2.uf;
+function buildStateUF(
+  project: Project,
+  v2?: ProjectV2,
+  canonical?: CanonicalProjectCoordinate,
+): string {
+  // 1. UF da resolução canônica (Nominatim / proveniência).
+  const rawCode = canonical?.stateCode?.trim().toUpperCase() ?? '';
+  if (rawCode && STATE_CENTROIDS[rawCode]) return rawCode;
+
+  // 2. UF gravada no projeto (escalar ou location) — fato explícito.
+  const storedUF = (v2?.uf || v2?.location?.uf)?.trim().toUpperCase();
+  if (storedUF && STATE_CENTROIDS[storedUF]) return storedUF;
+
+  // 3. Com coordenada canônica, NUNCA cair em heurística de cliente nem no
+  //    default SP — isso pintava o calor no estado errado com o pin certo.
+  if (
+    canonical
+    && Number.isFinite(canonical.latitude)
+    && Number.isFinite(canonical.longitude)
+  ) {
+    const fromCoords = nearestCentroidUF(canonical.latitude, canonical.longitude);
+    if (fromCoords) return fromCoords;
+  }
+
+  // 4. Heurística por cliente — só sem fato geográfico.
   const fallback = fallbackUF(project);
   return STATE_CENTROIDS[fallback] ? fallback : 'SP';
 }
@@ -209,8 +254,9 @@ export function buildGlobeProjectRecords(
 
   return projects.map((project) => {
     const v2 = v2ById.get(project.id);
-    const stateUF = buildStateUF(project, v2);
-    const coordinates = buildCoordinates(project.id, stateUF, v2, canonicalById.get(project.id));
+    const canonical = canonicalById.get(project.id);
+    const stateUF = buildStateUF(project, v2, canonical);
+    const coordinates = buildCoordinates(project.id, stateUF, v2, canonical);
     const storedTotal = Math.max(0, project.valor_total || 0);
     const governedTotal = contractValuesByProjectId.get(project.id) ?? 0;
     const contractTotal = storedTotal > 0 ? storedTotal : Math.max(0, governedTotal);

@@ -12,9 +12,10 @@
  * rótulo de negócio é o texto primário, o código é a evidência.
  *
  * Regra de manutenção: toda ação passada a `logAuditEvent` em
- * `contract-service.ts` precisa de uma entrada aqui. `auditActionLabel` cai de
- * volta no próprio código quando não há rótulo, de modo que um evento novo
- * aparece feio, mas nunca some.
+ * `contract-service.ts` precisa de uma entrada aqui. Sem entrada,
+ * `auditActionLabel` humaniza o sufixo do código — o evento aparece sem a
+ * redação de negócio, mas nunca como `contract.snake_case` na cara do
+ * usuário.
  */
 export const AUDIT_ACTION_LABELS: Record<string, string> = {
   // Ciclo de vida do contrato
@@ -56,6 +57,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   'contract.agenda_task_created': 'Tarefa de agenda criada',
 
   // Cláusulas
+  'contract.clause_extraction_requested': 'Leitura de cláusulas solicitada',
   'contract.clause_created': 'Cláusula registrada',
   'contract.clause_updated': 'Cláusula atualizada',
   'contract.clause_deleted': 'Cláusula excluída',
@@ -71,6 +73,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   'contract.amendment_updated': 'Aditivo atualizado',
   'contract.amendment_deleted': 'Aditivo excluído',
   'contract.amendment_clause_linked': 'Cláusula vinculada a aditivo',
+  'contract.amendment_ai_requested': 'Leitura de aditivo solicitada',
 
   // Aprovações
   'contract.approval_submitted': 'Etapa de aprovação decidida',
@@ -82,11 +85,31 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
     — não se reescreve.
   */
   'contract.ai_analysis_requested': 'Análise de IA solicitada',
+
+  // Cadastro em andamento
+  'contract.onboarding_document_received': 'Documento recebido no cadastro',
+  'contract.onboarding_deleted': 'Cadastro em andamento descartado',
 };
 
-/** Rótulo de negócio do evento; cai no código técnico quando não mapeado. */
+/**
+ * Último recurso: transforma `contract.foo_bar_baz` em "Foo bar baz".
+ *
+ * Um código técnico NUNCA chega ao usuário. Antes o fallback devolvia a string
+ * crua, e um evento novo — `contract.clause_extraction_requested` — aparecia
+ * assim mesmo, em `snake_case` com prefixo de namespace, no meio de uma lista
+ * de frases em português. O código segue disponível como evidência secundária
+ * via `isUnlabeledAuditAction`; o que ele não faz mais é ser o texto primário.
+ */
+function humanizeAuditAction(action: string): string {
+  const tail = action.includes('.') ? action.slice(action.lastIndexOf('.') + 1) : action;
+  const words = tail.replace(/[_-]+/g, ' ').trim();
+  if (!words) return action;
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** Rótulo de negócio do evento; humaniza o código quando não mapeado. */
 export function auditActionLabel(action: string): string {
-  return AUDIT_ACTION_LABELS[action] ?? action;
+  return AUDIT_ACTION_LABELS[action] ?? humanizeAuditAction(action);
 }
 
 /** True quando o evento ainda não tem rótulo de negócio (renderiza cru). */

@@ -8,7 +8,6 @@ import {
     AlertTriangle,
     ChevronDown,
     ChevronUp,
-    Settings2,
     FileText,
     Briefcase,
     Shield,
@@ -16,7 +15,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { HudPanel, HudRingGauge } from './hud';
 import type { DashboardPayload } from '@/lib/dashboard-data';
-import { SignalChip } from '@/components/ui/signal-chip';
+import { HudSignal } from '@/components/hud';
 import type { StateAggregate } from '@/data/geo/globe-kpi-data';
 
 interface RightHudStackProps {
@@ -27,16 +26,6 @@ interface RightHudStackProps {
 
 // ─── Event Stream types ─────────────────────────────────────
 type EventCategory = 'riscos' | 'decisoes' | 'docs' | 'projetos' | 'contratos';
-
-interface EventItem {
-    id: string;
-    type: EventCategory;
-    severity: 'critical' | 'warning' | 'info' | 'success';
-    label: string;
-    detail?: string;
-    timestamp: string;
-    href: string;
-}
 
 const CATEGORY_FILTER_KEYS: { key: 'all' | EventCategory; labelKey: string }[] = [
     { key: 'all', labelKey: 'categoryAll' },
@@ -70,24 +59,12 @@ const CATEGORY_LABEL_KEYS: Record<EventCategory, string> = {
     contratos: 'labelContract',
 };
 
-const MOCK_EVENT_KEYS: { id: string; type: EventCategory; severity: EventItem['severity']; labelKey: string; timestamp: string; href: string }[] = [
-    { id: 'e1', type: 'riscos', severity: 'critical', labelKey: 'eventCriticalRiskSp', timestamp: '17:15', href: '/projetos/proj-001?tab=finance' },
-    { id: 'e2', type: 'decisoes', severity: 'warning', labelKey: 'eventVoteSolar', timestamp: '17:10', href: '/deliberacoes' },
-    { id: 'e3', type: 'docs', severity: 'info', labelKey: 'eventMinutesPending', timestamp: '17:05', href: '/atas' },
-    { id: 'e4', type: 'projetos', severity: 'success', labelKey: 'eventMilestoneEnergisa', timestamp: '16:45', href: '/projetos' },
-    { id: 'e5', type: 'contratos', severity: 'warning', labelKey: 'eventContractCesp', timestamp: '16:30', href: '/contratos' },
-];
-
 export const RightHudStack = React.memo(function RightHudStack({ data, scopeMode = 'global', stateScope = null }: RightHudStackProps) {
     const t = useTranslations('dashboard');
     const tCommon = useTranslations('common');
     const [eventFilter, setEventFilter] = useState<'all' | EventCategory>('all');
     const [streamExpanded, setStreamExpanded] = useState(true);
     const scopeSuffix = scopeMode === 'state' && stateScope ? `&state=${stateScope.uf}&uf=${stateScope.uf}` : '';
-    const mockEvents: EventItem[] = useMemo(
-        () => MOCK_EVENT_KEYS.map(({ labelKey, ...rest }) => ({ ...rest, label: t(labelKey) })),
-        [t]
-    );
     const scopedRiskSummary = scopeMode === 'state' && stateScope
         ? {
             critical: Math.min(stateScope.riskCount, Math.max(1, Math.floor(stateScope.riskCount * 0.45))),
@@ -97,8 +74,8 @@ export const RightHudStack = React.memo(function RightHudStack({ data, scopeMode
         : data.riskSummary;
 
     const filteredEvents = useMemo(
-        () => mockEvents.filter((e) => eventFilter === 'all' || e.type === eventFilter),
-        [mockEvents, eventFilter]
+        () => (data.eventStream ?? []).filter((e) => eventFilter === 'all' || e.type === eventFilter),
+        [data.eventStream, eventFilter]
     );
 
     const topRiskKeys = [
@@ -189,10 +166,10 @@ export const RightHudStack = React.memo(function RightHudStack({ data, scopeMode
                             </p>
                             <div className="flex gap-1 overflow-x-auto scrollbar-hide pb-0.5">
                                 {topRiskKeys.slice(1).map((key) => (
-                                    <SignalChip
+                                    <HudSignal
                                         key={key}
                                         tone="critical"
-                                        size="xs"
+                                        size="sm"
                                         label={t(key)}
                                         href="/riscos"
                                     />
@@ -217,7 +194,7 @@ export const RightHudStack = React.memo(function RightHudStack({ data, scopeMode
                         {/* Header controls */}
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-1.5">
-                                <SignalChip tone="live" size="xs" label="Live" />
+                                <HudSignal tone="live" size="sm" label="Live" pulse />
                                 <span className="text-[9px] text-white/30 tabular-nums">
                                     {filteredEvents.length}
                                 </span>
@@ -237,13 +214,12 @@ export const RightHudStack = React.memo(function RightHudStack({ data, scopeMode
                         {/* Category filters */}
                         <div className="flex flex-wrap gap-[3px]">
                             {CATEGORY_FILTER_KEYS.map(({ key, labelKey }) => (
-                                <SignalChip
+                                <HudSignal
                                     key={key}
-                                    size="xs"
+                                    size="sm"
                                     label={t(labelKey)}
                                     tone={eventFilter === key ? 'accent' : 'neutral'}
                                     active={eventFilter === key}
-                                    hideDot
                                     onClick={() => setEventFilter(key)}
                                 />
                             ))}

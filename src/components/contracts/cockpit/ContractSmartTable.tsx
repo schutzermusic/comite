@@ -20,13 +20,15 @@ import { useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { HudSignal, type HudSignalTone } from '@/components/hud';
 import {
-  ArrowUpDown, ArrowUp, ArrowDown, Search, Workflow, AlertTriangle, Settings2, X,
+  ArrowUpDown, ArrowUp, ArrowDown, ArrowRight, Search, Workflow, AlertTriangle,
+  Settings2, X,
 } from 'lucide-react';
 import { hasOfficialValue, isError, ratioTrusted, type Official } from '@/lib/contracts/trust/trusted';
 import type { TrustedContract } from '@/lib/contracts/trust/read-model';
 import { obligationBreakdown, missingDocuments, contractHealth } from '@/lib/contracts/trust/signals';
 import { attentionItems } from '@/lib/contracts/trust/attention';
 import { DataClassBadge } from './PortfolioScope';
+import { ClientLogoBanner } from '@/components/portfolio/ClientLogoBanner';
 
 const BRL = new Intl.NumberFormat('pt-BR', {
   style: 'currency', currency: 'BRL', notation: 'compact',
@@ -45,30 +47,53 @@ export type SmartColumnKey =
   | 'contract' | 'counterparty' | 'project' | 'status' | 'risk'
   | 'value' | 'billing' | 'obligations' | 'documents' | 'approvals' | 'health'
   // ---- operacionalização: o que o Apex sabe e o que sobrou para você ----
-  | 'attention' | 'apexState';
+  | 'attention' | 'apexState'
+  // Coluna de saída: não ordena, não se esconde — é a afordância de abertura.
+  | 'open';
 
 const COLUMNS: { key: SmartColumnKey; label: string; align?: 'right'; width?: string; optional?: boolean }[] = [
-  { key: 'contract', label: 'Contrato', width: '200px' },
-  { key: 'counterparty', label: 'Contraparte', width: 'minmax(160px,1fr)' },
-  { key: 'project', label: 'Projeto', width: '150px' },
-  { key: 'status', label: 'Status', width: '116px' },
-  { key: 'risk', label: 'Risco', width: '86px', optional: true },
-  { key: 'value', label: 'Valor', align: 'right', width: '104px' },
-  { key: 'billing', label: 'Faturamento', align: 'right', width: '124px' },
-  { key: 'obligations', label: 'Obrigações', align: 'right', width: '110px' },
-  { key: 'documents', label: 'Documentos', align: 'right', width: '112px', optional: true },
-  { key: 'approvals', label: 'Aprovações', align: 'right', width: '110px', optional: true },
-  { key: 'health', label: 'Cobertura', align: 'right', width: '92px', optional: true },
   /*
-    As duas colunas que respondem "em qual contrato eu preciso mexer?".
-
-    `attention` conta o que EXIGE uma pessoa — não o acervo. `apexState` diz o
-    que o Apex está fazendo por aquele contrato, e é a única coluna da tabela
-    que fala do sistema em vez de falar do cadastro.
+    Só a contraparte absorve folga (`1fr`). Métricas e Apex alinham à ESQUERDA
+    (conteúdo começa na ponta da coluna) — alinhamento à direita empurrava
+    números para o final e confundia a leitura horizontal. Larguras um pouco
+    folgadas para o gap entre Faturamento…Apex não colar os rótulos.
   */
-  { key: 'attention', label: 'Requer você', align: 'right', width: '104px' },
-  { key: 'apexState', label: 'Apex', width: '150px' },
+  { key: 'counterparty', label: 'Contraparte', width: 'minmax(260px,1fr)' },
+  { key: 'contract', label: 'Contrato', width: '168px' },
+  { key: 'project', label: 'Projeto', width: '128px' },
+  { key: 'status', label: 'Status', width: '108px' },
+  { key: 'risk', label: 'Risco', width: '76px', optional: true },
+  { key: 'value', label: 'Valor', width: '84px' },
+  { key: 'billing', label: 'Faturamento', width: '130px' },
+  { key: 'obligations', label: 'Obrigações', width: '122px' },
+  { key: 'documents', label: 'Documentos', width: '130px', optional: true },
+  { key: 'approvals', label: 'Aprovações', width: '128px', optional: true },
+  { key: 'health', label: 'Cobertura', width: '118px', optional: true },
+  { key: 'attention', label: 'Requer você', width: '128px' },
+  { key: 'apexState', label: 'Apex', width: '156px' },
+  { key: 'open', label: '', width: '44px' },
 ];
+
+/** Pixels mínimos de uma trilha — `minmax(260px,1fr)` → 260; `130px` → 130. */
+function trackMinPx(width: string | undefined): number {
+  if (!width) return 0;
+  const minmax = /^minmax\((\d+)px,/i.exec(width);
+  if (minmax) return Number(minmax[1]);
+  const fixed = /^(\d+)px$/i.exec(width);
+  return fixed ? Number(fixed[1]) : 0;
+}
+
+/** Tons canônicos de status e risco — os mesmos do Signal Chip do sistema. */
+const STATUS_TONE: Record<string, HudSignalTone> = {
+  draft: 'neutral', negotiation: 'info', legal_review: 'info',
+  commercial_review: 'info', signed: 'success', active: 'success',
+  expiring_soon: 'warning', expired: 'danger', closed: 'neutral',
+  cancelled: 'danger', archived: 'neutral',
+};
+
+const RISK_TONE: Record<'low' | 'medium' | 'high', HudSignalTone> = {
+  high: 'danger', medium: 'warning', low: 'success',
+};
 
 /**
  * O que o Apex está fazendo por este contrato.
@@ -242,6 +267,21 @@ export function ContractSmartTable({
 
   const visible = COLUMNS.filter((col) => !hidden.has(col.key));
   const grid = visible.map((c) => c.width ?? '1fr').join(' ');
+  /*
+    A largura mínima TEM que caber a soma das trilhas + gaps + padding.
+    Se o wrapper for mais estreito, o grid estoura para fora e o
+    `overflow-auto` do pai não enxerga o overflow dos filhos — a seleção e
+    as colunas finais ficam cortadas (“não vão até o final”).
+  */
+  const tableMinWidth = useMemo(() => {
+    const cols = COLUMNS
+      .filter((col) => !hidden.has(col.key))
+      .reduce((sum, col) => sum + trackMinPx(col.width), 0);
+    const n = COLUMNS.filter((col) => !hidden.has(col.key)).length;
+    const gaps = Math.max(0, n - 1) * 16; // gap-4
+    const pad = 32; // px-4
+    return cols + gaps + pad;
+  }, [hidden]);
 
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -255,7 +295,21 @@ export function ContractSmartTable({
   };
 
   return (
-    <div className={cn('overflow-hidden rounded-[18px] border border-ig-border-subtle', className)}>
+    <div
+      data-elev="1"
+      className={cn(
+        /*
+          A tabela é uma SUPERFÍCIE do sistema, não uma caixa com contorno.
+          O material de vidro (tinta, ruído, specular, sombra de elevação) é o
+          mesmo dos cards e da barra de controle — é o que faz os três modos de
+          visualização lerem como a mesma coisa vista de três ângulos.
+        */
+        'ig-glass overflow-hidden rounded-[18px]',
+        className,
+      )}
+    >
+      <span data-ig-noise="" />
+      <div data-ig-content="">
       {/* Barra de controle */}
       <div className="flex flex-wrap items-center gap-3 border-b border-ig-border-subtle px-4 py-2.5">
         {!hideSearch && <label className="relative flex min-w-[220px] flex-1 items-center">
@@ -331,16 +385,46 @@ export function ContractSmartTable({
         `min-width` garante que as colunas mantenham a largura projetada em vez
         de se comprimirem umas sobre as outras.
       */}
-      <div className="overflow-x-auto">
-      <div className="min-w-[1180px]">
+      <div
+        /*
+          O cabeçalho gruda de verdade.
+
+          `sticky top-0` já estava aqui, mas nunca funcionou: o único ancestral
+          rolável era esta faixa de `overflow-x`, cujo eixo vertical não rola —
+          então o cabeçalho se prendia a um scrollport que nunca se move, e ao
+          descer a página os rótulos das colunas sumiam junto com ela. Dando ao
+          MESMO container o eixo vertical (com teto de altura), a régua de
+          colunas permanece visível enquanto se percorre a carteira, que é o
+          que uma tabela densa precisa. Com poucos contratos o teto não é
+          atingido e nada rola.
+        */
+        className="max-h-[68vh] overflow-auto overscroll-contain"
+      >
+      <div style={{ minWidth: tableMinWidth }}>
       {/* Cabeçalho */}
       <div
-        className="sticky top-0 z-10 grid gap-3 border-b border-ig-border-subtle bg-[color-mix(in_oklab,var(--ig-bg-panel)_96%,transparent)] px-4 py-2"
+        className={cn(
+          'sticky top-0 z-10 grid gap-4 px-4 py-2.5',
+          /*
+            Cabeçalho com CONTRASTE de material, não só de cor de texto.
+            Antes ele era o mesmo painel das linhas com 96% de opacidade: ao
+            rolar, os rótulos passavam por cima dos valores e a régua superior
+            da tabela desaparecia. Agora é uma faixa própria — tinta de acento
+            mínima, fio inferior forte e sombra de separação quando gruda.
+          */
+          'border-b border-ig-border-strong',
+          'bg-[linear-gradient(180deg,color-mix(in_oklab,var(--ig-bg-raised)_97%,transparent),color-mix(in_oklab,var(--ig-bg-panel)_97%,transparent))]',
+          'shadow-[0_1px_0_color-mix(in_oklab,var(--ig-border-strong)_70%,transparent),0_8px_16px_-14px_rgba(0,0,0,0.6)]',
+          'backdrop-blur-[6px]',
+        )}
         style={{ gridTemplateColumns: grid }}
         role="row"
       >
         {visible.map((col) => {
           const activeSort = sortKey === col.key;
+          if (col.key === 'open') {
+            return <div key={col.key} role="columnheader" aria-label="Abrir dossiê" className="min-w-0" />;
+          }
           return (
             /*
               `aria-sort` pertence ao CABEÇALHO DE COLUNA, não ao botão: em um
@@ -358,15 +442,15 @@ export function ContractSmartTable({
                 type="button"
                 onClick={() => toggleSort(col.key)}
                 className={cn(
-                  'inline-flex items-center gap-1 text-ig-label transition-colors',
+                  'inline-flex items-center gap-1 whitespace-nowrap rounded text-ig-label font-semibold uppercase tracking-[0.08em] transition-colors',
                   activeSort ? 'text-ig-accent' : 'text-ig-fg-muted hover:text-ig-fg-strong',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_oklab,var(--ig-accent)_45%,transparent)] rounded',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_oklab,var(--ig-accent)_45%,transparent)]',
                 )}
               >
                 {col.label}
                 {activeSort
-                  ? (sortDir === 'asc' ? <ArrowUp className="h-3 w-3" aria-hidden /> : <ArrowDown className="h-3 w-3" aria-hidden />)
-                  : <ArrowUpDown className="h-3 w-3 opacity-40" aria-hidden />}
+                  ? (sortDir === 'asc' ? <ArrowUp className="h-3 w-3 shrink-0" aria-hidden /> : <ArrowDown className="h-3 w-3 shrink-0" aria-hidden />)
+                  : <ArrowUpDown className="h-3 w-3 shrink-0 opacity-40" aria-hidden />}
               </button>
             </div>
           );
@@ -388,25 +472,46 @@ export function ContractSmartTable({
                   type="button"
                   onClick={() => onSelect(r.contract)}
                   className={cn(
-                    'group relative grid w-full items-center gap-3 border-b border-ig-border-subtle/60 px-4 py-2.5 text-left transition-colors last:border-0',
-                    selected
-                      ? 'bg-[color-mix(in_oklab,var(--ig-accent)_9%,transparent)]'
-                      : 'hover:bg-[color-mix(in_oklab,var(--ig-accent)_5%,transparent)]',
+                    /*
+                      A linha é um OBJETO de carteira, não uma célula de
+                      planilha: altura de leitura confortável (44px de conteúdo
+                      contra os 30px anteriores), fio divisor mais calado e
+                      elevação sutil no hover — a mesma profundidade que o card
+                      usa, em dose de tabela.
+                    */
+                    'group relative grid w-full items-center gap-4 px-4 py-3 text-left last:border-0',
+                    'border-b border-ig-border-subtle/45',
+                    'transition-[background-color,box-shadow] duration-150',
+                    !selected && 'hover:bg-[color-mix(in_oklab,var(--ig-accent)_6%,transparent)]',
                     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color-mix(in_oklab,var(--ig-accent)_45%,transparent)]',
                   )}
                   style={{ gridTemplateColumns: grid }}
                 >
+                  {/*
+                    Camada de seleção em `inset-0`: cobre a linha INTEIRA até a
+                    última coluna. Pintar só o `background` do botão falhava
+                    quando o grid estourava o wrapper — a tinta parava no meio.
+                  */}
+                  {selected && (
+                    <span
+                      aria-hidden
+                      className="pointer-events-none absolute inset-0 bg-[color-mix(in_oklab,var(--ig-accent)_11%,transparent)] shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--ig-accent)_22%,transparent)]"
+                    />
+                  )}
                   <span
                     className={cn(
-                      'pointer-events-none absolute inset-y-0 left-0 w-[2px] transition-opacity',
+                      'pointer-events-none absolute inset-y-0 left-0 z-[1] w-[3px] transition-opacity',
                       r.criticalCount > 0 ? 'bg-ig-danger opacity-100'
-                        : selected ? 'bg-ig-accent opacity-100' : 'opacity-0',
+                        : selected ? 'bg-ig-accent opacity-100'
+                          : 'bg-ig-accent opacity-0 group-hover:opacity-50',
                     )}
                     aria-hidden
                   />
 
                   {visible.map((col) => (
-                    <Cell key={col.key} col={col.key} align={col.align} row={r} />
+                    <span key={col.key} className="relative z-[1] min-w-0">
+                      <Cell col={col.key} align={col.align} row={r} />
+                    </span>
                   ))}
                 </button>
               </li>
@@ -416,7 +521,58 @@ export function ContractSmartTable({
       )}
       </div>
       </div>
+      </div>
     </div>
+  );
+}
+
+/**
+ * Indicador de sincronia com um módulo a jusante.
+ *
+ * Faturamento, Obrigações, Documentos e Aprovações não são números soltos:
+ * cada um é o estado de um vínculo com outro módulo. O desenho é sempre o
+ * mesmo — ponto tonal + contagem tabular + legenda do que está pendente —
+ * para que a linha possa ser varrida na horizontal sem reler o rótulo da
+ * coluna a cada célula.
+ *
+ * `null` (relação não lida) continua sendo traço, nunca zero: ausência de
+ * leitura e ausência de pendência são coisas diferentes.
+ */
+function SyncCell({
+  total, pending, pendingLabel, tone = 'warning',
+}: {
+  total: number | null;
+  pending: number;
+  pendingLabel: string;
+  tone?: 'warning' | 'danger';
+}) {
+  if (total === null) {
+    return <span className="flex items-center justify-start text-ig-fg-subtle" title="Vínculo não lido">—</span>;
+  }
+  const alert = pending > 0;
+  const toneClass = !alert
+    ? 'bg-ig-success/70'
+    : tone === 'danger' ? 'bg-ig-danger' : 'bg-ig-warning';
+  return (
+    <span
+      className="flex min-w-0 items-center justify-start gap-1.5"
+      title={alert ? `${pending} ${pendingLabel} de ${total}` : `${total} em dia`}
+    >
+      <span aria-hidden className={cn('h-1.5 w-1.5 shrink-0 rounded-full', toneClass)} />
+      <span className="min-w-0 text-left">
+        <span
+          className={cn(
+            'ig-tabular block text-ig-body-sm font-semibold leading-none',
+            alert ? (tone === 'danger' ? 'text-ig-danger' : 'text-ig-warning') : 'text-ig-fg-strong',
+          )}
+        >
+          {alert ? pending : total}
+        </span>
+        <span className="mt-0.5 block truncate text-[10px] leading-none text-ig-fg-subtle">
+          {alert ? pendingLabel : total === 0 ? 'sem registro' : 'em dia'}
+        </span>
+      </span>
+    </span>
   );
 }
 
@@ -426,81 +582,140 @@ function Cell({ col, align, row: r }: { col: SmartColumnKey; align?: 'right'; ro
 
   switch (col) {
     case 'contract':
+      /*
+        Identidade da linha: o código no desenho canônico (`.ig-code`), com o
+        título como segunda linha calada. Antes o código dividia a célula com
+        a marca de origem num fio só, e a linha não tinha nenhuma âncora de
+        leitura à esquerda — o olho começava a varredura pela contraparte.
+      */
       return (
-        <span className={cn(base, 'flex items-center gap-1.5')}>
+        <span className={cn('flex min-w-0 items-center gap-2')}>
           {r.criticalCount > 0 && <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-ig-danger" aria-hidden />}
-          <span className="ig-tabular truncate font-mono text-ig-caption font-semibold text-ig-fg-strong">{r.code}</span>
-          <DataClassBadge dataClass={r.contract.dataClass} />
+          <span className="min-w-0 flex-1">
+            <span className="flex min-w-0 items-center gap-1.5">
+              <span className="ig-code truncate !text-[12px] !text-ig-fg-strong">{r.code}</span>
+              <DataClassBadge dataClass={r.contract.dataClass} />
+            </span>
+            <span className="mt-0.5 block truncate text-[11px] leading-tight text-ig-fg-subtle" title={r.contract.title}>
+              {r.contract.title}
+            </span>
+          </span>
         </span>
       );
-    case 'counterparty':
-      return <span className={cn(base, 'font-medium text-ig-fg-strong')}>{r.counterparty}</span>;
+    case 'counterparty': {
+      /*
+        O projeto vinculado, já estreitado. Um booleano guardado numa variável
+        não estreita o campo para o compilador — só o guard na própria
+        expressão estreita —, então a leitura é materializada uma vez.
+      */
+      const linkedProject = hasOfficialValue(r.contract.project) ? r.contract.project.value : null;
+      const logoUrl = linkedProject?.clientLogoUrl ?? undefined;
+      const logoClient = linkedProject?.cliente || r.counterparty;
+      return (
+        <span className="flex min-w-0 items-center gap-2.5">
+          <ClientLogoBanner
+            client={logoClient}
+            logoUrl={logoUrl}
+            height={22}
+            align="start"
+            className="shrink-0"
+          />
+          <span
+            className={cn(
+              'min-w-0 flex-1 font-semibold text-ig-body-sm text-ig-fg-strong whitespace-normal line-clamp-2',
+              align === 'right' && 'text-right',
+            )}
+            title={r.counterparty}
+          >
+            {r.counterparty}
+          </span>
+        </span>
+      );
+    }
     case 'project':
       return r.projectErrored ? (
         <span className={cn(base, 'text-ig-danger')}>indisponível</span>
       ) : r.project ? (
-        <span className={cn(base, 'flex items-center gap-1.5 text-ig-fg-muted')}>
+        /* Chip de projeto vinculado: o vínculo é um objeto, não um texto. */
+        <span
+          className={cn(
+            'inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-[7px] border px-2 py-1 leading-none',
+            'border-[color-mix(in_oklab,var(--ig-accent)_24%,var(--ig-border-strong))]',
+            'bg-[color-mix(in_oklab,var(--ig-accent)_9%,transparent)]',
+          )}
+          title={`Projeto vinculado: ${r.project}`}
+        >
           <Workflow className="h-3 w-3 shrink-0 text-ig-accent" aria-hidden />
-          <span className="truncate">{r.project}</span>
+          <span className="ig-code truncate !text-ig-fg-strong">{r.project}</span>
         </span>
       ) : (
-        <span className={cn(base, 'text-ig-warning')}>sem vínculo</span>
+        <HudSignal size="sm" tone="warning" variant="inline" label="sem vínculo" />
       );
     case 'status':
-      return <span className={cn(base, 'text-ig-fg-muted')}>{STATUS_LABEL[r.status] ?? r.status}</span>;
+      return (
+        <span className="flex min-w-0 items-center">
+          <HudSignal
+            size="sm"
+            tone={STATUS_TONE[r.status] ?? 'neutral'}
+            label={STATUS_LABEL[r.status] ?? r.status}
+          />
+        </span>
+      );
     case 'risk':
       return (
-        <span className={cn(base, r.risk === 'high' ? 'text-ig-danger' : r.risk === 'medium' ? 'text-ig-warning' : 'text-ig-success')}>
-          {RISK_LABEL[r.risk]}
+        <span className="flex min-w-0 items-center">
+          <HudSignal size="sm" tone={RISK_TONE[r.risk]} label={RISK_LABEL[r.risk]} />
         </span>
       );
     case 'value':
-      return <span className={cn(base, 'ig-tabular font-semibold text-ig-fg-strong')}>{r.value === null ? dash : BRL.format(r.value)}</span>;
+      return (
+        <span className={cn(base, 'ig-tabular block text-[15px] font-bold leading-none text-ig-fg-strong')}>
+          {r.value === null ? dash : BRL.format(r.value)}
+        </span>
+      );
     case 'billing':
       return (
-        <span className={cn(base, 'ig-tabular')}>
+        <span className={cn(base, 'ig-tabular block')}>
           {r.billed === null ? dash : (
             <>
-              <span className="font-semibold text-ig-fg-strong">{BRL.format(r.billed)}</span>
-              {r.execPct !== null && <span className="ml-1 text-ig-caption text-ig-fg-subtle">{r.execPct}%</span>}
+              <span className="block font-semibold leading-none text-ig-fg-strong">{BRL.format(r.billed)}</span>
+              <span className="mt-1 flex items-center justify-start gap-1.5">
+                {r.execPct !== null && (
+                  <span className="h-1 w-10 overflow-hidden rounded-full bg-[color-mix(in_oklab,var(--ig-fg-subtle)_28%,transparent)]">
+                    <span
+                      className="block h-full rounded-full bg-ig-success"
+                      style={{ width: `${Math.min(100, Math.max(0, r.execPct))}%` }}
+                    />
+                  </span>
+                )}
+                <span className="text-[10px] leading-none text-ig-fg-subtle">
+                  {r.execPct !== null ? `${r.execPct}%` : 'exec. n/a'}
+                </span>
+              </span>
             </>
           )}
         </span>
       );
     case 'obligations':
       return (
-        <span className={cn(base, 'ig-tabular')}>
-          {r.obligationsTotal === null ? dash : r.obligationsOverdue > 0 ? (
-            <span className="font-semibold text-ig-danger">{r.obligationsOverdue} atrasada(s)</span>
-          ) : (
-            <span className="text-ig-fg-muted">{r.obligationsTotal}</span>
-          )}
-        </span>
+        <SyncCell
+          total={r.obligationsTotal}
+          pending={r.obligationsOverdue}
+          pendingLabel="atrasada(s)"
+          tone="danger"
+        />
       );
     case 'documents':
-      return (
-        <span className={cn(base, 'ig-tabular')}>
-          {r.documentsTotal === null ? dash : r.documentsPending > 0 ? (
-            <span className="font-semibold text-ig-warning">{r.documentsPending} pend.</span>
-          ) : (
-            <span className="text-ig-fg-muted">{r.documentsTotal}</span>
-          )}
-        </span>
-      );
+      return <SyncCell total={r.documentsTotal} pending={r.documentsPending} pendingLabel="pendente(s)" />;
     case 'approvals':
-      return (
-        <span className={cn(base, 'ig-tabular')}>
-          {r.approvalsTotal === null ? dash : r.approvalsPending > 0 ? (
-            <span className="font-semibold text-ig-warning">{r.approvalsPending} aberta(s)</span>
-          ) : (
-            <span className="text-ig-fg-muted">{r.approvalsTotal}</span>
-          )}
-        </span>
-      );
+      return <SyncCell total={r.approvalsTotal} pending={r.approvalsPending} pendingLabel="aberta(s)" />;
     case 'health':
       return (
-        <span className={cn(base, 'ig-tabular text-ig-fg-muted')}>
-          {r.healthAssessed}/{r.healthTotal}
+        <span className={cn(base, 'ig-tabular block')}>
+          <span className="block font-semibold leading-none text-ig-fg-strong">
+            {r.healthAssessed}/{r.healthTotal}
+          </span>
+          <span className="mt-0.5 block text-[10px] leading-none text-ig-fg-subtle">apurado</span>
         </span>
       );
     case 'attention':
@@ -510,17 +725,51 @@ function Cell({ col, align, row: r }: { col: SmartColumnKey; align?: 'right'; ro
         coluna de zeros.
       */
       return (
-        <span className={cn(
-          base, 'ig-tabular',
-          r.attentionCount > 0 ? 'font-semibold text-ig-warning' : 'text-ig-fg-subtle',
-        )}>
-          {r.attentionCount > 0 ? r.attentionCount : '—'}
+        <span className={cn(base, 'ig-tabular block')}>
+          <span
+            className={cn(
+              'block text-[15px] font-bold leading-none',
+              r.attentionCount > 0 ? 'text-ig-warning' : 'text-ig-fg-subtle',
+            )}
+          >
+            {r.attentionCount > 0 ? r.attentionCount : '—'}
+          </span>
+          {r.attentionCount > 0 && (
+            <span className="mt-0.5 block text-[10px] leading-none text-ig-fg-subtle">item(ns)</span>
+          )}
         </span>
       );
     case 'apexState':
       return (
         <span className={cn(base, 'flex items-center')}>
           <HudSignal size="sm" label={APEX_STATE_LABEL[r.apexState]} tone={APEX_STATE_TONE[r.apexState]} />
+        </span>
+      );
+    case 'open':
+      /*
+        Não é um `button`: a linha inteira já É o botão, e aninhar um dentro do
+        outro é HTML inválido — o clique do interno nem chegaria ao externo em
+        alguns navegadores. Isto é a AFORDÂNCIA da ação da linha, que aparece
+        no hover e no foco.
+      */
+      return (
+        <span
+          aria-hidden
+          title="Abrir dossiê"
+          className={cn(
+            'flex items-center justify-end opacity-0 transition-opacity duration-150',
+            'group-hover:opacity-100 group-focus-visible:opacity-100',
+          )}
+        >
+          <span
+            className={cn(
+              'inline-flex h-7 items-center gap-1 rounded-[8px] border px-2 leading-none',
+              'border-[color-mix(in_oklab,var(--ig-accent)_28%,var(--ig-border-strong))]',
+              'bg-[color-mix(in_oklab,var(--ig-accent)_12%,transparent)] text-[10px] font-semibold text-ig-accent',
+            )}
+          >
+            <ArrowRight className="h-3 w-3" />
+          </span>
         </span>
       );
   }

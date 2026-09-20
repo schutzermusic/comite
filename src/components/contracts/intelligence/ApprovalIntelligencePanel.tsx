@@ -189,13 +189,22 @@ export function ApprovalIntelligencePanel({
   const shown = approvals.rows.filter((row) => matchesPortfolioSearch(query, row.title, row.code, row.intelligence.currentStage?.label) && (filter === 'all' || (filter === 'overdue' ? row.intelligence.overdueSteps.length > 0 : filter === 'rejected' ? row.intelligence.rejectedSteps.length > 0 : Boolean(row.intelligence.currentStage))));
   return (
     <div className={cn('space-y-4', className)}>
+      {/*
+        ─── SÓ O QUE A TIRA EXECUTIVA NÃO DIZ ──────────────────────────────
+
+        Esta faixa tinha quatro células e duas delas repetiam a tira da área:
+        "Etapas além do prazo" é o indicador "Vencidas", número por número, e
+        "Contratos em alçada" duplicava, em outro recorte, "Contratos com
+        exigência ativa" — dois números parecidos e diferentes lado a lado, que
+        é a pior forma de duplicação, porque o leitor precisa descobrir se a
+        diferença é erro ou definição.
+
+        Sobram as duas leituras que só existem AQUI: quantas etapas foram
+        rejeitadas (rejeição é decisão, não atraso) e quanto tempo a carteira
+        leva por etapa. Nenhuma das duas cabe na tira, e nenhuma é resumo do
+        que já foi dito.
+      */}
       <div className="portfolio-metrics">
-        <Metric label="Contratos em alçada" value={String(approvals.rows.length)} tone="text-ig-fg-strong" />
-        <Metric
-          label="Etapas além do prazo"
-          value={String(approvals.overdueCount)}
-          tone={approvals.overdueCount > 0 ? 'text-ig-danger' : 'text-ig-fg-strong'}
-        />
         <Metric
           label="Etapas rejeitadas"
           value={String(approvals.rejectedCount)}

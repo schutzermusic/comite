@@ -1255,3 +1255,37 @@ html.light .ig-lp-action { --ig-lp-wash-deep: #F4F7FA; }
 .ig-lp-state[data-tone='measured'] > i {
   background: color-mix(in oklab, var(--ig-fg-subtle) 70%, transparent);
 }
+
+/* ── Código de registro ───────────────────────────────────────
+   UM desenho para todo identificador que o usuário lê e reconhece:
+   código de contrato, de projeto, de aditivo, de documento.
+
+   Antes cada superfície escolhia o seu: `text-ig-caption` aqui,
+   `text-[11px]` ali, `font-semibold` num lugar e peso normal no outro,
+   com e sem `ig-tabular`. Numa mesma tela apareciam três tamanhos do
+   MESMO código, e o olho lia como se fossem coisas diferentes.
+
+   Regras: monoespaçado, numerais tabulares, um corpo abaixo do texto
+   ao lado, tracking levemente aberto (código se lê caractere a
+   caractere) e cor de metadado. O tom só muda no hover quando o código
+   é um link. */
+.ig-code {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.35;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--ig-fg-muted);
+}
+/* Variante calada: o mesmo desenho, um degrau abaixo na hierarquia. */
+.ig-code-quiet {
+  color: var(--ig-fg-subtle);
+  font-weight: 500;
+}
+/* Código clicável: sem sublinhado em repouso — o hover basta. */
+a.ig-code:hover,
+button.ig-code:hover {
+  color: var(--ig-accent);
+  text-decoration: underline;
+}

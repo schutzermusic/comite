@@ -52,7 +52,7 @@ export async function listProjectGlobeMarkers(): Promise<readonly ProjectGlobeMa
   const supabase = createClient();
   const { data, error } = await supabase
     .from('project_globe_marker')
-    .select('*')
+    .select('organization_id, project_id, project_code, project_name, project_lifecycle_status, latitude, longitude, precision, site_label, municipality, state_code, evidence_kind, source_contract_id, source_document_id, source_page, geocoder, geocoded_at, version')
     .order('project_code', { ascending: true });
 
   if (error) {
@@ -81,7 +81,11 @@ export async function listProjectGlobeMarkers(): Promise<readonly ProjectGlobeMa
       precision: raw.precision as 'site' | 'municipality',
       siteLabel: (raw.site_label as string) ?? null,
       municipality: (raw.municipality as string) ?? null,
-      stateCode: (raw.state_code as string) ?? null,
+      stateCode: (typeof raw.state_code === 'string' && raw.state_code.trim()
+        ? raw.state_code.trim().toUpperCase()
+        : typeof raw.stateCode === 'string' && raw.stateCode.trim()
+          ? raw.stateCode.trim().toUpperCase()
+          : null),
       evidenceKind: String(raw.evidence_kind),
       sourceContractId: (raw.source_contract_id as string) ?? null,
       sourceDocumentId: (raw.source_document_id as string) ?? null,

@@ -155,7 +155,19 @@ describe('contractToCash', () => {
       ] as never,
     };
     const measured = stage(contractToCash(build(soPrevisto)), 'measured');
-    if (hasOfficialValue(measured.amount)) expect(measured.amount.value).toBe(0);
+    /*
+      ATUALIZADO NA PASSADA DE CONSISTÊNCIA.
+
+      Este teste aceitava `amount.value === 0` — e um zero apurado é
+      exatamente o que não se pode afirmar aqui. O único marco diz-se medido e
+      não tem `measured_amount`: não há medição nenhuma para somar, e "R$ 0
+      medido" afirmaria que alguém mediu e o resultado foi zero.
+    */
+    expect(hasOfficialValue(measured.amount)).toBe(false);
+    expect(measured.state).toBe('unmeasured');
+    expect(measured.note).toMatch(/nenhum tem valor apurado/i);
+    // A CONTAGEM segue apurada: um marco se afirma medido, e isso é um fato.
+    if (hasOfficialValue(measured.count)) expect(measured.count.value).toBe(1);
     expect(JSON.stringify(measured)).not.toContain('999999');
   });
 
@@ -170,7 +182,14 @@ describe('contractToCash', () => {
     if (hasOfficialValue(measured.amount)) expect(measured.amount.value).toBe(350_000);
   });
 
-  it('marcos registrados mas nenhum medido não vira R$ 0 silencioso', () => {
+  it('marcos registrados mas nenhum medido é AUSÊNCIA, não R$ 0 medido', () => {
+    /*
+      O ramo "nenhum marco registrado" sempre disse, em texto, que zero marcos
+      não é R$ 0 medido. Este ramo — marcos registrados, nenhum medido —
+      contradizia aquele: caía em `derived(0)` com selo de apurado, e a tela
+      de Faturamentos exibia "Valor medido R$ 0" sobre um contrato em que
+      ninguém mediu coisa alguma. Mesma evidência (nenhuma), mesma resposta.
+    */
     const soPrevisto: ContractDetail = {
       ...base,
       milestones: [
@@ -178,10 +197,30 @@ describe('contractToCash', () => {
       ] as never,
     };
     const measured = stage(contractToCash(build(soPrevisto)), 'measured');
-    expect(measured.state).toBe('measured');
-    if (hasOfficialValue(measured.amount)) expect(measured.amount.value).toBe(0);
-    // ...mas a nota diz o porquê do zero: é apurado, não ausente.
+    expect(measured.state).toBe('unmeasured');
+    expect(hasOfficialValue(measured.amount)).toBe(false);
     expect(measured.note).toMatch(/Nenhum dos 1 marco/i);
+    expect(measured.note).toMatch(/ausência de apuração/i);
+    // Nenhum marco se afirma medido — e essa contagem É apurada.
+    if (hasOfficialValue(measured.count)) expect(measured.count.value).toBe(0);
+  });
+
+  it('medição apurada com valor zero CONTINUA sendo R$ 0 — fonte governada', () => {
+    /*
+      O contrapeso do teste acima: a regra é "ausência não vira zero", e não
+      "zero nunca aparece". Quando a medição existe e o valor apurado é zero,
+      o zero é a verdade e precisa ser exibido como apurado.
+    */
+    const medidoZero: ContractDetail = {
+      ...base,
+      milestones: [
+        { id: 'm1', contract_id: ID, title: 'Medição sem produção', status: 'measured', due_date: '2026-06-01', completed_at: '2026-06-02T00:00:00Z', billing_amount: 500_000, measured_amount: 0, owner_user_id: 'u-a', evidence: 'Boletim', evidence_document_id: null },
+      ] as never,
+    };
+    const measured = stage(contractToCash(build(medidoZero)), 'measured');
+    expect(measured.state).toBe('measured');
+    expect(hasOfficialValue(measured.amount)).toBe(true);
+    if (hasOfficialValue(measured.amount)) expect(measured.amount.value).toBe(0);
   });
 
   it('falha ao ler marcos não vira "nenhum marco"', () => {
@@ -494,8 +533,9 @@ describe('risk & clause intelligence', () => {
     expect(cap.limitation).toBeNull();
   });
 
-  it('só a exceção de política entra na fila de atenção humana', () => {
-    const exigeAtencao = {
+  it('a fila de atenção humana sai das interpretações operacionais, não das cláusulas', () => {
+    // Cláusula marcada pela política de EXTRAÇÃO não entra na fila da carteira.
+    const exigeAtencaoNaExtracao = {
       id: 'c1', contract_id: ID, title: 'Multa por atraso', clause_type: 'penalidade',
       content: null, risk_level: 'high', ai_flagged: true, review_status: 'draft',
       amount: 500000, percentage: 2, term_days: null, source_document_id: null,
@@ -504,11 +544,41 @@ describe('risk & clause intelligence', () => {
       interpretation_state: 'requires_attention',
       attention_reasons: ['material_financial_exposure', 'possible_legal_commitment'],
     } as never;
-    const intel = buildClauseRiskIntelligence([build({ ...full, clauses: [exigeAtencao] })]);
+    const soClauses = buildClauseRiskIntelligence([build({ ...full, clauses: [exigeAtencaoNaExtracao] })]);
+    expect(soClauses.pendingProposals).toHaveLength(0);
+    expect(soClauses.attentionCount).toBe(0);
+
+    const operacional = {
+      id: 'op-1',
+      organization_id: 'org-1',
+      contract_id: ID,
+      analysis_id: 'analysis-1',
+      source_document_id: 'doc-1',
+      family: 'guarantees',
+      fingerprint: 'fp-1',
+      normalized_payload: { title: 'Garantia retida' },
+      source_page: 12,
+      source_excerpt: 'trecho',
+      confidence: 0.4,
+      provider: 'p',
+      model: 'm',
+      pipeline_version: 'contract-operationalization/1.0.0',
+      requesting_user_id: null,
+      trust_state: 'requires_attention',
+      trust_reasons: ['low_confidence'],
+      trust_policy_version: 'contract-operational-trust/1.0.0',
+      created_at: '2026-09-14T11:22:28.000Z',
+    } as never;
+    const intel = buildClauseRiskIntelligence([build({
+      ...full,
+      clauses: [exigeAtencaoNaExtracao],
+      operationalInterpretations: [operacional],
+    })]);
     const cap = intel.capabilities.find((c) => c.key === 'clauses')!;
 
     expect(intel.pendingProposals).toHaveLength(1);
-    expect(cap.summary).toMatch(/1 requer\(em\) atenção/);
+    expect(intel.attentionCount).toBe(1);
+    expect(cap.summary).toMatch(/1 interpretação\(ões\) operacional\(is\) requer\(em\) atenção/);
     expect(cap.limitation).toMatch(/requer\(em\) análise humana/i);
   });
 

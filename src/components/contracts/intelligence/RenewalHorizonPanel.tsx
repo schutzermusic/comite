@@ -20,6 +20,7 @@ import { format } from 'date-fns';
 import { pt } from 'date-fns/locale';
 import { CalendarClock, AlertTriangle, CalendarX2 } from 'lucide-react';
 import { HudPanel } from '@/components/hud';
+import { DistributionRail, type DistributionTone } from '../shell/DistributionRail';
 import {
   HORIZON_LABEL, type HorizonBand, type RenewalHorizon,
 } from '@/lib/contracts/trust/renewal-horizon';
@@ -29,14 +30,14 @@ const BRL = new Intl.NumberFormat('pt-BR', {
   minimumFractionDigits: 0, maximumFractionDigits: 1,
 });
 
-const BAND_TONE: Record<HorizonBand, { text: string; rail: string }> = {
-  expired: { text: 'text-ig-danger', rail: 'bg-ig-danger' },
-  30: { text: 'text-ig-danger', rail: 'bg-ig-danger/80' },
-  60: { text: 'text-ig-warning', rail: 'bg-ig-warning' },
-  90: { text: 'text-ig-warning', rail: 'bg-ig-warning/70' },
-  120: { text: 'text-ig-fg-strong', rail: 'bg-ig-accent/60' },
-  180: { text: 'text-ig-fg-strong', rail: 'bg-ig-accent/40' },
-  beyond: { text: 'text-ig-fg-muted', rail: 'bg-ig-border-strong' },
+const BAND_TONE: Record<HorizonBand, { text: string; rail: string; dist: DistributionTone }> = {
+  expired: { text: 'text-ig-danger', rail: 'bg-ig-danger', dist: 'critical' },
+  30: { text: 'text-ig-danger', rail: 'bg-ig-danger/80', dist: 'critical' },
+  60: { text: 'text-ig-warning', rail: 'bg-ig-warning', dist: 'warning' },
+  90: { text: 'text-ig-warning', rail: 'bg-ig-warning/70', dist: 'warning' },
+  120: { text: 'text-ig-fg-strong', rail: 'bg-ig-accent/60', dist: 'accent' },
+  180: { text: 'text-ig-fg-strong', rail: 'bg-ig-accent/40', dist: 'accent' },
+  beyond: { text: 'text-ig-fg-muted', rail: 'bg-ig-border-strong', dist: 'neutral' },
 };
 
 export interface RenewalHorizonPanelProps {
@@ -52,40 +53,38 @@ export function RenewalHorizonPanel({ horizon, onSelectContract, className }: Re
 
   return (
     <div className={cn('space-y-4', className)}>
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
-        {horizon.bands.map((band) => {
-          const tone = BAND_TONE[band.band];
-          return (
-            <button
-              type="button"
-              aria-pressed={bandFilter === band.band}
-              onClick={() => setBandFilter(bandFilter === band.band ? null : band.band)}
-              key={String(band.band)}
-              className={cn(
-                'relative overflow-hidden rounded-[12px] border px-3 py-3 text-left transition-colors hover:bg-ig-accent-weak',
-                bandFilter === band.band && 'ring-2 ring-ig-accent',
-                band.count > 0 ? 'border-ig-border-subtle bg-ig-panel/45' : 'border-dashed border-ig-border-strong',
-              )}
-            >
-              <span className={cn('absolute inset-y-0 left-0 w-[2px]', band.count > 0 ? tone.rail : 'bg-transparent')} aria-hidden />
-              <p className="truncate text-ig-label font-semibold text-ig-fg-muted">
-                {HORIZON_LABEL[band.band]}
-              </p>
-              <p className={cn('mt-0.5 text-ig-kpi-md leading-none ig-tabular', band.count > 0 ? tone.text : 'text-ig-fg-subtle')}>
-                {band.count}
-              </p>
-              {/*
-                Exposição só aparece quando ALGUM contrato da faixa tem valor
-                apurado; somar os que têm e apresentar como total da faixa
-                inventaria um número que ninguém pode conferir.
-              */}
-              <p className="mt-0.5 truncate text-ig-label text-ig-fg-subtle">
-                {band.count === 0 ? '—' : band.exposure === null ? 'valor não apurado' : BRL.format(band.exposure)}
-              </p>
-            </button>
-          );
-        })}
-      </div>
+      {/*
+        ─── A GRADE DE SETE CARTÕES SAIU DAQUI ─────────────────────────────
+
+        Quatro das sete faixas — vencidos, 30, 60, 90 — são exatamente os
+        indicadores que a tira executiva desta área já apresenta, e a grade os
+        repetia em corpo de KPI logo abaixo dela.
+
+        O trilho reparte a carteira datada (quanto do vencimento está na frente
+        e quanto está longe — leitura que seis números soltos não dão) e os
+        chips seguem filtrando a lista, agora com a exposição da janela na
+        própria etiqueta: "valor não apurado" onde nenhum contrato da faixa tem
+        valor legível, e nunca R$ 0.
+      */}
+      <DistributionRail
+        segments={horizon.bands.map((band) => ({
+          key: band.band,
+          label: HORIZON_LABEL[band.band],
+          count: band.count,
+          tone: BAND_TONE[band.band].dist,
+          hint: band.count === 0
+            ? 'Nenhum contrato nesta janela — apurado, e não "não olhado".'
+            : band.exposure === null
+              ? 'Contratos nesta janela; nenhum com valor contratado apurado.'
+              : `Exposição da janela: ${BRL.format(band.exposure)}.`,
+          meta: band.count === 0
+            ? undefined
+            : band.exposure === null ? 'valor não apurado' : BRL.format(band.exposure),
+        }))}
+        selected={bandFilter}
+        onSelect={setBandFilter}
+        totalLabel="contrato(s) em janela"
+      />
 
       <HorizonNotes horizon={horizon} />
 

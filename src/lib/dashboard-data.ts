@@ -254,7 +254,29 @@ export interface DashboardPayload {
   brazilProjectsMap?: BrazilProjectsMap;
   brazilStatesOps?: BrazilStatesOps;
   workforceData?: WorkforcePayload;
+  /** Eventos reais da org — nunca mock. Vazio quando não há fonte. */
+  eventStream: DashboardLiveEvent[];
   lastUpdated: Date;
+}
+
+export type DashboardLiveEventCategory =
+  | 'riscos'
+  | 'decisoes'
+  | 'docs'
+  | 'projetos'
+  | 'contratos';
+
+export type DashboardLiveEventSeverity = 'critical' | 'warning' | 'info' | 'success';
+
+export interface DashboardLiveEvent {
+  id: string;
+  type: DashboardLiveEventCategory;
+  severity: DashboardLiveEventSeverity;
+  label: string;
+  timestamp: string;
+  href: string;
+  /** Epoch ms para ordenar o stream (mais recente primeiro). */
+  occurredAt: number;
 }
 
 // ============================================
@@ -508,6 +530,8 @@ export function getMockDashboardData(): DashboardPayload {
         inactive: 15,
       },
     },
+    // Org demo também sem stream inventado — "EVENTOS AO VIVO" = só fatos.
+    eventStream: [],
     lastUpdated: new Date(),
   };
 }

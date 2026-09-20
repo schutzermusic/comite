@@ -22,6 +22,23 @@ import { cn } from '@/lib/utils';
  *
  * Serve tanto isolado (célula de tabela, linha de lista, card) quanto em série
  * num cabeçalho de módulo — vários chips lado a lado, com gap.
+ *
+ * ─── Duas formas: `chip` e `inline` ───────────────────────────────────────
+ *
+ * `chip` é a cápsula acima. Serve para METADADO — origem do registro, código
+ * de projeto, rótulo de recorte: coisas que classificam a linha e ficam
+ * quietas.
+ *
+ * `inline` é o Signal nu: ponto tonal + rótulo + valor, sem superfície e sem
+ * contorno. Serve para ALERTA e ESTADO OPERACIONAL.
+ *
+ * A distinção não é decorativa. Quando todo estado vira uma caixinha, uma tela
+ * de operação enche de cápsulas: `[ ATENÇÃO 4 ]` compete em peso com o título
+ * da seção e desaparece no meio de outras seis caixinhas idênticas. O Signal
+ * inline carrega a mesma severidade com um ponto de 5px e tipografia — que é
+ * o que uma sala de controle de verdade faz.
+ *
+ *   ● Atenção · 4
  */
 
 export type HudSignalTone =
@@ -70,6 +87,10 @@ export interface HudSignalProps {
   onClick?: () => void;
   /** Estado selecionado (uso como filtro). */
   active?: boolean;
+  /**
+   * `chip` (padrão) para metadado; `inline` para alerta e estado operacional.
+   */
+  variant?: 'chip' | 'inline';
   /** Pulsa o trilho — reservado para sinal ao vivo. */
   pulse?: boolean;
   title?: string;
@@ -94,6 +115,7 @@ export function HudSignal({
   tone = 'accent',
   icon,
   size = 'md',
+  variant = 'chip',
   href,
   onClick,
   active = false,
@@ -105,6 +127,24 @@ export function HudSignal({
   const muted = IS_MUTED(tone);
   const interactive = Boolean(href || onClick);
   const livePulse = pulse || tone === 'live';
+
+  if (variant === 'inline') {
+    return (
+      <InlineSignal
+        label={label}
+        value={value}
+        tone={tone}
+        icon={icon}
+        size={size}
+        href={href}
+        onClick={onClick}
+        pulse={livePulse}
+        muted={muted}
+        title={title}
+        className={className}
+      />
+    );
+  }
 
   const inner = (
     <>
@@ -179,4 +219,81 @@ export function HudSignal({
       {inner}
     </span>
   );
+}
+
+/* ------------------------------------------------------------------ */
+/* Forma inline — ponto + rótulo + valor, sem superfície                */
+/* ------------------------------------------------------------------ */
+
+const INLINE_SIZE = {
+  sm: { text: 'text-[9.5px] tracking-[0.12em]', dot: 'h-[5px] w-[5px]', icon: '[&_svg]:h-2.5 [&_svg]:w-2.5' },
+  md: { text: 'text-[10.5px] tracking-[0.13em]', dot: 'h-[6px] w-[6px]', icon: '[&_svg]:h-3 [&_svg]:w-3' },
+} as const;
+
+function InlineSignal({
+  label, value, tone, icon, size, href, onClick, pulse, muted, title, className,
+}: {
+  label: React.ReactNode;
+  value?: React.ReactNode;
+  tone: HudSignalTone;
+  icon?: React.ReactNode;
+  size: 'sm' | 'md';
+  href?: string;
+  onClick?: () => void;
+  pulse: boolean;
+  muted: boolean;
+  title?: string;
+  className?: string;
+}) {
+  const s = INLINE_SIZE[size];
+  const interactive = Boolean(href || onClick);
+
+  const indicator = icon ? (
+    <span
+      aria-hidden
+      className={cn('flex shrink-0 items-center text-[color:var(--sig-tone)]', s.icon, pulse && 'animate-pulse motion-reduce:animate-none')}
+    >
+      {icon}
+    </span>
+  ) : (
+    <span
+      aria-hidden
+      className={cn(
+        'shrink-0 rounded-full bg-[color:var(--sig-tone)]',
+        'shadow-[0_0_0_2px_color-mix(in_oklab,var(--sig-tone)_18%,transparent)]',
+        s.dot,
+        pulse && 'animate-pulse motion-reduce:animate-none',
+      )}
+    />
+  );
+
+  const inner = (
+    <>
+      {indicator}
+      <span className={cn('min-w-0 truncate', muted ? 'text-ig-fg-muted' : 'text-ig-fg-strong')}>{label}</span>
+      {value !== undefined && value !== null && (
+        <span className={cn('shrink-0 font-extrabold tabular-nums', muted ? 'text-ig-fg-muted' : 'text-[color:var(--sig-tone)]')}>
+          <span className="mx-[3px] font-normal text-ig-fg-subtle" aria-hidden>·</span>
+          {value}
+        </span>
+      )}
+    </>
+  );
+
+  const classes = cn(
+    'inline-flex min-w-0 items-center gap-1.5 rounded-[4px] font-bold uppercase leading-none',
+    s.text,
+    interactive && [
+      'cursor-pointer transition-colors',
+      'hover:text-[color:var(--sig-tone)]',
+      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_oklab,var(--sig-tone)_45%,transparent)]',
+    ],
+    className,
+  );
+
+  const style = signalToneStyle(tone);
+
+  if (href) return <Link href={href} title={title} style={style} className={classes}>{inner}</Link>;
+  if (onClick) return <button type="button" onClick={onClick} title={title} style={style} className={classes}>{inner}</button>;
+  return <span title={title} style={style} className={classes}>{inner}</span>;
 }

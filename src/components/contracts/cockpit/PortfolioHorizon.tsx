@@ -7,10 +7,20 @@
  * término de vigência. Nenhuma projeção. Se não há marco, o painel diz que não
  * há — um "próximo marco estimado" seria a forma mais convincente de ficção num
  * painel de planejamento.
+ *
+ * ─── Desenho ───────────────────────────────────────────────────────────────
+ *
+ * Uma TIRA, não mais um painel: quatro faixas temporais, cada uma com um
+ * rótulo micro e a sua contagem em Signal inline, e uma linha por evento. Sem
+ * moldura por item, sem cápsula de contagem, sem divisor entre cada linha —
+ * o que separa eventos é o espaço, e o que separa faixas é um fio só.
+ *
+ * O vencido continua distinto por trilho tonal e pelo prazo em vermelho.
  */
 
 import { cn } from '@/lib/utils';
-import { CalendarClock, Receipt, ClipboardCheck, RefreshCw, ArrowRight } from 'lucide-react';
+import { CalendarClock, Receipt, ClipboardCheck, RefreshCw } from 'lucide-react';
+import { HudSignal } from '@/components/hud';
 import type { HorizonEvent } from '@/lib/contracts/trust/command-center';
 
 const BRL = new Intl.NumberFormat('pt-BR', {
@@ -44,30 +54,23 @@ export function PortfolioHorizon({
   events, liveContractCount, onOpenContract, className,
 }: PortfolioHorizonProps) {
   /*
-    Vazio COMPACTO.
-
-    A ausência de eventos ocupava três parágrafos numa moldura tracejada alta —
-    mais área que o horizonte cheio de uma carteira pequena. Uma janela sem
-    evento é a informação mais curta que esta superfície pode dar, e gastar
-    altura com ela empurra para baixo tudo o que tem conteúdo. O motivo continua
-    dito, em uma linha, e a ressalva sobre projeção vira `title`: ela importa
-    para quem duvida do número, não para quem só constata que não há nada.
+    Vazio COMPACTO. Uma janela sem evento é a informação mais curta que esta
+    superfície pode dar, e gastar altura com ela empurra para baixo tudo o que
+    tem conteúdo. A ressalva sobre projeção vira `title`: ela importa para quem
+    duvida do número, não para quem só constata que não há nada.
   */
   if (events.length === 0) {
     return (
       <p
-        className={cn(
-          'flex items-start gap-2 rounded-[12px] border border-dashed border-ig-border-subtle px-3.5 py-2.5',
-          className,
-        )}
+        className={cn('flex items-start gap-2 py-1', className)}
         title="O horizonte é montado só a partir de registro real — não há projeção."
       >
         <CalendarClock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ig-fg-subtle" aria-hidden />
         <span className="min-w-0">
-          <span className="text-ig-body-sm font-medium text-ig-fg-strong">
+          <span className="block text-ig-caption font-semibold text-ig-fg-strong">
             Nenhum evento nos próximos 90 dias
           </span>
-          <span className="mt-0.5 block text-ig-caption leading-relaxed text-ig-fg-muted">
+          <span className="mt-0.5 block text-ig-caption text-ig-fg-subtle">
             {liveContractCount === 0
               ? 'Não há contrato operacional na carteira.'
               : liveContractCount === 1
@@ -80,7 +83,7 @@ export function PortfolioHorizon({
   }
 
   return (
-    <div className={cn('space-y-4', className)}>
+    <div className={cn('space-y-2.5', className)}>
       {BANDS.map((band) => {
         const inBand = events.filter((e) => band.test(e.daysAway));
         if (inBand.length === 0) return null;
@@ -88,22 +91,24 @@ export function PortfolioHorizon({
 
         return (
           <section key={band.key}>
-            <header className="mb-2 flex items-baseline gap-2">
+            <header className="mb-0.5 flex items-center gap-2">
               <h4
                 className={cn(
-                  'text-ig-label',
-                  overdue ? 'text-ig-danger' : 'text-ig-fg-muted',
+                  'text-ig-label font-semibold uppercase tracking-[0.1em]',
+                  overdue ? 'text-ig-danger' : 'text-ig-fg-subtle',
                 )}
               >
                 {band.label}
               </h4>
-              <span className="ig-tabular text-ig-caption font-semibold text-ig-fg-muted">
-                {inBand.length}
-              </span>
+              <HudSignal
+                size="sm"
+                tone={overdue ? 'critical' : 'neutral'}
+                label={String(inBand.length)}
+              />
               <span className="h-px flex-1 bg-ig-border-subtle" aria-hidden />
             </header>
 
-            <ul className="space-y-1.5">
+            <ul className="divide-y divide-ig-border-subtle">
               {inBand.map((e) => {
                 const k = KIND[e.kind];
                 const Comp: React.ElementType = onOpenContract ? 'button' : 'div';
@@ -112,41 +117,41 @@ export function PortfolioHorizon({
                     <Comp
                       type={onOpenContract ? 'button' : undefined}
                       onClick={onOpenContract ? () => onOpenContract(e.contractId) : undefined}
+                      title={`${k.label} · ${e.contractCode}`}
                       className={cn(
-                        'group flex w-full items-center gap-3 rounded-[10px] border px-3 py-2 text-left transition-all',
-                        overdue
-                          ? 'border-[color-mix(in_oklab,var(--ig-danger)_28%,transparent)] bg-[color-mix(in_oklab,var(--ig-danger)_5%,transparent)]'
-                          : 'border-ig-border-subtle',
+                        'relative flex w-full items-center gap-2.5 rounded-md py-1.5 pl-2.5 pr-1.5 text-left',
                         onOpenContract && [
-                          'cursor-pointer hover:border-ig-border-focus hover:bg-[color-mix(in_oklab,var(--ig-accent)_5%,transparent)]',
+                          'ig-row-hover cursor-pointer',
                           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_oklab,var(--ig-accent)_45%,transparent)]',
                         ],
                       )}
                     >
+                      {overdue && (
+                        <span className="pointer-events-none absolute inset-y-1 left-0 w-[2px] rounded-full bg-ig-danger" aria-hidden />
+                      )}
                       <span className={cn('shrink-0', overdue ? 'text-ig-danger' : 'text-ig-fg-subtle')}>
                         {k.icon}
                       </span>
 
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-ig-body-sm font-medium text-ig-fg-strong">
-                          {e.title}
-                        </span>
-                        <span className="block truncate text-ig-caption text-ig-fg-muted">
-                          <span className="font-mono">{e.contractCode}</span>
-                          <span className="mx-1.5" aria-hidden>·</span>
-                          {k.label}
-                        </span>
+                      {/*
+                        O QUÊ e para QUEM na mesma linha: o código do contrato
+                        ocupava uma segunda altura por evento só para imprimir
+                        sete caracteres, dobrando a altura da tira inteira.
+                      */}
+                      <span className="min-w-0 flex-1 truncate text-ig-caption text-ig-fg-strong">
+                        {e.title}
+                        <span className="ig-code ig-code-quiet ml-1.5">{e.contractCode}</span>
                       </span>
 
                       {e.amount !== null && (
-                        <span className="ig-tabular shrink-0 text-ig-body-sm font-semibold text-ig-fg-strong">
+                        <span className="ig-tabular shrink-0 text-ig-caption font-semibold text-ig-fg-muted">
                           {BRL.format(e.amount)}
                         </span>
                       )}
 
                       <span
                         className={cn(
-                          'ig-tabular w-[74px] shrink-0 text-right text-ig-caption',
+                          'ig-tabular w-[66px] shrink-0 text-right text-ig-caption',
                           overdue ? 'font-semibold text-ig-danger' : 'text-ig-fg-muted',
                         )}
                       >
@@ -154,13 +159,6 @@ export function PortfolioHorizon({
                           ? `${Math.abs(e.daysAway)}d atrás`
                           : e.daysAway === 0 ? 'hoje' : `em ${e.daysAway}d`}
                       </span>
-
-                      {onOpenContract && (
-                        <ArrowRight
-                          className="h-3.5 w-3.5 shrink-0 text-ig-fg-subtle opacity-0 transition-opacity group-hover:opacity-100"
-                          aria-hidden
-                        />
-                      )}
                     </Comp>
                   </li>
                 );

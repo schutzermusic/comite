@@ -7,9 +7,15 @@ import { ContextDrawer, type DrawerContext } from '@/components/dashboard/Contex
 import { useHudLayout } from '@/hooks/useHudLayout';
 import { getMockDashboardData } from '@/lib/dashboard-data';
 import type { DashboardPayload } from '@/lib/dashboard-data';
+import { buildLiveDashboardPayload } from '@/lib/dashboard-live';
 import type { StateAggregate } from '@/data/geo/globe-kpi-data';
 import { cn } from '@/lib/utils';
 import { useCurrentUser } from '@/hooks/use-current-user';
+import { getProjectsAsync, getProjectsV2Async } from '@/lib/services/projects';
+import { listProjectContractValues } from '@/lib/projects/contract/project-contract-service';
+
+import { listRisks } from '@/lib/services/risks';
+import { listDeliberations } from '@/lib/services/deliberations';
 
 const LeftHudStack = dynamic(
     () => import('@/components/dashboard/LeftHudStack').then(m => ({ default: m.LeftHudStack })),
@@ -35,7 +41,7 @@ export default function DashboardPage() {
     const [isSidebarVisible, setIsSidebarVisible] = useState(true);
 
     const isDemo = organization?.is_demo === true;
-    const isRightSidebarActive = isSidebarVisible && selectedState === null && isDemo;
+    const isRightSidebarActive = isSidebarVisible && selectedState === null;
     const isFocusMode = uiMode === 'projectFocus' || selectedState !== null;
 
     const handleProjectFocusChange = useCallback((active: boolean) => {
@@ -52,13 +58,43 @@ export default function DashboardPage() {
     }, [setSelectedUF]);
 
     useEffect(() => {
+        let active = true;
+
+        if (isDemo) {
+            setData(getMockDashboardData());
+            return () => { active = false; };
+        }
+
         /*
-          O globo lê fatos reais (marcadores canônicos, projetos). Os painéis
-          laterais ainda são payload de demonstração — só entram em org demo.
-          Org ao vivo NÃO pode mais cair num empty state que esconde o mapa:
-          isso apagava o único sinal operacional que já existe (o marcador).
+          Org ao vivo: globo + painéis glass com fatos de projeto/contrato.
+          Sem mock de deliberação/votação — filas vazias até haver fonte governada.
         */
-        setData(isDemo ? getMockDashboardData() : null);
+        void (async () => {
+            try {
+                const [projects, projectsV2, contractValues, risks, deliberations] = await Promise.all([
+                    getProjectsAsync(),
+                    getProjectsV2Async(),
+                    listProjectContractValues().catch(
+                        () => new Map<string, { contractValue: number; currency: string | null }>(),
+                    ),
+                    listRisks().catch(() => [] as const),
+                    listDeliberations().catch(() => [] as const),
+                ]);
+                if (!active) return;
+                const values = new Map<string, number>();
+                contractValues.forEach((v, id) => values.set(id, v.contractValue));
+                setData(buildLiveDashboardPayload(projects, projectsV2, values, {
+                    risks,
+                    deliberations,
+                }));
+            } catch {
+                if (active) {
+                    setData(buildLiveDashboardPayload([], [], new Map()));
+                }
+            }
+        })();
+
+        return () => { active = false; };
     }, [organization?.id, isDemo]);
 
     const handleStateSelect = useCallback((state: StateAggregate | null) => {
@@ -97,8 +133,8 @@ export default function DashboardPage() {
             <div className="cr-vignette z-[4]" />
             <div className="cr-hud-frame" />
 
-            {/* ═══ Layer 10: HUD Interface (demo only — live org uses the globe) ═══ */}
-            {isDemo && data ? (
+            {/* ═══ Layer 10: HUD glass KPIs ═══ */}
+            {data ? (
                 <div className="relative z-10 w-full h-full pointer-events-none flex flex-col">
                     <div className="flex-1 relative min-h-0 px-0 pb-0 h-full">
                         <div

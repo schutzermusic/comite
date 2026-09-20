@@ -165,6 +165,7 @@ export type ProjectAuditEvent = {
 // ─── Location ────────────────────────────────────────────────────
 export type ProjectLocation = {
     city?: string;
+    uf?: string;
     lat?: number;
     lng?: number;
 };

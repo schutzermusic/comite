@@ -23,6 +23,12 @@ import type {
   CapabilityState, ClauseRiskIntelligence, IntelligenceCapability,
 } from '@/lib/contracts/trust/clause-risk-intelligence';
 import {
+  attentionReasonLabel,
+  interpretationTitle,
+  OPERATIONAL_FAMILY_LABEL,
+  type ContractOperationalInterpretationRow,
+} from '@/lib/contracts/intelligence/operational-interpretations';
+import {
   CLAUSE_REVIEW_LABEL, type ClauseReviewStatus, type ContractClauseRow,
 } from '@/lib/contracts/contract-service';
 import { contractRiskLabel } from '@/lib/contracts/risk-labels';
@@ -101,9 +107,35 @@ export function ClauseRiskIntelligencePanel({
 
       {onOpenContract && <>
         <PortfolioSearch value={query} onChange={setQuery} label="Buscar risco, cláusula ou penalidade" count={risks.length + clauses.length + penalties.length} />
-        <PortfolioFilters label="Tipo de registro" value={category} onChange={setCategory} options={[{ value: 'all', label: 'Todos' }, { value: 'risks', label: 'Riscos', count: intelligence.risks.length }, { value: 'clauses', label: 'Cláusulas', count: intelligence.clauses.length }, { value: 'penalties', label: 'Penalidades', count: intelligence.penalties.length }]} />
-        {risks.length + clauses.length + penalties.length === 0 && <PortfolioEmpty title="Nenhum registro disponível neste recorte" description="Consulte a cobertura acima ou abra um contrato para examinar suas fontes." onReset={query || category !== 'all' ? () => { setQuery(''); setCategory('all'); } : undefined} />}
+        <PortfolioFilters label="Tipo de registro" value={category} onChange={setCategory} options={[{ value: 'all', label: 'Todos' }, { value: 'risks', label: 'Riscos', count: intelligence.risks.length }, { value: 'clauses', label: 'Cláusulas', count: intelligence.clauses.length }, { value: 'penalties', label: 'Penalidades', count: intelligence.penalties.length }, { value: 'attention', label: 'Requer atenção', count: intelligence.attentionCount }]} />
+        {risks.length + clauses.length + penalties.length === 0 && intelligence.attentionCount === 0 && <PortfolioEmpty title="Nenhum registro disponível neste recorte" description="Consulte a cobertura acima ou abra um contrato para examinar suas fontes." onReset={query || category !== 'all' ? () => { setQuery(''); setCategory('all'); } : undefined} />}
       </>}
+
+      {intelligence.attentionCount > 0 && (category === 'all' || category === 'attention') && (
+        <HudPanel
+          title="Interpretações que requerem atenção"
+          subtitle="Fila operacional · contract_operational_interpretations — distinta das cláusulas extraídas"
+          icon={<AlertTriangle className="h-4 w-4" />}
+          interactive={false}
+        >
+          <div className="ig-rows">
+            {intelligence.pendingProposals
+              .filter((row) => matchesPortfolioSearch(
+                query,
+                interpretationTitle(row),
+                OPERATIONAL_FAMILY_LABEL[row.family],
+              ))
+              .map((row) => (
+                <AttentionRow
+                  key={row.id}
+                  row={row}
+                  onOpenContract={onOpenContract}
+                />
+              ))}
+          </div>
+        </HudPanel>
+      )}
+
       {risks.length > 0 && (
         <HudPanel
           title="Riscos vinculados"
@@ -198,6 +230,48 @@ export function ClauseRiskIntelligencePanel({
  * Os três campos são independentes e podem coexistir; quando nenhum existe, o
  * texto diz isso — "—" sozinho sugeriria que alguém tentou medir e não achou.
  */
+function AttentionRow({
+  row, onOpenContract,
+}: {
+  row: ContractOperationalInterpretationRow;
+  onOpenContract?: (id: string) => void;
+}) {
+  const reasons = (row.trust_reasons ?? []).map(attentionReasonLabel).join(' · ');
+  return (
+    <div className="grid gap-3 py-2.5 md:grid-cols-[1fr_160px_120px] md:items-center">
+      <div className="min-w-0">
+        <p className="truncate text-ig-body-sm font-semibold text-ig-fg-strong">
+          {interpretationTitle(row)}
+        </p>
+        <p className="truncate text-ig-caption text-ig-fg-muted">
+          {OPERATIONAL_FAMILY_LABEL[row.family]}
+          {row.source_page ? ` · p.${row.source_page}` : ''}
+          {reasons ? ` · ${reasons}` : ''}
+        </p>
+        {onOpenContract && (
+          <button
+            type="button"
+            className="mt-2 text-xs font-semibold text-ig-accent"
+            onClick={() => onOpenContract(row.contract_id)}
+          >
+            Abrir contrato →
+          </button>
+        )}
+      </div>
+      <span className="truncate text-ig-caption text-ig-fg-muted">
+        interpretação operacional
+      </span>
+      {/*
+        ALERTA é Signal inline, não cápsula (§ anatomia do HudSignal): cápsula
+        é para METADADO que classifica a linha e fica quieto. "Requer atenção"
+        pede ação, e numa lista de interpretações cada cápsula a mais compete
+        em peso com o título do item.
+      */}
+      <HudSignal variant="inline" size="sm" tone="warning" label="Requer atenção" />
+    </div>
+  );
+}
+
 function formatEffect(
   amount: number | string | null,
   percentage: number | string | null,
@@ -335,7 +409,18 @@ function CapabilityCard({
             {capability.label}
           </span>
         </div>
-        <HudSignal size="sm" icon={chip.icon} label={chip.label} tone={chip.tone} />
+        {/*
+          Estado da capacidade: "Disponível" classifica (cápsula), mas
+          "Sem registros" e "Não instrumentado" são AVISOS DE CONFIGURAÇÃO —
+          pedem trabalho, e vão na forma reservada a alerta.
+        */}
+        <HudSignal
+          variant={capability.state === 'available' ? 'chip' : 'inline'}
+          size="sm"
+          icon={chip.icon}
+          label={chip.label}
+          tone={chip.tone}
+        />
       </div>
 
       <p className="text-ig-caption text-ig-fg-muted">{capability.summary}</p>

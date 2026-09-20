@@ -35,10 +35,24 @@ export class MilestoneWorkbenchError extends Error {
 export async function listMilestoneWorkbench(
   contractId: string,
 ): Promise<MilestoneWorkbenchRow[]> {
+  return listMilestoneWorkbenchForContracts([contractId]);
+}
+
+/**
+ * A mesma bancada, para a carteira.
+ *
+ * Uma consulta sobre o recorte — não N consultas por contrato. A seção global
+ * de Faturamentos e o dossiê leem a MESMA visão; a diferença é só o filtro.
+ */
+export async function listMilestoneWorkbenchForContracts(
+  contractIds: readonly string[],
+): Promise<MilestoneWorkbenchRow[]> {
+  if (contractIds.length === 0) return [];
+
   const { data, error } = await createClient()
     .from(VIEW)
     .select('*')
-    .eq('contract_id', contractId)
+    .in('contract_id', contractIds as string[])
     .order('due_date', { ascending: true, nullsFirst: false })
     .order('title', { ascending: true });
 

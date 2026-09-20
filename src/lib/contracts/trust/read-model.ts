@@ -90,6 +90,13 @@ export type TrustedContract = {
    */
   readonly counterparty: Official<string>;
   readonly contractType: Official<string>;
+  /**
+   * Resumo do objeto contratado (`contracts.scope_summary`).
+   *
+   * É o mesmo texto que vira `project.descricao` quando o projeto nasce do
+   * contrato — no card da carteira, é a linha de descrição dos serviços.
+   */
+  readonly scopeSummary: Official<string>;
   readonly status: string;
   readonly riskLevel: 'low' | 'medium' | 'high';
   /**
@@ -465,6 +472,7 @@ export function buildTrustedContract(
     title: row.title,
     counterparty: counterpartyOf(row, batch.parties),
     contractType: fromColumn(row.contract_type, 'contracts'),
+    scopeSummary: fromColumn(row.scope_summary, 'contracts'),
     status: row.status,
     riskLevel: (row.risk_level === 'high' || row.risk_level === 'low' ? row.risk_level : 'medium'),
     ownerUserId: fromColumn(row.owner_user_id, 'contracts'),

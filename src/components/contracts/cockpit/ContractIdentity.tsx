@@ -103,7 +103,7 @@ export function ContractIdentity({ contract, className, compact = false }: Contr
   if (compact) {
     return (
       <div className={cn('flex min-w-0 flex-wrap items-center gap-1.5', className)}>
-        <span className="ig-tabular font-mono text-ig-caption font-semibold tracking-wide text-ig-fg-muted">
+        <span className="ig-code">
           {contract.code}
         </span>
         {statusSignal}
@@ -116,7 +116,7 @@ export function ContractIdentity({ contract, className, compact = false }: Contr
   return (
     <header className={cn('min-w-0', className)}>
       <div className="flex flex-wrap items-center gap-2">
-        <span className="ig-tabular font-mono text-ig-caption font-semibold tracking-wide text-ig-fg-muted">
+        <span className="ig-code">
           {contract.code}
         </span>
         <span className="text-ig-fg-subtle" aria-hidden>·</span>

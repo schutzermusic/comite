@@ -27,6 +27,7 @@ import { DossierDetailDrawer, DossierStatus } from '../shell/DossierPrimitives';
 import { cn } from '@/lib/utils';
 import { AlertTriangle, CalendarClock, CircleHelp, FileWarning, Landmark, ShieldOff } from 'lucide-react';
 import { HudPanel, HudEmptyState, HudSignal, type HudSignalTone } from '@/components/hud';
+import { DistributionRail, type DistributionTone } from '../shell/DistributionRail';
 import type { ObligationAttentionRow, ObligationPortfolio } from '@/lib/contracts/obligations/portfolio';
 import type { ObligationResponsibleSide, ObligationUrgency, Tristate } from '@/lib/contracts/obligations/types';
 
@@ -50,15 +51,17 @@ const URGENCY_HINT: Record<ObligationUrgency, string> = {
   NOT_APPLICABLE: 'Cumpridas, dispensadas ou canceladas.',
 };
 
-const URGENCY_TONE: Record<ObligationUrgency, { text: string; rail: string; chip: HudSignalTone }> = {
-  OVERDUE: { text: 'text-ig-danger', rail: 'bg-ig-danger', chip: 'critical' },
-  DUE: { text: 'text-ig-warning', rail: 'bg-ig-warning', chip: 'warning' },
+const URGENCY_TONE: Record<ObligationUrgency, {
+  text: string; rail: string; chip: HudSignalTone; dist: DistributionTone;
+}> = {
+  OVERDUE: { text: 'text-ig-danger', rail: 'bg-ig-danger', chip: 'critical', dist: 'critical' },
+  DUE: { text: 'text-ig-warning', rail: 'bg-ig-warning', chip: 'warning', dist: 'warning' },
   // Azul de INFORMAÇÃO, não cinza de lacuna: esperar a agenda é o estado
   // correto da exigência, e não uma pendência de quem está lendo a tela.
-  AWAITING_SCHEDULE_ANCHOR: { text: 'text-ig-accent', rail: 'bg-ig-accent', chip: 'accent' },
-  UNKNOWN: { text: 'text-ig-fg-muted', rail: 'bg-ig-border-strong', chip: 'neutral' },
-  UPCOMING: { text: 'text-ig-success', rail: 'bg-ig-success', chip: 'success' },
-  NOT_APPLICABLE: { text: 'text-ig-fg-muted', rail: 'bg-ig-border', chip: 'neutral' },
+  AWAITING_SCHEDULE_ANCHOR: { text: 'text-ig-accent', rail: 'bg-ig-accent', chip: 'accent', dist: 'accent' },
+  UNKNOWN: { text: 'text-ig-fg-muted', rail: 'bg-ig-border-strong', chip: 'neutral', dist: 'neutral' },
+  UPCOMING: { text: 'text-ig-success', rail: 'bg-ig-success', chip: 'success', dist: 'success' },
+  NOT_APPLICABLE: { text: 'text-ig-fg-muted', rail: 'bg-ig-border', chip: 'neutral', dist: 'neutral' },
 };
 
 const ORDER: ObligationUrgency[] = [
@@ -74,11 +77,20 @@ const SIDE_LABEL: Record<ObligationResponsibleSide, string> = {
   unknown: 'Lado não apurado',
 };
 
+/*
+  Os três sinais abaixo são ALERTAS OPERACIONAIS — bloqueio de faturamento,
+  evidência faltando, escalonamento —, e por isso usam a forma `inline` do
+  Signal, e não a cápsula. A cápsula é do metadado que classifica a linha e
+  fica quieto (origem, tipo, risco). Empilhadas três a três sob cada obrigação,
+  as cápsulas competiam em peso com o título do item e a lista virava uma
+  parede de caixinhas em que nenhuma severidade se destacava.
+*/
 function BillingChip({ state }: { state: Tristate }) {
   if (state === 'FALSE') return null;
   const blocking = state === 'TRUE';
   return (
     <HudSignal
+      variant="inline"
       size="sm"
       tone={blocking ? 'danger' : 'neutral'}
       icon={<Landmark aria-hidden />}
@@ -91,6 +103,7 @@ function EvidenceChip({ state }: { state: Tristate }) {
   if (state === 'TRUE') return null;
   return (
     <HudSignal
+      variant="inline"
       size="sm"
       tone={state === 'FALSE' ? 'warning' : 'neutral'}
       icon={<FileWarning aria-hidden />}
@@ -134,6 +147,7 @@ function Row({ row, onOpenContract }: { row: ObligationAttentionRow; onOpenContr
         )}
         {row.escalationSeverity && (
           <HudSignal
+            variant="inline"
             size="sm"
             tone="warning"
             icon={<AlertTriangle aria-hidden />}
@@ -168,30 +182,32 @@ export function StructuredObligationsPanel({
       icon={<CalendarClock className="h-4 w-4" />}
       className={className}
     >
-      {/* As faixas ficam sempre visíveis, inclusive zeradas. */}
-      <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
-        {ORDER.map((urgency) => {
-          const active = selected === urgency;
-          return (
-            <button
-              key={urgency}
-              type="button"
-              title={URGENCY_HINT[urgency]}
-              aria-pressed={active}
-              onClick={() => setSelected(active ? null : urgency)}
-              className={cn(
-                'rounded-xl border p-3 text-left transition-colors',
-                active ? 'border-ig-accent bg-ig-accent/5' : 'border-ig-border hover:border-ig-border-strong',
-              )}
-            >
-              <p className={cn('text-xl font-semibold tabular-nums', URGENCY_TONE[urgency].text)}>
-                {portfolio.counts[urgency]}
-              </p>
-              <p className="mt-0.5 text-[11px] leading-tight text-ig-fg-muted">{URGENCY_LABEL[urgency]}</p>
-            </button>
-          );
-        })}
-      </div>
+      {/*
+        ─── A GRADE DE SEIS CARTÕES SAIU DAQUI ─────────────────────────────
+
+        Ela repetia, em números de corpo 20, exatamente os seis indicadores da
+        tira executiva da área, poucos pixels acima: em atraso, vence hoje, no
+        prazo, prazo não apurado, encerradas. Dois resumos do mesmo fato na
+        mesma dobra fazem o leitor conferir se batem em vez de seguir.
+
+        O que ela também era — e isto fica — é o FILTRO da lista. O trilho
+        abaixo reparte a fila (leitura que a tira de KPI não dá: seis números
+        soltos não dizem se a fila está concentrada no atraso) e os chips
+        filtram, com a contagem em corpo de controle, não de indicador.
+      */}
+      <DistributionRail
+        className="mb-4"
+        segments={ORDER.map((urgency) => ({
+          key: urgency,
+          label: URGENCY_LABEL[urgency],
+          count: portfolio.counts[urgency],
+          tone: URGENCY_TONE[urgency].dist,
+          hint: URGENCY_HINT[urgency],
+        }))}
+        selected={selected}
+        onSelect={setSelected}
+        totalLabel="ocorrência(s) na fila"
+      />
 
       {portfolio.billingBlockedContracts.length > 0 && (
         <p className="mb-3 flex items-start gap-2 rounded-lg border border-ig-danger/35 bg-ig-danger/5 p-3 text-xs text-ig-danger">

@@ -71,26 +71,22 @@ export function PortfolioScopeBar({ scope, onScopeChange, counts, className }: P
           const active = scope === item.key;
           const n = countOf(item.key);
           return (
-            <button
+            /*
+              HudSignal do sistema como FILTRO. Contador na célula de valor —
+              mesma anatomia do cabeçalho de módulo.
+            */
+            <HudSignal
               key={item.key}
-              type="button"
-              onClick={() => onScopeChange(item.key)}
-              aria-pressed={active}
+              size="sm"
+              tone={active ? 'accent' : 'neutral'}
+              active={active}
+              icon={item.icon}
+              label={item.label}
+              value={n}
               title={item.hint}
-              className={cn(
-                'inline-flex items-center gap-1.5 rounded-[8px] border px-2.5 py-1 transition-all',
-                'text-ig-caption font-medium',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_oklab,var(--ig-accent)_45%,transparent)]',
-                active
-                  ? 'border-ig-accent/55 bg-[color-mix(in_oklab,var(--ig-accent)_10%,transparent)] text-ig-accent'
-                  : 'border-ig-border-subtle text-ig-fg-muted hover:border-ig-border-focus hover:text-ig-fg-strong',
-                n === 0 && !active && 'opacity-55',
-              )}
-            >
-              <span className={active ? 'text-ig-accent' : 'text-ig-fg-subtle'}>{item.icon}</span>
-              {item.label}
-              <span className="ig-tabular font-semibold">{n}</span>
-            </button>
+              onClick={() => onScopeChange(item.key)}
+              className={cn(n === 0 && !active && 'opacity-55')}
+            />
           );
         })}
       </div>
@@ -122,9 +118,8 @@ export function DataClassBadge({ dataClass, className }: { dataClass: ContractDa
 
   const isDemo = dataClass === 'demo';
   /*
-    Signal Chip do sistema, não mais uma cápsula outline local. O selo de
-    origem é status como qualquer outro: mesma altura, mesmo raio, mesmo
-    trilho tonal dos chips de estado e risco que ele acompanha.
+    HudSignal do sistema, não uma cápsula outline local. O selo de origem é
+    status como qualquer outro: mesma anatomia dos chips de estado e risco.
   */
   return (
     <HudSignal
@@ -168,11 +163,13 @@ export function PortfolioScopeNotice({
           Filtro fora do padrão fica EXPLÍCITO e com saída à mão: um usuário que
           esqueceu o recorte ligado leria números que não são os da empresa.
         */
-        <span className="inline-flex items-center gap-2 rounded-[8px] border border-ig-warning/45 bg-[color-mix(in_oklab,var(--ig-warning)_9%,transparent)] px-2.5 py-1">
-          <FlaskConical className="h-3.5 w-3.5 text-ig-warning" aria-hidden />
-          <span className="text-ig-caption text-ig-fg-strong">
-            Exibindo <strong>{scopeLabel}</strong> — fora da carteira oficial
-          </span>
+        <span className="inline-flex items-center gap-2">
+          <HudSignal
+            size="sm"
+            tone="warning"
+            icon={<FlaskConical aria-hidden />}
+            label={`Exibindo ${scopeLabel} — fora da carteira oficial`}
+          />
           <button
             type="button"
             onClick={() => onScopeChange('live')}

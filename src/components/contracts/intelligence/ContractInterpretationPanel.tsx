@@ -247,8 +247,9 @@ function InterpretationCard({
             {clause.source_page !== null && ` · p. ${clause.source_page} do contrato`}
           </span>
         </span>
+        {/* Alerta operacional: Signal inline, nunca cápsula. */}
         {needsAttention && (
-          <HudSignal size="sm" className="shrink-0" tone="warning" label="Requer atenção" />
+          <HudSignal variant="inline" size="sm" className="shrink-0" tone="warning" label="Requer atenção" />
         )}
       </button>
 

@@ -243,6 +243,27 @@ async function record(t: Record<string, string>, a: RecordArgs) {
   }
   await insert(t, a, (live?.version ?? 0) + 1, true);
   console.log(`   → gravado ${a.state} (v${(live?.version ?? 0) + 1})`);
+
+  // Espelha a UF apurada no project_v2 — o mapa de calor e filtros de
+  // carteira leem isso mesmo se o marcador canônico falhar no cliente.
+  if (a.state === 'RESOLVED' && a.stateCode) {
+    await db.query(`
+      UPDATE public.projects
+         SET project_v2 = COALESCE(project_v2, '{}'::jsonb)
+           || jsonb_build_object(
+                'uf', $1::text,
+                'location', COALESCE(project_v2->'location', '{}'::jsonb)
+                  || jsonb_build_object(
+                       'uf', $1::text,
+                       'city', COALESCE($2::text, project_v2->'location'->>'city'),
+                       'lat', COALESCE($3::float8, (project_v2->'location'->>'lat')::float8),
+                       'lng', COALESCE($4::float8, (project_v2->'location'->>'lng')::float8)
+                     )
+              )
+       WHERE id = $5 AND organization_id = $6
+    `, [a.stateCode, a.municipality ?? null, a.lat ?? null, a.lon ?? null, t.project_id, t.organization_id]);
+    console.log(`   → project_v2.uf = ${a.stateCode}`);
+  }
 }
 
 async function insert(

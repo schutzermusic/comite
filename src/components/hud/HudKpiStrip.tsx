@@ -13,6 +13,14 @@ export interface KpiItem extends Omit<HudKpiProps, 'className' | 'size' | 'align
   onClick?: () => void;
   /** Highlights the item as the active selection (filter strips). */
   active?: boolean;
+  /**
+   * Optional slot rendered below the support line — a micro-visualization
+   * (share meter, window rail, sparkline) that lets a module give its strip a
+   * domain accent without forking the cell.
+   *
+   * Purely additive: cells that omit it render exactly as before.
+   */
+  footer?: React.ReactNode;
 }
 
 export interface HudKpiStripProps {
@@ -209,6 +217,8 @@ export function HudKpiStrip({
                   {kpi.deltaLabel}
                 </p>
               )}
+
+              {kpi.footer && <div className="mt-2">{kpi.footer}</div>}
             </Comp>
           );
         })}

@@ -20,9 +20,12 @@
  */
 
 import { hasOfficialValue, isError, isOfficialOrigin } from './trusted';
-import { PENDING_REVIEW } from '../contract-service';
 import type { TrustedContract } from './read-model';
 import type { ContractClauseRow, ContractPenaltyRow, ContractRiskDetail } from '../contract-service';
+import {
+  buildContractIntelligence,
+  type ContractOperationalInterpretationRow,
+} from '@/lib/contracts/intelligence/operational-interpretations';
 
 export type CapabilityState =
   /** Existe fonte e existe caminho de escrita; há dado. */
@@ -71,18 +74,15 @@ export type ClauseRiskIntelligence = {
   readonly risks: readonly LinkedRiskEntry[];
   readonly clauses: readonly ContractClauseRow[];
   /**
-   * Interpretações que EXIGEM atenção humana — por exceção de política, nunca
-   * por serem derivadas de máquina.
+   * Fila humana OPERACIONAL — `contract_operational_interpretations` com
+   * `trust_state = requires_attention` (migration 161).
    *
-   * Subconjunto de `clauses`, não lista paralela: a interpretação VIVE em
-   * `contract_clauses` desde que nasce, e quem a classifica é o gatilho da
-   * migration 154. Manter dois lugares faria a fila divergir do registro.
-   *
-   * O nome sobrevive por compatibilidade de chamadores; o CRITÉRIO mudou. Uma
-   * leitura bem evidenciada de baixa exposição não entra aqui, por mais que
-   * ninguém a tenha "validado".
+   * NÃO é `contract_clauses.interpretation_state`. Em JA10182283 a extração
+   * marca 21 cláusulas e a fila operacional tem 7; misturar as duas reproduz
+   * o contador stale que o redesenho da Inteligência Contratual eliminou.
    */
-  readonly pendingProposals: readonly ContractClauseRow[];
+  readonly pendingProposals: readonly ContractOperationalInterpretationRow[];
+  readonly attentionCount: number;
   readonly penalties: readonly ContractPenaltyRow[];
   readonly erroredContracts: readonly string[];
   readonly coverage: { readonly counted: number; readonly total: number };
@@ -151,23 +151,27 @@ export function buildClauseRiskIntelligence(
 
   const humanConfirmed = clauses.filter(
     (c) => c.interpretation_state === 'human_confirmed' || c.review_status === 'validated').length;
+
   /*
-    A fila é a EXCEÇÃO, não a regra.
-
-    Antes, toda leitura de máquina em `draft` entrava aqui — o que num contrato
-    de 195 páginas produzia dezenas de "pendências" que ninguém ia tratar, e
-    escondia as duas que importavam. Agora quem entra é o que a política de
-    exceção marcou: confiança baixa, risco material, exposição financeira,
-    compromisso jurídico.
-
-    Cláusulas anteriores à migration 154 têm `interpretation_state` nulo. Elas
-    NÃO são tratadas como fila: ausência de classificação é ausência de
-    classificação, e transformá-la em pendência reconstruiria o backlog que
-    este refactor desmontou.
+    A fila humana sai das INTERPRETAÇÕES OPERACIONAIS, a mesma fonte que a aba
+    Inteligência Contratual e a Central de Ação. Somar `interpretation_state`
+    em `contract_clauses` reintroduz o "21 requer atenção" de JA10182283.
   */
-  const requiringAttention = clauses.filter((c) => c.interpretation_state === 'requires_attention');
-  const pendingReview = requiringAttention.length;
-  const pendingProposals = requiringAttention;
+  const pendingProposals: ContractOperationalInterpretationRow[] = [];
+  let attentionErrored = false;
+  for (const contract of scope) {
+    if (isError(contract.operationalInterpretations)) {
+      attentionErrored = true;
+      continue;
+    }
+    if (!hasOfficialValue(contract.operationalInterpretations)) continue;
+    const intelligence = buildContractIntelligence(contract.operationalInterpretations.value);
+    for (const view of intelligence.attention) {
+      const row = contract.operationalInterpretations.value.find((r) => r.id === view.id);
+      if (row) pendingProposals.push(row);
+    }
+  }
+  const pendingReview = pendingProposals.length;
 
   const capabilities: IntelligenceCapability[] = [
     {
@@ -194,12 +198,14 @@ export function buildClauseRiskIntelligence(
       summary: clauses.length > 0
         ? `${clauses.length} regra(s) contratual(is) estruturada(s)`
           + `${humanConfirmed > 0 ? ` · ${humanConfirmed} confirmada(s) por uma pessoa` : ''}`
-          + `${pendingReview > 0 ? ` · ${pendingReview} requer(em) atenção` : ''}.`
+          + `${pendingReview > 0 ? ` · ${pendingReview} interpretação(ões) operacional(is) requer(em) atenção` : ''}.`
         : 'Nenhuma cláusula registrada até agora.',
       limitation: clauses.length > 0
-        ? (pendingReview > 0
-            ? `${pendingReview} interpretação(ões) requer(em) análise humana antes de produzir decisão governada.`
-            : null)
+        ? (attentionErrored
+            ? 'A fila operacional não pôde ser lida por completo.'
+            : pendingReview > 0
+              ? `${pendingReview} interpretação(ões) operacional(is) requer(em) análise humana antes de produzir decisão governada.`
+              : null)
         : 'Sem cláusula registrada, não há como afirmar prazo de renovação, gatilho de multa ou condição de pagamento a partir do contrato.',
       // Instrumentada em P2B: existe caminho de registro manual estruturado.
       actionable: true,
@@ -229,6 +235,7 @@ export function buildClauseRiskIntelligence(
     risks,
     clauses,
     pendingProposals,
+    attentionCount: pendingReview,
     penalties,
     erroredContracts: errored,
     coverage: { counted, total: scope.length },

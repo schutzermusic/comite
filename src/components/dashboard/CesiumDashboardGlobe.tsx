@@ -334,6 +334,15 @@ export function CesiumDashboardGlobe({
   const interactionReadyRef = useRef(false);
   const cameraBusyRef = useRef(false);
   const cameraFlightIdRef = useRef(0);
+  /*
+    O handler de clique do Cesium nasce UMA vez no init e captura closures.
+    Marcadores e projetos chegam depois (async). Sem refs, o clique encontra
+    `proj:…` no pick mas `projectRecords.find` roda sobre a lista vazia do
+    primeiro render — e o card nunca abre.
+  */
+  const projectRecordsRef = useRef<GlobeProjectRecord[]>([]);
+  const handleProjectFocusRef = useRef<(project: GlobeProjectRecord, uf: string) => void>(() => {});
+  const handleStateSelectRef = useRef<(uf: string) => void>(() => {});
 
   const [ready, setReady] = useState(false);
   const [introPhase, setIntroPhase] = useState<IntroPhase>('boot');
@@ -365,14 +374,20 @@ export function CesiumDashboardGlobe({
   useEffect(() => {
     let active = true;
     void Promise.all([
-      listProjectGlobeMarkers().catch(() => [] as const),
+      listProjectGlobeMarkers().catch((err) => {
+        console.warn('[globe] falha ao carregar marcadores canônicos', err);
+        return [] as const;
+      }),
       getProjectsAsync().catch(() => [] as Project[]),
       getProjectsV2Async().catch(() => [] as ProjectV2[]),
       listProjectContractValues().catch(() => new Map<string, { contractValue: number; currency: string | null }>()),
     ]).then(([markers, loadedProjects, loadedV2, contractValues]) => {
       if (!active) return;
       setCanonicalCoordinates(markers.map((m) => ({
-        projectId: m.projectId, latitude: m.latitude, longitude: m.longitude,
+        projectId: m.projectId,
+        latitude: m.latitude,
+        longitude: m.longitude,
+        stateCode: m.stateCode,
       })));
       setProjects(loadedProjects);
       setProjectsV2(loadedV2);
@@ -584,12 +599,20 @@ export function CesiumDashboardGlobe({
   }, [flyToState, onStateSelect, stateAggregates]);
 
   const handleProjectFocus = useCallback((project: GlobeProjectRecord, uf: string) => {
-    if (!interactionReadyRef.current || cameraBusyRef.current) return;
-    if (flyToProject(project) === false) return;
+    if (!interactionReadyRef.current) return;
+    // Voo da câmera é best-effort: o card abre mesmo se a câmera estiver ocupada.
+    if (!cameraBusyRef.current) {
+      flyToProject(project);
+    }
     setSelectedUF(null);
     onStateSelect?.(null);
     setFocusedProject({ project, uf });
   }, [flyToProject, onStateSelect]);
+
+  // Mantém o handler de clique do Cesium apontando para o estado atual.
+  projectRecordsRef.current = projectRecords;
+  handleProjectFocusRef.current = handleProjectFocus;
+  handleStateSelectRef.current = handleStateSelect;
 
   // ── Cesium init ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -677,6 +700,7 @@ export function CesiumDashboardGlobe({
         });
 
         // Click handler — picks state polygon or project point.
+        // Lê SEMPRE das refs: o init roda uma vez; os dados chegam depois.
         const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
         handler.setInputAction((event: { position: { x: number; y: number } }) => {
           const pos = new Cesium.Cartesian2(event.position.x, event.position.y);
@@ -685,15 +709,15 @@ export function CesiumDashboardGlobe({
             const id = picked.id.id as string;
             if (id.startsWith('proj:')) {
               const projectId = id.slice(5);
-              const project = projectRecords.find((p) => p.id === projectId);
+              const project = projectRecordsRef.current.find((p) => p.id === projectId);
               if (project) {
-                handleProjectFocus(project, project.stateUF);
+                handleProjectFocusRef.current(project, project.stateUF);
                 return;
               }
             }
             if (id.startsWith('uf:')) {
               const uf = id.split(':')[1];
-              handleStateSelect(uf);
+              handleStateSelectRef.current(uf);
               return;
             }
           }

@@ -149,6 +149,54 @@ export const GROUP_LABEL: Record<MilestoneGroup, string> = {
   SETTLED: 'Concluído',
 };
 
+/**
+ * Vocabulário da carteira global de Faturamentos.
+ *
+ * Distinto dos rótulos de estágio do dossiê de propósito: a carteira precisa
+ * separar "marco contratual previsto" de "evento de faturamento", e o dossiê
+ * já responde à pergunta operacional ("o que me impede de faturar?"). Recebido
+ * só aparece quando Finanças afirma pagamento — nunca por ausência de evento.
+ */
+export type PortfolioBillingStageLabel =
+  | 'Previsto contratualmente'
+  | 'Aguardando gatilho'
+  | 'Em medição'
+  | 'Aguardando aceite'
+  | 'Elegível para faturar'
+  | 'Faturado'
+  | 'Recebido'
+  | 'Não apurado';
+
+export function portfolioBillingStageLabel(
+  row: MilestoneWorkbenchRow,
+  _asOf: Date = new Date(),
+): PortfolioBillingStageLabel {
+  if (row.billingReceivableStatus === 'PAID') return 'Recebido';
+  const stage = deriveStage(row).stage;
+  switch (stage) {
+    case 'BILLED':
+      return 'Faturado';
+    case 'CANCELLED':
+      return 'Não apurado';
+    case 'READY_TO_BILL':
+      return 'Elegível para faturar';
+    case 'AWAITING_ACCEPTANCE':
+      return 'Aguardando aceite';
+    case 'AWAITING_EVIDENCE':
+    case 'READY_TO_MEASURE':
+    case 'BLOCKED':
+      return 'Em medição';
+    case 'TRIGGER_PENDING':
+      return 'Aguardando gatilho';
+    case 'UNMAPPED':
+    case 'UNINSTRUMENTED':
+      return 'Previsto contratualmente';
+    case 'UNKNOWN':
+    default:
+      return 'Não apurado';
+  }
+}
+
 /** Ordem de exibição: o que exige trabalho primeiro; história por último. */
 export const GROUP_ORDER: readonly MilestoneGroup[] = [
   'REQUIRES_SETUP',

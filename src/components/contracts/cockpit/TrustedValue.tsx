@@ -14,6 +14,7 @@
  */
 
 import { cn } from '@/lib/utils';
+import { HudSignal, type HudSignalTone } from '@/components/hud';
 import { AlertTriangle } from 'lucide-react';
 import {
   renderOfficial, hasOfficialValue, isError,
@@ -130,23 +131,26 @@ export function TrustedProvenanceBadge({ value, className }: { value: Official<u
       ? 'Calculado'
       : 'Não apurado';
 
-  const tone = isError(value)
-    ? 'border-[color-mix(in_oklab,var(--ig-danger)_38%,transparent)] text-ig-danger'
+  /*
+    HudSignal do sistema, não mais uma cápsula outline local. Proveniência é
+    estado: "Indisponível" é uma falha de leitura, "Não apurado" é uma ausência
+    e "Calculado" é um derivado — três severidades diferentes que precisam usar
+    o mesmo vocabulário visual do resto dos sinais da carteira.
+  */
+  const tone: HudSignalTone = isError(value)
+    ? 'critical'
     : hasOfficialValue(value)
-      ? 'border-[color-mix(in_oklab,var(--ig-info)_34%,transparent)] text-ig-info'
-      : 'border-ig-border-subtle text-ig-fg-subtle';
+      ? 'info'
+      : 'neutral';
 
   return (
-    <span
+    <HudSignal
+      size="sm"
+      tone={tone}
+      label={label}
       title={officialProvenance(value)}
-      className={cn(
-        'inline-flex shrink-0 items-center rounded-[6px] border px-1.5 py-px text-[11px] font-medium',
-        tone,
-        className,
-      )}
-    >
-      {label}
-    </span>
+      className={cn('shrink-0', className)}
+    />
   );
 }
 

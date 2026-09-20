@@ -296,8 +296,48 @@ function measuredStageFor(
   }));
 
   const apurados = resolved.filter((r) => r.amount !== null);
-  const total = apurados.reduce((sum, r) => sum + (r.amount ?? 0), 0);
   const semApuracao = measured.length - apurados.length;
+
+  /*
+    ─── NENHUMA APURAÇÃO NÃO É R$ 0 MEDIDO ──────────────────────────────────
+
+    Este ramo contradizia o ramo de cima, que já dizia em texto "zero marcos
+    não é R$ 0 medido": bastava existir UM marco — ainda que `pending`, ainda
+    que sem `measured_amount` — para a soma cair em `derived(0)` e a tela
+    apresentar "Valor medido R$ 0" com selo de apurado.
+
+    Os dois casos abaixo produzem exatamente a mesma evidência — nenhuma —, e
+    por isso produzem a mesma resposta:
+
+      · há marcos registrados e NENHUM foi afirmado medido;
+      · há marcos afirmados medidos e NENHUM tem valor apurado (o previsto em
+        contrato não empresta valor, §12 da Fase 6).
+
+    R$ 0 volta a aparecer aqui quando uma fonte governada AFIRMAR zero — isto
+    é, quando houver medição apurada cujo valor seja zero. A CONTAGEM segue
+    apurada nos dois casos: quantos marcos existem e quantos se dizem medidos
+    são fatos, e continuam sendo ditos.
+  */
+  if (apurados.length === 0) {
+    return {
+      ...base,
+      amount: missing<number>('no-rows'),
+      count: derived(measured.length, {
+        rule: 'marcos medidos ou aprovados',
+        from: ['contract_milestones'],
+        coverage: { counted: measured.length, total: milestones.value.length },
+      }),
+      state: 'unmeasured',
+      note: measured.length === 0
+        ? `Nenhum dos ${milestones.value.length} marco(s) registrados foi medido ainda. `
+          + 'Zero marcos medidos não é R$ 0 medido: é ausência de apuração.'
+        : `${measured.length} marco(s) afirmam-se medidos e nenhum tem valor apurado. `
+          + 'O previsto em contrato não entra nesta soma.',
+      shareOfContracted: null,
+    };
+  }
+
+  const total = apurados.reduce((sum, r) => sum + (r.amount ?? 0), 0);
 
   /*
     Cobertura conta os marcos APURADOS, não os marcados como medidos. Contar
@@ -318,12 +358,10 @@ function measuredStageFor(
       coverage: { counted: measured.length, total: milestones.value.length },
     }),
     state: 'measured',
-    note: measured.length === 0
-      ? `Nenhum dos ${milestones.value.length} marco(s) registrados foi medido ainda.`
-      : semApuracao > 0
-        ? `${semApuracao} marco(s) marcado(s) como medido(s) não têm valor apurado. `
-          + 'O previsto em contrato não entra nesta soma.'
-        : null,
+    note: semApuracao > 0
+      ? `${semApuracao} marco(s) marcado(s) como medido(s) não têm valor apurado. `
+        + 'O previsto em contrato não entra nesta soma.'
+      : null,
     shareOfContracted: share(amount, contracted),
   };
 }

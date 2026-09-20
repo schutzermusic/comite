@@ -32,6 +32,7 @@
 
 import { cn } from '@/lib/utils';
 import { FlaskConical } from 'lucide-react';
+import { HudSignal } from '@/components/hud';
 import type { ContractDataClass } from '@/lib/contracts/trust/trusted';
 
 export interface ScopeOriginNoticeProps {
@@ -59,40 +60,38 @@ export function ScopeOriginNotice({ dataClasses, className, compact = false }: S
   const rationale =
     'Os números das abas operacionais descrevem o recorte selecionado — não a carteira oficial da empresa, que segue contando apenas contratos de origem validada.';
 
+  /*
+    HudSignal do sistema nas duas formas. A fronteira de origem é estado, e
+    estado neste produto tem um primitivo só.
+  */
   if (compact) {
     return (
-      <span
-        className={cn(
-          'inline-flex items-center gap-1.5 rounded-md border border-ig-warning/35',
-          'bg-[color-mix(in_oklab,var(--ig-warning)_6%,transparent)] px-2.5 py-1',
-          'text-[11px] font-medium text-ig-fg-muted',
-          className,
-        )}
-        role="note"
+      <HudSignal
+        size="sm"
+        tone="warning"
+        icon={<FlaskConical aria-hidden />}
+        label={`Recorte inclui ${parts}`}
         title={rationale}
-      >
-        <FlaskConical className="h-3.5 w-3.5 shrink-0 text-ig-warning" aria-hidden />
-        <span>
-          Recorte inclui <span className="font-semibold text-ig-fg-strong">{parts}</span>
-        </span>
-      </span>
+        className={className}
+      />
     );
   }
 
+  /*
+    Forma longa: o chip abre a linha e a justificativa segue como texto
+    corrido. Quem precisa do porquê lê a frase; quem só precisa constatar a
+    fronteira lê o chip e segue.
+  */
   return (
-    <p
-      className={cn(
-        'flex items-start gap-2 rounded-[12px] border border-ig-warning/35',
-        'bg-[color-mix(in_oklab,var(--ig-warning)_5%,transparent)] px-3 py-2',
-        'text-ig-caption text-ig-fg-muted',
-        className,
-      )}
-      role="note"
-    >
-      <FlaskConical className="mt-px h-3.5 w-3.5 shrink-0 text-ig-warning" aria-hidden />
-      <span>
-        Este recorte inclui <span className="font-semibold text-ig-fg-strong">{parts}</span>. {rationale}
-      </span>
+    <p className={cn('flex flex-wrap items-baseline gap-x-2 gap-y-1 text-ig-caption text-ig-fg-muted', className)} role="note">
+      <HudSignal
+        size="sm"
+        tone="warning"
+        icon={<FlaskConical aria-hidden />}
+        label={`Recorte inclui ${parts}`}
+        className="translate-y-0.5"
+      />
+      <span className="min-w-0">{rationale}</span>
     </p>
   );
 }

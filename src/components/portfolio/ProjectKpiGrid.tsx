@@ -57,7 +57,7 @@ export function ProjectKpiGrid({ summary, className, onKpiClick, activeKpiIds }:
     },
     {
       id: 'value',
-      label: 'Valor do portfólio',
+      label: 'Valor do backlog',
       value: summary.totalValue,
       format: 'compactCurrency',
       icon: <DollarSign className="w-5 h-5" />,
