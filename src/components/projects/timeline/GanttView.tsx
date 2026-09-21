@@ -42,10 +42,17 @@ import type { TimelineDependency, TimelineItem } from '@/lib/types/project-timel
 import { useTimelineStore } from './timeline-store';
 import { buildTimelineFilter } from './timeline-filter';
 import { GanttRow } from './gantt/GanttRow';
+import { GanttContractEventRow } from './gantt/GanttContractEventRow';
+import {
+  governedEventsByTimelineItem,
+  type ProjectContractEvent,
+} from '@/lib/projects/contract-events';
+import { buildGanttRenderRows } from '@/lib/projects/gantt-render-rows';
 import { GanttTimeHeader } from './gantt/GanttTimeHeader';
 import { GanttDependencyLayer } from './gantt/GanttDependencyLayer';
 import { useGanttWindow } from './gantt/useGanttWindow';
 import { HEADER_H, ROW_H, panelWidthFor } from './gantt/gantt-constants';
+import { PanelSplitHandle } from './gantt/PanelSplitHandle';
 import type { BarTone } from './gantt/GanttBar';
 
 /** Acima disso as setas viram ruído e são desligadas automaticamente. */
@@ -71,25 +78,37 @@ export interface GanttViewProps {
    * uma fração da viewport — o painel precisa crescer até o rodapé da tela.
    */
   fill?: boolean;
+  /**
+   * Os eventos contratuais do projeto. Só os de vínculo ACEITO viram linha
+   * derivada; proposta e ambiguidade vivem no cabeçalho e no painel de
+   * revisão, nunca no corpo do cronograma — desenhar um palpite entre as
+   * atividades seria exatamente como ele passaria a ter cara de fato.
+   */
+  contractEvents?: readonly ProjectContractEvent[];
+  onSelectContractEvent?: (event: ProjectContractEvent) => void;
+  selectedEventMilestoneId?: string | null;
 }
 
 export const GanttView = React.forwardRef<GanttViewHandle, GanttViewProps>(function GanttView(
-  { items, execution = EMPTY_EXECUTION, scheduleByItem, dependencies = [], onVisibleCountChange, fill = false },
+  {
+    items, execution = EMPTY_EXECUTION, scheduleByItem, dependencies = [],
+    onVisibleCountChange, fill = false,
+    contractEvents, onSelectContractEvent, selectedEventMilestoneId = null,
+  },
   ref,
 ) {
   const {
-    collapsed, zoom, selectedItemId, hoveredItemId, filters, panelWidth: storedPanelWidth, columns,
+    collapsed, zoom, selectedItemId, hoveredItemId, filters, columns, columnWidths,
     showDependencies, showBaseline, toggleCollapse, selectItem, hoverItem,
+    setColumnWidth, resetColumnWidth,
   } = useTimelineStore();
 
   const now = useMemo(() => new Date(), []);
   const scrollRef = useRef<HTMLDivElement>(null);
   const executionKnown = execution.availability === 'available';
 
-  // A largura do painel também posiciona o gráfico: se as colunas ligadas não
-  // couberem nela, as células invadem a faixa das barras. Por isso o mínimo
-  // calculado vence a preferência do usuário.
-  const panelWidth = Math.max(storedPanelWidth, panelWidthFor(columns, executionKnown));
+  // Largura do painel = soma das colunas (cada uma redimensionável no cabeçalho).
+  const panelWidth = panelWidthFor(columns, executionKnown, columnWidths);
 
   const scale = useMemo(() => ganttScale(items, zoom, now), [items, zoom, now]);
   const todayX = ganttX(scale, now.toISOString().slice(0, 10));
@@ -116,10 +135,38 @@ export const GanttView = React.forwardRef<GanttViewHandle, GanttViewProps>(funct
     };
   }, [items, collapsed, filters, execution, scheduleByItem, now]);
 
-  const rowIndexById = useMemo(
-    () => new Map(visible.map((node, i) => [node.item.id, i])),
-    [visible],
+  /*
+    ─── AS LINHAS RENDERIZADAS: atividades + sobreposições contratuais ──────
+
+    A árvore visível continua sendo só de atividades — filtro, recolhimento e
+    hierarquia não mudam. Depois dela, cada atividade que sustenta um marco
+    contratual ACEITO ganha uma linha derivada logo abaixo.
+
+    Isso acontece AQUI, e não dentro de `GanttRow`, por uma razão medida: a
+    camada de setas de dependência posiciona cada seta por ÍNDICE DE LINHA.
+    Se a linha derivada fosse desenhada por dentro da atividade (como um
+    segundo bloco na mesma linha), ela ocuparia altura sem existir no índice, e
+    toda seta abaixo dela apontaria para o lugar errado. Entrando na lista, o
+    índice conta as duas — e `rowIndexById`, que as setas consomem, é derivado
+    DESTA lista.
+  */
+  const eventsByItem = useMemo(
+    () => governedEventsByTimelineItem(contractEvents ?? []),
+    [contractEvents],
   );
+
+  const renderRows = useMemo(
+    () => buildGanttRenderRows(visible, eventsByItem),
+    [visible, eventsByItem],
+  );
+
+  const rowIndexById = useMemo(() => {
+    const map = new Map<string, number>();
+    renderRows.forEach((row, i) => {
+      if (row.kind === 'activity') map.set(row.node.item.id, i);
+    });
+    return map;
+  }, [renderRows]);
 
   React.useEffect(() => {
     onVisibleCountChange?.(visible.filter((n) => !n.item.isSummary).length, totalCount);
@@ -134,9 +181,9 @@ export const GanttView = React.forwardRef<GanttViewHandle, GanttViewProps>(funct
   const edgesShown = edges.length <= MAX_EDGES ? edges : [];
 
   /* ─── Virtualização ─── */
-  const contentHeight = visible.length * ROW_H;
-  const { startIndex, endIndex } = useGanttWindow(scrollRef, visible.length);
-  const rows = visible.slice(startIndex, endIndex);
+  const contentHeight = renderRows.length * ROW_H;
+  const { startIndex, endIndex } = useGanttWindow(scrollRef, renderRows.length);
+  const rows = renderRows.slice(startIndex, endIndex);
 
   /* ─── Navegação imperativa (botões "Hoje" e deep link) ─── */
   const scrollToX = useCallback((x: number) => {
@@ -184,9 +231,16 @@ export const GanttView = React.forwardRef<GanttViewHandle, GanttViewProps>(funct
 
   const focusedItemId = hoveredItemId ?? selectedItemId;
   const focusedRow = focusedItemId ? rowIndexById.get(focusedItemId) ?? null : null;
+  const canvasHeight = HEADER_H + contentHeight;
 
   const toneOf = (item: TimelineItem): BarTone =>
     item.status === 'completed' ? 'completed' : deriveDelayStatus(item, now);
+
+  const onPanelTitleResize = useCallback(
+    (width: number) => setColumnWidth('title', width),
+    [setColumnWidth],
+  );
+  const onPanelTitleReset = useCallback(() => resetColumnWidth('title'), [resetColumnWidth]);
 
   return (
     <div
@@ -201,14 +255,25 @@ export const GanttView = React.forwardRef<GanttViewHandle, GanttViewProps>(funct
     >
       <div
         className="relative"
-        style={{ width: panelWidth + scale.totalWidth, height: HEADER_H + contentHeight }}
+        style={{ width: panelWidth + scale.totalWidth, height: canvasHeight }}
       >
+        <PanelSplitHandle
+          panelWidth={panelWidth}
+          titleWidth={columnWidths.title}
+          totalHeight={canvasHeight}
+          onTitleResize={onPanelTitleResize}
+          onTitleReset={onPanelTitleReset}
+        />
+
         <GanttTimeHeader
           scale={scale}
           panelWidth={panelWidth}
+          colWidths={columnWidths}
           columns={columns}
           executionKnown={executionKnown}
           todayX={todayX}
+          onColumnResize={setColumnWidth}
+          onColumnReset={resetColumnWidth}
         />
 
         <div className="relative" style={{ height: contentHeight }}>
@@ -245,8 +310,25 @@ export const GanttView = React.forwardRef<GanttViewHandle, GanttViewProps>(funct
             </div>
           )}
 
-          {rows.map((node: TimelineNode, i: number) => {
+          {rows.map((row, i: number) => {
             const index = startIndex + i;
+
+            if (row.kind === 'event') {
+              return (
+                <GanttContractEventRow
+                  key={row.key}
+                  event={row.event}
+                  index={index}
+                  scale={scale}
+                  panelWidth={panelWidth}
+                  depth={row.depth}
+                  selected={selectedEventMilestoneId === row.event.plan.milestoneId}
+                  onSelect={(event) => onSelectContractEvent?.(event)}
+                />
+              );
+            }
+
+            const node: TimelineNode = row.node;
             return (
               <GanttRow
                 key={node.item.id}
@@ -255,6 +337,7 @@ export const GanttView = React.forwardRef<GanttViewHandle, GanttViewProps>(funct
                 tone={toneOf(node.item)}
                 scale={scale}
                 panelWidth={panelWidth}
+                colWidths={columnWidths}
                 columns={columns}
                 execution={execution.byItem.get(node.item.id)}
                 schedule={scheduleByItem?.get(node.item.id)}

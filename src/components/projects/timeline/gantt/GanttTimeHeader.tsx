@@ -6,26 +6,47 @@
  * Vive DENTRO do scroller único, como `sticky top-0`. A versão anterior ficava
  * fora e espelhava `scrollLeft` via transform num efeito — o que produzia um
  * frame de atraso visível ao arrastar. Sticky não tem esse problema.
+ *
+ * Cada coluna do canto esquerdo tem borda arrastável (estilo Excel).
  */
 
 import React from 'react';
 import { cn } from '@/lib/utils';
 import type { GanttScale } from '@/lib/projects/timeline-analytics';
-import { COL_W, HEADER_H, TITLE_MIN_W } from './gantt-constants';
+import { HEADER_H, type GanttColKey, type GanttColWidths } from './gantt-constants';
+import { ColumnResizeHandle } from './ColumnResizeHandle';
 import type { TimelineColumn } from '../timeline-store';
 
 export interface GanttTimeHeaderProps {
   scale: GanttScale;
   panelWidth: number;
+  colWidths: GanttColWidths;
   columns: Record<TimelineColumn, boolean>;
   executionKnown: boolean;
   todayX: number | null;
+  onColumnResize: (column: GanttColKey, width: number) => void;
+  onColumnReset: (column: GanttColKey) => void;
 }
 
-function HeadCell({ width, className, children }: { width: number; className?: string; children?: React.ReactNode }) {
+function HeadCell({
+  column,
+  width,
+  className,
+  children,
+  onResize,
+  onReset,
+}: {
+  column: GanttColKey;
+  width: number;
+  className?: string;
+  children?: React.ReactNode;
+  onResize: (column: GanttColKey, width: number) => void;
+  onReset: (column: GanttColKey) => void;
+}) {
   return (
-    <span className={cn('shrink-0 truncate px-1', className)} style={{ width }}>
+    <span className={cn('relative shrink-0 truncate px-1', className)} style={{ width }}>
       {children}
+      <ColumnResizeHandle column={column} width={width} onResize={onResize} onReset={onReset} />
     </span>
   );
 }
@@ -33,9 +54,12 @@ function HeadCell({ width, className, children }: { width: number; className?: s
 export const GanttTimeHeader = React.memo(function GanttTimeHeader({
   scale,
   panelWidth,
+  colWidths,
   columns,
   executionKnown,
   todayX,
+  onColumnResize,
+  onColumnReset,
 }: GanttTimeHeaderProps) {
   // Agrupa os ticks na faixa superior (mês/ano).
   const groups: { label: string; span: number }[] = [];
@@ -67,25 +91,78 @@ export const GanttTimeHeader = React.memo(function GanttTimeHeader({
         )}
         style={{ width: panelWidth }}
       >
-        <HeadCell width={COL_W.wbs}>EDT</HeadCell>
-        <span className="min-w-0 flex-1 truncate px-1" style={{ minWidth: TITLE_MIN_W }}>
+        <HeadCell column="wbs" width={colWidths.wbs} onResize={onColumnResize} onReset={onColumnReset}>
+          EDT
+        </HeadCell>
+        <HeadCell column="title" width={colWidths.title} onResize={onColumnResize} onReset={onColumnReset}>
           Atividade
-        </span>
-        <HeadCell width={COL_W.progress} className="text-right">%</HeadCell>
-        <HeadCell width={COL_W.start}>Início</HeadCell>
-        <HeadCell width={COL_W.finish}>Término</HeadCell>
-        {columns.responsible && <HeadCell width={COL_W.responsible}>Resp.</HeadCell>}
-        {columns.status && <HeadCell width={COL_W.status}>Status</HeadCell>}
+        </HeadCell>
+        <HeadCell
+          column="progress"
+          width={colWidths.progress}
+          className="text-right"
+          onResize={onColumnResize}
+          onReset={onColumnReset}
+        >
+          %
+        </HeadCell>
+        <HeadCell column="start" width={colWidths.start} onResize={onColumnResize} onReset={onColumnReset}>
+          Início
+        </HeadCell>
+        <HeadCell column="finish" width={colWidths.finish} onResize={onColumnResize} onReset={onColumnReset}>
+          Término
+        </HeadCell>
+        {columns.responsible && (
+          <HeadCell
+            column="responsible"
+            width={colWidths.responsible}
+            onResize={onColumnResize}
+            onReset={onColumnReset}
+          >
+            Resp.
+          </HeadCell>
+        )}
+        {columns.status && (
+          <HeadCell
+            column="status"
+            width={colWidths.status}
+            onResize={onColumnResize}
+            onReset={onColumnReset}
+          >
+            Status
+          </HeadCell>
+        )}
         {executionKnown && columns.plannedHours && (
-          <HeadCell width={COL_W.plannedHours}>Plan.</HeadCell>
+          <HeadCell
+            column="plannedHours"
+            width={colWidths.plannedHours}
+            onResize={onColumnResize}
+            onReset={onColumnReset}
+          >
+            Plan.
+          </HeadCell>
         )}
         {executionKnown && columns.loggedHours && (
-          <HeadCell width={COL_W.loggedHours}>Apont.</HeadCell>
+          <HeadCell
+            column="loggedHours"
+            width={colWidths.loggedHours}
+            onResize={onColumnResize}
+            onReset={onColumnReset}
+          >
+            Apont.
+          </HeadCell>
         )}
         {executionKnown && columns.lastActivity && (
-          <HeadCell width={COL_W.lastActivity}>Últ. ap.</HeadCell>
+          <HeadCell
+            column="lastActivity"
+            width={colWidths.lastActivity}
+            onResize={onColumnResize}
+            onReset={onColumnReset}
+          >
+            Últ. ap.
+          </HeadCell>
         )}
-        <HeadCell width={COL_W.signal} />
+        <HeadCell column="signal" width={colWidths.signal} onResize={onColumnResize} onReset={onColumnReset} />
       </div>
 
       {/* Escala de datas */}

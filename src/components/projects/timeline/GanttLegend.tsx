@@ -78,6 +78,22 @@ export function GanttLegend({ className }: { className?: string }) {
               style={{ background: FILL('var(--ig-accent)'), borderColor: EDGE('var(--ig-accent)') }}
             />
           </Swatch>
+          {/*
+            O evento de medição fica logo DEPOIS do marco de cronograma na
+            legenda, e com desenho claramente diferente: losango OCO e dourado
+            contra o losango sólido e teal. São camadas distintas — uma é do
+            projeto, a outra é do contrato — e a legenda precisa dizer isso
+            antes que alguém as leia como o mesmo símbolo em duas cores.
+          */}
+          <Swatch label="Evento de medição (contrato)">
+            <span
+              className="block h-2.5 w-2.5 rotate-45 rounded-[1px]"
+              style={{
+                border: '2px solid var(--ig-contract)',
+                background: 'color-mix(in oklab, var(--ig-contract) 22%, transparent)',
+              }}
+            />
+          </Swatch>
           <Swatch label="Execução real">
             <span className="block h-[3px] w-6 rounded-full" style={{ background: FILL('var(--ig-accent)') }} />
           </Swatch>

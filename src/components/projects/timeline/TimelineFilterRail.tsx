@@ -14,15 +14,14 @@
 
 import React, { useEffect, useState } from 'react';
 import { Search, X } from 'lucide-react';
-import { HudInput, HudSelect } from '@/components/hud';
-import { SignalChip, type SignalChipTone } from '@/components/ui/signal-chip';
+import { HudInput, HudSelect, HudSignal, type HudSignalTone } from '@/components/hud';
 import { TIMELINE_STATUS_LABELS, type TimelineItem, type TimelineItemStatus } from '@/lib/types/project-timeline';
 import { useTimelineStore, type TimelineFlag } from './timeline-store';
 
 interface FlagChip {
   flag: TimelineFlag;
   label: string;
-  tone: SignalChipTone;
+  tone: HudSignalTone;
   /** Depende do modelo de execução. */
   execution?: boolean;
 }
@@ -128,9 +127,9 @@ export function TimelineFilterRail({ items, executionKnown, visibleCount, totalC
 
       <div className="flex flex-wrap items-center gap-1.5">
         {chips.map((chip) => (
-          <SignalChip
+          <HudSignal
             key={chip.flag}
-            size="xs"
+            size="sm"
             tone={chip.tone}
             label={chip.label}
             active={filters.flags.has(chip.flag)}

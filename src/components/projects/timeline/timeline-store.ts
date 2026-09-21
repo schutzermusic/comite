@@ -18,6 +18,12 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { GanttZoom } from '@/lib/projects/timeline-analytics';
+import {
+  COL_W,
+  clampColWidth,
+  type GanttColKey,
+  type GanttColWidths,
+} from './gantt/gantt-constants';
 
 /** Recortes rápidos, acionados pelos KPIs e pelos chips da barra de filtros. */
 export type TimelineFlag =
@@ -50,9 +56,11 @@ export const DEFAULT_COLUMNS: Record<TimelineColumn, boolean> = {
 };
 
 export const PANEL_MIN_WIDTH = 320;
-export const PANEL_MAX_WIDTH = 720;
-/** Base; o GanttView eleva para o mínimo que as colunas ligadas exigem. */
+export const PANEL_MAX_WIDTH = 1400;
+/** Base legada; a largura efetiva vem da soma das colunas redimensionáveis. */
 export const PANEL_DEFAULT_WIDTH = 520;
+
+export const DEFAULT_COLUMN_WIDTHS: GanttColWidths = { ...COL_W };
 
 export interface TimelineFilters {
   search: string;
@@ -79,7 +87,10 @@ interface TimelineUiState {
 
   /* ─── persistido ─── */
   zoom: GanttZoom;
+  /** @deprecated Preferir columnWidths; mantido p/ rehidratação antiga. */
   panelWidth: number;
+  /** Larguras do painel esquerdo (estilo Excel). */
+  columnWidths: GanttColWidths;
   columns: Record<TimelineColumn, boolean>;
   showDependencies: boolean;
   showBaseline: boolean;
@@ -94,6 +105,8 @@ interface TimelineUiState {
 
   setZoom: (zoom: GanttZoom) => void;
   setPanelWidth: (width: number) => void;
+  setColumnWidth: (column: GanttColKey, width: number) => void;
+  resetColumnWidth: (column: GanttColKey) => void;
   toggleColumn: (column: TimelineColumn) => void;
   setShowDependencies: (value: boolean) => void;
   setShowBaseline: (value: boolean) => void;
@@ -124,6 +137,7 @@ export const useTimelineStore = create<TimelineUiState>()(
 
       zoom: 'week',
       panelWidth: PANEL_DEFAULT_WIDTH,
+      columnWidths: { ...DEFAULT_COLUMN_WIDTHS },
       columns: { ...DEFAULT_COLUMNS },
       showDependencies: true,
       showBaseline: true,
@@ -154,6 +168,14 @@ export const useTimelineStore = create<TimelineUiState>()(
       setZoom: (zoom) => set({ zoom }),
       setPanelWidth: (width) =>
         set({ panelWidth: Math.min(PANEL_MAX_WIDTH, Math.max(PANEL_MIN_WIDTH, Math.round(width))) }),
+      setColumnWidth: (column, width) =>
+        set((state) => ({
+          columnWidths: { ...state.columnWidths, [column]: clampColWidth(column, width) },
+        })),
+      resetColumnWidth: (column) =>
+        set((state) => ({
+          columnWidths: { ...state.columnWidths, [column]: COL_W[column] },
+        })),
       toggleColumn: (column) =>
         set((state) => ({ columns: { ...state.columns, [column]: !state.columns[column] } })),
       setShowDependencies: (value) => set({ showDependencies: value }),
@@ -199,10 +221,30 @@ export const useTimelineStore = create<TimelineUiState>()(
       partialize: (state) => ({
         zoom: state.zoom,
         panelWidth: state.panelWidth,
+        columnWidths: state.columnWidths,
         columns: state.columns,
         showDependencies: state.showDependencies,
         showBaseline: state.showBaseline,
       }),
+      merge: (persisted, current) => {
+        const p = (persisted ?? {}) as Partial<TimelineUiState>;
+        return {
+          ...current,
+          ...p,
+          // Garante chaves novas após upgrade (storage antigo sem columnWidths).
+          // 62 era o default antigo de Apont. — quem ainda está nele recebe o novo.
+          columnWidths: {
+            ...DEFAULT_COLUMN_WIDTHS,
+            ...(p.columnWidths ?? {}),
+            ...(p.columnWidths?.loggedHours === 62
+              ? { loggedHours: DEFAULT_COLUMN_WIDTHS.loggedHours }
+              : {}),
+          },
+          columns: { ...DEFAULT_COLUMNS, ...(p.columns ?? {}) },
+          filters: current.filters,
+          collapsed: current.collapsed,
+        };
+      },
     },
   ),
 );

@@ -52,6 +52,10 @@
   --dossier-neutral-edge: rgba(170, 200, 190, 0.14);
   --dossier-neutral-wash: rgba(255, 255, 255, 0.035);
   --dossier-positive-ink: #3FDCA8;
+  /* Tinta que fica LEGÍVEL sobre o preenchimento positivo sólido. Existe
+     porque RECEBIDO é a única pastilha preenchida da tela, e no escuro o
+     positivo é claro (texto escuro), no claro é escuro (texto branco). */
+  --dossier-positive-on: #06231d;
   --dossier-positive-edge: rgba(16, 185, 129, 0.30);
   --dossier-positive-wash: rgba(16, 185, 129, 0.11);
   --dossier-attention-ink: #F7C260;
@@ -114,6 +118,7 @@ html.light .ig-dossier-theme {
   --dossier-neutral-edge: #dce5eb;
   --dossier-neutral-wash: #f3f6f8;
   --dossier-positive-ink: #087762;
+  --dossier-positive-on: #ffffff;
   --dossier-positive-edge: #cce8e1;
   --dossier-positive-wash: #eff9f5;
   --dossier-attention-ink: #895409;
@@ -1505,4 +1510,126 @@ html.light .ig-portfolio-page .portfolio-hero {
   .ig-chart-bar > span,
   .ig-backlog-rail > i,
   .ig-horizon-track > i { transition: none; }
+}
+
+/* ─────────────────────────────────────────────────────────
+   PLANEJAMENTO MENSAL DE FATURAMENTO
+
+   ─── A regra visual que esta seção existe para sustentar ───
+
+   PREVISTO, ELEGÍVEL, FATURADO e RECEBIDO não podem parecer a mesma coisa.
+   São quatro graus de realidade de dinheiro, e a tela anterior desenhava marco
+   contratual previsto e nota fiscal emitida com a mesma pastilha verde — o
+   que faz alguém ler uma previsão de R$ 8 milhões como caixa.
+
+   A gramática, de menos real para mais real:
+
+     PREVISTO  contorno TRACEJADO, sem preenchimento   → não apurado
+     ELEGÍVEL  contorno sólido, acento                 → apurado, a faturar
+     FATURADO  preenchimento suave, positivo           → evento existe
+     RECEBIDO  preenchimento SÓLIDO, invertido         → Finanças confirmou
+
+   Só o último é sólido. É a única coisa na tela que afirma caixa, e ela é a
+   única que tem o peso visual de uma afirmação.
+   ───────────────────────────────────────────────────────── */
+.dossier-status[data-tone=received] {
+  color: var(--dossier-positive-on);
+  border-color: var(--dossier-positive-ink);
+  background: var(--dossier-positive-ink);
+}
+.dossier-status[data-tone=received] i { background: currentColor; border-color: currentColor; }
+
+/* ── Cartão de mês: o resumo executivo ── */
+.ig-month-card {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 12px; border-radius: 10px; text-align: left;
+  border: 1px solid var(--dossier-border); background: var(--dossier-inset);
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.ig-month-card:hover { border-color: var(--dossier-accent-edge); background: var(--dossier-hover); }
+.ig-month-card[data-selected=true] {
+  border-color: var(--dossier-accent); background: var(--dossier-accent-wash);
+}
+/* O mês corrente ganha um trilho, não uma cor de fundo: cor de fundo aqui
+   competiria com a seleção e o usuário perderia qual mês está aberto. */
+.ig-month-card[data-position=current] { box-shadow: inset 3px 0 0 var(--dossier-accent); }
+.ig-month-card[data-position=past] { opacity: 0.82; }
+
+.ig-month-card-title {
+  font-size: 12px; font-weight: 700; letter-spacing: 0.01em;
+  color: var(--ig-fg-strong);
+}
+.ig-month-figure { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.ig-month-figure > dt { font-size: 10.5px; color: var(--ig-fg-muted); }
+.ig-month-figure > dd {
+  font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums;
+  color: var(--ig-fg-default); margin: 0;
+}
+.ig-month-figure[data-grade=planned]  > dd { color: var(--ig-fg-muted); }
+.ig-month-figure[data-grade=eligible] > dd { color: var(--dossier-accent-ink); }
+.ig-month-figure[data-grade=billed]   > dd { color: var(--dossier-positive-ink); }
+.ig-month-figure[data-grade=blocked]  > dd { color: var(--dossier-critical-ink); }
+/* Ausência NUNCA se desenha como zero. */
+.ig-month-figure > dd[data-absent=true] {
+  font-weight: 500; font-size: 11px; color: var(--ig-fg-subtle);
+}
+
+/* ── Barra empilhada do mês: a composição, sem gráfico pesado ── */
+.ig-month-bar {
+  display: flex; height: 4px; border-radius: 2px; overflow: hidden;
+  background: var(--dossier-inset-strong);
+}
+.ig-month-bar > i { display: block; height: 100%; }
+.ig-month-bar > i[data-grade=planned]  { background: var(--ig-fg-subtle); opacity: 0.45; }
+.ig-month-bar > i[data-grade=eligible] { background: var(--dossier-accent); }
+.ig-month-bar > i[data-grade=billed]   { background: var(--dossier-positive-ink); }
+.ig-month-bar > i[data-grade=blocked]  { background: var(--dossier-critical-ink); }
+
+/* ── Ledger: a tabela mensal ── */
+.ig-ledger { width: 100%; border-collapse: collapse; font-size: 12px; }
+.ig-ledger th {
+  position: sticky; top: 0; z-index: 1;
+  padding: 8px 10px; text-align: left; white-space: nowrap;
+  font-size: 10.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--ig-fg-muted); background: var(--dossier-drawer);
+  border-bottom: 1px solid var(--dossier-border);
+}
+.ig-ledger td {
+  padding: 9px 10px; vertical-align: top;
+  border-bottom: 1px solid var(--dossier-border-subtle);
+  color: var(--ig-fg-default);
+}
+.ig-ledger tbody tr:hover { background: var(--dossier-hover); }
+.ig-ledger .is-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ig-ledger .is-absent { color: var(--ig-fg-subtle); font-style: italic; }
+
+/* ── Linha do tempo anual ── */
+.ig-forecast-track {
+  display: grid; grid-auto-flow: column; grid-auto-columns: minmax(64px, 1fr);
+  gap: 6px; overflow-x: auto; padding-bottom: 6px;
+}
+.ig-forecast-col {
+  display: flex; flex-direction: column; align-items: stretch; gap: 6px;
+  min-width: 64px;
+}
+.ig-forecast-plot {
+  display: flex; align-items: flex-end; justify-content: center;
+  height: 92px; gap: 2px;
+}
+.ig-forecast-plot > i {
+  display: block; width: 9px; border-radius: 2px 2px 0 0; min-height: 2px;
+}
+.ig-forecast-plot > i[data-grade=planned] { background: var(--ig-fg-subtle); opacity: 0.4; }
+.ig-forecast-plot > i[data-grade=billed]  { background: var(--dossier-positive-ink); }
+.ig-forecast-col-label {
+  font-size: 10px; text-align: center; color: var(--ig-fg-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ig-forecast-col[data-position=current] .ig-forecast-col-label {
+  color: var(--dossier-accent-ink); font-weight: 700;
+}
+
+@media (max-width: 639px) {
+  .ig-ledger { font-size: 11px; }
+  .ig-ledger th, .ig-ledger td { padding: 7px 6px; }
 }

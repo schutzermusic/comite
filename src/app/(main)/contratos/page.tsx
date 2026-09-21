@@ -63,6 +63,7 @@ import { buildClauseRiskIntelligence } from '@/lib/contracts/trust/clause-risk-i
 import { ContractToCashFlow } from '@/components/contracts/intelligence/ContractToCashFlow';
 import { ContractToCashPanel } from '@/components/contracts/billing/ContractToCashPanel';
 import { PortfolioBillingMilestones } from '@/components/contracts/billing/PortfolioBillingMilestones';
+import { BillingPlanningWorkspace } from '@/components/contracts/billing/month/BillingPlanningWorkspace';
 import { ObligationsControlTower } from '@/components/contracts/intelligence/ObligationsControlTower';
 import { StructuredObligationsPanel } from '@/components/contracts/intelligence/StructuredObligationsPanel';
 import { useStructuredObligations } from '@/components/contracts/use-structured-obligations';
@@ -474,7 +475,7 @@ export default function ContratosPage() {
       sla: approvalSla(trusted, computeApprovalSla),
       auditEvents: auditResult.rows,
       auditError: auditResult.error,
-      source: 'Supabase',
+      source: 'Apex',
     });
     if (!result.ok) {
       notify('Não foi possível gerar o PDF', {
@@ -1259,6 +1260,50 @@ export default function ContratosPage() {
           </DossierSection>
 
           {/*
+            ─── O COCKPIT MENSAL vem antes de tudo ──────────────────────────
+
+            A primeira pergunta de quem abre Faturamentos é "quanto vamos
+            faturar neste mês?" — e até aqui a aba respondia com uma lista de
+            eventos já gerados, que é a ÚLTIMA etapa da cadeia. Contrato sem
+            nenhum evento (o caso de JA10182283/2025) abria uma tela vazia,
+            como se não houvesse R$ 8 milhões de direito contratual previsto.
+
+            O cockpit lê a visão de planejamento (migration 179), que deriva
+            data e mês previstos do cronograma GOVERNADO do projeto. Os painéis
+            abaixo continuam intactos: marcos, eventos e histórico seguem sendo
+            listas distintas, porque são fatos de etapas distintas.
+          */}
+          <BillingPlanningWorkspace
+            contractIds={filteredRecords.map((record) => record.contract.id)}
+            canEdit={contractPermissions.edit}
+            refreshKey={portfolioSyncKey}
+            contractLabel={(id) => {
+              const found = filteredRecords.find((record) => record.contract.id === id);
+              const trusted = trustedById.get(id);
+              const os = trusted && hasOfficialValue(trusted.project) && trusted.project.value.codigo
+                ? trusted.project.value.codigo
+                : found?.projectReference && !found.projectReference.startsWith('Projeto não')
+                  ? found.projectReference.split(' · ')[0]
+                  : (found?.code ?? id);
+              return os;
+            }}
+            clientLabel={(id) => {
+              const found = filteredRecords.find((record) => record.contract.id === id);
+              const trusted = trustedById.get(id);
+              if (trusted && hasOfficialValue(trusted.project) && trusted.project.value.cliente) {
+                return trusted.project.value.cliente;
+              }
+              if (trusted && hasOfficialValue(trusted.counterparty)) return trusted.counterparty.value;
+              return found?.companyName ?? id;
+            }}
+            onOpenContract={(contractId) => {
+              const record = records.find((r) => r.contract.id === contractId);
+              if (record) openDossierDrawer(record);
+            }}
+            onNotify={(message, variant) => notify(message, { variant })}
+          />
+
+          {/*
             Marcos CONTRATOUAIS primeiro. Zero eventos de faturamento não esvazia
             o módulo: o direito previsto (ex.: 6 eventos de JA10182283) continua
             visível. Eventos gerados ficam no painel canônico abaixo.
@@ -1491,7 +1536,7 @@ export default function ContratosPage() {
       {(loading || error) && (
         <HudPanel elevation={1} state={error ? 'critical' : 'default'} interactive={false}>
           <p className="text-ig-body-sm text-ig-fg-strong">
-            {error || 'Carregando contratos do Supabase...'}
+            {error || 'Carregando contratos...'}
           </p>
         </HudPanel>
       )}

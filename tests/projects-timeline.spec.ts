@@ -306,10 +306,10 @@ test('métricas de autonomia só aparecem com evidência real', async () => {
   const lidas = page.getByText('Evidências lidas', { exact: true });
   if ((await lidas.count()) === 0) {
     // Sem fonte legível, a faixa inteira some — taxa sem denominador é ficção.
-    await expect(page.getByText('Taxa de casamento')).toHaveCount(0);
+    await expect(page.getByText('Taxa de vínculo')).toHaveCount(0);
     return;
   }
-  await expect(page.getByText('Taxa de casamento')).toBeVisible();
+  await expect(page.getByText('Taxa de vínculo')).toBeVisible();
   await expect(page.getByText('Autonomia', { exact: true })).toBeVisible();
   // Percentual inteiro ou travessão — nunca um número inventado.
   await expect(page.getByText(/^(\d{1,3}%|—)$/).first()).toBeVisible();

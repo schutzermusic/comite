@@ -124,7 +124,10 @@ import {
   type DocumentLink, type MissingEvidence, type OperationalDocumentInput,
 } from '@/lib/contracts/intelligence/document-operations';
 import type { ApexFollowupRow } from '@/lib/platform/followups/types';
-import type { InterpretationDecision } from '@/lib/contracts/intelligence/session';
+import type {
+  InterpretationDecision,
+  OperationalInterpretationDecision,
+} from '@/lib/contracts/intelligence/session';
 import { format } from 'date-fns';
 import { ContractStructuredObligations } from '@/components/contracts/ContractStructuredObligations';
 import { pt } from 'date-fns/locale';
@@ -508,6 +511,45 @@ export default function ContractDossierPage() {
     }
   }, [contractId, refresh, notify]);
 
+  /**
+   * Aceitar / descartar uma interpretação OPERACIONAL retida (migration 188).
+   * Aceitar materializa o fato; Descartar exige justificativa e não opera.
+   */
+  const handleOperationalInterpretationDecision = useCallback(async (
+    item: { id: string; title: string },
+    decision: OperationalInterpretationDecision,
+  ) => {
+    let note: string | null = null;
+    if (decision === 'dismiss') {
+      note = window.prompt(`Por que descartar a interpretação "${item.title}"?`);
+      if (!note?.trim()) return;
+    }
+    try {
+      const response = await fetch(
+        `/api/contracts/${contractId}/operational-interpretations/${item.id}/resolve`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ decision, note }),
+        },
+      );
+      const body = await response.json();
+      if (!response.ok || !body.ok) throw new Error(body.error ?? 'Falha ao registrar a decisão.');
+      await refresh();
+      notify(
+        decision === 'confirm'
+          ? 'Interpretação aceita — o Apex passa a operar por esta regra'
+          : 'Interpretação descartada',
+        { variant: 'success' },
+      );
+    } catch (err) {
+      notify('A decisão não pôde ser registrada', {
+        description: err instanceof Error ? err.message : 'Erro inesperado.',
+        variant: 'error',
+      });
+    }
+  }, [contractId, refresh, notify]);
+
   const followupAction = useCallback(async (
     path: string, payload: Record<string, unknown>, success: string,
   ) => {
@@ -819,7 +861,7 @@ export default function ContractDossierPage() {
         se passássemos vazio quando na verdade não olhamos.
       */
       amendments: amendmentsOfficial,
-      source: 'Supabase',
+      source: 'Apex',
     });
     if (!result.ok) {
       notify('Não foi possível gerar o PDF', { description: result.message ?? 'Falha ao montar o dossiê.', variant: 'error' });
@@ -831,7 +873,7 @@ export default function ContractDossierPage() {
       <HudPageLayout>
         <HudPanel title={loading ? 'Carregando contrato' : 'Contrato não encontrado'} state={error ? 'critical' : 'default'} interactive={false}>
           <p className="mb-4 text-ig-body-sm text-ig-fg-muted">
-            {error || (loading ? 'Lendo dossie contratual do Supabase...' : 'Nenhum contrato acessivel foi encontrado para este identificador.')}
+            {error || (loading ? 'Lendo dossiê contratual...' : 'Nenhum contrato acessivel foi encontrado para este identificador.')}
           </p>
           <HudButton variant="secondary" leftIcon={<ArrowLeft className="h-4 w-4" />} onClick={() => router.push('/contratos')}>
             Voltar para contratos
@@ -1104,6 +1146,9 @@ export default function ContractDossierPage() {
           }
           canAct={canEditContract}
           onOpenDocument={handleOpenDocument}
+          onInterpretationDecision={(item, decision) => {
+            void handleOperationalInterpretationDecision(item, decision);
+          }}
           onClauseDecision={(clause, decision) => {
             void handleInterpretationDecision(clause, decision);
           }}

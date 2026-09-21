@@ -48,6 +48,7 @@ const KNOWN_CODES = new Set([
   'CROSS_TENANT_EVIDENCE', 'WRONG_PROJECT', 'NOT_DETERMINISTIC',
   'SOURCE_INVALID', 'SOURCE_NOT_FOUND', 'SOURCE_TYPE_UNSUPPORTED',
   'EVIDENCE_NOT_FOUND', 'ORG_REQUIRED', 'HORIZON_OUT_OF_RANGE', 'LIMIT_OUT_OF_RANGE',
+  'MAPPING_NOT_GOVERNED', 'ORIGIN_INVALID',
 ]);
 
 export const MEASUREMENT_ERROR_MESSAGE: Record<string, string> = {
@@ -66,6 +67,9 @@ export const MEASUREMENT_ERROR_MESSAGE: Record<string, string> = {
   NOT_DETERMINISTIC:
     'Esta origem não declara o projeto. Ela pode entrar como evidência inferida, não como vínculo determinístico.',
   SOURCE_INVALID: 'Este registro foi descartado ou não concluído, e por isso não é evidência de execução.',
+  MAPPING_NOT_GOVERNED:
+    'Este marco ainda não tem etapa de cronograma aceita. Vincule-o na aba Timeline — '
+    + 'sem a ponte aceita não há data nem etapa contra a qual medir.',
 };
 
 function toMeasurementError(message: string): MeasurementError {
@@ -87,6 +91,16 @@ const rpc = async <T>(fn: string, args: Record<string, unknown>): Promise<T> => 
 
 const READ_MODEL = 'project_measurement_read_model';
 
+/**
+ * As instâncias de medição JÁ MATERIALIZADAS de um projeto.
+ *
+ * Deliberadamente NÃO é a fila de trabalho da aba Medições & Evidências. A
+ * fila nasce da ponte aceita ao cronograma (`project_schedule_contract_events`)
+ * porque a instância canônica só existe depois da materialização governada
+ * (migration 134) — e ler esta lista como se fosse o trabalho do projeto é
+ * exatamente o que produzia "Nenhuma medição registrada" sobre cinco
+ * mapeamentos aceitos. Ver `src/lib/projects/milestone-worklist.ts`.
+ */
 export async function listProjectMeasurements(projectId: string): Promise<ProjectMeasurementRow[]> {
   const { data, error } = await createClient()
     .from(READ_MODEL)
@@ -247,9 +261,16 @@ export interface LinkEvidenceInput {
 }
 
 /**
- * Vincula evidência. A validação de inquilino e de projeto é do SERVIDOR: esta
- * função não decide nada, e mandar um id de outra organização daqui produz
- * `CROSS_TENANT_EVIDENCE`, não um vínculo.
+ * Vincula evidência — CAMINHO DE SERVIDOR.
+ *
+ * ⚠ `project_measurement_link_evidence` está REVOKEd de `authenticated` desde
+ * a 131, e o comentário dela diz o motivo: ela valida inquilino, projeto e
+ * validade da origem, mas NÃO verifica permissão — porque foi desenhada para
+ * ser chamada por rota que já autorizou o pedido. Chamá-la do navegador
+ * devolve `permission denied`.
+ *
+ * Para anexar documento a partir da tela, use `attachDocumentToMeasurement`:
+ * ela passa pela porta estreita da 191, que tem portão de permissão próprio.
  */
 export const linkMeasurementEvidence = (input: LinkEvidenceInput) =>
   rpc<string>('project_measurement_link_evidence', {
@@ -265,6 +286,56 @@ export const linkMeasurementEvidence = (input: LinkEvidenceInput) =>
     p_linked_by: null,
   });
 
+/**
+ * ANEXAR DOCUMENTO À MEDIÇÃO — a porta do navegador (migration 191).
+ *
+ * Estreita por desenho: só origem `project_file`, só evidência BRUTA, só
+ * vínculo manual, e só para quem tem `projects.measurements.edit`. O tipo, a
+ * classe e a procedência não são parâmetros — nem aqui nem no banco.
+ *
+ * Idempotente: anexar o mesmo documento duas vezes devolve o mesmo vínculo.
+ */
+export const attachDocumentToMeasurement = (
+  measurementId: string,
+  documentId: string,
+  requirementKind?: RequirementKind | null,
+) =>
+  rpc<string>('project_measurement_attach_document', {
+    p_measurement_id: measurementId,
+    p_document_id: documentId,
+    p_requirement_kind: requirementKind ?? null,
+  });
+
 /** Revogar não apaga: preserva que o vínculo existiu e por que saiu. */
 export const revokeMeasurementEvidence = (evidenceId: string, reason: string) =>
   rpc<void>('project_measurement_revoke_evidence', { p_evidence_id: evidenceId, p_reason: reason });
+
+// ════════════════════════════════════════════════════════════════════
+// MATERIALIZAÇÃO (migration 190)
+// ════════════════════════════════════════════════════════════════════
+
+/**
+ * ABRIR A MEDIÇÃO do marco quando o gatilho ocorreu no mundo antes de o
+ * cronograma registrá-lo.
+ *
+ * ─── Por que isto existe, e por que é um BOTÃO ────────────────────────────
+ *
+ * O caminho normal não passa por aqui: quando a etapa governada é concluída,
+ * o gatilho da 190 materializa a medição na mesma transação, sem ninguém
+ * pedir. Esta chamada é a válvula para o descompasso — o equipamento saiu na
+ * sexta, a etapa só fecha na segunda, e a operação precisa começar a reunir
+ * evidência antes disso.
+ *
+ * É botão, e não efeito de carregamento de tela, de propósito: criar registro
+ * de medição porque alguém ABRIU uma aba faria o sistema inventar trabalho a
+ * partir de curiosidade. A RPC exige `auth.uid()` e
+ * `projects.measurements.edit`; sem os dois, ela recusa.
+ *
+ * O que ela NÃO faz: não conclui a etapa, não mede, não aceita e não fatura.
+ * A instância nasce PLANNED — e a chave de ocorrência é a mesma do gatilho,
+ * então concluir a etapa depois reencontra esta linha em vez de criar outra.
+ */
+export const ensureMeasurementForMilestone = (milestoneId: string) =>
+  rpc<string | null>('project_measurement_ensure_for_milestone', {
+    p_milestone_id: milestoneId,
+  });

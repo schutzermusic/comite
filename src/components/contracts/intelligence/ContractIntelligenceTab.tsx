@@ -40,13 +40,13 @@
  * produto inteiro, e trocá-lo por causa de uma tela seria consertar a casa
  * pela janela.
  *
- * ─── O que esta tela NÃO faz ───────────────────────────────────────────────
+ * ─── O que esta tela DECIDE ────────────────────────────────────────────────
  *
- * Não decide, não aceita e não resolve exceção nenhuma. Não existe caminho de
- * escrita em `contract_operational_interpretations` para `authenticated`
- * (migration 161), e inventar um "Aprovar" que não persiste nada seria pior
- * que não ter botão. "Revisar" abre a evidência; a gaveta diz, em palavras,
- * que o registro da decisão ainda não existe no produto.
+ * Aceitar (confirm) e Descartar (dismiss) sobre interpretações operacionais
+ * retidas: a RPC da migration 188 promove ou encerra a retenção, e Aceitar
+ * materializa o fato para o Apex operar. "Revisar" abre a evidência; Aceitar
+ * na linha e na gaveta grava a decisão. A decisão sobre a LEITURA de uma
+ * cláusula (migration 154) continua só na gaveta da cláusula.
  */
 
 import { useMemo, useState } from 'react';
@@ -71,7 +71,7 @@ import { safeAnalysisFailureMessage } from '@/lib/contracts/trust/analysis-error
 import {
   ATTENTION_REASON_ASK, ATTENTION_REASON_LABEL, type AttentionReason,
 } from '@/lib/contracts/intelligence/attention-policy';
-import type { InterpretationDecision } from '@/lib/contracts/intelligence/session';
+import type { InterpretationDecision, OperationalInterpretationDecision } from '@/lib/contracts/intelligence/session';
 import {
   attentionReasonAsk, attentionReasonLabel, buildContractIntelligence,
   type AttentionGroup, type ContractOperationalInterpretationRow,
@@ -100,6 +100,14 @@ export interface ContractIntelligenceTabProps {
   readonly penalties: readonly ContractPenaltyRow[];
   readonly canAct?: boolean;
   readonly onOpenDocument?: (documentId: string, page: number | null) => void;
+  /**
+   * Aceitar / descartar uma interpretação OPERACIONAL retida (migration 188).
+   * Vive na linha da fila e na gaveta de evidência.
+   */
+  readonly onInterpretationDecision?: (
+    item: InterpretationView,
+    decision: OperationalInterpretationDecision,
+  ) => void;
   /**
    * A decisão humana sobre a LEITURA de uma cláusula (migration 154).
    *
@@ -147,7 +155,8 @@ function hasMonetaryEffect(clause: ContractClauseRow): boolean {
 
 export function ContractIntelligenceTab({
   interpretations, interpretationsError = null, clauses, documents, analyses,
-  risks, riskExposureDetail, penalties, canAct = false, onOpenDocument, onClauseDecision,
+  risks, riskExposureDetail, penalties, canAct = false, onOpenDocument,
+  onInterpretationDecision, onClauseDecision,
   onCreateRisk, onLinkRisk, onRegisterPenalty, className,
 }: ContractIntelligenceTabProps) {
   const [drawer, setDrawer] = useState<DrawerTarget | null>(null);
@@ -252,6 +261,9 @@ export function ContractIntelligenceTab({
             groups={intelligence.attentionGroups}
             total={intelligence.attentionCount}
             onOpen={(item) => setDrawer({ kind: 'interpretation', item })}
+            onAccept={canAct && onInterpretationDecision
+              ? (item) => onInterpretationDecision(item, 'confirm')
+              : undefined}
           />
         )}
 
@@ -303,6 +315,7 @@ export function ContractIntelligenceTab({
         documentById={documentById}
         analysisById={analysisById}
         onOpenDocument={onOpenDocument}
+        onInterpretationDecision={canAct ? onInterpretationDecision : undefined}
         onClauseDecision={canAct ? onClauseDecision : undefined}
       />
     </div>
@@ -472,11 +485,12 @@ function ZoneHeader({
  * O âmbar aparece na espinha da zona e no motivo do grupo — não em cada linha.
  */
 function AttentionZone({
-  groups, total, onOpen,
+  groups, total, onOpen, onAccept,
 }: {
   groups: readonly AttentionGroup[];
   total: number;
   onOpen: (item: InterpretationView) => void;
+  onAccept?: (item: InterpretationView) => void;
 }) {
   return (
     <section aria-labelledby="ig-attention" data-testid="intelligence-attention">
@@ -487,7 +501,7 @@ function AttentionZone({
         count={total}
         tone="warning"
         icon={<AlertTriangle className="h-4 w-4" aria-hidden />}
-        hint="O Apex reteve estas interpretações e não opera por elas. Nenhuma linha canônica foi escrita a partir daqui."
+        hint="O Apex reteve estas interpretações e não opera por elas. Aceitar promove a regra; Descartar encerra a retenção."
       />
 
       <div className="ig-ci-spine space-y-6 pl-5">
@@ -505,7 +519,12 @@ function AttentionZone({
 
             <div className="mt-2.5">
               {group.items.map((item) => (
-                <AttentionRow key={item.id} item={item} onOpen={() => onOpen(item)} />
+                <AttentionRow
+                  key={item.id}
+                  item={item}
+                  onOpen={() => onOpen(item)}
+                  onAccept={onAccept ? () => onAccept(item) : undefined}
+                />
               ))}
             </div>
           </div>
@@ -516,13 +535,14 @@ function AttentionZone({
 }
 
 function AttentionRow({
-  item, onOpen,
+  item, onOpen, onAccept,
 }: {
   item: InterpretationView;
   onOpen: () => void;
+  onAccept?: () => void;
 }) {
   return (
-    <div className="ig-ci-row grid items-center gap-x-4 gap-y-1.5 px-1.5 py-2.5 md:grid-cols-[minmax(0,1fr)_128px_150px_54px_88px]">
+    <div className="ig-ci-row grid items-center gap-x-4 gap-y-1.5 px-1.5 py-2.5 md:grid-cols-[minmax(0,1fr)_128px_150px_54px_minmax(88px,auto)]">
       <p className="min-w-0 truncate text-ig-body-sm font-medium text-ig-fg-strong" title={item.title}>
         {item.title}
       </p>
@@ -544,7 +564,7 @@ function AttentionRow({
         </span>
       </span>
 
-      <div className="md:justify-self-end">
+      <div className="flex flex-wrap items-center justify-end gap-1.5 md:justify-self-end">
         <button
           type="button"
           onClick={onOpen}
@@ -552,6 +572,16 @@ function AttentionRow({
         >
           Revisar
         </button>
+        {onAccept && (
+          <button
+            type="button"
+            onClick={onAccept}
+            className="ig-ci-action inline-flex h-7 items-center rounded-md px-3 text-ig-label font-semibold"
+            data-testid="interpretation-accept"
+          >
+            Aceitar
+          </button>
+        )}
       </div>
     </div>
   );
@@ -1051,13 +1081,18 @@ function AuditZone({
 // ═══════════════════════════════════════════════════════════════════════════
 
 function EvidenceDrawer({
-  target, onClose, documentById, analysisById, onOpenDocument, onClauseDecision,
+  target, onClose, documentById, analysisById, onOpenDocument,
+  onInterpretationDecision, onClauseDecision,
 }: {
   target: DrawerTarget | null;
   onClose: () => void;
   documentById: ReadonlyMap<string, ContractDocumentRow>;
   analysisById: ReadonlyMap<string, ContractAiAnalysisRow>;
   onOpenDocument?: (documentId: string, page: number | null) => void;
+  onInterpretationDecision?: (
+    item: InterpretationView,
+    decision: OperationalInterpretationDecision,
+  ) => void;
   onClauseDecision?: (clause: ContractClauseRow, decision: InterpretationDecision) => void;
 }) {
   const isInterpretation = target?.kind === 'interpretation';
@@ -1074,13 +1109,13 @@ function EvidenceDrawer({
     : null;
   const document = documentId ? documentById.get(documentId) ?? null : null;
 
-  return (
-    <DossierDetailDrawer
-      isOpen={target !== null}
-      onClose={onClose}
-      title={title}
-      subtitle={subtitle}
-      footer={document && onOpenDocument ? (
+  const interpretationNeedsDecision = target?.kind === 'interpretation'
+    && target.item.trustState === 'requires_attention'
+    && onInterpretationDecision;
+
+  const footer = (
+    <div className="flex flex-wrap items-center gap-2">
+      {document && onOpenDocument && (
         <HudButton
           variant="secondary"
           size="md"
@@ -1089,7 +1124,45 @@ function EvidenceDrawer({
         >
           {page ? `Abrir documento na p. ${page}` : 'Abrir documento'}
         </HudButton>
-      ) : undefined}
+      )}
+      {interpretationNeedsDecision && (
+        <>
+          <HudButton
+            variant="primary"
+            size="md"
+            onClick={() => {
+              onInterpretationDecision(target.item, 'confirm');
+              onClose();
+            }}
+          >
+            Aceitar
+          </HudButton>
+          <HudButton
+            variant="secondary"
+            size="md"
+            onClick={() => {
+              onInterpretationDecision(target.item, 'dismiss');
+              onClose();
+            }}
+          >
+            Descartar
+          </HudButton>
+        </>
+      )}
+    </div>
+  );
+
+  const hasFooter = Boolean(
+    (document && onOpenDocument) || interpretationNeedsDecision,
+  );
+
+  return (
+    <DossierDetailDrawer
+      isOpen={target !== null}
+      onClose={onClose}
+      title={title}
+      subtitle={subtitle}
+      footer={hasFooter ? footer : undefined}
     >
       {target?.kind === 'interpretation' && (
         <InterpretationDetail item={target.item} document={document} />
@@ -1133,7 +1206,8 @@ function InterpretationDetail({
           </ul>
           <p className="ig-ci-attention-divider mt-2.5 pt-2 text-ig-caption text-ig-fg-muted">
             Enquanto esta interpretação estiver retida, o Apex não opera por ela e nenhuma obrigação,
-            condição de faturamento ou exigência foi criada a partir dela.
+            condição de faturamento ou exigência foi criada a partir dela. Aceitar promove a regra;
+            Descartar encerra a retenção sem materializar.
           </p>
         </section>
       )}
@@ -1174,18 +1248,12 @@ function InterpretationDetail({
           <li>
             {item.trustState === 'automatic'
               ? 'Materializado: o Apex opera por esta regra.'
-              : 'Retido pela governança: nada canônico foi escrito.'}
+              : item.trustState === 'dismissed'
+                ? 'Descartada por autoridade humana. Nada canônico foi escrito.'
+                : 'Retido pela governança: nada canônico foi escrito.'}
           </li>
         </ul>
       </DrawerSection>
-
-      {item.trustState === 'requires_attention' && (
-        <p className="rounded-[10px] border border-dashed border-ig-border-strong p-3 text-ig-caption text-ig-fg-subtle">
-          O registro da sua decisão sobre uma interpretação operacional ainda não existe no produto:
-          a retirada da retenção acontece em uma nova leitura do documento. Até lá, a exceção
-          permanece visível aqui com a evidência que a originou.
-        </p>
-      )}
     </div>
   );
 }

@@ -30,9 +30,10 @@
  *
  * ─── O que este módulo NÃO faz ─────────────────────────────────────────────
  *
- * Não decide, não aceita, não rebaixa e não promove interpretação nenhuma. A
- * tabela é `SELECT` para `authenticated` e `INSERT` só para `service_role` —
- * a autoridade continua no pipeline. Aqui só se lê e se formata.
+ * Este módulo só LÊ. Aceitar / descartar vive em `session.ts` + migration 188:
+ * sem UPDATE direto para `authenticated`; a escrita passa pela RPC
+ * `contract_operational_interpretation_resolve`. INSERT de fatos continua
+ * `service_role`. Aqui só se lê e se formata.
  *
  * Lógica pura, sem JSX e sem I/O: roda no vitest em `node`.
  */
@@ -46,11 +47,16 @@ export const OPERATIONAL_FAMILIES = [
 ] as const;
 export type OperationalFamily = (typeof OPERATIONAL_FAMILIES)[number];
 
-/** Espelha o CHECK de `trust_state`. Só dois estados existem. */
-export type OperationalTrustState = 'automatic' | 'requires_attention';
+/**
+ * Espelha o CHECK de `trust_state` (migration 161 + 187).
+ * `dismissed` = ato humano que encerra a retenção sem materializar.
+ */
+export type OperationalTrustState = 'automatic' | 'requires_attention' | 'dismissed';
 
 /** Espelha `copi_trust_reasons`. A lista é fechada no banco. */
 export type OperationalTrustReason = 'low_confidence' | 'material_financial_exposure';
+
+export type OperationalHumanDecision = 'confirm' | 'dismiss';
 
 export type ContractOperationalInterpretationRow = {
   id: string;
@@ -72,6 +78,11 @@ export type ContractOperationalInterpretationRow = {
   trust_reasons: string[] | null;
   trust_policy_version: string;
   created_at: string;
+  /** 187: ato humano que promove ou descarta a retenção. */
+  human_decision?: OperationalHumanDecision | null;
+  attention_resolved_by?: string | null;
+  attention_resolved_at?: string | null;
+  attention_resolution_note?: string | null;
 };
 
 /**

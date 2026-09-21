@@ -45,6 +45,14 @@ export interface ProjectContractFinancial {
   readonly contractTitle: string | null;
   readonly contractStatus: string | null;
   readonly counterpartyName: string | null;
+  /**
+   * O portão financeiro do PROJETO (migration 184).
+   *
+   * `false` = RESTRITO: as quantias abaixo chegam nulas por permissão, não
+   * por ausência de dado. A tela precisa das duas frases, porque uma manda
+   * procurar quem cadastre e a outra manda procurar quem autorize.
+   */
+  readonly canViewValues: boolean;
   readonly currency: string | null;
   readonly startDate: string | null;
   readonly endDate: string | null;
@@ -148,6 +156,10 @@ export function toProjectContractFinancial(raw: any): ProjectContractFinancial {
     contractTitle: raw.contract_title ?? null,
     contractStatus: raw.contract_status ?? null,
     counterpartyName: raw.counterparty_name ?? null,
+    // `?? true` cobre ambiente sem a 184 aplicada, onde a visão antiga já
+    // entregava as quantias de qualquer forma. Onde ela está aplicada, o
+    // banco manda `false` e nenhuma linha de TypeScript o converte em `true`.
+    canViewValues: (raw as { can_view_values?: boolean }).can_view_values ?? true,
     currency: raw.currency ?? null,
     startDate: raw.start_date ?? null,
     endDate: raw.end_date ?? null,

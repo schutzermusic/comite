@@ -662,11 +662,29 @@ export async function deleteProject(projectId: string): Promise<void> {
   }
 }
 
+/**
+ * Os VÍNCULOS opcionais do documento canônico (migration 189).
+ *
+ * Nenhum deles cria nada: são ponteiros para identidades que já existem em
+ * outros módulos. `contractMilestoneId` é a MESMA identidade de marco que
+ * Contratos, o cronograma e a medição usam — por isso o arquivo anexado numa
+ * medição é o arquivo que aparece em Documentos, e não uma segunda cópia.
+ */
+export interface ProjectFileLinks {
+  readonly documentType?: string | null;
+  readonly evidenceCategory?: string | null;
+  readonly contractId?: string | null;
+  readonly contractMilestoneId?: string | null;
+  readonly measurementId?: string | null;
+  readonly timelineItemId?: string | null;
+}
+
 export async function uploadProjectFile(
   projectId: string,
   file: File,
   category: 'logo' | 'document' | 'cronograma' = 'document',
-): Promise<{ publicUrl: string | null; path: string; bucketId: string }> {
+  links: ProjectFileLinks = {},
+): Promise<{ documentId: string; publicUrl: string | null; path: string; bucketId: string }> {
   if (!isSupabaseConfigured()) {
     throw new Error('Supabase não está configurado. Defina NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY.');
   }
@@ -688,20 +706,47 @@ export async function uploadProjectFile(
     ? supabase.storage.from(PROJECT_LOGOS_BUCKET).getPublicUrl(path).data.publicUrl
     : null;
 
-  const { error: insertError } = await supabase.from(PROJECT_FILES_TABLE).insert({
-    project_id: projectId,
-    organization_id: orgId,
-    created_by: userId,
-    bucket_id: bucketId,
-    object_path: path,
-    public_url: publicUrl,
-    file_name: payload.name,
-    content_type: payload.type || null,
-    file_size: payload.size,
-    category,
-  });
+  /*
+    `RETURNING id` não é conveniência: é o documento canônico ganhando nome.
+
+    Sem o id de volta, quem anexa evidência não tem o que vincular à medição —
+    e a saída de quem não tem id é subir o arquivo outra vez pelo outro
+    caminho. O id devolvido aqui é o MESMO que a aba Documentos lista e o
+    mesmo que `project_measurement_link_evidence` recebe como `source_id`.
+  */
+  const { data: inserted, error: insertError } = await supabase
+    .from(PROJECT_FILES_TABLE)
+    .insert({
+      project_id: projectId,
+      organization_id: orgId,
+      created_by: userId,
+      bucket_id: bucketId,
+      object_path: path,
+      public_url: publicUrl,
+      file_name: payload.name,
+      content_type: payload.type || null,
+      file_size: payload.size,
+      category,
+      /*
+        Os vínculos entram SÓ quando existem.
+
+        A coluna `evidence_category` nasce na migration 189; enviá-la sempre
+        faria o upload comum de documento quebrar em qualquer ambiente que
+        ainda não a aplicou — um recurso novo derrubando um caminho antigo.
+        Assim, o upload sem vínculo continua exatamente o que era, e só o
+        anexo de evidência depende da 189.
+      */
+      ...(links.documentType ? { document_type: links.documentType } : {}),
+      ...(links.evidenceCategory ? { evidence_category: links.evidenceCategory } : {}),
+      ...(links.contractId ? { contract_id: links.contractId } : {}),
+      ...(links.contractMilestoneId ? { contract_milestone_id: links.contractMilestoneId } : {}),
+      ...(links.measurementId ? { measurement_id: links.measurementId } : {}),
+      ...(links.timelineItemId ? { timeline_item_id: links.timelineItemId } : {}),
+    })
+    .select('id')
+    .single();
 
   if (insertError) throw new Error(rlsFriendlyMessage('Erro ao registrar arquivo do projeto', insertError));
 
-  return { publicUrl, path, bucketId };
+  return { documentId: String(inserted.id), publicUrl, path, bucketId };
 }

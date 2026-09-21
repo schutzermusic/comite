@@ -113,8 +113,27 @@ describe('1 · a fila humana é a operacional, e ela é pequena', () => {
     expect(intelligence.total).toBe(29);
     expect(intelligence.structuredCount).toBe(22);
     expect(intelligence.attentionCount).toBe(7);
-    // E a soma fecha: não há terceira categoria escondida.
+    // Sem dismissed nesta fixture: a soma fecha.
     expect(intelligence.structuredCount + intelligence.attentionCount).toBe(intelligence.total);
+  });
+
+  it('`dismissed` sai da fila e não conta como estruturada', () => {
+    const rows = [
+      ...ja10182283(),
+      interpretation({
+        trust_state: 'dismissed',
+        trust_reasons: ['low_confidence'],
+        human_decision: 'dismiss',
+        attention_resolved_at: '2026-09-20T12:00:00.000Z',
+        attention_resolved_by: 'user-1',
+        attention_resolution_note: 'Não se aplica a este contrato.',
+      }),
+    ];
+    const intelligence = buildContractIntelligence(rows);
+    expect(intelligence.attentionCount).toBe(7);
+    expect(intelligence.structuredCount).toBe(22);
+    expect(intelligence.total).toBe(30);
+    expect(intelligence.attention.every((i) => i.trustState === 'requires_attention')).toBe(true);
   });
 
   it('a seção de atenção contém só `requires_attention`', () => {
@@ -334,6 +353,15 @@ describe('5 · a arquitetura da tela', () => {
     expect(TAB).not.toContain('Reanalisar');
     expect(DOSSIER).toContain('Reanalisar documento contratual');
     expect(DOSSIER).toMatch(/Reler o documento contratual\?/);
+  });
+
+  it('Aceitar existe na fila e na gaveta; o disclaimer de "ainda não existe" saiu', () => {
+    expect(TAB).toContain('data-testid="interpretation-accept"');
+    expect(TAB).toContain('onInterpretationDecision');
+    expect(TAB_RENDERED).toContain('Aceitar');
+    expect(TAB_RENDERED).not.toMatch(/ainda não existe no produto/);
+    expect(DOSSIER).toContain('handleOperationalInterpretationDecision');
+    expect(DOSSIER).toContain('operational-interpretations');
   });
 });
 

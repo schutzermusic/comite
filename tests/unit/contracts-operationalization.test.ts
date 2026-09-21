@@ -268,6 +268,7 @@ describe('5 · autoridade humana não é falsificável', () => {
     const clauseSession = read('src/lib/contracts/intelligence/session.ts');
     expect(clauseSession).not.toContain('SUPABASE_SERVICE_ROLE_KEY');
     expect(clauseSession).toContain('contract_clause_resolve_attention');
+    expect(clauseSession).toContain('contract_operational_interpretation_resolve');
   });
 
   it('o store de serviço não tenta carimbar autoridade humana', () => {
@@ -808,6 +809,7 @@ describe('12 · nada atravessa a fronteira do inquilino', () => {
       'src/app/api/platform/followups/[id]/assign/route.ts',
       'src/app/api/platform/followups/[id]/complete/route.ts',
       'src/app/api/contracts/[id]/interpretations/[clauseId]/attention/route.ts',
+      'src/app/api/contracts/[id]/operational-interpretations/[interpretationId]/resolve/route.ts',
     ]) {
       expect(read(route), route).not.toMatch(/organizationId:\s*z\./);
     }

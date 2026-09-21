@@ -1,33 +1,43 @@
 'use client';
 
 /**
- * Documents tab — lists project_files rows (now with document_type /
- * timeline_item_id, migration 032) and uploads via the existing
- * project-files bucket. Imported MS Project PDFs (category 'cronograma')
- * appear here automatically.
+ * DOCUMENTOS DO PROJETO — o acervo de execução, organizado, com procedência.
+ *
+ * ─── O que mudou, e por quê ────────────────────────────────────────────────
+ *
+ * Era uma tabela de `project_files` sem contexto: um PDF chamado "Relatório de
+ * montagem.pdf" ficava ao lado de um cronograma importado, sem dizer de que
+ * marco ele é evidência nem que existe documento contratual em outro módulo.
+ * Quem procurava a evidência da medição não a achava aqui, e quem a anexava na
+ * medição a subia de novo aqui. Dois objetos, um documento.
+ *
+ * Agora o acervo é UM: `project_document_read_model` (189). A evidência de
+ * medição é a MESMA linha que a bancada de evidência gravou — mesmo
+ * `document_id`, mesmo byte —, e o documento contratual aparece como
+ * REFERÊNCIA, sem cópia e sem segundo caminho de download.
+ *
+ * ─── O que esta aba não é ──────────────────────────────────────────────────
+ *
+ * Não é repositório de documentos contratuais. Instrumento, aditivos,
+ * garantias, anexos e propostas incorporadas pertencem a Contratos; aqui eles
+ * só ficam visíveis, com o link que leva ao dono.
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { FileText, Loader2, UploadCloud } from 'lucide-react';
-import { HudBadge, HudButton, HudEmptyState, useHudToast } from '@/components/hud';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
+import { ExternalLink, FileText, Loader2, Ruler, UploadCloud } from 'lucide-react';
+import { HudBadge, HudButton, HudEmptyState, HudPanel, useHudToast } from '@/components/hud';
 import { usePermissions } from '@/hooks/use-permissions';
 import { uploadProjectFile } from '@/lib/services/projects';
-import { createClient } from '@/utils/supabase/client';
-
-interface ProjectFileRow {
-  id: string;
-  bucket_id: string;
-  object_path: string;
-  file_name: string;
-  public_url: string | null;
-  content_type: string | null;
-  file_size: number | null;
-  category: string | null;
-  document_type: string | null;
-  timeline_item_id: string | null;
-  created_at: string;
-  download_url?: string | null;
-}
+import {
+  documentUrl, listProjectDocuments,
+} from '@/lib/projects/documents/project-documents-service';
+import {
+  ORIGIN_SHORT, SHELF_LABEL, groupByShelf, typeLabel,
+  type ProjectDocument,
+} from '@/lib/projects/documents/project-documents';
+import { contractHref, measurementHref } from '@/lib/projects/cross-module-links';
+import { cn } from '@/lib/utils';
 
 function fmtSize(bytes: number | null): string {
   if (!bytes) return '—';
@@ -35,46 +45,117 @@ function fmtSize(bytes: number | null): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function ProjectDocumentsView({ projectId }: { projectId: string }) {
+/** O tom da procedência. Contratual é NEUTRO: é referência, não trabalho daqui. */
+function OriginBadge({ doc }: { readonly doc: ProjectDocument }) {
+  return (
+    <HudBadge
+      variant={doc.origin === 'MEASUREMENT_EVIDENCE' ? 'primary'
+        : doc.origin === 'CONTRACT' ? 'neutral' : 'outline'}
+      size="sm"
+    >
+      {ORIGIN_SHORT[doc.origin]}
+    </HudBadge>
+  );
+}
+
+function DocumentRow({
+  doc, projectId, highlighted,
+}: {
+  readonly doc: ProjectDocument;
+  readonly projectId: string;
+  readonly highlighted: boolean;
+}) {
+  const { notify } = useHudToast();
+
+  const open = useCallback(async () => {
+    const url = await documentUrl(doc);
+    if (url) window.open(url, '_blank', 'noreferrer');
+    else notify('Este documento é lido no módulo Contratos', { variant: 'info' });
+  }, [doc, notify]);
+
+  const isContractual = doc.origin === 'CONTRACT';
+
+  return (
+    <tr className={cn('border-t border-ig-border hover:bg-ig-panel-hover', highlighted && 'bg-ig-accent/5')}>
+      <td className="px-4 py-2">
+        <span className="flex items-center gap-2">
+          <FileText className="h-4 w-4 shrink-0 text-ig-fg-muted" />
+          {isContractual ? (
+            <span className="text-ig-fg">{doc.title}</span>
+          ) : (
+            <button type="button" onClick={() => void open()} className="text-left text-ig-accent hover:underline">
+              {doc.title}
+            </button>
+          )}
+        </span>
+        {/*
+          A RELAÇÃO do documento, dita na própria linha. Sem ela, "Relatório de
+          ensaio.pdf" é um arquivo solto — e a pergunta "de que marco é isto?"
+          só se responde abrindo o PDF.
+        */}
+        <span className="mt-0.5 flex flex-wrap items-center gap-2 pl-6 text-[11px] text-ig-fg-subtle">
+          <OriginBadge doc={doc} />
+          {doc.contractMilestoneId && (
+            <Link
+              href={measurementHref(projectId, doc.contractMilestoneId)}
+              className="inline-flex items-center gap-1 text-ig-accent hover:underline"
+            >
+              <Ruler className="h-3 w-3" aria-hidden /> Abrir medição
+            </Link>
+          )}
+          {isContractual && doc.contractId && (
+            <Link
+              href={contractHref(doc.contractId)}
+              className="inline-flex items-center gap-1 text-ig-accent hover:underline"
+            >
+              <ExternalLink className="h-3 w-3" aria-hidden /> Abrir em Contratos
+            </Link>
+          )}
+        </span>
+      </td>
+      <td className="px-4 py-2 text-ig-fg-muted">{typeLabel(doc)}</td>
+      <td className="px-4 py-2 text-ig-fg-muted">
+        {/* Documento contratual não tem tamanho aqui: ele não é byte deste módulo. */}
+        {isContractual ? '—' : fmtSize(doc.fileSize)}
+      </td>
+      <td className="px-4 py-2 text-ig-fg-muted">
+        {new Date(doc.uploadedAt).toLocaleDateString('pt-BR')}
+      </td>
+    </tr>
+  );
+}
+
+export function ProjectDocumentsView({
+  projectId, focusMilestoneId = null,
+}: {
+  readonly projectId: string;
+  readonly focusMilestoneId?: string | null;
+}) {
   const { hasPermission } = usePermissions();
   const { notify } = useHudToast();
   const inputRef = useRef<HTMLInputElement>(null);
-  const [files, setFiles] = useState<ProjectFileRow[]>([]);
+  const [docs, setDocs] = useState<readonly ProjectDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const canUpload = hasPermission('projects.documents.upload') || hasPermission('projects.upload');
 
   const reload = useCallback(async () => {
     setLoading(true);
     try {
-      const supabase = createClient();
-      const { data, error } = await supabase
-        .from('project_files')
-        .select('id, bucket_id, object_path, file_name, public_url, content_type, file_size, category, document_type, timeline_item_id, created_at')
-        .eq('project_id', projectId)
-        .neq('category', 'logo')
-        .order('created_at', { ascending: false });
-      if (error) throw new Error(error.message);
-      const rows = (data ?? []) as ProjectFileRow[];
-      const withUrls = await Promise.all(rows.map(async (row) => {
-        if (row.public_url) return { ...row, download_url: row.public_url };
-        const { data: signed } = await supabase.storage
-          .from(row.bucket_id)
-          .createSignedUrl(row.object_path, 300);
-        return { ...row, download_url: signed?.signedUrl ?? null };
-      }));
-      setFiles(withUrls);
+      setDocs(await listProjectDocuments(projectId));
+      setError(null);
     } catch (e) {
-      console.error('[ProjectDocumentsView]', e instanceof Error ? e.message : e);
+      // Falha de leitura não é acervo vazio, e a tela não pode dizer "nenhum
+      // documento" sobre uma consulta que não respondeu.
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
   }, [projectId]);
 
-  useEffect(() => {
-    void reload();
-  }, [reload]);
+  useEffect(() => { void reload(); }, [reload]);
 
   const handleUpload = async (file: File | null) => {
     if (!file) return;
@@ -91,6 +172,8 @@ export function ProjectDocumentsView({ projectId }: { projectId: string }) {
     }
   };
 
+  const groups = useMemo(() => groupByShelf(docs), [docs]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center gap-2 py-12 text-ig-fg-muted">
@@ -99,74 +182,80 @@ export function ProjectDocumentsView({ projectId }: { projectId: string }) {
     );
   }
 
+  if (error) {
+    return <HudEmptyState icon="file" title="Não foi possível carregar o acervo" description={error} />;
+  }
+
   return (
     <div className="space-y-4">
-      {canUpload && (
-        <div className="flex justify-end">
-          <input
-            ref={inputRef}
-            type="file"
-            className="hidden"
-            onChange={(e) => void handleUpload(e.target.files?.[0] ?? null)}
-          />
-          <HudButton
-            variant="primary"
-            size="sm"
-            isLoading={uploading}
-            leftIcon={<UploadCloud className="h-4 w-4" />}
-            onClick={() => inputRef.current?.click()}
-          >
-            Enviar documento
-          </HudButton>
-        </div>
-      )}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-[11px] text-ig-fg-subtle">
+          Evidências anexadas em Medições &amp; Evidências aparecem aqui automaticamente —
+          o arquivo é o mesmo, não uma cópia. Documentos contratuais são referências do
+          módulo Contratos.
+        </p>
+        {canUpload && (
+          <>
+            <input
+              ref={inputRef}
+              type="file"
+              className="hidden"
+              onChange={(e) => void handleUpload(e.target.files?.[0] ?? null)}
+            />
+            <HudButton
+              variant="primary"
+              size="sm"
+              isLoading={uploading}
+              leftIcon={<UploadCloud className="h-4 w-4" />}
+              onClick={() => inputRef.current?.click()}
+            >
+              Enviar documento
+            </HudButton>
+          </>
+        )}
+      </div>
 
-      {files.length === 0 ? (
+      {groups.length === 0 ? (
         <HudEmptyState
           icon="file"
           title="Nenhum documento"
-          description="Envie evidências, relatórios técnicos, atas ou aprovações do cliente. PDFs de cronograma importados aparecem aqui automaticamente."
+          description="Envie relatórios, ensaios, desenhos e procedimentos da execução. Evidências de medição e PDFs de cronograma importados aparecem aqui automaticamente."
         />
       ) : (
-        <div className="overflow-hidden rounded-xl border border-ig-border">
-          <table className="w-full text-sm">
-            <thead className="bg-ig-bg-elevated text-xs text-ig-fg-muted">
-              <tr className="text-left">
-                <th className="px-4 py-2 font-medium">Arquivo</th>
-                <th className="px-4 py-2 font-medium">Categoria</th>
-                <th className="px-4 py-2 font-medium">Tamanho</th>
-                <th className="px-4 py-2 font-medium">Enviado em</th>
-              </tr>
-            </thead>
-            <tbody>
-              {files.map((f) => (
-                <tr key={f.id} className="border-t border-ig-border hover:bg-ig-panel-hover">
-                  <td className="px-4 py-2">
-                    <span className="flex items-center gap-2">
-                      <FileText className="h-4 w-4 shrink-0 text-ig-fg-muted" />
-                      {f.download_url ? (
-                        <a href={f.download_url} target="_blank" rel="noreferrer" className="text-ig-accent hover:underline">
-                          {f.file_name}
-                        </a>
-                      ) : (
-                        <span className="text-ig-fg">{f.file_name}</span>
-                      )}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2">
-                    <HudBadge variant={f.category === 'cronograma' ? 'primary' : 'neutral'} size="sm">
-                      {f.document_type ?? f.category ?? 'documento'}
-                    </HudBadge>
-                  </td>
-                  <td className="px-4 py-2 text-ig-fg-muted">{fmtSize(f.file_size)}</td>
-                  <td className="px-4 py-2 text-ig-fg-muted">
-                    {new Date(f.created_at).toLocaleDateString('pt-BR')}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        groups.map((group) => (
+          <HudPanel key={group.shelf}>
+            <div className="flex items-baseline justify-between px-4 py-2">
+              <h3 className="text-xs font-medium uppercase tracking-wide text-ig-fg-muted">
+                {SHELF_LABEL[group.shelf]}
+              </h3>
+              <span className="text-[11px] text-ig-fg-subtle">{group.documents.length}</span>
+            </div>
+            <div className="overflow-hidden rounded-xl border border-ig-border">
+              <table className="w-full text-sm">
+                <thead className="bg-ig-bg-elevated text-xs text-ig-fg-muted">
+                  <tr className="text-left">
+                    <th className="px-4 py-2 font-medium">Documento</th>
+                    <th className="px-4 py-2 font-medium">Tipo</th>
+                    <th className="px-4 py-2 font-medium">Tamanho</th>
+                    <th className="px-4 py-2 font-medium">Data</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {group.documents.map((doc) => (
+                    <DocumentRow
+                      key={`${doc.origin}-${doc.documentId}`}
+                      doc={doc}
+                      projectId={projectId}
+                      highlighted={
+                        focusMilestoneId !== null && doc.contractMilestoneId === focusMilestoneId
+                      }
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </HudPanel>
+        ))
       )}
     </div>
   );

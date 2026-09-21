@@ -7,6 +7,8 @@
  * MS Project import pipeline shapes (parser → preview → diff).
  */
 
+import type { ProposalRunResult } from '@/lib/projects/contract-events';
+
 export type TimelineItemType =
   | 'phase'
   | 'milestone'
@@ -406,4 +408,14 @@ export interface ConfirmImportResult {
   inserted: number;
   updated: number;
   deactivated: number;
+  /**
+   * A RECONCILIAÇÃO com os marcos contratuais, rodada logo após a gravação.
+   *
+   * `null` tem significado próprio e diferente de zero: a rotina FALHOU (e o
+   * cronograma foi importado mesmo assim, porque uma sugestão que não nasceu
+   * é uma sugestão a menos, não um dado perdido). `contractEvents: 0` quer
+   * dizer que ela rodou e este projeto não tem contrato ligado com marco de
+   * medição — que é uma resposta.
+   */
+  mappingProposals: ProposalRunResult | null;
 }

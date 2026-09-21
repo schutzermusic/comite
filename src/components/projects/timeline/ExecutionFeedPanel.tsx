@@ -10,20 +10,18 @@
 
 import React, { useMemo } from 'react';
 import { Activity } from 'lucide-react';
-import { HudPanel } from '@/components/hud';
-import { SignalChip, type SignalChipTone } from '@/components/ui/signal-chip';
+import { HudPanel, HudSignal, type HudSignalTone } from '@/components/hud';
 import { composeTimelineEvents, formatEventTime } from '@/lib/projects/timeline-events';
 import type { ProjectWorkSession, TimeEntry } from '@/lib/types/people';
 import type { DelayLog, TimelineItem } from '@/lib/types/project-timeline';
 
-/** Os tons do HudSignal e do SignalChip divergem em dois nomes. */
-const CHIP_TONE: Record<string, SignalChipTone> = {
+const CHIP_TONE: Record<string, HudSignalTone> = {
   live: 'live',
   neutral: 'neutral',
   info: 'info',
   success: 'success',
   accent: 'accent',
-  danger: 'critical',
+  danger: 'danger',
   critical: 'critical',
   warning: 'warning',
 };
@@ -71,8 +69,8 @@ export function ExecutionFeedPanel({
               onClick={() => onSelectItem(event.itemId)}
               className="flex w-full items-start gap-3 px-4 py-2 text-left hover:bg-ig-panel-hover"
             >
-              <SignalChip
-                size="xs"
+              <HudSignal
+                size="sm"
                 tone={CHIP_TONE[event.tone] ?? 'neutral'}
                 label={event.title}
                 pulse={event.type === 'work_in_progress'}

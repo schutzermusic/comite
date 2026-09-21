@@ -41,6 +41,24 @@
   --ig-danger:  #EF4B55;
   --ig-info:    #3B82F6;
 
+  /*
+    ── CONTRATO / FATURAMENTO ──
+
+    Ouro, e não `--ig-warning`, embora os dois sejam âmbar.
+
+    No Gantt, âmbar JÁ significa "em risco": é o losango de progresso abaixo do
+    esperado e o aviso de esforço acima do planejado. Pintar o evento de
+    medição com o mesmo token faria um marco contratual perfeitamente saudável
+    ler como alerta de prazo — e, pior, faria o alerta de prazo se perder no
+    meio dos eventos contratuais.
+
+    Ouro é mais quente e mais escuro que o âmbar de aviso, e a distinção
+    sobrevive lado a lado na mesma linha.
+  */
+  --ig-contract:        #D4A017;
+  --ig-contract-weak:   rgba(212, 160, 23, 0.13);
+  --ig-contract-strong: #B8860B;
+
   /* ── Chart palette (ordem fixa) ── */
   --ig-chart-1: #14B8A6;
   --ig-chart-2: #3B82F6;
@@ -188,6 +206,11 @@ html.light {
   --ig-warning: #B45309;
   --ig-danger:  #B91C1C;
   --ig-info:    #1D4ED8;
+
+  /* Ouro sobre branco precisa descer para manter contraste de texto. */
+  --ig-contract:        #8A6508;
+  --ig-contract-weak:   rgba(138, 101, 8, 0.10);
+  --ig-contract-strong: #6B4E06;
 
   --ig-chart-1: #0F766E;
   --ig-chart-2: #1D4ED8;

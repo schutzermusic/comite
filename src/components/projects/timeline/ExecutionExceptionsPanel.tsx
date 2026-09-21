@@ -14,11 +14,10 @@
 
 import React, { useState } from 'react';
 import { ShieldAlert } from 'lucide-react';
-import { HudPanel } from '@/components/hud';
-import { SignalChip, type SignalChipTone } from '@/components/ui/signal-chip';
+import { HudPanel, HudSignal, type HudSignalTone } from '@/components/hud';
 import type { ExecutionException, ExceptionSeverity } from '@/lib/projects/execution-derivation';
 
-const SEVERITY_TONE: Record<ExceptionSeverity, SignalChipTone> = {
+const SEVERITY_TONE: Record<ExceptionSeverity, HudSignalTone> = {
   high: 'critical',
   medium: 'warning',
   low: 'neutral',
@@ -83,7 +82,7 @@ export function ExecutionExceptionsPanel({
         {shown.map((ex) => (
           <li key={ex.id} className="px-4 py-2">
             <div className="flex items-start gap-3">
-              <SignalChip size="xs" tone={SEVERITY_TONE[ex.severity]} label={SEVERITY_LABEL[ex.severity]} />
+              <HudSignal size="sm" tone={SEVERITY_TONE[ex.severity]} label={SEVERITY_LABEL[ex.severity]} />
               <div className="min-w-0 flex-1">
                 {ex.itemId ? (
                   <button

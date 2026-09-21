@@ -3,6 +3,7 @@ import { getActiveOrganizationRow } from '@/lib/auth/active-organization';
 import { createClient } from '@/utils/supabase/server';
 import { requireApiPermission } from '@/lib/auth/api-guard';
 import { matchRows } from '@/lib/projects/timeline-import-matcher';
+import { proposeForProject } from '@/lib/contracts/billing/planning/propose-mappings-server';
 import { parentWbs, validateParsedRows } from '@/lib/projects/ms-project-parser';
 import type {
   ConfirmImportPayload,
@@ -221,6 +222,32 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     }
   }
 
+  /*
+    ─── A PONTE COM CONTRATOS, proposta no momento em que o cronograma chega ──
+
+    Com as etapas persistidas, o Apex tenta casar cada marco CONTRATUAL de
+    faturamento com uma etapa deste cronograma. O resultado entra como
+    PROPOSTA (`system_proposed` / `proposed`) e nada mais: a data prevista de
+    faturamento só passa a existir depois que um humano aceitar o par.
+
+    Regra que já tem mapeamento ACEITO fica de fora — ela não precisa de
+    proposta nenhuma. A data nova que acabou de ser gravada acima já flui por
+    ela sozinha, porque a visão do planejamento lê `project_timeline_items` a
+    cada SELECT. É o "uma vez governado, sincroniza para sempre", e ele não
+    custa uma linha de código de sincronização.
+
+    Falha aqui NÃO derruba a importação: o cronograma foi importado com
+    sucesso, e uma sugestão que não nasceu é uma sugestão a menos — não um
+    dado perdido. Quem quiser tentar de novo chama a rota de proposta.
+  */
+  let mappingProposals: Awaited<ReturnType<typeof proposeForProject>> | null = null;
+  try {
+    mappingProposals = await proposeForProject(orgId, projectId);
+  } catch (e) {
+    console.error('[timeline/import] proposta de mapeamento falhou:',
+      e instanceof Error ? e.message : e);
+  }
+
   // Audit (best-effort).
   try {
     await supabase.from('audit_logs').insert({
@@ -238,11 +265,17 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         deactivated,
         parser: body.parserUsed,
         fileName: body.fileName,
+        mappingProposals,
       },
     });
   } catch (e) {
     console.error('[timeline/import] audit failed:', e instanceof Error ? e.message : e);
   }
 
-  return NextResponse.json({ ok: true, importId, scheduleVersion, inserted, updated, deactivated });
+  return NextResponse.json({
+    ok: true, importId, scheduleVersion, inserted, updated, deactivated,
+    // `null` = a rotina de proposta falhou; `proposed: 0` = ela rodou e não
+    // encontrou par acima do piso. São coisas diferentes na tela.
+    mappingProposals,
+  });
 }

@@ -19,6 +19,7 @@ import {
 import { cn } from '@/lib/utils';
 import { HudBadge, HudButton, HudModal, useHudToast } from '@/components/hud';
 import { uploadProjectFile } from '@/lib/services/projects';
+import { ImportReconciliationPanel } from './contract/ImportReconciliationPanel';
 import type { ConfirmImportResult, ParsePreview } from '@/lib/types/project-timeline';
 
 const STEPS = ['Upload', 'Análise', 'Pré-visualização', 'Modo', 'Confirmação'] as const;
@@ -28,9 +29,20 @@ export interface ImportWizardProps {
   open: boolean;
   onClose: () => void;
   onImported: (result: ConfirmImportResult) => void;
+  /**
+   * Leva à fila de revisão dos eventos contratuais.
+   *
+   * Existe porque o passo final da importação é o ÚNICO momento em que a
+   * pessoa certa está olhando: ela acabou de trazer o cronograma e sabe o que
+   * cada atividade significa. Empurrar a revisão para "depois, em Contratos"
+   * é como a proposta de mapeamento ficava semanas sem dono.
+   */
+  onReviewContractEvents?: () => void;
 }
 
-export function ImportWizard({ projectId, open, onClose, onImported }: ImportWizardProps) {
+export function ImportWizard({
+  projectId, open, onClose, onImported, onReviewContractEvents,
+}: ImportWizardProps) {
   const { notify } = useHudToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [step, setStep] = useState(0);
@@ -433,8 +445,21 @@ export function ImportWizard({ projectId, open, onClose, onImported }: ImportWiz
               <p className="text-xs text-ig-fg-muted">
                 {result.inserted} novas · {result.updated} atualizadas · {result.deactivated} desativadas
               </p>
+
+              {/*
+                O resultado CONTRATUAL, ao lado do resultado do arquivo. A
+                reconciliação já rodou no servidor, dentro da confirmação —
+                este bloco só mostra o que ela concluiu.
+              */}
+              <div className="w-full max-w-md">
+                <ImportReconciliationPanel
+                  report={result.mappingProposals}
+                  onReview={onReviewContractEvents}
+                />
+              </div>
+
               <HudButton variant="primary" onClick={handleClose}>
-                Concluir
+                Ver cronograma
               </HudButton>
             </>
           ) : null}

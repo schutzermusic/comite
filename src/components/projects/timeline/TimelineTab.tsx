@@ -18,8 +18,7 @@ import { createPortal } from 'react-dom';
 import { useSearchParams } from 'next/navigation';
 import { Bot, CalendarClock, Crosshair, FileUp, GanttChartSquare, Info, Loader2, Maximize2, Minimize2, Plus, Users2, Workflow } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { SignalChip } from '@/components/ui/signal-chip';
-import { HudButton, HudEmptyState, HudKpiStrip, HudPanel, useHudToast } from '@/components/hud';
+import { HudButton, HudEmptyState, HudKpiStrip, HudPanel, HudSignal, useHudToast } from '@/components/hud';
 import { usePermissions } from '@/hooks/use-permissions';
 import {
   createTimelineItem,
@@ -90,6 +89,15 @@ import { NewActivityModal } from './NewActivityModal';
 import { TaskDetailDrawer } from './TaskDetailDrawer';
 import { TimelineFilterRail } from './TimelineFilterRail';
 import { ExecutionFeedPanel } from './ExecutionFeedPanel';
+import { ContractEventsSummaryStrip } from './contract/ContractEventsSummaryStrip';
+import { ContractEventsReviewModal } from './contract/ContractEventsReviewModal';
+import { MeasurementEventDrawer } from './contract/MeasurementEventDrawer';
+import { listProjectContractEvents } from '@/lib/services/project-contract-events';
+import { MILESTONE_PARAM } from '@/lib/projects/cross-module-links';
+import {
+  summarizeContractEvents,
+  type ProjectContractEvent,
+} from '@/lib/projects/contract-events';
 import { useTimelineStore } from './timeline-store';
 import { ExportReportButton } from '@/components/reports/ExportReportButton';
 import { openProjectTimelineReport } from '@/lib/reports/modules/project-timeline-report';
@@ -130,6 +138,43 @@ export function TimelineTab({ projectId, projectName, projectManagerUserId }: Ti
   const [execution, setExecution] = useState<ProjectExecutionModel>(EMPTY_EXECUTION);
   const [counts, setCounts] = useState({ visible: 0, total: 0 });
 
+  /*
+    ─── A CAMADA CONTRATUAL ────────────────────────────────────────────────
+
+    Carrega numa terceira fase, e a falha dela NUNCA derruba o cronograma: o
+    Gantt é a ferramenta operacional do projeto e precisa abrir mesmo quando
+    Contratos está indisponível ou quando este usuário não tem permissão de
+    leitura contratual. Sem permissão a visão devolve zero linhas — e a tela
+    simplesmente não mostra a sobreposição, em vez de mostrar um erro sobre
+    um módulo que não é dela.
+  */
+  const [contractEvents, setContractEvents] = useState<ProjectContractEvent[]>([]);
+  const [selectedEvent, setSelectedEvent] = useState<ProjectContractEvent | null>(null);
+  const [eventsReviewOpen, setEventsReviewOpen] = useState(false);
+
+  /*
+    ─── O MARCO QUE VEIO DE OUTRA ABA ──────────────────────────────────────
+
+    "Ver no cronograma", vindo de Contexto Contratual ou de Medições &
+    Evidências, chega com `?milestone=<id canônico>`. O cronograma abre o
+    drawer daquele evento — e abre UMA vez: `handledFocusRef` impede que
+    fechar o drawer o faça reabrir no próximo render, que é o defeito clássico
+    de acoplar abertura a parâmetro de URL.
+
+    Marco sem evento carregado (sem permissão contratual, ou id de outro
+    projeto) simplesmente não abre nada. O Gantt continua o Gantt.
+  */
+  const focusMilestoneId = searchParams?.get(MILESTONE_PARAM) ?? null;
+  const handledFocusRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!focusMilestoneId || handledFocusRef.current === focusMilestoneId) return;
+    const match = contractEvents.find((e) => e.plan.milestoneId === focusMilestoneId);
+    if (!match) return;
+    handledFocusRef.current = focusMilestoneId;
+    setSelectedEvent(match);
+  }, [focusMilestoneId, contractEvents]);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -141,6 +186,8 @@ export function TimelineTab({ projectId, projectName, projectManagerUserId }: Ti
 
   const canImport = hasPermission('projects.timeline.import') || hasPermission('projects.timeline.admin');
   const canEdit = hasPermission('projects.timeline.edit') || hasPermission('projects.timeline.admin');
+  /* Decidir vínculo é ato de Contratos — a RPC recusa quem não tiver. */
+  const canReviewMapping = !permissionsLoading && hasPermission('contracts.edit');
   // Enquanto as permissões carregam, `hasPermission` responde false para tudo.
   // Tratar isso como "não autorizado" faria a tela AFIRMAR uma ausência que
   // ainda não se sabe — piscando "sem permissão" para quem tem. Só decidimos
@@ -191,6 +238,25 @@ export function TimelineTab({ projectId, projectName, projectManagerUserId }: Ti
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  /* ─── Fase 3: a camada contratual, uma consulta só ─── */
+  const reloadContractEvents = useCallback(async () => {
+    if (!isTimelineAvailable()) return;
+    try {
+      setContractEvents(await listProjectContractEvents(projectId));
+    } catch (e) {
+      // Silencioso de propósito: ambiente sem a migration 181, ou usuário sem
+      // leitura de contratos. Nenhum dos dois é um erro do cronograma, e um
+      // toast vermelho aqui treinaria o gestor a ignorar toasts.
+      console.warn('[timeline] eventos contratuais indisponíveis:',
+        e instanceof Error ? e.message : e);
+      setContractEvents([]);
+    }
+  }, [projectId]);
+
+  useEffect(() => {
+    void reloadContractEvents();
+  }, [reloadContractEvents]);
 
   /* ─── Fase 2: execução + dependências, sem bloquear o gráfico ─── */
   const reloadExecution = useCallback(async () => {
@@ -259,6 +325,16 @@ export function TimelineTab({ projectId, projectName, projectManagerUserId }: Ti
   }, [items, entries, sessions, links, availability]);
 
   const kpis = useMemo(() => timelineKpis(items, new Date()), [items]);
+
+  /*
+    O resumo contratual. Recomputado dos eventos, nunca guardado em estado —
+    guardá-lo criaria um segundo número que envelhece depois de um aceite de
+    mapeamento e discorda da lista que está logo ao lado.
+  */
+  const contractSummary = useMemo(
+    () => summarizeContractEvents(contractEvents, new Date()),
+    [contractEvents],
+  );
 
   /**
    * Inteligência de prazo. Deliberadamente FORA do gate de timesheet: datas e
@@ -643,6 +719,26 @@ export function TimelineTab({ projectId, projectName, projectManagerUserId }: Ti
         presenting && 'fixed inset-0 z-[70] flex flex-col gap-2 overflow-hidden bg-ig-canvas p-3',
       )}
     >
+      {/*
+        `showAmounts` é incondicional, e isso é deliberado.
+
+        Quem decide se há valor na linha é o BANCO (portão da migration 182):
+        sem `contracts.view_values` / `finance.view` / admin, as quantias
+        chegam nulas com `can_view_values = false`, e a faixa escreve
+        "Restrito". Repetir a decisão aqui com `hasPermission` criaria um
+        segundo portão — que discordaria do primeiro no dia em que alguém
+        tivesse `finance.view` sem `contracts.view`, escondendo valores de
+        quem tem direito a eles. Um portão só, no lugar onde o dado nasce.
+      */}
+      {!presenting && (
+        <ContractEventsSummaryStrip
+          summary={contractSummary}
+          showAmounts
+          onOpenReview={() => setEventsReviewOpen(true)}
+          className="flex-shrink-0"
+        />
+      )}
+
       <div className="flex-shrink-0">
         <TimelineFilterRail
           items={items}
@@ -692,6 +788,9 @@ export function TimelineTab({ projectId, projectName, projectManagerUserId }: Ti
             dependencies={dependencies}
             onVisibleCountChange={handleVisibleCountChange}
             fill={presenting}
+            contractEvents={contractEvents}
+            onSelectContractEvent={setSelectedEvent}
+            selectedEventMilestoneId={selectedEvent?.plan.milestoneId ?? null}
           />
           <GanttLegend className="m-2 flex-shrink-0" />
         </div>
@@ -851,7 +950,7 @@ export function TimelineTab({ projectId, projectName, projectManagerUserId }: Ti
                 },
                 {
                   id: 'match-rate',
-                  label: 'Taxa de casamento',
+                  label: 'Taxa de vínculo',
                   value: formatRate(acquisition.autonomy.matchRate),
                 },
                 {
@@ -911,24 +1010,27 @@ export function TimelineTab({ projectId, projectName, projectManagerUserId }: Ti
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-1 text-[11px] text-ig-fg-subtle">
               <Bot className="h-3.5 w-3.5 shrink-0" />
               {acquisition.executionAutonomy.sessionsReconstructed > 0 && (
-                <SignalChip
-                  size="xs"
+                <HudSignal
+                  size="sm"
                   tone="success"
-                  label={`${acquisition.executionAutonomy.sessionsReconstructed} sessão(ões) reconstruída(s)`}
+                  label="sessões reconstruídas"
+                  value={acquisition.executionAutonomy.sessionsReconstructed}
                 />
               )}
               {acquisition.executionAutonomy.sessionsNeedingReview > 0 && (
-                <SignalChip
-                  size="xs"
+                <HudSignal
+                  size="sm"
                   tone="critical"
-                  label={`${acquisition.executionAutonomy.sessionsNeedingReview} falharam na verificação`}
+                  label="falharam na verificação"
+                  value={acquisition.executionAutonomy.sessionsNeedingReview}
                 />
               )}
               {acquisition.executionAutonomy.sessionsCorrected > 0 && (
-                <SignalChip
-                  size="xs"
+                <HudSignal
+                  size="sm"
                   tone="warning"
-                  label={`${acquisition.executionAutonomy.sessionsCorrected} corrigida(s) por pessoa`}
+                  label="corrigidas por pessoa"
+                  value={acquisition.executionAutonomy.sessionsCorrected}
                 />
               )}
               <span>
@@ -1014,10 +1116,38 @@ export function TimelineTab({ projectId, projectName, projectManagerUserId }: Ti
         projectId={projectId}
         open={importOpen}
         onClose={() => setImportOpen(false)}
+        onReviewContractEvents={() => {
+          setImportOpen(false);
+          setEventsReviewOpen(true);
+        }}
         onImported={() => {
           void reload();
           void reloadExecution();
+          // A reconciliação roda no servidor, dentro da confirmação, e o
+          // wizard já mostra o relatório que veio na resposta. Aqui só
+          // recarregamos a camada — é o que faz as propostas recém-nascidas
+          // aparecerem no cabeçalho e na fila sem F5.
+          void reloadContractEvents();
         }}
+      />
+
+      <ContractEventsReviewModal
+        open={eventsReviewOpen}
+        events={contractEvents}
+        showAmounts
+        onSelect={(event) => {
+          setEventsReviewOpen(false);
+          setSelectedEvent(event);
+        }}
+        onClose={() => setEventsReviewOpen(false)}
+      />
+
+      <MeasurementEventDrawer
+        event={selectedEvent}
+        canReviewMapping={canReviewMapping}
+        timelineItems={items}
+        onClose={() => setSelectedEvent(null)}
+        onMappingReviewed={() => { void reloadContractEvents(); }}
       />
     </div>
   );

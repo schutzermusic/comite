@@ -231,6 +231,11 @@ export default {
           warning: 'var(--ig-warning)',
           danger:  'var(--ig-danger)',
           info:    'var(--ig-info)',
+          // Camada CONTRATUAL/financeira. Distinta de `warning`, que no Gantt
+          // já quer dizer risco de prazo.
+          contract:          'var(--ig-contract)',
+          'contract-weak':   'var(--ig-contract-weak)',
+          'contract-strong': 'var(--ig-contract-strong)',
         },
         background: 'hsl(var(--background))',
         foreground: 'hsl(var(--foreground))',

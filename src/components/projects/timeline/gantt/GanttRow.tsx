@@ -19,10 +19,10 @@ import type { GanttScale } from '@/lib/projects/timeline-analytics';
 import type { TimelineNode } from '@/lib/projects/timeline-analytics';
 import { formatHours, type ItemExecution } from '@/lib/projects/timeline-execution';
 import type { ScheduleSignal } from '@/lib/projects/timeline-intelligence';
+import { HudSignal, type HudSignalTone } from '@/components/hud';
 import { TIMELINE_STATUS_LABELS, type TimelineItem } from '@/lib/types/project-timeline';
-import { SignalChip, type SignalChipTone } from '@/components/ui/signal-chip';
 import { GanttBar, type BarTone } from './GanttBar';
-import { COL_W, ROW_H, TITLE_MIN_W } from './gantt-constants';
+import { ROW_H, type GanttColWidths } from './gantt-constants';
 import type { TimelineColumn } from '../timeline-store';
 
 function fmtDate(iso: string | null): string {
@@ -31,7 +31,7 @@ function fmtDate(iso: string | null): string {
   return `${d}/${m}/${y.slice(2)}`;
 }
 
-const STATUS_TONE: Record<string, SignalChipTone> = {
+const STATUS_TONE: Record<string, HudSignalTone> = {
   not_started: 'neutral',
   in_progress: 'info',
   blocked: 'critical',
@@ -83,6 +83,7 @@ export interface GanttRowProps {
   tone: BarTone;
   scale: GanttScale;
   panelWidth: number;
+  colWidths: GanttColWidths;
   columns: Record<TimelineColumn, boolean>;
   execution?: ItemExecution;
   schedule?: ScheduleSignal;
@@ -113,6 +114,7 @@ export const GanttRow = React.memo(function GanttRow({
   tone,
   scale,
   panelWidth,
+  colWidths,
   columns,
   execution,
   schedule,
@@ -157,13 +159,13 @@ export const GanttRow = React.memo(function GanttRow({
         )}
         style={{ width: panelWidth }}
       >
-        <Cell width={COL_W.wbs} className="font-mono text-[11px] text-ig-fg-subtle">
+        <Cell width={colWidths.wbs} className="font-mono text-[11px] text-ig-fg-subtle">
           {item.wbsCode ?? ''}
         </Cell>
 
         <span
-          className="flex min-w-0 flex-1 items-center gap-1 px-1"
-          style={{ paddingLeft: 4 + node.depth * 14, minWidth: TITLE_MIN_W }}
+          className="flex shrink-0 items-center gap-1 overflow-hidden px-1"
+          style={{ width: colWidths.title, paddingLeft: 4 + node.depth * 14 }}
         >
           {hasChildren ? (
             <button
@@ -196,7 +198,7 @@ export const GanttRow = React.memo(function GanttRow({
           */}
           <span
             className={cn(
-              'line-clamp-2 break-words leading-tight',
+              'min-w-0 line-clamp-2 break-words leading-tight',
               item.isSummary ? 'font-semibold text-ig-fg-strong' : 'text-ig-fg',
               item.status === 'completed' && 'text-ig-fg-muted',
             )}
@@ -208,7 +210,7 @@ export const GanttRow = React.memo(function GanttRow({
 
         {/* % com micro-barra: o número sozinho não dá leitura periférica. */}
         <Cell
-          width={COL_W.progress}
+          width={colWidths.progress}
           className={cn(
             'text-right tabular-nums',
             execution?.hoursWithoutProgress || schedule?.behindSchedule
@@ -238,11 +240,11 @@ export const GanttRow = React.memo(function GanttRow({
           </span>
         </Cell>
 
-        <Cell width={COL_W.start} className="tabular-nums text-ig-fg-muted">{fmtDate(item.plannedStart)}</Cell>
-        <Cell width={COL_W.finish} className="tabular-nums text-ig-fg-muted">{fmtDate(item.plannedFinish)}</Cell>
+        <Cell width={colWidths.start} className="tabular-nums text-ig-fg-muted">{fmtDate(item.plannedStart)}</Cell>
+        <Cell width={colWidths.finish} className="tabular-nums text-ig-fg-muted">{fmtDate(item.plannedFinish)}</Cell>
 
         {columns.responsible && (
-          <Cell width={COL_W.responsible}>
+          <Cell width={colWidths.responsible}>
             <span className="flex items-center -space-x-1.5">
               {shown.length > 0 ? (
                 shown.map((c) => (
@@ -259,23 +261,23 @@ export const GanttRow = React.memo(function GanttRow({
         )}
 
         {columns.status && (
-          <Cell width={COL_W.status}>
-            <SignalChip size="xs" tone={STATUS_TONE[item.status] ?? 'neutral'} label={TIMELINE_STATUS_LABELS[item.status]} />
+          <Cell width={colWidths.status}>
+            <HudSignal size="sm" tone={STATUS_TONE[item.status] ?? 'neutral'} label={TIMELINE_STATUS_LABELS[item.status]} />
           </Cell>
         )}
 
         {/* Colunas de execução só existem quando o apontamento é legível. */}
         {executionKnown && columns.plannedHours && (
-          <Cell width={COL_W.plannedHours} className="text-right tabular-nums text-ig-fg-muted">
+          <Cell width={colWidths.plannedHours} className="text-right tabular-nums text-ig-fg-muted">
             {formatHours(execution?.plannedHours ?? null)}
           </Cell>
         )}
 
         {executionKnown && columns.loggedHours && (
           <Cell
-            width={COL_W.loggedHours}
+            width={colWidths.loggedHours}
             className={cn(
-              'text-right tabular-nums',
+              'tabular-nums',
               execution && execution.variance != null && execution.variance > 0
                 ? 'text-ig-warning'
                 : 'text-ig-fg',
@@ -294,7 +296,7 @@ export const GanttRow = React.memo(function GanttRow({
         )}
 
         {executionKnown && columns.lastActivity && (
-          <Cell width={COL_W.lastActivity} className="tabular-nums text-[11px] text-ig-fg-subtle">
+          <Cell width={colWidths.lastActivity} className="tabular-nums text-[11px] text-ig-fg-subtle">
             {execution?.lastActivityAt ? fmtDate(execution.lastActivityAt.slice(0, 10)) : '—'}
           </Cell>
         )}
@@ -305,7 +307,7 @@ export const GanttRow = React.memo(function GanttRow({
           estado nominal. Empilhar todos os avisos deixaria a coluna ilegível
           e nenhum deles seria notado.
         */}
-        <Cell width={COL_W.signal} className="flex items-center justify-center">
+        <Cell width={colWidths.signal} className="flex items-center justify-center">
           {execution?.isActiveNow ? (
             <span
               className="h-2 w-2 rounded-full motion-safe:animate-pulse"

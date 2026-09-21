@@ -53,6 +53,10 @@ import {
   formatProjectStatus, isProjectStatus, type ProjectStatus,
 } from '@/lib/projects/status';
 import { getProjectContractProjection } from '@/lib/projects/contract/project-contract-service';
+import { cn } from '@/lib/utils';
+import { usePermissions } from '@/hooks/use-permissions';
+import { canViewProjectFinancials } from '@/lib/auth/project-financials';
+import { MILESTONE_PARAM } from '@/lib/projects/cross-module-links';
 import type { ProjectContractFinancial } from '@/lib/projects/contract/project-contract-types';
 
 export default function DetalheProjetoPage({ params }: { params: Promise<{ id: string }> }) {
@@ -64,6 +68,37 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
     const t = searchParams?.get('tab');
     return t && ['timeline', 'contract', 'measurements', 'finance', 'risks', 'documents', 'team', 'timesheet'].includes(t) ? t : 'timeline';
   })();
+  /*
+    ─── O MARCO EM FOCO, atravessando as abas ─────────────────────────────
+
+    `?milestone=` carrega a identidade canônica (`contract_milestones.id`) —
+    a mesma que Contratos, o cronograma, a medição e o documento usam. É o
+    que faz "Ver medição" chegar no marco certo em vez de no topo da lista.
+
+    Ele NÃO seleciona aba sozinho: quem manda na aba é `?tab=`. Dois
+    parâmetros disputando a mesma decisão é como um link acabaria abrindo
+    uma aba e destacando o marco em outra.
+  */
+  const focusMilestoneId = searchParams?.get(MILESTONE_PARAM) ?? null;
+  /*
+    ─── A DECISÃO FINANCEIRA DO PROJETO, uma vez ──────────────────────────
+
+    Espelho de `current_user_can_view_project_financials()` (migration 183) —
+    a mesma que mascara os valores do evento de medição na visão do
+    cronograma. Aqui ela decide o DESENHO: se os KPIs de receita são pintados
+    e se a aba Financeiro existe.
+
+    Enquanto as permissões carregam, `hasPermission` responde falso para tudo.
+    Tratar isso como "não autorizado" faria a aba Financeiro PISCAR para fora
+    da tela de quem tem acesso; então o portão só fecha depois da resposta.
+  */
+  const { hasPermission, loading: permissionsLoading } = usePermissions();
+  /* Para DESENHAR: permissivo enquanto carrega, para a aba não piscar. */
+  const canViewFinancials = permissionsLoading || canViewProjectFinancials(hasPermission);
+  /* Para BUSCAR: só depois que a resposta chegou. Não se pede dado
+     financeiro "por enquanto" e se descarta depois — ele já viajou. */
+  const financialsAllowed = !permissionsLoading && canViewProjectFinancials(hasPermission);
+
   const [projeto, setProjeto] = useState<Awaited<ReturnType<typeof getProjectByIdAsync>>>(undefined);
   const [projetoV2, setProjetoV2] = useState<ProjectV2 | undefined>(undefined);
   const [contractFinancial, setContractFinancial] = useState<ProjectContractFinancial | null>(null);
@@ -89,22 +124,44 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
 
   const reloadProject = useCallback(async () => {
     try {
-      const [loadedProjeto, v2, projection] = await Promise.all([
+      const [loadedProjeto, v2] = await Promise.all([
         getProjectByIdAsync(id),
         getProjectV2ByIdAsync(id),
-        getProjectContractProjection(id).catch(() => ({ financial: null, milestones: [] })),
       ]);
       setProjeto(loadedProjeto);
       setProjetoV2(v2);
-      setContractFinancial(projection.financial);
     } catch (error) {
       console.error('Erro ao carregar projeto:', error);
       setProjeto(undefined);
-      setContractFinancial(null);
     } finally {
       setLoading(false);
     }
   }, [id]);
+
+  /*
+    A PROJEÇÃO CONTRATUAL carrega separada, e só com acesso financeiro.
+
+    Separada do projeto para que a resposta das permissões não faça o projeto
+    inteiro ser buscado duas vezes; e condicionada porque buscar-e-esconder
+    deixaria o valor no estado do React e no payload da resposta — fora da
+    vista, dentro do inspetor.
+  */
+  const reloadContractProjection = useCallback(async () => {
+    if (!financialsAllowed) {
+      setContractFinancial(null);
+      return;
+    }
+    try {
+      const projection = await getProjectContractProjection(id);
+      setContractFinancial(projection.financial);
+    } catch {
+      setContractFinancial(null);
+    }
+  }, [id, financialsAllowed]);
+
+  useEffect(() => {
+    void reloadContractProjection();
+  }, [reloadContractProjection]);
 
   useEffect(() => {
     void reloadProject();
@@ -373,7 +430,15 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
                   </div>
                 </div>
 
-                {/* ── Revenue-focused financial KPIs ── */}
+                {/*
+                  ── KPIs de receita ──
+
+                  Ausentes, e não zerados, para quem não tem leitura
+                  financeira do projeto: um "R$ 0,00" no lugar de
+                  "R$ 8.032.339,76" seria uma afirmação falsa sobre o
+                  contrato, não uma omissão.
+                */}
+                {canViewFinancials && (
                 <div className="mt-6 border-t border-ig-border-subtle pt-5">
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                     <div className="rounded-lg border border-ig-border-subtle bg-ig-panel/70 p-4">
@@ -405,6 +470,7 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
                     </div>
                   </div>
                 </div>
+                )}
               </div>
             </HudPanel>
         </div>
@@ -412,18 +478,25 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
         {/* Tabs: barra solta — painéis de conteúdo flutuam direto na página */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <div id="project-tabs">
-            <TabsList className="grid w-full grid-cols-3 rounded-xl backdrop-blur-sm lg:grid-cols-7 hud-tabs-container">
-              <TabsTrigger value="finance" className="hud-tab-trigger">
-                <DollarSign className="w-4 h-4 mr-2" />
-                Financeiro
-              </TabsTrigger>
+            <TabsList
+              className={cn(
+                'grid w-full grid-cols-3 rounded-xl backdrop-blur-sm hud-tabs-container',
+                canViewFinancials ? 'lg:grid-cols-8' : 'lg:grid-cols-7',
+              )}
+            >
+              {canViewFinancials && (
+                <TabsTrigger value="finance" className="hud-tab-trigger">
+                  <DollarSign className="w-4 h-4 mr-2" />
+                  Financeiro
+                </TabsTrigger>
+              )}
               <TabsTrigger value="contract" className="hud-tab-trigger">
                 <FileText className="w-4 h-4 mr-2" />
-                Contrato
+                Contexto Contratual
               </TabsTrigger>
               <TabsTrigger value="measurements" className="hud-tab-trigger">
                 <Ruler className="w-4 h-4 mr-2" />
-                Medições
+                Medições &amp; Evidências
               </TabsTrigger>
               <TabsTrigger value="timeline" className="hud-tab-trigger">
                 <GanttChart className="w-4 h-4 mr-2" />
@@ -458,7 +531,7 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
               </TabsContent>
 
               <TabsContent value="contract" className="mt-0">
-                <ProjectContractTab projectId={id} />
+                <ProjectContractTab projectId={id} focusMilestoneId={focusMilestoneId} />
               </TabsContent>
 
               {/*
@@ -466,9 +539,14 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
                 instância de medição é operacional: quem a prepara, submete e
                 vê aceitar é a operação. Contratos mostra a regra e a prontidão
                 em contexto, sem virar um segundo editor da mesma coisa.
+
+                A fila dela nasce da ponte ACEITA ao cronograma — não da
+                existência de linha em `project_measurements`. Era essa
+                confusão que fazia a aba dizer "nenhuma medição" sobre um
+                projeto com cinco mapeamentos aceitos.
               */}
               <TabsContent value="measurements" className="mt-0">
-                <ProjectMeasurementsTab projectId={id} />
+                <ProjectMeasurementsTab projectId={id} focusMilestoneId={focusMilestoneId} />
               </TabsContent>
 
               <TabsContent value="risks" className="mt-0">
@@ -476,7 +554,7 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
               </TabsContent>
 
               <TabsContent value="documents" className="mt-0">
-                <ProjectDocumentsView projectId={id} />
+                <ProjectDocumentsView projectId={id} focusMilestoneId={focusMilestoneId} />
               </TabsContent>
 
               <TabsContent value="team" className="mt-0">
@@ -487,8 +565,24 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
                 <ProjectTimesheetView projectId={id} />
               </TabsContent>
 
+              {/*
+                A aba não é só escondida: o conteúdo não é montado, então
+                `FinanceView` não roda e nenhuma consulta de razão, custo ou
+                curva S sai do navegador.
+              */}
               <TabsContent value="finance" className="mt-0">
-                {projetoV2 ? (
+                {!canViewFinancials ? (
+                  <div className="py-12 text-center">
+                    <DollarSign className="mx-auto mb-3 h-12 w-12 hud-text-muted" />
+                    <p className="hud-text-muted">
+                      Informações financeiras deste projeto são restritas.
+                    </p>
+                    <p className="mt-1 text-xs hud-text-muted">
+                      Solicite permissão de leitura financeira de projetos para acessar
+                      esta aba.
+                    </p>
+                  </div>
+                ) : projetoV2 ? (
                   <FinanceView project={projetoV2} onProjectChange={reloadProject} />
                 ) : (
                   <div className="text-center py-12">
