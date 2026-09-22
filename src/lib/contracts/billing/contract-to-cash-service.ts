@@ -234,6 +234,38 @@ export async function listContractToCashForContracts(
 }
 
 /**
+ * A FILA DE "NF A EMITIR".
+ *
+ * ─── O recorte, e por que é este ──────────────────────────────────────────
+ *
+ *   liberado por uma pessoa  +  sem documento fiscal  +  não cancelado
+ *
+ * `RELEASED` é o ÚNICO estado que autoriza emitir: elegibilidade é direito
+ * apurado, liberação é decisão humana, e listar `ELIGIBLE` aqui colocaria o
+ * Financeiro emitindo nota sobre um direito que ninguém liberou. A ausência de
+ * `fiscal_document_id` é o que define o TRABALHO: havendo nota, o trabalho é
+ * de outra etapa.
+ *
+ * ─── O que esta função não faz ────────────────────────────────────────────
+ *
+ * Não cria nota, não libera nada e não escreve. Ela lê o modelo de leitura
+ * canônico — o mesmo do dossiê e da carteira — e devolve a fila ordenada pelo
+ * vencimento, quando ele existe.
+ */
+export async function listInvoicesToIssue(): Promise<ContractToCashRow[]> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from('contract_to_cash_read_model')
+    .select('*')
+    .eq('release_state', 'RELEASED')
+    .is('fiscal_document_id', null)
+    .is('cancelled_at', null)
+    .order('released_at', { ascending: true });
+  if (error) throw new Error(`Erro ao carregar a fila de notas a emitir: ${error.message}`);
+  return (data ?? []).map((r) => toContractToCashRow(r as Record<string, unknown>));
+}
+
+/**
  * LÊ a elegibilidade de agora. Não escreve nada.
  *
  * ─── Por que ler, e não recomputar ────────────────────────────────────────

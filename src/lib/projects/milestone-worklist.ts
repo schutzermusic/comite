@@ -242,7 +242,16 @@ function measurementFacet(event: ProjectContractEvent): Facet {
   }
   if (plan.measurementStatus === null) return NOT_ASSESSED;
   const settled = plan.measurementStatus === 'ACCEPTED';
-  const live = plan.measurementStatus === 'SUBMITTED' || plan.measurementStatus === 'UNDER_REVIEW';
+  /*
+    "Em voo" é todo estado em que o pacote já saiu das mãos do projeto e ainda
+    não teve desfecho: análise contratual, aprovação para envio e espera do
+    cliente. Correção solicitada NÃO é voo — a bola voltou, e o tom de atenção
+    (o `else`) é o certo para ela.
+  */
+  const live = plan.measurementStatus === 'SUBMITTED'
+    || plan.measurementStatus === 'UNDER_REVIEW'
+    || plan.measurementStatus === 'APPROVED_FOR_CUSTOMER'
+    || plan.measurementStatus === 'AWAITING_CUSTOMER_ACCEPTANCE';
   return {
     label: MEASUREMENT_STATUS_LABEL[plan.measurementStatus],
     tone: settled ? 'positive' : live ? 'accent' : 'attention',
@@ -258,6 +267,38 @@ function acceptanceFacet(event: ProjectContractEvent): Facet {
   const plan = event.plan;
   if (plan.measurementAcceptedAt !== null || plan.measurementStatus === 'ACCEPTED') {
     return { label: 'Aceito', tone: 'positive', dashed: false };
+  }
+  /*
+    Os estados da cadeia externa aparecem AQUI, com o nome deles.
+
+    Antes da migration 192 tudo isso era "Pendente" — e "pendente" cobria
+    igualmente o pacote que nem saiu da empresa e o que está na mesa do cliente
+    há vinte dias. São trabalhos de pessoas diferentes, e a §4 do plano pede
+    que o MESMO estado apareça nas três telas.
+  */
+  if (plan.measurementStatus === 'AWAITING_CUSTOMER_ACCEPTANCE') {
+    return {
+      label: 'Aguardando contratante', tone: 'accent', dashed: false,
+      hint: 'O pacote foi enviado à Contratante e espera a resposta dela.',
+    };
+  }
+  if (plan.measurementStatus === 'APPROVED_FOR_CUSTOMER') {
+    return {
+      label: 'Aprovado para envio', tone: 'accent', dashed: false,
+      hint: 'A Gestão de Contratos aprovou o pacote interno. Isto NÃO é aceite da Contratante.',
+    };
+  }
+  if (plan.measurementStatus === 'CUSTOMER_CORRECTION_REQUESTED') {
+    return {
+      label: 'Correção pedida pela contratante', tone: 'attention', dashed: false,
+      hint: 'A Contratante devolveu o pacote pedindo correção.',
+    };
+  }
+  if (plan.measurementStatus === 'SUBMITTED' || plan.measurementStatus === 'UNDER_REVIEW') {
+    return {
+      label: 'Em análise contratual', tone: 'neutral', dashed: false,
+      hint: 'O pacote está com a Gestão de Contratos. Ainda não foi enviado à Contratante.',
+    };
   }
   if (plan.customerAcceptanceRequired === true) {
     return { label: 'Pendente', tone: 'attention', dashed: false, hint: 'O contrato exige aceite da Contratante neste marco.' };

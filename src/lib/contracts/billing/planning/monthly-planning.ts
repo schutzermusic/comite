@@ -190,6 +190,10 @@ function toStageInput(row: BillingMonthPlanRow): MilestoneWorkbenchRow {
 const STATE_BY_STAGE: Record<MilestoneStage, BillingPlanState> = {
   BILLED: 'BILLED',
   READY_TO_BILL: 'ELIGIBLE',
+  // Análise contratual e aceite da Contratante caem no MESMO estado de
+  // planejamento — nenhum dos dois libera faturamento —, e continuam sendo
+  // estágios distintos onde a distinção importa: no rótulo e no prazo.
+  AWAITING_CONTRACT_REVIEW: 'AWAITING_APPROVAL',
   AWAITING_ACCEPTANCE: 'AWAITING_APPROVAL',
   AWAITING_EVIDENCE: 'AWAITING_EVIDENCE',
   READY_TO_MEASURE: 'AWAITING_MEASUREMENT',

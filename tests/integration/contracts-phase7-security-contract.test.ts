@@ -392,6 +392,30 @@ describe('Fase 7 · migrations aplicadas não são editadas', () => {
         '173',
         // ---- read-models sem DML; projeção contrato↔projeto; local canônico ----
         '174', '175', '176', '177', '178',
+        // ---- planejamento mensal de faturamento e alertas de marco ----
+        '179', '180',
+        // ---- eventos contratuais no cronograma do projeto, com portão de valor ----
+        '181', '182',
+        // ---- visibilidade financeira do projeto e o portão contratual dela ----
+        '183', '184',
+        // ---- vínculo manual e âncora perdida do evento de medição ----
+        '185', '186',
+        // ---- propostas superadas; resolução humana de interpretação ----
+        '187', '188',
+        // ---- identidade canônica do documento de projeto ----
+        '189',
+        // ---- materialização da medição no gatilho; anexo pela porta certa ----
+        '190', '191',
+        // ---- análise contratual da medição, envio e aceite da contratante ----
+        '192',
+        // ---- pré-análise do Apex sobre a evidência ----
+        '193',
+        // ---- responsáveis, SLA, deduplicação e fila de aprovações ----
+        '194',
+        // ---- porta de servidor da notificação in-app ----
+        '195',
+        // ---- autor do fechamento do item de correção ----
+        '196',
       ]);
     // 090 continua arquivada, nunca aplicada.
     expect(versions).not.toContain('090');

@@ -23,12 +23,24 @@ describe('migration 167 — canonical business responsibility', () => {
       unrelated subject broke a test that says nothing about it. What actually
       matters is that no migration above 167 touches responsibility.
     */
+    /*
+      A asserção olha ESCRITA, e não menção.
+
+      A versão anterior proibia a string, e com isso proibia também LER a coluna
+      — o que a 194 faz para resolver o Gestor do Projeto pela cadeia declarada
+      `projects.responsible_person_id → people.profile_id → profiles.user_id`.
+      Ler a responsabilidade canônica é exatamente o que a 167 queria que
+      acontecesse; o que ela não quer é uma segunda migration definindo, mexendo
+      ou preenchendo a coluna.
+    */
     const later = readdirSync('supabase/migrations')
       .filter((file) => /^\d{3}_.*\.sql$/.test(file) && Number(file.slice(0, 3)) > 167);
     for (const file of later) {
       const sql = readFileSync(`supabase/migrations/${file}`, 'utf8');
-      expect(sql).not.toContain('owner_person_id');
-      expect(sql).not.toContain('responsible_person_id');
+      expect(sql).not.toMatch(/ADD\s+COLUMN[^;]*\b(owner_person_id|responsible_person_id)\b/i);
+      expect(sql).not.toMatch(/ALTER\s+COLUMN\s+(owner_person_id|responsible_person_id)\b/i);
+      expect(sql).not.toMatch(/DROP\s+COLUMN[^;]*\b(owner_person_id|responsible_person_id)\b/i);
+      expect(sql).not.toMatch(/SET\s+(owner_person_id|responsible_person_id)\s*=/i);
     }
     expect(migration).toContain('ALTER TABLE public.contracts\n  ADD COLUMN owner_person_id uuid');
     expect(migration).toContain('ALTER TABLE public.projects\n  ADD COLUMN responsible_person_id uuid');

@@ -26,6 +26,16 @@ export type MeasurementStatus =
   | 'READY_FOR_SUBMISSION'
   | 'SUBMITTED'
   | 'UNDER_REVIEW'
+  /**
+   * Pacote interno APROVADO PARA ENVIO — e nada além disso.
+   *
+   * É o estado que mais se parece com aprovação e o que menos tem a ver com o
+   * cliente. Antes da migration 192 ele não existia, e por isso "pronto para
+   * sair" e "na mão do cliente há vinte dias" tinham a mesma cara.
+   */
+  | 'APPROVED_FOR_CUSTOMER'
+  | 'AWAITING_CUSTOMER_ACCEPTANCE'
+  | 'CUSTOMER_CORRECTION_REQUESTED'
   | 'ACCEPTED'
   | 'REJECTED'
   | 'RETURNED_FOR_CORRECTION'
@@ -36,11 +46,14 @@ export const MEASUREMENT_STATUS_LABEL: Record<MeasurementStatus, string> = {
   PLANNED: 'Planejada',
   IN_PREPARATION: 'Em preparação',
   READY_FOR_SUBMISSION: 'Pronta para submissão',
-  SUBMITTED: 'Submetida',
-  UNDER_REVIEW: 'Em análise',
+  SUBMITTED: 'Aguardando análise contratual',
+  UNDER_REVIEW: 'Em análise contratual',
+  APPROVED_FOR_CUSTOMER: 'Aprovada para envio ao cliente',
+  AWAITING_CUSTOMER_ACCEPTANCE: 'Aguardando aceite da contratante',
+  CUSTOMER_CORRECTION_REQUESTED: 'Correção solicitada pela contratante',
   ACCEPTED: 'Aceita',
   REJECTED: 'Rejeitada',
-  RETURNED_FOR_CORRECTION: 'Devolvida para correção',
+  RETURNED_FOR_CORRECTION: 'Correção solicitada',
   CANCELLED: 'Cancelada',
   SUPERSEDED: 'Substituída',
 };
@@ -89,7 +102,11 @@ export type ReadinessReason =
   | 'MISSING_REQUIRED_EVIDENCE'
   | 'MISSING_PHOTOS'
   | 'EXECUTION_NOT_OBSERVED'
+  | 'AWAITING_CONTRACT_REVIEW'
+  | 'APPROVED_PENDING_DISPATCH'
   | 'WAITING_CUSTOMER_ACCEPTANCE'
+  | 'CUSTOMER_CORRECTION_REQUESTED'
+  | 'OPEN_CORRECTION_ITEMS'
   | 'RETURNED_FOR_CORRECTION'
   | 'MEASUREMENT_REJECTED'
   | 'RULE_UNRESOLVED'
@@ -107,7 +124,11 @@ export const READINESS_REASON_LABEL: Record<ReadinessReason, string> = {
   MISSING_REQUIRED_EVIDENCE: 'Falta a evidência exigida pelo contrato',
   MISSING_PHOTOS: 'Faltam registros fotográficos exigidos',
   EXECUTION_NOT_OBSERVED: 'Nenhuma evidência de execução foi observada',
-  WAITING_CUSTOMER_ACCEPTANCE: 'Aguardando aceite do cliente',
+  AWAITING_CONTRACT_REVIEW: 'Aguardando a análise da Gestão de Contratos',
+  APPROVED_PENDING_DISPATCH: 'Aprovada internamente — ainda não enviada à contratante',
+  WAITING_CUSTOMER_ACCEPTANCE: 'Aguardando aceite da contratante',
+  CUSTOMER_CORRECTION_REQUESTED: 'A contratante pediu correção',
+  OPEN_CORRECTION_ITEMS: 'Há itens de correção em aberto',
   RETURNED_FOR_CORRECTION: 'Pacote devolvido para correção',
   MEASUREMENT_REJECTED: 'Medição rejeitada',
   RULE_UNRESOLVED: 'A regra contratual desta medição não foi resolvida',
@@ -199,6 +220,8 @@ export interface MeasurementReadiness {
   readonly evidenceCount: number;
   readonly validatedEvidenceCount: number;
   readonly blockingObligations: number;
+  /** Itens de correção em aberto. Zero é zero; a ausência de rodada também. */
+  readonly openCorrectionItems: number;
   readonly ruleResolved: boolean;
   readonly timelineMapped: boolean;
   readonly occurrenceState: OccurrenceState;
@@ -243,6 +266,17 @@ export interface ProjectMeasurementRow {
   readonly submitted_at: string | null;
   readonly rejected_at: string | null;
   readonly returned_at: string | null;
+  readonly review_started_at: string | null;
+  readonly approved_for_customer_at: string | null;
+  readonly sent_to_customer_at: string | null;
+  readonly customer_correction_at: string | null;
+  readonly customer_correction_reason: string | null;
+  readonly customer_due_at: string | null;
+  readonly return_reason: string | null;
+  readonly rejection_reason: string | null;
+  readonly open_correction_count: number;
+  readonly dispatch_count: number;
+  readonly last_dispatch_at: string | null;
   readonly origin: 'manual' | 'candidate_materialization' | 'event';
   readonly created_at: string;
   readonly updated_at: string;
@@ -336,6 +370,14 @@ export interface MeasurementPackage {
   readonly evidence: readonly MeasurementEvidenceRow[];
   readonly history: readonly MeasurementHistoryRow[];
   readonly readiness: MeasurementReadiness;
+  /**
+   * A lista EXATA do que corrigir, quando alguém pediu correção. Vazia é vazia;
+   * não significa "nada a corrigir" quando a consulta falhou — o chamador
+   * distingue os dois casos por erro, não por lista vazia.
+   */
+  readonly corrections: readonly MeasurementCorrectionItemRow[];
+  /** Cada remessa à Contratante, da mais recente para a primeira. */
+  readonly dispatches: readonly MeasurementCustomerDispatchRow[];
 }
 
 /**
@@ -364,6 +406,7 @@ export function parseReadiness(raw: unknown, computedAt: string | null = null): 
     evidenceCount: Number(r.evidence_count ?? 0),
     validatedEvidenceCount: Number(r.validated_evidence_count ?? 0),
     blockingObligations: Number(r.blocking_obligations ?? 0),
+    openCorrectionItems: Number(r.open_correction_items ?? 0),
     ruleResolved: r.rule_resolved === true,
     timelineMapped: r.timeline_mapped === true,
     occurrenceState: r.occurrence_state === 'unresolved' ? 'unresolved' : 'resolved',
@@ -375,4 +418,222 @@ export function parseReadiness(raw: unknown, computedAt: string | null = null): 
 /** Rótulo humano de uma razão, sem inventar texto para código desconhecido. */
 export function readinessReasonLabel(code: string): string {
   return READINESS_REASON_LABEL[code as ReadinessReason] ?? code;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ANÁLISE CONTRATUAL, CORREÇÃO E ACEITE DA CONTRATANTE (migrations 192–194)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Os estados em que a medição espera alguém de CONTRATOS — ou espera o Projeto
+ * corrigir algo que Contratos pediu.
+ *
+ * É esta lista, e não um campo novo, que define a fila de Aprovações. Um campo
+ * `in_review boolean` ao lado do estado seria a segunda verdade que se
+ * desencontra da primeira na primeira exceção.
+ */
+export const REVIEW_QUEUE_STATUSES: readonly MeasurementStatus[] = [
+  'SUBMITTED',
+  'UNDER_REVIEW',
+  'APPROVED_FOR_CUSTOMER',
+  'AWAITING_CUSTOMER_ACCEPTANCE',
+  'CUSTOMER_CORRECTION_REQUESTED',
+  'RETURNED_FOR_CORRECTION',
+];
+
+/** Agrupamento da fila por QUEM tem o próximo passo. */
+export type ReviewBucket =
+  | 'AWAITING_CONTRACT_REVIEW'
+  | 'IN_CONTRACT_REVIEW'
+  | 'AWAITING_DISPATCH'
+  | 'AWAITING_CUSTOMER'
+  | 'AWAITING_PROJECT_CORRECTION';
+
+export const REVIEW_BUCKET_LABEL: Record<ReviewBucket, string> = {
+  AWAITING_CONTRACT_REVIEW: 'Aguardando análise',
+  IN_CONTRACT_REVIEW: 'Em análise',
+  AWAITING_DISPATCH: 'Aprovada para envio ao cliente',
+  AWAITING_CUSTOMER: 'Aguardando aceite da contratante',
+  AWAITING_PROJECT_CORRECTION: 'Correção solicitada',
+};
+
+/** Ordem de exibição: o que espera Contratos primeiro; o que espera terceiros depois. */
+export const REVIEW_BUCKET_ORDER: readonly ReviewBucket[] = [
+  'AWAITING_CONTRACT_REVIEW',
+  'IN_CONTRACT_REVIEW',
+  'AWAITING_PROJECT_CORRECTION',
+  'AWAITING_DISPATCH',
+  'AWAITING_CUSTOMER',
+];
+
+/**
+ * O bucket de um estado. Total e explícito — sem ramo `default`, para que um
+ * estado novo na máquina quebre a compilação em vez de cair num balde errado.
+ */
+export function reviewBucketOf(status: MeasurementStatus): ReviewBucket | null {
+  switch (status) {
+    case 'SUBMITTED': return 'AWAITING_CONTRACT_REVIEW';
+    case 'UNDER_REVIEW': return 'IN_CONTRACT_REVIEW';
+    case 'APPROVED_FOR_CUSTOMER': return 'AWAITING_DISPATCH';
+    case 'AWAITING_CUSTOMER_ACCEPTANCE': return 'AWAITING_CUSTOMER';
+    case 'CUSTOMER_CORRECTION_REQUESTED':
+    case 'RETURNED_FOR_CORRECTION': return 'AWAITING_PROJECT_CORRECTION';
+    case 'PLANNED':
+    case 'IN_PREPARATION':
+    case 'READY_FOR_SUBMISSION':
+    case 'ACCEPTED':
+    case 'REJECTED':
+    case 'CANCELLED':
+    case 'SUPERSEDED': return null;
+  }
+}
+
+/** A natureza do trabalho que resolve um item de correção (§2 do plano). */
+export type CorrectionCategory =
+  | 'operacional' | 'documental' | 'medicao' | 'aprovacao_interna' | 'aceite_externo';
+
+export const CORRECTION_CATEGORY_LABEL: Record<CorrectionCategory, string> = {
+  operacional: 'Operacional',
+  documental: 'Documental',
+  medicao: 'Medição',
+  aprovacao_interna: 'Aprovação interna',
+  aceite_externo: 'Aceite externo',
+};
+
+/** Quem pediu a correção. A Contratante não escreve no Apex; alguém transcreve. */
+export type CorrectionSide = 'contract_management' | 'customer';
+
+export const CORRECTION_SIDE_LABEL: Record<CorrectionSide, string> = {
+  contract_management: 'Gestão de Contratos',
+  customer: 'Contratante',
+};
+
+export interface MeasurementCorrectionItemRow {
+  readonly id: string;
+  readonly measurement_id: string;
+  readonly round: number;
+  readonly requested_by_side: CorrectionSide;
+  readonly requested_by_user_id: string | null;
+  readonly requested_at: string;
+  readonly item: string;
+  readonly requirement_kind: RequirementKind | null;
+  readonly category: CorrectionCategory;
+  readonly resolved_at: string | null;
+  readonly resolved_by: string | null;
+  readonly resolution_note: string | null;
+}
+
+export type DispatchChannel = 'email' | 'portal' | 'protocol' | 'courier' | 'meeting' | 'other';
+
+export const DISPATCH_CHANNEL_LABEL: Record<DispatchChannel, string> = {
+  email: 'E-mail',
+  portal: 'Portal do cliente',
+  protocol: 'Protocolo',
+  courier: 'Portador',
+  meeting: 'Reunião',
+  other: 'Outro',
+};
+
+export interface MeasurementCustomerDispatchRow {
+  readonly id: string;
+  readonly measurement_id: string;
+  readonly attempt: number;
+  readonly sent_by_user_id: string | null;
+  readonly customer_party_id: string | null;
+  readonly customer_contact: string | null;
+  readonly sent_at: string;
+  readonly channel: DispatchChannel;
+  readonly external_reference: string | null;
+  readonly due_at: string | null;
+  readonly note: string | null;
+  readonly document_ids: readonly string[];
+}
+
+// ─── Responsáveis ──────────────────────────────────────────────────────────
+
+export type StakeholderRole =
+  | 'project_manager' | 'contract_manager' | 'milestone_owner'
+  | 'measurement_responsible' | 'billing_owner' | 'finance_owner';
+
+export const STAKEHOLDER_ROLE_LABEL: Record<StakeholderRole, string> = {
+  project_manager: 'Gestor do Projeto',
+  contract_manager: 'Gestor de Contratos',
+  milestone_owner: 'Responsável pelo marco',
+  measurement_responsible: 'Responsável pela medição',
+  billing_owner: 'Responsável pelo faturamento',
+  finance_owner: 'Responsável financeiro',
+};
+
+/**
+ * `RESPONSIBLE_UNDEFINED` é resposta de primeira classe, e aparece na tela com
+ * essas palavras. Um destinatário "mais ou menos certo" é pior que um
+ * responsável ausente e declarado: o primeiro parece resolvido.
+ */
+export type StakeholderResolution = 'RESOLVED' | 'RESPONSIBLE_UNDEFINED';
+
+export interface MeasurementStakeholder {
+  readonly role: StakeholderRole;
+  readonly userId: string | null;
+  readonly resolution: StakeholderResolution;
+  /** De onde o responsável sairia. Presente mesmo quando não saiu. */
+  readonly source: string;
+}
+
+export const RESPONSIBLE_UNDEFINED_LABEL = 'Responsável não definido';
+
+// ─── SLA ───────────────────────────────────────────────────────────────────
+
+export type SlaStage =
+  | 'CONTRACT_REVIEW' | 'CUSTOMER_DISPATCH' | 'CUSTOMER_ACCEPTANCE' | 'PROJECT_CORRECTION';
+
+export const SLA_STAGE_LABEL: Record<SlaStage, string> = {
+  CONTRACT_REVIEW: 'Análise contratual',
+  CUSTOMER_DISPATCH: 'Envio à contratante',
+  CUSTOMER_ACCEPTANCE: 'Aceite da contratante',
+  PROJECT_CORRECTION: 'Correção pelo projeto',
+};
+
+/**
+ * `NOT_ASSESSED` NÃO é "no prazo": é "ninguém declarou o prazo". A diferença é
+ * a mesma de `UNKNOWN` na prontidão, e por isso o vocabulário é o mesmo.
+ */
+export type SlaState = 'ON_TIME' | 'WARNING' | 'OVERDUE' | 'NOT_ASSESSED' | 'NOT_APPLICABLE';
+
+export const SLA_STATE_LABEL: Record<SlaState, string> = {
+  ON_TIME: 'No prazo',
+  WARNING: 'Perto do prazo',
+  OVERDUE: 'Vencido',
+  NOT_ASSESSED: 'Prazo não declarado',
+  NOT_APPLICABLE: 'Sem prazo nesta etapa',
+};
+
+export interface MeasurementSla {
+  readonly stage: SlaStage | null;
+  readonly state: SlaState;
+  readonly since: string | null;
+  readonly dueAt: string | null;
+  readonly daysRemaining: number | null;
+  readonly escalated: boolean;
+  readonly escalationTargetUserId: string | null;
+  /** Por que não há prazo: `NO_POLICY` ou `NO_DECLARED_TERM`. */
+  readonly reason: string | null;
+}
+
+export function parseSla(raw: unknown): MeasurementSla {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const states: readonly SlaState[] = ['ON_TIME', 'WARNING', 'OVERDUE', 'NOT_ASSESSED', 'NOT_APPLICABLE'];
+  const stages: readonly SlaStage[] =
+    ['CONTRACT_REVIEW', 'CUSTOMER_DISPATCH', 'CUSTOMER_ACCEPTANCE', 'PROJECT_CORRECTION'];
+  return {
+    stage: stages.includes(r.stage as SlaStage) ? (r.stage as SlaStage) : null,
+    // Estado irreconhecível cai para NOT_ASSESSED, nunca para ON_TIME: um
+    // parse que falhou não pode afirmar que está tudo em ordem.
+    state: states.includes(r.state as SlaState) ? (r.state as SlaState) : 'NOT_ASSESSED',
+    since: (r.since as string | null) ?? null,
+    dueAt: (r.due_at as string | null) ?? null,
+    daysRemaining: r.days_remaining == null ? null : Number(r.days_remaining),
+    escalated: r.escalated === true,
+    escalationTargetUserId: (r.escalation_target_user_id as string | null) ?? null,
+    reason: (r.reason as string | null) ?? null,
+  };
 }

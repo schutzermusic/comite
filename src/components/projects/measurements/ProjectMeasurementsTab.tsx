@@ -37,8 +37,10 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { cn } from '@/lib/utils';
 import {
   ensureMeasurementForMilestone, getMeasurementPackage, MeasurementError,
+  resolvePreAnalysis, resolveSla,
 } from '@/lib/projects/measurements/measurement-service';
-import type { MeasurementPackage } from '@/lib/projects/measurements/types';
+import type { MeasurementPackage, MeasurementSla } from '@/lib/projects/measurements/types';
+import type { PreAnalysisSummary } from '@/lib/projects/measurements/preanalysis';
 import {
   hasGovernedContractLink, listProjectContractEvents,
 } from '@/lib/services/project-contract-events';
@@ -57,6 +59,8 @@ import {
 import { MilestoneFacetRow } from '@/components/projects/milestone/MilestoneFacets';
 import { MeasurementPackageView } from './MeasurementPackageView';
 import { EvidenceWorkspace } from './EvidenceWorkspace';
+import { MeasurementPreAnalysisPanel } from './MeasurementPreAnalysisPanel';
+import { MeasurementReviewPanel } from './MeasurementReviewPanel';
 
 const fmtDate = (iso: string | null) =>
   (iso ? iso.slice(0, 10).split('-').reverse().join('/') : '—');
@@ -122,20 +126,37 @@ function WorkItemDetail({
   const { notify } = useHudToast();
   const { hasPermission } = usePermissions();
   const [pkg, setPkg] = useState<MeasurementPackage | null>(null);
+  const [preAnalysis, setPreAnalysis] = useState<PreAnalysisSummary | null>(null);
+  const [sla, setSla] = useState<MeasurementSla | null>(null);
   const [pkgError, setPkgError] = useState<string | null>(null);
   const [loadingPkg, setLoadingPkg] = useState(false);
   const [opening, setOpening] = useState(false);
+  const [pkgKey, setPkgKey] = useState(0);
 
   const measurementId = item.measurementId;
 
   useEffect(() => {
-    if (!measurementId) { setPkg(null); setPkgError(null); return; }
+    if (!measurementId) { setPkg(null); setPreAnalysis(null); setSla(null); setPkgError(null); return; }
     let alive = true;
     setLoadingPkg(true);
     void (async () => {
       try {
-        const loaded = await getMeasurementPackage(measurementId);
-        if (alive) { setPkg(loaded); setPkgError(null); }
+        /*
+          Pacote, parecer e prazo vêm JUNTOS, e num instante só. Três idas
+          separadas produziriam três instantes do mesmo item na mesma tela — e
+          é assim que "pronto para enviar" e "falta o relatório" aparecem lado
+          a lado.
+
+          Parecer e prazo são TOLERANTES a falha: eles são leitura auxiliar, e
+          derrubar o pacote inteiro porque o SLA não respondeu esconderia as
+          exigências, que são o conteúdo principal.
+        */
+        const [loaded, analysis, slaRow] = await Promise.all([
+          getMeasurementPackage(measurementId),
+          resolvePreAnalysis(measurementId).catch(() => null),
+          resolveSla(measurementId).catch(() => null),
+        ]);
+        if (alive) { setPkg(loaded); setPreAnalysis(analysis); setSla(slaRow); setPkgError(null); }
       } catch (e) {
         // Pacote indisponível não é pacote vazio. Dizer "sem exigências"
         // quando a consulta falhou afirmaria ausência que ninguém verificou.
@@ -145,7 +166,12 @@ function WorkItemDetail({
       }
     })();
     return () => { alive = false; };
-  }, [measurementId]);
+  }, [measurementId, pkgKey]);
+
+  const reloadPackage = useCallback(() => {
+    setPkgKey((k) => k + 1);
+    onEvidenceChanged();
+  }, [onEvidenceChanged]);
 
   /*
     ABRIR A MEDIÇÃO — ato humano, nunca efeito de carregamento.
@@ -262,6 +288,24 @@ function WorkItemDetail({
           <MeasurementPackageView pkg={pkg} />
         ) : null}
       </section>
+
+      {/*
+        PRÉ-ANÁLISE e ANÁLISE CONTRATUAL só existem quando a instância canônica
+        existe. Antes dela não há o que pré-analisar nem o que enviar — e
+        oferecer os dois botões sobre trabalho apenas previsto convidaria a
+        criar medição para "ter onde clicar".
+      */}
+      {measurementId && pkg && (
+        <>
+          <MeasurementPreAnalysisPanel
+            measurementId={measurementId}
+            summary={preAnalysis}
+            canRun={canOpen}
+            onAnalyzed={reloadPackage}
+          />
+          <MeasurementReviewPanel pkg={pkg} sla={sla} onChanged={reloadPackage} />
+        </>
+      )}
 
       {/* ── AS SAÍDAS — o mesmo marco, nas outras telas ── */}
       <div className="flex flex-wrap items-center gap-3 border-t border-ig-border-subtle pt-3 text-[11px]">

@@ -49,6 +49,14 @@ export type MilestoneStage =
   | 'CANCELLED'
   | 'BILLED'
   | 'READY_TO_BILL'
+  /**
+   * Em ANÁLISE CONTRATUAL — o pacote está com a Gestão de Contratos.
+   *
+   * Distinto de `AWAITING_ACCEPTANCE` desde a migration 192, e a distinção é o
+   * ponto: "esperando a gente" e "esperando o cliente" tinham o mesmo rótulo, e
+   * era entre os dois que morava o prazo que ninguém conseguia cobrar.
+   */
+  | 'AWAITING_CONTRACT_REVIEW'
   | 'AWAITING_ACCEPTANCE'
   | 'AWAITING_EVIDENCE'
   | 'BLOCKED'
@@ -106,6 +114,10 @@ export const STAGE: Record<MilestoneStage, StageDescriptor> = {
   READY_TO_BILL: {
     stage: 'READY_TO_BILL', label: 'Elegível para faturar', tone: 'positive',
     dashed: false, group: 'READY_TO_BILL', triggerAssessed: true,
+  },
+  AWAITING_CONTRACT_REVIEW: {
+    stage: 'AWAITING_CONTRACT_REVIEW', label: 'Em análise contratual', tone: 'accent',
+    dashed: false, group: 'AWAITING_EVIDENCE_OR_ACCEPTANCE', triggerAssessed: true,
   },
   AWAITING_ACCEPTANCE: {
     stage: 'AWAITING_ACCEPTANCE', label: 'Em aceite', tone: 'attention',
@@ -180,6 +192,8 @@ export function portfolioBillingStageLabel(
       return 'Não apurado';
     case 'READY_TO_BILL':
       return 'Elegível para faturar';
+    case 'AWAITING_CONTRACT_REVIEW':
+      return 'Em medição';
     case 'AWAITING_ACCEPTANCE':
       return 'Aguardando aceite';
     case 'AWAITING_EVIDENCE':
@@ -346,8 +360,31 @@ export function deriveStage(row: MilestoneWorkbenchRow): StageDescriptor {
 
   // ── Medição operacional em curso ───────────────────────────────────────
   if (row.measurementId !== null) {
-    if (row.measurementStatus === 'SUBMITTED' || row.measurementStatus === 'UNDER_REVIEW') {
+    /*
+      A cadeia interna e a externa são estágios DIFERENTES.
+
+      `SUBMITTED`, `UNDER_REVIEW` e `APPROVED_FOR_CUSTOMER` são trabalho de
+      casa: o pacote está com a Gestão de Contratos, e aprovar para envio é ato
+      interno. Só `AWAITING_CUSTOMER_ACCEPTANCE` é espera do cliente.
+
+      Colapsar os quatro em "Em aceite" — como era antes da 192 — fazia um
+      pacote que nem saiu da empresa aparecer como se estivesse na mesa do
+      cliente, e é exatamente essa confusão que impedia cobrar o prazo certo de
+      quem de fato o detinha.
+    */
+    if (row.measurementStatus === 'SUBMITTED'
+        || row.measurementStatus === 'UNDER_REVIEW'
+        || row.measurementStatus === 'APPROVED_FOR_CUSTOMER') {
+      return STAGE.AWAITING_CONTRACT_REVIEW;
+    }
+    if (row.measurementStatus === 'AWAITING_CUSTOMER_ACCEPTANCE') {
       return STAGE.AWAITING_ACCEPTANCE;
+    }
+    // Correção pedida — por Contratos ou pela Contratante — é trabalho de
+    // evidência do projeto, e é assim que a fila do marco o apresenta.
+    if (row.measurementStatus === 'RETURNED_FOR_CORRECTION'
+        || row.measurementStatus === 'CUSTOMER_CORRECTION_REQUESTED') {
+      return STAGE.AWAITING_EVIDENCE;
     }
     if (row.measurementReadiness === 'INCOMPLETE') return STAGE.AWAITING_EVIDENCE;
     if (row.measurementReadiness === 'READY') return STAGE.READY_TO_MEASURE;
@@ -400,7 +437,9 @@ export function deriveOverlays(
   // amarrar a sobreposição a `READY_TO_BILL` a fazia sumir exatamente quando o
   // aceite passou a ser exigido. O previsto do contrato NÃO preenche a lacuna.
   const claimsApuration = claimsMeasured(row) || acceptanceSatisfied(row)
-    || row.measurementStatus === 'SUBMITTED' || row.measurementStatus === 'UNDER_REVIEW';
+    || row.measurementStatus === 'SUBMITTED' || row.measurementStatus === 'UNDER_REVIEW'
+    || row.measurementStatus === 'APPROVED_FOR_CUSTOMER'
+    || row.measurementStatus === 'AWAITING_CUSTOMER_ACCEPTANCE';
   if (claimsApuration && row.measuredAmount === null && row.acceptedValue === null
       && row.status !== 'cancelled') {
     out.push('VALUE_UNVERIFIED');
@@ -561,6 +600,8 @@ export function deriveAction(assessment: MilestoneAssessment): MilestoneAction {
       return { kind: 'open_measurement', label: 'Abrir medição em Projetos', primary: false, projectId };
     case 'AWAITING_EVIDENCE':
       return { kind: 'attach_evidence', label: 'Vincular evidência', primary: false, projectId };
+    case 'AWAITING_CONTRACT_REVIEW':
+      return { kind: 'open_measurement', label: 'Ver análise contratual', primary: false, projectId };
     case 'AWAITING_ACCEPTANCE':
       return { kind: 'open_measurement', label: 'Acompanhar aceite', primary: false, projectId };
     case 'BLOCKED':

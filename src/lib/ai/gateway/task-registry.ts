@@ -16,6 +16,7 @@ export const CURRENT_PRODUCTION_TASKS = [
   'PROJECT_SCHEDULE_EXTRACTION',
   'CONTRACT_OPERATIONALIZATION',
   'CONTRACT_AMENDMENT_EXTRACTION',
+  'MEASUREMENT_EVIDENCE_PREANALYSIS',
 ] as const;
 
 export type ApexAIProductionTask = (typeof CURRENT_PRODUCTION_TASKS)[number];
@@ -130,6 +131,20 @@ export function getApexAITaskPolicy(task: ApexAITask): ApexAITaskPolicy {
     MEETING_MINUTES: normal(),
     PROJECT_SCHEDULE_EXTRACTION: highRisk({ maxTokens: 64_000, timeoutMs: 120_000, stream: true }),
     ASO_EXTRACTION: highRisk({ maxTokens: 1500 }),
+    /*
+      PRÉ-ANÁLISE DE EVIDÊNCIA DE MEDIÇÃO.
+
+      `highRisk` porque o parecer é lido por quem decide se um pacote de medição
+      vai ao cliente — e um "atendido" errado aqui é um pacote errado saindo com
+      a assinatura da empresa. A postura alta NÃO é sobre o modelo custar mais:
+      é sobre não haver fallback silencioso e o raciocínio ficar alto.
+
+      O teto de saída é modesto de propósito. O pedido é UM documento contra, no
+      máximo, sete exigências, e cada achado é um parágrafo com trecho e página.
+      Um teto largo aqui só compraria espaço para o modelo divagar sobre um PDF
+      que ele deveria estar conferindo.
+    */
+    MEASUREMENT_EVIDENCE_PREANALYSIS: highRisk({ maxTokens: 8_000, timeoutMs: 120_000 }),
     COMPLEX_ESCALATION: explicitEscalation(),
   };
   return policies[task];

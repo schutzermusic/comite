@@ -38,6 +38,19 @@ export const EVENT_TYPES = [
   'projects.measurement.ready_for_submission',
   'projects.measurement.submitted',
   'projects.measurement.returned_for_correction',
+  /*
+    A análise contratual, nomeada (migration 192).
+
+    Estes cinco fatos existiam como acontecimentos e não como eventos: antes da
+    192, "aprovado para envio" e "enviado ao cliente" eram ambos
+    `projects.measurement.submitted`, e nenhum consumidor conseguia distinguir
+    "esperando a gente" de "esperando o cliente".
+  */
+  'projects.measurement.review_started',
+  'projects.measurement.resubmitted',
+  'projects.measurement.approved_for_customer',
+  'projects.measurement.sent_to_customer',
+  'projects.measurement.customer_correction_requested',
   'projects.measurement.accepted',
   'projects.measurement.rejected',
   'projects.measurement.cancelled',
@@ -134,6 +147,11 @@ export const EVENT_SCHEMAS = {
   'projects.measurement.ready_for_submission': { 1: measurementPayload },
   'projects.measurement.submitted': { 1: measurementPayload },
   'projects.measurement.returned_for_correction': { 1: measurementPayload },
+  'projects.measurement.review_started': { 1: measurementPayload },
+  'projects.measurement.resubmitted': { 1: measurementPayload },
+  'projects.measurement.approved_for_customer': { 1: measurementPayload },
+  'projects.measurement.sent_to_customer': { 1: measurementPayload },
+  'projects.measurement.customer_correction_requested': { 1: measurementPayload },
   'projects.measurement.accepted': { 1: measurementAcceptedPayload },
   'projects.measurement.rejected': { 1: measurementPayload },
   'projects.measurement.cancelled': { 1: measurementPayload },

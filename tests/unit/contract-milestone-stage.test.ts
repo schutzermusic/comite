@@ -77,11 +77,35 @@ describe('deriveStage — matriz de estágios', () => {
     expect(deriveStage(mapped({ timelineActualFinish: '2026-03-01' })).stage).toBe('READY_TO_MEASURE');
   });
 
-  it('medição submetida → AWAITING_ACCEPTANCE', () => {
+  /*
+    Este teste asseverava que submetida e em análise caíam em
+    AWAITING_ACCEPTANCE. A migration 192 separou as duas esperas, e a separação
+    é o ponto: "esperando a Gestão de Contratos" e "esperando a Contratante" são
+    prazos de pessoas diferentes, e é entre os dois que morava o SLA que ninguém
+    conseguia cobrar.
+  */
+  it('medição em análise contratual → AWAITING_CONTRACT_REVIEW', () => {
     expect(deriveStage(mapped({ measurementId: 'x', measurementStatus: 'SUBMITTED' })).stage)
-      .toBe('AWAITING_ACCEPTANCE');
+      .toBe('AWAITING_CONTRACT_REVIEW');
     expect(deriveStage(mapped({ measurementId: 'x', measurementStatus: 'UNDER_REVIEW' })).stage)
-      .toBe('AWAITING_ACCEPTANCE');
+      .toBe('AWAITING_CONTRACT_REVIEW');
+    // Aprovar para envio é ato INTERNO: continua sendo trabalho de casa.
+    expect(deriveStage(mapped({ measurementId: 'x', measurementStatus: 'APPROVED_FOR_CUSTOMER' })).stage)
+      .toBe('AWAITING_CONTRACT_REVIEW');
+  });
+
+  it('só o pacote ENVIADO ao cliente → AWAITING_ACCEPTANCE', () => {
+    expect(deriveStage(mapped({
+      measurementId: 'x', measurementStatus: 'AWAITING_CUSTOMER_ACCEPTANCE',
+    })).stage).toBe('AWAITING_ACCEPTANCE');
+  });
+
+  it('nenhum estado da análise contratual alcança READY_TO_BILL', () => {
+    for (const st of ['SUBMITTED', 'UNDER_REVIEW', 'APPROVED_FOR_CUSTOMER',
+      'AWAITING_CUSTOMER_ACCEPTANCE'] as const) {
+      expect(deriveStage(mapped({ measurementId: 'x', measurementStatus: st })).stage)
+        .not.toBe('READY_TO_BILL');
+    }
   });
 
   it('prontidão INCOMPLETE → AWAITING_EVIDENCE', () => {

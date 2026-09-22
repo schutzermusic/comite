@@ -69,6 +69,7 @@ import { StructuredObligationsPanel } from '@/components/contracts/intelligence/
 import { useStructuredObligations } from '@/components/contracts/use-structured-obligations';
 import { RenewalHorizonPanel } from '@/components/contracts/intelligence/RenewalHorizonPanel';
 import { ApprovalIntelligencePanel } from '@/components/contracts/intelligence/ApprovalIntelligencePanel';
+import { MeasurementReviewQueue } from '@/components/contracts/measurement-review/MeasurementReviewQueue';
 import { ApprovalEngineStatusBanner } from '@/components/contracts/intelligence/ApprovalEngineStatusBanner';
 import { PortfolioApprovalRequirementsPanel } from '@/components/contracts/intelligence/PortfolioApprovalRequirementsPanel';
 import { usePortfolioApprovalRequirements } from '@/components/contracts/use-portfolio-approval-requirements';
@@ -1389,6 +1390,24 @@ export default function ContratosPage() {
       icon: <ShieldCheck className="h-4 w-4" />,
       content: (
         <div className="space-y-4">
+        {/*
+          A FILA DE MEDIÇÕES vem primeiro, e o motivo é o mesmo que trouxe o
+          cockpit mensal para o topo de Faturamentos: a primeira pergunta de
+          quem abre Aprovações é "o que está esperando a minha análise?". As
+          aprovações de CONTRATO (alçada, quórum, motor) continuam abaixo —
+          são outro assunto, com outra autoridade.
+        */}
+        <DossierSection
+          title="Medições aguardando análise contratual"
+          hint="O mesmo item que o Projeto enviou — mesmo id, mesmo estado. Analisar, pedir correção, aprovar para envio e registrar o aceite da contratante."
+        >
+          <MeasurementReviewQueue
+            contractIds={filteredRecords.map((record) => record.contract.id)}
+            focusMeasurementId={searchParams.get('measurement')}
+            refreshKey={portfolioSyncKey}
+          />
+        </DossierSection>
+
         <ApprovalEngineStatusBanner />
         <PortfolioApprovalRequirementsPanel
           requirements={approvalRequirements.requirements}
