@@ -17,6 +17,7 @@ export const CURRENT_PRODUCTION_TASKS = [
   'CONTRACT_OPERATIONALIZATION',
   'CONTRACT_AMENDMENT_EXTRACTION',
   'MEASUREMENT_EVIDENCE_PREANALYSIS',
+  'COMMERCIAL_DOCUMENT_EXTRACTION',
 ] as const;
 
 export type ApexAIProductionTask = (typeof CURRENT_PRODUCTION_TASKS)[number];
@@ -145,6 +146,28 @@ export function getApexAITaskPolicy(task: ApexAITask): ApexAITaskPolicy {
       que ele deveria estar conferindo.
     */
     MEASUREMENT_EVIDENCE_PREANALYSIS: highRisk({ maxTokens: 8_000, timeoutMs: 120_000 }),
+    /*
+      LEITURA DE DOCUMENTO COMERCIAL — proposta técnica, proposta comercial,
+      pedido de compra, autorização do cliente e OS interna.
+
+      Uma tarefa só para os cinco papéis, e não cinco tarefas, porque a
+      POSTURA é a mesma: alto risco sem fallback silencioso, saída estruturada,
+      e cada fato obrigado a apontar página e trecho. O que muda entre papéis
+      é a PERGUNTA, e pergunta mora no prompt
+      (`src/lib/commercial/document-intelligence.ts`), não na política.
+
+      `highRisk` porque o que sai daqui vira, depois de confirmação humana,
+      regra de medição e condição de faturamento. Um "valor total" lido errado
+      não produz um texto ruim: produz uma cobrança errada.
+
+      24k de saída e streaming pelo mesmo motivo da 165: o SDK da Anthropic
+      recusa requisição não-stream acima de ~21,3k. Uma proposta técnica de
+      80 páginas com escopo, entregáveis, exclusões e dependências produz
+      saída longa, e truncá-la entregaria leitura parcial com cara de completa.
+    */
+    COMMERCIAL_DOCUMENT_EXTRACTION: highRisk({
+      maxTokens: 24_000, timeoutMs: 180_000, stream: true,
+    }),
     COMPLEX_ESCALATION: explicitEscalation(),
   };
   return policies[task];

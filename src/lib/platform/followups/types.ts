@@ -17,6 +17,14 @@ export type FollowupState =
   | 'ESCALATED'
   | 'CANCELLED';
 
+/**
+ * Espelha `apex_followup_source_kinds()` — a autoridade única da migration 206.
+ *
+ * Os quatro papéis comerciais entraram lá e faltavam aqui, e a defasagem tinha
+ * uma consequência concreta: o TypeScript recusava um acompanhamento de
+ * oportunidade que o banco aceitava sem pestanejar. Uma lista, dois lugares
+ * que precisam concordar — este é o segundo.
+ */
 export type FollowupSourceKind =
   | 'contract'
   | 'contract_clause'
@@ -24,7 +32,11 @@ export type FollowupSourceKind =
   | 'contract_billing_condition'
   | 'contract_risk'
   | 'contract_guarantee'
-  | 'contract_insurance_requirement';
+  | 'contract_insurance_requirement'
+  | 'commercial_opportunity'
+  | 'commercial_proposal'
+  | 'commercial_engagement'
+  | 'internal_service_order';
 
 export type VerificationMode = 'deterministic_evidence' | 'human_confirmation';
 

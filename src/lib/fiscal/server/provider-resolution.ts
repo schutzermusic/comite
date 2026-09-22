@@ -18,6 +18,7 @@ import {
 import { NFSE_NACIONAL_PROVIDER_KEY } from '../provider';
 import type { DpsIssuer, DpsRecipient, DpsService } from '../provider/nfse-nacional/dps';
 import { decryptFiscalSecret, decryptFiscalSecretBytes, hasFiscalSecretKey } from './secrets';
+import { assertRealFiscalIssuanceAllowed } from './issuance-guard';
 import { getFiscalServiceClient, resolveFiscalRecipient, reserveDpsNumber } from './store';
 import type { FiscalDocument, FiscalEnvironment, FiscalEstablishment, FiscalServiceCatalogEntry } from '../types';
 
@@ -109,6 +110,19 @@ export async function resolveDocumentProvider(
   if (!isRealProvider(providerKey)) {
     return { provider: getFiscalProvider({ providerKey }), providerKey, environment, establishment, dpsNumber };
   }
+
+  /*
+    PORTÃO DE AMBIENTE, antes de tudo.
+
+    Daqui para baixo o caminho lê segredo, monta certificado e constrói o
+    adaptador que fala com a Receita. O portão vem ANTES dessas três coisas de
+    propósito: se o processo não pode emitir de verdade, ele não deve nem
+    descriptografar o certificado para descobrir isso.
+
+    Fecha por padrão e é inalcançável sob runner de teste — ver
+    `./issuance-guard.ts`.
+  */
+  assertRealFiscalIssuanceAllowed(providerKey);
 
   // ---- provedor real: reunir o que ele exige, ou parar dizendo o que falta ----
   const missing: string[] = [];

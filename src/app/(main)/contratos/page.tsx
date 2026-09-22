@@ -8,10 +8,19 @@ import { PortfolioDocuments } from '@/components/contracts/portfolio/PortfolioDo
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   type SectionId,
+  type PostSaleSectionId,
   sectionLabels,
-  SECTION_BY_SLUG,
   sectionHref,
+  resolvePostSaleView,
+  PANELS_IN_SECTION,
+  SECTION_OF_PANEL,
+  POST_SALE_SECTION_ORDER,
+  postSaleSectionLabels,
+  postSaleSectionHref,
 } from '@/lib/contracts/portfolio-sections';
+import { CarteiraIntakeMenu } from '@/components/contracts/carteira/CarteiraIntakeMenu';
+import { CarteiraConsolidated } from '@/components/contracts/carteira/CarteiraConsolidated';
+import { ServiceOrdersWorkbench } from '@/components/contracts/service-orders/ServiceOrdersWorkbench';
 import type { Contract, Project } from '@/lib/types';
 import {
   deleteProject,
@@ -217,7 +226,14 @@ export default function ContratosPage() {
     que o voltar do navegador restaura e que um link compartilhado carrega.
   */
   const searchParams = useSearchParams();
-  const activeSection: SectionId = SECTION_BY_SLUG[searchParams.get('view') ?? ''] ?? 'overview';
+  /*
+    A URL carrega a FASE (cinco) e, dentro da Carteira, o CONTEXTO (um dos
+    painéis que eram destino próprio). `resolvePostSaleView` aceita os slugs
+    novos e os oito antigos, de modo que um link salvo para `?view=obrigacoes`
+    abre a Carteira já no contexto certo em vez de cair na visão geral.
+  */
+  const { section: activePhase, panel: activeSection } =
+    resolvePostSaleView(searchParams.get('view'));
   const setActiveSection = useCallback(
     (next: SectionId) => {
       // `push` (não `replace`): trocar de área é navegação, e voltar tem de
@@ -226,6 +242,12 @@ export default function ContratosPage() {
     },
     [router],
   );
+  const setActivePhase = useCallback(
+    (next: PostSaleSectionId) => { router.push(postSaleSectionHref(next), { scroll: false }); },
+    [router],
+  );
+  /** Os contextos que a Carteira oferece por dentro — nunca no menu lateral. */
+  const carteiraPanels = PANELS_IN_SECTION.carteira;
   const [riskTargetId, setRiskTargetId] = useState('');
   const [viewMode, setViewMode] = useState<ViewMode>('cards');
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -1538,18 +1560,24 @@ export default function ContratosPage() {
               anterior treinava o usuário a pensar em cadastro manual; este
               descreve o que o produto realmente faz.
             */}
+            {/*
+              "+ Adicionar" e não "Adicionar contrato": a Carteira recebe
+              trabalho autorizado por quatro caminhos, e só um deles é
+              contrato. Um botão que só sabe dizer "contrato" empurraria quem
+              tem uma proposta aceita a cadastrar um contrato que não existe.
+            */}
             {hasPermission('contracts.create') && !permissionsLoading ? (
-              <HudButton variant="primary" size="md" leftIcon={<Plus className="h-4 w-4" />} onClick={() => setUploadOpen(true)}>
-                Adicionar contrato
-              </HudButton>
+              <CarteiraIntakeMenu onUploadContract={() => setUploadOpen(true)} />
             ) : null}
           </div>
         }
       />
 
       <label className="flex items-center gap-3 text-xs text-ig-fg-muted lg:hidden">Área de trabalho
-        <select className="portfolio-select flex-1" aria-label="Área de contratos" value={activeSection} onChange={(event) => setActiveSection(event.target.value as SectionId)}>
-          {Object.entries(sectionLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+        <select className="portfolio-select flex-1" aria-label="Fase do pós-venda" value={activePhase} onChange={(event) => setActivePhase(event.target.value as PostSaleSectionId)}>
+          {POST_SALE_SECTION_ORDER.map((id) => (
+            <option key={id} value={id}>{postSaleSectionLabels[id]}</option>
+          ))}
         </select>
       </label>
       {(loading || error) && (
@@ -1663,8 +1691,42 @@ export default function ContratosPage() {
       */}
       <ContractOnboardingContinuity className="mt-5" />
 
+      {/*
+        CARTEIRA — o contexto do item, por dentro.
+
+        Contratos, renovações, obrigações, riscos e documentos eram cinco
+        endereços no menu. Continuam sendo cinco painéis, agora agrupados sob
+        a fase a que pertencem: são PROPRIEDADES do trabalho autorizado, e
+        procurá-las começa por achar o trabalho, não por escolher o objeto.
+      */}
+      {activePhase === 'carteira' && (
+        <nav className="mt-5 flex flex-wrap gap-2" aria-label="Contexto da carteira">
+          {carteiraPanels.map((panel) => (
+            <HudSignal
+              key={panel}
+              size="sm"
+              tone={panel === activeSection ? 'accent' : 'neutral'}
+              active={panel === activeSection}
+              onClick={() => setActiveSection(panel)}
+              label={sectionLabels[panel]}
+            />
+          ))}
+        </nav>
+      )}
+
       <div className="mt-5 min-w-0" data-testid="portfolio-workspace" aria-live="polite">
-        {tabs.find((tab) => tab.id === activeSection)?.content}
+        {/*
+          A Carteira CONSOLIDA todo trabalho autorizado — com contrato, por
+          proposta aceita, por pedido de compra — e por isso vem antes do
+          painel de contexto. O painel de contratos continua inteiro logo
+          abaixo: ele responde sobre o instrumento, não sobre o trabalho.
+        */}
+        {activePhase === 'carteira' && activeSection === 'contracts' && (
+          <CarteiraConsolidated className="mb-5" />
+        )}
+        {activePhase === 'serviceOrders'
+          ? <ServiceOrdersWorkbench />
+          : tabs.find((tab) => tab.id === activeSection)?.content}
       </div>
 
       <HistoryDrawer

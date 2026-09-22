@@ -155,8 +155,17 @@ test.beforeAll(async ({ browser }) => {
 
   await page.goto('/login');
   await page.locator('input[type="email"]').fill(qa.email);
-  await page.locator('input[type="password"]').fill(qa.password);
-  await page.getByRole('button', { name: 'Entrar' }).click();
+  /*
+    Envio por `Enter`, e não clique no botão.
+
+    A tela de login anima continuamente (inclinação 3D em framer-motion), e o
+    Playwright espera o alvo ficar "estável" antes de clicar — espera que nunca
+    termina. É flakiness ANTERIOR a este branch; a correção fica restrita às
+    specs da área afetada, que precisam rodar para esta verificação.
+  */
+  const passwordField = page.locator('input[type="password"]');
+  await passwordField.fill(qa.password);
+  await passwordField.press('Enter');
   await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 60_000 });
 });
 
@@ -1229,23 +1238,40 @@ test('20 · O dossiê nunca nega o vínculo de projeto que ele mesmo exibe', asy
 });
 
 /*
-  Fechamento do UI Architecture Gate: a navegação do módulo é a sidebar.
-  Estes testes cobrem o que o §9 pede — rota por área, estado ativo, voltar do
-  navegador, deep link direto e sidebar recolhida.
+  Navegação do pós-venda: a sidebar tem FASES, não objetos de domínio.
+
+  Estes testes cobriam as oito áreas antigas — uma por objeto (Contratos,
+  Renovações, Obrigações, Faturamentos, Aprovações, Riscos, Documentos, Visão
+  Geral). O menu passou a ter cinco FASES DE TRABALHO, e os cinco painéis que
+  são PROPRIEDADES de um item vivem dentro da Carteira.
+
+  O invariante testado não mudou de natureza — rota própria, estado ativo,
+  voltar do navegador, deep link — mudou o nível em que ele vale. E foi
+  acrescentado um invariante novo, que é o que torna a mudança segura: os
+  slugs antigos continuam resolvendo, e resolvem no CONTEXTO certo.
 */
-test('21 · Cada área da carteira tem rota própria, e a sidebar a marca', async () => {
+test('21 · Cada fase do pós-venda tem rota própria, e a sidebar a marca', async () => {
   await page.goto('/contratos');
 
   // Não pode restar uma segunda forma de navegar o mesmo nível.
   await expect(page.getByTestId('portfolio-nav')).toHaveCount(0);
 
-  const group = page.getByRole('button', { name: 'Contratos', exact: true }).first();
-  if ((await group.getAttribute('aria-expanded')) === 'false') await group.click();
+  /*
+    Quem abre o submenu é o botão de AÇÃO com a seta, não o item do grupo — o
+    item é um `<Link>` que navega. E o rótulo do botão alterna entre
+    "Expandir submenu de X" e "Recolher submenu de X", por isso o seletor casa
+    pelo sufixo: casar por "Expandir" encontra o controle só enquanto fechado.
+  */
+  const group = page
+    .locator('[data-sidebar="menu-action"][aria-label$="submenu de Gestão de Contratos"]').first();
+  await expect(group).toBeVisible({ timeout: 30_000 });
+  if ((await group.getAttribute('aria-expanded')) !== 'true') await group.click();
+  await expect(group).toHaveAttribute('aria-expanded', 'true', { timeout: 15_000 });
 
   for (const [label, slug] of [
-    ['Obrigações', 'obrigacoes'],
-    ['Faturamentos', 'faturamentos'],
-    ['Renovações', 'renovacoes'],
+    ['Carteira', 'carteira'],
+    ['Faturamento', 'faturamento'],
+    ['Medições & Aprovações', 'medicoes'],
   ] as const) {
     await page.getByRole('link', { name: label, exact: true }).first().click();
     await expect(page).toHaveURL(new RegExp(`\\?view=${slug}$`));
@@ -1254,17 +1280,43 @@ test('21 · Cada área da carteira tem rota própria, e a sidebar a marca', asyn
       .toHaveAttribute('aria-current', 'page');
   }
 
-  // Voltar devolve a área anterior, não sai da carteira.
+  // Voltar devolve a fase anterior, não sai da carteira.
   await page.goBack();
-  await expect(page).toHaveURL(/\?view=faturamentos$/);
+  await expect(page).toHaveURL(/\?view=faturamento$/);
   await page.goForward();
-  await expect(page).toHaveURL(/\?view=renovacoes$/);
+  await expect(page).toHaveURL(/\?view=medicoes$/);
 });
 
-test('22 · A área da carteira abre por deep link direto', async () => {
-  await page.goto('/contratos?view=obrigacoes');
-  await expect(page.getByRole('link', { name: 'Obrigações', exact: true }).first())
-    .toHaveAttribute('aria-current', 'page');
+test('22 · A fase abre por deep link, e o slug ANTIGO ainda chega ao contexto certo', async () => {
+  await page.goto('/contratos?view=carteira');
+  /*
+    O submenu precisa estar aberto para o item existir no DOM — e a prova 21
+    pode tê-lo recolhido, gravando a escolha em localStorage. Abrir aqui é
+    explícito de propósito: o que esta prova mede é o ESTADO ATIVO do item,
+    não se ele estava visível por acaso.
+  */
+  const group = page
+    .locator('[data-sidebar="menu-action"][aria-label$="submenu de Gestão de Contratos"]').first();
+  if ((await group.getAttribute('aria-expanded')) !== 'true') await group.click();
+  await expect(page.getByRole('link', { name: 'Carteira', exact: true }).first())
+    .toHaveAttribute('aria-current', 'page', { timeout: 20_000 });
+
+  /*
+    Compatibilidade de link salvo. `?view=obrigacoes` era um destino de menu e
+    deixou de ser; continuar respondendo 200 na visão geral seria "quebrar
+    devagar" — a URL funciona e leva ao lugar errado. Ela tem de abrir a
+    Carteira JÁ no contexto de obrigações.
+  */
+  for (const legacy of ['obrigacoes', 'renovacoes', 'documentos', 'riscos-clausulas']) {
+    await page.goto(`/contratos?view=${legacy}`);
+    await expect(page.getByTestId('portfolio-workspace')).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole('navigation', { name: 'Contexto da carteira' }))
+      .toBeVisible({ timeout: 20_000 });
+  }
+
+  // `?view=faturamentos` (plural, antigo) chega a Faturamento.
+  await page.goto('/contratos?view=faturamentos');
+  await expect(page.getByTestId('portfolio-workspace')).toBeVisible({ timeout: 20_000 });
 
   // Slug desconhecido não quebra a página: cai na visão geral.
   await page.goto('/contratos?view=nao-existe');
@@ -1278,8 +1330,15 @@ test('23 · Recolhida, a sidebar continua dando acesso às áreas', async () => 
   // A sidebar anima ao recolher; o alvo do hover só é estável depois disso.
   await expect(page.getByRole('button', { name: /Expandir/i }).first()).toBeVisible({ timeout: 10_000 });
 
-  // Oito rótulos não cabem em modo ícone: eles vêm no flyout do módulo.
-  const trigger = page.getByRole('link', { name: 'Contratos', exact: true }).first();
+  /*
+    Em modo ícone os rótulos vêm no flyout do módulo.
+
+    Duas coisas mudaram e esta prova acompanha: o módulo passou a se chamar
+    "Gestão de Contratos", e as OITO áreas viraram CINCO FASES. Os cinco itens
+    são o ponto — se voltassem a ser oito, a simplificação teria sido desfeita
+    e esta contagem acusaria.
+  */
+  const trigger = page.getByRole('link', { name: 'Gestão de Contratos', exact: true }).first();
   await trigger.hover();
   await trigger.focus(); // o Tooltip do Radix abre no foco também, e o teclado é caminho de primeira classe
   /*
@@ -1287,10 +1346,10 @@ test('23 · Recolhida, a sidebar continua dando acesso às áreas', async () => 
     cópia oculta para leitor de tela. As duas são o mesmo grupo acessível, e
     contar as duas quebraria o modo estrito sem indicar defeito algum.
   */
-  const flyout = page.getByRole('group', { name: 'Contratos' }).first();
+  const flyout = page.getByRole('group', { name: 'Gestão de Contratos' }).first();
   await expect(flyout).toBeVisible({ timeout: 15_000 });
-  await expect(flyout.getByRole('link')).toHaveCount(8);
-  await expect(flyout.getByRole('link', { name: 'Faturamentos' })).toBeVisible();
+  await expect(flyout.getByRole('link')).toHaveCount(5);
+  await expect(flyout.getByRole('link', { name: 'Faturamento', exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: /Expandir/i }).first().click();
 });

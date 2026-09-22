@@ -18,7 +18,10 @@
     "test:e2e:report": "playwright show-report",
     "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration --no-file-parallelism",
-    "verify:allowances": "tsx scripts/verify-allowance-eligibility.ts"
+    "verify:allowances": "tsx scripts/verify-allowance-eligibility.ts",
+    "test:integration:hygiene": "node scripts/commercial/fixture-drift-probe.mjs > /tmp/apex-drift-before.json && npm run test:integration; node scripts/commercial/fixture-drift-probe.mjs > /tmp/apex-drift-after.json && node scripts/commercial/fixture-drift-probe.mjs --check /tmp/apex-drift-before.json /tmp/apex-drift-after.json",
+    "verify:commercial": "node scripts/commercial/e2e-proof.mjs && node scripts/commercial/structural-invariants.mjs && node scripts/commercial/security-audit.mjs",
+    "fiscal:fixture-inventory": "node scripts/commercial/fiscal-fixture-inventory.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.96.0",

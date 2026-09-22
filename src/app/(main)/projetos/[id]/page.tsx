@@ -34,6 +34,7 @@ import {
 import { getProjectByIdAsync, getProjectV2ByIdAsync } from '@/lib/services/projects';
 import { TimelineTab } from '@/components/projects/timeline/TimelineTab';
 import { ProjectContractTab } from '@/components/projects/ProjectContractTab';
+import { ProjectCommercialSourceChain } from '@/components/projects/ProjectCommercialSourceChain';
 import { ProjectMeasurementsTab } from '@/components/projects/measurements/ProjectMeasurementsTab';
 import { ProjectRisksTab } from '@/components/projects/ProjectRisksTab';
 import { ProjectDocumentsView } from '@/components/projects/ProjectDocumentsView';
@@ -530,7 +531,19 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
                 />
               </TabsContent>
 
-              <TabsContent value="contract" className="mt-0">
+              <TabsContent value="contract" className="mt-0 space-y-4">
+                {/*
+                  A ORIGEM COMERCIAL vem antes do contrato, e não depois.
+
+                  A aba contratual pressupõe que existe contrato. Quando o
+                  projeto executa trabalho autorizado por proposta aceita ou
+                  por pedido de compra, ela fica vazia — e vazio aqui se lê
+                  como "falta cadastrar", que é o oposto da verdade. A cadeia
+                  acima diz o que autoriza este projeto, exista ou não
+                  instrumento, e a projeção contratual segue logo abaixo para
+                  quem tem contrato.
+                */}
+                <ProjectCommercialSourceChain projectId={id} />
                 <ProjectContractTab projectId={id} focusMilestoneId={focusMilestoneId} />
               </TabsContent>
 

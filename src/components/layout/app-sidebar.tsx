@@ -4,18 +4,21 @@ import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import {
-  type SectionId,
-  SECTION_ORDER,
-  sectionHref,
-  sectionLabels,
+  POST_SALE_SECTION_ORDER,
+  postSaleSectionHref,
+  postSaleSectionLabels,
+  type PostSaleSectionId,
 } from "@/lib/contracts/portfolio-sections";
+import {
+  COMMERCIAL_SECTION_ORDER,
+  commercialSectionHref,
+  commercialSectionLabels,
+  type CommercialSectionId,
+} from "@/lib/commercial/navigation";
 import { useTranslations } from "next-intl";
 import {
   BarChart3,
-  ShieldCheck,
-  Archive,
   ClipboardCheck,
-  CalendarClock,
   Banknote,
   Bell,
   BrainCircuit,
@@ -32,6 +35,7 @@ import {
   FileBadge,
   ScanFace,
   FileCheck,
+  FileSignature,
   FileSpreadsheet,
   FileText,
   Gauge,
@@ -107,17 +111,32 @@ const FISCAL_STORAGE_KEY = "ig-sidebar-fiscal-open";
 const PROJECTS_STORAGE_KEY = "ig-sidebar-projects-open";
 const WORKFORCE_STORAGE_KEY = "ig-sidebar-workforce-open";
 const CONTRACTS_STORAGE_KEY = "ig-sidebar-contracts-open";
+const COMMERCIAL_STORAGE_KEY = "ig-sidebar-commercial-open";
 
-/** Ícone por área da carteira — o mesmo vocabulário da página. */
-const SECTION_ICONS: Record<SectionId, LucideIcon> = {
+/**
+ * Ícone por FASE do pós-venda.
+ *
+ * Eram oito destinos — um por objeto de domínio — e viraram cinco fases de
+ * trabalho. Contrato, renovação, obrigação, risco, aditivo e documento não
+ * sumiram: deixaram de ser endereço e passaram a ser contexto dentro do item
+ * da carteira, que é onde a pergunta sobre eles aparece.
+ */
+const POST_SALE_ICONS: Record<PostSaleSectionId, LucideIcon> = {
   overview: BarChart3,
-  contracts: FileCheck,
-  renewals: CalendarClock,
-  obligations: ClipboardCheck,
-  faturamento: Receipt,
-  aprovacoes: ShieldCheck,
-  risks: ShieldAlert,
-  documents: Archive,
+  carteira: Briefcase,
+  serviceOrders: FileSignature,
+  measurements: ClipboardCheck,
+  billing: Receipt,
+};
+
+/** Ícone por área do Comercial (pré-venda). */
+const COMMERCIAL_ICONS: Record<CommercialSectionId, LucideIcon> = {
+  overview: BarChart3,
+  accounts: Building2,
+  opportunities: Target,
+  followups: Bell,
+  proposals: FileText,
+  forecast: LineChart,
 };
 
 type User = {
@@ -234,10 +253,32 @@ const navigationItems: MenuItem[] = [
       destino que exista hoje, e um menu que promete tela que não abre é pior
       que um menu curto.
     */
-    subItems: SECTION_ORDER.map((id) => ({
-      href: sectionHref(id),
-      label: sectionLabels[id],
-      icon: SECTION_ICONS[id],
+    subItems: POST_SALE_SECTION_ORDER.map((id) => ({
+      href: postSaleSectionHref(id),
+      label: postSaleSectionLabels[id],
+      icon: POST_SALE_ICONS[id],
+      exactUrl: true,
+    })),
+  },
+  {
+    /*
+      COMERCIAL — a pré-venda, e só ela.
+
+      Seis áreas e para de crescer aí. O que acontece DEPOIS do aceite do
+      cliente não mora aqui: proposta aceita vira fonte de autorização do
+      trabalho, e trabalho autorizado é assunto da Carteira. Duplicar o
+      pós-venda dentro do comercial criaria dois lugares para a mesma
+      pergunta — e quem responde por ela é outra pessoa.
+    */
+    href: "/comercial",
+    labelKey: "commercial",
+    icon: Handshake,
+    section: "main",
+    permission: "commercial.view",
+    subItems: COMMERCIAL_SECTION_ORDER.map((id) => ({
+      href: commercialSectionHref(id),
+      label: commercialSectionLabels[id],
+      icon: COMMERCIAL_ICONS[id],
       exactUrl: true,
     })),
   },
@@ -382,6 +423,7 @@ export function AppSidebar() {
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [workforceOpen, setWorkforceOpen] = useState(false);
   const [contractsOpen, setContractsOpen] = useState(false);
+  const [commercialOpen, setCommercialOpen] = useState(false);
 
   useEffect(() => {
     const storedAdmin = localStorage.getItem(ADMIN_STORAGE_KEY);
@@ -420,6 +462,18 @@ export function AppSidebar() {
       setContractsOpen(storedContracts === "true");
     } else if (pathname.startsWith("/contratos")) {
       setContractsOpen(true);
+    }
+    /*
+      Mesma regra no Comercial, e pelo mesmo motivo: as seis áreas moram em
+      `?view=`, e a sidebar é a única navegação entre elas. Sem esta entrada o
+      grupo nunca abria — e, pior, a seta caía no `onToggle` vazio de
+      `getSubmenuState`, virando um controle que não faz nada.
+    */
+    const storedCommercial = localStorage.getItem(COMMERCIAL_STORAGE_KEY);
+    if (storedCommercial !== null) {
+      setCommercialOpen(storedCommercial === "true");
+    } else if (pathname.startsWith("/comercial")) {
+      setCommercialOpen(true);
     }
   }, [pathname]);
 
@@ -463,6 +517,14 @@ export function AppSidebar() {
     });
   };
 
+  const toggleCommercial = () => {
+    setCommercialOpen((previous) => {
+      const next = !previous;
+      localStorage.setItem(COMMERCIAL_STORAGE_KEY, String(next));
+      return next;
+    });
+  };
+
   const toggleWorkforce = () => {
     setWorkforceOpen((previous) => {
       const next = !previous;
@@ -477,6 +539,7 @@ export function AppSidebar() {
     if (href === "/projetos") return { isOpen: projectsOpen, onToggle: toggleProjects };
     if (href === "/workforce-cost") return { isOpen: workforceOpen, onToggle: toggleWorkforce };
     if (href === "/contratos") return { isOpen: contractsOpen, onToggle: toggleContracts };
+    if (href === "/comercial") return { isOpen: commercialOpen, onToggle: toggleCommercial };
     return { isOpen: false, onToggle: () => undefined };
   };
 

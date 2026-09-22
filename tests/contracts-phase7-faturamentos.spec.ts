@@ -79,8 +79,17 @@ test.beforeAll(async ({ browser }) => {
 
   await page.goto('/login');
   await page.locator('input[type="email"]').fill(qa.email);
-  await page.locator('input[type="password"]').fill(qa.password);
-  await page.getByRole('button', { name: 'Entrar' }).click();
+  /*
+    Envio por `Enter`, e não clique no botão.
+
+    A tela de login anima continuamente (inclinação 3D em framer-motion), e o
+    Playwright espera o alvo ficar "estável" antes de clicar — espera que nunca
+    termina. É flakiness ANTERIOR a este branch; a correção fica restrita às
+    specs da área afetada, que precisam rodar para esta verificação.
+  */
+  const passwordField = page.locator('input[type="password"]');
+  await passwordField.fill(qa.password);
+  await passwordField.press('Enter');
   await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 60_000 });
 
   const rows = await withDb<{ id: string }>((q) =>

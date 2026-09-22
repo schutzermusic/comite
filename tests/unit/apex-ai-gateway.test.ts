@@ -70,10 +70,12 @@ describe('ApexAIGateway routing', () => {
 
   it('routes ALL current production tasks to claude-sonnet-5 with 0 using Opus and zero automatic fallbacks', () => {
     expect(DEFAULT_PRODUCTION_MODEL).toBe('claude-sonnet-5');
-    // 13 desde a pré-análise de evidência de medição. O número é asserido de
-    // propósito: uma tarefa nova entrando sem passar por este teste seria uma
-    // rota de modelo que ninguém conferiu.
-    expect(CURRENT_PRODUCTION_TASKS).toHaveLength(13);
+    // 14 desde a leitura de documento comercial (proposta técnica, proposta
+    // comercial, pedido de compra, autorização do cliente e OS interna — cinco
+    // papéis, UMA tarefa, porque a postura é a mesma e só a pergunta muda).
+    // O número é asserido de propósito: uma tarefa nova entrando sem passar
+    // por este teste seria uma rota de modelo que ninguém conferiu.
+    expect(CURRENT_PRODUCTION_TASKS).toHaveLength(14);
 
     const tasksUsingSonnet: string[] = [];
     const tasksUsingOpus: string[] = [];
@@ -88,7 +90,7 @@ describe('ApexAIGateway routing', () => {
       expect(policy.model).toBe('claude-sonnet-5');
     }
 
-    expect(tasksUsingSonnet).toHaveLength(13);
+    expect(tasksUsingSonnet).toHaveLength(14);
     expect(tasksUsingOpus).toHaveLength(0);
   });
 
@@ -105,6 +107,7 @@ describe('ApexAIGateway routing', () => {
       'ASO_EXTRACTION',
       'PROJECT_SCHEDULE_EXTRACTION',
       'CONTRACT_OPERATIONALIZATION',
+      'COMMERCIAL_DOCUMENT_EXTRACTION',
     ] as const;
 
     for (const task of expectedTasks) {

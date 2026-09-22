@@ -416,6 +416,39 @@ describe('Fase 7 · migrations aplicadas não são editadas', () => {
         '195',
         // ---- autor do fechamento do item de correção ----
         '196',
+        // ---- pai neutro do trabalho autorizado; contrato formal passa a ser
+        //      UMA fonte de autorização entre quatro ----
+        '197',
+        // ---- funil comercial: contas, oportunidades, propostas com revisão ----
+        '198',
+        // ---- inteligência documental compartilhada e fatos com procedência ----
+        '199',
+        // ---- Ordem de Serviço INTERNA e as funções governadas do comercial ----
+        '200',
+        // ---- medição e faturamento reancorados no pai; contrato vira opcional ----
+        '201',
+        // ---- funções governadas do funil ----
+        '202',
+        // ---- retirada de privilégio de anon nas tabelas do comercial ----
+        '203',
+        // ---- derivação do pai na escrita, para não quebrar quem já escrevia ----
+        '204',
+        // ---- contrato novo nasce com o pai, em análise, fora dos KPIs ----
+        '205',
+        // ---- autoridade única do vocabulário de origem do follow-up ----
+        '206',
+        // ---- fronteira de apagamento: a subárvore volta a ser apagável ----
+        '207',
+        // ---- caminho único de confronto entre fontes de autorização ----
+        '208', '209',
+        // ---- apagamento da história segue a regra canônica da plataforma ----
+        '210',
+        // ---- alçada do módulo Comercial (a tela não abria para ninguém) ----
+        '211',
+        // ---- etapa da oportunidade vira ato governado, com histórico
+        //      append-only; a alçada do follow-up passa a seguir o DOMÍNIO
+        //      da origem, e não mais `contracts.edit` por padrão ----
+        '212',
       ]);
     // 090 continua arquivada, nunca aplicada.
     expect(versions).not.toContain('090');
