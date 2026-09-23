@@ -19,6 +19,8 @@ import {
   ArrowRight, Briefcase, CalendarPlus, FileText, Mail, Phone, User,
 } from "lucide-react";
 import { HudBadge, HudButton, HudDrawer } from "@/components/hud";
+import "./commercial-flow.css";
+import { SURVEY_STATUS_LABEL, type SiteSurveyStatus } from "@/lib/commercial/site-survey";
 import { usePermissions } from "@/hooks/use-permissions";
 import {
   engagementStatusLabels, opportunityStageLabels, proposalStatusLabels,
@@ -36,6 +38,7 @@ import {
   Fact, FactGrid, Section, SectionEmpty, SectionRestricted, SignalDots, SignalList,
 } from "./detail";
 import { moneyTotal } from "./workspace";
+import { CreateCommercialButton } from "./CreateCommercialModal";
 import { FollowupComposer } from "./FollowupComposer";
 
 type OpportunityRow = {
@@ -50,6 +53,10 @@ type Payload = {
     id: string; legal_name: string; trade_name: string | null;
     document_number: string | null; created_at: string;
   };
+  surveys?: Array<{ id: string; code: string; title: string; status: SiteSurveyStatus; opportunity_id: string;
+    site_name: string | null; planned_visit_date: string | null; completed_at: string | null }>;
+  executionStarts?: Array<{ id: string; opportunity_id: string | null; mode: string; documentation_state: string;
+    regularization_due_date: string | null }>;
   contacts: Array<{
     id: string; full_name: string; role_title: string | null; email: string | null;
     phone: string | null; is_primary: boolean; active: boolean;
@@ -97,7 +104,8 @@ export function AccountWorkspace({
   const { data, state, message, refresh } = useCommercialResource<Payload>(
     `/api/commercial/accounts/${partyId}`,
   );
-  const { hasPermission } = usePermissions();
+  const { hasPermission, loading: permissionsLoading } = usePermissions();
+  const canCreate = permissionsLoading ? null : hasPermission("commercial.manage");
   const canManage = hasPermission("commercial.manage");
   const [composing, setComposing] = useState<{ id: string; label: string } | null>(null);
 
@@ -118,6 +126,11 @@ export function AccountWorkspace({
     );
   }
 
+  const account = {
+    id: data.party.id,
+    name: data.party.trade_name || data.party.legal_name,
+    document: data.party.document_number ?? null,
+  };
   const open = data.opportunities.filter((row) => isOpenStage(row.stage));
   const won = data.opportunities.filter((row) => row.stage === "WON");
   const decided = data.opportunities.filter((row) => ["WON", "LOST"].includes(row.stage));
@@ -188,11 +201,71 @@ export function AccountWorkspace({
             />
           </FactGrid>
 
+          <div className="crm-command-actions" data-testid="account-actions">
+            <CreateCommercialButton
+              kind="opportunity"
+              permitted={canCreate}
+              size="sm"
+              variant="secondary"
+              label="Nova oportunidade"
+              context={{ account }}
+              onCreated={refresh}
+              onOpen={onOpenOpportunity}
+            />
+            <CreateCommercialButton
+              kind="contact"
+              permitted={canCreate}
+              size="sm"
+              variant="secondary"
+              label="Novo contato"
+              context={{ account }}
+              onCreated={refresh}
+            />
+          </div>
+
           <Section title="Atenção" note="Sinais determinísticos das oportunidades desta conta.">
             <SignalList
               signals={data.signals}
               emptyLabel="Nenhum sinal aberto nesta conta."
             />
+          </Section>
+
+          {(data.executionStarts ?? []).filter((s) => s.documentation_state === "PENDING").map((start) => (
+            <p key={start.id} className="flow-banner flow-banner-danger" role="status">
+              <span aria-hidden>⚠</span>
+              <span>
+                <strong>Execução com documentação comercial pendente</strong>
+                {" — "}{data.opportunities.find((o) => o.id === start.opportunity_id)?.title ?? "oportunidade"}
+                {start.regularization_due_date ? ` · prazo ${new Date(`${start.regularization_due_date}T12:00:00`).toLocaleDateString("pt-BR")}` : ""}
+                {" · faturamento bloqueado"}
+              </span>
+              <span />
+            </p>
+          ))}
+
+          <Section title="Levantamentos técnicos" count={(data.surveys ?? []).length}
+            note="Visitas técnicas desta conta, em qualquer oportunidade.">
+            {(data.surveys ?? []).length === 0 ? (
+              <SectionEmpty>Nenhum levantamento técnico registrado para esta conta.</SectionEmpty>
+            ) : (
+              <ul className="crm-linked-list">
+                {(data.surveys ?? []).map((survey) => (
+                  <li key={survey.id}>
+                    <div className="min-w-0">
+                      <strong>{survey.code} · {survey.title}</strong>
+                      <p className="crm-muted">
+                        {survey.site_name ?? "Local não registrado"}
+                        {survey.planned_visit_date ? ` · visita ${new Date(`${survey.planned_visit_date}T12:00:00`).toLocaleDateString("pt-BR")}` : ""}
+                      </p>
+                    </div>
+                    <HudBadge variant={survey.status === "COMPLETED" ? "success" : "outline"} size="sm">
+                      {SURVEY_STATUS_LABEL[survey.status]}
+                    </HudBadge>
+                    <a className="flow-link" href={`/comercial/levantamentos/${survey.id}`}>Abrir</a>
+                  </li>
+                ))}
+              </ul>
+            )}
           </Section>
 
           <Section title="Contatos" count={activeContacts.length}>

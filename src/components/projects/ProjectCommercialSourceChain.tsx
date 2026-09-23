@@ -22,10 +22,18 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { FileSignature, Link2 } from 'lucide-react';
+import { FileSignature, Link2, ShieldAlert } from 'lucide-react';
 import { HudBadge, HudEmptyState, HudPanel } from '@/components/hud';
 import { authorizationSourceLabels } from '@/lib/commercial/labels';
 import type { AuthorizationSourceKind } from '@/lib/commercial/types';
+import { AUTHORIZATION_BASIS_LABEL, type AuthorizationBasis } from '@/lib/commercial/execution-start';
+
+type ExecutionStart = {
+  engagement_id: string; mode: 'STANDARD' | 'EXCEPTIONAL'; authorization_type: AuthorizationBasis;
+  authorization_date: string; authorization_reference: string | null;
+  documentation_state: 'COMPLETE' | 'PENDING' | 'REGULARIZED'; exception_reason: string | null;
+  regularization_due_date: string | null; regularized_at: string | null;
+};
 
 type Chain = {
   engagement_id: string;
@@ -65,6 +73,7 @@ function Row({ label, value, hint }: { label: string; value: string | null; hint
 
 export function ProjectCommercialSourceChain({ projectId }: { projectId: string }) {
   const [chains, setChains] = useState<Chain[]>([]);
+  const [starts, setStarts] = useState<ExecutionStart[]>([]);
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
 
   useEffect(() => {
@@ -77,6 +86,7 @@ export function ProjectCommercialSourceChain({ projectId }: { projectId: string 
         if (cancelled) return;
         if (!response.ok || !payload.ok) { setState('error'); return; }
         setChains(payload.chains ?? []);
+        setStarts(payload.executionStarts ?? []);
         setState('ready');
       } catch { if (!cancelled) setState('error'); }
     })();
@@ -121,6 +131,32 @@ export function ProjectCommercialSourceChain({ projectId }: { projectId: string 
             </div>
           </div>
 
+          {(() => {
+            const start = starts.find((s) => s.engagement_id === chain.engagement_id);
+            if (!start) return null;
+            if (start.documentation_state === 'PENDING') {
+              return (
+                <div role="status" data-testid="project-documentation-pending"
+                  className="mb-3 flex gap-2 rounded-lg border border-ig-danger/40 bg-ig-danger/10 p-3 text-ig-body-sm text-ig-fg-strong">
+                  <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-ig-danger" aria-hidden />
+                  <div>
+                    <p className="font-medium">Execução iniciada com documentação comercial pendente</p>
+                    <p className="text-ig-fg-muted">
+                      Base declarada: {AUTHORIZATION_BASIS_LABEL[start.authorization_type]}
+                      {start.authorization_reference ? ` · ${start.authorization_reference}` : ''}.
+                      Prazo de regularização: {start.regularization_due_date
+                        ? new Date(`${start.regularization_due_date}T12:00:00`).toLocaleDateString('pt-BR') : '—'}.
+                      Medição e evidência seguem normalmente; o <strong>faturamento fica bloqueado</strong> até a regularização.
+                    </p>
+                  </div>
+                </div>
+              );
+            }
+            return (
+              <Row label="Base do início da execução"
+                value={`${AUTHORIZATION_BASIS_LABEL[start.authorization_type]} · ${new Date(`${start.authorization_date}T12:00:00`).toLocaleDateString('pt-BR')}${start.documentation_state === 'REGULARIZED' ? ' · regularizada' : ''}`} />
+            );
+          })()}
           <Row label="Ordem de Serviço interna"
             value={chain.service_order_number
               ? `${chain.service_order_number} · ${chain.service_order_status}` : null}

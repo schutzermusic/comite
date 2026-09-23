@@ -98,10 +98,20 @@ export function CommercialAccounts() {
   return (
     <section className="crm-workspace" aria-label="Contas e contatos">
       <WorkspaceHeading
-        eyebrow="Inteligência de relacionamento"
-        title="Uma conta. Todas as conexões."
-        description="Identidade da empresa e pessoas de contato, lado a lado. Abra uma conta para ver tudo o que ela já move."
-        action={<CreateCommercialButton kind="contact" onCreated={refresh} />}
+        eyebrow="Comercial · Contas & Contatos"
+        title="Contas & Contatos"
+        description={
+          <>
+            <span><b>{parties.length}</b> contas</span>
+            <i className="crm-live-sep" aria-hidden />
+            <span><b>{contacts.length}</b> contatos</span>
+            <i className="crm-live-sep" aria-hidden />
+            <span className={parties.filter((p) => !byParty(p.id).length).length ? "crm-tone-warning" : undefined}>
+              <b>{parties.filter((p) => !byParty(p.id).length).length}</b> conta(s) sem contato
+            </span>
+          </>
+        }
+        action={<CreateCommercialButton kind="contact" onCreated={refresh} onOpen={setOpenAccount} />}
       />
       <Metrics
         items={[

@@ -1,9 +1,9 @@
 'use client';
 
 import { Suspense, useCallback } from 'react';
+import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Handshake } from 'lucide-react';
-import { HudHeader, HudPageLayout, HudPanel, HudSignal } from '@/components/hud';
+import { HudPageLayout, HudPanel } from '@/components/hud';
 import {
   COMMERCIAL_SECTION_BY_SLUG, COMMERCIAL_SECTION_ORDER,
   commercialSectionHref, commercialSectionLabels, type CommercialSectionId,
@@ -14,15 +14,6 @@ import { CommercialOpportunities } from '@/components/commercial/CommercialOppor
 import { CommercialFollowups } from '@/components/commercial/CommercialFollowups';
 import { CommercialProposals } from '@/components/commercial/CommercialProposals';
 import { CommercialForecast } from '@/components/commercial/CommercialForecast';
-
-const AREA_HINT: Record<CommercialSectionId, string> = {
-  overview: 'O funil em uma tela: o que está aberto, o que foi proposto e o que virou trabalho.',
-  accounts: 'Quem é a contraparte e com quem se fala — o mesmo cadastro que o resto da plataforma usa.',
-  opportunities: 'O que está em discussão, com quem, por quanto e até quando.',
-  followups: 'O que foi combinado e ainda não aconteceu — no mesmo motor de cobrança do pós-venda.',
-  proposals: 'Técnica e comercial, com revisões. Só a revisão ACEITA alimenta execução.',
-  forecast: 'Pipeline ponderado. Não é receita, não é backlog e não vira contabilidade.',
-};
 
 function CommercialPageInner() {
   const router = useRouter();
@@ -36,32 +27,27 @@ function CommercialPageInner() {
 
   return (
     <HudPageLayout>
-      <HudHeader
-        title={`Comercial · ${commercialSectionLabels[active]}`}
-        subtitle={AREA_HINT[active]}
-        icon={<Handshake className="h-5 w-5" aria-hidden />}
-        breadcrumbs={[{ label: 'Comercial' }, { label: commercialSectionLabels[active] }]}
-      />
-
       {/*
-        A navegação canônica é a sidebar; esta tira existe para telas
-        estreitas, onde a sidebar recolhe. Duas navegações visíveis ao mesmo
-        tempo ensinariam que são coisas diferentes.
+        Um cabeçalho por tela. O título da área e o estado vivo dela ficam no
+        topo de cada área (WorkspaceHeading); aqui só a identidade da página
+        para leitores de tela e, em telas estreitas, as áreas — a sidebar
+        recolhe e a navegação precisa continuar a um toque.
       */}
-      <nav className="mt-4 flex flex-wrap gap-2 lg:hidden" aria-label="Áreas do comercial">
+      <h1 className="sr-only">{`Comercial · ${commercialSectionLabels[active]}`}</h1>
+      <nav className="crm-area-tabs lg:hidden" aria-label="Áreas do comercial">
         {COMMERCIAL_SECTION_ORDER.map((id) => (
-          <HudSignal
+          <Link
             key={id}
-            size="sm"
-            tone={id === active ? 'accent' : 'neutral'}
-            active={id === active}
-            onClick={() => setActive(id)}
-            label={commercialSectionLabels[id]}
-          />
+            href={commercialSectionHref(id)}
+            scroll={false}
+            aria-current={id === active ? 'page' : undefined}
+          >
+            {commercialSectionLabels[id]}
+          </Link>
         ))}
       </nav>
 
-      <div className="mt-5 min-w-0" aria-live="polite">
+      <div className="mt-3 lg:mt-0 min-w-0" aria-live="polite">
         {active === 'overview' && <CommercialOverview onNavigate={setActive} />}
         {active === 'accounts' && <CommercialAccounts />}
         {active === 'opportunities' && <CommercialOpportunities />}

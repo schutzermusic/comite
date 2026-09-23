@@ -33,7 +33,15 @@ export type PipelineSignalKind =
   | 'OPPORTUNITY_STALLED'
   | 'MISSING_EXPECTED_CLOSE'
   | 'STAGE_PROBABILITY_INCONSISTENT'
-  | 'WON_WITHOUT_AUTHORIZED_WORK';
+  | 'WON_WITHOUT_AUTHORIZED_WORK'
+  // Fluxo de execução (213) — ver `execution-signals.ts`.
+  | 'SURVEY_PENDING'
+  | 'PROPOSAL_NOT_READY'
+  | 'ACCEPTED_WITHOUT_AUTHORIZATION'
+  | 'ACCEPTED_WITHOUT_SERVICE_ORDER'
+  | 'SERVICE_ORDER_WITHOUT_PROJECT'
+  | 'DOCUMENTATION_PENDING'
+  | 'SOURCE_CHAIN_INCOMPLETE';
 
 export type PipelineSignalSeverity = 'info' | 'attention' | 'blocking';
 
@@ -316,6 +324,13 @@ export const PIPELINE_SIGNAL_LABEL: Record<PipelineSignalKind, string> = {
   MISSING_EXPECTED_CLOSE: 'Sem previsão de decisão',
   STAGE_PROBABILITY_INCONSISTENT: 'Etapa e probabilidade discordam',
   WON_WITHOUT_AUTHORIZED_WORK: 'Ganha sem trabalho autorizado',
+  SURVEY_PENDING: 'Levantamento pendente',
+  PROPOSAL_NOT_READY: 'Proposta não pronta',
+  ACCEPTED_WITHOUT_AUTHORIZATION: 'Aceita sem autorização',
+  ACCEPTED_WITHOUT_SERVICE_ORDER: 'Aceita sem OS',
+  SERVICE_ORDER_WITHOUT_PROJECT: 'OS sem projeto',
+  DOCUMENTATION_PENDING: 'Documentação pendente',
+  SOURCE_CHAIN_INCOMPLETE: 'Cadeia de origem incompleta',
 };
 
 /** Índice por oportunidade — o que a linha da lista e o card do pipeline usam. */

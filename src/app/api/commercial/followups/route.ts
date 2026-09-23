@@ -79,7 +79,8 @@ export async function GET() {
   const owners = await resolveOwnerNames(session.organizationId,
     rows.map((row) => row.responsible_user_id as string | null));
 
-  return NextResponse.json({ ok: true, followups: rows, subjects, owners });
+  // `me` alimenta a "Minha fila": dono é identidade, não nome digitado.
+  return NextResponse.json({ ok: true, followups: rows, subjects, owners, me: session.user.id });
 }
 
 const createSchema = z.object({

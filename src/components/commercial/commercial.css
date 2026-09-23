@@ -1,7 +1,7 @@
 .crm-workspace {
   --crm-line: color-mix(in srgb, var(--ig-border-default) 65%, transparent);
   display: grid;
-  gap: 22px;
+  gap: 16px;
   color: var(--ig-fg-strong);
   min-width: 0;
 }
@@ -16,11 +16,13 @@
   gap: 20px;
 }
 .crm-heading h2 {
-  font-size: clamp(23px, 2.2vw, 32px);
+  /* A frase da área tem personalidade, mas não empurra o trabalho para baixo
+     da dobra: é um subtítulo forte, não um cartaz. */
+  font-size: clamp(17px, 1.45vw, 21px);
   font-weight: 600;
-  letter-spacing: -0.035em;
-  line-height: 1.25;
-  margin: 7px 0;
+  letter-spacing: -0.025em;
+  line-height: 1.3;
+  margin: 3px 0 2px;
 }
 .crm-eyebrow {
   display: flex;
@@ -64,19 +66,24 @@
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 12px;
+  gap: 5px;
   text-align: left;
-  padding: 22px 24px;
+  padding: 13px 18px;
   border-right: 1px solid var(--crm-line);
+  transition: background-color 160ms ease, box-shadow 160ms ease;
 }
 .crm-metric:last-child {
   border: 0;
 }
 button.crm-metric:hover {
   background: color-mix(in srgb, var(--ig-accent) 6%, transparent);
+  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--ig-accent) 55%, transparent);
+}
+button.crm-metric:active {
+  background: color-mix(in srgb, var(--ig-accent) 10%, transparent);
 }
 .crm-metric strong {
-  font-size: clamp(22px, 2.2vw, 32px);
+  font-size: clamp(18px, 1.6vw, 24px);
   letter-spacing: -0.035em;
   line-height: 1.2;
   font-weight: 600;
@@ -89,7 +96,7 @@ button.crm-metric:hover {
   align-items: center;
   flex-wrap: wrap;
   gap: 12px;
-  padding: 20px 22px;
+  padding: 14px 18px;
   border-bottom: 1px solid var(--crm-line);
 }
 .crm-panel-header h3 {
@@ -151,11 +158,16 @@ button.crm-metric:hover {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
+  padding: 6px 10px;
   border-radius: 8px;
   color: var(--ig-fg-muted);
   font-size: 12px;
   border: 1px solid transparent;
+  transition: color 140ms ease, background-color 140ms ease, border-color 140ms ease;
+}
+.crm-segments button:hover {
+  color: var(--ig-fg-strong);
+  background: color-mix(in srgb, var(--ig-fg-muted) 7%, transparent);
 }
 .crm-segments button[aria-pressed="true"] {
   border-color: color-mix(in srgb, var(--ig-accent) 25%, transparent);
@@ -1099,4 +1111,45 @@ button.crm-metric:hover {
     align-items: flex-start;
     text-align: left;
   }
+}
+
+/* --- forecast investigativo --- */
+button.crm-chart-month { cursor: pointer; border-radius: 8px 8px 0 0; transition: background-color 140ms ease, opacity 140ms ease; }
+button.crm-chart-month:hover, button.crm-chart-month:focus-visible { background: color-mix(in srgb, var(--ig-accent) 6%, transparent); outline: none; }
+button.crm-chart-month.selected { background: color-mix(in srgb, var(--ig-accent) 10%, transparent); box-shadow: inset 0 -2px 0 var(--ig-accent); }
+button.crm-chart-month.dimmed { opacity: 0.45; }
+.crm-chart-tip {
+  position: absolute; z-index: 4; bottom: calc(100% - 8px); left: 50%; width: 260px; transform: translate(-20%, 0);
+  display: grid; gap: 4px; padding: 10px 12px; text-align: left; font-size: 11px; pointer-events: none;
+  border-radius: 10px; border: 1px solid var(--crm-line); color: var(--ig-fg-strong);
+  background: color-mix(in srgb, var(--ig-bg-panel) 96%, transparent); backdrop-filter: blur(8px);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.14);
+}
+.crm-chart-tip-left { transform: translate(-80%, 0); }
+.crm-chart-tip strong { display: block; font-size: 12px; }
+.crm-chart-tip strong::first-letter { text-transform: uppercase; }
+.crm-chart-tip ul { display: grid; gap: 3px; margin-top: 4px; padding-top: 6px; border-top: 1px solid var(--crm-line); }
+.crm-chart-tip li { display: flex; justify-content: space-between; gap: 8px; }
+.crm-chart-tip li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.crm-chart-tip b { font-weight: 600; font-variant-numeric: tabular-nums; }
+.crm-chart-tip em { font-style: normal; color: var(--ig-accent); margin-top: 2px; }
+.crm-forecast-drill { border: 1px solid color-mix(in srgb, var(--ig-accent) 25%, transparent); border-radius: 12px; }
+.crm-exit-reasons { padding: 12px 16px; border-bottom: 1px solid var(--crm-line); }
+.crm-exit-reasons ul { display: grid; gap: 4px; margin-top: 6px; }
+.crm-exit-reasons li { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; }
+.crm-exit-reasons b { font-variant-numeric: tabular-nums; }
+@media (max-width: 640px) { .crm-chart-tip { width: 200px; } }
+
+/* --- faixa de fatos das gavetas: três colunas, sem célula vazia ---
+   Com `auto-fit`, seis fatos numa gaveta de 800px viravam 5 + 1 e a sobra
+   aparecia como um bloco cinza (a cor da grade). Três colunas fixas e o
+   último item esticando quando sobra espaço resolvem para 3, 4, 5 e 6 fatos. */
+.crm-detail .crm-facts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.crm-detail .crm-facts > :last-child:nth-child(3n + 1) { grid-column: 1 / -1; }
+.crm-detail .crm-facts > :last-child:nth-child(3n + 2) { grid-column: span 2; }
+@media (max-width: 560px) {
+  .crm-detail .crm-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .crm-detail .crm-facts > :last-child:nth-child(3n + 1),
+  .crm-detail .crm-facts > :last-child:nth-child(3n + 2) { grid-column: auto; }
+  .crm-detail .crm-facts > :last-child:nth-child(odd) { grid-column: 1 / -1; }
 }

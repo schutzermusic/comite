@@ -449,6 +449,14 @@ describe('Fase 7 · migrations aplicadas não são editadas', () => {
         //      append-only; a alçada do follow-up passa a seguir o DOMÍNIO
         //      da origem, e não mais `contracts.edit` por padrão ----
         '212',
+        // ---- levantamento técnico, fechamento governado e início excepcional;
+        //      privilégio ocioso das tabelas novas; PDF da proposta antes do
+        //      trabalho autorizado ----
+        '213',
+        '214',
+        '215',
+        // ---- vínculo governado proposta → oportunidade, com histórico ----
+        '216',
       ]);
     // 090 continua arquivada, nunca aplicada.
     expect(versions).not.toContain('090');

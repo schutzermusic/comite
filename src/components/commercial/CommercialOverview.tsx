@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { ArrowUpRight } from "lucide-react";
 import { HudButton } from "@/components/hud";
 import type { CommercialSectionId } from "@/lib/commercial/navigation";
@@ -93,6 +94,7 @@ export function CommercialOverview({
 }: {
   onNavigate: (section: CommercialSectionId) => void;
 }) {
+  const router = useRouter();
   const opportunities = useCommercialResource<{
     opportunities: OpportunityRow[];
     signals: PipelineSignal[];
@@ -118,10 +120,11 @@ export function CommercialOverview({
   ).length;
   const won = rows.filter((r) => r.stage === "WON");
   const decided = rows.filter((r) => ["WON", "LOST"].includes(r.stage));
+  const now = new Date();
   const recent = rows.filter(
     (r) =>
       r.created_at &&
-      Date.now() - new Date(r.created_at).getTime() <= 30 * 86400000,
+      now.getTime() - new Date(r.created_at).getTime() <= 30 * 86400000,
   ).length;
   const signals = opportunities.data?.signals ?? [];
   const signalCount = (kinds: PipelineSignalKind[]) =>
@@ -133,188 +136,222 @@ export function CommercialOverview({
       (s) => open.filter((r) => r.stage === s).length,
     ),
   );
+  const weighted = moneyTotal(
+    (forecast.data?.rows ?? []).map((r) => ({
+      value: r.weighted_value,
+      currency: r.currency,
+    })),
+  );
+  const conversion = decided.length ? won.length / decided.length : null;
+  const today = new Date().toISOString().slice(0, 10);
+  const horizon = new Date(now.getTime() + 30 * 86400000).toISOString().slice(0, 10);
+  const closing = open
+    .filter((r) => r.expected_decision_date && r.expected_decision_date <= horizon)
+    .sort((a, b) => (a.expected_decision_date ?? "").localeCompare(b.expected_decision_date ?? ""))
+    .slice(0, 6);
+  const openOpportunity = (id: string) =>
+    router.push(`/comercial?view=oportunidades&opportunity=${id}`, { scroll: false });
+  const queue = QUEUE.map((entry) => ({ ...entry, total: signalCount(entry.kinds) }));
+  const pending = queue.reduce((n, q) => n + q.total, 0);
   return (
     <section className="crm-workspace" aria-label="Visão geral do comercial">
       <WorkspaceHeading
-        eyebrow="Visão geral · Relacionamento → Resultado"
-        title="Clareza para o próximo movimento."
-        description="Do primeiro contato ao aceite, uma visão conectada da operação comercial."
+        eyebrow="Comercial · Visão geral"
+        title="Visão geral"
+        description={
+          <>
+            <span><b>{open.length}</b> abertas</span>
+            <i className="crm-live-sep" aria-hidden />
+            <span><b>{sent}</b> com o cliente</span>
+            <i className="crm-live-sep" aria-hidden />
+            <span className={blocking ? "crm-tone-danger" : undefined}><b>{blocking}</b> bloqueante(s)</span>
+            <i className="crm-live-sep" aria-hidden />
+            <span><b>{closing.length}</b> decisão(ões) em 30 dias</span>
+          </>
+        }
         action={
-          <CreateCommercialButton
-            kind="opportunity"
-            onCreated={() => {
-              opportunities.refresh();
-              forecast.refresh();
-            }}
-          />
+          <>
+            <CreateCommercialButton kind="proposal" variant="secondary" onCreated={() => proposals.refresh()}
+              onOpen={(id) => router.push(`/comercial?view=propostas&proposal=${id}`, { scroll: false })} />
+            <CreateCommercialButton
+              kind="opportunity"
+              onCreated={() => {
+                opportunities.refresh();
+                forecast.refresh();
+              }}
+              onOpen={openOpportunity}
+            />
+          </>
         }
       />
       <Metrics
         items={[
           {
-            label: "Pipeline em aberto",
+            label: "Pipeline aberto",
             value: moneyTotal(
               open.map((r) => ({
                 value: r.estimated_value,
                 currency: r.currency,
               })),
             ),
-            hint: `${open.length} oportunidades em andamento`,
+            hint: `${open.length} oportunidade(s) em andamento`,
             accent: true,
             onClick: () => onNavigate("opportunities"),
           },
           {
-            label: "Propostas com o cliente",
+            label: "Ponderado",
+            value: weighted,
+            hint: "Valor × probabilidade",
+            onClick: () => onNavigate("forecast"),
+          },
+          {
+            label: "Com o cliente",
             value: sent,
             hint: "Revisões enviadas ou em negociação",
             onClick: () => onNavigate("proposals"),
           },
           {
-            label: "Sinais bloqueantes",
+            label: "Bloqueantes",
             value: blocking,
-            hint: blocking
-              ? "Retorno atrasado ou validade vencida"
-              : "Nenhuma pendência bloqueante",
+            tone: blocking ? "danger" : "neutral",
+            hint: blocking ? "Retorno atrasado ou validade vencida" : "Nenhuma pendência bloqueante",
             onClick: () => onNavigate("opportunities"),
           },
           {
-            label: "Pipeline ponderado",
+            label: "Conversão",
+            value: conversion === null ? "—" : `${Math.round(conversion * 100)}%`,
+            meter: conversion,
+            hint: decided.length ? `${won.length} ganha(s) de ${decided.length} decidida(s)` : "Aguardando decisões",
+          },
+          {
+            label: "Aceito pelo cliente",
             value: moneyTotal(
-              (forecast.data?.rows ?? []).map((r) => ({
-                value: r.weighted_value,
-                currency: r.currency,
+              accepted.map((r) => ({
+                value: r.total_value,
+                currency:
+                  r.currency ??
+                  proposals.data?.proposals.find((p) => p.id === r.proposal_id)?.currency,
               })),
             ),
-            hint: "Valor × probabilidade aplicada",
-            onClick: () => onNavigate("forecast"),
+            hint: `${recent} criada(s) em 30 dias`,
           },
         ]}
       />
       <div className="crm-split">
         <Panel
-          title="O caminho até o aceite"
-          note="Distribuição das oportunidades abertas por etapa"
+          title="O que precisa de decisão"
+          note={pending ? `${pending} sinal(is) determinístico(s) sobre datas e estados` : "Nada pendente — prazos, próximas ações e validade em dia."}
           aside={
-            <HudButton
-              variant="ghost"
-              size="sm"
-              onClick={() => onNavigate("opportunities")}
-            >
-              Ver pipeline <ArrowUpRight size={14} />
+            <HudButton variant="ghost" size="sm" onClick={() => onNavigate("followups")}>
+              Fila de follow-ups <ArrowUpRight size={14} />
             </HudButton>
           }
         >
-          <div className="crm-funnel">
-            {OPEN_OPPORTUNITY_STAGES.map((s) => {
-              const stageRows = open.filter((r) => r.stage === s);
-              return (
-                <div className="crm-funnel-row" key={s}>
-                  <span>{opportunityStageLabels[s]}</span>
-                  <div className="crm-track">
-                    <div
-                      className="crm-track-fill"
-                      style={{
-                        width: `${(stageRows.length / maxCount) * 100}%`,
-                      }}
-                    />
-                    <span>{stageRows.length} oportunidades</span>
-                  </div>
-                  <span className="text-right tabular-nums">
-                    {moneyTotal(
-                      stageRows.map((r) => ({
-                        value: r.estimated_value,
-                        currency: r.currency,
-                      })),
-                    )}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-          <div className="crm-table-footer">
-            <span>Qualificação → Descoberta → Proposta → Negociação</span>
-            <span>{won.length} ganha(s)</span>
-          </div>
-        </Panel>
-        <Panel
-          title="O que precisa de decisão"
-          note="Regras determinísticas sobre datas e estados — não recomendações genéricas."
-        >
-          {QUEUE.map((entry) => {
-            const total = signalCount(entry.kinds);
-            return (
+          {queue
+            .slice()
+            .sort((a, b) => b.total - a.total)
+            .map((entry) => (
               <button
                 key={entry.id}
                 className="crm-queue-item"
                 onClick={() => onNavigate(entry.target)}
+                data-empty={entry.total === 0}
               >
                 <div>
                   {entry.label}
                   <p className="crm-muted">{entry.note}</p>
                 </div>
-                <strong className={total > 0 ? "crm-queue-open" : undefined}>{total}</strong>
+                <strong className={entry.total > 0 ? "crm-queue-open" : undefined}>{entry.total}</strong>
               </button>
-            );
-          })}
-          <button
-            className="crm-queue-item"
-            onClick={() => onNavigate("proposals")}
-          >
+            ))}
+          <button className="crm-queue-item" onClick={() => onNavigate("proposals")}>
             <div>
               Acompanhar resposta do cliente
               <p className="crm-muted">Revisões enviadas e em negociação</p>
             </div>
             <strong>{sent}</strong>
           </button>
-          <button
-            className="crm-queue-item"
-            onClick={() => onNavigate("followups")}
-          >
-            <span>Abrir fila de follow-ups</span>
-            <ArrowUpRight size={16} />
-          </button>
         </Panel>
+        <div className="grid gap-3 min-w-0">
+          <Panel
+            title="Decisões nos próximos 30 dias"
+            note={closing.length ? "Previsão de decisão informada — clique para abrir o dossiê" : undefined}
+          >
+            {closing.length ? (
+              <ul className="crm-linked-list">
+                {closing.map((r) => (
+                  <li key={r.id}>
+                    <div>
+                      <button type="button" className="crm-row-open" onClick={() => openOpportunity(r.id)}>
+                        {r.title}
+                      </button>
+                      <p className="crm-muted">
+                        {r.counterparty_name} · {opportunityStageLabels[r.stage]}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <strong className="tabular-nums">
+                        {moneyTotal([{ value: r.estimated_value, currency: r.currency }])}
+                      </strong>
+                      <p className={`crm-muted ${r.expected_decision_date! < today ? "crm-overdue" : ""}`}>
+                        {new Date(`${r.expected_decision_date}T12:00:00`).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}
+                      </p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div className="crm-section-empty">
+                Nenhuma oportunidade aberta com decisão prevista para os próximos 30 dias.
+              </div>
+            )}
+          </Panel>
+          <Panel
+            title="Funil por etapa"
+            aside={
+              <HudButton variant="ghost" size="sm" onClick={() => onNavigate("opportunities")}>
+                Pipeline <ArrowUpRight size={14} />
+              </HudButton>
+            }
+          >
+            <div className="crm-funnel">
+              {OPEN_OPPORTUNITY_STAGES.map((s) => {
+                const stageRows = open.filter((r) => r.stage === s);
+                return (
+                  <div className="crm-funnel-row" key={s}>
+                    <span>{opportunityStageLabels[s]}</span>
+                    <div className="crm-track">
+                      <div
+                        className="crm-track-fill"
+                        style={{
+                          width: `${(stageRows.length / maxCount) * 100}%`,
+                        }}
+                      />
+                      <span>{stageRows.length}</span>
+                    </div>
+                    <span className="text-right tabular-nums">
+                      {moneyTotal(
+                        stageRows.map((r) => ({
+                          value: r.estimated_value,
+                          currency: r.currency,
+                        })),
+                      )}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="crm-table-footer">
+              <span>{won.length} ganha(s)</span>
+              <span>
+                {signals.length
+                  ? Array.from(new Set(signals.map((s) => PIPELINE_SIGNAL_LABEL[s.kind]))).slice(0, 2).join(" · ")
+                  : "Sem sinais abertos"}
+              </span>
+            </div>
+          </Panel>
+        </div>
       </div>
-      <Metrics
-        items={[
-          {
-            label: "Conversão",
-            value: decided.length
-              ? `${Math.round((won.length / decided.length) * 100)}%`
-              : "—",
-            hint: decided.length
-              ? "Ganhas ÷ (ganhas + perdidas)"
-              : "Aguardando oportunidades decididas",
-          },
-          {
-            label: "Ritmo comercial",
-            value: recent,
-            hint: "Oportunidades criadas nos últimos 30 dias",
-          },
-          {
-            label: "Valor aceito pelo cliente",
-            value: moneyTotal(
-              accepted.map((r) => ({
-                value: r.total_value,
-                currency:
-                  r.currency ??
-                  proposals.data?.proposals.find((p) => p.id === r.proposal_id)
-                    ?.currency,
-              })),
-            ),
-            hint: "Valor das revisões aceitas",
-          },
-          {
-            label: "Sinais abertos",
-            value: signals.length,
-            hint: signals.length
-              ? Array.from(new Set(signals.map((s) => PIPELINE_SIGNAL_LABEL[s.kind])))
-                  .slice(0, 3)
-                  .join(" · ")
-              : "Prazos, próximas ações e validade em dia",
-          },
-        ]}
-      />
       <GovernanceNote>
         Aceite do cliente não é trabalho autorizado nem receita. A revisão
         aceita pode ser a fonte de uma autorização explícita; a execução segue

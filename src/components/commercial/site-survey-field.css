@@ -1,0 +1,158 @@
+/* ==========================================================================
+   LEVANTAMENTO EM CAMPO — uma coluna, alvos de 44px, ação fixa embaixo.
+   ========================================================================== */
+
+.field-shell {
+  max-width: 760px;
+  margin: 0 auto;
+  display: grid;
+  gap: 10px;
+  padding: 4px 0 96px;
+  color: var(--ig-fg-strong);
+}
+.field-top {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: 10px 12px; border-radius: 14px;
+  background: color-mix(in srgb, var(--ig-bg-panel) 92%, transparent);
+  border: 1px solid var(--crm-line);
+  backdrop-filter: blur(10px);
+}
+.field-top h1 { font-size: 17px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.3; margin: 2px 0 6px; }
+.field-top-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.field-back {
+  display: grid; place-items: center; width: 40px; height: 40px; flex-shrink: 0; border-radius: 10px;
+  border: 1px solid var(--crm-line); color: var(--ig-fg-muted);
+}
+.field-back:hover { color: var(--ig-fg-strong); }
+.field-save { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--ig-fg-muted); }
+.field-save-error { color: var(--ig-danger); font-weight: 600; }
+.field-context { display: grid; gap: 8px; padding: 12px; border-radius: 14px; border: 1px solid var(--crm-line); font-size: 13px; }
+.field-alert { color: var(--ig-danger); font-weight: 600; }
+.field-stats {
+  display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 1px; overflow: hidden;
+  border-radius: 12px; border: 1px solid var(--crm-line); background: var(--crm-line);
+}
+.field-stats span {
+  display: flex; align-items: center; justify-content: center; gap: 5px; padding: 9px 4px; font-size: 13px; font-weight: 600;
+  background: var(--ig-bg-panel); font-variant-numeric: tabular-nums;
+}
+.field-warn { color: var(--ig-warning); }
+
+.field-input {
+  width: 100%; min-height: 44px; padding: 10px 12px; border-radius: 10px; font-size: 15px;
+  border: 1px solid var(--crm-line); background: var(--ig-bg-panel); color: var(--ig-fg-strong);
+}
+textarea.field-input { min-height: 88px; line-height: 1.5; resize: vertical; }
+.field-input:focus-visible { outline: none; border-color: var(--ig-accent); box-shadow: var(--ig-focus-ring-outer, 0 0 0 3px color-mix(in srgb, var(--ig-accent) 25%, transparent)); }
+.field-grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+
+.field-section { border-radius: 14px; border: 1px solid var(--crm-line); background: var(--ig-bg-panel); overflow: hidden; }
+.field-section.open { border-color: color-mix(in srgb, var(--ig-accent) 30%, var(--crm-line)); }
+.field-section-head {
+  display: flex; width: 100%; align-items: center; gap: 8px; min-height: 52px; padding: 0 14px;
+  font-size: 14px; font-weight: 600; text-align: left;
+}
+.field-section-head span { flex: 1; }
+.field-section-head i {
+  font-style: normal; font-size: 11px; padding: 2px 7px; border-radius: 6px;
+  background: color-mix(in srgb, var(--ig-fg-muted) 12%, transparent); color: var(--ig-fg-muted);
+}
+.field-section-head svg { color: var(--ig-fg-muted); transition: transform 160ms ease; }
+.field-section.open .field-section-head svg { transform: rotate(180deg); }
+.field-section-body { display: grid; gap: 10px; padding: 0 14px 14px; }
+
+.field-checklist { display: grid; gap: 4px; }
+.field-checklist button {
+  display: flex; width: 100%; align-items: center; gap: 12px; min-height: 48px; padding: 6px 4px;
+  text-align: left; font-size: 14px; border-radius: 10px;
+}
+.field-checklist button:hover:not(:disabled) { background: color-mix(in srgb, var(--ig-accent) 5%, transparent); }
+.field-checklist em { font-style: normal; font-size: 10px; color: var(--ig-warning); margin-left: 6px; text-transform: uppercase; letter-spacing: 0.06em; }
+.field-check-box {
+  display: grid; place-items: center; width: 26px; height: 26px; flex-shrink: 0; border-radius: 8px;
+  border: 2px solid color-mix(in srgb, var(--ig-fg-muted) 45%, transparent); color: #fff;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+.field-checklist button[aria-pressed="true"] .field-check-box { background: var(--ig-success); border-color: var(--ig-success); }
+.field-checklist button[aria-pressed="true"] > span:last-child { color: var(--ig-fg-muted); text-decoration: line-through; }
+
+.field-quickadd, .field-measure { display: flex; gap: 6px; }
+.field-measure > input:nth-child(1) { flex: 2; }
+.field-measure > input:nth-child(2) { flex: 1; }
+.field-measure > input:nth-child(3) { flex: 0 0 72px; }
+.field-add {
+  display: grid; place-items: center; width: 44px; height: 44px; flex-shrink: 0; border-radius: 10px;
+  color: var(--ig-accent-fg, #fff); background: var(--ig-accent);
+}
+.field-list { display: grid; }
+.field-list > li {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 10px 0;
+  font-size: 14px; border-bottom: 1px solid var(--crm-line);
+}
+.field-list > li:last-child { border-bottom: 0; }
+.field-list button { display: grid; place-items: center; width: 36px; height: 36px; flex-shrink: 0; color: var(--ig-fg-muted); border-radius: 8px; }
+.field-list button:hover { color: var(--ig-danger); background: color-mix(in srgb, var(--ig-danger) 8%, transparent); }
+.field-form { display: grid; gap: 8px; }
+.field-readonly { font-size: 14px; line-height: 1.6; white-space: pre-wrap; }
+
+.field-sev { font-style: normal; font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 6px; }
+.field-sev-low { color: var(--ig-success); background: color-mix(in srgb, var(--ig-success) 12%, transparent); }
+.field-sev-medium { color: var(--ig-warning); background: color-mix(in srgb, var(--ig-warning) 12%, transparent); }
+.field-sev-high { color: var(--ig-danger); background: color-mix(in srgb, var(--ig-danger) 12%, transparent); }
+.field-sev-picker { display: flex; gap: 6px; }
+.field-sev-picker button { min-height: 36px; padding: 0 12px; opacity: 0.55; }
+.field-sev-picker button[aria-checked="true"] { opacity: 1; box-shadow: inset 0 0 0 1px currentColor; }
+
+.field-questions { display: grid; }
+.field-questions li { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; font-size: 14px; }
+.field-questions button { display: grid; place-items: center; width: 36px; height: 36px; flex-shrink: 0; border-radius: 8px; color: var(--ig-warning); }
+.field-questions li.resolved button { color: var(--ig-success); }
+.field-questions li.resolved span { color: var(--ig-fg-muted); text-decoration: line-through; }
+
+.field-dictation { display: grid; gap: 6px; }
+.field-mic {
+  justify-self: start; display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 12px;
+  border-radius: 999px; font-size: 12px; font-weight: 600; border: 1px solid var(--crm-line); color: var(--ig-fg-muted);
+}
+.field-mic.on { color: #fff; background: var(--ig-danger); border-color: var(--ig-danger); animation: field-pulse 1.4s ease infinite; }
+@keyframes field-pulse { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--ig-danger) 18%, transparent); } }
+@media (prefers-reduced-motion: reduce) { .field-mic.on { animation: none; } }
+
+.field-capture { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.field-capture-btn {
+  display: inline-flex; align-items: center; gap: 8px; min-height: 48px; padding: 0 16px; border-radius: 12px; cursor: pointer;
+  font-size: 14px; font-weight: 600; color: var(--ig-accent);
+  border: 1px dashed color-mix(in srgb, var(--ig-accent) 45%, transparent);
+  background: color-mix(in srgb, var(--ig-accent) 6%, transparent);
+}
+.field-capture-btn:hover { background: color-mix(in srgb, var(--ig-accent) 11%, transparent); }
+.field-media { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 6px; }
+.field-media img, .field-media-file {
+  width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 10px; border: 1px solid var(--crm-line);
+}
+.field-media-file { display: grid; place-items: center; align-content: center; gap: 4px; padding: 6px; font-size: 10px; text-align: center; color: var(--ig-fg-muted); overflow: hidden; }
+
+.field-apex { display: grid; gap: 10px; padding: 12px 14px; border-radius: 14px; border: 1px solid color-mix(in srgb, var(--ig-accent) 28%, var(--crm-line)); }
+.field-apex > header { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; }
+.field-apex-groups { display: grid; gap: 10px; }
+.field-apex h5 { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; color: var(--ig-fg-muted); margin-bottom: 4px; }
+.field-apex li { display: grid; gap: 1px; padding: 5px 0 5px 10px; border-left: 2px solid color-mix(in srgb, var(--ig-accent) 40%, transparent); font-size: 13px; }
+.field-apex li small { font-size: 10.5px; color: var(--ig-fg-muted); }
+.field-apex li.unsupported { border-left-color: var(--ig-warning); }
+.field-apex li.unsupported small { color: var(--ig-warning); }
+
+.field-actionbar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+  display: flex; justify-content: flex-end; gap: 8px; padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+  background: color-mix(in srgb, var(--ig-bg-panel) 94%, transparent); backdrop-filter: blur(10px);
+  border-top: 1px solid var(--crm-line);
+}
+.field-actionbar > button:last-child { min-width: 180px; min-height: 44px; }
+@media (min-width: 1024px) {
+  .field-actionbar { left: auto; right: 24px; bottom: 20px; border-radius: 14px; border: 1px solid var(--crm-line); padding: 10px; }
+}
+@media (max-width: 520px) {
+  .field-grid-2 { grid-template-columns: minmax(0, 1fr); }
+  .field-actionbar > button:last-child { flex: 1; min-width: 0; }
+}

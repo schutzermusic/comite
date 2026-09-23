@@ -25,5 +25,18 @@ export async function GET(_request: Request, context: { params: Promise<{ projec
     return NextResponse.json({ ok: false,
       error: 'Não foi possível ler a origem comercial.' }, { status: 500 });
   }
-  return NextResponse.json({ ok: true, chains: data ?? [] });
+  /*
+    O ATO que abriu a execução, quando houve um: base comercial e, sobretudo,
+    se a documentação está pendente. A RLS de `commercial_execution_starts`
+    libera a leitura a quem vê projeto — esconder a exceção de quem opera o
+    projeto é exatamente o que não pode acontecer.
+  */
+  const engagementIds = ((data ?? []) as Array<{ engagement_id: string }>).map((c) => c.engagement_id);
+  const { data: starts } = engagementIds.length
+    ? await session.supabase.from('commercial_execution_starts')
+        .select('engagement_id,mode,authorization_type,authorization_date,authorization_reference,'
+          + 'documentation_state,exception_reason,regularization_due_date,regularized_at')
+        .eq('organization_id', session.organizationId).in('engagement_id', engagementIds)
+    : { data: [] };
+  return NextResponse.json({ ok: true, chains: data ?? [], executionStarts: starts ?? [] });
 }

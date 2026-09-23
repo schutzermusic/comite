@@ -11,9 +11,9 @@ test.setTimeout(240_000);
 let context: BrowserContext;
 let page: Page;
 const areas = [
-  ["", "Visão geral do comercial", "O caminho até o aceite"],
+  ["", "Visão geral do comercial", "O que precisa de decisão"],
   ["contas", "Contas e contatos", "Base de relacionamento"],
-  ["oportunidades", "Oportunidades", "Seu pipeline"],
+  ["oportunidades", "Oportunidades", "Pipeline"],
   ["follow-ups", "Follow-ups comerciais", "Fila de acompanhamento"],
   ["propostas", "Propostas", "Central de propostas"],
   ["forecast", "Forecast", "Horizonte de decisão"],
@@ -72,7 +72,7 @@ for (const theme of ["light", "dark"] as const) {
     await page.route("**/rest/v1/parties?*", (route) =>
       route.fulfill({ json: [] }),
     );
-    await openArea("", "O caminho até o aceite");
+    await openArea("", "O que precisa de decisão");
     const toggle = page.getByRole("button", {
       name: `Switch to ${theme} mode`,
       exact: true,
@@ -429,7 +429,7 @@ test("Data-ready views: filters, accepted revision, queue semantics, currencies 
     }),
   );
   for (const theme of ["light", "dark"] as const) {
-    await openArea("", "O caminho até o aceite");
+    await openArea("", "O que precisa de decisão");
     const toggle = page.getByRole("button", {
       name: `Switch to ${theme} mode`,
       exact: true,
@@ -459,12 +459,12 @@ test("Data-ready views: filters, accepted revision, queue semantics, currencies 
     }
   }
   await page.setViewportSize({ width: 1440, height: 1100 });
-  await openArea("", "O caminho até o aceite");
+  await openArea("", "O que precisa de decisão");
   await expect(
-    page.getByRole("button", { name: /Pipeline em aberto/ }),
+    page.getByRole("button", { name: /Pipeline aberto/ }),
   ).toContainText("US$");
   await expect(
-    page.getByRole("button", { name: /Pipeline em aberto/ }),
+    page.getByRole("button", { name: /Pipeline aberto/ }),
   ).toContainText("100.000");
   await openArea("contas", "Base de relacionamento");
   await expect(
@@ -479,7 +479,7 @@ test("Data-ready views: filters, accepted revision, queue semantics, currencies 
   ).toContainText("Contato de teste");
   await page.getByRole("searchbox").fill("inexistente");
   await expect(page.getByText("Nenhum contato neste recorte")).toBeVisible();
-  await openArea("oportunidades", "Seu pipeline");
+  await openArea("oportunidades", "Pipeline");
   await page.getByRole("button", { name: "Lista", exact: true }).click();
   await page.getByLabel("Etapa", { exact: true }).selectOption("WON");
   await expect(page.getByRole("table")).toContainText(
@@ -533,17 +533,20 @@ test("Data-ready views: filters, accepted revision, queue semantics, currencies 
 
 test("Creation submits the existing opportunity contract and recovers from server denial", async () => {
   await intercept(zero);
-  await openArea("oportunidades", "Seu pipeline");
+  await openArea("oportunidades", "Pipeline");
+  await page.route("**/rest/v1/parties?*", (route) =>
+    route.fulfill({
+      json: [{ id: "party-a", legal_name: "Conta sem persistência", trade_name: null, document_number: null, kind: "organization", active: true }],
+    }),
+  );
   await page
     .getByRole("button", { name: "Nova oportunidade", exact: true })
     .click();
-  await page
-    .getByLabel("Título", { exact: true })
-    .fill("Teste sem persistência");
-  await page
-    .getByLabel("Cliente / contraparte", { exact: true })
-    .fill("Conta sem persistência");
-  await page.getByLabel("Probabilidade informada (%) · opcional").fill("35");
+  // A conta vem do cadastro único: busca e escolha, nunca texto livre.
+  await page.getByTestId("flow-opportunity").locator("input[role=combobox]").fill("Conta");
+  await page.locator(".crm-combobox-list [role=option]", { hasText: "Conta sem persistência" }).click();
+  await page.getByPlaceholder("Ex.: Retrofit da subestação SE-04").fill("Teste sem persistência");
+  await page.getByLabel("Probabilidade (%) · opcional").fill("35");
   let submitted: Record<string, unknown> | undefined;
   await page.route("**/api/commercial/opportunities", async (route) => {
     if (route.request().method() === "POST") {
@@ -555,21 +558,21 @@ test("Creation submits the existing opportunity contract and recovers from serve
     }
     return route.fallback();
   });
-  await page
-    .getByRole("button", { name: "Salvar registro", exact: true })
-    .click();
+  await page.getByTestId("opportunity-submit").click();
   await expect(
     page.getByText("Sem permissão para salvar este registro."),
   ).toBeVisible();
   expect(submitted).toMatchObject({
     title: "Teste sem persistência",
+    party_id: "party-a",
+    counterparty_name: "Conta sem persistência",
+    stage: "QUALIFICATION",
     probability: 0.35,
     currency: "BRL",
   });
-  await expect(
-    page.getByRole("button", { name: "Salvar registro", exact: true }),
-  ).toBeEnabled();
-  await page.getByRole("button", { name: "Cancelar", exact: true }).click();
+  await expect(page.getByTestId("opportunity-submit")).toBeEnabled();
+  await page.getByTestId("flow-opportunity").getByRole("button", { name: "Cancelar", exact: true }).click();
+  await page.unroute("**/rest/v1/parties?*");
 });
 
 test("Failed requests never render misleading zero metrics", async () => {
@@ -606,25 +609,18 @@ test("Contact and proposal forms submit canonical references through existing AP
       })
       .click();
     if (kind === "contacts") {
-      await page
-        .getByLabel("Conta / contraparte", { exact: true })
-        .selectOption("party-a");
-      await page
-        .getByLabel("Nome completo", { exact: true })
-        .fill("Contato de teste");
+      // Primeiro a conta (cadastro único), depois a pessoa.
+      await page.getByTestId("flow-contact").locator("input[role=combobox]").fill("Conta");
+      await page.locator(".crm-combobox-list [role=option]", { hasText: "Conta de teste A" }).click();
+      await page.getByPlaceholder("Nome e sobrenome").fill("Contato de teste");
     } else {
-      await page
-        .getByLabel("Número da proposta", { exact: true })
-        .fill("TEST-NOVA");
-      await page
-        .getByLabel("Título", { exact: true })
-        .fill("Proposta de teste");
-      await page
-        .getByLabel("Oportunidade (opcional)", { exact: true })
-        .selectOption("opp-a");
-      await expect(
-        page.getByLabel("Cliente / contraparte", { exact: true }),
-      ).toHaveValue("Conta de teste A");
+      // PDF primeiro; a criação manual continua como segunda opção.
+      await expect(page.getByTestId("proposal-start-import")).toBeVisible();
+      await page.getByTestId("proposal-start-manual").click();
+      await page.getByTestId("proposal-opportunity").selectOption("opp-a");
+      await page.getByPlaceholder("Ex.: PC-2026-118").fill("TEST-NOVA");
+      await page.getByTestId("flow-proposal-manual").getByRole("textbox", { name: /Título/ }).fill("Proposta de teste");
+      await expect(page.getByTestId("flow-proposal-manual")).toContainText("Conta de teste A");
     }
     let submitted: Record<string, unknown> | undefined;
     await page.route(`**/api/commercial/${kind}`, async (route) => {
@@ -633,9 +629,12 @@ test("Contact and proposal forms submit canonical references through existing AP
       return route.fulfill({ json: { ok: true } });
     });
     await page
-      .getByRole("button", { name: "Salvar registro", exact: true })
+      .getByRole("button", {
+        name: kind === "contacts" ? "Salvar contato" : "Criar e abrir",
+        exact: true,
+      })
       .click();
-    await expect(page.locator(".crm-form")).toHaveCount(0);
+    await expect(page.locator(".crm-flow")).toHaveCount(0);
     expect(submitted).toMatchObject(
       kind === "contacts"
         ? { party_id: "party-a", full_name: "Contato de teste" }
@@ -669,9 +668,11 @@ test("Read-only users see the workspace without mutation controls", async () => 
   await expect(
     page.getByRole("button", { name: /QA Workforce Bot/ }),
   ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Nova proposta", exact: true }),
-  ).toHaveCount(0);
+  // Nada some em silêncio: a entrada aparece desabilitada e diz o que falta.
+  const create = page.getByRole("button", { name: "Nova proposta", exact: true });
+  await expect(create).toHaveAttribute("title", /commercial\.proposals\.manage/);
+  await expect(create).toBeDisabled();
+  await expect(page.getByTestId("create-proposal")).toHaveCount(0);
   await expect(
     page.getByRole("button", {
       name: "Gerar trabalho autorizado",
@@ -1029,7 +1030,7 @@ const deep = {
 test("Opportunity workspace: account, value, aging, next action, signals and timeline", async ({}, info) => {
   await page.setViewportSize({ width: 1440, height: 1100 });
   await intercept(deep);
-  await openArea("oportunidades", "Seu pipeline");
+  await openArea("oportunidades", "Pipeline");
 
   // O kanban leva ao dossiê, e o dossiê abre sobre o pipeline sem perder o recorte.
   await page
@@ -1059,28 +1060,37 @@ test("Opportunity workspace: account, value, aging, next action, signals and tim
     page.getByText("Retomar o contato e registrar a nova data esperada", { exact: false }),
   ).toBeVisible();
 
-  // Conta, contatos, follow-ups, propostas e linha do tempo, em um lugar só.
-  for (const section of [
-    "Conta e contatos",
-    "Follow-ups",
-    "Propostas vinculadas",
-    "Linha do tempo",
-  ]) {
+  // Conta, contatos, follow-ups, propostas e linha do tempo — no mesmo
+  // dossiê, cada um na sua aba: tudo a um clique, nada empilhado de uma vez.
+  const tabs: Array<[RegExp, string]> = [
+    [/^Conta/, "Conta e contatos"],
+    [/^Follow-ups/, "Follow-ups"],
+    [/^Propostas/, "Propostas vinculadas"],
+    [/^Atividade/, "Linha do tempo"],
+  ];
+  for (const [tab, section] of tabs) {
+    await page.getByRole("tab", { name: tab }).click();
     await expect(
       page.getByRole("heading", { level: 4, name: new RegExp(section) }),
     ).toBeVisible();
+    // Cada asserção é escopada à sua seção: os mesmos nomes reaparecem em
+    // rótulos acessíveis e em listas atrás da gaveta.
+    if (section === "Conta e contatos") {
+      await expect(page.locator(".crm-contacts")).toContainText("Contato de teste");
+    }
+    if (section === "Follow-ups") {
+      await expect(page.locator(".crm-followup-list")).toContainText("Compromisso atrasado de teste");
+      // Responsável em texto livre (legado) aparece marcado como tal.
+      await expect(page.locator(".crm-followup-list")).toContainText("(texto)");
+    }
+    if (section === "Propostas vinculadas") {
+      await expect(page.locator(".crm-linked-list")).toContainText("TEST-P · Proposta de teste");
+    }
+    if (section === "Linha do tempo") {
+      await expect(page.locator(".crm-timeline")).toContainText("Oportunidade registrada em Qualificação");
+    }
   }
-  // Cada asserção é escopada à sua seção: os mesmos nomes reaparecem em
-  // rótulos acessíveis e em listas atrás da gaveta, e um seletor solto passaria
-  // a falhar por ambiguidade em vez de por regressão.
-  await expect(page.locator(".crm-contacts")).toContainText("Contato de teste");
-  await expect(page.locator(".crm-followup-list")).toContainText(
-    "Compromisso atrasado de teste",
-  );
-  await expect(page.locator(".crm-linked-list")).toContainText("TEST-P · Proposta de teste");
-  await expect(page.locator(".crm-timeline")).toContainText(
-    "Oportunidade registrada em Qualificação",
-  );
+  await page.getByRole("tab", { name: /^Resumo/ }).click();
 
   await page.screenshot({
     path: info.outputPath("opportunity-workspace-1440.png"),
@@ -1105,7 +1115,7 @@ test("Opportunity workspace: account, value, aging, next action, signals and tim
 
 test("Governed stage change: the reason is demanded before the request leaves the screen", async () => {
   await intercept(deep);
-  await openArea("oportunidades", "Seu pipeline");
+  await openArea("oportunidades", "Pipeline");
   await page
     .getByRole("button", { name: /Cenário de teste · qualificação/ })
     .first()
@@ -1166,23 +1176,25 @@ test("Commercial follow-up creation reaches the canonical engine with idempotenc
     });
   });
 
-  await page.getByRole("button", { name: "Agendar follow-up", exact: true }).click();
-  await page.getByRole("button", { name: "Selecionar", exact: true }).first().click();
+  await page.getByTestId("followup-new").click();
+  // O vínculo é o primeiro campo: sem objeto não há compromisso.
+  await page.getByTestId("followup-subject").click();
+  await page.locator(".crm-combobox-list [role=option]").first().click();
 
   await page
-    .getByLabel("O que precisa acontecer", { exact: true })
+    .getByPlaceholder("Ex.: obter a resposta do cliente sobre a revisão R02")
     .fill("Obter a resposta do cliente sobre a revisão");
-  // Sem responsável, o motor recusaria — e a tela recusa antes.
-  await expect(
-    page.getByRole("button", { name: /Abrir acompanhamento/ }),
-  ).toBeDisabled();
-  // `getByRole` em vez de `getByLabel`: a fila atrás do formulário tem um
-  // <select> de responsável com o mesmo nome acessível.
+  // Responsável é uma IDENTIDADE da plataforma; texto livre só para quem está
+  // fora dela — e, escolhida essa opção, sem nome o motor recusaria e a tela
+  // recusa antes. Escopado ao formulário: a fila atrás tem um <select> com o
+  // mesmo nome acessível.
+  await page.locator('.crm-flow select[aria-label="Responsável"]').selectOption("__external__");
+  await expect(page.getByTestId("followup-submit")).toBeDisabled();
   await page
-    .getByRole("textbox", { name: "Responsável", exact: true })
+    .getByRole("textbox", { name: /Responsável — nome de quem não usa a plataforma/ })
     .fill("Responsável de teste");
-  await page.getByLabel("Evidência esperada", { exact: true }).fill("E-mail do cliente");
-  await page.getByRole("button", { name: /Abrir acompanhamento/ }).click();
+  await page.getByPlaceholder("Ex.: e-mail do cliente confirmando o aceite").fill("E-mail do cliente");
+  await page.getByTestId("followup-submit").click();
 
   await expect
     .poll(() => submitted)
@@ -1190,9 +1202,10 @@ test("Commercial follow-up creation reaches the canonical engine with idempotenc
       sourceKind: "commercial_opportunity",
       goal: "Obter a resposta do cliente sobre a revisão",
       responsibleText: "Responsável de teste",
+      responsibleUserId: null,
       expectedEvidence: "E-mail do cliente",
     });
-  expect(idempotency ?? "").toMatch(/^commercial-followup:commercial_opportunity:/);
+  expect(idempotency ?? "").toMatch(/^commercial-followup:[\w-]{8,}/);
   await expect(
     page.getByText("Um acompanhamento governado exige responsável."),
   ).toBeVisible();
@@ -1216,12 +1229,14 @@ test("Proposal workspace: governing revision, provenance, divergences and handof
   // A ACEITA rege mesmo com um rascunho R03 mais novo em cima.
   await expect(page.getByText("Revisão regente", { exact: true })).toBeVisible();
   await expect(page.getByText("Aceita — é esta que pode autorizar execução")).toBeVisible();
+  await page.getByRole("tab", { name: /^Revisões/ }).click();
   await expect(page.getByText("Regente", { exact: true })).toBeVisible();
 
   // Valor, condição de pagamento, validade e estado do aceite, sem segunda tela.
   await expect(page.getByText("30 dias após a medição").first()).toBeVisible();
   await expect(page.getByText("Estado do aceite", { exact: true })).toBeVisible();
 
+  await page.getByRole("tab", { name: /^Fatos e blueprint/ }).click();
   // Fato ancorado E confirmado vira regra; o não ancorado é dito como tal.
   // `exact` importa: a frase do fato NÃO ancorado termina em "não promovível a
   // regra", e um match por substring acertaria as duas.
@@ -1235,6 +1250,7 @@ test("Proposal workspace: governing revision, provenance, divergences and handof
   ).toBeVisible();
 
   // Divergência bloqueante aparece, e a passagem para a OS diz onde parou.
+  await page.getByRole("tab", { name: /^Execução/ }).click();
   await expect(page.getByText("Valor da OS diverge da proposta aceita")).toBeVisible();
   await expect(
     page.getByRole("heading", { level: 4, name: /Passagem para execução/ }),
@@ -1282,6 +1298,7 @@ test("Restricted execution sections say so instead of rendering a misleading emp
     page.getByRole("heading", { level: 2, name: "TEST-P · Proposta de teste", exact: true }),
   ).toBeVisible();
 
+  await page.getByRole("tab", { name: /^Execução/ }).click();
   const restricted = page.locator(".crm-section-restricted");
   await expect(restricted.first()).toContainText("contracts.view");
   await expect(restricted.first()).toContainText("não confunda com ausência de registros");
@@ -1348,7 +1365,7 @@ test("Account 360 gathers contacts, pipeline, proposals, authorized work and pro
 
 test("Pipeline and list show the same facts, and the signal filters narrow both", async () => {
   await intercept(deep);
-  await openArea("oportunidades", "Seu pipeline");
+  await openArea("oportunidades", "Pipeline");
 
   // Kanban: idade na etapa e próxima ação no próprio cartão.
   const card = page.locator(".crm-opportunity").first();
@@ -1393,8 +1410,8 @@ test("Forecast movement is read from stage history, not from a daily snapshot", 
     page.locator(".crm-metric", { hasText: "Saíram do forecast" }),
   ).toContainText("1 ganha(s)");
 
-  const entered = page.getByRole("heading", { name: "Entraram no forecast" });
-  const left = page.getByRole("heading", { name: "Saíram do forecast" });
+  const entered = page.getByRole("heading", { name: /^Entraram · \d+/ });
+  const left = page.getByRole("heading", { name: /^Saíram · \d+/ });
   await expect(entered).toBeVisible();
   await expect(left).toBeVisible();
   await expect(page.getByText("Cenário de teste · ganha").first()).toBeVisible();
@@ -1421,7 +1438,7 @@ test("Forecast movement is read from stage history, not from a daily snapshot", 
 
 test("Overview counts the same deterministic signals the areas show", async () => {
   await intercept(deep);
-  await openArea("", "O caminho até o aceite");
+  await openArea("", "O que precisa de decisão");
   const queue = page.getByRole("heading", { name: "O que precisa de decisão" });
   await expect(queue).toBeVisible();
   for (const entry of [
@@ -1437,6 +1454,6 @@ test("Overview counts the same deterministic signals the areas show", async () =
   }
   // Um bloqueante no recorte — o mesmo que a área de Oportunidades acusa.
   await expect(
-    page.getByRole("button", { name: /Sinais bloqueantes/ }),
+    page.getByRole("button", { name: /Bloqueantes/ }),
   ).toContainText("1");
 });

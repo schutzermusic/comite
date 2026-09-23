@@ -48,7 +48,7 @@ export async function GET(_request: Request, context: { params: Promise<{ partyI
     return NextResponse.json({ ok: false, error: 'Conta não encontrada.' }, { status: 404 });
   }
 
-  const [contacts, opportunities, proposals] = await Promise.all([
+  const [contacts, opportunities, proposals, surveys] = await Promise.all([
     session.supabase.from('commercial_contacts')
       .select('id,full_name,role_title,email,phone,is_primary,active,created_at')
       .eq('organization_id', session.organizationId).eq('party_id', partyId)
@@ -63,6 +63,10 @@ export async function GET(_request: Request, context: { params: Promise<{ partyI
       .select('id,proposal_number,kind,title,opportunity_id,currency,created_at')
       .eq('organization_id', session.organizationId).eq('party_id', partyId)
       .order('created_at', { ascending: false }).limit(200),
+    session.supabase.from('commercial_site_surveys')
+      .select('id,code,title,status,opportunity_id,site_name,planned_visit_date,completed_at,created_at')
+      .eq('organization_id', session.organizationId).eq('party_id', partyId)
+      .order('created_at', { ascending: false }).limit(100),
   ]);
 
   const opportunityRows = (opportunities.data ?? []) as unknown as SignalOpportunity[];
@@ -147,6 +151,12 @@ export async function GET(_request: Request, context: { params: Promise<{ partyI
     }
   }
 
+  const { data: startRows } = opportunityIds.length
+    ? await session.supabase.from('commercial_execution_starts')
+        .select('id,opportunity_id,mode,documentation_state,regularization_due_date')
+        .eq('organization_id', session.organizationId).in('opportunity_id', opportunityIds)
+    : { data: [] };
+
   const owners = await resolveOwnerNames(session.organizationId,
     opportunityRows.map((row) => (row as unknown as { owner_user_id: string | null }).owner_user_id));
 
@@ -162,6 +172,8 @@ export async function GET(_request: Request, context: { params: Promise<{ partyI
     projects,
     signals,
     owners,
+    surveys: surveys.data ?? [],
+    executionStarts: startRows ?? [],
     engagementVisibility: canSeeEngagements ? 'visible' : 'restricted',
     projectVisibility: canSeeProjects ? 'visible' : 'restricted',
   });

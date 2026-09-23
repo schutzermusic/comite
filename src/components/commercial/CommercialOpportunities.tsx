@@ -17,7 +17,8 @@
  * visão geral não conseguem discordar.
  */
 import { useMemo, useState, type CSSProperties } from "react";
-import { CalendarPlus, Clock } from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { CalendarPlus, Clock, X } from "lucide-react";
 import { HudBadge, HudButton } from "@/components/hud";
 import { usePermissions } from "@/hooks/use-permissions";
 import { opportunityStageLabels } from "@/lib/commercial/labels";
@@ -117,7 +118,17 @@ export function CommercialOpportunities() {
   const [currency, setCurrency] = useState("all");
   const [owner, setOwner] = useState("all");
   const [signalFilter, setSignalFilter] = useState("all");
-  const [openOpportunity, setOpenOpportunity] = useState<string | null>(null);
+  /*
+    Ligações diretas: `?opportunity=` abre o dossiê (aviso, tela de campo,
+    link compartilhado); `?month=AAAA-MM` e `?owner=` chegam do forecast
+    quando alguém clica num mês — o recorte vira filtro visível e removível.
+  */
+  const params = useSearchParams();
+  const [openOpportunity, setOpenOpportunity] = useState<string | null>(() => params.get("opportunity"));
+  const [month, setMonth] = useState<string | null>(() => {
+    const value = params.get("month");
+    return value && /^\d{4}-\d{2}$/.test(value) ? value : null;
+  });
   const [openProposal, setOpenProposal] = useState<string | null>(null);
   const [openAccount, setOpenAccount] = useState<string | null>(null);
   const [composing, setComposing] = useState<{ id: string; label: string } | null>(null);
@@ -142,6 +153,7 @@ export function CommercialOpportunities() {
     if (!matches(search, r.title, r.counterparty_name, r.code)) return false;
     if (stage !== "all" && stage !== r.stage) return false;
     if (currency !== "all" && r.currency !== currency) return false;
+    if (month && (r.expected_decision_date ?? "").slice(0, 7) !== month) return false;
     if (owner !== "all") {
       if (owner === "unassigned" ? !!r.owner_user_id : r.owner_user_id !== owner) return false;
     }
@@ -202,10 +214,18 @@ export function CommercialOpportunities() {
   return (
     <section className="crm-workspace" aria-label="Oportunidades">
       <WorkspaceHeading
-        eyebrow="Pipeline comercial"
-        title="Cada conversa, um próximo passo."
-        description="Valor, responsável, idade na etapa e próxima ação — nas duas visões, sem diferença."
-        action={<CreateCommercialButton kind="opportunity" onCreated={refresh} />}
+        eyebrow="Comercial · Oportunidades"
+        title="Oportunidades"
+        description={
+          <>
+            <span><b>{open.length}</b> abertas</span>
+            <i className="crm-live-sep" aria-hidden />
+            <span><b>{moneyTotal(open.map((r) => ({ value: r.estimated_value, currency: r.currency })))}</b> em pipeline</span>
+            <i className="crm-live-sep" aria-hidden />
+            <span><b>{won.length}</b> ganha(s)</span>
+          </>
+        }
+        action={<CreateCommercialButton kind="opportunity" onCreated={refresh} onOpen={setOpenOpportunity} />}
       />
 
       <Metrics
@@ -221,18 +241,21 @@ export function CommercialOpportunities() {
           {
             label: "Paradas",
             value: countBySignal(["OPPORTUNITY_STALLED"]),
+            tone: countBySignal(["OPPORTUNITY_STALLED"]) ? "warning" : "neutral",
             hint: "Além do limiar declarado da etapa",
             onClick: () => setSignalFilter("stalled"),
           },
           {
             label: "Sem próxima ação",
             value: countBySignal(["NO_NEXT_ACTION"]),
+            tone: countBySignal(["NO_NEXT_ACTION"]) ? "warning" : "neutral",
             hint: "Nenhum acompanhamento aberto",
             onClick: () => setSignalFilter("no_next_action"),
           },
           {
             label: "Retorno atrasado",
             value: countBySignal(["CUSTOMER_RESPONSE_OVERDUE"]),
+            tone: countBySignal(["CUSTOMER_RESPONSE_OVERDUE"]) ? "danger" : "neutral",
             hint: "Cliente passou da data que combinou",
             onClick: () => setSignalFilter("overdue"),
           },
@@ -240,8 +263,8 @@ export function CommercialOpportunities() {
       />
 
       <Panel
-        title="Seu pipeline"
-        note="Quatro etapas abertas. Resultados encerrados permanecem na visão Lista."
+        title={view === "pipeline" ? "Pipeline" : "Lista"}
+        note={view === "pipeline" ? "Quatro etapas abertas · encerradas ficam na Lista" : "Todas as oportunidades, abertas e encerradas"}
         aside={
           <Segments
             label="Visualização"
@@ -254,7 +277,17 @@ export function CommercialOpportunities() {
           />
         }
       >
-        <div className="p-4 border-b border-ig-border-subtle">
+        {month && (
+          <div className="flow-filter-chip-row">
+            <button type="button" className="flow-filter-chip" onClick={() => { setMonth(null); setView("pipeline"); }}
+              aria-label={`Remover filtro de decisão em ${month}`}>
+              Decisão prevista em {new Date(`${month}-15T12:00:00`).toLocaleDateString("pt-BR", { month: "long", year: "numeric" })}
+              <X size={12} aria-hidden />
+            </button>
+            <span className="crm-muted">{rows.length} oportunidade(s) · recorte vindo do forecast</span>
+          </div>
+        )}
+        <div className="crm-subbar">
           <Segments
             label="Recorte por sinal"
             value={signalFilter}
@@ -337,9 +370,7 @@ export function CommercialOpportunities() {
                           items.map((r) => ({ value: r.estimated_value, currency: r.currency })),
                         )}
                       </p>
-                      <p className="crm-muted">
-                        {items.length} oportunidade(s) · limiar {STAGE_STALL_DAYS[s]} d
-                      </p>
+                      <p className="crm-stage-limit">limiar de etapa · {STAGE_STALL_DAYS[s]} d</p>
                       {!items.length ? (
                         <p className="crm-stage-empty">
                           {stageHints[s] ?? "Resultados comerciais encerrados."}
@@ -368,6 +399,11 @@ export function CommercialOpportunities() {
                                         : "Prob. do estágio"}
                                     </span>
                                   </div>
+                                  {r.probability !== null && (
+                                    <span className="crm-meter" aria-hidden>
+                                      <i style={{ width: `${Math.round(Number(r.probability) * 100)}%` }} />
+                                    </span>
+                                  )}
                                   <div className="crm-opportunity-meta">
                                     <span className={stalled ? "crm-aging-stalled" : undefined}>
                                       <Clock size={11} aria-hidden />

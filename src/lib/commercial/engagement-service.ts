@@ -229,6 +229,18 @@ export function createProposal(
     p_organization_id: organizationId, p_actor: actorId, p_payload: payload });
 }
 
+/**
+ * Vincula uma proposta já criada à sua oportunidade (216). Só vincula — não
+ * move nem desfaz — e a função recusa conta ou trabalho autorizado divergentes.
+ */
+export function linkProposalToOpportunity(
+  organizationId: string, actorId: string, proposalId: string, opportunityId: string, reason: string | null,
+): Promise<{ proposal_id: string; opportunity_id: string; linked: boolean; party_inherited: boolean; currency_differs?: boolean }> {
+  return rpc('commercial_proposal_link_opportunity', {
+    p_organization_id: organizationId, p_actor: actorId, p_proposal_id: proposalId,
+    p_opportunity_id: opportunityId, p_reason: reason });
+}
+
 /** Revisar NUNCA edita a revisão anterior: cria a próxima e sucede a atual. */
 export function reviseProposal(
   organizationId: string, actorId: string, revisionId: string, payload: Record<string, unknown>,
@@ -269,4 +281,91 @@ export function createExecutionBlueprint(
   return rpc('commercial_blueprint_create', {
     p_organization_id: organizationId, p_actor: actorId,
     p_revision_id: revisionId, p_payload: payload });
+}
+
+// ===========================================================================
+// LEVANTAMENTO TÉCNICO E INÍCIO DE EXECUÇÃO (213) — a mesma regra de sempre.
+// ===========================================================================
+
+export function createSiteSurvey(
+  organizationId: string, actorId: string, payload: Record<string, unknown>,
+): Promise<{ survey_id: string; code: string; status: string }> {
+  return rpc('commercial_site_survey_create', {
+    p_organization_id: organizationId, p_actor: actorId, p_payload: payload });
+}
+
+export function transitionSiteSurvey(
+  organizationId: string, actorId: string, surveyId: string, toStatus: string,
+  note: string | null, payload: Record<string, unknown> = {},
+): Promise<{ survey_id: string; from_status?: string; status: string }> {
+  return rpc('commercial_site_survey_transition', {
+    p_organization_id: organizationId, p_actor: actorId, p_survey_id: surveyId,
+    p_to_status: toStatus, p_note: note, p_payload: payload });
+}
+
+/** Registro de campo: mescla por seção. Seção ausente no patch não é apagada. */
+export function recordSiteSurvey(
+  organizationId: string, actorId: string, surveyId: string, patch: Record<string, unknown>,
+): Promise<{ survey_id: string }> {
+  return rpc('commercial_site_survey_record', {
+    p_organization_id: organizationId, p_actor: actorId, p_survey_id: surveyId, p_patch: patch });
+}
+
+export function registerSiteSurveyAttachment(
+  organizationId: string, actorId: string, surveyId: string, payload: Record<string, unknown>,
+): Promise<{ document_id: string; reused: boolean }> {
+  return rpc('commercial_site_survey_register_attachment', {
+    p_organization_id: organizationId, p_actor: actorId, p_survey_id: surveyId, p_payload: payload });
+}
+
+/** A Apex grava SÓ na coluna dela; nunca em `findings`. Sem ator humano. */
+export function recordSiteSurveyApexCandidate(
+  organizationId: string, surveyId: string, candidate: Record<string, unknown>,
+  provenance: { provider: string; model: string; pipelineVersion: string },
+): Promise<{ survey_id: string; recorded: boolean }> {
+  return rpc('commercial_site_survey_record_apex_candidate', {
+    p_organization_id: organizationId, p_survey_id: surveyId, p_candidate: candidate,
+    p_provider: provenance.provider, p_model: provenance.model,
+    p_pipeline_version: provenance.pipelineVersion });
+}
+
+export interface ExecutionStartResult {
+  execution_start_id: string;
+  engagement_id: string;
+  engagement_created: boolean;
+  mode: 'STANDARD' | 'EXCEPTIONAL';
+  documentation_state: 'COMPLETE' | 'PENDING' | 'REGULARIZED';
+  service_order_id: string | null;
+  service_order_number: string | null;
+  service_order_status: string | null;
+  service_order_created: boolean;
+  project_id: string | null;
+  blocked: Array<{ code: string; detail: string; count?: number }>;
+}
+
+/**
+ * "Fechar negócio e iniciar execução". Uma chamada, uma transação: ou o
+ * fechamento inteiro acontece (reusando o que já existe), ou nada muda.
+ */
+export function closeAndStartExecution(
+  organizationId: string, actorId: string, payload: Record<string, unknown>,
+): Promise<ExecutionStartResult> {
+  return rpc('commercial_close_and_start_execution', {
+    p_organization_id: organizationId, p_actor: actorId, p_payload: payload });
+}
+
+export function regularizeExecutionStart(
+  organizationId: string, actorId: string, executionStartId: string, payload: Record<string, unknown>,
+): Promise<{ execution_start_id: string; documentation_state: string; billing_events_recomputed: number }> {
+  return rpc('commercial_execution_start_regularize', {
+    p_organization_id: organizationId, p_actor: actorId,
+    p_execution_start_id: executionStartId, p_payload: payload });
+}
+
+/** O PDF de uma revisão de proposta, no acervo canônico, antes de haver engajamento (215). */
+export function registerProposalDocument(
+  organizationId: string, actorId: string, revisionId: string, payload: Record<string, unknown>,
+): Promise<{ document_id: string; reused: boolean; document_context: DocumentContext }> {
+  return rpc('commercial_proposal_register_document', {
+    p_organization_id: organizationId, p_actor: actorId, p_revision_id: revisionId, p_payload: payload });
 }

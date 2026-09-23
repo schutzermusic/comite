@@ -2,9 +2,13 @@ import { NextResponse } from 'next/server';
 import { requireCommercialSession, isSessionError } from '@/lib/commercial/server-session';
 import { resolveOwnerNames } from '@/lib/commercial/owner-directory';
 import {
-  buildPipelineSignals,
+  buildPipelineSignals, sortPipelineSignals,
   type SignalFollowup, type SignalOpportunity, type SignalProposal, type SignalRevision,
 } from '@/lib/commercial/pipeline-signals';
+import { buildExecutionSignals } from '@/lib/commercial/execution-signals';
+import { evaluateProposalReadiness } from '@/lib/commercial/proposal-readiness';
+import type { SiteSurveyStatus } from '@/lib/commercial/site-survey';
+import { platformServiceClient } from '@/lib/platform/server-client';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -51,7 +55,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     party_id: string | null; owner_user_id: string | null; primary_contact_id: string | null;
   };
 
-  const [party, contacts, proposals, stageEvents] = await Promise.all([
+  const [party, contacts, proposals, stageEvents, surveys, executionStart] = await Promise.all([
     row.party_id
       ? session.supabase.from('parties')
           .select('id,legal_name,trade_name,document_number')
@@ -70,6 +74,17 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
       .select('id,from_stage,to_stage,reason,actor_user_id,occurred_at')
       .eq('organization_id', session.organizationId).eq('opportunity_id', id)
       .order('occurred_at', { ascending: false }).limit(60),
+    session.supabase.from('commercial_site_surveys')
+      .select('id,code,title,status,site_name,site_address,purpose,technical_responsible_user_id,'
+        + 'planned_visit_date,started_at,completed_at,findings,checklist,open_questions,'
+        + 'apex_generated_at,created_at')
+      .eq('organization_id', session.organizationId).eq('opportunity_id', id)
+      .order('created_at', { ascending: false }),
+    session.supabase.from('commercial_execution_starts')
+      .select('id,engagement_id,mode,authorization_type,authorization_date,authorization_reference,'
+        + 'documentation_state,exception_reason,regularization_owner_user_id,regularization_due_date,'
+        + 'regularized_at,service_order_id,project_id,confirmed_by,confirmed_at')
+      .eq('organization_id', session.organizationId).eq('opportunity_id', id).maybeSingle(),
   ]);
 
   const proposalRows = (proposals.data ?? []) as unknown as Array<SignalProposal & { created_at: string }>;
@@ -97,12 +112,73 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
   const revisionRows = (revisions.data ?? []) as unknown as Array<SignalRevision & Record<string, unknown>>;
   const followupRows = (followups.data ?? []) as unknown as SignalFollowup[];
 
-  const signals = buildPipelineSignals({
-    opportunities: [row],
-    followups: followupRows,
-    proposals: proposalRows,
-    revisions: revisionRows,
+  const surveyRows = (surveys.data ?? []) as unknown as Array<{
+    id: string; code: string; status: SiteSurveyStatus; planned_visit_date: string | null;
+    site_name: string | null; site_address: string | null; findings: unknown; checklist: unknown;
+    open_questions: unknown; technical_responsible_user_id: string | null;
+  }>;
+  const startRow = (executionStart.data ?? null) as unknown as {
+    id: string; engagement_id: string; documentation_state: string; regularization_due_date: string | null;
+    regularization_owner_user_id: string | null; confirmed_by: string | null;
+  } | null;
+
+  const readiness = evaluateProposalReadiness({
+    opportunity: row as unknown as {
+      party_id: string | null; primary_contact_id: string | null;
+      estimated_value: string | null; expected_decision_date: string | null;
+    },
+    contacts: (contacts.data ?? []) as Array<{ id: string; is_primary: boolean }>,
+    surveys: surveyRows,
   });
+
+  /*
+    O ESTADO do trabalho autorizado para os sinais de fluxo. A OS é legível
+    com `commercial.view` (RLS da 200); o status do engajamento vive sob
+    `contracts.view`, e aqui atravessa SÓ o status do engajamento para o qual
+    esta oportunidade — já lida sob RLS — aponta.
+  */
+  const engagementId = (row.engagement_id as string | null) ?? startRow?.engagement_id ?? null;
+  const [engagementStatus, orders] = engagementId
+    ? await Promise.all([
+        platformServiceClient().from('commercial_engagements').select('id,status')
+          .eq('organization_id', session.organizationId).eq('id', engagementId).maybeSingle(),
+        session.supabase.from('internal_service_orders')
+          .select('id,os_number,status,project_id,origin,issued_at')
+          .eq('organization_id', session.organizationId).eq('engagement_id', engagementId),
+      ])
+    : [{ data: null }, { data: [] }];
+  const serviceOrders = (orders.data ?? []) as unknown as Array<{
+    id: string; os_number: string; status: string; project_id: string | null;
+  }>;
+
+  const acceptedRevisions = revisionRows
+    .filter((revision) => revision.status === 'ACCEPTED')
+    .map((revision) => {
+      const proposal = proposalRows.find((p) => p.id === revision.proposal_id);
+      return { id: revision.id,
+        label: `${proposal?.proposal_number ?? 'Proposta'} R${String(revision.revision).padStart(2, '0')}` };
+    });
+
+  const signals = sortPipelineSignals([
+    ...buildPipelineSignals({
+      opportunities: [row],
+      followups: followupRows,
+      proposals: proposalRows,
+      revisions: revisionRows,
+    }).filter((signal) => !(signal.kind === 'WON_WITHOUT_AUTHORIZED_WORK' && acceptedRevisions.length)),
+    ...buildExecutionSignals({
+      opportunity: row as unknown as {
+        id: string; title: string; stage: SignalOpportunity['stage']; engagement_id: string | null;
+      },
+      surveys: surveyRows,
+      readiness,
+      proposalCount: proposalRows.length,
+      acceptedRevisions,
+      engagement: (engagementStatus.data as { id: string; status: string } | null) ?? null,
+      serviceOrders,
+      executionStart: startRow,
+    }),
+  ]);
 
   const owners = await resolveOwnerNames(session.organizationId, [
     row.owner_user_id,
@@ -110,6 +186,8 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
       .map((event) => event.actor_user_id),
     ...followupRows.map((followup) =>
       (followup as unknown as { responsible_user_id: string | null }).responsible_user_id),
+    ...surveyRows.map((survey) => survey.technical_responsible_user_id),
+    startRow?.regularization_owner_user_id, startRow?.confirmed_by,
   ]);
 
   return NextResponse.json({
@@ -121,6 +199,11 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     revisions: revisionRows,
     followups: followupRows,
     stageEvents: stageEvents.data ?? [],
+    surveys: surveyRows,
+    readiness,
+    executionStart: startRow,
+    engagement: engagementStatus.data ?? null,
+    serviceOrders,
     signals,
     owners,
   });

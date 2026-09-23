@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { HudBadge, HudButton, useHudToast } from "@/components/hud";
 import { usePermissions } from "@/hooks/use-permissions";
 import { proposalStatusLabels } from "@/lib/commercial/labels";
@@ -75,7 +76,8 @@ export function CommercialProposals() {
   const [status, setStatus] = useState("all");
   const [kind, setKind] = useState("all");
   const [busy, setBusy] = useState<string | null>(null);
-  const [openProposal, setOpenProposal] = useState<string | null>(null);
+  const params = useSearchParams();
+  const [openProposal, setOpenProposal] = useState<string | null>(() => params.get("proposal"));
   const [openOpportunity, setOpenOpportunity] = useState<string | null>(null);
   const [composing, setComposing] = useState<{ id: string; label: string } | null>(null);
   const { hasPermission } = usePermissions();
@@ -121,6 +123,7 @@ export function CommercialProposals() {
   if (state !== "ready" || !data)
     return <ResourceState state={state} message={message} />;
   const live = [...governing.values()];
+  const withoutPdf = live.filter((r) => !r.document_id).length;
   const count = (...statuses: string[]) =>
     live.filter((r) => statuses.includes(r.status)).length;
   const rows = data.proposals.filter(
@@ -132,10 +135,20 @@ export function CommercialProposals() {
   return (
     <section className="crm-workspace" aria-label="Propostas">
       <WorkspaceHeading
-        eyebrow="Governança de propostas"
-        title="Da solução ao compromisso."
-        description="Propostas técnicas e comerciais com revisão, procedência e aprovação em cada etapa."
-        action={<CreateCommercialButton kind="proposal" onCreated={refresh} />}
+        eyebrow="Comercial · Propostas"
+        title="Propostas"
+        description={
+          <>
+            <span><b>{count("DRAFT", "INTERNAL_REVIEW", "INTERNALLY_APPROVED")}</b> em preparação</span>
+            <i className="crm-live-sep" aria-hidden />
+            <span><b>{count("SENT", "NEGOTIATION")}</b> com o cliente</span>
+            <i className="crm-live-sep" aria-hidden />
+            <span><b>{count("ACCEPTED")}</b> aceita(s)</span>
+            <i className="crm-live-sep" aria-hidden />
+            <span className={withoutPdf ? "crm-tone-warning" : undefined}><b>{withoutPdf}</b> sem PDF</span>
+          </>
+        }
+        action={<CreateCommercialButton kind="proposal" onCreated={refresh} onOpen={setOpenProposal} />}
       />
       <Metrics
         items={[

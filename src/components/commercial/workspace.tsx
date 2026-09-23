@@ -1,8 +1,10 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useLayoutEffect, useRef, type ReactNode } from "react";
 import {
   ArrowUpRight,
+  Inbox,
+  Lock,
   Search,
   ShieldCheck,
   SlidersHorizontal,
@@ -10,6 +12,7 @@ import {
 import { HudPanel } from "@/components/hud";
 import { brl } from "./shared";
 import "./commercial.css";
+import "./commercial-v3.css";
 
 export function WorkspaceHeading({
   eyebrow,
@@ -19,17 +22,67 @@ export function WorkspaceHeading({
 }: {
   eyebrow: string;
   title: string;
-  description: string;
+  description: ReactNode;
   action?: ReactNode;
 }) {
+  // Um cabeçalho só por tela: a área, o estado vivo dela e a ação principal.
+  // Nada de frase de efeito empurrando o trabalho para baixo da dobra.
   return (
     <div className="crm-heading">
-      <div>
+      <div className="crm-heading-main">
         <p className="crm-eyebrow">{eyebrow}</p>
         <h2>{title}</h2>
-        <p className="crm-muted">{description}</p>
+        <p className="crm-heading-live">{description}</p>
       </div>
       <div className="crm-actions">{action}</div>
+    </div>
+  );
+}
+
+export type Tone = "neutral" | "accent" | "success" | "warning" | "danger" | "info";
+
+/** Estado com cor e texto — nunca só cor. */
+export function StatePill({
+  tone = "neutral",
+  children,
+  dot = true,
+}: {
+  tone?: Tone;
+  children: ReactNode;
+  dot?: boolean;
+}) {
+  return (
+    <span className={`crm-pill crm-pill-${tone}`}>
+      {dot && <i aria-hidden />}
+      {children}
+    </span>
+  );
+}
+
+/**
+ * Função indisponível AGORA — dita, com o que falta e o botão que resolve.
+ * A regra do módulo: nada some em silêncio.
+ */
+export function UnlockHint({
+  children,
+  action,
+  tone = "neutral",
+  icon,
+  testId,
+}: {
+  children: ReactNode;
+  action?: ReactNode;
+  tone?: "neutral" | "warning" | "danger";
+  icon?: ReactNode;
+  testId?: string;
+}) {
+  return (
+    <div className={`crm-unlock crm-unlock-${tone}`} data-testid={testId}>
+      <span className="crm-unlock-icon" aria-hidden>
+        {icon ?? <Lock size={14} />}
+      </span>
+      <p>{children}</p>
+      {action && <div className="crm-unlock-action">{action}</div>}
     </div>
   );
 }
@@ -39,36 +92,45 @@ export function Metrics({
   items: {
     label: string;
     value: ReactNode;
-    hint: string;
+    hint: ReactNode;
     accent?: boolean;
+    tone?: Tone;
+    /** 0–1: uma régua fina sob o número (cobertura, conversão, peso). */
+    meter?: number | null;
     onClick?: () => void;
   }[];
 }) {
   return (
     <div className="crm-metrics">
       {items.map((item) => {
+        const tone = item.tone ?? (item.accent ? "accent" : "neutral");
         const content = (
           <>
             <span className="crm-eyebrow">
               {item.label}
-              {item.onClick && <ArrowUpRight size={14} aria-hidden />}
+              {item.onClick && <ArrowUpRight size={13} aria-hidden />}
             </span>
-            <strong className={item.accent ? "crm-accent" : ""}>
+            <strong className={`crm-metric-value crm-tone-${tone}`}>
               {item.value}
             </strong>
-            <span className="crm-muted">{item.hint}</span>
+            {item.meter !== undefined && item.meter !== null && (
+              <span className="crm-meter" aria-hidden>
+                <i style={{ width: `${Math.max(0, Math.min(1, item.meter)) * 100}%` }} />
+              </span>
+            )}
+            <span className="crm-metric-hint">{item.hint}</span>
           </>
         );
         return item.onClick ? (
           <button
             key={item.label}
-            className="crm-metric"
+            className={`crm-metric crm-metric-${tone}`}
             onClick={item.onClick}
           >
             {content}
           </button>
         ) : (
-          <div key={item.label} className="crm-metric">
+          <div key={item.label} className={`crm-metric crm-metric-${tone}`}>
             {content}
           </div>
         );
@@ -200,6 +262,15 @@ export function DataTable({
   count: number;
   footer?: string;
 }) {
+  // No celular a tabela vira cartões; cada célula precisa do nome da coluna.
+  const ref = useRef<HTMLTableElement>(null);
+  useLayoutEffect(() => {
+    ref.current?.querySelectorAll("tbody tr").forEach((row) =>
+      row.querySelectorAll(":scope > td").forEach((cell, index) => {
+        if (columns[index] !== undefined) cell.setAttribute("data-label", columns[index]);
+      }),
+    );
+  });
   return (
     <>
       <div
@@ -208,7 +279,7 @@ export function DataTable({
         aria-label={label}
         tabIndex={0}
       >
-        <table className="crm-table">
+        <table className="crm-table crm-table-cards" ref={ref}>
           <caption className="sr-only">{label}</caption>
           <thead>
             <tr>
@@ -224,7 +295,7 @@ export function DataTable({
               children
             ) : (
               <tr>
-                <td colSpan={columns.length}>
+                <td colSpan={columns.length} className="crm-table-empty-cell">
                   <div className="crm-table-empty">{empty}</div>
                 </td>
               </tr>
@@ -233,7 +304,7 @@ export function DataTable({
         </table>
       </div>
       <div className="crm-table-footer">
-        <span>{count} registro(s) exibido(s)</span>
+        <span><b>{count}</b> registro(s)</span>
         <span>{footer ?? "Dados do espaço de trabalho"}</span>
       </div>
     </>
@@ -245,11 +316,14 @@ export function EmptyNote({
   action,
 }: {
   title: string;
-  description: string;
+  description: ReactNode;
   action?: ReactNode;
 }) {
   return (
     <div className="crm-empty-note">
+      <span className="crm-empty-glyph" aria-hidden>
+        <Inbox size={16} />
+      </span>
       <div>
         <strong>{title}</strong>
         <p className="crm-muted">{description}</p>
@@ -261,7 +335,7 @@ export function EmptyNote({
 export function GovernanceNote({ children }: { children: ReactNode }) {
   return (
     <div className="crm-governance">
-      <ShieldCheck size={17} aria-hidden />
+      <ShieldCheck size={13} aria-hidden />
       <p>{children}</p>
     </div>
   );

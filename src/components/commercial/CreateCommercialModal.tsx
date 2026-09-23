@@ -1,12 +1,24 @@
 "use client";
 
-import { useEffect, useId, useState, type FormEvent } from "react";
-import { Plus } from "lucide-react";
-import { HudButton, HudInput, HudModal } from "@/components/hud";
-import type { HudSelectProps } from "@/components/hud/HudSelect";
+/**
+ * AS ENTRADAS DO COMERCIAL — nova oportunidade, novo contato, nova proposta.
+ *
+ * Cada uma começa pelo que ancora o registro (a conta, ou o PDF), pede só o
+ * que muda uma decisão e termina ABRINDO o que foi criado: quem acabou de
+ * cadastrar uma oportunidade quer trabalhar nela, não procurá-la na lista.
+ *
+ * Nada aqui escreve direto em tabela: oportunidade, contato, proposta e
+ * acompanhamento passam pelas mesmas rotas e funções governadas de sempre.
+ */
+import { useMemo, useState, type FormEvent } from "react";
+import { AlertTriangle, CalendarClock, Plus, Star } from "lucide-react";
+import { HudButton, HudModal, useHudToast } from "@/components/hud";
 import { usePermissions } from "@/hooks/use-permissions";
-import { listParties } from "@/lib/parties/party-service";
-import type { PartyRow } from "@/lib/parties/types";
+import { OPEN_OPPORTUNITY_STAGES, type OpportunityStage } from "@/lib/commercial/types";
+import { opportunityStageLabels } from "@/lib/commercial/labels";
+import { AccountPicker, loadContacts, useAccountContacts, type PickedAccount } from "./AccountPicker";
+import { PersonSelect, usePeople } from "./people";
+import { ProposalIntakeFlow } from "./ProposalIntakeFlow";
 import { GovernanceNote } from "./workspace";
 
 type Kind = "opportunity" | "proposal" | "contact";
@@ -15,332 +27,470 @@ const labels: Record<Kind, string> = {
   proposal: "Nova proposta",
   contact: "Novo contato",
 };
-export function CreateCommercialButton({
-  kind,
-  onCreated,
-}: {
+const subtitles: Record<Kind, string> = {
+  opportunity: "Conta, valor, dono e o próximo passo — o resto nasce no dossiê.",
+  proposal: "Comece pelo PDF: a Apex lê, você revisa, a proposta nasce.",
+  contact: "Primeiro a conta, depois a pessoa. Nada de cadastro duplicado.",
+};
+
+export interface CreateContext {
+  account?: PickedAccount | null;
+  opportunityId?: string | null;
+}
+
+type CreateButtonProps = {
   kind: Kind;
   onCreated: () => void;
-}) {
-  const { hasPermission } = usePermissions();
+  /** Abre o registro recém-criado (dossiê). */
+  onOpen?: (id: string) => void;
+  context?: CreateContext;
+  variant?: "primary" | "secondary" | "ghost";
+  size?: "sm" | "md";
+  label?: string;
+  /**
+   * Permissão já resolvida por quem renderiza (true/false; null = carregando).
+   * Dentro de um dossiê, o dossiê já sabe — e cada `usePermissions` a mais é
+   * uma nova rodada de consultas ao banco.
+   */
+  permitted?: boolean | null;
+};
+
+const permissionFor = (kind: Kind) => (kind === "proposal" ? "commercial.proposals.manage" : "commercial.manage");
+
+export function CreateCommercialButton(props: CreateButtonProps) {
+  return props.permitted === undefined
+    ? <PermissionAwareCreateButton {...props} />
+    : <CreateButtonView {...props} permitted={props.permitted} />;
+}
+
+function PermissionAwareCreateButton(props: CreateButtonProps) {
+  const { hasPermission, loading } = usePermissions();
+  return <CreateButtonView {...props} permitted={loading ? null : hasPermission(permissionFor(props.kind))} />;
+}
+
+function CreateButtonView({
+  kind,
+  onCreated,
+  onOpen,
+  context,
+  variant = "primary",
+  size = "md",
+  label,
+  permitted,
+}: CreateButtonProps & { permitted: boolean | null }) {
   const [open, setOpen] = useState(false);
-  if (
-    !hasPermission(
-      kind === "proposal" ? "commercial.proposals.manage" : "commercial.manage",
-    )
-  )
-    return null;
+  const permission = permissionFor(kind);
+  // Enquanto as permissões carregam: o botão já ocupa o lugar, sem dizer
+  // "sem permissão" antes de saber.
+  if (permitted === null) {
+    return (
+      <HudButton variant={variant} size={size} disabled aria-busy="true">
+        <Plus size={15} aria-hidden />
+        {label ?? labels[kind]}
+      </HudButton>
+    );
+  }
+  if (!permitted) {
+    // Não some: diz por que não está disponível.
+    return (
+      <HudButton variant="secondary" size={size} disabled title={`Exige a permissão ${permission}.`}>
+        <Plus size={15} aria-hidden />
+        {label ?? labels[kind]}
+      </HudButton>
+    );
+  }
+  const done = (id: string | null) => {
+    setOpen(false);
+    onCreated();
+    if (id) onOpen?.(id);
+  };
   return (
     <>
-      <HudButton variant="primary" size="md" onClick={() => setOpen(true)}>
+      <HudButton variant={variant} size={size} onClick={() => setOpen(true)} data-testid={`create-${kind}`}>
         <Plus size={15} aria-hidden />
-        {labels[kind]}
+        {label ?? labels[kind]}
       </HudButton>
       {open && (
-        <CreateCommercialModal
-          kind={kind}
-          onClose={() => setOpen(false)}
-          onCreated={() => {
-            setOpen(false);
-            onCreated();
-          }}
-        />
+        <CreateCommercialModal kind={kind} context={context} onClose={() => setOpen(false)} onDone={done} />
       )}
     </>
   );
 }
-function CreateCommercialModal({
+
+export function CreateCommercialModal({
   kind,
+  context,
   onClose,
-  onCreated,
+  onDone,
 }: {
   kind: Kind;
+  context?: CreateContext;
   onClose: () => void;
-  onCreated: () => void;
+  onDone: (id: string | null) => void;
 }) {
-  const [values, setValues] = useState<Record<string, string>>({
-    currency: "BRL",
-    kind: "COMBINED",
-  });
-  const [parties, setParties] = useState<PartyRow[]>([]);
-  const [opportunities, setOpportunities] = useState<
-    { id: string; title: string; counterparty_name: string; currency: string }[]
-  >([]);
-  const [loading, setLoading] = useState(kind !== "opportunity");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [lookupError, setLookupError] = useState<string | null>(null);
-  const set = (key: string, value: string) =>
-    setValues((v) => ({ ...v, [key]: value }));
-  useEffect(() => {
-    let active = true;
-    if (kind === "opportunity") return;
-    const load =
-      kind === "contact"
-        ? listParties().then((rows) => {
-            if (active) setParties(rows);
-          })
-        : fetch("/api/commercial/opportunities").then(async (r) => {
-            const p = await r.json();
-            if (!r.ok || !p.ok)
-              throw new Error(
-                p.error || "Não foi possível carregar oportunidades.",
-              );
-            if (active) setOpportunities(p.opportunities);
-          });
-    load
-      .catch((e) => {
-        if (active) setLookupError(e.message);
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [kind]);
-  const field = (
-    key: string,
-    label: string,
-    type = "text",
-    required = false,
-  ) => (
-    <HudInput
-      key={key}
-      label={label}
-      aria-label={label}
-      type={type}
-      required={required}
-      value={values[key] ?? ""}
-      onChange={(e) => set(key, e.target.value)}
-      {...(type === "number" ? { min: 0, step: "0.01" } : {})}
-    />
-  );
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (saving) return;
-    setSaving(true);
-    setError(null);
-    const payload: Record<string, unknown> = Object.fromEntries(
-      Object.entries(values).map(([k, v]) => [k, v.trim() || null]),
-    );
-    if (kind === "opportunity" && values.probability)
-      payload.probability = Number(values.probability) / 100;
-    try {
-      const response = await fetch(
-        `/api/commercial/${kind === "opportunity" ? "opportunities" : kind === "proposal" ? "proposals" : "contacts"}`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(payload),
-        },
-      );
-      const result = await response.json();
-      if (!response.ok || !result.ok)
-        throw new Error(result.error ?? "Não foi possível salvar.");
-      onCreated();
-    } catch (e) {
-      setError((e as Error).message);
-      setSaving(false);
-    }
-  };
+  const [busy, setBusy] = useState(false);
   return (
     <HudModal
       isOpen
       onClose={() => {
-        if (!saving) onClose();
+        if (!busy) onClose();
       }}
       title={labels[kind]}
-      subtitle={
-        kind === "contact"
-          ? "Vincule uma pessoa a uma contraparte do cadastro único."
-          : "Registre o próximo passo do relacionamento comercial."
-      }
-      size="md"
+      subtitle={subtitles[kind]}
+      size={kind === "proposal" ? "xl" : "lg"}
     >
-      <form className="crm-form" onSubmit={submit}>
-        {kind === "contact" ? (
-          <>
-            <FormSelect
-              label="Conta / contraparte"
-              value={values.party_id ?? ""}
-              options={[
-                {
-                  value: "",
-                  label: loading
-                    ? "Carregando contas…"
-                    : "Selecione uma conta existente",
-                },
-                ...parties.map((p) => ({
-                  value: p.id,
-                  label: p.trade_name || p.legal_name,
-                })),
-              ]}
-              onChange={(v) => set("party_id", v)}
-            />
-            {!loading && !parties.length && !lookupError && (
-              <p className="crm-muted">
-                Cadastre primeiro a contraparte no cadastro canônico da
-                plataforma.
-              </p>
-            )}
-            {field("full_name", "Nome completo", "text", true)}
-            {field("role_title", "Cargo")}
-            <div className="crm-form-grid">
-              {field("email", "E-mail", "email")}
-              {field("phone", "Telefone", "tel")}
-            </div>
-          </>
-        ) : (
-          <>
-            {kind === "proposal" && (
-              <div className="crm-form-grid">
-                {field("proposal_number", "Número da proposta", "text", true)}
-                <FormSelect
-                  label="Tipo"
-                  value={values.kind}
-                  options={[
-                    { value: "COMBINED", label: "Técnica + Comercial" },
-                    { value: "TECHNICAL", label: "Técnica" },
-                    { value: "COMMERCIAL", label: "Comercial" },
-                  ]}
-                  onChange={(v) => set("kind", v)}
-                />
-              </div>
-            )}
-            {field("title", "Título", "text", true)}
-            {kind === "proposal" && (
-              <FormSelect
-                label="Oportunidade (opcional)"
-                value={values.opportunity_id ?? ""}
-                options={[
-                  { value: "", label: loading ? "Carregando…" : "Sem vínculo" },
-                  ...opportunities.map((o) => ({
-                    value: o.id,
-                    label: o.title,
-                  })),
-                ]}
-                onChange={(v) => {
-                  const o = opportunities.find((o) => o.id === v);
-                  setValues((prev) => ({
-                    ...prev,
-                    opportunity_id: v,
-                    ...(o
-                      ? {
-                          counterparty_name: o.counterparty_name,
-                          currency: o.currency,
-                        }
-                      : {}),
-                  }));
-                }}
-              />
-            )}
-            {field("counterparty_name", "Cliente / contraparte", "text", true)}
-            <div className="crm-form-grid">
-              {field(
-                kind === "proposal" ? "total_value" : "estimated_value",
-                "Valor estimado (opcional)",
-                "number",
-              )}
-              <FormSelect
-                label="Moeda"
-                value={values.currency}
-                options={["BRL", "USD", "EUR"].map((v) => ({
-                  value: v,
-                  label: v,
-                }))}
-                onChange={(v) => set("currency", v)}
-              />
-            </div>
-            {field(
-              kind === "proposal" ? "validity_until" : "expected_decision_date",
-              kind === "proposal"
-                ? "Validade (opcional)"
-                : "Decisão prevista (opcional)",
-              "date",
-            )}
-            {kind === "opportunity" && (
-              <HudInput
-                label="Probabilidade informada (%) · opcional"
-                aria-label="Probabilidade informada (%) · opcional"
-                type="number"
-                min={0}
-                max={100}
-                step="1"
-                value={values.probability ?? ""}
-                onChange={(e) => set("probability", e.target.value)}
-              />
-            )}
-            <GovernanceNote>
-              {kind === "proposal"
-                ? "A proposta nasce em rascunho. Revisão interna, envio e registro do aceite continuam sendo etapas separadas."
-                : "A oportunidade nasce em qualificação e não cria contrato, projeto ou receita."}
-            </GovernanceNote>
-          </>
-        )}
-        {lookupError && (
-          <p role="alert" className="text-sm text-red-500">
-            {lookupError}
-          </p>
-        )}
-        {error && (
-          <p role="alert" className="text-sm text-red-500">
-            {error}
-          </p>
-        )}
-        <div className="flex justify-end gap-2">
-          <HudButton
-            type="button"
-            variant="secondary"
-            onClick={onClose}
-            disabled={saving}
-          >
-            Cancelar
-          </HudButton>
-          <HudButton
-            type="submit"
-            variant="primary"
-            disabled={
-              saving ||
-              (kind === "contact" &&
-                (!values.party_id || loading || !!lookupError))
-            }
-          >
-            {saving ? "Salvando…" : "Salvar registro"}
-          </HudButton>
-        </div>
-      </form>
+      {kind === "opportunity" && (
+        <OpportunityFlow context={context} onBusy={setBusy} onCancel={onClose} onDone={onDone} />
+      )}
+      {kind === "contact" && (
+        <ContactFlow context={context} onBusy={setBusy} onCancel={onClose} onDone={onDone} />
+      )}
+      {kind === "proposal" && (
+        <ProposalIntakeFlow context={context} onBusy={setBusy} onCancel={onClose} onDone={onDone} />
+      )}
     </HudModal>
   );
 }
 
-/** Accessible native select using the existing HUD form materials. */
-function FormSelect({ label, value, options, onChange }: HudSelectProps) {
-  const id = useId();
+/* ------------------------------------------------------------------------ */
+/* Nova oportunidade                                                         */
+/* ------------------------------------------------------------------------ */
+
+const plusDays = (days: number) => {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+};
+const newKey = () =>
+  typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `k-${Date.now()}-${Math.random()}`;
+
+function OpportunityFlow({
+  context,
+  onBusy,
+  onCancel,
+  onDone,
+}: {
+  context?: CreateContext;
+  onBusy: (busy: boolean) => void;
+  onCancel: () => void;
+  onDone: (id: string | null) => void;
+}) {
+  const { me } = usePeople();
+  const { success, error: notifyError } = useHudToast();
+  const [account, setAccount] = useState<PickedAccount | null>(context?.account ?? null);
+  const contacts = useAccountContacts(account?.id ?? null);
+  const [contactId, setContactId] = useState<string | null>(null);
+  const [title, setTitle] = useState("");
+  const [value, setValue] = useState("");
+  const [currency, setCurrency] = useState("BRL");
+  const [owner, setOwner] = useState<string | null>(null);
+  const [decision, setDecision] = useState("");
+  const [stage, setStage] = useState<OpportunityStage>("QUALIFICATION");
+  const [probability, setProbability] = useState("");
+  const [nextAction, setNextAction] = useState("");
+  const [nextDue, setNextDue] = useState(plusDays(3));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const ownerId = owner ?? me;
+  const primary = contacts?.find((c) => c.is_primary) ?? null;
+  const chosenContact = contactId ?? primary?.id ?? null;
+
+  const missing = [!account && "conta", !title.trim() && "título"].filter(Boolean) as string[];
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (saving || missing.length || !account) return;
+    setSaving(true);
+    onBusy(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/commercial/opportunities", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          title: title.trim(),
+          party_id: account.id,
+          counterparty_name: account.name,
+          primary_contact_id: chosenContact,
+          estimated_value: value ? Number(value) : null,
+          currency,
+          owner_user_id: ownerId,
+          expected_decision_date: decision || null,
+          stage,
+          probability: probability ? Number(probability) / 100 : null,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error ?? "Não foi possível criar a oportunidade.");
+      const id = result.opportunityId as string;
+      // O próximo passo é um compromisso real no motor canônico, com dono e prazo.
+      if (nextAction.trim()) {
+        const followup = await fetch("/api/commercial/followups", {
+          method: "POST",
+          headers: { "content-type": "application/json", "Idempotency-Key": newKey() },
+          body: JSON.stringify({
+            sourceKind: "commercial_opportunity",
+            sourceId: id,
+            goal: nextAction.trim(),
+            dueDate: nextDue || undefined,
+            responsibleUserId: ownerId ?? undefined,
+          }),
+        }).then((r) => r.json()).catch(() => null);
+        if (!followup?.ok)
+          notifyError("Oportunidade criada, próximo passo não", followup?.error ?? "Agende-o no dossiê que acabou de abrir.");
+      }
+      success("Oportunidade criada", `${title.trim()} · ${opportunityStageLabels[stage]}`);
+      onDone(id);
+    } catch (e) {
+      setError((e as Error).message);
+      setSaving(false);
+      onBusy(false);
+    }
+  };
+
   return (
-    <div className="flex flex-col gap-1.5">
-      <label
-        htmlFor={id}
-        className="text-[11px] font-medium hud-label uppercase tracking-wider"
-      >
-        {label}
+    <form className="crm-flow" onSubmit={submit} data-testid="flow-opportunity">
+      <AccountPicker value={account} onChange={(a) => { setAccount(a); setContactId(null); }} autoFocus={!account} />
+
+      {account && (
+        <div className="crm-flow-section">
+          <span className="crm-flow-label">Contato principal</span>
+          {contacts === null ? (
+            <p className="crm-field-hint">Carregando contatos…</p>
+          ) : contacts.length ? (
+            <div className="crm-chips" role="group" aria-label="Contato principal">
+              {contacts.slice(0, 6).map((c) => (
+                <button key={c.id} type="button" className="crm-chip" aria-pressed={chosenContact === c.id}
+                  onClick={() => setContactId(c.id)}>
+                  {c.is_primary && <Star size={11} aria-hidden />}
+                  {c.full_name}
+                  {c.role_title && <small style={{ opacity: 0.7 }}>· {c.role_title}</small>}
+                </button>
+              ))}
+              <button type="button" className="crm-chip" aria-pressed={chosenContact === null && !primary}
+                onClick={() => setContactId(null)}>Sem contato</button>
+            </div>
+          ) : (
+            <p className="crm-field-hint">
+              Esta conta ainda não tem contatos. Cadastre em Contas &amp; Contatos — a prontidão para propor pede um contato principal.
+            </p>
+          )}
+        </div>
+      )}
+
+      <label className="crm-field-label crm-field-big">
+        <span>Oportunidade *</span>
+        <input value={title} maxLength={300} placeholder="Ex.: Retrofit da subestação SE-04"
+          onChange={(e) => setTitle(e.target.value)} />
       </label>
-      <select
-        id={id}
-        className="hud-input-bg hud-text h-10 rounded-lg border px-3 text-sm w-full"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      >
-        {options.map((option) => (
-          <option
-            key={option.value}
-            value={option.value}
-            disabled={option.disabled}
-          >
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </div>
+
+      <div className="crm-flow-grid">
+        <label className="crm-field-label">
+          <span>Valor estimado</span>
+          <span className="crm-money">
+            <input type="number" min={0} step="0.01" inputMode="decimal" value={value} placeholder="0,00"
+              onChange={(e) => setValue(e.target.value)} />
+            <select aria-label="Moeda" value={currency} onChange={(e) => setCurrency(e.target.value)}>
+              {["BRL", "USD", "EUR"].map((c) => <option key={c}>{c}</option>)}
+            </select>
+          </span>
+        </label>
+        <PersonSelect label="Dono" value={ownerId} onChange={setOwner} />
+        <div className="crm-field">
+          <label className="crm-field-label">
+            <span>Decisão prevista</span>
+            <input type="date" value={decision} onChange={(e) => setDecision(e.target.value)} />
+          </label>
+          <div className="crm-chips">
+            {[30, 60, 90].map((d) => (
+              <button key={d} type="button" className="crm-chip" aria-pressed={decision === plusDays(d)}
+                onClick={() => setDecision(plusDays(d))}>{d} dias</button>
+            ))}
+          </div>
+        </div>
+        <div className="crm-field">
+          <span className="crm-field-label"><span>Etapa inicial</span></span>
+          <div className="crm-chips" role="group" aria-label="Etapa inicial">
+            {OPEN_OPPORTUNITY_STAGES.map((s) => (
+              <button key={s} type="button" className="crm-chip" aria-pressed={stage === s} onClick={() => setStage(s)}>
+                {opportunityStageLabels[s]}
+              </button>
+            ))}
+          </div>
+          <label className="crm-field-label" style={{ maxWidth: 200 }}>
+            <span>Probabilidade (%) · opcional</span>
+            <input type="number" min={0} max={100} step="1" inputMode="numeric" value={probability}
+              aria-label="Probabilidade (%) · opcional"
+              placeholder="Padrão da etapa" onChange={(e) => setProbability(e.target.value)} />
+          </label>
+        </div>
+      </div>
+
+      <div className="crm-flow-section">
+        <span className="crm-flow-label">Próxima ação</span>
+        <div className="crm-flow-grid" style={{ gridTemplateColumns: "minmax(0, 1fr) 170px" }}>
+          <label className="crm-field-label">
+            <span className="sr-only">Próxima ação</span>
+            <input value={nextAction} maxLength={500} placeholder="Ex.: Agendar visita técnica com o gerente da planta"
+              onChange={(e) => setNextAction(e.target.value)} />
+          </label>
+          <label className="crm-field-label">
+            <span className="sr-only">Prazo da próxima ação</span>
+            <input type="date" value={nextDue} onChange={(e) => setNextDue(e.target.value)} />
+          </label>
+        </div>
+        <p className="crm-field-hint">
+          <CalendarClock size={11} aria-hidden className="inline" /> Vira um acompanhamento do dono, no mesmo motor de follow-ups — aparece na fila dele.
+        </p>
+      </div>
+
+      {error && <p className="crm-flow-error" role="alert"><AlertTriangle size={14} aria-hidden /> {error}</p>}
+      <GovernanceNote>
+        A oportunidade não cria contrato, projeto nem receita. Mudanças de etapa depois da criação passam pela transição governada, com motivo.
+      </GovernanceNote>
+      <div className="crm-flow-footer">
+        <p>{missing.length ? `Falta: ${missing.join(" e ")}.` : "Ao criar, o dossiê abre direto."}</p>
+        <div>
+          <HudButton type="button" variant="ghost" onClick={onCancel} disabled={saving}>Cancelar</HudButton>
+          <HudButton type="submit" variant="primary" disabled={saving || missing.length > 0} data-testid="opportunity-submit">
+            {saving ? "Criando…" : "Criar e abrir"}
+          </HudButton>
+        </div>
+      </div>
+    </form>
+  );
+}
+
+/* ------------------------------------------------------------------------ */
+/* Novo contato                                                              */
+/* ------------------------------------------------------------------------ */
+
+function ContactFlow({
+  context,
+  onBusy,
+  onCancel,
+  onDone,
+}: {
+  context?: CreateContext;
+  onBusy: (busy: boolean) => void;
+  onCancel: () => void;
+  onDone: (id: string | null) => void;
+}) {
+  const { success } = useHudToast();
+  const [account, setAccount] = useState<PickedAccount | null>(context?.account ?? null);
+  const contacts = useAccountContacts(account?.id ?? null);
+  const [v, setV] = useState({ full_name: "", role_title: "", email: "", phone: "", notes: "" });
+  const [primary, setPrimary] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const set = (key: keyof typeof v) => (e: { target: { value: string } }) => setV((p) => ({ ...p, [key]: e.target.value }));
+
+  const hasPrimary = contacts?.some((c) => c.is_primary) ?? false;
+  const duplicate = useMemo(() => {
+    if (!contacts) return null;
+    const email = v.email.trim().toLowerCase();
+    const name = v.full_name.trim().toLowerCase();
+    return contacts.find((c) => (email && c.email?.toLowerCase() === email) || (name.length > 3 && c.full_name.toLowerCase() === name)) ?? null;
+  }, [contacts, v.email, v.full_name]);
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!account || !v.full_name.trim() || saving) return;
+    setSaving(true);
+    onBusy(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/commercial/contacts", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          party_id: account.id,
+          full_name: v.full_name.trim(),
+          role_title: v.role_title.trim() || null,
+          email: v.email.trim() || null,
+          phone: v.phone.trim() || null,
+          notes: v.notes.trim() || null,
+          is_primary: primary || (!hasPrimary && contacts?.length === 0),
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error ?? "Não foi possível salvar o contato.");
+      loadContacts(true);
+      success("Contato cadastrado", `${v.full_name.trim()} · ${account.name}`);
+      onDone(account.id);
+    } catch (e) {
+      setError((e as Error).message);
+      setSaving(false);
+      onBusy(false);
+    }
+  };
+
+  return (
+    <form className="crm-flow" onSubmit={submit} data-testid="flow-contact">
+      <ol className="crm-steps" aria-label="Etapas">
+        <li className={account ? "done" : undefined} aria-current={!account ? "step" : undefined}><b>1</b> Conta</li>
+        <li aria-current={account ? "step" : undefined}><b>2</b> Pessoa</li>
+      </ol>
+      <AccountPicker value={account} onChange={setAccount} autoFocus={!account} />
+
+      {account ? (
+        <>
+          {contacts && contacts.length > 0 && (
+            <p className="crm-field-hint">
+              Já cadastrados nesta conta: {contacts.slice(0, 4).map((c) => c.full_name).join(", ")}
+              {contacts.length > 4 ? ` e mais ${contacts.length - 4}` : ""}.
+            </p>
+          )}
+          <div className="crm-flow-grid">
+            <label className="crm-field-label crm-span-2 crm-field-big">
+              <span>Nome *</span>
+              <input value={v.full_name} onChange={set("full_name")} maxLength={200} autoFocus placeholder="Nome e sobrenome" />
+            </label>
+            <label className="crm-field-label">
+              <span>Cargo</span>
+              <input value={v.role_title} onChange={set("role_title")} maxLength={200} placeholder="Ex.: Gerente de manutenção" />
+            </label>
+            <label className="crm-field-label">
+              <span>E-mail</span>
+              <input type="email" value={v.email} onChange={set("email")} maxLength={200} />
+            </label>
+            <label className="crm-field-label">
+              <span>Telefone</span>
+              <input type="tel" value={v.phone} onChange={set("phone")} maxLength={60} />
+            </label>
+            <label className="crm-toggle">
+              <input type="checkbox" checked={primary} onChange={(e) => setPrimary(e.target.checked)} />
+              <span>
+                Contato principal
+                <small>{hasPrimary ? "Substitui o principal atual desta conta." : "A conta ainda não tem principal — a prontidão para propor pede um."}</small>
+              </span>
+            </label>
+            <label className="crm-field-label crm-span-2">
+              <span>Notas do relacionamento</span>
+              <textarea value={v.notes} onChange={set("notes")} maxLength={2000}
+                placeholder="Como prefere ser contatado, quem decide, histórico relevante…" />
+            </label>
+          </div>
+          {duplicate && (
+            <p className="crm-flow-error" role="status" style={{ color: "var(--ig-warning)", borderColor: "color-mix(in srgb, var(--ig-warning) 35%, transparent)", background: "color-mix(in srgb, var(--ig-warning) 7%, transparent)" }}>
+              <AlertTriangle size={14} aria-hidden /> {duplicate.full_name} já está cadastrado nesta conta{duplicate.email ? ` (${duplicate.email})` : ""}. Confira antes de criar outro.
+            </p>
+          )}
+        </>
+      ) : (
+        <p className="crm-field-hint">Escolha a conta primeiro — o contato pertence a ela, no cadastro único da plataforma.</p>
+      )}
+
+      {error && <p className="crm-flow-error" role="alert"><AlertTriangle size={14} aria-hidden /> {error}</p>}
+      <div className="crm-flow-footer">
+        <p>{!account ? "Falta: conta." : !v.full_name.trim() ? "Falta: nome." : "Pronto para salvar."}</p>
+        <div>
+          <HudButton type="button" variant="ghost" onClick={onCancel} disabled={saving}>Cancelar</HudButton>
+          <HudButton type="submit" variant="primary" disabled={saving || !account || !v.full_name.trim()} data-testid="contact-submit">
+            {saving ? "Salvando…" : "Salvar contato"}
+          </HudButton>
+        </div>
+      </div>
+    </form>
   );
 }

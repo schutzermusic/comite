@@ -61,7 +61,42 @@ export const CONTEXT_FACT_DOMAINS: Record<DocumentContext, FactDomain[]> = {
   AMENDMENT: ['SCOPE', 'VALUE', 'DATE', 'MEASUREMENT_RULE', 'BILLING_MILESTONE', 'PAYMENT_TERM'],
 };
 
-const CONTEXT_BRIEF: Record<DocumentContext, string> = {
+/**
+ * O que a leitura procura. Além dos papéis de documento, existe o PDF que é
+ * as duas propostas ao mesmo tempo (`COMBINED` em `commercial_proposals.kind`).
+ * Lê-lo como "comercial" jogava fora escopo, entregáveis e exclusões; lê-lo
+ * duas vezes pagava o provedor duas vezes pelo mesmo arquivo. A leitura
+ * combinada pede a UNIÃO dos domínios numa passada só, e cada fato volta com
+ * o papel ao qual o SEU domínio pertence (`factContextFor`) — técnica para
+ * escopo, comercial para preço. Proveniência (página, trecho, confiança) não
+ * muda em nada.
+ */
+export type ExtractionMode = DocumentContext | 'COMBINED_PROPOSAL';
+
+export function domainsForMode(mode: ExtractionMode): FactDomain[] {
+  return mode === 'COMBINED_PROPOSAL'
+    ? [...CONTEXT_FACT_DOMAINS.TECHNICAL_PROPOSAL, ...CONTEXT_FACT_DOMAINS.COMMERCIAL_PROPOSAL]
+    : CONTEXT_FACT_DOMAINS[mode];
+}
+
+/** O papel em que cada fato é gravado. Fora da leitura combinada, o próprio papel. */
+export function factContextFor(mode: ExtractionMode, domain: FactDomain): DocumentContext {
+  if (mode !== 'COMBINED_PROPOSAL') return mode;
+  return CONTEXT_FACT_DOMAINS.TECHNICAL_PROPOSAL.includes(domain) ? 'TECHNICAL_PROPOSAL' : 'COMMERCIAL_PROPOSAL';
+}
+
+/** A leitura de uma proposta segue o tipo DECLARADO dela. */
+export function extractionModeForProposal(kind: 'TECHNICAL' | 'COMMERCIAL' | 'COMBINED'): ExtractionMode {
+  return kind === 'TECHNICAL' ? 'TECHNICAL_PROPOSAL' : kind === 'COMMERCIAL' ? 'COMMERCIAL_PROPOSAL' : 'COMBINED_PROPOSAL';
+}
+
+const CONTEXT_BRIEF: Record<ExtractionMode, string> = {
+  COMBINED_PROPOSAL:
+    'A single proposal Insight sent to a customer that contains BOTH the technical and the commercial '
+    + 'proposal. Read both parts. Technical part: scope, deliverables, requirements, explicit exclusions, '
+    + 'dependencies, tests and inspections, documents, dates and milestones, named resources. Commercial '
+    + 'part: total value, rates, unit prices, payment terms, measurement rules, billing milestones, billing '
+    + 'prerequisites, validity period and acceptance conditions.',
   TECHNICAL_PROPOSAL:
     'A technical proposal Insight sent to a customer. Identify scope, deliverables, requirements, '
     + 'explicit exclusions, dependencies on the customer or third parties, tests and inspections, '
@@ -115,13 +150,18 @@ Do not infer a rule the document does not state. Do not merge two different clau
 Do not translate values. When the document contradicts itself, return both readings as separate
 facts and set confidence accordingly.`;
 
-export function buildCommercialExtractionPrompt(context: DocumentContext, fileName: string): string {
-  const domains = CONTEXT_FACT_DOMAINS[context];
+export function buildCommercialExtractionPrompt(context: ExtractionMode, fileName: string): string {
+  const domains = domainsForMode(context);
   return [
     `Document role: ${context}.`,
     CONTEXT_BRIEF[context],
     `File name as uploaded: ${fileName}.`,
     `Allowed domains for this role: ${domains.join(', ')}.`,
+    'Also classify the document itself in "document": role = one of TECHNICAL_PROPOSAL, '
+    + 'COMMERCIAL_PROPOSAL, COMBINED_PROPOSAL, FORMAL_CONTRACT, CUSTOMER_PO, CUSTOMER_AUTHORIZATION, '
+    + 'INTERNAL_SERVICE_ORDER, AMENDMENT or UNKNOWN, judged from what the document SAYS it is; '
+    + 'revision_label = the revision identifier exactly as printed (e.g. "Rev. 03"), or "" if none; '
+    + 'title as printed; page and a literal excerpt where you read the role/revision, or 0 and "".',
     'Return every fact you can anchor, and return the important ones you cannot anchor with page 0',
     'and an empty excerpt so a human knows the document is silent about them.',
   ].join('\n\n');
@@ -131,8 +171,25 @@ export function buildCommercialExtractionPrompt(context: DocumentContext, fileNa
 export const COMMERCIAL_EXTRACTION_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['facts'],
+  required: ['document', 'facts'],
   properties: {
+    /*
+      CLASSIFICAÇÃO do documento — o que ELE diz ser, não o que o usuário
+      declarou. A plataforma compara as duas coisas e AVISA quando divergem;
+      não corrige sozinha, porque a proposta foi cadastrada por uma pessoa.
+    */
+    document: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['role', 'revision_label', 'title', 'page', 'excerpt'],
+      properties: {
+        role: { type: 'string' },
+        revision_label: { type: 'string' },
+        title: { type: 'string' },
+        page: { type: 'integer' },
+        excerpt: { type: 'string' },
+      },
+    },
     facts: {
       type: 'array',
       items: {
@@ -182,6 +239,8 @@ export interface NormalizedFact {
   sourceSection: string | null;
   confidence: number | null;
   provenanceState: 'ANCHORED' | 'UNANCHORED';
+  /** O papel em que o fato é gravado — derivado do domínio na leitura combinada. */
+  documentContext: DocumentContext;
 }
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -201,10 +260,10 @@ const clean = (value: unknown): string => (typeof value === 'string' ? value.tri
  * escolher em qual gaveta o fato cai.
  */
 export function normalizeCommercialFacts(
-  context: DocumentContext,
+  context: ExtractionMode,
   raw: unknown,
 ): { facts: NormalizedFact[]; discarded: number } {
-  const allowed = new Set<string>(CONTEXT_FACT_DOMAINS[context]);
+  const allowed = new Set<string>(domainsForMode(context));
   const input = Array.isArray((raw as { facts?: unknown })?.facts)
     ? ((raw as { facts: ProviderFact[] }).facts)
     : [];
@@ -239,6 +298,7 @@ export function normalizeCommercialFacts(
       sourceSection: clean(item?.section) || null,
       confidence,
       provenanceState: page !== null && quote !== null ? 'ANCHORED' : 'UNANCHORED',
+      documentContext: factContextFor(context, domain as FactDomain),
     });
   }
 
@@ -250,9 +310,64 @@ export function normalizeCommercialFacts(
  * já existem. Contrato e aditivo continuam nos caminhos que a plataforma já
  * provou em produção; os papéis comerciais entram por `COMMERCIAL_DOCUMENT_EXTRACTION`.
  */
-export function apexTaskForContext(context: DocumentContext):
+export function apexTaskForContext(context: ExtractionMode):
   'CONTRACT_EXTRACTION' | 'CONTRACT_AMENDMENT_EXTRACTION' | 'COMMERCIAL_DOCUMENT_EXTRACTION' {
   if (context === 'FORMAL_CONTRACT') return 'CONTRACT_EXTRACTION';
   if (context === 'AMENDMENT') return 'CONTRACT_AMENDMENT_EXTRACTION';
   return 'COMMERCIAL_DOCUMENT_EXTRACTION';
+}
+
+
+export interface DocumentClassification {
+  role: string;
+  revisionLabel: string | null;
+  revisionNumber: number | null;
+  title: string | null;
+  page: number | null;
+  excerpt: string | null;
+}
+
+/** "Rev. 03", "R3", "Revisão 2" → 3 / 3 / 2. Nada reconhecível → nulo. */
+export function parseRevisionLabel(label: string | null | undefined): number | null {
+  const match = (label ?? '').match(/(?:rev(?:is[aã]o)?\.?|r)\s*[-_.:]?\s*0*(\d{1,3})/i);
+  return match ? Number(match[1]) : null;
+}
+
+export function normalizeClassification(raw: unknown): DocumentClassification | null {
+  const doc = (raw as { document?: Record<string, unknown> })?.document;
+  if (!doc || typeof doc !== 'object') return null;
+  const label = typeof doc.revision_label === 'string' && doc.revision_label.trim() ? doc.revision_label.trim() : null;
+  return {
+    role: typeof doc.role === 'string' && doc.role.trim() ? doc.role.trim().toUpperCase() : 'UNKNOWN',
+    revisionLabel: label,
+    revisionNumber: parseRevisionLabel(label),
+    title: typeof doc.title === 'string' && doc.title.trim() ? doc.title.trim() : null,
+    page: Number.isInteger(doc.page) && (doc.page as number) > 0 ? (doc.page as number) : null,
+    excerpt: typeof doc.excerpt === 'string' && doc.excerpt.trim() ? doc.excerpt.trim() : null,
+  };
+}
+
+/**
+ * O que a classificação diz contra o que foi declarado. Só AVISA: a proposta
+ * e a revisão foram escolhidas por uma pessoa, e a correção é dela.
+ */
+export function classificationWarnings(
+  classification: DocumentClassification | null,
+  declared: { kind: 'TECHNICAL' | 'COMMERCIAL' | 'COMBINED'; revision: number },
+): string[] {
+  if (!classification) return ['A leitura não classificou o documento — confira o papel e a revisão manualmente.'];
+  const warnings: string[] = [];
+  const expected = declared.kind === 'TECHNICAL' ? ['TECHNICAL_PROPOSAL', 'COMBINED_PROPOSAL']
+    : declared.kind === 'COMMERCIAL' ? ['COMMERCIAL_PROPOSAL', 'COMBINED_PROPOSAL']
+    : ['COMBINED_PROPOSAL', 'TECHNICAL_PROPOSAL', 'COMMERCIAL_PROPOSAL'];
+  if (classification.role === 'UNKNOWN') {
+    warnings.push('O documento não se identifica como proposta técnica nem comercial.');
+  } else if (!expected.includes(classification.role)) {
+    warnings.push(`O documento se apresenta como ${classification.role}, e foi anexado como proposta ${declared.kind.toLowerCase()}.`);
+  }
+  if (classification.revisionNumber !== null && classification.revisionNumber !== declared.revision
+      && classification.revisionNumber !== declared.revision - 1) {
+    warnings.push(`O documento indica ${classification.revisionLabel}; ele foi anexado à R${String(declared.revision).padStart(2, '0')}.`);
+  }
+  return warnings;
 }

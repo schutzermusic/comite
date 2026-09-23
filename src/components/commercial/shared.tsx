@@ -3,17 +3,30 @@
 import { useCallback, useEffect, useState } from "react";
 import { HudPanel } from "@/components/hud";
 
+const COMMERCIAL_CHANGED = "commercial:changed";
+
+/**
+ * Avisa todas as telas comerciais abertas de que algo mudou no servidor (um
+ * vínculo, um fechamento): cada recurso recarrega sozinho. Dossiês empilhados
+ * — a proposta por cima da oportunidade — ficam coerentes sem que um precise
+ * conhecer o outro.
+ */
+export function notifyCommercialChanged() {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(COMMERCIAL_CHANGED));
+}
+
+type Loaded<T> = { key: string; url: string; data: T | null; state: "ready" | "error"; message: string | null };
+
 /** Estado de carregamento/erro em um lugar só — seis áreas, um comportamento. */
 export function useCommercialResource<T>(url: string) {
-  const [data, setData] = useState<T | null>(null);
-  const [state, setState] = useState<"loading" | "ready" | "error">("loading");
-  const [message, setMessage] = useState<string | null>(null);
-
   const [version, setVersion] = useState(0);
+  const [loaded, setLoaded] = useState<Loaded<T> | null>(null);
   const refresh = useCallback(() => setVersion((v) => v + 1), []);
+  // A chave da leitura em curso: enquanto a resposta dela não chega, o estado
+  // é "carregando" — derivado, sem setState síncrono dentro do efeito.
+  const key = `${version}:${url}`;
+
   useEffect(() => {
-    setState("loading");
-    setMessage(null);
     let cancelled = false;
     (async () => {
       try {
@@ -21,25 +34,42 @@ export function useCommercialResource<T>(url: string) {
         const payload = await response.json();
         if (cancelled) return;
         if (!response.ok || !payload.ok) {
-          setMessage(payload?.error ?? "Não foi possível carregar.");
-          setState("error");
+          setLoaded({ key, url, data: null, state: "error",
+            message: payload?.error ?? "Não foi possível carregar." });
           return;
         }
-        setData(payload as T);
-        setState("ready");
+        setLoaded({ key, url, data: payload as T, state: "ready", message: null });
       } catch {
-        if (!cancelled) {
-          setMessage("Falha de rede.");
-          setState("error");
-        }
+        if (!cancelled)
+          setLoaded({ key, url, data: null, state: "error", message: "Falha de rede." });
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [url, version]);
+  }, [url, key]);
 
-  return { data, state, message, refresh };
+  useEffect(() => {
+    window.addEventListener(COMMERCIAL_CHANGED, refresh);
+    return () => window.removeEventListener(COMMERCIAL_CHANGED, refresh);
+  }, [refresh]);
+
+  const current = loaded?.key === key ? loaded : null;
+  /*
+    Recarga do MESMO endereço (depois de um ato, ou de um aviso de mudança)
+    mantém a tela montada com o dado anterior até o novo chegar: trocar a
+    área inteira por "carregando" desmontaria o dossiê aberto por cima dela.
+    Endereço novo começa do zero — o dado de uma proposta nunca aparece sob o
+    título de outra.
+  */
+  const stale = !current && loaded?.url === url && loaded.state === "ready" ? loaded : null;
+  const shown = current ?? stale;
+  return {
+    data: shown?.data ?? null,
+    state: shown ? shown.state : ("loading" as const),
+    message: current?.message ?? null,
+    refresh,
+  };
 }
 
 export function ResourceState({
@@ -50,10 +80,13 @@ export function ResourceState({
   message: string | null;
 }) {
   if (state === "loading") {
+    // A forma da tela aparece antes dos dados: nada pula quando eles chegam.
     return (
-      <HudPanel elevation={1} interactive={false}>
-        <p className="text-ig-body-sm text-ig-fg-muted">Carregando…</p>
-      </HudPanel>
+      <div className="crm-skeleton" role="status" aria-label="Carregando…">
+        <i className="crm-skel-bar" />
+        <i className="crm-skel-panel" />
+        <i style={{ width: "40%" }} />
+      </div>
     );
   }
   return (

@@ -23,7 +23,8 @@
  * dado faz a pessoa duvidar se a tela carregou.
  */
 import { useMemo, useState } from "react";
-import { ArrowDownRight, ArrowUpRight } from "lucide-react";
+import Link from "next/link";
+import { ArrowDownRight, ArrowRight, ArrowUpRight, X } from "lucide-react";
 import { HudBadge } from "@/components/hud";
 import { opportunityStageLabels } from "@/lib/commercial/labels";
 import type { OpportunityStage } from "@/lib/commercial/types";
@@ -34,6 +35,8 @@ import {
 } from "./workspace";
 import { formatMoment } from "./detail";
 import { OpportunityWorkspace } from "./OpportunityWorkspace";
+import { ProposalWorkspace } from "./ProposalWorkspace";
+import { AccountWorkspace } from "./AccountWorkspace";
 
 export type ForecastRow = {
   opportunity_id: string;
@@ -77,7 +80,7 @@ type Payload = {
 
 export function CommercialForecast() {
   const [movementDays, setMovementDays] = useState("30");
-  const { data, state, message } = useCommercialResource<Payload>(
+  const { data, state, message, refresh } = useCommercialResource<Payload>(
     `/api/commercial/forecast?movementDays=${movementDays}`,
   );
   const [period, setPeriod] = useState("6");
@@ -86,6 +89,12 @@ export function CommercialForecast() {
   const [customer, setCustomer] = useState("all");
   const [stage, setStage] = useState("all");
   const [openOpportunity, setOpenOpportunity] = useState<string | null>(null);
+  const [openProposal, setOpenProposal] = useState<string | null>(null);
+  const [openAccount, setOpenAccount] = useState<string | null>(null);
+  // Investigação: o mês sob o cursor mostra quem compõe a barra; o mês
+  // clicado vira recorte da tabela e atalho para o pipeline filtrado.
+  const [hoverMonth, setHoverMonth] = useState<string | null>(null);
+  const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
 
   const months = useMemo(() => {
     const now = new Date();
@@ -142,19 +151,55 @@ export function CommercialForecast() {
     };
   });
   const max = Math.max(0, ...points.map((p) => p.gross), ...points.map((p) => p.weighted));
+  // Escala "redonda": 1, 2, 2.5 ou 5 × 10ⁿ — as linhas de grade caem em valores legíveis.
+  const scale = (() => {
+    if (!max) return 1;
+    const magnitude = 10 ** Math.floor(Math.log10(max));
+    const step = [1, 2, 2.5, 5, 10].find((m) => m * magnitude >= max) ?? 10;
+    return step * magnitude;
+  })();
+  const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => f * scale);
+  const compactFormat = new Intl.NumberFormat("pt-BR", {
+    style: "currency", currency, notation: "compact", maximumFractionDigits: 1,
+  });
+  const compact = (value: number) => compactFormat.format(value);
+  const grossTotal = rows.reduce((sum, r) => sum + Number(r.estimated_value ?? 0), 0);
+  const weightedTotal = rows.reduce((sum, r) => sum + Number(r.weighted_value ?? 0), 0);
   const noAmounts = rows.length > 0 && rows.every((r) => r.estimated_value === null);
+
+  const tableRows = selectedMonth
+    ? rows.filter((r) => r.expected_decision_date?.startsWith(selectedMonth))
+    : rows;
+  const monthLabel = (value: string) =>
+    new Date(`${value}-15T12:00:00`).toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
 
   const entered = data.movement.entered;
   const left = data.movement.left;
+  // Por que saíram: o motivo declarado no encerramento, agrupado.
+  const exitReasons = Object.entries(
+    left.filter((item) => item.to_stage !== "WON").reduce<Record<string, number>>((acc, item) => {
+      const reason = item.reason?.trim() || "Motivo não declarado";
+      acc[reason] = (acc[reason] ?? 0) + 1;
+      return acc;
+    }, {}),
+  ).sort((a, b) => b[1] - a[1]);
   const wonCount = left.filter((item) => item.to_stage === "WON").length;
   const lostCount = left.length - wonCount;
 
   return (
     <section className="crm-workspace" aria-label="Forecast">
       <WorkspaceHeading
-        eyebrow="Inteligência comercial · Forecast"
-        title="Potencial, com perspectiva."
-        description="Bruto e ponderado por mês de decisão. Movimento lido do histórico de etapa, não de fotografias diárias."
+        eyebrow="Comercial · Forecast"
+        title="Forecast"
+        description={
+          <>
+            <span><b>{moneyTotal(rows.map((r) => ({ value: r.weighted_value, currency })))}</b> ponderado</span>
+            <i className="crm-live-sep" aria-hidden />
+            <span><b>{grossTotal ? `${Math.round((weightedTotal / grossTotal) * 100)}%` : "—"}</b> do bruto</span>
+            <i className="crm-live-sep" aria-hidden />
+            <span><b className="crm-delta-in">+{entered.length}</b> / <b className="crm-delta-out">−{left.length}</b> em {data.movement.days} dias</span>
+          </>
+        }
         action={
           <>
             <Filter
@@ -188,11 +233,13 @@ export function CommercialForecast() {
           {
             label: "Pipeline bruto",
             value: moneyTotal(rows.map((r) => ({ value: r.estimated_value, currency }))),
-            hint: `${rows.length} oportunidades no período`,
+            meter: grossTotal ? weightedTotal / grossTotal : null,
+            hint: `${rows.length} oportunidades · régua = peso ponderado`,
           },
           {
             label: "Entraram no forecast",
             value: entered.length,
+            tone: entered.length ? "accent" : "neutral",
             hint: `Últimos ${data.movement.days} dias`,
           },
           {
@@ -204,8 +251,15 @@ export function CommercialForecast() {
       />
 
       <Panel
-        title="Recorte executivo"
-        note="Responsável, cliente e etapa — aplicados ao gráfico e às tabelas ao mesmo tempo."
+        title="Horizonte de decisão"
+        note={`${currency} por mês de decisão prevista · mês atual incluído · filtros movem gráfico e tabelas`}
+        aside={
+          <div className="crm-fc-legend">
+            <span><i className="l-gross" /> Bruto</span>
+            <span><i className="l-weighted" /> Ponderado</span>
+            <span className="l-ratio">{grossTotal ? `${Math.round((weightedTotal / grossTotal) * 100)}% ponderado/bruto` : ""}</span>
+          </div>
+        }
       >
         <div className="crm-toolbar">
           <div className="crm-filters">
@@ -254,50 +308,70 @@ export function CommercialForecast() {
             />
           </div>
         </div>
-      </Panel>
-
-      <Panel
-        title="Horizonte de decisão"
-        note={`Distribuição mensal · ${currency} · mês atual incluído`}
-        aside={
-          <div className="crm-legend">
-            <span>
-              <i style={{ opacity: 0.35 }} />
-              Bruto
-            </span>
-            <span>
-              <i />
-              Ponderado
-            </span>
-          </div>
-        }
-      >
         <div
-          className="crm-chart"
-          role="img"
-          aria-label={`Gráfico mensal de pipeline bruto e ponderado em ${currency}. ${rows.length} oportunidades no período. Valores detalhados na tabela abaixo.`}
+          className="crm-fc"
+          role="group"
+          aria-label={`Gráfico mensal de pipeline bruto e ponderado em ${currency}. ${rows.length} oportunidades no período. Escolha um mês para ver quem o compõe.`}
         >
-          <div className="flex justify-between mb-3 crm-muted">
-            <span>{max ? brl(max, currency) : brl(0, currency)}</span>
-            <span>Valor por mês de decisão</span>
+          <div className="crm-fc-y" aria-hidden>
+            {ticks.map((t) => (
+              <span key={t} style={{ bottom: `${(t / scale) * 100}%` }}>{compact(t)}</span>
+            ))}
           </div>
           <div className="crm-chart-grid">
-            {points.map((p) => (
-              <div
-                className="crm-chart-month"
-                key={key(p.date)}
-                title={`${p.date.toLocaleDateString("pt-BR", { month: "long", year: "numeric" })}: bruto ${brl(p.gross, currency)}, ponderado ${brl(p.weighted, currency)} · ${p.items.length} oportunidade(s)`}
-              >
-                <div
-                  className="crm-bar crm-bar-gross"
-                  style={{ height: `${max ? (p.gross / max) * 100 : 0}%` }}
-                />
-                <div
-                  className="crm-bar"
-                  style={{ height: `${max ? (p.weighted / max) * 100 : 0}%` }}
-                />
-              </div>
+            {ticks.slice(1).map((t) => (
+              <i key={t} className="crm-fc-gridline" style={{ bottom: `${(t / scale) * 100}%` }} aria-hidden />
             ))}
+            {points.map((p, index) => {
+              const k = key(p.date);
+              const contributors = [...p.items]
+                .sort((a, b) => Number(b.weighted_value ?? 0) - Number(a.weighted_value ?? 0));
+              const grossH = scale ? (p.gross / scale) * 100 : 0;
+              const weightedH = p.gross ? (p.weighted / p.gross) * 100 : 0;
+              return (
+                <button
+                  type="button"
+                  className={`crm-chart-month${selectedMonth === k ? " selected" : ""}${selectedMonth && selectedMonth !== k ? " dimmed" : ""}`}
+                  key={k}
+                  aria-pressed={selectedMonth === k}
+                  aria-label={`${monthLabel(k)}: bruto ${brl(p.gross, currency)}, ponderado ${brl(p.weighted, currency)}, ${p.items.length} oportunidade(s)`}
+                  onMouseEnter={() => setHoverMonth(k)}
+                  onMouseLeave={() => setHoverMonth((current) => (current === k ? null : current))}
+                  onFocus={() => setHoverMonth(k)}
+                  onBlur={() => setHoverMonth((current) => (current === k ? null : current))}
+                  onClick={() => setSelectedMonth((current) => (current === k ? null : k))}
+                >
+                  {p.items.length > 0 && <span className="crm-fc-count">{p.items.length}</span>}
+                  <div className="crm-bar crm-bar-gross" style={{ height: `${grossH}%` }}>
+                    <div className="crm-bar-weighted" style={{ height: `${weightedH}%` }} />
+                    {p.gross > 0 && <span className="crm-fc-value" style={{ bottom: "100%" }}>{compact(p.gross)}</span>}
+                  </div>
+                  {hoverMonth === k && (
+                    <div className={`crm-chart-tip${index > points.length / 2 ? " crm-chart-tip-left" : ""}`} role="tooltip">
+                      <strong>{monthLabel(k)}</strong>
+                      <span>
+                        Bruto <b>{brl(p.gross, currency)}</b> · Ponderado <b>{brl(p.weighted, currency)}</b>
+                        {p.gross ? ` · ${Math.round((p.weighted / p.gross) * 100)}%` : ""}
+                      </span>
+                      {contributors.length ? (
+                        <ul>
+                          {contributors.slice(0, 4).map((r) => (
+                            <li key={r.opportunity_id}>
+                              <span>{r.title}</span>
+                              <b>{brl(r.weighted_value, r.currency)}</b>
+                            </li>
+                          ))}
+                          {contributors.length > 4 && <li className="crm-muted">+{contributors.length - 4} outras</li>}
+                        </ul>
+                      ) : (
+                        <span className="crm-muted">Nenhuma decisão prevista</span>
+                      )}
+                      <em>{selectedMonth === k ? "Clique para limpar o recorte" : "Clique para investigar o mês"}</em>
+                    </div>
+                  )}
+                </button>
+              );
+            })}
             {(!rows.length || noAmounts) && (
               <div className="crm-chart-zero">
                 <span>
@@ -310,7 +384,7 @@ export function CommercialForecast() {
           </div>
           <div className="crm-chart-axis">
             {points.map((p) => (
-              <span key={key(p.date)}>
+              <span key={key(p.date)} className={selectedMonth === key(p.date) ? "selected" : undefined}>
                 {p.date.toLocaleDateString("pt-BR", {
                   month: "short",
                   year: period === "12" ? "2-digit" : undefined,
@@ -319,6 +393,27 @@ export function CommercialForecast() {
             ))}
           </div>
         </div>
+        {selectedMonth && (() => {
+          const gross = tableRows.reduce((sum, r) => sum + Number(r.estimated_value ?? 0), 0);
+          const weighted = tableRows.reduce((sum, r) => sum + Number(r.weighted_value ?? 0), 0);
+          return (
+            <div className="crm-fc-drill" data-testid="forecast-month-drill">
+              <div><span>Mês</span><b>{monthLabel(selectedMonth).replace(/^./, (c) => c.toUpperCase())}</b></div>
+              <div><span>Oportunidades</span><b>{tableRows.length}</b></div>
+              <div><span>Bruto</span><b>{brl(gross, currency)}</b></div>
+              <div><span>Ponderado · peso</span><b>{brl(weighted, currency)} · {gross ? `${Math.round((weighted / gross) * 100)}%` : "—"}</b></div>
+              <div>
+                <Link className="flow-link" href={`/comercial?view=oportunidades&month=${selectedMonth}`}>
+                  Ver no pipeline <ArrowRight size={12} aria-hidden />
+                </Link>
+                <button type="button" className="flow-filter-chip" onClick={() => setSelectedMonth(null)}
+                  aria-label={`Remover recorte de ${monthLabel(selectedMonth)}`}>
+                  Limpar <X size={12} aria-hidden />
+                </button>
+              </div>
+            </div>
+          );
+        })()}
         <div className="crm-table-footer">
           <span>
             {undated.length} sem data · {outside.length} fora do período · excluídas do gráfico
@@ -332,11 +427,11 @@ export function CommercialForecast() {
 
       <div className="crm-split">
         <Panel
-          title="Entraram no forecast"
+          title={`Entraram · ${entered.length}`}
           note={`Passaram a ocupar uma etapa aberta nos últimos ${data.movement.days} dias.`}
         >
           {entered.length === 0 ? (
-            <div className="p-5">
+            <div className="p-3">
               <EmptyNote
                 title="Nenhuma entrada na janela"
                 description="Oportunidades novas e retomadas aparecem aqui assim que a etapa é registrada."
@@ -369,11 +464,21 @@ export function CommercialForecast() {
         </Panel>
 
         <Panel
-          title="Saíram do forecast"
+          title={`Saíram · ${left.length}`}
           note="Ganhas, perdidas ou abandonadas — com o motivo declarado no encerramento."
         >
+          {exitReasons.length > 0 && (
+            <div className="crm-exit-reasons" aria-label="Motivos de saída">
+              <p className="crm-eyebrow">Por que saíram sem ganho</p>
+              <ul>
+                {exitReasons.map(([reason, count]) => (
+                  <li key={reason}><span>{reason}</span><b>{count}</b></li>
+                ))}
+              </ul>
+            </div>
+          )}
           {left.length === 0 ? (
-            <div className="p-5">
+            <div className="p-3">
               <EmptyNote
                 title="Nenhuma saída na janela"
                 description="Encerramentos aparecem aqui com a etapa de destino e o motivo registrado."
@@ -417,7 +522,9 @@ export function CommercialForecast() {
 
       <Panel
         title="Composição do forecast"
-        note="A probabilidade e sua origem permanecem visíveis em cada oportunidade."
+        note={selectedMonth
+          ? `Recorte: ${monthLabel(selectedMonth)} — clique no mês de novo para ver o horizonte inteiro.`
+          : "A probabilidade e sua origem permanecem visíveis em cada oportunidade."}
       >
         <DataTable
           label="Composição do forecast"
@@ -430,7 +537,7 @@ export function CommercialForecast() {
             "Probabilidade / origem",
             "Ponderado",
           ]}
-          count={rows.length}
+          count={tableRows.length}
           empty={
             <EmptyNote
               title={data.rows.length ? "Nenhuma decisão neste recorte" : "Nada em aberto no funil"}
@@ -438,7 +545,7 @@ export function CommercialForecast() {
             />
           }
         >
-          {rows.map((r) => (
+          {tableRows.map((r) => (
             <tr key={r.opportunity_id}>
               <td>
                 <button
@@ -512,7 +619,24 @@ export function CommercialForecast() {
         <OpportunityWorkspace
           opportunityId={openOpportunity}
           onClose={() => setOpenOpportunity(null)}
-          onChanged={() => setOpenOpportunity(null)}
+          onChanged={refresh}
+          onOpenProposal={(id) => setOpenProposal(id)}
+          onOpenAccount={(id) => setOpenAccount(id)}
+        />
+      )}
+      {openProposal && (
+        <ProposalWorkspace
+          proposalId={openProposal}
+          onClose={() => setOpenProposal(null)}
+          onOpenOpportunity={(id) => setOpenOpportunity(id)}
+        />
+      )}
+      {openAccount && (
+        <AccountWorkspace
+          partyId={openAccount}
+          onClose={() => setOpenAccount(null)}
+          onOpenOpportunity={(id) => setOpenOpportunity(id)}
+          onOpenProposal={(id) => setOpenProposal(id)}
         />
       )}
     </section>

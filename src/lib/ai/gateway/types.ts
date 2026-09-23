@@ -14,6 +14,7 @@ export const APEX_AI_TASKS = [
   'CONTRACT_AMENDMENT_EXTRACTION',
   'MEASUREMENT_EVIDENCE_PREANALYSIS',
   'COMMERCIAL_DOCUMENT_EXTRACTION',
+  'SITE_SURVEY_UNDERSTANDING',
 ] as const;
 
 import type { ApexAIResponseShape } from './response-diagnostics';

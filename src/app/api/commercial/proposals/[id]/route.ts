@@ -88,7 +88,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
   const [facts, followups, opportunity] = await Promise.all([
     factFilters.length
       ? session.supabase.from('commercial_extracted_facts')
-          .select('id,document_id,document_context,subject_kind,subject_id,fact_domain,label,'
+          .select('id,document_id,document_context,subject_kind,subject_id,fact_domain,fact_key,label,'
             + 'value_text,value_numeric,value_date,unit,currency,source_revision,source_page,'
             + 'source_section,source_quote,confidence,extraction_method,provenance_state,'
             + 'confirmation_state,corrected_value,confirmed_at')
@@ -108,6 +108,51 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
           .eq('organization_id', session.organizationId).eq('id', proposal.opportunity_id).maybeSingle()
       : Promise.resolve({ data: null }),
   ]);
+
+  /*
+    O PAR técnica ↔ comercial. As propostas irmãs da mesma oportunidade, com
+    a revisão e os fatos delas — é o que permite comparar PT com PC sem
+    ninguém abrir duas gavetas. E o blueprint de execução das revisões desta
+    proposta, que é contexto de planejamento e nada mais.
+  */
+  const [siblingData, blueprintData, startData] = await Promise.all([
+    proposal.opportunity_id
+      ? session.supabase.from('commercial_proposals')
+          .select('id,proposal_number,kind,title,currency')
+          .eq('organization_id', session.organizationId)
+          .eq('opportunity_id', proposal.opportunity_id).neq('id', id)
+      : Promise.resolve({ data: [] }),
+    revisionIds.length
+      ? session.supabase.from('commercial_execution_blueprints')
+          .select('id,proposal_revision_id,status,generated_by,ai_model,created_at,'
+            + 'items:commercial_execution_blueprint_items(id,category,title,detail,source_fact_id,confidence,state)')
+          .eq('organization_id', session.organizationId).in('proposal_revision_id', revisionIds)
+          .order('created_at', { ascending: false })
+      : Promise.resolve({ data: [] }),
+    proposal.opportunity_id
+      ? session.supabase.from('commercial_execution_starts')
+          .select('id,engagement_id,mode,authorization_type,authorization_date,authorization_reference,'
+            + 'documentation_state,exception_reason,regularization_owner_user_id,regularization_due_date,'
+            + 'regularized_at,service_order_id,project_id,confirmed_by,confirmed_at')
+          .eq('organization_id', session.organizationId)
+          .eq('opportunity_id', proposal.opportunity_id).maybeSingle()
+      : Promise.resolve({ data: null }),
+  ]);
+  const siblings = (siblingData.data ?? []) as unknown as Array<{ id: string }>;
+  const siblingRevisions = siblings.length
+    ? ((await session.supabase.from('commercial_proposal_revisions')
+        .select('id,proposal_id,revision,status,total_value,currency,validity_until,payment_terms,'
+          + 'scope_summary,acceptance_conditions')
+        .eq('organization_id', session.organizationId).in('proposal_id', siblings.map((x) => x.id))
+        .order('revision', { ascending: false })).data ?? []) as unknown as Array<{ id: string }>
+    : [];
+  const siblingFacts = siblingRevisions.length
+    ? ((await session.supabase.from('commercial_extracted_facts')
+        .select('id,subject_id,fact_domain,fact_key,label,value_text,value_numeric,value_date,unit,currency,'
+          + 'corrected_value,confirmation_state,provenance_state,source_page')
+        .eq('organization_id', session.organizationId)
+        .in('subject_id', siblingRevisions.map((r) => r.id)).limit(400)).data ?? [])
+    : [];
 
   // ---- a partir daqui, só com alçada de pós-venda ----
   const canSeeExecution = await hasOptionalPermission(session, 'contracts.view');
@@ -177,6 +222,11 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     serviceOrders,
     divergences,
     owners,
+    siblings,
+    siblingRevisions,
+    siblingFacts,
+    blueprints: blueprintData.data ?? [],
+    executionStart: startData.data ?? null,
     /*
       A tela precisa distinguir "não existe" de "não posso ver". Sem esta
       bandeira, as duas situações renderizam o mesmo vazio.

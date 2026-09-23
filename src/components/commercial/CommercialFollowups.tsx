@@ -17,7 +17,8 @@
  * mostra os dois separados.
  */
 import { useState } from "react";
-import { CalendarPlus } from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { CalendarPlus, UserCheck } from "lucide-react";
 import { HudBadge, HudButton, useHudToast } from "@/components/hud";
 import { usePermissions } from "@/hooks/use-permissions";
 import {
@@ -29,10 +30,10 @@ import {
   DataTable, EmptyNote, Filter, GovernanceNote, matches, Metrics, Panel,
   Segments, Toolbar, WorkspaceHeading,
 } from "./workspace";
-import { FollowupComposer, type FollowupSubjectKind } from "./FollowupComposer";
-import { FollowupSubjectPicker } from "./FollowupSubjectPicker";
+import { FollowupComposer, type CreatedFollowup, type FollowupSubjectKind } from "./FollowupComposer";
 import { OpportunityWorkspace } from "./OpportunityWorkspace";
 import { ProposalWorkspace } from "./ProposalWorkspace";
+import { AssignFollowupModal } from "./AssignFollowupModal";
 
 type FollowupRow = {
   id: string;
@@ -56,6 +57,7 @@ type Payload = {
   followups: FollowupRow[];
   subjects: Record<string, { label: string; counterparty: string | null }>;
   owners: Record<string, string>;
+  me?: string;
 };
 
 const sourceLabels: Record<string, string> = {
@@ -65,15 +67,23 @@ const sourceLabels: Record<string, string> = {
   internal_service_order: "Ordem de Serviço",
 };
 
+const QUEUE_LABEL: Record<string, string> = {
+  all: "Todos", mine: "Minha fila", overdue: "Atrasados", today: "Hoje",
+  upcoming: "Próximos", waiting: "Com a contraparte",
+};
+
 export function CommercialFollowups() {
   const { data, state, message, refresh } =
     useCommercialResource<Payload>("/api/commercial/followups");
   const { hasPermission } = usePermissions();
   const canManage = hasPermission("commercial.manage");
-  const [bucket, setBucket] = useState("all");
+  const params = useSearchParams();
+  const [bucket, setBucket] = useState(() => (params.get("queue") === "mine" ? "mine" : "all"));
+  const [assigning, setAssigning] = useState<FollowupRow | null>(null);
   const [search, setSearch] = useState("");
   const [owner, setOwner] = useState("all");
   const [picking, setPicking] = useState(false);
+  const [landed, setLanded] = useState<CreatedFollowup | null>(null);
   const [composing, setComposing] = useState<{
     kind: FollowupSubjectKind; id: string; label: string;
   } | null>(null);
@@ -89,6 +99,7 @@ export function CommercialFollowups() {
   const active = (r: FollowupRow) => !["COMPLETED", "CANCELLED"].includes(r.state);
   const predicates: Record<string, (r: FollowupRow) => boolean> = {
     all: () => true,
+    mine: (r) => active(r) && !!data.me && r.responsible_user_id === data.me,
     overdue: (r) => active(r) && !!r.due_date && r.due_date.slice(0, 10) < today,
     today: (r) => active(r) && r.due_date?.slice(0, 10) === today,
     upcoming: (r) => active(r) && !!r.due_date && r.due_date.slice(0, 10) > today,
@@ -99,9 +110,17 @@ export function CommercialFollowups() {
   };
   const all = data.followups;
   const count = (key: string) => all.filter(predicates[key]).length;
+  /*
+    Identidade primeiro. O texto livre é legado (ou alguém fora da
+    plataforma) e aparece marcado como tal — é por ele que a fila "minha" não
+    alcança um compromisso, e a marca diz exatamente isso.
+  */
   const responsibleOf = (r: FollowupRow) =>
-    r.responsible_text
-    || (r.responsible_user_id ? (data.owners[r.responsible_user_id] ?? "Não identificado") : null);
+    r.responsible_user_id
+      ? (data.owners[r.responsible_user_id] ?? "Não identificado")
+      : r.responsible_text ? `${r.responsible_text} (texto)` : null;
+  const ownerKey = (r: FollowupRow) =>
+    r.responsible_user_id ?? (r.responsible_text ? `text:${r.responsible_text}` : null);
 
   const rows = all.filter(
     (r) =>
@@ -114,7 +133,7 @@ export function CommercialFollowups() {
         data.subjects[`${r.source_kind}:${r.source_id}`]?.label,
       ) &&
       (owner === "all"
-        || (owner === "unassigned" ? !responsibleOf(r) : responsibleOf(r) === owner)),
+        || (owner === "unassigned" ? !ownerKey(r) : ownerKey(r) === owner)),
   );
 
   const transition = async (followup: FollowupRow, next: string) => {
@@ -145,22 +164,31 @@ export function CommercialFollowups() {
   };
 
   const responsibles = Array.from(
-    new Set(all.map(responsibleOf).filter((value): value is string => !!value)),
+    new Map(all.filter((r) => ownerKey(r)).map((r) => [ownerKey(r)!, responsibleOf(r)!])).entries(),
   );
 
   return (
     <section className="crm-workspace" aria-label="Follow-ups comerciais">
       <WorkspaceHeading
-        eyebrow="Central de ação"
-        title="Nenhum compromisso fora do radar."
-        description="Prazo, responsável e evidência esperada em uma fila operacional governada."
+        eyebrow="Comercial · Follow-ups"
+        title="Follow-ups"
+        description={
+          <>
+            {data.me && <span><b>{count("mine")}</b> na minha fila</span>}
+            {data.me && <i className="crm-live-sep" aria-hidden />}
+            <span className={count("overdue") ? "crm-tone-danger" : undefined}><b>{count("overdue")}</b> atrasado(s)</span>
+            <i className="crm-live-sep" aria-hidden />
+            <span><b>{count("today")}</b> para hoje</span>
+            <i className="crm-live-sep" aria-hidden />
+            <span><b>{count("waiting")}</b> com a contraparte</span>
+          </>
+        }
         action={
-          canManage ? (
-            <HudButton variant="primary" onClick={() => setPicking(true)}>
-              <CalendarPlus size={15} aria-hidden />
-              Agendar follow-up
-            </HudButton>
-          ) : undefined
+          <HudButton variant="primary" onClick={() => setPicking(true)} disabled={!canManage}
+            title={canManage ? undefined : "Agendar exige a permissão commercial.manage."} data-testid="followup-new">
+            <CalendarPlus size={15} aria-hidden />
+            Agendar follow-up
+          </HudButton>
         }
       />
       <Metrics
@@ -168,6 +196,7 @@ export function CommercialFollowups() {
           {
             label: "Atrasados",
             value: count("overdue"),
+            tone: count("overdue") ? "danger" : "neutral",
             hint: "Prazo vencido, ainda em aberto",
             onClick: () => setBucket("overdue"),
           },
@@ -196,13 +225,14 @@ export function CommercialFollowups() {
         title="Fila de acompanhamento"
         note="Cada ação mantém o vínculo com sua origem e a evidência necessária."
       >
-        <div className="p-4 border-b border-ig-border-subtle">
+        <div className="crm-subbar">
           <Segments
             label="Prazo do acompanhamento"
             value={bucket}
-            onChange={setBucket}
+            onChange={(next) => { setBucket(next); setLanded(null); }}
             options={[
               { value: "all", label: "Todos", count: all.length },
+              ...(data.me ? [{ value: "mine", label: "Minha fila", count: count("mine") }] : []),
               { value: "overdue", label: "Atrasados", count: count("overdue") },
               { value: "today", label: "Hoje", count: count("today") },
               { value: "upcoming", label: "Próximos", count: count("upcoming") },
@@ -213,6 +243,12 @@ export function CommercialFollowups() {
             ]}
           />
         </div>
+        {landed && (
+          <p className="crm-landed" role="status" data-testid="followup-landed">
+            <CalendarPlus size={14} aria-hidden />
+            Follow-up agendado — está em <b>{QUEUE_LABEL[landed.queue]}</b>.
+          </p>
+        )}
         <Toolbar
           search={search}
           onSearch={setSearch}
@@ -225,7 +261,7 @@ export function CommercialFollowups() {
             options={[
               { value: "all", label: "Todos os responsáveis" },
               { value: "unassigned", label: "Sem responsável" },
-              ...responsibles.map((value) => ({ value, label: value })),
+              ...responsibles.map(([value, label]) => ({ value, label })),
             ]}
           />
         </Toolbar>
@@ -262,7 +298,7 @@ export function CommercialFollowups() {
             const subject = data.subjects[`${r.source_kind}:${r.source_id}`];
             const isOpen = active(r);
             return (
-              <tr key={r.id}>
+              <tr key={r.id} className={landed?.id === r.id ? "crm-row-flash" : undefined}>
                 <td>
                   <strong>{r.goal}</strong>
                   {r.state_note && <p className="crm-muted">{r.state_note}</p>}
@@ -286,7 +322,10 @@ export function CommercialFollowups() {
                     {subject?.counterparty ? ` · ${subject.counterparty}` : ""}
                   </p>
                 </td>
-                <td>{responsibleOf(r) || "Não atribuído"}</td>
+                <td>
+                  {responsibleOf(r) || <span className="crm-missing">Não atribuído</span>}
+                  {r.responsible_user_id && r.responsible_user_id === data.me && <p className="crm-muted">Você</p>}
+                </td>
                 <td>
                   <span className={predicates.overdue(r) ? "crm-overdue" : undefined}>
                     {day(r.due_date)}
@@ -315,6 +354,25 @@ export function CommercialFollowups() {
                 <td>
                   {canManage && isOpen && (
                     <div className="crm-followup-actions">
+                      <HudButton
+                        variant="ghost"
+                        size="sm"
+                        aria-label={`${r.responsible_user_id ? "Redesignar" : "Designar"} · ${r.goal}`}
+                        onClick={() => setAssigning(r)}
+                      >
+                        <UserCheck size={13} aria-hidden />
+                        {r.responsible_user_id ? "Redesignar" : "Designar"}
+                      </HudButton>
+                      {predicates.overdue(r) && r.state !== "ESCALATED" && (
+                        <HudButton
+                          variant="ghost"
+                          size="sm"
+                          disabled={busy === r.id}
+                          onClick={() => transition(r, "ESCALATED")}
+                        >
+                          Escalar
+                        </HudButton>
+                      )}
                       {r.state !== "BLOCKED" && (
                         <HudButton
                           variant="ghost"
@@ -348,11 +406,15 @@ export function CommercialFollowups() {
       </GovernanceNote>
 
       {picking && (
-        <FollowupSubjectPicker
+        <FollowupComposer
           onClose={() => setPicking(false)}
-          onPick={(subject) => {
+          onCreated={(created) => {
             setPicking(false);
-            setComposing(subject);
+            setSearch("");
+            setOwner("all");
+            setBucket(created.queue === "mine" && !data.me ? "all" : created.queue);
+            setLanded(created);
+            refresh();
           }}
         />
       )}
@@ -360,10 +422,20 @@ export function CommercialFollowups() {
         <FollowupComposer
           subject={composing}
           onClose={() => setComposing(null)}
-          onCreated={() => {
+          onCreated={(created) => {
             setComposing(null);
+            setBucket(created.queue);
+            setLanded(created);
             refresh();
           }}
+        />
+      )}
+      {assigning && (
+        <AssignFollowupModal
+          followup={assigning}
+          currentLabel={responsibleOf(assigning) ?? "Não atribuído"}
+          onClose={() => setAssigning(null)}
+          onAssigned={() => { setAssigning(null); refresh(); }}
         />
       )}
       {openSubject?.kind === "commercial_opportunity" && (

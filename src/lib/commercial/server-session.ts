@@ -156,11 +156,25 @@ const SAFE_PREFIXES = [
   'Opportunity stage',
   'Opportunity closure',
   'Opportunity not found',
+  // Vínculo proposta → oportunidade (216): a recusa diz exatamente o conflito.
+  'Proposal not found',
+  'A proposta já',
+  'A proposta e a oportunidade',
+  'A oportunidade está encerrada',
   'Permission required',
   'Completion requires',
   'Waiting for an external party',
   'A governed follow-up requires',
   'Idempotency key',
+  // Levantamento, fechamento e início excepcional (213). A recusa diz o que
+  // falta — "exige evidência", "só revisão enviada recebe aceite" — e é essa
+  // a frase que a pessoa precisa ler no painel de fechamento.
+  'Site survey',
+  'Execution start',
+  'Service order belongs',
+  'Service order not found',
+  'Proposal revision belongs',
+  'Apex reads',
 ];
 
 export function safeGovernedError(message: string | undefined): string {

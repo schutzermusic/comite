@@ -18,6 +18,7 @@ export const CURRENT_PRODUCTION_TASKS = [
   'CONTRACT_AMENDMENT_EXTRACTION',
   'MEASUREMENT_EVIDENCE_PREANALYSIS',
   'COMMERCIAL_DOCUMENT_EXTRACTION',
+  'SITE_SURVEY_UNDERSTANDING',
 ] as const;
 
 export type ApexAIProductionTask = (typeof CURRENT_PRODUCTION_TASKS)[number];
@@ -168,6 +169,17 @@ export function getApexAITaskPolicy(task: ApexAITask): ApexAITaskPolicy {
     COMMERCIAL_DOCUMENT_EXTRACTION: highRisk({
       maxTokens: 24_000, timeoutMs: 180_000, stream: true,
     }),
+    /*
+      LEITURA DE LEVANTAMENTO TÉCNICO — notas, checklist, equipamentos,
+      riscos, perguntas em aberto e a lista de arquivos de campo.
+
+      NÃO é `highRisk`, e a razão é estrutural: a saída grava só em
+      `commercial_site_surveys.apex_candidate`, uma coluna que nenhuma regra
+      de medição, OS ou faturamento lê. Ela vira escopo apenas quando alguém a
+      transcreve para a proposta. Raciocínio alto mesmo assim — a pergunta é
+      "o que falta saber", e errar para menos é pior que errar para mais.
+    */
+    SITE_SURVEY_UNDERSTANDING: normal({ maxTokens: 8_000, timeoutMs: 120_000, reasoningEffort: 'high' }),
     COMPLEX_ESCALATION: explicitEscalation(),
   };
   return policies[task];

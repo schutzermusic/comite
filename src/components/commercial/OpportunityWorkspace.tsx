@@ -17,7 +17,7 @@
  */
 import { useMemo, useState } from "react";
 import {
-  ArrowRight, Building2, CalendarPlus, FileText, Mail, Phone, User,
+  ArrowRight, Building2, CalendarPlus, FileText, Lock, Mail, Phone, Rocket, ScanSearch, User, UserCheck, UserPlus, Zap,
 } from "lucide-react";
 import { HudBadge, HudButton, HudDrawer, useHudToast } from "@/components/hud";
 import { usePermissions } from "@/hooks/use-permissions";
@@ -38,6 +38,15 @@ import {
 } from "./detail";
 import { FollowupComposer } from "./FollowupComposer";
 import { StageTransition } from "./StageTransition";
+import { DiscoveryPanel, SurveyRequestModal, type SurveySummary } from "./DiscoveryPanel";
+import { CreateCommercialButton } from "./CreateCommercialModal";
+import { UnlockHint } from "./workspace";
+import { ExecutionStartPanel } from "./ExecutionStartPanel";
+import { ExecutionStatusBanner, type ExecutionStartSummary } from "./ExecutionStatus";
+import { AssignFollowupModal } from "./AssignFollowupModal";
+import { FlowTabPanel, FlowTabs } from "./tabs";
+import type { ReadinessResult } from "@/lib/commercial/proposal-readiness";
+import { SURVEY_STATUS_LABEL } from "@/lib/commercial/site-survey";
 
 type OpportunityDetail = {
   id: string; code: string | null; title: string; counterparty_name: string;
@@ -86,7 +95,14 @@ type Payload = {
   stageEvents: StageEventRow[];
   signals: PipelineSignal[];
   owners: Record<string, string>;
+  surveys: SurveySummary[];
+  readiness: ReadinessResult;
+  executionStart: ExecutionStartSummary | null;
+  engagement: { id: string; status: string } | null;
+  serviceOrders: Array<{ id: string; os_number: string; status: string; project_id: string | null }>;
 };
+
+type TabId = "summary" | "discovery" | "proposals" | "followups" | "account" | "activity";
 
 export function OpportunityWorkspace({
   opportunityId,
@@ -104,9 +120,19 @@ export function OpportunityWorkspace({
   const { data, state, message, refresh } = useCommercialResource<Payload>(
     `/api/commercial/opportunities/${opportunityId}`,
   );
-  const { hasPermission } = usePermissions();
+  const { hasPermission, loading: permissionsLoading } = usePermissions();
   const canManage = hasPermission("commercial.manage");
+  const canProposals = permissionsLoading ? null : hasPermission("commercial.proposals.manage");
+  const canContacts = permissionsLoading ? null : canManage;
+  const canStart = hasPermission("commercial.execution.start");
+  const canStartExceptional = hasPermission("commercial.execution.start_exceptional");
+  const canRegularize = hasPermission("commercial.engagements.manage");
+  const canSurvey = hasPermission("commercial.surveys.manage");
+  const [tab, setTab] = useState<TabId>("summary");
+  const [closing, setClosing] = useState<null | "STANDARD" | "EXCEPTIONAL">(null);
+  const [assigning, setAssigning] = useState<FollowupRow | null>(null);
   const [composing, setComposing] = useState(false);
+  const [requestingSurvey, setRequestingSurvey] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const { success, error: notifyError } = useHudToast();
 
@@ -175,6 +201,32 @@ export function OpportunityWorkspace({
       }
     }
 
+    for (const survey of data.surveys ?? []) {
+      entries.push({
+        id: `survey-${survey.id}`, at: survey.created_at,
+        title: `Levantamento ${survey.code} solicitado`, detail: survey.purpose, tone: "accent",
+      });
+      if (survey.completed_at) {
+        entries.push({
+          id: `survey-done-${survey.id}`, at: survey.completed_at,
+          title: `Levantamento ${survey.code} concluído`, tone: "success",
+        });
+      }
+    }
+    if (data.executionStart) {
+      const start = data.executionStart;
+      entries.push({
+        id: `start-${start.id}`, at: start.confirmed_at,
+        title: start.mode === "EXCEPTIONAL" ? "Execução iniciada com documentação pendente" : "Negócio fechado — execução iniciada",
+        detail: start.exception_reason ?? start.authorization_reference,
+        actor: owner(start.confirmed_by),
+        tone: start.mode === "EXCEPTIONAL" ? "danger" : "success",
+      });
+      if (start.regularized_at) {
+        entries.push({ id: `regularized-${start.id}`, at: start.regularized_at, title: "Documentação comercial regularizada", tone: "success" });
+      }
+    }
+
     return entries.sort((a, b) => (b.at ?? "").localeCompare(a.at ?? ""));
   }, [data]);
 
@@ -228,12 +280,34 @@ export function OpportunityWorkspace({
     }
   };
 
+  const surveys = data.surveys ?? [];
+  const openSurveys = surveys.filter((survey) => !["COMPLETED", "CANCELLED"].includes(survey.status));
+  const blockingSignals = data.signals.filter((signal) => signal.severity === "blocking").length;
+  const start = data.executionStart;
+  const closable = !start && o.stage !== "LOST" && o.stage !== "ABANDONED" && data.proposals.length > 0;
+  const personName = (followup: FollowupRow) =>
+    followup.responsible_user_id
+      ? (data.owners[followup.responsible_user_id] ?? "Responsável não identificado")
+      : followup.responsible_text
+        ? `${followup.responsible_text} (texto)`
+        : "Sem responsável";
+
+  const tabs = [
+    { id: "summary", label: "Resumo", count: blockingSignals, alert: blockingSignals > 0 },
+    { id: "discovery", label: "Descoberta", count: openSurveys.length || (data.readiness?.state === "NOT_READY" ? 1 : 0),
+      alert: data.readiness?.state === "NOT_READY" },
+    { id: "proposals", label: "Propostas", count: data.proposals.length },
+    { id: "followups", label: "Follow-ups", count: openFollowups.length },
+    { id: "account", label: "Conta", count: data.contacts.length },
+    { id: "activity", label: "Atividade" },
+  ];
+
   return (
     <>
       <HudDrawer
         isOpen
         onClose={onClose}
-        width="760px"
+        width="800px"
         density="compact"
         title={o.title}
         subtitle={
@@ -247,6 +321,62 @@ export function OpportunityWorkspace({
         }
       >
         <div className="crm-detail">
+          {start && (
+            <ExecutionStatusBanner
+              start={start}
+              owners={data.owners}
+              canRegularize={canRegularize}
+              onRegularized={() => { refresh(); onChanged(); }}
+            />
+          )}
+
+          {!start && closable && canStart && (
+            <div className="flow-command" data-testid="close-deal-command">
+              <p>
+                <strong>Proposta pronta para virar trabalho?</strong>{" "}
+                Fechar registra a base do cliente, autoriza a execução, gera a OS interna e abre o projeto — reusando o que já existe.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {canStartExceptional && (
+                  <HudButton variant="ghost" size="sm" onClick={() => setClosing("EXCEPTIONAL")}>
+                    <Zap size={14} aria-hidden /> Início excepcional
+                  </HudButton>
+                )}
+                <HudButton variant="primary" size="sm" onClick={() => setClosing("STANDARD")}>
+                  <Rocket size={14} aria-hidden /> Fechar negócio e iniciar execução
+                </HudButton>
+              </div>
+            </div>
+          )}
+          {!start && o.stage !== "LOST" && o.stage !== "ABANDONED" && !(closable && canStart) && (
+            data.proposals.length === 0 ? (
+              <UnlockHint
+                icon={<Rocket size={14} />}
+                testId="close-deal-locked"
+                action={
+                  <CreateCommercialButton
+                    kind="proposal"
+                    permitted={canProposals}
+                    size="sm"
+                    variant="secondary"
+                    label="Nova proposta"
+                    context={{ opportunityId: o.id }}
+                    onCreated={() => { refresh(); onChanged(); }}
+                    onOpen={onOpenProposal}
+                  />
+                }
+              >
+                <strong>Fechar negócio e iniciar execução</strong> fica disponível quando houver uma proposta
+                vinculada. Importe a PT/PC para começar.
+              </UnlockHint>
+            ) : (
+              <UnlockHint icon={<Lock size={14} />} testId="close-deal-locked">
+                <strong>Fechar negócio e iniciar execução</strong> exige a alçada{" "}
+                <code>commercial.execution.start</code> (administração, diretoria ou jurídico). Peça a quem a tem.
+              </UnlockHint>
+            )
+          )}
+
           <FactGrid>
             <Fact
               label="Valor estimado"
@@ -283,37 +413,96 @@ export function OpportunityWorkspace({
             <Fact
               label="Próxima ação"
               value={nextAction ? nextAction.goal : "Nenhuma"}
-              hint={
-                nextAction
-                  ? `${day(nextAction.due_date)} · ${nextAction.responsible_text ?? "sem responsável"}`
-                  : "Sem acompanhamento aberto"
-              }
+              hint={nextAction ? `${day(nextAction.due_date)} · ${personName(nextAction)}` : "Sem acompanhamento aberto"}
               tone={nextAction ? "neutral" : "danger"}
             />
           </FactGrid>
 
-          <Section title="Sinais" note="Regras determinísticas sobre datas e estados — não recomendações.">
-            <SignalList signals={data.signals} />
-          </Section>
-
-          {canManage && open && (
-            <Section
-              title="Etapa"
-              note="Avançar, recuar ou encerrar. Encerrar como perdida ou abandonada exige motivo."
-            >
-              <StageTransition
-                opportunityId={o.id}
-                current={o.stage}
-                options={ALLOWED_STAGE_TRANSITIONS[o.stage]}
-                requiresReason={STAGES_REQUIRING_REASON}
-                onDone={() => {
-                  refresh();
-                  onChanged();
-                }}
+          <div className="crm-command-actions" data-testid="opportunity-actions">
+            <HudButton variant="secondary" size="sm" onClick={() => setComposing(true)} disabled={!canManage}
+              title={canManage ? undefined : "Exige commercial.manage."}>
+              <CalendarPlus size={13} aria-hidden /> Agendar follow-up
+            </HudButton>
+            <HudButton variant="secondary" size="sm" onClick={() => setRequestingSurvey(true)} disabled={!canSurvey || !open}
+              title={!open ? "Oportunidade encerrada." : canSurvey ? undefined : "Exige commercial.surveys.manage."}>
+              <ScanSearch size={13} aria-hidden /> Pedir levantamento
+            </HudButton>
+            {data.proposals.length > 0 && (
+              <CreateCommercialButton
+                kind="proposal"
+                permitted={canProposals}
+                size="sm"
+                variant="secondary"
+                label="Nova proposta"
+                context={{ opportunityId: o.id }}
+                onCreated={() => { refresh(); onChanged(); }}
+                onOpen={onOpenProposal}
               />
-            </Section>
+            )}
+            {o.party_id && onOpenAccount && (
+              <HudButton variant="ghost" size="sm" onClick={() => onOpenAccount(o.party_id!)}>
+                <Building2 size={13} aria-hidden /> Conta 360
+              </HudButton>
+            )}
+          </div>
+
+          <FlowTabs label="Seções da oportunidade" tabs={tabs} active={tab} onChange={(id) => setTab(id as TabId)} />
+
+          {tab === "summary" && (
+            <FlowTabPanel label="Resumo">
+              <Section title="Sinais" note="Regras determinísticas sobre datas e estados — não recomendações.">
+                <SignalList signals={data.signals} />
+              </Section>
+              {!canManage && open && (
+                <UnlockHint icon={<Lock size={14} />}>
+                  Mudar de etapa exige a permissão <code>commercial.manage</code>.
+                </UnlockHint>
+              )}
+              {canManage && open && (
+                <Section
+                  title="Etapa"
+                  note="Avançar, recuar ou encerrar. Encerrar como perdida ou abandonada exige motivo."
+                >
+                  <StageTransition
+                    opportunityId={o.id}
+                    current={o.stage}
+                    options={ALLOWED_STAGE_TRANSITIONS[o.stage]}
+                    requiresReason={STAGES_REQUIRING_REASON}
+                    onDone={() => {
+                      refresh();
+                      onChanged();
+                    }}
+                  />
+                </Section>
+              )}
+              {data.readiness && (
+                <p className="crm-muted">
+                  Prontidão para propor: <strong>{data.readiness.state === "READY_TO_PROPOSE" ? "pronta" : data.readiness.state === "REVIEW_REQUIRED" ? "revisão necessária" : "não pronta"}</strong>
+                  {openSurveys.length ? ` · ${openSurveys.map((s) => `${s.code} ${SURVEY_STATUS_LABEL[s.status].toLowerCase()}`).join(", ")}` : ""}
+                  {" · "}
+                  <button type="button" className="flow-link" onClick={() => setTab("discovery")}>ver descoberta</button>
+                </p>
+              )}
+            </FlowTabPanel>
           )}
 
+          {tab === "discovery" && (
+            <FlowTabPanel label="Descoberta">
+              <DiscoveryPanel
+                opportunityId={o.id}
+                opportunityTitle={o.title}
+                surveys={surveys}
+                readiness={data.readiness}
+                owners={data.owners}
+                canRequest={canSurvey}
+                open={open}
+                onChanged={() => { refresh(); onChanged(); }}
+              />
+            </FlowTabPanel>
+          )}
+
+          {tab === "account" && (
+            <FlowTabPanel label="Conta">
           <Section
             title="Conta e contatos"
             count={data.contacts.length}
@@ -337,10 +526,27 @@ export function OpportunityWorkspace({
               </div>
             </div>
             {data.contacts.length === 0 ? (
-              <SectionEmpty>
-                Nenhum contato cadastrado nesta conta. Sem pessoa, o acompanhamento não tem
-                para quem ir.
-              </SectionEmpty>
+              <div className="crm-section-body">
+                <UnlockHint
+                  tone="warning"
+                  icon={<UserPlus size={14} />}
+                  action={o.party_id ? (
+                    <CreateCommercialButton
+                      kind="contact"
+                      permitted={canContacts}
+                      size="sm"
+                      variant="secondary"
+                      label="Novo contato"
+                      context={{ account: { id: o.party_id, name: data.party?.trade_name || data.party?.legal_name || o.counterparty_name, document: data.party?.document_number ?? null } }}
+                      onCreated={() => { refresh(); onChanged(); }}
+                    />
+                  ) : undefined}
+                >
+                  {o.party_id
+                    ? "Nenhum contato nesta conta. A prontidão para propor pede um contato principal."
+                    : "A oportunidade ainda não está ligada a uma conta do cadastro único — sem conta, não há contatos nem prontidão para propor."}
+                </UnlockHint>
+              </div>
             ) : (
               <ul className="crm-contacts">
                 {data.contacts.map((contact) => (
@@ -374,18 +580,21 @@ export function OpportunityWorkspace({
               </ul>
             )}
           </Section>
+            </FlowTabPanel>
+          )}
 
+          {tab === "followups" && (
+            <FlowTabPanel label="Follow-ups">
           <Section
             title="Follow-ups"
             count={openFollowups.length}
             note="No motor canônico de acompanhamento. Concluir exige verificação."
             action={
-              canManage ? (
-                <HudButton variant="secondary" size="sm" onClick={() => setComposing(true)}>
-                  <CalendarPlus size={14} aria-hidden />
-                  Agendar
-                </HudButton>
-              ) : undefined
+              <HudButton variant="secondary" size="sm" onClick={() => setComposing(true)} disabled={!canManage}
+                title={canManage ? undefined : "Exige commercial.manage."}>
+                <CalendarPlus size={14} aria-hidden />
+                Agendar
+              </HudButton>
             }
           >
             {data.followups.length === 0 ? (
@@ -400,7 +609,7 @@ export function OpportunityWorkspace({
                     <div className="min-w-0">
                       <strong>{followup.goal}</strong>
                       <p className="crm-muted">
-                        {followup.responsible_text || "Sem responsável"} ·{" "}
+                        {personName(followup)} ·{" "}
                         {followup.due_date ? `prazo ${day(followup.due_date)}` : "sem prazo"}
                         {followup.next_expected_event_at
                           ? ` · retorno esperado ${day(followup.next_expected_event_at)}`
@@ -421,6 +630,17 @@ export function OpportunityWorkspace({
                       >
                         {FOLLOWUP_STATE_LABEL[followup.state] ?? followup.state}
                       </HudBadge>
+                      {canManage && isOpenFollowup(followup) && (
+                        <HudButton
+                          variant="ghost"
+                          size="sm"
+                          aria-label={`${followup.responsible_user_id ? "Redesignar" : "Designar"} · ${followup.goal}`}
+                          onClick={() => setAssigning(followup)}
+                        >
+                          <UserCheck size={13} aria-hidden />
+                          {followup.responsible_user_id ? "Redesignar" : "Designar"}
+                        </HudButton>
+                      )}
                       {canManage && isOpenFollowup(followup) && followup.state !== "BLOCKED" && (
                         <HudButton
                           variant="ghost"
@@ -447,12 +667,31 @@ export function OpportunityWorkspace({
               </ul>
             )}
           </Section>
+            </FlowTabPanel>
+          )}
 
+          {tab === "proposals" && (
+            <FlowTabPanel label="Propostas">
           <Section title="Propostas vinculadas" count={data.proposals.length}>
             {data.proposals.length === 0 ? (
-              <SectionEmpty>
-                Nenhuma proposta ligada a esta oportunidade.
-              </SectionEmpty>
+              <div className="crm-section-body">
+                <UnlockHint
+                  icon={<FileText size={14} />}
+                  action={
+                    <CreateCommercialButton
+                      kind="proposal"
+                      permitted={canProposals}
+                      size="sm"
+                      label="Importar PT / PC"
+                      context={{ opportunityId: o.id }}
+                      onCreated={() => { refresh(); onChanged(); }}
+                      onOpen={onOpenProposal}
+                    />
+                  }
+                >
+                  Nenhuma proposta ligada a esta oportunidade. Comece pelo PDF: a Apex lê e você revisa antes de criar.
+                </UnlockHint>
+              </div>
             ) : (
               <ul className="crm-linked-list">
                 {data.proposals.map((proposal) => {
@@ -488,15 +727,38 @@ export function OpportunityWorkspace({
               </ul>
             )}
           </Section>
-
-          <Section title="Linha do tempo" note="Etapas, revisões e acompanhamentos — nenhum registro criado só para esta lista.">
-            <Timeline entries={timeline} />
-          </Section>
-
-          {o.notes && (
-            <Section title="Observações">
-              <p className="crm-notes">{o.notes}</p>
+          {(data.serviceOrders ?? []).length > 0 && (
+            <Section title="Execução" count={data.serviceOrders.length} note="OS interna e projeto nascidos deste negócio.">
+              <ul className="crm-linked-list">
+                {data.serviceOrders.map((order) => (
+                  <li key={order.id}>
+                    <FileText size={14} aria-hidden />
+                    <div className="min-w-0">
+                      <strong>{order.os_number}</strong>
+                      <p className="crm-muted">{order.status}{order.project_id ? " · projeto vinculado" : " · sem projeto"}</p>
+                    </div>
+                    {order.project_id && (
+                      <a className="flow-link" href={`/projetos/${order.project_id}`}>Projeto <ArrowRight size={12} aria-hidden /></a>
+                    )}
+                  </li>
+                ))}
+              </ul>
             </Section>
+          )}
+            </FlowTabPanel>
+          )}
+
+          {tab === "activity" && (
+            <FlowTabPanel label="Atividade">
+              <Section title="Linha do tempo" note="Etapas, levantamentos, revisões, acompanhamentos e execução — nenhum registro criado só para esta lista.">
+                <Timeline entries={timeline} />
+              </Section>
+              {o.notes && (
+                <Section title="Observações">
+                  <p className="crm-notes">{o.notes}</p>
+                </Section>
+              )}
+            </FlowTabPanel>
           )}
         </div>
       </HudDrawer>
@@ -510,6 +772,34 @@ export function OpportunityWorkspace({
             refresh();
             onChanged();
           }}
+        />
+      )}
+
+      {requestingSurvey && (
+        <SurveyRequestModal
+          opportunityId={o.id}
+          opportunityTitle={o.title}
+          onClose={() => setRequestingSurvey(false)}
+          onCreated={() => { refresh(); onChanged(); }}
+          onDone={() => { setRequestingSurvey(false); setTab("discovery"); }}
+        />
+      )}
+
+      {assigning && (
+        <AssignFollowupModal
+          followup={assigning}
+          currentLabel={personName(assigning)}
+          onClose={() => setAssigning(null)}
+          onAssigned={() => { setAssigning(null); refresh(); onChanged(); }}
+        />
+      )}
+
+      {closing && (
+        <ExecutionStartPanel
+          opportunityId={o.id}
+          initialMode={closing}
+          onClose={() => setClosing(null)}
+          onDone={() => { refresh(); onChanged(); }}
         />
       )}
     </>

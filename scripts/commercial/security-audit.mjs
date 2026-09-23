@@ -25,6 +25,8 @@ const NEW_TABLES = [
   'commercial_proposals', 'commercial_proposal_revisions', 'commercial_extracted_facts',
   'commercial_execution_blueprints', 'commercial_execution_blueprint_items',
   'internal_service_orders', 'commercial_engagement_history',
+  'commercial_opportunity_stage_events', 'commercial_site_surveys', 'commercial_site_survey_events',
+  'commercial_execution_starts', 'commercial_proposal_link_events',
 ];
 
 const GOVERNED_FUNCTIONS = [
@@ -36,6 +38,12 @@ const GOVERNED_FUNCTIONS = [
   'commercial_contact_upsert', 'commercial_opportunity_upsert', 'commercial_proposal_create',
   'commercial_proposal_revise', 'commercial_proposal_revision_transition',
   'commercial_fact_record', 'commercial_fact_confirm', 'commercial_blueprint_create',
+  'commercial_opportunity_transition_stage', 'commercial_site_survey_create',
+  'commercial_site_survey_transition', 'commercial_site_survey_record',
+  'commercial_site_survey_register_attachment', 'commercial_site_survey_record_apex_candidate',
+  'commercial_close_and_start_execution', 'commercial_execution_start_regularize',
+  'contract_billing_eligibility_resolve_core', 'commercial_proposal_register_document',
+  'commercial_proposal_link_opportunity',
 ];
 
 const findings = [];
@@ -220,7 +228,7 @@ try {
   const registry = await db.query(`
     SELECT version FROM supabase_migrations.schema_migrations ORDER BY version::int`);
   const versions = registry.rows.map((r) => r.version);
-  report('Registro · ponta em 212', versions.at(-1) === '212', versions.at(-1));
+  report('Registro · ponta em 216', versions.at(-1) === '216', versions.at(-1));
 
   console.log(`\n${findings.length === 0 ? 'Auditoria limpa.' : `${findings.length} achado(s).`}`);
 } catch (error) {
