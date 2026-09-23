@@ -117,6 +117,9 @@ export class ApexAIGateway {
           if (raw.stopReason === 'refusal') {
             throw reject('A análise foi recusada pela política do modelo.');
           }
+          if (raw.stopReason?.startsWith('incomplete:')) {
+            throw reject('A resposta da IA foi interrompida antes de terminar.');
+          }
 
           let output: unknown = raw.text;
           if (request.structuredOutput) {
@@ -139,6 +142,8 @@ export class ApexAIGateway {
             usage: raw.usage,
             durationMs: diagnostics.durationMs,
             attempts: attempt,
+            ...(raw.responseId ? { responseId: raw.responseId } : {}),
+            ...(raw.requestId ? { requestId: raw.requestId } : {}),
           } as const;
           // A forma vai junto no log de sucesso: é a linha de base contra a
           // qual uma resposta vazia futura passa a ser comparável.

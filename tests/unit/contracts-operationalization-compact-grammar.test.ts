@@ -669,10 +669,10 @@ describe('11 · the onboarding compact schema stays fixed', () => {
     expect(schemaByteLength(CONTRACT_ONBOARDING_EXTRACTION_SCHEMA)).toBeLessThan(1200);
   });
 
-  it('CONTRACT_EXTRACTION routing is untouched', () => {
+  it('CONTRACT_EXTRACTION alone routes to Luna without fallback', () => {
     const policy = getApexAITaskPolicy('CONTRACT_EXTRACTION');
-    expect(policy.provider).toBe('anthropic');
-    expect(policy.model).toBe('claude-sonnet-5');
+    expect(policy.provider).toBe('openai');
+    expect(policy.model).toBe('gpt-6-luna');
     expect(policy.fallbacks).toEqual([]);
   });
 });

@@ -274,10 +274,10 @@ describe('Regression: previous AI schema-complexity fixes remain intact', () => 
     expect(s).not.toContain('"minimum"');
     expect(s).not.toContain('"maximum"');
   });
-  it('model routing is unchanged: claude-sonnet-5, no fallback, no Opus', () => {
+  it('model routing uses gpt-6-luna without fallback', () => {
     const p = getApexAITaskPolicy('CONTRACT_EXTRACTION');
-    expect(p.provider).toBe('anthropic');
-    expect(p.model).toBe('claude-sonnet-5');
+    expect(p.provider).toBe('openai');
+    expect(p.model).toBe('gpt-6-luna');
     expect(p.fallbacks).toEqual([]);
     expect(p.model.toLowerCase()).not.toContain('opus');
   });

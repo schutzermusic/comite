@@ -2,6 +2,7 @@ import type { ApexAITask, ApexAITaskPolicy } from './types';
 
 export const DEFAULT_PRODUCTION_MODEL = 'claude-sonnet-5';
 export const EXPLICIT_ESCALATION_MODEL = 'claude-opus-5';
+export const DEFAULT_OPENAI_MODEL = 'gpt-6-luna';
 
 export const CURRENT_PRODUCTION_TASKS = [
   'CONTRACT_EXTRACTION',
@@ -27,6 +28,10 @@ const env = (name: string, fallback: string): string => process.env[name]?.trim(
 const positiveInt = (name: string, fallback: number): number => {
   const value = Number(process.env[name]);
   return Number.isInteger(value) && value > 0 ? value : fallback;
+};
+const openAIReasoning = (): ApexAITaskPolicy['reasoningEffort'] => {
+  const value = process.env.APEX_AI_OPENAI_REASONING?.trim();
+  return value === 'none' || value === 'low' || value === 'medium' || value === 'high' ? value : 'low';
 };
 
 function normal(overrides: Partial<ApexAITaskPolicy> = {}): ApexAITaskPolicy {
@@ -76,7 +81,11 @@ function explicitEscalation(overrides: Partial<ApexAITaskPolicy> = {}): ApexAITa
 
 export function getApexAITaskPolicy(task: ApexAITask): ApexAITaskPolicy {
   const policies: Record<ApexAITask, ApexAITaskPolicy> = {
-    CONTRACT_EXTRACTION: highRisk({ maxTokens: 16_000, timeoutMs: 120_000 }),
+    CONTRACT_EXTRACTION: highRisk({
+      provider: 'openai', model: env('APEX_AI_OPENAI_MODEL', DEFAULT_OPENAI_MODEL),
+      reasoningEffort: openAIReasoning(), promptCache: false,
+      maxTokens: 16_000, timeoutMs: 120_000,
+    }),
     /*
       Operacionalização lê o contrato inteiro e devolve MUITO mais que
       cláusulas: obrigações de cada parte, condições de faturamento, garantias,

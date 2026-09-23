@@ -54,6 +54,7 @@ export interface ApexAIRequest {
 export interface ApexAIUsage {
   inputTokens: number;
   outputTokens: number;
+  reasoningTokens?: number;
   cacheReadInputTokens?: number;
   cacheCreationInputTokens?: number;
 }
@@ -65,6 +66,8 @@ export interface ApexAIProvenance {
   usage: ApexAIUsage;
   durationMs: number;
   attempts: number;
+  responseId?: string;
+  requestId?: string;
 }
 
 export interface ApexAIResponse<T = unknown> {
@@ -95,6 +98,8 @@ export interface ApexAIAdapterResponse {
   text: string;
   stopReason: string | null;
   usage: ApexAIUsage;
+  responseId?: string;
+  requestId?: string;
   /**
    * A FORMA da resposta — tipos de bloco e contagens, nunca conteúdo.
    *
@@ -113,7 +118,7 @@ export interface ApexAIProviderAdapter {
   normalizeError(error: unknown): import('./errors').ApexAIError;
 }
 
-/** Interface contract for a future OpenAI implementation. */
+/** OpenAI adapter contract, kept at the gateway boundary. */
 export interface OpenAIApexAdapter extends ApexAIProviderAdapter {
   readonly provider: 'openai';
 }

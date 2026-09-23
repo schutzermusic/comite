@@ -91,7 +91,7 @@ describe('CONTRACT_OPERATIONALIZATION — o esforço baixou, a postura não', ()
   });
 
   it('nenhuma outra tarefa de alto risco foi arrastada junto', () => {
-    for (const task of ['CONTRACT_EXTRACTION', 'CONTRACT_AMENDMENT_EXTRACTION'] as const) {
+    for (const task of ['CONTRACT_AMENDMENT_EXTRACTION'] as const) {
       const other = getApexAITaskPolicy(task);
       expect(other.reasoningEffort, task).toBe('high');
       expect(other.highRisk, task).toBe(true);

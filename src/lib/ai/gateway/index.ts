@@ -3,17 +3,19 @@ if (typeof window !== 'undefined') {
 }
 
 import { AnthropicApexAdapter } from './anthropic-adapter';
+import { OpenAIApexAdapter } from './openai-adapter';
 import { ApexAIGateway } from './apex-ai-gateway';
 
 let gateway: ApexAIGateway | null = null;
 
 export function getApexAIGateway(): ApexAIGateway {
-  gateway ??= new ApexAIGateway([new AnthropicApexAdapter()]);
+  gateway ??= new ApexAIGateway([new AnthropicApexAdapter(), new OpenAIApexAdapter()]);
   return gateway;
 }
 
 export { ApexAIGateway } from './apex-ai-gateway';
 export { AnthropicApexAdapter } from './anthropic-adapter';
+export { OpenAIApexAdapter } from './openai-adapter';
 export { ApexAIError } from './errors';
 export { APEX_AI_TASKS } from './types';
 export {
@@ -21,6 +23,7 @@ export {
   CURRENT_PRODUCTION_TASKS,
   DEFAULT_PRODUCTION_MODEL,
   EXPLICIT_ESCALATION_MODEL,
+  DEFAULT_OPENAI_MODEL,
   type ApexAIProductionTask,
 } from './task-registry';
 export type * from './types';

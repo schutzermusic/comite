@@ -23,13 +23,15 @@ afterEach(() => {
 });
 
 class FakeAdapter implements ApexAIProviderAdapter {
-  readonly provider = 'anthropic' as const;
+  readonly provider: 'anthropic' | 'openai';
   readonly capabilities = {
     structuredOutput: true, documentPdf: true, reasoningEffort: true,
     promptCache: true, streaming: true,
   } as const;
   calls: ApexAIAdapterRequest[] = [];
   failures = 0;
+
+  constructor(provider: 'anthropic' | 'openai' = 'anthropic') { this.provider = provider; }
 
   isConfigured() { return true; }
   async generate(request: ApexAIAdapterRequest, _signal: AbortSignal): Promise<ApexAIAdapterResponse> {
@@ -68,7 +70,7 @@ describe('ApexAIGateway routing', () => {
     });
   });
 
-  it('routes ALL current production tasks to claude-sonnet-5 with 0 using Opus and zero automatic fallbacks', () => {
+  it('routes only contract extraction to Luna and keeps other production tasks on Sonnet', () => {
     expect(DEFAULT_PRODUCTION_MODEL).toBe('claude-sonnet-5');
     // 14 desde a leitura de documento comercial (proposta técnica, proposta
     // comercial, pedido de compra, autorização do cliente e OS interna — cinco
@@ -89,16 +91,16 @@ describe('ApexAIGateway routing', () => {
 
       // Verify no automatic fallback to Opus or any other model
       expect(policy.fallbacks).toEqual([]);
-      expect(policy.model).toBe('claude-sonnet-5');
+      expect(policy.model).toBe(task === 'CONTRACT_EXTRACTION' ? 'gpt-6-luna' : 'claude-sonnet-5');
+      expect(policy.provider).toBe(task === 'CONTRACT_EXTRACTION' ? 'openai' : 'anthropic');
     }
 
-    expect(tasksUsingSonnet).toHaveLength(15);
+    expect(tasksUsingSonnet).toHaveLength(14);
     expect(tasksUsingOpus).toHaveLength(0);
   });
 
-  it('proves every specific production task routes to claude-sonnet-5', () => {
+  it('proves remaining specific production tasks route to claude-sonnet-5', () => {
     const expectedTasks = [
-      'CONTRACT_EXTRACTION',
       'CONTRACT_RISK_ANALYSIS',
       'FINANCE_RISK_ANALYSIS',
       'PROJECT_RISK_ANALYSIS',
@@ -135,8 +137,8 @@ describe('ApexAIGateway routing', () => {
     }
   });
 
-  it('routes CONTRACT_EXTRACTION via gateway to claude-sonnet-5', async () => {
-    const adapter = new FakeAdapter();
+  it('routes CONTRACT_EXTRACTION via gateway to gpt-6-luna', async () => {
+    const adapter = new FakeAdapter('openai');
     const gateway = new ApexAIGateway([adapter]);
     const result = await gateway.generate<{ ok: boolean }>({
       organizationId: 'org-test',
@@ -146,8 +148,10 @@ describe('ApexAIGateway routing', () => {
       structuredOutput: { name: 'clauses', schema: { type: 'object' } },
     });
 
-    expect(adapter.calls[0].policy.model).toBe('claude-sonnet-5');
-    expect(result.provenance.model).toBe('claude-sonnet-5');
+    expect(adapter.calls[0].policy.model).toBe('gpt-6-luna');
+    expect(adapter.calls[0].policy.provider).toBe('openai');
+    expect(result.provenance.model).toBe('gpt-6-luna');
+    expect(result.provenance.provider).toBe('openai');
     expect(result.provenance.task).toBe('CONTRACT_EXTRACTION');
   });
 

@@ -9,6 +9,7 @@ export type ApexAIErrorCode =
   | 'AUTHENTICATION'
   | 'RATE_LIMIT'
   | 'TIMEOUT'
+  | 'INVALID_REQUEST'
   | 'INVALID_RESPONSE'
   | 'PROVIDER_UNAVAILABLE'
   | 'PROVIDER_ERROR';
@@ -22,6 +23,7 @@ export class ApexAIError extends Error {
       task?: ApexAITask;
       provider?: ApexAIProvider;
       status?: number;
+      requestId?: string;
       /**
        * O que a resposta dizia de si mesma, quando houve resposta.
        *

@@ -67,7 +67,7 @@ function base(): ContractOnboardingExtraction {
 }
 
 class StubAdapter implements ApexAIProviderAdapter {
-  readonly provider = 'anthropic' as const;
+  readonly provider = 'openai' as const;
   readonly capabilities = { structuredOutput: true, documentPdf: true, reasoningEffort: true, promptCache: true, streaming: true } as const;
   readonly calls: ApexAIAdapterRequest[] = [];
   isConfigured() { return true; }
@@ -231,10 +231,10 @@ describe('Risk governance: always requires human confirmation', () => {
 });
 
 describe('Gateway / adapter: CONTRACT_EXTRACTION mock routing', () => {
-  it('routes to claude-sonnet-5 no Opus no fallback', () => {
+  it('routes to gpt-6-luna with no fallback', () => {
     const p = getApexAITaskPolicy('CONTRACT_EXTRACTION');
-    expect(p.provider).toBe('anthropic');
-    expect(p.model).toBe('claude-sonnet-5');
+    expect(p.provider).toBe('openai');
+    expect(p.model).toBe('gpt-6-luna');
     expect(p.fallbacks).toEqual([]);
     expect(p.model).not.toContain('opus');
   });
@@ -247,7 +247,7 @@ describe('Gateway / adapter: CONTRACT_EXTRACTION mock routing', () => {
     });
     expect(stub.calls).toHaveLength(1);
     const req = stub.calls[0];
-    expect(req.policy.model).toBe('claude-sonnet-5');
+    expect(req.policy.model).toBe('gpt-6-luna');
     expect(req.structuredOutput!.name).toBe('contract_onboarding_extraction');
     expect(req.document!.mediaType).toBe('application/pdf');
     expect(result.provenance.task).toBe('CONTRACT_EXTRACTION');

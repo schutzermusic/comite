@@ -126,7 +126,7 @@ function withFact(
 }
 
 class StubAdapter implements ApexAIProviderAdapter {
-  readonly provider = 'anthropic' as const;
+  readonly provider = 'openai' as const;
   readonly capabilities = { structuredOutput: true, documentPdf: true, reasoningEffort: true, promptCache: true, streaming: true } as const;
   readonly calls: ApexAIAdapterRequest[] = [];
   isConfigured() { return true; }
@@ -593,10 +593,10 @@ describe('Internal responsibility and project are never fabricated', () => {
 });
 
 describe('Gateway / adapter: the compact schema travels unchanged, on one Sonnet call', () => {
-  it('CONTRACT_EXTRACTION routes to claude-sonnet-5, no Opus, no fallback', () => {
+  it('CONTRACT_EXTRACTION routes to gpt-6-luna with no fallback', () => {
     const p = getApexAITaskPolicy('CONTRACT_EXTRACTION');
-    expect(p.provider).toBe('anthropic');
-    expect(p.model).toBe('claude-sonnet-5');
+    expect(p.provider).toBe('openai');
+    expect(p.model).toBe('gpt-6-luna');
     expect(p.fallbacks).toEqual([]);
     expect(p.model.toLowerCase()).not.toContain('opus');
   });
@@ -613,9 +613,9 @@ describe('Gateway / adapter: the compact schema travels unchanged, on one Sonnet
     expect(countSchemaUnions(schema)).toBe(0);
     expect(countOptionalParameters(schema)).toBe(0);
     expect(countObjectSchemas(schema)).toBe(2);
-    expect(stub.calls[0].policy.model).toBe('claude-sonnet-5');
+    expect(stub.calls[0].policy.model).toBe('gpt-6-luna');
     expect(stub.calls[0].policy.model.toLowerCase()).not.toContain('opus');
-    expect(stub.calls[0].policy.provider).toBe('anthropic');
+    expect(stub.calls[0].policy.provider).toBe('openai');
   });
 });
 
