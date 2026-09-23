@@ -170,13 +170,14 @@ export function getApexAITaskPolicy(task: ApexAITask): ApexAITaskPolicy {
       regra de medição e condição de faturamento. Um "valor total" lido errado
       não produz um texto ruim: produz uma cobrança errada.
 
-      24k de saída e streaming pelo mesmo motivo da 165: o SDK da Anthropic
-      recusa requisição não-stream acima de ~21,3k. Uma proposta técnica de
-      80 páginas com escopo, entregáveis, exclusões e dependências produz
-      saída longa, e truncá-la entregaria leitura parcial com cara de completa.
+      A extração comercial retorna somente fatos estruturados e curtos. O teto
+      menor evita respostas narrativas extensas; uma saída truncada é recusada
+      pelo gateway e exige revisão, nunca vira regra de negócio parcial.
     */
     COMMERCIAL_DOCUMENT_EXTRACTION: highRisk({
-      maxTokens: 24_000, timeoutMs: 180_000, stream: true,
+      provider: 'openai', model: env('APEX_AI_OPENAI_MODEL', DEFAULT_OPENAI_MODEL),
+      reasoningEffort: openAIReasoning(), promptCache: false,
+      maxTokens: 8_000, timeoutMs: 180_000, stream: false,
     }),
     /*
       LEITURA DE LEVANTAMENTO TÉCNICO — notas, checklist, equipamentos,

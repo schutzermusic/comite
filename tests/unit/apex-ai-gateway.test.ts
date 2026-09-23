@@ -70,7 +70,7 @@ describe('ApexAIGateway routing', () => {
     });
   });
 
-  it('routes only contract extraction to Luna and keeps other production tasks on Sonnet', () => {
+  it('routes contract and commercial document extraction to Luna and keeps other tasks on Sonnet', () => {
     expect(DEFAULT_PRODUCTION_MODEL).toBe('claude-sonnet-5');
     // 14 desde a leitura de documento comercial (proposta técnica, proposta
     // comercial, pedido de compra, autorização do cliente e OS interna — cinco
@@ -91,11 +91,12 @@ describe('ApexAIGateway routing', () => {
 
       // Verify no automatic fallback to Opus or any other model
       expect(policy.fallbacks).toEqual([]);
-      expect(policy.model).toBe(task === 'CONTRACT_EXTRACTION' ? 'gpt-6-luna' : 'claude-sonnet-5');
-      expect(policy.provider).toBe(task === 'CONTRACT_EXTRACTION' ? 'openai' : 'anthropic');
+      const usesLuna = task === 'CONTRACT_EXTRACTION' || task === 'COMMERCIAL_DOCUMENT_EXTRACTION';
+      expect(policy.model).toBe(usesLuna ? 'gpt-6-luna' : 'claude-sonnet-5');
+      expect(policy.provider).toBe(usesLuna ? 'openai' : 'anthropic');
     }
 
-    expect(tasksUsingSonnet).toHaveLength(14);
+    expect(tasksUsingSonnet).toHaveLength(13);
     expect(tasksUsingOpus).toHaveLength(0);
   });
 
@@ -111,7 +112,6 @@ describe('ApexAIGateway routing', () => {
       'ASO_EXTRACTION',
       'PROJECT_SCHEDULE_EXTRACTION',
       'CONTRACT_OPERATIONALIZATION',
-      'COMMERCIAL_DOCUMENT_EXTRACTION',
       'SITE_SURVEY_UNDERSTANDING',
     ] as const;
 

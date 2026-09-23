@@ -37,9 +37,11 @@ export interface StagedAnalysis {
 }
 
 export async function writeStagedAnalysis(pdfPath: string, analysis: StagedAnalysis): Promise<void> {
-  const body = new Blob([JSON.stringify(analysis)], { type: 'application/json' });
+  // The contract-files bucket allows text/plain but rejects application/json.
+  // The sidecar remains JSON data; only its storage MIME type changes.
+  const body = new Blob([JSON.stringify(analysis)], { type: 'text/plain' });
   const { error } = await platformServiceClient().storage.from(ONBOARDING_STORAGE_BUCKET)
-    .upload(sidecarPath(pdfPath), body, { upsert: true, contentType: 'application/json' });
+    .upload(sidecarPath(pdfPath), body, { upsert: true, contentType: 'text/plain' });
   if (error) throw new Error('Não foi possível guardar a leitura do PDF.');
 }
 

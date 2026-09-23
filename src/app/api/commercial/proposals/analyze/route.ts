@@ -6,11 +6,12 @@ import { requireCommercialSession, isSessionError, hasOptionalPermission } from 
 import {
   COMMERCIAL_EXTRACTION_SCHEMA, COMMERCIAL_EXTRACTION_SYSTEM_PROMPT,
   apexTaskForContext, buildCommercialExtractionPrompt, normalizeClassification, normalizeCommercialFacts,
+  validateCommercialExtraction, CommercialExtractionValidationError,
 } from '@/lib/commercial/document-intelligence';
 import {
   contextForKind, discardStaged, stagingPrefix, sweepExpiredStaging, writeStagedAnalysis,
 } from '@/lib/commercial/proposal-staging';
-import { getApexAIGateway } from '@/lib/ai/gateway';
+import { ApexAIError, getApexAIGateway } from '@/lib/ai/gateway';
 import { platformServiceClient } from '@/lib/platform/server-client';
 import { ONBOARDING_STORAGE_BUCKET } from '@/lib/contracts/onboarding/upload-paths';
 
@@ -89,10 +90,12 @@ export async function POST(request: Request) {
   }
 
   const context = contextForKind(parsed.data.kind);
+  let stage = 'download';
   try {
     const download = await platformServiceClient().storage.from(ONBOARDING_STORAGE_BUCKET).download(parsed.data.path);
     if (download.error || !download.data) throw new Error('PDF indisponível no armazenamento.');
     const pdf = Buffer.from(await download.data.arrayBuffer());
+    stage = 'gateway';
     const response = await getApexAIGateway().generate<unknown>({
       organizationId: session.organizationId,
       task: apexTaskForContext(context),
@@ -101,23 +104,40 @@ export async function POST(request: Request) {
       document: { mediaType: 'application/pdf', base64: pdf.toString('base64') },
       structuredOutput: { name: 'commercial_facts', schema: COMMERCIAL_EXTRACTION_SCHEMA as unknown as Record<string, unknown> },
     });
+    console.info('[commercial-proposal-analyze] provider completed', JSON.stringify({
+      task: response.provenance.task, provider: response.provenance.provider,
+      model: response.provenance.model, durationMs: response.provenance.durationMs,
+      usage: response.provenance.usage, stopReason: response.stopReason,
+      responseId: response.provenance.responseId, requestId: response.provenance.requestId,
+    }));
+    stage = 'validation';
+    validateCommercialExtraction(response.output);
+    stage = 'normalization';
+    const classification = normalizeClassification(response.output);
+    const { facts, discarded } = normalizeCommercialFacts(context, response.output);
+    stage = 'staging';
     await writeStagedAnalysis(parsed.data.path, {
       version: 1, context, fileName: parsed.data.fileName, analyzedAt: new Date().toISOString(),
       output: response.output,
       provenance: { provider: response.provenance.provider, model: response.provenance.model },
     });
-    const classification = normalizeClassification(response.output);
-    const { facts, discarded } = normalizeCommercialFacts(context, response.output);
+    stage = 'audit';
     await logAuditEventServer({
       organizationId: session.organizationId, action: 'commercial.proposal.document_preread',
       entityType: 'commercial_proposal_staging', entityId: session.user.id,
       metadata: { facts: facts.length, discarded, model: response.provenance.model, kind: parsed.data.kind },
     }, request.headers);
+    stage = 'review';
     return NextResponse.json({ ok: true, path: parsed.data.path, context, classification, facts, discarded,
       model: response.provenance.model });
   } catch (error) {
+    console.warn('[commercial-proposal-analyze] failed', JSON.stringify({
+      stage, code: error instanceof CommercialExtractionValidationError ? 'SCHEMA_INVALID'
+        : error instanceof ApexAIError ? error.code : 'READ_FAILED',
+      issues: error instanceof CommercialExtractionValidationError ? error.issues : undefined,
+    }));
     return NextResponse.json({ ok: false, code: 'READ_FAILED',
       error: 'A Apex não concluiu a leitura. Nenhum fato foi suposto — tente de novo ou crie manualmente.',
-      detail: (error as Error).message?.slice(0, 200) }, { status: 502 });
+      detail: `Falha na etapa ${stage}.` }, { status: 502 });
   }
 }

@@ -9,7 +9,7 @@ import {
 import {
   COMMERCIAL_EXTRACTION_SCHEMA, COMMERCIAL_EXTRACTION_SYSTEM_PROMPT, COMMERCIAL_INTAKE_PIPELINE_VERSION,
   apexTaskForContext, buildCommercialExtractionPrompt, classificationWarnings, extractionModeForProposal,
-  normalizeClassification, normalizeCommercialFacts,
+  normalizeClassification, normalizeCommercialFacts, validateCommercialExtraction,
 } from '@/lib/commercial/document-intelligence';
 import { blueprintItemsFromFacts } from '@/lib/commercial/blueprint';
 import { getApexAIGateway } from '@/lib/ai/gateway';
@@ -137,6 +137,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const response = reuseStaged && staged
       ? { output: staged.output, provenance: staged.provenance }
       : await readWithApex();
+    validateCommercialExtraction(response.output);
     const classification = normalizeClassification(response.output);
     const { facts, discarded } = normalizeCommercialFacts(documentContext, response.output);
     let recorded = 0;

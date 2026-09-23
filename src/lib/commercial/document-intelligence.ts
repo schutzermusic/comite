@@ -28,6 +28,7 @@ if (typeof window !== 'undefined') {
 }
 
 import type { DocumentContext, FactDomain } from './types';
+import Ajv from 'ajv';
 
 export const COMMERCIAL_INTAKE_PIPELINE_VERSION = 'commercial-document-intelligence.v1';
 export const COMMERCIAL_INTAKE_TRUST_VERSION = 'commercial-trust.v1';
@@ -146,6 +147,10 @@ into "excerpt" to make a fact look supported is the single worst failure you can
 two fields are what allows a human to verify you, and downstream the platform refuses to turn any
 fact without both of them into a billing or measurement rule.
 
+Return only the JSON object specified by the schema: document and facts. No report, markdown,
+summary, repeated PDF text or reasoning. Keep each excerpt to the shortest literal span that
+supports the fact (prefer at most 240 characters). Do not repeat the same fact.
+
 Do not infer a rule the document does not state. Do not merge two different clauses into one fact.
 Do not translate values. When the document contradicts itself, return both readings as separate
 facts and set confidence accordingly.`;
@@ -213,6 +218,59 @@ export const COMMERCIAL_EXTRACTION_SCHEMA = {
     },
   },
 } as const;
+
+export interface CommercialValidationIssue {
+  path: string;
+  expected: string;
+  received: string;
+}
+
+export class CommercialExtractionValidationError extends Error {
+  constructor(public readonly issues: CommercialValidationIssue[]) {
+    super('Commercial extraction did not match its structured-output contract.');
+    this.name = 'CommercialExtractionValidationError';
+  }
+}
+
+const validateSchema = new Ajv({ allErrors: true }).compile(COMMERCIAL_EXTRACTION_SCHEMA);
+const valueShape = (value: unknown): string => value === null ? 'null'
+  : Array.isArray(value) ? 'array' : typeof value;
+
+/** Validate the same provider-neutral schema sent to the gateway before staging or review. */
+export function validateCommercialExtraction(raw: unknown): asserts raw is {
+  document: Record<string, unknown>; facts: ProviderFact[];
+} {
+  if (!validateSchema(raw)) {
+    const issues = (validateSchema.errors ?? []).map((issue) => {
+      const path = issue.keyword === 'required'
+        ? `${issue.instancePath}/${String(issue.params.missingProperty)}` : issue.instancePath || '/';
+      const parts = issue.instancePath.split('/').slice(1);
+      const parent = parts.reduce<unknown>((node, part) =>
+        node && typeof node === 'object' ? (node as Record<string, unknown>)[part] : undefined, raw);
+      return { path, expected: issue.keyword === 'type' ? String(issue.params.type) : issue.keyword,
+        received: issue.keyword === 'required' ? 'missing' : valueShape(parent) };
+    });
+    throw new CommercialExtractionValidationError(issues);
+  }
+  const facts = (raw as { facts: ProviderFact[] }).facts;
+  const issues: CommercialValidationIssue[] = [];
+  facts.forEach((fact, index) => {
+    const path = `/facts/${index}`;
+    if (!fact.label.trim()) issues.push({ path: `${path}/label`, expected: 'nonempty string', received: 'empty string' });
+    if (fact.page < 0) issues.push({ path: `${path}/page`, expected: 'integer >= 0', received: 'negative integer' });
+    if (fact.confidence < 0 || fact.confidence > 1)
+      issues.push({ path: `${path}/confidence`, expected: 'number 0..1', received: 'out of range number' });
+    if ((fact.page > 0) !== Boolean(fact.excerpt.trim()))
+      issues.push({ path: `${path}/excerpt`, expected: 'page and quote together', received: 'unpaired provenance' });
+    if (fact.value_numeric && !/^-?\d+(?:\.\d+)?$/.test(fact.value_numeric))
+      issues.push({ path: `${path}/value_numeric`, expected: 'canonical decimal string', received: 'invalid string' });
+    if (fact.value_date && !ISO_DATE.test(fact.value_date))
+      issues.push({ path: `${path}/value_date`, expected: 'YYYY-MM-DD', received: 'invalid string' });
+    if (fact.currency && !ISO_CURRENCY.test(fact.currency))
+      issues.push({ path: `${path}/currency`, expected: 'ISO currency code', received: 'invalid string' });
+  });
+  if (issues.length) throw new CommercialExtractionValidationError(issues);
+}
 
 export interface ProviderFact {
   domain: string;
