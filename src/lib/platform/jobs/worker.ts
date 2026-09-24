@@ -43,7 +43,7 @@ import { randomUUID } from 'node:crypto';
 import { platformServiceClient } from '../server-client';
 import { JOB_HANDLERS } from './handlers';
 import { classifyJobError, TerminalJobError } from './errors';
-import { isJobType, parseJobPayload, UnknownJobError } from './registry';
+import { JOB_TYPES, isJobType, parseJobPayload, UnknownJobError } from './registry';
 import { SCHEDULED_PRODUCERS } from './producers';
 import { JOB_LEASE_SECONDS } from './budget';
 import { isDrainPaused, DRAIN_PAUSE_ENV } from './hold';
@@ -85,6 +85,8 @@ export interface DrainCounters {
   analyses_reconciled: number;
   requests_reconciled: number;
   producers_enqueued: number;
+  /** Rotas `ON_WORKER_CAPABILITY` ligadas nesta passagem (237): só este código as sabe executar. */
+  routes_activated: number;
   events_routed: number;
   events_routing_failed: number;
   jobs_created: number;
@@ -107,7 +109,7 @@ export async function drainOnce(
   const remainingMs = () => limits.timeBudgetMs - (Date.now() - startedAt);
   const counters: DrainCounters = {
     reaped_released: 0, reaped_dead_lettered: 0,
-    analyses_reconciled: 0, requests_reconciled: 0, producers_enqueued: 0,
+    analyses_reconciled: 0, requests_reconciled: 0, producers_enqueued: 0, routes_activated: 0,
     events_routed: 0, events_routing_failed: 0, jobs_created: 0,
     claimed: 0, completed: 0, retried: 0, dead_letter: 0, stale_completions: 0,
     duration_ms: 0, stopped_early: false, paused: false,
@@ -187,6 +189,26 @@ export async function drainOnce(
         producer: producer.name, error: classifyJobError(error).safe,
       });
     }
+  }
+
+  /*
+    ---- 3b · rotas que dependem deste código ----
+
+    Uma rota de evento marcada `ON_WORKER_CAPABILITY` nasce desligada e só é
+    ligada por um trabalhador que declara saber executar o tipo de trabalho.
+    Um trabalhador antigo nunca chama isto — e por isso nunca recebe trabalho
+    que mandaria para a carta morta. Falhar aqui não derruba a passagem: a
+    reconciliação periódica cobre os desfechos enquanto a rota não liga.
+  */
+  try {
+    const activation = await supabase.rpc('apex_event_routes_activate_for', { p_job_types: [...JOB_TYPES] });
+    if (activation.error) throw new Error(activation.error.message);
+    counters.routes_activated = Number(activation.data ?? 0);
+    if (counters.routes_activated > 0) {
+      console.info('[apex-worker] rotas ligadas por capacidade', { activated: counters.routes_activated });
+    }
+  } catch (error) {
+    console.error('[apex-worker] ativação de rotas falhou', { error: classifyJobError(error).safe });
   }
 
   // ---- 4 · rotear ----

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { logAuditEventServer } from '@/lib/audit/log-audit-event-server';
-import { requireOperationsSession, isSessionError, safeOperationsError } from '@/lib/operations/session';
+import { requireOperationsSession, isSessionError, governedFailure } from '@/lib/operations/session';
 import { transitionRequirement } from '@/lib/operations/planning/service';
 
 export const runtime = 'nodejs';
@@ -27,6 +27,6 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       entityType: 'project_requirement', entityId: id, metadata: { from: out.from ?? null } }, request.headers);
     return NextResponse.json({ ok: true, ...out });
   } catch (error) {
-    return NextResponse.json({ ok: false, error: safeOperationsError((error as Error).message) }, { status: 422 });
+    return governedFailure(error);
   }
 }

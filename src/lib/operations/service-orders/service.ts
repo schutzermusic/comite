@@ -9,13 +9,7 @@ if (typeof window !== 'undefined') {
   throw new Error('operations/service-orders/service.ts não pode ser importado no navegador');
 }
 
-import { platformServiceClient } from '@/lib/platform/server-client';
-
-async function rpc<T>(name: string, params: Record<string, unknown>): Promise<T> {
-  const { data, error } = await platformServiceClient().rpc(name, params);
-  if (error) throw new Error(error.message);
-  return data as T;
-}
+import { governedRpc as rpc } from '@/lib/platform/governed-rpc';
 
 export interface GenerateResult {
   service_order_id: string; status: string; reused: boolean; items_added: number;

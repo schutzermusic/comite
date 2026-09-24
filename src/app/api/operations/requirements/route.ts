@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { logAuditEventServer } from '@/lib/audit/log-audit-event-server';
-import { requireOperationsSession, isSessionError, safeOperationsError } from '@/lib/operations/session';
+import { requireOperationsSession, isSessionError, governedFailure } from '@/lib/operations/session';
 import { upsertRequirement } from '@/lib/operations/planning/service';
 import { requirementPayload, requirementSchema } from '@/lib/operations/planning/validation';
 
@@ -22,6 +22,6 @@ export async function POST(request: Request) {
       metadata: { projectId: parsed.data.projectId, type: parsed.data.requirementType } }, request.headers);
     return NextResponse.json({ ok: true, requirementId: out.requirement_id });
   } catch (error) {
-    return NextResponse.json({ ok: false, error: safeOperationsError((error as Error).message) }, { status: 422 });
+    return governedFailure(error);
   }
 }

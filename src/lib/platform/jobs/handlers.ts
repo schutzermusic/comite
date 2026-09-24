@@ -732,6 +732,24 @@ const purchaseOrderApproval: JobHandler<'procurement.purchase_order.apply_approv
 };
 
 /*
+  Reconciliação de aprovações de compra (237). A rota de evento só liga
+  quando um trabalhador capaz roda, e desfechos anteriores a ela (ou de tipos
+  sem rota) seriam perdidos: esta passagem aplica, pelo ESTADO, o que o motor
+  já decidiu — pela mesma função da rota, idempotente e com impressão digital.
+*/
+const purchaseOrderApprovalReconcile: JobHandler<'procurement.purchase_order.reconcile_approvals'> = {
+  payloadVersion: 1,
+  idempotencyBasis: 'Aplica só pedido em APPROVAL_REQUIRED ligado a um pedido de aprovação já terminado; repetir não muda nada.',
+  async run(_payload, { job, supabase }) {
+    const { data, error } = await supabase.rpc('purchase_order_reconcile_approvals', {
+      p_organization_id: job.organization_id, p_limit: 200,
+    });
+    if (error) throw rpcError(error);
+    return (data ?? {}) as Record<string, unknown>;
+  },
+};
+
+/*
   Leitura periódica da Apex no Supply (236): fatos do inquilino do trabalho →
   sinais → livro. Idempotente por natureza: a mesma condição tem a mesma
   chave; o que deixou de ser verdade é resolvido.
@@ -906,6 +924,7 @@ export const JOB_HANDLERS: HandlerRegistry = {
   'finance.receivable.apply_fiscal_cancellation': fiscalCancellation,
   'procurement.purchase_order.apply_approval': purchaseOrderApproval,
   'supply.intelligence.sweep': supplyIntelligenceSweep,
+  'procurement.purchase_order.reconcile_approvals': purchaseOrderApprovalReconcile,
 };
 
 export function handlerFor(jobType: JobType): JobHandler<JobType> {

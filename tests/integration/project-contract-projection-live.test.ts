@@ -34,10 +34,15 @@ suite('projeção contrato→projeto, no banco vivo', () => {
   beforeAll(async () => {
     db = new pg.Client({ connectionString: URL_DB, ssl: { rejectUnauthorized: false } });
     await db.connect();
-    await db.query('SET SESSION default_transaction_read_only = on');
+    // Somente leitura com escopo de TRANSAÇÃO: `SET SESSION` vazava pelo pooler em
+    // modo transação e deixava outra conexão do pool presa em read-only.
+    await db.query('BEGIN READ ONLY');
   }, 30_000);
 
-  afterAll(async () => { await db?.end(); });
+  afterAll(async () => {
+    await db?.query('ROLLBACK').catch(() => undefined);
+    await db?.end();
+  });
 
   it('as visões são security_invoker e SOMENTE LEITURA', async () => {
     const views = [

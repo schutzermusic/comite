@@ -30,6 +30,8 @@ export const JOB_TYPES = [
   // ---- Supply — compras (234) ----
   'procurement.purchase_order.apply_approval',
   'supply.intelligence.sweep',
+  // ---- Supply — prontidão (237) ----
+  'procurement.purchase_order.reconcile_approvals',
 ] as const;
 
 export type JobType = (typeof JOB_TYPES)[number];
@@ -152,6 +154,12 @@ export const JOB_SCHEMAS = {
     handler lê o estado ATUAL do inquilino do trabalho e sincroniza o livro.
   */
   'supply.intelligence.sweep': { 1: z.object({ reason: z.string().max(200).optional() }) },
+  /*
+    Reconciliação periódica (237): aplica ao pedido de compra o desfecho que o
+    motor de aprovação já decidiu e nenhum evento aplicou. Sem fato no payload:
+    o handler lê o estado atual do inquilino do trabalho.
+  */
+  'procurement.purchase_order.reconcile_approvals': { 1: z.object({ reason: z.string().max(200).optional() }) },
 } as const satisfies Record<JobType, Record<number, z.ZodType>>;
 
 export type JobPayloadByType = {

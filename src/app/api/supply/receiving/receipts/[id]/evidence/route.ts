@@ -6,7 +6,8 @@ import { platformServiceClient } from '@/lib/platform/server-client';
 import { ONBOARDING_STORAGE_BUCKET, safeOnboardingFileName } from '@/lib/contracts/onboarding/upload-paths';
 import { inventoryFailure } from '@/lib/supply/inventory-route';
 import { inventoryAct } from '@/lib/supply/service';
-import { MAX_EVIDENCE_BYTES, evidenceSchema } from '@/lib/supply/validation';
+import { MAX_EVIDENCE_BYTES, sniffEvidenceMime } from '@/lib/supply/evidence';
+import { evidenceSchema } from '@/lib/supply/validation';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -14,8 +15,13 @@ export const dynamic = 'force-dynamic';
 /**
  * Evidência do recebimento (foto, romaneio, nota). Mesmo caminho do upload
  * de OS: o SERVIDOR gera o caminho dentro do inquilino e assina o envio; no
- * registro, baixa o objeto, confere tamanho e calcula o hash — o navegador
- * não afirma nada que o servidor não tenha visto.
+ * registro, baixa o objeto, confere tamanho, ASSINATURA DO CONTEÚDO e calcula
+ * o hash — o navegador não afirma nada que o servidor não tenha visto.
+ *
+ * A pasta `<org>/supply-receipts/` só é escrita por URL assinada do servidor e
+ * nunca apagada pelo navegador (políticas da 237); a linha de evidência é
+ * append-only. Arquivo que não vira evidência (tipo falso, recusa do banco) é
+ * removido: nada órfão no armazenamento.
  */
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   const session = await requireOperationsSession(['receiving.receive']);
@@ -26,36 +32,52 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const prefix = `${session.organizationId}/supply-receipts/${session.user.id}/`;
   const storage = platformServiceClient().storage.from(ONBOARDING_STORAGE_BUCKET);
 
+  // O recebimento tem de existir NO inquilino de quem envia (RLS da sessão).
+  const { data: receipt } = await session.supabase.from('goods_receipts').select('id,receipt_number')
+    .eq('organization_id', session.organizationId).eq('id', id).maybeSingle<{ id: string; receipt_number: string }>();
+  if (!receipt) return NextResponse.json({ ok: false, error: 'Recebimento não encontrado.' }, { status: 404 });
+
   if (parsed.data.action === 'authorize') {
     const path = `${prefix}${randomUUID()}-${safeOnboardingFileName(parsed.data.fileName)}`;
     const { data, error } = await storage.createSignedUploadUrl(path);
     if (error || !data) return NextResponse.json({ ok: false, error: 'Não foi possível iniciar o envio.' }, { status: 500 });
+    await logAuditEventServer({ organizationId: session.organizationId, action: 'supply.goods_receipt.evidence_upload_authorized',
+      entityType: 'goods_receipt', entityId: id, metadata: { path, mime_type: parsed.data.mimeType, size: parsed.data.fileSize } },
+      request.headers);
     return NextResponse.json({ ok: true, path, token: data.token, bucket: ONBOARDING_STORAGE_BUCKET });
   }
 
   const b = parsed.data;
-  if (!b.path.startsWith(prefix)) {
+  if (!b.path.startsWith(prefix) || b.path.includes('..')) {
     return NextResponse.json({ ok: false, error: 'Arquivo fora da área de evidências deste usuário.' }, { status: 403 });
   }
   const { data: blob, error: dlError } = await storage.download(b.path);
   if (dlError || !blob) return NextResponse.json({ ok: false, error: 'Arquivo não encontrado no armazenamento.' }, { status: 404 });
-  const bytes = Buffer.from(await blob.arrayBuffer());
-  if (bytes.length === 0 || bytes.length > MAX_EVIDENCE_BYTES) {
+  if (blob.size === 0 || blob.size > MAX_EVIDENCE_BYTES) {
+    await storage.remove([b.path]);
     return NextResponse.json({ ok: false, error: 'Arquivo vazio ou acima de 15 MB.' }, { status: 413 });
+  }
+  const bytes = Buffer.from(await blob.arrayBuffer());
+  const actual = sniffEvidenceMime(bytes);
+  if (!actual || actual !== b.mimeType) {
+    await storage.remove([b.path]);
+    return NextResponse.json({ ok: false, error: 'O conteúdo do arquivo não é uma foto JPEG/PNG ou um PDF válido.' }, { status: 415 });
   }
   try {
     const out = await inventoryAct<Record<string, unknown>>('goods_receipt_attach_evidence', session.organizationId, session.user.id, {
       p_receipt_id: id, p_payload: { storage_bucket: ONBOARDING_STORAGE_BUCKET, storage_path: b.path, file_name: b.fileName,
-        mime_type: b.mimeType, size_bytes: bytes.length, content_sha256: createHash('sha256').update(bytes).digest('hex') } });
+        mime_type: actual, size_bytes: bytes.length, content_sha256: createHash('sha256').update(bytes).digest('hex') } });
     await logAuditEventServer({ organizationId: session.organizationId, action: 'supply.goods_receipt.evidence_attached',
-      entityType: 'goods_receipt', entityId: id, metadata: { evidence_id: out.evidence_id, file_name: b.fileName } }, request.headers);
+      entityType: 'goods_receipt', entityId: id, metadata: { evidence_id: out.evidence_id, file_name: b.fileName,
+        replayed: out.replayed ?? false } }, request.headers);
     return NextResponse.json({ ok: true, result: out });
   } catch (error) {
+    await storage.remove([b.path]);
     return inventoryFailure(error);
   }
 }
 
-/** Link temporário para ver uma evidência (quem vê recebimento). */
+/** Link temporário para ver uma evidência (quem vê recebimento, no próprio inquilino). */
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   const session = await requireAnyOperationsPermission(['receiving.view', 'supply.view', 'procurement.view']);
   if (isSessionError(session)) return session.error;
@@ -66,5 +88,5 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   if (!data) return NextResponse.json({ ok: false, error: 'Evidência não encontrada.' }, { status: 404 });
   const { data: signed } = await platformServiceClient().storage.from(data.storage_bucket).createSignedUrl(data.storage_path, 300);
   if (!signed) return NextResponse.json({ ok: false, error: 'Não foi possível abrir a evidência.' }, { status: 500 });
-  return NextResponse.json({ ok: true, url: signed.signedUrl });
+  return NextResponse.json({ ok: true, url: signed.signedUrl }, { headers: { 'Cache-Control': 'no-store' } });
 }

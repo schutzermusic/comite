@@ -6,13 +6,7 @@ if (typeof window !== 'undefined') {
   throw new Error('operations/planning/service.ts não pode ser importado no navegador');
 }
 
-import { platformServiceClient } from '@/lib/platform/server-client';
-
-async function rpc<T>(name: string, params: Record<string, unknown>): Promise<T> {
-  const { data, error } = await platformServiceClient().rpc(name, params);
-  if (error) throw new Error(error.message);
-  return data as T;
-}
+import { governedRpc as rpc } from '@/lib/platform/governed-rpc';
 
 export function upsertRequirement(organizationId: string, actorId: string, payload: Record<string, unknown>) {
   return rpc<{ requirement_id: string; status: string; created: boolean }>('project_requirement_upsert', {

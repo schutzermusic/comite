@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server';
-import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { logAuditEventServer } from '@/lib/audit/log-audit-event-server';
 import { requireAnyOperationsPermission, isSessionError, hasOptionalPermission } from '@/lib/operations/session';
@@ -25,6 +24,8 @@ const schema = z.discriminatedUnion('action', [
 const PERMISSION: Record<string, string[]> = {
   RESERVE: ['inventory.reserve'], TRANSFER: ['inventory.manage', 'inventory.reserve'], REQUISITION: ['procurement.request'],
 };
+/** Quem DECIDE sobre uma recomendação (descartar, acompanhar): o mesmo conjunto que o banco reconfere. */
+const DECIDERS = ['supply.plan', 'inventory.reserve', 'inventory.manage', 'procurement.request', 'procurement.source', 'receiving.receive'];
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   const session = await requireAnyOperationsPermission(['supply.view', 'procurement.view', 'inventory.view', 'receiving.view', 'projects.view']);
@@ -33,12 +34,21 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ ok: false, error: parsed.error.issues[0]?.message ?? 'Pedido inválido.' }, { status: 400 });
   const { data: signal } = await session.supabase.from('supply_signals')
-    .select('id,status,title,project_id,requirement_id,purchase_order_id,recommended_action')
+    .select('id,status,title,project_id,requirement_id,purchase_order_id,recommended_action,followup_id')
     .eq('organization_id', session.organizationId).eq('id', id)
     .maybeSingle<{ id: string; status: string; title: string; project_id: string | null; requirement_id: string | null;
-      purchase_order_id: string | null; recommended_action: { kind: string; payload: Record<string, unknown> } }>();
+      purchase_order_id: string | null; recommended_action: { kind: string; payload: Record<string, unknown> };
+      followup_id: string | null }>();
   if (!signal) return NextResponse.json({ ok: false, error: 'Recomendação não encontrada.' }, { status: 404 });
   const input = parsed.data;
+  if (input.action !== 'execute') {
+    // Antes de qualquer escrita: o acompanhamento nasceria órfão se o vínculo fosse recusado depois.
+    const decides = (await Promise.all(DECIDERS.map((k) => hasOptionalPermission(session, k)))).some(Boolean);
+    if (!decides) {
+      return NextResponse.json({ ok: false, error: 'Seu perfil não tem alçada para decidir recomendações de Supply.', code: 'FORBIDDEN' },
+        { status: 403 });
+    }
+  }
 
   try {
     let out: Record<string, unknown>;
@@ -58,7 +68,11 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         ?? (signal.purchase_order_id ? 'purchase_order' : 'project_requirement');
       const sourceId = String(payload.source_id ?? signal.purchase_order_id ?? signal.requirement_id ?? '');
       if (!sourceId) return NextResponse.json({ ok: false, error: 'Recomendação sem registro de origem para acompanhar.' }, { status: 400 });
-      const followup = await createFollowupAsHuman(`supply-signal:${id}:${randomUUID()}`, {
+      if (signal.followup_id) {
+        return NextResponse.json({ ok: true, result: { signal_id: id, followup_id: signal.followup_id, replayed: true } });
+      }
+      // Chave determinística: repetir o pedido (ou retomar depois de uma falha no vínculo) reencontra o MESMO acompanhamento.
+      const followup = await createFollowupAsHuman(`supply-signal:${id}:follow-up`, {
         sourceKind, sourceId, goal: input.goal ?? String(payload.goal ?? signal.title),
         responsibleUserId: input.responsibleUserId ?? null, responsibleText: input.responsibleText ?? null,
         dueDate: input.dueDate ?? (payload.due_date as string | undefined) ?? null, cadenceDays: 2, escalateAfterDays: 5,

@@ -8,7 +8,9 @@ export const dynamic = 'force-dynamic';
 
 const PERMISSION: Record<string, string[]> = {
   update: ['procurement.source'], submit: ['procurement.source', 'procurement.orders.issue'],
-  approve: ['procurement.approve'], reject: ['procurement.approve'], sync: ['procurement.view'],
+  approve: ['procurement.approve'], reject: ['procurement.approve'],
+  // `sync` aplica um desfecho do motor: muda o estado do pedido, então exige quem atua em compras.
+  sync: ['procurement.source', 'procurement.orders.issue', 'procurement.approve'],
   issue: ['procurement.orders.issue'], cancel: ['procurement.orders.issue'], close: ['procurement.orders.issue'],
 };
 

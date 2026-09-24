@@ -22,61 +22,125 @@ const num = (v: unknown) => { const x = Number(v ?? 0); return Number.isFinite(x
 const str = (v: unknown) => (v === null || v === undefined ? null : String(v));
 const LIVE_PO = ['ISSUED', 'PARTIALLY_RECEIVED'];
 
+/*
+  A leitura da Apex é TUDO-OU-NADA.
+
+  `supply_signals_sync` resolve todo sinal aberto que a leitura não reencontrou
+  ("a condição deixou de ser verdade"). Uma consulta que falhasse em silêncio,
+  ou voltasse cortada pelo teto de linhas do PostgREST, faria a Apex gravar no
+  livro append-only que uma falta real foi resolvida. Por isso: toda consulta
+  é conferida, as grandes são paginadas com ordem estável, as listas de ids
+  vão em lotes (URL curta), e qualquer falha ABORTA a leitura antes do sync.
+*/
+export class IncompleteIntelligenceRead extends Error {
+  constructor(label: string, detail: string) {
+    super(`Leitura da Apex incompleta (${label}): ${detail}`);
+    this.name = 'IncompleteIntelligenceRead';
+  }
+}
+type Page = PromiseLike<{ data: unknown; error: { message: string } | null }>;
+const PAGE = 1000;
+const MAX_ROWS = 50_000;
+const ID_BATCH = 150;
+
+async function paged(label: string, page: (from: number, to: number) => Page): Promise<Row[]> {
+  const out: Row[] = [];
+  for (let from = 0; from < MAX_ROWS; from += PAGE) {
+    const { data, error } = await page(from, from + PAGE - 1);
+    if (error) throw new IncompleteIntelligenceRead(label, error.message);
+    const rows = (data ?? []) as Row[];
+    out.push(...rows);
+    if (rows.length < PAGE) return out;
+  }
+  throw new IncompleteIntelligenceRead(label, `mais de ${MAX_ROWS} linhas`);
+}
+
+async function byIds(label: string, ids: string[], page: (chunk: string[], from: number, to: number) => Page): Promise<Row[]> {
+  const unique = Array.from(new Set(ids.filter(Boolean)));
+  const out: Row[] = [];
+  for (let i = 0; i < unique.length; i += ID_BATCH) {
+    const chunk = unique.slice(i, i + ID_BATCH);
+    out.push(...await paged(label, (from, to) => page(chunk, from, to)));
+  }
+  return out;
+}
+
 export async function gatherIntelligenceFacts(org: string, today: string, sb: SupabaseClient = platformServiceClient()): Promise<IntelligenceFacts> {
   const since = new Date(`${today}T00:00:00Z`); since.setUTCDate(since.getUTCDate() - 180);
-  const [cov, pos, reqs, stock, locs, transfersDone, inspections, perf] = await Promise.all([
-    sb.from('supply_requirement_coverage').select('*').eq('organization_id', org).eq('requirement_type', 'MATERIAL').not('item_id', 'is', null).limit(5000),
-    sb.from('purchase_orders').select('id,order_number,supplier_id,project_id,status,expected_delivery,submitted_at')
-      .eq('organization_id', org).in('status', ['APPROVAL_REQUIRED', 'ISSUED', 'PARTIALLY_RECEIVED']).limit(2000),
-    sb.from('purchase_requisitions').select('id,requisition_number,status,requested_at,project_id,required_by')
-      .eq('organization_id', org).in('status', ['SUBMITTED', 'SOURCING']).limit(2000),
-    sb.from('inventory_position').select('item_id,location_id,location_kind,available_qty').eq('organization_id', org).gt('available_qty', 0).limit(10000),
-    sb.from('inventory_locations').select('id,name,kind,project_id,active').eq('organization_id', org).limit(2000),
-    sb.from('inventory_transfers').select('from_location_id,to_location_id,dispatched_at,received_at')
-      .eq('organization_id', org).in('status', ['RECEIVED', 'CLOSED']).not('received_at', 'is', null).gte('dispatched_at', since.toISOString()).limit(2000),
-    sb.from('goods_receipts').select('id,receipt_number,received_at,purchase_order_id,location_id').eq('organization_id', org)
-      .eq('inspection_status', 'PENDING').limit(500),
-    sb.from('supplier_delivery_performance').select('supplier_id,promised_lines,on_time_lines').eq('organization_id', org),
+  const [covRows, poRows, rqRows, stockRows, locAll, transfersDoneRows, inspectionRows, perfRows, supplierRows] = await Promise.all([
+    paged('cobertura', (f, t) => sb.from('supply_requirement_coverage').select('*').eq('organization_id', org)
+      .eq('requirement_type', 'MATERIAL').not('item_id', 'is', null).order('requirement_id').range(f, t)),
+    paged('pedidos', (f, t) => sb.from('purchase_orders').select('id,order_number,supplier_id,project_id,status,expected_delivery,submitted_at')
+      .eq('organization_id', org).in('status', ['APPROVAL_REQUIRED', 'ISSUED', 'PARTIALLY_RECEIVED']).order('id').range(f, t)),
+    paged('requisições', (f, t) => sb.from('purchase_requisitions').select('id,requisition_number,status,requested_at,project_id,required_by')
+      .eq('organization_id', org).in('status', ['SUBMITTED', 'SOURCING']).order('id').range(f, t)),
+    paged('estoque', (f, t) => sb.from('inventory_position').select('item_id,location_id,location_kind,available_qty')
+      .eq('organization_id', org).gt('available_qty', 0).order('item_id').order('location_id').range(f, t)),
+    paged('locais', (f, t) => sb.from('inventory_locations').select('id,name,kind,project_id,active').eq('organization_id', org).order('id').range(f, t)),
+    paged('transferências', (f, t) => sb.from('inventory_transfers').select('id,from_location_id,to_location_id,dispatched_at,received_at')
+      .eq('organization_id', org).in('status', ['RECEIVED', 'CLOSED']).not('received_at', 'is', null)
+      .gte('dispatched_at', since.toISOString()).order('id').range(f, t)),
+    paged('inspeções', (f, t) => sb.from('goods_receipts').select('id,receipt_number,received_at,purchase_order_id,location_id')
+      .eq('organization_id', org).eq('inspection_status', 'PENDING').order('id').range(f, t)),
+    paged('pontualidade', (f, t) => sb.from('supplier_delivery_performance').select('supplier_id,promised_lines,on_time_lines')
+      .eq('organization_id', org).order('supplier_id').range(f, t)),
+    paged('fornecedores', (f, t) => sb.from('supplier_profiles').select('id,party_id').eq('organization_id', org).order('id').range(f, t)),
   ]);
-  for (const r of [cov, pos, reqs, stock, locs]) if (r.error) throw new Error(`Leitura da Apex falhou: ${r.error.message}`);
 
-  const covRows = (cov.data ?? []) as Array<CoverageViewRow & { organization_id: string }>;
-  const poRows = (pos.data ?? []) as Row[]; const rqRows = (reqs.data ?? []) as Row[];
-  const locRows = ((locs.data ?? []) as Row[]).filter((l) => l.active);
+  const covTyped = covRows as unknown as Array<CoverageViewRow & { organization_id: string }>;
+  const locRows = locAll.filter((l) => l.active);
   const locMap = new Map(locRows.map((l) => [String(l.id), l]));
-  const reqIds = covRows.map((r) => r.requirement_id);
+  const reqIds = covTyped.map((r) => r.requirement_id);
   const poIds = poRows.map((p) => String(p.id));
   const rqIds = rqRows.map((r) => String(r.id));
-  const itemIds = Array.from(new Set(covRows.map((r) => String(r.item_id))));
-  const projectIds = Array.from(new Set([...covRows.map((r) => r.project_id), ...poRows.map((p) => p.project_id)].filter(Boolean) as string[]));
+  const itemIds = covTyped.map((r) => String(r.item_id));
+  const projectIds = [...covTyped.map((r) => r.project_id), ...poRows.map((p) => p.project_id)].filter(Boolean) as string[];
 
-  const [reqMeta, items, projects, poLines, allocs, ships, transitLines, rqLines, rfqLines, suppliers] = await Promise.all([
-    reqIds.length ? sb.from('project_requirements').select('id,title,activity_id').eq('organization_id', org).in('id', reqIds) : Promise.resolve({ data: [] }),
-    itemIds.length ? sb.from('supply_items').select('id,code,description,unit').eq('organization_id', org).in('id', itemIds) : Promise.resolve({ data: [] }),
-    projectIds.length ? sb.from('projects').select('id,project,project_v2').eq('organization_id', org).in('id', projectIds) : Promise.resolve({ data: [] }),
-    poIds.length ? sb.from('purchase_order_lines').select('id,purchase_order_id,quantity,received_quantity,expected_date').eq('organization_id', org).in('purchase_order_id', poIds)
-      : Promise.resolve({ data: [] }),
-    reqIds.length ? sb.from('purchase_order_line_requirements').select('line_id,requirement_id,quantity,received_quantity').eq('organization_id', org).in('requirement_id', reqIds)
-      : Promise.resolve({ data: [] }),
-    poIds.length ? sb.from('inbound_shipments').select('purchase_order_id,status,eta').eq('organization_id', org).in('purchase_order_id', poIds)
-      .in('status', ['EXPECTED', 'IN_TRANSIT', 'ARRIVED']) : Promise.resolve({ data: [] }),
-    reqIds.length ? sb.from('inventory_transfer_lines').select('transfer_id,requirement_id,dispatched_quantity,received_quantity').eq('organization_id', org)
-      .in('requirement_id', reqIds) : Promise.resolve({ data: [] }),
-    rqIds.length ? sb.from('purchase_requisition_lines').select('id,requisition_id').eq('organization_id', org).in('requisition_id', rqIds) : Promise.resolve({ data: [] }),
-    rqIds.length ? sb.from('procurement_rfq_lines').select('requisition_line_id,rfq_id').eq('organization_id', org).limit(5000) : Promise.resolve({ data: [] }),
-    sb.from('supplier_profiles').select('id,party_id').eq('organization_id', org).limit(2000),
+  const [reqMetaRows, itemRows, projectRows, poLineRows, allocRows, shipRows, transitLineRows, rqLineRows] = await Promise.all([
+    byIds('requisitos', reqIds, (c, f, t) => sb.from('project_requirements').select('id,title,activity_id').eq('organization_id', org)
+      .in('id', c).order('id').range(f, t)),
+    byIds('itens', itemIds, (c, f, t) => sb.from('supply_items').select('id,code,description,unit').eq('organization_id', org)
+      .in('id', c).order('id').range(f, t)),
+    byIds('projetos', projectIds, (c, f, t) => sb.from('projects').select('id,project,project_v2').eq('organization_id', org)
+      .in('id', c).order('id').range(f, t)),
+    byIds('linhas de pedido', poIds, (c, f, t) => sb.from('purchase_order_lines')
+      .select('id,purchase_order_id,quantity,received_quantity,expected_date').eq('organization_id', org)
+      .in('purchase_order_id', c).order('id').range(f, t)),
+    byIds('alocações de pedido', reqIds, (c, f, t) => sb.from('purchase_order_line_requirements')
+      .select('line_id,requirement_id,quantity,received_quantity').eq('organization_id', org)
+      .in('requirement_id', c).order('line_id').order('requirement_id').range(f, t)),
+    byIds('embarques', poIds, (c, f, t) => sb.from('inbound_shipments').select('id,purchase_order_id,status,eta').eq('organization_id', org)
+      .in('purchase_order_id', c).in('status', ['EXPECTED', 'IN_TRANSIT', 'ARRIVED']).order('id').range(f, t)),
+    byIds('linhas em trânsito', reqIds, (c, f, t) => sb.from('inventory_transfer_lines')
+      .select('id,transfer_id,requirement_id,dispatched_quantity,received_quantity').eq('organization_id', org)
+      .in('requirement_id', c).order('id').range(f, t)),
+    byIds('linhas de requisição', rqIds, (c, f, t) => sb.from('purchase_requisition_lines').select('id,requisition_id')
+      .eq('organization_id', org).in('requisition_id', c).order('id').range(f, t)),
   ]);
-  const actIds = Array.from(new Set(((reqMeta.data ?? []) as Row[]).map((r) => r.activity_id).filter(Boolean) as string[]));
-  const rqLineRows = (rqLines.data ?? []) as Row[];
-  const [acts, rqAllocs, transfers, parties] = await Promise.all([
-    actIds.length ? sb.from('project_timeline_items').select('id,title,planned_start').eq('organization_id', org).in('id', actIds) : Promise.resolve({ data: [] }),
-    rqLineRows.length ? sb.from('purchase_requisition_line_requirements').select('line_id,requirement_id').eq('organization_id', org)
-      .in('line_id', rqLineRows.map((l) => String(l.id))) : Promise.resolve({ data: [] }),
-    ((transitLines.data ?? []) as Row[]).length ? sb.from('inventory_transfers').select('id,transfer_number,status,expected_arrival').eq('organization_id', org)
-      .in('id', Array.from(new Set(((transitLines.data ?? []) as Row[]).map((l) => String(l.transfer_id))))) : Promise.resolve({ data: [] }),
-    ((suppliers.data ?? []) as Row[]).length ? sb.from('parties').select('id,legal_name,trade_name').eq('organization_id', org)
-      .in('id', ((suppliers.data ?? []) as Row[]).map((s) => String(s.party_id))) : Promise.resolve({ data: [] }),
+
+  const actIds = reqMetaRows.map((r) => r.activity_id).filter(Boolean) as string[];
+  const rqLineIds = rqLineRows.map((l) => String(l.id));
+  const [actRows, rqAllocRows, rfqLineRows, transferRows, partyRows] = await Promise.all([
+    byIds('atividades', actIds, (c, f, t) => sb.from('project_timeline_items').select('id,title,planned_start').eq('organization_id', org)
+      .in('id', c).order('id').range(f, t)),
+    byIds('rastro da requisição', rqLineIds, (c, f, t) => sb.from('purchase_requisition_line_requirements')
+      .select('line_id,requirement_id').eq('organization_id', org).in('line_id', c).order('line_id').order('requirement_id').range(f, t)),
+    byIds('linhas de cotação', rqLineIds, (c, f, t) => sb.from('procurement_rfq_lines').select('id,requisition_line_id,rfq_id')
+      .eq('organization_id', org).in('requisition_line_id', c).order('id').range(f, t)),
+    byIds('transferências em trânsito', transitLineRows.map((l) => String(l.transfer_id)), (c, f, t) => sb.from('inventory_transfers')
+      .select('id,transfer_number,status,expected_arrival').eq('organization_id', org).in('id', c).order('id').range(f, t)),
+    byIds('partes fornecedoras', supplierRows.map((s) => String(s.party_id)), (c, f, t) => sb.from('parties')
+      .select('id,legal_name,trade_name').eq('organization_id', org).in('id', c).order('id').range(f, t)),
   ]);
+
+  // Formas que o restante da montagem já espera.
+  const covRowsTyped = covTyped;
+  const reqMeta = { data: reqMetaRows }; const items = { data: itemRows }; const projects = { data: projectRows };
+  const poLines = { data: poLineRows }; const allocs = { data: allocRows }; const ships = { data: shipRows };
+  const transitLines = { data: transitLineRows }; const rfqLines = { data: rfqLineRows }; const suppliers = { data: supplierRows };
+  const acts = { data: actRows }; const rqAllocs = { data: rqAllocRows }; const transfers = { data: transferRows };
+  const parties = { data: partyRows }; const stock = { data: stockRows }; const transfersDone = { data: transfersDoneRows };
+  const inspections = { data: inspectionRows }; const perf = { data: perfRows };
 
   const itemMap = new Map(((items.data ?? []) as Row[]).map((i) => [String(i.id), i]));
   const projMap = new Map(((projects.data ?? []) as Array<{ id: string; project: Record<string, unknown>; project_v2: Record<string, unknown> | null }>)
@@ -94,7 +158,7 @@ export async function gatherIntelligenceFacts(org: string, today: string, sb: Su
   }
   const poEta = (po: Row, line?: Row) => shipEta.get(String(po.id)) ?? str(line?.expected_date) ?? str(po.expected_delivery);
 
-  const requirements = covRows.map((c) => {
+  const requirements = covRowsTyped.map((c) => {
     const meta = reqMap.get(c.requirement_id); const act = meta?.activity_id ? actMap.get(String(meta.activity_id)) : undefined;
     const i = itemMap.get(String(c.item_id));
     return {

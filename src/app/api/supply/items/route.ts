@@ -1,8 +1,6 @@
 import { NextResponse } from 'next/server';
 import { logAuditEventServer } from '@/lib/audit/log-audit-event-server';
-import {
-  requireAnyOperationsPermission, requireOperationsSession, isSessionError, hasOptionalPermission, safeOperationsError,
-} from '@/lib/operations/session';
+import { requireAnyOperationsPermission, requireOperationsSession, isSessionError, hasOptionalPermission, governedFailure } from '@/lib/operations/session';
 import { listItems } from '@/lib/supply/read-model';
 import { upsertItem } from '@/lib/supply/service';
 import { itemPayload, itemSchema } from '@/lib/supply/validation';
@@ -38,8 +36,6 @@ export async function POST(request: Request) {
       entityType: 'supply_item', entityId: out.item_id, metadata: { code: parsed.data.code } }, request.headers);
     return NextResponse.json({ ok: true, itemId: out.item_id });
   } catch (error) {
-    const message = (error as Error).message;
-    return NextResponse.json({ ok: false, error: /sitem_code_unique/.test(message)
-      ? 'Já existe um item com este código.' : safeOperationsError(message) }, { status: 422 });
+    return governedFailure(error, (message) => (/sitem_code_unique/.test(message) ? 'Já existe um item com este código.' : null));
   }
 }

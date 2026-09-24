@@ -8,6 +8,7 @@
  * usada.
  */
 import { NextResponse } from 'next/server';
+import { GovernedRpcError } from '@/lib/platform/governed-rpc';
 import {
   requireCommercialSession, isSessionError, hasOptionalPermission, safeGovernedError,
   type CommercialSession, type SessionResult,
@@ -68,4 +69,29 @@ export function safeOperationsError(message: string | undefined): string {
   const text = (message ?? '').trim();
   if (OPERATIONS_SAFE_PREFIXES.some((prefix) => text.startsWith(prefix))) return text;
   return safeGovernedError(text);
+}
+
+/** "Actor lacks permission (a or b)." → a frase que a pessoa entende. */
+export function permissionDeniedMessage(raw: string): string {
+  const keys = raw.match(/lacks permission \(([^)]+)\)/)?.[1];
+  return keys
+    ? `Seu perfil não tem alçada para esta ação (${keys.replace(/ or /g, ' ou ')}).`
+    : 'Seu perfil não tem alçada para esta ação.';
+}
+
+/**
+ * Resposta de uma escrita governada que o banco recusou.
+ *
+ * O status vem do SQLSTATE, não do texto: 42501 é AUTORIZAÇÃO (403) — inclusive
+ * a segregação de funções e a alçada de compra —, o resto é regra de negócio
+ * (422). O texto continua o traduzido do domínio quando existe.
+ */
+export function governedFailure(error: unknown, translate?: (raw: string) => string | null | undefined) {
+  const raw = (error as Error)?.message ?? '';
+  const code = error instanceof GovernedRpcError ? error.code : null;
+  const readable = translate?.(raw) ?? null;
+  if (code === '42501') {
+    return NextResponse.json({ ok: false, error: readable ?? permissionDeniedMessage(raw), code: 'FORBIDDEN' }, { status: 403 });
+  }
+  return NextResponse.json({ ok: false, error: readable ?? safeOperationsError(raw) }, { status: 422 });
 }

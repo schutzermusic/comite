@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { logAuditEventServer } from '@/lib/audit/log-audit-event-server';
-import { requireOperationsSession, isSessionError, safeOperationsError } from '@/lib/operations/session';
+import { requireOperationsSession, isSessionError, governedFailure } from '@/lib/operations/session';
 import { compareWithGoverning, generateFromPackage } from '@/lib/operations/service-orders/service';
 
 export const runtime = 'nodejs';
@@ -47,6 +47,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, serviceOrderId: generated.service_order_id, reused: generated.reused,
       itemsAdded: generated.items_added, divergencesOpened: comparison?.divergences_opened ?? 0 });
   } catch (error) {
-    return NextResponse.json({ ok: false, error: safeOperationsError((error as Error).message) }, { status: 422 });
+    return governedFailure(error);
   }
 }

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { logAuditEventServer } from '@/lib/audit/log-audit-event-server';
-import { requireOperationsSession, isSessionError, safeOperationsError } from '@/lib/operations/session';
+import { requireOperationsSession, isSessionError, governedFailure } from '@/lib/operations/session';
 import { getServiceOrderWorkspace } from '@/lib/operations/service-orders/read-model';
 import { compareWithGoverning } from '@/lib/operations/service-orders/service';
 import { reviewDivergencesWithAI } from '@/lib/operations/service-orders/extraction';
@@ -36,6 +36,6 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       request.headers);
     return NextResponse.json({ ok: true, rules, ai });
   } catch (error) {
-    return NextResponse.json({ ok: false, error: safeOperationsError((error as Error).message) }, { status: 422 });
+    return governedFailure(error);
   }
 }

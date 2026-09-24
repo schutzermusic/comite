@@ -13,6 +13,7 @@ import { createClient } from '@/utils/supabase/server';
 import { requireActiveOrganizationId } from '@/lib/auth/active-organization';
 
 type PermissionShape = { roles?: { role_permissions?: Array<{ permissions?: { key?: string } }> } };
+type OverrideShape = { effect?: 'grant' | 'deny'; permissions?: { key?: string } };
 
 export interface CommercialSession {
   supabase: SupabaseClient;
@@ -70,6 +71,29 @@ export async function requireCommercialSession(
     for (const item of row.roles?.role_permissions ?? []) {
       if (item.permissions?.key) permissions.add(item.permissions.key);
     }
+  }
+
+  /*
+    As sobreposições da pessoa entram no CONJUNTO, e não só nas chaves
+    exigidas. O conjunto é lido depois por checagens "qualquer uma de" e por
+    seções opcionais (`hasOptionalPermission`); aplicadas só às exigidas, uma
+    sobreposição `deny` deixava passar quem o papel autorizava. A precedência
+    é a de `current_user_has_permission`: deny vence grant, e ambos vencem o
+    papel. A RLS deixa cada pessoa ler as próprias (`upo_select_scoped`).
+  */
+  const { data: overrides, error: overrideError } = await supabase.from('user_permission_overrides')
+    .select('effect, permissions!inner(key)')
+    .eq('user_id', user.id)
+    .eq('organization_id', organizationId);
+  if (overrideError) {
+    return { error: NextResponse.json(
+      { ok: false, error: 'Não foi possível verificar a permissão.' }, { status: 500 }) };
+  }
+  for (const row of (overrides ?? []) as unknown as OverrideShape[]) {
+    const key = row.permissions?.key;
+    if (!key) continue;
+    if (row.effect === 'deny') permissions.delete(key);
+    else if (row.effect === 'grant') permissions.add(key);
   }
 
   /*

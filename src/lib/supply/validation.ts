@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { EVIDENCE_MIME, MAX_EVIDENCE_BYTES } from './evidence';
 
 /** Entrada do cadastro de item — campos ausentes não são tocados. */
 export const itemSchema = z.object({
@@ -207,11 +208,12 @@ export const shipmentSchema = z.object({
 }).refine((s) => s.id || s.purchaseOrderId, 'Informe o embarque ou o pedido.')
   .refine((s) => s.status !== 'CANCELLED' || (s.reason ?? '').length >= 3, 'Cancelar embarque exige motivo.');
 
-export const EVIDENCE_MIME = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'application/pdf'] as const;
-export const MAX_EVIDENCE_BYTES = 15 * 1024 * 1024;
+// Formatos e teto da evidência: os do bucket canônico (ver ./evidence).
 export const evidenceSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('authorize'), fileName: z.string().trim().min(1).max(200), mimeType: z.enum(EVIDENCE_MIME),
     fileSize: z.number().int().positive().max(MAX_EVIDENCE_BYTES) }),
   z.object({ action: z.literal('register'), path: z.string().min(10).max(500), fileName: z.string().trim().min(1).max(200),
     mimeType: z.enum(EVIDENCE_MIME) }),
 ]);
+
+export { EVIDENCE_MIME, MAX_EVIDENCE_BYTES };

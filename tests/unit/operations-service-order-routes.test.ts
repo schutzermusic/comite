@@ -21,7 +21,7 @@ const { svc, extraction, audit, perms, storage } = vi.hoisted(() => ({
   extraction: { extractUploadedServiceOrder: vi.fn(), reviewDivergencesWithAI: vi.fn() },
   audit: vi.fn().mockResolvedValue(undefined),
   perms: new Set<string>(),
-  storage: { createSignedUploadUrl: vi.fn() },
+  storage: { createSignedUploadUrl: vi.fn(), download: vi.fn(), remove: vi.fn().mockResolvedValue({ data: [], error: null }) },
 }));
 
 vi.mock('@/lib/commercial/server-session', () => ({
@@ -125,9 +125,11 @@ describe('gerar a partir do pacote', () => {
 describe('importar OS', () => {
   const register = (over: Record<string, unknown> = {}) => req({ action: 'register', engagementId: ENG,
     path: `org-1/service-orders/abc-os.pdf`, fileName: 'os.pdf', contentSha256: SHA, ...over });
+  const pdf = new Blob([new TextEncoder().encode('%PDF-1.7\n% OS de teste\n')], { type: 'application/pdf' });
+  beforeEach(() => { storage.download.mockResolvedValue({ data: pdf, error: null }); });
 
   it('só PDF recebe envio assinado, em caminho gerado pelo servidor dentro do inquilino', async () => {
-    expect((await uploadPOST(req({ action: 'authorize', fileName: 'os.docx', mimeType: 'application/msword', fileSize: 10 }))).status).toBe(415);
+    expect((await uploadPOST(req({ action: 'authorize', fileName: 'os.docx', mimeType: 'application/msword', fileSize: 10 }))).status).toBe(400);
     storage.createSignedUploadUrl.mockResolvedValue({ data: { token: 't' }, error: null });
     const ok = await (await uploadPOST(req({ action: 'authorize', fileName: 'OS 01.pdf', mimeType: 'application/pdf', fileSize: 10 }))).json();
     expect(ok.path).toMatch(/^org-1\/service-orders\/[0-9a-f-]{36}-OS_01\.pdf$/);
@@ -137,6 +139,20 @@ describe('importar OS', () => {
       const res = await uploadPOST(register({ path }));
       expect(res.status).toBe(403);
     }
+    expect(svc.registerUpload).not.toHaveBeenCalled();
+  });
+  it('o hash registrado é o do CONTEÚDO baixado pelo servidor, não o que o cliente afirmou', async () => {
+    svc.registerUpload.mockResolvedValue({ service_order_id: OS, document_id: 'd1', reused: false });
+    await uploadPOST(register({ contentSha256: 'c'.repeat(64) }));
+    const payload = svc.registerUpload.mock.calls[0][3] as { content_sha256: string };
+    expect(payload.content_sha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(payload.content_sha256).not.toBe('c'.repeat(64));
+  });
+  it('arquivo que não é PDF de verdade é 415 e é removido do armazenamento', async () => {
+    storage.download.mockResolvedValue({ data: new Blob([new TextEncoder().encode('<html>não é pdf</html>')]), error: null });
+    const res = await uploadPOST(register());
+    expect(res.status).toBe(415);
+    expect(storage.remove).toHaveBeenCalledWith(['org-1/service-orders/abc-os.pdf']);
     expect(svc.registerUpload).not.toHaveBeenCalled();
   });
   it('sem permissão de leitura: registra, confronta, e diz que não leu', async () => {

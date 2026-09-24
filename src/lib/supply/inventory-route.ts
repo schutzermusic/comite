@@ -10,16 +10,16 @@ import { NextResponse } from 'next/server';
 import type { ZodType } from 'zod';
 import { logAuditEventServer } from '@/lib/audit/log-audit-event-server';
 import {
-  requireAnyOperationsPermission, isSessionError, safeOperationsError, type OperationsSession,
+  requireAnyOperationsPermission, isSessionError, governedFailure, type OperationsSession,
 } from '@/lib/operations/session';
 import { inventoryErrorMessage } from './inventory';
 import { procurementErrorMessage } from './procurement';
 import { receivingErrorMessage } from './receiving';
 
+/** Recusa do banco traduzida pelo domínio; 42501 responde 403 (ver `governedFailure`). */
 export function inventoryFailure(error: unknown) {
-  const message = (error as Error)?.message ?? '';
-  return NextResponse.json({ ok: false, error: receivingErrorMessage(message) ?? inventoryErrorMessage(message)
-    ?? procurementErrorMessage(message) ?? safeOperationsError(message) }, { status: 422 });
+  return governedFailure(error, (message) => receivingErrorMessage(message) ?? inventoryErrorMessage(message)
+    ?? procurementErrorMessage(message));
 }
 
 /**

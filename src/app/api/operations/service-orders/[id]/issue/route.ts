@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { logAuditEventServer } from '@/lib/audit/log-audit-event-server';
-import { requireOperationsSession, isSessionError, safeOperationsError } from '@/lib/operations/session';
+import { requireOperationsSession, isSessionError, governedFailure } from '@/lib/operations/session';
 import { issue, issueWithException } from '@/lib/operations/service-orders/service';
 
 export const runtime = 'nodejs';
@@ -47,6 +47,6 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
             waived: (result as { divergences_waived?: number }).divergences_waived } : {} }, request.headers);
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
-    return NextResponse.json({ ok: false, error: safeOperationsError((error as Error).message) }, { status: 422 });
+    return governedFailure(error);
   }
 }

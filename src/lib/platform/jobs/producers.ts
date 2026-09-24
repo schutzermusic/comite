@@ -81,10 +81,45 @@ const followupExecution: ScheduledProducer = {
   },
 };
 
+/*
+  Leitura da Apex no Supply (237) — o agendamento que faltava. Antes, a leitura
+  só acontecia quando alguém abria a tela. Por inquilino e por HORA: a drenagem
+  acorda a cada 10 minutos, e reler a cada batida só reescreveria "última
+  leitura" sem fato novo.
+*/
+const supplyIntelligence: ScheduledProducer = {
+  name: 'supply.intelligence.sweep',
+  ownerDomain: 'supply',
+  idempotencyBasis:
+    'A chave do trabalho é (organização, HORA): supply-intelligence-sweep:<org>:<YYYY-MM-DDTHH>. '
+    + 'Entram inquilinos com demanda de material confirmada, pedido vivo ou sinal aberto.',
+  async produce(supabase, asOf) {
+    const { data, error } = await supabase.rpc('supply_intelligence_enqueue_sweep', { p_as_of: asOf.toISOString() });
+    if (error) throw new Error(`Produtor da leitura da Apex falhou: ${error.message}`);
+    return Number(data ?? 0);
+  },
+};
+
+/** Reconciliação de aprovações de compra (237), a cada 10 minutos por inquilino com desfecho pendente de aplicação. */
+const purchaseOrderApprovalReconcile: ScheduledProducer = {
+  name: 'procurement.purchase_order.reconcile_approvals',
+  ownerDomain: 'supply',
+  idempotencyBasis:
+    'A chave do trabalho é (organização, janela de 10 minutos). Só entra inquilino com pedido de compra '
+    + 'aguardando um desfecho que o motor já decidiu.',
+  async produce(supabase, asOf) {
+    const { data, error } = await supabase.rpc('purchase_order_enqueue_approval_reconcile', { p_as_of: asOf.toISOString() });
+    if (error) throw new Error(`Produtor da reconciliação de compras falhou: ${error.message}`);
+    return Number(data ?? 0);
+  },
+};
+
 export const SCHEDULED_PRODUCERS: readonly ScheduledProducer[] = [
   obligationMaterialization,
   approvalExpiration,
   followupExecution,
+  supplyIntelligence,
+  purchaseOrderApprovalReconcile,
 ];
 
 /** Data em UTC. O dia do produtor tem de ser o mesmo em toda máquina que acordar. */

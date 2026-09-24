@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { logAuditEventServer } from '@/lib/audit/log-audit-event-server';
-import { requireOperationsSession, isSessionError, safeOperationsError } from '@/lib/operations/session';
+import { requireOperationsSession, isSessionError, governedFailure } from '@/lib/operations/session';
 import { upsertItem } from '@/lib/supply/service';
 import { itemPayload, itemSchema } from '@/lib/supply/validation';
 
@@ -22,6 +22,6 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       entityType: 'supply_item', entityId: id, metadata: { fields: Object.keys(payload) } }, request.headers);
     return NextResponse.json({ ok: true });
   } catch (error) {
-    return NextResponse.json({ ok: false, error: safeOperationsError((error as Error).message) }, { status: 422 });
+    return governedFailure(error);
   }
 }

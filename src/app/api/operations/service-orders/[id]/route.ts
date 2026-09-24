@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { logAuditEventServer } from '@/lib/audit/log-audit-event-server';
-import { requireOperationsSession, isSessionError, safeOperationsError, hasOptionalPermission } from '@/lib/operations/session';
+import { requireOperationsSession, isSessionError, hasOptionalPermission, governedFailure } from '@/lib/operations/session';
 import { getServiceOrderWorkspace } from '@/lib/operations/service-orders/read-model';
 import { canIssueNormally, canIssueWithException } from '@/lib/operations/service-orders/next-action';
 import { compareWithGoverning, updateDraft } from '@/lib/operations/service-orders/service';
@@ -65,6 +65,6 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       entityType: 'internal_service_order', entityId: id, metadata: { fields: Object.keys(payload) } }, request.headers);
     return NextResponse.json({ ok: true, divergencesOpened: comparison.divergences_opened ?? 0 });
   } catch (error) {
-    return NextResponse.json({ ok: false, error: safeOperationsError((error as Error).message) }, { status: 422 });
+    return governedFailure(error);
   }
 }
