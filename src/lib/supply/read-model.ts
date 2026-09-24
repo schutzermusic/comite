@@ -35,16 +35,22 @@ export interface MaterialDemandRow {
   risk: SupplyRisk;
   /** Saldo LIVRE do item por local (disponível = em mão − reservado), destino primeiro. */
   stock: StockAtLocation[];
+  /** O item no estoque, somado nos locais ativos (null sem item vinculado). */
+  itemStock: ItemStockTotals | null;
   /** Canteiros cadastrados do projeto — destino natural de uma transferência. */
   sites: Array<{ id: string; name: string }>;
 }
 
-/** Disponível por item e local para os itens da demanda (vazio sem leitura de estoque — RLS). */
+/** A posição do ITEM no estoque (todos os locais ativos): o outro lado da equação do requisito. */
+export interface ItemStockTotals { onHand: number; reserved: number; available: number; quarantine: number }
+
+/** Posição por item e local para os itens da demanda (vazio sem leitura de estoque — RLS). */
 async function availableStock(sb: SupabaseClient, org: string, itemIds: string[]) {
-  if (!itemIds.length) return { position: [] as PositionRow[], locations: [] as Array<{ id: string; name: string; kind: LocationKind; project_id: string | null; active: boolean }> };
+  if (!itemIds.length) return { position: [] as PositionRow[], totals: new Map<string, ItemStockTotals>(),
+    locations: [] as Array<{ id: string; name: string; kind: LocationKind; project_id: string | null; active: boolean }> };
   const [pos, locs] = await Promise.all([
     sb.from('inventory_position').select('item_id,location_id,location_kind,on_hand_qty,reserved_qty,available_qty')
-      .eq('organization_id', org).in('item_id', itemIds).gt('available_qty', 0).limit(5000),
+      .eq('organization_id', org).in('item_id', itemIds).limit(5000),
     sb.from('inventory_locations').select('id,name,kind,project_id,active').eq('organization_id', org).limit(2000),
   ]);
   const locations = (locs.data ?? []) as Array<{ id: string; name: string; kind: LocationKind; project_id: string | null; active: boolean }>;
@@ -57,7 +63,15 @@ async function availableStock(sb: SupabaseClient, org: string, itemIds: string[]
       locationKind: r.location_kind as LocationKind, onHand: Number(r.on_hand_qty), reserved: Number(r.reserved_qty),
       available: Number(r.available_qty), inspection: 0, inboundTransit: 0, lastMovementAt: null,
     }));
-  return { position, locations };
+  // Quarentena não é disponibilidade: fica à parte (entra na cobertura como "em inspeção").
+  const totals = new Map<string, ItemStockTotals>();
+  for (const p of position) {
+    const t = totals.get(p.itemId) ?? { onHand: 0, reserved: 0, available: 0, quarantine: 0 };
+    if (p.locationKind === 'QUARANTINE') t.quarantine += p.onHand;
+    else { t.onHand += p.onHand; t.reserved += p.reserved; t.available += Math.max(0, p.available); }
+    totals.set(p.itemId, t);
+  }
+  return { position, locations, totals };
 }
 
 export async function materialDemand(session: Session, today: string, projectId?: string): Promise<MaterialDemandRow[]> {
@@ -106,6 +120,7 @@ export async function materialDemand(session: Session, today: string, projectId?
       title: req?.title ?? item?.description ?? 'Material', requirementType: r.requirement_type, priority: req?.priority ?? 'medium', unit: r.unit,
       requiredBy: r.required_by, activityStart, needBy, daysToNeed, coverage, risk: supplyRisk(coverage, daysToNeed),
       stock: r.item_id ? stockForRequirement(stock.position, r.item_id, sitesOf(r.project_id).map((x) => x.id)) : [],
+      itemStock: r.item_id ? stock.totals.get(r.item_id) ?? { onHand: 0, reserved: 0, available: 0, quarantine: 0 } : null,
       sites: sitesOf(r.project_id),
     };
   });

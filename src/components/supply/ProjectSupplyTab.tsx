@@ -1,35 +1,35 @@
 'use client';
 
-import type { MaterialDemandRow } from '@/lib/supply/read-model';
-import { Metrics, ResourceState, useOperationsResource } from '@/components/operations/ui';
-import { MaterialDemandTable, type DemandCapabilities } from './MaterialDemandTable';
-import { ApexRecommendations } from './ApexRecommendations';
-
-type Payload = { ok: true; today: string; capabilities: DemandCapabilities; demand: MaterialDemandRow[] };
+import { ApexFindings, Resource, SignalStrip, useResource } from '@/components/ax';
+import { DemandBoardView, demandUrl, type DemandPayload } from './planning/DemandBoard';
 
 /**
  * MATERIAIS & SUPPLY do projeto — a MESMA demanda e a MESMA cobertura do
  * Supply, recortadas para este projeto. Nada é somado à parte: cada número é
- * a soma das linhas que a tabela mostra.
+ * a contagem das linhas que o quadro mostra.
  */
 export function ProjectSupplyTab({ projectId }: { projectId: string }) {
-  const { data, state, message, refresh } = useOperationsResource<Payload>(`/api/supply/material-planning?project=${encodeURIComponent(projectId)}`);
-  if (state !== 'ready' || !data) return <ResourceState state={state} message={message} />;
-  const d = data.demand;
-  const count = (f: (x: MaterialDemandRow) => boolean) => d.filter(f).length;
+  const resource = useResource<DemandPayload>(demandUrl(projectId));
   return (
-    <section className="crm-workspace ops-workspace" aria-label="Materiais e supply do projeto" data-testid="project-supply">
-      <Metrics items={[
-        { label: 'Materiais requeridos', value: d.length, hint: 'Requisitos confirmados no plano', accent: true },
-        { label: 'Cobertos', value: count((x) => x.coverage.status === 'COVERED'), tone: 'success', hint: 'Reservado ou consumido' },
-        { label: 'Entrando', value: count((x) => x.coverage.inbound > 0), tone: 'info', hint: 'Em trânsito ou em pedido' },
-        { label: 'Com falta', value: count((x) => x.coverage.shortage > 0), tone: count((x) => x.coverage.shortage > 0) ? 'warning' : 'neutral',
-          hint: 'Requerido − coberto − entrando' },
-        { label: 'Risco crítico', value: count((x) => x.risk === 'critical'), tone: count((x) => x.risk === 'critical') ? 'danger' : 'neutral',
-          hint: 'Falta a 7 dias da necessidade' },
-      ]} />
-      <ApexRecommendations projectId={projectId} compact />
-      <MaterialDemandTable demand={d} today={data.today} capabilities={data.capabilities} showProject={false} onChanged={refresh} />
+    <section className="ax ax-stack" aria-label="Materiais e supply do projeto" data-testid="project-supply">
+      <Resource {...resource}>{(data) => {
+        const d = data.demand;
+        const count = (f: (x: DemandPayload['demand'][number]) => boolean) => d.filter(f).length;
+        const short = count((x) => x.coverage.shortage > 0); const critical = count((x) => x.risk === 'critical');
+        return (
+          <>
+            <SignalStrip label="Materiais do projeto" items={[
+              { label: 'Materiais requeridos', value: d.length, hint: 'requisitos confirmados no plano' },
+              { label: 'Cobertos', value: count((x) => x.coverage.status === 'COVERED'), hint: 'reservado ou consumido', tone: 'success' },
+              { label: 'Entrando', value: count((x) => x.coverage.inbound > 0), hint: 'em transferência, pedido ou inspeção' },
+              { label: 'Com falta', value: short, hint: 'requerido − coberto − entrando', tone: short ? 'warning' : undefined },
+              { label: 'Risco crítico', value: critical, hint: 'falta a 7 dias da necessidade', tone: critical ? 'danger' : undefined },
+            ]} />
+            <ApexFindings projectId={projectId} limit={3} title="Apex — neste projeto" />
+            <DemandBoardView data={data} projectId={projectId} />
+          </>
+        );
+      }}</Resource>
     </section>
   );
 }

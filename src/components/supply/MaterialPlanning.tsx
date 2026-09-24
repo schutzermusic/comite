@@ -1,37 +1,44 @@
 'use client';
 
-import { useState } from 'react';
-import type { MaterialDemandRow } from '@/lib/supply/read-model';
-import {
-  LiveSep, ResourceState, TabPanel, WorkspaceHeading, WorkspaceTabs, useOperationsResource,
-} from '@/components/operations/ui';
-import { MaterialDemandTable, type DemandCapabilities } from './MaterialDemandTable';
+import Link from 'next/link';
+import { ArrowUpRight } from 'lucide-react';
+import { AxPage, CommandHeader, Dot, Resource, Tabs, dateShort, useResource, useUrlParam } from '@/components/ax';
+import { DemandBoardView, demandUrl, type DemandPayload } from './planning/DemandBoard';
 import { ItemCatalog } from './ItemCatalog';
 
-type Payload = { ok: true; today: string; capabilities: DemandCapabilities; demand: MaterialDemandRow[] };
-
-/** PLANEJAMENTO DE MATERIAIS — a ponte entre o Planejamento do projeto e a execução de Supply. */
+/**
+ * PLANEJAMENTO DE MATERIAIS — a ponte entre o Planejamento do projeto e a
+ * execução do Supply: o que falta, quando é necessário, para qual projeto, se
+ * outro local cobre, e se comprar é mesmo necessário.
+ */
 export function MaterialPlanning() {
-  const { data, state, message, refresh } = useOperationsResource<Payload>('/api/supply/material-planning');
-  const [tab, setTab] = useState<'demand' | 'catalog'>('demand');
-  if (state !== 'ready' || !data) return <ResourceState state={state} message={message} />;
-  const short = data.demand.filter((d) => d.coverage.shortage > 0).length;
+  return <AxPage testId="material-planning"><Planning /></AxPage>;
+}
+
+function Planning() {
+  const [tab, setTab] = useUrlParam<'demand' | 'catalog'>('tab', 'demand');
+  const resource = useResource<DemandPayload>(demandUrl());
+  const d = resource.data?.demand ?? [];
+  const short = d.filter((x) => x.coverage.shortage > 0);
+  const critical = d.filter((x) => x.risk === 'critical').length;
+  const next = short.map((x) => x.needBy).filter(Boolean).sort()[0] ?? null;
   return (
-    <section className="crm-workspace ops-workspace" aria-label="Planejamento de materiais" data-testid="material-planning">
-      <WorkspaceHeading
-        eyebrow="Supply Chain · Planejamento de Materiais"
-        title="Requisito do projeto → cobertura → estratégia"
-        description={<><span><b>{data.demand.length}</b> requisito(s) de material</span><LiveSep />
-          <span className={short ? 'crm-tone-warning' : undefined}><b>{short}</b> com falta</span></>}
-      />
-      <WorkspaceTabs label="Áreas do planejamento de materiais" active={tab} onChange={setTab}
-        tabs={[{ id: 'demand', label: 'Demanda & cobertura', count: short, tone: 'warning' }, { id: 'catalog', label: 'Catálogo de itens' }]} />
-      {tab === 'demand' && (
-        <TabPanel id="demand">
-          <MaterialDemandTable demand={data.demand} today={data.today} capabilities={data.capabilities} onChanged={refresh} />
-        </TabPanel>
-      )}
-      {tab === 'catalog' && <TabPanel id="catalog"><ItemCatalog /></TabPanel>}
-    </section>
+    <>
+      <CommandHeader domain="supply" area="Planejamento de materiais" title="Planejamento de materiais"
+        context={resource.data ? <>
+          <span><strong>{d.length}</strong> {d.length === 1 ? 'requisito' : 'requisitos'}</span>
+          <span><strong>{short.length}</strong> com falta</span>
+          {critical > 0 && <span><Dot tone="danger" label="crítico" /><strong>{critical}</strong> {critical === 1 ? 'crítico' : 'críticos'}</span>}
+          {next && <span>próxima necessidade em falta: {dateShort(next)}</span>}
+        </> : <span>Requisito do projeto → cobertura → estratégia</span>}
+        actions={<Link className="ax-btn" href="/operacoes/planejamento">Planejamento de Operações<ArrowUpRight size={14} aria-hidden /></Link>} />
+      <Tabs label="Áreas do planejamento de materiais" value={tab} onChange={setTab} tabs={[
+        { id: 'demand', label: 'Demanda & cobertura', count: short.length, tone: 'warning' },
+        { id: 'catalog', label: 'Catálogo de itens' },
+      ]} />
+      {tab === 'demand'
+        ? <Resource {...resource}>{(data) => <DemandBoardView data={data} testId="material-demand" />}</Resource>
+        : <ItemCatalog />}
+    </>
   );
 }

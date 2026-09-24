@@ -721,6 +721,93 @@ a.ax-signal:focus-visible, button.ax-signal:focus-visible { outline: 2px solid v
 .ax-apex-inline b { color: var(--ax-fg-strong); font-weight: 600; }
 .ax-apex-inline .ax-btn { height: 24px; padding: 0 8px; font-size: 11.5px; }
 
+/* ── Planejamento de materiais ───────────────────────────────────────────── */
+/* Distribuição dos requisitos por situação (contagem, não quantidade: unidades não se somam). */
+.ax-statusbar { display: flex; gap: 3px; height: 10px; border-radius: 999px; overflow: hidden; }
+.ax-statusbar > i { display: block; height: 100%; min-width: 6px; }
+.ax-statusbar .short, .ax-statuslegend .short i { background: var(--ax-danger); }
+.ax-statusbar .partial, .ax-statuslegend .partial i { background: var(--ax-warning); }
+.ax-statusbar .inbound, .ax-statuslegend .inbound i { background: var(--ax-info); }
+.ax-statusbar .covered, .ax-statuslegend .covered i { background: var(--ax-success); }
+.ax-statuslegend { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 10px; }
+.ax-statuslegend button {
+  display: inline-flex; align-items: center; gap: 7px; padding: 0; border: 0; background: none; cursor: pointer;
+  font: inherit; font-size: 12.5px; color: var(--ax-fg-muted);
+}
+.ax-statuslegend button:hover { color: var(--ax-fg-strong); }
+.ax-statuslegend i { width: 9px; height: 9px; border-radius: 3px; display: inline-block; }
+.ax-statuslegend strong { color: var(--ax-fg-strong); font-variant-numeric: tabular-nums; }
+
+.ax-demand tr.group th {
+  padding-top: 7px; padding-bottom: 0; border-bottom: 0; font-size: 10px; letter-spacing: 0.08em; text-align: center;
+  color: var(--ax-fg-subtle);
+}
+.ax-demand tr.group th[scope='colgroup'] { border-bottom: 2px solid var(--ax-line-soft); }
+.ax-demand thead tr:nth-child(2) th { top: 24px; }
+.ax-demand td.lead { min-width: 220px; }
+.ax-demand td.proj .ax-cellstack > * { max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ax-demand td .ax-cellstack small { white-space: nowrap; }
+.ax-demand td.short { color: var(--ax-danger); font-weight: 700; }
+.ax-demand small.late { color: var(--ax-danger); font-weight: 600; }
+.ax-demand .ax-cover { min-width: 0; max-width: 220px; margin-top: 5px; }
+.ax-rowlink {
+  padding: 0; border: 0; background: none; cursor: pointer; text-align: left; font: inherit; font-weight: 650;
+  color: var(--ax-fg-strong);
+}
+.ax-rowlink:hover { color: var(--ax-accent); }
+.ax-rowlink:focus-visible { outline: 2px solid var(--ig-border-focus); outline-offset: 2px; border-radius: 4px; }
+.ax-apexmark {
+  display: inline-flex; align-items: center; gap: 3px; margin-left: 8px; padding: 0 6px; border-radius: 6px;
+  font-size: 10.5px; font-weight: 700; color: var(--ax-accent); background: var(--ax-accent-weak);
+}
+@media (max-width: 767px) {
+  .ax-demand tr.group { display: none; }
+  .ax-demand .ax-cover { max-width: none; }
+  /* No celular os números vão em duas colunas: o cartão cabe em meia tela. */
+  .ax-table.cards.ax-demand tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 18px; }
+  .ax-table.cards.ax-demand td.lead, .ax-table.cards.ax-demand td.proj { grid-column: 1 / -1; }
+  .ax-demand td.proj .ax-cellstack > * { max-width: none; }
+}
+
+/* A equação do requisito: requerido − o que cobre = falta. */
+.ax-equation { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 16px; margin: 12px 0 0; font-size: 13px; }
+.ax-equation dt { color: var(--ax-fg-muted); }
+.ax-equation dd { margin: 0; text-align: right; color: var(--ax-fg-strong); font-variant-numeric: tabular-nums; }
+.ax-equation .total { padding-top: 7px; border-top: 1px solid var(--ax-line); font-weight: 700; color: var(--ax-fg-strong); }
+.ax-equation dd.short { color: var(--ax-danger); }
+.ax-loclist { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; }
+.ax-loclist li {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 12px; align-items: baseline;
+  padding: 7px 0; border-top: 1px solid var(--ax-line-soft); font-size: 13px;
+}
+.ax-loclist em { font-style: normal; font-size: 11.5px; color: var(--ax-fg-subtle); }
+.ax-loclist strong { font-variant-numeric: tabular-nums; color: var(--ax-fg-strong); }
+
+/* Formas de cobrir a falta: cada uma com a simulação do que muda e o ato. */
+.ax-options { display: flex; flex-direction: column; gap: 10px; }
+.ax-option {
+  display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; gap: 12px; align-items: start;
+  padding: 12px; border-radius: 12px; border: 1px solid var(--ax-line-soft); background: var(--ax-plane-strong);
+}
+.ax-option-icon {
+  width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center;
+  color: var(--ax-accent); background: var(--ax-accent-weak);
+}
+.ax-option-body { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.ax-option-body b { color: var(--ax-fg-strong); font-weight: 650; }
+.ax-option-body p { margin: 0; font-size: 12.5px; color: var(--ax-fg-muted); }
+.ax-option .ax-qty { max-width: 200px; }
+.ax-sim { font-size: 12.5px; color: var(--ax-fg-muted); font-variant-numeric: tabular-nums; }
+.ax-sim strong { color: var(--ax-accent); }
+@media (max-width: 767px) {
+  .ax-option { grid-template-columns: 32px minmax(0, 1fr); }
+  .ax-option > .ax-btn, .ax-option > span:last-child { grid-column: 1 / -1; }
+  .ax-option > .ax-btn { width: 100%; justify-content: center; height: 44px; }
+  .ax-option .ax-qty { max-width: none; }
+}
+.ax-check { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ax-fg); }
+.ax-check input { width: 16px; height: 16px; accent-color: var(--ax-accent); }
+
 /* ── Cadeia causal ───────────────────────────────────────────────────────── */
 .ax-chain { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: 12px; min-width: 0; max-width: 100%; }
 .ax-chain > span, .ax-chain > a {
