@@ -12,14 +12,31 @@
  *
  * As provas usam âncoras REAIS (organização, ator owner_admin) e criam o
  * mínimo necessário para o cenário.
+ *
+ * `--target=qa` roda contra o QA ISOLADO (`scripts/qa`) em vez do banco
+ * hospedado: é lá que a migration é ensaiada primeiro, com o mesmo esquema.
+ *
+ * A transação é `BEGIN READ WRITE` — escopo de TRANSAÇÃO. Nunca `SET SESSION`:
+ * pelo pooler em modo transação, um ajuste de sessão vaza para a próxima
+ * conexão que pegar o mesmo backend.
  */
 import { readFileSync, readdirSync } from 'node:fs';
 import pg from 'pg';
 import dotenv from 'dotenv';
 import { recordMigrationApplied } from '../../lib/migration-registry.mjs';
+import { loadQaEnv } from '../../qa/lib/qa-env.mjs';
 
 dotenv.config({ path: '.env', quiet: true });
 dotenv.config({ path: '.env.local', quiet: true });
+
+/** Banco-alvo: o hospedado (padrão) ou o QA isolado (`--target=qa`). */
+export function targetDatabase() {
+  if (process.argv.includes('--target=qa')) {
+    return { label: 'QA isolado', client: () => new pg.Client({ connectionString: loadQaEnv().QA_DB_URL }) };
+  }
+  return { label: 'banco hospedado',
+    client: () => new pg.Client({ connectionString: process.env.SUPABASE_DB_URL, ssl: { rejectUnauthorized: false } }) };
+}
 
 export const strip = (sql) => sql.replace(/^\s*(BEGIN|COMMIT)\s*;\s*$/gmi, '');
 
@@ -122,12 +139,13 @@ export async function realAnchors(db) {
  */
 export async function runMigration({ version, expectedTip, proofs, preflight }) {
   const apply = process.argv.includes('--apply');
-  const db = new pg.Client({ connectionString: process.env.SUPABASE_DB_URL, ssl: { rejectUnauthorized: false } });
+  const target = targetDatabase();
+  const db = target.client();
   const file = migrationFile(version);
   let failed = 0;
   try {
     await db.connect();
-    await db.query('SET SESSION default_transaction_read_only = off');
+    console.log(`Alvo: ${target.label}${apply ? ' (APLICAR)' : ' (ensaio)'}`);
     const tip = (await db.query(
       'SELECT version FROM supabase_migrations.schema_migrations ORDER BY version::int DESC LIMIT 1')).rows[0]?.version;
     if (tip === version) {
@@ -136,7 +154,7 @@ export async function runMigration({ version, expectedTip, proofs, preflight }) 
     }
     if (tip !== expectedTip) throw new Error(`Esperava ponta ${expectedTip}, encontrei ${tip}.`);
 
-    await db.query('BEGIN');
+    await db.query('BEGIN READ WRITE');
     if (preflight) await preflight(db);
     await db.query(strip(readFileSync(`supabase/migrations/${file}`, 'utf8')));
     await recordMigrationApplied(db, version, file.slice(4).replace(/\.sql$/, ''));
