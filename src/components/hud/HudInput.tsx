@@ -22,8 +22,13 @@ export function HudInput({
   variant = 'glass',
   fullWidth = true,
   className,
+  id,
   ...props
 }: HudInputProps) {
+  // O rótulo NOMEIA o campo (leitor de tela, clique no rótulo, getByLabel): id estável quando o chamador não passa um.
+  const autoId = React.useId();
+  const inputId = id ?? autoId;
+  const errorId = `${inputId}-error`;
   const sizeStyles = {
     sm: 'h-9 px-3 text-sm',
     md: 'h-10 px-4 text-sm',
@@ -47,7 +52,7 @@ export function HudInput({
   return (
     <div className={cn('flex flex-col gap-1.5', fullWidth && 'w-full')}>
       {label && (
-        <label className="text-[11px] font-medium hud-label uppercase tracking-wider">
+        <label htmlFor={inputId} className="text-[11px] font-medium hud-label uppercase tracking-wider">
           {label}
         </label>
       )}
@@ -73,6 +78,9 @@ export function HudInput({
             fullWidth && 'w-full',
             className
           )}
+          id={inputId}
+          aria-invalid={error ? true : props['aria-invalid']}
+          aria-describedby={error ? errorId : props['aria-describedby']}
           {...props}
         />
         {rightIcon && (
@@ -82,7 +90,7 @@ export function HudInput({
         )}
       </div>
       {error && (
-        <p className="text-xs text-ig-danger">{error}</p>
+        <p id={errorId} className="text-xs text-ig-danger">{error}</p>
       )}
     </div>
   );

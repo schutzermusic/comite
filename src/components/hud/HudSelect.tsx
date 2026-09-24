@@ -35,6 +35,9 @@ export function HudSelect({
   className,
   disabled = false,
 }: HudSelectProps) {
+  // O rótulo NOMEIA o campo — id estável ligando <label> e <select>.
+  const selectId = React.useId();
+  const errorId = `${selectId}-error`;
   const sizeStyles = {
     sm: 'h-9 px-3 text-sm',
     md: 'h-10 px-4 text-sm',
@@ -44,12 +47,15 @@ export function HudSelect({
   return (
     <div className={cn('flex flex-col gap-1.5', fullWidth && 'w-full', className)}>
       {label && (
-        <label className="text-[11px] font-medium hud-label uppercase tracking-wider">
+        <label htmlFor={selectId} className="text-[11px] font-medium hud-label uppercase tracking-wider">
           {label}
         </label>
       )}
       <div className="relative">
         <select
+          id={selectId}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? errorId : undefined}
           value={value}
           disabled={disabled}
           onChange={(e) => onChange(e.target.value)}
@@ -82,7 +88,7 @@ export function HudSelect({
         <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 hud-icon pointer-events-none" />
       </div>
       {error && (
-        <p className="text-xs text-ig-danger">{error}</p>
+        <p id={errorId} className="text-xs text-ig-danger">{error}</p>
       )}
     </div>
   );
