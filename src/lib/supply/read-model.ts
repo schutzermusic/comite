@@ -116,8 +116,10 @@ export async function supplyOverview(session: Session, today: string) {
     if (RISK_RANK[d.risk] < RISK_RANK[p.worst]) p.worst = d.risk;
     byProject.set(d.projectId, p);
   }
+  const flow = await supplyFlow(session, today);
   return {
     today,
+    flow,
     kpis: {
       demandLines: demand.length,
       uncovered: short.length,
@@ -132,6 +134,52 @@ export async function supplyOverview(session: Session, today: string) {
 }
 
 export type SupplyOverviewModel = Awaited<ReturnType<typeof supplyOverview>>;
+
+/**
+ * O FLUXO de compras e recebimento para a torre de controle (234/235): valor
+ * em pedido aberto, entradas atrasadas, divergências de recebimento e
+ * decisões de compra paradas — cada número abre a tela que o explica.
+ */
+async function supplyFlow(session: Session, today: string) {
+  const sb = session.supabase; const org = session.organizationId;
+  const since = new Date(`${today}T00:00:00Z`); since.setUTCDate(since.getUTCDate() - 30);
+  const [pos, reqs, receipts] = await Promise.all([
+    sb.from('purchase_orders').select('id,status,expected_delivery,currency').eq('organization_id', org)
+      .in('status', ['APPROVAL_REQUIRED', 'ISSUED', 'PARTIALLY_RECEIVED']).limit(2000),
+    sb.from('purchase_requisitions').select('id', { count: 'exact', head: true }).eq('organization_id', org).in('status', ['SUBMITTED', 'SOURCING']),
+    sb.from('goods_receipts').select('id,inspection_status').eq('organization_id', org)
+      .or(`inspection_status.eq.PENDING,received_at.gte.${since.toISOString()}`).limit(1000),
+  ]);
+  const poRows = (pos.data ?? []) as Array<{ id: string; status: string; expected_delivery: string | null }>;
+  const live = poRows.filter((p) => p.status !== 'APPROVAL_REQUIRED');
+  const receiptRows = (receipts.data ?? []) as Array<{ id: string; inspection_status: string }>;
+  const [lines, ships, receiptLines] = await Promise.all([
+    live.length ? sb.from('purchase_order_lines').select('purchase_order_id,quantity,received_quantity,unit_price,expected_date')
+      .eq('organization_id', org).in('purchase_order_id', live.map((p) => p.id)) : Promise.resolve({ data: [] }),
+    live.length ? sb.from('inbound_shipments').select('purchase_order_id,eta,status').eq('organization_id', org)
+      .in('purchase_order_id', live.map((p) => p.id)).in('status', ['EXPECTED', 'IN_TRANSIT', 'ARRIVED']) : Promise.resolve({ data: [] }),
+    receiptRows.length ? sb.from('goods_receipt_lines').select('receipt_id,rejected_quantity,inspection_rejected_quantity')
+      .eq('organization_id', org).in('receipt_id', receiptRows.map((r) => r.id)) : Promise.resolve({ data: [] }),
+  ]);
+  const lineRows = (lines.data ?? []) as Array<{ purchase_order_id: string; quantity: number; received_quantity: number; unit_price: number; expected_date: string | null }>;
+  const shipRows = (ships.data ?? []) as Array<{ purchase_order_id: string; eta: string | null }>;
+  const openValue = lineRows.reduce((a, l) => a + Math.max(0, Number(l.quantity) - Number(l.received_quantity)) * Number(l.unit_price), 0);
+  const lateInbound = live.filter((p) => {
+    const open = lineRows.filter((l) => l.purchase_order_id === p.id && Number(l.quantity) > Number(l.received_quantity));
+    if (!open.length) return false;
+    const eta = shipRows.filter((x) => x.purchase_order_id === p.id && x.eta).map((x) => x.eta as string).sort()[0]
+      ?? open.map((l) => l.expected_date).filter(Boolean).sort()[0] ?? p.expected_delivery;
+    return Boolean(eta && eta < today);
+  }).length;
+  const rejectedReceipts = new Set(((receiptLines.data ?? []) as Array<{ receipt_id: string; rejected_quantity: number; inspection_rejected_quantity: number | null }>)
+    .filter((l) => Number(l.rejected_quantity) > 0 || Number(l.inspection_rejected_quantity ?? 0) > 0).map((l) => l.receipt_id));
+  return {
+    openPoValue: openValue,
+    lateInbound,
+    receivingIssues: receiptRows.filter((r) => r.inspection_status === 'PENDING' || rejectedReceipts.has(r.id)).length,
+    decisionsPending: (reqs.count ?? 0) + poRows.filter((p) => p.status === 'APPROVAL_REQUIRED').length,
+  };
+}
 
 export async function listItems(session: Session, includeInactive: boolean) {
   let query = session.supabase.from('supply_items')

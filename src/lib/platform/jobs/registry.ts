@@ -29,6 +29,7 @@ export const JOB_TYPES = [
   'finance.receivable.apply_fiscal_cancellation',
   // ---- Supply — compras (234) ----
   'procurement.purchase_order.apply_approval',
+  'supply.intelligence.sweep',
 ] as const;
 
 export type JobType = (typeof JOB_TYPES)[number];
@@ -146,6 +147,11 @@ export const JOB_SCHEMAS = {
   'finance.receivable.create_from_fiscal':        { 1: EVENT_REF },
   'finance.receivable.apply_fiscal_cancellation': { 1: EVENT_REF },
   'procurement.purchase_order.apply_approval':    { 1: EVENT_REF },
+  /*
+    Leitura periódica da Apex no Supply (236). Não carrega fato nenhum: o
+    handler lê o estado ATUAL do inquilino do trabalho e sincroniza o livro.
+  */
+  'supply.intelligence.sweep': { 1: z.object({ reason: z.string().max(200).optional() }) },
 } as const satisfies Record<JobType, Record<number, z.ZodType>>;
 
 export type JobPayloadByType = {

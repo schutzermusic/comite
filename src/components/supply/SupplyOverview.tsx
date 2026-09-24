@@ -10,14 +10,15 @@ import {
   useOperationsResource, type Tone,
 } from '@/components/operations/ui';
 import { CoverageBar } from './CoverageBar';
+import { ApexRecommendations } from './ApexRecommendations';
 
 type Payload = SupplyOverviewModel & { ok: true };
 const RISK_TONE: Record<SupplyRisk, Tone> = { critical: 'danger', high: 'warning', medium: 'info', low: 'success' };
 
 /**
  * SUPPLY — torre de controle. Começa pela DEMANDA do plano, não por pedido
- * digitado. Cada número abre registros reais; número sem fonte não entra
- * (estoque, pedidos e recebimentos aparecem quando os domínios existirem).
+ * digitado. Cada número abre registros reais; número sem fonte não entra.
+ * As recomendações da Apex vêm com evidência e UM ato governado cada.
  */
 export function SupplyOverview() {
   const { data, state, message } = useOperationsResource<Payload>('/api/supply/overview');
@@ -41,6 +42,17 @@ export function SupplyOverview() {
           hint: 'Falta crítica ou alta em algum requisito' },
         { label: 'Totalmente cobertos', value: k.covered, tone: 'success', hint: 'Reservado ou consumido cobre o requerido' },
       ]} />
+      <Metrics items={[
+        { label: 'Em pedido aberto', value: data.flow.openPoValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }),
+          hint: 'Saldo a receber dos pedidos emitidos', onClick: () => { window.location.href = '/supply/compras'; } },
+        { label: 'Entradas atrasadas', value: data.flow.lateInbound, tone: data.flow.lateInbound ? 'danger' : 'neutral',
+          hint: 'Pedidos com saldo depois da data prometida', onClick: () => { window.location.href = '/supply/recebimentos'; } },
+        { label: 'Divergências de recebimento', value: data.flow.receivingIssues, tone: data.flow.receivingIssues ? 'warning' : 'neutral',
+          hint: 'Rejeição ou inspeção pendente (30 dias)', onClick: () => { window.location.href = '/supply/recebimentos'; } },
+        { label: 'Decisões de compra paradas', value: data.flow.decisionsPending, tone: data.flow.decisionsPending ? 'warning' : 'neutral',
+          hint: 'Requisições sem pedido e pedidos em aprovação', onClick: () => { window.location.href = '/supply/compras'; } },
+      ]} />
+      <ApexRecommendations />
       <div className="crm-split">
         <Panel title="Risco de supply por projeto" note="O pior requisito decide o projeto">
           {data.projectRisks.length ? (

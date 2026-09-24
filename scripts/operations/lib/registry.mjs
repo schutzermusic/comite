@@ -91,6 +91,15 @@ export const OPERATIONS_REGISTRY = {
     ],
     permissions: [],
   },
+  '236': {
+    tables: ['supply_signals', 'supply_signal_history', 'supply_intelligence_runs'],
+    ledgers: ['supply_signal_history'],
+    functions: [
+      'supply_signals_sync(uuid,jsonb,text)', 'supply_signal_dismiss(uuid,uuid,uuid,text)',
+      'supply_signal_execute(uuid,uuid,uuid,jsonb)', 'supply_signal_link_followup(uuid,uuid,uuid,uuid)',
+    ],
+    permissions: [],
+  },
 };
 
 export function registryUpTo(version) {

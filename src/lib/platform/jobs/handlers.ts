@@ -732,6 +732,21 @@ const purchaseOrderApproval: JobHandler<'procurement.purchase_order.apply_approv
 };
 
 /*
+  Leitura periódica da Apex no Supply (236): fatos do inquilino do trabalho →
+  sinais → livro. Idempotente por natureza: a mesma condição tem a mesma
+  chave; o que deixou de ser verdade é resolvido.
+*/
+const supplyIntelligenceSweep: JobHandler<'supply.intelligence.sweep'> = {
+  payloadVersion: 1,
+  idempotencyBasis: 'Sinal é chaveado pela condição; repetir a leitura atualiza em vez de duplicar.',
+  async run(_payload, { job }) {
+    const { runSupplyIntelligence } = await import('@/lib/supply/intelligence-read');
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+    return (await runSupplyIntelligence(job.organization_id, today)) as unknown as Record<string, unknown>;
+  },
+};
+
+/*
   Liberação → pedido de documento fiscal.
 
   O handler abre o pedido durável e, SE houver configuração fiscal completa,
@@ -890,6 +905,7 @@ export const JOB_HANDLERS: HandlerRegistry = {
   'finance.receivable.create_from_fiscal': receivableFromFiscal,
   'finance.receivable.apply_fiscal_cancellation': fiscalCancellation,
   'procurement.purchase_order.apply_approval': purchaseOrderApproval,
+  'supply.intelligence.sweep': supplyIntelligenceSweep,
 };
 
 export function handlerFor(jobType: JobType): JobHandler<JobType> {

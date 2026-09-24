@@ -33,3 +33,12 @@
 /* Compras (234) */
 .ops-history { display: grid; gap: 6px; font-size: 12.5px; }
 .ops-history li { padding: 6px 0; border-top: 1px solid var(--ops-line); }
+
+/* Recomendações da Apex (236) */
+.sup-signals { display: grid; gap: 10px; padding: 12px 14px; }
+.sup-signal { display: grid; gap: 6px; padding: 12px 14px; border: 1px solid var(--ops-line); border-radius: 14px; }
+.sup-signal > p { font-size: 13px; color: var(--ig-fg); }
+.sup-signal-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 12px; }
+.sup-evidence { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 4px 12px; font-size: 12px; }
+.sup-evidence dt { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ig-fg-muted); font-weight: 600; }
+.sup-evidence dd { font-variant-numeric: tabular-nums; }

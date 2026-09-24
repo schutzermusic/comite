@@ -3,6 +3,7 @@
 import type { MaterialDemandRow } from '@/lib/supply/read-model';
 import { Metrics, ResourceState, useOperationsResource } from '@/components/operations/ui';
 import { MaterialDemandTable, type DemandCapabilities } from './MaterialDemandTable';
+import { ApexRecommendations } from './ApexRecommendations';
 
 type Payload = { ok: true; today: string; capabilities: DemandCapabilities; demand: MaterialDemandRow[] };
 
@@ -27,6 +28,7 @@ export function ProjectSupplyTab({ projectId }: { projectId: string }) {
         { label: 'Risco crítico', value: count((x) => x.risk === 'critical'), tone: count((x) => x.risk === 'critical') ? 'danger' : 'neutral',
           hint: 'Falta a 7 dias da necessidade' },
       ]} />
+      <ApexRecommendations projectId={projectId} compact />
       <MaterialDemandTable demand={d} today={data.today} capabilities={data.capabilities} showProject={false} onChanged={refresh} />
     </section>
   );

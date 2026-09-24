@@ -51,6 +51,9 @@ const DOMAIN_EVENT_TITLE: Record<string, { title: string; kind: TimelineKind; to
   'supply.purchase_order.approved': { title: 'Pedido de compra aprovado', kind: 'supply', tone: 'accent' },
   'supply.purchase_order.issued': { title: 'Pedido de compra emitido', kind: 'supply', tone: 'success' },
   'supply.purchase_order.cancelled': { title: 'Pedido de compra cancelado', kind: 'supply', tone: 'danger' },
+  'supply.goods_receipt.project_received': { title: 'Material recebido para o projeto', kind: 'supply', tone: 'success' },
+  'supply.signal.executed': { title: 'Recomendação da Apex executada', kind: 'supply', tone: 'accent' },
+  'supply.signal.dismissed': { title: 'Recomendação da Apex descartada', kind: 'supply', tone: 'neutral' },
 };
 
 export function domainEventTitle(eventType: string) {

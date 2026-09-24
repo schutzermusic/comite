@@ -36,7 +36,12 @@ export type FollowupSourceKind =
   | 'commercial_opportunity'
   | 'commercial_proposal'
   | 'commercial_engagement'
-  | 'internal_service_order';
+  | 'internal_service_order'
+  // ---- Supply (236) ----
+  | 'project_requirement'
+  | 'purchase_order'
+  | 'inventory_transfer'
+  | 'goods_receipt';
 
 export type VerificationMode = 'deterministic_evidence' | 'human_confirmation';
 

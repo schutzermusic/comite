@@ -221,3 +221,33 @@ INV-11, INV-12, INV-13, INV-16 (nenhum recebimento sem ato humano nomeado), INV-
 ### Ajustes de teste
 - Fixtures simulados de demanda atualizados para o contrato de cobertura com `inspection`; formatador de quantidade tolerante a valor ausente.
 - `operations-service-orders.spec` (wave B): "Failed to fetch" (aborto de rede provocado pelo próprio spec) não conta como erro de runtime.
+
+---
+
+## Wave J — Inteligência autônoma, explicável e governada (migration 236)
+
+**Aplicada no banco hospedado** (`scripts/operations/apply-236.mjs --apply`, 25/25 provas; `security-audit` 257/257).
+
+### Entrou
+- **Motor de sinais** (`src/lib/supply/intelligence.ts`, `supply-signals.v1`) — determinístico, explicável, testado: observa cobertura, estoque livre, entradas, pedidos, requisições, pontualidade e inspeções e produz sinais com **evidência (com a origem de cada número)**, **justificativa** e **um ato recomendado**:
+  - **Estoque disponível** (primeiro o que a empresa já tem): reservar no canteiro do projeto, ou transferir de outro local com **simulação de transferência** — prazo pela média histórica do par de locais (senão do destino; sem histórico, estimativa padrão declarada), chegada contra a necessidade; custo de frete não cadastrado não é estimado. O mesmo saldo nunca é oferecido a dois requisitos.
+  - **Falta sem cobertura** → requisitar compra do que resta (descontado o já requisitado).
+  - **Chega depois da necessidade** (necessidade = data do requisito ou início da atividade, o que vier antes) → acompanhar a antecipação.
+  - **Entrega atrasada**, **fornecedor pouco pontual** (≥ 3 entregas no histórico, < 80% no prazo), **decisão de compra parada** perto da necessidade, **inspeção esquecida**.
+  - Na mesma gravidade, a ordem é a da estratégia: estoque antes de compra.
+- **236_supply_intelligence.sql**: livro `supply_signals` (+ histórico append-only, leituras registradas). A leitura (sistema, sem ator humano) **abre, atualiza e resolve sozinha** o que deixou de ser verdade; reabre quando a condição volta ou persiste depois da ação; descartada continua descartada enquanto a condição for a mesma. **Executar** chama o **mesmo ato governado** (reservar, pedir transferência, requisitar) com a identidade de quem aceitou — alçada, disponibilidade, sobre-cobertura e idempotência reconferidas no banco; **descartar** exige motivo; **acompanhar** abre o **acompanhamento do Apex (156)**, cujas origens ganharam `project_requirement`, `purchase_order`, `inventory_transfer`, `goods_receipt` pela função canônica (206/212), com a alçada do domínio de Supply.
+- Rotas `/api/supply/intelligence` (+ `sweep`, `signals/[id]`), trabalho `supply.intelligence.sweep` registrado (agendamento é passo de publicação).
+- UI: **Recomendações da Apex** na Visão Geral de Supply e na aba Materiais do projeto (cartões com evidência, justificativa e ato; leitura refeita quando velha); a Visão Geral ganhou o fluxo de compras/recebimento (em pedido aberto, entradas atrasadas, divergências, decisões paradas); decisões aparecem na Timeline do projeto.
+
+### O que a Apex NÃO faz
+Não recebe material, não consome estoque, não aprova nem emite compra, não decide sozinha (INV-15, INV-16). Recomendação é linha do livro, com versão do motor, evidência e desfecho humano.
+
+### Provas
+- `apply-236` 25/25 (abre/atualiza/resolve/reabre; descarte com motivo e persistente; execução pelo ato governado com recheque de alçada e de cobertura; requisição com a recomendação como justificativa; origens de Supply no acompanhamento sem perder as anteriores; coerência de ator no histórico).
+- Unidade `supply-intelligence` (12) — suíte 2941/2941.
+- Integração viva: leitura da Apex sobre o banco real sem escrever (todas as consultas do coletor casam com o esquema) + invariantes do livro; **contrato rota → RPC** para 36 rotas de escrita de Operações e Supply contra `pg_proc` (com teste de mutação confirmando que pega divergência).
+- E2E `supply-intelligence.spec.ts` 4/4; regressão Operações + Supply 43/43 (por spec).
+
+### Correções encontradas nesta wave
+- `fix(supply)` 77fab60: esquemas de ação de **transferência** e **contagem** quebrados por uma substituição global na Wave I (a rota de transferência nem carregava) — achado pelo teste de contrato.
+- `test(operations-supply)` bd0d073: testes desta branch trocaram `SET SESSION default_transaction_read_only` (vazava pelo pooler em modo transação e derrubava um teste de Contratos) por transação `READ ONLY` + `ROLLBACK`; conexões do pool marcadas foram restauradas ao padrão.
