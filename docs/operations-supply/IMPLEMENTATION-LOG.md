@@ -251,3 +251,9 @@ Não recebe material, não consome estoque, não aprova nem emite compra, não d
 ### Correções encontradas nesta wave
 - `fix(supply)` 77fab60: esquemas de ação de **transferência** e **contagem** quebrados por uma substituição global na Wave I (a rota de transferência nem carregava) — achado pelo teste de contrato.
 - `test(operations-supply)` bd0d073: testes desta branch trocaram `SET SESSION default_transaction_read_only` (vazava pelo pooler em modo transação e derrubava um teste de Contratos) por transação `READ ONLY` + `ROLLBACK`; conexões do pool marcadas foram restauradas ao padrão.
+
+---
+
+## Caminho dourado ponta a ponta (prova, sem migration)
+
+`node scripts/operations/golden-path.mjs` — uma transação no banco real, **sempre revertida**: pacote aceito (PT+PC) → OS gerada, revisada (com linha de material) e emitida → projeto a partir da OS → requisitos importados da OS (repetir não duplica) → material com item e confirmado → falta de 1000 → 300 reservados do estoque → requisição da falta → cotação → proposta → decisão → pedido → sem alçada não aprova → alçada declarada → rejeição volta ao rascunho → aprovação por outra pessoa → emissão (idempotente) → recebimento parcial (idempotente; acima do aberto recusado; pedido recebido não cancela) → recebimento final → requisito coberto → entrega à obra → fatos na Timeline do projeto → fronteira de inquilino. **16/16.**
