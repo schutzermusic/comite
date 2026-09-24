@@ -1,28 +1,8 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
-import { motion, AnimatePresence } from "motion/react";
-import {
-  AlertTriangle,
-  ArrowLeft,
-  ArrowUpRight,
-  Boxes,
-  BriefcaseBusiness,
-  CalendarClock,
-  Clock3,
-  Globe,
-  Download,
-  Layers3,
-  Link2,
-  MapPinned,
-  Radar,
-  ShieldAlert,
-  Sparkles,
-  UserRound,
-  Zap,
-} from "lucide-react";
-import { HudHeader, HudKpiStrip, HudPageLayout, type KpiItem } from "@/components/hud";
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { ArrowLeft, ArrowUpRight, Download } from "lucide-react";
 import { CesiumOperationsMap } from "@/components/operations-3d/CesiumOperationsMap";
 import {
   buildOperationsProjectRecords,
@@ -33,459 +13,259 @@ import {
   type OperationsProjectRecord,
   type OperationsProjectStatus,
 } from "@/components/operations-3d/operations-projects";
+import {
+  AxPage, Chip, CommandHeader, EmptyState, Meter, SignalStrip, Skeleton, dateShort, href, plural, relativeDue, useResource, useUrlParam,
+  type Tone,
+} from "@/components/ax";
+import type { OperationsOverview } from "@/lib/operations/overview";
+import type { ProjectOverviewPayload } from "@/components/operations/projects/ProjectGlance";
+import type { ProjectPlanningModel } from "@/lib/operations/planning/read-model";
+import { ReadinessChip, ReadinessStrip } from "@/components/operations/planning/shared";
+import { HEALTH_LABEL } from "@/lib/operations/projects/health";
+import { serviceOrderStatusLabels } from "@/lib/operations/service-orders/labels";
 import { cn } from "@/lib/utils";
 import { useCurrentUser } from "@/hooks/use-current-user";
 import { getProjectsAsync, getProjectsV2Async } from "@/lib/services/projects";
 
-const STATUS_TOKEN: Record<OperationsProjectStatus, string> = {
-  active: "var(--ig-success)",
-  attention: "var(--ig-warning)",
-  critical: "var(--ig-danger)",
-  completed: "var(--ig-accent)",
-};
+type OverviewPayload = OperationsOverview & { ok: true };
+type Health = NonNullable<OverviewPayload["projectHealth"]>[number];
+const TONE_STATUS: Record<Health["tone"], OperationsProjectStatus> = { danger: "critical", warning: "attention", success: "active" };
+const STATUS_TONE: Record<OperationsProjectStatus, Tone> = { critical: "danger", attention: "warning", active: "success", completed: "neutral" };
 
+/**
+ * MAPA DE OPERAÇÕES — o globo 3D da carteira (Cesium), com o painel
+ * OPERACIONAL ao lado: onde agir primeiro (a mesma saúde da Visão Geral — a
+ * pior trava decide) e, com um projeto escolhido, a saúde explicada, as
+ * próximas frentes com a prontidão delas, a OS que autoriza o trabalho e o
+ * que trava. O marcador tem a cor dessa MESMA leitura. `?project=` abre o
+ * mapa já no projeto.
+ */
 export default function Operations3DPage() {
-  const router = useRouter();
+  return <AxPage testId="operations-map"><OperationsMap /></AxPage>;
+}
+
+function OperationsMap() {
   const { organization } = useCurrentUser();
-  const [projects, setProjects] = useState<OperationsProjectRecord[]>([]);
+  // Organização de demonstração lê a carteira de exemplo; a real lê os projetos do inquilino.
+  const demo = organization?.is_demo === true;
+  const [liveRecords, setLiveRecords] = useState<OperationsProjectRecord[]>([]);
   useEffect(() => {
+    if (demo) return undefined;
     let active = true;
-    if (organization?.is_demo === true) {
-      setProjects(buildOperationsProjectRecords());
-      return () => { active = false; };
-    }
     void Promise.all([getProjectsAsync(), getProjectsV2Async()])
-      .then(([liveProjects, liveProjectsV2]) => {
-        if (active) setProjects(buildOperationsProjectRecords(liveProjects, liveProjectsV2));
-      })
-      .catch(() => {
-        if (active) setProjects([]);
-      });
+      .then(([liveProjects, liveProjectsV2]) => { if (active) setLiveRecords(buildOperationsProjectRecords(liveProjects, liveProjectsV2)); })
+      .catch(() => { if (active) setLiveRecords([]); });
     return () => { active = false; };
-  }, [organization?.id, organization?.is_demo]);
+  }, [organization?.id, demo]);
+  const demoRecords = useMemo(() => (demo ? buildOperationsProjectRecords() : []), [demo]);
+  const records = demo ? demoRecords : liveRecords;
+
+  const ops = useResource<OverviewPayload>("/api/operations/overview");
+  const health = useMemo(() => new Map((ops.data?.projectHealth ?? []).map((h) => [h.projectId, h])), [ops.data]);
+  // O marcador tem a cor da saúde OPERACIONAL (cronograma, material, cliente, OS) — não de um campo digitado no projeto.
+  const projects = useMemo(() => records.map((r) => {
+    const h = health.get(r.id);
+    if (!h || r.status === "completed") return r;
+    return { ...r, status: TONE_STATUS[h.tone], mainRisk: h.reasons[0] ?? "Sem trava operacional" };
+  }), [records, health]);
   const summary = useMemo(() => buildOperationsSummary(projects), [projects]);
-  const [selectedProject, setSelectedProject] = useState<OperationsProjectRecord | null>(null);
 
-  const selectedForReport = selectedProject || projects.find((project) => project.status === "critical") || projects[0] || null;
-
-  // KPIs clicáveis (padrão Contratos): focam o projeto mais relevante do recorte
-  // no mapa; clicar de novo limpa a seleção.
-  const toggleFocus = (match: (p: OperationsProjectRecord) => boolean) =>
-    setSelectedProject((current) => {
-      const next = projects.find(match) ?? null;
-      return current && next && current.id === next.id ? null : next;
-    });
-
-  const kpis: KpiItem[] = [
-    {
-      id: "projects-mapped",
-      label: "Projetos mapeados",
-      value: summary.totalProjects,
-      deltaLabel: "Projetos conectados ao mapa",
-      icon: <MapPinned className="w-5 h-5" />,
-      variant: "info",
-      onClick: () => setSelectedProject(null),
-    },
-    {
-      id: "active-fronts",
-      label: "Frentes operacionais ativas",
-      value: summary.activeFronts,
-      deltaLabel: "Frentes em execução ou atenção",
-      icon: <Zap className="w-5 h-5" />,
-      variant: "success",
-      onClick: () => toggleFocus((p) => p.status === "active" || p.status === "attention"),
-    },
-    {
-      id: "critical-alerts",
-      label: "Alertas críticos",
-      value: summary.criticalProjects,
-      deltaLabel: `${summary.linkedRisks} riscos vinculados`,
-      icon: <ShieldAlert className="w-5 h-5" />,
-      variant: "danger",
-      onClick: () => toggleFocus((p) => p.status === "critical"),
-      active: selectedProject?.status === "critical",
-    },
-    {
-      id: "assets-linked",
-      label: "Ativos vinculados",
-      value: summary.assetsLinked,
-      deltaLabel: "Ativos, evidências e marcos",
-      icon: <Boxes className="w-5 h-5" />,
-      variant: "warning",
-      onClick: () => setSelectedProject(null),
-    },
-    {
-      id: "last-sync",
-      label: "Última sincronização",
-      value: formatOperationsDate(summary.lastUpdate),
-      deltaLabel: "Snapshot operacional",
-      icon: <Clock3 className="w-5 h-5" />,
-      variant: "default",
-      onClick: () => setSelectedProject(null),
-    },
-  ];
+  const [selectedId, setSelectedId] = useUrlParam<string>("project", "");
+  const selected = projects.find((p) => p.id === selectedId) ?? null;
+  const approximate = projects.filter((p) => p.approximate).length;
+  const attention = projects.filter((p) => p.status === "attention").length;
 
   return (
-    <HudPageLayout maxWidth="full">
+    <>
       <style jsx global>{`
         @media print {
-          html,
-          body {
-            background: #ffffff !important;
-            color: #111827 !important;
-          }
-          .ig-ops3d-live {
-            display: none !important;
-          }
-          .ig-ops3d-print {
-            display: block !important;
-          }
+          html, body { background: #ffffff !important; color: #111827 !important; }
+          .ig-ops3d-live { display: none !important; }
+          .ig-ops3d-print { display: block !important; }
         }
       `}</style>
 
-      <div className="ig-ops3d-live space-y-5">
-        <HudHeader
-          title="Mapa de Operações"
-          subtitle="Operacional dos projetos ativos e frentes de serviço no território brasileiro."
-          icon={<Globe className="h-5 w-5" />}
-          iconTint="var(--ig-accent)"
-          breadcrumbs={[
-            { label: "Projetos", href: "/projetos" },
-            { label: "Mapa de Operações" },
-          ]}
-          statusChips={[
-            { label: "Foco Brasil", variant: "success" },
-            { label: `${summary.totalProjects} projetos`, variant: "info" },
-          ]}
-          actions={
-            <button
-              type="button"
-              onClick={() => window.print()}
-              className="inline-flex items-center gap-2 rounded-lg border border-ig-border-subtle bg-ig-panel/60 px-3 py-2 text-ig-label text-ig-fg-muted shadow-sm backdrop-blur transition-colors hover:text-ig-fg-strong"
-            >
-              <Download className="h-4 w-4 text-ig-accent" />
-              Exportar PDF
-            </button>
-          }
-        />
+      <div className="ig-ops3d-live ax-stack" style={{ gap: 18 }}>
+        <CommandHeader domain="operations" area="Mapa de Operações" title="Onde a operação está, e o que trava"
+          context={<>
+            <span><strong>{summary.totalProjects}</strong> {summary.totalProjects === 1 ? "projeto" : "projetos"} no globo</span>
+            {summary.criticalProjects > 0 && <span className="ax-danger-text"><strong>{summary.criticalProjects}</strong> com trava crítica</span>}
+            {approximate > 0 && <span>{plural(approximate, "posição aproximada", "posições aproximadas")} (pela UF)</span>}
+          </>}
+          actions={<>
+            <Link className="ax-btn" href="/operacoes">Visão geral</Link>
+            <button type="button" className="ax-btn" onClick={() => window.print()}><Download size={15} aria-hidden />Exportar PDF</button>
+          </>} />
 
-        <HudKpiStrip kpis={kpis} columns={5} size="md" />
+        <SignalStrip label="Sinais do mapa" items={[
+          { label: "Projetos no globo", value: summary.totalProjects, hint: approximate ? `${approximate} sem coordenada — perto do centro da UF` : "todos com coordenada",
+            onClick: () => setSelectedId(null) },
+          { label: "Trava crítica", value: summary.criticalProjects, tone: summary.criticalProjects ? "danger" : undefined,
+            hint: "atividade crítica, falta perto da necessidade, cliente vencido ou OS bloqueada",
+            onClick: () => { const p = projects.find((x) => x.status === "critical"); if (p) setSelectedId(p.id); } },
+          { label: "Em atenção", value: attention, tone: attention ? "warning" : undefined, hint: "material, medição ou risco pedindo ação",
+            onClick: () => { const p = projects.find((x) => x.status === "attention"); if (p) setSelectedId(p.id); } },
+          ...(ops.data?.map ? [ops.data.map.located + ops.data.map.unresolved === 0
+            ? { label: "Endereço canônico", value: 0, hint: "nenhum projeto com endereço resolvido — as posições vêm da UF", tone: "warning" as const }
+            : { label: "Endereço canônico", value: `${ops.data.map.located}/${ops.data.map.located + ops.data.map.unresolved}`,
+              hint: ops.data.map.unresolved ? plural(ops.data.map.unresolved, "projeto sem endereço resolvido", "projetos sem endereço resolvido") : "todos resolvidos",
+              tone: ops.data.map.unresolved ? "warning" as const : undefined }] : []),
+        ]} />
 
-        <section
-          className="relative h-[720px] min-h-[680px] overflow-hidden rounded-2xl border border-ig-border-subtle/70 bg-ig-panel/25 shadow-2xl shadow-black/10 lg:h-[calc(100vh-18rem)] lg:min-h-[660px]"
-          style={{
-            background:
-              "linear-gradient(135deg, color-mix(in oklab, var(--ig-panel) 62%, transparent), color-mix(in oklab, var(--ig-bg-canvas) 72%, transparent)), radial-gradient(circle at 22% 18%, color-mix(in oklab, var(--ig-accent) 14%, transparent), transparent 36%)",
-          }}
-        >
-          <CesiumOperationsMap
-            projects={projects}
-            selectedProjectId={selectedProject?.id || null}
-            onSelectProject={setSelectedProject}
-          >
-            <ProjectInspector
-              project={selectedProject}
-              summary={summary}
-              onClear={() => setSelectedProject(null)}
-              onOpenProject={(projectId) => router.push(`/projetos/${projectId}`)}
-            />
+        <section className="ax-mapstage" aria-label="Globo das operações">
+          <CesiumOperationsMap projects={projects} selectedProjectId={selectedId || null} onSelectProject={(p) => setSelectedId(p?.id ?? null)}>
+            <aside className="ax-mappanel" aria-label={selected ? `Projeto ${selected.name}` : "Onde agir primeiro"} data-testid="map-panel">
+              {selected
+                ? <SelectedProject key={selected.id} record={selected} onClear={() => setSelectedId(null)} />
+                : <Portfolio projects={projects} health={health} loading={!ops.data && ops.state !== "error"} onSelect={(id) => setSelectedId(id)} />}
+            </aside>
           </CesiumOperationsMap>
         </section>
       </div>
 
-      <PrintReport
-        summary={summary}
-        selectedProject={selectedForReport}
-      />
-    </HudPageLayout>
+      <PrintReport summary={summary} selectedProject={selected ?? projects.find((p) => p.status === "critical") ?? projects[0] ?? null} />
+    </>
   );
 }
 
-function ProjectInspector({
-  project,
-  summary,
-  onClear,
-  onOpenProject,
-}: {
-  project: OperationsProjectRecord | null;
-  summary: ReturnType<typeof buildOperationsSummary>;
-  onClear: () => void;
-  onOpenProject: (projectId: string) => void;
+/** Sem projeto escolhido: a carteira em ordem de ação — a mesma saúde da Visão Geral, com o motivo. */
+function Portfolio({ projects, health, loading, onSelect }: {
+  projects: OperationsProjectRecord[]; health: Map<string, Health>; loading: boolean; onSelect: (id: string) => void;
 }) {
+  const rank: Record<OperationsProjectStatus, number> = { critical: 0, attention: 1, active: 2, completed: 3 };
+  const ordered = [...projects].sort((a, b) => rank[a.status] - rank[b.status] || a.name.localeCompare(b.name));
   return (
-    <aside className="pointer-events-auto absolute inset-x-3 bottom-3 z-40 max-h-[62vh] md:inset-x-auto md:bottom-4 md:right-4 md:top-4 md:w-[420px] md:max-h-none xl:w-[460px]">
-      <AnimatePresence mode="wait">
-        {project ? (
-          <motion.div
-            key={project.id}
-            initial={{ opacity: 0, x: 18 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 18 }}
-            transition={{ duration: 0.24 }}
-            className="h-full"
-          >
-            <InspectorShell>
-              <div className="flex items-start justify-between gap-3 border-b border-ig-border-subtle/60 px-4 py-4">
-                <div className="flex min-w-0 items-start gap-3">
-                  <span className="ig-ops-hud-inner flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-ig-border-subtle bg-ig-panel/65 text-sm font-semibold text-ig-fg-strong">
-                    {project.companyInitials}
-                  </span>
-                  <div className="min-w-0">
-                    <p
-                      className="text-[10px] font-semibold uppercase tracking-[0.12em]"
-                      style={{ color: STATUS_TOKEN[project.status] }}
-                    >
-                      {getOperationsStatusLabel(project.status)} · {project.uf}
-                    </p>
-                    <h2 className="mt-1 line-clamp-2 text-base font-semibold leading-tight text-ig-fg-strong">
-                      {project.name}
-                    </h2>
-                    <p className="mt-1 truncate text-ig-caption text-ig-fg-muted">{project.client}</p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={onClear}
-                  className="ig-ops-hud-inner inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-ig-border-subtle bg-ig-panel/55 px-2.5 py-1.5 text-ig-caption text-ig-fg-muted transition-colors hover:text-ig-fg-strong"
-                >
-                  <ArrowLeft className="h-3.5 w-3.5" />
-                  Brasil
-                </button>
-              </div>
-
-              <div className="space-y-4 overflow-y-auto px-4 py-4 max-lg:max-h-[calc(58vh-5rem)] md:max-h-[calc(100%-5.5rem)]">
-                <div className="ig-ops-hud-inner rounded-xl border border-ig-border-subtle/60 bg-ig-panel/45 p-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-ig-caption text-ig-fg-muted">Progresso físico</p>
-                      <p className="ig-tabular mt-1 text-2xl font-semibold text-ig-fg-strong">{project.progress}%</p>
-                    </div>
-                    <span
-                      className="rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.09em]"
-                      style={{
-                        background: `color-mix(in oklab, ${STATUS_TOKEN[project.status]} 14%, transparent)`,
-                        color: STATUS_TOKEN[project.status],
-                      }}
-                    >
-                      {getOperationsStatusLabel(project.status)}
-                    </span>
-                  </div>
-                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-ig-bg-raised">
-                    <div
-                      className="h-full rounded-full"
-                      style={{
-                        width: `${project.progress}%`,
-                        background: `linear-gradient(90deg, ${STATUS_TOKEN[project.status]}, var(--ig-accent))`,
-                      }}
-                    />
-                  </div>
-                </div>
-
-                <InfoGrid
-                  items={[
-                    { label: "Localização", value: project.locationLabel, icon: MapPinned },
-                    { label: "Budget/contrato", value: formatOperationsMoney(project.contractTotal), icon: BriefcaseBusiness },
-                    { label: "Milestone", value: project.deadlineLabel, icon: CalendarClock },
-                    { label: "Gestor responsável", value: project.responsibleManager, icon: UserRound },
-                    { label: "Última atualização", value: formatOperationsDate(project.lastUpdate), icon: Clock3 },
-                    { label: "Tipo", value: project.type, icon: Layers3 },
-                  ]}
-                />
-
-                <div className="ig-ops-hud-inner rounded-xl border border-ig-border-subtle/60 bg-ig-panel/45 p-3">
-                  <div className="flex items-start gap-2">
-                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-ig-warning" />
-                    <div className="min-w-0">
-                      <p className="text-ig-caption text-ig-fg-muted">Risco principal</p>
-                      <p className="mt-1 text-sm font-medium leading-snug text-ig-fg-strong">{project.mainRisk}</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-3 gap-2">
-                  <LinkedMetric label="Riscos" value={project.linkedRisks} />
-                  <LinkedMetric label="Ações" value={project.linkedActions} />
-                  <LinkedMetric label="Contratos" value={project.linkedContracts} />
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => onOpenProject(project.id)}
-                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl border px-3 py-3 text-sm font-semibold transition-colors"
-                  style={{
-                    borderColor: "color-mix(in oklab, var(--ig-accent) 46%, var(--ig-border-subtle))",
-                    background: "color-mix(in oklab, var(--ig-accent) 14%, var(--ig-panel))",
-                    color: "var(--ig-accent)",
-                  }}
-                >
-                  View full project
-                  <ArrowUpRight className="h-4 w-4" />
-                </button>
-              </div>
-            </InspectorShell>
-          </motion.div>
+    <>
+      <header className="ax-mappanel-head">
+        <span className="ax-eyebrow"><b>Operação Brasil</b> · onde agir primeiro</span>
+        <h2>Carteira por prioridade</h2>
+        <p>A pior trava decide a cor — cronograma, material, cliente e OS, a mesma leitura da Visão Geral.</p>
+      </header>
+      <div className="ax-mappanel-body">
+        {loading && !projects.length ? <Skeleton /> : ordered.length === 0 ? (
+          <EmptyState compact title="Nenhum projeto no globo">Projetos com endereço ou UF aparecem aqui.</EmptyState>
         ) : (
-          <motion.div
-            key="overview"
-            initial={{ opacity: 0, x: 18 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 18 }}
-            transition={{ duration: 0.24 }}
-            className="h-full"
-          >
-            <InspectorShell>
-              <div className="border-b border-ig-border-subtle/60 px-4 py-4">
-                <div className="flex items-center gap-2">
-                  <span className="ig-ops-hud-inner flex h-9 w-9 items-center justify-center rounded-xl border border-ig-border-subtle bg-ig-panel/60 text-ig-accent">
-                    <Radar className="h-4 w-4" />
-                  </span>
-                  <div>
-                    <p
-                      className="text-[10px] font-semibold uppercase tracking-[0.12em]"
-                      style={{ color: "#ffffff" }}
-                    >
-                      Visão executiva
-                    </p>
-                    <h2 className="text-base font-semibold text-ig-fg-strong">Operação Brasil</h2>
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-4 overflow-y-auto px-4 py-4 max-lg:max-h-[calc(58vh-5rem)] md:max-h-[calc(100%-5.5rem)]">
-                <div className="grid grid-cols-2 gap-2">
-                  <OverviewMetric label="Projetos mapeados" value={summary.totalProjects} icon={MapPinned} />
-                  <OverviewMetric label="Frentes ativas" value={summary.activeFronts} icon={Zap} />
-                  <OverviewMetric label="Projetos críticos" value={summary.criticalProjects} icon={ShieldAlert} danger />
-                  <OverviewMetric label="Último sync" value={formatOperationsDate(summary.lastUpdate)} icon={Clock3} />
-                </div>
-
-                <div className="ig-ops-hud-inner rounded-xl border border-ig-border-subtle/60 bg-ig-panel/45 p-3">
-                  <div className="flex items-start gap-2">
-                    <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-ig-accent" />
-                    <div>
-                      <p className="text-ig-caption text-ig-fg-muted">Operational insight</p>
-                      <p className="mt-1 text-sm leading-snug text-ig-fg-strong">
-                        {summary.criticalProjects > 0
-                          ? `${summary.criticalProjects} frente(s) exigem leitura executiva antes do próximo marco. Priorize riscos, ações e contratos vinculados.`
-                          : "Carteira mapeada sem alerta crítico aberto. Mantenha monitoramento de marcos, riscos e ativos vinculados."}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-3 gap-2">
-                  <LinkedMetric label="Riscos" value={summary.linkedRisks} />
-                  <LinkedMetric label="Ações" value={summary.linkedActions} />
-                  <LinkedMetric label="Contratos" value={summary.linkedContracts} />
-                </div>
-
-                <div className="ig-ops-hud-inner rounded-xl border border-ig-border-subtle/60 bg-ig-panel/45 p-3">
-                  <p className="text-ig-caption text-ig-fg-muted">Valor em governança</p>
-                  <p className="ig-tabular mt-1 text-xl font-semibold text-ig-fg-strong">
-                    {formatOperationsMoney(summary.contractTotal)}
-                  </p>
-                </div>
-              </div>
-            </InspectorShell>
-          </motion.div>
+          <ul className="ax-maplist">
+            {ordered.map((p) => {
+              const h = health.get(p.id);
+              return (
+                <li key={p.id}>
+                  <button type="button" onClick={() => onSelect(p.id)} data-tone={STATUS_TONE[p.status]}>
+                    <span className="ax-maplist-main">
+                      <strong>{p.name}</strong>
+                      <small>{p.client} · {p.locationLabel}{p.approximate ? " (aprox.)" : ""}</small>
+                      <span className="ax-maplist-why">{h ? (h.reasons.length ? h.reasons.join(" · ") : "sem trava operacional") : p.mainRisk}</span>
+                    </span>
+                    <span className="ax-maplist-side">
+                      <Chip tone={STATUS_TONE[p.status]}>{getOperationsStatusLabel(p.status)}</Chip>
+                      {h?.nextMilestone && <small>marco {dateShort(h.nextMilestone)}</small>}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
         )}
-      </AnimatePresence>
-    </aside>
+      </div>
+    </>
   );
 }
 
-function InspectorShell({ children }: { children: React.ReactNode }) {
+type Planning = ProjectPlanningModel & { ok: true; capabilities: { manage: boolean } };
+
+/** Projeto escolhido: saúde explicada, próximas frentes com prontidão, autorização e o que trava — e para onde ir. */
+function SelectedProject({ record, onClear }: { record: OperationsProjectRecord; onClear: () => void }) {
+  const overview = useResource<ProjectOverviewPayload>(`/api/operations/projects/${encodeURIComponent(record.id)}/overview`);
+  const planning = useResource<Planning>(`/api/operations/projects/${encodeURIComponent(record.id)}/requirements`);
+  const o = overview.data;
+  const plan = planning.data;
+  const readiness = new Map((plan?.readinessByActivity ?? []).map((a) => [a.activityId, a]));
+  const fronts = o ? (plan?.activities ?? []).filter((a) => a.start && a.start >= o.today)
+    .sort((a, b) => (a.start ?? "").localeCompare(b.start ?? "")).slice(0, 3) : [];
+  const tone = STATUS_TONE[record.status];
   return (
-    <div
-      className="ig-ops-inspector ig-ops-hud-surface h-full max-h-full overflow-hidden rounded-2xl border border-ig-border-subtle/70 shadow-2xl backdrop-blur-2xl"
-      style={{
-        background:
-          "linear-gradient(145deg, color-mix(in oklab, var(--ig-panel) 84%, transparent), color-mix(in oklab, var(--ig-bg-raised) 62%, transparent))",
-        boxShadow:
-          "0 22px 58px -34px rgba(0,0,0,.7), inset 0 1px 0 color-mix(in oklab, white 18%, transparent)",
-      }}
-    >
-      {children}
-    </div>
+    <>
+      <header className="ax-mappanel-head">
+        <div className="ax-between">
+          <span className="ax-eyebrow" data-tone={tone}><b>{getOperationsStatusLabel(record.status)}</b> · {record.locationLabel}{record.approximate ? " (posição aproximada)" : ""}</span>
+          <button type="button" className="ax-btn ghost sm" onClick={onClear}><ArrowLeft size={13} aria-hidden />Brasil</button>
+        </div>
+        <h2>{record.name}</h2>
+        <p>{record.client}</p>
+      </header>
+      <div className="ax-mappanel-body">
+        {!o ? (overview.state === "error" ? <EmptyState compact title="Não foi possível ler o projeto">{overview.message}</EmptyState> : <Skeleton />) : (
+          <>
+            <dl className="ax-mapfacts">
+              <div><dt>Saúde</dt><dd data-tone={o.health.level === "critical" ? "danger" : o.health.level === "attention" ? "warning" : undefined}>
+                {HEALTH_LABEL[o.health.level]}</dd>
+                <small>{o.health.reasons.slice(0, 2).map((r) => r.text).join(" · ") || "sem bloqueio"}</small></div>
+              <div><dt>Avanço físico</dt><dd>{o.progress.percent === null ? "—" : `${o.progress.percent.toLocaleString("pt-BR")}%`}</dd>
+                {o.progress.percent !== null && <Meter value={o.progress.percent / 100} label="Avanço físico" />}</div>
+              <div><dt>Próximo marco</dt><dd>{o.nextMilestones[0] ? dateShort(o.nextMilestones[0].date) : "—"}</dd>
+                <small>{o.nextMilestones[0]?.title ?? "nenhum marco futuro"}</small></div>
+              <div><dt>Autorização</dt><dd>{o.serviceOrders[0]
+                ? <Link className="ax-link" href={href.serviceOrder(o.serviceOrders[0].id)}>{o.serviceOrders[0].osNumber}</Link> : "sem OS"}</dd>
+                <small>{o.serviceOrders[0] ? `OS ${serviceOrderStatusLabels[o.serviceOrders[0].status].toLowerCase()}` : "o projeto nasce da OS emitida"}</small></div>
+            </dl>
+
+            <section className="ax-mapsection" aria-label="Próximas frentes">
+              <h3>Próximas frentes</h3>
+              {!plan ? <Skeleton /> : fronts.length === 0 ? <p className="ax-subtle">Nenhuma frente futura no cronograma.</p> : fronts.map((a) => {
+                const r = readiness.get(a.id);
+                return (
+                  <div key={a.id} className="ax-mapfront">
+                    <div className="ax-between"><strong>{a.title}</strong><ReadinessChip value={r?.overall ?? null} /></div>
+                    <small>{dateShort(a.start)} · {relativeDue(a.start, o.today).text}</small>
+                    <ReadinessStrip cells={r?.cells ?? {}} label={`Prontidão de ${a.title}`} />
+                  </div>
+                );
+              })}
+            </section>
+
+            {o.blockers.length > 0 && (
+              <section className="ax-mapsection" aria-label="O que trava">
+                <h3>O que trava <span className="ax-count danger">{o.blockers.length}</span></h3>
+                <ul className="ax-mapblockers">
+                  {o.blockers.slice(0, 4).map((b) => (
+                    <li key={b.id} data-tone={b.tone}><strong>{b.title}</strong><small>{b.issue}{b.due ? ` · ${relativeDue(b.due, o.today).text}` : ""}</small></li>
+                  ))}
+                </ul>
+              </section>
+            )}
+
+            {o.measurements && o.measurements.pending > 0 && (
+              <p className="ax-note" style={{ margin: 0 }}>{plural(o.measurements.pending, "medição pendente da operação", "medições pendentes da operação")}
+                {o.measurements.next ? ` — próxima ${o.measurements.next.key}, ${dateShort(o.measurements.next.expected)}` : ""}.</p>
+            )}
+          </>
+        )}
+      </div>
+      <footer className="ax-mappanel-foot">
+        <Link className="ax-btn primary" href={href.project(record.id)}>Abrir projeto<ArrowUpRight size={14} aria-hidden /></Link>
+        <Link className="ax-btn" href={href.project(record.id, "timeline")}>Plano</Link>
+        <Link className="ax-btn" href={href.project(record.id, "supply")}>Materiais</Link>
+      </footer>
+    </>
   );
 }
 
-function InfoGrid({
-  items,
-}: {
-  items: Array<{ label: string; value: string; icon: React.ComponentType<{ className?: string }> }>;
-}) {
-  return (
-    <div className="grid gap-2">
-      {items.map((item) => {
-        const Icon = item.icon;
-        return (
-          <div key={item.label} className="ig-ops-hud-inner flex min-w-0 items-start gap-2 rounded-xl border border-ig-border-subtle/60 bg-ig-panel/40 p-3">
-            <Icon className="mt-0.5 h-4 w-4 shrink-0 text-ig-accent" />
-            <div className="min-w-0">
-              <p className="text-ig-caption text-ig-fg-muted">{item.label}</p>
-              <p className="mt-0.5 line-clamp-2 text-sm font-medium text-ig-fg-strong">{item.value}</p>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function LinkedMetric({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="ig-ops-hud-inner rounded-xl border border-ig-border-subtle/60 bg-ig-panel/45 p-3 text-center">
-      <Link2 className="mx-auto h-3.5 w-3.5 text-ig-accent" />
-      <p className="ig-tabular mt-1 text-lg font-semibold text-ig-fg-strong">{value}</p>
-      <p className="text-[10px] font-medium uppercase tracking-[0.08em] text-ig-fg-muted">{label}</p>
-    </div>
-  );
-}
-
-function OverviewMetric({
-  label,
-  value,
-  icon: Icon,
-  danger,
-}: {
-  label: string;
-  value: number | string;
-  icon: React.ComponentType<{ className?: string }>;
-  danger?: boolean;
-}) {
-  return (
-    <div className="ig-ops-hud-inner rounded-xl border border-ig-border-subtle/60 bg-ig-panel/45 p-3">
-      <Icon className={cn("h-4 w-4", danger ? "text-ig-danger" : "text-ig-accent")} />
-      <p className="ig-tabular mt-2 text-lg font-semibold text-ig-fg-strong">{value}</p>
-      <p className="text-[10px] font-medium uppercase tracking-[0.08em] text-ig-fg-muted">{label}</p>
-    </div>
-  );
-}
-
-function PrintReport({
-  summary,
-  selectedProject,
-}: {
-  summary: ReturnType<typeof buildOperationsSummary>;
-  selectedProject: OperationsProjectRecord | null;
+function PrintReport({ summary, selectedProject }: {
+  summary: ReturnType<typeof buildOperationsSummary>; selectedProject: OperationsProjectRecord | null;
 }) {
   return (
     <div className="ig-ops3d-print hidden bg-white p-8 text-slate-950">
       <div className="border-b border-slate-200 pb-5">
         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Mapa de Operações</p>
-        <h1 className="mt-2 text-2xl font-semibold">Relatório operacional do gêmeo digital</h1>
+        <h1 className="mt-2 text-2xl font-semibold">Relatório operacional do mapa</h1>
         <p className="mt-1 text-sm text-slate-600">Última atualização: {formatOperationsDate(summary.lastUpdate)}</p>
       </div>
-
-      <div className="mt-6 grid grid-cols-5 gap-3">
-        <PrintMetric label="Projetos mapeados" value={summary.totalProjects} />
+      <div className="mt-6 grid grid-cols-4 gap-3">
+        <PrintMetric label="Projetos no globo" value={summary.totalProjects} />
         <PrintMetric label="Frentes ativas" value={summary.activeFronts} />
-        <PrintMetric label="Alertas críticos" value={summary.criticalProjects} />
-        <PrintMetric label="Ativos vinculados" value={summary.assetsLinked} />
+        <PrintMetric label="Trava crítica" value={summary.criticalProjects} />
         <PrintMetric label="Riscos vinculados" value={summary.linkedRisks} />
       </div>
-
       {selectedProject && (
         <div className="mt-8 rounded-xl border border-slate-200 p-5">
           <div className="flex items-start justify-between gap-6">
@@ -497,32 +277,25 @@ function PrintReport({
               </p>
             </div>
             <div className="text-right">
-              <p className="text-xs text-slate-500">Progresso</p>
+              <p className="text-xs text-slate-500">Avanço</p>
               <p className="text-2xl font-semibold tabular-nums">{selectedProject.progress}%</p>
             </div>
           </div>
-
           <div className="mt-5 grid grid-cols-2 gap-4 text-sm">
-            <PrintField label="Budget/contrato" value={formatOperationsMoney(selectedProject.contractTotal, false)} />
-            <PrintField label="Milestone" value={selectedProject.deadlineLabel} />
+            <PrintField label="Contrato" value={selectedProject.contractTotal ? formatOperationsMoney(selectedProject.contractTotal, false) : "sem valor declarado"} />
+            <PrintField label="Próximo marco" value={selectedProject.deadlineLabel} />
             <PrintField label="Gestor responsável" value={selectedProject.responsibleManager} />
             <PrintField label="Última atualização" value={formatOperationsDate(selectedProject.lastUpdate)} />
-            <PrintField label="Risco principal" value={selectedProject.mainRisk} wide />
-            <PrintField
-              label="Riscos / ações / contratos"
-              value={`${selectedProject.linkedRisks} riscos · ${selectedProject.linkedActions} ações · ${selectedProject.linkedContracts} contratos`}
-              wide
-            />
+            <PrintField label="Trava principal" value={selectedProject.mainRisk} wide />
           </div>
         </div>
       )}
-
       <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-5">
-        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Risk/alert summary</p>
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Resumo de travas</p>
         <p className="mt-2 text-sm leading-6 text-slate-700">
           {summary.criticalProjects > 0
-            ? `${summary.criticalProjects} projeto(s) aparecem como críticos no mapa. O snapshot inclui ${summary.linkedRisks} riscos, ${summary.linkedActions} ações e ${summary.linkedContracts} contratos vinculados.`
-            : `Sem projeto crítico no snapshot. A carteira mantém ${summary.linkedRisks} riscos e ${summary.linkedActions} ações em acompanhamento.`}
+            ? `${plural(summary.criticalProjects, "projeto aparece", "projetos aparecem")} com trava crítica no mapa. O retrato inclui ${summary.linkedRisks} riscos e ${summary.linkedActions} ações vinculados.`
+            : `Nenhum projeto com trava crítica. A carteira mantém ${summary.linkedRisks} riscos e ${summary.linkedActions} ações em acompanhamento.`}
         </p>
       </div>
     </div>

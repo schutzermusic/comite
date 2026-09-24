@@ -25,6 +25,7 @@ import {
 import { countsFor } from '../service-orders/read-model';
 import { serviceOrderNextAction } from '../service-orders/next-action';
 import { deriveProjectHealth, physicalProgress } from './health';
+import { fromViewRow, type CoverageViewRow } from '@/lib/supply/coverage';
 import {
   domainEventTitle, measurementTone, measurementTransitionTitle, mergeTimeline, type ProjectTimelineEvent,
 } from './timeline';
@@ -52,7 +53,7 @@ export async function projectOverview(session: Session, projectId: string, acces
   if (!project) return null;
   const identity = projectIdentity(project.id, project.project, project.project_v2);
 
-  const [activitiesRes, measurementsRes, risksRes, ordersRes, allocationsRes] = await Promise.all([
+  const [activitiesRes, measurementsRes, risksRes, ordersRes, allocationsRes, coverageRes, dependenciesRes] = await Promise.all([
     sb.from('project_timeline_items')
       .select('id,title,type,status,priority,delay_status,is_milestone,is_summary,planned_start,planned_finish,'
         + 'actual_start,actual_finish,percent_complete,duration_minutes,responsible_user_id,wbs_code')
@@ -69,6 +70,10 @@ export async function projectOverview(session: Session, projectId: string, acces
     access.team ? sb.from('project_allocations').select('id,person_id,role_title,status,start_date,end_date,planned_percentage')
       .eq('organization_id', org).eq('project_id', projectId).in('status', ['active', 'pending_approval'])
       : Promise.resolve({ data: [], error: null }),
+    // Material e cliente entram na saúde — a MESMA leitura da Visão Geral e do mapa (visão derivada do Supply; RLS dos requisitos).
+    sb.from('supply_requirement_coverage').select('*').eq('organization_id', org).eq('project_id', projectId),
+    sb.from('project_requirements').select('id,required_by').eq('organization_id', org).eq('project_id', projectId)
+      .eq('requirement_type', 'CUSTOMER_DEPENDENCY').eq('status', 'CONFIRMED').is('satisfied_at', null),
   ]);
 
   const activities = (activitiesRes.data ?? []) as unknown as Activity[];
@@ -89,7 +94,13 @@ export async function projectOverview(session: Session, projectId: string, acces
   const blocked = open.filter((a) => a.delay_status === 'blocked' || a.status === 'blocked');
   const materialRisks = risks.filter(isMaterialOpenRisk);
 
+  const soon = new Date(Date.parse(`${today}T12:00:00Z`) + 14 * 86_400_000).toISOString().slice(0, 10);
+  const shortages = ((coverageRes.data ?? []) as CoverageViewRow[]).filter((r) => fromViewRow(r).shortage > 0);
+  const nearShort = shortages.filter((r) => r.required_by && r.required_by <= soon).length;
+  const customerOverdue = ((dependenciesRes.data ?? []) as Array<{ required_by: string | null }>)
+    .filter((d) => d.required_by && d.required_by < today).length;
   const health = deriveProjectHealth({
+    materialShortNearNeed: nearShort, materialShort: shortages.length - nearShort, customerDependenciesOverdue: customerOverdue,
     openActivities: open.length, criticalActivities: critical.length, overdueActivities: overdue.length,
     blockedActivities: blocked.length,
     serviceOrdersBlocked: orders.filter((o) => (counts.get(o.id)?.blockingOpen ?? 0) > 0

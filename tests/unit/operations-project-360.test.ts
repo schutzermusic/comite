@@ -33,6 +33,13 @@ describe('saúde do projeto', () => {
     expect(deriveProjectHealth({ ...zero, serviceOrdersBlocked: 1 }, true).level).toBe('critical');
     expect(deriveProjectHealth({ ...zero, criticalRisks: 1 }, false).level).toBe('critical');
   });
+  it('material e cliente contam: falta perto da necessidade e cliente vencido travam; falta adiante é atenção', () => {
+    expect(deriveProjectHealth({ ...zero, materialShortNearNeed: 1 }, true)).toEqual({ level: 'critical',
+      reasons: [{ tone: 'danger', text: '1 falta de material perto da necessidade' }] });
+    expect(deriveProjectHealth({ ...zero, customerDependenciesOverdue: 2 }, true).reasons[0].text).toBe('2 dependências do cliente vencidas');
+    expect(deriveProjectHealth({ ...zero, materialShort: 3 }, true)).toEqual({ level: 'attention',
+      reasons: [{ tone: 'warning', text: '3 materiais sem cobertura' }] });
+  });
   it('motivos vêm com o perigo primeiro e no singular/plural certo', () => {
     const { reasons } = deriveProjectHealth({ ...zero, measurementsInCorrection: 1, criticalRisks: 2 }, true);
     expect(reasons[0]).toEqual({ tone: 'danger', text: '2 riscos críticos abertos' });

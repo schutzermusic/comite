@@ -20,6 +20,8 @@ export interface OperationsProjectRecord {
   locationLabel: string;
   lat: number;
   lng: number;
+  /** Sem coordenada no projeto, o marcador fica perto do centro da UF — posição APROXIMADA, e a tela diz isso. */
+  approximate: boolean;
   status: OperationsProjectStatus;
   sourceStatus: Project["status"];
   progress: number;
@@ -225,6 +227,7 @@ export function buildOperationsProjectRecords(
       locationLabel: [v2?.location?.city, uf].filter(Boolean).join(" - ") || `${state.name} - ${uf}`,
       lat: coords.lat,
       lng: coords.lng,
+      approximate: !(typeof v2?.location?.lat === "number" && typeof v2?.location?.lng === "number"),
       status: deriveStatus(project, v2),
       sourceStatus: project.status,
       progress: clampProgress(project.progresso_percentual),

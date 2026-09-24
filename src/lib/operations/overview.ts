@@ -21,6 +21,7 @@ import {
 import { listServiceOrders } from './service-orders/read-model';
 import { serviceOrderNextAction } from './service-orders/next-action';
 import { fromViewRow, type CoverageViewRow } from '@/lib/supply/coverage';
+import { deriveProjectHealth } from './projects/health';
 
 const addDays = (iso: string, n: number) => { const d = new Date(`${iso}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 const formatQty = (n: number) => n.toLocaleString('pt-BR', { maximumFractionDigits: 3 });
@@ -249,20 +250,42 @@ export async function operationsOverview(session: Session, access: OverviewAcces
     const cur = nextMilestone.get(a.project_id);
     if (!cur || a.planned_finish < cur) nextMilestone.set(a.project_id, a.planned_finish);
   }
+  /*
+    Saúde por projeto ativo — a MESMA derivação da página do projeto
+    (`deriveProjectHealth`): cronograma (bloqueada, vencida), OS com bloqueio,
+    material (falta perto da necessidade, sem cobertura), cliente vencido,
+    medição e risco. A lista da Visão Geral, a cor do marcador no mapa e a
+    saúde no projeto dizem a mesma coisa porque vêm da mesma regra.
+  */
+  const openByProject = new Map<string, ActivityRow[]>();
+  for (const a of activities) {
+    if (a.is_summary || a.actual_finish) continue;
+    openByProject.set(a.project_id, [...(openByProject.get(a.project_id) ?? []), a]);
+  }
   const projectHealth = activeProjects.map((p) => {
-    const critical = criticalByProject.get(p.id) ?? 0;
+    const open = openByProject.get(p.id) ?? [];
+    const mine = measurements.filter((m) => m.project_id === p.id);
+    const projectRisks = risks.filter((r) => r.reference_id === p.id);
     const nearShort = nearShortByProject.get(p.id) ?? 0;
-    const customer = customerByProject.get(p.id) ?? 0;
-    const blockingOs = serviceOrders.filter((o) => o.projectId === p.id && o.counts.blockingOpen > 0).length;
-    const tone: 'danger' | 'warning' | 'success' = critical + nearShort + customer + blockingOs > 0 ? 'danger'
-      : (supplyByProject.get(p.id) ?? 0) + (measurementByProject.get(p.id) ?? 0) + (riskByProject.get(p.id) ?? 0) > 0 ? 'warning' : 'success';
-    const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
-    const reasons = [critical ? count(critical, 'atividade crítica', 'atividades críticas') : null,
-      nearShort ? count(nearShort, 'falta de material perto da necessidade', 'faltas de material perto da necessidade') : null,
-      customer ? count(customer, 'dependência do cliente vencida', 'dependências do cliente vencidas') : null,
-      blockingOs ? 'OS com divergência bloqueante' : null,
-      (measurementByProject.get(p.id) ?? 0) ? 'medição pendente' : null].filter(Boolean) as string[];
-    return { projectId: p.id, project: p.name, client: p.client, tone, reasons, nextMilestone: nextMilestone.get(p.id) ?? null };
+    const h = deriveProjectHealth({
+      openActivities: open.length,
+      criticalActivities: open.filter((a) => isCriticalActivity(a, today)).length,
+      overdueActivities: open.filter((a) => isOverdueActivity(a, today)).length,
+      blockedActivities: open.filter((a) => a.delay_status === 'blocked' || a.status === 'blocked').length,
+      serviceOrdersBlocked: serviceOrders.filter((o) => o.projectId === p.id && o.counts.blockingOpen > 0
+        && (o.status === 'DRAFT' || o.status === 'PENDING_CONFIRMATION')).length,
+      measurementsInCorrection: mine.filter((m) => measurementLane(m.status) === 'CORRECTION').length,
+      measurementsOverdue: mine.filter((m) => m.status === 'PLANNED' && m.expected_at !== null && m.expected_at < today).length,
+      criticalRisks: projectRisks.filter((r) => r.severity === 'critical').length,
+      highRisks: projectRisks.filter((r) => r.severity === 'high').length,
+      risksWithoutOwner: projectRisks.filter(isMaterialOpenRisk).filter((r) => !r.responsible_id).length,
+      materialShortNearNeed: nearShort,
+      materialShort: (supplyByProject.get(p.id) ?? 0) - nearShort,
+      customerDependenciesOverdue: customerByProject.get(p.id) ?? 0,
+    }, open.length > 0);
+    const tone: 'danger' | 'warning' | 'success' = h.level === 'critical' ? 'danger' : h.level === 'attention' ? 'warning' : 'success';
+    return { projectId: p.id, project: p.name, client: p.client, tone, reasons: h.reasons.map((r) => r.text),
+      nextMilestone: nextMilestone.get(p.id) ?? null };
   }).sort((a, b) => ({ danger: 0, warning: 1, success: 2 }[a.tone] - { danger: 0, warning: 1, success: 2 }[b.tone]));
 
   // Necessidades de material nos próximos 30 dias (marcadores da linha do tempo).

@@ -173,6 +173,24 @@ function buildHexMarkerImage(status: OperationsProjectStatus, selected = false, 
   return dataUrl;
 }
 
+/** O marcador de um projeto no globo — o mesmo na criação do visualizador e na sincronização posterior. */
+function markerEntity(Cesium: typeof import("cesium"), project: OperationsProjectRecord) {
+  return {
+    id: project.id,
+    name: project.name,
+    position: Cesium.Cartesian3.fromDegrees(project.lng, project.lat, 0),
+    billboard: {
+      image: buildHexMarkerImage(project.status),
+      scale: project.status === "critical" ? 0.52 : 0.48,
+      verticalOrigin: Cesium.VerticalOrigin.CENTER,
+      horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
+      heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+      disableDepthTestDistance: Number.POSITIVE_INFINITY,
+      scaleByDistance: new Cesium.NearFarScalar(1.5e5, 1.08, 7.5e6, 0.7),
+    },
+  };
+}
+
 export function CesiumOperationsMap({
   projects,
   selectedProjectId = null,
@@ -190,6 +208,8 @@ export function CesiumOperationsMap({
   const selectedProjectIdRef = useRef<string | null>(selectedProjectId);
   const previousSelectedProjectIdRef = useRef<string | null>(selectedProjectId);
   const onSelectProjectRef = useRef(onSelectProject);
+  /** O projeto para onde a câmera já voou — clique no marcador voa na hora; seleção vinda de fora (lista, ?project=) voa aqui. */
+  const flownProjectIdRef = useRef<string | null>(null);
   const hoveredProjectIdRef = useRef<string | null>(null);
   const filtersRef = useRef<Record<FilterKey, boolean>>({
     all: true,
@@ -299,6 +319,16 @@ export function CesiumOperationsMap({
     });
   }, []);
 
+  // Seleção vinda de FORA do globo (painel operacional, link ?project=): a câmera vai até o projeto quando o globo estiver pronto.
+  useEffect(() => {
+    if (!ready || !selectedProjectId) { if (!selectedProjectId) flownProjectIdRef.current = null; return; }
+    if (flownProjectIdRef.current === selectedProjectId) return;
+    const project = projects.find((item) => item.id === selectedProjectId);
+    if (!project) return;
+    flownProjectIdRef.current = selectedProjectId;
+    flyToProject(project);
+  }, [ready, selectedProjectId, projects, flyToProject]);
+
   const applyEntityVisualState = useCallback(() => {
     const Cesium = cesiumModRef.current;
     if (!Cesium) return;
@@ -324,6 +354,34 @@ export function CesiumOperationsMap({
   useEffect(() => {
     applyEntityVisualState();
   }, [applyEntityVisualState, filters, selectedProjectId]);
+
+  /*
+    Os projetos chegam DEPOIS do visualizador quase sempre (busca assíncrona ×
+    import do Cesium). Criar os marcadores só na montagem deixava o globo sem
+    nenhum quando a busca perdia a corrida. Aqui o conjunto de marcadores
+    acompanha a lista: entra o que chegou, sai o que deixou de existir.
+  */
+  useEffect(() => {
+    const Cesium = cesiumModRef.current;
+    const viewer = viewerRef.current as {
+      entities: { add: (options: unknown) => unknown; remove: (entity: unknown) => boolean };
+      scene: { requestRender?: () => void };
+      isDestroyed?: () => boolean;
+    } | null;
+    if (!ready || !Cesium || !viewer || viewer.isDestroyed?.()) return;
+    const entities = entitiesByIdRef.current;
+    const ids = new Set(projects.map((project) => project.id));
+    for (const [id, entity] of Array.from(entities.entries())) {
+      if (ids.has(id)) continue;
+      viewer.entities.remove(entity);
+      entities.delete(id);
+    }
+    for (const project of projects) {
+      if (!entities.has(project.id)) entities.set(project.id, viewer.entities.add(markerEntity(Cesium, project)));
+    }
+    applyEntityVisualState();
+    viewer.scene.requestRender?.();
+  }, [ready, projects, applyEntityVisualState]);
 
   useEffect(() => {
     let cancelled = false;
@@ -430,21 +488,7 @@ export function CesiumOperationsMap({
         const entities = entitiesByIdRef.current;
         entities.clear();
         projectsRef.current.forEach((project) => {
-          const entity = viewer.entities.add({
-            id: project.id,
-            name: project.name,
-            position: Cesium.Cartesian3.fromDegrees(project.lng, project.lat, 0),
-            billboard: {
-              image: buildHexMarkerImage(project.status),
-              scale: project.status === "critical" ? 0.52 : 0.48,
-              verticalOrigin: Cesium.VerticalOrigin.CENTER,
-              horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
-              heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-              disableDepthTestDistance: Number.POSITIVE_INFINITY,
-              scaleByDistance: new Cesium.NearFarScalar(1.5e5, 1.08, 7.5e6, 0.7),
-            },
-          });
-          entities.set(project.id, entity);
+          entities.set(project.id, viewer.entities.add(markerEntity(Cesium, project)));
         });
 
         const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
@@ -453,6 +497,7 @@ export function CesiumOperationsMap({
           if (picked?.id?.id && typeof picked.id.id === "string") {
             const project = projectsRef.current.find((item) => item.id === picked.id.id);
             if (project) {
+              flownProjectIdRef.current = project.id;
               onSelectProjectRef.current(project);
               flyToProject(project);
               return;
@@ -854,7 +899,7 @@ export function CesiumOperationsMap({
       <div className="pointer-events-none absolute left-3 top-3 z-30 flex max-w-[calc(100%-1.5rem)] flex-wrap items-center gap-2 md:left-4 md:top-4 md:max-w-[calc(100%-31rem)] xl:max-w-[calc(100%-34rem)]">
         <span className="ig-ops-hud-chip pointer-events-auto inline-flex items-center gap-2 rounded-full border border-ig-border-subtle bg-ig-panel/70 px-3 py-1.5 text-ig-label text-ig-fg-muted shadow-lg backdrop-blur-md">
           <Radar className="h-3.5 w-3.5 text-ig-accent" />
-          Digital twin Brasil
+          Globo operacional
           <span
             className="ml-1 rounded-full px-1.5 py-0.5 text-[10px]"
             style={{
@@ -862,16 +907,17 @@ export function CesiumOperationsMap({
               color: "var(--ig-accent)",
             }}
           >
-            {photoTilesActive ? "Photoreal 3D" : terrainActive ? "Terrain" : "Satélite"}
+            {photoTilesActive ? "3D fotorrealista" : terrainActive ? "Relevo" : "Satélite"}
           </span>
         </span>
-        <span className="ig-ops-hud-chip pointer-events-auto inline-flex items-center gap-2 rounded-full border border-ig-border-subtle bg-ig-panel/70 px-3 py-1.5 text-ig-label text-ig-fg-muted shadow-lg backdrop-blur-md">
+        {/* No celular, contagem e críticos já estão nos sinais acima: a linha de chips cabe numa só e não invade os filtros. */}
+        <span className="ig-ops-hud-chip pointer-events-auto hidden items-center gap-2 rounded-full border border-ig-border-subtle bg-ig-panel/70 px-3 py-1.5 text-ig-label text-ig-fg-muted shadow-lg backdrop-blur-md sm:inline-flex">
           <MapPin className="h-3.5 w-3.5 text-ig-accent" />
           {counts.visible}/{counts.total} projetos
         </span>
         {counts.critical > 0 && (
           <span
-            className="ig-ops-hud-chip pointer-events-auto inline-flex items-center gap-2 rounded-full border bg-ig-panel/80 px-3 py-1.5 text-ig-label shadow-lg backdrop-blur-md"
+            className="ig-ops-hud-chip pointer-events-auto hidden items-center gap-2 rounded-full border bg-ig-panel/80 px-3 py-1.5 text-ig-label shadow-lg backdrop-blur-md sm:inline-flex"
             style={{
               borderColor: "color-mix(in oklab, var(--ig-danger) 42%, var(--ig-border-subtle))",
               color: "var(--ig-danger)",
@@ -923,7 +969,7 @@ export function CesiumOperationsMap({
             className="ig-ops-hud-chip inline-flex h-8 items-center gap-1.5 rounded-full border border-ig-border-subtle bg-ig-panel/65 px-2.5 text-ig-caption text-ig-fg-muted shadow-lg backdrop-blur-md transition-colors hover:text-ig-fg-strong"
           >
             <Building2 className="h-3.5 w-3.5 text-ig-accent" />
-            {buildings3DVisible ? "3D on" : "3D off"}
+            {buildings3DVisible ? "Prédios 3D" : "Sem prédios"}
           </button>
         )}
         <button

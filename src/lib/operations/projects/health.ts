@@ -19,6 +19,12 @@ export interface HealthSignals {
   criticalRisks: number;
   highRisks: number;
   risksWithoutOwner: number;
+  /** Material com falta a até 14 dias da necessidade — a obra para se ninguém agir. */
+  materialShortNearNeed?: number;
+  /** Material com falta mais adiante: pede compra/transferência, ainda não trava. */
+  materialShort?: number;
+  /** Dependências do cliente confirmadas, vencidas e não atendidas. */
+  customerDependenciesOverdue?: number;
 }
 
 export interface HealthReason { tone: 'danger' | 'warning'; text: string }
@@ -30,6 +36,11 @@ export function deriveProjectHealth(s: HealthSignals, hasSchedule: boolean): { l
   if (s.overdueActivities) reasons.push({ tone: s.overdueActivities > 3 ? 'danger' : 'warning',
     text: plural(s.overdueActivities, 'atividade vencida', 'atividades vencidas') });
   if (s.serviceOrdersBlocked) reasons.push({ tone: 'danger', text: plural(s.serviceOrdersBlocked, 'OS com bloqueio', 'OS com bloqueio') });
+  if (s.materialShortNearNeed) reasons.push({ tone: 'danger',
+    text: plural(s.materialShortNearNeed, 'falta de material perto da necessidade', 'faltas de material perto da necessidade') });
+  if (s.customerDependenciesOverdue) reasons.push({ tone: 'danger',
+    text: plural(s.customerDependenciesOverdue, 'dependência do cliente vencida', 'dependências do cliente vencidas') });
+  if (s.materialShort) reasons.push({ tone: 'warning', text: plural(s.materialShort, 'material sem cobertura', 'materiais sem cobertura') });
   if (s.criticalRisks) reasons.push({ tone: 'danger', text: plural(s.criticalRisks, 'risco crítico aberto', 'riscos críticos abertos') });
   if (s.highRisks) reasons.push({ tone: 'warning', text: plural(s.highRisks, 'risco alto aberto', 'riscos altos abertos') });
   if (s.risksWithoutOwner) reasons.push({ tone: 'warning', text: plural(s.risksWithoutOwner, 'risco material sem dono', 'riscos materiais sem dono') });
