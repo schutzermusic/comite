@@ -89,3 +89,18 @@ INV-06 (proveniência obrigatória), INV-01 (FK composta de projeto/atividade/OS
 - Unidade `operations-planning` (14) — suíte 2883/2883.
 - Integração viva `operations-planning-live` 5/5 (+ OS 8/8).
 - E2E `operations-planning.spec.ts` 3/3 (criação interceptada: prova o contrato enviado sem escrever no banco); regressão Operações 14/14.
+
+---
+
+## Wave E — Mapa de Operações (sem migration)
+
+### Entrou
+- `/operacoes/mapa` (menu: Operações → Mapa de Operações): mapa 2D com painel sincronizado — pino por projeto no **local canônico** (`project_canonical_location` vigente; sem ele, centro da cerca, dito assim), cercas de obra (`project_geofences`, raio real), equipe (último `location_evidence` em 24 h, SÓ com `people.attendance_view`). Nenhuma coordenada nova é guardada.
+- Saúde do pino (`mapHealth`): OS com bloqueante (mesma regra do portão), risco material, material confirmado sem cobertura em 14 dias ou 4+ atividades vencidas → crítico; atividade crítica ou vencida → atenção; sem cronograma → desconhecido.
+- Painel: recorte (ativos / com alerta / todos), cliente, UF, camadas; projeto selecionado mostra status, próximo marco, OS, equipe no local, alertas e o caminho ao workspace. Projeto sem local confirmado aparece na lista, não no mapa.
+- Estoques entram quando o domínio de estoque existir (wave G). Veículos: a plataforma não tem domínio de frota com posição — o mapa diz isso em vez de inventar.
+- deck.gl **intercalado** no contexto WebGL do maplibre (`MapboxOverlay`): um contexto só (o canvas separado disparava, no duplo-mount do React em dev, leitura de limites de device destruído). O globo 3D existente continua acessível ("Vista 3D").
+
+### Provas
+- Unidade `operations-map` (4) — suíte 2887/2887.
+- E2E `operations-map.spec.ts` (inclui 390 px sem rolagem horizontal e zero `pageerror`); regressão de Operações 18/18 com `--workers=1` (o servidor dev compila sob demanda; em paralelo, logins disputam).
