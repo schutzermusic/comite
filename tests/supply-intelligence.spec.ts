@@ -1,13 +1,15 @@
 /**
- * E2E — Inteligência de Supply (wave J): a torre de controle real mostra o
- * fluxo e as recomendações (a leitura automática da Apex é respondida pelo
- * teste, nunca gravada), e — com leitura simulada — cada recomendação leva ao
- * ato governado certo: executar com ajuste, descartar com motivo, acompanhar.
+ * E2E — Inteligência de Supply: a torre de controle real mostra os sinais e os
+ * achados da Apex SEM gravar nada ao abrir (a leitura é agendada pela
+ * plataforma, não disparada pela tela), e — com leitura simulada — cada achado
+ * leva ao ato governado certo: executar com ajuste, descartar com motivo,
+ * acompanhar com objetivo e prazo. As escritas são interceptadas (inquilino real).
  */
+import { e2eCredentials } from './support/e2e-credentials';
 import { test, expect, type BrowserContext, type Page } from '@playwright/test';
-import { mkdirSync, readFileSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 
-const qa = JSON.parse(readFileSync('tests/.qa-env.json', 'utf8')) as { email: string; password: string; orgId: string };
+const qa = e2eCredentials();
 const OUT = 'test-results/operations';
 test.describe.configure({ mode: 'serial' });
 test.setTimeout(150_000);
@@ -61,30 +63,33 @@ test.beforeAll(async ({ browser }) => {
 });
 test.afterAll(async () => { await ctx?.close(); });
 
-test('1 · torre de controle real: fluxo de compras/recebimento e recomendações; leitura velha é pedida (e só respondida)', async () => {
+test('1 · torre de controle real: sinais com fonte e achados da Apex — abrir a tela não grava nada', async () => {
   await page.goto('/supply');
   const overview = page.getByTestId('supply-overview');
-  await expect(overview).toBeVisible({ timeout: 60_000 });
-  for (const k of ['Em pedido aberto', 'Entradas atrasadas', 'Divergências de recebimento', 'Decisões de compra paradas']) {
-    await expect(overview.getByText(k, { exact: true }).first()).toBeVisible();
+  await expect(overview.getByRole('heading', { name: 'Torre de controle' })).toBeVisible({ timeout: 60_000 });
+  const signals = overview.getByRole('region', { name: 'Sinais do Supply' });
+  for (const k of ['Faltas críticas', 'Sem cobertura', 'Entradas em risco', 'Aprovações', 'Em inspeção', 'Em pedido aberto']) {
+    await expect(signals.getByText(k, { exact: true })).toBeVisible();
   }
-  await expect(overview.getByText('Recomendações da Apex')).toBeVisible();
-  await expect.poll(() => sweeps, { timeout: 30_000 }).toBeGreaterThanOrEqual(1);
+  await expect(page.getByTestId('apex-findings')).toBeVisible();
+  await expect(overview.getByRole('region', { name: 'O que precisa de atenção agora' })).toBeVisible();
+  await page.waitForLoadState('networkidle');
+  expect(sweeps).toBe(0);
   mkdirSync(OUT, { recursive: true }); await page.screenshot({ path: `${OUT}/supply-intelligence-real.png`, fullPage: true });
 });
 
 test('2 · executar recomendação: a pessoa ajusta a quantidade e o ato vai com a identidade dela', async () => {
   mockReads = true;
   await page.goto('/supply');
-  const recs = page.getByTestId('apex-recommendations');
-  await expect(recs.getByTestId('apex-signal')).toHaveCount(3);
-  const first = recs.getByTestId('apex-signal').first();
-  await expect(first).toContainText('Estoque disponível');
+  const recs = page.getByTestId('apex-findings');
+  await expect(recs.getByTestId('apex-finding')).toHaveCount(3);
+  const first = recs.getByTestId('apex-finding').first();
+  await expect(first).toContainText('Apex identificou estoque que evita compra');
   await expect(first).toContainText('Almox B (em mão − reservado)');
   await first.getByRole('button', { name: 'Reservar 400 m' }).click();
   const form = page.getByTestId('signal-execute-form');
   await form.getByLabel('Quantidade').fill('300');
-  await page.getByRole('button', { name: 'Executar' }).click();
+  await form.getByRole('button', { name: 'Confirmar ato' }).click();
   await expect.poll(() => sent.length).toBe(1);
   expect(sent[0]).toMatchObject({ path: `/api/supply/intelligence/signals/${RESERVE}`, body: { action: 'execute', quantity: 300 } });
   await page.screenshot({ path: `${OUT}/supply-intelligence-cards.png`, fullPage: true });
@@ -92,21 +97,23 @@ test('2 · executar recomendação: a pessoa ajusta a quantidade e o ato vai com
 
 test('3 · descartar exige motivo; acompanhar abre cobrança com responsável e prazo', async () => {
   await page.goto('/supply');
-  const recs = page.getByTestId('apex-recommendations');
-  const buy = recs.getByTestId('apex-signal').nth(1);
+  const recs = page.getByTestId('apex-findings');
+  const buy = recs.getByTestId('apex-finding').nth(1);
   await buy.getByRole('button', { name: 'Descartar' }).click();
-  const confirm = page.getByRole('button', { name: 'Descartar', exact: true }).last();
+  const dismiss = page.getByTestId('signal-dismiss-form');
+  const confirm = dismiss.getByRole('button', { name: 'Descartar', exact: true });
   await expect(confirm).toBeDisabled();
-  await page.getByTestId('signal-dismiss-form').getByLabel('Motivo').fill('Cliente fornece este cabo');
+  await dismiss.getByLabel('Motivo').fill('Cliente fornece este cabo');
   await confirm.click();
   await expect.poll(() => sent.length).toBe(2);
   expect(sent[1]).toMatchObject({ path: `/api/supply/intelligence/signals/${BUY}`, body: { action: 'dismiss', note: 'Cliente fornece este cabo' } });
 
-  const late = recs.getByTestId('apex-signal').nth(2);
+  const late = recs.getByTestId('apex-finding').nth(2);
   await late.getByRole('button', { name: 'Acompanhar com o fornecedor' }).click();
   const form = page.getByTestId('signal-follow-form');
+  await expect(form.getByLabel('Objetivo')).toHaveValue('Confirmar nova data do OC-1');
   await form.getByLabel('Responsável').fill('Comprador Ana');
-  await page.getByRole('button', { name: 'Abrir acompanhamento' }).click();
+  await form.getByRole('button', { name: 'Abrir acompanhamento' }).click();
   await expect.poll(() => sent.length).toBe(3);
   expect(sent[2]).toMatchObject({ path: `/api/supply/intelligence/signals/${FOLLOW}`, body: { action: 'follow_up',
     responsibleText: 'Comprador Ana', dueDate: '2026-09-28', goal: 'Confirmar nova data do OC-1' } });
@@ -115,7 +122,7 @@ test('3 · descartar exige motivo; acompanhar abre cobrança com responsável e 
 test('4 · 390 px sem rolagem horizontal; nenhuma outra escrita saiu', async () => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/supply');
-  await expect(page.getByTestId('apex-recommendations')).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByTestId('apex-findings')).toBeVisible({ timeout: 60_000 });
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(overflow).toBeLessThanOrEqual(1);
   expect(blocked).toEqual([]);

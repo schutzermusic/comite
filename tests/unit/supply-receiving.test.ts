@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { daysLate, inboundQueue, onTimeRate, receivingErrorMessage, type InboundFacts } from '@/lib/supply/receiving';
+import { daysLate, inboundQueue, inboundRisk, onTimeRate, receivingErrorMessage, type InboundFacts } from '@/lib/supply/receiving';
 import { summarizeCoverage } from '@/lib/supply/coverage';
 import { inspectionSchema, receiptSchema, shipmentSchema } from '@/lib/supply/validation';
 
@@ -57,5 +57,27 @@ describe('Recebimento — contrato das rotas e recusas', () => {
     expect(receivingErrorMessage('Purchase order is DRAFT: only an issued order is received.')).toMatch(/Só pedido emitido/);
     expect(receivingErrorMessage('Closing with 150 still open requires a reason (the balance stops being expected).')).toMatch(/150/);
     expect(receivingErrorMessage('outra coisa')).toBeNull();
+  });
+});
+
+describe('Torre de controle — risco de uma entrada para a necessidade que ela cobre', () => {
+  it('chega depois da necessidade: crítico perto (≤ 7 dias), alto longe', () => {
+    expect(inboundRisk('2026-10-10', '2026-09-30', today)).toEqual({ risk: 'critical', slackDays: -10, late: false });
+    expect(inboundRisk('2026-10-30', '2026-10-20', today)).toMatchObject({ risk: 'high', slackDays: -10 });
+  });
+  it('atrasada chega no melhor caso hoje: necessidade já passada é crítica; a tempo, alta perto e média longe', () => {
+    expect(inboundRisk('2026-09-20', '2026-09-22', today)).toMatchObject({ risk: 'critical', late: true, slackDays: -2 });
+    expect(inboundRisk('2026-09-20', '2026-09-28', today)).toMatchObject({ risk: 'high', late: true, slackDays: 4 });
+    expect(inboundRisk('2026-09-20', '2026-11-30', today)).toMatchObject({ risk: 'medium', late: true });
+    expect(inboundRisk('2026-09-20', null, today)).toMatchObject({ risk: 'medium', late: true, slackDays: null });
+  });
+  it('folga curta (≤ 3 dias) é média; folga confortável não é risco', () => {
+    expect(inboundRisk('2026-10-01', '2026-10-03', today)).toMatchObject({ risk: 'medium', slackDays: 2 });
+    expect(inboundRisk('2026-10-01', '2026-10-20', today)).toMatchObject({ risk: null, slackDays: 19 });
+    expect(inboundRisk('2026-10-01', null, today)).toMatchObject({ risk: null });
+  });
+  it('sem data prometida: médio só quando a necessidade está a 14 dias ou menos — nunca inventa uma data', () => {
+    expect(inboundRisk(null, '2026-10-05', today)).toEqual({ risk: 'medium', slackDays: null, late: false });
+    expect(inboundRisk(null, '2026-11-30', today)).toEqual({ risk: null, slackDays: null, late: false });
   });
 });

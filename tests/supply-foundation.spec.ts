@@ -3,14 +3,15 @@
  * catálogo (criação interceptada) e aba Materiais & Supply do projeto.
  * Escritas nunca chegam ao banco.
  */
+import { e2eCredentials, e2eDbConfig } from './support/e2e-credentials';
 import { test, expect, type BrowserContext, type Page } from '@playwright/test';
-import { mkdirSync, readFileSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import pg from 'pg';
 import dotenv from 'dotenv';
 
 dotenv.config({ path: '.env' });
 dotenv.config({ path: '.env.local' });
-const qa = JSON.parse(readFileSync('tests/.qa-env.json', 'utf8')) as { email: string; password: string; orgId: string };
+const qa = e2eCredentials();
 const OUT = 'test-results/operations';
 test.describe.configure({ mode: 'serial' });
 test.setTimeout(150_000);
@@ -19,7 +20,7 @@ let ctx: BrowserContext; let page: Page; let projectId = '';
 const blocked: string[] = []; const intercepted: unknown[] = [];
 
 test.beforeAll(async ({ browser }) => {
-  const db = new pg.Client({ connectionString: process.env.SUPABASE_DB_URL, ssl: { rejectUnauthorized: false } });
+  const db = new pg.Client(e2eDbConfig());
   await db.connect(); await db.query('BEGIN TRANSACTION READ ONLY'); // pooler em modo transação: nada de SET SESSION
   projectId = (await db.query(`SELECT id FROM public.projects WHERE organization_id = $1 ORDER BY id LIMIT 1`, [qa.orgId])).rows[0].id;
   await db.query('ROLLBACK'); await db.end();
@@ -52,9 +53,10 @@ test('1 · menu Supply Chain e torre de controle com números de fonte', async (
   await expect(action).toHaveAttribute('aria-expanded', 'true', { timeout: 60_000 });
   await expect(page.locator('.hud-nav-submenu').getByRole('link', { name: 'Planejamento de Materiais', exact: true })).toBeVisible();
   const overview = page.getByTestId('supply-overview');
-  await expect(overview.getByRole('heading', { name: 'O que a execução precisa e ainda não tem' })).toBeVisible();
-  for (const k of ['Demanda sem cobertura', 'Faltas críticas', 'Projetos expostos', 'Totalmente cobertos']) {
-    await expect(overview.getByText(k, { exact: true }).first()).toBeVisible();
+  await expect(overview.getByRole('heading', { name: 'Torre de controle' })).toBeVisible({ timeout: 60_000 });
+  const signals = overview.getByRole('region', { name: 'Sinais do Supply' });
+  for (const k of ['Faltas críticas', 'Sem cobertura', 'Entradas em risco', 'Aprovações', 'Em inspeção', 'Em pedido aberto']) {
+    await expect(signals.getByText(k, { exact: true })).toBeVisible();
   }
   await expect(page.getByText(/Esta ação exige:/)).toHaveCount(0);
   mkdirSync(OUT, { recursive: true }); await page.screenshot({ path: `${OUT}/supply-overview.png`, fullPage: true });

@@ -10,9 +10,11 @@ import { useGovernedAction, useResource } from './hooks';
 import { SidePanel, Section } from './panel';
 import { Busy, Chip, EmptyState, type Tone } from './primitives';
 
-type Signal = SupplySignalsModel['signals'][number];
+export type ApexSignal = SupplySignalsModel['signals'][number];
+type Signal = ApexSignal;
 type Caps = { RESERVE: boolean; TRANSFER: boolean; REQUISITION: boolean; FOLLOW_UP: boolean; dismiss: boolean };
-type Payload = SupplySignalsModel & { ok: true; capabilities: Caps };
+export type ApexPayload = SupplySignalsModel & { ok: true; capabilities: Caps };
+type Payload = ApexPayload;
 
 const TONE: Record<string, Tone> = { critical: 'danger', high: 'warning', medium: 'info', low: 'neutral' };
 const LEAD: Record<string, string> = {
@@ -31,11 +33,34 @@ const LEAD: Record<string, string> = {
  * Aceitar executa o ato com a SUA identidade — alçada, disponibilidade e
  * cobertura reconferidas no banco. A Apex não recebe, não consome, não aprova.
  */
-export function ApexFindings({ projectId, limit, title = 'Apex — o que precisa de você', testId }: {
-  projectId?: string; limit?: number; title?: string; testId?: string;
+export function ApexFindings(props: { projectId?: string; limit?: number; title?: string; testId?: string }) {
+  const source = useApexSignals(props.projectId);
+  return <ApexFindingsView {...props} source={source} />;
+}
+
+/** A leitura da Apex, uma vez por tela: a lista de achados e os marcadores nas linhas usam a mesma. */
+export function useApexSignals(projectId?: string) {
+  return useResource<Payload>(`/api/supply/intelligence${projectId ? `?project=${encodeURIComponent(projectId)}` : ''}`);
+}
+
+/**
+ * O achado ABERTO da Apex que fala do mesmo pedido ou requisito de uma linha
+ * operacional — e do mesmo ASSUNTO (`kinds`): a linha de inspeção não herda
+ * o achado de atraso do mesmo pedido.
+ */
+export function apexFor(payload: Payload | null | undefined,
+  ref: { requirementId?: string | null; purchaseOrderId?: string | null; kinds?: string[] }) {
+  if (!payload) return null;
+  return payload.signals.find((s) => s.status === 'OPEN' && (!ref.kinds || ref.kinds.includes(s.kind)) && (
+    (ref.purchaseOrderId && s.purchaseOrderId === ref.purchaseOrderId) || (ref.requirementId && s.requirementId === ref.requirementId))) ?? null;
+}
+
+export const apexDeepLink = (s: Signal) => deepLink(s);
+
+export function ApexFindingsView({ projectId, limit, title = 'Apex — o que precisa de você', testId, source }: {
+  projectId?: string; limit?: number; title?: string; testId?: string; source: ReturnType<typeof useApexSignals>;
 }) {
-  const url = `/api/supply/intelligence${projectId ? `?project=${encodeURIComponent(projectId)}` : ''}`;
-  const { data, state, refresh } = useResource<Payload>(url);
+  const { data, state, refresh } = source;
   const [open, setOpen] = useState<{ mode: 'execute' | 'dismiss' | 'follow'; signal: Signal } | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const signals = useMemo(() => (data?.signals ?? []).filter((s) => s.status === 'OPEN'), [data]);
@@ -91,8 +116,10 @@ export function ApexFindings({ projectId, limit, title = 'Apex — o que precisa
                     <Link className="ax-btn sm" href={deepLink(s)}>{s.action.label}</Link>
                   )}
                   {data?.capabilities.FOLLOW_UP && !s.followupId && (
-                    <button type="button" className="ax-btn ghost sm" onClick={() => setOpen({ mode: 'follow', signal: s })}>Acompanhar</button>
+                    <button type="button" className={s.action.kind === 'FOLLOW_UP' ? 'ax-btn primary sm' : 'ax-btn ghost sm'}
+                      onClick={() => setOpen({ mode: 'follow', signal: s })}>{s.action.kind === 'FOLLOW_UP' ? s.action.label : 'Acompanhar'}</button>
                   )}
+                  {s.followupId && <span className="ax-subtle">Em acompanhamento</span>}
                   {data?.capabilities.dismiss && (
                     <button type="button" className="ax-btn ghost sm" onClick={() => setOpen({ mode: 'dismiss', signal: s })}>Descartar</button>
                   )}
@@ -113,6 +140,8 @@ export function ApexFindings({ projectId, limit, title = 'Apex — o que precisa
 
 const severityLabel = (s: string) => ({ critical: 'Crítico', high: 'Alto', medium: 'Médio', low: 'Baixo' } as Record<string, string>)[s] ?? s;
 
+export function apexActionable(s: Signal, caps?: Caps) { return actionable(s, caps); }
+
 function actionable(s: Signal, caps?: Caps) {
   if (!caps) return false;
   return (s.action.kind === 'RESERVE' && caps.RESERVE) || (s.action.kind === 'TRANSFER' && caps.TRANSFER)
@@ -126,13 +155,14 @@ function deepLink(s: Signal): string {
   return base;
 }
 
-function SignalPanel({ mode, signal, onClose, onDone }: { mode: 'execute' | 'dismiss' | 'follow'; signal: Signal; onClose: () => void; onDone: () => void }) {
+export function SignalPanel({ mode, signal, onClose, onDone }: { mode: 'execute' | 'dismiss' | 'follow'; signal: Signal; onClose: () => void; onDone: () => void }) {
   const { run, busy } = useGovernedAction(onDone);
   const suggested = Number(signal.action.payload?.quantity ?? 0);
   const [quantity, setQuantity] = useState(suggested ? String(suggested).replace('.', ',') : '');
   const [note, setNote] = useState('');
   const [responsible, setResponsible] = useState('');
-  const [due, setDue] = useState('');
+  const [due, setDue] = useState(String(signal.action.payload?.due_date ?? ''));
+  const [goal, setGoal] = useState(String(signal.action.payload?.goal ?? signal.title));
   const url = `/api/supply/intelligence/signals/${signal.id}`;
   const q = parseDecimalBR(quantity);
   const submit = () => {
@@ -142,14 +172,15 @@ function SignalPanel({ mode, signal, onClose, onDone }: { mode: 'execute' | 'dis
     } else if (mode === 'dismiss') {
       void run(`signal-dismiss:${signal.id}`, url, { action: 'dismiss', note }, { title: 'Recomendação descartada', detail: 'Fica descartada enquanto a condição for a mesma.' }, { idempotent: false });
     } else {
-      void run(`signal-follow:${signal.id}`, url, { action: 'follow_up', responsibleText: responsible, dueDate: due || null },
+      void run(`signal-follow:${signal.id}`, url, { action: 'follow_up', responsibleText: responsible.trim(), dueDate: due || null, goal: goal.trim() },
         { title: 'Acompanhamento aberto', detail: 'O Apex cobra o responsável até a condição mudar.' }, { idempotent: false });
     }
   };
-  const valid = mode === 'dismiss' ? note.trim().length >= 3 : mode === 'follow' ? responsible.trim().length > 1 : (!suggested || (q !== null && q > 0));
+  const valid = mode === 'dismiss' ? note.trim().length >= 3 : mode === 'follow' ? responsible.trim().length > 1 && goal.trim().length >= 3
+    : (!suggested || (q !== null && q > 0));
   const title = mode === 'execute' ? signal.action.label : mode === 'dismiss' ? 'Descartar recomendação' : 'Acompanhar com um responsável';
   return (
-    <SidePanel open onClose={onClose} eyebrow="Apex · ato governado" title={title}
+    <SidePanel open onClose={onClose} eyebrow="Apex · ato governado" title={title} testId={`signal-${mode}-form`}
       meta={<><span>{signal.title}</span>{signal.project && <span>· {signal.project}</span>}</>}
       footer={<>
         <button type="button" className="ax-btn ghost" onClick={onClose}>Voltar</button>
@@ -183,8 +214,11 @@ function SignalPanel({ mode, signal, onClose, onDone }: { mode: 'execute' | 'dis
       )}
       {mode === 'follow' && (
         <div className="ax-form">
-          <label className="ax-field"><span>Quem responde</span><input value={responsible} onChange={(e) => setResponsible(e.target.value)} /></label>
-          <label className="ax-field"><span>Até quando (opcional)</span><input type="date" value={due} onChange={(e) => setDue(e.target.value)} /></label>
+          <label className="ax-field"><span>Objetivo</span><input value={goal} onChange={(e) => setGoal(e.target.value)} /></label>
+          <label className="ax-field"><span>Responsável</span>
+            <input value={responsible} onChange={(e) => setResponsible(e.target.value)} placeholder="Comprador, fornecedor…" /></label>
+          <label className="ax-field"><span>Prazo (opcional)</span><input type="date" value={due} onChange={(e) => setDue(e.target.value)} /></label>
+          <p className="ax-note">O acompanhamento do Apex cobra o responsável, escala se passar do prazo e fecha com a confirmação.</p>
         </div>
       )}
     </SidePanel>

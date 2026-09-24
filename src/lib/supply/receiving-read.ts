@@ -111,8 +111,11 @@ export async function receivingWorkspace(session: Session, today: string) {
       status: s.status as ShipmentStatus, carrier: str(s.carrier), vehicle: str(s.vehicle), trackingRef: str(s.tracking_ref), eta: str(s.eta),
       dispatchedAt: str(s.dispatched_at), arrivedAt: str(s.arrived_at), destination: locName(s.destination_location_id), note: str(s.note) }));
     const live = ships.filter((s) => ['EXPECTED', 'IN_TRANSIT', 'ARRIVED'].includes(s.status));
-    const expectedDate = live.map((s) => s.eta).filter(Boolean).sort()[0] ?? str(p.expected_delivery)
-      ?? lines.map((l) => l.expectedDate).filter(Boolean).sort()[0] ?? null;
+    // A mesma precedência do resto do Supply (Apex, pontualidade do fornecedor, torre de controle):
+    // ETA do embarque → promessa da linha ainda em aberto → data do cabeçalho.
+    const expectedDate = live.map((s) => s.eta).filter(Boolean).sort()[0]
+      ?? lines.filter((l) => l.open > 0).map((l) => l.expectedDate).filter(Boolean).sort()[0]
+      ?? str(p.expected_delivery) ?? null;
     const myReceipts = receiptsView.filter((r) => r.purchaseOrderId === p.id);
     const open = lines.reduce((a, l) => a + l.open, 0);
     const discrepancy = myReceipts.some((r) => r.inspectionStatus === 'PENDING' || r.hasDiscrepancy);

@@ -203,8 +203,8 @@ export function Chain({ nodes, label }: { nodes: ChainNode[]; label: string }) {
         <Fragment key={i}>
           {i > 0 && <ChevronRight size={12} aria-hidden />}
           {n.href
-            ? <Link role="listitem" href={n.href} className={n.end ? 'end' : undefined}>{n.label}</Link>
-            : <span role="listitem" className={n.end ? 'end' : undefined}>{n.label}</span>}
+            ? <Link role="listitem" href={n.href} className={n.end ? 'end' : undefined} title={typeof n.label === 'string' ? n.label : undefined}>{n.label}</Link>
+            : <span role="listitem" className={n.end ? 'end' : undefined} title={typeof n.label === 'string' ? n.label : undefined}>{n.label}</span>}
         </Fragment>
       ))}
     </div>

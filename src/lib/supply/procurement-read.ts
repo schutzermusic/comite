@@ -26,6 +26,8 @@ export interface SupplierView {
   statusReason: string | null; categories: string[]; defaultPaymentTerms: string | null; defaultLeadTimeDays: number | null;
   contactName: string | null; contactEmail: string | null; contactPhone: string | null;
   orders: number; openOrders: number; onTimeRate: number | null;
+  /** Linhas com data prometida já medidas — o tamanho da amostra da pontualidade. */
+  deliveryLines: number;
 }
 
 export async function listSuppliers(session: Session): Promise<SupplierView[]> {
@@ -59,6 +61,7 @@ export async function listSuppliers(session: Session): Promise<SupplierView[]> {
       openOrders: mine.filter((o) => ['DRAFT', 'APPROVAL_REQUIRED', 'APPROVED', 'ISSUED', 'PARTIALLY_RECEIVED'].includes(String(o.status))).length,
       // Pontualidade DERIVADA dos recebimentos (235); sem histórico, desconhecida — nunca inventada.
       onTimeRate: onTimeRate(perf.get(String(r.id))),
+      deliveryLines: perf.get(String(r.id))?.promised_lines ?? 0,
     };
   }).sort((a, b) => a.name.localeCompare(b.name));
 }

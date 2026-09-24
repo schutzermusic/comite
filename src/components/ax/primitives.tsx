@@ -120,12 +120,12 @@ export function Due({ value, today }: { value: string | null | undefined; today?
 }
 
 /** Uma exceção: onde (tipo · projeto), o quê, qual o problema, prazo, dono e a ação — nesta ordem. */
-export function AttentionRow({ tone, kind, object, issue, impact, due, owner, href, actionLabel, action, today, testId }: {
-  tone: Tone; kind?: string; object: ReactNode; issue: ReactNode; impact?: ReactNode; due?: string | null; owner?: string | null;
-  href?: string; actionLabel?: string; action?: ReactNode; today?: string; testId?: string;
+export function AttentionRow({ tone, kind, object, issue, detail, impact, due, owner, href, actionLabel, action, today, testId, hideOwner }: {
+  tone: Tone; kind?: string; object: ReactNode; issue: ReactNode; detail?: ReactNode; impact?: ReactNode; due?: string | null; owner?: string | null;
+  href?: string; actionLabel?: string; action?: ReactNode; today?: string; testId?: string; hideOwner?: boolean;
 }) {
   return (
-    <div className="ax-row" data-tone={tone} data-testid={testId}>
+    <div className={hideOwner ? 'ax-row no-owner' : 'ax-row'} data-tone={tone} data-testid={testId}>
       <div className="ax-row-main">
         {(kind || impact) && (
           <span className="ax-row-eyebrow">
@@ -137,11 +137,13 @@ export function AttentionRow({ tone, kind, object, issue, impact, due, owner, hr
         <span className="ax-row-issue">{issue}</span>
       </div>
       <Due value={due} today={today} />
-      <div className="ax-row-cell optional owner">{owner ? <strong>{owner}</strong> : <span className="ax-subtle">sem dono</span>}</div>
+      {!hideOwner && <div className="ax-row-cell optional owner">{owner ? <strong>{owner}</strong> : <span className="ax-subtle">sem dono</span>}</div>}
       <div className="ax-row-actions">
         {action}
         {href && <Link className="ax-btn sm" href={href}>{actionLabel ?? 'Abrir'}<ArrowUpRight size={13} aria-hidden /></Link>}
       </div>
+      {/* A evidência (cadeia causal, cobertura, recomendação) ocupa a largura toda, embaixo. */}
+      {detail && <div className="ax-row-detail">{detail}</div>}
     </div>
   );
 }

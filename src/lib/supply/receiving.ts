@@ -54,6 +54,31 @@ export function daysLate(expectedDate: string | null, today: string): number {
   return Math.round((Date.parse(`${today}T12:00:00Z`) - Date.parse(`${expectedDate}T12:00:00Z`)) / 86_400_000);
 }
 
+export type InboundRisk = 'critical' | 'high' | 'medium';
+
+/**
+ * Risco de uma ENTRADA para o requisito que ela cobre — a pergunta da torre
+ * de controle: "isto chega antes de a obra precisar?".
+ *
+ * Entrada atrasada chega, no melhor caso, hoje. Chegar depois da necessidade
+ * é alto (crítico se a necessidade está a 7 dias ou menos, ou já passou);
+ * atrasada mas ainda a tempo é alto perto da necessidade e médio longe dela;
+ * folga de até 3 dias é médio. Sem data prometida, a 14 dias da necessidade,
+ * é médio: ninguém sabe quando chega. Fora disso, sem risco (null).
+ */
+export function inboundRisk(eta: string | null, requiredBy: string | null, today: string):
+  { risk: InboundRisk | null; slackDays: number | null; late: boolean } {
+  const days = (from: string, to: string) => Math.round((Date.parse(`${to}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86_400_000);
+  const needIn = requiredBy ? days(today, requiredBy) : null;
+  if (!eta) return { risk: needIn !== null && needIn <= 14 ? 'medium' : null, slackDays: null, late: false };
+  const late = eta < today;
+  const slack = requiredBy ? days(late ? today : eta, requiredBy) : null;
+  if (slack !== null && slack < 0) return { risk: needIn !== null && needIn <= 7 ? 'critical' : 'high', slackDays: slack, late };
+  if (late) return { risk: needIn !== null && needIn <= 7 ? 'high' : 'medium', slackDays: slack, late };
+  if (slack !== null && slack <= 3) return { risk: 'medium', slackDays: slack, late };
+  return { risk: null, slackDays: slack, late };
+}
+
 /** Pontualidade do fornecedor a partir da visão derivada (nunca estimada). */
 export function onTimeRate(perf: { promised_lines: number; on_time_lines: number } | null | undefined): number | null {
   if (!perf || !perf.promised_lines) return null;

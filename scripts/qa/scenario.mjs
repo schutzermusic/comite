@@ -176,6 +176,8 @@ await withQaDb(async (c) => {
   await adjust(I.cabo35, L.norte, 400, 'Saldo de implantação — inventário de abertura');
   await adjust(I.paraf, L.central, 2500, 'Saldo de implantação — inventário de abertura');
   await adjust(I.solar, L.central, 5200, 'Saldo de implantação — inventário de abertura');
+  // Sobra de outra obra: estoque livre que cobre parte de uma falta SEM comprar (transferência).
+  await adjust(I.cabo35, S2, 250, 'Sobra do lançamento anterior da LT, devolvida ao estoque do canteiro');
   const reserve = (req, loc, qty) => act('inventory_reserve', org, U.gestor, J({ requirement_id: req, location_id: loc, quantity: qty }));
   await reserve(R.cabo35, L.central, 300);
   await reserve(R.paraf, L.central, 2000);
@@ -190,7 +192,7 @@ await withQaDb(async (c) => {
     document_number: '77888999000163', categories: ['Equipamentos'], default_payment_terms: '30/60 dias', default_lead_time_days: 35 }))).supplier_id;
   await act('supplier_set_status', org, U.compras, supplierC, 'HOMOLOGATED', null);
   const SA = live.suppliers.a; const SB = live.suppliers.b;
-  async function purchase({ reqs, supplierIds, quotes, choose, delivery, expected, submit = true, approve = true, issue = true }) {
+  async function purchase({ reqs, supplierIds, quotes, choose, delivery, expected, promisedLines, submit = true, approve = true, issue = true }) {
     const rc = await act('purchase_requisition_from_shortage', org, U.compras, J({ requirement_ids: reqs }));
     const lines = await all(`SELECT id FROM public.purchase_requisition_lines WHERE requisition_id = $1`, [rc.requisition_id]);
     const rfq = await act('procurement_rfq_create', org, U.compras, J({ requisition_line_ids: lines.map((l) => l.id), supplier_ids: supplierIds,
@@ -206,6 +208,12 @@ await withQaDb(async (c) => {
     const dec = await act('procurement_decide', org, U.compras, J({ rfq_id: rfq.rfq_id, quote_id: recorded[choose],
       rationale: 'Menor custo posto que chega antes da necessidade.' }));
     await act('purchase_order_update_draft', org, U.compras, dec.purchase_order_id, J({ delivery_location_id: delivery, expected_delivery: expected }));
+    if (promisedLines) {
+      // Tempo decorrido simulado: a promessa por linha (que nasce do prazo da cotação) é antedatada ENQUANTO
+      // o pedido é rascunho — o único estado em que linhas mudam; emitido, o gatilho recusa.
+      await one(`UPDATE public.purchase_order_lines SET expected_date = $2 WHERE organization_id = $3 AND purchase_order_id = $1 RETURNING id`,
+        [dec.purchase_order_id, promisedLines, org]);
+    }
     if (submit) await act('purchase_order_submit', org, U.compras, dec.purchase_order_id, 'Emissão conforme cotação');
     if (submit && approve) await act('purchase_order_decide', org, U.financeiro, dec.purchase_order_id, 'APPROVE', 'Dentro da alçada do Financeiro');
     if (submit && approve && issue) await act('purchase_order_issue', org, U.compras, dec.purchase_order_id);
@@ -216,7 +224,7 @@ await withQaDb(async (c) => {
     choose: supplierC, delivery: S1, expected: plus(25) });
   // Isoladores: pedido emitido, atrasado, parcialmente recebido e com lote em quarentena.
   const poIso = await purchase({ reqs: [R.isol], supplierIds: [SB, SA], quotes: [{ supplier: SB, price: 312.5, lead: 6 }, { supplier: SA, price: 298.9, lead: 18 }],
-    choose: SB, delivery: S2, expected: plus(-2) });
+    choose: SB, delivery: S2, expected: plus(-2), promisedLines: plus(-2) });
   const isoLine = (await one(`SELECT id FROM public.purchase_order_lines WHERE purchase_order_id = $1`, [poIso.poId])).id;
   await act('goods_receipt_post', org, U.almoxarifado, J({ purchase_order_id: poIso.poId, location_id: S2, lines: [{ po_line_id: isoLine, accepted_quantity: 160 }],
     note: 'Primeira entrega — 4 paletes' }));

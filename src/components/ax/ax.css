@@ -396,6 +396,8 @@ a.ax-signal:focus-visible, button.ax-signal:focus-visible { outline: 2px solid v
   .ax-row { grid-template-columns: minmax(0, 1fr) 92px var(--ax-row-action, 156px); }
   .ax-row-cell.owner { display: none; }
 }
+.ax-row.no-owner { grid-template-columns: minmax(0, 1fr) 92px var(--ax-row-action, 156px); }
+.ax-row-detail { grid-column: 1 / -1; margin-top: -6px; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
 .ax-row-eyebrow { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
 .ax-row-where {
   min-width: 0;
@@ -413,7 +415,7 @@ a.ax-signal:focus-visible, button.ax-signal:focus-visible { outline: 2px solid v
 .ax-row-actions { display: flex; justify-content: flex-end; gap: 6px; }
 .ax-row .ax-kind { flex-shrink: 0; font-size: 10.5px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: var(--ax-fg-subtle); }
 @media (max-width: 900px) {
-  .ax-row { grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; }
+  .ax-row, .ax-row.no-owner { grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; }
   .ax-row-cell.optional { display: none; }
   .ax-row-due { grid-column: 1; }
   .ax-row-actions { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
@@ -671,8 +673,8 @@ a.ax-signal:focus-visible, button.ax-signal:focus-visible { outline: 2px solid v
 .ax-apex {
   position: relative;
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) auto;
-  gap: 12px;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 8px 12px;
   padding: 13px 16px;
   border-bottom: 1px solid var(--ax-line-soft);
 }
@@ -698,24 +700,42 @@ a.ax-signal:focus-visible, button.ax-signal:focus-visible { outline: 2px solid v
 .ax-evidence span { display: inline-flex; gap: 5px; }
 .ax-evidence em { font-style: normal; color: var(--ax-fg-subtle); }
 .ax-evidence strong { color: var(--ax-fg-strong); font-weight: 600; font-variant-numeric: tabular-nums; }
-.ax-apex-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
-@media (max-width: 767px) {
-  .ax-apex { grid-template-columns: 28px minmax(0, 1fr); }
-  .ax-apex-actions { grid-column: 1 / -1; flex-direction: row; justify-content: flex-end; }
+.ax-apex-actions { grid-column: 2; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; }
+
+/* Apex DENTRO da linha operacional: a recomendação ao lado da evidência que a sustenta. */
+.ax-apex-inline {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  width: fit-content;
+  max-width: 100%;
+  padding: 3px 4px 3px 8px;
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--ax-fg-muted);
+  background: color-mix(in srgb, var(--ax-accent) 7%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ax-accent) 18%, transparent);
 }
+.ax-apex-inline > svg { color: var(--ax-accent); flex-shrink: 0; }
+.ax-apex-inline b { color: var(--ax-fg-strong); font-weight: 600; }
+.ax-apex-inline .ax-btn { height: 24px; padding: 0 8px; font-size: 11.5px; }
 
 /* ── Cadeia causal ───────────────────────────────────────────────────────── */
-.ax-chain { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: 12px; }
+.ax-chain { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: 12px; min-width: 0; max-width: 100%; }
 .ax-chain > span, .ax-chain > a {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
+  display: inline-block;
+  vertical-align: middle;
+  max-width: 240px;
   padding: 2px 8px;
   border-radius: 6px;
   background: color-mix(in srgb, var(--ig-tone-neutral) 10%, transparent);
   color: var(--ax-fg);
+  line-height: 1.5;
   text-decoration: none;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .ax-chain > a:hover { background: var(--ax-accent-weak); color: var(--ax-fg-strong); }
 .ax-chain > .end { background: color-mix(in srgb, var(--ax-danger) 12%, transparent); color: var(--ax-danger); font-weight: 650; }
