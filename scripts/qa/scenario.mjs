@@ -200,6 +200,23 @@ await withQaDb(async (c) => {
     title: 'Concessionária libera o pátio energizado', required_by: plus(-2), priority: 'critical' }));
   await act('project_requirement_transition', org, U.gestor, dep.requirement_id, 'CONFIRMED', null, null);
 
+  // O resto do que a frente precisa — equipe, documento, equipamento, janela do cliente — para a
+  // prontidão por atividade ter as cinco dimensões: pronto, pendente, não confirmado e fora de ordem.
+  const need = async (project, activityKey, type, title, needBy, { confirm = true, satisfied = null, priority = 'high', qty = null, unit = null } = {}) => {
+    const r = await act('project_requirement_upsert', org, U.gestor, J({ project_id: project, activity_id: acts[activityKey], requirement_type: type,
+      title, required_by: needBy, priority, quantity: qty, unit }));
+    if (confirm) await act('project_requirement_transition', org, U.gestor, r.requirement_id, 'CONFIRMED', null, null);
+    if (satisfied) await act('project_requirement_mark_satisfied', org, U.gestor, r.requirement_id, satisfied, null, false);
+    return r.requirement_id;
+  };
+  await need(P1, 'p1-cab', 'WORKFORCE', 'Equipe de lançamento — 8 eletricistas', plus(5), { qty: 8, unit: 'pessoas',
+    satisfied: 'Equipe mobilizada no canteiro, escala confirmada pelo encarregado.' });
+  await need(P1, 'p1-dj', 'DOCUMENT', 'Plano de içamento aprovado pelo cliente', plus(14));
+  await need(P1, 'p1-dj', 'EQUIPMENT', 'Guindaste 50 t com operador', plus(17), { qty: 1, unit: 'un' });
+  await need(P2, 'p2-des', 'DOCUMENT', 'APR e permissão de trabalho do desligamento', plus(2), { confirm: false, priority: 'critical' });
+  await need(P2, 'p2-des', 'CUSTOMER_DEPENDENCY', 'Cliente confirma a janela de desligamento', plus(1), { priority: 'critical' });
+  await need(P3, 'p3-inv', 'WORKFORCE', 'Equipe de comissionamento dos inversores', plus(12), { qty: 4, unit: 'pessoas' });
+
   console.log('▸ estoque, reservas e transferência');
   const L = live.locations;
   const site = async (project, code, name, lat, lng) => (await act('inventory_location_upsert', org, U.almoxarifado, J({ code, name, kind: 'PROJECT_SITE',

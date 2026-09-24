@@ -7,6 +7,8 @@
  * sempre dos mesmos fatos.
  */
 
+import { isCriticalActivity, type ActivityLike } from '../overview-rules';
+
 export type RequirementType =
   | 'MATERIAL' | 'EQUIPMENT' | 'VEHICLE' | 'WORKFORCE' | 'EXTERNAL_SERVICE'
   | 'DOCUMENT' | 'CUSTOMER_DEPENDENCY' | 'OTHER';
@@ -94,6 +96,12 @@ export interface PlanningConstraint {
  * requisito não confirmado com a atividade começando; material em falta
  * perto da data de necessidade.
  */
+const dm = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+
+/**
+ * O texto de cada exceção fala da RELAÇÃO (data × frente × cobertura), não
+ * repete o nome do requisito — quem mostra a exceção mostra o requisito junto.
+ */
 export function planningConstraints(
   r: RequirementLike & { title: string; activity_id: string | null },
   activity: { planned_start: string | null; title: string } | null,
@@ -104,22 +112,39 @@ export function planningConstraints(
   const out: PlanningConstraint[] = [];
   if (!readiness) return out;
   if (r.requirement_type === 'CUSTOMER_DEPENDENCY' && readiness === 'OVERDUE') {
-    out.push({ code: 'CUSTOMER_DEPENDENCY_OVERDUE', severity: 'danger', text: `Dependência do cliente vencida: ${r.title}` });
+    out.push({ code: 'CUSTOMER_DEPENDENCY_OVERDUE', severity: 'danger',
+      text: `Dependência do cliente vencida em ${dm(r.required_by!)} — cobre o cliente` });
   }
   if (activity?.planned_start && r.required_by && r.required_by > activity.planned_start && readiness !== 'READY') {
     out.push({ code: 'NEED_AFTER_ACTIVITY_START', severity: 'warning',
-      text: `Necessário em ${r.required_by}, depois do início de "${activity.title}" (${activity.planned_start})` });
+      text: `Declarado para ${dm(r.required_by)}, mas "${activity.title}" começa em ${dm(activity.planned_start)} — vale a data da frente` });
   }
   if (readiness === 'UNCONFIRMED' && activity?.planned_start && daysUntil(today, activity.planned_start) <= 14) {
     out.push({ code: 'UNCONFIRMED_NEAR_START', severity: 'warning',
-      text: `Requisito não confirmado e "${activity.title}" começa em ${activity.planned_start}` });
+      text: `Não confirmado e "${activity.title}" começa em ${dm(activity.planned_start)}` });
   }
   if ((readiness === 'SHORTAGE' || readiness === 'PARTIAL') && r.required_by && daysUntil(today, r.required_by) <= 14) {
+    const days = daysUntil(today, r.required_by);
     out.push({ code: 'MATERIAL_SHORT_NEAR_NEED', severity: r.required_by < today ? 'danger' : 'warning',
-      text: `${readiness === 'SHORTAGE' ? 'Sem cobertura' : 'Cobertura parcial'} a ${Math.max(0, daysUntil(today, r.required_by))} dia(s) da necessidade: ${r.title}` });
+      text: `${readiness === 'SHORTAGE' ? 'Sem cobertura' : 'Cobertura parcial'} ${days < 0 ? `e a necessidade venceu em ${dm(r.required_by)}`
+        : days === 0 ? 'e a necessidade é hoje' : `a ${days} dia${days === 1 ? '' : 's'} da necessidade`}` });
   }
   if (!r.activity_id && r.status === 'CONFIRMED') {
-    out.push({ code: 'REQUIREMENT_WITHOUT_ACTIVITY', severity: 'info', text: `Sem atividade vinculada: ${r.title}` });
+    out.push({ code: 'REQUIREMENT_WITHOUT_ACTIVITY', severity: 'info', text: 'Sem atividade vinculada — o plano não sabe quando a frente precisa' });
   }
   return out;
+}
+
+/** A regra de data de necessidade (a mesma da Apex e do Supply): min(necessário em, início da atividade). */
+export function needByOf(requiredBy: string | null, activityStart: string | null): string | null {
+  if (requiredBy && activityStart) return requiredBy < activityStart ? requiredBy : activityStart;
+  return requiredBy ?? activityStart ?? null;
+}
+
+/** Por que a atividade é crítica — a mesma definição da Visão Geral ("Atividades críticas"), dita em palavras. */
+export function criticalReasons(a: ActivityLike, today: string): string[] {
+  if (!isCriticalActivity(a, today)) return [];
+  return [a.priority === 'critical' ? 'prioridade crítica' : null, a.delay_status === 'blocked' ? 'bloqueada' : null,
+    a.delay_status === 'delayed' ? 'atrasada' : null, a.planned_finish && a.planned_finish < today ? 'término vencido' : null]
+    .filter((x): x is string => Boolean(x));
 }

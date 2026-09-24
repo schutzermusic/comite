@@ -9,7 +9,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextResponse } from 'next/server';
 import {
-  dimensionOf, isBlockingReadiness, planningConstraints, requirementReadiness, worstReadiness,
+  criticalReasons, dimensionOf, isBlockingReadiness, needByOf, planningConstraints, requirementReadiness, worstReadiness,
   type RequirementLike,
 } from '@/lib/operations/planning/readiness';
 import { daysBetween } from '@/lib/operations/overview-rules';
@@ -119,5 +119,24 @@ describe('leitura por QUALQUER chave, escrita pela chave exata', () => {
     const res = await POST(new Request('http://x', { method: 'POST', body: JSON.stringify(
       { projectId: 'p', requirementType: 'MATERIAL', title: 'Cabo' }) }));
     expect(res.status).toBe(403);
+  });
+});
+
+describe('frentes do planejamento', () => {
+  it('data que vale: a menor entre a declarada e o início da frente', () => {
+    expect(needByOf('2026-10-14', '2026-10-12')).toBe('2026-10-12');
+    expect(needByOf('2026-10-01', '2026-10-12')).toBe('2026-10-01');
+    expect(needByOf(null, '2026-10-12')).toBe('2026-10-12');
+    expect(needByOf('2026-10-01', null)).toBe('2026-10-01');
+    expect(needByOf(null, null)).toBeNull();
+  });
+  it('por que é crítica — a mesma definição da Visão Geral, em palavras', () => {
+    const base = { status: 'not_started', priority: 'medium', delay_status: 'on_track', is_milestone: false, is_summary: false,
+      planned_start: '2026-09-20', planned_finish: '2026-10-20', actual_finish: null };
+    expect(criticalReasons(base, TODAY)).toEqual([]);
+    expect(criticalReasons({ ...base, priority: 'critical' }, TODAY)).toEqual(['prioridade crítica']);
+    expect(criticalReasons({ ...base, delay_status: 'delayed', planned_finish: '2026-09-01' }, TODAY)).toEqual(['atrasada', 'término vencido']);
+    expect(criticalReasons({ ...base, priority: 'critical', status: 'completed' }, TODAY)).toEqual([]);
+    expect(criticalReasons({ ...base, priority: 'critical', is_summary: true }, TODAY)).toEqual([]);
   });
 });

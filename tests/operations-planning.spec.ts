@@ -60,15 +60,36 @@ test.beforeAll(async ({ browser }) => {
 
 test.afterAll(async () => { await ctx?.close(); });
 
-test('1 · Planejamento do portfólio: exceções, prontidão e necessidades por data', async () => {
+test('1 · Planejamento do portfólio: frentes, exceções, prontidão e necessidades por data', async () => {
   await page.goto('/operacoes/planejamento');
   await expect(page.getByRole('heading', { name: 'O que a execução precisa, e quando' })).toBeVisible({ timeout: 60_000 });
-  for (const t of ['Confirmados', 'A confirmar', 'Material sem cobertura', 'Vencidos']) {
-    await expect(page.getByText(t, { exact: true }).first()).toBeVisible();
+  const signals = page.getByRole('region', { name: 'Sinais do planejamento' });
+  for (const t of ['Atividades críticas', 'Começam em 14 dias', 'Material sem cobertura', 'Dependências do cliente', 'A confirmar']) {
+    await expect(signals.getByText(t, { exact: true })).toBeVisible();
   }
-  await expect(page.getByText('Exceções de plano').first()).toBeVisible();
-  await expect(page.getByText('Prontidão por projeto').first()).toBeVisible();
+  await expect(page.getByTestId('plan-exceptions')).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Prontidão por projeto' })).toBeVisible();
   await expect(page.locator('.hud-nav-submenu').getByRole('link', { name: 'Planejamento', exact: true })).toBeVisible();
+
+  // Frente = atividade → o que precisa → para quando → cobertura → o que trava.
+  const fronts = page.getByTestId('planning-fronts');
+  await expect(fronts).toBeVisible();
+  const withNeeds = fronts.getByTestId('planning-front').filter({ has: page.getByRole('button', { name: /Necessidades|Recolher/ }) }).first();
+  if (await withNeeds.count()) {
+    const toggle = withNeeds.getByRole('button', { name: /Necessidades|Recolher/ });
+    if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();
+    await expect(withNeeds.getByTestId('requirement-row').first()).toBeVisible();
+    await expect(withNeeds.getByRole('list', { name: /^Prontidão de / })).toBeVisible();
+  }
+
+  // O sinal leva ao recorte, e o recorte vive na URL.
+  await signals.getByRole('button', { name: /Dependências do cliente/ }).click();
+  await expect(page).toHaveURL(/focus=dependencies/);
+  await expect(page.getByTestId('planning-dependencies')).toBeVisible();
+  await signals.getByRole('button', { name: /Material sem cobertura/ }).click();
+  await expect(page).toHaveURL(/focus=needs/);
+  await expect(page.getByTestId('planning-needs').getByRole('group', { name: 'Janela de necessidade' })
+    .getByRole('button', { name: /^Material sem cobertura/ })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByText(/Esta ação exige:/)).toHaveCount(0);
   mkdirSync(OUT, { recursive: true });
   await page.screenshot({ path: `${OUT}/planning-portfolio.png`, fullPage: true });
