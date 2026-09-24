@@ -265,3 +265,67 @@ Não recebe material, não consome estoque, não aprova nem emite compra, não d
 - O item **Operações → Mapa de Operações** e o atalho "Abrir mapa" da Visão Geral de Operações voltam a abrir `/projetos/operations-3d`, o mapa 3D que já existia — mesma rota, mesmo ícone e mesma alçada (`projects.view`) de antes da branch.
 - O mapa 2D da Wave E (`/operacoes/mapa`, `/api/operations/map`, `src/lib/operations/map.ts`, componentes e testes) foi removido para não haver dois mapas. Saíram junto a camada de estoques (Wave G) e o realce de falta de material que só existiam nele; o código segue no histórico (a2032cc, a12966c).
 - Provas: unidade `operations-navigation` (2) — suíte 2939/2939; E2E `operations-map.spec.ts` agora prova que menu e atalho levam ao mapa 3D e que o item fica marcado como página atual.
+
+---
+
+## Prontidão de produção — QA isolado, migrations 237/238 e camada de aplicação
+
+**237 e 238 NÃO estão aplicadas no banco hospedado** — aplicar é passo de deploy (ver runbook abaixo).
+
+### QA isolado (8927e3b, 2b660d6)
+- Pilha Supabase local (`qa/supabase`, projeto `apex-qa`, portas 554xx) com o esquema `public` de produção restaurado de um dump **somente-esquema** + catálogo global; paridade conferida objeto a objeto. Nenhuma linha de negócio sai de produção.
+- `scripts/qa/seed.mjs`: organização pelo `organization_provision` real, um usuário real por papel (titular, gestor, engenharia, compras, almoxarifado, financeiro, jurídico, RH) e um segundo inquilino para isolamento.
+- `scripts/qa/scenario.mjs`: operação realista pelas funções governadas (pacotes aceitos → OS → projetos; OS em rascunho, com divergência bloqueante e **importada de PDF** com leitura e confronto; cronograma; requisitos de todos os tipos; estoque, reserva, transferência, compra, recebimento parcial, quarentena; medições em todas as raias; risco; leitura da Apex). O pacote aceito vem de `scripts/qa/lib/commercial.mjs`, o mesmo das provas vivas.
+- Todo escritor passa pelo guarda que recusa endereço não-local. `serve.mjs` serve build de produção (:9102) ou `--dev` (:9103) contra o QA.
+
+### Migration 237 (f3bfe8d) — 54/54 no QA (aplicada) e 54/54 em ensaio revertido no hospedado
+Re-checagem de permissão no banco em toda escrita de Operações; papéis de sistema `compras` e `almoxarifado` (segregação real); ciclo de aprovação do pedido (cada submissão abre sua requisição no motor; cancelar cancela a pendente; rotas de desfecho semeadas desligadas e ativadas só por worker capaz; reconciliação periódica); agendamento de `supply.intelligence.sweep` por inquilino/hora; quarentena só sai pela inspeção; evidência presa à pasta do recebimento do inquilino; alçada honra categoria; item em uso preserva código/unidade/rastreio; RESTRICT → NO ACTION (230–232); grants de leitura nas visões; helper vazado revogado; índices de caminho quente.
+
+### Migration 238 (7e1dace) — 8/8 no QA
+Idempotência relida **sob a trava** em `goods_receipt_post` e `inventory_reserve` (duplo envio com a mesma chave responde replay, não 422); reconciliação de aprovação chaveada pelo último desfecho pendente.
+
+### Camada de aplicação (cb3dbbc, 50cab06)
+Sobreposições DENY valem para o conjunto inteiro de permissões; RPC governada com SQLSTATE preservado (42501→403, regra→422) e retentativa em 40P01/40001/23505-de-idempotência; `sync` exige permissão de ato; varredura da Apex tudo-ou-nada (nada de "resolvido" falso); follow-up sem órfão; evidência com tipo compatível e assinatura de conteúdo conferida no servidor (HEIC/WEBP convertidos para JPEG no aparelho); hash do PDF da OS calculado no servidor; produtores agendados (varredura e reconciliação); testes vivos em `BEGIN READ ONLY`, nunca `SET SESSION`. Hidratação do shell a 390 px corrigida na origem (`useSyncExternalStore` no `useIsMobile`).
+
+---
+
+## Provas vivas no QA isolado — navegador/API → banco, sem interceptação
+
+`npx playwright test -c playwright.qa.config.ts` (o global-setup recusa endereço não-local e entra com cada papel pela tela real de login).
+
+| Suíte | Projeto | O que prova |
+|---|---|---|
+| `golden-path` (8) | desktop | Pacote aceito → OS gerada, revisada e emitida → projeto → atividade no cronograma → necessidade de material confirmada (falta derivada) → reserva do estoque → requisição do resto → cotação com 2 fornecedores, 2 propostas, decisão → submissão (compras) → aprovação por alçada (financeiro) → emissão → recebimento parcial para inspeção → inspeção e liberação (reserva cresce) → entrega à obra. Estado persistido conferido após cada transição, até a sequência inteira do livro-razão terminando em `ISSUE_TO_PROJECT`. |
+| `roles-ui` (9) | desktop | 8 papéis × 6 telas: cada ato oferecido **exatamente** quando `role_permissions` concede; sem leitura, a recusa nomeada e nenhuma linha; titular de outro inquilino não lista nem abre a OS deste. |
+| `roles-api` (12) | api | 8 papéis × 17 escritas + 5 leituras com 403 esperado derivado do RBAC do banco; RLS recusa escrita direta e função protegida; leitura segue o RBAC; DENY vence o papel; outro inquilino não age. |
+| `concurrency` (7) | api | Sobreposição FORÇADA (terceiro cliente segura a trava): reservas no mesmo saldo, mesma reserva 2×, recebimentos no mesmo aberto (chaves iguais e diferentes), despachos, entrega dupla, contagem sobre retrato vencido. |
+| `approvals` (4) | api | Cancelamento cancela a aprovação pendente; aprovação do motor chega ao pedido pela rota de evento ativada pelo worker capaz num dreno real; rejeição → nova submissão abre nova requisição; com rotas desligadas, a reconciliação aplica o desfecho. |
+| `evidence` (3) | api | Upload assinado → Storage canônico → vínculo → leitura; recusas (sem alçada, outro inquilino, caminho alheio, conteúdo falso — removido). |
+| `intelligence` (2) | api | Dreno agenda uma varredura por inquilino/hora; a varredura abre sinal com evidência e ato recomendado sem criar nada. |
+| `receiving-mobile` (2) | mobile | Recebimento em campo no Pixel 7 com avaria, quarentena e foto WEBP convertida; inspeção com liberação para o canteiro. |
+
+As especificações de tela de Operações/Supply (`tests/operations-*.spec.ts`, `tests/supply-*.spec.ts`) rodam contra o QA com `playwright.e2e-qa.config.ts`; nelas as escritas continuam interceptadas por desenho (provam o contrato da tela) — a prova de escrita real é a tabela acima.
+
+---
+
+## Operações & Supply V2 — UI/UX
+
+Camada de composição `src/components/ax` sobre os tokens da plataforma (sem segundo design system): cabeçalho de comando, faixa de sinais, planos contínuos, fila por exceção, cadeia causal, cobertura empilhada, etapas que são navegação, painel lateral acessível (Radix), Apex embutida. URL como estado (`?tab`, `?focus`, `?lane`, `?project`, `?req`, `?po`…). Telas:
+
+- **Visão Geral de Operações** (36dda52) — centro de comando: sinais, fila de decisão, fluxo da autorização, horizonte, saúde por projeto.
+- **Ordens de Serviço** (38f175c, 0da9467) — a ponte Comercial → Operação na fila e no workspace; **comparação OS × PT × PC** por dimensão (conflito/incerto/faltando/adicional/alinhado, proveniência recolhida, ações por linha); OS importada resolve o pacote regente pela autorização; painel OS → projeto mostra o que o projeto herda.
+- **Planejamento** (825114d) — frentes: atividade → necessidades → data que vale (min(declarada, início)) → cobertura → exceção; faixa de prontidão em 5 dimensões; horizonte de 30 dias.
+- **Medições & Evidências** (68a85c3) — raias como fluxo com dono do próximo passo; "aprovada para envio" nunca se confunde com aceite.
+- **Workspace do projeto** (d862157) — o projeto num olhar (estado, período, avanço, saúde com motivo, próximo marco, OS, contrato só com leitura financeira e valor real); abas na URL, incluindo Apontamentos.
+- **Mapa de Operações 3D** (eab70f5) — o globo Cesium com painel operacional (prioridade; projeto com saúde, frentes, OS, travas); `?project=` voa até o projeto; marcadores acompanham a lista. **Uma regra de saúde** (`deriveProjectHealth`) para Visão Geral, mapa e projeto.
+- **Supply**: torre de controle (76a24f4), planejamento de materiais (be95c2f), recebimento mesa/campo (1bdb652), compras (eeadf28), estoque (54b050b), fornecedor 360 (4f4676e).
+- Acessibilidade na origem: campos HUD nomeados pelos rótulos (c371e8a).
+
+---
+
+## Runbook de deploy
+
+1. **Banco hospedado**: `node scripts/operations/apply-237.mjs` (ensaio revertido) → `--apply`; depois `apply-238.mjs` idem. Conferir `node scripts/operations/security-audit.mjs` (somente leitura) após cada uma.
+2. **Worker**: publicar o worker com os handlers `supply.intelligence.sweep` e da reconciliação de aprovação; só então as rotas de desfecho (semeadas desligadas) se ativam pelo dreno.
+3. **Papéis**: atribuir `compras` e `almoxarifado` às pessoas reais (a segregação depende disso) e declarar a alçada de compra (`procurement.authorities.manage`) com a evidência (ata/procuração).
+4. **App**: deploy da branch só depois de 1–3 — as rotas de escrita governada pressupõem as funções e assinaturas de 237/238.
