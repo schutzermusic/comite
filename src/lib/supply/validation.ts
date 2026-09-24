@@ -76,7 +76,6 @@ export const transferActionSchema = z.discriminatedUnion('action', [
     lines: z.array(z.object({ lineId: uuid, quantity: positive })).min(1).max(100) }),
   z.object({ action: z.literal('close'), reason: z.string().trim().max(500).optional() }),
   z.object({ action: z.literal('cancel'), reason }),
-  z.object({ action: z.literal('close'), reason: z.string().trim().max(500).optional() }),
 ]);
 
 export const countOpenSchema = z.object({ locationId: uuid, itemIds: z.array(uuid).max(500).optional(), note: z.string().trim().max(500).optional() });
@@ -87,7 +86,6 @@ export const countActionSchema = z.discriminatedUnion('action', [
   }).refine((l) => l.lineId || l.itemId, 'Linha ou item obrigatório.')).min(1).max(500) }),
   z.object({ action: z.literal('post'), reason: z.string().trim().max(500).optional() }),
   z.object({ action: z.literal('cancel'), reason }),
-  z.object({ action: z.literal('close'), reason: z.string().trim().max(500).optional() }),
 ]);
 
 /** camelCase da rota → snake_case do contrato das funções do banco. */
