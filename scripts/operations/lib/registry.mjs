@@ -29,6 +29,17 @@ export const OPERATIONS_REGISTRY = {
     permissions: ['operations.view', 'operations.service_orders.override', 'operations.planning.view',
       'operations.planning.manage'],
   },
+  '231': {
+    tables: ['project_requirements', 'project_requirement_history'],
+    ledgers: ['project_requirement_history'],
+    functions: [
+      'project_requirement_upsert(uuid,uuid,jsonb)',
+      'project_requirement_transition(uuid,uuid,uuid,text,text,uuid)',
+      'project_requirement_mark_satisfied(uuid,uuid,uuid,text,uuid,boolean)',
+      'project_requirements_import_from_service_order(uuid,uuid,text,uuid)',
+    ],
+    permissions: [],
+  },
 };
 
 export function registryUpTo(version) {

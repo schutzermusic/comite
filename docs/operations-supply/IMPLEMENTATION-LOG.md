@@ -63,3 +63,29 @@ INV-02 (nenhum dado copiado para o projeto), INV-18 (medição continua uma só;
 
 ### Dívida
 - Seção "Materiais & Supply" do projeto entra nas waves D/F (quando existirem requisitos e cobertura).
+
+---
+
+## Wave D — Planejamento (migration 231)
+
+**Aplicada no banco hospedado** (`scripts/operations/apply-231.mjs --apply`, 29/29 provas).
+
+### Entrou
+- **231_operations_planning_requirements.sql**:
+  - Nenhuma tabela de "plano de execução": o plano É o cronograma canônico (`project_timeline_items`).
+  - `project_requirements` — MATERIAL, EQUIPMENT, VEHICLE, WORKFORCE, EXTERNAL_SERVICE, DOCUMENT, CUSTOMER_DEPENDENCY, OTHER; atividade do MESMO projeto e inquilino (FK composta `(org, project, activity)`; atividade apagada → `SET NULL (activity_id)`, o requisito volta a ser do projeto); fonte obrigatória (ACTIVITY, SERVICE_ORDER, MANUAL, IMPORTED_PLAN, AI_PROPOSAL com provedor/modelo); estado só do PLANO (PLANNED → CONFIRMED → CANCELLED/SUPERSEDED); confirmar exige data (e quantidade para material/serviço externo); cancelar exige motivo; substituir exige substituto vivo.
+  - Cobertura de material NÃO é gravada (derivada do Supply). "Atendido" é ato nomeado com nota/evidência, só para tipos sem domínio de suprimento.
+  - `project_requirement_history` (append-only) e eventos `operations.requirement.*` (com `project_id`, entram na Timeline do projeto).
+  - Importação idempotente das linhas confirmadas da OS emitida do projeto.
+- Rotas `/api/operations/planning`, `/api/operations/projects/[id]/requirements(+/import)`, `/api/operations/requirements(/[id], /transition, /satisfy)`; leitura por `operations.planning.view` OU `projects.view` (espelho da RLS), escrita só com `operations.planning.manage`.
+- UI: painel de requisitos + matriz de prontidão por atividade sob o Gantt (aba Cronograma / Planejamento); tela **Operações → Planejamento** (exceções de plano, prontidão por projeto, necessidades por data).
+- Prontidão derivada (`planning/readiness.ts`): material lê cobertura (ponto único `planning/coverage.ts`, preenchido pelo Supply na wave F); o pior requisito decide a atividade; exceções: dependência vencida, necessidade depois do início, não confirmado perto do início, falta perto da necessidade.
+
+### Invariantes
+INV-06 (proveniência obrigatória), INV-01 (FK composta de projeto/atividade/OS), INV-02 (cobertura derivada), AI não confirma requisito (confirmação sempre tem ator humano).
+
+### Provas
+- `apply-231` 29/29; `security-audit` 57/57.
+- Unidade `operations-planning` (14) — suíte 2883/2883.
+- Integração viva `operations-planning-live` 5/5 (+ OS 8/8).
+- E2E `operations-planning.spec.ts` 3/3 (criação interceptada: prova o contrato enviado sem escrever no banco); regressão Operações 14/14.

@@ -7,6 +7,7 @@
  * uma segunda implementação de "quem pode" — só um nome que diz onde ela é
  * usada.
  */
+import { NextResponse } from 'next/server';
 import {
   requireCommercialSession, isSessionError, hasOptionalPermission, safeGovernedError,
   type CommercialSession, type SessionResult,
@@ -17,6 +18,18 @@ export type OperationsSessionResult = SessionResult;
 
 export const requireOperationsSession = requireCommercialSession;
 export { isSessionError, hasOptionalPermission };
+
+/**
+ * Leitura liberada por QUALQUER uma das chaves — o espelho das políticas de
+ * RLS que aceitam `operations.planning.view OR projects.view`. Escrita nunca
+ * usa isto: escrita exige a chave exata.
+ */
+export async function requireAnyOperationsPermission(keys: string[]): Promise<OperationsSessionResult> {
+  const session = await requireCommercialSession([]);
+  if (isSessionError(session)) return session;
+  for (const key of keys) if (await hasOptionalPermission(session, key)) return session;
+  return { error: NextResponse.json({ ok: false, error: `Esta ação exige: ${keys.join(' ou ')}.` }, { status: 403 }) };
+}
 
 /**
  * As recusas dos portões de Operações e Supply que a pessoa PRECISA ler. O

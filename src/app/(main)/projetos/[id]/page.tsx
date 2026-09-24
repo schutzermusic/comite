@@ -45,6 +45,7 @@ import { ProjectTimesheetView } from '@/components/projects/project-timesheet-vi
 import { FinanceView } from '@/components/projects/FinanceView';
 import { ProjectOverviewTab } from '@/components/operations/projects/ProjectOverviewTab';
 import { ProjectActivityTimeline } from '@/components/operations/projects/ProjectActivityTimeline';
+import { ProjectRequirementsPanel } from '@/components/operations/planning/ProjectRequirementsPanel';
 import type { ProjectV2 } from '@/lib/types/project-v2';
 import { projectSerial } from '@/lib/utils/serial';
 import { formatMoney } from '@/lib/utils/project-utils';
@@ -554,6 +555,9 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
                   projectName={projeto.nome}
                   projectManagerUserId={projeto.responsavel?.id ?? null}
                 />
+                {/* Requisitos pendem das atividades do cronograma: o plano de
+                    execução é o cronograma canônico, não uma segunda tabela. */}
+                <ProjectRequirementsPanel projectId={id} />
               </TabsContent>
 
               <TabsContent value="contract" className="mt-0 space-y-4">

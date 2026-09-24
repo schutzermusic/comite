@@ -34,6 +34,10 @@ const DOMAIN_EVENT_TITLE: Record<string, { title: string; kind: TimelineKind; to
   'operations.service_order.project_linked': { title: 'Projeto vinculado à OS', kind: 'project', tone: 'accent' },
   'operations.service_order.amended': { title: 'OS emendada', kind: 'service_order', tone: 'warning' },
   'operations.service_order.cancelled': { title: 'OS cancelada', kind: 'service_order', tone: 'danger' },
+  'operations.requirement.confirmed': { title: 'Requisito confirmado no plano', kind: 'schedule', tone: 'accent' },
+  'operations.requirement.planned': { title: 'Requisito voltou a planejado', kind: 'schedule', tone: 'warning' },
+  'operations.requirement.cancelled': { title: 'Requisito cancelado', kind: 'schedule', tone: 'warning' },
+  'operations.requirement.superseded': { title: 'Requisito substituído', kind: 'schedule', tone: 'neutral' },
 };
 
 export function domainEventTitle(eventType: string) {

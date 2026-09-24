@@ -21,6 +21,8 @@ export const OPERATIONS_NAV: DomainNavItem[] = [
   { id: 'projects', label: 'Projetos', href: '/projetos', anyPermission: ['projects.view', 'projects.view_all'] },
   { id: 'map', label: 'Mapa de Operações', href: '/projetos/operations-3d',
     anyPermission: ['projects.view', 'projects.view_all'] },
+  { id: 'planning', label: 'Planejamento', href: '/operacoes/planejamento',
+    anyPermission: ['operations.planning.view'] },
   { id: 'measurements', label: 'Medições & Evidências', href: '/operacoes/medicoes',
     anyPermission: ['operations.view'] },
 ];
