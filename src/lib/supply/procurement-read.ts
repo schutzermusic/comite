@@ -129,32 +129,40 @@ export async function procurementWorkspace(session: Session, today: string) {
   const quoteRows = (quotes.data ?? []) as Row[]; const poLineRows = (poLines.data ?? []) as Row[];
   const quoteIds = quoteRows.map((q) => String(q.id));
   const reqLineIds = reqLineRows.map((l) => String(l.id));
-  const [quoteLines, allocations] = await Promise.all([
+  const poLineIds = poLineRows.map((l) => String(l.id));
+  const [quoteLines, allocations, poAllocations] = await Promise.all([
     quoteIds.length ? sb.from('supplier_quote_lines').select('quote_id,rfq_line_id,unit_price,quantity,lead_time_days,compliant,note')
       .eq('organization_id', org).in('quote_id', quoteIds) : Promise.resolve({ data: [] }),
     reqLineIds.length ? sb.from('purchase_requisition_line_requirements').select('line_id,requirement_id,quantity')
       .eq('organization_id', org).in('line_id', reqLineIds) : Promise.resolve({ data: [] }),
+    poLineIds.length ? sb.from('purchase_order_line_requirements').select('line_id,requirement_id,quantity,received_quantity')
+      .eq('organization_id', org).in('line_id', poLineIds) : Promise.resolve({ data: [] }),
   ]);
   const quoteLineRows = (quoteLines.data ?? []) as Row[]; const allocRows = (allocations.data ?? []) as Row[];
+  const poAllocRows = (poAllocations.data ?? []) as Row[];
 
   const itemIds = new Set<string>([...reqLineRows, ...rfqLineRows, ...poLineRows].map((l) => String(l.item_id)));
   const projectIds = new Set<string>([...reqRows, ...poRows].map((r) => r.project_id).filter(Boolean) as string[]);
-  const requirementIds = Array.from(new Set(allocRows.map((a) => String(a.requirement_id))));
+  const requirementIds = Array.from(new Set([...allocRows, ...poAllocRows].map((a) => String(a.requirement_id))));
   const [items, projects, requirements, locations, people] = await Promise.all([
     itemIds.size ? sb.from('supply_items').select('id,code,description,unit').eq('organization_id', org).in('id', Array.from(itemIds))
       : Promise.resolve({ data: [] }),
     projectIds.size ? sb.from('projects').select('id,project,project_v2').eq('organization_id', org).in('id', Array.from(projectIds))
       : Promise.resolve({ data: [] }),
-    requirementIds.length ? sb.from('project_requirements').select('id,title,project_id').eq('organization_id', org).in('id', requirementIds)
+    requirementIds.length ? sb.from('project_requirements').select('id,title,project_id,required_by').eq('organization_id', org).in('id', requirementIds)
       : Promise.resolve({ data: [] }),
     sb.from('inventory_locations').select('id,name,kind,project_id,active').eq('organization_id', org).limit(2000),
     resolveOwnerNames(org, [...reqRows.map((r) => r.requested_by), ...poRows.flatMap((p) => [p.created_by, p.approved_by, p.submitted_by]),
       ...((history.data ?? []) as Row[]).map((h) => h.actor_user_id), ...((decisions.data ?? []) as Row[]).map((d) => d.decided_by)] as Array<string | null>),
   ]);
   const itemMap = new Map(((items.data ?? []) as Row[]).map((i) => [String(i.id), i]));
-  const projMap = new Map(((projects.data ?? []) as Array<{ id: string; project: Record<string, unknown>; project_v2: Record<string, unknown> | null }>)
-    .map((p) => [p.id, projectIdentity(p.id, p.project, p.project_v2).name]));
   const reqTitle = new Map(((requirements.data ?? []) as Row[]).map((r) => [String(r.id), String(r.title)]));
+  const reqRow = new Map(((requirements.data ?? []) as Row[]).map((r) => [String(r.id), r]));
+  // Projetos citados só pelos requisitos (pedido de vários projetos) também ganham nome.
+  const missingProjects = Array.from(new Set(((requirements.data ?? []) as Row[]).map((r) => String(r.project_id)))).filter((id) => !projectIds.has(id));
+  const extraProjects = missingProjects.length ? (await sb.from('projects').select('id,project,project_v2').eq('organization_id', org).in('id', missingProjects)).data ?? [] : [];
+  const projMap = new Map(([...(projects.data ?? []), ...extraProjects] as Array<{ id: string; project: Record<string, unknown>; project_v2: Record<string, unknown> | null }>)
+    .map((p) => [p.id, projectIdentity(p.id, p.project, p.project_v2).name]));
   const locRows = (locations.data ?? []) as Row[];
   const locName = new Map(locRows.map((l) => [String(l.id), String(l.name)]));
   const supMap = new Map(suppliers.map((s) => [s.id, s]));
@@ -182,7 +190,7 @@ export async function procurementWorkspace(session: Session, today: string) {
   const decisionRows = (decisions.data ?? []) as Row[];
   const rfqsView = rfqRows.map((q) => {
     const lines = rfqLineRows.filter((l) => l.rfq_id === q.id).map((l) => ({ id: String(l.id), ...item(l.item_id),
-      quantity: num(l.quantity), requiredBy: str(l.required_by) }));
+      quantity: num(l.quantity), requiredBy: str(l.required_by), requisitionLineId: str(l.requisition_line_id) }));
     const comparable: ComparableQuote[] = quoteRows.filter((x) => x.rfq_id === q.id).map((x) => {
       const s = supMap.get(String(x.supplier_id));
       return { id: String(x.id), supplierId: String(x.supplier_id), supplier: s?.name ?? 'Fornecedor', supplierStatus: s?.status ?? 'PROSPECT',
@@ -210,11 +218,19 @@ export async function procurementWorkspace(session: Session, today: string) {
   const historyRows = (history.data ?? []) as Row[];
   const purchaseOrders = poRows.map((p) => {
     const lines = poLineRows.filter((l) => l.purchase_order_id === p.id).map((l) => ({ id: String(l.id), ...item(l.item_id),
-      quantity: num(l.quantity), unitPrice: num(l.unit_price), expectedDate: str(l.expected_date), received: num(l.received_quantity) }));
+      quantity: num(l.quantity), unitPrice: num(l.unit_price), expectedDate: str(l.expected_date), received: num(l.received_quantity),
+      // Por que esta linha existe: os requisitos que ela cobre (e quanto de cada).
+      requirements: poAllocRows.filter((a) => a.line_id === l.id).map((a) => {
+        const r = reqRow.get(String(a.requirement_id));
+        return { requirementId: String(a.requirement_id), title: reqTitle.get(String(a.requirement_id)) ?? 'Requisito',
+          projectId: r ? String(r.project_id) : null, project: r ? projMap.get(String(r.project_id)) ?? String(r.project_id) : null,
+          requiredBy: r ? str(r.required_by) : null, quantity: num(a.quantity), received: num(a.received_quantity) };
+      }) }));
     const goods = lines.reduce((a, l) => a + l.quantity * l.unitPrice, 0);
     const req = approvalRows.find((a) => a.id === p.approval_request_id);
     return {
       id: String(p.id), number: String(p.order_number), status: p.status as PurchaseOrderStatus, supplierId: String(p.supplier_id),
+      decisionId: str(p.sourcing_decision_id),
       supplier: supMap.get(String(p.supplier_id))?.name ?? 'Fornecedor', projectId: str(p.project_id),
       project: p.project_id ? projMap.get(String(p.project_id)) ?? String(p.project_id) : 'Vários projetos',
       currency: String(p.currency), goods, freight: num(p.freight_amount), tax: num(p.tax_amount),

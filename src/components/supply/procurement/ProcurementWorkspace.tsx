@@ -1,58 +1,72 @@
 'use client';
 
-import { useState } from 'react';
 import {
-  LiveSep, Metrics, ResourceState, TabPanel, WorkspaceHeading, WorkspaceTabs, useOperationsResource,
-} from '@/components/operations/ui';
-import '../supply.css';
-import { RequisitionsTab } from './RequisitionsTab';
-import { RfqsTab } from './RfqsTab';
-import { ApprovalsTab } from './ApprovalsTab';
-import { OrdersTab } from './OrdersTab';
-import { brlOf, type ProcurementModel } from './shared';
+  AxPage, CommandHeader, Dot, Resource, StagePipeline, money, plural, useResource, useUrlParam,
+} from '@/components/ax';
+import { RequisitionsStage } from './RequisitionsStage';
+import { QuotationsStage } from './QuotationsStage';
+import { ApprovalsStage } from './ApprovalsStage';
+import { OrdersStage } from './OrdersStage';
+import type { ProcurementModel } from './shared';
 
-type Tab = 'requests' | 'rfqs' | 'approvals' | 'orders';
+export type ProcurementStage = 'solicitacoes' | 'cotacoes' | 'aprovacao' | 'pedidos';
 
 /**
- * COMPRAS — Solicitações | Cotações | Aprovações | Pedidos. A compra nasce da
- * falta, compara além do preço, aprova sob a regra do inquilino e emite o
- * pedido que vira "em pedido" na cobertura do projeto.
+ * COMPRAS — um fluxo, quatro etapas: a falta vira requisição, a requisição
+ * vira cotação, a cotação decidida vira pedido, o pedido passa pela regra de
+ * aprovação do inquilino e é emitido — e só então conta como "em pedido" na
+ * cobertura do projeto. Cada etapa diz quantos esperam e por quê.
+ *
+ * Endereçável: `?stage=`, `?rq=` (requisição), `?rfq=` (cotação), `?po=` (pedido).
  */
 export function ProcurementWorkspace() {
-  const { data, state, message, refresh } = useOperationsResource<ProcurementModel & { ok: true }>('/api/supply/procurement');
-  const [tab, setTab] = useState<Tab>('requests');
-  if (state !== 'ready' || !data) return <ResourceState state={state} message={message} />;
-  const waiting = data.requisitions.filter((r) => r.status === 'SUBMITTED').length;
-  const openRfqs = data.rfqs.filter((r) => r.status === 'OPEN').length;
-  const approving = data.purchaseOrders.filter((o) => o.status === 'APPROVAL_REQUIRED').length;
-  const issued = data.purchaseOrders.filter((o) => o.status === 'ISSUED' || o.status === 'PARTIALLY_RECEIVED');
-  const exposure = issued.reduce((a, o) => a + o.total, 0);
+  const resource = useResource<ProcurementModel & { ok: true }>('/api/supply/procurement');
   return (
-    <section className="crm-workspace ops-workspace" aria-label="Compras" data-testid="procurement-workspace">
-      <WorkspaceHeading
-        eyebrow="Supply Chain · Compras"
-        title="Da falta ao pedido emitido"
-        description={<><span className={waiting ? 'crm-tone-warning' : undefined}><b>{waiting}</b> requisição(ões) aguardando cotação</span><LiveSep />
-          <span><b>{openRfqs}</b> cotação(ões) aberta(s)</span><LiveSep />
-          <span className={approving ? 'crm-tone-warning' : undefined}><b>{approving}</b> em aprovação</span></>}
-      />
-      <Metrics items={[
-        { label: 'Aguardando cotação', value: waiting, hint: 'Requisições da falta ou manuais', tone: waiting ? 'warning' : 'neutral', accent: true },
-        { label: 'Cotações abertas', value: openRfqs, hint: 'Propostas sendo recebidas' },
-        { label: 'Em aprovação', value: approving, hint: 'Política do motor ou alçada declarada', tone: approving ? 'warning' : 'neutral' },
-        { label: 'Pedidos emitidos', value: issued.length, hint: 'Aguardando entrega', tone: 'info' },
-        { label: 'Exposição em pedido', value: brlOf(exposure), hint: 'Soma dos pedidos emitidos em aberto' },
+    <AxPage testId="procurement-workspace">
+      <Resource {...resource}>{(data) => <Workspace data={data} refresh={resource.refresh} />}</Resource>
+    </AxPage>
+  );
+}
+
+function Workspace({ data, refresh }: { data: ProcurementModel; refresh: () => void }) {
+  const [stage, setStage] = useUrlParam<ProcurementStage>('stage', 'solicitacoes');
+  const waiting = data.requisitions.filter((r) => r.status === 'SUBMITTED' || r.status === 'SOURCING');
+  const waitingLines = waiting.flatMap((r) => r.lines.filter((l) => !l.inRfq)).length;
+  const openRfqs = data.rfqs.filter((r) => r.status === 'OPEN');
+  const readyToDecide = openRfqs.filter((r) => r.quotes.some((q) => q.status === 'RECEIVED')).length;
+  const approving = data.purchaseOrders.filter((o) => o.status === 'APPROVAL_REQUIRED');
+  const drafts = data.purchaseOrders.filter((o) => o.status === 'DRAFT' || o.status === 'APPROVED');
+  const live = data.purchaseOrders.filter((o) => o.status === 'ISSUED' || o.status === 'PARTIALLY_RECEIVED');
+  const exposure = live.reduce((a, o) => a + o.lines.reduce((s, l) => s + Math.max(0, l.quantity - l.received) * l.unitPrice, 0), 0);
+  const stuck = approving.length + drafts.length;
+
+  return (
+    <>
+      <CommandHeader domain="supply" area="Compras" title="Compras"
+        context={<>
+          <span><strong>{waitingLines}</strong> {waitingLines === 1 ? 'linha aguardando cotação' : 'linhas aguardando cotação'}</span>
+          {readyToDecide > 0 && <span><Dot tone="warning" label="decisão" /><strong>{readyToDecide}</strong> {readyToDecide === 1 ? 'cotação pronta para decidir' : 'cotações prontas para decidir'}</span>}
+          {stuck > 0 && <span><strong>{stuck}</strong> {stuck === 1 ? 'pedido antes da emissão' : 'pedidos antes da emissão'}</span>}
+          <span>{money(exposure, 'BRL', { compact: true })} a receber</span>
+        </>} />
+
+      <StagePipeline<ProcurementStage> label="Etapas de compras" value={stage} onChange={setStage} stages={[
+        { id: 'solicitacoes', label: 'Solicitações', count: waiting.length, tone: waitingLines ? 'warning' : undefined,
+          sub: waitingLines ? plural(waitingLines, 'linha sem cotação', 'linhas sem cotação') : 'nada esperando cotação' },
+        { id: 'cotacoes', label: 'Cotações', count: openRfqs.length, tone: readyToDecide ? 'warning' : undefined,
+          sub: readyToDecide ? plural(readyToDecide, 'pronta para decidir', 'prontas para decidir') : 'propostas sendo recebidas' },
+        { id: 'aprovacao', label: 'Aprovações', count: approving.length, tone: approving.length ? 'warning' : undefined,
+          sub: approving.length ? 'esperando a regra do inquilino' : 'nada esperando decisão' },
+        { id: 'pedidos', label: 'Pedidos', count: live.length,
+          sub: `${plural(live.length, 'emitido', 'emitidos')} com saldo${drafts.length ? ` · ${plural(drafts.length, 'rascunho/aprovado', 'rascunhos/aprovados')}` : ''}` },
       ]} />
-      <WorkspaceTabs label="Etapas de compras" active={tab} onChange={setTab} tabs={[
-        { id: 'requests', label: 'Solicitações', count: waiting, tone: 'warning' },
-        { id: 'rfqs', label: 'Cotações', count: openRfqs },
-        { id: 'approvals', label: 'Aprovações', count: approving, tone: 'warning' },
-        { id: 'orders', label: 'Pedidos', count: issued.length },
-      ]} />
-      {tab === 'requests' && <TabPanel id="requests"><RequisitionsTab data={data} onChanged={refresh} /></TabPanel>}
-      {tab === 'rfqs' && <TabPanel id="rfqs"><RfqsTab data={data} onChanged={refresh} /></TabPanel>}
-      {tab === 'approvals' && <TabPanel id="approvals"><ApprovalsTab data={data} onChanged={refresh} /></TabPanel>}
-      {tab === 'orders' && <TabPanel id="orders"><OrdersTab data={data} onChanged={refresh} /></TabPanel>}
-    </section>
+
+      <div role="tabpanel" aria-labelledby={`ax-stage-${stage}`} className="ax-stack">
+        {stage === 'solicitacoes' && <RequisitionsStage data={data} onChanged={refresh} />}
+        {stage === 'cotacoes' && <QuotationsStage data={data} onChanged={refresh} />}
+        {stage === 'aprovacao' && <ApprovalsStage data={data} onChanged={refresh} />}
+        {stage === 'pedidos' && <OrdersStage data={data} onChanged={refresh} />}
+      </div>
+    </>
   );
 }

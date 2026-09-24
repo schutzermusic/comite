@@ -1,5 +1,5 @@
 /**
- * E2E — Compras & Fornecedores (wave H): telas reais e, com leitura simulada,
+ * E2E — Compras & Fornecedores: telas reais e, com leitura simulada,
  * o contrato dos atos — decidir a compra (com justificativa contra a
  * recomendação), aprovar por alçada, cadastrar fornecedor e requisitar a
  * partir da falta. Toda escrita é interceptada; nada chega ao banco.
@@ -87,7 +87,7 @@ test('1 · Compras e Fornecedores reais: menu, abas e governança dita', async (
   await expect(menu.getByRole('link', { name: 'Compras', exact: true })).toBeVisible({ timeout: 60_000 });
   await expect(menu.getByRole('link', { name: 'Fornecedores', exact: true })).toBeVisible();
   const ws = page.getByTestId('procurement-workspace');
-  await expect(ws.getByRole('heading', { name: 'Da falta ao pedido emitido' })).toBeVisible({ timeout: 60_000 });
+  await expect(ws.getByRole('heading', { name: 'Compras', exact: true })).toBeVisible({ timeout: 60_000 });
   for (const t of ['Solicitações', 'Cotações', 'Aprovações', 'Pedidos']) await expect(ws.getByRole('tab', { name: new RegExp(`^${t}`) })).toBeVisible();
   await ws.getByRole('tab', { name: /^Aprovações/ }).click();
   await expect(ws.getByText('Alçadas de compra declaradas')).toBeVisible();
@@ -154,9 +154,9 @@ test('4 · fornecedor: cadastro envia CNPJ normalizado e categorias', async () =
 test('5 · falta sem estoque: estratégia é comprar e a requisição carrega o requisito', async () => {
   mockReads = true;
   await page.goto('/supply/planejamento-materiais');
-  await page.getByTestId('demand-row').first().getByRole('button', { name: 'Detalhar' }).click();
+  await page.getByTestId('demand-row').first().click();
   const drawer = page.getByTestId('demand-drawer');
-  await expect(drawer.getByTestId('strategy-option').first()).toContainText('Comprar · 1.000');
+  await expect(drawer.getByTestId('strategy-option').first()).toContainText('Comprar 1.000 m');
   await drawer.getByRole('button', { name: 'Requisitar compra' }).click();
   await expect.poll(() => sent.length).toBeGreaterThanOrEqual(3);
   const last = sent[sent.length - 1];

@@ -79,6 +79,36 @@ export function FlowPipeline({ steps, current, label }: { steps: FlowStep[]; cur
   );
 }
 
+/**
+ * Etapas de um fluxo que TAMBÉM são a navegação da tela (papel de abas): a
+ * contagem de cada etapa à vista, a etapa atual marcada, setas ← → trocam.
+ */
+export interface Stage<T extends string> { id: T; label: string; count: number; sub?: ReactNode; tone?: Tone }
+export function StagePipeline<T extends string>({ stages, value, onChange, label }: {
+  stages: Array<Stage<T>>; value: T; onChange: (id: T) => void; label: string;
+}) {
+  return (
+    <div className="ax-flow ax-stages" role="tablist" aria-label={label}>
+      {stages.map((s, i) => (
+        <button key={s.id} type="button" role="tab" id={`ax-stage-${s.id}`} aria-selected={s.id === value}
+          aria-current={s.id === value ? 'step' : undefined} tabIndex={s.id === value ? 0 : -1}
+          className="ax-flow-step" data-tone={s.tone} onClick={() => onChange(s.id)}
+          onKeyDown={(e) => {
+            if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+            const next = stages[(i + (e.key === 'ArrowRight' ? 1 : stages.length - 1)) % stages.length];
+            onChange(next.id);
+            document.getElementById(`ax-stage-${next.id}`)?.focus();
+          }}>
+          <span className="l">{s.label}</span>
+          <span className="n">{s.count.toLocaleString('pt-BR')}</span>
+          {s.sub && <span className="s">{s.sub}</span>}
+          {i < stages.length - 1 && <ChevronRight size={14} className="arrow" aria-hidden />}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /* ── Horizonte de execução (linha do tempo) ────────────────────────────── */
 export interface HorizonItem { id: string; date: string; title: string; kind: 'milestone' | 'activity' | 'need' | 'delivery'; tone?: Tone; href?: string }
 export interface HorizonLane { id: string; label: string; items: HorizonItem[] }
