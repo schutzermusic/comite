@@ -19,8 +19,8 @@ export const OPERATIONS_NAV: DomainNavItem[] = [
   { id: 'serviceOrders', label: 'Ordens de Serviço', href: '/operacoes/ordens-servico',
     anyPermission: ['operations.view'] },
   { id: 'projects', label: 'Projetos', href: '/projetos', anyPermission: ['projects.view', 'projects.view_all'] },
-  { id: 'map', label: 'Mapa de Operações', href: '/operacoes/mapa',
-    anyPermission: ['projects.view', 'projects.view_all', 'operations.view'] },
+  // O mapa de operações é o mapa 3D que já existia (mesma rota e alçada de antes).
+  { id: 'map', label: 'Mapa de Operações', href: '/projetos/operations-3d', anyPermission: ['projects.view', 'projects.view_all'] },
   { id: 'planning', label: 'Planejamento', href: '/operacoes/planejamento',
     anyPermission: ['operations.planning.view'] },
   { id: 'measurements', label: 'Medições & Evidências', href: '/operacoes/medicoes',

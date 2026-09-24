@@ -133,7 +133,7 @@ export function OperationsOverview() {
           </Panel>
           <Panel
             title="Mapa de operações"
-            aside={<Link href="/operacoes/mapa"><HudButton variant="ghost" size="sm"><MapPinned size={14} /> Abrir mapa</HudButton></Link>}
+            aside={<Link href="/projetos/operations-3d"><HudButton variant="ghost" size="sm"><MapPinned size={14} /> Abrir mapa</HudButton></Link>}
           >
             {data.map ? (
               <div className="crm-section-empty">

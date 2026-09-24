@@ -257,3 +257,11 @@ Não recebe material, não consome estoque, não aprova nem emite compra, não d
 ## Caminho dourado ponta a ponta (prova, sem migration)
 
 `node scripts/operations/golden-path.mjs` — uma transação no banco real, **sempre revertida**: pacote aceito (PT+PC) → OS gerada, revisada (com linha de material) e emitida → projeto a partir da OS → requisitos importados da OS (repetir não duplica) → material com item e confirmado → falta de 1000 → 300 reservados do estoque → requisição da falta → cotação → proposta → decisão → pedido → sem alçada não aprova → alçada declarada → rejeição volta ao rascunho → aprovação por outra pessoa → emissão (idempotente) → recebimento parcial (idempotente; acima do aberto recusado; pedido recebido não cancela) → recebimento final → requisito coberto → entrega à obra → fatos na Timeline do projeto → fronteira de inquilino. **16/16.**
+
+---
+
+## Mapa de Operações volta a ser o mapa 3D anterior (pedido do usuário)
+
+- O item **Operações → Mapa de Operações** e o atalho "Abrir mapa" da Visão Geral de Operações voltam a abrir `/projetos/operations-3d`, o mapa 3D que já existia — mesma rota, mesmo ícone e mesma alçada (`projects.view`) de antes da branch.
+- O mapa 2D da Wave E (`/operacoes/mapa`, `/api/operations/map`, `src/lib/operations/map.ts`, componentes e testes) foi removido para não haver dois mapas. Saíram junto a camada de estoques (Wave G) e o realce de falta de material que só existiam nele; o código segue no histórico (a2032cc, a12966c).
+- Provas: unidade `operations-navigation` (2) — suíte 2939/2939; E2E `operations-map.spec.ts` agora prova que menu e atalho levam ao mapa 3D e que o item fica marcado como página atual.
