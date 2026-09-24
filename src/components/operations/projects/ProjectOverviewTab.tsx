@@ -2,144 +2,172 @@
 
 import Link from 'next/link';
 import { ArrowUpRight } from 'lucide-react';
-import { HudButton } from '@/components/hud';
-import type { ProjectOverviewModel, ProjectAccess } from '@/lib/operations/projects/read-model';
-import { HEALTH_LABEL } from '@/lib/operations/projects/health';
+import type { ProjectPlanningModel } from '@/lib/operations/planning/read-model';
 import { MEASUREMENT_LANE_LABEL, type MeasurementLane } from '@/lib/operations/overview-rules';
 import { serviceOrderStatusLabels } from '@/lib/operations/service-orders/labels';
 import {
-  EmptyNote, GovernanceNote, Metrics, Panel, ResourceState, StatePill, brl, day, useOperationsResource,
-} from '../ui';
-
-type Payload = ProjectOverviewModel & { ok: true; access: ProjectAccess };
+  ApexFindings, AttentionRow, Chip, EmptyState, ErrorState, Plane, SignalStrip, Skeleton, dateShort, daysBetween, href, money, plural,
+  relativeDue, useResource,
+} from '@/components/ax';
+import { ReadinessChip, ReadinessStrip } from '../planning/shared';
+import type { ProjectOverviewPayload } from './ProjectGlance';
 
 const LANES: MeasurementLane[] = ['PREPARE_EVIDENCE', 'CORRECTION', 'INTERNAL_REVIEW', 'SEND_TO_CUSTOMER', 'AWAITING_CUSTOMER', 'BILLING_ELIGIBLE'];
+type Planning = ProjectPlanningModel & { ok: true; capabilities: { manage: boolean } };
 
 /**
- * VISÃO GERAL DO PROJETO — a hierarquia do plano, nessa ordem:
- * próximo marco → bloqueios → avanço → medição → equipe → exposição financeira
- * (só com leitura financeira). Nada de grade de cartões de peso igual.
+ * VISÃO GERAL DO PROJETO — a hierarquia do plano, nessa ordem: o que trava →
+ * as próximas frentes e se estão prontas → a autorização (OS) → a medição →
+ * a equipe → exposição financeira (só com leitura financeira). Tudo derivado
+ * do cronograma, das OS, das medições, dos riscos e das alocações canônicas.
  */
-export function ProjectOverviewTab({ projectId, onOpenTab }: { projectId: string; onOpenTab: (tab: string) => void }) {
-  const { data, state, message } = useOperationsResource<Payload>(`/api/operations/projects/${encodeURIComponent(projectId)}/overview`);
-  if (state !== 'ready' || !data) return <ResourceState state={state} message={message} />;
+export function ProjectOverviewTab({ projectId, overview, onOpenTab }: {
+  projectId: string;
+  overview: { data: ProjectOverviewPayload | null; state: string; message: string | null; refresh: () => void };
+  onOpenTab: (tab: string) => void;
+}) {
+  const planning = useResource<Planning>(`/api/operations/projects/${encodeURIComponent(projectId)}/requirements`);
+  if (overview.state === 'error') return <ErrorState message={overview.message} onRetry={overview.refresh} />;
+  if (!overview.data) return <Skeleton />;
+  const data = overview.data;
   const h = data.health;
-  const tone = h.level === 'critical' ? 'danger' : h.level === 'attention' ? 'warning' : h.level === 'healthy' ? 'success' : 'neutral';
-  const next = data.nextMilestones[0];
+  const plan = planning.data;
+  const liveNeeds = (plan?.requirements ?? []).filter((r) => r.status === 'PLANNED' || r.status === 'CONFIRMED');
+  const materialShort = liveNeeds.filter((r) => r.readiness === 'SHORTAGE' || r.readiness === 'PARTIAL').length;
+  const unreadyFronts = (plan?.activities ?? []).filter((a) => a.start && a.start >= data.today && daysBetween(data.today, a.start) <= 14)
+    .filter((a) => { const mine = liveNeeds.filter((r) => r.activity_id === a.id); return !mine.length || mine.some((r) => r.readiness !== 'READY'); }).length;
 
   return (
-    <section className="crm-workspace ops-workspace" aria-label="Visão geral do projeto" data-testid="project-overview">
-      <Metrics
-        items={[
-          { label: 'Saúde', value: HEALTH_LABEL[h.level], tone,
-            hint: h.reasons.length ? h.reasons.slice(0, 2).map((r) => r.text).join(' · ') : 'Sem bloqueio no cronograma, OS, medição ou risco' },
-          { label: 'Próximo marco', value: next ? day(next.date) : '—', accent: Boolean(next),
-            hint: next ? next.title : 'Nenhum marco futuro no cronograma', onClick: () => onOpenTab('timeline') },
-          { label: 'Avanço físico', value: data.progress.percent === null ? '—' : `${data.progress.percent.toLocaleString('pt-BR')}%`,
-            meter: data.progress.percent === null ? null : data.progress.percent / 100,
-            hint: data.progress.total ? `${data.progress.done} de ${data.progress.total} atividade(s) concluída(s)` : 'Cronograma não importado' },
-          { label: 'Atividades críticas', value: data.schedule.critical, tone: data.schedule.critical ? 'danger' : 'neutral',
-            hint: `${data.schedule.overdue} vencida(s) · ${data.schedule.blocked} bloqueada(s)`, onClick: () => onOpenTab('timeline') },
-          ...(data.measurements ? [{ label: 'Medições pendentes', value: data.measurements.pending,
-            tone: data.measurements.pending ? 'warning' as const : 'neutral' as const,
-            hint: data.measurements.next ? `Próxima: ${data.measurements.next.key} · ${day(data.measurements.next.expected)}` : 'Nenhuma medição a preparar',
-            onClick: () => onOpenTab('measurements') }] : []),
-        ]}
-      />
+    <section className="ax-stack" aria-label="Visão geral do projeto" data-testid="project-overview">
+      {/* Estado, saúde, avanço e próximo marco já estão no cabeçalho; aqui, o que pede ação nesta frente de trabalho. */}
+      <SignalStrip label="Sinais do projeto" items={[
+        { label: 'Atividades críticas', value: data.schedule.critical, tone: data.schedule.critical ? 'danger' : undefined,
+          hint: `${plural(data.schedule.overdue, 'vencida', 'vencidas')} · ${plural(data.schedule.blocked, 'bloqueada', 'bloqueadas')}`,
+          onClick: () => onOpenTab('timeline') },
+        { label: 'Frentes sem prontidão', value: planning.data ? unreadyFronts : '—', tone: unreadyFronts ? 'warning' : undefined,
+          hint: 'começam em 14 dias com necessidade pendente ou sem nenhuma registrada', onClick: () => onOpenTab('timeline') },
+        { label: 'Material sem cobertura', value: planning.data ? materialShort : '—', tone: materialShort ? 'danger' : undefined,
+          hint: 'falta ou cobertura parcial do Supply', onClick: () => onOpenTab('supply') },
+        ...(data.measurements ? [{ label: 'Medições pendentes', value: data.measurements.pending,
+          tone: data.measurements.pending ? 'warning' as const : undefined,
+          hint: data.measurements.next ? `próxima: ${data.measurements.next.key} · ${dateShort(data.measurements.next.expected)}` : 'nenhuma medição a preparar',
+          onClick: () => onOpenTab('measurements') }] : []),
+      ]} />
 
-      <div className="crm-split">
-        <Panel title="Bloqueios críticos" note={h.reasons.length ? h.reasons.map((r) => r.text).join(' · ') : undefined}>
-          {data.blockers.length ? (
-            <div className="ops-attention">
-              {data.blockers.map((b) => (
-                <div key={b.id} className="ops-attention-row" data-tone={b.tone}>
-                  <div className="min-w-0">
-                    <strong>{b.title}</strong>
-                    <p className="ops-attention-issue">{b.issue}</p>
-                    <p className="ops-attention-meta">
-                      {b.due && <span className={b.due < data.today ? 'ops-overdue' : undefined}>{b.due < data.today ? 'Venceu' : 'Prazo'} {day(b.due)}</span>}
-                      <span>{b.owner ?? 'Sem responsável'}</span>
-                    </p>
-                  </div>
-                  <HudButton variant="ghost" size="sm" onClick={() => onOpenTab(b.kind === 'risk' ? 'risks' : 'timeline')}>
-                    Abrir <ArrowUpRight size={13} />
-                  </HudButton>
-                </div>
-              ))}
-            </div>
-          ) : <EmptyNote title="Nenhum bloqueio crítico" description="Nenhuma atividade crítica, vencida ou bloqueada, e nenhum risco alto/crítico aberto." />}
-        </Panel>
-
-        <div className="grid gap-3 min-w-0">
-          <Panel title="Próximos marcos">
-            {data.nextMilestones.length ? (
-              <ul className="crm-linked-list">
-                {data.nextMilestones.map((m) => (
-                  <li key={m.id}><div><p>{m.title}</p>{m.wbs && <p className="crm-muted">WBS {m.wbs}</p>}</div>
-                    <strong className="tabular-nums">{day(m.date)}</strong></li>
+      <div className="ax-grid main-side">
+        <div className="ax-stack">
+          <Plane flush title="Bloqueios críticos" count={data.blockers.length} countTone={data.blockers.some((b) => b.tone === 'danger') ? 'danger' : undefined}
+            subtitle={h.reasons.length ? h.reasons.map((r) => r.text).join(' · ') : 'Atividade crítica, vencida ou bloqueada, e risco alto/crítico aberto'}>
+            {data.blockers.length ? (
+              <div className="ax-queue">
+                {data.blockers.map((b) => (
+                  <AttentionRow key={b.id} tone={b.tone} kind={b.kind === 'risk' ? 'Risco' : 'Atividade'} object={b.title} issue={b.issue}
+                    due={b.due} owner={b.owner} today={data.today}
+                    action={<button type="button" className="ax-btn sm" onClick={() => onOpenTab(b.kind === 'risk' ? 'risks' : 'timeline')}>
+                      Abrir<ArrowUpRight size={13} aria-hidden /></button>} />
                 ))}
-              </ul>
-            ) : <div className="crm-section-empty">Nenhum marco futuro no cronograma.</div>}
-          </Panel>
-          <Panel title="Ordens de Serviço" aside={<Link href="/operacoes/ordens-servico"><HudButton variant="ghost" size="sm">Fila de OS</HudButton></Link>}>
+              </div>
+            ) : <EmptyState compact title="Nenhum bloqueio crítico">Nenhuma atividade crítica, vencida ou bloqueada, e nenhum risco alto/crítico aberto.</EmptyState>}
+          </Plane>
+          <NextFronts planning={planning.data} today={data.today} onOpenTab={onOpenTab} />
+        </div>
+
+        <div className="ax-stack">
+          <ApexFindings projectId={projectId} limit={3} title="Apex — neste projeto" />
+          <Plane flush title="Autorização do trabalho" subtitle="A OS interna que autoriza este projeto — e o pacote PT + PC por trás dela"
+            action={<Link className="ax-btn ghost sm" href="/operacoes/ordens-servico">Fila de OS</Link>}>
             {data.serviceOrders.length ? (
-              <ul className="crm-linked-list">
+              <ul className="ax-mini">
                 {data.serviceOrders.map((o) => (
                   <li key={o.id}>
-                    <div><Link href={`/operacoes/ordens-servico/${o.id}`} className="crm-row-open">{o.osNumber}</Link>
-                      <p className="crm-muted">{o.title}</p></div>
-                    <StatePill tone={o.nextAction.tone === 'danger' ? 'danger' : o.nextAction.tone === 'warning' ? 'warning' : 'success'}>
-                      {serviceOrderStatusLabels[o.status]}
-                    </StatePill>
+                    <span><Link className="ax-link" href={href.serviceOrder(o.id)}>{o.osNumber}</Link><small>{o.title}</small></span>
+                    <span className="ax-mini-side">
+                      <Chip tone={o.nextAction.tone === 'danger' ? 'danger' : o.nextAction.tone === 'warning' ? 'warning' : 'success'}>{serviceOrderStatusLabels[o.status]}</Chip>
+                      <Link className="ax-link" href={href.serviceOrder(o.id, 'comparacao')}>OS × PT × PC</Link>
+                    </span>
                   </li>
                 ))}
               </ul>
-            ) : <div className="crm-section-empty">Nenhuma OS interna vinculada a este projeto.</div>}
-          </Panel>
+            ) : <EmptyState compact title="Nenhuma OS interna vinculada">O projeto nasce da OS emitida — vincule pela fila de OS.</EmptyState>}
+          </Plane>
+          <Plane flush title="Medições & evidências" subtitle="As mesmas medições da aba Medições — por quem tem o próximo passo"
+            action={data.measurements?.total ? <button type="button" className="ax-btn ghost sm" onClick={() => onOpenTab('measurements')}>Abrir</button> : undefined}>
+            {data.measurements ? (
+              data.measurements.total ? (
+                <ul className="ax-mini">
+                  {LANES.filter((l) => data.measurements!.lanes[l]).map((lane) => (
+                    <li key={lane}><span>{MEASUREMENT_LANE_LABEL[lane]}</span><strong className="ax-num">{data.measurements!.lanes[lane]}</strong></li>
+                  ))}
+                </ul>
+              ) : <EmptyState compact title="Nenhuma medição planejada" />
+            ) : <EmptyState compact title="Leitura de medições restrita para o seu papel" />}
+          </Plane>
+          <Plane flush title="Equipe" action={<button type="button" className="ax-btn ghost sm" onClick={() => onOpenTab('team')}>Abrir</button>}>
+            {data.team ? (
+              data.team.allocated ? (
+                <ul className="ax-mini">
+                  {data.team.people.map((p, i) => (
+                    <li key={i}><span>{p.name}{p.role && <small>{p.role}</small>}</span><strong className="ax-num">{p.percent}%</strong></li>
+                  ))}
+                  {data.team.pending > 0 && <li><span className="ax-subtle">{plural(data.team.pending, 'alocação aguardando aprovação', 'alocações aguardando aprovação')}</span></li>}
+                </ul>
+              ) : <EmptyState compact title="Nenhuma pessoa alocada ativamente" />
+            ) : <EmptyState compact title="Leitura de alocações restrita para o seu papel" />}
+          </Plane>
+          {data.financial && (
+            <Plane title="Exposição financeira das medições" subtitle="Visível só com leitura financeira do projeto">
+              <ul className="ax-mini" style={{ margin: '-4px 0' }}>
+                <li><span>Aceito pelo cliente</span><strong className="ax-num">{money(data.financial.accepted, data.financial.currency)}</strong></li>
+                <li><span>Em trânsito (submetido → aceite)</span><strong className="ax-num">{money(data.financial.inFlight, data.financial.currency)}</strong></li>
+              </ul>
+            </Plane>
+          )}
         </div>
       </div>
-
-      <div className="crm-split">
-        <Panel title="Medições & evidências" note="Mesmas medições da aba Medições — por quem tem o próximo passo">
-          {data.measurements ? (
-            data.measurements.total ? (
-              <ul className="crm-linked-list">
-                {LANES.map((lane) => (
-                  <li key={lane}><div><p>{MEASUREMENT_LANE_LABEL[lane]}</p></div>
-                    <strong className="tabular-nums">{data.measurements!.lanes[lane] ?? 0}</strong></li>
-                ))}
-              </ul>
-            ) : <div className="crm-section-empty">Nenhuma medição planejada para este projeto.</div>
-          ) : <div className="crm-section-empty">Leitura de medições restrita para o seu papel.</div>}
-        </Panel>
-        <Panel title="Equipe" aside={<HudButton variant="ghost" size="sm" onClick={() => onOpenTab('team')}>Abrir equipe</HudButton>}>
-          {data.team ? (
-            data.team.allocated ? (
-              <ul className="crm-linked-list">
-                {data.team.people.map((p, i) => (
-                  <li key={i}><div><p>{p.name}</p>{p.role && <p className="crm-muted">{p.role}</p>}</div>
-                    <strong className="tabular-nums">{p.percent}%</strong></li>
-                ))}
-                {data.team.pending > 0 && <li><div><p className="crm-muted">{data.team.pending} alocação(ões) aguardando aprovação</p></div></li>}
-              </ul>
-            ) : <div className="crm-section-empty">Nenhuma pessoa alocada ativamente.</div>
-          ) : <div className="crm-section-empty">Leitura de alocações restrita para o seu papel.</div>}
-        </Panel>
-      </div>
-
-      {data.financial && (
-        <Panel title="Exposição financeira (medições)" note="Visível só com leitura financeira do projeto">
-          <dl className="ops-summary-grid">
-            <div><dt>Aceito pelo cliente</dt><dd className="tabular-nums">{brl(data.financial.accepted, data.financial.currency)}</dd></div>
-            <div><dt>Em trânsito (submetido → aceite)</dt><dd className="tabular-nums">{brl(data.financial.inFlight, data.financial.currency)}</dd></div>
-          </dl>
-        </Panel>
-      )}
-
-      <GovernanceNote>
-        Visão derivada do cronograma, das OS, das medições, dos riscos e das alocações canônicas deste projeto — nada é copiado para o projeto.
-        Prontidão de materiais entra aqui quando o Planejamento confirmar requisitos de material.
-      </GovernanceNote>
+      <p className="ax-note">Visão derivada do cronograma, das OS, das medições, dos riscos e das alocações canônicas deste projeto — nada é copiado para o projeto.</p>
     </section>
+  );
+}
+
+/** As próximas frentes do cronograma com a prontidão delas — o elo entre o plano e o que o Supply e a equipe precisam entregar. */
+function NextFronts({ planning, today, onOpenTab }: { planning: Planning | null; today: string; onOpenTab: (tab: string) => void }) {
+  const readiness = new Map((planning?.readinessByActivity ?? []).map((a) => [a.activityId, a]));
+  const fronts = (planning?.activities ?? [])
+    .filter((a) => a.start && a.start >= today)
+    .sort((a, b) => (a.start ?? '').localeCompare(b.start ?? ''))
+    .slice(0, 5);
+  const needsOf = (activityId: string) => (planning?.requirements ?? []).filter((r) => r.activity_id === activityId
+    && (r.status === 'PLANNED' || r.status === 'CONFIRMED'));
+  return (
+    <Plane flush title="Próximas frentes" testId="project-next-fronts"
+      subtitle="O que começa a seguir e se está pronto: equipe, material, equipamento, documento, cliente"
+      action={<button type="button" className="ax-btn ghost sm" onClick={() => onOpenTab('timeline')}>Planejamento</button>}>
+      {!planning ? <div style={{ padding: 16 }}><Skeleton /></div> : fronts.length === 0 ? (
+        <EmptyState compact title="Nenhuma frente futura no cronograma" />
+      ) : (
+        <div>
+          {fronts.map((a) => {
+            const r = readiness.get(a.id);
+            const needs = needsOf(a.id);
+            const pending = needs.filter((n) => n.readiness !== 'READY');
+            const start = relativeDue(a.start, today);
+            return (
+              <div key={a.id} className="ax-front" data-tone={!needs.length && (start.days ?? 99) <= 14 ? 'warning'
+                : r?.overall === 'SHORTAGE' || r?.overall === 'OVERDUE' ? 'danger' : pending.length ? 'warning' : 'neutral'}>
+                <div className="ax-front-when"><strong>{dateShort(a.start)}</strong><small>{start.text}</small></div>
+                <div className="ax-front-main">
+                  <span className="ax-row-eyebrow"><span className="ax-kind">{a.milestone ? 'Marco' : a.wbs ? `EAP ${a.wbs}` : 'Atividade'}</span></span>
+                  <span className="ax-row-object">{a.title}</span>
+                  <span className="ax-row-issue">{needs.length ? `${plural(needs.length, 'necessidade', 'necessidades')}${pending.length ? ` · ${pending.length} sem prontidão` : ' · tudo pronto'}`
+                    : 'Nenhuma necessidade registrada — planeje antes do início.'}</span>
+                  <ReadinessStrip cells={r?.cells ?? {}} label={`Prontidão de ${a.title}`} />
+                </div>
+                <div className="ax-front-state"><ReadinessChip value={r?.overall ?? null} /></div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Plane>
   );
 }

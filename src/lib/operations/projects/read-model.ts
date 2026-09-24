@@ -142,6 +142,13 @@ export async function projectOverview(session: Session, projectId: string, acces
     project: identity,
     health,
     progress: physicalProgress(activities),
+    /** O período que o CRONOGRAMA diz — primeiro início e último término planejados das folhas. */
+    span: (() => {
+      const leaves = activities.filter((a) => !a.is_summary);
+      const starts = leaves.map((a) => a.planned_start).filter((d): d is string => Boolean(d)).sort();
+      const finishes = leaves.map((a) => a.planned_finish).filter((d): d is string => Boolean(d)).sort();
+      return { start: starts[0] ?? null, finish: finishes[finishes.length - 1] ?? null };
+    })(),
     schedule: {
       total: activities.filter((a) => !a.is_summary).length, open: open.length,
       critical: critical.length, overdue: overdue.length, blocked: blocked.length,

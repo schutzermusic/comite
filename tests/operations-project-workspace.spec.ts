@@ -65,36 +65,47 @@ test.beforeAll(async ({ browser }) => {
 
 test.afterAll(async () => { await ctx?.close(); });
 
-test('1 · o projeto abre na Visão Geral, com saúde explicada', async () => {
+test('1 · o projeto abre na Visão Geral: o projeto num olhar e o que trava', async () => {
   const id = await qaProjectId();
   expect(id, 'a organização de QA precisa de ao menos um projeto').toBeTruthy();
   projectPath = `/projetos/${encodeURIComponent(id!)}`;
   await page.goto(projectPath!);
-  await expect(page.getByRole('tab', { name: 'Visão Geral' })).toHaveAttribute('data-state', 'active', { timeout: 60_000 });
+  await expect(page.getByRole('tab', { name: 'Visão geral' })).toHaveAttribute('aria-selected', 'true', { timeout: 60_000 });
+  // Num olhar: estado, período, avanço, saúde (com o motivo), próximo marco e a OS que autoriza o trabalho.
+  const glance = page.getByTestId('project-glance');
+  for (const label of ['Estado', 'Período', 'Avanço físico', 'Saúde', 'Próximo marco', 'Autorização']) {
+    await expect(glance.getByText(label, { exact: true })).toBeVisible();
+  }
   const overview = page.getByTestId('project-overview');
   await expect(overview).toBeVisible({ timeout: 60_000 });
-  for (const label of ['Saúde', 'Próximo marco', 'Avanço físico', 'Atividades críticas']) {
+  for (const label of ['Atividades críticas', 'Frentes sem prontidão', 'Material sem cobertura']) {
     await expect(overview.getByText(label, { exact: true }).first()).toBeVisible();
   }
   await expect(overview.getByText('Bloqueios críticos')).toBeVisible();
+  await expect(overview.getByTestId('project-next-fronts')).toBeVisible();
   await expect(page.getByText(/Não foi possível montar/)).toHaveCount(0);
   await snap('project-overview');
 });
 
-test('2 · as abas seguem o plano; Cronograma / Planejamento mantém ?tab=timeline', async () => {
-  for (const tab of ['Visão Geral', 'Cronograma / Planejamento', 'Contexto Contratual', 'Medições & Evidências',
-    'Timeline', 'Riscos', 'Documentos', 'Equipe', 'Apontamentos']) {
-    await expect(page.getByRole('tab', { name: tab, exact: true })).toBeVisible();
+test('2 · as abas seguem o plano e vivem na URL; o cronograma mantém ?tab=timeline', async () => {
+  for (const tab of ['Visão geral', 'Cronograma e plano', 'Materiais', 'Medições & Evidências', 'Apontamentos', 'Equipe', 'Riscos',
+    'Documentos', 'Contexto contratual', 'Histórico']) {
+    await expect(page.getByRole('tab', { name: new RegExp(`^${tab}`) })).toBeVisible();
   }
+  await page.getByRole('tab', { name: /^Apontamentos/ }).click();
+  await expect(page).toHaveURL(/tab=timesheet/);
   await page.goto(`${projectPath}?tab=timeline`);
-  await expect(page.getByRole('tab', { name: 'Cronograma / Planejamento' })).toHaveAttribute('data-state', 'active', { timeout: 60_000 });
+  await expect(page.getByRole('tab', { name: /^Cronograma e plano/ })).toHaveAttribute('aria-selected', 'true', { timeout: 60_000 });
+  await expect(page.getByTestId('project-requirements')).toBeVisible({ timeout: 60_000 });
 });
 
-test('3 · a Timeline é um fluxo cronológico de histórias canônicas', async () => {
+test('3 · o Histórico é um fluxo cronológico de histórias canônicas, em português', async () => {
   await page.goto(`${projectPath}?tab=activity`);
   const timeline = page.getByTestId('project-activity-timeline');
   await expect(timeline).toBeVisible({ timeout: 60_000 });
   await expect(timeline.getByText(/evento\(s\) de/)).toBeVisible();
+  // Nenhum evento aparece com o nome técnico do tipo (ex.: "purchase order · submitted").
+  await expect(timeline.getByText(/purchase order|goods receipt|sourcing ·|· submitted|· edited/)).toHaveCount(0);
   await expect(page.getByText(/Não foi possível montar/)).toHaveCount(0);
   await snap('project-timeline');
 });
@@ -103,7 +114,7 @@ test('4 · Medições & Evidências: fila do portfólio sem confundir aprovaçã
   await page.goto('/operacoes/medicoes');
   await expect(page.getByRole('heading', { name: 'Da evidência ao faturamento' })).toBeVisible({ timeout: 60_000 });
   await expect(page.getByText('Aprovada — enviar ao cliente').first()).toBeVisible();
-  await expect(page.getByText('Pacote interno aprovado — ainda não é aceite')).toBeVisible();
+  await expect(page.getByText(/Pacote aprovado internamente — enviar ao cliente \(ainda não é aceite\)/).first()).toBeVisible();
   await expect(page.getByText('Aceita — elegível a faturamento').first()).toBeVisible();
   await expect(page.getByText(/Esta ação exige:/)).toHaveCount(0);
   await snap('measurements-queue');

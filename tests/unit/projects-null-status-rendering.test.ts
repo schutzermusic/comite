@@ -220,7 +220,7 @@ describe('tabela, gaveta, resumo, detalhe e PDF', () => {
     expect(page).toContain('isProjectStatus(status)');
     // O fallback de cor deixou de ser `planejamento`: ausente é neutro.
     expect(page).not.toContain('return colors[status] || colors.planejamento;');
-    expect(page).toContain('NEUTRAL_STATUS_CLASS');
+    expect(page).toMatch(/isProjectStatus\(status\) \? STATUS_TONE\[status\] : 'neutral'/);
   });
 
   it('o PDF imprime o rótulo honesto e não a string "undefined"', () => {

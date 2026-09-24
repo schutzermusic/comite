@@ -36,15 +36,18 @@ describe('as abas dizem o que são', () => {
   const page = read(PROJECT_PAGE);
 
   it('"Contrato" virou "Contexto Contratual"', () => {
-    expect(page).toContain('Contexto Contratual');
+    expect(page).toMatch(/Contexto contratual/i);
   });
 
   it('"Medições" virou "Medições & Evidências"', () => {
-    expect(page).toContain('Medições &amp; Evidências');
+    expect(page).toMatch(/Medições (&amp;|&) Evidências/i);
   });
 
   it('as chaves de aba não mudaram — links antigos continuam funcionando', () => {
-    expect(page).toContain("'timeline', 'contract', 'measurements'");
+    const keys = page.match(/const TABS: TabId\[\] = \[([^\]]+)\]/)?.[1] ?? '';
+    for (const key of ['overview', 'timeline', 'contract', 'measurements', 'finance', 'activity', 'risks', 'documents', 'team', 'timesheet', 'supply']) {
+      expect(keys).toContain(`'${key}'`);
+    }
   });
 });
 
