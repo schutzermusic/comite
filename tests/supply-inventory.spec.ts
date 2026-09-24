@@ -82,7 +82,7 @@ test('1 · Estoque real: menu, cabeçalho, cinco abas e locais', async () => {
   await page.goto('/supply/estoque');
   await expect(page.locator('.hud-nav-submenu').getByRole('link', { name: 'Estoque', exact: true })).toBeVisible({ timeout: 60_000 });
   const ws = page.getByTestId('inventory-workspace');
-  await expect(ws.getByRole('heading', { name: 'Posição, reservas e movimentação' })).toBeVisible({ timeout: 60_000 });
+  await expect(ws.getByRole('heading', { name: 'Estoque', exact: true })).toBeVisible({ timeout: 60_000 });
   for (const t of ['Posição', 'Reservas', 'Movimentações', 'Transferências', 'Inventário', 'Locais']) {
     await expect(ws.getByRole('tab', { name: new RegExp(`^${t}`) })).toBeVisible();
   }
@@ -112,11 +112,13 @@ test('2 · posição distingue em mão, reservado e disponível; ajuste envia mo
 test('3 · falta do material: estratégia explicável e reserva governada', async () => {
   await page.goto('/supply/planejamento-materiais');
   const mp = page.getByTestId('material-planning');
-  await mp.getByTestId('demand-row').first().getByRole('button', { name: 'Detalhar' }).click();
+  await mp.getByTestId('demand-row').first().click();
   const drawer = page.getByTestId('demand-drawer');
-  await expect(drawer.getByTestId('strategy-option').first()).toContainText('Reservar do estoque · 400');
-  await expect(drawer.getByTestId('strategy-option').nth(1)).toContainText('Comprar · 50');
-  await drawer.getByRole('button', { name: 'Reservar' }).click();
+  const reserve = drawer.getByTestId('strategy-option').first();
+  await expect(reserve).toContainText('Reservar do estoque em Almoxarifado SP');
+  await expect(reserve.getByLabel(/Quantidade/)).toHaveValue('400');
+  await expect(drawer.getByTestId('strategy-option').nth(1)).toContainText('Comprar 50 m');
+  await reserve.getByRole('button', { name: 'Reservar' }).click();
   await expect.poll(() => sent.length).toBe(2);
   expect(sent[1]).toMatchObject({ path: '/api/supply/inventory/reservations', body: { requirementId: REQ, locationId: WH, quantity: 400 } });
   await page.screenshot({ path: `${OUT}/inventory-strategy.png`, fullPage: true });

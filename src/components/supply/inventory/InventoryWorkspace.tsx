@@ -1,76 +1,111 @@
 'use client';
 
-import { useState } from 'react';
+import { AlertTriangle } from 'lucide-react';
 import { INVENTORY_EXCEPTION_LABEL } from '@/lib/supply/inventory';
 import {
-  LiveSep, Metrics, ResourceState, TabPanel, WorkspaceHeading, WorkspaceTabs, useOperationsResource,
-} from '@/components/operations/ui';
-import '../supply.css';
-import { PositionTab, LocationsPanel } from './PositionTab';
-import { ReservationsTab } from './ReservationsTab';
-import { MovementsTab } from './MovementsTab';
-import { TransfersTab } from './TransfersTab';
-import { CountsTab } from './CountsTab';
-import { qty, type InventoryModel } from './shared';
+  AxPage, CommandHeader, Plane, Resource, SignalStrip, Tabs, plural, useResource, useUrlParam, useUrlParams,
+} from '@/components/ax';
+import { PositionView } from './PositionView';
+import { ReservationsView } from './ReservationsView';
+import { LedgerView } from './LedgerView';
+import { TransfersView } from './TransfersView';
+import { CountsView } from './CountsView';
+import { LocationsView } from './LocationsView';
+import type { InventoryModel } from './shared';
 
-type Tab = 'position' | 'reservations' | 'movements' | 'transfers' | 'counts' | 'locations';
+type View = 'posicao' | 'reservas' | 'livro' | 'transferencias' | 'contagens' | 'locais';
 type Payload = InventoryModel & { ok: true };
+const EXCEPTION_VIEW: Record<string, View> = {
+  RESERVED_ABOVE_ON_HAND: 'posicao', RESERVATION_WITHOUT_DEMAND: 'reservas', RESERVATION_ABOVE_NEED: 'reservas',
+  TRANSFER_OVERDUE: 'transferencias', COUNT_OPEN_LONG: 'contagens',
+};
 
 /**
- * ESTOQUE — uma tela, cinco abas (Posição | Reservas | Movimentações |
- * Transferências | Inventário) e os locais. Tudo derivado do livro; todo ato
- * passa por uma função governada que refaz a conta no banco.
+ * ESTOQUE — o livro é a verdade: posição, disponibilidade, reservas por
+ * projeto, transferências, contagens e locais são leituras dele, e todo ato
+ * passa por uma função governada que refaz a conta no banco. Exceção primeiro.
+ *
+ * Endereçável: `?view=`, `?item=` (posição aberta no item), `?transfer=`, `?count=`.
  */
 export function InventoryWorkspace() {
-  const { data, state, message, refresh } = useOperationsResource<Payload>('/api/supply/inventory');
-  const [tab, setTab] = useState<Tab>('position');
-  if (state !== 'ready' || !data) return <ResourceState state={state} message={message} />;
+  const resource = useResource<Payload>('/api/supply/inventory');
+  return (
+    <AxPage testId="inventory-workspace">
+      <Resource {...resource}>{(data) => <Workspace data={data} refresh={resource.refresh} />}</Resource>
+    </AxPage>
+  );
+}
+
+function Workspace({ data, refresh }: { data: Payload; refresh: () => void }) {
+  const [view, setView] = useUrlParam<View>('view', 'posicao');
+  const patch = useUrlParams();
   const activeRes = data.reservations.filter((r) => r.status === 'ACTIVE');
   const moving = data.transfers.filter((t) => t.status === 'IN_TRANSIT' || t.status === 'PARTIALLY_RECEIVED');
-  const sum = (f: (p: InventoryModel['position'][number]) => number) => data.position.reduce((a, p) => a + f(p), 0);
-  const skus = new Set(data.position.filter((p) => p.onHand > 0).map((p) => p.itemId)).size;
+  const pendingTransfers = data.transfers.filter((t) => ['REQUESTED', 'APPROVED', 'IN_TRANSIT', 'PARTIALLY_RECEIVED'].includes(t.status));
+  const items = new Set(data.position.filter((p) => p.onHand > 0 && p.locationKind !== 'QUARANTINE').map((p) => p.itemId));
+  const free = new Set(data.position.filter((p) => p.available > 0 && p.locationKind !== 'QUARANTINE').map((p) => p.itemId));
+  const quarantine = data.position.filter((p) => p.locationKind === 'QUARANTINE' && p.onHand > 0);
+  const projects = new Set(activeRes.map((r) => r.projectId));
+  const openCounts = data.counts.filter((c) => c.status === 'OPEN');
+
   return (
-    <section className="crm-workspace ops-workspace" aria-label="Estoque" data-testid="inventory-workspace">
-      <WorkspaceHeading
-        eyebrow="Supply Chain · Estoque"
-        title="Posição, reservas e movimentação"
-        description={<><span><b>{skus}</b> item(ns) em estoque</span><LiveSep />
-          <span><b>{activeRes.length}</b> reserva(s) ativa(s)</span><LiveSep />
-          <span className={moving.length ? 'crm-tone-info' : undefined}><b>{moving.length}</b> em trânsito</span>
-          {data.exceptions.length > 0 && <><LiveSep /><span className="crm-tone-warning"><b>{data.exceptions.length}</b> exceção(ões)</span></>}</>}
-      />
-      <Metrics items={[
-        { label: 'Locais', value: data.locations.filter((l) => l.active).length, hint: 'Almoxarifados, canteiros, quarentena', accent: true },
-        { label: 'Em mão', value: qty(sum((p) => p.onHand)), hint: 'Soma do livro (unidades mistas)' },
-        { label: 'Reservado', value: qty(sum((p) => p.reserved)), hint: 'Segurado para requisitos', tone: 'info' },
-        { label: 'Em inspeção', value: qty(sum((p) => p.inspection)), hint: 'Quarentena — não cobre demanda',
-          tone: sum((p) => p.inspection) ? 'warning' : 'neutral' },
-        { label: 'Exceções', value: data.exceptions.length, hint: 'Pedem uma pessoa', tone: data.exceptions.length ? 'warning' : 'neutral' },
+    <>
+      <CommandHeader domain="supply" area="Estoque" title="Estoque"
+        context={<>
+          <span><strong>{items.size}</strong> {items.size === 1 ? 'item com saldo' : 'itens com saldo'} em {plural(data.locations.filter((l) => l.active).length, 'local', 'locais')}</span>
+          <span><strong>{activeRes.length}</strong> {activeRes.length === 1 ? 'reserva ativa' : 'reservas ativas'} para {plural(projects.size, 'projeto', 'projetos')}</span>
+          {moving.length > 0 && <span><strong>{moving.length}</strong> em trânsito</span>}
+        </>} />
+
+      <SignalStrip label="Sinais do estoque" items={[
+        { label: 'Itens com saldo', value: items.size, hint: `${free.size} com saldo livre`, onClick: () => setView('posicao') },
+        { label: 'Reservas ativas', value: activeRes.length, hint: `segurando material para ${plural(projects.size, 'projeto', 'projetos')}`, onClick: () => setView('reservas') },
+        { label: 'Em trânsito', value: moving.length, hint: `${pendingTransfers.length - moving.length} a despachar ou aprovar`, onClick: () => setView('transferencias') },
+        { label: 'Em quarentena', value: quarantine.length, hint: 'linhas esperando inspeção — não cobrem demanda',
+          tone: quarantine.length ? 'warning' : undefined, href: '/supply/recebimentos?queue=inspection' },
+        { label: 'Contagens abertas', value: openCounts.length, hint: 'fotografia do livro à espera do físico', onClick: () => setView('contagens') },
+        { label: 'Exceções', value: data.exceptions.length, hint: data.exceptions.length ? 'pedem uma pessoa' : 'livro consistente',
+          tone: data.exceptions.length ? 'danger' : undefined },
       ]} />
+
       {data.exceptions.length > 0 && (
-        <div className="sup-exceptions" data-testid="inventory-exceptions" aria-label="Exceções de estoque">
-          {data.exceptions.slice(0, 8).map((e) => (
-            <div key={`${e.kind}:${e.ref}`} className="sup-exception">
-              <b>{INVENTORY_EXCEPTION_LABEL[e.kind]}</b>
-              <div><b>{e.title}</b><p>{e.detail}</p></div>
-            </div>
-          ))}
-        </div>
+        <Plane title="Exceções do estoque" count={data.exceptions.length} countTone="danger" flush testId="inventory-exceptions"
+          subtitle="Derivadas do livro, das reservas e das transferências — cada uma diz o que fazer">
+          <div className="ax-queue">
+            {data.exceptions.slice(0, 6).map((e) => (
+              <div key={`${e.kind}:${e.ref}`} className="ax-row no-owner" data-tone="warning">
+                <div className="ax-row-main">
+                  <span className="ax-row-eyebrow"><span className="ax-kind"><AlertTriangle size={11} aria-hidden /> {INVENTORY_EXCEPTION_LABEL[e.kind]}</span></span>
+                  <span className="ax-row-object">{e.title}</span>
+                  <span className="ax-row-issue">{e.detail}</span>
+                </div>
+                <span />
+                <div className="ax-row-actions">
+                  <button type="button" className="ax-btn sm" onClick={() => patch({ view: EXCEPTION_VIEW[e.kind] ?? 'posicao' })}>Abrir</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Plane>
       )}
-      <WorkspaceTabs label="Áreas do estoque" active={tab} onChange={setTab} tabs={[
-        { id: 'position', label: 'Posição' },
-        { id: 'reservations', label: 'Reservas', count: activeRes.length },
-        { id: 'movements', label: 'Movimentações' },
-        { id: 'transfers', label: 'Transferências', count: data.transfers.filter((t) => ['REQUESTED', 'APPROVED', 'IN_TRANSIT', 'PARTIALLY_RECEIVED'].includes(t.status)).length },
-        { id: 'counts', label: 'Inventário', count: data.counts.filter((c) => c.status === 'OPEN').length, tone: 'warning' },
-        { id: 'locations', label: 'Locais' },
+
+      <Tabs<View> label="Áreas do estoque" value={view} onChange={setView} tabs={[
+        { id: 'posicao', label: 'Posição' },
+        { id: 'reservas', label: 'Reservas por projeto', count: activeRes.length },
+        { id: 'livro', label: 'Movimentações (livro)' },
+        { id: 'transferencias', label: 'Transferências', count: pendingTransfers.length },
+        { id: 'contagens', label: 'Inventário (contagens)', count: openCounts.length, tone: 'warning' },
+        { id: 'locais', label: 'Locais' },
       ]} />
-      {tab === 'position' && <TabPanel id="position"><PositionTab data={data} items={data.items} onChanged={refresh} /></TabPanel>}
-      {tab === 'reservations' && <TabPanel id="reservations"><ReservationsTab data={data} onChanged={refresh} /></TabPanel>}
-      {tab === 'movements' && <TabPanel id="movements"><MovementsTab data={data} /></TabPanel>}
-      {tab === 'transfers' && <TabPanel id="transfers"><TransfersTab data={data} items={data.items} onChanged={refresh} /></TabPanel>}
-      {tab === 'counts' && <TabPanel id="counts"><CountsTab data={data} onChanged={refresh} /></TabPanel>}
-      {tab === 'locations' && <TabPanel id="locations"><LocationsPanel data={data} projects={data.projects} onChanged={refresh} /></TabPanel>}
-    </section>
+
+      <div role="tabpanel" aria-labelledby={`ax-tab-${view}`} className="ax-stack">
+        {view === 'posicao' && <PositionView data={data} onChanged={refresh} />}
+        {view === 'reservas' && <ReservationsView data={data} onChanged={refresh} />}
+        {view === 'livro' && <LedgerView data={data} />}
+        {view === 'transferencias' && <TransfersView data={data} onChanged={refresh} />}
+        {view === 'contagens' && <CountsView data={data} onChanged={refresh} />}
+        {view === 'locais' && <LocationsView data={data} onChanged={refresh} />}
+      </div>
+    </>
   );
 }
