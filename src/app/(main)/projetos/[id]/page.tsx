@@ -22,6 +22,7 @@ import {
   ShieldAlert,
   LayoutDashboard,
   History,
+  Boxes,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -46,6 +47,7 @@ import { FinanceView } from '@/components/projects/FinanceView';
 import { ProjectOverviewTab } from '@/components/operations/projects/ProjectOverviewTab';
 import { ProjectActivityTimeline } from '@/components/operations/projects/ProjectActivityTimeline';
 import { ProjectRequirementsPanel } from '@/components/operations/planning/ProjectRequirementsPanel';
+import { ProjectSupplyTab } from '@/components/supply/ProjectSupplyTab';
 import type { ProjectV2 } from '@/lib/types/project-v2';
 import { projectSerial } from '@/lib/utils/serial';
 import { formatMoney } from '@/lib/utils/project-utils';
@@ -77,7 +79,7 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
       apontam para ele); a timeline cronológica de eventos é `activity`. Sem
       `?tab=`, o projeto abre na Visão Geral.
     */
-    return t && ['overview', 'timeline', 'contract', 'measurements', 'finance', 'activity', 'risks', 'documents', 'team', 'timesheet'].includes(t) ? t : 'overview';
+    return t && ['overview', 'timeline', 'contract', 'measurements', 'finance', 'activity', 'risks', 'documents', 'team', 'timesheet', 'supply'].includes(t) ? t : 'overview';
   })();
   /*
     ─── O MARCO EM FOCO, atravessando as abas ─────────────────────────────
@@ -492,7 +494,7 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
             <TabsList
               className={cn(
                 'grid w-full grid-cols-3 rounded-xl backdrop-blur-sm hud-tabs-container',
-                canViewFinancials ? 'lg:grid-cols-10' : 'lg:grid-cols-9',
+                canViewFinancials ? 'lg:grid-cols-11' : 'lg:grid-cols-10',
               )}
             >
               <TabsTrigger value="overview" className="hud-tab-trigger">
@@ -536,6 +538,10 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
               <TabsTrigger value="timesheet" className="hud-tab-trigger">
                 <Clock className="w-4 h-4 mr-2" />
                 Apontamentos
+              </TabsTrigger>
+              <TabsTrigger value="supply" className="hud-tab-trigger">
+                <Boxes className="w-4 h-4 mr-2" />
+                Materiais &amp; Supply
               </TabsTrigger>
             </TabsList>
           </div>
@@ -601,6 +607,10 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
 
               <TabsContent value="team" className="mt-0">
                 <TeamAllocationView projectId={id} />
+              </TabsContent>
+
+              <TabsContent value="supply" className="mt-0">
+                <ProjectSupplyTab projectId={id} />
               </TabsContent>
 
               <TabsContent value="timesheet" className="mt-0">

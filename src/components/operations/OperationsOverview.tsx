@@ -72,6 +72,10 @@ export function OperationsOverview() {
           { label: 'Pendências de medição', value: restricted(k.measurementPending),
             tone: k.measurementPending ? 'warning' : 'neutral',
             hint: 'Evidência vencida, em preparo ou devolvida' },
+          { label: 'Material sem cobertura', value: restricted(k.materialUncovered),
+            tone: k.materialUncovered ? 'danger' : 'neutral',
+            hint: 'Requisitos de material confirmados com falta',
+            onClick: () => { window.location.href = '/supply/planejamento-materiais'; } },
         ]}
       />
 
@@ -200,7 +204,7 @@ export function OperationsOverview() {
 
       <GovernanceNote>
         Números derivados do cronograma, das medições, dos riscos e das OS canônicas — nenhum é digitado nem guardado à parte.
-        Demanda de material sem cobertura entra aqui quando o Planejamento confirmar requisitos de material.
+        Material sem cobertura vem da cobertura derivada do Supply sobre os requisitos confirmados no Planejamento.
       </GovernanceNote>
     </section>
   );

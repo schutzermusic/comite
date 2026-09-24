@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { HudButton, HudModal, useHudToast } from '@/components/hud';
 import type { ProjectPlanningModel } from '@/lib/operations/planning/read-model';
 import {
@@ -195,11 +195,24 @@ function RequirementModal({ projectId, requirement, activities, busy, onClose, o
   const [requiredBy, setRequiredBy] = useState(requirement?.required_by ?? '');
   const [priority, setPriority] = useState(requirement?.priority ?? 'medium');
   const [location, setLocation] = useState(requirement?.delivery_location_label ?? '');
+  const [itemId, setItemId] = useState(requirement?.item_id ?? '');
+  const [items, setItems] = useState<Array<{ id: string; code: string; description: string; unit: string }>>([]);
   const locked = requirement?.status === 'CONFIRMED';
+  const usesCatalog = type === 'MATERIAL' || type === 'EXTERNAL_SERVICE';
+  useEffect(() => {
+    if (!usesCatalog) return;
+    let cancelled = false;
+    fetch('/api/supply/items').then((r) => r.json()).then((p) => { if (!cancelled && p?.ok) setItems(p.items); }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [usesCatalog]);
+  const chosenItem = items.find((i) => i.id === itemId) ?? null;
   const body: Record<string, unknown> = {
-    title: title.trim(), activityId: activityId || null, requiredBy: requiredBy || null, priority,
+    title: title.trim() || chosenItem?.description || '', activityId: activityId || null, requiredBy: requiredBy || null, priority,
     deliveryLocationLabel: location.trim() || null,
-    quantity: quantity ? Number(quantity) : null, unit: unit.trim() || null,
+    quantity: quantity ? Number(quantity) : null,
+    // Com item de catálogo, a unidade É a do item — o banco recusa outra.
+    unit: chosenItem ? chosenItem.unit : unit.trim() || null,
+    itemId: usesCatalog ? itemId || null : null,
   };
   if (!locked) body.requirementType = type;
   void projectId;
@@ -208,7 +221,7 @@ function RequirementModal({ projectId, requirement, activities, busy, onClose, o
       subtitle={locked ? 'Requisito confirmado: a mudança fica na história e o Supply replaneja contra ela.' : 'Nasce planejado; confirmar é um ato à parte.'}
       footer={<div className="flex justify-end gap-2">
         <HudButton variant="ghost" onClick={onClose}>Cancelar</HudButton>
-        <HudButton variant="primary" disabled={busy || !title.trim() || (quantity !== '' && !unit.trim())} onClick={() => onSubmit(body)}>Salvar</HudButton>
+        <HudButton variant="primary" disabled={busy || !String(body.title).trim() || (quantity !== '' && !body.unit)} onClick={() => onSubmit(body)}>Salvar</HudButton>
       </div>}>
       <div className="ops-form" data-testid="requirement-form">
         <div className="ops-form-row">
@@ -224,7 +237,15 @@ function RequirementModal({ projectId, requirement, activities, busy, onClose, o
             </select>
           </label>
         </div>
-        <label>Título<input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ex.: Cabo 35 mm" /></label>
+        {usesCatalog && (
+          <label>Item do catálogo
+            <select value={itemId} onChange={(e) => setItemId(e.target.value)}>
+              <option value="">{type === 'MATERIAL' ? 'Selecione (obrigatório para confirmar)' : 'Sem item'}</option>
+              {items.map((i) => <option key={i.id} value={i.id}>{i.code} · {i.description} ({i.unit})</option>)}
+            </select>
+          </label>
+        )}
+        <label>Título<input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={chosenItem?.description ?? 'Ex.: Cabo 35 mm'} /></label>
         <label>Atividade
           <select value={activityId} onChange={(e) => setActivityId(e.target.value)}>
             <option value="">Do projeto (sem atividade)</option>
@@ -233,7 +254,8 @@ function RequirementModal({ projectId, requirement, activities, busy, onClose, o
         </label>
         <div className="ops-form-row">
           <label>Quantidade<input inputMode="decimal" value={quantity} onChange={(e) => setQuantity(e.target.value.replace(',', '.'))} /></label>
-          <label>Unidade<input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="m, un, kg" /></label>
+          <label>Unidade<input value={chosenItem ? chosenItem.unit : unit} disabled={Boolean(chosenItem)}
+            onChange={(e) => setUnit(e.target.value)} placeholder="m, un, kg" /></label>
           <label>Necessário em<input type="date" value={requiredBy} onChange={(e) => setRequiredBy(e.target.value)} /></label>
         </div>
         <label>Local de entrega<input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Canteiro, almoxarifado…" /></label>

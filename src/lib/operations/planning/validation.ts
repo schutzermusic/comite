@@ -19,6 +19,7 @@ export const requirementSchema = z.object({
   deliveryLocationLabel: z.string().trim().max(300).nullable().optional(),
   priority: z.enum(['low', 'medium', 'high', 'critical']).optional(),
   constraintsNote: z.string().trim().max(2000).nullable().optional(),
+  itemId: z.string().uuid().nullable().optional(),
   reason: z.string().trim().max(2000).optional(),
 });
 
@@ -26,7 +27,7 @@ const KEYS: Record<string, string> = {
   projectId: 'project_id', activityId: 'activity_id', requirementType: 'requirement_type', title: 'title',
   description: 'description', quantity: 'quantity', unit: 'unit', resourceLabel: 'resource_label',
   requiredBy: 'required_by', deliveryLocationLabel: 'delivery_location_label', priority: 'priority',
-  constraintsNote: 'constraints_note', reason: 'reason',
+  constraintsNote: 'constraints_note', itemId: 'item_id', reason: 'reason',
 };
 
 export function requirementPayload(input: z.infer<typeof requirementSchema>): Record<string, unknown> {

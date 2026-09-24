@@ -20,6 +20,7 @@ import {
 } from './overview-rules';
 import { listServiceOrders } from './service-orders/read-model';
 import { serviceOrderNextAction } from './service-orders/next-action';
+import { fromViewRow, type CoverageViewRow } from '@/lib/supply/coverage';
 
 type Session = { supabase: SupabaseClient; organizationId: string };
 
@@ -47,7 +48,7 @@ export async function operationsOverview(session: Session, access: OverviewAcces
   const org = session.organizationId;
   const sb = session.supabase;
 
-  const [serviceOrders, projectsRes, activitiesRes, measurementsRes, risksRes, locationsRes] = await Promise.all([
+  const [serviceOrders, projectsRes, activitiesRes, measurementsRes, risksRes, locationsRes, coverageRes] = await Promise.all([
     listServiceOrders(session),
     access.projects ? sb.from('projects').select('id,project,project_v2').eq('organization_id', org)
       : Promise.resolve({ data: [] }),
@@ -67,6 +68,9 @@ export async function operationsOverview(session: Session, access: OverviewAcces
       : Promise.resolve({ data: [] }),
     access.projects ? sb.from('project_canonical_location').select('project_id,resolution_state')
       .eq('organization_id', org).is('superseded_at', null)
+      : Promise.resolve({ data: [] }),
+    // Demanda de material sem cobertura: a visão derivada do Supply (RLS dos requisitos).
+    access.projects ? sb.from('supply_requirement_coverage').select('*').eq('organization_id', org)
       : Promise.resolve({ data: [] }),
   ]);
 
@@ -195,6 +199,8 @@ export async function operationsOverview(session: Session, access: OverviewAcces
       criticalActivities: access.projects ? activities.filter((a) => isCriticalActivity(a, today)).length : null,
       projectsAtRisk: access.projects ? projectsAtRisk.length : null,
       measurementPending: access.measurements ? measurementPending.length : null,
+      materialUncovered: access.projects
+        ? ((coverageRes.data ?? []) as CoverageViewRow[]).filter((r) => fromViewRow(r).shortage > 0).length : null,
     },
     measurementLanes: access.measurements ? lanes : null,
     attention: attention.slice(0, 40),

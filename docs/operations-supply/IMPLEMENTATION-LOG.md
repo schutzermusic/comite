@@ -104,3 +104,28 @@ INV-06 (proveniência obrigatória), INV-01 (FK composta de projeto/atividade/OS
 ### Provas
 - Unidade `operations-map` (4) — suíte 2887/2887.
 - E2E `operations-map.spec.ts` (inclui 390 px sem rolagem horizontal e zero `pageerror`); regressão de Operações 18/18 com `--workers=1` (o servidor dev compila sob demanda; em paralelo, logins disputam).
+
+---
+
+## Wave F — Fundação de Supply (migration 232)
+
+**Aplicada no banco hospedado** (`scripts/operations/apply-232.mjs --apply`).
+
+### Entrou
+- **232_supply_foundation.sql**:
+  - 14 permissões de Supply (`supply.*`, `inventory.*`, `procurement.*`, `receiving.*`, `suppliers.*`) com concessão por papel (owner_admin tudo; ceo/financeiro aprovam; engenharia_pcp planeja, movimenta, cota, emite e recebe; gestor_projetos vê, reserva e requisita; jurídico só vê).
+  - `supply_items` — cadastro mestre por inquilino (código único em maiúsculas, unidade, rastreio NONE/LOT/SERIAL, ativo). Código e unidade de item em uso são imutáveis.
+  - `project_requirements.item_id` + gatilho `project_requirement_item_guard`: item do mesmo inquilino, ativo, unidade igual à do item; material CONFIRMADO exige item. O requisito continua sendo o de Operações (sem demanda paralela).
+  - Visão `supply_requirement_coverage` (security_invoker): cobertura por requisito, **derivada** — nesta wave sem fontes (falta = requerido); estoque, compra e recebimento a alimentam nas waves G–I.
+  - Correção dos FKs compostos da 230 (`isoi_blueprint/fact/document`) para `SET NULL (coluna)`.
+- `src/lib/supply/*` (cobertura, risco, alternativas, leitura, serviço, validação); rotas `/api/supply/{overview, material-planning, items}`.
+- UI: grupo **Supply Chain** no menu (Visão geral, Planejamento de Materiais); aba **Materiais & Supply** no workspace do projeto; seletor de item no painel de requisitos; KPI "material sem cobertura" na visão de Operações e no mapa lendo a MESMA visão.
+
+### Invariantes
+INV-02 (cobertura derivada, nunca digitada), INV-01 (item e requisito do mesmo inquilino), unidade coerente com o item.
+
+### Provas
+- `apply-232` (provas em SAVEPOINT revertido).
+- Unidade `supply-coverage` (12) — suíte 2898/2898.
+- Integração viva 16/16 (`supply-live` + OS + planejamento).
+- E2E `supply-foundation.spec.ts` 4/4; regressão Operações + Supply 22/22 (`--workers=1`).

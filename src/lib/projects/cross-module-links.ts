@@ -21,7 +21,7 @@ export const MILESTONE_PARAM = 'milestone';
 
 export type ProjectTab =
   | 'overview' | 'timeline' | 'contract' | 'measurements' | 'finance' | 'activity'
-  | 'risks' | 'documents' | 'team' | 'timesheet';
+  | 'risks' | 'documents' | 'team' | 'timesheet' | 'supply';
 
 function projectHref(projectId: string, tab: ProjectTab, milestoneId?: string | null): string {
   const base = `/projetos/${projectId}?tab=${tab}`;

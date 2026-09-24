@@ -26,7 +26,7 @@ export interface RequirementRow {
   id: string; project_id: string; activity_id: string | null; requirement_type: RequirementType; title: string;
   description: string | null; quantity: string | null; unit: string | null; resource_label: string | null;
   required_by: string | null; delivery_location_label: string | null; priority: string; constraints_note: string | null;
-  source: string; service_order_id: string | null; service_order_item_id: string | null;
+  source: string; service_order_id: string | null; service_order_item_id: string | null; item_id: string | null;
   ai_model: string | null; status: RequirementStatus; confirmed_at: string | null; confirmed_by: string | null;
   cancellation_reason: string | null; superseded_by_id: string | null;
   satisfied_at: string | null; satisfied_by: string | null; satisfaction_note: string | null;
@@ -34,7 +34,7 @@ export interface RequirementRow {
 }
 
 const REQ_COLUMNS = 'id,project_id,activity_id,requirement_type,title,description,quantity,unit,resource_label,required_by,'
-  + 'delivery_location_label,priority,constraints_note,source,service_order_id,service_order_item_id,ai_model,status,'
+  + 'delivery_location_label,priority,constraints_note,source,service_order_id,service_order_item_id,item_id,ai_model,status,'
   + 'confirmed_at,confirmed_by,cancellation_reason,superseded_by_id,satisfied_at,satisfied_by,satisfaction_note,created_at,updated_at';
 
 /**

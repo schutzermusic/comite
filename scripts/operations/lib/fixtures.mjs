@@ -76,3 +76,26 @@ export async function projectFromOrder({ one }, { org, actor }, serviceOrderId, 
     [org, actor, serviceOrderId, `proj-${tag}`, JSON.stringify({ nome: `Projeto ${tag}`, cliente: 'Prova Operações' })])).r;
   return r.project_id;
 }
+
+/** Projeto canônico mínimo para provas de Supply (dentro do SAVEPOINT). */
+export async function proofProject({ one }, { org, actor }, tag) {
+  const id = `proj-${tag}`;
+  await one(`INSERT INTO public.projects (id, organization_id, project, created_by)
+    VALUES ($1, $2, $3, $4) RETURNING id`, [id, org, JSON.stringify({ id, nome: `Projeto ${tag}`, cliente: 'Prova Supply', status: 'em_andamento' }), actor]);
+  return id;
+}
+
+/** Item de catálogo para provas. */
+export async function proofItem({ one }, { org, actor }, code, unit = 'm') {
+  return (await one('SELECT public.supply_item_upsert($1,$2,$3) r', [org, actor,
+    JSON.stringify({ code, description: `Item ${code}`, unit, category: 'Cabos' })])).r.item_id;
+}
+
+/** Requisito de material CONFIRMADO (item + quantidade + data). */
+export async function confirmedMaterial({ one }, { org, actor }, projectId, itemId, quantity, requiredBy = '2026-11-18') {
+  const req = (await one('SELECT public.project_requirement_upsert($1,$2,$3) r', [org, actor, JSON.stringify({
+    project_id: projectId, requirement_type: 'MATERIAL', title: 'Material de prova', quantity, item_id: itemId,
+    required_by: requiredBy })])).r;
+  await one('SELECT public.project_requirement_transition($1,$2,$3,$4,$5,$6) r', [org, actor, req.requirement_id, 'CONFIRMED', null, null]);
+  return req.requirement_id;
+}

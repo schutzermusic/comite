@@ -18,6 +18,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { projectIdentity, isActiveProjectStatus } from './project-identity';
 import { isCriticalActivity, isMaterialOpenRisk, isOverdueActivity, type ActivityLike } from './overview-rules';
 import { countsFor } from './service-orders/read-model';
+import { fromViewRow, type CoverageViewRow } from '@/lib/supply/coverage';
 
 type Session = { supabase: SupabaseClient; organizationId: string };
 
@@ -65,9 +66,7 @@ export async function operationsMap(session: Session, access: { team: boolean; r
     sb.from('internal_service_orders').select('id,project_id,status,engagement_id').eq('organization_id', org).not('project_id', 'is', null),
     access.risks ? sb.from('risks').select('reference_id,severity,status,responsible_id')
       .eq('organization_id', org).in('status', ['open', 'mitigating']) : Promise.resolve({ data: [] }),
-    sb.from('project_requirements').select('project_id,requirement_type,status,required_by')
-      .eq('organization_id', org).eq('status', 'CONFIRMED').in('requirement_type', ['MATERIAL', 'EXTERNAL_SERVICE'])
-      .lte('required_by', horizon),
+    sb.from('supply_requirement_coverage').select('*').eq('organization_id', org).lte('required_by', horizon),
   ]);
 
   const locByProject = new Map(((locations.data ?? []) as Array<{ project_id: string; resolution_state: string; latitude: number | null;
@@ -82,7 +81,8 @@ export async function operationsMap(session: Session, access: { team: boolean; r
   const acts = (activities.data ?? []) as Array<ActivityLike & { project_id: string; title: string }>;
   const orderRows = (orders.data ?? []) as Array<{ id: string; project_id: string; status: string; engagement_id: string }>;
   const riskRows = (risks.data ?? []) as Array<{ reference_id: string | null; severity: string; status: string; responsible_id: string | null }>;
-  const reqRows = (requirements.data ?? []) as Array<{ project_id: string }>;
+  // Falta em até 14 dias, pela cobertura DERIVADA (reserva, trânsito e pedido já descontados).
+  const reqRows = ((requirements.data ?? []) as CoverageViewRow[]).filter((r) => fromViewRow(r).shortage > 0);
 
   // OS bloqueada: a MESMA regra do portão (bloqueante aberta da OS ou do engajamento, fora de exceção).
   const counts = await countsFor(org, orderRows.filter((o) => o.status === 'DRAFT' || o.status === 'PENDING_CONFIRMATION'));
@@ -96,8 +96,6 @@ export async function operationsMap(session: Session, access: { team: boolean; r
       const materialRisks = riskRows.filter((r) => r.reference_id === p.id && isMaterialOpenRisk(r)).length;
       const osMine = orderRows.filter((o) => o.project_id === p.id);
       const osBlocked = osMine.filter((o) => (counts.get(o.id)?.blockingOpen ?? 0) > 0).length;
-      // Requisito de material confirmado, com necessidade em até 14 dias: sem alocação de Supply ainda,
-      // está — de verdade — sem cobertura. A wave F troca pela cobertura derivada.
       const shortages = reqRows.filter((r) => r.project_id === p.id).length;
       const loc = locByProject.get(p.id);
       const fencesMine = fencesByProject.get(p.id) ?? [];

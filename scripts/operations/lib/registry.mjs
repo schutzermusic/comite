@@ -40,6 +40,14 @@ export const OPERATIONS_REGISTRY = {
     ],
     permissions: [],
   },
+  '232': {
+    tables: ['supply_items'],
+    ledgers: [],
+    functions: ['supply_item_upsert(uuid,uuid,jsonb)', 'project_requirement_upsert(uuid,uuid,jsonb)'],
+    permissions: ['supply.view', 'supply.plan', 'inventory.view', 'inventory.manage', 'inventory.reserve',
+      'procurement.view', 'procurement.request', 'procurement.source', 'procurement.approve', 'procurement.orders.issue',
+      'receiving.view', 'receiving.receive', 'suppliers.view', 'suppliers.manage'],
+  },
 };
 
 export function registryUpTo(version) {

@@ -20,12 +20,14 @@ import {
   OPERATIONS_NAV,
   isOperationsRoute,
 } from "@/lib/operations/navigation";
+import { SUPPLY_GROUP_PERMISSIONS, SUPPLY_NAV, isSupplyRoute } from "@/lib/supply/navigation";
 import { useTranslations } from "next-intl";
 import {
   BarChart3,
   ClipboardCheck,
   Banknote,
   Bell,
+  Boxes,
   BrainCircuit,
   Briefcase,
   Building2,
@@ -119,6 +121,7 @@ const PROJECTS_STORAGE_KEY = "ig-sidebar-projects-open";
 const WORKFORCE_STORAGE_KEY = "ig-sidebar-workforce-open";
 const CONTRACTS_STORAGE_KEY = "ig-sidebar-contracts-open";
 const COMMERCIAL_STORAGE_KEY = "ig-sidebar-commercial-open";
+const SUPPLY_STORAGE_KEY = "ig-sidebar-supply-open";
 
 /**
  * Ícone por FASE do pós-venda.
@@ -144,6 +147,16 @@ const OPERATIONS_ICONS: Record<string, LucideIcon> = {
   map: Cuboid,
   planning: CalendarRange,
   measurements: ClipboardCheck,
+};
+
+/** Ícone por destino do Supply Chain. */
+const SUPPLY_ICONS: Record<string, LucideIcon> = {
+  overview: Gauge,
+  materialPlanning: ClipboardCheck,
+  inventory: Boxes,
+  procurement: Receipt,
+  suppliers: Building2,
+  receiving: Target,
 };
 
 /** Ícone por área do Comercial (pré-venda). */
@@ -262,6 +275,24 @@ const navigationItems: MenuItem[] = [
       href: item.href,
       label: item.label,
       icon: OPERATIONS_ICONS[item.id] ?? Briefcase,
+      anyPermission: item.anyPermission,
+    })),
+  },
+  {
+    /*
+      SUPPLY CHAIN — começa pela demanda do plano, não por pedido digitado.
+      Seis destinos; requisição, cotação, reserva, transferência e recebimento
+      são abas dentro deles.
+    */
+    href: "/supply",
+    labelKey: "supplyChain",
+    icon: Boxes,
+    section: "main",
+    anyPermission: SUPPLY_GROUP_PERMISSIONS,
+    subItems: SUPPLY_NAV.map((item) => ({
+      href: item.href,
+      label: item.label,
+      icon: SUPPLY_ICONS[item.id] ?? Boxes,
       anyPermission: item.anyPermission,
     })),
   },
@@ -421,6 +452,7 @@ const navigationItems: MenuItem[] = [
 const isRouteActive = (pathname: string, href: string) => {
   // Projetos mora dentro de Operações: o grupo acende nas duas árvores.
   if (href === "/operacoes") return isOperationsRoute(pathname);
+  if (href === "/supply") return isSupplyRoute(pathname);
   if (href === "/financeiro") {
     return pathname === href || pathname.startsWith(`${href}/`);
   }
@@ -454,6 +486,7 @@ export function AppSidebar() {
   const [workforceOpen, setWorkforceOpen] = useState(false);
   const [contractsOpen, setContractsOpen] = useState(false);
   const [commercialOpen, setCommercialOpen] = useState(false);
+  const [supplyOpen, setSupplyOpen] = useState(false);
 
   useEffect(() => {
     const storedAdmin = localStorage.getItem(ADMIN_STORAGE_KEY);
@@ -499,6 +532,12 @@ export function AppSidebar() {
       grupo nunca abria — e, pior, a seta caía no `onToggle` vazio de
       `getSubmenuState`, virando um controle que não faz nada.
     */
+    const storedSupply = localStorage.getItem(SUPPLY_STORAGE_KEY);
+    if (storedSupply !== null) {
+      setSupplyOpen(storedSupply === "true");
+    } else if (isSupplyRoute(pathname)) {
+      setSupplyOpen(true);
+    }
     const storedCommercial = localStorage.getItem(COMMERCIAL_STORAGE_KEY);
     if (storedCommercial !== null) {
       setCommercialOpen(storedCommercial === "true");
@@ -555,6 +594,14 @@ export function AppSidebar() {
     });
   };
 
+  const toggleSupply = () => {
+    setSupplyOpen((previous) => {
+      const next = !previous;
+      localStorage.setItem(SUPPLY_STORAGE_KEY, String(next));
+      return next;
+    });
+  };
+
   const toggleWorkforce = () => {
     setWorkforceOpen((previous) => {
       const next = !previous;
@@ -567,6 +614,7 @@ export function AppSidebar() {
     if (href === "/financeiro") return { isOpen: financeOpen, onToggle: toggleFinance };
     if (href === "/fiscal") return { isOpen: fiscalOpen, onToggle: toggleFiscal };
     if (href === "/operacoes") return { isOpen: projectsOpen, onToggle: toggleProjects };
+    if (href === "/supply") return { isOpen: supplyOpen, onToggle: toggleSupply };
     if (href === "/workforce-cost") return { isOpen: workforceOpen, onToggle: toggleWorkforce };
     if (href === "/contratos") return { isOpen: contractsOpen, onToggle: toggleContracts };
     if (href === "/comercial") return { isOpen: commercialOpen, onToggle: toggleCommercial };
