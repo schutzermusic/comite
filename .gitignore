@@ -58,3 +58,6 @@ firestore-debug.log
 
 # QA E2E — credenciais geradas (não versionar)
 tests/.qa-env.json
+tests/.qa-live.json
+# QA isolado — build do app apontado para a pilha local
+/.next-qa/

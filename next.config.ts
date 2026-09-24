@@ -4,6 +4,9 @@ import createNextIntlPlugin from 'next-intl/plugin';
 const withNextIntl = createNextIntlPlugin('./src/i18n/request.ts');
 
 const nextConfig: NextConfig = {
+  // O QA isolado compila em pasta própria (`scripts/qa/serve.mjs`) para não
+  // sobrescrever o build/dev apontado para o banco hospedado.
+  distDir: process.env.NEXT_DIST_DIR || '.next',
   output: 'standalone',
   // PDF libraries run only in the Node runtime and need their package assets
   // (font metrics in pdfkit) preserved outside the Next.js server bundle.
