@@ -1,95 +1,178 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
+import { ArrowUpRight } from 'lucide-react';
 import type { MeasurementQueueRow } from '@/lib/operations/measurements-queue';
 import { MEASUREMENT_LANE_LABEL, type MeasurementLane } from '@/lib/operations/overview-rules';
 import {
-  DataTable, EmptyNote, GovernanceNote, LiveSep, Metrics, ResourceState, Segments, StatePill, Toolbar,
-  WorkspaceHeading, brl, day, matches, useOperationsResource, type Tone,
-} from './ui';
+  AxPage, Chip, CommandHeader, EmptyState, Filters, FlowPipeline, Plane, Resource, SearchBox, SignalStrip, dateShort, money, plural,
+  relativeDue, useResource, useUrlParam, type Tone,
+} from '@/components/ax';
 
 type Payload = { ok: true; today: string; canSeeValues: boolean; measurements: MeasurementQueueRow[] };
+type Row = MeasurementQueueRow;
+type LaneFilter = 'all' | 'ops' | MeasurementLane;
 
-const LANES: MeasurementLane[] = ['PREPARE_EVIDENCE', 'CORRECTION', 'INTERNAL_REVIEW', 'SEND_TO_CUSTOMER', 'AWAITING_CUSTOMER', 'BILLING_ELIGIBLE'];
-const laneTone: Record<MeasurementLane, Tone> = {
-  PREPARE_EVIDENCE: 'accent', CORRECTION: 'warning', INTERNAL_REVIEW: 'info', SEND_TO_CUSTOMER: 'info',
-  AWAITING_CUSTOMER: 'neutral', BILLING_ELIGIBLE: 'success', CLOSED: 'neutral',
+const LANES: Exclude<MeasurementLane, 'CLOSED'>[] = ['PREPARE_EVIDENCE', 'CORRECTION', 'INTERNAL_REVIEW', 'SEND_TO_CUSTOMER', 'AWAITING_CUSTOMER', 'BILLING_ELIGIBLE'];
+const OWNER: Record<MeasurementLane, string> = {
+  PREPARE_EVIDENCE: 'Operação', CORRECTION: 'Operação', INTERNAL_REVIEW: 'Contratos', SEND_TO_CUSTOMER: 'Contratos',
+  AWAITING_CUSTOMER: 'Cliente', BILLING_ELIGIBLE: 'Financeiro', CLOSED: '—',
 };
 const READINESS: Record<string, { label: string; tone: Tone }> = {
   READY: { label: 'Evidência pronta', tone: 'success' }, BLOCKED: { label: 'Evidência bloqueada', tone: 'danger' },
   INCOMPLETE: { label: 'Evidência incompleta', tone: 'warning' }, NOT_APPLICABLE: { label: 'Sem exigência', tone: 'neutral' },
   UNKNOWN: { label: 'Prontidão não apurada', tone: 'neutral' },
 };
+const norm = (s: string) => s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
+
+/** O próximo passo de cada medição, dito em uma frase — e de quem ele é. */
+function nextStep(m: Row, today: string): { text: string; tone: Tone; due: string | null; dueLabel: string } {
+  const exp = relativeDue(m.expectedAt, today);
+  switch (m.lane) {
+    case 'PREPARE_EVIDENCE':
+      return m.status === 'READY_FOR_SUBMISSION'
+        ? { text: 'Evidência montada — submeter à análise interna', tone: 'accent', due: m.expectedAt, dueLabel: 'prevista' }
+        : { text: m.pendingForOperations && exp.late ? `Preparar evidência — a medição era para ${exp.text}` : m.status === 'IN_PREPARATION' ? 'Evidência em preparo' : 'Planejada — a evidência começa na data',
+          tone: m.pendingForOperations ? (exp.late ? 'danger' : 'warning') : 'neutral', due: m.expectedAt, dueLabel: 'prevista' };
+    case 'CORRECTION':
+      return { text: m.returnReason ? `Devolvida: ${m.returnReason}` : 'Devolvida para correção', tone: 'danger', due: m.expectedAt, dueLabel: 'prevista' };
+    case 'INTERNAL_REVIEW':
+      return { text: `Em análise interna${m.submittedAt ? ` desde ${dateShort(m.submittedAt)}` : ''}`, tone: 'info', due: m.expectedAt, dueLabel: 'prevista' };
+    case 'SEND_TO_CUSTOMER':
+      return { text: 'Pacote aprovado internamente — enviar ao cliente (ainda não é aceite)', tone: 'accent', due: m.expectedAt, dueLabel: 'prevista' };
+    case 'AWAITING_CUSTOMER': {
+      const due = relativeDue(m.customerDueAt, today);
+      return { text: m.customerDueAt && due.late ? `Cliente não respondeu — o prazo venceu ${due.text}` : `Com o cliente${m.sentAt ? ` desde ${dateShort(m.sentAt)}` : ''}`,
+        tone: m.customerDueAt && due.late ? 'danger' : 'neutral', due: m.customerDueAt ?? m.expectedAt, dueLabel: m.customerDueAt ? 'prazo do cliente' : 'prevista' };
+    }
+    case 'BILLING_ELIGIBLE':
+      return { text: 'Aceita pelo cliente — elegível a faturamento', tone: 'success', due: m.expectedAt, dueLabel: 'prevista' };
+    default:
+      return { text: m.statusLabel, tone: 'neutral', due: m.expectedAt, dueLabel: 'prevista' };
+  }
+}
 
 /**
- * MEDIÇÕES & EVIDÊNCIAS — a fila do portfólio.
- *
- * Responde, nesta ordem: o que está pronto para evidência, o que falta, o que
- * está em análise interna, o que voltou, o que espera o cliente e o que virou
- * elegível a faturamento. "Aprovada — enviar ao cliente" NUNCA se confunde
- * com aceite do cliente.
+ * MEDIÇÕES & EVIDÊNCIAS — a fila do portfólio, pela pergunta "quem tem o
+ * próximo passo". É um RECORTE da medição canônica do projeto: mesma linha,
+ * mesmo estado, mesma história; preparar, submeter e registrar aceite
+ * acontecem na bancada do projeto. "Aprovada — enviar ao cliente" nunca se
+ * confunde com aceite do cliente.
  */
 export function MeasurementsQueue() {
-  const { data, state, message } = useOperationsResource<Payload>('/api/operations/measurements');
-  const [lane, setLane] = useState<'all' | MeasurementLane>('all');
+  const resource = useResource<Payload>('/api/operations/measurements');
+  return <AxPage testId="measurements-queue"><Resource {...resource}>{(data) => <Queue data={data} />}</Resource></AxPage>;
+}
+
+function Queue({ data }: { data: Payload }) {
+  const [lane, setLane] = useUrlParam<LaneFilter>('lane', 'all');
   const [search, setSearch] = useState('');
-  const rows = useMemo(() => (data?.measurements ?? [])
-    .filter((m) => m.lane !== 'CLOSED')
-    .filter((m) => lane === 'all' || m.lane === lane)
-    .filter((m) => !search || matches(search, m.project, m.occurrenceKey, m.activity, m.client)), [data, lane, search]);
-  if (state !== 'ready' || !data) return <ResourceState state={state} message={message} />;
+  const today = data.today;
   const live = data.measurements.filter((m) => m.lane !== 'CLOSED');
   const count = (l: MeasurementLane) => live.filter((m) => m.lane === l).length;
-  const pending = live.filter((m) => m.pendingForOperations).length;
+  const sum = (l: MeasurementLane) => live.filter((m) => m.lane === l).reduce((a, m) => a + (m.value ?? 0), 0);
+  const ops = live.filter((m) => m.pendingForOperations);
+  const customerLate = live.filter((m) => m.lane === 'AWAITING_CUSTOMER' && m.customerDueAt && m.customerDueAt < today);
+  const rows = live
+    .filter((m) => lane === 'all' || (lane === 'ops' ? m.pendingForOperations : m.lane === lane))
+    .filter((m) => !search || norm([m.project, m.client, m.occurrenceKey, m.activity, m.rule].filter(Boolean).join(' ')).includes(norm(search)))
+    .sort((a, b) => Number(b.pendingForOperations) - Number(a.pendingForOperations)
+      || LANES.indexOf(a.lane as Exclude<MeasurementLane, 'CLOSED'>) - LANES.indexOf(b.lane as Exclude<MeasurementLane, 'CLOSED'>)
+      || (a.expectedAt ?? '9999').localeCompare(b.expectedAt ?? '9999'));
+  const val = (n: number) => (data.canSeeValues ? money(n, 'BRL', { compact: true }) : undefined);
 
   return (
-    <section className="crm-workspace ops-workspace" aria-label="Medições e evidências">
-      <WorkspaceHeading
-        eyebrow="Operações · Medições & Evidências"
-        title="Da evidência ao faturamento"
-        description={<><span><b>{pending}</b> pendência(s) da operação</span><LiveSep />
-          <span><b>{count('AWAITING_CUSTOMER')}</b> com o cliente</span><LiveSep />
-          <span><b>{count('BILLING_ELIGIBLE')}</b> elegível(is) a faturamento</span></>}
-      />
-      <Metrics items={LANES.map((l) => ({ label: MEASUREMENT_LANE_LABEL[l], value: count(l), tone: laneTone[l],
-        hint: l === 'SEND_TO_CUSTOMER' ? 'Pacote interno aprovado — ainda não é aceite'
-          : l === 'BILLING_ELIGIBLE' ? 'Aceite do cliente registrado' : 'Mesma medição do projeto',
-        onClick: () => setLane(l) }))} />
-      <Toolbar search={search} onSearch={setSearch} placeholder="Buscar projeto, cliente, medição ou atividade">
-        <Segments label="Filtrar fila" value={lane} onChange={(v) => setLane(v as 'all' | MeasurementLane)}
-          options={[{ value: 'all', label: 'Todas', count: live.length },
-            ...LANES.map((l) => ({ value: l, label: MEASUREMENT_LANE_LABEL[l], count: count(l) }))]} />
-      </Toolbar>
-      <DataTable
-        label="Fila de medições"
-        columns={['Medição', 'Projeto', 'Previsto', 'Estado', 'Evidência', data.canSeeValues ? 'Valor' : 'Valor (restrito)']}
-        count={rows.length}
-        footer="Medição canônica do projeto — sem cópia, sem estado próprio"
-        empty={<EmptyNote title="Nenhuma medição neste recorte"
-          description="Medições nascem do mapeamento aceito entre a regra contratual e o cronograma do projeto." />}
-      >
-        {rows.map((m) => (
-          <tr key={m.id}>
-            <td><Link href={m.href} className="crm-row-open">{m.occurrenceKey}</Link>
-              {m.activity && <p className="crm-muted">{m.activity}</p>}</td>
-            <td><p>{m.project}</p>{m.client && <p className="crm-muted">{m.client}</p>}</td>
-            <td>
-              <p className={m.expectedAt && m.expectedAt < data.today && m.lane === 'PREPARE_EVIDENCE' ? 'crm-tone-danger' : undefined}>
-                {day(m.expectedAt)}</p>
-              {m.customerDueAt && <p className="crm-muted">Cliente até {day(m.customerDueAt)}</p>}
-            </td>
-            <td><StatePill tone={laneTone[m.lane]}>{m.statusLabel}</StatePill></td>
-            <td>{m.readiness ? <StatePill tone={READINESS[m.readiness]?.tone ?? 'neutral'} dot={false}>
-              {READINESS[m.readiness]?.label ?? m.readiness}</StatePill> : <span className="crm-muted">—</span>}</td>
-            <td className="tabular-nums">{data.canSeeValues ? brl(m.value, m.currency ?? 'BRL') : <span className="crm-muted">Restrito</span>}</td>
-          </tr>
-        ))}
-      </DataTable>
-      <GovernanceNote>
-        Esta fila é um recorte da medição canônica: a mesma linha aparece na aba Medições do projeto e em Contratos → Medições &
-        Aprovações. Preparar, submeter e registrar aceite acontecem na bancada do projeto.
-      </GovernanceNote>
-    </section>
+    <>
+      <CommandHeader domain="operations" area="Medições & Evidências" title="Da evidência ao faturamento"
+        context={<>
+          <span className={ops.length ? 'ax-warn-text' : undefined}><strong>{ops.length}</strong> {ops.length === 1 ? 'pendência' : 'pendências'} da operação</span>
+          <span><strong>{count('AWAITING_CUSTOMER')}</strong> com o cliente{customerLate.length ? <span className="ax-danger-text"> · {customerLate.length} com prazo vencido</span> : null}</span>
+          {data.canSeeValues && <span><strong>{money(sum('BILLING_ELIGIBLE'), 'BRL', { compact: true })}</strong> elegível a faturamento</span>}
+        </>} />
+
+      <SignalStrip label="Sinais das medições" items={[
+        { label: 'Pendências da operação', value: ops.length, hint: 'preparar evidência vencida ou corrigir o que voltou',
+          tone: ops.length ? 'warning' : undefined, onClick: () => setLane('ops') },
+        { label: 'Devolvidas', value: count('CORRECTION'), hint: 'pela análise interna ou pelo cliente', tone: count('CORRECTION') ? 'danger' : undefined,
+          onClick: () => setLane('CORRECTION') },
+        { label: 'Cliente com prazo vencido', value: customerLate.length, hint: `${plural(count('AWAITING_CUSTOMER'), 'aguardando aceite', 'aguardando aceite')}`,
+          tone: customerLate.length ? 'danger' : undefined, onClick: () => setLane('AWAITING_CUSTOMER') },
+        { label: 'Elegível a faturamento', value: data.canSeeValues ? money(sum('BILLING_ELIGIBLE'), 'BRL', { compact: true }) : count('BILLING_ELIGIBLE'),
+          hint: data.canSeeValues ? plural(count('BILLING_ELIGIBLE'), 'medição aceita', 'medições aceitas') : 'aceite do cliente registrado',
+          tone: count('BILLING_ELIGIBLE') ? 'success' : undefined, onClick: () => setLane('BILLING_ELIGIBLE') },
+      ]} />
+
+      <Plane flush title="O caminho de cada medição" subtitle="Da evidência ao aceite do cliente — cada etapa diz de quem é o próximo passo">
+        <FlowPipeline label="Raias da medição" current={lane === 'all' || lane === 'ops' ? undefined : lane} steps={LANES.map((l) => ({
+          id: l, label: MEASUREMENT_LANE_LABEL[l], count: count(l), onClick: () => setLane(lane === l ? 'all' : l),
+          sub: <>{OWNER[l]}{data.canSeeValues && sum(l) ? ` · ${val(sum(l))}` : ''}</>,
+          tone: l === 'CORRECTION' && count(l) ? 'danger' : l === 'AWAITING_CUSTOMER' && customerLate.length ? 'danger'
+            : l === 'PREPARE_EVIDENCE' && live.some((m) => m.lane === l && m.pendingForOperations) ? 'warning'
+              : l === 'BILLING_ELIGIBLE' && count(l) ? 'success' : undefined,
+        }))} />
+      </Plane>
+
+      <Plane flush title="Fila" count={rows.length} testId="measurements-list"
+        subtitle="Pendência da operação primeiro, depois pela ordem do caminho"
+        bar={<div className="ax-toolbar">
+          {/* A raia se escolhe no caminho acima; aqui só o recorte transversal e a raia escolhida, para desmarcar. */}
+          <Filters<LaneFilter> label="Filtrar fila" value={lane} onChange={setLane} options={[
+            { id: 'all', label: 'Todas', count: live.length },
+            { id: 'ops', label: 'Pendências da operação', count: ops.length },
+            ...(lane !== 'all' && lane !== 'ops' ? [{ id: lane, label: MEASUREMENT_LANE_LABEL[lane], count: count(lane) }] : []),
+          ]} />
+          <SearchBox value={search} onChange={setSearch} placeholder="Projeto, cliente, medição ou atividade" label="Buscar medição" />
+        </div>}>
+        {rows.length === 0 ? (
+          <EmptyState title={live.length ? 'Nenhuma medição neste recorte' : 'Nenhuma medição ainda'}>
+            {live.length ? 'Mude o filtro ou a busca.' : 'Medições nascem do mapeamento aceito entre a regra contratual e o cronograma do projeto.'}
+          </EmptyState>
+        ) : (
+          <div className="ax-queue">
+            {rows.map((m) => {
+              const step = nextStep(m, today);
+              const due = relativeDue(step.due, today);
+              const readiness = m.readiness ? READINESS[m.readiness] : null;
+              return (
+                <div key={m.id} className="ax-row measure" data-tone={step.tone === 'success' || step.tone === 'neutral' ? 'neutral' : step.tone} data-testid="measurement-row">
+                  <div className="ax-row-main">
+                    <span className="ax-row-eyebrow">
+                      <span className="ax-kind">{MEASUREMENT_LANE_LABEL[m.lane]}</span>
+                      <span className="ax-row-where">{m.project}{m.client ? ` · ${m.client}` : ''}</span>
+                    </span>
+                    <Link className="ax-row-object ax-link" style={{ color: 'var(--ax-fg-strong)' }} href={m.href}>
+                      {m.occurrenceKey}{m.activity ? <span className="ax-subtle"> · {m.activity}</span> : null}</Link>
+                    <span className="ax-row-issue">{step.text}</span>
+                    <span className="ax-measure-meta">
+                      {readiness && <Chip tone={readiness.tone} quiet>{readiness.label}</Chip>}
+                      {m.rule && <span>{m.rule}</span>}
+                      <span>próximo passo: <strong>{OWNER[m.lane]}</strong></span>
+                      {data.canSeeValues && m.value ? <span className="m-value">{money(m.value, m.currency ?? 'BRL')}</span> : null}
+                    </span>
+                  </div>
+                  <div className="ax-cellstack">
+                    <span className="ax-row-due" data-late={due.late && step.tone === 'danger' ? 'true' : undefined}>{step.due ? dateShort(step.due) : '—'}</span>
+                    <small>{step.dueLabel}</small>
+                  </div>
+                  <div className="ax-cellstack ax-measure-value">
+                    {data.canSeeValues
+                      ? m.value ? <><strong className="ax-num">{money(m.value, m.currency ?? 'BRL')}</strong><small>{m.lane === 'BILLING_ELIGIBLE' ? 'aceito' : 'medido'}</small></>
+                        : <small className="ax-subtle">a medir</small>
+                      : <small className="ax-subtle">valor restrito</small>}
+                  </div>
+                  <div className="ax-row-actions">
+                    <Link className={m.pendingForOperations ? 'ax-btn primary sm' : 'ax-btn sm'} href={m.href}>
+                      {m.pendingForOperations ? (m.lane === 'CORRECTION' ? 'Corrigir' : 'Preparar') : 'Abrir'}<ArrowUpRight size={13} aria-hidden /></Link>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Plane>
+      <p className="ax-note">Esta fila é um recorte da medição canônica: a mesma linha aparece na aba Medições do projeto e em Contratos → Medições &
+        Aprovações. Preparar, submeter e registrar aceite acontecem na bancada do projeto.</p>
+    </>
   );
 }

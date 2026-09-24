@@ -29,6 +29,13 @@ export interface MeasurementQueueRow {
   lane: MeasurementLane;
   expectedAt: string | null;
   customerDueAt: string | null;
+  /** Por que voltou (da análise interna ou do cliente) — a correção começa por aqui. */
+  returnReason: string | null;
+  /** Quando saiu para o cliente / entrou em análise: o relógio de quem tem a bola. */
+  sentAt: string | null;
+  submittedAt: string | null;
+  /** Nome da regra contratual que gera esta medição. */
+  rule: string | null;
   readiness: ReadinessState | null;
   pendingForOperations: boolean;
   /** Nulo quando a pessoa não tem leitura financeira — nunca zero. */
@@ -43,24 +50,29 @@ export async function measurementsQueue(
   const org = session.organizationId;
   const sb = session.supabase;
   const { data, error } = await sb.from('project_measurements')
-    .select('id,project_id,occurrence_key,timeline_item_id,milestone_id,status,expected_at,customer_due_at,measured_value,accepted_value,currency')
+    .select('id,project_id,occurrence_key,timeline_item_id,milestone_id,status,expected_at,customer_due_at,measured_value,accepted_value,currency,'
+      + 'contract_measurement_rule_id,return_reason,customer_correction_reason,sent_to_customer_at,submitted_at')
     .eq('organization_id', org).not('status', 'in', '(CANCELLED,SUPERSEDED)')
     .order('expected_at', { ascending: true, nullsFirst: false }).limit(2000);
   if (error) throw new Error('Não foi possível consultar as medições.');
-  const rows = (data ?? []) as Array<{ id: string; project_id: string; occurrence_key: string; timeline_item_id: string | null;
+  const rows = (data ?? []) as unknown as Array<{ id: string; project_id: string; occurrence_key: string; timeline_item_id: string | null;
     milestone_id: string | null; status: MeasurementStatus; expected_at: string | null; customer_due_at: string | null;
-    measured_value: string | null; accepted_value: string | null; currency: string | null }>;
+    measured_value: string | null; accepted_value: string | null; currency: string | null; contract_measurement_rule_id: string;
+    return_reason: string | null; customer_correction_reason: string | null; sent_to_customer_at: string | null; submitted_at: string | null }>;
   if (!rows.length) return [];
 
   const projectIds = Array.from(new Set(rows.map((r) => r.project_id)));
   const itemIds = Array.from(new Set(rows.map((r) => r.timeline_item_id).filter(Boolean))) as string[];
-  const [projects, items, readiness] = await Promise.all([
+  const ruleIds = Array.from(new Set(rows.map((r) => r.contract_measurement_rule_id)));
+  const [projects, items, readiness, rules] = await Promise.all([
     sb.from('projects').select('id,project,project_v2').eq('organization_id', org).in('id', projectIds),
     itemIds.length ? sb.from('project_timeline_items').select('id,title').eq('organization_id', org).in('id', itemIds)
       : Promise.resolve({ data: [] }),
     sb.from('project_measurement_readiness_cache').select('measurement_id,overall').eq('organization_id', org)
       .in('measurement_id', rows.map((r) => r.id)),
+    sb.from('contract_measurement_requirements').select('id,title').eq('organization_id', org).in('id', ruleIds),
   ]);
+  const ruleTitle = new Map(((rules.data ?? []) as Array<{ id: string; title: string }>).map((r) => [r.id, r.title]));
   const projectMap = new Map(((projects.data ?? []) as Array<{ id: string; project: Record<string, unknown>; project_v2: Record<string, unknown> | null }>)
     .map((p) => [p.id, projectIdentity(p.id, p.project, p.project_v2)]));
   const itemTitle = new Map(((items.data ?? []) as Array<{ id: string; title: string }>).map((i) => [i.id, i.title]));
@@ -74,6 +86,8 @@ export async function measurementsQueue(
       occurrenceKey: r.occurrence_key, activity: r.timeline_item_id ? itemTitle.get(r.timeline_item_id) ?? null : null,
       status: r.status, statusLabel: MEASUREMENT_STATUS_LABEL[r.status], lane: measurementLane(r.status),
       expectedAt: r.expected_at, customerDueAt: r.customer_due_at,
+      returnReason: r.status === 'CUSTOMER_CORRECTION_REQUESTED' ? r.customer_correction_reason ?? r.return_reason : r.return_reason,
+      sentAt: r.sent_to_customer_at, submittedAt: r.submitted_at, rule: ruleTitle.get(r.contract_measurement_rule_id) ?? null,
       readiness: ready.get(r.id) ?? null,
       pendingForOperations: isOperationalMeasurementPending(r.status, r.expected_at, today),
       value: canSeeValues ? Number(r.status === 'ACCEPTED' ? (r.accepted_value ?? r.measured_value ?? 0) : (r.measured_value ?? 0)) || null : null,

@@ -217,6 +217,49 @@ await withQaDb(async (c) => {
   await need(P2, 'p2-des', 'CUSTOMER_DEPENDENCY', 'Cliente confirma a janela de desligamento', plus(1), { priority: 'critical' });
   await need(P3, 'p3-inv', 'WORKFORCE', 'Equipe de comissionamento dos inversores', plus(12), { qty: 4, unit: 'pessoas' });
 
+  console.log('▸ medições do projeto (regra contratual × cronograma, em todas as raias)');
+  // Fixture de LEITURA: a medição canônica (130/134/190) é domínio já provado; aqui ela só precisa existir em cada
+  // raia para a fila de Operações ser vista com linhas reais. Nenhuma transição é simulada — cada linha nasce no estado.
+  const engagementOf = async (project) => (await one(`SELECT engagement_id FROM public.engagement_project_links
+    WHERE organization_id = $1 AND project_id = $2 LIMIT 1`, [org, project])).engagement_id;
+  const rule = async (project, title, cadence, basis, reference) => (await one(`INSERT INTO public.contract_measurement_requirements
+      (organization_id, engagement_id, title, source_reference, cadence, measurement_basis, accumulation_mode, aggregation_mode,
+       evidence_required, customer_acceptance_required, report_required, created_by)
+    VALUES ($1,$2,$3,$4,$5,$6,'CUMULATIVE','LATEST_CUMULATIVE',true,true,true,$7) RETURNING id`,
+  [org, await engagementOf(project), title, reference, cadence, basis, U.gestor])).id;
+  const RM = {
+    p1: await rule(P1, 'Boletim mensal de medição — avanço físico', 'MONTHLY', 'PERCENTAGE', 'Contrato, cláusula 7.2 — medição mensal'),
+    p2: await rule(P2, 'Medição mensal das estruturas reforçadas', 'MONTHLY', 'PERCENTAGE', 'Contrato, cláusula 6.1 — boletim mensal'),
+    p3: await rule(P3, 'Marcos de comissionamento', 'MILESTONE', 'MILESTONE_FIXED', 'Contrato, anexo III — marcos de pagamento'),
+  };
+  const measurement = async (project, ruleId, key, activityKey, status, expected, extra = {}) => {
+    const m = await one(`INSERT INTO public.project_measurements (organization_id, project_id, engagement_id, contract_measurement_rule_id,
+        timeline_item_id, occurrence_key, occurrence_state, expected_at, measurement_basis, accumulation_mode, measured_value, currency,
+        status, origin, revision, created_by, submitted_at, review_started_at, approved_for_customer_at, sent_to_customer_at, customer_due_at,
+        returned_at, return_reason, accepted_at, accepted_value, accepted_currency, acceptance_source, accepted_external_ref)
+      VALUES ($1,$2,$3,$4,$5,$6,'resolved',$7,'PERCENTAGE','CUMULATIVE',$8,$9,$10,'manual',1,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
+      RETURNING id`, [org, project, await engagementOf(project), ruleId, acts[activityKey], key, expected,
+      extra.value ?? null, extra.value ? 'BRL' : null, status, U.gestor, extra.submitted ?? null, extra.review ?? null, extra.approved ?? null,
+      extra.sent ?? null, extra.customerDue ?? null, extra.returned ?? null, extra.returnReason ?? null, extra.accepted ?? null,
+      extra.accepted ? extra.value : null, extra.accepted ? 'BRL' : null, extra.accepted ? 'signed_bulletin' : null, extra.ref ?? null]);
+    if (extra.readiness) {
+      await one(`INSERT INTO public.project_measurement_readiness_cache (measurement_id, organization_id, overall, dimensions, reasons, input_fingerprint)
+        VALUES ($1,$2,$3,'{}'::jsonb,'[]'::jsonb,'qa-scenario') RETURNING measurement_id`, [m.id, org, extra.readiness]);
+    }
+    return m.id;
+  };
+  await measurement(P1, RM.p1, '2026-07', 'p1-mob', 'ACCEPTED', plus(-55), { value: 486_000, submitted: plus(-50), sent: plus(-40), accepted: plus(-30), ref: 'BM-07/2026', readiness: 'READY' });
+  await measurement(P1, RM.p1, '2026-08', 'p1-fund', 'AWAITING_CUSTOMER_ACCEPTANCE', plus(-24), { value: 729_000, submitted: plus(-20), review: plus(-18),
+    approved: plus(-12), sent: plus(-10), customerDue: plus(-2), readiness: 'READY' });
+  await measurement(P1, RM.p1, '2026-09', 'p1-est', 'IN_PREPARATION', plus(6), { readiness: 'INCOMPLETE' });
+  await measurement(P2, RM.p2, '2026-08', 'p2-ref', 'RETURNED_FOR_CORRECTION', plus(-20), { value: 312_000, submitted: plus(-12), returned: plus(-3),
+    returnReason: 'Fotos das estruturas 14 a 19 sem geolocalização — refazer o registro de campo', readiness: 'BLOCKED' });
+  await measurement(P2, RM.p2, '2026-09', 'p2-ref', 'UNDER_REVIEW', plus(-1), { value: 268_000, submitted: plus(-2), review: plus(-1), readiness: 'READY' });
+  await measurement(P3, RM.p3, 'M1-strings', 'p3-str', 'APPROVED_FOR_CUSTOMER', plus(-4), { value: 415_500, submitted: plus(-6), review: plus(-5),
+    approved: plus(-1), readiness: 'READY' });
+  await measurement(P3, RM.p3, 'M2-inversores', 'p3-inv', 'PLANNED', plus(16), {});
+  await measurement(P2, RM.p2, '2026-07', 'p2-ref', 'PLANNED', plus(-3), { readiness: 'INCOMPLETE' });
+
   console.log('▸ estoque, reservas e transferência');
   const L = live.locations;
   const site = async (project, code, name, lat, lng) => (await act('inventory_location_upsert', org, U.almoxarifado, J({ code, name, kind: 'PROJECT_SITE',
