@@ -20,3 +20,18 @@ export function sniffEvidenceMime(bytes: Uint8Array): EvidenceMime | null {
   if (bytes.length >= 5 && [0x25, 0x50, 0x44, 0x46, 0x2d].every((b, i) => at(i) === b)) return 'application/pdf';
   return null;
 }
+
+/**
+ * O que fazer com o arquivo escolhido ANTES do envio (regra pura, testável):
+ *  - `send`: JPEG/PNG/PDF dentro do teto — vai como está;
+ *  - `reencode`: outra imagem (HEIC, WEBP…) ou foto grande demais — vira JPEG
+ *    no aparelho (o bucket recusaria o original);
+ *  - `reject`: não é imagem nem PDF, ou é PDF acima do teto.
+ */
+export function evidencePlan(type: string, name: string, size: number): 'send' | 'reencode' | 'reject' {
+  const known = (EVIDENCE_MIME as readonly string[]).includes(type);
+  const image = type.startsWith('image/') || /\.(heic|heif|webp|avif)$/i.test(name);
+  if (known && size > 0 && size <= MAX_EVIDENCE_BYTES) return 'send';
+  if (image && size > 0) return 'reencode';
+  return 'reject';
+}

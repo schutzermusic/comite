@@ -138,6 +138,20 @@ describe('evidência: o tipo vem do conteúdo', () => {
     expect(sniffEvidenceMime(new Uint8Array([0x52, 0x49, 0x46, 0x46]))).toBeNull(); // WEBP/RIFF: converte no aparelho
     expect([...EVIDENCE_MIME]).toEqual(['image/jpeg', 'image/png', 'application/pdf']);
   });
+
+  it('antes do envio: JPEG/PNG/PDF seguem; HEIC, WEBP e foto enorme viram JPEG no aparelho; o resto é recusado', async () => {
+    const { evidencePlan, MAX_EVIDENCE_BYTES } = await import('@/lib/supply/evidence');
+    expect(evidencePlan('image/jpeg', 'romaneio.jpg', 2_000_000)).toBe('send');
+    expect(evidencePlan('application/pdf', 'nota.pdf', 900_000)).toBe('send');
+    expect(evidencePlan('image/heic', 'IMG_0412.HEIC', 3_000_000)).toBe('reencode');
+    expect(evidencePlan('', 'IMG_0413.heic', 3_000_000)).toBe('reencode'); // navegador que não conhece o tipo
+    expect(evidencePlan('image/webp', 'avaria.webp', 800_000)).toBe('reencode');
+    expect(evidencePlan('image/jpeg', 'panorama.jpg', MAX_EVIDENCE_BYTES + 1)).toBe('reencode');
+    expect(evidencePlan('application/pdf', 'enorme.pdf', MAX_EVIDENCE_BYTES + 1)).toBe('reject');
+    expect(evidencePlan('image/svg+xml', 'x.svg', 400)).toBe('reencode'); // vira bitmap JPEG: o SVG em si nunca é enviado
+    expect(evidencePlan('text/html', 'x.html', 400)).toBe('reject');
+    expect(evidencePlan('image/png', 'vazio.png', 0)).toBe('reject');
+  });
 });
 
 // ── Leitura da Apex: tudo-ou-nada ─────────────────────────────────────────

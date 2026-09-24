@@ -1,5 +1,5 @@
 /**
- * E2E — Recebimentos & Logística (wave I): tela real e, com leitura simulada,
+ * E2E — Recebimentos & Logística: tela real e, com leitura simulada,
  * o contrato dos atos de campo — receber parcial com rejeição motivada,
  * inspecionar série a série e registrar a logística do embarque. Toda escrita
  * é interceptada; nada chega ao banco.
@@ -62,7 +62,7 @@ test('1 · tela real: menu, filas e abas', async () => {
   await page.goto('/supply/recebimentos');
   await expect(page.locator('.hud-nav-submenu').getByRole('link', { name: 'Recebimentos & Logística', exact: true })).toBeVisible({ timeout: 60_000 });
   const ws = page.getByTestId('receiving-workspace');
-  await expect(ws.getByRole('heading', { name: 'O que está chegando, e o que chegou' })).toBeVisible({ timeout: 60_000 });
+  await expect(ws.getByRole('heading', { name: 'Recebimentos & logística' })).toBeVisible({ timeout: 60_000 });
   for (const t of ['Entradas', 'Recebimentos', 'Inspeção', 'Desempenho de entrega']) await expect(ws.getByRole('tab', { name: new RegExp(`^${t}`) })).toBeVisible();
   await expect(page.getByText(/Esta ação exige:/)).toHaveCount(0);
   mkdirSync(OUT, { recursive: true }); await page.screenshot({ path: `${OUT}/receiving-real.png`, fullPage: true });
@@ -74,10 +74,12 @@ test('2 · receber parcial: rejeição sem motivo bloqueia; com motivo envia ace
   const ws = page.getByTestId('receiving-workspace');
   const row = ws.getByTestId('inbound-row').first();
   await expect(row).toContainText('Atrasados');
-  await expect(row).toContainText('4 dia(s) de atraso');
+  await expect(row).toContainText('4 dias de atraso');
   await row.getByRole('button', { name: 'Receber' }).click();
   const form = page.getByTestId('receive-form');
+  await expect(form.getByLabel('Recebido CAB-35')).toHaveValue('100'); // já vem com o que falta
   await form.getByLabel('Recebido CAB-35').fill('80');
+  await form.getByRole('button', { name: 'Registrar avaria' }).click();
   await form.getByLabel('Rejeitado CAB-35').fill('20');
   const confirm = page.getByRole('button', { name: 'Registrar recebimento' });
   await expect(confirm).toBeDisabled();
@@ -87,6 +89,7 @@ test('2 · receber parcial: rejeição sem motivo bloqueia; com motivo envia ace
   await expect.poll(() => sent.length).toBe(1);
   expect(sent[0]).toMatchObject({ path: '/api/supply/receiving/receipts', body: { purchaseOrderId: PO, locationId: SITE,
     lines: [{ poLineId: LINE, acceptedQuantity: 80, rejectedQuantity: 20, rejectionReason: 'Bobina amassada no transporte' }] } });
+  await expect(page.getByTestId('receive-done')).toContainText('REC-X');
   await page.screenshot({ path: `${OUT}/receiving-form.png`, fullPage: true });
 });
 
