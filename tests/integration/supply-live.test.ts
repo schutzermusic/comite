@@ -83,4 +83,27 @@ suite('Supply — invariantes no banco vivo (somente leitura)', () => {
     expect(await rows(`SELECT l.id FROM public.inventory_transfer_lines l
       JOIN public.inventory_transfers t ON t.id = l.transfer_id WHERE t.status = 'CANCELLED' AND l.dispatched_quantity > 0`)).toEqual([]);
   });
+  it('234: pedido aprovado ou além tem impressão digital e a regra que o aprovou', async () => {
+    expect(await applied('234')).toBe(true);
+    expect(await rows(`SELECT id FROM public.purchase_orders
+      WHERE status IN ('APPROVED','ISSUED','PARTIALLY_RECEIVED','RECEIVED','CLOSED')
+        AND (approved_fingerprint IS NULL OR (approval_authority_id IS NULL AND approval_request_id IS NULL))`)).toEqual([]);
+  });
+
+  it('234: fornecedor é papel de parte; recebido nunca passa do pedido; alocação nunca passa da linha', async () => {
+    expect(await rows(`SELECT s.id FROM public.supplier_profiles s WHERE NOT EXISTS (SELECT 1 FROM public.party_roles pr
+      WHERE pr.party_id = s.party_id AND pr.role = 'supplier')`)).toEqual([]);
+    expect(await rows(`SELECT id FROM public.purchase_order_lines WHERE received_quantity > quantity`)).toEqual([]);
+    expect(await rows(`SELECT l.id FROM public.purchase_order_lines l JOIN public.purchase_order_line_requirements a ON a.line_id = l.id
+      GROUP BY l.id, l.quantity HAVING sum(a.quantity) > l.quantity`)).toEqual([]);
+  });
+
+  it('234: compras não são escritas pelo navegador; o motor conhece o pedido de compra', async () => {
+    const r = await rows(`SELECT
+      has_table_privilege('authenticated','public.purchase_orders','INSERT') pi,
+      has_table_privilege('authenticated','public.purchase_orders','UPDATE') pu,
+      has_function_privilege('authenticated','public.purchase_order_decide(uuid,uuid,uuid,text,text)','EXECUTE') fd,
+      (SELECT supported FROM public.approval_subject_resolve(gen_random_uuid(), 'purchase_order', gen_random_uuid())) sup`);
+    expect(r[0]).toEqual({ pi: false, pu: false, fd: false, sup: true });
+  });
 });

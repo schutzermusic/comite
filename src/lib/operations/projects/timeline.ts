@@ -38,6 +38,19 @@ const DOMAIN_EVENT_TITLE: Record<string, { title: string; kind: TimelineKind; to
   'operations.requirement.planned': { title: 'Requisito voltou a planejado', kind: 'schedule', tone: 'warning' },
   'operations.requirement.cancelled': { title: 'Requisito cancelado', kind: 'schedule', tone: 'warning' },
   'operations.requirement.superseded': { title: 'Requisito substituído', kind: 'schedule', tone: 'neutral' },
+  'supply.inventory.reserved': { title: 'Material reservado no estoque', kind: 'supply', tone: 'success' },
+  'supply.inventory.reservation_released': { title: 'Reserva de material liberada', kind: 'supply', tone: 'warning' },
+  'supply.inventory.issued': { title: 'Material entregue à obra', kind: 'supply', tone: 'success' },
+  'supply.inventory.returned': { title: 'Material devolvido da obra', kind: 'supply', tone: 'neutral' },
+  'supply.transfer.requested': { title: 'Transferência de material solicitada', kind: 'supply', tone: 'neutral' },
+  'supply.transfer.dispatched': { title: 'Transferência despachada', kind: 'supply', tone: 'accent' },
+  'supply.transfer.partially_received': { title: 'Transferência recebida em parte', kind: 'supply', tone: 'warning' },
+  'supply.transfer.received': { title: 'Transferência recebida', kind: 'supply', tone: 'success' },
+  'supply.transfer.closed': { title: 'Transferência encerrada', kind: 'supply', tone: 'neutral' },
+  'supply.requisition.submitted': { title: 'Compra requisitada', kind: 'supply', tone: 'neutral' },
+  'supply.purchase_order.approved': { title: 'Pedido de compra aprovado', kind: 'supply', tone: 'accent' },
+  'supply.purchase_order.issued': { title: 'Pedido de compra emitido', kind: 'supply', tone: 'success' },
+  'supply.purchase_order.cancelled': { title: 'Pedido de compra cancelado', kind: 'supply', tone: 'danger' },
 };
 
 export function domainEventTitle(eventType: string) {

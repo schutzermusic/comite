@@ -65,7 +65,10 @@ try {
 
     const fks = await all(`SELECT conname, pg_get_constraintdef(oid) def FROM pg_constraint
       WHERE conrelid = ('public.' || $1)::regclass AND contype = 'f'`, [t]);
-    const domainFks = fks.filter((f) => !/REFERENCES (auth\.users|organizations)\(/.test(f.def));
+    // Fora da regra: identidade (auth.users), inquilino (organizations) e o catálogo
+    // global de papéis (roles — papéis de sistema têm organization_id NULL; a alçada
+    // declarada aponta papel, como a de faturamento da 141).
+    const domainFks = fks.filter((f) => !/REFERENCES (auth\.users|organizations|roles)\(/.test(f.def));
     const incoherent = domainFks.filter((f) => !/^FOREIGN KEY \(organization_id,/.test(f.def));
     report(`${t}: FKs de domínio compostas com organization_id`, incoherent.length === 0,
       incoherent.map((f) => f.conname).join(', ') || `${domainFks.length} FK(s)`);

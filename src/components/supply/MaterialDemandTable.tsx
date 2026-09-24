@@ -92,12 +92,13 @@ export function MaterialDemandTable({
                 <div><dt>Consumido</dt><dd>{formatQty(open.coverage.consumed)}</dd></div>
                 <div><dt>Em trânsito</dt><dd>{formatQty(open.coverage.inTransit)}</dd></div>
                 <div><dt>Em pedido</dt><dd>{formatQty(open.coverage.onOrder)}</dd></div>
+                <div><dt>Requisitado</dt><dd>{formatQty(open.coverage.requested)}</dd></div>
                 <div><dt>Livre em estoque</dt><dd>{formatQty(open.stock.reduce((a, s) => a + s.available, 0))}</dd></div>
                 <div><dt>Falta</dt><dd className={open.coverage.shortage ? 'sup-short' : undefined}>{formatQty(open.coverage.shortage)}</dd></div>
               </dl>
             </section>
             {renderActions ? renderActions(open) : (
-              <DemandActions row={open} canAct={capabilities.reserve}
+              <DemandActions row={open} canAct={capabilities.reserve} canRequest={capabilities.requestPurchase}
                 onChanged={() => { setOpen(null); onChanged?.(); }} />
             )}
             <p style={{ padding: '0 14px' }}>

@@ -18,8 +18,8 @@ async function post(url: string, body: Record<string, unknown>) {
  * transferência), e o banco refaz a conta de disponibilidade na hora.
  */
 export function DemandActions({
-  row, canAct, onChanged,
-}: { row: MaterialDemandRow; canAct: boolean; onChanged?: () => void }) {
+  row, canAct, canRequest = false, onChanged,
+}: { row: MaterialDemandRow; canAct: boolean; canRequest?: boolean; onChanged?: () => void }) {
   const { success, error: notifyError } = useHudToast();
   const [busy, setBusy] = useState<string | null>(null);
   const [site, setSite] = useState(row.sites[0]?.id ?? '');
@@ -42,6 +42,16 @@ export function DemandActions({
     setBusy(null);
     if (!out.ok) { notifyError('Transferência recusada', out.error); return; }
     success('Transferência solicitada', String(out.result?.transfer_number ?? ''));
+    onChanged?.();
+  };
+
+  const requisition = async () => {
+    setBusy('buy');
+    const out = await post('/api/supply/procurement/requisitions', { source: 'SHORTAGE', requirementIds: [row.requirementId],
+      idempotencyKey: crypto.randomUUID() });
+    setBusy(null);
+    if (!out.ok) { notifyError('Requisição recusada', out.error); return; }
+    success('Compra requisitada', String(out.result?.requisition_number ?? ''));
     onChanged?.();
   };
 
@@ -76,11 +86,13 @@ export function DemandActions({
               <HudButton size="sm" variant="secondary" disabled={busy !== null} onClick={() => reserve(o.locationId!, o.quantity)}>
                 Reservar lá</HudButton>
             ))}
-            {o.strategy === 'BUY' && <span className="crm-muted">Compras chega na próxima etapa</span>}
+            {o.strategy === 'BUY' && (row.coverage.requested >= row.coverage.shortage
+              ? <span className="crm-muted">Já requisitado ({formatQty(row.coverage.requested)})</span>
+              : canRequest && <HudButton size="sm" variant="secondary" disabled={busy !== null} onClick={requisition}>Requisitar compra</HudButton>)}
           </div>
         ))}
       </div>
-      {!canAct && <p className="crm-muted" style={{ padding: '0 14px' }}>Sem alçada para reservar ou transferir este material.</p>}
+      {!canAct && !canRequest && <p className="crm-muted" style={{ padding: '0 14px' }}>Sem alçada para reservar ou transferir este material.</p>}
     </section>
   );
 }

@@ -64,6 +64,24 @@ export const OPERATIONS_REGISTRY = {
     ],
     permissions: [],
   },
+  '234': {
+    tables: ['supplier_profiles', 'procurement_approval_authorities', 'purchase_requisitions', 'purchase_requisition_lines',
+      'purchase_requisition_line_requirements', 'procurement_rfqs', 'procurement_rfq_lines', 'procurement_rfq_suppliers',
+      'supplier_quotes', 'supplier_quote_lines', 'sourcing_decisions', 'purchase_orders', 'purchase_order_lines',
+      'purchase_order_line_requirements', 'purchase_order_history'],
+    ledgers: ['sourcing_decisions', 'purchase_order_history'],
+    functions: [
+      'supplier_register(uuid,uuid,jsonb)', 'supplier_set_status(uuid,uuid,uuid,text,text)',
+      'procurement_authority_declare(uuid,uuid,jsonb)', 'procurement_authority_revoke(uuid,uuid,uuid,text)',
+      'purchase_requisition_from_shortage(uuid,uuid,jsonb)', 'purchase_requisition_create_manual(uuid,uuid,jsonb)',
+      'purchase_requisition_cancel(uuid,uuid,uuid,text)', 'procurement_rfq_create(uuid,uuid,jsonb)',
+      'procurement_quote_record(uuid,uuid,jsonb)', 'procurement_decide(uuid,uuid,jsonb)',
+      'purchase_order_update_draft(uuid,uuid,uuid,jsonb)', 'purchase_order_submit(uuid,uuid,uuid,text)',
+      'purchase_order_decide(uuid,uuid,uuid,text,text)', 'purchase_order_apply_approval(uuid)',
+      'purchase_order_issue(uuid,uuid,uuid)', 'purchase_order_cancel(uuid,uuid,uuid,text)',
+    ],
+    permissions: ['procurement.authorities.manage'],
+  },
 };
 
 export function registryUpTo(version) {

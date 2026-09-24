@@ -99,3 +99,76 @@ export function snakePayload(input: Record<string, unknown>): Record<string, unk
   }
   return out;
 }
+
+// ── Compras e fornecedores (234) ──────────────────────────────────────────
+const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const money = z.coerce.number().finite().min(0);
+
+export const supplierSchema = z.object({
+  partyId: uuid.optional(),
+  legalName: z.string().trim().min(2).max(300).optional(),
+  tradeName: z.string().trim().max(300).nullable().optional(),
+  kind: z.enum(['organization', 'person']).optional(),
+  documentType: z.enum(['cnpj', 'cpf', 'foreign']).nullable().optional(),
+  documentNumber: z.string().trim().max(40).nullable().optional(),
+  categories: z.array(z.string().trim().min(1).max(80)).max(30).optional(),
+  defaultPaymentTerms: z.string().trim().max(200).nullable().optional(),
+  defaultLeadTimeDays: z.coerce.number().int().min(0).max(3650).nullable().optional(),
+  contactName: z.string().trim().max(200).nullable().optional(),
+  contactEmail: z.string().trim().email().max(200).nullable().optional().or(z.literal('')),
+  contactPhone: z.string().trim().max(60).nullable().optional(),
+  notes: z.string().trim().max(2000).nullable().optional(),
+}).refine((s) => s.partyId || s.legalName, 'Informe a razão social (ou uma parte existente).');
+
+export const supplierStatusSchema = z.object({
+  status: z.enum(['PROSPECT', 'HOMOLOGATED', 'SUSPENDED', 'BLOCKED']), reason: z.string().trim().max(500).nullable().optional(),
+}).refine((s) => !['SUSPENDED', 'BLOCKED'].includes(s.status) || (s.reason ?? '').length >= 3, 'Suspender ou bloquear exige motivo.');
+
+export const authoritySchema = z.object({
+  granteeKind: z.enum(['ROLE', 'USER']), granteeRoleId: uuid.nullable().optional(), granteeUserId: uuid.nullable().optional(),
+  maxAmount: money.positive().nullable().optional(), currency: z.string().regex(/^[A-Z]{3}$/).default('BRL'),
+  projectId: z.string().trim().min(1).max(200).nullable().optional(), category: z.string().trim().max(120).nullable().optional(),
+  sourceKind: z.enum(['BOARD_RESOLUTION', 'POWER_OF_ATTORNEY', 'DELEGATION_LETTER', 'CONTRACT_CLAUSE', 'INTERNAL_POLICY_DOCUMENT', 'BYLAWS']),
+  sourceReference: z.string().trim().min(2).max(300), justification: z.string().trim().min(3).max(1000),
+  effectiveFrom: date.nullable().optional(), effectiveUntil: date.nullable().optional(),
+}).refine((a) => (a.granteeKind === 'ROLE' ? Boolean(a.granteeRoleId) : Boolean(a.granteeUserId)), 'Indique o papel ou a pessoa.');
+
+export const requisitionSchema = z.discriminatedUnion('source', [
+  z.object({ source: z.literal('SHORTAGE'), requirementIds: z.array(uuid).min(1).max(200),
+    deliveryLocationId: uuid.nullable().optional(), priority: z.enum(['low', 'medium', 'high', 'critical']).optional(),
+    justification: z.string().trim().max(1000).nullable().optional(), idempotencyKey: key }),
+  z.object({ source: z.literal('MANUAL'), justification: z.string().trim().min(10).max(1000),
+    projectId: z.string().trim().min(1).max(200).nullable().optional(), requiredBy: date.nullable().optional(),
+    deliveryLocationId: uuid.nullable().optional(), priority: z.enum(['low', 'medium', 'high', 'critical']).optional(),
+    idempotencyKey: key,
+    lines: z.array(z.object({ itemId: uuid, quantity: positive, estimatedUnitPrice: money.nullable().optional(),
+      note: z.string().trim().max(500).nullable().optional() })).min(1).max(100) }),
+]);
+
+export const rfqSchema = z.object({
+  requisitionLineIds: z.array(uuid).min(1).max(200), supplierIds: z.array(uuid).min(1).max(30),
+  responseDue: date.nullable().optional(), note: z.string().trim().max(1000).nullable().optional(),
+});
+
+export const rfqActionSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('quote'), supplierId: uuid, currency: z.string().regex(/^[A-Z]{3}$/).default('BRL'),
+    freightAmount: money.optional(), taxAmount: money.optional(), paymentTerms: z.string().trim().max(200).nullable().optional(),
+    validityDate: date.nullable().optional(), leadTimeDays: z.coerce.number().int().min(0).max(3650).nullable().optional(),
+    deviations: z.string().trim().max(2000).nullable().optional(),
+    lines: z.array(z.object({ rfqLineId: uuid, unitPrice: money, quantity: positive.optional(),
+      leadTimeDays: z.coerce.number().int().min(0).max(3650).nullable().optional(), compliant: z.boolean().optional(),
+      note: z.string().trim().max(500).nullable().optional() })).min(1).max(200) }),
+  z.object({ action: z.literal('decide'), quoteId: uuid, recommendedQuoteId: uuid.nullable().optional(),
+    rationale: z.string().trim().min(10).max(2000), comparison: z.record(z.string(), z.unknown()).optional() }),
+]);
+
+export const purchaseOrderActionSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('update'), deliveryLocationId: uuid.nullable().optional(), expectedDelivery: date.nullable().optional(),
+    paymentTerms: z.string().trim().max(200).nullable().optional() }),
+  z.object({ action: z.literal('submit'), note: z.string().trim().max(1000).nullable().optional() }),
+  z.object({ action: z.literal('approve'), note: z.string().trim().max(1000).nullable().optional() }),
+  z.object({ action: z.literal('reject'), note: z.string().trim().min(3).max(1000) }),
+  z.object({ action: z.literal('sync') }),
+  z.object({ action: z.literal('issue') }),
+  z.object({ action: z.literal('cancel'), reason }),
+]);

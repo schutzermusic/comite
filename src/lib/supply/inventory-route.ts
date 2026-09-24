@@ -13,10 +13,12 @@ import {
   requireAnyOperationsPermission, isSessionError, safeOperationsError, type OperationsSession,
 } from '@/lib/operations/session';
 import { inventoryErrorMessage } from './inventory';
+import { procurementErrorMessage } from './procurement';
 
 export function inventoryFailure(error: unknown) {
   const message = (error as Error)?.message ?? '';
-  return NextResponse.json({ ok: false, error: inventoryErrorMessage(message) ?? safeOperationsError(message) }, { status: 422 });
+  return NextResponse.json({ ok: false, error: inventoryErrorMessage(message) ?? procurementErrorMessage(message)
+    ?? safeOperationsError(message) }, { status: 422 });
 }
 
 /**

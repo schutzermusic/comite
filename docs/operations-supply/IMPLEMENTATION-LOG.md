@@ -157,3 +157,36 @@ INV-08/09 (reserva atômica; disponível ≠ em mão), INV-10 (livro imutável),
 - Unidade `supply-inventory` (13) — suíte 2910/2910.
 - Integração viva 21/21 (saldo de lote nunca negativo, série única, disponível = em mão − reservado, equação da cobertura, recebido ≤ despachado).
 - E2E `supply-inventory.spec.ts` 6/6 (escritas interceptadas; contrato enviado provado); regressão Operações + Supply 28/28.
+
+---
+
+## Wave H — Compras & Fornecedores (migration 234)
+
+**Aplicada no banco hospedado** (`scripts/operations/apply-234.mjs --apply`, 67/67 provas; `security-audit` 212/212).
+
+### Entrou
+- **234_procurement_suppliers_orders.sql**:
+  - **Fornecedor = papel de parte** (`parties` + `party_roles.role = 'supplier'`, já no vocabulário da 102) + `supplier_profiles` só com o que é de compras (homologação, categorias, condição e prazo padrão). Cadastro reusa a parte pelo CNPJ (idempotente). Suspender/bloquear exige motivo; restrito não é convidado nem recebe pedido emitido. Leitura de partes-fornecedor por `suppliers.view`/`procurement.view` via função definidora (evita recursão de RLS entre `parties` e `party_roles`). A tabela legada `supplier` não é usada.
+  - **Requisição da falta** com rastro por requisito (`purchase_requisition_line_requirements`); requisitos do mesmo item consolidados numa linha com rastro; a mesma falta não é requisitada duas vezes. Requisição manual é exceção com justificativa.
+  - **Cotação** (convidados, propostas versionadas e imutáveis — nova versão substitui), **decisão** append-only com justificativa, recomendação seguida ou não, e foto da comparação; a decisão gera o **pedido em rascunho** de forma idempotente, alocando a quantidade aos requisitos por data de necessidade.
+  - **Pedido de compra** DRAFT → APPROVAL_REQUIRED → APPROVED → ISSUED → (235: PARTIALLY_RECEIVED/RECEIVED) → CLOSED/CANCELLED; total **derivado** (linhas + frete + impostos); linhas só mudam em rascunho; histórico append-only com evento `supply.purchase_order.*`.
+  - **Aprovação sem motor paralelo**: o pedido é novo sujeito do Motor de Aprovação da plataforma (`approval_subject_resolve` ganhou o ramo `purchase_order`, os demais copiados sem alteração). Com política → decisão no motor, desfecho aplicado conferindo a impressão digital (`purchase_order_apply_approval`). Sem política → regra da 141: aprova só quem tem **alçada de compra declarada com evidência** (`procurement_approval_authorities`: papel/pessoa, teto, moeda, escopo), nunca quem criou ou submeteu (SoD); sem alçada, o pedido não é aprovável. Ninguém declara alçada para si. Nova permissão `procurement.authorities.manage` (owner_admin).
+  - Rotas `approval.request.approved/rejected → procurement.purchase_order.apply_approval` semeadas **desligadas** (ligar na publicação do handler); até lá, ato explícito "sincronizar desfecho".
+  - Cobertura: `on_order_qty` (alocação de pedido emitido − recebido) e `requested_qty` (requisição viva sem pedido emitido) entram no contrato da 232; reservar estoque para o que já está em pedido é recusado (cobertura comprometida inclui em pedido).
+- Handler `procurement.purchase_order.apply_approval` no registro de jobs da plataforma.
+- Rotas `/api/supply/procurement` (+ `requisitions`, `rfqs`, `purchase-orders`, `authorities`, `roles`) e `/api/supply/suppliers`; recusas traduzidas.
+- UI: **Supply Chain → Compras** (Solicitações | Cotações | Aprovações | Pedidos) com comparação além do preço (custo total posto, chegada × necessidade, conformidade, homologação) e recomendação explicável; painel de política do motor no pedido (mesmas RPCs do Contratos); alçadas declaradas; **Fornecedores**; "Requisitar compra" na gaveta da falta; fatos de Supply na Timeline do projeto.
+
+### Invariantes
+INV-11 (pedido emitido não aumenta estoque — só "em pedido"), INV-07 (cobertura multi-fonte sem dupla contagem), aprovação governada (motor ou alçada declarada + SoD + impressão digital), fornecedor = papel de parte, INV-01 (FKs compostas; `roles` é catálogo global, tratado explicitamente pela auditoria).
+
+### Provas
+- `apply-234` 67/67 — inclui leitura real como `authenticated` (sem recursão de RLS).
+- Unidade `supply-procurement` (14) — suíte 2922/2922.
+- Integração viva 24/24.
+- E2E `supply-procurement.spec.ts` 6/6; regressão Operações + Supply 34/34 (por spec; em lote único o servidor de desenvolvimento satura compilando rotas).
+
+### Dívida registrada
+- Ligar as rotas `approval.request.* → procurement.purchase_order.apply_approval` na publicação.
+- Pedido governado por política cancelado com pedido de aprovação PENDENTE no motor: o desfecho posterior é ignorado (idempotente), mas o pedido do motor não é cancelado automaticamente.
+- Hidratação do shell do app falha em 390 px em todas as telas (pré-existente).

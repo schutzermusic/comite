@@ -701,6 +701,37 @@ const billingApproval: JobHandler<'contracts.billing.apply_approval'> = {
 };
 
 /*
+  Desfecho do Motor de Aprovação → pedido de compra (234). Mesmo contrato do
+  faturamento: o handler só diz de qual pedido de aprovação falar; a função
+  do banco relê o pedido, ignora sujeito que não é pedido de compra e confere
+  a impressão digital antes de aprovar.
+*/
+const purchaseOrderApproval: JobHandler<'procurement.purchase_order.apply_approval'> = {
+  payloadVersion: 1,
+  idempotencyBasis:
+    'Pedido fora de APPROVAL_REQUIRED, ou ligado a outro pedido de aprovação, devolve idempotente. '
+    + 'A segunda entrega da mesma decisão não aprova duas vezes.',
+  async run(payload, { job, supabase }) {
+    await assertEventTenant(supabase, job, payload.event_id);
+    const { data: event, error: evError } = await supabase
+      .from('domain_events')
+      .select('aggregate_id, aggregate_type')
+      .eq('id', payload.event_id)
+      .eq('organization_id', job.organization_id)
+      .maybeSingle<{ aggregate_id: string; aggregate_type: string }>();
+    if (evError) throw rpcError(evError);
+    if (!event || event.aggregate_type !== 'approval_request') {
+      return { applied: false, reason: 'NOT_AN_APPROVAL_REQUEST_EVENT' };
+    }
+    const { data, error } = await supabase.rpc('purchase_order_apply_approval', {
+      p_approval_request_id: event.aggregate_id,
+    });
+    if (error) throw rpcError(error);
+    return (data ?? {}) as Record<string, unknown>;
+  },
+};
+
+/*
   Liberação → pedido de documento fiscal.
 
   O handler abre o pedido durável e, SE houver configuração fiscal completa,
@@ -858,6 +889,7 @@ export const JOB_HANDLERS: HandlerRegistry = {
   'contracts.billing.request_fiscal_document': fiscalRequest,
   'finance.receivable.create_from_fiscal': receivableFromFiscal,
   'finance.receivable.apply_fiscal_cancellation': fiscalCancellation,
+  'procurement.purchase_order.apply_approval': purchaseOrderApproval,
 };
 
 export function handlerFor(jobType: JobType): JobHandler<JobType> {

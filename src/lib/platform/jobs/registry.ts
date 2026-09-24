@@ -27,6 +27,8 @@ export const JOB_TYPES = [
   'contracts.billing.request_fiscal_document',
   'finance.receivable.create_from_fiscal',
   'finance.receivable.apply_fiscal_cancellation',
+  // ---- Supply — compras (234) ----
+  'procurement.purchase_order.apply_approval',
 ] as const;
 
 export type JobType = (typeof JOB_TYPES)[number];
@@ -143,6 +145,7 @@ export const JOB_SCHEMAS = {
   'contracts.billing.request_fiscal_document':    { 1: EVENT_REF },
   'finance.receivable.create_from_fiscal':        { 1: EVENT_REF },
   'finance.receivable.apply_fiscal_cancellation': { 1: EVENT_REF },
+  'procurement.purchase_order.apply_approval':    { 1: EVENT_REF },
 } as const satisfies Record<JobType, Record<number, z.ZodType>>;
 
 export type JobPayloadByType = {
