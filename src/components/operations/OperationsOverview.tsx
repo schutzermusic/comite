@@ -1,211 +1,246 @@
 'use client';
 
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
-import { ArrowUpRight, MapPinned } from 'lucide-react';
-import { HudButton } from '@/components/hud';
+import { ArrowUpRight, MapPinned, ShieldCheck } from 'lucide-react';
 import type { OperationsOverview as OverviewData } from '@/lib/operations/overview';
 import { MEASUREMENT_LANE_LABEL, type MeasurementLane } from '@/lib/operations/overview-rules';
 import {
-  EmptyNote, GovernanceNote, LiveSep, Metrics, Panel, ResourceState, WorkspaceHeading, day,
-  useOperationsResource,
-} from './ui';
+  AttentionRow, AxPage, CommandHeader, Dot, EmptyState, Filters, FlowPipeline, HealthMatrix, HorizonLegend, HorizonTimeline,
+  Plane, Resource, SignalStrip, date, dateShort, href, plural, relativeDue, useResource, type HorizonLane, type Tone,
+} from '@/components/ax';
 
 type Payload = OverviewData & { ok: true };
+type Kind = 'all' | 'service_order' | 'activity' | 'material' | 'dependency' | 'measurement' | 'risk';
 
-const LANE_ORDER: MeasurementLane[] = [
-  'PREPARE_EVIDENCE', 'CORRECTION', 'INTERNAL_REVIEW', 'SEND_TO_CUSTOMER', 'AWAITING_CUSTOMER', 'BILLING_ELIGIBLE',
-];
-
-const restricted = (value: number | null) => (value === null ? 'Restrito' : value);
+const KIND_LABEL: Record<Exclude<Kind, 'all'>, string> = {
+  service_order: 'OS', activity: 'Atividade', material: 'Material', dependency: 'Cliente', measurement: 'Medição', risk: 'Risco',
+};
+const LANES: MeasurementLane[] = ['PREPARE_EVIDENCE', 'CORRECTION', 'INTERNAL_REVIEW', 'SEND_TO_CUSTOMER', 'AWAITING_CUSTOMER', 'BILLING_ELIGIBLE'];
 
 /**
- * VISÃO GERAL DE OPERAÇÕES — superfície de controle, não painel decorativo.
+ * CENTRO DE COMANDO DE OPERAÇÕES.
  *
- * Cada número tem definição (em `overview-rules.ts`) e leva ao registro. A
- * fila vem antes de qualquer gráfico: o que precisa de decisão, de quem, até
- * quando. Área sem leitura aparece "Restrito", nunca "0".
+ * A ordem da tela é a ordem da decisão: o que está travado e de quem é a
+ * próxima jogada (fila de exceções), por onde a autorização está passando
+ * (fluxo da OS e das medições), quem está em risco e por quê (saúde por
+ * projeto e matriz de travas), e o que vence nos próximos 30 dias (horizonte).
+ * Todo número vem de um registro canônico e leva a ele; o que a pessoa não
+ * pode ver aparece "Restrito", nunca zero.
  */
 export function OperationsOverview() {
-  const { data, state, message } = useOperationsResource<Payload>('/api/operations/overview');
-  if (state !== 'ready' || !data) return <ResourceState state={state} message={message} />;
+  const res = useResource<Payload>('/api/operations/overview');
+  return (
+    <AxPage testId="operations-overview">
+      <Resource {...res}>{(d) => <Command data={d} />}</Resource>
+    </AxPage>
+  );
+}
+
+function Command({ data }: { data: Payload }) {
+  const [kind, setKind] = useState<Kind>('all');
+  const [expanded, setExpanded] = useState(false);
   const k = data.kpis;
-  const lanes = data.measurementLanes;
+  const restricted = (v: number | null) => (v === null ? 'Restrito' : v.toLocaleString('pt-BR'));
+  const attention = useMemo(() => data.attention.filter((a) => kind === 'all' || a.kind === kind), [data.attention, kind]);
+  const counts = useMemo(() => {
+    const c: Partial<Record<Kind, number>> = {};
+    for (const a of data.attention) c[a.kind as Kind] = (c[a.kind as Kind] ?? 0) + 1;
+    return c;
+  }, [data.attention]);
+  const critical = data.attention.filter((a) => a.tone === 'danger').length;
+
+  const lanes: HorizonLane[] = useMemo(() => {
+    if (!data.horizon) return [];
+    const byProject = new Map<string, HorizonLane & { weight: number }>();
+    const lane = (id: string, label: string) => {
+      let l = byProject.get(id);
+      if (!l) { l = { id, label, items: [], weight: 0 }; byProject.set(id, l); }
+      return l;
+    };
+    for (const h of [7, 14, 30] as const) {
+      for (const a of data.horizon[h]) {
+        if (!a.date) continue;
+        const l = lane(a.projectId, a.project);
+        l.items.push({ id: `a:${a.id}`, date: a.date, title: a.title, kind: a.milestone ? 'milestone' : 'activity',
+          tone: a.critical ? 'danger' : a.milestone ? 'accent' : 'neutral', href: href.projectSchedule(a.projectId) });
+        l.weight += a.critical ? 3 : 1;
+      }
+    }
+    for (const n of data.needs ?? []) {
+      const l = lane(n.projectId, n.project);
+      l.items.push({ id: `n:${n.requirementId}`, date: n.date, title: n.short ? 'Necessidade de material SEM cobertura' : 'Necessidade de material coberta',
+        kind: 'need', tone: n.short ? 'danger' : 'success', href: href.requirement(n.requirementId) });
+      l.weight += n.short ? 3 : 1;
+    }
+    return Array.from(byProject.values()).sort((a, b) => b.weight - a.weight).slice(0, 8);
+  }, [data.horizon, data.needs]);
+
+  const flow = data.osFlow;
+  const shown = expanded ? attention : attention.slice(0, 8);
 
   return (
-    <section className="crm-workspace ops-workspace" aria-label="Visão geral de Operações">
-      <WorkspaceHeading
-        eyebrow="Operações · Visão geral"
-        title="O que está autorizado, o que está travado"
-        description={
-          <>
-            <span><b>{data.attentionTotal}</b> decisão(ões) pendente(s)</span>
-            <LiveSep />
-            <span className={k.serviceOrdersBlocked ? 'crm-tone-danger' : undefined}>
-              <b>{k.serviceOrdersBlocked}</b> OS bloqueada(s)
-            </span>
-            <LiveSep />
-            <span>Hoje, {day(data.today)}</span>
-          </>
-        }
-        action={
-          <Link href="/operacoes/ordens-servico">
-            <HudButton variant="primary" size="sm">Ordens de Serviço</HudButton>
-          </Link>
-        }
-      />
+    <>
+      <CommandHeader domain="operations" area="Visão geral" title="Centro de comando operacional"
+        context={<>
+          <span><strong>{data.attentionTotal}</strong> {data.attentionTotal === 1 ? 'decisão pendente' : 'decisões pendentes'}</span>
+          {critical > 0 && <span><Dot tone="danger" label="crítico" /><strong>{critical}</strong> {critical === 1 ? 'crítica' : 'críticas'}</span>}
+          <span>Hoje, {date(data.today)}</span>
+        </>}
+        actions={<>
+          <Link className="ax-btn" href={href.map()}><MapPinned size={15} aria-hidden />Mapa de operações</Link>
+          <Link className="ax-btn primary" href="/operacoes/ordens-servico">Ordens de Serviço<ArrowUpRight size={14} aria-hidden /></Link>
+        </>} />
 
-      <Metrics
-        items={[
-          { label: 'Projetos ativos', value: restricted(k.activeProjects),
-            hint: 'Em andamento ou em planejamento', accent: true,
-            onClick: () => { window.location.href = '/projetos'; } },
-          { label: 'OS aguardando emissão', value: k.serviceOrdersAwaitingIssue,
-            tone: k.serviceOrdersBlocked ? 'danger' : k.serviceOrdersAwaitingIssue ? 'warning' : 'neutral',
-            hint: k.serviceOrdersBlocked ? `${k.serviceOrdersBlocked} com divergência bloqueante` : 'Rascunho ou aguardando confirmação',
-            onClick: () => { window.location.href = '/operacoes/ordens-servico?filtro=aguardando'; } },
-          { label: 'Atividades críticas', value: restricted(k.criticalActivities),
-            tone: k.criticalActivities ? 'danger' : 'neutral',
-            hint: 'Prioridade crítica, atrasada, bloqueada ou vencida' },
-          { label: 'Projetos em risco', value: restricted(k.projectsAtRisk),
-            tone: k.projectsAtRisk ? 'warning' : 'neutral',
-            hint: 'Atividade crítica ou risco alto/crítico aberto' },
-          { label: 'Pendências de medição', value: restricted(k.measurementPending),
-            tone: k.measurementPending ? 'warning' : 'neutral',
-            hint: 'Evidência vencida, em preparo ou devolvida' },
-          { label: 'Material sem cobertura', value: restricted(k.materialUncovered),
-            tone: k.materialUncovered ? 'danger' : 'neutral',
-            hint: 'Requisitos de material confirmados com falta',
-            onClick: () => { window.location.href = '/supply/planejamento-materiais'; } },
-        ]}
-      />
+      <SignalStrip label="Sinais de Operações" items={[
+        { label: 'Projetos ativos', value: restricted(k.activeProjects), hint: k.projectsAtRisk ? `${k.projectsAtRisk} em risco` : 'nenhum em risco',
+          tone: k.projectsAtRisk ? 'warning' : undefined, href: '/projetos', testId: 'kpi-active-projects' },
+        { label: 'Atividades críticas', value: restricted(k.criticalActivities), hint: 'atrasadas, bloqueadas ou vencidas',
+          tone: k.criticalActivities ? 'danger' : undefined, href: href.planning('critical') },
+        { label: 'OS a emitir', value: k.serviceOrdersAwaitingIssue.toLocaleString('pt-BR'),
+          hint: k.serviceOrdersBlocked ? `${k.serviceOrdersBlocked} com bloqueante` : 'nenhuma bloqueada',
+          tone: k.serviceOrdersBlocked ? 'danger' : undefined, href: '/operacoes/ordens-servico?filter=awaiting' },
+        { label: 'Sem cobertura', value: restricted(k.materialUncovered), hint: 'requisitos de material com falta',
+          tone: k.materialUncovered ? 'warning' : undefined, href: href.materialPlanning('short') },
+        { label: 'Cliente em atraso', value: restricted(data.customerDependenciesOverdue), hint: 'dependências vencidas',
+          tone: data.customerDependenciesOverdue ? 'danger' : undefined, href: href.planning('dependencies') },
+        { label: 'Medições pendentes', value: restricted(k.measurementPending), hint: 'a preparar, corrigir ou revisar',
+          tone: k.measurementPending ? 'warning' : undefined, href: href.measurements() },
+      ]} />
 
-      <div className="crm-split">
-        <Panel
-          title="O que precisa de decisão"
-          note={data.attentionTotal
-            ? `${data.attentionTotal} item(ns) — OS, atividades vencidas, medições devolvidas, riscos sem dono`
-            : undefined}
-        >
-          {data.attention.length ? (
-            <div className="ops-attention" data-testid="ops-attention">
-              {data.attention.map((item) => (
-                <div key={item.id} className="ops-attention-row" data-tone={item.tone}>
-                  <div className="min-w-0">
-                    <strong>{item.object}</strong>
-                    <p className="ops-attention-issue">{item.issue}</p>
-                    <p className="ops-attention-meta">
-                      {item.impact && <span>{item.impact}</span>}
-                      {item.due && (
-                        <span className={item.due < data.today ? 'ops-overdue' : undefined}>
-                          {item.due < data.today ? 'Venceu' : 'Prazo'} {day(item.due)}
-                        </span>
-                      )}
-                      <span>{item.owner ?? 'Sem responsável'}</span>
-                    </p>
-                  </div>
-                  <Link href={item.href}>
-                    <HudButton variant="ghost" size="sm">{item.actionLabel} <ArrowUpRight size={13} /></HudButton>
-                  </Link>
-                </div>
-              ))}
-            </div>
+      <div className="ax-grid main-side">
+        <Plane title="O que precisa de decisão" count={data.attentionTotal} countTone={critical ? 'danger' : undefined}
+          subtitle="Exceções ordenadas por gravidade e prazo — cada linha leva ao registro" flush testId="ops-attention"
+          bar={<Filters label="Filtrar por tipo" value={kind} onChange={setKind} options={[
+            { id: 'all', label: 'Tudo', count: data.attention.length },
+            ...(Object.keys(KIND_LABEL) as Array<Exclude<Kind, 'all'>>).filter((x) => counts[x])
+              .map((x) => ({ id: x, label: KIND_LABEL[x], count: counts[x] })),
+          ]} />}>
+          {attention.length === 0 ? (
+            <EmptyState title="Nada pendente de decisão" icon={<ShieldCheck size={18} />}>
+              Nenhuma OS travada, atividade vencida, falta de material perto da necessidade, dependência do cliente vencida,
+              medição devolvida ou risco material sem dono.
+            </EmptyState>
           ) : (
-            <EmptyNote
-              title="Nada pendente de decisão"
-              description="Nenhuma OS travada, atividade vencida, medição devolvida ou risco material sem dono."
-            />
+            <div className="ax-queue">
+              {shown.map((a) => (
+                <AttentionRow key={a.id} tone={a.tone as Tone} kind={KIND_LABEL[a.kind as Exclude<Kind, 'all'>]} object={a.object}
+                  issue={a.issue} impact={a.impact} due={a.due} owner={a.owner} href={a.href} actionLabel={a.actionLabel} today={data.today} />
+              ))}
+              {attention.length > shown.length && (
+                <button type="button" className="ax-btn ghost" style={{ margin: 10 }} onClick={() => setExpanded(true)}>
+                  Ver mais {attention.length - shown.length}
+                </button>
+              )}
+            </div>
           )}
-        </Panel>
+        </Plane>
 
-        <div className="grid gap-3 min-w-0">
-          <Panel title="Medições & evidências" note="Mesmas medições do projeto — por quem tem o próximo passo"
-            aside={<Link href="/operacoes/medicoes"><HudButton variant="ghost" size="sm">Abrir fila <ArrowUpRight size={13} /></HudButton></Link>}>
-            {lanes ? (
-              <ul className="crm-linked-list">
-                {LANE_ORDER.map((lane) => (
-                  <li key={lane}>
-                    <div><p>{MEASUREMENT_LANE_LABEL[lane]}</p></div>
-                    <strong className="tabular-nums">{lanes[lane]}</strong>
-                  </li>
-                ))}
+        <div className="ax-stack">
+          <Plane title="Fluxo da autorização" subtitle="Da proposta aceita à obra: onde cada OS está" flush>
+            <FlowPipeline label="Fluxo da OS" steps={[
+              { id: 'draft', label: 'Rascunho', count: flow.draft, href: '/operacoes/ordens-servico?filter=draft' },
+              { id: 'review', label: 'Em revisão', count: flow.review, tone: flow.blocked ? 'danger' : undefined,
+                sub: flow.blocked ? plural(flow.blocked, 'bloqueada', 'bloqueadas') : undefined, href: '/operacoes/ordens-servico?filter=review' },
+              { id: 'issued', label: 'Emitida', count: flow.issued, sub: 'sem projeto', tone: flow.issued ? 'warning' : undefined,
+                href: '/operacoes/ordens-servico?filter=unlinked' },
+              { id: 'linked', label: 'Em obra', count: flow.linked, sub: 'com projeto', href: '/operacoes/ordens-servico?filter=linked' },
+            ]} />
+          </Plane>
+
+          <Plane title="Medições & evidências" subtitle="Quem tem o próximo passo — mesma medição do projeto" flush
+            action={<Link className="ax-btn ghost sm" href={href.measurements()}>Abrir fila</Link>}>
+            {!data.measurementLanes ? <EmptyState compact title="Restrito">Seu perfil não lê medições de projeto.</EmptyState>
+              : LANES.every((l) => data.measurementLanes![l] === 0) ? (
+                <EmptyState compact title="Nenhuma medição em curso">
+                  Medições nascem do plano de medição do projeto; a fila se preenche quando a primeira ocorrência vence.
+                </EmptyState>
+              ) : (
+              <ul className="ax-lanes">
+                {LANES.map((l) => {
+                  const n = data.measurementLanes![l];
+                  const max = Math.max(1, ...LANES.map((x) => data.measurementLanes![x]));
+                  return (
+                    <li key={l}>
+                      <Link href={href.measurements(l)}>
+                        <span>{MEASUREMENT_LANE_LABEL[l]}</span>
+                        <span className="ax-meter" aria-hidden><i style={{ width: `${(n / max) * 100}%` }} /></span>
+                        <span className="n" data-tone={l === 'CORRECTION' && n ? 'warning' : undefined}>{n}</span>
+                      </Link>
+                    </li>
+                  );
+                })}
               </ul>
-            ) : <div className="crm-section-empty">Leitura de medições restrita para o seu papel.</div>}
-          </Panel>
-          <Panel
-            title="Mapa de operações"
-            aside={<Link href="/projetos/operations-3d"><HudButton variant="ghost" size="sm"><MapPinned size={14} /> Abrir mapa</HudButton></Link>}
-          >
-            {data.map ? (
-              <div className="crm-section-empty">
-                {data.map.located} de {data.map.activeProjects} projeto(s) ativo(s) com local canônico resolvido
-                {data.map.unresolved ? ` · ${data.map.unresolved} aguardando confirmação de local` : ''}.
-              </div>
-            ) : <div className="crm-section-empty">Leitura de projetos restrita para o seu papel.</div>}
-          </Panel>
+            )}
+          </Plane>
+
+          <Plane title="Saúde por projeto" subtitle="A pior trava decide" flush
+            action={<Link className="ax-btn ghost sm" href={href.map()}><MapPinned size={13} aria-hidden />Mapa</Link>}>
+            {!data.projectHealth ? <EmptyState compact title="Restrito">Seu perfil não lê projetos.</EmptyState>
+              : data.projectHealth.length === 0 ? <EmptyState compact title="Nenhum projeto ativo">Projetos entram aqui quando a OS é emitida e vinculada.</EmptyState>
+                : (
+                  <ul className="ax-queue" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+                    {data.projectHealth.slice(0, 7).map((p) => (
+                      <li key={p.projectId} className="ax-row" data-tone={p.tone === 'success' ? 'neutral' : p.tone}
+                        style={{ gridTemplateColumns: 'minmax(0,1fr) auto' }}>
+                        <div className="ax-row-main">
+                          <Link className="ax-row-object ax-link" style={{ color: 'var(--ax-fg-strong)' }} href={href.project(p.projectId, 'overview')}>{p.project}</Link>
+                          <span className="ax-row-issue">{p.reasons.length ? p.reasons.join(' · ') : 'Sem trava aberta'}</span>
+                        </div>
+                        <span className="ax-row-cell" title="Próximo marco">
+                          {p.nextMilestone ? <>◆ {dateShort(p.nextMilestone)}</> : <span className="ax-subtle">sem marco</span>}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+          </Plane>
         </div>
       </div>
 
-      <Panel title="Execução próxima" note="Atividades e marcos do cronograma canônico por janela">
-        {data.horizon ? (
-          <div className="ops-horizon">
-            {([7, 14, 30] as const).map((h) => (
-              <section key={h} aria-label={`Próximos ${h} dias`}>
-                <h4>Até {h} dias <span>{data.horizon![h].length}</span></h4>
-                {data.horizon![h].length ? (
-                  <ul>
-                    {data.horizon![h].slice(0, 8).map((a) => (
-                      <li key={a.id} data-critical={a.critical} data-milestone={a.milestone}>
-                        <time>{a.date ? new Date(`${a.date}T12:00:00`).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : '—'}</time>
-                        <div className="min-w-0">
-                          <p title={a.title}>{a.title}</p>
-                          <p className="crm-muted">
-                            <Link href={`/projetos/${encodeURIComponent(a.projectId)}?tab=timeline`}>{a.project}</Link>
-                          </p>
-                        </div>
+      <Plane title="Horizonte de execução" subtitle="Próximos 30 dias — marcos, atividades e necessidades de material por projeto"
+        action={<span className="ax-desktop-only"><HorizonLegend /></span>}>
+        {!data.horizon ? <EmptyState compact title="Restrito">Seu perfil não lê cronogramas.</EmptyState>
+          : lanes.length === 0 ? <EmptyState compact title="Nada planejado nos próximos 30 dias">
+              O horizonte se preenche com o cronograma canônico e as necessidades de material confirmadas.</EmptyState>
+            : (
+              <>
+                <div className="ax-desktop-only"><HorizonTimeline today={data.today} lanes={lanes} /></div>
+                <ul className="ax-mobile-only ax-queue" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+                  {lanes.flatMap((l) => l.items.map((i) => ({ ...i, project: l.label })))
+                    .sort((a, b) => a.date.localeCompare(b.date)).slice(0, 12).map((i) => (
+                      <li key={i.id} className="ax-row" data-tone={i.tone === 'danger' ? 'danger' : 'neutral'} style={{ gridTemplateColumns: 'minmax(0,1fr) auto' }}>
+                        <div className="ax-row-main"><span className="ax-row-object">{i.title}</span><span className="ax-row-issue">{i.project}</span></div>
+                        <span className="ax-row-due">{relativeDue(i.date, data.today).text}</span>
                       </li>
                     ))}
-                    {data.horizon![h].length > 8 && <li><span /><p className="crm-muted">+{data.horizon![h].length - 8} na janela</p></li>}
-                  </ul>
-                ) : <p className="crm-muted">Nada planejado nesta janela.</p>}
-              </section>
-            ))}
-          </div>
-        ) : <div className="crm-section-empty">Leitura de cronograma restrita para o seu papel.</div>}
-      </Panel>
+                </ul>
+              </>
+            )}
+      </Plane>
 
-      <Panel title="Matriz de risco" note="Projeto × tipo de bloqueio — contagens do registro canônico de cada domínio">
-        {data.riskMatrix && data.riskMatrix.length ? (
-          <div className="crm-table-scroll" role="region" aria-label="Matriz de risco" tabIndex={0}>
-            <table className="ops-matrix">
-              <thead>
-                <tr><th scope="col">Projeto</th><th scope="col">Cronograma</th><th scope="col">Medição</th>
-                  <th scope="col">Risco</th><th scope="col">OS / contrato</th></tr>
-              </thead>
-              <tbody>
-                {data.riskMatrix.map((row) => (
-                  <tr key={row.projectId}>
-                    <td><Link href={`/projetos/${encodeURIComponent(row.projectId)}`}>{row.project}</Link>
-                      {row.client && <p className="crm-muted">{row.client}</p>}</td>
-                    {[row.schedule, row.measurement, row.risk, row.contract].map((n, i) => (
-                      <td key={i}><span className="ops-cell" data-level={n === 0 ? 0 : n > 2 ? 2 : 1}>{n || '—'}</span></td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div className="crm-section-empty">
-            {data.riskMatrix ? 'Nenhum projeto ativo com bloqueio de cronograma, medição, risco ou OS.'
-                             : 'Leitura de projetos restrita para o seu papel.'}
-          </div>
-        )}
-      </Panel>
+      {data.riskMatrix && data.riskMatrix.length > 0 && (
+        <Plane title="Matriz de travas" subtitle="Projeto × tipo de bloqueio — o número abre a origem" flush>
+          <HealthMatrix caption="Travas por projeto" columns={[
+            { key: 'schedule', label: 'Cronograma' }, { key: 'supply', label: 'Supply' }, { key: 'customer', label: 'Cliente' },
+            { key: 'measurement', label: 'Medição' }, { key: 'risk', label: 'Risco' }, { key: 'contract', label: 'OS' },
+          ]} rows={data.riskMatrix.map((r) => ({
+            id: r.projectId, label: r.project, sub: r.client ?? undefined, href: href.project(r.projectId, 'overview'),
+            cells: {
+              schedule: { n: r.schedule, href: href.projectSchedule(r.projectId) },
+              supply: { n: r.supply, href: href.project(r.projectId, 'supply') },
+              customer: { n: r.customer, href: href.projectSchedule(r.projectId) },
+              measurement: { n: r.measurement, href: href.project(r.projectId, 'measurements') },
+              risk: { n: r.risk, href: href.project(r.projectId, 'risks') },
+              contract: { n: r.contract, href: '/operacoes/ordens-servico?filter=review' },
+            },
+          }))} />
+        </Plane>
+      )}
 
-      <GovernanceNote>
-        Números derivados do cronograma, das medições, dos riscos e das OS canônicas — nenhum é digitado nem guardado à parte.
-        Material sem cobertura vem da cobertura derivada do Supply sobre os requisitos confirmados no Planejamento.
-      </GovernanceNote>
-    </section>
+      <p className="ax-note"><ShieldCheck size={13} aria-hidden />
+        {plural(data.attentionTotal, 'exceção', 'exceções')} derivadas do cronograma, das OS, da cobertura de material, das
+        dependências do cliente, das medições e dos riscos canônicos — nenhum total é digitado ou guardado à parte.</p>
+    </>
   );
 }

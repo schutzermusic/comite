@@ -76,14 +76,16 @@ test('1 · a sidebar tem o grupo Operações com os destinos canônicos', async 
   await expect(page.locator('[data-sidebar="menu-action"][aria-label$="submenu de Projetos"]')).toHaveCount(0);
 });
 
-test('2 · Visão Geral de Operações monta com números definidos e fila de decisão', async () => {
+test('2 · Visão Geral de Operações: centro de comando com sinais, fila de decisão e horizonte', async () => {
   await page.goto('/operacoes');
-  await expect(page.getByRole('heading', { name: 'O que está autorizado, o que está travado' })).toBeVisible({ timeout: 60_000 });
-  for (const kpi of ['Projetos ativos', 'OS aguardando emissão', 'Atividades críticas', 'Projetos em risco', 'Pendências de medição']) {
-    await expect(page.getByText(kpi, { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Centro de comando operacional' })).toBeVisible({ timeout: 60_000 });
+  const signals = page.getByRole('region', { name: 'Sinais de Operações' });
+  for (const kpi of ['Projetos ativos', 'Atividades críticas', 'OS a emitir', 'Sem cobertura', 'Cliente em atraso', 'Medições pendentes']) {
+    await expect(signals.getByText(kpi, { exact: true })).toBeVisible();
   }
-  await expect(page.getByText('O que precisa de decisão').first()).toBeVisible();
-  await expect(page.getByText('Execução próxima').first()).toBeVisible();
+  await expect(page.getByRole('region', { name: 'O que precisa de decisão' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Fluxo da autorização' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Horizonte de execução' })).toBeVisible();
   await expectNoFailureSurface(page);
   await snap('overview-1440');
 });

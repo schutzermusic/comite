@@ -22,11 +22,14 @@ import { listServiceOrders } from './service-orders/read-model';
 import { serviceOrderNextAction } from './service-orders/next-action';
 import { fromViewRow, type CoverageViewRow } from '@/lib/supply/coverage';
 
+const addDays = (iso: string, n: number) => { const d = new Date(`${iso}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+const formatQty = (n: number) => n.toLocaleString('pt-BR', { maximumFractionDigits: 3 });
+
 type Session = { supabase: SupabaseClient; organizationId: string };
 
 export interface AttentionItem {
   id: string;
-  kind: 'service_order' | 'activity' | 'measurement' | 'risk';
+  kind: 'service_order' | 'activity' | 'measurement' | 'risk' | 'material' | 'dependency';
   object: string;
   issue: string;
   impact: string | null;
@@ -48,7 +51,7 @@ export async function operationsOverview(session: Session, access: OverviewAcces
   const org = session.organizationId;
   const sb = session.supabase;
 
-  const [serviceOrders, projectsRes, activitiesRes, measurementsRes, risksRes, locationsRes, coverageRes] = await Promise.all([
+  const [serviceOrders, projectsRes, activitiesRes, measurementsRes, risksRes, locationsRes, coverageRes, dependenciesRes] = await Promise.all([
     listServiceOrders(session),
     access.projects ? sb.from('projects').select('id,project,project_v2').eq('organization_id', org)
       : Promise.resolve({ data: [] }),
@@ -71,6 +74,11 @@ export async function operationsOverview(session: Session, access: OverviewAcces
       : Promise.resolve({ data: [] }),
     // Demanda de material sem cobertura: a visão derivada do Supply (RLS dos requisitos).
     access.projects ? sb.from('supply_requirement_coverage').select('*').eq('organization_id', org)
+      : Promise.resolve({ data: [] }),
+    // Dependências do cliente confirmadas e ainda não atendidas (o requisito canônico do Planejamento).
+    access.projects ? sb.from('project_requirements').select('id,project_id,title,required_by')
+      .eq('organization_id', org).eq('requirement_type', 'CUSTOMER_DEPENDENCY').eq('status', 'CONFIRMED')
+      .is('satisfied_at', null).limit(2000)
       : Promise.resolve({ data: [] }),
   ]);
 
@@ -118,7 +126,7 @@ export async function operationsOverview(session: Session, access: OverviewAcces
     const next = serviceOrderNextAction(o.status, o.projectId, o.counts);
     if (!next.needsDecision) continue;
     attention.push({
-      id: `os:${o.id}`, kind: 'service_order', object: `OS ${o.osNumber}`,
+      id: `os:${o.id}`, kind: 'service_order', object: o.osNumber,
       issue: next.label, impact: o.customer ? `${o.customer} · ${o.title}` : o.title,
       due: o.plannedStart, owner: o.ownerName, tone: next.tone === 'danger' ? 'danger' : next.tone === 'warning' ? 'warning' : 'accent',
       href: `/operacoes/ordens-servico/${o.id}`, actionLabel: 'Abrir OS',
@@ -154,6 +162,41 @@ export async function operationsOverview(session: Session, access: OverviewAcces
       href: p ? `/projetos/${encodeURIComponent(p.id)}?tab=risks` : '/riscos', actionLabel: 'Atribuir dono',
     });
   }
+  // Material: demanda confirmada com falta, perto da necessidade (14 dias) ou já vencida.
+  const coverageRows = ((coverageRes.data ?? []) as CoverageViewRow[]).map((r) => ({ row: r, cov: fromViewRow(r) }));
+  const soon = addDays(today, 14);
+  const shortages = coverageRows
+    .filter(({ row, cov }) => cov.shortage > 0 && row.required_by && row.required_by <= soon)
+    .sort((a, b) => String(a.row.required_by).localeCompare(String(b.row.required_by))).slice(0, 15);
+  // O nome do material é o título do requisito canônico — só exibição; sem ele a linha segue válida.
+  const requirementTitles = new Map<string, string>();
+  if (shortages.length) {
+    const { data } = await sb.from('project_requirements').select('id,title').eq('organization_id', org)
+      .in('id', shortages.map((s) => s.row.requirement_id));
+    for (const r of (data ?? []) as Array<{ id: string; title: string }>) requirementTitles.set(r.id, r.title);
+  }
+  for (const { row, cov } of shortages) {
+    const p = projects.get(row.project_id);
+    const missing = `Falta ${formatQty(cov.shortage)} ${row.unit ?? ''}`.trim();
+    attention.push({
+      id: `mat:${row.requirement_id}`, kind: 'material', object: requirementTitles.get(row.requirement_id) ?? 'Material do requisito',
+      issue: cov.inbound > 0 ? `${missing} — a entrada não cobre` : `${missing} — sem estoque nem pedido`,
+      impact: p?.name ?? null, due: row.required_by, owner: null,
+      tone: row.required_by && row.required_by <= addDays(today, 7) ? 'danger' : 'warning',
+      href: `/supply/planejamento-materiais?req=${row.requirement_id}`, actionLabel: 'Cobrir falta',
+    });
+  }
+  const dependencies = (dependenciesRes.data ?? []) as Array<{ id: string; project_id: string; title: string; required_by: string | null }>;
+  const overdueDependencies = dependencies.filter((d) => d.required_by && d.required_by < today);
+  for (const d of overdueDependencies.slice(0, 15)) {
+    const p = projects.get(d.project_id);
+    attention.push({
+      id: `dep:${d.id}`, kind: 'dependency', object: d.title, issue: 'Dependência do cliente vencida',
+      impact: p?.name ?? null, due: d.required_by, owner: null, tone: 'danger',
+      href: `/projetos/${encodeURIComponent(d.project_id)}?tab=timeline`, actionLabel: 'Cobrar cliente',
+    });
+  }
+
   const toneRank = { danger: 0, warning: 1, accent: 2 } as const;
   attention.sort((a, b) => toneRank[a.tone] - toneRank[b.tone] || (a.due ?? '9999').localeCompare(b.due ?? '9999'));
 
@@ -178,14 +221,65 @@ export async function operationsOverview(session: Session, access: OverviewAcces
   }
   const measurementByProject = new Map<string, number>();
   for (const m of measurementPending) measurementByProject.set(m.project_id, (measurementByProject.get(m.project_id) ?? 0) + 1);
+  const supplyByProject = new Map<string, number>();
+  const nearShortByProject = new Map<string, number>();
+  for (const { row, cov } of coverageRows) {
+    if (cov.shortage <= 0) continue;
+    supplyByProject.set(row.project_id, (supplyByProject.get(row.project_id) ?? 0) + 1);
+    if (row.required_by && row.required_by <= soon) nearShortByProject.set(row.project_id, (nearShortByProject.get(row.project_id) ?? 0) + 1);
+  }
+  const customerByProject = new Map<string, number>();
+  for (const d of overdueDependencies) customerByProject.set(d.project_id, (customerByProject.get(d.project_id) ?? 0) + 1);
   const riskMatrix = activeProjects.map((p) => ({
     projectId: p.id, project: p.name, client: p.client,
     schedule: criticalByProject.get(p.id) ?? 0,
+    supply: supplyByProject.get(p.id) ?? 0,
+    customer: customerByProject.get(p.id) ?? 0,
     measurement: measurementByProject.get(p.id) ?? 0,
     risk: riskByProject.get(p.id) ?? 0,
     contract: osByProject.get(p.id) ?? 0,
-  })).filter((row) => row.schedule + row.measurement + row.risk + row.contract > 0)
-    .sort((a, b) => (b.schedule + b.risk * 2 + b.measurement + b.contract) - (a.schedule + a.risk * 2 + a.measurement + a.contract));
+  })).filter((row) => row.schedule + row.supply + row.customer + row.measurement + row.risk + row.contract > 0)
+    .sort((a, b) => (b.schedule * 2 + b.supply * 2 + b.customer * 2 + b.risk * 2 + b.measurement + b.contract)
+      - (a.schedule * 2 + a.supply * 2 + a.customer * 2 + a.risk * 2 + a.measurement + a.contract));
+
+  // Saúde por projeto ativo: a pior trava decide (mesma leitura para a lista e para o mapa).
+  const nextMilestone = new Map<string, string>();
+  for (const a of activities) {
+    if (!a.is_milestone || !a.planned_finish || a.planned_finish < today) continue;
+    const cur = nextMilestone.get(a.project_id);
+    if (!cur || a.planned_finish < cur) nextMilestone.set(a.project_id, a.planned_finish);
+  }
+  const projectHealth = activeProjects.map((p) => {
+    const critical = criticalByProject.get(p.id) ?? 0;
+    const nearShort = nearShortByProject.get(p.id) ?? 0;
+    const customer = customerByProject.get(p.id) ?? 0;
+    const blockingOs = serviceOrders.filter((o) => o.projectId === p.id && o.counts.blockingOpen > 0).length;
+    const tone: 'danger' | 'warning' | 'success' = critical + nearShort + customer + blockingOs > 0 ? 'danger'
+      : (supplyByProject.get(p.id) ?? 0) + (measurementByProject.get(p.id) ?? 0) + (riskByProject.get(p.id) ?? 0) > 0 ? 'warning' : 'success';
+    const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+    const reasons = [critical ? count(critical, 'atividade crítica', 'atividades críticas') : null,
+      nearShort ? count(nearShort, 'falta de material perto da necessidade', 'faltas de material perto da necessidade') : null,
+      customer ? count(customer, 'dependência do cliente vencida', 'dependências do cliente vencidas') : null,
+      blockingOs ? 'OS com divergência bloqueante' : null,
+      (measurementByProject.get(p.id) ?? 0) ? 'medição pendente' : null].filter(Boolean) as string[];
+    return { projectId: p.id, project: p.name, client: p.client, tone, reasons, nextMilestone: nextMilestone.get(p.id) ?? null };
+  }).sort((a, b) => ({ danger: 0, warning: 1, success: 2 }[a.tone] - { danger: 0, warning: 1, success: 2 }[b.tone]));
+
+  // Necessidades de material nos próximos 30 dias (marcadores da linha do tempo).
+  const horizonEnd = addDays(today, 30);
+  const needs = coverageRows.filter(({ row }) => row.required_by && row.required_by >= today && row.required_by <= horizonEnd)
+    .map(({ row, cov }) => ({ requirementId: row.requirement_id, projectId: row.project_id,
+      project: projects.get(row.project_id)?.name ?? row.project_id, date: row.required_by as string, short: cov.shortage > 0 }))
+    .sort((a, b) => a.date.localeCompare(b.date)).slice(0, 60);
+
+  // Fluxo da OS (ponte Comercial → Operações).
+  const osFlow = {
+    draft: serviceOrders.filter((o) => o.status === 'DRAFT').length,
+    review: serviceOrders.filter((o) => o.status === 'PENDING_CONFIRMATION').length,
+    issued: serviceOrders.filter((o) => o.status === 'ISSUED' && !o.projectId).length,
+    linked: serviceOrders.filter((o) => ['ISSUED', 'IN_EXECUTION'].includes(o.status) && Boolean(o.projectId)).length,
+    blocked: osAwaitingIssue.filter((o) => o.counts.blockingOpen > 0).length,
+  };
 
   const locations = (locationsRes.data ?? []) as Array<{ project_id: string; resolution_state: string }>;
 
@@ -207,6 +301,10 @@ export async function operationsOverview(session: Session, access: OverviewAcces
     attentionTotal: attention.length,
     horizon: access.projects ? horizon : null,
     riskMatrix: access.projects ? riskMatrix.slice(0, 20) : null,
+    projectHealth: access.projects ? projectHealth.slice(0, 30) : null,
+    needs: access.projects ? needs : null,
+    osFlow,
+    customerDependenciesOverdue: access.projects ? overdueDependencies.length : null,
     map: access.projects ? {
       located: locations.filter((l) => l.resolution_state === 'RESOLVED').length,
       unresolved: locations.filter((l) => l.resolution_state !== 'RESOLVED').length,
