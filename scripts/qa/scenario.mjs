@@ -16,6 +16,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import { withQaDb, kit } from './lib/qa-db.mjs';
 import { QA_LIVE_FILE, assertLocal, loadQaEnv } from './lib/qa-env.mjs';
+import { acceptedPackage as acceptedPackageOf, baseFacts } from './lib/commercial.mjs';
 
 const live = JSON.parse(fs.readFileSync(QA_LIVE_FILE, 'utf8'));
 const org = live.organization.id;
@@ -32,41 +33,8 @@ await withQaDb(async (c) => {
     return;
   }
 
-  // ── Pacote comercial aceito (PT + PC lidas, aprovadas, enviadas, aceitas) ──
-  const fact = (revisionId, context, domain, label, extra = {}) => ({
-    subject_kind: 'proposal_revision', subject_id: revisionId, document_context: context, fact_domain: domain, label,
-    value_text: extra.value_text ?? label, source_page: extra.page ?? 2, source_quote: extra.quote ?? `“${label}”`,
-    confidence: 0.92, extraction_method: 'ai', ai_provider: 'qa', ai_model: 'qa-scenario', ai_pipeline_version: 'qa.v1', ...extra,
-  });
-  async function acceptedPackage({ code, title, customer, value, facts }) {
-    const create = (payload) => act('commercial_proposal_create', org, U.owner, J(payload));
-    const pt = await create({ proposal_number: `PT-${code}`, kind: 'TECHNICAL', title, counterparty_name: customer });
-    const pc = await create({ proposal_number: `PC-${code}`, kind: 'COMMERCIAL', counterparty_name: customer, total_value: String(value),
-      currency: 'BRL', context_proposal_id: pt.proposal_id });
-    for (const f of facts(pt.revision_id)) await one('SELECT public.commercial_fact_record($1,$2) id', [org, J(f)]);
-    await one('SELECT public.commercial_fact_record($1,$2) id', [org, J(fact(pc.revision_id, 'COMMERCIAL_PROPOSAL', 'VALUE', 'Valor global',
-      { value_numeric: value, currency: 'BRL', value_text: null, page: 1 }))]);
-    for (const to of ['INTERNAL_REVIEW', 'INTERNALLY_APPROVED', 'SENT']) {
-      await act('commercial_proposal_context_transition', org, U.owner, pt.proposal_id, to);
-    }
-    await act('commercial_proposal_context_record_outcome', org, U.owner, pc.proposal_id, 'ACCEPTED',
-      J({ acceptance_source: 'purchase_order', acceptance_external_ref: `PED-${code}` }));
-    const acceptance = await one(`SELECT id FROM public.commercial_proposal_context_acceptances WHERE organization_id = $1 AND context_id = $2
-      ORDER BY created_at DESC LIMIT 1`, [org, pt.proposal_id]);
-    const eng = (await one('SELECT public.commercial_engagement_create($1,$2,$3::jsonb) id', [org, U.owner,
-      J({ title, counterparty_name: customer, currency: 'BRL' })])).id;
-    await one('SELECT public.commercial_engagement_attach_authorization($1,$2,$3,$4::jsonb) r', [org, U.owner, eng,
-      J({ source_kind: 'accepted_proposal', proposal_revision_id: pc.revision_id, authorized_value: value, currency: 'BRL' })]);
-    await one('SELECT public.commercial_engagement_authorize($1,$2,$3,$4) r', [org, U.owner, eng, 'Pedido de compra do cliente']);
-    return { acceptanceId: acceptance.id, engagementId: eng, pt, pc };
-  }
-  const baseFacts = (scope, deliverable, dependency, material) => (rev) => [
-    fact(rev, 'TECHNICAL_PROPOSAL', 'SCOPE', scope, { page: 3 }),
-    fact(rev, 'TECHNICAL_PROPOSAL', 'DELIVERABLE', deliverable, { page: 7 }),
-    fact(rev, 'TECHNICAL_PROPOSAL', 'DEPENDENCY', dependency, { page: 9 }),
-    fact(rev, 'TECHNICAL_PROPOSAL', 'EXCLUSION', 'Obras civis de terceiros não incluídas', { page: 9 }),
-    fact(rev, 'TECHNICAL_PROPOSAL', 'RESOURCE', material.label, { value_numeric: material.qty, unit: material.unit, value_text: `${material.qty} ${material.unit}`, page: 11 }),
-  ];
+  // ── Pacote comercial aceito (PT + PC lidas, aprovadas, enviadas, aceitas) — o mesmo helper das provas vivas ──
+  const acceptedPackage = (p) => acceptedPackageOf(one, { org, owner: U.owner }, p);
   async function projectFromPackage(p, projectId, projectJson) {
     const pkg = await acceptedPackage(p);
     const gen = await act('internal_service_order_generate_from_package', org, U.gestor, pkg.acceptanceId, J({ os_number: `OS-${p.code}` }));
