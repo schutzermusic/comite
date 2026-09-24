@@ -20,7 +20,7 @@ import { sectionHref } from '@/lib/contracts/portfolio-sections';
 export const MILESTONE_PARAM = 'milestone';
 
 export type ProjectTab =
-  | 'timeline' | 'contract' | 'measurements' | 'finance'
+  | 'overview' | 'timeline' | 'contract' | 'measurements' | 'finance' | 'activity'
   | 'risks' | 'documents' | 'team' | 'timesheet';
 
 function projectHref(projectId: string, tab: ProjectTab, milestoneId?: string | null): string {

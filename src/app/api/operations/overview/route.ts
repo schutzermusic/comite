@@ -1,14 +1,10 @@
 import { NextResponse } from 'next/server';
 import { requireOperationsSession, isSessionError, hasOptionalPermission } from '@/lib/operations/session';
 import { operationsOverview } from '@/lib/operations/overview';
+import { todayInSaoPaulo } from '@/lib/operations/projects/access';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-/** Hoje no fuso da operação (Brasil) — o "vencido" é do dia civil local. */
-function todayInSaoPaulo(): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
-}
 
 export async function GET() {
   const session = await requireOperationsSession(['operations.view']);

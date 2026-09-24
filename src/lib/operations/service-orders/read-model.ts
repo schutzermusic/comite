@@ -98,7 +98,7 @@ export function packageLabel(refs: Array<PackageRevisionRef | null | undefined>)
  * Contagens com a MESMA regra do portão: divergência BLOCKING aberta da OS
  * ou do engajamento dela, menos as nomeadas numa exceção desta OS.
  */
-async function countsFor(org: string, orders: Array<{ id: string; engagement_id: string }>) {
+export async function countsFor(org: string, orders: Array<{ id: string; engagement_id: string }>) {
   const counts = new Map<string, ServiceOrderCounts>();
   for (const o of orders) counts.set(o.id, { items: 0, unreviewedItems: 0, openDivergences: 0, blockingOpen: 0 });
   if (!orders.length) return counts;

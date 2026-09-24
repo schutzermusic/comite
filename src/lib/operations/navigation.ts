@@ -21,6 +21,8 @@ export const OPERATIONS_NAV: DomainNavItem[] = [
   { id: 'projects', label: 'Projetos', href: '/projetos', anyPermission: ['projects.view', 'projects.view_all'] },
   { id: 'map', label: 'Mapa de Operações', href: '/projetos/operations-3d',
     anyPermission: ['projects.view', 'projects.view_all'] },
+  { id: 'measurements', label: 'Medições & Evidências', href: '/operacoes/medicoes',
+    anyPermission: ['operations.view'] },
 ];
 
 /** O grupo abre para quem vê QUALQUER destino dele. */

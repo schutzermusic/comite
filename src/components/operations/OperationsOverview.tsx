@@ -114,7 +114,8 @@ export function OperationsOverview() {
         </Panel>
 
         <div className="grid gap-3 min-w-0">
-          <Panel title="Medições & evidências" note="Mesmas medições do projeto — por quem tem o próximo passo">
+          <Panel title="Medições & evidências" note="Mesmas medições do projeto — por quem tem o próximo passo"
+            aside={<Link href="/operacoes/medicoes"><HudButton variant="ghost" size="sm">Abrir fila <ArrowUpRight size={13} /></HudButton></Link>}>
             {lanes ? (
               <ul className="crm-linked-list">
                 {LANE_ORDER.map((lane) => (

@@ -20,6 +20,8 @@ import {
   UserCog,
   Activity,
   ShieldAlert,
+  LayoutDashboard,
+  History,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -41,6 +43,8 @@ import { ProjectDocumentsView } from '@/components/projects/ProjectDocumentsView
 import { TeamAllocationView } from '@/components/projects/team-allocation-view';
 import { ProjectTimesheetView } from '@/components/projects/project-timesheet-view';
 import { FinanceView } from '@/components/projects/FinanceView';
+import { ProjectOverviewTab } from '@/components/operations/projects/ProjectOverviewTab';
+import { ProjectActivityTimeline } from '@/components/operations/projects/ProjectActivityTimeline';
 import type { ProjectV2 } from '@/lib/types/project-v2';
 import { projectSerial } from '@/lib/utils/serial';
 import { formatMoney } from '@/lib/utils/project-utils';
@@ -67,7 +71,12 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
   const searchParams = useSearchParams();
   const initialTab = (() => {
     const t = searchParams?.get('tab');
-    return t && ['timeline', 'contract', 'measurements', 'finance', 'risks', 'documents', 'team', 'timesheet'].includes(t) ? t : 'timeline';
+    /*
+      `timeline` continua sendo o CRONOGRAMA (links antigos e de outros módulos
+      apontam para ele); a timeline cronológica de eventos é `activity`. Sem
+      `?tab=`, o projeto abre na Visão Geral.
+    */
+    return t && ['overview', 'timeline', 'contract', 'measurements', 'finance', 'activity', 'risks', 'documents', 'team', 'timesheet'].includes(t) ? t : 'overview';
   })();
   /*
     ─── O MARCO EM FOCO, atravessando as abas ─────────────────────────────
@@ -482,9 +491,17 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
             <TabsList
               className={cn(
                 'grid w-full grid-cols-3 rounded-xl backdrop-blur-sm hud-tabs-container',
-                canViewFinancials ? 'lg:grid-cols-8' : 'lg:grid-cols-7',
+                canViewFinancials ? 'lg:grid-cols-10' : 'lg:grid-cols-9',
               )}
             >
+              <TabsTrigger value="overview" className="hud-tab-trigger">
+                <LayoutDashboard className="w-4 h-4 mr-2" />
+                Visão Geral
+              </TabsTrigger>
+              <TabsTrigger value="timeline" className="hud-tab-trigger">
+                <GanttChart className="w-4 h-4 mr-2" />
+                Cronograma / Planejamento
+              </TabsTrigger>
               {canViewFinancials && (
                 <TabsTrigger value="finance" className="hud-tab-trigger">
                   <DollarSign className="w-4 h-4 mr-2" />
@@ -499,8 +516,8 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
                 <Ruler className="w-4 h-4 mr-2" />
                 Medições &amp; Evidências
               </TabsTrigger>
-              <TabsTrigger value="timeline" className="hud-tab-trigger">
-                <GanttChart className="w-4 h-4 mr-2" />
+              <TabsTrigger value="activity" className="hud-tab-trigger">
+                <History className="w-4 h-4 mr-2" />
                 Timeline
               </TabsTrigger>
               <TabsTrigger value="risks" className="hud-tab-trigger">
@@ -523,6 +540,14 @@ export default function DetalheProjetoPage({ params }: { params: Promise<{ id: s
           </div>
 
           <div className="mt-5">
+              <TabsContent value="overview" className="mt-0">
+                <ProjectOverviewTab projectId={id} onOpenTab={setActiveTab} />
+              </TabsContent>
+
+              <TabsContent value="activity" className="mt-0">
+                <ProjectActivityTimeline projectId={id} />
+              </TabsContent>
+
               <TabsContent value="timeline" className="mt-0">
                 <TimelineTab
                   projectId={id}

@@ -42,3 +42,24 @@ INV-01 (FK composta em toda tabela nova; aceite de outro inquilino = "não encon
 - `project-contract-projection-live.test.ts` falha por evolução dos dados reais (marcos agora `OCCURRED`) — pré-existente, fora do escopo.
 - Confronto assistido e leitura do PDF chamam o provedor real quando usados em produção; nos testes, o gateway é simulado.
 - Semear do pacote depende de fatos lidos das revisões; pacote sem leitura gera OS sem linhas (a tela oferece "Trazer escopo do pacote" quando houver fatos).
+
+---
+
+## Wave C — Workspace do projeto (sem migration)
+
+### Entrou
+- Abas do projeto na ordem do plano: **Visão Geral** (nova, padrão), **Cronograma / Planejamento** (o Gantt existente; `?tab=timeline` preservado para todos os links), Financeiro, Contexto Contratual, Medições & Evidências, **Timeline** (nova, `?tab=activity`), Riscos, Documentos, Equipe, Apontamentos.
+- Visão Geral do projeto (`/api/operations/projects/[id]/overview`): saúde DERIVADA com motivos (`projects/health.ts`), próximo marco, bloqueios críticos, avanço físico (folhas ponderadas por duração), medições por fila, equipe alocada, OS vinculadas e exposição financeira só com `current_user_can_view_project_financials()`.
+- Timeline (`/api/operations/projects/[id]/timeline`): fluxo cronológico montado das histórias canônicas — fatos de domínio da OS, história do engajamento, história de medição, atrasos de cronograma, riscos, alocações e documentos — cada linha aponta para o registro. Nenhuma tabela de eventos nova.
+- **Operações → Medições & Evidências** (`/operacoes/medicoes`): fila de portfólio da medição canônica por quem tem o próximo passo; "Aprovada — enviar ao cliente" separada de "Aguardando aceite" e de "Aceita — elegível a faturamento"; valor só com leitura financeira ("Restrito", nunca zero).
+
+### Invariantes
+INV-02 (nenhum dado copiado para o projeto), INV-18 (medição continua uma só; a fila é recorte), visibilidade financeira pelo mesmo resolvedor da 183.
+
+### Provas
+- Unidade: `operations-project-360` (11) — suíte completa 2869/2869.
+- E2E: `operations-project-workspace.spec.ts` 6/6 (inclui prova de que as abas novas não entram em laço de requisições).
+- `projects-timeline-stability.spec.ts` falha no clique do botão "Entrar" (a tela de login anima; problema pré-existente documentado no spec comercial). A mesma verificação de laço foi coberta no spec da wave.
+
+### Dívida
+- Seção "Materiais & Supply" do projeto entra nas waves D/F (quando existirem requisitos e cobertura).
