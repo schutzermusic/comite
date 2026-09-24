@@ -79,7 +79,9 @@ describe('ApexAIGateway routing', () => {
     // por este teste seria uma rota de modelo que ninguém conferiu.
     // 15 com a leitura de levantamento técnico (213), que grava só numa coluna
     // de candidato que nenhuma regra de execução lê.
-    expect(CURRENT_PRODUCTION_TASKS).toHaveLength(15);
+    // 16 com o confronto assistido OS × PT × PC (230), que só abre divergência
+    // CANDIDATA para decisão humana.
+    expect(CURRENT_PRODUCTION_TASKS).toHaveLength(16);
 
     const tasksUsingSonnet: string[] = [];
     const tasksUsingOpus: string[] = [];
@@ -96,7 +98,7 @@ describe('ApexAIGateway routing', () => {
       expect(policy.provider).toBe(usesLuna ? 'openai' : 'anthropic');
     }
 
-    expect(tasksUsingSonnet).toHaveLength(13);
+    expect(tasksUsingSonnet).toHaveLength(14);
     expect(tasksUsingOpus).toHaveLength(0);
   });
 
@@ -113,6 +115,7 @@ describe('ApexAIGateway routing', () => {
       'PROJECT_SCHEDULE_EXTRACTION',
       'CONTRACT_OPERATIONALIZATION',
       'SITE_SURVEY_UNDERSTANDING',
+      'SERVICE_ORDER_DIVERGENCE_REVIEW',
     ] as const;
 
     for (const task of expectedTasks) {

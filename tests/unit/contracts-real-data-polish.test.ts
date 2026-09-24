@@ -128,10 +128,12 @@ describe('navegação — o módulo Projetos abre ao ser clicado', () => {
   const sidebar = source('src/components/layout/app-sidebar.tsx');
 
   it('a landing canônica de Projetos é /projetos e ela existe como rota', () => {
-    expect(sidebar).toMatch(/href:\s*"\/projetos",\s*\n\s*labelKey:\s*"projects"/);
+    // Projetos mora DENTRO de Operações (230): o destino continua sendo a
+    // mesma rota, declarado uma vez em `lib/operations/navigation.ts`.
+    const nav = source('src/lib/operations/navigation.ts');
+    expect(nav).toMatch(/id:\s*'projects',\s*label:\s*'Projetos',\s*href:\s*'\/projetos'/);
     expect(() => source('src/app/(main)/projetos/page.tsx')).not.toThrow();
-    // Uma única casa: o submenu aponta para a MESMA rota, não para uma segunda página.
-    expect(sidebar).toContain('{ href: "/projetos", label: "Visão Geral", icon: Briefcase }');
+    expect(sidebar).toContain('subItems: OPERATIONS_NAV.map((item) => ({');
   });
 
   it('o rótulo do módulo é um LINK, não um botão que só expande', () => {
@@ -163,7 +165,10 @@ describe('navegação — o módulo Projetos abre ao ser clicado', () => {
   });
 
   it('nenhuma permissão bloqueia Projetos além da já declarada', () => {
-    expect(sidebar).toMatch(/href:\s*"\/projetos"[\s\S]{0,200}permission:\s*"projects\.view"/);
+    // Quem vê projetos continua vendo Projetos sem precisar de `operations.view`.
+    const nav = source('src/lib/operations/navigation.ts');
+    expect(nav).toMatch(/href:\s*'\/projetos',\s*anyPermission:\s*\['projects\.view', 'projects\.view_all'\]/);
+    expect(sidebar).toContain('anyPermission: OPERATIONS_GROUP_PERMISSIONS');
   });
 
   it('o projeto vinculado do dossiê abre o projeto canônico', () => {

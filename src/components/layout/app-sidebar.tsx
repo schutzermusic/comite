@@ -15,6 +15,11 @@ import {
   commercialSectionLabels,
   type CommercialSectionId,
 } from "@/lib/commercial/navigation";
+import {
+  OPERATIONS_GROUP_PERMISSIONS,
+  OPERATIONS_NAV,
+  isOperationsRoute,
+} from "@/lib/operations/navigation";
 import { useTranslations } from "next-intl";
 import {
   BarChart3,
@@ -26,6 +31,7 @@ import {
   Building2,
   Calculator,
   Calendar,
+  CalendarRange,
   CheckSquare,
   ChevronDown,
   Clock,
@@ -42,6 +48,7 @@ import {
   Gavel,
   GitCompare,
   Handshake,
+  HardHat,
   HeartPulse,
   History,
   LayoutDashboard,
@@ -127,6 +134,16 @@ const POST_SALE_ICONS: Record<PostSaleSectionId, LucideIcon> = {
   serviceOrders: FileSignature,
   measurements: ClipboardCheck,
   billing: Receipt,
+};
+
+/** Ícone por destino de Operações. */
+const OPERATIONS_ICONS: Record<string, LucideIcon> = {
+  overview: Gauge,
+  serviceOrders: FileSignature,
+  projects: Briefcase,
+  map: Cuboid,
+  planning: CalendarRange,
+  measurements: ClipboardCheck,
 };
 
 /** Ícone por área do Comercial (pré-venda). */
@@ -227,15 +244,26 @@ const navigationItems: MenuItem[] = [
     ],
   },
   {
-    href: "/projetos",
-    labelKey: "projects",
-    icon: Briefcase,
+    /*
+      OPERAÇÕES — do trabalho autorizado à execução medida.
+
+      Projetos deixou de ser grupo próprio e virou um destino DENTRO de
+      Operações: o projeto é o contexto de execução, e a pergunta que abre o
+      menu é "o que estamos autorizados a executar e o que está travado".
+      Cada destino carrega a própria alçada — quem só vê projetos continua
+      vendo Projetos e o Mapa, sem ganhar a fila de OS.
+    */
+    href: "/operacoes",
+    labelKey: "operations",
+    icon: HardHat,
     section: "main",
-    permission: "projects.view",
-    subItems: [
-      { href: "/projetos", label: "Visão Geral", icon: Briefcase },
-      { href: "/projetos/operations-3d", label: "Mapa de Operações", icon: Cuboid },
-    ],
+    anyPermission: OPERATIONS_GROUP_PERMISSIONS,
+    subItems: OPERATIONS_NAV.map((item) => ({
+      href: item.href,
+      label: item.label,
+      icon: OPERATIONS_ICONS[item.id] ?? Briefcase,
+      anyPermission: item.anyPermission,
+    })),
   },
   { href: "/reunioes", labelKey: "agenda", icon: Calendar, section: "main", permission: "meetings.view" },
   { href: "/deliberacoes", labelKey: "deliberations", icon: Gavel, section: "main", permission: "deliberations.view" },
@@ -391,6 +419,8 @@ const navigationItems: MenuItem[] = [
 ];
 
 const isRouteActive = (pathname: string, href: string) => {
+  // Projetos mora dentro de Operações: o grupo acende nas duas árvores.
+  if (href === "/operacoes") return isOperationsRoute(pathname);
   if (href === "/financeiro") {
     return pathname === href || pathname.startsWith(`${href}/`);
   }
@@ -443,7 +473,7 @@ export function AppSidebar() {
     const storedProjects = localStorage.getItem(PROJECTS_STORAGE_KEY);
     if (storedProjects !== null) {
       setProjectsOpen(storedProjects === "true");
-    } else if (pathname.startsWith("/projetos")) {
+    } else if (isOperationsRoute(pathname)) {
       setProjectsOpen(true);
     }
     const storedWorkforce = localStorage.getItem(WORKFORCE_STORAGE_KEY);
@@ -536,7 +566,7 @@ export function AppSidebar() {
   const getSubmenuState = (href: string) => {
     if (href === "/financeiro") return { isOpen: financeOpen, onToggle: toggleFinance };
     if (href === "/fiscal") return { isOpen: fiscalOpen, onToggle: toggleFiscal };
-    if (href === "/projetos") return { isOpen: projectsOpen, onToggle: toggleProjects };
+    if (href === "/operacoes") return { isOpen: projectsOpen, onToggle: toggleProjects };
     if (href === "/workforce-cost") return { isOpen: workforceOpen, onToggle: toggleWorkforce };
     if (href === "/contratos") return { isOpen: contractsOpen, onToggle: toggleContracts };
     if (href === "/comercial") return { isOpen: commercialOpen, onToggle: toggleCommercial };
@@ -694,10 +724,15 @@ export function AppSidebar() {
                 data-receded={submenuRecedes || undefined}
               >
                 {visibleSubItems.map((subItem) => {
+                  // O destino MAIS específico vence: em /projetos/operations-3d
+                  // acende o Mapa, não Projetos.
+                  const moreSpecific = visibleSubItems.some((other) =>
+                    other.href !== subItem.href && other.href.startsWith(`${subItem.href}/`)
+                    && (pathname === other.href || pathname.startsWith(`${other.href}/`)));
                   const isSubActive = subItem.exactUrl
                     ? currentUrl === subItem.href
-                    : pathname === subItem.href ||
-                      (subItem.href !== item.href && pathname.startsWith(`${subItem.href}/`));
+                    : !moreSpecific && (pathname === subItem.href ||
+                      (subItem.href !== item.href && pathname.startsWith(`${subItem.href}/`)));
                   return (
                     <li key={subItem.href}>
                       <Link

@@ -83,6 +83,12 @@ export const divergenceScopeLabels: Record<DivergenceScope, string> = {
   DELIVERABLE: 'Entregável',
   EVIDENCE_REQUIREMENT: 'Exigência de evidência',
   OTHER: 'Outro',
+  TECHNICAL_REQUIREMENT: 'Requisito técnico',
+  MATERIAL: 'Materiais',
+  CUSTOMER_DEPENDENCY: 'Dependência do cliente',
+  EXCLUSION: 'Exclusão',
+  COMMERCIAL_REFERENCE: 'Referência comercial',
+  PACKAGE_REVISION: 'Revisão do pacote',
 };
 
 export const divergenceSeverityLabels: Record<DivergenceSeverity, string> = {

@@ -98,7 +98,10 @@ export interface InternalServiceOrder {
 
 export type DivergenceScope =
   | 'VALUE' | 'SCOPE' | 'DATES' | 'MEASUREMENT_RULE' | 'BILLING_CONDITION'
-  | 'PAYMENT_TERMS' | 'DELIVERABLE' | 'EVIDENCE_REQUIREMENT' | 'OTHER';
+  | 'PAYMENT_TERMS' | 'DELIVERABLE' | 'EVIDENCE_REQUIREMENT' | 'OTHER'
+  // Confronto OS × PT × PC (230).
+  | 'TECHNICAL_REQUIREMENT' | 'MATERIAL' | 'CUSTOMER_DEPENDENCY' | 'EXCLUSION'
+  | 'COMMERCIAL_REFERENCE' | 'PACKAGE_REVISION';
 
 export type DivergenceSeverity = 'INFO' | 'WARNING' | 'BLOCKING';
 export type DivergenceState = 'OPEN' | 'ACKNOWLEDGED' | 'RESOLVED' | 'DISMISSED';

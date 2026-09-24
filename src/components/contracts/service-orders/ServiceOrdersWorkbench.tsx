@@ -136,7 +136,11 @@ export function ServiceOrdersWorkbench() {
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="truncate text-ig-body-sm font-medium text-ig-fg-strong">
-                      {order.os_number} · {order.title}
+                      {/* A gestão da OS (revisão de conteúdo, confronto, emissão, emenda)
+                          mora em Operações — mesma OS, mesmo id. */}
+                      <a href={`/operacoes/ordens-servico/${order.id}`} className="hover:underline">
+                        {order.os_number} · {order.title}
+                      </a>
                     </p>
                     <p className="text-ig-caption text-ig-fg-subtle">
                       {originLabels[order.origin]}

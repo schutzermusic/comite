@@ -20,6 +20,7 @@ export const CURRENT_PRODUCTION_TASKS = [
   'MEASUREMENT_EVIDENCE_PREANALYSIS',
   'COMMERCIAL_DOCUMENT_EXTRACTION',
   'SITE_SURVEY_UNDERSTANDING',
+  'SERVICE_ORDER_DIVERGENCE_REVIEW',
 ] as const;
 
 export type ApexAIProductionTask = (typeof CURRENT_PRODUCTION_TASKS)[number];
@@ -190,6 +191,18 @@ export function getApexAITaskPolicy(task: ApexAITask): ApexAITaskPolicy {
       "o que falta saber", e errar para menos é pior que errar para mais.
     */
     SITE_SURVEY_UNDERSTANDING: normal({ maxTokens: 8_000, timeoutMs: 120_000, reasoningEffort: 'high' }),
+    /*
+      CONFRONTO ASSISTIDO OS × PT × PC.
+
+      Compara FATOS já lidos (com página e trecho) da OS carregada contra os do
+      pacote aceito, e devolve divergências CANDIDATAS. Nada aqui decide: a
+      candidata abre para decisão humana (`internal_service_order_record_divergence`,
+      `detected_by = 'ai'`), e quem resolve diz qual fonte prevalece. `highRisk`
+      porque uma candidata BLOCKING segura a emissão da OS até alguém decidir —
+      errar para mais atrasa; errar para menos deixaria passar execução fora do
+      aceito. Sem PDF: a entrada é texto curto e estruturado.
+    */
+    SERVICE_ORDER_DIVERGENCE_REVIEW: highRisk({ maxTokens: 6_000, timeoutMs: 120_000 }),
     COMPLEX_ESCALATION: explicitEscalation(),
   };
   return policies[task];

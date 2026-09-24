@@ -46,6 +46,16 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     ],
   },
   {
+    module: 'operations',
+    label: 'Operações',
+    permissions: [
+      { key: 'operations.view', label: 'Visualizar' },
+      { key: 'operations.service_orders.override', label: 'OS — Emitir sob exceção governada' },
+      { key: 'operations.planning.view', label: 'Planejamento — Visualizar' },
+      { key: 'operations.planning.manage', label: 'Planejamento — Gerenciar requisitos' },
+    ],
+  },
+  {
     module: 'project_gantt',
     label: 'Project Gantt',
     permissions: [
@@ -254,6 +264,7 @@ export const MODULE_ACCESS_PERMISSION: Record<string, PermissionKey> = {
   admin: 'admin.view',
   dashboard: 'dashboard.view',
   projects: 'projects.view',
+  operations: 'operations.view',
   project_gantt: 'project_gantt.view',
   finance: 'finance.view',
   contracts: 'contracts.view',
