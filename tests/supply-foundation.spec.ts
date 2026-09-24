@@ -20,9 +20,9 @@ const blocked: string[] = []; const intercepted: unknown[] = [];
 
 test.beforeAll(async ({ browser }) => {
   const db = new pg.Client({ connectionString: process.env.SUPABASE_DB_URL, ssl: { rejectUnauthorized: false } });
-  await db.connect(); await db.query('SET SESSION default_transaction_read_only = on');
+  await db.connect(); await db.query('BEGIN TRANSACTION READ ONLY'); // pooler em modo transação: nada de SET SESSION
   projectId = (await db.query(`SELECT id FROM public.projects WHERE organization_id = $1 ORDER BY id LIMIT 1`, [qa.orgId])).rows[0].id;
-  await db.end();
+  await db.query('ROLLBACK'); await db.end();
   ctx = await browser.newContext(); page = await ctx.newPage(); page.setDefaultTimeout(30_000);
   await ctx.route('**/api/supply/items', (route) => {
     if (route.request().method() !== 'POST') return route.fallback();
@@ -32,6 +32,10 @@ test.beforeAll(async ({ browser }) => {
   await ctx.route('**/api/**', (route) => {
     if (route.request().method() === 'GET') return route.fallback();
     if (new URL(route.request().url()).pathname === '/api/supply/items') return route.fallback();
+    // A tela pede a leitura da Apex quando está velha: respondida aqui, nunca gravada pelo teste.
+    if (new URL(route.request().url()).pathname === '/api/supply/intelligence/sweep') {
+      return route.fulfill({ json: { ok: true, skipped: true } });
+    }
     blocked.push(`${route.request().method()} ${new URL(route.request().url()).pathname}`);
     return route.abort();
   });

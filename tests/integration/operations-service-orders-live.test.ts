@@ -30,9 +30,11 @@ suite('OS interna — invariantes no banco vivo (somente leitura)', () => {
   beforeAll(async () => {
     db = new pg.Client({ connectionString: URL_DB, ssl: { rejectUnauthorized: false } });
     await db.connect();
-    await db.query('SET SESSION default_transaction_read_only = on');
+    // Pooler em modo transação: SET SESSION vazaria para outros clientes. A transação READ ONLY fica presa
+    // a uma conexão, é de fato somente leitura e termina com ROLLBACK.
+    await db.query('BEGIN TRANSACTION READ ONLY');
   }, 30_000);
-  afterAll(async () => { await db?.end(); });
+  afterAll(async () => { await db?.query('ROLLBACK').catch(() => undefined); await db?.end(); });
 
   it('a 230 está registrada', async () => {
     expect(await rows(`SELECT 1 FROM supabase_migrations.schema_migrations WHERE version = '230'`)).toHaveLength(1);

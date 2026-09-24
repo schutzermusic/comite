@@ -21,11 +21,11 @@ async function qaProjectId(): Promise<string | null> {
   const db = new pg.Client({ connectionString: process.env.SUPABASE_DB_URL, ssl: { rejectUnauthorized: false } });
   await db.connect();
   try {
-    await db.query('SET SESSION default_transaction_read_only = on');
+    await db.query('BEGIN TRANSACTION READ ONLY'); // pooler em modo transação: nada de SET SESSION
     const { rows } = await db.query(`SELECT p.id FROM public.projects p WHERE p.organization_id = $1
       ORDER BY (SELECT count(*) FROM public.project_timeline_items t WHERE t.project_id = p.id) DESC, p.id LIMIT 1`, [qa.orgId]);
     return rows[0]?.id ?? null;
-  } finally { await db.end(); }
+  } finally { await db.query('ROLLBACK').catch(() => undefined); await db.end(); }
 }
 const OUT = 'test-results/operations';
 
