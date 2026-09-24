@@ -28,6 +28,7 @@ export interface SupplierView {
   orders: number; openOrders: number; onTimeRate: number | null;
   /** Linhas com data prometida já medidas — o tamanho da amostra da pontualidade. */
   deliveryLines: number;
+  avgDelayDays: number | null; rejectionLines: number; receivedLines: number; lastReceiptAt: string | null;
 }
 
 export async function listSuppliers(session: Session): Promise<SupplierView[]> {
@@ -42,10 +43,13 @@ export async function listSuppliers(session: Session): Promise<SupplierView[]> {
     partyIds.length ? sb.from('parties').select('id,legal_name,trade_name,document_number').eq('organization_id', org).in('id', partyIds)
       : Promise.resolve({ data: [] }),
     sb.from('purchase_orders').select('supplier_id,status').eq('organization_id', org).limit(5000),
-    sb.from('supplier_delivery_performance').select('supplier_id,promised_lines,on_time_lines').eq('organization_id', org),
+    sb.from('supplier_delivery_performance').select('supplier_id,promised_lines,on_time_lines,avg_delay_days,lines_with_rejection,received_lines,last_receipt_at')
+      .eq('organization_id', org),
   ]);
   const perf = new Map(((performance.data ?? []) as Row[]).map((p) => [String(p.supplier_id),
-    { promised_lines: num(p.promised_lines), on_time_lines: num(p.on_time_lines) }]));
+    { promised_lines: num(p.promised_lines), on_time_lines: num(p.on_time_lines),
+      avg_delay_days: p.avg_delay_days === null || p.avg_delay_days === undefined ? null : num(p.avg_delay_days),
+      lines_with_rejection: num(p.lines_with_rejection), received_lines: num(p.received_lines), last_receipt_at: str(p.last_receipt_at) }]));
   const pm = new Map(((parties.data ?? []) as Row[]).map((p) => [String(p.id), p]));
   const ords = (orders.data ?? []) as Row[];
   return rows.map((r) => {
@@ -62,6 +66,8 @@ export async function listSuppliers(session: Session): Promise<SupplierView[]> {
       // Pontualidade DERIVADA dos recebimentos (235); sem histórico, desconhecida — nunca inventada.
       onTimeRate: onTimeRate(perf.get(String(r.id))),
       deliveryLines: perf.get(String(r.id))?.promised_lines ?? 0,
+      avgDelayDays: perf.get(String(r.id))?.avg_delay_days ?? null, rejectionLines: perf.get(String(r.id))?.lines_with_rejection ?? 0,
+      receivedLines: perf.get(String(r.id))?.received_lines ?? 0, lastReceiptAt: perf.get(String(r.id))?.last_receipt_at ?? null,
     };
   }).sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -255,3 +261,82 @@ export async function procurementWorkspace(session: Session, today: string) {
 }
 
 export type ProcurementWorkspaceModel = Awaited<ReturnType<typeof procurementWorkspace>>;
+
+/**
+ * O FORNECEDOR 360: pedidos (com saldo, atraso e recebido), participação em
+ * cotações (ganhou ou não) e recebimentos recentes (com rejeição) — tudo lido
+ * dos registros canônicos, na RLS de quem pergunta.
+ */
+export async function supplierDetail(session: Session, supplierId: string, today: string) {
+  const sb = session.supabase; const org = session.organizationId;
+  const [pos, quotes] = await Promise.all([
+    sb.from('purchase_orders').select('id,order_number,status,expected_delivery,currency,freight_amount,tax_amount,created_at,project_id')
+      .eq('organization_id', org).eq('supplier_id', supplierId).order('created_at', { ascending: false }).limit(30),
+    sb.from('supplier_quotes').select('id,rfq_id,version,status,recorded_at,lead_time_days,currency,freight_amount')
+      .eq('organization_id', org).eq('supplier_id', supplierId).order('recorded_at', { ascending: false }).limit(30),
+  ]);
+  if (pos.error || quotes.error) throw new Error('Não foi possível ler o fornecedor.');
+  const poRows = (pos.data ?? []) as Row[]; const quoteRows = (quotes.data ?? []) as Row[];
+  const poIds = poRows.map((p) => String(p.id)); const rfqIds = Array.from(new Set(quoteRows.map((q) => String(q.rfq_id))));
+  const [lines, receipts, rfqs, decisions, quoteLines] = await Promise.all([
+    poIds.length ? sb.from('purchase_order_lines').select('purchase_order_id,quantity,received_quantity,unit_price,expected_date')
+      .eq('organization_id', org).in('purchase_order_id', poIds) : Promise.resolve({ data: [] }),
+    poIds.length ? sb.from('goods_receipts').select('id,receipt_number,purchase_order_id,received_at,inspection_status')
+      .eq('organization_id', org).in('purchase_order_id', poIds).order('received_at', { ascending: false }).limit(20) : Promise.resolve({ data: [] }),
+    rfqIds.length ? sb.from('procurement_rfqs').select('id,rfq_number,status').eq('organization_id', org).in('id', rfqIds) : Promise.resolve({ data: [] }),
+    rfqIds.length ? sb.from('sourcing_decisions').select('rfq_id,quote_id').eq('organization_id', org).in('rfq_id', rfqIds) : Promise.resolve({ data: [] }),
+    quoteRows.length ? sb.from('supplier_quote_lines').select('quote_id,unit_price,quantity').eq('organization_id', org)
+      .in('quote_id', quoteRows.map((q) => String(q.id))) : Promise.resolve({ data: [] }),
+  ]);
+  const lineRows = (lines.data ?? []) as Row[]; const rcRows = (receipts.data ?? []) as Row[];
+  const rcIds = rcRows.map((r) => String(r.id));
+  const rcLines = rcIds.length ? ((await sb.from('goods_receipt_lines').select('receipt_id,accepted_quantity,rejected_quantity,inspection_rejected_quantity')
+    .eq('organization_id', org).in('receipt_id', rcIds)).data ?? []) as Row[] : [];
+  const projectIds = Array.from(new Set(poRows.map((p) => p.project_id).filter(Boolean) as string[]));
+  const projects = projectIds.length ? ((await sb.from('projects').select('id,project,project_v2').eq('organization_id', org).in('id', projectIds)).data ?? []) : [];
+  const projName = new Map((projects as Array<{ id: string; project: Record<string, unknown>; project_v2: Record<string, unknown> | null }>)
+    .map((p) => [p.id, projectIdentity(p.id, p.project, p.project_v2).name]));
+  const rfqMap = new Map(((rfqs.data ?? []) as Row[]).map((r) => [String(r.id), r]));
+  const won = new Set(((decisions.data ?? []) as Row[]).map((d) => String(d.quote_id)));
+  const decided = new Set(((decisions.data ?? []) as Row[]).map((d) => String(d.rfq_id)));
+  const qLines = (quoteLines.data ?? []) as Row[];
+  const poNumber = new Map(poRows.map((p) => [String(p.id), String(p.order_number)]));
+
+  return {
+    orders: poRows.map((p) => {
+      const mine = lineRows.filter((l) => l.purchase_order_id === p.id);
+      const ordered = mine.reduce((a, l) => a + num(l.quantity), 0);
+      const received = mine.reduce((a, l) => a + num(l.received_quantity), 0);
+      const promise = mine.filter((l) => num(l.quantity) > num(l.received_quantity)).map((l) => str(l.expected_date)).filter(Boolean).sort()[0]
+        ?? str(p.expected_delivery);
+      const open = ['ISSUED', 'PARTIALLY_RECEIVED'].includes(String(p.status)) && received < ordered;
+      return {
+        id: String(p.id), number: String(p.order_number), status: String(p.status), currency: String(p.currency),
+        total: mine.reduce((a, l) => a + num(l.quantity) * num(l.unit_price), 0) + num(p.freight_amount) + num(p.tax_amount),
+        ordered, received, promise, late: Boolean(open && promise && promise < today), createdAt: String(p.created_at),
+        project: p.project_id ? projName.get(String(p.project_id)) ?? String(p.project_id) : 'Vários projetos',
+      };
+    }),
+    quotes: quoteRows.map((q) => {
+      const r = rfqMap.get(String(q.rfq_id));
+      const goods = qLines.filter((l) => l.quote_id === q.id).reduce((a, l) => a + num(l.unit_price) * num(l.quantity), 0);
+      return {
+        id: String(q.id), rfqId: String(q.rfq_id), rfqNumber: String(r?.rfq_number ?? '—'), version: num(q.version), status: String(q.status),
+        recordedAt: String(q.recorded_at), leadTimeDays: q.lead_time_days === null ? null : num(q.lead_time_days), currency: String(q.currency),
+        value: goods + num(q.freight_amount),
+        outcome: won.has(String(q.id)) ? 'won' as const : decided.has(String(q.rfq_id)) ? 'lost' as const : r?.status === 'OPEN' ? 'open' as const : 'closed' as const,
+      };
+    }),
+    receipts: rcRows.map((r) => {
+      const mine = rcLines.filter((l) => l.receipt_id === r.id);
+      return {
+        id: String(r.id), number: String(r.receipt_number), orderNumber: poNumber.get(String(r.purchase_order_id)) ?? '—',
+        receivedAt: String(r.received_at), inspectionStatus: String(r.inspection_status),
+        accepted: mine.reduce((a, l) => a + num(l.accepted_quantity), 0),
+        rejected: mine.reduce((a, l) => a + num(l.rejected_quantity) + num(l.inspection_rejected_quantity), 0),
+      };
+    }),
+  };
+}
+
+export type SupplierDetailModel = Awaited<ReturnType<typeof supplierDetail>>;

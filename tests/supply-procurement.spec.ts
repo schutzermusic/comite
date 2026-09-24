@@ -92,7 +92,7 @@ test('1 · Compras e Fornecedores reais: menu, abas e governança dita', async (
   await ws.getByRole('tab', { name: /^Aprovações/ }).click();
   await expect(ws.getByText('Alçadas de compra declaradas')).toBeVisible();
   await page.goto('/supply/fornecedores');
-  await expect(page.getByTestId('suppliers-directory').getByRole('heading', { name: 'Quem fornece, e em que condição' })).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByTestId('suppliers-directory').getByRole('heading', { name: 'Fornecedores', exact: true })).toBeVisible({ timeout: 60_000 });
   await expect(page.getByText(/Esta ação exige:/)).toHaveCount(0);
   mkdirSync(OUT, { recursive: true }); await page.screenshot({ path: `${OUT}/procurement-real.png`, fullPage: true });
 });
@@ -137,7 +137,7 @@ test('4 · fornecedor: cadastro envia CNPJ normalizado e categorias', async () =
   mockReads = false;
   await page.goto('/supply/fornecedores');
   const dir = page.getByTestId('suppliers-directory');
-  await expect(dir).toBeVisible({ timeout: 60_000 });
+  await expect(dir.getByRole('heading', { name: 'Fornecedores', exact: true })).toBeVisible({ timeout: 60_000 });
   const register = dir.getByRole('button', { name: 'Cadastrar fornecedor' });
   if (await register.count() === 0) test.skip(true, 'QA sem suppliers.manage');
   await register.click();

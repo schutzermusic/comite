@@ -265,7 +265,8 @@ export async function listSupplySignals(session: { supabase: SupabaseClient; org
     signals: rows.map((r) => ({
       id: String(r.id), kind: String(r.kind), severity: String(r.severity), status: String(r.status),
       projectId: str(r.project_id), project: r.project_id ? projMap.get(String(r.project_id)) ?? String(r.project_id) : null,
-      requirementId: str(r.requirement_id), purchaseOrderId: str(r.purchase_order_id), title: String(r.title), rationale: String(r.rationale),
+      requirementId: str(r.requirement_id), purchaseOrderId: str(r.purchase_order_id), supplierId: str(r.supplier_id),
+      title: String(r.title), rationale: String(r.rationale),
       evidence: (r.evidence as Array<{ label: string; value: string; source?: string }>) ?? [],
       action: r.recommended_action as { kind: string; label: string; payload: Record<string, unknown> },
       firstSeenAt: String(r.first_seen_at), lastSeenAt: String(r.last_seen_at), resolvedAt: str(r.resolved_at),
