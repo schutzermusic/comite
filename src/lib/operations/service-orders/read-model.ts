@@ -20,6 +20,7 @@ import { platformServiceClient } from '@/lib/platform/server-client';
 import { resolveOwnerNames } from '@/lib/commercial/owner-directory';
 import type { ServiceOrderOrigin, ServiceOrderStatus } from '@/lib/commercial/types';
 import { projectIdentity } from '../project-identity';
+import type { PackageFact } from './comparison';
 import { serviceOrderNextAction } from './next-action';
 import type {
   EligiblePackage, PackageRevisionRef, ServiceOrderCounts, ServiceOrderDivergence,
@@ -233,7 +234,7 @@ export async function getServiceOrderWorkspace(session: Session, id: string) {
           .eq('organization_id', org).eq('id', os.source_context_acceptance_id).maybeSingle()
       : Promise.resolve({ data: null }),
     svc().from('commercial_engagement_authorizations')
-      .select('id,source_kind,authorized_value,currency,effective_from,effective_until,external_reference')
+      .select('id,source_kind,proposal_revision_id,authorized_value,currency,effective_from,effective_until,external_reference')
       .eq('organization_id', org).eq('engagement_id', os.engagement_id).eq('governing', true).eq('state', 'ACTIVE')
       .maybeSingle(),
     svc().from('commercial_engagement_history')
@@ -246,6 +247,38 @@ export async function getServiceOrderWorkspace(session: Session, id: string) {
       .eq('organization_id', org).eq('aggregate_type', 'internal_service_order').eq('aggregate_id', id)
       .order('occurred_at', { ascending: false }).limit(50),
   ]);
+
+  /*
+    OS importada (ou avulsa) não aponta revisões do pacote: o pacote regente é o
+    do TRABALHO AUTORIZADO — o aceite que contém a revisão da fonte regente, a
+    mesma que o confronto por regra usa. Só leitura; a OS não é alterada.
+  */
+  const osRevisions = [os.governing_technical_revision_id, os.governing_commercial_revision_id,
+    os.governing_combined_revision_id].filter(Boolean) as string[];
+  const governingRevision = (governing.data as { proposal_revision_id?: string | null } | null)?.proposal_revision_id ?? null;
+  const derivedAcceptance = !osRevisions.length && governingRevision && UUID_RE.test(governingRevision)
+    ? ((await svc().from('commercial_proposal_context_acceptances')
+      .select('id,technical_revision_id,commercial_revision_id,combined_revision_id,accepted_at,acceptance_source,acceptance_external_ref')
+      .eq('organization_id', org)
+      .or(`technical_revision_id.eq.${governingRevision},commercial_revision_id.eq.${governingRevision},combined_revision_id.eq.${governingRevision}`)
+      .order('accepted_at', { ascending: false }).limit(1).maybeSingle()).data as {
+        id: string; technical_revision_id: string | null; commercial_revision_id: string | null; combined_revision_id: string | null;
+        accepted_at: string | null; acceptance_source: string | null; acceptance_external_ref: string | null } | null)
+    : null;
+  const derivedRevisions = derivedAcceptance
+    ? [derivedAcceptance.technical_revision_id, derivedAcceptance.commercial_revision_id, derivedAcceptance.combined_revision_id].filter(Boolean) as string[]
+    : [];
+  const derivedRefs = derivedRevisions.length ? await revisionRefs(org, derivedRevisions) : new Map<string, PackageRevisionRef>();
+
+  // Os FATOS da PT e da PC regentes: o outro lado da comparação OS × PT × PC.
+  const governingRevisions = osRevisions.length ? osRevisions : derivedRevisions;
+  const packageFacts = governingRevisions.length
+    ? ((await svc().from('commercial_extracted_facts')
+      .select('id,document_context,fact_domain,label,value_text,value_numeric,value_date,unit,currency,source_page,source_quote,'
+        + 'confidence,extraction_method,ai_model,confirmation_state')
+      .eq('organization_id', org).eq('subject_kind', 'proposal_revision').in('subject_id', governingRevisions)
+      .order('created_at', { ascending: true }).limit(400)).data ?? []) as unknown as PackageFact[]
+    : [];
 
   const items = (itemsRes.data ?? []) as unknown as ServiceOrderItem[];
   const divergences = (divergencesRes.data ?? []) as unknown as ServiceOrderDivergence[];
@@ -263,7 +296,14 @@ export async function getServiceOrderWorkspace(session: Session, id: string) {
     (acceptance.data as { recorded_by?: string } | null)?.recorded_by,
   ]);
 
-  const pkg: ServiceOrderPackage = {
+  const pkg: ServiceOrderPackage = derivedAcceptance ? {
+    acceptanceId: derivedAcceptance.id, acceptedAt: derivedAcceptance.accepted_at,
+    acceptanceSource: derivedAcceptance.acceptance_source, acceptanceExternalRef: derivedAcceptance.acceptance_external_ref,
+    technical: derivedAcceptance.technical_revision_id ? derivedRefs.get(derivedAcceptance.technical_revision_id) ?? null : null,
+    commercial: derivedAcceptance.commercial_revision_id ? derivedRefs.get(derivedAcceptance.commercial_revision_id) ?? null : null,
+    combined: derivedAcceptance.combined_revision_id ? derivedRefs.get(derivedAcceptance.combined_revision_id) ?? null : null,
+    fromAuthorization: true,
+  } : {
     acceptanceId: os.source_context_acceptance_id,
     acceptedAt: (acceptance.data as { accepted_at?: string } | null)?.accepted_at ?? null,
     acceptanceSource: (acceptance.data as { acceptance_source?: string } | null)?.acceptance_source ?? null,
@@ -283,6 +323,7 @@ export async function getServiceOrderWorkspace(session: Session, id: string) {
     governingAuthorization: governing.data ?? null,
     items,
     divergences,
+    packageFacts,
     revisions: revisions.map((r) => ({ ...r, actorName: r.actor_user_id ? people[r.actor_user_id] ?? null : null })),
     exceptions: exceptions.map((e) => ({ ...e, authorizedByName: people[e.authorized_by as string] ?? null })),
     history: historyRows.map((h) => ({ ...h, actorName: h.actor_user_id ? people[h.actor_user_id] ?? null : null })),

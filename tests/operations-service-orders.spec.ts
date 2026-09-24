@@ -154,6 +154,14 @@ const fixture = {
       summary: 'OS interna declara 1300000; a fonte regente declara 1250000.', detected_by: 'rule', ai_model: null, confidence: null,
       state: 'OPEN', resolved_source_kind: null, resolution_note: null, resolved_at: null, created_at: '2026-09-20T12:00:00Z', service_order_id: OS_ID },
   ],
+  packageFacts: [
+    { id: 'f1', document_context: 'TECHNICAL_PROPOSAL', fact_domain: 'SCOPE', label: 'Montagem eletromecânica da subestação',
+      value_text: null, value_numeric: null, value_date: null, unit: null, currency: null, source_page: 3,
+      source_quote: 'montagem eletromecânica completa', confidence: '0.93', extraction_method: 'ai', ai_model: 'gpt-6-luna', confirmation_state: 'CONFIRMED' },
+    { id: 'f3', document_context: 'TECHNICAL_PROPOSAL', fact_domain: 'DELIVERABLE', label: 'Databook as built',
+      value_text: null, value_numeric: null, value_date: null, unit: null, currency: null, source_page: 12,
+      source_quote: 'entrega do databook as built', confidence: '0.9', extraction_method: 'ai', ai_model: 'gpt-6-luna', confirmation_state: 'CONFIRMED' },
+  ],
   revisions: [], exceptions: [], history: [], events: [], documents: [], project: null,
   people: { u1: 'Paula Ribeiro' },
   counts: { items: 2, unreviewedItems: 1, openDivergences: 1, blockingOpen: 1 },
@@ -184,6 +192,20 @@ test('4 · workspace da OS: pacote exato, portão de emissão, linhas com proven
   await expect.poll(() => blockedWrites.length).toBeGreaterThan(before);
   expect(blockedWrites.at(-1)).toBe(`PUT /api/operations/service-orders/${OS_ID}/items`);
 
+  // Comparação OS × PT × PC: conflito de valor (em moeda, com a diferença), linha alinhada ao fato e o que a PT declara e a OS não traz.
+  await ws.getByRole('tab', { name: /Comparação OS × PT × PC/ }).click();
+  const cmp = ws.getByTestId('os-comparison');
+  await expect(cmp.getByTestId('comparison-row')).toHaveCount(4);
+  const conflict = cmp.getByTestId('comparison-row').filter({ hasText: 'Conflito bloqueante' });
+  await expect(conflict).toContainText(/R\$\s?1\.300\.000,00/);
+  await expect(conflict).toContainText(/R\$\s?50\.000,00 acima/);
+  await expect(conflict.getByRole('button', { name: 'Decidir' })).toBeVisible();
+  const missing = cmp.getByTestId('comparison-row').filter({ hasText: 'Databook as built' });
+  await expect(missing).toContainText('Faltando na OS');
+  await expect(missing.getByRole('button', { name: /Incluir na OS/ })).toBeVisible();
+  await expect(cmp.getByTestId('comparison-row').filter({ hasText: 'Montagem eletromecânica da subestação' })).toContainText('Alinhado');
+  await snap('workspace-comparison-intercepted');
+
   await ws.getByRole('tab', { name: /Divergências/ }).click();
   await expect(ws.getByTestId('os-divergence')).toHaveCount(1);
   await expect(ws.getByText('Bloqueante').first()).toBeVisible();
@@ -198,16 +220,19 @@ test('4 · workspace da OS: pacote exato, portão de emissão, linhas com proven
 test('5 · uma OS real (quando existe) abre no workspace pela fila', async () => {
   await page.goto('/operacoes/ordens-servico');
   await expect(page.getByRole('heading', { name: 'Ordens de Serviço internas' })).toBeVisible({ timeout: 60_000 });
-  const first = page.locator('table.crm-table tbody a.crm-row-open').first();
+  const first = page.getByTestId('os-row').first().locator('a.ax-row-object');
   if (await first.count() === 0) {
     test.info().annotations.push({ type: 'note', description: 'Organização de QA sem OS real — coberto pelo teste 4.' });
     return;
   }
   await first.click();
   await expect(page.getByTestId('os-workspace')).toBeVisible({ timeout: 60_000 });
-  for (const tab of ['Resumo', 'Escopo e atividades', 'Materiais & Recursos', 'Divergências', 'Documentos', 'Projeto', 'Histórico']) {
+  for (const tab of ['Resumo', 'Comparação OS × PT × PC', 'Conteúdo', 'Divergências', 'Documentos', 'Projeto', 'Histórico']) {
     await expect(page.getByRole('tab', { name: new RegExp(`^${tab}`) })).toBeVisible();
   }
+  // A ponte comercial → operação aparece inteira, em ordem.
+  const bridge = page.getByRole('navigation', { name: 'Da proposta aceita à obra' });
+  for (const node of ['Aceite do cliente', 'Autorização', 'OS interna', 'Projeto']) await expect(bridge.getByText(node, { exact: true })).toBeVisible();
   await expectNoFailureSurface(page);
 });
 
@@ -232,7 +257,7 @@ test('7 · celular: fila de OS e visão geral sem rolagem horizontal', async () 
   expect(await noHorizontalScroll()).toBe(true);
   await snap('service-orders-390');
   await page.goto('/operacoes');
-  await expect(page.getByRole('heading', { name: 'O que está autorizado, o que está travado' })).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByRole('heading', { name: 'Centro de comando operacional' })).toBeVisible({ timeout: 60_000 });
   expect(await noHorizontalScroll()).toBe(true);
   await snap('overview-390');
   await page.setViewportSize({ width: 1440, height: 900 });

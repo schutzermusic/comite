@@ -12,8 +12,10 @@
  * Projetos/Riscos sem função governada nesta fronteira.
  */
 import fs from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
+import { createClient } from '@supabase/supabase-js';
 import { withQaDb, kit } from './lib/qa-db.mjs';
-import { QA_LIVE_FILE, loadQaEnv } from './lib/qa-env.mjs';
+import { QA_LIVE_FILE, assertLocal, loadQaEnv } from './lib/qa-env.mjs';
 
 const live = JSON.parse(fs.readFileSync(QA_LIVE_FILE, 'utf8'));
 const org = live.organization.id;
@@ -108,6 +110,40 @@ await withQaDb(async (c) => {
     scope: 'SCOPE', field_path: 'scope', severity: 'WARNING', detected_by: 'human',
     left_value: 'Substituição de 2 torres de travessia', right_value: 'Substituição de 2 torres + reforço de 1 torre de ancoragem',
     summary: 'OS inclui reforço de ancoragem que a PT não prevê' }));
+
+  console.log('▸ OS importada (PDF externo), lida e confrontada com a PT e a PC');
+  // O mesmo caminho da tela "Importar OS": PDF no Storage do inquilino → registro → leitura (fatos com página e
+  // trecho) → linhas → confronto por regra com a fonte regente. A leitura aqui é a de um documento conhecido:
+  // alguns fatos batem com a proposta, um sobra, um falta, um é de baixa confiança e o valor diverge.
+  const pkgImport = await acceptedPackage({ code: 'QA-2026-0433', title: 'SE Vila do Conde 230 kV — troca de disjuntores', customer: 'Albras',
+    value: 2_150_000, facts: baseFacts('Troca de três disjuntores 230 kV do bay 4', 'Relatório de comissionamento dos disjuntores',
+      'Concessionária programa o desligamento do bay 4', { label: 'Disjuntor 230 kV 3150 A', qty: 3, unit: 'un' }) });
+  const qaEnv = loadQaEnv();
+  const storage = createClient(assertLocal(qaEnv.QA_API_URL, 'QA_API_URL'), qaEnv.QA_SERVICE_ROLE_KEY, { auth: { persistSession: false } }).storage;
+  const pdf = Buffer.from('%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n'
+    + '3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 595 842]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n');
+  const osPath = `${org}/service-orders/${randomUUID()}-OS-VDC-0433.pdf`;
+  const up = await storage.from('contract-files').upload(osPath, pdf, { contentType: 'application/pdf' });
+  if (up.error) throw new Error(`upload da OS: ${up.error.message}`);
+  const imported = await act('internal_service_order_register_upload', org, U.gestor, pkgImport.engagementId, J({
+    file_path: osPath, content_sha256: createHash('sha256').update(pdf).digest('hex'), file_title: 'OS-VDC-0433.pdf', os_number: 'OS-VDC-0433' }));
+  const osFact = (domain, label, extra = {}) => ({ engagement_id: pkgImport.engagementId, document_id: imported.document_id,
+    document_context: 'INTERNAL_SERVICE_ORDER', subject_kind: 'internal_service_order', subject_id: imported.service_order_id,
+    fact_domain: domain, label, value_text: extra.value_text ?? label, source_page: extra.page ?? 1, source_quote: extra.quote ?? `“${label}”`,
+    confidence: extra.confidence ?? 0.93, extraction_method: 'ai', ai_provider: 'qa', ai_model: 'qa-scenario', ai_pipeline_version: 'qa.v1', ...extra });
+  for (const f of [
+    osFact('SCOPE', 'Troca de três disjuntores 230 kV do bay 4', { page: 1 }),
+    osFact('SCOPE', 'Pintura anticorrosiva das estruturas do bay 4', { page: 2, confidence: 0.88 }),
+    osFact('RESOURCE', 'Disjuntor 230 kV 3150 A', { value_numeric: 3, unit: 'un', value_text: '3 un', page: 2 }),
+    osFact('TEST', 'Ensaio de resistência de contato dos polos', { page: 3, confidence: 0.55,
+      quote: '“ensaio de resist... de contato (texto parcialmente ilegível no scan)”' }),
+    osFact('DEPENDENCY', 'Concessionária programa o desligamento do bay 4', { page: 3 }),
+  ]) await one('SELECT public.commercial_fact_record($1,$2) id', [org, J(f)]);
+  await act('internal_service_order_apply_extraction', org, U.gestor, imported.service_order_id);
+  // O valor da OS importada é o que o documento declara (tipado pela revisão) — e difere do aceito.
+  await act('internal_service_order_update_draft', org, U.gestor, imported.service_order_id, J({ authorized_value: 2_230_000, currency: 'BRL',
+    title: 'SE Vila do Conde 230 kV — troca de disjuntores', site_label: 'SE Vila do Conde — Barcarena' }));
+  await one('SELECT public.internal_service_order_compare_with_governing($1,$2) r', [org, imported.service_order_id]);
 
   console.log('▸ cronograma canônico');
   const acts = {};

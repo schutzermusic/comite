@@ -81,6 +81,8 @@ export interface ServiceOrderPackage {
   technical: PackageRevisionRef | null;
   commercial: PackageRevisionRef | null;
   combined: PackageRevisionRef | null;
+  /** O pacote veio do trabalho autorizado (OS importada/avulsa não aponta revisões próprias). */
+  fromAuthorization?: boolean;
 }
 
 export interface ServiceOrderListRow {
