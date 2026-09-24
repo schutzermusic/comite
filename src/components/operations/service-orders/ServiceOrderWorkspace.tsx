@@ -8,8 +8,7 @@ import type { ServiceOrderWorkspace as Workspace } from '@/lib/operations/servic
 import type { ServiceOrderItemKind } from '@/lib/operations/service-orders/types';
 import { buildServiceOrderComparison, comparisonCounts } from '@/lib/operations/service-orders/comparison';
 import { itemKindLabels, originLabels, proposalKindShort, serviceOrderStatusLabels } from '@/lib/operations/service-orders/labels';
-import { ServiceOrderProjectModal } from '@/components/contracts/service-orders/ServiceOrderProjectModal';
-import type { ServiceOrderRow } from '@/components/contracts/service-orders/ServiceOrdersWorkbench';
+import { ServiceOrderProjectPanel } from './ServiceOrderProjectPanel';
 import {
   AxPage, Busy, Chip, CommandHeader, EmptyState, KV, Plane, Resource, SidePanel, Tabs, date, dateTime, href, money, notifyChanged, plural,
   useResource, useUrlParam, useUrlParams, type Tone,
@@ -94,13 +93,6 @@ function OsWorkspace({ id, data, refresh }: { id: string; data: Payload; refresh
   };
   const addLine = async (kind: ServiceOrderItemKind, title: string, detail: string) => {
     await act('Linha adicionada', `/api/operations/service-orders/${id}/items`, 'POST', { kind, title: title.trim(), detail: detail.trim() || null });
-  };
-  const projectRow: ServiceOrderRow = {
-    id: os.id, engagement_id: os.engagement_id, os_number: os.os_number, title: os.title, origin: os.origin,
-    status: os.status, authorized_value: os.authorized_value, currency: os.currency, scope_summary: os.scope_summary,
-    planned_start: os.planned_start, planned_finish: os.planned_finish, project_id: os.project_id,
-    source_proposal_revision_id: os.source_proposal_revision_id, document_id: os.document_id,
-    issued_at: os.issued_at, created_at: os.created_at,
   };
   const next = data.nextAction;
   const nextButton = next.code === 'ISSUE' && caps.manage && caps.issueNormally
@@ -309,7 +301,8 @@ function OsWorkspace({ id, data, refresh }: { id: string; data: Payload; refresh
           onSubmit={async (body) => { if (await act('Emenda registrada', `/api/operations/service-orders/${id}/amend`, 'POST', body)) setModal(null); }} />
       )}
       {modal === 'project' && (
-        <ServiceOrderProjectModal order={projectRow} onClose={() => setModal(null)}
+        <ServiceOrderProjectPanel order={os} pkg={pkg} customer={data.engagement?.counterparty_name ?? null}
+          openDivergences={openDiv.length} blocking={data.counts.blockingOpen} onClose={() => setModal(null)}
           onDone={async () => { setModal(null); success('Projeto vinculado'); notifyChanged(); refresh(); }} />
       )}
     </>
