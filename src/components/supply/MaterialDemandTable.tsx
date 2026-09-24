@@ -4,9 +4,10 @@ import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { HudButton, HudDrawer } from '@/components/hud';
 import type { MaterialDemandRow } from '@/lib/supply/read-model';
-import { COVERAGE_STATUS_LABEL, SUPPLY_RISK_LABEL, type SupplyRisk } from '@/lib/supply/coverage';
+import { COVERAGE_STATUS_LABEL, REQUIREMENT_PRIORITY_LABEL, SUPPLY_RISK_LABEL, type SupplyRisk } from '@/lib/supply/coverage';
 import { DataTable, EmptyNote, GovernanceNote, Segments, StatePill, Toolbar, day, matches, type Tone } from '@/components/operations/ui';
 import { CoverageBar, formatQty } from './CoverageBar';
+import { DemandActions } from './DemandActions';
 
 const RISK_TONE: Record<SupplyRisk, Tone> = { critical: 'danger', high: 'warning', medium: 'info', low: 'success' };
 
@@ -18,10 +19,10 @@ export interface DemandCapabilities { plan: boolean; reserve: boolean; requestPu
  * requisito: demanda, cobertura, alternativas e ações governadas.
  */
 export function MaterialDemandTable({
-  demand, today, capabilities, showProject = true, renderActions,
+  demand, today, capabilities, showProject = true, renderActions, onChanged,
 }: {
   demand: MaterialDemandRow[]; today: string; capabilities: DemandCapabilities; showProject?: boolean;
-  renderActions?: (row: MaterialDemandRow) => React.ReactNode;
+  renderActions?: (row: MaterialDemandRow) => React.ReactNode; onChanged?: () => void;
 }) {
   const [filter, setFilter] = useState<'short' | 'critical' | 'all'>('short');
   const [search, setSearch] = useState('');
@@ -81,7 +82,7 @@ export function MaterialDemandTable({
               <dl className="sup-kv">
                 <div><dt>Necessário em</dt><dd>{day(open.requiredBy)}</dd></div>
                 <div><dt>Requerido</dt><dd>{formatQty(open.coverage.required)} {open.unit}</dd></div>
-                <div><dt>Prioridade</dt><dd>{open.priority}</dd></div>
+                <div><dt>Prioridade</dt><dd>{REQUIREMENT_PRIORITY_LABEL[open.priority] ?? open.priority}</dd></div>
               </dl>
             </section>
             <section aria-label="Cobertura">
@@ -91,15 +92,13 @@ export function MaterialDemandTable({
                 <div><dt>Consumido</dt><dd>{formatQty(open.coverage.consumed)}</dd></div>
                 <div><dt>Em trânsito</dt><dd>{formatQty(open.coverage.inTransit)}</dd></div>
                 <div><dt>Em pedido</dt><dd>{formatQty(open.coverage.onOrder)}</dd></div>
+                <div><dt>Livre em estoque</dt><dd>{formatQty(open.stock.reduce((a, s) => a + s.available, 0))}</dd></div>
                 <div><dt>Falta</dt><dd className={open.coverage.shortage ? 'sup-short' : undefined}>{formatQty(open.coverage.shortage)}</dd></div>
               </dl>
             </section>
             {renderActions ? renderActions(open) : (
-              <p className="crm-muted" style={{ padding: '0 14px' }}>
-                {capabilities.reserve || capabilities.requestPurchase
-                  ? 'Reservar, transferir e requisitar compra ficam disponíveis com o estoque e as compras.'
-                  : 'Sem alçada para agir sobre a cobertura deste material.'}
-              </p>
+              <DemandActions row={open} canAct={capabilities.reserve}
+                onChanged={() => { setOpen(null); onChanged?.(); }} />
             )}
             <p style={{ padding: '0 14px' }}>
               <Link href={`/projetos/${encodeURIComponent(open.projectId)}?tab=timeline`} className="crm-row-open">Abrir o plano do projeto</Link>

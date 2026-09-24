@@ -108,7 +108,7 @@ export function strategyOptions(
   for (const s of stock.filter((x) => x.isDestination && x.available > 0)) {
     const q = Math.min(remaining, s.available);
     out.push({ strategy: 'RESERVE_FROM_STOCK', quantity: q, locationId: s.locationId,
-      rationale: `${q} disponível(is) em ${s.locationName}, no local de entrega — reservar evita compra e frete.` });
+      rationale: `${q} disponível(is) em ${s.locationName} — reservar agora evita compra e segura o saldo para o projeto.` });
     remaining -= q;
     if (remaining <= 0) return out;
   }
@@ -123,3 +123,6 @@ export function strategyOptions(
     rationale: stock.length ? `Estoque disponível não cobre ${remaining}: comprar o restante.` : 'Sem estoque disponível do item: comprar.' });
   return out;
 }
+
+/** Prioridade do requisito (vocabulário do Planejamento, 231). */
+export const REQUIREMENT_PRIORITY_LABEL: Record<string, string> = { low: 'Baixa', medium: 'Média', high: 'Alta', critical: 'Crítica' };

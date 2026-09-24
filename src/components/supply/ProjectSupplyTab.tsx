@@ -12,7 +12,7 @@ type Payload = { ok: true; today: string; capabilities: DemandCapabilities; dema
  * a soma das linhas que a tabela mostra.
  */
 export function ProjectSupplyTab({ projectId }: { projectId: string }) {
-  const { data, state, message } = useOperationsResource<Payload>(`/api/supply/material-planning?project=${encodeURIComponent(projectId)}`);
+  const { data, state, message, refresh } = useOperationsResource<Payload>(`/api/supply/material-planning?project=${encodeURIComponent(projectId)}`);
   if (state !== 'ready' || !data) return <ResourceState state={state} message={message} />;
   const d = data.demand;
   const count = (f: (x: MaterialDemandRow) => boolean) => d.filter(f).length;
@@ -27,7 +27,7 @@ export function ProjectSupplyTab({ projectId }: { projectId: string }) {
         { label: 'Risco crítico', value: count((x) => x.risk === 'critical'), tone: count((x) => x.risk === 'critical') ? 'danger' : 'neutral',
           hint: 'Falta a 7 dias da necessidade' },
       ]} />
-      <MaterialDemandTable demand={d} today={data.today} capabilities={data.capabilities} showProject={false} />
+      <MaterialDemandTable demand={d} today={data.today} capabilities={data.capabilities} showProject={false} onChanged={refresh} />
     </section>
   );
 }

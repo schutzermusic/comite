@@ -10,7 +10,8 @@ if (typeof window !== 'undefined') {
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { projectIdentity } from '@/lib/operations/project-identity';
 import { daysBetween } from '@/lib/operations/overview-rules';
-import { fromViewRow, supplyRisk, type CoverageSummary, type CoverageViewRow, type SupplyRisk } from './coverage';
+import { fromViewRow, supplyRisk, type CoverageSummary, type CoverageViewRow, type StockAtLocation, type SupplyRisk } from './coverage';
+import { stockForRequirement, type LocationKind, type PositionRow } from './inventory';
 
 type Session = { supabase: SupabaseClient; organizationId: string };
 
@@ -19,10 +20,35 @@ export interface MaterialDemandRow {
   projectId: string; project: string; client: string | null;
   activityId: string | null; activity: string | null;
   itemId: string | null; itemCode: string | null; itemDescription: string | null;
-  title: string; priority: string; unit: string | null;
+  title: string; priority: string; unit: string | null; requirementType: string;
   requiredBy: string | null; daysToNeed: number | null;
   coverage: CoverageSummary;
   risk: SupplyRisk;
+  /** Saldo LIVRE do item por local (disponível = em mão − reservado), destino primeiro. */
+  stock: StockAtLocation[];
+  /** Canteiros cadastrados do projeto — destino natural de uma transferência. */
+  sites: Array<{ id: string; name: string }>;
+}
+
+/** Disponível por item e local para os itens da demanda (vazio sem leitura de estoque — RLS). */
+async function availableStock(sb: SupabaseClient, org: string, itemIds: string[]) {
+  if (!itemIds.length) return { position: [] as PositionRow[], locations: [] as Array<{ id: string; name: string; kind: LocationKind; project_id: string | null; active: boolean }> };
+  const [pos, locs] = await Promise.all([
+    sb.from('inventory_position').select('item_id,location_id,location_kind,on_hand_qty,reserved_qty,available_qty')
+      .eq('organization_id', org).in('item_id', itemIds).gt('available_qty', 0).limit(5000),
+    sb.from('inventory_locations').select('id,name,kind,project_id,active').eq('organization_id', org).limit(2000),
+  ]);
+  const locations = (locs.data ?? []) as Array<{ id: string; name: string; kind: LocationKind; project_id: string | null; active: boolean }>;
+  const locMap = new Map(locations.map((l) => [l.id, l]));
+  const position: PositionRow[] = ((pos.data ?? []) as Array<Record<string, unknown>>)
+    .filter((r) => locMap.get(String(r.location_id))?.active)
+    .map((r) => ({
+      itemId: String(r.item_id), itemCode: '', itemDescription: '', unit: '', tracking: 'NONE',
+      locationId: String(r.location_id), locationCode: '', locationName: locMap.get(String(r.location_id))?.name ?? 'Local',
+      locationKind: r.location_kind as LocationKind, onHand: Number(r.on_hand_qty), reserved: Number(r.reserved_qty),
+      available: Number(r.available_qty), inspection: 0, inboundTransit: 0, lastMovementAt: null,
+    }));
+  return { position, locations };
 }
 
 export async function materialDemand(session: Session, today: string, projectId?: string): Promise<MaterialDemandRow[]> {
@@ -51,6 +77,9 @@ export async function materialDemand(session: Session, today: string, projectId?
     .map((p) => [p.id, projectIdentity(p.id, p.project, p.project_v2)]));
   const itemMap = new Map(((items.data ?? []) as Array<{ id: string; code: string; description: string }>).map((i) => [i.id, i]));
   const actMap = new Map(((acts.data ?? []) as Array<{ id: string; title: string }>).map((a) => [a.id, a.title]));
+  const stock = await availableStock(sb, org, itemIds);
+  const sitesOf = (projectId: string) => stock.locations
+    .filter((l) => l.kind === 'PROJECT_SITE' && l.project_id === projectId && l.active).map((l) => ({ id: l.id, name: l.name }));
 
   return rows.map((r) => {
     const coverage = fromViewRow(r);
@@ -62,8 +91,10 @@ export async function materialDemand(session: Session, today: string, projectId?
       client: projMap.get(r.project_id)?.client ?? null,
       activityId: r.activity_id, activity: r.activity_id ? actMap.get(r.activity_id) ?? null : null,
       itemId: r.item_id, itemCode: item?.code ?? null, itemDescription: item?.description ?? null,
-      title: req?.title ?? item?.description ?? 'Material', priority: req?.priority ?? 'medium', unit: r.unit,
+      title: req?.title ?? item?.description ?? 'Material', requirementType: r.requirement_type, priority: req?.priority ?? 'medium', unit: r.unit,
       requiredBy: r.required_by, daysToNeed, coverage, risk: supplyRisk(coverage, daysToNeed),
+      stock: r.item_id ? stockForRequirement(stock.position, r.item_id, sitesOf(r.project_id).map((x) => x.id)) : [],
+      sites: sitesOf(r.project_id),
     };
   });
 }

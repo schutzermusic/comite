@@ -48,6 +48,22 @@ export const OPERATIONS_REGISTRY = {
       'procurement.view', 'procurement.request', 'procurement.source', 'procurement.approve', 'procurement.orders.issue',
       'receiving.view', 'receiving.receive', 'suppliers.view', 'suppliers.manage'],
   },
+  '233': {
+    tables: ['inventory_locations', 'inventory_movements', 'inventory_reservations', 'inventory_transfers',
+      'inventory_transfer_lines', 'inventory_counts', 'inventory_count_lines'],
+    ledgers: ['inventory_movements'],
+    functions: [
+      'inventory_location_upsert(uuid,uuid,jsonb)', 'inventory_adjust(uuid,uuid,jsonb)', 'inventory_reserve(uuid,uuid,jsonb)',
+      'inventory_release(uuid,uuid,uuid,numeric,text)', 'inventory_issue_to_project(uuid,uuid,jsonb)',
+      'inventory_return_from_project(uuid,uuid,jsonb)', 'inventory_transfer_request(uuid,uuid,jsonb)',
+      'inventory_transfer_approve(uuid,uuid,uuid)', 'inventory_transfer_dispatch(uuid,uuid,uuid,jsonb)',
+      'inventory_transfer_receive(uuid,uuid,uuid,jsonb)', 'inventory_transfer_close(uuid,uuid,uuid,text)',
+      'inventory_transfer_cancel(uuid,uuid,uuid,text)', 'inventory_count_open(uuid,uuid,jsonb)',
+      'inventory_count_record(uuid,uuid,uuid,jsonb)', 'inventory_count_post(uuid,uuid,uuid,text)',
+      'inventory_count_cancel(uuid,uuid,uuid,text)',
+    ],
+    permissions: [],
+  },
 };
 
 export function registryUpTo(version) {

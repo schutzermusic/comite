@@ -6,7 +6,7 @@ import { ScatterplotLayer } from '@deck.gl/layers';
 import { Map as MapComponent, NavigationControl, useControl } from 'react-map-gl/maplibre';
 import type { PickingInfo } from '@deck.gl/core';
 import { useTheme } from '@/contexts/ThemeContext';
-import type { MapHealth, MapProject, MapTeamPoint } from '@/lib/operations/map';
+import type { MapHealth, MapProject, MapTeamPoint, MapWarehouse } from '@/lib/operations/map';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 const CARTO_DARK = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
@@ -39,10 +39,10 @@ function initialView(points: Array<{ lat: number; lng: number }>) {
 }
 
 export function OperationsMapCanvas({
-  projects, team, selectedId, onSelect, showSites, showTeam,
+  projects, team, warehouses = [], selectedId, onSelect, showSites, showTeam, showWarehouses = true,
 }: {
-  projects: MapProject[]; team: MapTeamPoint[] | null; selectedId: string | null; onSelect: (id: string | null) => void;
-  showSites: boolean; showTeam: boolean;
+  projects: MapProject[]; team: MapTeamPoint[] | null; warehouses?: MapWarehouse[]; selectedId: string | null;
+  onSelect: (id: string | null) => void; showSites: boolean; showTeam: boolean; showWarehouses?: boolean;
 }) {
   const { theme } = useTheme();
   const located = projects.filter((p) => p.lat !== null && p.lng !== null) as Array<MapProject & { lat: number; lng: number }>;
@@ -63,6 +63,11 @@ export function OperationsMapCanvas({
       getFillColor: (d: MapTeamPoint) => (d.integrity === 'suspicious' ? [220, 38, 38, 220] : [59, 130, 246, 220]),
       stroked: true, getLineColor: [255, 255, 255, 230], lineWidthUnits: 'pixels', getLineWidth: 1, pickable: true,
     }),
+    showWarehouses && warehouses.length > 0 && new ScatterplotLayer({
+      id: 'warehouses', data: warehouses, getPosition: (d: MapWarehouse) => [d.lng, d.lat], radiusUnits: 'pixels', getRadius: 6,
+      getFillColor: (d: MapWarehouse) => (d.kind === 'QUARANTINE' ? [217, 119, 6, 230] : [124, 58, 237, 230]),
+      stroked: true, getLineColor: [255, 255, 255, 230], lineWidthUnits: 'pixels', getLineWidth: 1.5, pickable: true,
+    }),
     new ScatterplotLayer({
       id: 'projects', data: located, getPosition: (d: MapProject & { lat: number; lng: number }) => [d.lng, d.lat],
       radiusUnits: 'pixels', getRadius: (d: MapProject) => (d.id === selectedId ? 11 : d.active ? 8 : 6),
@@ -74,8 +79,9 @@ export function OperationsMapCanvas({
   ].filter(Boolean);
 
   const tooltip = (info: PickingInfo) => {
-    const o = info.object as (MapProject | MapTeamPoint | undefined);
+    const o = info.object as (MapProject | MapTeamPoint | MapWarehouse | undefined);
     if (!o) return null;
+    if ('itemsInStock' in o) return { text: `${o.name}\n${o.itemsInStock} item(ns) em estoque` };
     if ('personId' in o) return { text: `${o.name}\nÚltimo registro ${new Date(o.at).toLocaleString('pt-BR')}` };
     return { text: `${o.name}${o.alerts.length ? `\n${o.alerts.join('\n')}` : ''}` };
   };

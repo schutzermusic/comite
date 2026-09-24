@@ -129,3 +129,31 @@ INV-02 (cobertura derivada, nunca digitada), INV-01 (item e requisito do mesmo i
 - Unidade `supply-coverage` (12) — suíte 2898/2898.
 - Integração viva 16/16 (`supply-live` + OS + planejamento).
 - E2E `supply-foundation.spec.ts` 4/4; regressão Operações + Supply 22/22 (`--workers=1`).
+
+---
+
+## Wave G — Estoque (migration 233)
+
+**Aplicada no banco hospedado** (`scripts/operations/apply-233.mjs --apply`, 69/69 provas; `security-audit` 132/132).
+
+### Entrou
+- **233_inventory_ledger_reservations.sql**:
+  - `inventory_locations` (almoxarifado, canteiro do projeto, veículo, quarentena, zona, posição; hierarquia sem ciclo; canteiro exige projeto; coordenadas opcionais).
+  - `inventory_movements` — **livro append-only** (UPDATE recusado a todos; DELETE pela regra canônica). Sinal pelo tipo; motivo obrigatório em ajuste/correção/devolução; lote/série conforme o item; em mão do lote nunca negativo; número de série no máximo uma vez; idempotente por chave.
+  - `inventory_reservations` — nasce de requisito MATERIAL confirmado, mesmo item e projeto; identidade imutável; estado coerente com o saldo em aberto (CHECK). **Checagem atômica**: trava da linha do requisito + trava consultiva `(inquilino, item, local)`; disponível = em mão − reservado; requisito nunca sobre-coberto (reservado + consumido + trânsito + transferências pedidas ≤ requerido).
+  - Transferências (`inventory_transfers` + linhas): REQUESTED → APPROVED → IN_TRANSIT → PARTIALLY_RECEIVED → RECEIVED → CLOSED (CANCELLED só antes do despacho). Despacho posta TRANSFER_OUT e não leva saldo reservado de outra obra; linha com reserva de origem converte reserva em trânsito sem dupla contagem; recebimento parcial idempotente posta TRANSFER_IN e reserva no destino até a necessidade restante (quarentena não reserva); encerrar com perda exige motivo.
+  - Contagens: foto do esperado pelo livro (`seq`); postar aplica a diferença como COUNT_CORRECTION; linha cujo item se moveu depois da foto é recusada (reconte); uma contagem aberta por local.
+  - Entrega à obra (ISSUE_TO_PROJECT consome a reserva) e devolução (volta como estoque livre).
+  - Todo ato recheca a permissão do ator nomeado no banco (`apex_actor_has_permission`) e emite evento `supply.inventory.*` / `supply.transfer.*` (com `project_id`).
+  - Visões derivadas: `inventory_position` (em mão, reservado, disponível, em inspeção, entrando) e `supply_requirement_coverage` com reservado/consumido/em trânsito reais — mesmo contrato da 232.
+- Rotas `/api/supply/inventory` (+ `locations`, `adjustments`, `reservations(/[id])`, `transfers(/[id])`, `counts(/[id])`), recusas do banco traduzidas (`inventoryErrorMessage`), auditoria por ato.
+- UI: **Supply Chain → Estoque** (Posição | Reservas | Movimentações | Transferências | Inventário | Locais) com exceções (reservado acima do físico, reserva sem demanda viva, acima da necessidade, transferência atrasada, contagem esquecida); gaveta da demanda com **estratégia explicável** (reservar / transferir / comprar) e atos governados; camada **Estoques** no Mapa de Operações.
+
+### Invariantes
+INV-08/09 (reserva atômica; disponível ≠ em mão), INV-10 (livro imutável), INV-07 (cobertura multi-fonte sem dupla contagem), INV-01 (FKs compostas por inquilino).
+
+### Provas
+- `apply-233` 69/69 — inclui prova de concorrência com uma segunda conexão (a trava do saldo fica detida pela transação da reserva).
+- Unidade `supply-inventory` (13) — suíte 2910/2910.
+- Integração viva 21/21 (saldo de lote nunca negativo, série única, disponível = em mão − reservado, equação da cobertura, recebido ≤ despachado).
+- E2E `supply-inventory.spec.ts` 6/6 (escritas interceptadas; contrato enviado provado); regressão Operações + Supply 28/28.

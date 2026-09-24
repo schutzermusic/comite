@@ -12,7 +12,7 @@ type Payload = { ok: true; today: string; capabilities: DemandCapabilities; dema
 
 /** PLANEJAMENTO DE MATERIAIS — a ponte entre o Planejamento do projeto e a execução de Supply. */
 export function MaterialPlanning() {
-  const { data, state, message } = useOperationsResource<Payload>('/api/supply/material-planning');
+  const { data, state, message, refresh } = useOperationsResource<Payload>('/api/supply/material-planning');
   const [tab, setTab] = useState<'demand' | 'catalog'>('demand');
   if (state !== 'ready' || !data) return <ResourceState state={state} message={message} />;
   const short = data.demand.filter((d) => d.coverage.shortage > 0).length;
@@ -28,7 +28,7 @@ export function MaterialPlanning() {
         tabs={[{ id: 'demand', label: 'Demanda & cobertura', count: short, tone: 'warning' }, { id: 'catalog', label: 'Catálogo de itens' }]} />
       {tab === 'demand' && (
         <TabPanel id="demand">
-          <MaterialDemandTable demand={data.demand} today={data.today} capabilities={data.capabilities} />
+          <MaterialDemandTable demand={data.demand} today={data.today} capabilities={data.capabilities} onChanged={refresh} />
         </TabPanel>
       )}
       {tab === 'catalog' && <TabPanel id="catalog"><ItemCatalog /></TabPanel>}

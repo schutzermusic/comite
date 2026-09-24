@@ -27,6 +27,7 @@
 [data-health="attention"] { background: rgb(217 119 6) !important; }
 [data-health="healthy"] { background: rgb(16 150 110) !important; }
 .ops-map-legend i[data-team] { background: rgb(59 130 246); }
+.ops-map-legend i[data-warehouse] { background: rgb(124 58 237); }
 .ops-map-panel {
   display: grid; align-content: start; gap: 10px; min-width: 0;
   max-height: 640px; overflow-y: auto;

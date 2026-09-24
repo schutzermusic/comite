@@ -37,6 +37,7 @@ export interface MapProject {
   geofences: Array<{ id: string; name: string; lat: number; lng: number; radius: number }>;
 }
 
+export interface MapWarehouse { id: string; name: string; kind: string; lat: number; lng: number; itemsInStock: number }
 export interface MapTeamPoint { personId: string; name: string; lat: number; lng: number; at: string; integrity: string; projectId: string | null }
 
 /** Nível do pino: a mesma leitura da saúde do projeto, resumida em cor + texto. */
@@ -145,11 +146,24 @@ export async function operationsMap(session: Session, access: { team: boolean; r
     }));
   }
 
+  // Estoques (233): locais com coordenadas, lidos pela RLS de quem vê Operações ou estoque.
+  const [{ data: locRows }, { data: posRows }] = await Promise.all([
+    sb.from('inventory_locations').select('id,name,kind,latitude,longitude,active')
+      .eq('organization_id', org).eq('active', true).not('latitude', 'is', null).limit(500),
+    sb.from('inventory_position').select('location_id,item_id,on_hand_qty').eq('organization_id', org).gt('on_hand_qty', 0).limit(10000),
+  ]);
+  const stocked = new Map<string, number>();
+  for (const r of (posRows ?? []) as Array<{ location_id: string }>) stocked.set(r.location_id, (stocked.get(r.location_id) ?? 0) + 1);
+  const warehouses: MapWarehouse[] = ((locRows ?? []) as Array<{ id: string; name: string; kind: string; latitude: number; longitude: number }>)
+    .filter((l) => l.kind !== 'ZONE' && l.kind !== 'BIN')
+    .map((l) => ({ id: l.id, name: l.name, kind: l.kind, lat: l.latitude, lng: l.longitude, itemsInStock: stocked.get(l.id) ?? 0 }));
+
   return {
     today,
     projects: out,
     team,
-    layers: { projects: true, sites: true, team: access.team, warehouses: false, vehicles: false },
+    warehouses,
+    layers: { projects: true, sites: true, team: access.team, warehouses: warehouses.length > 0, vehicles: false },
     unlocated: out.filter((p) => p.active && (p.lat === null || p.lng === null)).map((p) => ({ id: p.id, name: p.name,
       state: p.locationState })),
   };

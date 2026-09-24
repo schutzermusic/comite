@@ -36,6 +36,7 @@ export function OperationsMap() {
   const [region, setRegion] = useState('');
   const [showSites, setShowSites] = useState(true);
   const [showTeam, setShowTeam] = useState(true);
+  const [showWarehouses, setShowWarehouses] = useState(true);
 
   const projects = useMemo(() => (data?.projects ?? [])
     .filter((p) => scope === 'all' || (scope === 'active' ? p.active : p.alerts.length > 0))
@@ -62,13 +63,14 @@ export function OperationsMap() {
       />
       <div className="ops-map-layout">
         <div className="ops-map-stage">
-          <OperationsMapCanvas projects={projects} team={data.team} selectedId={selected} onSelect={setSelected}
-            showSites={showSites} showTeam={showTeam} />
+          <OperationsMapCanvas projects={projects} team={data.team} warehouses={data.warehouses} selectedId={selected} onSelect={setSelected}
+            showSites={showSites} showTeam={showTeam} showWarehouses={showWarehouses} />
           <div className="ops-map-legend" aria-label="Legenda">
             {(['critical', 'attention', 'healthy', 'unknown'] as MapHealth[]).map((h) => (
               <span key={h}><i data-health={h} aria-hidden />{HEALTH_LABEL[h]}</span>
             ))}
             {data.team && showTeam && <span><i data-team aria-hidden />Equipe (24 h)</span>}
+            {data.warehouses.length > 0 && showWarehouses && <span><i data-warehouse aria-hidden />Estoques</span>}
           </div>
         </div>
         <aside className="ops-map-panel" aria-label="Painel do mapa">
@@ -85,7 +87,10 @@ export function OperationsMap() {
               <label><input type="checkbox" checked={showSites} onChange={(e) => setShowSites(e.target.checked)} /> Obras (cercas)</label>
               {data.team ? <label><input type="checkbox" checked={showTeam} onChange={(e) => setShowTeam(e.target.checked)} /> Equipe</label>
                 : <span className="crm-muted">Equipe: restrita à alçada de ponto</span>}
-              <span className="crm-muted">Estoques: com o domínio de estoque · Veículos: sem domínio de frota</span>
+              {data.warehouses.length > 0
+                ? <label><input type="checkbox" checked={showWarehouses} onChange={(e) => setShowWarehouses(e.target.checked)} /> Estoques ({data.warehouses.length})</label>
+                : <span className="crm-muted">Estoques: cadastre coordenadas nos locais de estoque</span>}
+              <span className="crm-muted">Veículos: sem domínio de frota</span>
             </div>
           </div>
 

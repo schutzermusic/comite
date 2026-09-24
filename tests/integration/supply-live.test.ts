@@ -45,4 +45,42 @@ suite('Supply — invariantes no banco vivo (somente leitura)', () => {
   it('232: a cobertura nunca afirma falta negativa nem cobre mais do que o requerido como falta', async () => {
     expect(await rows(`SELECT requirement_id FROM public.supply_requirement_coverage WHERE shortage_qty < 0`)).toEqual([]);
   });
+  it('233: livro físico — nenhum saldo de lote negativo e série no máximo uma vez', async () => {
+    expect(await applied('233')).toBe(true);
+    expect(await rows(`SELECT organization_id, item_id, location_id, lot_code FROM public.inventory_movements
+      GROUP BY 1,2,3,4 HAVING sum(quantity) < 0`)).toEqual([]);
+    expect(await rows(`SELECT m.organization_id, m.item_id, m.lot_code FROM public.inventory_movements m
+      JOIN public.supply_items i ON i.id = m.item_id AND i.tracking = 'SERIAL'
+      GROUP BY 1,2,3 HAVING sum(m.quantity) > 1`)).toEqual([]);
+  });
+
+  it('233: livro e reservas não são escritos pelo navegador', async () => {
+    const r = await rows(`SELECT
+      has_table_privilege('authenticated','public.inventory_movements','INSERT') mi,
+      has_table_privilege('authenticated','public.inventory_movements','UPDATE') mu,
+      has_table_privilege('authenticated','public.inventory_reservations','INSERT') ri,
+      has_table_privilege('authenticated','public.inventory_reservations','UPDATE') ru,
+      has_function_privilege('authenticated','public.inventory_reserve(uuid,uuid,jsonb)','EXECUTE') fr`);
+    expect(r[0]).toEqual({ mi: false, mu: false, ri: false, ru: false, fr: false });
+  });
+
+  it('233: disponível = em mão − reservado (zero em quarentena); reserva do mesmo item do requisito', async () => {
+    expect(await rows(`SELECT item_id, location_id FROM public.inventory_position
+      WHERE available_qty <> CASE WHEN location_kind = 'QUARANTINE' THEN 0 ELSE on_hand_qty - reserved_qty END`)).toEqual([]);
+    expect(await rows(`SELECT v.id FROM public.inventory_reservations v
+      JOIN public.project_requirements r ON r.organization_id = v.organization_id AND r.id = v.requirement_id
+      WHERE r.item_id IS DISTINCT FROM v.item_id OR r.project_id <> v.project_id`)).toEqual([]);
+  });
+
+  it('233: cobertura é a equação — falta = requerido − coberto − entrando, nunca negativa', async () => {
+    expect(await rows(`SELECT requirement_id FROM public.supply_requirement_coverage
+      WHERE covered_qty <> reserved_qty + consumed_qty OR inbound_qty <> in_transit_qty + on_order_qty
+         OR shortage_qty <> GREATEST(COALESCE(required_qty,0) - covered_qty - inbound_qty, 0)`)).toEqual([]);
+  });
+
+  it('233: transferência — recebido nunca passa do despachado; cancelada não despachou', async () => {
+    expect(await rows(`SELECT id FROM public.inventory_transfer_lines WHERE received_quantity > dispatched_quantity`)).toEqual([]);
+    expect(await rows(`SELECT l.id FROM public.inventory_transfer_lines l
+      JOIN public.inventory_transfers t ON t.id = l.transfer_id WHERE t.status = 'CANCELLED' AND l.dispatched_quantity > 0`)).toEqual([]);
+  });
 });
