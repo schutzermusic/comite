@@ -291,11 +291,12 @@ Sobreposições DENY valem para o conjunto inteiro de permissões; RPC governada
 
 ## Provas vivas no QA isolado — navegador/API → banco, sem interceptação
 
-`npx playwright test -c playwright.qa.config.ts` (o global-setup recusa endereço não-local e entra com cada papel pela tela real de login).
+`npx playwright test -c playwright.qa.config.ts` (o global-setup recusa endereço não-local e entra com cada papel pela tela real de login). Última execução no build de produção do QA: **50/50**.
 
 | Suíte | Projeto | O que prova |
 |---|---|---|
 | `golden-path` (8) | desktop | Pacote aceito → OS gerada, revisada e emitida → projeto → atividade no cronograma → necessidade de material confirmada (falta derivada) → reserva do estoque → requisição do resto → cotação com 2 fornecedores, 2 propostas, decisão → submissão (compras) → aprovação por alçada (financeiro) → emissão → recebimento parcial para inspeção → inspeção e liberação (reserva cresce) → entrega à obra. Estado persistido conferido após cada transição, até a sequência inteira do livro-razão terminando em `ISSUE_TO_PROJECT`. |
+| `service-order-governance` (3) | desktop | Importar OS em PDF (Storage do inquilino, hash calculado no servidor, OS em rascunho); jurídico decide bloqueante (fonte que prevalece + justificativa); titular emite sob exceção nomeada (livro com pessoa, permissão e motivo; divergência segue aberta). |
 | `roles-ui` (9) | desktop | 8 papéis × 6 telas: cada ato oferecido **exatamente** quando `role_permissions` concede; sem leitura, a recusa nomeada e nenhuma linha; titular de outro inquilino não lista nem abre a OS deste. |
 | `roles-api` (12) | api | 8 papéis × 17 escritas + 5 leituras com 403 esperado derivado do RBAC do banco; RLS recusa escrita direta e função protegida; leitura segue o RBAC; DENY vence o papel; outro inquilino não age. |
 | `concurrency` (7) | api | Sobreposição FORÇADA (terceiro cliente segura a trava): reservas no mesmo saldo, mesma reserva 2×, recebimentos no mesmo aberto (chaves iguais e diferentes), despachos, entrega dupla, contagem sobre retrato vencido. |
