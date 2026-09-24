@@ -177,6 +177,8 @@ try {
       CREATE TABLE IF NOT EXISTS supabase_migrations.schema_migrations (version text PRIMARY KEY, statements text[], name text);
       ALTER SCHEMA supabase_migrations OWNER TO postgres;
       ALTER TABLE supabase_migrations.schema_migrations OWNER TO postgres`);
+    // O registro vive fora de `public` e sobrevive ao DROP: volta a ser EXATAMENTE o de produção.
+    await admin.query('TRUNCATE supabase_migrations.schema_migrations');
     for (const m of catalog.migrations) {
       await admin.query(`INSERT INTO supabase_migrations.schema_migrations (version, name) VALUES ($1,$2) ON CONFLICT DO NOTHING`, [m.version, m.name]);
     }

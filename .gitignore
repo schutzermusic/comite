@@ -62,3 +62,4 @@ tests/.qa-live.json
 tests/qa-live/.auth/
 # QA isolado — build do app apontado para a pilha local
 /.next-qa/
+/.next-qa-dev/

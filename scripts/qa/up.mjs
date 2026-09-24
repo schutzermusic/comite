@@ -11,6 +11,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import pg from 'pg';
 import { QA_DIR } from './lib/qa-env.mjs';
 
 const PINS = {
@@ -31,4 +32,22 @@ if (process.argv.includes('--stop')) process.exit(run(['stop', '--no-backup']));
 const temp = path.join(QA_DIR, 'supabase', '.temp');
 fs.mkdirSync(temp, { recursive: true });
 for (const [file, version] of Object.entries(PINS)) fs.writeFileSync(path.join(temp, file), version);
-process.exit(run(['start']));
+const started = run(['start']);
+if (started !== 0) process.exit(started);
+
+/*
+  O QA é reconstruído com DROP SCHEMA public CASCADE: milhares de objetos numa
+  transação só. O padrão do Postgres (64 travas por transação) não comporta;
+  o banco local sobe com 4096 (uma vez — `ALTER SYSTEM` persiste no volume).
+*/
+const db = new pg.Client({ connectionString: 'postgresql://supabase_admin:postgres@127.0.0.1:55422/postgres' });
+await db.connect();
+const current = Number((await db.query('SHOW max_locks_per_transaction')).rows[0].max_locks_per_transaction);
+if (current < 4096) {
+  await db.query('ALTER SYSTEM SET max_locks_per_transaction = 4096');
+  await db.end();
+  spawnSync('docker', ['restart', 'supabase_db_apex-qa'], { stdio: 'inherit' });
+  console.log('max_locks_per_transaction → 4096 (banco reiniciado)');
+} else {
+  await db.end();
+}

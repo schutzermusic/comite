@@ -22,6 +22,6 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts", ".next-qa/types/**/*.ts"],
-  "exclude": ["node_modules", "mobile", ".next-qa"]
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts", ".next-qa/types/**/*.ts", ".next-qa-dev/types/**/*.ts"],
+  "exclude": ["node_modules", "mobile", ".next-qa", ".next-qa-dev"]
 }
