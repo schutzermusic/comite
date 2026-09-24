@@ -26,6 +26,7 @@ import {
 } from "@/lib/commercial/proposal-intake";
 import type { CreateContext } from "./CreateCommercialModal";
 import { GovernanceNote, StatePill } from "./workspace";
+import { ChunkedText, DocTag, PaymentSchedule, Provenance } from "./ProposalParts";
 
 type Step = "start" | "files" | "reading" | "review" | "creating" | "manual";
 interface Slot { file: File; slot: IntakeSlot }
@@ -41,9 +42,6 @@ interface OpportunityOption extends IntakeOpportunity { stage?: string; party_id
 
 const STATE_LABEL: Record<IntakeState, string> = {
   confirmed: "Confirmado", suggested: "Sugerido", missing: "Faltando", conflicting: "Em conflito",
-};
-const STATE_TONE: Record<IntakeState, "success" | "info" | "neutral" | "danger"> = {
-  confirmed: "success", suggested: "info", missing: "neutral", conflicting: "danger",
 };
 
 export function ProposalIntakeFlow({
@@ -311,6 +309,23 @@ function DropSlot({
   );
 }
 
+/*
+  A REVISÃO do que a Apex leu — exceções primeiro, informação acima do estado.
+
+  Cinco seções na ordem em que uma pessoa confere uma proposta: identificação,
+  comercial (PC), técnico (PT), medição/faturamento e pendências. O estado de
+  cada campo (Confirmado / Sugerido / Faltando / Em conflito) é um ponto
+  discreto ao lado do rótulo; a proveniência ("Apex · p.7") acompanha o valor
+  sem competir com ele. Texto longo aparece estruturado — parcelas e itens —
+  e só vira caixa de texto quando a pessoa pede para editar.
+*/
+const SECTIONS: Array<{ id: string; title: string; note: string; keys: IntakeField["key"][] }> = [
+  { id: "id", title: "Identificação", note: "Quem, o quê, qual documento", keys: ["counterparty_name", "title", "proposal_number", "kind", "revision"] },
+  { id: "commercial", title: "Comercial", note: "Governado pela PC", keys: ["total_value", "currency", "validity_until", "payment_terms"] },
+  { id: "technical", title: "Técnico", note: "Governado pela PT", keys: ["scope_summary"] },
+  { id: "billing", title: "Medição / faturamento", note: "Entram como fatos, com página, para confirmação", keys: ["measurement_rules"] },
+];
+
 function IntakeReview({
   staged, opportunities, opportunity, opportunityId, setOpportunityId, onBack, onCancel, onBusy, onCommitted, onDone,
 }: {
@@ -330,7 +345,7 @@ function IntakeReview({
   const [filter, setFilter] = useState<IntakeState | "all">("all");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const docs = staged.map((s) => s.doc).filter((d): d is IntakeDocument => Boolean(d));
+  const docs = useMemo(() => staged.map((s) => s.doc).filter((d): d is IntakeDocument => Boolean(d)), [staged]);
 
   const fields: IntakeField[] = useMemo(() => {
     const base = buildIntakeFields(docs, opportunity);
@@ -343,9 +358,14 @@ function IntakeReview({
   const set = (key: string, value: string) => setOverrides((o) => ({ ...o, [key]: value }));
   const acceptAll = () =>
     setOverrides((o) => ({ ...o, ...Object.fromEntries(fields.filter((f) => f.state === "suggested").map((f) => [f.key, f.value])) }));
+  const byKey = (k: IntakeField["key"]) => fields.find((f) => f.key === k);
+  const totalValue = byKey("total_value")?.value ?? "";
+  const currency = byKey("currency")?.value || "BRL";
 
   const readIssues = staged.filter((s) => s.status !== "done");
-  const visible = fields.filter((f) => f.key !== "opportunity_id" && (filter === "all" || f.state === filter));
+  const shown = (f: IntakeField) => filter === "all" || f.state === filter;
+  const pending = fields.filter((f) => f.key !== "opportunity_id" && (f.state === "conflicting" || f.state === "missing"));
+  const focus = (key: string) => document.getElementById(`intake-${key}`)?.scrollIntoView({ block: "center", behavior: "smooth" });
 
   const create = async (event: FormEvent) => {
     event.preventDefault();
@@ -353,14 +373,19 @@ function IntakeReview({
     setCreating(true);
     onBusy(true);
     setError(null);
-    const created: { slot: IntakeSlot; id: string; facts?: number; warnings?: string[]; extraction?: string }[] = [];
+    const created: { slot: IntakeSlot; id: string; facts?: number }[] = [];
     try {
       const payloads = intakePayloads(fields, docs, { party_id: opportunity?.party_id ?? null });
       for (const { slot, payload } of payloads) {
+        /*
+          PT e PC são UMA proposta: o segundo documento nasce no contexto do
+          primeiro (217). Números, PDFs, revisões e fatos continuam por documento.
+        */
+        const body = created.length ? { ...payload, context_proposal_id: created[0].id } : payload;
         const response = await fetch("/api/commercial/proposals", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify(payload),
+          body: JSON.stringify(body),
         });
         const result = await response.json();
         if (!response.ok || !result.ok) throw new Error(`${slot}: ${result.error ?? "proposta recusada."}`);
@@ -372,11 +397,11 @@ function IntakeReview({
           body: JSON.stringify({ action: "register", revisionId: result.revision_id, stagedPath: item.path,
             title: item.file.name, contentSha256: await sha256Hex(item.file) }),
         }).then((r) => r.json()).catch(() => null);
-        created.push({ slot, id: result.proposal_id, facts: register?.facts, warnings: register?.warnings, extraction: register?.extraction });
-        if (!register?.ok) notifyError(`Proposta ${slot} criada, PDF não anexado`, register?.error ?? "Anexe o PDF no dossiê.");
+        created.push({ slot, id: result.proposal_id, facts: register?.facts });
+        if (!register?.ok) notifyError(`${slot} criada, PDF não anexado`, register?.error ?? "Anexe o PDF no dossiê.");
       }
       const facts = created.reduce((n, c) => n + (c.facts ?? 0), 0);
-      success(created.length > 1 ? "Propostas PT e PC criadas" : "Proposta criada",
+      success(created.length > 1 ? "Proposta criada — PT + PC num só contexto" : "Proposta criada",
         facts ? `${facts} fato(s) com página registrados para confirmação.` : "Em rascunho, com o PDF anexado.");
       const governing = created.find((c) => c.slot !== "PT") ?? created[0];
       onDone(governing?.id ?? null);
@@ -384,7 +409,7 @@ function IntakeReview({
       setCreating(false);
       onBusy(false);
       if (created.length) {
-        notifyError("Criação parcial", `${(e as Error).message} A proposta já criada foi aberta.`);
+        notifyError("Criação parcial", `${(e as Error).message} O documento já criado foi aberto.`);
         onDone(created[0].id);
       } else {
         setError((e as Error).message);
@@ -393,10 +418,34 @@ function IntakeReview({
   };
 
   return (
-    <form className="crm-flow" onSubmit={create} data-testid="flow-proposal-review">
+    <form className="crm-flow pc-review" onSubmit={create} data-testid="flow-proposal-review">
       <ol className="crm-steps" aria-label="Etapas">
         <li className="done"><b>1</b> PDF</li><li className="done"><b>2</b> Leitura</li><li aria-current="step"><b>3</b> Revisão</li>
       </ol>
+
+      <div className="pc-review-top">
+        <div className="pc-review-docs" aria-label="Documentos lidos">
+          {staged.map((s) => (
+            <span key={s.slot} className="pc-review-doc">
+              <DocTag role={s.slot === "COMBINED" ? "PT+PC" : s.slot} />
+              {s.file.name}
+              <small>
+                {s.status === "done"
+                  ? `${s.doc?.classification?.revisionLabel ?? "sem revisão impressa"} · ${s.doc?.facts.length ?? 0} fato(s)`
+                  : s.status === "no-permission" ? "sem leitura" : "leitura falhou"}
+              </small>
+            </span>
+          ))}
+        </div>
+        <div className="pc-state-summary" role="group" aria-label="Filtrar por estado">
+          {(["conflicting", "missing", "suggested", "confirmed"] as IntakeState[]).map((state) => (
+            <button key={state} type="button" className="pc-state-filter" aria-pressed={filter === state}
+              onClick={() => setFilter(filter === state ? "all" : state)}>
+              <i className={`pc-dot pc-dot-${state}`} aria-hidden /><b>{summary[state]}</b> {STATE_LABEL[state]}
+            </button>
+          ))}
+        </div>
+      </div>
 
       {readIssues.map((s) => (
         <p key={s.slot} className="crm-flow-error" role="status"
@@ -408,42 +457,94 @@ function IntakeReview({
         </p>
       ))}
 
-      <div className="crm-intake-summary" role="group" aria-label="Filtrar por estado">
-        {(["confirmed", "suggested", "missing", "conflicting"] as IntakeState[]).map((state) => (
-          <button key={state} type="button" className={`crm-intake-count crm-intake-${state}`}
-            aria-pressed={filter === state} onClick={() => setFilter(filter === state ? "all" : state)}>
-            <strong>{summary[state]}</strong>
-            <span>{STATE_LABEL[state]}</span>
-          </button>
-        ))}
-      </div>
-
-      <OpportunitySelect opportunities={opportunities} value={opportunityId}
-        onChange={(v) => { setOpportunityId(v); setOverrides((o) => { const n = { ...o }; delete n.counterparty_name; delete n.currency; return n; }); }} />
-      {!opportunityId && (
-        <p className="crm-field-hint">Sem oportunidade a proposta não inicia execução nem entra na comparação PT × PC — dá para vincular depois.</p>
+      {docs.length > 1 && (
+        <p className="pc-lead">
+          <strong>Uma proposta, dois documentos.</strong> PT e PC entram no mesmo contexto comercial — cada uma com número, PDF, revisões e fatos próprios, contadas uma vez só no funil.
+        </p>
       )}
 
-      <div className="crm-intake-list" data-testid="intake-fields">
-        {visible.map((f) => (
-          <div key={f.key} className="crm-intake-row" data-state={f.state} data-required={f.required}>
-            <div className="crm-intake-key">
-              {f.label}{f.required ? " *" : ""}
-              <small>{f.source ?? "—"}</small>
+      <section className="pc-rsec" aria-label="Pendências" data-testid="intake-pending">
+        <header>
+          <h4>Pendências</h4>
+          <small>{pending.length ? "Só o que precisa de você" : "Nada bloqueia a criação"}</small>
+        </header>
+        {pending.length ? (
+          <ul className="pc-pending">
+            {pending.map((f) => (
+              <li key={f.key}>
+                <i className={`pc-dot pc-dot-${f.state}`} aria-hidden />
+                <span><strong>{f.label}</strong> · {f.state === "conflicting" ? "escolha qual leitura vale" : f.required ? "obrigatório" : "não encontrado no documento"}</span>
+                <button type="button" onClick={() => { setFilter("all"); setTimeout(() => focus(f.key), 0); }}>Resolver</button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="pc-pending-clear"><Check size={14} aria-hidden /> Tudo o que é obrigatório está preenchido e sem conflito.</p>
+        )}
+      </section>
+
+      <div className="grid gap-3" data-testid="intake-fields">
+        <section className="pc-rsec" aria-label="Oportunidade">
+          <header><h4>Oportunidade</h4><small>De onde vêm cliente e moeda</small></header>
+          <div className="pc-rrows">
+            <div className="pc-rrow">
+              <div className="pc-rkey"><span>Oportunidade</span>
+                <span className="pc-rstate"><i className={`pc-dot pc-dot-${opportunity ? "confirmed" : "missing"}`} aria-hidden />{opportunity ? "Confirmado" : "Opcional"}</span>
+              </div>
+              <div className="pc-rval">
+                <select value={opportunityId} data-testid="proposal-opportunity" aria-label="Oportunidade"
+                  onChange={(e) => { setOpportunityId(e.target.value); setOverrides((o) => { const n = { ...o }; delete n.counterparty_name; delete n.currency; return n; }); }}>
+                  <option value="">{opportunities ? "Sem oportunidade — criar ou vincular depois, no dossiê" : "Carregando…"}</option>
+                  {(opportunities ?? []).map((o) => <option key={o.id} value={o.id}>{o.title} — {o.counterparty_name}</option>)}
+                </select>
+                {!opportunityId && <span className="pc-rnote">Dá para criar a oportunidade a partir da proposta, dentro do próprio dossiê.</span>}
+              </div>
             </div>
-            <div className="crm-intake-value">
-              <FieldEditor field={f} onChange={(v) => set(f.key, v)} />
-              {f.note && <span className="crm-intake-note">{f.note}</span>}
-            </div>
-            <StatePill tone={STATE_TONE[f.state]}>{STATE_LABEL[f.state]}</StatePill>
           </div>
-        ))}
-        {!visible.length && <p className="crm-section-empty">Nenhum campo neste estado.</p>}
+        </section>
+
+        {SECTIONS.map((section) => {
+          const rows = section.keys.map(byKey).filter((f): f is IntakeField => Boolean(f) && shown(f!));
+          if (!rows.length) return null;
+          const counts = section.keys.map(byKey).filter(Boolean) as IntakeField[];
+          const open = counts.filter((f) => f.state === "conflicting" || (f.state === "missing" && f.required)).length;
+          return (
+            <section key={section.id} className="pc-rsec" aria-label={section.title} data-testid={`intake-section-${section.id}`}>
+              <header>
+                <h4>{section.title}</h4>
+                <small>{section.note}</small>
+                <small className="pc-rsec-count">{open ? `${open} pendente(s)` : "ok"}</small>
+              </header>
+              <div className="pc-rrows">
+                {rows.map((f) => (
+                  <div key={f.key} id={`intake-${f.key}`} className="pc-rrow" data-state={f.state} data-required={f.required}>
+                    <div className="pc-rkey">
+                      <span>{f.label}{f.required && <em aria-label="obrigatório">*</em>}</span>
+                      <span className="pc-rstate"><i className={`pc-dot pc-dot-${f.state}`} aria-hidden />{STATE_LABEL[f.state]}</span>
+                    </div>
+                    <div className="pc-rval">
+                      <FieldEditor field={f} onChange={(v) => set(f.key, v)} total={totalValue} currency={currency} />
+                      {(f.source || f.note) && (
+                        <div className="pc-rval-meta">
+                          {f.source && <Provenance>{f.source}</Provenance>}
+                          {f.note && <span className="pc-rnote">{f.note}</span>}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          );
+        })}
+        {filter !== "all" && !fields.some((f) => f.key !== "opportunity_id" && f.state === filter) && (
+          <p className="crm-section-empty">Nenhum campo neste estado.</p>
+        )}
       </div>
 
       {error && <p className="crm-flow-error" role="alert"><AlertTriangle size={14} aria-hidden /> {error}</p>}
       <GovernanceNote>
-        A proposta nasce em rascunho, R01. Fatos da leitura entram como SUGERIDOS, com página: viram regra só depois da confirmação humana no dossiê.
+        A proposta nasce em rascunho, R01 em cada documento. Fatos da leitura entram como SUGERIDOS, com página: viram regra só depois da confirmação humana. Depois: enviar para aprovação interna.
       </GovernanceNote>
       <div className="crm-flow-footer">
         <p>
@@ -459,7 +560,7 @@ function IntakeReview({
             </HudButton>
           )}
           <HudButton type="submit" variant="primary" disabled={creating || summary.blocking.length > 0} data-testid="proposal-create">
-            {creating ? "Criando…" : docs.length > 1 ? "Criar PT e PC" : "Criar proposta"}
+            {creating ? "Criando…" : docs.length > 1 ? "Criar proposta (PT + PC)" : "Criar proposta"}
           </HudButton>
           <HudButton type="button" variant="ghost" onClick={onCancel} disabled={creating} aria-label="Cancelar"><X size={14} aria-hidden /></HudButton>
         </div>
@@ -468,10 +569,13 @@ function IntakeReview({
   );
 }
 
-function FieldEditor({ field, onChange }: { field: IntakeField; onChange: (v: string) => void }) {
+function FieldEditor({ field, onChange, total, currency }: {
+  field: IntakeField; onChange: (v: string) => void; total: string; currency: string;
+}) {
+  const [editing, setEditing] = useState(false);
   if (field.state === "conflicting" && field.options?.length) {
     return (
-      <div className="crm-intake-options" role="radiogroup" aria-label={field.label}>
+      <div className="pc-roptions" role="radiogroup" aria-label={field.label}>
         {field.options.map((o) => (
           <label key={o.value + o.label}>
             <input type="radio" name={field.key} value={o.value} onChange={() => onChange(o.value)} />
@@ -483,18 +587,37 @@ function FieldEditor({ field, onChange }: { field: IntakeField; onChange: (v: st
     );
   }
   if (field.key === "counterparty_name" && field.source === "Oportunidade") {
-    return <strong style={{ fontSize: 13 }}>{field.value}</strong>;
+    return <strong>{field.value}</strong>;
   }
   if (field.key === "kind" || field.key === "revision") {
     const shown = field.value === "declared" ? "Como enviado"
       : field.value.endsWith("_PROPOSAL") ? `Como o documento diz (${field.value.replace("_PROPOSAL", "").toLowerCase()})` : field.value;
-    return <strong style={{ fontSize: 13 }}>{shown || "—"}</strong>;
+    return <strong>{shown || "—"}</strong>;
   }
-  if (field.key === "scope_summary" || field.key === "payment_terms" || field.key === "measurement_rules") {
+  if (field.key === "measurement_rules") {
+    return <ChunkedText text={field.value} max={4} empty="Nenhuma regra lida." />;
+  }
+  if (field.key === "scope_summary" || field.key === "payment_terms") {
+    if (editing || !field.value.trim()) {
+      return (
+        <>
+          <textarea aria-label={field.label} value={field.value} placeholder="Não informado"
+            onChange={(e) => onChange(e.target.value)} />
+          {field.value.trim() && (
+            <button type="button" className="pc-disclosure" onClick={() => setEditing(false)}>Ver estruturado</button>
+          )}
+        </>
+      );
+    }
     return (
-      <textarea aria-label={field.label} value={field.value} readOnly={field.key === "measurement_rules"}
-        placeholder={field.key === "measurement_rules" ? "Nenhuma regra lida." : "Não informado"}
-        onChange={(e) => onChange(e.target.value)} />
+      <>
+        {field.key === "payment_terms"
+          ? <PaymentSchedule text={field.value} total={total} currency={currency} compact />
+          : <ChunkedText text={field.value} max={5} />}
+        <button type="button" className="pc-disclosure" onClick={() => setEditing(true)} aria-label={`Editar ${field.label.toLowerCase()}`}>
+          <PenLine size={11} aria-hidden /> Editar texto
+        </button>
+      </>
     );
   }
   if (field.key === "currency") {
@@ -604,7 +727,7 @@ function ManualProposal({
           <input type="date" value={v.validity_until ?? ""} onChange={set("validity_until")} /></label>
       </div>
       {error && <p className="crm-flow-error" role="alert"><AlertTriangle size={14} aria-hidden /> {error}</p>}
-      <GovernanceNote>A proposta nasce em rascunho. Revisão interna, envio e aceite continuam sendo etapas separadas.</GovernanceNote>
+      <GovernanceNote>A proposta nasce em rascunho. Aprovação interna, envio e aceite continuam sendo etapas separadas.</GovernanceNote>
       <div className="crm-flow-footer">
         <p>{missing.length ? `Falta: ${missing.join(", ")}.` : "Ao criar, o dossiê abre direto."}</p>
         <div>

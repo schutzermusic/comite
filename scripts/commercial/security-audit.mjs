@@ -9,7 +9,15 @@
  *  2. RBAC: alguma função governada ficou alcançável pelo navegador?
  *  3. Inquilino: alguma linha aponta para outra organização?
  *  4. Fabricação: entrou dado de mentira, ou documento duplicado?
+ *
+ *   node scripts/commercial/security-audit.mjs
+ *   node scripts/commercial/security-audit.mjs --with-migrations 217
+ *
+ * `--with-migrations` aplica as versões pedidas numa transação, audita o
+ * schema resultante e desfaz tudo (ROLLBACK) — é como se audita uma
+ * migration ANTES de aplicá-la. Sem a opção, nenhuma transação é aberta.
  */
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import pg from 'pg';
 import dotenv from 'dotenv';
 
@@ -19,6 +27,31 @@ dotenv.config({ path: '.env.local', quiet: true });
 const db = new pg.Client({
   connectionString: process.env.SUPABASE_DB_URL, ssl: { rejectUnauthorized: false } });
 
+const argv = process.argv.slice(2);
+const withVersions = argv.includes('--with-migrations') ? argv.filter((a) => /^\d{3}$/.test(a)) : [];
+const strip = (sql) => sql.replace(/^\s*(BEGIN|COMMIT)\s*;\s*$/gmi, '');
+const migrationFiles = readdirSync('supabase/migrations').filter((f) => /^\d{3}_.*\.sql$/.test(f)).sort();
+// A ponta esperada do registro é a última migration do repositório.
+const EXPECTED_TIP = migrationFiles.at(-1).slice(0, 3);
+
+/*
+  FIXTURES DE QA — o que distingue dado de teste de dado de negócio.
+
+  Não é o nome do cliente nem o título (nada de lista de nomes permitidos):
+  é QUEM criou e a MARCA que as nossas próprias provas carimbam.
+    • criado pela identidade de automação de QA (`tests/.qa-env.json` ou
+      QA_AUTOMATION_EMAIL) — a conta que os testes E2E usam;
+    • número/título com a marca dos geradores de prova deste repositório
+      (`PROOF-`, `P2xx-` das provas de migration, `Prova 2xx`, `[E2E]`).
+  As provas rodam em ROLLBACK e os E2E interceptam escrita: qualquer linha
+  assim que SOBREVIVA no banco é vazamento de fixture — isso reprova.
+  Registro criado por pessoa com nome "teste" não é fixture: é informado
+  (INFO) para o dono decidir, e não reprova.
+*/
+const qaEmail = process.env.QA_AUTOMATION_EMAIL
+  ?? (existsSync('tests/.qa-env.json') ? JSON.parse(readFileSync('tests/.qa-env.json', 'utf8')).email : null);
+const FIXTURE_MARK = String.raw`(^|[^A-Z])(PROOF-|P2[0-9]{2}-|\[E2E\])|^Prova 2[0-9]{2}`;
+
 const NEW_TABLES = [
   'commercial_engagements', 'commercial_engagement_authorizations', 'engagement_project_links',
   'commercial_divergences', 'commercial_contacts', 'commercial_opportunities',
@@ -27,6 +60,8 @@ const NEW_TABLES = [
   'internal_service_orders', 'commercial_engagement_history',
   'commercial_opportunity_stage_events', 'commercial_site_surveys', 'commercial_site_survey_events',
   'commercial_execution_starts', 'commercial_proposal_link_events',
+  // 217 — aceite do pacote PT + PC
+  'commercial_proposal_context_acceptances',
 ];
 
 const GOVERNED_FUNCTIONS = [
@@ -44,6 +79,23 @@ const GOVERNED_FUNCTIONS = [
   'commercial_close_and_start_execution', 'commercial_execution_start_regularize',
   'contract_billing_eligibility_resolve_core', 'commercial_proposal_register_document',
   'commercial_proposal_link_opportunity',
+  // 217 — contexto PT + PC: aprovação do pacote, vínculo do contexto, resposta do cliente ao pacote
+  'commercial_proposal_context_transition', 'commercial_proposal_context_link_opportunity',
+  'commercial_proposal_context_record_outcome',
+];
+
+/* Funções INTERNAS da 217 (gatilho/auxiliar): ninguém de fora executa — nem o navegador. */
+const INTERNAL_FUNCTIONS = [
+  'commercial_proposal_context_guard', 'commercial_proposal_context_snapshot_acceptance',
+  'commercial_proposal_revision_acceptance_ledger', 'commercial_revision_value_exempt',
+  'commercial_revision_acceptance_has_value', 'commercial_proposal_context_acceptances_no_rewrite',
+];
+
+/* História imutável: gatilhos que precisam existir. */
+const HISTORY_TRIGGERS = [
+  ['commercial_proposal_link_events', 'cple_no_rewrite'], ['commercial_proposal_link_events', 'cple_no_erasure'],
+  ['commercial_proposal_context_acceptances', 'cpca_no_rewrite'], ['commercial_proposal_context_acceptances', 'cpca_no_erasure'],
+  ['commercial_proposals', 'cp_context_guard'], ['commercial_proposal_revisions', 'cpr_acceptance_ledger'],
 ];
 
 const findings = [];
@@ -54,6 +106,21 @@ const report = (section, ok, detail) => {
 
 try {
   await db.connect();
+  if (withVersions.length) {
+    await db.query('BEGIN');
+    for (const v of withVersions) {
+      const file = migrationFiles.find((f) => f.startsWith(`${v}_`));
+      if (!file) throw new Error(`Migration ${v} não encontrada.`);
+      await db.query(strip(readFileSync(`supabase/migrations/${file}`, 'utf8')));
+      await db.query(`INSERT INTO supabase_migrations.schema_migrations (version, name) VALUES ($1,$2)
+        ON CONFLICT (version) DO NOTHING`, [v, file.slice(4).replace(/\.sql$/, '')]);
+    }
+    console.log(`(auditando com ${withVersions.join(', ')} aplicada(s) em transação — ROLLBACK no fim)`);
+  }
+
+  const has217 = (await db.query(`SELECT 1 FROM information_schema.columns WHERE table_schema='public'
+    AND table_name='commercial_proposals' AND column_name='context_id'`)).rowCount > 0;
+  if (!has217) report('Contexto PT + PC · 217 aplicada', false, 'context_id ausente — rode com --with-migrations 217 para auditar antes de aplicar');
 
   // --- 1. RLS ------------------------------------------------------------
   const rls = await db.query(`
@@ -106,6 +173,26 @@ try {
     fns.rows.filter((r) => !r.prosecdef
       || !(r.proconfig ?? []).some((c) => c.startsWith('search_path='))).map((r) => r.proname).join(', '));
 
+  const internal = await db.query(`
+    SELECT p.proname,
+           has_function_privilege('authenticated', p.oid, 'EXECUTE') browser,
+           has_function_privilege('anon', p.oid, 'EXECUTE') anon
+      FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+     WHERE n.nspname='public' AND p.proname = ANY($1)`, [INTERNAL_FUNCTIONS]);
+  report('RBAC · funções internas da 217 existem', internal.rowCount === INTERNAL_FUNCTIONS.length,
+    `${internal.rowCount}/${INTERNAL_FUNCTIONS.length}`);
+  report('RBAC · funções internas fora do alcance do navegador',
+    internal.rows.every((r) => !r.browser && !r.anon),
+    internal.rows.filter((r) => r.browser || r.anon).map((r) => r.proname).join(', '));
+
+  const triggers = await db.query(`
+    SELECT c.relname, t.tgname FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid
+     WHERE NOT t.tgisinternal AND t.tgenabled <> 'D'`);
+  const present = new Set(triggers.rows.map((r) => `${r.relname}.${r.tgname}`));
+  const missingTriggers = HISTORY_TRIGGERS.filter(([t, g]) => !present.has(`${t}.${g}`)).map(([t, g]) => `${t}.${g}`);
+  report('História · vínculo e aceite do pacote imutáveis; contexto guardado', missingTriggers.length === 0,
+    missingTriggers.join(', '));
+
   // --- 4. Isolamento de inquilino ---------------------------------------
   const leaks = await db.query(`
     SELECT 'authorization' k, count(*)::int n FROM public.commercial_engagement_authorizations a
@@ -119,7 +206,18 @@ try {
      WHERE m.organization_id <> e.organization_id
     UNION ALL SELECT 'contract_engagement', count(*)::int FROM public.contracts c
       JOIN public.commercial_engagements e ON e.id=c.engagement_id
-     WHERE c.organization_id <> e.organization_id`);
+     WHERE c.organization_id <> e.organization_id
+    ${has217 ? `UNION ALL SELECT 'proposal_context', count(*)::int FROM (
+      SELECT context_id FROM public.commercial_proposals GROUP BY context_id
+      HAVING count(DISTINCT organization_id) > 1) x
+    UNION ALL SELECT 'context_opportunity', count(*)::int FROM (
+      SELECT organization_id, context_id FROM public.commercial_proposals WHERE opportunity_id IS NOT NULL
+       GROUP BY organization_id, context_id HAVING count(DISTINCT opportunity_id) > 1) x
+    UNION ALL SELECT 'acceptance_revision', count(*)::int FROM public.commercial_proposal_context_acceptances a
+      JOIN public.commercial_proposal_revisions r
+        ON r.id IN (a.technical_revision_id, a.commercial_revision_id, a.combined_revision_id)
+      JOIN public.commercial_proposals p ON p.id = r.proposal_id
+     WHERE r.organization_id <> a.organization_id OR p.context_id <> a.context_id` : ''}`);
   const crossing = leaks.rows.filter((r) => r.n > 0);
   report('Inquilino · nenhuma linha cruza organização', crossing.length === 0,
     crossing.map((r) => `${r.k}=${r.n}`).join(', '));
@@ -164,11 +262,8 @@ try {
     (SELECT count(*)::int FROM public.commercial_engagements e
       WHERE e.origin = 'migration_backfill'
         AND (e.title ILIKE '%teste%' OR e.title ILIKE '%demo%')) inherited_test_titles,
-    (SELECT count(*)::int FROM public.internal_service_orders) service_orders,
     (SELECT count(*)::int FROM public.commercial_proposals) proposals,
     (SELECT count(*)::int FROM public.commercial_opportunities) opportunities,
-    (SELECT count(*)::int FROM public.commercial_extracted_facts) facts,
-    (SELECT count(*)::int FROM public.commercial_divergences) divergences,
     (SELECT count(*)::int FROM public.commercial_engagements WHERE origin='migration_backfill') backfilled,
     (SELECT count(*)::int FROM public.contracts WHERE deleted_at IS NULL) live_contracts,
     (SELECT count(*)::int FROM public.contracts c WHERE c.deleted_at IS NULL
@@ -186,11 +281,44 @@ try {
       + 'carregam título de contrato PRÉ-EXISTENTE marcado como teste. '
       + 'Origem: contratos de produção; o backfill copiou o título, não o criou.');
   }
-  report('Fabricação · nenhuma OS, proposta, oportunidade, fato ou divergência semeada',
-    fabricated.service_orders === 0 && fabricated.proposals === 0
-      && fabricated.opportunities === 0 && fabricated.facts === 0
-      && fabricated.divergences === 0,
-    JSON.stringify(fabricated));
+  /*
+    Proposta, oportunidade, OS, fato e divergência EXISTEM em uso real — a
+    pergunta certa não é "há alguma?", é "alguma é fixture de QA?".
+  */
+  const qaUser = qaEmail
+    ? (await db.query('SELECT id FROM auth.users WHERE lower(email) = lower($1)', [qaEmail])).rows[0]?.id ?? null
+    : null;
+  const fixtures = (await db.query(`SELECT
+    (SELECT count(*)::int FROM public.commercial_proposals
+      WHERE created_by = $1 OR proposal_number ~* $2 OR title ~* $2 OR counterparty_name ~* $2) proposals,
+    (SELECT count(*)::int FROM public.commercial_opportunities
+      WHERE created_by = $1 OR title ~* $2 OR counterparty_name ~* $2) opportunities,
+    (SELECT count(*)::int FROM public.internal_service_orders
+      WHERE created_by = $1 OR os_number ~* $2 OR title ~* $2) service_orders,
+    (SELECT count(*)::int FROM public.commercial_extracted_facts f
+      JOIN public.commercial_proposal_revisions r ON r.id = f.subject_id
+      JOIN public.commercial_proposals p ON p.id = r.proposal_id
+     WHERE p.created_by = $1 OR p.proposal_number ~* $2) facts,
+    (SELECT count(*)::int FROM public.commercial_divergences d
+      JOIN public.commercial_engagements e ON e.id = d.engagement_id
+     WHERE e.origin <> 'migration_backfill' AND (e.created_by = $1 OR e.title ~* $2)) divergences`,
+    [qaUser, FIXTURE_MARK])).rows[0];
+  report('Fabricação · nenhuma fixture de QA no banco (proposta, oportunidade, OS, fato, divergência)',
+    Object.values(fixtures).every((n) => n === 0),
+    `${JSON.stringify(fixtures)} · identidade de QA ${qaUser ? 'resolvida' : qaEmail ? 'não encontrada' : 'não configurada'}`);
+  const business = (await db.query(`SELECT
+    (SELECT count(*)::int FROM public.commercial_proposals) proposals,
+    (SELECT count(*)::int FROM public.commercial_opportunities) opportunities,
+    (SELECT count(*)::int FROM public.commercial_extracted_facts) facts,
+    (SELECT count(*)::int FROM public.commercial_proposals
+      WHERE (created_by IS DISTINCT FROM $1) AND (proposal_number ILIKE '%teste%' OR title ILIKE '%teste%')) manual_test_named`,
+    [qaUser])).rows[0];
+  console.log(`INFO  Negócio · ${business.proposals} proposta(s), ${business.opportunities} oportunidade(s), `
+    + `${business.facts} fato(s) criados por pessoas — uso legítimo, não fixture.`);
+  if (business.manual_test_named) {
+    console.log(`INFO  Negócio · ${business.manual_test_named} proposta(s) criada(s) por PESSOA com "teste" no número/título `
+      + '— não é fixture de QA; o dono decide se arquiva.');
+  }
   /*
     A contagem crua `backfill === contratos` valia só enquanto nenhum contrato
     NOVO existisse: desde a 205 um contrato criado depois gera engajamento com
@@ -228,11 +356,15 @@ try {
   const registry = await db.query(`
     SELECT version FROM supabase_migrations.schema_migrations ORDER BY version::int`);
   const versions = registry.rows.map((r) => r.version);
-  report('Registro · ponta em 216', versions.at(-1) === '216', versions.at(-1));
+  report(`Registro · ponta em ${EXPECTED_TIP} (última migration do repositório)`,
+    versions.at(-1) === EXPECTED_TIP, versions.at(-1));
 
   console.log(`\n${findings.length === 0 ? 'Auditoria limpa.' : `${findings.length} achado(s).`}`);
 } catch (error) {
   console.error('FALHOU:', error.message);
   process.exitCode = 1;
-} finally { await db.end(); }
+} finally {
+  if (withVersions.length) { try { await db.query('ROLLBACK'); console.log('ROLLBACK — nada foi gravado.'); } catch {} }
+  await db.end();
+}
 process.exitCode = findings.length ? 1 : process.exitCode;

@@ -22,7 +22,9 @@ import {
 import { HudBadge, HudButton, HudDrawer, useHudToast } from "@/components/hud";
 import { usePermissions } from "@/hooks/use-permissions";
 import { opportunityStageLabels, proposalStatusLabels } from "@/lib/commercial/labels";
-import type { OpportunityStage, ProposalRevisionStatus } from "@/lib/commercial/types";
+import { groupProposalContexts } from "@/lib/commercial/proposal-context";
+import { ProposalContextList } from "./ProposalParts";
+import type { OpportunityStage, ProposalKind, ProposalRevisionStatus } from "@/lib/commercial/types";
 import {
   ALLOWED_STAGE_TRANSITIONS, STAGES_REQUIRING_REASON, STAGE_STALL_DAYS,
   daysBetween, isOpenStage,
@@ -64,8 +66,9 @@ type ContactRow = {
   phone: string | null; is_primary: boolean;
 };
 type ProposalRow = {
-  id: string; proposal_number: string; kind: string; title: string;
-  currency: string; created_at: string;
+  id: string; proposal_number: string; kind: ProposalKind; title: string;
+  currency: string; created_at: string; counterparty_name?: string;
+  opportunity_id?: string | null; party_id?: string | null; context_id?: string | null;
 };
 type RevisionRow = {
   id: string; proposal_id: string; revision: number; status: ProposalRevisionStatus;
@@ -139,6 +142,13 @@ export function OpportunityWorkspace({
   const governing = useMemo(
     () => governingRevision(data?.revisions ?? []),
     [data?.revisions],
+  );
+  // PT + PC = uma proposta: a aba e o contador falam de contextos.
+  const proposalContexts = useMemo(
+    () => groupProposalContexts(
+      (data?.proposals ?? []).map((p) => ({ ...p, counterparty_name: p.counterparty_name ?? data?.opportunity.counterparty_name ?? "" })),
+      data?.revisions ?? []),
+    [data?.proposals, data?.revisions, data?.opportunity],
   );
 
   const timeline = useMemo<TimelineEntry[]>(() => {
@@ -296,7 +306,7 @@ export function OpportunityWorkspace({
     { id: "summary", label: "Resumo", count: blockingSignals, alert: blockingSignals > 0 },
     { id: "discovery", label: "Descoberta", count: openSurveys.length || (data.readiness?.state === "NOT_READY" ? 1 : 0),
       alert: data.readiness?.state === "NOT_READY" },
-    { id: "proposals", label: "Propostas", count: data.proposals.length },
+    { id: "proposals", label: "Propostas", count: proposalContexts.length },
     { id: "followups", label: "Follow-ups", count: openFollowups.length },
     { id: "account", label: "Conta", count: data.contacts.length },
     { id: "activity", label: "Atividade" },
@@ -672,7 +682,8 @@ export function OpportunityWorkspace({
 
           {tab === "proposals" && (
             <FlowTabPanel label="Propostas">
-          <Section title="Propostas vinculadas" count={data.proposals.length}>
+          <Section title="Propostas vinculadas" count={proposalContexts.length}
+            note={data.proposals.length > proposalContexts.length ? "PT e PC da mesma obra formam uma proposta." : undefined}>
             {data.proposals.length === 0 ? (
               <div className="crm-section-body">
                 <UnlockHint
@@ -693,38 +704,7 @@ export function OpportunityWorkspace({
                 </UnlockHint>
               </div>
             ) : (
-              <ul className="crm-linked-list">
-                {data.proposals.map((proposal) => {
-                  const revision = governing.get(proposal.id);
-                  return (
-                    <li key={proposal.id}>
-                      <FileText size={14} aria-hidden />
-                      <div className="min-w-0">
-                        <strong>
-                          {proposal.proposal_number} · {proposal.title}
-                        </strong>
-                        <p className="crm-muted">
-                          {revision
-                            ? `R${String(revision.revision).padStart(2, "0")} · ${proposalStatusLabels[revision.status]} · ${brl(revision.total_value, revision.currency ?? proposal.currency)}`
-                            : "Sem revisão"}
-                          {revision?.validity_until
-                            ? ` · validade ${day(revision.validity_until)}`
-                            : ""}
-                        </p>
-                      </div>
-                      {onOpenProposal && (
-                        <HudButton
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => onOpenProposal(proposal.id)}
-                        >
-                          Abrir <ArrowRight size={13} aria-hidden />
-                        </HudButton>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
+              <ProposalContextList contexts={proposalContexts} onOpen={onOpenProposal} empty="Nenhuma proposta." />
             )}
           </Section>
           {(data.serviceOrders ?? []).length > 0 && (

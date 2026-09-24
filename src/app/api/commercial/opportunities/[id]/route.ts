@@ -68,7 +68,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
           .eq('active', true).order('full_name')
       : Promise.resolve({ data: [] }),
     session.supabase.from('commercial_proposals')
-      .select('id,proposal_number,kind,title,currency,opportunity_id,created_at')
+      .select('*') // '*': traz context_id (217) quando existe — PT+PC = um contexto
       .eq('organization_id', session.organizationId).eq('opportunity_id', id),
     session.supabase.from('commercial_opportunity_stage_events')
       .select('id,from_stage,to_stage,reason,actor_user_id,occurred_at')

@@ -11,10 +11,11 @@
 import { useMemo, useState } from "react";
 import { AlertTriangle, ArrowRight, Info } from "lucide-react";
 import {
-  compareRevisions, crossCheckTechnicalCommercial, type ChangeKind, type FactLike, type RevisionLike,
+  compareRevisions, crossCheckTechnicalCommercial, materialHighlights, type ChangeKind, type FactLike, type RevisionLike,
 } from "@/lib/commercial/proposal-compare";
 import { SectionEmpty } from "./detail";
 import "./commercial-flow.css";
+import "./commercial-proposal.css";
 
 const KIND_LABEL: Record<ChangeKind, string> = {
   modified: "Alterado", added: "Novo", removed: "Removido", unchanged: "Igual",
@@ -39,8 +40,7 @@ export function RevisionComparison({
   const changes = compareRevisions(left, right, facts);
   const visible = showUnchanged ? changes : changes.filter((c) => c.kind !== "unchanged");
   const material = changes.filter((c) => c.material && c.kind !== "unchanged");
-  const headline = changes.filter((c) => ["total_value", "payment_terms", "validity_until"].includes(c.key) && c.kind !== "unchanged");
-  const scopeChanged = changes.some((c) => (c.key === "scope_summary" || c.domain === "SCOPE") && c.kind !== "unchanged");
+  const highlights = materialHighlights(changes);
 
   return (
     <div data-testid="revision-comparison">
@@ -66,13 +66,19 @@ export function RevisionComparison({
           </span>
         </label>
       </div>
-      <div className="flow-compare-headline" aria-label="Resumo da comparação">
-        <span><strong>{r(left)} → {r(right)}</strong></span>
-        {headline.map((c) => (
-          <span key={c.key}>{c.label}: {c.before ?? "—"} → <strong>{c.after ?? "—"}</strong>{c.delta ? ` (${c.delta})` : ""}</span>
-        ))}
-        <span>Escopo: <strong>{scopeChanged ? "alterado" : "inalterado"}</strong></span>
-        <span className={material.length ? "flow-material" : "crm-muted"}>{material.length} mudança(s) material(is)</span>
+      <div className="pc-material" aria-label="Mudanças materiais" data-testid="revision-material">
+        <span className="pc-material-title"><strong>{r(left)} → {r(right)}</strong> · {material.length} mudança(s) material(is)</span>
+        {highlights.length ? (
+          <div className="pc-material-chips">
+            {highlights.map((h) => (
+              <span key={h.key} className={`pc-material-chip pc-material-${h.tone}`}>
+                {h.label} <strong>{h.detail}</strong>
+              </span>
+            ))}
+          </div>
+        ) : (
+          <span className="crm-muted">Nada material mudou entre as duas revisões.</span>
+        )}
       </div>
       {left.id === governingId && right.status !== "ACCEPTED" && (
         <p className="flow-note" style={{ margin: "10px 14px" }}>
@@ -84,6 +90,7 @@ export function RevisionComparison({
       ) : (
         <div className="crm-table-scroll">
           <table className="flow-compare">
+            <caption className="pc-caption">Detalhe da comparação</caption>
             <thead><tr><th>Item</th><th>{r(left)}</th><th>{r(right)}</th><th>Mudança</th></tr></thead>
             <tbody>
               {visible.map((c) => (

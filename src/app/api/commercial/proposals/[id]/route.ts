@@ -3,6 +3,7 @@ import {
   requireCommercialSession, isSessionError, hasOptionalPermission,
 } from '@/lib/commercial/server-session';
 import { resolveOwnerNames } from '@/lib/commercial/owner-directory';
+import { loadContextMembers, type ProposalRecord } from '@/lib/commercial/proposal-context-server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -24,6 +25,13 @@ export const dynamic = 'force-dynamic';
  * respostas opostas, e a segunda disfarçada de primeira é como um bloqueio vira
  * invisível.
  *
+ * ─── O CONTEXTO (PT + PC) ─────────────────────────────────────────────────
+ *
+ * Abrir a PT ou a PC abre a MESMA proposta: o dossiê devolve os documentos do
+ * contexto (`members`), as revisões de todos (`contextRevisions`, histórias
+ * independentes), os fatos e PDFs de todos. `revisions` continua sendo só as
+ * do documento aberto, para quem já consumia assim.
+ *
  * Nada aqui escreve, e toda leitura passa pelo cliente autenticado.
  */
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
@@ -33,8 +41,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
 
   const { data: proposalRow, error } = await session.supabase
     .from('commercial_proposals')
-    .select('id,opportunity_id,proposal_number,kind,title,counterparty_name,party_id,currency,'
-      + 'owner_user_id,created_at')
+    .select('*')
     .eq('organization_id', session.organizationId)
     .eq('id', id)
     .maybeSingle();
@@ -45,11 +52,15 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
   if (!proposalRow) {
     return NextResponse.json({ ok: false, error: 'Proposta não encontrada.' }, { status: 404 });
   }
-  const proposal = proposalRow as unknown as {
-    id: string; opportunity_id: string | null; proposal_number: string; kind: string;
-    title: string; counterparty_name: string; party_id: string | null; currency: string;
+  const proposal = proposalRow as unknown as ProposalRecord & {
+    opportunity_id: string | null; party_id: string | null; currency: string;
     owner_user_id: string | null; created_at: string;
   };
+  const members = await loadContextMembers(session, proposal);
+  const memberIds = members.map((m) => m.id);
+  // A oportunidade do contexto: qualquer documento vinculado a responde.
+  const contextOpportunityId = proposal.opportunity_id
+    ?? members.map((m) => m.opportunity_id).find(Boolean) ?? null;
 
   const { data: revisionData } = await session.supabase
     .from('commercial_proposal_revisions')
@@ -60,7 +71,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
       + 'rejection_reason,expired_at,withdrawn_at,superseded_at,supersedes_id,superseded_by_id,'
       + 'created_by,created_at')
     .eq('organization_id', session.organizationId)
-    .eq('proposal_id', id)
+    .in('proposal_id', memberIds)
     .order('revision', { ascending: false });
 
   /*
@@ -68,10 +79,11 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     para estas tabelas. O erro de consulta já foi tratado acima; aqui a forma é
     a que a própria `select` acima declara.
   */
-  const revisions = (revisionData ?? []) as unknown as
+  const contextRevisions = (revisionData ?? []) as unknown as
     Array<Record<string, string | number | null>>;
-  const revisionIds = revisions.map((r) => String(r.id));
-  const documentIds = revisions
+  const revisions = contextRevisions.filter((r) => r.proposal_id === id);
+  const revisionIds = contextRevisions.map((r) => String(r.id));
+  const documentIds = contextRevisions
     .flatMap((r) => [r.document_id, r.acceptance_document_id])
     .filter((value): value is string => typeof value === 'string');
 
@@ -100,28 +112,21 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
       .select('id,source_kind,source_id,goal,expected_evidence,state,due_date,'
         + 'next_expected_event,next_expected_event_at,responsible_text,responsible_user_id,created_at')
       .eq('organization_id', session.organizationId)
-      .eq('source_kind', 'commercial_proposal').eq('source_id', id)
+      .eq('source_kind', 'commercial_proposal').in('source_id', memberIds)
       .order('due_date', { ascending: true, nullsFirst: false }),
-    proposal.opportunity_id
+    contextOpportunityId
       ? session.supabase.from('commercial_opportunities')
           .select('id,title,stage,counterparty_name,estimated_value,currency,expected_decision_date')
-          .eq('organization_id', session.organizationId).eq('id', proposal.opportunity_id).maybeSingle()
+          .eq('organization_id', session.organizationId).eq('id', contextOpportunityId).maybeSingle()
       : Promise.resolve({ data: null }),
   ]);
 
   /*
-    O PAR técnica ↔ comercial. As propostas irmãs da mesma oportunidade, com
-    a revisão e os fatos delas — é o que permite comparar PT com PC sem
-    ninguém abrir duas gavetas. E o blueprint de execução das revisões desta
-    proposta, que é contexto de planejamento e nada mais.
+    O PAR técnica ↔ comercial: os outros documentos do MESMO contexto, com
+    as revisões e os fatos deles — compatível com quem lia `siblings`. E o
+    blueprint das revisões do contexto, que é planejamento e nada mais.
   */
-  const [siblingData, blueprintData, startData] = await Promise.all([
-    proposal.opportunity_id
-      ? session.supabase.from('commercial_proposals')
-          .select('id,proposal_number,kind,title,currency')
-          .eq('organization_id', session.organizationId)
-          .eq('opportunity_id', proposal.opportunity_id).neq('id', id)
-      : Promise.resolve({ data: [] }),
+  const [blueprintData, startData] = await Promise.all([
     revisionIds.length
       ? session.supabase.from('commercial_execution_blueprints')
           .select('id,proposal_revision_id,status,generated_by,ai_model,created_at,'
@@ -129,30 +134,33 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
           .eq('organization_id', session.organizationId).in('proposal_revision_id', revisionIds)
           .order('created_at', { ascending: false })
       : Promise.resolve({ data: [] }),
-    proposal.opportunity_id
+    contextOpportunityId
       ? session.supabase.from('commercial_execution_starts')
           .select('id,engagement_id,mode,authorization_type,authorization_date,authorization_reference,'
             + 'documentation_state,exception_reason,regularization_owner_user_id,regularization_due_date,'
             + 'regularized_at,service_order_id,project_id,confirmed_by,confirmed_at')
           .eq('organization_id', session.organizationId)
-          .eq('opportunity_id', proposal.opportunity_id).maybeSingle()
+          .eq('opportunity_id', contextOpportunityId).maybeSingle()
       : Promise.resolve({ data: null }),
   ]);
-  const siblings = (siblingData.data ?? []) as unknown as Array<{ id: string }>;
-  const siblingRevisions = siblings.length
-    ? ((await session.supabase.from('commercial_proposal_revisions')
-        .select('id,proposal_id,revision,status,total_value,currency,validity_until,payment_terms,'
-          + 'scope_summary,acceptance_conditions')
-        .eq('organization_id', session.organizationId).in('proposal_id', siblings.map((x) => x.id))
-        .order('revision', { ascending: false })).data ?? []) as unknown as Array<{ id: string }>
-    : [];
-  const siblingFacts = siblingRevisions.length
-    ? ((await session.supabase.from('commercial_extracted_facts')
-        .select('id,subject_id,fact_domain,fact_key,label,value_text,value_numeric,value_date,unit,currency,'
-          + 'corrected_value,confirmation_state,provenance_state,source_page')
-        .eq('organization_id', session.organizationId)
-        .in('subject_id', siblingRevisions.map((r) => r.id)).limit(400)).data ?? [])
-    : [];
+  /*
+    O LIVRO DE ACEITE do contexto (217): qual pacote exato PT + PC o cliente
+    aceitou, com evidência, ator e hora. Sem a 217 a tabela não existe e a
+    tela cai na regra derivada (todo documento com a regente aceita).
+  */
+  const acceptances = proposal.context_id
+    ? ((await session.supabase.from('commercial_proposal_context_acceptances')
+        .select('id,context_id,technical_revision_id,technical_status,commercial_revision_id,commercial_status,'
+          + 'combined_revision_id,combined_status,complete,acceptance_source,acceptance_document_id,'
+          + 'acceptance_external_ref,acceptance_note,recorded_by,accepted_at,origin')
+        .eq('organization_id', session.organizationId).eq('context_id', proposal.context_id)
+        .order('accepted_at', { ascending: false }).limit(20)).data ?? []) as unknown as
+        Array<{ recorded_by: string | null }>
+    : null;
+  const siblings = members.filter((m) => m.id !== id)
+    .map((m) => ({ id: m.id, proposal_number: m.proposal_number, kind: m.kind, title: m.title, currency: m.currency ?? 'BRL' }));
+  const siblingRevisions = contextRevisions.filter((r) => r.proposal_id !== id);
+  const siblingRevisionIds = new Set(siblingRevisions.map((r) => String(r.id)));
 
   // ---- a partir daqui, só com alçada de pós-venda ----
   const canSeeExecution = await hasOptionalPermission(session, 'contracts.view');
@@ -204,8 +212,9 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
   }
 
   const owners = await resolveOwnerNames(session.organizationId, [
-    proposal.owner_user_id,
-    ...revisions.flatMap((r) => [r.internally_approved_by, r.sent_by, r.recorded_by, r.created_by])
+    ...members.map((m) => m.owner_user_id ?? null),
+    ...(acceptances ?? []).map((a) => a.recorded_by),
+    ...contextRevisions.flatMap((r) => [r.internally_approved_by, r.sent_by, r.recorded_by, r.created_by])
       .filter((value): value is string => typeof value === 'string'),
   ]);
 
@@ -215,6 +224,11 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     revisions,
     opportunity: opportunity.data ?? null,
     facts: facts.data ?? [],
+    members: members.map((m) => ({ id: m.id, proposal_number: m.proposal_number, kind: m.kind, title: m.title,
+      counterparty_name: m.counterparty_name, currency: m.currency ?? 'BRL', opportunity_id: m.opportunity_id ?? null,
+      party_id: m.party_id ?? null, context_id: m.context_id ?? null, created_at: m.created_at ?? null })),
+    contextRevisions,
+    acceptances,
     followups: followups.data ?? [],
     documents,
     authorizations,
@@ -224,7 +238,8 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     owners,
     siblings,
     siblingRevisions,
-    siblingFacts,
+    siblingFacts: ((facts.data ?? []) as unknown as Array<{ subject_id: string | null }>)
+      .filter((f) => f.subject_id && siblingRevisionIds.has(f.subject_id)),
     blueprints: blueprintData.data ?? [],
     executionStart: startData.data ?? null,
     /*

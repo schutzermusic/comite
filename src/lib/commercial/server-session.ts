@@ -161,6 +161,12 @@ const SAFE_PREFIXES = [
   'A proposta já',
   'A proposta e a oportunidade',
   'A oportunidade está encerrada',
+  // Contexto PT + PC (217): a recusa diz qual documento segura o pacote.
+  'Pacote:',
+  'PT e PC do mesmo contexto',
+  'Proposta técnica + comercial é um contexto',
+  'Contexto de proposta',
+  'O contexto de uma proposta',
   'Permission required',
   'Completion requires',
   'Waiting for an external party',

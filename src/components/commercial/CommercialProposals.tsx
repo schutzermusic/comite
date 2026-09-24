@@ -9,6 +9,11 @@ import type {
   ProposalKind,
   ProposalRevisionStatus,
 } from "@/lib/commercial/types";
+import {
+  CONTEXT_STAGE_LABEL, contextMetrics, groupProposalContexts,
+  type ContextStage, type ProposalContext,
+} from "@/lib/commercial/proposal-context";
+import { DocTag, type DocRole } from "./ProposalParts";
 import { brl, day, ResourceState, useCommercialResource } from "./shared";
 import { RecordOutcomeModal } from "./RecordOutcomeModal";
 import { ProposalWorkspace } from "./ProposalWorkspace";
@@ -25,8 +30,10 @@ import {
   Metrics,
   Panel,
   Segments,
+  StatePill,
   Toolbar,
   WorkspaceHeading,
+  type Tone,
 } from "./workspace";
 type ProposalRow = {
   id: string;
@@ -36,6 +43,9 @@ type ProposalRow = {
   counterparty_name: string;
   currency: string;
   opportunity_id: string | null;
+  party_id?: string | null;
+  context_id?: string | null;
+  created_at?: string | null;
 };
 type RevisionRow = {
   id: string;
@@ -53,12 +63,25 @@ type RevisionRow = {
   superseded_by_id: string | null;
 };
 
-const kindLabels: Record<ProposalKind, string> = {
-  TECHNICAL: "Técnica",
-  COMMERCIAL: "Comercial",
-  COMBINED: "Técnica + Comercial",
+const ROLE: Record<ProposalKind, DocRole> = { TECHNICAL: "PT", COMMERCIAL: "PC", COMBINED: "PT+PC" };
+const composition = (ctx: ProposalContext) =>
+  ctx.combined ? "COMBINED" : ctx.technical && ctx.commercial ? "PAIR" : ctx.technical ? "PT_ONLY" : "PC_ONLY";
+const compositionLabels: Record<string, string> = {
+  PAIR: "PT + PC", COMBINED: "Técnica + comercial (PDF único)", PT_ONLY: "Só PT", PC_ONLY: "Só PC",
+};
+const stageTone: Record<ContextStage, Tone> = {
+  DRAFT: "neutral", INTERNAL_APPROVAL: "warning", APPROVED_FOR_SEND: "info", WITH_CUSTOMER: "accent",
+  NEGOTIATION: "accent", ACCEPTED: "success", REJECTED: "danger", CLOSED: "neutral",
 };
 
+/**
+ * A CENTRAL DE PROPOSTAS — uma linha por proposta comercial.
+ *
+ * PT e PC do mesmo cliente/obra são UM contexto (`proposal-context.ts`): uma
+ * linha, uma contagem, com os dois documentos e suas revisões regentes à
+ * vista. Contadores, filtros e ações operam sobre o pacote, nunca sobre
+ * metade dele.
+ */
 export function CommercialProposals() {
   const { data, state, message, refresh } = useCommercialResource<{
     proposals: ProposalRow[];
@@ -82,37 +105,26 @@ export function CommercialProposals() {
   const [composing, setComposing] = useState<{ id: string; label: string } | null>(null);
   const { hasPermission } = usePermissions();
   const canManage = hasPermission("commercial.proposals.manage");
+  const canApprove = hasPermission("commercial.proposals.approve_internal");
   const { success, error: notifyError } = useHudToast();
-  // An accepted revision continues governing even when a newer draft exists.
-  const governing = useMemo(() => {
-    const map = new Map<string, RevisionRow>();
-    for (const revision of data?.revisions ?? []) {
-      const current = map.get(revision.proposal_id);
-      if (revision.status === "ACCEPTED") {
-        map.set(revision.proposal_id, revision);
-        continue;
-      }
-      if (current?.status === "ACCEPTED") continue;
-      if (!current || revision.revision > current.revision)
-        map.set(revision.proposal_id, revision);
-    }
-    return map;
-  }, [data]);
-  const transition = async (revisionId: string, to: string) => {
+  const contexts = useMemo(
+    () => groupProposalContexts<ProposalRow, RevisionRow>(data?.proposals ?? [], data?.revisions ?? []),
+    [data],
+  );
+  const transition = async (ctx: ProposalContext<ProposalRow, RevisionRow>, to: string) => {
     if (busy) return;
-    setBusy(revisionId);
+    setBusy(ctx.key);
     try {
-      const response = await fetch("/api/commercial/proposals", {
-        method: "PATCH",
+      const response = await fetch(`/api/commercial/proposals/${ctx.primaryId}/context`, {
+        method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ revisionId, to }),
+        body: JSON.stringify({ to }),
       });
       const payload = await response.json();
       if (!response.ok || !payload.ok)
         throw new Error(payload.error || "Não foi possível atualizar.");
-      success(
-        `Revisão em ${proposalStatusLabels[to as ProposalRevisionStatus] ?? to}`,
-      );
+      success(proposalStatusLabels[to as ProposalRevisionStatus] ?? to,
+        ctx.members.length > 1 ? "PT e PC andaram juntas." : undefined);
       refresh();
     } catch (e) {
       notifyError("Transição recusada", (e as Error).message);
@@ -122,15 +134,12 @@ export function CommercialProposals() {
   };
   if (state !== "ready" || !data)
     return <ResourceState state={state} message={message} />;
-  const live = [...governing.values()];
-  const withoutPdf = live.filter((r) => !r.document_id).length;
-  const count = (...statuses: string[]) =>
-    live.filter((r) => statuses.includes(r.status)).length;
-  const rows = data.proposals.filter(
-    (p) =>
-      matches(search, p.title, p.counterparty_name, p.proposal_number) &&
-      (kind === "all" || p.kind === kind) &&
-      (status === "all" || governing.get(p.id)?.status === status),
+  const metrics = contextMetrics(contexts);
+  const rows = contexts.filter(
+    (c) =>
+      matches(search, c.title, c.counterparty, ...c.members.map((m) => m.proposal.proposal_number)) &&
+      (kind === "all" || composition(c) === kind) &&
+      (status === "all" || c.stage === status),
   );
   return (
     <section className="crm-workspace" aria-label="Propostas">
@@ -139,13 +148,15 @@ export function CommercialProposals() {
         title="Propostas"
         description={
           <>
-            <span><b>{count("DRAFT", "INTERNAL_REVIEW", "INTERNALLY_APPROVED")}</b> em preparação</span>
+            <span><b>{metrics.preparing}</b> em preparação</span>
             <i className="crm-live-sep" aria-hidden />
-            <span><b>{count("SENT", "NEGOTIATION")}</b> com o cliente</span>
+            <span><b>{metrics.internalApproval}</b> em aprovação interna</span>
             <i className="crm-live-sep" aria-hidden />
-            <span><b>{count("ACCEPTED")}</b> aceita(s)</span>
+            <span><b>{metrics.withCustomer}</b> com o cliente</span>
             <i className="crm-live-sep" aria-hidden />
-            <span className={withoutPdf ? "crm-tone-warning" : undefined}><b>{withoutPdf}</b> sem PDF</span>
+            <span><b>{metrics.accepted}</b> aceita(s)</span>
+            <i className="crm-live-sep" aria-hidden />
+            <span className={metrics.missingPdf ? "crm-tone-warning" : undefined}><b>{metrics.missingPdf}</b> sem PDF</span>
           </>
         }
         action={<CreateCommercialButton kind="proposal" onCreated={refresh} onOpen={setOpenProposal} />}
@@ -154,30 +165,30 @@ export function CommercialProposals() {
         items={[
           {
             label: "Propostas",
-            value: data.proposals.length,
-            hint: "Documentos comerciais registrados",
+            value: metrics.total,
+            hint: `PT + PC contam como uma · ${data.proposals.length} documento(s)`,
             accent: true,
           },
           {
             label: "Em preparação",
-            value: count("DRAFT", "INTERNAL_REVIEW", "INTERNALLY_APPROVED"),
-            hint: "Da elaboração à aprovação interna",
+            value: metrics.preparing,
+            hint: "Rascunho até aprovada para envio",
           },
           {
             label: "Com o cliente",
-            value: count("SENT", "NEGOTIATION"),
-            hint: "Aguardando decisão",
+            value: metrics.withCustomer,
+            hint: "Pacote enviado, aguardando decisão",
           },
           {
-            label: "Revisões aceitas",
-            value: count("ACCEPTED"),
-            hint: "Elegíveis para autorizar trabalho",
+            label: "Aceitas",
+            value: metrics.accepted,
+            hint: "Elegíveis para iniciar execução",
           },
         ]}
       />
       <Panel
         title="Central de propostas"
-        note="A revisão aceita fica em destaque; na ausência de aceite, a mais recente."
+        note="Uma linha por proposta: técnica e comercial juntas, cada uma com sua revisão regente."
       >
         <div className="p-4 border-b border-ig-border-subtle">
           <Segments
@@ -185,27 +196,20 @@ export function CommercialProposals() {
             value={status}
             onChange={setStatus}
             options={[
-              { value: "all", label: "Todas", count: data.proposals.length },
-              { value: "DRAFT", label: "Rascunhos", count: count("DRAFT") },
-              {
-                value: "INTERNAL_REVIEW",
-                label: "Revisão interna",
-                count: count("INTERNAL_REVIEW"),
-              },
-              { value: "SENT", label: "Enviadas", count: count("SENT") },
-              {
-                value: "NEGOTIATION",
-                label: "Negociação",
-                count: count("NEGOTIATION"),
-              },
-              { value: "ACCEPTED", label: "Aceitas", count: count("ACCEPTED") },
+              { value: "all", label: "Todas", count: metrics.total },
+              { value: "DRAFT", label: "Rascunhos", count: metrics.count("DRAFT") },
+              { value: "INTERNAL_APPROVAL", label: "Aprovação interna", count: metrics.count("INTERNAL_APPROVAL") },
+              { value: "APPROVED_FOR_SEND", label: "Aprovadas p/ envio", count: metrics.count("APPROVED_FOR_SEND") },
+              { value: "WITH_CUSTOMER", label: "Com o cliente", count: metrics.count("WITH_CUSTOMER") },
+              { value: "NEGOTIATION", label: "Negociação", count: metrics.count("NEGOTIATION") },
+              { value: "ACCEPTED", label: "Aceitas", count: metrics.count("ACCEPTED") },
             ]}
           />
         </div>
         <Toolbar
           search={search}
           onSearch={setSearch}
-          placeholder="Buscar proposta, número ou cliente"
+          placeholder="Buscar proposta, número PT/PC ou cliente"
         >
           <Filter
             label="Status"
@@ -213,22 +217,16 @@ export function CommercialProposals() {
             onChange={setStatus}
             options={[
               { value: "all", label: "Todos os status" },
-              ...Object.entries(proposalStatusLabels).map(([value, label]) => ({
-                value,
-                label,
-              })),
+              ...Object.entries(CONTEXT_STAGE_LABEL).map(([value, label]) => ({ value, label })),
             ]}
           />
           <Filter
-            label="Tipo de proposta"
+            label="Documentos da proposta"
             value={kind}
             onChange={setKind}
             options={[
-              { value: "all", label: "Todos os tipos" },
-              ...Object.entries(kindLabels).map(([value, label]) => ({
-                value,
-                label,
-              })),
+              { value: "all", label: "Todas as composições" },
+              ...Object.entries(compositionLabels).map(([value, label]) => ({ value, label })),
             ]}
           />
         </Toolbar>
@@ -236,150 +234,140 @@ export function CommercialProposals() {
           label="Propostas e revisões"
           columns={[
             "Proposta / cliente",
+            "Documentos",
             "Oportunidade",
-            "Tipo",
-            "Revisão",
             "Valor",
             "Status",
             "Validade",
             "Próximo passo",
           ]}
           count={rows.length}
-          footer="Somente a revisão aceita pode autorizar execução"
+          footer="PT e PC contam como uma proposta · só a revisão aceita autoriza execução"
           empty={
             <EmptyNote
               title={
-                data.proposals.length
+                contexts.length
                   ? "Nenhuma proposta neste recorte"
                   : "Nenhuma proposta registrada"
               }
-              description="Crie a primeira proposta em rascunho. Revisão interna, envio ao cliente e registro de resposta permanecem etapas distintas."
+              description="Importe a PT e a PC: a Apex lê, você revisa as exceções e a proposta nasce em rascunho. Aprovação interna, envio e resposta do cliente permanecem etapas distintas."
             />
           }
         >
-          {rows.map((proposal) => {
-            const revision = governing.get(proposal.id);
+          {rows.map((ctx) => {
+            const primary = ctx.members.find((m) => m.proposal.id === ctx.primaryId)!;
+            const g = primary.governing;
+            // Aceita rege: nenhuma ação de aprovação sobre rascunho posterior.
+            const pendingDraft = !ctx.accepted && ctx.members.some((m) => m.latest?.status === "DRAFT");
+            const pendingReview = !ctx.accepted && ctx.members.some((m) => m.latest?.status === "INTERNAL_REVIEW");
+            const approvedToSend = ctx.members.some((m) => m.latest?.status === "INTERNALLY_APPROVED")
+              && !pendingDraft && !pendingReview;
             return (
-              <Fragment key={proposal.id}>
+              <Fragment key={ctx.key}>
                 <tr>
                   <td>
                     <button
                       type="button"
                       className="crm-row-open"
-                      onClick={() => setOpenProposal(proposal.id)}
+                      onClick={() => setOpenProposal(ctx.primaryId)}
                     >
-                      <strong>
-                        {proposal.proposal_number} · {proposal.title}
-                      </strong>
+                      <strong>{ctx.title}</strong>
                     </button>
-                    <p className="crm-muted">{proposal.counterparty_name}</p>
+                    <p className="crm-muted">{ctx.counterparty}</p>
                   </td>
                   <td>
-                    {proposal.opportunity_id
+                    <div className="grid gap-1">
+                      {ctx.members.map((m) => (
+                        <span key={m.proposal.id} className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                          <DocTag role={ROLE[m.proposal.kind]} />
+                          <span>{m.proposal.proposal_number}</span>
+                          <b>{m.governing ? `R${String(m.governing.revision).padStart(2, "0")}` : "—"}</b>
+                          {m.governing && !m.governing.document_id && <span className="crm-tone-warning">· sem PDF</span>}
+                        </span>
+                      ))}
+                    </div>
+                  </td>
+                  <td>
+                    {ctx.opportunityId
                       ? opportunities.data?.opportunities.find(
-                          (o) => o.id === proposal.opportunity_id,
+                          (o) => o.id === ctx.opportunityId,
                         )?.title || "Vinculada · título indisponível"
                       : "Sem vínculo"}
                   </td>
-                  <td>{kindLabels[proposal.kind]}</td>
+                  <td>{ctx.value !== null ? brl(ctx.value, ctx.currency) : "—"}</td>
                   <td>
-                    {revision
-                      ? `R${String(revision.revision).padStart(2, "0")}`
-                      : "—"}
-                  </td>
-                  <td>
-                    {brl(
-                      revision?.total_value ?? null,
-                      revision?.currency ?? proposal.currency,
+                    <StatePill tone={stageTone[ctx.stage]}>{CONTEXT_STAGE_LABEL[ctx.stage]}</StatePill>
+                    {ctx.internalApproval === "REAPPROVAL" && (
+                      <p className="crm-muted">Parte do pacote sem aprovação</p>
+                    )}
+                    {ctx.partiallyAccepted && (
+                      <p className="crm-tone-warning">Aceite parcial — pacote não aceito</p>
                     )}
                   </td>
+                  <td>{day(ctx.validityUntil)}</td>
                   <td>
-                    {revision ? (
-                      <HudBadge
-                        variant={
-                          revision.status === "ACCEPTED" ? "success" : "outline"
-                        }
-                      >
-                        {proposalStatusLabels[revision.status]}
-                      </HudBadge>
-                    ) : (
-                      "Sem revisão"
-                    )}
-                  </td>
-                  <td>{day(revision?.validity_until ?? null)}</td>
-                  <td>
-                    {revision?.status === "DRAFT" && canManage && (
+                    {pendingDraft && !pendingReview && canManage && (
                       <HudButton
                         variant="secondary"
                         size="sm"
                         disabled={!!busy}
-                        onClick={() =>
-                          transition(revision.id, "INTERNAL_REVIEW")
-                        }
+                        onClick={() => transition(ctx, "INTERNAL_REVIEW")}
                       >
-                        Enviar para revisão interna
+                        Enviar para aprovação interna
                       </HudButton>
                     )}
-                    {revision?.status === "INTERNAL_REVIEW" &&
-                      canManage &&
-                      hasPermission(
-                        "commercial.proposals.approve_internal",
-                      ) && (
+                    {pendingReview && canManage && canApprove && (
+                      <HudButton
+                        variant="primary"
+                        size="sm"
+                        disabled={!!busy}
+                        onClick={() => transition(ctx, "INTERNALLY_APPROVED")}
+                      >
+                        Aprovar para envio
+                      </HudButton>
+                    )}
+                    {approvedToSend && canManage && (
+                      <HudButton
+                        variant="primary"
+                        size="sm"
+                        disabled={!!busy}
+                        onClick={() => transition(ctx, "SENT")}
+                      >
+                        Marcar como enviada
+                      </HudButton>
+                    )}
+                    {!pendingDraft && !pendingReview && g && (g.status === "SENT" || g.status === "NEGOTIATION") &&
+                      hasPermission("commercial.proposals.record_acceptance") && (
                         <HudButton
                           variant="primary"
                           size="sm"
-                          disabled={!!busy}
-                          onClick={() =>
-                            transition(revision.id, "INTERNALLY_APPROVED")
-                          }
-                        >
-                          Aprovar internamente
-                        </HudButton>
-                      )}
-                    {revision?.status === "INTERNALLY_APPROVED" &&
-                      canManage && (
-                        <HudButton
-                          variant="primary"
-                          size="sm"
-                          disabled={!!busy}
-                          onClick={() => transition(revision.id, "SENT")}
-                        >
-                          Marcar como enviada
-                        </HudButton>
-                      )}
-                    {(revision?.status === "SENT" ||
-                      revision?.status === "NEGOTIATION") &&
-                      hasPermission(
-                        "commercial.proposals.record_acceptance",
-                      ) && (
-                        <HudButton
-                          variant="primary"
-                          size="sm"
-                          onClick={() => setOutcomeTarget(revision)}
+                          onClick={() => setOutcomeTarget(g)}
                         >
                           Registrar resposta do cliente
                         </HudButton>
                       )}
-                    {revision?.status === "ACCEPTED" &&
+                    {ctx.accepted && g?.status === "ACCEPTED" &&
                       hasPermission("commercial.engagements.manage") && (
                         <HudButton
                           variant="primary"
                           size="sm"
                           onClick={() =>
-                            setAuthorizeTarget({ revision, proposal })
+                            setAuthorizeTarget({ revision: g, proposal: primary.proposal })
                           }
                         >
                           Gerar trabalho autorizado
                         </HudButton>
                       )}
+                    {!canManage && !g?.status && <span className="crm-muted">—</span>}
                   </td>
                 </tr>
-                {revision?.status === "ACCEPTED" && (
+                {ctx.accepted && g?.status === "ACCEPTED" && (
                   <tr>
-                    <td colSpan={8}>
+                    <td colSpan={7}>
                       <p className="crm-muted">
-                        Aceita em {day(revision.accepted_at)} · manifestação:{" "}
-                        {revision.acceptance_source}.{" "}
+                        Pacote aceito em {day(g.accepted_at)} · manifestação:{" "}
+                        {g.acceptance_source}
+                        {ctx.members.length > 1 ? ` · ${ctx.members.map((m) => `${ROLE[m.proposal.kind]} R${String(m.governing?.revision ?? 0).padStart(2, "0")}`).join(" + ")}` : ""}.{" "}
                         <span>
                           Esta é a revisão que pode autorizar execução.
                         </span>
@@ -393,8 +381,9 @@ export function CommercialProposals() {
         </DataTable>
       </Panel>
       <GovernanceNote>
-        Só a revisão aceita alimenta a execução. Aprovação interna e envio não
-        representam aceite do cliente. Autorizar trabalho exige uma ação
+        PT e PC do mesmo cliente/obra formam uma proposta: aprovação interna e
+        envio acontecem para o pacote. Só a revisão aceita alimenta a execução.
+        Aprovação interna e envio não representam aceite do cliente. Autorizar trabalho exige uma ação
         separada e mantém a fonte regente registrada.
       </GovernanceNote>
       {openProposal && (

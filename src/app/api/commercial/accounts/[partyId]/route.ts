@@ -60,7 +60,7 @@ export async function GET(_request: Request, context: { params: Promise<{ partyI
       .eq('organization_id', session.organizationId).eq('party_id', partyId)
       .order('created_at', { ascending: false }).limit(200),
     session.supabase.from('commercial_proposals')
-      .select('id,proposal_number,kind,title,opportunity_id,currency,created_at')
+      .select('*') // '*': traz context_id (217) quando existe — PT+PC = um contexto
       .eq('organization_id', session.organizationId).eq('party_id', partyId)
       .order('created_at', { ascending: false }).limit(200),
     session.supabase.from('commercial_site_surveys')

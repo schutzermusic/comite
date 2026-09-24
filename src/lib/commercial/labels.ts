@@ -32,8 +32,8 @@ export const authorizationSourceLabels: Record<AuthorizationSourceKind, string> 
 
 export const proposalStatusLabels: Record<ProposalRevisionStatus, string> = {
   DRAFT: 'Rascunho',
-  INTERNAL_REVIEW: 'Em revisão interna',
-  INTERNALLY_APPROVED: 'Aprovada internamente',
+  INTERNAL_REVIEW: 'Em aprovação interna',
+  INTERNALLY_APPROVED: 'Aprovada para envio',
   SENT: 'Enviada ao cliente',
   NEGOTIATION: 'Em negociação',
   ACCEPTED: 'Aceita pelo cliente',

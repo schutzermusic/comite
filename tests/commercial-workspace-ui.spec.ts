@@ -499,7 +499,7 @@ test("Data-ready views: filters, accepted revision, queue semantics, currencies 
   ).toBeVisible();
   await expect(
     page.getByRole("button", {
-      name: "Enviar para revisão interna",
+      name: "Enviar para aprovação interna",
       exact: true,
     }),
   ).toHaveCount(0);
@@ -1084,7 +1084,9 @@ test("Opportunity workspace: account, value, aging, next action, signals and tim
       await expect(page.locator(".crm-followup-list")).toContainText("(texto)");
     }
     if (section === "Propostas vinculadas") {
-      await expect(page.locator(".crm-linked-list")).toContainText("TEST-P · Proposta de teste");
+      // Uma linha por proposta (contexto PT + PC), com documento e revisão regente.
+      await expect(page.locator(".crm-linked-list")).toContainText("Proposta de teste");
+      await expect(page.locator(".crm-linked-list")).toContainText("TEST-P R02");
     }
     if (section === "Linha do tempo") {
       await expect(page.locator(".crm-timeline")).toContainText("Oportunidade registrada em Qualificação");
@@ -1220,21 +1222,23 @@ test("Proposal workspace: governing revision, provenance, divergences and handof
   await page.setViewportSize({ width: 1440, height: 1100 });
   await intercept(deep);
   await openArea("propostas", "Central de propostas");
-  await page.getByRole("button", { name: /TEST-P · Proposta de teste/ }).first().click();
+  await page.getByRole("button", { name: "Proposta de teste", exact: true }).first().click();
 
   await expect(
-    page.getByRole("heading", { level: 2, name: "TEST-P · Proposta de teste", exact: true }),
+    page.getByRole("heading", { level: 2, name: "Proposta de teste", exact: true }),
   ).toBeVisible();
 
   // A ACEITA rege mesmo com um rascunho R03 mais novo em cima.
-  await expect(page.getByText("Revisão regente", { exact: true })).toBeVisible();
-  await expect(page.getByText("Aceita — é esta que pode autorizar execução")).toBeVisible();
+  const header = page.getByTestId("proposal-context-header");
+  await expect(header.getByTestId("proposal-doc-combined")).toContainText("TEST-P");
+  await expect(header.getByTestId("proposal-doc-combined")).toContainText("R02");
+  await expect(header.getByTestId("proposal-doc-combined")).toContainText("Aceita pelo cliente");
   await page.getByRole("tab", { name: /^Revisões/ }).click();
   await expect(page.getByText("Regente", { exact: true })).toBeVisible();
 
   // Valor, condição de pagamento, validade e estado do aceite, sem segunda tela.
   await expect(page.getByText("30 dias após a medição").first()).toBeVisible();
-  await expect(page.getByText("Estado do aceite", { exact: true })).toBeVisible();
+  await expect(header).toContainText("Aceita");
 
   await page.getByRole("tab", { name: /^Fatos e blueprint/ }).click();
   // Fato ancorado E confirmado vira regra; o não ancorado é dito como tal.
@@ -1257,7 +1261,7 @@ test("Proposal workspace: governing revision, provenance, divergences and handof
   ).toBeVisible();
   await expect(page.getByText("TA-TESTE-0001 · Autorizado")).toBeVisible();
   await expect(
-    page.getByText(/1 divergência\(s\) bloqueante\(s\) em aberto/),
+    page.getByText(/1 divergência\(s\) bloqueante\(s\)/).first(),
   ).toBeVisible();
 
   await page.screenshot({
@@ -1293,9 +1297,9 @@ test("Restricted execution sections say so instead of rendering a misleading emp
     },
   });
   await openArea("propostas", "Central de propostas");
-  await page.getByRole("button", { name: /TEST-P · Proposta de teste/ }).first().click();
+  await page.getByRole("button", { name: "Proposta de teste", exact: true }).first().click();
   await expect(
-    page.getByRole("heading", { level: 2, name: "TEST-P · Proposta de teste", exact: true }),
+    page.getByRole("heading", { level: 2, name: "Proposta de teste", exact: true }),
   ).toBeVisible();
 
   await page.getByRole("tab", { name: /^Execução/ }).click();

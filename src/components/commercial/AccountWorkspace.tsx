@@ -26,7 +26,7 @@ import {
   engagementStatusLabels, opportunityStageLabels, proposalStatusLabels,
 } from "@/lib/commercial/labels";
 import type {
-  EngagementStatus, OpportunityStage, ProposalRevisionStatus,
+  EngagementStatus, OpportunityStage, ProposalKind, ProposalRevisionStatus,
 } from "@/lib/commercial/types";
 import { isOpenStage } from "@/lib/commercial/stage-policy";
 import {
@@ -39,6 +39,8 @@ import {
 } from "./detail";
 import { moneyTotal } from "./workspace";
 import { CreateCommercialButton } from "./CreateCommercialModal";
+import { ProposalContextList } from "./ProposalParts";
+import { groupProposalContexts, type ContextProposal } from "@/lib/commercial/proposal-context";
 import { FollowupComposer } from "./FollowupComposer";
 
 type OpportunityRow = {
@@ -62,8 +64,8 @@ type Payload = {
     phone: string | null; is_primary: boolean; active: boolean;
   }>;
   opportunities: OpportunityRow[];
-  proposals: Array<{
-    id: string; proposal_number: string; kind: string; title: string;
+  proposals: Array<ContextProposal & {
+    id: string; proposal_number: string; kind: ProposalKind; title: string;
     opportunity_id: string | null; currency: string; created_at: string;
   }>;
   revisions: Array<{
@@ -112,6 +114,11 @@ export function AccountWorkspace({
   const governing = useMemo(
     () => governingRevision(data?.revisions ?? []),
     [data?.revisions],
+  );
+  // PT + PC = uma proposta: a conta 360 conta contextos, não documentos.
+  const proposalContexts = useMemo(
+    () => groupProposalContexts(data?.proposals ?? [], data?.revisions ?? []),
+    [data?.proposals, data?.revisions],
   );
   const byOpportunity = useMemo(
     () => signalsByOpportunity(data?.signals ?? []),
@@ -349,34 +356,10 @@ export function AccountWorkspace({
             )}
           </Section>
 
-          <Section title="Propostas" count={data.proposals.length}>
-            {data.proposals.length === 0 ? (
-              <SectionEmpty>Nenhuma proposta emitida para esta conta.</SectionEmpty>
-            ) : (
-              <ul className="crm-linked-list">
-                {data.proposals.map((proposal) => {
-                  const revision = governing.get(proposal.id);
-                  return (
-                    <li key={proposal.id}>
-                      <FileText size={14} aria-hidden />
-                      <div className="min-w-0">
-                        <strong>{proposal.proposal_number} · {proposal.title}</strong>
-                        <p className="crm-muted">
-                          {revision
-                            ? `R${String(revision.revision).padStart(2, "0")} · ${proposalStatusLabels[revision.status]} · ${brl(revision.total_value, revision.currency ?? proposal.currency)}`
-                            : "Sem revisão"}
-                        </p>
-                      </div>
-                      {onOpenProposal && (
-                        <HudButton variant="ghost" size="sm" onClick={() => onOpenProposal(proposal.id)}>
-                          Abrir <ArrowRight size={13} aria-hidden />
-                        </HudButton>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
+          <Section title="Propostas" count={proposalContexts.length}
+            note={data.proposals.length > proposalContexts.length ? "PT e PC da mesma obra contam como uma proposta." : undefined}>
+            <ProposalContextList contexts={proposalContexts} onOpen={onOpenProposal}
+              empty="Nenhuma proposta emitida para esta conta." />
           </Section>
 
           <Section

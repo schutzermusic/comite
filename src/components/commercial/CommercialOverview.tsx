@@ -4,6 +4,9 @@ import { useRouter } from "next/navigation";
 import { ArrowUpRight } from "lucide-react";
 import { HudButton } from "@/components/hud";
 import type { CommercialSectionId } from "@/lib/commercial/navigation";
+import {
+  contextMetrics, groupProposalContexts, type ContextProposal, type ContextRevision,
+} from "@/lib/commercial/proposal-context";
 import { OPEN_OPPORTUNITY_STAGES } from "@/lib/commercial/types";
 import { opportunityStageLabels } from "@/lib/commercial/labels";
 import {
@@ -82,13 +85,7 @@ const QUEUE: Array<{
   },
 ];
 
-type RevisionRow = {
-  id: string;
-  proposal_id: string;
-  status: string;
-  total_value: string | null;
-  currency: string | null;
-};
+type RevisionRow = ContextRevision;
 export function CommercialOverview({
   onNavigate,
 }: {
@@ -101,7 +98,7 @@ export function CommercialOverview({
   }>("/api/commercial/opportunities");
   const proposals = useCommercialResource<{
     revisions: RevisionRow[];
-    proposals: { id: string; currency: string }[];
+    proposals: ContextProposal[];
   }>("/api/commercial/proposals");
   const forecast = useCommercialResource<{ rows: ForecastRow[] }>(
     "/api/commercial/forecast",
@@ -112,12 +109,11 @@ export function CommercialOverview({
   if (resources.some((r) => r.state === "loading"))
     return <ResourceState state="loading" message={null} />;
   const rows = opportunities.data?.opportunities ?? [];
-  const revisions = proposals.data?.revisions ?? [];
+  // PT + PC = uma proposta: contadores e valores por CONTEXTO, nunca por documento.
+  const contexts = groupProposalContexts(proposals.data?.proposals ?? [], proposals.data?.revisions ?? []);
   const open = rows.filter((r) => OPEN_OPPORTUNITY_STAGES.includes(r.stage));
-  const accepted = revisions.filter((r) => r.status === "ACCEPTED");
-  const sent = revisions.filter((r) =>
-    ["SENT", "NEGOTIATION"].includes(r.status),
-  ).length;
+  const accepted = contexts.filter((c) => c.accepted);
+  const sent = contextMetrics(contexts).withCustomer;
   const won = rows.filter((r) => r.stage === "WON");
   const decided = rows.filter((r) => ["WON", "LOST"].includes(r.stage));
   const now = new Date();
@@ -226,12 +222,7 @@ export function CommercialOverview({
           {
             label: "Aceito pelo cliente",
             value: moneyTotal(
-              accepted.map((r) => ({
-                value: r.total_value,
-                currency:
-                  r.currency ??
-                  proposals.data?.proposals.find((p) => p.id === r.proposal_id)?.currency,
-              })),
+              accepted.map((c) => ({ value: c.value, currency: c.currency })),
             ),
             hint: `${recent} criada(s) em 30 dias`,
           },

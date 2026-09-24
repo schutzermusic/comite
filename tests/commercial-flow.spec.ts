@@ -276,13 +276,42 @@ test("Field survey: checklist, questions and the next state from a phone, saved 
   await page.setViewportSize({ width: 1440, height: 1000 });
 });
 
+test("PT + PC are ONE proposal: one row, one count, both documents traceable", async ({}, info) => {
+  await wire();
+  await page.goto("/comercial?view=propostas");
+  const table = page.getByRole("table", { name: "Propostas e revisões" });
+  await expect(table.getByRole("button", { name: "Proposta comercial retrofit", exact: true })).toHaveCount(1);
+  await expect(table.getByRole("button", { name: "Proposta técnica retrofit", exact: true })).toHaveCount(0);
+  await expect(table).toContainText("PT-213");
+  await expect(table).toContainText("PC-213");
+  await expect(table).toContainText("R02");
+  const metrics = page.locator(".crm-metrics > *").first();
+  await expect(metrics.locator(".crm-metric-value")).toHaveText("1");
+  await expect(metrics).toContainText("2 documento(s)");
+  await snap(info, "proposal-list-context-1440.png");
+});
+
 test("Proposal workspace: revision comparison, PT × PC cross-check and the planning blueprint", async ({}, info) => {
   await wire();
   await page.goto("/comercial?view=propostas");
-  await page.getByRole("button", { name: /PC-213 · Proposta comercial retrofit/ }).first().click();
-  await expect(page.getByRole("heading", { level: 2, name: "PC-213 · Proposta comercial retrofit", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Proposta comercial retrofit", exact: true }).first().click();
+  await expect(page.getByRole("heading", { level: 2, name: "Proposta comercial retrofit", exact: true })).toBeVisible();
+  const header = page.getByTestId("proposal-context-header");
+  await expect(header.getByTestId("proposal-doc-pt")).toContainText("PT-213");
+  await expect(header.getByTestId("proposal-doc-pc")).toContainText("PC-213");
+  await expect(header.getByTestId("proposal-doc-pc")).toContainText("R02");
+  await expect(header).toContainText("R$ 850.000");
+  await snap(info, "proposal-context-header-1440.png");
 
   await page.getByRole("tab", { name: /Revisões/ }).click();
+  // Histórias independentes, lado a lado, no mesmo contexto.
+  await expect(page.getByTestId("revision-lane-pt")).toContainText("PT R01");
+  await expect(page.getByTestId("revision-lane-pc")).toContainText("PC R02");
+  await expect(page.getByTestId("revision-lane-pc")).toContainText("PC R01");
+  const material = page.getByTestId("revision-material");
+  await expect(material).toContainText("30 → 45 dias");
+  await expect(material).toContainText("+15 dias");
+  await expect(material).toContainText("−R$ 70.000");
   const comparison = page.getByTestId("revision-comparison");
   await expect(comparison).toContainText("R01 → R02");
   await expect(comparison).toContainText("45 dias");
@@ -294,7 +323,9 @@ test("Proposal workspace: revision comparison, PT × PC cross-check and the plan
   await expect(page.getByTestId("pt-pc-check")).toContainText("PT-213");
 
   await page.getByRole("tab", { name: /Fatos e blueprint/ }).click();
-  const blueprint = page.getByTestId("execution-blueprint");
+  // Um blueprint por documento do contexto; o da PC (medição) vem primeiro.
+  await expect(page.getByTestId("execution-blueprint")).toHaveCount(2);
+  const blueprint = page.getByTestId("execution-blueprint").first();
   await expect(blueprint).toContainText("Contexto de planejamento");
   await expect(blueprint).toContainText("Modelo de medição");
   await expect(blueprint).toContainText("a confirmar");
@@ -331,6 +362,100 @@ test("Linking a loose proposal to its opportunity goes through the governed rout
   await page.keyboard.press("Escape");
 });
 
+test("A missing opportunity is created from the proposal and linked without leaving the workspace", async ({}, info) => {
+  await wire();
+  overrides["GET proposals/prop-pc"] = {
+    ...proposalDetail, proposal: { ...proposalDetail.proposal, opportunity_id: null }, opportunity: null,
+    siblings: [{ ...proposals[0], opportunity_id: null }],
+  };
+  overrides["POST proposals/prop-pc/opportunity"] = {
+    ok: true, proposal_id: "prop-pc", opportunity_id: "opp-new", linked: true, documents_linked: 2, party_inherited: false, created: true,
+  };
+  await page.goto("/comercial?view=propostas&proposal=prop-pc");
+  await page.getByTestId("proposal-link-opportunity").getByTestId("proposal-create-opportunity").click();
+  const form = page.getByTestId("opportunity-create-form");
+  await expect(form).toBeVisible();
+  // Pré-preenchido pelo contexto: cliente, título, valor da PC e validade.
+  await expect(page.getByTestId("opportunity-create-title")).toHaveValue("Proposta comercial retrofit");
+  await expect(form).toContainText("Conta de teste A");
+  await expect(form.getByLabel(/Valor estimado/)).toHaveValue("850000");
+  await snap(info, "proposal-create-opportunity-1440.png");
+  overrides["GET proposals/prop-pc"] = proposalDetail;
+  await page.getByTestId("link-opportunity-submit").click();
+  await expect.poll(() => captured.find((c) => c.path === "proposals/prop-pc/opportunity")?.body).toMatchObject({
+    create: { title: "Proposta comercial retrofit", counterparty_name: "Conta de teste A", estimated_value: "850000", currency: "BRL" },
+  });
+  expect(captured.filter((c) => c.method !== "GET").map((c) => c.path)).toEqual(["proposals/prop-pc/opportunity"]);
+  // Mesma tela, fechamento destravado — ninguém saiu e voltou.
+  await expect(page.getByTestId("close-deal-command")).toBeVisible();
+  await expect(page.getByTestId("proposal-link-opportunity")).toHaveCount(0);
+  await page.keyboard.press("Escape");
+});
+
+test("Internal approval is about the exact PT/PC package, with structured payment terms", async ({}, info) => {
+  await wire();
+  const pay = "10% (dez por cento) na mobilização; 20% no Marco 1 – entrega do projeto executivo; 20% no Marco 2; "
+    + "50% na entrega das bobinas, com pagamento em até 45 dias após emissão da fatura pro-forma";
+  const draftPc = { ...revPc2, status: "DRAFT", sent_at: null, internally_approved_at: null, document_id: "doc-pc", payment_terms: pay, total_value: "803179" };
+  const draftPt = { ...revPt, status: "DRAFT", sent_at: null, internally_approved_at: null, document_id: "doc-pt" };
+  overrides["GET proposals/prop-pc"] = { ...proposalDetail, revisions: [draftPc], siblingRevisions: [draftPt] };
+  overrides["POST proposals/prop-pc/context"] = { ok: true, moved: [
+    { proposal_id: "prop-pt", revision_id: "rev-pt1", revision: 1 }, { proposal_id: "prop-pc", revision_id: "rev-pc2", revision: 2 }] };
+  await page.goto("/comercial?view=propostas&proposal=prop-pc");
+  const approval = page.getByTestId("proposal-approval");
+  await expect(approval).toContainText("Este pacote exato PT/PC está autorizado a ir ao cliente?");
+  await expect(approval).toContainText("Não enviada para aprovação");
+  // Parcelas, não parágrafo: percentual, valor, gatilho e prazo em colunas.
+  const schedule = approval.getByTestId("payment-schedule");
+  await expect(schedule.locator("tbody tr")).toHaveCount(4);
+  await expect(schedule).toContainText("R$ 80.317,90");
+  await expect(schedule).toContainText("Mobilização");
+  await expect(schedule).toContainText("Marco 1");
+  await expect(schedule).toContainText("Até 45 dias após emissão da fatura pro-forma");
+  await snap(info, "proposal-approval-1440.png");
+  await approval.getByTestId("proposal-request-approval").click();
+  await expect.poll(() => captured.find((c) => c.path === "proposals/prop-pc/context")?.body).toMatchObject({ to: "INTERNAL_REVIEW" });
+  expect(captured.filter((c) => c.method !== "GET").map((c) => c.path)).toEqual(["proposals/prop-pc/context"]);
+  await page.keyboard.press("Escape");
+});
+
+test("Customer acceptance names the exact PT + PC package, and a later revision never inherits it", async ({}, info) => {
+  await wire();
+  const accPt = { ...revPt, status: "ACCEPTED", accepted_at: date(-1), acceptance_source: "purchase_order" };
+  const accPc = { ...revPc2, status: "ACCEPTED", accepted_at: date(-1), acceptance_source: "purchase_order" };
+  const ledger = [{ id: "acc-1", context_id: "prop-pt", technical_revision_id: "rev-pt1", technical_status: "ACCEPTED",
+    commercial_revision_id: "rev-pc2", commercial_status: "ACCEPTED", combined_revision_id: null, combined_status: null,
+    complete: true, acceptance_source: "purchase_order", acceptance_external_ref: "PO 4500012345", recorded_by: "user-1",
+    accepted_at: new Date(now.getTime() - 86_400_000).toISOString(), origin: "package" }];
+  overrides["GET proposals/prop-pc"] = { ...proposalDetail, revisions: [accPc, revPc1], siblingRevisions: [accPt],
+    acceptances: ledger, owners: { "user-1": "Responsável de teste" } };
+  await page.goto("/comercial?view=propostas&proposal=prop-pc");
+  const panel = page.getByTestId("proposal-acceptance");
+  await expect(panel).toHaveAttribute("data-state", "ACCEPTED");
+  await expect(panel).toContainText("O cliente aceitou exatamente este pacote.");
+  await expect(panel).toContainText("PT");
+  await expect(panel).toContainText("R01");
+  await expect(panel).toContainText("R02");
+  await expect(panel).toContainText("Pedido de compra");
+  await expect(panel).toContainText("PO 4500012345");
+  await expect(panel).toContainText("Responsável de teste");
+  await snap(info, "proposal-acceptance-1440.png");
+  await page.keyboard.press("Escape");
+
+  // A PT ganhou R02 depois do aceite: o pacote de hoje NÃO é o aceito.
+  const ptR02 = { ...revPt, id: "rev-pt2", revision: 2, status: "DRAFT", sent_at: null, internally_approved_at: null, accepted_at: null };
+  overrides["GET proposals/prop-pc"] = { ...proposalDetail, revisions: [accPc, revPc1],
+    siblingRevisions: [ptR02, { ...revPt, status: "SUPERSEDED" }], acceptances: ledger };
+  await page.goto("/comercial?view=propostas&proposal=prop-pc");
+  await expect(panel).toHaveAttribute("data-state", "CHANGED");
+  await expect(panel).toContainText("O pacote atual não está aceito.");
+  await expect(panel).toContainText("PT hoje é regida pela R02; o aceite foi da R01");
+  await expect(page.getByTestId("proposal-context-header")).toContainText("Pacote mudou após o aceite");
+  await expect(page.getByTestId("proposal-approval")).toContainText("Parte do pacote sem aprovação interna");
+  await snap(info, "proposal-acceptance-changed-1440.png");
+  await page.keyboard.press("Escape");
+});
+
 test("Fast-track from the proposal: PO basis → engagement, OS and project in one confirmation", async ({}, info) => {
   await wire();
   overrides["POST execution-start"] = {
@@ -339,7 +464,7 @@ test("Fast-track from the proposal: PO basis → engagement, OS and project in o
     service_order_created: true, project_id: "proj-new", blocked: [], followupId: null,
   };
   await page.goto("/comercial?view=propostas");
-  await page.getByRole("button", { name: /PC-213 · Proposta comercial retrofit/ }).first().click();
+  await page.getByRole("button", { name: "Proposta comercial retrofit", exact: true }).first().click();
   await page.getByTestId("close-deal-command").getByRole("button", { name: /Fechar negócio e iniciar execução/ }).click();
 
   await expect(page.getByRole("heading", { level: 2, name: "Fechar negócio e iniciar execução" })).toBeVisible();

@@ -122,6 +122,26 @@ export function recordProposalOutcome(
   });
 }
 
+/**
+ * Resposta do cliente ao PACOTE PT + PC (217). A revisão regente de cada
+ * documento recebe o mesmo `record_outcome`, numa transação; o aceite grava
+ * no livro do contexto QUAL pacote exato foi aceito (revisões, evidência,
+ * ator, hora). Revisão posterior nunca herda o aceite.
+ */
+export function recordProposalContextOutcome(
+  organizationId: string, actorId: string, proposalId: string,
+  outcome: 'ACCEPTED' | 'REJECTED' | 'EXPIRED',
+  payload: Record<string, unknown>,
+): Promise<{ context_id: string; status: string;
+  moved: Array<{ proposal_id: string; revision_id: string; revision: number; kind: string }>;
+  acceptance: { id: string; technical_revision_id: string | null; commercial_revision_id: string | null;
+    combined_revision_id: string | null; complete: boolean; accepted_at: string; recorded_by: string } | null }> {
+  return rpc('commercial_proposal_context_record_outcome', {
+    p_organization_id: organizationId, p_actor: actorId,
+    p_proposal_id: proposalId, p_outcome: outcome, p_payload: payload,
+  });
+}
+
 export function createServiceOrder(
   organizationId: string, actorId: string, engagementId: string, input: CreateServiceOrderInput,
 ): Promise<{ service_order_id: string; status: string }> {
@@ -239,6 +259,30 @@ export function linkProposalToOpportunity(
   return rpc('commercial_proposal_link_opportunity', {
     p_organization_id: organizationId, p_actor: actorId, p_proposal_id: proposalId,
     p_opportunity_id: opportunityId, p_reason: reason });
+}
+
+/**
+ * Vincula o CONTEXTO inteiro (PT + PC) à oportunidade (217): o ato da 216,
+ * documento a documento, numa transação.
+ */
+export function linkProposalContextToOpportunity(
+  organizationId: string, actorId: string, proposalId: string, opportunityId: string, reason: string | null,
+): Promise<{ proposal_id: string; opportunity_id: string; linked: boolean; documents_linked?: number;
+  party_inherited: boolean; currency_differs?: boolean }> {
+  return rpc('commercial_proposal_context_link_opportunity', {
+    p_organization_id: organizationId, p_actor: actorId, p_proposal_id: proposalId,
+    p_opportunity_id: opportunityId, p_reason: reason });
+}
+
+/**
+ * Aprovação interna / envio do PACOTE PT + PC (217). A revisão corrente de
+ * cada documento anda junto, pelo mesmo ato governado — ou todos, ou nenhum.
+ */
+export function transitionProposalContext(
+  organizationId: string, actorId: string, proposalId: string, to: string,
+): Promise<{ context_id: string; status: string; moved: Array<{ proposal_id: string; revision_id: string; revision: number; kind: string }> }> {
+  return rpc('commercial_proposal_context_transition', {
+    p_organization_id: organizationId, p_actor: actorId, p_proposal_id: proposalId, p_to: to });
 }
 
 /** Revisar NUNCA edita a revisão anterior: cria a próxima e sucede a atual. */

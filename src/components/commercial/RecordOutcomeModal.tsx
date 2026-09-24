@@ -26,8 +26,8 @@ const SOURCES = [
  * aceitam proposta em nome do cliente.
  */
 export function RecordOutcomeModal({
-  revisionId, revisionNumber, onClose,
-}: { revisionId: string; revisionNumber: number; onClose: () => void }) {
+  revisionId, revisionNumber, packageLabel, onClose,
+}: { revisionId: string; revisionNumber: number; packageLabel?: string; onClose: () => void }) {
   const [outcome, setOutcome] = useState<'ACCEPTED' | 'REJECTED' | 'EXPIRED'>('ACCEPTED');
   const [source, setSource] = useState('signed_document');
   const [reference, setReference] = useState('');
@@ -59,8 +59,10 @@ export function RecordOutcomeModal({
 
   return (
     <HudModal isOpen onClose={onClose} size="md"
-      title={`Resposta do cliente — revisão ${revisionNumber}`}
-      subtitle="Quem aceita é o cliente. Aqui se registra o que ele respondeu, e por qual via.">
+      title={`Resposta do cliente — ${packageLabel ?? `revisão ${revisionNumber}`}`}
+      subtitle={packageLabel
+        ? "A resposta vale para o PACOTE: cada documento com o cliente recebe o mesmo registro, e o aceite grava o pacote exato."
+        : "Quem aceita é o cliente. Aqui se registra o que ele respondeu, e por qual via."}>
       <div className="space-y-4">
         <HudSelect
           label="Resposta"

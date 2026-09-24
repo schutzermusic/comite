@@ -45,7 +45,7 @@ export async function GET() {
       .in('source_kind', ['commercial_opportunity', 'commercial_proposal'])
       .limit(500),
     session.supabase.from('commercial_proposals')
-      .select('id,proposal_number,title,opportunity_id')
+      .select('*') // context_id (217) quando existe: sinais por contexto, não por documento
       .eq('organization_id', session.organizationId)
       .limit(300),
     session.supabase.from('commercial_proposal_revisions')

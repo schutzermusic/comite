@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { logAuditEventServer } from '@/lib/audit/log-audit-event-server';
 import { requireCommercialSession, isSessionError, safeGovernedError } from '@/lib/commercial/server-session';
 import { createProposal, transitionProposalRevision, reviseProposal } from '@/lib/commercial/engagement-service';
+import { findContextPartner } from '@/lib/commercial/proposal-context-server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -13,6 +14,9 @@ export const dynamic = 'force-dynamic';
  * nada: valor, prazo, condição e estado vivem na revisão, e mostrar só o
  * cabeçalho obrigaria uma segunda ida ao servidor para saber se a proposta
  * está em rascunho ou aceita.
+ *
+ * `select('*')` traz `context_id` (217) quando existe: a lista agrupa PT e PC
+ * num só contexto de proposta (`proposal-context.ts`).
  */
 export async function GET() {
   const session = await requireCommercialSession(['commercial.view']);
@@ -20,7 +24,7 @@ export async function GET() {
 
   const [proposals, revisions] = await Promise.all([
     session.supabase.from('commercial_proposals')
-      .select('id,opportunity_id,proposal_number,kind,title,counterparty_name,currency,created_at')
+      .select('*')
       .eq('organization_id', session.organizationId)
       .order('created_at', { ascending: false }).limit(300),
     session.supabase.from('commercial_proposal_revisions')
@@ -54,11 +58,21 @@ export async function POST(request: Request) {
       error: `Campos obrigatórios: ${missing.join(', ')}.` }, { status: 400 });
   }
   try {
+    /*
+      PT e PC são um contexto só. O segundo documento entra no contexto do
+      primeiro — explicitamente (a tela sabe) ou pelo par canônico (mesmo
+      cliente, mesmo número-base, tipo oposto, ainda sozinho).
+    */
+    if (!String(body.context_proposal_id ?? '').trim()) {
+      const partner = await findContextPartner(session, body);
+      if (partner) body.context_proposal_id = partner;
+    }
     const result = await createProposal(session.organizationId, session.user.id, body);
     await logAuditEventServer({
       organizationId: session.organizationId,
       action: 'commercial.proposal.created', entityType: 'commercial_proposal',
-      entityId: result.proposal_id, metadata: { kind: body.kind },
+      entityId: result.proposal_id,
+      metadata: { kind: body.kind, contextProposalId: body.context_proposal_id ?? null },
     }, request.headers);
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {

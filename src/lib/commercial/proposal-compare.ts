@@ -237,3 +237,53 @@ export function crossCheckTechnicalCommercial(input: {
   }
   return findings;
 }
+
+export interface MaterialHighlight {
+  key: 'value' | 'payment' | 'validity' | 'scope' | 'measurement' | 'acceptance';
+  label: string;
+  detail: string;
+  tone: 'up' | 'down' | 'neutral';
+}
+
+const days = (text: string | null) => {
+  const m = (text ?? '').match(/(\d{1,3})\s*(?:\([^)]*\)\s*)?dias?/i);
+  return m ? Number(m[1]) : null;
+};
+
+/**
+ * O que mudou de material, numa linha de chips: "Valor −R$ 70 mil ·
+ * Pagamento 30 → 45 dias · Validade +15 dias · Escopo alterado · Medição
+ * alterada". Aritmética sobre `compareRevisions`; nada de leitura semântica.
+ */
+export function materialHighlights(changes: ComparisonChange[]): MaterialHighlight[] {
+  const out: MaterialHighlight[] = [];
+  const changed = (c: ComparisonChange) => c.kind !== 'unchanged';
+  const value = changes.find((c) => c.key === 'total_value' && changed(c));
+  if (value) {
+    out.push({ key: 'value', label: 'Valor',
+      detail: value.delta ?? `${value.before ?? '—'} → ${value.after ?? '—'}`,
+      tone: value.delta?.startsWith('+') ? 'up' : value.delta ? 'down' : 'neutral' });
+  }
+  const payment = changes.find((c) => c.key === 'payment_terms' && changed(c));
+  if (payment) {
+    const a = days(payment.before);
+    const b = days(payment.after);
+    out.push({ key: 'payment', label: 'Pagamento',
+      detail: a !== null && b !== null && a !== b ? `${a} → ${b} dias` : 'condição alterada', tone: 'neutral' });
+  }
+  const validity = changes.find((c) => c.key === 'validity_until' && changed(c));
+  if (validity) {
+    out.push({ key: 'validity', label: 'Validade', detail: validity.delta ?? `${validity.before ?? '—'} → ${validity.after ?? '—'}`,
+      tone: validity.delta?.startsWith('+') ? 'up' : 'neutral' });
+  }
+  if (changes.some((c) => changed(c) && (c.key === 'scope_summary' || ['SCOPE', 'DELIVERABLE', 'EXCLUSION', 'REQUIREMENT'].includes(c.domain ?? '')))) {
+    out.push({ key: 'scope', label: 'Escopo', detail: 'alterado', tone: 'neutral' });
+  }
+  if (changes.some((c) => changed(c) && ['MEASUREMENT_RULE', 'BILLING_MILESTONE', 'BILLING_PREREQUISITE'].includes(c.domain ?? ''))) {
+    out.push({ key: 'measurement', label: 'Regra de medição', detail: 'alterada', tone: 'neutral' });
+  }
+  if (changes.some((c) => changed(c) && (c.key === 'acceptance_conditions' || c.domain === 'ACCEPTANCE_CONDITION'))) {
+    out.push({ key: 'acceptance', label: 'Condições de aceite', detail: 'alteradas', tone: 'neutral' });
+  }
+  return out;
+}

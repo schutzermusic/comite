@@ -19,7 +19,8 @@
  * limiar sem banco, e é o que impede o cálculo de divergir entre a lista, o
  * dossiê e a visão geral, que consomem a mesma saída.
  */
-import type { OpportunityStage, ProposalRevisionStatus } from './types';
+import type { OpportunityStage, ProposalKind, ProposalRevisionStatus } from './types';
+import { contextKeys } from './proposal-context';
 import { OPEN_OPPORTUNITY_STAGES } from './types';
 import {
   STAGE_PROBABILITY_BAND, STAGE_STALL_DAYS, daysBetween, isOpenStage,
@@ -86,6 +87,11 @@ export interface SignalProposal {
   proposal_number: string;
   opportunity_id: string | null;
   title: string;
+  /** Com tipo e cliente, PT e PC viram UM contexto (`proposal-context.ts`). */
+  kind?: ProposalKind;
+  counterparty_name?: string;
+  party_id?: string | null;
+  context_id?: string | null;
 }
 
 export interface SignalRevision {
@@ -154,6 +160,9 @@ export function buildPipelineSignals(input: PipelineSignalInput): PipelineSignal
     else openFollowupsBySource.set(key, [followup]);
   }
 
+  const keys = contextKeys(input.proposals.map((p) => ({
+    ...p, kind: p.kind ?? 'COMBINED', counterparty_name: p.counterparty_name ?? p.id,
+  })));
   const proposalsByOpportunity = new Map<string, SignalProposal[]>();
   for (const proposal of input.proposals) {
     if (!proposal.opportunity_id) continue;
@@ -275,12 +284,26 @@ export function buildPipelineSignals(input: PipelineSignalInput): PipelineSignal
       });
     }
 
-    // 7. A proposta que está com o cliente vence (ou venceu).
+    /*
+      7. A proposta que está com o cliente vence (ou venceu). UM sinal por
+      contexto: PT e PC do mesmo negócio vencem juntas, e dois alertas para
+      a mesma proposta dobrariam a fila. Vale a validade mais próxima.
+    */
+    const byContext = new Map<string, SignalProposal[]>();
     for (const proposal of proposalsByOpportunity.get(opportunity.id) ?? []) {
-      const revision = governing.get(proposal.id);
-      if (!revision || !revision.validity_until) continue;
-      if (revision.status !== 'SENT' && revision.status !== 'NEGOTIATION') continue;
-      const elapsed = daysBetween(revision.validity_until, now);
+      const key = keys.get(proposal.id) ?? proposal.id;
+      byContext.set(key, [...(byContext.get(key) ?? []), proposal]);
+    }
+    for (const members of byContext.values()) {
+      const live = members
+        .map((p) => ({ p, r: governing.get(p.id) }))
+        .filter((x): x is { p: SignalProposal; r: SignalRevision } => Boolean(x.r?.validity_until)
+          && (x.r!.status === 'SENT' || x.r!.status === 'NEGOTIATION'))
+        .sort((a, b) => a.r.validity_until!.localeCompare(b.r.validity_until!));
+      if (!live.length) continue;
+      const { p: proposal, r: revision } = live[0];
+      const label = members.map((m) => m.proposal_number).join(' / ');
+      const elapsed = daysBetween(revision.validity_until!, now);
       if (elapsed === null) continue;
       if (elapsed > 0) {
         signals.push({
@@ -288,7 +311,7 @@ export function buildPipelineSignals(input: PipelineSignalInput): PipelineSignal
           severity: 'blocking',
           opportunityId: opportunity.id,
           proposalId: proposal.id,
-          title: `Proposta ${proposal.proposal_number} passou da validade há ${elapsed} dia(s)`,
+          title: `Proposta ${label} passou da validade há ${elapsed} dia(s)`,
           detail: 'Uma revisão fora da validade não pode ser aceita como está. '
             + 'Expirar ou revisar são atos distintos, e nenhum deles acontece sozinho.',
           suggestedAction: 'Registrar a expiração ou emitir uma nova revisão',
@@ -299,7 +322,7 @@ export function buildPipelineSignals(input: PipelineSignalInput): PipelineSignal
           severity: 'attention',
           opportunityId: opportunity.id,
           proposalId: proposal.id,
-          title: `Proposta ${proposal.proposal_number} vence em ${-elapsed} dia(s)`,
+          title: `Proposta ${label} vence em ${-elapsed} dia(s)`,
           detail: `Validade até ${revision.validity_until}. Depois disso, o aceite exige uma revisão nova.`,
           suggestedAction: 'Cobrar a decisão do cliente antes do fim da validade',
         });
