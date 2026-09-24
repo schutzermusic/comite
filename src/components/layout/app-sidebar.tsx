@@ -105,6 +105,7 @@ import { hasAnyPermission, hasPermission } from "@/lib/auth/permissions";
 import { isModuleEnabled, type AppModule } from "@/lib/modules/registry";
 import { createClient } from "@/utils/supabase/client";
 import { useCurrentUser } from "@/hooks/use-current-user";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { OrganizationSwitcher } from "@/components/organizations/OrganizationSwitcher";
 import { useMyCommittees } from "@/hooks/use-my-committees";
 import { useRiskBadge } from "@/hooks/use-risk-badge";
@@ -477,7 +478,9 @@ export function AppSidebar() {
     cargo: profile?.job_title || roles[0]?.name || "Conta",
   };
   const t = useTranslations("common");
-  const { state, toggleSidebar, isMobile } = useSidebar();
+  const { state, toggleSidebar } = useSidebar();
+  // Mesmo motivo da `Sidebar`: esta árvore hidrata dentro de um Suspense.
+  const isMobile = useIsMobile();
   const isCollapsed = state === "collapsed" && !isMobile;
   const [adminOpen, setAdminOpen] = useState(false);
   const [financeOpen, setFinanceOpen] = useState(false);

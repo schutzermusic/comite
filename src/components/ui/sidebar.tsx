@@ -175,7 +175,10 @@ const Sidebar = React.forwardRef<
     },
     ref
   ) => {
-    const { isMobile, state, openMobile, setOpenMobile } = useSidebar()
+    const { state, openMobile, setOpenMobile } = useSidebar()
+    // Chamado aqui, não lido do contexto: a sidebar hidrata dentro de um
+    // Suspense, e o render de hidratação precisa ler o mesmo viewport do HTML.
+    const isMobile = useIsMobile()
 
     if (collapsible === "none") {
       return (
