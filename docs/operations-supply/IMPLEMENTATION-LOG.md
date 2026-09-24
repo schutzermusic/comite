@@ -291,7 +291,7 @@ Sobreposições DENY valem para o conjunto inteiro de permissões; RPC governada
 
 ## Provas vivas no QA isolado — navegador/API → banco, sem interceptação
 
-`npx playwright test -c playwright.qa.config.ts` (o global-setup recusa endereço não-local e entra com cada papel pela tela real de login). Última execução no build de produção do QA: **50/50**.
+`npx playwright test -c playwright.qa.config.ts` (o global-setup recusa endereço não-local e entra com cada papel pela tela real de login). No build de produção do QA: execução completa **47/47**, e a suíte `service-order-governance`, acrescentada depois, **3/3** no mesmo build.
 
 | Suíte | Projeto | O que prova |
 |---|---|---|
