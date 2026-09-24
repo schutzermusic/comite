@@ -115,7 +115,7 @@ function OrderDetail({ order, data, onChanged }: { order: Order; data: Procureme
         <div className="ops-row-actions" style={{ padding: '12px 14px' }}>
           {order.status === 'DRAFT' && caps.source && <HudButton size="sm" variant="ghost" onClick={() => setMode('update')}>Editar entrega</HudButton>}
           {actions.map((a) => (
-            <HudButton key={a} size="sm" variant={a === 'cancel' || a === 'reject' ? 'ghost' : 'primary'} disabled={busy}
+            <HudButton key={a} size="sm" variant={a === 'cancel' || a === 'reject' || a === 'close' ? 'ghost' : 'primary'} disabled={busy}
               onClick={() => (immediate.includes(a) ? act(url, { action: a }, PO_ACTION_LABEL[a]) : setMode(a))}>{PO_ACTION_LABEL[a]}</HudButton>
           ))}
         </div>
@@ -140,16 +140,17 @@ function OrderDetail({ order, data, onChanged }: { order: Order; data: Procureme
 }
 
 function OrderActModal({ order, mode, data, busy, onClose, onConfirm }: {
-  order: Order; mode: 'submit' | 'approve' | 'reject' | 'cancel' | 'update'; data: ProcurementModel; busy: boolean;
+  order: Order; mode: 'submit' | 'approve' | 'reject' | 'cancel' | 'close' | 'update'; data: ProcurementModel; busy: boolean;
   onClose: () => void; onConfirm: (body: Record<string, unknown>) => void;
 }) {
   const [text, setText] = useState('');
   const [location, setLocation] = useState(order.deliveryLocationId ?? '');
   const [expected, setExpected] = useState(order.expectedDelivery ?? '');
-  const needsText = mode === 'reject' || mode === 'cancel';
+  const open = order.lines.reduce((a, l) => a + Math.max(0, l.quantity - l.received), 0);
+  const needsText = mode === 'reject' || mode === 'cancel' || (mode === 'close' && open > 0);
   const title = mode === 'update' ? 'Editar entrega' : PO_ACTION_LABEL[mode];
   const body = mode === 'update' ? { deliveryLocationId: location || null, expectedDelivery: expected || null }
-    : mode === 'cancel' ? { reason: text.trim() } : { note: text.trim() || null };
+    : mode === 'cancel' || mode === 'close' ? { reason: text.trim() || undefined } : { note: text.trim() || null };
   return (
     <ActModal title={title} subtitle={`${order.number} · ${brlOf(order.total, order.currency)}`} onClose={onClose} busy={busy}
       disabled={needsText && text.trim().length < 3} confirmLabel={title} onConfirm={() => onConfirm(body)} testId="po-act-form">
@@ -164,6 +165,9 @@ function OrderActModal({ order, mode, data, busy, onClose, onConfirm }: {
           {mode === 'submit' && <p className="crm-muted">O pedido é conferido contra o motor de aprovação: com política, vai para a
             decisão da política; sem política, espera quem tem alçada declarada.</p>}
           {mode === 'approve' && <p className="crm-muted">A aprovação grava a impressão digital do pedido e a alçada usada.</p>}
+          {mode === 'close' && <p className="crm-muted">{open > 0
+            ? `Ainda faltam ${qty(open)} unidade(s): encerrar faz o saldo deixar de ser esperado — a falta volta ao plano.`
+            : 'Tudo recebido. Encerrar arquiva o pedido.'}</p>}
           <label>{needsText ? 'Motivo' : 'Observação (opcional)'}<input value={text} onChange={(e) => setText(e.target.value)} /></label>
         </>
       )}

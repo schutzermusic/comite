@@ -93,6 +93,7 @@ export function MaterialDemandTable({
                 <div><dt>Em trânsito</dt><dd>{formatQty(open.coverage.inTransit)}</dd></div>
                 <div><dt>Em pedido</dt><dd>{formatQty(open.coverage.onOrder)}</dd></div>
                 <div><dt>Requisitado</dt><dd>{formatQty(open.coverage.requested)}</dd></div>
+                <div><dt>Em inspeção</dt><dd>{formatQty(open.coverage.inspection)}</dd></div>
                 <div><dt>Livre em estoque</dt><dd>{formatQty(open.stock.reduce((a, s) => a + s.available, 0))}</dd></div>
                 <div><dt>Falta</dt><dd className={open.coverage.shortage ? 'sup-short' : undefined}>{formatQty(open.coverage.shortage)}</dd></div>
               </dl>

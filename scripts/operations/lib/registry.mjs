@@ -82,6 +82,15 @@ export const OPERATIONS_REGISTRY = {
     ],
     permissions: ['procurement.authorities.manage'],
   },
+  '235': {
+    tables: ['inbound_shipments', 'goods_receipts', 'goods_receipt_lines', 'goods_receipt_line_requirements', 'goods_receipt_evidence'],
+    ledgers: ['goods_receipt_line_requirements', 'goods_receipt_evidence'],
+    functions: [
+      'inbound_shipment_record(uuid,uuid,jsonb)', 'goods_receipt_post(uuid,uuid,jsonb)', 'goods_receipt_inspect(uuid,uuid,uuid,jsonb)',
+      'goods_receipt_attach_evidence(uuid,uuid,uuid,jsonb)', 'purchase_order_close(uuid,uuid,uuid,text)',
+    ],
+    permissions: [],
+  },
 };
 
 export function registryUpTo(version) {

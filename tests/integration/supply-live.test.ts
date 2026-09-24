@@ -72,9 +72,9 @@ suite('Supply — invariantes no banco vivo (somente leitura)', () => {
       WHERE r.item_id IS DISTINCT FROM v.item_id OR r.project_id <> v.project_id`)).toEqual([]);
   });
 
-  it('233: cobertura é a equação — falta = requerido − coberto − entrando, nunca negativa', async () => {
+  it('233/235: cobertura é a equação — falta = requerido − coberto − entrando (inclui inspeção), nunca negativa', async () => {
     expect(await rows(`SELECT requirement_id FROM public.supply_requirement_coverage
-      WHERE covered_qty <> reserved_qty + consumed_qty OR inbound_qty <> in_transit_qty + on_order_qty
+      WHERE covered_qty <> reserved_qty + consumed_qty OR inbound_qty <> in_transit_qty + on_order_qty + inspection_qty
          OR shortage_qty <> GREATEST(COALESCE(required_qty,0) - covered_qty - inbound_qty, 0)`)).toEqual([]);
   });
 
@@ -105,5 +105,28 @@ suite('Supply — invariantes no banco vivo (somente leitura)', () => {
       has_function_privilege('authenticated','public.purchase_order_decide(uuid,uuid,uuid,text,text)','EXECUTE') fd,
       (SELECT supported FROM public.approval_subject_resolve(gen_random_uuid(), 'purchase_order', gen_random_uuid())) sup`);
     expect(r[0]).toEqual({ pi: false, pu: false, fd: false, sup: true });
+  });
+  it('235: estoque só nasce de recebimento com linha; recebido do pedido = aceito − rejeitado na inspeção', async () => {
+    expect(await applied('235')).toBe(true);
+    expect(await rows(`SELECT id FROM public.inventory_movements WHERE movement_type = 'RECEIPT' AND receipt_line_id IS NULL`)).toEqual([]);
+    expect(await rows(`SELECT pl.id FROM public.purchase_order_lines pl
+      LEFT JOIN (SELECT po_line_id, sum(accepted_quantity - COALESCE(inspection_rejected_quantity, 0)) net
+                   FROM public.goods_receipt_lines GROUP BY po_line_id) g ON g.po_line_id = pl.id
+      WHERE pl.received_quantity <> COALESCE(g.net, 0)`)).toEqual([]);
+  });
+
+  it('235: recebimento só contra pedido que foi emitido; evidência dentro do inquilino', async () => {
+    expect(await rows(`SELECT g.id FROM public.goods_receipts g JOIN public.purchase_orders po ON po.id = g.purchase_order_id
+      WHERE po.status IN ('DRAFT','APPROVAL_REQUIRED','APPROVED','CANCELLED') OR po.issued_at IS NULL`)).toEqual([]);
+    expect(await rows(`SELECT id FROM public.goods_receipt_evidence
+      WHERE storage_path NOT LIKE organization_id::text || '/supply-receipts/%'`)).toEqual([]);
+  });
+
+  it('235: recebimento não é escrito pelo navegador', async () => {
+    const r = await rows(`SELECT
+      has_table_privilege('authenticated','public.goods_receipts','INSERT') gi,
+      has_table_privilege('authenticated','public.goods_receipt_lines','UPDATE') gu,
+      has_function_privilege('authenticated','public.goods_receipt_post(uuid,uuid,jsonb)','EXECUTE') fp`);
+    expect(r[0]).toEqual({ gi: false, gu: false, fp: false });
   });
 });

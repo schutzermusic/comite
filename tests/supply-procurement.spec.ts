@@ -47,7 +47,7 @@ const demand = {
   demand: [{ requirementId: REQ, projectId: 'p1', project: 'Obra 1', client: null, activityId: null, activity: null, itemId: ID(30),
     itemCode: 'CAB-35', itemDescription: 'Cabo 35 mm²', title: 'Cabo', priority: 'high', unit: 'm', requirementType: 'MATERIAL',
     requiredBy: '2026-10-10', daysToNeed: 16,
-    coverage: { required: 1000, reserved: 0, consumed: 0, inTransit: 0, onOrder: 0, requested: 0, covered: 0, inbound: 0, shortage: 1000,
+    coverage: { required: 1000, reserved: 0, consumed: 0, inTransit: 0, onOrder: 0, requested: 0, inspection: 0, covered: 0, inbound: 0, shortage: 1000,
       coveredRatio: 0, status: 'SHORT' }, risk: 'medium', stock: [], sites: [] }],
 };
 

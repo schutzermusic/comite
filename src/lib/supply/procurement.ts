@@ -32,10 +32,10 @@ export const SUPPLIER_STATUS_LABEL: Record<SupplierStatus, string> = {
   PROSPECT: 'Em avaliação', HOMOLOGATED: 'Homologado', SUSPENDED: 'Suspenso', BLOCKED: 'Bloqueado',
 };
 
-export type PoAction = 'submit' | 'approve' | 'reject' | 'sync' | 'issue' | 'cancel';
+export type PoAction = 'submit' | 'approve' | 'reject' | 'sync' | 'issue' | 'cancel' | 'close';
 export const PO_ACTION_LABEL: Record<PoAction, string> = {
   submit: 'Submeter à aprovação', approve: 'Aprovar', reject: 'Devolver ao rascunho', sync: 'Sincronizar desfecho da aprovação',
-  issue: 'Emitir ao fornecedor', cancel: 'Cancelar pedido',
+  issue: 'Emitir ao fornecedor', cancel: 'Cancelar pedido', close: 'Encerrar pedido',
 };
 
 /** Atos oferecidos pelo estado e pela alçada. O banco recusa o resto (SoD, alçada, impressão digital). */
@@ -53,6 +53,8 @@ export function purchaseOrderActions(
   }
   if (po.status === 'APPROVED' && caps.issue) out.push('issue');
   if (['DRAFT', 'APPROVAL_REQUIRED', 'APPROVED', 'ISSUED'].includes(po.status) && caps.issue) out.push('cancel');
+  // Encerrar (235): recebido → encerrado; com saldo, só com motivo (o saldo deixa de ser esperado).
+  if (['ISSUED', 'PARTIALLY_RECEIVED', 'RECEIVED'].includes(po.status) && caps.issue) out.push('close');
   return out;
 }
 

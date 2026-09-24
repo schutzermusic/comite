@@ -237,5 +237,6 @@ test('7 · celular: fila de OS e visão geral sem rolagem horizontal', async () 
 
 test('8 · nenhuma escrita chegou ao servidor e nenhum erro de runtime', async () => {
   expect(blockedWrites.every((w) => w.startsWith('PUT ') || w.startsWith('POST ') || w.startsWith('PATCH '))).toBe(true);
-  expect(consoleErrors.filter((e) => /Unhandled|TypeError|ReferenceError/.test(e))).toEqual([]);
+  // "Failed to fetch" é aborto de rede (escritas que este spec aborta, ou busca cortada na navegação), não erro de runtime.
+  expect(consoleErrors.filter((e) => /Unhandled|TypeError|ReferenceError/.test(e) && !/Failed to fetch/.test(e))).toEqual([]);
 });

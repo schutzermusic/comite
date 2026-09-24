@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
 const PERMISSION: Record<string, string[]> = {
   update: ['procurement.source'], submit: ['procurement.source', 'procurement.orders.issue'],
   approve: ['procurement.approve'], reject: ['procurement.approve'], sync: ['procurement.view'],
-  issue: ['procurement.orders.issue'], cancel: ['procurement.orders.issue'],
+  issue: ['procurement.orders.issue'], cancel: ['procurement.orders.issue'], close: ['procurement.orders.issue'],
 };
 
 /**
@@ -42,6 +42,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         }
         case 'issue': return inventoryAct('purchase_order_issue', s.organizationId, s.user.id, base);
         case 'cancel': return inventoryAct('purchase_order_cancel', s.organizationId, s.user.id, { ...base, p_reason: input.reason });
+        case 'close': return inventoryAct('purchase_order_close', s.organizationId, s.user.id, { ...base, p_reason: input.reason ?? null });
       }
     },
     audit: (input, out) => ({ action: `supply.purchase_order.${input.action}`, entityType: 'purchase_order', entityId: id,

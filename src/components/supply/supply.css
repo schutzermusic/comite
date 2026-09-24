@@ -9,6 +9,7 @@
 .sup-bar-track i[data-seg="reserved"] { background: var(--ig-success); }
 .sup-bar-track i[data-seg="in_transit"] { background: var(--ig-info); }
 .sup-bar-track i[data-seg="on_order"] { background: color-mix(in srgb, var(--ig-info) 55%, transparent); }
+.sup-bar-track i[data-seg="inspection"] { background: color-mix(in srgb, var(--ig-warning) 60%, transparent); }
 .sup-bar-legend { display: flex; flex-wrap: wrap; gap: 2px 10px; font-size: 10.5px; color: var(--ig-fg-muted); font-variant-numeric: tabular-nums; }
 .sup-bar-legend b { color: var(--ig-fg-strong); font-weight: 600; }
 .sup-bar-legend .sup-short { color: var(--ig-danger); }

@@ -14,6 +14,7 @@ import {
   evaluateQuotes, recommendQuote, type ComparableQuote, type PurchaseOrderStatus, type RequisitionStatus, type RfqStatus,
   type SupplierStatus,
 } from './procurement';
+import { onTimeRate } from './receiving';
 
 type Session = { supabase: SupabaseClient; organizationId: string };
 type Row = Record<string, unknown>;
@@ -35,11 +36,14 @@ export async function listSuppliers(session: Session): Promise<SupplierView[]> {
   if (error) throw new Error('Não foi possível ler os fornecedores.');
   const rows = (data ?? []) as Row[];
   const partyIds = rows.map((r) => String(r.party_id));
-  const [parties, orders] = await Promise.all([
+  const [parties, orders, performance] = await Promise.all([
     partyIds.length ? sb.from('parties').select('id,legal_name,trade_name,document_number').eq('organization_id', org).in('id', partyIds)
       : Promise.resolve({ data: [] }),
     sb.from('purchase_orders').select('supplier_id,status').eq('organization_id', org).limit(5000),
+    sb.from('supplier_delivery_performance').select('supplier_id,promised_lines,on_time_lines').eq('organization_id', org),
   ]);
+  const perf = new Map(((performance.data ?? []) as Row[]).map((p) => [String(p.supplier_id),
+    { promised_lines: num(p.promised_lines), on_time_lines: num(p.on_time_lines) }]));
   const pm = new Map(((parties.data ?? []) as Row[]).map((p) => [String(p.id), p]));
   const ords = (orders.data ?? []) as Row[];
   return rows.map((r) => {
@@ -53,8 +57,8 @@ export async function listSuppliers(session: Session): Promise<SupplierView[]> {
       contactName: str(r.contact_name), contactEmail: str(r.contact_email), contactPhone: str(r.contact_phone),
       orders: mine.filter((o) => o.status !== 'CANCELLED').length,
       openOrders: mine.filter((o) => ['DRAFT', 'APPROVAL_REQUIRED', 'APPROVED', 'ISSUED', 'PARTIALLY_RECEIVED'].includes(String(o.status))).length,
-      // Pontualidade chega com o recebimento (235); até lá, desconhecida — nunca inventada.
-      onTimeRate: null,
+      // Pontualidade DERIVADA dos recebimentos (235); sem histórico, desconhecida — nunca inventada.
+      onTimeRate: onTimeRate(perf.get(String(r.id))),
     };
   }).sort((a, b) => a.name.localeCompare(b.name));
 }

@@ -190,3 +190,34 @@ INV-11 (pedido emitido não aumenta estoque — só "em pedido"), INV-07 (cobert
 - Ligar as rotas `approval.request.* → procurement.purchase_order.apply_approval` na publicação.
 - Pedido governado por política cancelado com pedido de aprovação PENDENTE no motor: o desfecho posterior é ignorado (idempotente), mas o pedido do motor não é cancelado automaticamente.
 - Hidratação do shell do app falha em 390 px em todas as telas (pré-existente).
+
+---
+
+## Wave I — Recebimento & Logística (migration 235)
+
+**Aplicada no banco hospedado** (`scripts/operations/apply-235.mjs --apply`, 45/45 provas; `security-audit` 239/239).
+
+### Entrou
+- **235_receiving_logistics.sql**:
+  - **Só o recebimento põe material no estoque** (INV-11): `goods_receipt_post` contra pedido EMITIDO, com o pedido travado (recebimentos concorrentes na mesma linha serializam). Por linha: aceito ≤ em aberto (acima é recusado), rejeitado/avariado à parte com motivo (não entra no estoque e segue esperado), lote/série (um número por unidade). Posta `RECEIPT` apontando a linha do recebimento (o livro agora exige), aloca o aceito aos requisitos do pedido por data de necessidade (`goods_receipt_line_requirements`, INV-13) e reserva no local o que chegou, até a necessidade. Parcial é primeira classe: pedido PARTIALLY_RECEIVED, saldo continua "em pedido" (INV-12). Idempotente pela chave.
+  - **Inspeção**: recebido em QUARENTENA fica "em inspeção" — não reservável nem disponível, mas conta como **entrando** (nova coluna `inspection_qty` anexada ao contrato da cobertura) e como comprometido: ninguém recompra nem reserva de novo o que está esperando decisão. `goods_receipt_inspect` decide todas as unidades (série a série quando rastreado): aprovado vai ao destino pelo **fluxo canônico de transferência** (reservando até o que cada requisito ainda comporta), rejeitado sai com motivo e volta a ser esperado do fornecedor (recebido e alocação recuam).
+  - **Logística de entrada**: `inbound_shipments` (transportadora, veículo, rastreio, ETA, trânsito, chegada; só avança; RECEIVED vem do recebimento).
+  - **Evidência**: `goods_receipt_evidence` (foto/romaneio/nota) — upload assinado em caminho gerado pelo servidor dentro do inquilino; no registro o servidor baixa o objeto, confere tamanho e calcula o hash.
+  - **Encerrar pedido** (`purchase_order_close`): recebido → encerrado; com saldo, só com motivo (o saldo deixa de ser esperado e a falta volta ao plano); recusado com inspeção pendente.
+  - **Finanças sem livro paralelo** (INV-17): visão `purchase_order_receipt_basis` (pedido × recebido × rejeitado × em aberto, com valores) como base do 3-way match; evento `supply.goods_receipt.posted` como gancho; `supply.goods_receipt.project_received` por projeto para a Timeline.
+  - **Pontualidade do fornecedor** derivada: `supplier_delivery_performance` (linhas prometidas, no prazo, atraso médio, rejeições) — alimenta Fornecedores e a comparação de propostas.
+- Rotas `/api/supply/receiving` (+ `receipts`, `receipts/[id]` inspeção, `receipts/[id]/evidence`, `shipments`); "Encerrar pedido" em Compras.
+- UI: **Supply Chain → Recebimentos & Logística** (Entradas por fila — atrasados, hoje, em trânsito, parciais, divergências, próximos, concluídos — | Recebimentos | Inspeção | Desempenho de entrega), recebimento de campo pensado para celular (aceito/rejeitado com motivo, lote/série, local, embarque, foto), inspeção série a série, logística do embarque; "em inspeção" na régua de cobertura.
+
+### Invariantes
+INV-11, INV-12, INV-13, INV-16 (nenhum recebimento sem ato humano nomeado), INV-17, INV-10 (recebimento e rastro são fatos; só a decisão de inspeção muda, uma vez).
+
+### Provas
+- `apply-235` 45/45 (pedido emitido pelo caminho governado inteiro; parcial; acima do aberto; rejeição; série; quarentena; inspeção; recompra e re-reserva recusadas durante a inspeção; 3-way; pontualidade; evidência; fronteiras).
+- Unidade `supply-receiving` (9) — suíte 2929/2929.
+- Integração viva 27/27.
+- E2E `supply-receiving.spec.ts` 5/5; regressão Operações + Supply 39/39 (por spec).
+
+### Ajustes de teste
+- Fixtures simulados de demanda atualizados para o contrato de cobertura com `inspection`; formatador de quantidade tolerante a valor ausente.
+- `operations-service-orders.spec` (wave B): "Failed to fetch" (aborto de rede provocado pelo próprio spec) não conta como erro de runtime.

@@ -2,8 +2,11 @@
  * COBERTURA DE MATERIAL — a equação do plano, em código puro.
  *
  *   coberto  = reservado (ativo) + consumido
- *   entrando = em trânsito (transferência) + em pedido (compra aberta)
+ *   entrando = em trânsito (transferência) + em pedido (compra aberta) + em inspeção
  *   falta    = requerido − coberto − entrando   (nunca negativa)
+ *
+ * Em inspeção (235) é o recebido na quarentena para o requisito: não é
+ * reservável, mas já chegou — conta como entrando, não como falta.
  *
  * Estoque físico sozinho NUNCA é disponibilidade: disponível = em mão −
  * reservado (INV-09). Esta função não olha estoque: olha o que foi ALOCADO
@@ -18,6 +21,8 @@ export interface CoverageFigures {
   inTransit: number;
   onOrder: number;
   requested: number;
+  /** Recebido em quarentena para o requisito, aguardando inspeção. */
+  inspection: number;
 }
 
 export type CoverageStatus = 'COVERED' | 'PARTIAL' | 'INBOUND' | 'SHORT';
@@ -40,13 +45,14 @@ export function summarizeCoverage(f: Partial<CoverageFigures>): CoverageSummary 
   const inTransit = Math.max(0, n(f.inTransit));
   const onOrder = Math.max(0, n(f.onOrder));
   const requested = Math.max(0, n(f.requested));
+  const inspection = Math.max(0, n(f.inspection));
   const covered = reserved + consumed;
-  const inbound = inTransit + onOrder;
+  const inbound = inTransit + onOrder + inspection;
   const shortage = Math.max(0, required - covered - inbound);
   const status: CoverageStatus = required > 0 && covered >= required ? 'COVERED'
     : shortage === 0 ? 'INBOUND'
       : covered > 0 || inbound > 0 ? 'PARTIAL' : 'SHORT';
-  return { required, reserved, consumed, inTransit, onOrder, requested, covered, inbound, shortage,
+  return { required, reserved, consumed, inTransit, onOrder, requested, inspection, covered, inbound, shortage,
     coveredRatio: required > 0 ? Math.min(1, covered / required) : 0, status };
 }
 
@@ -60,11 +66,12 @@ export interface CoverageViewRow {
   requirement_type: string; required_by: string | null; unit: string | null;
   required_qty: string | number | null; reserved_qty: string | number; consumed_qty: string | number;
   in_transit_qty: string | number; on_order_qty: string | number; requested_qty: string | number;
+  inspection_qty?: string | number | null;
 }
 
 export function fromViewRow(r: CoverageViewRow): CoverageSummary {
   return summarizeCoverage({ required: n(r.required_qty), reserved: n(r.reserved_qty), consumed: n(r.consumed_qty),
-    inTransit: n(r.in_transit_qty), onOrder: n(r.on_order_qty), requested: n(r.requested_qty) });
+    inTransit: n(r.in_transit_qty), onOrder: n(r.on_order_qty), requested: n(r.requested_qty), inspection: n(r.inspection_qty) });
 }
 
 /**

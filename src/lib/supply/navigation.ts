@@ -11,6 +11,8 @@ export const SUPPLY_NAV: DomainNavItem[] = [
   { id: 'inventory', label: 'Estoque', href: '/supply/estoque', anyPermission: ['inventory.view', 'supply.view'] },
   { id: 'procurement', label: 'Compras', href: '/supply/compras', anyPermission: ['procurement.view', 'supply.view'] },
   { id: 'suppliers', label: 'Fornecedores', href: '/supply/fornecedores', anyPermission: ['suppliers.view', 'procurement.view'] },
+  { id: 'receiving', label: 'Recebimentos & Logística', href: '/supply/recebimentos',
+    anyPermission: ['receiving.view', 'supply.view', 'procurement.view'] },
 ];
 
 export const SUPPLY_GROUP_PERMISSIONS = Array.from(new Set(SUPPLY_NAV.flatMap((i) => i.anyPermission)));

@@ -99,3 +99,42 @@ export async function confirmedMaterial({ one }, { org, actor }, projectId, item
   await one('SELECT public.project_requirement_transition($1,$2,$3,$4,$5,$6) r', [org, actor, req.requirement_id, 'CONFIRMED', null, null]);
   return req.requirement_id;
 }
+
+/** Outro usuário do inquilino com `procurement.approve` por PAPEL (para a segregação de funções). */
+export async function secondApprover({ one }, { org, actor }) {
+  return one(`SELECT DISTINCT ur.user_id, ur.role_id FROM public.user_roles ur
+    WHERE ur.organization_id = $1 AND ur.user_id <> $2 AND public.apex_actor_has_permission($1, ur.user_id, 'procurement.approve')
+      AND EXISTS (SELECT 1 FROM public.role_permissions rp JOIN public.permissions p ON p.id = rp.permission_id
+                   WHERE rp.role_id = ur.role_id AND p.key = 'procurement.approve') LIMIT 1`, [org, actor]);
+}
+
+/**
+ * Pedido de compra EMITIDO pelo caminho governado inteiro: falta → requisição
+ * → cotação → proposta → decisão → alçada declarada → aprovação por outra
+ * pessoa → emissão. `prices` mapeia item → preço unitário.
+ */
+export async function issuedPurchaseOrder(ctx, anchors, { tag, requirementIds, prices, deliveryLocationId, leadTimeDays = 10 }) {
+  const { one, all } = ctx; const { org, actor } = anchors;
+  const J = (x) => JSON.stringify(x);
+  const act = async (fn, ...args) => (await one(`SELECT public.${fn}(${args.map((_, i) => `$${i + 1}`).join(',')}) r`, args)).r;
+  const supplier = (await act('supplier_register', org, actor, J({ legal_name: `Fornecedor ${tag}` }))).supplier_id;
+  await act('supplier_set_status', org, actor, supplier, 'HOMOLOGATED', null);
+  const rc = await act('purchase_requisition_from_shortage', org, actor, J({ requirement_ids: requirementIds }));
+  const reqLines = await all(`SELECT id FROM public.purchase_requisition_lines WHERE requisition_id = $1`, [rc.requisition_id]);
+  const rfq = await act('procurement_rfq_create', org, actor, J({ requisition_line_ids: reqLines.map((l) => l.id), supplier_ids: [supplier] }));
+  const rfqLines = await all(`SELECT id, item_id FROM public.procurement_rfq_lines WHERE rfq_id = $1`, [rfq.rfq_id]);
+  const quote = await act('procurement_quote_record', org, actor, J({ rfq_id: rfq.rfq_id, supplier_id: supplier, lead_time_days: leadTimeDays,
+    validity_date: '2099-01-01', lines: rfqLines.map((l) => ({ rfq_line_id: l.id, unit_price: prices[l.item_id] ?? 1 })) }));
+  const dec = await act('procurement_decide', org, actor, J({ rfq_id: rfq.rfq_id, quote_id: quote.quote_id, rationale: `Prova ${tag}: única proposta.` }));
+  const po = dec.purchase_order_id;
+  await act('purchase_order_update_draft', org, actor, po, J({ delivery_location_id: deliveryLocationId }));
+  await act('purchase_order_submit', org, actor, po, null);
+  const approver = await secondApprover(ctx, anchors);
+  if (!approver) throw new Error('Sem segundo aprovador no inquilino de prova.');
+  await act('procurement_authority_declare', org, actor, J({ grantee_kind: 'ROLE', grantee_role_id: approver.role_id,
+    source_kind: 'BOARD_RESOLUTION', source_reference: `ATA-${tag}`, justification: 'Prova' }));
+  await act('purchase_order_decide', org, approver.user_id, po, 'APPROVE', 'Prova');
+  await act('purchase_order_issue', org, actor, po);
+  const lines = await all(`SELECT id, item_id, quantity::float q FROM public.purchase_order_lines WHERE purchase_order_id = $1`, [po]);
+  return { poId: po, supplierId: supplier, approver, lineOf: Object.fromEntries(lines.map((l) => [l.item_id, l.id])) };
+}

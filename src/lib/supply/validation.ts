@@ -76,6 +76,7 @@ export const transferActionSchema = z.discriminatedUnion('action', [
     lines: z.array(z.object({ lineId: uuid, quantity: positive })).min(1).max(100) }),
   z.object({ action: z.literal('close'), reason: z.string().trim().max(500).optional() }),
   z.object({ action: z.literal('cancel'), reason }),
+  z.object({ action: z.literal('close'), reason: z.string().trim().max(500).optional() }),
 ]);
 
 export const countOpenSchema = z.object({ locationId: uuid, itemIds: z.array(uuid).max(500).optional(), note: z.string().trim().max(500).optional() });
@@ -86,6 +87,7 @@ export const countActionSchema = z.discriminatedUnion('action', [
   }).refine((l) => l.lineId || l.itemId, 'Linha ou item obrigatório.')).min(1).max(500) }),
   z.object({ action: z.literal('post'), reason: z.string().trim().max(500).optional() }),
   z.object({ action: z.literal('cancel'), reason }),
+  z.object({ action: z.literal('close'), reason: z.string().trim().max(500).optional() }),
 ]);
 
 /** camelCase da rota → snake_case do contrato das funções do banco. */
@@ -171,4 +173,47 @@ export const purchaseOrderActionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('sync') }),
   z.object({ action: z.literal('issue') }),
   z.object({ action: z.literal('cancel'), reason }),
+  z.object({ action: z.literal('close'), reason: z.string().trim().max(500).optional() }),
+]);
+
+// ── Recebimento & logística (235) ─────────────────────────────────────────
+export const receiptSchema = z.object({
+  purchaseOrderId: uuid, locationId: uuid.nullable().optional(), shipmentId: uuid.nullable().optional(),
+  note: z.string().trim().max(1000).nullable().optional(), discrepancyReason: z.string().trim().max(1000).nullable().optional(),
+  idempotencyKey: key,
+  lines: z.array(z.object({
+    poLineId: uuid, acceptedQuantity: z.coerce.number().finite().min(0).default(0),
+    rejectedQuantity: z.coerce.number().finite().min(0).default(0),
+    rejectionReason: z.string().trim().max(500).nullable().optional(), lotCode: lot,
+    serials: z.array(z.string().trim().min(1).max(120)).max(1000).optional(),
+  }).refine((l) => l.acceptedQuantity + l.rejectedQuantity > 0, 'Informe o recebido ou o rejeitado da linha.')
+    .refine((l) => l.rejectedQuantity === 0 || (l.rejectionReason ?? '').length >= 3, 'Quantidade rejeitada exige motivo.'))
+    .min(1).max(200),
+});
+
+export const inspectionSchema = z.object({
+  destinationLocationId: uuid.nullable().optional(), reason: z.string().trim().max(1000).nullable().optional(),
+  lines: z.array(z.object({
+    lineId: uuid, approvedQuantity: z.coerce.number().finite().min(0).optional(), rejectedQuantity: z.coerce.number().finite().min(0).optional(),
+    approvedSerials: z.array(z.string().trim().min(1)).optional(), rejectedSerials: z.array(z.string().trim().min(1)).optional(),
+  })).min(1).max(200),
+});
+
+export const shipmentSchema = z.object({
+  id: uuid.optional(), purchaseOrderId: uuid.optional(),
+  status: z.enum(['EXPECTED', 'IN_TRANSIT', 'ARRIVED', 'CANCELLED']).optional(),
+  destinationLocationId: uuid.nullable().optional(), carrier: z.string().trim().max(200).nullable().optional(),
+  vehicle: z.string().trim().max(60).nullable().optional(), trackingRef: z.string().trim().max(200).nullable().optional(),
+  eta: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(), note: z.string().trim().max(1000).nullable().optional(),
+  reason: z.string().trim().max(500).optional(),
+}).refine((s) => s.id || s.purchaseOrderId, 'Informe o embarque ou o pedido.')
+  .refine((s) => s.status !== 'CANCELLED' || (s.reason ?? '').length >= 3, 'Cancelar embarque exige motivo.');
+
+export const EVIDENCE_MIME = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'application/pdf'] as const;
+export const MAX_EVIDENCE_BYTES = 15 * 1024 * 1024;
+export const evidenceSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('authorize'), fileName: z.string().trim().min(1).max(200), mimeType: z.enum(EVIDENCE_MIME),
+    fileSize: z.number().int().positive().max(MAX_EVIDENCE_BYTES) }),
+  z.object({ action: z.literal('register'), path: z.string().min(10).max(500), fileName: z.string().trim().min(1).max(200),
+    mimeType: z.enum(EVIDENCE_MIME) }),
 ]);

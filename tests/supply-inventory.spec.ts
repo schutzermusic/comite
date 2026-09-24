@@ -45,7 +45,7 @@ const demand = {
   demand: [{ requirementId: REQ, projectId: 'p1', project: 'Obra 1', client: 'Cliente', activityId: null, activity: null,
     itemId: ITEM, itemCode: 'CAB-35', itemDescription: 'Cabo 35 mm²', title: 'Cabo da subestação', priority: 'high', unit: 'm',
     requirementType: 'MATERIAL', requiredBy: '2026-09-28', daysToNeed: 4,
-    coverage: { required: 1000, reserved: 250, consumed: 0, inTransit: 300, onOrder: 0, requested: 0, covered: 250, inbound: 300,
+    coverage: { required: 1000, reserved: 250, consumed: 0, inTransit: 300, onOrder: 0, requested: 0, inspection: 0, covered: 250, inbound: 300,
       shortage: 450, coveredRatio: 0.25, status: 'PARTIAL' }, risk: 'critical',
     stock: [{ locationId: WH, locationName: 'Almoxarifado SP', available: 400, isDestination: true }], sites: [] }],
 };

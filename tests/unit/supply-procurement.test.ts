@@ -66,11 +66,13 @@ describe('Compras — atos oferecidos pelo estado e pela alçada', () => {
     const po = { status: 'APPROVAL_REQUIRED' as const, governance: 'POLICY' as const, createdBy: 'u1', submittedBy: 'u1' };
     expect(purchaseOrderActions(po, caps, 'u3')).toEqual(['sync', 'cancel']);
   });
-  it('só aprovado é emitido; recebido não se cancela', () => {
+  it('só aprovado é emitido; recebido não se cancela — encerra-se', () => {
     expect(purchaseOrderActions({ status: 'APPROVED', governance: 'AUTHORITY', createdBy: 'u1', submittedBy: 'u1' }, caps, 'u1'))
       .toEqual(['issue', 'cancel']);
     expect(purchaseOrderActions({ status: 'PARTIALLY_RECEIVED', governance: 'AUTHORITY', createdBy: 'u1', submittedBy: 'u1' }, caps, 'u1'))
-      .toEqual([]);
+      .toEqual(['close']);
+    expect(purchaseOrderActions({ status: 'ISSUED', governance: 'AUTHORITY', createdBy: 'u1', submittedBy: 'u1' }, caps, 'u1'))
+      .toEqual(['cancel', 'close']);
   });
 });
 
