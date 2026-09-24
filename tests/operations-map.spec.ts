@@ -3,10 +3,10 @@
  * o item do menu e o atalho da Visão Geral de Operações levam a ele, e o item
  * fica marcado como a página atual. Só leitura.
  */
+import { e2eCredentials } from './support/e2e-credentials';
 import { test, expect } from '@playwright/test';
-import { readFileSync } from 'node:fs';
 
-const qa = JSON.parse(readFileSync('tests/.qa-env.json', 'utf8')) as { email: string; password: string };
+const qa = e2eCredentials();
 test.setTimeout(150_000);
 
 test('menu e Visão Geral de Operações levam ao mapa 3D anterior', async ({ page }) => {

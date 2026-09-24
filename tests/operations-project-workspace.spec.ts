@@ -7,18 +7,19 @@
  *
  *   PONTO_E2E_REUSE=1 npx playwright test tests/operations-project-workspace.spec.ts --project=chromium
  */
+import { e2eCredentials, e2eDbConfig } from './support/e2e-credentials';
 import { test, expect, type BrowserContext, type Page } from '@playwright/test';
-import { mkdirSync, readFileSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import pg from 'pg';
 import dotenv from 'dotenv';
 
 dotenv.config({ path: '.env' });
 dotenv.config({ path: '.env.local' });
-const qa = JSON.parse(readFileSync('tests/.qa-env.json', 'utf8')) as { email: string; password: string; orgId: string };
+const qa = e2eCredentials();
 
 /** Um projeto real da organização de QA — leitura, sessão somente-leitura. */
 async function qaProjectId(): Promise<string | null> {
-  const db = new pg.Client({ connectionString: process.env.SUPABASE_DB_URL, ssl: { rejectUnauthorized: false } });
+  const db = new pg.Client(e2eDbConfig());
   await db.connect();
   try {
     await db.query('BEGIN TRANSACTION READ ONLY'); // pooler em modo transação: nada de SET SESSION

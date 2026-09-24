@@ -5,14 +5,15 @@
  * INTERCEPTADA (respondida aqui, marcada `intercepted`) só para provar que a
  * tela manda o contrato certo; todo o resto de não-GET é abortado.
  */
+import { e2eCredentials, e2eDbConfig } from './support/e2e-credentials';
 import { test, expect, type BrowserContext, type Page } from '@playwright/test';
-import { mkdirSync, readFileSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import pg from 'pg';
 import dotenv from 'dotenv';
 
 dotenv.config({ path: '.env' });
 dotenv.config({ path: '.env.local' });
-const qa = JSON.parse(readFileSync('tests/.qa-env.json', 'utf8')) as { email: string; password: string; orgId: string };
+const qa = e2eCredentials();
 const OUT = 'test-results/operations';
 
 test.describe.configure({ mode: 'serial' });
@@ -25,7 +26,7 @@ const blocked: string[] = [];
 const intercepted: Array<Record<string, unknown>> = [];
 
 test.beforeAll(async ({ browser }) => {
-  const db = new pg.Client({ connectionString: process.env.SUPABASE_DB_URL, ssl: { rejectUnauthorized: false } });
+  const db = new pg.Client(e2eDbConfig());
   await db.connect();
   await db.query('BEGIN TRANSACTION READ ONLY'); // pooler em modo transação: nada de SET SESSION
   projectId = (await db.query(`SELECT p.id FROM public.projects p WHERE p.organization_id = $1

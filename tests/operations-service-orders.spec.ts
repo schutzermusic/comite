@@ -11,10 +11,11 @@
  *
  *   PONTO_E2E_REUSE=1 npx playwright test tests/operations-service-orders.spec.ts --project=chromium
  */
+import { e2eCredentials } from './support/e2e-credentials';
 import { test, expect, type BrowserContext, type Page } from '@playwright/test';
-import { mkdirSync, readFileSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 
-const qa = JSON.parse(readFileSync('tests/.qa-env.json', 'utf8')) as { email: string; password: string };
+const qa = e2eCredentials();
 const OUT = 'test-results/operations';
 
 test.describe.configure({ mode: 'serial' });

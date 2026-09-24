@@ -4,10 +4,11 @@
  * inspecionar série a série e registrar a logística do embarque. Toda escrita
  * é interceptada; nada chega ao banco.
  */
+import { e2eCredentials } from './support/e2e-credentials';
 import { test, expect, type BrowserContext, type Page } from '@playwright/test';
-import { mkdirSync, readFileSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 
-const qa = JSON.parse(readFileSync('tests/.qa-env.json', 'utf8')) as { email: string; password: string; orgId: string };
+const qa = e2eCredentials();
 const OUT = 'test-results/operations';
 test.describe.configure({ mode: 'serial' });
 test.setTimeout(150_000);
