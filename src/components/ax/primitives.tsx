@@ -24,15 +24,24 @@ export function AxPage({ children, testId }: { children: ReactNode; testId?: str
   );
 }
 
-export function CommandHeader({ domain, area, title, context, actions }: {
-  domain: 'operations' | 'supply'; area: string; title: string; context?: ReactNode; actions?: ReactNode;
+/**
+ * Cabeçalho de comando. Com `domain`, é o de Operações/Supply (navegação da
+ * área + "Domínio · Área"). Sem `domain` — uma tela que não pertence a um
+ * domínio, como Decisões —, não há navegação de área e o sobretítulo é o
+ * `eyebrow` dado (ou só a `area`).
+ */
+export function CommandHeader({ domain, area, eyebrow, title, context, actions }: {
+  domain?: 'operations' | 'supply'; area?: string; eyebrow?: ReactNode; title: string; context?: ReactNode; actions?: ReactNode;
 }) {
+  const kicker = eyebrow ?? (domain
+    ? <><b>{domain === 'operations' ? 'Operações' : 'Supply Chain'}</b> · {area}</>
+    : area ? <b>{area}</b> : null);
   return (
     <>
-      <DomainNav domain={domain} />
+      {domain && <DomainNav domain={domain} />}
       <header className="ax-header">
         <div className="ax-header-main">
-          <span className="ax-eyebrow"><b>{domain === 'operations' ? 'Operações' : 'Supply Chain'}</b> · {area}</span>
+          {kicker && <span className="ax-eyebrow">{kicker}</span>}
           <h1 className="ax-title">{title}</h1>
           {context && <div className="ax-context">{context}</div>}
         </div>
