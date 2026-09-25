@@ -99,7 +99,7 @@ export const RightHudStack = React.memo(function RightHudStack({ data, scopeMode
                 >
                     <HudRingGauge
                         value={data.votingStatus.pending}
-                        max={data.votingStatus.pending + data.votingStatus.approved}
+                        max={data.votingStatus.open ?? data.votingStatus.pending + data.votingStatus.approved}
                         label={t('pending')}
                         size={74}
                         strokeWidth={5}

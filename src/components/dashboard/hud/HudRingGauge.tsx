@@ -3,6 +3,7 @@
 import React from 'react';
 import { cn } from '@/lib/utils';
 import { useTheme } from '@/contexts/ThemeContext';
+import { finite, ringGeometry, svgSafeId } from './geometry';
 
 export interface HudRingGaugeProps {
     value: number;
@@ -46,20 +47,21 @@ export function HudRingGauge({
     className,
     sideMetrics,
 }: HudRingGaugeProps) {
-    const radius = (size - strokeWidth) / 2;
-    const circumference = 2 * Math.PI * radius;
-    const progress = Math.min(value / max, 1);
-    const dashOffset = circumference * (1 - progress);
+    // Geometria finita por construção: sem denominador (max ≤ 0) o anel fica
+    // vazio — só a trilha, sem arco nem marcador — em vez de desenhar NaN.
+    const { radius, circumference, dashOffset, endX, endY, empty } = ringGeometry(size, strokeWidth, value, max);
+    const shownValue = finite(value);
     const thresholdStops = [0.33, 0.66, 1];
     const { theme } = useTheme();
     const isLight = theme === 'light';
 
-    const gradientId = `ring-${Math.random().toString(36).slice(2, 8)}`;
+    // Estável entre renders (e entre servidor e cliente) — o `url(#…)` não muda a cada commit.
+    const gradientId = svgSafeId('ring', React.useId());
 
     return (
         <div className={cn('flex items-center gap-4', className)}>
             {/* Ring */}
-            <div className="cr-ring-gauge relative" style={{ width: size, height: size }}>
+            <div className="cr-ring-gauge relative" style={{ width: size, height: size }} data-empty={empty || undefined}>
                 <svg width={size} height={size}>
                     <defs>
                         <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="1">
@@ -109,6 +111,7 @@ export function HudRingGauge({
                         strokeWidth={strokeWidth}
                     />
                     {/* Progress ring */}
+                    {!empty && (
                     <circle
                         cx={size / 2}
                         cy={size / 2}
@@ -124,21 +127,19 @@ export function HudRingGauge({
                             transition: 'stroke-dashoffset 0.8s cubic-bezier(0.22, 1, 0.36, 1)',
                         }}
                     />
+                    )}
 
                     {/* Progress endpoint dot */}
-                    {(() => {
-                        const endAngle = (-90 + progress * 360) * (Math.PI / 180);
-                        return (
-                            <circle
-                                cx={size / 2 + Math.cos(endAngle) * radius}
-                                cy={size / 2 + Math.sin(endAngle) * radius}
-                                r="3"
-                                fill={isLight ? color : 'white'}
-                                opacity="0.85"
-                                filter={!isLight ? `url(#glow-${gradientId})` : undefined}
-                            />
-                        );
-                    })()}
+                    {!empty && (
+                        <circle
+                            cx={endX}
+                            cy={endY}
+                            r="3"
+                            fill={isLight ? color : 'white'}
+                            opacity="0.85"
+                            filter={!isLight ? `url(#glow-${gradientId})` : undefined}
+                        />
+                    )}
                 </svg>
                 {/* Center label */}
                 <div className="cr-ring-gauge-label">
@@ -146,7 +147,7 @@ export function HudRingGauge({
                         className="text-[2rem] font-bold tabular-nums tracking-tight leading-none text-ig-fg-numeric"
                         style={isLight ? undefined : { textShadow: '0 0 16px rgba(124, 232, 253, 0.24)' }}
                     >
-                        {value}
+                        {shownValue}
                     </span>
                     <span className={cn(
                         'text-[7px] uppercase tracking-[0.14em] mt-0.5',

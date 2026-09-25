@@ -55,6 +55,12 @@ export interface VotingStatus {
   approved: number;
   rejected: number;
   pending: number;
+  /**
+   * Deliberações em aberto (dado vivo). É o denominador real do anel "em
+   * votação": sem ele, `pendentes + aprovadas` com aprovadas sempre 0 no dado
+   * vivo dava 0/0 (NaN) sem votação e 100% com qualquer votação.
+   */
+  open?: number;
   endingIn72h: number;
   averageParticipation: number; // percentage
 }

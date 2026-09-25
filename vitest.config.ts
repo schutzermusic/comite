@@ -15,6 +15,8 @@ import { fileURLToPath, URL } from 'node:url';
  */
 export default defineConfig({
   resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
+  // O tsconfig do Next preserva JSX; o teste que RENDERIZA componente precisa do runtime automático.
+  oxc: { jsx: { runtime: 'automatic' } },
   test: {
     environment: 'node',
     restoreMocks: true,

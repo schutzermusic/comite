@@ -239,6 +239,7 @@ export function buildLiveDashboardPayload(
       approved: 0,
       rejected: 0,
       pending: pendingVotes,
+      open: liveDeliberations.length,
       endingIn72h,
       averageParticipation: 0,
     },

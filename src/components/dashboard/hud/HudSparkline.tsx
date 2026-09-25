@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { cn } from '@/lib/utils';
+import { barHeightPct, sparklineGeometry, svgSafeId } from './geometry';
 
 export interface HudSparklineProps {
     values: number[];
@@ -27,36 +28,19 @@ export function HudSparkline({
     className,
     variant = 'bar',
 }: HudSparklineProps) {
+    const reactId = React.useId();
     if (!values || values.length === 0) return null;
 
     if (variant === 'line') {
-        const domainValues = [...values, ...(forecastValues || []), ...(bandLower || []), ...(bandUpper || [])];
-        const max = Math.max(...domainValues);
-        const min = Math.min(...domainValues);
-        const range = max - min || 1;
         const w = width || values.length * 8;
         const padding = 2;
-
-        const points = values.map((v, i) => {
-            const x = padding + (i / (values.length - 1)) * (w - padding * 2);
-            const y = padding + (1 - (v - min) / range) * (height - padding * 2);
-            return `${x},${y}`;
-        });
-        const forecastPoints = forecastValues?.map((v, i) => {
-            const x = padding + (i / (values.length - 1)) * (w - padding * 2);
-            const y = padding + (1 - (v - min) / range) * (height - padding * 2);
-            return `${x},${y}`;
-        });
-        const bandTopPoints = bandUpper?.map((v, i) => {
-            const x = padding + (i / (values.length - 1)) * (w - padding * 2);
-            const y = padding + (1 - (v - min) / range) * (height - padding * 2);
-            return `${x},${y}`;
-        });
-        const bandBottomPoints = bandLower?.map((v, i) => {
-            const x = padding + (i / (values.length - 1)) * (w - padding * 2);
-            const y = padding + (1 - (v - min) / range) * (height - padding * 2);
-            return `${x},${y}`;
-        });
+        // Menos de dois pontos finitos não é tendência: nada é desenhado.
+        const geo = sparklineGeometry({ values, forecast: forecastValues, bandLower, bandUpper, width: w, height, padding });
+        if (!geo) return null;
+        const points = geo.points;
+        const forecastPoints = geo.forecast ?? undefined;
+        const bandTopPoints = geo.bandTop ?? undefined;
+        const bandBottomPoints = geo.bandBottom ?? undefined;
 
         const areaPoints = [
             `${padding},${height}`,
@@ -67,7 +51,7 @@ export function HudSparkline({
             ? [...bandTopPoints, ...[...bandBottomPoints].reverse()].join(' ')
             : null;
 
-        const gradientId = `spark-${Math.random().toString(36).slice(2, 8)}`;
+        const gradientId = svgSafeId('spark', reactId);
 
         const glowId = `glow-${gradientId}`;
 
@@ -130,7 +114,7 @@ export function HudSparkline({
     }
 
     // Bar variant (default)
-    const max = Math.max(...values);
+    const max = Math.max(0, ...values.filter(Number.isFinite));
     return (
         <div
             className={cn('cr-sparkline', className)}
@@ -141,7 +125,7 @@ export function HudSparkline({
                     key={i}
                     className="cr-sparkline-bar"
                     style={{
-                        height: `${Math.max((v / max) * 100, 8)}%`,
+                        height: `${barHeightPct(v, max)}%`,
                         background: color,
                         opacity: i === values.length - 1 ? 1 : 0.5,
                     }}
