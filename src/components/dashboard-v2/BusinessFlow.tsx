@@ -13,12 +13,12 @@ import type { FlowStage } from '@/lib/dashboard/types';
  * sem OS" restrito ou que falhou; Planejamento com o cronograma lido em parte)
  * segue a chave `noNumber` do servidor — restrito, não carregou, ou só "sem número".
  */
-type StageGroup = 'stuck' | 'calm' | 'restricted' | 'failed' | 'nonumber' | 'unavailable';
+export type StageGroup = 'stuck' | 'calm' | 'restricted' | 'failed' | 'nonumber' | 'unavailable';
 
 const noNumberRestricted = (s: FlowStage) => s.noNumber === 'restricted';
 const noNumberFailed = (s: FlowStage) => s.noNumber === 'error';
 
-function groupOf(s: FlowStage): StageGroup {
+export function groupOf(s: FlowStage): StageGroup {
   if (s.state === 'restricted') return 'restricted';
   if (s.state === 'error') return 'failed';
   if (s.state === 'unavailable') return 'unavailable';
@@ -32,15 +32,12 @@ const noNumberText = (n: number) => `${n} sem número`;
 const unavailableText = (n: number) => `${n} sem fonte`;
 
 /**
- * FLUXO DO NEGÓCIO — um mapa de gargalos, não um funil.
- *
- * Cada etapa conta O QUE ESTÁ PARADO nela, com o substantivo ("3 aceitas sem
- * OS"), e abre a área que resolve. As unidades mudam de etapa para etapa
- * (propostas, OS, requisitos, medições…), por isso não há setas de volume:
- * o trilho é a ordem do trabalho, da proposta ao caixa. "Restrito" e "sem
- * fonte" são estados, nunca zero — e nunca "sem pendência".
+ * O resumo do fluxo — a MESMA leitura em todo o Dashboard (o trilho completo e
+ * a coluna compacta do globo): quantas etapas legíveis têm pendência, quantas
+ * são restritas / não carregaram / sem número, e a frase de calmaria que só
+ * afirma o que foi lido.
  */
-export function BusinessFlow({ stages, hasOperation }: { stages: FlowStage[]; hasOperation: boolean | null }) {
+export function flowSummary(stages: FlowStage[], hasOperation: boolean | null) {
   const by = (g: StageGroup) => stages.filter((s) => groupOf(s) === g);
   const stuck = by('stuck');
   const calm = by('calm');
@@ -79,6 +76,21 @@ export function BusinessFlow({ stages, hasOperation }: { stages: FlowStage[]; ha
   const start = hasOperation === false ? calm[0]?.id : undefined;
   const unreadSummary = [...unreadParts, unavailable.length > 0 ? unavailableText(unavailable.length) : null]
     .filter(Boolean).join(' · ');
+
+  return { stuck, calm, restricted, failed, noNumber, unavailable, unread, legible, unreadParts, partialRead, summary, calmText, start, unreadSummary };
+}
+
+/**
+ * FLUXO DO NEGÓCIO — um mapa de gargalos, não um funil.
+ *
+ * Cada etapa conta O QUE ESTÁ PARADO nela, com o substantivo ("3 aceitas sem
+ * OS"), e abre a área que resolve. As unidades mudam de etapa para etapa
+ * (propostas, OS, requisitos, medições…), por isso não há setas de volume:
+ * o trilho é a ordem do trabalho, da proposta ao caixa. "Restrito" e "sem
+ * fonte" são estados, nunca zero — e nunca "sem pendência".
+ */
+export function BusinessFlow({ stages, hasOperation }: { stages: FlowStage[]; hasOperation: boolean | null }) {
+  const { stuck, calm, unread, summary, calmText, start, unreadSummary } = flowSummary(stages, hasOperation);
 
   return (
     <section className="dv2-flow" aria-labelledby="dv2-flow-title" data-testid="dashboard-flow">
@@ -170,7 +182,7 @@ function StageValue({ stage: s }: { stage: FlowStage }) {
   );
 }
 
-function ariaFor(s: FlowStage): string {
+export function ariaFor(s: FlowStage): string {
   if (s.state === 'restricted') return `${s.label}: restrito ao seu perfil`;
   if (s.state === 'unavailable') return `${s.label}: ${s.reason ?? 'sem fonte canônica'}`;
   if (s.state === 'error') return `${s.label}: não carregou`;
