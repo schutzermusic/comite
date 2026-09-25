@@ -2,6 +2,7 @@ import { runInventoryAct } from '@/lib/supply/inventory-route';
 import { inventoryAct, supplyRpc } from '@/lib/supply/service';
 import { purchaseOrderActionSchema, snakePayload } from '@/lib/supply/validation';
 import { platformServiceClient } from '@/lib/platform/server-client';
+import { scheduleSubjectNotify } from '@/lib/decisions/notify';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -31,7 +32,12 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
           const { action: _a, ...rest } = input;
           return inventoryAct('purchase_order_update_draft', s.organizationId, s.user.id, { ...base, p_payload: snakePayload(rest) });
         }
-        case 'submit': return inventoryAct('purchase_order_submit', s.organizationId, s.user.id, { ...base, p_note: input.note ?? null });
+        case 'submit': {
+          const out = await inventoryAct('purchase_order_submit', s.organizationId, s.user.id, { ...base, p_note: input.note ?? null });
+          // Decisões: avisa quem decide logo após a resposta (idempotente; o evento e a varredura são a garantia).
+          scheduleSubjectNotify(s.organizationId, 'purchase_order', id);
+          return out;
+        }
         case 'approve':
         case 'reject':
           return inventoryAct('purchase_order_decide', s.organizationId, s.user.id,
