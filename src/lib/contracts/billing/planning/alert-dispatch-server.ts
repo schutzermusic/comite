@@ -109,8 +109,15 @@ export async function dispatchBillingAlertsForOrganization(
 
     for (const r of (recipients ?? []) as Recipient[]) {
       // ── in-app ─────────────────────────────────────────────────────────
+      /*
+        A porta de SERVIDOR (`create_notification_for`, 195): a organização vem
+        do alerta. A porta do navegador (`create_notification`) resolve a
+        organização por auth.uid() — que não existe no service role — e fazia
+        TODO alerta in-app terminar FAILED ("Usuário sem organização ativa").
+      */
       if (channels.includes('in_app') && !(await alreadyDispatched(alert.id, r.recipient_user_id, 'in_app'))) {
-        const { data: notificationId, error } = await service.rpc('create_notification', {
+        const { data: notificationId, error } = await service.rpc('create_notification_for', {
+          p_organization_id: organizationId,
           p_recipient: r.recipient_user_id,
           p_type: 'contracts.billing.milestone_due',
           p_title: content.headline,
