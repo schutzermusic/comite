@@ -74,6 +74,14 @@ export function appEnvForQa(env, port) {
     ANTHROPIC_API_KEY: '',
     OPENAI_API_KEY: '',
     RESEND_API_KEY: '',
+    /*
+      E-mail do aplicativo vai para o coletor LOCAL da pilha (Mailpit,
+      `[local_smtp]` em qa/supabase/config.toml, porta 55424) — nunca para o
+      Resend. O transporte de captura recusa por conta própria qualquer
+      endereço que não seja desta máquina (src/lib/notifications/email.ts).
+    */
+    APEX_EMAIL_TRANSPORT: 'capture',
+    EMAIL_CAPTURE_URL: assertLocal('http://127.0.0.1:55424', 'EMAIL_CAPTURE_URL'),
     APEX_QA_ENVIRONMENT: '1',
   };
 }

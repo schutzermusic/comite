@@ -11,6 +11,11 @@ import {
   CheckCircle2,
   Clock,
   AlertTriangle,
+  Gavel,
+  Timer,
+  CircleArrowUp,
+  Stamp,
+  Undo2,
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -38,13 +43,20 @@ interface NotificationCenterProps {
   hiddenOnDashboard?: boolean;
 }
 
-const TYPE_META: Record<string, { icon: LucideIcon; color: string }> = {
+const TYPE_META: Record<string, { icon: LucideIcon; color: string; label?: string }> = {
   meeting_invite:   { icon: Calendar,       color: "#17C3B2" },
   meeting_reminder: { icon: Calendar,       color: "#00C8FF" },
   task_assigned:    { icon: ClipboardList,  color: "#FFB04D" },
   task_status:      { icon: CheckCircle2,   color: "#00C8FF" },
   task_reminder:    { icon: Clock,          color: "#FFB04D" },
   task_overdue:     { icon: AlertTriangle,  color: "#FF5860" },
+  // Decisões (240): `decisions.<tipo de aviso>`, gravado por decision_delivery_in_app.
+  "decisions.new":                  { icon: Gavel,         color: "#17C3B2", label: "Decisão necessária" },
+  "decisions.due_soon":             { icon: Timer,         color: "#FFB04D", label: "Prazo de decisão próximo" },
+  "decisions.overdue":              { icon: AlertTriangle, color: "#FF5860", label: "Decisão vencida" },
+  "decisions.escalated":            { icon: CircleArrowUp, color: "#FF5860", label: "Decisão escalada" },
+  "decisions.resolved":             { icon: Stamp,         color: "#00C8FF", label: "Decisão concluída" },
+  "decisions.adjustment_requested": { icon: Undo2,         color: "#FFB04D", label: "Ajuste solicitado" },
 };
 
 export default function NotificationCenter({ hiddenOnDashboard }: NotificationCenterProps) {
@@ -189,7 +201,7 @@ export default function NotificationCenter({ hiddenOnDashboard }: NotificationCe
                           className={`p-2 rounded-xl flex-shrink-0 h-fit ${isLight ? 'shadow-[inset_0_1px_0_rgba(255,255,255,0.6)]' : 'shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]'}`}
                           style={{ backgroundColor: `${meta.color}1a` }}
                         >
-                          <Icon className="w-4 h-4" style={{ color: meta.color }} />
+                          <Icon className="w-4 h-4" style={{ color: meta.color }} aria-label={meta.label} />
                         </div>
 
                         <div className="flex-1 min-w-0">

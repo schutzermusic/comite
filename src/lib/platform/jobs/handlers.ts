@@ -750,6 +750,62 @@ const purchaseOrderApprovalReconcile: JobHandler<'procurement.purchase_order.rec
 };
 
 /*
+  Decisões (240): fato → avisos. O handler não escolhe destinatário nem canal
+  — `decision_keys_for_event` diz de qual decisão o fato fala e
+  `decision_notices_plan` grava o livro de entrega; aqui só se planeja e se
+  tenta a entrega imediata do que venceu no inquilino do trabalho.
+
+  Erro de planejamento de UMA chave não impede a entrega das outras: a entrega
+  roda, e só depois o erro sobe (repetível pela classificação; determinístico
+  vira carta morta NOMEADA, que é onde alguém vai olhar).
+*/
+const decisionsNotify: JobHandler<'platform.decisions.notify'> = {
+  payloadVersion: 1,
+  idempotencyBasis:
+    'O livro decision_deliveries tem chave única (organização, decisão|aviso|desfecho|destinatário|canal): '
+    + 'reentregar o mesmo fato replaneja zero linhas; o in-app sai na mesma transação do registro e o '
+    + 'e-mail/WhatsApp leva ao provedor uma chave de idempotência estável por linha do livro.',
+  async run(payload, { job, supabase, remainingMs }) {
+    await assertEventTenant(supabase, job, payload.event_id);
+    const { planForEvent, deliverDue } = await import('@/lib/decisions/notify');
+    const plan = await planForEvent(payload.event_id, { client: supabase });
+    if (plan.organizationId && plan.organizationId !== job.organization_id) {
+      throw new TerminalJobError('event_tenant_mismatch', 'O evento de origem não pertence à organização do trabalho.');
+    }
+    const delivery = await deliverDue(job.organization_id, {
+      client: supabase, budgetMs: Math.max(0, Math.min(20_000, remainingMs() - 10_000)),
+    });
+    if (plan.errors.length) {
+      const first = plan.errors[0];
+      const message = `Planejamento de aviso falhou em ${plan.errors.length} chave(s) (${first.code}).`;
+      if (plan.errors.some((e) => e.retryable)) throw new RetryableJobError('decisions_plan_failed', message);
+      throw new TerminalJobError('decisions_plan_failed', message);
+    }
+    return { keys: plan.keys, planned: plan.planned, ...delivery };
+  },
+};
+
+/*
+  Varredura de Decisões (240): a GARANTIA, não a otimização. Replaneja pelo
+  estado — cobre o fato anterior à rota, o papel concedido depois, a alçada
+  declarada depois e o prazo que venceu (tempo não é fato) —, recolhe
+  arrendamento vencido, cancela aviso de ação de decisão já encerrada e
+  entrega o que está devido.
+*/
+const decisionsSweep: JobHandler<'platform.decisions.sweep'> = {
+  payloadVersion: 1,
+  idempotencyBasis:
+    'decision_sweep_plan replaneja com a mesma chave determinística do livro de entrega (ON CONFLICT DO NOTHING); '
+    + 'rodar duas vezes na mesma janela planeja zero linhas novas, e a entrega só arrenda o que está PENDING ou FAILED vencido.',
+  async run(_payload, { job, supabase, remainingMs }) {
+    const { sweepOrganization } = await import('@/lib/decisions/notify');
+    return sweepOrganization(job.organization_id, {
+      client: supabase, budgetMs: Math.max(0, Math.min(30_000, remainingMs() - 10_000)),
+    });
+  },
+};
+
+/*
   Leitura periódica da Apex no Supply (236): fatos do inquilino do trabalho →
   sinais → livro. Idempotente por natureza: a mesma condição tem a mesma
   chave; o que deixou de ser verdade é resolvido.
@@ -925,6 +981,8 @@ export const JOB_HANDLERS: HandlerRegistry = {
   'procurement.purchase_order.apply_approval': purchaseOrderApproval,
   'supply.intelligence.sweep': supplyIntelligenceSweep,
   'procurement.purchase_order.reconcile_approvals': purchaseOrderApprovalReconcile,
+  'platform.decisions.notify': decisionsNotify,
+  'platform.decisions.sweep': decisionsSweep,
 };
 
 export function handlerFor(jobType: JobType): JobHandler<JobType> {

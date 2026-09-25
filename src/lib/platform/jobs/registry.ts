@@ -32,6 +32,9 @@ export const JOB_TYPES = [
   'supply.intelligence.sweep',
   // ---- Supply — prontidão (237) ----
   'procurement.purchase_order.reconcile_approvals',
+  // ---- Decisões (240) ----
+  'platform.decisions.notify',
+  'platform.decisions.sweep',
 ] as const;
 
 export type JobType = (typeof JOB_TYPES)[number];
@@ -160,6 +163,14 @@ export const JOB_SCHEMAS = {
     o handler lê o estado atual do inquilino do trabalho.
   */
   'procurement.purchase_order.reconcile_approvals': { 1: z.object({ reason: z.string().max(200).optional() }) },
+  /*
+    Decisões (240). O aviso nasce de um FATO (rota de evento: o payload é só a
+    identidade dele) ou da VARREDURA, que não carrega fato nenhum: ela relê as
+    decisões abertas do inquilino do trabalho e replaneja pelo estado. Quem
+    decide o destinatário e o canal é o banco, nunca o payload.
+  */
+  'platform.decisions.notify': { 1: EVENT_REF },
+  'platform.decisions.sweep': { 1: z.object({ reason: z.string().min(1).max(200) }) },
 } as const satisfies Record<JobType, Record<number, z.ZodType>>;
 
 export type JobPayloadByType = {

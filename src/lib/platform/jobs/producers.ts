@@ -114,12 +114,33 @@ const purchaseOrderApprovalReconcile: ScheduledProducer = {
   },
 };
 
+/*
+  Varredura de Decisões (240). O evento é otimização de latência; ESTA é a
+  garantia: fato roteado antes de a rota ligar é perdido para sempre, e papel,
+  exceção de permissão, alçada declarada e prazo vencido não emitem fato
+  nenhum. Entram só inquilinos com decisão aberta ou entrega pendente.
+*/
+const decisionsSweep: ScheduledProducer = {
+  name: 'platform.decisions.sweep',
+  ownerDomain: 'platform',
+  idempotencyBasis:
+    'A chave do trabalho é (organização, janela de 15 minutos): decisions-sweep:<org>:<YYYY-MM-DDTHH>:<quarto>. '
+    + 'A drenagem acorda a cada 10 minutos; a janela impede dois trabalhos no mesmo quarto de hora, e o '
+    + 'livro de entrega impede aviso repetido dentro dele.',
+  async produce(supabase, asOf) {
+    const { data, error } = await supabase.rpc('decisions_enqueue_sweep', { p_as_of: asOf.toISOString() });
+    if (error) throw new Error(`Produtor da varredura de Decisões falhou: ${error.message}`);
+    return Number(data ?? 0);
+  },
+};
+
 export const SCHEDULED_PRODUCERS: readonly ScheduledProducer[] = [
   obligationMaterialization,
   approvalExpiration,
   followupExecution,
   supplyIntelligence,
   purchaseOrderApprovalReconcile,
+  decisionsSweep,
 ];
 
 /** Data em UTC. O dia do produtor tem de ser o mesmo em toda máquina que acordar. */

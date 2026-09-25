@@ -7,10 +7,16 @@ import {
   Calendar,
   CheckCheck,
   CheckCircle2,
+  CircleArrowUp,
   ClipboardList,
+  Gavel,
   Loader2,
   RefreshCw,
+  Stamp,
+  Timer,
   Trash2,
+  TriangleAlert,
+  Undo2,
   type LucideIcon,
 } from 'lucide-react';
 import { HudButton, HudPageLayout, HudHeader, HudPanel } from '@/components/hud';
@@ -20,10 +26,17 @@ import { ptBR } from 'date-fns/locale';
 import type { AppNotification } from '@/lib/types/agenda';
 import { listNotifications, markAllRead, markRead, removeNotification } from '@/lib/services/notifications';
 
-const TYPE_META: Record<string, { icon: LucideIcon; tint: string }> = {
+const TYPE_META: Record<string, { icon: LucideIcon; tint: string; label?: string }> = {
   meeting_invite: { icon: Calendar, tint: '#17C3B2' },
   task_assigned: { icon: ClipboardList, tint: '#FFB04D' },
   task_status: { icon: CheckCircle2, tint: '#00C8FF' },
+  // Decisões (240): `decisions.<tipo de aviso>`, gravado por decision_delivery_in_app.
+  'decisions.new': { icon: Gavel, tint: '#17C3B2', label: 'Decisão necessária' },
+  'decisions.due_soon': { icon: Timer, tint: '#FFB04D', label: 'Prazo de decisão próximo' },
+  'decisions.overdue': { icon: TriangleAlert, tint: '#FF5860', label: 'Decisão vencida' },
+  'decisions.escalated': { icon: CircleArrowUp, tint: '#FF5860', label: 'Decisão escalada' },
+  'decisions.resolved': { icon: Stamp, tint: '#00C8FF', label: 'Decisão concluída' },
+  'decisions.adjustment_requested': { icon: Undo2, tint: '#FFB04D', label: 'Ajuste solicitado' },
 };
 
 export default function NotificacoesPage() {
@@ -125,7 +138,7 @@ export default function NotificacoesPage() {
                   )}
                 >
                   <span className="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg" style={{ backgroundColor: `${meta.tint}1a` }}>
-                    <Icon className="h-4 w-4" style={{ color: meta.tint }} />
+                    <Icon className="h-4 w-4" style={{ color: meta.tint }} aria-label={meta.label} />
                   </span>
                   <div className="min-w-0 flex-1">
                     <p className={cn('text-sm font-medium', n.readAt ? 'text-ig-fg-strong' : 'text-ig-fg-strong')}>{n.title}</p>
