@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { resolvePayrollActor } from '@/lib/payroll/repository/actor';
-import { requireApiPermission } from '@/lib/auth/api-guard';
+import { actorCan, resolvePayrollActor } from '@/lib/payroll/repository/actor';
 import { getServerRepository } from '@/lib/payroll/repository';
 import { batchActionRules } from '@/lib/payroll/batch-actions';
 
@@ -41,8 +40,10 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
     if (!batch) return NextResponse.json({ ok: false, error: 'Não encontrado.' }, { status: 404 });
     const rule = batchActionRules(batch.status, !!batch.finance_batch_id).delete;
     if (!rule.allowed) return NextResponse.json({ ok: false, error: rule.reason ?? 'Exclusão não permitida.' }, { status: 409 });
-    const guard = await requireApiPermission(rule.permission, { allowAdmin: true });
-    if (!guard.ok) return guard.response;
+    // Na MESMA organização do ator (não "a ativa agora").
+    if (!(await actorCan(r.actor, rule.permission))) {
+      return NextResponse.json({ ok: false, error: `Sem permissão ${rule.permission}` }, { status: 403 });
+    }
     const result = await repo.deleteClosingBatch(r.actor, id);
     return NextResponse.json(result, { status: result.ok ? 200 : 409 });
   } catch (err) {

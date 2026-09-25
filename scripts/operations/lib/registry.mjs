@@ -141,6 +141,8 @@ export const OPERATIONS_REGISTRY = {
     'notification_recipient_is_active_member(uuid,uuid)'], permissions: [] },
   // 243: contatos externos do e-mail da folha — leitura governada, escrita só do servidor.
   '243': { tables: ['payroll_email_contacts'], ledgers: [], functions: ['payroll_email_member_directory(uuid)'], permissions: [] },
+  // 244: permissão da folha na organização pedida — só servidor.
+  '244': { tables: [], ledgers: [], functions: ['payroll_actor_can(uuid,uuid,text)', 'payroll_email_member_directory(uuid)'], permissions: [] },
 };
 
 /** Portas do navegador de Decisões: identidade de auth.uid(), sem parâmetro de ator — liberadas de propósito. */

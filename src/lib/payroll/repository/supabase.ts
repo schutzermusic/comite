@@ -105,6 +105,7 @@ function mapPackage(r: any): PayrollEmailPackage {
   return {
     id: r.id, batch_id: r.batch_id, audience: r.audience, subject: r.subject,
     html_body: r.html_body ?? '', attachment_ids: r.attachment_ids ?? [], status: r.status,
+    intent_digest: r.intent_digest ?? undefined,
     created_by: r.created_by ?? '', approved_by: r.approved_by ?? undefined,
     sent_by: r.sent_by ?? undefined, sent_at: r.sent_at ?? undefined,
   };
@@ -302,10 +303,14 @@ export class SupabasePayrollRepository implements PayrollRepository {
     // de novo os mesmos números (ex.: o vínculo de centro de custo no passo 6) não.
     const { data: meta } = await this.db.from('payroll_closing_batches').select('*')
       .eq('id', batchId).eq('organization_id', actor.organizationId).maybeSingle();
-    const { data: oldCenters } = await this.db.from('payroll_cost_center_summaries')
-      .select('cost_center_label, amount_cents, previous_amount_cents')
-      .eq('batch_id', batchId).eq('organization_id', actor.organizationId);
-    const numbersChanged = !meta || numbersSignature(meta, oldCenters ?? []) !== numbersSignature(parse, parse.cost_centers);
+    const [{ data: oldCenters }, { data: oldFlags }] = await Promise.all([
+      this.db.from('payroll_cost_center_summaries').select('cost_center_label, amount_cents, previous_amount_cents')
+        .eq('batch_id', batchId).eq('organization_id', actor.organizationId),
+      this.db.from('payroll_validation_flags').select('code').eq('batch_id', batchId).eq('organization_id', actor.organizationId),
+    ]);
+    const numbersChanged = !meta
+      || numbersSignature(meta, oldCenters ?? [], (oldFlags ?? []).map((f: { code: string }) => f.code))
+        !== numbersSignature(parse, parse.cost_centers, parse.flags.map((f) => f.code));
     const metadata = { ...(meta?.metadata ?? {}) };
     if (numbersChanged) {
       delete metadata[NARRATIVE_METADATA_KEY];
@@ -387,26 +392,30 @@ export class SupabasePayrollRepository implements PayrollRepository {
   }
 
   async createEmailPackage(actor: RepoActor, batchId: string, input: CreatePackageInput): Promise<PayrollEmailPackage> {
+    return (await this.claimEmailPackage(actor, batchId, input)).pkg;
+  }
+
+  async claimEmailPackage(actor: RepoActor, batchId: string, input: CreatePackageInput): Promise<{ pkg: PayrollEmailPackage; created: boolean }> {
     if (input.request_id) {
       const existing = await this.findEmailPackageByRequest(actor, input.request_id);
-      if (existing) return existing;
+      if (existing) return { pkg: existing, created: false };
     }
     const { data, error } = await this.db.from('payroll_email_packages').insert({
       organization_id: actor.organizationId, batch_id: batchId, audience: input.audience,
       subject: input.subject, html_body: input.html_body, attachment_ids: input.attachment_ids,
-      request_id: input.request_id ?? null,
+      request_id: input.request_id ?? null, intent_digest: input.intent_digest ?? null,
       status: 'draft', created_by: actor.userId, updated_by: actor.userId,
     }).select('*').single();
     if (error) {
       // Corrida com a mesma intenção: o outro pedido criou o pacote primeiro.
       if (error.code === '23505' && input.request_id) {
         const existing = await this.findEmailPackageByRequest(actor, input.request_id);
-        if (existing) return existing;
+        if (existing) return { pkg: existing, created: false };
       }
       throw new Error(`createEmailPackage: ${error.message}`);
     }
     await this.writeAudit(actor, { entity_type: 'payroll_email_package', entity_id: data.id, action: 'created', metadata: { audience: input.audience, attachments: input.attachment_ids.length } });
-    return mapPackage(data);
+    return { pkg: mapPackage(data), created: true };
   }
 
   async recordDispatch(actor: RepoActor, input: RecordDispatchInput): Promise<PayrollEmailDispatch> {
@@ -450,6 +459,7 @@ export class SupabasePayrollRepository implements PayrollRepository {
     ]);
     if (centers.error) throw new Error(`getEmailFacts centers: ${centers.error.message}`);
     if (contracts.error) throw new Error(`getEmailFacts contracts: ${contracts.error.message}`);
+    if (flags.error) throw new Error(`getEmailFacts flags: ${flags.error.message}`);
     const batch = mapBatch(row);
     const parse = factsToParse(row, (centers.data ?? []) as Array<Record<string, unknown>>,
       ((contracts.data ?? []) as Array<{ contract_type: string | null }>).map((c) => c.contract_type));
@@ -605,6 +615,17 @@ export class SupabasePayrollRepository implements PayrollRepository {
   // ── Lifecycle: edit / cancel / reopen / delete ──────────────
   async updateClosingBatch(actor: RepoActor, id: string, patch: UpdateBatchInput): Promise<PayrollClosingBatch> {
     const update: Record<string, unknown> = { updated_by: actor.userId };
+    // Competência e prazo aparecem na narrativa e nos relatórios gerados.
+    const { data: before } = await this.db.from('payroll_closing_batches').select('competence_month, payment_deadline, metadata')
+      .eq('id', id).eq('organization_id', actor.organizationId).maybeSingle();
+    const same = (a: unknown, b: unknown) => String(a ?? '').trim() === String(b ?? '').trim();
+    if (before && ((patch.competence_month !== undefined && !same(patch.competence_month, before.competence_month))
+        || (patch.payment_deadline !== undefined && !same(patch.payment_deadline, before.payment_deadline)))) {
+      const metadata = { ...(before.metadata ?? {}) };
+      delete metadata[NARRATIVE_METADATA_KEY];
+      update.metadata = metadata;
+      await this.dropGeneratedArtifacts(actor, id);
+    }
     if (patch.competence_month !== undefined) update.competence_month = patch.competence_month;
     if (patch.payment_deadline !== undefined) update.payment_deadline = patch.payment_deadline;
     if (patch.notes !== undefined) update.notes = patch.notes;

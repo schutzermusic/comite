@@ -154,17 +154,22 @@ export class InMemoryServerRepository implements PayrollRepository {
   }
 
   async createEmailPackage(actor: RepoActor, batchId: string, input: CreatePackageInput): Promise<PayrollEmailPackage> {
+    return (await this.claimEmailPackage(actor, batchId, input)).pkg;
+  }
+
+  async claimEmailPackage(actor: RepoActor, batchId: string, input: CreatePackageInput): Promise<{ pkg: PayrollEmailPackage; created: boolean }> {
     if (input.request_id) {
       const existing = await this.findEmailPackageByRequest(actor, input.request_id);
-      if (existing) return existing;
+      if (existing) return { pkg: existing, created: false };
     }
     const p: PayrollEmailPackage = {
       id: uid('pep'), batch_id: batchId, audience: input.audience, subject: input.subject,
       html_body: input.html_body, attachment_ids: input.attachment_ids, status: 'draft', created_by: actor.userId,
+      intent_digest: input.intent_digest,
     };
     packages = [p, ...packages];
     if (input.request_id) requestPackages.set(`${actor.organizationId}:${input.request_id}`, p.id);
-    return p;
+    return { pkg: p, created: true };
   }
 
   async getEmailFacts(actor: RepoActor, batchId: string): Promise<PayrollEmailFacts | null> {

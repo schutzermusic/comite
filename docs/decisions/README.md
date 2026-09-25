@@ -172,7 +172,8 @@ ato em tela / submissão → after() da resposta     ─┘        → decision_
 3. `node scripts/operations/apply-240.mjs` (ensaio, 120 provas) → `--apply`.
 4. `node scripts/operations/apply-241.mjs` (ensaio) → `--apply`.
 5. `node scripts/operations/apply-242.mjs` (ensaio, 35 provas) → `--apply` e
-   `node scripts/operations/apply-243.mjs` (ensaio, 25 provas) → `--apply`
+   `node scripts/operations/apply-243.mjs` (ensaio, 34 provas) → `--apply` e
+   `node scripts/operations/apply-244.mjs` (ensaio, 52 provas) → `--apply`
    **imediatamente antes** de publicar a aplicação: a 242 tira do navegador a
    escrita direta em `notifications`, e o sino novo marca como lida pelas RPCs
    que ela cria. Entre as duas, "marcar como lida" do sino antigo falha em

@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { resolvePayrollActor } from '@/lib/payroll/repository/actor';
-import { requireApiPermission } from '@/lib/auth/api-guard';
+import { actorCan, resolvePayrollActor } from '@/lib/payroll/repository/actor';
 import { getServerRepository } from '@/lib/payroll/repository';
 import { batchActionRules, type BatchAction } from '@/lib/payroll/batch-actions';
 import { GENERATED_ARTIFACT_TYPES, generateBatchArtifacts, type GeneratedArtifactType } from '@/lib/payroll/generated-artifacts-server';
@@ -14,7 +13,6 @@ type ActionBody =
   | { action: 'save_parse'; parse: PayrollParseResult }
   | { action: 'save_report'; report_type: string; generated_text: string; generated_html: string; generated_by_ai: boolean; ai_provider?: string; ai_model?: string; ai_input_tokens?: number; ai_output_tokens?: number }
   | { action: 'add_generated_attachment'; file_type: string; content?: unknown; encoding?: unknown }
-  | { action: 'create_package'; audience: string; subject: string; html_body: string; attachment_ids: string[] }
   | { action: 'approve' }
   | { action: 'send_to_finance'; override?: boolean; override_reason?: string }
   | { action: 'update'; competence_month?: string; payment_deadline?: string | null; notes?: string | null }
@@ -25,7 +23,8 @@ type ActionBody =
 /**
  * POST /api/payroll/batches/[id]/actions — dispatch table for the closing
  * lifecycle: save_parse | save_report | add_generated_attachment |
- * create_package | approve | send_to_finance.
+ * approve | send_to_finance. (O pacote de e-mail nasce só no envio tipado —
+ * não há mais criação de pacote com assunto/HTML do navegador.)
  */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -83,13 +82,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         const [attachment] = await generateBatchArtifacts(repo, r.actor, facts, [body.file_type as GeneratedArtifactType]);
         return NextResponse.json({ ok: true, attachment });
       }
-      case 'create_package': {
-        const pkg = await repo.createEmailPackage(r.actor, id, {
-          audience: body.audience as never, subject: body.subject,
-          html_body: body.html_body, attachment_ids: body.attachment_ids,
-        });
-        return NextResponse.json({ ok: true, package: pkg });
-      }
       case 'approve': {
         const batch = await repo.approveClosingBatch(r.actor, id);
         return NextResponse.json({ ok: true, batch });
@@ -108,9 +100,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         if (!rule.allowed) {
           return NextResponse.json({ ok: false, error: rule.reason ?? 'Ação não permitida neste status.' }, { status: 409 });
         }
-        if (rule.permission !== 'people.payroll_close') {
-          const guard = await requireApiPermission(rule.permission, { allowAdmin: true });
-          if (!guard.ok) return guard.response;
+        if (rule.permission !== 'people.payroll_close' && !(await actorCan(r.actor, rule.permission))) {
+          return NextResponse.json({ ok: false, error: `Sem permissão ${rule.permission}` }, { status: 403 });
         }
         if (body.action === 'update') {
           const updated = await repo.updateClosingBatch(r.actor, id, { competence_month: body.competence_month, payment_deadline: body.payment_deadline, notes: body.notes });
@@ -129,12 +120,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       }
       case 'send_to_finance': {
         // Sending with unmapped cost centers requires an authorized override:
-        // admin OR people.payroll_override_mapping. We verify it here (session
-        // RPC) so the service-role repository can trust the flag.
+        // admin OR people.payroll_override_mapping — checked in the actor's
+        // organization so the service-role repository can trust the flag.
         let override = false;
         if (body.override) {
-          const ov = await requireApiPermission('people.payroll_override_mapping', { allowAdmin: true });
-          if (!ov.ok) return ov.response;
+          if (!(await actorCan(r.actor, 'people.payroll_override_mapping'))) {
+            return NextResponse.json({ ok: false, error: 'Sem permissão people.payroll_override_mapping' }, { status: 403 });
+          }
           override = true;
         }
         const result = await repo.sendToFinance(r.actor, id, { override, overrideReason: body.override_reason });

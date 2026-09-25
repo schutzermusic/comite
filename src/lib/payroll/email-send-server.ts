@@ -22,14 +22,14 @@ if (typeof window !== 'undefined') {
 }
 
 import { createHash } from 'node:crypto';
-import { requireApiPermission } from '@/lib/auth/api-guard';
+import { actorCan } from '@/lib/payroll/repository/actor';
 import { buildEmailHtml, buildEmailText } from '@/lib/payroll/html-builder';
 import { sendAppEmail, type AppEmailAttachment } from '@/lib/notifications/email';
 import type { PayrollAttachment } from '@/lib/types/payroll-closing';
 import type { PayrollRepository, RepoActor } from '@/lib/payroll/repository';
 import {
-  MAX_PAYROLL_ATTACHMENT_BYTES, attachmentSendPermissions, batchSendable, payrollEmailSubject,
-  type PayrollEmailIntent, type RecipientRef,
+  MAX_PAYROLL_ATTACHMENT_BYTES, attachmentFilePolicy, attachmentSendPermissions, batchSendable, payrollEmailSubject,
+  payrollIntentDigest, type PayrollEmailIntent, type RecipientRef,
 } from './email-intent';
 
 const MAILBOX = /^[^\s@<>"';:,\\]+@[^\s@<>"';:,\\]+\.[^\s@<>"';:,\\]+$/;
@@ -105,6 +105,12 @@ export async function executePayrollSend(
 ): Promise<PayrollSendResult> {
   const fail = (f: Fail): PayrollSendResult => ({ ok: false, status: f.status, body: { ok: false, error: f.error } });
 
+  // O corpo leva os números da folha: quem envia precisa poder LÊ-la, com ou
+  // sem anexo — na organização do ator.
+  if (!(await actorCan(actor, 'people.payroll_close'))) {
+    return fail({ ok: false, status: 403, error: 'Sem permissão people.payroll_close.' });
+  }
+
   const facts = await repo.getEmailFacts(actor, intent.batch_id);
   if (!facts) return fail({ ok: false, status: 404, error: 'Fechamento não encontrado nesta organização.' });
   const blocked = batchSendable(facts.batch.status, facts.parse);
@@ -124,8 +130,11 @@ export async function executePayrollSend(
   }
   const needed = new Set(selected.flatMap((a) => attachmentSendPermissions(a.file_type, a.security_level)));
   for (const key of needed) {
-    const guard = await requireApiPermission(key, { allowAdmin: true });
-    if (!guard.ok) return fail({ ok: false, status: 403, error: `Sem permissão para enviar este anexo (${key}).` });
+    if (!(await actorCan(actor, key))) return fail({ ok: false, status: 403, error: `Sem permissão para enviar este anexo (${key}).` });
+  }
+  for (const a of selected) {
+    const policy = attachmentFilePolicy(a.file_type, a.file_name);
+    if (!policy.ok) return fail({ ok: false, status: 422, error: policy.error });
   }
   if (selected.some((a) => a.security_level !== 'aggregate') && !intent.confirm_sensitive) {
     return fail({ ok: false, status: 400, error: 'Confirmação de anexos sensíveis necessária.' });
@@ -149,10 +158,12 @@ export async function executePayrollSend(
   }
 
   // Um pacote por intenção. Repetir a MESMA intenção é o mesmo pacote; outra
-  // intenção com a mesma chave é recusada (o pacote não pode mudar de conteúdo).
+  // intenção com a mesma chave (outros destinatários, anexos, público) é
+  // recusada — o pacote não muda de conteúdo.
+  const digest = payrollIntentDigest(intent);
   const prior = await repo.findEmailPackageByRequest(actor, intent.request_id);
-  if (prior && (prior.batch_id !== intent.batch_id || prior.audience !== intent.audience
-      || !sameSet(prior.attachment_ids.map((x) => x.toLowerCase()), selected.map((a) => a.id.toLowerCase())))) {
+  if (prior && (prior.batch_id !== intent.batch_id || (prior.intent_digest ? prior.intent_digest !== digest
+      : prior.audience !== intent.audience || !sameSet(prior.attachment_ids.map((x) => x.toLowerCase()), selected.map((a) => a.id.toLowerCase()))))) {
     return fail({ ok: false, status: 409, error: 'request_id já usado para outra intenção de envio.' });
   }
   if (prior && prior.status === 'sent') {
@@ -175,17 +186,27 @@ export async function executePayrollSend(
       throw err;
     }
     if (!loaded) return fail({ ok: false, status: 422, error: 'Anexo indisponível no armazenamento.' });
-    files.push({ filename: loaded.file_name, contentType: loaded.mime_type, bytes: loaded.bytes });
-    attachmentsSent.push({ file_name: loaded.file_name, file_size: loaded.bytes.length });
+    const policy = attachmentFilePolicy(loaded.file_type, loaded.file_name);
+    if (!policy.ok) return fail({ ok: false, status: 422, error: policy.error });
+    files.push({ filename: policy.filename, contentType: policy.contentType, bytes: loaded.bytes });
+    attachmentsSent.push({ file_name: policy.filename, file_size: loaded.bytes.length });
   }
   const totalBytes = attachmentsSent.reduce((s, a) => s + a.file_size, 0);
   if (totalBytes > MAX_PAYROLL_ATTACHMENT_BYTES) {
     return fail({ ok: false, status: 413, error: `Anexos somam ${(totalBytes / 1024 / 1024).toFixed(1)} MB, acima de 40 MB.` });
   }
 
-  const pkg = prior ?? await repo.createEmailPackage(actor, intent.batch_id, {
-    audience: intent.audience, subject, html_body: html, attachment_ids: selected.map((a) => a.id), request_id: intent.request_id,
-  });
+  let pkg = prior;
+  if (!pkg) {
+    const claim = await repo.claimEmailPackage(actor, intent.batch_id, {
+      audience: intent.audience, subject, html_body: html, attachment_ids: selected.map((a) => a.id),
+      request_id: intent.request_id, intent_digest: digest,
+    });
+    // Outro pedido com a MESMA chave criou o pacote entre a leitura e a
+    // gravação: ele está enviando. Este não manda de novo.
+    if (!claim.created) return fail({ ok: false, status: 409, error: 'Este envio já está em andamento — aguarde e confira o histórico.' });
+    pkg = claim.pkg;
+  }
   // Nova tentativa do mesmo pacote: quem já recebeu não recebe de novo — seja
   // qual for o transporte (o Resend também deduplica pela chave).
   const delivered = prior ? await repo.deliveredRecipients(actor, pkg.id) : new Set<string>();

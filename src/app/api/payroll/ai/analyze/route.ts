@@ -3,6 +3,7 @@ import { resolvePayrollActor } from '@/lib/payroll/repository/actor';
 import { getServerRepository } from '@/lib/payroll/repository';
 import { generatePayrollNarrative } from '@/lib/ai/payroll/payroll-narrative';
 import { generateBatchArtifacts } from '@/lib/payroll/generated-artifacts-server';
+import { factsSignature } from '@/lib/payroll/email-intent';
 import type { PayrollParseResult } from '@/lib/types/payroll-closing';
 
 export const runtime = 'nodejs';
@@ -41,8 +42,14 @@ export async function POST(req: Request) {
       const facts = await repo.getEmailFacts(guard.actor, body.batch_id);
       if (!facts) return NextResponse.json({ ok: false, error: 'Fechamento não encontrado nesta organização.' }, { status: 404 });
       const narrative = await generatePayrollNarrative(facts.parse, guard.actor.organizationId);
+      // A IA leva segundos; se os números mudaram enquanto isso, esta narrativa
+      // descreve números que não existem mais — não é guardada.
+      const now = await repo.getEmailFacts(guard.actor, body.batch_id);
+      if (!now || factsSignature(now.parse) !== factsSignature(facts.parse)) {
+        return NextResponse.json({ ok: false, error: 'Os números do fechamento mudaram durante a análise — gere de novo.' }, { status: 409 });
+      }
       await repo.saveNarrative(guard.actor, facts.batch.id, narrative);
-      const attachments = await generateBatchArtifacts(repo, guard.actor, { ...facts, narrative });
+      const attachments = await generateBatchArtifacts(repo, guard.actor, { ...now, narrative });
       return NextResponse.json({ ok: true, narrative, attachments });
     }
 

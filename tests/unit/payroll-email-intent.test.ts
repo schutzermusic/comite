@@ -7,13 +7,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { send, permitted } = vi.hoisted(() => ({ send: vi.fn(), permitted: new Set<string>() }));
 vi.mock('@/lib/notifications/email', () => ({ sendAppEmail: send }));
-vi.mock('@/lib/auth/api-guard', () => ({
-  requireApiPermission: async (key: string) => (permitted.has(key) ? { ok: true, userId: 'u' } : { ok: false, response: null }),
-}));
+vi.mock('@/lib/payroll/repository/actor', () => ({ actorCan: async (_actor: unknown, key: string) => permitted.has(key) }));
 
 import {
-  attachmentLocationProblem, attachmentSendPermissions, coerceNarrative, factsToParse, numbersSignature,
-  parsePayrollEmailIntent, payrollEmailSubject, sanitizeParseForSave, type PayrollEmailIntent,
+  attachmentFilePolicy, attachmentLocationProblem, attachmentSendPermissions, coerceNarrative, factsToParse, numbersSignature,
+  parsePayrollEmailIntent, payrollEmailSubject, payrollIntentDigest, sanitizeParseForSave, type PayrollEmailIntent,
 } from '@/lib/payroll/email-intent';
 import type { PayrollParseResult } from '@/lib/types/payroll-closing';
 import { executePayrollSend, resolveRecipientRefs } from '@/lib/payroll/email-send-server';
@@ -87,6 +85,30 @@ describe('regras puras', () => {
     expect(attachmentLocationProblem({ ...ok, object_path: `${org}/${BATCH}/../../${U(9)}/x.pdf` }, org)).toMatch(/caminho/);
     expect(attachmentLocationProblem({ ...ok, object_path: `${U(9)}/${BATCH}/x.pdf` }, org)).toMatch(/fora/);
     expect(attachmentLocationProblem({ ...ok, file_type: 'remittance_file', storage_bucket: 'payroll-bank-files' }, org)).toMatch(/tipo/);
+    // Pontos codificados (o storage-js não codifica o caminho) e barras duplas não são do servidor.
+    expect(attachmentLocationProblem({ ...ok, object_path: `${org}/${BATCH}/%2e%2e/%2e%2e/${U(9)}/x.pdf` }, org)).toMatch(/caminho/);
+    expect(attachmentLocationProblem({ ...ok, object_path: `${org}/${BATCH}//x.pdf` }, org)).toMatch(/caminho/);
+  });
+
+  it('nome e tipo do anexo como saem: sem controle/direção, extensão da lista, MIME do servidor', () => {
+    const bidi = attachmentFilePolicy('supporting_document', 'Holerite_\u202Efdp.exe');
+    expect(bidi.ok).toBe(false);
+    const ok = attachmentFilePolicy('holerite', 'Holerite\u200F Março.PDF');
+    expect(ok).toEqual({ ok: true, filename: 'Holerite Março.PDF', contentType: 'application/pdf' });
+    expect(attachmentFilePolicy('supporting_document', 'x.html').ok).toBe(false);
+    expect(attachmentFilePolicy('supporting_document', 'x.svg').ok).toBe(false);
+    expect(attachmentFilePolicy('executive_pdf', 'relatorio.html')).toMatchObject({ ok: true, contentType: 'text/html; charset=utf-8' });
+    expect(attachmentFilePolicy('executive_pdf', 'relatorio.pdf').ok).toBe(false);
+  });
+
+  it('resumo da intenção: ordem não importa; destinatário diferente, resumo diferente', () => {
+    const base: PayrollEmailIntent = { kind: 'payroll_closing_package', batch_id: BATCH, audience: 'finance',
+      to: [{ type: 'member', id: MEMBER }, { type: 'contact', id: CONTACT }], cc: [], attachment_ids: [ATT, HOL],
+      confirm_sensitive: true, request_id: REQ, test: false };
+    const reordered = { ...base, to: [...base.to].reverse(), attachment_ids: [HOL, ATT] };
+    expect(payrollIntentDigest(reordered)).toBe(payrollIntentDigest(base));
+    expect(payrollIntentDigest({ ...base, to: [{ type: 'member', id: MEMBER }] })).not.toBe(payrollIntentDigest(base));
+    expect(payrollIntentDigest({ ...base, request_id: U(99) })).toBe(payrollIntentDigest(base));
   });
 
   it('leitura da planilha: competência, números finitos, rótulos curtos e sem controle', () => {
@@ -108,6 +130,11 @@ describe('regras puras', () => {
       [{ cost_center_label: 'B', amount_cents: 4, previous_amount_cents: 3 }, { cost_center_label: 'A', amount_cents: 6, previous_amount_cents: 5 }]);
     expect(a).toBe(b);
     expect(numbersSignature({ total_amount_cents: 11, previous_month_amount_cents: 8 }, [])).not.toBe(numbersSignature({ total_amount_cents: 10, previous_month_amount_cents: 8 }, []));
+    // Competência, headcount, prazo e alertas também entram (a narrativa os cita).
+    const t = { total_amount_cents: 10, previous_month_amount_cents: 8, competence_month: '2026-08', headcount: 40, payment_deadline: '2026-09-05' };
+    expect(numbersSignature({ ...t, competence_month: '2026-09' }, [])).not.toBe(numbersSignature(t, []));
+    expect(numbersSignature({ ...t, headcount: 41 }, [])).not.toBe(numbersSignature(t, []));
+    expect(numbersSignature(t, [], ['cost_center_reconcile'])).not.toBe(numbersSignature(t, []));
   });
 
   it('narrativa guardada: só texto, com teto; formato estranho vira ausência', () => {
@@ -176,9 +203,11 @@ describe('executePayrollSend — o servidor monta e entrega', () => {
         { id: ATT, batch_id: BATCH, file_name: 'exec.html', file_type: 'executive_pdf', security_level: 'aggregate', file_size: 10 },
         { id: HOL, batch_id: BATCH, file_name: 'h.pdf', file_type: 'holerite', security_level: 'confidential', file_size: 10 },
       ],
-      getAttachmentBytes: async (_a: unknown, id: string) => ({ bytes: Buffer.from(id), file_name: `${id}.bin`, mime_type: 'application/pdf', file_size: 10 }),
+      getAttachmentBytes: async (_a: unknown, id: string) => (id === HOL
+        ? { bytes: Buffer.from('%PDF'), file_name: 'h.pdf', mime_type: 'application/pdf', file_size: 4, file_type: 'holerite', security_level: 'confidential' }
+        : { bytes: Buffer.from('<html>'), file_name: 'exec.html', mime_type: 'text/html', file_size: 6, file_type: 'executive_pdf', security_level: 'aggregate' }),
       findEmailPackageByRequest: async () => null,
-      createEmailPackage: async (_a: unknown, _b: string, input: { subject: string; html_body: string }) => ({ id: PKG, batch_id: BATCH, status: 'draft', ...input }),
+      claimEmailPackage: async (_a: unknown, _b: string, input: { subject: string; html_body: string }) => ({ pkg: { id: PKG, batch_id: BATCH, status: 'draft', ...input }, created: true }),
       recordDispatch: async (_a: unknown, input: unknown) => { recorded.push(input); return {}; },
     } as unknown as PayrollRepository;
   });
@@ -193,7 +222,7 @@ describe('executePayrollSend — o servidor monta e entrega', () => {
     expect(msg.subject).toBe('Fechamento da Folha — 2026-08');
     expect(msg.html).toContain('Obra &lt;script&gt;');
     expect(msg.html).not.toContain('<script>');
-    expect(msg.attachments[0]).toMatchObject({ filename: `${ATT}.bin`, bytes: expect.any(Buffer) });
+    expect(msg.attachments[0]).toMatchObject({ filename: 'exec.html', contentType: 'text/html; charset=utf-8', bytes: expect.any(Buffer) });
     expect(opts.idempotencyKey).toMatch(new RegExp(`^payroll:${PKG}:[0-9a-f]{24}$`));
     expect(send.mock.calls.map((c) => c[0].to)).toEqual(['fin@org.example', 'contab@fora.example']);
     expect(recorded[0]).toMatchObject({ package_id: PKG, recipients: ['fin@org.example'], cc: ['contab@fora.example'], delivery_status: 'sent' });
@@ -224,10 +253,31 @@ describe('executePayrollSend — o servidor monta e entrega', () => {
     expect(send).not.toHaveBeenCalled();
   });
 
-  it('sem ler a folha (payroll_close), nenhum anexo sai', async () => {
+  it('sem ler a folha (payroll_close) nada sai — nem o corpo sem anexo, que leva os números', async () => {
     permitted.clear();
     expect((await executePayrollSend(repo, actor, intent())).status).toBe(403);
+    expect((await executePayrollSend(repo, actor, intent({ attachment_ids: [] }))).status).toBe(403);
     expect(send).not.toHaveBeenCalled();
+  });
+
+  it('mesma chave, outra intenção (outros destinatários): 409; pedido concorrente com a mesma chave: 409, sem envio', async () => {
+    repo.findEmailPackageByRequest = async () => ({ id: PKG, batch_id: BATCH, status: 'failed', audience: 'finance', attachment_ids: [ATT],
+      intent_digest: payrollIntentDigest(intent({ cc: [] })) }) as never;
+    expect((await executePayrollSend(repo, actor, intent())).status).toBe(409);
+    repo.findEmailPackageByRequest = async () => null;
+    repo.claimEmailPackage = async () => ({ pkg: { id: PKG, batch_id: BATCH, status: 'draft' }, created: false }) as never;
+    expect((await executePayrollSend(repo, actor, intent())).status).toBe(409);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('anexo com nome/tipo fora da lista não sai; nome sai higienizado com MIME do servidor', async () => {
+    repo.getAttachments = async () => [{ id: ATT, batch_id: BATCH, file_name: 'Relatorio\u202Elmth.exe', file_type: 'supporting_document', security_level: 'aggregate', file_size: 10 }] as never;
+    expect((await executePayrollSend(repo, actor, intent())).status).toBe(422);
+    repo.getAttachments = async () => [{ id: ATT, batch_id: BATCH, file_name: 'apoio.pdf', file_type: 'supporting_document', security_level: 'aggregate', file_size: 10 }] as never;
+    repo.getAttachmentBytes = async () => ({ bytes: Buffer.from('%PDF'), file_name: 'apoio\u200F.pdf', mime_type: 'text/html', file_size: 4, file_type: 'supporting_document', security_level: 'aggregate' }) as never;
+    const r = await executePayrollSend(repo, actor, intent());
+    expect(r.status).toBe(200);
+    expect(send.mock.calls[0][0].attachments[0]).toMatchObject({ filename: 'apoio.pdf', contentType: 'application/pdf' });
   });
 
   it('linha de anexo que aponta para fora é recusada (422), nada sai', async () => {
@@ -237,7 +287,8 @@ describe('executePayrollSend — o servidor monta e entrega', () => {
   });
 
   it('nova tentativa do mesmo pacote: só quem ainda não recebeu; outra intenção com a mesma chave: 409', async () => {
-    repo.findEmailPackageByRequest = async () => ({ id: PKG, batch_id: BATCH, status: 'failed', audience: 'finance', attachment_ids: [ATT] }) as never;
+    repo.findEmailPackageByRequest = async () => ({ id: PKG, batch_id: BATCH, status: 'failed', audience: 'finance', attachment_ids: [ATT],
+      intent_digest: payrollIntentDigest(intent()) }) as never;
     repo.deliveredRecipients = async () => new Set(['fin@org.example']);
     const r = await executePayrollSend(repo, actor, intent());
     expect(r.status).toBe(200);
@@ -246,6 +297,7 @@ describe('executePayrollSend — o servidor monta e entrega', () => {
     send.mockClear();
     expect((await executePayrollSend(repo, actor, intent({ audience: 'board' }))).status).toBe(409);
     expect((await executePayrollSend(repo, actor, intent({ attachment_ids: [] }))).status).toBe(409);
+    expect((await executePayrollSend(repo, actor, intent({ cc: [] }))).status).toBe(409);
     expect(send).not.toHaveBeenCalled();
   });
 

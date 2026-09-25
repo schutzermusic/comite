@@ -19,8 +19,8 @@ export async function payrollEmailProofs(ctx) {
     SELECT '[P243] outra organização', $2, enterprise_account_id FROM public.organizations WHERE id = $1 RETURNING id`,
   [org, `p243-${stamp}`])).id;
   const person = async (label, roleKey, o = org) => {
-    const uid = (await one(`INSERT INTO auth.users (id, instance_id, aud, role, email, encrypted_password, created_at, updated_at)
-      VALUES (gen_random_uuid(),'00000000-0000-0000-0000-000000000000','authenticated','authenticated',$1,'x',now(),now())
+    const uid = (await one(`INSERT INTO auth.users (id, instance_id, aud, role, email, encrypted_password, created_at, updated_at, email_confirmed_at)
+      VALUES (gen_random_uuid(),'00000000-0000-0000-0000-000000000000','authenticated','authenticated',$1,'x',now(),now(),now())
       RETURNING id`, [`p243.${label}.${stamp}@example.test`])).id;
     await one(`INSERT INTO public.profiles (user_id, organization_id, full_name, status) VALUES ($1,$2,$3,'active') RETURNING id`, [uid, o, `[P243] ${label}`]);
     await one(`INSERT INTO public.organization_memberships (organization_id, user_id, status, source, joined_at)

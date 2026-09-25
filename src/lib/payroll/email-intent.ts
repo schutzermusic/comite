@@ -8,6 +8,7 @@
  * em texto ou `attachments` em base64 é RECUSADO — não ignorado — para que um
  * cliente antigo falhe alto em vez de mandar outra coisa.
  */
+import { createHash } from 'node:crypto';
 import { buildComparison } from '@/lib/payroll/parser';
 import type {
   PayrollAttachmentFileType, PayrollClosingStatus, PayrollCostCenterTotal, PayrollEmailAudience, PayrollNarrative,
@@ -129,7 +130,9 @@ export function attachmentLocationProblem(
   if (!expected) return 'tipo de anexo sem bucket conhecido';
   if (row.storage_bucket !== expected) return 'bucket não corresponde ao tipo do anexo';
   const path = typeof row.object_path === 'string' ? row.object_path : '';
-  if (!path || path.startsWith('/') || path.includes('..') || path.includes('\\') || /[\u0000-\u001f]/.test(path)) return 'caminho inválido';
+  // O servidor só grava caminhos com [A-Za-z0-9._-] e "/" (ver sanitize() no
+  // repositório): qualquer outra coisa — '%2e%2e', '//', '\\', controle — não é dele.
+  if (!path || !/^[A-Za-z0-9._\/-]+$/.test(path) || path.startsWith('/') || path.includes('..') || path.includes('//')) return 'caminho inválido';
   if (!path.startsWith(`${organizationId}/${String(row.batch_id)}/`)) return 'caminho fora desta organização e fechamento';
   return null;
 }
@@ -153,15 +156,76 @@ export function attachmentSendPermissions(fileType: PayrollAttachmentFileType, l
   return [...out];
 }
 
+/**
+ * Resumo da intenção: o que o pacote promete entregar. A mesma chave
+ * (`request_id`) com OUTRO resumo não reaproveita o pacote — é recusada.
+ */
+export function payrollIntentDigest(intent: PayrollEmailIntent): string {
+  const refsKey = (xs: RecipientRef[]) => xs.map((r) => `${r.type}:${r.id.toLowerCase()}`).sort();
+  const canonical = JSON.stringify([intent.batch_id.toLowerCase(), intent.audience, refsKey(intent.to), refsKey(intent.cc),
+    [...intent.attachment_ids].map((x) => x.toLowerCase()).sort(), intent.confirm_sensitive]);
+  return createHash('sha256').update(canonical).digest('hex');
+}
+
+const GENERATED_TYPES = new Set<PayrollAttachmentFileType>(['executive_pdf', 'dashboard_snapshot']);
+/** Extensões que um anexo ENVIADO pode ter, e o tipo MIME que o servidor declara para cada uma. */
+export const SENDABLE_EXTENSIONS: Record<string, string> = {
+  pdf: 'application/pdf',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  xls: 'application/vnd.ms-excel',
+  csv: 'text/csv',
+  zip: 'application/zip',
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  txt: 'text/plain',
+};
+
+/**
+ * Nome e tipo do anexo como SAEM no e-mail: nome sem caracteres de controle
+ * nem de direção (o "holerite‮fdp.exe"), extensão da lista, tipo MIME do
+ * servidor (não o que o upload declarou). HTML só para os relatórios que o
+ * próprio servidor gera.
+ */
+export function attachmentFilePolicy(fileType: PayrollAttachmentFileType, fileName: string):
+  { ok: true; filename: string; contentType: string } | { ok: false; error: string } {
+  const cleaned = String(fileName ?? '')
+    .normalize('NFC')
+    .replace(/[\u0000-\u001f\u007f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '')
+    .replace(/[\\/:*?"<>|]+/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(-120);
+  const m = /\.([A-Za-z0-9]{1,5})$/.exec(cleaned);
+  const ext = m ? m[1].toLowerCase() : '';
+  if (GENERATED_TYPES.has(fileType)) {
+    if (ext !== 'html') return { ok: false, error: 'Relatório gerado fora do formato.' };
+    return { ok: true, filename: cleaned, contentType: 'text/html; charset=utf-8' };
+  }
+  const contentType = SENDABLE_EXTENSIONS[ext];
+  if (!contentType || !cleaned || cleaned.startsWith('.')) {
+    return { ok: false, error: `Tipo de arquivo não enviável por e-mail (.${ext || '?'}).` };
+  }
+  return { ok: true, filename: cleaned, contentType };
+}
+
 /** Os números que descrevem o fechamento — mudou isto, a narrativa e os relatórios envelheceram. */
 export function numbersSignature(
-  totals: { total_amount_cents?: unknown; previous_month_amount_cents?: unknown },
+  totals: { total_amount_cents?: unknown; previous_month_amount_cents?: unknown; competence_month?: unknown;
+    headcount?: unknown; payment_deadline?: unknown },
   centers: Array<{ cost_center_label?: unknown; amount_cents?: unknown; previous_amount_cents?: unknown }>,
+  flagCodes: Array<unknown> = [],
 ): string {
   const n = (v: unknown) => (v === null || v === undefined || v === '' ? '' : String(Number(v)));
+  const t = (v: unknown) => (v === null || v === undefined ? '' : String(v).trim().slice(0, 10));
   const rows = centers.map((c) => `${String(c.cost_center_label ?? '')}|${n(c.amount_cents)}|${n(c.previous_amount_cents)}`).sort();
-  return [n(totals.total_amount_cents), n(totals.previous_month_amount_cents), ...rows].join('\n');
+  return [n(totals.total_amount_cents), n(totals.previous_month_amount_cents), t(totals.competence_month),
+    n(totals.headcount), t(totals.payment_deadline), [...flagCodes].map(String).sort().join(','), ...rows].join('\n');
 }
+
+/** A assinatura dos fatos que a narrativa e os relatórios gerados descrevem. */
+export const factsSignature = (p: PayrollParseResult) =>
+  numbersSignature(p, p.cost_centers, p.flags.map((f) => f.code));
 
 /**
  * O resultado da leitura da planilha chega do navegador (a planilha é lida lá).

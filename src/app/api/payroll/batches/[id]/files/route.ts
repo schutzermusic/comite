@@ -10,6 +10,14 @@ const VALID_TYPES: PayrollImportFileType[] = [
   'payroll_spreadsheet', 'bank_payment_spreadsheet', 'holerite', 'external_holerite', 'supporting_document',
 ];
 const MAX_BYTES = 50 * 1024 * 1024;
+/** Espelha o `accept` de cada campo de upload da tela (UPLOAD_SLOTS). */
+const UPLOAD_EXTENSIONS: Record<PayrollImportFileType, string[]> = {
+  payroll_spreadsheet: ['xlsx', 'xls', 'csv'],
+  bank_payment_spreadsheet: ['xlsx', 'xls', 'csv', 'pdf'],
+  holerite: ['pdf', 'zip'],
+  external_holerite: ['pdf', 'zip', 'xlsx', 'xls'],
+  supporting_document: ['pdf', 'xlsx', 'xls', 'csv', 'zip', 'png', 'jpg', 'jpeg'],
+};
 
 /**
  * POST /api/payroll/batches/[id]/files — multipart upload.
@@ -42,6 +50,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (file.size > MAX_BYTES) return NextResponse.json({ ok: false, error: 'Arquivo excede 50MB.' }, { status: 413 });
 
   const fileName = (form.get('file_name') as string | null) || (file as File).name || 'arquivo';
+  // Só as extensões que a tela aceita para cada tipo — o arquivo pode sair
+  // depois como anexo de e-mail, sob o remetente da plataforma.
+  const ext = /\.([A-Za-z0-9]{1,5})$/.exec(fileName)?.[1]?.toLowerCase() ?? '';
+  if (!UPLOAD_EXTENSIONS[fileType].includes(ext)) {
+    return NextResponse.json({ ok: false, error: `Extensão .${ext || '?'} não aceita para ${fileType}.` }, { status: 400 });
+  }
+  // O fechamento precisa ser DESTA organização.
+  if (!(await getServerRepository().getClosingBatch(r.actor, id))) {
+    return NextResponse.json({ ok: false, error: 'Fechamento não encontrado.' }, { status: 404 });
+  }
   try {
     const bytes = Buffer.from(await file.arrayBuffer());
     const result = await getServerRepository().addImportFile(r.actor, id, {

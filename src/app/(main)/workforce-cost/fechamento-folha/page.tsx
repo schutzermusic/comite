@@ -567,7 +567,16 @@ function FechamentoFolhaPageInner() {
         const audience = PACKAGE_PRESETS[presetIdx].audience;
         const intentKey = JSON.stringify([batch.id, audience, [...refs.to.map((r) => `${r.type}:${r.id}`)].sort(),
           [...refs.cc.map((r) => `${r.type}:${r.id}`)].sort(), [...selectedIds].sort(), confirmSensitive || !hasSensitive]);
-        if (!sendKeyRef.current || sendKeyRef.current.intent !== intentKey) sendKeyRef.current = { intent: intentKey, id: newRequestId() };
+        // Sobrevive a recarregar a página: sem isso, recarregar depois de uma
+        // falha parcial virava chave nova — e reenvio a quem já recebeu.
+        const storageKey = `payroll-send-intent:${batch.id}`;
+        if (!sendKeyRef.current) {
+          try { sendKeyRef.current = JSON.parse(sessionStorage.getItem(storageKey) ?? 'null'); } catch { /* sem armazenamento */ }
+        }
+        if (!sendKeyRef.current || sendKeyRef.current.intent !== intentKey) {
+          sendKeyRef.current = { intent: intentKey, id: newRequestId() };
+          try { sessionStorage.setItem(storageKey, JSON.stringify(sendKeyRef.current)); } catch { /* sem armazenamento */ }
+        }
         const res = await closing.sendEmail({
           batchId: batch.id, audience, to: refs.to, cc: refs.cc,
           attachmentIds: selectedIds, confirmSensitive: confirmSensitive || !hasSensitive,
@@ -585,7 +594,10 @@ function FechamentoFolhaPageInner() {
           });
           return;
         }
-        if (!test) sendKeyRef.current = null;
+        if (!test) {
+          sendKeyRef.current = null;
+          try { sessionStorage.removeItem(`payroll-send-intent:${batch.id}`); } catch { /* sem armazenamento */ }
+        }
         const simulated = res.delivery_status === 'simulated';
         notify(
           test ? 'Ensaio concluído — nada foi enviado' : simulated ? 'Envio simulado registrado' : 'E-mail enviado',

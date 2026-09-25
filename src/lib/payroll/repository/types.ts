@@ -83,6 +83,8 @@ export interface CreatePackageInput {
   attachment_ids: string[];
   /** Chave da intenção de envio (243): repetir a intenção devolve o MESMO pacote. */
   request_id?: string;
+  /** Resumo da intenção (244): a mesma chave com outra intenção é recusada. */
+  intent_digest?: string;
 }
 
 export interface RecordDispatchInput {
@@ -260,6 +262,8 @@ export interface PayrollRepository {
   createEmailPackage(actor: RepoActor, batchId: string, input: CreatePackageInput): Promise<PayrollEmailPackage>;
   /** Pacote já criado para esta intenção de envio, se houver. */
   findEmailPackageByRequest(actor: RepoActor, requestId: string): Promise<PayrollEmailPackage | null>;
+  /** Cria o pacote da intenção; `created: false` = outro pedido com a mesma chave chegou antes. */
+  claimEmailPackage(actor: RepoActor, batchId: string, input: CreatePackageInput): Promise<{ pkg: PayrollEmailPackage; created: boolean }>;
 
   // ── E-mail governado (243) ──
   /** Números e narrativa do fechamento, como o servidor os guardou. */

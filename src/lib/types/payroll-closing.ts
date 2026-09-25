@@ -172,6 +172,8 @@ export interface PayrollEmailPackage {
   html_body: string;
   attachment_ids: string[];
   status: PayrollEmailPackageStatus;
+  /** SHA-256 da intenção de envio (244). */
+  intent_digest?: string;
   created_by: string;
   approved_by?: string;
   sent_by?: string;

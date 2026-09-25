@@ -37,7 +37,7 @@ const requestId = crypto.randomUUID();
 const intent = (over: Record<string, unknown> = {}) => ({
   kind: 'payroll_closing_package', batch_id: batchId, audience: 'finance',
   to: [{ type: 'member', id: qaLive().users.financeiro.id }, { type: 'contact', id: contactId }],
-  cc: [{ type: 'member', id: qaLive().users.gestor.id }],
+  cc: [{ type: 'member', id: qaLive().users.owner.id }],
   attachment_ids: [execPdfId, holeriteId], confirm_sensitive: true, request_id: crypto.randomUUID(), test: false, ...over,
 });
 const allMails = async (address: string) => {
@@ -145,7 +145,7 @@ test('4 · envio tipado: endereços do diretório, remetente da plataforma, cont
   expect(res.status(), JSON.stringify(body)).toBe(200);
   expect(body).toMatchObject({ ok: true, delivery_status: 'sent', recipients: 3, sent: 3, failed: 0 });
 
-  for (const who of [live.users.financeiro.email, CONTACT, live.users.gestor.email]) {
+  for (const who of [live.users.financeiro.email, CONTACT, live.users.owner.email]) {
     await expect.poll(async () => (await mailsTo(who, `Fechamento da Folha — ${COMPETENCE}`)).length, { timeout: 15_000 }).toBe(1);
   }
   const [msg] = await mailsTo(CONTACT, `Fechamento da Folha — ${COMPETENCE}`);
@@ -163,7 +163,7 @@ test('4 · envio tipado: endereços do diretório, remetente da plataforma, cont
        JOIN public.payroll_email_packages p ON p.id = d.package_id WHERE p.request_id = $1`, [requestId]);
   expect(dispatch.delivery_status).toBe('sent');
   expect(dispatch.recipients.sort()).toEqual([live.users.financeiro.email, CONTACT].sort());
-  expect(dispatch.cc).toEqual([live.users.gestor.email]);
+  expect(dispatch.cc).toEqual([live.users.owner.email]);
   const audit = await one<{ n: number }>(db, `SELECT count(*)::int n FROM public.email_dispatches e
     JOIN public.payroll_email_packages p ON p.id = e.related_entity_id WHERE p.request_id = $1 AND e.status = 'sent'`, [requestId]);
   expect(audit.n).toBe(3);
@@ -222,12 +222,15 @@ test('7 · pela RLS real do navegador: não forja linha de anexo, não reescreve
 test('8 · quem teve o vínculo revogado deixa de ser destinatário no mesmo instante', async () => {
   const live = qaLive();
   const email = `desligado.${t}@example.test`;
-  const uid = (await one<{ id: string }>(db, `INSERT INTO auth.users (id, instance_id, aud, role, email, encrypted_password, created_at, updated_at)
-    VALUES (gen_random_uuid(),'00000000-0000-0000-0000-000000000000','authenticated','authenticated',$1,'x',now(),now()) RETURNING id`, [email])).id;
+  const uid = (await one<{ id: string }>(db, `INSERT INTO auth.users (id, instance_id, aud, role, email, encrypted_password, created_at, updated_at, email_confirmed_at)
+    VALUES (gen_random_uuid(),'00000000-0000-0000-0000-000000000000','authenticated','authenticated',$1,'x',now(),now(),now()) RETURNING id`, [email])).id;
   try {
     await db.query(`INSERT INTO public.profiles (user_id, organization_id, full_name, status) VALUES ($1,$2,$3,'active')`, [uid, live.organization.id, `Desligado ${T}`]);
     await db.query(`INSERT INTO public.organization_memberships (organization_id, user_id, status, source, joined_at)
       VALUES ($1,$2,'ACTIVE','INVITE',now()) ON CONFLICT (organization_id, user_id) DO UPDATE SET status = 'ACTIVE', disabled_at = NULL`, [live.organization.id, uid]);
+    // Destinatário-membro precisa poder ler a folha (244).
+    await db.query(`INSERT INTO public.user_roles (user_id, role_id, organization_id)
+      SELECT $1, r.id, $2 FROM public.roles r WHERE r.key = 'financeiro' AND r.organization_id IS NULL`, [uid, live.organization.id]);
     const before = await (await (await apiAs('rh')).get('/api/payroll/email/recipients')).json();
     expect(before.members.map((m: { id: string }) => m.id)).toContain(uid);
 
@@ -240,4 +243,39 @@ test('8 · quem teve o vínculo revogado deixa de ser destinatário no mesmo ins
   } finally {
     await db.query(`DELETE FROM auth.users WHERE id = $1`, [uid]);
   }
+});
+
+test('9 · membro sem permissão de folha (ex.: usuário criado pelo convite do Ponto, gestor de projetos) não é destinatário', async () => {
+  const live = qaLive();
+  const dir = await (await (await apiAs('rh')).get('/api/payroll/email/recipients')).json();
+  const ids = dir.members.map((m: { id: string }) => m.id);
+  expect(ids).not.toContain(live.users.gestor.id);
+  expect(ids).not.toContain(live.users.compras.id);
+  expect(ids).toContain(live.users.financeiro.id);
+  const res = await (await apiAs('rh')).post(SEND, { data: intent({ to: [{ type: 'member', id: live.users.gestor.id }], cc: [], attachment_ids: [execPdfId], confirm_sensitive: false }) });
+  expect(res.status()).toBe(422);
+  expect(await mailsTo(live.users.gestor.email, `Fechamento da Folha — ${COMPETENCE}`)).toHaveLength(0);
+});
+
+test('10 · o navegador não troca os bytes de um anexo nem forja o livro de e-mail; upload fora da lista ou em fechamento alheio é recusado', async () => {
+  const live = qaLive();
+  const sb = await browserClientAs('rh');
+  const up = await sb.storage.from('payroll-reports').upload(`${live.organization.id}/${batchId}/generated/executive_pdf-${t}.html`,
+    new Blob(['<h1>trocado</h1>'], { type: 'text/html' }), { upsert: true });
+  expect(up.error, 'upload direto ao bucket da folha').not.toBeNull();
+  const rm = await sb.storage.from('payroll-reports').remove([`${live.organization.id}/${batchId}/generated/qualquer.html`]);
+  expect(rm.data ?? [], 'nada é apagado pelo navegador').toEqual([]);
+  const forged = await sb.from('email_dispatches').insert({ organization_id: live.organization.id, target_email: 'x@example.test',
+    subject: 's', status: 'sent', provider: 'resend' }).select();
+  expect(forged.error?.code, JSON.stringify(forged)).toBe('42501');
+
+  const rh = await apiAs('rh');
+  const html = await rh.post(`/api/payroll/batches/${batchId}/files`, { multipart: {
+    file_type: 'supporting_document', file: { name: `pagina-${t}.html`, mimeType: 'text/html', buffer: Buffer.from('<script>alert(1)</script>') },
+  } });
+  expect(html.status(), await html.text()).toBe(400);
+  const foreign = await (await apiAs('outsider')).post(`/api/payroll/batches/${batchId}/files`, { multipart: {
+    file_type: 'supporting_document', file: { name: `apoio-${t}.pdf`, mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4') },
+  } });
+  expect(foreign.status(), 'fechamento de outro inquilino').toBe(404);
 });

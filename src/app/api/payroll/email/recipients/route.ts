@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { requireApiPermission } from '@/lib/auth/api-guard';
-import { resolvePayrollActor } from '@/lib/payroll/repository/actor';
+import { actorCan, resolvePayrollActor } from '@/lib/payroll/repository/actor';
 import { getServerRepository } from '@/lib/payroll/repository';
 import { payrollRecipientDirectory } from '@/lib/payroll/email-send-server';
 
@@ -17,7 +16,7 @@ export async function GET() {
   if (!actorRes.ok) return actorRes.response;
   try {
     const dir = await payrollRecipientDirectory(getServerRepository(), actorRes.actor);
-    const canManage = (await requireApiPermission('people.payroll_admin', { allowAdmin: true })).ok;
+    const canManage = await actorCan(actorRes.actor, 'people.payroll_admin');
     return NextResponse.json({ ok: true, ...dir, can_manage_contacts: canManage });
   } catch (err) {
     console.error('[api/payroll/email/recipients] erro:', err instanceof Error ? err.message : err);
