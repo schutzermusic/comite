@@ -65,8 +65,8 @@ test.afterAll(async () => { for (const c of opened) await c.close().catch(() => 
 
 test('1 · compras submete na tela de Compras; o contador do financeiro sobe', async ({ browser }) => {
   const fin = await as(browser, 'financeiro');
-  // (O /dashboard tem um desencontro de hidratação PRÉ-EXISTENTE no SidebarShell — recolhido só no cliente; fora do escopo.)
-  await fin.goto('/supply');
+  // O painel é onde se chega: a pergunta "o que precisa de mim agora?" nasce aqui (sem erro de runtime — o shell hidrata limpo).
+  await fin.goto('/dashboard');
   await expect(fin.getByRole('link', { name: /Decisões/ }).first()).toBeVisible();
   // Linha de base pela MESMA fonte do selo; e o selo mostra esse número antes da submissão.
   const before = await countFor('financeiro');
