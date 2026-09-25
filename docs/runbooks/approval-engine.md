@@ -177,3 +177,33 @@ SELECT * FROM approval_step_eligibility_for_viewer('<step_id>');
 -- histórico legado, declarado como legado
 SELECT * FROM contract_approvals_legacy_history WHERE contract_id = '<id>';
 ```
+
+---
+
+## 10. Reparo das guardas (239) e consumidores
+
+`approval_request_cancel`, `approval_policy_activate` e `approval_decide`
+guardavam a fronteira com `current_user IN ('authenticated','anon')`. Dentro de
+SECURITY DEFINER, `current_user` é a dona da função — a guarda nunca disparava.
+Provado no QA isolado: sessão de outro inquilino cancelava pedido PENDENTE. A
+239 troca SÓ a guarda por `apex_caller_is_browser()` (140) e confere o
+inquilino antes da trava; o resto do corpo é idêntico.
+
+```bash
+node scripts/operations/apply-239.mjs --target=qa   # 18 provas, sempre desfeitas
+```
+
+Continua em aberto (dívida): `approval_request_create` mantém a guarda antiga,
+porque é chamada de dentro de funções de domínio disparadas pelo navegador
+(`contract_billing_release`) e a mesma guarda passaria a exigir
+`approvals.request` de quem libera faturamento. O inquilino dela segue
+protegido pelo resolvedor de sujeito (140). Também: a pré-checagem
+`NO_ELIGIBLE_APPROVER` compara `pr.user_id = actor` com ator NULO (caminho de
+servidor sem JWT) e, com `sod_forbid_requester`, recusa sempre — por isso os
+domínios abrem o pedido com a reivindicação do ator (237).
+
+**Decisões (240)** é a caixa por pessoa sobre este motor: lê as etapas
+abertas em que a pessoa é elegível (`approval_step_eligibility`), age por
+`approval_decide` com o JWT dela e avisa por rota de evento
+(`approval.stage.opened`, `approval.request.*` → `platform.decisions.notify`).
+Ver `docs/decisions/README.md`.
