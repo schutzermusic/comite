@@ -155,6 +155,22 @@ describe('captura (QA)', () => {
     expect(insert).toHaveBeenCalledWith('email_dispatches', expect.objectContaining({ status: 'sent', provider: 'capture' }));
   });
 
+  it('anexo gerado pelo servidor (o .ics do convite) vai em base64 à captura e ao Resend', async () => {
+    const ics = 'BEGIN:VCALENDAR\r\nEND:VCALENDAR';
+    const attachments = [{ filename: 'reuniao.ics', content: ics, contentType: 'text/calendar; charset=utf-8; method=REQUEST' }];
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ID: 'mp-2' }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await sendAppEmail({ ...MSG, attachments }, OPTS, CAPTURE);
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.Attachments).toEqual([{ Filename: 'reuniao.ics', Content: Buffer.from(ics).toString('base64'),
+      ContentType: 'text/calendar; charset=utf-8; method=REQUEST' }]);
+
+    send.mockResolvedValue({ data: { id: 're_msg_2' }, error: null, headers: null });
+    await sendAppEmail({ ...MSG, attachments }, OPTS, RESEND_ENV);
+    expect(send.mock.calls[0][0].attachments).toEqual([{ filename: 'reuniao.ics', content: Buffer.from(ics).toString('base64'),
+      contentType: 'text/calendar; charset=utf-8; method=REQUEST' }]);
+  });
+
   it('coletor fora do ar é transitório; 400 é permanente', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('fetch failed')));
     await expect(sendAppEmail(MSG, OPTS, CAPTURE)).rejects.toBeInstanceOf(EmailTransientError);

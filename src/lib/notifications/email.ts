@@ -56,7 +56,9 @@ export class EmailPermanentError extends Error {
   }
 }
 
-export interface AppEmailMessage { to: string; subject: string; html: string; text: string }
+/** Anexo textual gerado pelo servidor (ex.: o .ics do convite). */
+export interface AppEmailAttachment { filename: string; content: string; contentType: string }
+export interface AppEmailMessage { to: string; subject: string; html: string; text: string; attachments?: AppEmailAttachment[] }
 export interface AppEmailOptions {
   /** Estável por AVISO, não por tentativa: é ela que impede o segundo e-mail. */
   idempotencyKey: string;
@@ -157,7 +159,8 @@ async function sendViaResend(msg: AppEmailMessage, idempotencyKey: string, env: 
   let response: CreateEmailResponse;
   try {
     response = await new Resend(apiKey).emails.send(
-      { from: emailSender(env), to: [msg.to], subject: msg.subject, html: msg.html, text: msg.text },
+      { from: emailSender(env), to: [msg.to], subject: msg.subject, html: msg.html, text: msg.text,
+        attachments: msg.attachments?.map((a) => ({ filename: a.filename, content: base64(a.content), contentType: a.contentType })) },
       { idempotencyKey },
     );
   } catch {
@@ -188,6 +191,9 @@ async function sendViaCapture(msg: AppEmailMessage, idempotencyKey: string, env:
         Text: msg.text,
         Headers: { 'X-Apex-Idempotency-Key': idempotencyKey },
         Tags: ['apex'],
+        ...(msg.attachments?.length
+          ? { Attachments: msg.attachments.map((a) => ({ Filename: a.filename, Content: base64(a.content), ContentType: a.contentType })) }
+          : {}),
       }),
       signal: AbortSignal.timeout(10_000),
     });
@@ -202,6 +208,8 @@ async function sendViaCapture(msg: AppEmailMessage, idempotencyKey: string, env:
   const body = (await res.json().catch(() => null)) as { ID?: unknown } | null;
   return { outcome: 'SENT', provider: 'capture', messageId: typeof body?.ID === 'string' ? body.ID : null };
 }
+
+const base64 = (text: string) => Buffer.from(text, 'utf-8').toString('base64');
 
 /** "INSIGHT APEX <no-reply@insightapex.co>" → { Name, Email }. */
 function mailbox(from: string): { Email: string; Name?: string } {

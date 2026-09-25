@@ -136,8 +136,10 @@ export async function realAnchors(db) {
  * @param {string} opts.version       ex.: '230'
  * @param {string} opts.expectedTip   ponta do registro exigida antes de aplicar
  * @param {(ctx) => Promise<void>} opts.proofs
+ * @param {(db) => Promise<void>} [opts.preflight] roda antes da migration, na mesma transação
+ * @param {(db) => Promise<void>} [opts.cleanup]   desfaz o preflight antes do COMMIT
  */
-export async function runMigration({ version, expectedTip, proofs, preflight }) {
+export async function runMigration({ version, expectedTip, proofs, preflight, cleanup }) {
   const apply = process.argv.includes('--apply');
   const target = targetDatabase();
   const db = target.client();
@@ -172,6 +174,8 @@ export async function runMigration({ version, expectedTip, proofs, preflight }) 
       ctx.check('provas concluídas sem erro inesperado', false, error.message);
     }
     await db.query('ROLLBACK TO SAVEPOINT proofs');
+    // O que o preflight gravou ANTES da migration não volta com o SAVEPOINT das provas.
+    if (cleanup) await cleanup(db);
     failed = ctx.results.filter((r) => !r.ok).length;
     console.log(`\n${ctx.results.length - failed}/${ctx.results.length} provas passaram.`);
 

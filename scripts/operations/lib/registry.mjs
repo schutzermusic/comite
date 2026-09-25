@@ -135,6 +135,10 @@ export const OPERATIONS_REGISTRY = {
   // 241: endurecimento — mesmas funções de núcleo, reescritas; a porta decision_viewer_reads_subject muda de assinatura.
   '241': { tables: [], ledgers: [], functions: ['decision_keys_for_event(uuid)', 'decision_notices_plan(uuid,text,text,text)',
     'decision_resolve(uuid,text)'], permissions: [] },
+  // 242: notificações — leitura só no inquilino ativo, sem escrita do navegador; as portas
+  // notification_mark_read/mark_all_read/dismiss e create_notification são do navegador, por desenho.
+  '242': { tables: ['notifications'], ledgers: [], functions: ['create_notification_for(uuid,uuid,text,text,text,text)',
+    'notification_recipient_is_active_member(uuid,uuid)'], permissions: [] },
 };
 
 /** Portas do navegador de Decisões: identidade de auth.uid(), sem parâmetro de ator — liberadas de propósito. */

@@ -14,7 +14,7 @@ import {
   RefreshCw,
   Stamp,
   Timer,
-  Trash2,
+  Archive,
   TriangleAlert,
   Undo2,
   type LucideIcon,
@@ -151,8 +151,8 @@ export default function NotificacoesPage() {
                         <CheckCircle2 className="h-4 w-4" />
                       </button>
                     )}
-                    <button type="button" onClick={(e) => { e.preventDefault(); void onDelete(n.id); }} title="Excluir" className="rounded-full p-1.5 text-ig-fg-muted hover:bg-ig-panel-hover hover:text-ig-danger">
-                      <Trash2 className="h-4 w-4" />
+                    <button type="button" onClick={(e) => { e.preventDefault(); void onDelete(n.id); }} title="Arquivar" aria-label="Arquivar notificação" className="rounded-full p-1.5 text-ig-fg-muted hover:bg-ig-panel-hover hover:text-ig-danger">
+                      <Archive className="h-4 w-4" />
                     </button>
                   </div>
                 </div>

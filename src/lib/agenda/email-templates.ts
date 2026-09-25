@@ -1,12 +1,15 @@
 /**
  * Professional e-mail templates for the Agenda module (pt-BR).
  *
- * Standalone string builders (no React) usable from both the client
- * service (to assemble the payload) and the server API route. Subjects
- * follow the product spec exactly.
+ * SERVER-OWNED CONTENT. These builders run only in the Agenda e-mail route
+ * (src/app/api/agenda/email/send): the browser names WHAT happened (a typed
+ * notice + entity id) and never supplies subject, HTML or recipients. Every
+ * value that came from a user (titles, descriptions, names, links) is escaped
+ * here; a link only becomes clickable when it is a plain http(s) URL.
  *
  * Email bodies use a light background with dark text (email clients do
- * not honor the app's dark/light theme) and inline styles.
+ * not honor the app's dark/light theme) and inline styles. Each template
+ * returns the HTML and a plain-text alternative built from the same rows.
  */
 
 import type { TaskPriority, TaskStatus } from '@/lib/types/agenda';
@@ -22,25 +25,63 @@ const BORDER = '#E3E9E6';
 export interface EmailContent {
   subject: string;
   html: string;
+  text: string;
 }
 
-function escapeHtml(value: string): string {
+export function escapeHtml(value: string): string {
   return value
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
-function shell(title: string, bodyRows: string, ctaLabel?: string, ctaUrl?: string): string {
-  const cta =
-    ctaLabel && ctaUrl
-      ? `<tr><td style="padding:24px 0 4px;">
-           <a href="${ctaUrl}" style="display:inline-block;background:${BRAND};color:#062019;text-decoration:none;font-weight:600;font-size:14px;padding:11px 22px;border-radius:10px;">${escapeHtml(ctaLabel)}</a>
-         </td></tr>`
-      : '';
+/** A clickable link only for absolute http(s) URLs; anything else (javascript:, data:, relative) is not a link. */
+export function safeHref(value: string | null | undefined): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
 
-  return `<!DOCTYPE html>
+/** Subject lines are one line: no header folding from a title with line breaks. */
+function subjectLine(value: string): string {
+  return value.replace(/[\r\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim().slice(0, 250);
+}
+
+interface Row {
+  label: string;
+  value: string;
+  /** Present only when `value` is itself a safe http(s) URL to link. */
+  href?: string | null;
+}
+
+function compose(subject: string, title: string, rows: Array<Row | null>, cta?: { label: string; url: string | null | undefined }): EmailContent {
+  const present = rows.filter((r): r is Row => r !== null && r.value.trim() !== '');
+  const ctaUrl = cta ? safeHref(cta.url) : null;
+
+  const htmlRows = present
+    .map((r) => {
+      const value = r.href
+        ? `<a href="${escapeHtml(r.href)}" style="color:${BRAND};">${escapeHtml(r.value)}</a>`
+        : escapeHtml(r.value);
+      return `<tr>
+    <td style="padding:6px 0;color:${MUTED};font-size:12px;text-transform:uppercase;letter-spacing:.04em;width:130px;vertical-align:top;">${escapeHtml(r.label)}</td>
+    <td style="padding:6px 0;color:${TEXT};font-size:14px;">${value}</td>
+  </tr>`;
+    })
+    .join('');
+  const htmlCta = cta && ctaUrl
+    ? `<tr><td style="padding:24px 0 4px;">
+           <a href="${escapeHtml(ctaUrl)}" style="display:inline-block;background:${BRAND};color:#062019;text-decoration:none;font-weight:600;font-size:14px;padding:11px 22px;border-radius:10px;">${escapeHtml(cta.label)}</a>
+         </td></tr>`
+    : '';
+
+  const html = `<!DOCTYPE html>
 <html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="margin:0;padding:0;background:${BG};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${BG};padding:28px 12px;">
@@ -53,8 +94,8 @@ function shell(title: string, bodyRows: string, ctaLabel?: string, ctaUrl?: stri
         <tr><td style="padding:28px;">
           <h1 style="margin:0 0 16px;color:${TEXT};font-size:19px;font-weight:700;">${escapeHtml(title)}</h1>
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="color:${TEXT};font-size:14px;line-height:1.55;">
-            ${bodyRows}
-            ${cta}
+            ${htmlRows}
+            ${htmlCta}
           </table>
         </td></tr>
         <tr><td style="padding:16px 28px;border-top:1px solid ${BORDER};color:${MUTED};font-size:12px;">
@@ -64,20 +105,26 @@ function shell(title: string, bodyRows: string, ctaLabel?: string, ctaUrl?: stri
     </td></tr>
   </table>
 </body></html>`;
+
+  const text = [
+    title,
+    '',
+    ...present.map((r) => `${r.label}: ${r.value}`),
+    ...(cta && ctaUrl ? ['', `${cta.label}: ${ctaUrl}`] : []),
+    '',
+    'Esta é uma mensagem automática do INSIGHT APEX. Por favor, não responda a este e-mail.',
+  ].join('\n');
+
+  return { subject: subjectLine(subject), html, text };
 }
 
-function row(label: string, value: string): string {
-  return `<tr>
-    <td style="padding:6px 0;color:${MUTED};font-size:12px;text-transform:uppercase;letter-spacing:.04em;width:130px;vertical-align:top;">${escapeHtml(label)}</td>
-    <td style="padding:6px 0;color:${TEXT};font-size:14px;">${value}</td>
-  </tr>`;
-}
+const opt = (label: string, value: string | null | undefined): Row | null => (value ? { label, value } : null);
 
 /* ───────────── Meeting invitation ───────────── */
 
 export interface MeetingInviteParams {
   title: string;
-  dateLabel: string; // e.g. "qui., 12 de jun. de 2026 14:00"
+  dateLabel: string; // e.g. "qui., 12 de jun. de 2026, 14:00"
   organizerName?: string | null;
   location?: string | null;
   meetingLink?: string | null;
@@ -86,27 +133,18 @@ export interface MeetingInviteParams {
 }
 
 export function meetingInviteEmail(p: MeetingInviteParams): EmailContent {
-  const rows = [
-    row('Quando', escapeHtml(p.dateLabel)),
-    p.organizerName ? row('Organizador', escapeHtml(p.organizerName)) : '',
-    p.location ? row('Local', escapeHtml(p.location)) : '',
-    p.meetingLink
-      ? row('Link', `<a href="${p.meetingLink}" style="color:${BRAND};">${escapeHtml(p.meetingLink)}</a>`)
-      : '',
-    p.description ? row('Pauta', escapeHtml(p.description)) : '',
-  ]
-    .filter(Boolean)
-    .join('');
-
-  return {
-    subject: `Convite: ${p.title} — ${p.dateLabel}`,
-    html: shell(
-      `Você foi convidado para "${p.title}"`,
-      rows,
-      p.detailUrl ? 'Ver reunião' : undefined,
-      p.detailUrl ?? undefined,
-    ),
-  };
+  return compose(
+    `Convite: ${p.title} — ${p.dateLabel}`,
+    `Você foi convidado para "${p.title}"`,
+    [
+      { label: 'Quando', value: p.dateLabel },
+      opt('Organizador', p.organizerName),
+      opt('Local', p.location),
+      p.meetingLink ? { label: 'Link', value: p.meetingLink, href: safeHref(p.meetingLink) } : null,
+      opt('Pauta', p.description),
+    ],
+    { label: 'Ver reunião', url: p.detailUrl },
+  );
 }
 
 /* ───────────── Task assignment ───────────── */
@@ -121,24 +159,17 @@ export interface TaskAssignedParams {
 }
 
 export function taskAssignedEmail(p: TaskAssignedParams): EmailContent {
-  const rows = [
-    p.assignerName ? row('Atribuída por', escapeHtml(p.assignerName)) : '',
-    p.dueLabel ? row('Prazo', escapeHtml(p.dueLabel)) : '',
-    row('Prioridade', escapeHtml(TASK_PRIORITY_LABELS[p.priority])),
-    p.description ? row('Descrição', escapeHtml(p.description)) : '',
-  ]
-    .filter(Boolean)
-    .join('');
-
-  return {
-    subject: `Nova tarefa atribuída: ${p.title}`,
-    html: shell(
-      `Nova tarefa: "${p.title}"`,
-      rows,
-      p.detailUrl ? 'Abrir tarefa' : undefined,
-      p.detailUrl ?? undefined,
-    ),
-  };
+  return compose(
+    `Nova tarefa atribuída: ${p.title}`,
+    `Nova tarefa: "${p.title}"`,
+    [
+      opt('Atribuída por', p.assignerName),
+      opt('Prazo', p.dueLabel),
+      { label: 'Prioridade', value: TASK_PRIORITY_LABELS[p.priority] ?? String(p.priority) },
+      opt('Descrição', p.description),
+    ],
+    { label: 'Abrir tarefa', url: p.detailUrl },
+  );
 }
 
 /* ───────────── Task status update ───────────── */
@@ -151,22 +182,15 @@ export interface TaskStatusParams {
 }
 
 export function taskStatusEmail(p: TaskStatusParams): EmailContent {
-  const rows = [
-    row('Novo status', escapeHtml(TASK_STATUS_LABELS[p.newStatus])),
-    p.changedByName ? row('Atualizada por', escapeHtml(p.changedByName)) : '',
-  ]
-    .filter(Boolean)
-    .join('');
-
-  return {
-    subject: `Atualização da tarefa: ${p.title}`,
-    html: shell(
-      `Tarefa atualizada: "${p.title}"`,
-      rows,
-      p.detailUrl ? 'Ver tarefa' : undefined,
-      p.detailUrl ?? undefined,
-    ),
-  };
+  return compose(
+    `Atualização da tarefa: ${p.title}`,
+    `Tarefa atualizada: "${p.title}"`,
+    [
+      { label: 'Novo status', value: TASK_STATUS_LABELS[p.newStatus] ?? String(p.newStatus) },
+      opt('Atualizada por', p.changedByName),
+    ],
+    { label: 'Ver tarefa', url: p.detailUrl },
+  );
 }
 
 /* ───────────── Project timeline: assignment ───────────── */
@@ -183,27 +207,20 @@ export interface TimelineAssignedParams {
 }
 
 export function timelineAssignedEmail(p: TimelineAssignedParams): EmailContent {
-  const rows = [
-    row('Projeto', escapeHtml(p.projectName)),
-    p.wbsCode ? row('EDT', escapeHtml(p.wbsCode)) : '',
-    row('Papel', escapeHtml(p.roleLabel)),
-    p.assignerName ? row('Atribuída por', escapeHtml(p.assignerName)) : '',
-    p.dueLabel ? row('Término planejado', escapeHtml(p.dueLabel)) : '',
-    p.statusLabel ? row('Status', escapeHtml(p.statusLabel)) : '',
-    row('Ação requerida', 'Revise a atividade e mantenha status e progresso atualizados.'),
-  ]
-    .filter(Boolean)
-    .join('');
-
-  return {
-    subject: `Atividade do cronograma atribuída: ${p.taskTitle} — ${p.projectName}`,
-    html: shell(
-      `Atividade atribuída: "${p.taskTitle}"`,
-      rows,
-      p.detailUrl ? 'Abrir atividade' : undefined,
-      p.detailUrl ?? undefined,
-    ),
-  };
+  return compose(
+    `Atividade do cronograma atribuída: ${p.taskTitle} — ${p.projectName}`,
+    `Atividade atribuída: "${p.taskTitle}"`,
+    [
+      { label: 'Projeto', value: p.projectName },
+      opt('EDT', p.wbsCode),
+      { label: 'Papel', value: p.roleLabel },
+      opt('Atribuída por', p.assignerName),
+      opt('Término planejado', p.dueLabel),
+      opt('Status', p.statusLabel),
+      { label: 'Ação requerida', value: 'Revise a atividade e mantenha status e progresso atualizados.' },
+    ],
+    { label: 'Abrir atividade', url: p.detailUrl },
+  );
 }
 
 /* ───────────── Project timeline: delay report ───────────── */
@@ -222,30 +239,23 @@ export interface TimelineDelayParams {
 }
 
 export function timelineDelayEmail(p: TimelineDelayParams): EmailContent {
-  const rows = [
-    row('Projeto', escapeHtml(p.projectName)),
-    p.wbsCode ? row('EDT', escapeHtml(p.wbsCode)) : '',
-    row('Status', escapeHtml(p.statusLabel)),
-    p.reasonLabel ? row('Motivo', escapeHtml(p.reasonLabel)) : '',
-    p.newForecastLabel ? row('Novo término previsto', escapeHtml(p.newForecastLabel)) : '',
-    p.reportedByName ? row('Reportado por', escapeHtml(p.reportedByName)) : '',
-    row(
-      'Ação requerida',
-      p.actionRequired
-        ? 'Informe o motivo do atraso, o impacto e o plano de recuperação.'
-        : 'Avalie o impacto no cronograma e o plano de recuperação proposto.',
-    ),
-  ]
-    .filter(Boolean)
-    .join('');
-
-  return {
-    subject: `Atraso no cronograma: ${p.taskTitle} — ${p.projectName}`,
-    html: shell(
-      `Atividade em atraso: "${p.taskTitle}"`,
-      rows,
-      p.detailUrl ? 'Abrir atividade' : undefined,
-      p.detailUrl ?? undefined,
-    ),
-  };
+  return compose(
+    `Atraso no cronograma: ${p.taskTitle} — ${p.projectName}`,
+    `Atividade em atraso: "${p.taskTitle}"`,
+    [
+      { label: 'Projeto', value: p.projectName },
+      opt('EDT', p.wbsCode),
+      { label: 'Status', value: p.statusLabel },
+      opt('Motivo', p.reasonLabel),
+      opt('Novo término previsto', p.newForecastLabel),
+      opt('Reportado por', p.reportedByName),
+      {
+        label: 'Ação requerida',
+        value: p.actionRequired
+          ? 'Informe o motivo do atraso, o impacto e o plano de recuperação.'
+          : 'Avalie o impacto no cronograma e o plano de recuperação proposto.',
+      },
+    ],
+    { label: 'Abrir atividade', url: p.detailUrl },
+  );
 }

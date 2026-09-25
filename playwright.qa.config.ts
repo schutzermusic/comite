@@ -29,7 +29,7 @@ export default defineConfig({
     contextOptions: { reducedMotion: 'reduce' },
   },
   projects: [
-    { name: 'api', testMatch: /(concurrency|roles-api|evidence|approvals|intelligence|decisions-api)\.spec\.ts$/ },
+    { name: 'api', testMatch: /(concurrency|roles-api|evidence|approvals|intelligence|decisions-api|agenda-email)\.spec\.ts$/ },
     {
       name: 'desktop', testMatch: /(golden-path|roles-ui|service-order-governance|visual|decisions-ui)\.spec\.ts$/,
       use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } },

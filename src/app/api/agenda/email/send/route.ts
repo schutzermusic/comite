@@ -2,42 +2,38 @@ import { NextResponse } from 'next/server';
 import { getActiveOrganizationRow } from '@/lib/auth/active-organization';
 import { createClient } from '@/utils/supabase/server';
 import { requireApiPermission } from '@/lib/auth/api-guard';
+import { parseAgendaEmailRequest } from '@/lib/agenda/email-notice';
+import { resolveAgendaNotice } from '@/lib/agenda/email-notice-server';
+import { EmailPermanentError, sendAppEmail } from '@/lib/notifications/email';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const DEFAULT_FROM = 'INSIGHT APEX <no-reply@insightapex.co>';
-
-interface SendBody {
-  subject: string;
-  html: string;
-  recipients: string[];
-  /** Optional iCalendar (.ics) body to attach as text/calendar. */
-  ics?: string;
-  icsFilename?: string;
-  related_entity_type?: string;
-  related_entity_id?: string;
-  /** Force a dry-run even when RESEND_API_KEY is set. */
-  test?: boolean;
-}
-
-function isEmailList(v: unknown): v is string[] {
-  return Array.isArray(v) && v.length > 0 && v.every((x) => typeof x === 'string' && /.+@.+\..+/.test(x));
-}
-
 /**
- * Sends Agenda module e-mails (meeting invitations, task assignments,
- * task status updates) via Resend, and logs one email_dispatches row per
- * recipient.
+ * Sends Agenda / project-timeline notices by e-mail.
  *
- * Auth: caller must hold meetings.create OR tasks.create (admins bypass,
- * matching the RLS gate). Without RESEND_API_KEY (or with test=true) the
- * send is a dry-run — every dispatch is recorded with status 'simulated',
- * exactly like the payroll route. RESEND_API_KEY never reaches the client.
+ * The body is a TYPED notice — `{ kind, <entity>_id }` — never content:
+ *
+ *   meeting_invite     { event_id }       who manages the meeting → recorded guests (+ .ics)
+ *   task_assigned      { task_id }        the task's creator → assignee + recorded "notificar também"
+ *   task_status        { task_id }        creator/assignee → the other party (done | blocked only)
+ *   timeline_assigned  { assignment_id }  who assigned → the assigned member
+ *   timeline_delay     { delay_log_id }   who reported → activity responsible + project manager
+ *
+ * Subject, HTML, sender and recipients are the server's: the record is re-read
+ * through the caller's RLS session in the ACTIVE organization, recipients come
+ * from the record, content from the server templates, the sender from the
+ * environment. A body carrying `subject`/`html`/`recipients` is refused.
+ *
+ * Delivery goes through the platform transport (`sendAppEmail`): one message
+ * per recipient, a stable idempotency key per notice, one `email_dispatches`
+ * row per attempt (the drawer's delivery history).
+ *
+ * Auth floor (unchanged): meetings.create OR tasks.create OR
+ * projects.timeline.assign; on top of it, the caller must be the author of the
+ * fact being announced.
  */
 export async function POST(req: Request) {
-  // meetings.create, tasks.create or projects.timeline.assign is sufficient
-  // (the project timeline reuses this route for assignment/delay e-mails).
   let guard = await requireApiPermission('meetings.create', { allowAdmin: true });
   if (!guard.ok) {
     const taskGuard = await requireApiPermission('tasks.create', { allowAdmin: true });
@@ -50,111 +46,49 @@ export async function POST(req: Request) {
     }
   }
 
-  let body: SendBody;
+  let raw: unknown;
   try {
-    body = (await req.json()) as SendBody;
+    raw = await req.json();
   } catch {
     return NextResponse.json({ ok: false, error: 'JSON inválido.' }, { status: 400 });
   }
-
-  if (!body.subject || !body.html) {
-    return NextResponse.json({ ok: false, error: 'subject e html são obrigatórios.' }, { status: 400 });
-  }
-  // De-duplicate (case-insensitive) so a guest typed twice isn't mailed twice.
-  const recipients = Array.from(
-    new Map((body.recipients ?? []).map((r) => [String(r).toLowerCase().trim(), String(r).trim()])).values(),
-  );
-  if (!isEmailList(recipients)) {
-    return NextResponse.json({ ok: false, error: 'Lista de destinatários inválida.' }, { status: 400 });
-  }
+  const parsed = parseAgendaEmailRequest(raw);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: 400 });
 
   const supabase = await createClient();
-  const profile = await getActiveOrganizationRow(supabase);
-  const organizationId = profile?.organization_id as string | undefined;
-  if (!organizationId) {
-    return NextResponse.json({ ok: false, error: 'Usuário sem organização.' }, { status: 403 });
+  const [{ data: auth }, profile] = await Promise.all([supabase.auth.getUser(), getActiveOrganizationRow(supabase)]);
+  const organizationId = profile?.organization_id;
+  if (!auth.user || !organizationId) {
+    return NextResponse.json({ ok: false, error: 'Usuário sem organização ativa.' }, { status: 403 });
   }
 
-  const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.APP_EMAIL_FROM || DEFAULT_FROM;
-  const provider = 'resend';
+  const resolved = await resolveAgendaNotice(
+    supabase, organizationId, { id: auth.user.id, email: auth.user.email ?? null }, parsed.request,
+  );
+  if (!resolved.ok) return NextResponse.json({ ok: false, error: resolved.error }, { status: resolved.status });
+  const { notice } = resolved;
 
-  const attachments = body.ics
-    ? [
-        {
-          filename: body.icsFilename || 'convite.ics',
-          content: Buffer.from(body.ics, 'utf-8').toString('base64'),
-          contentType: 'text/calendar',
-        },
-      ]
-    : undefined;
-
-  // Records a dispatch row per recipient (best-effort — never throws).
-  const logDispatches = async (
-    status: 'sent' | 'failed' | 'simulated',
-    providerMessageId?: string,
-    errorMessage?: string,
-  ) => {
+  const counts = { sent: 0, simulated: 0, failed: 0 };
+  for (const to of notice.recipients) {
     try {
-      await supabase.from('email_dispatches').insert(
-        recipients.map((email) => ({
-          organization_id: organizationId,
-          target_email: email,
-          subject: body.subject,
-          status,
-          provider,
-          provider_message_id: providerMessageId ?? null,
-          related_entity_type: body.related_entity_type ?? null,
-          related_entity_id: body.related_entity_id ?? null,
-          error_message: errorMessage ?? null,
-        })),
+      const result = await sendAppEmail(
+        { to, subject: notice.content.subject, html: notice.content.html, text: notice.content.text, attachments: notice.attachments },
+        { idempotencyKey: notice.idempotencyKey(to), organizationId, related: notice.related },
       );
-    } catch (e) {
-      console.error('[agenda/email/send] dispatch log failed:', e instanceof Error ? e.message : e);
+      if (result.outcome === 'SENT') counts.sent += 1; else counts.simulated += 1;
+    } catch (error) {
+      counts.failed += 1;
+      // Endereço e conteúdo não vão para log; o motivo fica em email_dispatches.
+      console.error('[agenda/email/send] envio falhou', {
+        kind: notice.kind, permanent: error instanceof EmailPermanentError,
+      });
     }
-  };
-
-  // Dry-run: no key configured, or explicit test send.
-  if (!apiKey || body.test) {
-    await logDispatches('simulated');
-    return NextResponse.json({
-      ok: true,
-      delivery_status: 'simulated',
-      reason: !apiKey ? 'RESEND_API_KEY ausente — envio simulado.' : 'Envio de teste (dry-run).',
-      recipients,
-    });
   }
 
-  try {
-    const { Resend } = await import('resend');
-    const resend = new Resend(apiKey);
-    const { data, error } = await resend.emails.send({
-      from,
-      to: recipients,
-      subject: body.subject,
-      html: body.html,
-      attachments,
-    });
-
-    if (error) {
-      await logDispatches('failed', undefined, error.message);
-      return NextResponse.json(
-        { ok: false, delivery_status: 'failed', error: error.message },
-        { status: 502 },
-      );
-    }
-
-    await logDispatches('sent', data?.id);
-    return NextResponse.json({
-      ok: true,
-      delivery_status: 'sent',
-      provider_message_id: data?.id,
-      recipients,
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Erro inesperado';
-    console.error('[agenda/email/send] error:', message);
-    await logDispatches('failed', undefined, message);
-    return NextResponse.json({ ok: false, delivery_status: 'failed', error: message }, { status: 500 });
-  }
+  const delivery_status = counts.failed > 0 ? (counts.sent + counts.simulated > 0 ? 'partial' : 'failed')
+    : counts.sent > 0 ? 'sent' : counts.simulated > 0 ? 'simulated' : 'no_recipients';
+  return NextResponse.json(
+    { ok: counts.failed === 0, kind: notice.kind, delivery_status, recipients: notice.recipients.length, ...counts },
+    { status: counts.failed > 0 && counts.sent + counts.simulated === 0 ? 502 : 200 },
+  );
 }

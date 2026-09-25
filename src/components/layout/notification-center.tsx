@@ -5,7 +5,7 @@ import Link from "next/link";
 import {
   Bell,
   CheckCheck,
-  Trash2,
+  Archive,
   Calendar,
   ClipboardList,
   CheckCircle2,
@@ -98,7 +98,7 @@ export default function NotificationCenter({ hiddenOnDashboard }: NotificationCe
   const handleDelete = async (id: string) => {
     setNotificacoes((prev) => prev.filter((n) => n.id !== id));
     await removeNotification(id);
-    toast({ title: 'Notificação excluída' });
+    toast({ title: 'Notificação arquivada' });
   };
 
   const getMeta = (type: string) => TYPE_META[type] ?? { icon: Bell, color: isLight ? '#65A30D' : '#00C8FF' };
@@ -227,6 +227,8 @@ export default function NotificationCenter({ hiddenOnDashboard }: NotificationCe
                             <Button
                               variant="ghost"
                               size="icon"
+                              aria-label="Arquivar notificação"
+                              title="Arquivar"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 e.preventDefault();
@@ -234,7 +236,7 @@ export default function NotificationCenter({ hiddenOnDashboard }: NotificationCe
                               }}
                               className={`h-7 w-7 rounded-full ${isLight ? 'text-[#8a9a92] hover:text-[#FF5860] hover:bg-red-500/[0.06]' : 'text-[rgba(255,255,255,0.60)] hover:text-[#FF5860] hover:bg-[rgba(255,88,96,0.12)]'}`}
                             >
-                              <Trash2 className="w-3.5 h-3.5" />
+                              <Archive className="w-3.5 h-3.5" />
                             </Button>
                           </div>
                         </div>

@@ -14,12 +14,6 @@
 import { createClient } from '@/utils/supabase/client';
 import { requireActiveOrganizationId } from '@/lib/auth/active-organization';
 import { logAuditEvent } from '@/lib/audit/log-audit-event';
-import {
-  meetingInviteEmail,
-  taskAssignedEmail,
-  taskStatusEmail,
-} from '@/lib/agenda/email-templates';
-import { buildIcs } from '@/lib/agenda/ics';
 import type {
   AppNotification,
   CalendarEvent,
@@ -201,7 +195,6 @@ function toDate(value: string | null | undefined): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-const appOrigin = () => (typeof window !== 'undefined' ? window.location.origin : '');
 
 /* ───────────── Mappers ───────────── */
 
@@ -310,6 +303,14 @@ function mapComment(row: CommentRow): TaskComment {
   };
 }
 
+/**
+ * A notification only links inside the app: a relative path ("/…", never
+ * "//host"). The database enforces it for new rows (242); this guards rendering.
+ */
+export function appNotificationHref(link: string | null | undefined): string | null {
+  return typeof link === 'string' && /^\/(?![/\\])/.test(link) ? link : null;
+}
+
 function mapNotification(row: NotificationRow): AppNotification {
   return {
     id: row.id,
@@ -318,7 +319,7 @@ function mapNotification(row: NotificationRow): AppNotification {
     type: row.type,
     title: row.title,
     body: row.body,
-    linkUrl: row.link_url,
+    linkUrl: appNotificationHref(row.link_url),
     readAt: toDate(row.read_at),
     createdAt: toDate(row.created_at) ?? new Date(),
   };
@@ -464,24 +465,33 @@ async function notifyUser(
   }
 }
 
-async function sendEmail(payload: {
-  subject: string;
-  html: string;
-  recipients: string[];
-  ics?: string;
-  icsFilename?: string;
-  related_entity_type?: string;
-  related_entity_id?: string;
-}): Promise<void> {
-  if (payload.recipients.length === 0) return;
+/**
+ * Asks the server to e-mail a TYPED notice. The browser only names the fact
+ * (`kind` + the record id); subject, body, sender and recipients are resolved
+ * by /api/agenda/email/send from the stored record. Returns how many
+ * recipients the server addressed (0 on failure — e-mail is best-effort).
+ */
+type AgendaEmailNotice =
+  | { kind: 'meeting_invite'; event_id: string }
+  | { kind: 'task_assigned'; task_id: string }
+  | { kind: 'task_status'; task_id: string };
+
+async function requestAgendaEmail(notice: AgendaEmailNotice): Promise<number> {
   try {
-    await fetch('/api/agenda/email/send', {
+    const res = await fetch('/api/agenda/email/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(notice),
     });
+    const body = (await res.json().catch(() => null)) as { recipients?: number; error?: string } | null;
+    if (!res.ok) {
+      console.error('[agenda] email send failed:', body?.error ?? res.status);
+      return 0;
+    }
+    return body?.recipients ?? 0;
   } catch (e) {
     console.error('[agenda] email send threw:', e instanceof Error ? e.message : e);
+    return 0;
   }
 }
 
@@ -562,7 +572,7 @@ export async function createMeeting(input: CreateMeetingInput): Promise<Calendar
 
   // Side-effects.
   const dateLabel = format(event.startsAt, "EEE, dd 'de' MMM 'de' yyyy HH:mm", { locale: ptBR });
-  const detailUrl = `${appOrigin()}/reunioes?event=${event.id}`;
+  const detailUrl = `/reunioes?event=${event.id}`;
 
   // In-app notifications for internal guests (not the organizer).
   for (const g of input.guests) {
@@ -583,36 +593,7 @@ export async function createMeeting(input: CreateMeetingInput): Promise<Calendar
     .map((g) => g.email.trim())
     .filter((e) => e && e.toLowerCase() !== userEmail.toLowerCase());
   if (recipients.length > 0) {
-    const mail = meetingInviteEmail({
-      title: event.title,
-      dateLabel,
-      organizerName: userName,
-      location: event.location,
-      meetingLink: event.meetingLink,
-      description: event.description,
-      detailUrl,
-    });
-    const ics = buildIcs({
-      uid: `${event.id}@insightapex.co`,
-      title: event.title,
-      description: event.description,
-      start: event.startsAt,
-      end: event.endsAt,
-      location: event.location ?? event.meetingLink,
-      url: detailUrl,
-      organizerName: userName,
-      organizerEmail: userEmail || undefined,
-      attendees: recipients,
-    });
-    await sendEmail({
-      subject: mail.subject,
-      html: mail.html,
-      recipients,
-      ics,
-      icsFilename: 'reuniao.ics',
-      related_entity_type: 'calendar_event',
-      related_entity_id: event.id,
-    });
+    await requestAgendaEmail({ kind: 'meeting_invite', event_id: event.id });
   }
 
   await logAuditEvent({
@@ -654,7 +635,7 @@ export async function updateMeeting(id: string, patch: UpdateMeetingInput): Prom
 /** Re-send the invitation e-mail (with .ics) to all non-organizer attendees. */
 export async function resendInvite(eventId: string): Promise<number> {
   const supabase = createClient();
-  const { orgId, userName, userEmail } = await getCurrentOrgAndUser(supabase);
+  const { orgId, userEmail } = await getCurrentOrgAndUser(supabase);
 
   const event = await getEventById(eventId);
   if (!event) throw new Error('Reunião não encontrada');
@@ -665,48 +646,17 @@ export async function resendInvite(eventId: string): Promise<number> {
     .filter((e) => e && e.toLowerCase() !== userEmail.toLowerCase());
   if (recipients.length === 0) return 0;
 
-  const dateLabel = format(event.startsAt, "EEE, dd 'de' MMM 'de' yyyy HH:mm", { locale: ptBR });
-  const detailUrl = `${appOrigin()}/reunioes?event=${event.id}`;
-  const mail = meetingInviteEmail({
-    title: event.title,
-    dateLabel,
-    organizerName: userName,
-    location: event.location,
-    meetingLink: event.meetingLink,
-    description: event.description,
-    detailUrl,
-  });
-  const ics = buildIcs({
-    uid: `${event.id}@insightapex.co`,
-    title: event.title,
-    description: event.description,
-    start: event.startsAt,
-    end: event.endsAt,
-    location: event.location ?? event.meetingLink,
-    url: detailUrl,
-    organizerName: userName,
-    organizerEmail: userEmail || undefined,
-    attendees: recipients,
-  });
-  await sendEmail({
-    subject: mail.subject,
-    html: mail.html,
-    recipients,
-    ics,
-    icsFilename: 'reuniao.ics',
-    related_entity_type: 'calendar_event',
-    related_entity_id: event.id,
-  });
+  const sent = await requestAgendaEmail({ kind: 'meeting_invite', event_id: event.id });
 
   await logAuditEvent({
     organizationId: orgId,
     action: 'meeting.invite_resent',
     entityType: 'calendar_event',
     entityId: event.id,
-    metadata: { recipients: recipients.length },
+    metadata: { recipients: sent },
   });
 
-  return recipients.length;
+  return sent;
 }
 
 export async function cancelMeeting(id: string): Promise<void> {
@@ -784,9 +734,9 @@ export async function createTask(input: CreateTaskInput): Promise<Task> {
 
   // Side-effects.
   const dueLabel = task.dueAt ? format(task.dueAt, "dd 'de' MMM 'de' yyyy HH:mm", { locale: ptBR }) : null;
-  const detailUrl = `${appOrigin()}/reunioes?task=${task.id}`;
+  const detailUrl = `/reunioes?task=${task.id}`;
 
-  // Notify assignee (if someone other than the creator) + email them.
+  // Notify assignee (if someone other than the creator) in-app.
   if (task.assigneeUserId && task.assigneeUserId !== userId) {
     await notifyUser(
       supabase,
@@ -796,42 +746,13 @@ export async function createTask(input: CreateTaskInput): Promise<Task> {
       `${userName} atribuiu a você a tarefa "${task.title}"${dueLabel ? ` (prazo ${dueLabel})` : ''}.`,
       detailUrl,
     );
-    if (assigneeMember?.email) {
-      const mail = taskAssignedEmail({
-        title: task.title,
-        assignerName: userName,
-        dueLabel,
-        priority: task.priority,
-        description: task.description,
-        detailUrl,
-      });
-      await sendEmail({
-        subject: mail.subject,
-        html: mail.html,
-        recipients: [assigneeMember.email],
-        related_entity_type: 'task',
-        related_entity_id: task.id,
-      });
-    }
   }
 
-  // Optional "notificar também" emails (notify-only).
-  if (input.notifyEmails && input.notifyEmails.length > 0) {
-    const mail = taskAssignedEmail({
-      title: task.title,
-      assignerName: userName,
-      dueLabel,
-      priority: task.priority,
-      description: task.description,
-      detailUrl,
-    });
-    await sendEmail({
-      subject: mail.subject,
-      html: mail.html,
-      recipients: input.notifyEmails,
-      related_entity_type: 'task',
-      related_entity_id: task.id,
-    });
+  // One e-mail notice: the assignee plus the recorded "notificar também"
+  // addresses — the server reads both from the task it just stored.
+  const emailsAssignee = Boolean(task.assigneeUserId && task.assigneeUserId !== userId && assigneeMember?.email);
+  if (emailsAssignee || (input.notifyEmails && input.notifyEmails.length > 0)) {
+    await requestAgendaEmail({ kind: 'task_assigned', task_id: task.id });
   }
 
   await logAuditEvent({
@@ -857,7 +778,7 @@ export async function updateTaskStatus(id: string, status: TaskStatus): Promise<
   if (error || !row) throw new Error(friendlyError('Falha ao atualizar tarefa', error ?? { message: 'sem retorno' }));
   const task = mapTask(row as TaskRow);
 
-  const detailUrl = `${appOrigin()}/reunioes?task=${task.id}`;
+  const detailUrl = `/reunioes?task=${task.id}`;
   // Notify the "other party" (creator notifies assignee and vice-versa).
   const others = new Set<string>();
   if (task.creatorUserId !== userId) others.add(task.creatorUserId);
@@ -875,29 +796,7 @@ export async function updateTaskStatus(id: string, status: TaskStatus): Promise<
 
   // E-mail only for status changes that matter (done | blocked).
   if (others.size > 0 && (status === 'done' || status === 'blocked')) {
-    try {
-      const members = await listOrgMembers();
-      const emails = [...others]
-        .map((uid) => members.find((m) => m.userId === uid)?.email)
-        .filter((e): e is string => Boolean(e));
-      if (emails.length > 0) {
-        const mail = taskStatusEmail({
-          title: task.title,
-          newStatus: status,
-          changedByName: userName,
-          detailUrl,
-        });
-        await sendEmail({
-          subject: mail.subject,
-          html: mail.html,
-          recipients: emails,
-          related_entity_type: 'task',
-          related_entity_id: task.id,
-        });
-      }
-    } catch (e) {
-      console.error('[agenda] status email failed:', e instanceof Error ? e.message : e);
-    }
+    await requestAgendaEmail({ kind: 'task_status', task_id: task.id });
   }
 
   await logAuditEvent({
@@ -1066,7 +965,7 @@ export async function reassignTask(id: string, assigneeUserId: string | null): P
   if (error || !row) throw new Error(friendlyError('Falha ao reatribuir tarefa', error ?? { message: 'sem retorno' }));
   const task = mapTask(row as TaskRow);
 
-  const detailUrl = `${appOrigin()}/reunioes?task=${task.id}`;
+  const detailUrl = `/reunioes?task=${task.id}`;
   if (assigneeUserId && assigneeUserId !== userId) {
     await notifyUser(
       supabase,
@@ -1140,7 +1039,7 @@ export async function addTaskComment(taskId: string, body: string): Promise<Task
   try {
     const task = await getTaskById(taskId);
     if (task) {
-      const detailUrl = `${appOrigin()}/reunioes?task=${taskId}`;
+      const detailUrl = `/reunioes?task=${taskId}`;
       const others = new Set<string>();
       if (task.creatorUserId !== userId) others.add(task.creatorUserId);
       if (task.assigneeUserId && task.assigneeUserId !== userId) others.add(task.assigneeUserId);

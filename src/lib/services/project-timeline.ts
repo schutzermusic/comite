@@ -16,7 +16,6 @@ import { requireActiveOrganizationId } from '@/lib/auth/active-organization';
 import { logAuditEvent } from '@/lib/audit/log-audit-event';
 import { createTask, listOrgMembers } from '@/lib/services/agenda';
 import type { OrgMember } from '@/lib/types/agenda';
-import { timelineAssignedEmail, timelineDelayEmail } from '@/lib/agenda/email-templates';
 import {
   DELAY_REASON_LABELS,
   TIMELINE_STATUS_LABELS,
@@ -153,10 +152,9 @@ function toDate(value: string | null | undefined): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-const appOrigin = () => (typeof window !== 'undefined' ? window.location.origin : '');
-
+/** In-app links are app-relative (the notification door refuses anything else). */
 const itemUrl = (projectId: string, itemId: string) =>
-  `${appOrigin()}/projetos/${projectId}?tab=timeline&item=${itemId}`;
+  `/projetos/${encodeURIComponent(projectId)}?tab=timeline&item=${itemId}`;
 
 async function notifyUser(
   supabase: SupabaseLike,
@@ -180,18 +178,19 @@ async function notifyUser(
   }
 }
 
-async function sendEmail(payload: {
-  subject: string;
-  html: string;
-  recipients: string[];
-  related_entity_type?: string;
-  related_entity_id?: string;
-}): Promise<void> {
+/**
+ * Asks the server to e-mail a TYPED notice (`kind` + record id). Subject,
+ * body and recipients are resolved by /api/agenda/email/send from the stored
+ * assignment / delay log — the browser never supplies them.
+ */
+async function requestTimelineEmail(
+  notice: { kind: 'timeline_assigned'; assignment_id: string } | { kind: 'timeline_delay'; delay_log_id: string },
+): Promise<void> {
   try {
     const res = await fetch('/api/agenda/email/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(notice),
     });
     if (!res.ok) {
       const body = await res.json().catch(() => null);
@@ -466,6 +465,7 @@ export async function assignResponsible(
   let updated = mapItem(data as ItemRow, item.assignments);
 
   // Assignment history row (soft-close the previous responsible).
+  let assignmentId: string | null = null;
   try {
     await supabase
       .from(ASSIGNMENTS)
@@ -474,23 +474,25 @@ export async function assignResponsible(
       .eq('role', 'responsible')
       .is('removed_at', null);
     if (userId) {
-      await supabase.from(ASSIGNMENTS).insert({
-        organization_id: orgId,
-        project_id: item.projectId,
-        timeline_item_id: item.id,
-        user_id: userId,
-        role: 'responsible',
-        assigned_by: actorId,
-      });
+      const { data: assignment } = await supabase
+        .from(ASSIGNMENTS)
+        .insert({
+          organization_id: orgId,
+          project_id: item.projectId,
+          timeline_item_id: item.id,
+          user_id: userId,
+          role: 'responsible',
+          assigned_by: actorId,
+        })
+        .select('id')
+        .single();
+      assignmentId = (assignment?.id as string | undefined) ?? null;
     }
   } catch (e) {
     console.error('[timeline] assignment history failed:', e instanceof Error ? e.message : e);
   }
 
   const projectName = opts.projectName ?? item.projectId;
-  const dueLabel = updated.plannedFinish
-    ? format(new Date(`${updated.plannedFinish}T00:00:00`), "dd 'de' MMM 'de' yyyy", { locale: ptBR })
-    : null;
   const detailUrl = itemUrl(item.projectId, item.id);
 
   if (userId && userId !== actorId && opts.notify) {
@@ -502,24 +504,8 @@ export async function assignResponsible(
       `${userName} definiu você como responsável pela atividade "${updated.title}"${updated.wbsCode ? ` (EDT ${updated.wbsCode})` : ''} do projeto ${projectName}.`,
       detailUrl,
     );
-    if (member?.email) {
-      const mail = timelineAssignedEmail({
-        projectName,
-        taskTitle: updated.title,
-        wbsCode: updated.wbsCode,
-        roleLabel: 'Responsável',
-        assignerName: userName,
-        dueLabel,
-        statusLabel: TIMELINE_STATUS_LABELS[updated.status],
-        detailUrl,
-      });
-      await sendEmail({
-        subject: mail.subject,
-        html: mail.html,
-        recipients: [member.email],
-        related_entity_type: 'timeline_item',
-        related_entity_id: item.id,
-      });
+    if (member?.email && assignmentId) {
+      await requestTimelineEmail({ kind: 'timeline_assigned', assignment_id: assignmentId });
     }
   }
 
@@ -579,26 +565,28 @@ export async function setExecutionTeam(
       .in('id', toRemove.map((a) => a.id));
     if (error) throw new Error(friendlyError('Falha ao remover membro da equipe', error));
   }
+  const added = new Map<string, string>();
   if (toAdd.length > 0) {
-    const { error } = await supabase.from(ASSIGNMENTS).insert(
-      toAdd.map((uid) => ({
-        organization_id: orgId,
-        project_id: item.projectId,
-        timeline_item_id: item.id,
-        user_id: uid,
-        role: 'executor',
-        assigned_by: actorId,
-      })),
-    );
+    const { data: rows, error } = await supabase
+      .from(ASSIGNMENTS)
+      .insert(
+        toAdd.map((uid) => ({
+          organization_id: orgId,
+          project_id: item.projectId,
+          timeline_item_id: item.id,
+          user_id: uid,
+          role: 'executor',
+          assigned_by: actorId,
+        })),
+      )
+      .select('id, user_id');
     if (error) throw new Error(friendlyError('Falha ao adicionar membro à equipe', error));
+    for (const r of (rows ?? []) as Array<{ id: string; user_id: string }>) added.set(r.user_id, r.id);
   }
 
   if (opts.notify && toAdd.length > 0) {
     const projectName = opts.projectName ?? item.projectId;
     const detailUrl = itemUrl(item.projectId, item.id);
-    const dueLabel = item.plannedFinish
-      ? format(new Date(`${item.plannedFinish}T00:00:00`), "dd 'de' MMM 'de' yyyy", { locale: ptBR })
-      : null;
     for (const uid of toAdd) {
       if (uid === actorId) continue;
       await notifyUser(
@@ -610,24 +598,9 @@ export async function setExecutionTeam(
         detailUrl,
       );
       const member = members.find((m) => m.userId === uid);
-      if (member?.email) {
-        const mail = timelineAssignedEmail({
-          projectName,
-          taskTitle: item.title,
-          wbsCode: item.wbsCode,
-          roleLabel: 'Equipe de execução',
-          assignerName: userName,
-          dueLabel,
-          statusLabel: TIMELINE_STATUS_LABELS[item.status],
-          detailUrl,
-        });
-        await sendEmail({
-          subject: mail.subject,
-          html: mail.html,
-          recipients: [member.email],
-          related_entity_type: 'timeline_item',
-          related_entity_id: item.id,
-        });
+      const assignmentId = added.get(uid);
+      if (member?.email && assignmentId) {
+        await requestTimelineEmail({ kind: 'timeline_assigned', assignment_id: assignmentId });
       }
     }
   }
@@ -675,7 +648,7 @@ export async function submitDelayReport(
   const updated = mapItem(data as ItemRow, item.assignments);
 
   // 2) Immutable delay log.
-  const { error: logErr } = await supabase.from(DELAY_LOGS).insert({
+  const { data: logRow, error: logErr } = await supabase.from(DELAY_LOGS).insert({
     organization_id: orgId,
     project_id: item.projectId,
     timeline_item_id: item.id,
@@ -690,7 +663,7 @@ export async function submitDelayReport(
     contract_impact: report.contractImpact ?? false,
     old_forecast_finish: oldForecast,
     new_forecast_finish: report.newForecastFinish,
-  });
+  }).select('id').single();
   if (logErr) console.error('[timeline] delay log insert failed:', logErr.message);
 
   // 3) Notify responsible + project manager (best-effort).
@@ -708,12 +681,6 @@ export async function submitDelayReport(
   if (pmId && UUID_RE.test(pmId) && pmId !== userId) recipients.add(pmId);
   if (!pmId) console.warn('[timeline] projeto sem gestor identificável — notificação de atraso só para o responsável.');
 
-  let members: OrgMember[] = [];
-  try {
-    members = await listOrgMembers();
-  } catch {
-    /* e-mail hydration only */
-  }
   for (const uid of recipients) {
     await notifyUser(
       supabase,
@@ -723,27 +690,10 @@ export async function submitDelayReport(
       `${userName} reportou ${statusLabel.toLowerCase()} na atividade "${updated.title}" (${reasonLabel}). Novo término previsto: ${forecastLabel}.`,
       detailUrl,
     );
-    const member = members.find((m) => m.userId === uid);
-    if (member?.email) {
-      const mail = timelineDelayEmail({
-        projectName,
-        taskTitle: updated.title,
-        wbsCode: updated.wbsCode,
-        statusLabel,
-        reasonLabel,
-        newForecastLabel: forecastLabel,
-        reportedByName: userName,
-        actionRequired: false,
-        detailUrl,
-      });
-      await sendEmail({
-        subject: mail.subject,
-        html: mail.html,
-        recipients: [member.email],
-        related_entity_type: 'timeline_item',
-        related_entity_id: item.id,
-      });
-    }
+  }
+  // E-mail: the server re-derives responsible + project manager from the records.
+  if (recipients.size > 0 && logRow?.id) {
+    await requestTimelineEmail({ kind: 'timeline_delay', delay_log_id: logRow.id as string });
   }
 
   await logAuditEvent({
