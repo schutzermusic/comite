@@ -1,0 +1,209 @@
+/* ═════════════════════════════════════════════════════════════════════════
+   O PALCO DO GLOBO (ApexGlobe) — as camadas do protótipo APEX FILM
+   (`prototipo.html:17-26`, `css/stage.css`, `css/components.css`):
+
+     .ag-backdrop   aurora + grade (estáticas)                        z0
+     .ag-globe      Cesium, fundo transparente                        z1
+     .ag-shade      sombra do horizonte pela inclinação                 z2
+     .ag-world      .ag-overlay: canvas — divisas, realce da UF,        z3
+                    arcos, hexágonos; .ag-labels: rótulos DOM presos
+                    a lat/lng (wl-tag, wl-node)
+     .ag-vignette   vinheta radial                                      z5
+     .ag-credits    atribuição das imagens (termos da Esri)             z6
+
+   O globo é SEMPRE escuro; o tema claro só suaviza sombra e vinheta e
+   apaga a aurora. O HUD da página fica por cima (z ≥ 10).
+   ═════════════════════════════════════════════════════════════════════════ */
+
+.ag-root {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  isolation: isolate;
+  background: #05070A;
+  color: #F2F5F7;
+  -webkit-tap-highlight-color: transparent;
+}
+/* o palco nunca herda caixa de quem o envolve (ex.: regras `x > div` do HUD) */
+.ag-root.ag-root {
+  display: block;
+  margin: 0;
+  padding: 0;
+  min-height: 0;
+  border-radius: 0;
+}
+
+.ag-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* ── Fundo: grafite + a aurora do produto + uma grade discreta ── */
+.ag-backdrop {
+  z-index: 0;
+  overflow: hidden;
+  background: radial-gradient(ellipse 70% 55% at 50% 42%, #0B1117 0%, #070A0D 62%, #040608 100%);
+}
+.ag-aurora {
+  position: absolute;
+  inset: -12%;
+  background:
+    radial-gradient(ellipse 40% 30% at 18% 22%, rgba(20, 184, 166, 0.10), transparent 62%),
+    radial-gradient(ellipse 36% 28% at 84% 78%, rgba(59, 130, 246, 0.07), transparent 62%),
+    radial-gradient(ellipse 30% 22% at 70% 12%, rgba(94, 234, 212, 0.035), transparent 70%);
+}
+.ag-grid {
+  position: absolute;
+  inset: -80px;
+  background-size: 80px 80px;
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.022) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.022) 1px, transparent 1px);
+  -webkit-mask-image: radial-gradient(ellipse 60% 55% at 50% 50%, #000 15%, transparent 80%);
+  mask-image: radial-gradient(ellipse 60% 55% at 50% 50%, #000 15%, transparent 80%);
+}
+
+/* ── Cesium: sem entrada própria (a câmera é do filme); o palco recebe o ponteiro ── */
+.ag-globe {
+  z-index: 1;
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity 600ms ease;
+}
+.ag-root[data-status='ready'] .ag-globe { opacity: 1; }
+.ag-root[data-status='error'] .ag-globe { display: none; }
+.ag-globe .cesium-widget,
+.ag-globe .cesium-widget canvas {
+  display: block;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  pointer-events: none;
+  touch-action: auto;
+}
+
+/* ── Sombra do horizonte: opacidade = invLerp(80, 45, inclinação) ── */
+.ag-shade {
+  z-index: 2;
+  opacity: 0;
+  background:
+    linear-gradient(180deg, rgba(5, 7, 10, 0.94) 0%, rgba(5, 7, 10, 0.62) 20%, rgba(5, 7, 10, 0.14) 42%, rgba(5, 7, 10, 0) 56%),
+    radial-gradient(ellipse 90% 80% at 55% 62%, transparent 55%, rgba(5, 7, 10, 0.55) 100%);
+}
+.ag-root[data-status='error'] .ag-shade { display: none; }
+
+/* mundo 2D (canvas + rótulos): aparece junto com o globo */
+.ag-world {
+  z-index: 3;
+  opacity: 0;
+  transition: opacity 600ms ease;
+}
+.ag-root[data-status='ready'] .ag-world { opacity: 1; }
+.ag-root[data-status='error'] .ag-world { display: none; }
+.ag-root[data-reduced='1'] .ag-globe,
+.ag-root[data-reduced='1'] .ag-world { transition-duration: 150ms; }
+
+.ag-overlay {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.ag-labels {
+  overflow: hidden;
+}
+
+.ag-vignette {
+  z-index: 5;
+  background:
+    radial-gradient(ellipse 90% 80% at 50% 48%, transparent 58%, rgba(0, 0, 0, 0.5) 100%),
+    linear-gradient(180deg, rgba(0, 0, 0, 0.35) 0%, transparent 14%, transparent 80%, rgba(0, 0, 0, 0.45) 100%);
+}
+
+/* ── Rótulos do mundo (components.css do filme: .wl-tag / .wl-node) ── */
+.ag-wlabel {
+  position: absolute;
+  left: 0;
+  top: 0;
+  white-space: nowrap;
+  transform-origin: 0 0;
+  will-change: transform, opacity;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+.ag-labels .wl-tag {
+  transform: translate(-50%, -150%);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(242, 245, 247, 0.60);
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.65);
+}
+.ag-labels .wl-node {
+  transform: translate(14px, -50%);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: linear-gradient(160deg, rgba(20, 32, 40, 0.86), rgba(12, 20, 28, 0.82));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 16px 40px -18px rgba(0, 0, 0, 0.9);
+  border: 1px solid rgba(170, 200, 190, 0.12);
+}
+.ag-labels .wl-node .wl-name { font-size: 16px; font-weight: 600; color: #F2F5F7; }
+.ag-labels .wl-node .wl-val {
+  font-size: 15px;
+  font-weight: 600;
+  color: rgba(242, 245, 247, 0.60);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum", "cv11";
+}
+.ag-labels .wl-node[data-tone='hit'] {
+  border-color: rgba(45, 212, 191, 0.55);
+  box-shadow: 0 0 0 1px rgba(45, 212, 191, 0.25), 0 0 30px -6px rgba(45, 212, 191, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+.ag-labels .wl-node[data-tone='hit'] .wl-val { color: #5EEAD4; }
+.ag-labels .wl-node[data-tone='none'] .wl-val { color: rgba(242, 245, 247, 0.38); }
+
+/* ── Atribuição (Esri exige crédito visível) — compacta, canto inferior direito ── */
+.ag-credits {
+  position: absolute;
+  z-index: 6;
+  right: 16px;
+  bottom: 10px;
+  max-width: calc(100% - 32px);
+  pointer-events: auto;
+  font-size: 11px;
+  line-height: 16px;
+  letter-spacing: 0.02em;
+  color: rgba(242, 245, 247, 0.46);
+  text-align: right;
+}
+.ag-credits .cesium-widget-credits {
+  position: static;
+  display: inline;
+  padding: 0;
+  font-size: inherit;
+  color: inherit;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.7);
+}
+.ag-credits .cesium-credit-logoContainer img {
+  height: 14px;
+  width: auto;
+  opacity: 0.55;
+  vertical-align: -3px !important;
+}
+.ag-credits .cesium-credit-logoContainer { margin-right: 8px; }
+.ag-credits a { color: inherit; }
+.ag-root[data-status='error'] .ag-credits { display: none; }
+
+/* ── Tema claro: o globo continua escuro; vinheta e sombra mais leves, sem aurora ── */
+.ag-root[data-theme='light'] .ag-aurora { display: none; }
+.ag-root[data-theme='light'] .ag-vignette {
+  background:
+    radial-gradient(ellipse 90% 80% at 50% 48%, transparent 62%, rgba(0, 0, 0, 0.28) 100%),
+    linear-gradient(180deg, rgba(0, 0, 0, 0.16) 0%, transparent 12%, transparent 84%, rgba(0, 0, 0, 0.22) 100%);
+}
