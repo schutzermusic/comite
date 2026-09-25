@@ -41,7 +41,18 @@ test.beforeAll(async () => {
   // Sem política ATIVA de compra: estas provas começam pela alçada declarada (o seed do QA declara a do Financeiro).
   await db.query(`UPDATE public.approval_policy_versions SET status = 'INACTIVE'
     WHERE organization_id = $1 AND subject_type = 'purchase_order' AND status = 'ACTIVE'`, [qaLive().organization.id]);
+  // Linha de base do canal: WhatsApp NUNCA configurado neste inquilino (uma rodada anterior pode tê-lo deixado DISABLED).
+  await resetWhatsApp();
 });
+
+/** Volta o QA ao estado de produção hoje: sem linha de canal WhatsApp, sem opt-in. Só no QA isolado. */
+async function resetWhatsApp() {
+  const live = qaLive();
+  await db.query(`DELETE FROM public.notification_channel_integrations WHERE organization_id = $1 AND channel = 'whatsapp'`,
+    [live.organization.id]);
+  await db.query(`DELETE FROM public.user_notification_preferences WHERE organization_id = $1 AND channel = 'whatsapp'`,
+    [live.organization.id]);
+}
 test.afterAll(async () => { await db?.end(); });
 
 let A: Awaited<ReturnType<typeof decisionPurchaseOrder>>;
@@ -303,9 +314,12 @@ test('7. WhatsApp só por configuração explícita, pelo adaptador de provedor'
     expect(String(wa.provider_message_id)).toMatch(/^fake-/);
     expect(String(wa.destination_hint)).not.toContain('99990000');
   } finally {
-    await (await apiAs('owner')).post('/api/decisions/channels', { data: { channel: 'whatsapp', status: 'DISABLED', provider: 'fake',
+    // Desligar pelo caminho governado (prova o DISABLED)…
+    const off = await (await apiAs('owner')).post('/api/decisions/channels', { data: { channel: 'whatsapp', status: 'DISABLED', provider: 'fake',
       contentLevel: 'MINIMAL', reason: 'QA isolado: fim da prova' } });
-    await (await apiAs('financeiro')).post('/api/decisions/preferences', { data: { channel: 'whatsapp', enabled: false, destination: null } });
+    expect(off.status()).toBe(200);
+    // …e devolver o QA à linha de base (nunca configurado) para a próxima rodada.
+    await resetWhatsApp();
   }
 });
 
