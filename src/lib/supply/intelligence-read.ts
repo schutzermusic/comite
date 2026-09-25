@@ -14,6 +14,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { platformServiceClient } from '@/lib/platform/server-client';
 import { resolveOwnerNames } from '@/lib/commercial/owner-directory';
 import { projectIdentity } from '@/lib/operations/project-identity';
+import { selectIn } from '@/lib/supabase/select-in';
 import { fromViewRow, type CoverageViewRow } from './coverage';
 import { ENGINE_VERSION, computeSignals, type IntelligenceFacts, type SupplySignal } from './intelligence';
 
@@ -237,31 +238,77 @@ export async function runSupplyIntelligence(org: string, today: string) {
   return { signals: signals.length, ...(data as { opened: number; updated: number; resolved: number }) };
 }
 
+/**
+ * Opções da leitura dos sinais. Sem nenhuma, a leitura é a de sempre: abertas
+ * + decididas/resolvidas nos últimos 30 dias, até 500, mais recentes primeiro.
+ */
+export interface SupplySignalsOptions {
+  projectId?: string;
+  /** Só os sinais ABERTOS — e devolve `openCount`, a contagem exata (sem corte) dos abertos com os mesmos filtros. */
+  openOnly?: boolean;
+  /** Só estas gravidades (`critical`, `high`, …). */
+  severities?: string[];
+  /** Tipos a deixar de fora (ex.: os que outra leitura já representa). */
+  excludeKinds?: string[];
+  /** Teto de linhas da lista (padrão 500). Não afeta `openCount`. */
+  limit?: number;
+}
+
+/** Valores que entram em filtro do PostgREST: só identificadores simples, nada de sintaxe de filtro. */
+const FILTER_TOKEN = /^[A-Za-z0-9_]+$/;
+const tokens = (list: string[] | undefined) => (list ?? []).filter((x) => FILTER_TOKEN.test(x));
+
+type ProjectRow = { id: string; project: Record<string, unknown>; project_v2: Record<string, unknown> | null };
+
 /** O que a pessoa vê (RLS): abertas + decididas/resolvidas recentes, e quando a Apex leu por último. */
-export async function listSupplySignals(session: { supabase: SupabaseClient; organizationId: string }, opts: { projectId?: string } = {}) {
+export async function listSupplySignals(session: { supabase: SupabaseClient; organizationId: string }, opts: SupplySignalsOptions = {}) {
   const sb = session.supabase; const org = session.organizationId;
   const since = new Date(Date.now() - 30 * 86_400_000).toISOString();
+  const severities = opts.severities ? tokens(opts.severities) : null;
+  const excludeKinds = tokens(opts.excludeKinds);
+  const limit = opts.limit && opts.limit > 0 ? Math.floor(opts.limit) : 500;
+
   let query = sb.from('supply_signals')
-    .select('id,kind,severity,status,project_id,requirement_id,purchase_order_id,supplier_id,title,rationale,evidence,recommended_action,first_seen_at,last_seen_at,resolved_at,decided_by,decided_at,decision_note,execution_result,followup_id')
-    .eq('organization_id', org).or(`status.eq.OPEN,decided_at.gte.${since},resolved_at.gte.${since}`)
-    .order('last_seen_at', { ascending: false }).limit(500);
+    .select('id,kind,severity,status,project_id,requirement_id,purchase_order_id,supplier_id,title,rationale,evidence,recommended_action,first_seen_at,last_seen_at,resolved_at,decided_by,decided_at,decision_note,execution_result,followup_id,engine_version')
+    .eq('organization_id', org);
+  query = opts.openOnly ? query.eq('status', 'OPEN') : query.or(`status.eq.OPEN,decided_at.gte.${since},resolved_at.gte.${since}`);
   if (opts.projectId) query = query.eq('project_id', opts.projectId);
-  const [{ data, error }, run] = await Promise.all([
+  if (severities) query = query.in('severity', severities);
+  if (excludeKinds.length) query = query.not('kind', 'in', `(${excludeKinds.join(',')})`);
+  query = query.order('last_seen_at', { ascending: false }).limit(limit);
+
+  // A contagem exata dos abertos com os MESMOS filtros (sem o teto da lista): o número honesto do cabeçalho.
+  let countQuery = opts.openOnly
+    ? sb.from('supply_signals').select('id', { count: 'exact', head: true }).eq('organization_id', org).eq('status', 'OPEN')
+    : null;
+  if (countQuery && opts.projectId) countQuery = countQuery.eq('project_id', opts.projectId);
+  if (countQuery && severities) countQuery = countQuery.in('severity', severities);
+  if (countQuery && excludeKinds.length) countQuery = countQuery.not('kind', 'in', `(${excludeKinds.join(',')})`);
+
+  const [{ data, error }, run, counted] = await Promise.all([
     query,
     sb.from('supply_intelligence_runs').select('ran_at,engine_version,opened,updated,resolved').eq('organization_id', org)
       .order('ran_at', { ascending: false }).limit(1).maybeSingle(),
+    countQuery ?? Promise.resolve(null),
   ]);
   if (error) throw new Error('Não foi possível ler as recomendações da Apex.');
+  if (run.error) throw new Error('Não foi possível ler a última leitura da Apex.');
+  if (counted && (counted.error || counted.count === null)) throw new Error('Não foi possível contar as recomendações abertas da Apex.');
   const rows = (data ?? []) as Row[];
   const people = await resolveOwnerNames(org, rows.map((r) => r.decided_by as string | null));
   const projectIds = Array.from(new Set(rows.map((r) => r.project_id).filter(Boolean) as string[]));
-  const { data: projects } = projectIds.length
-    ? await sb.from('projects').select('id,project,project_v2').eq('organization_id', org).in('id', projectIds)
-    : { data: [] as Array<{ id: string; project: Record<string, unknown>; project_v2: Record<string, unknown> | null }> };
-  const projMap = new Map(((projects ?? []) as Array<{ id: string; project: Record<string, unknown>; project_v2: Record<string, unknown> | null }>)
-    .map((p) => [p.id, projectIdentity(p.id, p.project, p.project_v2).name]));
+  // Em lotes: com a lista inteira na URL o PostgREST devolvia 414 e o nome do projeto virava UUID.
+  let projects: ProjectRow[];
+  try {
+    projects = await selectIn<ProjectRow>(projectIds, (c) => sb.from('projects').select('id,project,project_v2')
+      .eq('organization_id', org).in('id', c));
+  } catch (cause) {
+    throw new Error('Não foi possível ler os projetos das recomendações da Apex.', { cause });
+  }
+  const projMap = new Map(projects.map((p) => [p.id, projectIdentity(p.id, p.project, p.project_v2).name]));
   return {
     lastRun: run.data ? { ranAt: String((run.data as Row).ran_at), engineVersion: String((run.data as Row).engine_version) } : null,
+    ...(counted ? { openCount: counted.count as number } : {}),
     signals: rows.map((r) => ({
       id: String(r.id), kind: String(r.kind), severity: String(r.severity), status: String(r.status),
       projectId: str(r.project_id), project: r.project_id ? projMap.get(String(r.project_id)) ?? String(r.project_id) : null,
@@ -272,6 +319,8 @@ export async function listSupplySignals(session: { supabase: SupabaseClient; org
       firstSeenAt: String(r.first_seen_at), lastSeenAt: String(r.last_seen_at), resolvedAt: str(r.resolved_at),
       decidedBy: r.decided_by ? people[String(r.decided_by)] ?? null : null, decidedAt: str(r.decided_at), decisionNote: str(r.decision_note),
       followupId: str(r.followup_id),
+      /** Versão do motor que viu o sinal por último. */
+      engineVersion: str(r.engine_version),
     })),
   };
 }

@@ -18,9 +18,14 @@ if (typeof window !== 'undefined') {
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { platformServiceClient } from '@/lib/platform/server-client';
 import { resolveOwnerNames } from '@/lib/commercial/owner-directory';
+import { selectIn } from '@/lib/supabase/select-in';
 import type { ServiceOrderOrigin, ServiceOrderStatus } from '@/lib/commercial/types';
 import { projectIdentity } from '../project-identity';
 import type { PackageFact } from './comparison';
+import {
+  mergeById, tallyServiceOrderCounts,
+  type CountsDivergenceRow, type CountsExceptionRow, type CountsItemRow,
+} from './counts';
 import { serviceOrderNextAction } from './next-action';
 import type {
   EligiblePackage, PackageRevisionRef, ServiceOrderCounts, ServiceOrderDivergence,
@@ -52,6 +57,21 @@ export interface ServiceOrderRecord {
 
 const svc = () => platformServiceClient();
 
+type Chunked<T> = PromiseLike<{ data: T[] | null; error: { message: string } | null }>;
+
+/**
+ * `.in()` em lotes (URL curta — sem 414) e com o erro conferido: uma leitura
+ * que falha SOBE com mensagem em português, nunca vira "nenhum registro" (uma
+ * contagem de bloqueio zerada liberaria a emissão na tela).
+ */
+async function inChunks<T>(label: string, ids: readonly (string | null | undefined)[], run: (chunk: string[]) => Chunked<T>): Promise<T[]> {
+  try {
+    return await selectIn<T>(ids, run);
+  } catch (cause) {
+    throw new Error(`Não foi possível consultar ${label}.`, { cause });
+  }
+}
+
 interface HistoryRow {
   id: string; transition: string; from_state: string | null; to_state: string | null;
   actor_user_id: string | null; note: string | null; provenance: Record<string, unknown> | null; occurred_at: string;
@@ -64,9 +84,10 @@ interface HistoryRow {
 async function engagementsById(org: string, ids: string[]) {
   const map = new Map<string, { title: string | null; counterparty_name: string | null; status: string | null }>();
   if (!ids.length) return map;
-  const { data } = await svc().from('commercial_engagements')
-    .select('id,title,counterparty_name,status').eq('organization_id', org).in('id', ids);
-  for (const row of data ?? []) map.set(row.id, row);
+  const data = await inChunks<{ id: string; title: string | null; counterparty_name: string | null; status: string | null }>(
+    'os trabalhos autorizados das OS', ids, (c) => svc().from('commercial_engagements')
+      .select('id,title,counterparty_name,status').eq('organization_id', org).in('id', c));
+  for (const row of data) map.set(row.id, row);
   return map;
 }
 
@@ -74,10 +95,11 @@ export async function revisionRefs(org: string, ids: string[]): Promise<Map<stri
   const map = new Map<string, PackageRevisionRef>();
   const unique = Array.from(new Set(ids.filter(Boolean)));
   if (!unique.length) return map;
-  const { data } = await svc().from('commercial_proposal_revisions')
+  const data = await inChunks<unknown>('as revisões de proposta das OS', unique, (c) => svc()
+    .from('commercial_proposal_revisions')
     .select('id,revision,status,proposal_id,commercial_proposals!inner(proposal_number,kind)')
-    .eq('organization_id', org).in('id', unique);
-  for (const row of (data ?? []) as unknown as Array<{
+    .eq('organization_id', org).in('id', c));
+  for (const row of data as Array<{
     id: string; revision: number; status: string; proposal_id: string;
     commercial_proposals: { proposal_number: string; kind: 'TECHNICAL' | 'COMMERCIAL' | 'COMBINED' };
   }>) {
@@ -100,53 +122,40 @@ export function packageLabel(refs: Array<PackageRevisionRef | null | undefined>)
  * ou do engajamento dela, menos as nomeadas numa exceção desta OS.
  */
 export async function countsFor(org: string, orders: Array<{ id: string; engagement_id: string }>) {
-  const counts = new Map<string, ServiceOrderCounts>();
-  for (const o of orders) counts.set(o.id, { items: 0, unreviewedItems: 0, openDivergences: 0, blockingOpen: 0 });
-  if (!orders.length) return counts;
+  if (!orders.length) return tallyServiceOrderCounts([], [], [], []);
   const ids = orders.map((o) => o.id);
   const engagementIds = Array.from(new Set(orders.map((o) => o.engagement_id)));
 
-  const [items, divergences, exceptions] = await Promise.all([
-    svc().from('internal_service_order_items').select('service_order_id,confirmation_state')
-      .eq('organization_id', org).in('service_order_id', ids),
-    svc().from('commercial_divergences').select('id,service_order_id,engagement_id,severity,state')
-      .eq('organization_id', org).eq('state', 'OPEN')
-      .or(`service_order_id.in.(${ids.join(',')}),engagement_id.in.(${engagementIds.join(',')})`),
-    svc().from('internal_service_order_issue_exceptions').select('service_order_id,divergence_ids')
-      .eq('organization_id', org).in('service_order_id', ids),
+  /*
+    A divergência conta para a OS quando é DELA, ou quando é do engajamento e
+    de nenhuma OS. Antes era um `.or(service_order_id.in.(…),engagement_id.in.(…))`
+    com as duas listas inteiras na URL; agora são duas consultas em lotes
+    (pela OS; pelo engajamento sem OS), juntadas pelo id.
+  */
+  const [items, byOrder, byEngagement, exceptions] = await Promise.all([
+    inChunks<CountsItemRow>('as linhas das OS', ids, (c) => svc().from('internal_service_order_items')
+      .select('service_order_id,confirmation_state').eq('organization_id', org).in('service_order_id', c)),
+    inChunks<CountsDivergenceRow>('as divergências das OS', ids, (c) => svc().from('commercial_divergences')
+      .select('id,service_order_id,engagement_id,severity,state')
+      .eq('organization_id', org).eq('state', 'OPEN').in('service_order_id', c)),
+    inChunks<CountsDivergenceRow>('as divergências dos trabalhos autorizados', engagementIds, (c) => svc().from('commercial_divergences')
+      .select('id,service_order_id,engagement_id,severity,state')
+      .eq('organization_id', org).eq('state', 'OPEN').is('service_order_id', null).in('engagement_id', c)),
+    inChunks<CountsExceptionRow>('as exceções de emissão das OS', ids, (c) => svc().from('internal_service_order_issue_exceptions')
+      .select('service_order_id,divergence_ids').eq('organization_id', org).in('service_order_id', c)),
   ]);
 
-  for (const row of items.data ?? []) {
-    const c = counts.get(row.service_order_id);
-    if (!c) continue;
-    c.items += 1;
-    if (row.confirmation_state === 'UNCONFIRMED') c.unreviewedItems += 1;
-  }
-  const waived = new Map<string, Set<string>>();
-  for (const e of exceptions.data ?? []) {
-    const set = waived.get(e.service_order_id) ?? new Set<string>();
-    for (const id of (e.divergence_ids as string[]) ?? []) set.add(id);
-    waived.set(e.service_order_id, set);
-  }
-  for (const o of orders) {
-    const c = counts.get(o.id)!;
-    for (const d of divergences.data ?? []) {
-      const mine = d.service_order_id === o.id || (d.service_order_id === null && d.engagement_id === o.engagement_id);
-      if (!mine) continue;
-      c.openDivergences += 1;
-      if (d.severity === 'BLOCKING' && !waived.get(o.id)?.has(d.id)) c.blockingOpen += 1;
-    }
-  }
-  return counts;
+  return tallyServiceOrderCounts(orders, items, mergeById(byOrder, byEngagement), exceptions);
 }
 
 async function projectsById(org: string, ids: string[]) {
   const map = new Map<string, ReturnType<typeof projectIdentity>>();
   const unique = Array.from(new Set(ids.filter(Boolean)));
   if (!unique.length) return map;
-  const { data } = await svc().from('projects').select('id,project,project_v2')
-    .eq('organization_id', org).in('id', unique);
-  for (const row of data ?? []) map.set(row.id, projectIdentity(row.id, row.project, row.project_v2));
+  const data = await inChunks<{ id: string; project: Record<string, unknown>; project_v2: Record<string, unknown> | null }>(
+    'os projetos das OS', unique, (c) => svc().from('projects').select('id,project,project_v2')
+      .eq('organization_id', org).in('id', c));
+  for (const row of data) map.set(row.id, projectIdentity(row.id, row.project, row.project_v2));
   return map;
 }
 

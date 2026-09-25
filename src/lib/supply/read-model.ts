@@ -172,8 +172,11 @@ export type SupplyOverviewModel = Awaited<ReturnType<typeof supplyOverview>>;
  * O FLUXO de compras e recebimento para a torre de controle (234/235): valor
  * em pedido aberto, entradas atrasadas, divergências de recebimento e
  * decisões de compra paradas — cada número abre a tela que o explica.
+ *
+ * Toda leitura é conferida: uma consulta que falha SOBE (a tela diz "não
+ * carregou"), nunca vira 0 entrada atrasada ou 0 decisão parada.
  */
-async function supplyFlow(session: Session, today: string) {
+export async function supplyFlow(session: Session, today: string) {
   const sb = session.supabase; const org = session.organizationId;
   const since = new Date(`${today}T00:00:00Z`); since.setUTCDate(since.getUTCDate() - 30);
   const [pos, reqs, receipts] = await Promise.all([
@@ -183,9 +186,13 @@ async function supplyFlow(session: Session, today: string) {
     sb.from('goods_receipts').select('id,inspection_status').eq('organization_id', org)
       .or(`inspection_status.eq.PENDING,received_at.gte.${since.toISOString()}`).limit(1000),
   ]);
+  if (pos.error) throw new Error('Não foi possível ler os pedidos de compra.');
+  if (reqs.error || reqs.count === null) throw new Error('Não foi possível contar as requisições de compra.');
+  if (receipts.error) throw new Error('Não foi possível ler os recebimentos.');
   const poRows = (pos.data ?? []) as Array<{ id: string; status: string; expected_delivery: string | null }>;
   const live = poRows.filter((p) => p.status !== 'APPROVAL_REQUIRED');
   const receiptRows = (receipts.data ?? []) as Array<{ id: string; inspection_status: string }>;
+  // `selectIn` já sobe o erro; aqui ele ganha a mensagem em português.
   const [lineRows, shipRows, receiptLines] = await Promise.all([
     selectIn<{ purchase_order_id: string; quantity: number; received_quantity: number; unit_price: number; expected_date: string | null }>(
       live.map((p) => p.id), (c) => sb.from('purchase_order_lines').select('purchase_order_id,quantity,received_quantity,unit_price,expected_date')
@@ -194,7 +201,9 @@ async function supplyFlow(session: Session, today: string) {
       .select('purchase_order_id,eta,status').eq('organization_id', org).in('purchase_order_id', c).in('status', ['EXPECTED', 'IN_TRANSIT', 'ARRIVED'])),
     selectIn<{ receipt_id: string; rejected_quantity: number; inspection_rejected_quantity: number | null }>(receiptRows.map((r) => r.id), (c) => sb
       .from('goods_receipt_lines').select('receipt_id,rejected_quantity,inspection_rejected_quantity').eq('organization_id', org).in('receipt_id', c)),
-  ]);
+  ]).catch((cause: unknown) => {
+    throw new Error('Não foi possível ler as linhas de pedido, embarques e recebimentos.', { cause });
+  });
   const openValue = lineRows.reduce((a, l) => a + Math.max(0, Number(l.quantity) - Number(l.received_quantity)) * Number(l.unit_price), 0);
   const lateInbound = live.filter((p) => {
     const open = lineRows.filter((l) => l.purchase_order_id === p.id && Number(l.quantity) > Number(l.received_quantity));
@@ -209,7 +218,9 @@ async function supplyFlow(session: Session, today: string) {
     openPoValue: openValue,
     lateInbound,
     receivingIssues: receiptRows.filter((r) => r.inspection_status === 'PENDING' || rejectedReceipts.has(r.id)).length,
-    decisionsPending: (reqs.count ?? 0) + poRows.filter((p) => p.status === 'APPROVAL_REQUIRED').length,
+    decisionsPending: reqs.count + poRows.filter((p) => p.status === 'APPROVAL_REQUIRED').length,
+    /** Requisições SUBMITTED/SOURCING — a mesma contagem que entra em `decisionsPending`, separada dos pedidos. */
+    requisitionsAwaitingSourcing: reqs.count,
   };
 }
 

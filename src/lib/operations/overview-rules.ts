@@ -37,6 +37,14 @@ export function isOverdueActivity(a: ActivityLike, today: string): boolean {
   return OPEN_ACTIVITY(a) && !a.is_summary && a.planned_finish !== null && a.planned_finish < today;
 }
 
+/**
+ * EM ANDAMENTO — definição: atividade-folha aberta que já começou (status
+ * `in_progress` ou início real registrado).
+ */
+export function isInProgressActivity(a: ActivityLike & { actual_start?: string | null }): boolean {
+  return OPEN_ACTIVITY(a) && !a.is_summary && (a.status === 'in_progress' || Boolean(a.actual_start));
+}
+
 export type Horizon = 7 | 14 | 30;
 
 /** Dias entre duas datas ISO (dia civil), positivo se `to` é depois de `from`. */
