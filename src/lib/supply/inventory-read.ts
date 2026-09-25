@@ -9,6 +9,12 @@ if (typeof window !== 'undefined') {
 }
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { selectIn } from '@/lib/supabase/select-in';
+
+type AnyRow = Record<string, unknown>;
+/** `.in(ids)` em lotes (sem 414 com lista grande), no formato `{ data }`; erro sobe. */
+const inChunks = async (ids: readonly string[], run: (chunk: string[]) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>) =>
+  ({ data: await selectIn<AnyRow>(ids, run as (chunk: string[]) => PromiseLike<{ data: AnyRow[] | null; error: { message: string } | null }>) });
 import { resolveOwnerNames } from '@/lib/commercial/owner-directory';
 import { projectIdentity } from '@/lib/operations/project-identity';
 import {
@@ -29,7 +35,7 @@ type LocRow = { id: string; code: string; name: string; kind: LocationKind; pare
 
 async function projectNames(sb: SupabaseClient, org: string, ids: string[]) {
   if (!ids.length) return new Map<string, string>();
-  const { data } = await sb.from('projects').select('id,project,project_v2').eq('organization_id', org).in('id', ids);
+  const { data } = await inChunks(ids, (c) => sb.from('projects').select('id,project,project_v2').eq('organization_id', org).in('id', c));
   return new Map(((data ?? []) as Array<{ id: string; project: Record<string, unknown>; project_v2: Record<string, unknown> | null }>)
     .map((p) => [p.id, projectIdentity(p.id, p.project, p.project_v2).name]));
 }
@@ -57,8 +63,7 @@ export async function inventoryPosition(session: Session, locations?: InventoryL
   const rows = (data ?? []) as Array<Record<string, unknown>>;
   const itemIds = Array.from(new Set(rows.map((r) => String(r.item_id))));
   const [items, locs] = await Promise.all([
-    itemIds.length ? sb.from('supply_items').select('id,code,description,unit,tracking').eq('organization_id', org).in('id', itemIds)
-      : Promise.resolve({ data: [] }),
+    inChunks(itemIds, (c) => sb.from('supply_items').select('id,code,description,unit,tracking').eq('organization_id', org).in('id', c)),
     locations ? Promise.resolve(locations) : listLocations(session),
   ]);
   const itemMap = new Map(((items.data ?? []) as ItemRow[]).map((i) => [i.id, i]));
@@ -109,12 +114,12 @@ export async function inventoryWorkspace(session: Session, today: string) {
   const transferIds = transfersRaw.map((t) => String(t.id));
   const countIds = countsRaw.map((c) => String(c.id));
   const [lines, countLines] = await Promise.all([
-    transferIds.length ? sb.from('inventory_transfer_lines')
+    inChunks(transferIds, (c) => sb.from('inventory_transfer_lines')
       .select('id,transfer_id,item_id,lot_code,quantity,dispatched_quantity,received_quantity,requirement_id,source_reservation_id')
-      .eq('organization_id', org).in('transfer_id', transferIds) : Promise.resolve({ data: [] }),
-    countIds.length ? sb.from('inventory_count_lines')
+      .eq('organization_id', org).in('transfer_id', c)),
+    inChunks(countIds, (c) => sb.from('inventory_count_lines')
       .select('id,count_id,item_id,lot_code,expected_quantity,counted_quantity,counted_at')
-      .eq('organization_id', org).in('count_id', countIds) : Promise.resolve({ data: [] }),
+      .eq('organization_id', org).in('count_id', c)),
   ]);
   const lineRows = (lines.data ?? []) as Array<Record<string, unknown>>;
   const countLineRows = (countLines.data ?? []) as Array<Record<string, unknown>>;
@@ -129,13 +134,12 @@ export async function inventoryWorkspace(session: Session, today: string) {
   for (const l of countLineRows) itemIds.add(String(l.item_id));
 
   const [items, names, reqs, coverage, people] = await Promise.all([
-    itemIds.size ? sb.from('supply_items').select('id,code,description,unit,tracking').eq('organization_id', org).in('id', Array.from(itemIds))
-      : Promise.resolve({ data: [] }),
+    inChunks(Array.from(itemIds), (c) => sb.from('supply_items').select('id,code,description,unit,tracking').eq('organization_id', org).in('id', c)),
     projectNames(sb, org, Array.from(projectIds)),
-    requirementIds.size ? sb.from('project_requirements').select('id,title,status,quantity')
-      .eq('organization_id', org).in('id', Array.from(requirementIds)) : Promise.resolve({ data: [] }),
-    requirementIds.size ? sb.from('supply_requirement_coverage').select('requirement_id,reserved_qty,consumed_qty,in_transit_qty')
-      .eq('organization_id', org).in('requirement_id', Array.from(requirementIds)) : Promise.resolve({ data: [] }),
+    inChunks(Array.from(requirementIds), (c) => sb.from('project_requirements').select('id,title,status,quantity')
+      .eq('organization_id', org).in('id', c)),
+    inChunks(Array.from(requirementIds), (c) => sb.from('supply_requirement_coverage').select('requirement_id,reserved_qty,consumed_qty,in_transit_qty')
+      .eq('organization_id', org).in('requirement_id', c)),
     resolveOwnerNames(org, [
       ...movementsRaw.map((m) => m.actor_user_id as string | null),
       ...reservationsRaw.map((r) => r.created_by as string | null),

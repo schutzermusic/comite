@@ -8,6 +8,7 @@ if (typeof window !== 'undefined') {
 }
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { selectIn } from '@/lib/supabase/select-in';
 import { resolveOwnerNames } from '@/lib/commercial/owner-directory';
 import { projectIdentity } from '@/lib/operations/project-identity';
 import {
@@ -18,6 +19,15 @@ import { onTimeRate } from './receiving';
 
 type Session = { supabase: SupabaseClient; organizationId: string };
 type Row = Record<string, unknown>;
+
+/**
+ * `.in(ids)` em lotes, no formato `{ data }` que a leitura já consome. Com a
+ * lista inteira na URL o PostgREST devolvia 414 a partir de ~200 ids e a falha
+ * virava lista vazia (0 linhas aguardando cotação com 216 requisições). Aqui
+ * erro SOBE.
+ */
+const inChunks = async (ids: readonly string[], run: (chunk: string[]) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>) =>
+  ({ data: await selectIn<Row>(ids, run as (chunk: string[]) => PromiseLike<{ data: Row[] | null; error: { message: string } | null }>) });
 const num = (v: unknown) => { const x = Number(v ?? 0); return Number.isFinite(x) ? x : 0; };
 const str = (v: unknown) => (v === null || v === undefined ? null : String(v));
 
@@ -40,8 +50,7 @@ export async function listSuppliers(session: Session): Promise<SupplierView[]> {
   const rows = (data ?? []) as Row[];
   const partyIds = rows.map((r) => String(r.party_id));
   const [parties, orders, performance] = await Promise.all([
-    partyIds.length ? sb.from('parties').select('id,legal_name,trade_name,document_number').eq('organization_id', org).in('id', partyIds)
-      : Promise.resolve({ data: [] }),
+    inChunks(partyIds, (c) => sb.from('parties').select('id,legal_name,trade_name,document_number').eq('organization_id', org).in('id', c)),
     sb.from('purchase_orders').select('supplier_id,status').eq('organization_id', org).limit(5000),
     sb.from('supplier_delivery_performance').select('supplier_id,promised_lines,on_time_lines,avg_delay_days,lines_with_rejection,received_lines,last_receipt_at')
       .eq('organization_id', org),
@@ -114,22 +123,23 @@ export async function procurementWorkspace(session: Session, today: string) {
   const reqIds = reqRows.map((r) => String(r.id)); const rfqIds = rfqRows.map((r) => String(r.id)); const poIds = poRows.map((r) => String(r.id));
 
   const [reqLines, rfqLines, invited, quotes, decisions, poLines, history, approvals] = await Promise.all([
-    reqIds.length ? sb.from('purchase_requisition_lines').select('id,requisition_id,item_id,quantity,required_by,estimated_unit_price,note')
-      .eq('organization_id', org).in('requisition_id', reqIds) : Promise.resolve({ data: [] }),
-    rfqIds.length ? sb.from('procurement_rfq_lines').select('id,rfq_id,requisition_line_id,item_id,quantity,required_by')
-      .eq('organization_id', org).in('rfq_id', rfqIds) : Promise.resolve({ data: [] }),
-    rfqIds.length ? sb.from('procurement_rfq_suppliers').select('rfq_id,supplier_id').eq('organization_id', org).in('rfq_id', rfqIds)
-      : Promise.resolve({ data: [] }),
-    rfqIds.length ? sb.from('supplier_quotes').select('id,rfq_id,supplier_id,version,status,currency,freight_amount,tax_amount,payment_terms,validity_date,lead_time_days,deviations,recorded_at')
-      .eq('organization_id', org).in('rfq_id', rfqIds) : Promise.resolve({ data: [] }),
-    rfqIds.length ? sb.from('sourcing_decisions').select('id,rfq_id,quote_id,recommended_quote_id,follows_recommendation,rationale,decided_by,decided_at')
-      .eq('organization_id', org).in('rfq_id', rfqIds) : Promise.resolve({ data: [] }),
-    poIds.length ? sb.from('purchase_order_lines').select('id,purchase_order_id,item_id,quantity,unit_price,expected_date,received_quantity')
-      .eq('organization_id', org).in('purchase_order_id', poIds) : Promise.resolve({ data: [] }),
-    poIds.length ? sb.from('purchase_order_history').select('id,purchase_order_id,transition,from_status,to_status,reason,actor_user_id,actor_source,occurred_at')
-      .eq('organization_id', org).in('purchase_order_id', poIds).order('occurred_at', { ascending: true }) : Promise.resolve({ data: [] }),
-    poIds.length ? sb.from('approval_requests').select('id,status,current_stage_no,subject_id').eq('organization_id', org)
-      .eq('subject_type', 'purchase_order').in('subject_id', poIds) : Promise.resolve({ data: [] }),
+    inChunks(reqIds, (c) => sb.from('purchase_requisition_lines').select('id,requisition_id,item_id,quantity,required_by,estimated_unit_price,note')
+      .eq('organization_id', org).in('requisition_id', c)),
+    inChunks(rfqIds, (c) => sb.from('procurement_rfq_lines').select('id,rfq_id,requisition_line_id,item_id,quantity,required_by')
+      .eq('organization_id', org).in('rfq_id', c)),
+    inChunks(rfqIds, (c) => sb.from('procurement_rfq_suppliers').select('rfq_id,supplier_id').eq('organization_id', org).in('rfq_id', c)),
+    inChunks(rfqIds, (c) => sb.from('supplier_quotes').select('id,rfq_id,supplier_id,version,status,currency,freight_amount,tax_amount,payment_terms,validity_date,lead_time_days,deviations,recorded_at')
+      .eq('organization_id', org).in('rfq_id', c)),
+    inChunks(rfqIds, (c) => sb.from('sourcing_decisions').select('id,rfq_id,quote_id,recommended_quote_id,follows_recommendation,rationale,decided_by,decided_at')
+      .eq('organization_id', org).in('rfq_id', c)),
+    inChunks(poIds, (c) => sb.from('purchase_order_lines').select('id,purchase_order_id,item_id,quantity,unit_price,expected_date,received_quantity')
+      .eq('organization_id', org).in('purchase_order_id', c)),
+    // Em lotes a ordem global se perde: reordena depois de somar.
+    inChunks(poIds, (c) => sb.from('purchase_order_history').select('id,purchase_order_id,transition,from_status,to_status,reason,actor_user_id,actor_source,occurred_at')
+      .eq('organization_id', org).in('purchase_order_id', c)).then((r) => ({
+      data: [...r.data].sort((a, b) => String(a.occurred_at).localeCompare(String(b.occurred_at))) })),
+    inChunks(poIds, (c) => sb.from('approval_requests').select('id,status,current_stage_no,subject_id').eq('organization_id', org)
+      .eq('subject_type', 'purchase_order').in('subject_id', c)),
   ]);
   const reqLineRows = (reqLines.data ?? []) as Row[]; const rfqLineRows = (rfqLines.data ?? []) as Row[];
   const quoteRows = (quotes.data ?? []) as Row[]; const poLineRows = (poLines.data ?? []) as Row[];
@@ -137,12 +147,12 @@ export async function procurementWorkspace(session: Session, today: string) {
   const reqLineIds = reqLineRows.map((l) => String(l.id));
   const poLineIds = poLineRows.map((l) => String(l.id));
   const [quoteLines, allocations, poAllocations] = await Promise.all([
-    quoteIds.length ? sb.from('supplier_quote_lines').select('quote_id,rfq_line_id,unit_price,quantity,lead_time_days,compliant,note')
-      .eq('organization_id', org).in('quote_id', quoteIds) : Promise.resolve({ data: [] }),
-    reqLineIds.length ? sb.from('purchase_requisition_line_requirements').select('line_id,requirement_id,quantity')
-      .eq('organization_id', org).in('line_id', reqLineIds) : Promise.resolve({ data: [] }),
-    poLineIds.length ? sb.from('purchase_order_line_requirements').select('line_id,requirement_id,quantity,received_quantity')
-      .eq('organization_id', org).in('line_id', poLineIds) : Promise.resolve({ data: [] }),
+    inChunks(quoteIds, (c) => sb.from('supplier_quote_lines').select('quote_id,rfq_line_id,unit_price,quantity,lead_time_days,compliant,note')
+      .eq('organization_id', org).in('quote_id', c)),
+    inChunks(reqLineIds, (c) => sb.from('purchase_requisition_line_requirements').select('line_id,requirement_id,quantity')
+      .eq('organization_id', org).in('line_id', c)),
+    inChunks(poLineIds, (c) => sb.from('purchase_order_line_requirements').select('line_id,requirement_id,quantity,received_quantity')
+      .eq('organization_id', org).in('line_id', c)),
   ]);
   const quoteLineRows = (quoteLines.data ?? []) as Row[]; const allocRows = (allocations.data ?? []) as Row[];
   const poAllocRows = (poAllocations.data ?? []) as Row[];
@@ -151,12 +161,9 @@ export async function procurementWorkspace(session: Session, today: string) {
   const projectIds = new Set<string>([...reqRows, ...poRows].map((r) => r.project_id).filter(Boolean) as string[]);
   const requirementIds = Array.from(new Set([...allocRows, ...poAllocRows].map((a) => String(a.requirement_id))));
   const [items, projects, requirements, locations, people] = await Promise.all([
-    itemIds.size ? sb.from('supply_items').select('id,code,description,unit').eq('organization_id', org).in('id', Array.from(itemIds))
-      : Promise.resolve({ data: [] }),
-    projectIds.size ? sb.from('projects').select('id,project,project_v2').eq('organization_id', org).in('id', Array.from(projectIds))
-      : Promise.resolve({ data: [] }),
-    requirementIds.length ? sb.from('project_requirements').select('id,title,project_id,required_by').eq('organization_id', org).in('id', requirementIds)
-      : Promise.resolve({ data: [] }),
+    inChunks(Array.from(itemIds), (c) => sb.from('supply_items').select('id,code,description,unit').eq('organization_id', org).in('id', c)),
+    inChunks(Array.from(projectIds), (c) => sb.from('projects').select('id,project,project_v2').eq('organization_id', org).in('id', c)),
+    inChunks(requirementIds, (c) => sb.from('project_requirements').select('id,title,project_id,required_by').eq('organization_id', org).in('id', c)),
     sb.from('inventory_locations').select('id,name,kind,project_id,active').eq('organization_id', org).limit(2000),
     resolveOwnerNames(org, [...reqRows.map((r) => r.requested_by), ...poRows.flatMap((p) => [p.created_by, p.approved_by, p.submitted_by]),
       ...((history.data ?? []) as Row[]).map((h) => h.actor_user_id), ...((decisions.data ?? []) as Row[]).map((d) => d.decided_by)] as Array<string | null>),
@@ -166,7 +173,7 @@ export async function procurementWorkspace(session: Session, today: string) {
   const reqRow = new Map(((requirements.data ?? []) as Row[]).map((r) => [String(r.id), r]));
   // Projetos citados só pelos requisitos (pedido de vários projetos) também ganham nome.
   const missingProjects = Array.from(new Set(((requirements.data ?? []) as Row[]).map((r) => String(r.project_id)))).filter((id) => !projectIds.has(id));
-  const extraProjects = missingProjects.length ? (await sb.from('projects').select('id,project,project_v2').eq('organization_id', org).in('id', missingProjects)).data ?? [] : [];
+  const extraProjects = (await inChunks(missingProjects, (c) => sb.from('projects').select('id,project,project_v2').eq('organization_id', org).in('id', c))).data;
   const projMap = new Map(([...(projects.data ?? []), ...extraProjects] as Array<{ id: string; project: Record<string, unknown>; project_v2: Record<string, unknown> | null }>)
     .map((p) => [p.id, projectIdentity(p.id, p.project, p.project_v2).name]));
   const locRows = (locations.data ?? []) as Row[];
