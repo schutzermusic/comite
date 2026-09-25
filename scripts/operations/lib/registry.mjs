@@ -100,7 +100,44 @@ export const OPERATIONS_REGISTRY = {
     ],
     permissions: [],
   },
+  // 237/238: sem tabela nova; as funções reescritas continuam negadas ao navegador.
+  '237': {
+    tables: [],
+    ledgers: [],
+    functions: [
+      'operations_require(uuid,uuid,text[])', 'procurement_authority_for_order(uuid,uuid,uuid)',
+      'apex_event_routes_activate_for(text[])', 'purchase_order_reconcile_approvals(uuid,integer)',
+      'purchase_order_submit(uuid,uuid,uuid,text)', 'purchase_order_cancel(uuid,uuid,uuid,text)',
+    ],
+    permissions: [],
+  },
+  '238': { tables: [], ledgers: [], functions: ['goods_receipt_post(uuid,uuid,jsonb)', 'inventory_reserve(uuid,uuid,jsonb)'], permissions: [] },
+  // 239: reparo das guardas do motor (RPCs do motor seguem executáveis pelo navegador, por desenho — provadas em apply-239).
+  '239': { tables: [], ledgers: [], functions: [], permissions: [] },
+  // 240: Decisões — núcleo só servidor; as portas `*_for_viewer` são do navegador e ficam FORA desta lista.
+  '240': {
+    tables: ['decision_deliveries', 'notification_channel_integrations', 'user_notification_preferences'],
+    ledgers: [],
+    functions: [
+      'decision_today(uuid)', 'decision_po_submission(uuid,uuid)', 'decision_po_timing(uuid,uuid)',
+      'decision_po_approvers(uuid,uuid)', 'decision_engine_subject_live(uuid,text,uuid,uuid)',
+      'decision_engine_stage_assignees(uuid,uuid,integer)', 'decision_inbox(uuid,uuid)', 'decision_resolve(uuid,text)',
+      'decision_assignees(uuid,text)', 'decision_open_all(uuid)', 'decision_history(uuid,uuid,integer)',
+      'decision_purchase_order_act(uuid,uuid,uuid,integer,text,text,text)', 'decision_channel_initial_state(uuid,uuid,text)',
+      'decision_notices_plan(uuid,text,text,text)', 'decision_keys_for_event(uuid)', 'decision_deliveries_claim(uuid,integer,integer)',
+      'decision_delivery_record(uuid,uuid,text,text,text,text,text,text)', 'decision_delivery_in_app(uuid,uuid,text,text,text)',
+      'decision_delivery_mark_delivered(text,text,timestamp with time zone)', 'decision_deliveries_maintain(uuid)',
+      'decision_sweep_plan(uuid)', 'decisions_enqueue_sweep(timestamp with time zone)',
+      'notification_channel_set(uuid,uuid,text,text,text,text,text,jsonb)', 'notification_preference_set(uuid,uuid,text,boolean,text)',
+    ],
+    permissions: ['decisions.team.view', 'notifications.channels.manage'],
+  },
 };
+
+/** Portas do navegador de Decisões: identidade de auth.uid(), sem parâmetro de ator — liberadas de propósito. */
+export const BROWSER_DOORS = new Set(['decision_inbox_for_viewer', 'decision_inbox_count_for_viewer', 'decision_history_for_viewer',
+  'decision_team_scope_for_viewer', 'decision_team_for_viewer', 'decision_access_for_viewer', 'decision_viewer_reads_subject',
+  'decision_engine_actions', 'decision_category', 'decision_reason_required', 'decision_notice_channels']);
 
 export function registryUpTo(version) {
   const out = { tables: [], ledgers: [], functions: [], permissions: [], versions: [] };

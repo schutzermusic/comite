@@ -148,8 +148,12 @@ export async function runMigration({ version, expectedTip, proofs, preflight }) 
     console.log(`Alvo: ${target.label}${apply ? ' (APLICAR)' : ' (ensaio)'}`);
     const tip = (await db.query(
       'SELECT version FROM supabase_migrations.schema_migrations ORDER BY version::int DESC LIMIT 1')).rows[0]?.version;
-    if (tip === version) {
-      console.log(`${version} já está aplicada. Nada a fazer.`);
+    // Registrada = aplicada, seja ou não a ponta. O QA copia o registro de
+    // produção; quando produção já tem a migration, reaplicar quebraria a cadeia.
+    const registered = (await db.query(
+      'SELECT 1 FROM supabase_migrations.schema_migrations WHERE version = $1', [version])).rowCount > 0;
+    if (registered) {
+      console.log(`${version} já está aplicada${tip === version ? '' : ` (ponta: ${tip})`}. Nada a fazer.`);
       return;
     }
     if (tip !== expectedTip) throw new Error(`Esperava ponta ${expectedTip}, encontrei ${tip}.`);

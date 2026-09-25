@@ -3,6 +3,7 @@
  *
  *   node scripts/operations/security-audit.mjs                       # schema aplicado (somente leitura)
  *   node scripts/operations/security-audit.mjs --with-migrations 231 # ensaia antes de aplicar (ROLLBACK)
+ *   node scripts/operations/security-audit.mjs --target=qa           # contra o QA isolado (esquema aplicado)
  *
  * Confere, para cada tabela/função registrada em `lib/registry.mjs`:
  *   • RLS ligada e ao menos uma política de leitura;
@@ -17,14 +18,17 @@ import { readFileSync } from 'node:fs';
 import pg from 'pg';
 import dotenv from 'dotenv';
 import { migrationFile, strip } from './lib/proof-kit.mjs';
-import { registryUpTo, OPERATIONS_REGISTRY } from './lib/registry.mjs';
+import { registryUpTo, OPERATIONS_REGISTRY, BROWSER_DOORS } from './lib/registry.mjs';
+import { loadQaEnv } from '../qa/lib/qa-env.mjs';
 
 dotenv.config({ path: '.env', quiet: true });
 dotenv.config({ path: '.env.local', quiet: true });
 
 const argv = process.argv.slice(2);
 const withVersions = argv.includes('--with-migrations') ? argv.filter((a) => /^\d{3}$/.test(a)) : [];
-const db = new pg.Client({ connectionString: process.env.SUPABASE_DB_URL, ssl: { rejectUnauthorized: false } });
+const db = argv.includes('--target=qa')
+  ? new pg.Client({ connectionString: loadQaEnv().QA_DB_URL })
+  : new pg.Client({ connectionString: process.env.SUPABASE_DB_URL, ssl: { rejectUnauthorized: false } });
 const results = [];
 const report = (label, ok, detail) => {
   results.push({ label, ok });
@@ -47,7 +51,7 @@ try {
 
   const applied = new Set((await all('SELECT version FROM supabase_migrations.schema_migrations')).map((r) => r.version));
   const known = Object.keys(OPERATIONS_REGISTRY).filter((v) => applied.has(v) || withVersions.includes(v));
-  const tip = known.sort().at(-1);
+  const tip = known.sort((a, b) => Number(a) - Number(b)).at(-1);
   if (!tip) throw new Error('Nenhuma migration de Operações aplicada ou ensaiada.');
   const reg = registryUpTo(tip);
   console.log(`Auditando Operações/Supply até ${tip} (${reg.versions.join(', ')}).\n`);
@@ -107,11 +111,11 @@ try {
   // Nenhuma função nova de Operações/Supply alcançável por authenticated, mesmo fora do registro.
   const leaked = await all(`SELECT p.oid::regprocedure::text fn FROM pg_proc p
     WHERE p.pronamespace = 'public'::regnamespace
-      AND p.proname ~ '^(internal_service_order_|operations_|project_requirement|supply_|inventory_|procurement_|purchase_|goods_receipt|stock_transfer|receiving_)'
+      AND p.proname ~ '^(internal_service_order_|operations_|project_requirement|supply_|inventory_|procurement_|purchase_|goods_receipt|stock_transfer|receiving_|decision_|decisions_|notification_channel_|notification_preference_)'
       AND p.prorettype <> 'trigger'::regtype
       AND has_function_privilege('authenticated', p.oid, 'EXECUTE')
-      AND p.proname NOT IN (${["'internal_service_order_is_locked'"].join(',')})`);
-  report('nenhuma função de Operações/Supply executável pelo navegador', leaked.length === 0,
+      AND p.proname NOT IN (${["'internal_service_order_is_locked'", ...[...BROWSER_DOORS].map((f) => `'${f}'`)].join(',')})`);
+  report('nenhuma função de Operações/Supply/Decisões executável pelo navegador (fora das portas declaradas)', leaked.length === 0,
     leaked.map((r) => r.fn).join(', '));
 } catch (error) {
   report('auditoria concluída sem erro inesperado', false, error.message);
