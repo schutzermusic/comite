@@ -1,0 +1,984 @@
+/**
+ * Regras PURAS do Dashboard V2 — "O que está acontecendo".
+ *
+ * Tudo que decide O QUE a tela diz sai daqui, com definição escrita e testado
+ * sem banco (tests/unit/dashboard-v2-rules.test.ts):
+ *  • o mapa ÚNICO de gravidade (tom de Operações, sinal da Apex, recebível, comercial);
+ *  • o texto da falta de material a partir da cobertura AO VIVO (nunca do sinal gravado);
+ *  • a deduplicação pelo objeto canônico (`req:`, `po:`, `os:`, `proj-act:`…) com a
+ *    Apex anexada como evidência;
+ *  • o agrupamento (atividades vencidas → uma linha por projeto; faturamento →
+ *    uma linha por contrato × classe);
+ *  • a ordem (gravidade → prazo → domínio) com diversidade de domínio no topo;
+ *  • as 11 etapas do fluxo, o dinheiro mascarado e o calendário de 30 dias.
+ *
+ * Nada aqui consulta, grava ou lê relógio: `today` entra sempre por parâmetro.
+ * Só `import type` de módulos do app; as únicas importações em tempo de
+ * execução são funções puras do Supply (`supplyRisk`, `needDate`, rótulos).
+ */
+import type {
+  ApexNote, CalendarItem, CalendarLane, CalendarModel, DecisionPreview, Domain, FeedModel, FeedRow, FlowStage,
+  HealthLevel, NextAction, ProjectHealthRow, SectionState, Severity, StageId,
+} from './types';
+import type { AttentionItem } from '@/lib/operations/overview';
+import type { AttentionCounts, AttentionKind, OverdueByProjectRow } from '@/lib/operations/overview-aggregates';
+import type { DecisionItem } from '@/lib/decisions/types';
+import { supplyRisk, type CoverageSummary, type SupplyRisk } from '@/lib/supply/coverage';
+import { SIGNAL_KIND_LABEL, needDate, type SignalKind } from '@/lib/supply/intelligence';
+
+/* ── Datas (dia civil, UTC ao meio-dia: sem fuso, sem NaN) ─────────────── */
+
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/** "2026-10-12…" → "2026-10-12"; qualquer coisa que não seja um dia de calendário válido → `null`. */
+export function isoDay(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const d = value.slice(0, 10);
+  if (!ISO_DAY.test(d)) return null;
+  const t = Date.parse(`${d}T12:00:00Z`);
+  if (!Number.isFinite(t)) return null;
+  return new Date(t).toISOString().slice(0, 10) === d ? d : null;
+}
+
+export function addDays(iso: string, n: number): string {
+  const d = new Date(`${iso}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Dias de `from` até `to` (positivo se `to` é depois). */
+export function daysFrom(from: string, to: string): number {
+  return Math.round((Date.parse(`${to}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86_400_000);
+}
+
+/** "2026-10-12" → "12/10". */
+export function ddmm(iso: string): string {
+  return `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+}
+
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+const formatQty = (n: number) => n.toLocaleString('pt-BR', { maximumFractionDigits: 3 });
+
+/* ── Gravidade ÚNICA ────────────────────────────────────────────────────── */
+
+export const SEVERITY_RANK: Record<Severity, number> = { critical: 0, high: 1, medium: 2 };
+
+/** A ordem do fluxo do negócio — desempate da fila e ordem dos domínios. */
+export const DOMAIN_ORDER: readonly Domain[] = ['comercial', 'operacao', 'supply', 'medicao', 'faturamento', 'recebivel'];
+
+/** Operações: `danger` → crítico · `warning` → alto · `accent` → médio. */
+export function severityFromOpsTone(tone: 'danger' | 'warning' | 'accent'): Severity {
+  return tone === 'danger' ? 'critical' : tone === 'warning' ? 'high' : 'medium';
+}
+
+/** Sinal da Apex: `critical`/`high`/`medium` passam; `low` (e o desconhecido) fica no piso, médio. */
+export function severityFromSignal(severity: string): Severity {
+  return severity === 'critical' ? 'critical' : severity === 'high' ? 'high' : 'medium';
+}
+
+/** Recebível vencido → crítico; em aberto no prazo não é exceção de alta gravidade. */
+export function severityFromReceivable(overdue: boolean): Severity {
+  return overdue ? 'critical' : 'medium';
+}
+
+/** Comercial: `blocking` → crítico · `attention` → alto · o resto → médio. */
+export function severityFromCommercial(severity: 'blocking' | 'attention' | 'info' | string): Severity {
+  return severity === 'blocking' ? 'critical' : severity === 'attention' ? 'high' : 'medium';
+}
+
+export function maxSeverity(a: Severity, b: Severity): Severity {
+  return SEVERITY_RANK[a] <= SEVERITY_RANK[b] ? a : b;
+}
+
+/* ── Dinheiro (mascarado, por moeda, unidades nunca misturadas) ─────────── */
+
+/**
+ * Soma POR MOEDA. Quem chama converte antes: `eligible_amount` já está em
+ * unidades; campos `*_cents` entram divididos por 100 — nunca os dois somados
+ * crus. Valor não numérico não entra (nunca vira 0 escondido numa soma).
+ */
+export function sumByCurrency(items: Iterable<{ amount: number | string | null | undefined; currency: string | null | undefined }>): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const it of items) {
+    if (it.amount === null || it.amount === undefined || it.amount === '') continue;
+    const n = Number(it.amount);
+    if (!Number.isFinite(n)) continue;
+    const c = (it.currency || 'BRL').toUpperCase();
+    out[c] = (out[c] ?? 0) + n;
+  }
+  return out;
+}
+
+const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+
+/** "R$ 1.234,56", "R$ 1.234,56 + outras moedas", "em outras moedas"; `null` sem valor. */
+export function moneyText(sums: Record<string, number>): string | null {
+  const others = Object.keys(sums).filter((c) => c !== 'BRL');
+  const hasBrl = sums.BRL !== undefined;
+  if (!hasBrl && !others.length) return null;
+  if (!hasBrl) return 'em outras moedas';
+  return others.length ? `${BRL.format(sums.BRL)} + outras moedas` : BRL.format(sums.BRL);
+}
+
+/** Dinheiro só atravessa com `current_user_can_view_project_financials()`; sem ele, `null` (a tela diz "Restrito"). */
+export function maskedMoney(sums: Record<string, number>, financial: boolean): string | null {
+  return financial ? moneyText(sums) : null;
+}
+
+/* ── Material: a falta lida AO VIVO ─────────────────────────────────────── */
+
+export interface MaterialNeed {
+  requirementId: string;
+  projectId: string;
+  project: string | null;
+  /** Título do requisito canônico (só exibição). */
+  title: string | null;
+  unit: string | null;
+  requiredBy: string | null;
+  activity: { id: string; title: string | null; plannedStart: string | null } | null;
+  coverage: Pick<CoverageSummary, 'shortage' | 'status' | 'requested' | 'inbound'>;
+}
+
+/** Janela da fila: necessidade em até 14 dias (ou já vencida). */
+export const MATERIAL_WINDOW_DAYS = 14;
+
+export const MATERIAL_RULE = 'Requisito confirmado com falta, necessidade em até 14 dias ou já vencida';
+
+/** A necessidade efetiva: a mais cedo entre `required_by` e o início planejado da atividade (a regra da Apex). */
+export function materialNeedDate(m: Pick<MaterialNeed, 'requiredBy' | 'activity'>): string | null {
+  return needDate({ requiredBy: isoDay(m.requiredBy), activityStart: isoDay(m.activity?.plannedStart ?? null) });
+}
+
+/** O risco de supply do requisito — `supplyRisk` sobre a necessidade efetiva (a mesma régua em toda a tela). */
+export function materialRisk(m: Pick<MaterialNeed, 'requiredBy' | 'activity' | 'coverage'>, today: string): SupplyRisk {
+  const need = materialNeedDate(m);
+  return supplyRisk(m.coverage, need ? daysFrom(today, need) : null);
+}
+
+/** "Falta 12 m — requisitado, sem pedido emitido". */
+export function materialProblem(m: Pick<MaterialNeed, 'coverage' | 'unit'>): string {
+  const missing = `Falta ${formatQty(m.coverage.shortage)}${m.unit ? ` ${m.unit}` : ''}`;
+  if (m.coverage.requested > 0) return `${missing} — requisitado, sem pedido emitido`;
+  if (m.coverage.inbound > 0) return `${missing} — a entrada não cobre a necessidade`;
+  return `${missing} — sem estoque nem pedido`;
+}
+
+/** O primeiro elo a jusante: "Atividade Montagem do estator começa em 12/10". */
+export function materialConsequence(m: Pick<MaterialNeed, 'activity'>): string | null {
+  const start = isoDay(m.activity?.plannedStart ?? null);
+  if (!m.activity || !start) return null;
+  return `Atividade ${m.activity.title ?? 'do cronograma'} começa em ${ddmm(start)}`;
+}
+
+/** A linha de material da fila — `null` sem falta ou fora da janela de 14 dias. */
+export function materialRow(m: MaterialNeed, today: string): FeedRow | null {
+  if (m.coverage.shortage <= 0) return null;
+  const need = materialNeedDate(m);
+  if (!need || daysFrom(today, need) > MATERIAL_WINDOW_DAYS) return null;
+  const risk = materialRisk(m, today);
+  return {
+    key: `req:${m.requirementId}`,
+    domain: 'supply',
+    severity: risk === 'critical' ? 'critical' : risk === 'high' ? 'high' : 'medium',
+    kindLabel: 'Material',
+    location: { kind: 'project', id: m.projectId, label: m.project },
+    object: m.title ?? 'Material do requisito',
+    problem: materialProblem(m),
+    consequence: materialConsequence(m),
+    due: need,
+    owner: null,
+    ownerApplicable: false,
+    count: 1,
+    nextAction: { label: 'Cobrir falta', href: `/supply/planejamento-materiais?req=${encodeURIComponent(m.requirementId)}`, focused: true },
+    explainRef: `mat:${m.requirementId}`,
+    apex: null,
+    rule: MATERIAL_RULE,
+  };
+}
+
+/* ── Linhas de Operações (OS, medição, risco, dependência) ──────────────── */
+
+/** O Dashboard não usa o verbo "Decidir" — Decisões é dona dele. */
+export function osNextActionLabel(issue: string): string {
+  return /^decidir\b/i.test(issue.trim()) ? 'Resolver bloqueios na OS' : issue;
+}
+
+/** O PROBLEMA da OS, dito como estado (a próxima ação vai no botão). */
+export function osProblem(issue: string): string {
+  const t = issue.trim();
+  let m = /^Decidir (\d+) divergências? bloqueantes?/i.exec(t);
+  if (m) return `${plural(Number(m[1]), 'divergência bloqueante', 'divergências bloqueantes')} em aberto`;
+  m = /^Revisar (\d+) linhas? lidas?/i.exec(t);
+  if (m) return `${plural(Number(m[1]), 'linha lida', 'linhas lidas')} sem revisão`;
+  m = /^Conferir (\d+) avisos?/i.exec(t);
+  if (m) return `${plural(Number(m[1]), 'aviso', 'avisos')} a conferir antes de emitir`;
+  if (/^Emitir OS$/i.test(t)) return 'Pronta para emitir';
+  if (/^Criar ou vincular projeto$/i.test(t)) return 'Emitida sem projeto';
+  return t;
+}
+
+const OPS_RULE: Partial<Record<AttentionKind, string>> = {
+  service_order: 'OS aberta cuja próxima ação é da operação (revisar, resolver bloqueio, emitir ou vincular projeto)',
+  measurement: 'Medição devolvida para correção (pela análise interna ou pelo cliente)',
+  risk: 'Risco aberto de severidade alta ou crítica sem responsável',
+  dependency: 'Dependência do cliente confirmada, não atendida e com data vencida',
+};
+
+/**
+ * Itens da fila de Operações → linhas do Dashboard. Atividade e material NÃO
+ * entram daqui: atividade vem agrupada por projeto (`overdueGroupRow`) e
+ * material vem da cobertura ao vivo (`materialRow`).
+ */
+export function opsRow(item: AttentionItem): FeedRow | null {
+  const severity = severityFromOpsTone(item.tone);
+  const project = item.projectId ? { kind: 'project' as const, id: item.projectId } : null;
+  switch (item.kind) {
+    case 'service_order':
+      return {
+        key: `os:${item.refId}`, domain: 'operacao', severity, kindLabel: 'OS',
+        location: project ? { ...project, label: null } : { kind: 'organization', id: null, label: item.impact },
+        object: item.impact ? `${item.object} · ${item.impact}` : item.object,
+        problem: osProblem(item.issue), consequence: null, due: isoDay(item.due),
+        owner: item.owner, ownerApplicable: true, count: 1,
+        nextAction: { label: osNextActionLabel(item.issue), href: item.href, focused: true },
+        explainRef: `os:${item.refId}`, apex: null, rule: OPS_RULE.service_order as string,
+      };
+    case 'measurement':
+      return {
+        key: `meas:${item.refId}`, domain: 'medicao', severity, kindLabel: 'Medição',
+        location: project ? { ...project, label: item.impact } : { kind: 'organization', id: null, label: null },
+        object: item.object, problem: item.issue, consequence: null, due: isoDay(item.due),
+        owner: null, ownerApplicable: false, count: 1,
+        nextAction: { label: item.actionLabel, href: item.href, focused: false },
+        explainRef: `meas:${item.refId}`, apex: null, rule: OPS_RULE.measurement as string,
+      };
+    case 'risk':
+      return {
+        key: `risk:${item.refId}`, domain: 'operacao', severity, kindLabel: 'Risco',
+        location: project ? { ...project, label: item.impact } : { kind: 'organization', id: null, label: null },
+        object: item.object, problem: item.issue, consequence: null, due: isoDay(item.due),
+        owner: null, ownerApplicable: true, count: 1,
+        nextAction: { label: item.actionLabel, href: item.href, focused: false },
+        explainRef: `risk:${item.refId}`, apex: null, rule: OPS_RULE.risk as string,
+      };
+    case 'dependency':
+      return {
+        key: `dep:${item.refId}`, domain: 'operacao', severity, kindLabel: 'Cliente',
+        location: project ? { ...project, label: item.impact } : { kind: 'organization', id: null, label: null },
+        object: item.object, problem: item.issue, consequence: null, due: isoDay(item.due),
+        owner: null, ownerApplicable: false, count: 1,
+        nextAction: { label: item.actionLabel, href: item.href, focused: false },
+        explainRef: `dep:${item.refId}`, apex: null, rule: OPS_RULE.dependency as string,
+      };
+    default:
+      return null;
+  }
+}
+
+/** "4 atividades vencidas (1 bloqueada)". */
+export function overdueProblem(count: number, blocked: number): string {
+  const base = plural(count, 'atividade vencida', 'atividades vencidas');
+  return blocked > 0 ? `${base} (${plural(blocked, 'bloqueada', 'bloqueadas')})` : base;
+}
+
+/** Atividades vencidas → UMA linha por projeto, apontando para o cronograma. */
+export function overdueGroupRow(g: OverdueByProjectRow): FeedRow {
+  return {
+    key: `proj-act:${g.projectId}`,
+    domain: 'operacao',
+    severity: g.blocked > 0 || g.critical > 0 ? 'critical' : 'high',
+    kindLabel: 'Cronograma',
+    location: { kind: 'project', id: g.projectId, label: g.project },
+    object: g.project,
+    problem: overdueProblem(g.count, g.blocked),
+    consequence: null,
+    due: isoDay(g.oldestDue),
+    owner: g.ownerNames.length === 1 ? g.ownerNames[0] : null,
+    ownerApplicable: true,
+    count: g.count,
+    nextAction: { label: 'Abrir cronograma', href: `/projetos/${encodeURIComponent(g.projectId)}?tab=timeline`, focused: true },
+    explainRef: `proj-act:${g.projectId}`,
+    apex: null,
+    rule: 'Atividade-folha aberta com término planejado vencido (agrupadas por projeto)',
+  };
+}
+
+/* ── Faturamento e recebíveis (por contrato × classe) ───────────────────── */
+
+export type BillingClass = 'release' | 'invoice' | 'approval';
+
+export interface BillingEventLike {
+  billingEventId: string;
+  contractId: string | null;
+  title: string | null;
+  /** Em UNIDADES da moeda (`eligible_amount`). */
+  eligibleAmount: number | null;
+  currency: string | null;
+  releaseState: string | null;
+  eligibilityState: string | null;
+  fiscalDocumentId: string | null;
+  supersededById: string | null;
+  legacyRow: boolean | null;
+  cancelledAt: string | null;
+}
+
+/**
+ * A classe do evento — definições EXATAS (143):
+ *  release  = elegível e ainda não liberado (sem cancelamento, substituição ou linha legada);
+ *  invoice  = liberado sem nota fiscal (o predicado de `listInvoicesToIssue`);
+ *  approval = liberação em aprovação (`PENDING_RELEASE`).
+ */
+export function billingClass(e: BillingEventLike): BillingClass | null {
+  if (e.cancelledAt) return null;
+  if (e.eligibilityState === 'ELIGIBLE' && e.releaseState === 'ELIGIBLE' && !e.supersededById && e.legacyRow !== true) return 'release';
+  if (e.releaseState === 'RELEASED' && !e.fiscalDocumentId) return 'invoice';
+  if (e.releaseState === 'PENDING_RELEASE' && !e.supersededById) return 'approval';
+  return null;
+}
+
+const BILLING_RULE: Record<BillingClass, string> = {
+  release: 'Evento de faturamento elegível ainda não liberado (sem cancelamento, substituição ou linha legada)',
+  invoice: 'Evento de faturamento liberado sem nota fiscal emitida',
+  approval: 'Liberação de faturamento em aprovação, fora da sua caixa de Decisões',
+};
+const BILLING_SEVERITY: Record<BillingClass, Severity> = { release: 'high', invoice: 'high', approval: 'medium' };
+
+function billingProblem(cls: BillingClass, n: number): string {
+  if (cls === 'release') return `${plural(n, 'evento elegível', 'eventos elegíveis')} aguardando liberação`;
+  if (cls === 'invoice') return `${plural(n, 'evento liberado', 'eventos liberados')} sem NF emitida`;
+  return `${plural(n, 'liberação parada', 'liberações paradas')} em aprovação`;
+}
+
+const withMoney = (text: string, money: string | null) => (money ? `${text} · ${money}` : text);
+
+/**
+ * Faturamento → uma linha por contrato × classe. `PENDING_RELEASE` que JÁ
+ * está na caixa da pessoa (`contract_billing_event`) sai: Decisões mostra.
+ * `inboxBillingIds === null` = caixa ilegível → nada sai (não se esconde às cegas).
+ */
+export function billingRows(
+  events: readonly BillingEventLike[],
+  opts: { contractLabel: (id: string | null) => string | null; financial: boolean; inboxBillingIds: ReadonlySet<string> | null },
+): FeedRow[] {
+  const groups = new Map<string, { cls: BillingClass; contractId: string | null; events: BillingEventLike[] }>();
+  for (const e of events) {
+    const cls = billingClass(e);
+    if (!cls) continue;
+    if (cls === 'approval' && opts.inboxBillingIds?.has(e.billingEventId)) continue;
+    const k = `${e.contractId ?? 'sem-contrato'}:${cls}`;
+    const g = groups.get(k) ?? { cls, contractId: e.contractId, events: [] };
+    g.events.push(e);
+    groups.set(k, g);
+  }
+  return Array.from(groups.entries()).map(([k, g]) => {
+    const first = g.events[0];
+    const label = opts.contractLabel(g.contractId);
+    const money = maskedMoney(sumByCurrency(g.events.map((e) => ({ amount: e.eligibleAmount, currency: e.currency }))), opts.financial);
+    return {
+      key: `bill:${k}`,
+      domain: 'faturamento' as const,
+      severity: BILLING_SEVERITY[g.cls],
+      kindLabel: 'Faturamento',
+      location: { kind: 'contract' as const, id: g.contractId, label },
+      object: g.events.length === 1 ? first.title ?? 'Evento de faturamento' : `${g.events.length} eventos de faturamento`,
+      problem: withMoney(billingProblem(g.cls, g.events.length), money),
+      consequence: null,
+      due: null,
+      owner: null,
+      ownerApplicable: false,
+      count: g.events.length,
+      nextAction: { label: g.cls === 'approval' ? 'Acompanhar aprovação' : 'Abrir faturamento', href: '/contratos?view=faturamento', focused: false },
+      explainRef: `bill:${first.billingEventId}`,
+      apex: null,
+      rule: BILLING_RULE[g.cls],
+    };
+  });
+}
+
+export interface ReceivableLike {
+  billingEventId: string;
+  contractId: string | null;
+  dueDate: string | null;
+  /** Em CENTAVOS (`open_amount_cents`). */
+  openAmountCents: number | null;
+  currency: string | null;
+  status: string | null;
+}
+
+/** Recebíveis VENCIDOS → uma linha por contrato (crítica). O que está no prazo não é exceção. */
+export function receivableRows(
+  rows: readonly ReceivableLike[],
+  opts: { contractLabel: (id: string | null) => string | null; financial: boolean },
+): FeedRow[] {
+  const groups = new Map<string, ReceivableLike[]>();
+  for (const r of rows) {
+    if (r.status !== 'OVERDUE') continue;
+    const k = r.contractId ?? 'sem-contrato';
+    groups.set(k, [...(groups.get(k) ?? []), r]);
+  }
+  return Array.from(groups.entries()).map(([k, list]) => {
+    const dues = list.map((r) => isoDay(r.dueDate)).filter((d): d is string => !!d).sort();
+    const money = maskedMoney(sumByCurrency(list.map((r) => ({
+      amount: r.openAmountCents === null ? null : Number(r.openAmountCents) / 100, currency: r.currency }))), opts.financial);
+    const contractId = list[0].contractId;
+    return {
+      key: `rcv:${k}`,
+      domain: 'recebivel' as const,
+      severity: severityFromReceivable(true),
+      kindLabel: 'Recebível',
+      location: { kind: 'contract' as const, id: contractId, label: opts.contractLabel(contractId) },
+      object: list.length === 1 ? 'Título vencido' : `${list.length} títulos`,
+      problem: withMoney(plural(list.length, 'título vencido', 'títulos vencidos'), money),
+      consequence: null,
+      due: dues[0] ?? null,
+      owner: null,
+      ownerApplicable: false,
+      count: list.length,
+      nextAction: { label: 'Abrir recebíveis', href: '/contratos?view=faturamento', focused: false },
+      explainRef: `bill:${list[0].billingEventId}`,
+      apex: null,
+      rule: 'Título vinculado ao faturamento contratual com parcela vencida e saldo em aberto',
+    };
+  });
+}
+
+/* ── Sinais da Apex: evidência anexada ao objeto ────────────────────────── */
+
+export interface SignalLike {
+  id: string;
+  kind: string;
+  severity: string;
+  projectId: string | null;
+  project: string | null;
+  requirementId: string | null;
+  purchaseOrderId: string | null;
+  title: string;
+  rationale: string;
+  evidence: Array<{ label: string; value: string; source?: string | null }>;
+  lastSeenAt: string | null;
+  engineVersion: string | null;
+}
+
+const REQ_KINDS = new Set(['SHORTAGE', 'ALTERNATE_STOCK', 'ETA_RISK']);
+const PO_KINDS = new Set(['LATE_INBOUND', 'SUPPLIER_RELIABILITY', 'INSPECTION_AGING']);
+
+/** A frase de abertura do achado da Apex, por tipo de sinal — a mesma na fila e no Entender. */
+export const APEX_LEAD: Record<string, string> = {
+  SHORTAGE: 'Apex identificou uma falta sem cobertura',
+  ALTERNATE_STOCK: 'Apex identificou estoque disponível para cobrir a falta',
+  ETA_RISK: 'Apex identificou uma entrega que chega depois da necessidade',
+  LATE_INBOUND: 'Apex identificou uma entrega atrasada',
+  SUPPLIER_RELIABILITY: 'Apex identificou um fornecedor pouco pontual',
+  DECISION_PENDING: 'Apex identificou uma compra parada',
+  INSPECTION_AGING: 'Apex identificou um recebimento esperando inspeção',
+};
+
+/** `DECISION_PENDING` de pedido (`decision:po:<id>`) — o de requisição não carrega pedido. */
+export function isPurchaseOrderDecision(s: Pick<SignalLike, 'kind' | 'purchaseOrderId'>): boolean {
+  return s.kind === 'DECISION_PENDING' && !!s.purchaseOrderId;
+}
+
+/** A chave do objeto do sinal: `req:` para os de requisito, `po:` para os de pedido, senão `sig:<id>`. */
+export function signalKey(s: Pick<SignalLike, 'id' | 'kind' | 'requirementId' | 'purchaseOrderId'>): string {
+  if (REQ_KINDS.has(s.kind) && s.requirementId) return `req:${s.requirementId}`;
+  if (PO_KINDS.has(s.kind) && s.purchaseOrderId) return `po:${s.purchaseOrderId}`;
+  if (s.kind === 'DECISION_PENDING') {
+    if (s.purchaseOrderId) return `po:${s.purchaseOrderId}`;
+    if (s.requirementId) return `req:${s.requirementId}`;
+  }
+  return `sig:${s.id}`;
+}
+
+export function apexNote(s: SignalLike, stale: boolean): ApexNote {
+  return {
+    signalId: s.id,
+    kind: s.kind,
+    severity: (['critical', 'high', 'medium', 'low'].includes(s.severity) ? s.severity : 'medium') as ApexNote['severity'],
+    lead: APEX_LEAD[s.kind] ?? 'Apex identificou um risco de supply',
+    title: s.title,
+    rationale: s.rationale,
+    evidence: (s.evidence ?? []).map((e) => ({ label: String(e.label), value: String(e.value), source: e.source ?? null })),
+    ranAt: s.lastSeenAt,
+    engineVersion: s.engineVersion,
+    stale,
+  };
+}
+
+/** A linha própria de um sinal que não encontrou linha viva do mesmo objeto. */
+export function signalRow(s: SignalLike, note: ApexNote): FeedRow {
+  const key = signalKey(s);
+  const poDecision = isPurchaseOrderDecision(s);
+  const reqDecision = s.kind === 'DECISION_PENDING' && !poDecision;
+  const kindLabel = REQ_KINDS.has(s.kind) ? 'Material' : 'Compra';
+  let problem = SIGNAL_KIND_LABEL[s.kind as SignalKind] ?? 'Risco de supply';
+  if (poDecision) problem = 'Aprovação de compra parada';
+  else if (reqDecision) problem = /(^|\s)em cotação/i.test(s.title) ? 'Compra parada: requisição em cotação' : 'Compra parada: requisição sem cotação';
+  if (note.stale) problem = 'A leitura ao vivo já não mostra falta — achado da Apex desatualizado';
+
+  let nextAction: NextAction = { label: 'Abrir achados da Apex', href: '/supply?focus=apex', focused: false };
+  let explainRef: string | null = `sig:${s.id}`;
+  if (poDecision && s.purchaseOrderId) {
+    nextAction = { label: 'Abrir aprovação', href: `/supply/compras?stage=aprovacao&po=${encodeURIComponent(s.purchaseOrderId)}`, focused: true };
+    explainRef = `po:${s.purchaseOrderId}`;
+  } else if (reqDecision) {
+    nextAction = { label: 'Abrir solicitações', href: '/supply/compras?stage=solicitacoes', focused: false };
+  } else if (key.startsWith('req:') && s.requirementId) {
+    nextAction = { label: 'Cobrir falta', href: `/supply/planejamento-materiais?req=${encodeURIComponent(s.requirementId)}`, focused: true };
+    explainRef = `mat:${s.requirementId}`;
+  } else if (key.startsWith('po:') && s.purchaseOrderId) {
+    nextAction = { label: 'Abrir pedido', href: `/supply/compras?stage=pedidos&po=${encodeURIComponent(s.purchaseOrderId)}`, focused: true };
+    explainRef = `po:${s.purchaseOrderId}`;
+  }
+  return {
+    key,
+    domain: 'supply',
+    // O achado desatualizado não sobe a linha: fica no piso.
+    severity: note.stale ? 'medium' : severityFromSignal(s.severity),
+    kindLabel,
+    location: s.projectId ? { kind: 'project', id: s.projectId, label: s.project } : { kind: 'organization', id: null, label: null },
+    object: s.title,
+    problem,
+    consequence: null,
+    due: null,
+    owner: null,
+    ownerApplicable: false,
+    count: 1,
+    nextAction,
+    explainRef,
+    apex: note,
+    rule: poDecision
+      ? 'Pedido de compra aguardando aprovação, fora da sua caixa de Decisões (achado persistido da Apex)'
+      : 'Achado aberto da Apex, gravidade crítica ou alta (persistido, com versão do motor)',
+  };
+}
+
+const noteRank = (n: ApexNote) => (n.stale ? 10 : 0) + (SEVERITY_RANK[severityFromSignal(n.severity)] ?? 2);
+
+export interface MergeInput {
+  /** Linhas vivas (Operações, material, faturamento, recebíveis). Não são alteradas. */
+  rows: readonly FeedRow[];
+  /** Sinais ABERTOS da Apex. */
+  signals: readonly SignalLike[];
+  /** Pedidos na caixa da pessoa (`purchase_order`); `null` = caixa ilegível → nada sai por ela. */
+  inboxPurchaseOrderIds: ReadonlySet<string> | null;
+  /** Falta ao vivo do requisito: número lido, ou `null` quando a cobertura não foi lida por inteiro. */
+  liveShortage: (requirementId: string) => number | null;
+}
+
+/**
+ * Deduplicação pelo OBJETO: o sinal da Apex vira evidência da linha viva do
+ * mesmo `req:`/`po:` (gravidade = a maior das duas); um sinal cujo requisito
+ * já não tem falta AO VIVO é marcado `stale` e não sobe nada; o
+ * `DECISION_PENDING` de pedido sai só se o pedido está na caixa da pessoa.
+ */
+export function mergeFeed(input: MergeInput): FeedRow[] {
+  const map = new Map<string, FeedRow>();
+  for (const r of input.rows) if (!map.has(r.key)) map.set(r.key, { ...r });
+  const signals = [...input.signals].sort((a, b) =>
+    SEVERITY_RANK[severityFromSignal(a.severity)] - SEVERITY_RANK[severityFromSignal(b.severity)] || a.id.localeCompare(b.id));
+  for (const s of signals) {
+    if (isPurchaseOrderDecision(s) && input.inboxPurchaseOrderIds?.has(s.purchaseOrderId as string)) continue;
+    const key = signalKey(s);
+    const stale = key.startsWith('req:') && input.liveShortage(key.slice(4)) === 0;
+    const note = apexNote(s, stale);
+    const existing = map.get(key);
+    if (!existing) { map.set(key, signalRow(s, note)); continue; }
+    if (!existing.apex || noteRank(note) < noteRank(existing.apex)) existing.apex = note;
+    if (!stale) existing.severity = maxSeverity(existing.severity, severityFromSignal(s.severity));
+  }
+  return Array.from(map.values());
+}
+
+/* ── Ordem e diversidade ────────────────────────────────────────────────── */
+
+/** gravidade → prazo (sem prazo por último) → domínio (ordem do fluxo) → chave (estável). */
+export function compareRows(a: FeedRow, b: FeedRow): number {
+  const s = SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity];
+  if (s) return s;
+  if (a.due !== b.due) { if (!a.due) return 1; if (!b.due) return -1; return a.due < b.due ? -1 : 1; }
+  const d = DOMAIN_ORDER.indexOf(a.domain) - DOMAIN_ORDER.indexOf(b.domain);
+  if (d) return d;
+  return a.key < b.key ? -1 : a.key > b.key ? 1 : 0;
+}
+
+/**
+ * As `n` primeiras linhas contêm a PRIMEIRA linha crítica de cada domínio
+ * presente (até `n` delas): elas sobem, e o resto do topo é completado na
+ * ordem — a ordem relativa é preservada.
+ */
+export function diversify(rows: readonly FeedRow[], n: number): FeedRow[] {
+  const firstCritical: FeedRow[] = [];
+  const seen = new Set<Domain>();
+  for (const r of rows) {
+    if (r.severity !== 'critical' || seen.has(r.domain)) continue;
+    seen.add(r.domain);
+    firstCritical.push(r);
+  }
+  const mandatory = new Set(firstCritical.slice(0, n));
+  let fill = n - mandatory.size;
+  const top: FeedRow[] = [];
+  for (const r of rows) {
+    if (top.length >= n) break;
+    if (mandatory.has(r)) top.push(r);
+    else if (fill > 0) { top.push(r); fill -= 1; }
+  }
+  const inTop = new Set(top);
+  return [...top, ...rows.filter((r) => !inTop.has(r))];
+}
+
+/** Ordena e aplica a diversidade no topo de 8 (desktop) e de 5 (celular) — os dois valem ao mesmo tempo. */
+export function rankFeed(rows: readonly FeedRow[]): FeedRow[] {
+  return diversify(diversify([...rows].sort(compareRows), 8), 5);
+}
+
+export const FEED_ROWS_CAP = 40;
+
+/** Linhas que a fonte cortou antes de chegar aqui (contadas, não listadas). */
+export interface FeedExtra { domain: Domain; total: number; critical: number }
+
+const OPS_KIND_PREFIX: Array<{ kind: AttentionKind; prefix: string; domain: Domain }> = [
+  { kind: 'service_order', prefix: 'os:', domain: 'operacao' },
+  { kind: 'measurement', prefix: 'meas:', domain: 'medicao' },
+  { kind: 'risk', prefix: 'risk:', domain: 'operacao' },
+  { kind: 'dependency', prefix: 'dep:', domain: 'operacao' },
+];
+
+/**
+ * O que Operações contou SEM corte (`attentionCounts`) e não chegou como
+ * linha (a fila de lá corta em 15/40): entra no total, nunca some.
+ */
+export function cappedOpsExtras(counts: AttentionCounts, rows: readonly FeedRow[]): FeedExtra[] {
+  const out: FeedExtra[] = [];
+  for (const { kind, prefix, domain } of OPS_KIND_PREFIX) {
+    const mine = rows.filter((r) => r.key.startsWith(prefix));
+    const total = Math.max(0, counts[kind].total - mine.length);
+    const critical = Math.max(0, counts[kind].danger - mine.filter((r) => r.severity === 'critical').length);
+    if (total > 0) out.push({ domain, total, critical: Math.min(critical, total) });
+  }
+  return out;
+}
+
+/** O modelo da fila: total deduplicado SEM corte, críticas, por domínio; linhas cortadas em 40. */
+export function buildFeedModel(ranked: readonly FeedRow[], extras: readonly FeedExtra[] = [], cap = FEED_ROWS_CAP): FeedModel {
+  const byDomain: FeedModel['byDomain'] = {};
+  const bump = (d: Domain, total: number, critical: number) => {
+    const cur = byDomain[d] ?? { total: 0, critical: 0 };
+    byDomain[d] = { total: cur.total + total, critical: cur.critical + critical };
+  };
+  for (const r of ranked) bump(r.domain, 1, r.severity === 'critical' ? 1 : 0);
+  for (const e of extras) bump(e.domain, e.total, e.critical);
+  const total = ranked.length + extras.reduce((a, e) => a + e.total, 0);
+  const critical = ranked.filter((r) => r.severity === 'critical').length + extras.reduce((a, e) => a + e.critical, 0);
+  return { rows: ranked.slice(0, cap), total, critical, byDomain };
+}
+
+/* ── Fluxo do negócio (11 etapas) ───────────────────────────────────────── */
+
+export interface StagesInput {
+  /** `contracts.view`: trabalho autorizado sem OS viva. */
+  authorizedWithoutOs: SectionState<number>;
+  /** `commercial.view`: oportunidades em etapa aberta. */
+  openOpportunities: SectionState<number>;
+  os: SectionState<{ awaitingIssue: number; blocked: number; inExecution: number }>;
+  projects: SectionState<{ active: number; health: Record<HealthLevel, number>; criticalActivities: number }>;
+  needs: SectionState<{ short: number; critical: number }>;
+  supply: SectionState<{ lateInbound: number; requisitionsAwaitingSourcing: number; receivingIssues: number }>;
+  execution: SectionState<{ overdue: number; inProgress: number }>;
+  measurement: SectionState<{ pending: number; awaitingCustomer: number; inReview: number }>;
+  billing: SectionState<{ awaitingRelease: number; invoicesToIssue: number; invoicesAmount: string | null }>;
+  receivables: SectionState<{ overdue: number; open: number; linked: number }>;
+}
+
+export const STAGE_HREF: Record<StageId, string | null> = {
+  comercial: '/comercial?view=visao-geral',
+  os: '/operacoes/ordens-servico?filter=awaiting',
+  projeto: '/projetos',
+  planejamento: '/operacoes/planejamento',
+  necessidades: '/supply/planejamento-materiais?filter=short',
+  supply: '/supply/recebimentos?queue=late',
+  execucao: '/operacoes/planejamento?focus=critical',
+  medicao: '/operacoes/medicoes',
+  faturamento: '/contratos?view=faturamento',
+  recebivel: '/contratos?view=faturamento',
+  caixa: null,
+};
+
+export const STAGE_LABEL: Record<StageId, string> = {
+  comercial: 'Comercial', os: 'OS', projeto: 'Projeto', planejamento: 'Planejamento', necessidades: 'Necessidades',
+  supply: 'Supply', execucao: 'Execução', medicao: 'Medição', faturamento: 'Faturamento', recebivel: 'Recebível', caixa: 'Caixa',
+};
+
+export const STAGE_DEFINITION: Record<StageId, string> = {
+  comercial: 'Parado: trabalho autorizado sem OS interna viva (nenhuma OS além das canceladas). Contexto: oportunidades em etapa aberta.',
+  os: 'Parado: OS em rascunho ou em confirmação, ainda não emitidas. Bloqueadas: com divergência bloqueante aberta. Em obra: emitidas ou em execução com projeto.',
+  projeto: 'Parado: projetos ativos com saúde crítica — a mesma regra da página do projeto.',
+  planejamento: 'Parado: projetos ativos sem atividade aberta no cronograma (sem base para a saúde). Contexto: atividades críticas.',
+  necessidades: 'Parado: requisitos com falta na cobertura ao vivo (requerido − coberto − entrando > 0). Críticas: necessidade em até 7 dias ou vencida.',
+  supply: 'Parado: pedidos emitidos com item em aberto e previsão de entrega vencida.',
+  execucao: 'Parado: atividades-folha abertas com término planejado vencido, lidas do cronograma canônico. O avanço nunca é inferido.',
+  medicao: 'Parado: medições cuja próxima ação é da operação (preparar evidência vencida ou em preparo, corrigir devolução).',
+  faturamento: 'Parado: eventos elegíveis ainda não liberados para faturamento (sem cancelamento, substituição ou linha legada).',
+  recebivel: 'Parado: títulos vinculados ao faturamento contratual com parcela vencida e saldo em aberto.',
+  caixa: 'Não há razão de caixa conectado ao Apex.',
+};
+
+const RESTRICTED_REASON = 'Seu perfil não lê esta etapa';
+const ERROR_REASON = 'Não carregou';
+
+function stage(id: StageId, over: Partial<FlowStage>): FlowStage {
+  return {
+    id, label: STAGE_LABEL[id], state: 'ok', stuck: null, context: null, tone: 'neutral',
+    href: STAGE_HREF[id], definition: STAGE_DEFINITION[id], reason: null, ...over,
+  };
+}
+
+/** Etapa fora de `ok`: sem número, com o motivo. */
+function notOk(id: StageId, s: SectionState<unknown>): FlowStage | null {
+  if (s.state === 'restricted') return stage(id, { state: 'restricted', reason: RESTRICTED_REASON });
+  if (s.state === 'error') return stage(id, { state: 'error', reason: ERROR_REASON });
+  return null;
+}
+
+export function buildStages(i: StagesInput): FlowStage[] {
+  const out: FlowStage[] = [];
+
+  // Comercial — duas leituras independentes; só é "Restrito" quando nenhuma é legível.
+  {
+    const a = i.authorizedWithoutOs; const o = i.openOpportunities;
+    if (a.state !== 'ok' && o.state !== 'ok') {
+      out.push(a.state === 'error' || o.state === 'error' ? stage('comercial', { state: 'error', reason: ERROR_REASON })
+        : stage('comercial', { state: 'restricted', reason: RESTRICTED_REASON }));
+    } else {
+      const stuck = a.state === 'ok' ? { value: a.data, noun: a.data === 1 ? 'autorizada sem OS' : 'autorizadas sem OS' } : null;
+      out.push(stage('comercial', {
+        stuck,
+        context: o.state === 'ok' ? plural(o.data, 'oportunidade aberta', 'oportunidades abertas') : null,
+        tone: stuck && stuck.value > 0 ? 'warning' : 'neutral',
+        reason: a.state === 'restricted' ? 'Autorizadas sem OS: restrito' : a.state === 'error' ? 'Autorizadas sem OS: não carregou' : null,
+      }));
+    }
+  }
+
+  out.push(notOk('os', i.os) ?? (() => {
+    const d = (i.os as { data: { awaitingIssue: number; blocked: number; inExecution: number } }).data;
+    return stage('os', {
+      stuck: { value: d.awaitingIssue, noun: 'a emitir' },
+      context: `${plural(d.blocked, 'bloqueada', 'bloqueadas')} · ${d.inExecution} em obra`,
+      tone: d.blocked > 0 ? 'danger' : d.awaitingIssue > 0 ? 'warning' : 'success',
+    });
+  })());
+
+  out.push(notOk('projeto', i.projects) ?? (() => {
+    const d = (i.projects as { data: { active: number; health: Record<HealthLevel, number> } }).data;
+    return stage('projeto', {
+      stuck: { value: d.health.critical, noun: d.health.critical === 1 ? 'crítico' : 'críticos' },
+      context: `${plural(d.active, 'ativo', 'ativos')} · ${d.health.attention} em atenção`,
+      tone: d.health.critical > 0 ? 'danger' : d.health.attention > 0 ? 'warning' : 'success',
+    });
+  })());
+
+  out.push(notOk('planejamento', i.projects) ?? (() => {
+    const d = (i.projects as { data: { health: Record<HealthLevel, number>; criticalActivities: number } }).data;
+    return stage('planejamento', {
+      stuck: { value: d.health.unknown, noun: 'sem cronograma' },
+      context: plural(d.criticalActivities, 'atividade crítica', 'atividades críticas'),
+      tone: d.health.unknown > 0 ? 'warning' : 'success',
+    });
+  })());
+
+  out.push(notOk('necessidades', i.needs) ?? (() => {
+    const d = (i.needs as { data: { short: number; critical: number } }).data;
+    return stage('necessidades', {
+      stuck: { value: d.short, noun: 'sem cobertura' },
+      context: `${d.critical} ${d.critical === 1 ? 'crítica' : 'críticas'} (≤ 7 dias)`,
+      tone: d.critical > 0 ? 'danger' : d.short > 0 ? 'warning' : 'success',
+    });
+  })());
+
+  out.push(notOk('supply', i.supply) ?? (() => {
+    const d = (i.supply as { data: { lateInbound: number; requisitionsAwaitingSourcing: number; receivingIssues: number } }).data;
+    return stage('supply', {
+      stuck: { value: d.lateInbound, noun: d.lateInbound === 1 ? 'entrega atrasada' : 'entregas atrasadas' },
+      context: `${plural(d.requisitionsAwaitingSourcing, 'requisição aguardando cotação', 'requisições aguardando cotação')} · `
+        + plural(d.receivingIssues, 'recebimento com pendência', 'recebimentos com pendência'),
+      tone: d.lateInbound > 0 ? 'warning' : 'success',
+    });
+  })());
+
+  out.push(notOk('execucao', i.execution) ?? (() => {
+    const d = (i.execution as { data: { overdue: number; inProgress: number } }).data;
+    return stage('execucao', {
+      stuck: { value: d.overdue, noun: d.overdue === 1 ? 'atividade vencida' : 'atividades vencidas' },
+      context: `${d.inProgress} em andamento`,
+      tone: d.overdue > 0 ? 'warning' : 'success',
+    });
+  })());
+
+  out.push(notOk('medicao', i.measurement) ?? (() => {
+    const d = (i.measurement as { data: { pending: number; awaitingCustomer: number; inReview: number } }).data;
+    return stage('medicao', {
+      stuck: { value: d.pending, noun: 'com a operação' },
+      context: `${d.awaitingCustomer} aguardando cliente · ${d.inReview} em análise`,
+      tone: d.pending > 0 ? 'warning' : 'success',
+    });
+  })());
+
+  out.push(notOk('faturamento', i.billing) ?? (() => {
+    const d = (i.billing as { data: { awaitingRelease: number; invoicesToIssue: number; invoicesAmount: string | null } }).data;
+    return stage('faturamento', {
+      stuck: { value: d.awaitingRelease, noun: 'aguardando liberação' },
+      context: withMoney(`${d.invoicesToIssue} NF a emitir`, d.invoicesAmount),
+      tone: d.awaitingRelease > 0 || d.invoicesToIssue > 0 ? 'warning' : 'success',
+    });
+  })());
+
+  out.push(notOk('recebivel', i.receivables) ?? (() => {
+    const d = (i.receivables as { data: { overdue: number; open: number; linked: number } }).data;
+    return stage('recebivel', {
+      stuck: { value: d.overdue, noun: d.overdue === 1 ? 'vencido' : 'vencidos' },
+      context: d.linked === 0 ? 'nenhum título vinculado' : `${d.open} em aberto`,
+      tone: d.overdue > 0 ? 'danger' : 'success',
+    });
+  })());
+
+  out.push(stage('caixa', { state: 'unavailable', reason: 'Nenhuma conta de caixa conectada' }));
+  return out;
+}
+
+/* ── Projetos ───────────────────────────────────────────────────────────── */
+
+export interface ProjectHealthInput {
+  projectId: string;
+  project: string;
+  client: string | null;
+  level: HealthLevel;
+  reasons: string[];
+  nextMilestone: string | null;
+  nextMilestoneTitle: string | null;
+}
+
+/** Saúde do projeto + a linha mais grave da fila para ele (a fila chega ORDENADA). */
+export function projectRows(health: readonly ProjectHealthInput[], rankedFeed: readonly FeedRow[]): ProjectHealthRow[] {
+  return health.map((p) => {
+    const top = rankedFeed.find((r) => r.location.kind === 'project' && r.location.id === p.projectId) ?? null;
+    const milestone = isoDay(p.nextMilestone);
+    return {
+      projectId: p.projectId,
+      name: p.project,
+      client: p.client,
+      level: p.level,
+      reasons: p.reasons,
+      nextMilestone: milestone ? { date: milestone, title: p.nextMilestoneTitle } : null,
+      topIssue: top ? { label: `${top.kindLabel}: ${top.problem}`, href: top.nextAction.href, severity: top.severity } : null,
+      href: `/projetos/${encodeURIComponent(p.projectId)}?tab=overview`,
+      mapHref: `/projetos/operations-3d?project=${encodeURIComponent(p.projectId)}`,
+    };
+  });
+}
+
+/* ── Decisões (a superfície, nunca a caixa) ─────────────────────────────── */
+
+const DECISION_TONE: Record<string, DecisionPreview['priority']['tone']> = {
+  danger: 'danger', warning: 'warning', accent: 'accent', info: 'accent', success: 'neutral', neutral: 'neutral',
+};
+
+/** Um item da caixa → a prévia do Dashboard (valor já formatado pela mesma regra da caixa). */
+export function decisionPreview(
+  item: Pick<DecisionItem, 'key' | 'kindLabel' | 'title' | 'projectName' | 'priority' | 'overdue' | 'dueAt' | 'decideBy'>,
+  opts: { href: string; amountText: string | null; amountRestricted: boolean; due: string | null },
+): DecisionPreview {
+  return {
+    key: item.key,
+    href: opts.href,
+    kindLabel: item.kindLabel,
+    title: item.title,
+    amountText: opts.amountRestricted ? null : opts.amountText,
+    amountRestricted: opts.amountRestricted,
+    project: item.projectName,
+    priority: { label: item.priority.label, tone: DECISION_TONE[item.priority.tone] ?? 'neutral' },
+    due: opts.due,
+    overdue: item.overdue,
+  };
+}
+
+/* ── Calendário da empresa (30 dias) ────────────────────────────────────── */
+
+export const CALENDAR_DAYS = 30;
+export const CALENDAR_LANE_CAP = 40;
+
+export const CALENDAR_LANE_LABEL: Record<CalendarLane, string> = {
+  operacao: 'Operação', supply: 'Supply', medicao: 'Medição', faturamento: 'Faturamento', recebivel: 'Recebíveis',
+};
+
+/** Só datas válidas dentro de [hoje, hoje + dias]; em ordem; no máximo `cap` por raia. */
+export function laneItems(items: readonly CalendarItem[], today: string, days = CALENDAR_DAYS, cap = CALENDAR_LANE_CAP): CalendarItem[] {
+  const end = addDays(today, days);
+  return items
+    .map((it) => ({ ...it, date: isoDay(it.date) as string }))
+    .filter((it) => it.date !== null && it.date >= today && it.date <= end)
+    .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id))
+    .slice(0, cap);
+}
+
+export type CalendarLaneInput = Partial<Record<CalendarLane, SectionState<CalendarItem[]>>>;
+
+/** As raias que existem: Operação, Supply, Medição e Recebíveis. Raia ilegível = `restricted`; leitura que falhou = `unavailable`. */
+export const CALENDAR_LANES: readonly CalendarLane[] = ['operacao', 'supply', 'medicao', 'recebivel'];
+
+export function buildCalendar(today: string, lanes: CalendarLaneInput): SectionState<CalendarModel> {
+  const states = CALENDAR_LANES.map((id) => ({ id, s: lanes[id] ?? ({ state: 'restricted' } as const) }));
+  if (states.every((x) => x.s.state === 'restricted')) return { state: 'restricted' };
+  if (states.every((x) => x.s.state !== 'ok')) {
+    return { state: 'error', message: 'Não foi possível montar o calendário dos próximos 30 dias.' };
+  }
+  const items: CalendarItem[] = [];
+  for (const { id, s } of states) if (s.state === 'ok') items.push(...laneItems(s.data.map((it) => ({ ...it, lane: id })), today));
+  return {
+    state: 'ok',
+    data: {
+      days: CALENDAR_DAYS,
+      lanes: states.map(({ id, s }) => ({
+        id, label: CALENDAR_LANE_LABEL[id], state: s.state === 'ok' ? 'ok' : s.state === 'restricted' ? 'restricted' : 'unavailable',
+      })),
+      items,
+    },
+  };
+}
+
+/** Horizonte do cronograma → marcos e atividades críticas da raia Operação. */
+export function operationCalendarItems(horizon: Record<number, Array<{
+  id: string; title: string; project: string; projectId: string; date: string | null; milestone: boolean; critical: boolean;
+}>> | null): CalendarItem[] {
+  if (!horizon) return [];
+  const out: CalendarItem[] = [];
+  const seen = new Set<string>();
+  for (const list of Object.values(horizon)) {
+    for (const a of list) {
+      if ((!a.milestone && !a.critical) || seen.has(a.id) || !a.date) continue;
+      seen.add(a.id);
+      out.push({
+        id: `act:${a.id}`, date: a.date, title: a.title, lane: 'operacao',
+        kind: a.milestone ? 'milestone' : 'activity', tone: a.critical ? 'danger' : 'accent',
+        href: `/projetos/${encodeURIComponent(a.projectId)}?tab=timeline`, project: a.project,
+      });
+    }
+  }
+  return out;
+}
+
+/** Faltas de material → necessidades na raia Supply (tom pelo risco de supply). */
+export function needCalendarItems(needs: readonly MaterialNeed[], today: string): CalendarItem[] {
+  const out: CalendarItem[] = [];
+  for (const m of needs) {
+    if (m.coverage.shortage <= 0) continue;
+    const need = materialNeedDate(m);
+    if (!need) continue;
+    const risk = materialRisk(m, today);
+    out.push({
+      id: `need:${m.requirementId}`, date: need, title: `Falta: ${m.title ?? 'material do requisito'}`, lane: 'supply', kind: 'need',
+      tone: risk === 'critical' ? 'danger' : risk === 'high' ? 'warning' : 'accent',
+      href: `/supply/planejamento-materiais?req=${encodeURIComponent(m.requirementId)}`, project: m.project,
+    });
+  }
+  return out;
+}

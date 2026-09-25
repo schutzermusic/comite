@@ -610,7 +610,7 @@ export async function decisionsWorkspace(session: DecisionsSession, tab: Decisio
 }
 
 /** Políticas de aprovação ATIVAS e alçadas de compra VIGENTES na organização (só contagem). */
-async function decisionSetup(org: string, today: string): Promise<{ policies: number; authorities: number }> {
+export async function decisionSetup(org: string, today: string): Promise<{ policies: number; authorities: number }> {
   const service = platformServiceClient();
   const [pol, auth] = await Promise.all([
     service.from('approval_policy_versions').select('id', { count: 'exact', head: true })
