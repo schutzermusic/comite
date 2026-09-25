@@ -2,6 +2,7 @@ import { SidebarTrigger } from "@/components/ui/sidebar";
 import { ThemeToggle } from "./ThemeToggle";
 import { HeaderBreadcrumb } from "./HeaderBreadcrumb";
 import NotificationCenter from "./notification-center";
+import { DecisionsHeaderLink } from "./DecisionsHeaderLink";
 
 export async function Header() {
   return (
@@ -10,6 +11,8 @@ export async function Header() {
       <HeaderBreadcrumb />
       <div className="flex-1" />
       <div className="app-header-control-cluster">
+        {/* Decisões ao lado dos Alertas: o que espera a autoridade da pessoa, com o número. */}
+        <DecisionsHeaderLink />
         <div className="app-header-icon-wrap">
           <NotificationCenter />
         </div>

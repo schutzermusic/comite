@@ -1,0 +1,53 @@
+/* ═════════════════════════════════════════════════════════════════════════
+   DECISÕES — atalho do cabeçalho (ao lado dos Alertas)
+
+   Carregado com o cabeçalho, em toda página: só o atalho mora aqui; a tela
+   de Decisões tem o próprio arquivo (decisions.css). Mesma altura e mesmo
+   raio dos botões do cabeçalho; o número usa o selo da sidebar
+   (.hud-nav-badge--pending, em globals.css) — uma linguagem só para
+   "aguardando você".
+   ═════════════════════════════════════════════════════════════════════════ */
+.app-header-decisions {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  height: 1.875rem;
+  padding: 0 0.5rem;
+  border: 1px solid transparent;
+  border-radius: var(--ig-radius-md);
+  color: var(--ig-fg-muted);
+  background: transparent;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  text-decoration: none;
+  transition: color 150ms ease, background 150ms ease, border-color 150ms ease;
+}
+.app-header-decisions:hover {
+  color: var(--ig-fg-strong);
+  border-color: color-mix(in oklab, var(--ig-border-default) 60%, transparent);
+  background: color-mix(in oklab, var(--ig-bg-panel-hover) 38%, transparent);
+}
+.app-header-decisions:focus-visible {
+  outline: 2px solid var(--ig-border-focus);
+  outline-offset: 2px;
+}
+.app-header-decisions[aria-current='page'] {
+  color: var(--ig-fg-strong);
+  border-color: color-mix(in oklab, var(--ig-border-default) 70%, transparent);
+  background: color-mix(in oklab, var(--ig-bg-panel-hover) 50%, transparent);
+}
+.app-header-decisions > svg { width: 16px; height: 16px; flex-shrink: 0; }
+.app-header-decisions[data-pending='true'] > svg { color: var(--ig-warning); }
+.app-header-decisions-label { display: none; }
+@media (min-width: 768px) {
+  .app-header-decisions-label { display: inline; }
+}
+@media (max-width: 767px) {
+  /* Zero pendente no celular: o atalho sai — o menu continua levando a Decisões. */
+  .app-header-decisions[data-pending='false'] { display: none; }
+  /* Alvo de toque de 44 px sem crescer o cabeçalho de 42 px. */
+  .app-header-decisions::after { content: ''; position: absolute; inset: -7px -6px; }
+}

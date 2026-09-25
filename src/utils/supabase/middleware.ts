@@ -76,6 +76,9 @@ const ROUTE_PERMISSIONS: RoutePermission[] = [
     // Workflows — aligned with sidebar (admin tooling, not dashboard)
     { prefix: '/workflows', permission: 'admin.view' },
     // Authenticated-only (no permission required)
+    // Decisões: a caixa é de TODA pessoa autenticada; o que cada uma vê e
+    // decide é filtrado pela alçada no servidor (240), não pela rota.
+    { prefix: '/decisoes', permission: null },
     { prefix: '/notificacoes', permission: null },
     { prefix: '/configuracoes', permission: null },
 ]

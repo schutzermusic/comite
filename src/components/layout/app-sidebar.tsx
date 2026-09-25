@@ -68,6 +68,7 @@ import {
   Shield,
   ShieldAlert,
   SlidersHorizontal,
+  Stamp,
   Target,
   UtensilsCrossed,
   Users,
@@ -109,6 +110,8 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { OrganizationSwitcher } from "@/components/organizations/OrganizationSwitcher";
 import { useMyCommittees } from "@/hooks/use-my-committees";
 import { useRiskBadge } from "@/hooks/use-risk-badge";
+import { useDecisionBadge } from "@/hooks/use-decision-badge";
+import { decisionsBadgeTitle } from "@/components/decisions/view";
 
 /** Supabase configurado quando ambas as env vars públicas existem. */
 const SUPABASE_CONFIGURED = Boolean(
@@ -218,6 +221,13 @@ type MenuItem = {
 
 const navigationItems: MenuItem[] = [
   { href: "/dashboard", labelKey: "dashboard", icon: LayoutDashboard, section: "main", permission: "dashboard.view" },
+  /*
+    Decisões logo abaixo do Dashboard: a caixa do que espera a autoridade da
+    pessoa, para TODA pessoa autenticada — o que cada uma vê e decide é
+    filtrado pela alçada no servidor (240). Item plano de propósito: Minhas /
+    Equipe / Concluídas são abas da própria tela, e só o item plano tem selo.
+  */
+  { href: "/decisoes", labelKey: "decisions", icon: Stamp, section: "main", alwaysVisibleWhenAuthenticated: true },
   {
     href: "/financeiro",
     labelKey: "finance",
@@ -635,12 +645,27 @@ export function AppSidebar() {
   // user can actually see risks, so it stays silent for everyone else.
   const canViewRisks = isOwnerAdmin || hasPermission(permissions, "risks.view");
   const riskCounts = useRiskBadge(canViewRisks);
+  // Decisões aguardando a pessoa: número derivado da caixa (nunca guardado),
+  // relido a cada rota, ato governado, foco e a cada 60 s com a aba visível.
+  const decisionCount = useDecisionBadge(Boolean(authUser));
 
-  /** Resolve the alert badge for a nav item (currently only "Riscos"). */
-  const getItemBadge = (href: string): { count: number; tone: "critical" | "ai" } | null => {
-    if (href !== "/riscos") return null;
-    if (riskCounts.critical > 0) return { count: riskCounts.critical, tone: "critical" };
-    if (riskCounts.aiAlerts > 0) return { count: riskCounts.aiAlerts, tone: "ai" };
+  /**
+   * O selo de um item: quantos, em que tom, e a frase que diz o que o número
+   * conta (title + nome acessível na sidebar recolhida). Zero não tem selo.
+   */
+  const getItemBadge = (href: string): { count: number; tone: "critical" | "ai" | "pending"; title: string } | null => {
+    if (href === "/riscos") {
+      if (riskCounts.critical > 0) {
+        return { count: riskCounts.critical, tone: "critical", title: `${riskCounts.critical} risco(s) crítico(s) em aberto` };
+      }
+      if (riskCounts.aiAlerts > 0) {
+        return { count: riskCounts.aiAlerts, tone: "ai", title: `${riskCounts.aiAlerts} alerta(s) de IA aguardando revisão` };
+      }
+      return null;
+    }
+    if (href === "/decisoes" && decisionCount > 0) {
+      return { count: decisionCount, tone: "pending", title: decisionsBadgeTitle(decisionCount) };
+    }
     return null;
   };
 
@@ -805,22 +830,22 @@ export function AppSidebar() {
       }
 
       const badge = getItemBadge(item.href);
-      const badgeTitle =
-        badge?.tone === "critical"
-          ? `${badge.count} risco(s) crítico(s) em aberto`
-          : badge
-            ? `${badge.count} alerta(s) de IA aguardando revisão`
-            : undefined;
+      const badgeTitle = badge?.title;
 
       const linkContent = (
-        <Link href={item.href} aria-label={isCollapsed ? label : undefined}>
+        // Recolhida, só o ponto aparece: o nome acessível carrega o que ele conta.
+        <Link href={item.href} aria-label={isCollapsed ? (badgeTitle ? `${label}: ${badgeTitle}` : label) : undefined}>
           <Icon className="hud-nav-icon" strokeWidth={1.6} />
           <span className="hud-nav-label">{label}</span>
           {badge && (
             <span
               className={cn(
                 "hud-nav-badge",
-                badge.tone === "critical" ? "hud-nav-badge--critical" : "hud-nav-badge--ai",
+                badge.tone === "critical"
+                  ? "hud-nav-badge--critical"
+                  : badge.tone === "pending"
+                    ? "hud-nav-badge--pending"
+                    : "hud-nav-badge--ai",
               )}
               title={badgeTitle}
             >
