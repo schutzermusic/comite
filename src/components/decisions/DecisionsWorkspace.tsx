@@ -10,6 +10,7 @@ import {
 import type { DecisionsTab, DecisionsWorkspace as WorkspaceData } from '@/lib/decisions/types';
 import { Bottlenecks, CompletedRow, DecisionRow, TeamRow } from './DecisionRows';
 import { DecisionPanel } from './DecisionPanel';
+import { DecisionsIdle } from './DecisionsIdle';
 import {
   ALL_CATEGORIES, SCOPE_LABEL, amountText, byCategory, categoryOptions, contextParts, mineSummary, mineView, normalizeFilter,
   normalizeTab, signalCounts, sortBottlenecks, tabsFor, type MineFilter,
@@ -88,6 +89,9 @@ function Workspace() {
   const f = normalizeFilter(rawFilter);
   const cat = rawCat || ALL_CATEGORIES;
   const s = signalCounts(ws);
+  // Sucesso com ZERO decisões (nem na sua faixa, nem sob sua alçada): estado
+  // próprio, calmo — não erro, não fila vazia genérica. Falha é o ErrorState.
+  const idle = ws.mine.length === 0 && ws.alsoEligible.length === 0;
   const go = (next: { tab?: DecisionsTab; f?: MineFilter }) =>
     patch({ tab: next.tab && next.tab !== 'minhas' ? next.tab : null, f: next.f && next.f !== 'todos' ? next.f : null });
   const setCat = (id: string) => patch({ cat: id === ALL_CATEGORIES ? null : id });
@@ -103,13 +107,15 @@ function Workspace() {
     <>
       <CommandHeader eyebrow={<b>Decisões</b>} title="O que precisa de você"
         context={<>
-          {contextParts(ws.counts).map((p) => (
-            <span key={p.text}>{p.tone && <Dot tone={p.tone} label="vencida" />}<strong>{p.text}</strong></span>
-          ))}
+          {idle
+            ? <span>Situações que exigem sua autoridade, julgamento ou exceção.</span>
+            : contextParts(ws.counts).map((p) => (
+              <span key={p.text}>{p.tone && <Dot tone={p.tone} label="vencida" />}<strong>{p.text}</strong></span>
+            ))}
           <span>Hoje, {date(ws.today)}</span>
         </>} />
 
-      <div className="dec-signals">
+      {!idle && <div className="dec-signals">
       <SignalStrip label="Sinais de Decisões" items={[
         { label: 'Aguardando você', value: s.waiting.toLocaleString('pt-BR'), hint: 'suas e escaladas para você',
           tone: s.waiting ? 'warning' : undefined, onClick: () => go({ f: 'todos' }), testId: 'decisions-signal-waiting' },
@@ -120,7 +126,7 @@ function Workspace() {
         { label: 'Sob sua alçada', value: s.eligible.toLocaleString('pt-BR'), hint: 'você pode decidir; a faixa é outra',
           onClick: () => go({ f: 'alcada' }), testId: 'decisions-signal-eligible' },
       ]} />
-      </div>
+      </div>}
 
       <Tabs label="Decisões" tabs={tabsFor(ws)} value={tab} onChange={(id) => go({ tab: id })} />
       <div className="dec-tabpanel" role="tabpanel" aria-labelledby={`ax-tab-${tab}`} aria-busy={!res.data || undefined} data-testid={`decisions-tab-${tab}`}>
@@ -145,6 +151,18 @@ function MineTab({ ws, f, cat, openKey, onOpen, onFilter, onCategory, onClear }:
   const overdue = view.items.filter((i) => i.overdue).length;
   const nothingPending = f === 'todos' && ws.mine.length === 0;
   const sum = mineSummary(ws.mine);
+  if (ws.mine.length === 0 && ws.alsoEligible.length === 0) {
+    return (
+      <div className="ax-stack">
+        <DecisionsIdle ws={ws} openKey={openKey} onOpen={onOpen} />
+        <p className="ax-note">
+          <ShieldCheck size={13} aria-hidden />
+          Cada decisão é lida na hora da origem — Motor de Aprovação ou alçada de compra declarada. O ato feito aqui é o mesmo da
+          origem, com a mesma regra: quem solicitou não aprova, e nada é decidido fora da sua alçada.
+        </p>
+      </div>
+    );
+  }
   return (
     <div className="ax-grid main-side">
       <div className="ax-stack">

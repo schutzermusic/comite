@@ -251,6 +251,14 @@ export interface DecisionsWorkspace {
   counts: { mine: number; overdue: number; alsoEligible: number };
   categories: Array<{ id: string; label: string; count: number }>;
   teamScope: TeamScope;
+  /**
+   * Só quando a caixa (Minhas) está VAZIA: o que está configurado para que
+   * decisões cheguem aqui — políticas de aprovação ativas e alçadas de compra
+   * vigentes na organização. Zero dos dois explica o vazio sem chamá-lo de falha.
+   */
+  setup: { policies: number; authorities: number } | null;
+  /** Só com a caixa vazia: as últimas decisões concluídas (até 5), para o vazio ter contexto. */
+  recent: CompletedItem[] | null;
 }
 
 // ---------------------------------------------------------------------------

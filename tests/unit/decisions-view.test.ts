@@ -46,7 +46,7 @@ function workspace(over: Partial<DecisionsWorkspace> = {}): DecisionsWorkspace {
     alsoEligible: [item({ key: 'e', assignment: 'ELIGIBLE' })], team: null, completed: null,
     counts: { mine: 3, overdue: 1, alsoEligible: 1 },
     categories: [{ id: 'compras', label: 'Compras', count: 3 }, { id: 'financeiro', label: 'Financeiro', count: 1 }],
-    teamScope: 'ORGANIZATION', ...over,
+    teamScope: 'ORGANIZATION', setup: null, recent: null, ...over,
   };
 }
 

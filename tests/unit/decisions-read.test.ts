@@ -683,3 +683,18 @@ describe('ato — motor de aprovação (sessão da pessoa)', () => {
     expect(m.audit).not.toHaveBeenCalled();
   });
 });
+
+describe('falha de leitura ≠ caixa vazia', () => {
+  it('RPC inexistente vira NOT_PROVISIONED (503); outra falha é 500; nada vira lista vazia', async () => {
+    const { readError, decisionsReadFailure, DecisionsReadError } = await import('@/lib/decisions/read');
+    expect(readError({ code: 'PGRST202' }, 'x').code).toBe('NOT_PROVISIONED');
+    expect(readError({ code: '42883' }, 'x').code).toBe('NOT_PROVISIONED');
+    expect(readError({ code: '57014' }, 'Não foi possível ler.').code).toBe('READ_FAILED');
+    const missing = decisionsReadFailure(new DecisionsReadError('não instalada', 'NOT_PROVISIONED'));
+    expect(missing.status).toBe(503);
+    expect(await missing.json()).toMatchObject({ ok: false, code: 'NOT_PROVISIONED' });
+    const failed = decisionsReadFailure(new DecisionsReadError('Não foi possível ler.'));
+    expect(failed.status).toBe(500);
+    expect(await failed.json()).toMatchObject({ ok: false, code: 'READ_FAILED' });
+  });
+});

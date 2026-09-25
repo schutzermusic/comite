@@ -207,7 +207,8 @@ test('4 · escuro: a caixa, o detalhe e a equipe (revisão visual)', async ({ br
   // Quem não tem decisão vê o estado vazio verdadeiro — nunca exemplo inventado.
   const rh = await as(browser, 'rh');
   await rh.goto('/decisoes');
-  await expect(rh.getByText('Nenhuma decisão pendente.')).toBeVisible();
-  await expect(rh.getByText('O Apex mostrará aqui situações que exigem sua autoridade ou julgamento.')).toBeVisible();
+  await expect(rh.getByTestId('decisions-zero')).toBeVisible();
+  await expect(rh.getByRole('heading', { name: 'Nenhuma decisão pendente' })).toBeVisible();
+  await expect(rh.getByText('Tudo que depende da sua autoridade está resolvido.')).toBeVisible();
   await shot(rh, '1440-light-empty');
 });

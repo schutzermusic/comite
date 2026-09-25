@@ -42,7 +42,18 @@ export interface DecisionsSession { supabase: SupabaseClient; user: { id: string
 
 /** Falha de leitura com mensagem para a pessoa (a rota responde 500 com ela). */
 export class DecisionsReadError extends Error {
-  constructor(message: string) { super(message); this.name = 'DecisionsReadError'; }
+  /** NOT_PROVISIONED: as funções de Decisões não existem neste banco (migrations 240+ pendentes). */
+  constructor(message: string, readonly code: 'READ_FAILED' | 'NOT_PROVISIONED' = 'READ_FAILED') {
+    super(message); this.name = 'DecisionsReadError';
+  }
+}
+
+/** Função RPC inexistente (PostgREST PGRST202 / Postgres 42883): Decisões não foi instalada aqui. */
+export function readError(error: { code?: string | null } | null, message: string): DecisionsReadError {
+  if (error?.code === 'PGRST202' || error?.code === '42883') {
+    return new DecisionsReadError('Decisões ainda não está instalada neste ambiente (migrations 240+ pendentes). Fale com quem administra a plataforma.', 'NOT_PROVISIONED');
+  }
+  return new DecisionsReadError(message);
 }
 
 const FMT = {
@@ -64,8 +75,9 @@ export function decisionKeyParam(raw: string): string {
 /** Falha de leitura → 500 com a frase da leitura (nunca o texto do banco). */
 export function decisionsReadFailure(error: unknown) {
   if (!(error instanceof DecisionsReadError)) console.error('[decisions] leitura falhou', error);
-  return NextResponse.json({ ok: false, error: error instanceof DecisionsReadError ? error.message : 'Não foi possível ler as decisões.' },
-    { status: 500, headers: NO_STORE });
+  const known = error instanceof DecisionsReadError ? error : null;
+  return NextResponse.json({ ok: false, error: known ? known.message : 'Não foi possível ler as decisões.', code: known?.code ?? 'READ_FAILED' },
+    { status: known?.code === 'NOT_PROVISIONED' ? 503 : 500, headers: NO_STORE });
 }
 
 // ---------------------------------------------------------------------------
@@ -375,7 +387,7 @@ export function channelStatusList(input: {
 
 export async function viewerInbox(session: DecisionsSession): Promise<DecisionInboxRow[]> {
   const { data, error } = await session.supabase.rpc('decision_inbox_for_viewer');
-  if (error) throw new DecisionsReadError('Não foi possível ler a sua caixa de decisões.');
+  if (error) throw readError(error, 'Não foi possível ler a sua caixa de decisões.');
   return (data ?? []) as DecisionInboxRow[];
 }
 
@@ -548,9 +560,9 @@ async function teamView(session: DecisionsSession, scope: TeamScope, today: stri
   return { scope, items, bottlenecks: aggregateBottlenecks(items) };
 }
 
-async function completedView(session: DecisionsSession): Promise<CompletedItem[]> {
-  const { data, error } = await session.supabase.rpc('decision_history_for_viewer', { p_limit: 200 });
-  if (error) throw new DecisionsReadError('Não foi possível ler as decisões concluídas.');
+async function completedView(session: DecisionsSession, limit = 200): Promise<CompletedItem[]> {
+  const { data, error } = await session.supabase.rpc('decision_history_for_viewer', { p_limit: limit });
+  if (error) throw readError(error, 'Não foi possível ler as decisões concluídas.');
   const rows = (data ?? []) as DecisionHistoryRow[];
   const org = session.organizationId;
   const authorityIds = uniq(rows.filter((r) => r.source_kind === 'PROCUREMENT_AUTHORITY').map((r) => str(r.authority?.authority_id)));
@@ -574,6 +586,8 @@ export async function decisionsWorkspace(session: DecisionsSession, tab: Decisio
     viewerInbox(session),
     session.supabase.rpc('decision_team_scope_for_viewer'),
   ]);
+  // Falha de leitura é falha — nunca "sem equipe" nem caixa vazia.
+  if (scopeR.error) throw readError(scopeR.error, 'Não foi possível ler o escopo de equipe.');
   const teamScope = asScope(scopeR.data);
   const [items, team, completed] = await Promise.all([
     enrichInbox(session, rows, today),
@@ -582,11 +596,34 @@ export async function decisionsWorkspace(session: DecisionsSession, tab: Decisio
   ]);
   const mine = prioritize(items.filter((i) => i.assignment !== 'ELIGIBLE'));
   const alsoEligible = prioritize(items.filter((i) => i.assignment === 'ELIGIBLE'));
+  // Caixa VAZIA (sucesso, zero decisões): o contexto que faz o vazio ser lido
+  // como o que é — nada pendente —, e não como tela quebrada.
+  const empty = tab === 'minhas' && mine.length === 0 && alsoEligible.length === 0;
+  const [setup, recent] = empty
+    ? await Promise.all([decisionSetup(session.organizationId, today), completedView(session, 5)])
+    : [null, null];
   return {
     generatedAt: new Date().toISOString(), today, viewerId: session.user.id, tab, mine, alsoEligible, team, completed,
     counts: { mine: mine.length, overdue: mine.filter((i) => i.overdue).length, alsoEligible: alsoEligible.length },
-    categories: categoryCounts([...mine, ...alsoEligible]), teamScope,
+    categories: categoryCounts([...mine, ...alsoEligible]), teamScope, setup, recent,
   };
+}
+
+/** Políticas de aprovação ATIVAS e alçadas de compra VIGENTES na organização (só contagem). */
+async function decisionSetup(org: string, today: string): Promise<{ policies: number; authorities: number }> {
+  const service = platformServiceClient();
+  const [pol, auth] = await Promise.all([
+    service.from('approval_policy_versions').select('id', { count: 'exact', head: true })
+      .eq('organization_id', org).eq('status', 'ACTIVE'),
+    service.from('procurement_approval_authorities').select('id', { count: 'exact', head: true })
+      .eq('organization_id', org).eq('active', true).is('revoked_at', null)
+      .or([
+        'and(effective_from.is.null,effective_until.is.null)', `and(effective_from.is.null,effective_until.gte.${today})`,
+        `and(effective_from.lte.${today},effective_until.is.null)`, `and(effective_from.lte.${today},effective_until.gte.${today})`,
+      ].join(',')),
+  ]);
+  if (pol.error || auth.error) throw new DecisionsReadError('Não foi possível ler a configuração de decisões.');
+  return { policies: pol.count ?? 0, authorities: auth.count ?? 0 };
 }
 
 // ---------------------------------------------------------------------------
