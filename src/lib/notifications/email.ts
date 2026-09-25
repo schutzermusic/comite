@@ -7,8 +7,9 @@
  * própria (agenda, folha, ASO, medições, faturamento, ponto): seis remetentes,
  * seis jeitos de falhar e nenhum com chave de idempotência — um envio que o
  * processo não chegou a registrar virava segundo e-mail na retentativa. Este é
- * o primeiro módulo compartilhado. Os seis continuam como estão (dívida
- * registrada); o que nasce depois dele, Decisões primeiro, passa por aqui.
+ * o primeiro módulo compartilhado: Decisões nasceu nele; Agenda e a folha
+ * vieram para cá quando deixaram de aceitar conteúdo do navegador. ASO,
+ * medições, faturamento e ponto ainda usam o SDK direto (dívida registrada).
  *
  * ─── Três transportes, escolhidos pelo AMBIENTE, nunca pelo chamador ────
  *
@@ -56,8 +57,13 @@ export class EmailPermanentError extends Error {
   }
 }
 
-/** Anexo textual gerado pelo servidor (ex.: o .ics do convite). */
-export interface AppEmailAttachment { filename: string; content: string; contentType: string }
+/**
+ * Anexo montado pelo SERVIDOR: texto gerado aqui (o .ics do convite) ou bytes
+ * lidos do armazenamento seguro (os anexos da folha). Nunca bytes do navegador.
+ */
+export type AppEmailAttachment =
+  | { filename: string; contentType: string; content: string; bytes?: undefined }
+  | { filename: string; contentType: string; bytes: Uint8Array; content?: undefined };
 export interface AppEmailMessage { to: string; subject: string; html: string; text: string; attachments?: AppEmailAttachment[] }
 export interface AppEmailOptions {
   /** Estável por AVISO, não por tentativa: é ela que impede o segundo e-mail. */
@@ -160,7 +166,7 @@ async function sendViaResend(msg: AppEmailMessage, idempotencyKey: string, env: 
   try {
     response = await new Resend(apiKey).emails.send(
       { from: emailSender(env), to: [msg.to], subject: msg.subject, html: msg.html, text: msg.text,
-        attachments: msg.attachments?.map((a) => ({ filename: a.filename, content: base64(a.content), contentType: a.contentType })) },
+        attachments: msg.attachments?.map((a) => ({ filename: a.filename, content: base64(a), contentType: a.contentType })) },
       { idempotencyKey },
     );
   } catch {
@@ -192,7 +198,7 @@ async function sendViaCapture(msg: AppEmailMessage, idempotencyKey: string, env:
         Headers: { 'X-Apex-Idempotency-Key': idempotencyKey },
         Tags: ['apex'],
         ...(msg.attachments?.length
-          ? { Attachments: msg.attachments.map((a) => ({ Filename: a.filename, Content: base64(a.content), ContentType: a.contentType })) }
+          ? { Attachments: msg.attachments.map((a) => ({ Filename: a.filename, Content: base64(a), ContentType: a.contentType })) }
           : {}),
       }),
       signal: AbortSignal.timeout(10_000),
@@ -209,7 +215,8 @@ async function sendViaCapture(msg: AppEmailMessage, idempotencyKey: string, env:
   return { outcome: 'SENT', provider: 'capture', messageId: typeof body?.ID === 'string' ? body.ID : null };
 }
 
-const base64 = (text: string) => Buffer.from(text, 'utf-8').toString('base64');
+const base64 = (a: AppEmailAttachment) =>
+  (a.bytes !== undefined ? Buffer.from(a.bytes) : Buffer.from(a.content, 'utf-8')).toString('base64');
 
 /** "INSIGHT APEX <no-reply@insightapex.co>" → { Name, Email }. */
 function mailbox(from: string): { Email: string; Name?: string } {

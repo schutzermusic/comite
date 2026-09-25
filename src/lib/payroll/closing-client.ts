@@ -13,7 +13,7 @@
 'use client';
 
 import * as store from '@/lib/payroll/payroll-closing-store';
-import { blobToBase64, sendPayrollEmail, type SendEmailResponse } from '@/lib/payroll/client';
+import { sendPayrollEmail, type PayrollRecipientRef, type SendEmailResponse } from '@/lib/payroll/client';
 import { injectPayrollBatch, getCostCenters, createCostCenter } from '@/lib/finance/finance-store';
 import {
   getCostCenterMappings, saveCostCenterMappings as saveLocalMappings,
@@ -114,6 +114,11 @@ export async function saveReport(batchId: string, input: { report_type: PayrollR
   });
 }
 
+/**
+ * Relatório gerado anexável. No modo demonstração fica no navegador (nada sai
+ * dele); no modo real o SERVIDOR o monta dos números e da narrativa guardados —
+ * o HTML do navegador não vira anexo.
+ */
 export async function addGeneratedAttachment(batchId: string, input: { file_name: string; file_type: PayrollAttachmentFileType; mime_type: string; html: string; security_level?: PayrollSecurityLevel }): Promise<void> {
   if (!isSupabase()) {
     store.addGeneratedAttachment(batchId, { file_name: input.file_name, file_type: input.file_type, mime_type: input.mime_type, security_level: input.security_level, blob: new Blob([input.html], { type: input.mime_type }) });
@@ -121,7 +126,7 @@ export async function addGeneratedAttachment(batchId: string, input: { file_name
   }
   await jsonFetch(`/api/payroll/batches/${batchId}/actions`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'add_generated_attachment', file_name: input.file_name, file_type: input.file_type, mime_type: input.mime_type, content: input.html, encoding: 'utf8', security_level: input.security_level }),
+    body: JSON.stringify({ action: 'add_generated_attachment', file_type: input.file_type }),
   });
 }
 
@@ -178,43 +183,35 @@ export async function getDispatches(batchId: string): Promise<PayrollEmailDispat
 // ── E-mail send (handles both attachment sources) ───────────
 export interface SendArgs {
   batchId: string;
-  subject: string;
-  html: string;
-  recipients: string[];
-  cc?: string[];
   audience: PayrollEmailAudience;
+  /** Referências — o endereço é resolvido pelo servidor. */
+  to: PayrollRecipientRef[];
+  cc: PayrollRecipientRef[];
   attachmentIds: string[];
   confirmSensitive: boolean;
+  /** Uma por clique: repetir a mesma intenção não manda de novo. */
+  requestId: string;
   test: boolean;
+  /** Só no modo demonstração: o que registrar localmente (nada sai do navegador). */
+  demo?: { subject: string; html: string; to: string[]; cc: string[] };
 }
 
 export async function sendEmail(args: SendArgs): Promise<SendEmailResponse> {
   if (isSupabase()) {
-    // Server loads bytes from Storage by id, records the dispatch + audit.
     return sendPayrollEmail({
-      subject: args.subject, html: args.html, recipients: args.recipients, cc: args.cc,
-      attachments: [], // not used in supabase mode — server loads from Storage
-      attachment_ids: args.attachmentIds, batch_id: args.batchId, audience: args.audience,
-      confirm_sensitive: args.confirmSensitive, test: args.test,
+      batchId: args.batchId, audience: args.audience, to: args.to, cc: args.cc, attachmentIds: args.attachmentIds,
+      confirmSensitive: args.confirmSensitive, requestId: args.requestId, test: args.test,
     });
   }
-  // Mock mode: read blobs from the store, base64 inline, then record dispatch locally.
+  // Modo demonstração: tudo mora no navegador, e NADA vai para o servidor de
+  // e-mail — o envio é registrado como simulado, aqui mesmo.
   const atts = store.getAttachments(args.batchId).filter((a) => args.attachmentIds.includes(a.id));
-  const attachments = await Promise.all(atts.map(async (a) => {
-    const blob = store.getAttachmentBlob(a.id);
-    const content_base64 = blob ? await blobToBase64(blob) : '';
-    return { file_name: a.file_name, content_base64, mime_type: a.mime_type, file_size: a.file_size };
-  }));
-  const res = await sendPayrollEmail({ subject: args.subject, html: args.html, recipients: args.recipients, cc: args.cc, attachments, test: args.test });
-  if (res.ok && !args.test) {
-    const pkg = store.buildEmailPackage(args.batchId, { audience: args.audience, subject: args.subject, html_body: args.html, attachment_ids: args.attachmentIds });
-    store.recordDispatch({
-      package_id: pkg.id, recipients: args.recipients, cc: args.cc,
-      delivery_status: res.delivery_status ?? 'simulated', provider_message_id: res.provider_message_id,
-      attachments_sent: res.attachments_sent ?? atts.map((a) => ({ file_name: a.file_name, file_size: a.file_size })),
-    });
+  const attachments_sent = atts.map((a) => ({ file_name: a.file_name, file_size: a.file_size }));
+  if (!args.test && args.demo) {
+    const pkg = store.buildEmailPackage(args.batchId, { audience: args.audience, subject: args.demo.subject, html_body: args.demo.html, attachment_ids: args.attachmentIds });
+    store.recordDispatch({ package_id: pkg.id, recipients: args.demo.to, cc: args.demo.cc, delivery_status: 'simulated', attachments_sent });
   }
-  return res;
+  return { ok: true, delivery_status: 'simulated', reason: 'Modo demonstração — nenhum e-mail sai do navegador.', attachments_sent };
 }
 
 // ── Cost-center mapping aliases ─────────────────────────────

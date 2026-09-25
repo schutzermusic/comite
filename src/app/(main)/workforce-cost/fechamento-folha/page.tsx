@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import {
@@ -35,6 +35,7 @@ import type {
 } from '@/lib/types/payroll-closing';
 import { ExportReportButton } from '@/components/reports/ExportReportButton';
 import { EsocialControlPanel } from '@/components/workforce/EsocialControlPanel';
+import { PayrollRecipientPicker, selectionToRefs, type RecipientSelection } from '@/components/workforce/PayrollRecipientPicker';
 import { openPayrollClosingReport } from '@/lib/reports/modules/payroll-closing-report';
 
 const STEPS = [
@@ -109,6 +110,16 @@ interface ConfirmConfig {
  */
 type FechamentoView = 'fechamento' | 'esocial';
 
+/** UUID v4 também fora de contexto seguro (http em rede local), onde `crypto.randomUUID` não existe. */
+function newRequestId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  const b = new Uint8Array(16);
+  crypto.getRandomValues(b);
+  b[6] = (b[6] & 0x0f) | 0x40; b[8] = (b[8] & 0x3f) | 0x80;
+  const h = Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
 function FechamentoFolhaPageInner() {
   const { notify } = useHudToast();
   const searchParams = useSearchParams();
@@ -127,6 +138,12 @@ function FechamentoFolhaPageInner() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [presetIdx, setPresetIdx] = useState(0);
   const [confirmSensitive, setConfirmSensitive] = useState(false);
+  // Modo real: destinatários escolhidos da lista do servidor (referências).
+  const [recipientSel, setRecipientSel] = useState<RecipientSelection>({});
+  // A MESMA intenção reusa a MESMA chave: repetir após falha parcial não
+  // reenvia a quem já recebeu. Intenção diferente (ou envio concluído) → chave nova.
+  const sendKeyRef = useRef<{ intent: string; id: string } | null>(null);
+  // Modo demonstração: endereços livres — o envio é simulado no navegador.
   const [recipients, setRecipients] = useState('');
   const [cc, setCc] = useState('');
   const [dispatches, setDispatches] = useState<PayrollEmailDispatch[]>([]);
@@ -451,7 +468,10 @@ function FechamentoFolhaPageInner() {
     if (!batch || !parse) return;
     setBusy('ai');
     try {
-      const res = await requestNarrative(parse);
+      const live = closing.repositoryMode() === 'supabase';
+      // Modo real: o servidor lê os números GUARDADOS, guarda a narrativa e gera
+      // os relatórios anexáveis. Modo demonstração: prévia local.
+      const res = await requestNarrative(parse, live ? batch.id : undefined);
       if (!res.ok || !res.narrative) {
         notify('Falha na análise', { variant: 'error', description: res.error });
         return;
@@ -471,16 +491,19 @@ function FechamentoFolhaPageInner() {
       await closing.saveReport(batch.id, { report_type: 'executive_email', generated_text: buildEmailText({ parse, narrative: nar, audience: 'custom' }), generated_html: html, generated_by_ai: nar.generated_by_ai, ...aiProvenance });
       await closing.saveReport(batch.id, { report_type: 'board_summary', generated_text: nar.board_summary, generated_html: '', generated_by_ai: nar.generated_by_ai, ...aiProvenance });
 
-      // Generate executive PDF (print-ready HTML) + dashboard snapshot as attachments
-      const reportHtml = buildExecutiveReportHtml(parse, nar);
-      await closing.addGeneratedAttachment(batch.id, {
-        file_name: `relatorio-executivo-folha-${parse.competence_month}.html`,
-        file_type: 'executive_pdf', mime_type: 'text/html', security_level: 'aggregate', html: reportHtml,
-      });
-      await closing.addGeneratedAttachment(batch.id, {
-        file_name: `dashboard-folha-${parse.competence_month}.html`,
-        file_type: 'dashboard_snapshot', mime_type: 'text/html', security_level: 'aggregate', html,
-      });
+      // Relatório executivo + painel anexáveis: no modo real o servidor já os
+      // gerou; no modo demonstração ficam no navegador.
+      if (!live) {
+        const reportHtml = buildExecutiveReportHtml(parse, nar);
+        await closing.addGeneratedAttachment(batch.id, {
+          file_name: `relatorio-executivo-folha-${parse.competence_month}.html`,
+          file_type: 'executive_pdf', mime_type: 'text/html', security_level: 'aggregate', html: reportHtml,
+        });
+        await closing.addGeneratedAttachment(batch.id, {
+          file_name: `dashboard-folha-${parse.competence_month}.html`,
+          file_type: 'dashboard_snapshot', mime_type: 'text/html', security_level: 'aggregate', html,
+        });
+      }
       await refreshAttachments(batch.id);
 
       notify(nar.generated_by_ai ? 'Análise gerada pela IA' : 'Rascunho automático gerado (sem IA)', {
@@ -528,9 +551,11 @@ function FechamentoFolhaPageInner() {
   const doSend = useCallback(
     async (test: boolean) => {
       if (!batch || !parse) return;
-      const recipientList = recipients.split(/[,;\n]/).map((s) => s.trim()).filter(Boolean);
-      if (recipientList.length === 0) {
-        notify('Informe ao menos um destinatário.', { variant: 'warning' });
+      const live = closing.repositoryMode() === 'supabase';
+      const refs = selectionToRefs(recipientSel);
+      const demoTo = recipients.split(/[,;\n]/).map((s) => s.trim()).filter(Boolean);
+      if (live ? refs.to.length === 0 : demoTo.length === 0) {
+        notify('Escolha ao menos um destinatário em "Para".', { variant: 'warning' });
         return;
       }
       if (!test && hasSensitive && !confirmSensitive) {
@@ -540,26 +565,35 @@ function FechamentoFolhaPageInner() {
       setBusy(test ? 'test' : 'send');
       try {
         const audience = PACKAGE_PRESETS[presetIdx].audience;
-        const html = buildEmailHtml({ parse, narrative, audience });
-        const ccList = cc.split(/[,;\n]/).map((s) => s.trim()).filter(Boolean);
+        const intentKey = JSON.stringify([batch.id, audience, [...refs.to.map((r) => `${r.type}:${r.id}`)].sort(),
+          [...refs.cc.map((r) => `${r.type}:${r.id}`)].sort(), [...selectedIds].sort(), confirmSensitive || !hasSensitive]);
+        if (!sendKeyRef.current || sendKeyRef.current.intent !== intentKey) sendKeyRef.current = { intent: intentKey, id: newRequestId() };
         const res = await closing.sendEmail({
-          batchId: batch.id, subject: `Fechamento da Folha — ${parse.competence_month}`,
-          html, recipients: recipientList, cc: ccList, audience,
-          attachmentIds: selectedIds, confirmSensitive: confirmSensitive || !hasSensitive, test,
+          batchId: batch.id, audience, to: refs.to, cc: refs.cc,
+          attachmentIds: selectedIds, confirmSensitive: confirmSensitive || !hasSensitive,
+          requestId: sendKeyRef.current.id, test,
+          demo: live ? undefined : {
+            subject: `Fechamento da Folha — ${parse.competence_month}`, html: buildEmailHtml({ parse, narrative, audience }),
+            to: demoTo, cc: cc.split(/[,;\n]/).map((s) => s.trim()).filter(Boolean),
+          },
         });
+        if (!test) setDispatches(await closing.getDispatches(batch.id));
         if (!res.ok) {
-          notify('Envio falhou', { variant: 'error', description: res.message || res.error });
+          notify(res.delivery_status === 'partial' ? 'Envio parcial' : 'Envio falhou', {
+            variant: 'error',
+            description: res.error || res.message || 'Repita o envio — quem já recebeu não recebe de novo.',
+          });
           return;
         }
-        setDispatches(await closing.getDispatches(batch.id));
+        if (!test) sendKeyRef.current = null;
         const simulated = res.delivery_status === 'simulated';
         notify(
-          test ? 'E-mail de teste processado' : simulated ? 'Envio simulado registrado' : 'E-mail enviado',
+          test ? 'Ensaio concluído — nada foi enviado' : simulated ? 'Envio simulado registrado' : 'E-mail enviado',
           {
             variant: simulated ? 'info' : 'success',
             description: simulated
-              ? `${(res.attachments_sent ?? []).length} anexo(s) — ${res.reason ?? 'modo simulado'}`
-              : `Provider: ${res.provider_message_id ?? '—'}`,
+              ? `${res.recipients ?? 0} destinatário(s) · ${(res.attachments_sent ?? []).length} anexo(s) — ${res.reason ?? 'modo simulado'}`
+              : `${res.recipients ?? 0} destinatário(s) · Provider: ${res.provider_message_id ?? '—'}`,
           },
         );
       } catch (err) {
@@ -568,7 +602,7 @@ function FechamentoFolhaPageInner() {
         setBusy(null);
       }
     },
-    [batch, parse, narrative, recipients, cc, hasSensitive, confirmSensitive, presetIdx, selectedIds, notify],
+    [batch, parse, narrative, recipientSel, recipients, cc, hasSensitive, confirmSensitive, presetIdx, selectedIds, notify],
   );
 
   // ── Step 6: finance ───────────────────────────────────────
@@ -1137,19 +1171,26 @@ function FechamentoFolhaPageInner() {
 
       {/* STEP 5 — Email */}
       {step === 5 && (
-        <HudPanel title="5. Envio por E-mail" subtitle="Anexos diretos. Sem RESEND_API_KEY o envio é simulado." icon={<Send className="w-4 h-4" />}>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
-            <label className="flex flex-col gap-1 text-sm">
-              <span className="text-ig-fg-subtle">Destinatários (separados por vírgula)</span>
-              <input value={recipients} onChange={(e) => setRecipients(e.target.value)} placeholder="diretoria@empresa.com, financeiro@empresa.com"
-                className="rounded-lg border border-ig-border-subtle bg-transparent px-3 py-2" />
-            </label>
-            <label className="flex flex-col gap-1 text-sm">
-              <span className="text-ig-fg-subtle">CC</span>
-              <input value={cc} onChange={(e) => setCc(e.target.value)}
-                className="rounded-lg border border-ig-border-subtle bg-transparent px-3 py-2" />
-            </label>
-          </div>
+        <HudPanel title="5. Envio por E-mail" subtitle="Destinatários da organização ou autorizados; conteúdo e remetente do servidor. Sem transporte configurado o envio é simulado." icon={<Send className="w-4 h-4" />}>
+          {closing.repositoryMode() === 'supabase' ? (
+            <div className="mb-4">
+              <PayrollRecipientPicker value={recipientSel} onChange={setRecipientSel} notify={notify} />
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+              <div className="sm:col-span-2 text-xs text-amber-300">Modo demonstração — o envio é simulado no navegador; nenhum e-mail sai.</div>
+              <label className="flex flex-col gap-1 text-sm">
+                <span className="text-ig-fg-subtle">Destinatários (separados por vírgula)</span>
+                <input value={recipients} onChange={(e) => setRecipients(e.target.value)} placeholder="diretoria@empresa.com, financeiro@empresa.com"
+                  className="rounded-lg border border-ig-border-subtle bg-transparent px-3 py-2" />
+              </label>
+              <label className="flex flex-col gap-1 text-sm">
+                <span className="text-ig-fg-subtle">CC</span>
+                <input value={cc} onChange={(e) => setCc(e.target.value)}
+                  className="rounded-lg border border-ig-border-subtle bg-transparent px-3 py-2" />
+              </label>
+            </div>
+          )}
 
           <div className="rounded-xl border border-ig-border-subtle p-3 mb-4 text-xs text-ig-fg-subtle">
             <div className="mb-1">Assunto: <strong className="text-ig-fg-strong">Fechamento da Folha — {parse?.competence_month}</strong></div>
@@ -1157,7 +1198,7 @@ function FechamentoFolhaPageInner() {
           </div>
 
           <div className="flex gap-2 justify-end">
-            <HudButton variant="secondary" isLoading={busy === 'test'} onClick={() => doSend(true)}>Enviar teste</HudButton>
+            <HudButton variant="secondary" isLoading={busy === 'test'} onClick={() => doSend(true)}>Ensaiar envio</HudButton>
             <HudButton variant="primary" isLoading={busy === 'send'} leftIcon={<Send className="w-4 h-4" />} onClick={() => doSend(false)}>Enviar e-mail final</HudButton>
           </div>
 

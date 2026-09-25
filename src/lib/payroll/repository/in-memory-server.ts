@@ -10,12 +10,13 @@
 import type {
   PayrollAttachment, PayrollClosingBatch, PayrollClosingBatchApproved,
   PayrollCostCenterMapping, PayrollEmailDispatch, PayrollEmailPackage,
-  PayrollGeneratedReport, PayrollImportFile, PayrollParseResult,
+  PayrollGeneratedReport, PayrollImportFile, PayrollNarrative, PayrollParseResult,
 } from '@/lib/types/payroll-closing';
+import { factsToParse } from '@/lib/payroll/email-intent';
 import {
   IMPORT_TYPE_MAP,
   type AttachmentBytes, type AuditInput, type CreateBatchInput, type CreateFinanceCostCenterInput,
-  type CreatePackageInput, type DeleteBatchResult, type FinanceCostCenterRecord, type FinancePayrollBatchRecord,
+  type CreateEmailContactInput, type CreatePackageInput, type DeleteBatchResult, type PayrollEmailContact, type PayrollEmailFacts, type FinanceCostCenterRecord, type FinancePayrollBatchRecord,
   type GeneratedAttachmentInput, type PayrollRepository,
   type RecordDispatchInput, type RemoveAttachmentResult, type RepoActor,
   type SaveReportInput, type SendToFinanceOptions, type SendToFinanceResult,
@@ -39,6 +40,10 @@ let dispatches: PayrollEmailDispatch[] = [];
 let mappings: PayrollCostCenterMapping[] = [];
 let financeCostCenters: FinanceCostCenterRecord[] = [];
 const blobs = new Map<string, Buffer>();
+const parses = new Map<string, PayrollParseResult>();
+const narratives = new Map<string, PayrollNarrative>();
+let contacts: Array<PayrollEmailContact & { organization_id: string; revoked_at?: string }> = [];
+const requestPackages = new Map<string, string>();
 let seq = 0;
 const uid = (p: string) => `${p}-${Date.now().toString(36)}-${++seq}`;
 const now = () => new Date().toISOString();
@@ -120,6 +125,8 @@ export class InMemoryServerRepository implements PayrollRepository {
 
   async saveParsedPayrollData(_actor: RepoActor, batchId: string, parse: PayrollParseResult): Promise<PayrollClosingBatch> {
     const hasError = parse.flags.some((f) => f.severity === 'error');
+    parses.set(batchId, parse);
+    narratives.delete(batchId);
     return this.patch(batchId, {
       competence_month: parse.competence_month || batches.find((b) => b.id === batchId)?.competence_month || '',
       total_amount_cents: parse.total_amount_cents, previous_month_amount_cents: parse.previous_month_amount_cents,
@@ -141,13 +148,73 @@ export class InMemoryServerRepository implements PayrollRepository {
     return r;
   }
 
+  async findEmailPackageByRequest(actor: RepoActor, requestId: string): Promise<PayrollEmailPackage | null> {
+    const id = requestPackages.get(`${actor.organizationId}:${requestId}`);
+    return (id && packages.find((p) => p.id === id)) || null;
+  }
+
   async createEmailPackage(actor: RepoActor, batchId: string, input: CreatePackageInput): Promise<PayrollEmailPackage> {
+    if (input.request_id) {
+      const existing = await this.findEmailPackageByRequest(actor, input.request_id);
+      if (existing) return existing;
+    }
     const p: PayrollEmailPackage = {
       id: uid('pep'), batch_id: batchId, audience: input.audience, subject: input.subject,
       html_body: input.html_body, attachment_ids: input.attachment_ids, status: 'draft', created_by: actor.userId,
     };
     packages = [p, ...packages];
+    if (input.request_id) requestPackages.set(`${actor.organizationId}:${input.request_id}`, p.id);
     return p;
+  }
+
+  async getEmailFacts(actor: RepoActor, batchId: string): Promise<PayrollEmailFacts | null> {
+    const batch = batches.find((b) => b.id === batchId && b.organization_id === actor.organizationId && !b.deleted_at);
+    if (!batch) return null;
+    const saved = parses.get(batchId);
+    const parse = factsToParse(batch as unknown as Record<string, unknown>,
+      (saved?.cost_centers ?? []).map((c) => ({ ...c, matched_cost_center_id: c.cost_center_id })),
+      (saved?.employees ?? []).map((e) => e.contract_type ?? null));
+    parse.flags = saved?.flags ?? [];
+    parse.reconciled = saved?.reconciled ?? true;
+    return { batch, parse, narrative: narratives.get(batchId) ?? null };
+  }
+
+  async saveNarrative(actor: RepoActor, batchId: string, narrative: PayrollNarrative): Promise<void> {
+    if (!batches.some((b) => b.id === batchId && b.organization_id === actor.organizationId)) {
+      throw new Error('saveNarrative: fechamento não encontrado nesta organização.');
+    }
+    narratives.set(batchId, narrative);
+  }
+
+  async listActiveMembers(): Promise<Array<{ user_id: string; full_name: string; email: string }>> {
+    // Modo de desenvolvimento sem banco: não há diretório de vínculos. Só contatos.
+    return [];
+  }
+
+  async deliveredRecipients(): Promise<Set<string>> {
+    return new Set();
+  }
+
+  async listEmailContacts(actor: RepoActor): Promise<PayrollEmailContact[]> {
+    return contacts.filter((c) => c.organization_id === actor.organizationId && !c.revoked_at)
+      .map(({ id, email, display_name, created_by, created_at }) => ({ id, email, display_name, created_by, created_at }));
+  }
+
+  async addEmailContact(actor: RepoActor, input: CreateEmailContactInput): Promise<PayrollEmailContact> {
+    if (contacts.some((c) => c.organization_id === actor.organizationId && !c.revoked_at && c.email.toLowerCase() === input.email.toLowerCase())) {
+      throw new Error('CONTACT_EXISTS: este endereço já está autorizado.');
+    }
+    const c = { id: crypto.randomUUID(), organization_id: actor.organizationId, email: input.email, display_name: input.display_name,
+      created_by: actor.userId, created_at: now() };
+    contacts = [...contacts, c];
+    return { id: c.id, email: c.email, display_name: c.display_name, created_by: c.created_by, created_at: c.created_at };
+  }
+
+  async revokeEmailContact(actor: RepoActor, id: string): Promise<boolean> {
+    const i = contacts.findIndex((c) => c.id === id && c.organization_id === actor.organizationId && !c.revoked_at);
+    if (i === -1) return false;
+    contacts[i] = { ...contacts[i], revoked_at: now() };
+    return true;
   }
 
   async recordDispatch(actor: RepoActor, input: RecordDispatchInput): Promise<PayrollEmailDispatch> {
@@ -232,6 +299,8 @@ export class InMemoryServerRepository implements PayrollRepository {
 
   async invalidateParse(_actor: RepoActor, id: string): Promise<PayrollClosingBatch> {
     reports = reports.filter((r) => r.batch_id !== id);
+    parses.delete(id);
+    narratives.delete(id);
     attachments = attachments.filter((a) => !(a.batch_id === id && a.storage_path.includes('/generated/')));
     return this.patch(id, { status: 'imported', total_amount_cents: 0, previous_month_amount_cents: 0, variation_amount_cents: 0, variation_percentage: 0 });
   }

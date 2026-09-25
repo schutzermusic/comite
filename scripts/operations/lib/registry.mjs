@@ -139,6 +139,8 @@ export const OPERATIONS_REGISTRY = {
   // notification_mark_read/mark_all_read/dismiss e create_notification são do navegador, por desenho.
   '242': { tables: ['notifications'], ledgers: [], functions: ['create_notification_for(uuid,uuid,text,text,text,text)',
     'notification_recipient_is_active_member(uuid,uuid)'], permissions: [] },
+  // 243: contatos externos do e-mail da folha — leitura governada, escrita só do servidor.
+  '243': { tables: ['payroll_email_contacts'], ledgers: [], functions: ['payroll_email_member_directory(uuid)'], permissions: [] },
 };
 
 /** Portas do navegador de Decisões: identidade de auth.uid(), sem parâmetro de ator — liberadas de propósito. */

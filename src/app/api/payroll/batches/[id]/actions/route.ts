@@ -3,6 +3,8 @@ import { resolvePayrollActor } from '@/lib/payroll/repository/actor';
 import { requireApiPermission } from '@/lib/auth/api-guard';
 import { getServerRepository } from '@/lib/payroll/repository';
 import { batchActionRules, type BatchAction } from '@/lib/payroll/batch-actions';
+import { GENERATED_ARTIFACT_TYPES, generateBatchArtifacts, type GeneratedArtifactType } from '@/lib/payroll/generated-artifacts-server';
+import { sanitizeParseForSave } from '@/lib/payroll/email-intent';
 import type { PayrollParseResult } from '@/lib/types/payroll-closing';
 
 export const runtime = 'nodejs';
@@ -11,7 +13,7 @@ export const dynamic = 'force-dynamic';
 type ActionBody =
   | { action: 'save_parse'; parse: PayrollParseResult }
   | { action: 'save_report'; report_type: string; generated_text: string; generated_html: string; generated_by_ai: boolean; ai_provider?: string; ai_model?: string; ai_input_tokens?: number; ai_output_tokens?: number }
-  | { action: 'add_generated_attachment'; file_name: string; file_type: string; mime_type: string; content: string; encoding?: 'utf8' | 'base64'; security_level?: string }
+  | { action: 'add_generated_attachment'; file_type: string; content?: unknown; encoding?: unknown }
   | { action: 'create_package'; audience: string; subject: string; html_body: string; attachment_ids: string[] }
   | { action: 'approve' }
   | { action: 'send_to_finance'; override?: boolean; override_reason?: string }
@@ -41,7 +43,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   try {
     switch (body.action) {
       case 'save_parse': {
-        const batch = await repo.saveParsedPayrollData(r.actor, id, body.parse);
+        // A planilha é lida no navegador; o que ela produziu vira texto de e-mail
+        // e de relatório — validado aqui antes de guardar.
+        const clean = sanitizeParseForSave(body.parse);
+        if (!clean.ok) return NextResponse.json({ ok: false, error: clean.error }, { status: 400 });
+        const batch = await repo.saveParsedPayrollData(r.actor, id, clean.parse);
         return NextResponse.json({ ok: true, batch });
       }
       case 'save_report': {
@@ -63,11 +69,18 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         return NextResponse.json({ ok: true, report });
       }
       case 'add_generated_attachment': {
-        const bytes = Buffer.from(body.content, body.encoding === 'base64' ? 'base64' : 'utf8');
-        const attachment = await repo.addGeneratedAttachment(r.actor, id, {
-          file_name: body.file_name, file_type: body.file_type as never, mime_type: body.mime_type,
-          bytes, security_level: body.security_level as never,
-        });
+        // O relatório gerado é do SERVIDOR: montado dos números e da narrativa
+        // guardados. Conteúdo vindo do navegador não vira anexo (e depois
+        // e-mail) — é recusado, não ignorado.
+        if (body.content !== undefined || body.encoding !== undefined) {
+          return NextResponse.json({ ok: false, error: 'O conteúdo do relatório gerado é montado pelo servidor.' }, { status: 400 });
+        }
+        if (!GENERATED_ARTIFACT_TYPES.includes(body.file_type as GeneratedArtifactType)) {
+          return NextResponse.json({ ok: false, error: 'Tipo de relatório gerado inválido.' }, { status: 400 });
+        }
+        const facts = await repo.getEmailFacts(r.actor, id);
+        if (!facts) return NextResponse.json({ ok: false, error: 'Fechamento não encontrado.' }, { status: 404 });
+        const [attachment] = await generateBatchArtifacts(repo, r.actor, facts, [body.file_type as GeneratedArtifactType]);
         return NextResponse.json({ ok: true, attachment });
       }
       case 'create_package': {

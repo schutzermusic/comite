@@ -171,6 +171,14 @@ describe('captura (QA)', () => {
       contentType: 'text/calendar; charset=utf-8; method=REQUEST' }]);
   });
 
+  it('anexo binário do armazenamento (a folha) vai em base64 dos BYTES, não de texto', async () => {
+    const bytes = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0xff, 0x00, 0x80]);
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ID: 'mp-3' }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await sendAppEmail({ ...MSG, attachments: [{ filename: 'h.pdf', contentType: 'application/pdf', bytes }] }, OPTS, CAPTURE);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).Attachments[0].Content).toBe(Buffer.from(bytes).toString('base64'));
+  });
+
   it('coletor fora do ar é transitório; 400 é permanente', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('fetch failed')));
     await expect(sendAppEmail(MSG, OPTS, CAPTURE)).rejects.toBeInstanceOf(EmailTransientError);

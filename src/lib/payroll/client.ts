@@ -125,75 +125,79 @@ export interface AnalyzeResponse {
   error?: string;
 }
 
-export async function requestNarrative(parse: PayrollParseResult): Promise<AnalyzeResponse> {
+/**
+ * Narrativa do fechamento. Com `batchId` (o fluxo real) o servidor usa os
+ * números GUARDADOS do fechamento, guarda a narrativa e gera os relatórios
+ * anexáveis; sem ele, só uma prévia a partir de `parse` (modo demonstração).
+ */
+export async function requestNarrative(parse: PayrollParseResult, batchId?: string): Promise<AnalyzeResponse> {
   const res = await fetch('/api/payroll/ai/analyze', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ parse }),
+    body: JSON.stringify(batchId ? { batch_id: batchId } : { parse }),
   });
   return (await res.json()) as AnalyzeResponse;
 }
 
-export interface SendEmailInput {
-  subject: string;
-  html: string;
-  recipients: string[];
-  cc?: string[];
-  bcc?: string[];
-  attachments: Array<{ file_name: string; content_base64: string; mime_type?: string; file_size: number }>;
-  /** Supabase mode: server loads these attachments from Storage by id. */
-  attachment_ids?: string[];
-  batch_id?: string;
-  audience?: 'board' | 'finance' | 'hr' | 'custom';
-  confirm_sensitive?: boolean;
-  test?: boolean;
-}
+export type PayrollRecipientRef = { type: 'member' | 'contact'; id: string };
 
 export interface SendEmailResponse {
   ok: boolean;
-  delivery_status?: 'pending' | 'sent' | 'failed' | 'simulated';
+  delivery_status?: 'pending' | 'sent' | 'failed' | 'simulated' | 'partial';
   provider_message_id?: string;
   reason?: string;
   error?: string;
   message?: string;
+  replay?: boolean;
+  test?: boolean;
+  recipients?: number;
   attachments_sent?: Array<{ file_name: string; file_size: number }>;
   total_bytes?: number;
-  limit_bytes?: number;
 }
 
-function base64ToUint8Array(b64: string): Uint8Array {
-  const bin = atob(b64);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return bytes;
-}
-
-export async function sendPayrollEmail(input: SendEmailInput): Promise<SendEmailResponse> {
-  // When there are inline attachment bytes, send as multipart/form-data instead
-  // of base64-in-JSON. A JSON body carrying several MB of base64 gets truncated
-  // by the route handler's body parser (~10MB cap) → "Unterminated string in
-  // JSON". Multipart streams the files, avoids the ~33% base64 inflation, and
-  // sidesteps that limit entirely. Metadata travels in a single `meta` field.
-  const inlineFiles = input.attachments ?? [];
-  if (inlineFiles.length > 0) {
-    const form = new FormData();
-    const { attachments: _omit, ...meta } = input;
-    void _omit;
-    form.append('meta', JSON.stringify(meta));
-    inlineFiles.forEach((a, i) => {
-      const blob = new Blob([base64ToUint8Array(a.content_base64) as BlobPart], {
-        type: a.mime_type || 'application/octet-stream',
-      });
-      form.append(`file_${i}`, blob, a.file_name);
-    });
-    const res = await fetch('/api/payroll/email/send', { method: 'POST', body: form });
-    return (await res.json()) as SendEmailResponse;
-  }
-
+/**
+ * Pede ao servidor o envio do fechamento — uma INTENÇÃO, nunca conteúdo:
+ * destinatários por referência (membro ou contato autorizado), anexos por id
+ * do armazenamento seguro. Assunto, corpo e remetente são do servidor.
+ */
+export async function sendPayrollEmail(input: {
+  batchId: string; audience: 'board' | 'finance' | 'hr' | 'custom';
+  to: PayrollRecipientRef[]; cc: PayrollRecipientRef[]; attachmentIds: string[];
+  confirmSensitive: boolean; requestId: string; test: boolean;
+}): Promise<SendEmailResponse> {
   const res = await fetch('/api/payroll/email/send', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
+    body: JSON.stringify({
+      kind: 'payroll_closing_package', batch_id: input.batchId, audience: input.audience,
+      to: input.to, cc: input.cc, attachment_ids: input.attachmentIds,
+      confirm_sensitive: input.confirmSensitive, request_id: input.requestId, test: input.test,
+    }),
   });
   return (await res.json()) as SendEmailResponse;
+}
+
+export interface PayrollRecipientDirectory {
+  ok: boolean;
+  members: Array<{ id: string; name: string; email: string }>;
+  contacts: Array<{ id: string; name: string; email: string }>;
+  can_manage_contacts: boolean;
+  error?: string;
+}
+
+export async function getPayrollRecipients(): Promise<PayrollRecipientDirectory> {
+  const res = await fetch('/api/payroll/email/recipients');
+  return (await res.json()) as PayrollRecipientDirectory;
+}
+
+export async function authorizePayrollContact(input: { email: string; display_name: string }): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch('/api/payroll/email/contacts', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  });
+  return (await res.json()) as { ok: boolean; error?: string };
+}
+
+export async function revokePayrollContact(id: string): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch(`/api/payroll/email/contacts?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+  return (await res.json()) as { ok: boolean; error?: string };
 }

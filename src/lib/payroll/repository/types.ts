@@ -22,6 +22,7 @@ import type {
   PayrollClosingBatchApproved,
   PayrollCostCenterMapping,
   PayrollEmailAudience,
+  PayrollNarrative,
   PayrollEmailDispatch,
   PayrollEmailPackage,
   PayrollGeneratedReport,
@@ -80,6 +81,8 @@ export interface CreatePackageInput {
   subject: string;
   html_body: string;
   attachment_ids: string[];
+  /** Chave da intenção de envio (243): repetir a intenção devolve o MESMO pacote. */
+  request_id?: string;
 }
 
 export interface RecordDispatchInput {
@@ -100,6 +103,33 @@ export interface AttachmentBytes {
   file_size: number;
   security_level: PayrollSecurityLevel;
   file_type: PayrollAttachmentFileType;
+  /** O bucket de onde os bytes vieram — é ele que decide a permissão de envio (243). */
+  storage_bucket?: string;
+}
+
+/** Endereço externo autorizado a receber o fechamento (243). */
+export interface PayrollEmailContact {
+  id: string;
+  email: string;
+  display_name: string;
+  created_by: string | null;
+  created_at: string;
+}
+
+export interface CreateEmailContactInput {
+  email: string;
+  display_name: string;
+}
+
+/**
+ * O que o servidor precisa para montar o e-mail e os relatórios gerados — lido
+ * do banco, nunca do navegador. Sem linhas de funcionário nem de banco: o
+ * e-mail é agregado.
+ */
+export interface PayrollEmailFacts {
+  batch: PayrollClosingBatch;
+  parse: PayrollParseResult;
+  narrative: PayrollNarrative | null;
 }
 
 export interface SendToFinanceResult {
@@ -226,7 +256,23 @@ export interface PayrollRepository {
   saveParsedPayrollData(actor: RepoActor, batchId: string, parse: PayrollParseResult): Promise<PayrollClosingBatch>;
   saveGeneratedReport(actor: RepoActor, batchId: string, input: SaveReportInput): Promise<PayrollGeneratedReport>;
 
+  /** Idempotente por `request_id`: a mesma intenção devolve o pacote existente. */
   createEmailPackage(actor: RepoActor, batchId: string, input: CreatePackageInput): Promise<PayrollEmailPackage>;
+  /** Pacote já criado para esta intenção de envio, se houver. */
+  findEmailPackageByRequest(actor: RepoActor, requestId: string): Promise<PayrollEmailPackage | null>;
+
+  // ── E-mail governado (243) ──
+  /** Números e narrativa do fechamento, como o servidor os guardou. */
+  getEmailFacts(actor: RepoActor, batchId: string): Promise<PayrollEmailFacts | null>;
+  /** Guarda a narrativa gerada pelo servidor (IA ou modelo determinístico). */
+  saveNarrative(actor: RepoActor, batchId: string, narrative: PayrollNarrative): Promise<void>;
+  listEmailContacts(actor: RepoActor): Promise<PayrollEmailContact[]>;
+  /** Membros com vínculo ATIVO na organização do ator (não o perfil de origem). */
+  listActiveMembers(actor: RepoActor): Promise<Array<{ user_id: string; full_name: string; email: string }>>;
+  /** Endereços que já receberam este pacote (auditoria do transporte) — a nova tentativa pula. */
+  deliveredRecipients(actor: RepoActor, packageId: string): Promise<Set<string>>;
+  addEmailContact(actor: RepoActor, input: CreateEmailContactInput): Promise<PayrollEmailContact>;
+  revokeEmailContact(actor: RepoActor, id: string, reason?: string): Promise<boolean>;
   recordDispatch(actor: RepoActor, input: RecordDispatchInput): Promise<PayrollEmailDispatch>;
   getDispatches(actor: RepoActor, batchId: string): Promise<PayrollEmailDispatch[]>;
 

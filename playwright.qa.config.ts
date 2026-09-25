@@ -29,9 +29,9 @@ export default defineConfig({
     contextOptions: { reducedMotion: 'reduce' },
   },
   projects: [
-    { name: 'api', testMatch: /(concurrency|roles-api|evidence|approvals|intelligence|decisions-api|agenda-email|billing-alerts)\.spec\.ts$/ },
+    { name: 'api', testMatch: /(concurrency|roles-api|evidence|approvals|intelligence|decisions-api|agenda-email|billing-alerts|payroll-email)\.spec\.ts$/ },
     {
-      name: 'desktop', testMatch: /(golden-path|roles-ui|service-order-governance|visual|decisions-ui|shell-hydration)\.spec\.ts$/,
+      name: 'desktop', testMatch: /(golden-path|roles-ui|service-order-governance|visual|decisions-ui|shell-hydration|payroll-email-ui)\.spec\.ts$/,
       use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } },
     },
     { name: 'mobile', testMatch: /(receiving-mobile|visual-mobile|decisions-mobile)\.spec\.ts$/, use: { ...devices['Pixel 7'] } },

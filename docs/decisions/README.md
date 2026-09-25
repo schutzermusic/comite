@@ -171,7 +171,8 @@ ato em tela / submissão → after() da resposta     ─┘        → decision_
    segurança do motor já em produção: vale aplicar mesmo antes do resto.
 3. `node scripts/operations/apply-240.mjs` (ensaio, 120 provas) → `--apply`.
 4. `node scripts/operations/apply-241.mjs` (ensaio) → `--apply`.
-5. `node scripts/operations/apply-242.mjs` (ensaio, 35 provas) → `--apply`
+5. `node scripts/operations/apply-242.mjs` (ensaio, 35 provas) → `--apply` e
+   `node scripts/operations/apply-243.mjs` (ensaio, 25 provas) → `--apply`
    **imediatamente antes** de publicar a aplicação: a 242 tira do navegador a
    escrita direta em `notifications`, e o sino novo marca como lida pelas RPCs
    que ela cria. Entre as duas, "marcar como lida" do sino antigo falha em
@@ -213,8 +214,10 @@ dele). Principais: delegação de alçada não suportada na caixa (o motor não
 aplica delegação sozinho e não há tela para criá-la); expiração de ETAPA não é
 materializada pelo motor; liberação de faturamento fica presa em
 `PENDING_RELEASE` se o pedido do motor for devolvido/expirar/cancelar (por
-isso "ajuste" não é oferecido nessa fonte); cinco pontos de envio de e-mail
-antigos ainda não usam o módulo compartilhado (folha, ASO, faturamento,
-medições, ponto — a Agenda passou a usá-lo); a rota de e-mail da folha ainda
-aceita remetente, HTML e destinatários do navegador (mesma classe do relay da
-Agenda, fechado na b941b80 — tarefa aberta).
+isso "ajuste" não é oferecido nessa fonte); quatro pontos de envio de e-mail
+antigos ainda não usam o módulo compartilhado (ASO, faturamento, medições,
+ponto — Agenda e folha passaram a usá-lo ao deixarem de aceitar conteúdo do
+navegador; a folha com destinatários governados pela 243). Ainda com
+destinatário escolhido pelo navegador: o resumo de ASO (`/api/workforce/
+aso-alerts`) manda dados de saúde ocupacional a qualquer endereço digitado —
+próxima correção da mesma classe.
