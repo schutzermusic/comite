@@ -57,6 +57,18 @@ export interface AttentionItem {
  */
 export interface OverviewAccess { projects: boolean; measurements: boolean; risks: boolean; serviceOrders?: boolean }
 
+/**
+ * Aditivos opcionais para quem compõe (Dashboard). Sem eles a resposta é a de
+ * sempre — a tela e a rota de Operações não carregam listas sem corte.
+ */
+export interface OverviewOptions {
+  /**
+   * `projectHealthAll` (saúde de TODOS os projetos ativos, sem o corte de 30) e
+   * `attentionByProject` (candidatos da fila por projeto, sem o corte de 40).
+   */
+  healthAll?: boolean;
+}
+
 type ActivityRow = ActivityLike & {
   id: string; project_id: string; title: string; type: string; actual_start: string | null;
   responsible_user_id: string | null; percent_complete: number | null; wbs_code: string | null;
@@ -77,7 +89,7 @@ const RISKS_LIMIT = 2000;
 /** O `.limit()` da lista de `listServiceOrders` (service-orders/read-model.ts) — só para sinalizar o corte. */
 const SERVICE_ORDERS_LIST_LIMIT = 300;
 
-export async function operationsOverview(session: Session, access: OverviewAccess, today: string) {
+export async function operationsOverview(session: Session, access: OverviewAccess, today: string, options: OverviewOptions = {}) {
   const org = session.organizationId;
   const sb = session.supabase;
   const serviceOrdersAccess = access.serviceOrders !== false;
@@ -269,6 +281,23 @@ export async function operationsOverview(session: Session, access: OverviewAcces
     }
   }
   const attentionCounts = tallyAttention(candidates);
+  /*
+    Por projeto, SEM corte: OS, medição e risco entram inteiros em `attention`
+    (o corte é o `slice(0, 40)` na saída); dependência é cortada em 15 na
+    entrada, então conta a lista inteira. Só com `options.healthAll`.
+  */
+  const attentionByProject: Record<string, { total: number; danger: number }> = {};
+  if (options.healthAll) {
+    const bump = (projectId: string | null, tone: AttentionTone) => {
+      if (!projectId) return;
+      const cur = attentionByProject[projectId] ?? { total: 0, danger: 0 };
+      attentionByProject[projectId] = { total: cur.total + 1, danger: cur.danger + (tone === 'danger' ? 1 : 0) };
+    };
+    for (const item of attention) {
+      if (item.kind === 'service_order' || item.kind === 'measurement' || item.kind === 'risk') bump(item.projectId, item.tone);
+    }
+    for (const d of overdueDependencies) bump(d.project_id, 'danger');
+  }
   const overdueByProject = groupOverdueByProject(overdueList, (id) => projects.get(id), owners);
 
   const toneRank = { danger: 0, warning: 1, accent: 2 } as const;
@@ -435,6 +464,21 @@ export async function operationsOverview(session: Session, access: OverviewAcces
     serviceOrdersTruncated: serviceOrdersAccess && readWasTruncated(serviceOrders.length, SERVICE_ORDERS_LIST_LIMIT),
     /** A leitura chegou no teto do PostgREST ou no `.limit()` — os números dela podem estar incompletos. */
     truncated,
+
+    /* ── Aditivos (Dashboard · globo) ── */
+    /** A leitura de projetos chegou no teto do PostgREST: a lista de ativos (e a saúde) pode estar incompleta. */
+    projectsTruncated: access.projects ? readWasTruncated(projectRows.length) : false,
+    /**
+     * Só com `options.healthAll`: a saúde de TODOS os projetos ativos (a lista
+     * `projectHealth` acima é cortada em 30) — a MESMA derivação, a mesma ordem.
+     */
+    projectHealthAll: access.projects && options.healthAll ? projectHealth : null,
+    /**
+     * Só com `options.healthAll`: por projeto, OS, medição, risco e dependência
+     * da fila — TODOS os candidatos (a fila `attention` corta em 40; dependência
+     * em 15). `danger` = tom perigo (vira "crítico" no Dashboard).
+     */
+    attentionByProject: options.healthAll ? attentionByProject : null,
   };
 }
 

@@ -1042,13 +1042,19 @@ const DECISION_TONE: Record<string, DecisionPreview['priority']['tone']> = {
   danger: 'danger', warning: 'warning', accent: 'accent', info: 'accent', success: 'neutral', neutral: 'neutral',
 };
 
-/** Um item da caixa → a prévia do Dashboard (valor já formatado pela mesma regra da caixa). */
+/**
+ * Um item da caixa → a prévia do Dashboard (valor já formatado pela mesma regra
+ * da caixa). `projectId` só quando a linha da caixa o carrega (pedido de compra);
+ * faturamento não tem projeto → `null`.
+ */
 export function decisionPreview(
-  item: Pick<DecisionItem, 'key' | 'kindLabel' | 'title' | 'projectName' | 'priority' | 'overdue' | 'dueAt' | 'decideBy'>,
+  item: Pick<DecisionItem, 'key' | 'kindLabel' | 'title' | 'projectName' | 'priority' | 'overdue' | 'dueAt' | 'decideBy'>
+    & { projectId?: string | null },
   opts: { href: string; amountText: string | null; amountRestricted: boolean; due: string | null },
 ): DecisionPreview {
   return {
     key: item.key,
+    projectId: item.projectId ?? null,
     href: opts.href,
     kindLabel: item.kindLabel,
     title: item.title,

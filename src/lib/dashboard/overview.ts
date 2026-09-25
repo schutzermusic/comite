@@ -13,7 +13,8 @@
  * `restricted` — nunca 0. Uma leitura que falhou volta `error` — nunca 0.
  * Cada seção roda isolada (`Promise.allSettled` + prazo): uma que cai não
  * derruba as outras. As regras de texto, gravidade, ordem e agrupamento
- * moram em `./rules` (puras e testadas).
+ * moram em `./rules` (puras e testadas); as do globo (`sites`: posição
+ * oficial → canteiro único, saúde de todo ativo, exceções por local), em `./sites`.
  */
 if (typeof window !== 'undefined') {
   throw new Error('dashboard/overview.ts não pode ser importado no navegador');
@@ -32,8 +33,12 @@ import { decisionHref, effectiveDeadline, prioritize } from '@/lib/decisions/mod
 import { amountText } from '@/components/decisions/view';
 import { DOMAIN_LABEL } from './types';
 import type {
-  CalendarItem, DashboardOverview, DecisionsModel, Domain, FeedModel, FeedRow, ProjectsModel, SectionState,
+  CalendarItem, DashboardOverview, DecisionsModel, Domain, FeedModel, FeedRow, ProjectsModel, SectionState, SitesModel,
 } from './types';
+import {
+  buildSitesSection, projectPlace,
+  type CanonicalMarkerRow, type ProjectSiteRow, type SitePositionsRead, type SiteProject, type SitesOpsInput,
+} from './sites';
 import {
   addDays, billingGate, billingRows, buildCalendar, buildFeedModel, buildStages, cappedOpsExtras, decisionPreview, isoDay,
   materialRisk, materialRow, maskedMoney, mergeFeed, mergeLaneParts, needCalendarItems, operationCalendarItems, operationPresence,
@@ -73,6 +78,14 @@ export interface DashboardGates {
   financial: boolean;
   commercial: boolean;
   contracts: boolean;
+  /**
+   * RLS de `inventory_locations` (233: inventory || supply || receiving || operations.planning
+   * || projects || operations) — os canteiros do Supply com coordenada, fonte secundária do globo.
+   * (Opcional no tipo só para não quebrar objetos de portão montados à mão; `resolveGates` sempre preenche.)
+   */
+  projectSites?: boolean;
+  /** Abre o cadastro de locais do Supply (`/supply/estoque?view=locais`): inventory.view || supply.view. */
+  siteRegistry?: boolean;
 }
 
 const PERMISSION_KEYS = [
@@ -112,6 +125,9 @@ export async function resolveGates(session: Session): Promise<DashboardGates> {
     financial: fin.data === true,
     commercial: has['commercial.view'],
     contracts: has['contracts.view'],
+    projectSites: has['inventory.view'] || has['supply.view'] || has['receiving.view'] || has['operations.planning.view']
+      || has['projects.view'] || has['operations.view'],
+    siteRegistry: has['inventory.view'] || has['supply.view'],
   };
 }
 
@@ -125,13 +141,21 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   return Promise.race([p, timeout]).finally(() => { if (timer) clearTimeout(timer); });
 }
 
+/**
+ * Prazo da caixa de Decisões. A projeção canônica (`decision_inbox_for_viewer`)
+ * leva ~5 s no QA (dívida da própria função, fora deste painel): com o prazo
+ * geral de 6 s, qualquer carga a fazia "não carregar". As demais seções seguem em 6 s.
+ */
+export const INBOX_SECTION_TIMEOUT_MS = 10_000;
+
 async function runSection<T>(
   gate: boolean, label: string, run: () => Promise<T>, timings: Record<string, number> | undefined, key: string,
+  timeoutMs = SECTION_TIMEOUT_MS,
 ): Promise<SectionState<T>> {
   if (!gate) return { state: 'restricted' };
   const started = Date.now();
   try {
-    const data = await withTimeout(Promise.resolve().then(run), SECTION_TIMEOUT_MS, label);
+    const data = await withTimeout(Promise.resolve().then(run), timeoutMs, label);
     return { state: 'ok', data };
   } catch (error) {
     console.error(`[dashboard] seção ${key} falhou`, error);
@@ -388,6 +412,65 @@ async function readDecisions(session: Session, today: string): Promise<Decisions
   };
 }
 
+/* ── Posições das operações (globo) ─────────────────────────────────────── */
+
+const GLOBE_MARKER_COLUMNS = 'project_id,project_name,project_code,latitude,longitude,precision,site_label,municipality,state_code,'
+  + 'evidence_kind,source_contract_id,source_document_id,source_page,geocoded_at';
+const PROJECT_SITE_COLUMNS = 'id,project_id,code,name,latitude,longitude,updated_at';
+
+/** Onde o cadastro de locais (canteiros com coordenada) é feito; sem acesso a ele, a lista de projetos. */
+export const SITE_REGISTRY_HREF = '/supply/estoque?view=locais';
+
+/**
+ * As posições que o globo pode mostrar, pelo cliente AUTENTICADO:
+ *  • a OFICIAL — `project_globe_marker` (security_invoker: RLS de
+ *    `project_canonical_location` + `projects`). Falha SOBE: sem ela a
+ *    precedência não se sabe, e a seção vira `error`;
+ *  • os CANTEIROS do Supply com coordenada — `inventory_locations` PROJECT_SITE,
+ *    ativos, com projeto e lat/lng. Sem leitura (`restricted`) ou com falha
+ *    (`error`), o mapa segue só com as oficiais e a seção sai `truncated`;
+ *  • a identidade (nome, código, cliente, cidade/UF declaradas) SÓ dos projetos
+ *    com alguma posição, sob a RLS de projetos — exibição.
+ */
+async function readSitePositions(sb: SupabaseClient, org: string, readSites: boolean): Promise<SitePositionsRead> {
+  const [canon, sites] = await Promise.all([
+    sb.from('project_globe_marker').select(GLOBE_MARKER_COLUMNS).eq('organization_id', org)
+      .order('project_id').limit(READ_LIMIT),
+    readSites
+      ? sb.from('inventory_locations').select(PROJECT_SITE_COLUMNS).eq('organization_id', org)
+        .eq('kind', 'PROJECT_SITE').eq('active', true)
+        .not('project_id', 'is', null).not('latitude', 'is', null).not('longitude', 'is', null)
+        .order('project_id').limit(READ_LIMIT)
+      : Promise.resolve(null),
+  ]);
+  if (canon.error) throw new Error('posições oficiais dos projetos');
+  const canonical = (canon.data ?? []) as unknown as CanonicalMarkerRow[];
+  let sitesState: SitePositionsRead['sitesState'] = readSites ? 'ok' : 'restricted';
+  let siteRows: ProjectSiteRow[] = [];
+  if (sites && sites.error) {
+    // Não derruba as oficiais: a seção sai `truncated` e o log diz o que faltou.
+    console.error('[dashboard] canteiros do Supply não carregaram', sites.error.message);
+    sitesState = 'error';
+  } else if (sites) {
+    siteRows = (sites.data ?? []) as unknown as ProjectSiteRow[];
+  }
+  const rows = await selectIn<{ id: string; project: Record<string, unknown>; project_v2: Record<string, unknown> | null }>(
+    [...canonical.map((r) => r.project_id), ...siteRows.map((s) => s.project_id)],
+    (c) => sb.from('projects').select('id,project,project_v2').eq('organization_id', org).in('id', c));
+  const projects: SiteProject[] = rows.map((p) => {
+    const who = projectIdentity(p.id, p.project, p.project_v2);
+    return { id: p.id, name: who.name, code: who.code, client: who.client, ...projectPlace(p.project, p.project_v2) };
+  });
+  return {
+    canonical,
+    canonicalTruncated: canonical.length >= READ_LIMIT,
+    sites: siteRows,
+    sitesState,
+    sitesTruncated: siteRows.length >= READ_LIMIT,
+    projects,
+  };
+}
+
 /* ── Composição ─────────────────────────────────────────────────────────── */
 
 const dataOf = <T>(s: SectionState<T>): T | null => (s.state === 'ok' ? s.data : null);
@@ -419,8 +502,10 @@ export async function buildDashboardOverview(
 
   const opsGate = g.projects || g.operations || g.measurements || g.risks;
   const settled = await Promise.allSettled([
+    // `healthAll`: a saúde de TODO projeto ativo e os candidatos da fila por projeto, sem corte — para o globo.
     runSection(opsGate, 'a visão de Operações', () => operationsOverview(session,
-      { projects: g.projects, measurements: g.measurements, risks: g.risks, serviceOrders: g.operations }, today), timings, 'ops'),
+      { projects: g.projects, measurements: g.measurements, risks: g.risks, serviceOrders: g.operations }, today,
+      { healthAll: true }), timings, 'ops'),
     runSection(g.projects, 'a cobertura de material', () => readCoverage(sb, org), timings, 'coverage'),
     runSection(g.supplyFlow, 'o fluxo de compras', () => supplyFlow(session, today), timings, 'flow'),
     // Os abertos críticos/altos INTEIROS (até o teto do PostgREST): o total do cabeçalho depende de
@@ -433,7 +518,9 @@ export async function buildDashboardOverview(
     runSection(g.receivables, 'os recebíveis', () => readReceivables(sb, org, g.financial), timings, 'receivables'),
     runSection(g.commercial, 'as oportunidades', () => readOpenOpportunities(sb, org), timings, 'opportunities'),
     runSection(g.contracts, 'o trabalho autorizado', () => readAuthorizedWithoutOs(sb, org), timings, 'authorized'),
-    runSection(true, 'as decisões', () => readDecisions(session, today), timings, 'decisions'),
+    runSection(true, 'as decisões', () => readDecisions(session, today), timings, 'decisions', INBOX_SECTION_TIMEOUT_MS),
+    // O portão da RLS de `project_globe_marker` (pcl_select: projects.view).
+    runSection(g.projects, 'as posições das operações', () => readSitePositions(sb, org, g.projectSites === true), timings, 'sites'),
   ] as const);
 
   const ops = settledState(settled[0], 'a visão de Operações') as SectionState<OperationsOverview>;
@@ -447,6 +534,7 @@ export async function buildDashboardOverview(
   const opportunities = settledState(settled[8], 'as oportunidades') as SectionState<number>;
   const authorized = settledState(settled[9], 'o trabalho autorizado') as SectionState<number>;
   const decisionsRead = settledState(settled[10], 'as decisões') as SectionState<DecisionsRead>;
+  const positions = settledState(settled[11], 'as posições das operações') as SectionState<SitePositionsRead>;
 
   const opsData = dataOf(ops);
   const coverageData = dataOf(coverage);
@@ -566,6 +654,33 @@ export async function buildDashboardOverview(
     };
   })();
 
+  // ── Operações no globo ──
+  // Contagem por local é piso quando alguma fonte que dá linha a PROJETO falhou ou veio cortada
+  // (faturamento e recebíveis são por contrato: não entram aqui).
+  const sitesExceptionsPartial = coverage.state !== 'ok' || Boolean(coverageData?.truncated)
+    || (g.signals && signals.state !== 'ok')
+    || (signalsData ? (signalsData.openCount ?? 0) > signalsData.signals.length : false)
+    || (opsData
+      ? opsData.truncated.activities || opsData.truncated.measurements || opsData.truncated.risks || opsData.serviceOrdersTruncated
+        // Sem a contagem por projeto sem corte, o que Operações cortou falta nas contagens por local.
+        || (!opsData.attentionByProject && cappedOpsExtras(opsData.attentionCounts, merged).length > 0)
+      : true);
+  const sites: SectionState<SitesModel> = buildSitesSection({
+    gate: g.projects,
+    positions,
+    ops: mapState(ops, (o): SitesOpsInput => ({
+      health: o.projectHealthAll ?? null,
+      attentionByProject: o.attentionByProject ?? null,
+      projectsTruncated: o.projectsTruncated === true,
+      // A mesma condição do "≥" da etapa Projeto.
+      healthPartial: o.truncated.activities || o.truncated.risks || o.truncated.measurements || o.truncated.coverage
+        || o.serviceOrdersTruncated,
+    })),
+    ranked,
+    exceptionsPartial: sitesExceptionsPartial,
+    unlocatedHref: g.siteRegistry === true ? SITE_REGISTRY_HREF : '/projetos',
+  });
+
   // ── Decisões ──
   const decisions: SectionState<DecisionsModel> = mapState(decisionsRead, (d) => d.model);
 
@@ -633,6 +748,7 @@ export async function buildDashboardOverview(
     projects,
     decisions,
     calendar,
+    sites,
     // Sem leitura de sinais (restrito ou falha) → `null`: nunca "ainda sem leitura" quando não se sabe.
     apex: signalsData ? { lastRun: signalsData.lastRun } : null,
     hasOperation,

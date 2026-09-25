@@ -118,6 +118,10 @@ function opsModel(over: Record<string, unknown> = {}) {
     projectsWithoutOpenActivity: 1,
     serviceOrdersTruncated: false,
     truncated: { activities: false, measurements: false, risks: false, coverage: false },
+    projectsTruncated: false,
+    projectHealthAll: [{ projectId: 'p-ug05', project: UG05, client: 'Enel', tone: 'danger', reasons: ['Atividade bloqueada'], nextMilestone: '2026-10-01',
+      level: 'critical', nextMilestoneId: 'm1', nextMilestoneTitle: 'Comissionamento' }],
+    attentionByProject: { 'p-ug05': { total: 1, danger: 1 } },
     ...over,
   };
 }
@@ -179,6 +183,8 @@ describe('buildDashboardOverview', () => {
     expect(o.feed).toEqual({ state: 'restricted' });
     expect(o.projects).toEqual({ state: 'restricted' });
     expect(o.calendar).toEqual({ state: 'restricted' });
+    // sem leitura de projetos o globo é Restrito — nunca "0 operações" nem "0 sem localização"
+    expect(o.sites).toEqual({ state: 'restricted' });
     expect(o.apex).toBeNull();
     expect(o.readable).toEqual([]);
     expect(o.notReadable).toEqual(['Comercial', 'Operação', 'Supply', 'Medição', 'Faturamento', 'Recebíveis']);
@@ -289,7 +295,7 @@ describe('buildDashboardOverview', () => {
     // a leitura de sinais é a estreita (abertos, críticos/altos), inteira até o teto do PostgREST
     expect(mocks.listSupplySignals).toHaveBeenCalledWith(expect.anything(), { openOnly: true, severities: ['critical', 'high'], limit: 1000 });
     expect(mocks.operationsOverview).toHaveBeenCalledWith(expect.anything(),
-      { projects: true, measurements: true, risks: true, serviceOrders: true }, TODAY);
+      { projects: true, measurements: true, risks: true, serviceOrders: true }, TODAY, { healthAll: true });
   });
 
   it('4. DECISION_PENDING de pedido sai SÓ quando o pedido está na caixa', async () => {
@@ -311,7 +317,7 @@ describe('buildDashboardOverview', () => {
     const inboxRow = { decision_key: 'purchase_order:po-7:s1', subject_type: 'purchase_order', subject_id: 'po-7', assignment: 'PRIMARY' };
     mocks.viewerInbox.mockResolvedValue([inboxRow]);
     mocks.enrichInbox.mockResolvedValue([{ key: 'purchase_order:po-7:s1', assignment: 'PRIMARY', kindLabel: 'Compra', title: 'Pedido OC-0007',
-      amount: null, currency: 'BRL', projectName: UG05, overdue: false, dueAt: null, decideBy: '2026-09-30', requestedAt: '2026-09-16',
+      amount: null, currency: 'BRL', projectId: 'p-ug05', projectName: UG05, overdue: false, dueAt: null, decideBy: '2026-09-30', requestedAt: '2026-09-16',
       priority: { code: 'DEADLINE', label: 'Decidir em 5 dias', tone: 'warning' } }]);
     const dropped = await buildDashboardOverview(session(perms, fullTables()), TODAY);
     if (dropped.feed.state === 'ok') expect(dropped.feed.data.rows.some((x) => x.key === 'po:po-7')).toBe(false);
@@ -319,7 +325,8 @@ describe('buildDashboardOverview', () => {
     if (dropped.decisions.state === 'ok') {
       expect(dropped.decisions.data.count).toBe(1);
       expect(dropped.decisions.data.setup).toBeNull();
-      expect(dropped.decisions.data.top[0]).toMatchObject({ href: '/decisoes?d=purchase_order%3Apo-7%3As1', due: '2026-09-30',
+      // o projeto da decisão (pedido de compra) atravessa: o globo liga a decisão ao local
+      expect(dropped.decisions.data.top[0]).toMatchObject({ href: '/decisoes?d=purchase_order%3Apo-7%3As1', due: '2026-09-30', projectId: 'p-ug05',
         priority: { label: 'Decidir em 5 dias', tone: 'warning' }, amountText: null, amountRestricted: false });
     }
   });
@@ -328,7 +335,7 @@ describe('buildDashboardOverview', () => {
     const o = await buildDashboardOverview(session(['projects.view', 'contracts.view', 'contracts.view_values'], fullTables(),
       { has_finance_role_or_perm: false }), TODAY);
     expect(mocks.operationsOverview).toHaveBeenCalledWith(expect.anything(),
-      { projects: true, measurements: true, risks: false, serviceOrders: false }, TODAY);
+      { projects: true, measurements: true, risks: false, serviceOrders: false }, TODAY, { healthAll: true });
     expect(stage(o, 'os').state).toBe('restricted');
     expect(stage(o, 'projeto').state).toBe('ok');
     expect(stage(o, 'faturamento').state).toBe('ok');
@@ -439,6 +446,150 @@ describe('buildDashboardOverview', () => {
     expect(stage(o, 'comercial').stuck).toBeNull();
     expect(stage(o, 'comercial').reason).toBe('Autorizadas sem OS: não carregou');
     expect(stage(o, 'comercial').context).toBe('20 oportunidades abertas');
+  });
+});
+
+describe('sites — as operações no globo', () => {
+  const TUC = 'qa-scn-tucurui';
+  const MAR = 'qa-scn-maraba';
+  const BAR = 'qa-scn-barcarena';
+  const h = (projectId: string, level: string, project = projectId) => ({ projectId, project, client: null, tone: 'success', reasons: [],
+    nextMilestone: null, level, nextMilestoneId: null, nextMilestoneTitle: null });
+  const loc = (code: string, kind: string, project_id: string | null, latitude: number | null, longitude: number | null, active = true) => ({
+    id: `loc-${code}`, code, name: `Local ${code}`, kind, project_id, latitude, longitude, active, updated_at: '2026-09-24T18:45:17Z' });
+
+  function siteTables(over: Parameters<typeof fakeClient>[0] = {}): Parameters<typeof fakeClient>[0] {
+    return {
+      ...fullTables(),
+      projects: { rows: [
+        { id: 'p-ug05', project: { nome: UG05, cliente: 'Enel', codigo: 'UG-05' }, project_v2: null },
+        { id: TUC, project: { nome: 'SE Tucuruí 138 kV — Ampliação do pátio', cliente: 'Equatorial Pará', cidade: 'Tucuruí', uf: 'PA' }, project_v2: null },
+        { id: MAR, project: { nome: 'LT Marabá–Parauapebas — Reforço de estruturas', cliente: 'Vale S.A.', cidade: 'Marabá', uf: 'PA' }, project_v2: null },
+        { id: BAR, project: { nome: 'Usina Solar Barcarena — Comissionamento', cliente: 'Hydro Alunorte', cidade: 'Barcarena', uf: 'PA' }, project_v2: null },
+      ] },
+      project_globe_marker: { rows: [{ organization_id: 'org-1', project_id: 'p-ug05', project_name: UG05, project_code: 'UG-05',
+        latitude: -18.4933, longitude: -49.4919, precision: 'site', site_label: 'UG-05 — casa de força', municipality: 'Cachoeira Dourada',
+        state_code: 'GO', evidence_kind: 'contract_scope', source_contract_id: 'c1', source_document_id: 'd1', source_page: 12,
+        geocoded_at: '2026-09-20T10:00:00Z' }] },
+      inventory_locations: { rows: [
+        loc('CANT-TUCURUI', 'PROJECT_SITE', TUC, -3.7662, -49.6725), loc('CANT-MARABA', 'PROJECT_SITE', MAR, -5.3686, -49.1178),
+        loc('CANT-BARCARENA', 'PROJECT_SITE', BAR, -1.5059, -48.6255),
+        // a oficial vence: o canteiro de UG-05 não entra
+        loc('CANT-UG05', 'PROJECT_SITE', 'p-ug05', -18.5, -49.5),
+        // almoxarifado com coordenada e canteiro inativo não são posição de projeto
+        loc('QA-NORTE', 'WAREHOUSE', null, -3.7662, -49.6725), loc('CANT-VELHO', 'PROJECT_SITE', 'p-sem', -2, -50, false),
+      ] },
+      ...over,
+    };
+  }
+
+  beforeEach(() => {
+    mocks.operationsOverview.mockResolvedValue(opsModel({
+      projectHealthAll: [
+        { ...h('p-ug05', 'critical', UG05), nextMilestone: '2026-10-01', nextMilestoneTitle: 'Comissionamento', reasons: ['Atividade bloqueada'] },
+        h(TUC, 'critical'), h(MAR, 'attention'), h(BAR, 'critical'), h('p-sem', 'healthy'),
+      ],
+    }));
+  });
+
+  it('oficial → canteiro do Supply; saúde de todos; exceções antes do corte; sem localização exato', async () => {
+    const calls: Call[] = [];
+    const o = await buildDashboardOverview(session(ALL, siteTables(), {}, calls), TODAY);
+    expect(o.sites.state).toBe('ok');
+    if (o.sites.state !== 'ok') return;
+    expect(o.sites.truncated).toBeUndefined();
+    const m = o.sites.data.markers;
+    expect(m.map((x) => [x.projectId, x.position.source, x.level])).toEqual([
+      ['p-ug05', 'canonical', 'critical'], [TUC, 'project_site', 'critical'], [BAR, 'project_site', 'critical'], [MAR, 'project_site', 'attention'],
+    ]);
+    const ug05 = m[0];
+    expect(ug05).toMatchObject({ name: UG05, client: 'Enel', code: 'UG-05', nextMilestone: { date: '2026-10-01', title: 'Comissionamento' },
+      position: { lat: -18.4933, lng: -49.4919, uf: 'GO', label: 'UG-05 — casa de força',
+        evidence: { kind: 'contract_scope', contractId: 'c1', documentId: 'd1', page: 12, at: '2026-09-20T10:00:00Z' } } });
+    // req:req-1 (com a Apex) + proj-act:p-ug05 da fila + a OS pela contagem SEM corte de Operações
+    expect(ug05.exceptions).toEqual({ total: 3, critical: 3, partial: false });
+    expect(ug05.topIssue?.severity).toBe('critical');
+    expect(m[1]).toMatchObject({ client: 'Equatorial Pará', position: { lat: -3.7662, lng: -49.6725, precision: 'site', label: 'Canteiro CANT-TUCURUI',
+      municipality: 'Tucuruí', uf: 'PA', evidence: { kind: 'supply_site', at: '2026-09-24T18:45:17Z' } }, exceptions: { total: 0, critical: 0 } });
+    // ativo sem posição (o canteiro dele está inativo)
+    expect(o.sites.data.unlocated).toBe(1);
+    expect(o.sites.data.unlocatedHref).toBe('/supply/estoque?view=locais');
+    expect(o.sites.data.states).toEqual([{ uf: 'PA', projects: 3, critical: 2, attention: 1 }, { uf: 'GO', projects: 1, critical: 1, attention: 0 }]);
+    // leituras novas: colunas explícitas, inquilino em todas
+    for (const table of ['project_globe_marker', 'inventory_locations']) {
+      const c = calls.find((x) => x.table === table)!;
+      expect(String(c.ops.find(([op]) => op === 'select')?.[1][0])).not.toMatch(/\*/);
+      expect(c.ops).toContainEqual(['eq', ['organization_id', 'org-1']]);
+    }
+    expect(calls.find((x) => x.table === 'inventory_locations')!.ops).toEqual(expect.arrayContaining([
+      ['eq', ['kind', 'PROJECT_SITE']], ['eq', ['active', true]], ['not', ['latitude', 'is', null]]]));
+    expect(calls.filter((x) => x.table === 'projects').every((c) => c.ops.some(([op, a]) => op === 'eq' && a[0] === 'organization_id'))).toBe(true);
+  });
+
+  it('sem cadastro de locais: "sem localização" aponta para Projetos', async () => {
+    const o = await buildDashboardOverview(session(['projects.view'], siteTables()), TODAY);
+    expect(o.sites.state === 'ok' && o.sites.data.unlocatedHref).toBe('/projetos');
+    // projects.view também lê `inventory_locations` (233): os canteiros entram
+    expect(o.sites.state === 'ok' && o.sites.data.markers.length).toBe(4);
+  });
+
+  it('sem projects.view (rh, compras): Restrito — nem lido', async () => {
+    const calls: Call[] = [];
+    const o = await buildDashboardOverview(session(['supply.view', 'inventory.view'], siteTables(), {}, calls), TODAY);
+    expect(o.sites).toEqual({ state: 'restricted' });
+    expect(calls.some((c) => c.table === 'project_globe_marker' || c.table === 'inventory_locations')).toBe(false);
+  });
+
+  it('organização sem projeto (outro inquilino): ok, 0 marcadores, 0 sem localização', async () => {
+    mocks.operationsOverview.mockResolvedValue(opsModel({ projectHealthAll: [], attentionByProject: {}, attention: [], overdueByProject: [] }));
+    const o = await buildDashboardOverview(session(['projects.view'], {}), TODAY);
+    expect(o.sites).toEqual({ state: 'ok', data: { markers: [], unlocated: 0, unlocatedHref: '/projetos', states: [] } });
+  });
+
+  it('oficial que falha → `error` (o resto segue); canteiro que falha → só oficiais, `truncated`', async () => {
+    const o = await buildDashboardOverview(session(ALL, siteTables({ project_globe_marker: { error: 'relation does not exist' } })), TODAY);
+    expect(o.sites).toEqual({ state: 'error', message: 'Não foi possível ler as posições das operações.' });
+    expect(o.feed.state).toBe('ok');
+    expect(o.projects.state).toBe('ok');
+
+    const s = await buildDashboardOverview(session(ALL, siteTables({ inventory_locations: { error: 'timeout' } })), TODAY);
+    expect(s.sites.state).toBe('ok');
+    if (s.sites.state !== 'ok') return;
+    expect(s.sites.truncated).toBe(true);
+    expect(s.sites.data.markers.map((x) => x.projectId)).toEqual(['p-ug05']);
+    expect(s.sites.data.unlocated).toBe(4);
+  });
+
+  it('saúde de leitura cortada (cronograma no teto) → seção `truncated`', async () => {
+    mocks.operationsOverview.mockResolvedValue(opsModel({
+      projectHealthAll: [h('p-ug05', 'healthy', UG05), h(TUC, 'healthy')],
+      truncated: { activities: true, measurements: false, risks: false, coverage: false },
+    }));
+    const o = await buildDashboardOverview(session(ALL, siteTables()), TODAY);
+    expect(o.sites).toMatchObject({ state: 'ok', truncated: true });
+  });
+
+  it('Operações falha → `error` (nunca um ponto "sem cronograma" no lugar de "não carregou")', async () => {
+    mocks.operationsOverview.mockRejectedValue(new Error('timeout'));
+    const o = await buildDashboardOverview(session(ALL, siteTables()), TODAY);
+    expect(o.sites).toEqual({ state: 'error', message: 'Não foi possível ler a saúde dos projetos para o mapa.' });
+  });
+
+  it('exceções por local são piso quando uma fonte de projeto falha ou Operações cortou sem contagem por projeto', async () => {
+    mocks.listSupplySignals.mockRejectedValue(new Error('timeout'));
+    const failed = await buildDashboardOverview(session(ALL, siteTables()), TODAY);
+    expect(failed.sites.state === 'ok' && failed.sites.data.markers.every((x) => x.exceptions.partial)).toBe(true);
+
+    mocks.listSupplySignals.mockResolvedValue({ lastRun: null, openCount: 1, signals: [sig({})] });
+    mocks.operationsOverview.mockResolvedValue(opsModel({
+      projectHealthAll: [h('p-ug05', 'critical', UG05)], attentionByProject: null,
+      // Operações contou 3 OS e só 1 chegou à fila
+      attentionCounts: { ...opsModel().attentionCounts, service_order: { total: 3, danger: 3, warning: 0 } },
+    }));
+    const capped = await buildDashboardOverview(session(ALL, siteTables()), TODAY);
+    expect(capped.sites.state).toBe('ok');
+    if (capped.sites.state !== 'ok') return;
+    expect(capped.sites.data.markers[0].exceptions).toEqual({ total: 3, critical: 3, partial: true });
   });
 });
 

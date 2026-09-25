@@ -183,6 +183,8 @@ export interface ProjectsModel {
 
 export interface DecisionPreview {
   key: string;
+  /** Projeto da decisão quando a origem o carrega (pedido de compra); `null` para faturamento. */
+  projectId?: string | null;
   href: string;
   kindLabel: string;
   title: string;
@@ -244,6 +246,8 @@ export interface DashboardOverview {
   projects: SectionState<ProjectsModel>;
   decisions: SectionState<DecisionsModel>;
   calendar: SectionState<CalendarModel>;
+  /** As operações no globo: posição de cada projeto (oficial ou canteiro), saúde e exceções por local. */
+  sites: SectionState<SitesModel>;
   /** Última leitura da Apex (motor de sinais do Supply); `null` quando a pessoa não lê sinais. */
   apex: { lastRun: { ranAt: string; engineVersion: string } | null } | null;
   /**
@@ -296,3 +300,292 @@ export type ExplainResponse =
     }
   /** `error`: a leitura falhou — nunca vira "não encontrado" nem "sem vínculo". */
   | { ok: false; reason: 'invalid' | 'not_found' | 'restricted' | 'error'; message: string };
+
+/* ══════════════════════════════════════════════════════════════════════════
+   GLOBO — as operações no mapa (Dashboard no estilo do protótipo APEX FILM)
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * De onde vem a posição. `canonical`: localização oficial (`project_globe_marker`,
+ * com proveniência documental). `project_site`: coordenada do CANTEIRO cadastrada
+ * no Supply (`inventory_locations` kind PROJECT_SITE, ativo, com lat/lng) — usada
+ * só quando não há a oficial, e só quando o projeto tem UM canteiro com
+ * coordenada (mais de um = ambíguo = sem ponto). Nunca centróide de UF, nunca
+ * posição estimada.
+ */
+export type SiteSource = 'canonical' | 'project_site';
+
+export interface SitePosition {
+  lat: number;
+  lng: number;
+  precision: 'site' | 'municipality';
+  /** Nome do local ("Canteiro CANT-TUCURUI", "UG-05 — casa de força"). */
+  label: string | null;
+  municipality: string | null;
+  uf: string | null;
+  source: SiteSource;
+  /** Proveniência: documento/contrato (oficial) ou o cadastro do canteiro (Supply). */
+  evidence: {
+    kind: 'contract_scope' | 'contract_clause' | 'manual' | 'supply_site';
+    contractId: string | null;
+    documentId: string | null;
+    page: number | null;
+    /** Quando a posição foi apurada (oficial) ou atualizada (canteiro). */
+    at: string | null;
+  };
+}
+
+export interface SiteMarker {
+  projectId: string;
+  name: string;
+  client: string | null;
+  code: string | null;
+  position: SitePosition;
+  /** Saúde pela MESMA derivação do projeto e de Operações (a pior trava decide); `null` = não ativo. */
+  level: HealthLevel | null;
+  reasons: string[];
+  nextMilestone: { date: string; title: string | null } | null;
+  /** Exceções da fila neste projeto, contadas ANTES do corte da fila; `partial` = alguma fonte cortada/falhou. */
+  exceptions: { total: number; critical: number; partial: boolean };
+  topIssue: { label: string; href: string; severity: Severity } | null;
+  href: string;
+}
+
+export interface SitesModel {
+  markers: SiteMarker[];
+  /** Projetos ATIVOS sem nenhuma posição (nem oficial, nem canteiro) — contagem exata; nunca um ponto inventado. */
+  unlocated: number;
+  unlocatedHref: string;
+  /** UFs com projeto localizado, para realçar no mapa. */
+  states: Array<{ uf: string; projects: number; critical: number; attention: number }>;
+}
+
+/* ── Local em foco: GET /api/dashboard/site/[projectId] (Visão geral) ────── */
+
+export interface SiteHud {
+  ok: true;
+  generatedAt: string;
+  today: string;
+  project: {
+    id: string;
+    name: string;
+    code: string | null;
+    client: string | null;
+    status: string | null;
+    /** Descrição/escopo do projeto quando cadastrado; `null` = não há (nunca texto inventado). */
+    scope: string | null;
+    href: string;
+  };
+  location: SectionState<{
+    position: SitePosition | null;
+    /** Sem posição: o estado da apuração oficial (UNRESOLVED / REQUIRES_ATTENTION / CONFLICT). */
+    pending: { state: 'UNRESOLVED' | 'REQUIRES_ATTENTION' | 'CONFLICT'; reason: string | null } | null;
+  }>;
+  /** O que está acontecendo aqui — mesma derivação do marcador. */
+  now: SectionState<{
+    health: { level: HealthLevel; reasons: string[] } | null;
+    /** Fase atual = etapa-resumo (ou atividade) EM ANDAMENTO mais relevante do cronograma; `null` = nenhuma. */
+    phase: { id: string; title: string; percent: number | null } | null;
+    schedule: { open: number; overdue: number; critical: number; inProgress: number; blocked: number; partial: boolean } | null;
+    nextMilestone: { id: string; date: string; title: string | null } | null;
+    /** Avanço físico quando há base (folhas com duração); `null` = sem base. */
+    progress: { percent: number } | null;
+    /** Pessoas alocadas (só com `people.allocations_view` ou `projects.view`); `restricted` quando não lê. */
+    team: SectionState<{ allocated: number }>;
+    serviceOrders: SectionState<Array<{ id: string; number: string; status: string; statusLabel: string; href: string }>>;
+  }>;
+  /** A fila, recortada no projeto — linhas idênticas às do Dashboard (mesmo `key` e `explainRef`). */
+  attention: SectionState<FeedModel>;
+  /** A próxima ação da linha mais grave; `null` quando a fila não é `ok`, está vazia ou é parcial. */
+  nextAction: NextAction | null;
+  measurements: SectionState<{ pending: number; inCorrection: number; awaitingCustomer: number;
+    next: { id: string; key: string; expected: string | null; status: string; statusLabel: string } | null }>;
+  risks: SectionState<{ open: number; critical: number; high: number; withoutOwner: number }>;
+  supply: SectionState<{ shortages: { total: number; critical: number; partial: boolean }; apexOpen: number | null }>;
+  contract: SectionState<{ links: Array<{ contractId: string; label: string }> }>;
+  /** Escopo: os contratos vinculados ao projeto (o evento de faturamento não tem projeto). */
+  billing: SectionState<{ events: number; awaitingRelease: number; invoicesToIssue: number;
+    /** Valor total dos eventos (só com a leitura financeira); `null` = restrito ou sem valor. */
+    total: string | null }>;
+  decisions: SectionState<{ count: number; overdue: number; top: DecisionPreview[] }>;
+  calendar: SectionState<CalendarModel>;
+  notReadable: string[];
+}
+
+export type SiteHudResponse = SiteHud | { ok: false; reason: 'invalid' | 'not_found' | 'restricted' | 'error'; message: string; error?: string };
+
+/* ── Planejar: GET /api/dashboard/site/[projectId]/plan ───────────────── */
+
+export interface GanttActivity {
+  id: string;
+  parentId: string | null;
+  wbs: string | null;
+  title: string;
+  /** Nível no cronograma (0 = raiz). */
+  level: number;
+  start: string | null;
+  finish: string | null;
+  percent: number | null;
+  status: string;
+  statusLabel: string;
+  isSummary: boolean;
+  isMilestone: boolean;
+  /** Prioridade crítica no cronograma (não é caminho crítico calculado). */
+  critical: boolean;
+  overdue: boolean;
+  blocked: boolean;
+  /** A necessidade mais cedo dos requisitos desta atividade (`required_by`), quando há. */
+  needBy: string | null;
+  /** Algum requisito desta atividade com falta. */
+  atRisk: boolean;
+  href: string;
+}
+
+export interface GanttLink { from: string; to: string; type: 'FS' | 'SS' | 'FF' | 'SF'; lagDays: number }
+
+export interface ActivityNeed {
+  id: string;
+  title: string;
+  type: string;
+  typeLabel: string;
+  qty: number | null;
+  unit: string | null;
+  requiredBy: string | null;
+  /** `covered` / `partial` / `short` pela cobertura viva; `unknown` quando o requisito não tem cobertura calculável. */
+  status: 'covered' | 'partial' | 'short' | 'unknown';
+  statusLabel: string;
+  coverage: { required: number; covered: number; shortage: number } | null;
+  href: string;
+}
+
+export interface SitePlanData {
+  window: { start: string; end: string };
+  activities: GanttActivity[];
+  links: GanttLink[];
+  /** A atividade em foco ao abrir: a mais crítica (em risco → vencida → crítica → próxima). */
+  focus: string | null;
+  needsByActivity: Record<string, SectionState<ActivityNeed[]>>;
+  truncated: boolean;
+}
+
+export type SitePlanResponse = ({ ok: true; today: string; project: { id: string; name: string } } & { plan: SectionState<SitePlanData> })
+  | { ok: false; reason: 'invalid' | 'not_found' | 'restricted' | 'error'; message: string; error?: string };
+
+/* ── Supply Chain: GET /api/dashboard/site/[projectId]/supply ─────────── */
+
+export interface MaterialBalance {
+  requirementId: string;
+  title: string;
+  item: { id: string; code: string | null; description: string | null; unit: string | null } | null;
+  activity: { id: string; title: string; start: string | null } | null;
+  needBy: string | null;
+  /** Números da cobertura VIVA (`supply_requirement_coverage`), na unidade do requisito. */
+  required: number;
+  reserved: number;
+  consumed: number;
+  inTransit: number;
+  onOrder: number;
+  requested: number;
+  covered: number;
+  inbound: number;
+  inspection: number;
+  shortage: number;
+  risk: 'critical' | 'high' | 'medium' | 'ok';
+  href: string;
+}
+
+/** Onde o MESMO item está disponível na rede (outros locais), com posição quando cadastrada. */
+export interface StockNode {
+  locationId: string;
+  code: string | null;
+  name: string;
+  kind: string;
+  kindLabel: string;
+  lat: number | null;
+  lng: number | null;
+  onHand: number;
+  reserved: number;
+  available: number;
+  /** O canteiro deste projeto. */
+  isSite: boolean;
+}
+
+export interface InboundOrder {
+  poId: string;
+  number: string | null;
+  supplier: { id: string; name: string } | null;
+  status: string;
+  statusLabel: string;
+  expected: string | null;
+  /** Chegada prevista DEPOIS da necessidade do requisito em foco. */
+  late: boolean;
+  lateDays: number | null;
+  qty: number | null;
+  /** Valor só com a leitura financeira de compras; `null` = restrito ou sem valor. */
+  amountText: string | null;
+  href: string;
+}
+
+/** A decisão da caixa desta pessoa ligada a este material/pedido — aprovada AQUI pelo mesmo ato de Decisões. */
+export interface SupplyDecision {
+  key: string;
+  href: string;
+  kindLabel: string;
+  title: string;
+  amountText: string | null;
+  amountRestricted: boolean;
+  due: string | null;
+  overdue: boolean;
+  poId: string | null;
+}
+
+export interface SiteSupplyData {
+  /** O material em foco: a falta mais grave do projeto (risco → necessidade mais cedo). */
+  focus: MaterialBalance | null;
+  materials: MaterialBalance[];
+  /** Posições do item em foco na rede. `restricted` sem leitura de estoque. */
+  stock: SectionState<StockNode[]>;
+  /** Pedidos abertos para o item/requisito em foco. `restricted` sem leitura de compras. */
+  orders: SectionState<InboundOrder[]>;
+  /** O plano/achados da Apex para o material em foco (sinais abertos com evidência). */
+  apex: SectionState<ApexNote[]>;
+  decisions: SectionState<SupplyDecision[]>;
+  site: { lat: number; lng: number } | null;
+  truncated: boolean;
+}
+
+export type SiteSupplyResponse = ({ ok: true; today: string; project: { id: string; name: string } } & { supply: SectionState<SiteSupplyData> })
+  | { ok: false; reason: 'invalid' | 'not_found' | 'restricted' | 'error'; message: string; error?: string };
+
+/* ── Faturamento: GET /api/dashboard/site/[projectId]/billing ─────────── */
+
+export type EventogramState = 'awaiting' | 'eligible' | 'pending_release' | 'released' | 'invoiced' | 'receivable' | 'paid' | 'blocked' | 'cancelled';
+
+export interface EventogramRow {
+  billingEventId: string;
+  contractId: string;
+  title: string;
+  /** Valor do evento, formatado; `null` = restrito (sem leitura financeira) ou sem valor. */
+  amount: string | null;
+  state: EventogramState;
+  stateLabel: string;
+  measurement: { id: string; status: string; statusLabel: string } | null;
+  fiscal: { number: string | null; status: string | null; statusLabel: string | null } | null;
+  receivable: { due: string | null; state: string | null; stateLabel: string | null } | null;
+  href: string;
+}
+
+export interface SiteBillingData {
+  contracts: Array<{ id: string; label: string }>;
+  /** Soma dos eventos (direito contratual) — só com a leitura financeira. */
+  total: string | null;
+  rows: EventogramRow[];
+  /** O evento em foco: o primeiro elegível/pendente de liberação, senão o próximo a faturar. */
+  focus: string | null;
+  /** Referência "Entender" do evento em foco (`bill:<id>`) — a cadeia vem do endpoint explain. */
+  focusExplainRef: string | null;
+}
+
+export type SiteBillingResponse = ({ ok: true; today: string; project: { id: string; name: string } } & { billing: SectionState<SiteBillingData> })
+  | { ok: false; reason: 'invalid' | 'not_found' | 'restricted' | 'error'; message: string; error?: string };
+
