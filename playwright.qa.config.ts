@@ -31,7 +31,7 @@ export default defineConfig({
   projects: [
     { name: 'api', testMatch: /(concurrency|roles-api|evidence|approvals|intelligence|decisions-api|agenda-email|billing-alerts)\.spec\.ts$/ },
     {
-      name: 'desktop', testMatch: /(golden-path|roles-ui|service-order-governance|visual|decisions-ui)\.spec\.ts$/,
+      name: 'desktop', testMatch: /(golden-path|roles-ui|service-order-governance|visual|decisions-ui|shell-hydration)\.spec\.ts$/,
       use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } },
     },
     { name: 'mobile', testMatch: /(receiving-mobile|visual-mobile|decisions-mobile)\.spec\.ts$/, use: { ...devices['Pixel 7'] } },

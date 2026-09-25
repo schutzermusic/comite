@@ -1,7 +1,9 @@
 import { Suspense } from 'react';
+import { cookies } from 'next/headers';
 import { AppSidebar } from '@/components/layout/app-sidebar';
 import { Header } from '@/components/layout/header';
 import { SidebarShell } from '@/components/layout/sidebar-shell';
+import { SIDEBAR_PREFERENCE_COOKIE, parseSidebarPreference } from '@/components/layout/sidebar-preference';
 import { SidebarInset } from '@/components/ui/sidebar';
 import { AtmosphericBackground } from '@/components/system/AtmosphericBackground';
 import { GlobeControlProvider } from '@/contexts/GlobeControlContext';
@@ -28,12 +30,15 @@ export default async function MainLayout({
 }) {
   const context = await getCurrentUserContext();
   const isDemoOrganization = context.organization?.is_demo === true;
+  // A preferência da sidebar é lida AQUI para o HTML já sair no estado final
+  // (sem troca depois de montar — ver sidebar-preference.ts).
+  const sidebarPreference = parseSidebarPreference((await cookies()).get(SIDEBAR_PREFERENCE_COOKIE)?.value);
   return (
     <GlobeControlProvider>
       {/* Background layer - fixed, decorative only */}
         <AtmosphericBackground />
 
-        <SidebarShell>
+        <SidebarShell preference={sidebarPreference}>
           {/* UI Shell - Fixed Height (100dvh) for Control Room stability */}
           <div className="relative flex h-[100dvh] w-full overflow-hidden z-10">
             {/* Sidebar */}

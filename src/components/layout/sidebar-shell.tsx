@@ -3,50 +3,52 @@
 import * as React from "react";
 import { usePathname } from "next/navigation";
 import { SidebarProvider } from "@/components/ui/sidebar";
+import {
+  SIDEBAR_PREFERENCE_COOKIE,
+  SIDEBAR_PREFERENCE_MAX_AGE,
+  initialSidebarOpen,
+  parseSidebarPreference,
+} from "./sidebar-preference";
 
-const SIDEBAR_PREFERENCE_KEY = "ig-sidebar-open";
 const SIDEBAR_WIDTH_ICON = "4.5rem";
 
-const readPreference = (): boolean | null => {
-  if (typeof window === "undefined") return null;
-  try {
-    const stored = window.localStorage.getItem(SIDEBAR_PREFERENCE_KEY);
-    if (stored === "true") return true;
-    if (stored === "false") return false;
-  } catch {
-    /* localStorage unavailable */
-  }
-  return null;
-};
-
 const writePreference = (value: boolean) => {
-  if (typeof window === "undefined") return;
+  if (typeof document === "undefined") return;
+  document.cookie = `${SIDEBAR_PREFERENCE_COOKIE}=${value}; path=/; max-age=${SIDEBAR_PREFERENCE_MAX_AGE}; samesite=lax`;
+};
+
+/** Onde a preferência morava antes do cookie. Lida uma vez, para migrar. */
+const readLegacyPreference = (): boolean | null => {
   try {
-    window.localStorage.setItem(SIDEBAR_PREFERENCE_KEY, String(value));
+    return parseSidebarPreference(window.localStorage.getItem(SIDEBAR_PREFERENCE_COOKIE));
   } catch {
-    /* localStorage unavailable */
+    return null;
   }
 };
 
-const isDashboardRoute = (pathname: string | null) => {
-  if (!pathname) return false;
-  return pathname === "/dashboard" || pathname.startsWith("/dashboard/");
-};
-
-export function SidebarShell({ children }: { children: React.ReactNode }) {
+/**
+ * `preference` vem do cookie lido pelo layout do servidor. O estado inicial é
+ * o MESMO no HTML e no render de hidratação — e não muda depois de montar: a
+ * `AppSidebar` hidrata dentro de um limite de Suspense, e uma troca de estado
+ * antes disso faria ela hidratar contra um HTML que não bate.
+ */
+export function SidebarShell({
+  children,
+  preference = null,
+}: {
+  children: React.ReactNode;
+  preference?: boolean | null;
+}) {
   const pathname = usePathname();
-  const initialPathnameRef = React.useRef(pathname);
+  const [open, setOpen] = React.useState<boolean>(() => initialSidebarOpen(preference, pathname));
 
-  const [open, setOpen] = React.useState<boolean>(true);
-
+  // Migração única: a preferência antiga (localStorage) vira cookie e vale a
+  // partir da próxima carga — aplicá-la agora reabriria o descompasso.
   React.useEffect(() => {
-    const stored = readPreference();
-    if (stored !== null) {
-      setOpen(stored);
-      return;
-    }
-    setOpen(!isDashboardRoute(initialPathnameRef.current));
-  }, []);
+    if (preference !== null) return;
+    const legacy = readLegacyPreference();
+    if (legacy !== null) writePreference(legacy);
+  }, [preference]);
 
   const handleOpenChange = React.useCallback((next: boolean) => {
     setOpen(next);
