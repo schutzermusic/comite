@@ -56,6 +56,8 @@ function LoadedPanel({ decisionKey, onClose }: { decisionKey: string; onClose: (
   const [settledOn, setSettledOn] = useState<Payload | null>(null);
   const noticeRef = useRef<HTMLDivElement>(null);
   const focusNotice = useRef(false);
+  // O botão de ato que abriu a confirmação: o foco volta a ele quando se desiste ("Voltar", Esc).
+  const confirmOpener = useRef<HTMLElement | null>(null);
 
   if (!d) {
     return (
@@ -74,6 +76,7 @@ function LoadedPanel({ decisionKey, onClose }: { decisionKey: string; onClose: (
 
   const openConfirm = (action: DecisionAction) => {
     // Uma intenção por abertura: a repetição DESTA confirmação reusa o mesmo intentId.
+    confirmOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setConfirm({ action, intentId: newIntentId() });
     setReason('');
     setDialogError(null);
@@ -152,10 +155,14 @@ function LoadedPanel({ decisionKey, onClose }: { decisionKey: string; onClose: (
           reasonRequired={d.reasonRequired} reason={reason} onReason={setReason} busy={busy} error={dialogError} locked={uncertain}
           onConfirm={() => void submit()} onCancel={() => setConfirm(null)}
           onClosedFocus={() => {
-            if (!focusNotice.current || !noticeRef.current) return false;
-            focusNotice.current = false;
-            noticeRef.current.focus();
-            return true;
+            if (focusNotice.current && noticeRef.current) {
+              focusNotice.current = false;
+              noticeRef.current.focus();
+              return true;
+            }
+            const back = confirmOpener.current;
+            if (back && back.isConnected) { back.focus(); return true; }
+            return false;
           }} />
       )}
     </SidePanel>
@@ -190,7 +197,7 @@ export function DecisionDetailView({ d, notice, noticeRef }: {
 
       <div className="dec-hero">
         <div className="dec-hero-amount" data-muted={r.amount === null ? 'true' : undefined} data-testid="decision-amount">
-          {r.amount === null ? 'Sem valor declarado' : amountText(r.amount, r.currency)}
+          {r.amount === null ? (d.amountRestricted ? 'Restrito' : 'Sem valor declarado') : amountText(r.amount, r.currency)}
         </div>
         <div className="dec-hero-facts">
           {r.open && deadline && <span>Decidir até <strong>{date(deadline)}</strong> · <Due value={deadline} today={d.today} /></span>}

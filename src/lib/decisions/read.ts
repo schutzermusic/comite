@@ -236,7 +236,10 @@ export function toCompletedItem(r: DecisionHistoryRow, names: Pick<NameBook, 'pe
     decidedBy: names.person(r.decided_by), decidedAt: r.decided_at, requestedBy: names.person(r.requested_by), requestedAt: r.requested_at,
     reason: r.reason,
     authoritySummary: r.source_kind === 'PROCUREMENT_AUTHORITY'
-      ? (declared ? procurementAuthoritySummary(declared) : null)
+      ? (declared ? procurementAuthoritySummary(declared)
+        // Devolver ao rascunho não usa alçada de valor (purchase_order_decide só exige a permissão e a SoD):
+        // o registro canônico não guarda alçada — e a tela diz isso, em vez de inventar uma.
+        : r.outcome === 'ADJUSTMENT_REQUESTED' ? 'Devolução por alçada de compra — exige procurement.approve, sem teto de valor' : null)
       : policyAuthoritySummary(r.authority),
     recordId: r.record_id, sourceHref: sourceLink(r.subject_type, r.subject_id, false).href,
   };
@@ -673,12 +676,24 @@ export async function decisionDetail(session: DecisionsSession, key: string): Pr
   const assignees = (asgR.data ?? []) as Array<{ user_id: string; assignment: DecisionAssignment }>;
   const others = uniq(assignees.map((a) => a.user_id)).filter((id) => id !== viewer);
   const namesAllowed = access === 'DECIDER' || access === 'ELIGIBLE' || access === 'TEAM';
-  const requestId = raw.source_kind === 'APPROVAL_ENGINE' ? str(raw.request_id) : null;
+  /*
+    Equipe (TEAM) é quem NÃO lê a origem (o portão testa leitura antes da
+    equipe): vê quem tem a decisão, há quanto tempo e até quando — nunca o
+    valor, as propostas, o histórico ou as justificativas que a Equipe lista
+    já esconde ("Restrito").
+  */
+  const restricted = access === 'TEAM';
+  const requestId = raw.source_kind === 'APPROVAL_ENGINE' && !restricted ? str(raw.request_id) : null;
+  const revealBilling = async (eventId: string) => {
+    const { data } = await session.supabase.rpc('decision_viewer_reads_subject', { p_subject_type: 'contract_billing_event', p_subject_id: eventId });
+    return data === true;
+  };
 
   const [items, po, billing, decR, insufficient] = await Promise.all([
     row ? enrichInbox(session, [row], today) : Promise.resolve([] as DecisionItem[]),
-    subjectType === 'purchase_order' ? purchaseOrderDetail(org, subjectId, { today, submission: num(raw.submission) }) : Promise.resolve(null),
-    subjectType === 'contract_billing_event' ? billingEventDetail(org, subjectId) : Promise.resolve(null),
+    subjectType === 'purchase_order' && !restricted
+      ? purchaseOrderDetail(org, subjectId, { today, submission: num(raw.submission), revealBilling }) : Promise.resolve(null),
+    subjectType === 'contract_billing_event' && !restricted ? billingEventDetail(org, subjectId) : Promise.resolve(null),
     requestId ? svc.from('approval_decisions').select('id,stage_no,step_key,decision,reason,actor_user_id,decided_at')
       .eq('organization_id', org).eq('request_id', requestId).order('decided_at', { ascending: true })
       : Promise.resolve({ data: [], error: null }),
@@ -690,12 +705,13 @@ export async function decisionDetail(session: DecisionsSession, key: string): Pr
     people: [str(raw.requested_by), str(raw.closed_by), ...(namesAllowed ? others : []), ...decisions.map((d) => str(d.actor_user_id))],
   });
   const openState: DecisionOpenState | null = item?.state ?? (raw.open === true && assignees.length === 0 ? 'SEM_DECISOR' : null);
-  const resolved = toResolved(raw, book.person, openState);
+  const full = toResolved(raw, book.person, openState);
+  const resolved = restricted ? { ...full, amount: null, reason: null, requestNote: null, fingerprint: null } : full;
   const canAct = (access === 'DECIDER' || access === 'ELIGIBLE') && !!item && resolved.open;
   const link = sourceLink(subjectType, subjectId, resolved.open);
 
   return {
-    key, access, resolved, item, canAct,
+    key, access, resolved, item, canAct, amountRestricted: restricted,
     actions: canAct && item ? item.actions : [],
     reasonRequired: canAct && item ? item.reasonRequired : [],
     why: item ? whyFacts(item, FMT, insufficient) : accessWhy(access, resolved.open),

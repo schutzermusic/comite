@@ -48,7 +48,11 @@ export function ConfirmActDialog({ action, subjectType, kind, amount, title, rea
             <strong className="dec-confirm-amount">{amount}</strong>
             <span className="dec-confirm-what">{title}</span>
           </div>
-          <AlertDialog.Description className="dec-confirm-consequence">{actionConsequence(action, subjectType)}</AlertDialog.Description>
+          {/* O leitor de tela ouve O QUE e QUANTO antes da consequência: a descrição do diálogo repete o bloco visual acima. */}
+          <AlertDialog.Description className="dec-confirm-consequence">
+            <span className="sr-only-ax">{kind} de {amount}: {title}. </span>
+            {actionConsequence(action, subjectType)}
+          </AlertDialog.Description>
 
           <label className="ax-field dec-confirm-field">
             <span>{st.required ? 'Justificativa (obrigatória)' : 'Justificativa (opcional)'}</span>

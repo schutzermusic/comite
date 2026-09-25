@@ -1,6 +1,6 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
 
@@ -13,11 +13,24 @@ export function SidePanel({ open, onClose, eyebrow, title, meta, children, foote
   open: boolean; onClose: () => void; eyebrow?: ReactNode; title: string; meta?: ReactNode;
   children: ReactNode; footer?: ReactNode; testId?: string; wide?: boolean;
 }) {
+  /*
+    O painel abre pela URL (sem Dialog.Trigger), então o Radix não sabe a quem
+    devolver o foco. Guarda-se quem tinha o foco ao abrir e devolve-se a ele —
+    senão o foco cai no <body> e o teclado recomeça do topo da página.
+  */
+  const opener = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (open && typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) opener.current = document.activeElement;
+  }, [open]);
   return (
     <Dialog.Root open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
       <Dialog.Portal>
         <Dialog.Overlay className="ax-overlay" />
-        <Dialog.Content className={wide ? 'ax ax-sheet wide' : 'ax ax-sheet'} data-testid={testId}>
+        <Dialog.Content className={wide ? 'ax ax-sheet wide' : 'ax ax-sheet'} data-testid={testId}
+          onCloseAutoFocus={(e) => {
+            const el = opener.current;
+            if (el && el.isConnected) { e.preventDefault(); el.focus(); }
+          }}>
           <div className="ax-sheet-head">
             <div className="ax-between">
               {eyebrow ? <span className="ax-eyebrow">{eyebrow}</span> : <span />}

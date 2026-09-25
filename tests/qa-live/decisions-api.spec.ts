@@ -188,7 +188,8 @@ test('3. tela velha e concorrência forçada: uma decisão, uma história', asyn
   const done = ws.completed.find((d: Row) => d.key === keyA);
   expect(done.decidedBy.id).toBe(fin.id);
   expect(done.viewerRole).toBe('DECIDER');
-  expect(done.authoritySummary).toMatch(/ATA-QA-001/);
+  // Aprovar usa a alçada declarada (registrada); devolver não usa teto de valor — e a tela diz qual regra valeu.
+  expect(done.authoritySummary).toMatch(approvedWon ? /ATA-QA-001/ : /Devolução por alçada de compra/);
 });
 
 test('4. mesmo resultado que o ato feito em Compras', async () => {
@@ -426,5 +427,52 @@ test('9. segunda fonte: liberação de faturamento pelo motor, na mesma caixa', 
     if (version) await db.query(`UPDATE public.approval_policy_versions SET status = 'INACTIVE' WHERE id = $1`, [version]);
     await db.query(`DELETE FROM public.user_permission_overrides WHERE organization_id = $1 AND user_id = $2 AND permission_id = $3`,
       [org, owner, perm]);
+  }
+});
+
+/**
+ * Revisão adversarial (241 + camada de aplicação):
+ *  • o ATO também passa pelo portão de acesso — quem não abre a decisão recebe
+ *    404 puro, sem desfecho, decisor ou justificativa;
+ *  • a EQUIPE (gestor na hierarquia de pessoas, sem leitura de compras) vê quem
+ *    tem a decisão e há quanto tempo — nunca valor, propostas ou histórico.
+ */
+test('10. portão no ato e Equipe sem leitura da origem: nada vaza', async () => {
+  const live = qaLive(); const org = live.organization.id;
+  // A decisão A (fechada no teste 3) — RH não a abre, e o ato não pode contar nada sobre ela.
+  const leak = await act('rh', keyA, { action: 'APPROVE', expectedFingerprint: null, intentId: intent('rh-probe') });
+  expect(leak.status()).toBe(404);
+  const leakBody = await leak.text();
+  expect(leakBody).not.toMatch(/closedBy|requestNote|Financeiro|ATA-QA/);
+
+  // RH como GESTOR do Financeiro na hierarquia canônica de pessoas (people.manager_person_id) — só neste teste.
+  const profile = async (uid: string) => (await one<{ id: string }>(db, `SELECT id FROM public.profiles WHERE user_id = $1`, [uid])).id;
+  const mgr = (await one<{ id: string }>(db, `INSERT INTO public.people (organization_id, profile_id, full_name, status)
+    VALUES ($1,$2,'QA RH (gestor)','active') RETURNING id`, [org, await profile(live.users.rh.id)])).id;
+  const rep = (await one<{ id: string }>(db, `INSERT INTO public.people (organization_id, profile_id, full_name, status, manager_person_id)
+    VALUES ($1,$2,'QA Financeiro','active',$3) RETURNING id`, [org, await profile(live.users.financeiro.id), mgr])).id;
+  try {
+    const X = await decisionPurchaseOrder(db, `X${T}`, { qty: 30, priceA: 70, priceB: 80 });
+    await submitPo(X.poId);
+    const key = keyForAuthority(X.poId);
+    const team = await workspaceFor('rh', 'equipe');
+    expect(team.teamScope).toBe('DIRECT_REPORTS');
+    const t = team.team.items.find((i: Row) => i.key === key);
+    expect(t, 'decisão do liderado na Equipe do gestor').toBeTruthy();
+    expect(t.amount).toBeNull();
+    expect(t.amountRestricted).toBe(true);
+    const d = await (await (await apiAs('rh')).get(decisionPath(key))).json();
+    expect(d.access).toBe('TEAM');
+    expect(d.canAct).toBe(false);
+    expect(d.amountRestricted).toBe(true);
+    expect(d.resolved.amount).toBeNull();
+    expect(d.comparison).toBeNull();
+    expect(d.lines).toEqual([]);
+    expect(d.facts).toEqual([]);
+    expect(JSON.stringify(d)).not.toMatch(/Elétrica Rápida|Cabos Amazônia|2\.400|Submetido pela prova/);
+    // Ver a Equipe não dá ato.
+    expect((await act('rh', key, { action: 'APPROVE', expectedFingerprint: null, intentId: intent('rh-team') })).status()).toBe(403);
+  } finally {
+    await db.query(`DELETE FROM public.people WHERE id = ANY($1)`, [[rep, mgr]]);
   }
 });

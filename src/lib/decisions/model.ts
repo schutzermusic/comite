@@ -398,9 +398,14 @@ export function normalizeReason(reason: string | null | undefined): string | nul
   return t ? t : null;
 }
 
-/** Chave de idempotência do motor: ator + etapa + ato + intenção. Nunca a mesma entre pessoas. */
-export function engineIdempotencyKey(stepId: string, actorId: string, action: DecisionAction, intentId: string): string {
-  return `dec:${stepId}:${actorId}:${action}:${intentId}`.slice(0, 200);
+/**
+ * Chave de idempotência do motor: DECISÃO (pedido + estágio) + ator + ato +
+ * intenção. Presa à decisão, e não à etapa escolhida no instante do clique:
+ * se a etapa A já foi decidida e a retentativa enxergar a etapa irmã B, a
+ * mesma intenção NÃO vira uma segunda decisão. Nunca a mesma entre pessoas.
+ */
+export function engineIdempotencyKey(requestId: string, stageNo: number, actorId: string, action: DecisionAction, intentId: string): string {
+  return `dec:${requestId}:e${stageNo}:${actorId}:${action}:${intentId}`.slice(0, 200);
 }
 
 export const ENGINE_DECISION: Record<DecisionAction, 'APPROVED' | 'REJECTED' | 'RETURNED_FOR_CORRECTION'> = {

@@ -118,10 +118,12 @@ export function noticeFor(key: string, action: DecisionAction): NoticeTrigger {
   return { key, kind: 'ADJUSTMENT_REQUESTED' };
 }
 
-export function actMessage(subjectType: string, action: DecisionAction, outcome: Exclude<DecisionActOutcome, 'STALE'>, final: boolean): string {
+export function actMessage(subjectType: string, action: DecisionAction, outcome: Exclude<DecisionActOutcome, 'STALE'>, final: boolean,
+  stageAdvanced = true): string {
   if (outcome === 'IDEMPOTENT_REPLAY') return REPLAY_MESSAGE;
   if (action === 'REQUEST_ADJUSTMENT') return subjectType === 'purchase_order' ? 'Ajuste solicitado a Compras.' : 'Ajuste solicitado.';
   if (action === 'REJECT') return 'Rejeição registrada.';
+  if (!final && !stageAdvanced) return 'Sua aprovação foi registrada. O estágio aguarda as demais aprovações exigidas.';
   if (!final) return 'Aprovação registrada — a decisão segue para o próximo estágio.';
   if (subjectType === 'purchase_order') return 'Compra aprovada.';
   if (subjectType === 'contract_billing_event') return 'Liberação de faturamento aprovada.';
@@ -202,6 +204,19 @@ async function replayResponse(org: string, key: string, action: DecisionAction,
   return ok({ outcome: 'IDEMPOTENT_REPLAY', message: REPLAY_MESSAGE, resolved: r, downstream });
 }
 
+/**
+ * A decisão que ESTA pessoa já registrou no estágio da chave (motor). Serve
+ * para reconhecer o eco depois de uma aprovação parcial — o estágio segue
+ * aberto aguardando outras etapas, e a pessoa não é mais elegível para elas.
+ */
+async function ownStageDecision(org: string, raw: Row, actor: string): Promise<string | null> {
+  if (raw.source_kind !== 'APPROVAL_ENGINE' || !raw.request_id || !raw.stage_no) return null;
+  const { data } = await platformServiceClient().from('approval_decisions').select('decision')
+    .eq('organization_id', org).eq('request_id', String(raw.request_id)).eq('stage_no', Number(raw.stage_no))
+    .or(`actor_user_id.eq.${actor},on_behalf_of_user_id.eq.${actor}`).limit(1).maybeSingle<Row>();
+  return data ? String(data.decision) : null;
+}
+
 // ---------------------------------------------------------------------------
 // O ato
 // ---------------------------------------------------------------------------
@@ -220,9 +235,20 @@ export async function actOnDecision(session: DecisionsSession, key: string, body
 
     // Fora da caixa: não existe, já terminou, ou não é desta pessoa.
     if (!row) {
+      // O MESMO portão do detalhe, antes de qualquer leitura pelo servidor: quem não abre a decisão
+      // não descobre, pelo ato, se ela existe, se está aberta, quem decidiu nem com que justificativa.
+      const { data: access, error: accessError } = await session.supabase.rpc('decision_access_for_viewer', { p_key: key });
+      if (accessError) throw accessError;
+      if (!access) return fail(404, 'Decisão não encontrada.');
       const current = await readResolved(org, key);
       if (!current) return fail(404, 'Decisão não encontrada.');
-      if (current.resolved.open) return fail(403, NOT_UNDER_AUTHORITY, 'FORBIDDEN');
+      if (current.resolved.open) {
+        // Etapa desta pessoa já decidida num estágio que aguarda outras aprovações: é eco, não falta de alçada.
+        const own = await ownStageDecision(org, current.raw, actor);
+        if (own && own === ENGINE_DECISION[action]) return replayResponse(org, key, action, current, headers);
+        if (own) return staleResponse(current.resolved);
+        return fail(403, NOT_UNDER_AUTHORITY, 'FORBIDDEN');
+      }
       if (!replayOf(current.resolved, actor, action)) return staleResponse(current.resolved);
       return replayResponse(org, key, action, current, headers);
     }
@@ -255,11 +281,19 @@ export async function actOnDecision(session: DecisionsSession, key: string, body
     }
 
     // ---------------- motor de aprovação ----------------
-    if (!row.step_id || !row.request_id) return fail(422, 'Ato não disponível para esta decisão.');
+    if (!row.step_id || !row.request_id || !row.stage_no) return fail(422, 'Ato não disponível para esta decisão.');
+    const engineKey = engineIdempotencyKey(row.request_id, row.stage_no, actor, action, intentId);
+    // Esta intenção já foi gravada (resposta perdida, retentativa)? Eco — nunca uma segunda etapa.
+    const prior = await platformServiceClient().from('approval_decisions').select('id,actor_user_id')
+      .eq('organization_id', org).eq('idempotency_key', engineKey).maybeSingle<Row>();
+    if (prior.data && prior.data.actor_user_id === actor) {
+      const current = await readResolved(org, key);
+      if (current) return replayResponse(org, key, action, current, headers);
+    }
     const { data, error } = await session.supabase.rpc('approval_decide', {
       p_request_step_id: row.step_id,
       p_decision: ENGINE_DECISION[action],
-      p_idempotency_key: engineIdempotencyKey(row.step_id, actor, action, intentId),
+      p_idempotency_key: engineKey,
       p_reason: reason,
       p_delegation_id: null,
       p_expected_fingerprint: expectedFingerprint ?? row.fingerprint,
@@ -281,7 +315,8 @@ export async function actOnDecision(session: DecisionsSession, key: string, body
     await audit(org, row.source_kind, row.subject_type, row.subject_id, key, action, outcome, headers);
     if (outcome === 'RECORDED' && final) scheduleDecisionNotify(org, [noticeFor(key, action)]);
     const fresh = await readResolved(org, key);
-    return ok({ outcome, message: actMessage(row.subject_type, action, outcome, final), resolved: fresh?.resolved ?? null, downstream });
+    const stageAdvanced = final || (res.current_stage_no !== null && res.current_stage_no !== undefined && Number(res.current_stage_no) !== row.stage_no);
+    return ok({ outcome, message: actMessage(row.subject_type, action, outcome, final, stageAdvanced), resolved: fresh?.resolved ?? null, downstream });
   } catch (error) {
     console.error('[decisions] ato falhou', key, error);
     return fail(500, 'Não foi possível concluir o ato agora. Recarregue a decisão para ver o que está valendo.');

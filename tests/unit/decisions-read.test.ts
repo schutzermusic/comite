@@ -16,6 +16,10 @@ const m = vi.hoisted(() => ({
   audit: vi.fn(),
   notify: vi.fn(),
   subjectStatus: 'APPROVED' as string | null,
+  access: 'PARTICIPANT' as string | null,
+  decide: { data: null, error: null } as { data: unknown; error: unknown },
+  priorDecision: null as Record<string, unknown> | null,
+  ownDecision: null as Record<string, unknown> | null,
 }));
 
 vi.mock('@/lib/decisions/read', async (importOriginal) => ({
@@ -30,9 +34,16 @@ vi.mock('@/lib/platform/governed-rpc', async (importOriginal) => ({
 vi.mock('@/lib/audit/log-audit-event-server', () => ({ logAuditEventServer: m.audit }));
 vi.mock('@/lib/decisions/notify', () => ({ scheduleDecisionNotify: m.notify, scheduleSubjectNotify: vi.fn() }));
 vi.mock('@/lib/platform/server-client', () => {
+  // Cadeia falsa do supabase-js: a TABELA e os filtros decidem o que volta.
+  let table = ''; let byKey = false;
   const chain: Record<string, unknown> = {};
-  for (const k of ['from', 'select', 'eq', 'in', 'is']) chain[k] = () => chain;
-  chain.maybeSingle = async () => ({ data: m.subjectStatus === null ? null : { status: m.subjectStatus, release_state: m.subjectStatus }, error: null });
+  chain.from = (t: string) => { table = t; byKey = false; return chain; };
+  for (const k of ['select', 'in', 'is', 'or', 'limit']) chain[k] = () => chain;
+  chain.eq = (col: string) => { if (col === 'idempotency_key') byKey = true; return chain; };
+  chain.maybeSingle = async () => {
+    if (table === 'approval_decisions') return { data: byKey ? m.priorDecision : m.ownDecision, error: null };
+    return { data: m.subjectStatus === null ? null : { status: m.subjectStatus, release_state: m.subjectStatus }, error: null };
+  };
   return { platformServiceClient: () => chain };
 });
 
@@ -188,9 +199,10 @@ describe('Concluídas', () => {
     expect(c).toMatchObject({ status: 'APROVADA', outcome: 'APPROVED', viewerRole: 'DECIDER', amount: 478500, decidedBy: { id: ME },
       projectName: 'Projeto p1', recordId: 'hist-1', sourceHref: `/supply/compras?stage=pedidos&po=${PO}` });
     expect(c.authoritySummary).toMatch(/ATA-QA-001/);
-    // Devolução por alçada não consome alçada: sem registro, sem frase inventada.
+    // Devolução por alçada não consome alçada de valor: nenhum registro é inventado — a tela diz a regra que valeu.
     expect(toCompletedItem(historyRow({ outcome: 'ADJUSTMENT_REQUESTED', authority: { kind: 'PROCUREMENT_AUTHORITY', authority_id: null } }),
-      { person, project }, auth)).toMatchObject({ status: 'AJUSTE_SOLICITADO', authoritySummary: null });
+      { person, project }, auth)).toMatchObject({ status: 'AJUSTE_SOLICITADO',
+      authoritySummary: 'Devolução por alçada de compra — exige procurement.approve, sem teto de valor' });
     const engine = toCompletedItem(historyRow({ source_kind: 'APPROVAL_ENGINE', outcome: 'REJECTED',
       authority: { kind: 'APPROVAL_POLICY', policy_key: 'procurement.po', policy_version_no: 1, authority_basis: 'role:financeiro' } }), { person, project }, auth);
     expect(engine).toMatchObject({ status: 'REJEITADA', authoritySummary: 'Política procurement.po v1 — role:financeiro' });
@@ -439,7 +451,10 @@ beforeEach(() => {
   m.viewerInboxRow.mockReset(); m.readResolved.mockReset(); m.governedRpc.mockReset(); m.notify.mockReset();
   m.audit.mockReset(); m.audit.mockResolvedValue({ ok: true });
   userRpc.mockReset();
-  m.subjectStatus = 'APPROVED';
+  m.subjectStatus = 'APPROVED'; m.access = 'PARTICIPANT'; m.decide = { data: null, error: null };
+  m.priorDecision = null; m.ownDecision = null;
+  // A sessão responde ao portão (decision_access_for_viewer) e ao motor (approval_decide).
+  userRpc.mockImplementation(async (name: string) => (name === 'decision_access_for_viewer' ? { data: m.access, error: null } : m.decide));
 });
 
 describe('ato — portão da caixa', () => {
@@ -454,13 +469,35 @@ describe('ato — portão da caixa', () => {
     expect(res.status).toBe(404);
     expect((await res.json()).error).toBe('Decisão não encontrada.');
   });
+  it('fora da caixa e SEM acesso à decisão: 404 antes de qualquer leitura pelo servidor (nada vaza pelo ato)', async () => {
+    m.viewerInboxRow.mockResolvedValue(null); m.access = null;
+    m.readResolved.mockResolvedValue({ raw: {}, resolved: resolved({ closedBy: { id: 'dir', name: 'Diretora' }, reason: 'segredo' }) });
+    const res = await act(KEY, { action: 'APPROVE' });
+    expect(res.status).toBe(404);
+    const body = await res.json();
+    expect(body).toMatchObject({ error: 'Decisão não encontrada.' });
+    expect(JSON.stringify(body)).not.toMatch(/Diretora|segredo/);
+    expect(m.readResolved).not.toHaveBeenCalled();
+  });
   it('fora da caixa e aberta: 403 — não está sob a sua alçada; nada é chamado', async () => {
     m.viewerInboxRow.mockResolvedValue(null); m.readResolved.mockResolvedValue({ raw: {}, resolved: resolved({ open: true, outcome: null, closedBy: null }) });
     const res = await act(KEY, { action: 'APPROVE' });
     expect(res.status).toBe(403);
     expect(await res.json()).toMatchObject({ code: 'FORBIDDEN', message: 'Esta decisão não está sob a sua alçada.' });
     expect(m.governedRpc).not.toHaveBeenCalled();
-    expect(userRpc).not.toHaveBeenCalled();
+    expect(userRpc).not.toHaveBeenCalledWith('approval_decide', expect.anything());
+  });
+  it('fora da caixa, estágio aberto com a MINHA etapa já decidida: eco (mesmo ato) ou 409 (outro ato) — nunca "sem alçada"', async () => {
+    m.viewerInboxRow.mockResolvedValue(null);
+    m.readResolved.mockResolvedValue({ raw: { source_kind: 'APPROVAL_ENGINE', request_id: RQ, stage_no: 1, request_status: 'PENDING' },
+      resolved: resolved({ key: EKEY, source: 'APPROVAL_ENGINE', requestId: RQ, open: true, outcome: null, status: 'PENDENTE', closedBy: null }) });
+    m.ownDecision = { decision: 'APPROVED' };
+    const same = await act(EKEY, { action: 'APPROVE' });
+    expect(same.status).toBe(200);
+    expect(await same.json()).toMatchObject({ outcome: 'IDEMPOTENT_REPLAY', downstream: null });
+    const other = await act(EKEY, { action: 'REJECT', reason: 'Mudei de ideia' });
+    expect(other.status).toBe(409);
+    expect(userRpc).not.toHaveBeenCalledWith('approval_decide', expect.anything());
   });
   it('fora da caixa e encerrada por outra pessoa: 409 STALE com o que valeu', async () => {
     m.viewerInboxRow.mockResolvedValue(null);
@@ -551,12 +588,12 @@ describe('ato — alçada declarada (invólucro canônico pelo service role)', (
 describe('ato — motor de aprovação (sessão da pessoa)', () => {
   it('approval_decide pela SESSÃO: chave por ator, justificativa normalizada, impressão da caixa quando a tela não manda', async () => {
     m.viewerInboxRow.mockResolvedValue(engineRow());
-    userRpc.mockResolvedValue({ data: { status: 'RECORDED', decision_id: 'd1', request_status: 'APPROVED' }, error: null });
+    m.decide = { data: { status: 'RECORDED', decision_id: 'd1', request_status: 'APPROVED' }, error: null };
     m.governedRpc.mockResolvedValue({ applied: true, status: 'APPROVED' });
     m.readResolved.mockResolvedValue(after(resolved({ key: EKEY, source: 'APPROVAL_ENGINE', requestId: RQ })));
     const res = await act(EKEY, { action: 'APPROVE', reason: '  ' });
     expect(userRpc).toHaveBeenCalledWith('approval_decide', {
-      p_request_step_id: STEP, p_decision: 'APPROVED', p_idempotency_key: `dec:${STEP}:${ME}:APPROVE:intent-001`, p_reason: null,
+      p_request_step_id: STEP, p_decision: 'APPROVED', p_idempotency_key: `dec:${RQ}:e1:${ME}:APPROVE:intent-001`, p_reason: null,
       p_delegation_id: null, p_expected_fingerprint: 'engine-fp',
     });
     // O motor nunca é chamado pelo service role; o service role só aplica o desfecho a jusante.
@@ -570,23 +607,40 @@ describe('ato — motor de aprovação (sessão da pessoa)', () => {
   });
   it('impressão digital da tela vence a da caixa', async () => {
     m.viewerInboxRow.mockResolvedValue(engineRow());
-    userRpc.mockResolvedValue({ data: { status: 'RECORDED', request_status: 'PENDING' }, error: null });
+    m.decide = { data: { status: 'RECORDED', request_status: 'PENDING' }, error: null };
     m.readResolved.mockResolvedValue(null);
     await act(EKEY, { action: 'APPROVE', expectedFingerprint: 'screen-fp' });
     expect(userRpc.mock.calls[0][1].p_expected_fingerprint).toBe('screen-fp');
   });
   it('estágio intermediário: nada a jusante, nenhum aviso de desfecho', async () => {
     m.viewerInboxRow.mockResolvedValue(engineRow());
-    userRpc.mockResolvedValue({ data: { status: 'RECORDED', request_status: 'PENDING' }, error: null });
+    m.decide = { data: { status: 'RECORDED', request_status: 'PENDING', current_stage_no: 2 }, error: null };
     m.readResolved.mockResolvedValue(null);
     const res = await act(EKEY, { action: 'APPROVE' });
     expect(await res.json()).toMatchObject({ outcome: 'RECORDED', downstream: null, message: expect.stringMatching(/próximo estágio/) });
     expect(m.governedRpc).not.toHaveBeenCalled();
     expect(m.notify).not.toHaveBeenCalled();
   });
+  it('estágio que ainda aguarda outras etapas: a mensagem não diz que avançou', async () => {
+    m.viewerInboxRow.mockResolvedValue(engineRow());
+    m.decide = { data: { status: 'RECORDED', request_status: 'PENDING', current_stage_no: 1 }, error: null };
+    m.readResolved.mockResolvedValue(null);
+    const res = await act(EKEY, { action: 'APPROVE' });
+    expect((await res.json()).message).toMatch(/aguarda as demais aprovações/);
+  });
+  it('retentativa da MESMA intenção já gravada: eco sem chamar o motor (nunca uma etapa irmã)', async () => {
+    m.viewerInboxRow.mockResolvedValue(engineRow({ step_id: '44444444-4444-4444-8444-444444444444' }));
+    m.priorDecision = { id: 'd1', actor_user_id: ME };
+    m.readResolved.mockResolvedValue({ raw: { request_status: 'PENDING' },
+      resolved: resolved({ key: EKEY, source: 'APPROVAL_ENGINE', requestId: RQ, open: true, outcome: null, status: 'PENDENTE' }) });
+    const res = await act(EKEY, { action: 'APPROVE' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ outcome: 'IDEMPOTENT_REPLAY' });
+    expect(userRpc).not.toHaveBeenCalledWith('approval_decide', expect.anything());
+  });
   it('faturamento: desfecho final aplicado por contract_billing_apply_approval', async () => {
     m.viewerInboxRow.mockResolvedValue(engineRow({ subject_type: 'contract_billing_event', subject_id: 'ev-1', actions: ['APPROVE', 'REJECT'] }));
-    userRpc.mockResolvedValue({ data: { status: 'RECORDED', request_status: 'REJECTED' }, error: null });
+    m.decide = { data: { status: 'RECORDED', request_status: 'REJECTED' }, error: null };
     m.governedRpc.mockResolvedValue({ applied: true, release_state: 'RELEASE_REJECTED' });
     m.subjectStatus = 'RELEASE_REJECTED';
     m.readResolved.mockResolvedValue(null);
@@ -597,7 +651,7 @@ describe('ato — motor de aprovação (sessão da pessoa)', () => {
   });
   it('falha a jusante NÃO vira erro: a decisão está gravada; a rota de evento aplica depois', async () => {
     m.viewerInboxRow.mockResolvedValue(engineRow());
-    userRpc.mockResolvedValue({ data: { status: 'RECORDED', request_status: 'APPROVED' }, error: null });
+    m.decide = { data: { status: 'RECORDED', request_status: 'APPROVED' }, error: null };
     m.governedRpc.mockRejectedValue(new GovernedRpcError('boom', 'XX000'));
     m.subjectStatus = 'APPROVAL_REQUIRED';
     m.readResolved.mockResolvedValue(null);
@@ -609,7 +663,7 @@ describe('ato — motor de aprovação (sessão da pessoa)', () => {
   });
   it('recusa de estado do motor: 409 STALE — ou idempotente, quando o que valeu foi o MEU mesmo ato', async () => {
     m.viewerInboxRow.mockResolvedValue(engineRow());
-    userRpc.mockResolvedValue({ data: null, error: { message: 'Pedido já está em APPROVED; não aceita nova decisão.', code: '23514' } });
+    m.decide = { data: null, error: { message: 'Pedido já está em APPROVED; não aceita nova decisão.', code: '23514' } };
     m.readResolved.mockResolvedValue(after(resolved({ key: EKEY, source: 'APPROVAL_ENGINE', requestId: RQ, closedBy: { id: 'dir', name: 'Diretora' } })));
     const stale = await act(EKEY, { action: 'APPROVE' });
     expect(stale.status).toBe(409);
@@ -622,7 +676,7 @@ describe('ato — motor de aprovação (sessão da pessoa)', () => {
   });
   it('inelegível no instante do ato (42501): 403 com o motivo do motor', async () => {
     m.viewerInboxRow.mockResolvedValue(engineRow());
-    userRpc.mockResolvedValue({ data: null, error: { message: 'SOD_REQUESTER: Você solicitou.', code: '42501' } });
+    m.decide = { data: null, error: { message: 'SOD_REQUESTER: Você solicitou.', code: '42501' } };
     const res = await act(EKEY, { action: 'APPROVE' });
     expect(res.status).toBe(403);
     expect(await res.json()).toMatchObject({ code: 'FORBIDDEN', error: 'Você solicitou esta aprovação e por isso não pode decidi-la.' });

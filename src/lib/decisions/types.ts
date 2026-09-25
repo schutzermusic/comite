@@ -347,6 +347,8 @@ export interface DeliverySummary {
 export interface DecisionDetail {
   key: string;
   access: DecisionAccess;
+  /** Equipe sem leitura da origem: valor e conteúdo omitidos — a tela diz "Restrito", nunca zero. */
+  amountRestricted?: boolean;
   resolved: ResolvedDecision;
   item: DecisionItem | null;        // presente quando a pessoa decide (ou pode decidir) agora
   canAct: boolean;

@@ -202,7 +202,11 @@ function must<T>(r: { data: T | null; error: { message: string } | null }, what:
  * O pedido inteiro para quem decide. `submission` é a submissão que a chave
  * decide (s<n>): a nota e o autor mostrados são os DELA, não os da última.
  */
-export async function purchaseOrderDetail(org: string, poId: string, opts: { today: string; submission: number | null }): Promise<PurchaseOrderDetail | null> {
+export async function purchaseOrderDetail(org: string, poId: string, opts: {
+  today: string; submission: number | null;
+  /** O evento de faturamento a jusante NÃO é o sujeito da decisão: valor só para quem a RLS de faturamento deixaria ler. */
+  revealBilling?: (eventId: string) => Promise<boolean>;
+}): Promise<PurchaseOrderDetail | null> {
   const sb = platformServiceClient();
   const po = must(await sb.from('purchase_orders')
     .select('id,order_number,supplier_id,sourcing_decision_id,project_id,status,currency,freight_amount,tax_amount,payment_terms,delivery_location_id,expected_delivery,approval_governance,submitted_by,submitted_at')
@@ -360,7 +364,7 @@ export async function purchaseOrderDetail(org: string, poId: string, opts: { tod
     .sort((a, b) => (needOf(a) ?? '9999').localeCompare(needOf(b) ?? '9999'))[0] ?? null;
   const act = anchor ? activities.get(String(anchor.activity_id)) ?? null : null;
   const headItem = headLine ? itemMap.get(String(headLine.item_id)) : undefined;
-  const chain = await chainLinks(org, {
+  const chain = await chainLinks(org, opts.revealBilling ?? (async () => false), {
     supplier: { id: supplierId, name: book.supplier(supplierId) },
     material: headLine ? { itemId: String(headLine.item_id), code: str(headItem?.code), description: str(headItem?.description) } : null,
     activity: act ? { id: String(act.id), projectId: String(act.project_id), title: String(act.title), plannedStart: str(act.planned_start) } : null,
@@ -378,7 +382,8 @@ export async function purchaseOrderDetail(org: string, poId: string, opts: { tod
  * Marco → Medição → Faturamento a partir da atividade. Sem atividade não há
  * como achar o marco seguinte: os elos seguintes ficam ausentes — e ditos.
  */
-async function chainLinks(org: string, base: Pick<ChainInput, 'supplier' | 'material' | 'activity'>): Promise<ChainNode[]> {
+async function chainLinks(org: string, revealBilling: (eventId: string) => Promise<boolean>,
+  base: Pick<ChainInput, 'supplier' | 'material' | 'activity'>): Promise<ChainNode[]> {
   const sb = platformServiceClient();
   const activity = base.activity;
   let milestone: ChainInput['milestone'] = null;
@@ -403,8 +408,13 @@ async function chainLinks(org: string, base: Pick<ChainInput, 'supplier' | 'mate
     const { data } = await sb.from('contract_billing_events').select('id,title,due_date,amount,currency,release_state')
       .eq('organization_id', org).eq('source_measurement_id', measurement.id).order('created_at', { ascending: false }).limit(1);
     const b = ((data ?? []) as Row[])[0];
-    if (b) billing = { id: String(b.id), title: str(b.title), dueDate: str(b.due_date), amount: b.amount === null ? null : num(b.amount),
-      currency: str(b.currency), releaseState: str(b.release_state) };
+    if (b) {
+      // Presença do elo é fato da cadeia; título, valor e estado só para quem lê faturamento (mesma regra da RLS).
+      billing = await revealBilling(String(b.id))
+        ? { id: String(b.id), title: str(b.title), dueDate: str(b.due_date), amount: b.amount === null ? null : num(b.amount),
+            currency: str(b.currency), releaseState: str(b.release_state) }
+        : { id: String(b.id), title: null, dueDate: null, amount: null, currency: null, releaseState: null };
+    }
   }
   return purchaseChain({ ...base, milestone, measurement, billing });
 }

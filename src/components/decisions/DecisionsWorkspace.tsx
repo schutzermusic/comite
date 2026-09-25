@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { ChevronDown, ShieldCheck } from 'lucide-react';
 import {
   AxPage, CommandHeader, Dot, EmptyState, ErrorState, Filters, KV, Plane, SignalStrip, Skeleton, Tabs, date, relativeDue,
@@ -53,8 +54,26 @@ function Workspace() {
   if (res.data && res.data !== frame) setFrame(res.data);
   const ws = res.data ?? frame;
 
-  const openDecision = (key: string) => patch({ d: key });
-  const panel = openKey ? <DecisionPanel key={openKey} decisionKey={openKey} onClose={() => patch({ d: null })} /> : null;
+  /*
+    Abrir uma decisão ENTRA no histórico: no celular o detalhe é uma tela
+    cheia, e o "voltar" do aparelho tem de fechá-la — não sair de Decisões.
+    Fechar volta no histórico quando fomos nós que abrimos; aberto por link
+    (e-mail, aviso), só troca o endereço.
+  */
+  const router = useRouter();
+  const pathname = usePathname();
+  const search = useSearchParams();
+  const pushed = useRef(false);
+  useEffect(() => { if (!openKey) pushed.current = false; }, [openKey]);
+  const openDecision = (key: string) => {
+    const q = new URLSearchParams(search.toString()); q.set('d', key);
+    pushed.current = true;
+    router.push(`${pathname}?${q.toString()}`, { scroll: false });
+  };
+  const closeDecision = () => {
+    if (pushed.current) { pushed.current = false; router.back(); } else patch({ d: null });
+  };
+  const panel = openKey ? <DecisionPanel key={openKey} decisionKey={openKey} onClose={closeDecision} /> : null;
 
   if (!ws) {
     return (

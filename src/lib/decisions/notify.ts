@@ -313,7 +313,34 @@ async function deliverInApp(run: Run, row: DeliveryRow, ctx: NoticeContext): Pro
   return stateTally(data);
 }
 
+/**
+ * Reconferido NA HORA DO ENVIO, não só no planejamento: a linha pode esperar
+ * na fila (varredura, recuo) enquanto a pessoa sai da organização, desliga o
+ * e-mail para si ou a organização desliga o canal. Nesses casos nada sai.
+ */
+async function externalGate(run: Run, row: DeliveryRow, channel: 'email' | 'whatsapp'): Promise<Tally | null> {
+  const { data: member, error: mErr } = await run.sb.from('organization_memberships').select('status')
+    .eq('organization_id', run.organizationId).eq('user_id', row.recipient_user_id).maybeSingle<{ status: string }>();
+  if (mErr) throw tagged('MEMBERSHIP_UNAVAILABLE', mErr);
+  if (member?.status !== 'ACTIVE') {
+    return record(run, row, 'SKIPPED', { code: 'RECIPIENT_INACTIVE', reason: 'O destinatário não é mais membro ativo da organização.' });
+  }
+  if (channel !== 'email') return null;
+  const [{ data: integ, error: iErr }, { data: pref, error: pErr }] = await Promise.all([
+    run.sb.from('notification_channel_integrations').select('status')
+      .eq('organization_id', run.organizationId).eq('channel', 'email').maybeSingle<{ status: string }>(),
+    run.sb.from('user_notification_preferences').select('enabled')
+      .eq('organization_id', run.organizationId).eq('user_id', row.recipient_user_id).eq('channel', 'email').maybeSingle<{ enabled: boolean }>(),
+  ]);
+  if (iErr || pErr) throw tagged('PREFERENCE_UNAVAILABLE', (iErr ?? pErr) as { message?: string; code?: string });
+  if (integ?.status === 'DISABLED') return record(run, row, 'SKIPPED', { code: 'CHANNEL_DISABLED', reason: 'O e-mail foi desligado na organização.' });
+  if (pref?.enabled === false) return record(run, row, 'SKIPPED', { code: 'USER_OPTED_OUT', reason: 'A pessoa desligou o e-mail para si.' });
+  return null;
+}
+
 async function deliverEmail(run: Run, row: DeliveryRow, ctx: NoticeContext): Promise<Tally> {
+  const gate = await externalGate(run, row, 'email');
+  if (gate) return gate;
   const address = await emailOf(run, row.recipient_user_id);
   if (address.unavailable) return record(run, row, 'RETRY', { code: 'DIRECTORY_UNAVAILABLE', reason: 'Diretório de usuários indisponível.' });
   if (!address.email) return record(run, row, 'FAIL', { code: 'NO_EMAIL', reason: 'O destinatário não tem e-mail utilizável.' });
@@ -343,6 +370,8 @@ async function deliverWhatsApp(run: Run, row: DeliveryRow, ctx: NoticeContext): 
         ? `Credenciais ausentes: ${channel.missing.join(', ')}.` : 'O canal WhatsApp não está pronto nesta organização.',
     });
   }
+  const gate = await externalGate(run, row, 'whatsapp');
+  if (gate) return gate;
   const { data: pref, error } = await run.sb.from('user_notification_preferences')
     .select('enabled, destination')
     .eq('organization_id', run.organizationId).eq('user_id', row.recipient_user_id)

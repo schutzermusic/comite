@@ -91,7 +91,12 @@ interface FakeOpts {
 function fakeClient(o: FakeOpts) {
   const calls: Array<{ fn: string; args: Row }> = [];
   const records: Array<Row> = [];
-  const tables = o.tables ?? {};
+  const tables: Record<string, Row[]> = { ...(o.tables ?? {}) };
+  // Padrão: todo destinatário é membro ATIVO (o portão de envio reconfere); o teste que quiser outro estado declara a tabela.
+  if (!tables.organization_memberships) {
+    tables.organization_memberships = [...new Set(o.deliveries.map((d) => d.recipient_user_id))]
+      .map((user_id) => ({ organization_id: ORG, user_id, status: 'ACTIVE' }));
+  }
   const byId = new Map(o.deliveries.map((d) => [d.id, d]));
   const rpc = async (fn: string, args: Row) => {
     calls.push({ fn, args });
@@ -221,6 +226,35 @@ describe('e-mail', () => {
     expect(recordOf(f.records, permanent.id)).toMatchObject({ p_result: 'FAIL', p_code: 'validation_error', state: 'DEAD' });
     expect(recordOf(f.records, noMail.id)).toMatchObject({ p_result: 'FAIL', p_code: 'NO_EMAIL', state: 'DEAD' });
     expect(sendAppEmail).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('portão na hora do envio (a linha pode ter esperado na fila)', () => {
+  it('quem saiu da organização não recebe e-mail nem WhatsApp — SKIPPED, nada enviado', async () => {
+    const mail = delivery({ channel: 'email' });
+    const wa = delivery({ channel: 'whatsapp' });
+    const f = fakeClient({ deliveries: [mail, wa], users: { [DECIDER]: 'fulana@apex-qa.test' },
+      tables: { organization_memberships: [{ organization_id: ORG, user_id: DECIDER, status: 'SUSPENDED' }],
+        notification_channel_integrations: [{ organization_id: ORG, channel: 'whatsapp', status: 'ENABLED', provider: 'fake', content_level: 'MINIMAL' }],
+        user_notification_preferences: [{ organization_id: ORG, user_id: DECIDER, channel: 'whatsapp', enabled: true, destination: '+5511987654321' }] } });
+    await deliverDue(ORG, { client: f.client, env: { RESEND_API_KEY: 're_x', NODE_ENV: 'test' } });
+    expect(recordOf(f.records, mail.id)).toMatchObject({ p_result: 'SKIPPED', p_code: 'RECIPIENT_INACTIVE' });
+    expect(recordOf(f.records, wa.id)).toMatchObject({ p_result: 'SKIPPED', p_code: 'RECIPIENT_INACTIVE' });
+    expect(sendAppEmail).not.toHaveBeenCalled();
+    expect(fakeWhatsAppLog()).toHaveLength(0);
+  });
+  it('e-mail desligado DEPOIS de planejado (pela pessoa ou pela organização) não sai', async () => {
+    const optedOut = delivery({ channel: 'email' });
+    const f1 = fakeClient({ deliveries: [optedOut], users: { [DECIDER]: 'fulana@apex-qa.test' },
+      tables: { user_notification_preferences: [{ organization_id: ORG, user_id: DECIDER, channel: 'email', enabled: false }] } });
+    await deliverDue(ORG, { client: f1.client, env: { RESEND_API_KEY: 're_x' } });
+    expect(recordOf(f1.records, optedOut.id)).toMatchObject({ p_result: 'SKIPPED', p_code: 'USER_OPTED_OUT' });
+    const disabled = delivery({ channel: 'email' });
+    const f2 = fakeClient({ deliveries: [disabled], users: { [DECIDER]: 'fulana@apex-qa.test' },
+      tables: { notification_channel_integrations: [{ organization_id: ORG, channel: 'email', status: 'DISABLED' }] } });
+    await deliverDue(ORG, { client: f2.client, env: { RESEND_API_KEY: 're_x' } });
+    expect(recordOf(f2.records, disabled.id)).toMatchObject({ p_result: 'SKIPPED', p_code: 'CHANNEL_DISABLED' });
+    expect(sendAppEmail).not.toHaveBeenCalled();
   });
 });
 

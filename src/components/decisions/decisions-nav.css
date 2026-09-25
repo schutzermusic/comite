@@ -51,3 +51,16 @@
   /* Alvo de toque de 44 px sem crescer o cabeçalho de 42 px. */
   .app-header-decisions::after { content: ''; position: absolute; inset: -7px -6px; }
 }
+
+/*
+  Cabeçalho no celular com decisão pendente: o atalho não pode empurrar o sino
+  e o tema para fora da tela (o tema só existe aqui). A marca encolhe, o
+  divisor sai e o atalho fica compacto — ícone + número.
+*/
+@media (max-width: 767px) {
+  .app-top-header .app-header-divider { display: none; }
+  .app-top-header .app-header-breadcrumb { flex-shrink: 1; min-width: 0; overflow: hidden; padding-inline: 0; }
+  .app-top-header .app-header-insight-logo { height: 20px !important; }
+  .app-top-header .app-header-control-cluster { flex-shrink: 0; gap: 0.25rem; }
+  .app-header-decisions { padding: 0 0.3125rem; gap: 0.25rem; }
+}

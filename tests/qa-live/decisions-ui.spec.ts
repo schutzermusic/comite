@@ -98,6 +98,14 @@ test('2 · financeiro decide em Decisões: contexto, por quê, comparação, imp
   await expect(row).toContainText('Elétrica Rápida Norte');
   await shot(fin, '1440-light-minhas');
 
+  // Teclado: abrir pelo botão e fechar com Esc devolve o foco ao MESMO botão (não ao topo da página).
+  await row.getByTestId('decision-open').focus();
+  await fin.keyboard.press('Enter');
+  await expect(fin.getByTestId('decision-detail')).toBeVisible();
+  await fin.keyboard.press('Escape');
+  await expect(fin.getByTestId('decision-detail')).toHaveCount(0);
+  await expect(row.getByTestId('decision-open')).toBeFocused();
+
   await row.getByTestId('decision-open').click();
   const detail = fin.getByTestId('decision-detail');
   await expect(detail).toBeVisible();

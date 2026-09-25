@@ -350,14 +350,16 @@ describe('recusas do motor, justificativa e idempotência', () => {
     expect(normalizeReason('\n\tok\n')).toBe('ok');
   });
   it('chave de idempotência do motor: por ator, etapa, ato e intenção — nunca a mesma entre pessoas', () => {
-    const a = engineIdempotencyKey('step-1', 'user-a', 'APPROVE', 'intent-12345');
-    const b = engineIdempotencyKey('step-1', 'user-b', 'APPROVE', 'intent-12345');
-    expect(a).toBe('dec:step-1:user-a:APPROVE:intent-12345');
+    const a = engineIdempotencyKey('req-1', 1, 'user-a', 'APPROVE', 'intent-12345');
+    const b = engineIdempotencyKey('req-1', 1, 'user-b', 'APPROVE', 'intent-12345');
     expect(a).not.toBe(b);
-    expect(engineIdempotencyKey('step-1', 'user-a', 'REJECT', 'intent-12345')).not.toBe(a);
-    expect(engineIdempotencyKey('step-1', 'user-a', 'APPROVE', 'intent-99999')).not.toBe(a);
-    expect(engineIdempotencyKey('step-1', 'user-a', 'APPROVE', 'intent-12345')).toBe(a);
-    expect(engineIdempotencyKey('s'.repeat(150), 'u'.repeat(150), 'APPROVE', 'i'.repeat(80)).length).toBe(200);
+    expect(engineIdempotencyKey('req-1', 1, 'user-a', 'REJECT', 'intent-12345')).not.toBe(a);
+    expect(engineIdempotencyKey('req-1', 1, 'user-a', 'APPROVE', 'intent-99999')).not.toBe(a);
+    expect(engineIdempotencyKey('req-1', 1, 'user-a', 'APPROVE', 'intent-12345')).toBe(a);
+    // Presa à DECISÃO (pedido + estágio), não à etapa: a retentativa que enxergar a etapa irmã usa a MESMA chave.
+    expect(a).toBe('dec:req-1:e1:user-a:APPROVE:intent-12345');
+    expect(engineIdempotencyKey('req-1', 2, 'user-a', 'APPROVE', 'intent-12345')).not.toBe(a);
+    expect(engineIdempotencyKey('r'.repeat(150), 1, 'u'.repeat(150), 'APPROVE', 'i'.repeat(80)).length).toBe(200);
   });
 });
 

@@ -512,3 +512,21 @@ li[data-tone='danger'] .dec-bn-owner { color: var(--ax-danger); }
   .dec-signals .ax-signal-value { font-size: 19px; line-height: 1.15; }
   .dec-signals .ax-signal-label { font-size: 11px; }
 }
+
+/*
+  Motivo de prioridade é texto livre ("Requisito crítico: …"): o selo quebra
+  linha em vez de ser cortado — é a razão da posição na fila.
+*/
+.dec-row-eyebrow .ax-chip,
+.ax-sheet[data-testid='decision-detail'] .ax-context .ax-chip {
+  white-space: normal; height: auto; min-height: 22px; max-width: 100%; padding-block: 2px; overflow-wrap: anywhere;
+}
+
+/* Alvos de toque de 44 px no celular — filtros, abas, botões pequenos, fechar o detalhe, links de origem. */
+@media (max-width: 767px) {
+  [data-testid='decisions-workspace'] .ax-filter,
+  [data-testid='decisions-workspace'] .ax-btn.sm,
+  [data-testid='decisions-workspace'] .ax-tab { min-height: 44px; }
+  .ax-sheet[data-testid='decision-detail'] .ax-sheet-head .ax-btn.icon { width: 44px; height: 44px; }
+  .dec-row-meta .ax-link { display: inline-flex; align-items: center; min-height: 44px; }
+}

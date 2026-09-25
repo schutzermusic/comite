@@ -64,6 +64,25 @@ test('1 · a caixa no celular: legível, sem rolagem lateral, alvo de toque de v
   const size = await row.locator('.dec-row-amount').evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
   expect(size).toBeGreaterThanOrEqual(20);
   await shot(page, '390-light-minhas');
+  // Cabeçalho com decisão pendente: o atalho não empurra sino e tema para fora da tela.
+  const header = await page.locator('header.app-top-header').evaluate((el) => ({ sw: el.scrollWidth, cw: el.clientWidth }));
+  expect(header.sw, JSON.stringify(header)).toBeLessThanOrEqual(header.cw + 1);
+  const toggle = await page.locator('header.app-top-header').getByRole('button').last().boundingBox();
+  expect(toggle && toggle.x + toggle.width <= 390, JSON.stringify(toggle)).toBe(true);
+  // Alvos de toque: filtros e abas com 44 px.
+  for (const el of await page.locator('[data-testid="decisions-workspace"] .ax-filter, [data-testid="decisions-workspace"] .ax-tab').all()) {
+    const b = await el.boundingBox();
+    if (b) expect(b.height, 'alvo de toque').toBeGreaterThanOrEqual(44);
+  }
+  // Abrir entra no histórico; o "voltar" do aparelho fecha o detalhe e fica em Decisões.
+  await row.getByTestId('decision-open').click();
+  await expect(page.getByTestId('decision-detail')).toBeVisible();
+  const close = await page.getByRole('button', { name: 'Fechar painel' }).boundingBox();
+  expect(close && close.height >= 44 && close.width >= 44, JSON.stringify(close)).toBe(true);
+  await page.goBack();
+  await expect(page.getByTestId('decision-detail')).toHaveCount(0);
+  await expect(page).toHaveURL(/\/decisoes(\?|$)/);
+  expect(new URL(page.url()).searchParams.get('d')).toBeNull();
 });
 
 test('2 · o detalhe em tela cheia, atos fixos embaixo — e a aprovação gravada', async ({ page }) => {
