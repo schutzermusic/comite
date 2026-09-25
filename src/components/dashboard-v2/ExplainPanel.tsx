@@ -45,7 +45,8 @@ export function ExplainPanel({ reference, today, onClose }: { reference: string;
               ['O quê', data.detected.object],
               ['Problema', data.detected.problem],
               ...(data.detected.due ? [['Prazo', `${relativeDue(data.detected.due, today).text} (${data.detected.due.split('-').reverse().join('/')})`] as [string, string]] : []),
-              ['Responsável', data.detected.owner ?? 'sem responsável'],
+              // Tipo sem dono (sinal, título, evento de faturamento…): a linha não existe — nunca um "sem responsável" inventado.
+              ...(data.detected.ownerApplicable ? [['Responsável', data.detected.owner ?? 'sem responsável'] as [string, string]] : []),
             ]} />
           </Section>
 
@@ -94,17 +95,14 @@ export function ExplainPanel({ reference, today, onClose }: { reference: string;
 function ChainStep({ link }: { link: ChainLink }) {
   const Icon = link.state === 'found' ? CircleDot : link.state === 'restricted' ? Lock : link.state === 'pending' ? Clock3
     : link.state === 'unconfirmed' ? TriangleAlert : CircleDashed;
+  // A etapa (o nome do elo) em cima; o registro — ou a falta dele, dita como falta — como título; depois o detalhe.
   const body = (
     <>
-      <span className="dv2-chain-mark" aria-hidden><Icon size={14} /></span>
+      <span className="dv2-chain-mark"><Icon size={14} aria-hidden /><span className="sr-only-ax">{STATE_LABEL[link.state]}</span></span>
       <span className="dv2-chain-text">
-        <span className="dv2-chain-stage">{link.label}</span>
-        <span className="dv2-chain-detail">
-          {link.state === 'found' ? (link.detail ?? 'Registrado')
-            // "Sem vínculo" já se explica pelo próprio texto; os demais estados levam o rótulo antes.
-            : link.state === 'none' && link.detail ? link.detail
-              : link.detail ? `${STATE_LABEL[link.state]} — ${link.detail}` : STATE_LABEL[link.state]}
-        </span>
+        <span className="dv2-chain-stage">{link.stage}</span>
+        <span className="dv2-chain-label">{link.label}</span>
+        {link.detail && <span className="dv2-chain-detail">{link.detail}</span>}
         {link.note && <span className="dv2-chain-note">{link.note}</span>}
       </span>
       {link.href && <ArrowUpRight size={13} className="dv2-chain-go" aria-hidden />}

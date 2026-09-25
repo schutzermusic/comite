@@ -107,11 +107,13 @@ Contract: `src/lib/dashboard/types.ts`. Revised after three independent critique
 - **Dedup by object:**
   - `req:<id>` merges the Operações `mat:` row with SHORTAGE / ALTERNATE_STOCK / ETA_RISK signals, and with `decision:req` when it has a single requirement.
   - Tone = max(operations, signal). The text comes from **live coverage**: with `requested_qty > 0`, "requisitado, sem pedido emitido".
-  - When the live reading no longer has the problem, the signal is marked `stale` and doesn't raise the row.
+  - When the live coverage no longer shows the shortage, a SHORTAGE / ALTERNATE_STOCK signal is marked `stale` and doesn't raise the row (`STALE_ON_COVERAGE`). ETA_RISK and DECISION_PENDING are **never** stale from coverage alone: an inbound that covers the quantity can still arrive after the need.
   - Material risk everywhere = `supplyRisk(needDate)` (need date = min(`required_by`, activity start)).
   - `po:<id>`: the `decision:po` signal is **dropped only if** the viewer's inbox contains that PO. Otherwise: "Aprovação de compra parada", never counted as a decision.
   - `bill:<id>`: `PENDING_RELEASE` is dropped if it is in the inbox (`contract_billing_event`).
-- **Total** = the deduplicated total, **with no cap** (per-kind counts are computed before the lists are cut).
+- **Total** = the deduplicated total, **with no cap** (per-kind counts are computed before the lists are cut; open signals are read up to 1000 and counted exactly).
+- **Partial and failed sources.** `feed.failed` lists the readable sources whose read failed; `feed.partial` says some source was capped, so the total is a floor ("259+", "ao menos"). With a failed source the screen never says "Nada fora do lugar", "0 exceções" or "Ainda não há operação": it names what did not load.
+- **`hasOperation`** is tri-state: `true` (some read showed operation), `false` (every operation read the viewer makes answered, and answered empty — only then the onboarding copy), `null` (restricted or failed — neutral copy).
 
 ## 5. `GET /api/dashboard/overview`: gates (mirror of RLS)
 
@@ -125,8 +127,8 @@ Route: `requireCommercialSession([])`, i.e. authenticated with an active organis
 | Risks | `risks.view` | never `financial_exposure` |
 | Supply flow | `supply.view` \|\| `procurement.view` \|\| `receiving.view` \|\| `operations.planning.view` \|\| `projects.view` | `openPoValue` is **not** used |
 | Apex signals | the `/api/supply/intelligence` keys (236) | none |
-| Billing (awaiting release, NF to issue) | `contracts.view_values` \|\| `finance.view` | amounts only when `current_user_can_view_project_financials()` |
-| Receivables (open / overdue) | the `fs_select` predicate: `finance.view` \|\| `has_finance_role_or_perm(...)` | same RPC |
+| Billing (awaiting release, NF to issue) | `billingGate`: `contracts.edit` \|\| ((`contracts.view_values` \|\| `finance.view`) && `contracts.view`) — the effective select rule of `contract_billing_events` behind the `security_invoker` view (`contract_billing_events_select_scoped` needs `current_user_can_read_contract`; `manage_permissioned` is `FOR ALL` for `contracts.edit`). Admin-only, `contracts.approve`-only and responsible-only paths read just some rows, so they are **Restrito**, never a partial 0 | amounts only when `current_user_can_view_project_financials()` |
+| Receivables (open / overdue) | `receivablesGate` = `billingGate` && the `fs_select` predicate (`finance.view` \|\| `has_finance_role_or_perm(...)`) — same helper in Entender | same RPC |
 | Commercial: open opportunities | `commercial.view` | counts only |
 | Commercial: authorized without OS | `contracts.view` | counts only |
 | Decisões | viewer | as the inbox |
@@ -140,7 +142,7 @@ Route: `requireCommercialSession([])`, i.e. authenticated with an active organis
 - Don't call `supplyOverview` / `materialDemand`. Use a narrow coverage read + `supplyFlow` + a narrow signals read (OPEN, critical/high, `count: exact`).
 - `Promise.allSettled` with a timeout per section.
 - Chunked `.in()` everywhere (`selectIn`).
-- `truncated` when a read hits `max_rows`.
+- `truncated` / `partial` when a read hits `max_rows`: flow stages show "≥ N", calendar lanes say "parcial", and a count that would be a ceiling (Planejamento "sem cronograma" on a capped schedule read) is not shown at all (`noNumber: 'incomplete'`).
 - `Server-Timing` and `no-store` on the response.
 
 **Phase 2 (debt):**

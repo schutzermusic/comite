@@ -8,10 +8,11 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  billingRows, buildCalendar, buildFeedModel, buildStages, cappedOpsExtras, compareRows, diversify, isoDay, laneItems,
-  materialProblem, materialRow, maskedMoney, mergeFeed, moneyText, opsRow, osNextActionLabel, overdueGroupRow, overdueProblem,
-  projectRows, rankFeed, receivableRows, severityFromCommercial, severityFromOpsTone, severityFromReceivable, severityFromSignal,
-  signalKey, sumByCurrency, type MaterialNeed, type SignalLike, type StagesInput,
+  billingGate, billingRows, buildCalendar, buildFeedModel, buildStages, cappedOpsExtras, compareRows, diversify, groupOwner, isoDay,
+  laneItems, materialProblem, materialRow, maskedMoney, mergeFeed, mergeLaneParts, moneyText, operationPresence, opsRow,
+  osNextActionLabel, overdueGroupRow, overdueProblem, projectRows, rankFeed, receivableRows, receivablesGate, severityFromCommercial,
+  severityFromOpsTone, severityFromReceivable, severityFromSignal, signalKey, sumByCurrency, COMERCIAL_STUCK_REASON,
+  SCHEDULE_PARTIAL_REASON, STALE_ON_COVERAGE, type MaterialNeed, type SignalLike, type StagesInput,
 } from '@/lib/dashboard/rules';
 import type { FeedRow } from '@/lib/dashboard/types';
 import type { AttentionItem } from '@/lib/operations/overview';
@@ -119,6 +120,33 @@ describe('dedup pelo objeto', () => {
     expect(unknown[0].severity).toBe('critical');
   });
 
+  it('ETA_RISK nunca é stale pela cobertura: a entrada cobre (falta 0 por construção) e chega tarde', () => {
+    expect([...STALE_ON_COVERAGE].sort()).toEqual(['ALTERNATE_STOCK', 'SHORTAGE']);
+    // O caso do QA: DISJ-145KV — requerido 3, pedido 3, falta 0, chega 20 dias depois da necessidade.
+    const eta = signal({ id: 'e1', kind: 'ETA_RISK', severity: 'critical', purchaseOrderId: 'po-9',
+      title: 'DISJ-145KV para SE Tucuruí chega 20 dia(s) depois da necessidade' });
+    const [r] = mergeFeed({ rows: [], signals: [eta], inboxPurchaseOrderIds: null, liveShortage: () => 0 });
+    expect(r.apex?.stale).toBe(false);
+    expect(r.severity).toBe('critical');
+    expect(r.problem).toBe('Chega depois da necessidade');
+    expect(r.problem).not.toMatch(/desatualizado/);
+    expect(r.nextAction.label).toBe('Abrir cobertura');
+    // ALTERNATE_STOCK sem falta ao vivo → desatualizado.
+    const alt = mergeFeed({ rows: [], signals: [signal({ kind: 'ALTERNATE_STOCK', severity: 'high' })], inboxPurchaseOrderIds: null,
+      liveShortage: () => 0 });
+    expect(alt[0].apex?.stale).toBe(true);
+    // DECISION_PENDING de requisição fala da compra parada, não da falta → não é stale.
+    const dp = mergeFeed({ rows: [], inboxPurchaseOrderIds: null, liveShortage: () => 0, signals: [
+      signal({ id: 'q1', kind: 'DECISION_PENDING', severity: 'high', requirementId: 'req-7', title: 'Requisição RQ-12 sem cotação há 6 dia(s)' })] });
+    expect(dp[0].apex?.stale).toBe(false);
+    expect(dp[0].severity).toBe('high');
+    // ETA_RISK anexado a uma linha viva sobe a gravidade mesmo quando outro sinal está desatualizado.
+    const mat = materialRow(need({ requiredBy: '2026-10-05' }), TODAY)!;
+    const merged = mergeFeed({ rows: [mat], signals: [eta], inboxPurchaseOrderIds: null, liveShortage: () => 0 });
+    expect(merged[0].severity).toBe('critical');
+    expect(merged[0].apex?.stale).toBe(false);
+  });
+
   it('sinais sem linha viva: po: para os de pedido, req: para os de requisito, sig: para o resto', () => {
     expect(signalKey(signal({ kind: 'LATE_INBOUND', requirementId: null, purchaseOrderId: 'po-1' }))).toBe('po:po-1');
     expect(signalKey(signal({ kind: 'SUPPLIER_RELIABILITY', requirementId: null, purchaseOrderId: 'po-1' }))).toBe('po:po-1');
@@ -161,7 +189,7 @@ describe('dedup pelo objeto', () => {
 });
 
 describe('agrupamento', () => {
-  it('atividades vencidas → uma linha por projeto, singular/plural, dono único', () => {
+  it('atividades vencidas → uma linha por projeto, singular/plural; vários donos nunca viram "sem responsável"', () => {
     const base = { projectId: 'p-ug05', project: UG05, client: 'Enel', critical: 0, oldestDue: '2026-09-10' };
     const one = overdueGroupRow({ ...base, count: 1, blocked: 0, ownerNames: ['Ana'] });
     expect(one.problem).toBe('1 atividade vencida');
@@ -169,8 +197,11 @@ describe('agrupamento', () => {
     expect(one.severity).toBe('high');
     const many = overdueGroupRow({ ...base, count: 4, blocked: 1, ownerNames: ['Ana', 'Bruno'] });
     expect(many.problem).toBe('4 atividades vencidas (1 bloqueada)');
-    expect(many.owner).toBeNull();
+    expect(many.owner).toBe('Ana e mais 1');
     expect(many.ownerApplicable).toBe(true);
+    // Nenhum dono resolvido → `null` com `ownerApplicable` = "sem responsável" (verdadeiro).
+    expect(overdueGroupRow({ ...base, count: 2, blocked: 0, ownerNames: [] }).owner).toBeNull();
+    expect(groupOwner(['Ana', 'Bruno', 'Carla'])).toBe('Ana e mais 2');
     expect(many.severity).toBe('critical');
     expect(many.key).toBe('proj-act:p-ug05');
     expect(many.explainRef).toBe('proj-act:p-ug05');
@@ -280,6 +311,62 @@ describe('ordem, diversidade e total', () => {
     expect(model.total).toBe(52);
     expect(model.critical).toBe(3 + 2 + 2);
     expect(model.byDomain.operacao).toEqual({ total: 52, critical: 7 });
+    expect(model.failed).toEqual([]);
+    expect(model.partial).toBe(false);
+  });
+
+  it('completude: fontes que falharam e leitura cortada atravessam o modelo', () => {
+    const failed = [{ domain: 'operacao' as const, label: 'Operação' }, { domain: 'supply' as const, label: 'Achados da Apex' }];
+    const model = buildFeedModel([], [], { failed, partial: true });
+    expect(model.total).toBe(0);
+    expect(model.failed).toEqual(failed);
+    expect(model.failed).not.toBe(failed);
+    expect(model.partial).toBe(true);
+  });
+});
+
+describe('portões de faturamento e recebíveis (RLS efetiva de contract_to_cash_read_model)', () => {
+  const none = { contractsViewValues: false, financeView: false, contractsView: false, contractsEdit: false,
+    financeAdmin: false, financeAnalyst: false };
+
+  it('faturamento: (view_values OU finance.view) E contracts.view; ou contracts.edit (política FOR ALL)', () => {
+    expect(billingGate(none)).toBe(false);
+    // finance.view sem contracts.view: a RLS devolve 0 linhas → Restrito, nunca "0 aguardando liberação".
+    expect(billingGate({ ...none, financeView: true })).toBe(false);
+    expect(billingGate({ ...none, contractsViewValues: true })).toBe(false);
+    expect(billingGate({ ...none, contractsView: true })).toBe(false);
+    expect(billingGate({ ...none, financeView: true, contractsView: true })).toBe(true);
+    expect(billingGate({ ...none, contractsViewValues: true, contractsView: true })).toBe(true);
+    expect(billingGate({ ...none, contractsEdit: true })).toBe(true);
+  });
+
+  it('recebíveis: faturamento legível E o predicado de fs_select (saldo do título)', () => {
+    // finance_analyst sem nada de contratos: passava no portão antigo e lia 0 linhas.
+    expect(receivablesGate({ ...none, financeAnalyst: true })).toBe(false);
+    expect(receivablesGate({ ...none, financeView: true })).toBe(false);
+    // Lê o faturamento mas não os pagamentos: o pago sumiria e o título pareceria vencido.
+    expect(receivablesGate({ ...none, contractsViewValues: true, contractsView: true })).toBe(false);
+    expect(receivablesGate({ ...none, contractsViewValues: true, contractsView: true, financeAnalyst: true })).toBe(true);
+    expect(receivablesGate({ ...none, financeView: true, contractsView: true })).toBe(true);
+    expect(receivablesGate({ ...none, contractsEdit: true, financeAdmin: true })).toBe(true);
+  });
+});
+
+describe('há operação? (tri-estado)', () => {
+  const empty = { activeProjects: 0, openServiceOrders: { value: 0 }, openOpportunities: 0, authorizedWithoutOs: 0 };
+
+  it('true com qualquer leitura mostrando operação; false só com TODAS lidas, inteiras e vazias; senão null', () => {
+    expect(operationPresence(empty)).toBe(false);
+    expect(operationPresence({ ...empty, openOpportunities: 3 })).toBe(true);
+    expect(operationPresence({ ...empty, activeProjects: null, openOpportunities: 3 })).toBe(true);
+    // Uma parte restrita ou que falhou → não se sabe.
+    expect(operationPresence({ ...empty, activeProjects: null })).toBeNull();
+    expect(operationPresence({ ...empty, openServiceOrders: null })).toBeNull();
+    // Nada lido (perfil sem nenhuma permissão) → null, nunca "ainda não há operação".
+    expect(operationPresence({ activeProjects: null, openServiceOrders: null, openOpportunities: null, authorizedWithoutOs: null })).toBeNull();
+    // Lista de OS cortada com 0 abertas entre as lidas → não se sabe.
+    expect(operationPresence({ ...empty, openServiceOrders: { value: 0, partial: true } })).toBeNull();
+    expect(operationPresence({ ...empty, openServiceOrders: { value: 2, partial: true } })).toBe(true);
   });
 });
 
@@ -322,7 +409,8 @@ describe('etapas do fluxo', () => {
     const stages = buildStages({
       authorizedWithoutOs: { state: 'ok', data: 3 }, openOpportunities: { state: 'ok', data: 20 },
       os: { state: 'ok', data: { awaitingIssue: 4, blocked: 1, inExecution: 12 } },
-      projects: { state: 'ok', data: { active: 345, health: { critical: 5, attention: 9, healthy: 300, unknown: 31 }, criticalActivities: 17 } },
+      projects: { state: 'ok', data: { active: 345, health: { critical: 5, attention: 9, healthy: 300, unknown: 31 }, criticalActivities: 17,
+        withoutSchedule: 34 } },
       needs: { state: 'ok', data: { short: 242, critical: 8 } },
       supply: { state: 'ok', data: { lateInbound: 2, requisitionsAwaitingSourcing: 1, receivingIssues: 3 } },
       execution: { state: 'ok', data: { overdue: 40, inProgress: 88 } },
@@ -337,8 +425,10 @@ describe('etapas do fluxo', () => {
     expect(by.os.tone).toBe('danger');
     expect(by.projeto.stuck).toEqual({ value: 5, noun: 'críticos' });
     expect(by.projeto.context).toBe('345 ativos · 9 em atenção');
-    expect(by.planejamento.stuck).toEqual({ value: 31, noun: 'sem cronograma' });
+    // Planejamento = projetos ativos SEM atividade aberta (34), não `health.unknown` (31, que exclui quem tem outra razão).
+    expect(by.planejamento.stuck).toEqual({ value: 34, noun: 'sem atividade aberta' });
     expect(by.planejamento.context).toBe('17 atividades críticas');
+    for (const s of stages) expect(s.partial).toBe(false);
     expect(by.necessidades.context).toBe('8 críticas (≤ 7 dias)');
     expect(by.supply.context).toBe('1 requisição aguardando cotação · 3 recebimentos com pendência');
     expect(by.execucao.stuck).toEqual({ value: 40, noun: 'atividades vencidas' });
@@ -349,11 +439,67 @@ describe('etapas do fluxo', () => {
     expect(by.comercial.href).toBe('/comercial?view=visao-geral');
   });
 
-  it('comercial com só uma das leituras: número restrito, contexto presente', () => {
+  it('comercial com só uma das leituras: sem número, com o motivo EXATO; contexto presente', () => {
     const s = buildStages({ ...allRestricted, openOpportunities: { state: 'ok', data: 1 } })[0];
     expect(s.state).toBe('ok');
     expect(s.stuck).toBeNull();
     expect(s.context).toBe('1 oportunidade aberta');
+    expect(s.reason).toBe('Autorizadas sem OS: restrito ao seu perfil');
+    expect(s.reason).toBe(COMERCIAL_STUCK_REASON.restricted);
+    const failed = buildStages({ ...allRestricted, openOpportunities: { state: 'ok', data: 2 },
+      authorizedWithoutOs: { state: 'error', message: 'x' } })[0];
+    expect(failed.state).toBe('ok');
+    expect(failed.stuck).toBeNull();
+    expect(failed.reason).toBe('Autorizadas sem OS: não carregou');
+    // o inverso: autorizadas lidas, oportunidades falharam → número presente, contexto diz o que não carregou
+    const oppFailed = buildStages({ ...allRestricted, authorizedWithoutOs: { state: 'ok', data: 0 },
+      openOpportunities: { state: 'error', message: 'x' } })[0];
+    expect(oppFailed.stuck).toEqual({ value: 0, noun: 'autorizadas sem OS' });
+    expect(oppFailed.context).toBe('Oportunidades: não carregou');
+    expect(oppFailed.reason).toBeNull();
+  });
+
+  it('toda etapa `ok` sem número carrega o motivo', () => {
+    const stages = buildStages({
+      ...allRestricted,
+      openOpportunities: { state: 'ok', data: 1 },
+      projects: { state: 'ok', data: { active: 3, health: { critical: 0, attention: 0, healthy: 3, unknown: 0 }, criticalActivities: 0,
+        withoutSchedule: 0, schedulePartial: true } },
+    });
+    for (const s of stages) if (s.state === 'ok' && s.stuck === null) expect(s.reason, s.id).toBeTruthy();
+  });
+
+  it('leitura cortada: o número é piso (partial, "≥" no contexto); "sem cronograma" sem número (seria teto)', () => {
+    const stages = buildStages({
+      ...allRestricted,
+      os: { state: 'ok', data: { awaitingIssue: 4, blocked: 0, inExecution: 12, partial: true } },
+      projects: { state: 'ok', data: { active: 345, health: { critical: 5, attention: 9, healthy: 300, unknown: 31 }, criticalActivities: 17,
+        withoutSchedule: 40, healthPartial: true, schedulePartial: true } },
+      needs: { state: 'ok', data: { short: 242, critical: 8, partial: true } },
+      execution: { state: 'ok', data: { overdue: 0, inProgress: 88, partial: true } },
+      measurement: { state: 'ok', data: { pending: 6, awaitingCustomer: 2, inReview: 1, partial: true } },
+    });
+    const by = Object.fromEntries(stages.map((s) => [s.id, s]));
+    expect(by.os.partial).toBe(true);
+    expect(by.os.context).toBe('≥ 0 bloqueadas · ≥ 12 em obra');
+    expect(by.projeto.partial).toBe(true);
+    expect(by.projeto.stuck).toEqual({ value: 5, noun: 'críticos' });
+    expect(by.projeto.context).toBe('345 ativos');
+    expect(by.planejamento.state).toBe('ok');
+    expect(by.planejamento.stuck).toBeNull();
+    expect(by.planejamento.reason).toBe(SCHEDULE_PARTIAL_REASON);
+    expect(by.planejamento.context).toBe('≥ 17 atividades críticas');
+    expect(by.planejamento.tone).toBe('neutral');
+    // Necessidades: `short` é contagem exata (não é partial); só as críticas são piso.
+    expect(by.necessidades.partial).toBe(false);
+    expect(by.necessidades.stuck).toEqual({ value: 242, noun: 'sem cobertura' });
+    expect(by.necessidades.context).toBe('≥ 8 críticas (≤ 7 dias)');
+    expect(by.execucao.partial).toBe(true);
+    expect(by.execucao.context).toBe('≥ 88 em andamento');
+    // zero numa leitura cortada não é "em dia"
+    expect(by.execucao.tone).toBe('neutral');
+    expect(by.medicao.partial).toBe(true);
+    expect(by.medicao.context).toBe('≥ 2 aguardando cliente · ≥ 1 em análise');
   });
 });
 
@@ -391,5 +537,28 @@ describe('projetos e calendário', () => {
       expect(cal.data.items).toHaveLength(1);
     }
     expect(buildCalendar(TODAY, {}).state).toBe('restricted');
+  });
+
+  it('raia com uma das leituras falhando fica `partial`; raia que falhou inteira fica na lista como `unavailable`', () => {
+    const it = (id: string, date: string) => ({ id, date, title: id, lane: 'supply' as const, kind: 'need' as const,
+      tone: 'neutral' as const, href: null, project: null });
+    const ok = { state: 'ok' as const, data: [it('n1', '2026-10-01')] };
+    const err = { state: 'error' as const, message: 'x' };
+    expect(mergeLaneParts([], 'Supply')).toEqual({ state: 'restricted' });
+    expect(mergeLaneParts([err, err], 'Supply').state).toBe('error');
+    expect(mergeLaneParts([ok, err], 'Supply')).toEqual({ state: 'ok', data: ok.data, partial: true });
+    expect(mergeLaneParts([ok, { state: 'ok', data: [], partial: true }], 'Supply')).toMatchObject({ state: 'ok', partial: true });
+    expect(mergeLaneParts([ok, { state: 'ok', data: [] }], 'Supply')).toEqual({ state: 'ok', data: ok.data });
+
+    const cal = buildCalendar(TODAY, { operacao: err, supply: mergeLaneParts([ok, err], 'Supply'), medicao: { state: 'ok', data: [] } });
+    expect(cal.state).toBe('ok');
+    if (cal.state === 'ok') {
+      expect(cal.data.lanes).toEqual([
+        { id: 'operacao', label: 'Operação', state: 'unavailable' },
+        { id: 'supply', label: 'Supply', state: 'ok', partial: true },
+        { id: 'medicao', label: 'Medição', state: 'ok' },
+        { id: 'recebivel', label: 'Recebíveis', state: 'restricted' },
+      ]);
+    }
   });
 });

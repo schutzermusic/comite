@@ -30,6 +30,7 @@ import { resolveOwnerNames } from '@/lib/commercial/owner-directory';
 import { engagementStatusLabels, serviceOrderStatusLabels } from '@/lib/commercial/labels';
 import type { EngagementStatus, ServiceOrderStatus } from '@/lib/commercial/types';
 import { href } from '@/components/ax/entity';
+import { CATEGORY_LABELS } from '@/components/risks/risk-types';
 import { sourceLink } from '@/lib/decisions/model';
 import { selectIn } from '@/lib/supabase/select-in';
 import { fromViewRow, type CoverageSummary, type CoverageViewRow } from '@/lib/supply/coverage';
@@ -42,7 +43,9 @@ import { projectIdentity } from '@/lib/operations/project-identity';
 import { serviceOrderNextAction } from '@/lib/operations/service-orders/next-action';
 import { countsFor } from '@/lib/operations/service-orders/read-model';
 import type { ApexNote, ChainLink, Evidence, ExplainKind, ExplainResponse } from './types';
-import { APEX_LEAD } from './rules';
+import {
+  APEX_LEAD, STALE_ON_COVERAGE, billingGate, osNextActionLabel, osProblem, overdueProblem, receivablesGate,
+} from './rules';
 
 /* ── Referência ──────────────────────────────────────────────────────────── */
 
@@ -140,8 +143,29 @@ const REQUIREMENT_STATUS_LABEL: Record<string, string> = {
   PLANNED: 'Planejado', CONFIRMED: 'Confirmado', CANCELLED: 'Cancelado', SUPERSEDED: 'Substituído',
 };
 
-/** Sinais que falam da COBERTURA de um requisito: a leitura ao vivo diz se ainda valem. */
+/**
+ * Categoria do risco é TEXTO livre (`supply`, `Supply`, `Suprimentos`…): o rótulo sai do mapa do módulo de
+ * Riscos, sem diferenciar caixa. Sem rótulo conhecido → `null` (a evidência sai; chave crua não vai à tela).
+ */
+const RISK_CATEGORY_BY_KEY = new Map(Object.entries(CATEGORY_LABELS).map(([k, v]) => [k.toLocaleLowerCase('pt-BR'), v]));
+export function riskCategoryLabel(raw: string | null | undefined): string | null {
+  const key = typeof raw === 'string' ? raw.trim() : '';
+  if (!key) return null;
+  return CATEGORY_LABELS[key] ?? RISK_CATEGORY_BY_KEY.get(key.toLocaleLowerCase('pt-BR')) ?? null;
+}
+
+/**
+ * Sinais do OBJETO requisito (`req:`) — os que a fila funde com a linha de material. Destes, só os de
+ * `STALE_ON_COVERAGE` (falta, estoque alternativo) a leitura ao vivo desmente quando a falta zera; `ETA_RISK`
+ * nasce justamente com a entrada cobrindo a quantidade e chegando depois da necessidade.
+ */
 const COVERAGE_SIGNALS: readonly string[] = ['SHORTAGE', 'ALTERNATE_STOCK', 'ETA_RISK'];
+
+/** Bloqueada = `delay_status` OU `status` = blocked — a mesma leitura da fila e da saúde do projeto. */
+const isBlocked = (a: Pick<TItem, 'delay_status' | 'status'>) => a.delay_status === 'blocked' || a.status === 'blocked';
+
+/** Onde o faturamento vive em Contratos (`?view=` é o único parâmetro que a página honra; sem foco por evento). */
+const BILLING_HREF = '/contratos?view=faturamento';
 /** Medição com o cliente: o faturamento ainda não nasceu — é `pending`, nunca `none`. */
 const WITH_CUSTOMER: readonly string[] = ['APPROVED_FOR_CUSTOMER', 'AWAITING_CUSTOMER_ACCEPTANCE'];
 
@@ -155,7 +179,9 @@ interface Ctx {
   canAny(keys: readonly string[]): Promise<boolean>;
   /** `current_user_can_view_project_financials() === true` — falha FECHADA. */
   financials(): Promise<boolean>;
-  /** O predicado `fr_select`/`fs_select` de Finanças (pago e em aberto só fazem sentido com ele). */
+  /** A pessoa lê os eventos de faturamento — `billingGate`, o mesmo portão da fila. Falha FECHADA. */
+  billing(): Promise<boolean>;
+  /** Faturamento legível E o predicado `fs_select` de Finanças (pago e em aberto só fazem sentido com ele). */
   receivables(): Promise<boolean>;
   projectName(id: string | null): Promise<string | null>;
   timeline(projectId: string): Promise<Map<string, TItem>>;
@@ -184,15 +210,30 @@ function makeCtx(session: CommercialSession, today: string): Ctx {
     }
   };
   let fin: Promise<boolean> | null = null;
+  let bill: Promise<boolean> | null = null;
   let recv: Promise<boolean> | null = null;
   const names = new Map<string, Promise<string | null>>();
   const timelines = new Map<string, Promise<Map<string, TItem>>>();
+  // O MESMO predicado dos portões da fila (`billingGate`/`receivablesGate`, espelho da RLS efetiva):
+  // quem passa só em parte leria zero linhas — isso é "restrito", nunca "nenhum".
+  const billingPerms = async () => {
+    const [contractsViewValues, financeView, contractsView, contractsEdit] = await Promise.all(
+      ['contracts.view_values', 'finance.view', 'contracts.view', 'contracts.edit'].map(can));
+    return { contractsViewValues, financeView, contractsView, contractsEdit };
+  };
+  const billing = () => (bill ??= billingPerms().then(billingGate));
   return {
-    sb, org, today, can, canAny,
+    sb, org, today, can, canAny, billing,
     financials: () => (fin ??= rpcTrue('current_user_can_view_project_financials')),
-    receivables: () => (recv ??= (async () => (await can('finance.view'))
-      || (await rpcTrue('has_finance_role_or_perm', { role_key: 'finance_admin', perm_key: 'finance.admin' }))
-      || (await rpcTrue('has_finance_role_or_perm', { role_key: 'finance_analyst', perm_key: 'finance.edit' })))()),
+    receivables: () => (recv ??= (async () => {
+      const perms = await billingPerms();
+      if (!billingGate(perms)) return false;
+      const [financeAdmin, financeAnalyst] = await Promise.all([
+        rpcTrue('has_finance_role_or_perm', { role_key: 'finance_admin', perm_key: 'finance.admin' }),
+        rpcTrue('has_finance_role_or_perm', { role_key: 'finance_analyst', perm_key: 'finance.edit' }),
+      ]);
+      return receivablesGate({ ...perms, financeAdmin, financeAnalyst });
+    })()),
     projectName: (id) => {
       if (!id) return Promise.resolve(null);
       let p = names.get(id);
@@ -210,11 +251,7 @@ function makeCtx(session: CommercialSession, today: string): Ctx {
     timeline: (projectId) => {
       let p = timelines.get(projectId);
       if (!p) {
-        p = (async () => {
-          const rows = rowsOf<TItem>(await sb.from('project_timeline_items').select(TIMELINE_COLUMNS)
-            .eq('organization_id', org).eq('project_id', projectId).limit(TIMELINE_LIMIT), 'o cronograma do projeto');
-          return new Map(rows.map((r) => [r.id, r]));
-        })();
+        p = readTimeline(sb, org, projectId);
         timelines.set(projectId, p);
       }
       return p;
@@ -251,8 +288,28 @@ export interface TItem {
 
 const TIMELINE_COLUMNS = 'id,project_id,parent_id,title,wbs_code,status,priority,delay_status,is_milestone,is_summary,'
   + 'is_active,deleted_at,planned_start,planned_finish,forecast_finish,actual_finish,responsible_user_id';
-const TIMELINE_LIMIT = 5000;
+/** Página do cronograma = o teto do PostgREST (`max_rows`): uma página cheia quer dizer "pode haver mais". */
+export const TIMELINE_PAGE = 1000;
+/** Teto de páginas. Cronograma maior que isso é ERRO de leitura — nunca um recorte que vira "não encontrada"/"sem vínculo". */
+export const TIMELINE_MAX_PAGES = 10;
 const MAX_DEPTH = 12;
+
+/**
+ * O cronograma INTEIRO do projeto (inclusive linhas desativadas/removidas — a âncora perdida e a nota
+ * "fora do cronograma vigente" dependem delas), em páginas ordenadas até uma página curta.
+ */
+async function readTimeline(sb: SupabaseClient, org: string, projectId: string): Promise<Map<string, TItem>> {
+  const out = new Map<string, TItem>();
+  for (let page = 0; page < TIMELINE_MAX_PAGES; page += 1) {
+    const from = page * TIMELINE_PAGE;
+    const rows = rowsOf<TItem>(await sb.from('project_timeline_items').select(TIMELINE_COLUMNS)
+      .eq('organization_id', org).eq('project_id', projectId)
+      .order('id', { ascending: true }).range(from, from + TIMELINE_PAGE - 1), 'o cronograma do projeto');
+    for (const r of rows) out.set(r.id, r);
+    if (rows.length < TIMELINE_PAGE) return out;
+  }
+  throw new ExplainReadError('o cronograma do projeto por inteiro');
+}
 
 const alive = (t: TItem | undefined): t is TItem => !!t && t.is_active === true && !t.deleted_at;
 
@@ -297,7 +354,7 @@ function activityLink(act: TItem, today: string): ChainLink {
       br(act.planned_start) ? `início previsto ${br(act.planned_start)}` : null,
       br(act.planned_finish) ? `término previsto ${br(act.planned_finish)}` : null),
     state: 'found',
-    tone: overdue ? 'danger' : act.delay_status === 'blocked' ? 'danger' : act.delay_status === 'delayed' ? 'warning' : 'neutral',
+    tone: overdue || isBlocked(act) ? 'danger' : act.delay_status === 'delayed' ? 'warning' : 'neutral',
     href: href.projectSchedule(act.project_id),
     note: !alive(act) ? 'fora do cronograma vigente (desativada ou removida)' : overdue ? 'vencida e em aberto' : null,
   };
@@ -509,10 +566,10 @@ const billingRestricted = (): ChainLink => ({
   detail: 'Estado e valor de faturamento, NF e recebível exigem visibilidade financeira.', state: 'restricted', href: null,
 });
 
-/** Portão de dinheiro: RPC financeira `=== true` E leitura dos eventos (`contracts.view_values` OU `finance.view`, RLS). */
+/** Portão de dinheiro: RPC financeira `=== true` E leitura dos eventos (`billingGate`, o mesmo da fila). */
 async function financialGate(ctx: Ctx): Promise<boolean> {
   if (!(await ctx.financials())) return false;
-  return ctx.canAny(['contracts.view_values', 'finance.view']);
+  return ctx.billing();
 }
 
 async function billingSegment(ctx: Ctx, m: Pick<MeasurementRow, 'id' | 'status'>): Promise<ChainLink[]> {
@@ -550,7 +607,7 @@ async function cashLinks(ctx: Ctx, row: CashRow): Promise<ChainLink[]> {
     detail: joinDetail(row.title, money(row.eligible_amount, row.currency) ? `valor elegível ${money(row.eligible_amount, row.currency)}` : null),
     state: 'found',
     tone: release === 'RELEASED' ? 'success' : release === 'RELEASE_REJECTED' ? 'danger' : open ? 'warning' : 'neutral',
-    href: sourceLink('contract_billing_event', row.billing_event_id, open).href,
+    href: BILLING_HREF,
   }];
 
   const fiscal = row.fiscal_document_status ?? null;
@@ -640,18 +697,25 @@ function evidenceOf(raw: unknown): Evidence[] {
 function apexNote(s: SignalRow, stale: boolean): ApexNote {
   return {
     signalId: s.id, kind: s.kind, severity: s.severity,
-    lead: APEX_LEAD[s.kind] ?? `Apex identificou: ${SIGNAL_KIND_LABEL[s.kind] ?? s.kind}`,
+    lead: APEX_LEAD[s.kind] ?? 'Apex identificou um risco de supply',
     title: s.title, rationale: s.rationale, evidence: evidenceOf(s.evidence),
     ranAt: s.last_seen_at, engineVersion: s.engine_version, stale,
   };
 }
 
-async function openSignal(ctx: Ctx, column: 'requirement_id' | 'purchase_order_id', id: string, kinds: readonly string[]): Promise<SignalRow | null> {
-  const rows = rowsOf<SignalRow>(
+async function openSignals(ctx: Ctx, column: 'requirement_id' | 'purchase_order_id', id: string, kinds: readonly string[]): Promise<SignalRow[]> {
+  return rowsOf<SignalRow>(
     await ctx.sb.from('supply_signals').select(SIGNAL_COLUMNS)
       .eq('organization_id', ctx.org).eq(column, id).eq('status', 'OPEN').in('kind', [...kinds]).limit(20),
     'os achados da Apex');
-  return rows.sort((a, b) => (SEVERITY_RANK[a.severity] ?? 9) - (SEVERITY_RANK[b.severity] ?? 9))[0] ?? null;
+}
+
+const bySeverity = (a: SignalRow, b: SignalRow) =>
+  (SEVERITY_RANK[a.severity] ?? 9) - (SEVERITY_RANK[b.severity] ?? 9) || a.id.localeCompare(b.id);
+
+/** Achado aberto que a leitura ao vivo desmente: SÓ falta/estoque alternativo com a falta ao vivo zerada. */
+function staleOnCoverage(s: Pick<SignalRow, 'kind' | 'status'>, cov: CoverageSummary | null): boolean {
+  return s.status === 'OPEN' && STALE_ON_COVERAGE.has(s.kind) && cov !== null && cov.shortage <= 0;
 }
 
 /* ── Rascunho da resposta ────────────────────────────────────────────────── */
@@ -692,7 +756,16 @@ function shortageProblem(c: CoverageSummary, unit: string | null): string {
   return `${missingText} — sem estoque nem pedido`;
 }
 
-async function explainMaterial(ctx: Ctx, id: string): Promise<{ draft: Draft; coverage: CoverageSummary | null } | Fail> {
+const MATERIAL_RULE_TEXT = 'Material: requisito confirmado com falta (requerido − reservado − consumido − em trânsito − em pedido − em inspeção > 0) '
+  + 'perto da data de necessidade (até 14 dias) ou já vencido. Necessidade = menor entre a data do requisito e o início da atividade.';
+const LATE_COVER_RULE = 'Material: a entrada cobre a quantidade, mas chega depois da data de necessidade (achado aberto da Apex). '
+  + 'Necessidade = menor entre a data do requisito e o início da atividade.';
+
+/**
+ * `focus` = o achado que abriu o Entender (`sig:`); sem ele, o achado anexado é o da fila:
+ * o vivo antes do desatualizado, depois a gravidade.
+ */
+async function explainMaterial(ctx: Ctx, id: string, focus?: SignalRow): Promise<{ draft: Draft; coverage: CoverageSummary | null } | Fail> {
   const req = await readRequirement(ctx, id);
   if (!req) return missing(ctx, REQUIREMENT_READ, 'o requisito de material');
   const coverageRow = rowsOf<CoverageViewRow>(
@@ -700,11 +773,15 @@ async function explainMaterial(ctx: Ctx, id: string): Promise<{ draft: Draft; co
     'a cobertura do requisito')[0];
   const cov = coverageRow ? fromViewRow(coverageRow) : null;
   const unit = coverageRow?.unit ?? req.unit ?? null;
-  const [project, act, signal] = await Promise.all([
+  const [project, act, signals] = await Promise.all([
     ctx.projectName(req.project_id),
     activitySegment(ctx, req.project_id, req.activity_id, req.required_by),
-    openSignal(ctx, 'requirement_id', id, COVERAGE_SIGNALS),
+    focus ? Promise.resolve([focus]) : openSignals(ctx, 'requirement_id', id, COVERAGE_SIGNALS),
   ]);
+  const top = signals.map((s) => ({ s, stale: staleOnCoverage(s, cov) }))
+    .sort((a, b) => Number(a.stale) - Number(b.stale) || bySeverity(a.s, b.s))[0] ?? null;
+  /** `ETA_RISK` aberto com a quantidade coberta: o problema é a DATA de chegada, não a falta. */
+  const lateCover = !!cov && cov.shortage <= 0 && top?.s.kind === 'ETA_RISK' && top.s.status === 'OPEN';
 
   const evidence: Evidence[] = [];
   const src = 'Supply · cobertura ao vivo';
@@ -723,25 +800,26 @@ async function explainMaterial(ctx: Ctx, id: string): Promise<{ draft: Draft; co
     source: 'menor entre a data do requisito e o início previsto da atividade' });
   evidence.push(...act.evidence);
 
-  const problem = cov ? shortageProblem(cov, unit) : 'Sem leitura de cobertura para o requisito';
+  const coverageText = cov ? shortageProblem(cov, unit) : null;
+  const problem = !cov ? 'Sem leitura de cobertura para o requisito'
+    : lateCover ? SIGNAL_KIND_LABEL.ETA_RISK : (coverageText as string);
   const materialLink: ChainLink = {
     stage: 'Material',
     label: req.title,
-    detail: joinDetail(cov ? problem : null, br(act.needDate) ? `necessidade ${br(act.needDate)}` : null),
+    detail: joinDetail(coverageText, br(act.needDate) ? `necessidade ${br(act.needDate)}` : null),
     state: cov ? 'found' : 'none',
-    tone: cov ? (cov.shortage > 0 ? 'danger' : 'success') : 'neutral',
+    tone: !cov ? 'neutral' : cov.shortage > 0 ? 'danger' : lateCover ? 'warning' : 'success',
     href: href.requirement(id),
   };
   const draft: Draft = {
-    title: `Falta de material · ${req.title}`,
-    detected: { object: req.title, problem, due: act.needDate, owner: null, location: project },
+    title: `${cov && cov.shortage <= 0 ? 'Material' : 'Falta de material'} · ${req.title}`,
+    detected: { object: req.title, problem, due: act.needDate, owner: null, ownerApplicable: false, location: project },
     chain: [materialLink, ...act.links],
     relation: act.relation,
     evidence,
-    apex: signal ? apexNote(signal, cov !== null && cov.shortage <= 0) : null,
+    apex: top ? apexNote(top.s, top.stale) : null,
     nextAction: { label: 'Cobrir falta', href: href.requirement(id), focused: true },
-    rule: 'Material: requisito confirmado com falta (requerido − reservado − consumido − em trânsito − em pedido − em inspeção > 0) '
-      + 'perto da data de necessidade (até 14 dias) ou já vencido. Necessidade = menor entre a data do requisito e o início da atividade.',
+    rule: lateCover ? LATE_COVER_RULE : MATERIAL_RULE_TEXT,
   };
   return { draft, coverage: cov };
 }
@@ -757,7 +835,7 @@ async function explainDependency(ctx: Ctx, id: string): Promise<Draft | Fail> {
   return {
     title: `Dependência do cliente · ${req.title}`,
     detected: { object: req.title, problem: overdue ? 'Dependência do cliente vencida' : 'Dependência do cliente em aberto',
-      due: dayOf(req.required_by), owner: null, location: project },
+      due: dayOf(req.required_by), owner: null, ownerApplicable: false, location: project },
     chain: [{
       stage: 'Dependência do cliente', label: req.title,
       detail: joinDetail(REQUIREMENT_STATUS_LABEL[req.status] ?? req.status, br(req.required_by) ? `até ${br(req.required_by)}` : null),
@@ -779,7 +857,7 @@ async function explainDependency(ctx: Ctx, id: string): Promise<Draft | Fail> {
 const TIMELINE_READ = ['projects.view', 'projects.timeline.view'];
 
 function activityProblem(a: TItem, today: string): string {
-  if (isOverdueActivity(a, today)) return a.delay_status === 'blocked' ? 'Atividade bloqueada e vencida' : 'Atividade vencida em aberto';
+  if (isOverdueActivity(a, today)) return isBlocked(a) ? 'Atividade bloqueada e vencida' : 'Atividade vencida em aberto';
   if (isCriticalActivity(a, today)) return 'Atividade crítica';
   return 'Atividade do cronograma';
 }
@@ -793,16 +871,15 @@ async function explainActivityItem(ctx: Ctx, act: TItem, extra?: { count: number
     ctx.owner(act.responsible_user_id),
     activitySegment(ctx, act.project_id, act.id, null),
   ]);
-  const problem = extra
-    ? `${plural(extra.count, 'atividade vencida', 'atividades vencidas')}${extra.blocked ? ` (${extra.blocked} bloqueada${extra.blocked === 1 ? '' : 's'})` : ''}`
-    : activityProblem(act, ctx.today);
+  const problem = extra ? overdueProblem(extra.count, extra.blocked) : activityProblem(act, ctx.today);
   const evidence: Evidence[] = [];
   if (act.planned_finish) evidence.push({ label: 'Término previsto', value: br(act.planned_finish)!, source: 'Cronograma do projeto' });
   if (extra) evidence.push({ label: 'Mais antiga vencida', value: act.title, source: 'Cronograma do projeto' });
   evidence.push(...seg.evidence);
   return {
     title: extra ? `Atividades vencidas · ${project ?? act.project_id}` : act.title,
-    detected: { object: extra ? (project ?? act.project_id) : act.title, problem, due: dayOf(act.planned_finish), owner, location: project },
+    detected: { object: extra ? (project ?? act.project_id) : act.title, problem, due: dayOf(act.planned_finish), owner,
+      ownerApplicable: true, location: project },
     chain: seg.links,
     relation: seg.relation,
     evidence,
@@ -831,7 +908,7 @@ async function explainProjectActivities(ctx: Ctx, projectId: string): Promise<Dr
     .sort((a, b) => String(a.planned_finish).localeCompare(String(b.planned_finish)));
   if (overdue.length === 0) return { ok: false, reason: 'not_found', message: 'Nenhuma atividade vencida neste projeto agora.' };
   return explainActivityItem(ctx, overdue[0], {
-    count: overdue.length, blocked: overdue.filter((a) => a.delay_status === 'blocked').length,
+    count: overdue.length, blocked: overdue.filter(isBlocked).length,
   });
 }
 
@@ -885,7 +962,8 @@ async function explainMeasurement(ctx: Ctx, id: string): Promise<Draft | Fail> {
   return {
     title: m.occurrence_key ? `Medição ${m.occurrence_key}` : 'Medição',
     detected: { object: m.occurrence_key ? `Medição ${m.occurrence_key}` : 'Medição',
-      problem: MEASUREMENT_STATUS_LABEL[m.status] ?? m.status, due: dayOf(m.customer_due_at ?? m.expected_at), owner: null, location: project },
+      problem: MEASUREMENT_STATUS_LABEL[m.status] ?? m.status, due: dayOf(m.customer_due_at ?? m.expected_at), owner: null,
+      ownerApplicable: false, location: project },
     chain: links,
     relation: milestoneTitle
       ? `A medição foi registrada para o marco ${milestoneTitle}${activityTitle ? ` e para a atividade ${activityTitle}` : ''}.`
@@ -927,9 +1005,11 @@ async function explainServiceOrder(ctx: Ctx, id: string): Promise<Draft | Fail> 
   const counts = countsMap.get(os.id) ?? { items: 0, unreviewedItems: 0, openDivergences: 0, blockingOpen: 0 };
   const next = serviceOrderNextAction(os.status, os.project_id, counts);
   const statusLabel = serviceOrderStatusLabels[os.status] ?? os.status;
+  // As mesmas palavras da fila: o problema dito como estado, e nunca o verbo "Decidir" (é de Decisões).
+  const problem = osProblem(next.label);
 
   const links: ChainLink[] = [{
-    stage: 'OS', label: `OS ${os.os_number}`, detail: joinDetail(statusLabel, next.label), state: 'found',
+    stage: 'OS', label: `OS ${os.os_number}`, detail: joinDetail(statusLabel, problem), state: 'found',
     tone: next.tone === 'danger' ? 'danger' : next.tone === 'warning' ? 'warning' : next.tone === 'success' ? 'success' : 'neutral',
     href: href.serviceOrder(os.id),
   }];
@@ -984,7 +1064,7 @@ async function explainServiceOrder(ctx: Ctx, id: string): Promise<Draft | Fail> 
   const project = await ctx.projectName(os.project_id);
   return {
     title: `OS ${os.os_number} · ${os.title}`,
-    detected: { object: `OS ${os.os_number}`, problem: next.label, due: dayOf(os.planned_start), owner, location: project },
+    detected: { object: `OS ${os.os_number}`, problem, due: dayOf(os.planned_start), owner, ownerApplicable: true, location: project },
     chain: links,
     relation: null,
     evidence: [
@@ -993,7 +1073,7 @@ async function explainServiceOrder(ctx: Ctx, id: string): Promise<Draft | Fail> 
       { label: 'Divergências abertas', value: String(counts.openDivergences), source: 'Portão de emissão da OS' },
     ],
     apex: null,
-    nextAction: { label: next.code === 'NONE' ? 'Abrir OS' : next.label, href: href.serviceOrder(os.id), focused: true },
+    nextAction: { label: next.code === 'NONE' ? 'Abrir OS' : osNextActionLabel(next.label), href: href.serviceOrder(os.id), focused: true },
     rule: 'OS: a próxima ação segue a ordem dos portões do banco — revisão do conteúdo, divergência bloqueante, emissão, projeto.',
   };
 }
@@ -1041,16 +1121,17 @@ async function explainRisk(ctx: Ctx, id: string): Promise<Draft | Fail> {
     }
   }
   const owner = r.responsible_name ?? (await ctx.owner(r.responsible_id));
+  const category = riskCategoryLabel(r.category);
   return {
     title: r.title,
     detected: { object: r.title, problem: r.responsible_id || r.responsible_name ? `Risco ${RISK_SEVERITY_LABEL[r.severity] ?? r.severity} em aberto` : 'Risco material sem responsável',
-      due: dayOf(r.due_date), owner, location: projectName },
+      due: dayOf(r.due_date), owner, ownerApplicable: true, location: projectName },
     chain: links,
     relation,
     evidence: [
       { label: 'Gravidade', value: RISK_SEVERITY_LABEL[r.severity] ?? r.severity, source: 'Riscos' },
       { label: 'Situação', value: RISK_STATUS_LABEL[r.status] ?? r.status, source: 'Riscos' },
-      ...(r.category ? [{ label: 'Categoria', value: r.category, source: 'Riscos' }] : []),
+      ...(category ? [{ label: 'Categoria', value: category, source: 'Riscos' }] : []),
     ],
     apex: null,
     nextAction: { label: r.responsible_id || r.responsible_name ? 'Abrir risco' : 'Atribuir dono',
@@ -1129,14 +1210,15 @@ async function explainPurchaseOrder(ctx: Ctx, id: string): Promise<Draft | Fail>
     if (seg.needDate) evidence.push({ label: 'Necessidade do primeiro requisito', value: br(seg.needDate)!, source: first.title });
   }
   if (po.expected_delivery) evidence.unshift({ label: 'Entrega prevista', value: br(po.expected_delivery)!, source: 'Compras · pedido' });
-  const signal = await openSignal(ctx, 'purchase_order_id', po.id, ['LATE_INBOUND', 'ETA_RISK', 'DECISION_PENDING', 'SUPPLIER_RELIABILITY']);
+  const signal = (await openSignals(ctx, 'purchase_order_id', po.id, ['LATE_INBOUND', 'ETA_RISK', 'DECISION_PENDING', 'SUPPLIER_RELIABILITY']))
+    .sort(bySeverity)[0] ?? null;
   const project = await ctx.projectName(po.project_id ?? first?.project_id ?? null);
   const approval = po.status === 'APPROVAL_REQUIRED';
   const link = sourceLink('purchase_order', po.id, approval);
   return {
     title: label,
     detected: { object: label, problem: approval ? 'Aprovação de compra parada' : late ? 'Entrega atrasada' : statusLabel,
-      due: dayOf(po.expected_delivery), owner: null, location: supplierName ?? project },
+      due: dayOf(po.expected_delivery), owner: null, ownerApplicable: false, location: supplierName ?? project },
     chain: links,
     relation,
     evidence,
@@ -1151,8 +1233,8 @@ async function explainPurchaseOrder(ctx: Ctx, id: string): Promise<Draft | Fail>
 /* ── bill ────────────────────────────────────────────────────────────────── */
 
 async function explainBilling(ctx: Ctx, id: string): Promise<Draft | Fail> {
-  // Linha do Dashboard só aparece com a leitura dos eventos (RLS 007): sem ela, restrito.
-  if (!(await ctx.canAny(['contracts.view_values', 'finance.view']))) {
+  // Linha do Dashboard só aparece com a leitura dos eventos (espelho da RLS): sem ela, restrito — nunca "não encontrado".
+  if (!(await ctx.billing())) {
     return { ok: false, reason: 'restricted', message: 'Seu perfil não lê faturamento.' };
   }
   const fin = await ctx.financials();
@@ -1171,14 +1253,12 @@ async function explainBilling(ctx: Ctx, id: string): Promise<Draft | Fail> {
   }
   links.push(...(fin ? await cashLinks(ctx, row) : [billingRestricted()]));
   const title = row.title ?? 'Evento de faturamento';
-  const open = row.release_state === 'ELIGIBLE' || row.release_state === 'PENDING_RELEASE';
-  const link = sourceLink('contract_billing_event', row.billing_event_id, open);
   return {
     title,
     detected: {
       object: title,
       problem: fin && row.release_state ? RELEASE_LABEL[row.release_state] ?? row.release_state : 'Estado do faturamento restrito ao seu perfil',
-      due: fin ? dayOf(row.due_date) : null, owner: null, location: null,
+      due: fin ? dayOf(row.due_date) : null, owner: null, ownerApplicable: false, location: null,
     },
     chain: links,
     relation: null,
@@ -1186,7 +1266,8 @@ async function explainBilling(ctx: Ctx, id: string): Promise<Draft | Fail> {
       ? [{ label: 'Valor elegível', value: money(row.eligible_amount, row.currency)!, source: 'Contratos · cadeia contrato → caixa' }]
       : [],
     apex: null,
-    nextAction: { label: link.label, href: link.href, focused: true },
+    // Contratos não abre um evento pelo link (só `?view=`): o botão abre a área, e diz isso (`focused: false`).
+    nextAction: { label: 'Abrir faturamento', href: BILLING_HREF, focused: false },
     rule: 'Faturamento: evento elegível aguardando liberação, ou liberado sem NF. Estados e valores só com visibilidade financeira.',
   };
 }
@@ -1199,17 +1280,19 @@ async function explainSignal(ctx: Ctx, id: string): Promise<Draft | Fail> {
     'o achado da Apex')[0];
   if (!s) return missing(ctx, ['supply.view', 'procurement.view', 'inventory.view', 'receiving.view', 'operations.planning.view', 'projects.view'], 'o achado da Apex');
 
+  const kindLabel = SIGNAL_KIND_LABEL[s.kind] ?? 'Risco de supply';
   const signalLink: ChainLink = {
-    stage: 'Achado da Apex', label: s.title, detail: joinDetail(SIGNAL_KIND_LABEL[s.kind] ?? s.kind, s.status === 'OPEN' ? null : 'já encerrado'),
+    stage: 'Achado da Apex', label: s.title, detail: joinDetail(kindLabel, s.status === 'OPEN' ? null : 'já encerrado'),
     state: 'found', tone: s.severity === 'critical' ? 'danger' : s.severity === 'high' ? 'warning' : 'neutral', href: '/supply?focus=apex',
   };
   let base: Draft | Fail | null = null;
   let stale = false;
   if (s.requirement_id) {
-    const mat = await explainMaterial(ctx, s.requirement_id);
+    // O material é lido A PARTIR deste achado (problema, regra e nota falam dele, não de outro do mesmo requisito).
+    const mat = await explainMaterial(ctx, s.requirement_id, s);
     if (isFail(mat)) base = mat;
     else {
-      stale = s.status === 'OPEN' && COVERAGE_SIGNALS.includes(s.kind) && mat.coverage !== null && mat.coverage.shortage <= 0;
+      stale = staleOnCoverage(s, mat.coverage);
       base = mat.draft;
     }
   } else if (s.purchase_order_id) {
@@ -1220,7 +1303,7 @@ async function explainSignal(ctx: Ctx, id: string): Promise<Draft | Fail> {
   if (!base || isFail(base)) {
     return {
       title: s.title,
-      detected: { object: s.title, problem: SIGNAL_KIND_LABEL[s.kind] ?? s.kind, due: null, owner: null, location: project },
+      detected: { object: s.title, problem: kindLabel, due: null, owner: null, ownerApplicable: false, location: project },
       chain: [signalLink],
       relation: null,
       evidence: [],
@@ -1232,10 +1315,11 @@ async function explainSignal(ctx: Ctx, id: string): Promise<Draft | Fail> {
   return {
     ...base,
     title: s.title,
-    detected: { ...base.detected, problem: base.detected.problem || (SIGNAL_KIND_LABEL[s.kind] ?? s.kind) },
+    // O achado não tem dono (a fila também não diz "sem responsável" para ele).
+    detected: { ...base.detected, problem: base.detected.problem || kindLabel, ownerApplicable: false },
     chain: [signalLink, ...base.chain],
     apex: note,
-    rule: `Achado persistido da Apex (${SIGNAL_KIND_LABEL[s.kind] ?? s.kind}). ${base.rule ?? ''}`.trim(),
+    rule: `Achado persistido da Apex (${kindLabel}). ${base.rule ?? ''}`.trim(),
   };
 }
 

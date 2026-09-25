@@ -74,6 +74,8 @@ function rowsOf<T>(res: ReadResult, what: string): T[] {
 const ACTIVITIES_LIMIT = 5000;
 const MEASUREMENTS_LIMIT = 5000;
 const RISKS_LIMIT = 2000;
+/** O `.limit()` da lista de `listServiceOrders` (service-orders/read-model.ts) — só para sinalizar o corte. */
+const SERVICE_ORDERS_LIST_LIMIT = 300;
 
 export async function operationsOverview(session: Session, access: OverviewAccess, today: string) {
   const org = session.organizationId;
@@ -421,6 +423,16 @@ export async function operationsOverview(session: Session, access: OverviewAcces
     inProgressActivities: access.projects ? activities.filter((a) => isInProgressActivity(a)).length : null,
     /** Saúde de TODOS os projetos ativos (a lista `projectHealth` acima é cortada em 30). */
     healthCounts: access.projects ? countHealthLevels(projectHealth.map((p) => p.level)) : null,
+    /**
+     * Projetos ativos SEM atividade-folha aberta no cronograma (a mesma leitura de
+     * `hasSchedule` da saúde). Diferente de `healthCounts.unknown`, que exclui o
+     * projeto sem cronograma que já tem outra razão (risco, material, cliente…).
+     * Com `truncated.activities` é TETO, não piso: um projeto cujas atividades
+     * ficaram fora do corte aparece aqui.
+     */
+    projectsWithoutOpenActivity: access.projects ? activeProjects.filter((p) => !openByProject.has(p.id)).length : null,
+    /** A lista de OS (`listServiceOrders`, `.limit(300)`) chegou no teto: os números de OS são piso. */
+    serviceOrdersTruncated: serviceOrdersAccess && readWasTruncated(serviceOrders.length, SERVICE_ORDERS_LIST_LIMIT),
     /** A leitura chegou no teto do PostgREST ou no `.limit()` — os números dela podem estar incompletos. */
     truncated,
   };

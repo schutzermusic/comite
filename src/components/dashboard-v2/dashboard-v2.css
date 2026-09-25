@@ -11,13 +11,20 @@
    • no celular, a mesma árvore em outra ordem: atenção primeiro.
    ═════════════════════════════════════════════════════════════════════════ */
 
-.dv2 {
+/*
+  Os tons valem também no painel "Entender": o SidePanel vai para o <body>
+  por portal (fora de .dv2), com a classe .ax — os --ax-* já estão lá.
+*/
+.dv2,
+.ax-sheet[data-testid='dashboard-explain'] {
   --dv2-danger: var(--ax-danger);
   --dv2-warning: var(--ax-warning);
   --dv2-accent: var(--ax-accent);
   --dv2-success: var(--ax-success);
   --dv2-neutral: var(--ig-tone-neutral);
   --dv2-node: 14px;
+}
+.dv2 {
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -71,7 +78,7 @@
 }
 .dv2-flow-head h2 { margin: 0; font-size: 14px; font-weight: 650; color: var(--ax-fg-strong); letter-spacing: 0; }
 .dv2-flow-head p { margin: 2px 0 0; font-size: 12px; color: var(--ax-fg-muted); }
-.dv2-flow-summary { font-size: 11.5px; font-weight: 600; color: var(--ax-fg-subtle); white-space: nowrap; }
+.dv2-flow-summary { font-size: 11.5px; font-weight: 600; color: var(--ax-fg-subtle); text-align: right; flex: 0 1 auto; max-width: 48%; }
 
 .dv2-rail {
   list-style: none;
@@ -139,7 +146,8 @@ a.dv2-stage-body:focus-visible { outline: 2px solid var(--ig-border-focus); outl
 .dv2-stage[data-stuck='true'][data-tone='neutral'] .dv2-node { background: var(--dv2-neutral); border-color: var(--dv2-neutral); }
 .dv2-stage[data-state='restricted'] .dv2-node,
 .dv2-stage[data-state='unavailable'] .dv2-node,
-.dv2-stage[data-state='error'] .dv2-node { border-style: dashed; border-color: var(--ax-fg-subtle); }
+.dv2-stage[data-state='error'] .dv2-node,
+.dv2-stage[data-nonum='true'] .dv2-node { border-style: dashed; border-color: var(--ax-fg-subtle); }
 .dv2-stage[data-start='true'] .dv2-stage-body { background: color-mix(in srgb, var(--dv2-accent) 8%, transparent); }
 .dv2-stage[data-start='true'] .dv2-node { border-color: var(--dv2-accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--dv2-accent) 18%, transparent); }
 @keyframes dv2-pulse {
@@ -256,6 +264,28 @@ a.dv2-stage-body:focus-visible { outline: 2px solid var(--ig-border-focus); outl
 }
 .dv2-more-mobile, .dv2-foot-mobile { display: none; }
 .dv2-empty-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+/* Fila parcial: o que não carregou, dito antes da lista. */
+.dv2-feed-failed {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--ax-line-soft);
+  background: color-mix(in srgb, var(--dv2-warning) 8%, transparent);
+  font-size: 12.5px;
+  color: var(--ax-fg);
+}
+.dv2-feed-failed svg { flex-shrink: 0; margin-top: 2px; color: var(--dv2-warning); }
+.dv2-feed-failed strong { color: var(--ax-fg-strong); font-weight: 650; }
+.dv2-feed-area-note a,
+.dv2-feed-empty-filter a { display: inline-flex; align-items: center; gap: 3px; color: var(--ax-accent); font-weight: 600; text-decoration: none; }
+.dv2-feed-area-note a:hover,
+.dv2-feed-empty-filter a:hover { text-decoration: underline; }
+.dv2-feed-empty-filter { padding: 16px; }
+.dv2-feed-empty-filter p { margin: 0; font-size: 13px; color: var(--ax-fg-muted); }
+/* Cabeçalho: a área que não carregou, ao lado da contagem. */
+.dv2 .ax-context .dv2-head-failed { color: var(--dv2-warning); font-weight: 600; }
 
 /* Achado da Apex dentro da linha: afirmação com evidência, nunca um cartão de "IA". */
 .dv2-apex {
@@ -343,6 +373,14 @@ a.dv2-stage-body:focus-visible { outline: 2px solid var(--ig-border-focus); outl
 .dv2-cal .tick { fill: var(--ax-fg-subtle); font-size: 10.5px; font-family: inherit; }
 .dv2-cal .lane-label { fill: var(--ax-fg-muted); font-size: 11.5px; font-weight: 650; font-family: inherit; }
 .dv2-cal .lane-note { fill: var(--ax-fg-subtle); font-size: 10.5px; font-style: italic; font-family: inherit; }
+.dv2-cal .lane-note.warn { fill: var(--dv2-warning); font-style: normal; font-weight: 600; }
+.dv2-cal .lane.off { stroke-dasharray: 3 5; }
+/* Celular: a faixa que não carregou (ou carregou em parte) é dita antes da lista. */
+.dv2-cal-gaps { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.dv2-cal-gaps li { display: flex; align-items: flex-start; gap: 6px; font-size: 12px; color: var(--ax-fg-muted); }
+.dv2-cal-list .dv2-cal-gaps li + li { border-top: 0; }
+.dv2-cal-gaps svg { flex-shrink: 0; margin-top: 2px; color: var(--dv2-warning); }
+.dv2-cal-gaps strong { color: var(--ax-fg-strong); font-weight: 650; }
 .dv2-cal .band { fill: color-mix(in srgb, var(--ax-accent) 5%, transparent); }
 .dv2-cal .today { stroke: var(--ax-accent); stroke-width: 1.5; stroke-dasharray: 3 3; }
 .dv2-cal a .mark { cursor: pointer; }
@@ -408,7 +446,10 @@ a.dv2-stage-body:focus-visible { outline: 2px solid var(--ig-border-focus); outl
 .dv2-chain-step[data-state='pending'] .dv2-chain-mark { background: color-mix(in srgb, var(--ax-info) 12%, var(--ax-plane)); color: var(--ax-info); }
 .dv2-chain-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding-top: 4px; }
 .dv2-chain-stage { font-size: 10.5px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: var(--ax-fg-subtle); }
-.dv2-chain-detail { font-size: 13.5px; color: var(--ax-fg-strong); overflow-wrap: anywhere; }
+.dv2-chain-label { font-size: 13.5px; font-weight: 600; color: var(--ax-fg-strong); overflow-wrap: anywhere; }
+.dv2-chain-detail { font-size: 12.5px; color: var(--ax-fg); overflow-wrap: anywhere; }
+.dv2-chain-step[data-state='none'] .dv2-chain-label,
+.dv2-chain-step[data-state='restricted'] .dv2-chain-label { color: var(--ax-fg-muted); font-weight: 500; }
 .dv2-chain-step[data-state='none'] .dv2-chain-detail,
 .dv2-chain-step[data-state='restricted'] .dv2-chain-detail { color: var(--ax-fg-muted); }
 .dv2-chain-note { font-size: 12px; color: var(--ax-fg-muted); }
@@ -490,6 +531,15 @@ a.dv2-stage-body:focus-visible { outline: 2px solid var(--ig-border-focus); outl
   .dv2-more-mobile { display: inline-flex; }
   .dv2-foot-mobile { display: flex; }
   .dv2-more-desktop { display: none; }
+  /* Alvos de toque de 44px no celular. */
+  .dv2-feed-foot .ax-btn,
+  .dv2-cal-list > .ax-btn,
+  .dv2 .ax-empty .ax-btn,
+  .dv2 .ax-header .ax-btn,
+  .dv2 .ax-filter { min-height: 44px; }
+  .dv2 .ax-header .ax-btn.icon { min-width: 44px; }
+  .dv2-feed-area-note a,
+  .dv2-feed-empty-filter a { min-height: 44px; }
 
   .dv2-dec-signal { padding: 10px 12px; }
   .dv2-dec-signal b { font-size: 20px; }

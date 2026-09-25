@@ -125,6 +125,57 @@ export function maskedMoney(sums: Record<string, number>, financial: boolean): s
   return financial ? moneyText(sums) : null;
 }
 
+/* ── Portões de faturamento e recebíveis (espelho da RLS EFETIVA) ───────── */
+
+/**
+ * As respostas do MESMO resolvedor da RLS (`current_user_has_permission`, com
+ * as sobreposições por usuário) para as chaves que decidem a leitura de
+ * `contract_to_cash_read_model`. Usado pelo Dashboard e pelo Entender.
+ */
+export interface BillingGatePerms {
+  contractsViewValues: boolean;
+  financeView: boolean;
+  contractsView: boolean;
+  /** `contract_billing_events_manage_permissioned` é FOR ALL: `contracts.edit` também lê. */
+  contractsEdit: boolean;
+}
+
+export interface ReceivablesGatePerms extends BillingGatePerms {
+  /** `has_finance_role_or_perm('finance_admin', 'finance.admin')`. */
+  financeAdmin: boolean;
+  /** `has_finance_role_or_perm('finance_analyst', 'finance.edit')`. */
+  financeAnalyst: boolean;
+}
+
+/**
+ * A pessoa lê TODOS os eventos de faturamento da organização? A view
+ * `contract_to_cash_read_model` é `security_invoker` sobre
+ * `contract_billing_events`, cuja leitura (RLS, conferida no banco) é:
+ *   contracts.edit
+ *   OU (contracts.view_values OU finance.view) E (
+ *        contrato preenchido E current_user_can_read_contract(contrato)
+ *        OU sem contrato, com engajamento, E contracts.view )
+ * `current_user_can_read_contract` = admin OU contracts.view OU contracts.approve
+ * OU (projects.view_assigned E responsável pelo projeto do contrato).
+ * Só `contracts.view` cobre os DOIS ramos: admin sem ela, `contracts.approve` e o
+ * responsável pelo projeto leem só PARTE das linhas — uma contagem sobre parte
+ * seria número falso, então esses perfis ficam Restrito.
+ */
+export function billingGate(p: BillingGatePerms): boolean {
+  return p.contractsEdit || ((p.contractsViewValues || p.financeView) && p.contractsView);
+}
+
+/**
+ * Recebíveis saem da MESMA view (a linha só existe com `billingGate`) e a
+ * situação do título (pago, em aberto, vencido) vem de
+ * `finance_receivable_balances` sobre `finance_settlements` — `fs_select`:
+ * finance.view OU finance_admin OU finance_analyst. Sem isso o pago some e o
+ * título parece vencido.
+ */
+export function receivablesGate(p: ReceivablesGatePerms): boolean {
+  return billingGate(p) && (p.financeView || p.financeAdmin || p.financeAnalyst);
+}
+
 /* ── Material: a falta lida AO VIVO ─────────────────────────────────────── */
 
 export interface MaterialNeed {
@@ -281,6 +332,15 @@ export function overdueProblem(count: number, blocked: number): string {
   return blocked > 0 ? `${base} (${plural(blocked, 'bloqueada', 'bloqueadas')})` : base;
 }
 
+/**
+ * O responsável de uma linha agrupada: um nome → o nome; vários → "Ana e mais 1"
+ * (nunca "sem responsável", que seria falso); nenhum → `null` ("sem responsável").
+ */
+export function groupOwner(names: readonly string[]): string | null {
+  if (!names.length) return null;
+  return names.length === 1 ? names[0] : `${names[0]} e mais ${names.length - 1}`;
+}
+
 /** Atividades vencidas → UMA linha por projeto, apontando para o cronograma. */
 export function overdueGroupRow(g: OverdueByProjectRow): FeedRow {
   return {
@@ -293,7 +353,7 @@ export function overdueGroupRow(g: OverdueByProjectRow): FeedRow {
     problem: overdueProblem(g.count, g.blocked),
     consequence: null,
     due: isoDay(g.oldestDue),
-    owner: g.ownerNames.length === 1 ? g.ownerNames[0] : null,
+    owner: groupOwner(g.ownerNames),
     ownerApplicable: true,
     count: g.count,
     nextAction: { label: 'Abrir cronograma', href: `/projetos/${encodeURIComponent(g.projectId)}?tab=timeline`, focused: true },
@@ -462,6 +522,15 @@ export interface SignalLike {
 const REQ_KINDS = new Set(['SHORTAGE', 'ALTERNATE_STOCK', 'ETA_RISK']);
 const PO_KINDS = new Set(['LATE_INBOUND', 'SUPPLIER_RELIABILITY', 'INSPECTION_AGING']);
 
+/**
+ * Sinais que ficam DESATUALIZADOS quando a falta ao vivo do requisito zera:
+ * só os que falam da falta (SHORTAGE, ALTERNATE_STOCK). ETA_RISK nasce
+ * justamente quando a entrada COBRE a quantidade mas chega depois da
+ * necessidade — falta 0 por construção; DECISION_PENDING fala da compra
+ * parada. A mesma regra na fila e no Entender.
+ */
+export const STALE_ON_COVERAGE: ReadonlySet<string> = new Set(['SHORTAGE', 'ALTERNATE_STOCK']);
+
 /** A frase de abertura do achado da Apex, por tipo de sinal — a mesma na fila e no Entender. */
 export const APEX_LEAD: Record<string, string> = {
   SHORTAGE: 'Apex identificou uma falta sem cobertura',
@@ -523,7 +592,9 @@ export function signalRow(s: SignalLike, note: ApexNote): FeedRow {
   } else if (reqDecision) {
     nextAction = { label: 'Abrir solicitações', href: '/supply/compras?stage=solicitacoes', focused: false };
   } else if (key.startsWith('req:') && s.requirementId) {
-    nextAction = { label: 'Cobrir falta', href: `/supply/planejamento-materiais?req=${encodeURIComponent(s.requirementId)}`, focused: true };
+    // ETA_RISK: a entrada cobre a quantidade (sem falta) e chega tarde — não há falta a cobrir.
+    nextAction = { label: s.kind === 'ETA_RISK' ? 'Abrir cobertura' : 'Cobrir falta',
+      href: `/supply/planejamento-materiais?req=${encodeURIComponent(s.requirementId)}`, focused: true };
     explainRef = `mat:${s.requirementId}`;
   } else if (key.startsWith('po:') && s.purchaseOrderId) {
     nextAction = { label: 'Abrir pedido', href: `/supply/compras?stage=pedidos&po=${encodeURIComponent(s.purchaseOrderId)}`, focused: true };
@@ -567,8 +638,9 @@ export interface MergeInput {
 
 /**
  * Deduplicação pelo OBJETO: o sinal da Apex vira evidência da linha viva do
- * mesmo `req:`/`po:` (gravidade = a maior das duas); um sinal cujo requisito
- * já não tem falta AO VIVO é marcado `stale` e não sobe nada; o
+ * mesmo `req:`/`po:` (gravidade = a maior das duas); um sinal de FALTA
+ * (`STALE_ON_COVERAGE`) cujo requisito já não tem falta AO VIVO é marcado
+ * `stale` e não sobe nada; o
  * `DECISION_PENDING` de pedido sai só se o pedido está na caixa da pessoa.
  */
 export function mergeFeed(input: MergeInput): FeedRow[] {
@@ -579,7 +651,7 @@ export function mergeFeed(input: MergeInput): FeedRow[] {
   for (const s of signals) {
     if (isPurchaseOrderDecision(s) && input.inboxPurchaseOrderIds?.has(s.purchaseOrderId as string)) continue;
     const key = signalKey(s);
-    const stale = key.startsWith('req:') && input.liveShortage(key.slice(4)) === 0;
+    const stale = STALE_ON_COVERAGE.has(s.kind) && key.startsWith('req:') && input.liveShortage(key.slice(4)) === 0;
     const note = apexNote(s, stale);
     const existing = map.get(key);
     if (!existing) { map.set(key, signalRow(s, note)); continue; }
@@ -658,8 +730,18 @@ export function cappedOpsExtras(counts: AttentionCounts, rows: readonly FeedRow[
   return out;
 }
 
+/** O que a montagem sabe da COMPLETUDE da fila: fontes que falharam e leituras cortadas. */
+export interface FeedCompleteness {
+  /** Fontes que a pessoa lê e cuja leitura FALHOU — a fila é parcial, nunca "nada fora do lugar". */
+  failed?: FeedModel['failed'];
+  /** Alguma fonte foi lida com corte: `total` é piso. */
+  partial?: boolean;
+}
+
 /** O modelo da fila: total deduplicado SEM corte, críticas, por domínio; linhas cortadas em 40. */
-export function buildFeedModel(ranked: readonly FeedRow[], extras: readonly FeedExtra[] = [], cap = FEED_ROWS_CAP): FeedModel {
+export function buildFeedModel(
+  ranked: readonly FeedRow[], extras: readonly FeedExtra[] = [], completeness: FeedCompleteness = {}, cap = FEED_ROWS_CAP,
+): FeedModel {
   const byDomain: FeedModel['byDomain'] = {};
   const bump = (d: Domain, total: number, critical: number) => {
     const cur = byDomain[d] ?? { total: 0, critical: 0 };
@@ -669,22 +751,38 @@ export function buildFeedModel(ranked: readonly FeedRow[], extras: readonly Feed
   for (const e of extras) bump(e.domain, e.total, e.critical);
   const total = ranked.length + extras.reduce((a, e) => a + e.total, 0);
   const critical = ranked.filter((r) => r.severity === 'critical').length + extras.reduce((a, e) => a + e.critical, 0);
-  return { rows: ranked.slice(0, cap), total, critical, byDomain };
+  return {
+    rows: ranked.slice(0, cap), total, critical, byDomain,
+    failed: [...(completeness.failed ?? [])], partial: completeness.partial === true,
+  };
 }
 
 /* ── Fluxo do negócio (11 etapas) ───────────────────────────────────────── */
 
+/**
+ * `partial` (em cada parte): o número veio de uma leitura COM CORTE (teto do
+ * PostgREST ou `.limit()`) — é piso, e a etapa sai com `partial: true` ("≥").
+ */
 export interface StagesInput {
   /** `contracts.view`: trabalho autorizado sem OS viva. */
   authorizedWithoutOs: SectionState<number>;
   /** `commercial.view`: oportunidades em etapa aberta. */
   openOpportunities: SectionState<number>;
-  os: SectionState<{ awaitingIssue: number; blocked: number; inExecution: number }>;
-  projects: SectionState<{ active: number; health: Record<HealthLevel, number>; criticalActivities: number }>;
-  needs: SectionState<{ short: number; critical: number }>;
+  os: SectionState<{ awaitingIssue: number; blocked: number; inExecution: number; partial?: boolean }>;
+  projects: SectionState<{
+    active: number; health: Record<HealthLevel, number>; criticalActivities: number;
+    /** Projetos ativos sem atividade-folha aberta no cronograma (a definição de Planejamento). */
+    withoutSchedule: number;
+    /** A saúde saiu de leitura cortada (cronograma, riscos, medições ou cobertura): críticos é piso. */
+    healthPartial?: boolean;
+    /** O cronograma veio cortado: "sem cronograma" seria TETO (não piso) — sem número. */
+    schedulePartial?: boolean;
+  }>;
+  /** `short` é contagem exata; `partial` = a lista lida foi cortada, então `critical` é piso. */
+  needs: SectionState<{ short: number; critical: number; partial?: boolean }>;
   supply: SectionState<{ lateInbound: number; requisitionsAwaitingSourcing: number; receivingIssues: number }>;
-  execution: SectionState<{ overdue: number; inProgress: number }>;
-  measurement: SectionState<{ pending: number; awaitingCustomer: number; inReview: number }>;
+  execution: SectionState<{ overdue: number; inProgress: number; partial?: boolean }>;
+  measurement: SectionState<{ pending: number; awaitingCustomer: number; inReview: number; partial?: boolean }>;
   billing: SectionState<{ awaitingRelease: number; invoicesToIssue: number; invoicesAmount: string | null }>;
   receivables: SectionState<{ overdue: number; open: number; linked: number }>;
 }
@@ -725,12 +823,28 @@ export const STAGE_DEFINITION: Record<StageId, string> = {
 const RESTRICTED_REASON = 'Seu perfil não lê esta etapa';
 const ERROR_REASON = 'Não carregou';
 
+/** Comercial `ok` sem o número de autorizadas: o motivo EXATO (a tela nunca mostra 0 no lugar). */
+export const COMERCIAL_STUCK_REASON = {
+  restricted: 'Autorizadas sem OS: restrito ao seu perfil',
+  error: 'Autorizadas sem OS: não carregou',
+} as const;
+
+/** Planejamento `ok` sem número: com o cronograma cortado, "sem cronograma" seria teto, não piso. */
+export const SCHEDULE_PARTIAL_REASON = 'Sem atividade aberta: leitura do cronograma incompleta';
+
 function stage(id: StageId, over: Partial<FlowStage>): FlowStage {
   return {
     id, label: STAGE_LABEL[id], state: 'ok', stuck: null, context: null, tone: 'neutral',
-    href: STAGE_HREF[id], definition: STAGE_DEFINITION[id], reason: null, ...over,
+    href: STAGE_HREF[id], definition: STAGE_DEFINITION[id], reason: null, partial: false, noNumber: null, ...over,
   };
 }
+
+/** "≥ 12" quando o número é piso (leitura cortada); "12" quando é exato. */
+const atLeast = (n: number, partial: boolean | undefined) => (partial ? `≥ ${n}` : String(n));
+const pluralAtLeast = (n: number, one: string, many: string, partial: boolean | undefined) =>
+  `${partial ? '≥ ' : ''}${plural(n, one, many)}`;
+/** Zero numa leitura cortada não é "em dia": o tom fica neutro. */
+const calmTone = (partial: boolean | undefined): FlowStage['tone'] => (partial ? 'neutral' : 'success');
 
 /** Etapa fora de `ok`: sem número, com o motivo. */
 function notOk(id: StageId, s: SectionState<unknown>): FlowStage | null {
@@ -752,45 +866,60 @@ export function buildStages(i: StagesInput): FlowStage[] {
       const stuck = a.state === 'ok' ? { value: a.data, noun: a.data === 1 ? 'autorizada sem OS' : 'autorizadas sem OS' } : null;
       out.push(stage('comercial', {
         stuck,
-        context: o.state === 'ok' ? plural(o.data, 'oportunidade aberta', 'oportunidades abertas') : null,
+        context: o.state === 'ok' ? plural(o.data, 'oportunidade aberta', 'oportunidades abertas')
+          : o.state === 'error' ? 'Oportunidades: não carregou' : null,
         tone: stuck && stuck.value > 0 ? 'warning' : 'neutral',
-        reason: a.state === 'restricted' ? 'Autorizadas sem OS: restrito' : a.state === 'error' ? 'Autorizadas sem OS: não carregou' : null,
+        // `stuck: null` numa etapa `ok` SEMPRE diz por quê — nunca vira 0 na tela.
+        reason: a.state === 'restricted' ? COMERCIAL_STUCK_REASON.restricted
+          : a.state === 'error' ? COMERCIAL_STUCK_REASON.error : null,
+        noNumber: a.state === 'restricted' ? 'restricted' : a.state === 'error' ? 'error' : null,
       }));
     }
   }
 
   out.push(notOk('os', i.os) ?? (() => {
-    const d = (i.os as { data: { awaitingIssue: number; blocked: number; inExecution: number } }).data;
+    const d = (i.os as { data: { awaitingIssue: number; blocked: number; inExecution: number; partial?: boolean } }).data;
     return stage('os', {
       stuck: { value: d.awaitingIssue, noun: 'a emitir' },
-      context: `${plural(d.blocked, 'bloqueada', 'bloqueadas')} · ${d.inExecution} em obra`,
-      tone: d.blocked > 0 ? 'danger' : d.awaitingIssue > 0 ? 'warning' : 'success',
+      context: `${pluralAtLeast(d.blocked, 'bloqueada', 'bloqueadas', d.partial)} · ${atLeast(d.inExecution, d.partial)} em obra`,
+      tone: d.blocked > 0 ? 'danger' : d.awaitingIssue > 0 ? 'warning' : calmTone(d.partial),
+      partial: d.partial === true,
     });
   })());
 
+  type ProjectsPart = Extract<StagesInput['projects'], { state: 'ok' }>['data'];
   out.push(notOk('projeto', i.projects) ?? (() => {
-    const d = (i.projects as { data: { active: number; health: Record<HealthLevel, number> } }).data;
+    const d = (i.projects as { data: ProjectsPart }).data;
     return stage('projeto', {
       stuck: { value: d.health.critical, noun: d.health.critical === 1 ? 'crítico' : 'críticos' },
-      context: `${plural(d.active, 'ativo', 'ativos')} · ${d.health.attention} em atenção`,
-      tone: d.health.critical > 0 ? 'danger' : d.health.attention > 0 ? 'warning' : 'success',
+      // Com leitura cortada, "em atenção" pode estar para mais ou para menos: não se diz.
+      context: d.healthPartial ? plural(d.active, 'ativo', 'ativos')
+        : `${plural(d.active, 'ativo', 'ativos')} · ${d.health.attention} em atenção`,
+      tone: d.health.critical > 0 ? 'danger' : d.health.attention > 0 ? 'warning' : calmTone(d.healthPartial),
+      partial: d.healthPartial === true,
     });
   })());
 
   out.push(notOk('planejamento', i.projects) ?? (() => {
-    const d = (i.projects as { data: { health: Record<HealthLevel, number>; criticalActivities: number } }).data;
+    const d = (i.projects as { data: ProjectsPart }).data;
+    const context = pluralAtLeast(d.criticalActivities, 'atividade crítica', 'atividades críticas', d.schedulePartial);
+    if (d.schedulePartial) {
+      return stage('planejamento', { stuck: null, context, tone: 'neutral', reason: SCHEDULE_PARTIAL_REASON, noNumber: 'incomplete' });
+    }
     return stage('planejamento', {
-      stuck: { value: d.health.unknown, noun: 'sem cronograma' },
-      context: plural(d.criticalActivities, 'atividade crítica', 'atividades críticas'),
-      tone: d.health.unknown > 0 ? 'warning' : 'success',
+      // "Sem atividade aberta", e não "sem cronograma": o painel Projetos usa "Sem cronograma" para a SAÚDE desconhecida (outro número).
+      stuck: { value: d.withoutSchedule, noun: 'sem atividade aberta' },
+      context,
+      tone: d.withoutSchedule > 0 ? 'warning' : 'success',
     });
   })());
 
   out.push(notOk('necessidades', i.needs) ?? (() => {
-    const d = (i.needs as { data: { short: number; critical: number } }).data;
+    const d = (i.needs as { data: { short: number; critical: number; partial?: boolean } }).data;
+    // `short` é contagem exata; só as críticas saem da lista lida (piso quando cortada).
     return stage('necessidades', {
       stuck: { value: d.short, noun: 'sem cobertura' },
-      context: `${d.critical} ${d.critical === 1 ? 'crítica' : 'críticas'} (≤ 7 dias)`,
+      context: `${atLeast(d.critical, d.partial)} ${d.critical === 1 ? 'crítica' : 'críticas'} (≤ 7 dias)`,
       tone: d.critical > 0 ? 'danger' : d.short > 0 ? 'warning' : 'success',
     });
   })());
@@ -806,20 +935,22 @@ export function buildStages(i: StagesInput): FlowStage[] {
   })());
 
   out.push(notOk('execucao', i.execution) ?? (() => {
-    const d = (i.execution as { data: { overdue: number; inProgress: number } }).data;
+    const d = (i.execution as { data: { overdue: number; inProgress: number; partial?: boolean } }).data;
     return stage('execucao', {
       stuck: { value: d.overdue, noun: d.overdue === 1 ? 'atividade vencida' : 'atividades vencidas' },
-      context: `${d.inProgress} em andamento`,
-      tone: d.overdue > 0 ? 'warning' : 'success',
+      context: `${atLeast(d.inProgress, d.partial)} em andamento`,
+      tone: d.overdue > 0 ? 'warning' : calmTone(d.partial),
+      partial: d.partial === true,
     });
   })());
 
   out.push(notOk('medicao', i.measurement) ?? (() => {
-    const d = (i.measurement as { data: { pending: number; awaitingCustomer: number; inReview: number } }).data;
+    const d = (i.measurement as { data: { pending: number; awaitingCustomer: number; inReview: number; partial?: boolean } }).data;
     return stage('medicao', {
       stuck: { value: d.pending, noun: 'com a operação' },
-      context: `${d.awaitingCustomer} aguardando cliente · ${d.inReview} em análise`,
-      tone: d.pending > 0 ? 'warning' : 'success',
+      context: `${atLeast(d.awaitingCustomer, d.partial)} aguardando cliente · ${atLeast(d.inReview, d.partial)} em análise`,
+      tone: d.pending > 0 ? 'warning' : calmTone(d.partial),
+      partial: d.partial === true,
     });
   })());
 
@@ -843,6 +974,35 @@ export function buildStages(i: StagesInput): FlowStage[] {
 
   out.push(stage('caixa', { state: 'unavailable', reason: 'Nenhuma conta de caixa conectada' }));
   return out;
+}
+
+/* ── Há operação? (decide o estado vazio) ───────────────────────────────── */
+
+/** As leituras que dizem se há operação. `null` = não lida (restrito ou falhou). */
+export interface OperationReads {
+  activeProjects: number | null;
+  /** OS abertas (rascunho, confirmação, emitidas, em obra); `partial` = a lista de OS veio cortada. */
+  openServiceOrders: { value: number; partial?: boolean } | null;
+  openOpportunities: number | null;
+  authorizedWithoutOs: number | null;
+}
+
+/**
+ * `true`: alguma leitura mostrou operação. `false`: TODAS as leituras de
+ * operação (projetos ativos, OS abertas, oportunidades, autorizadas sem OS)
+ * responderam, inteiras, e vazias. `null`: alguma não foi lida (restrita ou
+ * falhou) ou veio cortada — não se afirma "ainda não há operação".
+ */
+export function operationPresence(r: OperationReads): boolean | null {
+  const parts: Array<boolean | null> = [
+    r.activeProjects === null ? null : r.activeProjects > 0,
+    r.openServiceOrders === null ? null
+      : r.openServiceOrders.value > 0 ? true : r.openServiceOrders.partial ? null : false,
+    r.openOpportunities === null ? null : r.openOpportunities > 0,
+    r.authorizedWithoutOs === null ? null : r.authorizedWithoutOs > 0,
+  ];
+  if (parts.some((p) => p === true)) return true;
+  return parts.every((p) => p === false) ? false : null;
 }
 
 /* ── Projetos ───────────────────────────────────────────────────────────── */
@@ -920,7 +1080,25 @@ export function laneItems(items: readonly CalendarItem[], today: string, days = 
     .slice(0, cap);
 }
 
-export type CalendarLaneInput = Partial<Record<CalendarLane, SectionState<CalendarItem[]>>>;
+/**
+ * Uma raia: o estado da leitura; `partial` numa raia `ok` = parte dela não
+ * carregou (uma das leituras falhou) ou veio cortada — o que aparece é incompleto.
+ */
+export type CalendarLaneState = SectionState<CalendarItem[]> & { partial?: boolean };
+export type CalendarLaneInput = Partial<Record<CalendarLane, CalendarLaneState>>;
+
+/**
+ * Junta as leituras de UMA raia (ex.: Supply = faltas + entregas). Só as que
+ * a pessoa lê entram. Nenhuma legível → `restricted`; todas falharam → `error`;
+ * alguma falhou ou veio cortada → `ok` com `partial` (nunca "nada previsto" calado).
+ */
+export function mergeLaneParts(parts: ReadonlyArray<CalendarLaneState>, label: string): CalendarLaneState {
+  if (!parts.length) return { state: 'restricted' };
+  const ok = parts.filter((p): p is Extract<CalendarLaneState, { state: 'ok' }> => p.state === 'ok');
+  if (!ok.length) return { state: 'error', message: `Não foi possível ler a raia de ${label}.` };
+  const partial = ok.length < parts.length || ok.some((p) => p.partial === true);
+  return { state: 'ok', data: ok.flatMap((p) => p.data), ...(partial ? { partial: true } : {}) };
+}
 
 /** As raias que existem: Operação, Supply, Medição e Recebíveis. Raia ilegível = `restricted`; leitura que falhou = `unavailable`. */
 export const CALENDAR_LANES: readonly CalendarLane[] = ['operacao', 'supply', 'medicao', 'recebivel'];
@@ -937,8 +1115,10 @@ export function buildCalendar(today: string, lanes: CalendarLaneInput): SectionS
     state: 'ok',
     data: {
       days: CALENDAR_DAYS,
+      // Raia que falhou fica na lista como `unavailable` (a tela diz "não carregou"); nunca some.
       lanes: states.map(({ id, s }) => ({
         id, label: CALENDAR_LANE_LABEL[id], state: s.state === 'ok' ? 'ok' : s.state === 'restricted' ? 'restricted' : 'unavailable',
+        ...(s.state === 'ok' && s.partial ? { partial: true } : {}),
       })),
       items,
     },

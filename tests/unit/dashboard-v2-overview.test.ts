@@ -38,6 +38,7 @@ vi.mock('@/lib/decisions/read', () => ({
 }));
 
 import { buildDashboardOverview } from '@/lib/dashboard/overview';
+import { SCHEDULE_PARTIAL_REASON } from '@/lib/dashboard/rules';
 import type { DashboardOverview } from '@/lib/dashboard/types';
 
 const TODAY = '2026-09-25';
@@ -114,6 +115,8 @@ function opsModel(over: Record<string, unknown> = {}) {
     overdueActivities: 2,
     inProgressActivities: 7,
     healthCounts: { critical: 1, attention: 1, healthy: 1, unknown: 0 },
+    projectsWithoutOpenActivity: 1,
+    serviceOrdersTruncated: false,
     truncated: { activities: false, measurements: false, risks: false, coverage: false },
     ...over,
   };
@@ -179,7 +182,8 @@ describe('buildDashboardOverview', () => {
     expect(o.apex).toBeNull();
     expect(o.readable).toEqual([]);
     expect(o.notReadable).toEqual(['Comercial', 'Operação', 'Supply', 'Medição', 'Faturamento', 'Recebíveis']);
-    expect(o.hasOperation).toBe(false);
+    // Nada lido → não se sabe se há operação (nunca "Ainda não há operação").
+    expect(o.hasOperation).toBeNull();
     expect(o.stages).toHaveLength(11);
     for (const s of o.stages) {
       expect(s.stuck).toBeNull();
@@ -229,7 +233,16 @@ describe('buildDashboardOverview', () => {
     expect(stage(o2, 'necessidades').state).toBe('ok');
     expect(o2.projects.state).toBe('error');
     expect(o2.feed.state).toBe('ok');
-    if (o2.feed.state === 'ok') expect(o2.feed.truncated).toBe(true);
+    if (o2.feed.state === 'ok') {
+      expect(o2.feed.truncated).toBe(true);
+      // a fila diz O QUE não carregou — nunca "0 exceções" calado
+      expect(o2.feed.data.failed).toEqual([{ domain: 'operacao', label: 'Operação' }, { domain: 'medicao', label: 'Medição' }]);
+      expect(o2.feed.data.partial).toBe(false);
+    }
+    // a raia de Operação fica na lista como `unavailable`
+    if (o2.calendar.state === 'ok') expect(o2.calendar.data.lanes.find((l) => l.id === 'operacao')!.state).toBe('unavailable');
+    // Operações falhou: projetos e OS não foram lidos → não se sabe (as outras leituras mostram operação aqui, então true)
+    expect(o2.hasOperation).toBe(true);
 
     // Decisões cai (ex.: NOT_PROVISIONED) → `error`, nunca 0.
     mocks.operationsOverview.mockResolvedValue(opsModel());
@@ -271,8 +284,10 @@ describe('buildDashboardOverview', () => {
     if (o.calendar.state === 'ok') {
       expect(o.calendar.data.items.map((i) => i.id)).toEqual(expect.arrayContaining(['act:m1', 'need:req-1']));
     }
-    // a leitura de sinais é a estreita
-    expect(mocks.listSupplySignals).toHaveBeenCalledWith(expect.anything(), { openOnly: true, severities: ['critical', 'high'], limit: 60 });
+    expect(o.feed.data.failed).toEqual([]);
+    expect(o.feed.data.partial).toBe(false);
+    // a leitura de sinais é a estreita (abertos, críticos/altos), inteira até o teto do PostgREST
+    expect(mocks.listSupplySignals).toHaveBeenCalledWith(expect.anything(), { openOnly: true, severities: ['critical', 'high'], limit: 1000 });
     expect(mocks.operationsOverview).toHaveBeenCalledWith(expect.anything(),
       { projects: true, measurements: true, risks: true, serviceOrders: true }, TODAY);
   });
@@ -310,7 +325,7 @@ describe('buildDashboardOverview', () => {
   });
 
   it('portões espelham a RLS: OS sem operations.view é Restrito; recebíveis pelo predicado financeiro', async () => {
-    const o = await buildDashboardOverview(session(['projects.view', 'contracts.view_values'], fullTables(),
+    const o = await buildDashboardOverview(session(['projects.view', 'contracts.view', 'contracts.view_values'], fullTables(),
       { has_finance_role_or_perm: false }), TODAY);
     expect(mocks.operationsOverview).toHaveBeenCalledWith(expect.anything(),
       { projects: true, measurements: true, risks: false, serviceOrders: false }, TODAY);
@@ -319,9 +334,111 @@ describe('buildDashboardOverview', () => {
     expect(stage(o, 'faturamento').state).toBe('ok');
     expect(stage(o, 'recebivel').state).toBe('restricted');
     expect(o.notReadable).toContain('Recebíveis');
-    const withAnalyst = await buildDashboardOverview(session(['contracts.view_values'], fullTables(),
+    const withAnalyst = await buildDashboardOverview(session(['contracts.view', 'contracts.view_values'], fullTables(),
       { has_finance_role_or_perm: true }), TODAY);
     expect(stage(withAnalyst, 'recebivel').state).toBe('ok');
+  });
+
+  it('RLS efetiva da view: finance.view sem contracts.view (ou só finance_analyst) é Restrito — nunca "0 vencidos"', async () => {
+    const calls: Call[] = [];
+    const finOnly = await buildDashboardOverview(session(['finance.view'], fullTables(), { has_finance_role_or_perm: true }, calls), TODAY);
+    for (const id of ['faturamento', 'recebivel']) {
+      expect(stage(finOnly, id).state).toBe('restricted');
+      expect(stage(finOnly, id).stuck).toBeNull();
+    }
+    expect(finOnly.notReadable).toEqual(expect.arrayContaining(['Faturamento', 'Recebíveis']));
+    // nem lido: o portão fecha antes da leitura
+    expect(calls.some((c) => c.table === 'contract_to_cash_read_model')).toBe(false);
+    const analystOnly = await buildDashboardOverview(session([], fullTables(), { has_finance_role_or_perm: true }), TODAY);
+    expect(stage(analystOnly, 'recebivel').state).toBe('restricted');
+    // `contracts.edit`: a política FOR ALL também lê → faturamento legível
+    const editor = await buildDashboardOverview(session(['contracts.edit'], fullTables()), TODAY);
+    expect(stage(editor, 'faturamento').state).toBe('ok');
+    expect(stage(editor, 'recebivel').state).toBe('restricted');
+  });
+
+  it('#7 total SEM corte: todos os sinais abertos críticos/altos entram (não só 60)', async () => {
+    const many = Array.from({ length: 213 }, (_, i) => sig({ id: `d${String(i).padStart(3, '0')}`, kind: 'DECISION_PENDING', severity: 'critical',
+      requirementId: null, purchaseOrderId: `po-${i}`, title: `Pedido OC-${i} aguarda aprovação` }));
+    mocks.listSupplySignals.mockResolvedValue({ lastRun: null, openCount: 213, signals: many });
+    const o = await buildDashboardOverview(session(['supply.view'], fullTables()), TODAY);
+    expect(o.feed.state).toBe('ok');
+    if (o.feed.state !== 'ok') return;
+    expect(o.feed.data.total).toBe(213);
+    expect(o.feed.data.critical).toBe(213);
+    expect(o.feed.data.byDomain.supply).toEqual({ total: 213, critical: 213 });
+    expect(o.feed.data.rows).toHaveLength(40);
+    expect(o.feed.data.partial).toBe(false);
+    // Passou do teto da leitura: o total vira piso (`partial`), nunca some calado.
+    mocks.listSupplySignals.mockResolvedValue({ lastRun: null, openCount: 1500, signals: many });
+    const capped = await buildDashboardOverview(session(['supply.view'], fullTables()), TODAY);
+    if (capped.feed.state === 'ok') expect(capped.feed.data.partial).toBe(true);
+  });
+
+  it('#0 fonte da fila que falha: `failed` diz qual; restante segue', async () => {
+    mocks.listSupplySignals.mockRejectedValue(new Error('timeout'));
+    const o = await buildDashboardOverview(session(ALL, fullTables()), TODAY);
+    expect(o.feed.state).toBe('ok');
+    if (o.feed.state === 'ok') expect(o.feed.data.failed).toEqual([{ domain: 'supply', label: 'Achados da Apex' }]);
+    expect(o.apex).toBeNull();
+    // todas as fontes legíveis falharam → `error`
+    const onlySignals = await buildDashboardOverview(session(['supply.view'], fullTables()), TODAY);
+    expect(onlySignals.feed.state).toBe('error');
+  });
+
+  it('#8 hasOperation: false só com todas as leituras de operação vazias; null quando alguma é restrita ou falha', async () => {
+    const emptyOps = opsModel({ kpis: { ...opsModel().kpis, activeProjects: 0 }, osFlow: { draft: 0, review: 0, issued: 0, linked: 0, blocked: 0 } });
+    const tables = { ...fullTables(), commercial_opportunities: { count: 0 }, commercial_engagements: { rows: [] } };
+    mocks.operationsOverview.mockResolvedValue(emptyOps);
+    expect((await buildDashboardOverview(session(ALL, tables), TODAY)).hasOperation).toBe(false);
+    // ponto_field_worker / rh: sem ler OS nem comercial → não se afirma "não há operação"
+    expect((await buildDashboardOverview(session(['projects.view'], tables), TODAY)).hasOperation).toBeNull();
+    // Operações cai e o resto é vazio → não se sabe
+    mocks.operationsOverview.mockRejectedValue(new Error('timeout'));
+    expect((await buildDashboardOverview(session(ALL, tables), TODAY)).hasOperation).toBeNull();
+  });
+
+  it('#12/#13 leitura cortada do cronograma: etapas com piso; "sem cronograma" sem número; raia Operação parcial', async () => {
+    const o = await buildDashboardOverview(session(ALL, fullTables()), TODAY);
+    // #13: Planejamento = projetos ativos sem atividade aberta (1), não `health.unknown` (0)
+    expect(stage(o, 'planejamento').stuck).toEqual({ value: 1, noun: 'sem atividade aberta' });
+    expect(stage(o, 'execucao').partial).toBe(false);
+
+    mocks.operationsOverview.mockResolvedValue(opsModel({ truncated: { activities: true, measurements: false, risks: false, coverage: false } }));
+    const cut = await buildDashboardOverview(session(ALL, fullTables()), TODAY);
+    expect(stage(cut, 'execucao').partial).toBe(true);
+    expect(stage(cut, 'execucao').stuck).toEqual({ value: 2, noun: 'atividades vencidas' });
+    expect(stage(cut, 'projeto').partial).toBe(true);
+    expect(stage(cut, 'planejamento').state).toBe('ok');
+    expect(stage(cut, 'planejamento').stuck).toBeNull();
+    expect(stage(cut, 'planejamento').reason).toBe(SCHEDULE_PARTIAL_REASON);
+    expect(stage(cut, 'medicao').partial).toBe(false);
+    if (cut.feed.state === 'ok') expect(cut.feed.data.partial).toBe(true);
+    if (cut.calendar.state === 'ok') expect(cut.calendar.data.lanes.find((l) => l.id === 'operacao')).toMatchObject({ state: 'ok', partial: true });
+
+    // lista de OS no teto → OS é piso
+    mocks.operationsOverview.mockResolvedValue(opsModel({ serviceOrdersTruncated: true }));
+    const osCut = await buildDashboardOverview(session(ALL, fullTables()), TODAY);
+    expect(stage(osCut, 'os').partial).toBe(true);
+  });
+
+  it('#2 raia de Supply: uma das duas leituras falhou → `partial`; nunca some', async () => {
+    const tables = { ...fullTables(), inbound_shipments: { error: 'timeout' } };
+    const o = await buildDashboardOverview(session(ALL, tables), TODAY);
+    expect(o.calendar.state).toBe('ok');
+    if (o.calendar.state === 'ok') {
+      expect(o.calendar.data.lanes.find((l) => l.id === 'supply')).toEqual({ id: 'supply', label: 'Supply', state: 'ok', partial: true });
+      expect(o.calendar.data.items.some((i) => i.id === 'need:req-1')).toBe(true);
+    }
+  });
+
+  it('#1 Comercial: autorizadas que falham → etapa ok sem número, com o motivo', async () => {
+    const tables = { ...fullTables(), commercial_engagements: { error: 'timeout' } };
+    const o = await buildDashboardOverview(session(ALL, tables), TODAY);
+    expect(stage(o, 'comercial').state).toBe('ok');
+    expect(stage(o, 'comercial').stuck).toBeNull();
+    expect(stage(o, 'comercial').reason).toBe('Autorizadas sem OS: não carregou');
+    expect(stage(o, 'comercial').context).toBe('20 oportunidades abertas');
   });
 });
 

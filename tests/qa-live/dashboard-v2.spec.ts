@@ -83,13 +83,18 @@ test.describe('API por papel', () => {
       const o = await overviewAs(role);
       expect(o.ok).toBe(true);
       expect(o.stages).toHaveLength(11);
+      // `null` = não dá para saber (restrito/falhou) — nunca vira "não há operação".
+      expect([true, false, null], `${role}: hasOperation`).toContain(o.hasOperation);
       for (const s of o.stages) {
         if (s.state !== 'ok') expect(s.stuck, `${role}: etapa ${s.id} ${s.state} não carrega número`).toBeNull();
+        if (s.state === 'ok' && s.stuck === null) expect(s.reason, `${role}: etapa ${s.id} ok sem número diz por quê`).toBeTruthy();
         if (s.stuck) expect(Number.isFinite(s.stuck.value)).toBe(true);
       }
       for (const d of o.readable) expect(o.notReadable).not.toContain(d);
       if (o.feed.state === 'ok') {
         const f = o.feed.data;
+        expect(Array.isArray(f.failed), `${role}: feed.failed`).toBe(true);
+        expect(typeof f.partial, `${role}: feed.partial`).toBe('boolean');
         expect(f.total).toBeGreaterThanOrEqual(f.rows.length);
         for (const r of f.rows) {
           expect(o.readable, `${role}: linha ${r.key} de área não legível`).toContain(r.domain);
@@ -138,6 +143,7 @@ test.describe('Entender', () => {
       expect(body.ok).toBe(true);
       if (!body.ok) continue;
       expect(body.chain.length).toBeGreaterThan(0);
+      expect(typeof body.detected.ownerApplicable, `explain ${r.explainRef}: ownerApplicable`).toBe('boolean');
       expect(JSON.stringify(body)).not.toMatch(/\batras(a|ará|aria)\b/i);
       if (body.nextAction) expect(body.nextAction.href.startsWith('/')).toBe(true);
     }
@@ -187,7 +193,12 @@ test.describe('estados da tela', () => {
     await boardReady(page);
     await page.waitForLoadState('networkidle');
     const restricted = o.stages.filter((s) => s.state === 'restricted');
-    if (restricted.length > 0) await expect(page.getByTestId('dashboard-flow').getByText('Restrito').first()).toBeVisible();
+    if (restricted.length > 0) {
+      await expect(page.getByTestId('dashboard-flow').getByText('Restrito').first()).toBeVisible();
+      // Etapa restrita não conta como "sem pendência", nem vira "não há operação em nenhuma etapa".
+      await expect(page.getByTestId('dashboard-flow')).not.toContainText('Nenhuma etapa com pendência');
+      await expect(page.getByTestId('dashboard-flow')).not.toContainText('Ainda não há operação em nenhuma etapa');
+    }
     await shot(page, 'parcial-rh-1440');
     expect(errors).toEqual([]);
     await ctx.close();
@@ -222,6 +233,8 @@ for (const [label, viewport] of [['1440', { width: 1440, height: 900 }], ['390',
             const panel = page.getByTestId('dashboard-explain');
             await expect(panel).toBeVisible();
             await expect(panel.getByRole('list', { name: 'Cadeia causal' })).toBeVisible();
+            // O painel vai por portal para fora de .dv2: os tons --dv2-* precisam valer nele também.
+            expect(await panel.evaluate((el) => getComputedStyle(el).getPropertyValue('--dv2-accent').trim()), 'tons no painel').not.toBe('');
             await expect(page).toHaveURL(/[?&]x=/);
             await page.waitForLoadState('networkidle');
             expect(await horizontalOverflow(page), 'rolagem horizontal com o painel').toBeLessThanOrEqual(0);

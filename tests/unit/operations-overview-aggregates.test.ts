@@ -170,6 +170,35 @@ describe('operationsOverview — aditivos', () => {
       { projects: true, measurements: true, risks: true }, TODAY)).rejects.toThrow('Não foi possível ler os riscos');
   });
 
+  it('projetos ativos sem atividade aberta: conta também o que já tem outra razão (≠ health.unknown)', async () => {
+    const { operationsOverview } = await load();
+    const sb = fakeClient({
+      projects: { rows: [project('p1'), project('p2'), project('p3'), project('p4', 'completed')] },
+      // p1 tem cronograma; p2 não tem nada; p3 não tem cronograma mas tem risco crítico (→ crítico, não "unknown").
+      project_timeline_items: { rows: [activity('a1', 'p1', { planned_finish: '2026-12-01' })] },
+      risks: { rows: [{ id: 'r1', title: 'Falha no transformador', severity: 'critical', status: 'open', responsible_id: 'u1',
+        reference_id: 'p3', origin: 'manual', due_date: null }] },
+    });
+    const o = await operationsOverview({ supabase: sb as never, organizationId: 'org-1' },
+      { projects: true, measurements: true, risks: true, serviceOrders: false }, TODAY);
+    expect(o.healthCounts).toEqual({ critical: 1, attention: 0, healthy: 1, unknown: 1 });
+    expect(o.projectsWithoutOpenActivity).toBe(2);
+    expect(o.serviceOrdersTruncated).toBe(false);
+
+    const none = await operationsOverview({ supabase: fakeClient({}) as never, organizationId: 'org-1' },
+      { projects: false, measurements: false, risks: false, serviceOrders: false }, TODAY);
+    expect(none.projectsWithoutOpenActivity).toBeNull();
+  });
+
+  it('lista de OS no teto (300) é sinalizada', async () => {
+    const { operationsOverview } = await load();
+    const counts = { unreviewedItems: 0, blockingOpen: 0, openDivergences: 0 };
+    listServiceOrders.mockResolvedValueOnce(Array.from({ length: 300 }, (_, i) => ({ id: `o${i}`, status: 'CLOSED', projectId: null, counts })) as never);
+    const o = await operationsOverview({ supabase: fakeClient({}) as never, organizationId: 'org-1' },
+      { projects: false, measurements: false, risks: false }, TODAY);
+    expect(o.serviceOrdersTruncated).toBe(true);
+  });
+
   it('leitura no teto do PostgREST é sinalizada', async () => {
     const { operationsOverview } = await load();
     const sb = fakeClient({

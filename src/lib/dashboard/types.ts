@@ -112,6 +112,14 @@ export interface FeedModel {
   total: number;
   critical: number;
   byDomain: Partial<Record<Domain, { total: number; critical: number }>>;
+  /**
+   * Fontes da fila que a pessoa LÊ mas cuja leitura FALHOU nesta montagem.
+   * Com qualquer item aqui a fila é parcial: nunca "Nada fora do lugar" nem
+   * "0 exceções" — a tela diz o que não carregou.
+   */
+  failed: Array<{ domain: Domain; label: string }>;
+  /** Alguma fonte foi lida com corte (limite de linhas): `total` é piso, não exato. */
+  partial: boolean;
 }
 
 /* ── Fluxo do negócio (mapa de gargalos) ────────────────────────────────── */
@@ -134,8 +142,17 @@ export interface FlowStage {
   href: string | null;
   /** Definição do número (tooltip / leitor de tela). */
   definition: string;
-  /** Por que não há número (`restricted` / `unavailable` / `error`). */
+  /** Por que não há número (`restricted` / `unavailable` / `error`), ou por que o número falta numa etapa `ok`. */
   reason?: string | null;
+  /** O número veio de uma leitura com corte — é piso ("≥"), não exato. */
+  partial?: boolean;
+  /**
+   * Etapa `ok` SEM número (`stuck: null`): por quê, de forma estruturada —
+   * `restricted` (a leitura do número é restrita ao perfil), `error` (a leitura
+   * falhou) ou `incomplete` (a leitura veio cortada e o número não seria exato).
+   * `reason` traz a frase; a tela decide pela chave, nunca pelo texto.
+   */
+  noNumber?: 'restricted' | 'error' | 'incomplete' | null;
 }
 
 /* ── Projetos ───────────────────────────────────────────────────────────── */
@@ -207,7 +224,8 @@ export interface CalendarItem {
 
 export interface CalendarModel {
   days: number;
-  lanes: Array<{ id: CalendarLane; label: string; state: 'ok' | 'restricted' | 'unavailable' }>;
+  /** `unavailable` = a leitura falhou; `partial` = parte da faixa não carregou (o que aparece é incompleto). */
+  lanes: Array<{ id: CalendarLane; label: string; state: 'ok' | 'restricted' | 'unavailable'; partial?: boolean }>;
   items: CalendarItem[];
 }
 
@@ -228,8 +246,12 @@ export interface DashboardOverview {
   calendar: SectionState<CalendarModel>;
   /** Última leitura da Apex (motor de sinais do Supply); `null` quando a pessoa não lê sinais. */
   apex: { lastRun: { ranAt: string; engineVersion: string } | null } | null;
-  /** Há alguma operação para acompanhar (projeto ativo, OS aberta ou oportunidade)? Decide o estado vazio. */
-  hasOperation: boolean;
+  /**
+   * Há alguma operação para acompanhar (projeto ativo, OS aberta ou oportunidade)? Decide o estado vazio.
+   * `true`: alguma leitura mostrou operação. `false`: todas as leituras de operação que a pessoa faz
+   * responderam, e responderam vazio. `null`: não dá para saber (restrito ou falhou) — nunca "não há operação".
+   */
+  hasOperation: boolean | null;
 }
 
 /* ── Entender (cadeia causal) ───────────────────────────────────────────── */
@@ -261,7 +283,8 @@ export type ExplainResponse =
       ok: true;
       ref: string;
       title: string;
-      detected: { object: string; problem: string; due: string | null; owner: string | null; location: string | null };
+      /** `ownerApplicable: false` — o tipo não tem responsável (sinal, título, evento): a tela não diz "sem responsável". */
+      detected: { object: string; problem: string; due: string | null; owner: string | null; ownerApplicable: boolean; location: string | null };
       chain: ChainLink[];
       /** Como ler a cadeia — contenção ("faz parte da etapa…") ou comparação de datas, nunca "atrasa". */
       relation: string | null;

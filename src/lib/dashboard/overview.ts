@@ -35,10 +35,10 @@ import type {
   CalendarItem, DashboardOverview, DecisionsModel, Domain, FeedModel, FeedRow, ProjectsModel, SectionState,
 } from './types';
 import {
-  addDays, billingRows, buildCalendar, buildFeedModel, buildStages, cappedOpsExtras, decisionPreview, isoDay, materialRisk,
-  materialRow, maskedMoney, mergeFeed, needCalendarItems, operationCalendarItems, opsRow, overdueGroupRow, projectRows,
-  rankFeed, receivableRows, sumByCurrency, CALENDAR_DAYS, DOMAIN_ORDER,
-  type BillingEventLike, type MaterialNeed, type ReceivableLike, type SignalLike, type StagesInput,
+  addDays, billingGate, billingRows, buildCalendar, buildFeedModel, buildStages, cappedOpsExtras, decisionPreview, isoDay,
+  materialRisk, materialRow, maskedMoney, mergeFeed, mergeLaneParts, needCalendarItems, operationCalendarItems, operationPresence,
+  opsRow, overdueGroupRow, projectRows, rankFeed, receivableRows, receivablesGate, sumByCurrency, CALENDAR_DAYS, DOMAIN_ORDER,
+  type BillingEventLike, type CalendarLaneState, type MaterialNeed, type ReceivableLike, type SignalLike, type StagesInput,
 } from './rules';
 
 type Session = CommercialSession;
@@ -65,9 +65,9 @@ export interface DashboardGates {
   supplyFlow: boolean;
   /** As chaves de `/api/supply/intelligence` (RLS de `supply_signals`, 236). */
   signals: boolean;
-  /** `contracts.view_values` || `finance.view` (RLS de `contract_billing_events`). */
+  /** `billingGate`: a RLS EFETIVA de `contract_billing_events` (lê TODAS as linhas) — ver `./rules`. */
   billing: boolean;
-  /** O predicado de `fs_select`: `finance.view` || finance_admin || finance_analyst. */
+  /** `receivablesGate`: `billingGate` E o predicado de `fs_select` (saldo do título). */
   receivables: boolean;
   /** `current_user_can_view_project_financials()` === true — dinheiro só com isto. */
   financial: boolean;
@@ -77,8 +77,8 @@ export interface DashboardGates {
 
 const PERMISSION_KEYS = [
   'projects.view', 'projects.measurements.view', 'risks.view', 'operations.view', 'supply.view', 'procurement.view',
-  'inventory.view', 'receiving.view', 'operations.planning.view', 'contracts.view', 'contracts.view_values', 'finance.view',
-  'commercial.view',
+  'inventory.view', 'receiving.view', 'operations.planning.view', 'contracts.view', 'contracts.view_values', 'contracts.edit',
+  'finance.view', 'commercial.view',
 ] as const;
 
 /** Todos os portões num só `Promise.all`, perguntados ao MESMO resolvedor da RLS. */
@@ -91,6 +91,11 @@ export async function resolveGates(session: Session): Promise<DashboardGates> {
     sb.rpc('has_finance_role_or_perm', { role_key: 'finance_analyst', perm_key: 'finance.edit' }),
   ]);
   const has = Object.fromEntries(PERMISSION_KEYS.map((k, i) => [k, flags[i] === true])) as Record<(typeof PERMISSION_KEYS)[number], boolean>;
+  const money = {
+    contractsViewValues: has['contracts.view_values'], financeView: has['finance.view'],
+    contractsView: has['contracts.view'], contractsEdit: has['contracts.edit'],
+    financeAdmin: finAdmin.data === true, financeAnalyst: finAnalyst.data === true,
+  };
   return {
     projects: has['projects.view'],
     measurements: has['projects.measurements.view'] || has['projects.view'],
@@ -99,8 +104,10 @@ export async function resolveGates(session: Session): Promise<DashboardGates> {
     supplyFlow: has['supply.view'] || has['procurement.view'] || has['receiving.view'] || has['operations.planning.view'] || has['projects.view'],
     signals: has['supply.view'] || has['procurement.view'] || has['inventory.view'] || has['receiving.view']
       || has['operations.planning.view'] || has['projects.view'],
-    billing: has['contracts.view_values'] || has['finance.view'],
-    receivables: has['finance.view'] || finAdmin.data === true || finAnalyst.data === true,
+    // Espelho da RLS EFETIVA da view (não só do primeiro fator): quem passaria no portão e
+    // leria 0 linhas veria "0 aguardando liberação" — é Restrito.
+    billing: billingGate(money),
+    receivables: receivablesGate(money),
     // Falha fechada: só `true` libera dinheiro.
     financial: fin.data === true,
     commercial: has['commercial.view'],
@@ -176,13 +183,16 @@ async function readCoverage(sb: SupabaseClient, org: string): Promise<CoverageRe
   return { needs, short: res.count, truncated: res.count > rows.length, projectNames };
 }
 
-interface InboundRead { items: CalendarItem[] }
+/** Teto das leituras do calendário (entregas, prazos de medição): chegar nele marca a raia `partial`. */
+const CALENDAR_READ_LIMIT = 200;
+
+interface InboundRead { items: CalendarItem[]; truncated: boolean }
 
 /** Entregas previstas (ETA) nos próximos 30 dias, só de pedidos vivos. */
 async function readInbound(sb: SupabaseClient, org: string, today: string): Promise<InboundRead> {
   const ships = await sb.from('inbound_shipments').select('id,purchase_order_id,eta,status').eq('organization_id', org)
     .in('status', ['EXPECTED', 'IN_TRANSIT']).gte('eta', today).lte('eta', addDays(today, CALENDAR_DAYS))
-    .order('eta').limit(200);
+    .order('eta').limit(CALENDAR_READ_LIMIT);
   if (ships.error) throw new Error('embarques');
   const rows = (ships.data ?? []) as Row[];
   const pos = await selectIn<{ id: string; order_number: string | null; project_id: string | null }>(
@@ -200,16 +210,20 @@ async function readInbound(sb: SupabaseClient, org: string, today: string): Prom
       tone: 'neutral', href: `/supply/compras?stage=pedidos&po=${encodeURIComponent(po.id)}`, project: po.project_id,
     });
   }
-  return { items };
+  return { items, truncated: rows.length >= CALENDAR_READ_LIMIT };
 }
 
+interface MeasurementDuesRead { items: CalendarItem[]; truncated: boolean }
+
 /** Prazos do cliente (`customer_due_at`) das medições que esperam o cliente, nos próximos 30 dias. */
-async function readMeasurementDues(sb: SupabaseClient, org: string, today: string): Promise<CalendarItem[]> {
+async function readMeasurementDues(sb: SupabaseClient, org: string, today: string): Promise<MeasurementDuesRead> {
   const res = await sb.from('project_measurements').select('id,project_id,occurrence_key,customer_due_at,status')
     .eq('organization_id', org).in('status', ['APPROVED_FOR_CUSTOMER', 'AWAITING_CUSTOMER_ACCEPTANCE', 'CUSTOMER_CORRECTION_REQUESTED'])
-    .gte('customer_due_at', today).lte('customer_due_at', addDays(today, CALENDAR_DAYS)).order('customer_due_at').limit(200);
+    .gte('customer_due_at', today).lte('customer_due_at', addDays(today, CALENDAR_DAYS)).order('customer_due_at')
+    .limit(CALENDAR_READ_LIMIT);
   if (res.error) throw new Error('prazos de medição');
-  return ((res.data ?? []) as Row[]).flatMap((m) => {
+  const rows = (res.data ?? []) as Row[];
+  const items = rows.flatMap((m) => {
     const date = isoDay(m.customer_due_at);
     if (!date) return [];
     return [{
@@ -218,6 +232,7 @@ async function readMeasurementDues(sb: SupabaseClient, org: string, today: strin
       href: `/projetos/${encodeURIComponent(String(m.project_id))}?tab=measurements`, project: str(m.project_id),
     }];
   });
+  return { items, truncated: rows.length >= CALENDAR_READ_LIMIT };
 }
 
 /** Rótulo do contrato ("CT-0042 · Retrofit UG-05") — só exibição, lido sob a RLS de contratos. */
@@ -262,13 +277,14 @@ async function readBilling(sb: SupabaseClient, org: string, financial: boolean):
     supersededById: str(r.superseded_by_id), legacyRow: r.legacy_row === null || r.legacy_row === undefined ? null : r.legacy_row === true,
     cancelledAt: str(r.cancelled_at),
   }));
+  const truncated = events.length >= READ_LIMIT;
   const invoiceEvents = events.filter((e) => e.releaseState === 'RELEASED' && !e.fiscalDocumentId);
-  // `eligible_amount` está em UNIDADES da moeda.
-  const invoicesAmount = maskedMoney(sumByCurrency(invoiceEvents.map((e) => ({ amount: e.eligibleAmount, currency: e.currency }))), financial);
+  // `eligible_amount` está em UNIDADES da moeda. Lista cortada → a soma seria piso: não se mostra valor.
+  const invoicesAmount = truncated ? null
+    : maskedMoney(sumByCurrency(invoiceEvents.map((e) => ({ amount: e.eligibleAmount, currency: e.currency }))), financial);
   const contractLabels = await readContractLabels(sb, org, events.map((e) => e.contractId));
   return {
-    awaitingRelease: awaiting.count, invoicesToIssue: toIssue.count, invoicesAmount, events, contractLabels,
-    truncated: events.length >= READ_LIMIT,
+    awaitingRelease: awaiting.count, invoicesToIssue: toIssue.count, invoicesAmount, events, contractLabels, truncated,
   };
 }
 
@@ -407,8 +423,10 @@ export async function buildDashboardOverview(
       { projects: g.projects, measurements: g.measurements, risks: g.risks, serviceOrders: g.operations }, today), timings, 'ops'),
     runSection(g.projects, 'a cobertura de material', () => readCoverage(sb, org), timings, 'coverage'),
     runSection(g.supplyFlow, 'o fluxo de compras', () => supplyFlow(session, today), timings, 'flow'),
+    // Os abertos críticos/altos INTEIROS (até o teto do PostgREST): o total do cabeçalho depende de
+    // cada um (viram linha ou se fundem a uma); passado do teto, a fila sai `partial`.
     runSection(g.signals, 'os achados da Apex', () => listSupplySignals(session,
-      { openOnly: true, severities: ['critical', 'high'], limit: 60 }), timings, 'signals'),
+      { openOnly: true, severities: ['critical', 'high'], limit: READ_LIMIT }), timings, 'signals'),
     runSection(g.supplyFlow, 'as entregas previstas', () => readInbound(sb, org, today), timings, 'inbound'),
     runSection(g.measurements, 'os prazos de medição', () => readMeasurementDues(sb, org, today), timings, 'measurementDues'),
     runSection(g.billing, 'o faturamento', () => readBilling(sb, org, g.financial), timings, 'billing'),
@@ -423,7 +441,7 @@ export async function buildDashboardOverview(
   const flow = settledState(settled[2], 'o fluxo de compras') as SectionState<Awaited<ReturnType<typeof supplyFlow>>>;
   const signals = settledState(settled[3], 'os achados da Apex') as SectionState<SupplySignalsModel>;
   const inbound = settledState(settled[4], 'as entregas previstas') as SectionState<InboundRead>;
-  const measurementDues = settledState(settled[5], 'os prazos de medição') as SectionState<CalendarItem[]>;
+  const measurementDues = settledState(settled[5], 'os prazos de medição') as SectionState<MeasurementDuesRead>;
   const billing = settledState(settled[6], 'o faturamento') as SectionState<BillingRead>;
   const receivables = settledState(settled[7], 'os recebíveis') as SectionState<ReceivablesRead>;
   const opportunities = settledState(settled[8], 'as oportunidades') as SectionState<number>;
@@ -473,20 +491,35 @@ export async function buildDashboardOverview(
   }).map((r) => (r.location.kind === 'project' && r.location.id && !r.location.label
     ? { ...r, location: { ...r.location, label: projectNames.get(r.location.id) ?? null } } : r));
   const ranked = rankFeed(merged);
-  const feedSources: Array<{ gate: boolean; state: SectionState<unknown> }> = [
-    { gate: opsGate, state: ops }, { gate: g.projects, state: coverage }, { gate: g.signals, state: signals },
-    { gate: g.billing, state: billing }, { gate: g.receivables, state: receivables },
+  // Cada fonte da fila, com o que ela alimenta (para dizer O QUE não carregou).
+  const opsDomains: FeedModel['failed'] = [
+    ...(g.projects || g.operations || g.risks ? [{ domain: 'operacao' as const, label: DOMAIN_LABEL.operacao }] : []),
+    ...(g.measurements ? [{ domain: 'medicao' as const, label: DOMAIN_LABEL.medicao }] : []),
+  ];
+  const feedSources: Array<{ gate: boolean; state: SectionState<unknown>; feeds: FeedModel['failed'] }> = [
+    { gate: opsGate, state: ops, feeds: opsDomains },
+    { gate: g.projects, state: coverage, feeds: [{ domain: 'supply', label: 'Cobertura de material' }] },
+    { gate: g.signals, state: signals, feeds: [{ domain: 'supply', label: 'Achados da Apex' }] },
+    { gate: g.billing, state: billing, feeds: [{ domain: 'faturamento', label: DOMAIN_LABEL.faturamento }] },
+    { gate: g.receivables, state: receivables, feeds: [{ domain: 'recebivel', label: DOMAIN_LABEL.recebivel }] },
   ];
   const readSources = feedSources.filter((s) => s.gate);
   let feed: SectionState<FeedModel>;
   if (!readSources.length) feed = { state: 'restricted' };
   else if (readSources.every((s) => s.state.state === 'error')) feed = { state: 'error', message: 'Não foi possível montar a fila de atenção.' };
   else {
-    const truncated = readSources.some((s) => s.state.state === 'error')
-      || Boolean(coverageData?.truncated) || Boolean(billingData?.truncated) || Boolean(receivablesData?.truncated)
+    // Leu, mas FALHOU: a fila é parcial — nunca "0 exceções" nem "Nada fora do lugar".
+    const failed = readSources.filter((s) => s.state.state === 'error').flatMap((s) => s.feeds);
+    // Leu COM CORTE: o total é piso. (A cobertura de Operações não alimenta linha da fila — fica de fora.)
+    const partial = Boolean(coverageData?.truncated) || Boolean(billingData?.truncated) || Boolean(receivablesData?.truncated)
       || (signalsData ? (signalsData.openCount ?? 0) > signalsData.signals.length : false)
-      || (opsData ? Object.values(opsData.truncated).some(Boolean) : false);
-    feed = { state: 'ok', data: buildFeedModel(ranked, opsData ? cappedOpsExtras(opsData.attentionCounts, merged) : []), truncated };
+      || (opsData ? opsData.truncated.activities || opsData.truncated.measurements || opsData.truncated.risks
+        || opsData.serviceOrdersTruncated : false);
+    feed = {
+      state: 'ok',
+      data: buildFeedModel(ranked, opsData ? cappedOpsExtras(opsData.attentionCounts, merged) : [], { failed, partial }),
+      truncated: failed.length > 0 || partial,
+    };
   }
 
   // ── Fluxo do negócio ──
@@ -494,16 +527,27 @@ export async function buildDashboardOverview(
     authorizedWithoutOs: authorized,
     openOpportunities: opportunities,
     os: opsPart(g.operations, ops, (o) => (o.serviceOrdersAccess
-      ? { awaitingIssue: o.kpis.serviceOrdersAwaitingIssue, blocked: o.kpis.serviceOrdersBlocked, inExecution: o.osFlow.linked } : null)),
+      ? { awaitingIssue: o.kpis.serviceOrdersAwaitingIssue, blocked: o.kpis.serviceOrdersBlocked, inExecution: o.osFlow.linked,
+        partial: o.serviceOrdersTruncated } : null)),
     projects: opsPart(g.projects, ops, (o) => (o.healthCounts && o.kpis.activeProjects !== null && o.kpis.criticalActivities !== null
-      ? { active: o.kpis.activeProjects, health: o.healthCounts, criticalActivities: o.kpis.criticalActivities } : null)),
-    needs: mapState(coverage, (c) => ({ short: c.short, critical: c.needs.filter((m) => materialRisk(m, today) === 'critical').length })),
+      && o.projectsWithoutOpenActivity !== null
+      ? {
+        active: o.kpis.activeProjects, health: o.healthCounts, criticalActivities: o.kpis.criticalActivities,
+        withoutSchedule: o.projectsWithoutOpenActivity,
+        // A saúde lê cronograma, riscos, medições, cobertura e OS: qualquer uma cortada → críticos é piso.
+        healthPartial: o.truncated.activities || o.truncated.risks || o.truncated.measurements || o.truncated.coverage
+          || o.serviceOrdersTruncated,
+        schedulePartial: o.truncated.activities,
+      } : null)),
+    needs: mapState(coverage, (c) => ({ short: c.short, critical: c.needs.filter((m) => materialRisk(m, today) === 'critical').length,
+      partial: c.truncated })),
     supply: mapState(flow, (f) => ({ lateInbound: f.lateInbound, requisitionsAwaitingSourcing: f.requisitionsAwaitingSourcing,
       receivingIssues: f.receivingIssues })),
     execution: opsPart(g.projects, ops, (o) => (o.overdueActivities !== null && o.inProgressActivities !== null
-      ? { overdue: o.overdueActivities, inProgress: o.inProgressActivities } : null)),
+      ? { overdue: o.overdueActivities, inProgress: o.inProgressActivities, partial: o.truncated.activities } : null)),
     measurement: opsPart(g.measurements, ops, (o) => (o.kpis.measurementPending !== null && o.measurementLanes
-      ? { pending: o.kpis.measurementPending, awaitingCustomer: o.measurementLanes.AWAITING_CUSTOMER, inReview: o.measurementLanes.INTERNAL_REVIEW }
+      ? { pending: o.kpis.measurementPending, awaitingCustomer: o.measurementLanes.AWAITING_CUSTOMER, inReview: o.measurementLanes.INTERNAL_REVIEW,
+        partial: o.truncated.measurements }
       : null)),
     billing: mapState(billing, (b) => ({ awaitingRelease: b.awaitingRelease, invoicesToIssue: b.invoicesToIssue, invoicesAmount: b.invoicesAmount })),
     receivables: mapState(receivables, (r) => ({ overdue: r.overdue, open: r.open, linked: r.linked })),
@@ -527,20 +571,24 @@ export async function buildDashboardOverview(
 
   // ── Calendário ──
   const withProject = (items: CalendarItem[]) => items.map((it) => (it.project ? { ...it, project: projectNames.get(it.project) ?? null } : it));
-  const supplyLane: SectionState<CalendarItem[]> = (() => {
-    const parts: Array<SectionState<CalendarItem[]>> = [];
-    if (g.projects) parts.push(mapState(coverage, (c) => needCalendarItems(c.needs, today)));
-    if (g.supplyFlow) parts.push(mapState(inbound, (i) => withProject(i.items)));
-    if (!parts.length) return { state: 'restricted' };
-    const ok = parts.filter((p): p is { state: 'ok'; data: CalendarItem[] } => p.state === 'ok');
-    if (!ok.length) return { state: 'error', message: 'Não foi possível ler a raia de Supply.' };
-    return { state: 'ok', data: ok.flatMap((p) => p.data) };
+  /** Uma leitura → estado da raia, com `partial` quando a leitura veio cortada. */
+  const lanePart = <T>(s: SectionState<T>, items: (t: T) => CalendarItem[], cut: (t: T) => boolean): CalendarLaneState =>
+    (s.state === 'ok' ? { state: 'ok', data: items(s.data), ...(cut(s.data) ? { partial: true } : {}) } : s);
+  // Supply = faltas (cobertura) + entregas (ETA): se UMA falha, a raia sai `partial` — nunca some calada.
+  const supplyLane = mergeLaneParts([
+    ...(g.projects ? [lanePart(coverage, (c) => needCalendarItems(c.needs, today), (c) => c.truncated)] : []),
+    ...(g.supplyFlow ? [lanePart(inbound, (i) => withProject(i.items), (i) => i.truncated)] : []),
+  ], 'Supply');
+  const operacaoLane: CalendarLaneState = (() => {
+    const part = opsPart(g.projects, ops, (o) => (o.horizon ? operationCalendarItems(o.horizon) : null));
+    // O horizonte sai do cronograma lido: cortado → a raia é parcial.
+    return part.state === 'ok' && opsData?.truncated.activities ? { ...part, partial: true } : part;
   })();
   const calendar = buildCalendar(today, {
-    operacao: opsPart(g.projects, ops, (o) => (o.horizon ? operationCalendarItems(o.horizon) : null)),
+    operacao: operacaoLane,
     supply: supplyLane,
-    medicao: mapState(measurementDues, withProject),
-    recebivel: mapState(receivables, (r) => r.rows.flatMap((x) => {
+    medicao: lanePart(measurementDues, (m) => withProject(m.items), (m) => m.truncated),
+    recebivel: lanePart(receivables, (r) => r.rows.flatMap((x) => {
       const date = isoDay(x.dueDate);
       if (!date) return [];
       const label = x.contractId ? r.contractLabels.get(x.contractId) ?? null : null;
@@ -549,7 +597,7 @@ export async function buildDashboardOverview(
         lane: 'recebivel' as const, kind: 'due' as const, tone: x.status === 'OVERDUE' ? 'danger' as const : 'accent' as const,
         href: '/contratos?view=faturamento', project: null,
       }];
-    })),
+    }), (r) => r.truncated),
   });
 
   // ── O que a pessoa lê ──
@@ -564,10 +612,15 @@ export async function buildDashboardOverview(
   const readable = DOMAIN_ORDER.filter((d) => readableFlags[d]);
   const notReadable = DOMAIN_ORDER.filter((d) => !readableFlags[d]).map((d) => DOMAIN_LABEL[d]);
 
-  const osOpen = opsData && opsData.serviceOrdersAccess
-    ? opsData.osFlow.draft + opsData.osFlow.review + opsData.osFlow.issued + opsData.osFlow.linked : 0;
-  const hasOperation = (opsData?.kpis.activeProjects ?? 0) > 0 || osOpen > 0
-    || (dataOf(opportunities) ?? 0) > 0 || (dataOf(authorized) ?? 0) > 0;
+  const hasOperation = operationPresence({
+    activeProjects: g.projects && opsData && opsData.kpis.activeProjects !== null ? opsData.kpis.activeProjects : null,
+    openServiceOrders: g.operations && opsData && opsData.serviceOrdersAccess
+      ? { value: opsData.osFlow.draft + opsData.osFlow.review + opsData.osFlow.issued + opsData.osFlow.linked,
+        partial: opsData.serviceOrdersTruncated }
+      : null,
+    openOpportunities: dataOf(opportunities),
+    authorizedWithoutOs: dataOf(authorized),
+  });
 
   return {
     ok: true,
