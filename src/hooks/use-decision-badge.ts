@@ -28,14 +28,17 @@ const POLL_MS = 60_000;
 const COALESCE_MS = 60;
 
 let count = 0;
+/** Já houve uma leitura (ou a certeza de "sem sessão")? Antes disso, 0 significa "não sei". */
+let known = false;
 const listeners = new Set<() => void>();
 let controller: AbortController | null = null;
 let poll: ReturnType<typeof setInterval> | null = null;
 let pending: ReturnType<typeof setTimeout> | null = null;
 
 function publish(next: number) {
-  if (next === count) return;
+  if (next === count && known) return;
   count = next;
+  known = true;
   listeners.forEach((l) => l());
 }
 
@@ -104,6 +107,8 @@ function subscribe(listener: () => void) {
 const idle = () => () => undefined;
 const snapshot = () => count;
 const serverSnapshot = () => 0;
+const knownSnapshot = () => known;
+const knownServerSnapshot = () => false;
 
 /** Número de decisões acionáveis da pessoa (0 enquanto não se sabe). `enabled=false` não consulta nada. */
 export function useDecisionBadge(enabled = true): number {
@@ -113,4 +118,15 @@ export function useDecisionBadge(enabled = true): number {
     if (enabled) refreshDecisionBadge();
   }, [enabled, pathname]);
   return enabled ? value : 0;
+}
+
+/**
+ * O mesmo número do selo, com a informação de que ele JÁ é conhecido. Telas
+ * que mostram a contagem em destaque (o Dashboard) usam isto para não exibir
+ * um "0" antes da primeira leitura — mesma loja, mesma consulta, mesmo número.
+ */
+export function useDecisionBadgeState(enabled = true): { count: number; known: boolean } {
+  const value = useDecisionBadge(enabled);
+  const isKnown = useSyncExternalStore(enabled ? subscribe : idle, knownSnapshot, knownServerSnapshot);
+  return { count: value, known: enabled && isKnown };
 }
