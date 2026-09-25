@@ -15,6 +15,10 @@ import {
   type AsoAlertWorker,
 } from '@/lib/workforce/aso-alerts';
 import { normalizePayrollName } from '@/lib/workforce/salary-history';
+import { platformServiceClient } from '@/lib/platform/server-client';
+import { sendAppEmail } from '@/lib/notifications/email';
+import { asoDigestKey, asoDigestSubject, parseAsoDigestIntent } from '@/lib/workforce/aso-alert-intent';
+import type { RepoActor } from '@/lib/payroll/repository';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -32,10 +36,22 @@ export const dynamic = 'force-dynamic';
  * informação de gestão, e a identificação é que é de saúde.
  */
 export async function GET(req: Request) {
+  const { searchParams } = new URL(req.url);
+
+  // Quem PODE receber o resumo (e só isso): a tela escolhe desta lista.
+  if (searchParams.get('view') === 'recipients') {
+    const s = await resolvePayrollActor('people.view_sensitive_data');
+    if (!s.ok) return s.response;
+    try {
+      return NextResponse.json({ ok: true, members: await digestDirectory(s.actor) });
+    } catch {
+      return NextResponse.json({ ok: false, error: 'Falha ao carregar destinatários.' }, { status: 500 });
+    }
+  }
+
   const r = await resolvePayrollActor('people.view');
   if (!r.ok) return r.response;
 
-  const { searchParams } = new URL(req.url);
   const critical = Number(searchParams.get('critical') ?? DEFAULT_ASO_WINDOWS.critical);
   const warning = Number(searchParams.get('warning') ?? DEFAULT_ASO_WINDOWS.warning);
   const windows = {
@@ -76,21 +92,50 @@ export async function GET(req: Request) {
  * criada, quem decide quando o RH recebe o aviso é o RH — o que também evita
  * o pior resultado possível aqui, que é um alerta diário repetido virar ruído
  * e parar de ser lido.
+ *
+ * O resumo é dado de SAÚDE (nome + situação de exame). Por isso:
+ *   • o corpo é uma intenção — `{ to: [{ type: 'member', id }], request_id, test }`;
+ *     endereço cru, `recipients` ou campo estranho → 400;
+ *   • destinatário só membro com vínculo ATIVO, e-mail confirmado e
+ *     `people.view_sensitive_data` NA organização do ator (245) — sem
+ *     inquilino cruzado, sem endereço externo; no máximo 20;
+ *   • assunto neutro (sem contagem, nome ou lotação) e resposta sem o HTML;
+ *   • entrega pelo transporte compartilhado, uma mensagem por pessoa, chave de
+ *     idempotência por pedido e destinatário e registro em `email_dispatches`;
+ *     repetir o mesmo pedido não manda de novo a quem já recebeu.
  */
 export async function POST(req: Request) {
   const r = await resolvePayrollActor('people.view_sensitive_data');
   if (!r.ok) return r.response;
 
-  let body: { recipients?: string[]; test?: boolean };
+  if (!(req.headers.get('content-type') ?? '').includes('application/json')) {
+    return NextResponse.json({ ok: false, error: 'Envio aceita só JSON com a intenção tipada.' }, { status: 415 });
+  }
+  let raw: unknown;
   try {
-    body = await req.json();
+    raw = await req.json();
   } catch {
     return NextResponse.json({ ok: false, error: 'JSON inválido.' }, { status: 400 });
   }
+  const parsed = parseAsoDigestIntent(raw);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: 400 });
+  const { intent } = parsed;
 
-  const recipients = (body.recipients ?? []).map((e) => e.trim()).filter(Boolean);
-  if (recipients.length === 0) {
-    return NextResponse.json({ ok: false, error: 'Informe ao menos um destinatário.' }, { status: 400 });
+  // Endereços do DIRETÓRIO do servidor, na organização do ator.
+  const directory = new Map((await digestDirectory(r.actor)).map((m) => [m.id.toLowerCase(), m]));
+  const recipients: Array<{ id: string; email: string }> = [];
+  const seen = new Set<string>();
+  for (const ref of intent.to) {
+    const m = directory.get(ref.id);
+    if (!m) {
+      return NextResponse.json(
+        { ok: false, error: 'Destinatário fora da lista autorizada (membro ativo com acesso a dado sensível desta organização).' },
+        { status: 422 },
+      );
+    }
+    if (seen.has(m.email.toLowerCase())) continue;
+    seen.add(m.email.toLowerCase());
+    recipients.push({ id: m.id, email: m.email });
   }
 
   const payload = await loadAlertInputs(r.actor.organizationId);
@@ -107,52 +152,66 @@ export async function POST(req: Request) {
     });
   }
 
+  if (intent.test) {
+    return NextResponse.json({
+      ok: true, sent: false, simulated: true, test: true, summary, recipients: recipients.length,
+      message: 'Ensaio: destinatários conferidos, nada foi enviado.',
+    });
+  }
+
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
   const digest = buildAsoDigest(alerts);
-  const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.PAYROLL_EMAIL_FROM;
+  const subject = asoDigestSubject(today);
+  const delivered = await deliveredTo(r.actor, intent.request_id);
 
-  // Sem chave (ou em teste explícito) o envio é SIMULADO e dito como tal —
-  // mesmo contrato do envio da folha, para que ninguém acredite ter avisado
-  // o RH quando não avisou.
-  if (!apiKey || !from || body.test) {
-    return NextResponse.json({
-      ok: true,
-      sent: false,
-      simulated: true,
-      summary,
-      subject: digest.subject,
-      preview: digest.html,
-      message: !apiKey || !from
-        ? 'RESEND_API_KEY / PAYROLL_EMAIL_FROM ausentes — envio simulado.'
-        : 'Envio simulado a pedido.',
-    });
+  let sent = 0; let simulated = 0; let failed = 0; let skipped = 0;
+  for (const rcpt of recipients) {
+    if (delivered.has(rcpt.email.toLowerCase())) { skipped += 1; continue; }
+    try {
+      const out = await sendAppEmail(
+        { to: rcpt.email, subject, html: digest.html, text: digest.text },
+        { idempotencyKey: asoDigestKey(intent.request_id, rcpt.email), organizationId: r.actor.organizationId,
+          related: { type: 'aso_alert_digest', id: intent.request_id } },
+      );
+      if (out.outcome === 'SENT') sent += 1; else simulated += 1;
+    } catch {
+      failed += 1; // o motivo fica em email_dispatches; endereço e conteúdo não vão para log
+    }
   }
 
-  try {
-    const { Resend } = await import('resend');
-    const resend = new Resend(apiKey);
-    const result = await resend.emails.send({
-      from,
-      to: recipients,
-      subject: digest.subject,
-      html: digest.html,
-      text: digest.text,
-    });
-    if (result.error) throw new Error(result.error.message);
-
-    return NextResponse.json({
-      ok: true,
-      sent: true,
+  const delivered_ok = sent + simulated + skipped;
+  return NextResponse.json(
+    {
+      ok: failed === 0,
+      sent: sent + skipped > 0 && failed === 0,
+      simulated: sent === 0 && simulated > 0,
       summary,
-      messageId: result.data?.id,
       recipients: recipients.length,
-    });
-  } catch (err) {
-    return NextResponse.json(
-      { ok: false, error: err instanceof Error ? err.message : 'Falha ao enviar o alerta.' },
-      { status: 500 },
-    );
-  }
+      delivered: { sent, simulated, skipped, failed },
+      message: failed > 0
+        ? `Entregue a ${delivered_ok} de ${recipients.length}; ${failed} falharam — repita (quem já recebeu não recebe de novo).`
+        : sent === 0 && simulated > 0 ? 'Transporte de e-mail não configurado — envio simulado.' : undefined,
+      error: failed > 0 && delivered_ok === 0 ? 'Falha ao enviar o alerta.' : undefined,
+    },
+    { status: failed > 0 && delivered_ok === 0 ? 502 : 200 },
+  );
+}
+
+/** Membros que podem receber o resumo de ASO nesta organização (245). */
+async function digestDirectory(actor: RepoActor): Promise<Array<{ id: string; name: string; email: string }>> {
+  const { data, error } = await platformServiceClient().rpc('aso_alert_member_directory', { p_organization_id: actor.organizationId });
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as Array<{ user_id: string; full_name: string; email: string }>)
+    .map((m) => ({ id: m.user_id, name: m.full_name, email: m.email }));
+}
+
+/** Quem já recebeu este pedido (livro do transporte, escrito só pelo servidor). */
+async function deliveredTo(actor: RepoActor, requestId: string): Promise<Set<string>> {
+  const { data, error } = await platformServiceClient().from('email_dispatches').select('target_email')
+    .eq('organization_id', actor.organizationId).eq('related_entity_type', 'aso_alert_digest')
+    .eq('related_entity_id', requestId).in('status', ['sent', 'simulated']);
+  if (error) throw new Error(error.message);
+  return new Set(((data ?? []) as Array<{ target_email: string }>).map((d) => d.target_email.trim().toLowerCase()));
 }
 
 /**

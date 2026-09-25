@@ -70,12 +70,26 @@ interface AlertsResponse {
   error?: string;
 }
 
+/** UUID v4 também fora de contexto seguro (http em rede local). */
+function newRequestId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  const b = new Uint8Array(16);
+  crypto.getRandomValues(b);
+  b[6] = (b[6] & 0x0f) | 0x40; b[8] = (b[8] & 0x3f) | 0x80;
+  const h = Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
 export function AsoAlertsPanel({ refreshKey }: { refreshKey?: number }) {
   const { notify } = useHudToast();
   const [data, setData] = useState<AlertsResponse | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [digestOpen, setDigestOpen] = useState(false);
-  const [recipients, setRecipients] = useState('');
+  // Destinatários: membros da lista do SERVIDOR (vínculo ativo + dado sensível).
+  const [members, setMembers] = useState<Array<{ id: string; name: string; email: string }> | null>(null);
+  const [chosen, setChosen] = useState<string[]>([]);
+  // Uma chave por envio: repetir após falha não manda de novo a quem já recebeu.
+  const [requestId, setRequestId] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
 
   const reload = useCallback(async () => {
@@ -95,18 +109,36 @@ export function AsoAlertsPanel({ refreshKey }: { refreshKey?: number }) {
     void reload();
   }, [reload, refreshKey]);
 
+  useEffect(() => {
+    if (!digestOpen) return;
+    setRequestId((id) => id ?? newRequestId());
+    if (members) return;
+    void (async () => {
+      try {
+        const res = await fetch('/api/workforce/aso-alerts?view=recipients');
+        const json = (await res.json()) as { ok: boolean; members?: Array<{ id: string; name: string; email: string }>; error?: string };
+        if (!res.ok || !json.ok) throw new Error(json.error ?? 'Falha ao carregar destinatários');
+        setMembers(json.members ?? []);
+      } catch (e) {
+        setMembers([]);
+        notify('Falha ao carregar destinatários', { description: e instanceof Error ? e.message : undefined, variant: 'error' });
+      }
+    })();
+  }, [digestOpen, members, notify]);
+
   async function sendDigest() {
-    const list = recipients.split(/[,;\s]+/).map((s) => s.trim()).filter(Boolean);
-    if (list.length === 0) {
-      notify('Informe ao menos um e-mail', { variant: 'error' });
+    if (chosen.length === 0) {
+      notify('Escolha ao menos um destinatário', { variant: 'error' });
       return;
     }
+    const id = requestId ?? newRequestId();
+    setRequestId(id);
     setSending(true);
     try {
       const res = await fetch('/api/workforce/aso-alerts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ recipients: list }),
+        body: JSON.stringify({ to: chosen.map((m) => ({ type: 'member', id: m })), request_id: id }),
       });
       const json = (await res.json()) as {
         ok: boolean; sent?: boolean; simulated?: boolean; message?: string; error?: string;
@@ -116,11 +148,13 @@ export function AsoAlertsPanel({ refreshKey }: { refreshKey?: number }) {
       notify(
         json.sent ? 'Alerta enviado ao RH' : 'Envio simulado',
         {
-          description: json.message ?? (json.sent ? `${list.length} destinatário(s).` : undefined),
+          description: json.message ?? (json.sent ? `${chosen.length} destinatário(s).` : undefined),
           variant: json.sent ? 'success' : 'info',
         },
       );
       setDigestOpen(false);
+      setChosen([]);
+      setRequestId(null);
     } catch (e) {
       notify('Falha ao enviar', { description: e instanceof Error ? e.message : undefined, variant: 'error' });
     } finally {
@@ -337,12 +371,30 @@ export function AsoAlertsPanel({ refreshKey }: { refreshKey?: number }) {
         size="md"
       >
         <div className="space-y-3">
-          <HudInput
-            label="Destinatários"
-            value={recipients}
-            onChange={(e) => setRecipients(e.target.value)}
-            placeholder="rh@empresa.com.br, sesmt@empresa.com.br"
-          />
+          <div data-testid="aso-recipient-list">
+            <p className="mb-1.5 text-xs text-ig-fg-muted">
+              Destinatários — só membros da organização com acesso a dado sensível de pessoas (o resumo traz nomes e situação de exame).
+            </p>
+            {members === null ? (
+              <div className="flex items-center gap-2 text-xs text-ig-fg-muted"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Carregando…</div>
+            ) : members.length === 0 ? (
+              <p className="text-xs text-ig-fg-muted">Nenhum membro com acesso a dado sensível nesta organização.</p>
+            ) : (
+              <div className="max-h-56 space-y-1 overflow-auto rounded-lg border border-ig-border-subtle p-2">
+                {members.map((m) => (
+                  <label key={m.id} data-testid="aso-recipient" data-id={m.id} className="flex min-h-[36px] items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={chosen.includes(m.id)}
+                      onChange={(e) => setChosen((prev) => (e.target.checked ? [...prev, m.id] : prev.filter((x) => x !== m.id)))}
+                    />
+                    <span className="flex-1">{m.name}</span>
+                    <span className="text-xs text-ig-fg-muted">{m.email}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
           <p className="text-[11px] leading-relaxed text-ig-fg-muted">
             O e-mail lista os vencidos e os que vencem na janela crítica, e informa à parte quantos
             estão sem documento enviado e quantos estão sem vencimento apurável — para que nenhuma das

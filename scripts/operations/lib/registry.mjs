@@ -143,6 +143,8 @@ export const OPERATIONS_REGISTRY = {
   '243': { tables: ['payroll_email_contacts'], ledgers: [], functions: ['payroll_email_member_directory(uuid)'], permissions: [] },
   // 244: permissão da folha na organização pedida — só servidor.
   '244': { tables: [], ledgers: [], functions: ['payroll_actor_can(uuid,uuid,text)', 'payroll_email_member_directory(uuid)'], permissions: [] },
+  // 245: destinatários do alerta de ASO — só servidor.
+  '245': { tables: [], ledgers: [], functions: ['aso_alert_member_directory(uuid)'], permissions: [] },
 };
 
 /** Portas do navegador de Decisões: identidade de auth.uid(), sem parâmetro de ator — liberadas de propósito. */
