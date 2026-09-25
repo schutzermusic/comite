@@ -132,6 +132,9 @@ export const OPERATIONS_REGISTRY = {
     ],
     permissions: ['decisions.team.view', 'notifications.channels.manage'],
   },
+  // 241: endurecimento — mesmas funções de núcleo, reescritas; a porta decision_viewer_reads_subject muda de assinatura.
+  '241': { tables: [], ledgers: [], functions: ['decision_keys_for_event(uuid)', 'decision_notices_plan(uuid,text,text,text)',
+    'decision_resolve(uuid,text)'], permissions: [] },
 };
 
 /** Portas do navegador de Decisões: identidade de auth.uid(), sem parâmetro de ator — liberadas de propósito. */

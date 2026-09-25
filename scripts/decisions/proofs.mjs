@@ -72,9 +72,11 @@ export async function decisionsProofs(ctx) {
     JOIN public.permissions p ON p.id = rp.permission_id WHERE r.organization_id IS NULL AND r.key = 'owner_admin'
     AND p.key IN ('decisions.team.view','notifications.channels.manage')`);
   check('permissões novas semeadas e concedidas a owner_admin', perms.length === 2);
-  const routes = await one(`SELECT count(*)::int n, count(*) FILTER (WHERE NOT enabled AND activation = 'ON_WORKER_CAPABILITY')::int off
+  // Nascem desligadas; depois de um trabalhador capaz drenar, ligadas POR ELE (activated_at) — nunca manualmente.
+  const routes = await one(`SELECT count(*)::int n,
+      count(*) FILTER (WHERE activation = 'ON_WORKER_CAPABILITY' AND (NOT enabled OR activated_at IS NOT NULL))::int governed
     FROM public.apex_event_routes WHERE job_type = 'platform.decisions.notify'`);
-  check('rotas de aviso nascem desligadas, ligadas pelo trabalhador capaz', routes.n === 8 && routes.off === 8, J(routes));
+  check('rotas de aviso: 8, ativação só pelo trabalhador capaz', routes.n === 8 && routes.governed === 8, J(routes));
 
   // ── 1. Pessoas (nascem e morrem na transação de prova) ────────────────
   const tenant = async (label) => {
@@ -406,6 +408,7 @@ export async function decisionsProofs(ctx) {
   check('produtor agenda a varredura por inquilino', enq.n >= 1);
   const enq2 = await one(`SELECT public.decisions_enqueue_sweep(now()) n`);
   const jobs = await one(`SELECT count(*)::int n FROM public.apex_jobs WHERE organization_id = $1 AND job_type = 'platform.decisions.sweep'
-    AND created_at >= now() - interval '1 minute'`, [org]);
+    AND idempotency_key = 'decisions-sweep:' || $1::text || ':' || to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24')
+      || ':' || (extract(minute FROM now())::int / 15)::text`, [org]);
   check('produtor é idempotente na janela (um trabalho por inquilino/janela)', enq2.n >= 1 && jobs.n === 1, `jobs=${jobs.n}`);
 }

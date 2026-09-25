@@ -6,6 +6,7 @@
  */
 import { createProofContext, realAnchors, targetDatabase } from '../operations/lib/proof-kit.mjs';
 import { decisionsProofs } from './proofs.mjs';
+import { hardeningProofs } from './proofs-241.mjs';
 
 const target = targetDatabase();
 const db = target.client();
@@ -18,7 +19,10 @@ try {
   await db.query('BEGIN READ WRITE');
   const ctx = createProofContext(db);
   try {
-    await decisionsProofs({ db, ...ctx, anchors: await realAnchors(db) });
+    const anchors = await realAnchors(db);
+    const has241 = (await db.query(`SELECT 1 FROM supabase_migrations.schema_migrations WHERE version = '241'`)).rowCount > 0;
+    if (has241) await hardeningProofs({ db, ...ctx, anchors });
+    await decisionsProofs({ db, ...ctx, anchors });
   } catch (error) {
     ctx.check('provas concluídas sem erro inesperado', false, error.stack?.split('\n').slice(0, 3).join(' | ') ?? error.message);
   }
