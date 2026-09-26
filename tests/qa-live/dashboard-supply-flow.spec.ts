@@ -158,6 +158,14 @@ const reserve = (role: QaRole, s: Scn, quantity: number) =>
 const warm = async (paths = [REQUISITIONS, TRANSFERS, RESERVATIONS]) => { for (const p of paths) await post('owner', p, {}); };
 const LOCK_REQUIREMENT = 'SELECT 1 FROM public.project_requirements WHERE id = $1 FOR UPDATE';
 
+/**
+ * A categoria dos itens deste fluxo — SÓ os fornecedores A e B do seed a têm. Os candidatos do item no Dashboard são
+ * os 20 primeiros por homologação, base e pontualidade: em "Cabos", cada rodada do caminho dourado deixa um "Cabos
+ * Ouro" homologado com 100% de pontualidade, e com 20 deles A (sem histórico) e B (0%) saíram da lista — o passo 3
+ * não achava quem convidar. Com a categoria própria, os candidatos do item são A e B, qualquer que seja o QA.
+ */
+const FLOW_CATEGORY = 'Cabos Fluxo QA';
+
 /** Um projeto descartável por regressão: canteiro em Altamira, almoxarifado em Santarém, um cabo confirmado. */
 type Scn = { projectId: string; itemId: string; itemCode: string; siteId: string; depotId: string; requirementId: string };
 async function scenario(suffix: string, o: { required: number; site?: number; depot?: number }): Promise<Scn> {
@@ -168,7 +176,7 @@ async function scenario(suffix: string, o: { required: number; site?: number; de
     [projectId, g.org, g.J({ id: projectId, nome: `SE Fluxo ${code} 138 kV — cobertura`, cliente: 'Cliente QA Fluxo',
       status: 'em_andamento', cidade: 'Altamira', uf: 'PA' }), g.actor]);
   const itemCode = `FLX-CABO-${code}`;
-  const itemId = await g.item(itemCode, 'm', 'Cabos');
+  const itemId = await g.item(itemCode, 'm', FLOW_CATEGORY);
   const siteId = await g.location(`FLX-S-${code}`, 'PROJECT_SITE', { project_id: projectId, latitude: SITE.lat, longitude: SITE.lng });
   const depotId = await g.location(`FLX-D-${code}`, 'WAREHOUSE', { latitude: DEPOT.lat, longitude: DEPOT.lng });
   if (o.site) await g.stock(itemId, siteId, o.site);
@@ -180,11 +188,18 @@ test.beforeAll(async () => {
   db = await qaDb();
   const g = await governed(db);
   const live = qaLive();
+  // A e B na categoria do fluxo (idempotente, pelo cadastro governado — só acrescenta; QA semeado antes dela também).
+  for (const id of [live.suppliers.a, live.suppliers.b]) {
+    const cur = await one<{ party_id: string; categories: string[] }>(db, `SELECT party_id, categories FROM public.supplier_profiles WHERE id = $1`, [id]);
+    if (!cur.categories.includes(FLOW_CATEGORY)) {
+      await g.act('supplier_register', g.org, g.actor, g.J({ party_id: cur.party_id, categories: [...cur.categories, FLOW_CATEGORY] }));
+    }
+  }
   // Governança por alçada declarada (o mesmo ajuste das provas de Decisões).
   await db.query(`UPDATE public.approval_policy_versions SET status = 'INACTIVE'
     WHERE organization_id = $1 AND subject_type = 'purchase_order' AND status = 'ACTIVE'`, [g.org]);
   const itemCode = `FLX-CABO-${T}`;
-  const itemId = await g.item(itemCode, 'm', 'Cabos');
+  const itemId = await g.item(itemCode, 'm', FLOW_CATEGORY);
   const projectId = `qa-flx-${T.toLowerCase()}`;
   const projectName = `SE Fluxo ${T} 138 kV — Ampliação do pátio`;
   await db.query(`INSERT INTO public.projects (id, organization_id, project, created_by) VALUES ($1,$2,$3,$4)`,
@@ -627,7 +642,7 @@ const liveOrderLines = async (requisitionLineId: string) => (await one<{ n: numb
 async function secondMaterial(s: Scn, suffix: string, required: number) {
   const g = await governed(db);
   const code = `FLX-CONE-${T}-${suffix}`;
-  const itemId = await g.item(code, 'un', 'Cabos');
+  const itemId = await g.item(code, 'un', FLOW_CATEGORY);
   return { itemId, code, requirementId: await g.material(s.projectId, itemId, required, plusDays(12)) };
 }
 

@@ -109,7 +109,8 @@ await withQaDb(async (c) => {
 
   const supplier = async (legal, doc, lead) => {
     const r = await act('supplier_register', org, actor, J({ legal_name: legal, document_type: 'cnpj', document_number: doc,
-      categories: ['Cabos', 'Elétricos'], default_payment_terms: '28 dias', default_lead_time_days: lead,
+      // 'Cabos Fluxo QA': a categoria SÓ destes dois — o fluxo do Dashboard cota itens nela (ver dashboard-supply-flow.spec.ts).
+      categories: ['Cabos', 'Elétricos', 'Cabos Fluxo QA'], default_payment_terms: '28 dias', default_lead_time_days: lead,
       contact_name: 'Comercial', contact_email: `vendas+${doc.slice(0, 4)}@fornecedor-qa.test` }));
     const status = await one(`SELECT status FROM public.supplier_profiles WHERE id = $1`, [r.supplier_id]);
     if (status?.status !== 'HOMOLOGATED') await act('supplier_set_status', org, actor, r.supplier_id, 'HOMOLOGATED', null);
