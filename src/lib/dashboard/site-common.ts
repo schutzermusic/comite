@@ -28,6 +28,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { isSessionError, requireCommercialSession, type CommercialSession } from '@/lib/commercial/server-session';
 import { projectIdentity, type ProjectIdentity } from '@/lib/operations/project-identity';
 import { todayInSaoPaulo } from '@/lib/operations/projects/access';
+import { COVERAGE_VIEW_COLUMNS, withCoverage246Columns } from '@/lib/supply/coverage';
 import { resolveGates, type DashboardGates } from './overview';
 import type { SectionState } from './types';
 
@@ -142,9 +143,12 @@ export async function readPaged<T>(
 
 /* ── Cobertura de material de UM projeto ────────────────────────────────── */
 
-/** As colunas da visão `supply_requirement_coverage` que a regra (`fromViewRow`) usa. */
-export const COVERAGE_COLUMNS = 'requirement_id,project_id,activity_id,item_id,requirement_type,required_by,unit,required_qty,'
-  + 'reserved_qty,consumed_qty,in_transit_qty,on_order_qty,requested_qty,inspection_qty';
+/**
+ * As colunas da visão `supply_requirement_coverage` que a regra (`fromViewRow`)
+ * usa — com as da 246 (`pending_transfer_qty`, `purchasable_qty`). Enquanto a
+ * visão não as tem, `withCoverage246Columns` repete a leitura sem elas.
+ */
+export const COVERAGE_COLUMNS = COVERAGE_VIEW_COLUMNS;
 
 /** Tipos cuja cobertura é do Supply (a visão só tem estes). */
 export const SUPPLY_COVERED_REQUIREMENT_TYPES = ['MATERIAL', 'EXTERNAL_SERVICE'] as const;
@@ -181,13 +185,14 @@ export async function readProjectCoverage<T = Record<string, unknown>>(
   sb: SupabaseClient, org: string, projectId: string, requirementIds: readonly string[], idsTruncated = false,
 ): Promise<{ rows: T[]; truncated: boolean }> {
   if (idsTruncated || requirementIds.length > COVERAGE_PER_REQUIREMENT_MAX) {
-    return readPaged<T>('a cobertura de material do projeto', (from, to) => sb.from('supply_requirement_coverage')
-      .select(COVERAGE_COLUMNS).eq('organization_id', org).eq('project_id', projectId).order('requirement_id').range(from, to), 5_000);
+    return readPaged<T>('a cobertura de material do projeto', (from, to) => withCoverage246Columns((columns) => sb
+      .from('supply_requirement_coverage').select(columns).eq('organization_id', org).eq('project_id', projectId)
+      .order('requirement_id').range(from, to)), 5_000);
   }
   const unique = Array.from(new Set(requirementIds));
   const pages = await inPool(unique, COVERAGE_CONCURRENCY, async (id) => {
-    const res = await sb.from('supply_requirement_coverage').select(COVERAGE_COLUMNS)
-      .eq('organization_id', org).eq('requirement_id', id).limit(1);
+    const res = await withCoverage246Columns((columns) => sb.from('supply_requirement_coverage').select(columns)
+      .eq('organization_id', org).eq('requirement_id', id).limit(1));
     if (res.error) throw new Error('Não foi possível ler a cobertura de material do projeto.');
     return (res.data ?? []) as unknown as Array<T & { project_id?: unknown }>;
   });

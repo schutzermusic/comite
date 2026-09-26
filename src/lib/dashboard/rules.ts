@@ -202,7 +202,8 @@ export interface MaterialNeed {
   unit: string | null;
   requiredBy: string | null;
   activity: { id: string; title: string | null; plannedStart: string | null } | null;
-  coverage: Pick<CoverageSummary, 'shortage' | 'status' | 'requested' | 'inbound'>;
+  /** `pendingTransfer` (246): transferência pedida, sem despacho — não é cobertura; ausente = 0. */
+  coverage: Pick<CoverageSummary, 'shortage' | 'status' | 'requested' | 'inbound'> & Partial<Pick<CoverageSummary, 'pendingTransfer'>>;
 }
 
 /** Janela da fila: necessidade em até 14 dias (ou já vencida). */
@@ -221,9 +222,19 @@ export function materialRisk(m: Pick<MaterialNeed, 'requiredBy' | 'activity' | '
   return supplyRisk(m.coverage, need ? daysFrom(today, need) : null);
 }
 
-/** "Falta 12 m — requisitado, sem pedido emitido". */
+/**
+ * "Falta 12 m — requisitado, sem pedido emitido". Com transferência PEDIDA e
+ * ainda não despachada (246), a falta continua (a linha segue pela falta), mas
+ * o que falta fazer é despachar: "transferência pedida, sem despacho (N m pendentes)".
+ */
 export function materialProblem(m: Pick<MaterialNeed, 'coverage' | 'unit'>): string {
-  const missing = `Falta ${formatQty(m.coverage.shortage)}${m.unit ? ` ${m.unit}` : ''}`;
+  const u = m.unit ? ` ${m.unit}` : '';
+  const missing = `Falta ${formatQty(m.coverage.shortage)}${u}`;
+  const pending = Math.max(0, Number(m.coverage.pendingTransfer ?? 0) || 0);
+  if (pending > 0) {
+    return `${missing} — transferência pedida, sem despacho (${formatQty(pending)}${u} pendentes)`
+      + (m.coverage.requested > 0 ? '; requisitado, sem pedido emitido' : '');
+  }
   if (m.coverage.requested > 0) return `${missing} — requisitado, sem pedido emitido`;
   if (m.coverage.inbound > 0) return `${missing} — a entrada não cobre a necessidade`;
   return `${missing} — sem estoque nem pedido`;

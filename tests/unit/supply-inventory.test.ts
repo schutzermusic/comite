@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  inventoryErrorMessage, inventoryExceptions, stockForRequirement, transferActions, type PositionRow,
+  inventoryErrorMessage, inventoryExceptions, pendingTransferLines, pendingTransferRefs, pendingTransferRefsByRequirement, promisedByOrigin,
+  stockForRequirement, transferActions, type PositionRow,
 } from '@/lib/supply/inventory';
 import { strategyOptions } from '@/lib/supply/coverage';
 import {
@@ -49,6 +50,42 @@ describe('Estoque — onde há saldo livre para a falta', () => {
     const opts = strategyOptions('MATERIAL', 450, stockForRequirement(position, 'i1', ['site']));
     expect(opts.map((o) => [o.strategy, o.quantity])).toEqual([['RESERVE_FROM_STOCK', 50], ['TRANSFER', 200], ['BUY', 200]]);
   });
+  it('246: o saldo prometido a transferências pedidas sai do livre (e o local sem sobra, da lista)', () => {
+    const promised = new Map([['i1:wh', 120], ['i1:site', 50]]);
+    const s = stockForRequirement(position, 'i1', ['site'], promised);
+    expect(s).toEqual([{ locationId: 'wh', locationName: 'Almox B', available: 80, isDestination: false, promised: 120 }]);
+  });
+});
+
+describe('Estoque — transferência PEDIDA (regra 246)', () => {
+  const transfers = [
+    { id: 't1', transfer_number: 'TR-1', status: 'REQUESTED', from_location_id: 'D' },
+    { id: 't2', transfer_number: 'TR-2', status: 'APPROVED', from_location_id: 'D' },
+    { id: 't3', transfer_number: 'TR-3', status: 'IN_TRANSIT', from_location_id: 'N' },
+    { id: 't4', transfer_number: 'TR-4', status: 'CANCELLED', from_location_id: 'D' },
+  ];
+  const lines = [
+    { transfer_id: 't1', item_id: 'i1', requirement_id: 'r1', quantity: '100', source_reservation_id: null },
+    { transfer_id: 't1', item_id: 'i1', requirement_id: 'r1', quantity: '50', source_reservation_id: null },
+    // move reserva na origem: já está em "reservado", não é pendente
+    { transfer_id: 't2', item_id: 'i1', requirement_id: 'r1', quantity: '40', source_reservation_id: 'res-1' },
+    { transfer_id: 't2', item_id: 'i1', requirement_id: 'r2', quantity: '30', source_reservation_id: null },
+    { transfer_id: 't3', item_id: 'i1', requirement_id: 'r1', quantity: '70', source_reservation_id: null },
+    { transfer_id: 't4', item_id: 'i1', requirement_id: 'r1', quantity: '999', source_reservation_id: null },
+  ];
+  it('o predicado do `pending_transfer_qty`: pedida/aprovada, com quantidade, sem reserva na origem', () => {
+    expect(pendingTransferLines(lines, transfers).map((x) => [x.transfer.transfer_number, x.qty])).toEqual([['TR-1', 100], ['TR-1', 50], ['TR-2', 30]]);
+  });
+  it('por requisito, somada por transferência, com o estado em português e o link para resolvê-la no Estoque', () => {
+    const by = pendingTransferRefsByRequirement(lines, transfers);
+    expect(by.get('r1')).toEqual([{ transferId: 't1', number: 'TR-1', status: 'REQUESTED', statusLabel: 'Solicitada', qty: 150,
+      href: '/supply/estoque?view=transferencias&transfer=t1' }]);
+    expect(by.get('r2')).toEqual([expect.objectContaining({ number: 'TR-2', statusLabel: 'Aprovada', qty: 30 })]);
+    expect(pendingTransferRefs(lines, transfers, 'r9')).toEqual([]);
+  });
+  it('o prometido por item × origem', () => {
+    expect(promisedByOrigin(lines, transfers)).toEqual(new Map([['i1:D', 180]]));
+  });
 });
 
 describe('Estoque — exceções que pedem uma pessoa', () => {
@@ -78,7 +115,10 @@ describe('Estoque — recusas do banco em português', () => {
     expect(inventoryErrorMessage('Not enough available stock at ALM-A: 400 available, 600 requested.'))
       .toBe('Disponível insuficiente em ALM-A: 400 livre(s), 600 pedido(s).');
     expect(inventoryErrorMessage('Stock moved after the count began for: CAB-1. Recount these lines.')).toMatch(/CAB-1 se moveu/);
-    expect(inventoryErrorMessage('Reservation would over-cover the requirement: 600 required, 600 already committed.')).toMatch(/já está coberto/);
+    // 246: a trava conta também as solicitações de compra abertas
+    expect(inventoryErrorMessage('Reservation would over-cover the requirement: 600 required, 600 already committed.'))
+      .toBe('O requisito já está coberto por estoque, transferências ou solicitações de compra — para trocar uma compra por estoque, '
+        + 'cancele antes a solicitação em Compras.');
     expect(inventoryErrorMessage('Actor lacks permission (inventory.reserve).')).toMatch(/alçada/);
     expect(inventoryErrorMessage('something else')).toBeNull();
   });

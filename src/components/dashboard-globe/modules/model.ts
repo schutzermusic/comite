@@ -17,6 +17,7 @@ import type {
   SupplierCandidate, SupplyCapabilities, SupplyPlan, SupplyPlanStep,
 } from '@/lib/dashboard/types';
 import { SUPPLIER_STATUS_LABEL } from '@/lib/supply/procurement';
+import { purchaseGate, requisitionOutcome, type PurchaseGate } from '@/components/supply/coverage-gate';
 
 const DAY_MS = 86_400_000;
 export const MONTHS_PT = ['JAN', 'FEV', 'MAR', 'ABR', 'MAI', 'JUN', 'JUL', 'AGO', 'SET', 'OUT', 'NOV', 'DEZ'] as const;
@@ -427,12 +428,21 @@ export function qtyText(value: number | null | undefined, unit?: string | null):
    SUPPLY — balanço, pedidos e a camada do mapa
    ══════════════════════════════════════════════════════════════════════════ */
 
-export interface BalanceRow { key: string; label: string; text: string; tone: 'default' | 'ok' | 'danger' | 'good' }
+export interface BalanceRow {
+  key: string; label: string; text: string; tone: 'default' | 'ok' | 'danger' | 'good' | 'info';
+  /** O porquê da linha, quando ela não se explica sozinha (vai no `title`). */
+  hint?: string;
+}
+
+/** Transferência pedida e ainda não despachada (regra 246): o que ela é — e o que não é. */
+export const PENDING_TRANSFER_HINT = 'Pedida e ainda não despachada: não conta como cobertura (a falta continua) e não é comprada de novo sem exceção de cobertura.';
 
 /**
  * As linhas do balanço (cobertura VIVA, na unidade do requisito): Necessário,
- * Reservado, Consumido, Em trânsito, Pedido — e Em requisição / Em inspeção
- * quando existem —, Coberto e Falta. Falta zero é dita: "0 m · coberto".
+ * Reservado, Consumido, Em trânsito, Pedido — e Em requisição / Em inspeção /
+ * Transferência pedida quando existem —, Coberto e Falta. Falta zero é dita:
+ * "0 m · coberto". A transferência pedida (sem despacho) é informação, em tom
+ * neutro: não entra no Coberto e não sai da Falta.
  */
 export function balanceRows(m: MaterialBalance): BalanceRow[] {
   const unit = m.item?.unit ?? null;
@@ -446,6 +456,9 @@ export function balanceRows(m: MaterialBalance): BalanceRow[] {
   ];
   if (finite(m.requested) && m.requested > 0) rows.push({ key: 'requested', label: 'Em requisição', text: t(m.requested), tone: 'default' });
   if (finite(m.inspection) && m.inspection > 0) rows.push({ key: 'inspection', label: 'Em inspeção', text: t(m.inspection), tone: 'default' });
+  if (finite(m.pendingTransfer) && m.pendingTransfer > 0) {
+    rows.push({ key: 'pendingTransfer', label: 'Transferência pedida', text: t(m.pendingTransfer), tone: 'info', hint: PENDING_TRANSFER_HINT });
+  }
   rows.push({ key: 'covered', label: 'Coberto', text: t(m.covered), tone: 'ok' });
   if (!finite(m.shortage)) rows.push({ key: 'shortage', label: 'Falta', text: '—', tone: 'default' });
   else if (m.shortage > 0) rows.push({ key: 'shortage', label: 'Falta', text: t(m.shortage), tone: 'danger' });
@@ -931,7 +944,7 @@ export function normalizeSupply(data: SiteSupplyData): SiteSupplyData {
     suppliers: d.suppliers ?? MISSING('A lista de fornecedores'),
     capabilities: d.capabilities ?? {
       request: false, source: false, approve: false, suppliersManage: false, reserve: false, transfer: false,
-      aiSearch: { available: false, reason: 'Busca externa indisponível nesta leitura' },
+      aiSearch: { available: false, reason: 'Busca externa indisponível nesta leitura' }, coverageOverride: false,
     },
   };
 }
@@ -995,42 +1008,64 @@ export function liveRequisitions(section: SectionState<{ requisitions: Requisiti
   return section.state === 'ok' ? section.data.requisitions.filter((r) => !DEAD_REQUISITION.has(r.status)) : [];
 }
 
-/** A falta que sobra para COMPRAR: a do plano quando ele existe; sem plano, a falta viva sem requisição. */
+/** A falta que sobra para COMPRAR: a do plano quando ele existe; sem plano, o comprável do banco. */
 export function remainingToBuy(data: Pick<SiteSupplyData, 'plan' | 'focus'>): number | null {
   if (data.plan.state === 'ok') return finite(data.plan.data.remainingShortage) ? Math.max(0, data.plan.data.remainingShortage) : null;
-  const f = data.focus;
-  if (!f || !finite(f.shortage)) return null;
-  return Math.max(0, f.shortage - (finite(f.requested) ? f.requested : 0));
+  return requisitionQty(data.focus);
 }
 
 /**
- * Quanto uma solicitação aberta AGORA pediria — a MESMA conta do banco
- * (`purchase_requisition_from_shortage`: falta viva − o que já está requisitado
- * em aberto). Não desconta reserva/transferência que o plano só SUGERE: é por
- * isso que a tela avisa "faça antes o que está acima".
+ * Quanto uma solicitação aberta AGORA pediria — o número do BANCO
+ * (`supply_requirement_coverage.purchasable_qty`, o que
+ * `purchase_requisition_from_shortage` requisita: falta − requisitado em aberto
+ * − transferência pedida sem despacho). A tela não refaz a conta. Não desconta
+ * reserva/transferência que o plano só SUGERE: é por isso que a tela avisa
+ * "faça antes o que está acima". Sem o número na leitura → `null` (nada a oferecer).
  */
-export function requisitionQty(focus: Pick<MaterialBalance, 'shortage' | 'requested'> | null | undefined): number | null {
-  if (!focus || !finite(focus.shortage)) return null;
-  return Math.max(0, focus.shortage - (finite(focus.requested) ? focus.requested : 0));
+export function requisitionQty(focus: Pick<MaterialBalance, 'purchasable'> | null | undefined): number | null {
+  if (!focus || !finite(focus.purchasable)) return null;
+  return Math.max(0, focus.purchasable);
 }
 
 /**
- * O que falta REQUISITAR pelo plano: a falta depois da rede (reservar/transferir)
- * menos o que já está requisitado em aberto. Sem plano lido, a conta do banco.
+ * O que falta REQUISITAR pelo plano: a falta depois da rede (reservar/transferir,
+ * já sem a transferência pedida) menos o que já está requisitado em aberto —
+ * nunca mais do que o banco requisitaria (o comprável). Sem plano lido, o
+ * comprável do banco.
  */
 export function planToRequisition(data: Pick<SiteSupplyData, 'plan' | 'focus'>): number | null {
   const f = data.focus;
   if (!f) return null;
-  if (data.plan.state !== 'ok') return requisitionQty(f);
+  const db = requisitionQty(f);
+  if (data.plan.state !== 'ok') return db;
   const left = data.plan.data.remainingShortage;
-  if (!finite(left)) return null;
-  return Math.max(0, left - (finite(f.requested) ? f.requested : 0));
+  if (!finite(left) || db === null) return null;
+  return Math.min(db, Math.max(0, left - (finite(f.requested) ? f.requested : 0)));
+}
+
+/** As transferências pendentes do requisito em foco (a leitura antiga, sem o campo, vira lista vazia — nunca quebra). */
+export function pendingTransfersOf(focus: Pick<MaterialBalance, 'pendingTransfers'> | null | undefined): MaterialBalance['pendingTransfers'] {
+  return focus && Array.isArray(focus.pendingTransfers) ? focus.pendingTransfers.filter((t) => t && finite(t.qty) && t.qty > 0) : [];
 }
 
 /**
- * A confirmação de "Criar solicitação": a quantidade que o BANCO vai pedir e,
- * quando o plano ainda sugere reservar/transferir, o quanto disso a rede
- * cobriria (`extra`) — faça antes o que está acima, ou compra-se a mais.
+ * A compra do requisito em foco diante da cobertura pendente (regra 246), para
+ * ESTA pessoa: o comprável do banco, a transferência pedida, o que a exceção
+ * de cobertura requisitaria, se a compra está bloqueada e os dois caminhos
+ * governados (requisitar o comprável · exceção com justificativa). A exceção
+ * pede as duas permissões (`procurement.request` + `procurement.coverage_override`).
+ * Depois dela, `overlap` diz quanto da transferência pedida JÁ foi comprado.
+ */
+export function requisitionGate(data: Pick<SiteSupplyData, 'focus' | 'capabilities'>): PurchaseGate {
+  const caps = data.capabilities;
+  return purchaseGate(data.focus, { request: Boolean(caps?.request), coverageOverride: caps?.coverageOverride === true });
+}
+
+/**
+ * A confirmação de "Criar solicitação": a quantidade que o BANCO vai pedir (o
+ * comprável — já sem a transferência pedida) e, quando o plano ainda sugere
+ * reservar/transferir, o quanto disso a rede cobriria (`extra`) — faça antes o
+ * que está acima, ou compra-se a mais.
  */
 export function requisitionPreview(data: Pick<SiteSupplyData, 'plan' | 'focus'>): {
   qty: number | null; planQty: number | null; extra: number; openSteps: Array<Pick<SupplyPlanStep, 'kind' | 'qty' | 'unit' | 'label'>>;
@@ -1045,16 +1080,65 @@ export function requisitionPreview(data: Pick<SiteSupplyData, 'plan' | 'focus'>)
 }
 
 /**
- * "Criar solicitação de compra": com a leitura de compras ok, a permissão de
- * requisitar, algo a requisitar PELO PLANO e algo que o BANCO aceite requisitar
- * (falta − requisitado em aberto > 0). Uma solicitação antiga (já atendida por
- * pedido, ou de uma necessidade menor) não esconde a falta que cresceu.
+ * Os caminhos da solicitação de compra, com a leitura de compras ok:
+ *  • `buy` — requisitar o comprável: a permissão de requisitar, algo a
+ *    requisitar PELO PLANO e algo que o BANCO aceite requisitar (comprável > 0).
+ *    Uma solicitação antiga (já atendida por pedido, ou de uma necessidade
+ *    menor) não esconde a falta que cresceu.
+ *  • `exception` — a exceção de cobertura: há transferência pedida, falta
+ *    aberta além do comprável, e a pessoa tem a permissão da exceção (e a de
+ *    requisitar). Não depende do plano: é justamente comprar o que o plano
+ *    espera da transferência.
  */
-export function canCreateRequisition(data: Pick<SiteSupplyData, 'plan' | 'focus' | 'procurement' | 'capabilities'>): boolean {
-  if (!data.focus || !data.capabilities.request || data.procurement.state !== 'ok') return false;
+export function requisitionPaths(data: Pick<SiteSupplyData, 'plan' | 'focus' | 'procurement' | 'capabilities'>): { buy: boolean; exception: boolean } {
+  if (!data.focus || data.procurement.state !== 'ok') return { buy: false, exception: false };
+  const gate = requisitionGate(data);
   const plan = planToRequisition(data);
-  const db = requisitionQty(data.focus);
-  return plan !== null && plan > 0 && db !== null && db > 0;
+  return { buy: gate.canBuy && plan !== null && plan > 0, exception: gate.canException };
+}
+
+/** "Criar solicitação de compra" é oferecido por algum caminho (o comprável, ou a exceção para quem tem a alçada). */
+export function canCreateRequisition(data: Pick<SiteSupplyData, 'plan' | 'focus' | 'procurement' | 'capabilities'>): boolean {
+  const p = requisitionPaths(data);
+  return p.buy || p.exception;
+}
+
+/**
+ * Por que o passo "Comprar" SUGERIDO do plano não abre a solicitação agora
+ * (o botão some, a frase fica): a compra que espera a transferência pedida;
+ * a leitura de compras que não veio (restrita ou com erro — nada é oferecido
+ * até ela voltar, e isso nunca vira "o banco não tem o que requisitar"); o
+ * comprável que não veio; a alçada; e só então, com a leitura em mãos e o
+ * comprável ZERO, o banco sem o que requisitar.
+ */
+export function planBuyWait(data: Pick<SiteSupplyData, 'plan' | 'focus' | 'procurement' | 'capabilities'>): string {
+  const gate = requisitionGate(data);
+  const proc = data.procurement.state;
+  if (gate.blocked) {
+    return `A compra espera a transferência pedida (sem despacho): o que falta está nela${proc === 'ok' ? ' — veja a solicitação de compra abaixo' : ''}.`;
+  }
+  if (proc === 'restricted') return 'Seu perfil não lê as solicitações de compra — a solicitação não é oferecida aqui.';
+  if (proc !== 'ok') return 'As solicitações de compra não carregaram — a solicitação não é oferecida até a leitura voltar.';
+  if (gate.purchasable === null) return 'O comprável do banco não veio nesta leitura — a solicitação não é oferecida.';
+  if (gate.purchasable === 0) return 'O banco não tem o que requisitar agora — veja a solicitação de compra abaixo.';
+  if (!data.capabilities?.request) return 'Requisitar a compra cabe a quem tem a permissão de requisitar.';
+  return 'O plano não deixa o que requisitar agora — veja a solicitação de compra abaixo.';
+}
+
+/**
+ * O título do aviso depois de "Criar solicitação", pelo que o BANCO devolveu
+ * (`requisitionOutcome`): número, quantidade requisitada e se foi com exceção.
+ * Pedida a exceção e não usada (a transferência deixou de estar pendente no
+ * meio-tempo: o banco requisita só o comprável e não registra exceção), o
+ * título diz isso — nunca "com exceção" pelo que foi pedido.
+ */
+export function requisitionDoneTitle(result: Record<string, unknown> | null | undefined, mode: 'buy' | 'exception', unit: string | null): string {
+  const out = requisitionOutcome(result);
+  const n = out.number;
+  if (out.replayed) return `Já estava registrada${n ? ` — ${n}` : ''}`;
+  const how = out.qty !== null ? ` — ${qtyText(out.qty, unit)}` : '';
+  const exc = out.override ? ' com exceção de cobertura' : mode === 'exception' ? ' sem exceção (a transferência já não estava pendente)' : '';
+  return `${n ? `Solicitação ${n} criada` : 'Solicitação criada'}${exc}${how}`;
 }
 
 /* ── Cotação: convite e envio ──────────────────────────────────────────── */
@@ -1495,6 +1579,10 @@ export const FLOW_ORDER: FlowStepId[] = ['plan', 'requisition', 'suppliers', 'qu
  *    passo sugerido.
  *  • Solicitação: aberta quando há o que requisitar (pelo plano E pelo banco),
  *    feita com uma solicitação viva e nada mais a requisitar.
+ *  • Transferência pedida e sem despacho (regra 246) não é cobertura: o plano
+ *    nunca fica "feito" com ela no banco, e quando o que falta está todo nela
+ *    (comprável zero) a solicitação AGUARDA o despacho ou o cancelamento —
+ *    nunca "não precisa" — e fornecedores/cotação vêm depois.
  *  • Antes de a compra começar (nenhuma solicitação viva), a ordem é a do
  *    filme: a primeira etapa aberta é a "atual", as outras esperam. Depois
  *    que ela começou, o que sobra do plano corre EM PARALELO à compra — os
@@ -1511,6 +1599,9 @@ export function flowStates(data: Pick<SiteSupplyData, 'plan' | 'procurement' | '
   const toReq = planToRequisition(data);
   const dbReq = requisitionQty(data.focus);
   const needReq = readable && toReq !== null && toReq > 0 && dbReq !== null && dbReq > 0;
+  // O estado do DADO (sem a alçada de quem vê): o que falta está todo em transferência pedida → a compra espera.
+  const gate = purchaseGate(data.focus, { request: false });
+  const blocked = readable && !started && gate.blocked;
   // "Não precisa" só com as DUAS leituras em mãos: o plano diz que nada sobra E compras diz que não há solicitação.
   // Leitura que falhou nunca vira "não precisa".
   const nothingToBuy = readable && !started && data.plan.state === 'ok' && finite(data.plan.data.remainingShortage) && data.plan.data.remainingShortage <= 0;
@@ -1518,13 +1609,13 @@ export function flowStates(data: Pick<SiteSupplyData, 'plan' | 'procurement' | '
   const sent = Boolean(rfq && (rfq.quotes.length > 0 || (rfq.invited.length > 0 && rfq.invited.every((i) => i.sentAt || !i.hasContact))));
   const planBase: 'done' | 'open' | 'waiting' | 'restricted' | 'error' = data.plan.state === 'ok'
     ? (data.plan.data.steps.some((s) => s.status === 'suggested') ? 'open'
-      : data.plan.data.steps.some((s) => s.status === 'pending') ? 'waiting' : 'done')
+      : data.plan.data.steps.some((s) => s.status === 'pending') || gate.pending > 0 ? 'waiting' : 'done')
     : data.plan.state === 'restricted' ? 'restricted' : 'error';
-  const base: Record<FlowStepId, 'done' | 'open' | 'waiting' | 'restricted' | 'error' | 'skip'> = {
+  const base: Record<FlowStepId, 'done' | 'open' | 'waiting' | 'pending' | 'restricted' | 'error' | 'skip'> = {
     plan: planBase,
-    requisition: !readable ? unread : needReq ? 'open' : started ? 'done' : nothingToBuy ? 'skip' : 'open',
-    suppliers: !readable ? unread : nothingToBuy ? 'skip' : sent ? 'done' : 'open',
-    quotes: !readable ? unread : nothingToBuy ? 'skip' : settled ? 'done' : 'open',
+    requisition: !readable ? unread : needReq ? 'open' : started ? 'done' : blocked ? 'waiting' : nothingToBuy ? 'skip' : 'open',
+    suppliers: !readable ? unread : blocked ? 'pending' : nothingToBuy ? 'skip' : sent ? 'done' : 'open',
+    quotes: !readable ? unread : blocked ? 'pending' : nothingToBuy ? 'skip' : settled ? 'done' : 'open',
   };
   const out = {} as Record<FlowStepId, FlowState>;
   // Compra em andamento: o plano fica fora da fila (paralelo); antes dela, o plano é a primeira etapa da fila.

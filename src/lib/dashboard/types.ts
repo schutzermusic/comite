@@ -505,6 +505,15 @@ export interface MaterialBalance {
   inbound: number;
   inspection: number;
   shortage: number;
+  /**
+   * Cobertura PENDENTE (regra 246): transferências pedidas/aprovadas sem reserva na origem.
+   * NÃO é cobertura (a falta continua) — mas também não é comprada de novo sem exceção governada.
+   */
+  pendingTransfer: number;
+  /** As transferências pendentes deste requisito (para "resolver a transferência"). */
+  pendingTransfers: Array<{ transferId: string; number: string | null; status: string; statusLabel: string; qty: number; href: string }>;
+  /** O que o banco requisita AGORA: GREATEST(falta − requisitado − pendente, 0) — `supply_requirement_coverage.purchasable_qty`. */
+  purchasable: number;
   risk: 'critical' | 'high' | 'medium' | 'ok';
   href: string;
 }
@@ -693,6 +702,8 @@ export interface SupplyCapabilities {
   transfer: boolean;
   /** Busca de fornecedores na internet pela Apex (IA + busca web). Desligada = `available:false` com o motivo. */
   aiSearch: { available: boolean; reason: string | null };
+  /** Exceção de cobertura (regra 246): comprar também a parte coberta por transferência pendente — `procurement.coverage_override`. */
+  coverageOverride: boolean;
 }
 
 /* ── Apex busca fornecedores na internet: POST /api/dashboard/site/[projectId]/supply/discover ── */

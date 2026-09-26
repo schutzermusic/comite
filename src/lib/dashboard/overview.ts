@@ -25,7 +25,7 @@ import { hasOptionalPermission, type CommercialSession } from '@/lib/commercial/
 import { operationsOverview, type OperationsOverview } from '@/lib/operations/overview';
 import { listSupplySignals, type SupplySignalsModel } from '@/lib/supply/intelligence-read';
 import { supplyFlow } from '@/lib/supply/read-model';
-import { fromViewRow, type CoverageViewRow } from '@/lib/supply/coverage';
+import { fromViewRow, withCoverage246Columns, type CoverageViewRow } from '@/lib/supply/coverage';
 import { projectIdentity } from '@/lib/operations/project-identity';
 import { selectIn } from '@/lib/supabase/select-in';
 import { decisionSetup, enrichInbox, viewerInbox } from '@/lib/decisions/read';
@@ -170,16 +170,19 @@ const settledState = <T>(r: PromiseSettledResult<SectionState<T>>, label: string
 
 /* ── Leituras estreitas ─────────────────────────────────────────────────── */
 
-const COVERAGE_COLUMNS = 'requirement_id,project_id,activity_id,item_id,requirement_type,required_by,unit,required_qty,'
-  + 'reserved_qty,consumed_qty,in_transit_qty,on_order_qty,requested_qty,inspection_qty';
+/*
+  As colunas da cobertura são `COVERAGE_VIEW_COLUMNS` (coverage.ts): as de
+  antes + as ANEXADAS pela 246 (`pending_transfer_qty`, `purchasable_qty`).
+  Enquanto a visão não as tem, `withCoverage246Columns` repete a leitura sem.
+*/
 
 interface CoverageRead { needs: MaterialNeed[]; short: number; truncated: boolean; projectNames: Map<string, string> }
 
 /** Faltas AO VIVO (`shortage_qty > 0`), com atividade, título do requisito e nome do projeto. */
 async function readCoverage(sb: SupabaseClient, org: string): Promise<CoverageRead> {
-  const res = await sb.from('supply_requirement_coverage').select(COVERAGE_COLUMNS, { count: 'exact' })
+  const res = await withCoverage246Columns((columns) => sb.from('supply_requirement_coverage').select(columns, { count: 'exact' })
     .eq('organization_id', org).gt('shortage_qty', 0)
-    .order('required_by', { ascending: true, nullsFirst: false }).order('requirement_id').limit(READ_LIMIT);
+    .order('required_by', { ascending: true, nullsFirst: false }).order('requirement_id').limit(READ_LIMIT));
   if (res.error || res.count === null || res.count === undefined) throw new Error('cobertura de material');
   const rows = (res.data ?? []) as unknown as CoverageViewRow[];
   const [acts, reqs, projects] = await Promise.all([

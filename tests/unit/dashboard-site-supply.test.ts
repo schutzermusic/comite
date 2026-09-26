@@ -49,11 +49,11 @@ vi.mock('@/lib/decisions/read', () => ({
 import {
   buildSiteSupply, distanceKm, focusApexNotes, inboundOrders, inMaterialScope, isSiteProjectId, materialBalance, mapLimit, needOrigin, pickFocus,
   compareMaterials, PENDING_TRANSFER_STEP_STATUS, quoteVerdict, restrictedRecommendationText, rfqView, siteCoordinate, siteDecisionRows,
-  stockNodes, supplierBasis, supplierCandidates, supplyCapabilities, supplyDecision, supplyPlan, withDecisionKeys, type CoverageMeta, type LocationRow, type PlanInput, type PoAllocationRow, type PoLineRow,
+  stockNodes, supplierBasis, supplierCandidates, supplyCapabilities, supplyDecision, supplyPlan, withDecisionKeys, withPendingTransfers, type CoverageMeta, type LocationRow, type PlanInput, type PoAllocationRow, type PoLineRow,
   type PoRow, type RfqViewInput, type SupplierInfo, type SupplierProfileRow,
 } from '@/lib/dashboard/site-supply';
 import type { SignalLike } from '@/lib/dashboard/rules';
-import { strategyOptions, type CoverageViewRow } from '@/lib/supply/coverage';
+import { resetCoverage246Fallback, strategyOptions, type CoverageViewRow } from '@/lib/supply/coverage';
 import type { DecisionInboxRow } from '@/lib/decisions/types';
 import type { MaterialBalance, RequisitionView, SiteSupplyResponse, StockNode } from '@/lib/dashboard/types';
 
@@ -176,6 +176,19 @@ describe('balanço de material (cobertura AO VIVO)', () => {
     });
     // required_by 14/10, atividade começa 12/10 → a necessidade é 12/10; sem falta → 'ok' (nunca 'low' na tela)
     expect(disj).toMatchObject({ needBy: '2026-10-12', shortage: 0, inbound: 3, risk: 'ok' });
+  });
+
+  it('246: pendente e comprável vêm DA VISÃO; sem as colunas, pendente 0 e comprável = falta − requisitado (a conta do banco anterior)', () => {
+    const live = materialBalance({ ...COVERAGE[0], requested_qty: '100', pending_transfer_qty: '150.0000', purchasable_qty: '250.0000' }, META, TODAY);
+    // a transferência pedida NÃO é cobertura: a falta e o risco continuam os mesmos
+    expect(live).toMatchObject({ shortage: 500, requested: 100, pendingTransfer: 150, purchasable: 250, pendingTransfers: [], risk: 'critical' });
+    expect(materialBalance(COVERAGE[0], META, TODAY)).toMatchObject({ shortage: 500, requested: 500, pendingTransfer: 0, purchasable: 0 });
+    expect(materialBalance({ ...COVERAGE[0], requested_qty: '100' }, META, TODAY)).toMatchObject({ pendingTransfer: 0, purchasable: 400 });
+    // a lista nomeia o que o número soma; sem lista, o mesmo objeto
+    const ref = { transferId: 'tr-2', number: 'TR-2', status: 'REQUESTED', statusLabel: 'Solicitada', qty: 150,
+      href: '/supply/estoque?view=transferencias&transfer=tr-2' };
+    expect(withPendingTransfers(live, [ref])).toMatchObject({ pendingTransfer: 150, pendingTransfers: [ref] });
+    expect(withPendingTransfers(live, [])).toBe(live);
   });
 
   it('escopo: falta, ou necessidade de 14 dias atrás a 30 à frente; ordem risco → necessidade', () => {
@@ -417,33 +430,52 @@ const SITE_NODE = node({ locationId: 'site', name: 'Canteiro SE Tucuruí', kind:
 const MARABA = node({ locationId: 'mar', name: 'Canteiro LT Marabá', kind: 'PROJECT_SITE', lat: -5.3686, lng: -49.1178, onHand: 250, available: 250 });
 const BELEM = node({ locationId: 'bel', name: 'Almoxarifado Central — Belém', lat: -1.4558, lng: -48.4902, onHand: 300, reserved: 300 });
 
-const planInput = (over: Partial<PlanInput> = {}): PlanInput => ({
-  focus: CABO(), requirementType: 'MATERIAL', stock: [SITE_NODE, MARABA, BELEM], site: { lat: -3.7662, lng: -49.6725 },
-  siteLocations: [{ id: 'site', name: 'Canteiro SE Tucuruí' }],
-  transit: [{ fromId: 'mar', toId: 'site', days: 3 }], inTransit: [{ number: 'TRF-0001', qty: 400 }],
-  requisitions: [{ number: 'RC-260924-C451E' }], purchaseOrders: [],
-  caps: { reserve: false, transfer: false, manage: false, request: false }, projectId: TUC, today: TODAY, ...over,
-});
+/** A visão garante comprável = GREATEST(falta − requisitado − pendente, 0) (246): o foco dos testes segue a mesma identidade. */
+const viewConsistent = (m: MaterialBalance): MaterialBalance => ({
+  ...m, purchasable: Math.max(0, m.shortage - m.requested - m.pendingTransfer) });
+const planInput = (over: Partial<PlanInput> = {}): PlanInput => {
+  const input: PlanInput = {
+    focus: CABO(), requirementType: 'MATERIAL', stock: [SITE_NODE, MARABA, BELEM], site: { lat: -3.7662, lng: -49.6725 },
+    siteLocations: [{ id: 'site', name: 'Canteiro SE Tucuruí' }],
+    transit: [{ fromId: 'mar', toId: 'site', days: 3 }], inTransit: [{ number: 'TRF-0001', qty: 400 }],
+    requisitions: [{ number: 'RC-260924-C451E' }], purchaseOrders: [],
+    caps: { reserve: false, transfer: false, manage: false, request: false }, projectId: TUC, today: TODAY, ...over,
+  };
+  return { ...input, focus: viewConsistent(input.focus) };
+};
 
 describe('o plano da Apex (reservar → transferir → comprar)', () => {
-  it('SE Tucuruí: reserva feita, 400 m a caminho, 250 m do Canteiro LT Marabá; a solicitação de 500 m sobraria 250 m', () => {
+  it('SE Tucuruí: reserva feita, 400 m a caminho, a solicitação de 500 m cobre a falta — a rede NÃO é sugerida por cima dela (246)', () => {
     const p = supplyPlan(planInput());
     expect(p.steps.map((s) => [s.kind, s.status, s.qty, s.label])).toEqual([
       ['reserve', 'done', 300, 'Reservar 300 m'],
       ['transfer', 'done', 400, 'Transferir 400 m'],
-      ['transfer', 'suggested', 250, 'Transferir 250 m do Canteiro LT Marabá'],
-      // a quantidade REAL requisitada (500), não a sobra do plano (250)
+      // a quantidade REAL requisitada (500)
       ['buy', 'done', 500, 'Comprar 500 m'],
     ]);
     expect(p.steps[0].reason).toBe('300 m já reservados para este requisito');
     expect(p.steps[1].reason).toBe('400 m a caminho do canteiro — TRF-0001');
+    // o banco (supply_requirement_claimed = comprometido + requisitado) recusaria reservar/transferir por cima da solicitação:
+    // o estoque livre de Marabá é dito, com o caminho — cancelar a solicitação antes
+    expect(p.steps[2].reason).toBe('já requisitado (500 m) — RC-260924-C451E. A rede tem 250 m livres (Canteiro LT Marabá) que poderiam '
+      + 'substituir 250 m da compra: o banco não reserva nem transfere por cima de solicitação aberta — para usar o estoque, cancele '
+      + 'antes RC-260924-C451E em Compras.');
+    expect(p.steps.some((s) => s.status === 'suggested')).toBe(false);
+    expect(p).toMatchObject({ remainingShortage: 500, basis: 'Cobertura viva + estoque livre em 1 local' });
+  });
+
+  it('sem solicitação: a rede é sugerida (a mais perto primeiro), com a chegada pelo histórico real', () => {
+    const p = supplyPlan(planInput({ requisitions: [], focus: { ...CABO(), requested: 0 } }));
+    expect(p.steps.map((s) => [s.kind, s.status, s.qty, s.label])).toEqual([
+      ['reserve', 'done', 300, 'Reservar 300 m'],
+      ['transfer', 'done', 400, 'Transferir 400 m'],
+      ['transfer', 'suggested', 250, 'Transferir 250 m do Canteiro LT Marabá'],
+      ['buy', 'suggested', 250, 'Comprar 250 m'],
+    ]);
     expect(p.steps[2]).toMatchObject({ from: { locationId: 'mar', name: 'Canteiro LT Marabá', lat: -5.3686, lng: -49.1178 }, action: null });
     // chegada pelo histórico real entre os locais (simulateTransfer): 3 dias → 28/09, antes da necessidade 30/09; plural em português
     expect(p.steps[2].reason).toMatch(/^1\d\d km · chega em ~3 dias \(28\/09; média de 1 transferência entre estes locais\) — antes da necessidade\.$/);
-    // hoje a solicitação cobre a falta; se a rede cobrir o sugerido, ela sobra — dito com números, nunca "feito" por cima
-    expect(p.steps[3].reason).toBe('já requisitado (500 m) — RC-260924-C451E; se fizer o sugerido acima, a compra precisa só de 250 m: '
-      + 'revise a solicitação em Compras (senão 250 m a mais).');
-    expect(p).toMatchObject({ remainingShortage: 250, basis: 'Cobertura viva + estoque livre em 1 local' });
+    expect(p.remainingShortage).toBe(250);
   });
 
   it('transferência já PEDIDA (não despachada): não é "feita", sai da falta ANTES das sugestões e a origem prometida não é sugerida de novo', () => {
@@ -453,26 +485,54 @@ describe('o plano da Apex (reservar → transferir → comprar)', () => {
       ['reserve', 'done', 300, 'Reservar 300 m'],
       ['transfer', 'done', 400, 'Transferir 400 m'],
       ['transfer', PENDING_TRANSFER_STEP_STATUS, 250, 'Transferir 250 m do Canteiro LT Marabá'],
-      // SE Tucuruí no QA hoje: 300 + 400 + 250 pedidos + 500 requisitados = 1450 m para 1200 — a sobra é dita
-      ['buy', 'blocked', 500, 'Comprar 500 m'],
+      // SE Tucuruí no QA hoje: 300 + 400 + 250 pedidos + 500 requisitados = 1450 m para 1200. A solicitação NÃO passa da
+      // falta bruta (500): não é sobra (o pendente não é cobertura, 246) — o que ela sobrepõe à pedida é dito
+      ['buy', 'done', 500, 'Comprar 500 m'],
     ]);
     expect(p.steps[2]).toMatchObject({ reason: 'já pedida — TR-260925-94AD3; aguarda a aprovação no Estoque (ainda não saiu da origem)',
       action: null, from: { locationId: 'mar', lat: -5.3686 } });
-    expect(p.steps[3].reason).toBe('Acima do que falta: RC-260924-C451E pede 500 m, mas faltam 250 m (contando a transferência já pedida '
-      + 'TR-260925-94AD3) — 250 m a mais. Revise a solicitação em Compras antes de decidir a cotação.');
+    expect(p.steps[3].reason).toBe('já requisitado (500 m) — RC-260924-C451E. A transferência pedida TR-260925-94AD3 traz 250 m que esta '
+      + 'compra também cobre: se ela também for despachada, o material chega em dobro — cancele-a no Estoque se não vai acontecer.');
+    // Marabá inteiro prometido à pedida: não é "estoque livre" na base do plano
+    expect(p.basis).toBe('Cobertura viva — sem estoque livre do item na rede');
     expect(p.steps.every((s) => s.action === null)).toBe(true);
     expect(p.remainingShortage).toBe(250);
-    // aprovada e parcial: a origem só tem o que sobra livre; a solicitação da falta ainda contaria a pedida — dito
-    const partial = supplyPlan(planInput({ requisitions: [], focus: { ...CABO(), requested: 0 },
+    // aprovada e parcial: a origem só tem o que sobra livre; a solicitação da falta pede o COMPRÁVEL do banco (246),
+    // que já deixa a transferência pedida de fora — dito com o número dele, sem "abra depois do despacho"
+    const partial = supplyPlan(planInput({ requisitions: [], focus: { ...CABO(), requested: 0, pendingTransfer: 100 },
       pendingTransfers: [{ number: 'TR-2', qty: 100, fromLocationId: 'mar', status: 'APPROVED' }] }));
     expect(partial.steps.filter((s) => s.kind === 'transfer').map((s) => [s.status, s.qty, s.reason?.slice(0, 20)])).toEqual([
       ['done', 400, '400 m a caminho do c'], [PENDING_TRANSFER_STEP_STATUS, 100, 'já pedida — TR-2; ag'],
       ['suggested', 150, expect.stringMatching(/km · chega/)]]);
     expect(partial.steps[2].reason).toBe('já pedida — TR-2; aguarda o despacho no Estoque (ainda não saiu da origem)');
     expect(partial.steps.at(-1)).toMatchObject({ kind: 'buy', status: 'suggested', qty: 250,
-      reason: 'A solicitação compra a falta sem cobertura no momento em que for aberta (hoje 500 m, que ainda inclui 100 m já pedidos em '
-        + 'transferência — TR-2): faça antes o que está acima e abra depois do despacho.' });
+      reason: 'A solicitação compra a falta sem cobertura no momento em que for aberta (hoje 400 m, sem os 100 m já pedidos em '
+        + 'transferência — TR-2): faça antes o que está acima.' });
     expect(partial.remainingShortage).toBe(250);
+    // só a transferência pedida no caminho da compra: o número do banco, e ela nomeada
+    const onlyPending = supplyPlan(planInput({ requisitions: [], stock: [SITE_NODE], focus: { ...CABO(), requested: 0, pendingTransfer: 100 },
+      caps: { reserve: false, transfer: false, manage: false, request: true },
+      pendingTransfers: [{ number: 'TR-2', qty: 100, fromLocationId: 'mar', status: 'REQUESTED' }] }));
+    expect(onlyPending.steps.at(-1)).toMatchObject({ kind: 'buy', status: 'suggested', qty: 400,
+      reason: 'A solicitação compra a falta sem cobertura no momento em que for aberta (hoje 400 m, sem os 100 m já pedidos em '
+        + 'transferência — TR-2).' });
+    expect(onlyPending.steps.at(-1)?.action?.confirm).toBe('Abrir a solicitação de compra da falta sem cobertura de Cabo de potência '
+      + '35 mm² XLPE 15 kV (hoje 400 m, sem os 100 m já pedidos em transferência — TR-2)? Ela segue para cotação em Compras.');
+    // a falta INTEIRA pedida em transferência: nada a comprar (o banco recusa sem exceção); a falta continua (risco)
+    const allPending = supplyPlan(planInput({ requisitions: [], focus: { ...CABO(), requested: 0, pendingTransfer: 500 },
+      pendingTransfers: [{ number: 'TR-3', qty: 500, fromLocationId: 'bel', status: 'REQUESTED' }] }));
+    expect(allPending.steps.map((s) => [s.kind, s.status, s.qty])).toEqual([
+      ['reserve', 'done', 300], ['transfer', 'done', 400], ['transfer', PENDING_TRANSFER_STEP_STATUS, 500]]);
+    expect(allPending.remainingShortage).toBe(0);
+  });
+
+  it('antes da 246 (visão sem as colunas): a pedida sai da conta pelas linhas; a solicitação diz o número que o banco de antes pede', () => {
+    // o foco sem pendente (a visão não tem a coluna) e a linha pedida lida: a rede não cobre por cima da pedida
+    const p = supplyPlan(planInput({ requisitions: [], focus: { ...CABO(), requested: 0 },
+      pendingTransfers: [{ number: 'TR-2', qty: 100, fromLocationId: 'mar', status: 'APPROVED' }] }));
+    expect(p.steps.filter((s) => s.status === 'suggested').map((s) => [s.kind, s.qty])).toEqual([['transfer', 150], ['buy', 250]]);
+    expect(p.steps.at(-1)?.reason).toBe('A solicitação compra a falta sem cobertura no momento em que for aberta (hoje 500 m): '
+      + 'faça antes o que está acima.');
   });
 
   it('a reserva no canteiro é medida DEPOIS da transferência pedida — nunca sugere o que o banco recusaria (over-cover)', () => {
@@ -489,18 +549,84 @@ describe('o plano da Apex (reservar → transferir → comprar)', () => {
     expect(p.remainingShortage).toBe(0);
   });
 
-  it('solicitação que cobre a falta: a rede segue sugerida (custa menos), e quem pede a rede fica sabendo que a solicitação precisa ser revista', () => {
+  it('246: o saldo prometido a transferência pedida de OUTRA demanda (ou sem requisito) não é sugerido — na origem nem no canteiro', () => {
+    // Almox W tem 400 livres, todos prometidos à TR-A de outro requisito: nada a transferir dali — a falta vai para a compra
+    const w = node({ locationId: 'w', name: 'Almox W', lat: -3.9, lng: -49.5, onHand: 400, available: 400 });
+    const drained = supplyPlan(planInput({ stock: [SITE_NODE, w], requisitions: [], focus: { ...CABO(), requested: 0 },
+      caps: { reserve: true, transfer: true, manage: false, request: true }, promised: new Map([[`${ITEM_CABO}:w`, 400]]) }));
+    expect(drained.steps.filter((s) => s.status === 'suggested').map((s) => [s.kind, s.qty])).toEqual([['buy', 500]]);
+    expect(drained.basis).toBe('Cobertura viva — sem estoque livre do item na rede');
+    // sem a leitura da organização, o mesmo estoque SERIA sugerido (a regressão que a leitura evita)
+    const blind = supplyPlan(planInput({ stock: [SITE_NODE, w], requisitions: [], focus: { ...CABO(), requested: 0 } }));
+    expect(blind.steps.filter((s) => s.status === 'suggested').map((s) => [s.kind, s.qty])).toEqual([['transfer', 400], ['buy', 100]]);
+    // em parte prometido: só o livre de fato, com o prometido dito (o painel da rede mostra o disponível cheio)
+    const partial = supplyPlan(planInput({ stock: [SITE_NODE, w], requisitions: [], focus: { ...CABO(), requested: 0 },
+      promised: new Map([[`${ITEM_CABO}:w`, 250], ['outro-item:w', 999]]) }));
+    const t = partial.steps.find((s) => s.kind === 'transfer' && s.status === 'suggested');
+    expect(t).toMatchObject({ qty: 150, label: 'Transferir 150 m do Almox W' });
+    expect(t?.reason).toMatch(/ 150 m livres no Almox W \(fora 250 m já pedidos em transferência\)\.$/);
+    // uma pedida que SAI deste canteiro para outra demanda também promete o saldo dele: não se reserva por cima
+    const site = { ...SITE_NODE, onHand: 300, available: 300 };
+    const fromSite = supplyPlan(planInput({ stock: [site], requisitions: [], focus: { ...CABO(), requested: 0 },
+      caps: { reserve: true, transfer: false, manage: false, request: true }, promised: new Map([[`${ITEM_CABO}:site`, 200]]) }));
+    expect(fromSite.steps.find((s) => s.kind === 'reserve' && s.status === 'suggested')).toMatchObject({ qty: 100,
+      reason: '100 m livres no Canteiro SE Tucuruí (fora 200 m já pedidos em transferência) — reservar segura o saldo para este projeto sem comprar.',
+      action: { body: { locationId: 'site', quantity: 100 } } });
+    // as linhas do próprio requisito já estão na leitura da organização: o prometido não é contado duas vezes
+    const own = supplyPlan(planInput({ requisitions: [], focus: { ...CABO(), requested: 0, pendingTransfer: 100 },
+      pendingTransfers: [{ number: 'TR-2', qty: 100, fromLocationId: 'mar', status: 'APPROVED' }],
+      promised: new Map([[`${ITEM_CABO}:mar`, 100]]) }));
+    expect(own.steps.filter((s) => s.status === 'suggested').map((s) => [s.kind, s.qty])).toEqual([['transfer', 150], ['buy', 250]]);
+  });
+
+  it('246: exceção de cobertura (requisitado + pendente > falta, requisitado ≤ falta) não é sobra — a sobreposição é dita, com o caminho', () => {
+    // qa-flx-*-exc: falta 400, 400 requisitados pela exceção, 400 pedidos em transferência (comprável 0)
+    const exc: MaterialBalance = { ...CABO(), required: 400, reserved: 0, inTransit: 0, covered: 0, inbound: 0, shortage: 400, requested: 400,
+      pendingTransfer: 400, purchasable: 0 };
+    const p = supplyPlan(planInput({ focus: exc, stock: [SITE_NODE, { ...BELEM, onHand: 400, reserved: 0, available: 400 }], inTransit: [],
+      requisitions: [{ number: 'RC-260926-121DD' }], caps: { reserve: true, transfer: true, manage: true, request: true },
+      pendingTransfers: [{ number: 'TR-260926-4D4A4', qty: 400, fromLocationId: 'bel', status: 'REQUESTED' }],
+      promised: new Map([[`${ITEM_CABO}:bel`, 400]]) }));
+    expect(p.steps.map((s) => [s.kind, s.status, s.qty])).toEqual([['transfer', PENDING_TRANSFER_STEP_STATUS, 400], ['buy', 'done', 400]]);
+    const buy = p.steps[1];
+    expect(buy.reason).toBe('já requisitado (400 m) — RC-260926-121DD. A transferência pedida TR-260926-4D4A4 traz 400 m que esta compra '
+      + 'também cobre: se ela também for despachada, o material chega em dobro — cancele-a no Estoque se não vai acontecer.');
+    expect(buy.reason).not.toMatch(/Acima do que falta|já está coberta|Revise a solicitação/);
+    expect(buy.action).toBeNull();
+    // parte da compra sobre duas pedidas: o número sobreposto (`pendingOverlap`), no plural
+    const two = supplyPlan(planInput({ focus: { ...exc, requested: 300, pendingTransfer: 200 }, stock: [SITE_NODE], inTransit: [],
+      requisitions: [{ number: 'RC-9' }],
+      pendingTransfers: [{ number: 'TR-A', qty: 120, fromLocationId: 'bel', status: 'REQUESTED' },
+        { number: 'TR-B', qty: 80, fromLocationId: 'mar', status: 'APPROVED' }] }));
+    expect(two.steps.at(-1)).toMatchObject({ kind: 'buy', status: 'done', qty: 300,
+      reason: 'já requisitado (300 m) — RC-9. As transferências pedidas TR-A, TR-B trazem 100 m que esta compra também cobre: se elas '
+        + 'também forem despachadas, o material chega em dobro — cancele-as no Estoque se não vão acontecer.' });
+    // SOBRA de verdade é só acima da falta BRUTA: bloqueia, com os números — e a pedida sobreposta também é dita
+    const over = supplyPlan(planInput({ focus: { ...exc, requested: 450, pendingTransfer: 100 }, stock: [SITE_NODE], inTransit: [],
+      requisitions: [{ number: 'RC-9' }], pendingTransfers: [{ number: 'TR-A', qty: 100, fromLocationId: 'bel', status: 'REQUESTED' }] }));
+    expect(over.steps.at(-1)).toMatchObject({ kind: 'buy', status: 'blocked', qty: 450,
+      reason: 'Acima do que falta: RC-9 pede 450 m, mas faltam 400 m — 50 m a mais. Revise a solicitação em Compras antes de decidir a '
+        + 'cotação. A transferência pedida TR-A traz 100 m que esta compra também cobre: se ela também for despachada, o material chega em '
+        + 'dobro — cancele-a no Estoque se não vai acontecer.' });
+    // sem transferência pedida e dentro da falta: nada muda (feito, só o número)
+    const plain = supplyPlan(planInput({ focus: { ...exc, pendingTransfer: 0 }, stock: [SITE_NODE], inTransit: [], requisitions: [{ number: 'RC-9' }] }));
+    expect(plain.steps.at(-1)).toMatchObject({ kind: 'buy', status: 'done', qty: 400, reason: 'já requisitado (400 m) — RC-9' });
+  });
+
+  it('solicitação que cobre a falta: a rede NÃO é sugerida por cima dela (o banco recusaria) — o estoque livre é dito, com o caminho', () => {
     const p = supplyPlan(planInput({ caps: { reserve: true, transfer: true, manage: false, request: true } }));
-    const transfer = p.steps.find((s) => s.kind === 'transfer' && s.status === 'suggested');
-    expect(transfer?.action?.confirm).toMatch(/O pedido segue para aprovação no Estoque\. A solicitação RC-260924-C451E já pede 500 m deste material: revise-a em Compras para não comprar o que a rede cobre\.$/);
-    // a rede cobre tudo o que falta: a solicitação sobraria inteira
+    expect(p.steps.filter((s) => s.status === 'suggested')).toEqual([]);
+    expect(p.steps.every((s) => !s.action?.confirm?.includes('revise-a em Compras'))).toBe(true);
+    // a rede cobriria tudo o que falta: a solicitação poderia sair inteira — trocar exige cancelá-la antes
     const all = supplyPlan(planInput({ stock: [SITE_NODE, { ...MARABA, onHand: 600, available: 600 }] }));
     expect(all.steps.at(-1)).toMatchObject({ kind: 'buy', status: 'done', qty: 500,
-      reason: 'já requisitado (500 m) — RC-260924-C451E; se fizer o sugerido acima, a compra não é mais necessária: '
-        + 'revise a solicitação em Compras (senão 500 m a mais).' });
-    // requisitado exatamente o que falta depois da rede: feito
+      reason: 'já requisitado (500 m) — RC-260924-C451E. A rede tem 600 m livres (Canteiro LT Marabá) que poderiam substituir a compra: '
+        + 'o banco não reserva nem transfere por cima de solicitação aberta — para usar o estoque, cancele antes RC-260924-C451E em Compras.' });
+    // requisitado em parte: a rede cobre SÓ o que a solicitação não cobre; o requisitado fecha a conta → feito
     const exact = supplyPlan(planInput({ focus: { ...CABO(), requested: 250 } }));
+    expect(exact.steps.filter((s) => s.status === 'suggested').map((s) => [s.kind, s.qty])).toEqual([['transfer', 250]]);
     expect(exact.steps.at(-1)).toMatchObject({ kind: 'buy', status: 'done', qty: 250, reason: 'já requisitado (250 m) — RC-260924-C451E' });
+    expect(exact.remainingShortage).toBe(250);
     // a cobertura já zerou a falta e ainda há solicitação aberta: sobra inteira, dita
     const covered = supplyPlan(planInput({ focus: { ...CABO(), shortage: 0, onOrder: 500, requested: 120 }, purchaseOrders: [{ number: 'OC-7' }] }));
     expect(covered.steps.at(-1)).toMatchObject({ kind: 'buy', status: 'blocked', qty: 120,
@@ -513,6 +639,12 @@ describe('o plano da Apex (reservar → transferir → comprar)', () => {
     const ref = strategyOptions('MATERIAL', f.shortage, [{ locationId: 'mar', locationName: 'Canteiro LT Marabá', available: 250, isDestination: false }]);
     const mine = supplyPlan(planInput({ requisitions: [], focus: { ...f, requested: 0 } })).steps.filter((s) => s.status === 'suggested');
     expect(mine.map((s) => [s.kind, s.qty])).toEqual(ref.map((o) => [o.strategy === 'TRANSFER' ? 'transfer' : 'buy', o.quantity]));
+    // pela cobertura (246): o estoque só cabe no que a solicitação aberta não cobre — o mesmo teto do plano
+    const half = viewConsistent({ ...f, requested: 250 });
+    const byCoverage = strategyOptions('MATERIAL', half, [{ locationId: 'mar', locationName: 'Canteiro LT Marabá', available: 250, isDestination: false }]);
+    const planHalf = supplyPlan(planInput({ focus: half })).steps.filter((s) => s.status === 'suggested');
+    expect(byCoverage.map((o) => [o.strategy, o.quantity])).toEqual([['TRANSFER', 250], ['BUY', 250]]);
+    expect(planHalf.map((s) => [s.kind, s.qty])).toEqual([['transfer', 250]]);
   });
 
   it('com alçada: cada passo aponta a rota governada, com o corpo e a frase de confirmação', () => {
@@ -541,8 +673,8 @@ describe('o plano da Apex (reservar → transferir → comprar)', () => {
     expect(buy.action?.confirm).toContain('(hoje 500 m)');
     expect(p.remainingShortage).toBe(130);
     // quem gere o estoque transfere pela sua chave
-    expect(supplyPlan(planInput({ caps: { reserve: false, transfer: true, manage: true, request: false } })).steps[2].action?.permission)
-      .toBe('inventory.manage');
+    expect(supplyPlan(planInput({ focus: f, requisitions: [], caps: { reserve: false, transfer: true, manage: true, request: false } }))
+      .steps[2].action?.permission).toBe('inventory.manage');
   });
 
   it('origens: a mais perto primeiro; quarentena nunca é origem; sem coordenada por último', () => {
@@ -581,7 +713,8 @@ describe('o plano da Apex (reservar → transferir → comprar)', () => {
     expect(covered.steps[2].reason).toBe('500 m em pedido de compra — OC-7');
     expect(covered).toMatchObject({ remainingShortage: 0, basis: 'Cobertura viva: o requisito está coberto' });
     // sem leitura de compras: o motivo sai sem número (nunca inventado)
-    expect(supplyPlan(planInput({ requisitions: null })).steps.at(-1)?.reason).toMatch(/^já requisitado \(500 m\); se fizer/);
+    expect(supplyPlan(planInput({ requisitions: null })).steps.at(-1)?.reason)
+      .toMatch(/^já requisitado \(500 m\)\. A rede tem 250 m livres .* cancele antes a solicitação aberta em Compras\.$/);
   });
 });
 
@@ -778,11 +911,20 @@ describe('o que a pessoa pode fazer', () => {
   it('as chaves exatas das rotas governadas; transferir = inventory.manage OU inventory.reserve', () => {
     const off = { available: false, reason: 'Busca externa desligada nesta instalação' };
     expect(supplyCapabilities({}, off)).toEqual({ request: false, source: false, approve: false, suppliersManage: false, reserve: false,
-      transfer: false, aiSearch: off });
+      transfer: false, aiSearch: off, coverageOverride: false });
     expect(supplyCapabilities({ 'procurement.request': true, 'procurement.source': true, 'suppliers.manage': true, 'inventory.reserve': true }, off))
-      .toMatchObject({ request: true, source: true, approve: false, suppliersManage: true, reserve: true, transfer: true });
+      .toMatchObject({ request: true, source: true, approve: false, suppliersManage: true, reserve: true, transfer: true, coverageOverride: false });
     expect(supplyCapabilities({ 'inventory.manage': true, 'procurement.approve': true }, { available: true, reason: null }))
       .toMatchObject({ reserve: false, transfer: true, approve: true, aiSearch: { available: true, reason: null } });
+  });
+
+  it('exceção de cobertura (246): `procurement.coverage_override` — e requisitar (a rota exige `procurement.request`)', () => {
+    const off = { available: false, reason: null };
+    expect(supplyCapabilities({ 'procurement.request': true, 'procurement.coverage_override': true }, off).coverageOverride).toBe(true);
+    // compras requisita, mas não autoriza a exceção
+    expect(supplyCapabilities({ 'procurement.request': true }, off).coverageOverride).toBe(false);
+    // a chave sem poder requisitar não abre a exceção (o banco exige as duas)
+    expect(supplyCapabilities({ 'procurement.coverage_override': true }, off).coverageOverride).toBe(false);
   });
 });
 
@@ -912,7 +1054,8 @@ describe('buildSiteSupply', () => {
       priority: { code: 'NORMAL', label: 'Normal', tone: 'neutral' },
     })));
   });
-  afterEach(() => { vi.clearAllMocks(); vi.restoreAllMocks(); });
+  // A leitura lembra que a visão estava sem as colunas da 246: cada teste começa do zero.
+  afterEach(() => { vi.clearAllMocks(); vi.restoreAllMocks(); resetCoverage246Fallback(); });
 
   const ok = (r: SiteSupplyResponse) => {
     if (!r.ok || r.supply.state !== 'ok') throw new Error(`esperava supply ok: ${JSON.stringify(r)}`);
@@ -1006,16 +1149,15 @@ describe('buildSiteSupply', () => {
     expect(d.materials.find((m) => m.requirementId === REQ_DISJ)?.origin).toMatchObject({ source: 'SERVICE_ORDER', label: 'Da OS OS-QA-2026-0301',
       readByAi: true, serviceOrder: { id: 'os-1', number: 'OS-QA-2026-0301' } });
 
-    // o plano: reserva feita · 400 m a caminho · 250 m do Canteiro LT Marabá (com a ação da alçada) · a solicitação de 500 m
+    // o plano: reserva feita · 400 m a caminho · a solicitação de 500 m cobre a falta — a rede não é sugerida por cima dela (246)
     if (d.plan.state !== 'ok') throw new Error('plano');
     expect(d.plan.data.steps.map((s) => [s.kind, s.status, s.qty])).toEqual([
-      ['reserve', 'done', 300], ['transfer', 'done', 400], ['transfer', 'suggested', 250], ['buy', 'done', 500]]);
+      ['reserve', 'done', 300], ['transfer', 'done', 400], ['buy', 'done', 500]]);
     expect(d.plan.data.steps[1].reason).toBe('400 m a caminho do canteiro — TRF-0001');
-    expect(d.plan.data.steps[2]).toMatchObject({ label: 'Transferir 250 m do Canteiro LT Marabá',
-      action: { href: '/api/supply/inventory/transfers', permission: 'inventory.reserve', body: { toLocationId: 'site', expectedArrival: '2026-09-28' } } });
-    expect(d.plan.data.steps[2].action?.body).not.toHaveProperty('idempotencyKey');
-    expect(d.plan.data.steps[3].reason).toMatch(/^já requisitado \(500 m\) — RC-260924-C451E; se fizer o sugerido acima, a compra precisa só de 250 m/);
-    expect(d.plan.data.remainingShortage).toBe(250);
+    expect(d.plan.data.steps[2].reason).toMatch(/^já requisitado \(500 m\) — RC-260924-C451E\. A rede tem 250 m livres \(Canteiro LT Marabá\)/);
+    expect(d.plan.data.remainingShortage).toBe(500);
+    // o balanço em foco: sem as colunas da 246 na visão (o fixture de antes), pendente 0 e comprável = falta − requisitado
+    expect(d.focus).toMatchObject({ shortage: 500, requested: 500, pendingTransfer: 0, purchasable: 0, pendingTransfers: [] });
 
     // compras: a solicitação (sem a cancelada) com a cotação aberta; A (no prazo) recomendada; B mais barata e atrasada
     if (d.procurement.state !== 'ok') throw new Error('compras');
@@ -1045,7 +1187,7 @@ describe('buildSiteSupply', () => {
 
     // alçadas desta pessoa (compras)
     expect(d.capabilities).toEqual({ request: true, source: true, approve: false, suppliersManage: true, reserve: true, transfer: true,
-      aiSearch: { available: false, reason: 'Busca externa desligada nesta instalação' } });
+      aiSearch: { available: false, reason: 'Busca externa desligada nesta instalação' }, coverageOverride: false });
 
     for (const c of calls) {
       expect(c.ops.some(([m, a]) => m === 'eq' && a[0] === 'organization_id' && a[1] === 'org-1'), `${c.table} sem inquilino`).toBe(true);
@@ -1071,7 +1213,70 @@ describe('buildSiteSupply', () => {
     expect(viewer.plan.data.steps.every((s) => s.action === null)).toBe(true);
   });
 
-  it('transferência pedida no QA (não despachada) entra no plano como PEDIDA (não feita) — nada é sugerido duas vezes; a sobra da solicitação é dita', async () => {
+  it('246: o foco traz o pendente e o comprável DA VISÃO, e a lista das transferências pendentes com o link para resolvê-las', async () => {
+    const t = tables();
+    const calls: Call[] = [];
+    const d = ok(await buildSiteSupply(session([...COMPRAS, 'procurement.coverage_override'], tables({
+      supply_requirement_coverage: { rows: [
+        { ...COVERAGE[0], requested_qty: '0', pending_transfer_qty: '250.0000', purchasable_qty: '250.0000' }, COVERAGE[1]] },
+      inventory_transfer_lines: { rows: [...(t.inventory_transfer_lines as { rows: object[] }).rows,
+        { organization_id: 'org-1', transfer_id: 'tr-2', requirement_id: REQ_CABO, quantity: 150, received_quantity: 0, source_reservation_id: null },
+        { organization_id: 'org-1', transfer_id: 'tr-2', requirement_id: REQ_CABO, quantity: 100, received_quantity: 0, source_reservation_id: null }] },
+      inventory_transfers: { rows: [...(t.inventory_transfers as { rows: object[] }).rows,
+        { organization_id: 'org-1', id: 'tr-2', transfer_number: 'TR-260925-94AD3', status: 'APPROVED', project_id: TUC, from_location_id: 'mar',
+          to_location_id: 'site', dispatched_at: null, received_at: null }] },
+      purchase_requisition_line_requirements: { rows: [] },
+    }), {}, calls), TUC, TODAY));
+    // a leitura pediu as colunas da 246
+    const covCalls = calls.filter((c) => c.table === 'supply_requirement_coverage');
+    expect(covCalls.every((c) => String(c.ops.find(([m]) => m === 'select')?.[1][0]).includes('pending_transfer_qty,purchasable_qty'))).toBe(true);
+    expect(d.focus).toMatchObject({ requirementId: REQ_CABO, shortage: 500, requested: 0, pendingTransfer: 250, purchasable: 250,
+      pendingTransfers: [{ transferId: 'tr-2', number: 'TR-260925-94AD3', status: 'APPROVED', statusLabel: 'Aprovada', qty: 250,
+        href: '/supply/estoque?view=transferencias&transfer=tr-2' }] });
+    expect(d.materials.find((m) => m.requirementId === REQ_CABO)).toEqual(d.focus);
+    expect(d.materials.find((m) => m.requirementId === REQ_DISJ)).toMatchObject({ pendingTransfer: 0, pendingTransfers: [], purchasable: 0 });
+    expect(d.capabilities.coverageOverride).toBe(true);
+    // o plano: a pedida é pendente; a origem prometida não é sugerida de novo; a compra diz o número do BANCO (250, sem a pedida)
+    if (d.plan.state !== 'ok') throw new Error('plano');
+    expect(d.plan.data.steps.map((s) => [s.kind, s.status, s.qty])).toEqual([
+      ['reserve', 'done', 300], ['transfer', 'done', 400], ['transfer', PENDING_TRANSFER_STEP_STATUS, 150],
+      ['transfer', PENDING_TRANSFER_STEP_STATUS, 100], ['buy', 'suggested', 250]]);
+    expect(d.plan.data.steps.at(-1)).toMatchObject({
+      reason: 'A solicitação compra a falta sem cobertura no momento em que for aberta (hoje 250 m, sem os 250 m já pedidos em transferência '
+        + '— TR-260925-94AD3).',
+      action: { confirm: expect.stringContaining('(hoje 250 m, sem os 250 m já pedidos em transferência — TR-260925-94AD3)') } });
+    expect(d.plan.data.remainingShortage).toBe(250);
+  });
+
+  it('246 ainda não aplicada: a visão recusa as colunas novas → a MESMA leitura sem elas (nunca a seção em erro)', async () => {
+    const missing = 'column supply_requirement_coverage.pending_transfer_qty does not exist';
+    const calls: Call[] = [];
+    const d = ok(await buildSiteSupply(session(ALL, tables({
+      supply_requirement_coverage: (call) => (String(call.ops.find(([m]) => m === 'select')?.[1][0]).includes('pending_transfer_qty')
+        ? { error: missing } : { rows: COVERAGE.slice(0, 2) }),
+    }), {}, calls), TUC, TODAY));
+    expect(d.focus).toMatchObject({ requirementId: REQ_CABO, shortage: 500, requested: 500, pendingTransfer: 0, purchasable: 0 });
+    const selectsOf = (cs: Call[]) => cs.filter((c) => c.table === 'supply_requirement_coverage')
+      .map((c) => String(c.ops.find(([m]) => m === 'select')?.[1][0]));
+    // cada requisito (lidos em paralelo) pediu as colunas da 246 e, recusado, foi relido sem elas
+    const first = selectsOf(calls);
+    expect(first.filter((s) => s.includes('pending_transfer_qty')).length).toBeGreaterThan(0);
+    expect(first.filter((s) => !s.includes('pending_transfer_qty'))).toHaveLength(2);
+    // lembrado: a próxima montagem vai direto às colunas anteriores (uma ida por requisito, não duas)
+    const again: Call[] = [];
+    await buildSiteSupply(session(ALL, tables({
+      supply_requirement_coverage: (call) => (String(call.ops.find(([m]) => m === 'select')?.[1][0]).includes('pending_transfer_qty')
+        ? { error: missing } : { rows: COVERAGE.slice(0, 2) }),
+    }), {}, again), TUC, TODAY);
+    expect(selectsOf(again)).toHaveLength(2);
+    expect(selectsOf(again).every((s) => !s.includes('pending_transfer_qty'))).toBe(true);
+    // outro erro continua erro: a seção diz que não carregou
+    resetCoverage246Fallback();
+    const r = await buildSiteSupply(session(ALL, tables({ supply_requirement_coverage: { error: 'permission denied for view' } })), TUC, TODAY);
+    expect(r).toMatchObject({ ok: true, supply: { state: 'error' } });
+  });
+
+  it('transferência pedida no QA (não despachada) entra no plano como PEDIDA (não feita) — nada é sugerido duas vezes; a sobreposição da solicitação é dita', async () => {
     const t = tables();
     const d = ok(await buildSiteSupply(session(COMPRAS, tables({
       inventory_transfer_lines: { rows: [...(t.inventory_transfer_lines as { rows: object[] }).rows,
@@ -1086,10 +1291,56 @@ describe('buildSiteSupply', () => {
     })), TUC, TODAY));
     if (d.plan.state !== 'ok') throw new Error('plano');
     expect(d.plan.data.steps.map((s) => [s.kind, s.status, s.qty])).toEqual([
-      ['reserve', 'done', 300], ['transfer', 'done', 400], ['transfer', PENDING_TRANSFER_STEP_STATUS, 250], ['buy', 'blocked', 500]]);
+      ['reserve', 'done', 300], ['transfer', 'done', 400], ['transfer', PENDING_TRANSFER_STEP_STATUS, 250], ['buy', 'done', 500]]);
+    // 500 requisitados = a falta bruta: não é sobra; os 250 sobrepostos à pedida são ditos (chegam em dobro se ela andar)
+    expect(d.plan.data.steps[3].reason).toMatch(/^já requisitado \(500 m\) — RC-260924-C451E\. A transferência pedida TR-260925-94AD3 traz 250 m /);
     expect(JSON.stringify(d.plan.data)).not.toContain('TR-RES');
     expect(d.plan.data.steps.every((s) => s.action === null)).toBe(true);
     expect(d.plan.data.remainingShortage).toBe(250);
+  });
+
+  it('246: o prometido é o da ORGANIZAÇÃO (outro requisito ou nenhum) — Marabá já prometida não é sugerida; a leitura que cai derruba o plano', async () => {
+    const t = tables();
+    const heads = [...(t.inventory_transfers as { rows: object[] }).rows,
+      // pedida por OUTRO requisito (outro projeto) e uma de reposição SEM requisito, as duas saindo de Marabá
+      { organization_id: 'org-1', id: 'tr-x', transfer_number: 'TR-X', status: 'REQUESTED', project_id: 'qa-scn-maraba', from_location_id: 'mar',
+        to_location_id: 'outro', dispatched_at: null, received_at: null },
+      { organization_id: 'org-1', id: 'tr-y', transfer_number: 'TR-Y', status: 'APPROVED', project_id: null, from_location_id: 'mar',
+        to_location_id: 'outro', dispatched_at: null, received_at: null }];
+    const lines = [...(t.inventory_transfer_lines as { rows: object[] }).rows,
+      { organization_id: 'org-1', id: 'lx', transfer_id: 'tr-x', item_id: ITEM_CABO, requirement_id: 'req-outro', quantity: 150, received_quantity: 0,
+        source_reservation_id: null },
+      { organization_id: 'org-1', id: 'ly', transfer_id: 'tr-y', item_id: ITEM_CABO, requirement_id: null, quantity: 100, received_quantity: 0,
+        source_reservation_id: null },
+      // outro item, e a que move reserva: não prometem o saldo livre do cabo
+      { organization_id: 'org-1', id: 'lz', transfer_id: 'tr-y', item_id: ITEM_DISJ, requirement_id: null, quantity: 999, received_quantity: 0,
+        source_reservation_id: null },
+      { organization_id: 'org-1', id: 'lr', transfer_id: 'tr-x', item_id: ITEM_CABO, requirement_id: 'req-outro', quantity: 999, received_quantity: 0,
+        source_reservation_id: 'res-9' }];
+    const over = (inventoryTransfers: Parameters<typeof fakeClient>[0][string]) => tables({
+      supply_requirement_coverage: { rows: [{ ...COVERAGE[0], requested_qty: '0', pending_transfer_qty: '0', purchasable_qty: '500' }, COVERAGE[1]] },
+      purchase_requisition_line_requirements: { rows: [] },
+      inventory_transfer_lines: { rows: lines }, inventory_transfers: inventoryTransfers,
+    });
+    const calls: Call[] = [];
+    const d = ok(await buildSiteSupply(session(COMPRAS, over({ rows: heads }), {}, calls), TUC, TODAY));
+    if (d.plan.state !== 'ok') throw new Error('plano');
+    // os 250 livres de Marabá estão prometidos (150 + 100): nada a transferir dali — a falta vai inteira para a compra
+    expect(d.plan.data.steps.map((s) => [s.kind, s.status, s.qty])).toEqual([['reserve', 'done', 300], ['transfer', 'done', 400], ['buy', 'suggested', 500]]);
+    expect(d.plan.data.basis).toBe('Cobertura viva — sem estoque livre do item na rede');
+    // a leitura: pedidas/aprovadas da organização (sem filtro de requisito), e as linhas do item sem reserva na origem
+    const headRead = calls.find((c) => c.table === 'inventory_transfers' && c.ops.some(([m, a]) => m === 'in' && a[0] === 'status'
+      && (a[1] as string[]).includes('REQUESTED')));
+    expect(headRead?.ops).toEqual(expect.arrayContaining([['eq', ['organization_id', 'org-1']], ['in', ['status', ['REQUESTED', 'APPROVED']]]]));
+    const lineRead = calls.find((c) => c.table === 'inventory_transfer_lines' && c.ops.some(([m, a]) => m === 'eq' && a[0] === 'item_id'));
+    expect(lineRead?.ops).toEqual(expect.arrayContaining([['eq', ['organization_id', 'org-1']], ['eq', ['item_id', ITEM_CABO]],
+      ['is', ['source_reservation_id', null]]]));
+    expect(lineRead?.ops.some(([, a]) => a[0] === 'requirement_id')).toBe(false);
+    for (const c of calls) expect(c.ops.some(([m, a]) => m === 'eq' && a[0] === 'organization_id' && a[1] === 'org-1'), `${c.table} sem inquilino`).toBe(true);
+    // tudo-ou-nada: a leitura do prometido que cai derruba o plano (nunca um plano que sugere o saldo prometido)
+    const down = ok(await buildSiteSupply(session(COMPRAS, over((call) => (call.ops.some(([m, a]) => m === 'in' && a[0] === 'status'
+      && (a[1] as string[]).includes('REQUESTED')) ? { error: 'timeout' } : { rows: heads }))), TUC, TODAY));
+    expect(down.plan).toEqual({ state: 'error', message: 'Não foi possível montar o plano: o estoque do item não carregou.' });
   });
 
   it('pedido em aprovação: a chave de Decisões vem da caixa DESTA pessoa', async () => {

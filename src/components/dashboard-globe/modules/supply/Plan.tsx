@@ -3,7 +3,7 @@
 import { useState, type CSSProperties } from 'react';
 import { PackageCheck, ShoppingCart, Truck } from 'lucide-react';
 import type { PlanStepKind, SupplyCapabilities, SupplyPlanStep } from '@/lib/dashboard/types';
-import { PLAN_STATUS, PLAN_VERB, REQUISITIONS_URL, planActionBody, planSteps, qtyText } from '../model';
+import { PLAN_STATUS, PLAN_VERB, REQUISITIONS_URL, planActionBody, planBuyWait, planSteps, qtyText, requisitionPaths } from '../model';
 import { StateNote } from '../shared';
 import { newIntentKey, useSupplyAct } from './act';
 import type { FlowCtx } from './types';
@@ -23,7 +23,9 @@ const NO_RIGHT_TEXT: Record<PlanStepKind, string> = {
  * filme, cada passo entrando 0,32 s depois do anterior. Cada um diz o estado
  * (sugerido / feito / bloqueado, com o porquê) e, quando o servidor devolve a
  * ação, o botão da ROTA GOVERNADA — confirmação com a frase do servidor.
- * "Comprar" leva à solicitação de compra (etapa 4), o mesmo ato.
+ * "Comprar" leva à solicitação de compra (etapa 4), o mesmo ato — e só é
+ * oferecido quando o BANCO tem o que requisitar (o comprável): com o que falta
+ * pedido em transferência, o passo diz que a compra espera (regra 246).
  */
 export function PlanSteps({ ctx, onBuy }: { ctx: FlowCtx; onBuy: () => void }) {
   const { data } = ctx;
@@ -35,6 +37,8 @@ export function PlanSteps({ ctx, onBuy }: { ctx: FlowCtx; onBuy: () => void }) {
   if (data.plan.state === 'error') return <StateNote kind="error" title="O plano da Apex não carregou">{data.plan.message}</StateNote>;
   const steps = planSteps(data.plan.data);
   if (steps.length === 0) return <StateNote kind="empty" title="Nada a fazer: a cobertura viva já atende a necessidade." />;
+  // O passo "Comprar" consome os MESMOS números da etapa 4: só abre a solicitação quando o banco tem o que requisitar.
+  const buyable = requisitionPaths(data).buy;
 
   const confirm = async () => {
     if (!open?.step.action) return;
@@ -57,7 +61,8 @@ export function PlanSteps({ ctx, onBuy }: { ctx: FlowCtx; onBuy: () => void }) {
           const Icon = ICON[s.kind] ?? ShoppingCart;
           const st = PLAN_STATUS[s.status] ?? PLAN_STATUS.suggested;
           const where = s.kind === 'buy' ? 'o que a rede não cobre' : s.from?.name ?? '';
-          const canAct = s.status === 'suggested' && s.action !== null;
+          const isRequisition = s.kind === 'buy' && s.action?.href === REQUISITIONS_URL;
+          const canAct = s.status === 'suggested' && s.action !== null && (!isRequisition || buyable);
           const style = { '--d': `${s.delayMs}ms` } as CSSProperties;
           return (
             <li key={s.key} className="dgs-step" data-kind={s.kind} data-status={s.status} style={style} title={s.label}>
@@ -72,6 +77,9 @@ export function PlanSteps({ ctx, onBuy }: { ctx: FlowCtx; onBuy: () => void }) {
                 {s.reason && <p className="dgs-step-why">{s.reason}</p>}
                 {s.status === 'suggested' && !s.action && !data.capabilities[NO_RIGHT[s.kind]] && (
                   <p className="dgs-step-why">{NO_RIGHT_TEXT[s.kind]}</p>
+                )}
+                {isRequisition && s.status === 'suggested' && !buyable && (
+                  <p className="dgs-step-why" data-testid="dg-plan-buy-wait">{planBuyWait(data)}</p>
                 )}
               </div>
               {canAct && (

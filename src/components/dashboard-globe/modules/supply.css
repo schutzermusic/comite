@@ -43,7 +43,7 @@
   box-shadow: var(--hg-tile-shadow);
 }
 /* ladrilho com TOM (anel inteiro + lavagem + brilho interno) */
-:is(.dgs-callout, .dgs-rec, .dgs-notice, .dgs-quote[data-rec='true'], .dgs-quote[data-chosen='true'], .dgs-step[data-kind='buy'][data-status='suggested'], .dgs-cand[data-on='true'], .dgs-ledger-row[data-tone='danger']) {
+:is(.dgs-callout, .dgs-rec, .dgs-notice, .dgs-pending, .dgs-quote[data-rec='true'], .dgs-quote[data-chosen='true'], .dgs-step[data-kind='buy'][data-status='suggested'], .dgs-cand[data-on='true'], .dgs-ledger-row[data-tone='danger']) {
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--t) 14%, transparent) 0%, color-mix(in srgb, var(--t) 4%, transparent) 100%),
     var(--hg-tile-bg);
@@ -115,6 +115,10 @@ html.light .dgs-no { background: linear-gradient(180deg, rgba(13, 148, 136, 0.12
 .dgm-supply .dgs-eq > div { padding: calc(6 * var(--dgm-u)) 0; }
 /* com o atalho de quem veio decidir acima do balanço, o balanço aperta: o botão do filme segue à vista */
 .dgm-supply .dgs-eq[data-compact='true'] > div { padding: calc(3.5 * var(--dgm-u)) 0; }
+/* transferência pedida (sem despacho): informação neutra — nem coberto (teal), nem falta (vermelho) */
+.dgm-supply .dgs-eq [data-tone='info'] { cursor: help; }
+.dgm-supply .dgs-eq [data-tone='info'] dt { color: var(--ig-fg-subtle); }
+.dgm-supply .dgs-eq [data-tone='info'] dd { font-weight: 600; color: var(--ig-fg-muted); }
 .dgs-origin {
   display: flex;
   align-items: flex-start;
@@ -186,6 +190,9 @@ html.light .dgs-no { background: linear-gradient(180deg, rgba(13, 148, 136, 0.12
 .dgs-ledger-row[data-tone='ok'] b { color: var(--dgs-green); }
 .dgs-ledger-row[data-tone='muted'] { font-size: var(--f13); color: var(--ig-fg-subtle); }
 .dgs-ledger-row[data-tone='good'] :is(span, b) { font-weight: 600; color: var(--dgs-green); }
+/* transferência pedida já comprada por exceção: nada a comprar, mas despachá-la traz em dobro — âmbar */
+.dgs-ledger-row[data-tone='warn'] { font-size: var(--f13); }
+.dgs-ledger-row[data-tone='warn'] b { font-size: var(--f14); color: var(--dgs-amber); }
 .dgs-ledger-row[data-tone='danger'] {
   --t: var(--hg-danger, #EF4B55);
   margin: 4px -8px 4px;
@@ -327,6 +334,38 @@ html.light .dgs-no { background: linear-gradient(180deg, rgba(13, 148, 136, 0.12
 .dgs-req-top b { font-size: var(--f16); font-weight: 700; letter-spacing: 0.01em; color: var(--ig-fg-strong); }
 .dgs-req .dgm-textbtn { margin-top: 8px; }
 .dgs-req-new .dgm-btn { margin-top: calc(12 * var(--dgm-u)); min-height: 42px; }
+
+/* a cobertura PENDENTE (regra 246): transferência pedida, sem despacho — dita às claras, com o caminho para resolvê-la */
+.dgs-pending {
+  --t: var(--hg-accent, #2DD4BF);
+  margin-top: calc(10 * var(--dgm-u));
+  padding: calc(11 * var(--dgm-u)) calc(13 * var(--dgm-u));
+  border-radius: var(--hg-tile-radius, 12px);
+}
+/* bloqueada, ou já comprada por exceção (chega em dobro se despachada): âmbar */
+.dgs-pending:is([data-blocked='true'], [data-overlap='true']) { --t: var(--hg-warn, #F5A524); }
+.dgs-reqs + .dgs-pending { margin-top: 8px; }
+.dgs-pending-h { display: flex; align-items: center; gap: 8px; margin: 0; font-size: var(--f15); color: var(--ig-fg-strong); }
+.dgs-pending-h svg { flex: none; color: var(--dgs-teal); }
+.dgs-pending:is([data-blocked='true'], [data-overlap='true']) .dgs-pending-h svg { color: var(--dgs-amber); }
+.dgs-pending-h b { font-weight: 700; }
+.dgs-pending-t { margin: 5px 0 0; font-size: var(--f13); line-height: 1.45; color: var(--ig-fg-muted); }
+.dgs-pending-list { display: flex; flex-direction: column; margin: 8px 0 0; padding: 0; list-style: none; }
+.dgs-pending-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding: 7px 0 2px;
+  border-top: 1px solid var(--hg-line);
+}
+.dgs-pending-id { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; min-width: 0; font-size: var(--f13); color: var(--ig-fg-default); }
+.dgs-pending-id b { font-size: var(--f14); font-weight: 700; color: var(--ig-fg-strong); overflow-wrap: anywhere; }
+.dgs-pending-list .dgm-textbtn { padding: 2px 0; }
+/* o caminho da exceção: tecla secundária, nunca o botão principal */
+.dgs-exc-btn { display: inline-flex; align-items: center; gap: 7px; margin-top: 10px; min-height: 40px; text-align: left; }
+.dgs-exc-btn svg { flex: none; color: var(--dgs-amber); }
 
 /* ── 05 · Fornecedores ──────────────────────────────────────────────── */
 .dgs-cands { display: flex; flex-direction: column; gap: 6px; margin: calc(8 * var(--dgm-u)) 0 0; padding: 0; list-style: none; }
@@ -476,6 +515,20 @@ label.dgs-cand-pick { grid-template-columns: auto minmax(0, 1fr) auto; grid-temp
   box-shadow: inset 0 0 0 1px color-mix(in srgb, #F5A524 45%, transparent);
 }
 .dgs-confirm-warn b { font-weight: 700; color: var(--ax-fg-strong, var(--ig-fg-strong)); }
+/* o que fica FORA da compra (transferência pedida): nota neutra, anel inteiro — nunca trilho lateral */
+.dgs-confirm-note {
+  margin: 0;
+  padding: 9px 12px;
+  border-radius: 10px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--ax-fg-muted, var(--ig-fg-muted));
+  background: color-mix(in srgb, var(--ax-accent, #14B8A6) 7%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ax-accent, #14B8A6) 30%, transparent);
+}
+/* contador da justificativa da exceção (mín. 20): âmbar até bastar */
+.dgs-confirm .dgs-count { align-self: flex-end; font-size: 11.5px; font-weight: 600; color: var(--ax-warning, #B45309); }
+.dgs-confirm .dgs-count[data-ok='true'] { color: var(--ax-fg-subtle, var(--ig-fg-subtle)); }
 .dgs-choice { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; border: 0; }
 .dgs-choice legend { margin-bottom: 6px; padding: 0; font-size: 12.5px; font-weight: 600; color: var(--ax-fg-muted, var(--ig-fg-muted)); }
 .dgs-choice-opt {
@@ -509,7 +562,10 @@ label.dgs-cand-pick { grid-template-columns: auto minmax(0, 1fr) auto; grid-temp
   .dgs-ext-act,
   .dgs-sup > .dgm-btn,
   .dgs-gov > .dgm-btn,
-  .dgs-req-new .dgm-btn { min-height: 44px; }
+  .dgs-req-new .dgm-btn,
+  .dgs-exc-btn { min-height: 44px; }
+  .dgs-exc-btn { width: 100%; justify-content: center; }
+  .dgs-pending-list .dgm-textbtn { min-height: 40px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .dgs-flow-in,

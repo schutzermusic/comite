@@ -12,7 +12,10 @@ import { selectIn } from '@/lib/supabase/select-in';
 import { projectIdentity } from '@/lib/operations/project-identity';
 import { daysBetween } from '@/lib/operations/overview-rules';
 import { fromViewRow, supplyRisk, type CoverageSummary, type CoverageViewRow, type StockAtLocation, type SupplyRisk } from './coverage';
-import { stockForRequirement, type LocationKind, type PositionRow } from './inventory';
+import {
+  PENDING_TRANSFER_STATUSES, pendingTransferRefsByRequirement, promisedByOrigin, stockForRequirement, type LocationKind, type PendingTransferHeadRow,
+  type PendingTransferLineRow, type PendingTransferRef, type PositionRow,
+} from './inventory';
 import { needDate } from './intelligence';
 
 type Session = { supabase: SupabaseClient; organizationId: string };
@@ -32,9 +35,19 @@ export interface MaterialDemandRow {
    */
   needBy: string | null;
   daysToNeed: number | null;
+  /** A cobertura viva — com `pendingTransfer` e `purchasable` da regra 246 (lidos da visão). */
   coverage: CoverageSummary;
   risk: SupplyRisk;
-  /** Saldo LIVRE do item por local (disponível = em mão − reservado), destino primeiro. */
+  /**
+   * 246: as transferências PEDIDAS/APROVADAS (sem reserva na origem) deste
+   * requisito — o que `coverage.pendingTransfer` soma —, com o link para
+   * resolvê-las no Estoque. Vazio sem nenhuma.
+   */
+  pendingTransfers: PendingTransferRef[];
+  /**
+   * Saldo LIVRE do item por local (disponível = em mão − reservado − o já
+   * prometido a transferências pedidas, `promised`), destino primeiro.
+   */
   stock: StockAtLocation[];
   /** O item no estoque, somado nos locais ativos (null sem item vinculado). */
   itemStock: ItemStockTotals | null;
@@ -79,6 +92,24 @@ async function availableStock(sb: SupabaseClient, org: string, itemIds: string[]
   return { position, locations, totals };
 }
 
+/**
+ * 246: as transferências PEDIDAS/APROVADAS e as suas linhas (sem reserva na
+ * origem) — o saldo que vão tirar de cada origem (`promisedByOrigin`, não
+ * oferecido de novo, com ou sem requisito) e a lista de cada requisito
+ * (`pendingTransferRefsByRequirement`). Uma falha SOBE: sem ela, a tela
+ * sugeriria transferir o que já está prometido.
+ */
+async function pendingTransfers(sb: SupabaseClient, org: string) {
+  const heads = await sb.from('inventory_transfers').select('id,transfer_number,status,from_location_id')
+    .eq('organization_id', org).in('status', [...PENDING_TRANSFER_STATUSES]).limit(5000);
+  if (heads.error) throw new Error('Não foi possível ler as transferências pedidas.');
+  const transfers = (heads.data ?? []) as PendingTransferHeadRow[];
+  const lines = await selectIn<PendingTransferLineRow>(transfers.map((t) => t.id), (c) => sb.from('inventory_transfer_lines')
+    .select('transfer_id,item_id,requirement_id,quantity,source_reservation_id').eq('organization_id', org).in('transfer_id', c))
+    .catch(() => { throw new Error('Não foi possível ler as linhas das transferências pedidas.'); });
+  return { byRequirement: pendingTransferRefsByRequirement(lines, transfers), promised: promisedByOrigin(lines, transfers) };
+}
+
 export async function materialDemand(session: Session, today: string, projectId?: string): Promise<MaterialDemandRow[]> {
   const org = session.organizationId;
   const sb = session.supabase;
@@ -106,7 +137,7 @@ export async function materialDemand(session: Session, today: string, projectId?
   const projMap = new Map(projects.map((p) => [p.id, projectIdentity(p.id, p.project, p.project_v2)]));
   const itemMap = new Map(items.map((i) => [i.id, i]));
   const actMap = new Map(acts.map((a) => [a.id, a]));
-  const stock = await availableStock(sb, org, itemIds);
+  const [stock, pending] = await Promise.all([availableStock(sb, org, itemIds), pendingTransfers(sb, org)]);
   const sitesOf = (projectId: string) => stock.locations
     .filter((l) => l.kind === 'PROJECT_SITE' && l.project_id === projectId && l.active).map((l) => ({ id: l.id, name: l.name }));
 
@@ -125,7 +156,8 @@ export async function materialDemand(session: Session, today: string, projectId?
       itemId: r.item_id, itemCode: item?.code ?? null, itemDescription: item?.description ?? null,
       title: req?.title ?? item?.description ?? 'Material', requirementType: r.requirement_type, priority: req?.priority ?? 'medium', unit: r.unit,
       requiredBy: r.required_by, activityStart, needBy, daysToNeed, coverage, risk: supplyRisk(coverage, daysToNeed),
-      stock: r.item_id ? stockForRequirement(stock.position, r.item_id, sitesOf(r.project_id).map((x) => x.id)) : [],
+      pendingTransfers: pending.byRequirement.get(r.requirement_id) ?? [],
+      stock: r.item_id ? stockForRequirement(stock.position, r.item_id, sitesOf(r.project_id).map((x) => x.id), pending.promised) : [],
       itemStock: r.item_id ? stock.totals.get(r.item_id) ?? { onHand: 0, reserved: 0, available: 0, quarantine: 0 } : null,
       sites: sitesOf(r.project_id),
     };

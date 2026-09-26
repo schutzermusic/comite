@@ -10,6 +10,7 @@ import {
   Meter, Plane, Resource, SignalPanel, SignalStrip, apexActionable, apexFor, date, dateShort, href, money, pct, plural, qty,
   useApexSignals, useResource, useUrlParam, type ApexSignal, type ChainNode, type Tone,
 } from '@/components/ax';
+import { purchaseGate } from './coverage-gate';
 
 type Payload = SupplyControlTowerModel & { ok: true };
 type Kind = 'all' | 'inbound' | 'shortage' | 'approval' | 'inspection' | 'stock';
@@ -252,10 +253,13 @@ function buildItems(data: Payload): TowerItem[] {
     });
   }
   for (const d of data.criticalShortages.filter((x) => x.risk === 'critical' || x.risk === 'high')) {
+    // Transferência pedida e sem despacho (regra 246) não é cobertura — mas "sem transferência" seria mentira.
+    const pending = purchaseGate(d.coverage, { request: false }).pending;
     out.push({
       id: `short:${d.requirementId}`, kind: 'shortage', tone: RISK_TONE[d.risk], where: d.project,
       object: d.itemDescription ?? d.title,
-      issue: `Falta ${qty(d.coverage.shortage, d.unit)} — ${d.coverage.inbound > 0 ? 'o que está entrando não cobre' : 'sem estoque, transferência ou pedido'}`,
+      issue: `Falta ${qty(d.coverage.shortage, d.unit)} — ${d.coverage.inbound > 0 ? 'o que está entrando não cobre'
+        : pending > 0 ? `transferência de ${qty(pending, d.unit)} pedida, ainda sem despacho` : 'sem estoque, transferência ou pedido'}`,
       detail: <Chain label="Da necessidade ao projeto" nodes={[
         { label: d.title, href: href.requirement(d.requirementId) },
         ...(d.activity ? [{ label: d.activity }] : []),

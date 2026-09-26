@@ -147,8 +147,10 @@ export async function supplyControlTower(session: Session, today: string) {
   }).sort((a, b) => (a.needBy ?? '9999').localeCompare(b.needBy ?? '9999'));
 
   // ── O que cobre a falta SEM comprar (estoque livre aqui ou em outro local) ─
+  // Regra 246: pela cobertura inteira — o já pedido em transferência não é sugerido de novo, e o
+  // estoque só cabe no que o banco aceita (não reserva/transfere por cima de solicitação aberta).
   const stockCover = demand.filter((d) => d.coverage.shortage > 0 && d.itemId).flatMap((d) => {
-    const option = strategyOptions(d.requirementType, d.coverage.shortage, d.stock)
+    const option = strategyOptions(d.requirementType, d.coverage, d.stock)
       .find((o) => o.strategy === 'RESERVE_FROM_STOCK' || o.strategy === 'TRANSFER');
     if (!option) return [];
     return [{
@@ -156,7 +158,8 @@ export async function supplyControlTower(session: Session, today: string) {
       fromLocationId: option.locationId ?? null,
       fromLocation: option.locationId ? d.stock.find((s) => s.locationId === option.locationId)?.locationName ?? null : null,
       toSite: d.sites[0]?.name ?? null, itemCode: d.itemCode, itemDescription: d.itemDescription ?? d.title, unit: d.unit,
-      shortage: d.coverage.shortage, needBy: d.needBy, daysToNeed: d.daysToNeed, risk: d.risk,
+      shortage: d.coverage.shortage, pendingTransfer: d.coverage.pendingTransfer, purchasable: d.coverage.purchasable,
+      needBy: d.needBy, daysToNeed: d.daysToNeed, risk: d.risk,
       projectId: d.projectId, project: d.project,
     }];
   }).sort((a, b) => (a.needBy ?? '9999').localeCompare(b.needBy ?? '9999'));

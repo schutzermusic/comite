@@ -66,13 +66,91 @@ export interface PositionRow {
  */
 export function stockForRequirement(
   position: PositionRow[], itemId: string, projectSiteIds: string[],
+  /** 246: saldo já prometido a transferências pedidas/aprovadas, por `item:local` (`promisedByOrigin`). */
+  promised?: ReadonlyMap<string, number>,
 ): StockAtLocation[] {
   const noSite = projectSiteIds.length === 0;
   return position
     .filter((p) => p.itemId === itemId && p.available > 0 && p.locationKind !== 'QUARANTINE')
-    .map((p) => ({ locationId: p.locationId, locationName: p.locationName, available: p.available,
-      isDestination: noSite || projectSiteIds.includes(p.locationId) }))
+    .map((p) => {
+      const out = Math.max(0, promised?.get(`${p.itemId}:${p.locationId}`) ?? 0);
+      return { locationId: p.locationId, locationName: p.locationName, available: Math.max(0, p.available - out),
+        isDestination: noSite || projectSiteIds.includes(p.locationId), ...(out > 0 ? { promised: out } : {}) };
+    })
+    .filter((s) => s.available > 0)
     .sort((a, b) => Number(b.isDestination) - Number(a.isDestination) || b.available - a.available);
+}
+
+/* ── Transferência PEDIDA (regra 246) ────────────────────────────────────── */
+
+/** Pedida ou aprovada e ainda não despachada: nada saiu da origem e o banco não segura o saldo. */
+export const PENDING_TRANSFER_STATUSES: readonly TransferStatus[] = ['REQUESTED', 'APPROVED'];
+
+export interface PendingTransferLineRow {
+  transfer_id: string; item_id?: string | null; requirement_id?: string | null; quantity: unknown; source_reservation_id?: string | null;
+}
+export interface PendingTransferHeadRow { id: string; transfer_number: string | null; status: string; from_location_id?: string | null }
+
+/** A transferência pendente de um requisito, pronta para "resolver a transferência" (link para ela no Estoque). */
+export interface PendingTransferRef { transferId: string; number: string | null; status: string; statusLabel: string; qty: number; href: string }
+
+const qtyOf = (v: unknown) => { const x = Number(v ?? 0); return Number.isFinite(x) ? x : 0; };
+
+/**
+ * As linhas que a regra 246 conta como PENDENTE (`pending_transfer_qty`):
+ * transferência pedida/aprovada, linha com quantidade e SEM reserva na origem
+ * (a que move reserva já está em "reservado"). Junta cabeçalho e linha.
+ */
+export function pendingTransferLines<L extends PendingTransferLineRow, T extends PendingTransferHeadRow>(
+  lines: readonly L[], transfers: readonly T[],
+): Array<{ line: L; transfer: T; qty: number }> {
+  const byId = new Map(transfers.map((t) => [t.id, t]));
+  return lines.flatMap((l) => {
+    const t = byId.get(l.transfer_id);
+    const qty = qtyOf(l.quantity);
+    return t && (PENDING_TRANSFER_STATUSES as readonly string[]).includes(t.status) && qty > 0 && !l.source_reservation_id
+      ? [{ line: l, transfer: t, qty }] : [];
+  });
+}
+
+/**
+ * As transferências pendentes de CADA requisito, somadas por transferência
+ * (número, estado e o link para ela no Estoque), na ordem do número.
+ */
+export function pendingTransferRefsByRequirement(
+  lines: readonly PendingTransferLineRow[], transfers: readonly PendingTransferHeadRow[],
+): Map<string, PendingTransferRef[]> {
+  const byReq = new Map<string, Map<string, PendingTransferRef>>();
+  for (const { line, transfer, qty } of pendingTransferLines(lines, transfers)) {
+    if (!line.requirement_id) continue;
+    const refs = byReq.get(line.requirement_id) ?? new Map<string, PendingTransferRef>();
+    byReq.set(line.requirement_id, refs);
+    const cur = refs.get(transfer.id);
+    if (cur) { cur.qty += qty; continue; }
+    refs.set(transfer.id, { transferId: transfer.id, number: transfer.transfer_number ?? null, status: transfer.status,
+      statusLabel: TRANSFER_STATUS_LABEL[transfer.status as TransferStatus] ?? 'Transferência', qty,
+      href: `/supply/estoque?view=transferencias&transfer=${encodeURIComponent(transfer.id)}` });
+  }
+  return new Map([...byReq].map(([id, refs]) => [id,
+    [...refs.values()].sort((a, b) => String(a.number ?? '').localeCompare(String(b.number ?? '')))]));
+}
+
+/** As transferências pendentes de UM requisito (`pendingTransferRefsByRequirement`). */
+export function pendingTransferRefs(
+  lines: readonly PendingTransferLineRow[], transfers: readonly PendingTransferHeadRow[], requirementId: string,
+): PendingTransferRef[] {
+  return pendingTransferRefsByRequirement(lines, transfers).get(requirementId) ?? [];
+}
+
+/** O saldo que transferências pendentes vão tirar de cada origem, por `item:local` — não é oferecido de novo. */
+export function promisedByOrigin(lines: readonly PendingTransferLineRow[], transfers: readonly PendingTransferHeadRow[]): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const { line, transfer, qty } of pendingTransferLines(lines, transfers)) {
+    if (!line.item_id || !transfer.from_location_id) continue;
+    const k = `${line.item_id}:${transfer.from_location_id}`;
+    out.set(k, (out.get(k) ?? 0) + qty);
+  }
+  return out;
 }
 
 export type InventoryExceptionKind =
@@ -143,7 +221,9 @@ const INVENTORY_ERRORS: Array<[RegExp, (m: RegExpMatchArray) => string]> = [
   [/Not enough available stock at ([^:]+): ([\d.]+) available, ([\d.]+) requested/, (m) => `Disponível insuficiente em ${m[1]}: ${Number(m[2])} livre(s), ${Number(m[3])} pedido(s).`],
   [/reserved for other demand/, () => 'Esse saldo está reservado para outra demanda — não pode sair.'],
   [/Insufficient stock of (\S+) at (\S+)/, (m) => `Estoque insuficiente de ${m[1]} em ${m[2]}: o físico ficaria negativo.`],
-  [/over-cover the requirement/, () => 'O requisito já está coberto por reservas, trânsito ou transferências pedidas.'],
+  // 246: a trava conta também as solicitações de compra abertas (`supply_requirement_claimed`).
+  [/over-cover the requirement/, () => 'O requisito já está coberto por estoque, transferências ou solicitações de compra — '
+    + 'para trocar uma compra por estoque, cancele antes a solicitação em Compras.'],
   [/Only a confirmed MATERIAL requirement/, () => 'Só requisito de material confirmado, com item, recebe reserva.'],
   [/not reservable/, () => 'Material em quarentena/inspeção ou em local inativo não é reservável.'],
   [/lot\/serial is required/, () => 'Este item é rastreado: informe o lote ou número de série.'],
@@ -171,7 +251,16 @@ const INVENTORY_ERRORS: Array<[RegExp, (m: RegExpMatchArray) => string]> = [
   [/is inactive: stock does not enter it|Destination .* is inactive/, () => 'Local inativo não recebe estoque.'],
 ];
 
+/**
+ * Recusas de COMPRAS que contêm palavras das regras de estoque acima (ex.:
+ * "Coverage exception requires a reason…" casaria `/requires a reason/`). A
+ * rota tenta estoque antes de compras (`inventoryFailure`): estas ficam para
+ * `procurementErrorMessage`, que as traduz com o sentido certo.
+ */
+const PROCUREMENT_OWNED = /Coverage exception|covered by pending internal transfer/;
+
 export function inventoryErrorMessage(message: string): string | null {
+  if (PROCUREMENT_OWNED.test(message)) return null;
   for (const [re, fmt] of INVENTORY_ERRORS) {
     const m = message.match(re);
     if (m) return fmt(m);

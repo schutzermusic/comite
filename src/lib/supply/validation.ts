@@ -134,10 +134,19 @@ export const authoritySchema = z.object({
   effectiveFrom: date.nullable().optional(), effectiveUntil: date.nullable().optional(),
 }).refine((a) => (a.granteeKind === 'ROLE' ? Boolean(a.granteeRoleId) : Boolean(a.granteeUserId)), 'Indique o papel ou a pessoa.');
 
+/** 246 — exceção de cobertura: o motivo fica no livro `procurement_coverage_exceptions` (o banco reconfere 20+ caracteres). */
+export const COVERAGE_OVERRIDE_REASON_MIN = 20;
+
 export const requisitionSchema = z.discriminatedUnion('source', [
   z.object({ source: z.literal('SHORTAGE'), requirementIds: z.array(uuid).min(1).max(200),
     deliveryLocationId: uuid.nullable().optional(), priority: z.enum(['low', 'medium', 'high', 'critical']).optional(),
-    justification: z.string().trim().max(1000).nullable().optional(), idempotencyKey: key }),
+    justification: z.string().trim().max(1000).nullable().optional(), idempotencyKey: key,
+    // Comprar TAMBÉM o que transferências pendentes cobrem — exceção governada (`procurement.coverage_override`, checada no banco).
+    coverageOverride: z.object({
+      reason: z.string().trim()
+        .min(COVERAGE_OVERRIDE_REASON_MIN, `A exceção de cobertura exige um motivo com pelo menos ${COVERAGE_OVERRIDE_REASON_MIN} caracteres.`)
+        .max(1000),
+    }).optional() }),
   z.object({ source: z.literal('MANUAL'), justification: z.string().trim().min(10).max(1000),
     projectId: z.string().trim().min(1).max(200).nullable().optional(), requiredBy: date.nullable().optional(),
     deliveryLocationId: uuid.nullable().optional(), priority: z.enum(['low', 'medium', 'high', 'critical']).optional(),

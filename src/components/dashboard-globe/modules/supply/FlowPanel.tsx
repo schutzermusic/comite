@@ -4,13 +4,13 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { Radar } from 'lucide-react';
 import {
   FLOW_ORDER, FLOW_SETTLE_MS, PLAN_STAGGER_MS, PLAN_VERB, activeRfq, currentPurchaseStep, flowStates, liveRequisitions, panelScrollTarget,
-  planSteps, planToRequisition, qtyText, type FlowStepId,
+  pendingTransfersOf, planSteps, planToRequisition, qtyText, requisitionGate, type FlowStepId,
 } from '../model';
 import { FlowSection, ActNotice, StepEyebrow } from './ui';
 import { FollowUp, followSummary } from './FollowUp';
 import { PlanSteps } from './Plan';
 import { QuotesStep } from './Quotes';
-import { RequisitionConfirm, RequisitionStep } from './Requisition';
+import { RequisitionConfirm, RequisitionStep, type RequisitionMode } from './Requisition';
 import { SuppliersStep, flowRequisition, type SentNotice } from './Suppliers';
 import type { FlowCtx } from './types';
 
@@ -61,7 +61,7 @@ export function SupplyFlowPanel({ ctx, entry = 'scan' }: {
   const rootRef = useRef<HTMLDivElement>(null);
   const states = flowStates(data);
   const [touched, setTouched] = useState<Partial<Record<SectionId, boolean>>>({});
-  const [reqDialog, setReqDialog] = useState(false);
+  const [reqDialog, setReqDialog] = useState<RequisitionMode | null>(null);
   const [reqNotice, setReqNotice] = useState<string | null>(null);
   const [sent, setSent] = useState<SentNotice | null>(null);
   // O fluxo "assentou": pelo atalho, de saída; pela varredura, depois que os passos do plano entraram (e deu tempo de ler).
@@ -81,7 +81,8 @@ export function SupplyFlowPanel({ ctx, entry = 'scan' }: {
   const defaults: Record<SectionId, boolean> = {
     // O plano aberto: enquanto a varredura o revela; ou quando ELE é a etapa da vez (nada requisitado ainda); ou falhou.
     plan: (entry === 'scan' && !settled) || (states.plan === 'current' && !started) || states.plan === 'error',
-    requisition: states.requisition === 'current' || states.requisition === 'error' || reqNotice !== null,
+    // Aguardando a transferência pedida: aberta — a pessoa precisa ver por que a compra espera e os caminhos que tem.
+    requisition: states.requisition === 'current' || states.requisition === 'waiting' || states.requisition === 'error' || reqNotice !== null,
     suppliers: states.suppliers === 'current' || sent !== null,
     quotes: states.quotes === 'current' || (states.quotes === 'done' && Boolean(rfq?.quotes.length)),
     follow: otherDecisions > 0 || followFailed,
@@ -97,7 +98,7 @@ export function SupplyFlowPanel({ ctx, entry = 'scan' }: {
     const el = typeof document !== 'undefined' ? document.getElementById(`${uid}-${id}`) : null;
     el?.scrollIntoView({ block: 'nearest', behavior: reducedMotion() ? 'auto' : 'smooth' });
   };
-  const openRequisition = () => { handsOn.current = true; setReqNotice(null); setReqDialog(true); };
+  const openRequisition = (mode: RequisitionMode = 'buy') => { handsOn.current = true; setReqNotice(null); setReqDialog(mode); };
 
   // Varredura: os passos do plano entram um a um (0,32 s) e ficam um instante; então o fluxo assenta.
   const planCount = data.plan.state === 'ok' ? data.plan.data.steps.length : 0;
@@ -152,6 +153,8 @@ export function SupplyFlowPanel({ ctx, entry = 'scan' }: {
   const unit = data.focus?.item?.unit ?? null;
   const procUnread = data.procurement.state === 'restricted' ? 'Restrito' : data.procurement.state === 'error' ? 'não carregou' : null;
   const toReq = planToRequisition(data);
+  const gate = requisitionGate(data);
+  const trNums = pendingTransfersOf(data.focus).map((t) => t.number).filter(Boolean).join(', ');
   const summaries: Record<SectionId, string | null> = {
     plan: data.plan.state === 'ok'
       ? planSteps(data.plan.data).map((s) => `${PLAN_VERB[s.kind]} ${qtyText(s.qty, s.unit) ?? ''}`.trim()).join(' · ') || 'nada a fazer'
@@ -159,8 +162,10 @@ export function SupplyFlowPanel({ ctx, entry = 'scan' }: {
     requisition: procUnread
       ?? (states.requisition === 'current' && toReq !== null && toReq > 0
         ? `falta requisitar ${qtyText(toReq, unit) ?? '—'}${req ? ` · ${req.number} ${req.statusLabel.toLowerCase()}` : ''}`
-        : req ? `${req.number} · ${req.statusLabel}`
-          : states.requisition === 'skip' ? 'a rede cobre a falta' : 'nenhuma solicitação'),
+        : states.requisition === 'waiting'
+          ? `bloqueada · ${qtyText(gate.pending, unit) ?? '—'} em transferência pedida${trNums ? ` (${trNums})` : ''}`
+          : req ? `${req.number} · ${req.statusLabel}`
+            : states.requisition === 'skip' ? 'a rede cobre a falta' : 'nenhuma solicitação'),
     suppliers: rfq ? `${rfq.invited.length} ${rfq.invited.length === 1 ? 'convidado' : 'convidados'} · ${rfq.quotes.length > 0
       ? `${rfq.quotes.length} ${rfq.quotes.length === 1 ? 'proposta recebida' : 'propostas recebidas'}`
       : `${rfq.invited.filter((i) => i.sentAt).length} com cotação enviada`}`
@@ -191,14 +196,14 @@ export function SupplyFlowPanel({ ctx, entry = 'scan' }: {
 
       <div id={`${uid}-plan`}>
         <FlowSection n={3} title="Plano do Apex" summary={summaries.plan} state={states.plan} open={isOpen('plan')} onToggle={() => toggle('plan')} testId="dg-supply-step-plan">
-          <PlanSteps ctx={ctx} onBuy={openRequisition} />
+          <PlanSteps ctx={ctx} onBuy={() => openRequisition('buy')} />
         </FlowSection>
       </div>
       <div id={`${uid}-requisition`}>
         <FlowSection n={4} title="Solicitação de compra" summary={summaries.requisition} state={states.requisition} open={isOpen('requisition')}
           onToggle={() => toggle('requisition')} testId="dg-supply-step-requisition">
           {reqNotice && <div className="dgm-live" role="status"><ActNotice tone="success" title={reqNotice}>Segue para cotação em Compras — convide fornecedores na etapa 5.</ActNotice></div>}
-          <RequisitionStep ctx={ctx} onCreate={openRequisition} />
+          <RequisitionStep ctx={ctx} onCreate={() => openRequisition('buy')} onException={() => openRequisition('exception')} />
         </FlowSection>
       </div>
       <div id={`${uid}-suppliers`}>
@@ -223,8 +228,8 @@ export function SupplyFlowPanel({ ctx, entry = 'scan' }: {
       </div>
 
       {reqDialog && (
-        <RequisitionConfirm ctx={ctx} onClose={() => setReqDialog(false)}
-          onDone={(title) => { setReqDialog(false); setReqNotice(title); setTouched((t) => ({ ...t, requisition: true })); }} />
+        <RequisitionConfirm key={reqDialog} ctx={ctx} mode={reqDialog} onClose={() => setReqDialog(null)}
+          onDone={(title) => { setReqDialog(null); setReqNotice(title); setTouched((t) => ({ ...t, requisition: true })); }} />
       )}
       {liveRequisitions(data.procurement).length > 1 && (
         <p className="dgm-foot">Há mais de uma solicitação viva para este requisito — veja todas em Compras.</p>

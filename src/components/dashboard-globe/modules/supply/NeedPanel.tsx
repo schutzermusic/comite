@@ -5,7 +5,8 @@ import { ArrowUpRight, CalendarClock, CalendarRange, ClipboardList, FileText, Pa
 import type { MaterialBalance, NeedOrigin, SiteSupplyData } from '@/lib/dashboard/types';
 import type { ModuleProps } from '../../contract';
 import {
-  balanceRows, coverageSegments, dayMonth, flowReadable, locatedStock, networkSummary, pendingForViewer, qtyText, remainingToBuy, type SupplyStage,
+  balanceRows, coverageSegments, dayMonth, flowReadable, locatedStock, networkSummary, pendingForViewer, qtyText, remainingToBuy, requisitionGate,
+  type SupplyStage,
 } from '../model';
 import { StateNote } from '../shared';
 import { Signal, Spin, StepEyebrow } from './ui';
@@ -57,7 +58,7 @@ export function NeedPanel({ data, today, stage, onScan, onDirect, onExplain }: {
       )}
       <dl className="dgm-eq dgs-eq" data-testid="dg-supply-balance" data-compact={pending ? 'true' : undefined}>
         {balanceRows(m).map((r) => (
-          <div key={r.key} data-tone={r.tone}>
+          <div key={r.key} data-tone={r.tone} title={r.hint}>
             <dt>{r.label}</dt>
             <dd className="num">{r.text}</dd>
           </div>
@@ -191,6 +192,7 @@ function NetworkLedger({ data }: { data: SiteSupplyData }) {
   const unit = data.focus?.item?.unit ?? null;
   // "Depois da rede" é a conta do PLANO; sem plano lido, a linha não aparece (nunca uma conta inventada).
   const left = data.plan.state === 'ok' ? remainingToBuy(data) : null;
+  const gate = requisitionGate(data);
   return (
     <div className="dgs-ledger" data-testid="dg-supply-network" aria-label="O que a rede de estoque respondeu">
       <div className="dgs-ledger-h">
@@ -206,12 +208,24 @@ function NetworkLedger({ data }: { data: SiteSupplyData }) {
       {net.unlocated > 0 && (
         <div className="dgs-ledger-row" data-tone="muted"><span>{`${net.unlocated} ${net.unlocated === 1 ? 'local' : 'locais'} sem coordenada (fora do mapa)`}</span></div>
       )}
-      {left !== null && (
+      {left !== null && (left <= 0 && gate.overlap > 0 ? (
+        // Depois da exceção de cobertura, a parte sobreposta JÁ foi comprada: despachá-la traria o material em dobro.
+        <div className="dgs-ledger-row" data-tone="warn" data-testid="dg-supply-network-overlap">
+          <span>{`Nada a comprar: ${gate.overlap >= gate.pending ? 'a transferência pedida' : 'parte da transferência pedida'} já foi comprada por exceção`}</span>
+          <b className="num">{`${qtyText(gate.overlap, unit) ?? '—'} em dobro se despachada`}</b>
+        </div>
+      ) : left <= 0 && gate.pending > 0 ? (
+        // Transferência pedida e sem despacho não é cobertura (regra 246): "a rede cobre" só depois do despacho.
+        <div className="dgs-ledger-row" data-tone="muted" data-testid="dg-supply-network-pending">
+          <span>Nada a comprar se a transferência pedida for despachada</span>
+          <b className="num">{`${qtyText(gate.pending, unit) ?? '—'} sem despacho`}</b>
+        </div>
+      ) : (
         <div className="dgs-ledger-row" data-tone={left > 0 ? 'danger' : 'good'}>
           <span>{left > 0 ? 'A comprar depois da rede' : 'A rede cobre a falta'}</span>
           <b className="num">{left > 0 ? qtyText(left, unit) : `${qtyText(0, unit)} a comprar`}</b>
         </div>
-      )}
+      ))}
     </div>
   );
 }

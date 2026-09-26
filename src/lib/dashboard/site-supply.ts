@@ -38,9 +38,12 @@ if (typeof window !== 'undefined') {
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { hasOptionalPermission, type CommercialSession } from '@/lib/commercial/server-session';
 import { projectIdentity } from '@/lib/operations/project-identity';
-import { selectIn } from '@/lib/supabase/select-in';
-import { fromViewRow, supplyRisk, type CoverageViewRow } from '@/lib/supply/coverage';
-import { LOCATION_KIND_LABEL, type LocationKind } from '@/lib/supply/inventory';
+import { SELECT_IN_CHUNK, selectIn } from '@/lib/supabase/select-in';
+import { fromViewRow, pendingOverlap, supplyRisk, withCoverage246Columns, type CoverageViewRow } from '@/lib/supply/coverage';
+import {
+  LOCATION_KIND_LABEL, PENDING_TRANSFER_STATUSES, pendingTransferLines, pendingTransferRefsByRequirement, promisedByOrigin, type LocationKind,
+  type PendingTransferHeadRow, type PendingTransferLineRow, type PendingTransferRef,
+} from '@/lib/supply/inventory';
 import {
   evaluateQuotes, recommendQuote, PO_STATUS_LABEL, REQUISITION_STATUS_LABEL, RFQ_STATUS_LABEL, type ComparableQuote,
   type PurchaseOrderStatus, type QuoteEvaluation, type RequisitionStatus, type RfqStatus, type SupplierStatus,
@@ -208,7 +211,13 @@ export function needOrigin(f: OriginFacts, look: OriginLookups): NeedOrigin | nu
 
 const RISK_RANK: Record<MaterialBalance['risk'], number> = { critical: 0, high: 1, medium: 2, ok: 3 };
 
-/** Uma linha da cobertura VIVA → o balanço do protótipo (números na unidade do requisito). */
+/**
+ * Uma linha da cobertura VIVA → o balanço do protótipo (números na unidade do
+ * requisito). `pendingTransfer` e `purchasable` são os da visão (regra 246;
+ * sem as colunas, pendente 0 e comprável = falta − requisitado, a conta do
+ * banco anterior). A LISTA das transferências pendentes (`pendingTransfers`)
+ * vem vazia aqui: só o material em foco a lê (`readPlanFacts` → `withPendingTransfers`).
+ */
 export function materialBalance(row: CoverageViewRow, meta: CoverageMeta, today: string): MaterialBalance {
   const c = fromViewRow(row);
   const act = row.activity_id ? meta.activities.get(row.activity_id) : undefined;
@@ -235,9 +244,21 @@ export function materialBalance(row: CoverageViewRow, meta: CoverageMeta, today:
     inbound: c.inbound,
     inspection: c.inspection,
     shortage: c.shortage,
+    pendingTransfer: c.pendingTransfer,
+    pendingTransfers: [],
+    purchasable: c.purchasable,
     risk: risk === 'low' ? 'ok' : risk,
     href: `/supply/planejamento-materiais?req=${encodeURIComponent(row.requirement_id)}`,
   };
+}
+
+/**
+ * O material com a LISTA das suas transferências pendentes (número, estado e
+ * o link para resolvê-la no Estoque). O número (`pendingTransfer`) segue o da
+ * visão; a lista só nomeia o que ele soma.
+ */
+export function withPendingTransfers(m: MaterialBalance, refs: MaterialBalance['pendingTransfers']): MaterialBalance {
+  return refs.length ? { ...m, pendingTransfers: refs.map((r) => ({ ...r })) } : m;
 }
 
 /** Entra no balanço: tem falta, ou a necessidade está perto (de 14 dias atrás a 30 à frente). */
@@ -486,11 +507,18 @@ export interface PlanInput {
   inTransit: ReadonlyArray<{ number: string; qty: number }>;
   /**
    * Transferências PEDIDAS (ou aprovadas) e ainda não despachadas, que NÃO
-   * movem uma reserva (essas já estão em "reservado"): a cobertura não as
-   * conta, mas o banco sim (`inventory_requirement_committed`) e o saldo da
-   * origem já está prometido — o plano não sugere pedir de novo.
+   * movem uma reserva (essas já estão em "reservado") — o PENDENTE da regra
+   * 246: não é cobertura (a falta continua), não é comprado (sai do
+   * `purchasable_qty`) e o saldo da origem já está prometido — o plano não
+   * sugere pedir de novo.
    */
   pendingTransfers?: ReadonlyArray<{ number: string; qty: number; fromLocationId: string; status: string }>;
+  /**
+   * 246: o saldo que TODAS as transferências pedidas/aprovadas da organização (sem reserva na origem, de
+   * qualquer requisito ou de nenhum) vão tirar de cada local, por `item:local` (`promisedByOrigin`, a mesma
+   * conta do Planejamento). Sai do livre da origem E do canteiro. Ausente = só as do requisito (`pendingTransfers`).
+   */
+  promised?: ReadonlyMap<string, number>;
   /** Requisições abertas do requisito; `null` = a pessoa não lê compras (o motivo sai sem número). */
   requisitions: ReadonlyArray<{ number: string }> | null;
   /** Pedidos abertos do requisito/item; `null` = não lidos. */
@@ -517,12 +545,24 @@ export const PENDING_TRANSFER_STEP_STATUS: SupplyPlanStep['status'] = 'pending';
  * requisitado), com o número. Cada passo sugerido aponta a rota governada que
  * o executa; sem a alçada dela, `action: null`. Quarentena nunca é origem.
  *
- * A conta é a do BANCO (`inventory_requirement_committed`): a transferência
- * pedida e ainda não despachada sai da falta ANTES de qualquer sugestão — senão
- * o plano sugeriria reservar o que a reserva recusaria ("over-cover"). A
- * solicitação de compra aberta não entra nessa conta (o banco não a conta): a
- * rede segue sugerida por custar menos, e o passo de compra diz, com números,
- * quando a solicitação passa do que falta — nunca "feito" por cima de sobra.
+ * A conta é a do BANCO, a regra 246 (COVERAGE-SEMANTICS.md):
+ *  • a transferência pedida e ainda não despachada é PENDENTE: sai da conta
+ *    ANTES de qualquer sugestão e não é comprada — o banco a tira do
+ *    comprável (`purchasable_qty`);
+ *  • o saldo que QUALQUER transferência pedida da organização vai tirar de um
+ *    local (de outro requisito, ou de nenhum) já está prometido: sai do livre
+ *    da origem e do canteiro antes de sugerir reservar ou transferir;
+ *  • a rede (reservar/transferir) só cabe em `falta − pendente − requisitado`:
+ *    a trava do banco (`supply_requirement_claimed` = comprometido +
+ *    requisitado) recusa cobrir por cima de solicitação aberta ("over-cover").
+ *    Estoque livre que sobra por causa da solicitação é dito no passo de
+ *    compra, com o caminho: cancelar a solicitação antes;
+ *  • o passo de compra diz o número do BANCO: a solicitação aberta agora pede
+ *    `purchasable_qty` (sem o pendente); a que passa da falta BRUTA é sobra,
+ *    dita com números — nunca "feito" por cima de sobra. A que só passa por
+ *    cima da transferência pedida (`pendingOverlap`: a exceção de cobertura,
+ *    ou dado anterior à trava simétrica) não é sobra — o pendente não é
+ *    cobertura —, mas é dita: se a transferência também andar, chega em dobro.
  *
  * O corpo das ações NÃO traz chave de idempotência: a tela gera uma por
  * intenção (`newIntentKey`), e uma chave fixa por dia repetiria, depois de um
@@ -534,7 +574,27 @@ export function supplyPlan(input: PlanInput): SupplyPlan {
   const q = (n: number) => fmtQty(n, unit);
   const itemName = f.item?.description ?? f.title;
   const steps: SupplyPlanStep[] = [];
-  const free = input.stock.filter((n) => n.kind !== 'QUARANTINE' && n.available > 0);
+
+  // Pedidas e ainda não despachadas (PENDENTE, 246): fora da cobertura, fora da compra, e prometidas na origem.
+  const pending = (input.pendingTransfers ?? []).filter((t) => t.qty > 0);
+  const pendingList = Array.from(new Set(pending.map((t) => t.number)));
+  const pendingNums = pendingList.join(', ');
+  // O número é o da visão (`pending_transfer_qty`); as linhas (o mesmo predicado) dão os números TR-… e a origem —
+  // e seguram a conta enquanto a visão ainda não tem a coluna.
+  const pendingQty = Math.max(f.pendingTransfer, pending.reduce((s, t) => s + t.qty, 0));
+  // O prometido de cada local é o de TODAS as transferências pedidas da organização (`promisedByOrigin`), de qualquer
+  // requisito ou de nenhum; as linhas deste requisito (já contidas nela) o seguram quando essa leitura não veio.
+  const ownPromised = new Map<string, number>();
+  for (const t of pending) ownPromised.set(t.fromLocationId, (ownPromised.get(t.fromLocationId) ?? 0) + t.qty);
+  const promisedAt = (locationId: string) => Math.max(ownPromised.get(locationId) ?? 0,
+    f.item ? input.promised?.get(`${f.item.id}:${locationId}`) ?? 0 : 0);
+  // Livre = disponível (em mão − reservado) − prometido: na origem E no canteiro (uma transferência pedida que sai
+  // daqui para outra demanda também promete este saldo).
+  const free = input.stock.filter((n) => n.kind !== 'QUARANTINE')
+    .map((n) => { const promised = promisedAt(n.locationId); return { ...n, available: Math.max(0, n.available - promised), promised }; })
+    .filter((n) => n.available > 0);
+  /** " (fora 300 m já pedidos em transferência)" — o painel da rede mostra o disponível sem o prometido. */
+  const promisedNote = (n: { promised: number }) => (n.promised > 0 ? ` (fora ${q(n.promised)} já pedidos em transferência)` : '');
   const basis = f.shortage <= 0 ? 'Cobertura viva: o requisito está coberto'
     : free.length ? `Cobertura viva + estoque livre em ${free.length} ${free.length === 1 ? 'local' : 'locais'}`
       : 'Cobertura viva — sem estoque livre do item na rede';
@@ -543,19 +603,19 @@ export function supplyPlan(input: PlanInput): SupplyPlan {
   const reqNums = numbers(input.requisitions);
   const service = input.requirementType === 'EXTERNAL_SERVICE';
 
-  // Pedidas e ainda não despachadas: fora da cobertura, mas já comprometidas no banco e prometidas na origem.
-  const pending = (input.pendingTransfers ?? []).filter((t) => t.qty > 0);
-  const pendingQty = pending.reduce((s, t) => s + t.qty, 0);
-  const pendingNums = pending.map((t) => t.number).join(', ');
-  const promised = new Map<string, number>();
-  for (const t of pending) promised.set(t.fromLocationId, (promised.get(t.fromLocationId) ?? 0) + t.qty);
-  /** O que ainda falta comprometer — requerido menos o que o banco já conta. */
+  /** O que ainda falta comprometer — a falta menos o pendente. */
   const uncommitted = Math.max(0, f.shortage - pendingQty);
   let remaining = uncommitted;
-  // Com solicitação aberta, quem pede a rede fica sabendo — na confirmação — que a solicitação precisa ser revista.
-  const reqNote = f.requested > 0
-    ? ` A solicitação ${reqNums.length ? reqNums.join(', ') : 'aberta'} já pede ${q(f.requested)} deste material: revise-a em Compras para não comprar o que a rede cobre.`
-    : '';
+  /** O que a rede pode cobrir: a trava do banco conta o requisitado (não cobre por cima de solicitação aberta). */
+  let room = Math.max(0, uncommitted - f.requested);
+  /** Estoque livre que ficou sem uso só porque a solicitação aberta já cobre (dito no passo de compra). */
+  const idle: Array<{ name: string; qty: number }> = [];
+  const network = !!f.item && !service;
+  const siteFree = network ? free.filter((x) => x.isSite) : [];
+  const originFree = network ? free.filter((x) => !x.isSite)
+    .map((n) => ({ n, km: distanceKm(input.site, n) }))
+    .sort((a, b) => (a.km === null ? 1 : 0) - (b.km === null ? 1 : 0) || (a.km ?? 0) - (b.km ?? 0)
+      || b.n.available - a.n.available || a.n.name.localeCompare(b.n.name, 'pt-BR')) : [];
 
   // ── Reservar ──
   const reservedNow = f.reserved + f.consumed;
@@ -565,21 +625,23 @@ export function supplyPlan(input: PlanInput): SupplyPlan {
         : f.reserved > 0 ? `${q(f.reserved)} reservados e ${q(f.consumed)} já consumidos para este requisito`
           : `${q(f.consumed)} já consumidos para este requisito`, action: null });
   }
-  if (remaining > 0 && f.item && !service) {
+  if (room > 0 && network) {
     let reservedHere = false;
-    for (const n of free.filter((x) => x.isSite)) {
-      if (remaining <= 0) break;
-      const qty = Math.min(remaining, n.available);
+    for (const n of siteFree) {
+      if (room <= 0) { idle.push({ name: n.name, qty: n.available }); continue; }
+      const qty = Math.min(room, n.available);
+      room -= qty;
       remaining -= qty;
       reservedHere = true;
+      if (n.available > qty) idle.push({ name: n.name, qty: n.available - qty });
       steps.push({
         kind: 'reserve', qty, unit, from: { locationId: n.locationId, name: n.name, lat: n.lat, lng: n.lng },
         label: `Reservar ${q(qty)} ${prep('em', n.name)}`, status: 'suggested',
-        reason: `${q(n.available)} livres ${prep('em', n.name)} — reservar segura o saldo para este projeto sem comprar.`,
+        reason: `${q(n.available)} livres ${prep('em', n.name)}${promisedNote(n)} — reservar segura o saldo para este projeto sem comprar.`,
         action: caps.reserve ? {
           method: 'POST', href: '/api/supply/inventory/reservations', permission: 'inventory.reserve',
           body: { requirementId: f.requirementId, locationId: n.locationId, quantity: qty },
-          confirm: `Reservar ${q(qty)} de ${itemName} ${prep('em', n.name)} para “${f.title}”? A reserva segura o saldo para este projeto.${reqNote}`,
+          confirm: `Reservar ${q(qty)} de ${itemName} ${prep('em', n.name)} para “${f.title}”? A reserva segura o saldo para este projeto.`,
         } : null,
       });
     }
@@ -588,6 +650,8 @@ export function supplyPlan(input: PlanInput): SupplyPlan {
         reason: input.siteLocations.length ? 'Sem saldo livre do item no canteiro deste projeto.' : 'O projeto não tem canteiro cadastrado no Supply.',
         action: null });
     }
+  } else {
+    for (const n of siteFree) idle.push({ name: n.name, qty: n.available });
   }
 
   // ── Transferir ──
@@ -606,16 +670,10 @@ export function supplyPlan(input: PlanInput): SupplyPlan {
       reason: `já pedida — ${t.number}; aguarda ${t.status === 'APPROVED' ? 'o despacho' : 'a aprovação'} no Estoque (ainda não saiu da origem)`,
       action: null });
   }
-  if (remaining > 0 && f.item && !service) {
-    const origins = free.filter((x) => !x.isSite)
-      .map((x) => ({ ...x, available: Math.max(0, x.available - (promised.get(x.locationId) ?? 0)) }))
-      .filter((x) => x.available > 0)
-      .map((n) => ({ n, km: distanceKm(input.site, n) }))
-      .sort((a, b) => (a.km === null ? 1 : 0) - (b.km === null ? 1 : 0) || (a.km ?? 0) - (b.km ?? 0)
-        || b.n.available - a.n.available || a.n.name.localeCompare(b.n.name, 'pt-BR'));
-    for (const { n, km } of origins) {
-      if (remaining <= 0) break;
-      const qty = Math.min(remaining, n.available);
+  if (room > 0 && network && f.item) {
+    for (const { n, km } of originFree) {
+      if (room <= 0) { if (dest) idle.push({ name: n.name, qty: n.available }); continue; }
+      const qty = Math.min(room, n.available);
       const from = { locationId: n.locationId, name: n.name, lat: n.lat, lng: n.lng };
       const label = `Transferir ${q(qty)} ${prep('de', n.name)}`;
       if (!dest) {
@@ -624,21 +682,26 @@ export function supplyPlan(input: PlanInput): SupplyPlan {
           reason: 'O projeto não tem canteiro cadastrado no Supply para receber a transferência.', action: null });
         break;
       }
+      room -= qty;
       remaining -= qty;
+      if (n.available > qty) idle.push({ name: n.name, qty: n.available - qty });
       const sim = simulateTransfer({ fromId: n.locationId, toId: dest.id, today: input.today, need: f.needBy, transit: [...input.transit] });
       const when = sim.beforeNeed === false ? ' — DEPOIS da necessidade' : sim.beforeNeed ? ' — antes da necessidade' : '';
       steps.push({
         kind: 'transfer', qty, unit, from, label, status: 'suggested',
         reason: `${km !== null ? `${Math.round(km).toLocaleString('pt-BR')} km · ` : ''}chega em ~${sim.days} ${sim.days === 1 ? 'dia' : 'dias'} `
-          + `(${ddmm(sim.eta)}; ${plainPlurals(sim.basis)})${when}.`,
+          + `(${ddmm(sim.eta)}; ${plainPlurals(sim.basis)})${when}.`
+          + (n.promised > 0 ? ` ${q(n.available)} livres ${prep('em', n.name)}${promisedNote(n)}.` : ''),
         action: caps.transfer ? {
           method: 'POST', href: '/api/supply/inventory/transfers', permission: caps.manage ? 'inventory.manage' : 'inventory.reserve',
           body: { fromLocationId: n.locationId, toLocationId: dest.id, projectId: input.projectId, expectedArrival: sim.eta,
             lines: [{ itemId: f.item.id, quantity: qty, requirementId: f.requirementId }] },
-          confirm: `Pedir a transferência de ${q(qty)} de ${itemName} ${prep('de', n.name)} para ${dest.name}? O pedido segue para aprovação no Estoque.${reqNote}`,
+          confirm: `Pedir a transferência de ${q(qty)} de ${itemName} ${prep('de', n.name)} para ${dest.name}? O pedido segue para aprovação no Estoque.`,
         } : null,
       });
     }
+  } else if (dest) {
+    for (const { n } of originFree) idle.push({ name: n.name, qty: n.available });
   }
 
   // ── Comprar ──
@@ -649,9 +712,10 @@ export function supplyPlan(input: PlanInput): SupplyPlan {
   }
   const reqRef = reqNums.length ? reqNums.join(', ') : 'a solicitação aberta';
   const already = `já requisitado (${q(f.requested)})${reqNums.length ? ` — ${reqNums.join(', ')}` : ''}`;
-  // O banco abre a solicitação pela falta da COBERTURA menos o já requisitado — que não desconta a transferência pedida.
-  const askText = `hoje ${q(Math.max(0, f.shortage - f.requested))}`
-    + (pendingQty > 0 ? `, que ainda inclui ${q(pendingQty)} já pedidos em transferência — ${pendingNums}` : '');
+  // O banco abre a solicitação pelo COMPRÁVEL do momento (`purchasable_qty` = falta − requisitado − pendente):
+  // o número dito é o dele, e o pendente que fica de fora é nomeado.
+  const askText = `hoje ${q(f.purchasable)}`
+    + (f.pendingTransfer > 0 ? `, sem os ${q(f.pendingTransfer)} já pedidos em transferência${pendingNums ? ` — ${pendingNums}` : ''}` : '');
   /** POST /api/supply/procurement/requisitions pela falta (sem chave: a tela gera uma por intenção). */
   const requisitionAction = (): NonNullable<SupplyPlanStep['action']> => ({
     method: 'POST', href: '/api/supply/procurement/requisitions', permission: 'procurement.request',
@@ -668,38 +732,52 @@ export function supplyPlan(input: PlanInput): SupplyPlan {
           reason: 'Requisito sem item do catálogo: vincule o item no Planejamento para requisitar.', action: null });
     }
   } else if (f.requested > 0) {
-    // A solicitação conta com a quantidade REAL requisitada; o que passar do que falta é dito com números.
-    const surplusNow = Math.max(0, f.requested - uncommitted);
-    const surplusIfPlan = Math.max(0, f.requested - remaining);
+    // A solicitação conta com a quantidade REAL requisitada. SOBRA é só o que passa da falta BRUTA: o pendente não é
+    // cobertura (246), então comprar por cima dele não é "a mais" — é a exceção de cobertura (ou dado anterior à trava
+    // simétrica), e o que ela sobrepõe à transferência pedida é dito: se as duas andarem, o material chega em dobro.
+    // (A rede só cobriu o que a solicitação não cobre: `remaining` nunca fica abaixo do requisitado.)
+    const surplusNow = Math.max(0, f.requested - f.shortage);
+    const overlap = pendingOverlap({ shortage: f.shortage, requested: f.requested, pendingTransfer: pendingQty });
+    const many = pendingList.length > 1;
+    const twice = overlap > 0
+      ? `${many ? 'As transferências pedidas' : 'A transferência pedida'}${pendingNums ? ` ${pendingNums}` : ''} ${many ? 'trazem' : 'traz'} `
+        + `${q(overlap)} que esta compra também cobre: se ${many ? 'elas também forem despachadas' : 'ela também for despachada'}, `
+        + `o material chega em dobro — ${many ? 'cancele-as' : 'cancele-a'} no Estoque se não ${many ? 'vão' : 'vai'} acontecer.`
+      : '';
     const buyLabel = `Comprar ${q(f.requested)}`;
-    const afterPlan = remaining > 0 ? `a compra precisa só de ${q(remaining)}` : 'a compra não é mais necessária';
+    const before = steps.some((s) => s.status === 'suggested');
     if (surplusNow > 0) {
-      const pendingText = pending.length ? ` (contando ${pending.length === 1 ? 'a transferência já pedida' : 'as transferências já pedidas'} ${pendingNums})` : '';
       steps.push({ kind: 'buy', qty: f.requested, unit, from: null, label: buyLabel, status: 'blocked',
-        reason: `Acima do que falta: ${reqRef} pede ${q(f.requested)}, mas ${uncommitted > 0 ? `faltam ${q(uncommitted)}` : 'a falta já está coberta'}${pendingText}`
-          + ` — ${q(surplusNow)} a mais. Revise a solicitação em Compras antes de decidir a cotação.`
-          + (surplusIfPlan > surplusNow ? ` Com o sugerido acima, ${afterPlan}.` : ''),
+        reason: `Acima do que falta: ${reqRef} pede ${q(f.requested)}, mas ${f.shortage > 0 ? `faltam ${q(f.shortage)}` : 'a falta já está coberta'}`
+          + ` — ${q(surplusNow)} a mais. Revise a solicitação em Compras antes de decidir a cotação.${twice ? ` ${twice}` : ''}`,
         action: null });
-    } else if (surplusIfPlan > 0) {
-      steps.push({ kind: 'buy', qty: f.requested, unit, from: null, label: buyLabel, status: 'done',
-        reason: `${already}; se fizer o sugerido acima, ${afterPlan}: revise a solicitação em Compras (senão ${q(surplusIfPlan)} a mais).`,
-        action: null });
-    } else if (f.requested === remaining) {
-      steps.push({ kind: 'buy', qty: f.requested, unit, from: null, label: buyLabel, status: 'done', reason: already, action: null });
-    } else {
+    } else if (remaining > f.requested) {
       steps.push({
         kind: 'buy', qty: remaining, unit, from: null, label: `Comprar ${q(remaining)}`, status: 'suggested',
-        reason: `${already}; falta requisitar ${q(remaining - f.requested)}.`,
+        reason: `${already}; falta requisitar ${q(remaining - f.requested)}.`
+          + (before ? ` A solicitação pede o comprável no momento em que for aberta (${askText}): faça antes o que está acima.` : ''),
         action: caps.request ? requisitionAction() : null,
       });
+    } else {
+      // Estoque livre que a rede tem mas não entra: o banco não reserva nem transfere por cima de solicitação aberta.
+      const idleQty = idle.reduce((s, x) => s + x.qty, 0);
+      const swap = Math.min(f.requested, idleQty);
+      const names = Array.from(new Set(idle.map((x) => x.name))).join(', ');
+      steps.push({ kind: 'buy', qty: f.requested, unit, from: null, label: buyLabel, status: 'done',
+        reason: `${already}${twice ? `. ${twice}` : ''}`
+          + (swap > 0
+            ? `${twice ? ' ' : '. '}A rede tem ${q(idleQty)} livres (${names}) que poderiam substituir ${swap >= f.requested ? 'a compra' : `${q(swap)} da compra`}: `
+              + `o banco não reserva nem transfere por cima de solicitação aberta — para usar o estoque, cancele antes ${reqRef} em Compras.`
+            : ''),
+        action: null });
     }
   } else if (remaining > 0) {
     const before = steps.some((s) => s.status === 'suggested');
-    const wait = pendingQty > 0 ? 'abra depois do despacho' : null;
     steps.push({
       kind: 'buy', qty: remaining, unit, from: null, label: `Comprar ${q(remaining)}`, status: 'suggested',
-      reason: before || wait ? `A solicitação compra a falta sem cobertura no momento em que for aberta (${askText}): `
-        + `${[before ? 'faça antes o que está acima' : null, wait].filter(Boolean).join(' e ')}.` : null,
+      reason: before || f.pendingTransfer > 0
+        ? `A solicitação compra a falta sem cobertura no momento em que for aberta (${askText})${before ? ': faça antes o que está acima' : ''}.`
+        : null,
       action: caps.request ? requisitionAction() : null,
     });
   }
@@ -974,8 +1052,12 @@ export function supplierCandidates(input: {
    Leituras
    ══════════════════════════════════════════════════════════════════════════ */
 
-const COVERAGE_COLUMNS = 'requirement_id,project_id,activity_id,item_id,requirement_type,required_by,unit,required_qty,'
-  + 'reserved_qty,consumed_qty,in_transit_qty,on_order_qty,requested_qty,inspection_qty';
+/*
+  As colunas da cobertura são `COVERAGE_VIEW_COLUMNS` (coverage.ts): as de
+  antes + as ANEXADAS pela 246 (`pending_transfer_qty`, `purchasable_qty`).
+  Enquanto a visão não as tem, `withCoverage246Columns` repete a leitura sem
+  elas — e `fromViewRow` usa a conta do banco anterior.
+*/
 
 /** Até quantos requisitos a cobertura é lida requisito a requisito; acima disso, uma leitura por projeto. */
 export const COVERAGE_FANOUT_MAX = 40;
@@ -1054,16 +1136,16 @@ async function readProjectCoverage(sb: SupabaseClient, org: string, projectId: s
     // Um requisito por leitura: o filtro por `requirement_id` desce até os agregados da visão
     // (~0,3 s cada no QA); por projeto ou por lista, a visão agrega a organização inteira (3–12 s).
     const each = await mapLimit(reqs, 6, async (r) => {
-      const res = await sb.from('supply_requirement_coverage').select(COVERAGE_COLUMNS)
-        .eq('organization_id', org).eq('requirement_id', r.id).limit(2);
+      const res = await withCoverage246Columns((columns) => sb.from('supply_requirement_coverage').select(columns)
+        .eq('organization_id', org).eq('requirement_id', r.id).limit(2));
       if (res.error) throw new Error('cobertura de material');
       return (res.data ?? []) as unknown as CoverageViewRow[];
     });
     rows = each.flat();
   } else {
-    const res = await sb.from('supply_requirement_coverage').select(COVERAGE_COLUMNS, { count: 'exact' })
+    const res = await withCoverage246Columns((columns) => sb.from('supply_requirement_coverage').select(columns, { count: 'exact' })
       .eq('organization_id', org).eq('project_id', projectId)
-      .order('required_by', { ascending: true, nullsFirst: false }).order('requirement_id').limit(READ_LIMIT);
+      .order('required_by', { ascending: true, nullsFirst: false }).order('requirement_id').limit(READ_LIMIT));
     if (res.error || res.count === null || res.count === undefined) throw new Error('cobertura de material');
     rows = (res.data ?? []) as unknown as CoverageViewRow[];
     truncated = truncated || res.count > rows.length;
@@ -1201,24 +1283,78 @@ interface PlanFacts {
   transit: TransitSample[];
   inTransit: Array<{ number: string; qty: number }>;
   pending: Array<{ number: string; qty: number; fromLocationId: string; status: string }>;
+  /** As transferências pendentes do requisito, para "resolver a transferência" (`MaterialBalance.pendingTransfers`). */
+  pendingRefs: PendingTransferRef[];
+  /**
+   * 246: o que TODAS as transferências pedidas/aprovadas da organização (sem reserva na origem, de qualquer
+   * requisito ou de nenhum) vão tirar de cada local, por `item:local` — só o item em foco (`promisedByOrigin`).
+   */
+  promised: Map<string, number>;
 }
-/** Despachada: a cobertura já conta como "em trânsito". Pedida/aprovada: ainda não — mas a origem já está prometida. */
+/**
+ * Despachada: a cobertura já conta como "em trânsito". Pedida/aprovada (sem
+ * reserva na origem): PENDENTE (246, `pendingTransferLines`) — não é cobertura,
+ * mas a origem já está prometida e o banco não a compra.
+ */
 const DISPATCHED_TRANSFER = ['IN_TRANSIT', 'PARTIALLY_RECEIVED'];
-const PENDING_TRANSFER = ['REQUESTED', 'APPROVED'];
+/** Teto de uma leitura paginada (`readAllPages`): além dele, `error` — nunca corte calado. */
+const PAGED_MAX = 20_000;
+
+/** Uma leitura em páginas de ordem estável, até o fim; uma falha (ou o teto) SOBE. */
+async function readAllPages<T>(
+  label: string, page: (from: number, to: number) => PromiseLike<{ data: unknown; error: unknown }>,
+): Promise<T[]> {
+  const out: T[] = [];
+  for (let from = 0; from < PAGED_MAX; from += READ_LIMIT) {
+    const res = await page(from, from + READ_LIMIT - 1);
+    if (res.error) throw new Error(label);
+    const rows = (res.data ?? []) as T[];
+    out.push(...rows);
+    if (rows.length < READ_LIMIT) return out;
+  }
+  throw new Error(`${label}: mais de ${PAGED_MAX} linhas`);
+}
+
+/**
+ * 246: o saldo que as transferências PEDIDAS/APROVADAS da organização inteira
+ * (sem reserva na origem, de qualquer requisito ou de nenhum) vão tirar de cada
+ * local — só o item em foco, por `promisedByOrigin` (a conta do Planejamento).
+ * Paginado (item por série move uma unidade por linha): cortada, a leitura
+ * prometeria de menos e o plano sugeriria de novo o saldo já prometido.
+ */
+async function readPromised(sb: SupabaseClient, org: string, itemId: string): Promise<Map<string, number>> {
+  const heads = await readAllPages<PendingTransferHeadRow>('transferências pedidas da organização', (from, to) => sb
+    .from('inventory_transfers').select('id,transfer_number,status,from_location_id').eq('organization_id', org)
+    .in('status', [...PENDING_TRANSFER_STATUSES]).order('id').range(from, to));
+  const ids = heads.map((t) => t.id);
+  const chunks: string[][] = [];
+  for (let i = 0; i < ids.length; i += SELECT_IN_CHUNK) chunks.push(ids.slice(i, i + SELECT_IN_CHUNK));
+  const lines = (await Promise.all(chunks.map((chunk) => readAllPages<PendingTransferLineRow>('linhas das transferências pedidas',
+    (from, to) => sb.from('inventory_transfer_lines').select('id,transfer_id,item_id,requirement_id,quantity,source_reservation_id')
+      .eq('organization_id', org).eq('item_id', itemId).is('source_reservation_id', null).in('transfer_id', chunk)
+      .order('id').range(from, to))))).flat();
+  return promisedByOrigin(lines, heads);
+}
 
 /**
  * O que o plano precisa além da cobertura: as transferências VIVAS do
- * requisito (o número do que já está a caminho) e o histórico real de
- * transferências RECEBIDAS nos canteiros deste projeto (180 dias, de qualquer
- * origem) — a amostra de `simulateTransfer` (par de locais, senão o destino).
- * RLS de transferências e locais = o portão do estoque.
+ * requisito (o número do que já está a caminho e do que foi pedido), o saldo
+ * que as pedidas da organização INTEIRA já prometeram tirar de cada local (o
+ * item em foco, de qualquer requisito ou de nenhum — a conta do Planejamento)
+ * e o histórico real de transferências RECEBIDAS nos canteiros deste projeto
+ * (180 dias, de qualquer origem) — a amostra de `simulateTransfer` (par de
+ * locais, senão o destino). RLS de transferências e locais = o portão do
+ * estoque. Tudo-ou-nada: uma leitura que falha derruba o plano (`error`).
  */
-async function readPlanFacts(sb: SupabaseClient, org: string, projectId: string, requirementId: string, today: string): Promise<PlanFacts> {
+async function readPlanFacts(
+  sb: SupabaseClient, org: string, projectId: string, requirementId: string, itemId: string | null, today: string,
+): Promise<PlanFacts> {
   const since = new Date(`${today}T00:00:00Z`); since.setUTCDate(since.getUTCDate() - 180);
-  const [lines, sites] = await Promise.all([
+  const [lines, sites, promised] = await Promise.all([
     sb.from('inventory_transfer_lines').select('transfer_id,quantity,received_quantity,source_reservation_id').eq('organization_id', org)
       .eq('requirement_id', requirementId).limit(200),
     sb.from('inventory_locations').select('id').eq('organization_id', org).eq('project_id', projectId).eq('kind', 'PROJECT_SITE').limit(20),
+    itemId ? readPromised(sb, org, itemId) : Promise.resolve(new Map<string, number>()),
   ]);
   if (lines.error) throw new Error('transferências do requisito');
   if (sites.error) throw new Error('canteiros do projeto');
@@ -1238,16 +1374,16 @@ async function readPlanFacts(sb: SupabaseClient, org: string, projectId: string,
     return t && DISPATCHED_TRANSFER.includes(t.status) && open(l) > 0 ? [{ number: t.transfer_number, qty: open(l) }] : [];
   });
   // A linha que MOVE uma reserva já está em "reservado" (e o banco não a soma de novo): não é pendência a mais.
-  const pending = lineRows.flatMap((l) => {
-    const t = byId.get(l.transfer_id);
-    return t && PENDING_TRANSFER.includes(t.status) && num(l.quantity) > 0 && !l.source_reservation_id
-      ? [{ number: t.transfer_number, qty: num(l.quantity), fromLocationId: t.from_location_id, status: t.status }] : [];
-  });
+  const pendingLines = pendingTransferLines(lineRows, transfers);
+  const pending = pendingLines.map(({ transfer: t, qty }) => ({ number: t.transfer_number, qty, fromLocationId: t.from_location_id,
+    status: t.status }));
+  const pendingRefs = pendingTransferRefsByRequirement(lineRows.map((l) => ({ ...l, requirement_id: requirementId })), transfers)
+    .get(requirementId) ?? [];
   const transit = done.flatMap((t) => {
     const days = (Date.parse(String(t.received_at)) - Date.parse(String(t.dispatched_at))) / 86_400_000;
     return Number.isFinite(days) ? [{ fromId: String(t.from_location_id), toId: String(t.to_location_id), days: Math.max(0, days) }] : [];
   });
-  return { transit, inTransit, pending };
+  return { transit, inTransit, pending, pendingRefs, promised };
 }
 
 /**
@@ -1437,14 +1573,19 @@ export const INBOX_TIMEOUT_MS = 10_000;
 const PERMISSION_KEYS = ['inventory.view', 'supply.view', 'receiving.view', 'procurement.view', 'suppliers.view', 'parties.view',
   'contracts.view', 'finance.view',
   // As alçadas das rotas governadas que o Supply do local oferece (o mesmo `anyOf` de cada rota).
-  'procurement.request', 'procurement.source', 'procurement.approve', 'suppliers.manage', 'inventory.reserve', 'inventory.manage'] as const;
+  'procurement.request', 'procurement.source', 'procurement.approve', 'suppliers.manage', 'inventory.reserve', 'inventory.manage',
+  // 246: a exceção de cobertura (o banco a reconfere em `purchase_requisition_from_shortage`).
+  'procurement.coverage_override'] as const;
 
 /**
  * O que ESTA pessoa pode fazer aqui — as chaves exatas das rotas governadas:
  * requisições (`procurement.request`), cotação/decisão/envio
  * (`procurement.source`), aprovação (`procurement.approve`), cadastro de
- * fornecedor (`suppliers.manage`), reserva (`inventory.reserve`) e
- * transferência (`inventory.manage` OU `inventory.reserve`, a da rota).
+ * fornecedor (`suppliers.manage`), reserva (`inventory.reserve`),
+ * transferência (`inventory.manage` OU `inventory.reserve`, a da rota) e a
+ * exceção de cobertura (`procurement.coverage_override`, 246 — comprar também
+ * o que a transferência pendente cobre; a requisição em si segue exigindo
+ * `procurement.request`, e o banco reconfere as duas).
  */
 export function supplyCapabilities(has: Readonly<Record<string, boolean>>, aiSearch: SupplyCapabilities['aiSearch']): SupplyCapabilities {
   return {
@@ -1455,6 +1596,7 @@ export function supplyCapabilities(has: Readonly<Record<string, boolean>>, aiSea
     reserve: has['inventory.reserve'] === true,
     transfer: has['inventory.manage'] === true || has['inventory.reserve'] === true,
     aiSearch,
+    coverageOverride: has['procurement.request'] === true && has['procurement.coverage_override'] === true,
   };
 }
 
@@ -1520,7 +1662,9 @@ export async function buildSiteSupply(
       ? readOrders(sb, org, projectId, focus, { amountVisible, supplierNames }) : { orders: [], poIds: new Set<string>() }), timings, 'orders'),
     sitePart(true, 'a posição do local', () => readSite(sb, org, projectId), timings, 'site'),
     sitePart(stockGate, 'as transferências do material', async () => (focus
-      ? readPlanFacts(sb, org, projectId, focus.requirementId, today) : { transit: [], inTransit: [], pending: [] }), timings, 'planFacts'),
+      ? readPlanFacts(sb, org, projectId, focus.requirementId, focus.item?.id ?? null, today)
+      : { transit: [], inTransit: [], pending: [], pendingRefs: [], promised: new Map<string, number>() }),
+    timings, 'planFacts'),
     sitePart(procurementGate, 'as solicitações e cotações', async () => (focus
       ? readProcurement(sb, org, focus, today, { amountVisible, supplierNames }) : []), timings, 'procurement'),
     sitePart(procurementGate, 'os fornecedores do item', async () => (focus?.item
@@ -1570,7 +1714,7 @@ export async function buildSiteSupply(
       data: supplyPlan({
         focus, requirementType: typeById.get(focus.requirementId) ?? null, stock: stock.data.nodes, site: siteData.coordinate,
         siteLocations: siteData.locations, transit: planFacts.data.transit, inTransit: planFacts.data.inTransit,
-        pendingTransfers: planFacts.data.pending, requisitions: open,
+        pendingTransfers: planFacts.data.pending, promised: planFacts.data.promised, requisitions: open,
         purchaseOrders: orders.state === 'ok' ? orders.data.orders.map((o) => ({ number: o.number })) : null,
         caps: { reserve: has['inventory.reserve'], transfer: has['inventory.manage'] || has['inventory.reserve'],
           manage: has['inventory.manage'], request: has['procurement.request'] },
@@ -1580,9 +1724,12 @@ export async function buildSiteSupply(
     };
   } else plan = { state: 'error', message: 'Não foi possível montar o plano.' };
 
+  // 246: o material em foco com a LISTA das suas transferências pendentes (para resolvê-las no Estoque);
+  // o número (`pendingTransfer`) e o comprável seguem os da visão.
+  const focusView = focus && planFacts.state === 'ok' ? withPendingTransfers(focus, planFacts.data.pendingRefs) : focus;
   const data: SiteSupplyData = {
-    focus,
-    materials,
+    focus: focusView,
+    materials: focusView === focus ? materials : materials.map((m) => (m === focus ? focusView as MaterialBalance : m)),
     stock: stock.state === 'ok'
       ? { state: 'ok', data: stock.data.nodes, ...(stock.data.truncated ? { truncated: true } : {}) }
       : stock,

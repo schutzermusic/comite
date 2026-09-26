@@ -44,7 +44,8 @@ vi.mock('@/components/ax', async () => {
 });
 
 import {
-  CORRIDOR_PAD, CORRIDOR_TURN, EVENT_TONE, PLAN_STAGGER_MS, REVEAL_FRAME, SCAN_DRIFT, SCAN_MIN_KM, SCAN_STATUS_TEXT, SEND_OUTCOME, SITE_BOX, abPair, activeRfq,
+  CORRIDOR_PAD, CORRIDOR_TURN, EVENT_TONE, PENDING_TRANSFER_HINT, PLAN_STAGGER_MS, REVEAL_FRAME, SCAN_DRIFT, SCAN_MIN_KM, SCAN_STATUS_TEXT, SEND_OUTCOME,
+  SITE_BOX, abPair, activeRfq, pendingTransfersOf, planBuyWait, qtyText, requisitionDoneTitle, requisitionGate, requisitionPaths,
   arrivalText, balanceRows, billingRef, canCreateRequisition, cnpjText, companyKey, corridorView, coverageSegments, currentPurchaseStep, dayMonth,
   dayNumber, decideBody, defaultRationale, defaultResponseDue, eventContext, eventTone, flagSides, flowReadable, flowStates, focusActivity,
   frameView, gapSpan, ganttLinkPaths, ganttRows, ganttScale, govStep, handledBySend, haversineKm, lowReliability, missingDeliveryLocation,
@@ -57,7 +58,12 @@ import {
 import { BillingModule, PlanModule, SupplyModule } from '@/components/dashboard-globe/modules';
 import { SupplyFlowPanel } from '@/components/dashboard-globe/modules/supply/FlowPanel';
 import { NeedPanel } from '@/components/dashboard-globe/modules/supply/NeedPanel';
+import { PlanSteps } from '@/components/dashboard-globe/modules/supply/Plan';
 import { RequisitionStep } from '@/components/dashboard-globe/modules/supply/Requisition';
+import {
+  COVERAGE_EXCEPTION_MIN_REASON, coverageOverrideBody, exceptionOutcomeNotice, exceptionReasonState, pendingOverlapText, purchaseGate,
+  requisitionOutcome,
+} from '@/components/supply/coverage-gate';
 import { SuppliersStep } from '@/components/dashboard-globe/modules/supply/Suppliers';
 import { NETWORK_TEXT, NETWORK_TEXT_UNKEYED, postDiscovery, postGoverned } from '@/components/dashboard-globe/modules/supply/act';
 import type { FlowCtx } from '@/components/dashboard-globe/modules/supply/types';
@@ -118,7 +124,8 @@ const BALANCE: MaterialBalance = {
   item: { id: 'c502', code: 'CABO-35-XLPE', description: 'Cabo de potência 35 mm² XLPE 15 kV', unit: 'm' },
   activity: { id: 'cabo', title: 'Lançamento de cabos de potência', start: '2026-09-30' },
   needBy: '2026-09-30', required: 1200, reserved: 300, consumed: 0, inTransit: 400, onOrder: 0, requested: 500, covered: 300,
-  inbound: 400, inspection: 0, shortage: 500, risk: 'critical', href: '/supply/planejamento-materiais?req=ca276394',
+  inbound: 400, inspection: 0, shortage: 500, pendingTransfer: 0, pendingTransfers: [], purchasable: 0, risk: 'critical',
+  href: '/supply/planejamento-materiais?req=ca276394',
 };
 
 function node(p: Partial<StockNode> & { locationId: string }): StockNode {
@@ -185,7 +192,7 @@ const CANDIDATES: SupplierCandidate[] = [
   { supplierId: 'sp', name: '[QA] Prospect Fios', status: 'PROSPECT', categories: ['Cabos'], contactName: null, hasEmail: true, hasPhone: false, onTimeRate: null, leadDays: null, basis: 'category' },
 ];
 const CAPS = { request: true, source: true, approve: false, suppliersManage: true, reserve: true, transfer: true,
-  aiSearch: { available: false, reason: 'Busca externa desligada nesta instalação' } };
+  aiSearch: { available: false, reason: 'Busca externa desligada nesta instalação' }, coverageOverride: false };
 
 const SUPPLY: SiteSupplyData = {
   focus: BALANCE, materials: [BALANCE],
@@ -686,7 +693,7 @@ describe('Supply · fluxo guiado: plano, solicitação, fornecedores', () => {
     expect(requisitionBody({ ...BALANCE, risk: 'ok' }, null, 'k-12345678').priority).toBe('low');
     // a falta toda já requisitada (500 de 500) → nada a criar; sem solicitação e com falta → cria; sem permissão ou sem leitura → não
     expect(canCreateRequisition(SUPPLY)).toBe(false);
-    const none = { ...SUPPLY, focus: { ...BALANCE, requested: 0 }, procurement: { state: 'ok' as const, data: { requisitions: [] } } };
+    const none = { ...SUPPLY, focus: { ...BALANCE, requested: 0, purchasable: 500 }, procurement: { state: 'ok' as const, data: { requisitions: [] } } };
     expect(canCreateRequisition(none)).toBe(true);
     expect(canCreateRequisition({ ...none, capabilities: { ...CAPS, request: false } })).toBe(false);
     expect(canCreateRequisition({ ...none, procurement: { state: 'restricted' } })).toBe(false);
@@ -696,21 +703,23 @@ describe('Supply · fluxo guiado: plano, solicitação, fornecedores', () => {
 
   it('a quantidade da confirmação é a do BANCO (falta − requisitado em aberto), com o aviso quando o plano ainda sugere reservar/transferir', () => {
     // falta 500, nada requisitado, o plano sugere transferir 250 de Marabá → o banco requisitaria 500; o plano, 250
-    const data = { plan: { state: 'ok' as const, data: { ...PLAN_OK, steps: PLAN_OK.steps.slice(0, 2), remainingShortage: 250 } }, focus: { ...BALANCE, requested: 0 } };
+    const data = { plan: { state: 'ok' as const, data: { ...PLAN_OK, steps: PLAN_OK.steps.slice(0, 2), remainingShortage: 250 } }, focus: { ...BALANCE, requested: 0, purchasable: 500 } };
     expect(requisitionQty(data.focus)).toBe(500);
     expect(planToRequisition(data)).toBe(250);
     expect(requisitionPreview(data)).toMatchObject({ qty: 500, planQty: 250, extra: 250, openSteps: [{ kind: 'transfer', qty: 250 }] });
     // transferência feita (o plano não sugere mais nada): sem diferença
-    const after = { plan: { state: 'ok' as const, data: { ...PLAN_OK, steps: [], remainingShortage: 250 } }, focus: { ...BALANCE, shortage: 250, requested: 0 } };
+    const after = { plan: { state: 'ok' as const, data: { ...PLAN_OK, steps: [], remainingShortage: 250 } }, focus: { ...BALANCE, shortage: 250, requested: 0, purchasable: 250 } };
     expect(requisitionPreview(after)).toMatchObject({ qty: 250, planQty: 250, extra: 0 });
     expect(requisitionQty(null)).toBeNull();
-    expect(requisitionQty({ shortage: Number.NaN, requested: 0 })).toBeNull();
+    // o número é o do BANCO (`purchasable_qty`): sem ele na leitura, nada — nunca a conta da tela
+    expect(requisitionQty({ purchasable: Number.NaN })).toBeNull();
+    expect(requisitionQty({} as { purchasable: number })).toBeNull();
   });
 
   it('solicitação antiga não esconde a falta que cresceu: a pedida (já com pedido) fica listada E "Criar solicitação" volta', () => {
     const ordered = { ...REQ, status: 'ORDERED', statusLabel: 'Pedido emitido', rfqs: [] };
     const grown: SiteSupplyData = {
-      ...SUPPLY, focus: { ...BALANCE, shortage: 300, requested: 0 }, procurement: { state: 'ok', data: { requisitions: [ordered] } },
+      ...SUPPLY, focus: { ...BALANCE, shortage: 300, requested: 0, purchasable: 300 }, procurement: { state: 'ok', data: { requisitions: [ordered] } },
       plan: { state: 'ok', data: { ...PLAN_OK, steps: [{ ...PLAN_OK.steps[2], qty: 300, status: 'suggested', reason: null }], remainingShortage: 300 } },
     };
     expect(canCreateRequisition(grown)).toBe(true);
@@ -927,7 +936,7 @@ describe('Supply · A × B e a decisão governada', () => {
     const waiting = { ...allDone, plan: { state: 'ok' as const, data: { ...allDone.plan.data,
       steps: allDone.plan.data.steps.map((s, i) => (i === 1 ? { ...s, status: 'pending' as const } : s)) } } };
     expect(flowStates(waiting)).toMatchObject({ plan: 'waiting', quotes: 'current' });
-    const none ={ ...SUPPLY, focus: { ...BALANCE, requested: 0 }, procurement: { state: 'ok' as const, data: { requisitions: [] } } };
+    const none ={ ...SUPPLY, focus: { ...BALANCE, requested: 0, purchasable: 500 }, procurement: { state: 'ok' as const, data: { requisitions: [] } } };
     expect(flowStates(none)).toEqual({ plan: 'current', requisition: 'pending', suppliers: 'pending', quotes: 'pending' });
     expect(currentPurchaseStep(flowStates(none))).toBe('plan');
     const covered = { ...none, plan: { state: 'ok' as const, data: { ...PLAN_OK, remainingShortage: 0 } } };
@@ -958,7 +967,275 @@ describe('Supply · A × B e a decisão governada', () => {
     expect(n.plan.state).toBe('error');
     expect(n.procurement.state).toBe('error');
     expect(n.suppliers.state).toBe('error');
-    expect(n.capabilities).toMatchObject({ request: false, source: false, approve: false, aiSearch: { available: false } });
+    expect(n.capabilities).toMatchObject({ request: false, source: false, approve: false, aiSearch: { available: false }, coverageOverride: false });
+  });
+});
+
+/* ── Regra 246: transferência PEDIDA (sem despacho) não é cobertura — nem é comprada de novo ────────── */
+
+/* O caso do QA (qa-flx-*, 25/09/2026): 500 m, 100 reservados, TR-260925-B71B7 de 150 m PEDIDA → falta 400, comprável 250. */
+const TR_FLX = { transferId: 'tr-b71b7', number: 'TR-260925-B71B7', status: 'REQUESTED', statusLabel: 'Solicitada', qty: 150,
+  href: '/supply/estoque?view=transferencias&transfer=tr-b71b7' };
+const FLX: MaterialBalance = {
+  ...BALANCE, required: 500, reserved: 100, consumed: 0, inTransit: 0, onOrder: 0, requested: 0, covered: 100, inbound: 0, inspection: 0,
+  shortage: 400, pendingTransfer: 150, pendingTransfers: [TR_FLX], purchasable: 250,
+};
+const FLX_PLAN: SupplyPlan = {
+  steps: [
+    { kind: 'reserve', qty: 100, unit: 'm', from: null, label: 'Reservar 100 m', status: 'done', reason: '100 m já reservados para este requisito', action: null },
+    { kind: 'transfer', qty: 150, unit: 'm', from: { locationId: 'flx-d', name: 'Depósito FLX-D', lat: null, lng: null }, label: 'Transferir 150 m do Depósito FLX-D',
+      status: 'pending', reason: 'já pedida — TR-260925-B71B7; aguarda a aprovação no Estoque (ainda não saiu da origem)', action: null },
+    { kind: 'buy', qty: 250, unit: 'm', from: null, label: 'Comprar 250 m', status: 'suggested', reason: null,
+      action: { method: 'POST', href: '/api/supply/procurement/requisitions', permission: 'procurement.request',
+        body: { source: 'SHORTAGE', requirementIds: ['ca276394'] }, confirm: 'Abrir a solicitação de compra?' } },
+  ],
+  remainingShortage: 250,
+  basis: 'Cobertura viva — sem estoque livre do item na rede',
+};
+const FLX_SUPPLY: SiteSupplyData = {
+  ...SUPPLY, focus: FLX, materials: [FLX], plan: { state: 'ok', data: FLX_PLAN }, procurement: { state: 'ok', data: { requisitions: [] } },
+};
+/* O que falta está TODO em transferência pedida (400 m): comprável zero. */
+const ALL_PENDING: SiteSupplyData = {
+  ...FLX_SUPPLY, focus: { ...FLX, pendingTransfer: 400, pendingTransfers: [{ ...TR_FLX, qty: 400 }], purchasable: 0 },
+  plan: { state: 'ok', data: { ...FLX_PLAN, steps: [FLX_PLAN.steps[0], { ...FLX_PLAN.steps[1], qty: 400 }], remainingShortage: 0 } },
+};
+const OVERRIDE_CAPS = { ...CAPS, coverageOverride: true };
+
+describe('Supply · regra 246: transferência pedida não é cobertura, nem é comprada de novo', () => {
+  const ctx246 = (data: SiteSupplyData): FlowCtx => ({ data, today: TODAY, projectId: 'qa-flx', siteName: 'FLX', afterAct: () => undefined });
+  const step = (data: SiteSupplyData) => renderToStaticMarkup(h(RequisitionStep, { ctx: ctx246(data), onCreate: () => undefined, onException: () => undefined }));
+
+  it('balanço: "Transferência pedida" é linha neutra — não entra no Coberto nem sai da Falta', () => {
+    const rows = balanceRows(FLX);
+    expect(rows.map((r) => r.label)).toEqual(['Necessário', 'Reservado', 'Consumido', 'Em trânsito', 'Pedido', 'Transferência pedida', 'Coberto', 'Falta']);
+    expect(rows.find((r) => r.key === 'pendingTransfer')).toMatchObject({ text: '150 m', tone: 'info', hint: PENDING_TRANSFER_HINT });
+    expect(rows.find((r) => r.key === 'covered')).toMatchObject({ text: '100 m', tone: 'ok' });
+    expect(rows.find((r) => r.key === 'shortage')).toMatchObject({ text: '400 m', tone: 'danger' });
+    expect(balanceRows(BALANCE).some((r) => r.key === 'pendingTransfer')).toBe(false);
+    const need = renderToStaticMarkup(h(NeedPanel, { data: FLX_SUPPLY, today: TODAY, stage: 'idle', onScan: () => undefined, onDirect: () => undefined, onExplain: () => undefined }));
+    expect(need).toContain(`data-tone="info" title="${PENDING_TRANSFER_HINT}"><dt>Transferência pedida</dt><dd class="num">150 m</dd>`);
+  });
+
+  it('a parte pendente não é comprada de novo: a solicitação pede o comprável do BANCO (250), não a falta (400)', () => {
+    expect(requisitionQty(FLX)).toBe(250);
+    expect(planToRequisition(FLX_SUPPLY)).toBe(250);
+    // o plano nunca pede mais do que o banco requisitaria
+    expect(planToRequisition({ plan: { state: 'ok', data: { ...FLX_PLAN, remainingShortage: 400 } }, focus: FLX })).toBe(250);
+    expect(requisitionPreview(FLX_SUPPLY)).toMatchObject({ qty: 250, planQty: 250, extra: 0 });
+    expect(remainingToBuy({ plan: { state: 'error', message: 'x' }, focus: FLX })).toBe(250);
+    expect(requisitionGate(FLX_SUPPLY)).toEqual({ purchasable: 250, pending: 150, exceptionQty: 400, exceptionExtra: 150, overlap: 0, blocked: false, canBuy: true, canException: false });
+    expect(requisitionPaths(FLX_SUPPLY)).toEqual({ buy: true, exception: false });
+    expect(flowStates(FLX_SUPPLY)).toEqual({ plan: 'current', requisition: 'pending', suppliers: 'pending', quotes: 'pending' });
+    const html = step(FLX_SUPPLY);
+    expect(html).toContain('data-testid="dg-supply-transfer-pending"');
+    expect(html).toContain('Transferência pedida · <span class="num">150 m</span>');
+    expect(html).toContain('TR-260925-B71B7');
+    expect(html).toContain('href="/supply/estoque?view=transferencias&amp;transfer=tr-b71b7"');
+    expect(html).toContain('Resolver a transferência');
+    expect(html).toContain('A solicitação compra só o que não está pedido em transferência: 250 m. Os 150 m pendentes ficam de fora');
+    expect(html).toContain('data-testid="dg-supply-requisition-create"');
+    expect(html).not.toContain('dg-supply-coverage-exception');
+    expect(html).not.toMatch(/NaN|undefined/);
+  });
+
+  it('comprável zero com o resto pedido em transferência: a compra ESPERA — nunca "não precisa", nunca "feito"', () => {
+    expect(requisitionGate(ALL_PENDING)).toEqual({ purchasable: 0, pending: 400, exceptionQty: 400, exceptionExtra: 400, overlap: 0, blocked: true, canBuy: false, canException: false });
+    expect(canCreateRequisition(ALL_PENDING)).toBe(false);
+    expect(flowStates(ALL_PENDING)).toEqual({ plan: 'waiting', requisition: 'waiting', suppliers: 'pending', quotes: 'pending' });
+    expect(currentPurchaseStep(flowStates(ALL_PENDING))).toBeNull();
+    // o plano sem passo aberto, mas com transferência pendente no banco: aguarda — nunca "feito"
+    const planDone = { ...ALL_PENDING, plan: { state: 'ok' as const, data: { ...FLX_PLAN, steps: [FLX_PLAN.steps[0]], remainingShortage: 0 } } };
+    expect(flowStates(planDone).plan).toBe('waiting');
+    const html = step(ALL_PENDING);
+    expect(html).toContain('data-testid="dg-supply-requisition-blocked"');
+    expect(html).toContain('Compra bloqueada: o que falta (<b class="num">400 m</b>) está pedido em transferência');
+    expect(html).toContain('despachada (a falta cai) ou cancelada (volta a ser comprável)');
+    expect(html).toContain('Comprar também a parte pendente só com exceção de cobertura, por quem tem essa alçada.');
+    expect(html).not.toContain('dg-supply-requisition-create');
+    expect(html).not.toContain('Não há o que comprar');
+    const flow = renderToStaticMarkup(h(SupplyFlowPanel, { ctx: ctx246(ALL_PENDING) }));
+    expect(flow).toContain('bloqueada · 400 m em transferência pedida (TR-260925-B71B7)');
+    expect(flow).not.toContain('a rede cobre a falta');
+    expect(flow).toMatch(/data-testid="dg-supply-step-requisition"><h4[^]*?data-signal="info">Aguardando</);
+    expect(flow).not.toMatch(/data-testid="dg-supply-step-requisition"><h4[^]*?data-signal="(success|neutral)">(Feito|Não precisa)</);
+    // o livro-razão da rede: "a rede cobre a falta" só depois do despacho
+    const ledger = renderToStaticMarkup(h(NeedPanel, { data: ALL_PENDING, today: TODAY, stage: 'revealed', onScan: () => undefined, onDirect: () => undefined, onExplain: () => undefined }));
+    expect(ledger).toContain('data-testid="dg-supply-network-pending"');
+    expect(ledger).toContain('Nada a comprar se a transferência pedida for despachada');
+    expect(ledger).not.toContain('A rede cobre a falta');
+  });
+
+  it('o passo "Comprar" do plano consome os MESMOS números: sem comprável, nada de "Criar solicitação"', () => {
+    const stale = { ...ALL_PENDING, plan: { state: 'ok' as const, data: { ...FLX_PLAN, steps: [FLX_PLAN.steps[0], { ...FLX_PLAN.steps[1], qty: 400 }, FLX_PLAN.steps[2]] } } };
+    const blocked = renderToStaticMarkup(h(PlanSteps, { ctx: ctx246(stale), onBuy: () => undefined }));
+    expect(blocked).not.toContain('data-testid="dg-plan-act-buy"');
+    expect(blocked).toContain('data-testid="dg-plan-buy-wait"');
+    expect(blocked).toContain('A compra espera a transferência pedida');
+    const ok = renderToStaticMarkup(h(PlanSteps, { ctx: ctx246(FLX_SUPPLY), onBuy: () => undefined }));
+    expect(ok).toContain('data-testid="dg-plan-act-buy"');
+    expect(ok).not.toContain('dg-plan-buy-wait');
+  });
+
+  it('exceção de cobertura: só com as DUAS alçadas e parte pendente a comprar; justificativa ≥ 20; o corpo exato da rota', () => {
+    const withOverride: SiteSupplyData = { ...ALL_PENDING, capabilities: OVERRIDE_CAPS };
+    expect(requisitionPaths(withOverride)).toEqual({ buy: false, exception: true });
+    expect(canCreateRequisition(withOverride)).toBe(true);
+    expect(requisitionPaths({ ...FLX_SUPPLY, capabilities: OVERRIDE_CAPS })).toEqual({ buy: true, exception: true });
+    // a rota exige `procurement.request` antes da exceção: sem ela, nenhum caminho
+    expect(requisitionPaths({ ...ALL_PENDING, capabilities: { ...OVERRIDE_CAPS, request: false } })).toEqual({ buy: false, exception: false });
+    // sem transferência pendente não há exceção a pedir
+    const plain = { ...SUPPLY, capabilities: OVERRIDE_CAPS, focus: { ...BALANCE, requested: 0, purchasable: 500 }, procurement: { state: 'ok' as const, data: { requisitions: [] } } };
+    expect(requisitionPaths(plain)).toEqual({ buy: true, exception: false });
+    // o trilho é do DADO: quem tem a alçada também vê "aguardando"
+    expect(flowStates(withOverride).requisition).toBe('waiting');
+    const blocked = step(withOverride);
+    expect(blocked).toContain('data-testid="dg-supply-coverage-exception"');
+    expect(blocked).toContain('Exceção de cobertura: comprar também 400 m');
+    expect(blocked).not.toContain('por quem tem essa alçada');
+    const both = step({ ...FLX_SUPPLY, capabilities: OVERRIDE_CAPS });
+    expect(both).toContain('data-testid="dg-supply-requisition-create"');
+    expect(both.indexOf('dg-supply-requisition-create')).toBeLessThan(both.indexOf('dg-supply-coverage-exception'));
+    // a justificativa (mesma régua do banco: sem os espaços das pontas)
+    expect(COVERAGE_EXCEPTION_MIN_REASON).toBe(20);
+    expect(exceptionReasonState('curto demais')).toMatchObject({ ok: false, length: 12, missing: 8, counter: '12/20' });
+    expect(exceptionReasonState('curto demais').hint).toContain('faltam 8 caracteres');
+    expect(exceptionReasonState(`   ${'x'.repeat(19)}   `).ok).toBe(false);
+    expect(exceptionReasonState('A origem só libera o cabo em novembro.')).toMatchObject({ ok: true, hint: null });
+    // o corpo: o da solicitação + `coverageOverride: { reason }`
+    expect({ ...requisitionBody(FLX, 'cant-tuc', 'intent-exc-12345'), ...coverageOverrideBody('  A origem só libera o cabo em novembro.  ') }).toEqual({
+      source: 'SHORTAGE', requirementIds: ['ca276394'], deliveryLocationId: 'cant-tuc', priority: 'critical', idempotencyKey: 'intent-exc-12345',
+      coverageOverride: { reason: 'A origem só libera o cabo em novembro.' },
+    });
+    // o retorno do banco (246): número, quantidade requisitada, exceção
+    expect(requisitionOutcome({ requisition_id: 'r1', requisition_number: 'RC-260926-AAAA1', requisitioned_qty: '400.0000', override: true, replayed: false }))
+      .toEqual({ number: 'RC-260926-AAAA1', qty: 400, override: true, replayed: false });
+    expect(requisitionOutcome({ requisition_number: 'RC-1', replayed: true })).toEqual({ number: 'RC-1', qty: null, override: false, replayed: true });
+  });
+
+  it('a regra do gate: comprável do banco, nunca a conta da tela; leitura antiga (sem os campos) não oferece nada', () => {
+    expect(purchaseGate({ shortage: 400, requested: 0, pendingTransfer: 150, purchasable: 250 }, { request: true, coverageOverride: true }))
+      .toEqual({ purchasable: 250, pending: 150, exceptionQty: 400, exceptionExtra: 150, overlap: 0, blocked: false, canBuy: true, canException: true });
+    // requisitado 250 + pendente 150 cobrem os 400: bloqueada; a exceção compraria só o que não está requisitado (150)
+    expect(purchaseGate({ shortage: 400, requested: 250, pendingTransfer: 150, purchasable: 0 }, { request: true, coverageOverride: true }))
+      .toMatchObject({ blocked: true, exceptionQty: 150, exceptionExtra: 150, canBuy: false, canException: true });
+    // pendente maior que a falta aberta (400 − 300 = 100): a exceção compra 100, não os 150 da transferência
+    expect(purchaseGate({ shortage: 400, requested: 300, pendingTransfer: 150, purchasable: 0 }, { request: true, coverageOverride: true }))
+      .toMatchObject({ blocked: true, exceptionQty: 100, exceptionExtra: 100 });
+    // requisitado cobre tudo: nada a comprar, nada bloqueado
+    expect(purchaseGate({ shortage: 400, requested: 400, pendingTransfer: 0, purchasable: 0 }, { request: true, coverageOverride: true }))
+      .toMatchObject({ blocked: false, exceptionQty: null, canBuy: false, canException: false });
+    expect(purchaseGate({ shortage: 400, requested: 0 }, { request: true })).toMatchObject({ purchasable: null, pending: 0, canBuy: false });
+    expect(purchaseGate(null, { request: true }).canBuy).toBe(false);
+    const legacy = { ...FLX } as Partial<MaterialBalance>;
+    delete legacy.purchasable; delete legacy.pendingTransfer; delete legacy.pendingTransfers;
+    const old = { ...FLX_SUPPLY, focus: legacy as MaterialBalance };
+    expect(requisitionQty(old.focus)).toBeNull();
+    expect(canCreateRequisition(old)).toBe(false);
+    expect(pendingTransfersOf(old.focus)).toEqual([]);
+    expect(balanceRows(old.focus).some((r) => r.key === 'pendingTransfer')).toBe(false);
+    expect(step(old)).not.toMatch(/NaN|undefined|dg-supply-requisition-create/);
+  });
+
+  /* O fim do E2E 13 (qa-flx-*-exc): a exceção comprou os 400 m — falta 400, requisitado 400, pendente 400, comprável 0. */
+  const EXC_REQ = { ...REQ, id: 'rq-exc', number: 'RC-260926-EXC01', status: 'SUBMITTED', statusLabel: 'Submetida', qty: 400, rfqs: [] };
+  const AFTER_EXC: SiteSupplyData = {
+    ...ALL_PENDING, focus: { ...(ALL_PENDING.focus as MaterialBalance), requested: 400 },
+    procurement: { state: 'ok', data: { requisitions: [EXC_REQ] } },
+  };
+
+  it('depois da exceção: a transferência pedida JÁ foi comprada — o texto diz quanto, "chega em dobro" e cancelar; nunca "não é comprada de novo"', () => {
+    expect(requisitionGate(AFTER_EXC)).toMatchObject({ purchasable: 0, pending: 400, exceptionQty: null, overlap: 400, blocked: false, canBuy: false });
+    // a compra em andamento não some: a solicitação está listada e a etapa é "feita" (existe), com fornecedores na vez
+    expect(flowStates(AFTER_EXC)).toEqual({ plan: 'waiting', requisition: 'done', suppliers: 'current', quotes: 'pending' });
+    const html = step(AFTER_EXC);
+    expect(html).toContain('RC-260926-EXC01');
+    expect(html).toContain('data-overlap="true"');
+    expect(html).toContain('data-testid="dg-supply-transfer-pending"');
+    expect(html).toContain('data-testid="dg-supply-transfer-overlap"');
+    expect(html).toContain('já foi comprada: os 400 m entraram numa solicitação de compra por exceção de cobertura');
+    expect(html).toContain('Se a transferência também for despachada, o material chega em dobro');
+    expect(html).toContain('cancele-a no Estoque em “Resolver a transferência”');
+    expect(html).toContain('data-testid="dg-supply-resolve-transfer"');
+    expect(html).not.toContain('não é comprada de novo');
+    expect(html).not.toMatch(/dg-supply-requisition-create|dg-supply-requisition-blocked|dg-supply-coverage-exception|Não há o que comprar/);
+    // antes da exceção, o texto de sempre (a parte pendente não é comprada)
+    expect(step(FLX_SUPPLY)).toContain('não é comprada de novo');
+    expect(step(FLX_SUPPLY)).not.toContain('data-overlap');
+    // o livro-razão da rede: nada a comprar, mas despachar traz em dobro — nunca "se a transferência for despachada"
+    const ledger = renderToStaticMarkup(h(NeedPanel, { data: AFTER_EXC, today: TODAY, stage: 'revealed', onScan: () => undefined, onDirect: () => undefined, onExplain: () => undefined }));
+    expect(ledger).toContain('data-testid="dg-supply-network-overlap"');
+    expect(ledger).toContain('Nada a comprar: a transferência pedida já foi comprada por exceção');
+    expect(ledger).toContain('400 m em dobro se despachada');
+    expect(ledger).not.toContain('Nada a comprar se a transferência pedida for despachada');
+  });
+
+  it('a sobreposição é do gate (`pendingOverlap`): parcial, depois do pedido emitido, e nunca sem a falta na leitura', () => {
+    const fmt = (n: number) => qtyText(n, 'm');
+    // dado legado: 300 requisitados + 150 pendentes sobre 400 de falta → 50 sobrepostos; os outros 100 seguem bloqueados
+    const partial = purchaseGate({ shortage: 400, requested: 300, pendingTransfer: 150, purchasable: 0 }, { request: true });
+    expect(partial).toMatchObject({ overlap: 50, blocked: true, exceptionQty: 100 });
+    expect(pendingOverlapText(partial, fmt)).toContain('e 50 m dela já foram comprados: entraram numa solicitação de compra por exceção de cobertura');
+    expect(pendingOverlapText(partial, fmt)).toContain('esses 50 m chegam em dobro');
+    // pedido emitido: a falta caiu a 0 e o requisitado virou pedido — os 400 pendentes seguem em dobro
+    expect(purchaseGate({ shortage: 0, requested: 0, pendingTransfer: 400, purchasable: 0 }, { request: true }))
+      .toMatchObject({ overlap: 400, blocked: false, exceptionQty: null });
+    // sem sobreposição (antes da exceção), nada a dizer além do texto de sempre
+    expect(pendingOverlapText(requisitionGate(FLX_SUPPLY), fmt)).toBeNull();
+    expect(pendingOverlapText(requisitionGate(ALL_PENDING), fmt)).toBeNull();
+    // a falta que não veio não vira sobreposição
+    expect(purchaseGate({ shortage: Number.NaN, requested: 400, pendingTransfer: 400 }, { request: true }).overlap).toBe(0);
+    expect(purchaseGate(null, { request: true }).overlap).toBe(0);
+  });
+
+  it('o aviso da solicitação sai do que o BANCO devolveu: pedida a exceção e não usada, nunca "com exceção" nem "a exceção ficou registrada"', () => {
+    // Dashboard: o título do aviso da etapa 4
+    expect(requisitionDoneTitle({ requisition_number: 'RC-1', requisitioned_qty: '400.0000', override: true, replayed: false }, 'exception', 'm'))
+      .toBe('Solicitação RC-1 criada com exceção de cobertura — 400 m');
+    expect(requisitionDoneTitle({ requisition_number: 'RC-2', requisitioned_qty: 250, override: false, replayed: false }, 'exception', 'm'))
+      .toBe('Solicitação RC-2 criada sem exceção (a transferência já não estava pendente) — 250 m');
+    expect(requisitionDoneTitle({ requisition_number: 'RC-3', requisitioned_qty: 250, override: false }, 'buy', 'm')).toBe('Solicitação RC-3 criada — 250 m');
+    expect(requisitionDoneTitle({ requisition_number: 'RC-1', replayed: true, override: true }, 'exception', 'm')).toBe('Já estava registrada — RC-1');
+    expect(requisitionDoneTitle(null, 'buy', 'm')).toBe('Solicitação criada');
+    // Planejamento: o aviso do painel do requisito
+    const fmt = (n: number) => qtyText(n, 'm');
+    expect(exceptionOutcomeNotice({ requisition_number: 'RC-1', requisitioned_qty: '400.0000', override: true, replayed: false }, fmt)).toEqual({
+      title: 'Compra requisitada com exceção de cobertura', override: true,
+      detail: 'RC-1 · 400 m: a exceção ficou registrada; a requisição segue para cotação em Compras.',
+    });
+    const without = exceptionOutcomeNotice({ requisition_number: 'RC-2', requisitioned_qty: 250, override: false, replayed: false }, fmt);
+    expect(without).toMatchObject({ title: 'Compra requisitada sem exceção de cobertura', override: false });
+    expect(without.detail).toBe('A transferência já não estava pendente (despachada ou cancelada nesse meio-tempo): o banco requisitou só o comprável'
+      + ' (RC-2 · 250 m) e nenhuma exceção foi registrada. A requisição segue para cotação em Compras.');
+    expect(without.detail).not.toContain('a exceção ficou registrada');
+    expect(exceptionOutcomeNotice({ requisition_number: 'RC-1', override: true, replayed: true }, fmt))
+      .toEqual({ title: 'Compra requisitada com exceção de cobertura', detail: 'Já estava registrado (RC-1) — nada foi duplicado.', override: true });
+    expect(exceptionOutcomeNotice({}, fmt).detail).not.toMatch(/NaN|undefined|null|\(\)/);
+    expect(exceptionOutcomeNotice({ override: true }, fmt).detail).toBe('A exceção ficou registrada; a requisição segue para cotação em Compras.');
+  });
+
+  it('"Comprar" do plano sem a leitura de compras: diz que não carregou — nunca "o banco não tem o que requisitar"', () => {
+    const noProc = (procurement: SiteSupplyData['procurement']): SiteSupplyData => ({ ...FLX_SUPPLY, procurement });
+    // comprável 250 no banco, mas as solicitações não carregaram: o passo não é oferecido até a leitura voltar
+    const failed = noProc({ state: 'error', message: 'tempo esgotado' });
+    expect(requisitionPaths(failed).buy).toBe(false);
+    expect(planBuyWait(failed)).toBe('As solicitações de compra não carregaram — a solicitação não é oferecida até a leitura voltar.');
+    const html = renderToStaticMarkup(h(PlanSteps, { ctx: ctx246(failed), onBuy: () => undefined }));
+    expect(html).toContain('data-testid="dg-plan-buy-wait"');
+    expect(html).toContain('As solicitações de compra não carregaram');
+    expect(html).not.toContain('O banco não tem o que requisitar');
+    expect(html).not.toContain('data-testid="dg-plan-act-buy"');
+    expect(planBuyWait(noProc({ state: 'restricted' }))).toBe('Seu perfil não lê as solicitações de compra — a solicitação não é oferecida aqui.');
+    // bloqueada pela transferência: dito mesmo sem a leitura — sem apontar para a solicitação que não carregou
+    expect(planBuyWait({ ...ALL_PENDING, procurement: { state: 'error', message: 'x' } }))
+      .toBe('A compra espera a transferência pedida (sem despacho): o que falta está nela.');
+    expect(planBuyWait(ALL_PENDING)).toBe('A compra espera a transferência pedida (sem despacho): o que falta está nela — veja a solicitação de compra abaixo.');
+    // "o banco não tem o que requisitar" SÓ com a leitura em mãos e o comprável zero
+    const zero = { ...FLX_SUPPLY, focus: { ...FLX, pendingTransfer: 0, pendingTransfers: [], purchasable: 0 } };
+    expect(planBuyWait(zero)).toBe('O banco não tem o que requisitar agora — veja a solicitação de compra abaixo.');
+    expect(planBuyWait({ ...FLX_SUPPLY, focus: { ...FLX, purchasable: undefined as unknown as number } }))
+      .toBe('O comprável do banco não veio nesta leitura — a solicitação não é oferecida.');
+    expect(planBuyWait({ ...FLX_SUPPLY, capabilities: { ...CAPS, request: false } })).toBe('Requisitar a compra cabe a quem tem a permissão de requisitar.');
   });
 });
 

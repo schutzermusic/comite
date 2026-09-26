@@ -190,6 +190,33 @@ describe('leitura da Apex é tudo-ou-nada', () => {
     const facts = await gatherIntelligenceFacts('o', '2026-09-24', fakeClient({ inventory_locations: { rows: locations } }) as never);
     expect(facts.requirements).toEqual([]);
   });
+  it('246: pendente e comprável vêm da visão; as linhas PEDIDAS sem reserva na origem viram o saldo prometido', async () => {
+    const { gatherIntelligenceFacts } = await import('@/lib/supply/intelligence-read');
+    const cov = { requirement_id: 'r1', item_id: 'i1', project_id: 'p1', organization_id: 'o', requirement_type: 'MATERIAL', activity_id: null,
+      required_qty: '500', reserved_qty: '100', consumed_qty: '0', in_transit_qty: '0', on_order_qty: '0', requested_qty: '0',
+      inspection_qty: '0', shortage_qty: '400', pending_transfer_qty: '150.0000', purchasable_qty: '250.0000', required_by: '2026-10-01', unit: 'm' };
+    const facts = await gatherIntelligenceFacts('o', '2026-09-24', fakeClient({
+      supply_requirement_coverage: { rows: [cov] },
+      inventory_transfer_lines: { rows: [
+        { id: 'l1', transfer_id: 't1', requirement_id: 'r1', item_id: 'i1', quantity: '150', dispatched_quantity: '0', received_quantity: '0',
+          source_reservation_id: null },
+        // move reserva: já está em "reservado" — não é pendente
+        { id: 'l2', transfer_id: 't2', requirement_id: 'r1', item_id: 'i1', quantity: '40', dispatched_quantity: '0', received_quantity: '0',
+          source_reservation_id: 'res-1' },
+        { id: 'l3', transfer_id: 't3', requirement_id: 'r1', item_id: 'i1', quantity: '30', dispatched_quantity: '30', received_quantity: '0',
+          source_reservation_id: null },
+      ] },
+      inventory_transfers: { rows: [
+        { id: 't1', transfer_number: 'TR-1', status: 'REQUESTED', expected_arrival: null, from_location_id: 'D' },
+        { id: 't2', transfer_number: 'TR-2', status: 'APPROVED', expected_arrival: null, from_location_id: 'D' },
+        { id: 't3', transfer_number: 'TR-3', status: 'IN_TRANSIT', expected_arrival: '2026-09-30', from_location_id: 'N' },
+      ] },
+    }) as never);
+    expect(facts.requirements[0].coverage).toMatchObject({ shortage: 400, pendingTransfer: 150, purchasable: 250 });
+    expect(facts.pendingTransfers).toEqual([{ transferId: 't1', number: 'TR-1', status: 'REQUESTED', requirementId: 'r1', itemId: 'i1',
+      fromLocationId: 'D', quantity: 150 }]);
+    expect(facts.inbound).toEqual([expect.objectContaining({ kind: 'TRANSFER', refNumber: 'TR-3', quantity: 30 })]);
+  });
   it('leitura incompleta não chama o sync (nenhuma recomendação resolvida por engano)', async () => {
     const rpc = vi.fn();
     vi.doMock('@/lib/platform/server-client', () => ({

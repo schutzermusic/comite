@@ -17,6 +17,7 @@ import { projectIdentity } from '@/lib/operations/project-identity';
 import { selectIn } from '@/lib/supabase/select-in';
 import { fromViewRow, type CoverageViewRow } from './coverage';
 import { ENGINE_VERSION, computeSignals, type IntelligenceFacts, type SupplySignal } from './intelligence';
+import { PENDING_TRANSFER_STATUSES, pendingTransferLines, type PendingTransferHeadRow, type PendingTransferLineRow } from './inventory';
 
 type Row = Record<string, unknown>;
 const num = (v: unknown) => { const x = Number(v ?? 0); return Number.isFinite(x) ? x : 0; };
@@ -68,7 +69,7 @@ async function byIds(label: string, ids: string[], page: (chunk: string[], from:
 
 export async function gatherIntelligenceFacts(org: string, today: string, sb: SupabaseClient = platformServiceClient()): Promise<IntelligenceFacts> {
   const since = new Date(`${today}T00:00:00Z`); since.setUTCDate(since.getUTCDate() - 180);
-  const [covRows, poRows, rqRows, stockRows, locAll, transfersDoneRows, inspectionRows, perfRows, supplierRows] = await Promise.all([
+  const [covRows, poRows, rqRows, stockRows, locAll, transfersDoneRows, inspectionRows, perfRows, supplierRows, pendingHeadRows] = await Promise.all([
     paged('cobertura', (f, t) => sb.from('supply_requirement_coverage').select('*').eq('organization_id', org)
       .eq('requirement_type', 'MATERIAL').not('item_id', 'is', null).order('requirement_id').range(f, t)),
     paged('pedidos', (f, t) => sb.from('purchase_orders').select('id,order_number,supplier_id,project_id,status,expected_delivery,submitted_at')
@@ -86,6 +87,10 @@ export async function gatherIntelligenceFacts(org: string, today: string, sb: Su
     paged('pontualidade', (f, t) => sb.from('supplier_delivery_performance').select('supplier_id,promised_lines,on_time_lines')
       .eq('organization_id', org).order('supplier_id').range(f, t)),
     paged('fornecedores', (f, t) => sb.from('supplier_profiles').select('id,party_id').eq('organization_id', org).order('id').range(f, t)),
+    // 246: TODAS as transferências pedidas/aprovadas da organização — o saldo que prometem tirar de cada origem (a
+    // mesma base do Planejamento, `promisedByOrigin`): de requisito da cobertura, de outro requisito ou de nenhum.
+    paged('transferências pedidas', (f, t) => sb.from('inventory_transfers').select('id,transfer_number,status,from_location_id')
+      .eq('organization_id', org).in('status', [...PENDING_TRANSFER_STATUSES]).order('id').range(f, t)),
   ]);
 
   const covTyped = covRows as unknown as Array<CoverageViewRow & { organization_id: string }>;
@@ -97,7 +102,7 @@ export async function gatherIntelligenceFacts(org: string, today: string, sb: Su
   const itemIds = covTyped.map((r) => String(r.item_id));
   const projectIds = [...covTyped.map((r) => r.project_id), ...poRows.map((p) => p.project_id)].filter(Boolean) as string[];
 
-  const [reqMetaRows, itemRows, projectRows, poLineRows, allocRows, shipRows, transitLineRows, rqLineRows] = await Promise.all([
+  const [reqMetaRows, itemRows, projectRows, poLineRows, allocRows, shipRows, transitLineRows, rqLineRows, pendingLineRows] = await Promise.all([
     byIds('requisitos', reqIds, (c, f, t) => sb.from('project_requirements').select('id,title,activity_id').eq('organization_id', org)
       .in('id', c).order('id').range(f, t)),
     byIds('itens', itemIds, (c, f, t) => sb.from('supply_items').select('id,code,description,unit').eq('organization_id', org)
@@ -117,6 +122,10 @@ export async function gatherIntelligenceFacts(org: string, today: string, sb: Su
       .in('requirement_id', c).order('id').range(f, t)),
     byIds('linhas de requisição', rqIds, (c, f, t) => sb.from('purchase_requisition_lines').select('id,requisition_id')
       .eq('organization_id', org).in('requisition_id', c).order('id').range(f, t)),
+    // As linhas das pedidas, de qualquer requisito ou de nenhum (a que move reserva sai no predicado, `pendingTransferLines`).
+    byIds('linhas das transferências pedidas', pendingHeadRows.map((t) => String(t.id)), (c, f, t) => sb.from('inventory_transfer_lines')
+      .select('id,transfer_id,requirement_id,item_id,quantity,source_reservation_id').eq('organization_id', org)
+      .in('transfer_id', c).order('id').range(f, t)),
   ]);
 
   const actIds = reqMetaRows.map((r) => r.activity_id).filter(Boolean) as string[];
@@ -185,6 +194,15 @@ export async function gatherIntelligenceFacts(org: string, today: string, sb: Su
     inbound.push({ requirementId: String(l.requirement_id), kind: 'TRANSFER', refId: String(t.id), refNumber: String(t.transfer_number),
       supplierId: null, supplier: null, quantity: open, eta: str(t.expected_arrival) });
   }
+  // 246: pedida/aprovada e sem reserva na origem = o predicado do `pending_transfer_qty` (`pendingTransferLines`; a que
+  // move reserva já está em "reservado"), da organização INTEIRA: o prometido de cada origem conta todas, com ou sem
+  // requisito; o texto de cada requisito (`pendingOf`, no motor) usa só as dele.
+  const pendingTransfers: NonNullable<IntelligenceFacts['pendingTransfers']> = pendingTransferLines(
+    pendingLineRows as unknown as PendingTransferLineRow[], pendingHeadRows as unknown as PendingTransferHeadRow[],
+  ).flatMap(({ line, transfer, qty }) => (line.item_id && transfer.from_location_id
+    ? [{ transferId: transfer.id, number: String(transfer.transfer_number), status: transfer.status, requirementId: str(line.requirement_id),
+      itemId: line.item_id, fromLocationId: transfer.from_location_id, quantity: qty }]
+    : []));
 
   const reqNeed = new Map(requirements.map((r) => [r.id, r.requiredBy]));
   const orders = poRows.map((po) => {
@@ -225,7 +243,8 @@ export async function gatherIntelligenceFacts(org: string, today: string, sb: Su
   const supplierPerformance = Object.fromEntries(((perf.data ?? []) as Row[]).map((p) => [String(p.supplier_id),
     { promised: num(p.promised_lines), onTime: num(p.on_time_lines) }]));
 
-  return { today, requirements, stock: stockFacts, projectSites, inbound, orders, requisitions, supplierPerformance, transit, inspections: inspectionFacts };
+  return { today, requirements, stock: stockFacts, pendingTransfers, projectSites, inbound, orders, requisitions, supplierPerformance, transit,
+    inspections: inspectionFacts };
 }
 
 /** Uma leitura completa: fatos → sinais → livro sincronizado (a Apex, não uma pessoa). */

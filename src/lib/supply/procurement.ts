@@ -139,9 +139,43 @@ export function recommendQuote(evals: QuoteEvaluation[]): { quoteId: string; rat
   return { quoteId: best.quoteId, rationale: `${best.supplier}: ${parts.join('; ')}.` };
 }
 
+const finiteOrNull = (v: unknown): number | null => {
+  if (v === null || v === undefined || v === '') return null;
+  const x = Number(v);
+  return Number.isFinite(x) ? x : null;
+};
+
+/**
+ * O que a requisição da FALTA registrou (246, o retorno de
+ * `purchase_requisition_from_shortage`) para a auditoria da rota: quanto foi
+ * requisitado, se foi por exceção de cobertura e quanto havia pendente em
+ * transferência. Retorno sem os números (réplica de uma requisição anterior à
+ * 246, ou o banco ainda sem a 246): `null`, nunca 0.
+ */
+export function requisitionAuditFigures(out: Record<string, unknown>): {
+  requisitionedQty: number | null; override: boolean; pendingTransferQty: number | null;
+} {
+  const requirements = Array.isArray(out.requirements) ? out.requirements as Array<Record<string, unknown>> : null;
+  return {
+    requisitionedQty: finiteOrNull(out.requisitioned_qty),
+    override: out.override === true,
+    pendingTransferQty: requirements ? requirements.reduce((acc, r) => acc + (finiteOrNull(r.pending_transfer_qty) ?? 0), 0) : null,
+  };
+}
+
 /** Recusas do banco de compras em português. */
 const PROCUREMENT_ERRORS: Array<[RegExp, (m: RegExpMatchArray) => string]> = [
   [/no uncovered shortage left to requisition \(([\d.]+) already requested\)/, (m) => `Essa falta já está requisitada (${Number(m[1])}).`],
+  // 246: o comprável é zero porque transferência(s) PEDIDA(S) cobrem o resto — resolver a transferência ou exceção governada.
+  [/is covered by pending internal transfer\(s\) (.+?): dispatch or cancel the transfer/, (m) => {
+    const numbers = m[1].trim();
+    return `Essa falta está coberta por transferência pendente${numbers ? ` (${numbers})` : ''}: despache ou cancele a transferência, `
+      + 'ou registre uma exceção de cobertura.';
+  }],
+  [/Coverage exception requires procurement\.coverage_override/,
+    () => 'A exceção de cobertura exige a alçada procurement.coverage_override (comprar também o que a transferência pendente vai trazer).'],
+  [/Coverage exception requires a reason of at least (\d+) characters/,
+    (m) => `A exceção de cobertura exige um motivo com pelo menos ${Number(m[1])} caracteres — fica no registro da exceção.`],
   [/is not a confirmed material with an item/, () => 'Só requisito de material confirmado, com item, vira requisição.'],
   [/preqn_manual_justified/, () => 'Requisição manual exige justificativa.'],
   [/not invited/, () => 'Fornecedor suspenso, bloqueado ou inexistente não é convidado.'],

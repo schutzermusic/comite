@@ -61,11 +61,25 @@ export interface RequisitionFacts {
 }
 export interface InspectionFacts { receiptId: string; number: string; receivedAt: string; orderNumber: string; purchaseOrderId: string; location: string }
 export interface TransitSample { fromId: string; toId: string; days: number }
+/**
+ * Linha de transferência PEDIDA/APROVADA sem reserva na origem (a regra 246 do
+ * `pending_transfer_qty`): nada saiu da origem e o banco não segura o saldo —
+ * mas ele está prometido. A Apex não o oferece de novo, nem o compra.
+ */
+export interface PendingTransferFacts {
+  transferId: string; number: string; status: string; requirementId: string | null; itemId: string; fromLocationId: string; quantity: number;
+}
 
 export interface IntelligenceFacts {
   today: string;
   requirements: RequirementFacts[];
   stock: StockFacts[];
+  /**
+   * Transferências pedidas/aprovadas ainda não despachadas (sem as que movem reserva) da organização INTEIRA — de
+   * requisito da cobertura, de outro requisito ou de nenhum (`requirementId` null): TODAS prometem a origem; o texto
+   * de cada requisito usa só as dele. Ausente = nenhuma lida.
+   */
+  pendingTransfers?: PendingTransferFacts[];
   projectSites: Record<string, Array<{ id: string; name: string }>>;
   inbound: InboundFacts[];
   orders: OrderFacts[];
@@ -120,8 +134,20 @@ function base(kind: SignalKind, key: string, severity: SignalSeverity, extra: Pa
 /** Todos os sinais da leitura, do mais grave ao menos grave. */
 export function computeSignals(f: IntelligenceFacts): SupplySignal[] {
   const out: SupplySignal[] = [];
-  const stockLeft = new Map(f.stock.map((s) => [`${s.itemId}:${s.locationId}`, s.available]));
+  const pendingLines = (f.pendingTransfers ?? []).filter((p) => p.quantity > 0);
+  // O saldo que transferências já pedidas vão tirar da origem — de qualquer requisito ou de nenhum: prometido, não
+  // oferecido de novo (a mesma conta de `promisedByOrigin`, a do Planejamento).
+  const promised = new Map<string, number>();
+  for (const p of pendingLines) promised.set(`${p.itemId}:${p.fromLocationId}`, (promised.get(`${p.itemId}:${p.fromLocationId}`) ?? 0) + p.quantity);
+  const promisedAt = (s: StockFacts) => promised.get(`${s.itemId}:${s.locationId}`) ?? 0;
+  /** Livre de fato: em mão − reservado − o prometido a transferências pedidas. */
+  const freeOf = (s: StockFacts) => Math.max(0, s.available - promisedAt(s));
+  const stockLeft = new Map(f.stock.map((s) => [`${s.itemId}:${s.locationId}`, freeOf(s)]));
   const usedFor = (s: StockFacts) => stockLeft.get(`${s.itemId}:${s.locationId}`) ?? 0;
+  const freeSource = (s: StockFacts, base: string) => (promisedAt(s) > 0 ? `${base.replace(/\)$/, '')} − já pedido em transferência)` : base);
+  // As de CADA requisito (a sem requisito só promete a origem): os números TR-… do texto dele.
+  const pendingOf = new Map<string, PendingTransferFacts[]>();
+  for (const p of pendingLines) if (p.requirementId) pendingOf.set(p.requirementId, [...(pendingOf.get(p.requirementId) ?? []), p]);
   const lateOrders = new Set<string>();
 
   for (const r of f.requirements) {
@@ -138,9 +164,21 @@ export function computeSignals(f: IntelligenceFacts): SupplySignal[] {
       { label: 'Entrando', value: `${fmt(cov.inbound)} ${r.unit}`, source: 'trânsito, pedidos e inspeção' },
       { label: 'Falta', value: `${fmt(cov.shortage)} ${r.unit}`, source: 'cobertura derivada' },
     ];
+    // 246: transferência PEDIDA não é cobertura (a falta acima continua), mas já está prometida — dita, com o número.
+    const pendingHere = pendingOf.get(r.id) ?? [];
+    const pendingNums = Array.from(new Set(pendingHere.map((p) => p.number))).join(', ');
+    if (cov.pendingTransfer > 0) {
+      coverageEvidence.push({ label: 'Transferência pedida', value: `${fmt(cov.pendingTransfer)} ${r.unit}`,
+        source: `${pendingNums || 'pedida/aprovada'} — sem despacho, ainda não cobre` });
+    }
+    const pendingText = cov.pendingTransfer > 0
+      ? ` ${fmt(cov.pendingTransfer)} ${r.unit} já pedidos em transferência${pendingNums ? ` (${pendingNums})` : ''} ainda não saíram da origem: não entram nesta conta — se a transferência for cancelada, voltam para a falta.`
+      : '';
 
     // ── Falta: primeiro o estoque que a empresa já tem, depois a compra ──
-    let remaining = Math.max(0, cov.shortage - cov.requested);
+    // 246: o comprável do banco (falta − requisitado − pendente). O estoque só cabe nele: o banco não
+    // reserva nem transfere por cima de solicitação aberta nem do que a transferência pedida vai trazer.
+    let remaining = cov.purchasable;
     if (cov.shortage > 0 && remaining > 0) {
       const sites = f.projectSites[r.projectId] ?? [];
       const candidates = f.stock.filter((s) => s.itemId === r.itemId && usedFor(s) > 0 && s.locationKind !== 'QUARANTINE')
@@ -149,14 +187,15 @@ export function computeSignals(f: IntelligenceFacts): SupplySignal[] {
       const best = candidates[0];
       if (best) {
         const q = Math.min(remaining, usedFor(best.s));
+        const free = freeOf(best.s);
         stockLeft.set(`${best.s.itemId}:${best.s.locationId}`, usedFor(best.s) - q);
         remaining -= q;
         if (best.isDest) {
           out.push(base('ALTERNATE_STOCK', `alt:${r.id}:${best.s.locationId}:${need ?? 'none'}`, sev, {
             ...common, location_id: best.s.locationId,
             title: `Reservar ${fmt(q)} ${r.unit} de ${r.itemCode} para ${r.project}`,
-            rationale: `Faltam ${fmt(cov.shortage)} ${r.unit} para a necessidade de ${needText}${activityText}. ${best.s.locationName} tem ${fmt(best.s.available)} livre(s): reservar agora evita comprar o que a empresa já tem.`,
-            evidence: [...coverageEvidence, { label: 'Livre no local', value: `${fmt(best.s.available)} ${r.unit}`, source: `${best.s.locationName} (em mão − reservado)` }],
+            rationale: `Faltam ${fmt(cov.shortage)} ${r.unit} para a necessidade de ${needText}${activityText}.${pendingText} ${best.s.locationName} tem ${fmt(free)} livre(s): reservar agora evita comprar o que a empresa já tem.`,
+            evidence: [...coverageEvidence, { label: 'Livre no local', value: `${fmt(free)} ${r.unit}`, source: freeSource(best.s, `${best.s.locationName} (em mão − reservado)`) }],
             recommended_action: { kind: 'RESERVE', label: `Reservar ${fmt(q)} ${r.unit}`, payload: { requirement_id: r.id, location_id: best.s.locationId, quantity: q } },
           }));
         } else {
@@ -165,9 +204,9 @@ export function computeSignals(f: IntelligenceFacts): SupplySignal[] {
           out.push(base('ALTERNATE_STOCK', `alt:${r.id}:${best.s.locationId}:${need ?? 'none'}`, sim.beforeNeed === false ? 'critical' : sev, {
             ...common, location_id: best.s.locationId,
             title: `Transferir ${fmt(q)} ${r.unit} de ${r.itemCode} de ${best.s.locationName} para ${site.name}`,
-            rationale: `Faltam ${fmt(cov.shortage)} ${r.unit} para ${r.project}, necessário em ${needText}${activityText}. ${best.s.locationName} tem ${fmt(best.s.available)} livre(s). A transferência chega em ~${sim.days} dia(s) (${sim.basis})${sim.beforeNeed === false ? ' — DEPOIS da necessidade: considere também antecipar' : sim.beforeNeed ? ', antes da necessidade' : ''}. Custo de frete não cadastrado: não estimado.`,
+            rationale: `Faltam ${fmt(cov.shortage)} ${r.unit} para ${r.project}, necessário em ${needText}${activityText}.${pendingText} ${best.s.locationName} tem ${fmt(free)} livre(s). A transferência chega em ~${sim.days} dia(s) (${sim.basis})${sim.beforeNeed === false ? ' — DEPOIS da necessidade: considere também antecipar' : sim.beforeNeed ? ', antes da necessidade' : ''}. Custo de frete não cadastrado: não estimado.`,
             evidence: [...coverageEvidence,
-              { label: 'Livre na origem', value: `${fmt(best.s.available)} ${r.unit}`, source: `${best.s.locationName} (em mão − reservado)` },
+              { label: 'Livre na origem', value: `${fmt(free)} ${r.unit}`, source: freeSource(best.s, `${best.s.locationName} (em mão − reservado)`) },
               { label: 'Chegada estimada', value: day(sim.eta), source: sim.basis }],
             recommended_action: { kind: 'TRANSFER', label: `Pedir transferência de ${fmt(q)} ${r.unit}`, payload: {
               requirement_id: r.id, item_id: r.itemId, from_location_id: best.s.locationId, to_location_id: site.id, quantity: q,
@@ -176,13 +215,20 @@ export function computeSignals(f: IntelligenceFacts): SupplySignal[] {
         }
       }
       if (remaining > 0) {
+        // A solicitação da falta pede o COMPRÁVEL do momento (o banco ignora a quantidade do sinal):
+        // a carga é esse número; o título diz o que sobra se o estoque recomendado for usado antes.
+        const stockFirst = remaining < cov.purchasable;
+        const buyEvidence = cov.purchasable !== cov.shortage
+          ? [...coverageEvidence, { label: 'Comprável', value: `${fmt(cov.purchasable)} ${r.unit}`, source: 'falta − requisitado − transferência pedida' }]
+          : coverageEvidence;
         out.push(base('SHORTAGE', `shortage:${r.id}:${need ?? 'none'}`, sev, {
           ...common,
           title: `Comprar ${fmt(remaining)} ${r.unit} de ${r.itemCode} para ${r.project}`,
-          rationale: `Nada reservado, em trânsito, em pedido ou em inspeção cobre ${fmt(remaining)} ${r.unit} da necessidade de ${needText}${activityText}${best ? '' : ', e não há estoque livre do item'}. Requisitar a compra agora dá tempo à cotação.`,
-          evidence: coverageEvidence,
-          recommended_action: { kind: 'REQUISITION', label: `Requisitar compra de ${fmt(remaining)} ${r.unit}`, payload: {
-            requirement_ids: [r.id], quantity: remaining, priority: sev === 'critical' ? 'critical' : 'high',
+          rationale: `Nada reservado, em trânsito, em pedido ou em inspeção cobre ${fmt(remaining)} ${r.unit} da necessidade de ${needText}${activityText}${best ? '' : ', e não há estoque livre do item'}.${pendingText} Requisitar a compra agora dá tempo à cotação.`
+            + (stockFirst ? ` A solicitação pede o comprável no momento em que for aberta (hoje ${fmt(cov.purchasable)} ${r.unit}): use antes o estoque recomendado.` : ''),
+          evidence: buyEvidence,
+          recommended_action: { kind: 'REQUISITION', label: `Requisitar compra de ${fmt(cov.purchasable)} ${r.unit}`, payload: {
+            requirement_ids: [r.id], quantity: cov.purchasable, priority: sev === 'critical' ? 'critical' : 'high',
             delivery_location_id: (f.projectSites[r.projectId] ?? [])[0]?.id ?? null } },
         }));
       }

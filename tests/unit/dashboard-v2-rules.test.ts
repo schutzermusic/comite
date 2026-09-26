@@ -59,6 +59,17 @@ describe('material a partir da cobertura AO VIVO', () => {
     expect(materialProblem(need({ unit: null }, { shortage: 1.5 }))).toBe('Falta 1,5 — sem estoque nem pedido');
   });
 
+  it('246: transferência pedida e não despachada é dita — a falta continua, e a linha segue pela falta', () => {
+    expect(materialProblem(need({}, { pendingTransfer: 150 }))).toBe('Falta 120 m — transferência pedida, sem despacho (150 m pendentes)');
+    expect(materialProblem(need({}, { pendingTransfer: 50, requested: 70 })))
+      .toBe('Falta 120 m — transferência pedida, sem despacho (50 m pendentes); requisitado, sem pedido emitido');
+    expect(materialProblem(need({}, { pendingTransfer: 0 }))).toBe('Falta 120 m — sem estoque nem pedido');
+    // o pendente não é cobertura: a linha continua (gate na falta), e sem falta não há linha mesmo com pendente
+    expect(materialRow(need({ requiredBy: '2026-10-05' }, { pendingTransfer: 120 }), TODAY)?.problem)
+      .toBe('Falta 120 m — transferência pedida, sem despacho (120 m pendentes)');
+    expect(materialRow(need({ requiredBy: '2026-10-05' }, { shortage: 0, pendingTransfer: 120 }), TODAY)).toBeNull();
+  });
+
   it('gravidade por supplyRisk sobre a necessidade = min(required_by, início da atividade); consequência pela atividade', () => {
     // required_by em 20 dias, mas a atividade começa em 5 → crítico, prazo = início da atividade.
     const r = materialRow(need({ requiredBy: '2026-10-15', activity: { id: 'a1', title: 'Montagem do estator', plannedStart: '2026-09-30' } }), TODAY);

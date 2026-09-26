@@ -62,6 +62,9 @@ export type ActResult = { ok: true; result: Record<string, unknown> } | { ok: fa
  * é descartada no sucesso. Queda de rede, duplo toque ou repetição depois de
  * um erro reenviam a MESMA chave — o servidor responde "já registrado" em vez
  * de gravar de novo. Mudou a quantidade? É outra intenção, outra chave.
+ *
+ * `msg.done`: o aviso de sucesso a partir do que o servidor DEVOLVEU (quando
+ * o ato pode sair diferente do pedido); `msg.title` segue nomeando as recusas.
  */
 export function useGovernedAction(onDone?: () => void) {
   const { success, error } = useHudToast();
@@ -70,7 +73,8 @@ export function useGovernedAction(onDone?: () => void) {
 
   const run = useCallback(async (
     intent: string, url: string, body: Record<string, unknown>,
-    msg: { title: string; detail?: string }, opts: { idempotent?: boolean; method?: 'POST' | 'PATCH' | 'PUT' } = {},
+    msg: { title: string; detail?: string; done?: (result: Record<string, unknown>) => { title: string; detail?: string } },
+    opts: { idempotent?: boolean; method?: 'POST' | 'PATCH' | 'PUT' } = {},
   ): Promise<ActResult> => {
     const mapKey = `${intent}|${url}|${stable(body)}`;
     let key = keys.current.get(mapKey);
@@ -92,7 +96,9 @@ export function useGovernedAction(onDone?: () => void) {
       }
       keys.current.delete(mapKey);
       const result = (data.result ?? data) as Record<string, unknown>;
-      success(msg.title, result?.replayed ? 'Já estava registrado — nada foi duplicado.' : msg.detail);
+      const done = msg.done?.(result);
+      if (done) success(done.title, done.detail);
+      else success(msg.title, result?.replayed ? 'Já estava registrado — nada foi duplicado.' : msg.detail);
       notifyCommercialChanged();
       onDone?.();
       return { ok: true, result };
