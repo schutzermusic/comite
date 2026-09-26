@@ -12,6 +12,7 @@ if (typeof window !== 'undefined') {
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { resolveOwnerNames } from '@/lib/commercial/owner-directory';
+import { selectAllPages, selectIn } from '@/lib/supabase/select-in';
 import { projectIdentity } from '../project-identity';
 import { daysBetween, isCriticalActivity } from '../overview-rules';
 import {
@@ -21,6 +22,15 @@ import {
 } from './readiness';
 
 type Session = { supabase: SupabaseClient; organizationId: string };
+type Paged = (f: number, t: number) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>;
+/**
+ * Lista INTEIRA em páginas de 1 000 com ordem total: o PostgREST corta cada resposta em 1 000 linhas, seja qual for o
+ * `.limit()` — os requisitos vivos da carteira (989 no QA) e um cronograma grande passariam disso cortados, calados.
+ */
+function whole<T>(what: string, page: Paged): Promise<T[]> {
+  return selectAllPages<T>(page as (f: number, t: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>)
+    .catch((cause) => { throw new Error(what, { cause }); });
+}
 
 export interface RequirementRow {
   id: string; project_id: string; activity_id: string | null; requirement_type: RequirementType; title: string;
@@ -79,18 +89,18 @@ export const FRONT_HORIZON_DAYS = 30;
 export async function projectPlanning(session: Session, projectId: string, today: string, loadCoverage: CoverageLoader = noCoverage) {
   const org = session.organizationId;
   const sb = session.supabase;
-  const [reqs, acts, orders] = await Promise.all([
-    sb.from('project_requirements').select(REQ_COLUMNS).eq('organization_id', org).eq('project_id', projectId)
-      .order('required_by', { ascending: true, nullsFirst: false }),
-    sb.from('project_timeline_items').select('id,title,wbs_code,planned_start,planned_finish,is_summary,is_milestone,status')
+  // O cronograma e as OS também conferidos: vazios por falha, as atividades e as OS sumiriam da tela sem aviso.
+  const [rows, activityRows, orders] = await Promise.all([
+    whole<RequirementRow>('Não foi possível consultar os requisitos.', (f, t) => sb.from('project_requirements').select(REQ_COLUMNS)
+      .eq('organization_id', org).eq('project_id', projectId).order('required_by', { ascending: true, nullsFirst: false }).order('id').range(f, t)),
+    whole<{ id: string; title: string; wbs_code: string | null; planned_start: string | null; planned_finish: string | null;
+      is_summary: boolean; is_milestone: boolean; status: string }>('Não foi possível consultar o cronograma.', (f, t) => sb.from('project_timeline_items')
+      .select('id,title,wbs_code,planned_start,planned_finish,is_summary,is_milestone,status')
       .eq('organization_id', org).eq('project_id', projectId).eq('is_active', true).is('deleted_at', null)
-      .order('row_order').limit(3000),
-    sb.from('internal_service_orders').select('id,os_number,title,status').eq('organization_id', org).eq('project_id', projectId),
+      .order('row_order').order('id').range(f, t)),
+    whole<Record<string, unknown>>('Não foi possível consultar as ordens de serviço.', (f, t) => sb.from('internal_service_orders')
+      .select('id,os_number,title,status').eq('organization_id', org).eq('project_id', projectId).order('id').range(f, t)),
   ]);
-  if (reqs.error) throw new Error('Não foi possível consultar os requisitos.');
-  const rows = (reqs.data ?? []) as unknown as RequirementRow[];
-  const activityRows = (acts.data ?? []) as Array<{ id: string; title: string; wbs_code: string | null; planned_start: string | null;
-    planned_finish: string | null; is_summary: boolean; is_milestone: boolean; status: string }>;
   const activities = new Map(activityRows.map((a) => [a.id, a]));
   const coverage = await loadCoverage(session, rows.map((r) => r.id));
   const enriched = enrich(rows, activities, coverage, today);
@@ -115,7 +125,7 @@ export async function projectPlanning(session: Session, projectId: string, today
     readinessByActivity: Array.from(byActivity.entries()).map(([activityId, cells]) => ({
       activityId, title: activities.get(activityId)?.title ?? 'Atividade', start: activities.get(activityId)?.planned_start ?? null,
       cells, overall: worstReadiness(Object.values(cells)) })),
-    serviceOrders: ((orders.data ?? []) as Array<{ id: string; os_number: string; title: string; status: string }>)
+    serviceOrders: (orders as Array<{ id: string; os_number: string; title: string; status: string }>)
       .filter((o) => ['ISSUED', 'IN_EXECUTION', 'SUSPENDED'].includes(o.status)),
   };
 }
@@ -127,26 +137,23 @@ export async function portfolioPlanning(session: Session, today: string, loadCov
   const org = session.organizationId;
   const sb = session.supabase;
   // Requisitos vivos e as atividades abertas (folhas) do cronograma canônico — o mesmo recorte da Visão Geral.
-  const [{ data, error }, openActs] = await Promise.all([
-    sb.from('project_requirements').select(REQ_COLUMNS)
+  const [rows, openActivities] = await Promise.all([
+    whole<RequirementRow>('Não foi possível consultar os requisitos.', (f, t) => sb.from('project_requirements').select(REQ_COLUMNS)
       .eq('organization_id', org).in('status', ['PLANNED', 'CONFIRMED']).order('required_by', { ascending: true, nullsFirst: false })
-      .limit(3000),
-    sb.from('project_timeline_items')
+      .order('id').range(f, t)),
+    whole<ActivityRow>('Não foi possível consultar o cronograma.', (f, t) => sb.from('project_timeline_items')
       .select('id,project_id,title,wbs_code,planned_start,planned_finish,actual_finish,status,priority,delay_status,is_milestone,is_summary,percent_complete')
       .eq('organization_id', org).eq('is_active', true).is('deleted_at', null).eq('is_summary', false)
-      .not('status', 'in', '(completed,cancelled)').limit(5000),
+      .not('status', 'in', '(completed,cancelled)').order('id').range(f, t)),
   ]);
-  if (error) throw new Error('Não foi possível consultar os requisitos.');
-  if (openActs.error) throw new Error('Não foi possível consultar o cronograma.');
-  const rows = (data ?? []) as unknown as RequirementRow[];
-  const openActivities = (openActs.data ?? []) as unknown as ActivityRow[];
   const openById = new Map(openActivities.map((a) => [a.id, a]));
   // Requisito pode pender de atividade já concluída: busca só as que faltam.
   const missingIds = Array.from(new Set(rows.map((r) => r.activity_id).filter((id): id is string => Boolean(id) && !openById.has(id!))));
-  const closedActs = missingIds.length
-    ? ((await sb.from('project_timeline_items').select('id,title,planned_start').eq('organization_id', org).in('id', missingIds)).data ?? []) as
-      Array<{ id: string; title: string; planned_start: string | null }>
-    : [];
+  // Em lotes e com o erro conferido: a carteira inteira passa do tamanho da URL (414) — e um erro engolido sumiria com
+  // o título da atividade (e, abaixo, com o nome da obra) sem aviso.
+  const closedActs = await selectIn<{ id: string; title: string; planned_start: string | null }>(missingIds, (c) =>
+    sb.from('project_timeline_items').select('id,title,planned_start').eq('organization_id', org).in('id', c))
+    .catch((cause) => { throw new Error('Não foi possível consultar o cronograma.', { cause }); });
   const activities = new Map<string, { title: string; planned_start: string | null }>([
     ...openActivities.map((a) => [a.id, a] as const), ...closedActs.map((a) => [a.id, a] as const)]);
 
@@ -158,11 +165,10 @@ export async function portfolioPlanning(session: Session, today: string, loadCov
 
   const projectIds = Array.from(new Set([...rows.map((r) => r.project_id), ...frontActivities.map((a) => a.project_id),
     ...openActivities.filter((a) => isCriticalActivity(a, today)).map((a) => a.project_id)]));
-  const projects = projectIds.length
-    ? await sb.from('projects').select('id,project,project_v2').eq('organization_id', org).in('id', projectIds)
-    : { data: [] };
-  const projectMap = new Map(((projects.data ?? []) as Array<{ id: string; project: Record<string, unknown>; project_v2: Record<string, unknown> | null }>)
-    .map((p) => [p.id, projectIdentity(p.id, p.project, p.project_v2)]));
+  const projects = await selectIn<{ id: string; project: Record<string, unknown>; project_v2: Record<string, unknown> | null }>(projectIds, (c) =>
+    sb.from('projects').select('id,project,project_v2').eq('organization_id', org).in('id', c))
+    .catch((cause) => { throw new Error('Não foi possível consultar as obras.', { cause }); });
+  const projectMap = new Map(projects.map((p) => [p.id, projectIdentity(p.id, p.project, p.project_v2)]));
   const coverage = await loadCoverage(session, rows.map((r) => r.id));
   const enriched = enrich(rows, activities, coverage, today).map((r) => ({ ...r,
     project: projectMap.get(r.project_id)?.name ?? r.project_id, client: projectMap.get(r.project_id)?.client ?? null }));

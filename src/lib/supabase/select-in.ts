@@ -28,3 +28,27 @@ export async function selectIn<T>(
   }
   return out;
 }
+
+/**
+ * Lista INTEIRA, em páginas. O PostgREST corta cada resposta no `max_rows` (1 000 no Supabase) seja qual for o
+ * `.limit()` pedido — acima disso a leitura voltava truncada, calada: com 1 139 locais no QA, o local recém-criado
+ * sumia do "Liberar para" da inspeção. `page(from, to)` monta a consulta com `.range(from, to)` e uma ordem TOTAL
+ * (termine em `.order('id')`), para as páginas não se sobreporem nem pularem linha. Para na primeira página
+ * incompleta; `cap` é o teto declarado da leitura — passar dele é erro claro, nunca corte calado.
+ */
+export const PAGE_ROWS = 1000;
+
+export async function selectAllPages<T>(
+  page: (from: number, to: number) => PromiseLike<Result<T>>,
+  cap = 50_000,
+): Promise<T[]> {
+  const out: T[] = [];
+  for (let from = 0; from < cap; from += PAGE_ROWS) {
+    const r = await page(from, from + PAGE_ROWS - 1);
+    if (r.error) throw new Error(r.error.message);
+    const rows = r.data ?? [];
+    out.push(...rows);
+    if (rows.length < PAGE_ROWS) return out;
+  }
+  throw new Error(`Leitura acima do teto de ${cap} linhas.`);
+}

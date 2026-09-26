@@ -13,6 +13,7 @@ if (typeof window !== 'undefined') {
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { daysBetween } from '@/lib/operations/overview-rules';
+import { selectAllPages } from '@/lib/supabase/select-in';
 import { strategyOptions } from './coverage';
 import { listSuppliers } from './procurement-read';
 import { materialDemand, supplyOverview, type MaterialDemandRow } from './read-model';
@@ -22,6 +23,11 @@ type Session = { supabase: SupabaseClient; organizationId: string };
 type Row = Record<string, unknown>;
 const num = (v: unknown) => { const x = Number(v ?? 0); return Number.isFinite(x) ? x : 0; };
 const str = (v: unknown) => (v === null || v === undefined ? null : String(v));
+
+/** Lista INTEIRA em páginas de 1 000 (o PostgREST corta cada resposta em 1 000 linhas, seja qual for o `.limit()`). */
+const whole = (page: (f: number, t: number) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>) =>
+  selectAllPages<Row>(page as (f: number, t: number) => PromiseLike<{ data: Row[] | null; error: { message: string } | null }>)
+    .catch((cause) => { throw new Error('Não foi possível ler a torre de controle do supply.', { cause }); });
 
 /** `.in()` em lotes: listas longas de ids estouram o tamanho da URL do PostgREST. */
 async function inBatches(ids: string[], read: (chunk: string[]) => PromiseLike<{ data: unknown; error: unknown }>): Promise<Row[]> {
@@ -50,16 +56,15 @@ const RISK_RANK: Record<InboundRisk, number> = { critical: 0, high: 1, medium: 2
 export async function supplyControlTower(session: Session, today: string) {
   const sb = session.supabase; const org = session.organizationId;
   const demand = await materialDemand(session, today);
-  const [overview, suppliers, posRes, pendingRes] = await Promise.all([
+  const [overview, suppliers, pos, pendingRes] = await Promise.all([
     supplyOverview(session, today, demand),
     listSuppliers(session),
-    sb.from('purchase_orders').select('id,order_number,supplier_id,status,expected_delivery,currency,freight_amount,tax_amount,created_at')
-      .eq('organization_id', org).in('status', ['APPROVAL_REQUIRED', 'ISSUED', 'PARTIALLY_RECEIVED']).limit(2000),
+    whole((f, t) => sb.from('purchase_orders').select('id,order_number,supplier_id,status,expected_delivery,currency,freight_amount,tax_amount,created_at')
+      .eq('organization_id', org).in('status', ['APPROVAL_REQUIRED', 'ISSUED', 'PARTIALLY_RECEIVED']).order('id').range(f, t)),
     sb.from('goods_receipts').select('id,receipt_number,purchase_order_id,received_at,location_id')
       .eq('organization_id', org).eq('inspection_status', 'PENDING').order('received_at', { ascending: true }).limit(200),
   ]);
-  if (posRes.error || pendingRes.error) throw new Error('Não foi possível ler a torre de controle do supply.');
-  const pos = (posRes.data ?? []) as Row[];
+  if (pendingRes.error) throw new Error('Não foi possível ler a torre de controle do supply.');
   const pending = (pendingRes.data ?? []) as Row[];
   const poIds = pos.map((p) => String(p.id));
   const liveIds = pos.filter((p) => p.status !== 'APPROVAL_REQUIRED').map((p) => String(p.id));
@@ -80,14 +85,14 @@ export async function supplyControlTower(session: Session, today: string) {
     inBatches(pendingPoIds, (c) => sb.from('purchase_orders').select('id,order_number,supplier_id').eq('organization_id', org).in('id', c)),
     inBatches(pending.map((r) => String(r.id)), (c) => sb.from('goods_receipt_lines').select('receipt_id,item_id,accepted_quantity')
       .eq('organization_id', org).in('receipt_id', c)),
-    sb.from('inventory_locations').select('id,name').eq('organization_id', org).limit(2000),
+    whole((f, t) => sb.from('inventory_locations').select('id,name').eq('organization_id', org).order('id').range(f, t)),
   ]);
 
   const supplierMap = new Map(suppliers.map((s) => [s.id, s]));
   const poMap = new Map([...extraPos, ...pos].map((p) => [String(p.id), p]));
   const itemMap = new Map(items.map((i) => [String(i.id), i]));
   const demandMap = new Map<string, MaterialDemandRow>(demand.map((d) => [d.requirementId, d]));
-  const locName = new Map(((locations.data ?? []) as Row[]).map((l) => [String(l.id), String(l.name)]));
+  const locName = new Map(locations.map((l) => [String(l.id), String(l.name)]));
   const etaOf = (poId: string) => ships.filter((s) => s.purchase_order_id === poId && s.eta).map((s) => String(s.eta)).sort()[0] ?? null;
 
   // ── Entradas em risco, com a cadeia causal ─────────────────────────────

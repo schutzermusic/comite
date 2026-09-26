@@ -14,6 +14,7 @@ if (typeof window !== 'undefined') {
 import { resolveOwnerNames } from '@/lib/commercial/owner-directory';
 import { projectIdentity } from '@/lib/operations/project-identity';
 import { platformServiceClient } from '@/lib/platform/server-client';
+import { selectIn } from '@/lib/supabase/select-in';
 import type { PersonRef } from './types';
 
 type Row = Record<string, unknown>;
@@ -26,7 +27,11 @@ export interface NameBook {
   supplier: (id: string | null) => string | null;
 }
 
-/** Resolve de uma vez os nomes que a leitura precisa. Falha de diretório vira "sem nome", nunca erro de tela. */
+/**
+ * Resolve de uma vez os nomes que a leitura precisa. Falha de diretório vira "sem nome", nunca erro de tela — mas vai
+ * para o log (não some calada). Em lotes (`selectIn`): a caixa inteira pode citar centenas de obras e fornecedores, e
+ * com a lista toda na URL o 414 apagaria TODOS os nomes, para sempre, sem erro nenhum.
+ */
 export async function nameBook(organizationId: string, ids: {
   people?: Array<string | null | undefined>;
   roles?: Array<string | null | undefined>;
@@ -38,21 +43,19 @@ export async function nameBook(organizationId: string, ids: {
   const roles = uniq(ids.roles ?? []);
   const projects = uniq(ids.projects ?? []);
   const suppliers = uniq(ids.suppliers ?? []);
+  const soft = (what: string) => (e: unknown): Row[] => { console.error(`[decisions] nomes indisponíveis (${what})`, e); return []; };
   const [peopleMap, roleRows, projectRows, supplierRows] = await Promise.all([
     people.length ? resolveOwnerNames(organizationId, people) : Promise.resolve({} as Record<string, string>),
-    roles.length ? sb.from('roles').select('id,key,name').in('id', roles).then((r) => (r.data ?? []) as Row[]) : Promise.resolve([] as Row[]),
-    projects.length ? sb.from('projects').select('id,project,project_v2').eq('organization_id', organizationId).in('id', projects)
-      .then((r) => (r.data ?? []) as Row[]) : Promise.resolve([] as Row[]),
-    suppliers.length ? sb.from('supplier_profiles').select('id,party_id').eq('organization_id', organizationId).in('id', suppliers)
-      .then(async (r) => {
-        const rows = (r.data ?? []) as Row[];
-        const partyIds = uniq(rows.map((x) => x.party_id as string));
-        const parties = partyIds.length
-          ? ((await sb.from('parties').select('id,legal_name,trade_name').eq('organization_id', organizationId).in('id', partyIds)).data ?? []) as Row[]
-          : [];
+    selectIn<Row>(roles, (c) => sb.from('roles').select('id,key,name').in('id', c)).catch(soft('papéis')),
+    selectIn<Row>(projects, (c) => sb.from('projects').select('id,project,project_v2').eq('organization_id', organizationId).in('id', c))
+      .catch(soft('obras')),
+    selectIn<Row>(suppliers, (c) => sb.from('supplier_profiles').select('id,party_id').eq('organization_id', organizationId).in('id', c))
+      .then(async (rows) => {
+        const parties = await selectIn<Row>(uniq(rows.map((x) => x.party_id as string)), (c) => sb.from('parties')
+          .select('id,legal_name,trade_name').eq('organization_id', organizationId).in('id', c));
         const pm = new Map(parties.map((p) => [String(p.id), String(p.trade_name ?? p.legal_name ?? '')]));
-        return rows.map((x) => ({ id: x.id, name: pm.get(String(x.party_id)) || null }));
-      }) : Promise.resolve([] as Row[]),
+        return rows.map((x) => ({ id: x.id, name: pm.get(String(x.party_id)) || null }) as Row);
+      }).catch(soft('fornecedores')),
   ]);
   const roleMap = new Map(roleRows.map((r) => [String(r.id), String(r.name ?? r.key ?? '')]));
   const projectMap = new Map(projectRows.map((p) => [String(p.id),

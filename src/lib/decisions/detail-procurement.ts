@@ -16,6 +16,7 @@ if (typeof window !== 'undefined') {
 }
 
 import { platformServiceClient } from '@/lib/platform/server-client';
+import { selectIn } from '@/lib/supabase/select-in';
 import { href } from '@/components/ax/entity';
 import { date as fmtDate, dateTime, money } from '@/components/ax/format';
 import {
@@ -199,6 +200,16 @@ function must<T>(r: { data: T | null; error: { message: string } | null }, what:
 }
 
 /**
+ * `.in()` em lotes (`selectIn`) com o mesmo "não foi possível ler" de `must`: um pedido pode ter até 200 linhas (o
+ * teto da cotação), e os requisitos delas passam disso — com a lista inteira na URL, 414.
+ */
+function mustIn(ids: readonly (string | null | undefined)[], run: (chunk: string[]) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>,
+  what: string): Promise<Row[]> {
+  return selectIn<Row>(ids, run as (chunk: string[]) => PromiseLike<{ data: Row[] | null; error: { message: string } | null }>)
+    .catch((cause) => { throw new Error(`Não foi possível ler ${what}.`, { cause }); });
+}
+
+/**
  * O pedido inteiro para quem decide. `submission` é a submissão que a chave
  * decide (s<n>): a nota e o autor mostrados são os DELA, não os da última.
  */
@@ -230,58 +241,55 @@ export async function purchaseOrderDetail(org: string, poId: string, opts: {
   ]);
   const lineRows = (must(lineR, 'as linhas do pedido') ?? []) as Row[];
   const histRows = (must(histR, 'o histórico do pedido') ?? []) as Row[];
-  const location = locR.data as Row | null;
+  const location = must(locR as { data: Row | null; error: { message: string } | null }, 'o local de entrega');
   const decision = must(decR as { data: Row | null; error: { message: string } | null }, 'a decisão de compra');
   const rfqId = decision ? str(decision.rfq_id) : null;
 
   const lineIds = lineRows.map((l) => String(l.id));
-  const [itemR, allocR, rfqLineR, quoteR] = await Promise.all([
-    lineRows.length ? sb.from('supply_items').select('id,code,description,unit').eq('organization_id', org)
-      .in('id', uniq(lineRows.map((l) => str(l.item_id)))) : Promise.resolve({ data: [], error: null }),
-    lineIds.length ? sb.from('purchase_order_line_requirements').select('line_id,requirement_id,quantity')
-      .eq('organization_id', org).in('line_id', lineIds) : Promise.resolve({ data: [], error: null }),
+  const [itemRows, allocRows, rfqLineR, quoteR] = await Promise.all([
+    mustIn(uniq(lineRows.map((l) => str(l.item_id))), (c) => sb.from('supply_items').select('id,code,description,unit')
+      .eq('organization_id', org).in('id', c), 'os itens'),
+    mustIn(lineIds, (c) => sb.from('purchase_order_line_requirements').select('line_id,requirement_id,quantity')
+      .eq('organization_id', org).in('line_id', c), 'os requisitos do pedido'),
     rfqId ? sb.from('procurement_rfq_lines').select('id,quantity,required_by').eq('organization_id', org).eq('rfq_id', rfqId)
       : Promise.resolve({ data: [], error: null }),
     rfqId ? sb.from('supplier_quotes')
       .select('id,supplier_id,version,status,currency,freight_amount,tax_amount,payment_terms,validity_date,lead_time_days,deviations')
       .eq('organization_id', org).eq('rfq_id', rfqId) : Promise.resolve({ data: [], error: null }),
   ]);
-  const itemMap = new Map(((must(itemR, 'os itens') ?? []) as Row[]).map((i) => [String(i.id), i]));
-  const allocRows = (must(allocR, 'os requisitos do pedido') ?? []) as Row[];
+  const itemMap = new Map(itemRows.map((i) => [String(i.id), i]));
   const rfqLineRows = (must(rfqLineR, 'as linhas da cotação') ?? []) as Row[];
   const quoteRows = (must(quoteR, 'as propostas') ?? []) as Row[];
 
   const reqIds = uniq(allocRows.map((a) => str(a.requirement_id)));
   const quoteIds = quoteRows.map((q) => String(q.id));
   const supplierIds = uniq([supplierId, ...quoteRows.map((q) => str(q.supplier_id))]);
-  const [reqR, qLineR, supR, perfR] = await Promise.all([
-    reqIds.length ? sb.from('project_requirements').select('id,title,project_id,activity_id,required_by,status,priority')
-      .eq('organization_id', org).in('id', reqIds) : Promise.resolve({ data: [], error: null }),
-    quoteIds.length ? sb.from('supplier_quote_lines').select('quote_id,rfq_line_id,unit_price,quantity,lead_time_days,compliant')
-      .eq('organization_id', org).in('quote_id', quoteIds) : Promise.resolve({ data: [], error: null }),
-    sb.from('supplier_profiles').select('id,status').eq('organization_id', org).in('id', supplierIds),
-    sb.from('supplier_delivery_performance').select('supplier_id,promised_lines,on_time_lines')
-      .eq('organization_id', org).in('supplier_id', supplierIds),
+  const [reqRows, qLineRows, supRows, perfRows] = await Promise.all([
+    mustIn(reqIds, (c) => sb.from('project_requirements').select('id,title,project_id,activity_id,required_by,status,priority')
+      .eq('organization_id', org).in('id', c), 'os requisitos'),
+    mustIn(quoteIds, (c) => sb.from('supplier_quote_lines').select('quote_id,rfq_line_id,unit_price,quantity,lead_time_days,compliant')
+      .eq('organization_id', org).in('quote_id', c), 'as linhas das propostas'),
+    mustIn(supplierIds, (c) => sb.from('supplier_profiles').select('id,status').eq('organization_id', org).in('id', c), 'os fornecedores'),
+    mustIn(supplierIds, (c) => sb.from('supplier_delivery_performance').select('supplier_id,promised_lines,on_time_lines')
+      .eq('organization_id', org).in('supplier_id', c), 'a pontualidade dos fornecedores'),
   ]);
-  const reqRows = (must(reqR, 'os requisitos') ?? []) as Row[];
-  const qLineRows = (must(qLineR, 'as linhas das propostas') ?? []) as Row[];
-  const supStatus = new Map(((must(supR, 'os fornecedores') ?? []) as Row[]).map((s) => [String(s.id), String(s.status) as SupplierStatus]));
-  const perf = new Map(((perfR.data ?? []) as Row[]).map((p) => [String(p.supplier_id),
+  const supStatus = new Map(supRows.map((s) => [String(s.id), String(s.status) as SupplierStatus]));
+  const perf = new Map(perfRows.map((p) => [String(p.supplier_id),
     { promised_lines: num(p.promised_lines), on_time_lines: num(p.on_time_lines) }]));
 
   const activityIds = uniq(reqRows.map((r) => str(r.activity_id)));
   const submitted = histRows.filter((h) => h.transition === 'submitted');
   const submissionRow = (opts.submission ? submitted[opts.submission - 1] : undefined) ?? submitted[submitted.length - 1] ?? null;
-  const [actR, book] = await Promise.all([
-    activityIds.length ? sb.from('project_timeline_items').select('id,project_id,title,planned_start,planned_finish')
-      .eq('organization_id', org).in('id', activityIds).is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
+  const [actRows, book] = await Promise.all([
+    mustIn(activityIds, (c) => sb.from('project_timeline_items').select('id,project_id,title,planned_start,planned_finish')
+      .eq('organization_id', org).in('id', c).is('deleted_at', null), 'as atividades'),
     nameBook(org, {
       people: [str(po.submitted_by), str(decision?.decided_by), ...histRows.map((h) => str(h.actor_user_id))],
       projects: [str(po.project_id), ...reqRows.map((r) => str(r.project_id))],
       suppliers: supplierIds,
     }),
   ]);
-  const activities = new Map(((must(actR, 'as atividades') ?? []) as Row[]).map((a) => [String(a.id), a]));
+  const activities = new Map(actRows.map((a) => [String(a.id), a]));
   const reqMap = new Map(reqRows.map((r) => [String(r.id), r]));
   const needOf = (r: Row) => requirementNeed(str(r.required_by), str(activities.get(String(r.activity_id))?.planned_start));
 

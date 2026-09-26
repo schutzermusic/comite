@@ -16,6 +16,7 @@ if (typeof window !== 'undefined') {
 import { NextResponse } from 'next/server';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { platformServiceClient } from '@/lib/platform/server-client';
+import { selectIn } from '@/lib/supabase/select-in';
 import { date as fmtDate, daysBetween, money, qty, todayIso } from '@/components/ax/format';
 import { emailTransportKind, type EmailTransportKind } from '@/lib/notifications/email';
 import { resolveWhatsAppChannel } from '@/lib/notifications/whatsapp';
@@ -418,38 +419,38 @@ async function purchaseOrderCards(org: string, poIds: string[]): Promise<Map<str
   const out = new Map<string, PurchaseCard>();
   if (!poIds.length) return out;
   const sb = platformServiceClient();
-  const [poR, lineR, poSigR] = await Promise.all([
-    sb.from('purchase_orders').select('id,supplier_id,sourcing_decision_id').eq('organization_id', org).in('id', poIds),
-    sb.from('purchase_order_lines').select('id,purchase_order_id,item_id,quantity,unit_price').eq('organization_id', org).in('purchase_order_id', poIds),
-    sb.from('supply_signals').select('purchase_order_id,title,severity,status').eq('organization_id', org)
-      .eq('status', 'OPEN').eq('severity', 'critical').in('purchase_order_id', poIds),
+  // Em lotes (a caixa pode trazer centenas de pedidos, e as linhas e requisitos deles mais ainda — com a lista inteira
+  // na URL, 414) e TUDO OU NADA: qualquer leitura que falhe derruba os cartões inteiros (o chamador cai no "contexto de
+  // compra indisponível"). Nunca um cartão pela metade — um sinal crítico que não carregou não pode virar "nada crítico".
+  const [pos, lines, poSignals] = await Promise.all([
+    selectIn<Row>(poIds, (c) => sb.from('purchase_orders').select('id,supplier_id,sourcing_decision_id').eq('organization_id', org).in('id', c)),
+    selectIn<Row>(poIds, (c) => sb.from('purchase_order_lines').select('id,purchase_order_id,item_id,quantity,unit_price')
+      .eq('organization_id', org).in('purchase_order_id', c)),
+    selectIn<Row>(poIds, (c) => sb.from('supply_signals').select('purchase_order_id,title,severity,status').eq('organization_id', org)
+      .eq('status', 'OPEN').eq('severity', 'critical').in('purchase_order_id', c)),
   ]);
-  if (poR.error || lineR.error) throw new Error('pedidos');
-  const pos = (poR.data ?? []) as Row[]; const lines = (lineR.data ?? []) as Row[];
   const lineIds = lines.map((l) => String(l.id));
   const decisionIds = uniq(pos.map((p) => str(p.sourcing_decision_id)));
-  const [itemR, allocR, decR] = await Promise.all([
-    lines.length ? sb.from('supply_items').select('id,code,description,unit').eq('organization_id', org).in('id', uniq(lines.map((l) => str(l.item_id))))
-      : Promise.resolve({ data: [], error: null }),
-    lineIds.length ? sb.from('purchase_order_line_requirements').select('line_id,requirement_id').eq('organization_id', org).in('line_id', lineIds)
-      : Promise.resolve({ data: [], error: null }),
-    decisionIds.length ? sb.from('sourcing_decisions').select('id,quote_id,recommended_quote_id').eq('organization_id', org).in('id', decisionIds)
-      : Promise.resolve({ data: [], error: null }),
+  const [itemRows, allocs, decRows] = await Promise.all([
+    selectIn<Row>(uniq(lines.map((l) => str(l.item_id))), (c) => sb.from('supply_items').select('id,code,description,unit')
+      .eq('organization_id', org).in('id', c)),
+    selectIn<Row>(lineIds, (c) => sb.from('purchase_order_line_requirements').select('line_id,requirement_id')
+      .eq('organization_id', org).in('line_id', c)),
+    selectIn<Row>(decisionIds, (c) => sb.from('sourcing_decisions').select('id,quote_id,recommended_quote_id')
+      .eq('organization_id', org).in('id', c)),
   ]);
-  const allocs = (allocR.data ?? []) as Row[];
   const reqIds = uniq(allocs.map((a) => str(a.requirement_id)));
-  const [reqR, reqSigR] = await Promise.all([
-    reqIds.length ? sb.from('project_requirements').select('id,title,priority,status,project_id').eq('organization_id', org).in('id', reqIds)
-      : Promise.resolve({ data: [], error: null }),
-    reqIds.length ? sb.from('supply_signals').select('requirement_id,title,severity,status').eq('organization_id', org)
-      .eq('status', 'OPEN').eq('severity', 'critical').in('requirement_id', reqIds) : Promise.resolve({ data: [], error: null }),
+  const [reqRows, reqSignals] = await Promise.all([
+    selectIn<Row>(reqIds, (c) => sb.from('project_requirements').select('id,title,priority,status,project_id')
+      .eq('organization_id', org).in('id', c)),
+    selectIn<Row>(reqIds, (c) => sb.from('supply_signals').select('requirement_id,title,severity,status').eq('organization_id', org)
+      .eq('status', 'OPEN').eq('severity', 'critical').in('requirement_id', c)),
   ]);
-  const items = new Map(((itemR.data ?? []) as Row[]).map((i) => [String(i.id), i]));
+  const items = new Map(itemRows.map((i) => [String(i.id), i]));
   // "Recomendado" só com a recomendação GRAVADA apontando para a proposta escolhida — não pelo booleano sozinho.
-  const follows = new Map(((decR.data ?? []) as Row[]).map((d) => [String(d.id),
+  const follows = new Map(decRows.map((d) => [String(d.id),
     d.recommended_quote_id ? String(d.recommended_quote_id) === String(d.quote_id) : null]));
-  const reqs = new Map(((reqR.data ?? []) as Row[]).map((r) => [String(r.id), r]));
-  const poSignals = (poSigR.data ?? []) as Row[]; const reqSignals = (reqSigR.data ?? []) as Row[];
+  const reqs = new Map(reqRows.map((r) => [String(r.id), r]));
   for (const p of pos) {
     const id = String(p.id);
     const mine = lines.filter((l) => l.purchase_order_id === p.id);

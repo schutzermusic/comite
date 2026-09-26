@@ -8,7 +8,7 @@ if (typeof window !== 'undefined') {
 }
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { selectIn } from '@/lib/supabase/select-in';
+import { selectAllPages, selectIn } from '@/lib/supabase/select-in';
 import { resolveOwnerNames } from '@/lib/commercial/owner-directory';
 import { projectIdentity } from '@/lib/operations/project-identity';
 import {
@@ -29,6 +29,13 @@ type Row = Record<string, unknown>;
  */
 const inChunks = async (ids: readonly string[], run: (chunk: string[]) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>) =>
   ({ data: await selectIn<Row>(ids, run as (chunk: string[]) => PromiseLike<{ data: Row[] | null; error: { message: string } | null }>) });
+/**
+ * Lista INTEIRA do inquilino, em páginas de 1 000 com ordem estável: o PostgREST corta cada resposta em 1 000 linhas,
+ * seja qual for o `.limit()` — acima disso fornecedores, pedidos e locais sumiam da lista sem aviso. Erro sobe.
+ */
+const whole = (what: string, page: (f: number, t: number) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>) =>
+  selectAllPages<Row>(page as (f: number, t: number) => PromiseLike<{ data: Row[] | null; error: { message: string } | null }>)
+    .catch((cause) => { throw new Error(`Não foi possível ler ${what}.`, { cause }); });
 const num = (v: unknown) => { const x = Number(v ?? 0); return Number.isFinite(x) ? x : 0; };
 const str = (v: unknown) => (v === null || v === undefined ? null : String(v));
 
@@ -44,24 +51,24 @@ export interface SupplierView {
 
 export async function listSuppliers(session: Session): Promise<SupplierView[]> {
   const sb = session.supabase; const org = session.organizationId;
-  const { data, error } = await sb.from('supplier_profiles')
+  const rows = await whole('os fornecedores', (f, t) => sb.from('supplier_profiles')
     .select('id,party_id,status,status_reason,categories,default_payment_terms,default_lead_time_days,contact_name,contact_email,contact_phone')
-    .eq('organization_id', org).limit(2000);
-  if (error) throw new Error('Não foi possível ler os fornecedores.');
-  const rows = (data ?? []) as Row[];
+    .eq('organization_id', org).order('id').range(f, t));
   const partyIds = rows.map((r) => String(r.party_id));
-  const [parties, orders, performance] = await Promise.all([
+  // Sem os pedidos ou a pontualidade, "0 pedidos" e "pontualidade desconhecida" seriam mentira: erro sobe.
+  const [parties, ords, performance] = await Promise.all([
     inChunks(partyIds, (c) => sb.from('parties').select('id,legal_name,trade_name,document_number').eq('organization_id', org).in('id', c)),
-    sb.from('purchase_orders').select('supplier_id,status').eq('organization_id', org).limit(5000),
-    sb.from('supplier_delivery_performance').select('supplier_id,promised_lines,on_time_lines,avg_delay_days,lines_with_rejection,received_lines,last_receipt_at')
-      .eq('organization_id', org),
+    whole('os pedidos e a pontualidade dos fornecedores', (f, t) => sb.from('purchase_orders').select('id,supplier_id,status')
+      .eq('organization_id', org).order('id').range(f, t)),
+    whole('os pedidos e a pontualidade dos fornecedores', (f, t) => sb.from('supplier_delivery_performance')
+      .select('supplier_id,promised_lines,on_time_lines,avg_delay_days,lines_with_rejection,received_lines,last_receipt_at')
+      .eq('organization_id', org).order('supplier_id').range(f, t)),
   ]);
-  const perf = new Map(((performance.data ?? []) as Row[]).map((p) => [String(p.supplier_id),
+  const perf = new Map(performance.map((p) => [String(p.supplier_id),
     { promised_lines: num(p.promised_lines), on_time_lines: num(p.on_time_lines),
       avg_delay_days: p.avg_delay_days === null || p.avg_delay_days === undefined ? null : num(p.avg_delay_days),
       lines_with_rejection: num(p.lines_with_rejection), received_lines: num(p.received_lines), last_receipt_at: str(p.last_receipt_at) }]));
   const pm = new Map(((parties.data ?? []) as Row[]).map((p) => [String(p.id), p]));
-  const ords = (orders.data ?? []) as Row[];
   return rows.map((r) => {
     const p = pm.get(String(r.party_id));
     const mine = ords.filter((o) => o.supplier_id === r.id);
@@ -84,15 +91,18 @@ export async function listSuppliers(session: Session): Promise<SupplierView[]> {
 
 export async function listAuthorities(session: Session) {
   const sb = session.supabase; const org = session.organizationId;
-  const { data } = await sb.from('procurement_approval_authorities')
+  const { data, error } = await sb.from('procurement_approval_authorities')
     .select('id,project_id,category,grantee_kind,grantee_role_id,grantee_user_id,max_amount,currency,source_kind,source_reference,justification,effective_from,effective_until,active,declared_by,created_at,revocation_reason')
     .eq('organization_id', org).order('created_at', { ascending: false }).limit(500);
+  // Sem esta checagem, uma falha virava "nenhuma alçada declarada" — e convidava a declarar de novo.
+  if (error) throw new Error('Não foi possível ler as alçadas de compra.');
   const rows = (data ?? []) as Row[];
   const roleIds = Array.from(new Set(rows.map((r) => r.grantee_role_id).filter(Boolean))) as string[];
   const [roles, people] = await Promise.all([
-    roleIds.length ? sb.from('roles').select('id,key,name').in('id', roleIds) : Promise.resolve({ data: [] }),
+    roleIds.length ? sb.from('roles').select('id,key,name').in('id', roleIds) : Promise.resolve({ data: [], error: null }),
     resolveOwnerNames(org, rows.flatMap((r) => [r.grantee_user_id as string | null, r.declared_by as string | null])),
   ]);
+  if (roles.error) throw new Error('Não foi possível ler os papéis das alçadas de compra.');
   const rm = new Map(((roles.data ?? []) as Row[]).map((r) => [String(r.id), String(r.name ?? r.key)]));
   return rows.map((r) => ({
     id: String(r.id), grantee: r.grantee_kind === 'ROLE' ? `Papel: ${rm.get(String(r.grantee_role_id)) ?? 'papel'}`
@@ -192,7 +202,8 @@ export async function procurementWorkspace(session: Session, today: string) {
     inChunks(Array.from(itemIds), (c) => sb.from('supply_items').select('id,code,description,unit').eq('organization_id', org).in('id', c)),
     inChunks(Array.from(projectIds), (c) => sb.from('projects').select('id,project,project_v2').eq('organization_id', org).in('id', c)),
     inChunks(requirementIds, (c) => sb.from('project_requirements').select('id,title,project_id,required_by').eq('organization_id', org).in('id', c)),
-    sb.from('inventory_locations').select('id,name,kind,project_id,active').eq('organization_id', org).limit(2000),
+    whole('os locais de entrega', (f, t) => sb.from('inventory_locations').select('id,name,kind,project_id,active')
+      .eq('organization_id', org).order('id').range(f, t)),
     resolveOwnerNames(org, [...reqRows.map((r) => r.requested_by), ...poRows.flatMap((p) => [p.created_by, p.approved_by, p.submitted_by]),
       ...((history.data ?? []) as Row[]).map((h) => h.actor_user_id), ...((decisions.data ?? []) as Row[]).map((d) => d.decided_by)] as Array<string | null>),
     inChunks(olderRfqIds, (c) => sb.from('procurement_rfqs').select('id,status').eq('organization_id', org).in('id', c)),
@@ -213,7 +224,7 @@ export async function procurementWorkspace(session: Session, today: string) {
   const extraProjects = (await inChunks(missingProjects, (c) => sb.from('projects').select('id,project,project_v2').eq('organization_id', org).in('id', c))).data;
   const projMap = new Map(([...(projects.data ?? []), ...extraProjects] as Array<{ id: string; project: Record<string, unknown>; project_v2: Record<string, unknown> | null }>)
     .map((p) => [p.id, projectIdentity(p.id, p.project, p.project_v2).name]));
-  const locRows = (locations.data ?? []) as Row[];
+  const locRows = locations;
   const locName = new Map(locRows.map((l) => [String(l.id), String(l.name)]));
   const supMap = new Map(suppliers.map((s) => [s.id, s]));
   const who = (id: unknown) => (id ? people[String(id)] ?? null : null);
@@ -362,12 +373,20 @@ export async function supplierDetail(session: Session, supplierId: string, today
     quoteRows.length ? sb.from('supplier_quote_lines').select('quote_id,unit_price,quantity').eq('organization_id', org)
       .in('quote_id', quoteRows.map((q) => String(q.id))) : Promise.resolve({ data: [] }),
   ]);
+  // Listas pequenas (≤ 30 pedidos e propostas pelos limites acima), mas o erro de cada leitura conta: saldo, atraso,
+  // rejeição e "ganhou" do fornecedor saem delas — vazio por falha pareceria histórico limpo.
+  for (const r of [lines, receipts, rfqs, decisions, quoteLines]) if ('error' in r && r.error) throw new Error('Não foi possível ler o histórico do fornecedor.');
   const lineRows = (lines.data ?? []) as Row[]; const rcRows = (receipts.data ?? []) as Row[];
   const rcIds = rcRows.map((r) => String(r.id));
-  const rcLines = rcIds.length ? ((await sb.from('goods_receipt_lines').select('receipt_id,accepted_quantity,rejected_quantity,inspection_rejected_quantity')
-    .eq('organization_id', org).in('receipt_id', rcIds)).data ?? []) as Row[] : [];
+  const rcLineRes = rcIds.length ? await sb.from('goods_receipt_lines').select('receipt_id,accepted_quantity,rejected_quantity,inspection_rejected_quantity')
+    .eq('organization_id', org).in('receipt_id', rcIds) : { data: [], error: null };
+  if (rcLineRes.error) throw new Error('Não foi possível ler os recebimentos do fornecedor.');
+  const rcLines = (rcLineRes.data ?? []) as Row[];
   const projectIds = Array.from(new Set(poRows.map((p) => p.project_id).filter(Boolean) as string[]));
-  const projects = projectIds.length ? ((await sb.from('projects').select('id,project,project_v2').eq('organization_id', org).in('id', projectIds)).data ?? []) : [];
+  const projectRes = projectIds.length ? await sb.from('projects').select('id,project,project_v2').eq('organization_id', org).in('id', projectIds)
+    : { data: [], error: null };
+  if (projectRes.error) throw new Error('Não foi possível ler as obras do fornecedor.');
+  const projects = projectRes.data ?? [];
   const projName = new Map((projects as Array<{ id: string; project: Record<string, unknown>; project_v2: Record<string, unknown> | null }>)
     .map((p) => [p.id, projectIdentity(p.id, p.project, p.project_v2).name]));
   const rfqMap = new Map(((rfqs.data ?? []) as Row[]).map((r) => [String(r.id), r]));

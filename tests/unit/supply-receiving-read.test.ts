@@ -16,14 +16,14 @@ type Spec = { rows: R[]; failOn?: string; extra?: R[] };
 type Call = { table: string; ops: Array<[string, unknown[]]> };
 const URL_LIMIT_IDS = 200;
 
-/** Cliente falso: `eq`/`in` filtram, `order`/`limit` valem; `.in` acima do limite volta 414 como a API. */
+/** Cliente falso: `eq`/`in` filtram, `order`/`limit`/`range` valem; `.in` acima do limite volta 414 como a API. */
 function fakeClient(tables: Record<string, Spec>, calls: Call[] = []) {
   return {
     from: (table: string) => {
       const call: Call = { table, ops: [] };
       calls.push(call);
       const chain: R = {};
-      for (const m of ['select', 'eq', 'in', 'or', 'order', 'limit']) chain[m] = (...args: unknown[]) => { call.ops.push([m, args]); return chain; };
+      for (const m of ['select', 'eq', 'in', 'or', 'order', 'limit', 'range']) chain[m] = (...args: unknown[]) => { call.ops.push([m, args]); return chain; };
       chain.then = (resolve: (v: unknown) => unknown) => {
         const spec = tables[table] ?? { rows: [] };
         let rows = spec.rows;
@@ -41,6 +41,7 @@ function fakeClient(tables: Record<string, Spec>, calls: Call[] = []) {
             rows = [...rows].sort((a, b) => (asc ? 1 : -1) * String(a[col] ?? '').localeCompare(String(b[col] ?? '')));
           }
           if (m === 'limit') rows = rows.slice(0, args[0] as number);
+          if (m === 'range') rows = rows.slice(args[0] as number, (args[1] as number) + 1);
         }
         return resolve({ data: [...rows, ...(spec.extra ?? [])], error: null });
       };

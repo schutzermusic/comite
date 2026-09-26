@@ -10,7 +10,7 @@ if (typeof window !== 'undefined') {
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { resolveOwnerNames } from '@/lib/commercial/owner-directory';
 import { projectIdentity } from '@/lib/operations/project-identity';
-import { selectIn } from '@/lib/supabase/select-in';
+import { selectAllPages, selectIn } from '@/lib/supabase/select-in';
 import { daysLate, inboundQueue, type InboundQueue, type InspectionStatus, type ShipmentStatus } from './receiving';
 
 type Session = { supabase: SupabaseClient; organizationId: string };
@@ -46,7 +46,12 @@ async function inChunks(what: string, ids: Iterable<unknown>, run: (chunk: strin
 export async function receivingWorkspace(session: Session, today: string) {
   const sb = session.supabase; const org = session.organizationId;
   const since = new Date(`${today}T00:00:00Z`); since.setUTCDate(since.getUTCDate() - 60);
-  const [pos, transfers, receipts, locations, suppliers, perf] = await Promise.all([
+  // Listas do inquilino INTEIRAS (páginas de 1 000, ordem estável): o PostgREST corta cada resposta em 1 000 linhas, e
+  // com 1 139 locais no QA o local recém-criado sumia do "Liberar para" da inspeção. Falha sobe — nunca "Local".
+  const whole = (page: (f: number, t: number) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>) =>
+    selectAllPages<Row>(page as (f: number, t: number) => PromiseLike<{ data: Row[] | null; error: { message: string } | null }>)
+      .catch((cause) => { throw new Error('Não foi possível ler o recebimento.', { cause }); });
+  const [pos, transfers, receipts, locRows, supRows, perfRows] = await Promise.all([
     sb.from('purchase_orders').select('id,order_number,supplier_id,project_id,status,expected_delivery,delivery_location_id,issued_at,closed_at')
       .eq('organization_id', org).or(`status.in.(ISSUED,PARTIALLY_RECEIVED),closed_at.gte.${since.toISOString()},issued_at.gte.${since.toISOString()}`)
       .in('status', ['ISSUED', 'PARTIALLY_RECEIVED', 'RECEIVED', 'CLOSED']).order('expected_delivery', { ascending: true, nullsFirst: false }).limit(500),
@@ -55,10 +60,10 @@ export async function receivingWorkspace(session: Session, today: string) {
     sb.from('goods_receipts').select('id,receipt_number,purchase_order_id,shipment_id,location_id,received_at,received_by,note,discrepancy_reason,inspection_status,inspected_at,inspection_note')
       .eq('organization_id', org).or(`inspection_status.eq.PENDING,received_at.gte.${since.toISOString()}`)
       .order('received_at', { ascending: false }).limit(300),
-    sb.from('inventory_locations').select('id,name,kind,project_id,active').eq('organization_id', org).limit(2000),
-    sb.from('supplier_profiles').select('id,party_id').eq('organization_id', org).limit(2000),
-    sb.from('supplier_delivery_performance').select('supplier_id,promised_lines,on_time_lines,avg_delay_days,lines_with_rejection,received_lines')
-      .eq('organization_id', org),
+    whole((f, t) => sb.from('inventory_locations').select('id,name,kind,project_id,active').eq('organization_id', org).order('id').range(f, t)),
+    whole((f, t) => sb.from('supplier_profiles').select('id,party_id').eq('organization_id', org).order('id').range(f, t)),
+    whole((f, t) => sb.from('supplier_delivery_performance').select('supplier_id,promised_lines,on_time_lines,avg_delay_days,lines_with_rejection,received_lines')
+      .eq('organization_id', org).order('supplier_id').range(f, t)),
   ]);
   for (const r of [pos, transfers, receipts]) if (r.error) throw new Error('Não foi possível ler o recebimento.');
   const poRows = (pos.data ?? []) as Row[]; const trRows = (transfers.data ?? []) as Row[]; const rcRows = (receipts.data ?? []) as Row[];
@@ -90,7 +95,6 @@ export async function receivingWorkspace(session: Session, today: string) {
 
   const itemIds = new Set<string>([...poLineRows, ...rcLineRows, ...trLineRows].map((l) => String(l.item_id)));
   const projectIds = new Set<string>([...allPoRows.values(), ...trRows].map((r) => r.project_id).filter(Boolean) as string[]);
-  const supRows = (suppliers.data ?? []) as Row[];
   const [items, projects, parties, people] = await Promise.all([
     inChunks('os itens', itemIds, (c) => sb.from('supply_items').select('id,code,description,unit,tracking').eq('organization_id', org).in('id', c)),
     inChunks('os projetos', projectIds, (c) => sb.from('projects').select('id,project,project_v2').eq('organization_id', org).in('id', c)),
@@ -103,7 +107,6 @@ export async function receivingWorkspace(session: Session, today: string) {
     .map((p) => [p.id, projectIdentity(p.id, p.project, p.project_v2).name]));
   const partyMap = new Map(((parties.data ?? []) as Row[]).map((p) => [String(p.id), String(p.trade_name ?? p.legal_name)]));
   const supplierName = new Map(supRows.map((s) => [String(s.id), partyMap.get(String(s.party_id)) ?? 'Fornecedor']));
-  const locRows = (locations.data ?? []) as Row[];
   const locMap = new Map(locRows.map((l) => [String(l.id), l]));
   const item = (id: unknown) => {
     const i = itemMap.get(String(id));
@@ -180,7 +183,7 @@ export async function receivingWorkspace(session: Session, today: string) {
   return {
     today, inbound, inboundTransfers, receipts: receiptsView,
     locations: locRows.filter((l) => l.active).map((l) => ({ id: String(l.id), name: String(l.name), kind: String(l.kind) })),
-    performance: ((perf.data ?? []) as Row[]).map((p) => ({ supplierId: String(p.supplier_id), supplier: supplierName.get(String(p.supplier_id)) ?? 'Fornecedor',
+    performance: perfRows.map((p) => ({ supplierId: String(p.supplier_id), supplier: supplierName.get(String(p.supplier_id)) ?? 'Fornecedor',
       promisedLines: num(p.promised_lines), onTimeLines: num(p.on_time_lines), avgDelayDays: num(p.avg_delay_days),
       linesWithRejection: num(p.lines_with_rejection), receivedLines: num(p.received_lines) })),
   };

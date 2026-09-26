@@ -8,7 +8,7 @@ if (typeof window !== 'undefined') {
 }
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { selectIn } from '@/lib/supabase/select-in';
+import { selectAllPages, selectIn } from '@/lib/supabase/select-in';
 import { projectIdentity } from '@/lib/operations/project-identity';
 import { daysBetween } from '@/lib/operations/overview-rules';
 import { fromViewRow, supplyRisk, type CoverageSummary, type CoverageViewRow, type StockAtLocation, type SupplyRisk } from './coverage';
@@ -58,20 +58,31 @@ export interface MaterialDemandRow {
 /** A posição do ITEM no estoque (todos os locais ativos): o outro lado da equação do requisito. */
 export interface ItemStockTotals { onHand: number; reserved: number; available: number; quarantine: number }
 
+type Paged = (f: number, t: number) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>;
+/**
+ * Lista INTEIRA em páginas de 1 000, com ordem total: o PostgREST corta cada resposta em 1 000 linhas, seja qual for
+ * o `.limit()` — a demanda (982 requisitos no QA), os locais (1 139) e o cadastro (1 015 itens) já passavam disso e
+ * voltavam cortados, sem aviso. Erro sobe com a mensagem da leitura.
+ */
+function whole<T = Record<string, unknown>>(what: string, page: Paged): Promise<T[]> {
+  return selectAllPages<T>(page as (f: number, t: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>)
+    .catch((cause) => { throw new Error(what, { cause }); });
+}
+
 /** Posição por item e local para os itens da demanda (vazio sem leitura de estoque — RLS). */
 async function availableStock(sb: SupabaseClient, org: string, itemIds: string[]) {
   if (!itemIds.length) return { position: [] as PositionRow[], totals: new Map<string, ItemStockTotals>(),
     locations: [] as Array<{ id: string; name: string; kind: LocationKind; project_id: string | null; active: boolean }> };
   // Em lotes: com a lista inteira na URL o PostgREST devolvia 414 e a falha
   // virava "sem estoque" — a tela mandava comprar o que havia no almoxarifado.
-  const [pos, locs] = await Promise.all([
-    selectIn<Record<string, unknown>>(itemIds, (chunk) => sb.from('inventory_position')
+  // Cada lote de itens também em páginas: 100 itens em muitos locais passam de 1 000 linhas.
+  const [pos, locations] = await Promise.all([
+    selectIn<Record<string, unknown>>(itemIds, (chunk) => whole('Não foi possível ler a posição de estoque.', (f, t) => sb.from('inventory_position')
       .select('item_id,location_id,location_kind,on_hand_qty,reserved_qty,available_qty')
-      .eq('organization_id', org).in('item_id', chunk).limit(5000)),
-    sb.from('inventory_locations').select('id,name,kind,project_id,active').eq('organization_id', org).limit(2000),
+      .eq('organization_id', org).in('item_id', chunk).order('item_id').order('location_id').range(f, t)).then((data) => ({ data, error: null }))),
+    whole<{ id: string; name: string; kind: LocationKind; project_id: string | null; active: boolean }>('Não foi possível ler os locais de estoque.',
+      (f, t) => sb.from('inventory_locations').select('id,name,kind,project_id,active').eq('organization_id', org).order('id').range(f, t)),
   ]);
-  if (locs.error) throw new Error('Não foi possível ler os locais de estoque.');
-  const locations = (locs.data ?? []) as Array<{ id: string; name: string; kind: LocationKind; project_id: string | null; active: boolean }>;
   const locMap = new Map(locations.map((l) => [l.id, l]));
   const position: PositionRow[] = pos
     .filter((r) => locMap.get(String(r.location_id))?.active)
@@ -100,10 +111,9 @@ async function availableStock(sb: SupabaseClient, org: string, itemIds: string[]
  * sugeriria transferir o que já está prometido.
  */
 async function pendingTransfers(sb: SupabaseClient, org: string) {
-  const heads = await sb.from('inventory_transfers').select('id,transfer_number,status,from_location_id')
-    .eq('organization_id', org).in('status', [...PENDING_TRANSFER_STATUSES]).limit(5000);
-  if (heads.error) throw new Error('Não foi possível ler as transferências pedidas.');
-  const transfers = (heads.data ?? []) as PendingTransferHeadRow[];
+  const transfers = await whole<PendingTransferHeadRow>('Não foi possível ler as transferências pedidas.', (f, t) => sb.from('inventory_transfers')
+    .select('id,transfer_number,status,from_location_id').eq('organization_id', org).in('status', [...PENDING_TRANSFER_STATUSES])
+    .order('id').range(f, t));
   const lines = await selectIn<PendingTransferLineRow>(transfers.map((t) => t.id), (c) => sb.from('inventory_transfer_lines')
     .select('transfer_id,item_id,requirement_id,quantity,source_reservation_id').eq('organization_id', org).in('transfer_id', c))
     .catch(() => { throw new Error('Não foi possível ler as linhas das transferências pedidas.'); });
@@ -113,11 +123,11 @@ async function pendingTransfers(sb: SupabaseClient, org: string) {
 export async function materialDemand(session: Session, today: string, projectId?: string): Promise<MaterialDemandRow[]> {
   const org = session.organizationId;
   const sb = session.supabase;
-  let query = sb.from('supply_requirement_coverage').select('*').eq('organization_id', org);
-  if (projectId) query = query.eq('project_id', projectId);
-  const { data, error } = await query.order('required_by', { ascending: true, nullsFirst: false }).limit(3000);
-  if (error) throw new Error('Não foi possível ler a demanda de material.');
-  const rows = (data ?? []) as CoverageViewRow[];
+  const rows = await whole<CoverageViewRow>('Não foi possível ler a demanda de material.', (f, t) => {
+    let query = sb.from('supply_requirement_coverage').select('*').eq('organization_id', org);
+    if (projectId) query = query.eq('project_id', projectId);
+    return query.order('required_by', { ascending: true, nullsFirst: false }).order('requirement_id').range(f, t);
+  });
   if (!rows.length) return [];
   const ids = rows.map((r) => r.requirement_id);
   const projectIds = Array.from(new Set(rows.map((r) => r.project_id)));
@@ -211,19 +221,17 @@ export type SupplyOverviewModel = Awaited<ReturnType<typeof supplyOverview>>;
 export async function supplyFlow(session: Session, today: string) {
   const sb = session.supabase; const org = session.organizationId;
   const since = new Date(`${today}T00:00:00Z`); since.setUTCDate(since.getUTCDate() - 30);
-  const [pos, reqs, receipts] = await Promise.all([
-    sb.from('purchase_orders').select('id,status,expected_delivery,currency').eq('organization_id', org)
-      .in('status', ['APPROVAL_REQUIRED', 'ISSUED', 'PARTIALLY_RECEIVED']).limit(2000),
+  const [poRows, reqs, receiptRows] = await Promise.all([
+    whole<{ id: string; status: string; expected_delivery: string | null }>('Não foi possível ler os pedidos de compra.', (f, t) => sb.from('purchase_orders')
+      .select('id,status,expected_delivery,currency').eq('organization_id', org)
+      .in('status', ['APPROVAL_REQUIRED', 'ISSUED', 'PARTIALLY_RECEIVED']).order('id').range(f, t)),
     sb.from('purchase_requisitions').select('id', { count: 'exact', head: true }).eq('organization_id', org).in('status', ['SUBMITTED', 'SOURCING']),
-    sb.from('goods_receipts').select('id,inspection_status').eq('organization_id', org)
-      .or(`inspection_status.eq.PENDING,received_at.gte.${since.toISOString()}`).limit(1000),
+    whole<{ id: string; inspection_status: string }>('Não foi possível ler os recebimentos.', (f, t) => sb.from('goods_receipts')
+      .select('id,inspection_status').eq('organization_id', org)
+      .or(`inspection_status.eq.PENDING,received_at.gte.${since.toISOString()}`).order('id').range(f, t)),
   ]);
-  if (pos.error) throw new Error('Não foi possível ler os pedidos de compra.');
   if (reqs.error || reqs.count === null) throw new Error('Não foi possível contar as requisições de compra.');
-  if (receipts.error) throw new Error('Não foi possível ler os recebimentos.');
-  const poRows = (pos.data ?? []) as Array<{ id: string; status: string; expected_delivery: string | null }>;
   const live = poRows.filter((p) => p.status !== 'APPROVAL_REQUIRED');
-  const receiptRows = (receipts.data ?? []) as Array<{ id: string; inspection_status: string }>;
   // `selectIn` já sobe o erro; aqui ele ganha a mensagem em português.
   const [lineRows, shipRows, receiptLines] = await Promise.all([
     selectIn<{ purchase_order_id: string; quantity: number; received_quantity: number; unit_price: number; expected_date: string | null }>(
@@ -257,11 +265,11 @@ export async function supplyFlow(session: Session, today: string) {
 }
 
 export async function listItems(session: Session, includeInactive: boolean) {
-  let query = session.supabase.from('supply_items')
-    .select('id,code,description,category,unit,manufacturer,brand,tracking,active,technical_attributes,updated_at')
-    .eq('organization_id', session.organizationId).order('code').limit(5000);
-  if (!includeInactive) query = query.eq('active', true);
-  const { data, error } = await query;
-  if (error) throw new Error('Não foi possível consultar o cadastro de itens.');
-  return data ?? [];
+  return whole('Não foi possível consultar o cadastro de itens.', (f, t) => {
+    let query = session.supabase.from('supply_items')
+      .select('id,code,description,category,unit,manufacturer,brand,tracking,active,technical_attributes,updated_at')
+      .eq('organization_id', session.organizationId);
+    if (!includeInactive) query = query.eq('active', true);
+    return query.order('code').order('id').range(f, t);
+  });
 }

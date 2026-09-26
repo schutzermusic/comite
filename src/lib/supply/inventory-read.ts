@@ -9,9 +9,16 @@ if (typeof window !== 'undefined') {
 }
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { selectIn } from '@/lib/supabase/select-in';
+import { selectAllPages, selectIn } from '@/lib/supabase/select-in';
 
 type AnyRow = Record<string, unknown>;
+/**
+ * Lista INTEIRA do inquilino, em páginas de 1 000 com ordem total: o PostgREST corta cada resposta em 1 000 linhas —
+ * com 1 139 locais e 1 015 itens no QA, os mais novos sumiam dos formulários sem aviso. Erro sobe com o nome.
+ */
+const whole = (what: string, page: (f: number, t: number) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>) =>
+  selectAllPages<AnyRow>(page as (f: number, t: number) => PromiseLike<{ data: AnyRow[] | null; error: { message: string } | null }>)
+    .catch((cause) => { throw new Error(`Não foi possível ler ${what}.`, { cause }); });
 /** `.in(ids)` em lotes (sem 414 com lista grande), no formato `{ data }`; erro sobe. */
 const inChunks = async (ids: readonly string[], run: (chunk: string[]) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>) =>
   ({ data: await selectIn<AnyRow>(ids, run as (chunk: string[]) => PromiseLike<{ data: AnyRow[] | null; error: { message: string } | null }>) });
@@ -41,11 +48,9 @@ async function projectNames(sb: SupabaseClient, org: string, ids: string[]) {
 }
 
 export async function listLocations(session: Session): Promise<InventoryLocation[]> {
-  const { data, error } = await session.supabase.from('inventory_locations')
+  const rows = await whole('os locais de estoque', (f, t) => session.supabase.from('inventory_locations')
     .select('id,code,name,kind,parent_id,project_id,address_label,latitude,longitude,active')
-    .eq('organization_id', session.organizationId).order('code').limit(2000);
-  if (error) throw new Error('Não foi possível ler os locais de estoque.');
-  const rows = (data ?? []) as LocRow[];
+    .eq('organization_id', session.organizationId).order('code').order('id').range(f, t)) as unknown as LocRow[];
   const names = await projectNames(session.supabase, session.organizationId,
     Array.from(new Set(rows.map((r) => r.project_id).filter(Boolean))) as string[]);
   return rows.map((r) => ({ id: r.id, code: r.code, name: r.name, kind: r.kind, parentId: r.parent_id, projectId: r.project_id,
@@ -56,11 +61,9 @@ export async function listLocations(session: Session): Promise<InventoryLocation
 /** Posição por item × local (só linhas com algo: em mão, reservado ou entrando). */
 export async function inventoryPosition(session: Session, locations?: InventoryLocation[]): Promise<PositionRow[]> {
   const sb = session.supabase; const org = session.organizationId;
-  const { data, error } = await sb.from('inventory_position')
+  const rows = await whole('a posição de estoque', (f, t) => sb.from('inventory_position')
     .select('item_id,location_id,location_kind,on_hand_qty,reserved_qty,available_qty,inspection_qty,inbound_transit_qty,last_movement_at')
-    .eq('organization_id', org).limit(10000);
-  if (error) throw new Error('Não foi possível ler a posição de estoque.');
-  const rows = (data ?? []) as Array<Record<string, unknown>>;
+    .eq('organization_id', org).order('item_id').order('location_id').range(f, t));
   const itemIds = Array.from(new Set(rows.map((r) => String(r.item_id))));
   const [items, locs] = await Promise.all([
     inChunks(itemIds, (c) => sb.from('supply_items').select('id,code,description,unit,tracking').eq('organization_id', org).in('id', c)),
@@ -220,12 +223,16 @@ export async function inventoryWorkspace(session: Session, today: string) {
   }));
 
   const exceptions = inventoryExceptions({ today, position, reservations, transfers, counts });
+  // O catálogo e as obras alimentam os formulários de ajuste e transferência: vazios ou cortados por falha, pareceriam
+  // "nenhum item" — ou esconderiam os mais novos.
   const [catalog, projectRows] = await Promise.all([
-    sb.from('supply_items').select('id,code,description,unit,tracking').eq('organization_id', org).eq('active', true).order('code').limit(5000),
-    sb.from('projects').select('id,project,project_v2').eq('organization_id', org).limit(1000),
+    whole('o catálogo de itens e as obras', (f, t) => sb.from('supply_items').select('id,code,description,unit,tracking')
+      .eq('organization_id', org).eq('active', true).order('code').order('id').range(f, t)),
+    whole('o catálogo de itens e as obras', (f, t) => sb.from('projects').select('id,project,project_v2')
+      .eq('organization_id', org).order('id').range(f, t)),
   ]);
-  const catalogItems = (catalog.data ?? []) as ItemRow[];
-  const projects = ((projectRows.data ?? []) as Array<{ id: string; project: Record<string, unknown>; project_v2: Record<string, unknown> | null }>)
+  const catalogItems = catalog as unknown as ItemRow[];
+  const projects = (projectRows as Array<{ id: string; project: Record<string, unknown>; project_v2: Record<string, unknown> | null }>)
     .map((p) => ({ id: p.id, name: projectIdentity(p.id, p.project, p.project_v2).name }))
     .sort((a, b) => a.name.localeCompare(b.name));
   return { today, locations, position, reservations, movements, transfers, counts, exceptions, items: catalogItems, projects };

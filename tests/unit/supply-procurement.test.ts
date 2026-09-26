@@ -270,7 +270,7 @@ describe('Compras — a leitura das solicitações (248)', () => {
         const call: Call = { table, ops: [] };
         calls.push(call);
         const chain: Record<string, unknown> = {};
-        for (const m of ['select', 'eq', 'in', 'or', 'order', 'limit']) chain[m] = (...args: unknown[]) => { call.ops.push([m, args]); return chain; };
+        for (const m of ['select', 'eq', 'in', 'or', 'order', 'limit', 'range']) chain[m] = (...args: unknown[]) => { call.ops.push([m, args]); return chain; };
         chain.then = (resolve: (v: unknown) => unknown) => {
           const spec = tables[table] ?? { rows: [] };
           if (spec.error) return resolve({ data: null, error: { message: spec.error } });
@@ -280,6 +280,7 @@ describe('Compras — a leitura das solicitações (248)', () => {
             if (m === 'eq') rows = rows.filter((r) => !(col in r) || r[col] === val);
             if (m === 'in') rows = rows.filter((r) => !(col in r) || (val as unknown[]).includes(r[col]));
             if (m === 'or' && spec.window) rows = rows.filter(spec.window);
+            if (m === 'range') rows = rows.slice(args[0] as number, (args[1] as number) + 1);
           }
           return resolve({ data: rows, error: null });
         };

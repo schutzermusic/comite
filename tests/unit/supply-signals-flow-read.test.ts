@@ -17,7 +17,7 @@ function fakeClient(tables: Record<string, Spec>, calls: Call[]) {
       const call: Call = { table, ops: [] };
       calls.push(call);
       const chain: Record<string, unknown> = {};
-      for (const m of ['select', 'eq', 'in', 'is', 'not', 'or', 'order', 'limit', 'gte']) {
+      for (const m of ['select', 'eq', 'in', 'is', 'not', 'or', 'order', 'limit', 'gte', 'range']) {
         chain[m] = (...args: unknown[]) => { call.ops.push([m, args]); return chain; };
       }
       chain.maybeSingle = () => { call.ops.push(['maybeSingle', []]); return chain; };
@@ -28,6 +28,7 @@ function fakeClient(tables: Record<string, Spec>, calls: Call[]) {
         if (head) return resolve({ data: null, error: null, count: spec.count ?? 0 });
         let rows = spec.rows ?? [];
         for (const [m, a] of call.ops) if (m === 'in' && a[0] === 'id') rows = rows.filter((r) => (a[1] as unknown[]).includes(r.id));
+        for (const [m, a] of call.ops) if (m === 'range') rows = rows.slice(a[0] as number, (a[1] as number) + 1);
         const single = call.ops.some(([m]) => m === 'maybeSingle');
         return resolve({ data: single ? rows[0] ?? null : rows, error: null });
       };
