@@ -9,25 +9,42 @@
  *   npx vitest run --project unit tests/unit/dashboard-globe-camera.test.ts
  */
 import { describe, expect, it, vi } from 'vitest';
-import type { CameraView } from '@/components/dashboard-globe/contract';
+import type { CameraView, GlobeScan } from '@/components/dashboard-globe/contract';
 import {
   approach,
+  blendView,
   breathOffset,
   cesiumFov,
   createFlight,
   cubicBezier,
   DEG,
+  driftOffset,
   easeCine,
+  ecefOf,
+  enuAt,
   FALLBACK_VIEW,
   flightDuration,
+  flightRoll,
   focalPx,
+  INTERACTION,
+  latLngOfSurface,
   offsetAngles,
+  poseFromView,
+  projectPose,
+  rayEllipsoid,
+  readBackView,
+  REAIM_MIN_S,
+  reaimable,
+  reaimWeight,
+  retargetAction,
   sampleFlight,
+  sanitizeDrift,
   sanitizeView,
   shortestArc,
   stepCamera,
   viewsEqual,
   wrap180,
+  type CameraPose,
 } from '@/components/dashboard-globe/camera';
 import {
   buildIntroTrack,
@@ -40,15 +57,30 @@ import {
 import { getFlight, publishFlight, settleFlight } from '@/components/dashboard-globe/flight-store';
 import {
   buildUfGeo,
+  CONTEXT_MARKER_ALPHA,
   decodeArcInts,
+  destinationPoint,
+  effectiveFree,
+  greatCircleKm,
   llhToEcef,
+  outCubic,
+  parseFreeRect,
   pickNearest,
   Projector,
   ringInts,
+  STAGE_MARGIN,
+  SCAN_RINGS_END,
+  SCAN_T,
+  scanNodeForArc,
+  scanPhaseOf,
+  scanReachTime,
+  scanRings,
+  twinDistanceAlpha,
   validLatLng,
   WorldOverlay,
 } from '@/components/dashboard-globe/overlay';
 import { UF_ARCS, UF_RINGS } from '@/components/dashboard-globe/br-uf-geo';
+import { fitLabel } from '@/components/dashboard-globe/labels';
 
 /* As vistas do protótipo (`app.js:38-44`, posições do §2.2). */
 const V: Record<'portfolio' | 'usina' | 'planejar' | 'supply' | 'faturamento', CameraView> = {
@@ -501,5 +533,519 @@ describe('WorldOverlay: diff por id, fades e desenho progressivo', () => {
     spy();
     expect(() => o.step({ dt: Number.NaN, flying: false, arrive: Number.NaN, reducedMotion: false })).not.toThrow();
     expect(spy).toHaveBeenCalledOnce();
+  });
+});
+
+/* ══ Round 2: mouse/toque, época, deriva, varredura ═════════════════════ */
+
+const H900 = 900;
+
+function expectViewClose(a: CameraView, b: CameraView, tol = 1e-6): void {
+  expect(Math.abs(a.lat - b.lat)).toBeLessThan(tol);
+  expect(Math.abs(shortestArc(a.lng, b.lng))).toBeLessThan(tol);
+  expect(Math.abs(a.dist - b.dist) / b.dist).toBeLessThan(tol);
+  expect(Math.abs(a.pitch - b.pitch)).toBeLessThan(tol * 10);
+  expect(Math.abs(shortestArc(a.heading, b.heading))).toBeLessThan(tol * 10);
+  expect(a.ox).toBe(b.ox);
+  expect(a.oy).toBe(b.oy);
+}
+
+describe('leitura de volta: câmera do usuário → CameraView (ox/oy mantidos)', () => {
+  it('limites do mapa: 250 m–30.000 km, 75° de inclinação, arrasto de 6 px, respiração depois de 6 s', () => {
+    expect(INTERACTION).toMatchObject({ minZoomM: 250, maxZoomM: 30_000_000, maxTiltDeg: 75, dragPx: 6, idleBreathS: 6 });
+  });
+
+  it('ENU e elipsoide: base ortonormal, superfície ida e volta, raio toca a Terra', () => {
+    const { e, n, u } = enuAt(-3.77, -49.67);
+    const dot = (a: number[], b: number[]) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    expect(dot(e, n)).toBeCloseTo(0, 12);
+    expect(dot(e, u)).toBeCloseTo(0, 12);
+    expect(dot(n, u)).toBeCloseTo(0, 12);
+    const p = ecefOf(-3.77, -49.67, 0);
+    const ll = latLngOfSurface(p);
+    expect(ll.lat).toBeCloseTo(-3.77, 9);
+    expect(ll.lng).toBeCloseTo(-49.67, 9);
+    const hit = rayEllipsoid(ecefOf(-3.77, -49.67, 10_000), u.map((v) => -v) as [number, number, number]);
+    expect(hit).not.toBeNull();
+    expect(latLngOfSurface(hit!).lat).toBeCloseTo(-3.77, 6);
+    expect(rayEllipsoid(ecefOf(0, 0, 10_000), [1, 0, 0])).toBeNull(); // olhando para o espaço
+  });
+
+  it('ida e volta exata para as vistas do filme, com e sem rolagem', () => {
+    for (const v of [...Object.values(V), { lat: 45, lng: 170, dist: 900, pitch: 20, heading: 200, ox: -300, oy: -170 }]) {
+      for (const roll of [0, 7.5, -30]) {
+        const rb = readBackView(poseFromView(v, H900, roll), v.ox, v.oy, H900, v.heading);
+        expect(rb).not.toBeNull();
+        expectViewClose(rb!.view, sanitizeView(v));
+        expect(rb!.rollDeg).toBeCloseTo(roll, 6);
+      }
+    }
+  });
+
+  it('o modelo puro é o MESMO do Cesium: lookAt + rolagem + look(cima, −yaw) + look(direita, −pitch), e a leitura de volta o inverte', async () => {
+    const C = await import('@cesium/engine');
+    const scene = {
+      drawingBufferWidth: 1440, drawingBufferHeight: H900, pixelRatio: 1, mode: C.SceneMode.SCENE3D,
+      mapProjection: new C.GeographicProjection(), ellipsoid: C.Ellipsoid.WGS84, canvas: { clientWidth: 1440, clientHeight: H900 },
+    };
+    const cam = new C.Camera(scene as unknown as ConstructorParameters<typeof C.Camera>[0]);
+    const tgt = new C.Cartesian3();
+    const axis = new C.Cartesian3();
+    for (const v of [V.usina, V.portfolio, V.supply, { lat: 45, lng: 170, dist: 900, pitch: 20, heading: 200, ox: -300, oy: -170 }]) {
+      for (const roll of [0, 12]) {
+        // exatamente o `applyCamera` do motor
+        C.Cartesian3.fromDegrees(v.lng, v.lat, 0, C.Ellipsoid.WGS84, tgt);
+        cam.lookAt(tgt, new C.HeadingPitchRange(v.heading * DEG, -Math.min(v.pitch, 89.9) * DEG, v.dist * 1000));
+        cam.lookAtTransform(C.Matrix4.IDENTITY);
+        if (roll) cam.look(C.Cartesian3.clone(cam.direction, axis), -roll * DEG);
+        const { yaw, pitch } = offsetAngles(v.ox, v.oy, H900);
+        if (yaw) cam.look(C.Cartesian3.clone(cam.up, axis), -yaw);
+        if (pitch) cam.look(C.Cartesian3.clone(cam.right, axis), -pitch);
+        const pure = poseFromView(v, H900, roll);
+        const c = (p: { x: number; y: number; z: number }) => [p.x, p.y, p.z];
+        c(cam.positionWC).forEach((x, i) => expect(Math.abs(x - pure.position[i])).toBeLessThan(1e-3));
+        c(cam.directionWC).forEach((x, i) => expect(x).toBeCloseTo(pure.direction[i], 9));
+        c(cam.upWC).forEach((x, i) => expect(x).toBeCloseTo(pure.up[i], 9));
+        c(cam.rightWC).forEach((x, i) => expect(x).toBeCloseTo(pure.right[i], 9));
+        const rb = readBackView({
+          position: c(cam.positionWC) as [number, number, number], direction: c(cam.directionWC) as [number, number, number],
+          up: c(cam.upWC) as [number, number, number], right: c(cam.rightWC) as [number, number, number],
+        }, v.ox, v.oy, H900, v.heading);
+        expectViewClose(rb!.view, sanitizeView(v), 1e-6);
+        expect(rb!.rollDeg).toBeCloseTo(roll, 6);
+      }
+    }
+  });
+
+  it('o rumo lido fica perto do anterior (sem salto de 360°)', () => {
+    const v = { ...V.usina, heading: 358 };
+    const rb = readBackView(poseFromView(v, H900), v.ox, v.oy, H900, -2);
+    expect(rb!.view.heading).toBeCloseTo(-2, 6);
+  });
+
+  it('enquadramento no céu cai no centro; sem Terra à vista, a vertical sob a câmera; pose inválida = null', () => {
+    // inclinado quase no horizonte com o ponto de enquadramento muito acima do centro
+    const sky = { lat: -10, lng: -50, dist: 3000, pitch: 16, heading: 0, ox: 0, oy: 0 };
+    const pose = poseFromView(sky, H900);
+    const rb = readBackView(pose, 0, -4000, H900, 0);
+    expect(rb).not.toBeNull();
+    expect(Object.values(rb!.view).every(Number.isFinite)).toBe(true);
+    // câmera olhando para longe da Terra
+    const away: CameraPose = { position: ecefOf(0, 0, 1_000_000), direction: [1, 0, 0], up: [0, 0, 1], right: [0, -1, 0] };
+    const nadir = readBackView(away, 0, 0, H900, 12);
+    expect(nadir!.view.pitch).toBeCloseTo(89.9, 6);
+    expect(nadir!.view.dist).toBeCloseTo(1000, 3);
+    expect(nadir!.view.heading).toBe(12);
+    expect(readBackView({ ...away, position: [Number.NaN, 0, 0] }, 0, 0, H900)).toBeNull();
+  });
+});
+
+describe('época da vista: voar, só trocar o alvo, ou nada', () => {
+  it('nova época voa mesmo com a vista igual quando a câmera saiu dela', () => {
+    expect(retargetAction({ sameView: true, newEpoch: true, userMoved: true })).toBe('fly');
+    expect(retargetAction({ sameView: true, newEpoch: true, userMoved: false, offTarget: true })).toBe('fly');
+    expect(retargetAction({ sameView: true, newEpoch: true, userMoved: false })).toBe('none');
+    expect(retargetAction({ sameView: false, newEpoch: true, userMoved: true })).toBe('fly');
+  });
+
+  it('mesma época: vista nova voa, a não ser que o usuário tenha mexido (a câmera não é roubada)', () => {
+    expect(retargetAction({ sameView: false, newEpoch: false, userMoved: false })).toBe('fly');
+    expect(retargetAction({ sameView: false, newEpoch: false, userMoved: true })).toBe('target');
+    expect(retargetAction({ sameView: true, newEpoch: false, userMoved: true })).toBe('none');
+    expect(retargetAction({ sameView: true, newEpoch: false, userMoved: false, offTarget: true })).toBe('none');
+  });
+
+  it('a rolagem lida no início do voo chega a 0 no pouso', () => {
+    expect(flightRoll(20, 0)).toBe(20);
+    expect(flightRoll(20, 0.5)).toBe(10);
+    expect(flightRoll(20, 1)).toBe(0);
+    expect(flightRoll(Number.NaN, 0.5)).toBe(0);
+    expect(flightRoll(20, Number.NaN)).toBe(0);
+  });
+});
+
+describe('reajuste do voo em curso (mesma época): o enquadramento refina sem recomeçar', () => {
+  const site: CameraView = { lat: -3.7662, lng: -49.6725, dist: 3.2, pitch: 50, heading: 64, ox: -211, oy: -279 };
+
+  it('só é refinamento perto do alvo: mesmo lugar, distância até 2,5×, rumo ±30°, inclinação ±15°', () => {
+    expect(reaimable(site, { ...site, dist: 2.76, oy: -238, ox: -213 })).toBe(true); // o Gantt medido
+    expect(reaimable(site, { ...site, dist: 1.2 })).toBe(false); // 2,7× mais perto
+    expect(reaimable(site, { ...site, heading: 110 })).toBe(false);
+    expect(reaimable(site, { ...site, pitch: 70 })).toBe(false);
+    expect(reaimable(site, { ...site, lat: site.lat + 0.1 })).toBe(false); // 11 km ao lado de uma vista a 3 km
+    expect(reaimable(V.portfolio, { ...V.portfolio, lat: V.portfolio.lat + 1 })).toBe(true); // 111 km numa vista a 1550 km
+    expect(reaimable(null, site)).toBe(false);
+  });
+
+  it('mistura: começa exatamente no voo antigo, termina exatamente no novo, contínua e sem NaN', () => {
+    const from: CameraView = { ...V.portfolio, ox: 18, oy: -33, dist: 900 };
+    const old = createFlight(from, site, 10);
+    const next = { ...site, dist: 2.76, ox: -213, oy: -238 };
+    const nf = createFlight(from, next, 10); // mesmo início, mesmo relógio
+    const t0 = 10.8;
+    const t1 = Math.max(t0 + REAIM_MIN_S, nf.t0 + nf.dur);
+    const at = (t: number) => {
+      const w = reaimWeight(t, t0, t1);
+      return blendView(sampleFlight(old, t).cam, sampleFlight(nf, t).cam, w);
+    };
+    expectViewClose(at(t0), sampleFlight(old, t0).cam, 1e-9);
+    const end = at(t1);
+    expect(end.dist).toBeCloseTo(next.dist, 9);
+    expect(end.ox).toBeCloseTo(next.ox, 9);
+    expect(end.oy).toBeCloseTo(next.oy, 9);
+    let prev = at(t0);
+    for (let t = t0; t <= t1; t += 1 / 60) {
+      const c = at(t);
+      expect(allFinite(c)).toBe(true);
+      // sem salto entre quadros (log da distância, deslocamento de tela)
+      expect(Math.abs(Math.log(c.dist / prev.dist))).toBeLessThan(0.2);
+      expect(Math.abs(c.oy - prev.oy)).toBeLessThan(40);
+      prev = c;
+    }
+    expect(reaimWeight(t0 - 1, t0, t1)).toBe(0);
+    expect(reaimWeight(t1 + 1, t0, t1)).toBe(1);
+    expect(reaimWeight(Number.NaN, t0, t1)).toBe(1);
+    expect(blendView(site, next, Number.NaN)).toEqual(blendView(site, next, 1));
+  });
+});
+
+describe('projeção pura (enquadramento sem o motor)', () => {
+  it('o alvo cai em (W/2 + ox, H/2 + oy); atrás da câmera ou lixo = null', () => {
+    const v: CameraView = { lat: -3.7662, lng: -49.6725, dist: 900, pitch: 52, heading: -4, ox: 18, oy: -33 };
+    const pose = poseFromView(v, 858);
+    const s = projectPose(pose, 1368, 858, ecefOf(v.lat, v.lng, 0))!;
+    // (os dois giros do enquadramento se acoplam em milésimos de px — o mesmo no Cesium)
+    expect(Math.abs(s[0] - (684 + 18))).toBeLessThan(0.05);
+    expect(Math.abs(s[1] - (429 - 33))).toBeLessThan(0.05);
+    // na própria câmera / atrás dela: sem projeção
+    expect(projectPose(pose, 1368, 858, pose.position)).toBeNull();
+    const behind = pose.position.map((c, i) => c - pose.direction[i] * 1000) as [number, number, number];
+    expect(projectPose(pose, 1368, 858, behind)).toBeNull();
+    expect(projectPose(pose, 0, 858, ecefOf(0, 0, 0))).toBeNull();
+    expect(projectPose(pose, 1368, 858, [Number.NaN, 0, 0])).toBeNull();
+  });
+});
+
+describe('área livre no motor: `--ag-free` + créditos', () => {
+  it('lê "l t r b", prende no palco e recusa lixo', () => {
+    expect(parseFreeRect('480 72 928 804', 1368, 858)).toEqual({ l: 480, t: 72, r: 928, b: 804 });
+    expect(parseFreeRect(' "-10 5 2000 900" ', 1368, 858)).toEqual({ l: 0, t: 5, r: 1368, b: 858 });
+    expect(parseFreeRect('', 1368, 858)).toBeNull();
+    expect(parseFreeRect('1 2 3', 1368, 858)).toBeNull();
+    expect(parseFreeRect('10 10 20 20', 1368, 858)).toBeNull(); // pequeno demais
+    expect(parseFreeRect('a b c d', 1368, 858)).toBeNull();
+    expect(parseFreeRect(null, 1368, 858)).toBeNull();
+  });
+
+  it('sem área declarada: o palco menos a margem; a linha dos créditos que cruza a área é tirada', () => {
+    expect(effectiveFree(null, 390, 371, null)).toEqual({ l: STAGE_MARGIN, t: STAGE_MARGIN, r: 390 - STAGE_MARGIN, b: 371 - STAGE_MARGIN });
+    // celular: os créditos (2 linhas) sobem acima da folha — a área termina 6 px acima deles
+    const phone = effectiveFree({ l: 12, t: 60, r: 378, b: 323 }, 390, 371, { l: 16, t: 305, r: 374, b: 337 });
+    expect(phone.b).toBe(299);
+    // desktop: os créditos ficam sob a coluna direita — não cruzam a área
+    const desk = effectiveFree({ l: 480, t: 72, r: 928, b: 804 }, 1368, 858, { l: 973, t: 832, r: 1352, b: 848 });
+    expect(desk.b).toBe(804);
+  });
+});
+
+describe('rótulos do mapa dentro da área livre', () => {
+  const free = { l: 12, t: 60, r: 378, b: 323 };
+
+  const inside = (b: { l: number; t: number; r: number; b: number } | null) => !!b && b.l >= free.l && b.r <= free.r && b.t >= free.t && b.b <= free.b;
+
+  it('cartão de dado sem espaço à direita vira para a esquerda do nó; sem lado nenhum (390 px), abaixo/acima', () => {
+    // nó em x = 300 → o ponto de ancoragem do cartão é x + 18
+    expect(fitLabel('node', 318, 200, 250, free, 69)).toMatchObject({ x: 300 - 18, side: 'l' });
+    expect(fitLabel('node', 100, 200, 250, free, 69)).toMatchObject({ x: 100, side: 'r' }); // cabe à direita: fica
+    // nem de um lado nem do outro (Belém a 390 px): centrado ABAIXO do nó, deslizando para dentro
+    const below = fitLabel('node', 280, 150, 253, free, 69);
+    expect(below).toMatchObject({ x: 378 - 253 / 2, side: 'b' });
+    expect(inside(below.box)).toBe(true);
+    // sem lugar embaixo: acima
+    expect(fitLabel('node', 280, 300, 253, free, 69)).toMatchObject({ x: 378 - 253 / 2, side: 't' });
+    // nó fora da área (sob o HUD): sem ajuste
+    expect(fitLabel('node', 418, 200, 250, free, 69)).toMatchObject({ x: 418, side: 'r', box: null });
+  });
+
+  it('dois cartões perto (390 px depois da varredura): o segundo não cobre o primeiro; apertado demais = o que menos cobre', () => {
+    type B = { l: number; t: number; r: number; b: number };
+    const cross = (a: B, b: B) => a.l < b.r && a.r > b.l && a.t < b.b && a.b > b.t;
+    const area = (a: B, b: B) => Math.max(0, Math.min(a.r, b.r) - Math.max(a.l, b.l)) * Math.max(0, Math.min(a.b, b.b) - Math.max(a.t, b.t));
+    // Belém no alto, Marabá embaixo (como depois da revelação): os dois inteiros e sem se cobrir
+    const taken: B[] = [];
+    const belem = fitLabel('node', 280, 110, 253, free, 69, taken);
+    expect(belem.side).toBe('b');
+    expect(inside(belem.box)).toBe(true);
+    taken.push(belem.box!);
+    const maraba = fitLabel('node', 248, 250, 176, free, 69, taken);
+    expect(inside(maraba.box)).toBe(true);
+    expect(cross(maraba.box!, belem.box!)).toBe(false);
+    // com a linha de status da varredura no meio não há lugar livre: fica inteiro na área e cobre o MÍNIMO
+    const status = fitLabel('status', 195, 230, 272, free, 32);
+    expect(status.box).toEqual({ l: 195 - 136, t: 230, r: 195 + 136, b: 262 });
+    const crowded = [status.box!, belem.box!];
+    const m2 = fitLabel('node', 230, 261, 176, free, 69, crowded);
+    expect(inside(m2.box)).toBe(true);
+    const cost = (b: B) => crowded.reduce((s, q) => s + area(b, q), 0);
+    for (const side of ['r', 'l', 'b', 't'] as const) {
+      const alt = fitLabel('node', 230, 261, 176, free, 69, crowded, side);
+      if (inside(alt.box) && alt.side === side) expect(cost(m2.box!)).toBeLessThanOrEqual(cost(alt.box!));
+    }
+    // histerese: o lado anterior, se ainda serve, fica
+    expect(fitLabel('node', 100, 200, 200, free, 69, [], 'b').side).toBe('b');
+    expect(fitLabel('node', 100, 200, 200, free, 69, [], 'x').side).toBe('r');
+  });
+
+  it('nome e linha de status (centrados) deslizam para dentro; área estreita = centro da área', () => {
+    expect(fitLabel('tag', 330, 100, 334, { l: 480, t: 72, r: 928, b: 804 })).toMatchObject({ x: 330, side: 'r' }); // fora: nada
+    expect(fitLabel('tag', 900, 100, 334, { l: 480, t: 72, r: 928, b: 804 })).toMatchObject({ x: 928 - 167, side: 'r' });
+    expect(fitLabel('status', 20, 100, 200, free)).toMatchObject({ x: 12 + 100, side: 'r' });
+    expect(fitLabel('tag', 200, 100, 400, free)).toMatchObject({ x: 195, side: 'r' });
+    expect(fitLabel('tag', 200, 100, 0, free)).toMatchObject({ x: 200, side: 'r' });
+    expect(fitLabel('tag', 200, 100, 100, null)).toMatchObject({ x: 200, side: 'r' });
+  });
+});
+
+describe('deriva depois do pouso ("procurando")', () => {
+  const d = sanitizeDrift({ headingDeg: -4, distK: 0.95, seconds: 4.6 })!;
+
+  it('entra e sai suave, soma rumo e fator de distância, termina no alvo da deriva', () => {
+    expect(driftOffset(d, 0)).toEqual({ heading: -0, distMul: 1, done: false });
+    const mid = driftOffset(d, 2.3);
+    expect(mid.heading).toBeCloseTo(-2, 6);
+    expect(mid.distMul).toBeCloseTo(0.975, 6);
+    const end = driftOffset(d, 10);
+    expect(end).toEqual({ heading: -4, distMul: 0.95, done: true });
+    expect(driftOffset(null, 1)).toEqual({ heading: 0, distMul: 1, done: true });
+  });
+
+  it('deriva inválida é ignorada; valores extremos são presos', () => {
+    expect(sanitizeDrift(null)).toBeNull();
+    expect(sanitizeDrift({ headingDeg: Number.NaN, distK: 1, seconds: 2 })).toBeNull();
+    expect(sanitizeDrift({ headingDeg: 1, distK: 1, seconds: 0 })).toBeNull();
+    expect(sanitizeDrift({ headingDeg: 1, distK: -1, seconds: 2 })).toBeNull();
+    expect(sanitizeDrift({ headingDeg: 999, distK: 99, seconds: 999 })).toEqual({ headingDeg: 45, distK: 4, seconds: 60 });
+  });
+});
+
+/** Canvas 2D de mentira (o teste olha a lógica, não os pixels). */
+function stubCtx(): CanvasRenderingContext2D {
+  const grad = { addColorStop: () => undefined };
+  const store: Record<string, unknown> = {};
+  return new Proxy(store, {
+    get: (target, key: string) => {
+      if (key in target) return target[key];
+      if (key === 'createRadialGradient' || key === 'createLinearGradient') return () => grad;
+      return () => undefined;
+    },
+    set: (target, key: string, value) => {
+      target[key] = value;
+      return true;
+    },
+  }) as unknown as CanvasRenderingContext2D;
+}
+
+/** Projetor plano de teste: lng/lat → px (100 px por grau), sempre visível. */
+function flatProjector(): Projector {
+  return {
+    ok: true,
+    W: 1440,
+    H: 900,
+    cam: { x: 0, y: 0, z: 0 },
+    project(x: number, y: number, z: number, out: Float64Array | number[]) {
+      const r = Math.hypot(x, y);
+      const lat = Math.atan2(z, r * (1 - 0.00669437999014)) / DEG;
+      const lng = Math.atan2(y, x) / DEG;
+      out[0] = 720 + (lng + 49) * 100;
+      out[1] = 450 - (lat + 4) * 100;
+      if (out.length > 2) out[2] = 1000;
+      return true;
+    },
+  } as unknown as Projector;
+}
+
+describe('varredura da rede (cena 3): anéis, alcance, resposta, fases', () => {
+  const TUCURUI = { lat: -3.7662, lng: -49.6725 };
+  const MARABA = { id: 'stock:maraba', lat: -5.3686, lng: -49.1178, title: 'Canteiro LT Marabá' };
+  const BARCARENA = { id: 'stock:barcarena', lat: -1.5059, lng: -48.6255, title: 'Canteiro UFV Barcarena' };
+  const R = Math.max(greatCircleKm(TUCURUI, MARABA), greatCircleKm(TUCURUI, BARCARENA)) * 1.15;
+  const arcs = [MARABA, BARCARENA].map((n) => ({ id: n.id, from: { lat: n.lat, lng: n.lng }, to: TUCURUI, h: 40, tone: 'healthy' as const }));
+  const scan = (results: GlobeScan['results'], id = 'scan-1'): GlobeScan => ({
+    id, origin: TUCURUI, radiusKm: R, results, statusText: 'Apex analisando a rede de estoque',
+  });
+
+  it('tempos do filme: 3 anéis a 0,45 s, 1,6 s cada; alcance pelo cruzamento do 1º anel', () => {
+    expect(SCAN_T).toMatchObject({ rings: 3, gap: 0.45, ringDur: 1.6, answerDelay: 0.55 });
+    expect(SCAN_RINGS_END).toBeCloseTo(2.5, 9);
+    expect(scanReachTime(0, 100)).toBe(0);
+    expect(scanReachTime(100, 100)).toBeCloseTo(1.6, 9);
+    expect(scanReachTime(500, 100)).toBeCloseTo(1.6, 9); // além do alcance: o fim do 1º anel
+    // o anel está EXATAMENTE na distância do nó no instante do alcance
+    for (const f of [0.1, 0.35, 0.8]) {
+      const t = scanReachTime(f * 200, 200);
+      expect(200 * outCubic(t / SCAN_T.ringDur)).toBeCloseTo(f * 200, 6);
+    }
+    expect(scanReachTime(Number.NaN, 100)).toBe(1.6);
+    expect(scanReachTime(10, 0)).toBe(1.6);
+  });
+
+  it('anéis vivos: raio cresce, opacidade cai; nada fora da janela', () => {
+    expect(scanRings(-1, 100)).toEqual([]);
+    const at1 = scanRings(1, 100);
+    expect(at1).toHaveLength(3);
+    expect(at1[0].r).toBeGreaterThan(at1[1].r);
+    expect(at1[1].r).toBeGreaterThan(at1[2].r);
+    expect(at1[0].alpha).toBeLessThan(at1[2].alpha);
+    expect(scanRings(3, 100)).toEqual([]);
+    expect(scanRings(1, 0)).toEqual([]);
+  });
+
+  it('fases: rings → answering (1º anel varreu ou alguém respondeu) → done (todos + 0,6 s, nunca antes dos anéis)', () => {
+    expect(scanPhaseOf(-1, [null])).toBeNull();
+    expect(scanPhaseOf(0.5, [null, null])).toBe('rings');
+    expect(scanPhaseOf(1.7, [null, null])).toBe('answering');
+    expect(scanPhaseOf(1.2, [1.1, null])).toBe('answering');
+    expect(scanPhaseOf(2.0, [1.1, 1.3])).toBe('answering'); // anéis ainda correndo
+    expect(scanPhaseOf(2.6, [1.1, 1.3])).toBe('done');
+    expect(scanPhaseOf(9, [8.9, 1.3])).toBe('answering');
+    expect(scanPhaseOf(9.5, [8.9, 1.3])).toBe('done');
+    expect(scanPhaseOf(2.6, [])).toBe('done'); // rede sem nós: termina com os anéis
+    expect(scanPhaseOf(0, [null], true)).toBe('answering');
+    expect(scanPhaseOf(0, [0], true)).toBe('done');
+  });
+
+  it('grande círculo: ponto a d km no rumo volta à distância d', () => {
+    for (const b of [0, 90, 225]) {
+      const q = destinationPoint(TUCURUI.lat, TUCURUI.lng, b, 180);
+      expect(greatCircleKm(TUCURUI, q)).toBeCloseTo(180, 6);
+    }
+  });
+
+  it('arco ↔ nó da varredura: mesmo id ou ponta no nó', () => {
+    const nodes = [MARABA, BARCARENA];
+    const results = { [MARABA.id]: null, [BARCARENA.id]: null };
+    expect(scanNodeForArc(arcs[0], nodes, results)).toBe(MARABA.id);
+    expect(scanNodeForArc({ ...arcs[1], id: 'rota-x' }, nodes, results)).toBe(BARCARENA.id);
+    expect(scanNodeForArc({ ...arcs[1], id: 'rota-x', from: { lat: 0, lng: 0 } }, nodes, results)).toBeNull();
+    expect(scanNodeForArc(arcs[0], nodes, {})).toBeNull();
+  });
+
+  it('no overlay: "consultando…" até o anel chegar E o servidor responder; vira a resposta; fases em ordem', () => {
+    const o = new WorldOverlay();
+    const ctx = stubCtx();
+    const P = flatProjector();
+    o.sync([], arcs, [MARABA, BARCARENA], []);
+    o.syncScan(scan({ [MARABA.id]: null, [BARCARENA.id]: null }));
+    const frame = (t: number, extra: Partial<{ flying: boolean; arrive: number; reducedMotion: boolean }> = {}) => {
+      o.step({ dt: 0.1, flying: extra.flying ?? false, arrive: extra.arrive ?? 1, reducedMotion: extra.reducedMotion ?? false });
+      return o.draw(ctx, P, { t, dist: 600, reducedMotion: extra.reducedMotion ?? false, hoverId: null, flying: extra.flying ?? false, arrive: extra.arrive ?? 1 });
+    };
+    // recuo ainda voando: o relógio não começa
+    frame(9, { flying: true, arrive: 0.5 });
+    expect(o.scanPhase).toBeNull();
+    expect(o.motion).toBe(true);
+    let labels = frame(10);
+    expect(o.scanPhase).toEqual({ id: 'scan-1', phase: 'rings' });
+    expect(o.motion).toBe(true);
+    labels = frame(13);
+    expect(o.scanPhase?.phase).toBe('answering');
+    const node = (id: string) => labels.find((l) => l.id === `n:${id}`)!;
+    expect(node(MARABA.id).value).toBe('consultando…');
+    expect(node(MARABA.id).state).toBe('pending');
+    expect(labels.find((l) => l.id === 's:scan')?.title).toBe('Apex analisando a rede de estoque');
+    // o servidor responde (mesmo id: o relógio segue)
+    o.syncScan(scan({ [MARABA.id]: { tone: 'hit', value: '250 m disponíveis' }, [BARCARENA.id]: { tone: 'none', value: 'sem saldo disponível' } }));
+    labels = frame(13.2);
+    expect(node(MARABA.id).value).toBe('250 m disponíveis');
+    expect(node(MARABA.id).state).toBe('answer');
+    expect(node(MARABA.id).tone).toBe('hit');
+    expect(node(BARCARENA.id).tone).toBe('none');
+    expect(o.scanPhase?.phase).toBe('answering');
+    frame(13.9);
+    expect(o.scanPhase?.phase).toBe('done');
+    // depois de tudo assentar, a varredura para de pedir quadros (só o fluxo do arco "hit" segue)
+    labels = frame(20);
+    expect(o.scanPhase?.phase).toBe('done');
+    expect(labels.find((l) => l.id === 's:scan')?.alpha).toBe(0);
+    // id novo = relógio novo
+    o.syncScan(scan({ [MARABA.id]: null, [BARCARENA.id]: null }, 'scan-2'));
+    frame(30);
+    expect(o.scanPhase).toEqual({ id: 'scan-2', phase: 'rings' });
+    o.syncScan(null);
+    frame(31);
+    expect(o.scanPhase).toBeNull();
+  });
+
+  it('movimento reduzido: estado final imediato (sem anéis), "done" assim que todos respondem', () => {
+    const o = new WorldOverlay();
+    const ctx = stubCtx();
+    o.sync([], arcs, [MARABA, BARCARENA], []);
+    o.syncScan(scan({ [MARABA.id]: { tone: 'hit', value: '250 m disponíveis' }, [BARCARENA.id]: { tone: 'none', value: 'sem saldo' } }));
+    o.step({ dt: 0.1, flying: true, arrive: 0.2, reducedMotion: true });
+    const labels = o.draw(ctx, flatProjector(), { t: 5, dist: 600, reducedMotion: true, hoverId: null, flying: true, arrive: 0.2 });
+    expect(o.scanPhase?.phase).toBe('done');
+    expect(labels.find((l) => l.id === `n:${MARABA.id}`)?.value).toBe('250 m disponíveis');
+  });
+
+  it('com nós no mapa (Supply), os OUTROS projetos são contexto: esmaecidos e desenhados ANTES (por baixo) dos nós', () => {
+    const draws: Array<{ x: number; alpha: number }> = [];
+    const store: Record<string, unknown> = { globalAlpha: 1 };
+    const rec = new Proxy(store, {
+      get: (target, key: string) => {
+        if (key in target) return target[key];
+        if (key === 'createRadialGradient' || key === 'createLinearGradient') return () => ({ addColorStop: () => undefined });
+        if (key === 'drawImage') {
+          return (_img: unknown, x: number, _y: number, w: number) => draws.push({ x: x + w / 2, alpha: Number(target.globalAlpha) });
+        }
+        return () => undefined;
+      },
+      set: (target, key: string, value) => {
+        target[key] = value;
+        return true;
+      },
+    }) as unknown as CanvasRenderingContext2D;
+    // o sprite do hexágono precisa de um canvas: um de mentira basta (o desenho é registrado no `rec`)
+    vi.stubGlobal('document', { createElement: () => ({ width: 0, height: 0, getContext: () => stubCtx() }) });
+    try {
+      const BELEM = { id: 'stock:belem', lat: -1.4558, lng: -48.4902, title: 'Almoxarifado Central — Belém' };
+      const markers = [
+        { id: 'barcarena', lat: BARCARENA.lat, lng: BARCARENA.lng, tone: 'critical' as const, label: 'Usina Solar Barcarena', pulse: 0 },
+        { id: 'tucurui', lat: TUCURUI.lat, lng: TUCURUI.lng, tone: 'critical' as const, label: 'SE Tucuruí', selected: true, size: 52 },
+      ];
+      const o = new WorldOverlay();
+      const settleAll = () => { for (let i = 0; i < 300; i += 1) o.step({ dt: 0.05, flying: false, arrive: 1, reducedMotion: true }); };
+      o.sync(markers, [], [BELEM], []);
+      settleAll();
+      const P = flatProjector();
+      o.draw(rec, P, { t: 1, dist: 600, reducedMotion: true, hoverId: null });
+      const xOf = (lng: number) => 720 + (lng + 49) * 100;
+      const find = (lng: number) => draws.findIndex((d) => Math.abs(d.x - xOf(lng)) < 0.5);
+      const [iBar, iBel, iTuc] = [find(BARCARENA.lng), find(BELEM.lng), find(TUCURUI.lng)];
+      expect(iBar).toBeGreaterThanOrEqual(0);
+      expect(iBar).toBeLessThan(iBel); // o projeto vizinho por BAIXO do almoxarifado
+      expect(iBel).toBeLessThan(iTuc); // o local em foco por cima
+      expect(draws[iBar].alpha).toBeCloseTo(CONTEXT_MARKER_ALPHA, 6);
+      expect(draws[iTuc].alpha).toBeCloseTo(1, 6);
+      // ainda clicável (é outro projeto de verdade)
+      expect(o.pick(xOf(BARCARENA.lng), 450 - (BARCARENA.lat + 4) * 100)).toBe('barcarena');
+      // sem nós (portfólio, local): nada esmaecido
+      draws.length = 0;
+      o.sync(markers, [], [], []);
+      settleAll();
+      o.draw(rec, P, { t: 2, dist: 600, reducedMotion: true, hoverId: null });
+      expect(draws[find(BARCARENA.lng)]?.alpha).toBeCloseTo(1, 6);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('modelo esquemático só perto do chão: opacidade (7,5 − d)/3,5 — inteiro até 4 km (o Planejar recua para caber acima do Gantt)', () => {
+    expect(twinDistanceAlpha(1.4)).toBe(1);
+    expect(twinDistanceAlpha(2)).toBe(1);
+    expect(twinDistanceAlpha(3.4)).toBe(1);
+    expect(twinDistanceAlpha(4)).toBe(1);
+    expect(twinDistanceAlpha(5.75)).toBeCloseTo(0.5, 9);
+    expect(twinDistanceAlpha(7.5)).toBe(0);
+    expect(twinDistanceAlpha(Number.NaN)).toBe(0);
   });
 });

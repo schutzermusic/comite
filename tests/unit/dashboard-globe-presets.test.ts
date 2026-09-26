@@ -12,8 +12,12 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  BRAZIL, VIEW_DIM, brazilView, haversineKm, markersFor, portfolioView, siteView, sortSites, supplyView, validLatLng, viewFor,
+  BRAZIL, HUD_SPACE, MARKER_PAD, NOMINAL_TWIN_KIND, TWIN_AZIMUTH_DEG, TWIN_MAX_DIST_KM, VIEW_DIM, brazilView, fitView, freeRect, haversineKm, markersFor,
+  portfolioView, siteView, sortSites, supplyView, twinBoxPoints, validLatLng, viewFor, type HudGrid, type Rect,
 } from '@/components/dashboard-globe/presets';
+import { ecefOf, poseFromView, projectPose } from '@/components/dashboard-globe/camera';
+import type { CameraView } from '@/components/dashboard-globe/contract';
+import { layoutBox } from '@/components/dashboard-globe/twin/layouts';
 import type { SiteMarker, SitePosition } from '@/lib/dashboard/types';
 
 const DESKTOP = { mobile: false };
@@ -117,6 +121,11 @@ describe('local', () => {
     expect(siteView(null, 'overview', DESKTOP)).toBeNull();
     expect(siteView({ lat: Number.NaN, lng: 0 }, 'overview', DESKTOP)).toBeNull();
   });
+
+  it('modelo esquemático: eixo longo = rumo da Visão geral + 90° (atravessado na tela; não gira no Planejar)', () => {
+    expect(TWIN_AZIMUTH_DEG).toBe(148);
+    expect(TWIN_AZIMUTH_DEG).toBe((siteView({ ...TUCURUI, precision: 'site' }, 'overview', DESKTOP)?.heading ?? 0) + 90);
+  });
 });
 
 describe('Supply Chain', () => {
@@ -199,5 +208,159 @@ describe('marcadores', () => {
     expect(m.find((x) => x.id === 't')).toMatchObject({ showLabel: false });
     expect(markersFor(sites, { view: 'overview', focused: 't', hovered: null }).find((x) => x.id === 't'))
       .toMatchObject({ size: 58, pulse: 0.7 });
+  });
+
+  it('Supply Chain: os outros projetos são contexto — sem pulso (o anel não parece a resposta de um almoxarifado)', () => {
+    const m = markersFor(sites, { view: 'supply', focused: 'm', hovered: null });
+    expect(m.find((x) => x.id === 't')).toMatchObject({ tone: 'critical', pulse: 0, selected: false });
+    expect(m.find((x) => x.id === 'm')).toMatchObject({ pulse: 0.5, selected: true });
+    // fora do Supply o contexto continua pulsando pela saúde
+    expect(markersFor(sites, { view: 'overview', focused: 'm', hovered: null }).find((x) => x.id === 't')?.pulse).toBe(0.7);
+  });
+});
+
+/* ══ Enquadramento na área livre do HUD (palco medido) ═════════════════════ */
+
+/** O palco do Dashboard a 1440 × 900 (menu lateral de 72 px, barra de 42 px) e a 390 × 844 (globo de 44vh). */
+const DESK: HudGrid = { W: 1368, H: 858, mobile: false, safe: 24, top: 14, topH: 44, leftW: 440, rightW: 400 };
+const PHONE: HudGrid = { W: 390, H: 371, mobile: true, safe: 12, top: 8, topH: 44, leftW: 440, rightW: 400 };
+const TABLET: HudGrid = { W: 952, H: 726, mobile: false, tablet: true, safe: 16, top: 14, topH: 44, leftW: 360, rightW: 340 };
+
+/** Onde a câmera PURA (a mesma do motor) põe cada ponto na tela. */
+function screenOf(view: CameraView, W: number, H: number, pts: Array<{ lat: number; lng: number }>): Array<[number, number]> {
+  const pose = poseFromView(view, H);
+  return pts.map((p) => projectPose(pose, W, H, ecefOf(p.lat, p.lng, 0))!);
+}
+const within = (s: [number, number], r: Rect, pad = 0) => s[0] >= r.l + pad - 0.5 && s[0] <= r.r - pad + 0.5 && s[1] >= r.t + pad - 0.5 && s[1] <= r.b - pad + 0.5;
+
+describe('área livre do HUD por vista', () => {
+  it('1440: portfólio entre as colunas, abaixo da barra, acima da dica; local/Supply acima do dock', () => {
+    expect(freeRect('portfolio', DESK)).toEqual({ l: 24 + 440 + 16, t: 14 + 44 + 14, r: 1368 - 24 - 400 - 16, b: 858 - 24 - 30 });
+    expect(freeRect('overview', DESK)).toEqual({ l: 480, t: 72, r: 928, b: 858 - 24 - 78 - 8 });
+    expect(freeRect('supply', DESK)).toEqual(freeRect('overview', DESK));
+    expect(HUD_SPACE).toMatchObject({ dock: 78, hint: 30, moduleGap: 20, ganttMax: 484 });
+  });
+
+  it('Planejar: a faixa ACIMA do Gantt (medido; sem medida, o Gantt de 8 linhas) e à esquerda da coluna direita', () => {
+    const measured = freeRect('plan', { ...DESK, ganttTop: 360 })!;
+    expect(measured).toEqual({ l: 32, t: 72, r: 1368 - 24 - 400 - 20 - 8, b: 348 });
+    const est = freeRect('plan', DESK)!;
+    expect(est.b).toBe(858 - 24 - 78 - 484 - 12);
+    // medida absurda (acima da barra, abaixo do dock) é ignorada
+    expect(freeRect('plan', { ...DESK, ganttTop: 10 })).toEqual(est);
+    expect(freeRect('plan', { ...DESK, ganttTop: 5000 })).toEqual(est);
+    // 768–1179: o Gantt ocupa no máximo 46% da altura
+    expect(freeRect('plan', TABLET)!.b).toBe(Math.round(726 - 16 - 78 - Math.min(484, 726 * 0.46) - 12));
+  });
+
+  it('768–1179: a coluna direita do portfólio recolhida libera a direita', () => {
+    expect(freeRect('portfolio', { ...TABLET, rightClosed: true })!.r).toBe(952 - 16);
+    expect(freeRect('portfolio', TABLET)!.r).toBe(952 - 16 - 340 - 16);
+  });
+
+  it('celular: o bloco do globo menos a barra, a folha (−22 px) e os créditos', () => {
+    expect(freeRect('portfolio', PHONE)).toEqual({ l: 12, t: 8 + 44 + 8, r: 378, b: 371 - 48 });
+    expect(freeRect('plan', PHONE)).toEqual(freeRect('portfolio', PHONE));
+  });
+
+  it('sem palco ou área degenerada: null / o palco inteiro (nunca um retângulo invertido)', () => {
+    expect(freeRect('portfolio', null)).toBeNull();
+    expect(freeRect('portfolio', { ...DESK, W: Number.NaN })).toBeNull();
+    const narrow = freeRect('overview', { ...DESK, W: 900 })!; // colunas se cruzam
+    expect(narrow.r - narrow.l).toBeGreaterThanOrEqual(HUD_SPACE.minW);
+    expect(narrow.b).toBeGreaterThan(narrow.t);
+  });
+});
+
+describe('enquadramento: o assunto DENTRO da área livre', () => {
+  const sites3 = [TUCURUI, MARABA, BARCARENA];
+
+  it('portfólio 1440 (primeira carga e depois do Esc): as 3 operações entre as colunas e acima da dica', () => {
+    const free = freeRect('portfolio', DESK)!;
+    const v = portfolioView(sites3, { mobile: false, frame: { W: DESK.W, H: DESK.H, free } });
+    expect(v).toMatchObject({ pitch: 52, heading: -4 });
+    expect(v.dist).toBeGreaterThanOrEqual(900);
+    const s = screenOf(v, DESK.W, DESK.H, sites3);
+    // cada hexágono com a margem do marcador (30 px) dentro da área: nada sob a dica nem contra a coluna
+    for (const p of s) expect(within(p, free, 29)).toBe(true);
+    // o assunto fica centrado (±2 px) na área útil
+    const cx = (Math.min(...s.map((p) => p[0])) + Math.max(...s.map((p) => p[0]))) / 2;
+    expect(Math.abs(cx - (free.l + free.r) / 2)).toBeLessThan(2);
+    // determinístico e inteiro (a mesma vista nunca vira um voo novo)
+    expect(portfolioView(sites3, { mobile: false, frame: { W: DESK.W, H: DESK.H, free } })).toEqual(v);
+    expect(Number.isInteger(v.ox) && Number.isInteger(v.oy)).toBe(true);
+  });
+
+  it('portfólio 390: recua até as 3 caberem entre a barra e os créditos', () => {
+    const free = freeRect('portfolio', PHONE)!;
+    const v = portfolioView(sites3, { mobile: true, frame: { W: PHONE.W, H: PHONE.H, free } });
+    expect(v.dist).toBeGreaterThan(900);
+    for (const p of screenOf(v, PHONE.W, PHONE.H, sites3)) expect(within(p, free, 29)).toBe(true);
+  });
+
+  it('sem marcador com área medida: o Brasil no centro da área livre', () => {
+    const free = freeRect('portfolio', DESK)!;
+    const v = brazilView({ mobile: false, frame: { W: DESK.W, H: DESK.H, free } });
+    expect(v).toMatchObject({ dist: 5200, ox: Math.round((free.l + free.r) / 2 - DESK.W / 2), oy: Math.round((free.t + free.b) / 2 - DESK.H / 2) });
+  });
+
+  it('Visão geral 1440: a caixa inteira do modelo entre as colunas (recua do 1,4 km só o necessário)', () => {
+    const free = freeRect('overview', DESK)!;
+    const v = siteView({ ...TUCURUI, precision: 'site' }, 'overview', { mobile: false, frame: { W: DESK.W, H: DESK.H, free } }, 'substation')!;
+    expect(v).toMatchObject({ pitch: 48, heading: 58 });
+    expect(v.dist).toBeGreaterThanOrEqual(1.4);
+    expect(v.dist).toBeLessThanOrEqual(TWIN_MAX_DIST_KM);
+    const pose = poseFromView(v, DESK.H);
+    const box = twinBoxPoints(TUCURUI, layoutBox('substation'));
+    for (const p of box) expect(within(projectPose(pose, DESK.W, DESK.H, p)!, free, 11)).toBe(true);
+  });
+
+  it('Planejar 1440: o modelo INTEIRO na faixa acima do Gantt (medido ou de 8 linhas) e à esquerda da coluna direita', () => {
+    for (const ganttTop of [360, null]) {
+      const free = freeRect('plan', { ...DESK, ganttTop })!;
+      const v = siteView({ ...TUCURUI, precision: 'site' }, 'plan', { mobile: false, frame: { W: DESK.W, H: DESK.H, free } }, 'substation')!;
+      expect(v).toMatchObject({ pitch: 50, heading: 64 });
+      expect(v.dist).toBeGreaterThanOrEqual(1.6);
+      expect(v.dist).toBeLessThanOrEqual(TWIN_MAX_DIST_KM);
+      const pose = poseFromView(v, DESK.H);
+      for (const p of twinBoxPoints(TUCURUI, layoutBox('substation'))) {
+        expect(within(projectPose(pose, DESK.W, DESK.H, p)!, free, 11), `Gantt ${ganttTop}`).toBe(true);
+      }
+    }
+    // o Gantt medido (6 linhas) deixa a faixa maior: o modelo chega mais perto
+    const near = siteView({ ...TUCURUI, precision: 'site' }, 'plan', { mobile: false, frame: { W: DESK.W, H: DESK.H, free: freeRect('plan', { ...DESK, ganttTop: 360 })! } }, 'substation')!;
+    const far = siteView({ ...TUCURUI, precision: 'site' }, 'plan', { mobile: false, frame: { W: DESK.W, H: DESK.H, free: freeRect('plan', DESK)! } }, 'substation')!;
+    expect(near.dist).toBeLessThan(far.dist);
+  });
+
+  it('tipo ainda desconhecido: o layout genérico (o mesmo que o motor desenha); município: o marcador com o nome', () => {
+    const free = freeRect('overview', DESK)!;
+    const frame = { W: DESK.W, H: DESK.H, free };
+    expect(siteView({ ...TUCURUI, precision: 'site' }, 'overview', { mobile: false, frame }))
+      .toEqual(siteView({ ...TUCURUI, precision: 'site' }, 'overview', { mobile: false, frame }, NOMINAL_TWIN_KIND));
+    const mun = siteView({ ...TUCURUI, precision: 'municipality' }, 'overview', { mobile: false, frame })!;
+    expect(mun.dist).toBe(18);
+    expect(within(screenOf(mun, DESK.W, DESK.H, [TUCURUI])[0], free, 29)).toBe(true);
+    // Faturamento segue o preset
+    expect(siteView({ ...TUCURUI, precision: 'site' }, 'billing', { mobile: false, frame }))
+      .toEqual(siteView({ ...TUCURUI, precision: 'site' }, 'billing', DESKTOP));
+    // viewFor repassa o tipo
+    expect(viewFor('overview', { markers: sites3, site: { ...TUCURUI, precision: 'site' }, twinKind: 'hydro' }, { mobile: false, frame }))
+      .toEqual(siteView({ ...TUCURUI, precision: 'site' }, 'overview', { mobile: false, frame }, 'hydro'));
+  });
+
+  it('fitView: nunca aproxima além do preset, respeita o teto e nunca solta NaN', () => {
+    const free = { l: 480, t: 72, r: 928, b: 804 };
+    const base = { lat: TUCURUI.lat, lng: TUCURUI.lng, dist: 900, pitch: 52, heading: -4, ox: 0, oy: 0 };
+    const one = fitView(base, [ecefOf(TUCURUI.lat, TUCURUI.lng, 0)], { W: 1368, H: 858, free }, { pad: MARKER_PAD, minDist: 900, maxDist: 4500 });
+    expect(one.dist).toBe(900);
+    const far = fitView(base, [ecefOf(5, -73, 0), ecefOf(-33, -34, 0)], { W: 1368, H: 858, free }, { pad: MARKER_PAD, minDist: 900, maxDist: 4500 });
+    expect(far.dist).toBeLessThanOrEqual(4500);
+    expect([far.lat, far.lng, far.dist, far.ox, far.oy].every(Number.isFinite)).toBe(true);
+    // sem palco/sem pontos: a vista base; área minúscula: só centra
+    expect(fitView(base, [], { W: 1368, H: 858, free }, { pad: MARKER_PAD, minDist: 900, maxDist: 4500 })).toEqual(base);
+    expect(fitView(base, [ecefOf(0, 0, 0)], null, { pad: MARKER_PAD, minDist: 900, maxDist: 4500 })).toEqual(base);
+    const tiny = fitView(base, [ecefOf(TUCURUI.lat, TUCURUI.lng, 0)], { W: 1368, H: 858, free: { l: 100, t: 100, r: 140, b: 130 } }, { pad: MARKER_PAD, minDist: 900, maxDist: 4500 });
+    expect(tiny).toMatchObject({ ox: 120 - 684, oy: 115 - 429, dist: 900 });
   });
 });

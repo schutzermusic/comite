@@ -1,7 +1,7 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type CSSProperties, type ReactNode } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { RefreshCw, TriangleAlert } from 'lucide-react';
 import { useResource } from '@/components/ax';
@@ -11,9 +11,10 @@ import '@/components/dashboard-v2/dashboard-v2.css';
 import { useCurrentUser } from '@/hooks/use-current-user';
 import { refreshDecisionBadge, useDecisionBadgeState } from '@/hooks/use-decision-badge';
 import type { DashboardOverview, SiteHud, SiteHudResponse, SiteMarker, SitePosition } from '@/lib/dashboard/types';
-import type { CameraView, GlobeArc, GlobeNode, MapLayer, ModuleId, ModuleProps } from './contract';
+import type { CameraView, GlobeArc, GlobeNode, MapLayer, ModuleId, ModuleProps, ScanPhase } from './contract';
 import { BillingModule, PlanModule, SupplyModule } from './modules';
-import { VIEW_DIM, markersFor, validLatLng, viewFor, type DashView } from './presets';
+import { TWIN_AZIMUTH_DEG, VIEW_DIM, freeRect, markersFor, validLatLng, viewFor, type DashView, type HudGrid, type StageFrame } from './presets';
+import { twinSpecFor } from './twin/spec';
 import { AttentionPanel } from './hud/AttentionPanel';
 import { CalendarPanel } from './hud/CalendarPanel';
 import { SkeletonLines } from './hud/common';
@@ -98,8 +99,13 @@ function deriveGeo(data: DashboardOverview | null, siteData: SiteHudResponse | n
  *
  * Estado na URL: `?site=<id>&m=overview|plan|supply|billing` (recarregar cai
  * no mesmo lugar; Voltar funciona) e `?x=` abre "Entender". Teclado: Esc volta
- * um nível, 1–4 trocam de módulo, F tela cheia — nunca com campo ou diálogo
- * em foco.
+ * ao INÍCIO do mapa (o portfólio, mesmo depois de arrastar), 1–4 trocam de
+ * módulo, F tela cheia — nunca com campo ou diálogo em foco.
+ *
+ * O mapa é arrastável (mouse/toque; no celular, cooperativo). A "época" da
+ * vista (`viewEpoch`) sobe a cada navegação de verdade (Esc, dock, outro
+ * local, outro módulo): o globo então voa mesmo que a vista seja igual; dentro
+ * da mesma época, se a pessoa mexeu no mapa, a câmera não é roubada.
  */
 export function DashboardGlobe() {
   const params = useSearchParams();
@@ -133,11 +139,29 @@ export function DashboardGlobe() {
   const openSite = useCallback((id: string) => go({ site: id, m: null, x: null }), [go]);
   const openModule = useCallback((m: ModuleId) => go({ m: m === 'overview' ? null : m, x: null }), [go]);
   const toPortfolio = useCallback(() => go({ site: null, m: null, x: null }), [go]);
-  const back = useCallback(() => {
-    if (!siteId) return;
-    if (mod !== 'overview') openModule('overview'); else toPortfolio();
-  }, [siteId, mod, openModule, toPortfolio]);
   const setExplain = useCallback((ref: string | null) => go({ x: ref }, 'replace'), [go]);
+
+  /*
+    Época da vista: sobe a cada navegação de verdade (vista/local mudou) e a
+    cada "início" pedido (Esc, dock "Portfólio", migalha) — o globo voa para
+    o enquadramento do portfólio mesmo que a pessoa tenha arrastado o mapa.
+    Saindo de um local, quem sobe a época é a PRÓPRIA troca de vista (navKey),
+    no mesmo render em que a câmera-alvo vira o portfólio: subir antes (a URL
+    muda numa transição) daria um render com época nova e a vista ANTIGA — o
+    globo voaria de volta para o local antes de virar para o portfólio.
+  */
+  const navKey = `${view}|${siteId ?? ''}`;
+  const [epoch, setEpoch] = useState(() => ({ key: navKey, n: 0 }));
+  if (epoch.key !== navKey) setEpoch({ key: navKey, n: epoch.n + 1 });
+  const goHome = useCallback(() => {
+    if (siteId) {
+      toPortfolio();
+      return;
+    }
+    // já no portfólio: a vista não muda — a época nova é o "voltar ao início" depois de arrastar
+    setEpoch((e) => ({ key: e.key, n: e.n + 1 }));
+    if (params.get('m') || params.get('x')) toPortfolio();
+  }, [siteId, params, toPortfolio]);
 
   /* ── Dados ───────────────────────────────────────────────────────────── */
   const overview = useResource<DashboardOverview>('/api/dashboard/overview');
@@ -190,9 +214,12 @@ export function DashboardGlobe() {
   const reduced = useMedia('(prefers-reduced-motion: reduce)');
   const theme = useAppTheme();
   const [root, setRoot] = useState<HTMLDivElement | null>(null);
+  const [world, setWorld] = useState<HTMLDivElement | null>(null);
   const width = useElementWidth(root);
   const scale = width ? Math.round(Math.min(1, width / 1920) * 20) / 20 : 1;
   const [rightOpen, setRightOpen] = useState(false);
+  const stage = useStageGrid(root, world);
+  const ganttTop = useGanttTop(root, world, view === 'plan' && !mobile);
   const toast = useToast();
   const { show: showToast } = toast;
 
@@ -232,19 +259,53 @@ export function DashboardGlobe() {
   }, [layerTag]);
   const activeLayer = view !== 'portfolio' && view !== 'overview' && layer && layer.tag === layerTag ? layer.layer : null;
 
+  // O modelo esquemático da obra (Visão geral/Planejar, só com posição de canteiro).
+  const hudHere = hud && siteId && hud.project.id === siteId ? hud : null;
+  const twin = useMemo(() => twinSpecFor({
+    projectId: siteId ?? '', hud: hudHere, position: geo.focusPosition, view, azimuthDeg: TWIN_AZIMUTH_DEG,
+  }), [siteId, hudHere, geo.focusPosition, view]);
+  const onTwinHotspot = useCallback((id: string) => {
+    const h = twin?.hotspots.find((x) => x.id === id);
+    if (h?.target) openModule(h.target);
+  }, [twin, openModule]);
+  const twinKind = twin?.kind ?? null;
+
+  /*
+    A área livre desta vista (entre as colunas, abaixo da barra, acima da
+    dica/dock/Gantt; no celular, o bloco do globo menos a barra, a folha e os
+    créditos): a câmera ENQUADRA o assunto nela e o globo mantém cartões e
+    rótulos dentro dela (`--ag-free`).
+  */
+  const frame = useMemo<StageFrame | null>(() => {
+    if (!stage) return null;
+    const grid: HudGrid = { ...stage, mobile, tablet, rightClosed: tablet && view === 'portfolio' && !rightOpen, ganttTop };
+    const free = freeRect(view, grid);
+    return free ? { W: stage.W, H: stage.H, free } : null;
+  }, [stage, mobile, tablet, view, rightOpen, ganttTop]);
+  const freeVar = useMemo(() => (frame
+    ? ({ '--ag-free': `${frame.free.l} ${frame.free.t} ${frame.free.r} ${frame.free.b}` } as CSSProperties)
+    : undefined), [frame]);
+
   // A câmera-alvo por VALOR: a mesma vista com os mesmos números nunca vira um voo novo.
   const cameraKey = useMemo(() => JSON.stringify(viewFor(view, {
     markers: geo.siteMarkers.map((m) => m.position),
     site: geo.focusPosition,
     nodes: activeLayer?.nodes ?? [],
     layerView: activeLayer?.view ?? null,
-  }, { mobile, scale })), [view, geo, activeLayer, mobile, scale]);
+    twinKind,
+  }, { mobile, scale, frame })), [view, geo, activeLayer, mobile, scale, frame, twinKind]);
   const camera = useMemo(() => JSON.parse(cameraKey) as CameraView, [cameraKey]);
   const globeMarkers = useMemo(() => markersFor(geo.allSites, { view, focused: siteId, hovered }), [geo, view, siteId, hovered]);
   const highlightUfs = view === 'portfolio' || view === 'supply' ? geo.ufs : EMPTY_UFS;
 
   const onSelectMarker = useCallback((id: string | null) => { if (id && id !== siteId) openSite(id); }, [openSite, siteId]);
   const onGlobeError = useCallback((message: string) => setGlobeError(message || 'O globo não carregou.'), [setGlobeError]);
+
+  // Varredura da rede (Supply): a fase vem do globo e volta para o módulo que a pediu.
+  const activeScan = activeLayer?.scan ?? null;
+  const [scanPhase, setScanPhase] = useState<{ id: string; phase: ScanPhase } | null>(null);
+  const onScanPhase = useCallback((id: string, phase: ScanPhase) => setScanPhase({ id, phase }), []);
+  const moduleScanPhase = scanPhase && activeScan && activeScan.id === scanPhase.id ? scanPhase : null;
 
   /* ── Movimento: os painéis do local esperam a câmera ─────────────────── */
   const trackKey = `${view}|${siteId ?? ''}`;
@@ -268,7 +329,9 @@ export function DashboardGlobe() {
       if (t && (t.isContentEditable || t.closest('input, textarea, select, [contenteditable="true"], [role="dialog"], [role="alertdialog"]'))) return;
       if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return;
       if (e.key === 'Escape') {
-        if (siteId) { e.preventDefault(); back(); }
+        // Esc = o início do mapa (portfólio), de qualquer vista — inclusive depois de arrastar
+        e.preventDefault();
+        goHome();
         return;
       }
       if (e.key === 'f' || e.key === 'F') {
@@ -285,7 +348,7 @@ export function DashboardGlobe() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [siteId, back, openModule]);
+  }, [siteId, goHome, openModule]);
 
   /* ── Depois de um ato no módulo: relê tudo ───────────────────────────── */
   const onChanged = useCallback(() => {
@@ -297,7 +360,7 @@ export function DashboardGlobe() {
 
   /* ── Barra superior ──────────────────────────────────────────────────── */
   const siteName = hud?.project.name ?? focusMarker?.name ?? (siteState.status === 'loading' ? 'Carregando…' : 'Projeto');
-  const crumbs: Crumb[] = [{ label: 'Portfólio', onClick: siteId ? toPortfolio : undefined, current: !siteId }];
+  const crumbs: Crumb[] = [{ label: 'Portfólio', onClick: siteId ? goHome : undefined, current: !siteId }];
   if (siteId) crumbs.push({ label: siteName, onClick: mod !== 'overview' ? () => openModule('overview') : undefined, current: mod === 'overview' });
   if (siteId && mod !== 'overview') crumbs.push({ label: MODULE_LABEL[mod], current: true });
   const updated = data ? updatedText(data.generatedAt, data.today) : null;
@@ -335,7 +398,7 @@ export function DashboardGlobe() {
   );
 
   const siteLeft = siteId ? (
-    <SitePanel state={siteState} marker={focusMarker} onNavigate={openModule} onRetry={refreshSite} onBack={toPortfolio} />
+    <SitePanel state={siteState} marker={focusMarker} onNavigate={openModule} onRetry={refreshSite} onBack={goHome} />
   ) : null;
   const siteRight = hud ? (
     <>
@@ -351,7 +414,7 @@ export function DashboardGlobe() {
 
   const moduleProps: Omit<ModuleProps, 'enter'> | null = siteId && siteValid && view !== 'portfolio' && view !== 'overview' ? {
     projectId: siteId, siteName: hud?.project.name ?? focusMarker?.name ?? '', today,
-    onMapLayer, onNavigate: openModule, onExplain: setExplain, onChanged,
+    onMapLayer, onNavigate: openModule, onExplain: setExplain, onChanged, scanPhase: moduleScanPhase,
   } : null;
 
   // A dica só convida a clicar quando há o que clicar.
@@ -359,7 +422,7 @@ export function DashboardGlobe() {
   return (
     <div ref={setRoot} className="dg" data-testid="dashboard-globe" data-view={view} data-right-open={rightOpen ? '1' : undefined}
       data-reduced={reduced ? '1' : undefined} aria-busy={reloading || undefined}>
-      <div className="dg-world" data-testid="dg-globe">
+      <div ref={setWorld} className="dg-world" data-testid="dg-globe" style={freeVar}>
         <div className="dg-backdrop" aria-hidden><i className="dg-aurora" /><i className="dg-bgrid" /></div>
         {stageOn && <ApexGlobe
           className="dg-globe"
@@ -368,11 +431,18 @@ export function DashboardGlobe() {
           nodes={activeLayer?.nodes ?? EMPTY_NODES}
           highlightUfs={highlightUfs}
           view={camera}
+          viewEpoch={epoch.n}
           dim={VIEW_DIM[view]}
           intro
           idleBreath={!reduced && (view === 'overview' || view === 'plan')}
           reducedMotion={reduced}
           theme={theme}
+          interaction={mobile ? 'cooperative' : 'full'}
+          scan={activeScan}
+          onScanPhase={onScanPhase}
+          drift={activeLayer?.drift ?? null}
+          twin={twin}
+          onTwinHotspot={onTwinHotspot}
           onSelectMarker={onSelectMarker}
           onHoverMarker={setHovered}
           onError={onGlobeError}
@@ -405,7 +475,7 @@ export function DashboardGlobe() {
           <ModuleHost key={`${view}:${siteId}`} id={view}arrival={arrival} reduced={reduced} props={moduleProps} />
         )}
 
-        <Dock show={view !== 'portfolio'} active={mod} onSelect={openModule} onPortfolio={toPortfolio} />
+        <Dock show={view !== 'portfolio'} active={mod} onSelect={openModule} onPortfolio={goHome} />
         {hint && !mobile && <p className="dg-hint">{hint}</p>}
         <Toast msg={toast.msg} shown={toast.shown} />
       </div>
@@ -413,6 +483,84 @@ export function DashboardGlobe() {
       {explainRef && <ExplainPanel reference={explainRef} today={today} onClose={() => setExplain(null)} />}
     </div>
   );
+}
+
+type StageGrid = Pick<HudGrid, 'W' | 'H' | 'safe' | 'top' | 'topH' | 'leftW' | 'rightW'>;
+const GRID_KEYS: ReadonlyArray<keyof StageGrid> = ['W', 'H', 'safe', 'top', 'topH', 'leftW', 'rightW'];
+
+/**
+ * O palco (px) e a grade do HUD — as variáveis CSS do Dashboard (`--dg-safe`,
+ * `--dg-top`, `--dg-top-h`, `--dg-left-w`, `--dg-right-w`, que mudam nos
+ * pontos de quebra) — relidos a cada mudança de tamanho.
+ */
+function useStageGrid(root: HTMLElement | null, world: HTMLElement | null): StageGrid | null {
+  const [grid, setGrid] = useState<StageGrid | null>(null);
+  useEffect(() => {
+    if (!root || !world || typeof ResizeObserver === 'undefined') return undefined;
+    // o ResizeObserver chama logo ao observar: a primeira leitura vem dele
+    const ro = new ResizeObserver(() => {
+      const cs = getComputedStyle(root);
+      const px = (name: string, d: number) => {
+        const v = parseFloat(cs.getPropertyValue(name));
+        return Number.isFinite(v) ? v : d;
+      };
+      const next: StageGrid = {
+        W: Math.round(world.clientWidth),
+        H: Math.round(world.clientHeight),
+        safe: px('--dg-safe', 24),
+        top: px('--dg-top', 14),
+        topH: px('--dg-top-h', 44),
+        leftW: px('--dg-left-w', 440),
+        rightW: px('--dg-right-w', 400),
+      };
+      if (!(next.W > 1 && next.H > 1)) return;
+      setGrid((prev) => (prev && GRID_KEYS.every((k) => prev[k] === next[k]) ? prev : next));
+    });
+    ro.observe(root);
+    ro.observe(world);
+    return () => ro.disconnect();
+  }, [root, world]);
+  return grid;
+}
+
+/**
+ * O topo do cronograma do Planejar em px do palco (arredondado a 8 px) — a
+ * faixa de cima é a área livre do modelo. Medido quando o Gantt carrega (o
+ * esqueleto não conta) e a cada mudança de altura; `null` fora do Planejar.
+ * Uma medida nova no meio do voo vira um REAJUSTE do mesmo voo (ApexGlobe).
+ */
+function useGanttTop(root: HTMLElement | null, world: HTMLElement | null, on: boolean): number | null {
+  const [top, setTop] = useState<number | null>(null);
+  useEffect(() => {
+    if (!on || !root || !world || typeof ResizeObserver === 'undefined' || typeof MutationObserver === 'undefined') return undefined;
+    let target: Element | null = null;
+    let raf = 0;
+    const ro = new ResizeObserver(() => measure());
+    const mo = new MutationObserver(() => measure());
+    function measure() {
+      const g = root?.querySelector('.dgm-gantt') ?? null;
+      if (g !== target) {
+        if (target) ro.unobserve(target);
+        target = g;
+        if (g) ro.observe(g);
+      }
+      // o esqueleto (carregando) tem outra altura: medir só o cronograma de verdade (ou a nota de vazio/erro)
+      if (!g || !world || g.querySelector('.dgm-skel')) return;
+      const wr = world.getBoundingClientRect();
+      const gr = g.getBoundingClientRect();
+      if (gr.height < 48 || wr.height < 2) return;
+      const v = Math.round((gr.top - wr.top) / 8) * 8;
+      setTop((p) => (p === v ? p : v));
+    }
+    mo.observe(root.querySelector('.dg-hud') ?? root, { childList: true, subtree: true });
+    raf = requestAnimationFrame(measure);
+    return () => {
+      cancelAnimationFrame(raf);
+      mo.disconnect();
+      ro.disconnect();
+    };
+  }, [on, root, world]);
+  return on ? top : null;
 }
 
 /** "Atualizado às 14:31" (hoje em São Paulo) ou "Atualizado em 24/09 18:02". */

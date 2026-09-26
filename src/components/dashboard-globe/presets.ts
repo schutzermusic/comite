@@ -14,20 +14,37 @@
  *    distância pela PRECISÃO da posição (canteiro × município);
  *  • Supply Chain — enquadra o canteiro e os almoxarifados com coordenada.
  *
- * `ox`/`oy` (onde o alvo cai na tela, em px) estão na escala do palco do
- * filme (1920 px de largura) e são multiplicados por `scale`; no celular são 0
- * (o HUD vira folha inferior e o alvo fica no centro do globo).
+ * ENQUADRAMENTO NA ÁREA LIVRE: com o palco medido (`LayoutOpts.frame`), o
+ * portfólio, a Visão geral e o Planejar não usam mais um deslocamento fixo —
+ * o assunto (os marcadores; o modelo esquemático da obra) é PROJETADO com a
+ * mesma câmera do motor (`camera.ts`) e posto dentro da área que o HUD deixa
+ * livre naquela vista (`freeRect`: entre as colunas, abaixo da barra, acima da
+ * dica/dock/Gantt e dos créditos), recuando a câmera só o necessário.
+ *
+ * Sem o palco medido (primeiro render), `ox`/`oy` (onde o alvo cai na tela,
+ * em px) estão na escala do palco do filme (1920 px de largura) e são
+ * multiplicados por `scale`; no celular são 0.
  */
-import type { HealthLevel, SiteMarker, SitePosition } from '@/lib/dashboard/types';
+import type { HealthLevel, SiteKind, SiteMarker, SitePosition } from '@/lib/dashboard/types';
+import { ecefOf, enuAt, poseFromView, projectPose, type Vec3 } from './camera';
 import type { CameraView, GlobeMarker, GlobeTone, ModuleId } from './contract';
+import { layoutBox, type LayoutBox } from './twin/layouts';
 
 export type DashView = 'portfolio' | ModuleId;
 
+/** Retângulo em px do palco (esquerda, topo, direita, base). */
+export interface Rect { l: number; t: number; r: number; b: number }
+
+/** O palco medido (px) e a área que o HUD deixa livre nesta vista. */
+export interface StageFrame { W: number; H: number; free: Rect }
+
 export interface LayoutOpts {
-  /** ≤ 767 px: HUD em folha inferior — alvo centrado (ox = oy = 0). */
+  /** ≤ 767 px: HUD em folha inferior (sem `frame`, alvo centrado: ox = oy = 0). */
   mobile: boolean;
   /** Fator dos deslocamentos de tela (largura do palco ÷ 1920), 0.5–1. Padrão 1. */
   scale?: number;
+  /** Palco medido + área livre: o assunto da vista é enquadrado nela (`fitView`). */
+  frame?: StageFrame | null;
 }
 
 export interface LatLng { lat: number; lng: number }
@@ -84,17 +101,197 @@ function offset(ox: number, oy: number, opts: LayoutOpts): { ox: number; oy: num
   return { ox: Math.round(ox * k), oy: Math.round(oy * k) };
 }
 
-/** O Brasil inteiro — sem nenhuma operação localizada (nunca um ponto inventado). */
-export function brazilView(opts: LayoutOpts): CameraView {
-  return { ...BRAZIL, dist: 5200, pitch: 52, heading: -4, ...offset(200, 90, opts) };
+/* ── Área livre do HUD ─────────────────────────────────────────────────── */
+
+/** A grade do HUD (px), lida das variáveis CSS do Dashboard, e o palco medido. */
+export interface HudGrid {
+  W: number;
+  H: number;
+  /** ≤ 767 px: o globo é um bloco no alto e o HUD vira folhas embaixo. */
+  mobile: boolean;
+  /** 768–1179 px: colunas estreitas, Gantt na largura toda (≤ 46% da altura). */
+  tablet?: boolean;
+  safe: number;
+  top: number;
+  topH: number;
+  leftW: number;
+  rightW: number;
+  /** A coluna direita do portfólio está recolhida (768–1179 px). */
+  rightClosed?: boolean;
+  /** Topo MEDIDO do cronograma (Planejar), px do palco; ausente = o Gantt de 8 linhas. */
+  ganttTop?: number | null;
 }
 
-/** Portfólio: enquadra todos os marcadores (`app.js:39`, com a caixa do dado real). */
+/** Folgas do HUD (px) — espelho de `dashboard-globe.css` e `modules/modules.css`. */
+export const HUD_SPACE = Object.freeze({
+  /** Respiro entre o assunto e um painel. */
+  gap: 16,
+  /** As colunas começam 14 px abaixo da barra. */
+  colGap: 14,
+  /** `--dg-dock-space` nas vistas do local. */
+  dock: 78,
+  /** A dica do portfólio e a linha dos créditos, na base. */
+  hint: 30,
+  /** `--dgm-gap`: entre o Gantt e a coluna direita. */
+  moduleGap: 20,
+  /** Celular: abaixo da barra, e a folha do HUD (−22 px) + a linha dos créditos na base. */
+  mobileTop: 8,
+  mobileBottom: 48,
+  /** O Gantt com 8 linhas visíveis (cabeçalho + 8 × 43 px) na escala 0,84. */
+  ganttMax: 484,
+  /** 768–1179 px: o Gantt ocupa no máximo 46% da altura. */
+  ganttShareTablet: 0.46,
+  /** Menor área útil; abaixo disso o assunto usa o palco inteiro (nunca um retângulo invertido). */
+  minW: 160,
+  minH: 120,
+});
+
+const finiteNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+
+/**
+ * A área do palco que o HUD deixa livre nesta vista (px): entre as colunas,
+ * abaixo da barra, acima da dica/dock (e do Gantt no Planejar); no celular, o
+ * bloco do globo menos a barra, a folha e os créditos. `null` sem palco medido.
+ */
+export function freeRect(view: DashView, g: HudGrid | null | undefined): Rect | null {
+  if (!g || !finiteNum(g.W) || !finiteNum(g.H) || g.W < 2 || g.H < 2) return null;
+  const n = (v: unknown, d: number) => (finiteNum(v) && v >= 0 ? v : d);
+  const W = g.W;
+  const H = g.H;
+  const safe = n(g.safe, 24);
+  const barB = n(g.top, 14) + n(g.topH, 44);
+  const leftW = n(g.leftW, 440);
+  const rightW = n(g.rightW, 400);
+  const whole: Rect = { l: safe, t: barB + 8, r: W - safe, b: H - (g.mobile ? HUD_SPACE.mobileBottom : safe) };
+  let r: Rect;
+  if (g.mobile) {
+    r = { l: safe, t: barB + HUD_SPACE.mobileTop, r: W - safe, b: H - HUD_SPACE.mobileBottom };
+  } else {
+    const t = barB + HUD_SPACE.colGap;
+    const leftEdge = safe + leftW + HUD_SPACE.gap;
+    const rightEdge = W - safe - rightW - HUD_SPACE.gap;
+    const colB = H - safe - HUD_SPACE.dock;
+    switch (view) {
+      case 'portfolio':
+        r = { l: leftEdge, t, r: g.rightClosed ? W - safe : rightEdge, b: H - safe - HUD_SPACE.hint };
+        break;
+      case 'plan': {
+        // o Gantt ocupa a base da esquerda até a coluna direita; o modelo fica na faixa de cima
+        const est = colB - Math.min(HUD_SPACE.ganttMax, g.tablet ? H * HUD_SPACE.ganttShareTablet : colB - t);
+        const gTop = finiteNum(g.ganttTop) && g.ganttTop > t && g.ganttTop <= colB ? g.ganttTop : est;
+        r = { l: safe + 8, t, r: W - safe - rightW - HUD_SPACE.moduleGap - 8, b: gTop - 12 };
+        break;
+      }
+      case 'billing':
+        r = { l: safe + leftW + 40 + HUD_SPACE.gap, t, r: rightEdge, b: colB - 8 };
+        break;
+      default: // Visão geral, Supply Chain
+        r = { l: leftEdge, t, r: rightEdge, b: colB - 8 };
+    }
+  }
+  const ok = r.r - r.l >= HUD_SPACE.minW && r.b - r.t >= HUD_SPACE.minH;
+  const out = ok ? r : whole;
+  return { l: Math.round(out.l), t: Math.round(out.t), r: Math.round(out.r), b: Math.round(out.b) };
+}
+
+/* ── Enquadrar o assunto na área livre ─────────────────────────────────── */
+
+export interface FitOpts {
+  /** Margem (px) em volta do assunto projetado (hexágono, rótulo, cartões). */
+  pad: Rect;
+  /** A distância do preset é o PISO (o enquadramento só recua); o teto protege o modelo. */
+  minDist: number;
+  maxDist: number;
+}
+
+const round3 = (v: number) => {
+  const k = 10 ** (2 - Math.floor(Math.log10(Math.abs(v) || 1)));
+  return Math.round(v * k) / k;
+};
+
+/**
+ * Enquadra os pontos (ECEF) na área livre: projeta com a MESMA câmera do motor
+ * (`poseFromView` + campo vertical de 32°), recua a câmera até a caixa (com a
+ * margem) caber e desloca o alvo (ox/oy) até o centro da caixa cair no centro
+ * da área. Iterativo (a perspectiva não é linear); nunca aproxima além do preset.
+ */
+export function fitView(base: CameraView, pts: readonly Vec3[], frame: StageFrame | null | undefined, o: FitOpts): CameraView {
+  if (!frame || !(frame.W > 0) || !(frame.H > 0) || pts.length === 0) return base;
+  const { W, H, free } = frame;
+  const fw = free.r - free.l - o.pad.l - o.pad.r;
+  const fh = free.b - free.t - o.pad.t - o.pad.b;
+  const lo = Math.max(1e-3, Math.min(o.minDist, o.maxDist));
+  const hi = Math.max(lo, o.maxDist);
+  let v: CameraView = { ...base, dist: clamp(base.dist, lo, hi) };
+  if (!(fw > 8) || !(fh > 8)) {
+    // área pequena demais para o assunto: só centra o alvo nela
+    return { ...v, ox: Math.round((free.l + free.r) / 2 - W / 2), oy: Math.round((free.t + free.b) / 2 - H / 2) };
+  }
+  const fcx = (free.l + o.pad.l + free.r - o.pad.r) / 2;
+  const fcy = (free.t + o.pad.t + free.b - o.pad.b) / 2;
+  for (let i = 0; i < 12; i += 1) {
+    const pose = poseFromView(v, H);
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    let ok = true;
+    for (const p of pts) {
+      const s = projectPose(pose, W, H, p);
+      if (!s) { ok = false; break; }
+      if (s[0] < minX) minX = s[0];
+      if (s[0] > maxX) maxX = s[0];
+      if (s[1] < minY) minY = s[1];
+      if (s[1] > maxY) maxY = s[1];
+    }
+    if (!ok) {
+      if (v.dist >= hi) break;
+      v = { ...v, dist: Math.min(hi, v.dist * 1.6) };
+      continue;
+    }
+    const k = Math.max((maxX - minX) / fw, (maxY - minY) / fh);
+    const dist = clamp(v.dist * (k > 0 && Number.isFinite(k) ? k : 1), lo, hi);
+    const dx = fcx - (minX + maxX) / 2;
+    const dy = fcy - (minY + maxY) / 2;
+    const settled = Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5 && Math.abs(dist - v.dist) <= v.dist * 1e-3;
+    v = { ...v, dist, ox: clamp(v.ox + dx, -4000, 4000), oy: clamp(v.oy + dy, -4000, 4000) };
+    if (settled) break;
+  }
+  return { ...v, dist: round3(v.dist), ox: Math.round(v.ox), oy: Math.round(v.oy) };
+}
+
+/** Margem em volta de cada marcador do portfólio: o hexágono e, em cima, o nome do pior local. */
+export const MARKER_PAD: Rect = Object.freeze({ l: 30, t: 38, r: 30, b: 30 });
+/**
+ * Margem do modelo esquemático: o cartão da frente sobe 21 px; embaixo, a faixa
+ * do rótulo obrigatório (encaixado no canto inferior esquerdo da área). No
+ * Planejar a faixa é larga e baixa: o rótulo fica à esquerda do modelo, sem faixa.
+ */
+export const TWIN_PAD: Rect = Object.freeze({ l: 12, t: 26, r: 12, b: 36 });
+export const TWIN_PAD_WIDE: Rect = Object.freeze({ l: 12, t: 26, r: 12, b: 12 });
+
+/** O Brasil inteiro — sem nenhuma operação localizada (nunca um ponto inventado). */
+export function brazilView(opts: LayoutOpts): CameraView {
+  const v: CameraView = { ...BRAZIL, dist: 5200, pitch: 52, heading: -4, ...offset(200, 90, opts) };
+  const f = opts.frame;
+  if (!f) return v;
+  // sem assunto: o centro do país no centro da área livre
+  return { ...v, ox: Math.round((f.free.l + f.free.r) / 2 - f.W / 2), oy: Math.round((f.free.t + f.free.b) / 2 - f.H / 2) };
+}
+
+/**
+ * Portfólio: enquadra todos os marcadores (`app.js:39`, com a caixa do dado
+ * real): centro da caixa, distância = diagonal × 1,25 (900–4500 km) — e, com
+ * o palco medido, a caixa inteira DENTRO da área livre (recuando se preciso).
+ */
 export function portfolioView(points: Array<{ lat: unknown; lng: unknown }>, opts: LayoutOpts): CameraView {
   const b = bounds(points);
   if (!b) return brazilView(opts);
   const dist = clamp(Math.max(b.diagKm * 1.25, 900), 900, 4500);
-  return { ...b.center, dist, pitch: 52, heading: -4, ...offset(200, 90, opts) };
+  const preset: CameraView = { ...b.center, dist, pitch: 52, heading: -4, ...offset(200, 90, opts) };
+  if (!opts.frame) return preset;
+  const pts = points.filter(validLatLng).map((p) => ecefOf(p.lat, p.lng, 0));
+  return fitView({ ...preset, ox: 0, oy: 0 }, pts, opts.frame, { pad: MARKER_PAD, minDist: dist, maxDist: 4500 });
 }
 
 type SiteModule = Exclude<ModuleId, 'supply'>;
@@ -106,12 +303,73 @@ const SITE_PRESET: Record<SiteModule, { site: number; municipality: number; pitc
   billing: { site: 9, municipality: 30, pitch: 54, heading: 60, ox: 90, oy: 60 },
 };
 
-/** O local em foco (Visão geral, Planejar, Faturamento). `null` sem posição válida. */
-export function siteView(pos: (LatLng & { precision?: SitePosition['precision'] | null }) | null, module: SiteModule, opts: LayoutOpts): CameraView | null {
+/**
+ * Rumo do eixo longo do modelo esquemático da obra: o rumo da câmera da Visão
+ * geral + 90° (o modelo fica atravessado na tela). Fixo por local — não gira
+ * ao trocar de Visão geral para Planejar.
+ */
+export const TWIN_AZIMUTH_DEG = SITE_PRESET.overview.heading + 90;
+
+/**
+ * Tipo presumido do modelo antes de o HUD do local dizer o tipo: o layout
+ * genérico (o mesmo que o motor desenha sem `kind`). Quando o tipo chega, o
+ * enquadramento se ajusta — um refinamento do mesmo voo (`reaimable`).
+ */
+export const NOMINAL_TWIN_KIND: SiteKind = 'generic';
+
+/** Recuo máximo do local com modelo: ele fica inteiro (opacidade 1) até 4 km (`twinDistanceAlpha`). */
+export const TWIN_MAX_DIST_KM = 4;
+
+/**
+ * Os 8 cantos (ECEF) da caixa do modelo esquemático ancorado no local, no rumo
+ * do eixo longo — as MESMAS contas de `TwinModel.toEcef` (sem a queda da
+ * curvatura, desprezível em ~500 m).
+ */
+export function twinBoxPoints(anchor: LatLng, box: LayoutBox, azimuthDeg = TWIN_AZIMUTH_DEG): Vec3[] {
+  const O = ecefOf(anchor.lat, anchor.lng, 0);
+  const { e, n, u } = enuAt(anchor.lat, anchor.lng);
+  const A = (Number.isFinite(azimuthDeg) ? azimuthDeg : 0) * (Math.PI / 180);
+  const sa = Math.sin(A);
+  const ca = Math.cos(A);
+  const X: Vec3 = [e[0] * sa + n[0] * ca, e[1] * sa + n[1] * ca, e[2] * sa + n[2] * ca];
+  const Y: Vec3 = [-e[0] * ca + n[0] * sa, -e[1] * ca + n[1] * sa, -e[2] * ca + n[2] * sa];
+  const out: Vec3[] = [];
+  for (const x of [box.minX, box.maxX]) {
+    for (const y of [box.minY, box.maxY]) {
+      for (const z of [0, box.top]) {
+        out.push([O[0] + X[0] * x + Y[0] * y + u[0] * z, O[1] + X[1] * x + Y[1] * y + u[1] * z, O[2] + X[2] * x + Y[2] * y + u[2] * z]);
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * O local em foco (Visão geral, Planejar, Faturamento). `null` sem posição válida.
+ * Com o palco medido, a Visão geral e o Planejar põem o assunto na área livre:
+ * no CANTEIRO, a caixa do modelo esquemático (tipo `twinKind`, ou o genérico);
+ * no município, o marcador com o nome. Faturamento segue o preset.
+ */
+export function siteView(
+  pos: (LatLng & { precision?: SitePosition['precision'] | null }) | null,
+  module: SiteModule,
+  opts: LayoutOpts,
+  twinKind?: SiteKind | null,
+): CameraView | null {
   if (!validLatLng(pos)) return null;
   const p = SITE_PRESET[module];
   const dist = pos.precision === 'municipality' ? p.municipality : p.site;
-  return { lat: pos.lat, lng: pos.lng, dist, pitch: p.pitch, heading: p.heading, ...offset(p.ox, p.oy, opts) };
+  const preset: CameraView = { lat: pos.lat, lng: pos.lng, dist, pitch: p.pitch, heading: p.heading, ...offset(p.ox, p.oy, opts) };
+  if (!opts.frame || module === 'billing') return preset;
+  const base = { ...preset, ox: 0, oy: 0 };
+  if (pos.precision === 'site') {
+    const pts = twinBoxPoints(pos, layoutBox(twinKind ?? NOMINAL_TWIN_KIND));
+    const f = opts.frame.free;
+    // faixa larga e baixa (Planejar acima do Gantt): o rótulo cabe à esquerda do modelo
+    const wide = !opts.mobile && f.r - f.l > 2.4 * (f.b - f.t);
+    return fitView(base, pts, opts.frame, { pad: wide ? TWIN_PAD_WIDE : TWIN_PAD, minDist: dist, maxDist: Math.max(dist, TWIN_MAX_DIST_KM) });
+  }
+  return fitView(base, [ecefOf(pos.lat, pos.lng, 0)], opts.frame, { pad: MARKER_PAD, minDist: dist, maxDist: dist * 2 });
 }
 
 /**
@@ -138,6 +396,8 @@ export function viewFor(view: DashView, ctx: {
   site: (LatLng & { precision?: SitePosition['precision'] | null }) | null;
   nodes?: Array<{ lat: unknown; lng: unknown }>;
   layerView?: CameraView | null;
+  /** Tipo de obra do modelo esquemático, quando o HUD do local já disse. */
+  twinKind?: SiteKind | null;
 }, opts: LayoutOpts): CameraView {
   const portfolio = portfolioView(ctx.markers, opts);
   if (view === 'portfolio') return portfolio;
@@ -145,7 +405,7 @@ export function viewFor(view: DashView, ctx: {
     return opts.mobile ? { ...ctx.layerView, ox: 0, oy: 0 } : ctx.layerView;
   }
   if (view === 'supply') return supplyView(ctx.site, ctx.nodes ?? [], opts) ?? portfolio;
-  return siteView(ctx.site, view, opts) ?? portfolio;
+  return siteView(ctx.site, view, opts, ctx.twinKind) ?? portfolio;
 }
 
 /* ── Marcadores ────────────────────────────────────────────────────────── */
@@ -170,7 +430,9 @@ const FOCUS_SIZE: Record<DashView, number> = { portfolio: 58, overview: 58, plan
 /**
  * Os marcadores do globo a partir das posições reais. Em foco: selecionado,
  * maior, com rótulo; em hover: 54 px e rótulo; o pior local mostra o rótulo
- * no portfólio. Posição inválida não vira marcador.
+ * no portfólio. Posição inválida não vira marcador. No Supply Chain, os OUTROS
+ * projetos são contexto: sem pulso (o anel não pode parecer a resposta de um
+ * almoxarifado vizinho); o motor ainda os desenha esmaecidos, por baixo dos nós.
  */
 export function markersFor(sites: SiteMarker[], state: { view: DashView; focused: string | null; hovered: string | null }): GlobeMarker[] {
   const sorted = sortSites(sites.filter((s) => validLatLng(s.position)));
@@ -180,6 +442,7 @@ export function markersFor(sites: SiteMarker[], state: { view: DashView; focused
     const focused = s.projectId === state.focused;
     const hovered = s.projectId === state.hovered;
     const inPortfolio = state.view === 'portfolio';
+    const context = state.view === 'supply' && !focused;
     return {
       id: s.projectId,
       lat: s.position.lat,
@@ -187,7 +450,7 @@ export function markersFor(sites: SiteMarker[], state: { view: DashView; focused
       tone,
       label: s.name,
       selected: focused || hovered,
-      pulse: focused ? Math.max(PULSE[tone], 0.5) : PULSE[tone],
+      pulse: focused ? Math.max(PULSE[tone], 0.5) : context ? 0 : PULSE[tone],
       size: focused ? FOCUS_SIZE[state.view] : hovered ? 54 : 44,
       showLabel: focused || hovered || (inPortfolio && s.projectId === worst),
     };

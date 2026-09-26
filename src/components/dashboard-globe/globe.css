@@ -64,7 +64,8 @@
   mask-image: radial-gradient(ellipse 60% 55% at 50% 50%, #000 15%, transparent 80%);
 }
 
-/* ── Cesium: sem entrada própria (a câmera é do filme); o palco recebe o ponteiro ── */
+/* ── Cesium: o canvas recebe o mouse/toque (arrastar, inclinar, aproximar);
+      overlay, rótulos, sombra e vinheta ficam SEM ponteiro por cima dele ── */
 .ag-globe {
   z-index: 1;
   overflow: hidden;
@@ -84,6 +85,21 @@
   pointer-events: none;
   touch-action: auto;
 }
+.ag-root[data-interaction='full'] .ag-globe,
+.ag-root[data-interaction='cooperative'] .ag-globe,
+.ag-root[data-interaction='full'] .ag-globe .cesium-widget,
+.ag-root[data-interaction='cooperative'] .ag-globe .cesium-widget,
+.ag-root[data-interaction='full'] .ag-globe .cesium-widget canvas,
+.ag-root[data-interaction='cooperative'] .ag-globe .cesium-widget canvas {
+  pointer-events: auto;
+}
+/* desktop: todos os gestos são do mapa; celular: um dedo rola a página, dois aproximam */
+.ag-root[data-interaction='full'] .ag-globe .cesium-widget canvas { touch-action: none; }
+.ag-root[data-interaction='cooperative'] .ag-globe .cesium-widget canvas { touch-action: pan-y; }
+.ag-root[data-interaction='full'][data-status='ready'],
+.ag-root[data-interaction='cooperative'][data-status='ready'] { cursor: grab; }
+.ag-root[data-grabbing='1'],
+.ag-root[data-grabbing='1'] * { cursor: grabbing !important; }
 
 /* ── Sombra do horizonte: opacidade = invLerp(80, 45, inclinação) ── */
 .ag-shade {
@@ -153,6 +169,11 @@
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 16px 40px -18px rgba(0, 0, 0, 0.9);
   border: 1px solid rgba(170, 200, 190, 0.12);
 }
+/* sem espaço à direita (borda da área livre): o cartão vira para a esquerda do ponto;
+   sem espaço de nenhum lado (celular), fica centrado abaixo — ou acima — do nó */
+.ag-labels .wl-node[data-side='l'] { transform: translate(calc(-100% - 14px), -50%); }
+.ag-labels .wl-node[data-side='b'] { transform: translate(-50%, 24px); }
+.ag-labels .wl-node[data-side='t'] { transform: translate(-50%, calc(-100% - 24px)); }
 .ag-labels .wl-node .wl-name { font-size: 16px; font-weight: 600; color: #F2F5F7; }
 .ag-labels .wl-node .wl-val {
   font-size: 15px;
@@ -167,6 +188,169 @@
 }
 .ag-labels .wl-node[data-tone='hit'] .wl-val { color: #5EEAD4; }
 .ag-labels .wl-node[data-tone='none'] .wl-val { color: rgba(242, 245, 247, 0.38); }
+
+/* varredura: "consultando…" pisca de leve; a resposta vira (flip) quando chega */
+.ag-labels .wl-node[data-state='pending'] .wl-val {
+  color: rgba(125, 235, 255, 0.72);
+  animation: ag-pending 1.1s ease-in-out infinite;
+}
+.ag-labels .wl-node[data-state='answer'] .wl-val {
+  animation: ag-flip 0.34s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  transform-origin: 0 50%;
+}
+@keyframes ag-pending { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+@keyframes ag-flip {
+  0% { opacity: 0; transform: perspective(240px) rotateX(-80deg); }
+  100% { opacity: 1; transform: none; }
+}
+
+/* a linha de status da varredura ("Apex analisando a rede de estoque"), sob o local */
+.ag-labels .wl-scan {
+  transform: translate(-50%, 0);
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 14px 7px 10px;
+  border-radius: 999px;
+  background: linear-gradient(160deg, rgba(14, 30, 38, 0.82), rgba(8, 16, 22, 0.78));
+  box-shadow: 0 0 0 1px rgba(125, 235, 255, 0.22), 0 0 26px -8px rgba(34, 211, 238, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: rgba(224, 250, 255, 0.92);
+}
+.ag-labels .wl-scan .wl-radar {
+  position: relative;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.4px rgba(125, 235, 255, 0.75);
+  background: conic-gradient(from 0deg, rgba(125, 235, 255, 0.0) 0deg, rgba(125, 235, 255, 0.55) 70deg, rgba(125, 235, 255, 0) 90deg);
+  animation: ag-sweep 1.2s linear infinite;
+}
+@keyframes ag-sweep { to { transform: rotate(360deg); } }
+
+/* ── Modelo esquemático: hotspots (botões) e o rótulo obrigatório ── */
+.ag-hot {
+  z-index: 4;
+  overflow: hidden;
+}
+.ag-hot .ag-hs {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 260px;
+  min-height: 32px;
+  margin: 0;
+  padding: 5px 12px 5px 6px;
+  transform-origin: 0 0;
+  will-change: transform, opacity;
+  pointer-events: auto;
+  cursor: pointer;
+  border: 0;
+  border-radius: 10px;
+  font: inherit;
+  text-align: left;
+  color: #F2F5F7;
+  background: linear-gradient(160deg, rgba(18, 30, 38, 0.84), rgba(10, 18, 24, 0.8));
+  box-shadow: 0 0 0 1px rgba(170, 200, 190, 0.16), 0 14px 30px -18px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  /* o motor posiciona o CANTO do cartão (placeCards): o losango fica no ponto do modelo,
+     o cartão sai para a direita — ou para a esquerda (`data-side='l'`), sempre dentro da área livre */
+  transition: box-shadow 160ms ease, background-color 160ms ease;
+}
+/* virado: o losango na ponta DIREITA (a 13 px da borda, como na esquerda do normal) */
+.ag-hot .ag-hs[data-side='l'] { flex-direction: row-reverse; padding: 5px 6px 5px 12px; text-align: right; }
+.ag-hot .ag-hs[data-side='l'] .ag-hs-txt { align-items: flex-end; }
+.ag-hot .ag-hs[data-side='l'][data-target]::after { margin: 0 2px 0 0; }
+.ag-hot .ag-hs:hover { box-shadow: 0 0 0 1px rgba(125, 235, 255, 0.45), 0 0 24px -8px rgba(34, 211, 238, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.09); }
+.ag-hot .ag-hs:focus-visible { outline: 2px solid #7DEBFF; outline-offset: 2px; }
+.ag-hot .ag-hs-dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  margin: 0 2px;
+  transform: rotate(45deg);
+  border-radius: 2px;
+  background: var(--hs, #2DD4BF);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--hs, #2DD4BF) 22%, transparent), 0 0 14px var(--hs, #2DD4BF);
+}
+.ag-hot .ag-hs-txt { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
+.ag-hot .ag-hs-label { font-size: 12px; font-weight: 600; color: rgba(242, 245, 247, 0.92); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ag-hot .ag-hs-val { font-size: 11.5px; color: rgba(242, 245, 247, 0.62); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ag-hot .ag-hs[data-tone='healthy'] { --hs: #22D3EE; }
+.ag-hot .ag-hs[data-tone='attention'] { --hs: #F5A524; }
+.ag-hot .ag-hs[data-tone='critical'] { --hs: #EF4B55; }
+.ag-hot .ag-hs[data-tone='completed'] { --hs: #10B981; }
+.ag-hot .ag-hs[data-tone='unknown'] { --hs: #94A3B8; }
+.ag-hot .ag-hs[data-tone='accent'] { --hs: #2DD4BF; }
+.ag-hot .ag-hs[data-target]::after {
+  content: '›';
+  margin-left: 2px;
+  font-size: 15px;
+  line-height: 1;
+  color: rgba(242, 245, 247, 0.5);
+}
+/* o rótulo obrigatório: encaixado no canto inferior esquerdo da área livre (o motor põe o canto) */
+.ag-hot .ag-twin-note {
+  position: absolute;
+  left: 0;
+  top: 0;
+  max-width: 320px;
+  padding: 4px 9px;
+  border-radius: 6px;
+  pointer-events: none;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: rgba(224, 250, 255, 0.78);
+  background: rgba(6, 12, 16, 0.66);
+  box-shadow: 0 0 0 1px rgba(125, 235, 255, 0.18);
+  white-space: nowrap;
+}
+.ag-root[data-status='error'] .ag-hot { display: none; }
+.ag-root[data-reduced='1'] .ag-labels .wl-node .wl-val,
+.ag-root[data-reduced='1'] .ag-labels .wl-scan .wl-radar { animation: none; }
+
+/* celular/cooperativo: a dica "Ctrl + roda" / "dois dedos" */
+.ag-coop-hint {
+  position: absolute;
+  z-index: 7;
+  left: 50%;
+  top: 50%;
+  max-width: calc(100% - 32px);
+  padding: 10px 16px;
+  border-radius: 12px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 180ms ease;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: center;
+  color: #F2F5F7;
+  background: rgba(6, 12, 16, 0.78);
+  box-shadow: 0 0 0 1px rgba(125, 235, 255, 0.2);
+}
+.ag-coop-hint:empty { display: none; }
+.ag-coop-hint[data-show='1'] { opacity: 1; }
+
+@media (max-width: 767px) {
+  /* alvo de toque de 44 px; o cartão do hotspot fica mais curto; o rótulo quebra dentro da área */
+  .ag-hot .ag-hs { min-height: 44px; max-width: 200px; padding-right: 10px; }
+  .ag-hot .ag-hs[data-side='l'] { padding-right: 6px; padding-left: 10px; }
+  .ag-hot .ag-twin-note { max-width: calc(100vw - 24px); white-space: normal; }
+  /* o globo tem ~370 px de altura: cartões de dado e a linha de status mais compactos (cabem dois sem se cobrir) */
+  .ag-labels .wl-node { padding: 7px 10px; gap: 2px; border-radius: 10px; }
+  .ag-labels .wl-node .wl-name { font-size: 13.5px; }
+  .ag-labels .wl-node .wl-val { font-size: 12.5px; }
+  .ag-labels .wl-scan { gap: 8px; padding: 5px 11px 5px 8px; font-size: 12px; }
+  .ag-labels .wl-tag { font-size: 11.5px; letter-spacing: 0.1em; }
+}
 
 /* ── Atribuição (Esri exige crédito visível) — compacta, canto inferior direito ── */
 .ag-credits {

@@ -1,3 +1,5 @@
+import type { SiteKind } from '@/lib/dashboard/types';
+
 /**
  * CONTRATO do globo do Dashboard (estilo do protótipo APEX FILM).
  *
@@ -81,6 +83,65 @@ export interface FlightState {
   flightId: number;
 }
 
+/**
+ * "Analisar a rede de estoque" (cena 3 do filme): anéis no chão a partir do
+ * local, cada nó responde "consultando…" → resultado quando o anel o alcança E
+ * o servidor já respondeu (`results[id] != null`). Os nós/arcos do scan são os
+ * `nodes`/`arcs` da mesma camada com o mesmo id (`GlobeNode.id`).
+ */
+export interface GlobeScan {
+  id: string;
+  origin: { lat: number; lng: number };
+  /** Alcance dos anéis, km (≥ distância do nó mais longe × 1,15). */
+  radiusKm: number;
+  /** Resposta por nó (id do GlobeNode). `null` = ainda consultando. */
+  results: Record<string, { tone: 'hit' | 'none'; value: string } | null>;
+  /** Texto enquanto consulta (padrão "consultando…"). */
+  pendingText?: string;
+  /** Linha de status no mapa ("Apex analisando a rede de estoque"). */
+  statusText?: string;
+}
+
+export type ScanPhase = 'rings' | 'answering' | 'done';
+
+/** Ponto de interesse do modelo esquemático, ligado a DADO REAL. O motor posiciona pelo papel no layout. */
+export interface TwinHotspot {
+  id: string;
+  role: 'workfront' | 'laydown' | 'team' | 'milestone';
+  label: string;
+  value?: string | null;
+  tone?: GlobeTone;
+  /** Módulo que o clique abre (ex.: pátio → 'supply'); `null` = só destaca. */
+  target?: ModuleId | null;
+}
+
+/**
+ * HUD 3D da obra: REPRESENTAÇÃO ESQUEMÁTICA procedural por tipo de obra (não é
+ * projeto executivo/as-built), ancorada na posição do local (só `precision:
+ * 'site'`), desenhada no overlay 2D projetado (como o gêmeo do filme).
+ */
+export interface TwinSpec {
+  /** Muda quando o local/tipo muda (recalcula a geometria). */
+  key: string;
+  kind: SiteKind;
+  anchor: { lat: number; lng: number };
+  /** Rumo do eixo longo do layout, graus (preset do local + 90°). */
+  azimuthDeg: number;
+  /** Grupo de elementos da frente de trabalho (derivado do título da fase), ex.: 'gantries' | 'trench' | 'breakers' | 'towers' | 'inverters' | 'unit'. */
+  focusGroup: string | null;
+  /** Avanço da fase, 0..1; `null` = sem anel de progresso (nunca inventado). */
+  progress: number | null;
+  /** Pessoas alocadas (pontos na frente), 0 = nenhum; `null` = restrito (sem pontos). */
+  people: number | null;
+  /** Destacar elementos "novos" (ex.: ampliação / novos bays). */
+  highlightNew?: boolean;
+  /** Tom da frente de trabalho (saúde do projeto). */
+  tone?: GlobeTone;
+  hotspots: TwinHotspot[];
+  /** Rótulo obrigatório no mapa ("Representação esquemática — não é o projeto executivo"). */
+  label: string;
+}
+
 export interface ApexGlobeProps {
   markers: GlobeMarker[];
   arcs?: GlobeArc[];
@@ -105,6 +166,20 @@ export interface ApexGlobeProps {
   /** Falha do globo (WebGL, carga do Cesium): a página mostra o HUD sem o palco. */
   onError?: (message: string) => void;
   className?: string;
+  /**
+   * Época da vista: a página incrementa quando a navegação MUDA de verdade (Esc, dock, outro local).
+   * Nova época → sempre voa até `view`, mesmo que igual (ex.: o usuário arrastou o mapa e apertou Esc).
+   * Mesma época → uma `view` nova só atualiza o alvo se o usuário mexeu no mapa (não rouba a câmera).
+   */
+  viewEpoch?: number;
+  /** Mouse/toque: 'full' (arrastar/zoom/inclinar), 'cooperative' (celular: um dedo rola a página), 'none'. */
+  interaction?: 'full' | 'cooperative' | 'none';
+  scan?: GlobeScan | null;
+  onScanPhase?: (id: string, phase: ScanPhase) => void;
+  /** Deriva lenta depois do pouso ("procurando"), aditiva; limpa em qualquer entrada do usuário. */
+  drift?: { headingDeg: number; distK: number; seconds: number } | null;
+  twin?: TwinSpec | null;
+  onTwinHotspot?: (id: string) => void;
 }
 
 /* ── Página ↔ módulos do local (Planejar, Supply Chain, Faturamento) ────── */
@@ -117,6 +192,9 @@ export interface MapLayer {
   nodes?: GlobeNode[];
   /** Enquadramento próprio do módulo (ex.: Supply enquadra canteiro + almoxarifados); ausente = preset da vista. */
   view?: CameraView | null;
+  /** Varredura da rede (Supply → "Analisar a rede de estoque"). */
+  scan?: GlobeScan | null;
+  drift?: { headingDeg: number; distK: number; seconds: number } | null;
 }
 
 /**
@@ -137,6 +215,8 @@ export interface ModuleProps {
   onExplain: (ref: string) => void;
   /** Depois de um ato (aprovar compra): a página relê overview + local. */
   onChanged: () => void;
+  /** Fase da varredura em curso (vinda do globo), para o módulo revelar o plano no fim. */
+  scanPhase?: { id: string; phase: ScanPhase } | null;
 }
 
 /** Entrada de painel no estilo Apex: 0 até 55% do voo, rampa linear até 1 no pouso. */
