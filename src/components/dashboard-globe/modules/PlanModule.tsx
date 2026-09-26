@@ -7,6 +7,7 @@ import {
   HardHat, Package, Radar, TriangleAlert, Wrench,
 } from 'lucide-react';
 import { useResource } from '@/components/ax';
+import { HudSignal, type HudSignalTone } from '@/components/hud/HudSignal';
 import type { ActivityNeed, GanttActivity, SectionState, SitePlanData, SitePlanResponse } from '@/lib/dashboard/types';
 import type { ModuleProps } from '../contract';
 import { Gantt } from './Gantt';
@@ -107,7 +108,11 @@ function ActivityPanel({ activity: a, needs, today, onNavigate, onExplain }: {
   onNavigate: ModuleProps['onNavigate']; onExplain: ModuleProps['onExplain'];
 }) {
   const p = percentOf(a.percent);
-  const flags = [a.overdue && 'Vencida', a.blocked && 'Bloqueada', a.atRisk && 'Necessidade em risco'].filter(Boolean) as string[];
+  // Marcas da atividade: sinal inline do produto (ponto + rótulo), no tom da gravidade.
+  const flags: Array<{ label: string; tone: HudSignalTone }> = [];
+  if (a.overdue) flags.push({ label: 'Vencida', tone: 'danger' });
+  if (a.blocked) flags.push({ label: 'Bloqueada', tone: 'warning' });
+  if (a.atRisk) flags.push({ label: 'Necessidade em risco', tone: 'warning' });
   return (
     <>
       <Eyebrow icon={a.critical ? <TriangleAlert size={15} /> : <Calendar size={15} />} tone={a.critical ? 'warn' : undefined}>
@@ -118,7 +123,9 @@ function ActivityPanel({ activity: a, needs, today, onNavigate, onExplain }: {
         {spanLabel(a.start, a.finish)} · {p === null ? 'avanço não informado' : `${Math.round(p)}% concluído`}
         {a.statusLabel ? ` · ${a.statusLabel}` : ''}
       </p>
-      {flags.length > 0 && <p className="dgm-flags">{flags.map((f) => <span key={f}>{f}</span>)}</p>}
+      {flags.length > 0 && (
+        <p className="dgm-flags">{flags.map((f) => <HudSignal key={f.label} variant="inline" tone={f.tone} label={f.label} />)}</p>
+      )}
       {a.needBy && (
         <p className="dgm-need-by"><CalendarClock size={16} aria-hidden />Necessário até <b className="num">{dayMonth(a.needBy)}</b></p>
       )}

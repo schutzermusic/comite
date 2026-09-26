@@ -2,6 +2,7 @@
 
 import type { ReactNode } from 'react';
 import { Lock, TriangleAlert } from 'lucide-react';
+import type { HudSignalTone } from '@/components/hud';
 import type { FeedRow, HealthLevel, SitePosition } from '@/lib/dashboard/types';
 
 /**
@@ -23,6 +24,23 @@ export const levelTone = (l: HealthLevel | null) =>
 
 export const SEVERITY_LABEL: Record<FeedRow['severity'], string> = { critical: 'Crítico', high: 'Alto', medium: 'Médio' };
 export const severityTone = (s: FeedRow['severity']) => (s === 'critical' ? 'danger' : s === 'high' ? 'warn' : 'accent');
+
+/**
+ * O tom do filme no vocabulário do `HudSignal` do produto (status, alerta,
+ * contagem): `warn`→`warning`, `ok`→`success`, `muted`→`neutral`. Um tom
+ * desconhecido cai no neutro — nunca inventa gravidade.
+ */
+export function signalTone(tone: string | null | undefined): HudSignalTone {
+  switch (tone) {
+    case 'danger': case 'critical': return 'danger';
+    case 'warn': case 'warning': return 'warning';
+    case 'ok': case 'success': case 'calm': return 'success';
+    case 'accent': return 'accent';
+    case 'info': return 'info';
+    case 'live': return 'live';
+    default: return 'neutral';
+  }
+}
 
 /** De onde vem a posição, em palavras ("canteiro · cadastro do Supply", "oficial · contrato"). */
 export function sourceShort(p: Pick<SitePosition, 'source'>): string {

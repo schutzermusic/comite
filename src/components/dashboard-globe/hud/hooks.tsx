@@ -3,9 +3,9 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 
 /**
- * Ganchos do HUD — ambiente (tela, movimento reduzido, tema), relógio e
- * leitura dos endpoints do local. Nada aqui lê o banco: tudo passa pelas
- * rotas `/api/dashboard/*`, que aplicam as mesmas travas da RLS.
+ * Ganchos do HUD — ambiente (tela, movimento reduzido, tema) e leitura dos
+ * endpoints do local. Nada aqui lê o banco: tudo passa pelas rotas
+ * `/api/dashboard/*`, que aplicam as mesmas travas da RLS.
  */
 
 /** O mesmo aviso dos atos governados ("algo mudou no servidor"): todo recurso relê. */
@@ -38,44 +38,6 @@ const themeSnapshot = (): 'light' | 'dark' => (document.documentElement.classLis
 /** O tema da interface. O globo é sempre escuro; muda só o vidro dos painéis e a vinheta. */
 export function useAppTheme(): 'light' | 'dark' {
   return useSyncExternalStore(subscribeTheme, themeSnapshot, () => 'dark');
-}
-
-/* ── Relógio de São Paulo ("25 SET 2026 · 14:32") ────────────────────── */
-
-const CLOCK_FMT = new Intl.DateTimeFormat('pt-BR', {
-  timeZone: 'America/Sao_Paulo', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
-});
-
-export function clockParts(now: Date): { date: string; time: string } {
-  const parts = CLOCK_FMT.formatToParts(now);
-  const get = (t: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === t)?.value ?? '';
-  return {
-    date: `${get('day')} ${get('month').replace('.', '').toUpperCase()} ${get('year')}`,
-    time: `${get('hour')}:${get('minute')}`,
-  };
-}
-
-function subscribeMinute(cb: () => void) {
-  let interval: ReturnType<typeof setInterval> | null = null;
-  // Alinha ao virar do minuto; depois, a cada 60 s. Voltar para a aba relê na hora.
-  const timeout = setTimeout(() => { cb(); interval = setInterval(cb, 60_000); }, 60_000 - (Date.now() % 60_000) + 40);
-  const onVisible = () => { if (document.visibilityState === 'visible') cb(); };
-  document.addEventListener('visibilitychange', onVisible);
-  return () => {
-    clearTimeout(timeout);
-    if (interval) clearInterval(interval);
-    document.removeEventListener('visibilitychange', onVisible);
-  };
-}
-const clockSnapshot = () => { const p = clockParts(new Date()); return `${p.date} · ${p.time}`; };
-
-/**
- * O relógio real da operação, em São Paulo, refeito a cada minuto. No
- * servidor e na hidratação é `''` (o HTML não carrega hora nenhuma — sem
- * descompasso de hidratação); o cliente preenche logo depois.
- */
-export function useSaoPauloClock(): string {
-  return useSyncExternalStore(subscribeMinute, clockSnapshot, () => '');
 }
 
 /* ── Leitura de um endpoint do local (com o motivo do `ok:false`) ────── */

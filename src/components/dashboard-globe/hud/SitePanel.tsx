@@ -3,6 +3,7 @@
 import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { ArrowUpRight, ChevronRight, Lock, MapPin, MapPinOff, Radar, ShieldCheck, TriangleAlert } from 'lucide-react';
+import { HudSignal } from '@/components/hud';
 import type { SectionState, SiteHud, SiteHudResponse, SiteMarker, SitePosition } from '@/lib/dashboard/types';
 import type { ModuleId } from '../contract';
 import { Failed, Restricted, SkeletonLines, filmDate, nf, severityTone, sourceLong } from './common';
@@ -90,19 +91,20 @@ function Focus({ hud, marker, onNavigate }: { hud: SiteHud; marker: SiteMarker |
       <h1 className="dg-title" id="dg-proj-title">{hud.project.name}</h1>
       {hud.project.client && <p className="dg-sub">{hud.project.client}</p>}
 
+      {/* metadado (OS, código) = HudSignal chip; o lugar e o estado da posição = inline (sem trilho) */}
       <div className="dg-chips">
-        {os && <Link className="dg-chip" href={os.href} title={os.statusLabel}>OS {os.number}</Link>}
-        {hud.project.code && <span className="dg-chip">{hud.project.code}</span>}
+        {os && <HudSignal size="sm" tone="neutral" label="OS" value={os.number} href={os.href} title={os.statusLabel} />}
+        {hud.project.code && <HudSignal size="sm" tone="neutral" label={hud.project.code} title="Código do projeto" />}
         {position ? (
-          <span className="dg-chip" title={sourceLong(position)}>
-            <MapPin size={11} aria-hidden />{[position.label ?? position.municipality, position.uf].filter(Boolean).join(' · ') || 'Local'} · {position.source === 'canonical' ? 'oficial' : 'canteiro'}
-          </span>
+          <HudSignal variant="inline" size="sm" tone="accent" icon={<MapPin aria-hidden />} title={sourceLong(position)}
+            label={`${[position.label ?? position.municipality, position.uf].filter(Boolean).join(' · ') || 'Local'} · ${position.source === 'canonical' ? 'oficial' : 'canteiro'}`} />
         ) : hud.location.state === 'restricted' ? (
-          <span className="dg-chip" data-tone="muted"><Lock size={11} aria-hidden />Localização restrita</span>
+          <HudSignal variant="inline" size="sm" tone="neutral" icon={<Lock aria-hidden />} label="Localização restrita" />
         ) : hud.location.state === 'error' ? (
-          <span className="dg-chip" data-tone="warn">Localização não carregou</span>
+          <HudSignal variant="inline" size="sm" tone="warning" label="Localização não carregou" />
         ) : (
-          <span className="dg-chip" data-tone="muted"><MapPinOff size={11} aria-hidden />{loc?.pending ? PENDING_LABEL[loc.pending.state] : 'sem localização apurada'}</span>
+          <HudSignal variant="inline" size="sm" tone="neutral" icon={<MapPinOff aria-hidden />}
+            label={loc?.pending ? PENDING_LABEL[loc.pending.state] : 'sem localização apurada'} />
         )}
       </div>
       {position && <p className="dg-source">{sourceLong(position)}</p>}
@@ -257,6 +259,16 @@ function sectionValue<T>(s: SectionState<T>, f: (d: T) => ReactNode): ReactNode 
   return f(s.data);
 }
 
+/**
+ * Faturamento lido e sem evento: o escopo são os contratos vinculados ao projeto —
+ * sem nenhum vinculado, diz isso (como o ladrilho "Contrato" e o módulo), nunca
+ * "sem eventos nos contratos vinculados", que sugere que eles existem.
+ */
+function noBillingEvents(contract: SiteHud['contract']): string {
+  if (contract.state !== 'ok') return 'sem eventos de faturamento';
+  return contract.data.links.length === 0 ? 'sem contrato vinculado' : 'sem eventos nos contratos vinculados';
+}
+
 /** "Neste local" — medições, riscos, faltas e faturamento, cada um com o seu estado (Restrito / não carregou nunca é 0). */
 export function SiteFacts({ hud }: { hud: SiteHud }) {
   const rows: Array<[string, ReactNode]> = [
@@ -268,7 +280,7 @@ export function SiteFacts({ hud }: { hud: SiteHud }) {
       d.shortages.total === 0 ? (d.shortages.partial ? 'leitura parcial — sem falta no que foi lido' : 'sem falta')
         : `${nf(d.shortages.total)}${d.shortages.partial ? '+' : ''} ${d.shortages.total === 1 ? 'falta' : 'faltas'}${d.apexOpen ? ` · ${d.apexOpen} ${d.apexOpen === 1 ? 'achado' : 'achados'} da Apex` : ''}`)],
     ['Faturamento', sectionValue(hud.billing, (d) =>
-      d.events === 0 ? 'sem eventos nos contratos vinculados'
+      d.events === 0 ? noBillingEvents(hud.contract)
         : `${plural(d.events, 'evento', 'eventos')}${d.invoicesToIssue ? ` · ${d.invoicesToIssue} a faturar` : ''}${d.awaitingRelease ? ` · ${d.awaitingRelease} a liberar` : ''}`)],
   ];
   return (

@@ -10,9 +10,15 @@ export const siteApi = (projectId: string, part: 'plan' | 'supply' | 'billing') 
   `/api/dashboard/site/${encodeURIComponent(projectId)}/${part}`;
 
 /**
- * Um painel do HUD no estilo do protótipo. `enter` (0..1, já com `settle`)
- * multiplica a opacidade e o deslocamento: entra de −18 px e sai para −18 px;
- * abaixo de 0,6 não recebe clique; em 0 sai da renderização (visibility).
+ * Um painel do HUD no estilo do protótipo, no VIDRO de HUD (dashboard-globe.css
+ * §material). `enter` (0..1, já com `settle`) multiplica a opacidade e o
+ * deslocamento: entra de −18 px e sai para −18 px; abaixo de 0,6 não recebe
+ * clique; em 0 sai da renderização (visibility).
+ *
+ * O conteúdo vai em `.dgm-panel-in`, que é quem ROLA: as camadas do vidro
+ * (`::before` grão/especular/cantos, `::after` aresta) são do painel e ficam
+ * paradas. `tone` acende a aresta e o brilho interno do painel (estado como
+ * luz — nunca um trilho lateral).
  */
 export function ModulePanel({ enter, className, label, testId, children, tone }: {
   enter: number; className: string; label: string; testId?: string; children: ReactNode; tone?: 'warn' | 'accent';
@@ -26,7 +32,7 @@ export function ModulePanel({ enter, className, label, testId, children, tone }:
   };
   return (
     <section className={`dgm-panel ${className}`} aria-label={label} data-testid={testId} data-tone={tone} style={style}>
-      {children}
+      <div className="dgm-panel-in">{children}</div>
     </section>
   );
 }

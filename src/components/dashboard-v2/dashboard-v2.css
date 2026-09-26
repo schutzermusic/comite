@@ -287,19 +287,20 @@ a.dv2-stage-body:focus-visible { outline: 2px solid var(--ig-border-focus); outl
 /* Cabeçalho: a área que não carregou, ao lado da contagem. */
 .dv2 .ax-context .dv2-head-failed { color: var(--dv2-warning); font-weight: 600; }
 
-/* Achado da Apex dentro da linha: afirmação com evidência, nunca um cartão de "IA". */
+/* Achado da Apex dentro da linha: afirmação com evidência, nunca um cartão de "IA".
+   A moldura é o anel INTEIRO em teal (sem trilho lateral). */
 .dv2-apex {
   display: flex;
   flex-direction: column;
   gap: 4px;
   margin-top: 6px;
   padding: 8px 10px;
-  border-left: 2px solid var(--dv2-accent);
-  border-radius: 0 8px 8px 0;
+  border-radius: 8px;
   background: color-mix(in srgb, var(--dv2-accent) 6%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dv2-accent) 30%, transparent);
   min-width: 0;
 }
-.dv2-apex[data-stale='true'] { border-left-color: var(--ax-fg-subtle); background: color-mix(in srgb, var(--dv2-neutral) 8%, transparent); }
+.dv2-apex[data-stale='true'] { background: color-mix(in srgb, var(--dv2-neutral) 8%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dv2-neutral) 28%, transparent); }
 .dv2-apex-lead { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 650; color: var(--dv2-accent); }
 .dv2-apex[data-stale='true'] .dv2-apex-lead { color: var(--ax-fg-muted); }
 .dv2-apex-title { font-size: 12.5px; color: var(--ax-fg-strong); font-weight: 600; }
@@ -457,9 +458,9 @@ a.dv2-stage-body:focus-visible { outline: 2px solid var(--ig-border-focus); outl
 .dv2-relation {
   margin: 8px 0 0;
   padding: 10px 12px;
-  border-left: 2px solid var(--dv2-accent);
-  border-radius: 0 8px 8px 0;
+  border-radius: 8px;
   background: color-mix(in srgb, var(--dv2-accent) 6%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dv2-accent) 30%, transparent);
   font-size: 12.5px;
   color: var(--ax-fg);
 }

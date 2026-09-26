@@ -2,9 +2,10 @@
 
 import Link from 'next/link';
 import { ArrowUpRight, ChevronRight, Lock, Map as MapIcon, MapPinOff } from 'lucide-react';
+import { HudSignal } from '@/components/hud';
 import type { DashboardOverview, FlowStage, SiteMarker, SitesModel, SectionState } from '@/lib/dashboard/types';
 import { sortSites } from '../presets';
-import { Failed, Hex, Restricted, levelLabel, levelTone, nf, sourceShort } from './common';
+import { Failed, Hex, Restricted, levelLabel, levelTone, nf, signalTone, sourceShort } from './common';
 
 type Kpi =
   | { state: 'ok'; value: number; label: string; tone: 'danger' | 'warn' | 'accent' | 'ok' | 'neutral'; floor?: boolean; title?: string; href?: string | null }
@@ -147,7 +148,8 @@ function SiteItem({ site: s, main, hovered, onHover, onOpen }: {
           <b>{s.name}</b>
           <small>{sub}</small>
         </span>
-        {main ? <em>Abrir<ChevronRight size={14} aria-hidden /></em> : <span className="dg-item-status">{status}</span>}
+        {main ? <em>Abrir<ChevronRight size={14} aria-hidden /></em>
+          : <span className="dg-item-status"><HudSignal variant="inline" size="sm" tone={signalTone(tone)} label={status} /></span>}
       </button>
     </li>
   );

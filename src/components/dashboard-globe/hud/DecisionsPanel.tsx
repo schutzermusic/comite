@@ -3,8 +3,9 @@
 import Link from 'next/link';
 import { ChevronRight, Inbox } from 'lucide-react';
 import { relativeDue } from '@/components/ax/format';
+import { HudSignal } from '@/components/hud';
 import type { DecisionPreview, DecisionsModel, SectionState } from '@/lib/dashboard/types';
-import { Failed, Restricted } from './common';
+import { Failed, Restricted, signalTone } from './common';
 
 type Model = Pick<DecisionsModel, 'count' | 'overdue' | 'top'> & Partial<Pick<DecisionsModel, 'escalated' | 'alsoEligible' | 'setup'>>;
 
@@ -26,7 +27,9 @@ export function DecisionsPanel({ section, count, today, title = 'Decisões', sco
   const head = (n: number | null, tone?: string) => (
     <div className="dg-panel-head">
       <div className="dg-eyebrow"><Inbox size={14} aria-hidden className="dg-ico" /><span>{title}</span></div>
-      {n !== null && n > 0 && <span className="dg-count" data-tone={tone}>{n}</span>}
+      {n !== null && n > 0 && (
+        <span className="dg-head-signal"><HudSignal variant="inline" tone={signalTone(tone)} label="aguardando" value={n.toLocaleString('pt-BR')} /></span>
+      )}
     </div>
   );
   if (section.state === 'restricted') {
@@ -34,7 +37,7 @@ export function DecisionsPanel({ section, count, today, title = 'Decisões', sco
   }
   if (section.state === 'error') {
     return (
-      <section className="dg-panel dg-dec" aria-label={title} data-testid={testId}>
+      <section className="dg-panel dg-dec" aria-label={title} data-testid={testId} data-tone="warn">
         {head(null)}
         <Failed what="A caixa de decisões" message={section.message} />
         <Link className="dg-link" href="/decisoes">Abrir Decisões<ChevronRight size={14} aria-hidden /></Link>
@@ -44,8 +47,9 @@ export function DecisionsPanel({ section, count, today, title = 'Decisões', sco
   const d = section.data;
   const n = scope === 'org' && typeof count === 'number' ? count : d.count;
   const tone = d.overdue > 0 ? 'danger' : n > 0 ? 'warn' : undefined;
+  // O painel acende só com decisão vencida (aresta + brilho vermelhos); aguardando é o sinal do cabeçalho.
   return (
-    <section className="dg-panel dg-dec" aria-label={title} data-testid={testId}>
+    <section className="dg-panel dg-dec" aria-label={title} data-testid={testId} data-tone={d.overdue > 0 ? 'danger' : undefined}>
       {head(n, tone)}
       {n === 0 ? (
         <p className="dg-empty">
@@ -80,7 +84,10 @@ function DecisionItem({ item, today }: { item: DecisionPreview; today: string })
   return (
     <li>
       <Link href={item.href} className="dg-dec-item" data-tone={item.priority.tone}>
-        <span className="dg-dec-top"><span className="dg-kind">{item.kindLabel}</span><span className="dg-pill" data-tone={item.priority.tone}>{item.priority.label}</span></span>
+        <span className="dg-dec-top">
+          <span className="dg-kind">{item.kindLabel}</span>
+          <HudSignal variant="inline" size="sm" tone={signalTone(item.priority.tone)} label={item.priority.label} />
+        </span>
         <b>{item.title}</b>
         <small>
           {item.project && <span>{item.project}</span>}

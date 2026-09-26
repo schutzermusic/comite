@@ -7,9 +7,10 @@ import {
   Receipt, TriangleAlert, X,
 } from 'lucide-react';
 import { useResource } from '@/components/ax';
+import { HudSignal, type HudSignalTone } from '@/components/hud/HudSignal';
 import type { ChainLink, EventogramRow, ExplainResponse, SiteBillingData, SiteBillingResponse } from '@/lib/dashboard/types';
 import type { ModuleProps } from '../contract';
-import { STEP_STATE_LABEL, billingRef, eventContext, eventTone, stepState, type StepState } from './model';
+import { STEP_STATE_LABEL, billingRef, eventContext, eventTone, stepState, type EventTone, type StepState } from './model';
 import { Eyebrow, ModulePanel, SkeletonLines, StateNote, siteApi, usePublishLayer } from './shared';
 import './modules.css';
 
@@ -17,6 +18,9 @@ type BillingOk = Extract<SiteBillingResponse, { ok: true }>;
 type ExplainOk = Extract<ExplainResponse, { ok: true }>;
 
 const CONTRACTS_BILLING = '/contratos?view=faturamento';
+
+/** O estado do evento no sinal do produto: aguardando/cancelado neutros, elegível em teal, faturado/pago em verde, bloqueado em vermelho. */
+const EVENT_SIGNAL: Record<EventTone, HudSignalTone> = { muted: 'neutral', accent: 'accent', ok: 'success', danger: 'danger', cancelled: 'neutral' };
 
 /**
  * FATURAMENTO — o eventograma do(s) contrato(s) vinculado(s) ao projeto (à
@@ -106,7 +110,7 @@ function Eventogram({ data, selectedId, onSelect }: { data: SiteBillingData; sel
                 data-tone={tone} onClick={() => onSelect(r.billingEventId)} data-testid="dg-billing-event">
                 <div><b>{r.title}</b>{ctx && <small>{ctx}</small>}</div>
                 <span className="num" title={r.amount ? undefined : 'Valor restrito ao seu perfil ou não informado'}>{r.amount ?? '—'}</span>
-                <em data-tone={tone}>{r.stateLabel}</em>
+                <em data-tone={tone}><HudSignal variant="inline" size="sm" tone={EVENT_SIGNAL[tone]} label={r.stateLabel} /></em>
               </button>
             );
           })}

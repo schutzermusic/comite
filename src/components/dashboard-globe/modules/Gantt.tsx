@@ -2,6 +2,7 @@
 
 import { useMemo, type CSSProperties } from 'react';
 import { TriangleAlert } from 'lucide-react';
+import { HudSignal } from '@/components/hud/HudSignal';
 import type { SitePlanData } from '@/lib/dashboard/types';
 import {
   dayMonth, dayNumber, flagSides, gapSpan, ganttLinkPaths, ganttRows, ganttScale, pillSide, type GanttRowView,
@@ -14,7 +15,8 @@ const pct = (x: number) => `${(Math.round(x * 100000) / 1000).toFixed(3)}%`;
  * O CRONOGRAMA na gramática do protótipo (gantt.js): escala de meses e dias
  * sobre `plan.window`; trilho = tom a 18 %, borda a 50 %, preenchimento a
  * 88 % (o executado, ancorado à esquerda); barra em risco tracejada em âmbar;
- * crítica com trilho âmbar e a pílula "CRÍTICA"; "Necessário até" (âmbar) e
+ * crítica com a linha INTEIRA acesa em âmbar (anel + lavagem — sem trilho
+ * lateral) e o sinal "CRÍTICA" (HudSignal inline); "Necessário até" (âmbar) e
  * "Hoje" (teal tracejado) como linhas verticais com bandeira; o intervalo
  * hoje → necessidade hachurado; marcos em losango; dependências com seta.
  * Linhas fora de foco caem para 73,6 %. Clicar numa linha a põe em foco.
@@ -80,7 +82,7 @@ export function Gantt({ plan, today, focusId, onSelect, title }: {
 
           {rows.map((r) => (
             <Row key={r.id} r={r} focused={r.id === focusId} dim={focusId !== null && r.id !== focusId}
-              gap={r.id === focusId ? gap : null} trackW={size.w} onSelect={onSelect} />
+              gap={r.id === focusId ? gap : null} onSelect={onSelect} />
           ))}
 
           <div className="dgm-gantt-over" ref={plotRef} aria-hidden>
@@ -100,26 +102,51 @@ export function Gantt({ plan, today, focusId, onSelect, title }: {
               </svg>
             )}
           </div>
+
+          {/* As marcas das linhas (Crítica / Vencida / Bloqueada) numa camada ACIMA das linhas "Hoje" /
+              "Necessário até" e das setas — dentro da linha elas ficariam por baixo (cada linha é um
+              contexto de empilhamento). Uma faixa por linha, na mesma altura; o nome acessível da
+              marca já está no botão da linha. */}
+          {rows.some((r) => r.pill) && (
+            <div className="dgm-gantt-flags" aria-hidden data-testid="dg-gantt-flags">
+              {rows.map((r) => {
+                const style = pillPlacement(r, size.w);
+                return (
+                  <div key={r.id} className="dgm-gantt-flag-row" data-dim={focusId !== null && r.id !== focusId ? 'true' : undefined}>
+                    {r.pill && style && (
+                      <span className="dgm-gantt-pill" data-kind={r.pill.kind} style={style}>
+                        {/* o HudSignal não recebe `style`: o encaixe posicionado é quem vai para a trilha */}
+                        <HudSignal variant="inline" size="sm" tone={r.pill.kind === 'overdue' ? 'danger' : 'warning'} label={r.pill.label}
+                          icon={<TriangleAlert strokeWidth={2.4} aria-hidden />} />
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-function Row({ r, focused, dim, gap, trackW, onSelect }: {
-  r: GanttRowView; focused: boolean; dim: boolean; gap: { x0: number; x1: number } | null; trackW: number; onSelect: (id: string) => void;
+/** Onde a marca da linha encosta na barra (depois, antes ou dentro do fim) — `null` sem barra nem marco. */
+function pillPlacement(r: GanttRowView, trackW: number): CSSProperties | null {
+  const end = r.bar?.x1 ?? r.diamond;
+  const start = r.bar?.x0 ?? r.diamond;
+  if (!r.pill || end === null || start === null) return null;
+  const side = pillSide(start, end, trackW, r.pill.label);
+  return side === 'after' ? { left: `calc(${pct(end)} + 14 * var(--g))` }
+    : side === 'before' ? { right: `calc(${pct(1 - start)} + 14 * var(--g))` }
+      : { right: `calc(${pct(1 - end)} + 8 * var(--g))` };
+}
+
+function Row({ r, focused, dim, gap, onSelect }: {
+  r: GanttRowView; focused: boolean; dim: boolean; gap: { x0: number; x1: number } | null; onSelect: (id: string) => void;
 }) {
   const label = [r.title, r.pctText === '—' ? 'avanço não informado' : `${r.pctText} concluído`, r.span, r.pill?.label, r.atRisk ? 'em risco' : null]
     .filter(Boolean).join(' · ');
-  const end = r.bar?.x1 ?? r.diamond;
-  const start = r.bar?.x0 ?? r.diamond;
-  let pillStyle: CSSProperties | null = null;
-  if (r.pill && end !== null && start !== null) {
-    const side = pillSide(start, end, trackW, r.pill.label);
-    pillStyle = side === 'after' ? { left: `calc(${pct(end)} + 14 * var(--g))` }
-      : side === 'before' ? { right: `calc(${pct(1 - start)} + 14 * var(--g))` }
-        : { right: `calc(${pct(1 - end)} + 8 * var(--g))` };
-  }
   return (
     <div className="dgm-gantt-row" data-focus={focused ? 'true' : undefined} data-dim={dim ? 'true' : undefined}
       data-crit={r.critical ? 'true' : undefined} data-summary={r.summary ? 'true' : undefined} data-testid="dg-gantt-row">
@@ -135,11 +162,6 @@ function Row({ r, focused, dim, gap, trackW, onSelect }: {
           </span>
         )}
         {r.diamond !== null && <i className="dgm-gantt-ms" data-tone={r.tone} style={{ left: pct(r.diamond) }} />}
-        {r.pill && pillStyle && (
-          <span className="dgm-gantt-pill" data-kind={r.pill.kind} style={pillStyle}>
-            <TriangleAlert size={13} strokeWidth={2.2} aria-hidden />{r.pill.label}
-          </span>
-        )}
       </div>
       <button type="button" className="dgm-gantt-hit" aria-pressed={focused} aria-label={label} title={label} onClick={() => onSelect(r.id)} />
     </div>

@@ -35,9 +35,10 @@ shade+vignette horizon shade by pitch + radial vignette     z4
 HUD            top bar, columns / panels, dock, toast       z10
 ```
 
-Top bar (`.dg-top`, inside the Dashboard, not the app header):
+Top bar (`.dg-top`, inside the Dashboard, not the app header) — two glass capsules (§8):
 - left: breadcrumb `Portfólio › {Projeto} › {Módulo}`, where each segment returns to that level;
-- right: `● OPERAÇÃO AO VIVO` plus the real São Paulo clock `25 SET 2026 · 14:32`, which refreshes every minute; then "Atualizado às HH:mm"; then the Recarregar button.
+- right: the product's live signal `<HudSignal variant="inline" tone="live" label="Operação ao vivo" />` (pulsing dot, off under reduced motion; ≤ 767 px shows only the dot, the words stay for screen readers); then "Atualizado às HH:mm" (hidden < 1180 px, and always repeated in the Recarregar button's title/name); then the Recarregar button.
+- **No clock and no mini Apex mark** (round 2, user decision): the time that matters is the time of the READ, and the brand is already in the app header. The clock hook (`useSaoPauloClock`) was removed.
 
 ## 3. Views and camera
 
@@ -51,6 +52,22 @@ Presets are computed from the data; values follow `app.js:38-44`.
 | `supply` (Supply Chain) | Framing that fits the site plus the stock nodes with coordinates: bbox centre, dist = max(diag × 1.4, 60 km), clamp 60–2400 km, pitch 64, heading −6, ox −20, oy −30 | .22 | **Left:** material balance. **Right:** Apex plan + orders + decision (Aprovar). **Map:** arcs from stock locations to the site, with node cards. |
 | `billing` (Faturamento) | Site, dist 9 km, pitch 54, heading 60, ox +90, oy +60 | .38 | **Left:** billing schedule (eventograma). **Right:** chain of the focused event (Entender `bill:`) + "Abrir em Contratos". |
 
+**Framing (round 2): the "free rectangle".**
+- The fixed `ox`/`oy` offsets above are the round-1 starting values.
+- Each view now fits its subject into the part of the stage the HUD leaves uncovered: the columns, the dock, the hint, the Gantt and the credits. The subjects are:
+  - the markers on the portfolio;
+  - the 3D schematic's bounding box on the site and Planejar;
+  - the site plus the network nodes on Supply after the scan.
+- The page publishes that rectangle as the CSS variable `--ag-free` (`l t r b`).
+- The globe also keeps hotspot cards, the schematic note and map labels inside it. What doesn't fit is hidden, never cut.
+- The 3D schematic shows only at canteiro precision on Visão geral and Planejar, at a uniform schematic scale (long side ≈ 440 m), always with the note "Representação esquemática — não é o projeto executivo".
+
+**Mouse and touch (round 2):**
+- **Desktop:** drag to rotate/pan, wheel to zoom, right-drag or Ctrl+drag to tilt.
+- **Phones (≤ 767 px), cooperative mode:** one finger scrolls the page; pinch or Ctrl/⌘+wheel zooms the map, with a hint.
+- **During input:** it cancels any flight and the panels settle. The camera is read back so the next flight starts from where the person left it. Breathing resumes after 6 s idle.
+- **Clicks:** a drag never counts as a marker click.
+
 **Flight rules.** Use the film's tween (`contract.ts`):
 - start from the **current** camera, even mid-flight;
 - panels that leave fade immediately, panels that arrive use `settle(arrive)`;
@@ -59,7 +76,7 @@ Presets are computed from the data; values follow `app.js:38-44`.
 
 **Intro.** The first mount plays the film's keyed track (Earth at 28,000 km → Brazil → portfolio view) over about 4.4 s. Under `prefers-reduced-motion` it cuts straight to the view.
 
-**Keyboard:** `Esc` goes back one level; `1`–`4` switch modules when a site is focused; `F` goes fullscreen. No shortcut fires while a field or dialog is focused.
+**Keyboard:** `Esc` returns to the portfolio (the start of the map) from any view — site, module, or a map the person dragged/zoomed/tilted — and re-frames the portfolio view even when the view did not change (round 2: `goHome` bumps `viewEpoch`, so the globe flies even though the URL is already the portfolio). The dock's "Portfólio" key (`aria-keyshortcuts="Escape"`) is the same act. Going up ONE level is the breadcrumb's job (each segment returns to its level) and the browser's Back. `1`–`4` switch modules when a site is focused; `F` goes fullscreen. No shortcut fires while a field or dialog is focused (an open Entender panel takes `Esc` to close itself).
 
 **URL state:**
 - `?site=<projectId>&m=overview|plan|supply|billing`: reload lands in the same state, and the back button works.
@@ -83,7 +100,7 @@ Use the contract in `src/lib/dashboard/types.ts`: `sites`, `SiteHud`, `SitePlan*
 **Site: `GET /api/dashboard/site/[projectId]`**
 - **"Projeto em foco":**
   - eyebrow "PROJETO EM FOCO · {UF}", name, client;
-  - chips: OS code, project code, location + source;
+  - metadata: OS number and project code as `HudSignal` chips; location + source (or its state: restricted / not loaded / pending) as an inline signal (§8);
   - "ESCOPO" (only when `scope` exists);
   - 2×2 grid:
     - "Fase atual", with a **real** bar;
@@ -96,7 +113,7 @@ Use the contract in `src/lib/dashboard/types.ts`: `sites`, `SiteHud`, `SitePlan*
 
 **Planejar: `/plan`**
 - **Gantt, in the prototype's grammar:**
-  - critical row: amber rail + dashed bar + "CRÍTICA" pill;
+  - critical row: the WHOLE row lights amber (full ring + wash, never a left rail) + dashed bar + the "CRÍTICA" signal (`HudSignal` inline in a positioned plate — the signal takes no `style`); the focused row lights teal the same way;
   - "Necessário até" line;
   - hatched gap between today and the need date;
   - "Hoje" line;
@@ -133,14 +150,15 @@ Use the contract in `src/lib/dashboard/types.ts`: `sites`, `SiteHud`, `SitePlan*
 **≤ 767 px (390 px):**
 - the globe fills the top 44 vh;
 - the HUD becomes a **bottom sheet** stack (scrollable page, no horizontal overflow);
-- the dock becomes 44 px tabs;
+- the dock becomes 44 px tabs, sticky at the bottom edge; the HUD column fills the rest of the height, so with short content (Faturamento without a contract) the free space sits ABOVE the dock, never below it;
 - camera `ox`/`oy` = 0;
 - attention comes first.
 
 **Theme:**
-- `html.light` gives light-glass panels (`rgba(255,255,255,.86)` + blur + dark text tokens), a milder vignette, and no aurora;
+- `html.light` gives light-glass panels (the `.ig-lp` recipe of `styles/surfaces.css`: white glass 0.94 → 0.88 → 0.90, `blur(22px) saturate(1.45)`, cold hairline, dark text tokens — §8), a milder vignette, and no aurora;
 - the globe and the map labels stay in the dark style;
-- the panel shadow is light.
+- the panel shadow is light;
+- `prefers-reduced-transparency: reduce` and browsers without `backdrop-filter` get an OPAQUE plate (never translucent text over the globe).
 
 **Accessibility:**
 - every marker has a keyboard path (the operations list);
@@ -161,6 +179,7 @@ Use the contract in `src/lib/dashboard/types.ts`: `sites`, `SiteHud`, `SitePlan*
 | Calendar | `dashboard-calendar` |
 | Site | `dg-site` |
 | Dock | `dg-dock` |
+| Live signal (top bar) | `dg-live` |
 | Planejar | `dg-plan` |
 | Supply Chain | `dg-supply` |
 | Faturamento | `dg-billing` |
@@ -176,3 +195,37 @@ There must still be exactly one `header-decisions` element (in the app header) a
 - Marker and entity diffs by id; nothing is recreated on hover.
 - Cesium and imagery keep V1's setup (jsDelivr CDN, Esri imagery, local Blue Marble as the base layer).
 - Zero console errors on /dashboard (the `dashboard-finite` spec).
+
+## 8. Visual language — HUD glass (round 2)
+
+User feedback: cards must be **HUD and glass**, modern, not a generic "AI template", and **no thin coloured side stripe** ("filetinha") anywhere. The material is the product's canonical glass (`styles/glass.css` in dark, `.ig-lp` in light), expressed as `--hg-*` variables declared on `.dg`, `.dgm` and the Entender sheet (`dashboard-globe.css`, top of file). Every new Dashboard surface (the Supply module's `supply.css` included) uses these variables — never its own panel recipe.
+
+**A floating surface = five layers**, each doing one thing (`:is(.dg-panel, .dgm-panel, .ax-sheet[data-testid='dashboard-explain'])`):
+
+| Layer | Where | Variables |
+|---|---|---|
+| translucent layered fill + `backdrop-filter` with saturation | the element | `--hg-fill`, `--hg-blur` (`--hg-fill-solid` for the fallbacks) |
+| inner highlight + drop shadows (+ state glow) | the element's `box-shadow` | `--hg-inner`, `--hg-glow`, `--hg-shadow` |
+| grain (inline SVG noise), specular band, specular top line, **two L corner ticks on the TOP corners** | `::before` (z −1) | `--hg-grain`, `--hg-spec`, `--hg-spec-line`, `--hg-tick`, `--hg-tick-len`, `--hg-tick-inset` |
+| gradient hairline edge, cut to 1 px by a mask | `::after` (z −1) | `--hg-edge` (or `--hg-edge-tone`) |
+
+So: the pseudo-elements of `.dg-panel` / `.dgm-panel` belong to the glass — do not use them for content. `ModulePanel` renders its content inside **`.dgm-panel-in`**, which is the scroller; the panel itself is `overflow: hidden` so the glass layers never scroll away.
+
+**State is light, never a stripe.** `data-tone="danger" | "warn" | "accent" | "ok"` on a panel tints the edge, the ticks and an inner top glow (`--hg-tone`). Used for: the attention panel with a critical row (danger) or a partial read (warn), Decisões with an overdue item (danger), the critical activity in Planejar (warn), any failed read (warn, `.dg-fail`). Calm panels stay neutral — glow is information, not decoration.
+
+**Inside the glass, pieces are RECESSED TILES**, never glass-in-glass: `background: var(--hg-tile-bg); box-shadow: var(--hg-tile-shadow)` (= `--hg-tile-depth` inner shadow on top + `--hg-tile-ring` hairline + `--hg-tile-lip` light on the lower edge), radius `--hg-tile-radius`. A tile with a state gets the **full-ring** treatment: set `--t` to a tone and use tone wash + `inset 0 0 0 1px color-mix(--t 40%)` + inner tone glow (see the "Ladrilho com TOM" blocks). Buttons are raised **keys** (`--hg-key-bg`, `--hg-key-shadow`); the primary action keeps the teal gradient.
+
+**Status vocabulary = `HudSignal`** (`@/components/hud`):
+- `variant="inline"` (dot + label [+ value]) for statuses, alerts and counts: panel head counts ("● ABERTAS · 12+", "● AGUARDANDO · 3"), severity in attention rows, decision priority, site list status, activity flags, Gantt row marks, billing event state, the live signal;
+- `variant="chip"` ONLY for quiet metadata (OS number, project code) — it carries a 2 px rail, so it is never used where it would read as a coloured side stripe;
+- tone mapping from the film's tones: `warn → warning`, `ok → success`, `muted → neutral` (`signalTone()` in `hud/common.tsx`);
+- quantities with units stay as text, not signals (the signal is uppercase: "500 M" would misread).
+- `.dg`/`.dgm` reset buttons with `:where(.dg) :where(button) { font: inherit }` (zero specificity) so a `HudSignal` button keeps its own type scale.
+
+**Ink on the glass.** The glass is translucent: the globe shows through, and tiles and tone glows lighten it (the light glass over the dark globe measures ≈ `#DCE0E0`, not white). The product's secondary/tertiary text tokens (0.60 / 0.38 in dark, slate-600 / slate-500 in light) measured there at about 4.5:1 for the secondary one and 2.8–3.5:1 for the tertiary one. So the material block also declares the ink ramp, one step up: `--hg-ink-muted` / `--hg-ink-subtle` = `rgba(242,245,247,.72)` / `.62` in dark, `#334155` / `#475569` in light. It feeds `--dg-fg-muted` / `--dg-fg-subtle` and overrides `--ig-fg-muted` / `--ig-fg-subtle` inside `.dg`, `.dgm` and Entender, so modules, `supply.css` and `HudSignal` follow it. The target is ≥ 4.5:1 for 9–12 px text on the lightest measured glass. Numbers people read (Gantt day ticks) use the muted ink at ≥ 10.5 px.
+
+**Gantt row marks above the time lines.** "Crítica" / "Vencida" / "Bloqueada" render in their own layer (`.dgm-gantt-flags`, z 4, one strip per row with the same dimming) above the "Hoje" / "Necessário até" lines and the dependency arrows (`.dgm-gantt-over`, z 3), on an almost opaque plate (`--dgm-plate`). Inside the row they would sit under the lines, because each row is its own stacking context.
+
+**Removed stripes (round 2):** attention rows (3 px severity rail → full ring), Gantt critical/focus rows (inset 3 px rail → full ring + wash), Entender `.dv2-apex` / `.dv2-relation` (2 px left border → full ring). Timeline lines (Gantt "Hoje"/"Necessário até", the flow axis, the Entender chain connector) are axes, not card stripes, and stay.
+
+**Fallbacks:** `prefers-reduced-transparency: reduce` → opaque fill, no blur, no grain; no `backdrop-filter` support → opaque fill. Reduced motion → no transitions on keys/tiles, the live dot does not pulse.

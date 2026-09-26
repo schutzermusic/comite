@@ -1,17 +1,21 @@
 'use client';
 
 import { Fragment } from 'react';
-import { ChevronRight, PanelRight, Radar, RefreshCw } from 'lucide-react';
-import { useSaoPauloClock } from './hooks';
+import { ChevronRight, PanelRight, RefreshCw } from 'lucide-react';
+import { HudSignal } from '@/components/hud';
 
 export interface Crumb { label: string; onClick?: () => void; current?: boolean }
 
 /**
- * BARRA SUPERIOR do Dashboard (`.ap-top` do protótipo), dentro do palco:
+ * BARRA SUPERIOR do Dashboard, dentro do palco — duas cápsulas de vidro:
  *  • esquerda — o caminho `Portfólio › Projeto › Módulo`; cada trecho volta
  *    àquele nível;
- *  • direita — "● OPERAÇÃO AO VIVO" com o relógio REAL de São Paulo, a hora
- *    da leitura ("Atualizado às 14:31") e Recarregar.
+ *  • direita — o sinal do produto "● OPERAÇÃO AO VIVO" (`HudSignal` inline,
+ *    tom `live`), a hora da leitura ("Atualizado às 14:31", que também vai no
+ *    título do Recarregar, porque some abaixo de 1180 px) e Recarregar.
+ *
+ * Sem relógio e sem a marca do Apex: a hora que importa é a da LEITURA, e a
+ * marca já está no cabeçalho do app.
  */
 export function TopBar({ crumbs, updated, onReload, reloading, panelToggle }: {
   crumbs: Crumb[];
@@ -21,11 +25,9 @@ export function TopBar({ crumbs, updated, onReload, reloading, panelToggle }: {
   /** 768–1179 px: a coluna direita recolhe num botão "Painel". */
   panelToggle?: { open: boolean; onToggle: () => void } | null;
 }) {
-  const clock = useSaoPauloClock();
-  const [date, time] = clock ? clock.split(' · ') : ['', ''];
+  const reloadTitle = reloading ? 'Recarregando…' : updated ? `Recarregar · ${updated}` : 'Recarregar';
   return (
     <header className="dg-top">
-      <span className="dg-mark" aria-hidden><Radar size={18} strokeWidth={1.9} /></span>
       <nav className="dg-crumbs" aria-label="Caminho no Dashboard">
         <ol>
           {crumbs.map((c, i) => (
@@ -41,12 +43,8 @@ export function TopBar({ crumbs, updated, onReload, reloading, panelToggle }: {
         </ol>
       </nav>
       <div className="dg-top-right">
-        <span className="dg-live" role="timer" aria-live="off" aria-label={clock ? `Operação ao vivo — ${date}, ${time} (horário de São Paulo)` : 'Operação ao vivo'}>
-          <i aria-hidden />
-          <span className="dg-live-word" aria-hidden>Operação ao vivo</span>
-          <span className="dg-live-clock num" aria-hidden suppressHydrationWarning>
-            <span className="dg-live-date">{date}</span>{clock ? <span className="dg-live-dot"> · </span> : null}{time}
-          </span>
+        <span className="dg-live" data-testid="dg-live">
+          <HudSignal variant="inline" tone="live" label={<span className="dg-live-word">Operação ao vivo</span>} title="Operação ao vivo" />
         </span>
         {updated && <span className="dg-updated">{updated}</span>}
         {panelToggle && (
@@ -55,8 +53,9 @@ export function TopBar({ crumbs, updated, onReload, reloading, panelToggle }: {
             <PanelRight size={16} aria-hidden /><span>Painel</span>
           </button>
         )}
-        <button type="button" className="dg-iconbtn" onClick={onReload} aria-label={reloading ? 'Recarregando a situação…' : 'Recarregar a situação'}
-          title={reloading ? 'Recarregando…' : 'Recarregar'}>
+        <button type="button" className="dg-iconbtn" onClick={onReload}
+          aria-label={reloading ? 'Recarregando a situação…' : updated ? `Recarregar a situação (${updated.toLowerCase()})` : 'Recarregar a situação'}
+          title={reloadTitle}>
           <RefreshCw size={15} className={reloading ? 'dg-spin' : undefined} aria-hidden />
         </button>
       </div>

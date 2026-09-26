@@ -12,6 +12,11 @@
  *              todas as faixas lidas por inteiro; SVG `group`, não `img`
  *   Entender   a etapa E o rótulo do elo; "Responsável" só onde há dono; os
  *              tons chegam ao painel (portal fora de .dv2)
+ *   globo      "Neste local › Faturamento" nunca fala de "contratos vinculados"
+ *              quando não há nenhum; as marcas do Gantt (Vencida/Crítica) ficam
+ *              numa camada ACIMA das linhas Hoje/Necessário; a tinta sobre o
+ *              vidro passa de 4,5:1 nos dois temas; ≤ 767 px o dock encosta
+ *              embaixo mesmo com conteúdo curto
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -57,8 +62,11 @@ import { BusinessFlow } from '@/components/dashboard-v2/BusinessFlow';
 import { CompanyCalendar } from '@/components/dashboard-v2/CompanyCalendar';
 import { HeaderContext } from '@/components/dashboard-v2/DashboardV2';
 import { ExplainPanel } from '@/components/dashboard-v2/ExplainPanel';
+import { SiteFacts } from '@/components/dashboard-globe/hud/SitePanel';
+import { Gantt } from '@/components/dashboard-globe/modules/Gantt';
 import type {
-  CalendarModel, ChainLink, DashboardOverview, Domain, ExplainResponse, FeedModel, FeedRow, FlowStage, SectionState, StageId,
+  CalendarModel, ChainLink, DashboardOverview, Domain, ExplainResponse, FeedModel, FeedRow, FlowStage, GanttActivity, SectionState,
+  SiteHud, SitePlanData, StageId,
 } from '@/lib/dashboard/types';
 import { COMERCIAL_STUCK_REASON, SCHEDULE_PARTIAL_REASON } from '@/lib/dashboard/rules';
 
@@ -312,5 +320,159 @@ describe('Entender', () => {
     const rule = css.match(/([^{}]+)\{[^}]*--dv2-accent:/);
     expect(rule?.[1]).toContain(".ax-sheet[data-testid='dashboard-explain']");
     expect(rule?.[1]).toContain('.dv2');
+  });
+});
+
+/* ── Globo: "Neste local", Gantt, tinta do vidro, dock no celular ────────── */
+
+const GLOBE_CSS = () => fs.readFileSync(path.resolve(__dirname, '../../src/components/dashboard-globe/dashboard-globe.css'), 'utf8');
+const MODULES_CSS = () => fs.readFileSync(path.resolve(__dirname, '../../src/components/dashboard-globe/modules/modules.css'), 'utf8');
+
+describe('Globo · Neste local › Faturamento', () => {
+  const hudOf = (contract: SiteHud['contract'], billing: SiteHud['billing']) => ({
+    measurements: { state: 'ok', data: { pending: 0, inCorrection: 0, awaitingCustomer: 0, next: null } },
+    risks: { state: 'ok', data: { open: 0, critical: 0, high: 0, withoutOwner: 0 } },
+    supply: { state: 'ok', data: { shortages: { total: 0, critical: 0, partial: false }, apexOpen: null } },
+    contract, billing,
+  }) as unknown as SiteHud;
+  const noEvents: SiteHud['billing'] = { state: 'ok', data: { events: 0, awaitingRelease: 0, invoicesToIssue: 0, total: null } };
+  const facts = (hud: SiteHud) => renderToStaticMarkup(h(SiteFacts, { hud }));
+
+  it('sem contrato vinculado: diz isso — nunca "sem eventos nos contratos vinculados"', () => {
+    const html = facts(hudOf({ state: 'ok', data: { links: [] } }, noEvents));
+    expect(html).toContain('<dt>Faturamento</dt><dd>sem contrato vinculado</dd>');
+    expect(html).not.toContain('contratos vinculados');
+  });
+
+  it('com contrato vinculado e sem evento: "sem eventos nos contratos vinculados"; com evento, a contagem', () => {
+    const linked: SiteHud['contract'] = { state: 'ok', data: { links: [{ contractId: 'c1', label: 'CT-2026-014' }] } };
+    expect(facts(hudOf(linked, noEvents))).toContain('<dd>sem eventos nos contratos vinculados</dd>');
+    const some: SiteHud['billing'] = { state: 'ok', data: { events: 3, awaitingRelease: 1, invoicesToIssue: 2, total: null } };
+    expect(facts(hudOf(linked, some))).toContain('<dd>3 eventos · 2 a faturar · 1 a liberar</dd>');
+  });
+
+  it('vínculo que não se lê: neutro (não afirma que há nem que não há contrato); faturamento Restrito nunca é 0', () => {
+    expect(facts(hudOf({ state: 'error', message: 'x' }, noEvents))).toContain('<dd>sem eventos de faturamento</dd>');
+    const restricted = facts(hudOf({ state: 'ok', data: { links: [] } }, { state: 'restricted' }));
+    expect(restricted).toContain('Restrito');
+    expect(restricted).not.toContain('sem contrato vinculado');
+  });
+});
+
+describe('Globo · Gantt — marca da linha acima das linhas Hoje / Necessário até', () => {
+  const act = (a: Partial<GanttActivity> & Pick<GanttActivity, 'id' | 'title'>): GanttActivity => ({
+    parentId: null, wbs: null, level: 0, start: null, finish: null, percent: 0, status: 'not_started', statusLabel: 'Planejada',
+    isSummary: false, isMilestone: false, critical: false, overdue: false, blocked: false, needBy: null, atRisk: false, href: '/projetos/p1', ...a,
+  });
+  const PLAN: SitePlanData = {
+    window: { start: '2026-09-01', end: '2026-10-31' },
+    activities: [
+      act({ id: 'insp', title: 'Inspeção das fundações dos bays', start: '2026-09-12', finish: '2026-09-21', percent: 70, status: 'in_progress', overdue: true }),
+      act({ id: 'cabo', title: 'Lançamento de cabos de potência', start: '2026-09-30', finish: '2026-10-14', critical: true, needBy: '2026-09-30', atRisk: true }),
+      act({ id: 'energ', title: 'Energização dos novos bays', start: '2026-10-22', finish: '2026-10-22', isMilestone: true }),
+    ],
+    links: [], focus: 'cabo', needsByActivity: {}, truncated: false,
+  };
+  const html = () => renderToStaticMarkup(h(Gantt, { plan: PLAN, today: TODAY, focusId: 'cabo', onSelect: () => undefined, title: 'SE Tucuruí' }));
+
+  it('as marcas moram na camada .dgm-gantt-flags, DEPOIS da camada das linhas — nunca dentro da linha', () => {
+    const out = html();
+    const over = out.indexOf('class="dgm-gantt-over"');
+    const flags = out.indexOf('data-testid="dg-gantt-flags"');
+    expect(over).toBeGreaterThan(0);
+    expect(flags).toBeGreaterThan(over);
+    // entre a primeira linha e a camada das linhas não há marca
+    expect(out.slice(out.indexOf('data-testid="dg-gantt-row"'), over)).not.toContain('dgm-gantt-pill');
+    const layer = out.slice(flags);
+    expect(layer).toContain('Vencida');
+    expect(layer).toContain('Crítica');
+    // uma faixa por linha, com o mesmo esmaecido das linhas fora de foco
+    expect((layer.match(/class="dgm-gantt-flag-row"/g) ?? []).length).toBe(PLAN.activities.length);
+    expect((layer.match(/data-dim="true"/g) ?? []).length).toBe(PLAN.activities.length - 1);
+    // o nome acessível da marca continua no botão da linha
+    expect(out).toMatch(/aria-label="Inspeção das fundações dos bays · 70% concluído · [^"]*Vencida/);
+  });
+
+  it('CSS: a camada das marcas fica acima da das linhas, com a mesma geometria da trilha e placa quase opaca', () => {
+    const css = MODULES_CSS();
+    const z = (sel: string) => Number(css.match(new RegExp(`\\${sel}\\s*\\{[^}]*?z-index:\\s*(\\d+)`))?.[1] ?? NaN);
+    expect(z('.dgm-gantt-flags')).toBeGreaterThan(z('.dgm-gantt-over'));
+    expect(z('.dgm-gantt-over')).toBeGreaterThan(z('.dgm-gantt-row'));
+    const flags = css.match(/\.dgm-gantt-flags\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(flags).toMatch(/left:\s*var\(--lab\)/);
+    expect(flags).toMatch(/right:\s*var\(--gpad\)/);
+    expect(css).toMatch(/\.dgm-gantt-flag-row\s*\{[^}]*height:\s*var\(--row-h\)/);
+    expect(css).toMatch(/\.dgm-gantt-flag-row\[data-dim='true'\]\s*\{\s*opacity:\s*0\.736/);
+    const plates = [...css.matchAll(/--dgm-plate:\s*rgba\([^)]*,\s*([\d.]+)\)/g)].map((m) => Number(m[1]));
+    expect(plates.length).toBe(2);
+    for (const a of plates) expect(a).toBeGreaterThanOrEqual(0.9);
+  });
+});
+
+describe('Globo · tinta sobre o vidro ≥ 4,5:1 (texto de 9–12 px)', () => {
+  const lum = ([r, g, b]: number[]) => {
+    const f = (v: number) => { const c = v / 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+    return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+  };
+  const ratio = (a: number[], b: number[]) => { const x = lum(a); const y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+  const parse = (v: string): { rgb: number[]; a: number } => {
+    const hex = v.match(/^#([0-9a-f]{6})$/i);
+    if (hex) return { rgb: [0, 2, 4].map((i) => parseInt(hex[1].slice(i, i + 2), 16)), a: 1 };
+    const m = v.match(/^rgba\(\s*(\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\s*\)$/);
+    if (!m) throw new Error(`cor inesperada: ${v}`);
+    return { rgb: [Number(m[1]), Number(m[2]), Number(m[3])], a: Number(m[4]) };
+  };
+  const over = ({ rgb, a }: { rgb: number[]; a: number }, bg: number[]) => rgb.map((c, i) => c * a + bg[i] * (1 - a));
+  /*
+    O vidro medido AO VIVO (1440 px, owner, 25/09/2026) atrás do texto pequeno, com o texto
+    transparente: o trecho mais claro do vidro escuro (eyebrow no brilho do tom) e o mais
+    escuro do vidro claro sem tom (ladrilho rebaixado sobre o globo escuro).
+  */
+  const DARK_GLASS_LIGHTEST = [62, 65, 68];
+  const LIGHT_GLASS_DARKEST = [215, 220, 220];
+  const decl = (css: string, name: string) => [...css.matchAll(new RegExp(`${name}:\\s*([^;]+);`, 'g'))].map((m) => m[1].trim());
+
+  it('a rampa do vidro (dark e light) passa de 4,5:1 e mantém a hierarquia secundário > terciário', () => {
+    const css = GLOBE_CSS();
+    const [darkMuted, lightMuted] = decl(css, '--hg-ink-muted');
+    const [darkSubtle, lightSubtle] = decl(css, '--hg-ink-subtle');
+    for (const [tok, bg] of [[darkSubtle, DARK_GLASS_LIGHTEST], [darkMuted, DARK_GLASS_LIGHTEST], [lightSubtle, LIGHT_GLASS_DARKEST], [lightMuted, LIGHT_GLASS_DARKEST]] as const) {
+      const c = parse(tok);
+      expect(ratio(over(c, bg), bg), `${tok} sobre rgb(${bg.join(',')})`).toBeGreaterThanOrEqual(4.5);
+    }
+    expect(ratio(over(parse(darkMuted), DARK_GLASS_LIGHTEST), DARK_GLASS_LIGHTEST))
+      .toBeGreaterThan(ratio(over(parse(darkSubtle), DARK_GLASS_LIGHTEST), DARK_GLASS_LIGHTEST));
+    expect(ratio(over(parse(lightMuted), LIGHT_GLASS_DARKEST), LIGHT_GLASS_DARKEST))
+      .toBeGreaterThan(ratio(over(parse(lightSubtle), LIGHT_GLASS_DARKEST), LIGHT_GLASS_DARKEST));
+  });
+
+  it('a rampa chega a quem pinta: --dg-fg-* do HUD e --ig-fg-* dos módulos/HudSignal dentro do vidro; sem valor claro solto', () => {
+    const css = GLOBE_CSS();
+    const material = css.match(/\n\.dg,\n\.dgm,\n\.ax-sheet\[data-testid='dashboard-explain'\] \{([^}]*)\}/)?.[1] ?? '';
+    expect(material).toMatch(/--ig-fg-muted:\s*var\(--hg-ink-muted\)/);
+    expect(material).toMatch(/--ig-fg-subtle:\s*var\(--hg-ink-subtle\)/);
+    const dg = css.match(/\n\.dg \{([^}]*)\}/)?.[1] ?? '';
+    expect(dg).toMatch(/--dg-fg-muted:\s*var\(--hg-ink-muted\)/);
+    expect(dg).toMatch(/--dg-fg-subtle:\s*var\(--hg-ink-subtle\)/);
+    const light = css.match(/\nhtml\.light \.dg \{([^}]*)\}/)?.[1] ?? '';
+    expect(light).not.toMatch(/--dg-fg-(muted|subtle):/);
+  });
+
+  it('os dias da régua do Gantt: ≥ 10,5 px e tinta secundária', () => {
+    const tick = MODULES_CSS().match(/\.dgm-gantt-tick\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(tick).toMatch(/font-size:\s*max\(10\.5px,/);
+    expect(tick).toMatch(/color:\s*var\(--ig-fg-muted\)/);
+  });
+});
+
+describe('Globo · ≤ 767 px — o dock encosta embaixo mesmo com conteúdo curto', () => {
+  it('a coluna do HUD cresce até o fim de .dg e o espaço livre fica ACIMA do dock', () => {
+    const css = GLOBE_CSS();
+    const mobile = css.slice(css.indexOf('@media (max-width: 767px)'));
+    expect(mobile).toMatch(/\.dg \{[^}]*min-height:\s*100%[^}]*flex-direction:\s*column/);
+    expect(mobile).toMatch(/\.dg-hud \{[^}]*flex:\s*1 0 auto/);
+    const dock = mobile.match(/\.dg-dock \{([^}]*)\}/)?.[1] ?? '';
+    expect(dock).toMatch(/position:\s*sticky/);
+    expect(dock).toMatch(/margin:\s*auto\s/);
   });
 });

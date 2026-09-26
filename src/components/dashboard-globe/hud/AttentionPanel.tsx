@@ -5,8 +5,9 @@ import Link from 'next/link';
 import { ArrowUpRight, CornerDownRight, MapPin, Radar, ShieldCheck, TriangleAlert } from 'lucide-react';
 import { relativeDue } from '@/components/ax/format';
 import { failedAreasText } from '@/components/dashboard-v2/AttentionFeed';
+import { HudSignal } from '@/components/hud';
 import type { DashboardOverview, FeedModel, FeedRow, SectionState } from '@/lib/dashboard/types';
-import { Failed, Restricted, SEVERITY_LABEL, nf, severityTone } from './common';
+import { Failed, Restricted, SEVERITY_LABEL, nf, severityTone, signalTone } from './common';
 
 /**
  * ATENÇÃO — a fila única entre áreas, compacta (estilo do protótipo).
@@ -54,7 +55,7 @@ export function AttentionPanel({
   }
   if (section.state === 'error') {
     return (
-      <section className="dg-panel dg-att" aria-label={title} data-testid={testId}>
+      <section className="dg-panel dg-att" aria-label={title} data-testid={testId} data-tone="warn">
         {head(null)}
         <Failed what="A fila de atenção" message={section.message} onRetry={onReload} />
       </section>
@@ -69,11 +70,15 @@ export function AttentionPanel({
   const hidden = feed.rows.length - rows.length;
   const beyond = Math.max(0, feed.total - feed.rows.length);
 
+  // O painel acende (aresta + brilho) com crítica aberta, ou âmbar quando parte da fila não carregou.
+  const panelTone = failed ? 'warn' : tone === 'danger' ? 'danger' : undefined;
   return (
-    <section className="dg-panel dg-att" aria-label={title} data-testid={testId}>
+    <section className="dg-panel dg-att" aria-label={title} data-testid={testId} data-tone={panelTone}>
       {head(feed.total > 0 ? (
-        <span className="dg-count" data-tone={tone} title={floor ? 'Ao menos este número — parte da fila não foi lida por inteiro' : undefined}>
-          {nf(feed.total)}{floor ? '+' : ''}
+        <span className="dg-head-signal">
+          <HudSignal variant="inline" tone={signalTone(tone)} label={feed.total === 1 && !floor ? 'aberta' : 'abertas'}
+            value={`${nf(feed.total)}${floor ? '+' : ''}`}
+            title={floor ? 'Ao menos este número — parte da fila não foi lida por inteiro' : undefined} />
         </span>
       ) : null)}
       {feed.critical > 0 && (
@@ -122,7 +127,7 @@ function Row({ row: r, today, onExplain, onOpenSite, showWhere }: {
   return (
     <li className="dg-att-row" data-sev={r.severity}>
       <span className="dg-att-top">
-        <span className="dg-pill" data-tone={severityTone(r.severity)}>{SEVERITY_LABEL[r.severity]}</span>
+        <HudSignal variant="inline" size="sm" tone={signalTone(severityTone(r.severity))} label={SEVERITY_LABEL[r.severity]} />
         <span className="dg-kind">{r.kindLabel}</span>
         {showWhere && r.location.label && (onOpenSite && r.location.id ? (
           <button type="button" className="dg-where" onClick={() => onOpenSite(r.location.id as string)} title={`Ver ${r.location.label} no globo`}
@@ -131,7 +136,11 @@ function Row({ row: r, today, onExplain, onOpenSite, showWhere }: {
           </button>
         ) : <span className="dg-where" title={r.location.label}>{r.location.label}</span>)}
       </span>
-      <b className="dg-att-obj">{r.object}{r.count > 1 && <span className="dg-count sm" title={`${r.count} registros nesta linha`}>{r.count}</span>}</b>
+      <b className="dg-att-obj">{r.object}{r.count > 1 && (
+        <span className="dg-att-n">
+          <HudSignal variant="inline" size="sm" tone="neutral" label="registros" value={nf(r.count)} title={`${r.count} registros nesta linha`} />
+        </span>
+      )}</b>
       <span className="dg-att-prob">{r.problem}</span>
       {r.consequence && <span className="dg-att-cons"><CornerDownRight size={12} aria-hidden /><span>{r.consequence}</span></span>}
       {r.apex && (
