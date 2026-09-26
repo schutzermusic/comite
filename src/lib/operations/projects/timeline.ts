@@ -38,6 +38,7 @@ const DOMAIN_EVENT_TITLE: Record<string, { title: string; kind: TimelineKind; to
   'operations.requirement.planned': { title: 'Requisito voltou a planejado', kind: 'schedule', tone: 'warning' },
   'operations.requirement.cancelled': { title: 'Requisito cancelado', kind: 'schedule', tone: 'warning' },
   'operations.requirement.superseded': { title: 'Requisito substituído', kind: 'schedule', tone: 'neutral' },
+  'operations.requirement.rescheduled': { title: 'Data do requisito alterada', kind: 'schedule', tone: 'accent' },
   'supply.inventory.reserved': { title: 'Material reservado no estoque', kind: 'supply', tone: 'success' },
   'supply.inventory.reservation_released': { title: 'Reserva de material liberada', kind: 'supply', tone: 'warning' },
   'supply.inventory.issued': { title: 'Material entregue à obra', kind: 'supply', tone: 'success' },

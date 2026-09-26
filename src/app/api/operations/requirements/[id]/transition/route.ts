@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { logAuditEventServer } from '@/lib/audit/log-audit-event-server';
 import { requireOperationsSession, isSessionError, governedFailure } from '@/lib/operations/session';
 import { transitionRequirement } from '@/lib/operations/planning/service';
+import { requirementCoverageErrorMessage } from '@/lib/operations/planning/validation';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -27,6 +28,6 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       entityType: 'project_requirement', entityId: id, metadata: { from: out.from ?? null } }, request.headers);
     return NextResponse.json({ ok: true, ...out });
   } catch (error) {
-    return governedFailure(error);
+    return governedFailure(error, requirementCoverageErrorMessage);
   }
 }
