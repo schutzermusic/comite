@@ -203,6 +203,30 @@ export function getApexAITaskPolicy(task: ApexAITask): ApexAITaskPolicy {
       aceito. Sem PDF: a entrada é texto curto e estruturado.
     */
     SERVICE_ORDER_DIVERGENCE_REVIEW: highRisk({ maxTokens: 6_000, timeoutMs: 120_000 }),
+    /*
+      APEX BUSCA FORNECEDORES NA INTERNET (`src/lib/supply/supplier-discovery.ts`).
+
+      A única tarefa com busca na internet, e por isso a única que depende de
+      um SEGUNDO interruptor: `APEX_AI_WEB_SEARCH_ENABLED=true` (desligado por
+      padrão; ver .env.example). Fora de `CURRENT_PRODUCTION_TASKS` pelo mesmo
+      motivo — ela não roda em nenhuma instalação que não a ligou.
+
+      NÃO é `highRisk`, e a razão é estrutural: nada daqui é gravado. Os
+      candidatos voltam à tela, marcados como não verificados, e só viram
+      cadastro (PROSPECT) se uma pessoa com `suppliers.manage` aceitar um deles
+      pela rota governada de fornecedores. Ninguém é contatado automaticamente.
+
+      `maxAttempts: 1` e `fallbacks: []`, fixos: cada tentativa é uma busca
+      cobrada, e repetir uma busca de 2 minutos em silêncio seria gastar o dobro
+      para, no melhor caso, a mesma resposta. Quem quiser de novo pede de novo.
+      O teto de saída é curto (a lista é limitada a 8 candidatos) e o esforço é
+      baixo para o raciocínio não disputar esse teto com a resposta — a triagem
+      séria é a do servidor, que descarta todo candidato sem fonte vista na
+      busca.
+    */
+    SUPPLIER_WEB_DISCOVERY: normal({
+      maxTokens: 6_000, timeoutMs: 120_000, maxAttempts: 1, reasoningEffort: 'low', fallbacks: [],
+    }),
     COMPLEX_ESCALATION: explicitEscalation(),
   };
   return policies[task];

@@ -39,6 +39,8 @@ export class ApexAIGateway {
       );
     }
 
+    if (request.webSearch) this.assertWebSearchRequest(request);
+
     const policy = getApexAITaskPolicy(request.task);
     const routes = [{ provider: policy.provider, model: policy.model }, ...policy.fallbacks];
     let lastError: ApexAIError | null = null;
@@ -120,6 +122,16 @@ export class ApexAIGateway {
           if (raw.stopReason?.startsWith('incomplete:')) {
             throw reject('A resposta da IA foi interrompida antes de terminar.');
           }
+          /*
+            `pause_turn` só existe com ferramenta de SERVIDOR (busca na
+            internet): o provedor parou o próprio laço no meio e espera que o
+            cliente reenvie a conversa para continuar. O gateway não retoma —
+            uma chamada é uma chamada —, e o texto que veio é o de uma busca
+            pela metade. Recusado como incompleto; nunca vira resposta.
+          */
+          if (raw.stopReason === 'pause_turn') {
+            throw reject('A busca da IA foi interrompida antes de terminar.');
+          }
 
           let output: unknown = raw.text;
           if (request.structuredOutput) {
@@ -148,7 +160,11 @@ export class ApexAIGateway {
           // A forma vai junto no log de sucesso: é a linha de base contra a
           // qual uma resposta vazia futura passa a ser comparável.
           console.info('[apex-ai-gateway]', JSON.stringify({ ...provenance, shape: diagnostics.shape }));
-          return { text: raw.text, output: output as T, stopReason: raw.stopReason, provenance };
+          return {
+            text: raw.text, output: output as T, stopReason: raw.stopReason, provenance,
+            // Só quem pediu busca recebe fontes; as demais tarefas mantêm a resposta de sempre.
+            ...(request.webSearch ? { sources: raw.sources ?? [], searchErrors: raw.searchErrors ?? [] } : {}),
+          };
         } catch (error) {
           lastError = error instanceof ApexAIError ? error : adapter.normalizeError(error);
           if (!lastError.retryable || attempt === policy.maxAttempts) break;
@@ -166,6 +182,30 @@ export class ApexAIGateway {
     });
   }
 
+  /**
+   * O pedido de busca, antes de qualquer provedor. Três recusas, todas por
+   * forma e não por gosto: teto de buscas que não é inteiro positivo;
+   * lista de permitidos E de bloqueados juntas (o provedor recusa a
+   * combinação); e busca com saída estruturada — as fontes da busca chegam
+   * como citações no texto, e citação com esquema JSON é recusada pelo
+   * provedor. Quem precisa das duas coisas faz a busca e normaliza depois.
+   */
+  private assertWebSearchRequest(request: ApexAIRequest): void {
+    const search = request.webSearch;
+    if (!search) return;
+    const problem = !Number.isInteger(search.maxUses) || search.maxUses < 1
+      ? 'o teto de buscas precisa ser um inteiro positivo'
+      : search.allowedDomains?.length && search.blockedDomains?.length
+        ? 'domínios permitidos e bloqueados não se combinam'
+        : request.structuredOutput
+          ? 'busca na internet não se combina com saída estruturada'
+          : null;
+    if (problem) {
+      throw new ApexAIError('INVALID_REQUEST', `Pedido de busca inválido para ${request.task}: ${problem}.`, false,
+        { task: request.task });
+    }
+  }
+
   private assertCapabilities(
     capabilities: ApexAICapabilities,
     request: ApexAIRequest,
@@ -181,7 +221,10 @@ export class ApexAIGateway {
             ? 'promptCache'
             : policy.stream && !capabilities.streaming
               ? 'streaming'
-              : null;
+              // Ausente vale "não": busca na internet só com adaptador que a declara.
+              : request.webSearch && capabilities.webSearch !== true
+                ? 'webSearch'
+                : null;
     if (missing) {
       throw new ApexAIError(
         'CAPABILITY_UNSUPPORTED',

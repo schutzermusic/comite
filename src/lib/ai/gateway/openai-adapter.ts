@@ -17,6 +17,14 @@ export class OpenAIApexAdapter implements OpenAIAdapterContract {
     reasoningEffort: true,
     promptCache: false,
     streaming: false,
+    /*
+      Busca na internet NÃO é oferecida por este adaptador: nenhuma tarefa com
+      busca é roteada para cá, e declarar a capacidade sem a regra de fontes
+      (só vale o que a busca devolveu) implementada e testada seria prometer
+      uma triagem que não existe. Falha fechada: o portão recusa com
+      CAPABILITY_UNSUPPORTED, e `generate` recusa de novo se chamado direto.
+    */
+    webSearch: false,
   } as const;
 
   private client: ResponsesClient | null = null;
@@ -40,6 +48,10 @@ export class OpenAIApexAdapter implements OpenAIAdapterContract {
   }
 
   async generate(request: ApexAIAdapterRequest, signal: AbortSignal): Promise<ApexAIAdapterResponse> {
+    if (request.webSearch) {
+      throw new ApexAIError('CAPABILITY_UNSUPPORTED', `O provedor openai não oferece busca na internet para ${request.task}.`,
+        false, { provider: this.provider, task: request.task });
+    }
     const response = await this.getClient().create({
       model: request.policy.model,
       instructions: request.systemPrompt,
