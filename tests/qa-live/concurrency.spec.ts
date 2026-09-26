@@ -633,3 +633,71 @@ test('253 · o mesmo número de requisição em duas transações: a segunda nã
     for (const s of [a, b]) { await s.c.query('ROLLBACK').catch(() => undefined); await s.c.end().catch(() => undefined); }
   }
 });
+
+/* ══ Revisão final · recebido ≤ pedido / despachado — decisões em dobro, presas na trava do documento, COMMIT real ═══
+ * Duas inspeções do MESMO recebimento em quarentena e dois recebimentos da MESMA linha de transferência saem juntos da
+ * trava do documento: um decide, o outro é recusado; o estoque entra uma vez só e o requisito não passa do requerido.
+ */
+const reservedTotal = async (req: string) => (await reservationsOf(req)).reduce((s, r) => s + r.q, 0);
+
+test('inspeção em dobro do mesmo recebimento em quarentena: uma libera, a outra é recusada — o estoque entra uma vez', async () => {
+  const g = await governed(db); const t = tag();
+  const item = await g.item(`CCFIN-I-${t}`);
+  const project = await g.project(`CFINI${t}`);
+  const site = await g.location(`CCFIN-I-S-${t}`, 'PROJECT_SITE', { project_id: project });
+  const quarantine = await g.location(`CCFIN-I-Q-${t}`, 'QUARANTINE');
+  const req = await g.material(project, item, 30);
+  const [line] = await requisitionLines(await fromShortage(g, [req]));
+  const po = await orderFrom({ tag: `CFINI${t}`, lineIds: [line.id], deliveryLocationId: quarantine });
+  const pol = (await one<{ id: string }>(db, `SELECT id FROM public.purchase_order_lines WHERE purchase_order_id = $1`, [po.poId])).id;
+  const rec = await g.act<{ receipt_id: string }>('goods_receipt_post', g.org, g.actor, g.J({ purchase_order_id: po.poId,
+    location_id: quarantine, idempotency_key: `cfin-i-${t}`, lines: [{ po_line_id: pol, accepted_quantity: 30 }] }));
+  const rl = (await one<{ id: string }>(db, `SELECT id FROM public.goods_receipt_lines WHERE receipt_id = $1`, [rec.receipt_id])).id;
+  const [a, b] = [await session(), await session()];
+  try {
+    const decide = (s: Session) => invoke(s, 'goods_receipt_inspect', g.org, g.actor, rec.receipt_id,
+      g.J({ destination_location_id: site, lines: [{ line_id: rl, approved_quantity: 30 }] }));
+    const out = await forcedOverlap('SELECT 1 FROM public.goods_receipts WHERE id = $1 FOR UPDATE', [rec.receipt_id], () => [decide(a), decide(b)]);
+    for (const x of out) expect(x.code, `impasse: ${x.message}`).not.toBe('40P01');
+    expect(out.filter((x) => x.ok)).toHaveLength(1);
+    expect(out.find((x) => !x.ok)?.message).toMatch(/inspection is APPROVED: nothing to decide/);
+  } finally {
+    for (const s of [a, b]) await s.c.end().catch(() => undefined);
+  }
+  expect((await position(g.org, item, site))?.h).toBe(30);
+  expect((await position(g.org, item, quarantine))?.h ?? 0).toBe(0);
+  expect(await reservedTotal(req)).toBe(30);
+  expect((await claimedOk(req)).ok).toBe(true);
+});
+
+test('recebimento em dobro da mesma transferência: um recebe, o outro é recusado — o destino recebe uma vez', async () => {
+  const g = await governed(db); const t = tag();
+  const item = await g.item(`CCFIN-T-${t}`);
+  const project = await g.project(`CFINT${t}`);
+  const depot = await g.location(`CCFIN-T-D-${t}`, 'WAREHOUSE');
+  const site = await g.location(`CCFIN-T-S-${t}`, 'PROJECT_SITE', { project_id: project });
+  await g.stock(item, depot, 40);
+  const req = await g.material(project, item, 40);
+  const tr = await g.act<{ transfer_id: string }>('inventory_transfer_request', g.org, g.actor, g.J({ from_location_id: depot,
+    to_location_id: site, lines: [{ item_id: item, quantity: 40, requirement_id: req }] }));
+  await g.act('inventory_transfer_approve', g.org, g.actor, tr.transfer_id);
+  await g.act('inventory_transfer_dispatch', g.org, g.actor, tr.transfer_id, g.J({}));
+  const tl = (await one<{ id: string }>(db, `SELECT id FROM public.inventory_transfer_lines WHERE transfer_id = $1`, [tr.transfer_id])).id;
+  const [a, b] = [await session(), await session()];
+  try {
+    const receive = (s: Session, k: string) => invoke(s, 'inventory_transfer_receive', g.org, g.actor, tr.transfer_id,
+      g.J({ idempotency_key: `cfin-t-${k}-${t}`, lines: [{ line_id: tl, quantity: 40 }] }));
+    const out = await forcedOverlap('SELECT 1 FROM public.inventory_transfers WHERE id = $1 FOR UPDATE', [tr.transfer_id],
+      () => [receive(a, 'a'), receive(b, 'b')]);
+    for (const x of out) expect(x.code, `impasse: ${x.message}`).not.toBe('40P01');
+    expect(out.filter((x) => x.ok)).toHaveLength(1);
+    expect(out.find((x) => !x.ok)?.message).toMatch(/RECEIVED|not exceed what was dispatched/);
+  } finally {
+    for (const s of [a, b]) await s.c.end().catch(() => undefined);
+  }
+  expect(await one(db, `SELECT dispatched_quantity::float8 AS d, received_quantity::float8 AS r FROM public.inventory_transfer_lines WHERE id = $1`, [tl]))
+    .toEqual({ d: 40, r: 40 });
+  expect((await position(g.org, item, site))?.h).toBe(40);
+  expect(await reservedTotal(req)).toBe(40);
+  expect((await claimedOk(req)).ok).toBe(true);
+});
