@@ -10,7 +10,7 @@
  */
 import { expect, test } from '@playwright/test';
 import type pg from 'pg';
-import { issuedPurchaseOrder } from '../../scripts/operations/lib/fixtures.mjs';
+import { issuedPurchaseOrder, purchaseOrderFromLines } from '../../scripts/operations/lib/fixtures.mjs';
 import { apiAs, forcedOverlap, governed, one, qaDb, qaLive, tag } from './support';
 
 let db: pg.Client;
@@ -180,4 +180,299 @@ test('contagem sobre fotografia velha é recusada (sem corrupção por escrita o
   expect(await position(g.org, item, wh)).toMatchObject({ h: 60 });
   const corrections = await one(db, `SELECT count(*)::int n FROM public.inventory_movements WHERE item_id = $1 AND movement_type = 'COUNT_CORRECTION'`, [item]);
   expect(corrections.n).toBe(0);
+});
+
+/* ══ 251 · a ordem canônica das travas: o recebimento não entra mais em impasse ══════════════════════════════
+ *
+ * Intercalação FORÇADA com COMMIT real, chamando as funções governadas direto, cada uma na sua sessão (sem a
+ * repetição do governedRpc, que esconderia o impasse). Um bloqueador segura a linha que o recebimento toca ENTRE
+ * a chave de estoque e o requisito (a alocação do pedido; na transferência, a chave de idempotência do movimento):
+ *   1. o recebimento entra e para no bloqueador;  2. o outro ato entra e para atrás do recebimento;
+ *   3. o bloqueador solta.
+ * Antes da 251 o recebimento segurava a chave (e um requisito) e pedia o requisito que o outro já tinha: 40P01.
+ * Com a ordem canônica — [documento] → requisitos (uuid) → chaves (item, local) → linhas — os dois se enfileiram.
+ * Depois de cada corrida: ninguém abortado por impasse, recebimento gravado uma vez, reserva sem duplicata e
+ * reclamado ≤ requerido.
+ */
+type Session = { c: pg.Client; pid: number };
+const session = async (): Promise<Session> => {
+  const c = await qaDb();
+  return { c, pid: (await c.query('SELECT pg_backend_pid() AS p')).rows[0].p };
+};
+type Called = { ok: boolean; code: string | null; message: string | null; result: Record<string, unknown> | null };
+const invoke = (s: Session, fn: string, ...args: unknown[]): Promise<Called> =>
+  s.c.query(`SELECT public.${fn}(${args.map((_, i) => `$${i + 1}`).join(',')}) AS r`, args)
+    .then((r) => ({ ok: true, code: null, message: null, result: r.rows[0].r }))
+    .catch((e: { code?: string; message?: string }) => ({ ok: false, code: e.code ?? null, message: e.message ?? null, result: null }));
+/** Espera a sessão `pid` ficar presa atrás de `by` (pg_blocking_pids lê o gerenciador de travas ao vivo). */
+async function blockedBy(pid: number, by: number) {
+  const deadline = Date.now() + 20_000;
+  for (;;) {
+    const { rows } = await db.query('SELECT $2::int = ANY (pg_blocking_pids($1)) AS b', [pid, by]);
+    if (rows[0].b) return;
+    if (Date.now() > deadline) throw new Error(`a sessão ${pid} não ficou presa atrás de ${by}`);
+    await new Promise((r) => setTimeout(r, 50));
+  }
+}
+/**
+ * A intercalação: `hold` (no bloqueador) segura a linha do meio do recebimento; `receive` entra e para nela; `other`
+ * entra e para atrás do recebimento; o bloqueador solta. Devolve os dois desfechos (nenhum pode ser 40P01).
+ */
+async function interleave(hold: (b: pg.Client) => Promise<unknown>, receive: (s: Session) => Promise<Called>,
+  other: (s: Session) => Promise<Called>): Promise<[Called, Called]> {
+  const [blocker, a, b] = [await session(), await session(), await session()];
+  try {
+    await blocker.c.query('BEGIN');
+    await hold(blocker.c);
+    const first = receive(a);
+    await blockedBy(a.pid, blocker.pid);
+    const second = other(b);
+    await blockedBy(b.pid, a.pid);
+    await blocker.c.query('ROLLBACK');
+    const out = await Promise.all([first, second]);
+    for (const x of out) expect(x.code, `impasse: ${x.message}`).not.toBe('40P01');
+    return out;
+  } finally {
+    await blocker.c.query('ROLLBACK').catch(() => undefined);
+    for (const s of [blocker, a, b]) await s.c.end().catch(() => undefined);
+  }
+}
+const proofCtx = () => ({ one: async (sql: string, p: unknown[] = []) => (await db.query(sql, p)).rows[0],
+  all: async (sql: string, p: unknown[] = []) => (await db.query(sql, p)).rows });
+const anchors = () => ({ org: qaLive().organization.id, actor: qaLive().users.owner.id });
+type OrderOut = { poId: string; rfqId: string; quoteId: string };
+/** A cadeia governada das provas (fixtures.mjs) com COMMIT real: cotação → proposta → decisão → … até `until`. */
+const orderFrom = (opts: { tag: string; lineIds: string[]; deliveryLocationId: string; quantities?: Record<string, number>; until?: string }) =>
+  (purchaseOrderFromLines as unknown as (c: unknown, a: unknown, o: typeof opts) => Promise<OrderOut>)(proofCtx(), anchors(), opts);
+const claimedOk = async (req: string) => one<{ ok: boolean; c: number; q: number }>(db, `SELECT public.supply_requirement_claimed($1, pr.id) <= pr.quantity AS ok,
+    public.supply_requirement_claimed($1, pr.id)::float8 AS c, pr.quantity::float8 AS q FROM public.project_requirements pr WHERE pr.id = $2`,
+  [qaLive().organization.id, req]);
+const receiptsOf = async (poId: string) => (await one<{ n: number }>(db,
+  `SELECT count(*)::int AS n FROM public.goods_receipts WHERE purchase_order_id = $1`, [poId])).n;
+const reservationsOf = async (req: string) => (await db.query(`SELECT source, quantity::float8 AS q FROM public.inventory_reservations
+  WHERE requirement_id = $1 AND status = 'ACTIVE' ORDER BY created_at`, [req])).rows as Array<{ source: string; q: number }>;
+const requisitionLines = async (rcId: string) => (await db.query(`SELECT id, item_id FROM public.purchase_requisition_lines
+  WHERE requisition_id = $1`, [rcId])).rows as Array<{ id: string; item_id: string }>;
+const fromShortage = async (g: Awaited<ReturnType<typeof governed>>, reqs: string[]) =>
+  (await g.act<{ requisition_id: string }>('purchase_requisition_from_shortage', g.org, g.actor, g.J({ requirement_ids: reqs }))).requisition_id;
+
+test('251 · recebimento ∥ reserva do mesmo requisito: sem impasse — a reserva espera o recebimento e não passa do requerido', async () => {
+  const g = await governed(db); const t = tag();
+  const item = await g.item(`CC251-A-${t}`);
+  const project = await g.project(`C251A${t}`);
+  const site = await g.location(`CC251-A-S-${t}`, 'PROJECT_SITE', { project_id: project });
+  await g.stock(item, site, 30);
+  const req = await g.material(project, item, 100);
+  const rc = await fromShortage(g, [req]);
+  const [line] = await requisitionLines(rc);
+  const po = await orderFrom({ tag: `C251A${t}`, lineIds: [line.id], quantities: { [line.id]: 70 }, deliveryLocationId: site });
+  const pol = (await one<{ id: string }>(db, `SELECT id FROM public.purchase_order_lines WHERE purchase_order_id = $1`, [po.poId])).id;
+  const [rec, res] = await interleave(
+    (b) => b.query(`SELECT 1 FROM public.purchase_order_line_requirements WHERE line_id = $1 FOR UPDATE`, [pol]),
+    (s) => invoke(s, 'goods_receipt_post', g.org, g.actor, g.J({ purchase_order_id: po.poId, location_id: site,
+      idempotency_key: `cc251-a-${t}`, lines: [{ po_line_id: pol, accepted_quantity: 70 }] })),
+    (s) => invoke(s, 'inventory_reserve', g.org, g.actor, g.J({ requirement_id: req, location_id: site, quantity: 30, idempotency_key: `cc251-ar-${t}` })));
+  expect(rec.ok, rec.message ?? '').toBe(true);
+  expect(res.ok, res.message ?? '').toBe(true);
+  expect(await receiptsOf(po.poId)).toBe(1);
+  expect(await reservationsOf(req)).toEqual([{ source: 'RECEIPT', q: 70 }, { source: 'MANUAL', q: 30 }]);
+  expect((await claimedOk(req)).ok).toBe(true);
+});
+
+test('251 · recebimento de transferência ∥ reserva do mesmo requisito no destino: sem impasse, sem reserva em dobro', async () => {
+  const g = await governed(db); const t = tag();
+  const item = await g.item(`CC251-T-${t}`);
+  const project = await g.project(`C251T${t}`);
+  const site = await g.location(`CC251-T-S-${t}`, 'PROJECT_SITE', { project_id: project });
+  const depot = await g.location(`CC251-T-D-${t}`, 'WAREHOUSE');
+  await g.stock(item, depot, 50); await g.stock(item, site, 30);
+  const req = await g.material(project, item, 100);
+  const tr = await g.act<{ transfer_id: string }>('inventory_transfer_request', g.org, g.actor,
+    g.J({ from_location_id: depot, to_location_id: site, lines: [{ item_id: item, quantity: 50, requirement_id: req }] }));
+  await g.act('inventory_transfer_approve', g.org, g.actor, tr.transfer_id);
+  await g.act('inventory_transfer_dispatch', g.org, g.actor, tr.transfer_id, '{}');
+  const line = (await one<{ id: string }>(db, `SELECT id FROM public.inventory_transfer_lines WHERE transfer_id = $1`, [tr.transfer_id])).id;
+  const key = `cc251-t-${t}`;
+  const [got, res] = await interleave(
+    // o movimento de entrada desta linha, com a MESMA chave de idempotência, sem COMMIT: o recebimento espera nele
+    (b) => b.query(`INSERT INTO public.inventory_movements (organization_id, item_id, location_id, movement_type, quantity, reason, idempotency_key)
+      VALUES ($1, $2, $3, 'ADJUSTMENT', 1, 'bloqueador de prova 251', $4)`, [g.org, item, site, `transfer-receive:${key}:${line}`]),
+    (s) => invoke(s, 'inventory_transfer_receive', g.org, g.actor, tr.transfer_id, g.J({ idempotency_key: key, lines: [{ line_id: line, quantity: 50 }] })),
+    (s) => invoke(s, 'inventory_reserve', g.org, g.actor, g.J({ requirement_id: req, location_id: site, quantity: 30, idempotency_key: `cc251-tr-${t}` })));
+  expect(got.ok, got.message ?? '').toBe(true);
+  expect(res.ok, res.message ?? '').toBe(true);
+  expect((await one<{ n: number }>(db, `SELECT count(*)::int AS n FROM public.inventory_movements WHERE idempotency_key = $1`,
+    [`transfer-receive:${key}:${line}`])).n).toBe(1);
+  expect(await reservationsOf(req)).toEqual([{ source: 'TRANSFER', q: 50 }, { source: 'MANUAL', q: 30 }]);
+  expect((await claimedOk(req)).ok).toBe(true);
+});
+
+/**
+ * Dois requisitos (itens X e Y) em comum entre o pedido A, que se recebe, e o ato B de outro pedido (cancelamento,
+ * emissão parcial ou decisão), que trava os dois em ordem de uuid. O pedido A é 50 + 50 de 100 + 100 (emitido; a
+ * emissão libera 50 + 50), e a RC-2 da falta leva os 50 + 50 que sobram. Para a intercalação provar alguma coisa,
+ * o recebimento de A precisa atender PRIMEIRO a linha do requisito de uuid MAIOR (a ordem das linhas é a do id):
+ * o cenário é refeito até ser assim.
+ */
+async function sharedPair(label: string) {
+  const g = await governed(db);
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const t = tag();
+    const project = await g.project(`C251${label}${t}`);
+    const site = await g.location(`CC251-${label}-S-${t}`, 'PROJECT_SITE', { project_id: project });
+    const [ix, iy] = [await g.item(`CC251-${label}X-${t}`), await g.item(`CC251-${label}Y-${t}`)];
+    const [rx, ry] = [await g.material(project, ix, 100), await g.material(project, iy, 100)];
+    const rc1 = await requisitionLines(await fromShortage(g, [rx, ry]));
+    const a = await orderFrom({ tag: `C251${label}A${t}`, lineIds: rc1.map((l) => l.id),
+      quantities: Object.fromEntries(rc1.map((l) => [l.id, 50])), deliveryLocationId: site });
+    const lines = (await db.query(`SELECT pl.id, a.requirement_id AS req FROM public.purchase_order_lines pl
+      JOIN public.purchase_order_line_requirements a ON a.line_id = pl.id WHERE pl.purchase_order_id = $1 ORDER BY pl.id::text`, [a.poId])).rows;
+    const [first, second] = lines as Array<{ id: string; req: string }>;
+    if (!(first.req > second.req)) continue;   // o 1º atendido tem de ser o de uuid maior
+    const rc2 = await requisitionLines(await fromShortage(g, [rx, ry]));
+    return { g, t, site, rx, ry, poA: a.poId, first, second, rc2 };
+  }
+  throw new Error('a ordem das linhas não caiu a favor em 8 tentativas');
+}
+const receiveBoth = (p: Awaited<ReturnType<typeof sharedPair>>) => (s: Session) => invoke(s, 'goods_receipt_post', p.g.org, p.g.actor,
+  p.g.J({ purchase_order_id: p.poA, location_id: p.site, idempotency_key: `cc251-${p.t}`,
+    lines: [{ po_line_id: p.first.id, accepted_quantity: 50 }, { po_line_id: p.second.id, accepted_quantity: 50 }] }));
+const holdSecond = (p: Awaited<ReturnType<typeof sharedPair>>) => (b: pg.Client) =>
+  b.query(`SELECT 1 FROM public.purchase_order_line_requirements WHERE line_id = $1 FOR UPDATE`, [p.second.id]);
+async function afterPair(p: Awaited<ReturnType<typeof sharedPair>>) {
+  expect(await receiptsOf(p.poA)).toBe(1);
+  for (const r of [p.rx, p.ry]) {
+    expect((await claimedOk(r)).ok).toBe(true);
+    expect((await reservationsOf(r)).filter((x) => x.source === 'RECEIPT')).toEqual([{ source: 'RECEIPT', q: 50 }]);
+  }
+}
+
+test('251 · recebimento ∥ cancelamento de OUTRO pedido com dois requisitos em comum: sem impasse, reclamado ≤ requerido', async () => {
+  const p = await sharedPair('CN');
+  const b = await orderFrom({ tag: `C251CNB${p.t}`, lineIds: p.rc2.map((l) => l.id),
+    quantities: Object.fromEntries(p.rc2.map((l) => [l.id, 40])), deliveryLocationId: p.site });
+  const [rec, can] = await interleave(holdSecond(p), receiveBoth(p),
+    (s) => invoke(s, 'purchase_order_cancel', p.g.org, p.g.actor, b.poId, 'Fornecedor desistiu (prova 251)'));
+  expect(rec.ok, rec.message ?? '').toBe(true);
+  expect(can.ok, can.message ?? '').toBe(true);
+  await afterPair(p);
+});
+
+test('251 · recebimento ∥ emissão PARCIAL de outro pedido com dois requisitos em comum: sem impasse', async () => {
+  const p = await sharedPair('IS');
+  const b = await orderFrom({ tag: `C251ISB${p.t}`, lineIds: p.rc2.map((l) => l.id),
+    quantities: Object.fromEntries(p.rc2.map((l) => [l.id, 40])), deliveryLocationId: p.site, until: 'APPROVED' });
+  const [rec, iss] = await interleave(holdSecond(p), receiveBoth(p), (s) => invoke(s, 'purchase_order_issue', p.g.org, p.g.actor, b.poId));
+  expect(rec.ok, rec.message ?? '').toBe(true);
+  expect(iss.ok, iss.message ?? '').toBe(true);
+  expect((iss.result as { released?: unknown[] }).released).toHaveLength(2);
+  await afterPair(p);
+});
+
+test('251 · recebimento ∥ decisão de cotação com dois requisitos em comum: sem impasse', async () => {
+  const p = await sharedPair('DC');
+  const q = await orderFrom({ tag: `C251DCB${p.t}`, lineIds: p.rc2.map((l) => l.id),
+    deliveryLocationId: p.site, until: 'QUOTED' });
+  const [rec, dec] = await interleave(holdSecond(p), receiveBoth(p),
+    (s) => invoke(s, 'procurement_decide', p.g.org, p.g.actor, p.g.J({ rfq_id: q.rfqId, quote_id: q.quoteId, rationale: 'Prova 251.' })));
+  expect(rec.ok, rec.message ?? '').toBe(true);
+  expect(dec.ok, dec.message ?? '').toBe(true);
+  await afterPair(p);
+});
+
+/**
+ * 251 · ESTRESSE ADVERSARIAL — cada rodada monta, com COMMIT, dois requisitos (itens X e Y, 200 cada) que TODOS os
+ * escritores disputam: o pedido A (50 + 50, emitido) a receber; uma transferência despachada com requisito; saldo no
+ * canteiro para reservar; e a RC-2 do resto, que vira, conforme a rodada, cotação a decidir, pedido APROVADO (emissão
+ * parcial) ou pedido EMITIDO (cancelamento). Então dispara JUNTOS, em ordem e atraso aleatórios: o recebimento de A
+ * (metade das vezes preso no meio por um bloqueador), duas reservas, o recebimento da transferência e o ato de
+ * Compras da rodada. Conta: nenhum 40P01, contador de impasses do banco parado, recebimento uma vez só, reclamado ≤
+ * requerido. `STRESS_ROUNDS` escolhe quantas rodadas (padrão 4).
+ */
+test('251 · estresse adversarial: recebimento, reservas, transferência e cancelamento/emissão/decisão sobre os mesmos requisitos — zero impasse', async () => {
+  test.setTimeout(20 * 60_000);
+  const rounds = Number(process.env.STRESS_ROUNDS ?? 4);
+  const g = await governed(db);
+  const deadlocks = async () => (await one<{ n: number }>(db, `SELECT deadlocks::int AS n FROM pg_stat_database WHERE datname = current_database()`)).n;
+  const before = await deadlocks();
+  const kinds = ['decide', 'issue', 'cancel'] as const;
+  const tally = { rounds: 0, ops: 0, ok: 0, refused: 0, deadlocks: 0, blocked: 0 };
+  let seed = 7;
+  const rand = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+  for (let round = 0; round < rounds; round += 1) {
+    const kind = kinds[round % kinds.length];
+    const t = tag();
+    const project = await g.project(`C251S${t}`);
+    const site = await g.location(`CC251-S-S-${t}`, 'PROJECT_SITE', { project_id: project });
+    const depot = await g.location(`CC251-S-D-${t}`, 'WAREHOUSE');
+    const items = [await g.item(`CC251-SX-${t}`), await g.item(`CC251-SY-${t}`)];
+    const reqs: string[] = [];
+    const transfers: Array<{ id: string; line: string }> = [];
+    for (const item of items) {
+      await g.stock(item, site, 30); await g.stock(item, depot, 20);
+      const r = await g.material(project, item, 200);
+      reqs.push(r);
+      const tr = await g.act<{ transfer_id: string }>('inventory_transfer_request', g.org, g.actor,
+        g.J({ from_location_id: depot, to_location_id: site, lines: [{ item_id: item, quantity: 20, requirement_id: r }] }));
+      await g.act('inventory_transfer_approve', g.org, g.actor, tr.transfer_id);
+      await g.act('inventory_transfer_dispatch', g.org, g.actor, tr.transfer_id, '{}');
+      transfers.push({ id: tr.transfer_id, line: (await one<{ id: string }>(db, `SELECT id FROM public.inventory_transfer_lines WHERE transfer_id = $1`, [tr.transfer_id])).id });
+    }
+    const rc1 = await requisitionLines(await fromShortage(g, reqs));
+    const a = await orderFrom({ tag: `C251SA${t}`, lineIds: rc1.map((l) => l.id), quantities: Object.fromEntries(rc1.map((l) => [l.id, 50])), deliveryLocationId: site });
+    const aLines = (await db.query(`SELECT id FROM public.purchase_order_lines WHERE purchase_order_id = $1 ORDER BY id`, [a.poId])).rows.map((r) => String(r.id));
+    const rc2 = await requisitionLines(await fromShortage(g, reqs));
+    const b = await orderFrom({ tag: `C251SB${t}`, lineIds: rc2.map((l) => l.id), quantities: Object.fromEntries(rc2.map((l) => [l.id, 60])),
+      deliveryLocationId: site, until: kind === 'decide' ? 'QUOTED' : kind === 'issue' ? 'APPROVED' : 'ISSUED' });
+
+    const ops: Array<(s: Session) => Promise<Called>> = [
+      ...items.map((_, i) => (s: Session) => invoke(s, 'inventory_reserve', g.org, g.actor,
+        g.J({ requirement_id: reqs[i], location_id: site, quantity: 10, idempotency_key: `cc251-s-${t}-${i}` }))),
+      ...transfers.map((x) => (s: Session) => invoke(s, 'inventory_transfer_receive', g.org, g.actor, x.id,
+        g.J({ idempotency_key: `cc251-st-${t}-${x.line}`, lines: [{ line_id: x.line, quantity: 20 }] }))),
+      kind === 'decide'
+        ? (s: Session) => invoke(s, 'procurement_decide', g.org, g.actor, g.J({ rfq_id: b.rfqId, quote_id: b.quoteId, rationale: 'Estresse 251.' }))
+        : kind === 'issue'
+          ? (s: Session) => invoke(s, 'purchase_order_issue', g.org, g.actor, b.poId)
+          : (s: Session) => invoke(s, 'purchase_order_cancel', g.org, g.actor, b.poId, 'Estresse 251: fornecedor desistiu'),
+    ].sort(() => rand() - 0.5);
+
+    const blocker = await session();
+    const sessions: Session[] = [];
+    const hold = rand() < 0.5;
+    try {
+      await blocker.c.query('BEGIN');
+      if (hold) await blocker.c.query(`SELECT 1 FROM public.purchase_order_line_requirements WHERE line_id = $1 FOR UPDATE`,
+        [aLines[Math.floor(rand() * aLines.length)]]);
+      const rs = await session(); sessions.push(rs);
+      const pending: Array<Promise<Called>> = [invoke(rs, 'goods_receipt_post', g.org, g.actor, g.J({ purchase_order_id: a.poId, location_id: site,
+        idempotency_key: `cc251-sr-${t}`, lines: aLines.map((id) => ({ po_line_id: id, accepted_quantity: 50 })) }))];
+      if (hold) { await blockedBy(rs.pid, blocker.pid); tally.blocked += 1; }
+      for (const op of ops) {
+        await new Promise((r) => setTimeout(r, Math.floor(rand() * 40)));
+        const s = await session(); sessions.push(s);
+        pending.push(op(s));
+      }
+      await new Promise((r) => setTimeout(r, 50 + Math.floor(rand() * 200)));
+      await blocker.c.query('ROLLBACK');
+      const out = await Promise.all(pending);
+      tally.rounds += 1; tally.ops += out.length;
+      for (const x of out) {
+        if (x.ok) tally.ok += 1; else if (x.code === '40P01') tally.deadlocks += 1; else tally.refused += 1;
+        expect(x.code, `rodada ${round} (${kind}): ${x.message}`).not.toBe('40P01');
+        expect(x.ok || x.code === '23514', `rodada ${round} (${kind}): erro inesperado ${x.code} ${x.message}`).toBe(true);
+      }
+      expect(out[0].ok, `recebimento: ${out[0].message}`).toBe(true);
+      expect(await receiptsOf(a.poId)).toBe(1);
+      for (const r of reqs) expect((await claimedOk(r)).ok, `reclamado acima do requerido em ${r}`).toBe(true);
+    } finally {
+      await blocker.c.query('ROLLBACK').catch(() => undefined);
+      for (const s of [blocker, ...sessions]) await s.c.end().catch(() => undefined);
+    }
+  }
+  const after = await deadlocks();
+  test.info().annotations.push({ type: 'stress', description: JSON.stringify({ ...tally, pgDeadlocksDelta: after - before }) });
+  console.log(`[estresse 251] ${JSON.stringify({ ...tally, pgDeadlocksDelta: after - before })}`);
+  expect(tally.deadlocks).toBe(0);
+  expect(after - before).toBe(0);
 });
